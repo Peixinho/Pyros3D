@@ -636,8 +636,9 @@ namespace p3d {
 						// editor can evaluate a clip at an arbitrary time
 						// (scrubbing a timeline) through the exact same code
 						// the runtime plays it with.
-						Matrix trafo = SkeletonAnimationInstance::SampleChannel(Anim.Channels[a], currentTime, Anim.HasFlag(ANIM_FLAG_APPLY_SCALE));
-
+						// The bone this channel drives has to be resolved
+						// BEFORE sampling now, because its bind pose is what
+						// supplies any component the channel does not key.
 						if ((*i)->ChannelBoneIDCache[a] == -1)
 						{
 							for (std::vector<Bone>::iterator b = (*i)->skeleton.begin(); b != (*i)->skeleton.end(); b++)
@@ -659,7 +660,14 @@ namespace p3d {
 						// authored for, so this has to be survivable rather
 						// than merely unlikely.
 						if ((*i)->ChannelBoneIDCache[a] >= 0)
-							(*_Anim).boneTransformationPerAnimation[(*i)->ChannelBoneIDCache[a]] = trafo;
+						{
+							const int32 bid = (*i)->ChannelBoneIDCache[a];
+							const Matrix* bind = ((size_t)bid < (*i)->bindPose.size())
+								? &(*i)->bindPose[bid] : NULL;
+							(*_Anim).boneTransformationPerAnimation[bid] =
+								SkeletonAnimationInstance::SampleChannel(Anim.Channels[a], currentTime,
+									Anim.HasFlag(ANIM_FLAG_APPLY_SCALE), bind);
+						}
 					}
 				}
 			}
@@ -803,10 +811,22 @@ namespace p3d {
 		}
 	}
 
-	Matrix SkeletonAnimationInstance::SampleChannel(const Channel &ch, const f32 time, const bool applyScale)
+	Matrix SkeletonAnimationInstance::SampleChannel(const Channel &ch, const f32 time, const bool applyScale,
+		const Matrix* bindLocal)
 	{
 		Vec3 curPosition, curScale(1.f, 1.f, 1.f);
 		Quaternion curRotation;
+
+		// Anything the channel does not key comes from the bind pose, not from
+		// identity - see the header. Read up front so each block below only
+		// has to overwrite what it actually has keys for.
+		if (bindLocal)
+		{
+			Matrix b = *bindLocal;         // the accessors are non-const
+			curPosition = b.GetTranslation();
+			curRotation = b.ConvertToQuaternion();
+			curScale = b.GetScale();
+		}
 
 		// Empty key lists were never possible for clips coming out of the
 		// Assimp importer (it writes a key per channel per component), but
@@ -959,7 +979,10 @@ namespace p3d {
 			}
 			if (boneId < 0) continue; // channel for a node this skeleton doesn't have
 
-			pose[boneId] = SampleChannel(anim.Channels[a], time, anim.HasFlag(ANIM_FLAG_APPLY_SCALE));
+			// Same bind-pose fallback the runtime uses, so a scrub and a
+			// playback of the same clip cannot disagree.
+			pose[boneId] = SampleChannel(anim.Channels[a], time, anim.HasFlag(ANIM_FLAG_APPLY_SCALE),
+				(size_t)boneId < bindPose.size() ? &bindPose[boneId] : NULL);
 		}
 
 		ApplyPose(pose);

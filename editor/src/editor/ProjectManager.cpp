@@ -209,6 +209,7 @@ std::string ProjectManager::ShadersPath() const { return AbsolutePath("assets/sh
 std::string ProjectManager::LuaPath() const { return AbsolutePath("assets/lua"); }
 std::string ProjectManager::MaterialsPath() const { return AbsolutePath("assets/materials"); }
 std::string ProjectManager::PrefabsPath() const { return AbsolutePath("assets/prefabs"); }
+std::string ProjectManager::Characters2DPath() const { return AbsolutePath("assets/characters"); }
 std::string ProjectManager::ScenesPath() const { return AbsolutePath("scenes"); }
 
 std::string ProjectManager::AbsolutePath(const std::string& relative) const
@@ -354,6 +355,11 @@ bool ProjectManager::IsAnimationExtension(const std::string& path)
 bool ProjectManager::IsPrefabExtension(const std::string& path)
 {
 	return ExtensionLower(path) == "prefab";
+}
+
+bool ProjectManager::IsCharacter2DExtension(const std::string& path)
+{
+	return ExtensionLower(path) == "p3d2d";
 }
 
 bool ProjectManager::IsModelSourceExtension(const std::string& path)

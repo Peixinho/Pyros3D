@@ -55,6 +55,14 @@ function(pyros_emscripten_apply_link target)
 	set_target_properties(${target} PROPERTIES SUFFIX ".html")
 endfunction()
 
+# Same as above, but the target brings its own page: emit only .js/.wasm/.data
+# so emscripten's default shell is not left beside a real index.html for
+# somebody to open by mistake (that one has no resize and no fullscreen).
+function(pyros_emscripten_apply_link_no_shell target)
+	pyros_emscripten_apply_link(${target})
+	set_target_properties(${target} PROPERTIES SUFFIX ".js")
+endfunction()
+
 # JS-first library: MODULARIZE factory createPyros3D({ canvas }).
 function(pyros_emscripten_apply_library_link target)
 	target_link_options(${target} PRIVATE

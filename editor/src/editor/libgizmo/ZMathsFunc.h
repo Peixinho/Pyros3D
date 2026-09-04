@@ -77,10 +77,12 @@ const tulong PSM_CLIP_PARTIAL = 1;
 const tulong PSM_CLIP_INSIDE  = 2;
 
 // Inlines ////////////////////////////////////////////////////////////////////////////////////////
-// __APPLE__ was missing here - upstream libgizmo only ever expected
-// MSVC (which has __forceinline natively), Linux, or a MAC_OS define
-// nothing in this build actually sets.
-#if (defined(__linux__) || defined(MAC_OS) || defined(__APPLE__))
+// __forceinline is an MSVC keyword. Upstream libgizmo only ever expected
+// MSVC, Linux, or a MAC_OS define nothing in this build actually sets - so
+// every other compiler (Apple clang, and now emscripten's) hit an unknown
+// type name. Defined for everything that is NOT MSVC, which is the actual
+// rule, rather than adding one platform at a time as each build breaks.
+#if !defined(_MSC_VER)
 #define __forceinline inline
 #endif
 

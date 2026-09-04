@@ -220,6 +220,11 @@ public:
 	bool HasUnsavedWork() const;
 	// Gate: if dirty, open modal and remember `action`. Returns true if caller may proceed now.
 	bool ConfirmUnsavedThen(int action, const std::string& path = std::string());
+	// True while this document is already asking about (or acting on) unsaved
+	// work. A second close request while that is up must not restart the
+	// whole flow - macOS sends both SDL_WINDOWEVENT_CLOSE and SDL_QUIT for one
+	// click of the close button, so every prompt was raised twice.
+	bool HasPendingUnsavedPrompt() const;
 	void DrawUnsavedChangesModal();
 	void SetHostCallbacks(void (*onCloseProject)(), void (*onQuitApp)(),
 		void (*onNewProject)() = NULL, void (*onOpenProject)() = NULL,
@@ -255,80 +260,16 @@ public:
 	bool AgentMakeSprite2DLit(const std::string& name, std::string& errOut);
 	// Attaches an Occluder2D by object name.
 	bool AgentAddOccluder2D(const std::string& name, std::string& errOut);
-	bool AgentAddBone2D(const std::string& objName, const std::string& boneName,
-		const std::string& parentBone, const Vec2 &localPos, std::string& errOut);
-	bool AgentRemoveBone2D(const std::string& objName, const std::string& boneName, std::string& errOut);
 	// Records the autoplay clip on the object's RenderingComponent. Starting
 	// it is play mode's job, not this one's.
+	// Places a .p3d2d in the scene. The only scene-side character command:
+	// everything about what a character IS lives in its own editor.
+	bool AgentAddCharacter2D(const std::string& characterRel, const std::string& objectName,
+		const Vec3& position, std::string& errOut);
 	bool AgentSetAutoPlay2D(const std::string& objName, const std::string& clipName,
 		const bool loop, std::string& errOut);
-	bool AgentBindToBone2D(const std::string& objName, const std::string& boneName,
-		const Vec2 &offset, std::string& errOut);
-	// Records a bone's Z rotation into a named clip at `time` (seconds),
-	// creating the clip and the bone's channel on demand. Replaces any key
-	// already at that time rather than stacking a second one, so re-keying a
-	// pose is idempotent - which is what an authoring tool does constantly.
-	bool AgentKeyBone2D(const std::string& objName, const std::string& clipName,
-		const std::string& boneName, const f32 time, const f32 degreesZ, std::string& errOut);
-	// Samples a clip onto the rig at `time`, i.e. scrubbing.
-	bool AgentScrubClip2D(const std::string& objName, const std::string& clipName,
-		const f32 time, std::string& errOut);
-	// Starts a clip playing on the rig. `repetition` is SkeletonAnimation's
-	// own convention: -1 loops forever, a positive count plays that many
-	// times. 0 means "no repetitions left" and stops on the final pose.
-	bool AgentPlayClip2D(const std::string& objName, const std::string& clipName,
-		const f32 repetition, const f32 speed, std::string& errOut);
 
-	// --- 2D animation timeline -------------------------------------------
-	// Drawn by Editor's Animation 2D window; kept here because everything it
-	// needs (selection, the rig, the clips) is this document's state.
-	void ShowAnimation2DPanel();
-	// The selected object's rig, or nulls. Both out-params are set together.
-	bool GetSelectedRig(RenderingComponent*& outRc, SkeletonAnimationInstance*& outInst) const;
-	// Pose undo. A pose lives in the SkeletonAnimationInstance, not in the
-	// serialized subtree, so a snapshot cannot restore it - this captures the
-	// bone transform array either side and swaps it back. Re-resolves the rig
-	// from `goId` when it runs rather than capturing the instance pointer,
-	// which would dangle if the rig were rebuilt (adding a bone does exactly
-	// that).
-	void PushPoseUndo(uint32 goId, const std::vector<Matrix>& before, const std::string& description);
-	// Bones and clips live inside the RenderingComponent, not in the object
-	// tree, so restoring them through a subtree snapshot means rebuilding the
-	// whole object - which did not round-trip (after an undo the object could
-	// no longer be resolved). These restore just the field, which is both
-	// precise and cheap.
-	void PushSkeletonUndo(uint32 goId, const std::vector<Bone>& before, const std::string& description);
-	void PushClipsUndo(uint32 goId, const std::vector<Animation>& before, const std::string& description);
-	static std::vector<Bone> BonesOf(RenderingComponent* rc);
-	bool CapturePoseFor(uint32 goId, std::vector<Matrix>& out) const;
-	bool OpNewClip2D(const std::string& clipName, std::string& errOut);
-	// Records EVERY bone's current rotation at `time` - what "key the pose"
-	// means. Keying one bone at a time is available too, from the row buttons.
-	bool OpKeyPose2D(const std::string& clipName, const f32 time, const std::string& onlyBone, std::string& errOut);
-	bool OpDeleteKey2D(const std::string& clipName, const std::string& boneName, const f32 time, std::string& errOut);
 
-	std::string anim2DClip;
-	f32 anim2DTime = 0.f;
-	std::string anim2DNewClipName;
-	json AgentSkeletonState(const std::string& objName, std::string& errOut);
-	// Rotation is DEGREES about Z here and converted on the way in - the
-	// engine's Euler angles are radians, and a degrees-in API is what an
-	// authoring tool wants. Z is the only rotation a 2D rig uses.
-	bool AgentPoseBone2D(const std::string& objName, const std::string& boneName,
-		const f32 degreesZ, std::string& errOut);
-	// Solves the chain from `rootBone` to `effectorBone` so the effector
-	// reaches `target` (XY, in the skeleton's model space).
-	//
-	// The pole is passed as ZERO, deliberately. A pole is a hint for which way
-	// a joint should bend, and the plane it defines contains the chain
-	// direction and the pole - so +Z, the obvious-looking choice for a 2D rig,
-	// defines a plane perpendicular to XY and bends the chain straight out of
-	// the plane it is supposed to live in. Measured: with +Z a target at
-	// (1,1), comfortably inside a reach of 2, was missed by 0.32; with a zero
-	// pole it is hit exactly. In the plane there is only one sensible bend, so
-	// letting the solver pick is both simpler and correct.
-	bool AgentIKSolve2D(const std::string& objName, const std::string& rootBone,
-		const std::string& effectorBone, const Vec2 &target, std::string& errOut);
 	bool AgentSetSpritePivot(const std::string& name, const Vec2 &norm, std::string& errOut);
 	bool AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,
 		int cols, int rows, f32 fps, bool loop, std::string& errOut);
@@ -348,6 +289,10 @@ public:
 	// Points the editor camera straight at the XY plane, orthographic, with
 	// the orbit state reset so a later pan or orbit starts from here.
 	void LookAtPlaneXY(const f32 x, const f32 y);
+	// One play-mode frame of the scene's own 2D view (follow, clamp, place),
+	// driving the editor camera. Shares SceneMeta::View2D with the player, so
+	// the preview cannot drift from what a built game does.
+	void UpdateSceneView2D(const f32 dt, const f32 aspect);
 	bool AgentIsViewportOrthographic() const { return !isPerspective; }
 	bool AgentAddSprite(const std::string& name, const std::string& texturePath,
 		const std::string& parentName, std::string& errOut);
@@ -427,6 +372,11 @@ public:
 	// Drives the editor's own selection, so the assistant can show the user
 	// what it is talking about instead of only describing it.
 	bool AgentSelectObject(const std::string& name, std::string& errOut);
+	// `componentType` ("RenderingComponent", "ParticleSystem", ...) selects
+	// that COMPONENT of the object rather than the object itself. Previews run
+	// only for a selected component, so this is how an agent reaches them.
+	bool AgentSelectObject(const std::string& name, const std::string& componentType,
+		std::string& errOut);
 	bool AgentSave(std::string& errOut);
 	bool AgentSaveAs(const std::string& path, std::string& errOut);
 	bool AgentLoadScene(const std::string& path, std::string& errOut);
@@ -683,6 +633,10 @@ private:
 	// Set instead of hostNewSceneDocument when the host can ask which kind of
 	// scene to create (3D / 2D / UI). Falls back to the plain one when null.
 	void (*hostNewSceneKind)();
+	// Opens a .p3d2d in the Character 2D editor. A character IS an asset, so
+	// there is also a route to it by double-clicking one in the Assets panel;
+	// this is the route from an object that already uses it.
+	void (*hostOpenCharacter2D)(const std::string&);
 	void (*hostOpenSceneDocument)(const std::string&);
 	void (*hostOpenLuaScript)(const std::string&);
 	void (*hostEditMaterialInline)(std::shared_ptr<p3d::IMaterial>, const std::string&);
@@ -722,6 +676,8 @@ private:
 	bool LoadEditorSidecar(const std::string& scenePath);
 	void BuildSceneCameraDebugList(std::vector<SceneCameraDebugEntry>& out) const;
 	Texture* RenderCameraPreview(GameObject* camGO);
+
+private:
 	// Owner GO for the current selection (component → GetOwner()).
 	GameObject* GetSelectedOwnerGameObject() const;
 	// Offscreen render used by EnsureModelThumbnail (RGBA8 PNG on disk).
@@ -776,51 +732,18 @@ private:
 	bool OpSliceSpritesheet(uint32 goId, const std::string& sheetPath,
 		int cols, int rows, f32 fps, bool loop, std::string& errOut);
 
-	// Sprite pivot, as a normalized point over the geometry's own bounds:
-	// (0.5,0.5) is the middle, (0.5,0) the bottom edge. Stored as the mesh's
-	// Pivot matrix, which the renderer already composes as
-	// world * Pivot - so a pivot is just the geometry shifted the other way,
-	// putting the object's origin on the chosen point. That is what makes a
-	// cutout limb rotate about its joint instead of its middle.
-	// --- 2D skeleton authoring -------------------------------------------
-	// A bone is appended to the object's RenderingComponent skeleton, which
-	// until now could only come from an imported rigged model. Positions are
-	// local to the parent bone and live in the XY plane; rotation about Z is
-	// the only one a 2D rig uses, and the existing pose/clip/IK machinery
-	// handles it unchanged.
-	bool OpAddBone2D(uint32 goId, const std::string& boneName,
-		const std::string& parentBone, const Vec2 &localPos, std::string& errOut);
-	// (Re)builds the SkeletonAnimation instance so it picks up the current
-	// skeleton. Kept in sceneAssets, which owns it - RenderingComponent holds
-	// only a raw back-pointer.
-	// Removes a bone and everything below it. Bone::self is an index that every
-	// pose array is keyed by, so the survivors are renumbered and each parent
-	// reference remapped - dropping a bone without that would silently
-	// re-parent whatever happened to sit at the vacated index.
-	bool OpRemoveBone2D(uint32 goId, const std::string& boneName, std::string& errOut);
-	// Binds this object to a named bone on an ancestor's skeleton (cutout).
-	bool OpBindToBone2D(uint32 goId, const std::string& boneName, const Vec2 &offset, std::string& errOut);
-	SkeletonAnimationInstance* RebuildSkeletonInstance(RenderingComponent* rc);
-	// Draws every authored 2D skeleton in the scene through the editor's
-	// DebugRenderer: a tapered quad per bone from its own joint to each
-	// child's, plus a marker on the joint itself. Bones have no geometry of
-	// their own, so without this they cannot be seen, let alone picked.
-	void DrawSkeletons2D();
-	// Nearest bone joint to the cursor, within a pixel radius. Joints are
-	// points with no geometry, so they are picked in screen space rather than
-	// with a ray - the same reason helper icons are.
-	bool TryPickBoneJoint(const Vec2& mouse, GameObject*& outOwner, int32& outBoneId) const;
-	// Cursor on the z = 0 plane, in world space. A 2D scene lives there, so
-	// that is the only plane a drag can sensibly mean.
-	bool ViewportCursorOnPlaneXY(const Vec2& mouse, Vec3& outWorld) const;
-	// Drag state: which rig and which joint is being pulled.
-	GameObject* draggingBoneOwner = NULL;
-	int32 draggingBoneId = -1;
-	uint32 draggingBoneGoId = 0;
-	// Pose at the start of a drag or a slider edit, so the whole gesture is
-	// one undo step rather than one per frame.
-	std::vector<Matrix> dragPoseBefore;
-	bool showSkeletons2D = true;
+	// World axes (and, optionally, an adaptive XY grid) for a 2D scene. See
+	// the implementation for why the 3D ground grid is not drawn there.
+	void Draw2DReference();
+	// World units per viewport pixel on the z = 0 plane, so editor handles can
+	// be sized in pixels rather than in world units.
+	f32 ViewportWorldPerPixel() const;
+
+public:
+	// Off by default: a 2D scene should open looking like the artwork, not
+	// like graph paper. View > Show 2D Grid turns it on for layout work.
+	bool showGrid2D = false;
+private:
 	static RenderingComponent* FindRenderingComponent(GameObject* go);
 
 	static bool GetSpritePivot(RenderingComponent* rc, Vec2 &outNorm);
@@ -834,11 +757,37 @@ public:
 	// the player skips the 3D pass, gives it the Canvas its content hangs
 	// off, and opens it in Canvas (2D) Mode. See SceneMeta::twoD.
 	void SetHostNewSceneKind(void (*fn)()) { hostNewSceneKind = fn; }
+	void SetHostOpenCharacter2D(void (*fn)(const std::string&)) { hostOpenCharacter2D = fn; }
 	void MakeTwoDScene();
 	// A UI screen: 2D, orthographic, with a Canvas and canvas edit mode on.
 	void MakeUIScene();
 
 	bool IsTwoDScene() const { return sceneIsTwoD; }
+	// What this scene will render with, which is not always what the project
+	// asked for - a 2D scene is always forward (see SwitchRenderer).
+	//
+	// Accounts for a switch that has been requested but not applied yet:
+	// SwitchRenderer only QUEUES, and the swap happens at the start of the
+	// next ShowViewport(). Reading the live flag straight after asking for a
+	// change therefore reports the value you just replaced.
+	bool WillUseDeferredRenderer() const
+	{
+		return queuedRendererSwitch ? queuedUseDeferredRenderer : usingDeferredRenderer;
+	}
+	bool IsInPlayMode() const { return playMode; }
+	// True when a camera GameObject is driving the viewport, which overrides
+	// the scene's own 2D view.
+	bool HasActiveSceneCamera() const { return activeSceneCameraId != 0; }
+
+	// How this scene is framed when it runs. A 2D scene owns its viewpoint -
+	// centre, zoom and what it follows - instead of needing a camera
+	// GameObject parked in 3D space. Edited in Scene Settings, drawn as the
+	// game-view rectangle in the viewport, and used by play mode, so what you
+	// preview is what the player renders.
+	//
+	// Public because the Scene Settings panel and the agent bridge both edit
+	// it directly, the same way ambientLightColor is reached.
+	SceneMeta::View2D view2D;
 private:
 	// Round-trips through SceneMeta::twoD. A 2D scene is authored and played
 	// the same either way - on its own as a menu or a 2D game, or shown over
@@ -922,7 +871,11 @@ private:
 	json canvasDragBefore;
 	Matrix LocalizeWorldRotation(const Matrix &worldDelta);
 	void ApplyGizmoTransformToObject();
-	void ViewportPickAtMouse();
+	// Picks whatever is under the cursor. `selectComponent` is the
+	// double-click behaviour: a single click selects the GAMEOBJECT (which is
+	// what you want to move, and what the gizmo acts on), a double click
+	// drills into the component under it - the light, the emitter, the mesh.
+	void ViewportPickAtMouse(bool selectComponent = false);
 	void SyncPhysicsFromScene();
 	void SyncPhysicsForGameObject(GameObject* go);
 	void UpdateViewportMouse();
@@ -963,9 +916,13 @@ private:
 	virtual void UseCamera2(bool invert = false);
 	virtual void UseCamera3(bool invert = false);
 
+public:
+	// Public so the agent bridge can choose a manipulator; the toolbar and the
+	// T/R/S shortcuts go through exactly these.
 	void UseTranslationManipulator() { if (gizmo!=NULL) delete gizmo; gizmo = CreateMoveGizmo(); gizmo->SetLocation((localTransform?IGizmo::LOCATE_LOCAL:IGizmo::LOCATE_WORLD)); GizmoInUse = GizmoFunction::TRANSLATION; }
-        void UseRotationManipulator() { if (gizmo!=NULL) delete gizmo; gizmo = CreateRotateGizmo(); gizmo->SetLocation((localTransform?IGizmo::LOCATE_LOCAL:IGizmo::LOCATE_WORLD)); GizmoInUse = GizmoFunction::ROTATION; }
-        void UseScaleManipulator() { if (gizmo!=NULL) delete gizmo; gizmo = CreateScaleGizmo(); gizmo->SetLocation(IGizmo::LOCATE_LOCAL); GizmoInUse = GizmoFunction::SCALE; }
+	void UseRotationManipulator() { if (gizmo!=NULL) delete gizmo; gizmo = CreateRotateGizmo(); gizmo->SetLocation((localTransform?IGizmo::LOCATE_LOCAL:IGizmo::LOCATE_WORLD)); GizmoInUse = GizmoFunction::ROTATION; }
+	void UseScaleManipulator() { if (gizmo!=NULL) delete gizmo; gizmo = CreateScaleGizmo(); gizmo->SetLocation(IGizmo::LOCATE_LOCAL); GizmoInUse = GizmoFunction::SCALE; }
+private:
 	void UseLocalManipulator() { if (gizmo!=NULL) gizmo->SetLocation(IGizmo::LOCATE_LOCAL); localTransform = true; }
 	void UseGlobalManipulator() { if (gizmo!=NULL && GizmoInUse!=GizmoFunction::SCALE) gizmo->SetLocation(IGizmo::LOCATE_WORLD); localTransform = false; }
 	void CloseManipulator() { if (gizmo != NULL) delete gizmo; gizmo = NULL; }
@@ -1226,6 +1183,12 @@ private:
 	// forced every frame, so the Properties panel's own Play/Stop buttons
 	// still mean something while the selection sits still.
 	void UpdateParticlePreview();
+	// Same rule for sprite-sheet animations: only the selected component
+	// animates outside Play. See the implementation.
+	void UpdateTextureAnimationPreview();
+	void StartTextureAnimationsForPlayMode();
+	uint32 texturePreviewSelectionId = 0;
+	bool texturePreviewSynced = false;
 	bool ParticleSystemPreviewsForSelection(ParticleSystem* ps) const;
 	// Stops and clears every emitter in the scene, and makes the next
 	// UpdateParticlePreview() re-evaluate from scratch. Used wherever the
@@ -1246,12 +1209,6 @@ private:
 	// whenever the selection changes, tracked by propertiesParticleSeededId.
 	// Sprite Animation section state (the sheet being sliced), same
 	// applied-on-a-button-press pattern as the particle sprite path above.
-	// Skeleton section state - the bone being added, same
-	// applied-on-a-button-press pattern as the sheet path below.
-	std::string propertiesBoneName;
-	std::string propertiesBoneParent;
-	f32 propertiesBonePos[2] = { 0.f, 1.f };
-
 	std::string propertiesSheetPath;
 	int propertiesSheetCols = 1;
 	int propertiesSheetRows = 1;
@@ -1316,9 +1273,21 @@ private:
 	std::string propertiesNewGoScriptName;
 	bool openNewGoScriptModal;
 	std::string propertiesNewGoScriptError;
-	// After attaching a script, keep this GameObject selected and expand it in the tree.
-	uint32 hierarchyForceOpenId;
 #endif
+	// Nodes to force open in the Scene Tree on the next frame, so a selection
+	// made somewhere else (the viewport, attaching a script) is actually
+	// visible. A SET and not one id: this used to open only the immediate
+	// parent, which is enough in a flat scene but not in a layered one - a
+	// light under World > TorchLight stayed hidden inside a collapsed World,
+	// and selecting it by clicking its icon looked like it had done nothing.
+	std::set<uint32> hierarchyForceOpenIds;
+	// Marks `sceneObjectId` and every ancestor of it as force-open.
+	void RevealInHierarchy(uint32 sceneObjectId);
+	// The GameObject a scene object belongs to: itself when it already is one,
+	// otherwise the nearest ancestor that is. Components (a light, a sound
+	// emitter) are scene objects in their own right, parented to the object
+	// hosting them.
+	SceneObject* OwningGameObject(SceneObject* so) const;
 
 	bool showDir;
 

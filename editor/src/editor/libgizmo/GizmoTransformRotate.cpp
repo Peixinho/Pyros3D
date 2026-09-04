@@ -34,6 +34,82 @@
 extern tvector3 ptd;
 
 
+// Builds the two in-plane vectors a rotation ring is drawn from, for the ring
+// whose normal is `axis`, seen along `dir`.
+//
+// `right` is the ring's silhouette direction (perpendicular to both the view
+// and the axis) and `frnt` points back towards the camera - so sweeping half a
+// turn from `right` towards `frnt` traces exactly the near half of the ring,
+// which is what DrawCircleHalf relies on to hide the back of it.
+//
+// Returns false when the axis points at (or straight away from) the camera.
+// There the construction collapses: dir x axis is very nearly the zero vector,
+// Normalize() divides by ~0, and the resulting "silhouette" is whatever float
+// noise was left behind - so the half that gets drawn starts at an arbitrary
+// angle and reads as an arc lying off to one side of the object rather than as
+// a ring around it. A 2D scene is permanently in that case (viewed face-on,
+// rotating about Z), which is why its rotation gizmo never looked like a
+// circle. A ring seen face-on has no back half to hide, so the caller draws
+// the whole circle instead.
+static bool BuildRingBasis(const tvector3 &dir, const tvector3 &axis,
+    tvector3 &right, tvector3 &frnt)
+{
+    right.Cross(dir, axis);
+
+    // |dir x axis| is sin(angle between them), both being unit length.
+    const float sinAngle = right.Length();
+
+    // ~4 degrees. Nearer than that the two ends of the arc are within a couple
+    // of pixels of each other anyway, so closing it into a full circle costs
+    // nothing visually and removes the numerically unstable band entirely.
+    if (sinAngle < 0.07f)
+    {
+        // Any pair of vectors perpendicular to the axis will do - the whole
+        // ring is drawn, so where it starts does not matter.
+        const tvector3 seed = (fabsf(axis.z) < 0.9f)
+            ? tvector3(0.f, 0.f, 1.f) : tvector3(0.f, 1.f, 0.f);
+        right.Cross(seed, axis);
+        right.Normalize();
+        frnt.Cross(right, axis);
+        frnt.Normalize();
+        return false;
+    }
+
+    right /= sinAngle;
+    frnt.Cross(right, axis);
+    frnt.Normalize();
+    return true;
+}
+
+// One rotation ring. ALWAYS a complete circle: an axis seen edge-on used to be
+// drawn as its near half only, which is a depth cue nobody asked for and which
+// reads as a broken arc rather than as a ring you can grab - and the ring is
+// grabbable all the way round, so drawing half of it was also a lie about the
+// hit target. The far half is drawn dimmed underneath, so the circle is whole
+// and still says which side is towards you.
+static void DrawRotationRing(const tvector3 &orig, const tvector3 &dir,
+    const tvector3 &axis, float r, float g, float b, float screenFactor,
+    tplane &plCam, const tmatrix &proj, const tmatrix &model)
+{
+    tvector3 right, frnt;
+    const bool edgeOn = BuildRingBasis(dir, axis, right, frnt);
+
+    const tvector3 vx = right * screenFactor;
+    const tvector3 vy = frnt * screenFactor;
+
+    if (!edgeOn)
+    {
+        // Face-on: every point is the same distance away, so there is no near
+        // half to emphasise.
+        CGizmoTransformRender::DrawCircle(orig, r, g, b, vx, vy, proj, model);
+        return;
+    }
+
+    const float dim = 0.4f;
+    CGizmoTransformRender::DrawCircle(orig, r * dim, g * dim, b * dim, vx, vy, proj, model);
+    CGizmoTransformRender::DrawCircleHalf(orig, r, g, b, vx, vy, plCam, proj, model);
+}
+
 IGizmo *CreateRotateGizmo()
 {
     return new CGizmoTransformRotate;
@@ -280,7 +356,7 @@ void CGizmoTransformRotate::Draw()
 
         ComputeScreenFactor();
 
-        tvector3 right,up,frnt,dir;
+        tvector3 right,up,dir;
 
 		tvector3 orig = tvector3(localTransform.GetTranslation());
         
@@ -289,7 +365,11 @@ void CGizmoTransformRotate::Draw()
 
         plnorm.Normalize();
 
-        tplane plCam = vector4(plnorm,0);
+        // A plane through the GIZMO, facing the camera - the near/far split
+        // DrawCircleHalf clips against. It used to be built with w = 0, i.e. a
+        // plane through the world origin, which has nothing to do with where
+        // the gizmo is.
+        tplane plCam = vector4(orig, plnorm);
 
 
         dir = orig-m_CamSrc;
@@ -335,51 +415,33 @@ void CGizmoTransformRotate::Draw()
                 DrawCircle(orig, 1,1,0,up*1.2f*GetScreenFactor(),right*1.2f*GetScreenFactor(),m_Proj,m_Model);
         }
 
-        // X
-        right.Cross(dir, axeX);
-        right.Normalize();
-        frnt.Cross(right, axeX);
-
-        frnt.Normalize();
-
+        // X / Y / Z. Each ring is built from the view direction and its own
+        // axis rather than from `right`/`up` computed above, and each decides
+        // for itself whether it is seen edge-on (draw the near half) or
+        // face-on (draw the whole circle) - see BuildRingBasis.
         if (mMask&AXIS_X)
         {
-            if (m_RotateTypePredict != ROTATE_X)
-                DrawCircleHalf(orig, 1,0,0,right*GetScreenFactor(),frnt*GetScreenFactor(),plCam,m_Proj,m_Model);
-            else
-                DrawCircleHalf(orig, 1,1,0,right*GetScreenFactor(),frnt*GetScreenFactor(),plCam,m_Proj,m_Model);
+            const bool hot = (m_RotateTypePredict == ROTATE_X);
+            DrawRotationRing(orig, dir, axeX, 1.f, hot ? 1.f : 0.f, 0.f,
+                GetScreenFactor(), plCam, m_Proj, m_Model);
         }
-
-        // Y
-
-        right.Cross(dir, axeY);
-        right.Normalize();
-        frnt.Cross(right, axeY);
-
-        frnt.Normalize();
 
         if (mMask&AXIS_Y)
         {
-
-            if (m_RotateTypePredict != ROTATE_Y)
-                DrawCircleHalf(orig, 0,1,0,right*GetScreenFactor(),frnt*GetScreenFactor(),plCam,m_Proj,m_Model);
-            else
-                DrawCircleHalf(orig, 1,1,0,right*GetScreenFactor(),frnt*GetScreenFactor(),plCam,m_Proj,m_Model);
+            const bool hot = (m_RotateTypePredict == ROTATE_Y);
+            DrawRotationRing(orig, dir, axeY, hot ? 1.f : 0.f, 1.f, 0.f,
+                GetScreenFactor(), plCam, m_Proj, m_Model);
         }
-
-        // Z
-        right.Cross(dir, axeZ);
-        right.Normalize();
-        frnt.Cross(right, axeZ);
-
-        frnt.Normalize();
 
         if (mMask&AXIS_Z)
         {
-            if (m_RotateTypePredict != ROTATE_Z)
-                DrawCircleHalf(orig, 0,0,1,right*GetScreenFactor(),frnt*GetScreenFactor(),plCam,m_Proj,m_Model);
+            const bool hot = (m_RotateTypePredict == ROTATE_Z);
+            if (hot)
+                DrawRotationRing(orig, dir, axeZ, 1.f, 1.f, 0.f,
+                    GetScreenFactor(), plCam, m_Proj, m_Model);
             else
-                DrawCircleHalf(orig, 1,1,0,right*GetScreenFactor(),frnt*GetScreenFactor(),plCam,m_Proj,m_Model);
+                DrawRotationRing(orig, dir, axeZ, 0.25f, 0.55f, 1.f,
+                    GetScreenFactor(), plCam, m_Proj, m_Model);
         }
         // camembert
         if ( (m_RotateType != ROTATE_NONE) && (m_RotateType != ROTATE_TWIN ) )

@@ -39,15 +39,14 @@ std::string FormatTime(float t)
 // ids are indices into a specific skeleton and mean nothing across two.
 void ResolveSelectedBone(AnimationEditorDocument& doc)
 {
-	AnimationPreview* pv = doc.preview.get();
-	if (!pv || !pv->instance) { doc.selectedBone = -1; return; }
+	if (!doc.RigInstance()) { doc.selectedBone = -1; return; }
 	if (!doc.selectedBoneName.empty())
 	{
-		doc.selectedBone = pv->FindBone(doc.selectedBoneName);
+		doc.selectedBone = doc.RigFindBone(doc.selectedBoneName);
 		if (doc.selectedBone >= 0) return;
 	}
-	if (doc.selectedBone >= (int)pv->instance->GetNumberBones()) doc.selectedBone = -1;
-	if (doc.selectedBone >= 0) doc.selectedBoneName = pv->BoneName(doc.selectedBone);
+	if (doc.selectedBone >= (int)doc.RigBoneCount()) doc.selectedBone = -1;
+	if (doc.selectedBone >= 0) doc.selectedBoneName = doc.RigBoneName(doc.selectedBone);
 }
 
 // Rows shown in the dope sheet: a channel index (or -1 for a bone with no
@@ -65,11 +64,11 @@ void BuildTracks(const AnimationEditorDocument& doc, std::vector<TrackRow>& out)
 	const Animation* clip = doc.ActiveClip();
 	if (!clip) return;
 
-	AnimationPreview* pv = doc.preview.get();
-	if (doc.showAllBones && pv && pv->instance)
+	SkeletonAnimationInstance* inst = doc.RigInstance();
+	if (doc.showAllBones && inst)
 	{
 		// Skeleton order, so parents read above their children.
-		const std::vector<Bone>& bones = pv->instance->GetSkeletonBones();
+		const std::vector<Bone>& bones = inst->GetSkeletonBones();
 		for (size_t i = 0; i < bones.size(); i++)
 		{
 			TrackRow row;
@@ -91,7 +90,7 @@ void BuildTracks(const AnimationEditorDocument& doc, std::vector<TrackRow>& out)
 		TrackRow row;
 		row.boneName = clip->Channels[c].NodeName;
 		row.channel = (int)c;
-		row.boneId = (pv ? pv->FindBone(row.boneName) : -1);
+		row.boneId = doc.RigFindBone(row.boneName);
 		out.push_back(row);
 	}
 }
@@ -121,13 +120,13 @@ void EnsurePreview(AnimationEditorDocument& doc)
 
 bool KeyBoneAtTime(AnimationEditorDocument& doc, int boneId, float time)
 {
-	AnimationPreview* pv = doc.preview.get();
-	if (!pv || !pv->instance) return false;
-	if (boneId < 0 || boneId >= (int)pv->instance->GetNumberBones()) return false;
+	SkeletonAnimationInstance* inst = doc.RigInstance();
+	if (!inst) return false;
+	if (boneId < 0 || boneId >= (int)inst->GetNumberBones()) return false;
 	if (!doc.HasActiveClip()) return false;
 	if (!doc.keyPosition && !doc.keyRotation) return false;
 
-	const std::string boneName = pv->BoneName(boneId);
+	const std::string boneName = doc.RigBoneName(boneId);
 	if (boneName.empty()) return false;
 
 	const int channel = doc.FindOrCreateChannel(doc.activeClip, boneName);
@@ -137,7 +136,7 @@ bool KeyBoneAtTime(AnimationEditorDocument& doc, int boneId, float time)
 	// composes the parent chain itself (SkeletonAnimationInstance::
 	// RefreshSkinning), so keying a model-space matrix here would bake every
 	// ancestor's transform into the child and double it at playback.
-	const Matrix local = pv->instance->GetBoneLocalTransform(boneId);
+	const Matrix local = inst->GetBoneLocalTransform(boneId);
 	const Vec3 pos = local.GetTranslation();
 	const Quaternion rot = local.ConvertToQuaternion();
 	const Vec3 scale = local.GetScale();
@@ -149,11 +148,11 @@ bool KeyBoneAtTime(AnimationEditorDocument& doc, int boneId, float time)
 
 int KeyPendingPose(AnimationEditorDocument& doc)
 {
-	AnimationPreview* pv = doc.preview.get();
-	if (!pv || pv->poseOverrides.empty() || !doc.HasActiveClip()) return 0;
+	std::map<int, Matrix>* overrides = doc.RigPoseOverrides();
+	if (!overrides || overrides->empty() || !doc.HasActiveClip()) return 0;
 
 	std::vector<int> bones;
-	for (std::map<int, Matrix>::const_iterator it = pv->poseOverrides.begin(); it != pv->poseOverrides.end(); ++it)
+	for (std::map<int, Matrix>::const_iterator it = overrides->begin(); it != overrides->end(); ++it)
 		bones.push_back(it->first);
 
 	const float time = doc.SnapTime(doc.playhead);
@@ -164,23 +163,22 @@ int KeyPendingPose(AnimationEditorDocument& doc)
 	});
 	// The pose is now in the clip; keeping the overrides would pin the rig
 	// to it even after scrubbing elsewhere.
-	pv->poseOverrides.clear();
+	overrides->clear();
 	return keyed;
 }
 
 int KeyWholeSkeleton(AnimationEditorDocument& doc, float time)
 {
-	AnimationPreview* pv = doc.preview.get();
-	if (!pv || !pv->instance || !doc.HasActiveClip()) return 0;
+	if (!doc.RigInstance() || !doc.HasActiveClip()) return 0;
 
 	const float t = doc.SnapTime(time);
-	const uint32 count = pv->instance->GetNumberBones();
+	const uint32 count = doc.RigBoneCount();
 	int keyed = 0;
 	doc.PushSnapshotEdit("Key whole skeleton at " + FormatTime(t), [&]() {
 		for (uint32 i = 0; i < count; i++)
 			if (KeyBoneAtTime(doc, (int)i, t)) keyed++;
 	});
-	pv->poseOverrides.clear();
+	if (std::map<int, Matrix>* overrides = doc.RigPoseOverrides()) overrides->clear();
 	return keyed;
 }
 
@@ -332,7 +330,8 @@ void SetPlayhead(AnimationEditorDocument& doc, float time, bool keepPendingPose)
 	// Uncommitted pose edits belong to the frame they were made at. Carrying
 	// them along the timeline would silently apply one bone's edit to every
 	// frame the user visits, which is not what "I moved this arm" means.
-	if (doc.preview && !keepPendingPose) doc.preview->poseOverrides.clear();
+	if (!keepPendingPose)
+		if (std::map<int, Matrix>* overrides = doc.RigPoseOverrides()) overrides->clear();
 }
 
 // ---- window ---------------------------------------------------------------
@@ -527,20 +526,21 @@ void DrawToolbar(AnimationEditorDocument& doc, const std::vector<AnimationMeshCh
 	if (ImGui::Button("Save As...")) requests.saveAs = true;
 }
 
-void DrawBonePanel(AnimationEditorDocument& doc)
+void DrawBonePanel(AnimationEditorDocument& doc, const char* emptyHint = NULL)
 {
-	AnimationPreview* pv = doc.preview.get();
+	SkeletonAnimationInstance* inst = doc.RigInstance();
 
 	ImGui::BeginChild("##bones", ImVec2(kBoneTreeWidth, 0), true);
-	if (!pv || !pv->instance)
+	if (!inst)
 	{
 		ImGui::TextDisabled("No rig bound.");
-		ImGui::TextWrapped("Pick a skinned .p3dm in the Rig box above to see its skeleton and pose it.");
+		ImGui::TextWrapped("%s", emptyHint ? emptyHint
+			: "Pick a skinned .p3dm in the Rig box above to see its skeleton and pose it.");
 		ImGui::EndChild();
 		return;
 	}
 
-	const std::vector<Bone>& bones = pv->instance->GetSkeletonBones();
+	const std::vector<Bone>& bones = inst->GetSkeletonBones();
 	ImGui::Text("Skeleton (%d bones)", (int)bones.size());
 	ImGui::Separator();
 
@@ -574,7 +574,7 @@ void DrawBonePanel(AnimationEditorDocument& doc)
 	if (doc.selectedBone >= 0 && doc.selectedBone < (int)bones.size())
 	{
 		ImGui::Text("Bone: %s", bones[doc.selectedBone].name.c_str());
-		const Matrix local = pv->instance->GetBoneLocalTransform(doc.selectedBone);
+		const Matrix local = inst->GetBoneLocalTransform(doc.selectedBone);
 		Vec3 pos = local.GetTranslation();
 		Matrix rotOnly = local;
 		// Shown in degrees. The engine's Euler conversions are radians on
@@ -602,17 +602,18 @@ void DrawBonePanel(AnimationEditorDocument& doc)
 			q.SetRotationFromEuler(Vec3((f32)DEGTORAD(euler.x), (f32)DEGTORAD(euler.y), (f32)DEGTORAD(euler.z)));
 			Matrix m = q.ConvertToMatrix();
 			m.Translate(pos);
-			pv->poseOverrides[doc.selectedBone] = m;
-			pv->instance->SetBoneLocalTransform(doc.selectedBone, m);
-			pv->instance->RefreshSkinning();
+			if (std::map<int, Matrix>* ov = doc.RigPoseOverrides()) (*ov)[doc.selectedBone] = m;
+			inst->SetBoneLocalTransform(doc.selectedBone, m);
+			inst->RefreshSkinning();
 		}
 		if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Pose bone");
 
 		if (ImGui::Button("Reset to Bind"))
 		{
-			pv->poseOverrides[doc.selectedBone] = pv->instance->GetBindPoseLocal(doc.selectedBone);
-			pv->instance->SetBoneLocalTransform(doc.selectedBone, pv->instance->GetBindPoseLocal(doc.selectedBone));
-			pv->instance->RefreshSkinning();
+			const Matrix bind = inst->GetBindPoseLocal(doc.selectedBone);
+			if (std::map<int, Matrix>* ov = doc.RigPoseOverrides()) (*ov)[doc.selectedBone] = bind;
+			inst->SetBoneLocalTransform(doc.selectedBone, bind);
+			inst->RefreshSkinning();
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Key Bone"))
@@ -621,7 +622,7 @@ void DrawBonePanel(AnimationEditorDocument& doc)
 			doc.PushSnapshotEdit("Key bone '" + bones[doc.selectedBone].name + "'", [&]() {
 				KeyBoneAtTime(doc, doc.selectedBone, t);
 			});
-			pv->poseOverrides.erase(doc.selectedBone);
+			if (std::map<int, Matrix>* ov = doc.RigPoseOverrides()) ov->erase(doc.selectedBone);
 		}
 	}
 	else ImGui::TextDisabled("No bone selected.\nClick a joint in the viewport.");
@@ -1237,10 +1238,25 @@ void DrawIKPanel(AnimationEditorDocument& doc)
 
 void DrawTransport(AnimationEditorDocument& doc, float dt)
 {
-	AnimationPreview* pv = doc.preview.get();
 	const Animation* clip = doc.ActiveClip();
 	const float duration = clip ? clip->Duration : 0.f;
 	const float frameStep = (doc.snapFps > 0.f ? 1.f / doc.snapFps : 1.f / 30.f);
+
+	// SameLine, unless the next group would run off the right edge - then
+	// start a new row. The bar used to be one unconditional chain of
+	// SameLine()s, so in a narrow window (a docked tab in a tiled layout, say)
+	// everything past the middle was simply unreachable: Key Pose, Key All
+	// Bones and Delete Keys were drawn outside the window and could not be
+	// clicked at all.
+	// Measured from the item just drawn, not from GetContentRegionAvail():
+	// once a line has been laid out the cursor is already on the NEXT line, so
+	// "avail" is the full window width and the test never fires.
+	const auto sameLineOrWrap = [](float groupWidth) {
+		const float lastX = ImGui::GetItemRectMax().x;
+		const float rightEdge = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x;
+		if (lastX + ImGui::GetStyle().ItemSpacing.x + groupWidth < rightEdge)
+			ImGui::SameLine();
+	};
 
 	if (ImGui::Button("|<")) SetPlayhead(doc, 0.f);
 	ImGui::SameLine();
@@ -1254,13 +1270,13 @@ void DrawTransport(AnimationEditorDocument& doc, float dt)
 	ImGui::SameLine();
 	if (ImGui::Button(">|")) SetPlayhead(doc, duration);
 
-	ImGui::SameLine();
+	sameLineOrWrap(240.f);
 	ImGui::Checkbox("Loop", &doc.looping);
 	ImGui::SameLine();
 	ImGui::SetNextItemWidth(90.f);
 	ImGui::DragFloat("Speed", &doc.playSpeed, 0.01f, -4.f, 4.f, "%.2fx");
 
-	ImGui::SameLine();
+	sameLineOrWrap(200.f);
 	ImGui::TextUnformatted("|");
 	ImGui::SameLine();
 	ImGui::Checkbox("Snap", &doc.snapEnabled);
@@ -1268,7 +1284,7 @@ void DrawTransport(AnimationEditorDocument& doc, float dt)
 	ImGui::SetNextItemWidth(70.f);
 	ImGui::DragFloat("fps", &doc.snapFps, 1.f, 1.f, 240.f, "%.0f");
 
-	ImGui::SameLine();
+	sameLineOrWrap(260.f);
 	ImGui::TextUnformatted("|");
 	ImGui::SameLine();
 	ImGui::Checkbox("Auto-key", &doc.autoKey);
@@ -1279,7 +1295,7 @@ void DrawTransport(AnimationEditorDocument& doc, float dt)
 	ImGui::SameLine();
 	ImGui::Checkbox("Rot", &doc.keyRotation);
 
-	ImGui::SameLine();
+	sameLineOrWrap(330.f);
 	if (ImGui::Button("Key Pose")) KeyPendingPose(doc);
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Key every bone you have posed since the last key.");
@@ -1288,16 +1304,17 @@ void DrawTransport(AnimationEditorDocument& doc, float dt)
 	ImGui::SameLine();
 	if (ImGui::Button("Delete Keys")) DeleteSelectedKeys(doc);
 
-	ImGui::SameLine();
+	sameLineOrWrap(200.f);
 	ImGui::TextUnformatted("|");
 	ImGui::SameLine();
 	ImGui::Text("t = %s / %s", FormatTime(doc.playhead).c_str(), FormatTime(duration).c_str());
 
-	if (pv && !pv->poseOverrides.empty())
+	const std::map<int, Matrix>* pending = doc.RigPoseOverrides();
+	if (pending && !pending->empty())
 	{
 		ImGui::SameLine();
 		ImGui::TextColored(ImVec4(1.f, 0.8f, 0.2f, 1.f), "  %d bone(s) posed, unkeyed",
-			(int)pv->poseOverrides.size());
+			(int)pending->size());
 	}
 
 	// Advance playback. Driven off the caller's frame delta rather than a
@@ -1667,6 +1684,42 @@ void DrawTimeline(AnimationEditorDocument& doc)
 }
 
 } // namespace
+
+// ---- pieces the 2D animation window reuses ---------------------------------
+// Thin forwarders out of the anonymous namespace above. The 2D editor is the
+// same dope sheet, transport and bone list driven against a scene rig instead
+// of a preview viewport (see AnimationEditorDocument::externalRig); giving it its
+// own copies would be a second implementation of key selection, retiming and
+// interpolation, which is a second set of bugs.
+
+void DrawTimelinePanel(AnimationEditorDocument& doc) { DrawTimeline(doc); }
+void DrawTransportBar(AnimationEditorDocument& doc, float dt) { DrawTransport(doc, dt); }
+void DrawSkeletonPanel(AnimationEditorDocument& doc, const char* emptyHint)
+{
+	DrawBonePanel(doc, emptyHint);
+}
+
+void ApplyTimelinePose(AnimationEditorDocument& doc)
+{
+	SkeletonAnimationInstance* inst = doc.RigInstance();
+	if (!inst) return;
+
+	const Animation* clip = doc.ActiveClip();
+	if (clip) inst->ApplyAnimationAtTime(*clip, doc.playhead);
+	else      inst->ResetToBindPose();
+
+	// Bones posed but not yet keyed go back on top, so scrubbing does not
+	// throw away work in progress.
+	std::map<int, Matrix>* overrides = doc.RigPoseOverrides();
+	if (overrides && !overrides->empty())
+	{
+		for (std::map<int, Matrix>::const_iterator it = overrides->begin(); it != overrides->end(); ++it)
+			if (it->first >= 0 && it->first < (int)inst->GetNumberBones())
+				inst->SetBoneLocalTransform(it->first, it->second);
+		// One hierarchy walk for the whole batch rather than per bone.
+		inst->RefreshSkinning();
+	}
+}
 
 void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshChoice>& meshes,
 	float dt, FrameRequests& requests)

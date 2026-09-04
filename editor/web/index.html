@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>PyrosBuilder</title>
+<!-- Inline, so the page never asks the server for a favicon it has not got.
+     A 404 in the console of a build people are trying to debug is noise. -->
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='13' font-size='13'>&#128293;</text></svg>" />
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #1a1613; }
+  /* The canvas IS the page. An editor is not a widget on a document: giving
+     it the whole viewport is what makes the browser build usable at all. */
+  #canvas { display: block; width: 100vw; height: 100vh; outline: none; }
+  #overlay {
+    position: fixed; inset: 0; display: flex; align-items: center;
+    justify-content: center; flex-direction: column; gap: 0.75rem;
+    background: #1a1613; color: #d8c8b0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem;
+  }
+  #overlay.gone { display: none; }
+  #bar {
+    width: min(420px, 60vw); height: 3px; background: #3a322c; overflow: hidden;
+  }
+  #bar > i { display: block; height: 100%; width: 0; background: #e8833a; transition: width .2s; }
+  #fs {
+    position: fixed; right: 10px; bottom: 10px; z-index: 5;
+    background: #2a2420cc; color: #d8c8b0; border: 1px solid #4a403a;
+    border-radius: 4px; padding: 5px 10px; cursor: pointer;
+    font-family: ui-monospace, monospace; font-size: 12px;
+  }
+  #fs:hover { background: #3a322cdd; }
+</style>
+</head>
+<body>
+  <canvas id="canvas" tabindex="-1"></canvas>
+  <button id="fs" title="Fullscreen (F11 also works)">⛶ Fullscreen</button>
+  <div id="overlay"><div id="msg">Loading PyrosBuilder…</div><div id="bar"><i></i></div></div>
+  <script src="./editor-shell.js"></script>
+  <script src="./PyrosBuilder.js"></script>
+</body>
+</html>

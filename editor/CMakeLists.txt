@@ -24,7 +24,17 @@ set(PYROS_EDITOR_GL_CONTEXT OFF)
 # libcurl for the AI Assistant panel's HTTPS provider calls (OpenAI /
 # Anthropic / any OpenAI-compatible endpoint). The macOS SDK and the Windows
 # SDK both ship it; Linux needs libcurl dev packages.
-find_package(CURL REQUIRED)
+# libcurl is only the AI Assistant's HTTP transport, and there is no libcurl
+# under emscripten - a browser makes requests through fetch(). Optional rather
+# than required so the editor can be built for the web at all; the assistant
+# compiles out there (see PYROS_EDITOR_NO_CURL).
+if (EMSCRIPTEN)
+	set(PYROS_EDITOR_HAVE_CURL OFF)
+	message(STATUS "  Editor: libcurl unavailable (emscripten) - AI Assistant disabled")
+else()
+	find_package(CURL REQUIRED)
+	set(PYROS_EDITOR_HAVE_CURL ON)
+endif()
 if (PYROS_CONTEXT STREQUAL "SDL2" OR PYROS_CONTEXT STREQUAL "SDL" OR PYROS_CONTEXT STREQUAL "SFML")
 	set(PYROS_EDITOR_GL_CONTEXT ON)
 endif()
@@ -52,6 +62,9 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimationEditorDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimationPreview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/AnimationEditor.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Character2DDocument.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Character2DPreview.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/Character2DEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/GameObjectHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/LightHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/SoundHelper.cpp
@@ -100,6 +113,105 @@ target_include_directories(PyrosBuilder PRIVATE
 	${CURL_INCLUDE_DIRS}
 )
 
+# The emscripten SDL2/Freetype ports supply their own headers, and a target
+# only sees them if it is compiled with the port flags - which is why the
+# engine's own targets call this. Without it the editor cannot even find
+# ft2build.h.
+if (EMSCRIPTEN)
+	pyros_emscripten_apply_compile(PyrosBuilder)
+	# ...and the LINK flags. -sUSE_SDL=2 is what actually pulls the SDL2 port's
+	# library in; with only the compile flags every SDL_* call compiled fine
+	# and then failed at link as an undefined symbol.
+	# .js, not .html: editor/web/index.html is the page, staged below.
+	pyros_emscripten_apply_link_no_shell(PyrosBuilder)
+
+	# The browser has no filesystem, so everything the editor opens at startup
+	# has to be baked into the virtual one: its own icons and fonts, and the
+	# engine's shaders. Mounted at the paths the code already uses, so nothing
+	# in the editor needs a web-specific asset path.
+	#
+	# `projects` is deliberately NOT preloaded - a project is the user's, not
+	# ours, and shipping one would make the web build open somebody else's
+	# work on startup. It is created in IDBFS at runtime instead.
+	target_link_options(PyrosBuilder PRIVATE
+		"SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@assets"
+		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
+		# The class library every LuaComponent script is written against.
+		# Just this one file, not all of examples/assets: that tree is demo
+		# content (models, textures, whole scenes) the editor has no use for,
+		# and merging it into /assets would collide with the editor's own.
+		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets/middleclass.lua@assets/middleclass.lua"
+
+		# Emscripten's default stack is 64 KB. A desktop thread gets 8 MB, and
+		# the editor is written for that: ImGui frames, the scene walks, the
+		# JSON snapshots the undo stack takes. Overflowing it does not say
+		# "stack overflow" - the guard page is not there - it comes out as
+		# "memory access out of bounds" from whatever wrote past the end,
+		# which is what this build did on startup.
+		"SHELL:-sSTACK_SIZE=8MB"
+		# Start with enough heap that the first frame does not spend its time
+		# growing it. It still grows (ALLOW_MEMORY_GROWTH) - this is only the
+		# starting point.
+		"SHELL:-sINITIAL_MEMORY=256MB"
+		# So the NEXT one of these reports what it actually is rather than an
+		# address. Costs a little speed; a browser build that crashes silently
+		# costs a lot more.
+		"SHELL:-sASSERTIONS=1"
+	)
+
+	# Diagnosing a wasm crash without this is reading addresses. -g2 keeps the
+	# name section so a browser stack shows functions; SAFE_HEAP turns
+	# "memory access out of bounds" into the actual bad address and size.
+	# Both cost speed, which is why they are opt-in rather than always on.
+	option(PYROS_WEB_DEBUG "Web editor: symbol names + heap checking" OFF)
+	# SAFE_HEAP says "there was a bad access"; ASan says which allocation, how
+	# big, and where it was freed. They cannot be combined, so this is a
+	# separate mode rather than a louder version of the same one.
+	option(PYROS_WEB_ASAN "Web editor: AddressSanitizer instead of SAFE_HEAP" OFF)
+	if (PYROS_WEB_ASAN)
+		target_compile_options(PyrosBuilder PRIVATE "SHELL:-g2" "SHELL:-fsanitize=address")
+		target_link_options(PyrosBuilder PRIVATE
+			"SHELL:-g2"
+			"SHELL:-fsanitize=address"
+			"SHELL:-sASSERTIONS=2"
+			# ASan needs room of its own for the shadow map on top of the heap.
+			"SHELL:-sINITIAL_MEMORY=1GB"
+		)
+		message(STATUS "  Editor(web): PYROS_WEB_ASAN on - AddressSanitizer (very slow)")
+	elseif (PYROS_WEB_DEBUG)
+		target_compile_options(PyrosBuilder PRIVATE "SHELL:-g2")
+		target_link_options(PyrosBuilder PRIVATE
+			"SHELL:-g2"
+			"SHELL:-sASSERTIONS=2"
+			"SHELL:-sSAFE_HEAP=1"
+			"SHELL:-sSTACK_OVERFLOW_CHECK=2"
+		)
+		message(STATUS "  Editor(web): PYROS_WEB_DEBUG on - symbols + SAFE_HEAP (slow)")
+	endif()
+
+	# Our own page, not emscripten's default shell: that one puts the canvas in
+	# a fixed-size box with a textarea under it, which is fine for a demo and
+	# useless for an editor. index.html + editor-shell.js give it the whole
+	# viewport, handle resize (in device pixels) and fullscreen.
+	#
+	# Named PyrosBuilder.js, so index.html's <script src> resolves beside it.
+	add_custom_command(TARGET PyrosBuilder POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${CMAKE_CURRENT_SOURCE_DIR}/web/index.html
+			$<TARGET_FILE_DIR:PyrosBuilder>/index.html
+		COMMAND ${CMAKE_COMMAND} -E copy_if_different
+			${CMAKE_CURRENT_SOURCE_DIR}/web/editor-shell.js
+			$<TARGET_FILE_DIR:PyrosBuilder>/editor-shell.js
+		COMMENT "PyrosBuilder: staging the web page beside the module"
+	)
+endif()
+
+# The assistant's whole implementation is libcurl; without it the file
+# compiles to nothing rather than the editor failing to link.
+if (NOT PYROS_EDITOR_HAVE_CURL)
+	target_compile_definitions(PyrosBuilder PRIVATE PYROS_EDITOR_NO_CURL)
+endif()
+
 target_link_libraries(PyrosBuilder PRIVATE
 	PyrosEngine
 	${PYROS_CONTEXT_LIB}
@@ -114,7 +226,11 @@ target_compile_definitions(PyrosBuilder PRIVATE ${PYROS_CONTEXT_DEFINITION})
 
 # Same EXAMPLES_PATH trick DemoLauncher uses — middleclass.lua + demo scripts.
 target_compile_definitions(PyrosBuilder PRIVATE
-	PYROS_EXAMPLES_PATH=${PYROS_ASSET_ROOT}
+	# Empty on the web: PYROS_ASSET_ROOT is an absolute path on the BUILD
+	# machine, which means nothing inside a browser's virtual filesystem.
+	# Left empty, the one place that uses it resolves to
+	# "/assets/middleclass.lua" - which is where the preload below puts it.
+	$<IF:$<BOOL:${EMSCRIPTEN}>,PYROS_EXAMPLES_PATH=,PYROS_EXAMPLES_PATH=${PYROS_ASSET_ROOT}>
 )
 
 # DebugRenderer now follows the same pipeline + UBO path as Forward/

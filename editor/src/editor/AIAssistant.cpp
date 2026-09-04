@@ -3,6 +3,53 @@
 // Description : AI Assistant panel + worker-thread libcurl client (see .h).
 //=============================================================================
 
+#ifdef PYROS_EDITOR_NO_CURL
+
+// No libcurl on this platform (emscripten): a browser talks HTTP through
+// fetch(), not through a sockets library. Porting the client to a second
+// transport is real work nobody has asked for yet, so the panel is STUBBED
+// rather than removed.
+//
+// A stub, not a #ifdef around every call: Editor.cpp constructs the tab,
+// saves and loads its settings, and tells it when a project opens - guarding
+// all of that would scatter the same condition through the host for a panel
+// that simply says it is unavailable. The class still exists and still draws;
+// it just cannot talk to anything.
+#include "AIAssistant.h"
+#include "imgui.h"
+
+// The tab holds an AIChatClient by value, so the client needs a body too -
+// an empty one. Everything else on it is inline in the header or never
+// reached, because nothing in this stub can start a run.
+AIChatClient::AIChatClient() {}
+AIChatClient::~AIChatClient() {}
+
+AIAssistantTab::AIAssistantTab(bool* open) : IUInterface(), Open(open) {}
+AIAssistantTab::~AIAssistantTab() {}
+void AIAssistantTab::Update(const f64 time) {}
+void AIAssistantTab::Shutdown() {}
+void AIAssistantTab::SetProjectOpen(bool open) { projectOpen_ = open; }
+void AIAssistantTab::LoadFrom(const nlohmann::json&) {}
+nlohmann::json AIAssistantTab::ToJson() const { return nlohmann::json::object(); }
+bool AIAssistantTab::ConsumeDirtySettings() { return false; }
+
+void AIAssistantTab::Show()
+{
+	if (Open && !*Open) return;
+	if (ImGui::Begin("AI Assistant", Open))
+	{
+		ImGui::TextWrapped(
+			"The AI Assistant is not available in the browser build.\n\n"
+			"It is an HTTP client built on libcurl, which has no emscripten "
+			"port; a browser would have to reach the provider through fetch(), "
+			"and cross-origin rules mean that is a different design rather than "
+			"a recompile.");
+	}
+	ImGui::End();
+}
+
+#else
+
 #include "AIAssistant.h"
 
 #include <curl/curl.h>
@@ -111,10 +158,103 @@ static const AIToolDef kAITools[] = {
 		{ { "name", "string", "Object name", true } } },
 	{ "add_layer2d",    "Make an object's subtree a 2D layer: its z is the draw order and it carries a parallax factor.",
 		{ { "name", "string", "Object name", true } } },
+
+	// ---- 2D characters ---------------------------------------------------
+	// A character (.p3d2d) owns its bones, its artwork and its clips. Build
+	// one in the character editor, then place it in as many scenes as you
+	// like; a scene only stores which character and which clip.
+	{ "new_character2d", "Start a new 2D character. Everything below edits the character that is open.",
+		{ { "name", "string", "Character name", false } } },
+	{ "open_character2d", "Open an existing .p3d2d for editing.",
+		{ { "path", "string", "Project-relative path to the .p3d2d", true } } },
+	{ "save_character2d", "Write the open character to disk.",
+		{ { "path", "string", "Where to save (omit once it has been saved once)", false } } },
+	{ "add_bone2d",     "Add a bone to the open character. Bones are what the artwork follows and what clips animate.",
+		{ { "bone", "string", "Bone name", true },
+		  { "parent", "string", "Parent bone (omit for a root)", false },
+		  { "pos", "array", "Position [x, y] in the parent's frame", false } } },
+	{ "remove_bone2d",  "Remove a bone and everything under it. Sprites pinned to them are unpinned, not deleted.",
+		{ { "bone", "string", "Bone name", true } } },
+	{ "rename_bone2d",  "Rename a bone. Follows through into the artwork pinned to it and the clips animating it.",
+		{ { "bone", "string", "Current name", true },
+		  { "to", "string", "New name", true } } },
+	{ "reparent_bone2d", "Change which bone drives another, keeping it where it is on screen. Rejects a cycle.",
+		{ { "bone", "string", "Bone to move", true },
+		  { "parent", "string", "New parent (omit to make it a root)", false } } },
+	{ "set_bone2d",     "Move a bone's REST pose - the character's shape, not its animation.",
+		{ { "bone", "string", "Bone name", true },
+		  { "pos", "array", "Position [x, y] in the parent's frame", false },
+		  { "rotation", "number", "Rotation about z, in DEGREES", false } } },
+	{ "add_sprite2d",   "Pin artwork to a bone. This is what makes a character visible.",
+		{ { "name", "string", "Sprite name", true },
+		  { "texture", "string", "Project-relative texture path, e.g. assets/textures/torso.png", false },
+		  { "bone", "string", "Bone it follows", false } } },
+	{ "remove_sprite2d", "Remove one piece of artwork from the open character.",
+		{ { "name", "string", "Sprite name", true } } },
+	{ "set_sprite2d",   "Change a sprite. Pivot is where its own origin sits, normalised: put it on the joint the limb turns about.",
+		{ { "name", "string", "Sprite name", true },
+		  { "bone", "string", "Bone it follows", false },
+		  { "texture", "string", "Project-relative texture path", false },
+		  { "offset", "array", "Offset from the joint [x, y]", false },
+		  { "scale", "array", "Size [x, y]", false },
+		  { "pivot", "array", "Pivot [x, y], 0..1; (0.5,0.5) centred", false },
+		  { "z", "number", "Draw order within the character", false },
+		  { "lit", "boolean", "Lit by the scene's 2D lights", false } } },
+	{ "new_clip2d",     "Add an animation clip to the open character.",
+		{ { "clip", "string", "Clip name", true },
+		  { "duration", "number", "Length in seconds", false } } },
+	{ "remove_clip2d",  "Remove a clip from the open character.",
+		{ { "clip", "string", "Clip name", true } } },
+	{ "rename_clip2d",  "Rename a clip. Follows through into the character's default clip.",
+		{ { "clip", "string", "Current name", true },
+		  { "to", "string", "New name", true } } },
+	{ "set_default_clip2d", "The clip this character starts on wherever it is placed, unless a scene overrides it.",
+		{ { "clip", "string", "Clip name (empty for none)", false },
+		  { "loop", "boolean", "Loop forever", false } } },
+	{ "pose_bone2d",    "Rotate a bone on the live rig WITHOUT keying it. Follow with key_pose2d to store the pose.",
+		{ { "bone", "string", "Bone name", true },
+		  { "rotation", "number", "Rotation about z, in DEGREES", true } } },
+	{ "ik_solve2d",     "Pose a limb by dragging its tip: solves the chain from root to effector so the effector reaches the target. An authoring aid - key_pose2d stores the result as ordinary rotation keys.",
+		{ { "root", "string", "Bone the chain starts at", true },
+		  { "effector", "string", "Bone that must reach the target", true },
+		  { "target", "array", "Target [x, y] in the character's space", true } } },
+	{ "key_pose2d",     "Key whatever is posed right now into a clip at a time.",
+		{ { "clip", "string", "Clip to key into (omit for the current one)", false },
+		  { "time", "number", "Time in seconds", false },
+		  { "bone", "string", "Key only this bone (omit to key everything posed)", false } } },
+	{ "delete_key2d",   "Remove a bone's key at a time.",
+		{ { "clip", "string", "Clip name", true },
+		  { "bone", "string", "Bone name", true },
+		  { "time", "number", "Time in seconds", true } } },
+	{ "scrub_clip2d",   "Move the playhead and pose the character from the clip there - how you check what a clip looks like.",
+		{ { "clip", "string", "Clip name", false },
+		  { "time", "number", "Time in seconds", true } } },
+	{ "character2d_state", "Everything about the open character: bones (rest and posed), sprites, clips, and where the playhead is.",
+		{ } },
+	{ "add_character2d", "Place a finished character in the scene. The scene stores only which character and which clip.",
+		{ { "character", "string", "Project-relative path to the .p3d2d", true },
+		  { "name", "string", "Object name", false },
+		  { "position", "array", "Position [x, y, z]", false } } },
+	{ "set_autoplay2d", "Choose which clip a placed character starts on when the game runs.",
+		{ { "object", "string", "Object name", true },
+		  { "clip", "string", "Clip name (empty for none)", false },
+		  { "loop", "boolean", "Loop forever", false } } },
 	{ "add_physics2d",  "Add a Box2D rigid body. Its x/y and rotation about z are driven by the solver; z is left alone.",
 		{ { "name", "string", "Object name", true } } },
 	{ "add_occluder2d", "Mark a shape as blocking 2D light. No physics needed - a painted wall can cast without being solid.",
 		{ { "name", "string", "Object name", true } } },
+	{ "open_scene",     "Open a scene as ANOTHER document, beside the one already open. Each document keeps its own renderer, selection and undo history.",
+		{ { "path", "string", "Project-relative path to the .json scene", true } } },
+	{ "set_game_view_2d", "How a 2D scene is FRAMED when it runs: centre, zoom, and what it follows. A 2D scene needs no camera object - this is its viewpoint.",
+		{ { "center", "array", "Centre of the view [x, y]", false },
+		  { "zoom", "number", "World units from the centre to the top edge", false },
+		  { "follow", "string", "Object to keep in view (empty for a fixed view)", false },
+		  { "lag", "number", "Seconds to close most of the distance; 0 snaps", false },
+		  { "followX", "boolean", "Track the followed object horizontally (default true)", false },
+		  { "followY", "boolean", "Track it vertically - off for a side-scroller, so the horizon does not bob", false },
+		  { "followOffset", "array", "Offset from what it follows [x, y]", false },
+		  { "bounds", "array", "Keep the view inside [minX, minY, maxX, maxY]", false } } },
+	{ "game_view_2d",   "Read back how this 2D scene is framed.", { } },
 	{ "set_viewport_projection", "Switch the viewport between perspective and orthographic. A 2D scene is judged through an orthographic view.",
 		{ { "projection", "string", "perspective or orthographic", true } } },
 	{ "canvas_drag",    "Move a UI element or resize it by one edge/corner, the same edit dragging its handle in canvas mode makes.",
@@ -366,6 +506,8 @@ static std::string BuildToolReference()
 	os << "\nMaterial workflow: create_material -> set_material_graph (node graph) or set_material_text (GLSL text) -> apply_material -> assign_material to put it on an object. ";
 	os << "Scene workflow: add_primitive/add_object/add_light -> set_transform/set_tags -> attach_script for behavior -> save_scene.\n";
 	os << "2D workflow: add_sprite -> sprite_2d_lit for lighting, add_occluder2d to cast shadows, add_physics2d for bodies, add_layer2d on a parent for parallax. Mark the scene 2D with New 2D Scene and look at it with set_viewport_projection orthographic.\n";
+	os << "A 2D scene is framed by set_game_view_2d (centre, zoom, what it follows), NOT by adding a camera object - a camera is a 3D concept and a 2D scene does not need one. In Lua the same thing is view.setCenter/setZoom/follow/setBounds.\n";
+	os << "2D characters are ASSETS, not scene contents. Build one with new_character2d -> add_bone2d (skeleton) -> add_sprite2d (artwork pinned to bones) -> new_clip2d + pose_bone2d + key_pose2d (animation) -> save_character2d. Check it with scrub_clip2d and character2d_state. Then a scene just does add_character2d + set_autoplay2d, and Lua plays a clip by name with rc:getActiveSkeletonAnimation():playClip('Walk'). Never author bones or clips in a scene - a character is one file, shared by every scene that places it.\n";
 	return os.str();
 }
 
@@ -1771,3 +1913,6 @@ void AIAssistantTab::DrawSettingsPopup()
 
 	ImGui::EndPopup();
 }
+
+
+#endif  // PYROS_EDITOR_NO_CURL

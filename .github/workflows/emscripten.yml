@@ -10,6 +10,17 @@ concurrency:
   group: emscripten-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# Only the deploy job needs more than read, but permissions are per-workflow.
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One place, so the library and the editor can never be built by two
+# different compilers and then debugged as if they were the same thing.
+env:
+  EMSDK_VERSION: 3.1.74
+
 jobs:
   web:
     name: WebGL2 / Pyros3D.js
@@ -27,7 +38,7 @@ jobs:
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
-          version: 3.1.74
+          version: ${{ env.EMSDK_VERSION }}
 
       - name: Configure
         run: |
@@ -80,3 +91,119 @@ jobs:
           # root, with no step that moves files around first.
           path: build_web/examples/web/
           if-no-files-found: error
+
+  editor:
+    name: WebGL2 / PyrosBuilder
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+
+      - name: Configure
+        # Lua ON, unlike the library job above. That is not a preference: a
+        # lot of the editor lives behind #ifdef LUA_BINDINGS in its headers
+        # while being called unguarded from the .cpp, so it does not compile
+        # at all without it. Lua 5.4 is plain C and sol2 is header-only, so
+        # both cross-compile to wasm with no special handling.
+        #
+        # No BUILD_DEMOS: the editor does not need them and they double the
+        # build time.
+        run: |
+          emcmake cmake -S . -B build_web_editor -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_EDITOR=ON \
+            -DHAVE_LUA_BINDINGS=ON
+
+      - name: Build PyrosBuilder
+        run: cmake --build build_web_editor --parallel "$(nproc)" --target PyrosBuilder
+
+      - name: Check artifacts
+        # index.html and editor-shell.js are staged beside the module by a
+        # POST_BUILD step; the page will not load without them.
+        run: |
+          ls -lh build_web_editor/editor/PyrosBuilder.js \
+                build_web_editor/editor/PyrosBuilder.wasm \
+                build_web_editor/editor/PyrosBuilder.data \
+                build_web_editor/editor/index.html \
+                build_web_editor/editor/editor-shell.js
+
+      - name: Smoke-test the module
+        # The editor cannot be instantiated under node - it is an SDL/WebGL
+        # application and needs a canvas and a GL context, neither of which
+        # exists here. What CAN be checked without a browser is that the glue
+        # parses and the preloaded filesystem carries what the editor opens on
+        # startup: a .data missing its font or its shaders builds and uploads
+        # perfectly and then fails on somebody's machine.
+        working-directory: build_web_editor/editor
+        run: |
+          node --check PyrosBuilder.js
+          for f in assets/fonts/fa-solid-900.ttf assets/middleclass.lua shaders/PyrosShader.glsl; do
+            grep -q "$f" PyrosBuilder.js || { echo "missing from the preloaded FS: $f"; exit 1; }
+          done
+          echo "editor module OK - glue parses, packaged filesystem has its startup files"
+
+      - name: Upload editor artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: PyrosBuilder-web
+          path: build_web_editor/editor/
+          if-no-files-found: error
+
+  publish:
+    name: Publish to GitHub Pages
+    # Both artifacts, or the site would go up half-built. A failed editor
+    # build should not quietly republish yesterday's editor next to today's
+    # demos.
+    needs: [web, editor]
+    # Never from a pull request: a PR from a fork would otherwise be able to
+    # publish to the project's own site.
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Collect the artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Lay out the site
+        # The demos at the root (that is what the existing page expects - it
+        # loads ./Pyros3D.js), the editor one level down at /editor/. Keeping
+        # each module in the same directory as the page that loads it is what
+        # makes both work when served from a subpath, which is what Pages is.
+        run: |
+          mkdir -p site/editor
+          cp -r artifacts/Pyros3D-web/. site/
+          cp -r artifacts/PyrosBuilder-web/. site/editor/
+          # emscripten also emits its own default shell as PyrosBuilder.html.
+          # Ours is index.html; shipping both invites people to open the one
+          # with no resize and no fullscreen.
+          rm -f site/editor/PyrosBuilder.html
+          # A landing page, so the site root is not just whichever demo
+          # happens to be built.
+          cat > site/editor/README.txt <<'EOF'
+          PyrosBuilder in the browser. Open index.html.
+          EOF
+          ls -R site | head -40
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

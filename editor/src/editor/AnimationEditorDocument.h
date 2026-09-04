@@ -25,12 +25,14 @@
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
 struct AnimationPreview;
+namespace p3d { class SkeletonAnimationInstance; }
 
 // Two keys are "at the same time" within this many seconds. Timeline clicks,
 // keying and key dragging all resolve to a time rather than to an index (an
@@ -270,6 +272,52 @@ struct AnimationEditorDocument {
 	// document is first drawn, so a document opened purely to be read by an
 	// agent command never builds a renderer.
 	std::unique_ptr<AnimationPreview> preview;
+
+	// ---- the rig these clips are edited against ----------------------
+	//
+	// A .p3da document owns its rig: `preview` loads the bound .p3dm into a
+	// private scene and poses it there.
+	//
+	// A 2D character's clips are edited against a rig somebody else owns -
+	// the Character 2D editor builds the whole character (bones, artwork and
+	// all) in its own viewport, and the dope sheet keys the bones of THAT.
+	// Rebuilding a second copy here would mean posing a skeleton while
+	// looking at a different one.
+	//
+	// So an externally-backed document points at that instance and never
+	// builds a preview at all. Everything downstream - the dope sheet, keying,
+	// the transport, playhead scrubbing - goes through RigInstance() and
+	// cannot tell the two apart, which is the point: one dope sheet, not two.
+	p3d::SkeletonAnimationInstance* externalRig = nullptr;
+	// Bones posed but not yet keyed. AnimationPreview owns its own copy of
+	// this for the 3D path; an externally-backed document keeps it here.
+	std::map<int, p3d::Math::Matrix> externalPoseOverrides;
+	bool IsExternallyBacked() const { return externalRig != NULL; }
+
+	// The instance to read bones from and pose - the preview's for a .p3da
+	// document, the scene's for a 2D one. NULL when neither is bound.
+	p3d::SkeletonAnimationInstance* RigInstance() const;
+	std::map<int, p3d::Math::Matrix>* RigPoseOverrides();
+	// Bone id for a name, and back. -1 / empty when unknown.
+	int RigFindBone(const std::string& name) const;
+	std::string RigBoneName(int boneId) const;
+	unsigned RigBoneCount() const;
+
+	// Fired after any committed clip edit, with the state from before it.
+	// A .p3da document leaves this null: its own UndoStack and SaveToFile are
+	// the whole story. An externally-backed one (a 2D character) uses it to
+	// copy the clips back into the asset and to record the edit on the
+	// CHARACTER's undo stack, so Ctrl+Z after keying a pose undoes the key
+	// rather than the last thing that happened to the skeleton.
+	//
+	// Any document that sets useOwnUndo = false MUST set this too, or its
+	// keyframe edits land on no undo stack at all and Ctrl+Z silently reverts
+	// unrelated work instead.
+	std::function<void(const std::vector<p3d::Animation>& before, const std::string& label)> onClipsCommitted;
+	// Set for a scene-backed document, whose undo lives on the scene: the
+	// per-document stack would then hold a second, competing history that
+	// nothing ever pops.
+	bool useOwnUndo = true;
 
 	// ---- clip access -------------------------------------------------
 	bool HasActiveClip() const { return activeClip >= 0 && activeClip < (int)clips.size(); }

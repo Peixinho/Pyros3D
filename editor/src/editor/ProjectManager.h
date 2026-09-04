@@ -105,6 +105,10 @@ public:
 	std::string MaterialsPath() const;
 	std::string AnimationsPath() const;
 	std::string PrefabsPath() const;
+	// Where 2D characters live. Their own folder rather than assets/models:
+	// a .p3d2d is authored in this editor and references textures, so it has
+	// nothing in common with an imported model package.
+	std::string Characters2DPath() const;
 	std::string ScenesPath() const;
 
 	std::string AbsolutePath(const std::string& relative) const;
@@ -212,6 +216,7 @@ public:
 	static bool IsMaterialExtension(const std::string& path);
 	static bool IsAnimationExtension(const std::string& path); // .p3da
 	static bool IsPrefabExtension(const std::string& path);    // .prefab
+	static bool IsCharacter2DExtension(const std::string& path); // .p3d2d
 
 	// ------------------------------ Build --------------------------------
 	// Stages a runnable game: the PyrosPlayer binary, the engine's shaders,

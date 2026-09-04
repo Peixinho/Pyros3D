@@ -163,9 +163,14 @@ void EditorDebugDraw::drawLightGizmos(DebugRenderer* dbg, GameObject* viewCam, f
 		}
 	}
 
-	std::vector<std::shared_ptr<GameObject>>& all = sg->GetAllGameObjectList();
-	for (std::vector<std::shared_ptr<GameObject>>::iterator it = all.begin(); it != all.end(); ++it) {
-		GameObject* go = (*it).get();
+	// Recursive, for the same reason DrawSceneViewportIcons is: a child added
+	// with GameObject::Add() never appears in GetAllGameObjectList(), so in a
+	// layered scene this drew no light volumes, no spot cones and no normals
+	// for anything.
+	std::vector<GameObject*> all;
+	sg->CollectGameObjectsRecursive(all);
+	for (std::vector<GameObject*>::iterator it = all.begin(); it != all.end(); ++it) {
+		GameObject* go = *it;
 		if (!go || shouldSkipGO(go, skipA, skipB, skipC)) continue;
 
 		const std::vector<std::shared_ptr<IComponent>>& comps = go->GetComponents();

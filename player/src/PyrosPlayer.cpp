@@ -437,7 +437,9 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	UnloadGameScene();
 
 	const std::string abs = ResolvePath(sceneRel);
-	SceneMeta meta;
+	// Reset rather than shadowed: this is the player's own member now, and a
+	// scene loaded after another must not inherit the previous one's view.
+	meta = SceneMeta();
 #ifdef LUA_BINDINGS
 	sol::state* luaPtr = &lua;
 #else
@@ -561,6 +563,34 @@ void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
 	cameraNear = 0.1f;
 	cameraFar = 2000.f;
 
+	// A scene that frames itself (SceneMeta::View2D) needs no camera object.
+	// The GameObject below still exists because RenderScene() wants something
+	// to render *from* - but it is this player's own, driven from the scene's
+	// view every frame, and nothing about it has to be authored.
+	if (meta.view2D.enabled)
+	{
+		if (!fallbackCamera) fallbackCamera = std::make_shared<GameObject>();
+		scene->Add(fallbackCamera);
+		activeCamera = fallbackCamera.get();
+		cameraOrthographic = true;
+		cameraNear = SceneMeta::View2D::kNear;
+		cameraFar = SceneMeta::View2D::kFar;
+		UpdateView2DCamera(0.f);
+		// Said out loud, the way the swapchain mode is: "why is my game
+		// looking at the wrong place" is a question the log should answer, and
+		// a scene framed by itself has no camera object to inspect instead.
+		{
+			char buf[256];
+			snprintf(buf, sizeof(buf),
+				"Scene framed by its own 2D view: centre (%.2f, %.2f), half-height %.2f%s%s",
+				meta.view2D.center.x, meta.view2D.center.y, meta.view2D.halfHeight,
+				meta.view2D.follow.empty() ? "" : ", following ",
+				meta.view2D.follow.c_str());
+			echo(buf);
+		}
+		return;
+	}
+
 	// Which GameObject is a camera, and which one is active, is recorded by
 	// the editor in <scene>.json.editor.json - the scene file itself has no
 	// notion of a camera, so without this sidecar a built game would have
@@ -646,8 +676,44 @@ void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
 			" Add a camera in the editor and set it active.");
 }
 
+void PyrosPlayer::UpdateView2DCamera(const f32 dt)
+{
+	if (!meta.view2D.enabled || !activeCamera) return;
+
+	// Follow, then clamp, then place. In that order: clamping a position the
+	// follow has not produced yet would fight it every frame.
+	if (!meta.view2D.follow.empty() && scene)
+	{
+		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
+		for (size_t i = 0; i < all.size(); ++i)
+			if (all[i] && all[i]->GetName() == meta.view2D.follow)
+			{
+				meta.view2D.Track(all[i]->GetWorldPosition(), dt);
+				break;
+			}
+	}
+	const f32 aspect = (Height > 0) ? ((f32)Width / (f32)Height) : 1.f;
+	meta.view2D.ClampCenter(aspect);
+
+	activeCamera->SetTransformationMatrix(meta.view2D.CameraMatrix());
+	// SetTransformationMatrix only writes the LOCAL matrix; the world matrix
+	// the frame is actually viewed through is rebuilt in scene->Update(),
+	// which for the camera's own placement has to be forced here - the same
+	// trap the editor's rig viewport documents.
+	activeCamera->RefreshTransformation();
+}
+
 void PyrosPlayer::ApplyProjection()
 {
+	// A self-framing 2D scene owns its projection: height is authored, width
+	// follows from the window, so the same scene fills any window.
+	if (meta.view2D.enabled)
+	{
+		const f32 a = (Height > 0) ? ((f32)Width / (f32)Height) : 1.f;
+		projection = meta.view2D.MakeProjection(a);
+		return;
+	}
+
 	const f32 aspect = (Height > 0) ? ((f32)Width / (f32)Height) : 1.f;
 	if (cameraOrthographic)
 	{
@@ -671,6 +737,55 @@ void PyrosPlayer::PushLuaHostGlobals()
 	// exactly right - it is the same thing.
 	lua["setRenderCamera"] = [this](GameObject* go) { if (go) activeCamera = go; };
 	lua["loadScene"] = [this](const std::string& name) { pendingLoadSceneName = name; };
+
+	// The scene's own 2D view, as a table of plain functions rather than a
+	// usertype: it is a handful of numbers on the scene, not an object with a
+	// lifetime, and a script wanting "move the camera left" should not have to
+	// find out what owns it.
+	//
+	// Writing any of these turns the view on. A script that positions the view
+	// has said, unambiguously, that the scene is framed by it.
+	{
+		sol::table v = lua.create_table();
+		v["setCenter"] = [this](f32 x, f32 y) {
+			meta.view2D.enabled = true;
+			meta.view2D.center = Vec2(x, y);
+		};
+		v["center"] = [this]() {
+			return std::make_tuple(meta.view2D.center.x, meta.view2D.center.y);
+		};
+		v["setZoom"] = [this](f32 halfHeight) {
+			meta.view2D.enabled = true;
+			if (halfHeight > 0.0001f) meta.view2D.halfHeight = halfHeight;
+			// The projection is rebuilt from this, and nothing else will ask
+			// for it until the window resizes.
+			ApplyProjection();
+		};
+		v["zoom"] = [this]() { return meta.view2D.halfHeight; };
+		// By NAME, matching how the editor stores it. An empty name is a
+		// fixed view, which is how you stop following something.
+		v["follow"] = [this](const std::string& name, sol::optional<f32> lag) {
+			meta.view2D.enabled = true;
+			meta.view2D.follow = name;
+			if (lag) meta.view2D.followLag = *lag;
+		};
+		v["setFollowOffset"] = [this](f32 x, f32 y) { meta.view2D.followOffset = Vec2(x, y); };
+		// Which axes the follow moves. followAxes(true, false) is the
+		// side-scroller default: track the character across the level, leave
+		// the horizon where it is.
+		v["followAxes"] = [this](bool x, bool y) {
+			meta.view2D.followX = x;
+			meta.view2D.followY = y;
+		};
+		v["setBounds"] = [this](f32 minX, f32 minY, f32 maxX, f32 maxY) {
+			meta.view2D.enabled = true;
+			meta.view2D.clamp = true;
+			meta.view2D.clampMin = Vec2(minX, minY);
+			meta.view2D.clampMax = Vec2(maxX, maxY);
+		};
+		v["clearBounds"] = [this]() { meta.view2D.clamp = false; };
+		lua["view"] = v;
+	}
 	// Show a 2D scene over whatever is running, and take it down again. The
 	// scene shown is an ordinary scene file - usually one marked twoD - so a
 	// pause menu can also be opened on its own with loadScene().
@@ -814,6 +929,11 @@ void PyrosPlayer::Update()
 		catch (const std::exception& e) { echo(std::string("ERROR: scene main script update - ") + e.what()); }
 	}
 #endif
+
+	// The scene's own 2D view, after the script has had its say. A script
+	// that moves the followed object, or writes view.center itself, has run by
+	// now; doing this before it would render one frame behind whatever it did.
+	UpdateView2DCamera((f32)dt);
 
 	if (AudioManager* audio = AudioManager::GetActive())
 		if (activeCamera) audio->SetListenerFromGameObject(activeCamera, dt);

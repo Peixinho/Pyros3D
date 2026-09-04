@@ -298,15 +298,58 @@ void AnimationEditorDocument::Restore(const ClipsSnapshot& snap)
 	dirty = true;
 }
 
+// ---- rig access ------------------------------------------------------------
+// See the header: `preview` for a .p3da document, `externalRig` for a 2D one.
+
+SkeletonAnimationInstance* AnimationEditorDocument::RigInstance() const
+{
+	if (externalRig) return externalRig;
+	return preview ? preview->instance : NULL;
+}
+
+std::map<int, Matrix>* AnimationEditorDocument::RigPoseOverrides()
+{
+	if (externalRig) return &externalPoseOverrides;
+	return preview ? &preview->poseOverrides : NULL;
+}
+
+unsigned AnimationEditorDocument::RigBoneCount() const
+{
+	SkeletonAnimationInstance* inst = RigInstance();
+	return inst ? (unsigned)inst->GetNumberBones() : 0u;
+}
+
+int AnimationEditorDocument::RigFindBone(const std::string& name) const
+{
+	SkeletonAnimationInstance* inst = RigInstance();
+	if (!inst || name.empty()) return -1;
+	const std::vector<Bone>& bones = inst->GetSkeletonBones();
+	for (size_t i = 0; i < bones.size(); i++)
+		if (bones[i].name == name) return bones[i].self;
+	return -1;
+}
+
+std::string AnimationEditorDocument::RigBoneName(int boneId) const
+{
+	SkeletonAnimationInstance* inst = RigInstance();
+	if (!inst || boneId < 0) return std::string();
+	const std::vector<Bone>& bones = inst->GetSkeletonBones();
+	for (size_t i = 0; i < bones.size(); i++)
+		if (bones[i].self == boneId) return bones[i].name;
+	return std::string();
+}
+
 void AnimationEditorDocument::PushSnapshotEdit(const std::string& description, const std::function<void()>& edit)
 {
 	ClipsSnapshot before = Snapshot();
 	edit();
 	ClipsSnapshot after = Snapshot();
-	undo.Push(std::unique_ptr<IUndoableCommand>(
-		new AnimationSnapshotCommand(this, before, after, description)));
+	if (useOwnUndo)
+		undo.Push(std::unique_ptr<IUndoableCommand>(
+			new AnimationSnapshotCommand(this, before, after, description)));
 	clipsRevision++;
 	dirty = true;
+	if (onClipsCommitted) onClipsCommitted(before.clips, description);
 }
 
 void AnimationEditorDocument::PushBlendEdit(const std::string& description,
@@ -363,10 +406,12 @@ void AnimationEditorDocument::EndInteractiveEdit(const std::string& description)
 	// broken, since undoing it would visibly do nothing.
 	if (after.Equals(interactiveBefore)) return;
 
-	undo.Push(std::unique_ptr<IUndoableCommand>(
-		new AnimationSnapshotCommand(this, interactiveBefore, after, description)));
+	if (useOwnUndo)
+		undo.Push(std::unique_ptr<IUndoableCommand>(
+			new AnimationSnapshotCommand(this, interactiveBefore, after, description)));
 	clipsRevision++;
 	dirty = true;
+	if (onClipsCommitted) onClipsCommitted(interactiveBefore.clips, description);
 }
 
 // ---- file I/O --------------------------------------------------------------

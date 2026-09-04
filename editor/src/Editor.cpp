@@ -12,6 +12,7 @@
 // The agent bridge reaches into an animation document's live rig (bone
 // names, current pose) - AnimationEditorDocument only forward-declares it.
 #include "editor/AnimationPreview.h"
+#include "editor/Character2DPreview.h"
 #include "editor/UI/OpenDir.h"
 #include "editor/FileDropQueue.h"
 #include "editor/AssetCommands.h"
@@ -122,6 +123,11 @@ void Editor::ShowAssetCreateMenuItems()
 	}
 	if (ImGui::MenuItem("New Animation..."))
 		openNewAnimationModal = true;
+	// Opens an empty character document rather than a name prompt: a
+	// character is named when it is first saved, and there is nothing useful
+	// to decide before you have put a bone in it.
+	if (ImGui::MenuItem("New 2D Character"))
+		NewCharacter2DDocument();
 	ImGui::Separator();
 	if (ImGui::MenuItem("Import Animation..."))
 	{
@@ -305,6 +311,13 @@ Editor::Editor() : ClassName(1024,768,"PyrosBuilder",WindowType::Close | WindowT
 	openNewAnimationModal = false;
 	openImportAnimationModal = false;
 	openImportAnimationBrowse = false;
+
+	activeCharacter2DDoc = NULL;
+	nextCharacter2DDocId = 1;
+	pendingSelectCharacter2DDocId = 0;
+	openSaveCharacter2DAsModal = false;
+	saveCharacter2DAsDocId = 0;
+	saveCharacter2DAsThenClose = false;
 }
 
 #ifdef LUA_BINDINGS
@@ -500,7 +513,17 @@ void Editor::Init()
 	});
 	// Editor Log panel is the only sink — no OS terminal spam. Everything
 	// includes Info so Lua print() shows up.
+#if defined(EMSCRIPTEN)
+	// Keep mirroring in the browser. On the desktop the console is a separate
+	// terminal that fills with noise, which is what this switch is for - but
+	// in a browser there IS no terminal, the devtools console is the only
+	// place a developer looks, and the editor's own Log panel is inside the
+	// canvas they are trying to debug. Silencing it there means a shader that
+	// fails to compile reports itself somewhere nobody can reach.
+	p3d::LOG::_LOG::SetMirrorStdout(true);
+#else
 	p3d::LOG::_LOG::SetMirrorStdout(false);
+#endif
 	p3d::LOG::_LOG::SetLevel(p3d::LOG::Level::Info);
 	sharedAudio = new AudioManager();
 #ifdef LUA_BINDINGS
@@ -767,6 +790,12 @@ static uint32 KeyNameToCode(const std::string &nameIn)
 	if (n == "DOWN")      return Event::Input::Keyboard::Down;
 	if (n == "PAGEUP")    return Event::Input::Keyboard::PageUp;
 	if (n == "PAGEDOWN")  return Event::Input::Keyboard::PageDown;
+	// The viewport's view presets are on the numpad and were unreachable from
+	// the socket, so nothing could check what they do to the camera.
+	if (n == "NUMPAD0")   return Event::Input::Keyboard::Numpad0;
+	if (n == "NUMPAD1")   return Event::Input::Keyboard::Numpad1;
+	if (n == "NUMPAD2")   return Event::Input::Keyboard::Numpad2;
+	if (n == "NUMPAD3")   return Event::Input::Keyboard::Numpad3;
 	return 0xFFFFFFFF;
 }
 
@@ -813,6 +842,44 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			r["scenePath"] = project.DisplayPath(sceneView->GetScenePath());
 			r["dirty"] = sceneView->IsSceneDirty();
 			r["playing"] = sceneView->IsPlaying();
+		}
+
+		// Every open scene document, not just the active one. Rules like "a 2D
+		// scene always uses forward" are per DOCUMENT, so a caller with one
+		// scene's answer knows nothing about the other - and there was no way
+		// to see the others at all.
+		{
+			nlohmann::json docs = nlohmann::json::array();
+			for (size_t i = 0; i < sceneDocs.size(); ++i)
+			{
+				if (!sceneDocs[i]) continue;
+				nlohmann::json d;
+				d["name"] = sceneDocs[i]->GetSceneDisplayName();
+				d["path"] = project.DisplayPath(sceneDocs[i]->GetScenePath());
+				d["twoD"] = sceneDocs[i]->IsTwoDScene();
+				d["renderer"] = sceneDocs[i]->WillUseDeferredRenderer() ? "deferred" : "forward";
+				d["dirty"] = sceneDocs[i]->IsSceneDirty();
+				d["active"] = (sceneDocs[i] == sceneView);
+				docs.push_back(d);
+			}
+			r["sceneDocuments"] = docs;
+		}
+
+		// Open character documents, for the same reason.
+		{
+			nlohmann::json chars = nlohmann::json::array();
+			for (size_t i = 0; i < character2DDocs.size(); ++i)
+			{
+				if (!character2DDocs[i]) continue;
+				nlohmann::json d;
+				d["name"] = character2DDocs[i]->displayName;
+				d["path"] = character2DDocs[i]->absolutePath.empty()
+					? std::string() : project.DisplayPath(character2DDocs[i]->absolutePath);
+				d["dirty"] = character2DDocs[i]->dirty;
+				d["active"] = (character2DDocs[i] == activeCharacter2DDoc);
+				chars.push_back(d);
+			}
+			r["character2DDocuments"] = chars;
 		}
 		return r;
 	}
@@ -1962,7 +2029,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 
 	if (name == "select_object")
 	{
-		if (!sceneView->AgentSelectObject(A("name"), err))
+		if (!sceneView->AgentSelectObject(A("name"), A("component"), err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -2078,6 +2145,69 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		nlohmann::json r;
 		r["ok"] = true;
 		r["projection"] = sceneView->AgentIsViewportOrthographic() ? "orthographic" : "perspective";
+		return r;
+	}
+	// {"cmd":"set_game_view_2d","args":{"center":[0,2],"zoom":6,
+	//  "follow":"Hero","lag":0.25,"bounds":[-20,-5,20,10]}}
+	// The scene's OWN framing - what the game shows. Distinct from
+	// set_viewport_2d, which only moves the editor's eye.
+	if (name == "set_game_view_2d")
+	{
+		if (!sceneView->IsTwoDScene())
+			throw std::runtime_error("set_game_view_2d: this is not a 2D scene");
+		p3d::SceneMeta::View2D& v = sceneView->view2D;
+		v.enabled = a.is_object() ? a.value("enabled", true) : true;
+		std::vector<f32> c = AV("center");
+		if (c.size() >= 2) v.center = Vec2(c[0], c[1]);
+		if (a.is_object() && a.contains("zoom"))
+		{
+			const f32 z = a.value("zoom", 5.0f);
+			if (z > 0.0001f) v.halfHeight = z;
+		}
+		if (a.is_object() && a.contains("follow")) v.follow = a.value("follow", std::string());
+		if (a.is_object() && a.contains("lag")) v.followLag = a.value("lag", 0.0f);
+		if (a.is_object() && a.contains("followX")) v.followX = a.value("followX", true);
+		if (a.is_object() && a.contains("followY")) v.followY = a.value("followY", true);
+		std::vector<f32> fo = AV("followOffset");
+		if (fo.size() >= 2) v.followOffset = Vec2(fo[0], fo[1]);
+		std::vector<f32> b = AV("bounds");
+		if (b.size() >= 4)
+		{
+			v.clamp = true;
+			v.clampMin = Vec2(b[0], b[1]);
+			v.clampMax = Vec2(b[2], b[3]);
+		}
+		else if (a.is_object() && a.contains("bounds")) v.clamp = false;
+		sceneView->MarkSceneDirty();
+		nlohmann::json r;
+		r["ok"] = true;
+		r["center"] = { v.center.x, v.center.y };
+		r["zoom"] = v.halfHeight;
+		r["follow"] = v.follow;
+		return r;
+	}
+	// {"cmd":"game_view_2d"} - what the game will show.
+	if (name == "game_view_2d")
+	{
+		const p3d::SceneMeta::View2D& v = sceneView->view2D;
+		nlohmann::json r;
+		r["enabled"] = v.enabled;
+		r["center"] = { v.center.x, v.center.y };
+		r["zoom"] = v.halfHeight;
+		r["follow"] = v.follow;
+		r["lag"] = v.followLag;
+		r["followX"] = v.followX;
+		r["followY"] = v.followY;
+		r["clamped"] = v.clamp;
+		// Why play mode may not be using it - the three things that override
+		// a scene's own view.
+		r["playMode"] = sceneView->IsInPlayMode();
+		r["activeCameraObject"] = sceneView->HasActiveSceneCamera();
+		if (v.clamp)
+		{
+			r["boundsMin"] = { v.clampMin.x, v.clampMin.y };
+			r["boundsMax"] = { v.clampMax.x, v.clampMax.y };
+		}
 		return r;
 	}
 	if (name == "set_viewport_2d")
@@ -2241,6 +2371,40 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// Which manipulator the viewport shows. The mode is only reachable through
+	// the toolbar or an ImGui key, neither of which the socket can drive, so
+	// nothing could exercise the gizmos from here.
+	//   {"cmd":"set_gizmo","args":{"mode":"move"|"rotate"|"scale"}}
+	if (name == "set_gizmo")
+	{
+		std::string mode = A("mode");
+		for (size_t i = 0; i < mode.size(); i++) mode[i] = (char)tolower((unsigned char)mode[i]);
+		if (mode == "move" || mode == "translate") sceneView->UseTranslationManipulator();
+		else if (mode == "rotate" || mode == "rotation") sceneView->UseRotationManipulator();
+		else if (mode == "scale") sceneView->UseScaleManipulator();
+		else throw std::runtime_error("set_gizmo: mode must be move, rotate or scale");
+		nlohmann::json r; r["mode"] = mode; return r;
+	}
+
+	// {"cmd":"open_scene","args":{"path":"scenes/Level2.json"}}
+	// A scene as ANOTHER document, beside the one already open - what
+	// double-clicking a scene in the Assets panel does. Distinct from
+	// load_scene, which replaces the current document's contents: with two
+	// documents open each keeps its own renderer, selection and undo history,
+	// and that difference is exactly what an agent needs to reach to test
+	// anything per-document.
+	if (name == "open_scene")
+	{
+		const std::string rel = A("path");
+		if (rel.empty()) throw std::runtime_error("open_scene: 'path' is required");
+		if (!OpenSceneDocument(project.AbsolutePath(rel)))
+			throw std::runtime_error("could not open " + rel);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = rel;
+		return r;
+	}
+
 	if (name == "undo")
 	{
 		sceneView->Undo();
@@ -2255,6 +2419,20 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// Per-document, like undo_material: Ctrl+Z in the editor acts on whichever
+	// document has focus, and an agent has no focus to act on.
+	if (name == "undo_character2d" || name == "redo_character2d")
+	{
+		if (!activeCharacter2DDoc)
+			throw std::runtime_error("no 2D character is open");
+		if (name == "undo_character2d") activeCharacter2DDoc->undo.Undo();
+		else activeCharacter2DDoc->undo.Redo();
+		nlohmann::json r;
+		r["ok"] = true;
+		r["canUndo"] = activeCharacter2DDoc->undo.CanUndo();
+		r["canRedo"] = activeCharacter2DDoc->undo.CanRedo();
+		return r;
+	}
 	if (name == "undo_material" || name == "redo_material")
 	{
 		std::string aerr;
@@ -2263,6 +2441,11 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		if (name == "undo_material") doc->undo.Undo(); else doc->undo.Redo();
 		nlohmann::json r;
 		r["ok"] = true;
+		// What is left, so a caller can tell "undone" from "there was nothing
+		// to undo" - the animation and character commands already report this
+		// and there is no reason for materials to be the odd one out.
+		r["canUndo"] = doc->undo.CanUndo();
+		r["canRedo"] = doc->undo.CanRedo();
 		return r;
 	}
 	if (name == "attach_script")
@@ -2410,10 +2593,28 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		const std::string type = A("type");
 		if (type != "forward" && type != "deferred")
 			throw std::runtime_error("set_renderer requires type='forward' or 'deferred'");
-		SwitchAllScenesRenderer(type == "deferred");
+		const bool wanted = (type == "deferred");
+		// The PROJECT setting too, not only the open documents. This is the
+		// agent's Project Settings > Renderer, and changing documents alone
+		// meant the next scene opened reverted to whatever the project still
+		// said - the change looked like it had stuck and had not.
+		if (project.IsOpen())
+		{
+			project.GetSettingsMutable().rendererType =
+				wanted ? ProjectRendererType::Deferred : ProjectRendererType::Forward;
+			project.MarkDirty();
+		}
+		SwitchAllScenesRenderer(wanted);
 		nlohmann::json r;
 		r["ok"] = true;
-		r["rendererType"] = type;
+		// What the ACTIVE scene ended up on, not what was asked for: a 2D
+		// scene overrides this to forward, and reporting the request back
+		// verbatim told the caller a switch had happened when it had not.
+		const bool effective = (sceneView && sceneView->WillUseDeferredRenderer());
+		r["rendererType"] = effective ? "deferred" : "forward";
+		r["requested"] = type;
+		if (wanted != effective && sceneView && sceneView->IsTwoDScene())
+			r["note"] = "the open scene is 2D, which always uses forward - deferred cannot blend sprites";
 		return r;
 	}
 	// Synthetic keyboard, straight into InputManager - the same entry point
@@ -2526,167 +2727,499 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	//    "sheet":"assets/textures/hero_run.png","cols":8,"rows":1,"fps":12}}
 	// {"cmd":"set_pivot","args":{"object":"Hero","pivot":[0.5,0.0]}}
 	// Normalized over the geometry's bounds: (0.5,0.5) middle, (0.5,0) bottom.
-	// Appends a bone to an object's skeleton, authored rather than imported.
-	//   {"cmd":"add_bone2d","args":{"object":"Rig","bone":"Upper","parent":"Root","pos":[0,1]}}
+	// ---- 2D characters -------------------------------------------------
+	// These drive the Character 2D EDITOR, not a scene. A character is an
+	// asset that owns its bones, its artwork and its clips, so every one of
+	// them needs a character document open - which new_character2d and
+	// open_character2d are for. Scenes only place a finished character
+	// (add_character2d) and pick which clip it starts on (set_autoplay2d).
+
+	// The open document, or a clear error naming the command to run first.
+	// Every command below starts here, so "no character open" is reported
+	// once rather than being a null dereference in fifteen places.
+	auto RequireCharacter2D = [&]() -> Character2DDocument* {
+		if (!activeCharacter2DDoc)
+			throw std::runtime_error("no 2D character is open - use new_character2d or open_character2d first");
+		return activeCharacter2DDoc;
+	};
+	// Several commands below pose or key the rig, which only exists once the
+	// viewport has built it. Building it here rather than in each of them
+	// keeps "the agent drove it" and "a person clicked it" on one path.
+	// Also switches the document into Animate mode. The Bones and Sprites
+	// stages deliberately show the REST pose and re-assert it every frame -
+	// that is what you want while placing artwork - so a pose or a scrub made
+	// while one of those is showing would be wiped before it could be seen.
+	// Posing IS animating, so the mode follows the command.
+	auto Character2DRig = [&](Character2DDocument* doc) -> SkeletonAnimationInstance* {
+		if (!doc->preview) doc->preview.reset(new Character2DPreview());
+		doc->preview->Sync(*doc);
+		doc->mode = Character2DDocument::Mode::Animate;
+		return doc->preview->built.instance;
+	};
+
+	// {"cmd":"new_character2d","args":{"name":"Hero"}}
+	if (name == "new_character2d")
+	{
+		Character2DDocument* doc = NewCharacter2DDocument();
+		const std::string wanted = A("name");
+		if (!wanted.empty()) doc->displayName = wanted;
+		nlohmann::json r; r["ok"] = true; r["character"] = doc->displayName;
+		return r;
+	}
+
+	// {"cmd":"open_character2d","args":{"path":"assets/characters/Hero.p3d2d"}}
+	if (name == "open_character2d")
+	{
+		const std::string rel = A("path");
+		if (rel.empty()) throw std::runtime_error("open_character2d: 'path' is required");
+		if (!OpenCharacter2DDocument(project.AbsolutePath(rel)))
+			throw std::runtime_error("could not open " + rel);
+		nlohmann::json r; r["ok"] = true; r["character"] = activeCharacter2DDoc->displayName;
+		return r;
+	}
+
+	// {"cmd":"save_character2d","args":{"path":"assets/characters/Hero.p3d2d"}}
+	// `path` is optional once the character has been saved once.
+	if (name == "save_character2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		std::string target = A("path");
+		if (!target.empty()) target = project.AbsolutePath(target);
+		else if (doc->absolutePath.empty())
+			target = (fs::path(project.Characters2DPath()) / (doc->displayName + ".p3d2d")).string();
+		if (!SaveCharacter2DDocument(doc, target))
+			throw std::runtime_error("could not save the character");
+		nlohmann::json r; r["ok"] = true; r["path"] = project.DisplayPath(doc->absolutePath);
+		return r;
+	}
+
+	// {"cmd":"add_bone2d","args":{"bone":"Upper","parent":"Root","pos":[0,1]}}
 	if (name == "add_bone2d")
 	{
-		const std::string objName = A("object");
+		Character2DDocument* doc = RequireCharacter2D();
 		const std::string boneName = A("bone");
-		if (objName.empty() || boneName.empty())
-			throw std::runtime_error("add_bone2d: 'object' and 'bone' are required");
+		if (boneName.empty()) throw std::runtime_error("add_bone2d: 'bone' is required");
 		std::vector<f32> p = AV("pos");
 		const Vec2 lp(p.size() > 0 ? p[0] : 0.f, p.size() > 1 ? p[1] : 0.f);
-		if (!sceneView->AgentAddBone2D(objName, boneName, A("parent"), lp, err))
-			throw std::runtime_error(err);
+		if (!doc->AddBone(boneName, A("parent"), lp, err)) throw std::runtime_error(err);
 		nlohmann::json r; r["ok"] = true; r["bone"] = boneName;
 		return r;
 	}
 
-	// {"cmd":"pose_bone2d","args":{"object":"Rig","bone":"Root","rotation":90}}
+	// {"cmd":"remove_bone2d","args":{"bone":"Upper"}}
+	if (name == "remove_bone2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string boneName = A("bone");
+		if (boneName.empty()) throw std::runtime_error("remove_bone2d: 'bone' is required");
+		if (!doc->RemoveBone(boneName, err)) throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true;
+		return r;
+	}
+
+	// {"cmd":"rename_bone2d","args":{"bone":"ArmL","to":"ArmLeft"}}
+	// Everything refers to a bone by name, so this follows through into the
+	// artwork pinned to it and the clip channels animating it.
+	if (name == "rename_bone2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string from = A("bone"), to = A("to");
+		if (from.empty() || to.empty())
+			throw std::runtime_error("rename_bone2d: 'bone' and 'to' are required");
+		if (!doc->RenameBone(from, to, err)) throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true;
+		return r;
+	}
+
+	// {"cmd":"reparent_bone2d","args":{"bone":"HandL","parent":"Spine"}}
+	// Keeps the bone where it is on screen - reparenting is about who drives
+	// whom, not about moving artwork. Rejects a cycle.
+	if (name == "reparent_bone2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string bone = A("bone");
+		if (bone.empty()) throw std::runtime_error("reparent_bone2d: 'bone' is required");
+		if (!doc->ReparentBone(bone, A("parent"), err)) throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true;
+		return r;
+	}
+
+	// {"cmd":"set_bone2d","args":{"bone":"Upper","pos":[0,1],"rotation":15}}
+	// The REST pose - the character's shape, not its animation.
+	if (name == "set_bone2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string boneName = A("bone");
+		if (boneName.empty()) throw std::runtime_error("set_bone2d: 'bone' is required");
+		const int id = doc->FindBone(boneName);
+		if (id < 0) throw std::runtime_error("bone '" + boneName + "' not found");
+		std::vector<f32> p = AV("pos");
+		const Vec2 lp(p.size() > 0 ? p[0] : doc->asset.bones[id].pos.x,
+		              p.size() > 1 ? p[1] : doc->asset.bones[id].pos.y);
+		// Degrees in, as everywhere an agent or a person types an angle.
+		const float deg = a.is_object() ? a.value("rotation", 0.0f) : 0.0f;
+		if (!doc->SetBoneRest(boneName, lp, deg, err)) throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true;
+		return r;
+	}
+
+	// {"cmd":"add_sprite2d","args":{"name":"Torso",
+	//  "texture":"textures/torso.png","bone":"Spine"}}
+	if (name == "add_sprite2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string spriteName = A("name");
+		if (spriteName.empty()) throw std::runtime_error("add_sprite2d: 'name' is required");
+		if (!doc->AddSprite(spriteName, A("texture"), A("bone"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["sprite"] = spriteName;
+		return r;
+	}
+
+	// {"cmd":"remove_sprite2d","args":{"name":"Torso"}}
+	if (name == "remove_sprite2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string spriteName = A("name");
+		if (spriteName.empty()) throw std::runtime_error("remove_sprite2d: 'name' is required");
+		if (!doc->RemoveSprite(spriteName, err)) throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true;
+		return r;
+	}
+
+	// {"cmd":"set_sprite2d","args":{"name":"Torso","bone":"Spine",
+	//  "texture":"textures/torso.png","offset":[0,0.2],"scale":[1,1],
+	//  "pivot":[0.5,0],"z":0.1,"lit":true}}
+	// Every field optional; only the ones given are changed.
+	if (name == "set_sprite2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string spriteName = A("name");
+		if (spriteName.empty()) throw std::runtime_error("set_sprite2d: 'name' is required");
+		const int id = doc->FindSprite(spriteName);
+		if (id < 0) throw std::runtime_error("sprite '" + spriteName + "' not found");
+
+		const std::string before = doc->Snapshot();
+		SpritePart2D& sp = doc->asset.parts[id];
+		if (a.is_object())
+		{
+			if (a.contains("bone"))
+			{
+				const std::string bn = a.value("bone", std::string());
+				if (!bn.empty() && doc->FindBone(bn) < 0)
+					throw std::runtime_error("bone '" + bn + "' not found");
+				sp.bone = bn;
+			}
+			if (a.contains("texture")) sp.texture = a.value("texture", std::string());
+			if (a.contains("z")) sp.z = a.value("z", 0.0f);
+			if (a.contains("lit")) sp.lit = a.value("lit", false);
+		}
+		std::vector<f32> o = AV("offset"); if (o.size() >= 2) sp.offset = Vec2(o[0], o[1]);
+		std::vector<f32> sc = AV("scale");  if (sc.size() >= 2) sp.scale = Vec2(sc[0], sc[1]);
+		std::vector<f32> pv = AV("pivot");  if (pv.size() >= 2) sp.pivot = Vec2(pv[0], pv[1]);
+		doc->PushEdit(before, "Edit Sprite '" + spriteName + "'");
+		doc->TouchRig();
+		nlohmann::json r; r["ok"] = true;
+		return r;
+	}
+
+	// {"cmd":"new_clip2d","args":{"clip":"Walk","duration":1.0}}
+	if (name == "new_clip2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string clipName = A("clip");
+		if (clipName.empty()) throw std::runtime_error("new_clip2d: 'clip' is required");
+		const float dur = a.is_object() ? a.value("duration", 1.0f) : 1.0f;
+		if (!doc->AddClip(clipName, dur, err)) throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["clip"] = clipName;
+		return r;
+	}
+
+	// {"cmd":"remove_clip2d","args":{"clip":"Walk"}}
+	if (name == "remove_clip2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string clipName = A("clip");
+		if (clipName.empty()) throw std::runtime_error("remove_clip2d: 'clip' is required");
+		if (!doc->RemoveClip(clipName, err)) throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true;
+		return r;
+	}
+
+	// {"cmd":"rename_clip2d","args":{"clip":"Wave","to":"Greet"}}
+	// Follows through into the character's own default clip. Scenes address a
+	// clip by name, so a scene that named the old one stops auto-playing -
+	// which is why the rename is worth doing here rather than by hand.
+	if (name == "rename_clip2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string from = A("clip"), to = A("to");
+		if (from.empty() || to.empty())
+			throw std::runtime_error("rename_clip2d: 'clip' and 'to' are required");
+		if (!doc->RenameClip(from, to, err)) throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true;
+		return r;
+	}
+
+	// {"cmd":"set_default_clip2d","args":{"clip":"Walk","loop":true}}
+	// The clip a scene gets when it places this character and says nothing
+	// else, so a character that walks by default walks in every scene.
+	if (name == "set_default_clip2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string clipName = A("clip");
+		if (!clipName.empty() && doc->asset.FindClip(clipName) < 0)
+			throw std::runtime_error("clip '" + clipName + "' not found");
+		const std::string before = doc->Snapshot();
+		doc->asset.defaultClip = clipName;
+		doc->asset.defaultClipLoops = a.is_object() ? a.value("loop", true) : true;
+		doc->PushEdit(before, "Set Default Clip");
+		nlohmann::json r; r["ok"] = true; r["defaultClip"] = clipName;
+		return r;
+	}
+
+	// {"cmd":"pose_bone2d","args":{"bone":"Root","rotation":90}}
+	// Poses the LIVE rig without keying. Follow with key_pose2d to store it.
 	if (name == "pose_bone2d")
 	{
-		const std::string objName = A("object");
+		Character2DDocument* doc = RequireCharacter2D();
+		SkeletonAnimationInstance* inst = Character2DRig(doc);
+		if (!inst) throw std::runtime_error("this character has no skeleton yet");
+
 		const std::string boneName = A("bone");
-		if (objName.empty() || boneName.empty())
-			throw std::runtime_error("pose_bone2d: 'object' and 'bone' are required");
+		const int id = doc->FindBone(boneName);
+		if (id < 0) throw std::runtime_error("bone '" + boneName + "' not found");
+
+		// Degrees in; the engine's Euler angles are radians. In the plane a
+		// bone rotates about Z and nothing else.
 		const float deg = a.is_object() ? a.value("rotation", 0.0f) : 0.0f;
-		if (!sceneView->AgentPoseBone2D(objName, boneName, deg, err))
-			throw std::runtime_error(err);
+		Matrix local;
+		local.RotationZ((f32)DEGTORAD(deg));
+		local.Translate(inst->GetBindPoseLocal(id).GetTranslation());
+		inst->SetBoneLocalTransform(id, local);
+		inst->RefreshSkinning();
+		// Pending, not keyed - the same state a viewport drag leaves behind,
+		// so key_pose2d means the same thing however the pose was made.
+		doc->anim.externalPoseOverrides[id] = local;
+		if (doc->preview->characterRC) doc->preview->characterRC->RefreshSpriteParts2D();
+
 		nlohmann::json r; r["ok"] = true; r["bone"] = boneName; r["rotation"] = deg;
 		return r;
 	}
 
-	// {"cmd":"ik_solve2d","args":{"object":"Rig","root":"Root","effector":"Lower","target":[1,1]}}
-	if (name == "ik_solve2d")
+	// {"cmd":"key_pose2d","args":{"clip":"Walk","time":0.5}}
+	// Keys whatever is posed right now. `bone` restricts it to one bone.
+	if (name == "key_pose2d" || name == "key_bone2d")
 	{
-		const std::string objName = A("object");
-		const std::string rootB = A("root");
-		const std::string effB = A("effector");
-		if (objName.empty() || rootB.empty() || effB.empty())
-			throw std::runtime_error("ik_solve2d: 'object', 'root' and 'effector' are required");
-		std::vector<f32> t = AV("target");
-		if (t.size() < 2) throw std::runtime_error("ik_solve2d: 'target' needs [x,y]");
-		if (!sceneView->AgentIKSolve2D(objName, rootB, effB, Vec2(t[0], t[1]), err))
-			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["target"] = { t[0], t[1] };
-		return r;
-	}
+		Character2DDocument* doc = RequireCharacter2D();
+		Character2DRig(doc);
 
-	// {"cmd":"remove_bone2d","args":{"object":"Rig","bone":"Spine"}}  - takes descendants too
-	if (name == "remove_bone2d")
-	{
-		const std::string objName = A("object");
-		const std::string boneName = A("bone");
-		if (objName.empty() || boneName.empty())
-			throw std::runtime_error("remove_bone2d: 'object' and 'bone' are required");
-		if (!sceneView->AgentRemoveBone2D(objName, boneName, err))
-			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["removed"] = boneName;
-		return r;
-	}
+		const std::string clipName = A("clip");
+		if (!clipName.empty())
+		{
+			const int ci = doc->asset.FindClip(clipName);
+			if (ci < 0) throw std::runtime_error("clip '" + clipName + "' not found");
+			doc->anim.activeClip = ci;
+		}
+		if (doc->anim.activeClip < 0)
+			throw std::runtime_error("no clip to key into - use new_clip2d first");
 
-	// {"cmd":"bind_bone2d","args":{"object":"Arm","bone":"ArmU","offset":[0,0]}}
-	if (name == "bind_bone2d")
-	{
-		const std::string objName = A("object");
-		const std::string boneName = A("bone");
-		if (objName.empty() || boneName.empty())
-			throw std::runtime_error("bind_bone2d: 'object' and 'bone' are required");
-		std::vector<f32> o = AV("offset");
-		const Vec2 off(o.size() > 0 ? o[0] : 0.f, o.size() > 1 ? o[1] : 0.f);
-		if (!sceneView->AgentBindToBone2D(objName, boneName, off, err))
-			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["bone"] = boneName;
-		return r;
-	}
-
-	// {"cmd":"key_bone2d","args":{"object":"Hero","clip":"Wave","bone":"ArmU","time":0,"rotation":0}}
-	if (name == "key_bone2d")
-	{
-		const std::string objName = A("object"), clipName = A("clip"), boneName = A("bone");
-		if (objName.empty() || clipName.empty() || boneName.empty())
-			throw std::runtime_error("key_bone2d: 'object', 'clip' and 'bone' are required");
 		const float t = a.is_object() ? a.value("time", 0.0f) : 0.0f;
-		const float deg = a.is_object() ? a.value("rotation", 0.0f) : 0.0f;
-		if (!sceneView->AgentKeyBone2D(objName, clipName, boneName, t, deg, err))
-			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["clip"] = clipName; r["time"] = t; r["rotation"] = deg;
+		// keepPendingPose: moving to the time in order to key what is posed
+		// right now would otherwise discard exactly the pose being committed.
+		AnimationEditor::SetPlayhead(doc->anim, t, true);
+
+		const std::string onlyBone = A("bone");
+		int keyed = 0;
+		if (!onlyBone.empty())
+		{
+			const int id = doc->FindBone(onlyBone);
+			if (id < 0) throw std::runtime_error("bone '" + onlyBone + "' not found");
+			keyed = AnimationEditor::KeyBoneAtTime(doc->anim, id, t) ? 1 : 0;
+		}
+		else keyed = AnimationEditor::KeyPendingPose(doc->anim);
+
+		doc->SyncClipsToAsset();
+		doc->dirty = true;
+		nlohmann::json r; r["ok"] = true; r["keyed"] = keyed; r["time"] = t;
 		return r;
 	}
 
-	// {"cmd":"play_clip2d","args":{"object":"Hero","clip":"Wave","loop":true,"speed":1}}
-	if (name == "play_clip2d")
-	{
-		const std::string objName = A("object"), clipName = A("clip");
-		if (objName.empty() || clipName.empty())
-			throw std::runtime_error("play_clip2d: 'object' and 'clip' are required");
-		const bool loop = a.is_object() ? a.value("loop", true) : true;
-		const float speed = a.is_object() ? a.value("speed", 1.0f) : 1.0f;
-		// -1 is SkeletonAnimation's loop-forever sentinel, not 0: 0 reads as
-		// "no repetitions left" and the clip stops on its final pose.
-		if (!sceneView->AgentPlayClip2D(objName, clipName, loop ? -1.f : 1.f, speed, err))
-			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["clip"] = clipName;
-		return r;
-	}
-
-	// {"cmd":"delete_key2d","args":{"object":"Hero","clip":"Wave","bone":"ArmU","time":1}}
-	// Selects the object first: the timeline ops work on the selection, which
-	// is what the panel has and an agent does not.
-	if (name == "delete_key2d")
-	{
-		const std::string objName = A("object"), clipName = A("clip"), boneName = A("bone");
-		if (objName.empty() || clipName.empty() || boneName.empty())
-			throw std::runtime_error("delete_key2d: 'object', 'clip' and 'bone' are required");
-		if (!sceneView->AgentSelectObject(objName, err))
-			throw std::runtime_error(err);
-		const float t = a.is_object() ? a.value("time", 0.0f) : 0.0f;
-		if (!sceneView->OpDeleteKey2D(clipName, boneName, t, err))
-			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["deleted"] = boneName; r["time"] = t;
-		return r;
-	}
-
-	// {"cmd":"scrub_clip2d","args":{"object":"Hero","clip":"Wave","time":0.5}}
+	// {"cmd":"scrub_clip2d","args":{"clip":"Walk","time":0.25}}
 	if (name == "scrub_clip2d")
 	{
-		const std::string objName = A("object"), clipName = A("clip");
-		if (objName.empty() || clipName.empty())
-			throw std::runtime_error("scrub_clip2d: 'object' and 'clip' are required");
+		Character2DDocument* doc = RequireCharacter2D();
+		Character2DRig(doc);
+
+		const std::string clipName = A("clip");
+		if (!clipName.empty())
+		{
+			const int ci = doc->asset.FindClip(clipName);
+			if (ci < 0) throw std::runtime_error("clip '" + clipName + "' not found");
+			doc->anim.activeClip = ci;
+		}
 		const float t = a.is_object() ? a.value("time", 0.0f) : 0.0f;
-		if (!sceneView->AgentScrubClip2D(objName, clipName, t, err))
-			throw std::runtime_error(err);
+		AnimationEditor::SetPlayhead(doc->anim, t);
+		AnimationEditor::ApplyTimelinePose(doc->anim);
+		if (doc->preview->characterRC) doc->preview->characterRC->RefreshSpriteParts2D();
 		nlohmann::json r; r["ok"] = true; r["time"] = t;
 		return r;
 	}
 
-	// {"cmd":"new_clip2d","args":{"object":"Hero","clip":"Walk"}}
-	// Selects the object first: the clip ops work on the selection, which the
-	// timeline panel has and an agent does not.
-	if (name == "new_clip2d")
+	// {"cmd":"delete_key2d","args":{"clip":"Walk","bone":"Upper","time":0.5}}
+	if (name == "delete_key2d")
 	{
-		const std::string objName = A("object"), clipName = A("clip");
-		if (objName.empty() || clipName.empty())
-			throw std::runtime_error("new_clip2d: 'object' and 'clip' are required");
-		if (!sceneView->AgentSelectObject(objName, err)) throw std::runtime_error(err);
-		if (!sceneView->OpNewClip2D(clipName, err)) throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["clip"] = clipName;
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string clipName = A("clip");
+		const std::string boneName = A("bone");
+		if (boneName.empty()) throw std::runtime_error("delete_key2d: 'bone' is required");
+		const int ci = clipName.empty() ? doc->anim.activeClip : doc->asset.FindClip(clipName);
+		if (ci < 0 || ci >= (int)doc->anim.clips.size())
+			throw std::runtime_error("clip not found");
+		const float t = a.is_object() ? a.value("time", 0.0f) : 0.0f;
+
+		const std::string before = doc->Snapshot();
+		int removed = 0;
+		Animation& clip = doc->anim.clips[ci];
+		for (size_t ch = 0; ch < clip.Channels.size(); ch++)
+		{
+			if (clip.Channels[ch].NodeName != boneName) continue;
+			// One tolerance for every time comparison in the editor - see
+			// kAnimKeyEpsilon. Matching exactly would make a key authored at
+			// 0.5 undeletable at 0.5.
+			for (size_t k = clip.Channels[ch].rotations.size(); k-- > 0; )
+				if (std::fabs(clip.Channels[ch].rotations[k].Time - t) < kAnimKeyEpsilon)
+				{ clip.Channels[ch].rotations.erase(clip.Channels[ch].rotations.begin() + k); removed++; }
+			for (size_t k = clip.Channels[ch].positions.size(); k-- > 0; )
+				if (std::fabs(clip.Channels[ch].positions[k].Time - t) < kAnimKeyEpsilon)
+				{ clip.Channels[ch].positions.erase(clip.Channels[ch].positions.begin() + k); removed++; }
+		}
+		if (!removed) throw std::runtime_error("no key for that bone at that time");
+		doc->SyncClipsToAsset();
+		doc->PushEdit(before, "Delete Key");
+		nlohmann::json r; r["ok"] = true; r["removed"] = removed;
 		return r;
 	}
 
-	// {"cmd":"key_pose2d","args":{"object":"Hero","clip":"Walk","time":0.5}}
-	// Keys EVERY bone at once, which is what "key the pose" means; key_bone2d
-	// is the single-bone version.
-	if (name == "key_pose2d")
+	// {"cmd":"ik_solve2d","args":{"root":"Shoulder","effector":"Hand","target":[1,2]}}
+	if (name == "ik_solve2d")
 	{
-		const std::string objName = A("object"), clipName = A("clip");
-		if (objName.empty() || clipName.empty())
-			throw std::runtime_error("key_pose2d: 'object' and 'clip' are required");
-		if (!sceneView->AgentSelectObject(objName, err)) throw std::runtime_error(err);
-		const float t = a.is_object() ? a.value("time", 0.0f) : 0.0f;
-		if (!sceneView->OpKeyPose2D(clipName, t, A("bone"), err))
+		Character2DDocument* doc = RequireCharacter2D();
+		SkeletonAnimationInstance* inst = Character2DRig(doc);
+		if (!inst) throw std::runtime_error("this character has no skeleton yet");
+
+		const int rootId = doc->FindBone(A("root"));
+		const int effId = doc->FindBone(A("effector"));
+		if (rootId < 0) throw std::runtime_error("bone '" + A("root") + "' not found");
+		if (effId < 0) throw std::runtime_error("bone '" + A("effector") + "' not found");
+		std::vector<f32> tg = AV("target");
+		if (tg.size() < 2) throw std::runtime_error("ik_solve2d: 'target' needs [x,y]");
+
+		if (!IKSolver::Solve(inst, (int32)rootId, (int32)effId,
+			Vec3(tg[0], tg[1], 0.f), Vec3(0.f, 0.f, 0.f)))
+			throw std::runtime_error("could not build a chain from '" + A("root")
+				+ "' to '" + A("effector") + "'");
+
+		// Pending, like a drag: the solve is an authoring aid, and what gets
+		// stored is ordinary rotation keys once key_pose2d runs.
+		const std::vector<int32> chain = IKSolver::BuildChain(inst, (int32)rootId, (int32)effId);
+		for (size_t i = 0; i < chain.size(); i++)
+			doc->anim.externalPoseOverrides[chain[i]] = inst->GetBoneLocalTransform(chain[i]);
+		if (doc->preview->characterRC) doc->preview->characterRC->RefreshSpriteParts2D();
+
+		nlohmann::json r; r["ok"] = true; r["bones"] = chain.size();
+		return r;
+	}
+
+	// {"cmd":"character2d_state"} - everything about the open character.
+	if (name == "character2d_state" || name == "skeleton_state")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		nlohmann::json r;
+		r["name"] = doc->displayName;
+		r["path"] = doc->absolutePath.empty() ? std::string() : project.DisplayPath(doc->absolutePath);
+		r["dirty"] = doc->dirty;
+
+		// `pos` is the bone's REST position in its parent's frame - the
+		// character's shape. `posed` is where it actually is right now, in
+		// the character's own space, which is the only way to see from
+		// outside the editor whether a clip is doing anything.
+		SkeletonAnimationInstance* stateRig = doc->preview ? doc->preview->built.instance : NULL;
+		nlohmann::json bones = nlohmann::json::array();
+		for (size_t i = 0; i < doc->asset.bones.size(); i++)
+		{
+			const Bone& bn = doc->asset.bones[i];
+			nlohmann::json b;
+			b["name"] = bn.name;
+			b["parent"] = (bn.parent >= 0 && (size_t)bn.parent < doc->asset.bones.size())
+				? doc->asset.bones[bn.parent].name : std::string();
+			b["pos"] = { bn.pos.x, bn.pos.y };
+			if (stateRig && i < stateRig->GetNumberBones())
+			{
+				const Vec3 wp = stateRig->GetBoneGlobalTransform((int32)i).GetTranslation();
+				b["posed"] = { wp.x, wp.y };
+			}
+			bones.push_back(b);
+		}
+		r["bones"] = bones;
+
+		nlohmann::json sprites = nlohmann::json::array();
+		for (size_t i = 0; i < doc->asset.parts.size(); i++)
+		{
+			const SpritePart2D& sp = doc->asset.parts[i];
+			nlohmann::json s;
+			s["name"] = sp.name;
+			s["bone"] = sp.bone;
+			s["texture"] = sp.texture;
+			s["z"] = sp.z;
+			s["lit"] = sp.lit;
+			sprites.push_back(s);
+		}
+		r["sprites"] = sprites;
+
+		nlohmann::json clips = nlohmann::json::array();
+		for (size_t i = 0; i < doc->anim.clips.size(); i++)
+		{
+			nlohmann::json c;
+			c["name"] = doc->anim.clips[i].AnimationName;
+			c["duration"] = doc->anim.clips[i].Duration;
+			// Per channel, which bone and how many keys - "1 channel" alone
+			// cannot tell an empty channel from an authored one.
+			nlohmann::json chans = nlohmann::json::array();
+			for (size_t ch = 0; ch < doc->anim.clips[i].Channels.size(); ch++)
+			{
+				nlohmann::json cj;
+				cj["bone"] = doc->anim.clips[i].Channels[ch].NodeName;
+				cj["rotations"] = doc->anim.clips[i].Channels[ch].rotations.size();
+				cj["positions"] = doc->anim.clips[i].Channels[ch].positions.size();
+				chans.push_back(cj);
+			}
+			c["channels"] = chans;
+			clips.push_back(c);
+		}
+		r["clips"] = clips;
+		r["defaultClip"] = doc->asset.defaultClip;
+		// Which clip the timeline is on and where its playhead is - the two
+		// things that decide what pose the rig is showing.
+		r["activeClip"] = doc->anim.activeClip;
+		r["playhead"] = doc->anim.playhead;
+		r["rigBound"] = (doc->anim.externalRig != NULL);
+		return r;
+	}
+
+	// ---- the scene side ------------------------------------------------
+	// {"cmd":"add_character2d","args":{"character":"assets/characters/Hero.p3d2d",
+	//  "name":"Hero","position":[0,0,0]}}
+	if (name == "add_character2d")
+	{
+		const std::string rel = A("character");
+		if (rel.empty()) throw std::runtime_error("add_character2d: 'character' is required");
+		std::vector<f32> pos = AV("position");
+		const Vec3 p(pos.size() > 0 ? pos[0] : 0.f, pos.size() > 1 ? pos[1] : 0.f,
+		             pos.size() > 2 ? pos[2] : 0.f);
+		if (!sceneView->AgentAddCharacter2D(rel, A("name"), p, err))
 			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["clip"] = clipName; r["time"] = t;
+		nlohmann::json r; r["ok"] = true;
 		return r;
 	}
 
@@ -2699,16 +3232,6 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		if (!sceneView->AgentSetAutoPlay2D(objName, A("clip"), loop, err))
 			throw std::runtime_error(err);
 		nlohmann::json r; r["ok"] = true; r["clip"] = A("clip"); r["loop"] = loop;
-		return r;
-	}
-
-	// {"cmd":"skeleton_state","args":{"object":"Rig"}}
-	if (name == "skeleton_state")
-	{
-		const std::string objName = A("object");
-		if (objName.empty()) throw std::runtime_error("skeleton_state: 'object' is required");
-		nlohmann::json r = sceneView->AgentSkeletonState(objName, err);
-		if (r.is_null() || r.empty()) throw std::runtime_error(err);
 		return r;
 	}
 
@@ -2906,6 +3429,15 @@ void Editor::DrawUI()
 			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
 				activeAnimationDoc->undo.Redo();
 		}
+		else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc)
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_Z))
+			{
+				if (shift) activeCharacter2DDoc->undo.Redo(); else activeCharacter2DDoc->undo.Undo();
+			}
+			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
+				activeCharacter2DDoc->undo.Redo();
+		}
 	}
 
 	// Menu bar. Each File action is requested here and performed once below,
@@ -3015,18 +3547,25 @@ void Editor::DrawUI()
 				canUndo = activeAnimationDoc->undo.CanUndo(); canRedo = activeAnimationDoc->undo.CanRedo();
 				undoDesc = activeAnimationDoc->undo.UndoDescription(); redoDesc = activeAnimationDoc->undo.RedoDescription();
 			}
+			else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc)
+			{
+				canUndo = activeCharacter2DDoc->undo.CanUndo(); canRedo = activeCharacter2DDoc->undo.CanRedo();
+				undoDesc = activeCharacter2DDoc->undo.UndoDescription(); redoDesc = activeCharacter2DDoc->undo.RedoDescription();
+			}
 			const std::string undoLabel = canUndo ? ("Undo " + undoDesc) : "Undo";
 			const std::string redoLabel = canRedo ? ("Redo " + redoDesc) : "Redo";
 			if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, canUndo))
 			{
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Undo();
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Undo();
+				else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc) activeCharacter2DDoc->undo.Undo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Undo();
 			}
 			if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Shift+Z", false, canRedo))
 			{
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Redo();
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Redo();
+				else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc) activeCharacter2DDoc->undo.Redo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Redo();
 			}
 
@@ -3070,7 +3609,6 @@ void Editor::DrawUI()
         {
             if (ImGui::BeginMenu("Windows", "")) {
 				if (ImGui::MenuItem("Scene Tree", "", &showingSceneTree)) {}
-				if (ImGui::MenuItem("Animation 2D", "", &showingAnimation2D)) {}
 				if (ImGui::MenuItem("Scene View", "", &showingSceneView)) {}
                 if (ImGui::MenuItem("Properties", "", &showingTabProperties)) {}
                 if (ImGui::MenuItem("Tools", "", &showingTabTools)) {}
@@ -3176,6 +3714,7 @@ void Editor::DrawUI()
 		sceneView->DrawSceneFileDialog();
 		sceneView->DrawUnsavedChangesModal();
 	}
+	DrawQuitBlockedModal();
 
 	// Run BEFORE the main viewport pass, same reasoning as ShowViewport()'s
 	// own RenderCameraPreview call ("run it before the viewport pass so
@@ -3191,9 +3730,8 @@ void Editor::DrawUI()
 	// or its grid for the rest of this frame.
 	DrawMaterialEditorWindows();
 	DrawAnimationEditorWindows();
+	DrawCharacter2DEditorWindows();
 
-	if (showingAnimation2D)
-		DrawAnimation2DWindow();
 	if (showingSceneTree)
 		DrawSceneTreeWindow();
 
@@ -3223,6 +3761,7 @@ void Editor::DrawUI()
 	// this frame are resolved while those documents are still alive.
 	DrawUnsavedDocumentModal();
 	DrawSaveAnimationAsModal();
+	DrawSaveCharacter2DAsModal();
 	DrawAnimationAssetModals();
 
     ImGui::EndFrame();
@@ -3255,6 +3794,7 @@ bool Editor::CreateNewProject(const std::string& parentDir, const std::string& n
 	CloseAllLuaScriptDocuments();
 	CloseAllMaterialDocuments();
 	CloseAllAnimationDocuments();
+	CloseAllCharacter2DDocuments();
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	const std::string sceneAbs = project.AbsolutePath(project.GetActiveSceneRel());
@@ -3285,6 +3825,7 @@ bool Editor::OpenProjectFromPath(const std::string& path)
 	CloseAllLuaScriptDocuments();
 	CloseAllMaterialDocuments();
 	CloseAllAnimationDocuments();
+	CloseAllCharacter2DDocuments();
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	const std::string sceneAbs = project.AbsolutePath(project.GetActiveSceneRel());
@@ -3318,6 +3859,7 @@ void Editor::CloseProjectImmediate()
 	CloseAllLuaScriptDocuments();
 	CloseAllMaterialDocuments();
 	CloseAllAnimationDocuments();
+	CloseAllCharacter2DDocuments();
 	CloseAllSceneDocuments();
 	sceneView = CreateSceneDocument();
 	project.Close();
@@ -3342,6 +3884,23 @@ bool Editor::EditorAllowWindowClose()
 {
 	if (!AnySceneHasUnsavedWork())
 		return true;
+
+	// A fresh gesture gets a fresh budget of attempts (see FinishQuitIfClean).
+	bool alreadyAsking = false;
+	for (size_t i = 0; i < sceneDocs.size(); ++i)
+		if (sceneDocs[i] && sceneDocs[i]->HasPendingUnsavedPrompt()) alreadyAsking = true;
+	if (!alreadyAsking) quitAttempts = 0;
+
+	// One click of the close button produces BOTH SDL_WINDOWEVENT_CLOSE and
+	// SDL_QUIT, and the SDL contexts run this hook for each - so the whole
+	// prompt flow used to be entered twice per gesture. If something is
+	// already asking, that is the answer; just make sure it can be seen.
+	if (alreadyAsking)
+	{
+		RaiseEditorWindow();
+		return false;
+	}
+
 	// Scripts alone: save them and allow close (no scene modal needed).
 	if (!AnySceneDocumentHasUnsavedWork())
 	{
@@ -3352,11 +3911,26 @@ bool Editor::EditorAllowWindowClose()
 	return false;
 }
 
+// Bring the window forward when a close is refused in order to ask something.
+// macOS lets you click a background window's close button without activating
+// the app, so the modal that comes up in answer would open BEHIND whatever is
+// in front: the editor looked like it was ignoring the close entirely, and
+// clicking again only did the same thing again.
+void Editor::RaiseEditorWindow()
+{
+	if (SDL_Window* w = GetSDLWindow())
+	{
+		SDL_RaiseWindow(w);
+		SDL_ShowWindow(w);
+	}
+}
+
 void Editor::FinishQuitIfClean()
 {
 	// Always flush open scripts first — the scene modal never did, which left
 	// AnySceneHasUnsavedWork() true and re-entered a no-op prompt (hang).
 	SaveAllDirtyScripts();
+	quitAttempts++;
 
 	// Save dirty scenes that already have a path.
 	for (size_t i = 0; i < sceneDocs.size(); ++i)
@@ -3372,6 +3946,19 @@ void Editor::FinishQuitIfClean()
 	if (!AnySceneHasUnsavedWork())
 	{
 		Close();
+		return;
+	}
+
+	// Something would not save. Asking again gets the same answer, and asking
+	// again is what this used to do - forever, with an identical dialog, so
+	// the editor could not be quit at all. (SceneEditor::HasUnsavedWork() is
+	// true for EVERY document while the project file itself is dirty, so one
+	// unwritable project.json is enough to do it.) One retry, then say what
+	// is stuck and offer a way out.
+	if (quitAttempts > 1)
+	{
+		openQuitBlockedModal = true;
+		RaiseEditorWindow();
 		return;
 	}
 	PromptQuitWithUnsaved();
@@ -3395,15 +3982,69 @@ void Editor::PromptQuitWithUnsaved()
 		if (project.IsOpen() && project.IsDirty())
 			project.Save();
 		if (!AnySceneHasUnsavedWork())
+		{
 			Close();
+			return;
+		}
+		// Something is still unsaved and there is no scene document to ask
+		// about it - a script that would not write, or a project file that
+		// would not. This used to just return: the editor then refused every
+		// close, showed nothing, and gave no way out short of killing it.
+		// Say what is stuck and offer to quit anyway.
+		openQuitBlockedModal = true;
+		RaiseEditorWindow();
 		return;
 	}
 	SetActiveSceneDocument(dirty);
+	RaiseEditorWindow();
 	if (dirty->ConfirmUnsavedThen(SceneEditor::UnsavedQuitApp))
 	{
 		// This document reported nothing to save — keep draining quit.
 		FinishQuitIfClean();
 	}
+}
+
+// Shown when quit is refused by something that has no dialog of its own. The
+// alternative - what this replaces - was returning silently, so the window
+// simply would not close and nothing said why.
+void Editor::DrawQuitBlockedModal()
+{
+	if (openQuitBlockedModal)
+	{
+		ImGui::OpenPopup("Cannot Quit");
+		openQuitBlockedModal = false;
+	}
+
+	ImGuiViewport* vp = ImGui::GetMainViewport();
+	if (vp)
+		ImGui::SetNextWindowPos(vp->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+
+	if (!ImGui::BeginPopupModal("Cannot Quit", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+		return;
+
+	ImGui::TextUnformatted("Some work could not be saved:");
+	ImGui::Spacing();
+	for (size_t i = 0; i < scriptDocs.size(); ++i)
+		if (scriptDocs[i] && scriptDocs[i]->dirty)
+			ImGui::BulletText("%s", project.DisplayPath(scriptDocs[i]->absolutePath).c_str());
+	for (size_t i = 0; i < sceneDocs.size(); ++i)
+		if (sceneDocs[i] && sceneDocs[i]->IsSceneDirty())
+			ImGui::BulletText("Scene: %s", sceneDocs[i]->GetSceneDisplayName().c_str());
+	if (project.IsOpen() && project.IsDirty())
+		ImGui::BulletText("Project settings (project.json could not be written)");
+	ImGui::Spacing();
+	ImGui::TextDisabled("Quitting now discards it.");
+	ImGui::Separator();
+
+	if (ImGui::Button("Quit Anyway", ImVec2(120, 0)))
+	{
+		ImGui::CloseCurrentPopup();
+		HostQuitDiscardingUnsaved();
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Stay", ImVec2(120, 0)))
+		ImGui::CloseCurrentPopup();
+	ImGui::EndPopup();
 }
 
 void Editor::ClearAssetPreviews()
@@ -3860,6 +4501,12 @@ void Editor::DrawProjectDialogs()
 		ImGui::Separator();
 		ImGui::InputText("Project Name", &projectSettingsName);
 
+		// A project can hold both 3D and 2D scenes, so the setting itself stays
+		// - but it does not apply to the 2D ones, and saying so here is the
+		// difference between "a setting that does nothing" and a documented
+		// rule. The scene currently open is called out by name, because that
+		// is the one whose viewport the user is looking at while they choose.
+		const bool activeSceneIsTwoD = (sceneView && sceneView->IsTwoDScene());
 		int rendererIdx = (project.GetSettings().rendererType == ProjectRendererType::Deferred) ? 1 : 0;
 		if (ImGui::Combo("Renderer", &rendererIdx, "Forward\0Deferred\0"))
 		{
@@ -3876,6 +4523,20 @@ void Editor::DrawProjectDialogs()
 				[this, before]() { project.GetSettingsMutable().rendererType = before; project.MarkDirty(); },
 				[this, after]() { project.GetSettingsMutable().rendererType = after; project.MarkDirty(); },
 				"Set Renderer Type"));
+		}
+
+		if (rendererIdx == 1)
+		{
+			ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f),
+				activeSceneIsTwoD
+					? "The open scene is 2D and will keep using Forward."
+					: "2D scenes always use Forward, whatever this says.");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("A G-buffer holds one opaque fragment per pixel, so it cannot blend -\n"
+					"and a 2D scene is almost entirely alpha-blended cut-outs. Rendered\n"
+					"deferred, every sprite gets a hard ring of its invisible border.\n"
+					"There is nothing to gain either: 2D lighting is a few lights on flat\n"
+					"quads, which is what forward is good at.");
 		}
 
 		ImGui::TextDisabled("Each scene has scenes/<SceneName>.lua — open via Scene menu, or click Scene in the tree → Properties.");
@@ -4452,6 +5113,326 @@ void Editor::CloseAnimationDocument(uint32_t id)
 	}
 }
 
+// ---- 2D characters (.p3d2d) ------------------------------------------------
+// A character is an asset that owns everything about itself, so this is the
+// plainest document kind in the editor: open a file, edit it, save it. There
+// is no rig to bind (it has its own), no scene to be part of, and nothing
+// stored outside the file.
+
+Character2DDocument* Editor::FindCharacter2DDocumentByPath(const std::string& absPath) const
+{
+	for (size_t i = 0; i < character2DDocs.size(); ++i)
+		if (character2DDocs[i] && character2DDocs[i]->absolutePath == absPath) return character2DDocs[i];
+	return NULL;
+}
+
+Character2DDocument* Editor::NewCharacter2DDocument()
+{
+	Character2DDocument* doc = new Character2DDocument();
+	doc->id = nextCharacter2DDocId++;
+	BindUndoRouting(doc);
+	doc->displayName = "NewCharacter";
+	doc->projectRoot = project.IsOpen() ? project.GetProjectPath() : std::string();
+
+	// A character with no bones has nothing to pin artwork to, so it starts
+	// with a root rather than making "add the first bone" a step you have to
+	// discover. Named Root because that is what it is - the one you drag to
+	// move the whole character.
+	std::string err;
+	doc->AddBone("Root", std::string(), Vec2(0.f, 0.f), err);
+	doc->undo.Clear();   // the starting bone is not an edit to undo
+	doc->dirty = true;
+
+	character2DDocs.push_back(doc);
+	pendingSelectCharacter2DDocId = doc->id;
+	activeCharacter2DDoc = doc;
+	lastFocusedDocKind = FocusedDocKind::Character2D;
+	return doc;
+}
+
+bool Editor::OpenCharacter2DDocument(const std::string& absPath)
+{
+	if (absPath.empty()) return false;
+	if (!ProjectManager::IsCharacter2DExtension(absPath))
+	{
+		echo("ERROR: Not a 2D character file: " + project.DisplayPath(absPath));
+		return false;
+	}
+
+	if (Character2DDocument* existing = FindCharacter2DDocumentByPath(absPath))
+	{
+		pendingSelectCharacter2DDocId = existing->id;
+		activeCharacter2DDoc = existing;
+		lastFocusedDocKind = FocusedDocKind::Character2D;
+		return true;
+	}
+
+	Character2DDocument* doc = new Character2DDocument();
+	doc->id = nextCharacter2DDocId++;
+	BindUndoRouting(doc);
+	// Set BEFORE loading: the load rebuilds the character, and building it
+	// resolves every texture path against this.
+	doc->projectRoot = project.IsOpen() ? project.GetProjectPath() : std::string();
+
+	std::string err;
+	if (!doc->LoadFromFile(absPath, err))
+	{
+		echo("ERROR: " + err);
+		delete doc;
+		return false;
+	}
+
+	character2DDocs.push_back(doc);
+	pendingSelectCharacter2DDocId = doc->id;
+	activeCharacter2DDoc = doc;
+	lastFocusedDocKind = FocusedDocKind::Character2D;
+	echo("Opened character " + project.DisplayPath(absPath) + " ("
+		+ std::to_string(doc->asset.bones.size()) + " bone(s), "
+		+ std::to_string(doc->asset.parts.size()) + " sprite(s), "
+		+ std::to_string(doc->asset.clips.size()) + " clip(s))");
+	return true;
+}
+
+bool Editor::SaveCharacter2DDocument(Character2DDocument* doc, const std::string& absPath)
+{
+	if (!doc) return false;
+	const std::string target = absPath.empty() ? doc->absolutePath : absPath;
+	if (target.empty()) return false;
+
+	std::error_code ec;
+	fs::create_directories(fs::path(target).parent_path(), ec);
+
+	std::string err;
+	if (!doc->SaveAs(target, err))
+	{
+		echo("ERROR: " + err);
+		return false;
+	}
+	echo("SUCCESS: Saved " + project.DisplayPath(target));
+	return true;
+}
+
+void Editor::CloseCharacter2DDocument(uint32_t id)
+{
+	for (size_t i = 0; i < character2DDocs.size(); ++i)
+	{
+		if (!character2DDocs[i] || character2DDocs[i]->id != id) continue;
+		Character2DDocument* doc = character2DDocs[i];
+		if (activeCharacter2DDoc == doc) activeCharacter2DDoc = NULL;
+		character2DDocs.erase(character2DDocs.begin() + i);
+		// The document owns a Character2DPreview holding an FBO-backed
+		// renderer whose colour texture this frame's ImGui draw list may still
+		// reference. Deferred for exactly the reason the animation and
+		// material documents are.
+		deferredDestroyCharacter2DDocs.push_back(doc);
+		return;
+	}
+}
+
+void Editor::CloseAllCharacter2DDocuments()
+{
+	for (size_t i = 0; i < character2DDocs.size(); ++i)
+		delete character2DDocs[i];
+	character2DDocs.clear();
+	activeCharacter2DDoc = NULL;
+}
+
+void Editor::RequestCloseCharacter2DDocument(Character2DDocument* doc, std::vector<uint32_t>& closeIds)
+{
+	if (!doc) return;
+	if (doc->dirty)
+	{
+		// Same route a dirty animation document takes: Save As doubles as the
+		// "you have unsaved work" prompt, and closing follows a successful
+		// save.
+		openSaveCharacter2DAsModal = true;
+		saveCharacter2DAsDocId = doc->id;
+		saveCharacter2DAsName = doc->displayName;
+		saveCharacter2DAsError.clear();
+		saveCharacter2DAsThenClose = true;
+		return;
+	}
+	closeIds.push_back(doc->id);
+}
+
+void Editor::BuildCharacter2DTextureChoices(std::vector<Character2DEditor::TextureChoice>& out) const
+{
+	out.clear();
+	if (!project.IsOpen()) return;
+
+	std::vector<ProjectAssetEntry> entries;
+	project.ListAssets("", entries, true);
+	for (size_t i = 0; i < entries.size(); ++i)
+	{
+		if (!ProjectManager::IsTextureExtension(entries[i].relativePath)) continue;
+		Character2DEditor::TextureChoice c;
+		c.label = entries[i].relativePath;
+		c.relativePath = entries[i].relativePath;
+		out.push_back(c);
+	}
+}
+
+void Editor::HostOpenCharacter2D(const std::string& absPath)
+{
+	if (!instance) return;
+	instance->OpenCharacter2DDocument(absPath);
+}
+
+void Editor::DrawCharacter2DEditorWindows()
+{
+	if (character2DDocs.empty()) return;
+
+	// Same live dock-node retargeting the script/material/animation windows do.
+	if (ImGuiWindow* sv = ImGui::FindWindowByName("Scene View"))
+	{
+		if (sv->DockId != 0) dockCenterId = sv->DockId;
+	}
+
+	std::vector<Character2DEditor::TextureChoice> textures;
+	BuildCharacter2DTextureChoices(textures);
+
+	const float dt = ImGui::GetIO().DeltaTime;
+	std::vector<uint32_t> closeIds;
+
+	for (size_t i = 0; i < character2DDocs.size(); ++i)
+	{
+		Character2DDocument* doc = character2DDocs[i];
+		if (!doc) continue;
+
+		char title[512];
+		snprintf(title, sizeof(title), u8" %s###character2d_win_%u", doc->displayName.c_str(), doc->id);
+
+		const bool forceDock = (pendingSelectCharacter2DDocId == doc->id);
+		if (dockCenterId != 0)
+			ImGui::SetNextWindowDockID(dockCenterId, forceDock ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
+		if (forceDock) ImGui::SetNextWindowFocus();
+		ImGui::SetNextWindowSize(ImVec2(1100, 720), ImGuiCond_FirstUseEver);
+
+		bool open = true;
+		ImGuiWindowFlags wflags = ImGuiWindowFlags_None;
+		if (doc->dirty) wflags |= ImGuiWindowFlags_UnsavedDocument;
+
+		if (!ImGui::Begin(title, &open, wflags))
+		{
+			ImGui::End();
+			if (!open) RequestCloseCharacter2DDocument(doc, closeIds);
+			continue;
+		}
+
+		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+		{
+			activeCharacter2DDoc = doc;
+			lastFocusedDocKind = FocusedDocKind::Character2D;
+		}
+		if (pendingSelectCharacter2DDocId == doc->id) pendingSelectCharacter2DDocId = 0;
+
+		Character2DEditor::FrameRequests req;
+		Character2DEditor::DrawWindow(*doc, textures, dt, req);
+
+		ImGui::End();
+
+		if (req.save)
+		{
+			if (doc->absolutePath.empty())
+			{
+				openSaveCharacter2DAsModal = true;
+				saveCharacter2DAsDocId = doc->id;
+				saveCharacter2DAsName = doc->displayName;
+				saveCharacter2DAsError.clear();
+				saveCharacter2DAsThenClose = false;
+			}
+			else SaveCharacter2DDocument(doc, doc->absolutePath);
+		}
+		if (req.saveAs)
+		{
+			openSaveCharacter2DAsModal = true;
+			saveCharacter2DAsDocId = doc->id;
+			saveCharacter2DAsName = doc->displayName;
+			saveCharacter2DAsError.clear();
+			saveCharacter2DAsThenClose = false;
+		}
+		if (req.close) RequestCloseCharacter2DDocument(doc, closeIds);
+		if (!open) RequestCloseCharacter2DDocument(doc, closeIds);
+	}
+
+	for (size_t i = 0; i < closeIds.size(); ++i)
+		CloseCharacter2DDocument(closeIds[i]);
+}
+
+void Editor::DrawSaveCharacter2DAsModal()
+{
+	if (openSaveCharacter2DAsModal)
+	{
+		ImGui::OpenPopup("Save Character");
+		openSaveCharacter2DAsModal = false;
+	}
+	if (!ImGui::BeginPopupModal("Save Character", NULL, ImGuiWindowFlags_AlwaysAutoResize)) return;
+
+	Character2DDocument* doc = NULL;
+	for (size_t i = 0; i < character2DDocs.size(); ++i)
+		if (character2DDocs[i] && character2DDocs[i]->id == saveCharacter2DAsDocId)
+			doc = character2DDocs[i];
+
+	if (!doc)
+	{
+		ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+		return;
+	}
+
+	ImGui::TextUnformatted("Character name");
+	ImGui::TextDisabled(".p3d2d, under assets/characters");
+	char buf[256];
+	snprintf(buf, sizeof(buf), "%s", saveCharacter2DAsName.c_str());
+	ImGui::SetNextItemWidth(320.f);
+	if (ImGui::InputText("##charname", buf, sizeof(buf))) saveCharacter2DAsName = buf;
+
+	if (!saveCharacter2DAsError.empty())
+		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.4f, 1.f), "%s", saveCharacter2DAsError.c_str());
+
+	if (ImGui::Button("Save", ImVec2(120, 0)))
+	{
+		std::string name = saveCharacter2DAsName;
+		if (name.empty()) saveCharacter2DAsError = "Give the character a name.";
+		else if (!project.IsOpen()) saveCharacter2DAsError = "No project is open.";
+		else
+		{
+			if (name.size() < 6 || name.compare(name.size() - 6, 6, ".p3d2d") != 0)
+				name += ".p3d2d";
+			const std::string target = (fs::path(project.Characters2DPath()) / name).string();
+			if (SaveCharacter2DDocument(doc, target))
+			{
+				const bool alsoClose = saveCharacter2DAsThenClose;
+				const uint32_t id = doc->id;
+				saveCharacter2DAsThenClose = false;
+				ImGui::CloseCurrentPopup();
+				if (alsoClose) CloseCharacter2DDocument(id);
+			}
+			else saveCharacter2DAsError = "Could not save.";
+		}
+	}
+	ImGui::SameLine();
+	if (ImGui::Button("Cancel", ImVec2(120, 0)))
+	{
+		saveCharacter2DAsThenClose = false;
+		ImGui::CloseCurrentPopup();
+	}
+	// Closing a dirty document and then discarding is a real answer, and
+	// without it the only way out of the prompt is to save.
+	if (saveCharacter2DAsThenClose)
+	{
+		ImGui::SameLine();
+		if (ImGui::Button("Discard", ImVec2(120, 0)))
+		{
+			const uint32_t id = doc->id;
+			saveCharacter2DAsThenClose = false;
+			ImGui::CloseCurrentPopup();
+			CloseCharacter2DDocument(id);
+		}
+	}
+	ImGui::EndPopup();
+}
+
 void Editor::CloseAllAnimationDocuments()
 {
 	for (size_t i = 0; i < animationDocs.size(); ++i)
@@ -4757,6 +5738,13 @@ void Editor::FlushDeferredAnimationDocs()
 	deferredDestroyAnimationDocs.clear();
 }
 
+void Editor::FlushDeferredCharacter2DDocs()
+{
+	for (size_t i = 0; i < deferredDestroyCharacter2DDocs.size(); ++i)
+		delete deferredDestroyCharacter2DDocs[i];
+	deferredDestroyCharacter2DDocs.clear();
+}
+
 Editor::AssetMaterialKind Editor::GetAssetMaterialKind(const std::string& absPath)
 {
 	long long mtime = 0;
@@ -4987,18 +5975,6 @@ void Editor::DrawSceneViewWindow()
 	ImGui::End();
 }
 
-void Editor::DrawAnimation2DWindow()
-{
-	if (!ImGui::Begin("Animation 2D", &showingAnimation2D))
-	{
-		ImGui::End();
-		return;
-	}
-	if (sceneView) sceneView->ShowAnimation2DPanel();
-	else ImGui::TextDisabled("No scene open");
-	ImGui::End();
-}
-
 void Editor::DrawSceneTreeWindow()
 {
 	if (!ImGui::Begin("Scene Tree", &showingSceneTree))
@@ -5028,10 +6004,45 @@ void Editor::DrawAssetsWindow()
 
 	assetsWindowHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows);
 
-	static int filter = 0;
+	int& filter = assetFilter;
 	const char* filters[] = { "All", "Models", "Textures", "Sounds", "Shaders", "Lua", "Materials", "Scenes" };
-	ImGui::SetNextItemWidth(160.f);
-	ImGui::Combo("##assetfilter", &filter, filters, 8);
+	ImGui::SetNextItemWidth(140.f);
+	// Picking a type is a shortcut to the folder that holds it, and then also
+	// filters what is shown there - one model ("you are looking at a folder"),
+	// not two.
+	if (ImGui::Combo("##assetfilter", &filter, filters, 8))
+	{
+		static const char* roots[] = { "assets", "assets/models", "assets/textures",
+			"assets/sounds", "assets/shaders", "assets/lua", "assets/materials", "scenes" };
+		assetBrowseDir = roots[filter];
+	}
+
+	// Breadcrumb. Every segment is clickable, so getting back out is one
+	// click rather than a walk.
+	ImGui::SameLine();
+	ImGui::TextUnformatted("|");
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Project")) assetBrowseDir.clear();
+	{
+		std::string walked;
+		size_t at = 0;
+		while (at <= assetBrowseDir.size())
+		{
+			const size_t slash = assetBrowseDir.find('/', at);
+			const std::string seg = assetBrowseDir.substr(at,
+				slash == std::string::npos ? std::string::npos : slash - at);
+			if (seg.empty()) break;
+			walked += (walked.empty() ? "" : "/") + seg;
+			ImGui::SameLine(0.f, 4.f);
+			ImGui::TextUnformatted("/");
+			ImGui::SameLine(0.f, 4.f);
+			ImGui::PushID((int)at);
+			if (ImGui::SmallButton(seg.c_str())) assetBrowseDir = walked;
+			ImGui::PopID();
+			if (slash == std::string::npos) break;
+			at = slash + 1;
+		}
+	}
 	if (!lastDropStatus.empty())
 	{
 		ImGui::SameLine();
@@ -5142,41 +6153,27 @@ void Editor::DrawAssetsWindow()
 
 	ImGui::BeginChild("##assetlist", ImVec2(0, 0), false);
 
+	// One folder at a time, NOT the whole tree flattened. Directories come
+	// back first (ListAssets sorts them that way) and are drawn as folders you
+	// can walk into.
 	std::vector<ProjectAssetEntry> assets;
-	std::string under = "assets";
-	switch (filter)
+	if (assetBrowseDir.empty())
 	{
-	case 1: under = "assets/models"; break;
-	case 2: under = "assets/textures"; break;
-	case 3: under = "assets/sounds"; break;
-	case 4: under = "assets/shaders"; break;
-	case 5: under = "assets/lua"; break;
-	case 6: under = "assets/materials"; break;
-	case 7: under = "scenes"; break;
-	default: under = "assets"; break;
-	}
-	if (filter == 7)
-		project.ListAssets("scenes", assets, true);
-	else if (filter == 0)
-	{
-		project.ListAssets("assets", assets, true);
-		std::vector<ProjectAssetEntry> scenes;
-		project.ListAssets("scenes", scenes, true);
-		assets.insert(assets.end(), scenes.begin(), scenes.end());
-	}
-	else if (filter == 5)
-	{
-		project.ListAssets("assets/lua", assets, true);
-		std::vector<ProjectAssetEntry> sceneScripts;
-		project.ListAssets("scenes", sceneScripts, true);
-		for (size_t si = 0; si < sceneScripts.size(); ++si)
+		// The project root is not a real assets directory - it holds the two
+		// trees that are.
+		const char* roots[] = { "assets", "scenes" };
+		for (int r = 0; r < 2; r++)
 		{
-			if (ProjectManager::IsLuaExtension(sceneScripts[si].relativePath))
-				assets.push_back(sceneScripts[si]);
+			ProjectAssetEntry e;
+			e.relativePath = roots[r];
+			e.name = roots[r];
+			e.isDirectory = true;
+			if (fs::is_directory(project.AbsolutePath(e.relativePath)))
+				assets.push_back(e);
 		}
 	}
 	else
-		project.ListAssets(under, assets, true);
+		project.ListAssets(assetBrowseDir, assets, false);
 
 	const float tileW = 92.f;
 	const float thumbH = 72.f;
@@ -5189,6 +6186,61 @@ void Editor::DrawAssetsWindow()
 	if (columns < 1) columns = 1;
 
 	int col = 0;
+
+	// Folders first, as their own tiles. Double-click walks in - the same
+	// gesture that opens a file.
+	for (size_t i = 0; i < assets.size(); ++i)
+	{
+		const ProjectAssetEntry& e = assets[i];
+		if (!e.isDirectory) continue;
+		if (ProjectManager::IsInternalAssetPath(e.relativePath)) continue;
+
+		if (col > 0) ImGui::SameLine(0.f, spacing);
+		ImGui::PushID((int)(i + 100000));
+		ImGui::BeginGroup();
+
+		const ImVec2 tileMin = ImGui::GetCursorScreenPos();
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const ImVec2 tileMax(tileMin.x + tileW, tileMin.y + tileH);
+		dl->AddRectFilled(tileMin, tileMax,
+			ImGui::GetColorU32(ImVec4(0.20f, 0.19f, 0.15f, 0.9f)), 4.f);
+		dl->AddRect(tileMin, tileMax,
+			ImGui::GetColorU32(ImVec4(0.45f, 0.40f, 0.28f, 1.f)), 4.f);
+
+		ImGui::InvisibleButton("##dirtile", ImVec2(tileW, tileH));
+		const bool dhover = ImGui::IsItemHovered();
+		if (dhover)
+			dl->AddRect(tileMin, tileMax, ImGui::GetColorU32(ImVec4(0.9f, 0.8f, 0.45f, 0.95f)), 4.f, 0, 1.5f);
+		if (dhover && ImGui::IsMouseDoubleClicked(0))
+			assetBrowseDir = e.relativePath;
+		if (dhover)
+			ImGui::SetTooltip("%s  (double-click to open)", e.relativePath.c_str());
+
+		{
+			ImFont* font = ImGui::GetFont();
+			const float iconSize = 30.f;
+			const char* folderIcon = u8"\uf07b";
+			const ImVec2 isz = font->CalcTextSizeA(iconSize, FLT_MAX, 0.f, folderIcon);
+			dl->AddText(font, iconSize,
+				ImVec2(tileMin.x + (tileW - isz.x) * 0.5f, tileMin.y + pad + (thumbH - isz.y) * 0.5f),
+				ImGui::GetColorU32(ImVec4(0.95f, 0.82f, 0.45f, 1.f)), folderIcon);
+
+			const float fontSize = ImGui::GetFontSize();
+			const ImVec2 labelMin(tileMin.x + pad, tileMin.y + pad + thumbH + 2.f);
+			const ImVec2 labelMax(tileMin.x + tileW - pad, tileMax.y - 2.f);
+			dl->PushClipRect(labelMin, labelMax, true);
+			const ImVec2 nsz = font->CalcTextSizeA(fontSize, FLT_MAX, 0.f, e.name.c_str());
+			dl->AddText(font, fontSize,
+				ImVec2(tileMin.x + (tileW - ImMin(nsz.x, tileW - pad * 2.f)) * 0.5f, labelMin.y),
+				ImGui::GetColorU32(ImGuiCol_Text), e.name.c_str());
+			dl->PopClipRect();
+		}
+
+		ImGui::EndGroup();
+		ImGui::PopID();
+		if (++col >= columns) col = 0;
+	}
+
 	for (size_t i = 0; i < assets.size(); ++i)
 	{
 		const ProjectAssetEntry& e = assets[i];
@@ -5212,6 +6264,7 @@ void Editor::DrawAssetsWindow()
 		const bool isTex = ProjectManager::IsTextureExtension(e.relativePath);
 		const bool isMat = ProjectManager::IsMaterialExtension(e.relativePath);
 		const bool isAnim = ProjectManager::IsAnimationExtension(e.relativePath);
+		const bool isChar2D = ProjectManager::IsCharacter2DExtension(e.relativePath);
 		const bool selected = (selectedAssetRel == e.relativePath);
 
 		// Materials get an icon per kind, plus a corner badge below - the
@@ -5381,6 +6434,8 @@ void Editor::DrawAssetsWindow()
 				OpenMaterialDocument(abs);
 			else if (isAnim)
 				OpenAnimationDocument(abs);
+			else if (isChar2D)
+				OpenCharacter2DDocument(abs);
 			else if (isSound)
 			{
 				// Double-click sound also previews (same as play button).
@@ -5427,13 +6482,17 @@ void Editor::DrawAssetsWindow()
 				OpenMaterialDocument(abs);
 			if (isAnim && ImGui::MenuItem("Open Animation"))
 				OpenAnimationDocument(abs);
+			if (isChar2D && ImGui::MenuItem("Edit Character"))
+				OpenCharacter2DDocument(abs);
+			if (isChar2D && ImGui::MenuItem("Place in Scene") && sceneView)
+				sceneView->PlaceAssetInScene(abs);
 			// A model is the other way into the Animation Editor: it opens
 			// a new, empty clip already bound to that rig.
 			if (isModel && ImGui::MenuItem("Animate This Model"))
 				OpenAnimationDocument(abs);
 			if ((isModel || isSound) && ImGui::MenuItem("Place in Scene") && sceneView)
 				sceneView->PlaceAssetInScene(abs);
-			if (isScene || isLua || isMat || isAnim || isModel || isSound)
+			if (isScene || isLua || isMat || isAnim || isChar2D || isModel || isSound)
 				ImGui::Separator();
 			ShowAssetCreateMenuItems();
 			ImGui::Separator();
@@ -5543,6 +6602,7 @@ void Editor::Draw()
 	FlushDeferredPreviewDestroy();
 	FlushDeferredPreviewRenderers();
 	FlushDeferredAnimationDocs();
+	FlushDeferredCharacter2DDocs();
 }
 
 void Editor::MouseMove(Event::Input::Info e)
@@ -5577,6 +6637,10 @@ void Editor::Shutdown()
 	// device; the fix here is simply to go first, while it is still alive.
 	CloseAllAnimationDocuments();
 	FlushDeferredAnimationDocs();
+	// Same reason: a character document owns a renderer and an FBO, and a GPU
+	// object must not outlive the device.
+	CloseAllCharacter2DDocuments();
+	FlushDeferredCharacter2DDocs();
 
 	CloseAllSceneDocuments();
 	CloseAllLuaScriptDocuments();
@@ -5637,6 +6701,15 @@ void Editor::BindUndoRouting(AnimationEditorDocument* doc)
 	};
 }
 
+void Editor::BindUndoRouting(Character2DDocument* doc)
+{
+	if (!doc) return;
+	doc->undo.onPush = [this, doc]() {
+		lastFocusedDocKind = FocusedDocKind::Character2D;
+		activeCharacter2DDoc = doc;
+	};
+}
+
 SceneEditor* Editor::CreateSceneDocument()
 {
 	SceneEditor* doc = new SceneEditor(nextSceneDocId++);
@@ -5662,6 +6735,7 @@ SceneEditor* Editor::CreateSceneDocument()
 		&Editor::HostEditMaterialInline,
 		&Editor::HostAssignMaterialAsset);
 	doc->SetHostNewSceneKind(&Editor::HostNewSceneKind);
+	doc->SetHostOpenCharacter2D(&Editor::HostOpenCharacter2D);
 	sceneDocs.push_back(doc);
 	SetActiveSceneDocument(doc);
 	return doc;
@@ -6123,6 +7197,7 @@ Editor::~Editor()
 	// full Shutdown() (queued material previews must not leak).
 	FlushDeferredPreviewRenderers();
 	FlushDeferredAnimationDocs();
+	FlushDeferredCharacter2DDocs();
 	if (instance == this) {
 		instance = NULL;
 	}

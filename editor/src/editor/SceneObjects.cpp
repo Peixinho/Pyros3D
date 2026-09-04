@@ -453,6 +453,54 @@ namespace {
 
 		return obj;
 	}
+	SceneObject* SceneObjects::CreateCharacter2D(GameObject *go, const std::string &characterRel,
+		const std::string &absPath, const std::string &assetsRoot,
+		std::vector<std::shared_ptr<SkeletonAnimation> > *keepAlive)
+	{
+		Character2DAsset asset;
+		std::string err;
+		if (!LoadCharacter2D(absPath, asset, &err))
+		{
+			echo("ERROR: could not load 2D character " + characterRel + " - " + err);
+			return NULL;
+		}
+
+		// A placeholder to construct with; ApplyCharacter2D replaces the
+		// geometry wholesale from the asset's sprites.
+		std::shared_ptr<Renderable> placeholder = std::make_shared<Plane>(1.f, 1.f);
+		std::shared_ptr<RenderingComponent> rc =
+			std::make_shared<RenderingComponent>(placeholder, std::shared_ptr<IMaterial>());
+		go->Add(rc);
+		rc->SetCharacter2DPath(characterRel);
+
+		Character2DInstance built;
+		ApplyCharacter2D(rc.get(), asset,
+			[assetsRoot](const std::string &rel) -> std::string {
+				if (rel.empty()) return rel;
+				if (rel[0] == '/' || (rel.size() > 1 && rel[1] == ':')) return rel;
+				return assetsRoot.empty() ? rel : (assetsRoot + "/" + rel);
+			}, built);
+		if (built.instance) built.instance->ResetToBindPose();
+		// The SkeletonAnimation owns the instance the component poses through;
+		// dropping the last reference here would leave it dangling.
+		if (keepAlive && built.animation) keepAlive->push_back(built.animation);
+
+		// Recorded, not started: play mode and the player start it, so
+		// placing a character does not set it animating in the editor.
+		if (!asset.defaultClip.empty())
+		{
+			rc->SetAutoPlayClip(asset.defaultClip);
+			rc->SetAutoPlayLooping(asset.defaultClipLoops);
+		}
+
+		uint32 id = ++_ID;
+		SceneObject* obj = new SceneObject("Character2D", rc.get(), id,
+			SceneObjectTypes::RENDERING_COMPONENT);
+		listObjects[id] = obj;
+		obj->SetParentID(GetSceneObjectID(go));
+		return obj;
+	}
+
 	SceneObject* SceneObjects::CreateDirectionalLight(GameObject *go, const Vec3 &direction, const Vec4 &color)
 	{
 		uint32 id = ++_ID;

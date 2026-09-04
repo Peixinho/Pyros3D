@@ -82,10 +82,7 @@ namespace p3d {
 			// Blocks 2D light. Separate from Physics2D because casting a
 			// shadow and being solid are different questions - see
 			// Occluder2D.h.
-			Occluder2D,
-			// Cutout binding: a sprite takes the transform of a named bone on
-			// an ancestor's 2D skeleton. See BoneBind2D.h.
-			BoneBind2D
+			Occluder2D
 		};
 	}
 

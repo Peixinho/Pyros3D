@@ -137,6 +137,10 @@ private:
 	std::string pendingOverlayName;
 	bool pendingOverlayHide;
 	bool sceneIs2D;
+	// The loaded scene's scene-level fields. A member rather than a local in
+	// LoadGameScene because SceneMeta::View2D is read (and written - it
+	// follows and clamps) on every frame, not only at load.
+	SceneMeta meta;
 	// The scene file with its prefab references resolved, ready for the
 	// engine. Empty when there was nothing to resolve (or nothing to read),
 	// in which case the ordinary file-path load is used.
@@ -149,6 +153,9 @@ private:
 	// then to a camera of the player's own at the origin so a scene with
 	// none still shows something rather than nothing.
 	void ResolveCamera(const std::string& sceneAbsPath);
+	// Drives the camera GameObject from SceneMeta::View2D - follow, clamp,
+	// place. No-op for a scene framed by a camera object.
+	void UpdateView2DCamera(const f32 dt);
 	void ApplyProjection();
 
 	// DeferredRenderer renders into a G-buffer its caller owns.

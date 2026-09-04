@@ -4,6 +4,7 @@
 //=============================================================================
 
 #include "AnimationPreview.h"
+#include "UI/AnimationEditor.h"
 #include "AnimationEditorDocument.h"
 #include "libgizmo/IGizmo.h"
 #include "libgizmo/GizmoTransformRender.h"
@@ -297,22 +298,9 @@ void AnimationPreview::SyncPose(AnimationEditorDocument& doc, float dt)
 
 	if (blendActive) StopBlend();
 
-	const Animation* clip = doc.ActiveClip();
-	if (clip)
-		instance->ApplyAnimationAtTime(*clip, doc.playhead);
-	else
-		instance->ResetToBindPose();
-
-	if (!poseOverrides.empty())
-	{
-		for (std::map<int, Matrix>::const_iterator it = poseOverrides.begin(); it != poseOverrides.end(); ++it)
-		{
-			if (it->first >= 0 && it->first < (int)instance->GetNumberBones())
-				instance->SetBoneLocalTransform(it->first, it->second);
-		}
-		// One hierarchy walk for the whole batch rather than per bone.
-		instance->RefreshSkinning();
-	}
+	// Shared with the 2D animation window, which poses a scene rig through the
+	// same document fields but has no preview viewport of its own.
+	AnimationEditor::ApplyTimelinePose(doc);
 }
 
 void AnimationPreview::StopBlend()

@@ -15,6 +15,8 @@
 #include <Pyros3D/Materials/IMaterial.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Rendering/Components/Rendering/SpriteRig2D.h>
+#include <functional>
 #include <vector>
 #include <memory>
 
@@ -315,6 +317,63 @@ namespace p3d {
 		// StartAutoPlayInScene() below.
 		const std::string &GetAutoPlayClip() const { return autoPlayClip; }
 		void SetAutoPlayClip(const std::string &c) { autoPlayClip = c; }
+
+		// ---- cutout parts (see SpriteRig2D.h) ----------------------------
+		// The sprites that make up a 2D character. Part i is mesh i, and each
+		// mesh's Pivot is driven from its bone every frame - which is what
+		// makes a whole character ONE object instead of a GameObject per limb.
+		const std::vector<SpritePart2D> &GetSpriteParts2D() const { return spriteParts2D; }
+		void SetSpriteParts2D(const std::vector<SpritePart2D> &p) { spriteParts2D = p; }
+		bool HasSpriteParts2D() const { return !spriteParts2D.empty(); }
+		// Writes each part's bone transform into its mesh's Pivot. Called from
+		// Update(); exposed so the editor can refresh after posing without
+		// waiting for the next scene update.
+		void RefreshSpriteParts2D();
+		// Bounds of the parts as actually DRAWN - each quad placed by its
+		// bone - on the XY plane, in the component's own space.
+		//
+		// Framing a character on its bones is not the same thing and looks
+		// wrong: the artwork routinely reaches well past the skeleton (a head
+		// sits above the topmost joint, a cape past the spine), so a viewport
+		// framed on joints shows a close-up of somebody's chest. Returns false
+		// when there are no parts to measure.
+		bool GetSpriteParts2DBounds(Vec2 &outMin, Vec2 &outMax) const;
+		// Replaces this component's geometry with one quad per part, each with
+		// its own texture, and remembers the parts. Rebuilds in place so a rig
+		// can be re-authored (a part added, a texture swapped) without
+		// destroying and recreating the component - which would drop the
+		// skeleton, the clips and every reference to it.
+		void SetSpriteRig2D(const std::vector<SpritePart2D> &parts,
+			const std::function<std::string(const std::string&)> &resolve);
+
+		// Project-relative path of the .p3d2d this character was built from,
+		// or empty for a component that is not a 2D character.
+		//
+		// This is the ONLY thing a scene stores about a character. Its bones,
+		// its artwork and its clips are the asset's, not the scene's: two
+		// scenes using the same character get the same character, and there is
+		// no second copy in a scene file to drift out of step with the file
+		// everyone else reads.
+		const std::string &GetCharacter2DPath() const { return character2DPath; }
+		void SetCharacter2DPath(const std::string &p) { character2DPath = p; }
+		bool IsCharacter2D() const { return !character2DPath.empty(); }
+
+		// Keeps the SkeletonAnimation that owns this component's animation
+		// instance alive for as long as the component is.
+		//
+		// The instance is what Update() poses the sprite parts from, and it is
+		// owned by its SkeletonAnimation - so whoever built the character has
+		// to hold that shared_ptr. Leaving it to the caller meant a scene
+		// loaded through the Lua binding (which passes no LoadedSceneAssets)
+		// dropped the last reference at the end of the load and then
+		// dereferenced the freed instance on every frame after.
+		//
+		// void because SkeletonAnimation.h includes this header; the
+		// shared_ptr carries its own deleter, so the type is only needed to
+		// destroy it, not to hold it. Same reason GetActiveSkeletonAnimation()
+		// returns void*.
+		void KeepCharacter2DAnimation(const std::shared_ptr<void> &a) { character2DAnimation = a; }
+
 		bool IsAutoPlayLooping() const { return autoPlayLoop; }
 		void SetAutoPlayLooping(const bool l) { autoPlayLoop = l; }
 
@@ -391,6 +450,10 @@ namespace p3d {
 		int32 lastAppliedTextureFrame = -1;
 
 		std::string autoPlayClip;
+		std::string character2DPath;
+		std::shared_ptr<void> character2DAnimation;
+		std::vector<SpritePart2D> spriteParts2D;
+		std::vector<Vec2> spritePartHalfExtents;
 		bool autoPlayLoop = true;
 
 		// Save Renderable Pointer

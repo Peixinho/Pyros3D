@@ -228,6 +228,34 @@ namespace p3d {
 					return IKSolver::Solve(&self, rootBone, effectorBone, target,
 						Vec3(0.f, 0.f, 0.f));
 				},
+				// Play a clip BY NAME, which is how one is referred to
+				// everywhere else (the editor, autoPlay2D, the scene file) -
+				// Play() takes an index, and indices are positional, so adding
+				// a clip in the editor silently renumbers every Play() call in
+				// every script.
+				//
+				// It also passes the right `scale`. Play()'s scale is the
+				// weight of the OTHER clips, not of this one: 1 - the obvious
+				// value for "play this fully" - means "discard this clip in
+				// favour of what was blended before it", so the rig sits in
+				// bind pose and the clip appears not to run at all. See
+				// BlendWeightToScale in AnimationEditorDocument.h; this is the
+				// same inversion, and it has already cost one script.
+				//
+				// Returns false when the rig has no clip of that name, rather
+				// than playing something arbitrary.
+				"playClip", [](SkeletonAnimationInstance& self, const std::string& name,
+					sol::optional<f32> repetition, sol::optional<f32> speed) -> bool {
+					SkeletonAnimation* owner = self.GetOwner();
+					if (!owner) return false;
+					const int32 id = owner->GetAnimationIDByName(name);
+					if (id < 0) return false;
+					self.Play((uint32)id, 0.f,
+						repetition ? *repetition : -1.f,   // -1 = loop forever
+						speed ? *speed : 1.f,
+						0.f, "");
+					return true;
+				},
 				"play", &SkeletonAnimationInstance::Play,
 				"changeProperties", &SkeletonAnimationInstance::ChangeProperties,
 				"pause", &SkeletonAnimationInstance::Pause,

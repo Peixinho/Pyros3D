@@ -1652,147 +1652,300 @@ def set_sprite_pivot(project_path: str, scene_name: str, name: str, x: float, y:
                          f"'{name}' pivot set to ({x}, {y})")
 
 
-@mcp.tool()
-def add_bone2d(project_path: str, scene_name: str, name: str, bone: str,
-               parent: str = "", x: float = 0.0, y: float = 0.0) -> str:
-    """Append a bone to an object's 2D skeleton.
+def _live_character2d(project_path: str, cmd: str, args: dict, ok_msg: str) -> str:
+    """Shared body for the 2D character tools.
 
-    Position is local to the parent bone, in the XY plane. Leave `parent` empty
-    for a root bone. No imported model is needed - the skeleton is authored.
+    Keyed to the PROJECT, not to a scene: a character is an asset
+    (assets/characters/*.p3d2d) that owns its own bones, artwork and clips, and
+    scenes only place one. It is edited in its own editor window, so all of
+    these need a running editor with the project open - there is no offline
+    file path for posing a rig or scrubbing a clip.
     """
-    return _live_2d_anim(project_path, scene_name, "add_bone2d",
-                         {"object": name, "bone": bone, "parent": parent, "pos": [x, y]},
-                         f"added bone '{bone}' to '{name}'")
-
-
-@mcp.tool()
-def remove_bone2d(project_path: str, scene_name: str, name: str, bone: str) -> str:
-    """Remove a bone and everything below it from an object's 2D skeleton."""
-    return _live_2d_anim(project_path, scene_name, "remove_bone2d",
-                         {"object": name, "bone": bone},
-                         f"removed bone '{bone}' (and its descendants) from '{name}'")
-
-
-@mcp.tool()
-def skeleton_state(project_path: str, scene_name: str, name: str) -> str:
-    """List an object's 2D bones with their local and composed global positions."""
     proj, err = _resolve_project(project_path)
     if err:
         return _fail(err)
-    scene_file = _scene_file(proj, scene_name)
-    live = _live_or_none("skeleton_state", {"object": name}, scene_file)
-    if live is None:
-        return _fail("skeleton_state needs the editor open on this scene.")
-    if isinstance(live, str):
-        return _fail(live)
-    return json.dumps(live, indent=2)
+    if not _live_project_matches(proj):
+        return _fail(f"{cmd} needs the editor open on this project - "
+                     "2D characters are edited live, in the Character 2D window.")
+    ok, res = _editor_call(cmd, args)
+    if not ok:
+        return _fail(str(res))
+    return ok_msg
 
 
 @mcp.tool()
-def pose_bone2d(project_path: str, scene_name: str, name: str, bone: str, rotation: float) -> str:
-    """Rotate a bone about Z, in DEGREES. Absolute, not relative."""
-    return _live_2d_anim(project_path, scene_name, "pose_bone2d",
-                         {"object": name, "bone": bone, "rotation": rotation},
-                         f"posed '{bone}' to {rotation} degrees")
+def new_character2d(project_path: str, name: str = "NewCharacter") -> str:
+    """Start a new 2D character (.p3d2d) and open it for editing.
 
-
-@mcp.tool()
-def ik_solve2d(project_path: str, scene_name: str, name: str, root: str, effector: str,
-               x: float, y: float) -> str:
-    """Pose a bone chain so `effector` reaches (x, y) in the rig's model space."""
-    return _live_2d_anim(project_path, scene_name, "ik_solve2d",
-                         {"object": name, "root": root, "effector": effector, "target": [x, y]},
-                         f"solved {root} -> {effector} to ({x}, {y})")
-
-
-@mcp.tool()
-def bind_sprite_to_bone(project_path: str, scene_name: str, name: str, bone: str,
-                        offset_x: float = 0.0, offset_y: float = 0.0) -> str:
-    """Make a sprite follow a bone on an ancestor's skeleton (cutout).
-
-    The offset is applied in bone space, so artwork that sits off its joint
-    rotates with the bone instead of sliding relative to it.
+    A character is bones + artwork + clips in ONE asset. Build it with
+    add_bone2d -> add_sprite2d -> new_clip2d/pose_bone2d/key_pose2d, then
+    save_character2d. Scenes place a finished one with add_character2d.
     """
-    return _live_2d_anim(project_path, scene_name, "bind_bone2d",
-                         {"object": name, "bone": bone, "offset": [offset_x, offset_y]},
-                         f"bound '{name}' to bone '{bone}'")
+    return _live_character2d(project_path, "new_character2d", {"name": name},
+                             f"new 2D character '{name}' - remember to save_character2d")
 
 
 @mcp.tool()
-def new_clip2d(project_path: str, scene_name: str, name: str, clip: str) -> str:
-    """Create an empty 2D animation clip on an object's rig."""
-    return _live_2d_anim(project_path, scene_name, "new_clip2d",
-                         {"object": name, "clip": clip},
-                         f"created clip '{clip}' on '{name}'")
+def open_character2d(project_path: str, path: str) -> str:
+    """Open an existing .p3d2d for editing. `path` is project-relative."""
+    return _live_character2d(project_path, "open_character2d", {"path": path},
+                             f"opened character '{path}'")
 
 
 @mcp.tool()
-def key_pose2d(project_path: str, scene_name: str, name: str, clip: str,
-               time: float, bone: str = "") -> str:
-    """Record the CURRENT pose of every bone into a clip at `time` seconds.
+def save_character2d(project_path: str, path: str = "") -> str:
+    """Write the open character to disk. `path` is optional once saved before."""
+    args = {"path": path} if path else {}
+    return _live_character2d(project_path, "save_character2d", args,
+                             "character saved")
 
-    Pass `bone` to key just one. This is the "key the pose" button: pose the
-    rig (pose_bone2d / ik_solve2d / dragging a joint), then record it.
+
+@mcp.tool()
+def character2d_state(project_path: str) -> str:
+    """Everything about the open 2D character: bones (rest AND posed), sprites,
+    clips with their key counts, the playhead, and the default clip."""
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    if not _live_project_matches(proj):
+        return _fail("character2d_state needs the editor open on this project.")
+    ok, res = _editor_call("character2d_state", {})
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
+def add_bone2d(project_path: str, bone: str, parent: str = "",
+               x: float = 0.0, y: float = 0.0) -> str:
+    """Add a bone to the open character. Position is local to the parent bone.
+
+    Leave `parent` empty for a root. Bones are what the artwork follows and
+    what clips animate.
     """
-    return _live_2d_anim(project_path, scene_name, "key_pose2d",
-                         {"object": name, "clip": clip, "time": time, "bone": bone},
-                         f"keyed {'bone ' + bone if bone else 'the pose'} at t={time} in '{clip}'")
+    return _live_character2d(project_path, "add_bone2d",
+                             {"bone": bone, "parent": parent, "pos": [x, y]},
+                             f"added bone '{bone}'")
+
+
+@mcp.tool()
+def remove_bone2d(project_path: str, bone: str) -> str:
+    """Remove a bone and everything under it.
+
+    Sprites pinned to any of them are UNPINNED, not deleted - the artwork is
+    still wanted, it just has nothing to follow.
+    """
+    return _live_character2d(project_path, "remove_bone2d", {"bone": bone},
+                             f"removed bone '{bone}' and its descendants")
+
+
+@mcp.tool()
+def rename_bone2d(project_path: str, bone: str, to: str) -> str:
+    """Rename a bone, following through into the artwork pinned to it and the
+    clip channels animating it."""
+    return _live_character2d(project_path, "rename_bone2d", {"bone": bone, "to": to},
+                             f"renamed '{bone}' to '{to}'")
+
+
+@mcp.tool()
+def reparent_bone2d(project_path: str, bone: str, parent: str = "") -> str:
+    """Change which bone drives another, keeping it where it is on screen.
+
+    Rejects a cycle. Empty `parent` makes it a root.
+    """
+    return _live_character2d(project_path, "reparent_bone2d",
+                             {"bone": bone, "parent": parent},
+                             f"reparented '{bone}' under '{parent or '(root)'}'")
+
+
+@mcp.tool()
+def set_bone2d(project_path: str, bone: str, x: float = 0.0, y: float = 0.0,
+               rotation: float = 0.0) -> str:
+    """Move a bone's REST pose - the character's SHAPE, not its animation.
+
+    Rotation is in degrees about z.
+    """
+    return _live_character2d(project_path, "set_bone2d",
+                             {"bone": bone, "pos": [x, y], "rotation": rotation},
+                             f"bone '{bone}' rest pose set")
+
+
+@mcp.tool()
+def add_sprite2d(project_path: str, name: str, texture: str = "", bone: str = "") -> str:
+    """Pin artwork to a bone. This is what makes a character visible.
+
+    `texture` is project-root relative and keeps the assets/ prefix
+    ("assets/textures/torso.png") - the same form scenes use.
+    """
+    return _live_character2d(project_path, "add_sprite2d",
+                             {"name": name, "texture": texture, "bone": bone},
+                             f"added sprite '{name}'")
+
+
+@mcp.tool()
+def remove_sprite2d(project_path: str, name: str) -> str:
+    """Remove one piece of artwork from the open character."""
+    return _live_character2d(project_path, "remove_sprite2d", {"name": name},
+                             f"removed sprite '{name}'")
+
+
+@mcp.tool()
+def set_sprite2d(project_path: str, name: str, bone: str = None, texture: str = None,
+                 offset_x: float = None, offset_y: float = None,
+                 scale_x: float = None, scale_y: float = None,
+                 pivot_x: float = None, pivot_y: float = None,
+                 z: float = None, lit: bool = None) -> str:
+    """Change a sprite. Every field is optional; only what you pass is changed.
+
+    `pivot` is where the artwork's own origin sits, normalized (0.5,0.5 is
+    centred): put it on the joint the limb turns about, or the limb rotates
+    about the middle of its texture. `z` is draw order within the character.
+    """
+    args = {"name": name}
+    if bone is not None: args["bone"] = bone
+    if texture is not None: args["texture"] = texture
+    if offset_x is not None and offset_y is not None: args["offset"] = [offset_x, offset_y]
+    if scale_x is not None and scale_y is not None: args["scale"] = [scale_x, scale_y]
+    if pivot_x is not None and pivot_y is not None: args["pivot"] = [pivot_x, pivot_y]
+    if z is not None: args["z"] = z
+    if lit is not None: args["lit"] = lit
+    return _live_character2d(project_path, "set_sprite2d", args, f"sprite '{name}' updated")
+
+
+@mcp.tool()
+def new_clip2d(project_path: str, clip: str, duration: float = 1.0) -> str:
+    """Add an animation clip to the open character."""
+    return _live_character2d(project_path, "new_clip2d",
+                             {"clip": clip, "duration": duration},
+                             f"added clip '{clip}' ({duration}s)")
+
+
+@mcp.tool()
+def remove_clip2d(project_path: str, clip: str) -> str:
+    """Remove a clip from the open character."""
+    return _live_character2d(project_path, "remove_clip2d", {"clip": clip},
+                             f"removed clip '{clip}'")
+
+
+@mcp.tool()
+def rename_clip2d(project_path: str, clip: str, to: str) -> str:
+    """Rename a clip, following through into the character's default clip.
+
+    Scenes address a clip by NAME, so a scene naming the old one stops
+    auto-playing - which is why this is worth doing here rather than by hand.
+    """
+    return _live_character2d(project_path, "rename_clip2d", {"clip": clip, "to": to},
+                             f"renamed clip '{clip}' to '{to}'")
+
+
+@mcp.tool()
+def set_default_clip2d(project_path: str, clip: str = "", loop: bool = True) -> str:
+    """The clip this character starts on wherever it is placed, unless a scene
+    overrides it. Empty clears it."""
+    return _live_character2d(project_path, "set_default_clip2d",
+                             {"clip": clip, "loop": loop},
+                             f"default clip set to '{clip or '(none)'}'")
+
+
+@mcp.tool()
+def pose_bone2d(project_path: str, bone: str, rotation: float) -> str:
+    """Rotate a bone on the LIVE rig without keying it. Degrees about z.
+
+    Follow with key_pose2d to store the pose into a clip.
+    """
+    return _live_character2d(project_path, "pose_bone2d",
+                             {"bone": bone, "rotation": rotation},
+                             f"posed '{bone}' to {rotation} degrees (not keyed yet)")
+
+
+@mcp.tool()
+def ik_solve2d(project_path: str, root: str, effector: str, x: float, y: float) -> str:
+    """Pose a limb by dragging its tip: solves the chain from `root` to
+    `effector` so the effector reaches (x, y) in the character's space.
+
+    Root the chain at the LIMB (upper arm -> hand), not at the spine: rooting
+    it at the body makes the solver rotate the torso and the character comes
+    apart. An authoring aid - key_pose2d stores the result as ordinary
+    rotation keys.
+    """
+    return _live_character2d(project_path, "ik_solve2d",
+                             {"root": root, "effector": effector, "target": [x, y]},
+                             f"solved {root} -> {effector} to ({x}, {y}) (not keyed yet)")
+
+
+@mcp.tool()
+def key_pose2d(project_path: str, clip: str = "", time: float = 0.0, bone: str = "") -> str:
+    """Key whatever is posed right now into a clip at a time.
+
+    `bone` restricts it to one bone; omit to key everything that has been
+    posed. Keys rotation only by default - a cutout limb's offset from its
+    joint is the character's shape, not its animation.
+    """
+    args = {"time": time}
+    if clip: args["clip"] = clip
+    if bone: args["bone"] = bone
+    return _live_character2d(project_path, "key_pose2d", args,
+                             f"keyed at {time}s")
+
+
+@mcp.tool()
+def delete_key2d(project_path: str, clip: str, bone: str, time: float) -> str:
+    """Remove a bone's key at a time."""
+    return _live_character2d(project_path, "delete_key2d",
+                             {"clip": clip, "bone": bone, "time": time},
+                             f"deleted '{bone}' key at {time}s in '{clip}'")
+
+
+@mcp.tool()
+def scrub_clip2d(project_path: str, clip: str = "", time: float = 0.0) -> str:
+    """Move the playhead and pose the character from the clip there.
+
+    This is how you check what a clip actually looks like - follow with
+    character2d_state to read the posed bone positions back.
+    """
+    args = {"time": time}
+    if clip: args["clip"] = clip
+    return _live_character2d(project_path, "scrub_clip2d", args,
+                             f"scrubbed '{clip or '(current clip)'}' to {time}s")
+
+
+@mcp.tool()
+def character2d_undo_redo(project_path: str, action: str = "undo") -> str:
+    """Undo or redo the last edit to the open 2D character.
+
+    One history for the whole character - bones, artwork AND keyframes - so
+    this is the same Ctrl+Z the editor does. Separate from the scene's, the
+    material editor's and the .p3da animation editor's, which each own theirs.
+    """
+    if action not in ("undo", "redo"):
+        return _fail("action must be 'undo' or 'redo'")
+    return _live_character2d(project_path, f"{action}_character2d", {},
+                             f"{action} ok")
+
+
+@mcp.tool()
+def add_character2d(project_path: str, scene_name: str, character: str,
+                    name: str = "", x: float = 0.0, y: float = 0.0, z: float = 0.0) -> str:
+    """Place a finished 2D character in a scene.
+
+    The scene stores only which character and which clip - everything about
+    what the character IS lives in the .p3d2d.
+    """
+    return _live_2d_anim(project_path, scene_name, "add_character2d",
+                         {"character": character, "name": name, "position": [x, y, z]},
+                         f"placed character '{character}' as '{name or character}'")
 
 
 @mcp.tool()
 def set_autoplay2d(project_path: str, scene_name: str, name: str,
                    clip: str = "", loop: bool = True) -> str:
-    """Set the clip that starts automatically when the game runs.
+    """Choose which clip a placed character starts on when the game runs.
 
-    Recorded on the object, not started now - play mode and the player start
-    it, so it does not drive the rig while you are authoring a pose. Pass an
-    empty clip to clear it.
+    Empty `clip` clears it, falling back to the character's own default.
     """
     return _live_2d_anim(project_path, scene_name, "set_autoplay2d",
                          {"object": name, "clip": clip, "loop": loop},
-                         f"autoplay on '{name}' set to '{clip}'" if clip else f"autoplay cleared on '{name}'")
-
-
-@mcp.tool()
-def key_bone2d(project_path: str, scene_name: str, name: str, clip: str, bone: str,
-               time: float, rotation: float) -> str:
-    """Record a bone's Z rotation (degrees) into a clip at `time` seconds.
-
-    Creates the clip and the bone's channel on demand, and replaces any key
-    already at that time rather than stacking a second one.
-    """
-    return _live_2d_anim(project_path, scene_name, "key_bone2d",
-                         {"object": name, "clip": clip, "bone": bone,
-                          "time": time, "rotation": rotation},
-                         f"keyed '{bone}' at t={time} to {rotation} degrees in '{clip}'")
-
-
-@mcp.tool()
-def delete_key2d(project_path: str, scene_name: str, name: str, clip: str,
-                 bone: str, time: float) -> str:
-    """Delete a bone's key at `time` from a clip."""
-    return _live_2d_anim(project_path, scene_name, "delete_key2d",
-                         {"object": name, "clip": clip, "bone": bone, "time": time},
-                         f"deleted '{bone}' key at t={time} from '{clip}'")
-
-
-@mcp.tool()
-def scrub_clip2d(project_path: str, scene_name: str, name: str, clip: str, time: float) -> str:
-    """Sample a clip onto the rig at `time` seconds, i.e. scrub to that frame."""
-    return _live_2d_anim(project_path, scene_name, "scrub_clip2d",
-                         {"object": name, "clip": clip, "time": time},
-                         f"scrubbed '{clip}' to t={time}")
-
-
-@mcp.tool()
-def play_clip2d(project_path: str, scene_name: str, name: str, clip: str,
-                loop: bool = True, speed: float = 1.0) -> str:
-    """Start a clip playing on the rig."""
-    return _live_2d_anim(project_path, scene_name, "play_clip2d",
-                         {"object": name, "clip": clip, "loop": loop, "speed": speed},
-                         f"playing '{clip}' on '{name}'")
-
-
+                         f"'{name}' will start on '{clip or '(the character default)'}'")
 def _add_simple_component(project_path: str, scene_name: str, name: str,
                           cmd: str, component: dict, what: str) -> str:
     """Shared body for the 2D components that are pure data: live if the editor
@@ -4433,6 +4586,50 @@ def save_animation(save_as: str | None = None, animation: str | None = None) -> 
     if not ok:
         return _fail(f"Save failed: {res}")
     return f"Saved {res.get('saved')}"
+
+
+@mcp.tool()
+def open_scene(project_path: str, scene_name: str) -> str:
+    """Open a scene as ANOTHER document, beside whatever is already open.
+
+    Distinct from set_active_scene / loading one, which replaces the current
+    document. Two open documents each keep their own renderer, selection and
+    undo history - which matters because rules like "a 2D scene always uses
+    forward" are per document, not per project.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    if not _live_project_matches(proj):
+        return _fail("open_scene needs the editor open on this project.")
+    scene_file = _scene_file(proj, scene_name)
+    try:
+        rel = str(scene_file.relative_to(proj))
+    except Exception:
+        rel = f"scenes/{scene_name}.json"
+    ok, res = _editor_call("open_scene", {"path": rel})
+    if not ok:
+        return _fail(str(res))
+    return f"opened '{rel}' as a second document"
+
+
+@mcp.tool()
+def material_undo_redo(action: str = "undo", material: str | None = None) -> str:
+    """Undo or redo the last edit in the open Material Editor document.
+
+    Each material document owns its history, separate from the scene's - the
+    editor routes Ctrl+Z by which document was last EDITED, and an agent has
+    no focus to route by, so it says which one it means.
+    """
+    if action not in ("undo", "redo"):
+        return _fail("action must be 'undo' or 'redo'")
+    cmd = "undo_material" if action == "undo" else "redo_material"
+    ok, res = _editor_call(cmd, {"path": material} if material else {})
+    if not ok:
+        return _fail(f"{action} failed: {res}")
+    return (f"{action} ok. "
+            f"{'more undo available' if res.get('canUndo') else 'nothing left to undo'}, "
+            f"{'redo available' if res.get('canRedo') else 'no redo'}.")
 
 
 @mcp.tool()

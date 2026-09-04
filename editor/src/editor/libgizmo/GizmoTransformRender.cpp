@@ -170,8 +170,14 @@ void CGizmoTransformRender::DrawCircleHalf(const tvector3 &orig,float r,float g,
 		vt = vtx * cos((ZPI/30)*i);
 		vt += vty * sin((ZPI/30)*i);
 		vt +=orig;
-		if (camPlan.DotNormal(vt))
-		v.push_back(vt);
+		// Keep the half in front of the camera plane. DotNormal() is the dot
+		// of the plane's normal with the point and ignores the plane's
+		// distance entirely, so as a test it answered a question about the
+		// world origin - and it was used as a bool, making "exactly on the
+		// plane" the only rejection. The epsilon keeps the two points that
+		// legitimately sit on the plane (the ends of the arc).
+		if (camPlan.SignedDistanceTo(vt) >= -0.0001f)
+			v.push_back(vt);
 	}
 
 	Matrix projectionMatrix, viewMatrix, modelMatrix;

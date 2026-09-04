@@ -16,6 +16,8 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Torus.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/TorusKnot.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/Assets/Character2D/Character2DInstance.h>
+#include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
@@ -140,6 +142,14 @@ class SceneObjects
 		SceneObject* CreateRenderingTorus(GameObject *go, const f32 radius, const f32 tube, const f32 segmentsw, const f32 segmentsh, bool smoothnormals, bool flipnormals);
 		SceneObject* CreateRenderingTorusKnot(GameObject *go, const f32 radius, const f32 tube, const f32 segmentsw, const f32 segmentsh, const f32 p, const f32 q, bool smoothnormals, bool flipnormals);
 		SceneObject* CreateRenderingModel(GameObject *go, const std::string &path);
+		// A 2D character (.p3d2d), built onto `go` through the same
+		// ApplyCharacter2D the scene loader and the character editor use.
+		// `characterRel` is stored on the component so a save round-trips it;
+		// `absPath` is what actually gets read. Returns NULL if the asset
+		// could not be loaded, with the reason echoed.
+		SceneObject* CreateCharacter2D(GameObject *go, const std::string &characterRel,
+			const std::string &absPath, const std::string &assetsRoot,
+			std::vector<std::shared_ptr<SkeletonAnimation> > *keepAlive);
 		SceneObject* CreateDirectionalLight(GameObject *go, const Vec3 &direction, const Vec4 &color);
 		SceneObject* CreatePointLight(GameObject *go, const f32 radius, const Vec4 &color);
 		SceneObject* CreateSpotLight(GameObject *go, const f32 radius, const Vec3 &direction, const f32 outter, const f32 inner, const Vec4 &color);

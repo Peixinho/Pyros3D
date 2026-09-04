@@ -23,7 +23,8 @@
 #include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
-#include <Pyros3D/Rendering/Components/BoneBind2D/BoneBind2D.h>
+#include <Pyros3D/Assets/Character2D/Character2DAsset.h>
+#include <Pyros3D/Assets/Character2D/Character2DInstance.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
@@ -74,6 +75,7 @@
 #endif
 
 #include <fstream>
+#include <cmath>
 #include <sstream>
 #include <map>
 #include <filesystem>
@@ -88,6 +90,30 @@ namespace p3d {
 	// paths) against ASSETS_PATH when the recorded file is missing.
 	// Editor projects use the folder that contains scenes/ as the root.
 	static std::string g_sceneAssetRoot;
+
+	// Key interpolation, shared by both 2D clip key kinds so rotations and
+	// positions cannot drift apart about how it is spelled. Omitted entirely
+	// for a plain linear key with default tangents, which is the overwhelming
+	// majority - a clip full of "mode": 0 is noise in the diff of a scene file
+	// people read.
+	static void WriteKeyInterp(json& j, const uchar mode, const f32 inTan, const f32 outTan)
+	{
+		if (mode == INTERP_LINEAR && inTan == 1.f && outTan == 1.f) return;
+		j["interp"] = (int)mode;
+		if (mode == INTERP_BEZIER)
+		{
+			j["in"] = (double)inTan;
+			j["out"] = (double)outTan;
+		}
+	}
+
+	static void ReadKeyInterp(const json& j, uchar& mode, f32& inTan, f32& outTan)
+	{
+		const int m = j.value("interp", (int)INTERP_LINEAR);
+		mode = (uchar)((m >= 0 && m < (int)kInterpolationModeCount) ? m : INTERP_LINEAR);
+		inTan = (f32)j.value("in", 1.0);
+		outTan = (f32)j.value("out", 1.0);
+	}
 
 	static std::string NormalizeSlashes(std::string p)
 	{
@@ -1028,115 +1054,49 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// updates the single shared `renderable` field - see
 			// VULKAN_ROADMAP.md's Scene serialization section) - a
 			// documented v1 simplification, not a bug.
-			json renderableJson = SerializeRenderable(rc->GetRenderable());
-			if (renderableJson.is_null()) return json();
-			if (rc->GetMeshes(0).empty()) return json();
-			IMaterial* mat = rc->GetMeshes(0)[0]->Material.get();
-			if (!mat) return json();
+			// A 2D character rebuilds its own geometry from its .p3d2d, so
+			// there is no renderable or single material worth recording -
+			// and the checks below, which exist for components whose geometry
+			// cannot be reconstructed, would otherwise throw the whole
+			// character away on save.
+			const bool isCharacter2D = rc->IsCharacter2D();
+
+			json renderableJson;
+			IMaterial* mat = NULL;
+			if (!isCharacter2D)
+			{
+				// Only LOD 0's renderable is recoverable (AddLOD() never
+				// updates the single shared `renderable` field - see
+				// VULKAN_ROADMAP.md's Scene serialization section) - a
+				// documented v1 simplification, not a bug.
+				renderableJson = SerializeRenderable(rc->GetRenderable());
+				if (renderableJson.is_null()) return json();
+				if (rc->GetMeshes(0).empty()) return json();
+				mat = rc->GetMeshes(0)[0]->Material.get();
+				if (!mat) return json();
+			}
 
 			j["type"] = "RenderingComponent";
 			j["cullTest"] = rc->IsCullTesting();
 			j["castingShadows"] = rc->IsCastingShadows();
-			j["material"] = GetOrAddMaterial(mat, materialsArray, materialIdMap);
-			j["renderable"] = renderableJson;
-
-			// An authored skeleton (see RenderingComponent::SetSkeleton). A
-			// skeleton that came from an imported model is rebuilt from the
-			// model on load and does not need storing; one built in the editor
-			// exists nowhere else, so without this it vanishes on save and the
-			// whole feature is unusable. Only written when no bone is skinned,
-			// which is exactly the authored/cutout case - a skinned rig
-			// belongs to its model file.
+			if (!isCharacter2D)
 			{
-				const std::map<StringID, Bone> &sk = rc->GetSkeleton();
-				bool anySkinned = false;
-				for (std::map<StringID, Bone>::const_iterator b = sk.begin(); b != sk.end(); ++b)
-					if ((*b).second.skinned) { anySkinned = true; break; }
-				if (!sk.empty() && !anySkinned)
-				{
-					std::vector<const Bone*> ordered(sk.size(), (const Bone*)NULL);
-					bool ok = true;
-					for (std::map<StringID, Bone>::const_iterator b = sk.begin(); b != sk.end(); ++b)
-					{
-						const int32 id = (*b).second.self;
-						if (id < 0 || (size_t)id >= ordered.size()) { ok = false; break; }
-						ordered[id] = &(*b).second;
-					}
-					if (ok)
-					{
-						json bonesArr = json::array();
-						for (size_t bi = 0; bi < ordered.size() && ok; bi++)
-						{
-							if (!ordered[bi]) { ok = false; break; }
-							json bj;
-							bj["name"] = ordered[bi]->name;
-							bj["parent"] = ordered[bi]->parent;
-							bj["pos"] = { (double)ordered[bi]->pos.x, (double)ordered[bi]->pos.y, (double)ordered[bi]->pos.z };
-							bonesArr.push_back(bj);
-						}
-						if (ok) j["bones2D"] = bonesArr;
+				j["material"] = GetOrAddMaterial(mat, materialsArray, materialIdMap);
+				j["renderable"] = renderableJson;
+			}
 
-					// Clips authored against that skeleton. An imported rig's
-					// clips live in its animation file and are reloaded from
-					// there; these exist nowhere else, so without this they
-					// vanish on save exactly as the bones would have.
-					if (ok)
-					{
-						SkeletonAnimationInstance* sinst =
-							static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-						if (sinst && sinst->GetOwner())
-						{
-							const std::vector<Animation> clips = sinst->GetOwner()->GetAnimations();
-							json clipsArr = json::array();
-							for (size_t ci = 0; ci < clips.size(); ci++)
-							{
-								json cj;
-								cj["name"] = clips[ci].AnimationName;
-								cj["duration"] = (double)clips[ci].Duration;
-								cj["ticksPerSecond"] = (double)clips[ci].TicksPerSecond;
-								json chans = json::array();
-								for (size_t chi = 0; chi < clips[ci].Channels.size(); chi++)
-								{
-									const Channel &ch = clips[ci].Channels[chi];
-									json chj;
-									chj["bone"] = ch.NodeName;
-									json rots = json::array();
-									for (size_t ri = 0; ri < ch.rotations.size(); ri++)
-									{
-										// The full quaternion, not a Z angle:
-										// lossless, and it does not assume the
-										// clip will only ever be planar.
-										json rj;
-										rj["t"] = (double)ch.rotations[ri].Time;
-										rj["q"] = { (double)ch.rotations[ri].Rot.x, (double)ch.rotations[ri].Rot.y,
-										            (double)ch.rotations[ri].Rot.z, (double)ch.rotations[ri].Rot.w };
-										rots.push_back(rj);
-									}
-									json poss = json::array();
-									for (size_t pi = 0; pi < ch.positions.size(); pi++)
-									{
-										json pj2;
-										pj2["t"] = (double)ch.positions[pi].Time;
-										pj2["p"] = { (double)ch.positions[pi].Pos.x, (double)ch.positions[pi].Pos.y,
-										             (double)ch.positions[pi].Pos.z };
-										poss.push_back(pj2);
-									}
-									if (!rots.empty()) chj["rotations"] = rots;
-									if (!poss.empty()) chj["positions"] = poss;
-									chans.push_back(chj);
-								}
-								cj["channels"] = chans;
-								clipsArr.push_back(cj);
-							}
-							if (!clipsArr.empty()) j["clips2D"] = clipsArr;
-							if (!rc->GetAutoPlayClip().empty())
-							{
-								j["autoPlay2D"] = rc->GetAutoPlayClip();
-								j["autoPlay2DLoop"] = rc->IsAutoPlayLooping();
-							}
-						}
-					}
-					}
+			// A 2D character. The scene stores the ASSET it came from and
+			// which clip it starts on - nothing else. Bones, artwork and
+			// clips belong to the .p3d2d (see Character2DAsset.h); a scene
+			// that carried its own copy of them would silently diverge from
+			// the file every other scene loads.
+			if (rc->IsCharacter2D())
+			{
+				j["character2D"] = rc->GetCharacter2DPath();
+				if (!rc->GetAutoPlayClip().empty())
+				{
+					j["autoPlay2D"] = rc->GetAutoPlayClip();
+					j["autoPlay2DLoop"] = rc->IsAutoPlayLooping();
 				}
 			}
 
@@ -1144,6 +1104,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// rather than as the matrix so it survives the geometry changing
 			// size - a sprite re-pointed at a taller texture keeps its
 			// "bottom edge" pivot instead of drifting into the middle.
+			// Not for a character: mesh 0's Pivot there is a BONE transform
+			// written every frame, not an authored pivot, so storing it would
+			// bake one frame of the animation into the scene file.
+			if (!isCharacter2D)
 			{
 				std::vector<RenderingMesh*> &pmeshes = rc->GetMeshes();
 				Renderable* prnd = rc->GetRenderable();
@@ -1167,7 +1131,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// component (automatic, from SkeletonAnimationInstance's own
 			// constructor - see RenderingComponent.h's comment). Zero
 			// effect on components that don't use skeleton animation.
-			if (SkeletonAnimationInstance* inst = static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation()))
+			// Skipped for a 2D character: its skeleton and its clips come from
+			// its .p3d2d, so this block would write an empty record that says
+			// nothing and, on load, would build a second SkeletonAnimation
+			// beside the one the character already has.
+			SkeletonAnimationInstance* inst = isCharacter2D ? NULL
+				: static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
+			if (inst)
 			{
 				json sa;
 				// Both: "path" stays for older scene files / single-file
@@ -1533,15 +1503,6 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["castsShadow"] = ph->CastsShadow();
 			return j;
 		}
-		case ComponentType::BoneBind2D:
-		{
-			BoneBind2D* b = dynamic_cast<BoneBind2D*>(c);
-			j["type"] = "BoneBind2D";
-			j["bone"] = b->GetBone();
-			j["offset"] = ToJson(b->GetOffset());
-			j["scale"] = ToJson(b->GetScale());
-			return j;
-		}
 		case ComponentType::Layer2D:
 		{
 			Layer2D* l = dynamic_cast<Layer2D*>(c);
@@ -1809,6 +1770,85 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return j;
 	}
 
+	// ---- SceneMeta::View2D ---------------------------------------------
+	// The camera is far enough back that a parallax layer pushed away for
+	// draw order is still in front of the near plane, and the far plane is
+	// generous for the same reason. An orthographic depth range is linear, so
+	// neither costs precision the way it would in a perspective projection.
+	const f32 SceneMeta::View2D::kCameraZ = 1000.f;
+	const f32 SceneMeta::View2D::kNear = 0.1f;
+	const f32 SceneMeta::View2D::kFar = 5000.f;
+
+	void SceneMeta::View2D::Track(const Vec3 &targetWorld, const f32 dt)
+	{
+		// An axis that is not followed keeps whatever the view was authored
+		// (or scripted) to, rather than being dragged along.
+		const Vec2 want(followX ? targetWorld.x + followOffset.x : center.x,
+		                followY ? targetWorld.y + followOffset.y : center.y);
+		if (followLag <= 0.f || dt <= 0.f)
+		{
+			center = want;
+			return;
+		}
+		// Framerate-independent smoothing: the fraction of the remaining
+		// distance covered per second is what stays constant, not the fraction
+		// per frame - otherwise the camera lags further behind at 30fps than
+		// at 120 and the game feels different on different machines.
+		f32 t = 1.f - std::pow(0.001f, dt / followLag);
+		if (t < 0.f) t = 0.f;
+		if (t > 1.f) t = 1.f;
+		center = Vec2(center.x + (want.x - center.x) * t,
+		              center.y + (want.y - center.y) * t);
+	}
+
+	void SceneMeta::View2D::ClampCenter(const f32 aspect)
+	{
+		if (!clamp) return;
+		const f32 halfW = halfHeight * (aspect > 0.f ? aspect : 1.f);
+
+		// The EDGE of the view is what the bounds hold, not its centre - a
+		// clamp on the centre still lets half a screen of nothing past the end
+		// of the level. When the level is smaller than the view in an axis
+		// there is no valid range, so centre on it instead of picking a side.
+		if (clampMax.x - clampMin.x <= halfW * 2.f)
+			center.x = (clampMin.x + clampMax.x) * 0.5f;
+		else
+		{
+			if (center.x - halfW < clampMin.x) center.x = clampMin.x + halfW;
+			if (center.x + halfW > clampMax.x) center.x = clampMax.x - halfW;
+		}
+
+		if (clampMax.y - clampMin.y <= halfHeight * 2.f)
+			center.y = (clampMin.y + clampMax.y) * 0.5f;
+		else
+		{
+			if (center.y - halfHeight < clampMin.y) center.y = clampMin.y + halfHeight;
+			if (center.y + halfHeight > clampMax.y) center.y = clampMax.y - halfHeight;
+		}
+	}
+
+	Projection SceneMeta::View2D::MakeProjection(const f32 aspect) const
+	{
+		// Height is what the author sets; width follows from the window. That
+		// way the same scene fills a 16:9 and a 4:3 window without anyone
+		// choosing a resolution - a wider window shows more of the world to
+		// either side rather than squashing it.
+		const f32 halfH = (halfHeight > 0.0001f) ? halfHeight : 0.0001f;
+		const f32 halfW = halfH * (aspect > 0.f ? aspect : 1.f);
+		Projection p;
+		p.Ortho(-halfW, halfW, -halfH, halfH, kNear, kFar);
+		return p;
+	}
+
+	Matrix SceneMeta::View2D::CameraMatrix() const
+	{
+		// Straight down -Z with no rotation. A 2D scene lies in the XY plane
+		// and any tilt at all shows it edge-on.
+		Matrix m;
+		m.Translate(Vec3(center.x, center.y, kCameraZ));
+		return m;
+	}
+
 	bool SceneSerializer::SaveScene(SceneGraph* scene, const std::string &filePath, sol::state* lua, const SceneMeta* meta)
 	{
 		g_sceneAssetRoot = InferAssetRootFromScenePath(filePath);
@@ -1817,12 +1857,48 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		root["version"] = 1;
 		if (meta && !meta->mainScript.empty())
 			root["mainScript"] = RelativizeSceneAssetPath(meta->mainScript);
+		// One block, braced. The `twoD` test used to sit outside the `if (meta)`
+		// with only its indentation suggesting otherwise, so it dereferenced a
+		// null meta - and meta defaults to NULL, which is exactly how the Lua
+		// binding calls this (scene:save(path)). Saving a scene from a script
+		// segfaulted.
 		if (meta)
+		{
 			root["ambientLight"] = json::array({ meta->ambientLight.x, meta->ambientLight.y, meta->ambientLight.z });
 			// Only written when true - keeps 3D scenes byte-identical to what
 			// they serialized to before this field existed.
 			if (meta->twoD)
 				root["twoD"] = true;
+
+			// How this scene is framed. In the SCENE file, not the
+			// .editor.json sidecar: what the player renders from is scene
+			// data, and putting it in a sidecar is what made a scene
+			// unrenderable without one.
+			if (meta->view2D.enabled)
+			{
+				const SceneMeta::View2D &v = meta->view2D;
+				json vj;
+				vj["center"] = json::array({ (double)v.center.x, (double)v.center.y });
+				vj["halfHeight"] = (double)v.halfHeight;
+				if (!v.follow.empty())
+				{
+					vj["follow"] = v.follow;
+					if (v.followLag != 0.f) vj["followLag"] = (double)v.followLag;
+					// Only written when an axis is switched OFF, which is the
+					// unusual case - both on is what "follow" plainly means.
+					if (!v.followX) vj["followX"] = false;
+					if (!v.followY) vj["followY"] = false;
+					if (v.followOffset.x != 0.f || v.followOffset.y != 0.f)
+						vj["followOffset"] = json::array({ (double)v.followOffset.x, (double)v.followOffset.y });
+				}
+				if (v.clamp)
+				{
+					vj["clampMin"] = json::array({ (double)v.clampMin.x, (double)v.clampMin.y });
+					vj["clampMax"] = json::array({ (double)v.clampMax.x, (double)v.clampMax.y });
+				}
+				root["view2D"] = vj;
+			}
+		}
 
 		json materialsArray = json::array();
 		std::map<IMaterial*, uint32> materialIdMap;
@@ -2243,7 +2319,16 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 
 		if (type == "RenderingComponent")
 		{
-			std::shared_ptr<Renderable> renderable = DeserializeRenderable(j.value("renderable", json()), outAssets);
+			// A 2D character has no `renderable` or single `material`: its
+			// .p3d2d says what geometry to build and each sprite brings its
+			// own. Give it a placeholder to construct with - ApplyCharacter2D
+			// below replaces the geometry wholesale.
+			const bool isCharacter2D = (j.find("character2D") != j.end() && j["character2D"].is_string()
+				&& !j["character2D"].get<std::string>().empty());
+
+			std::shared_ptr<Renderable> renderable = isCharacter2D
+				? std::static_pointer_cast<Renderable>(std::make_shared<Plane>(1.f, 1.f))
+				: DeserializeRenderable(j.value("renderable", json()), outAssets);
 			if (!renderable) { echo("WARNING: SceneSerializer - skipping RenderingComponent, couldn't rebuild its renderable"); return; }
 			uint32 matId = j.value("material", (uint32)0xFFFFFFFF);
 			std::shared_ptr<IMaterial> mat = (matId < materialsById.size()) ? materialsById[matId] : nullptr;
@@ -2252,7 +2337,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// paths resolve next to the package). Applying one serialized
 			// material to every mesh dropped package textures on reload.
 			const bool isModel = (dynamic_cast<Model*>(renderable.get()) != NULL);
-			if (!isModel && !mat) { echo("WARNING: SceneSerializer - skipping RenderingComponent, its material couldn't be rebuilt"); return; }
+			if (!isCharacter2D && !isModel && !mat)
+			{ echo("WARNING: SceneSerializer - skipping RenderingComponent, its material couldn't be rebuilt"); return; }
+			if (isCharacter2D && !mat) mat = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color);
 
 			std::shared_ptr<RenderingComponent> rc;
 			if (isModel)
@@ -2389,89 +2476,43 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				}
 			}
 
-			// Authored skeleton, in id order (index == Bone::self, which is
-			// what every pose array downstream is keyed by).
-			if (j.find("bones2D") != j.end() && j["bones2D"].is_array() && !j["bones2D"].empty())
+			// A 2D character: load the .p3d2d and build it. Everything the
+			// character is comes from that file, so a scene that references
+			// one it cannot find gets an empty component and a warning rather
+			// than a half-built rig posed from whatever was left over.
+			if (j.find("character2D") != j.end() && j["character2D"].is_string())
 			{
-				std::vector<Bone> bones;
-				bones.reserve(j["bones2D"].size());
-				for (size_t bi = 0; bi < j["bones2D"].size(); bi++)
+				const std::string rel = j["character2D"].get<std::string>();
+				rc->SetCharacter2DPath(rel);
+				const std::string abs = ResolveSceneAssetPath(rel);
+				Character2DAsset asset;
+				std::string err;
+				if (abs.empty() || !LoadCharacter2D(abs, asset, &err))
 				{
-					const json &bj = j["bones2D"][bi];
-					Bone b;
-					b.name = bj.value("name", std::string());
-					b.self = (int32)bi;
-					b.parent = bj.value("parent", -1);
-					if (bj.find("pos") != bj.end() && bj["pos"].is_array() && bj["pos"].size() == 3)
-						b.pos = Vec3((f32)bj["pos"][0].get<double>(), (f32)bj["pos"][1].get<double>(),
-						             (f32)bj["pos"][2].get<double>());
-					b.rot = Quaternion();
-					b.scale = Vec3(1.f, 1.f, 1.f);
-					b.bindPoseMat = Matrix();
-					b.bindPoseMat.Translate(b.pos);
-					b.skinned = false;
-					bones.push_back(b);
+					echo("WARNING: 2D character asset could not be loaded: " + rel + " (" + err + ")");
 				}
-				if (!bones.empty()) rc->SetSkeleton(bones);
-
-				// A live instance is created here rather than left to the
-				// editor to make lazily, because the clips have to be
-				// attached to something and the SkeletonAnimation is what
-				// owns them.
-				if (!bones.empty())
+				else
 				{
-					std::shared_ptr<SkeletonAnimation> sanim = std::make_shared<SkeletonAnimation>();
-					if (outAssets) outAssets->skeletonAnimations.push_back(sanim);
+					// Built through the same call the editor's viewport uses,
+					// so what a scene shows and what the character editor
+					// shows cannot disagree (see Character2DInstance.h).
+					Character2DInstance built;
+					ApplyCharacter2D(rc.get(), asset, &ResolveSceneAssetPath, built);
+					if (outAssets && built.animation)
+						outAssets->skeletonAnimations.push_back(built.animation);
+					if (built.instance) built.instance->ResetToBindPose();
 
-					if (j.find("clips2D") != j.end() && j["clips2D"].is_array())
-					{
-						std::vector<Animation> clips;
-						for (size_t ci = 0; ci < j["clips2D"].size(); ci++)
-						{
-							const json &cj = j["clips2D"][ci];
-							Animation a;
-							a.AnimationName = cj.value("name", std::string());
-							a.Duration = (f32)cj.value("duration", 0.0);
-							a.TicksPerSecond = (f32)cj.value("ticksPerSecond", 1.0);
-							a.Flags = 0;
-							if (cj.find("channels") != cj.end())
-								for (size_t chi = 0; chi < cj["channels"].size(); chi++)
-								{
-									const json &chj = cj["channels"][chi];
-									Channel ch;
-									ch.NodeName = chj.value("bone", std::string());
-									if (chj.find("rotations") != chj.end())
-										for (auto &rj : chj["rotations"])
-										{
-											if (!rj.contains("q") || rj["q"].size() != 4) continue;
-											Quaternion q((f32)rj["q"][3].get<double>(), (f32)rj["q"][0].get<double>(),
-											             (f32)rj["q"][1].get<double>(), (f32)rj["q"][2].get<double>());
-											ch.rotations.push_back(RotationData((f32)rj.value("t", 0.0), q));
-										}
-									if (chj.find("positions") != chj.end())
-										for (auto &pj2 : chj["positions"])
-										{
-											if (!pj2.contains("p") || pj2["p"].size() != 3) continue;
-											ch.positions.push_back(PositionData((f32)pj2.value("t", 0.0),
-												Vec3((f32)pj2["p"][0].get<double>(), (f32)pj2["p"][1].get<double>(),
-												     (f32)pj2["p"][2].get<double>())));
-										}
-									a.Channels.push_back(ch);
-								}
-							clips.push_back(a);
-						}
-						if (!clips.empty()) sanim->SetAnimations(clips);
-					}
-
-					SkeletonAnimationInstance* si = sanim->CreateInstance(rc.get());
-					if (si) si->ResetToBindPose();
-
-					// Recorded, not started: play mode and the player start it,
-					// so authoring a scene does not fight the clip.
+					// The scene may override which clip the character starts
+					// on; otherwise it uses the asset's own default.
 					if (j.find("autoPlay2D") != j.end())
 					{
 						rc->SetAutoPlayClip(j.value("autoPlay2D", std::string()));
 						rc->SetAutoPlayLooping(j.value("autoPlay2DLoop", true));
+					}
+					else if (!asset.defaultClip.empty())
+					{
+						rc->SetAutoPlayClip(asset.defaultClip);
+						rc->SetAutoPlayLooping(asset.defaultClipLoops);
 					}
 				}
 			}
@@ -2480,6 +2521,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// geometry's bounds (see the save side for why it is stored
 			// normalized rather than as the matrix).
 			if (j.find("pivot") != j.end() && j["pivot"].is_array() && j["pivot"].size() == 2)
+			// Not for a character: mesh 0's Pivot there is a BONE transform
+			// written every frame, not an authored pivot, so storing it would
+			// bake one frame of the animation into the scene file.
+			if (!isCharacter2D)
 			{
 				std::vector<RenderingMesh*> &pmeshes = rc->GetMeshes();
 				Renderable* prnd = rc->GetRenderable();
@@ -2703,14 +2748,6 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			ph->SetFixedRotation(j.value("fixedRotation", false));
 			ph->SetCastsShadow(j.value("castsShadow", true));
 			go->Add(ph);
-			return;
-		}
-				else if (type == "BoneBind2D")
-		{
-			std::shared_ptr<BoneBind2D> b = std::make_shared<BoneBind2D>(j.value("bone", std::string()));
-			if (j.contains("offset")) b->SetOffset(Vec2FromJson(j["offset"]));
-			if (j.contains("scale")) b->SetScale(Vec2FromJson(j["scale"]));
-			go->Add(b);
 			return;
 		}
 				else if (type == "Layer2D")
@@ -3049,6 +3086,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return go;
 	}
 
+
 	bool SceneSerializer::LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets, SceneMeta* outMeta)
 	{
 		std::ifstream in(filePath.c_str());
@@ -3134,6 +3172,35 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// constructor default) when the file predates this field.
 			outMeta->twoD = (root.contains("twoD") && root["twoD"].is_boolean())
 				? root["twoD"].get<bool>() : false;
+
+			// Present means enabled. A scene written before this has no
+			// "view2D" and keeps being framed by whatever camera object its
+			// sidecar names, exactly as it was.
+			outMeta->view2D = SceneMeta::View2D();
+			if (root.contains("view2D") && root["view2D"].is_object())
+			{
+				const json &vj = root["view2D"];
+				SceneMeta::View2D v;
+				v.enabled = true;
+				if (vj.contains("center") && vj["center"].is_array() && vj["center"].size() >= 2)
+					v.center = Vec2(vj["center"][0].get<f32>(), vj["center"][1].get<f32>());
+				v.halfHeight = (f32)vj.value("halfHeight", 5.0);
+				v.follow = vj.value("follow", std::string());
+				v.followLag = (f32)vj.value("followLag", 0.0);
+				v.followX = vj.value("followX", true);
+				v.followY = vj.value("followY", true);
+				if (vj.contains("followOffset") && vj["followOffset"].is_array() && vj["followOffset"].size() >= 2)
+					v.followOffset = Vec2(vj["followOffset"][0].get<f32>(), vj["followOffset"][1].get<f32>());
+				if (vj.contains("clampMin") && vj.contains("clampMax")
+					&& vj["clampMin"].is_array() && vj["clampMin"].size() >= 2
+					&& vj["clampMax"].is_array() && vj["clampMax"].size() >= 2)
+				{
+					v.clamp = true;
+					v.clampMin = Vec2(vj["clampMin"][0].get<f32>(), vj["clampMin"][1].get<f32>());
+					v.clampMax = Vec2(vj["clampMax"][0].get<f32>(), vj["clampMax"][1].get<f32>());
+				}
+				outMeta->view2D = v;
+			}
 						if (root.contains("ambientLight") && root["ambientLight"].is_array() && root["ambientLight"].size() >= 3)
 			{
 				const auto &al = root["ambientLight"];
@@ -3156,6 +3223,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				materialsById.push_back(mat);
 				if (mat && outAssets) outAssets->materials.push_back(mat);
 			}
+
 
 		if ((root.find("roots") != root.end()))
 			for (auto &rj : root["roots"])

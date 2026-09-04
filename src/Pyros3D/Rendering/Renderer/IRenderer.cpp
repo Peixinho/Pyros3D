@@ -154,8 +154,14 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 	}
 
 	// sorting translucid
+	//
+	// STABLE, so meshes at the same distance keep the order they were
+	// gathered in. That is the only thing that decides draw order for the
+	// parts of one cutout character: they share an owner, so they share a
+	// distance, and an unstable sort permuted them arbitrarily - an arm would
+	// be behind the torso in one build and in front of it in the next.
 	Sort::_Camera = Camera;
-	sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
+	std::stable_sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
 
 	// final list
 	for (std::vector<RenderingMesh*>::reverse_iterator i = _TranslucidMeshes.rbegin(); i != _TranslucidMeshes.rend(); i++)

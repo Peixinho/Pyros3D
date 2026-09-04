@@ -33,6 +33,21 @@ namespace p3d {
 
 	RenderingMesh::~RenderingMesh()
 	{
+		// Nothing to hand back once the device is gone. Its VAOs and pipelines
+		// died with it, and Device() would not reach it anyway:
+		// GetActiveRenderDevice() falls back to a lazily constructed *static*
+		// GLRenderDevice when none is registered, so asking it to free a
+		// Vulkan VAO builds a GL device with no context and dereferences its
+		// null function table - a SIGSEGV on every clean exit, inside a
+		// destructor, with a stack that blames the mesh rather than the order
+		// it was destroyed in.
+		//
+		// The same rule the editor's shutdown ordering follows from the other
+		// side (Editor::Shutdown tears previews down before the device): a
+		// GPU-owning object must not outlive its device, and when it does
+		// anyway it must not try to talk to one.
+		if (!IsActiveRenderDeviceSet()) return;
+
 		for (std::map<uint32, uint32>::iterator i = VAOCache.begin(); i != VAOCache.end(); i++)
 		{
 			Device().DeleteVertexArray(i->second);
@@ -299,7 +314,10 @@ namespace p3d {
 	{
 		if (Registered)
 		{
-			// Remove from Components vector
+			// Remove from Components vector. This one is a process-wide list,
+			// not the scene's, so it happens whether or not there is a scene
+			// to unregister from - leaving a destroyed component in it is a
+			// dangling pointer every later Register() walks past.
 			for (std::vector<IComponent*>::iterator i = Components.begin(); i != Components.end(); i++)
 			{
 				if ((*i) == this)
@@ -308,6 +326,25 @@ namespace p3d {
 					break;
 				}
 			}
+
+			// Everything below is the SCENE's bookkeeping, and there may be
+			// no scene: GameObject::Remove passes FindScene(), which returns
+			// NULL for an object that has already been detached from the
+			// graph - and tearing an editor document down does exactly that
+			// before its components are removed. Dereferencing it there is a
+			// null read that desktop happened to survive and a browser does
+			// not: it came back as "Aborted(segmentation fault)" inside
+			// GameObject::Remove with no further explanation.
+			//
+			// Nothing is leaked by skipping it. A scene that does not have
+			// this component has nothing of it to erase.
+			if (Scene == NULL)
+			{
+				Registered = false;
+				this->Scene = NULL;
+				return;
+			}
+
 			// Remove from Meshes vector
 			for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
 				for (std::vector<RenderingMesh*>::iterator i1 = (*i).second.begin(); i1 != (*i).second.end(); i1++)
@@ -440,8 +477,148 @@ namespace p3d {
 		hasBones = !skeleton.empty();
 	}
 
+	void RenderingComponent::SetSpriteRig2D(const std::vector<SpritePart2D> &parts,
+		const std::function<std::string(const std::string&)> &resolve)
+	{
+		spriteParts2D = parts;
+
+		SpriteRig2DBuild built = BuildSpriteRig2D(parts, resolve);
+		if (!built.renderable) return;
+		spritePartHalfExtents = built.halfExtents;
+
+		// Off the scene's render list FIRST. The list holds raw RenderingMesh*
+		// and nothing else removes them, so deleting the meshes while still
+		// registered leaves the renderer walking freed pointers every frame -
+		// and the re-Register below would push `this` into the component lists
+		// a second time. Re-authoring a character in the editor is exactly the
+		// case that does this.
+		const bool wasRegistered = Registered;
+		SceneGraph* wasIn = Scene;
+		if (wasRegistered && wasIn) Unregister(wasIn);
+
+		// Out with the old meshes. Materials are shared_ptr and go with them;
+		// the geometries belong to the renderable, which is replaced below.
+		for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
+			for (std::vector<RenderingMesh*>::iterator k = (*i).second.begin(); k != (*i).second.end(); k++)
+				delete (*k);
+		Meshes.clear();
+
+		renderable = built.renderable;
+
+		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
+		{
+			RenderingMesh* m = new RenderingMesh();
+			m->Geometry = renderable->Geometries[i];
+			m->Material = (i < built.materials.size()) ? built.materials[i] : std::shared_ptr<IMaterial>();
+			m->renderingComponent = this;
+			Meshes[0].push_back(m);
+		}
+
+		BoundingSphereRadius = renderable->GetBoundingSphereRadius();
+		BoundingSphereCenter = renderable->GetBoundingSphereCenter();
+		maxBounds = renderable->GetBoundingMaxValue();
+		minBounds = renderable->GetBoundingMinValue();
+
+		// Back on, with the new meshes, if it was on before. Without this a
+		// re-authored character draws nothing until the scene is reloaded.
+		if (wasRegistered && wasIn) Register(wasIn);
+
+		RefreshSpriteParts2D();
+	}
+
+	// Each part follows its bone by way of its own mesh's Pivot, which the
+	// renderer composes with the owner's world matrix
+	// (ModelMatrix = ownerWorld * rmesh->Pivot). No child objects and no
+	// transform writes: the character is one object whose pieces are drawn in
+	// different places.
+	void RenderingComponent::RefreshSpriteParts2D()
+	{
+		if (spriteParts2D.empty()) return;
+		SkeletonAnimationInstance* inst =
+			static_cast<SkeletonAnimationInstance*>(activeSkeletonAnimation);
+		if (!inst) return;
+
+		const std::vector<Bone> &bones = inst->GetSkeletonBones();
+		std::vector<RenderingMesh*> &ms = GetMeshes(0);
+
+		for (size_t i = 0; i < spriteParts2D.size() && i < ms.size(); i++)
+		{
+			const SpritePart2D &part = spriteParts2D[i];
+
+			Matrix m;
+			if (!part.bone.empty())
+			{
+				int32 id = -1;
+				for (size_t b = 0; b < bones.size(); b++)
+					if (bones[b].name == part.bone) { id = bones[b].self; break; }
+				if (id >= 0) m = inst->GetBoneGlobalTransform(id);
+			}
+
+			// Offset then scale, in the bone's frame: the offset places the
+			// artwork relative to the joint it turns about, and the scale must
+			// not move it.
+			Matrix off;
+			off.Translate(Vec3(part.offset.x, part.offset.y, part.z));
+			Matrix sc;
+			sc.Scale(Vec3(part.scale.x, part.scale.y, 1.f));
+
+			// The artwork's own pivot goes innermost, so it moves the quad
+			// under everything else - that is what makes a limb turn about its
+			// joint instead of about the middle of its texture.
+			Matrix pv;
+			if (i < spritePartHalfExtents.size())
+			{
+				const Vec2 &he = spritePartHalfExtents[i];
+				const f32 lx = -he.x + part.pivot.x * (he.x * 2.f);
+				const f32 ly = -he.y + part.pivot.y * (he.y * 2.f);
+				pv.Translate(Vec3(-lx, -ly, 0.f));
+			}
+
+			ms[i]->Pivot = m * off * sc * pv;
+		}
+	}
+
+	bool RenderingComponent::GetSpriteParts2DBounds(Vec2 &outMin, Vec2 &outMax) const
+	{
+		if (spriteParts2D.empty()) return false;
+
+		// Read straight off the meshes: their Pivot is where each quad ends up
+		// (RefreshSpriteParts2D wrote it), so this measures what is on screen
+		// rather than re-deriving the placement and risking a second opinion.
+		const std::vector<RenderingMesh*> &ms =
+			const_cast<RenderingComponent*>(this)->GetMeshes(0);
+
+		bool any = false;
+		for (size_t i = 0; i < ms.size() && i < spritePartHalfExtents.size(); i++)
+		{
+			if (!ms[i]) continue;
+			const Vec2 &he = spritePartHalfExtents[i];
+			const Vec2 &sc = spriteParts2D[i].scale;
+			// The quad's four corners, each through the part's placement. All
+			// four, not just two: a bone's rotation turns the quad, so the
+			// axis-aligned box of the corners is not the box of two of them.
+			const f32 hx = he.x * sc.x, hy = he.y * sc.y;
+			const Vec3 corners[4] = {
+				Vec3(-hx, -hy, 0.f), Vec3(hx, -hy, 0.f),
+				Vec3(hx,  hy, 0.f),  Vec3(-hx, hy, 0.f)
+			};
+			for (int c = 0; c < 4; c++)
+			{
+				const Vec3 p = ms[i]->Pivot * corners[c];
+				if (!any) { outMin = outMax = Vec2(p.x, p.y); any = true; continue; }
+				if (p.x < outMin.x) outMin.x = p.x;
+				if (p.y < outMin.y) outMin.y = p.y;
+				if (p.x > outMax.x) outMax.x = p.x;
+				if (p.y > outMax.y) outMax.y = p.y;
+			}
+		}
+		return any;
+	}
+
 	void RenderingComponent::Update(const f64 time)
 	{
+		RefreshSpriteParts2D();
+
 		// Skeleton animation. Nothing outside the editor's own animation
 		// preview ever called SkeletonAnimation::Update(), so a clip playing
 		// in a running game never advanced a frame - the same gap texture

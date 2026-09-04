@@ -40,6 +40,9 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Rendering/RenderingComponent.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Rendering/SpriteRig2D.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Character2D/Character2DAsset.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Character2D/Character2DInstance.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Particles/ParticleSystem.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Culling/Culling.cpp
@@ -65,7 +68,6 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Layer2D/Layer2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Occluder2D/Occluder2D.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/BoneBind2D/BoneBind2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Physics2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Physics2DWorld.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.cpp

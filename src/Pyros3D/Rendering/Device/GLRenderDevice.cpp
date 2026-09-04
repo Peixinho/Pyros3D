@@ -756,7 +756,50 @@ namespace p3d {
 	std::string GLRenderDevice::BuildShaderSource(const std::string &definitions, const std::string &shaderBody)
 	{
 #if defined(GLES3)
-		return std::string("#version 300 es\n#define GLES3\n") + definitions + std::string(" ") + shaderBody;
+		// GLSL ES 3.00 has no default precision in the FRAGMENT stage for
+		// float, int, or any of the shadow/3D/array/integer sampler types -
+		// only sampler2D and samplerCube get one. A shader that uses
+		// sampler2DShadow without declaring its precision does not warn, it
+		// fails to compile ("sampler2DShadow: no precision defined"), and the
+		// program then links to nothing: WebGL reports "useProgram: program
+		// not valid" from somewhere else entirely and the scene silently
+		// draws no geometry while the UI, which has its own shader, carries on.
+		//
+		// Declared for BOTH stages rather than only the fragment one. A
+		// precision statement is legal in a vertex shader too (where these
+		// types default to highp anyway), so emitting one preamble avoids
+		// threading the shader stage through BuildShaderSource for no gain.
+		//
+		// These are DEFAULTS: a shader body that declares its own precision
+		// later overrides them, which several of the engine's hand-written
+		// post-effect shaders do.
+		static const char* kGles3Precision =
+			"precision highp float;\n"
+			"precision highp int;\n"
+			"precision lowp sampler2D;\n"
+			"precision lowp samplerCube;\n"
+			"precision highp sampler3D;\n"
+			"precision lowp sampler2DShadow;\n"
+			"precision lowp samplerCubeShadow;\n"
+			"precision lowp sampler2DArray;\n"
+			"precision lowp sampler2DArrayShadow;\n";
+		// EMSCRIPTEN belongs here, not in each material type. PyrosShader.glsl
+		// switches its _highpMat4/_highpVec4 macros on it, and those exist
+		// because GLES3 defaults this shader to `precision mediump float` -
+		// which is not enough for a transform matrix. CustomShaderMaterial
+		// defined it and GenericShaderMaterial did not, so generated materials
+		// transformed their vertices in mediump and the geometry landed
+		// somewhere off screen: the object was selectable, had a bounding box,
+		// and drew nothing at all.
+		//
+		// Defining it once, in the device that knows what platform it is,
+		// is what stops the two material paths disagreeing again.
+		std::string platformDefines("#define GLES3\n");
+#if defined(EMSCRIPTEN)
+		platformDefines += "#define EMSCRIPTEN\n";
+#endif
+		return std::string("#version 300 es\n") + platformDefines + kGles3Precision
+			+ definitions + std::string(" ") + shaderBody;
 #elif defined(GL42)
 		return std::string("#version 420\n") + definitions + std::string(" ") + shaderBody;
 #elif defined(GL41)

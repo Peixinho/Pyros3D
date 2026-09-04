@@ -240,7 +240,20 @@ namespace p3d {
 		// along it changes. `applyScale` comes from the owning clip's
 		// ANIM_FLAG_APPLY_SCALE - pass Animation::HasFlag() rather than a
 		// literal, or a clip will sample differently here than it plays.
-		static Matrix SampleChannel(const Channel &ch, const f32 time, const bool applyScale = false);
+		// `bindLocal`, when given, supplies any component the channel does not
+		// key. A channel is not required to carry all three: the Assimp
+		// importer writes every component, but an editor-authored one carries
+		// only what the animator actually keyed - and for a 2D cutout that is
+		// rotation alone, because a limb's offset from its joint is the
+		// character's SHAPE, not its animation.
+		//
+		// Without this a rotation-only channel sampled to translation (0,0,0)
+		// and the bone collapsed onto its parent's origin - an arm animated
+		// correctly but drawn growing out of the middle of the chest. NULL
+		// keeps the old behaviour (identity for anything unkeyed) for any
+		// caller that has no bind pose to hand.
+		static Matrix SampleChannel(const Channel &ch, const f32 time, const bool applyScale = false,
+			const Matrix* bindLocal = NULL);
 
 		// Layers
 		uint32 CreateLayer(const std::string &name);

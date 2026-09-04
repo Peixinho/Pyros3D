@@ -40,6 +40,8 @@
 	#include "editor/UI/AnimationEditor.h"
 	#include "editor/MaterialEditorDocument.h"
 	#include "editor/AnimationEditorDocument.h"
+	#include "editor/UI/Character2DEditor.h"
+	#include "editor/Character2DDocument.h"
 	#include "editor/MaterialPreview.h"
 	#include "editor/SceneEditor.h"
 #include "editor/ProjectManager.h"
@@ -202,6 +204,25 @@ protected:
 	// Writes the document to `absPath` (its own path when empty) and
 	// registers the rig binding. Returns false and logs on failure.
 	bool SaveAnimationDocument(AnimationEditorDocument* doc, const std::string& absPath);
+	// ---- 2D characters (.p3d2d) ---------------------------------------
+	// Same top-level-dock-window convention as every other document kind.
+	// A character is an asset that owns its own bones, artwork and clips, so
+	// unlike the 2D rigs this replaces there is nothing to bind and no scene
+	// involved - opening one is opening a file.
+	bool OpenCharacter2DDocument(const std::string& absPath);
+	Character2DDocument* NewCharacter2DDocument();
+	void CloseCharacter2DDocument(uint32_t id);
+	void CloseAllCharacter2DDocuments();
+	Character2DDocument* FindCharacter2DDocumentByPath(const std::string& absPath) const;
+	bool SaveCharacter2DDocument(Character2DDocument* doc, const std::string& absPath);
+	void DrawCharacter2DEditorWindows();
+	void RequestCloseCharacter2DDocument(Character2DDocument* doc, std::vector<uint32_t>& closeIds);
+	// Every texture in the project, for the sprite picker.
+	void BuildCharacter2DTextureChoices(std::vector<Character2DEditor::TextureChoice>& out) const;
+	// Host hook handed to each scene document, so "Edit Character..." on a
+	// placed character opens its asset.
+	static void HostOpenCharacter2D(const std::string& absPath);
+
 	// Every skinned .p3dm in the project, as (label, absolute path), for the
 	// Animation Editor's rig picker.
 	void BuildAnimationMeshChoices(std::vector<AnimationMeshChoice>& out) const;
@@ -242,6 +263,18 @@ private:
 
 	void DrawUI();
 	void PromptQuitWithUnsaved();
+	// Brings the window forward. Called whenever a close is refused so that
+	// the thing being asked can actually be seen - see the implementation.
+	void RaiseEditorWindow();
+	// Set when quit is blocked by something no dialog owns (a script that
+	// will not save, a project file that will not write). Drives the
+	// "Cannot Quit" modal, which is the escape hatch from what used to be a
+	// silent refusal.
+	bool openQuitBlockedModal = false;
+	// Quit attempts since the current close gesture began. Two is enough to
+	// tell "the save worked, carry on" from "this will never become clean".
+	int quitAttempts = 0;
+	void DrawQuitBlockedModal();
 
 	// Which document Ctrl+Z/Ctrl+Shift+Z should act on - tracks whichever of
 	// {Scene View, Scene Tree, Properties} vs a Material Editor window last
@@ -249,7 +282,7 @@ private:
 	// own tracking: it only ever gets focus while a scene document is
 	// already the last-focused kind). Defaults to Scene so undo works
 	// immediately in the common case of a single scene document open.
-	enum class FocusedDocKind { Scene, Material, Animation };
+	enum class FocusedDocKind { Scene, Material, Animation, Character2D };
 	FocusedDocKind lastFocusedDocKind = FocusedDocKind::Scene;
 	// Project-wide settings (name, renderer type) aren't "a document" the
 	// way a scene/material tab is, so they get their own small stack rather
@@ -323,6 +356,21 @@ private:
 	MaterialEditorDocument* activeMaterialDoc;
 	uint32 nextMaterialDocId;
 
+	// Character (2D) editors.
+	std::vector<Character2DDocument*> character2DDocs;
+	Character2DDocument* activeCharacter2DDoc;
+	uint32 nextCharacter2DDocId;
+	uint32 pendingSelectCharacter2DDocId;
+	// Save As modal state, same shape as the animation one.
+	bool openSaveCharacter2DAsModal;
+	uint32 saveCharacter2DAsDocId;
+	std::string saveCharacter2DAsName;
+	std::string saveCharacter2DAsError;
+	bool saveCharacter2DAsThenClose;
+	void DrawSaveCharacter2DAsModal();
+	// Deferred for the same mid-frame-free reason the animation ones are.
+	std::vector<Character2DDocument*> deferredDestroyCharacter2DDocs;
+
 	// Animation editors, same top-level-dock-window convention as material
 	// and script documents.
 	std::vector<AnimationEditorDocument*> animationDocs;
@@ -343,6 +391,7 @@ private:
 	// (same hazard as deferredDestroyPreviewRenderers).
 	std::vector<AnimationEditorDocument*> deferredDestroyAnimationDocs;
 	void FlushDeferredAnimationDocs();
+	void FlushDeferredCharacter2DDocs();
 	// New Animation modal (File menu) - just a rig choice, since the clips
 	// start empty and the file is only written on Save.
 	bool openNewAnimationModal;
@@ -369,6 +418,7 @@ private:
 	void BindUndoRouting(SceneEditor* doc);
 	void BindUndoRouting(MaterialEditorDocument* doc);
 	void BindUndoRouting(AnimationEditorDocument* doc);
+	void BindUndoRouting(Character2DDocument* doc);
 	void DestroySceneDocument(SceneEditor* doc);
 	void CloseAllSceneDocuments();
 	void SetActiveSceneDocument(SceneEditor* doc);
@@ -393,6 +443,14 @@ private:
 	static void HostOpenLuaScript(const std::string& absPath);
 	static void HostEditMaterialInline(std::shared_ptr<p3d::IMaterial> mat, const std::string& ownerLabel);
 
+	// Folder the Assets panel is showing. The panel used to list every file
+	// under assets/ recursively in one flat grid, which stops being usable the
+	// moment a project has more than a screenful - and separates a model from
+	// the textures sitting next to it. Empty means the project root, which
+	// lists assets/ and scenes/.
+	std::string assetBrowseDir = "assets";
+	int assetFilter = 0;
+
 	ProjectManager project;
 	AudioManager* sharedAudio;
 	std::vector<std::string> recentProjects;
@@ -400,10 +458,6 @@ private:
 	bool showingSceneView, showingTabTools, showingTabProperties, showingLog, showingSceneTree;
 	bool showingTabAI;
 	bool showingAssets;
-	// 2D animation timeline window (View menu). Off by default: it is only
-	// meaningful for an object that has a 2D skeleton.
-	bool showingAnimation2D = false;
-	void DrawAnimation2DWindow();
 	bool assetsWindowHovered;
 
 	bool openNewProjectModal, openOpenProjectModal;

@@ -52,6 +52,26 @@ struct FrameRequests {
 void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshChoice>& meshes,
 	float dt, FrameRequests& requests);
 
+// ---- pieces the 2D animation window reuses ------------------------------
+// The Animation 2D window is this same editor pointed at a rig that lives on
+// a scene object rather than in a .p3da file. It draws its own clip bar (2D
+// clips are stored on the GameObject, not in a file, so there is nothing to
+// save or bind) and then calls straight into these.
+
+// The dope sheet: ruler, summary row, one track per bone, key selection,
+// drag-to-retime, and the right-click interpolation menu.
+void DrawTimelinePanel(AnimationEditorDocument& doc);
+// Transport bar: step/play/loop/speed, snapping, auto-key, key/delete.
+void DrawTransportBar(AnimationEditorDocument& doc, float dt);
+// Bone list plus numeric pose fields for the selected bone. `emptyHint` is
+// the line shown when no rig is bound; the default one talks about .p3dm
+// files, which means nothing in a scene.
+void DrawSkeletonPanel(AnimationEditorDocument& doc, const char* emptyHint = NULL);
+// Poses the bound rig from the active clip at the playhead and re-applies any
+// uncommitted pose overrides. The timeline-mode half of
+// AnimationPreview::SyncPose, which calls this rather than repeating it.
+void ApplyTimelinePose(AnimationEditorDocument& doc);
+
 // ---- operations shared with the agent bridge ---------------------------
 
 // Ensures the document has a preview object and that the preview has the

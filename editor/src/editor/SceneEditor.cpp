@@ -8,12 +8,17 @@
 
 #include <cmath>
 #include <set>
+#include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h>
 #include <filesystem>
 #include <cstring>
 #include <algorithm>
 
 #include "SceneEditor.h"
 #include <Pyros3D/AnimationManager/IKSolver.h>
+// Sprite-sheet animation: UpdateTextureAnimationPreview drives instances
+// directly. It reached this file transitively on the desktop build and not
+// under emscripten, which is the usual reason a "portable" file is not.
+#include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
 #include "UIDispatch.h"
 #include "UI/EasingPreview.h"
@@ -202,6 +207,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		hostRequestCloseDocument = NULL;
 		hostNewSceneDocument = NULL;
 		hostNewSceneKind = NULL;
+		hostOpenCharacter2D = NULL;
 		hostOpenSceneDocument = NULL;
 		hostOpenLuaScript = NULL;
 		hostEditMaterialInline = NULL;
@@ -262,7 +268,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		sceneMainScriptPath.clear();
 		sceneMainScript.reset();
 		openNewGoScriptModal = false;
-		hierarchyForceOpenId = 0;
+		hierarchyForceOpenIds.clear();
 #endif
 		sceneRootSelected = false;
 		viewportMouseValid = false;
@@ -366,7 +372,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// its invisible border happens to be. There is nothing to gain in
 		// exchange: 2D lighting is a handful of lights on flat quads, which
 		// is exactly what forward is good at.
-		if (sceneIsTwoD)
+		if (sceneIsTwoD && useDeferred)
+		{
+			// Said out loud. Silently ignoring the project's renderer setting
+			// is how a setting comes to look broken: you pick Deferred, the
+			// viewport does not change, and nothing tells you why. The player
+			// already announces the same override on startup.
+			useDeferred = false;
+			echo("This scene is 2D - staying on the forward renderer "
+				"(deferred cannot blend sprites, so cut-outs would render with a hard edge)");
+		}
+		else if (sceneIsTwoD)
 			useDeferred = false;
 		if (useDeferred == usingDeferredRenderer)
 			return;
@@ -767,6 +783,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return;
 		}
 
+		// Play mode looks through the SCENE'S OWN VIEW when it has one and no
+		// camera object has been made active. Driving the editor camera from
+		// it - rather than reimplementing the framing here - is what makes the
+		// preview and the player agree; both go through
+		// SceneMeta::View2D::CameraMatrix()/MakeProjection().
+		const bool usingSceneView2D = (playMode && view2D.enabled
+			&& activeSceneCameraId == 0 && scriptRenderCamera == nullptr);
+		if (usingSceneView2D)
+			UpdateSceneView2D(ImGui::GetIO().DeltaTime, (f32)dim.x / (f32)dim.y);
+
 		GameObject* viewCam = GetViewCameraGO();
 		const f32 viewFov = GetViewFovDeg();
 		const bool haveSceneCam = (activeSceneCameraId != 0 && sceneCameras.count(activeSceneCameraId) > 0);
@@ -777,7 +803,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// projection, orthographic included - otherwise the viewport shows a
 		// perspective view of a game that will not render that way, which is
 		// worse than showing nothing.
-		if (haveSceneCam && sceneCameras[activeSceneCameraId].orthographic)
+		if (usingSceneView2D)
+		{
+			const f32 aspect = (f32)dim.x / (f32)dim.y;
+			projection = view2D.MakeProjection(aspect);
+			viewIsOrtho = true;
+			viewOrthoT = view2D.halfHeight; viewOrthoB = -view2D.halfHeight;
+			viewOrthoR = view2D.halfHeight * aspect; viewOrthoL = -viewOrthoR;
+		}
+		else if (haveSceneCam && sceneCameras[activeSceneCameraId].orthographic)
 		{
 			const f32 halfH = sceneCameras[activeSceneCameraId].orthoSize;
 			const f32 halfW = halfH * ((f32)dim.x / (f32)dim.y);
@@ -990,7 +1024,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Outside the physics2D block: a rig does not need a physics world.
 		if (!playMode)
 		{
-			DrawSkeletons2D();
+			Draw2DReference();
 		}
 
 		if (!playMode && editingCanvas)
@@ -1024,7 +1058,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// IsActive() respected so RenderCameraPreview()'s temporary
 			// rGrid->Disable() (hiding it from camera-preview renders)
 			// applies here too.
-			if (rGrid && rGrid->IsActive())
+			// ...but only in a 3D scene. The grid is a plane at y = 0 lying in
+			// XZ, which a 2D scene - authored face-on down -Z - sees exactly
+			// edge-on: the whole thing collapses into one or two stray
+			// horizontal lines ruled across the viewport, cutting through the
+			// artwork and describing nothing. A 2D scene gets Draw2DReference()
+			// instead, which works in the plane the content is actually in.
+			if (rGrid && rGrid->IsActive() && !sceneIsTwoD)
 				Renderer->RenderOverlayObject(rGrid->GetMeshes()[0], grid.get(), GridMaterial.get());
 
 			std::vector<SceneCameraDebugEntry> sceneCameraDebugScratch;
@@ -1229,6 +1269,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// clicked.
 		DrawPrefabModals();
 		DrawBuildModal();
+
+		// One frame only. Leaving these set would pin the nodes open with
+		// ImGuiCond_Always and make them impossible to collapse.
+		hierarchyForceOpenIds.clear();
 	}
 
 	// The prefab entries of a GameObject's context menu. Two different menus
@@ -1389,11 +1433,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						// (clicking a light's billboard selects the light
 						// component, which is invisible while its GameObject is
 						// collapsed - the selection looked like it had failed).
-						if (hierarchyForceOpenId != 0 && (*i).second->GetID() == hierarchyForceOpenId)
-						{
+						if (hierarchyForceOpenIds.count((*i).second->GetID()))
 							ImGui::SetNextItemOpen(true, ImGuiCond_Always);
-							hierarchyForceOpenId = 0;
-						}
                         node_open = ImGui::TreeNodeEx((void*)(intptr_t)(*i).second->GetID(), gameobject_flags, "%s", label.c_str());
                     } else {
                         node_open = false;
@@ -1810,10 +1851,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			viewportIcons.push_back(hit);
 		};
 
-		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
-		for (std::vector<std::shared_ptr<GameObject>>::iterator it = all.begin(); it != all.end(); ++it)
+		// Recursive, NOT GetAllGameObjectList(): that holds only what was
+		// added to the scene, and a child attached with GameObject::Add() is
+		// not (see the comment on CollectGameObjectsRecursive). In a layered
+		// scene every object is such a child, so this loop used to register no
+		// icons at all - which is why a light in a 2D scene could not be
+		// clicked, while the same click worked in a flat 3D one.
+		std::vector<GameObject*> all;
+		scene->CollectGameObjectsRecursive(all);
+		for (std::vector<GameObject*>::iterator it = all.begin(); it != all.end(); ++it)
 		{
-			GameObject* go = (*it).get();
+			GameObject* go = *it;
 			if (!go || IsInternalGameObject(go)) continue;
 
 			uint32 goId = sceneObjects->GetSceneObjectID(go);
@@ -2269,6 +2317,52 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		(*sharedLua)["loadScene"] = [self](const std::string& name) { self->pendingLoadSceneName = name; };
 		// Which scene is running, for a boot script that branches on it.
 		(*sharedLua)["currentScene"] = [self]() { return self->GetSceneDisplayName(); };
+
+		// The scene's own 2D view, the same table the player exposes. Same
+		// names, same meanings, same SceneMeta::View2D underneath - a script
+		// that frames the game must not behave one way in the preview and
+		// another in a build.
+		{
+			sol::table v = sharedLua->create_table();
+			v["setCenter"] = [self](f32 x, f32 y) {
+				self->view2D.enabled = true;
+				self->view2D.center = Vec2(x, y);
+				self->MarkSceneDirty();
+			};
+			v["center"] = [self]() {
+				return std::make_tuple(self->view2D.center.x, self->view2D.center.y);
+			};
+			v["setZoom"] = [self](f32 halfHeight) {
+				self->view2D.enabled = true;
+				if (halfHeight > 0.0001f) self->view2D.halfHeight = halfHeight;
+				self->MarkSceneDirty();
+			};
+			v["zoom"] = [self]() { return self->view2D.halfHeight; };
+			v["follow"] = [self](const std::string& name, sol::optional<f32> lag) {
+				self->view2D.enabled = true;
+				self->view2D.follow = name;
+				if (lag) self->view2D.followLag = *lag;
+				self->MarkSceneDirty();
+			};
+			v["setFollowOffset"] = [self](f32 x, f32 y) {
+				self->view2D.followOffset = Vec2(x, y);
+				self->MarkSceneDirty();
+			};
+			v["followAxes"] = [self](bool x, bool y) {
+				self->view2D.followX = x;
+				self->view2D.followY = y;
+				self->MarkSceneDirty();
+			};
+			v["setBounds"] = [self](f32 minX, f32 minY, f32 maxX, f32 maxY) {
+				self->view2D.enabled = true;
+				self->view2D.clamp = true;
+				self->view2D.clampMin = Vec2(minX, minY);
+				self->view2D.clampMax = Vec2(maxX, maxY);
+				self->MarkSceneDirty();
+			};
+			v["clearBounds"] = [self]() { self->view2D.clamp = false; self->MarkSceneDirty(); };
+			(*sharedLua)["view"] = v;
+		}
 		// Expose echo() so Lua scripts can write to the editor log window.
 		(*sharedLua)["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
 
@@ -2377,7 +2471,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		selection.clear();
 		selection.push_back(goId);
 		node_clicked = -1;
-		hierarchyForceOpenId = goId;
+		RevealInHierarchy(goId);
 		echo("SUCCESS: Attached script " + DisplayPath(absoluteScriptPath) + " to " + goObj->GetName());
 		if (!beforeSnapshot.empty())
 			PushReplaceCommand(goId, beforeSnapshot, "Attach Script");
@@ -2529,93 +2623,53 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (type == ComponentType::RenderingComponent)
 			{
 				RenderingComponent* rc = static_cast<RenderingComponent*>(comps[i].get());
-				if (ImGui::CollapsingHeader("Skeleton (2D)"))
+				// A 2D character placed in the scene. There is nothing to
+				// author here: its bones, its artwork and its clips belong to
+				// the .p3d2d, and a scene only decides WHICH character and
+				// which clip it starts on. Everything else is one button away,
+				// in the editor that owns it.
+				if (rc->IsCharacter2D() && ImGui::CollapsingHeader("2D Character", ImGuiTreeNodeFlags_DefaultOpen))
 				{
+					ImGui::TextDisabled("%s", rc->GetCharacter2DPath().c_str());
+					if (ImGui::Button("Edit Character..."))
+						if (hostOpenCharacter2D)
+							hostOpenCharacter2D(ResolveAssetPath(rc->GetCharacter2DPath()));
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Opens the character asset. Changes there affect\nevery scene that places this character.");
+
+					// Which clip this instance starts on. Picked from the clips
+					// the character actually has, not typed: a name that
+					// matches no clip is indistinguishable at authoring time
+					// from one that does - the object simply does not animate
+					// when the game runs, with nothing to see.
 					SkeletonAnimationInstance* inst =
 						static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-					if (!inst && !rc->GetSkeleton().empty()) inst = RebuildSkeletonInstance(rc);
-
-					if (inst && inst->GetNumberBones() > 0)
+					const std::vector<Animation> clips = (inst && inst->GetOwner())
+						? inst->GetOwner()->GetAnimations() : std::vector<Animation>();
+					const std::string ap = rc->GetAutoPlayClip();
+					if (ImGui::BeginCombo("Clip", ap.empty() ? "(none)" : ap.c_str()))
 					{
-						const std::vector<Bone> bones = inst->GetSkeletonBones();
-						for (size_t bi = 0; bi < bones.size(); bi++)
+						if (ImGui::Selectable("(none)", ap.empty()))
 						{
-							ImGui::PushID((int)bi + 5000);
-							const int32 id = bones[bi].self;
-							const std::string parentName = (bones[bi].parent >= 0
-								&& (size_t)bones[bi].parent < bones.size())
-								? bones[bones[bi].parent].name : std::string("-");
-							ImGui::Text("%s", bones[bi].name.c_str());
-							ImGui::SameLine();
-							ImGui::TextDisabled("(parent: %s)", parentName.c_str());
-
-							// Live posing. Rotation only: in the plane a bone
-							// rotates about Z and nothing else, and the rest
-							// translation is the rig's shape, not its pose.
-							// Copied because GetEulerFromRotationMatrix() is
-							// non-const; the accessor hands back a const ref.
-							Matrix localNow = inst->GetBoneLocalTransform(id);
-							f32 deg = RADTODEG(localNow.GetEulerFromRotationMatrix().z);
-							if (ImGui::IsItemActivated()) CapturePoseFor(goId, dragPoseBefore);
-							if (ImGui::DragFloat("Rotation", &deg, 0.5f, -360.f, 360.f))
+							rc->SetAutoPlayClip(std::string());
+							MarkSceneDirty();
+						}
+						for (size_t ci = 0; ci < clips.size(); ci++)
+							if (ImGui::Selectable(clips[ci].AnimationName.c_str(),
+								clips[ci].AnimationName == ap))
 							{
-								Matrix local;
-								local.RotationZ(DEGTORAD(deg));
-								local.Translate(inst->GetBindPoseLocal(id).GetTranslation());
-								inst->SetBoneLocalTransform(id, local);
-								inst->RefreshSkinning();
+								rc->SetAutoPlayClip(clips[ci].AnimationName);
 								MarkSceneDirty();
 							}
-							if (ImGui::IsItemDeactivatedAfterEdit() && !dragPoseBefore.empty())
-							{
-								PushPoseUndo(goId, dragPoseBefore, "Pose Bone");
-								dragPoseBefore.clear();
-							}
-							ImGui::SameLine();
-							if (ImGui::SmallButton("Delete"))
-							{
-								std::string err;
-								if (!OpRemoveBone2D(goId, bones[bi].name, err)) echo("ERROR: " + err);
-								ImGui::PopID();
-								break;
-							}
-							ImGui::PopID();
-						}
-						ImGui::Separator();
+						if (clips.empty())
+							ImGui::TextDisabled("this character has no clips yet");
+						ImGui::EndCombo();
 					}
-					else ImGui::TextDisabled("No bones yet.");
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Clip to start when the game runs.\nDefaults to the character's own default clip.");
 
-					ImGui::InputText("Bone name", &propertiesBoneName);
-					ImGui::InputText("Parent", &propertiesBoneParent);
-					if (ImGui::IsItemHovered())
-						ImGui::SetTooltip("Leave empty for a root bone.");
-					ImGui::DragFloat2("Position", propertiesBonePos, 0.02f);
-					if (ImGui::IsItemHovered())
-						ImGui::SetTooltip("Local to the parent bone, in the XY plane.");
-					if (ImGui::Button("Add Bone"))
-					{
-						std::string err;
-						if (!OpAddBone2D(goId, propertiesBoneName, propertiesBoneParent,
-							Vec2(propertiesBonePos[0], propertiesBonePos[1]), err))
-							echo("ERROR: " + err);
-						else propertiesBoneName.clear();
-					}
-					ImGui::SameLine();
-					ImGui::Checkbox("Show in viewport", &showSkeletons2D);
-
-					// Autoplay: recorded on the component, started at play
-					// rather than now, so it does not drive the rig while the
-					// pose is being authored.
-					std::string ap = rc->GetAutoPlayClip();
-					if (ImGui::InputText("Autoplay clip", &ap))
-					{
-						rc->SetAutoPlayClip(ap);
-						MarkSceneDirty();
-					}
-					if (ImGui::IsItemHovered())
-						ImGui::SetTooltip("Clip to start when the game runs. Empty for none.");
 					bool apLoop = rc->IsAutoPlayLooping();
-					if (ImGui::Checkbox("Autoplay loops", &apLoop))
+					if (ImGui::Checkbox("Loop", &apLoop))
 					{
 						rc->SetAutoPlayLooping(apLoop);
 						MarkSceneDirty();
@@ -3701,6 +3755,122 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			Renderer->SetGlobalLight(ambientLightColor);
 			sceneDirty = true;
 		}
+
+		// ---- how a 2D scene is framed -----------------------------------
+		// Only for a 2D scene: a 3D one is framed by a camera object, which is
+		// the right shape there - a camera in a 3D world has a position and an
+		// orientation that matter, and often belongs to something in the
+		// scene.
+		if (sceneIsTwoD)
+		{
+			ImGui::Spacing();
+			ImGui::TextUnformatted("Game View");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("What the game shows. A 2D scene is framed by this,\nnot by a camera object.");
+
+			bool on = view2D.enabled;
+			if (ImGui::Checkbox("Scene frames itself", &on))
+			{
+				view2D.enabled = on;
+				sceneDirty = true;
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Off falls back to whichever camera object is active,\nwhich is how scenes worked before this.");
+
+			if (view2D.enabled)
+			{
+				// Labels ABOVE the widgets, not beside them. The Properties
+				// panel is narrow and dockable, and ImGui puts a label to the
+				// right of its widget where it is the first thing clipped -
+				// which turned every control here into "Set From Viewpo",
+				// "Fol", "Lag", "Tr". Same pattern the sprite panel uses.
+				ImGui::TextDisabled("Centre");
+				f32 c[2] = { view2D.center.x, view2D.center.y };
+				ImGui::SetNextItemWidth(-1.f);
+				if (ImGui::DragFloat2("##gv_center", c, 0.05f))
+				{ view2D.center = Vec2(c[0], c[1]); sceneDirty = true; }
+
+				ImGui::TextDisabled("Zoom (half-height)");
+				ImGui::SetNextItemWidth(-1.f);
+				if (ImGui::DragFloat("##gv_zoom", &view2D.halfHeight, 0.05f, 0.05f, 10000.f, "%.2f"))
+					sceneDirty = true;
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("World units from the centre to the top edge.\nThe width follows from the window, so the same\nscene fills any window without picking a resolution.");
+
+				if (ImGui::Button("From Viewport", ImVec2(-1.f, 0.f)))
+				{
+					// The obvious gesture: frame it by eye, then say "that".
+					view2D.center = Vec2(pos.x, pos.y);
+					view2D.halfHeight = zoomOrtho;
+					sceneDirty = true;
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Takes the centre and zoom you are looking at now.");
+				if (ImGui::Button("Look At View", ImVec2(-1.f, 0.f)))
+					LookAtPlaneXY(view2D.center.x, view2D.center.y);
+
+				// Follow. By name, picked from the objects that exist - a typo
+				// would silently mean "follow nothing", and a fixed view and a
+				// broken follow look identical.
+				ImGui::TextDisabled("Follows");
+				ImGui::SetNextItemWidth(-1.f);
+				if (ImGui::BeginCombo("##gv_follow",
+					view2D.follow.empty() ? "(nothing - fixed view)" : view2D.follow.c_str()))
+				{
+					if (ImGui::Selectable("(nothing - fixed view)", view2D.follow.empty()))
+					{ view2D.follow.clear(); sceneDirty = true; }
+					for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+						i != sceneObjects->GetList().end(); ++i)
+					{
+						if (!(*i).second || (*i).second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+						const std::string n = (*i).second->GetName();
+						if (n.empty()) continue;
+						if (ImGui::Selectable(n.c_str(), view2D.follow == n))
+						{ view2D.follow = n; sceneDirty = true; }
+					}
+					ImGui::EndCombo();
+				}
+
+				if (!view2D.follow.empty())
+				{
+					ImGui::TextDisabled("Lag, seconds (0 snaps)");
+					ImGui::SetNextItemWidth(-1.f);
+					if (ImGui::DragFloat("##gv_lag", &view2D.followLag, 0.01f, 0.f, 5.f, "%.2f"))
+						sceneDirty = true;
+
+					bool fx = view2D.followX, fy = view2D.followY;
+					if (ImGui::Checkbox("Track X", &fx)) { view2D.followX = fx; sceneDirty = true; }
+					ImGui::SameLine();
+					if (ImGui::Checkbox("Track Y", &fy)) { view2D.followY = fy; sceneDirty = true; }
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("A side-scroller usually wants X only -\ntracking Y makes the horizon bob on every jump.");
+
+					ImGui::TextDisabled("Follow offset");
+					f32 fo[2] = { view2D.followOffset.x, view2D.followOffset.y };
+					ImGui::SetNextItemWidth(-1.f);
+					if (ImGui::DragFloat2("##gv_offset", fo, 0.05f))
+					{ view2D.followOffset = Vec2(fo[0], fo[1]); sceneDirty = true; }
+
+					bool cl = view2D.clamp;
+					if (ImGui::Checkbox("Clamp to bounds", &cl))
+					{ view2D.clamp = cl; sceneDirty = true; }
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Stops the view walking off the end of the artwork.\nThe view's EDGE stops at the bound, not its centre.");
+					if (view2D.clamp)
+					{
+						f32 mn[2] = { view2D.clampMin.x, view2D.clampMin.y };
+						f32 mx[2] = { view2D.clampMax.x, view2D.clampMax.y };
+						ImGui::TextDisabled("Bounds min / max");
+						ImGui::SetNextItemWidth(-1.f);
+						if (ImGui::DragFloat2("##gv_bmin", mn, 0.1f))
+						{ view2D.clampMin = Vec2(mn[0], mn[1]); sceneDirty = true; }
+						ImGui::SetNextItemWidth(-1.f);
+						if (ImGui::DragFloat2("##gv_bmax", mx, 0.1f))
+						{ view2D.clampMax = Vec2(mx[0], mx[1]); sceneDirty = true; }
+					}
+				}
+			}
+		}
 #ifdef LUA_BINDINGS
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Scene Script");
@@ -3943,6 +4113,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			editorDebugDraw->ToggleCameraFrustum(!frustum);
 		if (ImGui::MenuItem("Show Physics Debug", NULL, showPhysicsDebug))
 			showPhysicsDebug = !showPhysicsDebug;
+		// Both only mean anything in a 2D scene, so they are only offered
+		// there rather than sitting inert in every 3D scene's View menu.
+		if (sceneIsTwoD)
+		{
+			if (ImGui::MenuItem("Show 2D Grid", NULL, showGrid2D))
+				showGrid2D = !showGrid2D;
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("An XY grid in the plane the scene is authored in. Off by default.");
+		}
 		ImGui::Separator();
 		// Always enabled, and it creates what it needs. It used to be greyed
 		// out until the scene already had a UICanvas, which made the one menu
@@ -3977,6 +4156,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// gizmo's orthographic paths never ran even in a scene marked twoD.
 		LookAtPlaneXY(0.f, 0.f);
 		uiEditMode = false;
+
+		// The scene frames itself. A 2D scene needs a viewpoint, not a camera
+		// object: what is on screen is where the view is centred and how much
+		// of the world it covers, and both are properties of the scene. This
+		// is what removes the "create an object, park it at +z, mark it
+		// orthographic, set an ortho size, set it active" ritual that stood
+		// between a new 2D scene and seeing anything.
+		view2D = SceneMeta::View2D();
+		view2D.enabled = true;
+		view2D.center = Vec2(0.f, 0.f);
+		view2D.halfHeight = 5.f;
+
 		MarkSceneDirty();
 	}
 
@@ -3991,6 +4182,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (GetEditingCanvas() == NULL)
 			CreateCanvasForEditing();
 		uiEditMode = true;
+		// A UI screen is a 2D scene whose content happens to be widgets, and
+		// widgets are drawn in screen space - but nothing stops one carrying a
+		// world sprite too, and it should not need a camera object to show it.
+		view2D = SceneMeta::View2D();
+		view2D.enabled = true;
 		MarkSceneDirty();
 	}
 
@@ -4365,7 +4561,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// UpdateParticlePreview(). Cheap: it early-outs unless the selection
 		// actually changed.
 		if (!playMode)
+		{
 			UpdateParticlePreview();
+			UpdateTextureAnimationPreview();
+		}
 
 		// Update Light / Sound / empty-GO Helpers (editor chrome only).
 		GameObject* viewCam = GetViewCameraGO();
@@ -4448,7 +4647,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!playMode && axisHelper)
 			axisHelper->Update(time, viewCam, Vec2(mPos.x-dim.x+90, mPos.y-10));
 
-		if (!playMode && activeSceneCameraId == 0 && _middleMouse)
+		// Middle-drag orbits - except in a 2D scene, where it pans instead.
+		// A 2D scene is authored face-on in the XY plane and everything about
+		// it assumes that: the orthographic projection, the gizmo's Z-only
+		// masks, cursor-to-world on z = 0, joint picking. Orbiting tips the
+		// view off that plane, at which point the scene is edge-on and none of
+		// it means anything - and there was no way back short of set_viewport_2d.
+		// Panning is what a middle-drag does in every 2D editor anyway.
+		const bool orbiting = (!playMode && activeSceneCameraId == 0 && _middleMouse && !sceneIsTwoD);
+		const bool panning  = (!playMode && activeSceneCameraId == 0
+			&& (_rightMouse || (_middleMouse && sceneIsTwoD)));
+
+		if (orbiting)
 		{
 			qX.AxisToQuaternion(Vec3(-1.f, 0.f, 0.f), DEGTORAD(mousePosition.y - mouse.y));
 			qY.AxisToQuaternion(Vec3(0.f, -1.f, 0.f), DEGTORAD(mousePosition.x - mouse.x));
@@ -4458,12 +4668,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			CameraPivot->SetTransformationMatrix(m);
 
 		}
-		else if (!playMode && activeSceneCameraId == 0 && _rightMouse)
+		else if (panning)
 		{
-			// Pan
+			// World units per pixel dragged. Under an orthographic projection
+			// that is exactly ViewportWorldPerPixel(), so the point under the
+			// cursor stays under the cursor at any zoom; the old fixed 1/75
+			// meant a pan crawled when zoomed out and shot across the scene
+			// when zoomed in. Perspective keeps 1/75 - there is no single
+			// answer there, since every depth scales differently.
+			const f32 k = viewIsOrtho ? ViewportWorldPerPixel() : (1.f / 75.f);
 			rotation = rotY * rotX;
 			Matrix m = rotation.ConvertToMatrix();
-			Matrix m2; m2.Translate((rotY * rotX).ConvertToMatrix()*(pos - Vec3((mousePosition.x - mouse.x) / 75.f, -(mousePosition.y - mouse.y) / 75.f, 0)));
+			Matrix m2; m2.Translate((rotY * rotX).ConvertToMatrix()*(pos - Vec3((mousePosition.x - mouse.x) * k, -(mousePosition.y - mouse.y) * k, 0)));
 			CameraPivot->SetTransformationMatrix(m2*m);
 			if (mousePosition.x - mouse.x != 0 || mousePosition.y - mouse.y != 0)
 				_mousePanned = true;
@@ -4876,6 +5092,55 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return false;
 	}
 
+	// Outside Play, a sprite-sheet animation runs only while its component is
+	// selected - the same rule the particle emitters follow, and for the same
+	// reason: a scene full of independently cycling sprites is movement you
+	// did not ask for, in a viewport you are trying to lay something out in.
+	//
+	// Done here rather than in RenderingComponent::Update because that is the
+	// runtime's behaviour and it is correct: in a game the animation must run.
+	// Which of them run in the EDITOR is editor policy, so the editor pauses
+	// the instances it does not want rather than the engine learning about
+	// selection.
+	void SceneEditor::UpdateTextureAnimationPreview()
+	{
+		const uint32 selectionId = (SelectedSceneObject != NULL) ? SelectedSceneObject->GetID() : 0;
+		if (texturePreviewSynced && selectionId == texturePreviewSelectionId) return;
+		texturePreviewSelectionId = selectionId;
+		texturePreviewSynced = true;
+
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::RENDERING_COMPONENT) continue;
+			RenderingComponent* rc = (RenderingComponent*)i->second->GetPTR();
+			if (!rc) continue;
+			TextureAnimationInstance* inst =
+				static_cast<TextureAnimationInstance*>(rc->GetActiveTextureAnimation());
+			if (!inst) continue;
+
+			// The component itself, not its host GameObject - selecting an
+			// object on the way to something else should not start it.
+			const bool selected = (SelectedSceneObject != NULL
+				&& SelectedSceneObject->GetType() == SceneObjectTypes::RENDERING_COMPONENT
+				&& SelectedSceneObject->GetPTR() == (void*)rc);
+
+			if (selected)
+			{
+				// -1 loops forever: a preview you have to keep reselecting to
+				// see a second time is not showing you the animation.
+				if (!inst->IsPlaying() || inst->IsPaused()) inst->Play(-1);
+			}
+			else
+			{
+				// Stopped, not paused: a sprite left on frame 7 of its sheet
+				// misrepresents what the scene looks like when it loads, which
+				// starts every animation from the beginning.
+				inst->Stop();
+			}
+		}
+	}
+
 	void SceneEditor::UpdateParticlePreview()
 	{
 		const uint32 selectionId = (SelectedSceneObject != NULL) ? SelectedSceneObject->GetID() : 0;
@@ -4917,6 +5182,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ps->Stop();
 				ps->Clear();
 			}
+		}
+	}
+
+	// Every texture animation, from the beginning. Play mode is "what the game
+	// does", and a loaded scene starts them all (SceneSerializer does the same
+	// tinst->Play()), so this restores that after the editor's
+	// selection-gated preview has been stopping most of them.
+	void SceneEditor::StartTextureAnimationsForPlayMode()
+	{
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::RENDERING_COMPONENT) continue;
+			RenderingComponent* rc = (RenderingComponent*)i->second->GetPTR();
+			if (!rc) continue;
+			if (TextureAnimationInstance* inst =
+				static_cast<TextureAnimationInstance*>(rc->GetActiveTextureAnimation()))
+				inst->Play(-1);
 		}
 	}
 
@@ -5145,6 +5428,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		else if (audioCtx.started > 0)
 			echo("SUCCESS: Play mode started " + std::to_string(audioCtx.started) + " sound(s)");
 		ForEachParticleSystemInScene(scene, StartParticleSystemForPlayMode, NULL);
+		// Every sprite-sheet animation runs in Play, not just the selected
+		// one: outside Play the editor stops the others so the viewport is
+		// still (UpdateTextureAnimationPreview), and without this they would
+		// stay stopped in the very mode that is supposed to show the game.
+		StartTextureAnimationsForPlayMode();
 		lastListenerTime = -1.0;
 		gizmoDragging = false;
 		_leftMouse = false;
@@ -5289,12 +5577,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// In a 2D scene, Z is draw order, not a thing you drag - and under the
 		// orthographic camera such a scene is viewed with, the Z arrow points
 		// straight at the viewer, so it drew as a dot sitting on the origin
-		// that still took clicks aimed at X and Y. Mask it off; rotation keeps
-		// Z, because rotating *in* the plane is the one rotation 2D wants and
-		// it is the Z axis that does it.
+		// that still took clicks aimed at X and Y. Mask it off for move and
+		// scale.
+		//
+		// Rotation is the other way round: rotating *in* the plane is the one
+		// rotation 2D wants, and it is Z that does it. Z and ONLY Z - the mask
+		// used to include AXIS_SCREEN too, but seen face-on the screen ring
+		// and the Z ring ARE the same rotation, so that drew two concentric
+		// circles doing one job with the outer (1.2x) one taking clicks aimed
+		// at the inner.
 		if (sceneIsTwoD)
 			gizmo->SetAxisMask(GizmoInUse == GizmoFunction::ROTATION
-				? (IGizmo::AXIS_Z | IGizmo::AXIS_SCREEN)
+				? IGizmo::AXIS_Z
 				: (IGizmo::AXIS_X | IGizmo::AXIS_Y));
 		else
 			gizmo->SetAxisMask(IGizmo::AXIS_ALL);
@@ -5390,7 +5684,36 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		MarkSceneDirty();
 	}
 
-	void SceneEditor::ViewportPickAtMouse()
+	void SceneEditor::RevealInHierarchy(uint32 sceneObjectId)
+	{
+		// Walk up marking every ancestor, not just the parent: the tree only
+		// draws a node's children when the node is open, so one closed
+		// ancestor anywhere up the chain hides the selection completely.
+		// Guarded against a malformed parent cycle, which would otherwise
+		// spin here rather than draw something merely wrong.
+		uint32 id = sceneObjectId;
+		for (int guard = 0; id != 0 && guard < 256; guard++)
+		{
+			SceneObject* so = sceneObjects->GetSceneObject(id);
+			if (!so) break;
+			hierarchyForceOpenIds.insert(id);
+			id = so->GetParentID();
+		}
+	}
+
+	SceneObject* SceneEditor::OwningGameObject(SceneObject* so) const
+	{
+		for (int guard = 0; so != NULL && guard < 256; guard++)
+		{
+			if (so->GetType() == SceneObjectTypes::GAMEOBJECT) return so;
+			const uint32 parent = so->GetParentID();
+			if (parent == 0) return NULL;
+			so = sceneObjects->GetSceneObject(parent);
+		}
+		return NULL;
+	}
+
+	void SceneEditor::ViewportPickAtMouse(bool selectComponent)
 	{
 		// Icons first: a light or a camera has no geometry of its own, so its
 		// billboard is the only thing there is to click. They are drawn on top
@@ -5400,13 +5723,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			DeselectMesh();
 			SceneObject* iconSO = sceneObjects->GetSceneObject(iconPickId);
-			SelectSceneObject(iconSO);
-			node_clicked = iconPickId;
-			// A light icon selects the light *component*, which lives under
-			// its GameObject in the tree - open that node so the selection is
-			// actually visible instead of hidden inside a collapsed parent.
-			if (iconSO != NULL && iconSO->GetParentID() != 0)
-				hierarchyForceOpenId = iconSO->GetParentID();
+			// An icon stands for a COMPONENT, but a single click selects the
+			// GameObject holding it: that is the thing with a transform, the
+			// thing the gizmo can move, and the thing you almost always meant.
+			// Double-click drills into the light itself.
+			SceneObject* target = selectComponent ? iconSO : OwningGameObject(iconSO);
+			if (target == NULL) target = iconSO;
+			SelectSceneObject(target);
+			node_clicked = (target != NULL) ? target->GetID() : 0;
+			// Open every ancestor, so a selection made out here is visible in
+			// the tree instead of hidden inside a collapsed layer.
+			if (target != NULL)
+				RevealInHierarchy(target->GetID());
 			return;
 		}
 
@@ -5472,12 +5800,31 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		DeselectMesh();
+		// Same rule as the icon path: a click selects the GameObject, a
+		// double-click the component under it (a helper body stands for one).
+		if (selectComponent && !helper)
+		{
+			// A picked MESH resolves to its GameObject above, because that is
+			// what RenderingMesh::renderingComponent->GetOwner() is - so
+			// drilling in has to ask for the component's own scene object
+			// explicitly. Without this a double-click on a sprite re-selected
+			// the same GameObject and looked like it did nothing.
+			const uint32 compId = sceneObjects->GetSceneObjectID(rm->renderingComponent);
+			if (compId != 0)
+			{
+				SceneObject* compSO = sceneObjects->GetSceneObject(compId);
+				if (compSO != NULL) { pickedSO = compSO; node_clicked = (int32)compId; }
+			}
+		}
+		else if (!selectComponent)
+		{
+			SceneObject* owner = OwningGameObject(pickedSO);
+			if (owner != NULL) pickedSO = owner;
+			node_clicked = (pickedSO != NULL) ? (int32)pickedSO->GetID() : -1;
+		}
 		SelectSceneObject(pickedSO);
-		// A component icon lives under its GameObject in the tree - open that
-		// node so the new selection is actually visible rather than hidden
-		// inside a collapsed parent, same as the light/camera glyph path.
-		if (helperSceneObjectId != 0 && pickedSO != NULL && pickedSO->GetParentID() != 0)
-			hierarchyForceOpenId = pickedSO->GetParentID();
+		if (pickedSO != NULL)
+			RevealInHierarchy(pickedSO->GetID());
 	}
 
 	// The whole of what dragging a rect means. rect.x is anchorX0 +
@@ -5760,72 +6107,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!hovered)
 			return;
 
-		// Bone joints are tested before anything else, so grabbing one wins
-		// over the gizmo and over picking the object underneath - a joint sits
-		// on top of the sprite it poses, and clicking it should pose rather
-		// than reselect.
-		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !draggingBoneOwner)
-		{
-			GameObject* jointOwner = NULL; int32 jointId = -1;
-			if (TryPickBoneJoint(viewportMouse, jointOwner, jointId))
-			{
-				draggingBoneOwner = jointOwner;
-				draggingBoneId = jointId;
-				// Captured once at grab and pushed once at release, so a drag
-				// is a single undo step rather than one per mouse-move frame.
-				draggingBoneGoId = sceneObjects->GetSceneObjectID(jointOwner);
-				dragPoseBefore.clear();
-				CapturePoseFor(draggingBoneGoId, dragPoseBefore);
-			}
-		}
-
-		if (draggingBoneOwner)
-		{
-			if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
-			{
-				Vec3 targetWorld;
-				RenderingComponent* rc = FindRenderingComponent(draggingBoneOwner);
-				SkeletonAnimationInstance* inst = rc
-					? static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation()) : NULL;
-				if (inst && ViewportCursorOnPlaneXY(viewportMouse, targetWorld))
-				{
-					// IKSolver works in the skeleton's model space, so the
-					// cursor has to come back out of world space through the
-					// owner's transform first.
-					const Vec3 targetModel =
-						draggingBoneOwner->GetWorldTransformation().Inverse() * targetWorld;
-
-					// Two bones up where the chain allows it, which is the
-					// classic elbow/knee case and what the closed-form
-					// two-bone solve is for; otherwise as far up as it goes.
-					const std::vector<Bone> &bones = inst->GetSkeletonBones();
-					int32 rootId = draggingBoneId;
-					for (int step = 0; step < 2; step++)
-					{
-						if (rootId < 0 || (size_t)rootId >= bones.size()) break;
-						const int32 p = bones[rootId].parent;
-						if (p < 0) break;
-						rootId = p;
-					}
-					if (rootId != draggingBoneId)
-					{
-						std::string ikErr;
-						IKSolver::Solve(inst, rootId, draggingBoneId, targetModel, Vec3(0.f, 0.f, 0.f));
-						MarkSceneDirty();
-					}
-				}
-				return;   // the drag owns the mouse while it lasts
-			}
-			if (!dragPoseBefore.empty())
-				PushPoseUndo(draggingBoneGoId, dragPoseBefore, "Drag Joint");
-			dragPoseBefore.clear();
-			draggingBoneOwner = NULL;
-			draggingBoneId = -1;
-		}
 
 		if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT || !gizmo)
 		{
-			if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+				ViewportPickAtMouse(/*selectComponent=*/true);
+			else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 				ViewportPickAtMouse();
 			return;
 		}
@@ -5834,6 +6121,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		const unsigned gizmoX = (unsigned)std::min(std::max(0.f, viewportMouse.x), dim.x - 1.f);
 		const unsigned gizmoY = (unsigned)std::min(std::max(0.f, viewportMouse.y), dim.y - 1.f);
+
+		// Before the gizmo, deliberately: the first click of the pair selects
+		// the object, which puts the gizmo directly under the cursor, so the
+		// second click would grab a handle instead of drilling in.
+		if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+		{
+			gizmoDragging = false;
+			ViewportPickAtMouse(/*selectComponent=*/true);
+			return;
+		}
 
 		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
 		{
@@ -6022,9 +6319,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		const char* title = sceneDialogIsSave ? "Save Scene" : "Open Scene";
 		ImGui::SetNextWindowFocus();
-		if (!ImGui::IsPopupOpen(title, ImGuiPopupFlags_AnyPopupId))
+		// IsPopupOpen(id, AnyPopupId) IGNORES the id - the flag means "is any
+		// popup open at all". Asking it about this dialog therefore answered
+		// a question about some unrelated popup, and skipped OpenPopup()
+		// whenever one happened to be up: showingSceneDialog stayed true, the
+		// dialog never drew, and anything waiting on it waited forever.
+		if (!ImGui::IsPopupOpen(title))
 			ImGui::OpenPopup(title);
-		
+
 		if (ImGui::BeginPopupModal(title, &showingSceneDialog,
 			ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove))
 		{
@@ -6188,6 +6490,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// all be idle until selected.
 		if (!playMode)
 			ResetParticlePreview();
+			// Re-decide which sprite sheets animate now that Play is over.
+			texturePreviewSynced = false;
 	}
 
 	void SceneEditor::NewScene(bool applyProjectDefaults)
@@ -6254,6 +6558,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			SceneMeta meta;
 			meta.ambientLight = ambientLightColor;
 			meta.twoD = sceneIsTwoD;
+			meta.view2D = view2D;
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
 			meta.mainScript = sceneMainScriptPath;
@@ -6431,12 +6736,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				else
 					sceneMainScriptPath = ProjectManager::SceneScriptPathForSceneJson(path);
 				sceneIsTwoD = meta.twoD;
+				view2D = meta.view2D;
+
+				// Re-apply the PROJECT's renderer for the scene just loaded.
+				// This document may have been forced to forward by a 2D scene
+				// loaded into it earlier, and nothing put it back - so opening
+				// a 3D scene after a 2D one silently ignored the project
+				// setting for the rest of the session. SwitchRenderer applies
+				// the 2D override itself, so this is safe either way.
+				SwitchRenderer(project != NULL
+					&& project->GetSettings().rendererType == ProjectRendererType::Deferred);
+
 				if (sceneIsTwoD)
-				{
 					LookAtPlaneXY(0.f, 0.f);
-					// See SwitchRenderer(): 2D is forward, always.
-					SwitchRenderer(false);
-				}
 				RebuildSceneMainScriptInstance();
 			}
 #else
@@ -6524,6 +6836,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		OpenSaveSceneDialog();
 		awaitingSaveDialog = true;
 		return false;
+	}
+
+	bool SceneEditor::HasPendingUnsavedPrompt() const
+	{
+		return showUnsavedModal || awaitingSaveDialog || pendingUnsavedAction != UnsavedNone;
 	}
 
 	bool SceneEditor::ConfirmUnsavedThen(int action, const std::string& path)
@@ -6725,6 +7042,35 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return true;
 		}
 
+		// A 2D character is instantiated, not "placed like a mesh": it brings
+		// its own object. Handled up here beside the prefab branch because the
+		// generic path below bails out for anything that is not a model or a
+		// sound.
+		if (ProjectManager::IsCharacter2DExtension(absolutePath))
+		{
+			if (!project || !project->IsOpen())
+			{
+				echo("ERROR: Open a project before placing a 2D character");
+				return false;
+			}
+			const std::string rel = project->RelativePath(absolutePath);
+			if (rel.empty())
+			{
+				echo("ERROR: 2D character lives outside the project: " + absolutePath);
+				return false;
+			}
+			std::string err;
+			// At the origin rather than under the cursor, for the same reason
+			// a prefab is: there is no viewport hit position here, and the
+			// object is selected on arrival so it can be dragged into place.
+			if (!AgentAddCharacter2D(rel, name, Vec3(0.f, 0.f, 0.f), err))
+			{
+				echo("ERROR: Place 2D character - " + err);
+				return false;
+			}
+			return true;
+		}
+
 		if (isScene)
 		{
 			if (ConfirmUnsavedThen(UnsavedLoadPath, absolutePath))
@@ -6883,11 +7229,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		shutDownDone = true;
 
 		// All your Shutdown Code Here
-		if (grid && rGrid)
-			grid->Remove(rGrid);
+		//
+		// The grid is NOT taken apart here. It was, once, from when it was
+		// real scene content - but Init()'s comment says it plainly: `grid` is
+		// deliberately never scene->Add()'d any more, it is drawn immediate
+		// mode through the DebugRenderer. So `grid->Remove(rGrid)` and
+		// `scene->Remove(grid)` were both asking a scene to forget an object
+		// it never held, and GameObject::Remove then walked a component off an
+		// object with no scene behind it. On the desktop that survived; in
+		// wasm it trapped outright, which is how it was found.
+		//
+		// Nothing leaks by dropping them: grid/gridhandle/rGrid/GridMaterial
+		// are shared_ptrs reset a few lines below, and resetting them is what
+		// actually destroys the grid.
 		if (scene)
 		{
-			if (grid) scene->Remove(grid);
 			if (Camera) scene->Remove(Camera);
 			if (CameraPivot) scene->Remove(CameraPivot);
 		}
@@ -6987,7 +7343,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					finalPosition -= direction * f32(e.Value);
 					Camera->SetPosition(Camera->GetPosition() + finalPosition);
 				}
-				else zoomOrtho -= 0.1 * f32(e.Value);
+				else
+				{
+					// Proportional, not a fixed 0.1 step. A flat step is a
+					// different fraction of the view at every zoom: coarse
+					// when zoomed in and imperceptible when zoomed out, so
+					// getting back from a wide view took dozens of notches.
+					// It also had no floor - enough scrolling in drove
+					// zoomOrtho through zero and the projection inside out.
+					zoomOrtho *= std::pow(0.9f, f32(e.Value));
+					if (zoomOrtho < 0.05f) zoomOrtho = 0.05f;
+					if (zoomOrtho > 5000.f) zoomOrtho = 5000.f;
+				}
 			}
 		}
 	}
@@ -6999,7 +7366,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!viewportMouseValid || editorDisabled)
 			return;
 
-		switch (axisHelper->MouseClick())
+		const int32 axisClicked = axisHelper->MouseClick();
+		// Every entry on that widget is a 3D orientation, and six of the seven
+		// point somewhere a 2D scene cannot be looked at from: side and top
+		// views show it edge-on, and CENTER puts you back in the perspective
+		// three-quarter view. Same reason middle-drag does not orbit here. In
+		// a 2D scene the widget is a single button that means "face-on again",
+		// keeping wherever you had panned to.
+		if (sceneIsTwoD && axisClicked != -1)
+		{
+			const Vec3 at = CameraPivot ? CameraPivot->GetPosition() : Vec3();
+			LookAtPlaneXY(at.x, at.y);
+			return;
+		}
+
+		switch (axisClicked)
 		{
 			case AXIS_HELPER_AXIS::CENTER:
 				UseCamera0();
@@ -7044,18 +7425,28 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				_middleMouse = true;
 				mouse = mousePosition;
+				// The pan path reads `pos` as the pivot at grab time. Harmless
+				// for the orbit path, which ignores it.
+				pos = (rotY*rotX).ConvertToMatrix().Inverse()*CameraPivot->GetPosition();
 			}
 		}
 	}
 
 	void SceneEditor::MouseMiddleRelease(Event::Input::Info e)
 	{
+		(void)e;
 		if (_middleMouse)
 		{
 			_middleMouse = false;
-			rotX = rotX * qX;
-			rotY = rotY * qY;
-			rotation = Quaternion();
+			// Only an orbit has orbit deltas to commit. In a 2D scene the drag
+			// was a pan and qX/qY were never touched, so folding them in would
+			// re-apply whatever the last orbit in some other scene left there.
+			if (!sceneIsTwoD)
+			{
+				rotX = rotX * qX;
+				rotY = rotY * qY;
+				rotation = Quaternion();
+			}
 		}
 	}
 
@@ -7102,10 +7493,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::KeyReleased(Event::Input::Info e)
 	{
-		if (e.Input == Event::Input::Keyboard::Numpad0) UseCamera0();
-		if (e.Input == Event::Input::Keyboard::Numpad1) UseCamera1();
-		if (e.Input == Event::Input::Keyboard::Numpad2) UseCamera2();
-		if (e.Input == Event::Input::Keyboard::Numpad3) UseCamera3();
+		// The numpad view presets are the axis helper by another route, and
+		// tumble a 2D scene the same way - see MouseLeftPress.
+		if (sceneIsTwoD)
+		{
+			if (e.Input == Event::Input::Keyboard::Numpad0 || e.Input == Event::Input::Keyboard::Numpad1
+				|| e.Input == Event::Input::Keyboard::Numpad2 || e.Input == Event::Input::Keyboard::Numpad3)
+			{
+				const Vec3 at = CameraPivot ? CameraPivot->GetPosition() : Vec3();
+				LookAtPlaneXY(at.x, at.y);
+			}
+		}
+		else
+		{
+			if (e.Input == Event::Input::Keyboard::Numpad0) UseCamera0();
+			if (e.Input == Event::Input::Keyboard::Numpad1) UseCamera1();
+			if (e.Input == Event::Input::Keyboard::Numpad2) UseCamera2();
+			if (e.Input == Event::Input::Keyboard::Numpad3) UseCamera3();
+		}
 	}
 
 	void SceneEditor::UseCamera0() // Default View
@@ -9832,6 +10237,43 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		LookAtPlaneXY(x, y);
 	}
 
+	// Drives the editor camera from the scene's own 2D view for one play-mode
+	// frame: follow, clamp, place - the same three steps, through the same
+	// SceneMeta::View2D code, that PyrosPlayer::UpdateView2DCamera runs.
+	void SceneEditor::UpdateSceneView2D(const f32 dt, const f32 aspect)
+	{
+		if (!view2D.enabled) return;
+
+		if (!view2D.follow.empty() && sceneObjects)
+		{
+			for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+				i != sceneObjects->GetList().end(); ++i)
+			{
+				if (!(*i).second || (*i).second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+				if ((*i).second->GetName() != view2D.follow) continue;
+				GameObject* go = (GameObject*)(*i).second->GetPTR();
+				if (go) view2D.Track(go->GetWorldPosition(), dt);
+				break;
+			}
+		}
+		view2D.ClampCenter(aspect);
+
+		if (Camera && CameraPivot)
+		{
+			// Through the pivot, not by writing the camera's own position:
+			// the pivot's transform is what ShowViewport recomposes the view
+			// from, so a SetPosition() on the camera is overwritten before it
+			// is ever used. Same trap LookAtPlaneXY documents.
+			Matrix m;
+			m.Translate(Vec3(view2D.center.x, view2D.center.y, 0.f));
+			CameraPivot->SetTransformationMatrix(m);
+			CameraPivot->RefreshTransformation();
+			Camera->SetPosition(Vec3(0.f, 0.f, SceneMeta::View2D::kCameraZ));
+			Camera->SetRotation(Vec3(0.f, 0.f, 0.f));
+			Camera->RefreshTransformation();
+		}
+	}
+
 	void SceneEditor::LookAtPlaneXY(const f32 x, const f32 y)
 	{
 		// Look through the EDITOR camera, not whatever scene camera happens to
@@ -9870,169 +10312,50 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 	}
 
-	bool SceneEditor::AgentAddBone2D(const std::string& objName, const std::string& boneName,
-		const std::string& parentBone, const Vec2 &localPos, std::string& errOut)
+	// Places a 2D character asset. The scene-side half of the character
+	// workflow, and the only one: everything about what the character IS
+	// happens in its own editor.
+	bool SceneEditor::AgentAddCharacter2D(const std::string& characterRel,
+		const std::string& objectName, const Vec3& position, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
-		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
-		return OpAddBone2D(obj->GetID(), boneName, parentBone, localPos, errOut);
-	}
+		if (!project || !project->IsOpen()) { errOut = "no project is open"; return false; }
 
-	// Bone list with both the local rest transform and the composed global
-	// one, so a caller can tell whether posing a parent actually moved its
-	// children - which is the whole point of a hierarchy.
-	bool SceneEditor::AgentKeyBone2D(const std::string& objName, const std::string& clipName,
-		const std::string& boneName, const f32 time, const f32 degreesZ, std::string& errOut)
-	{
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
-		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
-		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
-		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
-		SkeletonAnimationInstance* inst =
-			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-		if (!inst) inst = RebuildSkeletonInstance(rc);
-		if (!inst || !inst->GetOwner()) { errOut = "object has no skeleton"; return false; }
+		// Project-root relative, keeping the "assets/" prefix - the form every
+		// other asset path in a scene uses. An agent may reasonably pass
+		// either, so complete the bare form BEFORE resolving it; doing that
+		// after the existence check meant the bare form was rejected with
+		// "character not found" and the completion never ran.
+		std::string assetRel = characterRel;
+		if (assetRel.compare(0, 7, "assets/") != 0) assetRel = "assets/" + assetRel;
 
-		const std::vector<Bone> &bones = inst->GetSkeletonBones();
-		bool haveBone = false;
-		for (size_t i = 0; i < bones.size(); i++)
-			if (bones[i].name == boneName) { haveBone = true; break; }
-		if (!haveBone) { errOut = "bone '" + boneName + "' not found"; return false; }
-
-		SkeletonAnimation* owner = inst->GetOwner();
-		std::vector<Animation> clips = owner->GetAnimations();
-
-		int clipIdx = -1;
-		for (size_t i = 0; i < clips.size(); i++)
-			if (clips[i].AnimationName == clipName) { clipIdx = (int)i; break; }
-		if (clipIdx < 0)
+		std::string abs = project->AbsolutePath(assetRel);
+		if (abs.empty() || !std::filesystem::exists(abs))
 		{
-			Animation a;
-			a.AnimationName = clipName;
-			a.Duration = 0.f;
-			// 1 tick per second, so clip times are plain seconds - a 2D
-			// authoring tool has no reason to inherit a modelling package's
-			// tick rate.
-			a.TicksPerSecond = 1.f;
-			a.Flags = 0;
-			clips.push_back(a);
-			clipIdx = (int)clips.size() - 1;
+			// Fall back to the path exactly as given, for a character that
+			// genuinely lives outside assets/.
+			abs = project->AbsolutePath(characterRel);
+			if (abs.empty() || !std::filesystem::exists(abs))
+			{ errOut = "character not found: " + characterRel; return false; }
+			assetRel = characterRel;
 		}
 
-		Animation &clip = clips[clipIdx];
-		int chIdx = -1;
-		for (size_t i = 0; i < clip.Channels.size(); i++)
-			if (clip.Channels[i].NodeName == boneName) { chIdx = (int)i; break; }
-		if (chIdx < 0)
-		{
-			Channel ch;
-			ch.NodeName = boneName;
-			clip.Channels.push_back(ch);
-			chIdx = (int)clip.Channels.size() - 1;
-		}
+		const std::string name = objectName.empty()
+			? std::filesystem::path(abs).stem().string() : objectName;
+		SceneObject* goObj = sceneObjects->CreateGameObject(name);
+		if (!goObj) { errOut = "could not create the object"; return false; }
+		GameObject* go = (GameObject*)goObj->GetPTR();
+		// CreateGameObject has already added it to the scene graph.
+		go->SetPosition(position);
 
-		Quaternion q;
-		q.AxisToQuaternion(Vec3(0.f, 0.f, 1.f), DEGTORAD(degreesZ));
+		if (!sceneObjects->CreateCharacter2D(go, assetRel, abs,
+			project->GetProjectPath(), &sceneAssets.skeletonAnimations))
+		{ errOut = "could not build the character - see the log"; return false; }
 
-		std::vector<RotationData> &rots = clip.Channels[chIdx].rotations;
-		bool replaced = false;
-		for (size_t i = 0; i < rots.size(); i++)
-			if (fabsf(rots[i].Time - time) < 1e-4f) { rots[i].Rot = q; replaced = true; break; }
-		if (!replaced)
-		{
-			rots.push_back(RotationData(time, q));
-			// Keys must be in time order - SampleChannel walks them assuming
-			// it, and an out-of-order key would sample as a jump backwards.
-			std::sort(rots.begin(), rots.end(),
-				[](const RotationData &a, const RotationData &b) { return a.Time < b.Time; });
-		}
-		// A position key alongside, at the bone's REST translation.
-		//
-		// Sampling a channel rebuilds the bone's whole local matrix, so a
-		// channel carrying only rotations resets the translation to zero and
-		// the bone collapses onto its parent - measured: keying ArmU alone
-		// moved it from (0,1) to (0,0) and dragged the arm with it, while the
-		// rotation itself interpolated perfectly. Writing the rest position
-		// makes the clip fully describe the pose, and gives anything that
-		// later wants to animate translation a key already in place.
-		std::vector<PositionData> &poss = clip.Channels[chIdx].positions;
-		bool haveP = false;
-		for (size_t i = 0; i < poss.size(); i++)
-			if (fabsf(poss[i].Time - time) < 1e-4f) { haveP = true; break; }
-		if (!haveP)
-		{
-			int32 bid = -1;
-			for (size_t i = 0; i < bones.size(); i++)
-				if (bones[i].name == boneName) { bid = bones[i].self; break; }
-			if (bid >= 0)
-			{
-				poss.push_back(PositionData(time, inst->GetBindPoseLocal(bid).GetTranslation()));
-				std::sort(poss.begin(), poss.end(),
-					[](const PositionData &a, const PositionData &b) { return a.Time < b.Time; });
-			}
-		}
-
-		if (time > clip.Duration) clip.Duration = time;
-
-		owner->SetAnimations(clips);
+		SelectSceneObject(goObj);
+		PushAddCommand(goObj);
 		MarkSceneDirty();
 		return true;
-	}
-
-	bool SceneEditor::AgentScrubClip2D(const std::string& objName, const std::string& clipName,
-		const f32 time, std::string& errOut)
-	{
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
-		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
-		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
-		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
-		SkeletonAnimationInstance* inst =
-			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-		if (!inst || !inst->GetOwner()) { errOut = "object has no skeleton"; return false; }
-
-		const std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
-		for (size_t i = 0; i < clips.size(); i++)
-			if (clips[i].AnimationName == clipName)
-			{
-				inst->ApplyAnimationAtTime(clips[i], time);
-				MarkSceneDirty();
-				return true;
-			}
-		errOut = "clip '" + clipName + "' not found";
-		return false;
-	}
-
-	bool SceneEditor::AgentPlayClip2D(const std::string& objName, const std::string& clipName,
-		const f32 repetition, const f32 speed, std::string& errOut)
-	{
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
-		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
-		RenderingComponent* rc = FindRenderingComponent((GameObject*)obj->GetPTR());
-		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
-		SkeletonAnimationInstance* inst =
-			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-		if (!inst || !inst->GetOwner()) { errOut = "object has no skeleton"; return false; }
-
-		const std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
-		for (size_t i = 0; i < clips.size(); i++)
-			if (clips[i].AnimationName == clipName)
-			{
-				inst->Play((uint32)i, 0.f, repetition, speed);
-				MarkSceneDirty();
-				return true;
-			}
-		errOut = "clip '" + clipName + "' not found";
-		return false;
-	}
-
-	bool SceneEditor::AgentBindToBone2D(const std::string& objName, const std::string& boneName,
-		const Vec2 &offset, std::string& errOut)
-	{
-		if (playMode) { errOut = "editor is in play mode"; return false; }
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
-		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
-		return OpBindToBone2D(obj->GetID(), boneName, offset, errOut);
 	}
 
 	bool SceneEditor::AgentSetAutoPlay2D(const std::string& objName, const std::string& clipName,
@@ -10066,391 +10389,133 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
-	bool SceneEditor::AgentRemoveBone2D(const std::string& objName, const std::string& boneName, std::string& errOut)
+
+
+	// The 2D scene's answer to the 3D ground grid. A 2D scene opens clean -
+	// the world axes through the origin and nothing else - which is how the
+	// UI editor's viewport reads and what a face-on scene wants: the artwork
+	// is the subject, and a ruled grid over the top of it is noise. The grid
+	// is still there for anyone laying out to measurements, behind
+	// View > Show 2D Grid, and then it is drawn in the XY plane the content
+	// lives in rather than in XZ.
+	void SceneEditor::Draw2DReference()
 	{
-		if (playMode) { errOut = "editor is in play mode"; return false; }
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
-		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
-		return OpRemoveBone2D(obj->GetID(), boneName, errOut);
-	}
+		if (!sceneIsTwoD || !debugRenderer) return;
+		// Canvas mode draws its own overlay, in canvas units, over the same
+		// area - two grids in two coordinate systems on top of each other is
+		// worse than either.
+		if (GetEditingCanvas() != NULL && uiEditMode) return;
 
-	json SceneEditor::AgentSkeletonState(const std::string& objName, std::string& errOut)
-	{
-		json out;
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
-		if (!obj) { errOut = "object '" + objName + "' not found"; return out; }
-		GameObject* go = (GameObject*)obj->GetPTR();
-		RenderingComponent* rc = FindRenderingComponent(go);
-		if (!rc) { errOut = "object has no RenderingComponent"; return out; }
+		GameObject* viewCam = GetViewCameraGO();
+		if (!viewCam || dim.x < 1.f || dim.y < 1.f) return;
 
-		SkeletonAnimationInstance* inst =
-			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-		if (!inst) inst = RebuildSkeletonInstance(rc);
-
-		out["object"] = objName;
-		out["bones"] = json::array();
-		if (!inst) { out["boneCount"] = 0; return out; }
-
-		const std::vector<Bone> &bones = inst->GetSkeletonBones();
-		out["boneCount"] = (int)bones.size();
-		for (size_t i = 0; i < bones.size(); i++)
+		// Extent and spacing follow the view, so the grid neither runs out at
+		// one zoom nor turns into a solid block at another. The 3D grid is a
+		// fixed 30x30-unit mesh built once at startup, which is the other half
+		// of why it was useless here.
+		//
+		// viewOrtho* are HALF-EXTENTS about the camera, not world coordinates,
+		// so the camera's own position is what puts them on the plane.
+		const Vec3 eye = viewCam->GetWorldTransformation().GetTranslation();
+		f32 halfW, halfH;
+		if (viewIsOrtho)
 		{
-			const int32 id = bones[i].self;
-			if (id < 0 || (size_t)id >= bones.size()) continue;
-			const Vec3 lp = inst->GetBoneLocalTransform(id).GetTranslation();
-			const Vec3 gp = inst->GetBoneGlobalTransform(id).GetTranslation();
-			json bj;
-			bj["name"] = bones[i].name;
-			bj["id"] = id;
-			bj["parent"] = bones[i].parent;
-			bj["local"] = { (double)lp.x, (double)lp.y };
-			bj["global"] = { (double)gp.x, (double)gp.y };
-			out["bones"].push_back(bj);
+			halfW = (viewOrthoR - viewOrthoL) * 0.5f;
+			halfH = (viewOrthoT - viewOrthoB) * 0.5f;
 		}
-		return out;
-	}
-
-	bool SceneEditor::AgentPoseBone2D(const std::string& objName, const std::string& boneName,
-		const f32 degreesZ, std::string& errOut)
-	{
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
-		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
-		GameObject* go = (GameObject*)obj->GetPTR();
-		RenderingComponent* rc = FindRenderingComponent(go);
-		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
-
-		SkeletonAnimationInstance* inst =
-			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-		if (!inst) inst = RebuildSkeletonInstance(rc);
-		if (!inst) { errOut = "object has no skeleton"; return false; }
-
-		const std::vector<Bone> &bones = inst->GetSkeletonBones();
-		int32 id = -1;
-		for (size_t i = 0; i < bones.size(); i++)
-			if (bones[i].name == boneName) { id = bones[i].self; break; }
-		if (id < 0) { errOut = "bone '" + boneName + "' not found"; return false; }
-
-		// Rebuilt from the bind local so a pose is absolute rather than
-		// accumulating on every call: keep the rest translation, replace the
-		// rotation.
-		std::vector<Matrix> beforePose;
-		CapturePoseFor(obj->GetID(), beforePose);
-
-		Matrix local;
-		local.RotationZ(DEGTORAD(degreesZ));
-		local.Translate(inst->GetBindPoseLocal(id).GetTranslation());
-		inst->SetBoneLocalTransform(id, local);
-		inst->RefreshSkinning();
-		PushPoseUndo(obj->GetID(), beforePose, "Pose Bone");
-		return true;
-	}
-
-	bool SceneEditor::ViewportCursorOnPlaneXY(const Vec2& mouse, Vec3& outWorld) const
-	{
-		GameObject* cam = GetViewCameraGO();
-		if (!cam || dim.x < 1.f || dim.y < 1.f) return false;
-
-		Mouse3D ray;
-		Projection &proj = const_cast<SceneEditor*>(this)->isPerspective
-			? const_cast<SceneEditor*>(this)->projection
-			: const_cast<SceneEditor*>(this)->projectionOrtho;
-		if (!ray.GenerateRay(dim.x, dim.y, mouse.x, mouse.y, Matrix(),
-			cam->GetWorldTransformation().Inverse(), proj.GetProjectionMatrix()))
-			return false;
-
-		const Vec3 o = ray.GetOrigin();
-		const Vec3 d = ray.GetDirection();
-		if (fabsf(d.z) < 1e-6f) return false;   // parallel to the plane
-		const f32 t = -o.z / d.z;
-		outWorld = o + d * t;
-		return true;
-	}
-
-	bool SceneEditor::TryPickBoneJoint(const Vec2& mouse, GameObject*& outOwner, int32& outBoneId) const
-	{
-		outOwner = NULL; outBoneId = -1;
-		if (!showSkeletons2D || !scene || dim.x < 1.f || dim.y < 1.f) return false;
-
-		GameObject* cam = GetViewCameraGO();
-		if (!cam) return false;
-		const Matrix viewM = cam->GetWorldTransformation().Inverse();
-		const Matrix projM = (const_cast<SceneEditor*>(this)->isPerspective
-			? const_cast<SceneEditor*>(this)->projection
-			: const_cast<SceneEditor*>(this)->projectionOrtho).GetProjectionMatrix();
-
-		std::vector<GameObject*> all;
-		const_cast<SceneGraph*>(scene)->CollectGameObjectsRecursive(all);
-
-		// Nearest wins, so overlapping joints resolve to the one actually
-		// under the cursor rather than whichever the scene walk saw first.
-		f32 bestDistSQR = 14.f * 14.f;   // pixels
-		for (size_t i = 0; i < all.size(); i++)
+		else
 		{
-			GameObject* go = all[i];
-			if (!go) continue;
-			RenderingComponent* rc = FindRenderingComponent(go);
-			if (!rc || rc->GetSkeleton().empty()) continue;
-			SkeletonAnimationInstance* inst =
-				static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-			if (!inst) continue;
+			// Looking at the XY plane through a perspective camera: the
+			// visible half-height there is the distance to the plane times
+			// tan(fov/2).
+			const f32 dist = std::fabs(eye.z) > 0.01f ? std::fabs(eye.z) : 1.f;
+			halfH = dist * std::tan(DEGTORAD(GetViewFovDeg()) * 0.5f);
+			halfW = halfH * ((f32)dim.x / (f32)dim.y);
+		}
+		if (halfW <= 0.f || halfH <= 0.f) return;
+		const f32 cx = eye.x, cy = eye.y;
 
-			const Matrix world = go->GetWorldTransformation();
-			const std::vector<Bone> &bones = inst->GetSkeletonBones();
-			for (size_t b = 0; b < bones.size(); b++)
+		const f32 l = cx - halfW, r = cx + halfW, b = cy - halfH, t = cy + halfH;
+
+		if (showGrid2D)
+		{
+			// One decade per ~8 lines across the view, so the spacing lands on
+			// 0.1 / 1 / 10 / 100 rather than on whatever the zoom happens to
+			// be, and every fifth line is drawn brighter.
+			f32 step = 1.f;
+			int guard = 0;
+			while (halfW * 2.f / step > 24.f && ++guard < 40) step *= 5.f;
+			while (halfW * 2.f / step < 5.f  && ++guard < 40) step /= 5.f;
+
+			const Vec4 minorCol(1.f, 1.f, 1.f, 0.07f), majorCol(1.f, 1.f, 1.f, 0.16f);
+			const f32 major = step * 5.f;
+			for (f32 x = std::floor(l / step) * step; x <= r; x += step)
 			{
-				const int32 id = bones[b].self;
-				if (id < 0 || (size_t)id >= bones.size()) continue;
-				const Vec3 wp = world * inst->GetBoneGlobalTransform(id).GetTranslation();
-
-				const Vec4 vp = viewM * Vec4(wp.x, wp.y, wp.z, 1.f);
-				Vec4 clip = projM * vp;
-				if (clip.w <= 0.0001f) continue;
-				const f32 sx = (clip.x / clip.w * 0.5f + 0.5f) * dim.x;
-				const f32 sy = (1.f - (clip.y / clip.w * 0.5f + 0.5f)) * dim.y;
-				const f32 dx = sx - mouse.x, dy = sy - mouse.y;
-				const f32 dsq = dx * dx + dy * dy;
-				if (dsq < bestDistSQR) { bestDistSQR = dsq; outOwner = go; outBoneId = id; }
+				const bool isMajor = std::fabs(x / major - std::floor(x / major + 0.5f)) < 1e-3f;
+				debugRenderer->drawLine(Vec3(x, b, 0.f), Vec3(x, t, 0.f), isMajor ? majorCol : minorCol);
+			}
+			for (f32 y = std::floor(b / step) * step; y <= t; y += step)
+			{
+				const bool isMajor = std::fabs(y / major - std::floor(y / major + 0.5f)) < 1e-3f;
+				debugRenderer->drawLine(Vec3(l, y, 0.f), Vec3(r, y, 0.f), isMajor ? majorCol : minorCol);
 			}
 		}
-		return outOwner != NULL;
+
+		// The game's own frame. Without this the editor view and the game view
+		// are two unrelated framings and there is no way to tell, while
+		// editing, what a player will actually see - which is the thing a
+		// camera object at least made visible through its frustum gizmo.
+		//
+		// Not drawn while playing: there the editor IS looking through it, so
+		// the rectangle would sit exactly on the viewport edge and only
+		// obscure the picture.
+		if (view2D.enabled && !playMode)
+		{
+			const f32 vAspect = (f32)dim.x / (f32)dim.y;
+			const f32 vHalfH = view2D.halfHeight;
+			const f32 vHalfW = vHalfH * vAspect;
+			const f32 vl = view2D.center.x - vHalfW, vr = view2D.center.x + vHalfW;
+			const f32 vb = view2D.center.y - vHalfH, vt = view2D.center.y + vHalfH;
+			const Vec4 frameCol(1.f, 0.85f, 0.35f, 0.75f);
+			debugRenderer->drawLine(Vec3(vl, vb, 0.f), Vec3(vr, vb, 0.f), frameCol);
+			debugRenderer->drawLine(Vec3(vr, vb, 0.f), Vec3(vr, vt, 0.f), frameCol);
+			debugRenderer->drawLine(Vec3(vr, vt, 0.f), Vec3(vl, vt, 0.f), frameCol);
+			debugRenderer->drawLine(Vec3(vl, vt, 0.f), Vec3(vl, vb, 0.f), frameCol);
+
+			// Where it ends up if it follows something to the edge of the
+			// level - the bound is what stops that, so it is worth seeing.
+			if (view2D.clamp)
+			{
+				const Vec4 boundCol(0.4f, 0.7f, 1.f, 0.5f);
+				const f32 bl = view2D.clampMin.x, br = view2D.clampMax.x;
+				const f32 bb = view2D.clampMin.y, bt = view2D.clampMax.y;
+				debugRenderer->drawLine(Vec3(bl, bb, 0.f), Vec3(br, bb, 0.f), boundCol);
+				debugRenderer->drawLine(Vec3(br, bb, 0.f), Vec3(br, bt, 0.f), boundCol);
+				debugRenderer->drawLine(Vec3(br, bt, 0.f), Vec3(bl, bt, 0.f), boundCol);
+				debugRenderer->drawLine(Vec3(bl, bt, 0.f), Vec3(bl, bb, 0.f), boundCol);
+			}
+		}
+
+		// The two world axes, always. They are what tells you where the origin
+		// is and which way is up, and they cost two lines.
+		debugRenderer->drawLine(Vec3(l, 0.f, 0.f), Vec3(r, 0.f, 0.f), Vec4(0.75f, 0.25f, 0.25f, 0.55f));
+		debugRenderer->drawLine(Vec3(0.f, b, 0.f), Vec3(0.f, t, 0.f), Vec4(0.3f, 0.7f, 0.3f, 0.55f));
 	}
 
-	void SceneEditor::ShowAnimation2DPanel()
+	// One world unit per viewport pixel on the z = 0 plane. Everything drawn
+	// as an editor handle sizes itself through this instead of picking a world
+	// radius, so a joint stays the same size on screen at every zoom - a fixed
+	// world size is either a speck or a blob the moment you scroll the wheel.
+	f32 SceneEditor::ViewportWorldPerPixel() const
 	{
-		RenderingComponent* rc = NULL; SkeletonAnimationInstance* inst = NULL;
-		if (!GetSelectedRig(rc, inst))
-		{
-			ImGui::TextDisabled("Select an object with a 2D skeleton.");
-			return;
-		}
-		const std::string objName = ((GameObject*)SelectedSceneObject->GetPTR())->GetName();
-		std::vector<Animation> clips = inst->GetOwner()->GetAnimations();
-
-		// --- clip selection ---
-		if (anim2DClip.empty() && !clips.empty()) anim2DClip = clips[0].AnimationName;
-		if (ImGui::BeginCombo("Clip", anim2DClip.c_str()))
-		{
-			for (size_t i = 0; i < clips.size(); i++)
-			{
-				const bool sel = (clips[i].AnimationName == anim2DClip);
-				if (ImGui::Selectable(clips[i].AnimationName.c_str(), sel))
-				{
-					anim2DClip = clips[i].AnimationName;
-					anim2DTime = 0.f;
-				}
-			}
-			ImGui::EndCombo();
-		}
-		ImGui::InputText("##newclip", &anim2DNewClipName);
-		ImGui::SameLine();
-		if (ImGui::Button("New Clip"))
-		{
-			std::string err;
-			if (!OpNewClip2D(anim2DNewClipName, err)) echo("ERROR: " + err);
-			else { anim2DClip = anim2DNewClipName; anim2DNewClipName.clear(); anim2DTime = 0.f; }
-		}
-		if (anim2DClip.empty()) { ImGui::TextDisabled("No clip yet - name one and press New Clip."); return; }
-
-		const Animation* clip = NULL;
-		for (size_t i = 0; i < clips.size(); i++)
-			if (clips[i].AnimationName == anim2DClip) clip = &clips[i];
-		if (!clip) { anim2DClip.clear(); return; }
-
-		// --- playhead ---
-		const f32 duration = clip->Duration > 0.01f ? clip->Duration : 1.f;
-		if (ImGui::SliderFloat("Time", &anim2DTime, 0.f, duration, "%.2f s"))
-		{
-			std::string err;
-			AgentScrubClip2D(objName, anim2DClip, anim2DTime, err);
-		}
-		if (ImGui::Button("Key Pose"))
-		{
-			std::string err;
-			if (!OpKeyPose2D(anim2DClip, anim2DTime, std::string(), err)) echo("ERROR: " + err);
-		}
-		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip("Records every bone's current rotation at the playhead.");
-		ImGui::SameLine();
-		if (ImGui::Button("Play"))
-		{
-			std::string err;
-			AgentPlayClip2D(objName, anim2DClip, -1.f, 1.f, err);
-		}
-		ImGui::SameLine();
-		if (ImGui::Button("Stop")) inst->Stop();
-
-		ImGui::Separator();
-
-		// --- tracks ---
-		// One row per bone. Keys are drawn straight onto the row rather than
-		// as widgets so they stay put when the row is scrolled or resized,
-		// and an invisible button over the strip catches the clicks.
-		const std::vector<Bone> bones = inst->GetSkeletonBones();
-		const f32 labelW = 90.f;
-		for (size_t b = 0; b < bones.size(); b++)
-		{
-			ImGui::PushID((int)b + 9000);
-			ImGui::Text("%s", bones[b].name.c_str());
-			ImGui::SameLine(labelW);
-
-			const ImVec2 p0 = ImGui::GetCursorScreenPos();
-			const f32 stripW = ImGui::GetContentRegionAvail().x - 70.f;
-			const f32 stripH = 18.f;
-			ImGui::InvisibleButton("##strip", ImVec2(stripW > 20.f ? stripW : 20.f, stripH));
-			const bool stripClicked = ImGui::IsItemClicked();
-
-			ImDrawList* dl = ImGui::GetWindowDrawList();
-			dl->AddRectFilled(p0, ImVec2(p0.x + stripW, p0.y + stripH), IM_COL32(30, 30, 34, 255));
-
-			// playhead
-			const f32 phx = p0.x + (anim2DTime / duration) * stripW;
-            dl->AddLine(ImVec2(phx, p0.y), ImVec2(phx, p0.y + stripH), IM_COL32(255, 200, 60, 200), 1.5f);
-
-			// keys
-			const Channel* ch = NULL;
-			for (size_t c = 0; c < clip->Channels.size(); c++)
-				if (clip->Channels[c].NodeName == bones[b].name) ch = &clip->Channels[c];
-			if (ch)
-			{
-				for (size_t k = 0; k < ch->rotations.size(); k++)
-				{
-					const f32 kx = p0.x + (ch->rotations[k].Time / duration) * stripW;
-					const f32 cy = p0.y + stripH * 0.5f;
-					const f32 r = 4.f;
-					const ImVec2 pts[4] = { ImVec2(kx, cy - r), ImVec2(kx + r, cy),
-					                        ImVec2(kx, cy + r), ImVec2(kx - r, cy) };
-					dl->AddConvexPolyFilled(pts, 4, IM_COL32(90, 200, 255, 255));
-				}
-			}
-
-			// Clicking the strip moves the playhead to that time and scrubs,
-			// which is the fastest way to land exactly on an existing key.
-			if (stripClicked && stripW > 1.f)
-			{
-				const f32 t = ((ImGui::GetIO().MousePos.x - p0.x) / stripW) * duration;
-				anim2DTime = t < 0.f ? 0.f : (t > duration ? duration : t);
-				std::string err;
-				AgentScrubClip2D(objName, anim2DClip, anim2DTime, err);
-			}
-
-			ImGui::SameLine();
-			if (ImGui::SmallButton("K"))
-			{
-				std::string err;
-				if (!OpKeyPose2D(anim2DClip, anim2DTime, bones[b].name, err)) echo("ERROR: " + err);
-			}
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Key just this bone at the playhead");
-			ImGui::SameLine();
-			if (ImGui::SmallButton("X"))
-			{
-				std::string err;
-				if (!OpDeleteKey2D(anim2DClip, bones[b].name, anim2DTime, err)) echo("ERROR: " + err);
-			}
-			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Delete this bone's key at the playhead");
-			ImGui::PopID();
-		}
-	}
-
-	void SceneEditor::DrawSkeletons2D()
-	{
-		if (!showSkeletons2D || !debugRenderer || !scene) return;
-
-		std::vector<GameObject*> all;
-		scene->CollectGameObjectsRecursive(all);
-
-		for (size_t i = 0; i < all.size(); i++)
-		{
-			GameObject* go = all[i];
-			if (!go) continue;
-			RenderingComponent* rc = FindRenderingComponent(go);
-			if (!rc || rc->GetSkeleton().empty()) continue;
-
-			SkeletonAnimationInstance* inst =
-				static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-			if (!inst) continue;
-
-			// Bone transforms are model space - the owner's world matrix takes
-			// them the rest of the way, so a rig drawn here follows the object
-			// it belongs to.
-			const Matrix world = go->GetWorldTransformation();
-			const std::vector<Bone> &bones = inst->GetSkeletonBones();
-
-			for (size_t b = 0; b < bones.size(); b++)
-			{
-				const int32 id = bones[b].self;
-				if (id < 0 || (size_t)id >= bones.size()) continue;
-				const Vec3 p = world * inst->GetBoneGlobalTransform(id).GetTranslation();
-
-				// The joint itself, so a leaf bone (which owns no segment) is
-				// still visible and still has something to click on.
-				const f32 r = 0.06f;
-				const Vec4 joint(1.f, 0.75f, 0.1f, 1.f);
-				for (int k = 0; k < 8; k++)
-				{
-					const f32 a0 = (f32)k * (2.f * (f32)M_PI / 8.f);
-					const f32 a1 = (f32)(k + 1) * (2.f * (f32)M_PI / 8.f);
-					debugRenderer->drawLine(Vec3(p.x + cosf(a0) * r, p.y + sinf(a0) * r, p.z),
-						Vec3(p.x + cosf(a1) * r, p.y + sinf(a1) * r, p.z), joint);
-				}
-
-				// One segment per child rather than one per bone: a bone with
-				// several children (a hip) should show a limb to each of them.
-				for (size_t c = 0; c < bones.size(); c++)
-				{
-					if (bones[c].parent != id) continue;
-					const Vec3 cp = world * inst->GetBoneGlobalTransform(bones[c].self).GetTranslation();
-
-					// Tapered, so the bone reads as pointing from parent to
-					// child rather than as a bare line.
-					Vec3 d = cp - p;
-					const f32 len = d.magnitude();
-					if (len < 0.0001f) continue;
-					d = d / len;
-					const Vec3 n(-d.y, d.x, 0.f);
-					const f32 w = len * 0.12f;
-					const Vec3 a = p + n * w, bb = p - n * w;
-					const Vec4 col(0.35f, 0.8f, 1.f, 1.f);
-					debugRenderer->drawLine(a, cp, col);
-					debugRenderer->drawLine(bb, cp, col);
-					debugRenderer->drawLine(a, bb, col);
-				}
-			}
-		}
-	}
-
-	bool SceneEditor::AgentIKSolve2D(const std::string& objName, const std::string& rootBone,
-		const std::string& effectorBone, const Vec2 &target, std::string& errOut)
-	{
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objName);
-		if (!obj) { errOut = "object '" + objName + "' not found"; return false; }
-		GameObject* go = (GameObject*)obj->GetPTR();
-		RenderingComponent* rc = FindRenderingComponent(go);
-		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
-
-		SkeletonAnimationInstance* inst =
-			static_cast<SkeletonAnimationInstance*>(rc->GetActiveSkeletonAnimation());
-		if (!inst) inst = RebuildSkeletonInstance(rc);
-		if (!inst) { errOut = "object has no skeleton"; return false; }
-
-		const std::vector<Bone> &bones = inst->GetSkeletonBones();
-		int32 rootId = -1, effId = -1;
-		for (size_t i = 0; i < bones.size(); i++)
-		{
-			if (bones[i].name == rootBone) rootId = bones[i].self;
-			if (bones[i].name == effectorBone) effId = bones[i].self;
-		}
-		if (rootId < 0) { errOut = "bone '" + rootBone + "' not found"; return false; }
-		if (effId < 0) { errOut = "bone '" + effectorBone + "' not found"; return false; }
-
-		std::vector<Matrix> beforePose;
-		CapturePoseFor(obj->GetID(), beforePose);
-
-		if (!IKSolver::Solve(inst, rootId, effId, Vec3(target.x, target.y, 0.f),
-			Vec3(0.f, 0.f, 0.f)))
-		{ errOut = "could not build a chain from '" + rootBone + "' to '" + effectorBone + "'"; return false; }
-
-		PushPoseUndo(obj->GetID(), beforePose, "IK Solve");
-		return true;
+		if (dim.x < 1.f) return 0.01f;
+		if (viewIsOrtho)
+			return (viewOrthoR - viewOrthoL) / dim.x;
+		GameObject* cam = const_cast<SceneEditor*>(this)->GetViewCameraGO();
+		const f32 dist = cam ? std::fabs(cam->GetWorldTransformation().GetTranslation().z) : 10.f;
+		const f32 halfH = (dist > 0.01f ? dist : 10.f)
+			* std::tan(DEGTORAD(const_cast<SceneEditor*>(this)->GetViewFovDeg()) * 0.5f);
+		return (halfH * 2.f * ((f32)dim.x / (f32)dim.y)) / dim.x;
 	}
 
 	bool SceneEditor::AgentSetSpritePivot(const std::string& name, const Vec2 &norm, std::string& errOut)
@@ -11277,6 +11342,28 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #endif
 	}
 
+	// The names an agent (and the MCP tool descriptions) use for component
+	// types. Extracted from AgentDetachComponent's inline switch so two
+	// commands cannot end up disagreeing about what a "ParticleSystem" is
+	// called. Empty for a type with no agent-facing name.
+	static std::string AgentComponentTypeName(const uint32 type)
+	{
+		switch (type)
+		{
+		case SceneObjectTypes::RENDERING_COMPONENT: return "RenderingComponent";
+		case SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT: return "DirectionalLight";
+		case SceneObjectTypes::POINTLIGHT_COMPONENT: return "PointLight";
+		case SceneObjectTypes::SPOTLIGHT_COMPONENT: return "SpotLight";
+		case SceneObjectTypes::PHYSICS_COMPONENT: return "Physics";
+		case SceneObjectTypes::AUDIO_SOURCE_COMPONENT: return "AudioSource";
+		case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT: return "ParticleSystem";
+#ifdef LUA_BINDINGS
+		case SceneObjectTypes::LUA_COMPONENT: return "LuaComponent";
+#endif
+		default: return std::string();
+		}
+	}
+
 	bool SceneEditor::AgentDetachComponent(const std::string& objectName, const std::string& componentType, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
@@ -11288,22 +11375,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			SceneObject* c = i->second;
 			if (!c || c->GetParentID() != obj->GetID() || c->GetType() == SceneObjectTypes::GAMEOBJECT) continue;
-			std::string typeStr;
-			switch (c->GetType())
-			{
-			case SceneObjectTypes::RENDERING_COMPONENT: typeStr = "RenderingComponent"; break;
-			case SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT: typeStr = "DirectionalLight"; break;
-			case SceneObjectTypes::POINTLIGHT_COMPONENT: typeStr = "PointLight"; break;
-			case SceneObjectTypes::SPOTLIGHT_COMPONENT: typeStr = "SpotLight"; break;
-			case SceneObjectTypes::PHYSICS_COMPONENT: typeStr = "Physics"; break;
-			case SceneObjectTypes::AUDIO_SOURCE_COMPONENT: typeStr = "AudioSource"; break;
-			case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT: typeStr = "ParticleSystem"; break;
-#ifdef LUA_BINDINGS
-			case SceneObjectTypes::LUA_COMPONENT: typeStr = "LuaComponent"; break;
-#endif
-			default: break;
-			}
-			if (typeStr == componentType) { compId = c->GetID(); break; }
+			if (AgentComponentTypeName(c->GetType()) == componentType) { compId = c->GetID(); break; }
 		}
 		if (compId == 0) { errOut = "no " + componentType + " found on '" + objectName + "'"; return false; }
 		DeleteComponentById(compId);
@@ -11420,13 +11492,41 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	bool SceneEditor::AgentSelectObject(const std::string& name, std::string& errOut)
 	{
+		return AgentSelectObject(name, std::string(), errOut);
+	}
+
+	// `componentType` selects one of the object's COMPONENTS rather than the
+	// object - the distinction the Scene Tree draws, and one that matters:
+	// previews (particles, sprite-sheet animation) deliberately run only for a
+	// selected component, so without a way to say so an agent could not reach
+	// that state at all.
+	bool SceneEditor::AgentSelectObject(const std::string& name,
+		const std::string& componentType, std::string& errOut)
+	{
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+
+		if (!componentType.empty())
+		{
+			const uint32 ownerId = obj->GetID();
+			SceneObject* found = NULL;
+			for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+				i != sceneObjects->GetList().end(); ++i)
+			{
+				if (!(*i).second || (*i).second->GetParentID() != ownerId) continue;
+				if (AgentComponentTypeName((*i).second->GetType()) != componentType) continue;
+				found = (*i).second;
+				break;
+			}
+			if (!found)
+			{ errOut = "object '" + name + "' has no " + componentType; return false; }
+			obj = found;
+		}
 		DeselectMesh();
 		SelectSceneObject(obj);
 		node_clicked = obj->GetID();
 		if (obj->GetParentID() != 0)
-			hierarchyForceOpenId = obj->GetParentID();
+			RevealInHierarchy(obj->GetID());
 		return true;
 	}
 
@@ -11448,6 +11548,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		out["scenePath"] = scenePath;
 		out["dirty"] = sceneDirty;
 		out["playing"] = playMode;
+		// Which renderer this scene actually draws with. Read-only, and worth
+		// reporting because it is not simply the project setting: a 2D scene
+		// overrides it to forward (see SwitchRenderer), so "what did the
+		// project ask for" and "what is on screen" can differ.
+		out["twoD"] = sceneIsTwoD;
+		out["renderer"] = WillUseDeferredRenderer() ? "deferred" : "forward";
+
+		// What is selected, so an agent can check the result of a click. The
+		// socket could set the selection by name but never read it back, which
+		// left viewport picking - icons especially - untestable from here.
+		if (SelectedSceneObject != NULL)
+		{
+			out["selected"] = SelectedSceneObject->GetName();
+			out["selectedId"] = SelectedSceneObject->GetID();
+			out["selectedType"] = (int)SelectedSceneObject->GetType();
+		}
+		else out["selected"] = nullptr;
 
 		// Recursive: GetAllGameObjectList() holds only what was added to the
 		// scene, and a child attached with GameObject::Add() is not in it.

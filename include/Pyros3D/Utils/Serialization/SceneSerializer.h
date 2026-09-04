@@ -13,6 +13,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Other/Export.h>
+#include <Pyros3D/Core/Projection/Projection.h>
 #include <string>
 #include <vector>
 #include <memory>
@@ -95,6 +96,81 @@ namespace p3d {
 		// 3D one (see PyrosPlayer::ShowOverlayScene). Absent from a scene file
 		// means false, so every existing scene keeps loading as a 3D one.
 		bool twoD = false;
+
+		// ---- how a 2D scene is framed -----------------------------------
+		// A 2D scene has a viewpoint, not a camera. What is on screen is two
+		// numbers - where the view is centred and how much of the world it
+		// covers - plus, optionally, what it follows.
+		//
+		// Modelling that as a GameObject was a 3D concept leaking into 2D:
+		// it made you create an object, remember to park it at some positive
+		// z looking down -Z, mark it orthographic, set an ortho size, and set
+		// it active, all to see a world that has two axes. Worse, none of
+		// that lived in the scene file at all - "camera-ness" was recorded in
+		// the .editor.json sidecar, keyed by object NAME, so a scene loaded
+		// without its sidecar had nothing to render from.
+		//
+		// Camera GameObjects still work and still take precedence when one is
+		// explicitly active; this is what a 2D scene gets for free instead of
+		// having to build one.
+		struct PYROS3D_API View2D {
+			// Off means "this scene is framed by a camera object", which is
+			// what every scene written before this field is.
+			bool enabled = false;
+			// Centre of the view, in world units on the XY plane.
+			Vec2 center = Vec2(0.f, 0.f);
+			// World units from the centre to the top edge. The width follows
+			// from the window's aspect, so the same scene fills any window
+			// without the author choosing a resolution.
+			f32 halfHeight = 5.f;
+
+			// Name of a GameObject to keep in view. Empty for a fixed view.
+			// By NAME rather than by pointer or id because this is scene data
+			// that outlives any particular load.
+			std::string follow;
+			// Seconds for the view to close most of the distance to what it
+			// follows. 0 snaps, which is right for a puzzle game and wrong
+			// for a platformer.
+			f32 followLag = 0.f;
+			// Offset from the followed object, so a character can sit low in
+			// frame with the level ahead visible.
+			Vec2 followOffset = Vec2(0.f, 0.f);
+			// Which axes the follow actually moves. A side-scroller wants x
+			// only: tracking y as well makes the horizon bob every time the
+			// character jumps, and hand-rolling "follow but only in x" is one
+			// of the two reasons people go back to moving a camera object
+			// themselves.
+			bool followX = true;
+			bool followY = true;
+
+			// Keeps the view inside the level rather than letting it walk off
+			// the end of the artwork when it follows something to the edge.
+			bool clamp = false;
+			Vec2 clampMin = Vec2(0.f, 0.f);
+			Vec2 clampMax = Vec2(0.f, 0.f);
+
+			// ---- one implementation, used by the editor AND the player ----
+			// The camera sits far along +Z looking down -Z. Far enough that
+			// parallax layers pushed back for draw order stay in front of the
+			// near plane; the depth range is linear in an orthographic
+			// projection, so a generous one costs no precision.
+			static const f32 kCameraZ;
+			static const f32 kNear;
+			static const f32 kFar;
+
+			// Moves `center` towards `targetWorld` by one frame's worth of
+			// followLag. Call only when something is being followed.
+			void Track(const Vec3 &targetWorld, const f32 dt);
+			// Pulls `center` back inside clampMin/clampMax, honouring the
+			// half-extents so the EDGE of the view stops at the bound rather
+			// than its centre. No-op when clamp is off.
+			void ClampCenter(const f32 aspect);
+			// The projection for a viewport of this aspect (width / height).
+			Projection MakeProjection(const f32 aspect) const;
+			// The camera's world transform.
+			Math::Matrix CameraMatrix() const;
+		};
+		View2D view2D;
 	};
 
 	class PYROS3D_API SceneSerializer {
