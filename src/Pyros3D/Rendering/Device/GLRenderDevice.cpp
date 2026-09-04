@@ -1559,12 +1559,18 @@ namespace p3d {
 
 	void GLRenderDevice::SetDrawBuffers(const std::vector<uint32> &colorAttachmentIndices)
 	{
-#if !defined(GLES3)
+		// NOT guarded for GLES3, unlike its glDrawBuffer (singular) siblings
+		// above: glDrawBuffers is core in OpenGL ES 3.0 and WebGL2. While it
+		// was a no-op there, an MRT framebuffer kept its default state of
+		// draw buffer 0 = COLOR_ATTACHMENT0 and the rest NONE, so the G-buffer
+		// was neither written nor CLEARED past its first attachment and the
+		// deferred path composited every frame over the last one.
+		if (colorAttachmentIndices.empty())
+			return;
 		std::vector<GLenum> BufferIDs;
 		for (std::vector<uint32>::const_iterator i = colorAttachmentIndices.begin(); i != colorAttachmentIndices.end(); i++)
 			BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + *i);
-		GLCHECKER(glDrawBuffers(BufferIDs.size(), &BufferIDs[0]));
-#endif
+		GLCHECKER(glDrawBuffers((GLsizei)BufferIDs.size(), &BufferIDs[0]));
 	}
 
 	uint32 GLRenderDevice::CheckFramebufferStatus()

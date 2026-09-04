@@ -214,13 +214,24 @@ namespace p3d {
 		// Add Attach
 		Device().AttachFramebufferTexture2D(attach->NativeAttachmentFormat, attach->NativeTextureTarget, attach->TexturePTR->GetBindID(), wasAlreadyBound);
 
+		// glDrawBuffer (singular) is desktop-only, so the depth-only case
+		// stays guarded. glDrawBuffers (plural) is NOT - it is core in ES 3.0
+		// and WebGL2, and skipping it here is why deferred rendering drew
+		// every frame on top of the last one in the browser.
+		//
+		// A framebuffer object starts with draw buffer 0 = COLOR_ATTACHMENT0
+		// and every other draw buffer NONE. That governs clearing as well as
+		// writing: without this call glClear reached attachment 0 only, so
+		// the rest of the G-buffer was never cleared and accumulated across
+		// frames - which reads as a missing clear rather than a missing
+		// glDrawBuffers.
 #if !defined(GLES3)
-
 		if (!drawBuffers)
 		{
 			Device().SetDrawBufferNone();
 			Device().SetReadBufferNone();
 		}
+#endif
 
 		if (attachments.size() > 0 && drawBuffers)
 		{
@@ -235,7 +246,6 @@ namespace p3d {
 
 			Device().SetDrawBuffers(ColorAttachmentIndices);
 		}
-#endif
 
 		CheckFBOStatus();
 
@@ -309,13 +319,24 @@ namespace p3d {
 
 		CheckFBOStatus();
 
+		// glDrawBuffer (singular) is desktop-only, so the depth-only case
+		// stays guarded. glDrawBuffers (plural) is NOT - it is core in ES 3.0
+		// and WebGL2, and skipping it here is why deferred rendering drew
+		// every frame on top of the last one in the browser.
+		//
+		// A framebuffer object starts with draw buffer 0 = COLOR_ATTACHMENT0
+		// and every other draw buffer NONE. That governs clearing as well as
+		// writing: without this call glClear reached attachment 0 only, so
+		// the rest of the G-buffer was never cleared and accumulated across
+		// frames - which reads as a missing clear rather than a missing
+		// glDrawBuffers.
 #if !defined(GLES3)
-
 		if (!drawBuffers)
 		{
 			Device().SetDrawBufferNone();
 			Device().SetReadBufferNone();
 		}
+#endif
 
 		if (attachments.size() > 0 && drawBuffers)
 		{
@@ -330,8 +351,6 @@ namespace p3d {
 
 			Device().SetDrawBuffers(ColorAttachmentIndices);
 		}
-
-#endif
 
 		if (!isBinded)
 			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), 0, false);
