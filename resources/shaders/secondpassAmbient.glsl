@@ -4,7 +4,7 @@
 #define texture_2D texture
 #define texture_cube texture
 #if defined(GLES3)
-	precision mediump float;
+	precision highp float;
 #endif
 // Vulkan/SPIR-V needs a static layout(location=) on every attribute/
 // varying/output and layout(binding=) on every UBO/sampler, and rejects

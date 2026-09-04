@@ -4,7 +4,7 @@
 #define texture_2D texture
 #define texture_cube texture
 #if defined(GLES3)
-	precision mediump float;
+	precision highp float;
 #endif
 // See secondpassAmbient.glsl's identical comment - binding 32 (not 27,
 // AmbientFragParams' own - see IMaterial.h's comment on

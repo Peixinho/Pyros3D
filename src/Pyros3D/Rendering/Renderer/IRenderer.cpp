@@ -15,6 +15,43 @@
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
 // fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
 #define PYROS_MAX_LIGHTS 4
+
+// PyrosShader.glsl declares uPointShadowMaps[4] and uSpotShadowMaps[4].
+#define PYROS_SHADOW_SAMPLER_SLOTS 4
+
+namespace {
+	// Fills EVERY element of a sampler array with a texture unit, not just
+	// the ones this scene happens to use.
+	//
+	// glUniform1iv with a count smaller than the declared array leaves the
+	// tail at its default of 0. That parks a samplerCube (uPointShadowMaps)
+	// and a sampler2DShadow (uSpotShadowMaps) on unit 0 at the same time,
+	// which is illegal: an active sampler array's elements each occupy a
+	// unit, and two different sampler TYPES may not name one unit. Desktop
+	// GL drivers sample it anyway. WebGL2/ANGLE validates the program on
+	// every draw, fails it with "Two textures of different types use the
+	// same sampler location", and skips the draw with no GL error at all -
+	// so in the browser every lit, shadow-capable mesh silently stopped
+	// rendering (it did not even write depth, so it occluded nothing) while
+	// the grid, the unlit icons and the selection overlay - none of which
+	// declare a shadow sampler - carried on drawing normally. That is what
+	// made it read as a broken material rather than a dropped draw.
+	//
+	// The tail is padded with the array's own first unit, so no unit is
+	// introduced that was not already bound and the type stays consistent.
+	// Only when the scene has no caster of that kind at all does the
+	// caller's spare unit get used. The shader samples element [0] only,
+	// so the padding is never read.
+	// `real` is uint32 because that is how the renderer stores bound units;
+	// the uniform itself is an int array, hence the separate out type.
+	static void PadSamplerUnits(std::vector<p3d::int32> &out, const std::vector<p3d::uint32> &real,
+								const p3d::int32 spareUnit, const p3d::uint32 slots)
+	{
+		out.assign(slots, real.empty() ? spareUnit : (p3d::int32)real[0]);
+		for (p3d::uint32 i = 0; i < slots && i < real.size(); ++i)
+			out[i] = (p3d::int32)real[i];
+	}
+}
 // Kept small on purpose: the 2D shadow test is a loop per fragment per light,
 // so this is the budget that decides whether it is affordable at all.
 #define PYROS_MAX_OCCLUDERS_2D 32
@@ -1954,14 +1991,14 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				Shader::SendUniform((*k), &NumberOfDirectionalShadows, (*_ShadersGlobalCache)[counter]);
 				break;
 			case Uniforms::DataUsage::PointShadowMap:
-				if (PointShadowMapsUnits.size() > 0)
-					Shader::SendUniform((*k), &PointShadowMapsUnits[0], (*_ShadersGlobalCache)[counter], PointShadowMapsUnits.size());
-				else
-				{
-					int32 unusedUnit = 14;   // distinct from the directional one above
-					Shader::SendUniform((*k), &unusedUnit, (*_ShadersGlobalCache)[counter], 1);
-				}
-				break;
+			{
+				// All four slots, always - see PadSamplerUnits. 14 is the
+				// spare, distinct from the directional one above.
+				std::vector<int32> units;
+				PadSamplerUnits(units, PointShadowMapsUnits, 14, PYROS_SHADOW_SAMPLER_SLOTS);
+				Shader::SendUniform((*k), &units[0], (*_ShadersGlobalCache)[counter], (uint32)units.size());
+			}
+			break;
 			case Uniforms::DataUsage::PointShadowMatrix:
 				if (PointShadowMatrix.size() > 0)
 					Shader::SendUniform((*k), &PointShadowMatrix[0], (*_ShadersGlobalCache)[counter], PointShadowMatrix.size());
@@ -1970,16 +2007,16 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				Shader::SendUniform((*k), &NumberOfPointShadows, (*_ShadersGlobalCache)[counter]);
 				break;
 			case Uniforms::DataUsage::SpotShadowMap:
+			{
 				// Was &SpotShadowMapsUnits[0] unguarded, unlike its
 				// Directional/Point neighbours - indexing an empty vector.
-				if (SpotShadowMapsUnits.size() > 0)
-					Shader::SendUniform((*k), &SpotShadowMapsUnits[0], (*_ShadersGlobalCache)[counter], SpotShadowMapsUnits.size());
-				else
-				{
-					int32 unusedUnit = 15;   // distinct from the two above
-					Shader::SendUniform((*k), &unusedUnit, (*_ShadersGlobalCache)[counter], 1);
-				}
-				break;
+				// All four slots, always - see PadSamplerUnits. 15 is the
+				// spare, distinct from the two above.
+				std::vector<int32> units;
+				PadSamplerUnits(units, SpotShadowMapsUnits, 15, PYROS_SHADOW_SAMPLER_SLOTS);
+				Shader::SendUniform((*k), &units[0], (*_ShadersGlobalCache)[counter], (uint32)units.size());
+			}
+			break;
 			case Uniforms::DataUsage::SpotShadowMatrix:
 				if (SpotShadowMatrix.size() > 0)
 					Shader::SendUniform((*k), &SpotShadowMatrix[0], (*_ShadersGlobalCache)[counter], SpotShadowMatrix.size());

@@ -4,7 +4,7 @@
 #define texture_2D texture
 #define texture_cube texture
 #if defined(GLES3)
-	precision mediump float;
+	precision highp float;
 #endif
 // See secondpassAmbient.glsl's identical comment. Two separate UBOs here
 // (not one combined block referenced from both stages) - empirically,

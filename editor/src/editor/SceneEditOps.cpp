@@ -16,6 +16,17 @@
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
+// The editor carries its OWN stb_image implementation rather than borrowing
+// the engine's. Texture.cpp defines STB_IMAGE_IMPLEMENTATION, so with a static
+// PyrosEngine the symbol happened to resolve - but a shared build exports no
+// stbi_* and the Windows DLL job died with "unresolved external symbol
+// stbi_load" while the static job passed, which is why it only ever broke on
+// one half of the matrix. STB_IMAGE_STATIC makes this copy file-local
+// (STBIDEF -> static), so it neither needs an export nor collides with the
+// engine's copy when both end up in one link. stb_image_write is already done
+// exactly this way from the editor side, in SceneEditor.cpp.
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
 #include <Pyros3D/Ext/stb/stb_image.h>
 #include <Pyros3D/Ext/stb/stb_image_write.h>
 

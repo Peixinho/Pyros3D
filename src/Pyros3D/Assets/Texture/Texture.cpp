@@ -420,7 +420,13 @@ namespace p3d {
 
 	void Texture::EnableCompareMode()
 	{
-#if !defined(GLES3)
+		// Runs on GLES3 too. The whole body used to be #if !defined(GLES3),
+		// which left every shadow map on the web without a compare mode and
+		// made WebGL2 discard each draw that sampled one - see
+		// GLRenderDevice::SetTextureCompareMode. Of the calls below only the
+		// border colour is genuinely absent from ES 3.0, and that one guards
+		// itself inside the device.
+		//
 		// USED ONLY FOR DEPTH MAPS
 		// Bind
 		Device().BindTextureToTarget(GLSubMode, GL_ID);
@@ -432,7 +438,6 @@ namespace p3d {
 
 		// Unbind
 		Device().BindTextureToTarget(GLSubMode, 0);
-#endif
 	}
 
 	void Texture::SetTransparency(const f32 Transparency)

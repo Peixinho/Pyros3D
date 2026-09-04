@@ -693,9 +693,9 @@ namespace p3d {
 		virtual void GenerateMipmap(const uint32 target) = 0;
 
 		// Texture parameters - engineRepeat/engineFilter are Texture.h's
-		// TextureRepeat::*/TextureFilter::* values. SetTextureWrapR and
-		// SetTextureCompareMode are no-ops on GLES3, matching the
-		// original #if !defined(GLES3) guards around those call sites.
+		// TextureRepeat::*/TextureFilter::* values. SetTextureWrapR is a
+		// no-op on GLES3. SetTextureCompareMode is NOT - it is core in ES 3.0
+		// and WebGL2 refuses to sample a shadow texture without it.
 		virtual void SetTextureWrapS(const uint32 target, const uint32 engineRepeat) = 0;
 		virtual void SetTextureWrapT(const uint32 target, const uint32 engineRepeat) = 0;
 		virtual void SetTextureWrapR(const uint32 target, const uint32 engineRepeat) = 0;

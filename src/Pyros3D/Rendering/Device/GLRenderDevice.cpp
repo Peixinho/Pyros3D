@@ -770,30 +770,53 @@ namespace p3d {
 		// types default to highp anyway), so emitting one preamble avoids
 		// threading the shader stage through BuildShaderSource for no gain.
 		//
-		// These are DEFAULTS: a shader body that declares its own precision
-		// later overrides them, which several of the engine's hand-written
-		// post-effect shaders do.
+		// These are DEFAULTS, and that word is load-bearing: a `precision`
+		// statement in the shader body silently overrides whatever is set
+		// here, because redeclaring the default precision is legal and does
+		// not warn. Every shader under resources/shaders/ used to open with
+		// `#if defined(GLES3) precision mediump float; #endif`, which landed
+		// AFTER this preamble and quietly demoted the whole program - see the
+		// note on the float line below before adding another one.
 		static const char* kGles3Precision =
+			// highp, and it has to stay highp all the way through the
+			// shader body. On Apple GPUs (iPhone, and Apple Silicon under
+			// a browser) mediump really is fp16: +/-65504 with about three
+			// decimal digits. World coordinates through the MVP, plus the
+			// per-light shadow matrices, leave that range - gl_Position
+			// comes out garbage or NaN and the triangles are dropped
+			// before rasterization. No GL error, no fragments, and the
+			// object does not even occlude what is behind it. Desktop GL
+			// never saw this because GLES3 is undefined there.
 			"precision highp float;\n"
 			"precision highp int;\n"
 			"precision lowp sampler2D;\n"
 			"precision lowp samplerCube;\n"
 			"precision highp sampler3D;\n"
-			"precision lowp sampler2DShadow;\n"
-			"precision lowp samplerCubeShadow;\n"
+			// highp for the SHADOW samplers, not lowp. A shadow sampler does
+			// a depth comparison, and the precision qualifier governs the
+			// coordinate and the comparison as well as the result - at lowp
+			// the compare is meaningless, every lit surface reads as
+			// shadowed, and a lit object comes out black. Which against a
+			// dark viewport is indistinguishable from not drawing at all.
+			//
+			// The plain colour samplers keep the spec's own default (lowp);
+			// they only carry an 8-bit texel.
+			"precision highp sampler2DShadow;\n"
+			"precision highp samplerCubeShadow;\n"
 			"precision lowp sampler2DArray;\n"
-			"precision lowp sampler2DArrayShadow;\n";
-		// EMSCRIPTEN belongs here, not in each material type. PyrosShader.glsl
-		// switches its _highpMat4/_highpVec4 macros on it, and those exist
-		// because GLES3 defaults this shader to `precision mediump float` -
-		// which is not enough for a transform matrix. CustomShaderMaterial
-		// defined it and GenericShaderMaterial did not, so generated materials
-		// transformed their vertices in mediump and the geometry landed
-		// somewhere off screen: the object was selectable, had a bounding box,
-		// and drew nothing at all.
+			"precision highp sampler2DArrayShadow;\n";
+		// EMSCRIPTEN belongs here, not in each material type:
+		// CustomShaderMaterial defined it and GenericShaderMaterial did not,
+		// so the two paths compiled different source from the same file.
+		// Defining it once, in the device that knows what platform it is, is
+		// what stops them disagreeing again.
 		//
-		// Defining it once, in the device that knows what platform it is,
-		// is what stops the two material paths disagreeing again.
+		// It gates PyrosShader.glsl's _highpMat4/_highpVec4 macros, which are
+		// now belt-and-braces: they only ever qualified the two _transpose
+		// helpers, so while the file still defaulted to mediump the actual
+		// MVP transform, the UBO matrices and the shadow coordinates stayed
+		// low-precision regardless. That is why defining EMSCRIPTEN alone
+		// changed nothing on screen - the default precision was the bug.
 		std::string platformDefines("#define GLES3\n");
 #if defined(EMSCRIPTEN)
 		platformDefines += "#define EMSCRIPTEN\n";
@@ -1307,10 +1330,22 @@ namespace p3d {
 
 	void GLRenderDevice::SetTextureCompareMode(const uint32 target)
 	{
-#if !defined(GLES3)
+		// NOT guarded for GLES3, though it used to be. GL_TEXTURE_COMPARE_MODE
+		// is core in OpenGL ES 3.0 and in WebGL2 - the old #if was inherited
+		// from GLES2, where it genuinely did not exist.
+		//
+		// Skipping it on the web does not merely lose the comparison: a
+		// sampler2DShadow whose texture has COMPARE_MODE = NONE is INCOMPLETE
+		// for that sampler type, and WebGL2 drops the whole draw call rather
+		// than sampling it. Warning in the console, nothing from glGetError,
+		// and every lit+shadowed mesh silently stops rendering while the grid,
+		// the unlit icons and the selection overlay carry on drawing - so the
+		// object still has a bounding box, is still selectable, and still
+		// highlights, which makes it look like a material bug rather than a
+		// dropped draw. Desktop GL never showed it because drivers there
+		// sample an incomplete shadow texture instead of refusing.
 		GLCHECKER(glTexParameteri(target, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE));
 		GLCHECKER(glTexParameteri(target, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL));
-#endif
 	}
 
 	void GLRenderDevice::SetPixelUnpackAlignment(const uint32 value)

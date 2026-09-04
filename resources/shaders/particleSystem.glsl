@@ -1,5 +1,5 @@
 #if defined(GLES3)
-	precision mediump float;
+	precision highp float;
 #endif
 
 // Plain, unlabeled GLSL - deliberately no UBO_BINDING/IO_LOCATION/

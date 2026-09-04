@@ -4,7 +4,7 @@
 #define texture_2D texture
 #define texture_cube texture
 #if defined(GLES3)
-	precision mediump float;
+	precision highp float;
 #endif
 // See secondpassPoint.glsl's identical comment on the two-UBO split (a
 // combined block used by both stages triggers a real driver bug here).

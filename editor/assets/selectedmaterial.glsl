@@ -4,7 +4,7 @@
 	#define attribute_in attribute
 	#define texture_2D texture2D
 	#define texture_cube textureCube
-	precision mediump float;
+	precision highp float;
 #else
 	#define varying_in in
 	#define varying_out out
@@ -12,7 +12,7 @@
 	#define texture_2D texture
 	#define texture_cube texture
 	#if defined(GLES3)
-		precision mediump float;
+		precision highp float;
 	#endif
 #endif
 
