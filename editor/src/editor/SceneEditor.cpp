@@ -348,6 +348,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		delete gbufferMatRough; gbufferMatRough = NULL;
 	}
 
+	void SceneEditor::ApplyEnvironment()
+	{
+		if (!Renderer) return;
+		Renderer->SetGlobalLight(Vec4(ambientLightColor.x * ambientIntensity,
+									  ambientLightColor.y * ambientIntensity,
+									  ambientLightColor.z * ambientIntensity,
+									  ambientLightColor.w));
+		Renderer->SetBackground(backgroundColor);
+	}
+
 	void SceneEditor::SwitchRenderer(bool useDeferred)
 	{
 		// Deferred to the start of ShowViewport() (see
@@ -432,11 +442,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			Renderer = new ForwardRenderer(Width, Height);
 		}
 		Renderer->SetViewPort(0, 0, Width, Height);
-		Renderer->SetBackground(Vec4(0.2f, 0.2f, 0.2f, 1.0f));
+		Renderer->SetBackground(backgroundColor);
 		// A freshly constructed Renderer resets to IRenderer's own
 		// hardcoded ambient default - reapply the scene's actual value so
 		// switching Forward<->Deferred doesn't silently change the look.
-		Renderer->SetGlobalLight(ambientLightColor);
+		ApplyEnvironment();
 
 		// Freshly constructed, not yet Bound - SetFramebufferPreserveDepth()
 		// only takes effect before ExternalFBO's render pass is first
@@ -483,7 +493,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			Renderer = new ForwardRenderer(Width, Height);
 		}
 		Renderer->SetViewPort(0, 0, Width, Height);
-		Renderer->SetBackground(Vec4(0.2, 0.2, 0.2, 1.0));
+		Renderer->SetBackground(backgroundColor);
 		// Mirrors the renderer-switch path, which has always done this: a
 		// freshly constructed renderer starts on IRenderer's own hardcoded
 		// ambient default, and the value that actually reaches the shader
@@ -492,7 +502,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// CachedGlobalLight). Init never asserted its own value, so this
 		// document rendered with whatever the last renderer to touch that
 		// UBO had left in it - which on Vulkan+Deferred came out red.
-		Renderer->SetGlobalLight(ambientLightColor);
+		ApplyEnvironment();
 
 		// Projection
 		isPerspective = true;
@@ -935,7 +945,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// other scene tabs). AxisHelper::Render() re-asserts its own ambient
 		// every frame for exactly this reason; whoever renders last wins, so
 		// the viewport has to state its value rather than assume it survived.
-		Renderer->SetGlobalLight(ambientLightColor);
+		ApplyEnvironment();
 		EffectsManager->CaptureFrame();
 		if (isPerspective)
 			Renderer->RenderScene(projection, viewCam, scene);
@@ -3752,7 +3762,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// exact, not a simplification.
 		if (ImGui::ColorEdit3("##ambient_light", (float*)&ambientLightColor))
 		{
-			Renderer->SetGlobalLight(ambientLightColor);
+			ApplyEnvironment();
+			sceneDirty = true;
+		}
+		ImGui::TextUnformatted("Ambient Intensity");
+		if (ImGui::DragFloat("##ambient_intensity", &ambientIntensity, 0.01f, 0.f, 8.f, "%.2f"))
+		{
+			ApplyEnvironment();
+			sceneDirty = true;
+		}
+		// Separate from the ambient on purpose: when the two matched (both
+		// were 0.2 grey) every unlit surface came out exactly the background
+		// value and became invisible - which in Deferred reads as the
+		// renderer drawing nothing at all.
+		ImGui::TextUnformatted("Background");
+		if (ImGui::ColorEdit3("##background", (float*)&backgroundColor))
+		{
+			ApplyEnvironment();
 			sceneDirty = true;
 		}
 
@@ -6527,7 +6553,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		sceneDirty = false;
 
 		ambientLightColor = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
-		Renderer->SetGlobalLight(ambientLightColor);
+		ApplyEnvironment();
 	}
 
 	bool SceneEditor::SaveSceneToFile(const std::string &path)
@@ -6557,6 +6583,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		try {
 			SceneMeta meta;
 			meta.ambientLight = ambientLightColor;
+			meta.ambientIntensity = ambientIntensity;
+			meta.background = backgroundColor;
 			meta.twoD = sceneIsTwoD;
 			meta.view2D = view2D;
 #ifdef LUA_BINDINGS
@@ -6763,7 +6791,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (ok)
 		{
 			ambientLightColor = meta.ambientLight;
-			Renderer->SetGlobalLight(ambientLightColor);
+			ambientIntensity = meta.ambientIntensity;
+			backgroundColor = meta.background;
+			ApplyEnvironment();
+			ApplyEnvironment();
 		}
 
 		if (ok)

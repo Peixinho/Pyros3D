@@ -612,6 +612,16 @@ private:
 	// wholesale (a freshly constructed one resets to IRenderer's own
 	// hardcoded default otherwise).
 	Vec4 ambientLightColor = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
+	// Environment lighting - see SceneMeta::ambientIntensity/background. The
+	// background is deliberately NOT the ambient colour: they used to be the
+	// same 0.2 grey, so anything the lights missed landed exactly on the
+	// background and disappeared into it.
+	f32 ambientIntensity = 1.f;
+	Vec4 backgroundColor = Vec4(0.10f, 0.11f, 0.13f, 1.f);
+	// Pushes ambientLightColor*ambientIntensity and backgroundColor at the
+	// renderer. Called on load, on edit and after a renderer switch (a fresh
+	// IRenderer starts on its own hardcoded defaults).
+	void ApplyEnvironment();
 	// mtime of the scene file as of the last successful load — AgentServer
 	// uses this to detect external edits (AgentReloadIfChanged).
 	time_t lastLoadMtime = 0;

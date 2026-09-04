@@ -89,6 +89,24 @@ namespace p3d {
 		// the JSON key is absent).
 		Vec4 ambientLight = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
 
+		// Environment lighting, the rest of it.
+		//
+		// ambientIntensity scales ambientLight on its way to
+		// IRenderer::SetGlobalLight(), so the colour and how much of it there is
+		// are two separate decisions - the same split Unity's Environment
+		// Lighting makes between an ambient colour and its intensity multiplier.
+		f32 ambientIntensity = 1.f;
+
+		// What the frame clears to, and deliberately NOT the ambient colour.
+		// Both used to be 0.2 grey - the editor hardcoded the viewport clear and
+		// the ambient default happened to match it exactly - so any surface the
+		// lights did not reach came out at precisely the background value and
+		// vanished into it. In Deferred that reads as "the renderer draws
+		// nothing"; in Forward it merely looks flat. Keeping them apart, with a
+		// background darker than any plausible ambient, means unlit geometry is
+		// always still a silhouette.
+		Vec4 background = Vec4(0.10f, 0.11f, 0.13f, 1.f);
+
 		// A 2D scene: its content is UICanvas trees, not world geometry, so
 		// whoever renders it skips the 3D pass entirely and draws only the UI
 		// layer. Two uses, and they are the same scene either way - a menu or

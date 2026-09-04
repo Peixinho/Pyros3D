@@ -1865,6 +1865,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		if (meta)
 		{
 			root["ambientLight"] = json::array({ meta->ambientLight.x, meta->ambientLight.y, meta->ambientLight.z });
+			root["ambientIntensity"] = meta->ambientIntensity;
+			root["background"] = json::array({ meta->background.x, meta->background.y, meta->background.z });
 			// Only written when true - keeps 3D scenes byte-identical to what
 			// they serialized to before this field existed.
 			if (meta->twoD)
@@ -3205,6 +3207,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			{
 				const auto &al = root["ambientLight"];
 				outMeta->ambientLight = Vec4(al[0].get<f32>(), al[1].get<f32>(), al[2].get<f32>(), al[0].get<f32>());
+			if (root.contains("ambientIntensity") && root["ambientIntensity"].is_number())
+				outMeta->ambientIntensity = root["ambientIntensity"].get<f32>();
+			if (root.contains("background") && root["background"].is_array() && root["background"].size() >= 3)
+			{
+				const auto &bg = root["background"];
+				outMeta->background = Vec4(bg[0].get<f32>(), bg[1].get<f32>(), bg[2].get<f32>(), 1.f);
+			}
 			}
 		}
 

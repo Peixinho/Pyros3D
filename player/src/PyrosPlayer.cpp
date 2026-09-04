@@ -480,7 +480,15 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		}
 	}
 
-	renderer->SetGlobalLight(meta.ambientLight);
+	// Environment lighting, the same two values the editor's Scene panel
+	// shows - so a build looks like what was authored. The scene's background
+	// wins over game.json's: game.json carries a fallback for a scene that
+	// predates the field, the scene carries the authored one.
+	renderer->SetGlobalLight(Vec4(meta.ambientLight.x * meta.ambientIntensity,
+								  meta.ambientLight.y * meta.ambientIntensity,
+								  meta.ambientLight.z * meta.ambientIntensity,
+								  meta.ambientLight.w));
+	renderer->SetBackground(meta.background);
 	ResolveCamera(abs);
 	ApplyProjection();
 
