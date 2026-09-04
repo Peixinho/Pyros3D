@@ -300,9 +300,22 @@ namespace p3d
 			ShadersList[gbufferOptions]->LoadShaderFile("shaders/PyrosShader.glsl");
 
 			const std::string define = BuildShaderUsageDefines(gbufferOptions);
-			ShadersList[gbufferOptions]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
-			ShadersList[gbufferOptions]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
-			ShadersList[gbufferOptions]->LinkProgram();
+			// Say so when this fails. The G-buffer sibling is the ONLY way an
+			// ordinary material's geometry reaches the G-buffer, so a failure
+			// here does not degrade - the mesh writes depth (occluding what is
+			// behind it) and then never appears, because there is nothing in
+			// the G-buffer for the lighting pass to light. Returning the
+			// handle regardless made that indistinguishable from "the object
+			// is simply unlit", which is a bad hour to spend.
+			bool ok = ShadersList[gbufferOptions]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
+			ok = ShadersList[gbufferOptions]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str()) && ok;
+			ok = ShadersList[gbufferOptions]->LinkProgram() && ok;
+			if (!ok)
+				echo("ERROR: G-buffer shader for material options " + std::to_string(gbufferOptions)
+					+ " failed to build - meshes using it will occlude but never light.");
+			else
+				echo("GBUFFER: built sibling program for options " + std::to_string(gbufferOptions)
+					+ " (program " + std::to_string(ShadersList[gbufferOptions]->ShaderProgram()) + ")");
 		}
 		return ShadersList[gbufferOptions]->ShaderProgram();
 	}
