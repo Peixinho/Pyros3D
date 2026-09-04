@@ -787,6 +787,27 @@ namespace p3d {
 		if (isMainSwapchainPass)
 			device->BeginFrame();
 
+		// Clear the framebuffer the CALLER left bound, before this renderer
+		// binds any of its own.
+		//
+		// ForwardRenderer renders straight into that framebuffer and clears
+		// it on the way past. This one never does: it binds the G-buffer
+		// immediately below, then lastPassFBO, and only composites into the
+		// caller's target at the very end - so nothing ever cleared it. On
+		// Vulkan and Metal that stayed invisible, because binding a render
+		// target there carries an implicit clear (the same asymmetry
+		// PostEffectsManager::drawEffect documents from the other side). On
+		// GL and WebGL2 it does not, and the editor viewport composited every
+		// frame on top of the last one until it saturated to white - which
+		// reads as "no clear between frames", not as a deferred bug.
+		//
+		// DrawBackground() first: it only sets the clear colour, it draws
+		// nothing, and this clear should use the scene's own background
+		// instead of whatever the last renderer left on the device.
+		DrawBackground();
+		ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
+		ClearScreen();
+
 		// Bind Frame Buffer
 		FBO->Bind();
 
