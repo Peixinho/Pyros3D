@@ -16,8 +16,10 @@ namespace p3d {
 	static MaybeOwningDevicePtr ResolveDebugRendererDevice()
 	{
 		if (IsActiveRenderDeviceSet())
-			return MaybeOwningDevicePtr(&GetActiveRenderDevice(), MaybeOwningDeviceDeleter{false});
-		return MaybeOwningDevicePtr(new GLRenderDevice(), MaybeOwningDeviceDeleter{true});
+			return BorrowActiveRenderDevice();
+		// Not published as active: this one is private to the debug renderer,
+		// exactly as it was before device lifetime became shared.
+		return std::make_shared<GLRenderDevice>();
 	}
 
 	DebugRenderer::DebugRenderer() : device(ResolveDebugRendererDevice())

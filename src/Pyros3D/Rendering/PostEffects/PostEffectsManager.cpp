@@ -22,8 +22,9 @@ namespace p3d {
 	static MaybeOwningDevicePtr ResolvePostEffectsDevice()
 	{
 		if (IsActiveRenderDeviceSet())
-			return MaybeOwningDevicePtr(&GetActiveRenderDevice(), MaybeOwningDeviceDeleter{false});
-		return MaybeOwningDevicePtr(new GLRenderDevice(), MaybeOwningDeviceDeleter{true});
+			return BorrowActiveRenderDevice();
+		// Not published as active - see DebugRenderer's identical comment.
+		return std::make_shared<GLRenderDevice>();
 	}
 
 	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(ResolvePostEffectsDevice()), fullscreenVao(0), viewportGammaEffect(NULL)

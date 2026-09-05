@@ -216,7 +216,7 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 // SendGlobalUniforms(), so it doesn't touch the shared UBOs at all - in
 // particular it must NOT bump SharedUBORefCount, since it will never
 // decrement it on destruction either (see ~IRenderer()).
-IRenderer::IRenderer() : ShadowMapsAreArrayIndexed(false), UsesSharedUBOs(false), device(new GLRenderDevice()) { RenderingPointShadowFace = false; renderLayer = RenderLayer::World; }
+IRenderer::IRenderer() : ShadowMapsAreArrayIndexed(false), UsesSharedUBOs(false), device(std::make_shared<GLRenderDevice>()) { RenderingPointShadowFace = false; renderLayer = RenderLayer::World; }
 
 // Resolves what IRenderer(Width, Height, externalDevice)'s device member
 // should use, and whether it should *own* (delete on destruction) or just
@@ -236,11 +236,10 @@ IRenderer::IRenderer() : ShadowMapsAreArrayIndexed(false), UsesSharedUBOs(false)
 // owned GLRenderDevice, exactly as before this existed - every GL-only
 // example's very first `new ForwardRenderer(Width, Height)` call still
 // hits exactly this path, unchanged.
-struct ResolvedDevice { IRenderDevice *ptr; bool owns; };
-static ResolvedDevice ResolveInitialDevice(IRenderDevice* externalDevice)
+static MaybeOwningDevicePtr ResolveInitialDevice(IRenderDevice* externalDevice)
 {
 	if (externalDevice != NULL)
-		return { externalDevice, true };
+		return AdoptRenderDevice(externalDevice);
 	// Borrowed, NOT owned. The registrar (SDL2VulkanContext) created this
 	// device, outlives every renderer, and now destroys it itself - see its
 	// Shutdown(). Adopting it here meant `delete Renderer` destroyed the
@@ -253,11 +252,14 @@ static ResolvedDevice ResolveInitialDevice(IRenderDevice* externalDevice)
 	// TakeRenderDeviceOwnership() is still consumed so only the first
 	// renderer treats it as pre-existing; later ones fall through to the
 	// IsActiveRenderDeviceSet() borrow below, exactly as before.
-	if (IRenderDevice* registered = TakeRenderDeviceOwnership())
-		return { registered, false };
-	if (IsActiveRenderDeviceSet())
-		return { &GetActiveRenderDevice(), false };
-	return { new GLRenderDevice(), true };
+	// The registrar published it as active already, and destroys it itself,
+	// so this is a borrow either way - consuming the slot only keeps the
+	// "first taker" bookkeeping the header describes.
+	if (TakeRenderDeviceOwnership() != NULL)
+		return BorrowActiveRenderDevice();
+	if (MaybeOwningDevicePtr active = BorrowActiveRenderDevice())
+		return active;
+	return AdoptRenderDevice(new GLRenderDevice());
 }
 
 IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice)
@@ -268,14 +270,13 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 	// See SetRenderLayer() - UIRenderer is the only thing that moves off
 	// World, so every other renderer sees the same meshes it always did.
 	renderLayer = RenderLayer::World;
-	ResolvedDevice resolved = ResolveInitialDevice(externalDevice);
-	device = MaybeOwningDevicePtr(resolved.ptr, MaybeOwningDeviceDeleter{resolved.owns});
+	device = ResolveInitialDevice(externalDevice);
 
 	// Every Shader/GeometryBuffer/RenderingComponent constructed anywhere
 	// in the engine (no IRenderer reference available at most of those
 	// call sites) shares whichever backend THIS instance ends up using -
 	// see GetActiveRenderDevice()/SetActiveRenderDevice() in IRenderDevice.h.
-	SetActiveRenderDevice(device.get());
+	SetActiveRenderDevice(device);
 
 	// Background Unset by Default
 	BackgroundColorSet = false;

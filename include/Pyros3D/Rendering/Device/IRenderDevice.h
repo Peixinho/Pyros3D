@@ -910,7 +910,39 @@ namespace p3d {
 	// preserving today's behavior for every example that doesn't opt into
 	// backend injection.
 	PYROS3D_API IRenderDevice& GetActiveRenderDevice();
+	// Publishes a device nobody here owns - for a Context that builds the
+	// device itself and destroys it in its own Shutdown()
+	// (SDL2VulkanContext, SDL2MetalContext). Pass NULL to unpublish.
 	PYROS3D_API void SetActiveRenderDevice(IRenderDevice* device);
+	// Publishes a device that IS owned, keeping the registry's reference
+	// weak - see AdoptRenderDevice() below for why that matters.
+	PYROS3D_API void SetActiveRenderDevice(const std::shared_ptr<IRenderDevice> &device);
+
+	// Device lifetime is SHARED, and it has to be. Every renderer that
+	// cannot build its own device borrows the active one
+	// (BorrowActiveRenderDevice), and before this was a shared_ptr the
+	// borrow was a raw pointer with no claim on it: the editor's AxisHelper
+	// borrowed the Scene View renderer's device, SwitchRenderer() then
+	// deleted that renderer - and the very next frame AxisHelper::Render()
+	// called through the freed device's vtable
+	// (IRenderer::ClearBufferBit -> device->TranslateBufferBit).
+	//
+	// A use-after-free that usually survives, because freed memory normally
+	// still holds a readable vtable pointer - which is exactly what makes it
+	// so nasty: it stayed invisible for as long as the allocator happened to
+	// be kind, and woke up (as a hard "null function" trap in wasm) from an
+	// unrelated change to a class's size. Found 2026-09-05 chasing the
+	// WebGL2 lit-mesh bug.
+	//
+	// So: the registry holds a WEAK reference and every user holds a strong
+	// one. The device dies with its last user rather than with whichever
+	// renderer happened to create it, IsActiveRenderDeviceSet() answers
+	// "is it still alive" truthfully by construction (no more clearing a
+	// dangling pointer by hand on destruction), and nothing here ever
+	// deletes the static fallback or a Context-owned device.
+	PYROS3D_API std::shared_ptr<IRenderDevice> BorrowActiveRenderDevice();
+	// Takes ownership of a freshly constructed device and publishes it.
+	PYROS3D_API std::shared_ptr<IRenderDevice> AdoptRenderDevice(IRenderDevice* device);
 
 	// A second, narrower registry for handing *ownership* of a device from
 	// whoever constructed it (e.g. SDL2VulkanContext, which needs a real
@@ -956,40 +988,13 @@ namespace p3d {
 	PYROS3D_API void RegisterRenderDeviceForOwnership(IRenderDevice* device);
 	PYROS3D_API IRenderDevice* TakeRenderDeviceOwnership();
 
-	// Shared by IRenderer and PostEffectsManager (and anything else that
-	// resolves its own IRenderDevice the same way): a unique_ptr deleter
-	// that can be told not to actually delete, so a "second, unrelated"
-	// device-owning class can safely *borrow* an already-active device
-	// (see IsActiveRenderDeviceSet() above) instead of always owning one -
-	// without changing any existing `device->...` call site, since
-	// unique_ptr<T, CustomDeleter> keeps the same operator-> / .get()
-	// interface as unique_ptr<T>.
-	struct MaybeOwningDeviceDeleter
-	{
-		bool owns = true;
-		void operator()(IRenderDevice *d) const
-		{
-			if (!owns) return;
-			// Clear the process-wide active pointer first if it is this
-			// device. IRenderer's constructor publishes whatever device it
-			// resolved via SetActiveRenderDevice(), and when it owns that
-			// device it also frees it here - which used to leave activeDevice
-			// dangling rather than NULL. IsActiveRenderDeviceSet() then
-			// answered "yes" and every later caller went through a freed
-			// vtable.
-			//
-			// That is not hypothetical ordering: Lua-owned objects are
-			// finalized in whatever order sol's GC picks, so a script holding
-			// both a renderer and a FrameBuffer routinely destroys the
-			// renderer first, and the FrameBuffer's destructor then calls
-			// Device().DestroyFramebuffer() on freed memory. Segfault on
-			// every clean exit, with a garbage PC.
-			if (IsActiveRenderDeviceSet() && &GetActiveRenderDevice() == d)
-				SetActiveRenderDevice(NULL);
-			delete d;
-		}
-	};
-	typedef std::unique_ptr<IRenderDevice, MaybeOwningDeviceDeleter> MaybeOwningDevicePtr;
+	// What IRenderer, DebugRenderer and PostEffectsManager hold. A shared_ptr
+	// rather than the unique_ptr-with-an-"owns"-flag this used to be: the
+	// flag made borrowing possible but gave the borrower no claim on the
+	// device, which is the use-after-free described on
+	// BorrowActiveRenderDevice() above. Same `device->` / `device.get()`
+	// call sites either way.
+	typedef std::shared_ptr<IRenderDevice> MaybeOwningDevicePtr;
 
 };
 
