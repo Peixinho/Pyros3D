@@ -56,6 +56,19 @@ namespace p3d {
 		// exist.
 		Texture* GetFinalTexture();
 
+		// What the chain treats as "the frame": RTT::Color resolves to it, and
+		// so does the first effect's LastRTT. NULL - the default - means this
+		// manager's own capture, which is what every caller that wraps its
+		// RenderScene() in CaptureFrame()/EndCapture() wants.
+		//
+		// Deferred is the exception, and the reason this exists:
+		// DeferredRenderer's final composite targets framebuffer 0 rather than
+		// the capture (see its GetColorTexture() comment), so the capture holds
+		// whatever the caller drew afterwards - in the editor, the gizmo/grid
+		// overlay. Point this at the renderer's own colour output and the chain
+		// processes the scene instead of the overlay drawn over it.
+		void SetSceneSourceTexture(Texture* texture) { sceneSource = texture; }
+
 		void AddEffect(IEffect* Effect);
 		void RemoveEffect(IEffect* Effect);
 
@@ -100,6 +113,8 @@ namespace p3d {
 		Texture *Color, *Depth, *LastRTT;
 		// See SetRenderLastToTexture().
 		bool renderLastToTexture = false;
+		// See SetSceneSourceTexture().
+		Texture* sceneSource = NULL;
 		// The last effect's own texture, valid only when renderLastToTexture.
 		Texture *finalTexture = NULL;
 

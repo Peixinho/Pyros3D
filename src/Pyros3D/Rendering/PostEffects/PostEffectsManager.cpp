@@ -224,7 +224,8 @@ namespace p3d {
 		// from a scene file, since "read whatever came before me" is the
 		// obvious thing for an effect to ask for and the only thing an
 		// author-supplied effect can portably ask for.
-		LastRTT = Color;
+		Texture* const sceneFrame = (sceneSource != NULL) ? sceneSource : Color;
+		LastRTT = sceneFrame;
 
 		// Each effect pass below clears its own target to transparent
 		// black, which overwrites the device-wide clear colour the *scene*
@@ -300,7 +301,8 @@ namespace p3d {
 				switch ((*i).Type)
 				{
 				case RTT::Color:
-					Color->Bind();
+					// sceneFrame, not Color - see SetSceneSourceTexture().
+					sceneFrame->Bind();
 					break;
 				case RTT::Depth:
 					Depth->Bind();

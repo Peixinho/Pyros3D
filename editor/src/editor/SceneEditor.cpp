@@ -1183,14 +1183,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		EffectsManager->EndCapture();
 
-		// The chain, on the frame that was just captured. Forward only for
-		// now, and deliberately: PostEffectsManager reads its own capture,
-		// which for Deferred holds the gizmo/grid overlay rather than the
-		// scene (see the CaptureFrame() re-bind above), so running it there
-		// would post-process the overlay. Feeding it DeferredRenderer's own
-		// colour output is the next piece.
-		if (!usingDeferredRenderer)
-			EffectsManager->ProcessPostEffects((isPerspective ? &projection : &projectionOrtho));
+		// The chain, on the frame that was just captured. For Deferred the
+		// scene is not in that capture - the capture holds this frame's
+		// gizmo/grid overlay (see the CaptureFrame() re-bind above) - so the
+		// renderer's own colour output is handed over as the source instead.
+		// The overlay stays out of the chain either way, which is what an
+		// editor wants: a tinted scene, not a tinted gizmo.
+		EffectsManager->SetSceneSourceTexture(usingDeferredRenderer
+			? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
+			: NULL);
+		EffectsManager->ProcessPostEffects((isPerspective ? &projection : &projectionOrtho));
 
 		void* viewportTex = NULL;
 		// DeferredRenderer::RenderScene()'s final composite always targets
@@ -1201,13 +1203,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// target instead holds this frame's gizmo/grid/debug/axis overlay
 		// (see the CaptureFrame() re-bind above) - drawn as a second layer
 		// over colorTexture below, not used as the primary viewport image.
-		Texture* color = usingDeferredRenderer
-			? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
-			// GetFinalTexture(), not GetViewportColor(): with a post-effect
-			// chain this is what the chain produced, and with no chain the two
-			// are the same texture - so nothing changes for a scene without
-			// effects.
-			: EffectsManager->GetFinalTexture();
+		// With a post-effect chain the primary image is what the chain
+		// produced, on either renderer. Without one, GetFinalTexture() is the
+		// capture itself, which is right for Forward and wrong for Deferred
+		// (where the capture is the overlay) - hence asking whether there is
+		// a chain at all rather than relying on the fallback.
+		const bool haveChain = (EffectsManager->GetNumberEffects() > 0);
+		Texture* color = haveChain
+			? EffectsManager->GetFinalTexture()
+			: (usingDeferredRenderer
+				? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
+				: EffectsManager->GetViewportColor());
 		Texture* overlay = usingDeferredRenderer ? EffectsManager->GetViewportColor() : NULL;
 		if (color)
 			viewportTex = GetActiveRenderDevice().GetImGuiTextureID(color->GetBindID(), color->GetTextureType());
@@ -11927,12 +11933,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 			GetActiveRenderDevice().WaitIdle();
 
-			Texture* src = usingDeferredRenderer
-				? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
-				// Same texture ShowViewport() shows, post-effect chain
-				// included - this exists to report what is on screen, so it
-				// has to follow that choice rather than restate half of it.
-				: EffectsManager->GetFinalTexture();
+			// Same texture ShowViewport() picks, post-effect chain included -
+			// this exists to report what is on screen, so it follows that
+			// choice rather than restating half of it.
+			Texture* src = (EffectsManager->GetNumberEffects() > 0)
+				? EffectsManager->GetFinalTexture()
+				: (usingDeferredRenderer
+					? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
+					: EffectsManager->GetViewportColor());
 			if (!src) return std::string();
 			const uint32 w = src->GetWidth();
 			const uint32 h = src->GetHeight();
