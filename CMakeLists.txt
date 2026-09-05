@@ -125,5 +125,18 @@ if (BUILD_EDITOR)
 endif()
 
 if (BUILD_PLAYER)
-	add_subdirectory(${CMAKE_SOURCE_DIR}/player)
+	# Not on the web, and not by omission: a browser build of the player has
+	# never existed. player/ has no emscripten port flags, so it fails at the
+	# first SDL header ("To use the emscripten port of SDL use -sUSE_SDL"),
+	# and adding them would only get it to link - a shipped game's assets are
+	# per-game and would still have nothing to preload them into. Because
+	# BUILD_EDITOR forces BUILD_PLAYER on, that failure made every web editor
+	# build report an error after PyrosBuilder had already succeeded, which
+	# costs somebody the time to work out that their build did in fact work.
+	# Say what is happening instead.
+	if (EMSCRIPTEN)
+		message(STATUS "  PyrosPlayer: skipped (no web build - see the comment in CMakeLists.txt)")
+	else()
+		add_subdirectory(${CMAKE_SOURCE_DIR}/player)
+	endif()
 endif()
