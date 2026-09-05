@@ -54,11 +54,13 @@ namespace p3d {
 		enum {
 			World = 0,
 			UI = 1,
-			// Nothing is ever assigned this. It exists so a renderer can be
-			// pointed at an empty layer to draw nothing at all - which is
-			// not the same as pointing it at another real layer, where it
-			// would happily draw somebody else's meshes with its own
-			// projection.
+			// A layer no renderer draws. Two uses: point a renderer at it to
+			// draw nothing at all - which is not the same as pointing it at
+			// another real layer, where it would happily draw somebody else's
+			// meshes with its own projection - or put a component on it to
+			// keep that component out of every pass while still drawing it
+			// by hand through RenderOverlayObject(), which is how the
+			// editor's grid stays out of the G-buffer (see SceneEditor::Init).
 			None = 2
 		};
 	}

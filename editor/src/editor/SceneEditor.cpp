@@ -565,6 +565,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Editor chrome, not scene content - keep it out of the pick buffer
 		// entirely instead of picking it and then filtering the result.
 		rGridMesh->Clickable = false;
+		// ...and off the World layer entirely, which is what actually keeps it
+		// out of Renderer->RenderScene(). The comment above used to claim `grid`
+		// never reaches the renderer because it is not scene->Add()'d; measured
+		// 2026-09-05, that is false - it was being drawn in the deferred G-buffer
+		// pass every frame, with its own single-output ShaderUsage::Color program,
+		// on a framebuffer with four draw buffers enabled. Desktop GL writes
+		// undefined values into the three attachments the shader does not declare
+		// (normal, specular, roughness) wherever a grid line falls; WebGL2 checks
+		// and drops the draw outright with GL_INVALID_OPERATION. The visible grid
+		// has always been the RenderOverlayObject() call in ShowViewport(), which
+		// goes straight to RenderObject() and is unaffected by the layer.
+		rGrid->SetRenderLayer(RenderLayer::None);
 
 		_leftMouse = _middleMouse = _rightMouse = _mousePanned = false;
 
