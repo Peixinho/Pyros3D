@@ -71,7 +71,7 @@ namespace p3d {
 									"IO_LOCATION(0) out vec4 FragColor;\n"
 								"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
 								"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n"
-								"UBO_BINDING(24) uniform SSAOParams {\n"
+								"UBO_BINDING(43) uniform SSAOParams {\n"
 								"	vec2 uNearFar;\n"
 								"	vec2 uScreen;\n"
 								"	float uStrength;\n"
@@ -246,7 +246,17 @@ namespace p3d {
 		// pack tight (align 8), the float/int run packs tight (align 4),
 		// then each mat4 rounds up to the next 16-byte boundary (36->48)
 		// and occupies 64 bytes (4 std140-aligned vec4 columns).
-		extraUniformsBinding = 24;
+		// 43, not 24. 24 is BIND_Occluders2D's, which PyrosShader.glsl
+		// declares for 2D shadows - binding points are one global registry
+		// (see IEffect.h's comment on extraUniformsBinding) and this one was
+		// picked without noticing. Two differently-shaped blocks on one point
+		// survive only while the buffer is re-bound before every draw that
+		// needs it; the occluder UBO is uploaded once and then never re-bound,
+		// so from the second frame on SSAO's own, much smaller buffer is what
+		// sits there - and WebGL2 drops every draw whose block is bigger than
+		// the buffer under it, which is the whole class of bug that made lit
+		// meshes vanish on the web.
+		extraUniformsBinding = 43;
 		extraUniformsBlockName = "SSAOParams";
 		extraUniformsSize = 240;
 		extraUniformsScratch.resize(extraUniformsSize, 0);
