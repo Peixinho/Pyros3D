@@ -561,12 +561,26 @@ namespace p3d {
 
 	std::map<uint32, uint32> GLRenderDevice::uniformBindingRemap;
 
-	// See GLRenderDevice.h. Pass-through for anything the driver accepts;
-	// anything above the limit gets a slot from 5-15, which is the gap
-	// IRenderer::RetainSharedUniformBuffers() leaves between its own 0-4 and
-	// 16-24 (the post-effects take 24-31). Exactly as many free slots as
-	// there are out-of-range blocks today, so a twelfth one says so out loud
-	// rather than repeating the silent fallback this exists to stop.
+	// See GLRenderDevice.h. Anything the driver accepts passes through
+	// unchanged; anything past its limit is given a slot that nothing else has
+	// claimed. Every translation is recorded, pass-through included, so "free"
+	// means free according to what this device has actually handed out rather
+	// than according to a hardcoded guess - the previous version reserved a
+	// fixed 5-15 window because that is the gap
+	// IRenderer::RetainSharedUniformBuffers() happens to leave today, which was
+	// exactly as many slots as there were out-of-range blocks and would have
+	// broken silently the moment either side changed.
+	//
+	// Slot 0 is never handed out. It is GlobalMatrices' own, and it is also
+	// where GLSL leaves any block the engine forgot to bind: keeping the
+	// smallest block there means such a block fails loudly on WebGL2 (the
+	// buffer is too small for it) instead of quietly reading someone else's
+	// data. That is how the deferred directional pass' block was found.
+	//
+	// A driver at the GLES3 minimum of 24 cannot be satisfied by any allocation
+	// scheme here: the engine declares more distinct blocks than that. The
+	// error below says so with the numbers, which is the signal to reduce the
+	// block count rather than to shuffle slots.
 	uint32 GLRenderDevice::TranslateUniformBindingPoint(const uint32 engineBinding)
 	{
 		static int32 maxBindings = 0;
@@ -579,17 +593,19 @@ namespace p3d {
 			// pass everything through, exactly as before this existed.
 			maxBindings = (v > 0) ? (int32)v : 0x7fffffff;
 		}
-		if ((int32)engineBinding < maxBindings)
-			return engineBinding;
 
 		std::map<uint32, uint32>::const_iterator it = uniformBindingRemap.find(engineBinding);
 		if (it != uniformBindingRemap.end())
 			return it->second;
 
-		for (uint32 slot = 5; slot <= 15; slot++)
+		if ((int32)engineBinding < maxBindings)
 		{
-			if ((int32)slot >= maxBindings)
-				break;
+			uniformBindingRemap[engineBinding] = engineBinding;
+			return engineBinding;
+		}
+
+		for (uint32 slot = 1; (int32)slot < maxBindings; slot++)
+		{
 			bool taken = false;
 			for (std::map<uint32, uint32>::const_iterator i = uniformBindingRemap.begin(); i != uniformBindingRemap.end(); i++)
 				if (i->second == slot) { taken = true; break; }
@@ -600,8 +616,10 @@ namespace p3d {
 				+ std::to_string(maxBindings) + "; using " + std::to_string(slot) + " instead");
 			return slot;
 		}
-		echo("ERROR: no free GL uniform binding point for engine binding " + std::to_string(engineBinding)
-			+ " (driver limit " + std::to_string(maxBindings) + ") - that block will not be bound");
+		echo("ERROR: no GL uniform binding point left for engine binding " + std::to_string(engineBinding)
+			+ " - this driver has " + std::to_string(maxBindings) + " and all of them are taken."
+			+ " That block will not be bound, and every draw using it will be dropped."
+			+ " The engine needs fewer distinct uniform blocks to run here.");
 		return engineBinding;
 	}
 

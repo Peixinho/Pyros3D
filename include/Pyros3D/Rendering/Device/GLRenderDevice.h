@@ -208,8 +208,10 @@ namespace p3d {
 		// ANGLE/Metal reports 32, so everything from 32 up was rejected with
 		// GL_INVALID_VALUE and the block silently kept its default binding of
 		// 0 - GlobalMatrices' slot, 128 bytes, which then fails WebGL2's
-		// block-size validation and drops the draw. This maps the
-		// out-of-range ones into the gap the engine leaves at 5-15.
+		// block-size validation and drops the draw. This gives the
+		// out-of-range ones a slot nothing else has claimed - see the
+		// function for how "claimed" is tracked, and for why a driver at the
+		// GLES3 minimum of 24 cannot be satisfied at all.
 		static uint32 TranslateUniformBindingPoint(const uint32 engineBinding);
 		static std::map<uint32, uint32> uniformBindingRemap;
 
