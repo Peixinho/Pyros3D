@@ -13,6 +13,8 @@
 #include <Pyros3D/Other/Global.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/CustomEffect.h>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -29,10 +31,20 @@ namespace p3d {
 		// so the order in the chain matters far more than this one.
 		PYROS3D_API const std::vector<std::string> &ListBuiltIn();
 
-		// NULL for a name that is not in ListBuiltIn(). The caller owns the
-		// result only until it hands it to PostEffectsManager::AddEffect(),
-		// which takes ownership (see RemoveAllEffects).
-		PYROS3D_API IEffect* CreateBuiltIn(const std::string &name, const uint32 width, const uint32 height);
+		// What a built-in exposes, in the same shape an asset effect's
+		// `//! param` lines produce - so the editor draws both with one piece
+		// of code and a scene stores both overrides the same way. Empty for
+		// the effects that genuinely have nothing to tune.
+		PYROS3D_API const std::vector<CustomEffect::Param> &ListBuiltInParams(const std::string &name);
+
+		// NULL for a name that is not in ListBuiltIn(). `params` overrides
+		// what ListBuiltInParams() reports as defaults; unknown names in it
+		// are ignored, since a scene may name a parameter an older or newer
+		// build of the effect does not have. The caller owns the result only
+		// until it hands it to PostEffectsManager::AddEffect(), which takes
+		// ownership (see RemoveAllEffects).
+		PYROS3D_API IEffect* CreateBuiltIn(const std::string &name, const uint32 width, const uint32 height,
+			const std::map<std::string, std::vector<f32> > &params = std::map<std::string, std::vector<f32> >());
 
 		// Reads one .glsl asset. The engine has no idea where a project keeps
 		// its files, so the caller supplies the reading: return false and the

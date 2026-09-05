@@ -42,7 +42,45 @@ namespace p3d {
 			return names;
 		}
 
-		IEffect* CreateBuiltIn(const std::string &name, const uint32 width, const uint32 height)
+		namespace {
+			CustomEffect::Param MakeParam(const char* name, const char* label, const f32 value,
+				const f32 lo, const f32 hi)
+			{
+				CustomEffect::Param p;
+				p.name = name;
+				p.label = label;
+				p.type = Uniforms::DataType::Float;
+				p.value[0] = value;
+				p.min = lo; p.max = hi; p.hasRange = true;
+				return p;
+			}
+			f32 ParamOr(const std::map<std::string, std::vector<f32> > &params, const char* name, const f32 fallback)
+			{
+				std::map<std::string, std::vector<f32> >::const_iterator it = params.find(name);
+				return (it != params.end() && !it->second.empty()) ? it->second[0] : fallback;
+			}
+		}
+
+		// Only what an effect's constructor actually takes. Adding a knob here
+		// that the effect does not read would put a slider in the editor that
+		// does nothing, which is worse than no slider.
+		const std::vector<CustomEffect::Param> &ListBuiltInParams(const std::string &name)
+		{
+			static std::map<std::string, std::vector<CustomEffect::Param> > table;
+			static const std::vector<CustomEffect::Param> none;
+			if (table.empty())
+			{
+				std::vector<CustomEffect::Param> vignette;
+				vignette.push_back(MakeParam("uRADIUS", "Radius", 0.5f, 0.f, 1.5f));
+				vignette.push_back(MakeParam("uSOFTNESS", "Softness", 0.2f, 0.f, 1.f));
+				table["Vignette"] = vignette;
+			}
+			std::map<std::string, std::vector<CustomEffect::Param> >::const_iterator it = table.find(name);
+			return (it != table.end()) ? it->second : none;
+		}
+
+		IEffect* CreateBuiltIn(const std::string &name, const uint32 width, const uint32 height,
+			const std::map<std::string, std::vector<f32> > &params)
 		{
 			// Every one of these reads LastRTT, not Color: an effect in a
 			// chain works on what the previous one produced. The manager
@@ -52,7 +90,8 @@ namespace p3d {
 			if (name == "BlurX")       return new BlurXEffect(RTT::LastRTT, width, height);
 			if (name == "BlurY")       return new BlurYEffect(RTT::LastRTT, width, height);
 			if (name == "Tonemap")     return new TonemapEffect(RTT::LastRTT, width, height);
-			if (name == "Vignette")    return new VignetteEffect(RTT::LastRTT, width, height);
+			if (name == "Vignette")    return new VignetteEffect(RTT::LastRTT, width, height,
+										   ParamOr(params, "uRADIUS", 0.5f), ParamOr(params, "uSOFTNESS", 0.2f));
 			if (name == "GammaEncode") return new GammaEncodeEffect(RTT::LastRTT, width, height);
 			return NULL;
 		}
@@ -74,7 +113,7 @@ namespace p3d {
 
 				if (!e.effect.empty())
 				{
-					IEffect* fx = CreateBuiltIn(e.effect, width, height);
+					IEffect* fx = CreateBuiltIn(e.effect, width, height, e.params);
 					if (fx == NULL)
 					{
 						echo("ERROR: post effect '" + e.effect + "' is not a built-in effect - skipped");

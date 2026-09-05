@@ -655,6 +655,8 @@ private:
 	// The Scene Properties section: the chain, in order, with add/remove/
 	// reorder/enable and a widget per parameter.
 	void DrawPostEffectsInProperties();
+	// Shared by built-in and asset entries - see the definition.
+	bool DrawPostEffectParams(const std::vector<CustomEffect::Param> &params, SceneMeta::PostEffectEntry &entry);
 	// Parameter metadata for one effect asset, read from its `//! param`
 	// lines. Cached by project-relative path: the panel needs it every frame
 	// to draw widgets, and re-reading a file per frame to draw a slider is

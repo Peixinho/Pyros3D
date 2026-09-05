@@ -3866,6 +3866,62 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return postEffectAssetInfo[path];
 	}
 
+	// One widget per parameter, for a built-in and an asset effect alike -
+	// the descriptions have the same shape either way, so this does not care
+	// which it is drawing. Returns true if anything was edited.
+	bool SceneEditor::DrawPostEffectParams(const std::vector<CustomEffect::Param> &params,
+		SceneMeta::PostEffectEntry &entry)
+	{
+		bool changed = false;
+		for (size_t p = 0; p < params.size(); p++)
+		{
+			const CustomEffect::Param &meta = params[p];
+			// The saved override if there is one, the effect's own default
+			// otherwise - so a parameter never shows a value the effect is
+			// not actually using.
+			std::vector<f32> &v = entry.params[meta.name];
+			if (v.empty())
+				v.assign(meta.value, meta.value + 4);
+			v.resize(4, 0.f);
+			ImGui::PushID((int)p);
+			// Label above, widget full width - the rest of this panel does the
+			// same, and a parameter's label is the author's free text, which
+			// is exactly the kind that gets clipped when it shares a row.
+			ImGui::TextUnformatted(meta.label.c_str());
+			bool edited = false;
+			switch (meta.type)
+			{
+			case Uniforms::DataType::Vec4:
+				edited = ImGui::ColorEdit4("##v", &v[0]);
+				break;
+			case Uniforms::DataType::Vec3:
+				edited = ImGui::ColorEdit3("##v", &v[0]);
+				break;
+			case Uniforms::DataType::Vec2:
+				edited = ImGui::DragFloat2("##v", &v[0], 0.01f);
+				break;
+			case Uniforms::DataType::Int:
+			{
+				int iv = (int)v[0];
+				edited = ImGui::DragInt("##v", &iv, 1.f);
+				if (edited) v[0] = (f32)iv;
+				break;
+			}
+			default:
+				// A declared range becomes a slider; without one a drag, which
+				// has no ends to guess at.
+				if (meta.hasRange)
+					edited = ImGui::SliderFloat("##v", &v[0], meta.min, meta.max);
+				else
+					edited = ImGui::DragFloat("##v", &v[0], 0.01f);
+				break;
+			}
+			if (edited) changed = true;
+			ImGui::PopID();
+		}
+		return changed;
+	}
+
 	// The chain lives in the scene, so it is edited where the rest of the
 	// scene's look is - next to the ambient and the background, not in a
 	// panel of its own.
@@ -3923,59 +3979,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						// indistinguishable from an effect that has none.
 						ImGui::TextColored(ImVec4(1.f, 0.45f, 0.45f, 1.f), "%s", info.error.c_str());
 					}
-					for (size_t p = 0; p < info.params.size(); p++)
-					{
-						const CustomEffect::Param &meta = info.params[p];
-						// The saved override if there is one, the asset's own
-						// default otherwise - so a parameter never shows a
-						// value the effect is not actually using.
-						std::vector<f32> &v = e.params[meta.name];
-						if (v.empty())
-							v.assign(meta.value, meta.value + 4);
-						v.resize(4, 0.f);
-						ImGui::PushID((int)p);
-						// Label above, widget full width - the rest of this
-						// panel does the same, and a post-effect parameter's
-						// label is the author's free text, which is exactly
-						// the kind that gets clipped when it shares a row.
-						ImGui::TextUnformatted(meta.label.c_str());
-						bool edited = false;
-						switch (meta.type)
-						{
-						case Uniforms::DataType::Vec4:
-							edited = ImGui::ColorEdit4("##v", &v[0]);
-							break;
-						case Uniforms::DataType::Vec3:
-							edited = ImGui::ColorEdit3("##v", &v[0]);
-							break;
-						case Uniforms::DataType::Vec2:
-							edited = ImGui::DragFloat2("##v", &v[0], 0.01f);
-							break;
-						case Uniforms::DataType::Int:
-						{
-							int iv = (int)v[0];
-							edited = ImGui::DragInt("##v", &iv, 1.f);
-							if (edited) v[0] = (f32)iv;
-							break;
-						}
-						default:
-							// A declared range becomes a slider; without one
-							// a drag, which has no ends to guess at.
-							if (meta.hasRange)
-								edited = ImGui::SliderFloat("##v", &v[0], meta.min, meta.max);
-							else
-								edited = ImGui::DragFloat("##v", &v[0], 0.01f);
-							break;
-						}
-						if (edited) changed = true;
-						ImGui::PopID();
-					}
+					if (DrawPostEffectParams(info.params, e))
+						changed = true;
 					if (info.params.empty() && info.ok)
 						ImGui::TextDisabled("no parameters");
 				}
 				else
 				{
-					ImGui::TextDisabled("built-in");
+					// A built-in's knobs come from PostEffectChain rather than
+					// from a file, but they are the same Param shape, so the
+					// widgets below are the asset ones verbatim.
+					const std::vector<CustomEffect::Param> &params = PostEffectChain::ListBuiltInParams(e.effect);
+					if (params.empty())
+						ImGui::TextDisabled("built-in, no parameters");
+					if (DrawPostEffectParams(params, e))
+						changed = true;
 				}
 				ImGui::TreePop();
 			}
