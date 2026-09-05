@@ -198,6 +198,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		pendingUnsavedAction = UnsavedNone;
 		showUnsavedModal = false;
 		awaitingSaveDialog = false;
+		showProfilerFlag = NULL;
+		showRenderTargetsFlag = NULL;
 		hostCloseProject = NULL;
 		hostQuitApp = NULL;
 		hostQuitDiscardingUnsaved = NULL;
@@ -331,6 +333,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		gbufferMatRough->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		gbufferFBO = new FrameBuffer();
+		gbufferFBO->SetDebugName("Scene viewport G-buffer");
 		gbufferFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, gbufferDepth);
 		gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, gbufferAlbedo);
 		gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, gbufferSpecular);
@@ -461,6 +464,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// this again once the previous instance's render pass was already
 		// built and cached.
 		EffectsManager = new PostEffectsManager(Width, Height);
+		EffectsManager->GetExternalFrameBuffer()->SetDebugName("Scene viewport");
 		if (usingDeferredRenderer)
 			GetActiveRenderDevice().SetFramebufferPreserveDepth(EffectsManager->GetExternalFrameBuffer()->GetBindID(), true);
 	}
@@ -589,6 +593,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		UseTranslationManipulator();
 
 		EffectsManager = new PostEffectsManager(Width, Height);
+		// Every PostEffectsManager in the editor creates an identical capture
+		// target, so the Render Targets panel would otherwise list half a
+		// dozen indistinguishable "Post effects capture" entries.
+		EffectsManager->GetExternalFrameBuffer()->SetDebugName("Scene viewport");
 		// Deferred's gizmo/grid overlay (see ShowViewport()) explicitly
 		// copies DeferredRenderer's real scene depth into this FBO's Depth
 		// attachment right before rebinding it each frame, so that bind
@@ -608,9 +616,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		previewRenderer = new ForwardRenderer(previewWidth, previewHeight);
 		previewRenderer->SetSkipShadowMaps(true);
 		previewEffects = new PostEffectsManager(previewWidth, previewHeight);
+		previewEffects->GetExternalFrameBuffer()->SetDebugName("Camera preview");
 		thumbRenderer = new ForwardRenderer(thumbWidth, thumbHeight);
 		thumbRenderer->SetSkipShadowMaps(true);
 		thumbEffects = new PostEffectsManager(thumbWidth, thumbHeight);
+		thumbEffects->GetExternalFrameBuffer()->SetDebugName("Asset thumbnail");
 
 		InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Move, this, &SceneEditor::MouseMove);
 		InputManager::AddEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &SceneEditor::MouseWheel);
@@ -767,6 +777,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::PopStyleColor(2);
 			ImGui::SameLine();
 			ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "PLAYING");
+			// The two runtime views the demo launcher and the player carry,
+			// put where a running scene is actually being watched. They exist
+			// outside Play too (View > Windows, F3) - this is just the moment
+			// the numbers start meaning something, since the scene is now
+			// simulating and scripting exactly as the built game would.
+			if (showProfilerFlag != NULL)
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton(*showProfilerFlag ? "Profiler*" : "Profiler"))
+					*showProfilerFlag = !*showProfilerFlag;
+			}
+			if (showRenderTargetsFlag != NULL)
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton(*showRenderTargetsFlag ? "Targets*" : "Targets"))
+					*showRenderTargetsFlag = !*showRenderTargetsFlag;
+			}
 		}
 		else if (ImGui::SmallButton("Play"))
 		{
@@ -952,10 +979,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// the viewport has to state its value rather than assume it survived.
 		ApplyEnvironment();
 		EffectsManager->CaptureFrame();
-		if (isPerspective)
-			Renderer->RenderScene(projection, viewCam, scene);
-		else
-			Renderer->RenderScene(projectionOrtho, viewCam, scene);
+		{
+			PYROS_PROFILE_SCOPE("Viewport.RenderScene");
+			if (isPerspective)
+				Renderer->RenderScene(projection, viewCam, scene);
+			else
+				Renderer->RenderScene(projectionOrtho, viewCam, scene);
+		}
 		if (editingCanvas) Renderer->SetRenderLayer(restoreLayer);
 
 		// Debug/gizmo/grid/axis-helper below draw into whatever framebuffer
@@ -4622,7 +4652,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		PollUIStyleFiles(time);
 
 		if (playMode)
+		{
+			PYROS_PROFILE_SCOPE("Scene.Physics");
 			physics->Update(time, 10);
+		}
 
 		// Outside Play, only the selected emitter simulates - see
 		// UpdateParticlePreview(). Cheap: it early-outs unless the selection
@@ -4683,10 +4716,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		// Update Scene
-		scene->Update(time);
+		{
+			PYROS_PROFILE_SCOPE("Scene.Update");
+			scene->Update(time);
+		}
 #ifdef LUA_BINDINGS
 		if (playMode)
 		{
+			PYROS_PROFILE_SCOPE("Scene.Scripts");
 			// Project script first: a boot script that calls loadScene()
 			// should get its request in before the scene it is leaving runs
 			// another frame of its own logic.

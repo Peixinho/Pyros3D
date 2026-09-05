@@ -95,6 +95,7 @@ void MaterialPreview::BuildGBuffer(uint32_t w, uint32_t h) {
 	gbufferMatRough->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	gbufferFBO = new FrameBuffer();
+	gbufferFBO->SetDebugName("Material preview G-buffer");
 	gbufferFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, gbufferDepth);
 	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, gbufferAlbedo);
 	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, gbufferSpecular);
@@ -129,6 +130,7 @@ void MaterialPreview::EnsureInit(bool useDeferred) {
 		renderer = new p3d::ForwardRenderer((uint32)width, (uint32)height);
 	}
 	effects = new p3d::PostEffectsManager((uint32)width, (uint32)height);
+	effects->GetExternalFrameBuffer()->SetDebugName("Material preview");
 	scene = new p3d::SceneGraph();
 
 	cameraGO = std::make_shared<p3d::GameObject>();

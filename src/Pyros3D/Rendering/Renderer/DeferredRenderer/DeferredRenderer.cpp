@@ -68,6 +68,7 @@ namespace p3d {
 		previousFrameColorTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		previousFrameColorTexture->SetMinMagFilter(TextureFilter::LinearMipmapLinear, TextureFilter::Linear);
 		previousFrameFBO = new FrameBuffer();
+		previousFrameFBO->SetDebugName("Deferred previous frame");
 		previousFrameFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, previousFrameColorTexture);
 
 		// See DeferredRenderer.h's comment on forwardDepthTexture - a real
@@ -79,6 +80,7 @@ namespace p3d {
 		forwardDepthTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		lastPassFBO = new FrameBuffer();
+		lastPassFBO->SetDebugName("Deferred last pass");
 		lastPassFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, colorTexture);
 		lastPassFBO->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, forwardDepthTexture);
 		// This pass's depth is not scratch: RenderScene() copies the finished

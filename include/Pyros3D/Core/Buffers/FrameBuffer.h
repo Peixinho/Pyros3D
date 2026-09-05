@@ -12,6 +12,7 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Other/Export.h>
+#include <string>
 #include <vector>
 
 namespace p3d {
@@ -172,6 +173,15 @@ namespace p3d {
 		// correct as renderers and effects come and go.
 		static const std::vector<FrameBuffer*> &GetLiveFrameBuffers() { return LiveFBOs; }
 
+		// Purely for the debug views built on GetLiveFrameBuffers(): with a
+		// couple of render targets the GPU handle is enough to tell them
+		// apart, but an editor has a dozen live at once (viewport, G-buffer,
+		// post-effects, shadow maps, asset previews) and "framebuffer #7" says
+		// nothing about which one is which. Optional - unnamed targets still
+		// list, just by handle.
+		void SetDebugName(const std::string &name) { debugName = name; }
+		const std::string &GetDebugName() const { return debugName; }
+
 		static void EnableMultisample();
 		static void DisableMultisample();
 		static void BlitFrameBuffer(const uint32 initSrcX, const uint32 initSrcY, const uint32 endSrcX, const uint32 endSrcY, const uint32 initDestX, const uint32 initDestY, const uint32 endDestX, const uint32 endDestY, const uint32 mask, const uint32 filter);
@@ -199,6 +209,9 @@ namespace p3d {
 
 		// Flags
 		bool FBOInitialized;
+
+		// See SetDebugName().
+		std::string debugName;
 
 		// FBO "texture"
 		void AddAttachToVector(FBOAttachment* attach);

@@ -18,6 +18,7 @@ namespace p3d {
 		material = new GenericShaderMaterial(ShaderUsage::Color);
 		// Frame Buffer
 		fbo = new FrameBuffer();
+		fbo->SetDebugName("Picking");
 		// Texture Creation
 		texture = new Texture();
 		texture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);

@@ -53,6 +53,7 @@ using json = nlohmann::json;
 #include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "EditorDebugDraw.h"
 #include "EditorIcons.h"
 #include "UI/IUInterface.h"
@@ -545,6 +546,16 @@ public:
 	void SetProjectManager(ProjectManager* pm) { project = pm; }
 	ProjectManager* GetProjectManager() const { return project; }
 	void SetSharedAudioManager(AudioManager* mgr) { sharedAudioManager = mgr; }
+	// Borrowed pointers to the host editor's Profiler / Render Targets window
+	// flags, so the Play toolbar can raise them right where a running scene
+	// is being watched. The windows themselves are the host's (they dock into
+	// its layout); this document only toggles them. NULL is fine - the
+	// buttons simply do not appear.
+	void SetDebugPanelToggles(bool* profiler, bool* renderTargets)
+	{
+		showProfilerFlag = profiler;
+		showRenderTargetsFlag = renderTargets;
+	}
 #ifdef LUA_BINDINGS
 	void SetSharedLua(sol::state* state) { sharedLua = state; }
 	sol::state* GetSharedLua() const { return sharedLua; }
@@ -1100,6 +1111,9 @@ private:
 		Matrix localTransform, scaleTransform, globalRotation;
 	};
 	bool playMode;
+	// See SetDebugPanelToggles().
+	bool* showProfilerFlag;
+	bool* showRenderTargetsFlag;
 	bool showPhysicsDebug;
 	// Built so 2D colliders can be *drawn*; never stepped in edit mode, the
 	// same way the Box3D world has its simulation disabled there.

@@ -273,6 +273,8 @@ Editor::Editor() : ClassName(1024,768,"PyrosBuilder",WindowType::Close | WindowT
 {
 	resetLayout = false;
 	showingAssets = true;
+	showingProfiler = showingRenderTargets = false;
+	tabRenderTargets = NULL;
 	assetsWindowHovered = false;
 	openNewProjectModal = openOpenProjectModal = false;
 	openProjectSettingsModal = false;
@@ -494,6 +496,7 @@ void Editor::Init()
 #endif
 	
 	tabLog = new TabLog("Log", &showingLog);
+	tabRenderTargets = new RenderTargetsTab("Render Targets", &showingRenderTargets);
 	tabProperties = new PropertiesTab(&showingTabProperties);
 	// Material properties take the panel over from the scene selection
 	// whenever a material document has focus - see
@@ -533,6 +536,7 @@ void Editor::Init()
 	showingLog = showingSceneTree = showingSceneView = showingTabProperties = showingTabTools = true;
 	showingTabAI = true;
 	showingAssets = true;
+	showingProfiler = showingRenderTargets = false;
 	PyrosFileDrop::SetHandler(&EditorOnOsFileDrop);
 	PyrosWindowClose::SetHandler(&Editor::EditorOnWindowClose);
 	if (sceneView)
@@ -590,6 +594,11 @@ void Editor::BuildDefaultLayout(const ImGuiID dockspaceID, const ImVec2 &size)
 	ImGui::DockBuilderDockWindow("Scene View", center);
 	ImGui::DockBuilderDockWindow("Assets", bottom);
 	ImGui::DockBuilderDockWindow("Log", bottom);
+	// Same node as Assets/Log, so they share that tab bar instead of each
+	// claiming a slice of the bottom - a profiler table and a list of render
+	// targets both want the full width when you are actually reading them.
+	ImGui::DockBuilderDockWindow("Profiler", bottom);
+	ImGui::DockBuilderDockWindow("Render Targets", bottom);
 	ImGui::DockBuilderDockWindow("Tools", rightTools);
 	ImGui::DockBuilderDockWindow("Properties", rightBottom);
 	ImGui::DockBuilderDockWindow("AI Assistant", right);
@@ -633,8 +642,11 @@ void Editor::Update()
 	}
 	ProcessPendingFileDrops();
 	FlushPendingSceneDocumentCloses();
-	for (size_t i = 0; i < sceneDocs.size(); ++i)
-		sceneDocs[i]->Update(GetTime());
+	{
+		PYROS_PROFILE_SCOPE("Editor.SceneDocs");
+		for (size_t i = 0; i < sceneDocs.size(); ++i)
+			sceneDocs[i]->Update(GetTime());
+	}
 	// DrawUI / viewport CaptureFrame / thumbnails run in Draw() after
 	// BeginFrame so Vulkan offscreen binds skip WaitAllFrameFences
 	// (that wait was freezing the editor: ShowViewport ran with
@@ -842,6 +854,31 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			r["scenePath"] = project.DisplayPath(sceneView->GetScenePath());
 			r["dirty"] = sceneView->IsSceneDirty();
 			r["playing"] = sceneView->IsPlaying();
+		}
+
+		// What the Profiler panel is showing, for a caller that has no window
+		// to look at. Cheap and always present: the profiler runs whether or
+		// not the panel is open (see main.cpp), so this is the one number an
+		// agent can use to tell a scene that got slower from one that did not.
+		{
+			const FrameProfiler &prof = FrameProfiler::Instance();
+			nlohmann::json p;
+			p["enabled"] = prof.IsEnabled();
+			p["frameMs"] = prof.LastFrameMs();
+			p["avgMs"] = prof.AverageFrameMs();
+			p["fps"] = prof.AverageFps();
+			nlohmann::json scopes = nlohmann::json::array();
+			for (uint32 i = 0; i < prof.ScopeCount(); i++)
+			{
+				const FrameProfiler::ScopeRecord &sr = prof.ScopeAt(i);
+				nlohmann::json s;
+				s["name"] = sr.name;
+				s["ms"] = sr.ms;
+				s["depth"] = sr.depth;
+				scopes.push_back(s);
+			}
+			p["scopes"] = scopes;
+			r["profiler"] = p;
 		}
 
 		// Every open scene document, not just the active one. Rules like "a 2D
@@ -3381,6 +3418,12 @@ void Editor::DrawUI()
 	if (sceneView && sceneView->IsPlaying() && ImGui::IsKeyPressed(ImGuiKey_Escape))
 		sceneView->StopPlayMode();
 
+	// F3 raises the profiler, same key the demo launcher and the player use -
+	// muscle memory should carry across all three. Not gated on WantTextInput
+	// because F3 is not a character key, so no text field ever wants it.
+	if (ImGui::IsKeyPressed(ImGuiKey_F3))
+		showingProfiler = !showingProfiler;
+
 	// Ctrl+Z / Ctrl+Shift+Z (and the Windows-convention Ctrl+Y) act on
 	// whichever document last had focus (see FocusedDocKind) - !WantTextInput
 	// keeps this from firing while typing in an InputText, where ImGui's own
@@ -3615,6 +3658,9 @@ void Editor::DrawUI()
                 if (ImGui::MenuItem("Assets", "", &showingAssets)) {}
                 if (ImGui::MenuItem("Log", "", &showingLog)) {}
                 if (ImGui::MenuItem("AI Assistant", "", &showingTabAI)) {}
+                ImGui::Separator();
+                if (ImGui::MenuItem("Profiler", "F3", &showingProfiler)) {}
+                if (ImGui::MenuItem("Render Targets", "", &showingRenderTargets)) {}
                 ImGui::EndMenu();
             }
 			// Viewport overlays: their own group. They used to trail off the
@@ -3744,6 +3790,18 @@ void Editor::DrawUI()
 
 	if (showingLog)
 		tabLog->Show();
+
+	// The profiler window is the engine's own (FrameProfiler owns the data
+	// and the layout); passing our flag in is what makes its close button
+	// agree with the View menu.
+	if (showingProfiler)
+		FrameProfiler::Instance().DrawImGui(&showingProfiler);
+
+	if (showingRenderTargets)
+	{
+		tabRenderTargets->Update(GetTime());
+		tabRenderTargets->Show();
+	}
 
 	if (showingTabTools)
 		tabTools->Show();
@@ -6595,8 +6653,18 @@ void Editor::Draw()
 	GetActiveRenderDevice().BeginFrame();
 #endif
 	if (sceneView)
+	{
+		PYROS_PROFILE_SCOPE("Editor.Thumbnails");
 		sceneView->ProcessPendingModelThumbnails(1);
-	DrawUI();
+	}
+	{
+		// Covers the whole ImGui pass, and with it every panel and every
+		// offscreen render they trigger - the scene viewport included, since
+		// SceneEditor::ShowViewport() is what actually renders the scene
+		// (and, under Play, runs it). Its own scopes nest inside this one.
+		PYROS_PROFILE_SCOPE("Editor.DrawUI");
+		DrawUI();
+	}
 	// After DrawUI, so io.WantTextInput reflects the widget the user is
 	// actually in. The browser build's page reads this to decide whether the
 	// next touch should raise the on-screen keyboard; a no-op everywhere else.
@@ -6604,7 +6672,10 @@ void Editor::Draw()
 #if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 	GetActiveRenderDevice().EndFrame();
 #endif
-	ClassName::Draw();
+	{
+		PYROS_PROFILE_SCOPE("Editor.Present");
+		ClassName::Draw();
+	}
 	// After ImGui has consumed texture IDs from this frame's draw list.
 	FlushDeferredPreviewDestroy();
 	FlushDeferredPreviewRenderers();
@@ -6624,6 +6695,12 @@ void Editor::Shutdown()
 	PyrosFileDrop::SetHandler(NULL);
 	PyrosWindowClose::SetHandler(NULL);
 	ClearAssetPreviews();
+	// Its previews are Textures, and a Texture that outlives the render
+	// device leaks its handle rather than freeing it (see ~Texture). The
+	// device goes down inside CloseAllSceneDocuments() further below, so
+	// drop them here while it is still there.
+	if (tabRenderTargets)
+		tabRenderTargets->Shutdown();
 	FlushDeferredPreviewDestroy();
 	if (welcomeLogo)
 	{
@@ -6670,6 +6747,8 @@ void Editor::Shutdown()
 	delete tabTools;
 	delete tabAI;
 	delete tabLog;
+	delete tabRenderTargets;
+	tabRenderTargets = NULL;
 
 #if defined(_SDL2VULKAN)
 	static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiVulkanBackend();
@@ -6742,6 +6821,7 @@ SceneEditor* Editor::CreateSceneDocument()
 		&Editor::HostEditMaterialInline,
 		&Editor::HostAssignMaterialAsset);
 	doc->SetHostNewSceneKind(&Editor::HostNewSceneKind);
+	doc->SetDebugPanelToggles(&showingProfiler, &showingRenderTargets);
 	doc->SetHostOpenCharacter2D(&Editor::HostOpenCharacter2D);
 	sceneDocs.push_back(doc);
 	SetActiveSceneDocument(doc);

@@ -50,6 +50,7 @@ namespace p3d {
 
 		// Initialize Internal FBO
 		ExternalFBO = new FrameBuffer();
+		ExternalFBO->SetDebugName("Post effects capture");
 		ExternalFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, Depth);
 		ExternalFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, Color);
 

@@ -41,6 +41,7 @@ void Character2DPreview::EnsureInit()
 	// a second viewport doubles the cost of every frame the window is open.
 	renderer->SetSkipShadowMaps(true);
 	effects = new PostEffectsManager((uint32)width, (uint32)height);
+	effects->GetExternalFrameBuffer()->SetDebugName("2D character preview");
 	scene = new SceneGraph();
 
 	cameraGO = std::make_shared<GameObject>();

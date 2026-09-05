@@ -29,11 +29,13 @@
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
 #include "editor/libgizmo/IGizmo.h"
 
 #include "editor/UI/UISettings.h"
 #include "editor/UI/TabLog.h"
+#include "editor/UI/RenderTargetsTab.h"
 #include "editor/UI/PropertiesTab.h"
 #include "editor/UI/ToolsTab.h"
 	#include "editor/UI/MaterialEditor.h"
@@ -292,6 +294,13 @@ private:
 	UndoStack projectUndo;
 
 	TabLog* tabLog;
+	// Runtime inspection, the same pair the demo launcher carries: a CPU
+	// frame profiler (engine-side singleton, so it needs no member beyond
+	// this window flag) and a live render-target viewer. Both are most
+	// useful under Play, where the editor runs the scene exactly as the
+	// player would, but neither is gated on it - the editor's own viewport
+	// pass, previews and shadow maps are worth looking at too.
+	RenderTargetsTab* tabRenderTargets;
 	// Local command server for external agents (MCP bridge). Started in
 	// Init(), processed once per frame from Update() (main thread), stopped
 	// in Shutdown(). See AgentServer.h.
@@ -458,6 +467,10 @@ private:
 	bool showingSceneView, showingTabTools, showingTabProperties, showingLog, showingSceneTree;
 	bool showingTabAI;
 	bool showingAssets;
+	// Off by default (and left out of LoadDefaultLayout's "everything on"
+	// set): these are debugging views, not part of the editing surface.
+	// View > Windows, F3, or the Play toolbar's buttons bring them up.
+	bool showingProfiler, showingRenderTargets;
 	bool assetsWindowHovered;
 
 	bool openNewProjectModal, openOpenProjectModal;

@@ -88,6 +88,7 @@ namespace p3d {
 
 	// Set FrameBuffers
 	fbo = new FrameBuffer();
+	fbo->SetDebugName("Post effect");
 	
 	attachment = new Texture();
 	attachment->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height);

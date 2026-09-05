@@ -62,6 +62,7 @@ void AnimationPreview::EnsureInit()
 
 	renderer = new ForwardRenderer((uint32)width, (uint32)height);
 	effects = new PostEffectsManager((uint32)width, (uint32)height);
+	effects->GetExternalFrameBuffer()->SetDebugName("Animation preview");
 	scene = new SceneGraph();
 	debug = new DebugRenderer();
 

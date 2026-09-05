@@ -176,6 +176,7 @@ namespace p3d {
 
 		// Initiate FBO (releases any previously owned FBO/texture first)
 		shadowsFBO.reset(new FrameBuffer());
+		shadowsFBO->SetDebugName("Shadow map (directional)");
 
 		// Minimum 1 and Maximum is 4 Cascades
 		if (Cascades <= 0) ShadowCascades = 1;

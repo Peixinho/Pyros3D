@@ -39,6 +39,7 @@ namespace p3d {
 
 		// Initialize Frame Buffer
 		fbo = new FrameBuffer();
+		fbo->SetDebugName("Velocity");
 		fbo->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, depthMap);
 		fbo->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, velocityMap);
 		velocityMaterial = new GenericShaderMaterial(ShaderUsage::VelocityRendering);

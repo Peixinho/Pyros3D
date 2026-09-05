@@ -8,6 +8,7 @@
 
 #include "Editor.h"
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #if defined(EMSCRIPTEN)
 	#include <emscripten.h>
 #endif
@@ -37,14 +38,26 @@ void mainloop()
 		initialized = true;
 	}
 
-    // Get Events
-    window->GetEvents();
-
-    // Update
-    window->Update();
-
-    // Draw in Screen
-    window->Draw();
+	// Same three top-level scopes the player and the demo launcher use
+	// (see player/src/main.cpp), so a frame profiled under the editor's Play
+	// mode lines up with the same frame profiled in the built game. The
+	// profiler is a no-op while disabled, and the window that shows this is
+	// off unless asked for (View > Windows > Profiler, or F3).
+	FrameProfiler &prof = FrameProfiler::Instance();
+	prof.BeginFrame();
+	{
+		PYROS_PROFILE_SCOPE("App.GetEvents");
+		window->GetEvents();
+	}
+	{
+		PYROS_PROFILE_SCOPE("App.Update");
+		window->Update();
+	}
+	{
+		PYROS_PROFILE_SCOPE("App.Draw");
+		window->Draw();
+	}
+	prof.EndFrame();
 }
 
 int main(int argc, char** argv) {

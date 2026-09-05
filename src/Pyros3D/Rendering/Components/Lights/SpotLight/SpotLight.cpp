@@ -57,6 +57,7 @@ namespace p3d {
 
 		// Initiate FBO (releases any previously owned FBO/texture first)
 		shadowsFBO.reset(new FrameBuffer());
+		shadowsFBO->SetDebugName("Shadow map (spot)");
 
 		// GPU Shadows
 		ShadowMap.reset(new Texture());

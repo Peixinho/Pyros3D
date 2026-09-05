@@ -75,6 +75,7 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/MaterialEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Utils/ReadDirectory.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/UISettings.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/RenderTargetsTab.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AIAssistant.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/third_party/ImGuiColorTextEdit/TextEditor.cpp
 )

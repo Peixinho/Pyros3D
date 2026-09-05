@@ -56,6 +56,14 @@ namespace p3d {
 			~Scope() { FrameProfiler::Instance().End(); }
 		};
 
+		// The published snapshot, in recording order (children before parents,
+		// see EndFrame). Same data DrawImGui() renders - exposed so a caller
+		// with no ImGui (an out-of-process agent asking the editor what the
+		// last frame cost) can read the breakdown too, following the
+		// Count()/At() shape LOG::_LOG already uses for its ring buffer.
+		uint32 ScopeCount() const { return displayScopeCount_; }
+		const ScopeRecord &ScopeAt(const uint32 i) const { return displayScopes_[i]; }
+
 		f64 LastFrameMs() const { return displayFrameMs_; }
 		f64 AverageFrameMs() const { return avgFrameMs_; }
 		f32 AverageFps() const { return avgFrameMs_ > 0.0 ? (f32)(1000.0 / avgFrameMs_) : 0.f; }

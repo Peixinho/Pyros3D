@@ -30,6 +30,7 @@ namespace p3d {
 
 		// Initialize Frame Buffer
 		fbo = new FrameBuffer();
+		fbo->SetDebugName("Cubemap capture");
 		fbo->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, Width, Height);
 		fbo->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X, environmentMap);
 
