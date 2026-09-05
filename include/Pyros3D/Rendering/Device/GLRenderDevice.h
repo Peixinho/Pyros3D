@@ -198,15 +198,43 @@ namespace p3d {
 		std::map<DeviceHandle, PipelineDesc> pipelines;
 		DeviceHandle nextPipelineHandle = 1;
 
+		// Engine binding point -> GL binding point. The engine numbers its
+		// uniform blocks up to 42, and those numbers are real descriptor
+		// bindings on Vulkan and Metal, so they cannot simply be renumbered.
+		// GL has no such thing in the shader (UBO_BINDING expands to plain
+		// layout(std140) there - see resources/shaders/*.glsl), so the number
+		// only ever reaches GL through glUniformBlockBinding/glBindBufferBase,
+		// and there it must be below GL_MAX_UNIFORM_BUFFER_BINDINGS. WebGL2 on
+		// ANGLE/Metal reports 32, so everything from 32 up was rejected with
+		// GL_INVALID_VALUE and the block silently kept its default binding of
+		// 0 - GlobalMatrices' slot, 128 bytes, which then fails WebGL2's
+		// block-size validation and drops the draw. This maps the
+		// out-of-range ones into the gap the engine leaves at 5-15.
+		static uint32 TranslateUniformBindingPoint(const uint32 engineBinding);
+		static std::map<uint32, uint32> uniformBindingRemap;
+
 		// Indexed binding point used at CreateUniformBuffer time - needed so
 		// ReplaceUniformBuffer can re-issue BindBufferBase after glBufferData
 		// orphans storage (some macOS GL drivers drop the indexed binding).
+		//
+		// Per-instance, and note what that means: every IRenderer builds its
+		// own GLRenderDevice while the UBOs they all write are process-wide
+		// (IRenderer::RetainSharedUniformBuffers), so a device only has
+		// records for the buffers IT created. Both guards here are therefore
+		// best-effort. Do NOT "fix" that by making these static - measured
+		// 2026-09-05: it changes the class layout and the web build then dies
+		// on the renderer switch with a null vtable call in
+		// IRenderer::ClearBufferBit (AxisHelper::Render's device), which is
+		// its own bug, still unexplained, and not worth waking up here.
+		// Callers must not rely on the shrink guard below: pass the full
+		// block size (see IRenderer::SendGlobalUniforms' uLights upload).
 		std::map<DeviceHandle, uint32> uniformBufferBindings;
 		// Capacity at CreateUniformBuffer (or last grow). ReplaceUniformBuffer
 		// must not shrink below this: WebGL2 validates BindBufferBase against
 		// the shader's full std140 block size (e.g. mat4 uLights[MAX_LIGHTS]),
 		// and a partial orphan left the buffer undersized →
-		// GL_INVALID_OPERATION on glDrawElements.
+		// GL_INVALID_OPERATION on glDrawElements - the draw is dropped, so the
+		// mesh simply never appears.
 		std::map<DeviceHandle, uint32> uniformBufferSizes;
 
 		// Draw-bound FBO (0 = default framebuffer). ForwardRenderer gates

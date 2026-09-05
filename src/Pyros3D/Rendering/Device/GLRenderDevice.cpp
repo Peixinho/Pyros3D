@@ -499,7 +499,7 @@ namespace p3d {
 		GLuint blockIndex = glGetUniformBlockIndex(program, blockName.c_str());
 		if (blockIndex != GL_INVALID_INDEX)
 		{
-			GLCHECKER(glUniformBlockBinding(program, blockIndex, bindingPoint));
+			GLCHECKER(glUniformBlockBinding(program, blockIndex, TranslateUniformBindingPoint(bindingPoint)));
 		}
 	}
 
@@ -559,15 +559,64 @@ namespace p3d {
 		GLCHECKER(glDrawElementsInstanced(nativeDrawType, indexCount, __INDEX_TYPE__, BUFFER_OFFSET(0), instanceCount));
 	}
 
+	std::map<uint32, uint32> GLRenderDevice::uniformBindingRemap;
+
+	// See GLRenderDevice.h. Pass-through for anything the driver accepts;
+	// anything above the limit gets a slot from 5-15, which is the gap
+	// IRenderer::RetainSharedUniformBuffers() leaves between its own 0-4 and
+	// 16-24 (the post-effects take 24-31). Exactly as many free slots as
+	// there are out-of-range blocks today, so a twelfth one says so out loud
+	// rather than repeating the silent fallback this exists to stop.
+	uint32 GLRenderDevice::TranslateUniformBindingPoint(const uint32 engineBinding)
+	{
+		static int32 maxBindings = 0;
+		if (maxBindings == 0)
+		{
+			GLint v = 0;
+			glGetIntegerv(GL_MAX_UNIFORM_BUFFER_BINDINGS, &v);
+			while (glGetError() != GL_NO_ERROR) {}
+			// A driver that will not answer gets the benefit of the doubt:
+			// pass everything through, exactly as before this existed.
+			maxBindings = (v > 0) ? (int32)v : 0x7fffffff;
+		}
+		if ((int32)engineBinding < maxBindings)
+			return engineBinding;
+
+		std::map<uint32, uint32>::const_iterator it = uniformBindingRemap.find(engineBinding);
+		if (it != uniformBindingRemap.end())
+			return it->second;
+
+		for (uint32 slot = 5; slot <= 15; slot++)
+		{
+			if ((int32)slot >= maxBindings)
+				break;
+			bool taken = false;
+			for (std::map<uint32, uint32>::const_iterator i = uniformBindingRemap.begin(); i != uniformBindingRemap.end(); i++)
+				if (i->second == slot) { taken = true; break; }
+			if (taken)
+				continue;
+			uniformBindingRemap[engineBinding] = slot;
+			echo("UBO binding " + std::to_string(engineBinding) + " is past this driver's limit of "
+				+ std::to_string(maxBindings) + "; using " + std::to_string(slot) + " instead");
+			return slot;
+		}
+		echo("ERROR: no free GL uniform binding point for engine binding " + std::to_string(engineBinding)
+			+ " (driver limit " + std::to_string(maxBindings) + ") - that block will not be bound");
+		return engineBinding;
+	}
+
 	DeviceHandle GLRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
 	{
 		GLuint ubo = 0;
 		GLCHECKER(glGenBuffers(1, &ubo));
 		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, ubo));
 		GLCHECKER(glBufferData(GL_UNIFORM_BUFFER, sizeBytes, NULL, GL_DYNAMIC_DRAW));
-		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, bindingPoint, ubo));
+		// Store the translated point, not the engine one: ReplaceUniformBuffer
+		// re-issues this bind straight from the map.
+		const uint32 glBinding = TranslateUniformBindingPoint(bindingPoint);
+		GLCHECKER(glBindBufferBase(GL_UNIFORM_BUFFER, glBinding, ubo));
 		GLCHECKER(glBindBuffer(GL_UNIFORM_BUFFER, 0));
-		uniformBufferBindings[ubo] = bindingPoint;
+		uniformBufferBindings[ubo] = glBinding;
 		uniformBufferSizes[ubo] = sizeBytes;
 		return ubo;
 	}

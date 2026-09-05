@@ -1755,11 +1755,26 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		{
 			// ReplaceUniformBuffer, not UpdateUniformBuffer: this fires
 			// effectively every object in a lit scene (see the comment
-			// above), so glBufferSubData's pipeline-stall risk applies
-			// here too - the trailing unused slots (lightsToUpload <
-			// PYROS_MAX_LIGHTS) are never read since the shader loop is
-			// gated by uNumberOfLights, so orphaning them is harmless.
-			device->ReplaceUniformBuffer(LightsUBO, sizeof(Matrix) * lightsToUpload, &Lights[0]);
+			// above), so glBufferSubData's pipeline-stall risk applies here
+			// too.
+			//
+			// Always the FULL block, never just the lights in use, exactly as
+			// the BoneMatrices upload below already does and for a harder
+			// reason. ReplaceUniformBuffer is glBufferData, which reallocates:
+			// one light shrank this buffer from mat4[4] (256 bytes) to 64. The
+			// trailing slots really are never read - the shader loop is gated
+			// by uNumberOfLights - but WebGL2 does not care what the shader
+			// reads. It validates every bound uniform buffer against the
+			// block's full std140 size at EVERY draw and drops the draw with
+			// GL_INVALID_OPERATION when it is short. Measured 2026-09-05 in
+			// the browser editor: every lit mesh silently vanished (Forward
+			// and Deferred alike, the G-buffer came back all black), while
+			// grid lines and ImGui - which declare no LightsBlock - kept
+			// drawing. Desktop GL validates none of this, which is why it only
+			// ever showed up on the web.
+			Matrix lightsUpload[PYROS_MAX_LIGHTS]; // default ctor = identity pad
+			memcpy(lightsUpload, &Lights[0], sizeof(Matrix) * lightsToUpload);
+			device->ReplaceUniformBuffer(LightsUBO, sizeof(Matrix) * PYROS_MAX_LIGHTS, lightsUpload);
 			CachedLights.assign(Lights.begin(), Lights.begin() + lightsToUpload);
 			LightsUBOValid = true;
 		}
