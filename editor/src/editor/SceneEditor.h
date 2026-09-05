@@ -638,6 +638,19 @@ private:
 	// Folder the last skybox bake read its six faces from, so the field
 	// keeps what was typed and the scene remembers where it came from.
 	std::string ambientSkyboxFolder;
+	// The scene's post-effect chain - see SceneMeta::postEffects. Held here
+	// rather than rebuilt from the manager because a disabled entry, and the
+	// parameter overrides of one, have to survive round-tripping through a
+	// PostEffectsManager that only knows about live effects.
+	std::vector<SceneMeta::PostEffectEntry> postEffects;
+	// Rebuilds EffectsManager's chain from `postEffects`. Cheap enough to
+	// call on any edit (it recompiles each asset effect's shader), but not
+	// per frame - ApplyPostEffects is called when the list changes, a scene
+	// loads, the viewport resizes, or SwitchRenderer replaces the manager.
+	void ApplyPostEffects();
+	// Reads a project-relative .glsl for PostEffectChain::Build. Static so it
+	// can be a plain function pointer; `user` is the SceneEditor.
+	static bool ReadPostEffectAsset(const std::string &path, std::string &sourceOut, void *user);
 	// Pushes ambientLightColor*ambientIntensity and backgroundColor at the
 	// renderer. Called on load, on edit and after a renderer switch (a fresh
 	// IRenderer starts on its own hardcoded defaults).

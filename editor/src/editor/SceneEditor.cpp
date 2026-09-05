@@ -14,6 +14,7 @@
 #include <algorithm>
 
 #include "SceneEditor.h"
+#include <Pyros3D/Rendering/PostEffects/PostEffectChain.h>
 #include <Pyros3D/AnimationManager/IKSolver.h>
 // Sprite-sheet animation: UpdateTextureAnimationPreview drives instances
 // directly. It reached this file transitively on the desktop build and not
@@ -349,6 +350,33 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		delete gbufferSpecular; gbufferSpecular = NULL;
 		delete gbufferNormal; gbufferNormal = NULL;
 		delete gbufferMatRough; gbufferMatRough = NULL;
+	}
+
+	// See the declaration. Deliberately tolerant: PostEffectChain::Build logs
+	// and skips anything that will not build, so one broken effect asset costs
+	// you that effect rather than the whole viewport.
+	bool SceneEditor::ReadPostEffectAsset(const std::string &path, std::string &sourceOut, void *user)
+	{
+		SceneEditor* self = (SceneEditor*)user;
+		if (self == NULL || self->project == NULL || path.empty())
+			return false;
+		const std::string abs = self->project->AbsolutePath(path);
+		std::ifstream in(abs.c_str(), std::ios::binary);
+		if (!in)
+			return false;
+		std::ostringstream ss;
+		ss << in.rdbuf();
+		sourceOut = ss.str();
+		return true;
+	}
+
+	void SceneEditor::ApplyPostEffects()
+	{
+		if (EffectsManager == NULL)
+			return;
+		PostEffectChain::Build(*EffectsManager, postEffects,
+			(uint32)(dim.x > 0 ? dim.x : 1), (uint32)(dim.y > 0 ? dim.y : 1),
+			&SceneEditor::ReadPostEffectAsset, this);
 	}
 
 	void SceneEditor::ApplyEnvironment()
@@ -6679,6 +6707,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.ambientSky = ambientSky;
 			meta.ambientEquator = ambientEquator;
 			meta.ambientGround = ambientGround;
+			meta.postEffects = postEffects;
 			meta.twoD = sceneIsTwoD;
 			meta.view2D = view2D;
 #ifdef LUA_BINDINGS
@@ -6891,6 +6920,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ambientSky = meta.ambientSky;
 			ambientEquator = meta.ambientEquator;
 			ambientGround = meta.ambientGround;
+			postEffects = meta.postEffects;
+			ApplyPostEffects();
 			ApplyEnvironment();
 			ApplyEnvironment();
 		}

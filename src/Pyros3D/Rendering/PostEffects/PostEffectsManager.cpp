@@ -199,10 +199,22 @@ namespace p3d {
 		Vec2 NearFarPlane = Vec2(projection->Near, projection->Far);
 		Vec2 ScreenDimensions = Vec2((f32)Width, (f32)Height);
 
-		// Post-effect RTT binds start at unit 0; a prior RenderScene that
-		// leaked UnitBinded would make uTex0/uTex1 point at the wrong units
-		// while the uniforms still say 0/1 (sharp colour, zero velocity).
+		// Post-effect RTT binds start at unit 0; a prior RenderScene that
+		// leaked UnitBinded would make uTex0/uTex1 point at the wrong units
+		// while the uniforms still say 0/1 (sharp colour, zero velocity).
 		Texture::ResetUnitCounter();
+
+		// "The last render target", before any effect has run, is the frame
+		// the scene was captured into. Without this LastRTT is still NULL for
+		// the FIRST effect of the chain, and the binding switch below
+		// dereferences it - so any chain whose first effect read LastRTT
+		// crashed instead of running. It never came up while every chain was
+		// built by hand in Lua, where the first effect is always written to
+		// read Color; it is the first thing that happens when the chain comes
+		// from a scene file, since "read whatever came before me" is the
+		// obvious thing for an effect to ask for and the only thing an
+		// author-supplied effect can portably ask for.
+		LastRTT = Color;
 
 		// Each effect pass below clears its own target to transparent
 		// black, which overwrites the device-wide clear colour the *scene*

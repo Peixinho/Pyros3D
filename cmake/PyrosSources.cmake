@@ -49,6 +49,8 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/PostEffectsManager.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/IEffect.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/CustomEffect.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/PostEffectChain.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BlurSSAOEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/VignetteEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BlurXEffect.cpp

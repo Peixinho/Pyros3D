@@ -16,6 +16,7 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <string>
 #include <vector>
+#include <map>
 #include <memory>
 
 // Forward-declared, not #included - sol.hpp is a large single header and
@@ -115,6 +116,29 @@ namespace p3d {
 		Vec4 ambientSky = Vec4(0.32f, 0.38f, 0.45f, 1.f);
 		Vec4 ambientEquator = Vec4(0.20f, 0.20f, 0.20f, 1.f);
 		Vec4 ambientGround = Vec4(0.10f, 0.09f, 0.08f, 1.f);
+
+		// The post-effect chain, in the order it runs: each entry's output is
+		// the next one's LastRTT. Lives in the SCENE file rather than the
+		// project's, for the same reason the ambient does - it is part of how
+		// this scene is meant to look, and a game with a menu and a level
+		// wants different chains for each.
+		//
+		// A built-in entry names one of the engine's own effects
+		// (PostEffectFactory::Create); an asset entry points at a .glsl
+		// authored in the project (see CustomEffect). Absent from a scene file
+		// means no post effects at all, which is what every existing scene
+		// already does.
+		struct PostEffectEntry
+		{
+			std::string effect;                 // built-in name, or "" for an asset
+			std::string asset;                  // project-relative .glsl, or ""
+			bool enabled = true;
+			// Parameter overrides by uniform name. Up to four floats each,
+			// stored as written so a scene round-trips exactly; only asset
+			// effects have parameters today.
+			std::map<std::string, std::vector<f32> > params;
+		};
+		std::vector<PostEffectEntry> postEffects;
 
 		// A 2D scene: its content is UICanvas trees, not world geometry, so
 		// whoever renders it skips the 3D pass entirely and draws only the UI

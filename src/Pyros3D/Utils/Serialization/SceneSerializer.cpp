@@ -1871,6 +1871,31 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			root["ambientSky"] = json::array({ meta->ambientSky.x, meta->ambientSky.y, meta->ambientSky.z });
 			root["ambientEquator"] = json::array({ meta->ambientEquator.x, meta->ambientEquator.y, meta->ambientEquator.z });
 			root["ambientGround"] = json::array({ meta->ambientGround.x, meta->ambientGround.y, meta->ambientGround.z });
+			// Same rule as twoD: only written when there is something to
+			// write, so a scene with no post effects serializes exactly as it
+			// did before this field existed.
+			if (!meta->postEffects.empty())
+			{
+				json fx = json::array();
+				for (size_t i = 0; i < meta->postEffects.size(); i++)
+				{
+					const SceneMeta::PostEffectEntry &e = meta->postEffects[i];
+					json j;
+					if (!e.effect.empty()) j["effect"] = e.effect;
+					if (!e.asset.empty())  j["asset"] = e.asset;
+					if (!e.enabled)        j["enabled"] = false;
+					if (!e.params.empty())
+					{
+						json p = json::object();
+						for (std::map<std::string, std::vector<f32> >::const_iterator k = e.params.begin(); k != e.params.end(); k++)
+							p[k->first] = k->second;
+						j["params"] = p;
+					}
+					fx.push_back(j);
+				}
+				root["postEffects"] = fx;
+			}
+
 			// Only written when true - keeps 3D scenes byte-identical to what
 			// they serialized to before this field existed.
 			if (meta->twoD)
@@ -3220,6 +3245,34 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 			if (root.contains("ambientMode") && root["ambientMode"].is_number())
 				outMeta->ambientMode = root["ambientMode"].get<uint32>();
+			if (root.contains("postEffects") && root["postEffects"].is_array())
+			{
+				outMeta->postEffects.clear();
+				for (const auto &j : root["postEffects"])
+				{
+					if (!j.is_object()) continue;
+					SceneMeta::PostEffectEntry e;
+					if (j.contains("effect") && j["effect"].is_string()) e.effect = j["effect"].get<std::string>();
+					if (j.contains("asset") && j["asset"].is_string())   e.asset = j["asset"].get<std::string>();
+					if (j.contains("enabled") && j["enabled"].is_boolean()) e.enabled = j["enabled"].get<bool>();
+					// An entry naming neither is not an effect - drop it here
+					// rather than making every consumer check.
+					if (e.effect.empty() && e.asset.empty()) continue;
+					if (j.contains("params") && j["params"].is_object())
+					{
+						for (auto it = j["params"].begin(); it != j["params"].end(); ++it)
+						{
+							std::vector<f32> v;
+							if (it.value().is_array())
+								for (const auto &n : it.value()) { if (n.is_number()) v.push_back(n.get<f32>()); }
+							else if (it.value().is_number())
+								v.push_back(it.value().get<f32>());
+							if (!v.empty()) e.params[it.key()] = v;
+						}
+					}
+					outMeta->postEffects.push_back(e);
+				}
+			}
 			auto readBand = [&root](const char* key, Vec4 &out) {
 				if (root.contains(key) && root[key].is_array() && root[key].size() >= 3)
 					out = Vec4(root[key][0].get<f32>(), root[key][1].get<f32>(), root[key][2].get<f32>(), 1.f);
