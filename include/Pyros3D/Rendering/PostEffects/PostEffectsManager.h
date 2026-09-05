@@ -36,6 +36,26 @@ namespace p3d {
 		// Process Post Effects
 		void ProcessPostEffects(Projection* projection);
 
+		// Where the LAST effect of the chain draws. Off by default: it goes to
+		// the swapchain, which is what a standalone app wants and - on Vulkan -
+		// is also what acquires and presents the frame at all (see the long
+		// comment in ProcessPostEffects). Turn it on and the whole chain stays
+		// offscreen, ending in a texture GetFinalTexture() hands back.
+		//
+		// That is what an editor viewport needs: it is an ImGui image, not a
+		// swapchain, so with the default the chain ran and nothing on screen
+		// changed. Only turn this on somewhere that presents a frame of its own -
+		// otherwise nothing does, and Vulkan waits forever on a fence no present
+		// ever drives.
+		void SetRenderLastToTexture(const bool enabled) { renderLastToTexture = enabled; }
+		bool GetRenderLastToTexture() const { return renderLastToTexture; }
+
+		// What the chain produced: the last effect's texture when there is a
+		// chain and it stayed offscreen, and the captured frame otherwise - so a
+		// caller can always just show this without asking whether any effects
+		// exist.
+		Texture* GetFinalTexture();
+
 		void AddEffect(IEffect* Effect);
 		void RemoveEffect(IEffect* Effect);
 
@@ -78,6 +98,10 @@ namespace p3d {
 
 		// MRT
 		Texture *Color, *Depth, *LastRTT;
+		// See SetRenderLastToTexture().
+		bool renderLastToTexture = false;
+		// The last effect's own texture, valid only when renderLastToTexture.
+		Texture *finalTexture = NULL;
 
 		// Frame Buffers
 		FrameBuffer *ExternalFBO, *activeFBO;

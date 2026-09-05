@@ -179,6 +179,16 @@ namespace p3d {
 		device->UseProgram(0);
 	}
 
+	Texture* PostEffectsManager::GetFinalTexture()
+	{
+		// Falls back to the capture on purpose - a caller showing "the result"
+		// should not have to branch on whether a chain exists, and with no chain
+		// the result IS the captured frame.
+		if (renderLastToTexture && finalTexture != NULL && !effects.empty())
+			return finalTexture;
+		return Color;
+	}
+
 	Texture* PostEffectsManager::GetViewportColor()
 	{
 		// Editor ImGui path: show the linear RGBA16F capture as-is, same as
@@ -422,7 +432,11 @@ namespace p3d {
 		// way Deferred.RenderScene used to own them before Capture.
 		{
 			PYROS_PROFILE_SCOPE("PostFX.Process");
-			for (size_t idx = 0; idx + 1 < effects.size(); ++idx)
+			// One short of the end normally - the last effect is the
+			// swapchain pass below. Staying offscreen means it is just
+			// another effect and the loop runs the lot.
+			const size_t offscreenCount = renderLastToTexture ? effects.size() : (effects.size() - 1);
+			for (size_t idx = 0; idx < offscreenCount; ++idx)
 			{
 				IEffect *effect = effects[idx];
 				activeFBO = effect->fbo;
@@ -449,6 +463,17 @@ namespace p3d {
 		// submit) - a real GPU completion signal that, per MoltenVK's own
 		// behavior on this machine, never arrives without an actual
 		// swapchain present somewhere in the frame to drive it.
+		if (renderLastToTexture)
+		{
+			// Nothing left to present: the loop above ended in an FBO, and
+			// LastRTT is its texture. Restoring the scene's clear colour is
+			// still owed (see sceneClearColor's comment).
+			finalTexture = LastRTT;
+			device->UseProgram(0);
+			device->SetClearColor(sceneClearColor);
+			return;
+		}
+
 		IEffect *lastEffect = effects.back();
 		device->BeginFrame();
 		device->SetViewport(0, 0, Width, Height);
@@ -529,6 +554,7 @@ namespace p3d {
 		return effects.size();
 	}
 
+	// finalTexture belongs to an effect that is about to be deleted.
 	void PostEffectsManager::RemoveAllEffects()
 	{
 		// An IEffect owns real GPU resources (its FBO/textures, and on
@@ -547,6 +573,10 @@ namespace p3d {
 			delete (*i);
 		}
 		effects.clear();
+		// Pointed into an effect that has just been deleted; GetFinalTexture()
+		// falls back to the capture until a new chain produces one.
+		finalTexture = NULL;
+		LastRTT = NULL;
 	}
 
 }

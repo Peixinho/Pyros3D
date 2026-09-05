@@ -493,6 +493,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// built and cached.
 		EffectsManager = new PostEffectsManager(Width, Height);
 		EffectsManager->GetExternalFrameBuffer()->SetDebugName("Scene viewport");
+		// The viewport is an ImGui image, not a swapchain - see
+		// PostEffectsManager::SetRenderLastToTexture().
+		EffectsManager->SetRenderLastToTexture(true);
 		if (usingDeferredRenderer)
 			GetActiveRenderDevice().SetFramebufferPreserveDepth(EffectsManager->GetExternalFrameBuffer()->GetBindID(), true);
 	}
@@ -637,6 +640,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// target, so the Render Targets panel would otherwise list half a
 		// dozen indistinguishable "Post effects capture" entries.
 		EffectsManager->GetExternalFrameBuffer()->SetDebugName("Scene viewport");
+		// The viewport is an ImGui image, not a swapchain - see
+		// PostEffectsManager::SetRenderLastToTexture().
+		EffectsManager->SetRenderLastToTexture(true);
 		// Deferred's gizmo/grid overlay (see ShowViewport()) explicitly
 		// copies DeferredRenderer's real scene depth into this FBO's Depth
 		// attachment right before rebinding it each frame, so that bind
@@ -971,7 +977,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		IRenderer::InvalidateSharedUniformCaches();
-		EffectsManager->ProcessPostEffects((isPerspective?&projection:&projectionOrtho));
+		// ProcessPostEffects used to be called HERE, before anything was
+		// drawn, so it ran the chain over the previous frame's capture. That
+		// was invisible while the chain was always empty; with a chain in the
+		// scene it is a frame late and, worse, runs before this frame's
+		// CaptureFrame() clears the target. It now runs after EndCapture()
+		// below, on the frame it belongs to.
 		EffectsManager->Resize(viewW, viewH);
 		// DeferredRenderer::Resize() only resizes its own internal FBOs, not
 		// this SceneEditor-owned gbufferFBO handed in at construction - has
@@ -1171,6 +1182,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		EffectsManager->EndCapture();
+
+		// The chain, on the frame that was just captured. Forward only for
+		// now, and deliberately: PostEffectsManager reads its own capture,
+		// which for Deferred holds the gizmo/grid overlay rather than the
+		// scene (see the CaptureFrame() re-bind above), so running it there
+		// would post-process the overlay. Feeding it DeferredRenderer's own
+		// colour output is the next piece.
+		if (!usingDeferredRenderer)
+			EffectsManager->ProcessPostEffects((isPerspective ? &projection : &projectionOrtho));
+
 		void* viewportTex = NULL;
 		// DeferredRenderer::RenderScene()'s final composite always targets
 		// framebuffer 0, not whatever EffectsManager captured (see
@@ -1182,7 +1203,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// over colorTexture below, not used as the primary viewport image.
 		Texture* color = usingDeferredRenderer
 			? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
-			: EffectsManager->GetViewportColor();
+			// GetFinalTexture(), not GetViewportColor(): with a post-effect
+			// chain this is what the chain produced, and with no chain the two
+			// are the same texture - so nothing changes for a scene without
+			// effects.
+			: EffectsManager->GetFinalTexture();
 		Texture* overlay = usingDeferredRenderer ? EffectsManager->GetViewportColor() : NULL;
 		if (color)
 			viewportTex = GetActiveRenderDevice().GetImGuiTextureID(color->GetBindID(), color->GetTextureType());
@@ -11904,7 +11929,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 			Texture* src = usingDeferredRenderer
 				? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
-				: EffectsManager->GetViewportColor();
+				// Same texture ShowViewport() shows, post-effect chain
+				// included - this exists to report what is on screen, so it
+				// has to follow that choice rather than restate half of it.
+				: EffectsManager->GetFinalTexture();
 			if (!src) return std::string();
 			const uint32 w = src->GetWidth();
 			const uint32 h = src->GetHeight();
