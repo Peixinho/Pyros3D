@@ -977,6 +977,62 @@ std::string SceneEditor::ResolveUIFontPath(const std::string& requested, std::st
 // so tinting one sprite does not tint every other, sizes it from the texture's
 // pixel aspect, and turns on the alpha blending a cut-out sprite needs and a
 // 3D mesh does not.
+bool SceneEditor::BakeAmbientFromSkybox(const std::string& folder, std::string& errOut)
+{
+	// The six standard face names, in the order the engine's cubemap loader
+	// uses them (see SceneSerializer's GetOrLoadCubemap).
+	static const char* kFaces[6] = { "posx", "negx", "posy", "negy", "posz", "negz" };
+	static const char* kExts[4] = { ".png", ".jpg", ".jpeg", ".tga" };
+
+	Vec4 avg[6];
+	for (int f = 0; f < 6; ++f)
+	{
+		std::string found;
+		for (int e = 0; e < 4 && found.empty(); ++e)
+		{
+			std::string candidate = folder + "/" + kFaces[f] + kExts[e];
+			std::error_code ec;
+			if (std::filesystem::exists(candidate, ec)) found = candidate;
+		}
+		if (found.empty())
+		{
+			errOut = std::string("missing face '") + kFaces[f] + "' in " + folder;
+			return false;
+		}
+		int w = 0, h = 0, bpp = 0;
+		unsigned char* img = stbi_load(found.c_str(), &w, &h, &bpp, 3);
+		if (!img || w <= 0 || h <= 0)
+		{
+			if (img) stbi_image_free(img);
+			errOut = "could not read " + found;
+			return false;
+		}
+		// Plain mean of the face. An irradiance integral would weight by
+		// cos(theta) per texel; for three broad bands the difference is not
+		// worth carrying a full SH projection into the editor.
+		double r = 0, g = 0, b = 0;
+		const size_t n = (size_t)w * (size_t)h;
+		for (size_t i = 0; i < n; ++i)
+		{
+			r += img[i * 3 + 0];
+			g += img[i * 3 + 1];
+			b += img[i * 3 + 2];
+		}
+		stbi_image_free(img);
+		avg[f] = Vec4((f32)(r / n / 255.0), (f32)(g / n / 255.0), (f32)(b / n / 255.0), 1.f);
+	}
+
+	ambientSky = avg[2];     // posy
+	ambientGround = avg[3];  // negy
+	ambientEquator = Vec4((avg[0].x + avg[1].x + avg[4].x + avg[5].x) * 0.25f,
+						  (avg[0].y + avg[1].y + avg[4].y + avg[5].y) * 0.25f,
+						  (avg[0].z + avg[1].z + avg[4].z + avg[5].z) * 0.25f, 1.f);
+	ambientMode = 1;
+	ApplyEnvironment();
+	MarkSceneDirty();
+	return true;
+}
+
 bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::string& errOut)
 {
 	SceneObject* obj = sceneObjects->GetSceneObject(goId);

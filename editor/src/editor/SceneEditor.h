@@ -624,10 +624,25 @@ private:
 	Vec4 ambientSky = Vec4(0.32f, 0.38f, 0.45f, 1.f);
 	Vec4 ambientEquator = Vec4(0.20f, 0.20f, 0.20f, 1.f);
 	Vec4 ambientGround = Vec4(0.10f, 0.09f, 0.08f, 1.f);
+	// Folder the last skybox bake read its six faces from, so the field
+	// keeps what was typed and the scene remembers where it came from.
+	std::string ambientSkyboxFolder;
 	// Pushes ambientLightColor*ambientIntensity and backgroundColor at the
 	// renderer. Called on load, on edit and after a renderer switch (a fresh
 	// IRenderer starts on its own hardcoded defaults).
 	void ApplyEnvironment();
+	// Averages a skybox's six faces into the three gradient bands: +Y becomes
+	// Sky, -Y becomes Ground, the four sides average into Equator. Returns
+	// false (and leaves the bands alone) when a face is missing.
+	//
+	// Deliberately an AUTHORING step, not a per-frame one. Unity samples the
+	// skybox into spherical harmonics every time the environment changes; the
+	// literal equivalent here would need a samplerCube declared by EVERY lit
+	// material, and a declared sampler with no valid texture bound is exactly
+	// what makes WebGL2 drop the draw - the same failure that made the browser
+	// editor render nothing. Baking to the bands costs nothing at draw time
+	// and behaves identically on all three backends.
+	bool BakeAmbientFromSkybox(const std::string& folder, std::string& errOut);
 	// mtime of the scene file as of the last successful load — AgentServer
 	// uses this to detect external edits (AgentReloadIfChanged).
 	time_t lastLoadMtime = 0;

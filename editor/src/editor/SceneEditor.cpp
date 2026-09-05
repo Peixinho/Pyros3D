@@ -3804,6 +3804,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::TextUnformatted("Ground");
 			if (ImGui::ColorEdit3("##amb_ground", (float*)&ambientGround)) { ApplyEnvironment(); sceneDirty = true; }
 		}
+		// Fill the three bands from a skybox, the way Unity's Skybox ambient
+		// source does - except baked once here instead of sampled per frame.
+		// See BakeAmbientFromSkybox() for why.
+		ImGui::TextUnformatted("Bake Ambient From Skybox");
+		ImGui::InputText("##amb_skybox_folder", &ambientSkyboxFolder);
+		ImGui::SameLine();
+		if (ImGui::Button("Bake##amb_skybox"))
+		{
+			std::string err;
+			if (BakeAmbientFromSkybox(ambientSkyboxFolder, err))
+				echo("Ambient baked from skybox in " + ambientSkyboxFolder);
+			else
+				echo("ERROR: " + err);
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Folder holding posx/negx/posy/negy/posz/negz\n"
+							  "(.png/.jpg/.jpeg/.tga). +Y becomes Sky, -Y Ground,\n"
+							  "the four sides average into Equator.");
 
 		// ---- how a 2D scene is framed -----------------------------------
 		// Only for a 2D scene: a 3D one is framed by a camera object, which is
