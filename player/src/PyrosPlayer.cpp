@@ -26,6 +26,7 @@
 #include <SDL2/SDL.h>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <set>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
@@ -146,6 +147,7 @@ PyrosPlayer::PyrosPlayer()
 	activeCamera = NULL;
 	resizePending = false;
 	pendingResizeWidth = pendingResizeHeight = 0;
+	effectsManager = NULL;
 	cameraFov = 70.f;
 	cameraNear = 0.1f;
 	cameraFar = 2000.f;
@@ -433,6 +435,41 @@ bool PyrosPlayer::StartupSceneIsTwoD(const PlayerManifest& m)
 	}
 }
 
+bool PyrosPlayer::ReadPostEffectAsset(const std::string& path, std::string& sourceOut, void* user)
+{
+	PyrosPlayer* self = (PyrosPlayer*)user;
+	if (!self || path.empty()) return false;
+	std::ifstream in(self->ResolvePath(path).c_str(), std::ios::binary);
+	if (!in) return false;
+	std::ostringstream ss;
+	ss << in.rdbuf();
+	sourceOut = ss.str();
+	return true;
+}
+
+bool PyrosPlayer::HavePostEffects() const
+{
+	return effectsManager != NULL && effectsManager->GetNumberEffects() > 0;
+}
+
+// Called after every scene load, including a mid-game loadScene(): the chain
+// belongs to the scene, so switching scenes switches chains.
+void PyrosPlayer::BuildPostEffectChain()
+{
+	if (meta.postEffects.empty())
+	{
+		// Nothing to run. Drop the chain rather than leave the previous
+		// scene's effects on screen, but keep the manager - rebuilding it per
+		// scene would throw away its capture textures for no reason.
+		if (effectsManager) effectsManager->RemoveAllEffects();
+		return;
+	}
+	if (effectsManager == NULL)
+		effectsManager = new PostEffectsManager(Width, Height);
+	PostEffectChain::Build(*effectsManager, meta.postEffects, Width, Height,
+		&PyrosPlayer::ReadPostEffectAsset, this);
+}
+
 bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 {
 	UnloadGameScene();
@@ -485,6 +522,9 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	// shows - so a build looks like what was authored. The scene's background
 	// wins over game.json's: game.json carries a fallback for a scene that
 	// predates the field, the scene carries the authored one.
+	// The scene's chain, before anything renders with it.
+	BuildPostEffectChain();
+
 	renderer->SetGlobalLight(Vec4(meta.ambientLight.x * meta.ambientIntensity,
 								  meta.ambientLight.y * meta.ambientIntensity,
 								  meta.ambientLight.z * meta.ambientIntensity,
@@ -965,7 +1005,30 @@ void PyrosPlayer::Update()
 	// pointed the renderer at RenderLayer::None here on the assumption that a
 	// 2D scene was canvas-only; that is what UI is for, and it would have
 	// drawn nothing at all for a real 2D game.
+	// Only wrapped when there is a chain: with none, capturing would render
+	// the scene into an FBO that nothing presents, i.e. a black window for
+	// every game that has no post effects.
+	const bool postFX = HavePostEffects();
+	if (postFX) effectsManager->CaptureFrame();
+
 	renderer->RenderScene(projection, activeCamera, scene);
+
+	if (postFX)
+	{
+		effectsManager->EndCapture();
+		// Under Deferred the capture does not hold the scene - the renderer's
+		// final composite targets framebuffer 0 - so the chain is pointed at
+		// its colour output instead. Same reasoning as the editor viewport.
+		// gbufferFBO is the player's own deferred tell: it only exists under
+		// the deferred renderer.
+		effectsManager->SetSceneSourceTexture(gbufferFBO != NULL
+			? static_cast<DeferredRenderer*>(renderer)->GetColorTexture()
+			: NULL);
+		// The last effect draws to the swapchain, which is what a game wants
+		// and - on Vulkan - is also what presents the frame at all. So no
+		// SetRenderLastToTexture() here, unlike the editor.
+		effectsManager->ProcessPostEffects(&projection);
+	}
 
 	// UI last, over the finished frame, and input fed to it right before -
 	// so a click is resolved against the layout the player is looking at,
@@ -1275,6 +1338,13 @@ void PyrosPlayer::ApplyPendingResizeIfAny()
 	}
 
 	if (renderer) renderer->Resize(w, h);
+	// The chain's own targets are window-sized too, and an effect reading a
+	// stale-sized capture samples the wrong part of it.
+	if (effectsManager)
+	{
+		effectsManager->Resize(w, h);
+		BuildPostEffectChain();
+	}
 	ApplyProjection();
 }
 
@@ -1291,6 +1361,9 @@ void PyrosPlayer::Shutdown()
 
 	UnloadGameScene();
 
+	// Before the renderer: an effect owns GPU objects created against the
+	// device the renderer publishes, and ~PostEffectsManager waits on it.
+	delete effectsManager; effectsManager = NULL;
 	delete uiRenderer; uiRenderer = NULL;
 	delete renderer; renderer = NULL;
 	DestroyGBuffer();

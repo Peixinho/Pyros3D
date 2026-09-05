@@ -29,6 +29,7 @@
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
+#include <Pyros3D/Rendering/PostEffects/PostEffectChain.h>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
@@ -224,6 +225,19 @@ private:
 	UIRenderer* uiRenderer;
 	AudioManager* audio;
 	Projection projection;
+
+	// The scene's post-effect chain - SceneMeta::postEffects, built by the
+	// same PostEffectChain::Build the editor viewport uses, so a built game
+	// looks like what was authored rather than like a second implementation
+	// of the same list. NULL until the first scene that actually has effects:
+	// wrapping the frame in CaptureFrame()/EndCapture() with an empty chain
+	// would render the scene into an FBO that nothing then presents.
+	PostEffectsManager* effectsManager;
+	void BuildPostEffectChain();
+	bool HavePostEffects() const;
+	// Reads a game-relative .glsl for PostEffectChain::Build; `user` is the
+	// player. Assets ship beside the binary, so this is ResolvePath().
+	static bool ReadPostEffectAsset(const std::string& path, std::string& sourceOut, void* user);
 
 	// Deferred only - NULL under the forward renderer.
 	FrameBuffer* gbufferFBO;
