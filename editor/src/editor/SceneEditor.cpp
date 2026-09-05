@@ -3849,6 +3849,222 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	}
 #endif
 
+	const SceneEditor::PostEffectAssetInfo &SceneEditor::GetPostEffectAssetInfo(const std::string &path)
+	{
+		std::map<std::string, PostEffectAssetInfo>::iterator it = postEffectAssetInfo.find(path);
+		if (it != postEffectAssetInfo.end())
+			return it->second;
+		PostEffectAssetInfo info;
+		std::string source;
+		if (!ReadPostEffectAsset(path, source, this))
+			info.error = "file not found";
+		else if (!CustomEffect::ReadMetadata(source, info.name, info.params, info.error))
+			; // info.error already says what is wrong with the header
+		else
+			info.ok = true;
+		postEffectAssetInfo[path] = info;
+		return postEffectAssetInfo[path];
+	}
+
+	// The chain lives in the scene, so it is edited where the rest of the
+	// scene's look is - next to the ambient and the background, not in a
+	// panel of its own.
+	void SceneEditor::DrawPostEffectsInProperties()
+	{
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Post Effects");
+		ImGui::TextDisabled("Run in order; each reads what the one before produced.");
+
+		bool changed = false;
+		int moveFrom = -1, moveTo = -1, removeAt = -1;
+
+		for (size_t i = 0; i < postEffects.size(); i++)
+		{
+			SceneMeta::PostEffectEntry &e = postEffects[i];
+			ImGui::PushID((int)i);
+
+			bool enabled = e.enabled;
+			if (ImGui::Checkbox("##enabled", &enabled)) { e.enabled = enabled; changed = true; }
+			ImGui::SameLine();
+
+			// Reorder is the whole point of a chain, so the controls for it
+			// are on the row rather than behind a drag gesture that is easy
+			// to start by accident while scrolling a properties panel.
+			if (ImGui::ArrowButton("##up", ImGuiDir_Up) && i > 0) { moveFrom = (int)i; moveTo = (int)i - 1; }
+			ImGui::SameLine();
+			if (ImGui::ArrowButton("##down", ImGuiDir_Down) && i + 1 < postEffects.size()) { moveFrom = (int)i; moveTo = (int)i + 1; }
+			ImGui::SameLine();
+
+			std::string label;
+			if (!e.effect.empty())
+				label = e.effect;
+			else
+			{
+				const PostEffectAssetInfo &info = GetPostEffectAssetInfo(e.asset);
+				label = info.ok ? info.name : ("(broken) " + e.asset);
+			}
+			// Open by default: a chain is short and the parameters are the
+			// point of having it in the panel at all.
+			const bool open = ImGui::TreeNodeEx("##entry",
+				ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen, "%s", label.c_str());
+			ImGui::SameLine(ImGui::GetContentRegionAvail().x - 5.f);
+			if (ImGui::SmallButton("X")) removeAt = (int)i;
+
+			if (open)
+			{
+				if (!e.asset.empty())
+				{
+					const PostEffectAssetInfo &info = GetPostEffectAssetInfo(e.asset);
+					ImGui::TextDisabled("%s", e.asset.c_str());
+					if (!info.ok)
+					{
+						// Say why rather than showing an entry that does
+						// nothing: a typo in a `//! param` line is otherwise
+						// indistinguishable from an effect that has none.
+						ImGui::TextColored(ImVec4(1.f, 0.45f, 0.45f, 1.f), "%s", info.error.c_str());
+					}
+					for (size_t p = 0; p < info.params.size(); p++)
+					{
+						const CustomEffect::Param &meta = info.params[p];
+						// The saved override if there is one, the asset's own
+						// default otherwise - so a parameter never shows a
+						// value the effect is not actually using.
+						std::vector<f32> &v = e.params[meta.name];
+						if (v.empty())
+							v.assign(meta.value, meta.value + 4);
+						v.resize(4, 0.f);
+						ImGui::PushID((int)p);
+						// Label above, widget full width - the rest of this
+						// panel does the same, and a post-effect parameter's
+						// label is the author's free text, which is exactly
+						// the kind that gets clipped when it shares a row.
+						ImGui::TextUnformatted(meta.label.c_str());
+						bool edited = false;
+						switch (meta.type)
+						{
+						case Uniforms::DataType::Vec4:
+							edited = ImGui::ColorEdit4("##v", &v[0]);
+							break;
+						case Uniforms::DataType::Vec3:
+							edited = ImGui::ColorEdit3("##v", &v[0]);
+							break;
+						case Uniforms::DataType::Vec2:
+							edited = ImGui::DragFloat2("##v", &v[0], 0.01f);
+							break;
+						case Uniforms::DataType::Int:
+						{
+							int iv = (int)v[0];
+							edited = ImGui::DragInt("##v", &iv, 1.f);
+							if (edited) v[0] = (f32)iv;
+							break;
+						}
+						default:
+							// A declared range becomes a slider; without one
+							// a drag, which has no ends to guess at.
+							if (meta.hasRange)
+								edited = ImGui::SliderFloat("##v", &v[0], meta.min, meta.max);
+							else
+								edited = ImGui::DragFloat("##v", &v[0], 0.01f);
+							break;
+						}
+						if (edited) changed = true;
+						ImGui::PopID();
+					}
+					if (info.params.empty() && info.ok)
+						ImGui::TextDisabled("no parameters");
+				}
+				else
+				{
+					ImGui::TextDisabled("built-in");
+				}
+				ImGui::TreePop();
+			}
+			ImGui::PopID();
+		}
+
+		if (postEffects.empty())
+			ImGui::TextDisabled("None.");
+
+		// Add: the built-ins by name, and any .glsl under assets/effects.
+		if (ImGui::Button("Add Effect"))
+			ImGui::OpenPopup("##add_post_effect");
+		if (ImGui::BeginPopup("##add_post_effect"))
+		{
+			const std::vector<std::string> &builtIn = PostEffectChain::ListBuiltIn();
+			for (size_t i = 0; i < builtIn.size(); i++)
+			{
+				if (ImGui::Selectable(builtIn[i].c_str()))
+				{
+					SceneMeta::PostEffectEntry e;
+					e.effect = builtIn[i];
+					postEffects.push_back(e);
+					changed = true;
+				}
+			}
+			// Assets live in assets/effects by convention - one place to look
+			// keeps this list short and the format discoverable.
+			if (project && project->IsOpen())
+			{
+				std::vector<std::string> assets;
+				const std::string dir = project->AbsolutePath("assets/effects");
+				std::error_code ec;
+				if (std::filesystem::exists(dir, ec))
+				{
+					for (const auto &entry : std::filesystem::directory_iterator(dir, ec))
+					{
+						if (!entry.is_regular_file()) continue;
+						if (entry.path().extension() != ".glsl") continue;
+						assets.push_back("assets/effects/" + entry.path().filename().string());
+					}
+				}
+				std::sort(assets.begin(), assets.end());
+				if (!assets.empty())
+					ImGui::Separator();
+				for (size_t i = 0; i < assets.size(); i++)
+				{
+					const PostEffectAssetInfo &info = GetPostEffectAssetInfo(assets[i]);
+					const std::string text = info.ok ? info.name : (assets[i] + "  (broken)");
+					if (ImGui::Selectable(text.c_str()))
+					{
+						SceneMeta::PostEffectEntry e;
+						e.asset = assets[i];
+						postEffects.push_back(e);
+						changed = true;
+					}
+				}
+				if (assets.empty())
+					ImGui::TextDisabled("no .glsl in assets/effects");
+			}
+			ImGui::EndPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Reload Assets"))
+		{
+			// The .glsl files are edited outside this panel (Assets, or any
+			// editor), so there has to be a way to pick up a change without
+			// reopening the scene.
+			postEffectAssetInfo.clear();
+			changed = true;
+		}
+
+		if (moveFrom >= 0 && moveTo >= 0 && moveTo < (int)postEffects.size())
+		{
+			std::swap(postEffects[moveFrom], postEffects[moveTo]);
+			changed = true;
+		}
+		if (removeAt >= 0)
+		{
+			postEffects.erase(postEffects.begin() + removeAt);
+			changed = true;
+		}
+
+		if (changed)
+		{
+			ApplyPostEffects();
+			sceneDirty = true;
+		}
+	}
+
 	void SceneEditor::DrawSceneSettingsInProperties()
 	{
 		ImGui::Spacing();
@@ -4040,6 +4256,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 		}
 #ifdef LUA_BINDINGS
+		DrawPostEffectsInProperties();
+
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Scene Script");
 		ImGui::TextDisabled("Companion file scenes/<SceneName>.lua (also under Assets → Lua / Scenes).");

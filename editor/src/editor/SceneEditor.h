@@ -52,6 +52,7 @@ using json = nlohmann::json;
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h>
 #include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/CustomEffect.h>
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "EditorDebugDraw.h"
@@ -651,6 +652,23 @@ private:
 	// Reads a project-relative .glsl for PostEffectChain::Build. Static so it
 	// can be a plain function pointer; `user` is the SceneEditor.
 	static bool ReadPostEffectAsset(const std::string &path, std::string &sourceOut, void *user);
+	// The Scene Properties section: the chain, in order, with add/remove/
+	// reorder/enable and a widget per parameter.
+	void DrawPostEffectsInProperties();
+	// Parameter metadata for one effect asset, read from its `//! param`
+	// lines. Cached by project-relative path: the panel needs it every frame
+	// to draw widgets, and re-reading a file per frame to draw a slider is
+	// not a thing to do. Cleared whenever the chain is rebuilt, so editing an
+	// asset and reloading picks up new parameters.
+	struct PostEffectAssetInfo
+	{
+		std::string name;
+		std::vector<CustomEffect::Param> params;
+		bool ok = false;
+		std::string error;
+	};
+	std::map<std::string, PostEffectAssetInfo> postEffectAssetInfo;
+	const PostEffectAssetInfo &GetPostEffectAssetInfo(const std::string &path);
 	// Pushes ambientLightColor*ambientIntensity and backgroundColor at the
 	// renderer. Called on load, on edit and after a renderer switch (a fresh
 	// IRenderer starts on its own hardcoded defaults).
