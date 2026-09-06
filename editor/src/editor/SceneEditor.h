@@ -238,6 +238,28 @@ public:
 		std::string (*onAssignMaterialAsset)(const std::string&, int, const std::string&) = NULL);
 	void EnterPlayMode();
 	void StopPlayMode();
+	// Scene-graph objects present when Play started, and the Stop-time sweep
+	// that removes whatever a script added on top of them. See their
+	// definitions in SceneEditor.cpp.
+	void RemovePlayModeSpawnedObjects();
+	// One authored root as it stood when Play started - everything
+	// RawInsertSubtree() needs to put it back exactly, ids included.
+	struct PlayModeSubtree
+	{
+		std::string json;
+		uint32 parentId;
+		bool wasCamera;
+		EditorCameraSettings camSettings;
+		bool hadHelper;
+		std::vector<uint32> ids;
+		// The material INSTANCES in use, per object id and submesh. Rebuilding
+		// deserialises fresh ones, which silently breaks sharing - see
+		// RestoreMutatedPlayModeSubtrees().
+		std::map<uint32, std::vector<std::shared_ptr<p3d::IMaterial>>> materials;
+	};
+	void CapturePlayModeSubtrees();
+	void RestoreMutatedPlayModeSubtrees();
+	std::shared_ptr<p3d::IMaterial> CurrentMaterialOf(uint32 goId, int submeshIndex);
 	bool IsPlaying() const { return playMode; }
 	bool PlaceAssetInScene(const std::string& absolutePath);
 	// Renders a .p3dm once and writes modelDir/.thumbnails/preview.png.
@@ -1151,6 +1173,11 @@ private:
 		Vec3 position, rotation, scale;
 		Matrix localTransform, scaleTransform, globalRotation;
 	};
+	std::set<GameObject*> playModeExistingObjects;
+	std::map<uint32, PlayModeSubtree> playModeSubtrees;
+	bool playModeSavedDirty;
+	// Root ids in scene-graph (= saved file) order when Play started.
+	std::vector<uint32> playModeRootOrder;
 	bool playMode;
 	// See SetDebugPanelToggles().
 	bool* showProfilerFlag;

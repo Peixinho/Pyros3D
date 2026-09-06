@@ -1106,7 +1106,7 @@ bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::
 	mat->SetTransparencyFlag(true);
 	mat->SetCullFace(CullFace::DoubleSided);
 
-	go->Add(std::make_shared<RenderingComponent>(mesh, mat));
+	go->Add(MakeSceneRenderingComponent(mesh, mat));
 	MarkSceneDirty();
 	PushReplaceCommand(goId, before, "Add Sprite");
 	return true;

@@ -85,6 +85,21 @@ class SceneObject {
 		const uint32 &GetType() const;
 };
 
+// Scene content, created by the editor rather than loaded from a file, must
+// still be reachable from a script: GameObject:getComponent("RenderingComponent")
+// only hands back a LUA_RenderingComponent, because sol picks a metatable from
+// the pointer's *static* type and a plain RenderingComponent* would arrive as
+// unusable userdata (see GameObject_GetComponent, which returns nil rather than
+// that). SceneSerializer already builds the LUA_ subclass for everything it
+// loads; these two do the same for everything the editor builds, so a cube is
+// scriptable the moment it is added instead of only after a save and reload.
+std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
+	const std::shared_ptr<p3d::Renderable> &renderable,
+	const std::shared_ptr<p3d::IMaterial> &material, const p3d::f32 distance = 0.f);
+std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
+	const std::shared_ptr<p3d::Renderable> &renderable,
+	const p3d::uint32 materialOptions, const p3d::f32 distance = 0.f);
+
 class SceneObjects
 {
 	friend class SceneEditor;

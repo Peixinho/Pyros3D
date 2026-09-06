@@ -713,6 +713,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		playMode = false;
 		playModeSavedCameraId = 0;
+		playModeSavedDirty = false;
 		showPhysicsDebug = true;
 		physics2D = new Physics2DWorld();
 		uiEditMode = false;
@@ -5982,6 +5983,28 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			snap.globalRotation = i->second->globalRotation;
 			playModeSnapshots[i->second->GetID()] = snap;
 		}
+		// Everything the scene graph holds *before* the game runs. Anything
+		// found outside this set at Stop was spawned by a script, and goes -
+		// see RemovePlayModeSpawnedObjects().
+		playModeExistingObjects.clear();
+		{
+			std::vector<GameObject*> all;
+			if (scene) scene->CollectGameObjectsRecursive(all);
+			playModeExistingObjects.insert(all.begin(), all.end());
+		}
+		// ... and what each authored root looked like, for the ones a script
+		// deletes or edits rather than merely moves.
+		CapturePlayModeSubtrees();
+		// A play session is not an edit. Everything it touches is put back at
+		// Stop (transforms, spawns, deletions, property changes), so the
+		// document is exactly as dirty - or as clean - as it was before, and
+		// the flag has to say so: measured False before Play and True after
+		// Stop, which is the editor claiming unsaved changes that do not
+		// exist. Restored at the end of StopPlayMode() rather than by hunting
+		// down which internal call sets it, because every one of them is
+		// legitimately marking a real mutation - the mutation just does not
+		// outlive the session.
+		playModeSavedDirty = sceneDirty;
 		ResolvePlayModeCamera();
 		SetEditorChromeVisible(false);
 		SyncPhysicsFromScene();
@@ -6028,6 +6051,292 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// After the scripts, so a script that wants to drive a rig itself can
 		// simply stop or replace the clip rather than race it.
 		RenderingComponent::StartAutoPlayInScene(scene);
+	}
+
+	// A play session is a sandbox: what a script spawns during it must not
+	// survive it. Nothing removed these before, so every Play left its
+	// spawns behind - measured on a script adding 3 objects in init(): the
+	// scene went 3 -> 6 -> 9 -> 12 objects over three Play/Stop cycles, and
+	// a Save afterwards would have written them into the scene file. They are
+	// invisible in the Scene Tree too, because a script adds straight to the
+	// SceneGraph and never touches the editor's SceneObjects registry - so
+	// this was silent growth in a place the editor does not show.
+	//
+	// Two passes: the first only *decides*, because removing a GameObject
+	// takes its children with it and the second entry would then be a
+	// dangling pointer. Only the topmost spawned object of a chain is cut -
+	// an object whose parent was also spawned is already covered by its
+	// ancestor.
+	void SceneEditor::RemovePlayModeSpawnedObjects()
+	{
+		if (!scene || playModeExistingObjects.empty()) return;
+
+		std::vector<GameObject*> all;
+		scene->CollectGameObjectsRecursive(all);
+
+		std::vector<GameObject*> toRemove;
+		for (size_t i = 0; i < all.size(); i++)
+		{
+			GameObject* go = all[i];
+			if (!go || playModeExistingObjects.count(go) != 0) continue;
+			GameObject* parent = go->GetParent();
+			if (parent != NULL && playModeExistingObjects.count(parent) == 0) continue;
+			toRemove.push_back(go);
+		}
+
+		for (size_t i = 0; i < toRemove.size(); i++)
+		{
+			GameObject* go = toRemove[i];
+			GameObject* parent = go->GetParent();
+			// Both paths unregister the components (SceneGraph::Remove ->
+			// UnregisterComponentsTree), so lights, meshes and physics bodies
+			// go with the object rather than lingering in their managers.
+			if (parent != NULL)
+				parent->RemoveGameObject(go);
+			else
+				scene->Remove(go);
+		}
+		if (!toRemove.empty())
+			echo("SUCCESS: Play mode - removed " + std::to_string(toRemove.size())
+				+ " object(s) spawned while playing");
+		playModeExistingObjects.clear();
+	}
+
+	// Everything an authored root needs to be put back byte-for-byte if the
+	// play session mutates it. Cheap: this is JSON text, no assets are
+	// touched - the whole point of snapshotting here and rebuilding only
+	// what actually changed, rather than reloading the scene on every Stop
+	// (which re-imports every Model and re-uploads every Texture, since the
+	// serializer's caches are per-load).
+	// The material currently on one submesh, or NULL. Mirrors
+	// RawAssignMaterial()'s lookup, which is the writer.
+	std::shared_ptr<IMaterial> SceneEditor::CurrentMaterialOf(uint32 goId, int submeshIndex)
+	{
+		SceneObject* obj = sceneObjects->GetSceneObject(goId);
+		if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return std::shared_ptr<IMaterial>();
+		GameObject* go = (GameObject*)obj->GetPTR();
+		if (!go) return std::shared_ptr<IMaterial>();
+		RenderingComponent* rc = NULL;
+		const std::vector<std::shared_ptr<IComponent>> &comps = go->GetComponents();
+		for (size_t i = 0; i < comps.size() && rc == NULL; ++i)
+			rc = dynamic_cast<RenderingComponent*>(comps[i].get());
+		if (!rc) return std::shared_ptr<IMaterial>();
+		std::vector<RenderingMesh*> &meshes = rc->GetMeshes(0);
+		if (submeshIndex < 0 || (size_t)submeshIndex >= meshes.size() || !meshes[submeshIndex])
+			return std::shared_ptr<IMaterial>();
+		return meshes[submeshIndex]->Material;
+	}
+
+	void SceneEditor::CapturePlayModeSubtrees()
+	{
+		playModeSubtrees.clear();
+
+		// The order the scene graph lists its roots in, which is the order
+		// SceneSerializer writes them. Rebuilding a root appends it, so
+		// without putting this back a play session that restored an object
+		// perfectly still rewrote the whole roots array of the saved file -
+		// pure churn in a version-controlled scene. Recorded as registry ids
+		// because the rebuilt objects are new GameObjects at new addresses;
+		// the ids survive (RawInsertSubtree gets preferredIds).
+		playModeRootOrder.clear();
+		if (scene != NULL)
+		{
+			const std::vector<std::shared_ptr<GameObject>> &roots = scene->GetAllGameObjectList();
+			for (size_t i = 0; i < roots.size(); i++)
+			{
+				GameObject* go = roots[i].get();
+				if (go == NULL || IsInternalGameObject(go)) continue;
+				const uint32 id = sceneObjects->GetSceneObjectID(go);
+				if (id != 0) playModeRootOrder.push_back(id);
+			}
+		}
+		std::vector<uint32> roots;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			SceneObject* obj = i->second;
+			if (obj == NULL || obj->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+			if (obj->GetParentID() != 0) continue;
+			if (IsInternalGameObject((GameObject*)obj->GetPTR())) continue;
+			roots.push_back(obj->GetID());
+		}
+		for (size_t i = 0; i < roots.size(); ++i)
+		{
+			const uint32 id = roots[i];
+			SceneObject* obj = sceneObjects->GetSceneObject(id);
+			if (!obj) continue;
+			PlayModeSubtree snap;
+			snap.json = SnapshotSubtree(id);
+			snap.parentId = obj->GetParentID();
+			snap.wasCamera = IsSceneCamera(id);
+			if (snap.wasCamera) snap.camSettings = sceneCameras[id];
+			snap.hadHelper = (obj->Helper != NULL);
+			snap.ids = RawCollectSubtreeIds(id);
+			for (size_t k = 0; k < snap.ids.size(); ++k)
+			{
+				SceneObject* member = sceneObjects->GetSceneObject(snap.ids[k]);
+				if (!member || member->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+				GameObject* mgo = (GameObject*)member->GetPTR();
+				if (!mgo) continue;
+				RenderingComponent* rc = NULL;
+				const std::vector<std::shared_ptr<IComponent>> &mcomps = mgo->GetComponents();
+				for (size_t c = 0; c < mcomps.size() && rc == NULL; ++c)
+					rc = dynamic_cast<RenderingComponent*>(mcomps[c].get());
+				if (!rc) continue;
+				std::vector<RenderingMesh*> &meshes = rc->GetMeshes(0);
+				std::vector<std::shared_ptr<IMaterial>> mats;
+				for (size_t m = 0; m < meshes.size(); ++m)
+					mats.push_back(meshes[m] ? meshes[m]->Material : std::shared_ptr<IMaterial>());
+				snap.materials[snap.ids[k]] = mats;
+			}
+			playModeSubtrees[id] = snap;
+		}
+	}
+
+	// The other half of the sandbox: a script can also delete an authored
+	// object, or change one in a way no transform snapshot describes (a light
+	// colour, a material swap, a child removed). Re-serialise each root and
+	// compare against what Play started with; only the ones that differ are
+	// torn down and rebuilt, so an ordinary play session - where nothing
+	// changed but transforms, already restored above - pays nothing but the
+	// comparison.
+	//
+	// RawInsertSubtree()/RawCollectSubtreeIds() are the undo system's own
+	// primitives, and `preferredIds` is why this is usable here: the rebuilt
+	// objects come back under their original SceneObject ids, so selection,
+	// sceneCameras and everything else keyed by id still points at the right
+	// thing afterwards.
+	void SceneEditor::RestoreMutatedPlayModeSubtrees()
+	{
+		if (playModeSubtrees.empty()) return;
+
+		const uint32 selectedId = (SelectedSceneObject != NULL) ? SelectedSceneObject->GetID() : 0;
+		uint32 rebuilt = 0;
+
+		// A root a script deleted with scene:remove() is out of the SCENE
+		// GRAPH, but its editor registry entry survives and so does the
+		// GameObject itself (Lua still holds a reference). Comparing the
+		// serialised subtree therefore says "unchanged" - it serialises the
+		// object, not its membership - and the deletion sailed straight
+		// through the first version of this. Graph membership is the check
+		// that catches it; the JSON compare catches everything else (a child
+		// removed, a light recoloured, a material swapped).
+		std::set<GameObject*> liveInGraph;
+		{
+			std::vector<GameObject*> all;
+			if (scene) scene->CollectGameObjectsRecursive(all);
+			liveInGraph.insert(all.begin(), all.end());
+		}
+
+		for (std::map<uint32, PlayModeSubtree>::iterator i = playModeSubtrees.begin();
+			i != playModeSubtrees.end(); ++i)
+		{
+			const uint32 id = i->first;
+			PlayModeSubtree &snap = i->second;
+			SceneObject* obj = sceneObjects->GetSceneObject(id);
+			bool gone = (obj == NULL || obj->GetType() != SceneObjectTypes::GAMEOBJECT);
+			if (!gone)
+			{
+				GameObject* go = (GameObject*)obj->GetPTR();
+				gone = (go == NULL || liveInGraph.count(go) == 0);
+			}
+			std::string current;
+			if (!gone)
+			{
+				current = SnapshotSubtree(id);
+				if (current == snap.json) continue;
+			}
+
+			// Deserialising the subtree builds FRESH materials, so an object
+			// that shared one instance with the rest of the scene quietly
+			// stops sharing it: measured as the saved scene going from 1
+			// material to 3 after a session that touched two objects, with
+			// each rebuilt object pointing at its own private copy. A later
+			// edit of the shared material would then no longer reach them.
+			// Put the original instances back afterwards - but only when the
+			// materials themselves did not change during the session, because
+			// if they did, the fresh copies are the restored ones and the old
+			// instances are the mutated ones.
+			bool reuseMaterials = true;
+			if (!current.empty())
+			{
+				try
+				{
+					const nlohmann::json now = nlohmann::json::parse(current);
+					const nlohmann::json was = nlohmann::json::parse(snap.json);
+					reuseMaterials = (now.contains("materials") && was.contains("materials")
+						&& now["materials"] == was["materials"]);
+				}
+				catch (const std::exception&) { reuseMaterials = false; }
+			}
+
+
+			// Even when it is out of the graph the registry entry has to go,
+			// or the rebuild below lands next to a stale twin holding the id.
+			if (obj != NULL)
+			{
+				if (SelectedSceneObject != NULL && SelectedSceneObject->GetID() == id)
+					DeselectSceneObject();
+				RawDeleteSubtree(id);
+			}
+			RawInsertSubtree(snap.json, snap.parentId, snap.wasCamera, snap.camSettings,
+				snap.hadHelper, &snap.ids);
+			if (reuseMaterials)
+				for (std::map<uint32, std::vector<std::shared_ptr<IMaterial>>>::const_iterator m
+					= snap.materials.begin(); m != snap.materials.end(); ++m)
+					for (size_t sub = 0; sub < m->second.size(); ++sub)
+						if (m->second[sub]) RawAssignMaterial(m->first, (int)sub, m->second[sub]);
+			rebuilt++;
+		}
+
+		if (rebuilt > 0)
+		{
+			// One material instance shared by several objects, mutated during
+			// the session, ends up as one PRIVATE restored copy per object -
+			// each rebuilt root deserialises its own from its own snapshot.
+			// Content is right, sharing is not: measured 1 material becoming
+			// 3 after a script recoloured a material three cubes shared, and
+			// a later edit of "the" material would then only reach one of
+			// them. Converge them: the first replacement seen for an original
+			// instance becomes the one everybody who shared that original
+			// gets. (Roots whose materials were untouched already had the
+			// original instance put back above, and register it as their own
+			// canonical replacement, so the two paths agree.)
+			std::map<IMaterial*, std::shared_ptr<IMaterial>> canonical;
+			for (std::map<uint32, PlayModeSubtree>::iterator i = playModeSubtrees.begin();
+				i != playModeSubtrees.end(); ++i)
+				for (std::map<uint32, std::vector<std::shared_ptr<IMaterial>>>::const_iterator m
+					= i->second.materials.begin(); m != i->second.materials.end(); ++m)
+					for (size_t sub = 0; sub < m->second.size(); ++sub)
+					{
+						const std::shared_ptr<IMaterial> &orig = m->second[sub];
+						if (!orig) continue;
+						const std::shared_ptr<IMaterial> now = CurrentMaterialOf(m->first, (int)sub);
+						if (!now) continue;
+						std::map<IMaterial*, std::shared_ptr<IMaterial>>::iterator seen
+							= canonical.find(orig.get());
+						if (seen == canonical.end()) canonical[orig.get()] = now;
+						else if (seen->second != now) RawAssignMaterial(m->first, (int)sub, seen->second);
+					}
+
+			std::vector<GameObject*> order;
+			for (size_t i = 0; i < playModeRootOrder.size(); i++)
+			{
+				SceneObject* o = sceneObjects->GetSceneObject(playModeRootOrder[i]);
+				if (o != NULL && o->GetType() == SceneObjectTypes::GAMEOBJECT && o->GetPTR() != NULL)
+					order.push_back((GameObject*)o->GetPTR());
+			}
+			if (scene != NULL && !order.empty()) scene->ReorderRoots(order);
+
+			// Ids were preserved, so this finds the same object it had - but
+			// the SceneObject* is a new allocation, and the caller's cached
+			// pointer would be dangling.
+			SelectedSceneObject = (selectedId != 0) ? sceneObjects->GetSceneObject(selectedId) : NULL;
+			echo("SUCCESS: Play mode - restored " + std::to_string(rebuilt)
+				+ " object(s) the session had changed");
+		}
+		playModeSubtrees.clear();
+		playModeRootOrder.clear();
 	}
 
 	void SceneEditor::StopPlayMode()
@@ -6086,6 +6395,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		projectMainScriptPath.clear();
 		pendingLoadSceneName.clear();
 #endif
+		// Before the physics re-sync below, so bodies belonging to objects
+		// that are about to go are not synced (and are unregistered by the
+		// removal itself).
+		RemovePlayModeSpawnedObjects();
+		// After the sweep (a spawned child inside an authored root is removed
+		// there, which puts that root back to matching its snapshot and saves
+		// a rebuild) and before the physics re-sync below, which has to see
+		// the final set of bodies.
+		RestoreMutatedPlayModeSubtrees();
 		static_cast<Box3DPhysics*>(physics)->SetSimulationEnabled(false);
 		SyncPhysicsFromScene();
 		playModeSnapshots.clear();
@@ -6099,6 +6417,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		editorDisabled = false;
 		if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
 			SelectSceneObject(SelectedSceneObject);
+		// Last, after everything above has had its chance to mark the scene.
+		sceneDirty = playModeSavedDirty;
 	}
 
 	void SceneEditor::PrepareGizmoForDraw(GameObject* viewCam)

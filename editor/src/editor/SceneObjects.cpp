@@ -276,6 +276,30 @@ namespace {
 	// Don't overwrite the type - it should already be set correctly
 	}
 
+std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
+	const std::shared_ptr<p3d::Renderable> &renderable,
+	const std::shared_ptr<p3d::IMaterial> &material, const p3d::f32 distance)
+{
+#ifdef LUA_BINDINGS
+	return std::static_pointer_cast<p3d::RenderingComponent>(
+		std::make_shared<p3d::LUA_RenderingComponent>(renderable, material, distance));
+#else
+	return std::make_shared<p3d::RenderingComponent>(renderable, material, distance);
+#endif
+}
+
+std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
+	const std::shared_ptr<p3d::Renderable> &renderable,
+	const p3d::uint32 materialOptions, const p3d::f32 distance)
+{
+#ifdef LUA_BINDINGS
+	return std::static_pointer_cast<p3d::RenderingComponent>(
+		std::make_shared<p3d::LUA_RenderingComponent>(renderable, materialOptions, distance));
+#else
+	return std::make_shared<p3d::RenderingComponent>(renderable, materialOptions, distance);
+#endif
+}
+
 	SceneObject* SceneObjects::CreateRenderingCube(GameObject *go, const f32 width, const f32 height, const f32 depth, bool smoothnormals, bool flipnormals)
 	{
 		uint32 id = ++_ID;
@@ -283,7 +307,7 @@ namespace {
 		// Mesh
 		std::shared_ptr<Renderable> cubeMesh;
 		cubeMesh = std::make_shared<Cube>(width,height,depth,smoothnormals,flipnormals);
-		rCube = std::make_shared<RenderingComponent>(cubeMesh, GenericMaterial);
+		rCube = MakeSceneRenderingComponent(cubeMesh, GenericMaterial);
 		go->Add(rCube);
 
 		SceneObject* obj = new SceneObject("Cube", rCube.get(), id);
@@ -301,7 +325,7 @@ namespace {
 		// Mesh
 		std::shared_ptr<Renderable> sphereMesh;
 		sphereMesh = std::make_shared<Sphere>(radius, segmentsw, segmentsh, smoothnormals, halfsphere, flipnormals);
-		rSphere = std::make_shared<RenderingComponent>(sphereMesh, GenericMaterial);
+		rSphere = MakeSceneRenderingComponent(sphereMesh, GenericMaterial);
 		go->Add(rSphere);
 
 		SceneObject* obj = new SceneObject("Sphere", rSphere.get(), id);
@@ -319,7 +343,7 @@ namespace {
 		// Mesh
 		std::shared_ptr<Renderable> capsuleMesh;
 		capsuleMesh = std::make_shared<Capsule>(radius, height, nrings, segmentsw, segmentsh, smoothnormals, flipnormals);
-		rCapsule = std::make_shared<RenderingComponent>(capsuleMesh, GenericMaterial);
+		rCapsule = MakeSceneRenderingComponent(capsuleMesh, GenericMaterial);
 		go->Add(rCapsule);
 
 		SceneObject* obj = new SceneObject("Capsule", rCapsule.get(), id);
@@ -337,7 +361,7 @@ namespace {
 		// Mesh
 		std::shared_ptr<Renderable> coneMesh;
 		coneMesh = std::make_shared<Cone>(radius, height, segmentsw, segmentsh, openended, smoothnormals, flipnormals);
-		rCone = std::make_shared<RenderingComponent>(coneMesh, GenericMaterial);
+		rCone = MakeSceneRenderingComponent(coneMesh, GenericMaterial);
 		go->Add(rCone);
 
 		SceneObject* obj = new SceneObject("Cone", rCone.get(), id);
@@ -355,7 +379,7 @@ namespace {
 		// Mesh
 		std::shared_ptr<Renderable> cylinderMesh;
 		cylinderMesh = std::make_shared<Cylinder>(radius, height, segmentsw, segmentsh, openended, smoothnormals, flipnormals);
-		rCylinder = std::make_shared<RenderingComponent>(cylinderMesh, GenericMaterial);
+		rCylinder = MakeSceneRenderingComponent(cylinderMesh, GenericMaterial);
 		go->Add(rCylinder);
 
 		SceneObject* obj = new SceneObject("Cylinder", rCylinder.get(), id);
@@ -373,7 +397,7 @@ namespace {
 		// Mesh
 		std::shared_ptr<Renderable> planeMesh;
 		planeMesh = std::make_shared<Plane>(width, height, smoothnormals, flipnormals);
-		rPlane = std::make_shared<RenderingComponent>(planeMesh, GenericMaterial);
+		rPlane = MakeSceneRenderingComponent(planeMesh, GenericMaterial);
 		go->Add(rPlane);
 
 		SceneObject* obj = new SceneObject("Plane", rPlane.get(), id);
@@ -391,7 +415,7 @@ namespace {
 		// Mesh
 		std::shared_ptr<Renderable> torusMesh;
 		torusMesh = std::make_shared<Torus>(radius, tube, segmentsw, segmentsh, smoothnormals, flipnormals);
-		rTorus = std::make_shared<RenderingComponent>(torusMesh, GenericMaterial);
+		rTorus = MakeSceneRenderingComponent(torusMesh, GenericMaterial);
 		go->Add(rTorus);
 
 		SceneObject* obj = new SceneObject("Torus", rTorus.get(), id);
@@ -409,7 +433,7 @@ namespace {
 		// Mesh
 		std::shared_ptr<Renderable> torusKnotMesh;
 		torusKnotMesh = std::make_shared<TorusKnot>(radius, tube, segmentsw, segmentsh, p, q, smoothnormals, flipnormals);
-		rTorusKnot = std::make_shared<RenderingComponent>(torusKnotMesh, GenericMaterial);
+		rTorusKnot = MakeSceneRenderingComponent(torusKnotMesh, GenericMaterial);
 		go->Add(rTorusKnot);
 
 		SceneObject* obj = new SceneObject("TorusKnot", rTorusKnot.get(), id);
@@ -443,7 +467,7 @@ namespace {
 		
 		// Mesh
 		std::shared_ptr<Renderable> modelMesh = std::make_shared<Model>(finalPath, true);
-		std::shared_ptr<RenderingComponent> rModel = std::make_shared<RenderingComponent>(modelMesh, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow | ShaderUsage::SpotShadow);
+		std::shared_ptr<RenderingComponent> rModel = MakeSceneRenderingComponent(modelMesh, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow | ShaderUsage::SpotShadow);
 		go->Add(rModel);
 
 		SceneObject* obj = new SceneObject("Model", rModel.get(), id, SceneObjectTypes::RENDERING_COMPONENT);
@@ -469,7 +493,7 @@ namespace {
 		// geometry wholesale from the asset's sprites.
 		std::shared_ptr<Renderable> placeholder = std::make_shared<Plane>(1.f, 1.f);
 		std::shared_ptr<RenderingComponent> rc =
-			std::make_shared<RenderingComponent>(placeholder, std::shared_ptr<IMaterial>());
+			MakeSceneRenderingComponent(placeholder, std::shared_ptr<IMaterial>());
 		go->Add(rc);
 		rc->SetCharacter2DPath(characterRel);
 
@@ -827,7 +851,7 @@ namespace {
 				std::vector<RenderingMesh*>& meshes = srcRc->GetMeshes();
 				if (!meshes.empty() && meshes[0]->Material)
 					mat = meshes[0]->Material;
-				std::shared_ptr<RenderingComponent> newRc = std::make_shared<RenderingComponent>(
+				std::shared_ptr<RenderingComponent> newRc = MakeSceneRenderingComponent(
 					srcRc->GetRenderableShared(), mat);
 				dupGo->Add(newRc);
 				uint32 cid = ++_ID;

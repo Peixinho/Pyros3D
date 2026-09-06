@@ -266,6 +266,32 @@ namespace p3d {
 		return _GameObjectListStaticAfter;
 	}
 
+	void SceneGraph::ReorderRoots(const std::vector<GameObject*> &order)
+	{
+		if (order.empty() || _GameObjectListALL.empty()) return;
+
+		std::vector<std::shared_ptr<GameObject>> reordered;
+		reordered.reserve(_GameObjectListALL.size());
+		std::vector<bool> taken(_GameObjectListALL.size(), false);
+
+		for (size_t i = 0; i < order.size(); i++)
+		{
+			for (size_t j = 0; j < _GameObjectListALL.size(); j++)
+			{
+				if (taken[j] || _GameObjectListALL[j].get() != order[i]) continue;
+				reordered.push_back(_GameObjectListALL[j]);
+				taken[j] = true;
+				break;
+			}
+		}
+		// Whatever the caller did not name - editor furniture, anything added
+		// since - keeps the order it already had, after the named ones.
+		for (size_t j = 0; j < _GameObjectListALL.size(); j++)
+			if (!taken[j]) reordered.push_back(_GameObjectListALL[j]);
+
+		_GameObjectListALL.swap(reordered);
+	}
+
 	std::vector<std::shared_ptr<GameObject>> &SceneGraph::GetAllGameObjectList()
 	{
 		return _GameObjectListALL;

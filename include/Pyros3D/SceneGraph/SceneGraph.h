@@ -69,6 +69,17 @@ namespace p3d {
 		// happens. Remove() is the other half: that one is for an object
 		// genuinely leaving, and it does unregister.
 		void DetachRoot(GameObject* GO);
+
+		// Permutes the enumeration list (the one GetAllGameObjectList()
+		// returns, which is also the order SceneSerializer writes roots in)
+		// to match `order`; anything not named keeps its relative position,
+		// at the end. Deliberately does NOT touch the static/dynamic lists -
+		// those drive update and draw order, and this is about the order the
+		// scene is *listed* in, nothing else. Exists so a caller that
+		// removes and re-adds a root (undo, or the editor's Stop-time
+		// restore) can put it back where it was instead of at the end, which
+		// otherwise rewrites the whole roots array of the saved file.
+		void ReorderRoots(const std::vector<GameObject*> &order);
 		std::vector<std::shared_ptr<GameObject>> &GetStaticGameObjectList();
 		std::vector<std::shared_ptr<GameObject>> &GetDynamicGameObjectList();
 
