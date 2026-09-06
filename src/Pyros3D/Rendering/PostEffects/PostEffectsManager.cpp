@@ -88,6 +88,17 @@ namespace p3d {
 
 		if (viewportGammaEffect != NULL)
 			viewportGammaEffect->Resize(Width, Height);
+
+		// The chain too, not just the capture. An effect keeps whatever size
+		// it was built with, so after a viewport resize the last effect's
+		// texture no longer matches the frame it is displayed in and the
+		// image is resampled to fit - the scene visibly shifts and rescales
+		// the moment a chain is added. Every effect reads full-screen
+		// texcoords, so they all want the target's size; the only ones that
+		// deliberately differ would be half-res stages, and there are none
+		// here.
+		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
+			(*i)->Resize(Width, Height);
 	}
 
 	void PostEffectsManager::EnsureViewportGammaEffect()

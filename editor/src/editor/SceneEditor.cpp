@@ -588,6 +588,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			Vec4(0.35f, 0.35f, 0.35f, 1.f), Vec4(0.55f, 0.25f, 0.25f, 1.f));
 		GridMaterial = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color);
 		GridMaterial->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
+		// Tests against the scene's depth - it must be occluded by real
+		// geometry - but does not add to it. The grid is drawn into the same
+		// framebuffer the post-effect chain then captures, so every line it
+		// wrote showed up in that depth as if it were geometry: SSAO read the
+		// ruled lines as occluders and drew them back over the scene as dark
+		// streaks. Nothing drawn after the grid needs to be occluded by it
+		// (the gizmo and physics debug turn depth testing off on purpose so
+		// they stay on top; the axis widget renders in its own corner with
+		// its own depth), so writing was never buying anything here.
+		GridMaterial->DisableDepthWrite();
 		rGrid = std::make_shared<RenderingComponent>(gridhandle, GridMaterial);
 		rGrid->DisableCastShadows();
 		grid->Add(rGrid);
