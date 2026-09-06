@@ -48,6 +48,17 @@ namespace p3d {
 		Depth = new Texture();
 		Depth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
 		Depth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		// Nearest, not CreateEmptyTexture's default Linear. Apple's GL calls
+		// a Linear-filtered depth texture "unloadable" and silently
+		// substitutes the zero texture for it - the same trap the shadow
+		// maps document in DirectionalLight::EnableCastShadows(). Every
+		// effect that reads RTT::Depth (SSAO, depth of field, motion blur)
+		// then samples zeros and produces nothing, with no error anywhere
+		// except one driver log line. No compare mode here, unlike a shadow
+		// map: this is read as a plain sampler2D. Filtering depth is
+		// meaningless anyway - a blend of two depths is a surface that is
+		// not there - so Nearest is what these effects want regardless.
+		Depth->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 
 		// Initialize Internal FBO
 		ExternalFBO = new FrameBuffer();

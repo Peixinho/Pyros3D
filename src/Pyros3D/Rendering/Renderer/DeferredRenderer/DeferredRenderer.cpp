@@ -78,6 +78,10 @@ namespace p3d {
 		forwardDepthTexture = new Texture();
 		forwardDepthTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
 		forwardDepthTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		// See PostEffectsManager::Init() - a Linear-filtered depth texture is
+		// "unloadable" on Apple GL and reads back as the zero texture. This
+		// one is handed out by GetDepthTexture() and sampled.
+		forwardDepthTexture->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 
 		lastPassFBO = new FrameBuffer();
 		lastPassFBO->SetDebugName("Deferred last pass");
@@ -100,6 +104,12 @@ namespace p3d {
 		dummyShadow2D = new Texture();
 		dummyShadow2D->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, 4, 4, false);
 		dummyShadow2D->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
+		// Nearest as well - "same creation pattern" has to include this, or
+		// the placeholder is exactly the depth+compare+Linear combination
+		// Apple GL refuses to load (see DirectionalLight::EnableCastShadows).
+		// The contents are never read, but the sampler is still bound, and
+		// the driver logs the rejection every run.
+		dummyShadow2D->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 		dummyShadow2D->EnableCompareMode();
 
 		dummyShadowCube = new Texture();

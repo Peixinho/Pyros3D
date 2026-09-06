@@ -36,6 +36,9 @@ namespace p3d {
 		depthMap = new Texture();
 		depthMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
 		depthMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		// See PostEffectsManager::Init() - Linear on a depth texture is
+		// "unloadable" on Apple GL and samples as zero.
+		depthMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 
 		// Initialize Frame Buffer
 		fbo = new FrameBuffer();

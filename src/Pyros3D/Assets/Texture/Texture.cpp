@@ -364,6 +364,27 @@ namespace p3d {
 		this->DataType = TextureDataType;
 		this->haveImage = false;
 
+		// Depth targets default to Nearest, everything else keeps the class
+		// default. Apple's GL refuses to load a Linear-filtered depth
+		// texture and silently substitutes the zero texture for it - which
+		// is how SSAO ended up sampling nothing on that backend - and every
+		// caller in the engine already sets Nearest by hand right after this
+		// (see DirectionalLight/SpotLight::EnableCastShadows and
+		// PostEffectsManager::Init). Setting it here instead of relying on
+		// each caller to remember means the texture is never *created*
+		// wrong, so the driver has nothing to reject in the window between
+		// CreateTexture() below and the caller's own SetMinMagFilter().
+		// Filtering a depth buffer is meaningless anyway: the average of two
+		// depths is a surface that is not there.
+		if (TextureDataType == TextureDataType::DepthComponent ||
+			TextureDataType == TextureDataType::DepthComponent16 ||
+			TextureDataType == TextureDataType::DepthComponent24 ||
+			TextureDataType == TextureDataType::DepthComponent32)
+		{
+			MinFilter = TextureFilter::Nearest;
+			MagFilter = TextureFilter::Nearest;
+		}
+
 		if (GL_ID == -1) {
 			GL_ID = Device().CreateTextureObject();
 		}
