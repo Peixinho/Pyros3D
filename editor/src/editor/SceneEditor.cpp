@@ -327,6 +327,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		gbufferDepth = new Texture();
 		gbufferDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, width, height, false);
 		gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		// Nearest, not CreateEmptyTexture's default Linear. This is the
+		// depth every secondpass*.glsl samples as tDepth, and a
+		// Linear-filtered depth texture is not filterable: WebGL2 calls the
+		// texture incomplete and every sample returns 0, Apple's GL calls it
+		// "unloadable" and substitutes the zero texture. tDepth then reads 0
+		// everywhere, `if (tDepth >= 1.0) discard` never rejects the sky, and
+		// the ambient pass plus every light shade the whole screen - the
+		// white/washed-out deferred viewport in the browser build. Same rule
+		// as PostEffectsManager::Init() and VelocityRenderer, which document
+		// it from the effect side.
+		gbufferDepth->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 
 		gbufferAlbedo = new Texture();
 		// RGBA16F, not RGBA8. These two carry the additive ambient+emissive
@@ -389,6 +400,30 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		ss << in.rdbuf();
 		sourceOut = ss.str();
 		return true;
+	}
+
+	// The "transparent canvas" both overlay branches below rely on is only
+	// transparent if something actually clears it. PostEffectsManager::
+	// CaptureFrame() is a bare ExternalFBO->Bind(), and binding a render
+	// target carries an implicit clear on Vulkan and Metal but not on GL or
+	// WebGL2 - the same asymmetry DeferredRenderer::RenderScene() and
+	// PostEffectsManager::drawEffect() both document. Forward without a chain
+	// never noticed, because RenderScene() clears the target it was handed;
+	// the overlay re-bind here has no renderer behind it, so on GL the
+	// capture kept the previous frame's contents, opaque alpha included
+	// (measured aMin 0.75, aMean 0.9999 - an opaque layer). ImGui then drew
+	// that over DeferredRenderer's colour output and the scene was gone:
+	// a black viewport with only the grid and gizmos in it, on desktop GL and
+	// in the emscripten build alike, while Vulkan and Metal looked correct.
+	//
+	// Colour only. The Deferred branch has just copied the real scene depth
+	// into this same FBO so the grid depth-tests against the opaque scene,
+	// and SetFramebufferPreserveDepth() (see Init()) exists to keep it - a
+	// Depth bit here would throw away the thing that copy is for.
+	void SceneEditor::ClearOverlayCapture()
+	{
+		IRenderDevice &device = GetActiveRenderDevice();
+		device.Clear(device.TranslateBufferBit(Buffer_Bit::Color));
 	}
 
 	void SceneEditor::ApplyPostEffects()
@@ -1152,6 +1187,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				EffectsManager->GetDepth()->GetBindID(), viewW, viewH);
 			GetActiveRenderDevice().SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
 			EffectsManager->CaptureFrame();
+			ClearOverlayCapture();
 		}
 		else if (overlayGetsOwnLayer)
 		{
@@ -1161,6 +1197,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// the same thing the Deferred branch relies on for its copy).
 			GetActiveRenderDevice().SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
 			EffectsManager->CaptureFrame();
+			ClearOverlayCapture();
 		}
 
 		// Scene UI, over the finished 3D frame and under the editor's own

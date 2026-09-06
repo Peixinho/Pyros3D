@@ -33,6 +33,12 @@ local function makeTarget(dataType, width, height)
 	return t
 end
 
+local function makeDepthTarget(width, height)
+	local t = makeTarget(TextureDataType.DepthComponent, width, height)
+	t:setMinMagFilter(TextureFilter.Nearest, TextureFilter.Nearest)
+	return t
+end
+
 local function clear()
 	-- Ordered teardown: PostFX → renderer → FBO → gbuffer textures.
 	if clearPostEffectHandles then clearPostEffectHandles() end
@@ -96,7 +102,13 @@ function RenderHost.setup(cfg, width, height)
 		renderer = ForwardRenderer.new(width, height)
 	else
 		local g = {
-			depth = makeTarget(TextureDataType.DepthComponent, width, height),
+			-- Nearest, not makeTarget's default Linear: this is the depth
+			-- every secondpass*.glsl samples as tDepth, and a Linear-filtered
+			-- depth texture is not filterable - WebGL2 calls it incomplete and
+			-- samples 0, Apple's GL substitutes the zero texture. tDepth then
+			-- never trips `>= 1.0`, the sky is never discarded and every light
+			-- shades the whole screen. See PostEffectsManager::Init().
+			depth = makeDepthTarget(width, height),
 			albedo = makeTarget(TextureDataType.RGBA, width, height),
 			specular = makeTarget(TextureDataType.RGBA, width, height),
 			normal = makeTarget(TextureDataType.RGBA32F, width, height),

@@ -649,6 +649,9 @@ private:
 	// per frame - ApplyPostEffects is called when the list changes, a scene
 	// loads, the viewport resizes, or SwitchRenderer replaces the manager.
 	void ApplyPostEffects();
+	// See its definition - clears the overlay capture that CaptureFrame()
+	// only binds.
+	void ClearOverlayCapture();
 	// One frame of the chain: source, per-frame inputs, then the passes.
 	// Called from two places in ShowViewport() because *when* it runs
 	// depends on the renderer - see overlayGetsOwnLayer there.

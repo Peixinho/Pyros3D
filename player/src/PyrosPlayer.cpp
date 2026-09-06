@@ -176,6 +176,17 @@ void PyrosPlayer::BuildGBuffer(uint32 width, uint32 height)
 	gbufferDepth = new Texture();
 	gbufferDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, width, height, false);
 	gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	// Nearest, not CreateEmptyTexture's default Linear. This is the
+	// depth every secondpass*.glsl samples as tDepth, and a
+	// Linear-filtered depth texture is not filterable: WebGL2 calls the
+	// texture incomplete and every sample returns 0, Apple's GL calls it
+	// "unloadable" and substitutes the zero texture. tDepth then reads 0
+	// everywhere, `if (tDepth >= 1.0) discard` never rejects the sky, and
+	// the ambient pass plus every light shade the whole screen - the
+	// white/washed-out deferred viewport in the browser build. Same rule
+	// as PostEffectsManager::Init() and VelocityRenderer, which document
+	// it from the effect side.
+	gbufferDepth->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 
 	gbufferAlbedo = new Texture();
 	gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, width, height, false);

@@ -67,6 +67,17 @@ void MaterialPreview::BuildGBuffer(uint32_t w, uint32_t h) {
 	gbufferDepth = new Texture();
 	gbufferDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, w, h, false);
 	gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	// Nearest, not CreateEmptyTexture's default Linear. This is the
+	// depth every secondpass*.glsl samples as tDepth, and a
+	// Linear-filtered depth texture is not filterable: WebGL2 calls the
+	// texture incomplete and every sample returns 0, Apple's GL calls it
+	// "unloadable" and substitutes the zero texture. tDepth then reads 0
+	// everywhere, `if (tDepth >= 1.0) discard` never rejects the sky, and
+	// the ambient pass plus every light shade the whole screen - the
+	// white/washed-out deferred viewport in the browser build. Same rule
+	// as PostEffectsManager::Init() and VelocityRenderer, which document
+	// it from the effect side.
+	gbufferDepth->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 
 	gbufferAlbedo = new Texture();
 	// RGBA16F, not RGBA8. These two carry the additive ambient+emissive
