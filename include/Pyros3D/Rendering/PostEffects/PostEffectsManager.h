@@ -18,6 +18,11 @@
 
 namespace p3d {
 
+	// Only ever held by pointer here - see EnsureVelocityMap(). Forward
+	// declared so every translation unit that draws a post effect does not
+	// also pull in a renderer it will never touch.
+	class VelocityRenderer;
+
 	using namespace Uniforms;
 
 	class PYROS3D_API PostEffectsManager {
@@ -89,6 +94,14 @@ namespace p3d {
 
 		const uint32 GetNumberEffects() const;
 
+		// The effect a new one would be appended after, or NULL for an empty
+		// chain. A multi-pass built-in needs it: its last pass has to
+		// composite over the image as it entered the group, and that is this
+		// effect's texture - not RTT::Color, which is always the captured
+		// scene and would silently throw away everything earlier in the
+		// chain. See PostEffectChain::AppendBuiltIn().
+		IEffect* GetLastEffect() const { return effects.empty() ? NULL : effects.back(); }
+
 		FrameBuffer* GetExternalFrameBuffer();
 
 		Texture* GetColor() { return Color; }
@@ -101,6 +114,24 @@ namespace p3d {
 		// Color as-is. Call after EndCapture() / after the frame's debug
 		// overlays have been drawn into Color.
 		Texture* GetViewportColor();
+
+		// Motion blur needs a velocity map, and a velocity map is a render
+		// pass over the scene - something the chain has no way to run on its
+		// own, the way SetViewMatrix() feeds the one matrix SSAO needs. The
+		// manager owns the pass so a chain entry can point at its output, and
+		// the caller drives it once a frame; if nobody does, the map holds
+		// whatever it last had and the blur simply stops updating rather
+		// than reading a dangling texture. Only allocated when a chain
+		// actually asks for it - a velocity pass is a full extra draw of the
+		// scene, not something every chain should pay for.
+		PYROS3D_API Texture* EnsureVelocityMap();
+		PYROS3D_API bool HaveVelocityMap() const { return velocityRenderer != NULL; }
+		// currentFps scales how far the blur smears: the effect works in
+		// "how much of a target frame did this movement take", so a slow
+		// frame blurs further. Forwarded to every MotionBlurEffect in the
+		// chain, so the caller does not have to hold on to one.
+		PYROS3D_API void RenderVelocityPass(const Projection &projection, GameObject* camera,
+			SceneGraph* scene, const f32 currentFps);
 
 	private:
 
@@ -153,6 +184,9 @@ namespace p3d {
 		// Lazy GammaEncodeEffect (pow 1/2.2) used only by GetViewportColor()
 		// - not part of the public effects chain.
 		IEffect* viewportGammaEffect;
+
+		// See EnsureVelocityMap(). NULL unless a chain asked for one.
+		VelocityRenderer* velocityRenderer = NULL;
 	};
 
 };

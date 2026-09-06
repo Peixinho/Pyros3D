@@ -155,10 +155,22 @@ namespace p3d {
 				);
 		}
 		{
-			// Bloom
+			// Bloom, now two passes with a blur between them - see
+			// BloomEffect.h. A script that wants the whole thing should call
+			// PostEffectChain::AppendBuiltIn("Bloom") rather than assembling
+			// these by hand; they are bound because the pieces are usable on
+			// their own (a bright pass makes a serviceable glow mask).
 			sol::constructors<sol::types<int, int, int>> con;
-			lua->new_usertype<BloomEffect>("BloomEffect",
+			lua->new_usertype<BloomBrightPassEffect>("BloomBrightPassEffect",
 				con,
+				"setThreshold", &BloomBrightPassEffect::SetThreshold,
+				"setKnee", &BloomBrightPassEffect::SetKnee,
+				sol::base_classes, sol::bases<IEffect>()
+				);
+			sol::constructors<sol::types<int, int, int>> conComposite;
+			lua->new_usertype<BloomCompositeEffect>("BloomCompositeEffect",
+				conComposite,
+				"setIntensity", &BloomCompositeEffect::SetIntensity,
 				sol::base_classes, sol::bases<IEffect>()
 				);
 		}

@@ -1031,6 +1031,10 @@ void PyrosPlayer::Update()
 		// effects need the view the frame was rendered with.
 		if (activeCamera != NULL)
 			effectsManager->SetViewMatrix(activeCamera->GetWorldTransformation().Inverse());
+		// See the editor viewport - no-op unless the chain contains motion
+		// blur, and fed the real frame rate rather than the target one.
+		effectsManager->RenderVelocityPass(projection, activeCamera, scene,
+			dt > 0.0 ? (f32)(1.0 / dt) : 60.f);
 		effectsManager->ProcessPostEffects(&projection);
 	}
 

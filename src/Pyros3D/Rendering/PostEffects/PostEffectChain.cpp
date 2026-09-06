@@ -17,25 +17,35 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/BlurSSAOEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/SSAOCompositeEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/DepthOfFieldEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Core/Logs/Log.h>
 
 namespace p3d {
 
 	namespace PostEffectChain {
 
-		// Deliberately not every IEffect subclass. Depth of field, motion
-		// blur and SSR each need something the chain has no way to supply -
-		// two external blur-stage textures, a velocity render pass, a
-		// G-buffer normal target - so naming one here would produce an effect
-		// that compiles and then draws wrong. They stay script-driven until
-		// the chain can feed them (see buildMotionBlurPostChain in
-		// PyrosLuaPostFX.cpp for what that plumbing looks like today).
-		// SSAO used to be in that list and no longer is: it needed a view
-		// matrix per frame, which PostEffectsManager::SetViewMatrix() now
-		// delivers, and it needed a depth buffer with something in it, which
-		// it now gets (AxisHelper's full-target depth clear was erasing the
-		// editor's captured scene depth every frame - see SceneEditor.cpp's
-		// scissor around it).
+		// The effects a scene can name. Three of them are more than one pass
+		// and AppendBuiltIn() expands them; the rest map one-to-one.
+		//
+		// This list used to exclude SSAO, depth of field and motion blur,
+		// each for something the chain could not supply. All three are gone:
+		// SSAO needed a view matrix per frame (PostEffectsManager::
+		// SetViewMatrix) and a depth buffer with something in it (the axis
+		// widget was clearing it - see SceneEditor.cpp's scissor); depth of
+		// field needed two blurred copies at different resolutions, which is
+		// just five more chain entries plus IEffect::SetResizeScale so the
+		// small ones stay small; motion blur needed a velocity map, which
+		// the manager now owns and the caller drives.
+		//
+		// Screen-space reflection is not here and has no effect class any
+		// more. The DeferredRenderer traces reflections in its lighting pass
+		// from the G-buffer it already has, per material - see
+		// DeferredRenderer::EnableSSR() and GenericShaderMaterial::
+		// SetSSREnabled(). A post-effect pass could only work from what the
+		// chain can see, which is colour and depth and no normals, so it was
+		// the strictly worse of the two and nothing used it.
 		const std::vector<std::string> &ListBuiltIn()
 		{
 			static std::vector<std::string> names;
@@ -49,6 +59,12 @@ namespace p3d {
 				names.push_back("GammaEncode");
 				// Three passes behind one name - see AppendBuiltIn().
 				names.push_back("SSAO");
+				// Six passes behind one name - see AppendBuiltIn().
+				names.push_back("DepthOfField");
+				// Needs the caller to drive PostEffectsManager::
+				// RenderVelocityPass() every frame; without that it is inert
+				// rather than wrong, so it is safe to offer.
+				names.push_back("MotionBlur");
 			}
 			return names;
 		}
@@ -96,6 +112,23 @@ namespace p3d {
 				// stops being randomly rotated, which shows up as banded blotches.
 				ssao.push_back(MakeParam("uScale", "Noise scale", 100.f, 1.f, 400.f));
 				table["SSAO"] = ssao;
+
+				std::vector<CustomEffect::Param> dof;
+				dof.push_back(MakeParam("uFocalPosition", "Focal distance", 20.f, 0.f, 500.f));
+				dof.push_back(MakeParam("uFocalRange", "Focal range", 2.f, 0.01f, 100.f));
+				dof.push_back(MakeParam("uRatioL", "Far blur", 3.1f, 0.f, 8.f));
+				dof.push_back(MakeParam("uRatioH", "Near blur", 1.f, 0.f, 8.f));
+				table["DepthOfField"] = dof;
+
+				std::vector<CustomEffect::Param> mb;
+				mb.push_back(MakeParam("uTargetFPS", "Target FPS", 60.f, 15.f, 240.f));
+				table["MotionBlur"] = mb;
+
+				std::vector<CustomEffect::Param> bloom;
+				bloom.push_back(MakeParam("uThreshold", "Threshold", 0.8f, 0.f, 4.f));
+				bloom.push_back(MakeParam("uKnee", "Knee", 0.35f, 0.f, 1.f));
+				bloom.push_back(MakeParam("uIntensity", "Intensity", 1.f, 0.f, 4.f));
+				table["Bloom"] = bloom;
 			}
 			std::map<std::string, std::vector<CustomEffect::Param> >::const_iterator it = table.find(name);
 			return (it != table.end()) ? it->second : none;
@@ -108,7 +141,6 @@ namespace p3d {
 			// chain works on what the previous one produced. The manager
 			// resolves LastRTT to the captured frame for the first effect, so
 			// a one-effect chain still gets the scene.
-			if (name == "Bloom")       return new BloomEffect(RTT::LastRTT, width, height);
 			if (name == "BlurX")       return new BlurXEffect(RTT::LastRTT, width, height);
 			if (name == "BlurY")       return new BlurYEffect(RTT::LastRTT, width, height);
 			if (name == "Tonemap")     return new TonemapEffect(RTT::LastRTT, width, height);
@@ -137,6 +169,98 @@ namespace p3d {
 				manager.AddEffect(ssao);
 				manager.AddEffect(new BlurSSAOEffect(RTT::LastRTT, width, height));
 				manager.AddEffect(new SSAOCompositeEffect(RTT::Color, RTT::LastRTT, width, height));
+				return true;
+			}
+			if (name == "DepthOfField")
+			{
+				// Two blurred copies of the frame plus the sharp one, mixed
+				// per pixel by how far that pixel is from the focal plane.
+				// The quarter-resolution pair is the far/bokeh blur - cheap
+				// and wide - and the full-resolution pair is the near one.
+				// SetResizeScale keeps that quarter through a viewport
+				// resize; without it PostEffectsManager::Resize() would
+				// promote the low stages to full resolution and the two
+				// inputs would become the same image.
+				BlurXEffect* blurX = new BlurXEffect(RTT::Color, width, height);
+				BlurYEffect* blurY = new BlurYEffect(RTT::LastRTT, width, height);
+				Texture* fullRes = blurY->GetTexture();
+
+				const uint32 lw = width / 4 > 0 ? width / 4 : 1;
+				const uint32 lh = height / 4 > 0 ? height / 4 : 1;
+				ResizeEffect* resize = new ResizeEffect(RTT::Color, lw, lh);
+				BlurXEffect* blurXLow = new BlurXEffect(RTT::LastRTT, lw, lh);
+				BlurYEffect* blurYLow = new BlurYEffect(RTT::LastRTT, lw, lh);
+				resize->SetResizeScale(0.25f);
+				blurXLow->SetResizeScale(0.25f);
+				blurYLow->SetResizeScale(0.25f);
+				Texture* lowRes = blurYLow->GetTexture();
+
+				DepthOfFieldEffect* dof = new DepthOfFieldEffect(lowRes, fullRes, width, height);
+				dof->SetFocalPosition(ParamOr(params, "uFocalPosition", 20.f));
+				dof->SetFocalRange(ParamOr(params, "uFocalRange", 2.f));
+				dof->SetRatioLow(ParamOr(params, "uRatioL", 3.1f));
+				dof->SetRatioHigh(ParamOr(params, "uRatioH", 1.f));
+
+				manager.AddEffect(blurX);
+				manager.AddEffect(blurY);
+				manager.AddEffect(resize);
+				manager.AddEffect(blurXLow);
+				manager.AddEffect(blurYLow);
+				manager.AddEffect(dof);
+				return true;
+			}
+			if (name == "Bloom")
+			{
+				// Bright pass and blur at a quarter of the frame. Bloom is
+				// low-frequency by nature, so the smaller buffer costs a
+				// sixteenth of the taps and is not visible in the result;
+				// SetResizeScale keeps it a quarter when the viewport
+				// changes (see IEffect::SetResizeScale).
+				const uint32 bw = width / 4 > 0 ? width / 4 : 1;
+				const uint32 bh = height / 4 > 0 ? height / 4 : 1;
+
+				// Whatever ran before us is what the bloom gets added to. On
+				// an empty chain that is RTT::Color, the captured scene -
+				// and it has to be asked for as an RTT rather than grabbed
+				// as a texture, since the manager swaps what Color resolves
+				// to under the deferred renderer (SetSceneSourceTexture).
+				IEffect* previous = manager.GetLastEffect();
+
+				BloomBrightPassEffect* bright = new BloomBrightPassEffect(RTT::LastRTT, bw, bh);
+				bright->SetThreshold(ParamOr(params, "uThreshold", 0.8f));
+				bright->SetKnee(ParamOr(params, "uKnee", 0.35f));
+				bright->SetResizeScale(0.25f);
+
+				BlurXEffect* bx = new BlurXEffect(RTT::LastRTT, bw, bh);
+				BlurYEffect* by = new BlurYEffect(RTT::LastRTT, bw, bh);
+				bx->SetResizeScale(0.25f);
+				by->SetResizeScale(0.25f);
+
+				BloomCompositeEffect* composite = (previous != NULL)
+					? new BloomCompositeEffect(previous->GetTexture(), width, height)
+					: new BloomCompositeEffect(RTT::Color, width, height);
+				composite->SetIntensity(ParamOr(params, "uIntensity", 1.f));
+
+				manager.AddEffect(bright);
+				manager.AddEffect(bx);
+				manager.AddEffect(by);
+				manager.AddEffect(composite);
+				return true;
+			}
+			if (name == "MotionBlur")
+			{
+				// Reads LastRTT, so it composes with whatever came before -
+				// unlike SSAO's and depth of field's composites, which need
+				// the untouched scene and belong at the head of a chain.
+				// The velocity map comes from the manager because producing
+				// it is a render pass, not a fullscreen quad.
+				Texture* velocity = manager.EnsureVelocityMap();
+				MotionBlurEffect* mb = new MotionBlurEffect(RTT::LastRTT, velocity, width, height);
+				mb->SetTargetFPS(ParamOr(params, "uTargetFPS", 60.f));
+				// A sane starting value for the first frame; the caller
+				// replaces it every frame through RenderVelocityPass().
+				mb->SetCurrentFPS(ParamOr(params, "uTargetFPS", 60.f));
+				manager.AddEffect(mb);
 				return true;
 			}
 			IEffect* fx = CreateBuiltIn(name, width, height, params);

@@ -649,6 +649,11 @@ private:
 	// per frame - ApplyPostEffects is called when the list changes, a scene
 	// loads, the viewport resizes, or SwitchRenderer replaces the manager.
 	void ApplyPostEffects();
+	// One frame of the chain: source, per-frame inputs, then the passes.
+	// Called from two places in ShowViewport() because *when* it runs
+	// depends on the renderer - see overlayGetsOwnLayer there.
+	void RunViewportPostEffects(GameObject* viewCam, SceneGraph* scene, bool isPerspective,
+		Projection &projection, Projection &projectionOrtho);
 	// Reads a project-relative .glsl for PostEffectChain::Build. Static so it
 	// can be a plain function pointer; `user` is the SceneEditor.
 	static bool ReadPostEffectAsset(const std::string &path, std::string &sourceOut, void *user);

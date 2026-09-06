@@ -66,15 +66,15 @@ namespace p3d {
 		nearFarPlane.Usage = Uniforms::PostEffects::NearFarPlane;
 		AddUniform(nearFarPlane);
 
-		f32 fPosition = 20.f;
-		f32 fRange = 2.f;
-		f32 rL = 3.1f;
-		f32 rH = 1.0f;
+		fPosition = 20.f;
+		fRange = 2.f;
+		rL = 3.1f;
+		rH = 1.0f;
 
-		AddUniform(Uniform("uFocalPosition", Uniforms::DataType::Float, &fPosition));
-		AddUniform(Uniform("uFocalRange", Uniforms::DataType::Float, &fRange));
-		AddUniform(Uniform("uRatioL", Uniforms::DataType::Float, &rL));
-		AddUniform(Uniform("uRatioH", Uniforms::DataType::Float, &rH));
+		focalPositionHandle = AddUniform(Uniform("uFocalPosition", Uniforms::DataType::Float, &fPosition));
+		focalRangeHandle = AddUniform(Uniform("uFocalRange", Uniforms::DataType::Float, &fRange));
+		ratioLowHandle = AddUniform(Uniform("uRatioL", Uniforms::DataType::Float, &rL));
+		ratioHighHandle = AddUniform(Uniform("uRatioH", Uniforms::DataType::Float, &rH));
 
 		extraUniformsBinding = 30;
 		extraUniformsBlockName = "DepthOfFieldParams";
@@ -86,6 +86,11 @@ namespace p3d {
 		extraUniformOffsets["uRatioL"] = 16;
 		extraUniformOffsets["uRatioH"] = 20;
 	}
+
+	void DepthOfFieldEffect::SetFocalPosition(const f32 &v) { fPosition = v; focalPositionHandle->SetValue(&fPosition); }
+	void DepthOfFieldEffect::SetFocalRange(const f32 &v)    { fRange = v;    focalRangeHandle->SetValue(&fRange); }
+	void DepthOfFieldEffect::SetRatioLow(const f32 &v)      { rL = v;        ratioLowHandle->SetValue(&rL); }
+	void DepthOfFieldEffect::SetRatioHigh(const f32 &v)     { rH = v;        ratioHighHandle->SetValue(&rH); }
 
 	DepthOfFieldEffect::~DepthOfFieldEffect() {}
 

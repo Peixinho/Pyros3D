@@ -175,8 +175,16 @@ EMSCRIPTEN_BINDINGS(pyros3d_postfx)
 		.function("getHeight", &IEffect::GetHeight)
 		.function("getTexture", &IEffect::GetTexture, allow_raw_pointers());
 
-	class_<BloomEffect, base<IEffect>>("BloomEffect")
-		.constructor<int, int, int>();
+	// See BloomEffect.h - bloom is a bright pass and a composite now, with a
+	// blur between them. PostEffectChain::AppendBuiltIn("Bloom") assembles
+	// all four; these are here because the pieces are useful alone.
+	class_<BloomBrightPassEffect, base<IEffect>>("BloomBrightPassEffect")
+		.constructor<int, int, int>()
+		.function("setThreshold", &BloomBrightPassEffect::SetThreshold)
+		.function("setKnee", &BloomBrightPassEffect::SetKnee);
+	class_<BloomCompositeEffect, base<IEffect>>("BloomCompositeEffect")
+		.constructor<int, int, int>()
+		.function("setIntensity", &BloomCompositeEffect::SetIntensity);
 	class_<BlurXEffect, base<IEffect>>("BlurXEffect")
 		.constructor<int, int, int>();
 	class_<BlurYEffect, base<IEffect>>("BlurYEffect")

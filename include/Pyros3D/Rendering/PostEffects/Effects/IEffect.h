@@ -93,6 +93,29 @@ namespace p3d {
 
 		Texture* GetTexture() { return attachment; }
 
+		// This effect's size as a fraction of the chain's target, kept so
+		// PostEffectsManager::Resize() can follow a viewport change without
+		// flattening a deliberately smaller stage. Depth of field blurs a
+		// quarter-resolution copy of the frame and reads it back alongside
+		// the full-resolution one; resizing every effect to the target
+		// would silently turn that into a second full-res blur - the same
+		// image twice, and no visible near-field bokeh. 1.0 for everything
+		// else, which is almost everything.
+		void SetResizeScale(const f32 scale) { resizeScale = scale > 0.f ? scale : 1.f; }
+
+		// What RTT::Color means for this effect. Normally the captured
+		// scene, which is right for an effect that wants the untouched
+		// frame - but wrong for one of those sitting halfway down a chain,
+		// because "the untouched frame" then silently discards every effect
+		// before it. [Bloom, DepthOfField] rendered exactly as
+		// [DepthOfField] did, with no error and no clue why.
+		// A multi-pass built-in points this at the output of whatever ran
+		// before its group, so the group composes; NULL restores the
+		// default. See PostEffectChain::AppendBuiltIn().
+		void SetColorOverride(Texture* texture) { colorOverride = texture; }
+		Texture* GetColorOverride() const { return colorOverride; }
+		f32 GetResizeScale() const { return resizeScale; }
+
 	protected:
 
 		Uniform* AddUniform(const Uniform &Data);
@@ -187,6 +210,10 @@ namespace p3d {
 		std::vector<RTT::Info> RTTOrder;
 
 		uint32 Width, Height;
+		// See SetResizeScale().
+		f32 resizeScale = 1.f;
+		// See SetColorOverride().
+		Texture* colorOverride = NULL;
 		FrameBuffer* fbo;
 		Texture* attachment;
 

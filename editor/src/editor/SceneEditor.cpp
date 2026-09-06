@@ -400,6 +400,36 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			&SceneEditor::ReadPostEffectAsset, this);
 	}
 
+	void SceneEditor::RunViewportPostEffects(GameObject* viewCam, SceneGraph* scene, bool isPerspective,
+		Projection &projection, Projection &projectionOrtho)
+	{
+		// For Deferred the scene is not in EffectsManager's capture - the
+		// capture holds this frame's gizmo/grid overlay - so the renderer's
+		// own colour output is handed over as the source instead. Forward
+		// captured the scene itself and passes NULL.
+		EffectsManager->SetSceneSourceTexture(usingDeferredRenderer
+			? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
+			: NULL);
+		// The view the frame was drawn with. Effects that reconstruct world
+		// positions from depth - SSAO is the one in the built-in list - need
+		// it, and it has to be re-sent every frame because the editor camera
+		// moves. Harmless for effects that do not ask for it.
+		if (viewCam != NULL)
+			EffectsManager->SetViewMatrix(viewCam->GetWorldTransformation().Inverse());
+		// Motion blur's velocity map, if the chain asked for one. No-op
+		// otherwise - the manager only allocates the pass when a MotionBlur
+		// entry is built, so this costs a NULL check on every other chain.
+		// Real frame rate, not the target: the blur length is expressed
+		// relative to it, so feeding a constant would smear by the wrong
+		// amount whenever the editor is not hitting that rate.
+		{
+			const f32 dt = ImGui::GetIO().DeltaTime;
+			EffectsManager->RenderVelocityPass((isPerspective ? projection : projectionOrtho),
+				viewCam, scene, dt > 0.f ? 1.f / dt : 60.f);
+		}
+		EffectsManager->ProcessPostEffects(isPerspective ? &projection : &projectionOrtho);
+	}
+
 	void SceneEditor::ApplyEnvironment()
 	{
 		if (!Renderer) return;
@@ -1070,6 +1100,34 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		if (editingCanvas) Renderer->SetRenderLayer(restoreLayer);
 
+		// Whether the gizmos/grid/icons get their own layer instead of going
+		// into the image the post-effect chain reads.
+		//
+		// They must, whenever there is a chain: an editor helper is not part
+		// of the scene, and a light bulb icon that blooms, a grid that goes
+		// out of focus or a selection outline that smears with the camera is
+		// the tool drawing attention to itself instead of to the work. Under
+		// Deferred this already happened, for an unrelated reason - the
+		// chain reads DeferredRenderer's own colour output, so the capture
+		// was free to hold the overlay - and this makes Forward behave the
+		// same rather than leaving the two renderers showing different
+		// pictures of the same scene.
+		//
+		// Not done when there is no chain, because then there is nothing to
+		// protect and no second image to composite: the capture is the
+		// viewport, and the overlay belongs in it.
+		const bool chainWillRun = (EffectsManager->GetNumberEffects() > 0);
+		const bool overlayGetsOwnLayer = chainWillRun || usingDeferredRenderer;
+		if (chainWillRun && !usingDeferredRenderer)
+		{
+			// Close the capture on the bare scene and run the chain now, so
+			// what follows draws over a finished image instead of into its
+			// input. The re-bind below then gives the overlay a transparent
+			// canvas of its own, exactly as the Deferred path does.
+			EffectsManager->EndCapture();
+			RunViewportPostEffects(viewCam, scene, isPerspective, projection, projectionOrtho);
+		}
+
 		// Debug/gizmo/grid/axis-helper below draw into whatever framebuffer
 		// is currently bound - for Deferred, DeferredRenderer::RenderScene()
 		// leaves that as framebuffer 0 (see GetColorTexture()'s comment),
@@ -1092,6 +1150,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			DeferredRenderer* dr = static_cast<DeferredRenderer*>(Renderer);
 			GetActiveRenderDevice().CopyDepthTexture(dr->GetDepthTexture()->GetBindID(),
 				EffectsManager->GetDepth()->GetBindID(), viewW, viewH);
+			GetActiveRenderDevice().SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
+			EffectsManager->CaptureFrame();
+		}
+		else if (overlayGetsOwnLayer)
+		{
+			// Forward, chain already run just above. Same transparent canvas,
+			// and no depth copy needed: RenderScene() wrote this very
+			// attachment's depth, and re-binding does not clear it (which is
+			// the same thing the Deferred branch relies on for its copy).
 			GetActiveRenderDevice().SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
 			EffectsManager->CaptureFrame();
 		}
@@ -1234,22 +1301,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		EffectsManager->EndCapture();
 
-		// The chain, on the frame that was just captured. For Deferred the
-		// scene is not in that capture - the capture holds this frame's
-		// gizmo/grid overlay (see the CaptureFrame() re-bind above) - so the
-		// renderer's own colour output is handed over as the source instead.
-		// The overlay stays out of the chain either way, which is what an
-		// editor wants: a tinted scene, not a tinted gizmo.
-		EffectsManager->SetSceneSourceTexture(usingDeferredRenderer
-			? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
-			: NULL);
-		// The view the frame was drawn with. Effects that reconstruct world
-		// positions from depth - SSAO is the one in the built-in list - need
-		// it, and it has to be re-sent every frame because the editor camera
-		// moves. Harmless for effects that do not ask for it.
-		if (viewCam != NULL)
-			EffectsManager->SetViewMatrix(viewCam->GetWorldTransformation().Inverse());
-		EffectsManager->ProcessPostEffects((isPerspective ? &projection : &projectionOrtho));
+		// Deferred runs the chain here, after the overlay: its input is
+		// DeferredRenderer's own colour output, which the overlay never
+		// touched, so the ordering does not matter. Forward already ran it
+		// above, before the overlay existed - see overlayGetsOwnLayer.
+		if (!(chainWillRun && !usingDeferredRenderer))
+			RunViewportPostEffects(viewCam, scene, isPerspective, projection, projectionOrtho);
 
 		void* viewportTex = NULL;
 		// DeferredRenderer::RenderScene()'s final composite always targets
@@ -1265,13 +1322,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// capture itself, which is right for Forward and wrong for Deferred
 		// (where the capture is the overlay) - hence asking whether there is
 		// a chain at all rather than relying on the fallback.
-		const bool haveChain = (EffectsManager->GetNumberEffects() > 0);
+		const bool haveChain = chainWillRun;
 		Texture* color = haveChain
 			? EffectsManager->GetFinalTexture()
 			: (usingDeferredRenderer
 				? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
 				: EffectsManager->GetViewportColor());
-		Texture* overlay = usingDeferredRenderer ? EffectsManager->GetViewportColor() : NULL;
+		// Whenever the overlay got a layer of its own it *is* the capture,
+		// on either renderer - which is also why `color` above must not fall
+		// back to the capture in that case. Forward with no chain is the one
+		// arrangement where the capture is the picture rather than the
+		// annotation, and there is no separate overlay to draw.
+		Texture* overlay = overlayGetsOwnLayer ? EffectsManager->GetViewportColor() : NULL;
 		if (color)
 			viewportTex = GetActiveRenderDevice().GetImGuiTextureID(color->GetBindID(), color->GetTextureType());
 		void* overlayTex = overlay ? GetActiveRenderDevice().GetImGuiTextureID(overlay->GetBindID(), overlay->GetTextureType()) : NULL;
@@ -12243,6 +12305,33 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			std::vector<unsigned char> rgba;
 			if (!ConvertPreviewPixelsToRGBA8(pixels, src->GetDataType(), w, h, rgba))
 				return std::string();
+
+			// The gizmo/grid/debug overlay, composited the same way the two
+			// ImGui::Image() calls in ShowViewport() do it. Without this the
+			// screenshot silently omitted every editor helper whenever the
+			// overlay had a layer of its own - which is any chain, and any
+			// Deferred frame - and looked exactly like the helpers had
+			// stopped rendering. This screenshot is what an agent driving
+			// the editor sees, so it has to show what the window shows.
+			if (EffectsManager->GetNumberEffects() > 0 || usingDeferredRenderer)
+			{
+				Texture* ov = EffectsManager->GetViewportColor();
+				if (ov != NULL && ov->GetWidth() == w && ov->GetHeight() == h)
+				{
+					std::vector<unsigned char> ovRGBA;
+					std::vector<uchar> ovPixels = ov->GetTextureData();
+					if (ConvertPreviewPixelsToRGBA8(ovPixels, ov->GetDataType(), w, h, ovRGBA))
+					{
+						for (size_t k = 0; k + 3 < ovRGBA.size() && k + 3 < rgba.size(); k += 4)
+						{
+							const unsigned a = ovRGBA[k + 3];
+							if (a == 0) continue;
+							for (int c = 0; c < 3; c++)
+								rgba[k + c] = (unsigned char)((ovRGBA[k + c] * a + rgba[k + c] * (255 - a)) / 255);
+						}
+					}
+				}
+			}
 #if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
 			FlipRGBA8Vertically(rgba, w, h);
 #endif

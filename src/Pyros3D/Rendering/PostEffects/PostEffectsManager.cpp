@@ -7,6 +7,8 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/GammaEncodeEffect.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
@@ -108,8 +110,17 @@ namespace p3d {
 		// texcoords, so they all want the target's size; the only ones that
 		// deliberately differ would be half-res stages, and there are none
 		// here.
+		if (velocityRenderer != NULL)
+			velocityRenderer->Resize(Width, Height);
+
 		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
-			(*i)->Resize(Width, Height);
+		{
+			// Scaled, not flattened - see IEffect::SetResizeScale(). A stage
+			// that asked to be a quarter of the frame stays a quarter of it.
+			const f32 s = (*i)->GetResizeScale();
+			const uint32 w = (uint32)(Width * s), h = (uint32)(Height * s);
+			(*i)->Resize(w > 0 ? w : 1, h > 0 ? h : 1);
+		}
 	}
 
 	void PostEffectsManager::EnsureViewportGammaEffect()
@@ -216,6 +227,30 @@ namespace p3d {
 		if (renderLastToTexture && finalTexture != NULL && !effects.empty())
 			return finalTexture;
 		return Color;
+	}
+
+	Texture* PostEffectsManager::EnsureVelocityMap()
+	{
+		if (velocityRenderer == NULL)
+			velocityRenderer = new VelocityRenderer(Width, Height);
+		return velocityRenderer->GetTexture();
+	}
+
+	void PostEffectsManager::RenderVelocityPass(const Projection &projection, GameObject* camera,
+		SceneGraph* scene, const f32 currentFps)
+	{
+		// Silently nothing when no chain asked for a velocity map. The
+		// caller drives this every frame without knowing what is in the
+		// chain, the same way it pushes a view matrix nothing may read.
+		if (velocityRenderer == NULL || camera == NULL || scene == NULL)
+			return;
+		velocityRenderer->RenderVelocityMap(projection, camera, scene);
+		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
+		{
+			MotionBlurEffect* mb = dynamic_cast<MotionBlurEffect*>(*i);
+			if (mb != NULL)
+				mb->SetCurrentFPS(currentFps);
+		}
 	}
 
 	Texture* PostEffectsManager::GetViewportColor()
@@ -330,8 +365,15 @@ namespace p3d {
 				switch ((*i).Type)
 				{
 				case RTT::Color:
-					// sceneFrame, not Color - see SetSceneSourceTexture().
-					sceneFrame->Bind();
+					// sceneFrame, not Color - see SetSceneSourceTexture() -
+					// unless this effect redefined Color for itself, which
+					// is how a multi-pass built-in composites over the chain
+					// so far rather than over the raw capture (see
+					// IEffect::SetColorOverride).
+					if (effect->GetColorOverride() != NULL)
+						effect->GetColorOverride()->Bind();
+					else
+						sceneFrame->Bind();
 					break;
 				case RTT::Depth:
 					Depth->Bind();
@@ -482,7 +524,15 @@ namespace p3d {
 				switch ((*i).Type)
 				{
 				case RTT::Color:
-					Color->Unbind();
+					// Must unbind whatever was actually bound above, not
+					// always Color - a leaked unit is how uTex0/uTex1 end up
+					// pointing at the wrong texture two effects later.
+					if (effect->GetColorOverride() != NULL)
+						effect->GetColorOverride()->Unbind();
+					else if (sceneSource != NULL)
+						sceneSource->Unbind();
+					else
+						Color->Unbind();
 					break;
 				case RTT::Depth:
 					Depth->Unbind();
@@ -601,6 +651,15 @@ namespace p3d {
 			delete viewportGammaEffect;
 			viewportGammaEffect = NULL;
 		}
+
+		// After the effects, not before: a MotionBlurEffect samples this
+		// renderer's texture, and the WaitIdle() above only guarantees the
+		// GPU is done - the effect's own destructor still runs first.
+		if (velocityRenderer != NULL)
+		{
+			delete velocityRenderer;
+			velocityRenderer = NULL;
+		}
 	}
 
 	void PostEffectsManager::AddEffect(IEffect* Effect)
@@ -644,6 +703,19 @@ namespace p3d {
 			delete (*i);
 		}
 		effects.clear();
+
+		// The velocity pass goes with them. Keeping it would be cheaper on a
+		// rebuild, but RenderVelocityPass() is driven unconditionally by the
+		// caller and only checks whether this exists - so a chain that no
+		// longer contains motion blur would keep paying for a full extra
+		// draw of the scene, every frame, forever. Rebuilds happen when a
+		// scene loads or a parameter changes; frames happen always.
+		if (velocityRenderer != NULL)
+		{
+			delete velocityRenderer;
+			velocityRenderer = NULL;
+		}
+
 		// Pointed into an effect that has just been deleted; GetFinalTexture()
 		// falls back to the capture until a new chain produces one.
 		finalTexture = NULL;
