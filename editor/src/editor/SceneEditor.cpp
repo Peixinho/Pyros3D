@@ -10774,6 +10774,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return NULL;
 		}
 
+		// One reader for a [x,y,z] field, used by every Agent* creator below.
+		// The "contains + is_array" dance was written out inline at each call
+		// site instead, and three of them then passed an empty vector for
+		// rotation and/or scale - so add_light, add_particles and add_physics
+		// accepted those keys from the socket and silently dropped them.
+		std::vector<f32> AgentVec3Field(const nlohmann::json& p, const char* key)
+		{
+			std::vector<f32> v;
+			if (!p.is_object() || !p.contains(key)) return v;
+			const nlohmann::json& a = p[key];
+			if (!a.is_array() || a.size() != 3) return v;
+			for (size_t i = 0; i < 3; i++)
+			{
+				if (!a[i].is_number()) return std::vector<f32>();
+				v.push_back((f32)a[i].get<double>());
+			}
+			return v;
+		}
+
 		void AgentApplyTransform(GameObject* go, const std::vector<f32>& p,
 			const std::vector<f32>& r, const std::vector<f32>& s)
 		{
@@ -11555,10 +11574,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 		}
 
-		AgentApplyTransform(go,
-			p.is_object() && p.contains("position") && p["position"].is_array() ? std::vector<f32>{ (f32)p["position"][0].get<double>(), (f32)p["position"][1].get<double>(), (f32)p["position"][2].get<double>() } : std::vector<f32>(),
-			p.is_object() && p.contains("rotation") && p["rotation"].is_array() ? std::vector<f32>{ (f32)p["rotation"][0].get<double>(), (f32)p["rotation"][1].get<double>(), (f32)p["rotation"][2].get<double>() } : std::vector<f32>(),
-			p.is_object() && p.contains("scale") && p["scale"].is_array() ? std::vector<f32>{ (f32)p["scale"][0].get<double>(), (f32)p["scale"][1].get<double>(), (f32)p["scale"][2].get<double>() } : std::vector<f32>());
+		AgentApplyTransform(go, AgentVec3Field(p, "position"), AgentVec3Field(p, "rotation"),
+			AgentVec3Field(p, "scale"));
 
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
@@ -11622,10 +11639,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (SpotLight* sl = dynamic_cast<SpotLight*>(light)) sl->SetLightRadius((f32)p["radius"].get<double>());
 		}
 
-		AgentApplyTransform(go,
-			p.is_object() && p.contains("position") && p["position"].is_array() ? std::vector<f32>{ (f32)p["position"][0].get<double>(), (f32)p["position"][1].get<double>(), (f32)p["position"][2].get<double>() } : std::vector<f32>(),
-			std::vector<f32>(),
-			std::vector<f32>());
+		AgentApplyTransform(go, AgentVec3Field(p, "position"), AgentVec3Field(p, "rotation"),
+			AgentVec3Field(p, "scale"));
 
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
@@ -11787,10 +11802,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Placed before the component is attached: particles spawn at the
 		// owner's world position from the very first frame, so an emitter
 		// moved after the fact would puff out a stray burst at the origin.
-		AgentApplyTransform(go,
-			p.is_object() && p.contains("position") && p["position"].is_array() ? std::vector<f32>{ (f32)p["position"][0].get<double>(), (f32)p["position"][1].get<double>(), (f32)p["position"][2].get<double>() } : std::vector<f32>(),
-			p.is_object() && p.contains("rotation") && p["rotation"].is_array() ? std::vector<f32>{ (f32)p["rotation"][0].get<double>(), (f32)p["rotation"][1].get<double>(), (f32)p["rotation"][2].get<double>() } : std::vector<f32>(),
-			std::vector<f32>());
+		AgentApplyTransform(go, AgentVec3Field(p, "position"), AgentVec3Field(p, "rotation"),
+			AgentVec3Field(p, "scale"));
 
 		if (!AttachParticleSystem(go, desc))
 		{
@@ -11860,13 +11873,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		sceneObjects->listObjects[id] = compObj;
 		compObj->SetParentID(sceneObjects->GetSceneObjectID(go));
 
-		AgentApplyTransform(go,
-			p.is_object() && p.contains("position") && p["position"].is_array() ? std::vector<f32>{ (f32)p["position"][0].get<double>(), (f32)p["position"][1].get<double>(), (f32)p["position"][2].get<double>() } : std::vector<f32>(),
-			std::vector<f32>(),
-			std::vector<f32>());
+		AgentApplyTransform(go, AgentVec3Field(p, "position"), AgentVec3Field(p, "rotation"),
+			AgentVec3Field(p, "scale"));
 
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
+		// The body was created before the transform was applied, so it is
+		// still sitting at the origin until something pushes the authored one
+		// in. Play would do it (EnterPlayMode -> SyncPhysicsFromScene), but
+		// anything reading the world before then - the physics debug draw, a
+		// RayCast - saw the body in the wrong place.
+		SyncPhysicsForGameObject(go);
 		MarkSceneDirty();
 		PushAddCommand(obj);
 		return true;
