@@ -1757,9 +1757,30 @@ namespace p3d {
 				extent = { fboIt->second.width, fboIt->second.height };
 		}
 
+		// Scissored, like glClear(). vkCmdClearAttachments takes its own
+		// rect and ignores the pipeline scissor entirely, so a caller that
+		// narrowed the scissor to clear one corner - AxisHelper::Render()
+		// wants a fresh depth for its 80x80 widget - used to wipe the whole
+		// attachment here. That cost the editor viewport's whole scene depth
+		// every frame, which is why every depth-reading post effect (SSAO,
+		// DoF, motion blur) sampled a buffer of 1.0 on this backend.
 		VkClearRect rect = {};
 		rect.rect.offset = { 0, 0 };
 		rect.rect.extent = extent;
+		if (scissorNarrowing)
+		{
+			// Clamped to the target: a scissor may legitimately hang off the
+			// edge, and vkCmdClearAttachments requires a rect inside it.
+			const uint32 sx = lastScissor[0] < extent.width ? lastScissor[0] : extent.width;
+			const uint32 sy = lastScissor[1] < extent.height ? lastScissor[1] : extent.height;
+			uint32 sw = lastScissor[2], sh = lastScissor[3];
+			if (sx + sw > extent.width) sw = extent.width - sx;
+			if (sy + sh > extent.height) sh = extent.height - sy;
+			rect.rect.offset = { (int32_t)sx, (int32_t)sy };
+			rect.rect.extent = { sw, sh };
+			if (sw == 0 || sh == 0)
+				return;
+		}
 		rect.baseArrayLayer = 0;
 		rect.layerCount = 1;
 		vkCmdClearAttachments(activeCommandBuffer, (uint32_t)attachments.size(), attachments.data(), 1, &rect);
@@ -1786,6 +1807,9 @@ namespace p3d {
 		const f32 w = width > 0.f ? width : 0.f;
 		const f32 h = height > 0.f ? height : 0.f;
 		VkRect2D scissor = { { (int32_t)x, (int32_t)y }, { (uint32_t)w, (uint32_t)h } };
+		lastScissor[0] = (uint32)x; lastScissor[1] = (uint32)y;
+		lastScissor[2] = (uint32)w; lastScissor[3] = (uint32)h;
+		scissorNarrowing = true;
 		vkCmdSetScissor(activeCommandBuffer, 0, 1, &scissor);
 	}
 
@@ -1793,7 +1817,9 @@ namespace p3d {
 	// effect - so "off" means the whole viewport.
 	void VulkanRenderDevice::SetScissorTestEnabled(const bool enabled)
 	{
-		if (enabled || activeCommandBuffer == VK_NULL_HANDLE) return;
+		if (enabled) return;
+		scissorNarrowing = false;
+		if (activeCommandBuffer == VK_NULL_HANDLE) return;
 		VkRect2D scissor = { { (int32_t)lastViewport[0], (int32_t)lastViewport[1] },
 			{ lastViewport[2], lastViewport[3] } };
 		vkCmdSetScissor(activeCommandBuffer, 0, 1, &scissor);
@@ -2377,7 +2403,15 @@ namespace p3d {
 			return;
 		lastViewport[0] = x; lastViewport[1] = y; lastViewport[2] = width; lastViewport[3] = height;
 		VkViewport viewport = { (f32)x, (f32)y, (f32)width, (f32)height, 0.0f, 1.0f };
-		VkRect2D scissor = { { (int32_t)x, (int32_t)y }, { width, height } };
+		// A viewport change does not touch the scissor box in GL
+		// (glViewport and glScissor are independent), and callers here are
+		// written against those semantics: AxisHelper's clear is narrowed to
+		// its corner *before* the viewport for its widget is set. Vulkan has
+		// no scissor state of its own, so a narrowing rect has to be
+		// re-issued here rather than overwritten with the viewport's.
+		VkRect2D scissor = scissorNarrowing
+			? VkRect2D{ { (int32_t)lastScissor[0], (int32_t)lastScissor[1] }, { lastScissor[2], lastScissor[3] } }
+			: VkRect2D{ { (int32_t)x, (int32_t)y }, { width, height } };
 		vkCmdSetViewport(activeCommandBuffer, 0, 1, &viewport);
 		vkCmdSetScissor(activeCommandBuffer, 0, 1, &scissor);
 	}

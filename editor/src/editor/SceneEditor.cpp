@@ -1174,11 +1174,31 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				debugRenderer->Render(viewCam->GetWorldTransformation().Inverse(),
 					(isPerspective ? projection : projectionOrtho).GetProjectionMatrix());
 
+			// AxisHelper::Render() clears depth so its widget is never
+			// occluded by the scene. That clear lands on whatever framebuffer
+			// is bound - here, EffectsManager's capture - and used to wipe the
+			// whole scene depth, measured as min=max=1.0 in every texel by the
+			// time EndCapture() ran. Nothing in the editor read that depth
+			// afterwards, so it stayed invisible until a post effect wanted it:
+			// SSAO sampled a blank buffer and returned "no occlusion"
+			// everywhere. Narrow the clear to the 80x80 corner the widget
+			// actually occupies - glClear() is scissored, and Clear() now
+			// honours the scissor on Vulkan too.
+			//
+			// Set with the full-target viewport in effect: GL's SetScissorRect
+			// flips the y against the *current* viewport, so pinning it here is
+			// what makes the same top-left rect mean the same thing on both
+			// backends. The y differs between the two Render() calls below only
+			// because SetViewPort's own origin differs; the scissor's does not.
+			GetActiveRenderDevice().SetViewport(0, 0, viewW, viewH);
+			GetActiveRenderDevice().SetScissorTestEnabled(true);
+			GetActiveRenderDevice().SetScissorRect((f32)(dim.x - 90), 10.f, 80.f, 80.f);
 #if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 			axisHelper->Render((uint32)(dim.x - 90), 10, 80, 80, isPerspective);
 #else
 			axisHelper->Render((uint32)(dim.x - 90), (uint32)(dim.y - 90), 80, 80, isPerspective);
 #endif
+			GetActiveRenderDevice().SetScissorTestEnabled(false);
 		}
 
 		EffectsManager->EndCapture();

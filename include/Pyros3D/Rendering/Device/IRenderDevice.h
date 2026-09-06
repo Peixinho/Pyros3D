@@ -888,6 +888,16 @@ namespace p3d {
 		// needs for scissoring: GL to flip the y, Vulkan and Metal to
 		// restore a full-target rect when the scissor is turned off.
 		uint32 lastViewport[4] = { 0, 0, 0, 0 };
+
+		// The last rect handed to SetScissorRect(), and whether a scissor is
+		// currently narrowing the target. GL keeps this in the GL context
+		// itself; the other backends have to remember it, because Clear() has
+		// to honour it. glClear() is scissored - that is the semantics every
+		// caller in this engine was written against - so a backend whose
+		// clear ignores the scissor silently clears more than the caller
+		// asked for. See VulkanRenderDevice::Clear().
+		uint32 lastScissor[4] = { 0, 0, 0, 0 };
+		bool scissorNarrowing = false;
 	};
 
 	// Texture/FrameBuffer/GeometryBuffer/Shader/RenderingComponent (the

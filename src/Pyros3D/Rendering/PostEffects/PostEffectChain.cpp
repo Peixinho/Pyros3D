@@ -30,12 +30,12 @@ namespace p3d {
 		// that compiles and then draws wrong. They stay script-driven until
 		// the chain can feed them (see buildMotionBlurPostChain in
 		// PyrosLuaPostFX.cpp for what that plumbing looks like today).
-		// SSAO used to be in that list for a fourth reason - it wanted a view
-		// matrix per frame - which no longer holds: PostEffectsManager::
-		// SetViewMatrix() now delivers one, the editor viewport and the
-		// player both push it every frame, and AppendBuiltIn() expands the
-		// name into its three passes. It is still absent from the list below,
-		// but now for a different and narrower reason - see there.
+		// SSAO used to be in that list and no longer is: it needed a view
+		// matrix per frame, which PostEffectsManager::SetViewMatrix() now
+		// delivers, and it needed a depth buffer with something in it, which
+		// it now gets (AxisHelper's full-target depth clear was erasing the
+		// editor's captured scene depth every frame - see SceneEditor.cpp's
+		// scissor around it).
 		const std::vector<std::string> &ListBuiltIn()
 		{
 			static std::vector<std::string> names;
@@ -47,21 +47,8 @@ namespace p3d {
 				names.push_back("Tonemap");
 				names.push_back("Vignette");
 				names.push_back("GammaEncode");
-				// "SSAO" is deliberately NOT offered here even though
-				// AppendBuiltIn() below builds it correctly, as three passes.
-				// Its first pass reads RTT::Depth, and on the Vulkan backend
-				// the capture framebuffer's depth attachment is 1.0 in every
-				// texel - measured, not guessed: reading back
-				// PostEffectsManager::GetDepth() after EndCapture() gives
-				// min=max=1.0 under Forward *and* under Deferred, while the
-				// DeferredRenderer G-buffer depth that SceneEditor copies into
-				// it in that same frame reads min=0.9954 with 14794 texels
-				// under 1. So the effect samples a blank depth buffer, returns
-				// ao=1 everywhere, and the composite multiplies the frame by
-				// white: a picker entry that costs three passes and changes
-				// nothing - exactly the do-nothing control ListBuiltInParams()'s
-				// comment argues against. Fix the depth feed, then add the line
-				// back; everything downstream of it is already in place.
+				// Three passes behind one name - see AppendBuiltIn().
+				names.push_back("SSAO");
 			}
 			return names;
 		}
@@ -103,7 +90,11 @@ namespace p3d {
 				ssao.push_back(MakeParam("uRadius", "Radius", 0.2f, 0.01f, 2.f));
 				ssao.push_back(MakeParam("uStrength", "Strength", 1.5f, 0.f, 5.f));
 				ssao.push_back(MakeParam("uTreshOld", "Threshold", 2.f, 0.f, 10.f));
-				ssao.push_back(MakeParam("uScale", "Scale", 1.f, 0.01f, 4.f));
+				// 100, not 1 - that is what SSAOEffect's constructor sets, and
+				// it is the tiling rate of the 4x4 noise texture, not a strength.
+				// At 1 the noise barely varies across the screen and the kernel
+				// stops being randomly rotated, which shows up as banded blotches.
+				ssao.push_back(MakeParam("uScale", "Noise scale", 100.f, 1.f, 400.f));
 				table["SSAO"] = ssao;
 			}
 			std::map<std::string, std::vector<CustomEffect::Param> >::const_iterator it = table.find(name);
@@ -142,7 +133,7 @@ namespace p3d {
 				ssao->SetRadius(ParamOr(params, "uRadius", 0.2f));
 				ssao->SetStrength(ParamOr(params, "uStrength", 1.5f));
 				ssao->SetTreshOld(ParamOr(params, "uTreshOld", 2.f));
-				ssao->SetScale(ParamOr(params, "uScale", 1.f));
+				ssao->SetScale(ParamOr(params, "uScale", 100.f));
 				manager.AddEffect(ssao);
 				manager.AddEffect(new BlurSSAOEffect(RTT::LastRTT, width, height));
 				manager.AddEffect(new SSAOCompositeEffect(RTT::Color, RTT::LastRTT, width, height));
