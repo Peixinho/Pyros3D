@@ -435,6 +435,74 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			&SceneEditor::ReadPostEffectAsset, this);
 	}
 
+	std::vector<std::string> SceneEditor::ListPostEffectAssets()
+	{
+		std::vector<std::string> assets;
+		if (project == NULL || !project->IsOpen())
+			return assets;
+		const std::string dir = project->AbsolutePath("assets/effects");
+		std::error_code ec;
+		if (!std::filesystem::exists(dir, ec))
+			return assets;
+		for (const auto &entry : std::filesystem::directory_iterator(dir, ec))
+		{
+			if (!entry.is_regular_file()) continue;
+			if (entry.path().extension() != ".glsl") continue;
+			assets.push_back("assets/effects/" + entry.path().filename().string());
+		}
+		std::sort(assets.begin(), assets.end());
+		return assets;
+	}
+
+	void SceneEditor::SetPostEffectChain(const std::vector<SceneMeta::PostEffectEntry> &chain)
+	{
+		postEffects = chain;
+		ApplyPostEffects();
+		MarkSceneDirty();
+	}
+
+	namespace {
+		// PostEffectEntry has no operator==, and every member of it is worth
+		// comparing: two entries naming the same effect with different
+		// parameters are a real edit.
+		bool SamePostEffectEntry(const SceneMeta::PostEffectEntry &a, const SceneMeta::PostEffectEntry &b)
+		{
+			return a.effect == b.effect && a.asset == b.asset && a.enabled == b.enabled && a.params == b.params;
+		}
+		bool SamePostEffectChain(const std::vector<SceneMeta::PostEffectEntry> &a,
+			const std::vector<SceneMeta::PostEffectEntry> &b)
+		{
+			if (a.size() != b.size()) return false;
+			for (size_t i = 0; i < a.size(); i++)
+				if (!SamePostEffectEntry(a[i], b[i])) return false;
+			return true;
+		}
+	}
+
+	// A whole-chain snapshot rather than a per-field diff. The chain is a
+	// handful of names and floats - kilobytes at worst - and every edit it
+	// takes (add, remove, reorder, enable, retune) changes a different part
+	// of it, so one command that swaps the list covers all of them without
+	// five command classes that each have to stay in step with the panel.
+	void SceneEditor::PushPostEffectsUndo(const std::vector<SceneMeta::PostEffectEntry> &before,
+		const std::string &description)
+	{
+		if (SamePostEffectChain(before, postEffects))
+			return;
+		const std::vector<SceneMeta::PostEffectEntry> after = postEffects;
+		sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+			[this, before]() { SetPostEffectChain(before); },
+			[this, after]() { SetPostEffectChain(after); },
+			description));
+	}
+
+	const std::vector<CustomEffect::Param> &SceneEditor::PostEffectParamMeta(const SceneMeta::PostEffectEntry &entry)
+	{
+		if (!entry.effect.empty())
+			return PostEffectChain::ListBuiltInParams(entry.effect);
+		return GetPostEffectAssetInfo(entry.asset).params;
+	}
+
 	void SceneEditor::RunViewportPostEffects(GameObject* viewCam, SceneGraph* scene, bool isPerspective,
 		Projection &projection, Projection &projectionOrtho)
 	{
@@ -4074,6 +4142,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				break;
 			}
 			if (edited) changed = true;
+			// One command per gesture, not per frame: a drag writes `v`
+			// every frame it moves, so the value to undo to is the one from
+			// before the drag started, and the command is pushed when the
+			// widget is released. Same shape as UndoValueEdit, done by hand
+			// because the baseline here is the whole chain rather than the
+			// single float the widget owns.
+			if (ImGui::IsItemActivated())
+				undoBaselinePostEffects = postEffects;
+			if (ImGui::IsItemDeactivatedAfterEdit())
+			{
+				PushPostEffectsUndo(undoBaselinePostEffects, "Set Post Effect Parameter");
+				undoBaselinePostEffects.clear();
+			}
 			ImGui::PopID();
 		}
 		return changed;
@@ -4090,6 +4171,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		bool changed = false;
 		int moveFrom = -1, moveTo = -1, removeAt = -1;
+		// Everything below except a parameter drag is a single click, so one
+		// snapshot taken before the panel runs is the right undo baseline for
+		// all of them; `undoDesc` names whichever one happened. Parameter
+		// widgets push their own command (see DrawPostEffectParams) and leave
+		// this empty.
+		const std::vector<SceneMeta::PostEffectEntry> undoBefore = postEffects;
+		std::string undoDesc;
 
 		for (size_t i = 0; i < postEffects.size(); i++)
 		{
@@ -4097,7 +4185,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::PushID((int)i);
 
 			bool enabled = e.enabled;
-			if (ImGui::Checkbox("##enabled", &enabled)) { e.enabled = enabled; changed = true; }
+			if (ImGui::Checkbox("##enabled", &enabled))
+			{
+				e.enabled = enabled;
+				changed = true;
+				undoDesc = enabled ? "Enable Post Effect" : "Disable Post Effect";
+			}
 			ImGui::SameLine();
 
 			// Reorder is the whole point of a chain, so the controls for it
@@ -4174,25 +4267,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					e.effect = builtIn[i];
 					postEffects.push_back(e);
 					changed = true;
+					undoDesc = "Add Post Effect '" + builtIn[i] + "'";
 				}
 			}
 			// Assets live in assets/effects by convention - one place to look
 			// keeps this list short and the format discoverable.
 			if (project && project->IsOpen())
 			{
-				std::vector<std::string> assets;
-				const std::string dir = project->AbsolutePath("assets/effects");
-				std::error_code ec;
-				if (std::filesystem::exists(dir, ec))
-				{
-					for (const auto &entry : std::filesystem::directory_iterator(dir, ec))
-					{
-						if (!entry.is_regular_file()) continue;
-						if (entry.path().extension() != ".glsl") continue;
-						assets.push_back("assets/effects/" + entry.path().filename().string());
-					}
-				}
-				std::sort(assets.begin(), assets.end());
+				const std::vector<std::string> assets = ListPostEffectAssets();
 				if (!assets.empty())
 					ImGui::Separator();
 				for (size_t i = 0; i < assets.size(); i++)
@@ -4205,6 +4287,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						e.asset = assets[i];
 						postEffects.push_back(e);
 						changed = true;
+						undoDesc = "Add Post Effect '" + (info.ok ? info.name : assets[i]) + "'";
 					}
 				}
 				if (assets.empty())
@@ -4226,17 +4309,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			std::swap(postEffects[moveFrom], postEffects[moveTo]);
 			changed = true;
+			undoDesc = "Reorder Post Effects";
 		}
 		if (removeAt >= 0)
 		{
 			postEffects.erase(postEffects.begin() + removeAt);
 			changed = true;
+			undoDesc = "Remove Post Effect";
 		}
 
 		if (changed)
 		{
 			ApplyPostEffects();
 			sceneDirty = true;
+			// Reload Assets sets `changed` without touching the chain, and
+			// PushPostEffectsUndo ignores a no-op edit - so it recompiles the
+			// effects without leaving an undo entry, which is what a refresh
+			// should do.
+			if (!undoDesc.empty())
+				PushPostEffectsUndo(undoBefore, undoDesc);
 		}
 	}
 
@@ -7414,6 +7505,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		sceneDirty = false;
 
 		ambientLightColor = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
+		// A new scene has no chain. Left behind, the outgoing scene's effects
+		// kept running in the viewport and were written into the new scene
+		// file on the first save - a scene that had never had a post effect
+		// in it, saved with someone else's.
+		postEffects.clear();
+		postEffectAssetInfo.clear();
+		ApplyPostEffects();
 		ApplyEnvironment();
 	}
 
@@ -12032,6 +12130,363 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (GetEditingCanvas() == NULL) { errOut = "could not create a UICanvas"; return false; }
 		}
 		uiEditMode = on;
+		return true;
+	}
+
+	namespace {
+		const char* PostEffectParamTypeName(const uint32 type)
+		{
+			switch (type)
+			{
+			case Uniforms::DataType::Int:  return "int";
+			case Uniforms::DataType::Vec2: return "vec2";
+			case Uniforms::DataType::Vec3: return "vec3";
+			case Uniforms::DataType::Vec4: return "vec4";
+			default:                       return "float";
+			}
+		}
+		// How many of Param::value[4] the type actually uses - reporting all
+		// four for a float would have an agent copy three zeroes back.
+		uint32 PostEffectParamCount(const uint32 type)
+		{
+			switch (type)
+			{
+			case Uniforms::DataType::Vec2: return 2;
+			case Uniforms::DataType::Vec3: return 3;
+			case Uniforms::DataType::Vec4: return 4;
+			default:                       return 1;
+			}
+		}
+		json PostEffectParamToJson(const CustomEffect::Param &p)
+		{
+			json j;
+			j["name"] = p.name;
+			j["label"] = p.label;
+			j["type"] = PostEffectParamTypeName(p.type);
+			const uint32 n = PostEffectParamCount(p.type);
+			json d = json::array();
+			for (uint32 i = 0; i < n; i++) d.push_back((double)p.value[i]);
+			j["default"] = d;
+			// Only when the author gave one: min == max == 0 is "no range",
+			// not "pinned to zero".
+			if (p.hasRange) { j["min"] = (double)p.min; j["max"] = (double)p.max; }
+			return j;
+		}
+		json PostEffectParamsToJson(const std::vector<CustomEffect::Param> &params)
+		{
+			json arr = json::array();
+			for (size_t i = 0; i < params.size(); i++) arr.push_back(PostEffectParamToJson(params[i]));
+			return arr;
+		}
+		json PostEffectEntryToJson(const size_t index, const SceneMeta::PostEffectEntry &e)
+		{
+			json j;
+			j["index"] = (int)index;
+			j["effect"] = e.effect;
+			j["asset"] = e.asset;
+			j["enabled"] = e.enabled;
+			json p = json::object();
+			for (std::map<std::string, std::vector<f32> >::const_iterator k = e.params.begin(); k != e.params.end(); k++)
+			{
+				json v = json::array();
+				for (size_t i = 0; i < k->second.size(); i++) v.push_back((double)k->second[i]);
+				p[k->first] = v;
+			}
+			j["params"] = p;
+			return j;
+		}
+		bool EqualsNoCase(const std::string &a, const std::string &b)
+		{
+			if (a.size() != b.size()) return false;
+			for (size_t i = 0; i < a.size(); i++)
+				if (tolower((unsigned char)a[i]) != tolower((unsigned char)b[i])) return false;
+			return true;
+		}
+		std::string JoinNames(const std::vector<std::string> &names)
+		{
+			std::string out;
+			for (size_t i = 0; i < names.size(); i++) { if (i) out += ", "; out += names[i]; }
+			return out;
+		}
+		// { "uAmount": 0.5, "uTint": [1,1,1,1] } - one number is the common
+		// case (every built-in parameter is a float), an array covers the
+		// vector ones.
+		bool ParseAgentPostEffectParams(const json &j, std::map<std::string, std::vector<f32> > &out, std::string &errOut)
+		{
+			if (j.is_null()) return true;
+			if (!j.is_object()) { errOut = "'params' must be an object of {name: number or [numbers]}"; return false; }
+			for (json::const_iterator it = j.begin(); it != j.end(); ++it)
+			{
+				std::vector<f32> v;
+				if (it.value().is_number())
+					v.push_back(it.value().get<f32>());
+				else if (it.value().is_array())
+				{
+					for (const auto &n : it.value())
+					{
+						if (!n.is_number()) { errOut = "parameter '" + it.key() + "' must be numbers"; return false; }
+						v.push_back(n.get<f32>());
+					}
+				}
+				else { errOut = "parameter '" + it.key() + "' must be a number or an array of numbers"; return false; }
+				if (v.empty() || v.size() > 4) { errOut = "parameter '" + it.key() + "' takes one to four numbers"; return false; }
+				out[it.key()] = v;
+			}
+			return true;
+		}
+		// PostEffectChain::Build only logs an override it does not recognise,
+		// which over a socket is indistinguishable from having worked - so a
+		// name that is not there is an error here, and the message says what
+		// the effect does have.
+		bool CheckPostEffectParams(const std::map<std::string, std::vector<f32> > &params,
+			const std::vector<CustomEffect::Param> &meta, const std::string &label, std::string &errOut)
+		{
+			for (std::map<std::string, std::vector<f32> >::const_iterator k = params.begin(); k != params.end(); k++)
+			{
+				const CustomEffect::Param* found = NULL;
+				for (size_t i = 0; i < meta.size(); i++)
+					if (meta[i].name == k->first) { found = &meta[i]; break; }
+				if (found == NULL)
+				{
+					std::vector<std::string> names;
+					for (size_t i = 0; i < meta.size(); i++) names.push_back(meta[i].name);
+					errOut = names.empty()
+						? (label + " has no parameters, so '" + k->first + "' cannot be set")
+						: (label + " has no parameter '" + k->first + "' - it takes " + JoinNames(names));
+					return false;
+				}
+				const uint32 need = PostEffectParamCount(found->type);
+				if (k->second.size() < need)
+				{
+					errOut = label + "'s '" + k->first + "' is a " + PostEffectParamTypeName(found->type) +
+						" - it needs " + std::to_string(need) + " numbers";
+					return false;
+				}
+			}
+			return true;
+		}
+		// What to call an entry in a message and in an undo description.
+		std::string PostEffectLabel(const SceneMeta::PostEffectEntry &e)
+		{
+			return e.effect.empty() ? e.asset : e.effect;
+		}
+	}
+
+	// Read before writing: the built-in names, what each exposes, and the
+	// project's own .glsl effects are all things an agent cannot guess, and
+	// an entry naming an effect that does not exist builds nothing while
+	// reporting success.
+	json SceneEditor::AgentPostEffectsState()
+	{
+		json out;
+
+		json chain = json::array();
+		for (size_t i = 0; i < postEffects.size(); i++)
+			chain.push_back(PostEffectEntryToJson(i, postEffects[i]));
+		out["effects"] = chain;
+
+		json builtIn = json::array();
+		const std::vector<std::string> &names = PostEffectChain::ListBuiltIn();
+		for (size_t i = 0; i < names.size(); i++)
+		{
+			json j;
+			j["name"] = names[i];
+			j["params"] = PostEffectParamsToJson(PostEffectChain::ListBuiltInParams(names[i]));
+			builtIn.push_back(j);
+		}
+		out["builtIn"] = builtIn;
+
+		json assets = json::array();
+		const std::vector<std::string> paths = ListPostEffectAssets();
+		for (size_t i = 0; i < paths.size(); i++)
+		{
+			const PostEffectAssetInfo &info = GetPostEffectAssetInfo(paths[i]);
+			json j;
+			j["path"] = paths[i];
+			j["name"] = info.name;
+			j["ok"] = info.ok;
+			if (!info.ok) j["error"] = info.error;
+			j["params"] = PostEffectParamsToJson(info.params);
+			assets.push_back(j);
+		}
+		out["assets"] = assets;
+		return out;
+	}
+
+	bool SceneEditor::AgentFindPostEffect(const json &p, size_t &outIndex, std::string &errOut) const
+	{
+		if (postEffects.empty()) { errOut = "this scene has no post effects"; return false; }
+		if (p.is_object() && p.contains("index") && p["index"].is_number_integer())
+		{
+			const int idx = p["index"].get<int>();
+			if (idx < 0 || idx >= (int)postEffects.size())
+			{
+				errOut = "index " + std::to_string(idx) + " is outside the chain (" +
+					std::to_string(postEffects.size()) + " effects)";
+				return false;
+			}
+			outIndex = (size_t)idx;
+			return true;
+		}
+		const std::string effect = (p.is_object() && p.contains("effect") && p["effect"].is_string()) ? p["effect"].get<std::string>() : "";
+		const std::string asset = (p.is_object() && p.contains("asset") && p["asset"].is_string()) ? p["asset"].get<std::string>() : "";
+		if (effect.empty() && asset.empty())
+		{
+			errOut = "name the effect: 'index' (0-based, and the only way to tell two of the same effect apart), 'effect' or 'asset'";
+			return false;
+		}
+		for (size_t i = 0; i < postEffects.size(); i++)
+		{
+			if (!effect.empty() && EqualsNoCase(postEffects[i].effect, effect)) { outIndex = i; return true; }
+			if (!asset.empty() && postEffects[i].asset == asset) { outIndex = i; return true; }
+		}
+		errOut = "'" + (effect.empty() ? asset : effect) + "' is not in this scene's chain";
+		return false;
+	}
+
+	bool SceneEditor::AgentAddPostEffect(const json &p, size_t &outIndex, std::string &errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		const std::string effect = (p.is_object() && p.contains("effect") && p["effect"].is_string()) ? p["effect"].get<std::string>() : "";
+		const std::string asset = (p.is_object() && p.contains("asset") && p["asset"].is_string()) ? p["asset"].get<std::string>() : "";
+		if (effect.empty() == asset.empty())
+		{
+			errOut = "pass exactly one of 'effect' (a built-in name) or 'asset' (a project-relative .glsl)";
+			return false;
+		}
+
+		SceneMeta::PostEffectEntry e;
+		if (!effect.empty())
+		{
+			// Store the list's own spelling, not what was typed: the scene
+			// file is looked up by exact name when the chain is built.
+			const std::vector<std::string> &names = PostEffectChain::ListBuiltIn();
+			for (size_t i = 0; i < names.size(); i++)
+				if (EqualsNoCase(names[i], effect)) { e.effect = names[i]; break; }
+			if (e.effect.empty())
+			{
+				errOut = "'" + effect + "' is not a built-in effect - there is " + JoinNames(names);
+				return false;
+			}
+		}
+		else
+		{
+			e.asset = asset;
+			const PostEffectAssetInfo &info = GetPostEffectAssetInfo(asset);
+			if (!info.ok) { errOut = "effect asset " + asset + ": " + info.error; return false; }
+		}
+		if (p.is_object() && p.contains("enabled") && p["enabled"].is_boolean())
+			e.enabled = p["enabled"].get<bool>();
+		if (p.is_object() && p.contains("params"))
+		{
+			std::map<std::string, std::vector<f32> > params;
+			if (!ParseAgentPostEffectParams(p["params"], params, errOut)) return false;
+			if (!CheckPostEffectParams(params, PostEffectParamMeta(e), PostEffectLabel(e), errOut)) return false;
+			e.params = params;
+		}
+
+		// Where in the chain, because order is what a chain is - appended by
+		// default, which is what "add a vignette" means.
+		size_t index = postEffects.size();
+		if (p.is_object() && p.contains("index") && p["index"].is_number_integer())
+		{
+			const int idx = p["index"].get<int>();
+			if (idx < 0 || idx > (int)postEffects.size())
+			{
+				errOut = "index " + std::to_string(idx) + " is outside the chain (0.." +
+					std::to_string(postEffects.size()) + ")";
+				return false;
+			}
+			index = (size_t)idx;
+		}
+
+		const std::vector<SceneMeta::PostEffectEntry> before = postEffects;
+		std::vector<SceneMeta::PostEffectEntry> next = postEffects;
+		next.insert(next.begin() + index, e);
+		SetPostEffectChain(next);
+		PushPostEffectsUndo(before, "Add Post Effect '" + PostEffectLabel(e) + "'");
+		outIndex = index;
+		return true;
+	}
+
+	bool SceneEditor::AgentSetPostEffect(const json &p, std::string &errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		size_t index = 0;
+		if (!AgentFindPostEffect(p, index, errOut)) return false;
+
+		SceneMeta::PostEffectEntry e = postEffects[index];
+		bool touched = false;
+		if (p.is_object() && p.contains("enabled") && p["enabled"].is_boolean())
+		{
+			e.enabled = p["enabled"].get<bool>();
+			touched = true;
+		}
+		if (p.is_object() && p.contains("params"))
+		{
+			std::map<std::string, std::vector<f32> > params;
+			if (!ParseAgentPostEffectParams(p["params"], params, errOut)) return false;
+			if (!CheckPostEffectParams(params, PostEffectParamMeta(e), PostEffectLabel(e), errOut)) return false;
+			// Merged, not replaced: setting one knob must not reset the
+			// others to their defaults.
+			for (std::map<std::string, std::vector<f32> >::const_iterator k = params.begin(); k != params.end(); k++)
+				e.params[k->first] = k->second;
+			touched = true;
+		}
+		if (!touched) { errOut = "nothing to set - pass 'enabled' and/or 'params'"; return false; }
+
+		const std::vector<SceneMeta::PostEffectEntry> before = postEffects;
+		std::vector<SceneMeta::PostEffectEntry> next = postEffects;
+		next[index] = e;
+		SetPostEffectChain(next);
+		PushPostEffectsUndo(before, "Set Post Effect '" + PostEffectLabel(e) + "'");
+		return true;
+	}
+
+	bool SceneEditor::AgentRemovePostEffect(const json &p, std::string &errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		size_t index = 0;
+		if (!AgentFindPostEffect(p, index, errOut)) return false;
+
+		const std::string label = PostEffectLabel(postEffects[index]);
+		const std::vector<SceneMeta::PostEffectEntry> before = postEffects;
+		std::vector<SceneMeta::PostEffectEntry> next = postEffects;
+		next.erase(next.begin() + index);
+		SetPostEffectChain(next);
+		PushPostEffectsUndo(before, "Remove Post Effect '" + label + "'");
+		return true;
+	}
+
+	bool SceneEditor::AgentMovePostEffect(const json &p, std::string &errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		size_t index = 0;
+		if (!AgentFindPostEffect(p, index, errOut)) return false;
+		if (!p.is_object() || !p.contains("to") || !p["to"].is_number_integer())
+		{
+			errOut = "pass 'to': the 0-based position to move it to";
+			return false;
+		}
+		const int to = p["to"].get<int>();
+		if (to < 0 || to >= (int)postEffects.size())
+		{
+			errOut = "'to' is outside the chain (0.." + std::to_string(postEffects.size() - 1) + ")";
+			return false;
+		}
+		if ((size_t)to == index) return true;
+
+		const std::string label = PostEffectLabel(postEffects[index]);
+		const std::vector<SceneMeta::PostEffectEntry> before = postEffects;
+		// Lift and reinsert rather than swap: moving the last effect to the
+		// front should slide the rest down, not trade places with whatever
+		// happens to be there.
+		std::vector<SceneMeta::PostEffectEntry> next = postEffects;
+		const SceneMeta::PostEffectEntry moved = next[index];
+		next.erase(next.begin() + index);
+		next.insert(next.begin() + to, moved);
+		SetPostEffectChain(next);
+		PushPostEffectsUndo(before, "Move Post Effect '" + label + "'");
 		return true;
 	}
 

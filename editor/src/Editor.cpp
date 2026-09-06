@@ -2099,6 +2099,46 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// The scene's post-effect chain. Read it before writing: the built-in
+	// names and each effect's parameters come back from here, and an entry
+	// naming something that does not exist is skipped at build time with
+	// nothing in the reply to say so.
+	if (name == "post_effects")
+		return sceneView->AgentPostEffectsState();
+	if (name == "add_post_effect")
+	{
+		size_t index = 0;
+		if (!sceneView->AgentAddPostEffect(a.is_object() ? a : nlohmann::json::object(), index, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["index"] = (int)index;
+		return r;
+	}
+	if (name == "set_post_effect")
+	{
+		if (!sceneView->AgentSetPostEffect(a.is_object() ? a : nlohmann::json::object(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "remove_post_effect")
+	{
+		if (!sceneView->AgentRemovePostEffect(a.is_object() ? a : nlohmann::json::object(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "move_post_effect")
+	{
+		if (!sceneView->AgentMovePostEffect(a.is_object() ? a : nlohmann::json::object(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "canvas_drag")
 	{
 		const int handle = a.is_object() ? a.value("handle", 4) : 4;

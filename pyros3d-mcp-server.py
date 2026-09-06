@@ -5347,5 +5347,418 @@ def set_camera(project_path: str, scene_name: str, name: str,
     return f"Updated camera '{name}'"
 
 
+# ---------------------------------------------------------------------------
+# Post effects
+#
+# The chain lives in the scene file under "postEffects", runs in order, and
+# each entry reads what the one before produced - so position is as much of
+# the edit as the parameters are.
+#
+# Mirrors PostEffectChain::ListBuiltIn/ListBuiltInParams. The running editor
+# is the authority (list_post_effects asks it when it has the scene open);
+# this table is what the offline path checks a name against, so a typo is an
+# error here rather than an effect that silently never builds.
+_BUILTIN_POST_EFFECTS: dict[str, dict[str, tuple[float, float, float]]] = {
+    "Bloom":        {"uThreshold": (0.8, 0.0, 4.0), "uKnee": (0.35, 0.0, 1.0),
+                     "uIntensity": (1.0, 0.0, 4.0)},
+    "BlurX":        {},
+    "BlurY":        {},
+    "Tonemap":      {},
+    "Vignette":     {"uRADIUS": (0.5, 0.0, 1.5), "uSOFTNESS": (0.2, 0.0, 1.0)},
+    "GammaEncode":  {},
+    "SSAO":         {"uRadius": (0.2, 0.01, 2.0), "uStrength": (1.5, 0.0, 5.0),
+                     "uTreshOld": (2.0, 0.0, 10.0), "uScale": (100.0, 1.0, 400.0)},
+    "DepthOfField": {"uFocalPosition": (20.0, 0.0, 500.0), "uFocalRange": (2.0, 0.01, 100.0),
+                     "uRatioL": (3.1, 0.0, 8.0), "uRatioH": (1.0, 0.0, 8.0)},
+    "MotionBlur":   {"uTargetFPS": (60.0, 15.0, 240.0)},
+}
+
+_EFFECT_PARAM_COMPONENTS = {"float": 1, "int": 1, "vec2": 2, "vec3": 3, "vec4": 4}
+
+
+def _builtin_effect_name(name: str) -> str | None:
+    """The built-in list's own spelling of `name`, or None."""
+    for known in _BUILTIN_POST_EFFECTS:
+        if known.lower() == name.strip().lower():
+            return known
+    return None
+
+
+def _effect_assets(proj: Path) -> list[str]:
+    """The project's .glsl effects, project-relative - assets/effects by convention."""
+    d = proj / "assets" / "effects"
+    if not d.is_dir():
+        return []
+    return sorted(f"assets/effects/{f.name}" for f in d.iterdir()
+                  if f.is_file() and f.suffix == ".glsl")
+
+
+def _parse_effect_asset(path: Path) -> tuple[str, list[dict], str]:
+    """Name and parameters from a .glsl effect's `//!` header (see CustomEffect).
+
+    Returns (name, params, error) - error non-empty means the file could not
+    be read; a header with no directives is a valid effect with no knobs.
+    """
+    try:
+        text = path.read_text()
+    except OSError as exc:
+        return "", [], str(exc)
+    name = path.stem
+    params: list[dict] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("//!"):
+            continue
+        words = stripped[3:].split()
+        if not words:
+            continue
+        if words[0] == "effect" and len(words) >= 2:
+            name = " ".join(words[1:])
+        elif words[0] == "param" and len(words) >= 4:
+            ptype = words[1]
+            n = _EFFECT_PARAM_COMPONENTS.get(ptype)
+            if n is None:
+                continue
+            try:
+                default = [float(v) for v in words[3].split(",")][:n]
+            except ValueError:
+                default = [0.0] * n
+            default += [0.0] * (n - len(default))
+            p: dict = {"name": words[2], "type": ptype, "default": default}
+            rest = words[4:]
+            if n == 1 and len(rest) >= 2:
+                try:
+                    p["min"], p["max"] = float(rest[0]), float(rest[1])
+                    rest = rest[2:]
+                except ValueError:
+                    pass
+            p["label"] = " ".join(rest) if rest else words[2]
+            params.append(p)
+    return name, params, ""
+
+
+def _effect_param_meta(proj: Path, effect: str, asset: str) -> tuple[dict[str, int] | None, str]:
+    """{parameter name: how many numbers it takes} for one entry, or an error."""
+    if effect:
+        known = _builtin_effect_name(effect)
+        if known is None:
+            return None, (f"'{effect}' is not a built-in effect - there is "
+                          f"{', '.join(_BUILTIN_POST_EFFECTS)}")
+        return {name: 1 for name in _BUILTIN_POST_EFFECTS[known]}, ""
+    file = proj / asset
+    if not file.is_file():
+        return None, f"Effect asset not found: {asset}"
+    _, params, err = _parse_effect_asset(file)
+    if err:
+        return None, f"Could not read {asset}: {err}"
+    return {p["name"]: _EFFECT_PARAM_COMPONENTS.get(p["type"], 1) for p in params}, ""
+
+
+def _normalize_effect_params(params: dict | None, meta: dict[str, int], label: str) -> tuple[dict, str]:
+    """Parameter overrides as {name: [numbers]}, checked against what the effect has.
+
+    PostEffectChain::Build only logs an override it does not recognise, so a
+    misspelled name would otherwise leave the value at its default with
+    nothing said.
+    """
+    if not params:
+        return {}, ""
+    out: dict[str, list[float]] = {}
+    for name, value in params.items():
+        if name not in meta:
+            return {}, (f"{label} has no parameter '{name}'"
+                        + (f" - it takes {', '.join(meta)}" if meta else ", so it cannot be set"))
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            nums = [float(value)]
+        elif isinstance(value, (list, tuple)) and value and all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) for v in value):
+            nums = [float(v) for v in value]
+        else:
+            return {}, f"Parameter '{name}' must be a number or a list of numbers"
+        if len(nums) < meta[name]:
+            return {}, f"{label}'s '{name}' needs {meta[name]} numbers"
+        out[name] = nums[:4]
+    return out, ""
+
+
+def _match_post_effect(chain: list[dict], index: int | None,
+                       effect: str | None, asset: str | None) -> tuple[int, str]:
+    """Which entry a command means: index, or a built-in name, or an asset path."""
+    if not chain:
+        return -1, "This scene has no post effects"
+    if index is not None:
+        if index < 0 or index >= len(chain):
+            return -1, f"index {index} is outside the chain ({len(chain)} effects)"
+        return index, ""
+    if not effect and not asset:
+        return -1, ("Name the effect: index (0-based, and the only way to tell two of the "
+                    "same effect apart), effect, or asset")
+    for i, e in enumerate(chain):
+        if effect and str(e.get("effect", "")).lower() == effect.strip().lower():
+            return i, ""
+        if asset and e.get("asset", "") == asset:
+            return i, ""
+    return -1, f"'{effect or asset}' is not in this scene's chain"
+
+
+def _post_effect_label(entry: dict) -> str:
+    return entry.get("effect") or entry.get("asset") or "effect"
+
+
+@mcp.tool()
+def list_post_effects(project_path: str, scene_name: str) -> str:
+    """The scene's post-effect chain, and everything that could be added to it.
+
+    Returns the chain in the order it runs (each effect reads what the one
+    before produced), every built-in effect with the parameters it takes, and
+    the project's .glsl effect assets. Read this before adding or tuning an
+    effect: a name that does not exist builds nothing and says nothing.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+
+    live = _live_or_none("post_effects", {}, scene_file)
+    if isinstance(live, str):
+        return _fail(live)
+    if live is not None:
+        return json.dumps(live, indent=2)
+
+    data = _load_scene(scene_file)
+    chain = []
+    for i, e in enumerate(data.get("postEffects", []) or []):
+        chain.append({"index": i, "effect": e.get("effect", ""), "asset": e.get("asset", ""),
+                      "enabled": e.get("enabled", True), "params": e.get("params", {})})
+    assets = []
+    for rel in _effect_assets(proj):
+        name, params, a_err = _parse_effect_asset(proj / rel)
+        entry = {"path": rel, "name": name, "ok": not a_err, "params": params}
+        if a_err:
+            entry["error"] = a_err
+        assets.append(entry)
+    built_in = [{"name": name,
+                 "params": [{"name": p, "type": "float", "default": [d], "min": lo, "max": hi}
+                            for p, (d, lo, hi) in params.items()]}
+                for name, params in _BUILTIN_POST_EFFECTS.items()]
+    return json.dumps({"effects": chain, "builtIn": built_in, "assets": assets}, indent=2)
+
+
+@mcp.tool()
+def add_post_effect(project_path: str, scene_name: str, effect: str | None = None,
+                    asset: str | None = None, index: int | None = None,
+                    enabled: bool | None = None, params: dict | None = None) -> str:
+    """Add a post effect to the scene's chain.
+
+    Pass either effect (a built-in name - see list_post_effects) or asset (a
+    project-relative .glsl). index is where in the chain it goes, appended by
+    default; order is the edit, since each effect reads the previous one's
+    output. params overrides the effect's defaults, {name: number or list}.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+    if bool(effect) == bool(asset):
+        return _fail("Pass exactly one of effect (a built-in name) or asset (a project-relative .glsl)")
+
+    meta, m_err = _effect_param_meta(proj, effect or "", asset or "")
+    if m_err:
+        return _fail(m_err)
+    label = _builtin_effect_name(effect) if effect else asset
+    values, p_err = _normalize_effect_params(params, meta or {}, label or "")
+    if p_err:
+        return _fail(p_err)
+
+    args: dict = {}
+    if effect:
+        args["effect"] = label
+    else:
+        args["asset"] = asset
+    if index is not None:
+        args["index"] = int(index)
+    if enabled is not None:
+        args["enabled"] = bool(enabled)
+    if values:
+        args["params"] = values
+
+    live = _live_or_none("add_post_effect", args, scene_file)
+    if isinstance(live, str):
+        return _fail(live)
+    if live is not None:
+        return f"Added '{label}' at position {live.get('index', '?')} (live editor)"
+
+    data = _load_scene(scene_file)
+    chain = list(data.get("postEffects", []) or [])
+    at = len(chain) if index is None else int(index)
+    if at < 0 or at > len(chain):
+        return _fail(f"index {at} is outside the chain (0..{len(chain)})")
+    entry: dict = {"effect": label} if effect else {"asset": asset}
+    if enabled is not None and not enabled:
+        entry["enabled"] = False
+    if values:
+        entry["params"] = values
+    chain.insert(at, entry)
+    data["postEffects"] = chain
+    _save_scene(scene_file, data)
+    return f"Added '{label}' at position {at}"
+
+
+@mcp.tool()
+def set_post_effect(project_path: str, scene_name: str, index: int | None = None,
+                    effect: str | None = None, asset: str | None = None,
+                    enabled: bool | None = None, params: dict | None = None) -> str:
+    """Turn one effect in the chain on/off and/or retune it.
+
+    Name the entry by index (0-based, and the only way to tell two of the same
+    effect apart), or by effect/asset. Parameters are merged, so setting one
+    leaves the rest where they were.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+    if enabled is None and not params:
+        return _fail("Nothing to set - pass enabled and/or params")
+
+    args: dict = {}
+    if index is not None:
+        args["index"] = int(index)
+    if effect:
+        args["effect"] = effect
+    if asset:
+        args["asset"] = asset
+    if enabled is not None:
+        args["enabled"] = bool(enabled)
+    if params:
+        args["params"] = params
+
+    live = _live_or_none("set_post_effect", args, scene_file)
+    if isinstance(live, str):
+        return _fail(live)
+    if live is not None:
+        return "Updated the post effect (live editor)"
+
+    data = _load_scene(scene_file)
+    chain = list(data.get("postEffects", []) or [])
+    at, m_err = _match_post_effect(chain, index, effect, asset)
+    if m_err:
+        return _fail(m_err)
+    entry = dict(chain[at])
+    meta, meta_err = _effect_param_meta(proj, entry.get("effect", ""), entry.get("asset", ""))
+    if meta_err:
+        return _fail(meta_err)
+    values, p_err = _normalize_effect_params(params, meta or {}, _post_effect_label(entry))
+    if p_err:
+        return _fail(p_err)
+    if enabled is not None:
+        entry["enabled"] = bool(enabled)
+    if values:
+        merged = dict(entry.get("params", {}) or {})
+        merged.update(values)
+        entry["params"] = merged
+    chain[at] = entry
+    data["postEffects"] = chain
+    _save_scene(scene_file, data)
+    return f"Updated '{_post_effect_label(entry)}' at position {at}"
+
+
+@mcp.tool()
+def remove_post_effect(project_path: str, scene_name: str, index: int | None = None,
+                       effect: str | None = None, asset: str | None = None) -> str:
+    """Remove one effect from the scene's chain."""
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+
+    args: dict = {}
+    if index is not None:
+        args["index"] = int(index)
+    if effect:
+        args["effect"] = effect
+    if asset:
+        args["asset"] = asset
+
+    live = _live_or_none("remove_post_effect", args, scene_file)
+    if isinstance(live, str):
+        return _fail(live)
+    if live is not None:
+        return "Removed the post effect (live editor)"
+
+    data = _load_scene(scene_file)
+    chain = list(data.get("postEffects", []) or [])
+    at, m_err = _match_post_effect(chain, index, effect, asset)
+    if m_err:
+        return _fail(m_err)
+    label = _post_effect_label(chain[at])
+    del chain[at]
+    if chain:
+        data["postEffects"] = chain
+    else:
+        # A scene with no chain has no "postEffects" key at all - that is what
+        # the serializer writes, and it is what every scene without effects
+        # already looks like.
+        data.pop("postEffects", None)
+    _save_scene(scene_file, data)
+    return f"Removed '{label}'"
+
+
+@mcp.tool()
+def move_post_effect(project_path: str, scene_name: str, to: int, index: int | None = None,
+                     effect: str | None = None, asset: str | None = None) -> str:
+    """Move an effect to another position in the chain.
+
+    What changes is what it reads: an effect sees whatever the one before it
+    produced, so bloom before or after a tonemap are different pictures.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+
+    args: dict = {"to": int(to)}
+    if index is not None:
+        args["index"] = int(index)
+    if effect:
+        args["effect"] = effect
+    if asset:
+        args["asset"] = asset
+
+    live = _live_or_none("move_post_effect", args, scene_file)
+    if isinstance(live, str):
+        return _fail(live)
+    if live is not None:
+        return f"Moved the post effect to position {to} (live editor)"
+
+    data = _load_scene(scene_file)
+    chain = list(data.get("postEffects", []) or [])
+    at, m_err = _match_post_effect(chain, index, effect, asset)
+    if m_err:
+        return _fail(m_err)
+    if to < 0 or to >= len(chain):
+        return _fail(f"'to' is outside the chain (0..{len(chain) - 1})")
+    entry = chain.pop(at)
+    chain.insert(to, entry)
+    data["postEffects"] = chain
+    _save_scene(scene_file, data)
+    return f"Moved '{_post_effect_label(entry)}' to position {to}"
+
+
 if __name__ == "__main__":
     mcp.run()

@@ -383,6 +383,24 @@ public:
 	LoadedSceneAssets sceneAssets;
 
 	json  AgentSceneState();
+	// The post-effect chain, over the socket. Read first: an agent has no
+	// other way to learn the built-in names, what each one exposes, or which
+	// .glsl files this project has - and an entry naming an effect that does
+	// not exist builds nothing and reports nothing, so guessing is silently
+	// wrong rather than an error.
+	json  AgentPostEffectsState();
+	// { effect | asset, index?, enabled?, params? } - `index` is where in the
+	// chain to insert (default: the end), since order is what a chain is.
+	bool AgentAddPostEffect(const json& p, size_t& outIndex, std::string& errOut);
+	// { index | effect | asset, enabled?, params? }. Parameters are merged,
+	// not replaced, and an unknown name is an error naming the valid ones -
+	// PostEffectChain::Build ignores what it does not recognise, so a typo
+	// would otherwise leave the value at its default with nothing said.
+	bool AgentSetPostEffect(const json& p, std::string& errOut);
+	// { index | effect | asset }
+	bool AgentRemovePostEffect(const json& p, std::string& errOut);
+	// { index | effect | asset, to }
+	bool AgentMovePostEffect(const json& p, std::string& errOut);
 	// Rewrites every asset path inside an agent/AI component payload to its
 	// project-relative form. AgentComponentToJson and friends are free
 	// functions with no project handle, so this runs as a pass over what
@@ -701,6 +719,30 @@ private:
 	};
 	std::map<std::string, PostEffectAssetInfo> postEffectAssetInfo;
 	const PostEffectAssetInfo &GetPostEffectAssetInfo(const std::string &path);
+	// The .glsl effects this project offers, project-relative and sorted -
+	// assets/effects by convention. Shared by the Add popup and the socket's
+	// post_effects reply, which have to agree on what exists.
+	std::vector<std::string> ListPostEffectAssets();
+	// Replaces the chain and rebuilds the manager from it. Every edit goes
+	// through here (panel, socket, and undo alike) so none of them can set
+	// the list and forget to rebuild.
+	void SetPostEffectChain(const std::vector<SceneMeta::PostEffectEntry> &chain);
+	// Records one chain edit on the scene's undo stack. `before` is what the
+	// chain was; postEffects already holds the result. No-op when the two
+	// are equal, so a click that changed nothing does not fill the history.
+	void PushPostEffectsUndo(const std::vector<SceneMeta::PostEffectEntry> &before,
+		const std::string &description);
+	// The chain as it was when the parameter widget currently being dragged
+	// was activated - a drag mutates postEffects every frame, so the undo
+	// baseline cannot be "the value at the start of this frame" the way it
+	// can for a button. One is enough: ImGui has at most one active item.
+	std::vector<SceneMeta::PostEffectEntry> undoBaselinePostEffects;
+	// Which entry a socket command means: `index`, or the built-in name in
+	// `effect` (case-insensitive), or the project-relative path in `asset`.
+	bool AgentFindPostEffect(const json &p, size_t &outIndex, std::string &errOut) const;
+	// The parameters `entry` accepts, built-in or asset - the two carry the
+	// same Param shape, so callers do not care which they are looking at.
+	const std::vector<CustomEffect::Param> &PostEffectParamMeta(const SceneMeta::PostEffectEntry &entry);
 	// Pushes ambientLightColor*ambientIntensity and backgroundColor at the
 	// renderer. Called on load, on edit and after a renderer switch (a fresh
 	// IRenderer starts on its own hardcoded defaults).
