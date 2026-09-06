@@ -1435,65 +1435,68 @@ namespace p3d {
 	uint32 GLRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height)
 	{
 #if !defined(GLES3)
+		// Sized by the *read* type, never by the storage format. This buffer
+		// is handed straight to glGetTexImage(), which writes
+		// channels * sizeof(read type) per texel using the format/type pair
+		// TranslateTextureFormat() produced - and that pair does not track the
+		// internal format's width. Every float format there reads as GL_FLOAT
+		// and every integer one as GL_UNSIGNED_BYTE, so sizing GL_RGBA16F by
+		// its storage width gave glGetTexImage() half the room it needed and
+		// it wrote past the end: a heap overflow on every readback of the
+		// editor's RGBA16F viewport capture (it crashed inside the driver's
+		// storeVecColor_RGBA_UI), and, when it happened to survive, float data
+		// that the caller then read as halves - the viewport screenshot came
+		// back cyan. The depth formats below were already fixed this way once;
+		// this is the same rule applied to the rest of the table.
+		uint32 channels = 4;
+		uint32 bytesPerChannel = sizeof(uchar);
 		switch (nativeInternalFormat)
 		{
-		// All three depth formats size by the *read* type, not the storage
-		// format: TranslateTextureFormat() pairs every GL_DEPTH_COMPONENT*
-		// internal format with GL_FLOAT as the read type on desktop, so
-		// glGetTexImage() writes 4 bytes per texel regardless of whether
-		// the texture stores 16, 24 or 32 bits. Sizing 16/24 by their
-		// storage width (2 and 3 bytes) under-allocated the caller's
-		// buffer by width*height bytes and glGetTexImage() wrote past the
-		// end of it - a real heap overflow on any depth readback, not a
-		// cosmetic rounding quirk. Found via the point-shadow cubemap
-		// viewer, whose faces are DepthComponent (-> GL_DEPTH_COMPONENT24)
-		// and which read back as all-1.0 because the short buffer was
-		// rejected before it could be overflowed.
+		// Depth reads as GL_FLOAT on desktop whatever the storage width is
+		// (16, 24 or 32). Found via the point-shadow cubemap viewer, whose
+		// faces are DepthComponent and read back as all-1.0 because the short
+		// buffer was rejected before it could be overflowed.
 		case GL_DEPTH_COMPONENT16:
 		case GL_DEPTH_COMPONENT24:
 		case GL_DEPTH_COMPONENT32F:
-			return sizeof(f32) * width * height;
-		case GL_R16F:
-			return sizeof(uchar) * 2 * width * height;
-		case GL_R32F:
-			return sizeof(f32) * width * height;
-		case GL_RG8:
-			return sizeof(uchar) * width * height * 2;
-		case GL_R16I:
-			return sizeof(uchar) * 2 * width * height;
-		case GL_R32I:
-			return sizeof(int32) * width * height;
-		case GL_RG16F:
-			return sizeof(uchar) * 2 * width * height * 2;
-		case GL_RG32F:
-			return sizeof(f32) * width * height * 2;
-		case GL_RG16I:
-			return sizeof(uchar) * 2 * width * height;
-		case GL_RG32I:
-			return sizeof(int32) * width * height * 2;
-		case GL_RGB8:
-			return sizeof(uchar) * width * height * 2;
-		case GL_RGB16F:
-			return sizeof(uchar) * 2 * width * height * 3;
-		case GL_RGB32F:
-			return sizeof(f32) * width * height * 3;
-		case GL_RGB16I:
-			return sizeof(uchar) * 2 * width * height * 3;
-		case GL_RGB32I:
-			return sizeof(int32) * width * height * 3;
-		case GL_RGBA16F:
-			return sizeof(uchar) * 2 * width * height * 4;
-		case GL_RGBA32F:
-			return sizeof(f32) * width * height * 4;
-		case GL_RGBA16I:
-			return sizeof(uchar) * 2 * width * height * 4;
-		case GL_RGBA32I:
-			return sizeof(int32) * width * height * 4;
+			channels = 1; bytesPerChannel = sizeof(f32); break;
+
 		case GL_R8:
-			return sizeof(uchar) * width * height * 4;
+		case GL_R16I:
+		case GL_R32I:
+			channels = 1; break;
+		case GL_R16F:
+		case GL_R32F:
+			channels = 1; bytesPerChannel = sizeof(f32); break;
+
+		case GL_RG8:
+		case GL_RG16I:
+		case GL_RG32I:
+			channels = 2; break;
+		case GL_RG16F:
+		case GL_RG32F:
+			channels = 2; bytesPerChannel = sizeof(f32); break;
+
+		case GL_RGB8:
+		case GL_RGB16I:
+		case GL_RGB32I:
+			channels = 3; break;
+		case GL_RGB16F:
+		case GL_RGB32F:
+			channels = 3; bytesPerChannel = sizeof(f32); break;
+
+		case GL_RGBA16F:
+		case GL_RGBA32F:
+			channels = 4; bytesPerChannel = sizeof(f32); break;
+
+		// GL_RGBA8, the integer RGBA formats, and anything not listed:
+		// four channels of one byte. The default has to be the *largest*
+		// plausible layout rather than the smallest, since guessing low here
+		// is what corrupts the heap.
 		default:
-			return sizeof(uchar) * width * height * 4;
+			break;
 		}
+		return channels * bytesPerChannel * width * height;
 #else
 		return 0;
 #endif

@@ -143,6 +143,27 @@ static bool ConvertPreviewPixelsToRGBA8(const std::vector<uchar>& pixels, uint32
 	}
 	if (dataType == TextureDataType::RGBA16F)
 	{
+		// Half or full floats, decided by what actually came back rather
+		// than by the format's name: a 16F texture is only read back as
+		// halves where the backend's readback says so. GL asks
+		// glGetTexImage() for GL_FLOAT (see TranslateTextureFormat), so on
+		// that backend an RGBA16F target arrives as 16 bytes per texel;
+		// reading it as halves is what turned the editor's viewport
+		// screenshot cyan. Sixteen bytes is also what a 32F readback looks
+		// like, and the conversion is identical, so one branch covers both.
+		const size_t bytesPerTexel = pixels.size() / n;
+		if (bytesPerTexel >= 16)
+		{
+			const float* src = reinterpret_cast<const float*>(pixels.data());
+			for (size_t i = 0; i < n; ++i)
+			{
+				outRGBA[i * 4 + 0] = FloatToByte(src[i * 4 + 0]);
+				outRGBA[i * 4 + 1] = FloatToByte(src[i * 4 + 1]);
+				outRGBA[i * 4 + 2] = FloatToByte(src[i * 4 + 2]);
+				outRGBA[i * 4 + 3] = FloatToByte(src[i * 4 + 3]);
+			}
+			return true;
+		}
 		if (pixels.size() < n * 8) return false;
 		const uint16_t* src = reinterpret_cast<const uint16_t*>(pixels.data());
 		for (size_t i = 0; i < n; ++i)
