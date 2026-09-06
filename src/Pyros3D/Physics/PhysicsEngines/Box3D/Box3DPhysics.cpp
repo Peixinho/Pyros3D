@@ -869,6 +869,17 @@ namespace p3d {
 		b3Body_SetTransform(handles->body, newPos, q);
 		b3Body_SetLinearVelocity(handles->body, b3Vec3_zero);
 		b3Body_SetAngularVelocity(handles->body, b3Vec3_zero);
+		// Teleporting a body has to wake it. b3Body_SetTransform does not,
+		// and a sleeping body is not simulated at all - so the new position
+		// is where it silently stays. This is what made the editor's second
+		// Play do nothing: SceneEditor::SyncPhysicsFromScene() pushes the
+		// authored transforms back in on both Stop and Play, but any body
+		// that had come to rest during the first run (a stack of boxes that
+		// settled, say) was asleep by then, and it stayed asleep through
+		// every later Play. Zeroing the velocities above does not wake it
+		// either - it is the sleep flag, not the velocity, that gates the
+		// solver.
+		b3Body_SetAwake(handles->body, true);
 		for (size_t i = 0; i < handles->wheelBodies.size(); ++i)
 		{
 			if (handles->wheelBodies[i].index1 == 0) continue;
@@ -878,6 +889,7 @@ namespace p3d {
 			b3Body_SetTransform(handles->wheelBodies[i], wp, wq);
 			b3Body_SetLinearVelocity(handles->wheelBodies[i], b3Vec3_zero);
 			b3Body_SetAngularVelocity(handles->wheelBodies[i], b3Vec3_zero);
+			b3Body_SetAwake(handles->wheelBodies[i], true);
 		}
 	}
 
@@ -890,6 +902,9 @@ namespace p3d {
 		b3Body_SetTransform(handles->body, p, q);
 		b3Body_SetLinearVelocity(handles->body, b3Vec3_zero);
 		b3Body_SetAngularVelocity(handles->body, b3Vec3_zero);
+		// See UpdatePosition() - a re-oriented body that is asleep never gets
+		// simulated from its new orientation.
+		b3Body_SetAwake(handles->body, true);
 
 		if (pcomp->GetShape() == CollisionShapes::Vehicle)
 		{
@@ -905,6 +920,7 @@ namespace p3d {
 				b3Body_SetTransform(handles->wheelBodies[i], wp, q);
 				b3Body_SetLinearVelocity(handles->wheelBodies[i], b3Vec3_zero);
 				b3Body_SetAngularVelocity(handles->wheelBodies[i], b3Vec3_zero);
+				b3Body_SetAwake(handles->wheelBodies[i], true);
 			}
 		}
 	}

@@ -188,6 +188,23 @@ namespace p3d {
 			const Vec3 pos = p->GetOwner()->GetWorldPosition();
 			const Vec3 rot = p->GetOwner()->GetRotation();
 			p->SetTransform(Vec2(pos.x, pos.y), rot.z);
+			// Outside play a body has to match the authored scene
+			// *completely*, not just in position. Placing it and leaving the
+			// rest of its state alone is what made the second Play do
+			// nothing: b2Body_SetTransform neither clears velocity nor wakes
+			// the body, so anything that had come to rest during the first
+			// run - a stack of boxes that settled - was still asleep when
+			// Play started again, and a sleeping body is not simulated at
+			// all. The leftover velocity is the same bug seen from the other
+			// side: stop while something is moving and the next run began
+			// with that speed already on it. Static bodies are excluded:
+			// they have no velocity and never sleep.
+			if (p->GetBodyType() != Body2DType::Static)
+			{
+				p->SetLinearVelocity(Vec2(0.f, 0.f));
+				p->SetAngularVelocity(0.f);
+				p->Wake();
+			}
 		}
 	}
 
