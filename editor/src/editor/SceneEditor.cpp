@@ -1192,6 +1192,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		EffectsManager->SetSceneSourceTexture(usingDeferredRenderer
 			? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
 			: NULL);
+		// The view the frame was drawn with. Effects that reconstruct world
+		// positions from depth - SSAO is the one in the built-in list - need
+		// it, and it has to be re-sent every frame because the editor camera
+		// moves. Harmless for effects that do not ask for it.
+		if (viewCam != NULL)
+			EffectsManager->SetViewMatrix(viewCam->GetWorldTransformation().Inverse());
 		EffectsManager->ProcessPostEffects((isPerspective ? &projection : &projectionOrtho));
 
 		void* viewportTex = NULL;

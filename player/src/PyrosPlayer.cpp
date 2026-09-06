@@ -1027,6 +1027,10 @@ void PyrosPlayer::Update()
 		// The last effect draws to the swapchain, which is what a game wants
 		// and - on Vulkan - is also what presents the frame at all. So no
 		// SetRenderLastToTexture() here, unlike the editor.
+		// Per frame, for the same reason as the editor viewport: depth-based
+		// effects need the view the frame was rendered with.
+		if (activeCamera != NULL)
+			effectsManager->SetViewMatrix(activeCamera->GetWorldTransformation().Inverse());
 		effectsManager->ProcessPostEffects(&projection);
 	}
 

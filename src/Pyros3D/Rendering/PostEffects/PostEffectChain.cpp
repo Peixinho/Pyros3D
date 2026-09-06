@@ -14,19 +14,28 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/GammaEncodeEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/TonemapEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/VignetteEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/BlurSSAOEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/SSAOCompositeEffect.h>
 #include <Pyros3D/Core/Logs/Log.h>
 
 namespace p3d {
 
 	namespace PostEffectChain {
 
-		// Deliberately not every IEffect subclass. SSAO, depth of field,
-		// motion blur and SSR each need something the chain cannot supply on
-		// its own - a view matrix per frame, a velocity render pass, a
+		// Deliberately not every IEffect subclass. Depth of field, motion
+		// blur and SSR each need something the chain has no way to supply -
+		// two external blur-stage textures, a velocity render pass, a
 		// G-buffer normal target - so naming one here would produce an effect
 		// that compiles and then draws wrong. They stay script-driven until
 		// the chain can feed them (see buildMotionBlurPostChain in
 		// PyrosLuaPostFX.cpp for what that plumbing looks like today).
+		// SSAO used to be in that list for a fourth reason - it wanted a view
+		// matrix per frame - which no longer holds: PostEffectsManager::
+		// SetViewMatrix() now delivers one, the editor viewport and the
+		// player both push it every frame, and AppendBuiltIn() expands the
+		// name into its three passes. It is still absent from the list below,
+		// but now for a different and narrower reason - see there.
 		const std::vector<std::string> &ListBuiltIn()
 		{
 			static std::vector<std::string> names;
@@ -38,6 +47,21 @@ namespace p3d {
 				names.push_back("Tonemap");
 				names.push_back("Vignette");
 				names.push_back("GammaEncode");
+				// "SSAO" is deliberately NOT offered here even though
+				// AppendBuiltIn() below builds it correctly, as three passes.
+				// Its first pass reads RTT::Depth, and on the Vulkan backend
+				// the capture framebuffer's depth attachment is 1.0 in every
+				// texel - measured, not guessed: reading back
+				// PostEffectsManager::GetDepth() after EndCapture() gives
+				// min=max=1.0 under Forward *and* under Deferred, while the
+				// DeferredRenderer G-buffer depth that SceneEditor copies into
+				// it in that same frame reads min=0.9954 with 14794 texels
+				// under 1. So the effect samples a blank depth buffer, returns
+				// ao=1 everywhere, and the composite multiplies the frame by
+				// white: a picker entry that costs three passes and changes
+				// nothing - exactly the do-nothing control ListBuiltInParams()'s
+				// comment argues against. Fix the depth feed, then add the line
+				// back; everything downstream of it is already in place.
 			}
 			return names;
 		}
@@ -74,6 +98,13 @@ namespace p3d {
 				vignette.push_back(MakeParam("uRADIUS", "Radius", 0.5f, 0.f, 1.5f));
 				vignette.push_back(MakeParam("uSOFTNESS", "Softness", 0.2f, 0.f, 1.f));
 				table["Vignette"] = vignette;
+
+				std::vector<CustomEffect::Param> ssao;
+				ssao.push_back(MakeParam("uRadius", "Radius", 0.2f, 0.01f, 2.f));
+				ssao.push_back(MakeParam("uStrength", "Strength", 1.5f, 0.f, 5.f));
+				ssao.push_back(MakeParam("uTreshOld", "Threshold", 2.f, 0.f, 10.f));
+				ssao.push_back(MakeParam("uScale", "Scale", 1.f, 0.01f, 4.f));
+				table["SSAO"] = ssao;
 			}
 			std::map<std::string, std::vector<CustomEffect::Param> >::const_iterator it = table.find(name);
 			return (it != table.end()) ? it->second : none;
@@ -96,6 +127,34 @@ namespace p3d {
 			return NULL;
 		}
 
+		bool AppendBuiltIn(PostEffectsManager &manager, const std::string &name,
+			const uint32 width, const uint32 height,
+			const std::map<std::string, std::vector<f32> > &params)
+		{
+			if (name == "SSAO")
+			{
+				// Depth in, occlusion out; blur it; then multiply the original
+				// colour by it. The middle and last passes read LastRTT, so
+				// this is an ordinary run of three chain entries - it is one
+				// name only so that the three cannot be ordered wrongly or
+				// half-added.
+				SSAOEffect* ssao = new SSAOEffect(RTT::Depth, width, height);
+				ssao->SetRadius(ParamOr(params, "uRadius", 0.2f));
+				ssao->SetStrength(ParamOr(params, "uStrength", 1.5f));
+				ssao->SetTreshOld(ParamOr(params, "uTreshOld", 2.f));
+				ssao->SetScale(ParamOr(params, "uScale", 1.f));
+				manager.AddEffect(ssao);
+				manager.AddEffect(new BlurSSAOEffect(RTT::LastRTT, width, height));
+				manager.AddEffect(new SSAOCompositeEffect(RTT::Color, RTT::LastRTT, width, height));
+				return true;
+			}
+			IEffect* fx = CreateBuiltIn(name, width, height, params);
+			if (fx == NULL)
+				return false;
+			manager.AddEffect(fx);
+			return true;
+		}
+
 		void Build(PostEffectsManager &manager,
 			const std::vector<SceneMeta::PostEffectEntry> &entries,
 			const uint32 width, const uint32 height,
@@ -113,13 +172,8 @@ namespace p3d {
 
 				if (!e.effect.empty())
 				{
-					IEffect* fx = CreateBuiltIn(e.effect, width, height, e.params);
-					if (fx == NULL)
-					{
+					if (!AppendBuiltIn(manager, e.effect, width, height, e.params))
 						echo("ERROR: post effect '" + e.effect + "' is not a built-in effect - skipped");
-						continue;
-					}
-					manager.AddEffect(fx);
 					continue;
 				}
 

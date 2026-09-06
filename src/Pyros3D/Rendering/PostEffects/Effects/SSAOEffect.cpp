@@ -233,8 +233,14 @@ namespace p3d {
 		AddUniform(Uniform("uNearFar", Uniforms::PostEffects::NearFarPlane));
 		AddUniform(Uniform("uScreen", Uniforms::PostEffects::ScreenDimensions));
 		AddUniform(Uniform("matProj", Uniforms::PostEffects::ProjectionFromScene));
-		uInverseViewMatrixUniform = AddUniform(Uniform("uInverseView", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
-		uViewMatrixUniform = AddUniform(Uniform("uView", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
+		// PostEffects::, not DataUsage:: - these are post-effect usages, and
+		// the value in that slot is what ProcessPostEffects switches on. The
+		// manager fills them from SetViewMatrix() when it has one, so an SSAO
+		// in a scene's chain needs nobody to push the matrix in by hand; a
+		// caller that does push it (the Lua helper's ssaoSetViewMatrix) still
+		// wins, because the manager leaves these alone until told.
+		uInverseViewMatrixUniform = AddUniform(Uniform("uInverseView", Uniforms::PostEffects::InverseViewFromScene));
+		uViewMatrixUniform = AddUniform(Uniform("uView", Uniforms::PostEffects::ViewFromScene));
 		uStrengthHandle = AddUniform(Uniform("uStrength", Uniforms::DataType::Float, &total_strength));
 		uRadiusHandle = AddUniform(Uniform("uRadius", Uniforms::DataType::Float, &radius));
 		uScaleHandle = AddUniform(Uniform("uScale", Uniforms::DataType::Float, &scale));

@@ -179,6 +179,13 @@ namespace p3d {
 		device->UseProgram(0);
 	}
 
+	void PostEffectsManager::SetViewMatrix(const Matrix &view)
+	{
+		viewMatrix = view;
+		viewMatrixInverse = view.Inverse();
+		haveViewMatrix = true;
+	}
+
 	Texture* PostEffectsManager::GetFinalTexture()
 	{
 		// Falls back to the capture on purpose - a caller showing "the result"
@@ -343,9 +350,35 @@ namespace p3d {
 					(*i).uniform.Type = Uniforms::DataType::Vec2;
 					valuePtr = &ScreenDimensions; valueSize = sizeof(ScreenDimensions);
 					break;
-				case PostEffects::ProjectionFromScene:
+				case PostEffects::ProjectionFromScene:
+					(*i).uniform.Type = Uniforms::DataType::Matrix;
+					valuePtr = &projection->m; valueSize = sizeof(projection->m);
+					break;
+				case PostEffects::ViewFromScene:
+				case PostEffects::InverseViewFromScene:
+					// Nobody has supplied a view yet (see SetViewMatrix), so
+					// fall back to whatever the effect itself holds - the same
+					// thing Other does. SSAOEffect::SetViewMatrix() writes
+					// straight into the uniform, and the demos drive it from
+					// Lua that way; taking an early `break` here would leave
+					// valuePtr NULL and quietly stop packing their matrix into
+					// the extras UBO, which is the only route these uniforms
+					// have on Vulkan.
 					(*i).uniform.Type = Uniforms::DataType::Matrix;
-					valuePtr = &projection->m; valueSize = sizeof(projection->m);
+					if (!haveViewMatrix)
+					{
+						valuePtr = (*i).uniform.Value.empty() ? NULL : &(*i).uniform.Value[0];
+						valueSize = (uint32)(*i).uniform.Value.size();
+						break;
+					}
+					if ((*i).uniform.Usage == PostEffects::ViewFromScene)
+					{
+						valuePtr = &viewMatrix.m; valueSize = sizeof(viewMatrix.m);
+					}
+					else
+					{
+						valuePtr = &viewMatrixInverse.m; valueSize = sizeof(viewMatrixInverse.m);
+					}
 					break;
 				default:
 				case PostEffects::Other:
@@ -371,8 +404,22 @@ namespace p3d {
 					case PostEffects::ScreenDimensions:
 						Shader::SendUniform((*i).uniform, &ScreenDimensions, (*i).handle);
 						break;
-					case PostEffects::ProjectionFromScene:
-						Shader::SendUniform((*i).uniform, &projection->m, (*i).handle);
+					case PostEffects::ProjectionFromScene:
+						Shader::SendUniform((*i).uniform, &projection->m, (*i).handle);
+						break;
+					case PostEffects::ViewFromScene:
+					case PostEffects::InverseViewFromScene:
+						// Same fallback as above: the effect's own value when
+						// no view has been supplied. Sending nothing at all is
+						// not an option - an unwritten mat4 is garbage.
+						if (!haveViewMatrix)
+						{
+							if (!(*i).uniform.Value.empty()) Shader::SendUniform((*i).uniform, (*i).handle);
+						}
+						else if ((*i).uniform.Usage == PostEffects::ViewFromScene)
+							Shader::SendUniform((*i).uniform, &viewMatrix.m, (*i).handle);
+						else
+							Shader::SendUniform((*i).uniform, &viewMatrixInverse.m, (*i).handle);
 						break;
 					default:
 					case PostEffects::Other:

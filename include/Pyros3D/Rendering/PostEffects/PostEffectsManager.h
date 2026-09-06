@@ -69,6 +69,14 @@ namespace p3d {
 		// processes the scene instead of the overlay drawn over it.
 		void SetSceneSourceTexture(Texture* texture) { sceneSource = texture; }
 
+		// The camera the frame was rendered from, for effects that work in
+		// view space (PostEffects::ViewFromScene / InverseViewFromScene). Not
+		// derivable here - the manager never sees the camera - so whoever
+		// rendered the frame has to say. Until this is called those uniforms are
+		// left alone, so a chain that pushes the matrix into an effect itself
+		// (the Lua SSAO helper does) keeps working unchanged.
+		void SetViewMatrix(const Matrix &view);
+
 		void AddEffect(IEffect* Effect);
 		void RemoveEffect(IEffect* Effect);
 
@@ -115,6 +123,9 @@ namespace p3d {
 		bool renderLastToTexture = false;
 		// See SetSceneSourceTexture().
 		Texture* sceneSource = NULL;
+		// See SetViewMatrix().
+		Matrix viewMatrix, viewMatrixInverse;
+		bool haveViewMatrix = false;
 		// The last effect's own texture, valid only when renderLastToTexture.
 		Texture *finalTexture = NULL;
 

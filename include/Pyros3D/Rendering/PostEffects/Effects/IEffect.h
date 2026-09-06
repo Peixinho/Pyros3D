@@ -45,7 +45,19 @@ namespace p3d {
 				NearFarPlane,
 				ScreenDimensions,
 				ProjectionFromScene,
-				Other
+				Other,
+				// Appended, never reordered: these are compared as values in
+				// ProcessPostEffects' switch and stored in effects that were
+				// written against the four above.
+				//
+				// The camera's view matrix and its inverse, for an effect that
+				// works in view space - screen-space AO and reflections both
+				// do. Only delivered once someone has called
+				// PostEffectsManager::SetViewMatrix(); until then an effect
+				// keeps whatever value it was given, which is what the Lua
+				// chains that push it themselves rely on.
+				ViewFromScene,
+				InverseViewFromScene
 			};
 		}
 	}

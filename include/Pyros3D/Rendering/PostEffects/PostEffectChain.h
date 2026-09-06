@@ -46,6 +46,16 @@ namespace p3d {
 		PYROS3D_API IEffect* CreateBuiltIn(const std::string &name, const uint32 width, const uint32 height,
 			const std::map<std::string, std::vector<f32> > &params = std::map<std::string, std::vector<f32> >());
 
+		// Some built-ins are not one pass. Screen-space AO is three - occlusion,
+		// blur, composite - which is still a straight line through the chain
+		// (each reads what the one before produced, and the composite also
+		// reads the original colour), so it fits here as one entry rather than
+		// as three the user has to remember to order correctly. Returns false
+		// for an unknown name.
+		PYROS3D_API bool AppendBuiltIn(PostEffectsManager &manager, const std::string &name,
+			const uint32 width, const uint32 height,
+			const std::map<std::string, std::vector<f32> > &params = std::map<std::string, std::vector<f32> >());
+
 		// Reads one .glsl asset. The engine has no idea where a project keeps
 		// its files, so the caller supplies the reading: return false and the
 		// entry is skipped with a log line naming it.
