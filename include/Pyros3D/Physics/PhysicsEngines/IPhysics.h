@@ -69,6 +69,7 @@ namespace p3d {
 		// that has no GameObject of its own to be written back into - every
 		// part of a ragdoll except the one carrying the mesh.
 		virtual Vec3 GetBodyPosition(IPhysicsComponent *pcomp) { return Vec3(); }
+		virtual Quaternion GetBodyRotation(IPhysicsComponent *pcomp) { return Quaternion(); }
 		virtual void UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation) = 0;
 		virtual void CleanForces(IPhysicsComponent *pcomp) = 0;
 		virtual void SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity) = 0;

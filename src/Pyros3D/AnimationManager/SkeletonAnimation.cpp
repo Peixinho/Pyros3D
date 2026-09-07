@@ -882,6 +882,56 @@ namespace p3d {
 		return trafo;
 	}
 
+	bool SkeletonAnimationInstance::SetBoneWorldTransform(const int32 boneId,
+		const Vec3 &worldPosition, const Quaternion &worldRotation)
+	{
+		if (boneId < 0 || (size_t)boneId >= boneTransformation.size()) return false;
+		if (!rcomp || !rcomp->GetOwner()) return false;
+
+		// world -> model space, with the owner's SCALE handled separately.
+		//
+		// A character is typically placed at a scale (0.1 here), and simply
+		// inverting the owner's world matrix folds a factor of 10 into the
+		// bone's local transform. Bone locals compose down the chain, so that
+		// factor multiplies at every joint and the mesh detonates - measured
+		// as a model filling the entire frame from three metres away.
+		//
+		// So: undo the scale to get a rigid owner frame, convert the rotation
+		// through that, and convert the translation into model units by
+		// dividing it out. What lands in boneTransformation is then a pure
+		// rotation+translation, exactly like the one a clip writes.
+		Matrix ownerWorld = rcomp->GetOwner()->GetWorldTransformation();
+		Vec3 sc = ownerWorld.GetScale();
+		if (fabs(sc.x) < 1e-6f) sc.x = 1.f;
+		if (fabs(sc.y) < 1e-6f) sc.y = 1.f;
+		if (fabs(sc.z) < 1e-6f) sc.z = 1.f;
+		Matrix ownerRigid = ownerWorld;
+		ownerRigid.Scale(Vec3(1.f / sc.x, 1.f / sc.y, 1.f / sc.z));
+
+		Quaternion rot = worldRotation;
+		Matrix bodyWorld = rot.ConvertToMatrix();
+		bodyWorld.Translate(worldPosition);
+
+		Matrix model = ownerRigid.Inverse() * bodyWorld;
+		Vec3 t = model.GetTranslation();
+		model.Translate(Vec3(t.x / sc.x, t.y / sc.y, t.z / sc.z));
+
+		// model -> parent-local. A root bone's parent is the model itself.
+		const int32 parent = skeleton[boneId].parent;
+		Matrix local = model;
+		if (parent >= 0 && (size_t)parent < Bones.size())
+		{
+			Matrix parentModel = Bones[parent];
+			local = parentModel.Inverse() * model;
+		}
+		boneTransformation[boneId] = local;
+
+		// So the next call in a batch sees this bone's new model transform
+		// when it asks for its parent.
+		RefreshHierarchy();
+		return true;
+	}
+
 	void SkeletonAnimationInstance::AddPoseModifier(PoseModifier fn, void* userData)
 	{
 		if (!fn) return;

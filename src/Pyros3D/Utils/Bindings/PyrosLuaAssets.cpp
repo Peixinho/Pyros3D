@@ -213,6 +213,12 @@ namespace p3d {
 				},
 				// MODEL space - multiply by the owning GameObject's world
 				// matrix for world space.
+				// Ragdoll surface: drive bones from world-space transforms
+				// (physics bodies), then upload once.
+				"setBoneWorld", &SkeletonAnimationInstance::SetBoneWorldTransform,
+				"refreshSkinning", &SkeletonAnimationInstance::RefreshSkinning,
+				"getBoneLocal", &SkeletonAnimationInstance::GetBoneLocalTransform,
+				"resetToBindPose", &SkeletonAnimationInstance::ResetToBindPose,
 				"getBonePosition", [](SkeletonAnimationInstance& self, int32 boneId) -> Vec3 {
 					if (boneId < 0 || (uint32)boneId >= self.GetNumberBones()) return Vec3();
 					return self.GetBoneGlobalTransform(boneId).GetTranslation();

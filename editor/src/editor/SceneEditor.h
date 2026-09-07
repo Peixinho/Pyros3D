@@ -1234,6 +1234,10 @@ private:
 	// Root ids in scene-graph (= saved file) order when Play started.
 	std::vector<uint32> playModeRootOrder;
 	bool playMode;
+	// Absolute-clock reference for turning SceneEditor::Update()'s `time`
+	// into the delta IPhysics::Update() actually wants. -1 = first frame of
+	// a play session, i.e. no delta yet.
+	f64 playPhysicsLastTime = -1.0;
 	// See SetDebugPanelToggles().
 	bool* showProfilerFlag;
 	bool* showRenderTargetsFlag;

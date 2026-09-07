@@ -26,6 +26,7 @@ namespace p3d {
 			"getShape", &IPhysicsComponent::GetShape,
 			"setPosition", &IPhysicsComponent::SetPosition,
 			"getPosition", &IPhysicsComponent::GetPosition,
+			"getRotation", &IPhysicsComponent::GetRotationQuat,
 			"setLinearDamping", &IPhysicsComponent::SetLinearDamping,
 			"setAngularDamping", &IPhysicsComponent::SetAngularDamping,
 			"setGravityScale", &IPhysicsComponent::SetGravityScale,

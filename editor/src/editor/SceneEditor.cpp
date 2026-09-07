@@ -5227,7 +5227,26 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (playMode)
 		{
 			PYROS_PROFILE_SCOPE("Scene.Physics");
-			physics->Update(time, 10);
+			// `time` is the application's absolute clock - the same value
+			// scene->Update() and the animation systems take - but
+			// IPhysics::Update() wants a DELTA. PyrosPlayer passes dt;
+			// this passed the clock, so Box3DPhysics' accumulator
+			// (timeInterval += time) grew without bound and every frame
+			// ran the full step budget instead of catching up.
+			//
+			// Measured with a free-fall probe: a 1.8 m drop took 0.078 s
+			// against a theoretical 0.606 s, i.e. the world ran about 8x
+			// real time - which is exactly maxSteps (8) fixed 1/60 steps
+			// every frame. Ragdolls snapped flat in a couple of frames,
+			// thrown objects teleported, and none of it reproduced in a
+			// build, because only the editor got this wrong.
+			f64 dt = (playPhysicsLastTime < 0.0) ? 0.0 : (time - playPhysicsLastTime);
+			playPhysicsLastTime = time;
+			if (dt < 0.0) dt = 0.0;
+			// A hitch (a scene load, a breakpoint) must not be replayed as
+			// a burst of simulation the moment the frame comes back.
+			if (dt > 0.25) dt = 0.25;
+			physics->Update(dt, 10);
 		}
 
 		// Outside Play, only the selected emitter simulates - see
@@ -6163,6 +6182,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		gizmoDragging = false;
 		_leftMouse = false;
 		playMode = true;
+		playPhysicsLastTime = -1.0;
 		editorDisabled = true;
 #ifdef LUA_BINDINGS
 		PushLuaHostGlobals();

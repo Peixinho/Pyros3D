@@ -70,6 +70,10 @@ namespace p3d {
 	{
 		return PhysicsEngine->GetBodyPosition(const_cast<IPhysicsComponent*>(this));
 	}
+	Quaternion IPhysicsComponent::GetRotationQuat() const
+	{
+		return PhysicsEngine->GetBodyRotation(const_cast<IPhysicsComponent*>(this));
+	}
 	void IPhysicsComponent::SetLinearDamping(const f32 damping)
 	{
 		PhysicsEngine->SetLinearDamping(this, damping);

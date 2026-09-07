@@ -308,6 +308,15 @@ namespace p3d {
 		return Vec3((f32)p.x, (f32)p.y, (f32)p.z);
 	}
 
+	Quaternion Box3DPhysics::GetBodyRotation(IPhysicsComponent *pcomp)
+	{
+		if (!pcomp) return Quaternion();
+		Box3DBodyHandles* h = GetHandles(pcomp);
+		if (!h || !b3Body_IsValid(h->body)) return Quaternion();
+		const b3Quat q = b3Body_GetRotation(h->body);
+		return Quaternion((f32)q.s, (f32)q.v.x, (f32)q.v.y, (f32)q.v.z);
+	}
+
 	void Box3DPhysics::DestroyJoint(const uint32 joint)
 	{
 		std::map<uint32, b3JointId>::iterator it = m_joints.find(joint);

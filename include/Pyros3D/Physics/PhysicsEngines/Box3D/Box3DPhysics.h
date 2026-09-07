@@ -77,6 +77,7 @@ namespace p3d {
 		virtual void SetAngularDamping(IPhysicsComponent* pcomp, const f32 damping);
 		virtual void SetGravityScale(IPhysicsComponent* pcomp, const f32 scale);
 		virtual Vec3 GetBodyPosition(IPhysicsComponent *pcomp);
+		virtual Quaternion GetBodyRotation(IPhysicsComponent *pcomp);
 
 		virtual void UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position);
 		virtual void UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation);

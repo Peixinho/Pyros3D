@@ -190,6 +190,23 @@ namespace p3d {
 		// per solve but the skinning matrices uploaded only once at the end.
 		void RefreshHierarchy();
 
+		// Drive one bone from a WORLD-space transform - a physics body, a
+		// tracked prop, anything outside the skeleton's own space.
+		//
+		// This is what a ragdoll needs and what nothing could express: the
+		// pose API is all bone-local, and a caller holding a rigid body knows
+		// only where it is in the world. Converting means going through the
+		// owning GameObject's world matrix (which carries the model's scale -
+		// a 0.1-scaled character is the normal case) and then through the
+		// bone's parent chain, and getting either wrong silently produces a
+		// mesh folded inside out rather than an error.
+		//
+		// Recomposes the hierarchy so a following call reads correct parent
+		// transforms; call RefreshSkinning() once after the batch to upload.
+		// Returns false for an unknown bone or a rig with no owner.
+		bool SetBoneWorldTransform(const int32 boneId, const Vec3 &worldPosition,
+			const Quaternion &worldRotation);
+
 		// ---- post-pose modifiers (runtime IK, ragdoll, look-at) -------
 		// Called from inside SkeletonAnimation::Update(), after the playing
 		// clips have written the pose and the hierarchy has been composed,
