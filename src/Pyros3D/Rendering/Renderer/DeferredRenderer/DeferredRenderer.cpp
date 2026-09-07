@@ -1198,6 +1198,10 @@ namespace p3d {
 				case LIGHT_TYPE::SPOT:
 				{
 					SpotLight* s = (SpotLight*)(*i);
+					// Same as the point case above. Conservative: the cone is
+					// tested as the sphere that contains it.
+					if (!LightAffectsView(s->GetOwner()->GetWorldPosition(), s->GetLightRadius()))
+						break;
 					// Spot Lights
 					Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetWorldPosition(), 1.f)).xyz();
 					Vec3 dir = (ViewMatrix * (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f))).xyz();

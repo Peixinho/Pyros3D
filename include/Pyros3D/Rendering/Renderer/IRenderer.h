@@ -332,6 +332,12 @@ namespace p3d {
 
 		bool CullingSphereTest(RenderingMesh* rmesh, GameObject* owner);
 		bool CullingPointTest(RenderingMesh* rmesh, GameObject* owner);
+
+		// Is a light's sphere of influence anywhere in the view frustum?
+		// A point/spot light whose whole reach is off screen cannot change a
+		// single visible pixel, but the deferred renderer still pays a full
+		// lighting pass for it.
+		bool LightAffectsView(const Vec3 &worldPosition, const f32 radius);
 		bool CullingBoxTest(RenderingMesh* rmesh, GameObject* owner);
 		void UpdateCulling(const Matrix &ViewProjectionMatrix);
 		bool

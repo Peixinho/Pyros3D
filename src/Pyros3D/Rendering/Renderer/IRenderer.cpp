@@ -601,7 +601,10 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	PYROS_PROFILE_SCOPE("Renderer.PreRender");
 
 	// Group and Sort Meshes
-	rmesh = GroupAndSortAssets(Scene, Camera, Tag);
+	{
+		PYROS_PROFILE_SCOPE("Renderer.GroupAndSort");
+		rmesh = GroupAndSortAssets(Scene, Camera, Tag);
+	}
 
 	// Get Lights List
 	lcomps = ILightComponent::GetLightsOnScene(Scene);
@@ -637,6 +640,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 		ViewMatrix = Camera->GetWorldTransformation().Inverse();
 		uint32 pointCounter = 0;
 		uint32 spotCounter = 0;
+		PYROS_PROFILE_SCOPE("Renderer.ShadowMaps");
 		for (std::vector<IComponent*>::iterator i = lcomps.begin(); i != lcomps.end(); i++)
 		{
 			switch (((ILightComponent*)(*i))->GetLightType())
@@ -1698,6 +1702,18 @@ bool IRenderer::CullingBoxTest(RenderingMesh* rmesh, GameObject* owner)
 
 	// Return test
 	return culling->ABoxInFrustum(aabb);
+}
+
+// Deliberately the light's own radius, not a bounding sphere: `radius` is
+// where Attenuation() reaches zero (secondpassPoint.glsl / secondpassSpot.glsl
+// both clamp `1 - d/Radius`), so nothing outside it is lit by definition. A
+// spot is treated as a sphere rather than a cone - conservative, and the cone
+// test is not worth the complexity for a handful of spots.
+bool IRenderer::LightAffectsView(const Vec3 &worldPosition, const f32 radius)
+{
+	if (!IsCulling || !culling) return true;
+	if (radius <= 0.f) return true;
+	return culling->SphereInFrustum(worldPosition, radius);
 }
 
 bool IRenderer::CullingPointTest(RenderingMesh* rmesh, GameObject* owner)
