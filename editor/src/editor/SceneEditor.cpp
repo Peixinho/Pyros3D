@@ -5992,6 +5992,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			projectMainScriptPath.clear();
 			return;
 		}
+		// The project main script and the scene's own main script are two
+		// different slots, and a project that puts the same file in both used
+		// to run it TWICE per play session - two copies of every object the
+		// script spawns, two update ticks, and a HUD wired to whichever copy
+		// lost the race. A build never did that: PyrosPlayer only runs the
+		// scene's mainScript, so this was a play-mode-only divergence that
+		// looked like a game bug. Run it once, and say which slot won.
+		if (!sceneMainScriptPath.empty()
+			&& std::filesystem::equivalent(projectMainScriptPath, sceneMainScriptPath, ec))
+		{
+			echo("WARNING: Project main script is also the scene's main script ("
+				+ projectMainScriptPath + ") - running it once, as a build does");
+			projectMainScriptPath.clear();
+			return;
+		}
 		try {
 			projectMainScript = LuaComponent_FromFile(*sharedLua, projectMainScriptPath);
 		}

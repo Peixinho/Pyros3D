@@ -215,7 +215,14 @@ namespace p3d {
 		// whole process down.
 		if (bPosition < 0 || aPosition < 0 || bNormal < 0 || aNormal < 0)
 		{
-			echo("ERROR: DecalGeometry - target mesh exposes no aPosition/aNormal attribute; no decal built");
+			std::string names;
+			for (uint32 l = 0; l < rc->Geometry->Attributes.size(); l++)
+				for (uint32 i = 0; i < rc->Geometry->Attributes[l]->Attributes.size(); i++)
+					names += " " + rc->Geometry->Attributes[l]->Attributes[i]->Name;
+			echo("ERROR: DecalGeometry - target mesh exposes no aPosition/aNormal attribute; no decal built"
+				" (buffers=" + std::to_string(rc->Geometry->Attributes.size())
+				+ " indices=" + std::to_string(rc->Geometry->GetIndexData().size())
+				+ " names:" + names + ")");
 			return;
 		}
 		// Same for the skinned path: haveBones is set by finding EITHER of the

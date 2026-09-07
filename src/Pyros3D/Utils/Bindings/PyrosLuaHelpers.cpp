@@ -856,11 +856,17 @@ namespace p3d {
 		return *v;
 	}
 
-	static bool LuaGetIntersectedTriangle(RenderingComponent* rcomp, const Mouse3D &mouse, GameObject* camera, Vec3* intersection, Vec3* normal)
+	// outMeshIndex matters: a RenderingComponent is a LIST of submeshes, each
+	// with its own geometry and its own attribute layout. Callers used to
+	// assume the hit belonged to GetMeshes()[0] - which for any model whose
+	// first submesh is not the one under the crosshair is simply the wrong
+	// mesh, with the wrong vertices and possibly no normals at all.
+	static bool LuaGetIntersectedTriangle(RenderingComponent* rcomp, const Mouse3D &mouse, GameObject* camera, Vec3* intersection, Vec3* normal, size_t* outMeshIndex = NULL)
 	{
 		Vec3 _intersection, finalIntersection, _normal;
 		f32 t = 0.f, dist = 0.f;
 		bool init = false;
+		size_t finalMesh = 0;
 
 		for (size_t k = 0; k < rcomp->GetMeshes().size(); k++)
 		{
@@ -883,6 +889,7 @@ namespace p3d {
 					finalIntersection = _intersection;
 					_normal = norms.empty() ? Vec3(0, 1, 0) : norms[idx[i]];
 					dist = t;
+					finalMesh = k;
 					init = true;
 					continue;
 				}
@@ -891,12 +898,14 @@ namespace p3d {
 					dist = t;
 					finalIntersection = _intersection;
 					_normal = norms.empty() ? Vec3(0, 1, 0) : norms[idx[i]];
+					finalMesh = k;
 				}
 			}
 		}
 		if (!init) return false;
 		*intersection = finalIntersection;
 		*normal = _normal;
+		if (outMeshIndex) *outMeshIndex = finalMesh;
 		return true;
 	}
 
@@ -1010,6 +1019,25 @@ namespace p3d {
 		const Matrix &proj = projection->GetProjectionMatrix();
 		const Vec3 eye = camera->GetWorldPosition();
 
+		static const bool trace = (getenv("PYROS_PICK_TRACE") != NULL);
+		uint32 nCand = 0, nBox = 0, nTri = 0;
+		if (trace)
+		{
+			Mouse3D wray;
+			wray.GenerateRay(winW, winH, mouseX, mouseY, Matrix(), viewInv, proj);
+			const Matrix camWorld = camera->GetWorldTransformation();
+			const Vec3 camFwd = Vec3(-camWorld.m[8], -camWorld.m[9], -camWorld.m[10]).normalize();
+			char b0[512];
+			snprintf(b0, sizeof(b0),
+				"ScreenPick ray: origin(%.2f,%.2f,%.2f) dir(%.3f,%.3f,%.3f) "
+				"eye(%.2f,%.2f,%.2f) fwd(%.3f,%.3f,%.3f) proj[0]=%.3f proj[5]=%.3f proj[10]=%.3f proj[11]=%.3f",
+				wray.GetOrigin().x, wray.GetOrigin().y, wray.GetOrigin().z,
+				wray.GetDirection().x, wray.GetDirection().y, wray.GetDirection().z,
+				eye.x, eye.y, eye.z, camFwd.x, camFwd.y, camFwd.z,
+				proj.m[0], proj.m[5], proj.m[10], proj.m[11]);
+			echo(std::string(b0));
+		}
+
 		std::vector<GameObject*> all;
 		scene->CollectGameObjectsRecursive(all);
 		for (GameObject* go : all)
@@ -1025,25 +1053,65 @@ namespace p3d {
 				}
 			}
 			if (!rcomp || !rcomp->IsActive() || rcomp->GetMeshes().empty()) continue;
+			++nCand;
 
 			mouse.GenerateRay(winW, winH, mouseX, mouseY, go->GetWorldTransformation(), viewInv, proj);
 			f32 t = 0.f;
 			if (!mouse.rayIntersectionBox(rcomp->GetBoundingMinValue(), rcomp->GetBoundingMaxValue(), &t))
 				continue;
+			++nBox;
 
 			Vec3 intersection, normal;
-			if (!LuaGetIntersectedTriangle(rcomp, mouse, camera, &intersection, &normal))
-				continue;
+			const bool triOk = LuaGetIntersectedTriangle(rcomp, mouse, camera, &intersection, &normal);
+			if (trace)
+			{
+				size_t nv = 0, ni = 0;
+				for (size_t k = 0; k < rcomp->GetMeshes().size(); k++)
+				{
+					RenderingMesh* mm = rcomp->GetMeshes()[k];
+					if (!mm || !mm->Geometry) continue;
+					nv += mm->Geometry->GetVertexData().size();
+					ni += mm->Geometry->GetIndexData().size();
+				}
+				char b2[320];
+				snprintf(b2, sizeof(b2),
+					"  box hit '%s' meshes=%u verts=%u idx=%u tri=%d",
+					go->GetName().c_str(), (unsigned)rcomp->GetMeshes().size(),
+					(unsigned)nv, (unsigned)ni, (int)triOk);
+				echo(std::string(b2));
+			}
+			if (!triOk) continue;
+			++nTri;
 
-			const f32 d2 = intersection.distanceSQR(eye);
+			// The ray was unprojected through View*Model, so everything the
+			// triangle test produced is in the OBJECT's local space. Handing
+			// that back as a world point put impacts and decals wherever the
+			// object's own origin happened to put them - and made `distance`
+			// meaningless, which is what a range check reads.
+			const Matrix &world = go->GetWorldTransformation();
+			const Vec3 worldHit = world * intersection;
+			// No RotateVector on Matrix, and a normal must not pick up the
+			// translation: transform the tip and subtract the transformed
+			// origin.
+			const Vec3 worldNormal = (world * normal - world * Vec3(0.f, 0.f, 0.f)).normalize();
+
+			const f32 d2 = worldHit.distanceSQR(eye);
 			if (d2 < bestDist)
 			{
 				bestDist = d2;
-				hitPoint = intersection;
-				hitNormal = normal;
+				hitPoint = worldHit;
+				hitNormal = worldNormal;
 				hitName = go->GetName();
 				found = true;
 			}
+		}
+		if (trace)
+		{
+			char buf[256];
+			snprintf(buf, sizeof(buf),
+				"ScreenPick: %u candidates, %u box, %u tri, found=%d (%.2f,%.2f px of %.0fx%.0f)",
+				nCand, nBox, nTri, (int)found, mouseX, mouseY, winW, winH);
+			echo(std::string(buf));
 		}
 		if (!found) return false;
 		if (outPoint) *outPoint = hitPoint;
@@ -1099,6 +1167,7 @@ namespace p3d {
 		Vec3 FinalIntersection, FinalNormal;
 		f32 bestDist = 1e30f;
 		RenderingComponent* bestRc = NULL;
+		size_t bestMesh = 0;
 		std::shared_ptr<GameObject> bestGo;
 
 		const Matrix viewInv = camera->GetWorldTransformation().Inverse();
@@ -1110,11 +1179,15 @@ namespace p3d {
 			RenderingComponent* rcomp = NULL;
 			for (const std::shared_ptr<IComponent> &c : go->GetComponents())
 			{
-				if (c && c->GetComponentType() == ComponentType::RenderingComponent)
-				{
-					rcomp = static_cast<RenderingComponent*>(c.get());
-					break;
-				}
+				if (!c || c->GetComponentType() != ComponentType::RenderingComponent) continue;
+				RenderingComponent* candidate = static_cast<RenderingComponent*>(c.get());
+				// Decals already stuck to this object are renderables too, and
+				// they sit a hair in front of the surface - so the second shot
+				// at a wall projected onto the FIRST shot's decal.
+				if (dynamic_cast<Decal*>(candidate->GetRenderable())) continue;
+				if (!candidate->IsActive()) continue;
+				rcomp = candidate;
+				break;
 			}
 			if (!rcomp || rcomp->GetMeshes().empty()) continue;
 
@@ -1124,7 +1197,8 @@ namespace p3d {
 				continue;
 
 			Vec3 intersection, normal;
-			if (!LuaGetIntersectedTriangle(rcomp, mouse, camera, &intersection, &normal))
+			size_t meshIndex = 0;
+			if (!LuaGetIntersectedTriangle(rcomp, mouse, camera, &intersection, &normal, &meshIndex))
 				continue;
 
 			f32 dist2 = intersection.distanceSQR(camera->GetWorldPosition());
@@ -1132,6 +1206,7 @@ namespace p3d {
 			{
 				bestDist = dist2;
 				bestRc = rcomp;
+				bestMesh = meshIndex;
 				bestGo = go;
 				FinalIntersection = intersection;
 				FinalNormal = normal;
@@ -1145,7 +1220,12 @@ namespace p3d {
 		m = m.Inverse();
 		m.Translate(FinalIntersection);
 
-		auto geom = std::unique_ptr<DecalGeometry>(new DecalGeometry(bestRc->GetMeshes()[0], bestGo->GetWorldTransformation(), m, dimensions));
+		// The submesh the ray actually hit, not submesh 0. On a model whose
+		// first submesh happens to be an unlit vertex-coloured piece, [0]
+		// exposes aPosition/aColor and no aNormal at all, and every decal was
+		// rejected with "target mesh exposes no aPosition/aNormal".
+		if (bestMesh >= bestRc->GetMeshes().size()) return false;
+		auto geom = std::unique_ptr<DecalGeometry>(new DecalGeometry(bestRc->GetMeshes()[bestMesh], bestGo->GetWorldTransformation(), m, dimensions));
 		Renderable* decalMesh = geom->GetDecal();
 		if (!decalMesh) return false;
 
