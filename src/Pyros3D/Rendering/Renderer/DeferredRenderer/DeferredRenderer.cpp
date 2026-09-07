@@ -1129,6 +1129,21 @@ namespace p3d {
 					bool cameraInsideVolume = CameraPosition.distance(p->GetOwner()->GetWorldPosition()) - p->GetLightRadius() < NearFarPlane.x * 2.0f;
 					float useFullscreenQuad = cameraInsideVolume ? 1.f : 0.f;
 					pointUseFullscreenQuadHandle->SetValue(&useFullscreenQuad);
+					{
+						static const bool ltrace = (getenv("PYROS_LIGHT_TRACE") != NULL);
+						if (ltrace)
+						{
+							char lb[320];
+							snprintf(lb, sizeof(lb),
+								"PointLight '%s' worldDist=%.2f radius=%.2f intensity=%.2f "
+								"viewPos=(%.2f,%.2f,%.2f) near=%.3f quad=%d",
+								p->GetOwner()->GetName().c_str(),
+								CameraPosition.distance(p->GetOwner()->GetWorldPosition()),
+								p->GetLightRadius(), p->GetLightIntensity(),
+								pos.x, pos.y, pos.z, NearFarPlane.x, (int)cameraInsideVolume);
+							echo(std::string(lb));
+						}
+					}
 
 					if (cameraInsideVolume)
 					{
