@@ -1215,8 +1215,20 @@ namespace p3d {
 
 		if (!bestRc || !bestGo) return false;
 
+		// Matrix::LookAt(eye, CENTER, up) takes a target POINT - it builds its
+		// basis from (eye - center). This was handing it FinalNormal.negate(),
+		// a direction, so the "target" was a point a metre or so from the
+		// world origin and the decal's box was aimed from the impact toward
+		// the origin instead of into the surface. The decal came out standing
+		// on edge: seen from above it is a black bar whose orientation follows
+		// the camera, which is what "decals do not work" looked like.
+		//
+		// The up vector matters too. Hard-coding (0,1,0) is exactly parallel
+		// to the normal of the surface a shooter hits most - the floor - and
+		// LookAt's basis is degenerate when up is parallel to its axis.
+		const Vec3 up = (fabs(FinalNormal.y) > 0.95f) ? Vec3(0, 0, 1) : Vec3(0, 1, 0);
 		Matrix m;
-		m.LookAt(FinalIntersection, FinalNormal.negate(), Vec3(0, 1, 0));
+		m.LookAt(FinalIntersection, FinalIntersection - FinalNormal, up);
 		m = m.Inverse();
 		m.Translate(FinalIntersection);
 

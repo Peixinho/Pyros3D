@@ -12,6 +12,11 @@
 
 namespace p3d {
 
+	// How far a decal is lifted off its target, in the target's local units.
+	// Small enough not to peel visibly at a grazing angle on a wall, large
+	// enough to beat depth precision at the ranges a level is built at.
+	static const f32 kSurfaceOffset = 0.004f;
+
 	Decal::Decal(std::vector<DecalVertex> vertices, bool haveBones)
 	{
 
@@ -290,6 +295,18 @@ namespace p3d {
 
 				v->vertex = (CubeMatrix * v->vertex);
 
+				// Lift the decal off the surface it was projected onto.
+				//
+				// Without this a decal is EXACTLY coplanar with the triangles
+				// it was cut from, and coplanar geometry is a coin toss per
+				// pixel: a bullet hole rendered as a comb of stripes, and one
+				// that changed shape - or vanished - as the camera moved.
+				// That reads as "decals are broken" and it is really just
+				// z-fighting. The offset is along the surface normal, in the
+				// target's own local space (which is the space `vertex` is in
+				// after CubeMatrix, and the space `normal` was captured in),
+				// so it stays a constant distance whatever the decal's size.
+				v->vertex = v->vertex + v->normal * kSurfaceOffset;
 			}
 
 			if (vertices.size() == 0) continue;
