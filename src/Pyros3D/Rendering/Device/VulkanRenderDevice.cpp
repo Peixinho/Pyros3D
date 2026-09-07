@@ -2314,9 +2314,19 @@ namespace p3d {
 				VkDescriptorSet samplerSet = VK_NULL_HANDLE;
 				if (vkAllocateDescriptorSets(device, &samplerSetAllocInfo, &samplerSet) != VK_SUCCESS)
 				{
+					// A SHORT ring is survivable - it just wraps sooner. An
+					// EMPTY one is not: the draw path binds set 1 only when
+					// a ring exists, so this pipeline would be drawn with
+					// its sampler set unbound, which is undefined and in
+					// practice a segfault inside MoltenVK rather than a
+					// missing texture. Say so loudly and let the caller
+					// see the failure instead of discovering it three
+					// frames later in a stack with no Pyros3D frames in it.
 					if (r == 0)
-						fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkAllocateDescriptorSets (sampler set) failed for pipeline %u\n", handle);
-					break; // a short ring is survivable - it just wraps sooner
+						fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkAllocateDescriptorSets "
+							"(sampler set) failed for pipeline %u - descriptor pool exhausted; "
+							"this pipeline will not be drawn\n", handle);
+					break;
 				}
 				ring.push_back(samplerSet);
 			}
@@ -2340,11 +2350,18 @@ namespace p3d {
 			vkDestroyPipeline(device, it->second, NULL);
 		pipelines.erase(it);
 		pipelineToProgram.erase(pipeline);
-		// The VkDescriptorSet itself isn't individually freed - descriptorPool
-		// was created without VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
-		// so every set it ever allocated is only reclaimed by
-		// vkDestroyDescriptorPool (the device destructor) - just drop the
-		// bookkeeping entry here.
+		// Hand the whole sampler ring back to the pool. The pool carries
+		// FREE_DESCRIPTOR_SET_BIT for exactly this - see EnsureDescriptorPool().
+		// Safe here for the same reason the vkDestroyPipeline above is: this
+		// runs at teardown, with no command buffer still referencing them.
+		std::map<DeviceHandle, std::vector<VkDescriptorSet> >::iterator ringIt =
+			pipelineSamplerRing.find(pipeline);
+		if (ringIt != pipelineSamplerRing.end() && !ringIt->second.empty()
+			&& device != VK_NULL_HANDLE && descriptorPool != VK_NULL_HANDLE)
+		{
+			vkFreeDescriptorSets(device, descriptorPool,
+				(uint32)ringIt->second.size(), &ringIt->second[0]);
+		}
 		pipelineSamplerSets.erase(pipeline);
 		pipelineSamplerRing.erase(pipeline);
 		pipelineSamplerRingUsed.erase(pipeline);
@@ -2505,6 +2522,18 @@ namespace p3d {
 
 		VkDescriptorPoolCreateInfo poolInfo = {};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		// FREE_DESCRIPTOR_SET_BIT so DeletePipeline/DeleteProgram can give
+		// their sets back. Without it the pool only ever grew: maxSets is
+		// 32768 and each pipeline takes kSamplerRingSize (8) of them, so the
+		// device could create exactly 4096 pipelines for the whole session
+		// and never one more. Rebuilding pipelines - which is what every
+		// Forward<->Deferred switch does - burned through that in about six
+		// toggles on a scene with a few hundred materials, and the failure
+		// was not an error anyone saw: allocation failed, CreatePipeline
+		// handed back a usable pipeline with no sampler set, the draw path
+		// then skipped binding set 1, and MoltenVK segfaulted encoding a
+		// draw against an unbound descriptor set.
+		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 		poolInfo.maxSets = 32768;
 		poolInfo.poolSizeCount = 3;
 		poolInfo.pPoolSizes = poolSizes;
@@ -2761,6 +2790,8 @@ namespace p3d {
 			fprintf(stderr, "VulkanRenderDevice::DrawElements: skipped draw - no valid pipeline is currently bound\n");
 			return;
 		}
+		if (PipelineIsMissingSamplerSet(currentPipeline))
+			return;
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		if (vaoIt == vaos.end())
 			return;
@@ -2802,6 +2833,8 @@ namespace p3d {
 			fprintf(stderr, "VulkanRenderDevice::DrawElementsInstanced: skipped draw - no valid pipeline is currently bound\n");
 			return;
 		}
+		if (PipelineIsMissingSamplerSet(currentPipeline))
+			return;
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		if (vaoIt == vaos.end())
 			return;
@@ -2831,6 +2864,26 @@ namespace p3d {
 		vkCmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
 		vkCmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
 		vkCmdDrawIndexed(activeCommandBuffer, indexCount, instanceCount, 0, 0, 0);
+	}
+
+	// True when this pipeline's program declares a sampler set (set 1) but
+	// CreatePipeline could not allocate one - see the failure message there.
+	// Drawing anyway records a draw whose set 1 is never bound, which is
+	// undefined behaviour and, on MoltenVK, a SIGSEGV inside
+	// bindMetalResources while the command buffer is being submitted - a
+	// crash with no Pyros3D frame anywhere near the top of the stack.
+	// Skipping the draw loses one object and keeps the editor alive.
+	bool VulkanRenderDevice::PipelineIsMissingSamplerSet(const DeviceHandle pipeline) const
+	{
+		std::map<DeviceHandle, DeviceHandle>::const_iterator progHandleIt = pipelineToProgram.find(pipeline);
+		if (progHandleIt == pipelineToProgram.end())
+			return false;
+		std::map<DeviceHandle, ProgramRecord>::const_iterator progIt = programs.find(progHandleIt->second);
+		if (progIt == programs.end() || progIt->second.samplerSetLayout == VK_NULL_HANDLE)
+			return false;   // no sampler set expected at all
+		std::map<DeviceHandle, std::vector<VkDescriptorSet> >::const_iterator ringIt =
+			pipelineSamplerRing.find(pipeline);
+		return ringIt == pipelineSamplerRing.end() || ringIt->second.empty();
 	}
 
 	void VulkanRenderDevice::BindCurrentPipelineDescriptorSets()

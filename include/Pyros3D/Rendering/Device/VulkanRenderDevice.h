@@ -889,6 +889,9 @@ namespace p3d {
 		// Submits pending UploadTexture2D/GenerateMipmap work and frees
 		// staging buffers. Safe no-op when nothing is pending.
 		void FlushPendingTransfers();
+		// See the implementation comment - guards the draw paths against a
+		// pipeline whose sampler set could not be allocated.
+		bool PipelineIsMissingSamplerSet(const DeviceHandle pipeline) const;
 		void CreatePipelineCache();
 		void DestroyPipelineCache();
 		// Sets deviceIdleSinceLastSubmit=false then vkQueueSubmit.
