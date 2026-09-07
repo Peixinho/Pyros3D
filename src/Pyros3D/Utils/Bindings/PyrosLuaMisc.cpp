@@ -86,6 +86,20 @@ namespace p3d {
 		});
 		lua->set_function("placeDecalAtCursor", &PlaceDecalAtCursor);
 
+		// Returns hit, x, y, z, nx, ny, nz, name, distance - multiple returns
+		// for the same reason worldToScreen does it, so the common
+		// "local hit, x, y, z = screenPick(...)" reads naturally.
+		lua->set_function("screenPick", [](float winW, float winH, float mx, float my,
+			GameObject* camera, Projection* projection, SceneGraph* scene) {
+			Vec3 p, n;
+			std::string name;
+			f32 dist = 0.f;
+			const bool ok = ScreenPick(winW, winH, mx, my, camera, projection, scene,
+				&p, &n, &name, &dist);
+			return std::make_tuple(ok, p.x, p.y, p.z, n.x, n.y, n.z, name, dist);
+		});
+		lua->set_function("clearDecals", &ClearLuaDecals);
+
 		// Returns x, y, visible - multiple returns rather than a table so the
 		// common "local x, y = worldToScreen(...)" reads naturally.
 		lua->set_function("worldToScreen", [](float winW, float winH, GameObject* camera,

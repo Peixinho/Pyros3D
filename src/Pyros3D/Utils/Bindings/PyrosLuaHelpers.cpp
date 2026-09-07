@@ -989,6 +989,103 @@ namespace p3d {
 		return origin + dir * t;
 	}
 
+	// The pick that PlaceDecalAtCursor was already doing internally, exposed
+	// so a script can know WHERE it hit. Without this the only mesh-accurate
+	// ray in the engine could put a decal on a wall and could not tell the
+	// caller the point, the normal or what was hit - so a shooter had no way
+	// to spawn an impact effect, gate on range, or react to the surface.
+	bool ScreenPick(float winW, float winH, float mouseX, float mouseY,
+		GameObject* camera, Projection* projection, SceneGraph* scene,
+		Vec3* outPoint, Vec3* outNormal, std::string* outName, f32* outDistance)
+	{
+		if (!camera || !projection || !scene) return false;
+
+		Mouse3D mouse;
+		f32 bestDist = 1e30f;
+		bool found = false;
+		Vec3 hitPoint, hitNormal;
+		std::string hitName;
+
+		const Matrix viewInv = camera->GetWorldTransformation().Inverse();
+		const Matrix &proj = projection->GetProjectionMatrix();
+		const Vec3 eye = camera->GetWorldPosition();
+
+		std::vector<GameObject*> all;
+		scene->CollectGameObjectsRecursive(all);
+		for (GameObject* go : all)
+		{
+			if (!go) continue;
+			RenderingComponent* rcomp = NULL;
+			for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+			{
+				if (c && c->GetComponentType() == ComponentType::RenderingComponent)
+				{
+					rcomp = static_cast<RenderingComponent*>(c.get());
+					break;
+				}
+			}
+			if (!rcomp || !rcomp->IsActive() || rcomp->GetMeshes().empty()) continue;
+
+			mouse.GenerateRay(winW, winH, mouseX, mouseY, go->GetWorldTransformation(), viewInv, proj);
+			f32 t = 0.f;
+			if (!mouse.rayIntersectionBox(rcomp->GetBoundingMinValue(), rcomp->GetBoundingMaxValue(), &t))
+				continue;
+
+			Vec3 intersection, normal;
+			if (!LuaGetIntersectedTriangle(rcomp, mouse, camera, &intersection, &normal))
+				continue;
+
+			const f32 d2 = intersection.distanceSQR(eye);
+			if (d2 < bestDist)
+			{
+				bestDist = d2;
+				hitPoint = intersection;
+				hitNormal = normal;
+				hitName = go->GetName();
+				found = true;
+			}
+		}
+		if (!found) return false;
+		if (outPoint) *outPoint = hitPoint;
+		if (outNormal) *outNormal = hitNormal;
+		if (outName) *outName = hitName;
+		if (outDistance) *outDistance = sqrtf(bestDist);
+		return true;
+	}
+
+	// Decals are owned process-wide by LuaDecalGeometries() and were only ever
+	// appended to - a shooter that puts a hole in a wall every trigger pull
+	// leaks a mesh per shot. This drops every decal placed so far, so a script
+	// can keep a rolling budget.
+	uint32 ClearLuaDecals(SceneGraph* scene)
+	{
+		uint32 removed = 0;
+		if (scene)
+		{
+			std::vector<GameObject*> all;
+			scene->CollectGameObjectsRecursive(all);
+			for (GameObject* go : all)
+			{
+				if (!go) continue;
+				std::vector<std::shared_ptr<IComponent> > kill;
+				for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+				{
+					if (!c || c->GetComponentType() != ComponentType::RenderingComponent) continue;
+					RenderingComponent* rc = static_cast<RenderingComponent*>(c.get());
+					Renderable* r = rc->GetRenderable();
+					if (r && dynamic_cast<Decal*>(r)) kill.push_back(c);
+				}
+				for (const std::shared_ptr<IComponent> &c : kill)
+				{
+					go->RemoveComponent(c);
+					++removed;
+				}
+			}
+		}
+		LuaDecalGeometries().clear();
+		return removed;
+	}
+
 	// Port of examples/Decals::CreateDecal for DemoLauncher scene Lua.
 	bool PlaceDecalAtCursor(float winW, float winH, float mouseX, float mouseY,
 		GameObject* camera, Projection* projection, SceneGraph* scene,
