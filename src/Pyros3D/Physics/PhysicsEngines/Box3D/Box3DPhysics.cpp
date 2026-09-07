@@ -283,6 +283,22 @@ namespace p3d {
 		return handle;
 	}
 
+	void Box3DPhysics::SetLinearDamping(IPhysicsComponent* pcomp, const f32 damping)
+	{
+		Box3DBodyHandles* h = pcomp ? GetHandles(pcomp) : NULL;
+		if (h && b3Body_IsValid(h->body)) b3Body_SetLinearDamping(h->body, damping);
+	}
+	void Box3DPhysics::SetAngularDamping(IPhysicsComponent* pcomp, const f32 damping)
+	{
+		Box3DBodyHandles* h = pcomp ? GetHandles(pcomp) : NULL;
+		if (h && b3Body_IsValid(h->body)) b3Body_SetAngularDamping(h->body, damping);
+	}
+	void Box3DPhysics::SetGravityScale(IPhysicsComponent* pcomp, const f32 scale)
+	{
+		Box3DBodyHandles* h = pcomp ? GetHandles(pcomp) : NULL;
+		if (h && b3Body_IsValid(h->body)) b3Body_SetGravityScale(h->body, scale);
+	}
+
 	Vec3 Box3DPhysics::GetBodyPosition(IPhysicsComponent *pcomp)
 	{
 		if (!pcomp) return Vec3();

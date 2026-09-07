@@ -70,6 +70,18 @@ namespace p3d {
 	{
 		return PhysicsEngine->GetBodyPosition(const_cast<IPhysicsComponent*>(this));
 	}
+	void IPhysicsComponent::SetLinearDamping(const f32 damping)
+	{
+		PhysicsEngine->SetLinearDamping(this, damping);
+	}
+	void IPhysicsComponent::SetAngularDamping(const f32 damping)
+	{
+		PhysicsEngine->SetAngularDamping(this, damping);
+	}
+	void IPhysicsComponent::SetGravityScale(const f32 scale)
+	{
+		PhysicsEngine->SetGravityScale(this, scale);
+	}
 	void IPhysicsComponent::SetRotation(const Vec3 &rotation)
 	{
 		PhysicsEngine->UpdateRotation(this, rotation);

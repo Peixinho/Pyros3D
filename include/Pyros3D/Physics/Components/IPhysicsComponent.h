@@ -63,6 +63,9 @@ namespace p3d {
 		// Physics Methods Attributes
 		virtual void SetPosition(const Vec3 &position);
 		virtual Vec3 GetPosition() const;
+		virtual void SetLinearDamping(const f32 damping);
+		virtual void SetAngularDamping(const f32 damping);
+		virtual void SetGravityScale(const f32 scale);
 		virtual void SetRotation(const Vec3 &rotation);
 		virtual void CleanForces();
 		virtual void SetAngularVelocity(const Vec3 &velocity);

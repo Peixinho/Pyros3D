@@ -131,6 +131,15 @@ namespace p3d {
 
 		virtual void DestroyJoint(const uint32 joint) {}
 
+		// Per-body damping and gravity scale. Box3D has had all three since
+		// forever and none were reachable, so every dynamic body fell at
+		// exactly 9.8 m/s^2 with no drag - which is right for a brick and
+		// wrong for anything that is supposed to read as flesh. A ragdoll
+		// with no damping snaps to the floor in about four frames.
+		virtual void SetLinearDamping(IPhysicsComponent* pcomp, const f32 damping) {}
+		virtual void SetAngularDamping(IPhysicsComponent* pcomp, const f32 damping) {}
+		virtual void SetGravityScale(IPhysicsComponent* pcomp, const f32 scale) {}
+
 	protected:
 
 		virtual void CreatePhysicsComponent(IPhysicsComponent* pcomp) = 0;

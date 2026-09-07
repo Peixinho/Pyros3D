@@ -73,6 +73,9 @@ namespace p3d {
 			const Vec3 &worldAnchor, const Vec3 &worldAxis,
 			const f32 lower = 1.f, const f32 upper = 0.f);
 		virtual void DestroyJoint(const uint32 joint);
+		virtual void SetLinearDamping(IPhysicsComponent* pcomp, const f32 damping);
+		virtual void SetAngularDamping(IPhysicsComponent* pcomp, const f32 damping);
+		virtual void SetGravityScale(IPhysicsComponent* pcomp, const f32 scale);
 		virtual Vec3 GetBodyPosition(IPhysicsComponent *pcomp);
 
 		virtual void UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position);

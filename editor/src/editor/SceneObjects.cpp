@@ -467,21 +467,15 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		
 		// Mesh
 		std::shared_ptr<Renderable> modelMesh = std::make_shared<Model>(finalPath, true);
-		// NOTE: ShaderUsage::Skinning is deliberately NOT requested here yet.
+		// ShaderUsage::Skinning is requested for every model. Without it a
+		// rigged model placed in the editor never animates: the clip plays and
+		// the bone matrices are computed and uploaded, but the shader variant
+		// has no skinning, so the mesh sits in bind pose forever - which is why
+		// "animations do nothing in the editor" was true of every rig.
 		//
-		// Without it a rigged model placed in the editor never animates: the
-		// clip plays and the bone matrices are computed and uploaded, but the
-		// shader variant has no skinning, so the mesh sits in bind pose. That
-		// is the whole reason "animations do nothing" in the editor.
-		//
-		// Turning it on makes the mesh deform - incorrectly. The model
-		// shatters into rigid chunks, merged or unmerged alike, which points
-		// at SkeletonAnimationInstance::SampleChannel()'s handling of a
-		// channel that lacks some key type (the bind pointer it takes for
-		// exactly that case). Until that is fixed, a static model is better
-		// than a exploded one. Repro: assets/models/human.p3dm with
-		// assets/animations/walk.p3da - 45 skeleton bones, 32 animated.
-		std::shared_ptr<RenderingComponent> rModel = MakeSceneRenderingComponent(modelMesh, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow | ShaderUsage::SpotShadow);
+		// Safe for unrigged models: RenderingMesh::BuildMaterials() masks the
+		// flag off per-submesh when the geometry has no bone data.
+		std::shared_ptr<RenderingComponent> rModel = MakeSceneRenderingComponent(modelMesh, ShaderUsage::Skinning | ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow | ShaderUsage::SpotShadow);
 		go->Add(rModel);
 
 		SceneObject* obj = new SceneObject("Model", rModel.get(), id, SceneObjectTypes::RENDERING_COMPONENT);

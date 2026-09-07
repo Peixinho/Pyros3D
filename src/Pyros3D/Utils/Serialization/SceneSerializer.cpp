@@ -2395,9 +2395,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// BuildMaterials() masks this straight back off for any
 				// submesh whose geometry has no bone data, so a rigid prop
 				// inside an animated model is unaffected.
-				uint32 opts = ShaderUsage::Diffuse;
-				if (j.find("skeletonAnimation") != j.end())
-					opts |= ShaderUsage::Skinning;
+				// Skinning unconditionally, NOT only when the component
+				// carries a serialized "skeletonAnimation".
+				//
+				// A rig can also be driven entirely from a script - load a
+				// clip, createInstance(rc), playClip() - and nothing about
+				// that appears in the scene file. Those models got the
+				// unskinned variant, so the clip played, the bone matrices
+				// were computed and uploaded every frame, and the vertex
+				// shader ignored them: the mesh stood in bind pose for ever.
+				// That is why the enemies in a Lua-driven game never walked
+				// while the editor's own animation preview did.
+				//
+				// Safe for props: BuildMaterials() masks this straight back
+				// off for any submesh whose geometry has no bone data.
+				uint32 opts = ShaderUsage::Diffuse | ShaderUsage::Skinning;
 #ifdef LUA_BINDINGS
 				rc = lua
 					? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, opts))
