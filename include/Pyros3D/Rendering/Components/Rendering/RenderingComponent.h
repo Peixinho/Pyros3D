@@ -211,24 +211,42 @@ namespace p3d {
 			if (Geometry->materialProperties.Opacity) genMat->SetOpacity(Geometry->materialProperties.Opacity);
 			if (Geometry->materialProperties.haveColorMap)
 			{
-				std::shared_ptr<Texture> colorMap = std::make_shared<Texture>();
-				colorMap->LoadTexture(Geometry->materialProperties.colorMap, TextureType::Texture);
-				colorMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-				genMat->SetColorMap(colorMap);
+				// Shared, not a fresh decode per submesh - see
+				// Texture::LoadShared(). Every model in a level referencing
+				// the same wall tile used to pay for its own copy.
+				std::shared_ptr<Texture> colorMap = Texture::LoadShared(
+					Geometry->materialProperties.colorMap, TextureType::Texture);
+				if (colorMap)
+				{
+					colorMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+					genMat->SetColorMap(colorMap);
+				}
 			}
 			if (Geometry->materialProperties.haveSpecularMap)
 			{
-				std::shared_ptr<Texture> specularMap = std::make_shared<Texture>();
-				specularMap->LoadTexture(Geometry->materialProperties.specularMap, TextureType::Texture);
-				specularMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-				genMat->SetSpecularMap(specularMap);
+				// Shared, not a fresh decode per submesh - see
+				// Texture::LoadShared(). Every model in a level referencing
+				// the same wall tile used to pay for its own copy.
+				std::shared_ptr<Texture> specularMap = Texture::LoadShared(
+					Geometry->materialProperties.specularMap, TextureType::Texture);
+				if (specularMap)
+				{
+					specularMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+					genMat->SetSpecularMap(specularMap);
+				}
 			}
 			if (Geometry->materialProperties.haveNormalMap)
 			{
-				std::shared_ptr<Texture> normalMap = std::make_shared<Texture>();
-				normalMap->LoadTexture(Geometry->materialProperties.normalMap, TextureType::Texture);
-				normalMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-				genMat->SetNormalMap(normalMap);
+				// Shared, not a fresh decode per submesh - see
+				// Texture::LoadShared(). Every model in a level referencing
+				// the same wall tile used to pay for its own copy.
+				std::shared_ptr<Texture> normalMap = Texture::LoadShared(
+					Geometry->materialProperties.normalMap, TextureType::Texture);
+				if (normalMap)
+				{
+					normalMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+					genMat->SetNormalMap(normalMap);
+				}
 			}
 			Material.reset(genMat);
 		}

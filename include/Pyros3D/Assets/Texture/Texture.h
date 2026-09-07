@@ -14,6 +14,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Core/File/File.h>
 #include <map>
+#include <memory>
 #include <vector>
 
 namespace p3d {
@@ -162,6 +163,24 @@ namespace p3d {
 
 		// Texture
 		bool LoadTexture(const std::string& Filename, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
+		// A shared, path-keyed load: returns the SAME Texture for the same
+		// file instead of decoding and uploading it again.
+		//
+		// A .p3dm's mesh data is binary and quick to read; its textures are
+		// PNGs, decoded on the calling thread by stb_image. RenderingMesh
+		// built a fresh Texture per submesh per map, so a station scene whose
+		// 41 models share 22 images did ~600 inflate+unfilter passes and ~600
+		// GPU uploads on every load - 40 s of a 42 s scene load, and many
+		// times the texture memory it needed.
+		//
+		// Held weakly, so the last material to release a texture frees it and
+		// unloading a scene still returns the memory. Callers that need to
+		// mutate per-instance texture state (filter, wrap, transparency) must
+		// NOT use this - they would be editing every other user's texture.
+		static std::shared_ptr<Texture> LoadShared(const std::string& Filename,
+			const uint32 Type = TextureType::Texture, bool Mipmapping = true);
+		// Drops entries whose texture is already gone. Housekeeping only.
+		static void PurgeSharedCache();
 		bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
 		bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0); // msaa if using multisample only
 		void SetMinMagFilter(const uint32 MinFilter, const uint32 MagFilter);

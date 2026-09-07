@@ -461,6 +461,47 @@ namespace p3d {
 		Device().BindTextureToTarget(GLSubMode, 0);
 	}
 
+	namespace {
+		// Path -> texture, weakly held. Keyed on the string the caller gave,
+		// which is what every call site already resolves before getting
+		// here (see ResolveModelTexturePath for the model path).
+		std::map<std::string, std::weak_ptr<Texture> > &SharedTextureCache()
+		{
+			static std::map<std::string, std::weak_ptr<Texture> > cache;
+			return cache;
+		}
+	}
+
+	std::shared_ptr<Texture> Texture::LoadShared(const std::string& Filename,
+		const uint32 Type, bool Mipmapping)
+	{
+		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
+		const std::string key = Filename + "|" + std::to_string(Type) + (Mipmapping ? "|m" : "|n");
+		std::map<std::string, std::weak_ptr<Texture> >::iterator it = cache.find(key);
+		if (it != cache.end())
+		{
+			if (std::shared_ptr<Texture> hit = it->second.lock())
+				return hit;
+			cache.erase(it);
+		}
+		std::shared_ptr<Texture> tex = std::make_shared<Texture>();
+		if (!tex->LoadTexture(Filename, Type, Mipmapping))
+			return std::shared_ptr<Texture>();
+		cache[key] = tex;
+		return tex;
+	}
+
+	void Texture::PurgeSharedCache()
+	{
+		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
+		std::map<std::string, std::weak_ptr<Texture> >::iterator i = cache.begin();
+		while (i != cache.end())
+		{
+			if (i->second.expired()) cache.erase(i++);
+			else ++i;
+		}
+	}
+
 	void Texture::SetTransparency(const f32 Transparency)
 	{
 
