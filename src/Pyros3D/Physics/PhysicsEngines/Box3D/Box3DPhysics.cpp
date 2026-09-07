@@ -169,7 +169,7 @@ namespace p3d {
 
 	}
 
-	Box3DPhysics::Box3DPhysics() : m_world(b3_nullWorldId), m_simulationEnabled(false)
+	Box3DPhysics::Box3DPhysics() : m_world(b3_nullWorldId), m_nextJoint(1), m_simulationEnabled(false)
 	{
 		m_draw = b3DefaultDebugDraw();
 	}
@@ -177,6 +177,128 @@ namespace p3d {
 	Box3DPhysics::~Box3DPhysics()
 	{
 		EndPhysics();
+	}
+
+	// ---- Joints ------------------------------------------------------
+	//
+	// Box3D has had a full joint set all along - spherical, revolute,
+	// prismatic, weld, distance, motor - and none of it was reachable from
+	// the engine, let alone from Lua. Every rigid body was an island, so a
+	// ragdoll, a hinged door and a rope bridge were all equally impossible.
+	// These two cover the cases a game actually asks for first.
+	//
+	// Both take a WORLD-space anchor and convert it into each body's local
+	// frame, because that is what a caller has: "pin these two at the hip",
+	// not "at (0, -0.31, 0) in the pelvis' local space and (0, 0.22, 0) in
+	// the thigh's".
+	namespace {
+		// The joint frame's own basis. Box3D centres a spherical joint's cone
+		// limit on frameA's z-axis and a revolute joint's hinge on its
+		// z-axis, so the frame has to be built to point z along the axis the
+		// caller asked for - an identity frame would hinge about world +Z
+		// whatever `worldAxis` said.
+		b3Quat RotationFromZTo(const Vec3 &axis)
+		{
+			Vec3 a = axis;
+			const f32 len = a.magnitude();
+			if (len < 1e-6f) return b3Quat_identity;
+			a = a * (1.f / len);
+			return b3ComputeQuatBetweenUnitVectors(b3Vec3_axisZ, ToB3(a));
+		}
+
+		// worldFrame expressed in the body's local space.
+		b3Transform LocalFrame(b3BodyId body, const Vec3 &worldAnchor, const b3Quat &worldRot)
+		{
+			const b3WorldTransform wt = b3Body_GetTransform(body);
+			b3Transform bodyT;
+			bodyT.p = b3Vec3{ (float)wt.p.x, (float)wt.p.y, (float)wt.p.z };
+			bodyT.q = wt.q;
+			b3Transform frame;
+			frame.p = b3InvTransformPoint(bodyT, ToB3(worldAnchor));
+			frame.q = b3InvMulQuat(bodyT.q, worldRot);
+			return frame;
+		}
+	}
+
+	uint32 Box3DPhysics::CreateSphericalJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
+		const Vec3 &worldAnchor, const f32 coneAngle)
+	{
+		// A body only exists in the solver once IPhysicsComponent::Register()
+		// has run, which the scene graph does when it next picks the component
+		// up - NOT when addComponent() returns. A joint asked for before that
+		// names two bodies Box3D has never heard of; report nothing rather
+		// than build a joint against invalid ids.
+		if (!bodyA || !bodyB || m_world.index1 == 0) return 0;
+		Box3DBodyHandles* ha = GetHandles(bodyA);
+		Box3DBodyHandles* hb = GetHandles(bodyB);
+		if (!ha || !hb || !b3Body_IsValid(ha->body) || !b3Body_IsValid(hb->body)) return 0;
+
+		b3SphericalJointDef def = b3DefaultSphericalJointDef();
+		def.base.bodyIdA = ha->body;
+		def.base.bodyIdB = hb->body;
+		// Bodies that share a joint must not also collide at it, or the
+		// solver fights itself and the limb jitters apart.
+		def.base.collideConnected = false;
+		def.base.localFrameA = LocalFrame(ha->body, worldAnchor, b3Quat_identity);
+		def.base.localFrameB = LocalFrame(hb->body, worldAnchor, b3Quat_identity);
+		if (coneAngle > 0.f)
+		{
+			def.enableConeLimit = true;
+			def.coneAngle = coneAngle;
+		}
+		b3JointId id = b3CreateSphericalJoint(m_world, &def);
+		if (id.index1 == 0) return 0;
+		const uint32 handle = m_nextJoint++;
+		m_joints[handle] = id;
+		return handle;
+	}
+
+	uint32 Box3DPhysics::CreateRevoluteJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
+		const Vec3 &worldAnchor, const Vec3 &worldAxis, const f32 lower, const f32 upper)
+	{
+		if (!bodyA || !bodyB || m_world.index1 == 0) return 0;
+		Box3DBodyHandles* ha = GetHandles(bodyA);
+		Box3DBodyHandles* hb = GetHandles(bodyB);
+		if (!ha || !hb || !b3Body_IsValid(ha->body) || !b3Body_IsValid(hb->body)) return 0;
+
+		const b3Quat hingeRot = RotationFromZTo(worldAxis);
+		b3RevoluteJointDef def = b3DefaultRevoluteJointDef();
+		def.base.bodyIdA = ha->body;
+		def.base.bodyIdB = hb->body;
+		def.base.collideConnected = false;
+		def.base.localFrameA = LocalFrame(ha->body, worldAnchor, hingeRot);
+		def.base.localFrameB = LocalFrame(hb->body, worldAnchor, hingeRot);
+		// lower >= upper is the caller saying "free hinge" - the same
+		// convention the limits themselves use, so there is no separate flag.
+		if (lower < upper)
+		{
+			def.enableLimit = true;
+			def.lowerAngle = lower;
+			def.upperAngle = upper;
+		}
+		b3JointId id = b3CreateRevoluteJoint(m_world, &def);
+		if (id.index1 == 0) return 0;
+		const uint32 handle = m_nextJoint++;
+		m_joints[handle] = id;
+		return handle;
+	}
+
+	Vec3 Box3DPhysics::GetBodyPosition(IPhysicsComponent *pcomp)
+	{
+		if (!pcomp) return Vec3();
+		Box3DBodyHandles* h = GetHandles(pcomp);
+		if (!h || !b3Body_IsValid(h->body)) return Vec3();
+		const b3Pos p = b3Body_GetPosition(h->body);
+		return Vec3((f32)p.x, (f32)p.y, (f32)p.z);
+	}
+
+	void Box3DPhysics::DestroyJoint(const uint32 joint)
+	{
+		std::map<uint32, b3JointId>::iterator it = m_joints.find(joint);
+		if (it == m_joints.end()) return;
+		if (b3Joint_IsValid(it->second))
+			b3DestroyJoint(it->second, true);
+		m_joints.erase(it);
 	}
 
 	Box3DBodyHandles* Box3DPhysics::GetHandles(IPhysicsComponent* pcomp)

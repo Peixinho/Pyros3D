@@ -64,6 +64,11 @@ namespace p3d {
 		bool IsInitialized() { return physicsInitialized; }
 
 		virtual void UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position) = 0;
+		// Where the solver actually put it. A body was write-only for
+		// position: settable, never readable, so nothing could observe a body
+		// that has no GameObject of its own to be written back into - every
+		// part of a ragdoll except the one carrying the mesh.
+		virtual Vec3 GetBodyPosition(IPhysicsComponent *pcomp) { return Vec3(); }
 		virtual void UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation) = 0;
 		virtual void CleanForces(IPhysicsComponent *pcomp) = 0;
 		virtual void SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity) = 0;
@@ -99,6 +104,32 @@ namespace p3d {
 		virtual std::shared_ptr<IPhysicsComponent> CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f, bool ghost = false) = 0;
 		virtual std::shared_ptr<IPhysicsComponent> CreateVehicle(const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost = false) = 0;
 		virtual void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel) = 0;
+
+		// ---- Joints ---------------------------------------------------
+		//
+		// Two bodies pinned together. This is what a ragdoll, a swinging
+		// door, a rope bridge or a chain is made of, and the engine had no
+		// way to express any of them: every physics body was an island.
+		//
+		// Not pure virtual, so an engine backend that has no joints keeps
+		// compiling - it simply reports that it made none. Returns a handle,
+		// or 0 if the joint could not be made.
+		//
+		// Spherical = ball-and-socket: the two bodies share a point and can
+		// rotate freely about it. `coneAngle` (radians, <= 0 for none) limits
+		// how far B can swing away from A's axis, which is the difference
+		// between a shoulder and a rag.
+		virtual uint32 CreateSphericalJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
+			const Vec3 &worldAnchor, const f32 coneAngle = -1.f) { return 0; }
+
+		// Revolute = hinge: one shared point, one shared axis. `lower`/`upper`
+		// are the swing limits in radians; pass lower >= upper for a free
+		// hinge. A knee or an elbow is a hinge with a hard stop at 0.
+		virtual uint32 CreateRevoluteJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
+			const Vec3 &worldAnchor, const Vec3 &worldAxis,
+			const f32 lower = 1.f, const f32 upper = 0.f) { return 0; }
+
+		virtual void DestroyJoint(const uint32 joint) {}
 
 	protected:
 

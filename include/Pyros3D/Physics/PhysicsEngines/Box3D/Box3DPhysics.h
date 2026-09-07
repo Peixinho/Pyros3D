@@ -14,6 +14,7 @@
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/DebugDraw/PhysicsDebugDraw.h>
 #include <Pyros3D/Other/Export.h>
+#include <map>
 #include <memory>
 #include <set>
 #include <utility>
@@ -63,6 +64,17 @@ namespace p3d {
 
 		b3WorldId GetWorld() const { return m_world; }
 
+		// See IPhysics' comments. Box3D has a full joint set; none of it was
+		// reachable, so the engine could not build a ragdoll, a hinged door
+		// or a chain.
+		virtual uint32 CreateSphericalJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
+			const Vec3 &worldAnchor, const f32 coneAngle = -1.f);
+		virtual uint32 CreateRevoluteJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
+			const Vec3 &worldAnchor, const Vec3 &worldAxis,
+			const f32 lower = 1.f, const f32 upper = 0.f);
+		virtual void DestroyJoint(const uint32 joint);
+		virtual Vec3 GetBodyPosition(IPhysicsComponent *pcomp);
+
 		virtual void UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position);
 		virtual void UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation);
 		virtual void CleanForces(IPhysicsComponent *pcomp);
@@ -101,6 +113,12 @@ namespace p3d {
 		bool m_simulationEnabled;
 
 		b3WorldId m_world;
+
+		// Handle -> b3JointId. Handles are dense and never reused, so a stale
+		// one is reported rather than silently addressing someone else's
+		// joint.
+		std::map<uint32, b3JointId> m_joints;
+		uint32 m_nextJoint;
 		std::unique_ptr<PhysicsDebugDraw> m_debugDraw;
 		b3DebugDraw m_draw;
 

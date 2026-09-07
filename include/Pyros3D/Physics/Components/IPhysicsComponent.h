@@ -62,6 +62,7 @@ namespace p3d {
 
 		// Physics Methods Attributes
 		virtual void SetPosition(const Vec3 &position);
+		virtual Vec3 GetPosition() const;
 		virtual void SetRotation(const Vec3 &rotation);
 		virtual void CleanForces();
 		virtual void SetAngularVelocity(const Vec3 &velocity);

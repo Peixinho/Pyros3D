@@ -25,6 +25,7 @@ namespace p3d {
 			"getMass", &IPhysicsComponent::GetMass,
 			"getShape", &IPhysicsComponent::GetShape,
 			"setPosition", &IPhysicsComponent::SetPosition,
+			"getPosition", &IPhysicsComponent::GetPosition,
 			"setRotation", &IPhysicsComponent::SetRotation,
 			"cleanForces", &IPhysicsComponent::CleanForces,
 			"setAngularVelocity", &IPhysicsComponent::SetAngularVelocity,
@@ -168,6 +169,31 @@ namespace p3d {
 				"createMultiplerSphere", &IPhysics::CreateMultipleSphere,
 				"createSphere", &IPhysics::CreateSphere,
 				"createStaticPlane", &IPhysics::CreateStaticPlane,
+				// Joints. sol binds a function's full arity, so the C++
+				// default arguments are spelled out as overloads here - the
+				// same reason every other defaulted call in these bindings is.
+				"createSphericalJoint", sol::overload(
+					[](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &a,
+					   const std::shared_ptr<IPhysicsComponent> &b, const Vec3 &anchor) {
+						return p.CreateSphericalJoint(a.get(), b.get(), anchor);
+					},
+					[](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &a,
+					   const std::shared_ptr<IPhysicsComponent> &b, const Vec3 &anchor, const f32 cone) {
+						return p.CreateSphericalJoint(a.get(), b.get(), anchor, cone);
+					}
+				),
+				"createRevoluteJoint", sol::overload(
+					[](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &a,
+					   const std::shared_ptr<IPhysicsComponent> &b, const Vec3 &anchor, const Vec3 &axis) {
+						return p.CreateRevoluteJoint(a.get(), b.get(), anchor, axis);
+					},
+					[](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &a,
+					   const std::shared_ptr<IPhysicsComponent> &b, const Vec3 &anchor, const Vec3 &axis,
+					   const f32 lower, const f32 upper) {
+						return p.CreateRevoluteJoint(a.get(), b.get(), anchor, axis, lower, upper);
+					}
+				),
+				"destroyJoint", &IPhysics::DestroyJoint,
 				"createVehicle", [](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &chassis) -> std::shared_ptr<IPhysicsComponent> {
 					return p.CreateVehicle(chassis);
 				},

@@ -66,6 +66,10 @@ namespace p3d {
 	{
 		PhysicsEngine->UpdatePosition(this, position);
 	}
+	Vec3 IPhysicsComponent::GetPosition() const
+	{
+		return PhysicsEngine->GetBodyPosition(const_cast<IPhysicsComponent*>(this));
+	}
 	void IPhysicsComponent::SetRotation(const Vec3 &rotation)
 	{
 		PhysicsEngine->UpdateRotation(this, rotation);
