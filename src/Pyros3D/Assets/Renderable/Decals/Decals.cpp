@@ -205,6 +205,27 @@ namespace p3d {
 				}
 			}
 
+		// Position and normal are not optional here - every line below indexes
+		// with these. They start at -1, and nothing checked: a mesh whose
+		// geometry does not expose "aPosition"/"aNormal" (a primitive built
+		// without them, an interleaved layout, anything the loop above simply
+		// does not recognise) fell straight through to Attributes[-1], which
+		// is a hard EXC_BAD_ACCESS at a near-null address rather than
+		// anything that points at decals. One shot at the wrong wall took the
+		// whole process down.
+		if (bPosition < 0 || aPosition < 0 || bNormal < 0 || aNormal < 0)
+		{
+			echo("ERROR: DecalGeometry - target mesh exposes no aPosition/aNormal attribute; no decal built");
+			return;
+		}
+		// Same for the skinned path: haveBones is set by finding EITHER of the
+		// two bone attributes, so finding only one left the other at -1.
+		if (haveBones && (bBonesID < 0 || aBonesID < 0 || bBonesWeight < 0 || aBonesWeight < 0))
+		{
+			echo("WARNING: DecalGeometry - target mesh has only half its bone attributes; decal built unskinned");
+			haveBones = false;
+		}
+
 		for (uint32 i = 0; i < rc->Geometry->GetIndexData().size(); i += 3)
 		{
 			Vec3 v0 = iCubeMatrix * *(Vec3*)(&rc->Geometry->Attributes[bPosition]->Attributes[aPosition]->Data[rc->Geometry->GetIndexData()[i] * sizeof(Vec3)]);
@@ -285,6 +306,9 @@ namespace p3d {
 		this->dimensions = dimensions;
 		this->check = check;
 		this->haveBones = false;
+		// Never left uninitialised: ComputeDecal() can decline to build one
+		// (see its attribute guard), and GetDecal()'s callers test for NULL.
+		this->decal = NULL;
 		this->targetTransformation = targetTransformation;
 
 		this->CubeMatrix = Matrix();
@@ -307,6 +331,9 @@ namespace p3d {
 		this->dimensions = dimensions;
 		this->check = check;
 		this->haveBones = false;
+		// Never left uninitialised: ComputeDecal() can decline to build one
+		// (see its attribute guard), and GetDecal()'s callers test for NULL.
+		this->decal = NULL;
 		this->targetTransformation = targetTransformation;
 
 		this->CubeMatrix = transform;
