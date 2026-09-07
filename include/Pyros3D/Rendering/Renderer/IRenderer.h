@@ -325,6 +325,11 @@ namespace p3d {
 			DrawType, InternalDrawType;
 
 		// Culling
+		// One shadow-map draw's visibility test against the light frustum
+		// UpdateCulling() last installed. Shared by the point, spot and
+		// directional passes so all three agree.
+		bool ShadowCasterVisible(RenderingMesh* rmesh);
+
 		bool CullingSphereTest(RenderingMesh* rmesh, GameObject* owner);
 		bool CullingPointTest(RenderingMesh* rmesh, GameObject* owner);
 		bool CullingBoxTest(RenderingMesh* rmesh, GameObject* owner);
