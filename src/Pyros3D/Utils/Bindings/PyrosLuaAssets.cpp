@@ -244,13 +244,22 @@ namespace p3d {
 				//
 				// Returns false when the rig has no clip of that name, rather
 				// than playing something arbitrary.
+				// startTime is normalized (0..1 of the clip's duration) and
+				// exists so a crowd does not march in lockstep. Every pooled
+				// character calling playClip("walk") got startTime 0 and the
+				// same speed, so twelve enemies walked as one body - there
+				// was no way to phase-offset a clip from Lua at all.
 				"playClip", [](SkeletonAnimationInstance& self, const std::string& name,
-					sol::optional<f32> repetition, sol::optional<f32> speed) -> bool {
+					sol::optional<f32> repetition, sol::optional<f32> speed,
+					sol::optional<f32> startTime) -> bool {
 					SkeletonAnimation* owner = self.GetOwner();
 					if (!owner) return false;
 					const int32 id = owner->GetAnimationIDByName(name);
 					if (id < 0) return false;
-					self.Play((uint32)id, 0.f,
+					f32 start = startTime ? *startTime : 0.f;
+					if (start < 0.f) start = 0.f;
+					if (start > 1.f) start = 1.f;
+					self.Play((uint32)id, start,
 						repetition ? *repetition : -1.f,   // -1 = loop forever
 						speed ? *speed : 1.f,
 						0.f, "");

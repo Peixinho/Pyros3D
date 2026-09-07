@@ -89,6 +89,14 @@ namespace p3d {
 		// *(*_Anim).animation;`, with a backtrace pointing at the copy
 		// constructor rather than at whoever asked for a clip that doesn't
 		// exist. Reject it up front and say so.
+		// Asking for a clip to play is unambiguous: un-pause the instance.
+		// _paused was only ever cleared in the constructor, so anything that
+		// paused a character - a death, a cutscene, parking it in a pool -
+		// left it frozen for ever: a later Play()/playClip() added the clip,
+		// advanced nothing, and the character stood still while its
+		// neighbours walked. Resume() was the only way out and nobody knew.
+		_paused = false;
+
 		if (animation >= Owner->GetNumberAnimations())
 		{
 			echo("ERROR: SkeletonAnimationInstance::Play - animation id out of range (asked for " + std::to_string(animation) + ", only " + std::to_string(Owner->GetNumberAnimations()) + " loaded)");
