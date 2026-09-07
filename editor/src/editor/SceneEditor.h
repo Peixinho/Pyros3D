@@ -319,17 +319,23 @@ public:
 	void UpdateSceneView2D(const f32 dt, const f32 aspect);
 	bool AgentIsViewportOrthographic() const { return !isPerspective; }
 	bool AgentAddSprite(const std::string& name, const std::string& texturePath,
-		const std::string& parentName, std::string& errOut);
+		const json& p, const std::string& parentName, std::string& errOut);
 	bool AgentAddPrimitive(const std::string& name, const std::string& shape, const json& p,
 		const std::string& parentName, const json& color, std::string& errOut);
 	bool AgentAddLight(const std::string& name, const std::string& type, const json& p,
 		const std::string& parentName, std::string& errOut);
+	bool AgentSetLight(const std::string& name, const json& p, std::string& errOut);
+	bool AgentSetViewOptions(const json& p, std::string& errOut);
+	bool AgentSetAmbient(const json& p, std::string& errOut);
+	json AgentObjectBounds(const std::string& name, std::string& errOut) const;
+	void AgentApplyLightOptions(IComponent* light, const json& p);
 	bool AgentAddAudio(const std::string& name, const std::string& file, const json& p,
 		const std::string& parentName, std::string& errOut);
 	bool AgentAddParticles(const std::string& name, const json& p,
 		const std::string& parentName, std::string& errOut);
 	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
-	bool AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut);
+	bool AgentAddModel(const std::string& name, const std::string& modelFile, const json& p,
+		const std::string& parentName, std::string& errOut);
 	bool AgentApplyUIStyle(const std::string& objectName, const std::string& stylePath, std::string& errOut);
 	bool AgentRevertUIStyle(const std::string& objectName, std::string& errOut);
 	bool AgentClearUIStyle(const std::string& objectName, std::string& errOut);
@@ -341,7 +347,7 @@ public:
 	bool AgentSelect(const std::string& name, std::string& errOut);
 	bool AgentSetCanvasMode(bool on, std::string& errOut);
 	bool AgentSetCamera(const std::string& name, const json& p, std::string& errOut);
-	bool AgentAddCamera(const std::string& name, const std::vector<f32>& position,
+	bool AgentAddCamera(const std::string& name, const json& p,
 		f32 fov, f32 nearPlane, f32 farPlane, bool active, std::string& errOut);
 	bool AgentSetTransform(const std::string& name, const json& t, std::string& errOut);
 	bool AgentSetTags(const std::string& name, const json& addTags, const json& removeTags, std::string& errOut);
@@ -1214,6 +1220,13 @@ private:
 	struct PlayModeObjectSnapshot {
 		Vec3 position, rotation, scale;
 		Matrix localTransform, scaleTransform, globalRotation;
+		// Whether each component was enabled when Play started, in
+		// GetComponents() order. A game script hides things - a collected
+		// pickup, a parked enemy, a muzzle flash between shots - by calling
+		// disable() on a component, and without this that state survived
+		// Stop: the object stayed invisible in the editor, and saving the
+		// scene then wrote the hidden state into the file for good.
+		std::vector<bool> componentsActive;
 	};
 	std::set<GameObject*> playModeExistingObjects;
 	std::map<uint32, PlayModeSubtree> playModeSubtrees;
@@ -1241,6 +1254,10 @@ private:
 	uint32 playModeSavedCameraId;
 	void ResolvePlayModeCamera();
 	void SetEditorChromeVisible(bool visible);
+	// Latched so the viewport icon pass can honour it too - hiding the grid
+	// and the helper meshes while leaving the billboard icons on top of the
+	// frame is not "chrome hidden" by any useful definition.
+	bool editorChromeVisible = true;
 
 	// Selected Scene Object
 	SceneObject* SelectedSceneObject;

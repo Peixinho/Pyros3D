@@ -216,7 +216,7 @@ void EditorDebugDraw::drawLightGizmos(DebugRenderer* dbg, GameObject* viewCam, f
 				continue;
 			}
 
-			if (!IsOn(c)) continue;
+			if (!showLightGizmos || !IsOn(c)) continue;
 
 			const float dist = (go->GetWorldPosition() - camPos).magnitude();
 			const float minWorld = worldSizeForPixels(std::max(dist, 0.001f), fovDeg, (float)viewportHeight, kMinIconPixels);

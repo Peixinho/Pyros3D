@@ -1449,7 +1449,7 @@ def add_camera(project_path: str, scene_name: str, name: str = "Camera", parent_
 
     live = _live_or_none("add_camera", {
         "name": name, "parent": parent_name or "",
-        "position": position or [0.0, 10.0, 20.0],
+        "position": position or [0.0, 10.0, 20.0], "rotation": rotation,
         "fov": fov, "near": near, "far": far, "active": active,
     }, scene_file)
     if live is not None:
@@ -1566,7 +1566,8 @@ def add_primitive(project_path: str, scene_name: str, name: str, shape: str = "C
 
 @mcp.tool()
 def add_sprite(project_path: str, scene_name: str, name: str, texture: str | None = None,
-               parent_name: str | None = None) -> str:
+               parent_name: str | None = None, position: list[float] | None = None,
+               rotation: list[float] | None = None, scale: list[float] | None = None) -> str:
     """Add a 2D sprite - a textured, alpha-blended quad (editor: Add > Sprite).
 
     A sprite is a RenderingComponent, not a component type of its own: the
@@ -1580,6 +1581,7 @@ def add_sprite(project_path: str, scene_name: str, name: str, texture: str | Non
     scene_file = _scene_file(proj, scene_name)
     live = _live_or_none("add_sprite", {
         "name": name, "texture": texture or "", "parent": parent_name or "",
+        "position": position, "rotation": rotation, "scale": scale,
     }, scene_file)
     if live is not None:
         return _fail(live) if isinstance(live, str) else f"Added sprite '{name}' (live editor)"
@@ -2082,6 +2084,7 @@ def add_model(project_path: str, scene_name: str, model_file: str, name: str | N
 
     live = _live_or_none("add_model", {
         "name": name or src.stem, "file": str(src), "parent": parent_name or "",
+        "position": position, "rotation": rotation, "scale": scale,
     }, scene_file)
     if live is not None:
         return _fail(live) if isinstance(live, str) else f"Added model '{name or src.stem}' (live editor)"
@@ -2114,7 +2117,7 @@ def add_directional_light(project_path: str, scene_name: str, name: str = "Sun",
     live = _live_or_none("add_light", {
         "name": name, "type": "DirectionalLight", "parent": parent_name or "",
         "position": position, "color": color, "direction": direction,
-        "intensity": intensity,
+        "intensity": intensity, "castingShadows": bool(casting_shadows),
     }, scene_file)
     if live is not None:
         return _fail(live) if isinstance(live, str) else f"Added DirectionalLight '{name}' (live editor)"
@@ -2156,6 +2159,10 @@ def add_point_light(project_path: str, scene_name: str, name: str = "PointLight"
         "name": name, "type": "PointLight", "parent": parent_name or "",
         "position": position, "color": color,
         "radius": radius, "intensity": intensity,
+        "castingShadows": bool(casting_shadows),
+        "volumetricScattering": volumetric_scattering,
+        "volumetricAnisotropy": volumetric_anisotropy,
+        "volumetricSteps": volumetric_steps,
     }, scene_file)
     if live is not None:
         return _fail(live) if isinstance(live, str) else f"Added PointLight '{name}' (live editor)"
@@ -2202,6 +2209,10 @@ def add_spot_light(project_path: str, scene_name: str, name: str = "SpotLight", 
         "position": position, "color": color,
         "radius": radius, "direction": direction,
         "intensity": intensity, "inner": inner_cone, "outer": outer_cone,
+        "castingShadows": bool(casting_shadows),
+        "volumetricScattering": volumetric_scattering,
+        "volumetricAnisotropy": volumetric_anisotropy,
+        "volumetricSteps": volumetric_steps,
     }, scene_file)
     if live is not None:
         return _fail(live) if isinstance(live, str) else f"Added SpotLight '{name}' (live editor)"

@@ -2334,7 +2334,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	if (name == "add_sprite")
 	{
-		if (!sceneView->AgentAddSprite(A("name"), A("texture"), A("parent"), err))
+		if (!sceneView->AgentAddSprite(A("name"), A("texture"), a.is_object() ? a : nlohmann::json::object(), A("parent"), err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -2382,7 +2382,39 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	if (name == "add_model")
 	{
-		if (!sceneView->AgentAddModel(A("name"), A("file"), A("parent"), err))
+		if (!sceneView->AgentAddModel(A("name"), A("file"), a.is_object() ? a : nlohmann::json::object(), A("parent"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "object_bounds")
+	{
+		nlohmann::json r = sceneView->AgentObjectBounds(A("name"), err);
+		if (r.is_null() || r.empty())
+			throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "set_ambient")
+	{
+		if (!sceneView->AgentSetAmbient(a.is_object() ? a : nlohmann::json::object(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "set_view_options")
+	{
+		if (!sceneView->AgentSetViewOptions(a.is_object() ? a : nlohmann::json::object(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "set_light")
+	{
+		if (!sceneView->AgentSetLight(A("name"), a.is_object() ? a : nlohmann::json::object(), err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -2394,7 +2426,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		const f32 fov = a.is_object() ? (f32)a.value("fov", 70.0) : 70.f;
 		const f32 nearP = a.is_object() ? (f32)a.value("near", 0.1) : 0.1f;
 		const f32 farP = a.is_object() ? (f32)a.value("far", 2000.0) : 2000.f;
-		if (!sceneView->AgentAddCamera(A("name"), AV("position"), fov, nearP, farP, active, err))
+		if (!sceneView->AgentAddCamera(A("name"), a.is_object() ? a : nlohmann::json::object(), fov, nearP, farP, active, err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -6689,6 +6721,13 @@ void PyrosWebPublishTextInputState();
 
 void Editor::Draw()
 {
+	// Before BeginFrame, and for every document, not just the active one: a
+	// queued renderer switch deletes the Renderer, the G-buffer and the
+	// PostEffectsManager, and that can only happen while no command buffer
+	// is open. See SceneEditor::ApplyPendingRendererSwitchIfAny().
+	for (size_t i = 0; i < sceneDocs.size(); ++i)
+		if (sceneDocs[i]) sceneDocs[i]->ApplyPendingRendererSwitchIfAny();
+
 #if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 	GetActiveRenderDevice().BeginFrame();
 #endif

@@ -599,10 +599,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (useDeferred == usingDeferredRenderer)
 			return;
 
-		// A frame can still be in flight referencing the old Renderer's
-		// pipelines/descriptors/FBOs the moment this runs (this is a live,
-		// mid-session toggle, not app startup/shutdown) - WaitIdle first,
-		// same reasoning as DeferredRenderer::Resize()'s leading WaitIdle.
+		// MUST be called with no frame open. VulkanRenderDevice::WaitIdle()
+		// deliberately does NOT vkDeviceWaitIdle while frameInProgress is
+		// set - it flushes the offscreen batch, waits on that, and returns,
+		// because a full device wait against a recording frame command
+		// buffer is undefined. So calling this from inside the frame (which
+		// is what running it from ShowViewport() did) gave no protection at
+		// all for the frame CB: the deletes below freed images and
+		// descriptor sets that the open command buffers still referenced,
+		// and EndFrame()'s submit walked them. That is a hard SIGSEGV
+		// inside MoltenVK's bindMetalResources, reproducible in about six
+		// Forward<->Deferred toggles on a scene with enough materials.
+		//
+		// Called from Editor::Draw() before BeginFrame(), the previous
+		// frame is ended and presented and this is a real device wait.
+		GetActiveRenderDevice().FlushOffscreenWork();
 		GetActiveRenderDevice().WaitIdle();
 
 		delete EffectsManager;
@@ -936,10 +947,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::ShowViewport()
 	{
-		// Must run before anything below touches Renderer/EffectsManager -
-		// see its own comment on why a queued SwitchRenderer() is applied
-		// here instead of inline from whatever UI callback requested it.
-		ApplyPendingRendererSwitchIfAny();
+		// The renderer switch used to be applied here. It is now done by
+		// Editor::Draw() BEFORE BeginFrame() - see
+		// ApplyPendingRendererSwitchIfAny()'s comment. ShowViewport() runs
+		// inside DrawUI(), i.e. inside the frame, and tearing the renderer
+		// down there frees images and descriptor sets that this frame's
+		// still-open command buffers already reference.
 #ifdef LUA_BINDINGS
 		// Same safe point, same reason - between frames, before anything
 		// this frame touches the scene graph.
@@ -1504,7 +1517,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::EndDragDropTarget();
 		}
 		UpdateViewportMouse();
-		if (!playMode)
+		if (!playMode && editorChromeVisible)
 			DrawSceneViewportIcons(imgMin, imgSize, viewCam);
 
 		if (showingAddFrom) ShowAddForm();
@@ -4765,6 +4778,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			editorDebugDraw->ToggleCameraFrustum(!frustum);
 		if (ImGui::MenuItem("Show Physics Debug", NULL, showPhysicsDebug))
 			showPhysicsDebug = !showPhysicsDebug;
+		const bool lightGizmos = editorDebugDraw->AreLightGizmosOn();
+		if (ImGui::MenuItem("Show Light Gizmos", NULL, lightGizmos))
+			editorDebugDraw->ToggleLightGizmos(!lightGizmos);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("The radius spheres and spot cones. Turn them off to see a lit scene.");
 		// Both only mean anything in a 2D scene, so they are only offered
 		// there rather than sitting inert in every 3D scene's View menu.
 		if (sceneIsTwoD)
@@ -5222,8 +5240,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		// Update Light / Sound / empty-GO Helpers (editor chrome only).
+		// editorChromeVisible has to be checked HERE as well as in
+		// SetEditorChromeVisible: this loop runs every frame and used to
+		// re-Enable() every helper unconditionally, so hiding the chrome
+		// outside Play mode lasted exactly one frame and looked like the
+		// setting did nothing.
 		GameObject* viewCam = GetViewCameraGO();
-		if (!playMode)
+		if (!playMode && editorChromeVisible)
 		{
 			for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); i++)
 			{
@@ -5871,6 +5894,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::SetEditorChromeVisible(bool visible)
 	{
+		editorChromeVisible = visible;
 		if (rGrid)
 		{
 			if (visible) rGrid->Enable();
@@ -6072,6 +6096,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			snap.localTransform = i->second->LocalTransform;
 			snap.scaleTransform = i->second->ScaleTransform;
 			snap.globalRotation = i->second->globalRotation;
+			{
+				const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+				snap.componentsActive.reserve(cs.size());
+				for (size_t c = 0; c < cs.size(); ++c)
+					snap.componentsActive.push_back(cs[c] ? cs[c]->IsActive() : true);
+			}
 			playModeSnapshots[i->second->GetID()] = snap;
 		}
 		// Everything the scene graph holds *before* the game runs. Anything
@@ -6474,6 +6504,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			obj->LocalTransform = i->second.localTransform;
 			obj->ScaleTransform = i->second.scaleTransform;
 			obj->globalRotation = i->second.globalRotation;
+			// Only the components that were already there: a script may have
+			// added more (a decal's RenderingComponent, say), and those are
+			// handled by the spawned-object sweep, not here.
+			const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+			const size_t n = i->second.componentsActive.size() < cs.size()
+				? i->second.componentsActive.size() : cs.size();
+			for (size_t c = 0; c < n; ++c)
+			{
+				if (!cs[c]) continue;
+				if (i->second.componentsActive[c]) cs[c]->Enable();
+				else cs[c]->Disable();
+			}
 		}
 		// SyncPhysicsForGameObject skips while playMode is true — clear it
 		// before pushing restored transforms back into the physics world.
@@ -11592,7 +11634,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	}
 
 	bool SceneEditor::AgentAddSprite(const std::string& name, const std::string& texturePath,
-		const std::string& parentName, std::string& errOut)
+		const json& p, const std::string& parentName, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
 		SceneObject* parent = NULL;
@@ -11604,6 +11646,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? "Sprite" : name);
 		if (!obj) { errOut = "failed to create game object"; return false; }
 		if (!OpAddSprite(obj->GetID(), texturePath, errOut)) return false;
+		// Same as the other creators - a sprite asked for at a position has
+		// to arrive there rather than at the origin.
+		AgentApplyTransform((GameObject*)obj->GetPTR(), AgentVec3Field(p, "position"),
+			AgentVec3Field(p, "rotation"), AgentVec3Field(p, "scale"));
 		if (parent) sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
 		PushAddCommand(obj);
 		return true;
@@ -11682,6 +11728,172 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
+	// Shared by AgentAddLight and AgentSetLight: everything about a light
+	// that is not its colour, radius or direction.
+	void SceneEditor::AgentApplyLightOptions(IComponent* light, const json& p)
+	{
+		if (!light || !p.is_object()) return;
+		ILightComponent* il = dynamic_cast<ILightComponent*>(light);
+		if (!il) return;
+
+		if (p.contains("volumetricScattering") && p["volumetricScattering"].is_number())
+			il->SetVolumetricScattering((f32)p["volumetricScattering"].get<double>());
+		if (p.contains("volumetricAnisotropy") && p["volumetricAnisotropy"].is_number())
+			il->SetVolumetricAnisotropy((f32)p["volumetricAnisotropy"].get<double>());
+		if (p.contains("volumetricSteps") && p["volumetricSteps"].is_number())
+			il->SetVolumetricSteps((uint32)p["volumetricSteps"].get<int>());
+
+		if (!p.contains("castingShadows") || !p["castingShadows"].is_boolean())
+			return;
+		if (!p["castingShadows"].get<bool>())
+		{
+			il->DisableCastShadows();
+			return;
+		}
+		const uint32 size = (uint32)p.value("shadowMapSize", 1024);
+		const f32 nearP = (f32)p.value("shadowNear", 0.1);
+		const f32 farP = (f32)p.value("shadowFar", 100.0);
+		const uint32 cascades = (uint32)p.value("shadowCascades", 1);
+		if (DirectionalLight* dl = dynamic_cast<DirectionalLight*>(light))
+		{
+			Projection proj;
+			const f32 e = (f32)p.value("shadowExtent", 30.0);
+			proj.Ortho(-e, e, -e, e, nearP, farP);
+			dl->EnableCastShadows(size, size, proj, nearP, farP, cascades);
+		}
+		else if (PointLight* pl = dynamic_cast<PointLight*>(light))
+			pl->EnableCastShadows(size, size, nearP);
+		else if (SpotLight* sl = dynamic_cast<SpotLight*>(light))
+			sl->EnableCastShadows(size, size, nearP);
+		il->SetShadowBias((f32)p.value("shadowBiasFactor", 2.5),
+			(f32)p.value("shadowBiasUnits", 12.0));
+	}
+
+	// Retune a light that already exists - the counterpart to AgentAddLight,
+	// so lighting can be iterated without deleting and re-adding objects.
+	// An agent placing models has to be able to measure them. Nothing in the
+	// socket API reported a mesh's extent, so the only way to find out how
+	// big an imported model was, or where its origin sits inside it, was to
+	// eyeball a screenshot and guess a scale factor.
+	json SceneEditor::AgentObjectBounds(const std::string& name, std::string& errOut) const
+	{
+		json r;
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return r; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		RenderingComponent* rc = NULL;
+		for (const std::shared_ptr<IComponent>& c : go->GetComponents())
+		{
+			if (c && c->GetComponentType() == ComponentType::RenderingComponent)
+			{ rc = static_cast<RenderingComponent*>(c.get()); break; }
+		}
+		if (!rc) { errOut = "'" + name + "' has no RenderingComponent"; return r; }
+
+		const Vec3 mn = rc->GetBoundingMinValue();
+		const Vec3 mx = rc->GetBoundingMaxValue();
+		r["local"] = { { "min", { mn.x, mn.y, mn.z } }, { "max", { mx.x, mx.y, mx.z } },
+			{ "size", { mx.x - mn.x, mx.y - mn.y, mx.z - mn.z } } };
+
+		// World extent of the transformed local box - the eight corners, not
+		// the transformed min/max, which is not a box under rotation.
+		const Matrix& M = go->GetWorldTransformation();
+		Vec3 wmn(1e30f, 1e30f, 1e30f), wmx(-1e30f, -1e30f, -1e30f);
+		for (int i = 0; i < 8; ++i)
+		{
+			const Vec3 c((i & 1) ? mx.x : mn.x, (i & 2) ? mx.y : mn.y, (i & 4) ? mx.z : mn.z);
+			const Vec3 w = M * c;
+			wmn.x = std::min(wmn.x, w.x); wmn.y = std::min(wmn.y, w.y); wmn.z = std::min(wmn.z, w.z);
+			wmx.x = std::max(wmx.x, w.x); wmx.y = std::max(wmx.y, w.y); wmx.z = std::max(wmx.z, w.z);
+		}
+		r["world"] = { { "min", { wmn.x, wmn.y, wmn.z } }, { "max", { wmx.x, wmx.y, wmx.z } },
+			{ "size", { wmx.x - wmn.x, wmx.y - wmn.y, wmx.z - wmn.z } } };
+		r["hasBones"] = rc->HasBones();
+		r["submeshes"] = (int)rc->GetMeshes().size();
+		return r;
+	}
+
+	// The scene's ambient term. It was only reachable from a colour picker in
+	// Scene Properties, so a scene built through the socket was stuck on the
+	// default 0.2 grey - which is the difference between a lit interior and a
+	// flat one, and there was no way to say so.
+	bool SceneEditor::AgentSetAmbient(const json& p, std::string& errOut)
+	{
+		if (!p.is_object()) { errOut = "expected an object"; return false; }
+		if (p.contains("color") && p["color"].is_array() && p["color"].size() >= 3)
+			ambientLightColor = Vec4((f32)p["color"][0].get<double>(),
+				(f32)p["color"][1].get<double>(), (f32)p["color"][2].get<double>(),
+				p["color"].size() > 3 ? (f32)p["color"][3].get<double>() : ambientLightColor.w);
+		if (p.contains("intensity") && p["intensity"].is_number())
+			ambientIntensity = (f32)p["intensity"].get<double>();
+		MarkSceneDirty();
+		return true;
+	}
+
+	// The View menu's toggles, reachable from the socket - a screenshot of a
+	// lit scene is not much use with sixty light gizmos drawn over it.
+	bool SceneEditor::AgentSetViewOptions(const json& p, std::string& errOut)
+	{
+		if (!p.is_object()) { errOut = "expected an object"; return false; }
+		if (p.contains("lightGizmos") && p["lightGizmos"].is_boolean())
+			editorDebugDraw->ToggleLightGizmos(p["lightGizmos"].get<bool>());
+		if (p.contains("cameraFrustums") && p["cameraFrustums"].is_boolean())
+			editorDebugDraw->ToggleCameraFrustum(p["cameraFrustums"].get<bool>());
+		if (p.contains("physicsDebug") && p["physicsDebug"].is_boolean())
+			showPhysicsDebug = p["physicsDebug"].get<bool>();
+		if (p.contains("grid") && p["grid"].is_boolean())
+			showGrid2D = p["grid"].get<bool>();
+		// Grid, helper meshes and billboard icons together - what Play mode
+		// hides, without having to enter Play mode to get a clean frame.
+		if (p.contains("chrome") && p["chrome"].is_boolean())
+			SetEditorChromeVisible(p["chrome"].get<bool>());
+		return true;
+	}
+
+	bool SceneEditor::AgentSetLight(const std::string& name, const json& p, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		ILightComponent* il = NULL;
+		IComponent* raw = NULL;
+		for (const std::shared_ptr<IComponent>& c : go->GetComponents())
+		{
+			ILightComponent* cand = dynamic_cast<ILightComponent*>(c.get());
+			if (cand) { il = cand; raw = c.get(); break; }
+		}
+		if (!il) { errOut = "'" + name + "' has no light component"; return false; }
+
+		if (p.contains("color") && p["color"].is_array() && p["color"].size() >= 3)
+			il->SetLightColor(Vec4((f32)p["color"][0].get<double>(), (f32)p["color"][1].get<double>(),
+				(f32)p["color"][2].get<double>(),
+				p["color"].size() > 3 ? (f32)p["color"][3].get<double>() : 1.f));
+		if (p.contains("intensity") && p["intensity"].is_number())
+			il->SetLightIntensity((f32)p["intensity"].get<double>());
+		if (p.contains("direction") && p["direction"].is_array() && p["direction"].size() == 3)
+		{
+			const Vec3 d((f32)p["direction"][0].get<double>(),
+				(f32)p["direction"][1].get<double>(), (f32)p["direction"][2].get<double>());
+			if (DirectionalLight* dl = dynamic_cast<DirectionalLight*>(raw)) dl->SetLightDirection(d);
+			if (SpotLight* sl = dynamic_cast<SpotLight*>(raw)) sl->SetLightDirection(d);
+		}
+		if (p.contains("radius") && p["radius"].is_number())
+		{
+			if (PointLight* pl = dynamic_cast<PointLight*>(raw)) pl->SetLightRadius((f32)p["radius"].get<double>());
+			if (SpotLight* sl = dynamic_cast<SpotLight*>(raw)) sl->SetLightRadius((f32)p["radius"].get<double>());
+		}
+		if (SpotLight* sl = dynamic_cast<SpotLight*>(raw))
+		{
+			if (p.contains("inner") && p["inner"].is_number())
+				sl->SetLightInnerCone((f32)p["inner"].get<double>());
+			if (p.contains("outer") && p["outer"].is_number())
+				sl->SetLightOutterCone((f32)p["outer"].get<double>());
+		}
+		AgentApplyLightOptions(raw, p);
+		MarkSceneDirty();
+		return true;
+	}
+
 	bool SceneEditor::AgentAddLight(const std::string& name, const std::string& type, const json& p,
 		const std::string& parentName, std::string& errOut)
 	{
@@ -11736,6 +11948,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (PointLight* pl = dynamic_cast<PointLight*>(light)) pl->SetLightRadius((f32)p["radius"].get<double>());
 			if (SpotLight* sl = dynamic_cast<SpotLight*>(light)) sl->SetLightRadius((f32)p["radius"].get<double>());
 		}
+
+		// Shadows and volumetrics were reachable from the Properties panel
+		// and from nowhere else, so a scene built through the socket came out
+		// flatly lit with no way to say so. These mirror what the checkbox
+		// and the sliders do, defaults included.
+		AgentApplyLightOptions(light, p);
 
 		AgentApplyTransform(go, AgentVec3Field(p, "position"), AgentVec3Field(p, "rotation"),
 			AgentVec3Field(p, "scale"));
@@ -11987,7 +12205,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
-	bool SceneEditor::AgentAddModel(const std::string& name, const std::string& modelFile, const std::string& parentName, std::string& errOut)
+	bool SceneEditor::AgentAddModel(const std::string& name, const std::string& modelFile, const json& p,
+		const std::string& parentName, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
 		if (modelFile.empty()) { errOut = "model file path is required"; return false; }
@@ -12031,6 +12250,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			sceneObjects->DestroySceneObject(obj->GetID());
 			return false;
 		}
+
+		// Same as every other Agent creator: a model asked for at a position
+		// has to arrive there. Without this an agent dressing a scene gets a
+		// pile of meshes at the origin and no error to say why.
+		AgentApplyTransform(go, AgentVec3Field(p, "position"), AgentVec3Field(p, "rotation"),
+			AgentVec3Field(p, "scale"));
 
 		if (parent)
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
@@ -12520,15 +12745,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
-	bool SceneEditor::AgentAddCamera(const std::string& name, const std::vector<f32>& position,
+	bool SceneEditor::AgentAddCamera(const std::string& name, const json& p,
 		f32 fov, f32 nearPlane, f32 farPlane, bool active, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
 		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? "Camera" : name);
 		if (!obj) { errOut = "failed to create camera"; return false; }
 		GameObject* go = (GameObject*)obj->GetPTR();
-		if (position.size() == 3)
-			go->SetPosition(Vec3(position[0], position[1], position[2]));
+		// A camera placed without an orientation is a camera pointing down -z
+		// at whatever happens to be there, so rotation travels with position.
+		AgentApplyTransform(go, AgentVec3Field(p, "position"), AgentVec3Field(p, "rotation"),
+			AgentVec3Field(p, "scale"));
 
 		EditorCameraSettings cs;
 		cs.fov = fov;

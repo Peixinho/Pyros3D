@@ -51,6 +51,14 @@ public:
 	void ToggleCameraFrustum(bool on) { showCameraFrustum = on; }
 	bool IsCameraFrustumOn() const { return showCameraFrustum; }
 
+	// A global switch for the light volume/cone overlays. They are per
+	// component otherwise, which is fine for the handful of lights a test
+	// scene has and useless for a real one - a lit interior has dozens, and
+	// hiding them one at a time through the hierarchy context menu is not a
+	// workflow. Defaults on, so nothing changes until it is asked for.
+	void ToggleLightGizmos(bool on) { showLightGizmos = on; }
+	bool AreLightGizmosOn() const { return showLightGizmos; }
+
 	void Draw(p3d::DebugRenderer* dbg, p3d::SceneGraph* scene, p3d::GameObject* viewCam,
 		float fovDeg, float aspect, p3d::uint32 viewportHeight,
 		p3d::GameObject* skipA = NULL, p3d::GameObject* skipB = NULL, p3d::GameObject* skipC = NULL,
@@ -61,6 +69,7 @@ private:
 	std::unordered_set<p3d::GameObject*> camerasHidden;
 	std::unordered_set<p3d::IComponent*> renderingNormalsOn;
 	bool showCameraFrustum = false;
+	bool showLightGizmos = true;
 
 	void drawLightGizmos(p3d::DebugRenderer* dbg, p3d::GameObject* viewCam, float fovDeg, float aspect,
 		p3d::uint32 viewportHeight, p3d::SceneGraph* scene,
