@@ -223,6 +223,32 @@ namespace p3d {
 					if (boneId < 0 || (uint32)boneId >= self.GetNumberBones()) return Vec3();
 					return self.GetBoneGlobalTransform(boneId).GetTranslation();
 				},
+				// The skeleton itself, not just one bone's position. A script
+				// that wants to build something FROM a rig - a ragdoll, a
+				// hitbox set, an attachment socket - has to be able to walk
+				// the hierarchy and read the names, and none of that was
+				// reachable: getBoneIdByName could only confirm a name the
+				// script already guessed. Guessed names are exactly why the
+				// first ragdoll here only worked on one model.
+				"getBoneName", [](SkeletonAnimationInstance& self, int32 boneId) -> std::string {
+					const std::vector<Bone>& bones = self.GetSkeletonBones();
+					if (boneId < 0 || (size_t)boneId >= bones.size()) return std::string();
+					return bones[boneId].name;
+				},
+				"getBoneParent", [](SkeletonAnimationInstance& self, int32 boneId) -> int32 {
+					const std::vector<Bone>& bones = self.GetSkeletonBones();
+					if (boneId < 0 || (size_t)boneId >= bones.size()) return -1;
+					return bones[boneId].parent;
+				},
+				// Full MODEL-space transform, rotation included - multiply by
+				// the owning GameObject's world matrix for world space.
+				// getBonePosition() throws the rotation away, and a rest pose
+				// with no orientation in it cannot tell a body which way the
+				// limb it stands for is pointing.
+				"getBoneGlobal", [](SkeletonAnimationInstance& self, int32 boneId) -> Matrix {
+					if (boneId < 0 || (uint32)boneId >= self.GetNumberBones()) return Matrix();
+					return self.GetBoneGlobalTransform(boneId);
+				},
 				// IK from script. The solver already existed and was reachable
 				// only from C++ and the editor, so a game could not aim a
 				// hand or plant a foot - the two things IK is actually for.
