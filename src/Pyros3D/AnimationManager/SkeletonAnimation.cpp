@@ -153,7 +153,43 @@ namespace p3d {
 
 			return AnimationsToPlay.size() - 1; // Return Order
 		}
-		return -1; // Already Exists
+
+		// Already queued. This used to return -1 and change nothing, which
+		// made Play() a no-op for the one case that matters most: a clip that
+		// is already in the list but PAUSED.
+		//
+		// Pause() sets _isPaused on every entry as well as the instance's own
+		// _paused, and Update() gates on the ENTRY. So clearing _paused above
+		// was not enough - a character that was paused (a death, a cutscene,
+		// parking it in a pool) and then played again kept a paused entry,
+		// advanced nothing, and stood frozen for ever while playClip()
+		// reported success. In a pooled crowd that is "some of them don't
+		// animate", with the frozen ones being exactly those that had died
+		// once and come back.
+		//
+		// Asking for a clip to play means play it: resume the entry and honour
+		// the parameters this call passed, the same way a fresh one would.
+		const int32 pos = GetAnimationPositionInVector(animation);
+		if (pos >= 0)
+		{
+			_SkeletonAnimation::SkeletonAnimation &cur = AnimationsToPlay[pos];
+			cur.startTime = startTime;
+			cur._startTime = startTime * Owner->animations[animation].Duration;
+			cur.speed = speed;
+			cur.scale = scale;
+			cur._repetition = repetition;
+			// Restart the clock rather than resuming mid-stride: Update()
+			// derives currentTime from (time - _startTimeClock), and a clock
+			// left at the epoch it was paused at would jump the clip by
+			// however long the character sat in the pool.
+			cur._startTimeClock = -1.f;
+			cur._currentTime = 0.f;
+			cur._isPaused = false;
+			cur._resumed = false;
+			cur._pauseStart = -1.f;
+			cur._pauseTime = 0.f;
+		}
+		return pos;
 	}
 	void SkeletonAnimationInstance::ChangeProperties(const uint32 animationOrder, const f32 startTime, const f32 repetition, const f32 speed, const f32 scale)
 	{
