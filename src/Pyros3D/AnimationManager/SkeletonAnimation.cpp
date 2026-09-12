@@ -900,13 +900,29 @@ namespace p3d {
 		// through that, and convert the translation into model units by
 		// dividing it out. What lands in boneTransformation is then a pure
 		// rotation+translation, exactly like the one a clip writes.
+		//
+		// Matrix::GetScale() returns the DIAGONAL and Matrix::Scale() only
+		// multiplies the diagonal, both of which are the scale only for a
+		// matrix with no rotation in it. A character's owner almost always has
+		// rotation - the root yaws to face where it is walking - and at 90
+		// degrees of yaw the diagonal of a uniformly scaled frame reads
+		// (0, s, 0): the guard below then replaced two of the three axes with
+		// 1, the "rigid" frame came out scaled by 10 on two axes, and every
+		// bone written through here landed somewhere meaningless. A column's
+		// LENGTH is its scale no matter how the frame is turned.
 		Matrix ownerWorld = rcomp->GetOwner()->GetWorldTransformation();
-		Vec3 sc = ownerWorld.GetScale();
+		const f32 *om = ownerWorld.m;
+		Vec3 sc(
+			sqrtf(om[0] * om[0] + om[1] * om[1] + om[2] * om[2]),
+			sqrtf(om[4] * om[4] + om[5] * om[5] + om[6] * om[6]),
+			sqrtf(om[8] * om[8] + om[9] * om[9] + om[10] * om[10]));
 		if (fabs(sc.x) < 1e-6f) sc.x = 1.f;
 		if (fabs(sc.y) < 1e-6f) sc.y = 1.f;
 		if (fabs(sc.z) < 1e-6f) sc.z = 1.f;
 		Matrix ownerRigid = ownerWorld;
-		ownerRigid.Scale(Vec3(1.f / sc.x, 1.f / sc.y, 1.f / sc.z));
+		ownerRigid.m[0] /= sc.x; ownerRigid.m[1] /= sc.x; ownerRigid.m[2] /= sc.x;
+		ownerRigid.m[4] /= sc.y; ownerRigid.m[5] /= sc.y; ownerRigid.m[6] /= sc.y;
+		ownerRigid.m[8] /= sc.z; ownerRigid.m[9] /= sc.z; ownerRigid.m[10] /= sc.z;
 
 		Quaternion rot = worldRotation;
 		Matrix bodyWorld = rot.ConvertToMatrix();

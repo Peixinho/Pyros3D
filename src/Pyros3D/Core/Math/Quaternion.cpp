@@ -101,14 +101,25 @@ namespace p3d {
 
 		Vec3 Quaternion::operator *(const Vec3 &v) const {
 
-			f32 x = v.x, y = v.y, z = v.z, qx = x, qy = y, qz = z, qw = w;
+			// The locals used to be declared as
+			//   f32 x = v.x, y = v.y, z = v.z, qx = x, qy = y, qz = z, qw = w;
+			// where `qx = x` reads the local x that was initialised one
+			// declarator earlier - v.x - and not the member. So qx/qy/qz were
+			// the VECTOR's components and only qw came from the quaternion:
+			// every rotation this returned was by some quaternion that had
+			// nothing to do with `this`. Nothing in C++ called it (Matrix does
+			// the engine's rotating), so it sat broken behind the Lua `__mul`
+			// binding until a ragdoll needed to rotate a bone offset by a
+			// body's orientation.
+			const f32 vx = v.x, vy = v.y, vz = v.z;
+			const f32 qx = x, qy = y, qz = z, qw = w;
 
 			// calculate quat * Vec
 
-			f32 ix = qw * x + qy * z - qz * y,
-				iy = qw * y + qz * x - qx * z,
-				iz = qw * z + qx * y - qy * x,
-				iw = -qx * x - qy * y - qz * z;
+			f32 ix = qw * vx + qy * vz - qz * vy,
+				iy = qw * vy + qz * vx - qx * vz,
+				iz = qw * vz + qx * vy - qy * vx,
+				iw = -qx * vx - qy * vy - qz * vz;
 
 			// calculate result * inverse quat
 
