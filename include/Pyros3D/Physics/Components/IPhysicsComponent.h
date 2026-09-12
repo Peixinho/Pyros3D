@@ -68,6 +68,10 @@ namespace p3d {
 		virtual void SetAngularDamping(const f32 damping);
 		virtual void SetGravityScale(const f32 scale);
 		virtual void SetRotation(const Vec3 &rotation);
+		// Orientation without the Euler round trip - see
+		// IPhysics::UpdateRotationQuat. GetRotationQuat() above has always
+		// returned a quaternion; there was no way to put one back.
+		virtual void SetRotationQuat(const Quaternion &rotation);
 		virtual void CleanForces();
 		virtual void SetAngularVelocity(const Vec3 &velocity);
 		virtual void SetLinearVelocity(const Vec3 &velocity);

@@ -68,10 +68,13 @@ namespace p3d {
 		// reachable, so the engine could not build a ragdoll, a hinged door
 		// or a chain.
 		virtual uint32 CreateSphericalJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
-			const Vec3 &worldAnchor, const f32 coneAngle = -1.f);
+			const Vec3 &worldAnchor, const f32 coneAngle = -1.f,
+			const Vec3 &worldAxis = Vec3(0.f, 0.f, 0.f),
+			const f32 twistLower = 0.f, const f32 twistUpper = 0.f);
 		virtual uint32 CreateRevoluteJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
 			const Vec3 &worldAnchor, const Vec3 &worldAxis,
 			const f32 lower = 1.f, const f32 upper = 0.f);
+		virtual void SetJointSpring(const uint32 joint, const f32 hertz, const f32 damping);
 		virtual void DestroyJoint(const uint32 joint);
 		virtual void SetLinearDamping(IPhysicsComponent* pcomp, const f32 damping);
 		virtual void SetAngularDamping(IPhysicsComponent* pcomp, const f32 damping);
@@ -81,6 +84,7 @@ namespace p3d {
 
 		virtual void UpdatePosition(IPhysicsComponent *pcomp, const Vec3 &position);
 		virtual void UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation);
+		virtual void UpdateRotationQuat(IPhysicsComponent *pcomp, const Quaternion &rotation);
 		virtual void CleanForces(IPhysicsComponent *pcomp);
 		virtual void SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
 		virtual void SetLinearVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity);
@@ -136,6 +140,10 @@ namespace p3d {
 		void ProcessCollisionEvents();
 		std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> > m_touchingPairs;
 		std::vector<IPhysicsComponent*> m_vehicles;
+
+		// Shared tail of UpdateRotation/UpdateRotationQuat: set the
+		// orientation, drop the momentum, wake the body, carry any wheels.
+		void SetBodyRotation(IPhysicsComponent *pcomp, const b3Quat &q);
 
 		static Box3DBodyHandles* GetHandles(IPhysicsComponent* pcomp);
 		static IPhysicsComponent* ComponentFromShape(b3ShapeId shapeId);

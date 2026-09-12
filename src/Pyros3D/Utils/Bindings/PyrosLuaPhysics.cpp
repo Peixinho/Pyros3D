@@ -31,6 +31,11 @@ namespace p3d {
 			"setAngularDamping", &IPhysicsComponent::SetAngularDamping,
 			"setGravityScale", &IPhysicsComponent::SetGravityScale,
 			"setRotation", &IPhysicsComponent::SetRotation,
+			// Quaternion in, to match getRotation() coming back out. A
+			// ragdoll lays every limb capsule along the bone it drives, and
+			// that direction is not expressible as three Euler angles
+			// without a lossy round trip.
+			"setRotationQuat", &IPhysicsComponent::SetRotationQuat,
 			"cleanForces", &IPhysicsComponent::CleanForces,
 			"setAngularVelocity", &IPhysicsComponent::SetAngularVelocity,
 			"setLinearVelocity", &IPhysicsComponent::SetLinearVelocity,
@@ -184,6 +189,18 @@ namespace p3d {
 					[](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &a,
 					   const std::shared_ptr<IPhysicsComponent> &b, const Vec3 &anchor, const f32 cone) {
 						return p.CreateSphericalJoint(a.get(), b.get(), anchor, cone);
+					},
+					// With an axis the cone means something anatomical - see
+					// IPhysics::CreateSphericalJoint.
+					[](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &a,
+					   const std::shared_ptr<IPhysicsComponent> &b, const Vec3 &anchor, const f32 cone,
+					   const Vec3 &axis) {
+						return p.CreateSphericalJoint(a.get(), b.get(), anchor, cone, axis);
+					},
+					[](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &a,
+					   const std::shared_ptr<IPhysicsComponent> &b, const Vec3 &anchor, const f32 cone,
+					   const Vec3 &axis, const f32 twistLo, const f32 twistHi) {
+						return p.CreateSphericalJoint(a.get(), b.get(), anchor, cone, axis, twistLo, twistHi);
 					}
 				),
 				"createRevoluteJoint", sol::overload(
@@ -197,6 +214,7 @@ namespace p3d {
 						return p.CreateRevoluteJoint(a.get(), b.get(), anchor, axis, lower, upper);
 					}
 				),
+				"setJointSpring", &IPhysics::SetJointSpring,
 				"destroyJoint", &IPhysics::DestroyJoint,
 				"createVehicle", [](IPhysics &p, const std::shared_ptr<IPhysicsComponent> &chassis) -> std::shared_ptr<IPhysicsComponent> {
 					return p.CreateVehicle(chassis);

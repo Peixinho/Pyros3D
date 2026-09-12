@@ -221,7 +221,8 @@ namespace p3d {
 	}
 
 	uint32 Box3DPhysics::CreateSphericalJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
-		const Vec3 &worldAnchor, const f32 coneAngle)
+		const Vec3 &worldAnchor, const f32 coneAngle, const Vec3 &worldAxis,
+		const f32 twistLower, const f32 twistUpper)
 	{
 		// A body only exists in the solver once IPhysicsComponent::Register()
 		// has run, which the scene graph does when it next picks the component
@@ -239,12 +240,24 @@ namespace p3d {
 		// Bodies that share a joint must not also collide at it, or the
 		// solver fights itself and the limb jitters apart.
 		def.base.collideConnected = false;
-		def.base.localFrameA = LocalFrame(ha->body, worldAnchor, b3Quat_identity);
-		def.base.localFrameB = LocalFrame(hb->body, worldAnchor, b3Quat_identity);
+		// b3 centres the cone on frame A's z-axis and measures twist about
+		// frame B's, so the axis the caller names has to BE z in both frames.
+		// A zero axis keeps the old world-aligned behaviour.
+		const b3Quat frameRot = RotationFromZTo(worldAxis);
+		def.base.localFrameA = LocalFrame(ha->body, worldAnchor, frameRot);
+		def.base.localFrameB = LocalFrame(hb->body, worldAnchor, frameRot);
 		if (coneAngle > 0.f)
 		{
 			def.enableConeLimit = true;
 			def.coneAngle = coneAngle;
+		}
+		// Equal bounds mean "free", the same convention CreateRevoluteJoint
+		// uses for lower >= upper.
+		if (twistLower < twistUpper)
+		{
+			def.enableTwistLimit = true;
+			def.lowerTwistAngle = twistLower;
+			def.upperTwistAngle = twistUpper;
 		}
 		b3JointId id = b3CreateSphericalJoint(m_world, &def);
 		if (id.index1 == 0) return 0;
@@ -315,6 +328,40 @@ namespace p3d {
 		if (!h || !b3Body_IsValid(h->body)) return Quaternion();
 		const b3Quat q = b3Body_GetRotation(h->body);
 		return Quaternion((f32)q.s, (f32)q.v.x, (f32)q.v.y, (f32)q.v.z);
+	}
+
+	void Box3DPhysics::SetJointSpring(const uint32 joint, const f32 hertz, const f32 damping)
+	{
+		std::map<uint32, b3JointId>::iterator it = m_joints.find(joint);
+		if (it == m_joints.end() || !b3Joint_IsValid(it->second)) return;
+		// Only the spherical joints carry a rotational spring; a revolute one
+		// has its own and a caller asking for tone on a knee means the cone
+		// fallback fired, so both are worth handling.
+		const b3JointType type = b3Joint_GetType(it->second);
+		const bool on = hertz > 0.f;
+		if (type == b3_sphericalJoint)
+		{
+			b3SphericalJoint_EnableSpring(it->second, on);
+			if (on)
+			{
+				b3SphericalJoint_SetSpringHertz(it->second, hertz);
+				b3SphericalJoint_SetSpringDampingRatio(it->second, damping);
+				// Target is joint frame B relative to A. Both frames are built
+				// from the same world rotation when the joint is created, so
+				// identity means "pull back to the pose it died in".
+				b3SphericalJoint_SetTargetRotation(it->second, b3Quat_identity);
+			}
+		}
+		else if (type == b3_revoluteJoint)
+		{
+			b3RevoluteJoint_EnableSpring(it->second, on);
+			if (on)
+			{
+				b3RevoluteJoint_SetSpringHertz(it->second, hertz);
+				b3RevoluteJoint_SetSpringDampingRatio(it->second, damping);
+				b3RevoluteJoint_SetTargetAngle(it->second, 0.f);
+			}
+		}
 	}
 
 	void Box3DPhysics::DestroyJoint(const uint32 joint)
@@ -1040,12 +1087,23 @@ namespace p3d {
 		}
 	}
 
+	void Box3DPhysics::UpdateRotationQuat(IPhysicsComponent *pcomp, const Quaternion &rotation)
+	{
+		Quaternion n = rotation;
+		n.Normalize();
+		SetBodyRotation(pcomp, ToB3Quat(n));
+	}
+
 	void Box3DPhysics::UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation)
+	{
+		SetBodyRotation(pcomp, EulerToB3Quat(rotation));
+	}
+
+	void Box3DPhysics::SetBodyRotation(IPhysicsComponent *pcomp, const b3Quat &q)
 	{
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
 		b3Pos p = b3Body_GetPosition(handles->body);
-		b3Quat q = EulerToB3Quat(rotation);
 		b3Body_SetTransform(handles->body, p, q);
 		b3Body_SetLinearVelocity(handles->body, b3Vec3_zero);
 		b3Body_SetAngularVelocity(handles->body, b3Vec3_zero);

@@ -71,6 +71,17 @@ namespace p3d {
 		virtual Vec3 GetBodyPosition(IPhysicsComponent *pcomp) { return Vec3(); }
 		virtual Quaternion GetBodyRotation(IPhysicsComponent *pcomp) { return Quaternion(); }
 		virtual void UpdateRotation(IPhysicsComponent *pcomp, const Vec3 &rotation) = 0;
+		// The same thing without the Euler round trip. Orienting a body
+		// ALONG something - a limb capsule along the bone it drives, a plank
+		// along a slope - produces an arbitrary quaternion, and pushing that
+		// through Euler angles costs an asin() and loses a degree of freedom
+		// near the poles. The default keeps a backend that only speaks Euler
+		// working; Box3D overrides it and sets the quaternion directly.
+		virtual void UpdateRotationQuat(IPhysicsComponent *pcomp, const Quaternion &rotation)
+		{
+			Quaternion q = rotation;
+			UpdateRotation(pcomp, q.GetEulerFromQuaternion());
+		}
 		virtual void CleanForces(IPhysicsComponent *pcomp) = 0;
 		virtual void SetAngularVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity) = 0;
 		virtual void SetLinearVelocity(IPhysicsComponent *pcomp, const Vec3 &velocity) = 0;
@@ -120,8 +131,19 @@ namespace p3d {
 		// rotate freely about it. `coneAngle` (radians, <= 0 for none) limits
 		// how far B can swing away from A's axis, which is the difference
 		// between a shoulder and a rag.
+		//
+		// `worldAxis` is that axis, and it matters: the cone is centred on it
+		// and the twist is measured about it. Passed as zero the joint frames
+		// are world-aligned, so the cone ends up centred on world +Z and a
+		// "60 degree neck" means 60 degrees away from whatever direction the
+		// level happens to call forward. Pass the bone's own direction and
+		// the limit means what it reads as - a limb may swing `coneAngle`
+		// away from its rest direction, and twist about its own length
+		// between `twistLower` and `twistUpper` (equal values = free twist).
 		virtual uint32 CreateSphericalJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
-			const Vec3 &worldAnchor, const f32 coneAngle = -1.f) { return 0; }
+			const Vec3 &worldAnchor, const f32 coneAngle = -1.f,
+			const Vec3 &worldAxis = Vec3(0.f, 0.f, 0.f),
+			const f32 twistLower = 0.f, const f32 twistUpper = 0.f) { return 0; }
 
 		// Revolute = hinge: one shared point, one shared axis. `lower`/`upper`
 		// are the swing limits in radians; pass lower >= upper for a free
@@ -129,6 +151,17 @@ namespace p3d {
 		virtual uint32 CreateRevoluteJoint(IPhysicsComponent* bodyA, IPhysicsComponent* bodyB,
 			const Vec3 &worldAnchor, const Vec3 &worldAxis,
 			const f32 lower = 1.f, const f32 upper = 0.f) { return 0; }
+
+		// Muscle tone. A joint with a spring pulls back toward the pose it was
+		// created in instead of hanging completely limp, which is the
+		// difference between a ragdoll and a sack: a real body resists its own
+		// joints even after it stops driving them. `hertz` is the spring
+		// frequency (low is soft - around 1-3 for a corpse), `damping` its
+		// ratio (1 = critically damped, no wobble). hertz <= 0 turns it off.
+		//
+		// Box3D has had all of this since it was vendored and none of it was
+		// reachable, the same way the joints themselves were not.
+		virtual void SetJointSpring(const uint32 joint, const f32 hertz, const f32 damping) {}
 
 		virtual void DestroyJoint(const uint32 joint) {}
 

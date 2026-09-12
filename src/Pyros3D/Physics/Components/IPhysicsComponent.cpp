@@ -90,6 +90,10 @@ namespace p3d {
 	{
 		PhysicsEngine->UpdateRotation(this, rotation);
 	}
+	void IPhysicsComponent::SetRotationQuat(const Quaternion &rotation)
+	{
+		PhysicsEngine->UpdateRotationQuat(this, rotation);
+	}
 	void IPhysicsComponent::CleanForces()
 	{
 		PhysicsEngine->CleanForces(this);
