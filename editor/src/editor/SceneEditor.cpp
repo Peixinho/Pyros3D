@@ -1334,6 +1334,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				physics2D->DebugDraw(debugRenderer);
 		}
 
+		// Colliders are drawn in PLAY MODE TOO. They used to be inside the
+		// "not playing" branch below, which meant the one time you actually
+		// need to see them - while something is being simulated - was the one
+		// time they were hidden. A ragdoll whose mesh follows its bodies
+		// exactly can still look wrong because a BODY is the wrong size or in
+		// the wrong place, and there is no way to tell those apart from a
+		// screenshot of the mesh alone.
+		if (showPhysicsDebug && physics)
+			physics->RenderDebugDraw((isPerspective ? projection : projectionOrtho), viewCam);
+
 		// Outside the physics2D block: a rig does not need a physics world.
 		if (!playMode)
 		{
@@ -1349,9 +1359,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			PrepareGizmoForDraw(viewCam);
 			if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT && gizmo != NULL)
 				gizmo->Draw();
-
-			if (showPhysicsDebug && physics)
-				physics->RenderDebugDraw((isPerspective ? projection : projectionOrtho), viewCam);
 
 
 			// The grid is an editor-only helper, not scene content - it's

@@ -269,7 +269,23 @@ void Editor::cleanupInstance()
 	}
 }
 
-Editor::Editor() : ClassName(1024,768,"PyrosBuilder",WindowType::Close | WindowType::Resize) 
+namespace {
+	// Startup window size, overridable with PYROS_EDITOR_WIDTH / _HEIGHT.
+	// The window is resizable by hand, but a capture or a CI run has no hand
+	// to drag it with, and 1024x768 leaves the Scene View panel around 480x415
+	// - too small to judge anything rendered in it.
+	int EditorStartSize(const char* var, int fallback)
+	{
+		const char* v = std::getenv(var);
+		if (!v || !*v) return fallback;
+		const int n = atoi(v);
+		return (n >= 320 && n <= 8192) ? n : fallback;
+	}
+}
+
+Editor::Editor() : ClassName(EditorStartSize("PYROS_EDITOR_WIDTH", 1024),
+	EditorStartSize("PYROS_EDITOR_HEIGHT", 768),
+	"PyrosBuilder", WindowType::Close | WindowType::Resize)
 {
 	resetLayout = false;
 	showingAssets = true;
