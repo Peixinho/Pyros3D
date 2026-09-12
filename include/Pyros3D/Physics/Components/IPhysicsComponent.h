@@ -80,6 +80,9 @@ namespace p3d {
 		virtual Vec3 GetAngularVelocity();
 		virtual void ApplyCentralForce(const Vec3 &force);
 		virtual void ApplyCentralImpulse(const Vec3 &impulse);
+		// Impulse/force at a world-space point: pushes AND spins.
+		virtual void ApplyImpulseAtPoint(const Vec3 &impulse, const Vec3 &worldPoint);
+		virtual void ApplyForceAtPoint(const Vec3 &force, const Vec3 &worldPoint);
 		// Keeps GetMass()'s own cached `mass` member (see below) in sync,
 		// unlike the other setters here - position/rotation/velocity
 		// aren't cached on this class at all (GetOwner()'s GameObject

@@ -99,6 +99,12 @@ namespace p3d {
 		virtual Vec3 GetAngularVelocity(IPhysicsComponent *pcomp) = 0;
 		virtual void ApplyCentralForce(IPhysicsComponent *pcomp, const Vec3 &force) = 0;
 		virtual void ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse) = 0;
+		// The same push, but at a point in world space rather than through the
+		// centre of mass - so it also spins the body. That is the whole
+		// difference between a corpse that was SHOT and one that fell over:
+		// a hit lands somewhere specific and turns the body about it.
+		virtual void ApplyImpulseAtPoint(IPhysicsComponent *pcomp, const Vec3 &impulse, const Vec3 &worldPoint) {}
+		virtual void ApplyForceAtPoint(IPhysicsComponent *pcomp, const Vec3 &force, const Vec3 &worldPoint) {}
 		virtual void SetMass(IPhysicsComponent *pcomp, const f32 mass) = 0;
 
 		// Create Physics Components

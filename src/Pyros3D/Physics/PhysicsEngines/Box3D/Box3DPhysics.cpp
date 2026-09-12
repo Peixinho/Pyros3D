@@ -1194,6 +1194,20 @@ namespace p3d {
 		b3Body_ApplyLinearImpulseToCenter(handles->body, ToB3(impulse), true);
 	}
 
+	void Box3DPhysics::ApplyImpulseAtPoint(IPhysicsComponent *pcomp, const Vec3 &impulse, const Vec3 &worldPoint)
+	{
+		Box3DBodyHandles* handles = GetHandles(pcomp);
+		if (!handles || handles->body.index1 == 0) return;
+		b3Body_ApplyLinearImpulse(handles->body, ToB3(impulse), ToB3Pos(worldPoint), true);
+	}
+
+	void Box3DPhysics::ApplyForceAtPoint(IPhysicsComponent *pcomp, const Vec3 &force, const Vec3 &worldPoint)
+	{
+		Box3DBodyHandles* handles = GetHandles(pcomp);
+		if (!handles || handles->body.index1 == 0) return;
+		b3Body_ApplyForce(handles->body, ToB3(force), ToB3Pos(worldPoint), true);
+	}
+
 	void Box3DPhysics::SetMass(IPhysicsComponent *pcomp, const f32 mass)
 	{
 		Box3DBodyHandles* handles = GetHandles(pcomp);

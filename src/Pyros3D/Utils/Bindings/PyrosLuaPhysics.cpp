@@ -43,6 +43,9 @@ namespace p3d {
 			"getAngularVelocity", &IPhysicsComponent::GetAngularVelocity,
 			"applyCentralForce", &IPhysicsComponent::ApplyCentralForce,
 			"applyCentralImpulse", &IPhysicsComponent::ApplyCentralImpulse,
+			// At a point, so the body turns about the hit as well as moving.
+			"applyImpulseAtPoint", &IPhysicsComponent::ApplyImpulseAtPoint,
+			"applyForceAtPoint", &IPhysicsComponent::ApplyForceAtPoint,
 			"setMass", &IPhysicsComponent::SetMass,
 			"activate", &IPhysicsComponent::Activate,
 			"isGhost", &IPhysicsComponent::IsGhost,

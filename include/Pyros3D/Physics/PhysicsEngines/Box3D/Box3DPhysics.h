@@ -93,6 +93,8 @@ namespace p3d {
 		virtual Vec3 GetAngularVelocity(IPhysicsComponent *pcomp);
 		virtual void ApplyCentralForce(IPhysicsComponent *pcomp, const Vec3 &force);
 		virtual void ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse);
+		virtual void ApplyImpulseAtPoint(IPhysicsComponent *pcomp, const Vec3 &impulse, const Vec3 &worldPoint);
+		virtual void ApplyForceAtPoint(IPhysicsComponent *pcomp, const Vec3 &force, const Vec3 &worldPoint);
 		virtual void SetMass(IPhysicsComponent *pcomp, const f32 mass);
 
 		virtual std::shared_ptr<IPhysicsComponent> CreateBox(const f32 width, const f32 height, const f32 depth, const f32 mass, bool ghost = false);

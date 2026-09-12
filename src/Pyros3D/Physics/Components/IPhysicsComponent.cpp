@@ -126,6 +126,15 @@ namespace p3d {
 	{
 		PhysicsEngine->ApplyCentralImpulse(this, impulse);
 	}
+	void IPhysicsComponent::ApplyImpulseAtPoint(const Vec3 &impulse, const Vec3 &worldPoint)
+	{
+		PhysicsEngine->ApplyImpulseAtPoint(this, impulse, worldPoint);
+	}
+	void IPhysicsComponent::ApplyForceAtPoint(const Vec3 &force, const Vec3 &worldPoint)
+	{
+		PhysicsEngine->ApplyForceAtPoint(this, force, worldPoint);
+	}
+
 	void IPhysicsComponent::SetMass(const f32 newMass)
 	{
 		mass = newMass;
