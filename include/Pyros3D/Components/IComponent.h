@@ -118,10 +118,7 @@ namespace p3d {
 		//
 		// Zero is conservative in the safe direction: it can only pull an
 		// object's box towards the origin, which culls less, never more.
-		IComponent()
-			: Owner(NULL), Registered(false), active(true),
-			BoundingSphereRadius(0.f), BoundingSphereCenter(0.f, 0.f, 0.f),
-			maxBounds(0.f, 0.f, 0.f), minBounds(0.f, 0.f, 0.f) {}
+		IComponent() { Owner = NULL; Registered = false; active = true; BoundingSphereRadius = 0.f; }
 		virtual ~IComponent() {}
 
 		virtual void Register(SceneGraph* Scene) = 0;

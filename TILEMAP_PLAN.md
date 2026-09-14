@@ -297,13 +297,23 @@ without geometry that lives away from its object's origin:
    meshes it creates (they construct as Sphere, and the caller cannot set it beforehand
    because they do not exist yet).
 
-Also fixed on the way: **`IComponent`'s constructor left `minBounds`/`maxBounds`/
-`BoundingSphereCenter` uninitialised**, and `GameObject::Add()` merges every component's
-bounds into the owner's box. Any object carrying a component with no geometry of its own -
-`Layer2D`, `Physics2D`, `Occluder2D` - was merging stack garbage into the box it gets culled
-by. That is every 2D scene in the repo. The symptom would be an object that draws or vanishes
-with no pattern, and that changes behaviour when anything unrelated in the program changes.
-This was NOT the tilemap bug (fixing it changed nothing here), but it is a real one.
+**Found and deliberately NOT fixed here: `IComponent`'s constructor leaves
+`minBounds`/`maxBounds`/`BoundingSphereCenter` uninitialised**, and `GameObject::Add()`
+merges every component's bounds into the owner's box - so any object carrying a component
+with no geometry of its own (`Layer2D`, `Physics2D`, `Occluder2D`, every UI component) merges
+stack garbage into the box it gets culled by. That is every 2D scene in the repo.
+
+Zeroing them in the constructor looks like the obvious fix and **breaks the UI**: the driver's
+canvas smoke test goes blank. The reasoning that it was "conservative - it can only cull less"
+is wrong, because `GameObject::Add()` takes the FIRST component's bounds *unconditionally*
+rather than merging into an empty box. An object whose only components carry no geometry - a
+UICanvas - therefore collapses to a point at the origin and is culled, where the garbage had
+been large enough to pass by accident.
+
+The real fix is for components with no geometry not to contribute to the owner's bounds at
+all, or for screen-space UI not to be frustum-culled against a world camera. Both are bigger
+than this work and want their own measurement, so the UB is left in place and documented
+rather than half-fixed.
 
 **Still open, and not mine to decide:** bug 3's root cause is still in `CullingSphereTest`.
 Using the bounding sphere's actual centre would fix it for every off-centre mesh in the
