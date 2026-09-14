@@ -13,11 +13,22 @@ concurrency:
 jobs:
   build:
     name: ${{ matrix.name }}
-    # glibc is forward- but not backward-compatible, so this image's version
-    # is the floor for anyone running the artifact - stated in the README
-    # rather than left to be discovered. An older image would widen that
-    # audience, but 22.04 is past its runner support window.
     runs-on: ubuntu-24.04
+    # Built inside 22.04, not on the 24.04 runner, purely to lower the glibc
+    # floor. glibc is forward- but not backward-compatible, so whatever the
+    # build machine has becomes the minimum for everyone running the artifact,
+    # and on 24.04 that was 2.38 - which locks out Ubuntu 22.04 LTS, Debian 12
+    # and RHEL 9, all still widely deployed.
+    #
+    # Nothing in this engine needs a modern glibc. Measured against the 24.04
+    # artifact, the entire 2.38 requirement came from __isoc23_sscanf /
+    # __isoc23_strtol (glibc's own headers redirecting plain sscanf/strtol to
+    # C23 variants) and a re-versioned fmodf. The floor was an accident of the
+    # image, so the fix belongs here rather than in the code.
+    #
+    # 22.04 rather than something older: below glibc 2.28 the job cannot run at
+    # all, because actions/checkout executes Node inside this container.
+    container: ubuntu:22.04
 
     strategy:
       fail-fast: false
@@ -35,30 +46,74 @@ jobs:
             artifact: Pyros3D-linux-vulkan
 
     steps:
+      # Before checkout, not after: actions/checkout needs git present to clone
+      # submodules, and silently falls back to a submodule-less REST download
+      # when it is missing - which then fails much later as a missing box2d.
+      # A bare ubuntu image has neither git nor certificates.
+      - name: Bootstrap the container
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates git curl xz-utils sudo
+
       - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Install dependencies
-        # libcurl is not optional here despite being "just" the AI Assistant's
-        # HTTP transport: editor/CMakeLists.txt does find_package(CURL REQUIRED)
-        # and fails configuration outright without it. macOS has it in
-        # /usr/lib and Windows gets it from vcpkg, so Linux is the only
-        # platform that has to ask - and the old workflow never noticed,
-        # because it never built the editor at all.
+        # No sudo: a container job runs as root. It is installed above anyway,
+        # because some actions expect it to exist.
+        #
+        # libcurl is not optional despite being "just" the AI Assistant's HTTP
+        # transport: editor/CMakeLists.txt does find_package(CURL REQUIRED) and
+        # fails configuration outright without it. macOS has it in /usr/lib and
+        # Windows gets it from vcpkg, so Linux is the only platform that has to
+        # ask - and the old workflow never noticed, because it never built the
+        # editor at all.
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build git patchelf \
+          apt-get install -y --no-install-recommends \
+            build-essential ninja-build patchelf pkg-config file \
             libsdl2-dev \
             libfreetype-dev \
             liblua5.4-dev \
             libgl1-mesa-dev \
             libassimp-dev \
             libcurl4-openssl-dev
-          if [ "${{ matrix.vulkan }}" = "ON" ]; then
-            sudo apt-get install -y --no-install-recommends libvulkan-dev
-          fi
+
+      - name: Install CMake
+        # Jammy ships exactly 3.22.1 and the project asks for 3.22, which is a
+        # hair's width to build on. Take the official binary release instead:
+        # one URL, no third-party apt repo, same version the runner image would
+        # have given us.
+        run: |
+          curl -fsSL https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz \
+            | tar xz --strip-components=1 -C /usr/local
+          cmake --version
+
+      - name: Install Vulkan headers
+        if: matrix.vulkan == 'ON'
+        # Jammy's libvulkan-dev is 1.3.204, and volk is pinned to
+        # vulkan-sdk-1.4.357.0 in PyrosBackend.cmake. volk.c references entry
+        # points declared in the headers of its own release, so headers older
+        # than volk do not compile - the same coupling windows.yml calls out.
+        #
+        # Only the headers need to be current. The loader comes from apt and,
+        # at runtime, from the user's system: volk dlopen()s it rather than
+        # linking it, which is why the backend wants Vulkan::Headers and not
+        # Vulkan::Vulkan.
+        run: |
+          apt-get install -y --no-install-recommends libvulkan-dev
+          git clone --depth 1 --branch vulkan-sdk-1.4.357.0 \
+            https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vulkan-headers
+          cmake -S /tmp/vulkan-headers -B /tmp/vulkan-headers/build \
+            -DCMAKE_INSTALL_PREFIX=/opt/vulkan >/dev/null
+          cmake --build /tmp/vulkan-headers/build --target install >/dev/null
+          # FindVulkan looks under $VULKAN_SDK for include/ AND lib/, so point
+          # lib/ at the loader apt just installed rather than leaving it empty.
+          mkdir -p /opt/vulkan/lib
+          ln -sf /usr/lib/x86_64-linux-gnu/libvulkan.so.1 /opt/vulkan/lib/libvulkan.so
+          echo "VULKAN_SDK=/opt/vulkan" >> "$GITHUB_ENV"
+          grep -m1 VK_HEADER_VERSION_COMPLETE /opt/vulkan/include/vulkan/vulkan_core.h
 
       - name: Configure
         # BUILD_EDITOR and BUILD_CONVERTER are new here. The old Build workflow
@@ -79,6 +134,7 @@ jobs:
             -DOPENGL_VERSION=GL41 \
             -DSTATIC_LIB=OFF \
             -DBUILD_VULKAN_BACKEND=${{ matrix.vulkan }} \
+            ${VULKAN_SDK:+-DCMAKE_PREFIX_PATH=$VULKAN_SDK} \
             -DBUILD_SPIRV_TOOLING=OFF \
             -DBUILD_DEMOS=ON \
             -DBUILD_EDITOR=ON \
@@ -131,7 +187,7 @@ jobs:
           anything tied to your machine: the GL/Vulkan driver, X11/Wayland,
           and the C library. Those must come from your system, which means:
 
-            - glibc 2.39 or newer (built on Ubuntu 24.04)
+            - glibc 2.35 or newer (built on Ubuntu 22.04)
             - a working OpenGL or Vulkan driver
             - X11 or Wayland client libraries
 
@@ -149,7 +205,7 @@ jobs:
         # expected and fine. Death by signal is not - that is a broken package.
         # xvfb gives it a display to fail against for the right reasons.
         run: |
-          sudo apt-get install -y --no-install-recommends xvfb
+          apt-get install -y --no-install-recommends xvfb
           cd package/demolauncher
           set +e
           xvfb-run -a ./CppApiDemo > out.txt 2> err.txt &

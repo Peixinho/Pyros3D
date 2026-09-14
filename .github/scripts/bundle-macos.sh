@@ -159,6 +159,17 @@ verify_dir() {
 	local dir="$1"
 	local failed=0
 	local bin dep base
+
+	# An empty walk must never read as success - see the equivalent guard in
+	# bundle-linux.sh. Less likely to fire here, since `file` is part of macOS,
+	# but a packaging step that copied nothing would otherwise pass silently.
+	local count
+	count=$(find "$dir" -maxdepth 1 -type f \( -perm -u+x -o -name '*.dylib' \) -exec sh -c \
+		'file -b "$1" | grep -q "Mach-O" && echo "$1"' _ {} \; | wc -l)
+	if [ "$count" -eq 0 ]; then
+		echo "::error::found no Mach-O binaries in $dir"
+		return 1
+	fi
 	while IFS= read -r bin; do
 		for dep in $(deps_of "$bin"); do
 			is_system "$dep" && continue

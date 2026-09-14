@@ -100,6 +100,22 @@ verify_dir() {
 	local dir="$1"
 	local failed=0
 	local bin missing
+
+	# An empty walk must never read as success. Both the bundling and this
+	# check identify binaries through `file`, which a minimal container image
+	# does not ship - and without it every find below returns nothing, so
+	# nothing gets bundled, nothing gets checked, and a broken package uploads
+	# with this script reporting that all is well. The smoke test does not
+	# catch it either, because the build container still has every library
+	# installed system-wide.
+	local count
+	count=$(find "$dir" -maxdepth 1 -type f \( -perm -u+x -o -name '*.so*' \) -exec sh -c \
+		'file -b "$1" | grep -q "^ELF" && echo "$1"' _ {} \; | wc -l)
+	if [ "$count" -eq 0 ]; then
+		echo "::error::found no ELF binaries in $dir - is 'file' installed?"
+		return 1
+	fi
+
 	while IFS= read -r bin; do
 		missing="$(ldd "$bin" 2>/dev/null | grep "not found" | awk '{print $1}' || true)"
 		if [ -n "$missing" ]; then
