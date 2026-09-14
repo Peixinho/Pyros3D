@@ -100,6 +100,11 @@ add_executable(PyrosBuilder
 	${PYROS_WINDOW_MANAGER}
 )
 
+# No console window behind the editor when it is opened from Explorer. See
+# cmake/PyrosWindows.cmake; running it from a terminal still prints, because
+# main() reattaches to that terminal.
+pyros_windows_gui_app(PyrosBuilder)
+
 target_include_directories(PyrosBuilder PRIVATE
 	${CMAKE_SOURCE_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}/src

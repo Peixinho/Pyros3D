@@ -8,6 +8,7 @@
 
 #include "Editor.h"
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
+#include <Pyros3D/Utils/Console/Console.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #if defined(EMSCRIPTEN)
 	#include <emscripten.h>
@@ -61,6 +62,11 @@ void mainloop()
 }
 
 int main(int argc, char** argv) {
+
+	// Before anything prints. The Windows build is a GUI application, so it
+	// starts with stdout going nowhere; this hands it back the terminal when
+	// there is one to hand back.
+	AttachToParentConsole();
 
 	// See MainProgram.cpp - a silent access violation is what
 	// "it opens and closes" looks like without this.

@@ -25,8 +25,14 @@ namespace p3d {
 	// debugger attached to locate. Machines that CI cannot reproduce - a
 	// real GPU, a specific driver - have no such route at all.
 	//
-	// Resolves symbols from the .pdb shipped next to the executable. Without
-	// one the trace still prints, as module+offset.
+	// Every frame prints as module+offset, which is what a PDB can be pointed
+	// at after the fact - the absolute address cannot, since ASLR moved the
+	// module somewhere new. Function names are added on top of that only for
+	// modules that actually have a .pdb next to them; for the rest dbghelp
+	// can offer nothing but the nearest preceding entry in the export table,
+	// which in a module exporting a few hundred names across megabytes of
+	// code names the wrong function far more often than the right one, so
+	// those are printed as an explicit guess or not at all.
 	//
 	// No-op off Windows: a POSIX crash leaves a core file, and the terminal
 	// says "Segmentation fault" rather than nothing at all.

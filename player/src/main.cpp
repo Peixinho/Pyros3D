@@ -13,11 +13,17 @@
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
+#include <Pyros3D/Utils/Console/Console.h>
 
 using namespace p3d;
 
 int main(int argc, char** argv)
 {
+	// A built game is a GUI application on Windows and starts with stdout
+	// going nowhere. Reattach first, so everything below can be seen by
+	// anyone who ran it from a terminal to watch exactly that.
+	AttachToParentConsole();
+
 	// Before anything else: on Windows an access violation otherwise kills
 	// the process with no output at all, which from the outside is exactly
 	// what "the game just closes" looks like.

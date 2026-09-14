@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <dbghelp.h>
 #include <cstdio>
+#include <cstring>
 #include <sstream>
 
 #pragma comment(lib, "dbghelp.lib")
@@ -38,6 +39,43 @@ namespace p3d {
 			}
 		}
 
+		// Mirror of the report on disk. PyrosBuilder and PyrosPlayer are
+		// GUI-subsystem executables, so a crash in one launched from Explorer
+		// has no terminal to print to at all - the whole backtrace would go
+		// into a closed handle and the application would just vanish, which
+		// is the exact failure this handler exists to end. Opened only once a
+		// crash is actually happening, so a healthy run leaves no file.
+		FILE *crashFile = NULL;
+		char crashFilePath[MAX_PATH] = {};
+
+		// Next to the executable, which is where someone looking for it will
+		// look. Falls back to the working directory if that is not writable
+		// (an install under Program Files).
+		void OpenCrashFile()
+		{
+			char path[MAX_PATH] = {};
+			const DWORD length = GetModuleFileNameA(NULL, path, MAX_PATH);
+			if (length > 0 && length < MAX_PATH)
+			{
+				char *slash = strrchr(path, '\\');
+				if (slash)
+				{
+					// Room for the name plus its terminator, or leave it.
+					if ((size_t)(slash - path) + sizeof("\\PyrosCrash.txt") < MAX_PATH)
+					{
+						strcpy(slash, "\\PyrosCrash.txt");
+						crashFile = fopen(path, "w");
+						if (crashFile != NULL) strcpy(crashFilePath, path);
+					}
+				}
+			}
+			if (crashFile == NULL)
+			{
+				crashFile = fopen("PyrosCrash.txt", "w");
+				if (crashFile != NULL) strcpy(crashFilePath, "PyrosCrash.txt");
+			}
+		}
+
 		// Writes straight to stderr rather than through echo(): the ring
 		// buffer and any log sink are the least trustworthy things in the
 		// process at this point, and stderr is unbuffered.
@@ -46,11 +84,23 @@ namespace p3d {
 			fputs(line, stderr);
 			fputs("\n", stderr);
 			fflush(stderr);
+
+			if (crashFile != NULL)
+			{
+				fputs(line, crashFile);
+				fputs("\n", crashFile);
+				// Flushed per line: the process is going down and may well
+				// take a second fault with it, and a truncated report still
+				// names the frames it got to.
+				fflush(crashFile);
+			}
 		}
 
 		LONG WINAPI OnUnhandledException(EXCEPTION_POINTERS *info)
 		{
 			const EXCEPTION_RECORD *rec = info->ExceptionRecord;
+
+			OpenCrashFile();
 
 			{
 				std::ostringstream s;
@@ -103,6 +153,8 @@ namespace p3d {
 			symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
 			symbol->MaxNameLen = MAX_SYM_NAME;
 
+			bool anyModuleUnsymbolized = false;
+
 			for (int depth = 0; depth < 48; depth++)
 			{
 				if (!StackWalk64(machine, process, GetCurrentThread(), &frame, &ctx,
@@ -111,26 +163,82 @@ namespace p3d {
 				if (frame.AddrPC.Offset == 0)
 					break;
 
-				std::ostringstream s;
-				s << "  [" << depth << "] 0x" << std::hex << (uintptr_t)frame.AddrPC.Offset << std::dec;
-
 				DWORD64 displacement = 0;
-				if (SymFromAddr(process, frame.AddrPC.Offset, &displacement, symbol))
-					s << "  " << symbol->Name << " + 0x" << std::hex << displacement << std::dec;
-				else
-					s << "  (no symbol - is the .pdb next to the executable?)";
+				const bool haveName = SymFromAddr(process, frame.AddrPC.Offset, &displacement, symbol) != FALSE;
 
-				IMAGEHLP_LINE64 line = {};
-				line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
-				DWORD lineDisplacement = 0;
-				if (SymGetLineFromAddr64(process, frame.AddrPC.Offset, &lineDisplacement, &line))
-					s << "  (" << line.FileName << ":" << line.LineNumber << ")";
+				// Must come after SymFromAddr: SYMOPT_DEFERRED_LOADS means the
+				// module's symbols are not even looked at until something asks
+				// for them, and SymType reads back as SymDeferred until then.
+				IMAGEHLP_MODULE64 mod = {};
+				mod.SizeOfStruct = sizeof(mod);
+				const bool haveModule = SymGetModuleInfo64(process, frame.AddrPC.Offset, &mod) != FALSE;
+				// Only a PDB gives real function boundaries. SymExport means
+				// dbghelp had nothing but the DLL's export table and picked
+				// the nearest preceding exported symbol - which, in a module
+				// that exports a few hundred names across megabytes of code,
+				// is usually a DIFFERENT function that happens to sit earlier
+				// in the image. Those names have sent more than one crash
+				// report off after the wrong subsystem entirely, so they are
+				// labelled as guesses here rather than printed as fact.
+				const bool haveRealSymbols = haveModule && (mod.SymType == SymPdb || mod.SymType == SymDia);
+				if (!haveRealSymbols)
+					anyModuleUnsymbolized = true;
+
+				std::ostringstream s;
+				s << "  [" << depth << "] ";
+				// Module + RVA first, and always. This is the one part of the
+				// line that survives having no symbols at all: it can be
+				// resolved after the fact against a matching PDB, which the
+				// absolute address cannot (ASLR moved the module).
+				if (haveModule)
+					s << mod.ModuleName << "+0x" << std::hex
+					  << (uintptr_t)(frame.AddrPC.Offset - mod.BaseOfImage) << std::dec;
+				else
+					s << "0x" << std::hex << (uintptr_t)frame.AddrPC.Offset << std::dec;
+
+				if (haveName && haveRealSymbols)
+				{
+					s << "  " << symbol->Name << " + 0x" << std::hex << displacement << std::dec;
+
+					IMAGEHLP_LINE64 line = {};
+					line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+					DWORD lineDisplacement = 0;
+					if (SymGetLineFromAddr64(process, frame.AddrPC.Offset, &lineDisplacement, &line))
+						s << "  (" << line.FileName << ":" << line.LineNumber << ")";
+				}
+				// A nearest-export guess is only worth showing when the hit is
+				// close enough that it is plausibly the same function. Past a
+				// few hundred bytes it is noise dressed up as information.
+				else if (haveName && displacement < 0x200)
+					s << "  (no pdb; near export " << symbol->Name << " + 0x"
+					  << std::hex << displacement << std::dec << ")";
+				else
+					s << "  (no pdb)";
 
 				Report(s.str().c_str());
 			}
 
 			SymCleanup(process);
+			if (anyModuleUnsymbolized)
+			{
+				Report("=== Frames marked (no pdb) have NO function names: only the module+offset");
+				Report("=== on each line is meaningful. Drop the matching .pdb files next to the");
+				Report("=== .exe and the .dll (the release's symbols archive mirrors the package");
+				Report("=== layout) and reproduce again for a trace with real names.");
+			}
 			Report("=== end of stack. Please include everything above when reporting this. ===");
+			if (crashFile != NULL)
+			{
+				fclose(crashFile);
+				crashFile = NULL;
+				// Named in full rather than described: the fallback location
+				// is the working directory, which is not necessarily where
+				// the .exe is, and "go and find it" is a poor thing to leave
+				// someone with at this point.
+				std::ostringstream s;
+				s << "=== This report was also written to " << crashFilePath << " ===";
+				Report(s.str().c_str());
+			}
 
 			// Let Windows carry on with its own error handling, so a
 			// configured crash dump is still written.

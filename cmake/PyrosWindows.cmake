@@ -3,6 +3,37 @@
 # sources too (add_subdirectory / add_compile_* only affect targets created
 # after the call).
 
+# Marks a target as a GUI application on Windows: no console window appears
+# behind it when it is launched from Explorer or a shortcut.
+#
+# Defined before the early return below so the call sites do not each need to
+# guard it - off Windows it does nothing.
+#
+# /ENTRY:mainCRTStartup keeps the entry point exactly where it already is.
+# The WINDOWS subsystem otherwise makes the linker look for WinMain; SDL2main
+# does supply one (see cmake/PyrosWindowContext.cmake for why it is linked at
+# all), so this would link either way - but going in through WinMain would
+# change which of SDL2main's two entry points runs, for no gain. Naming the
+# console CRT's startup routine runs the identical
+# initialize-the-CRT-then-call-main sequence the console build uses today, so
+# the ONLY thing that changes is that Windows stops opening a console window.
+# It also means a target that does not link SDL2main needs nothing extra:
+# plain `int main(int, char**)` remains the entry point, argv included.
+#
+# Losing the console does NOT mean losing the output: AttachToParentConsole()
+# (Pyros3D/Utils/Console/Console.h) reconnects stdout/stderr to the terminal
+# when there IS one, so running the .exe from cmd or PowerShell still prints,
+# and the crash handler additionally writes its report to a file for the case
+# where there is nowhere to print to at all.
+function(pyros_windows_gui_app target)
+	if (WIN32)
+		set_target_properties(${target} PROPERTIES WIN32_EXECUTABLE TRUE)
+		if (MSVC)
+			target_link_options(${target} PRIVATE /ENTRY:mainCRTStartup)
+		endif()
+	endif()
+endfunction()
+
 if (NOT WIN32)
 	return()
 endif()

@@ -32,6 +32,10 @@ add_executable(PyrosPlayer
 	${PYROS_WINDOW_MANAGER}
 )
 
+# A shipped game must not raise a console window behind itself. See
+# cmake/PyrosWindows.cmake.
+pyros_windows_gui_app(PyrosPlayer)
+
 target_include_directories(PyrosPlayer PRIVATE
 	${CMAKE_SOURCE_DIR}/include
 	${CMAKE_CURRENT_SOURCE_DIR}/src
