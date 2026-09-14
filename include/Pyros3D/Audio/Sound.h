@@ -126,6 +126,13 @@ namespace p3d {
 		// Returns a voice that is free, or steals the one used longest ago.
 		ma_sound* AcquireVoice();
 
+		// Tears the whole pool down: effect chains, the AudioManager's
+		// registrations, the miniaudio objects, the allocations. Shared by
+		// the destructor and by the constructor's failure path, which are the
+		// only two ways a pool ever goes away and which used to unwind it
+		// differently from each other.
+		void DestroyVoices();
+
 		std::string file;
 		bool loaded;
 

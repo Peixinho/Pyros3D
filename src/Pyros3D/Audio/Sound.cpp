@@ -66,12 +66,15 @@ namespace p3d {
 				// Only complain once, and tear down any voices that did load -
 				// a half-initialized pool would be worse than none.
 				echo("WARNING: Sound - could not load '" + file + "'");
-				for (uint32 k = 0; k < this->voices.size(); k++)
-				{
-					ma_sound_uninit(this->voices[k]);
-					delete this->voices[k];
-				}
-				this->voices.clear();
+				// Through the same teardown the destructor uses. This used to
+				// be a hand-rolled loop that uninitialized and freed the
+				// voices WITHOUT unregistering them, so the AudioManager's
+				// liveVoices list went on holding pointers to freed ma_sounds
+				// and ~AudioManager() called ma_sound_uninit() on every one of
+				// them at shutdown. It also left this pool's AudioEffectChains
+				// allocated, because it cleared `voices` and the destructor
+				// only ever walks chains as far as voices.size().
+				DestroyVoices();
 				return;
 			}
 
@@ -87,7 +90,7 @@ namespace p3d {
 		loaded = true;
 	}
 
-	Sound::~Sound()
+	void Sound::DestroyVoices()
 	{
 		// Only if the manager is still alive: ~AudioManager() calls
 		// ma_engine_uninit(), which already tore down every node, and
@@ -107,15 +110,27 @@ namespace p3d {
 				if (i < chains.size()) chains[i]->Destroy();
 
 				// Unregister first: the manager's own teardown must not find
-				// a voice this destructor is about to uninitialize.
+				// a voice this is about to uninitialize.
 				audio->UnregisterVoice(voices[i]);
 				ma_sound_uninit(voices[i]);
 			}
 			delete voices[i];
-			if (i < chains.size()) delete chains[i];
 		}
+		// Walked on its own rather than alongside the voices. The two vectors
+		// are the same length in every state this can be called from, and
+		// freeing the chains here rather than inside the loop above is what
+		// keeps that an assumption about tidiness instead of a leak waiting
+		// for the lengths to diverge.
+		for (uint32 i = 0; i < chains.size(); i++)
+			delete chains[i];
+
 		voices.clear();
 		chains.clear();
+	}
+
+	Sound::~Sound()
+	{
+		DestroyVoices();
 		// `bus` releases its reference here, after every voice that routed
 		// through it is gone.
 	}
