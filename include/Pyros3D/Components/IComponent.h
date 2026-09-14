@@ -92,7 +92,32 @@ namespace p3d {
 
 	public:
 
-		IComponent() { Owner = NULL; Registered = false; active = true; }
+		// Bounds start at a degenerate box on the origin, NOT uninitialised.
+		//
+		// Only RenderingComponent ever assigns them (from its renderable).
+		// Every other component type - lights, physics, particles, audio, UI,
+		// the 2D components - keeps whatever they start as, and
+		// GameObject::Add()/RefreshComponentBounds() merge EVERY component's
+		// bounds into the owner's, which is the box CullingBoxTest then tests.
+		// So a component carrying no geometry of its own (Layer2D, Physics2D,
+		// Occluder2D, TileMap2D) was merging whatever happened to be in that
+		// memory into the box its object gets culled by. Worse for the
+		// radius: the first component in the list is copied verbatim rather
+		// than max'd, so one unset value becomes the object's bounding sphere
+		// outright, and a NaN there reaches frustum culling through
+		// BoundingSphereRadiusWorldSpace.
+		//
+		// The symptom is an object that draws or vanishes depending on where
+		// the camera is, with no pattern to it, and that moves when anything
+		// else in the program changes - which is why this is worth stating
+		// rather than leaving to look like ordinary field initialisation.
+		//
+		// Zero is conservative in the safe direction: it can only pull an
+		// object's box towards the origin, which culls less, never more.
+		IComponent()
+			: Owner(NULL), Registered(false), active(true),
+			BoundingSphereRadius(0.f), BoundingSphereCenter(0.f, 0.f, 0.f),
+			maxBounds(0.f, 0.f, 0.f), minBounds(0.f, 0.f, 0.f) {}
 		virtual ~IComponent() {}
 
 		virtual void Register(SceneGraph* Scene) = 0;
