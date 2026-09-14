@@ -1,0 +1,173 @@
+name: Linux
+
+# Every branch - see the note in macos.yml for why.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    # glibc is forward- but not backward-compatible, so this image's version
+    # is the floor for anyone running the artifact - stated in the README
+    # rather than left to be discovered. An older image would widen that
+    # audience, but 22.04 is past its runner support window.
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: OpenGL
+            graphics: OpenGL
+            context: SDL2
+            vulkan: "OFF"
+            artifact: Pyros3D-linux-opengl
+          - name: Vulkan
+            graphics: Vulkan
+            context: SDL2Vulkan
+            vulkan: "ON"
+            artifact: Pyros3D-linux-vulkan
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build git patchelf \
+            libsdl2-dev \
+            libfreetype-dev \
+            liblua5.4-dev \
+            libgl1-mesa-dev \
+            libassimp-dev
+          if [ "${{ matrix.vulkan }}" = "ON" ]; then
+            sudo apt-get install -y --no-install-recommends libvulkan-dev
+          fi
+
+      - name: Configure
+        # BUILD_EDITOR and BUILD_CONVERTER are new here. The old Build workflow
+        # compiled the library and the demos only, so every editor-only source
+        # file - which is most of what changes week to week - was unbuilt on
+        # Linux entirely.
+        #
+        # BUILD_SPIRV_TOOLING=OFF: Ubuntu's shaderc/spirv-cross packaging is
+        # the one combination PyrosBackend.cmake warns about (a thin
+        # libshaderc_combined.a that still needs glslang at link time), and it
+        # degrades to a warning rather than an error, which would leave a
+        # silently tool-less build here. Windows and macOS both cover it.
+        run: |
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYROS_GRAPHICS=${{ matrix.graphics }} \
+            -DCONTEXT=${{ matrix.context }} \
+            -DOPENGL_VERSION=GL41 \
+            -DSTATIC_LIB=OFF \
+            -DBUILD_VULKAN_BACKEND=${{ matrix.vulkan }} \
+            -DBUILD_SPIRV_TOOLING=OFF \
+            -DBUILD_DEMOS=ON \
+            -DBUILD_EDITOR=ON \
+            -DBUILD_CONVERTER=ON \
+            -DPYROS_RELOCATABLE_ASSETS=ON \
+            -DLUA_INCLUDE_DIR=/usr/include/lua5.4 \
+            -DLUA_LIBRARY=/usr/lib/x86_64-linux-gnu/liblua5.4.so
+
+      - name: Build
+        run: cmake --build build --parallel "$(nproc)"
+
+      - name: Package
+        run: |
+          set -euo pipefail
+          out=package
+          mkdir -p "$out/demolauncher" "$out/editor" "$out/lib"
+
+          cp build/libPyrosEngine*.so* "$out/lib" 2>/dev/null || true
+
+          cp build/examples/DemoLauncher "$out/demolauncher"
+          cp build/examples/CppApiDemo   "$out/demolauncher"
+          cp -R examples/assets          "$out/demolauncher/assets"
+          cp -R resources/shaders        "$out/demolauncher/shaders"
+
+          cp build/editor/PyrosBuilder   "$out/editor"
+          cp build/editor/AssimpImporter "$out/editor"
+          cp -R editor/assets            "$out/editor/assets"
+          cp -R resources/shaders        "$out/editor/shaders"
+          cp examples/assets/middleclass.lua "$out/editor/assets/"
+
+          cp build/libPyrosEngine*.so* "$out/demolauncher" 2>/dev/null || true
+          cp build/libPyrosEngine*.so* "$out/editor"       2>/dev/null || true
+
+          cat > "$out/README.txt" <<'EOF'
+          Pyros3D - Linux
+
+            demolauncher/  DemoLauncher, CppApiDemo
+            editor/        PyrosBuilder, AssimpImporter
+            lib/           engine shared library
+
+          Run each executable from inside its own folder - both resolve
+          assets/ and shaders/ against the current directory:
+
+              cd demolauncher
+              ./DemoLauncher
+
+          The bundled libraries (SDL2, freetype, lua, ...) sit next to the
+          executables and are found through an $ORIGIN RUNPATH, so nothing
+          needs installing for them. What is NOT bundled, deliberately, is
+          anything tied to your machine: the GL/Vulkan driver, X11/Wayland,
+          and the C library. Those must come from your system, which means:
+
+            - glibc 2.39 or newer (built on Ubuntu 24.04)
+            - a working OpenGL or Vulkan driver
+            - X11 or Wayland client libraries
+
+          Raise the log level with PYROS_LOG_LEVEL=3 for detail
+          (0=errors, 1=+warnings, 2=+success, 3=everything).
+          EOF
+
+      - name: Bundle dependencies
+        run: |
+          chmod +x .github/scripts/bundle-linux.sh
+          ./.github/scripts/bundle-linux.sh package/demolauncher package/editor
+
+      - name: Smoke run
+        # A runner has no GPU and no display, so failing to open a window is
+        # expected and fine. Death by signal is not - that is a broken package.
+        # xvfb gives it a display to fail against for the right reasons.
+        run: |
+          sudo apt-get install -y --no-install-recommends xvfb
+          cd package/demolauncher
+          set +e
+          xvfb-run -a ./CppApiDemo > out.txt 2> err.txt &
+          pid=$!
+          sleep 20
+          if kill -0 $pid 2>/dev/null; then
+            echo "--- still running after 20s, which is the good outcome ---"
+            kill $pid
+            code=0
+          else
+            wait $pid
+            code=$?
+            echo "--- exited on its own with code $code ---"
+          fi
+          echo "--- stdout ---"; head -60 out.txt
+          echo "--- stderr ---"; head -60 err.txt
+          if [ $code -ge 128 ]; then
+            echo "::error::CppApiDemo was killed by signal $((code - 128)) - the package is broken, not merely unable to render"
+            exit 1
+          fi
+          exit 0
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: package/
+          if-no-files-found: error

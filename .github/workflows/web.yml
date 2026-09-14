@@ -1,13 +1,16 @@
-name: Emscripten
+name: Web
 
+# Every branch - see the note in macos.yml for why. Publishing to Pages stays
+# restricted to master; that gate is on the publish job, not on the trigger,
+# so a branch still gets its wasm built and uploaded as an artifact without
+# being able to replace the live site.
 on:
   push:
-    branches: [main, master]
   pull_request:
-    branches: [main, master]
+  workflow_dispatch:
 
 concurrency:
-  group: emscripten-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 # Only the deploy job needs more than read, but permissions are per-workflow.

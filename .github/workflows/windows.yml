@@ -1,14 +1,15 @@
 name: Windows
 
+# Every branch - see the note in macos.yml for why. This workflow is the
+# reason that note exists: its old branch list did not include the branch the
+# editor work was happening on, so nothing here ran for weeks.
 on:
   push:
-    branches: [main, master, editor, vulkan-backend]
   pull_request:
-    branches: [main, master]
   workflow_dispatch:
 
 concurrency:
-  group: windows-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:

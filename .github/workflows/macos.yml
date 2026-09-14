@@ -1,0 +1,188 @@
+name: macOS
+
+# Every branch, deliberately. The four platform workflows used to carry three
+# different branch lists between them, so a feature branch built on none of
+# them - 47 commits once reached master carrying an MSVC error that only a
+# shared Windows build could see, because no Windows build had ever run on the
+# branch it was written on. Minutes are free on a public repo; a break found
+# three weeks later is not.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    # arm64. Apple Silicon is what the engine is developed on, and the
+    # framework/linker issues this workflow exists to catch are arm64-specific.
+    runs-on: macos-15
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Metal
+            graphics: Metal
+            context: Auto
+            metal: "ON"
+            vulkan: "OFF"
+            package: "yes"
+            artifact: Pyros3D-macos-metal
+          - name: OpenGL
+            graphics: OpenGL
+            context: SDL2
+            metal: "OFF"
+            vulkan: "OFF"
+            package: "yes"
+            artifact: Pyros3D-macos-opengl
+          # Builds and links, but ships nothing. A redistributable Vulkan
+          # package on macOS is a different problem from the other two: volk
+          # dlopen()s the loader, and the loader then needs MoltenVK's ICD
+          # manifest found through VK_ICD_FILENAMES - so the folder only works
+          # behind a launcher script that sets it. Metal is the native path
+          # anyone would actually ship here. This leg is for compile/link
+          # coverage of the Vulkan backend on Apple, which is where the
+          # breakage actually happens.
+          - name: Vulkan (MoltenVK)
+            graphics: Vulkan
+            context: SDL2Vulkan
+            metal: "OFF"
+            vulkan: "ON"
+            package: "no"
+            artifact: ""
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies
+        run: |
+          # --quiet, and no `brew update`: the runner image is already current,
+          # and a full update costs minutes for nothing.
+          # lua@5.4, not lua: the unversioned formula is 5.5 now, which
+          # sol.hpp does not support and PyrosDependencies.cmake looks past -
+          # it probes `brew --prefix lua@5.4` by name.
+          brew install --quiet ninja sdl2 freetype lua@5.4 shaderc spirv-cross assimp
+          if [ "${{ matrix.vulkan }}" = "ON" ]; then
+            # Homebrew rather than the LunarG .dmg: find_package(Vulkan) only
+            # needs headers + loader, both of which brew has, and the installer
+            # costs ~10 minutes per run. molten-vk supplies the ICD that turns
+            # Vulkan calls into Metal ones.
+            brew install --quiet molten-vk vulkan-loader vulkan-headers
+          fi
+
+      - name: Configure
+        run: |
+          EXTRA=""
+          if [ "${{ matrix.vulkan }}" = "ON" ]; then
+            # FindVulkan checks $VULKAN_SDK before system paths, and the brew
+            # prefix has the include/ and lib/ layout it expects.
+            export VULKAN_SDK="$(brew --prefix)"
+            EXTRA="-DCMAKE_PREFIX_PATH=$(brew --prefix)"
+          fi
+          # STATIC_LIB=OFF on purpose: a shared build is the one that exercises
+          # symbol visibility and install names, which is where the
+          # platform-specific defects live. The static path is covered on
+          # Windows and Linux.
+          cmake -S . -B build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYROS_GRAPHICS=${{ matrix.graphics }} \
+            -DCONTEXT=${{ matrix.context }} \
+            -DOPENGL_VERSION=GL41 \
+            -DSTATIC_LIB=OFF \
+            -DBUILD_METAL_BACKEND=${{ matrix.metal }} \
+            -DBUILD_VULKAN_BACKEND=${{ matrix.vulkan }} \
+            -DBUILD_SPIRV_TOOLING=ON \
+            -DBUILD_DEMOS=ON \
+            -DBUILD_EDITOR=ON \
+            -DBUILD_CONVERTER=ON \
+            -DPYROS_RELOCATABLE_ASSETS=ON \
+            $EXTRA
+
+      - name: Build
+        run: cmake --build build --parallel "$(sysctl -n hw.ncpu)"
+
+      - name: Package
+        if: matrix.package == 'yes'
+        run: |
+          set -euo pipefail
+          out=package
+          # Same split as the Windows workflow, for the same reason: "assets"
+          # means examples/assets to DemoLauncher and editor/assets to
+          # PyrosBuilder, so they cannot share one directory.
+          mkdir -p "$out/demolauncher" "$out/editor" "$out/lib"
+
+          cp build/libPyrosEngine*.dylib "$out/lib" 2>/dev/null || true
+
+          cp build/examples/DemoLauncher "$out/demolauncher"
+          cp build/examples/CppApiDemo   "$out/demolauncher"
+          cp -R examples/assets          "$out/demolauncher/assets"
+          cp -R resources/shaders        "$out/demolauncher/shaders"
+
+          cp build/editor/PyrosBuilder   "$out/editor"
+          # Import Model shells out to AssimpImporter and expects it alongside.
+          cp build/editor/AssimpImporter "$out/editor"
+          cp -R editor/assets            "$out/editor/assets"
+          cp -R resources/shaders        "$out/editor/shaders"
+          # Editor.cpp loads <asset root>/assets/middleclass.lua, and with
+          # relocatable assets that resolves into the editor's own assets
+          # folder - which is not where middleclass.lua is kept.
+          cp examples/assets/middleclass.lua "$out/editor/assets/"
+
+          # The engine dylib has to sit beside each executable, not in lib/ -
+          # bundle-macos.sh rewrites load commands to @executable_path.
+          cp build/libPyrosEngine*.dylib "$out/demolauncher" 2>/dev/null || true
+          cp build/libPyrosEngine*.dylib "$out/editor"       2>/dev/null || true
+
+      - name: Bundle dependencies
+        if: matrix.package == 'yes'
+        # Copies every Homebrew dylib in and repoints the load commands at the
+        # copies, then fails if anything still references the build machine.
+        run: |
+          chmod +x .github/scripts/bundle-macos.sh
+          ./.github/scripts/bundle-macos.sh package/demolauncher package/editor
+
+      - name: Smoke run
+        if: matrix.package == 'yes'
+        # Proves the bundled folder starts on its own. Not a rendering test: a
+        # clean non-zero exit is an acceptable outcome, since the runner's GPU
+        # and display situation is not a user's. What is NOT acceptable is
+        # death by signal - that means the package is broken, and it is exactly
+        # how a missing dylib or an invalidated code signature presents.
+        run: |
+          cd package/demolauncher
+          set +e
+          ./CppApiDemo > out.txt 2> err.txt &
+          pid=$!
+          sleep 20
+          if kill -0 $pid 2>/dev/null; then
+            echo "--- still running after 20s, which is the good outcome ---"
+            kill $pid
+            code=0
+          else
+            wait $pid
+            code=$?
+            echo "--- exited on its own with code $code ---"
+          fi
+          echo "--- stdout ---"; head -60 out.txt
+          echo "--- stderr ---"; head -60 err.txt
+          # 128+N means terminated by signal N: 139 = SIGSEGV, 134 = SIGABRT.
+          if [ $code -ge 128 ]; then
+            echo "::error::CppApiDemo was killed by signal $((code - 128)) - the package is broken, not merely unable to render"
+            exit 1
+          fi
+          exit 0
+
+      - name: Upload artifact
+        if: matrix.package == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: package/
+          if-no-files-found: error
