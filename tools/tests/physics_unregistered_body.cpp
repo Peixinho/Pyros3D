@@ -23,6 +23,8 @@
 //   /tmp/physics_unregistered_body
 #include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/GameObjects/GameObject.h>
 
 #include <cstdio>
 #include <cstring>
@@ -81,6 +83,44 @@ int main()
 
 	other->~PhysicsBox();
 	box->~PhysicsBox();
+
+	// ---- leaving a scene and coming back ------------------------------
+	//
+	// The editor removes objects from the scene and adds them back every
+	// time it stops play mode. Unregister() used to null the component's
+	// engine pointer, so the Register() on the way back in dereferenced
+	// NULL - a crash at 0x0 on every platform, which nobody reached while
+	// play itself was still crashing on Windows.
+	//
+	// Both halves matter: it must not crash, AND the body must actually
+	// come back. Silently returning an object to the scene with no physics
+	// in it would be the same bug wearing a quieter coat.
+	{
+		Box3DPhysics world;
+		world.InitPhysics();
+
+		SceneGraph scene;
+		std::shared_ptr<GameObject> go = std::make_shared<GameObject>();
+		std::shared_ptr<IPhysicsComponent> body = world.CreateBox(0.5f, 0.5f, 0.5f, 10.f, false);
+		go->Add(body);
+		scene.Add(go);
+		scene.Update(0.016);
+		check(body->RigidBodyRegistered(), "a body in the scene has its backend handles");
+
+		scene.Remove(go);
+		check(!body->RigidBodyRegistered(), "leaving the scene gives them up");
+
+		scene.Add(go);
+		scene.Update(0.016);
+		check(body->RigidBodyRegistered(), "and coming back builds them again");
+
+		// Unregister is reached unconditionally by
+		// GameObject::UnregisterComponents(), so it has to survive being
+		// called on a component that has already left.
+		scene.Remove(go);
+		scene.Remove(go);
+		check(!body->RigidBodyRegistered(), "removing twice is harmless");
+	}
 
 	printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
 	return failures ? 1 : 0;
