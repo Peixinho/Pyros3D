@@ -28,7 +28,35 @@ namespace p3d {
 	}
 
 	// Destructor
-	GameObject::~GameObject() {}
+	GameObject::~GameObject()
+	{
+		// Orphan the children before they are released.
+		//
+		// _Owner is a raw back-pointer, and a child can outlive its parent:
+		// _Childs holds shared_ptrs, but so do the editor's SceneObject
+		// registry and any handle a script is still holding, so dropping
+		// this object's references does not necessarily destroy them.
+		// FindScene() walks _Owner upwards from whatever node it is given,
+		// so one child left pointing at a freed parent turns the next
+		// component teardown into a walk through whatever the allocator has
+		// since put in that memory.
+		//
+		// That is not hypothetical: it crashed Stop Play on Windows, inside
+		// GameObject::Remove() -> FindScene(), reading `Scene` at +0x200
+		// from a recycled parent block whose _Owner field had become
+		// 0x2ddc00002ddc. macOS survived it only because the freed page
+		// happened to stay mapped and readable.
+		//
+		// Done here rather than left to the caller because destruction is
+		// the one path with no caller to do it - Remove(GameObject*) already
+		// clears both fields on an explicit detach.
+		for (size_t i = 0; i < _Childs.size(); i++)
+			if (_Childs[i])
+			{
+				_Childs[i]->_Owner = NULL;
+				_Childs[i]->_HaveOwner = false;
+			}
+	}
 
 	// Virtual Function on Initialization
 	void GameObject::Init() {}

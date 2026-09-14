@@ -121,6 +121,38 @@ int main()
 		check(lightsOn(&fresh) == 1, "a subtree built before Add() registers on the first update");
 	}
 
+	// -------- a child that outlives its parent --------
+	//
+	// _Owner is a raw back-pointer and FindScene() walks it upwards from any
+	// node, so a child still holding a dead parent is a walk through freed
+	// memory the next time one of its components is removed. That is not a
+	// contrived ownership puzzle: the editor's SceneObject registry holds a
+	// reference to every object, and so does any script handle, so a child
+	// routinely outlives the parent whose shared_ptr the scene just dropped.
+	// It crashed Stop Play on Windows.
+	//
+	// Checked as state rather than by provoking the crash: whether a freed
+	// page is still readable is the allocator's business, and on macOS it
+	// usually is - so the dangling read "passes" on this machine while
+	// failing on Windows. The pointer being cleared is the thing that is
+	// actually true or false.
+	{
+		SceneGraph s3;
+		std::shared_ptr<GameObject> p = std::make_shared<GameObject>();
+		std::shared_ptr<GameObject> c = std::make_shared<GameObject>();
+		p->Add(c);
+		s3.Add(p);
+		s3.Update(0.0);
+		check(c->HaveParent() && c->GetParent() == p.get(), "a child knows its parent");
+
+		// The scene lets go, and nothing else holds the parent - but `c` is
+		// still a live reference to the child.
+		s3.Remove(p);
+		p.reset();
+		check(!c->HaveParent(), "a destroyed parent leaves no parent behind");
+		check(c->GetParent() == NULL, "and no pointer to walk into");
+	}
+
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
 	return failures ? 1 : 0;
 }
