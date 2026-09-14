@@ -332,6 +332,11 @@ public:
 	// "Add > Tile Map 2D" needs a tileset chosen before it can do anything,
 	// so it raises this rather than acting on the click.
 	void ShowAddTileMapModal();
+	// Creates a GameObject and opens the tileset picker on it, so a map can be
+	// made from the menu bar without first making an object to hang it on.
+	// `tilesetRel` pre-picks the tileset, for the Assets browser's
+	// "Create Tile Map in Scene" on a .p3dt; empty lets the dialog choose.
+	void BeginNewTileMap(const std::string& tilesetRel = std::string());
 	bool openAddTileMapModal = false;
 	uint32 addTileMapTarget = 0;
 	std::string addTileMapTileset;

@@ -441,7 +441,8 @@ calling agent commands, which is not a feature, it is a demo.
   The dialog reads the image's real pixel size and shows the grid the current numbers
   produce - "Grid: 4 x 4 = 16 tiles" - before committing, because "16" is a guess about
   someone else's art until it says that. It refuses a size that fits no whole tile.
-- **Add > Tile Map 2D…** on a GameObject: pick one of the project's tilesets from a list,
+- **GameObject > Tile Map 2D…** on the menu bar, plus **Add Component > Tile Map 2D…** on an
+  object and a button in the Tile Palette: pick one of the project's tilesets from a list,
   set the cell size in world units, Add. Unlike the other entries in that menu it needs a
   form, because a map is nothing without a tileset and there is no sensible default for
   which one. It drops straight into paint mode with the new map selected - adding one and
@@ -449,16 +450,33 @@ calling agent commands, which is not a feature, it is a demo.
 - **View > Tile Paint Mode** toggles the viewport mode. Disabled outside a 2D scene, which
   is why it can look like it is missing.
 
+Discoverability was got wrong twice. First the only entry point was a right-click >
+Add Component submenu on an object that, in a fresh 2D scene, does not exist yet. Then
+"Create Tile Set…" in Assets turned an image into a `.p3dt` and left you holding an asset
+with nowhere to go - the step from tileset to a map in the scene existed nowhere in the UI,
+which is the half of the job that actually matters. A feature
+reachable only from a submenu of a thing you have not made is a feature nobody finds. It is
+now on the menu bar, in that submenu, and as a button in the panel that reports having no
+map - and every editor build in the repo carries it, not just the one that happened to get
+rebuilt.
+
 ## How to use it
 
 1. Put a tile sheet in the project (`assets/…/whatever.png`).
 2. In **Assets**, right-click it > **Create Tile Set…**, set the cell size, check the grid
-   line reads what you expect, Create.
+   line reads what you expect, Create. This makes a `.p3dt` **tile set** - the cut-up sheet.
+   It is not yet a tile map; a map lives in a scene.
 3. Open the `.p3dt` in a text editor and mark which tiles are solid:
    `"tiles": [{"i": 12, "solid": true}]`. Only solid cells get colliders. (There is no UI
    for this yet - see below.)
-4. In a **2D scene**, select or create a GameObject, right-click it > **Add > Tile Map 2D…**,
-   pick the tileset, Add. The viewport enters paint mode.
+4. In a **2D scene**, put a map in it by any of:
+   - **Assets**, right-click the `.p3dt` > **Create Tile Map in Scene** (shortest route -
+     the tileset is already chosen);
+   - menu bar > **GameObject > Tile Map 2D…**;
+   - the **Create a Tile Map...** button in the Tile Palette when a scene has none;
+   - right-click an existing object > **Add Component > Tile Map 2D…**.
+   Any of them makes the object and drops straight into paint mode.
+
 5. Pick a tile in the **Tile Palette** window, choose Brush or Rect, and paint. Erase with
    the Erase checkbox. Ctrl+Z undoes a whole stroke.
 6. Add a **Physics 2D** component to the same object (body type Static) and the solid cells

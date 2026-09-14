@@ -10834,6 +10834,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		if (ImGui::MenuItem("Empty GameObject", "")) { showingAddFrom = true; openAddFormTrigger = true; showingAddFormType = 0; AddForm_go = "GameObject"; }
 		if (ImGui::MenuItem("Camera", "")) CreateSceneCamera();
+		// Here as well as under Add Component, because a tile map is normally
+		// the FIRST thing in a 2D scene - there is no object to add it to yet,
+		// and a feature reachable only from a right-click submenu on an object
+		// you have not created is a feature nobody finds.
+		if (ImGui::MenuItem("Tile Map 2D…", "")) BeginNewTileMap();
 		ImGui::Separator();
 		if (ImGui::BeginMenu("Mesh", ""))
 		{
@@ -14000,8 +14005,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		if (maps.empty())
 		{
-			ImGui::TextWrapped("No tile map in this scene. Select an object and use "
-				"Add > Tile Map 2D, or the add_tilemap agent command.");
+			ImGui::TextWrapped("No tile map in this scene yet.");
+			ImGui::Spacing();
+			if (ImGui::Button("Create a Tile Map...", ImVec2(180, 0)))
+				BeginNewTileMap();
+			ImGui::Spacing();
+			ImGui::TextDisabled("Also on the menu bar: GameObject > Tile Map 2D,\n"
+				"or right-click an object > Add Component > Tile Map 2D.");
+			ImGui::Spacing();
+			ImGui::TextDisabled("Need a tileset first? Right-click any image in\nAssets > Create Tile Set.");
 			ImGui::End();
 			return;
 		}
@@ -14184,7 +14196,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		else
 		{
-			if (addTileMapTileset.empty()) addTileMapTileset = sets[0];
+			// Only default it when nothing pre-picked one - otherwise
+			// "Create Tile Map in Scene" on a .p3dt would silently swap to
+			// whichever tileset happens to sort first.
+			bool known = false;
+			for (size_t i = 0; i < sets.size(); i++)
+				if (sets[i] == addTileMapTileset) known = true;
+			if (!known) addTileMapTileset = sets[0];
 			if (ImGui::BeginCombo("Tile set", addTileMapTileset.c_str()))
 			{
 				for (size_t i = 0; i < sets.size(); i++)
@@ -14219,4 +14237,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
 		ImGui::EndPopup();
+	}
+
+	void SceneEditor::BeginNewTileMap(const std::string& tilesetRel)
+	{
+		if (playMode) { echo("WARNING: stop play mode first"); return; }
+		std::string name = "TileMap";
+		for (int n = 2; AgentFindGameObjectByName(sceneObjects, name) && n < 999; n++)
+			name = "TileMap" + std::to_string(n);
+
+		std::string err;
+		if (!AgentAddObject(name, std::string(), std::vector<f32>(),
+			std::vector<f32>(), std::vector<f32>(), err))
+		{
+			echo("WARNING: could not create a tile map object: " + err);
+			return;
+		}
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) return;
+		addTileMapTarget = obj->GetID();
+		addTileMapTileset = tilesetRel;
+		openAddTileMapModal = true;
 	}

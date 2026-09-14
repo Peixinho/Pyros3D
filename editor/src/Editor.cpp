@@ -6829,6 +6829,8 @@ void Editor::DrawAssetsWindow()
 		const bool isModel = ProjectManager::IsP3dm(e.relativePath);
 		const bool isSound = ProjectManager::IsSoundExtension(e.relativePath);
 		const bool isTex = ProjectManager::IsTextureExtension(e.relativePath);
+		const bool isTileSet = e.relativePath.size() > 5
+			&& e.relativePath.compare(e.relativePath.size() - 5, 5, ".p3dt") == 0;
 		const bool isMat = ProjectManager::IsMaterialExtension(e.relativePath);
 		const bool isAnim = ProjectManager::IsAnimationExtension(e.relativePath);
 		const bool isChar2D = ProjectManager::IsCharacter2DExtension(e.relativePath);
@@ -7066,7 +7068,12 @@ void Editor::DrawAssetsWindow()
 				pendingTileSetImageRel = e.relativePath;
 				openCreateTileSetModal = true;
 			}
-			if (isScene || isLua || isMat || isAnim || isChar2D || isModel || isSound || isTex)
+			// The other half. Cutting an image into a tileset left you holding
+			// an asset with nowhere to go: a tile MAP lives in a scene, and
+			// nothing in Assets put one there.
+			if (isTileSet && ImGui::MenuItem("Create Tile Map in Scene") && sceneView)
+				sceneView->BeginNewTileMap(e.relativePath);
+			if (isScene || isLua || isMat || isAnim || isChar2D || isModel || isSound || isTex || isTileSet)
 				ImGui::Separator();
 			ShowAssetCreateMenuItems();
 			ImGui::Separator();
