@@ -31,6 +31,20 @@ keep_external() {
 		libwayland*|libdrm*|libgbm*|libxkbcommon*) return 0 ;;
 		libvulkan.so.*) return 0 ;;
 		libasound.so.*|libpulse*|libpipewire*) return 0 ;;
+		# Libraries that are a CLIENT of a daemon on the user's machine. These
+		# arrive transitively through SDL2's audio backends and are the ones it
+		# is actively harmful to bundle: our libsystemd would be speaking to
+		# their systemd, our libdbus-1 to their session bus. The protocol
+		# compatibility that makes that work is a property of the pair, not of
+		# the library, so shipping half of it is how a package that runs on the
+		# build machine dies on a distro one release away. Every desktop Linux
+		# has all of these; leaving them external is what keeps the ABI
+		# conversation between two halves of the same install.
+		libdbus-1.so.*|libsystemd.so.*|libapparmor.so.*|libselinux.so.*) return 0 ;;
+		libcap.so.*|libgcrypt.so.*|libgpg-error.so.*) return 0 ;;
+		# X11 authentication, pulled in under libxcb. Same display-stack
+		# reasoning as the libX11 entries above.
+		libXau.so.*|libXdmcp.so.*|libbsd.so.*) return 0 ;;
 		*) return 1 ;;
 	esac
 }
