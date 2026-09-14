@@ -40,6 +40,12 @@ jobs:
           submodules: recursive
 
       - name: Install dependencies
+        # libcurl is not optional here despite being "just" the AI Assistant's
+        # HTTP transport: editor/CMakeLists.txt does find_package(CURL REQUIRED)
+        # and fails configuration outright without it. macOS has it in
+        # /usr/lib and Windows gets it from vcpkg, so Linux is the only
+        # platform that has to ask - and the old workflow never noticed,
+        # because it never built the editor at all.
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -48,7 +54,8 @@ jobs:
             libfreetype-dev \
             liblua5.4-dev \
             libgl1-mesa-dev \
-            libassimp-dev
+            libassimp-dev \
+            libcurl4-openssl-dev
           if [ "${{ matrix.vulkan }}" = "ON" ]; then
             sudo apt-get install -y --no-install-recommends libvulkan-dev
           fi
