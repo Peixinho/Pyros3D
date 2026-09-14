@@ -88,6 +88,12 @@ namespace p3d {
 			"getDensity", &Physics2D::GetDensity,
 			"getFriction", &Physics2D::GetFriction,
 			"getRestitution", &Physics2D::GetRestitution,
+			// Half-extents, the same convention the body was built with.
+			// Everything else about the shape was readable and this was not,
+			// so a script could not do its own overlap test against a
+			// platform it did not author itself.
+			"getSize", &Physics2D::GetSize,
+			"getShapeType", &Physics2D::GetShapeType,
 			"isFixedRotation", &Physics2D::IsFixedRotation,
 			"haveBody", &Physics2D::HaveBody,
 			// Plain fields, like IPhysicsComponent's above - assign a Lua

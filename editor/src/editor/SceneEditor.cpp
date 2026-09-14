@@ -6533,6 +6533,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// whichever one the restored selection asks for.
 		ForEachParticleSystemInScene(scene, StopParticleSystemForPlayMode, NULL);
 		particlePreviewSynced = false;
+		// And the same for sprite-sheet animation. This reset existed only in
+		// RebuildHelpers(), which Stop does not call, so: the play session
+		// leaves every instance running (correctly - that is the runtime's
+		// policy), UpdateTextureAnimationPreview() early-outs while this flag
+		// is set and the selection has not changed, and the whole scene went
+		// on animating after Stop until something else invalidated it.
+		texturePreviewSynced = false;
 		for (std::map<uint32, PlayModeObjectSnapshot>::iterator i = playModeSnapshots.begin();
 			i != playModeSnapshots.end(); ++i)
 		{
@@ -7551,9 +7558,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// ParticleSystem constructor's default) - outside Play they should
 		// all be idle until selected.
 		if (!playMode)
+		{
 			ResetParticlePreview();
-			// Re-decide which sprite sheets animate now that Play is over.
+			// Re-decide which sprite sheets animate.
 			texturePreviewSynced = false;
+		}
 	}
 
 	void SceneEditor::NewScene(bool applyProjectDefaults)
@@ -7567,10 +7576,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		DeselectSceneObject();
 		selection.clear();
 		node_clicked = -1;
-		// Released here rather than at load time: the outgoing scene's
-		// objects are torn down just below, and anything still referenced
-		// stays alive on its own shared_ptr.
-		sceneAssets = LoadedSceneAssets();
 		// Before the objects below are torn down: the 2D world holds raw
 		// Physics2D* as body user data and dispatches contacts through them.
 		if (physics2D) physics2D->Clear();
@@ -7578,6 +7583,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Drops every user GameObject/component (and its helper) - the
 		// SceneGraph holds the only strong references, so this frees them.
 		sceneObjects->DestroyAll();
+		// AFTER the teardown, not before. A RenderingComponent holds its
+		// TextureAnimation by raw back-pointer and this list is the only
+		// owner, so releasing first leaves every sliced sprite in the
+		// outgoing scene pointing at a freed animation - and anything that
+		// touches one in that window (a serialize, a destructor) reads
+		// freed memory.
+		sceneAssets = LoadedSceneAssets();
 		sceneCameras.clear();
 		activeSceneCameraId = 0;
 		scenePath.clear();

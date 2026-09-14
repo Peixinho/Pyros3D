@@ -121,10 +121,15 @@ std::vector<uint32> SceneEditor::RawCollectSubtreeIds(uint32 objId)
 SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper, const std::vector<uint32>* preferredIds)
 {
 	if (subtreeJson.empty()) return NULL;
+	// &sceneAssets, not NULL: whatever this subtree rebuilds has to be kept
+	// alive by the document, exactly as a full scene load does. A
+	// RenderingComponent points at its TextureAnimation with a raw pointer,
+	// so an undo that restores a sliced sprite used to hand it an animation
+	// that died on the way out of this function.
 #ifdef LUA_BINDINGS
-	std::shared_ptr<GameObject> go = SceneSerializer::DeserializeSubtree(subtreeJson, scenePath, physics, sharedLua, NULL);
+	std::shared_ptr<GameObject> go = SceneSerializer::DeserializeSubtree(subtreeJson, scenePath, physics, sharedLua, &sceneAssets);
 #else
-	std::shared_ptr<GameObject> go = SceneSerializer::DeserializeSubtree(subtreeJson, scenePath, physics, NULL, NULL);
+	std::shared_ptr<GameObject> go = SceneSerializer::DeserializeSubtree(subtreeJson, scenePath, physics, NULL, &sceneAssets);
 #endif
 	if (!go) return NULL;
 	scene->Add(go);

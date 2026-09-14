@@ -129,10 +129,19 @@ Matrix IRenderer::CachedPrvViewMatrix;
 namespace Sort {
 
 	GameObject* _Camera;
+	// WORLD position on both sides. A camera parented to a pivot - which is
+	// how both the editor viewport and the 2D view frame a scene, moving the
+	// pivot and leaving the camera at a fixed local offset - has a local
+	// position of (0,0,kCameraZ) wherever it is actually looking from. Sorting
+	// against that measures every object's distance from the ORIGIN, so in a
+	// level wider than its layer spacing the ordering is decided by x, and a
+	// parallax backdrop draws on top of the world it is supposed to sit
+	// behind. The LOD block a few lines below already used GetWorldPosition().
 	bool sortRenderingMeshes(const void* a, const void* b)
 	{
-		f32 a2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)a)->renderingComponent->GetOwner()->GetWorldPosition());
-		f32 b2 = _Camera->GetPosition().distanceSQR(((RenderingMesh*)b)->renderingComponent->GetOwner()->GetWorldPosition());
+		const Vec3 eye = _Camera->GetWorldPosition();
+		f32 a2 = eye.distanceSQR(((RenderingMesh*)a)->renderingComponent->GetOwner()->GetWorldPosition());
+		f32 b2 = eye.distanceSQR(((RenderingMesh*)b)->renderingComponent->GetOwner()->GetWorldPosition());
 		return (a2 < b2);
 	}
 }

@@ -481,6 +481,29 @@ namespace p3d {
 				return sol::make_object(lua, std::static_pointer_cast<Layer2D>(c));
 			if (typeName == "Physics2D" && c->GetComponentType() == ComponentType::Physics2D)
 				return sol::make_object(lua, std::static_pointer_cast<Physics2D>(c));
+			// Lights and sounds. Without these a scene's own lighting and
+			// audio were unreachable from script: a game could author a
+			// torch in the editor and had no way to light it, and the only
+			// sound it could play was one it loaded itself. Pushed as the
+			// concrete type (PointLightBase and friends in PyrosLuaRender),
+			// because that is what SceneSerializer builds.
+			if (typeName == "PointLight" && c->GetComponentType() == ComponentType::PointLight)
+			{
+				auto l = std::dynamic_pointer_cast<PointLight>(c);
+				if (l) return sol::make_object(lua, l);
+			}
+			if (typeName == "SpotLight" && c->GetComponentType() == ComponentType::SpotLight)
+			{
+				auto l = std::dynamic_pointer_cast<SpotLight>(c);
+				if (l) return sol::make_object(lua, l);
+			}
+			if (typeName == "DirectionalLight" && c->GetComponentType() == ComponentType::DirectionalLight)
+			{
+				auto l = std::dynamic_pointer_cast<DirectionalLight>(c);
+				if (l) return sol::make_object(lua, l);
+			}
+			if (typeName == "AudioSource" && c->GetComponentType() == ComponentType::AudioSource)
+				return sol::make_object(lua, std::static_pointer_cast<AudioSource>(c));
 		}
 		return sol::lua_nil;
 	}

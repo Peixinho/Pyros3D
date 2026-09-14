@@ -182,8 +182,47 @@ namespace p3d {
 			"disable", &IComponent::Disable,
 			"isActive", &IComponent::IsActive
 			);
+		// Colour and intensity on the base type, so a script that got a
+		// light out of getComponent() can dim it without caring which of
+		// the three kinds it is.
 		lua->new_usertype<ILightComponent>("IlightComponent",
+			"getLightColor", &ILightComponent::GetLightColor,
+			"setLightColor", &ILightComponent::SetLightColor,
+			"getLightIntensity", &ILightComponent::GetLightIntensity,
+			"setLightIntensity", &ILightComponent::SetLightIntensity,
+			"getLightType", &ILightComponent::GetLightType,
 			sol::base_classes, sol::bases<IComponent>()
+			);
+
+		// The lights a SCENE contains, as opposed to the LUA_* ones a script
+		// constructs. SceneSerializer builds plain PointLight/SpotLight/
+		// DirectionalLight, and sol picks a metatable from the pointer's
+		// static type - so without these three, a light that came out of a
+		// scene file pushed as a method-less userdata and every call on it
+		// threw. Same base-type registration GameObjectBase exists for, and
+		// the reason getComponent() can return a light at all.
+		lua->new_usertype<PointLight>("PointLightBase",
+			"getLightRadius", &PointLight::GetLightRadius,
+			"setLightRadius", &PointLight::SetLightRadius,
+			"getShadowFar", &PointLight::GetShadowFar,
+			"setShadowBiasScale", &PointLight::SetShadowBiasScale,
+			sol::base_classes, sol::bases<ILightComponent, IComponent>()
+			);
+		lua->new_usertype<SpotLight>("SpotLightBase",
+			"getLightRadius", &SpotLight::GetLightRadius,
+			"setLightRadius", &SpotLight::SetLightRadius,
+			"getLightDirection", &SpotLight::GetLightDirection,
+			"setLightDirection", &SpotLight::SetLightDirection,
+			"getLightInnerCone", &SpotLight::GetLightInnerCone,
+			"setLightInnerCone", &SpotLight::SetLightInnerCone,
+			"getLightOutterCone", &SpotLight::GetLightOutterCone,
+			"setLightOutterCone", &SpotLight::SetLightOutterCone,
+			sol::base_classes, sol::bases<ILightComponent, IComponent>()
+			);
+		lua->new_usertype<DirectionalLight>("DirectionalLightBase",
+			"getLightDirection", &DirectionalLight::GetLightDirection,
+			"setLightDirection", &DirectionalLight::SetLightDirection,
+			sol::base_classes, sol::bases<ILightComponent, IComponent>()
 			);
 	}
 
