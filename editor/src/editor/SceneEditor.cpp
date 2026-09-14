@@ -205,6 +205,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		std::memcpy(b, tmp.data(), rowBytes);
 	}
 }
+
 }
 
 	SceneEditor::SceneEditor(uint32 documentId)
@@ -1524,6 +1525,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::EndDragDropTarget();
 		}
 		UpdateViewportMouse();
+		// After the mouse, before the icons - the brush needs this frame's
+		// cursor, and the overlay drawn from Draw2DReference needs the cell it
+		// resolved to.
+		UpdateTilePainting();
 		if (!playMode && editorChromeVisible)
 			DrawSceneViewportIcons(imgMin, imgSize, viewCam);
 
@@ -1629,6 +1634,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// BeginMenu) closes with its parent popup the moment the item is
 		// clicked.
 		DrawPrefabModals();
+		// Raised from the Add menu, drawn here for the same reason the prefab
+		// modals are - a BeginPopupModal nested inside the context popup that
+		// opened it closes with it.
+		ShowAddTileMapModal();
 		DrawBuildModal();
 
 		// One frame only. Leaving these set would pin the nodes open with
@@ -4674,6 +4683,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("A Box2D rigid body. Its (x, y) and rotation about z\nare driven by the solver; z is left alone because that\nis draw order.");
 
+			// Unlike the others here, a tile map cannot be added blind: it is
+			// nothing without a tileset, and there is no sensible default for
+			// which one. Hence a form.
+			if (ImGui::MenuItem("Tile Map 2D…"))
+			{
+				addTileMapTarget = goId;
+				addTileMapTileset.clear();
+				openAddTileMapModal = true;
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("A grid of cells from one tileset, drawn as a few batched\nmeshes. Make a tileset first: right-click an image in\nAssets > Create Tile Set.");
+
 			// A 2D scene layer. One click, no form: the useful defaults are
 			// parallax 1 and visible, and both are edited in Properties.
 			if (ImGui::MenuItem("Layer 2D"))
@@ -4806,11 +4828,20 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// there - the canvas itself is only offered on a GameObject's own Add
 		// menu, so you had to know to make an object and right-click it first.
 		const bool haveCanvas = (GetEditingCanvas() != NULL);
+		// A third viewport mode. Mutually exclusive with canvas mode: both
+		// claim the left button over the viewport, and a click that could mean
+		// either is a click that does the wrong one half the time.
+		if (ImGui::MenuItem("Tile Paint Mode", "", tilePaintMode, sceneIsTwoD))
+		{
+			SetTilePaintMode(!tilePaintMode);
+			if (tilePaintMode) uiEditMode = false;
+		}
 		if (ImGui::MenuItem("Canvas (2D) Mode", "", uiEditMode))
 		{
 			if (!uiEditMode && !haveCanvas)
 				CreateCanvasForEditing();
 			uiEditMode = !uiEditMode;
+			if (uiEditMode) SetTilePaintMode(false);
 		}
 		if (!haveCanvas && ImGui::IsItemHovered())
 			ImGui::SetTooltip("Adds a UICanvas to this scene and edits it in 2D.");
@@ -8463,6 +8494,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!viewportMouseValid || editorDisabled)
 			return;
 
+		// Tile painting claims the click before anything else looks at it: in
+		// paint mode the left button is the brush, and letting it also run
+		// selection would reselect an object on every dab.
+		//
+		// Driven from here rather than polled with ImGui::IsMouseDown for the
+		// same reason the rest of the viewport is: clicks arrive through
+		// InputManager (ImGui gets the POSITION, InputManager gets the
+		// buttons), so an ImGui poll never sees an injected click at all and
+		// the mode cannot be driven or tested from a script.
+		if (tilePaintMode && !playMode && sceneIsTwoD)
+		{
+			UpdateTilePainting();
+			if (tileHoverValid)
+			{
+				tileStrokeActive = true;
+				tileStroke.clear();
+				tileRectAnchorX = tileHoverX;
+				tileRectAnchorY = tileHoverY;
+				// A brush marks its first cell immediately, so a single click
+				// without any movement still paints one.
+				if (tilePaintTool == 0)
+					tileStroke.push_back(Vec3((f32)tileHoverX, (f32)tileHoverY, (f32)tilePaintBrush));
+				return;
+			}
+		}
+
 		const int32 axisClicked = axisHelper->MouseClick();
 		// Every entry on that widget is a 3D orientation, and six of the seven
 		// point somewhere a 2D scene cannot be looked at from: side and top
@@ -8510,6 +8567,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		(void)e;
 		_leftMouse = false;
+		if (tileStrokeActive) EndTileStroke();
 	}
 
 	void SceneEditor::MouseMiddlePress(Event::Input::Info e)
@@ -11553,6 +11611,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		const f32 l = cx - halfW, r = cx + halfW, b = cy - halfH, t = cy + halfH;
 
+		DrawTilePaintOverlay();
+
 		if (showGrid2D)
 		{
 			// One decade per ~8 lines across the view, so the spacing lands on
@@ -11660,6 +11720,112 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
 		return OpAddLayer2D(obj->GetID(), errOut);
+	}
+
+	bool SceneEditor::AgentAddTileMap2D(const std::string& name, const std::string& tileset,
+		const Vec2& tileSize, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpAddTileMap2D(obj->GetID(), tileset, tileSize, errOut);
+	}
+
+	bool SceneEditor::AgentSetTiles(const std::string& name, const std::vector<Vec3>& cells,
+		std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpSetTiles(obj->GetID(), cells, "Paint Tiles", errOut);
+	}
+
+	bool SceneEditor::AgentFillTiles(const std::string& name, const int32 x0, const int32 y0,
+		const int32 x1, const int32 y1, const int32 index, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+
+		const int32 lox = x0 < x1 ? x0 : x1, hix = x0 < x1 ? x1 : x0;
+		const int32 loy = y0 < y1 ? y0 : y1, hiy = y0 < y1 ? y1 : y0;
+		// Guarded because a fill is expanded cell by cell here, and a typo'd
+		// rect (a missing minus sign) would otherwise try to allocate for
+		// billions of them before anything noticed.
+		const long long area = (long long)(hix - lox + 1) * (long long)(hiy - loy + 1);
+		if (area > 1000000LL)
+		{
+			errOut = "that rect covers " + std::to_string(area)
+				+ " cells; fill a smaller region";
+			return false;
+		}
+
+		std::vector<Vec3> cells;
+		cells.reserve((size_t)area);
+		for (int32 y = loy; y <= hiy; y++)
+			for (int32 x = lox; x <= hix; x++)
+				cells.push_back(Vec3((f32)x, (f32)y, (f32)index));
+		return OpSetTiles(obj->GetID(), cells, "Fill Tiles", errOut);
+	}
+
+	bool SceneEditor::AgentGetTiles(const std::string& name, const int32 x0, const int32 y0,
+		const int32 x1, const int32 y1, std::vector<int32>& outCells, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		TileMap2D* map = RawFindTileMap2D(obj->GetID());
+		if (!map) { errOut = "object '" + name + "' has no TileMap2D"; return false; }
+
+		const int32 lox = x0 < x1 ? x0 : x1, hix = x0 < x1 ? x1 : x0;
+		const int32 loy = y0 < y1 ? y0 : y1, hiy = y0 < y1 ? y1 : y0;
+		const long long area = (long long)(hix - lox + 1) * (long long)(hiy - loy + 1);
+		if (area > 65536LL)
+		{
+			errOut = "that rect is " + std::to_string(area)
+				+ " cells; read a smaller region";
+			return false;
+		}
+		outCells.clear();
+		outCells.reserve((size_t)area);
+		for (int32 y = loy; y <= hiy; y++)
+			for (int32 x = lox; x <= hix; x++)
+				outCells.push_back(map->GetTile(x, y));
+		return true;
+	}
+
+	bool SceneEditor::AgentTileMapInfo(const std::string& name, json& outInfo, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		TileMap2D* map = RawFindTileMap2D(obj->GetID());
+		if (!map) { errOut = "object '" + name + "' has no TileMap2D"; return false; }
+
+		const TileSet2D &set = map->GetTileSet();
+		outInfo["tileset"] = map->GetTileSetPath();
+		outInfo["image"] = set.image;
+		outInfo["tileSize"] = { map->GetTileSize().x, map->GetTileSize().y };
+		outInfo["cellPixels"] = { set.tileW, set.tileH };
+		outInfo["tileCount"] = set.TileCount();
+		outInfo["columns"] = set.Columns();
+		outInfo["lit"] = map->IsLit();
+		outInfo["painted"] = map->PaintedCount();
+		outInfo["chunks"] = (int)map->NonEmptyChunks().size();
+		// What the solid cells merge into. The one number that says whether a
+		// level is cheap or pathological for the solver, and nothing else
+		// reports it.
+		outInfo["colliderBoxes"] = (int)map->BuildColliderBoxes().size();
+
+		int32 a = 0, b = 0, c = 0, d = 0;
+		if (map->GetTileBounds(a, b, c, d))
+			outInfo["bounds"] = { {"minX", a}, {"minY", b}, {"maxX", c}, {"maxY", d} };
+		else
+			outInfo["bounds"] = nullptr;
+
+		std::vector<int32> solid;
+		for (int32 i = 0; i < set.TileCount(); i++)
+			if (set.IsSolid(i)) solid.push_back(i);
+		outInfo["solidTiles"] = solid;
+		return true;
 	}
 
 	bool SceneEditor::AgentAddPhysics2D(const std::string& name, std::string& errOut,
@@ -13579,4 +13745,478 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		const bool ok = LoadSceneFromFile(pathCopy);
 		echo(ok ? "AGENT: scene reloaded from disk" : "AGENT: scene reload failed");
 		return ok;
+	}
+
+	// The world rect the viewport shows, in the XY plane. Same arithmetic
+	// Draw2DReference uses to place the grid - see the declaration for why it
+	// has to be one implementation.
+	bool SceneEditor::GetView2DExtent(f32& l, f32& r, f32& b, f32& t) const
+	{
+		GameObject* viewCam = const_cast<SceneEditor*>(this)->GetViewCameraGO();
+		if (!viewCam || dim.x < 1.f || dim.y < 1.f) return false;
+
+		const Vec3 eye = viewCam->GetWorldTransformation().GetTranslation();
+		f32 halfW, halfH;
+		if (viewIsOrtho)
+		{
+			// viewOrtho* are half-extents about the camera, not world
+			// coordinates - the camera's position is what puts them on the
+			// plane.
+			halfW = (viewOrthoR - viewOrthoL) * 0.5f;
+			halfH = (viewOrthoT - viewOrthoB) * 0.5f;
+		}
+		else
+		{
+			const f32 dist = std::fabs(eye.z) > 0.01f ? std::fabs(eye.z) : 1.f;
+			halfH = dist * std::tan(DEGTORAD(const_cast<SceneEditor*>(this)->GetViewFovDeg()) * 0.5f);
+			halfW = halfH * ((f32)dim.x / (f32)dim.y);
+		}
+		if (halfW <= 0.f || halfH <= 0.f) return false;
+
+		l = eye.x - halfW; r = eye.x + halfW;
+		b = eye.y - halfH; t = eye.y + halfH;
+		return true;
+	}
+
+	bool SceneEditor::ViewportToWorld2D(Vec2& out) const
+	{
+		if (!viewportMouseValid) return false;
+		f32 l, r, b, t;
+		if (!GetView2DExtent(l, r, b, t)) return false;
+
+		// viewportMouse is in render-target pixels with y running DOWN the
+		// image, while the world's y runs up - hence the flip. Getting it
+		// wrong mirrors the brush about the view centre, which looks like a
+		// camera bug rather than a cursor one.
+		const f32 u = viewportMouse.x / dim.x;
+		const f32 v = viewportMouse.y / dim.y;
+		out.x = l + (r - l) * u;
+		out.y = t - (t - b) * v;
+		return true;
+	}
+
+	void SceneEditor::SetTilePaintMode(const bool on)
+	{
+		if (tilePaintMode == on) return;
+		tilePaintMode = on;
+		// Never leave a half-finished stroke behind: leaving the mode with the
+		// button still down would otherwise flush it on the next click, in
+		// whatever the mode is by then.
+		tileStroke.clear();
+		tileStrokeActive = false;
+	}
+
+	namespace {
+		// The map an id names, or the only one in the scene when the id is 0 -
+		// so a scene with a single map needs no picking at all.
+		TileMap2D* ResolvePaintTarget(SceneEditor* ed, SceneObjects* objects, uint32& id)
+		{
+			if (id != 0)
+			{
+				if (TileMap2D* m = ed->RawFindTileMap2D(id)) return m;
+				id = 0;   // it went away
+			}
+			TileMap2D* only = NULL;
+			uint32 onlyId = 0;
+			int found = 0;
+			const std::map<uint32, SceneObject*> &all = objects->GetList();
+			for (std::map<uint32, SceneObject*>::const_iterator i = all.begin(); i != all.end(); ++i)
+			{
+				if (!i->second || i->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+				if (TileMap2D* m = ed->RawFindTileMap2D(i->first))
+				{
+					found++;
+					if (found == 1) { only = m; onlyId = i->first; }
+				}
+			}
+			if (found == 1) { id = onlyId; return only; }
+			return NULL;
+		}
+	}
+
+	void SceneEditor::UpdateTilePainting()
+	{
+		tileHoverValid = false;
+		if (!tilePaintMode || playMode || !sceneIsTwoD) return;
+
+		TileMap2D* map = ResolvePaintTarget(this, sceneObjects, tilePaintTarget);
+		if (!map) return;
+
+		Vec2 world;
+		// viewportMouseValid, NOT viewportHovered: UpdateViewportMouse()
+		// CLEARS viewportHovered at its start and never sets it again (the
+		// value ShowViewport put there is already gone by the time this runs),
+		// so gating on it means the brush never sees the cursor at all.
+		const bool overViewport = ViewportToWorld2D(world);
+		if (overViewport)
+		{
+			// The map's own origin, so a map that is not at the world origin
+			// still paints where the cursor is.
+			Vec3 mapPos(0.f, 0.f, 0.f);
+			if (map->GetOwner()) mapPos = map->GetOwner()->GetWorldPosition();
+			map->WorldToTile(Vec2(world.x - mapPos.x, world.y - mapPos.y),
+				tileHoverX, tileHoverY);
+			tileHoverValid = true;
+		}
+
+		// Buttons are handled in MouseLeftPress/Release - see the comment
+		// there. All this does is follow the cursor, and extend a brush stroke
+		// that is already running.
+		if (tileStrokeActive && tilePaintTool == 0 && tileHoverValid)
+		{
+			// A brush paints as it moves. Duplicates within one stroke are
+			// harmless - OpSetTiles drops cells whose value would not change -
+			// but skipping the repeat keeps the stroke small on a slow drag.
+			const Vec3 cell((f32)tileHoverX, (f32)tileHoverY, (f32)tilePaintBrush);
+			if (tileStroke.empty()
+				|| tileStroke.back().x != cell.x || tileStroke.back().y != cell.y)
+				tileStroke.push_back(cell);
+		}
+
+	}
+
+	void SceneEditor::EndTileStroke()
+	{
+		if (!tileStrokeActive) return;
+		{
+			if (tilePaintTool == 1 && tileHoverValid)
+			{
+				// Rect: only the corners matter, so it is expanded here rather
+				// than accumulated during the drag.
+				tileStroke.clear();
+				const int32 lox = tileRectAnchorX < tileHoverX ? tileRectAnchorX : tileHoverX;
+				const int32 hix = tileRectAnchorX < tileHoverX ? tileHoverX : tileRectAnchorX;
+				const int32 loy = tileRectAnchorY < tileHoverY ? tileRectAnchorY : tileHoverY;
+				const int32 hiy = tileRectAnchorY < tileHoverY ? tileHoverY : tileRectAnchorY;
+				for (int32 y = loy; y <= hiy; y++)
+					for (int32 x = lox; x <= hix; x++)
+						tileStroke.push_back(Vec3((f32)x, (f32)y, (f32)tilePaintBrush));
+			}
+
+			// ONE undo entry for the whole stroke.
+			if (!tileStroke.empty())
+			{
+				std::string err;
+				OpSetTiles(tilePaintTarget, tileStroke,
+					tilePaintBrush < 0 ? "Erase Tiles"
+						: (tilePaintTool == 1 ? "Fill Tiles" : "Paint Tiles"), err);
+			}
+			tileStroke.clear();
+			tileStrokeActive = false;
+		}
+	}
+
+	void SceneEditor::DrawTilePaintOverlay()
+	{
+		if (!tilePaintMode || !debugRenderer || playMode) return;
+		TileMap2D* map = ResolvePaintTarget(this, sceneObjects, tilePaintTarget);
+		if (!map) return;
+
+		f32 l, r, b, t;
+		if (!GetView2DExtent(l, r, b, t)) return;
+
+		const Vec2 ts = map->GetTileSize();
+		if (ts.x <= 0.f || ts.y <= 0.f) return;
+		Vec3 o(0.f, 0.f, 0.f);
+		if (map->GetOwner()) o = map->GetOwner()->GetWorldPosition();
+
+		// In FRONT of the map, not coplanar with it. The overlay and the tiles
+		// are both flat quads, so at the same z they z-fight and the cursor
+		// outline comes out in pieces - three washed-out edges and one bright
+		// one, which reads as a drawing bug rather than a depth one. +z is
+		// towards the camera in a 2D scene; 0.05 is far enough to win and far
+		// inside the ~15-unit depth a layer stack should stay within.
+		const f32 z = o.z + 0.05f;
+
+		// The CELL grid, aligned to the map rather than to round world
+		// numbers - a tile editor's grid has to be the thing being painted,
+		// not a ruler that happens to be nearby. Skipped when the cells would
+		// be denser than a few pixels: past that it is a grey wash that hides
+		// the artwork.
+		const f32 cellsAcross = (r - l) / ts.x;
+		if (cellsAcross < 160.f)
+		{
+			const Vec4 col(1.f, 1.f, 1.f, 0.10f);
+			const f32 x0 = o.x + std::floor((l - o.x) / ts.x) * ts.x;
+			for (f32 x = x0; x <= r; x += ts.x)
+				debugRenderer->drawLine(Vec3(x, b, z), Vec3(x, t, z), col);
+			const f32 y0 = o.y + std::floor((b - o.y) / ts.y) * ts.y;
+			for (f32 y = y0; y <= t; y += ts.y)
+				debugRenderer->drawLine(Vec3(l, y, z), Vec3(r, y, z), col);
+		}
+
+		// What a click would affect: one cell for the brush, the whole
+		// rectangle mid-drag.
+		int32 lox = tileHoverX, hix = tileHoverX, loy = tileHoverY, hiy = tileHoverY;
+		if (tilePaintTool == 1 && tileStrokeActive)
+		{
+			lox = tileRectAnchorX < tileHoverX ? tileRectAnchorX : tileHoverX;
+			hix = tileRectAnchorX < tileHoverX ? tileHoverX : tileRectAnchorX;
+			loy = tileRectAnchorY < tileHoverY ? tileRectAnchorY : tileHoverY;
+			hiy = tileRectAnchorY < tileHoverY ? tileHoverY : tileRectAnchorY;
+		}
+		if (!tileHoverValid && !tileStrokeActive) return;
+
+		// Red for the eraser, so the destructive brush does not look like the
+		// constructive one.
+		const Vec4 col = tilePaintBrush < 0 ? Vec4(1.f, 0.35f, 0.3f, 0.95f)
+			: Vec4(0.4f, 0.9f, 1.f, 0.95f);
+		const f32 cl = o.x + lox * ts.x, cr = o.x + (hix + 1) * ts.x;
+		const f32 cb = o.y + loy * ts.y, ct = o.y + (hiy + 1) * ts.y;
+		debugRenderer->drawLine(Vec3(cl, cb, z), Vec3(cr, cb, z), col);
+		debugRenderer->drawLine(Vec3(cr, cb, z), Vec3(cr, ct, z), col);
+		debugRenderer->drawLine(Vec3(cr, ct, z), Vec3(cl, ct, z), col);
+		debugRenderer->drawLine(Vec3(cl, ct, z), Vec3(cl, cb, z), col);
+	}
+
+	void SceneEditor::ShowTilePalette()
+	{
+		if (!tilePaintMode) return;
+		if (!ImGui::Begin("Tile Palette", NULL))
+		{
+			ImGui::End();
+			return;
+		}
+
+		if (!sceneIsTwoD)
+		{
+			ImGui::TextWrapped("Tile painting is for 2D scenes.");
+			ImGui::End();
+			return;
+		}
+
+		// Which map. A scene with one needs no choice; a scene with several
+		// needs an explicit one, because guessing would silently paint into
+		// the background layer.
+		std::vector<std::pair<uint32, std::string> > maps;
+		{
+			const std::map<uint32, SceneObject*> &all = sceneObjects->GetList();
+			for (std::map<uint32, SceneObject*>::const_iterator i = all.begin(); i != all.end(); ++i)
+			{
+				if (!i->second || i->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+				if (RawFindTileMap2D(i->first))
+					maps.push_back(std::make_pair(i->first, i->second->GetName()));
+			}
+		}
+		if (maps.empty())
+		{
+			ImGui::TextWrapped("No tile map in this scene. Select an object and use "
+				"Add > Tile Map 2D, or the add_tilemap agent command.");
+			ImGui::End();
+			return;
+		}
+
+		if (tilePaintTarget == 0 || !RawFindTileMap2D(tilePaintTarget))
+			tilePaintTarget = maps[0].first;
+		std::string current = "?";
+		for (size_t i = 0; i < maps.size(); i++)
+			if (maps[i].first == tilePaintTarget) current = maps[i].second;
+		if (ImGui::BeginCombo("Map", current.c_str()))
+		{
+			for (size_t i = 0; i < maps.size(); i++)
+				if (ImGui::Selectable(maps[i].second.c_str(), maps[i].first == tilePaintTarget))
+					tilePaintTarget = maps[i].first;
+			ImGui::EndCombo();
+		}
+
+		TileMap2D* map = RawFindTileMap2D(tilePaintTarget);
+		if (!map) { ImGui::End(); return; }
+
+		ImGui::RadioButton("Brush", &tilePaintTool, 0);
+		ImGui::SameLine();
+		ImGui::RadioButton("Rect", &tilePaintTool, 1);
+		ImGui::SameLine();
+		// The eraser is a brush VALUE, not a tool, so switching to it and back
+		// keeps the tile that was selected.
+		bool erasing = (tilePaintBrush < 0);
+		if (ImGui::Checkbox("Erase", &erasing))
+			tilePaintBrush = erasing ? -1 : 0;
+
+		const TileSet2D &set = map->GetTileSet();
+		ImGui::TextDisabled("%s  -  %d tiles, %dx%d px",
+			map->GetTileSetPath().c_str(), set.TileCount(), set.tileW, set.tileH);
+
+		// The atlas, cut into clickable cells at the tileset's own grid. Kept
+		// by path so the palette does not reload the image every frame.
+		const std::string atlasPath = map->GetResolvedAtlasPath().empty()
+			? ResolveAssetPath(set.image) : map->GetResolvedAtlasPath();
+		if (!atlasPath.empty() && atlasPath != tilePickerTexFor)
+		{
+			std::shared_ptr<Texture> tex = std::make_shared<Texture>();
+			if (tex->LoadTexture(atlasPath, TextureType::Texture, false))
+			{
+				tex->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+				tilePickerTex = tex;
+			}
+			else tilePickerTex.reset();
+			tilePickerTexFor = atlasPath;
+		}
+
+		if (tilePickerTex && set.TileCount() > 0)
+		{
+			ImGui::Separator();
+			const ImTextureID texId = (ImTextureID)GetActiveRenderDevice().GetImGuiTextureID(
+				tilePickerTex->GetBindID(), tilePickerTex->GetTextureType());
+			const int cols = set.Columns() > 0 ? set.Columns() : 1;
+			// Big enough to tell two similar tiles apart; small tiles are
+			// scaled up rather than shown at their pixel size, which for a
+			// 16px sheet would be unclickable.
+			const float cell = 32.f;
+			for (int32 i = 0; i < set.TileCount(); i++)
+			{
+				const Vec4 uv = set.UVRect(i);
+				ImGui::PushID(i);
+				const bool selected = (tilePaintBrush == i);
+				if (selected)
+					ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.55f, 0.9f, 1.f));
+				// v0 is the cell's TOP in atlas space, which is also ImGui's
+				// first uv - both run down, so no flip here.
+				if (ImGui::ImageButton("##tile", texId, ImVec2(cell, cell),
+					ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w)))
+					tilePaintBrush = i;
+				if (selected) ImGui::PopStyleColor();
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("tile %d%s", (int)i, set.IsSolid(i) ? "  (solid)" : "");
+				ImGui::PopID();
+				if (((i + 1) % cols) != 0) ImGui::SameLine();
+			}
+			ImGui::NewLine();
+		}
+		else if (!tilePickerTex)
+			ImGui::TextWrapped("Could not load the atlas '%s'.", set.image.c_str());
+
+		ImGui::Separator();
+		if (tileHoverValid)
+			ImGui::Text("cell %d, %d", (int)tileHoverX, (int)tileHoverY);
+		else
+			ImGui::TextDisabled("cursor outside the viewport");
+		// The two numbers worth watching while building a level.
+		ImGui::TextDisabled("%d painted, %d chunks, %d collider boxes",
+			(int)map->PaintedCount(), (int)map->NonEmptyChunks().size(),
+			(int)map->BuildColliderBoxes().size());
+
+		ImGui::End();
+	}
+
+	bool SceneEditor::AgentTilePaintMode(const bool on, const std::string& object,
+		const int32 tile, const std::string& tool, std::string& errOut)
+	{
+		if (on && !sceneIsTwoD) { errOut = "tile painting is for 2D scenes"; return false; }
+		if (!object.empty())
+		{
+			SceneObject* obj = AgentFindGameObjectByName(sceneObjects, object);
+			if (!obj) { errOut = "object '" + object + "' not found"; return false; }
+			if (!RawFindTileMap2D(obj->GetID()))
+			{ errOut = "object '" + object + "' has no TileMap2D"; return false; }
+			tilePaintTarget = obj->GetID();
+		}
+		if (tile >= -1) tilePaintBrush = tile;
+		if (tool == "rect") tilePaintTool = 1;
+		else if (tool == "brush") tilePaintTool = 0;
+		SetTilePaintMode(on);
+		if (on) uiEditMode = false;
+		return true;
+	}
+
+	bool SceneEditor::AgentTileStroke(const std::vector<Vec3>& cells,
+		const std::string& tool, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		if (!tilePaintMode) { errOut = "not in tile paint mode"; return false; }
+		if (cells.empty()) { errOut = "a stroke needs at least one cell"; return false; }
+		if (!RawFindTileMap2D(tilePaintTarget))
+		{ errOut = "no tile map selected to paint into"; return false; }
+
+		// Runs the stroke the way the mouse does - accumulate, then flush
+		// through EndTileStroke - rather than calling OpSetTiles directly, so
+		// what this exercises IS the brush path and not a parallel one.
+		const bool rect = (tool == "rect");
+		tilePaintTool = rect ? 1 : 0;
+		tileStrokeActive = true;
+		tileStroke.clear();
+		tileRectAnchorX = (int32)cells.front().x;
+		tileRectAnchorY = (int32)cells.front().y;
+		if (rect)
+		{
+			tileHoverX = (int32)cells.back().x;
+			tileHoverY = (int32)cells.back().y;
+			tileHoverValid = true;
+		}
+		else
+			for (size_t i = 0; i < cells.size(); i++)
+				tileStroke.push_back(Vec3(cells[i].x, cells[i].y, (f32)tilePaintBrush));
+		EndTileStroke();
+		return true;
+	}
+
+	void SceneEditor::ShowAddTileMapModal()
+	{
+		if (openAddTileMapModal)
+		{
+			ImGui::OpenPopup("Add Tile Map");
+			openAddTileMapModal = false;
+		}
+		if (!ImGui::BeginPopupModal("Add Tile Map", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+			return;
+
+		// Every .p3dt in the project. A file picker would be the general
+		// answer, but a project has a handful of tilesets and a list of them
+		// is one click instead of three.
+		std::vector<std::string> sets;
+		if (project && project->IsOpen())
+		{
+			std::vector<ProjectAssetEntry> entries;
+			project->ListAssets("assets", entries, true);
+			for (size_t i = 0; i < entries.size(); i++)
+			{
+				const std::string &r = entries[i].relativePath;
+				if (r.size() > 5 && r.compare(r.size() - 5, 5, ".p3dt") == 0)
+					sets.push_back(r);
+			}
+		}
+
+		if (sets.empty())
+		{
+			ImGui::TextWrapped("No tilesets in this project yet.");
+			ImGui::Spacing();
+			ImGui::TextWrapped("Right-click an image in the Assets panel and choose "
+				"\"Create Tile Set…\" to cut it into one.");
+		}
+		else
+		{
+			if (addTileMapTileset.empty()) addTileMapTileset = sets[0];
+			if (ImGui::BeginCombo("Tile set", addTileMapTileset.c_str()))
+			{
+				for (size_t i = 0; i < sets.size(); i++)
+					if (ImGui::Selectable(sets[i].c_str(), sets[i] == addTileMapTileset))
+						addTileMapTileset = sets[i];
+				ImGui::EndCombo();
+			}
+			ImGui::InputFloat2("Cell size (world)", addTileMapCell);
+			ImGui::TextDisabled("World units one cell covers - independent of its\npixel size. 1 x 1 is the usual choice.");
+		}
+
+		ImGui::Separator();
+		ImGui::BeginDisabled(sets.empty());
+		if (ImGui::Button("Add", ImVec2(120, 0)))
+		{
+			std::string err;
+			if (!OpAddTileMap2D(addTileMapTarget, addTileMapTileset,
+				Vec2(addTileMapCell[0], addTileMapCell[1]), err))
+				echo("WARNING: could not add Tile Map: " + err);
+			else
+			{
+				// Straight into paint mode with this map selected - adding one
+				// and then hunting through the View menu to use it is a step
+				// with no decision in it.
+				tilePaintTarget = addTileMapTarget;
+				SetTilePaintMode(true);
+				uiEditMode = false;
+			}
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
 	}

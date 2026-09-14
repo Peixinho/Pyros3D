@@ -486,12 +486,24 @@ namespace p3d {
 		if (!built.renderable) return;
 		spritePartHalfExtents = built.halfExtents;
 
+		AdoptGeneratedRenderable(built.renderable, built.materials);
+
+		RefreshSpriteParts2D();
+	}
+
+	void RenderingComponent::AdoptGeneratedRenderable(
+		const std::shared_ptr<Renderable> &built,
+		const std::vector<std::shared_ptr<IMaterial> > &materials)
+	{
+		if (!built) return;
+
 		// Off the scene's render list FIRST. The list holds raw RenderingMesh*
 		// and nothing else removes them, so deleting the meshes while still
 		// registered leaves the renderer walking freed pointers every frame -
 		// and the re-Register below would push `this` into the component lists
-		// a second time. Re-authoring a character in the editor is exactly the
-		// case that does this.
+		// a second time. Re-authoring a character in the editor, and repainting
+		// a tilemap chunk into or out of existence, are the two cases that do
+		// this.
 		const bool wasRegistered = Registered;
 		SceneGraph* wasIn = Scene;
 		if (wasRegistered && wasIn) Unregister(wasIn);
@@ -503,14 +515,20 @@ namespace p3d {
 				delete (*k);
 		Meshes.clear();
 
-		renderable = built.renderable;
+		renderable = built;
 
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
 		{
 			RenderingMesh* m = new RenderingMesh();
 			m->Geometry = renderable->Geometries[i];
-			m->Material = (i < built.materials.size()) ? built.materials[i] : std::shared_ptr<IMaterial>();
+			m->Material = (i < materials.size()) ? materials[i] : std::shared_ptr<IMaterial>();
 			m->renderingComponent = this;
+			// Carry the component's choice onto the new meshes. RenderingMesh
+			// constructs with Sphere, so without this a geometry swap silently
+			// reverts a component that had been set to Box - and the caller
+			// cannot fix it by setting it first, because these meshes do not
+			// exist yet at that point.
+			m->CullingGeometry = CullingGeometry;
 			Meshes[0].push_back(m);
 		}
 
@@ -519,11 +537,16 @@ namespace p3d {
 		maxBounds = renderable->GetBoundingMaxValue();
 		minBounds = renderable->GetBoundingMinValue();
 
+		// The owner aggregated our bounds when we were ADDED, from whatever
+		// geometry we were constructed with - a placeholder, for anything
+		// generated. CullingBoxTest tests the owner's box, so without this a
+		// tilemap keeps the 2x2 box of the Plane it was built over and is
+		// culled the moment the origin leaves the view.
+		if (Owner) Owner->RefreshComponentBounds();
+
 		// Back on, with the new meshes, if it was on before. Without this a
 		// re-authored character draws nothing until the scene is reloaded.
 		if (wasRegistered && wasIn) Register(wasIn);
-
-		RefreshSpriteParts2D();
 	}
 
 	// Each part follows its bone by way of its own mesh's Pivot, which the

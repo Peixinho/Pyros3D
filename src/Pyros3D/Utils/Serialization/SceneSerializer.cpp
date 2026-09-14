@@ -27,6 +27,7 @@
 #include <Pyros3D/Assets/Character2D/Character2DInstance.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
+#include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
@@ -274,6 +275,74 @@ namespace p3d {
 			break;
 		}
 		return path;
+	}
+
+	// Whether this component's owner also carries a tilemap. A tilemap's
+	// RenderingComponent holds generated chunk geometry, which
+	// SerializeRenderable cannot describe and DeserializeRenderable cannot
+	// rebuild - exactly the position a 2D character is in, and handled the
+	// same way: the scene records the marker, and the component is given a
+	// placeholder to construct with until TileMap2D::Rebuild() replaces it.
+	static bool OwnerHasTileMap2D(IComponent* c)
+	{
+		if (!c || !c->GetOwner()) return false;
+		const std::vector<std::shared_ptr<IComponent> > &comps = c->GetOwner()->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++)
+			if (comps[i] && comps[i]->GetComponentType() == ComponentType::TileMap2D)
+				return true;
+		return false;
+	}
+
+	// One chunk's cells, row-major, as [value, runLength] pairs with -1 for
+	// empty. Run-length because a 200x60 map is 12000 cells and a flat array
+	// of them is 60 KB of JSON that no one can read or diff; runs collapse the
+	// empty space a sparse chunk is mostly made of.
+	static json EncodeTileChunk(const TileMap2D* m, const int32 cx, const int32 cy)
+	{
+		json runs = json::array();
+		int32 runValue = 0;
+		int32 runLength = 0;
+		bool have = false;
+		for (int32 ly = 0; ly < TileMap2D::CHUNK; ly++)
+		{
+			for (int32 lx = 0; lx < TileMap2D::CHUNK; lx++)
+			{
+				const int32 v = m->GetTile(cx * TileMap2D::CHUNK + lx,
+					cy * TileMap2D::CHUNK + ly);
+				if (have && v == runValue) { runLength++; continue; }
+				if (have) runs.push_back(json::array({ runValue, runLength }));
+				runValue = v;
+				runLength = 1;
+				have = true;
+			}
+		}
+		if (have) runs.push_back(json::array({ runValue, runLength }));
+		return runs;
+	}
+
+	// The inverse. Tolerates a short or over-long run list rather than
+	// trusting the file: a truncated chunk fills what it can and stops, which
+	// loses tiles visibly instead of writing past the grid.
+	static void DecodeTileChunk(TileMap2D* m, const int32 cx, const int32 cy,
+		const json &runs)
+	{
+		if (!runs.is_array()) return;
+		const int32 cells = TileMap2D::CHUNK * TileMap2D::CHUNK;
+		int32 at = 0;
+		for (size_t i = 0; i < runs.size() && at < cells; i++)
+		{
+			if (!runs[i].is_array() || runs[i].size() != 2) continue;
+			const int32 v = runs[i][0].get<int32>();
+			int32 n = runs[i][1].get<int32>();
+			if (n < 0) continue;
+			if (at + n > cells) n = cells - at;
+			for (int32 k = 0; k < n; k++, at++)
+			{
+				if (v < 0) continue;   // empty runs are the default
+				m->SetTile(cx * TileMap2D::CHUNK + (at % TileMap2D::CHUNK),
+					cy * TileMap2D::CHUNK + (at / TileMap2D::CHUNK), v);
+			}
+		}
 	}
 
 	static std::string ResolveSceneAssetPath(const std::string &path)
@@ -1060,10 +1129,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// cannot be reconstructed, would otherwise throw the whole
 			// character away on save.
 			const bool isCharacter2D = rc->IsCharacter2D();
+			// A tilemap is in the same position for the same reason - its
+			// geometry is generated, not described. See OwnerHasTileMap2D.
+			const bool isTileMap2D = OwnerHasTileMap2D(c);
+			const bool isGenerated = isCharacter2D || isTileMap2D;
 
 			json renderableJson;
 			IMaterial* mat = NULL;
-			if (!isCharacter2D)
+			if (!isGenerated)
 			{
 				// Only LOD 0's renderable is recoverable (AddLOD() never
 				// updates the single shared `renderable` field - see
@@ -1079,11 +1152,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["type"] = "RenderingComponent";
 			j["cullTest"] = rc->IsCullTesting();
 			j["castingShadows"] = rc->IsCastingShadows();
-			if (!isCharacter2D)
+			if (!isGenerated)
 			{
 				j["material"] = GetOrAddMaterial(mat, materialsArray, materialIdMap);
 				j["renderable"] = renderableJson;
 			}
+			if (isTileMap2D) j["tileMap2D"] = true;
 
 			// A 2D character. The scene stores the ASSET it came from and
 			// which clip it starts on - nothing else. Bones, artwork and
@@ -1487,6 +1561,35 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["shape"] = (int)o->GetShapeType();
 			j["size"] = ToJson(o->GetSize());
 			j["enabled"] = o->IsEnabled();
+			return j;
+		}
+		case ComponentType::TileMap2D:
+		{
+			TileMap2D* m = dynamic_cast<TileMap2D*>(c);
+			j["type"] = "TileMap2D";
+
+			// Settings and grid are separate objects deliberately. A generic
+			// component property edit in the editor snapshots this object
+			// before and after (ReplaceGameObjectCommand); with the grid in
+			// the same object, nudging the cell size would copy the whole map
+			// twice into one undo entry. See TILEMAP_PLAN.md.
+			json st;
+			st["tileset"] = m->GetTileSetPath();
+			st["tileSize"] = ToJson(m->GetTileSize());
+			st["lit"] = m->IsLit();
+			j["settings"] = st;
+
+			const std::vector<std::pair<int32, int32> > used = m->NonEmptyChunks();
+			json chunks = json::array();
+			for (size_t i = 0; i < used.size(); i++)
+			{
+				json ch;
+				ch["cx"] = used[i].first;
+				ch["cy"] = used[i].second;
+				ch["rle"] = EncodeTileChunk(m, used[i].first, used[i].second);
+				chunks.push_back(ch);
+			}
+			j["chunks"] = chunks;
 			return j;
 		}
 		case ComponentType::Physics2D:
@@ -2356,8 +2459,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// below replaces the geometry wholesale.
 			const bool isCharacter2D = (j.find("character2D") != j.end() && j["character2D"].is_string()
 				&& !j["character2D"].get<std::string>().empty());
+			// Same story: TileMap2D::Rebuild() replaces the geometry on the
+			// first Update() after load, so all this has to do is construct.
+			const bool isTileMap2D = j.value("tileMap2D", false);
+			const bool isGenerated = isCharacter2D || isTileMap2D;
 
-			std::shared_ptr<Renderable> renderable = isCharacter2D
+			std::shared_ptr<Renderable> renderable = isGenerated
 				? std::static_pointer_cast<Renderable>(std::make_shared<Plane>(1.f, 1.f))
 				: DeserializeRenderable(j.value("renderable", json()), outAssets);
 			if (!renderable) { echo("WARNING: SceneSerializer - skipping RenderingComponent, couldn't rebuild its renderable"); return; }
@@ -2368,9 +2475,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// paths resolve next to the package). Applying one serialized
 			// material to every mesh dropped package textures on reload.
 			const bool isModel = (dynamic_cast<Model*>(renderable.get()) != NULL);
-			if (!isCharacter2D && !isModel && !mat)
+			if (!isGenerated && !isModel && !mat)
 			{ echo("WARNING: SceneSerializer - skipping RenderingComponent, its material couldn't be rebuilt"); return; }
-			if (isCharacter2D && !mat) mat = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color);
+			if (isGenerated && !mat) mat = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color);
 
 			std::shared_ptr<RenderingComponent> rc;
 			if (isModel)
@@ -2791,6 +2898,59 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			ph->SetFixedRotation(j.value("fixedRotation", false));
 			ph->SetCastsShadow(j.value("castsShadow", true));
 			go->Add(ph);
+			return;
+		}
+				else if (type == "TileMap2D")
+		{
+			const json st = j.value("settings", json::object());
+			std::shared_ptr<TileMap2D> m = std::make_shared<TileMap2D>(
+				st.contains("tileSize") ? Vec2FromJson(st["tileSize"]) : Vec2(1.f, 1.f));
+			m->SetLit(st.value("lit", false));
+
+			// The tileset, and the atlas's pixel size it needs to cut cells
+			// with. A map that cannot find either gets an empty tileset and a
+			// warning: every cell's UVs then collapse to a point, which is
+			// visible, rather than being cut against a guessed sheet size,
+			// which is not.
+			const std::string tsRel = st.value("tileset", std::string());
+			m->SetTileSetPath(tsRel);
+			if (!tsRel.empty())
+			{
+				TileSet2D set;
+				std::string err;
+				const std::string tsAbs = ResolveSceneAssetPath(tsRel);
+				if (tsAbs.empty() || !LoadTileSet2D(tsAbs, set, &err))
+					echo("WARNING: tileset could not be loaded: " + tsRel + " (" + err + ")");
+				else
+				{
+					int32 iw = 0, ih = 0;
+					const std::string imgAbs = ResolveSceneAssetPath(set.image);
+					if (imgAbs.empty() || !TileSet2DReadImageSize(imgAbs, iw, ih))
+						echo("WARNING: tileset atlas could not be measured: " + set.image);
+					else
+						set.SetImageSize(iw, ih);
+					m->SetTileSet(set);
+					// Resolve the atlas NOW, while g_sceneAssetRoot is still
+					// set. The map rebuilds on its first Update(), by which
+					// time this load has cleared that root and
+					// ResolveSceneAssetPath hands back the raw relative path -
+					// which loads as the default white texture, so every cell
+					// draws as a blank quad. Must follow SetTileSet, which
+					// clears it.
+					m->SetResolvedAtlasPath(imgAbs);
+				}
+			}
+
+			if (j.contains("chunks") && j["chunks"].is_array())
+				for (size_t i = 0; i < j["chunks"].size(); i++)
+				{
+					const json &ch = j["chunks"][i];
+					if (!ch.is_object()) continue;
+					DecodeTileChunk(m.get(), ch.value("cx", 0), ch.value("cy", 0),
+						ch.value("rle", json::array()));
+				}
+
+			go->Add(m);
 			return;
 		}
 				else if (type == "Layer2D")

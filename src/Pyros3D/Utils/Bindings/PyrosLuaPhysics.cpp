@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
+#include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
 
 namespace p3d {
 
@@ -67,6 +68,51 @@ namespace p3d {
 			"isVisible", &Layer2D::IsVisible,
 			"setVisible", &Layer2D::SetVisible,
 			"getBasePosition", &Layer2D::GetBasePosition,
+			sol::base_classes, sol::bases<IComponent>()
+			);
+
+		// A tilemap. What a script needs from one is the grid, not the mesh:
+		// reading a cell to ask what the ground under the player is made of,
+		// and writing one to dig, destroy or build. The rebuild that follows a
+		// write is the component's own business and happens at the end of the
+		// frame, so a script may write as many cells as it likes without
+		// thinking about cost.
+		//
+		// worldToTile returns two values rather than taking out-params: Lua
+		// has multiple returns and `local tx, ty = map:worldToTile(p)` is what
+		// a caller expects.
+		lua->new_usertype<TileMap2D>("TileMap2D",
+			"getTile", &TileMap2D::GetTile,
+			"setTile", &TileMap2D::SetTile,
+			"fill", &TileMap2D::Fill,
+			"clearTiles", &TileMap2D::ClearTiles,
+			"tileToWorld", &TileMap2D::TileToWorld,
+			"worldToTile", [](TileMap2D &m, const Vec2 &p) {
+				int32 x = 0, y = 0;
+				m.WorldToTile(p, x, y);
+				return std::make_tuple(x, y);
+			},
+			"getTileSize", &TileMap2D::GetTileSize,
+			"setTileSize", &TileMap2D::SetTileSize,
+			"paintedCount", &TileMap2D::PaintedCount,
+			// nil when nothing is painted, rather than four zeroes that read
+			// as a real one-cell map at the origin.
+			"getTileBounds", [](TileMap2D &m, sol::this_state ts) {
+				int32 a = 0, b = 0, c = 0, d = 0;
+				if (!m.GetTileBounds(a, b, c, d))
+					return sol::object(sol::lua_nil);
+				sol::state_view lv(ts);
+				return sol::object(lv, sol::in_place, lv.create_table_with(
+					"minX", a, "minY", b, "maxX", c, "maxY", d));
+			},
+			// Whether the cell at these tile coordinates collides - the
+			// question a script actually has, rather than "what index is it
+			// and is that index solid".
+			"isSolidAt", [](TileMap2D &m, const int32 x, const int32 y) {
+				const int32 t = m.GetTile(x, y);
+				return t >= 0 && m.GetTileSet().IsSolid(t);
+			},
+			"getTileSetPath", &TileMap2D::GetTileSetPath,
 			sol::base_classes, sol::bases<IComponent>()
 			);
 

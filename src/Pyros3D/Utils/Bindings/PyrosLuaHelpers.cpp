@@ -9,6 +9,7 @@
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
+#include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
 
 namespace p3d {
 
@@ -481,6 +482,8 @@ namespace p3d {
 				return sol::make_object(lua, std::static_pointer_cast<Layer2D>(c));
 			if (typeName == "Physics2D" && c->GetComponentType() == ComponentType::Physics2D)
 				return sol::make_object(lua, std::static_pointer_cast<Physics2D>(c));
+			if (typeName == "TileMap2D" && c->GetComponentType() == ComponentType::TileMap2D)
+				return sol::make_object(lua, std::static_pointer_cast<TileMap2D>(c));
 			// Lights and sounds. Without these a scene's own lighting and
 			// audio were unreachable from script: a game could author a
 			// torch in the editor and had no way to light it, and the only

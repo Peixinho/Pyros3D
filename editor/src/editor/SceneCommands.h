@@ -168,6 +168,49 @@ private:
 // coupling (just two closures + a description), so both this file and
 // MaterialEditorDocument/MaterialEditor.cpp can share one definition.
 
+// Reverses a batch of tile writes on one TileMap2D.
+//
+// Deliberately NOT a subtree snapshot like every other component edit here.
+// A map's serialized form carries its whole grid, so snapshotting it before
+// and after would put two copies of the level into one undo entry - and
+// UndoStack's 64 MB cap would then start evicting unrelated history every few
+// strokes. A delta is a handful of bytes per cell touched.
+//
+// ONE command per operation, never one per cell: a drag across 200 cells is
+// one entry. UndoStack has no coalescing, so a per-cell push would fill the
+// 200-deep stack with a single stroke and silently drop everything before it.
+//
+// The map is looked up by object id on each Undo/Redo rather than held as a
+// pointer: an earlier undo may have destroyed and rebuilt that object, and a
+// stored pointer would then be stale.
+class SetTilesCommand : public IUndoableCommand {
+public:
+	struct Cell {
+		int x, y;
+		int before, after;   // -1 is an empty cell
+	};
+
+	SetTilesCommand(SceneEditor* editor, uint32 goId, std::vector<Cell> cells,
+		const std::string& description)
+		: editor_(editor), goId_(goId), cells_(std::move(cells)), description_(description) {}
+
+	void Undo() override;
+	void Redo() override;
+	std::string Description() const override { return description_; }
+	size_t MemoryCost() const override
+	{
+		return sizeof(*this) + cells_.capacity() * sizeof(Cell) + description_.capacity();
+	}
+
+private:
+	void Apply(bool undo);
+
+	SceneEditor* editor_;
+	uint32 goId_;
+	std::vector<Cell> cells_;
+	std::string description_;
+};
+
 // Reverses "a submesh's material was reassigned" - just swaps the
 // RenderingMesh::Material shared_ptr back and forth, no serialization
 // needed since IMaterial is already refcounted (both the old and new

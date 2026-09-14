@@ -92,6 +92,29 @@ namespace p3d {
 		bool CastsShadow() const { return castsShadow; }
 		void SetCastsShadow(const bool c) { castsShadow = c; }
 
+		// --- Compound shapes ------------------------------------------------
+		// Several boxes on ONE body, as (centreX, centreY, halfW, halfH) in
+		// body-local space. When this is non-empty it REPLACES the single
+		// shape above; `shapeType`/`size` are then ignored.
+		//
+		// Exists for TileMap2D: a tiled floor is thousands of cells, and one
+		// body per cell would be thousands of bodies for what is physically a
+		// handful of rectangles. Box2D carries many shapes on one body
+		// natively, so the merge happens before it ever gets here and the
+		// solver sees roughly what a hand-placed level would have had.
+		//
+		// Deliberately not its own component type: everything else a body
+		// needs - density, friction, contact events, the tracked/destroy
+		// reconciliation in Physics2DWorld - is identical, and a second
+		// component would have to duplicate all of it.
+		void SetCompoundBoxes(const std::vector<Vec4> &boxes);
+		const std::vector<Vec4> &GetCompoundBoxes() const { return compoundBoxes; }
+		bool IsCompound() const { return !compoundBoxes.empty(); }
+		// True when the shape list has changed since the body was built, so
+		// Physics2DWorld knows to rebuild it. Cleared when it does.
+		bool NeedsShapeRebuild() const { return shapesDirty; }
+		void ClearShapeRebuild() { shapesDirty = false; }
+
 		// --- Runtime, once a body exists -----------------------------------
 		// These reach Box2D directly from the .cpp by rebuilding the body id
 		// from the fields below, so they need no pointer back to the world.
@@ -141,6 +164,9 @@ namespace p3d {
 		f32 restitution;
 		bool fixedRotation;
 		bool castsShadow;
+
+		std::vector<Vec4> compoundBoxes;
+		bool shapesDirty;
 
 		bool haveBody;
 		int32 bodyIndex;

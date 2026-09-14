@@ -286,7 +286,14 @@ namespace p3d {
 		for (size_t i = 0; i < found.size(); i++)
 		{
 			Physics2D* p = found[i];
-			if (p->HaveBody() || p->GetOwner() == NULL) continue;
+			if (p->GetOwner() == NULL) continue;
+			// A compound body whose shape list changed is destroyed and
+			// rebuilt below rather than edited in place: Box2D has no
+			// "replace every shape" call, and removing them one at a time
+			// costs the same as a fresh body. Done HERE, at the frame
+			// boundary, never mid-step.
+			if (p->HaveBody() && p->NeedsShapeRebuild()) DestroyBodyFor(p);
+			if (p->HaveBody()) continue;
 
 			const Vec3 pos = p->GetOwner()->GetWorldPosition();
 			b2BodyDef bd = b2DefaultBodyDef();
@@ -309,7 +316,23 @@ namespace p3d {
 			sd.material.friction = p->GetFriction();
 			sd.material.restitution = p->GetRestitution();
 
-			if (p->GetShapeType() == Shape2DType::Circle)
+			if (p->IsCompound())
+			{
+				// Many shapes on one body. A tiled floor merges to a handful
+				// of rectangles, so this is single digits for a level that
+				// would otherwise be thousands of bodies - see
+				// Physics2D::SetCompoundBoxes.
+				const std::vector<Vec4> &boxes = p->GetCompoundBoxes();
+				for (size_t b = 0; b < boxes.size(); b++)
+				{
+					b2Vec2 c;
+					c.x = boxes[b].x;
+					c.y = boxes[b].y;
+					b2Polygon box = b2MakeOffsetBox(boxes[b].z, boxes[b].w, c, b2MakeRot(0.f));
+					b2CreatePolygonShape(body, &sd, &box);
+				}
+			}
+			else if (p->GetShapeType() == Shape2DType::Circle)
 			{
 				b2Circle circle;
 				circle.center.x = 0.f;
@@ -323,6 +346,7 @@ namespace p3d {
 				b2CreatePolygonShape(body, &sd, &box);
 			}
 
+			p->ClearShapeRebuild();
 			p->SetBodyHandle(body.index1, body.world0, body.generation);
 		}
 

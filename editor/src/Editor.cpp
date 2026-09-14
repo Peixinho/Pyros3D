@@ -9,6 +9,7 @@
 #include "Editor.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/Assets/TileSet2D/TileSet2D.h>
 // The agent bridge reaches into an animation document's live rig (bone
 // names, current pose) - AnimationEditorDocument only forward-declares it.
 #include "editor/AnimationPreview.h"
@@ -2312,6 +2313,105 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		sceneView->AgentSetViewport2D(c.size() > 0 ? c[0] : 0.f, c.size() > 1 ? c[1] : 0.f, zoom);
 		nlohmann::json r; r["ok"] = true; return r;
 	}
+	// {"cmd":"add_tilemap","args":{"object":"Ground","tileset":"assets/tiles/forest.p3dt","tileSize":[1,1]}}
+	// Adds a RenderingComponent too if the object has none - a map draws
+	// through one. Fails if the tileset or its atlas cannot be read, rather
+	// than leaving a map that silently draws nothing.
+	if (name == "add_tilemap")
+	{
+		std::vector<f32> ts = AV("tileSize");
+		const Vec2 size(ts.size() > 0 ? ts[0] : 1.f, ts.size() > 1 ? ts[1] : 1.f);
+		if (!sceneView->AgentAddTileMap2D(A("object"), A("tileset"), size, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; return r;
+	}
+	// {"cmd":"set_tiles","args":{"object":"Ground","tiles":[[0,0,12],[1,0,12]]}}
+	// One undo entry for the whole batch, so send a stroke as one call rather
+	// than a call per cell. A negative index erases.
+	if (name == "set_tiles")
+	{
+		std::vector<Vec3> cells;
+		if (a.is_object() && a.contains("tiles") && a["tiles"].is_array())
+			for (size_t i = 0; i < a["tiles"].size(); i++)
+			{
+				const nlohmann::json &t = a["tiles"][i];
+				if (!t.is_array() || t.size() < 3) continue;
+				cells.push_back(Vec3((f32)t[0].get<double>(), (f32)t[1].get<double>(),
+					(f32)t[2].get<double>()));
+			}
+		if (cells.empty()) throw std::runtime_error("no tiles given");
+		if (!sceneView->AgentSetTiles(A("object"), cells, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["cells"] = (int)cells.size(); return r;
+	}
+	// {"cmd":"fill_tiles","args":{"object":"Ground","rect":[0,0,39,1],"tile":12}}
+	if (name == "fill_tiles")
+	{
+		std::vector<f32> rc = AV("rect");
+		if (rc.size() < 4) throw std::runtime_error("rect must be [x0,y0,x1,y1]");
+		const int32 tile = a.is_object() && a.contains("tile") && a["tile"].is_number()
+			? (int32)a["tile"].get<int>() : -1;
+		if (!sceneView->AgentFillTiles(A("object"), (int32)rc[0], (int32)rc[1],
+			(int32)rc[2], (int32)rc[3], tile, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; return r;
+	}
+	// {"cmd":"get_tiles","args":{"object":"Ground","rect":[0,0,9,4]}}
+	// Row-major from the rect's lower-left, -1 for an empty cell.
+	if (name == "get_tiles")
+	{
+		std::vector<f32> rc = AV("rect");
+		if (rc.size() < 4) throw std::runtime_error("rect must be [x0,y0,x1,y1]");
+		std::vector<int32> cells;
+		if (!sceneView->AgentGetTiles(A("object"), (int32)rc[0], (int32)rc[1],
+			(int32)rc[2], (int32)rc[3], cells, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["width"] = (int)(abs((int)rc[2] - (int)rc[0]) + 1);
+		r["height"] = (int)(abs((int)rc[3] - (int)rc[1]) + 1);
+		r["tiles"] = cells;
+		return r;
+	}
+	// {"cmd":"tilemap_info","args":{"object":"Ground"}}
+	if (name == "tilemap_info")
+	{
+		nlohmann::json info;
+		if (!sceneView->AgentTileMapInfo(A("object"), info, err))
+			throw std::runtime_error(err);
+		info["ok"] = true;
+		return info;
+	}
+	// {"cmd":"tile_paint_mode","args":{"on":true,"object":"Ground","tile":12,"tool":"rect"}}
+	// tile -1 is the eraser. Painting itself is done with set_tiles/fill_tiles
+	// - this is the mode the VIEWPORT is in, for a human at the mouse.
+	if (name == "tile_paint_mode")
+	{
+		const bool on = !a.is_object() || !a.contains("on") || a["on"].get<bool>();
+		const int32 tile = a.is_object() && a.contains("tile") && a["tile"].is_number()
+			? (int32)a["tile"].get<int>() : -2;
+		if (!sceneView->AgentTilePaintMode(on, A("object"), tile, A("tool"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["painting"] = sceneView->IsTilePaintMode();
+		return r;
+	}
+	// {"cmd":"tile_stroke","args":{"cells":[[0,0],[1,0],[2,0]],"tool":"brush"}}
+	// A brush stroke, or a rect between the first and last cell. Uses the
+	// brush tile_paint_mode set. One undo entry, exactly as if it were dragged.
+	if (name == "tile_stroke")
+	{
+		std::vector<Vec3> cells;
+		if (a.is_object() && a.contains("cells") && a["cells"].is_array())
+			for (size_t i = 0; i < a["cells"].size(); i++)
+			{
+				const nlohmann::json &c = a["cells"][i];
+				if (!c.is_array() || c.size() < 2) continue;
+				cells.push_back(Vec3((f32)c[0].get<double>(), (f32)c[1].get<double>(), 0.f));
+			}
+		if (!sceneView->AgentTileStroke(cells, A("tool"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["cells"] = (int)cells.size(); return r;
+	}
 	if (name == "add_layer2d")
 	{
 		if (!sceneView->AgentAddLayer2D(A("name"), err))
@@ -3876,6 +3976,8 @@ void Editor::DrawUI()
 
 	if (showingSceneTree)
 		DrawSceneTreeWindow();
+	DrawTilePaletteWindow();
+	ShowCreateTileSetModal();
 
 	if (showingSceneView)
 		DrawSceneViewWindow();
@@ -6358,6 +6460,88 @@ void Editor::DrawSceneViewWindow()
 	ImGui::End();
 }
 
+// Its own window rather than a Properties tab: while painting it is the panel
+// you look at constantly, and the Properties panel is showing whatever is
+// selected - which during a paint session is nothing in particular. Draws
+// nothing at all unless paint mode is on.
+void Editor::ShowCreateTileSetModal()
+{
+	if (openCreateTileSetModal)
+	{
+		ImGui::OpenPopup("Create Tile Set");
+		openCreateTileSetModal = false;
+	}
+	if (!ImGui::BeginPopupModal("Create Tile Set", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+		return;
+
+	ImGui::TextDisabled("%s", pendingTileSetImageRel.c_str());
+	ImGui::Separator();
+
+	const std::string absImg = project.AbsolutePath(pendingTileSetImageRel);
+	p3d::int32 iw = 0, ih = 0;
+	const bool haveSize = p3d::TileSet2DReadImageSize(absImg, iw, ih);
+	if (haveSize) ImGui::Text("Image: %d x %d px", (int)iw, (int)ih);
+	else ImGui::TextColored(ImVec4(1.f, 0.5f, 0.4f, 1.f), "Could not read this image.");
+
+	ImGui::InputInt("Tile width", &newTileSetTileW);
+	ImGui::InputInt("Tile height", &newTileSetTileH);
+	ImGui::InputInt("Margin", &newTileSetMargin);
+	ImGui::InputInt("Spacing", &newTileSetSpacing);
+	if (newTileSetTileW < 1) newTileSetTileW = 1;
+	if (newTileSetTileH < 1) newTileSetTileH = 1;
+	if (newTileSetMargin < 0) newTileSetMargin = 0;
+	if (newTileSetSpacing < 0) newTileSetSpacing = 0;
+
+	// The grid those numbers actually produce, before committing to them -
+	// "16" is a guess about someone else's art until it says 4 x 4.
+	p3d::TileSet2D preview;
+	preview.image = pendingTileSetImageRel;
+	preview.tileW = newTileSetTileW;
+	preview.tileH = newTileSetTileH;
+	preview.margin = newTileSetMargin;
+	preview.spacing = newTileSetSpacing;
+	if (haveSize) preview.SetImageSize(iw, ih);
+	ImGui::Separator();
+	if (preview.TileCount() > 0)
+		ImGui::Text("Grid: %d x %d  =  %d tiles",
+			(int)preview.Columns(), (int)preview.Rows(), (int)preview.TileCount());
+	else
+		ImGui::TextColored(ImVec4(1.f, 0.5f, 0.4f, 1.f),
+			"No whole tile fits - the size or margin is too large.");
+
+	ImGui::Separator();
+	const bool canCreate = haveSize && preview.TileCount() > 0;
+	ImGui::BeginDisabled(!canCreate);
+	if (ImGui::Button("Create", ImVec2(120, 0)))
+	{
+		// Beside the image, named after it: a tileset belongs to its sheet,
+		// and putting it anywhere else makes the pair a thing to remember.
+		std::string rel = pendingTileSetImageRel;
+		const size_t dot = rel.find_last_of('.');
+		if (dot != std::string::npos) rel = rel.substr(0, dot);
+		rel += ".p3dt";
+
+		std::string err;
+		if (p3d::SaveTileSet2D(project.AbsolutePath(rel), preview, &err))
+		{
+			// No refresh call: the Assets grid enumerates the folder each
+			// frame, so the new .p3dt is simply there.
+			echo("Created tile set " + rel);
+		}
+		else echo("WARNING: could not write " + rel + ": " + err);
+		ImGui::CloseCurrentPopup();
+	}
+	ImGui::EndDisabled();
+	ImGui::SameLine();
+	if (ImGui::Button("Cancel", ImVec2(120, 0))) ImGui::CloseCurrentPopup();
+	ImGui::EndPopup();
+}
+
+void Editor::DrawTilePaletteWindow()
+{
+	if (sceneView) sceneView->ShowTilePalette();
+}
+
 void Editor::DrawSceneTreeWindow()
 {
 	if (!ImGui::Begin("Scene Tree", &showingSceneTree))
@@ -6875,7 +7059,14 @@ void Editor::DrawAssetsWindow()
 				OpenAnimationDocument(abs);
 			if ((isModel || isSound) && ImGui::MenuItem("Place in Scene") && sceneView)
 				sceneView->PlaceAssetInScene(abs);
-			if (isScene || isLua || isMat || isAnim || isChar2D || isModel || isSound)
+			// An image becomes a tileset here. Cutting it is the only step
+			// between a sheet of art and something a tile map can use.
+			if (isTex && ImGui::MenuItem("Create Tile Set…"))
+			{
+				pendingTileSetImageRel = e.relativePath;
+				openCreateTileSetModal = true;
+			}
+			if (isScene || isLua || isMat || isAnim || isChar2D || isModel || isSound || isTex)
 				ImGui::Separator();
 			ShowAssetCreateMenuItems();
 			ImGui::Separator();

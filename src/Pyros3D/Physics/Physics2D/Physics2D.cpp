@@ -21,6 +21,7 @@ namespace p3d {
 		restitution = 0.f;
 		fixedRotation = false;
 		castsShadow = true;
+		shapesDirty = false;
 		haveBody = false;
 		bodyIndex = 0;
 		bodyWorld = 0;
@@ -28,6 +29,26 @@ namespace p3d {
 	}
 
 	Physics2D::~Physics2D() {}
+
+	void Physics2D::SetCompoundBoxes(const std::vector<Vec4> &boxes)
+	{
+		// Compared rather than assigned blindly: TileMap2D recomputes its
+		// merge whenever the grid changes, and most edits do not change the
+		// collider set at all. Rebuilding an unchanged body would destroy and
+		// recreate every contact on it - anything standing on the floor would
+		// be re-seated, and a body mid-contact would lose the contact events
+		// it was about to receive.
+		if (boxes.size() == compoundBoxes.size())
+		{
+			bool same = true;
+			for (size_t i = 0; i < boxes.size() && same; i++)
+				same = (boxes[i].x == compoundBoxes[i].x && boxes[i].y == compoundBoxes[i].y
+					&& boxes[i].z == compoundBoxes[i].z && boxes[i].w == compoundBoxes[i].w);
+			if (same) return;
+		}
+		compoundBoxes = boxes;
+		shapesDirty = true;
+	}
 
 	namespace {
 		b2BodyId IdOf(const Physics2D* p)

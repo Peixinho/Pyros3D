@@ -366,6 +366,20 @@ namespace p3d {
 		void SetSpriteRig2D(const std::vector<SpritePart2D> &parts,
 			const std::function<std::string(const std::string&)> &resolve);
 
+		// Replaces this component's geometry wholesale with a renderable built
+		// at run time, one material per geometry (short lists leave the rest
+		// materialless). The shared half of SetSpriteRig2D, extracted when
+		// TileMap2D became the second generator of run-time geometry: the
+		// unregister/rebuild/re-register dance below is subtle enough that
+		// two copies of it would drift.
+		//
+		// Safe on a registered component - the scene's render list holds raw
+		// RenderingMesh* and nothing else removes them, so this takes the
+		// component off the list before deleting any mesh and puts it back
+		// after.
+		void AdoptGeneratedRenderable(const std::shared_ptr<Renderable> &built,
+			const std::vector<std::shared_ptr<IMaterial> > &materials);
+
 		// Project-relative path of the .p3d2d this character was built from,
 		// or empty for a component that is not a 2D character.
 		//

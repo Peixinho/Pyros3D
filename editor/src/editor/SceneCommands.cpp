@@ -1,5 +1,6 @@
 #include "SceneCommands.h"
 #include "SceneEditor.h"
+#include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
 
 // ---------------------------------------------------------------------
 // AddGameObjectCommand
@@ -220,3 +221,21 @@ std::string AssignMaterialCommand::Description() const
 {
 	return "Assign Material on '" + name_ + "'";
 }
+
+// ---------------------------------------------------------------------
+// SetTilesCommand
+// ---------------------------------------------------------------------
+
+void SetTilesCommand::Apply(bool undo)
+{
+	TileMap2D* map = editor_->RawFindTileMap2D(goId_);
+	// The object can be gone entirely - an undo further down the stack may
+	// have deleted it. Nothing to restore onto, and that is not an error.
+	if (!map) return;
+	for (size_t i = 0; i < cells_.size(); i++)
+		map->SetTile(cells_[i].x, cells_[i].y, undo ? cells_[i].before : cells_[i].after);
+	editor_->MarkSceneDirty();
+}
+
+void SetTilesCommand::Undo() { Apply(true); }
+void SetTilesCommand::Redo() { Apply(false); }

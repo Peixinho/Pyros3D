@@ -532,6 +532,43 @@ namespace p3d {
 		}
 	}
 
+	void GameObject::RefreshComponentBounds()
+	{
+		bool first = true;
+		for (std::vector<std::shared_ptr<IComponent> >::iterator i = Components.begin(); i != Components.end(); i++)
+		{
+			if (!(*i)) continue;
+			IComponent* c = (*i).get();
+			if (first)
+			{
+				minBounds = c->minBounds;
+				maxBounds = c->maxBounds;
+				BoundingSphereRadius = c->BoundingSphereRadius;
+				BoundingSphereCenter = c->BoundingSphereCenter;
+				first = false;
+				continue;
+			}
+			if (minBounds.x > c->minBounds.x) minBounds.x = c->minBounds.x;
+			if (minBounds.y > c->minBounds.y) minBounds.y = c->minBounds.y;
+			if (minBounds.z > c->minBounds.z) minBounds.z = c->minBounds.z;
+			if (maxBounds.x < c->maxBounds.x) maxBounds.x = c->maxBounds.x;
+			if (maxBounds.y < c->maxBounds.y) maxBounds.y = c->maxBounds.y;
+			if (maxBounds.z < c->maxBounds.z) maxBounds.z = c->maxBounds.z;
+			if (BoundingSphereRadius < c->BoundingSphereRadius)
+			{
+				BoundingSphereRadius = c->BoundingSphereRadius;
+				BoundingSphereCenter = c->BoundingSphereCenter;
+			}
+		}
+		if (first)
+		{
+			minBounds = maxBounds = BoundingSphereCenter = Vec3();
+			BoundingSphereRadius = 0.f;
+		}
+		// The world-space box is derived from these in InternalUpdate(),
+		// which runs every frame - nothing more to do here.
+	}
+
 	void GameObject::RegisterComponents(SceneGraph* Scene)
 	{
 		if (_ComponentsChanged)

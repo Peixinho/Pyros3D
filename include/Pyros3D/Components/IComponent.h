@@ -82,7 +82,11 @@ namespace p3d {
 			// Blocks 2D light. Separate from Physics2D because casting a
 			// shadow and being solid are different questions - see
 			// Occluder2D.h.
-			Occluder2D
+			Occluder2D,
+			// A grid of cells from one tileset, drawn as a few batched meshes
+			// rather than one GameObject per cell. Holds the grid only; the
+			// geometry lives on a sibling RenderingComponent. See TileMap2D.h.
+			TileMap2D
 		};
 	}
 

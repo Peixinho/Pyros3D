@@ -1991,6 +1991,299 @@ def add_layer2d(project_path: str, scene_name: str, name: str,
     }, "Layer2D")
 
 
+# --- tilemaps ---------------------------------------------------------------
+#
+# The scene stores a map as run-length rows per 32x32 chunk (see
+# TILEMAP_PLAN.md). These four helpers are the file-side mirror of what
+# TileMap2D does in memory, so an edit works whether or not the editor has the
+# scene open.
+
+TILE_CHUNK = 32
+
+
+def _tiles_decode(component: dict) -> dict:
+    """Every painted cell as {(x, y): index}. -1 runs are the empty default."""
+    out = {}
+    for ch in component.get("chunks", []):
+        cx, cy = int(ch.get("cx", 0)), int(ch.get("cy", 0))
+        at = 0
+        for run in ch.get("rle", []):
+            if not isinstance(run, list) or len(run) != 2:
+                continue
+            value, count = int(run[0]), int(run[1])
+            for _ in range(max(0, count)):
+                if at >= TILE_CHUNK * TILE_CHUNK:
+                    break
+                if value >= 0:
+                    out[(cx * TILE_CHUNK + at % TILE_CHUNK,
+                         cy * TILE_CHUNK + at // TILE_CHUNK)] = value
+                at += 1
+    return out
+
+
+def _tiles_encode(cells: dict) -> list:
+    """Back to chunk records. Chunks that end up empty are dropped, not written
+    as 1024 empties - that is the whole reason storage is sparse."""
+    by_chunk: dict = {}
+    for (x, y), v in cells.items():
+        if v is None or v < 0:
+            continue
+        by_chunk.setdefault((x // TILE_CHUNK, y // TILE_CHUNK), {})[(x, y)] = v
+    chunks = []
+    for (cx, cy) in sorted(by_chunk):
+        grid = by_chunk[(cx, cy)]
+        runs = []
+        for i in range(TILE_CHUNK * TILE_CHUNK):
+            v = grid.get((cx * TILE_CHUNK + i % TILE_CHUNK,
+                          cy * TILE_CHUNK + i // TILE_CHUNK), -1)
+            if runs and runs[-1][0] == v:
+                runs[-1][1] += 1
+            else:
+                runs.append([v, 1])
+        chunks.append({"cx": cx, "cy": cy, "rle": runs})
+    return chunks
+
+
+def _find_tilemap(data: dict, name: str):
+    """(root, tilemap component) for `name`, or (None, None)."""
+    for root in data.get("roots", []):
+        if root.get("name") != name:
+            continue
+        for c in root.get("components", []):
+            if c.get("type") == "TileMap2D":
+                return root, c
+        return root, None
+    return None, None
+
+
+def _rect_bounds(rect) -> tuple:
+    if not rect or len(rect) < 4:
+        raise ValueError("rect must be [x0, y0, x1, y1]")
+    x0, y0, x1, y1 = (int(v) for v in rect[:4])
+    return min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)
+
+
+@mcp.tool()
+def add_tilemap(project_path: str, scene_name: str, name: str, tileset: str,
+                tile_size: list[float] | None = None, lit: bool = False) -> str:
+    """Add a tilemap to an object (editor: Add > Tile Map 2D).
+
+    `tileset` is a project-relative .p3dt path, "assets/" prefix and all. One
+    TileMap2D is ONE layer - several map layers are several objects, each under
+    its own Layer2D, which is where draw order and parallax already live.
+
+    tile_size is world units per cell and is independent of the cell's pixel
+    size: a 16px tile drawn at [1, 1] is the normal case. `lit` is off by
+    default because most map layers are backdrops and 2D lighting on a
+    full-screen layer is paid per fragment.
+
+    The object also needs a RenderingComponent to draw through; one is added if
+    it has none.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    size = [float(v) for v in (tile_size or [1.0, 1.0])][:2]
+    if len(size) < 2 or size[0] <= 0 or size[1] <= 0:
+        return _fail("tile_size must be [w, h], both positive")
+
+    live = _live_or_none("add_tilemap",
+                         {"object": name, "tileset": tileset, "tileSize": size},
+                         scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else \
+            f"Added TileMap2D to '{name}' (live editor)"
+
+    if not (proj / tileset).exists():
+        return _fail(f"tileset '{tileset}' not found under {proj}")
+
+    data = _load_scene(scene_file)
+    root, existing = _find_tilemap(data, name)
+    if root is None:
+        return _fail(f"object '{name}' not found in scene {scene_name}")
+    if existing is not None:
+        return _fail(f"'{name}' already has a TileMap2D")
+
+    comps = root.setdefault("components", [])
+    rc = next((c for c in comps if c.get("type") == "RenderingComponent"), None)
+    if rc is None:
+        comps.append({"type": "RenderingComponent", "cullTest": True,
+                      "castingShadows": False, "tileMap2D": True})
+    else:
+        # Generated geometry: the marker tells the loader to build a
+        # placeholder and drop any renderable/material that was recorded.
+        rc["tileMap2D"] = True
+        rc.pop("renderable", None)
+        rc.pop("material", None)
+    comps.append({"type": "TileMap2D",
+                  "settings": {"tileset": tileset, "tileSize": size, "lit": bool(lit)},
+                  "chunks": []})
+    _save_scene(scene_file, data)
+    return f"Added TileMap2D to '{name}' in scene {scene_name}"
+
+
+@mcp.tool()
+def fill_tiles(project_path: str, scene_name: str, name: str,
+               rect: list[int], tile: int) -> str:
+    """Paint an inclusive rect of cells. Corners may be given in either order.
+
+    `tile` is an index into the tileset; -1 erases. Tile coordinates are y-UP,
+    like the world - NOT the y-down order a tileset indexes its own rows with.
+
+    One undo entry for the whole rect when the editor is live, so prefer this
+    over a call per cell.
+    """
+    try:
+        x0, y0, x1, y1 = _rect_bounds(rect)
+    except ValueError as e:
+        return _fail(str(e))
+    area = (x1 - x0 + 1) * (y1 - y0 + 1)
+    if area > 1_000_000:
+        return _fail(f"that rect covers {area} cells; fill a smaller region")
+
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none("fill_tiles",
+                         {"object": name, "rect": [x0, y0, x1, y1], "tile": int(tile)},
+                         scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else \
+            f"Filled {area} cells on '{name}' (live editor)"
+
+    data = _load_scene(scene_file)
+    _, comp = _find_tilemap(data, name)
+    if comp is None:
+        return _fail(f"'{name}' has no TileMap2D in scene {scene_name}")
+    cells = _tiles_decode(comp)
+    for y in range(y0, y1 + 1):
+        for x in range(x0, x1 + 1):
+            if int(tile) < 0:
+                cells.pop((x, y), None)
+            else:
+                cells[(x, y)] = int(tile)
+    comp["chunks"] = _tiles_encode(cells)
+    _save_scene(scene_file, data)
+    return f"Filled {area} cells on '{name}' in scene {scene_name}"
+
+
+@mcp.tool()
+def set_tiles(project_path: str, scene_name: str, name: str,
+              tiles: list[list[int]]) -> str:
+    """Paint scattered cells as [[x, y, tile], ...]. A negative tile erases.
+
+    One undo entry for the whole batch when the editor is live - send a stroke
+    as one call, never a call per cell.
+    """
+    cleaned = [[int(t[0]), int(t[1]), int(t[2])]
+               for t in (tiles or []) if isinstance(t, (list, tuple)) and len(t) >= 3]
+    if not cleaned:
+        return _fail("no tiles given; expected [[x, y, tile], ...]")
+
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none("set_tiles", {"object": name, "tiles": cleaned}, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else \
+            f"Painted {len(cleaned)} cells on '{name}' (live editor)"
+
+    data = _load_scene(scene_file)
+    _, comp = _find_tilemap(data, name)
+    if comp is None:
+        return _fail(f"'{name}' has no TileMap2D in scene {scene_name}")
+    cells = _tiles_decode(comp)
+    for x, y, v in cleaned:
+        if v < 0:
+            cells.pop((x, y), None)
+        else:
+            cells[(x, y)] = v
+    comp["chunks"] = _tiles_encode(cells)
+    _save_scene(scene_file, data)
+    return f"Painted {len(cleaned)} cells on '{name}' in scene {scene_name}"
+
+
+@mcp.tool()
+def get_tiles(project_path: str, scene_name: str, name: str,
+              rect: list[int]) -> str:
+    """Read an inclusive rect of cells back, row-major from its lower-left.
+
+    -1 is an empty cell. Use this to check what was painted rather than
+    assuming a fill landed where it was meant to.
+    """
+    try:
+        x0, y0, x1, y1 = _rect_bounds(rect)
+    except ValueError as e:
+        return _fail(str(e))
+    if (x1 - x0 + 1) * (y1 - y0 + 1) > 65536:
+        return _fail("that rect is too large to read; ask for a smaller region")
+
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none("get_tiles", {"object": name, "rect": [x0, y0, x1, y1]},
+                         scene_file)
+    if isinstance(live, str):
+        return _fail(live)
+    if isinstance(live, dict):
+        rows = live.get("tiles", [])
+        w = live.get("width", x1 - x0 + 1)
+        return json.dumps({"width": w, "height": live.get("height"),
+                           "origin": [x0, y0], "tiles": rows}, indent=1)
+
+    data = _load_scene(scene_file)
+    _, comp = _find_tilemap(data, name)
+    if comp is None:
+        return _fail(f"'{name}' has no TileMap2D in scene {scene_name}")
+    cells = _tiles_decode(comp)
+    rows = [cells.get((x, y), -1)
+            for y in range(y0, y1 + 1) for x in range(x0, x1 + 1)]
+    return json.dumps({"width": x1 - x0 + 1, "height": y1 - y0 + 1,
+                       "origin": [x0, y0], "tiles": rows}, indent=1)
+
+
+@mcp.tool()
+def tilemap_info(project_path: str, scene_name: str, name: str) -> str:
+    """What a map holds: tileset, cell size, painted extent, chunk count.
+
+    With the editor live it also reports colliderBoxes - how many rectangles
+    the solid cells merge into, which is the number that says whether a level
+    is cheap or pathological for the physics solver. That one needs the engine,
+    so it is absent when reading the file directly.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none("tilemap_info", {"object": name}, scene_file)
+    if isinstance(live, str):
+        return _fail(live)
+    if isinstance(live, dict):
+        return json.dumps(live, indent=1)
+
+    data = _load_scene(scene_file)
+    _, comp = _find_tilemap(data, name)
+    if comp is None:
+        return _fail(f"'{name}' has no TileMap2D in scene {scene_name}")
+    cells = _tiles_decode(comp)
+    info = dict(comp.get("settings", {}))
+    info["painted"] = len(cells)
+    info["chunks"] = len(comp.get("chunks", []))
+    if cells:
+        xs = [x for x, _ in cells]
+        ys = [y for _, y in cells]
+        info["bounds"] = {"minX": min(xs), "minY": min(ys),
+                          "maxX": max(xs), "maxY": max(ys)}
+    else:
+        info["bounds"] = None
+    info["note"] = "colliderBoxes needs the editor open on this scene"
+    return json.dumps(info, indent=1)
+
+
 @mcp.tool()
 def add_physics2d(project_path: str, scene_name: str, name: str,
                   body_type: str = "Dynamic", shape: str = "Box",

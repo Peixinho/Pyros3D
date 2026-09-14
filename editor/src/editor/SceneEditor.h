@@ -91,6 +91,7 @@ using json = nlohmann::json;
 #ifdef LUA_BINDINGS
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
 #include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
+#include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
 #endif
 
 using namespace p3d;
@@ -298,6 +299,58 @@ public:
 	bool AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,
 		int cols, int rows, f32 fps, bool loop, std::string& errOut);
 	bool AgentAddLayer2D(const std::string& name, std::string& errOut);
+	// --- tilemaps ---------------------------------------------------------
+	// `tileset` is project-relative with its "assets/" prefix intact.
+	bool AgentAddTileMap2D(const std::string& name, const std::string& tileset,
+		const Vec2& tileSize, std::string& errOut);
+	// Paints a batch as ONE undo entry. Each cell is (x, y, index) with a
+	// negative index meaning erase.
+	bool AgentSetTiles(const std::string& name, const std::vector<Vec3>& cells,
+		std::string& errOut);
+	// Inclusive rect, in either corner order. Also one undo entry.
+	bool AgentFillTiles(const std::string& name, const int32 x0, const int32 y0,
+		const int32 x1, const int32 y1, const int32 index, std::string& errOut);
+	// Cell indices over an inclusive rect, row-major from (x0,y0). -1 is empty.
+	bool AgentGetTiles(const std::string& name, const int32 x0, const int32 y0,
+		const int32 x1, const int32 y1, std::vector<int32>& outCells,
+		std::string& errOut);
+	// Tileset, cell size, painted extent, and how many collider rectangles
+	// the solid cells merge into - the last is the number worth watching, and
+	// nothing else reports it.
+	bool AgentTileMapInfo(const std::string& name, json& outInfo, std::string& errOut);
+
+	// --- tile painting (the editor's own paint mode) ------------------------
+	//
+	// A THIRD viewport mode, beside the gizmo and Canvas (2D) Mode. Not a
+	// reuse of the latter: that one edits a UICanvas in SCREEN space - anchors,
+	// pivots, y running down - while a tile brush works in the world space
+	// Layer2D and Physics2D live in.
+	bool IsTilePaintMode() const { return tilePaintMode; }
+	void SetTilePaintMode(const bool on);
+	// The palette window (tile picker, tool row, target map).
+	void ShowTilePalette();
+	// "Add > Tile Map 2D" needs a tileset chosen before it can do anything,
+	// so it raises this rather than acting on the click.
+	void ShowAddTileMapModal();
+	bool openAddTileMapModal = false;
+	uint32 addTileMapTarget = 0;
+	std::string addTileMapTileset;
+	f32 addTileMapCell[2] = { 1.f, 1.f };
+	// Cursor -> cell, and the overlay that shows which cell that is.
+	void UpdateTilePainting();
+	void DrawTilePaintOverlay();
+	// Flushes the running stroke as ONE undo entry. Called on mouse release.
+	void EndTileStroke();
+	// Runs a stroke in CELL coordinates through the same accumulate-and-flush
+	// path the mouse uses, so a scripted test exercises the brush rather than
+	// a parallel implementation of it. One undo entry, like any stroke.
+	bool AgentTileStroke(const std::vector<Vec3>& cells, const std::string& tool,
+		std::string& errOut);
+	// Agent-side: toggle the mode and set what the brush is holding, so a
+	// paint session is reproducible from a script and the overlay can be
+	// screenshotted.
+	bool AgentTilePaintMode(const bool on, const std::string& object,
+		const int32 tile, const std::string& tool, std::string& errOut);
 	bool AgentAddPhysics2D(const std::string& name, std::string& errOut,
 		const uint32 bodyType = Body2DType::Dynamic, const Vec2 &size = Vec2(0.5f, 0.5f));
 	// Viewport projection. A 2D scene is authored and judged through an
@@ -546,7 +599,21 @@ public:
 	// callers own that.
 	void RawDeleteSubtree(uint32 objId);
 	SceneObject* RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper, const std::vector<uint32>* preferredIds = NULL);
+	// The world-space rect the viewport currently shows, in the XY plane a 2D
+	// scene lives in. One implementation, because the grid, the tile cursor
+	// and the brush all have to agree about where the cursor is - three copies
+	// of this arithmetic would drift and the brush would paint one cell away
+	// from the highlight.
+	bool GetView2DExtent(f32& l, f32& r, f32& b, f32& t) const;
+	// Cursor position in that plane. False when the cursor is not over the
+	// viewport, or the view is not usable.
+	bool ViewportToWorld2D(Vec2& out) const;
+
 	std::vector<uint32> RawCollectSubtreeIds(uint32 objId);
+	// The TileMap2D on this object, or NULL. Public because SetTilesCommand
+	// re-resolves it on every Undo/Redo rather than holding a pointer across
+	// an object that may have been rebuilt underneath it.
+	TileMap2D* RawFindTileMap2D(uint32 goId);
 	void ApplyTransform(uint32 objId, const Vec3& pos, const Vec3& rot, const Vec3& scale);
 	void RawAssignMaterial(uint32 goId, int submeshIndex, std::shared_ptr<p3d::IMaterial> mat);
 	// Setter + PropertiesLight*/sceneCameras resync + MarkSceneDirty for one
@@ -862,6 +929,12 @@ private:
 	// Screen-space UI. See SceneEditOps.cpp.
 	// Attaches a Layer2D to a GameObject, making its subtree one 2D layer.
 	bool OpAddLayer2D(uint32 goId, std::string& errOut);
+	bool OpAddTileMap2D(uint32 goId, const std::string& tileset, const Vec2& tileSize,
+		std::string& errOut);
+	// One undo entry for the whole batch - see SetTilesCommand for why a
+	// subtree snapshot is the wrong tool here.
+	bool OpSetTiles(uint32 goId, const std::vector<Vec3>& cells, const char* what,
+		std::string& errOut);
 	// Attaches a Box2D rigid body.
 	// bodyType is Body2DType (Static/Kinematic/Dynamic) and size is the box
 	// half-extents. Defaulted so existing callers are unchanged, but exposed
@@ -1253,6 +1326,32 @@ private:
 	// canvas: its bounds, a grid in canvas units, and the selected
 	// element's own rect.
 	bool uiEditMode;
+
+	// --- tile paint state ---------------------------------------------------
+	bool tilePaintMode = false;
+	// Object id of the map being painted. 0 means "pick the only one in the
+	// scene", resolved each frame so deleting and re-adding a map does not
+	// leave the brush pointing at a dead id.
+	uint32 tilePaintTarget = 0;
+	// Index into the tileset. -1 is the eraser, which is a brush value rather
+	// than a mode so that switching to it and back does not lose the tile.
+	int32 tilePaintBrush = 0;
+	// 0 = brush (paint while dragging), 1 = rect (drag a rectangle out).
+	int tilePaintTool = 0;
+	// Accumulated for the CURRENT stroke, flushed as ONE undo entry on mouse
+	// up. UndoStack has no coalescing, so a per-cell push would fill its
+	// 200-deep history with a single drag - see SetTilesCommand.
+	std::vector<Vec3> tileStroke;
+	bool tileStrokeActive = false;
+	int32 tileRectAnchorX = 0, tileRectAnchorY = 0;
+	// The atlas, for the picker. Cached by path so the palette does not reload
+	// it every frame.
+	std::shared_ptr<Texture> tilePickerTex;
+	std::string tilePickerTexFor;
+	// Where the cursor was this frame, in cell coordinates, and whether it was
+	// anywhere at all.
+	int32 tileHoverX = 0, tileHoverY = 0;
+	bool tileHoverValid = false;
 	std::map<uint32, PlayModeObjectSnapshot> playModeSnapshots;
 	// Edit-mode active camera restored when leaving play mode.
 	uint32 playModeSavedCameraId;

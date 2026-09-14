@@ -136,6 +136,22 @@ namespace p3d {
 		// Get Components List
 		const std::vector<std::shared_ptr<IComponent>> &GetComponents() const { return Components; }
 
+
+		// Recomputes this object's bounds from the components it holds.
+		//
+		// Add() aggregates a component's bounds once, when it is added, and
+		// nothing recomputes them afterwards - so a component that REPLACES
+		// its geometry later leaves the object testing the bounds of whatever
+		// it was constructed with. CullingBoxTest tests the object's box, not
+		// the mesh's, so the symptom is the whole object vanishing as soon as
+		// its original bounds leave the frustum: a tilemap built over a
+		// placeholder Plane kept a 2x2 box at the origin and drew only while
+		// the origin was on screen.
+		//
+		// Any caller that swaps a component's geometry out from under it must
+		// call this (RenderingComponent::AdoptGeneratedRenderable does).
+		void RefreshComponentBounds();
+
 	private:
 
 		// Update Components
@@ -190,6 +206,7 @@ namespace p3d {
 
 		// Register and Unregister
 		void RegisterComponents(SceneGraph* Scene);
+
 		void UnregisterComponents(SceneGraph* Scene);
 		// Same, for this object and every descendant. A child is never in
 		// the scene's own object lists - only roots are - so detaching or

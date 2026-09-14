@@ -118,6 +118,15 @@ protected:
 	void OpenDemoBrowser();
 	void DrawAssetsWindow();
 	void DrawSceneTreeWindow();
+	void DrawTilePaletteWindow();
+	// "Create Tile Set" - cuts an image into a .p3dt beside it. The on-ramp:
+	// without it a tileset can only be hand-written, which is not a thing to
+	// ask of anyone.
+	void ShowCreateTileSetModal();
+	std::string pendingTileSetImageRel;
+	bool openCreateTileSetModal = false;
+	int newTileSetTileW = 16, newTileSetTileH = 16;
+	int newTileSetMargin = 0, newTileSetSpacing = 0;
 	void DrawSceneViewWindow();
 	void DrawSceneTabBar();
 	// What an Assets tile shows for a .mat. A material's kind and edit mode

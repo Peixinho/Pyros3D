@@ -1435,6 +1435,120 @@ bool SceneEditor::OpAddLayer2D(uint32 goId, std::string& errOut)
 	return true;
 }
 
+TileMap2D* SceneEditor::RawFindTileMap2D(uint32 goId)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return NULL;
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (!go) return NULL;
+	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+	for (size_t i = 0; i < comps.size(); i++)
+		if (comps[i] && comps[i]->GetComponentType() == ComponentType::TileMap2D)
+			return static_cast<TileMap2D*>(comps[i].get());
+	return NULL;
+}
+
+bool SceneEditor::OpAddTileMap2D(uint32 goId, const std::string& tileset,
+	const Vec2& tileSize, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
+	{
+		errOut = "not a game object";
+		return false;
+	}
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (HasComponentOfType(go, ComponentType::TileMap2D))
+	{
+		errOut = "this object already has a TileMap2D";
+		return false;
+	}
+	if (tileSize.x <= 0.f || tileSize.y <= 0.f)
+	{
+		errOut = "tileSize must be positive on both axes";
+		return false;
+	}
+
+	// The tileset is loaded here rather than lazily, so a typo in the path is
+	// an error the caller sees now instead of an empty map that draws nothing
+	// and says nothing.
+	TileSet2D set;
+	std::string err;
+	const std::string abs = ResolveAssetPath(tileset);
+	if (abs.empty() || !LoadTileSet2D(abs, set, &err))
+	{
+		errOut = "could not load tileset '" + tileset + "'" + (err.empty() ? "" : ": " + err);
+		return false;
+	}
+	int32 iw = 0, ih = 0;
+	const std::string imgAbs = ResolveAssetPath(set.image);
+	if (imgAbs.empty() || !TileSet2DReadImageSize(imgAbs, iw, ih))
+	{
+		errOut = "tileset '" + tileset + "' names an atlas that cannot be read: " + set.image;
+		return false;
+	}
+	set.SetImageSize(iw, ih);
+
+	const std::string before = SnapshotSubtree(goId);
+
+	// A map draws through a sibling RenderingComponent (see TileMap2D.h), so
+	// give it one if the object has none. A placeholder Plane is all it needs
+	// - TileMap2D::Rebuild() replaces the geometry on the next frame.
+	if (!HasComponentOfType(go, ComponentType::RenderingComponent))
+	{
+		std::shared_ptr<Renderable> placeholder = std::make_shared<Plane>(1.f, 1.f);
+		std::shared_ptr<RenderingComponent> rc = std::make_shared<RenderingComponent>(
+			placeholder, std::static_pointer_cast<IMaterial>(
+				std::make_shared<GenericShaderMaterial>(ShaderUsage::Color)));
+		go->Add(rc);
+	}
+
+	std::shared_ptr<TileMap2D> map = std::make_shared<TileMap2D>(tileSize);
+	map->SetTileSet(set);
+	map->SetTileSetPath(tileset);
+	map->SetResolvedAtlasPath(imgAbs);
+	go->Add(map);
+
+	MarkSceneDirty();
+	// A snapshot pair is fine HERE: the map is empty at this point, so the
+	// two snapshots are small. Painting is what must not use it.
+	PushReplaceCommand(goId, before, "Add Tile Map");
+	return true;
+}
+
+bool SceneEditor::OpSetTiles(uint32 goId, const std::vector<Vec3>& cells,
+	const char* what, std::string& errOut)
+{
+	TileMap2D* map = RawFindTileMap2D(goId);
+	if (!map) { errOut = "this object has no TileMap2D"; return false; }
+
+	std::vector<SetTilesCommand::Cell> delta;
+	delta.reserve(cells.size());
+	for (size_t i = 0; i < cells.size(); i++)
+	{
+		const int x = (int)cells[i].x;
+		const int y = (int)cells[i].y;
+		const int after = (int)cells[i].z;
+		const int before = map->GetTile(x, y);
+		// Only cells that actually change go in the delta. Undoing a write
+		// that was a no-op would be a no-op too, but it would still bloat the
+		// entry - a rect fill over mostly-identical ground is the common case.
+		if (before == after) continue;
+		SetTilesCommand::Cell c;
+		c.x = x; c.y = y; c.before = before; c.after = after;
+		delta.push_back(c);
+	}
+	if (delta.empty()) return true;   // nothing changed; no undo entry either
+
+	for (size_t i = 0; i < delta.size(); i++)
+		map->SetTile(delta[i].x, delta[i].y, delta[i].after);
+
+	MarkSceneDirty();
+	sceneUndo.Push(std::make_unique<SetTilesCommand>(this, goId, std::move(delta),
+		what ? what : "Paint Tiles"));
+	return true;
+}
+
 bool SceneEditor::OpAddUIComponent(uint32 goId, const std::string& kind, const std::string& fontPath, std::string& errOut)
 {
 	SceneObject* obj = sceneObjects->GetSceneObject(goId);
