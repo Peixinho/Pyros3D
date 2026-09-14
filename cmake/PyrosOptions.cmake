@@ -1,6 +1,45 @@
 # User-facing build options (cmake-gui / ccmake dropdowns via STRINGS).
 # Included from the root CMakeLists.txt.
 
+# ---------------------------------------------------------------------------
+# pyros_frameworks_by_name(<var>)
+#
+# Rewrites every /any/path/Foo.framework in <var> to "-framework Foo", in
+# place, leaving everything else alone.
+#
+# An absolute .framework on a link line makes CMake emit `-F<that SDK's
+# Frameworks dir>` for the target, and that search path then decides where
+# EVERY framework on the line is resolved from - CoreAudio, CoreFoundation
+# and the rest, not just the one that was found by path. On a machine where
+# the SDK find_package picked and the linker xcode-select picked come from
+# different installs, the link dies on frameworks the build never asked
+# about:
+#
+#   OpenGL.tbd:4:20: error: unknown architecture arm64e.x1-macos
+#   ... tapi error: malformed file
+#
+# By name, the compiler driver resolves them from its own sysroot, which is
+# by construction the one its linker can read. The find_package/find_library
+# calls still run - they are what answer "is this framework here at all".
+# ---------------------------------------------------------------------------
+function(pyros_frameworks_by_name var)
+	if (NOT APPLE OR EMSCRIPTEN)
+		return()
+	endif()
+	set(_out "")
+	foreach (_lib IN LISTS ${var})
+		if (_lib MATCHES "/([A-Za-z0-9_]+)\\.framework/?$")
+			list(APPEND _out "-framework ${CMAKE_MATCH_1}")
+		else()
+			list(APPEND _out "${_lib}")
+		endif()
+	endforeach()
+	if (_out)
+		list(REMOVE_DUPLICATES _out)
+	endif()
+	set(${var} ${_out} PARENT_SCOPE)
+endfunction()
+
 # Emscripten (emcmake) and Android NDK force GLES3 / SDL2 / no Vulkan first.
 include(${CMAKE_CURRENT_LIST_DIR}/PyrosEmscripten.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/PyrosAndroid.cmake)

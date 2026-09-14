@@ -60,6 +60,11 @@ if (EMSCRIPTEN AND NOT OPENGL_VERSION STREQUAL "GLES3")
 	message(FATAL_ERROR "Emscripten builds require OPENGL_VERSION=GLES3 (WebGL2)")
 endif()
 
+# macOS: link Apple frameworks by NAME, never by the absolute path
+# find_package returns - see pyros_frameworks_by_name() in PyrosOptions.cmake
+# for what goes wrong otherwise.
+pyros_frameworks_by_name(OPENGL_LIBS)
+
 # ---------------------------------------------------------------------------
 # SPIR-V tooling (shaderc + spirv-cross) — used by Vulkan GLSL→SPIR-V path
 # ---------------------------------------------------------------------------
@@ -246,7 +251,12 @@ if (BUILD_METAL_BACKEND)
 			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalImGuiBackend.mm
 			PROPERTIES COMPILE_FLAGS "-fobjc-arc"
 		)
-		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK} ${FOUNDATION_FRAMEWORK} ${COREGRAPHICS_FRAMEWORK})
+		# By name, not by the absolute paths found above - see
+		# pyros_frameworks_by_name() on why an absolute .framework on the
+		# link line drags every other framework into the same SDK.
+		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK}
+			${FOUNDATION_FRAMEWORK} ${COREGRAPHICS_FRAMEWORK})
+		pyros_frameworks_by_name(METAL_BACKEND_LIBS)
 
 		# GLSL -> SPIR-V (shaderc, already found above for the Vulkan path)
 		# -> MSL (spirv-cross-msl, the one spirv-cross backend library the
