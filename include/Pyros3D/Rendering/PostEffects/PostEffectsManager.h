@@ -124,13 +124,13 @@ namespace p3d {
 		// than reading a dangling texture. Only allocated when a chain
 		// actually asks for it - a velocity pass is a full extra draw of the
 		// scene, not something every chain should pay for.
-		PYROS3D_API Texture* EnsureVelocityMap();
-		PYROS3D_API bool HaveVelocityMap() const { return velocityRenderer != NULL; }
+		Texture* EnsureVelocityMap();
+		bool HaveVelocityMap() const { return velocityRenderer != NULL; }
 		// currentFps scales how far the blur smears: the effect works in
 		// "how much of a target frame did this movement take", so a slow
 		// frame blurs further. Forwarded to every MotionBlurEffect in the
 		// chain, so the caller does not have to hold on to one.
-		PYROS3D_API void RenderVelocityPass(const Projection &projection, GameObject* camera,
+		void RenderVelocityPass(const Projection &projection, GameObject* camera,
 			SceneGraph* scene, const f32 currentFps);
 
 	private:
