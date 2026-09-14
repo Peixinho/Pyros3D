@@ -373,8 +373,19 @@ namespace p3d {
 		m_joints.erase(it);
 	}
 
+	// NULL until CreatePhysicsComponent() has actually built a body for this
+	// component, which happens when the scene graph registers it and not when
+	// addComponent() returns. Every caller below tests the result, so this is
+	// what makes "called too early" a silent no-op rather than a crash.
+	//
+	// Asking RigidBodyRegistered() rather than just returning the pointer is
+	// deliberate: the two are set and cleared together, so today they agree,
+	// but the flag is the one that states the intent. A handle that is only
+	// valid while registered should be gated on registration, not on a
+	// pointer value that happens to track it.
 	Box3DBodyHandles* Box3DPhysics::GetHandles(IPhysicsComponent* pcomp)
 	{
+		if (pcomp == NULL || !pcomp->RigidBodyRegistered()) return NULL;
 		return static_cast<Box3DBodyHandles*>(pcomp->GetRigidBodyPTR());
 	}
 

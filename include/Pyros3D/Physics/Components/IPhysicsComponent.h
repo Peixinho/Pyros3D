@@ -118,7 +118,28 @@ namespace p3d {
 		void InternalAddWheel(const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
 
 		// Protected Constructor
-		IPhysicsComponent(const f32 Mass, const uint32 shape, IPhysics* engine, bool ghost = false) : mass(Mass), Shape(shape), rigidBodyRegistered(false), PhysicsEngine(engine), isGhost(ghost), IComponent() {}
+		//
+		// rigidBodyPTR starts NULL and stays that way until the physics
+		// backend registers this component and hands its handles over. That
+		// window is not a corner case: a component only registers when the
+		// scene graph next picks it up, NOT when addComponent() returns, so
+		// every call a script makes on a body it has just created - which is
+		// most of what building a rig in init() consists of - runs while this
+		// is still unset. The backend's accessors all check it for NULL and
+		// no-op; leaving it uninitialized handed them whatever the allocator
+		// had lying in that word instead. On a platform whose fresh pages
+		// come back zeroed that reads as NULL and the checks hold, which is
+		// why it went unnoticed; on Windows, where the heap recycles blocks,
+		// it is a live pointer-shaped value that passes every guard and is
+		// then dereferenced.
+		//
+		// Members are listed here in declaration order - the compiler
+		// initializes them in that order regardless of how they are written,
+		// and the previous shuffled ordering is what made the one MISSING
+		// entry so easy to miss.
+		IPhysicsComponent(const f32 Mass, const uint32 shape, IPhysics* engine, bool ghost = false)
+			: IComponent(), Shape(shape), mass(Mass), rigidBodyPTR(NULL),
+			rigidBodyRegistered(false), isGhost(ghost), PhysicsEngine(engine) {}
 
 
 		// Keep Shape Type
