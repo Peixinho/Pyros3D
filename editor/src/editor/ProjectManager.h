@@ -206,6 +206,11 @@ public:
 	void MarkDirty() { projectDirty = true; }
 	void ClearDirty() { projectDirty = false; }
 
+	// Where the editor keeps per-user state that is not part of any project
+	// (recent projects, the examples browser's cache). Created on demand;
+	// falls back to the working directory when there is no HOME.
+	static std::string EditorSupportDirectory();
+
 	static std::string FindAssimpImporterBinary();
 	static bool IsModelSourceExtension(const std::string& path);
 	static bool IsP3dm(const std::string& path);

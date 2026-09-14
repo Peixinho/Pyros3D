@@ -1310,6 +1310,19 @@ std::string ProjectManager::BuildLuaSnippet(LuaScriptKind kind, const std::strin
 	return ss.str();
 }
 
+std::string ProjectManager::EditorSupportDirectory()
+{
+	const char* home = std::getenv("HOME");
+	if (home && home[0])
+	{
+		fs::path dir = fs::path(home) / "Library/Application Support/PyrosBuilder";
+		std::error_code ec;
+		fs::create_directories(dir, ec);
+		return dir.string();
+	}
+	return std::string();
+}
+
 std::string ProjectManager::FindAssimpImporterBinary()
 {
 	std::error_code ec;

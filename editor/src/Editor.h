@@ -47,6 +47,7 @@
 	#include "editor/MaterialPreview.h"
 	#include "editor/SceneEditor.h"
 #include "editor/ProjectManager.h"
+#include "editor/DemoLibrary.h"
 #include "editor/CodeEditorDocument.h"
 #include "editor/AgentServer.h"
 #include "editor/AIAssistant.h"
@@ -111,6 +112,10 @@ protected:
 	void DrawWelcomeScreen();
 	void EnsureWelcomeLogo();
 	void DrawProjectDialogs();
+	// "Examples" browser: lists the projects in a GitHub repo and installs
+	// one of them next to the user's own (see DemoLibrary.h).
+	void DrawDemoBrowser();
+	void OpenDemoBrowser();
 	void DrawAssetsWindow();
 	void DrawSceneTreeWindow();
 	void DrawSceneViewWindow();
@@ -474,9 +479,20 @@ private:
 	bool assetsWindowHovered;
 
 	bool openNewProjectModal, openOpenProjectModal;
-	// Set when "Open Recent" had to defer past the unsaved-work prompt, so
+	// Set when a project pick had to defer past the unsaved-work prompt, so
 	// HostOpenProject reopens that project instead of the browse dialog.
+	// Used by "Open Recent" and by the Examples browser's Open button.
 	std::string pendingRecentProjectPath;
+
+	DemoLibrary demos;
+	bool openDemoBrowserModal = false;
+	int demoSelected = -1;
+	// The repo the browser lists, as typed - only pushed into the library
+	// (and persisted) when it actually parses.
+	std::string demoSourceText;
+	// Where an installed example lands. Defaults beside the most recent
+	// project, so the common case is one click.
+	std::string demoDestDir;
 	bool openProjectSettingsModal;
 	std::string newProjectDir, newProjectName, openProjectPath;
 	std::string projectSettingsName;

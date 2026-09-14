@@ -27,6 +27,7 @@
 #include <fstream>
 #include <cstdlib>
 #include <algorithm>
+#include <cstdio>
 #include <cfloat>
 #include <set>
 #include <sstream>
@@ -3584,6 +3585,10 @@ void Editor::DrawUI()
 		if (ctrl && ImGui::IsKeyPressed(ImGuiKey_S) && project.IsOpen()) reqSaveProject = true;
 	}
 
+	// Publishes anything the examples worker thread finished - the download
+	// keeps running whether or not the browser is on screen.
+	demos.Pump();
+
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("File"))
@@ -3634,6 +3639,9 @@ void Editor::DrawUI()
 				}
 				ImGui::EndMenu();
 			}
+
+			if (ImGui::MenuItem("Browse Examples..."))
+				OpenDemoBrowser();
 
 			// Scene New/Open/Save used to live in a "Scene" menu of their
 			// own, one menu away from the project's - so half the editor's
@@ -4379,6 +4387,17 @@ void Editor::DrawWelcomeScreen()
 	}
 	ImGui::PopStyleVar();
 	ImGui::PopStyleColor(5);
+
+	// Third way in, and the only one that needs nothing on disk first: a
+	// first run has no projects to open and nothing to copy from.
+	ImGui::Dummy(ImVec2(0, 8.f));
+	ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.24f, 0.22f, 0.22f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.34f, 0.28f, 0.26f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImVec4(0.20f, 0.18f, 0.18f, 1.f));
+	ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.92f, 0.86f, 0.80f, 1.f));
+	if (ImGui::Button("Browse Examples", ImVec2(btnW, btnH)))
+		OpenDemoBrowser();
+	ImGui::PopStyleColor(4);
 	ImGui::PopStyleVar(2);
 
 	if (!recentProjects.empty())
@@ -4431,15 +4450,10 @@ void Editor::DrawWelcomeScreen()
 
 std::string Editor::RecentProjectsFilePath()
 {
-	const char* home = std::getenv("HOME");
-	if (home && home[0])
-	{
-		fs::path dir = fs::path(home) / "Library/Application Support/PyrosBuilder";
-		std::error_code ec;
-		fs::create_directories(dir, ec);
-		return (dir / "recent_projects.txt").string();
-	}
-	return "recent_projects.txt";
+	const std::string dir = ProjectManager::EditorSupportDirectory();
+	if (dir.empty())
+		return "recent_projects.txt";
+	return (fs::path(dir) / "recent_projects.txt").string();
 }
 
 void Editor::LoadRecentProjects()
@@ -4490,6 +4504,225 @@ void Editor::AddRecentProject(const std::string& projectPathOrJson)
 	while (recentProjects.size() > (size_t)kMaxRecentProjects)
 		recentProjects.pop_back();
 	SaveRecentProjects();
+}
+
+void Editor::OpenDemoBrowser()
+{
+	openDemoBrowserModal = true;
+	demoSelected = -1;
+	demoSourceText = demos.Source().Slug();
+	projectDialogError.clear();
+
+	if (demoDestDir.empty())
+	{
+		// Next to the project the user opened last - that is where their
+		// projects live. A recents entry is the project FOLDER (see
+		// AddRecentProject, which strips project.json), so one parent_path
+		// is the folder that holds projects, not two. Falls back to the
+		// working directory on a fresh install, which is where "New Project"
+		// starts too.
+		std::error_code ec;
+		if (!recentProjects.empty())
+			demoDestDir = fs::path(recentProjects[0]).parent_path().string();
+		if (demoDestDir.empty() || !fs::is_directory(demoDestDir, ec))
+			demoDestDir = fs::current_path().string();
+	}
+
+	// A listing costs one API call, so fetch it the first time the browser
+	// is opened and leave the rest to the Refresh button.
+	if (DemoLibrary::Available() && demos.Catalog() == DemoLibrary::CatalogState::Idle)
+		demos.Refresh();
+}
+
+void Editor::DrawDemoBrowser()
+{
+	if (openDemoBrowserModal)
+	{
+		ImGui::SetNextWindowFocus();
+		ImGui::OpenPopup("Examples");
+		openDemoBrowserModal = false;
+	}
+
+	ImGui::SetNextWindowSize(ImVec2(860.f, 540.f), ImGuiCond_Appearing);
+	if (!ImGui::BeginPopupModal("Examples", NULL, ImGuiWindowFlags_NoSavedSettings))
+		return;
+
+	const bool installing = demos.Installing() == DemoLibrary::InstallState::Running;
+
+	if (!DemoLibrary::Available())
+	{
+		ImGui::TextWrapped("Downloading examples needs an HTTP client, and this build "
+			"has none (the browser build has no libcurl). Clone the examples "
+			"repository and use File > Open Project instead.");
+		ImGui::Separator();
+		if (ImGui::Button("Close", ImVec2(120, 0)))
+			ImGui::CloseCurrentPopup();
+		ImGui::EndPopup();
+		return;
+	}
+
+	// ------------------------------------------------------------ source row
+	ImGui::TextUnformatted("Repository");
+	ImGui::SameLine();
+	ImGui::SetNextItemWidth(360.f);
+	ImGui::BeginDisabled(installing);
+	if (ImGui::InputText("##demosource", &demoSourceText, ImGuiInputTextFlags_EnterReturnsTrue))
+	{
+		const DemoSource parsed = DemoSource::Parse(demoSourceText);
+		if (parsed.Valid())
+		{
+			demos.SetSource(parsed);
+			demoSelected = -1;
+			demoSourceText = demos.Source().Slug();
+			demos.Refresh();
+		}
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("owner/repo, owner/repo@branch, or a github.com URL.\n"
+			"Every top-level folder with a project.json in it is listed here.");
+	ImGui::SameLine();
+	if (ImGui::Button("Refresh"))
+	{
+		const DemoSource parsed = DemoSource::Parse(demoSourceText);
+		if (parsed.Valid())
+			demos.SetSource(parsed);
+		demoSelected = -1;
+		demos.Refresh();
+	}
+	ImGui::EndDisabled();
+
+	if (!demos.CatalogError().empty())
+		ImGui::TextColored(ImVec4(1.f, 0.55f, 0.35f, 1.f), "%s", demos.CatalogError().c_str());
+
+	ImGui::Separator();
+
+	// ------------------------------------------------------------- two panes
+	const std::vector<DemoEntry>& entries = demos.Entries();
+	const float footerH = 96.f;
+	const float listW = 260.f;
+	ImGui::BeginChild("##demolist", ImVec2(listW, -footerH), true);
+	if (demos.Catalog() == DemoLibrary::CatalogState::Loading)
+		ImGui::TextDisabled("Loading...");
+	else if (entries.empty())
+		ImGui::TextDisabled("No examples in this repository.");
+	for (size_t i = 0; i < entries.size(); ++i)
+	{
+		ImGui::PushID((int)i);
+		if (ImGui::Selectable(entries[i].name.c_str(), demoSelected == (int)i, 0, ImVec2(0, 26.f)))
+			demoSelected = (int)i;
+		ImGui::PopID();
+	}
+	ImGui::EndChild();
+
+	ImGui::SameLine();
+	ImGui::BeginChild("##demodetail", ImVec2(0, -footerH), true);
+	if (demoSelected >= 0 && demoSelected < (int)entries.size())
+	{
+		const DemoEntry& d = entries[demoSelected];
+
+		Texture* thumb = d.thumbnailFile.empty() ? NULL : GetAssetPreviewTexture(d.thumbnailFile);
+		if (thumb)
+		{
+			void* tid = GetActiveRenderDevice().GetImGuiTextureID(
+				thumb->GetBindID(), thumb->GetTextureType());
+			if (tid)
+			{
+				const float w = std::min(ImGui::GetContentRegionAvail().x, 420.f);
+				ImGui::Image((ImTextureID)tid, ImVec2(w, w * 0.5625f));
+				ImGui::Spacing();
+			}
+		}
+
+		ImGui::TextUnformatted(d.name.c_str());
+		if (!d.author.empty())
+			ImGui::TextDisabled("by %s", d.author.c_str());
+		ImGui::Spacing();
+		if (!d.description.empty())
+			ImGui::TextWrapped("%s", d.description.c_str());
+		else
+			ImGui::TextDisabled("No description. Add a demo.json or a README.md to the folder.");
+
+		if (!d.tags.empty())
+		{
+			ImGui::Spacing();
+			for (size_t t = 0; t < d.tags.size(); ++t)
+			{
+				if (t) ImGui::SameLine();
+				ImGui::TextColored(ImVec4(0.90f, 0.62f, 0.38f, 1.f), "#%s", d.tags[t].c_str());
+			}
+		}
+
+		ImGui::Spacing();
+		ImGui::Separator();
+		ImGui::TextDisabled("%zu files", d.fileCount);
+		ImGui::SameLine();
+		{
+			// The listing carries every blob's size, so the download cost is
+			// known before committing to it - some examples are 100 MB.
+			char buf[64];
+			const double mb = (double)d.totalBytes / (1024.0 * 1024.0);
+			if (mb >= 1.0) std::snprintf(buf, sizeof(buf), "%.1f MB", mb);
+			else std::snprintf(buf, sizeof(buf), "%.0f KB", (double)d.totalBytes / 1024.0);
+			ImGui::TextDisabled("  -  %s", buf);
+		}
+	}
+	else
+		ImGui::TextDisabled("Pick an example on the left.");
+	ImGui::EndChild();
+
+	// --------------------------------------------------------------- footer
+	const DemoLibrary::InstallState st = demos.Installing();
+	if (st == DemoLibrary::InstallState::Running)
+	{
+		ImGui::ProgressBar(demos.InstallProgress(), ImVec2(-1.f, 0.f));
+		ImGui::TextWrapped("%s", demos.InstallStatus().c_str());
+		if (ImGui::Button("Cancel Download", ImVec2(160, 0)))
+			demos.CancelInstall();
+	}
+	else if (st == DemoLibrary::InstallState::Failed)
+	{
+		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.3f, 1.f), "%s", demos.InstallError().c_str());
+		if (ImGui::Button("OK", ImVec2(120, 0)))
+			demos.ClearInstallResult();
+	}
+	else if (st == DemoLibrary::InstallState::Done)
+	{
+		const std::string path = demos.InstalledProjectJson();
+		ImGui::TextWrapped("Downloaded to %s", fs::path(path).parent_path().string().c_str());
+		if (ImGui::Button("Open It", ImVec2(140, 0)))
+		{
+			// Same queue "Open Recent" uses: if there is unsaved work the
+			// prompt runs first and HostOpenProject resumes this pick.
+			pendingRecentProjectPath = path;
+			demos.ClearInstallResult();
+			ImGui::CloseCurrentPopup();
+			if (!sceneView || sceneView->ConfirmUnsavedThen(SceneEditor::UnsavedOpenProject))
+			{
+				pendingRecentProjectPath.clear();
+				OpenProjectFromPath(path);
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Stay Here", ImVec2(140, 0)))
+			demos.ClearInstallResult();
+	}
+	else
+	{
+		ImGui::SetNextItemWidth(-260.f);
+		ImGui::InputText("Install into", &demoDestDir);
+		ImGui::SameLine();
+		const bool canInstall = demoSelected >= 0 && demoSelected < (int)entries.size()
+			&& !demoDestDir.empty();
+		ImGui::BeginDisabled(!canInstall);
+		if (ImGui::Button("Download", ImVec2(120, 0)))
+			demos.Install(entries[demoSelected], demoDestDir);
+		ImGui::EndDisabled();
+		ImGui::SameLine();
+		if (ImGui::Button("Close", ImVec2(100, 0)))
+			ImGui::CloseCurrentPopup();
+	}
+
+	ImGui::EndPopup();
 }
 
 void Editor::DrawProjectDialogs()
@@ -4727,6 +4960,10 @@ void Editor::DrawProjectDialogs()
 			ImGui::CloseCurrentPopup();
 		ImGui::EndPopup();
 	}
+
+	// Drawn from here so it is reachable both with a project open and from
+	// the welcome splash, which is the whole point of it.
+	DrawDemoBrowser();
 }
 
 void Editor::SwitchAllScenesRenderer(bool useDeferred)
