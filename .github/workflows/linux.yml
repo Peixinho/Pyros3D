@@ -195,7 +195,7 @@ jobs:
           anything tied to your machine: the GL/Vulkan driver, X11/Wayland,
           and the C library. Those must come from your system, which means:
 
-            - glibc 2.35 or newer (built on Ubuntu 22.04)
+            - GLIBC_FLOOR_PLACEHOLDER
             - a working OpenGL or Vulkan driver
             - X11 or Wayland client libraries
 
@@ -207,6 +207,26 @@ jobs:
         run: |
           chmod +x .github/scripts/bundle-linux.sh
           ./.github/scripts/bundle-linux.sh package/demolauncher package/editor
+
+      - name: Record the glibc floor
+        # The minimum glibc is a measured property of the binaries, not a fact
+        # about the build image, and the two are not the same: building in
+        # 22.04 (glibc 2.35) produced binaries that only ever ask for 2.34,
+        # because nothing here references a 2.35-only symbol. Writing the
+        # measurement into the README keeps the claim true when the image, the
+        # compiler or the dependency set changes - a hardcoded number silently
+        # becomes a lie and turns away users who could have run it.
+        run: |
+          floor=$(find package -type f \( -perm -u+x -o -name '*.so*' \) -exec sh -c \
+              'file -b "$1" | grep -q "^ELF" && readelf -V "$1" 2>/dev/null' _ {} \; \
+              | grep -o 'GLIBC_[0-9]\+\.[0-9]\+' | sort -u -V | tail -1)
+          if [ -z "$floor" ]; then
+            echo "::error::could not determine the glibc floor from the package"
+            exit 1
+          fi
+          echo "measured glibc floor: $floor"
+          sed -i "s/- GLIBC_FLOOR_PLACEHOLDER/- ${floor/GLIBC_/glibc } or newer (measured from the binaries)/" package/README.txt
+          grep glibc package/README.txt
 
       - name: Smoke run
         # A runner has no GPU and no display, so failing to open a window is
