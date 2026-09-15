@@ -3968,7 +3968,9 @@ def import_asset(project_path: str, source_file: str) -> str:
       models (.obj/.fbx/.gltf/...) → converted to .p3dm package in assets/models/<stem>/
       textures → assets/textures/    sounds → assets/sounds/
       shaders → assets/shaders/      .lua → assets/lua/
-      materials → assets/materials/  anything else → assets/
+      materials → assets/materials/  fonts (.ttf/.otf) → assets/fonts/
+      tile sets (.p3dt) → assets/tiles/   characters (.p3d2d) → assets/characters/
+      UI styles (.uistyle) → assets/ui/   anything else → assets/
     """
     proj, err = _resolve_project(project_path)
     if err:
@@ -4012,6 +4014,17 @@ def import_asset(project_path: str, source_file: str) -> str:
         dest_dir = proj / "assets" / "lua"
     elif ext in MATERIAL_EXTS:
         dest_dir = proj / "assets" / "materials"
+    # Kept in step with ProjectManager::ImportAsset's chain - this is a second
+    # copy of the same decision, and the two disagreeing is how an asset ends
+    # up somewhere the editor will not look for it.
+    elif ext == ".p3d2d":
+        dest_dir = proj / "assets" / "characters"
+    elif ext == ".p3dt":
+        dest_dir = proj / "assets" / "tiles"
+    elif ext in (".ttf", ".otf", ".ttc"):
+        dest_dir = proj / "assets" / "fonts"
+    elif ext == ".uistyle":
+        dest_dir = proj / "assets" / "ui"
     elif ext == ".json":
         dest_dir = proj / "scenes"
     else:

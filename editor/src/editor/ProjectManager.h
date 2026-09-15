@@ -109,6 +109,16 @@ public:
 	// a .p3d2d is authored in this editor and references textures, so it has
 	// nothing in common with an imported model package.
 	std::string Characters2DPath() const;
+	// Tile sets (.p3dt) and the sheets they cut. Together, because a tileset
+	// and its atlas are a pair - splitting them across assets/tiles and
+	// assets/textures makes moving one silently break the other.
+	std::string TilesPath() const;
+	// Fonts (.ttf/.otf). Before this they landed in the assets/ root, because
+	// the import router had no case for them.
+	std::string FontsPath() const;
+	// UI styles (.uistyle). The UI panel already tells people they live in
+	// assets/ui; nothing created it.
+	std::string UIStylesPath() const;
 	std::string ScenesPath() const;
 
 	std::string AbsolutePath(const std::string& relative) const;
@@ -222,6 +232,9 @@ public:
 	static bool IsAnimationExtension(const std::string& path); // .p3da
 	static bool IsPrefabExtension(const std::string& path);    // .prefab
 	static bool IsCharacter2DExtension(const std::string& path); // .p3d2d
+	static bool IsTileSetExtension(const std::string& path);   // .p3dt
+	static bool IsFontExtension(const std::string& path);      // .ttf .otf .ttc
+	static bool IsUIStyleExtension(const std::string& path);   // .uistyle
 
 	// ------------------------------ Build --------------------------------
 	// Stages a runnable game: the PyrosPlayer binary, the engine's shaders,

@@ -210,6 +210,9 @@ std::string ProjectManager::LuaPath() const { return AbsolutePath("assets/lua");
 std::string ProjectManager::MaterialsPath() const { return AbsolutePath("assets/materials"); }
 std::string ProjectManager::PrefabsPath() const { return AbsolutePath("assets/prefabs"); }
 std::string ProjectManager::Characters2DPath() const { return AbsolutePath("assets/characters"); }
+std::string ProjectManager::TilesPath() const { return AbsolutePath("assets/tiles"); }
+std::string ProjectManager::FontsPath() const { return AbsolutePath("assets/fonts"); }
+std::string ProjectManager::UIStylesPath() const { return AbsolutePath("assets/ui"); }
 std::string ProjectManager::ScenesPath() const { return AbsolutePath("scenes"); }
 
 std::string ProjectManager::AbsolutePath(const std::string& relative) const
@@ -355,6 +358,22 @@ bool ProjectManager::IsAnimationExtension(const std::string& path)
 bool ProjectManager::IsPrefabExtension(const std::string& path)
 {
 	return ExtensionLower(path) == "prefab";
+}
+
+bool ProjectManager::IsTileSetExtension(const std::string& path)
+{
+	return ExtensionLower(path) == "p3dt";
+}
+
+bool ProjectManager::IsFontExtension(const std::string& path)
+{
+	const std::string ext = ExtensionLower(path);
+	return ext == "ttf" || ext == "otf" || ext == "ttc";
+}
+
+bool ProjectManager::IsUIStyleExtension(const std::string& path)
+{
+	return ExtensionLower(path) == "uistyle";
 }
 
 bool ProjectManager::IsCharacter2DExtension(const std::string& path)
@@ -843,6 +862,10 @@ bool ProjectManager::ImportAssetFile(const std::string& sourcePath, std::string&
 	else if (IsLuaExtension(sourcePath)) destDir = LuaPath();
 	else if (IsMaterialExtension(sourcePath)) destDir = MaterialsPath();
 	else if (IsSceneExtension(sourcePath)) destDir = ScenesPath();
+	else if (IsCharacter2DExtension(sourcePath)) destDir = Characters2DPath();
+	else if (IsTileSetExtension(sourcePath)) destDir = TilesPath();
+	else if (IsFontExtension(sourcePath)) destDir = FontsPath();
+	else if (IsUIStyleExtension(sourcePath)) destDir = UIStylesPath();
 	else
 	{
 		// Unknown type → drop into assets/ root.
@@ -1599,6 +1622,15 @@ bool ProjectManager::EnsureDirectories(std::string* errorOut) const
 		"assets/materials",
 		"assets/animations",
 		"assets/prefabs",
+		// Added later than the rest. Fonts were landing loose in the assets
+		// root because the import router had no case for them; tile sets and
+		// their sheets had nowhere of their own; assets/characters had a path
+		// helper but was never scaffolded; and the UI panel points people at
+		// assets/ui for styles without anything creating it.
+		"assets/characters",
+		"assets/tiles",
+		"assets/fonts",
+		"assets/ui",
 		"scenes"
 	};
 	for (size_t i = 0; i < sizeof(dirs) / sizeof(dirs[0]); ++i)
