@@ -153,6 +153,32 @@ int main()
 		check(c->GetParent() == NULL, "and no pointer to walk into");
 	}
 
+	// -------- a component that outlives its owner --------
+	//
+	// IComponent::Owner is the same kind of raw back-pointer as _Owner above,
+	// and the one the editor actually calls through:
+	// SceneObjects::DestroySceneObject() does
+	//
+	//     if (component->GetOwner() != NULL) component->GetOwner()->Remove(component);
+	//
+	// so a stale Owner is not a stale pointer sitting harmlessly in a field,
+	// it is a method call on freed memory. That was the Stop Play crash on
+	// Windows, inside Remove() -> FindScene().
+	{
+		SceneGraph s4;
+		std::shared_ptr<PointLight> l = std::make_shared<PointLight>(Vec4(1, 1, 1, 1), 10.f);
+		std::shared_ptr<IComponent> comp = std::static_pointer_cast<IComponent>(l);
+		{
+			std::shared_ptr<GameObject> owner = std::make_shared<GameObject>();
+			owner->Add(comp);
+			s4.Add(owner);
+			s4.Update(0.0);
+			check(comp->GetOwner() == owner.get(), "a component knows its owner");
+			s4.Remove(owner);
+		}   // the last reference to the GameObject goes here
+		check(comp->GetOwner() == NULL, "a destroyed owner leaves no owner behind");
+	}
+
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
 	return failures ? 1 : 0;
 }

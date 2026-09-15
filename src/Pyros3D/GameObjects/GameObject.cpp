@@ -56,6 +56,27 @@ namespace p3d {
 				_Childs[i]->_Owner = NULL;
 				_Childs[i]->_HaveOwner = false;
 			}
+
+		// And the components, for exactly the same reason and from exactly
+		// the same kind of holder. IComponent::Owner is the other raw
+		// back-pointer in this object, set by Add() and cleared by
+		// Remove(IComponent*), with destruction again the one path that
+		// cleared nothing.
+		//
+		// This is the one the editor actually walks into.
+		// SceneObjects::DestroySceneObject() does:
+		//
+		//     if (component != NULL && component->GetOwner() != NULL)
+		//         component->GetOwner()->Remove(component);
+		//
+		// so a component still holding a dead owner does not merely carry a
+		// stale pointer, it is *called through*. Remove() then runs
+		// FindScene() on freed memory - reading `Scene` at +0x200 and, when
+		// that is null, `_Owner` at +0x1d0 - which is the Stop Play crash on
+		// Windows. Cleared here, GetOwner() answers NULL and that whole
+		// branch is skipped.
+		for (size_t i = 0; i < Components.size(); i++)
+			if (Components[i]) Components[i]->Owner = NULL;
 	}
 
 	// Virtual Function on Initialization
