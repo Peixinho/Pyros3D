@@ -25,6 +25,17 @@ namespace p3d {
 		_HaveOwner = false;
 		_ComponentsChanged = false;
 		Scene = NULL;
+		// The two pointers those flags describe. Only the flags were being
+		// set, which left both pointers holding whatever the allocator had
+		// in that memory, and every reader that consults the pointer rather
+		// than its flag walked straight into it.
+		//
+		// FindScene() is one such reader: it follows _Owner upwards without
+		// ever asking _HaveOwner, so an object that was never parented and
+		// never added to a scene - Scene NULL, _Owner garbage - sent it into
+		// that garbage on the first step.
+		_Owner = NULL;
+		_IsLookingAtGameObjectPTR = NULL;
 	}
 
 	// Destructor
@@ -77,6 +88,19 @@ namespace p3d {
 		// branch is skipped.
 		for (size_t i = 0; i < Components.size(); i++)
 			if (Components[i]) Components[i]->Owner = NULL;
+
+		// The look-at link, from both directions. Anyone aimed at this object
+		// is about to be holding a dead pointer that UpdateTransformation()
+		// dereferences every frame, and this object may itself be named in
+		// someone else's watcher list.
+		for (size_t i = 0; i < _LookedAtBy.size(); i++)
+			if (_LookedAtBy[i] != NULL)
+			{
+				_LookedAtBy[i]->_IsLookingAtGameObject = false;
+				_LookedAtBy[i]->_IsLookingAtGameObjectPTR = NULL;
+			}
+		_LookedAtBy.clear();
+		StopLookingAtGameObject();
 	}
 
 	// Virtual Function on Initialization
@@ -184,7 +208,7 @@ namespace p3d {
 			wasDirty = true;
 
 			Vec3 target;
-			if (_IsLookingAtGameObject == true)
+			if (_IsLookingAtGameObject == true && _IsLookingAtGameObjectPTR != NULL)
 				target = _IsLookingAtGameObjectPTR->GetWorldPosition();
 			else if (_IsLookingAtPosition == true) {
 				target = _IsLookingAtPositionVec;
@@ -309,20 +333,39 @@ namespace p3d {
 	{
 		return _WorldMatrix.GetRotation(_Scale).GetEulerFromRotationMatrix();
 	}
+	// Drops the current look-at target, both ends of it. Every place that
+	// stops this object looking at another goes through here, so the target's
+	// _LookedAtBy cannot end up naming a watcher that no longer watches - a
+	// stale entry there would have the target's destructor write into a
+	// pointer it no longer owns.
+	void GameObject::StopLookingAtGameObject()
+	{
+		if (_IsLookingAtGameObjectPTR != NULL)
+		{
+			std::vector<GameObject*> &watchers = _IsLookingAtGameObjectPTR->_LookedAtBy;
+			for (std::vector<GameObject*>::iterator i = watchers.begin(); i != watchers.end(); ++i)
+				if (*i == this) { watchers.erase(i); break; }
+		}
+		_IsLookingAtGameObject = false;
+		_IsLookingAtGameObjectPTR = NULL;
+	}
+
 	// Look At a Given Game Object
 	void GameObject::LookAt(GameObject* GO)
 	{
-		_IsLookingAtGameObject = true;
+		StopLookingAtGameObject();
 		_IsLookingAtPosition = false;
-		_IsLookingAtGameObjectPTR = GO;
 		_IsLookingAtPositionVec = Vec3::ZERO;
+		if (GO == NULL || GO == this) return;
+		_IsLookingAtGameObject = true;
+		_IsLookingAtGameObjectPTR = GO;
+		GO->_LookedAtBy.push_back(this);
 	}
 	// Look At a Given Position
 	void GameObject::LookAt(const Vec3 &Position)
 	{
+		StopLookingAtGameObject();
 		_IsLookingAtPosition = true;
-		_IsLookingAtGameObject = false;
-		_IsLookingAtGameObjectPTR = NULL;
 		_IsLookingAtPositionVec = Position;
 	}
 

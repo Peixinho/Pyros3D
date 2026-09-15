@@ -155,6 +155,32 @@ namespace p3d {
 		GO->Scene = NULL;
 	}
 
+	SceneGraph::~SceneGraph()
+	{
+		// Deliberately not RemoveAll(): that routes through Remove(), which
+		// echoes a line per object and re-searches the lists each time. The
+		// work that actually matters here is the same either way - unregister
+		// each subtree while `this` is still a valid scene to unregister
+		// from, then drop the back-pointer.
+		//
+		// UnregisterComponentsTree() is idempotent (every component checks
+		// its own Registered flag), so an object sitting in more than one of
+		// these lists costs a second walk and nothing else.
+		std::vector<std::shared_ptr<GameObject>>* lists[4] = {
+			&_GameObjectListDynamic, &_GameObjectListStaticPrevious,
+			&_GameObjectListStaticAfter, &_GameObjectListALL };
+		for (int l = 0; l < 4; l++)
+			for (std::vector<std::shared_ptr<GameObject>>::iterator i = lists[l]->begin(); i != lists[l]->end(); i++)
+				if (*i)
+				{
+					(*i)->UnregisterComponentsTree(this);
+					(*i)->Scene = NULL;
+				}
+
+		for (int l = 0; l < 4; l++)
+			lists[l]->clear();
+	}
+
 	void SceneGraph::RemoveAll()
 	{
 		// Copy first - Remove() mutates _GameObjectListALL, so iterating

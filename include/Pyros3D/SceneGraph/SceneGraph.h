@@ -33,6 +33,17 @@ namespace p3d {
 
 		SceneGraph();
 
+		// Unregisters everything still in the scene, so nothing outlives it
+		// holding a pointer back to it.
+		//
+		// GameObject::Scene and RenderingComponent::Scene are both raw
+		// SceneGraph pointers, and objects routinely outlive the scene they
+		// were in - the editor's SceneObject registry holds a reference to
+		// every one of them, and so does any handle a script kept. Without
+		// this, closing a scene left those objects pointing at freed memory,
+		// and FindScene() hands that pointer straight to Unregister().
+		~SceneGraph();
+
 		// Update
 		void Update(const f64 &Timer);
 		// Add Child to Scene

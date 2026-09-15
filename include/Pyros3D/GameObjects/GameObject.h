@@ -95,6 +95,13 @@ namespace p3d {
 		void Remove(GameObject* Child);
 		GameObject* GetParent() { return _Owner; }
 		bool HaveParent() { return _HaveOwner; }
+		// The scene this object is a root of, or NULL. Read-only: membership
+		// is SceneGraph's to change, through Add()/Remove(). Exposed so the
+		// back-pointer can be asserted on rather than only inferred.
+		SceneGraph* GetScene() const { return Scene; }
+		// Whether LookAt(GameObject*) is currently in force. Goes false on
+		// its own if the target is destroyed.
+		bool IsLookingAtGameObject() const { return _IsLookingAtGameObject; }
 		const std::vector<std::shared_ptr<GameObject>> &GetChildren() const { return _Childs; }
 
 		// Name - purely a label (editor display, save-file identification),
@@ -179,6 +186,16 @@ namespace p3d {
 		bool _IsLookingAtGameObject, _IsLookingAtPosition;
 		GameObject* _IsLookingAtGameObjectPTR;
 		Vec3 _IsLookingAtPositionVec;
+		// Everyone currently pointing their _IsLookingAtGameObjectPTR at THIS
+		// object. The other direction of the same link, kept purely so the
+		// destructor can clear it - a look-at target is not owned by the
+		// object watching it and can be destroyed at any time, and
+		// UpdateTransformation() dereferences that pointer every single frame
+		// the flag is set. Without this there is nothing to tell the watchers.
+		std::vector<GameObject*> _LookedAtBy;
+		// Both ends of the link in one place, so LookAt(), LookAt(Vec3) and
+		// ~GameObject() cannot drift apart on which side they maintain.
+		void StopLookingAtGameObject();
 
 		// Components
 		std::vector<std::shared_ptr<IComponent>> Components;

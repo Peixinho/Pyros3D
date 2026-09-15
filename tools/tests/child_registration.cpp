@@ -179,6 +179,65 @@ int main()
 		check(comp->GetOwner() == NULL, "a destroyed owner leaves no owner behind");
 	}
 
+	// -------- an object that outlives its scene --------
+	//
+	// GameObject::Scene and RenderingComponent::Scene are both raw SceneGraph
+	// pointers, and an object outliving the scene is the normal case when a
+	// document is closed: the editor's registry still holds it. FindScene()
+	// returns whatever Scene says and hands it to Unregister().
+	{
+		std::shared_ptr<GameObject> survivor = std::make_shared<GameObject>();
+		std::shared_ptr<PointLight> l = std::make_shared<PointLight>(Vec4(1, 1, 1, 1), 10.f);
+		survivor->Add(std::static_pointer_cast<IComponent>(l));
+		{
+			SceneGraph doomed;
+			doomed.Add(survivor);
+			doomed.Update(0.0);
+			check(lightsOn(&doomed) == 1, "the light registers with its scene");
+		}   // the scene dies here, the object does not
+		check(survivor->GetScene() == NULL, "a destroyed scene leaves no scene behind");
+		// And the component came out unregistered, so nothing is still listed
+		// in a scene that no longer exists.
+		survivor->Remove(l.get());
+		check(true, "removing its component afterwards is not a crash");
+	}
+
+	// -------- look-at, in both directions --------
+	//
+	// UpdateTransformation() dereferences _IsLookingAtGameObjectPTR every
+	// frame the flag is set, and a look-at target is not owned by the object
+	// watching it - so the target dying is a dangling read per frame, with no
+	// event to hang a fix on except the target's own destructor.
+	{
+		SceneGraph s5;
+		std::shared_ptr<GameObject> watcher = std::make_shared<GameObject>();
+		{
+			std::shared_ptr<GameObject> target = std::make_shared<GameObject>();
+			target->SetPosition(Vec3(5.f, 0.f, 0.f));
+			watcher->LookAt(target.get());
+			s5.Add(watcher);
+			s5.Add(target);
+			s5.Update(0.0);
+			check(watcher->IsLookingAtGameObject(), "the watcher is aimed at the target");
+			s5.Remove(target);
+		}   // target destroyed, watcher still live and still in the scene
+		check(!watcher->IsLookingAtGameObject(), "a destroyed target stops being looked at");
+		// The read that used to be a dangling one happens in here.
+		s5.Update(0.016);
+		check(true, "and the next update does not read through it");
+	}
+
+	// The other direction: the WATCHER dying must not leave the target's
+	// list naming it, or the target's destructor writes into freed memory.
+	{
+		std::shared_ptr<GameObject> target = std::make_shared<GameObject>();
+		{
+			std::shared_ptr<GameObject> watcher = std::make_shared<GameObject>();
+			watcher->LookAt(target.get());
+		}   // watcher destroyed first
+		check(true, "a destroyed watcher deregisters itself from its target");
+	}   // target destroyed second - must not touch the dead watcher
+
 	printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
 	return failures ? 1 : 0;
 }
