@@ -619,6 +619,12 @@ void Editor::BuildDefaultLayout(const ImGuiID dockspaceID, const ImVec2 &size)
 	ImGui::DockBuilderDockWindow("Profiler", bottom);
 	ImGui::DockBuilderDockWindow("Render Targets", bottom);
 	ImGui::DockBuilderDockWindow("Tools", rightTools);
+	// The tile brush's palette shares the Tools tab. It is a tool palette, it
+	// is only visible in paint mode, and it wants to sit beside the viewport
+	// rather than over it - left out of here it came up floating wherever
+	// ImGui happened to put it, which is every bit as wrong as a document
+	// window floating.
+	ImGui::DockBuilderDockWindow("Tile Palette", rightTools);
 	ImGui::DockBuilderDockWindow("Properties", rightBottom);
 	ImGui::DockBuilderDockWindow("AI Assistant", right);
 	dockCenterId = center;

@@ -526,6 +526,24 @@ Two bugs it cost:
 
 Agent commands: `open_tileset`, `set_tile_solid`, `save_tileset`.
 
+**Where the windows sit.** The tile set editor docks beside Scene View as a tab, and the
+Tile Palette shares the Tools tab in the right column - both from
+`Editor::BuildDefaultLayout`, which is the editor's real default: neither `imgui.ini` in this
+repo is tracked, so a fresh clone has no saved layout and that function is what builds one.
+
+Getting there turned up a bug in all four document types (material, animation, 2D character,
+tile set), not just the new one. Each asked to dock only if `dockCenterId` was non-zero, then
+cleared its "please dock me" flag unconditionally. `dockCenterId` comes from finding Scene
+View's node, so a document opened on the same frame as the project - the order an agent
+produces, and a double-click from a cold start - spent the one frame that would have forced
+the dock and floated instead. ImGui then SAVED that float, so it came back floating on every
+later run, which reads as permanent rather than as a first-launch glitch. The saved layout in
+this repo has `material_win_1` with no `DockId` at all: the bug already written to disk. The
+flag is now held until there is a node to dock into.
+
+A layout saved before that fix keeps its floats. **View > Reset Layout** rebuilds from
+`BuildDefaultLayout`.
+
 ## Where the editor half attaches
 
 Checked against the editor before committing to the above. The engine design holds, with the
