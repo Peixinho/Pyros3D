@@ -5368,8 +5368,14 @@ void Editor::DrawMaterialEditorWindows()
 		char title[512];
 		snprintf(title, sizeof(title), u8" %s###material_win_%u", doc->displayName.c_str(), doc->id);
 
-		const bool forceDock = (pendingSelectMaterialDocId == doc->id);
-		if (dockCenterId != 0)
+		// A dock request only counts once there is a node to dock INTO. When a
+		// document opens on the same frame as the project, Scene View has not
+		// established its node yet, dockCenterId is 0, and clearing the
+		// pending flag anyway leaves the window floating for good - and saves
+		// that float into imgui.ini, so it floats on every later run too.
+		const bool canDock = (dockCenterId != 0);
+		const bool forceDock = canDock && (pendingSelectMaterialDocId == doc->id);
+		if (canDock)
 		{
 			ImGui::SetNextWindowDockID(dockCenterId,
 				forceDock ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
@@ -5396,7 +5402,7 @@ void Editor::DrawMaterialEditorWindows()
 			lastFocusedDocKind = FocusedDocKind::Material;
 		}
 		if (pendingSelectMaterialDocId == doc->id)
-			pendingSelectMaterialDocId = 0;
+			if (canDock) pendingSelectMaterialDocId = 0;
 
 		MaterialEditor::DrawWindow(*doc, projectRoot, UseDeferredGBuffer());
 
@@ -5920,8 +5926,16 @@ void Editor::DrawTileSetEditorWindows()
 		char title[512];
 		snprintf(title, sizeof(title), u8" %s###tileset_win_%u", doc->displayName.c_str(), doc->id);
 
-		const bool forceDock = (pendingSelectTileSetDocId == doc->id);
-		if (dockCenterId != 0)
+		// Only a real dock target counts as having placed the window. If
+		// Scene View has not established its dock node yet - which is the case
+		// when a document is opened on the same frame as the project, the
+		// order an agent or a double-click from a fresh start produces -
+		// dockCenterId is still 0, and clearing the pending flag anyway would
+		// leave this window floating forever AND save that float to
+		// imgui.ini, so it floats on every later run too.
+		const bool canDock = (dockCenterId != 0);
+		const bool forceDock = canDock && (pendingSelectTileSetDocId == doc->id);
+		if (canDock)
 			ImGui::SetNextWindowDockID(dockCenterId, forceDock ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
 		if (forceDock) ImGui::SetNextWindowFocus();
 		ImGui::SetNextWindowSize(ImVec2(900, 640), ImGuiCond_FirstUseEver);
@@ -5941,7 +5955,8 @@ void Editor::DrawTileSetEditorWindows()
 			activeTileSetDoc = doc;
 			lastFocusedDocKind = FocusedDocKind::TileSet;
 		}
-		if (pendingSelectTileSetDocId == doc->id) pendingSelectTileSetDocId = 0;
+		// Held until it is actually docked - see canDock above.
+		if (canDock && pendingSelectTileSetDocId == doc->id) pendingSelectTileSetDocId = 0;
 
 		void* texId = nullptr;
 		std::map<uint32, std::shared_ptr<p3d::Texture> >::iterator t = tileSetAtlasTex.find(doc->id);
@@ -5995,8 +6010,14 @@ void Editor::DrawCharacter2DEditorWindows()
 		char title[512];
 		snprintf(title, sizeof(title), u8" %s###character2d_win_%u", doc->displayName.c_str(), doc->id);
 
-		const bool forceDock = (pendingSelectCharacter2DDocId == doc->id);
-		if (dockCenterId != 0)
+		// A dock request only counts once there is a node to dock INTO. When a
+		// document opens on the same frame as the project, Scene View has not
+		// established its node yet, dockCenterId is 0, and clearing the
+		// pending flag anyway leaves the window floating for good - and saves
+		// that float into imgui.ini, so it floats on every later run too.
+		const bool canDock = (dockCenterId != 0);
+		const bool forceDock = canDock && (pendingSelectCharacter2DDocId == doc->id);
+		if (canDock)
 			ImGui::SetNextWindowDockID(dockCenterId, forceDock ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
 		if (forceDock) ImGui::SetNextWindowFocus();
 		ImGui::SetNextWindowSize(ImVec2(1100, 720), ImGuiCond_FirstUseEver);
@@ -6017,7 +6038,7 @@ void Editor::DrawCharacter2DEditorWindows()
 			activeCharacter2DDoc = doc;
 			lastFocusedDocKind = FocusedDocKind::Character2D;
 		}
-		if (pendingSelectCharacter2DDocId == doc->id) pendingSelectCharacter2DDocId = 0;
+		if (canDock && pendingSelectCharacter2DDocId == doc->id) pendingSelectCharacter2DDocId = 0;
 
 		Character2DEditor::FrameRequests req;
 		Character2DEditor::DrawWindow(*doc, textures, dt, req);
@@ -6172,8 +6193,14 @@ void Editor::DrawAnimationEditorWindows()
 		char title[512];
 		snprintf(title, sizeof(title), u8" %s###animation_win_%u", doc->displayName.c_str(), doc->id);
 
-		const bool forceDock = (pendingSelectAnimationDocId == doc->id);
-		if (dockCenterId != 0)
+		// A dock request only counts once there is a node to dock INTO. When a
+		// document opens on the same frame as the project, Scene View has not
+		// established its node yet, dockCenterId is 0, and clearing the
+		// pending flag anyway leaves the window floating for good - and saves
+		// that float into imgui.ini, so it floats on every later run too.
+		const bool canDock = (dockCenterId != 0);
+		const bool forceDock = canDock && (pendingSelectAnimationDocId == doc->id);
+		if (canDock)
 			ImGui::SetNextWindowDockID(dockCenterId, forceDock ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
 		if (forceDock) ImGui::SetNextWindowFocus();
 		ImGui::SetNextWindowSize(ImVec2(1100, 720), ImGuiCond_FirstUseEver);
@@ -6194,7 +6221,7 @@ void Editor::DrawAnimationEditorWindows()
 			activeAnimationDoc = doc;
 			lastFocusedDocKind = FocusedDocKind::Animation;
 		}
-		if (pendingSelectAnimationDocId == doc->id) pendingSelectAnimationDocId = 0;
+		if (canDock && pendingSelectAnimationDocId == doc->id) pendingSelectAnimationDocId = 0;
 
 		AnimationEditor::FrameRequests req;
 		AnimationEditor::DrawWindow(*doc, meshes, dt, req);
