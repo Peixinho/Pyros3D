@@ -44,6 +44,7 @@
 	#include "editor/AnimationEditorDocument.h"
 	#include "editor/UI/Character2DEditor.h"
 	#include "editor/Character2DDocument.h"
+	#include "editor/TileSetDocument.h"
 	#include "editor/MaterialPreview.h"
 	#include "editor/SceneEditor.h"
 #include "editor/ProjectManager.h"
@@ -232,6 +233,12 @@ protected:
 	Character2DDocument* FindCharacter2DDocumentByPath(const std::string& absPath) const;
 	bool SaveCharacter2DDocument(Character2DDocument* doc, const std::string& absPath);
 	void DrawCharacter2DEditorWindows();
+	// Tile sets are assets, so they get a document window like .p3da, .p3d2d
+	// and materials do - see TileSetDocument.h for why a tile MAP does not.
+	void DrawTileSetEditorWindows();
+	bool OpenTileSetDocument(const std::string& absPath);
+	bool SaveTileSetDocument(TileSetDocument* doc);
+	TileSetDocument* FindTileSetDocumentByPath(const std::string& absPath);
 	void RequestCloseCharacter2DDocument(Character2DDocument* doc, std::vector<uint32_t>& closeIds);
 	// Every texture in the project, for the sprite picker.
 	void BuildCharacter2DTextureChoices(std::vector<Character2DEditor::TextureChoice>& out) const;
@@ -298,7 +305,7 @@ private:
 	// own tracking: it only ever gets focus while a scene document is
 	// already the last-focused kind). Defaults to Scene so undo works
 	// immediately in the common case of a single scene document open.
-	enum class FocusedDocKind { Scene, Material, Animation, Character2D };
+	enum class FocusedDocKind { Scene, Material, Animation, Character2D, TileSet };
 	FocusedDocKind lastFocusedDocKind = FocusedDocKind::Scene;
 	// Project-wide settings (name, renderer type) aren't "a document" the
 	// way a scene/material tab is, so they get their own small stack rather
@@ -381,6 +388,12 @@ private:
 
 	// Character (2D) editors.
 	std::vector<Character2DDocument*> character2DDocs;
+	std::vector<TileSetDocument*> tileSetDocs;
+	TileSetDocument* activeTileSetDoc = nullptr;
+	uint32 nextTileSetDocId = 1;
+	uint32 pendingSelectTileSetDocId = 0;
+	// The atlas uploaded for ImGui, one per open document, keyed by doc id.
+	std::map<uint32, std::shared_ptr<p3d::Texture> > tileSetAtlasTex;
 	Character2DDocument* activeCharacter2DDoc;
 	uint32 nextCharacter2DDocId;
 	uint32 pendingSelectCharacter2DDocId;

@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "Editor.h"
+#include "editor/UI/TileSetEditor.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Assets/TileSet2D/TileSet2D.h>
@@ -2631,15 +2632,35 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// Routed by which document last had focus, exactly as Ctrl+Z is. It used
+	// to call sceneView->Undo() unconditionally, which meant the agent API
+	// could not undo anything in ANY document editor - material, animation,
+	// character or tile set - and silently undid a scene edit instead.
 	if (name == "undo")
 	{
-		sceneView->Undo();
+		if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc)
+			activeAnimationDoc->undo.Undo();
+		else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc)
+			activeCharacter2DDoc->undo.Undo();
+		else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc)
+			activeTileSetDoc->undo.Undo();
+		else if (lastFocusedDocKind == FocusedDocKind::Material && activeMaterialDoc)
+			activeMaterialDoc->undo.Undo();
+		else if (sceneView) sceneView->Undo();
 		nlohmann::json r;
 		r["ok"] = true;
 		return r;
 	}
 	if (name == "redo")
 	{
+		if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc)
+		{ activeAnimationDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
+		if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc)
+		{ activeCharacter2DDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
+		if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc)
+		{ activeTileSetDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
+		if (lastFocusedDocKind == FocusedDocKind::Material && activeMaterialDoc)
+		{ activeMaterialDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
 		sceneView->Redo();
 		nlohmann::json r;
 		r["ok"] = true;
@@ -2994,6 +3015,47 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 
 	// {"cmd":"open_character2d","args":{"path":"assets/characters/Hero.p3d2d"}}
+	// {"cmd":"open_tileset","args":{"path":"assets/tiles/world.p3dt"}}
+	// Opens the .p3dt in its own document window, the same way a character or
+	// an animation opens. Marking cells solid is the point of it.
+	if (name == "open_tileset")
+	{
+		const std::string rel = A("path");
+		if (rel.empty()) throw std::runtime_error("open_tileset: 'path' is required");
+		if (!OpenTileSetDocument(project.AbsolutePath(rel)))
+			throw std::runtime_error("could not open " + rel);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["tileset"] = activeTileSetDoc->displayName;
+		r["tiles"] = activeTileSetDoc->set.TileCount();
+		r["solid"] = activeTileSetDoc->SolidCount();
+		return r;
+	}
+	// {"cmd":"set_tile_solid","args":{"tiles":[4,5,6],"solid":true}}
+	// Acts on the focused tile set document. One undo entry for the batch.
+	if (name == "set_tile_solid")
+	{
+		if (!activeTileSetDoc) throw std::runtime_error("no tile set open");
+		std::vector<p3d::int32> idx;
+		if (a.is_object() && a.contains("tiles") && a["tiles"].is_array())
+			for (size_t i = 0; i < a["tiles"].size(); i++)
+				if (a["tiles"][i].is_number()) idx.push_back((p3d::int32)a["tiles"][i].get<int>());
+		if (idx.empty()) throw std::runtime_error("no tiles given");
+		const bool solid = !a.contains("solid") || a["solid"].get<bool>();
+		activeTileSetDoc->SetSolidRange(idx, solid);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["solid"] = activeTileSetDoc->SolidCount();
+		return r;
+	}
+	// {"cmd":"save_tileset"} - writes the focused document back to its .p3dt.
+	if (name == "save_tileset")
+	{
+		if (!activeTileSetDoc) throw std::runtime_error("no tile set open");
+		if (!SaveTileSetDocument(activeTileSetDoc))
+			throw std::runtime_error("could not save the tile set");
+		nlohmann::json r; r["ok"] = true; return r;
+	}
 	if (name == "open_character2d")
 	{
 		const std::string rel = A("path");
@@ -3798,6 +3860,7 @@ void Editor::DrawUI()
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Undo();
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Undo();
 				else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc) activeCharacter2DDoc->undo.Undo();
+				else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc) activeTileSetDoc->undo.Undo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Undo();
 			}
 			if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Shift+Z", false, canRedo))
@@ -3805,6 +3868,7 @@ void Editor::DrawUI()
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Redo();
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Redo();
 				else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc) activeCharacter2DDoc->undo.Redo();
+				else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc) activeTileSetDoc->undo.Redo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Redo();
 			}
 
@@ -3973,6 +4037,7 @@ void Editor::DrawUI()
 	DrawMaterialEditorWindows();
 	DrawAnimationEditorWindows();
 	DrawCharacter2DEditorWindows();
+	DrawTileSetEditorWindows();
 
 	if (showingSceneTree)
 		DrawSceneTreeWindow();
@@ -5763,6 +5828,149 @@ void Editor::HostOpenCharacter2D(const std::string& absPath)
 	instance->OpenCharacter2DDocument(absPath);
 }
 
+
+TileSetDocument* Editor::FindTileSetDocumentByPath(const std::string& absPath)
+{
+	for (size_t i = 0; i < tileSetDocs.size(); ++i)
+		if (tileSetDocs[i] && tileSetDocs[i]->absolutePath == absPath) return tileSetDocs[i];
+	return nullptr;
+}
+
+bool Editor::OpenTileSetDocument(const std::string& absPath)
+{
+	if (absPath.empty()) return false;
+
+	if (TileSetDocument* existing = FindTileSetDocumentByPath(absPath))
+	{
+		pendingSelectTileSetDocId = existing->id;
+		activeTileSetDoc = existing;
+		lastFocusedDocKind = FocusedDocKind::TileSet;
+		return true;
+	}
+
+	TileSetDocument* doc = new TileSetDocument();
+	doc->id = nextTileSetDocId++;
+	// Set BEFORE loading: the load resolves the atlas against this.
+	doc->projectRoot = project.IsOpen() ? project.GetProjectPath() : std::string();
+
+	std::string err;
+	if (!doc->LoadFromFile(absPath, err))
+	{
+		echo("ERROR: " + err);
+		delete doc;
+		return false;
+	}
+
+	// The sheet, for the grid. No mipmaps and Nearest for the same reason the
+	// tilemap's atlas gets them - a minified mip blends across cell edges.
+	if (!doc->atlasPath.empty())
+	{
+		std::shared_ptr<p3d::Texture> tex = std::make_shared<p3d::Texture>();
+		if (tex->LoadTexture(doc->atlasPath, p3d::TextureType::Texture, false))
+		{
+			tex->SetMinMagFilter(p3d::TextureFilter::Nearest, p3d::TextureFilter::Nearest);
+			tileSetAtlasTex[doc->id] = tex;
+		}
+	}
+
+	// Route Ctrl+Z here while this document is the one being edited. Without
+	// it the tileset's own stack is unreachable from the keyboard and undo
+	// silently hits the scene's instead.
+	doc->undo.onPush = [this, doc]() {
+		lastFocusedDocKind = FocusedDocKind::TileSet;
+		activeTileSetDoc = doc;
+	};
+
+	tileSetDocs.push_back(doc);
+	pendingSelectTileSetDocId = doc->id;
+	activeTileSetDoc = doc;
+	lastFocusedDocKind = FocusedDocKind::TileSet;
+	echo("Opened tile set " + project.DisplayPath(absPath) + " ("
+		+ std::to_string(doc->set.TileCount()) + " tiles, "
+		+ std::to_string(doc->SolidCount()) + " solid)");
+	return true;
+}
+
+bool Editor::SaveTileSetDocument(TileSetDocument* doc)
+{
+	if (!doc || doc->absolutePath.empty()) return false;
+	std::string err;
+	if (!doc->SaveAs(doc->absolutePath, err))
+	{
+		echo("ERROR: " + err);
+		return false;
+	}
+	echo("SUCCESS: Saved " + project.DisplayPath(doc->absolutePath));
+	return true;
+}
+
+void Editor::DrawTileSetEditorWindows()
+{
+	if (tileSetDocs.empty()) return;
+
+	if (ImGuiWindow* sv = ImGui::FindWindowByName("Scene View"))
+		if (sv->DockId != 0) dockCenterId = sv->DockId;
+
+	std::vector<uint32> closeIds;
+	for (size_t i = 0; i < tileSetDocs.size(); ++i)
+	{
+		TileSetDocument* doc = tileSetDocs[i];
+		if (!doc) continue;
+
+		char title[512];
+		snprintf(title, sizeof(title), u8" %s###tileset_win_%u", doc->displayName.c_str(), doc->id);
+
+		const bool forceDock = (pendingSelectTileSetDocId == doc->id);
+		if (dockCenterId != 0)
+			ImGui::SetNextWindowDockID(dockCenterId, forceDock ? ImGuiCond_Always : ImGuiCond_FirstUseEver);
+		if (forceDock) ImGui::SetNextWindowFocus();
+		ImGui::SetNextWindowSize(ImVec2(900, 640), ImGuiCond_FirstUseEver);
+
+		bool open = true;
+		ImGuiWindowFlags wflags = ImGuiWindowFlags_None;
+		if (doc->dirty) wflags |= ImGuiWindowFlags_UnsavedDocument;
+
+		if (!ImGui::Begin(title, &open, wflags))
+		{
+			ImGui::End();
+			if (!open) closeIds.push_back(doc->id);
+			continue;
+		}
+		if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows))
+		{
+			activeTileSetDoc = doc;
+			lastFocusedDocKind = FocusedDocKind::TileSet;
+		}
+		if (pendingSelectTileSetDocId == doc->id) pendingSelectTileSetDocId = 0;
+
+		void* texId = nullptr;
+		std::map<uint32, std::shared_ptr<p3d::Texture> >::iterator t = tileSetAtlasTex.find(doc->id);
+		if (t != tileSetAtlasTex.end() && t->second)
+			texId = (void*)GetActiveRenderDevice().GetImGuiTextureID(
+				t->second->GetBindID(), t->second->GetTextureType());
+
+		TileSetEditor::FrameRequests req;
+		TileSetEditor::DrawWindow(*doc, texId, req);
+		ImGui::End();
+
+		if (req.save) SaveTileSetDocument(doc);
+		if (req.close || !open) closeIds.push_back(doc->id);
+	}
+
+	for (size_t k = 0; k < closeIds.size(); ++k)
+	{
+		for (size_t i = 0; i < tileSetDocs.size(); ++i)
+		{
+			if (!tileSetDocs[i] || tileSetDocs[i]->id != closeIds[k]) continue;
+			if (activeTileSetDoc == tileSetDocs[i]) activeTileSetDoc = nullptr;
+			tileSetAtlasTex.erase(closeIds[k]);
+			delete tileSetDocs[i];
+			tileSetDocs.erase(tileSetDocs.begin() + i);
+			break;
+		}
+	}
+}
+
 void Editor::DrawCharacter2DEditorWindows()
 {
 	if (character2DDocs.empty()) return;
@@ -7053,6 +7261,8 @@ void Editor::DrawAssetsWindow()
 				OpenAnimationDocument(abs);
 			if (isChar2D && ImGui::MenuItem("Edit Character"))
 				OpenCharacter2DDocument(abs);
+			if (isTileSet && ImGui::MenuItem("Edit Tile Set"))
+				OpenTileSetDocument(abs);
 			if (isChar2D && ImGui::MenuItem("Place in Scene") && sceneView)
 				sceneView->PlaceAssetInScene(abs);
 			// A model is the other way into the Animation Editor: it opens

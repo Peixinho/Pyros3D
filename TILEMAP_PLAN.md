@@ -1,6 +1,6 @@
 # Tilemaps: tileset assets, chunked map component, merged colliders
 
-**Status: all eight phases done, 2026-09-14 - engine, Lua, undo/redo, agent commands, MCP,
+**Status: all nine phases done, 2026-09-15 - engine, Lua, undo/redo, agent commands, MCP,
 the editor's paint mode and the on-ramp that reaches it.** Two gaps are called out below: a
 stroke driven by a real mouse drag has not been exercised, only its logic (Phase 7), and
 marking tiles solid still means hand-editing the `.p3dt` (Phase 8). Four
@@ -476,9 +476,8 @@ rebuilt.
 2. In **Assets**, right-click it > **Create Tile Set…**, set the cell size, check the grid
    line reads what you expect, Create. This makes a `.p3dt` **tile set** - the cut-up sheet.
    It is not yet a tile map; a map lives in a scene.
-3. Open the `.p3dt` in a text editor and mark which tiles are solid:
-   `"tiles": [{"i": 12, "solid": true}]`. Only solid cells get colliders. (There is no UI
-   for this yet - see below.)
+3. Right-click the `.p3dt` > **Edit Tile Set**. Click cells (shift-click for a range,
+   ctrl-click to add), then Space or "Make Solid". Only solid cells become colliders. Save.
 4. In a **2D scene**, put a map in it by any of:
    - **Assets**, right-click the `.p3dt` > **Create Tile Map in Scene** (shortest route -
      the tileset is already chosen);
@@ -492,8 +491,40 @@ rebuilt.
 6. Add a **Physics 2D** component to the same object (body type Static) and the solid cells
    become merged colliders automatically.
 
-**Still missing:** marking tiles solid needs hand-editing the `.p3dt`; there is no tileset
-inspector in the editor. That is the next obvious piece of UI.
+### Phase 9 - The tile set editor — **DONE** (2026-09-15)
+
+`editor/src/editor/TileSetDocument.{h,cpp}` + `editor/src/editor/UI/TileSetEditor.{h,cpp}`,
+following `Character2DDocument` + `UI/Character2DEditor.cpp` - a dockable document with its
+own undo stack and unsaved-changes marker, opened from Assets > right-click a `.p3dt` >
+**Edit Tile Set** (or the `open_tileset` agent command).
+
+This should have been built with the rest of it. A tile MAP is scene content, so painting it
+in the scene is right; a tile SET is an asset, and every other asset type in this editor -
+`.p3da`, `.p3d2d`, materials, scripts - opens as a document. Shipping the map painter and
+leaving the set to be hand-edited as JSON was an inconsistency with the codebase's own
+established pattern, and it was the half a person actually has to touch to make a level
+collide.
+
+The sheet is drawn as a clickable grid at the set's own cut. Solid is a filled wash over the
+cell rather than a corner marker, because it has to be readable at a glance across a
+256-tile sheet. Shift-click takes a range, ctrl-click adds, Space toggles the selection.
+Re-cutting the sheet (tile size / margin / spacing / columns) clears the selection: every
+index then means a different cell, and silently repointing a selection at different artwork
+is worse than losing it.
+
+Two bugs it cost:
+
+- **ImGui aborts if `SetCursorPos` is used to extend a child's boundaries**
+  (`ErrorCheckUsingSetCursorPosToExtendParentBoundaries`), which is how the scroll region
+  was being sized - every cell is placed with `SetCursorScreenPos` and so contributes
+  nothing to the content size. The assert kills the process rather than drawing wrong.
+  Reserve with a `Dummy` instead.
+- **The agent `undo`/`redo` commands called `sceneView->Undo()` unconditionally**, so they
+  could not reach ANY document editor's stack - material, animation, character or tile set -
+  and silently undid a scene edit instead. Now routed by focused document, the same way
+  Ctrl+Z already was.
+
+Agent commands: `open_tileset`, `set_tile_solid`, `save_tileset`.
 
 ## Where the editor half attaches
 

@@ -64,8 +64,10 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimationPreview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/AnimationEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Character2DDocument.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/TileSetDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Character2DPreview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/Character2DEditor.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/TileSetEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/WebTextInput.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/GameObjectHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Helpers/LightHelper.cpp
