@@ -183,6 +183,17 @@ void TileSetDocument::AddAutoTile(const int32 base, const std::string& name)
 	PushEdit(before, "Add Terrain");
 }
 
+void TileSetDocument::SetHeightProfile(const int32 index, const std::vector<float>& heights)
+{
+	if (index < 0) return;
+	const std::string before = TileSet2DToString(set);
+	set.tiles[index].heights.assign(heights.begin(), heights.end());
+	// A profile is collision, and collision on a tile nothing collides with is
+	// invisible work - so drawing one makes the tile solid.
+	if (!heights.empty()) set.tiles[index].solid = true;
+	PushEdit(before, heights.empty() ? "Clear Tile Profile" : "Edit Tile Profile");
+}
+
 void TileSetDocument::RemoveAutoTileForTile(const int32 index)
 {
 	const int32 g = set.AutoTileForTile(index);

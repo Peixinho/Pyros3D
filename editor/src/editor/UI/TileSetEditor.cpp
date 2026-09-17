@@ -123,8 +123,9 @@ namespace TileSetEditor {
 					dl->AddRectFilled(p0, p1, IM_COL32(80, 170, 255, 70));
 					dl->AddRect(p0, p1, IM_COL32(110, 200, 255, 220), 0.f, 0, 2.f);
 				}
-				else if (TileShape2DIsFloorProfile(sh) && sh != TileShape2D::SlopeBR
-					&& sh != TileShape2D::SlopeBL)
+				else if (set.HasHeightProfile(i)
+					|| (TileShape2DIsFloorProfile(sh) && sh != TileShape2D::SlopeBR
+						&& sh != TileShape2D::SlopeBL))
 				{
 					// Curved floors, drawn from the SAME profile the collider
 					// is built from - so what the sheet shows and what the
@@ -134,7 +135,7 @@ namespace TileSetEditor {
 					for (int k = 0; k <= kN; k++)
 					{
 						const float t = (float)k / (float)kN;
-						const float hgt = TileShape2DHeight(sh, t);
+						const float hgt = set.SurfaceHeight(i, t);
 						pts[k] = ImVec2(p0.x + t * (p1.x - p0.x),
 							p1.y - hgt * (p1.y - p0.y));
 					}
@@ -270,6 +271,64 @@ namespace TileSetEditor {
 		}
 		if (mixed) { ImGui::SameLine(); ImGui::TextDisabled("(mixed)"); }
 		ImGui::TextDisabled("Picking a slope also marks the tile solid.");
+
+		// --- custom collision profile ----------------------------------------
+		// Drawn, not typed. A height mask is a picture of a surface, and the
+		// only reliable way to author one is to draw it over the tile it
+		// belongs to and see the two together.
+		{
+			const int32 pt = g_selection[0];
+			ImGui::TextDisabled("Collision profile (draw to edit)");
+			const int kN = 16;
+			std::vector<float> prof(kN, 0.f);
+			const bool had = set.HasHeightProfile(pt);
+			for (int i = 0; i < kN; i++)
+				prof[i] = set.SurfaceHeight(pt, (float)i / (float)(kN - 1));
+
+			const float pw = 16.f * 12.f, ph = 16.f * 6.f;
+			const ImVec2 o = ImGui::GetCursorScreenPos();
+			ImGui::InvisibleButton("##profile", ImVec2(pw, ph));
+			ImDrawList* pdl = ImGui::GetWindowDrawList();
+			pdl->AddRectFilled(o, ImVec2(o.x + pw, o.y + ph), IM_COL32(30, 32, 38, 255));
+			if (atlasTexId)
+			{
+				const Vec4 uv = set.UVRect(pt);
+				pdl->AddImage((ImTextureID)atlasTexId, o, ImVec2(o.x + pw, o.y + ph),
+					ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w), IM_COL32(255, 255, 255, 110));
+			}
+			bool edited = false;
+			if (ImGui::IsItemActive() && ImGui::IsMouseDown(ImGuiMouseButton_Left))
+			{
+				const ImVec2 m = ImGui::GetIO().MousePos;
+				int col = (int)(((m.x - o.x) / pw) * kN);
+				if (col < 0) col = 0;
+				if (col > kN - 1) col = kN - 1;
+				float h = 1.f - (m.y - o.y) / ph;
+				if (h < 0.f) h = 0.f;
+				if (h > 1.f) h = 1.f;
+				prof[col] = h;
+				edited = true;
+			}
+			for (int i = 0; i < kN; i++)
+			{
+				const float x0 = o.x + (pw / kN) * i, x1 = x0 + (pw / kN) - 1.f;
+				const float y0 = o.y + ph * (1.f - prof[i]);
+				pdl->AddRectFilled(ImVec2(x0, y0), ImVec2(x1, o.y + ph),
+					IM_COL32(80, 170, 255, 130));
+			}
+			pdl->AddRect(o, ImVec2(o.x + pw, o.y + ph), IM_COL32(110, 200, 255, 200));
+			if (edited) doc.SetHeightProfile(pt, prof);
+
+			if (had)
+			{
+				ImGui::TextDisabled("Custom profile - overrides the shape buttons.");
+				ImGui::SameLine();
+				if (ImGui::Button("Clear profile"))
+					doc.SetHeightProfile(pt, std::vector<float>());
+			}
+			else
+				ImGui::TextDisabled("Showing the preset shape. Draw to make it custom.");
+		}
 
 		// --- terrain ---------------------------------------------------------
 		// Sixteen consecutive tiles, indexed by which orthogonal neighbours

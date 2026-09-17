@@ -70,6 +70,9 @@ struct TileSetDocument {
 	void AddAnim(const std::vector<p3d::int32>& indices, float fps);
 	// Make 16 consecutive tiles a terrain group, keyed on the first.
 	void AddAutoTile(p3d::int32 base, const std::string& name);
+	// A custom floor profile: surface height in 0..1 sampled across the cell.
+	// An empty vector drops it and returns the tile to its preset shape.
+	void SetHeightProfile(p3d::int32 index, const std::vector<float>& heights);
 	void RemoveAutoTileForTile(p3d::int32 index);
 	void RemoveAnimForTile(p3d::int32 index);
 	void SetAnimFps(p3d::int32 animIndex, float fps);

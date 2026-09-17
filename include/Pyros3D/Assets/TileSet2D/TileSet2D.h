@@ -124,6 +124,12 @@ namespace p3d {
 		// non-solid cell has no collision of any shape. Box keeps every
 		// tileset written before this field behaving exactly as it did.
 		int32 shape = TileShape2D::Box;
+		// An arbitrary FLOOR profile: surface height in 0..1, sampled evenly
+		// across the cell, left to right. Overrides `shape` when present.
+		// The nine presets cover the common cases and nothing else - this is
+		// how a tile gets an outline nobody anticipated, and it is the same
+		// representation a height-mask platformer has always used.
+		std::vector<f32> heights;
 	};
 
 	// The contents of one .p3dt.
@@ -207,6 +213,17 @@ namespace p3d {
 		// key: painting frame 2 of a flame should place that picture and stay
 		// there, not silently start the loop from the middle.
 		// Which terrain group `index` belongs to, or -1.
+		// The floor surface height of a TILE at `t` across the cell, both in
+		// 0..1. Uses the tile's own height profile when it has one, and its
+		// preset shape otherwise. This is the one place either is read, so
+		// the collider and any editor drawing cannot disagree.
+		f32 SurfaceHeight(const int32 index, const f32 t) const;
+		// Whether this tile carries a custom profile.
+		bool HasHeightProfile(const int32 index) const;
+		// Whether the tile's collision is a floor profile at all (custom, or
+		// one of the preset floor shapes).
+		bool IsFloorProfileTile(const int32 index) const;
+
 		int32 AutoTileForTile(const int32 index) const;
 		// The tile for a group at a given neighbour mask (0..15).
 		int32 AutoTileAt(const int32 group, const int32 mask) const;

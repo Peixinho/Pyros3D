@@ -214,6 +214,39 @@ namespace p3d {
 		return t != NULL && t->solid && t->shape != TileShape2D::Box;
 	}
 
+	bool TileSet2D::HasHeightProfile(const int32 index) const
+	{
+		const TileInfo2D* t = Find(index);
+		return t != NULL && t->heights.size() >= 2;
+	}
+
+	bool TileSet2D::IsFloorProfileTile(const int32 index) const
+	{
+		if (HasHeightProfile(index)) return true;
+		return TileShape2DIsFloorProfile(Shape(index));
+	}
+
+	f32 TileSet2D::SurfaceHeight(const int32 index, const f32 t) const
+	{
+		const TileInfo2D* info = Find(index);
+		if (info != NULL && info->heights.size() >= 2)
+		{
+			// Linear between samples. The profile describes the SURFACE, so
+			// sampling it anywhere between two points has to give the line
+			// joining them - stepping to the nearest would put a vertical face
+			// between every pair, which is exactly the thing a sensor-driven
+			// controller reads as a wall.
+			const f32 x = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+			const size_t n = info->heights.size();
+			const f32 fpos = x * (f32)(n - 1);
+			size_t i0 = (size_t)fpos;
+			if (i0 >= n - 1) i0 = n - 2;
+			const f32 frac = fpos - (f32)i0;
+			return info->heights[i0] * (1.f - frac) + info->heights[i0 + 1] * frac;
+		}
+		return TileShape2DHeight(Shape(index), t);
+	}
+
 	int32 TileSet2D::AutoTileForTile(const int32 index) const
 	{
 		for (size_t i = 0; i < autotiles.size(); i++)
@@ -297,7 +330,8 @@ namespace p3d {
 		{
 			// A cell that says nothing is not worth a line.
 			if (!it->second.solid && it->second.tags.empty()
-				&& it->second.shape == TileShape2D::Box) continue;
+				&& it->second.shape == TileShape2D::Box
+				&& it->second.heights.empty()) continue;
 			json t;
 			t["i"] = it->first;
 			if (it->second.solid) t["solid"] = true;
@@ -306,6 +340,7 @@ namespace p3d {
 			// shapes round-trips byte-identical.
 			if (it->second.shape != TileShape2D::Box)
 				t["shape"] = TileShape2DName(it->second.shape);
+			if (it->second.heights.size() >= 2) t["heights"] = it->second.heights;
 			arr.push_back(t);
 		}
 		if (!arr.empty()) j["tiles"] = arr;
@@ -420,6 +455,10 @@ namespace p3d {
 				info.solid = t.value("solid", false);
 				if (t.contains("shape") && t["shape"].is_string())
 					info.shape = TileShape2DFromName(t["shape"].get<std::string>());
+				if (t.contains("heights") && t["heights"].is_array())
+					for (size_t k = 0; k < t["heights"].size(); k++)
+						if (t["heights"][k].is_number())
+							info.heights.push_back((f32)t["heights"][k].get<double>());
 				if (t.contains("tags") && t["tags"].is_array())
 					for (size_t k = 0; k < t["tags"].size(); k++)
 						if (t["tags"][k].is_string())

@@ -313,7 +313,8 @@ namespace p3d {
 				// with a full square - the slope would collide as a step, and
 				// the merge is what made "just mark the tile solid" produce a
 				// staircase. They come back as polygons in BuildColliderPolys.
-				if (IsSolidCell(minX + x, minY + y) && !(t >= 0 && tileset.IsSloped(t)))
+				if (IsSolidCell(minX + x, minY + y)
+					&& !(t >= 0 && (tileset.IsSloped(t) || tileset.HasHeightProfile(t))))
 					solid[(size_t)y * w + x] = 1;
 			}
 
@@ -375,7 +376,8 @@ namespace p3d {
 			for (int32 tx = minX; tx <= maxX; tx++)
 			{
 				const int32 t = GetTile(tx, ty);
-				if (t < 0 || !tileset.IsSloped(t) || !IsSolidCell(tx, ty)) continue;
+				if (t < 0 || !IsSolidCell(tx, ty)) continue;
+				if (!tileset.IsSloped(t) && !tileset.HasHeightProfile(t)) continue;
 
 				// The cell's own rect. Corners are named for what they are so
 				// the four cases below read as pictures rather than algebra.
@@ -394,7 +396,9 @@ namespace p3d {
 				// triangle and spending eight shapes on it would multiply the
 				// collider count of an ordinary hill by eight.
 				const bool isCeil = TileShape2DIsCeilProfile(shape);
-				if (isCeil || shape == TileShape2D::ArcConvexBR || shape == TileShape2D::ArcConvexBL
+				const bool custom = tileset.HasHeightProfile(t);
+				if (custom || isCeil || shape == TileShape2D::ArcConvexBR
+					|| shape == TileShape2D::ArcConvexBL
 					|| shape == TileShape2D::ArcConcaveBR || shape == TileShape2D::ArcConcaveBL)
 				{
 					// A ceiling arc borrows the same curve and fills the other
@@ -406,8 +410,10 @@ namespace p3d {
 					{
 						const f32 t0 = (f32)c / (f32)kCols;
 						const f32 t1 = (f32)(c + 1) / (f32)kCols;
-						f32 h0 = TileShape2DHeight(profile, t0);
-						f32 h1 = TileShape2DHeight(profile, t1);
+						f32 h0 = custom ? tileset.SurfaceHeight(t, t0)
+							: TileShape2DHeight(profile, t0);
+						f32 h1 = custom ? tileset.SurfaceHeight(t, t1)
+							: TileShape2DHeight(profile, t1);
 						if (isCeil)
 						{
 							// Solid from the curve UP to the cell top, so the
@@ -491,10 +497,25 @@ namespace p3d {
 
 		// One cell's solid outline in UNIT cell space, counter-clockwise.
 		// Empty for a shape with no area.
-		static void CellOutline(const int32 shape, const int32 arcSegments,
-			std::vector<Vec2> &out)
+		// Takes the SET and the TILE, not just a shape, because a tile can
+		// carry its own height profile and that has to win over its preset.
+		static void CellOutline(const TileSet2D &set, const int32 tile,
+			const int32 arcSegments, std::vector<Vec2> &out)
 		{
 			out.clear();
+			const int32 shape = (tile >= 0) ? set.Shape(tile) : TileShape2D::Box;
+			// A custom profile is always a FLOOR: solid below the curve.
+			if (tile >= 0 && set.HasHeightProfile(tile))
+			{
+				const Vec2 bl0(0.f, 0.f), br0(1.f, 0.f);
+				out.push_back(bl0); out.push_back(br0);
+				for (int32 i = arcSegments; i >= 0; i--)
+				{
+					const f32 t = (f32)i / (f32)arcSegments;
+					out.push_back(Vec2(t, set.SurfaceHeight(tile, t)));
+				}
+				return;
+			}
 			const Vec2 bl(0.f, 0.f), br(1.f, 0.f), tr(1.f, 1.f), tl(0.f, 1.f);
 			if (TileShape2DIsCeilProfile(shape))
 			{
@@ -696,7 +717,7 @@ namespace p3d {
 				if (!IsSolidCell(tx, ty)) continue;
 				// A forced-solid cell with no tile of its own collides as a
 				// full square; there is no shape to read off an empty cell.
-				CellOutline(t >= 0 ? tileset.Shape(t) : TileShape2D::Box, 8, unit);
+				CellOutline(tileset, t, 8, unit);
 				if (unit.size() < 3) continue;
 
 				for (size_t i = 0; i < unit.size(); i++)
