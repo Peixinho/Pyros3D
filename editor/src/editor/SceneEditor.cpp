@@ -1109,6 +1109,28 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// lies, and it lies in the direction of "your settings do nothing".
 		// view2D.enabled is the switch; turning it OFF is how you hand a 2D
 		// scene back to a camera object, exactly as its checkbox says.
+		// A 2D scene in Play frames itself. If the author never set a Game
+		// View up, one is synthesised from the scene's own contents rather
+		// than inheriting wherever the editor camera happens to be pointing -
+		// otherwise panning or zooming while authoring silently changes what
+		// the game shows, which is indefensible and is what this used to do.
+		if (playMode && sceneIsTwoD && !view2D.enabled && activeSceneCameraId == 0
+			&& scriptRenderCamera == nullptr && !playViewSynthesised)
+		{
+			playViewSynthesised = true;
+			playView2DBackup = view2D;
+			view2D = SceneMeta::View2D();
+			view2D.enabled = true;
+			f32 l, r, b2d, t;
+			if (GetSceneContentBounds2D(l, r, b2d, t))
+			{
+				view2D.center = Vec2((l + r) * 0.5f, (b2d + t) * 0.5f);
+				const f32 halfH = (t - b2d) * 0.5f;
+				view2D.halfHeight = halfH > 1.f ? halfH : 6.f;
+			}
+			echo("WARNING: this 2D scene has no Game View - Play is framing it from the "
+				"scene's contents. Set one in Properties > Game View.");
+		}
 		const bool usingSceneView2D = (playMode && view2D.enabled);
 		if (usingSceneView2D)
 			UpdateSceneView2D(ImGui::GetIO().DeltaTime, (f32)dim.x / (f32)dim.y);
@@ -1149,6 +1171,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			viewIsOrtho = false;
 		}
 
+		// A 2D scene RENDERS through projectionOrtho (see the isPerspective
+		// pick below), so building it from zoomOrtho here overwrote the
+		// view2D projection set above - every frame, during Play. That is why
+		// zooming the scene view changed the game's zoom: the game was being
+		// drawn with the editor's zoom the whole time, and the view2D
+		// projection was computed and then thrown away.
+		if (usingSceneView2D)
+		{
+			const f32 a2 = (f32)dim.x / (f32)dim.y;
+			projectionOrtho = view2D.MakeProjection(a2);
+			viewIsOrtho = true;
+			viewOrthoT = view2D.halfHeight; viewOrthoB = -view2D.halfHeight;
+			viewOrthoR = view2D.halfHeight * a2; viewOrthoL = -viewOrthoR;
+		}
+		else
 		{
 			if (dim.x > dim.y)
 			{
@@ -6242,6 +6279,20 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::EnterPlayMode()
 	{
+		// Save where the AUTHOR was looking. Play drives this same camera - a
+		// self-framing 2D scene writes view2D onto it every frame - so without
+		// this, pressing Play destroys the viewpoint you had set up, and any
+		// pan or zoom you had done leaked into the first frames of the game.
+		savedEditorView.pos = pos;
+		savedEditorView.rotX = rotX;
+		savedEditorView.rotY = rotY;
+		savedEditorView.rotation = rotation;
+		savedEditorView.qX = qX;
+		savedEditorView.qY = qY;
+		savedEditorView.zoomOrtho = zoomOrtho;
+		savedEditorView.isPerspective = isPerspective;
+		savedEditorView.valid = true;
+
 		if (playMode) return;
 		scriptRenderCamera = nullptr;
 		echo("SUCCESS: Entering play mode");
@@ -6636,6 +6687,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::StopPlayMode()
 	{
+
 		if (!playMode) return;
 		scriptRenderCamera = nullptr;
 		echo("SUCCESS: Stopping play mode");
@@ -6701,6 +6753,44 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// SyncPhysicsForGameObject skips while playMode is true — clear it
 		// before pushing restored transforms back into the physics world.
 		playMode = false;
+
+		// Put the author's viewpoint back exactly as it was. Play drives this
+		// same camera object, so without this a Play session leaves you
+		// wherever the game's camera finished - and the framing you had set up
+		// to work in is gone every time you test.
+		if (playViewSynthesised)
+		{
+			view2D = playView2DBackup;
+			playViewSynthesised = false;
+		}
+		if (savedEditorView.valid)
+		{
+			pos = savedEditorView.pos;
+			rotX = savedEditorView.rotX;
+			rotY = savedEditorView.rotY;
+			rotation = savedEditorView.rotation;
+			qX = savedEditorView.qX;
+			qY = savedEditorView.qY;
+			zoomOrtho = savedEditorView.zoomOrtho;
+			isPerspective = savedEditorView.isPerspective;
+			savedEditorView.valid = false;
+			if (CameraPivot)
+			{
+				Matrix m = rotation.ConvertToMatrix();
+				m.Translate(pos);
+				CameraPivot->SetTransformationMatrix(m);
+				CameraPivot->RefreshTransformation();
+			}
+			if (Camera)
+			{
+				if (sceneIsTwoD)
+				{
+					Camera->SetPosition(Vec3(0.f, 0.f, 20.f));
+					Camera->SetRotation(Vec3(0.f, 0.f, 0.f));
+				}
+				Camera->RefreshTransformation();
+			}
+		}
 #ifdef LUA_BINDINGS
 		// The project script's whole point is outliving scene loads, so it is
 		// dropped here rather than anywhere in the scene-load path - a play
@@ -8596,6 +8686,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	void SceneEditor::MouseWheel(Event::Input::Info e)
 	{
 		UpdateViewportMouse();
+		// Frozen while playing, exactly as orbit and pan already are. The
+		// wheel was the one camera control that was not, and the editor
+		// camera IS what a running 2D scene is viewed through - so scrolling
+		// during Play changed the GAME's framing, and in a perspective view
+		// it moved the camera outright. Nothing you do to the editor's view
+		// should change what the game is showing.
+		if (playMode) return;
 		if (viewportMouseValid && !editorDisabled)
 		{
 
@@ -14042,6 +14139,46 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// The world rect the viewport shows, in the XY plane. Same arithmetic
 	// Draw2DReference uses to place the grid - see the declaration for why it
 	// has to be one implementation.
+	// The world rect the scene's CONTENT occupies, from its tile maps and
+	// object positions. Used only to invent a Game View for a 2D scene that
+	// has none - the alternative is framing the game from the editor camera,
+	// which makes authoring change the game.
+	bool SceneEditor::GetSceneContentBounds2D(f32& l, f32& r, f32& b, f32& t) const
+	{
+		bool any = false;
+		l = r = b = t = 0.f;
+		if (!sceneObjects) return false;
+		const std::map<uint32, SceneObject*> &all = sceneObjects->GetList();
+		for (std::map<uint32, SceneObject*>::const_iterator i = all.begin();
+			i != all.end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+			GameObject* go = (GameObject*)i->second->GetPTR();
+			if (!go || IsInternalGameObject(go)) continue;
+			const Vec3 p = go->GetWorldPosition();
+			f32 x0 = p.x, x1 = p.x, y0 = p.y, y1 = p.y;
+			if (TileMap2D* m = const_cast<SceneEditor*>(this)->RawFindTileMap2D(i->first))
+			{
+				int32 mnx, mny, mxx, mxy;
+				if (m->GetTileBounds(mnx, mny, mxx, mxy))
+				{
+					const Vec2 ts = m->GetTileSize();
+					x0 = p.x + mnx * ts.x;       x1 = p.x + (mxx + 1) * ts.x;
+					y0 = p.y + mny * ts.y;       y1 = p.y + (mxy + 1) * ts.y;
+				}
+			}
+			if (!any) { l = x0; r = x1; b = y0; t = y1; any = true; }
+			else
+			{
+				if (x0 < l) l = x0;
+				if (x1 > r) r = x1;
+				if (y0 < b) b = y0;
+				if (y1 > t) t = y1;
+			}
+		}
+		return any;
+	}
+
 	bool SceneEditor::GetView2DExtent(f32& l, f32& r, f32& b, f32& t) const
 	{
 		GameObject* viewCam = const_cast<SceneEditor*>(this)->GetViewCameraGO();

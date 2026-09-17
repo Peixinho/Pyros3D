@@ -1412,6 +1412,23 @@ private:
 	// Set by the palette's "New layer" button; drained after the window is
 	// drawn, because creating objects mid-Begin/End is how ImGui asserts.
 	bool requestNewTileLayer = false;
+	// The editor's own viewpoint, saved across a Play session. Panning or
+	// zooming the scene view must never change what the GAME shows, and
+	// playing must never move the editor's camera either - they are two
+	// different cameras that happened to share one object.
+	struct EditorViewState {
+		Vec3 pos;
+		Quaternion rotX, rotY, rotation, qX, qY;
+		f32 zoomOrtho = 5.f;
+		bool isPerspective = true;
+		bool valid = false;
+	};
+	EditorViewState savedEditorView;
+	// A Game View invented for a 2D scene that has none, so Play never frames
+	// itself from the editor's camera. Restored on stop.
+	bool playViewSynthesised = false;
+	SceneMeta::View2D playView2DBackup;
+	bool GetSceneContentBounds2D(f32& l, f32& r, f32& b, f32& t) const;
 	std::string tileStrokeSnapshot;
 	bool tileHavePick = false;
 	bool tileStrokeActive = false;

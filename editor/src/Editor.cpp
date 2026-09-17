@@ -2405,6 +2405,20 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// {"cmd":"tile_paint_mode","args":{"on":true,"object":"Ground","tile":12,"tool":"rect"}}
 	// tile -1 is the eraser. Painting itself is done with set_tiles/fill_tiles
 	// - this is the mode the VIEWPORT is in, for a human at the mouse.
+	// {"cmd":"viewport_2d"} - READ ONLY. set_viewport_2d moves the camera even
+	// when handed no arguments, so it cannot be used to ask where the view is.
+	if (name == "viewport_2d")
+	{
+		nlohmann::json r; r["ok"] = true;
+		p3d::f32 l, rr, b, t;
+		if (sceneView->GetView2DExtentPublic(l, rr, b, t))
+		{
+			r["left"] = l; r["right"] = rr; r["bottom"] = b; r["top"] = t;
+			r["center"] = { (l + rr) * 0.5f, (b + t) * 0.5f };
+			r["halfWidth"] = (rr - l) * 0.5f;
+		}
+		return r;
+	}
 	// {"cmd":"add_tile_layer"} - another tile map under its own Layer2D,
 	// sharing the current map's tileset, selected for painting.
 	if (name == "add_tile_layer")
