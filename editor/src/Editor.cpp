@@ -2405,6 +2405,24 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// {"cmd":"tile_paint_mode","args":{"on":true,"object":"Ground","tile":12,"tool":"rect"}}
 	// tile -1 is the eraser. Painting itself is done with set_tiles/fill_tiles
 	// - this is the mode the VIEWPORT is in, for a human at the mouse.
+	// {"cmd":"set_solid_cells","args":{"object":"Level","cells":[[3,1,1],[4,1,2]]}}
+	// Per-cell collision override: 0 follow the tileset, 1 solid, 2 passable.
+	if (name == "set_solid_cells")
+	{
+		std::vector<Vec3> cells;
+		if (a.is_object() && a.contains("cells") && a["cells"].is_array())
+			for (size_t i = 0; i < a["cells"].size(); i++)
+			{
+				const nlohmann::json &c = a["cells"][i];
+				if (!c.is_array() || c.size() < 3) continue;
+				cells.push_back(Vec3((f32)c[0].get<double>(), (f32)c[1].get<double>(),
+					(f32)c[2].get<double>()));
+			}
+		if (cells.empty()) throw std::runtime_error("no cells given");
+		if (!sceneView->AgentSetSolidCells(A("object"), cells, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["cells"] = (int)cells.size(); return r;
+	}
 	// {"cmd":"remove_object","args":{"name":"Loop"}}
 	if (name == "remove_object")
 	{

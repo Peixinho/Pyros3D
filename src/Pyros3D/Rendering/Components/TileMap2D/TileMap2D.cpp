@@ -313,7 +313,7 @@ namespace p3d {
 				// with a full square - the slope would collide as a step, and
 				// the merge is what made "just mark the tile solid" produce a
 				// staircase. They come back as polygons in BuildColliderPolys.
-				if (t >= 0 && tileset.IsSolid(t) && !tileset.IsSloped(t))
+				if (IsSolidCell(minX + x, minY + y) && !(t >= 0 && tileset.IsSloped(t)))
 					solid[(size_t)y * w + x] = 1;
 			}
 
@@ -375,7 +375,7 @@ namespace p3d {
 			for (int32 tx = minX; tx <= maxX; tx++)
 			{
 				const int32 t = GetTile(tx, ty);
-				if (t < 0 || !tileset.IsSloped(t)) continue;
+				if (t < 0 || !tileset.IsSloped(t) || !IsSolidCell(tx, ty)) continue;
 
 				// The cell's own rect. Corners are named for what they are so
 				// the four cases below read as pictures rather than algebra.
@@ -543,6 +543,57 @@ namespace p3d {
 		}
 	}
 
+	void TileMap2D::SetSolidOverride(const int32 x, const int32 y, const uint8 mode)
+	{
+		const int64 k = Key(x, y);
+		std::map<int64, uint8>::iterator it = solidOverride.find(k);
+		const uint8 was = (it == solidOverride.end()) ? 0 : it->second;
+		if (was == mode) return;
+		if (mode == 0) { if (it != solidOverride.end()) solidOverride.erase(it); }
+		else solidOverride[k] = mode;
+		// The collider set just changed even though no tile did - without
+		// this the map keeps the colliders it merged before the override.
+		collidersDirty = true;
+	}
+
+	uint8 TileMap2D::GetSolidOverride(const int32 x, const int32 y) const
+	{
+		std::map<int64, uint8>::const_iterator it = solidOverride.find(Key(x, y));
+		return it == solidOverride.end() ? 0 : it->second;
+	}
+
+	bool TileMap2D::IsSolidCell(const int32 x, const int32 y) const
+	{
+		const uint8 ov = GetSolidOverride(x, y);
+		if (ov == 1) return true;
+		if (ov == 2) return false;
+		const int32 t = GetTile(x, y);
+		return t >= 0 && tileset.IsSolid(t);
+	}
+
+	std::vector<Vec3> TileMap2D::SolidOverrides() const
+	{
+		std::vector<Vec3> out;
+		out.reserve(solidOverride.size());
+		for (std::map<int64, uint8>::const_iterator i = solidOverride.begin();
+			i != solidOverride.end(); ++i)
+		{
+			// Key() is (y << 32) | (uint32)x - y in the HIGH half. Unpacking
+			// them the other way round silently transposes the whole map.
+			const int32 y = (int32)(i->first >> 32);
+			const int32 x = (int32)(uint32)(i->first & 0xffffffffLL);
+			out.push_back(Vec3((f32)x, (f32)y, (f32)i->second));
+		}
+		return out;
+	}
+
+	void TileMap2D::ClearSolidOverrides()
+	{
+		if (solidOverride.empty()) return;
+		solidOverride.clear();
+		collidersDirty = true;
+	}
+
 	std::vector<std::vector<Vec2> > TileMap2D::BuildColliderChains() const
 	{
 		std::vector<std::vector<Vec2> > loops;
@@ -562,8 +613,10 @@ namespace p3d {
 			for (int32 tx = minX; tx <= maxX; tx++)
 			{
 				const int32 t = GetTile(tx, ty);
-				if (t < 0 || !tileset.IsSolid(t)) continue;
-				CellOutline(tileset.Shape(t), 8, unit);
+				if (!IsSolidCell(tx, ty)) continue;
+				// A forced-solid cell with no tile of its own collides as a
+				// full square; there is no shape to read off an empty cell.
+				CellOutline(t >= 0 ? tileset.Shape(t) : TileShape2D::Box, 8, unit);
 				if (unit.size() < 3) continue;
 
 				for (size_t i = 0; i < unit.size(); i++)

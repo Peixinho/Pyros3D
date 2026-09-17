@@ -8678,12 +8678,31 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				tileStrokeActive = true;
 				tileStroke.clear();
 				tileStrokeBefore.clear();
+				// Baseline for a collision stroke's undo, taken before the
+				// first cell changes.
+				tileStrokeSnapshot = (tileSolidMode != 0)
+					? SnapshotSubtree(tilePaintTarget) : std::string();
 				tileRectAnchorX = tileHoverX;
 				tileRectAnchorY = tileHoverY;
 				// A brush marks its first cell immediately, so a single click
 				// without any movement still paints one - and paints it NOW,
 				// not on release.
-				if (tilePaintTool == 0)
+				if (tilePaintTool == 0 && tileSolidMode != 0)
+				{
+					if (TileMap2D* m = RawFindTileMap2D(tilePaintTarget))
+					{
+						const uint8 was = m->GetSolidOverride(tileHoverX, tileHoverY);
+						if (was != (uint8)tileSolidMode)
+						{
+							m->SetSolidOverride(tileHoverX, tileHoverY, (uint8)tileSolidMode);
+							MarkSceneDirty();
+							tileStroke.push_back(Vec3((f32)tileHoverX, (f32)tileHoverY,
+								(f32)tileSolidMode));
+							tileStrokeBefore.push_back((int32)was);
+						}
+					}
+				}
+				else if (tilePaintTool == 0)
 				{
 					int32 before = -1;
 					if (OpPaintTileLive(tilePaintTarget, tileHoverX, tileHoverY,
@@ -11596,6 +11615,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return OpAddUIComponent(obj->GetID(), kind, fontPath, errOut);
 	}
 
+	bool SceneEditor::AgentSetSolidCells(const std::string& object,
+		const std::vector<Vec3>& cells, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, object);
+		if (!obj) { errOut = "object '" + object + "' not found"; return false; }
+		TileMap2D* map = RawFindTileMap2D(obj->GetID());
+		if (!map) { errOut = "this object has no TileMap2D"; return false; }
+		const std::string before = SnapshotSubtree(obj->GetID());
+		for (size_t i = 0; i < cells.size(); i++)
+			map->SetSolidOverride((int32)cells[i].x, (int32)cells[i].y, (uint8)cells[i].z);
+		MarkSceneDirty();
+		PushReplaceCommand(obj->GetID(), before, "Set Cell Collision");
+		return true;
+	}
+
 	bool SceneEditor::AgentRemoveObject(const std::string& name, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
@@ -12041,6 +12076,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// level is cheap or pathological for the solver, and nothing else
 		// reports it.
 		outInfo["colliderBoxes"] = (int)map->BuildColliderBoxes().size();
+		// Per-cell collision overrides, so "why does this cell not collide the
+		// way its tile says" is answerable without opening the scene file.
+		const std::vector<Vec3> ov = map->SolidOverrides();
+		outInfo["solidOverrides"] = (int)ov.size();
 
 		int32 a = 0, b = 0, c = 0, d = 0;
 		if (map->GetTileBounds(a, b, c, d))
@@ -14103,12 +14142,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (tileStroke.empty()
 				|| tileStroke.back().x != cell.x || tileStroke.back().y != cell.y)
 			{
-				int32 before = -1;
-				if (OpPaintTileLive(tilePaintTarget, tileHoverX, tileHoverY,
-					tilePaintBrush, before))
+				if (tileSolidMode != 0)
 				{
-					tileStroke.push_back(cell);
-					tileStrokeBefore.push_back(before);
+					// Collision sub-mode: stamp the override, leave the tile
+					// alone. Recorded on the stroke so the whole drag is one
+					// undo entry, same as painting.
+					if (TileMap2D* m = RawFindTileMap2D(tilePaintTarget))
+					{
+						const uint8 was = m->GetSolidOverride(tileHoverX, tileHoverY);
+						if (was != (uint8)tileSolidMode)
+						{
+							m->SetSolidOverride(tileHoverX, tileHoverY, (uint8)tileSolidMode);
+							MarkSceneDirty();
+							tileStroke.push_back(cell);
+							tileStrokeBefore.push_back((int32)was);
+						}
+					}
+				}
+				else
+				{
+					int32 before = -1;
+					if (OpPaintTileLive(tilePaintTarget, tileHoverX, tileHoverY,
+						tilePaintBrush, before))
+					{
+						tileStroke.push_back(cell);
+						tileStrokeBefore.push_back(before);
+					}
 				}
 			}
 		}
@@ -14147,7 +14206,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				// cells nothing has applied yet. Branching on tilePaintTool
 				// instead silently dropped every scripted stroke on the floor
 				// - it reported success and wrote nothing.
-				if (tileStrokeBefore.size() == tileStroke.size())
+				if (tileSolidMode != 0)
+				{
+					// Overrides are not tiles, so they do not go through the
+					// tile delta command - the whole subtree snapshot is the
+					// honest undo unit for them.
+					if (SceneObject* so = sceneObjects->GetSceneObject(tilePaintTarget))
+						PushReplaceCommand(tilePaintTarget, tileStrokeSnapshot,
+							tileSolidMode == 1 ? "Make Cells Solid" : "Make Cells Passable");
+					MarkSceneDirty();
+				}
+				else if (tileStrokeBefore.size() == tileStroke.size())
 					OpCommitTileStroke(tilePaintTarget, tileStroke,
 						tileStrokeBefore, what, err);
 				else
@@ -14301,6 +14370,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		bool erasing = (tilePaintBrush < 0);
 		if (ImGui::Checkbox("Erase", &erasing))
 			tilePaintBrush = erasing ? -1 : 0;
+
+		// Collision sub-mode. Solidity is a property of the tile TYPE, which
+		// is right nearly always and useless for the one-off - a decorative
+		// tile you want to stand on, one block of floor to fall through.
+		// These stamp a per-CELL override and leave the artwork alone.
+		ImGui::TextDisabled("Cell collision");
+		ImGui::RadioButton("Off##solid", &tileSolidMode, 0);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Painting places tiles, as usual.");
+		ImGui::SameLine();
+		ImGui::RadioButton("Make solid", &tileSolidMode, 1);
+		ImGui::SameLine();
+		ImGui::RadioButton("Make passable", &tileSolidMode, 2);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Painting stamps a collision override on the cell\n"
+				"instead of changing what is drawn there.");
+		if (tileSolidMode != 0)
+			ImGui::TextDisabled("Painting now edits COLLISION, not tiles.");
+
 
 		const TileSet2D &set = map->GetTileSet();
 		ImGui::TextDisabled("%s  -  %d tiles, %dx%d px",

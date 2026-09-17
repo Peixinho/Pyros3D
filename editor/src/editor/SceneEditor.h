@@ -707,6 +707,9 @@ public:
 	// never removed, so building a scene programmatically was one-way: a wrong
 	// object could only be undone by reloading the scene or editing the JSON.
 	bool AgentRemoveObject(const std::string& name, std::string& errOut);
+	// Per-cell collision override: 0 follow the tileset, 1 solid, 2 passable.
+	bool AgentSetSolidCells(const std::string& object,
+		const std::vector<Vec3>& cells, std::string& errOut);
 	// The world rect the viewport shows. Public so a caller can CHECK that a
 	// camera move actually happened.
 	bool GetView2DExtentPublic(f32& l, f32& r, f32& b, f32& t) const
@@ -1387,6 +1390,10 @@ private:
 	std::vector<int32> tileStrokeBefore;
 	// The cell the Pick tool last selected, so the palette can name it.
 	int32 tilePickedX = 0, tilePickedY = 0;
+	// Paint sub-mode: 0 paints tiles, 1 and 2 stamp a per-cell collision
+	// override (solid / passable) without touching the artwork.
+	int32 tileSolidMode = 0;
+	std::string tileStrokeSnapshot;
 	bool tileHavePick = false;
 	bool tileStrokeActive = false;
 	int32 tileRectAnchorX = 0, tileRectAnchorY = 0;

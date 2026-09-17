@@ -1590,6 +1590,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				chunks.push_back(ch);
 			}
 			j["chunks"] = chunks;
+			// Per-cell collision overrides, flat [x, y, mode] triples. Written
+			// only when there are any, so a map that never uses one serializes
+			// exactly as it did before they existed.
+			const std::vector<Vec3> ov = m->SolidOverrides();
+			if (!ov.empty())
+			{
+				json j2 = json::array();
+				for (size_t i = 0; i < ov.size(); i++)
+				{
+					j2.push_back((int)ov[i].x);
+					j2.push_back((int)ov[i].y);
+					j2.push_back((int)ov[i].z);
+				}
+				j["solidOverrides"] = j2;
+			}
 			return j;
 		}
 		case ComponentType::Physics2D:
@@ -2949,6 +2964,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					DecodeTileChunk(m.get(), ch.value("cx", 0), ch.value("cy", 0),
 						ch.value("rle", json::array()));
 				}
+
+			// Cleared FIRST, unconditionally. Deserialization is also how undo
+			// restores a subtree, and that restore can land on the component
+			// that already exists - so only ever ADDING overrides means
+			// undoing "make these cells passable" left every one of them in
+			// place. The absence of the key has to mean "none", not "leave
+			// whatever is there".
+			m->ClearSolidOverrides();
+			if (j.contains("solidOverrides") && j["solidOverrides"].is_array())
+			{
+				const json &ov = j["solidOverrides"];
+				for (size_t i = 0; i + 2 < ov.size(); i += 3)
+					m->SetSolidOverride((int32)ov[i].get<int>(),
+						(int32)ov[i + 1].get<int>(), (uint8)ov[i + 2].get<int>());
+			}
 
 			go->Add(m);
 			return;

@@ -154,6 +154,17 @@ namespace p3d {
 		// surface on the outside where a character stands.
 		std::vector<std::vector<Math::Vec2> > BuildColliderChains() const;
 
+		// Collision override for one cell: 0 = follow the tileset, 1 = force
+		// solid, 2 = force passable.
+		void SetSolidOverride(const int32 x, const int32 y, const uint8 mode);
+		uint8 GetSolidOverride(const int32 x, const int32 y) const;
+		// The question every collider builder actually asks. Honours the
+		// override, then falls back to the tile's own solid flag.
+		bool IsSolidCell(const int32 x, const int32 y) const;
+		// Every override, as (x, y, mode) - for serialization.
+		std::vector<Math::Vec3> SolidOverrides() const;
+		void ClearSolidOverrides();
+
 		// Centre of a cell, in the owner's local space.
 		Vec2 TileToWorld(const int32 x, const int32 y) const;
 		// Which cell a local-space point falls in. Exact inverse of the above
@@ -277,6 +288,14 @@ namespace p3d {
 		bool lit;
 
 		std::map<int64, Chunk> chunks;
+		// Per-CELL collision override. Solidity is otherwise a property of the
+		// tile TYPE, which is right nearly always and useless for the one-off:
+		// a decorative tile you want to stand on, or a single block of floor
+		// you want the player to fall through. Sparse, because the exception
+		// is meant to be rare - an override on every cell means the tileset is
+		// wrong. 1 forces solid, 2 forces passable; absent means "ask the
+		// tileset".
+		std::map<int64, uint8> solidOverride;
 
 		// Chunk keys in the order their geometries sit in the renderable, so
 		// an in-place refill can find the geometry belonging to a chunk.

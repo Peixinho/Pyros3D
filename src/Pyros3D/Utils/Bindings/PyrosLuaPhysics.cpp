@@ -142,9 +142,17 @@ namespace p3d {
 			// Whether the cell at these tile coordinates collides - the
 			// question a script actually has, rather than "what index is it
 			// and is that index solid".
+			// Honours the per-cell override, so a script and the collider
+			// builder cannot disagree about what is solid.
 			"isSolidAt", [](TileMap2D &m, const int32 x, const int32 y) {
-				const int32 t = m.GetTile(x, y);
-				return t >= 0 && m.GetTileSet().IsSolid(t);
+				return m.IsSolidCell(x, y);
+			},
+			// 0 = follow the tileset, 1 = force solid, 2 = force passable.
+			"setSolidAt", [](TileMap2D &m, const int32 x, const int32 y, const int32 mode) {
+				m.SetSolidOverride(x, y, (uint8)(mode < 0 ? 0 : (mode > 2 ? 0 : mode)));
+			},
+			"getSolidOverrideAt", [](TileMap2D &m, const int32 x, const int32 y) {
+				return (int32)m.GetSolidOverride(x, y);
 			},
 			// Tags are the documented way for a game to give a tile meaning
 			// the engine has no opinion about - "hazard", "ice", "ladder".
