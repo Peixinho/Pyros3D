@@ -14331,6 +14331,77 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		debugRenderer->drawLine(Vec3(cl, ct, z), Vec3(cl, cb, z), col);
 	}
 
+	// The editor's name for a GameObject. GameObject::Name is protected, and
+	// the scene table is where the editor's names live anyway.
+	std::string SceneEditor::ParentDisplayName(GameObject* go) const
+	{
+		if (!go || !sceneObjects) return std::string("layer");
+		const std::map<uint32, SceneObject*> &all = sceneObjects->GetList();
+		for (std::map<uint32, SceneObject*>::const_iterator i = all.begin();
+			i != all.end(); ++i)
+			if (i->second && i->second->GetPTR() == (void*)go) return i->second->GetName();
+		return std::string("layer");
+	}
+
+	// Another tile layer: a Layer2D parent with a map under it, sharing the
+	// tileset the palette is already using, selected and ready to paint.
+	//
+	// Doing this by hand is four steps in three different menus (object,
+	// component, object, component) and knowing that Layer2D is what gives a
+	// 2D level its draw order at all - which is the part nobody guesses.
+	void SceneEditor::CreateTileLayer()
+	{
+		TileMap2D* src = RawFindTileMap2D(tilePaintTarget);
+		if (!src)
+		{
+			// tilePaintTarget is only set once the palette has run, so fall
+			// back to any map in the scene - the tileset is all that is being
+			// copied, and a script has no reason to enter paint mode first.
+			const std::map<uint32, SceneObject*> &all = sceneObjects->GetList();
+			for (std::map<uint32, SceneObject*>::const_iterator i = all.begin();
+				i != all.end() && !src; ++i)
+			{
+				if (!i->second || i->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+				if (TileMap2D* m = RawFindTileMap2D(i->first))
+				{ src = m; tilePaintTarget = i->first; }
+			}
+		}
+		if (!src) return;
+		const std::string tileset = src->GetTileSetPath();
+		const Vec2 ts = src->GetTileSize();
+
+		std::string err;
+		// A number that is not already taken, so repeated presses stack rather
+		// than colliding on one name.
+		int n = 1;
+		std::string layerName, mapName;
+		for (;; n++)
+		{
+			layerName = "TileLayer" + std::to_string(n);
+			mapName = "Tiles" + std::to_string(n);
+			if (!AgentFindGameObjectByName(sceneObjects, layerName)
+				&& !AgentFindGameObjectByName(sceneObjects, mapName)) break;
+			if (n > 256) return;
+		}
+
+		if (!AgentAddObject(layerName, std::string(), std::vector<f32>(),
+			std::vector<f32>(), std::vector<f32>(), err)) { echo("ERROR: " + err); return; }
+		SceneObject* layerObj = AgentFindGameObjectByName(sceneObjects, layerName);
+		if (!layerObj) return;
+		if (!OpAddLayer2D(layerObj->GetID(), err)) echo("ERROR: " + err);
+
+		if (!AgentAddObject(mapName, layerName, std::vector<f32>(),
+			std::vector<f32>(), std::vector<f32>(), err)) { echo("ERROR: " + err); return; }
+		SceneObject* mapObj = AgentFindGameObjectByName(sceneObjects, mapName);
+		if (!mapObj) return;
+		if (!OpAddTileMap2D(mapObj->GetID(), tileset, ts, err))
+		{ echo("ERROR: " + err); return; }
+
+		tilePaintTarget = mapObj->GetID();
+		MarkSceneDirty();
+		echo("SUCCESS: added tile layer \"" + layerName + "\"");
+	}
+
 	void SceneEditor::ShowTilePalette()
 	{
 		if (!tilePaintMode) return;
@@ -14356,8 +14427,33 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			for (std::map<uint32, SceneObject*>::const_iterator i = all.begin(); i != all.end(); ++i)
 			{
 				if (!i->second || i->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
-				if (RawFindTileMap2D(i->first))
-					maps.push_back(std::make_pair(i->first, i->second->GetName()));
+				if (!RawFindTileMap2D(i->first)) continue;
+				// Label each map with the LAYER it sits in. A tile level is
+				// several maps parented under Layer2D objects - that is what
+				// gives draw order and parallax - and a bare list of object
+				// names tells you nothing about which one is the background
+				// you are about to paint into by mistake.
+				std::string label = i->second->GetName();
+				GameObject* go = (GameObject*)i->second->GetPTR();
+				if (go && go->GetParent())
+				{
+					Layer2D* layer = NULL;
+					const std::vector<std::shared_ptr<IComponent> > &pc
+						= go->GetParent()->GetComponents();
+					for (size_t k = 0; k < pc.size(); k++)
+						if (pc[k] && pc[k]->GetComponentType() == ComponentType::Layer2D)
+							layer = static_cast<Layer2D*>(pc[k].get());
+					if (layer)
+					{
+						const Vec2 px = layer->GetParallax();
+						char sfx[96];
+						snprintf(sfx, sizeof(sfx), "   [%s%s  parallax %.2f]",
+							ParentDisplayName(go->GetParent()).c_str(),
+							layer->IsVisible() ? "" : ", hidden", px.x);
+						label += sfx;
+					}
+				}
+				maps.push_back(std::make_pair(i->first, label));
 			}
 		}
 		if (maps.empty())
@@ -14387,6 +14483,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					tilePaintTarget = maps[i].first;
 			ImGui::EndCombo();
 		}
+
+		ImGui::SameLine();
+		if (ImGui::SmallButton("New layer"))
+			requestNewTileLayer = true;
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Adds another tile map under its own Layer2D, sharing this\n"
+				"tileset, and selects it. Layers are what give a 2D level its\n"
+				"draw order and parallax.");
 
 		TileMap2D* map = RawFindTileMap2D(tilePaintTarget);
 		if (!map) { ImGui::End(); return; }

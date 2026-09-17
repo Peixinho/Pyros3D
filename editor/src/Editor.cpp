@@ -2405,6 +2405,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// {"cmd":"tile_paint_mode","args":{"on":true,"object":"Ground","tile":12,"tool":"rect"}}
 	// tile -1 is the eraser. Painting itself is done with set_tiles/fill_tiles
 	// - this is the mode the VIEWPORT is in, for a human at the mouse.
+	// {"cmd":"add_tile_layer"} - another tile map under its own Layer2D,
+	// sharing the current map's tileset, selected for painting.
+	if (name == "add_tile_layer")
+	{
+		const uint32 id = sceneView->AgentAddTileLayer();
+		if (id == 0) throw std::runtime_error("no tile map to copy a tileset from");
+		nlohmann::json r; r["ok"] = true; r["map"] = (int)id; return r;
+	}
 	// {"cmd":"paint_terrain","args":{"object":"Level","group":0,"cells":[[3,1],[4,1]]}}
 	// Paints a terrain group and re-fits the seams - the editor picks the
 	// corner and edge pieces.
@@ -6886,6 +6894,9 @@ void Editor::DrawTilePaletteWindow()
 {
 	if (!sceneView) return;
 	sceneView->ShowTilePalette();
+	// Drained after the window: creating objects inside another window's
+	// Begin/End pair is how ImGui asserts rather than draws.
+	sceneView->DrainTileLayerRequest();
 	// Drained after the window is drawn, not inside it: OpenTileSetDocument
 	// creates a document and can re-dock, and doing that from inside another
 	// window's Begin/End pair is how you get an ImGui assert instead of a tab.

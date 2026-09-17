@@ -339,6 +339,14 @@ public:
 	void SetTilePaintMode(const bool on);
 	// The palette window (tile picker, tool row, target map).
 	void ShowTilePalette();
+	// Drained by the host after the palette window closes: creating objects
+	// inside another window's Begin/End pair is how ImGui asserts.
+	void DrainTileLayerRequest()
+	{ if (requestNewTileLayer) { requestNewTileLayer = false; CreateTileLayer(); } }
+	// Same thing the button does, for a script. Returns the new map's id, or 0.
+	uint32 AgentAddTileLayer() { CreateTileLayer(); return tilePaintTarget; }
+	std::string ParentDisplayName(GameObject* go) const;
+	void CreateTileLayer();
 	// "Add > Tile Map 2D" needs a tileset chosen before it can do anything,
 	// so it raises this rather than acting on the click.
 	void ShowAddTileMapModal();
@@ -1401,6 +1409,9 @@ private:
 	// Separate from tilePaintBrush so switching to a terrain and back keeps
 	// whichever single tile was selected.
 	int32 tilePaintAuto = -1;
+	// Set by the palette's "New layer" button; drained after the window is
+	// drawn, because creating objects mid-Begin/End is how ImGui asserts.
+	bool requestNewTileLayer = false;
 	std::string tileStrokeSnapshot;
 	bool tileHavePick = false;
 	bool tileStrokeActive = false;
