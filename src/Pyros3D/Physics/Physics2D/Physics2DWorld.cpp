@@ -331,6 +331,67 @@ namespace p3d {
 					b2Polygon box = b2MakeOffsetBox(boxes[b].z, boxes[b].w, c, b2MakeRot(0.f));
 					b2CreatePolygonShape(body, &sd, &box);
 				}
+				// Arbitrary convex pieces on the same body - tile slopes are
+				// triangles. Kept separate from the boxes because the merge
+				// above only produces rectangles, and a slope has to survive
+				// it as its own shape.
+				const std::vector<Physics2D::Poly2D> &polys = p->GetCompoundPolys();
+				for (size_t q = 0; q < polys.size(); q++)
+				{
+					const Physics2D::Poly2D &poly = polys[q];
+					// B2_MAX_POLYGON_VERTICES is 8; anything longer is an
+					// authoring mistake, and silently truncating would build a
+					// collider that does not match the art.
+					if (poly.size() < 3 || poly.size() > 8) continue;
+					b2Vec2 pts[8];
+					for (size_t k = 0; k < poly.size(); k++)
+					{ pts[k].x = poly[k].x; pts[k].y = poly[k].y; }
+					// b2ComputeHull both orders the points and rejects
+					// degenerate input - a zero-area triangle here would be an
+					// assert inside Box2D rather than a missing collider.
+					b2Hull hull = b2ComputeHull(pts, (int)poly.size());
+					if (hull.count < 3) continue;
+					b2Polygon pg = b2MakePolygon(&hull, 0.f);
+					b2CreatePolygonShape(body, &sd, &pg);
+				}
+				// Chain loops: a continuous one-sided surface with no internal
+				// faces. Box2D needs 4+ points and a static body, both of
+				// which terrain is.
+				const std::vector<Physics2D::Poly2D> &chains = p->GetCompoundChains();
+				for (size_t q = 0; q < chains.size(); q++)
+				{
+					const Physics2D::Poly2D &loop = chains[q];
+					if (loop.size() < 4) continue;
+					// Winding is load-bearing and the convention is exact:
+					// b2CollideChainSegment* accepts a contact only when
+					// dot(b2RightPerp(p2 - p1), pB - p1) > 0, and
+					// b2RightPerp(v) is (v.y, -v.x). For a loop wound
+					// counter-clockwise around solid material that perpendicular
+					// points OUTWARD on every edge - bottom edge left-to-right
+					// gives (0,-1), top edge right-to-left gives (0,+1) - which
+					// is exactly "solid on the inside, collide from outside".
+					// BuildColliderChains already winds CCW, so it is fed
+					// through unchanged. Reversing it collides from the inside
+					// instead, which reads as bodies falling through the floor
+					// and landing on the underside of the world.
+					std::vector<b2Vec2> pts(loop.size());
+					for (size_t k = 0; k < loop.size(); k++)
+					{ pts[k].x = loop[k].x; pts[k].y = loop[k].y; }
+					b2ChainDef cd = b2DefaultChainDef();
+					cd.points = &pts[0];
+					cd.count = (int)pts.size();
+					cd.isLoop = true;
+					b2SurfaceMaterial mat = b2DefaultSurfaceMaterial();
+					mat.friction = p->GetFriction();
+					mat.restitution = p->GetRestitution();
+					cd.materials = &mat;
+					cd.materialCount = 1;
+					// Contact events come from the shapes the chain owns, and
+					// the chain def carries no enableContactEvents of its own
+					// in this version - the segments inherit the default, which
+					// is what DispatchContacts reads.
+					b2CreateChain(body, &cd);
+				}
 			}
 			else if (p->GetShapeType() == Shape2DType::Circle)
 			{
@@ -391,6 +452,77 @@ namespace p3d {
 			if (a && a->OnCollisionExit) a->OnCollisionExit(b);
 			if (b && b->OnCollisionExit) b->OnCollisionExit(a);
 		}
+	}
+
+	namespace {
+		struct RayFilterCtx {
+			const Physics2D* ignore;
+			const Physics2D* ignore2;
+			b2ShapeId shape;
+			b2Pos point;
+			b2Vec2 normal;
+			float fraction;
+			bool hit;
+		};
+
+		// Returning the fraction clips the ray to the closest hit so far;
+		// returning -1 tells Box2D to ignore this shape and keep going, which
+		// is how `ignore` is honoured without a second query.
+		float RayFilterFcn(b2ShapeId shapeId, b2Pos point, b2Vec2 normal,
+			float fraction, void* context)
+		{
+			RayFilterCtx* c = (RayFilterCtx*)context;
+			if ((c->ignore != NULL || c->ignore2 != NULL) && b2Shape_IsValid(shapeId))
+			{
+				const b2BodyId body = b2Shape_GetBody(shapeId);
+				const Physics2D* owner = (const Physics2D*)b2Body_GetUserData(body);
+				if (owner == c->ignore || owner == c->ignore2) return -1.f;
+			}
+			c->hit = true;
+			c->shape = shapeId;
+			c->point = point;
+			c->normal = normal;
+			c->fraction = fraction;
+			return fraction;
+		}
+	}
+
+	Physics2DWorld::RayHit2D Physics2DWorld::RayCast(const Vec2 &from, const Vec2 &to,
+		const Physics2D* ignore, const Physics2D* ignore2) const
+	{
+		RayHit2D out;
+		// `live` is what says a world has been created at all; MakeWorldId on
+		// an uninitialised index would hand Box2D a plausible-looking handle
+		// to nothing.
+		if (!live) return out;
+		const b2WorldId world = MakeWorldId(worldIndex, worldGeneration);
+		if (!b2World_IsValid(world)) return out;
+
+		// Box2D takes an origin and a TRANSLATION, not two endpoints. Passing
+		// `to` here casts a ray to twice the intended distance, which for a
+		// ground sensor means finding floors that are not under you.
+		b2Pos origin; origin.x = from.x; origin.y = from.y;
+		b2Vec2 delta; delta.x = to.x - from.x; delta.y = to.y - from.y;
+		if (delta.x == 0.f && delta.y == 0.f) return out;
+
+		RayFilterCtx ctx;
+		ctx.ignore = ignore;
+		ctx.ignore2 = ignore2;
+		ctx.fraction = 0.f;
+		ctx.hit = false;
+		b2World_CastRay(world, origin, delta, b2DefaultQueryFilter(), RayFilterFcn, &ctx);
+		if (!ctx.hit) return out;
+
+		out.hit = true;
+		out.point = Vec2(ctx.point.x, ctx.point.y);
+		out.normal = Vec2(ctx.normal.x, ctx.normal.y);
+		out.fraction = ctx.fraction;
+		if (b2Shape_IsValid(ctx.shape))
+		{
+			const b2BodyId body = b2Shape_GetBody(ctx.shape);
+			out.component = (Physics2D*)b2Body_GetUserData(body);
+		}
+		return out;
 	}
 
 	Physics2D* Physics2DWorld::ComponentForShape(const void* shapeHandle)

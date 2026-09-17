@@ -66,6 +66,37 @@ namespace p3d {
 		// drift away as the object is dragged.
 		void PullTransforms();
 
+		// What a ray hit, if anything. `component` is the Physics2D the shape
+		// belonged to - NULL only when `hit` is false.
+		struct RayHit2D {
+			bool hit = false;
+			Vec2 point;
+			Vec2 normal;
+			f32 fraction = 0.f;          // along from->to
+			Physics2D* component = NULL;
+		};
+
+		// Closest hit along the segment. This is the primitive a character
+		// controller is built on: "how far below me is the ground, and which
+		// way is its surface facing". Nothing could ask that before - the only
+		// RayCast in the engine is IPhysics', which is the 3D world - so a 2D
+		// game could only infer the ground from contact callbacks, which say
+		// *that* you touched something and never *where* or *at what angle*.
+		// `ignore` is skipped entirely - pass the caster's own body. A ground
+		// sensor starts INSIDE the character, so without this every downward
+		// ray reports the character itself at fraction ~0 and the controller
+		// concludes it is standing on its own head.
+		// TWO bodies can be skipped, and the second is not a convenience - it
+		// is how a loop works. A character running a loop has to stop seeing
+		// the ground the moment it commits, and stop seeing the loop while it
+		// is merely running past the outside of it, because in a single
+		// collision layer the loop's own material fills the space the entry
+		// runs through. Sonic switched collision layers at the loop mouth for
+		// exactly this reason; with a sensor-driven character, choosing what
+		// the rays may see IS the layer switch.
+		RayHit2D RayCast(const Vec2 &from, const Vec2 &to,
+			const Physics2D* ignore = NULL, const Physics2D* ignore2 = NULL) const;
+
 		// Throws the world away: every body, and every tracked component
 		// pointer. MUST be called when the scene those components belonged to
 		// is replaced - a body keeps a raw Physics2D* as its user data, and

@@ -7,6 +7,7 @@
 
 #include "MaterialEditor.h"
 #include "OpenDir.h"
+#include "../ShortcutMod.h"
 #include "../CodeEditorDocument.h"
 #include "../MaterialCodegen.h"
 #include "../MaterialPreview.h"
@@ -1119,7 +1120,7 @@ static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& pr
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Compile and apply this shader immediately (Ctrl+S)");
 	if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
-		&& ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S))
+		&& ShortcutMod() && ImGui::IsKeyPressed(ImGuiKey_S))
 		doc.applyRequested = true;
 
 	ImGui::TextDisabled(doc.codeDoc->vimEnabled

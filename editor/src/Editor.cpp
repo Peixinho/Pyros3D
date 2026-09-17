@@ -18,6 +18,7 @@
 #include "editor/UI/OpenDir.h"
 #include "editor/FileDropQueue.h"
 #include "editor/AssetCommands.h"
+#include "editor/ShortcutMod.h"
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
@@ -2392,6 +2393,23 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// {"cmd":"tile_paint_mode","args":{"on":true,"object":"Ground","tile":12,"tool":"rect"}}
 	// tile -1 is the eraser. Painting itself is done with set_tiles/fill_tiles
 	// - this is the mode the VIEWPORT is in, for a human at the mouse.
+	// {"cmd":"set_scene_main_script","args":{"path":"scenes/foo.lua"}}
+	if (name == "set_scene_main_script")
+	{
+		if (!sceneView->AgentSetSceneMainScript(A("path"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true;
+		r["mainScript"] = project.DisplayPath(sceneView->GetSceneMainScript());
+		return r;
+	}
+	// {"cmd":"physics_debug","args":{"on":true}}
+	if (name == "physics_debug")
+	{
+		const bool on = !a.is_object() || !a.contains("on") || a["on"].get<bool>();
+		sceneView->SetPhysicsDebug(on);
+		nlohmann::json r; r["ok"] = true; r["on"] = sceneView->IsPhysicsDebug();
+		return r;
+	}
 	if (name == "tile_paint_mode")
 	{
 		const bool on = !a.is_object() || !a.contains("on") || a["on"].get<bool>();
@@ -2440,9 +2458,17 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			throw std::runtime_error("add_physics2d: bodyType must be static, kinematic or dynamic");
 		std::vector<f32> sz = AV("size");
 		const Vec2 size(sz.size() > 0 ? sz[0] : 0.5f, sz.size() > 1 ? sz[1] : 0.5f);
-		if (!sceneView->AgentAddPhysics2D(A("name"), err, bt, size))
+		// Default true for a DYNAMIC body: a character or a crate that spins
+		// free tips over on the first step it walks into, and "my sprite is
+		// lying on its side" reads as a rendering bug. Anything that really
+		// wants to tumble passes fixedRotation:false explicitly. Static and
+		// kinematic bodies do not rotate from the solver anyway.
+		const bool fixedRot = (a.is_object() && a.contains("fixedRotation"))
+			? a["fixedRotation"].get<bool>() : (bt == Body2DType::Dynamic);
+		if (!sceneView->AgentAddPhysics2D(A("name"), err, bt, size, fixedRot))
 			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["bodyType"] = bts.empty() ? "dynamic" : bts; return r;
+		nlohmann::json r; r["ok"] = true; r["bodyType"] = bts.empty() ? "dynamic" : bts;
+		r["fixedRotation"] = fixedRot; return r;
 	}
 	if (name == "add_occluder2d")
 	{
@@ -3689,7 +3715,7 @@ void Editor::DrawUI()
 	// document tab, and its Renderer combo (unlike Cancel) applies live, so
 	// this is the only way to revert an accidental change while the modal
 	// is still up.
-	if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput && ImGui::IsPopupOpen("Project Settings"))
+	if (ShortcutMod() && !ImGui::GetIO().WantTextInput && ImGui::IsPopupOpen("Project Settings"))
 	{
 		const bool shift = ImGui::GetIO().KeyShift;
 		if (ImGui::IsKeyPressed(ImGuiKey_Z))
@@ -3699,7 +3725,7 @@ void Editor::DrawUI()
 		else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
 			projectUndo.Redo();
 	}
-	else if (ImGui::GetIO().KeyCtrl && !ImGui::GetIO().WantTextInput)
+	else if (ShortcutMod() && !ImGui::GetIO().WantTextInput)
 	{
 		const bool shift = ImGui::GetIO().KeyShift;
 		if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView)
@@ -3738,6 +3764,20 @@ void Editor::DrawUI()
 			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
 				activeCharacter2DDoc->undo.Redo();
 		}
+		// The tileset document was added as a FocusedDocKind and wired into
+		// the Edit menu's ACTION, but never into this handler nor into the
+		// menu's enabled-check - so Ctrl+Z did nothing in the Tile Set editor
+		// and the menu item was permanently greyed out. Its own toolbar Undo
+		// button was the only way to reach the stack.
+		else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc)
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_Z))
+			{
+				if (shift) activeTileSetDoc->undo.Redo(); else activeTileSetDoc->undo.Undo();
+			}
+			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
+				activeTileSetDoc->undo.Redo();
+		}
 	}
 
 	// Menu bar. Each File action is requested here and performed once below,
@@ -3746,7 +3786,7 @@ void Editor::DrawUI()
 	// while the menu is actually open.
 	bool reqNewProject = false, reqOpenProject = false, reqSaveProject = false, reqQuit = false;
 	{
-		const bool ctrl = ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeyShift
+		const bool ctrl = ShortcutMod() && !ImGui::GetIO().KeyShift
 			&& !ImGui::GetIO().KeyAlt && !ImGui::GetIO().WantTextInput;
 		if (ctrl && ImGui::IsKeyPressed(ImGuiKey_N)) reqNewProject = true;
 		if (ctrl && ImGui::IsKeyPressed(ImGuiKey_O)) reqOpenProject = true;
@@ -3821,7 +3861,7 @@ void Editor::DrawUI()
 			}
 
 			ImGui::Separator();
-            if (ImGui::MenuItem("Save Project", "Ctrl+S", false, project.IsOpen()))
+            if (ImGui::MenuItem("Save Project", (std::string(ShortcutPrefix()) + "S").c_str(), false, project.IsOpen()))
 				reqSaveProject = true;
 			ImGui::Separator();
 			if (ImGui::MenuItem("Close Project", NULL, false, project.IsOpen()))
@@ -3859,9 +3899,16 @@ void Editor::DrawUI()
 				canUndo = activeCharacter2DDoc->undo.CanUndo(); canRedo = activeCharacter2DDoc->undo.CanRedo();
 				undoDesc = activeCharacter2DDoc->undo.UndoDescription(); redoDesc = activeCharacter2DDoc->undo.RedoDescription();
 			}
+			// Without this the item below stayed greyed out for a tileset no
+			// matter what was on its stack, so its Undo action could never run.
+			else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc)
+			{
+				canUndo = activeTileSetDoc->undo.CanUndo(); canRedo = activeTileSetDoc->undo.CanRedo();
+				undoDesc = activeTileSetDoc->undo.UndoDescription(); redoDesc = activeTileSetDoc->undo.RedoDescription();
+			}
 			const std::string undoLabel = canUndo ? ("Undo " + undoDesc) : "Undo";
 			const std::string redoLabel = canRedo ? ("Redo " + redoDesc) : "Redo";
-			if (ImGui::MenuItem(undoLabel.c_str(), "Ctrl+Z", false, canUndo))
+			if (ImGui::MenuItem(undoLabel.c_str(), (std::string(ShortcutPrefix()) + "Z").c_str(), false, canUndo))
 			{
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Undo();
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Undo();
@@ -3869,7 +3916,7 @@ void Editor::DrawUI()
 				else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc) activeTileSetDoc->undo.Undo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Undo();
 			}
-			if (ImGui::MenuItem(redoLabel.c_str(), "Ctrl+Shift+Z", false, canRedo))
+			if (ImGui::MenuItem(redoLabel.c_str(), (std::string(ShortcutPrefix()) + "Shift+Z").c_str(), false, canRedo))
 			{
 				if (lastFocusedDocKind == FocusedDocKind::Scene && sceneView) sceneView->Redo();
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Redo();
@@ -3884,7 +3931,7 @@ void Editor::DrawUI()
 			ImGui::Separator();
 			const bool sceneSel = lastFocusedDocKind == FocusedDocKind::Scene
 				&& sceneView && !sceneView->IsPlaying() && sceneView->HasSelection();
-			if (ImGui::MenuItem("Duplicate", "Ctrl+D", false, sceneSel))
+			if (ImGui::MenuItem("Duplicate", (std::string(ShortcutPrefix()) + "D").c_str(), false, sceneSel))
 				sceneView->DuplicateSelection();
 			if (ImGui::MenuItem("Delete", "Del", false, sceneSel))
 				sceneView->DeleteSelection();
@@ -5273,7 +5320,7 @@ void Editor::DrawScriptEditorWindows()
 		if (pendingSelectScriptId == doc->id)
 			pendingSelectScriptId = 0;
 
-		if (ImGui::Button("Save") || (ImGui::GetIO().KeyCtrl && ImGui::IsKeyPressed(ImGuiKey_S)
+		if (ImGui::Button("Save") || (ShortcutMod() && ImGui::IsKeyPressed(ImGuiKey_S)
 			&& ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)))
 		{
 			if (doc->SaveToFile())
@@ -6780,7 +6827,14 @@ void Editor::ShowCreateTileSetModal()
 
 void Editor::DrawTilePaletteWindow()
 {
-	if (sceneView) sceneView->ShowTilePalette();
+	if (!sceneView) return;
+	sceneView->ShowTilePalette();
+	// Drained after the window is drawn, not inside it: OpenTileSetDocument
+	// creates a document and can re-dock, and doing that from inside another
+	// window's Begin/End pair is how you get an ImGui assert instead of a tab.
+	const std::string req = sceneView->TakeOpenTileSetRequest();
+	if (!req.empty() && project.IsOpen())
+		OpenTileSetDocument(project.AbsolutePath(req));
 }
 
 void Editor::DrawSceneTreeWindow()

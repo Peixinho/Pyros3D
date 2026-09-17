@@ -107,9 +107,30 @@ namespace p3d {
 		// needs - density, friction, contact events, the tracked/destroy
 		// reconciliation in Physics2DWorld - is identical, and a second
 		// component would have to duplicate all of it.
+		// A convex polygon in the body's local space. Tile slopes are
+		// triangles; nothing below assumes three points.
+		typedef std::vector<Vec2> Poly2D;
+
 		void SetCompoundBoxes(const std::vector<Vec4> &boxes);
+		// Boxes AND polygons together. Both have to be set in one call: they
+		// are two halves of one collider set, and applying them separately
+		// would rebuild the body twice and briefly leave it with half its
+		// geometry.
+		void SetCompoundShapes(const std::vector<Vec4> &boxes,
+			const std::vector<Poly2D> &polys);
+		// Boxes, polygons AND chain loops in one call. Terrain uses the
+		// chains; the other two stay for everything that is genuinely a set
+		// of convex pieces. All three together because they are one collider
+		// set - applying them separately rebuilds the body more than once and
+		// leaves it briefly holding a fraction of its geometry.
+		void SetCompoundShapes(const std::vector<Vec4> &boxes,
+			const std::vector<Poly2D> &polys,
+			const std::vector<Poly2D> &chains);
+		const std::vector<Poly2D> &GetCompoundChains() const { return compoundChains; }
 		const std::vector<Vec4> &GetCompoundBoxes() const { return compoundBoxes; }
-		bool IsCompound() const { return !compoundBoxes.empty(); }
+		const std::vector<Poly2D> &GetCompoundPolys() const { return compoundPolys; }
+		bool IsCompound() const
+		{ return !compoundBoxes.empty() || !compoundPolys.empty() || !compoundChains.empty(); }
 		// True when the shape list has changed since the body was built, so
 		// Physics2DWorld knows to rebuild it. Cleared when it does.
 		bool NeedsShapeRebuild() const { return shapesDirty; }
@@ -166,6 +187,8 @@ namespace p3d {
 		bool castsShadow;
 
 		std::vector<Vec4> compoundBoxes;
+		std::vector<Poly2D> compoundPolys;
+		std::vector<Poly2D> compoundChains;
 		bool shapesDirty;
 
 		bool haveBody;

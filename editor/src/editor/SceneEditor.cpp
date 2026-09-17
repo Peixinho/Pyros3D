@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <cmath>
+#include "ShortcutMod.h"
 #include <set>
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h>
 #include <filesystem>
@@ -973,9 +974,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (plainKey && ImGui::IsKeyPressed(ImGuiKey_T)) UseTranslationManipulator();
 			if (plainKey && ImGui::IsKeyPressed(ImGuiKey_R)) UseRotationManipulator();
 			if (plainKey && ImGui::IsKeyPressed(ImGuiKey_S)) UseScaleManipulator();
+			// B for brush, alongside the other three tool keys, because the
+			// tile brush IS the fourth tool - it changes what the left button
+			// does over the viewport exactly as T/R/S change what the gizmo
+			// does. Only in 2D: there is nothing to paint into otherwise.
+			if (plainKey && sceneIsTwoD && ImGui::IsKeyPressed(ImGuiKey_B))
+			{
+				SetTilePaintMode(!tilePaintMode);
+				if (tilePaintMode) uiEditMode = false;
+			}
 			if ((ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) && !ImGui::GetIO().WantTextInput)
 				DeleteSelected();
-			if (ImGui::IsKeyPressed(ImGuiKey_D) && ImGui::GetIO().KeyCtrl)
+			if (ImGui::IsKeyPressed(ImGuiKey_D) && ShortcutMod())
 				DuplicateSelected();
 		}
 		ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(4, 3));
@@ -990,6 +1000,38 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			if (localTransform) UseLocalManipulator();
 			else UseGlobalManipulator();
+		}
+		// The tile brush, as a TOOL next to the other three. It used to exist
+		// only as "Tile Paint Mode" in the View menu, filed between "Show
+		// Physics Debug" and "Show Light Gizmos" - i.e. among display toggles
+		// - with no shortcut and nothing anywhere saying the viewport had a
+		// third input mode at all. The Tile Palette appears only once the
+		// mode is on, so the panel that would have explained the feature was
+		// invisible until you had already found the feature.
+		if (sceneIsTwoD && !playMode)
+		{
+			ImGui::SameLine();
+			const bool painting = tilePaintMode;
+			if (painting)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.55f, 0.9f, 1.f));
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.62f, 1.f, 1.f));
+			}
+			if (ImGui::SmallButton("Tiles"))
+			{
+				SetTilePaintMode(!tilePaintMode);
+				if (tilePaintMode) uiEditMode = false;
+			}
+			if (painting) ImGui::PopStyleColor(2);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Tile Paint Mode (B)\n"
+					"The left button paints into a Tile Map 2D instead of selecting.\n"
+					"Pick the brush and the tile in the Tile Palette panel.");
+			if (painting)
+			{
+				ImGui::SameLine();
+				ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.f, 1.f), "PAINTING");
+			}
 		}
 		if (playMode) ImGui::EndDisabled();
 		ImGui::SameLine();
@@ -1050,13 +1092,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return;
 		}
 
-		// Play mode looks through the SCENE'S OWN VIEW when it has one and no
-		// camera object has been made active. Driving the editor camera from
-		// it - rather than reimplementing the framing here - is what makes the
-		// preview and the player agree; both go through
-		// SceneMeta::View2D::CameraMatrix()/MakeProjection().
-		const bool usingSceneView2D = (playMode && view2D.enabled
-			&& activeSceneCameraId == 0 && scriptRenderCamera == nullptr);
+		// Play mode looks through the SCENE'S OWN VIEW whenever it has one.
+		// Driving the editor camera from it - rather than reimplementing the
+		// framing here - is what makes the preview and the player agree; both
+		// go through SceneMeta::View2D::CameraMatrix()/MakeProjection().
+		//
+		// This used to also require `activeSceneCameraId == 0 &&
+		// scriptRenderCamera == nullptr`, which made the editor preview
+		// DISAGREE with the shipped game. The player has no such condition:
+		// `UpdateView2DCamera` overwrites whatever `activeCamera` is - camera
+		// object or a script's `setRenderCamera` - and `ApplyProjection`
+		// returns view2D's projection before it ever looks at the camera's
+		// own. So a 2D scene that happened to contain an active camera object
+		// silently ignored every Game View setting in Play while the built
+		// game obeyed them, which is the worst possible split: the preview
+		// lies, and it lies in the direction of "your settings do nothing".
+		// view2D.enabled is the switch; turning it OFF is how you hand a 2D
+		// scene back to a camera object, exactly as its checkbox says.
+		const bool usingSceneView2D = (playMode && view2D.enabled);
 		if (usingSceneView2D)
 			UpdateSceneView2D(ImGui::GetIO().DeltaTime, (f32)dim.x / (f32)dim.y);
 
@@ -2038,6 +2091,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	GameObject* SceneEditor::GetViewCameraGO() const
 	{
+		// A self-framing 2D scene in Play is viewed through the view2D rig,
+		// whatever camera objects the scene also contains. UpdateSceneView2D
+		// drives THIS camera from view2D every frame, so returning any other
+		// object here would take view2D's projection and pair it with an
+		// unrelated transform - a worse mismatch than either alone. The
+		// player does the same thing from the other end: it overwrites
+		// activeCamera's matrix rather than choosing a different camera.
+		if (playMode && sceneIsTwoD && view2D.enabled)
+			return Camera.get();
+
 		if (playMode && scriptRenderCamera != nullptr)
 			return scriptRenderCamera;
 
@@ -2650,6 +2713,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		if (!sharedLua) return;
 		(*sharedLua)["physics"] = static_cast<IPhysics*>(physics);
+		// The 2D world, under its own name. `physics` is the 3D engine; a 2D
+		// game needs the Box2D one, and until now nothing published it, so a
+		// script could not raycast the world it was actually running in.
+		(*sharedLua)["physics2d"] = physics2D;
 		(*sharedLua)["scene"] = scene;
 
 		// Expose the active scene camera so game scripts can use it for audio/shake.
@@ -4480,13 +4547,33 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				{
 					// The obvious gesture: frame it by eye, then say "that".
 					view2D.center = Vec2(pos.x, pos.y);
-					view2D.halfHeight = zoomOrtho;
+					// zoomOrtho is the half-extent of the viewport's LARGER
+					// dimension, not its height - see the projection built in
+					// ShowViewport. Assigning it straight to halfHeight made
+					// this button wrong by the aspect ratio on every landscape
+					// viewport, i.e. always: you framed a level, pressed Play,
+					// and the game showed ~1.8x more than you had framed. Take
+					// the half-HEIGHT the same arithmetic produces.
+					view2D.halfHeight = (dim.x > dim.y)
+						? (dim.y * zoomOrtho / dim.x) : zoomOrtho;
 					sceneDirty = true;
 				}
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("Takes the centre and zoom you are looking at now.");
 				if (ImGui::Button("Look At View", ImVec2(-1.f, 0.f)))
+				{
+					// Match the ZOOM too, not just the centre. Moving to the
+					// centre at whatever zoom you happened to be on answers
+					// "where is the game view" but not "what does the game
+					// see", which is the question being asked - and it is the
+					// exact inverse of From Viewport above, so the two buttons
+					// now round-trip instead of drifting apart.
+					zoomOrtho = (dim.x > dim.y)
+						? (view2D.halfHeight * dim.x / dim.y) : view2D.halfHeight;
 					LookAtPlaneXY(view2D.center.x, view2D.center.y);
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Frames the editor view on exactly what the game will show.");
 
 				// Follow. By name, picked from the objects that exist - a typo
 				// would silently mean "follow nothing", and a fixed view and a
@@ -4831,7 +4918,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// A third viewport mode. Mutually exclusive with canvas mode: both
 		// claim the left button over the viewport, and a click that could mean
 		// either is a click that does the wrong one half the time.
-		if (ImGui::MenuItem("Tile Paint Mode", "", tilePaintMode, sceneIsTwoD))
+		if (ImGui::MenuItem("Tile Paint Mode", "B", tilePaintMode, sceneIsTwoD))
 		{
 			SetTilePaintMode(!tilePaintMode);
 			if (tilePaintMode) uiEditMode = false;
@@ -6006,7 +6093,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		activeSceneCameraId = 0;
-		echo("WARNING: Play mode - no camera in the scene; using the editor camera");
+		// A self-framing 2D scene HAS its framing - in view2D - and wants no
+		// camera object at all. Warning about a missing camera there sent
+		// people off to create one, and a camera object used to silently
+		// override every Game View setting the moment Play started, so the
+		// warning actively caused the bug it looked like it was preventing.
+		if (sceneIsTwoD && view2D.enabled)
+			echo("SUCCESS: Play mode using the scene's Game View "
+				"(Properties > Game View when nothing is selected)");
+		else
+			echo("WARNING: Play mode - no camera in the scene; using the editor camera");
 	}
 
 	void SceneEditor::InitSceneLuaComponents()
@@ -6234,8 +6330,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		ResetLuaComponentsLifecycle();
 		// Explicit Init so camera scripts register input before the first frame.
 		const int luaInited = (InitSceneLuaComponents(), lastSceneLuaInitCount);
-		if (luaInited == 0)
-			echo("WARNING: Play mode — no LuaComponent on any GameObject (attach a script and Save scene)");
+		// A scene main script is a perfectly good way to script a scene - it
+		// is what every 2D example here uses - so "no LuaComponent on any
+		// GameObject" is only a problem when there is no main script either.
+		// Warning regardless told authors their working scene was unscripted.
+		if (luaInited == 0 && sceneMainScriptPath.empty())
+			echo("WARNING: Play mode — no script on this scene (attach a LuaComponent to a "
+				"GameObject, or set the scene's main script, then Save scene)");
 		else
 			echo("SUCCESS: Play mode — Tab toggles mouse capture; Esc stops play");
 		ResetSceneMainScriptLifecycle();
@@ -7647,18 +7748,30 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (path.size() == 0) return false;
 
 #ifdef LUA_BINDINGS
-		// Companion script shares the scene stem (Foo.json → Foo.lua).
+		// Companion script shares the scene stem (Foo.json → Foo.lua). It is
+		// CREATED if missing, so a new scene always has somewhere to put its
+		// code - but it only becomes the scene's script when the scene does
+		// not already have one.
+		//
+		// This used to assign unconditionally, on every single save, which
+		// destroyed any authored choice: set a scene's mainScript, save, and
+		// the field silently reverted to <SceneName>.lua. Combined with the
+		// load side doing the same thing, a scene could only ever run the one
+		// script named after it - and worse, a test that set the script and
+		// saved would run the WRONG script while reporting the right one.
 		{
 			std::string scriptAbs;
 			std::string err;
 			if (project && project->IsOpen())
 			{
 				if (project->EnsureSceneCompanionScript(path, scriptAbs, &err))
-					sceneMainScriptPath = scriptAbs;
+				{
+					if (sceneMainScriptPath.empty()) sceneMainScriptPath = scriptAbs;
+				}
 				else
 					echo("ERROR: " + err);
 			}
-			else
+			else if (sceneMainScriptPath.empty())
 				sceneMainScriptPath = ProjectManager::SceneScriptPathForSceneJson(path);
 		}
 #endif
@@ -7842,16 +7955,42 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				RelinkPrefabInstancesAfterLoad(rootPrefabPaths);
 				scenePath = path;
-				// Prefer companion scenes/<Name>.lua; create if missing.
+				// An AUTHORED mainScript wins; the companion is the fallback.
+				//
+				// This used to be the other way round, and because
+				// EnsureSceneCompanionScript derives scenes/<Name>.lua and
+				// CREATES it when missing, it essentially always succeeded -
+				// so the companion always won and the scene's own mainScript
+				// field was dead data. You could point a scene at another
+				// script, watch the field round-trip through the file
+				// untouched, and it would never run: a scene could only ever
+				// execute the one script named after it.
 				std::string companion;
 				std::string err;
-				if (project && project->IsOpen()
+				std::string authored;
+				if (!meta.mainScript.empty())
+				{
+					authored = meta.mainScript;
+					std::error_code aec;
+					// Stored relative to the project; an absolute one is
+					// accepted too rather than being mangled into a path
+					// under the project root.
+					if (!std::filesystem::exists(authored, aec)
+						&& project && project->IsOpen())
+					{
+						const std::string abs = project->AbsolutePath(authored);
+						if (std::filesystem::exists(abs, aec)) authored = abs;
+						else authored.clear();
+					}
+					else if (aec) authored.clear();
+				}
+				if (!authored.empty())
+					sceneMainScriptPath = authored;
+				else if (project && project->IsOpen()
 					&& project->EnsureSceneCompanionScript(path, companion, &err))
 				{
 					sceneMainScriptPath = companion;
 				}
-				else if (!meta.mainScript.empty())
-					sceneMainScriptPath = meta.mainScript;
 				else
 					sceneMainScriptPath = ProjectManager::SceneScriptPathForSceneJson(path);
 				sceneIsTwoD = meta.twoD;
@@ -8506,16 +8645,51 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (tilePaintMode && !playMode && sceneIsTwoD)
 		{
 			UpdateTilePainting();
+			// Eyedropper: Alt-click PICKS the tile under the cursor instead of
+			// painting over it. Every tile editor has this, and without it the
+			// only way to answer "what tile is this one, and what are its
+			// properties?" about something already in the level was to hunt
+			// for it by eye in the palette. It also selects that cell in the
+			// tileset document if one is open, so "pick it" and "edit what it
+			// means" are one gesture.
+			// PICK. Either the explicit Pick tool or Alt held over the other
+			// two - a hidden modifier on its own is not a way to select a
+			// tile, so it is a tool in the palette as well.
+			if (tileHoverValid && (tilePaintTool == 2 || ImGui::GetIO().KeyAlt))
+			{
+				TileMap2D* pm = RawFindTileMap2D(tilePaintTarget);
+				// An empty cell picks the ERASER, which is the consistent
+				// reading of "make my brush be whatever is here". The palette
+				// highlights whatever tilePaintBrush is, so the pick shows up
+				// there with no extra plumbing, along with that tile's solid
+				// flag and tags.
+				tilePaintBrush = pm ? pm->GetTile(tileHoverX, tileHoverY) : -1;
+				tilePickedX = tileHoverX;
+				tilePickedY = tileHoverY;
+				tileHavePick = true;
+				return;
+			}
 			if (tileHoverValid)
 			{
 				tileStrokeActive = true;
 				tileStroke.clear();
+				tileStrokeBefore.clear();
 				tileRectAnchorX = tileHoverX;
 				tileRectAnchorY = tileHoverY;
 				// A brush marks its first cell immediately, so a single click
-				// without any movement still paints one.
+				// without any movement still paints one - and paints it NOW,
+				// not on release.
 				if (tilePaintTool == 0)
-					tileStroke.push_back(Vec3((f32)tileHoverX, (f32)tileHoverY, (f32)tilePaintBrush));
+				{
+					int32 before = -1;
+					if (OpPaintTileLive(tilePaintTarget, tileHoverX, tileHoverY,
+						tilePaintBrush, before))
+					{
+						tileStroke.push_back(Vec3((f32)tileHoverX, (f32)tileHoverY,
+							(f32)tilePaintBrush));
+						tileStrokeBefore.push_back(before);
+					}
+				}
 				return;
 			}
 		}
@@ -10115,6 +10289,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 			ImGui::Unindent(5.f);
 		}
+		// Nothing selected, in a 2D scene: show the scene's own settings
+		// rather than an empty panel. The Game View - centre, zoom, follow,
+		// bounds - IS the 2D camera, and it used to be reachable only by
+		// selecting the scene ROOT in the tree, which nothing marks as
+		// selectable. A 2D scene with no camera object and no visible camera
+		// controls reads as a camera that does not exist.
+		else if (sceneIsTwoD)
+			DrawSceneSettingsInProperties();
 
 	}
 
@@ -11410,6 +11592,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return OpAddUIComponent(obj->GetID(), kind, fontPath, errOut);
 	}
 
+	bool SceneEditor::AgentSetSceneMainScript(const std::string& path, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		if (path.empty()) { sceneMainScriptPath.clear(); MarkSceneDirty(); return true; }
+		std::string abs = path;
+		std::error_code ec;
+		if (!std::filesystem::exists(abs, ec) && project && project->IsOpen())
+			abs = project->AbsolutePath(path);
+		if (!std::filesystem::exists(abs, ec))
+		{ errOut = "no such script: " + path; return false; }
+		sceneMainScriptPath = abs;
+		// Drop the COMPILED component too, not just the path: InitSceneMainScript
+		// only loads from the path when it has none, so leaving the old one in
+		// place means the scene keeps running the previous script.
+		sceneMainScript.reset();
+		MarkSceneDirty();
+		return true;
+	}
+
 	void SceneEditor::AgentSetViewport2D(f32 x, f32 y, f32 orthoHalfWidth)
 	{
 		if (orthoHalfWidth > 0.f) zoomOrtho = orthoHalfWidth;
@@ -11834,12 +12035,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	}
 
 	bool SceneEditor::AgentAddPhysics2D(const std::string& name, std::string& errOut,
-		const uint32 bodyType, const Vec2 &size)
+		const uint32 bodyType, const Vec2 &size, const bool fixedRotation)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
-		return OpAddPhysics2D(obj->GetID(), errOut, bodyType, size);
+		return OpAddPhysics2D(obj->GetID(), errOut, bodyType, size, fixedRotation);
 	}
 
 	bool SceneEditor::AgentAddOccluder2D(const std::string& name, std::string& errOut)
@@ -13808,6 +14009,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// button still down would otherwise flush it on the next click, in
 		// whatever the mode is by then.
 		tileStroke.clear();
+		tileStrokeBefore.clear();
 		tileStrokeActive = false;
 	}
 
@@ -13869,13 +14071,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// that is already running.
 		if (tileStrokeActive && tilePaintTool == 0 && tileHoverValid)
 		{
-			// A brush paints as it moves. Duplicates within one stroke are
-			// harmless - OpSetTiles drops cells whose value would not change -
-			// but skipping the repeat keeps the stroke small on a slow drag.
+			// A brush paints as it moves, and it paints IMMEDIATELY - the
+			// cell changes under the cursor while the button is still down.
+			// Accumulating silently and flushing on mouse-up (what this did
+			// before) meant a twenty-cell drag showed nothing until you let
+			// go, so you could not see the shape you were drawing while you
+			// drew it. The undo entry is still one per stroke; only the
+			// drawing moved earlier.
 			const Vec3 cell((f32)tileHoverX, (f32)tileHoverY, (f32)tilePaintBrush);
 			if (tileStroke.empty()
 				|| tileStroke.back().x != cell.x || tileStroke.back().y != cell.y)
-				tileStroke.push_back(cell);
+			{
+				int32 before = -1;
+				if (OpPaintTileLive(tilePaintTarget, tileHoverX, tileHoverY,
+					tilePaintBrush, before))
+				{
+					tileStroke.push_back(cell);
+					tileStrokeBefore.push_back(before);
+				}
+			}
 		}
 
 	}
@@ -13899,14 +14113,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 
 			// ONE undo entry for the whole stroke.
+			const char* what = tilePaintBrush < 0 ? "Erase Tiles"
+				: (tilePaintTool == 1 ? "Fill Tiles" : "Paint Tiles");
 			if (!tileStroke.empty())
 			{
 				std::string err;
-				OpSetTiles(tilePaintTarget, tileStroke,
-					tilePaintBrush < 0 ? "Erase Tiles"
-						: (tilePaintTool == 1 ? "Fill Tiles" : "Paint Tiles"), err);
+				// Which path depends on whether the cells are already ON the
+				// map, and the honest test for that is whether we captured a
+				// `before` for each one. A mouse brush paints live and fills
+				// tileStrokeBefore as it goes; a Rect drag is expanded right
+				// here, and an agent/script stroke (AgentTileStroke) hands us
+				// cells nothing has applied yet. Branching on tilePaintTool
+				// instead silently dropped every scripted stroke on the floor
+				// - it reported success and wrote nothing.
+				if (tileStrokeBefore.size() == tileStroke.size())
+					OpCommitTileStroke(tilePaintTarget, tileStroke,
+						tileStrokeBefore, what, err);
+				else
+					OpSetTiles(tilePaintTarget, tileStroke, what, err);
 			}
 			tileStroke.clear();
+			tileStrokeBefore.clear();
 			tileStrokeActive = false;
 		}
 	}
@@ -14035,8 +14262,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!map) { ImGui::End(); return; }
 
 		ImGui::RadioButton("Brush", &tilePaintTool, 0);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Paint cells as you drag.");
 		ImGui::SameLine();
 		ImGui::RadioButton("Rect", &tilePaintTool, 1);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag a rectangle; fills on release.");
+		ImGui::SameLine();
+		// Selecting a tile is a TOOL, not a hidden modifier. Alt over Brush or
+		// Rect does the same thing, but a shortcut nobody is told about is not
+		// a way to select anything.
+		ImGui::RadioButton("Pick", &tilePaintTool, 2);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Click a cell to select the tile in it and see what it is.\n"
+				"Alt-click does the same from the Brush and Rect tools.");
 		ImGui::SameLine();
 		// The eraser is a brush VALUE, not a tool, so switching to it and back
 		// keeps the tile that was selected.
@@ -14098,8 +14335,47 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::TextWrapped("Could not load the atlas '%s'.", set.image.c_str());
 
 		ImGui::Separator();
+		// What the SELECTED tile means. Solid and tags are per-tile-TYPE, set
+		// in the tileset document - the map stores only which type is in each
+		// cell - so this is the honest place to show them, and the button is
+		// the way from "this tile" to "change what this tile does". Without
+		// it, a tile's properties were only visible in a document you had to
+		// know to go and open from the Assets panel.
+		if (tilePaintBrush >= 0)
+		{
+			ImGui::Text("Tile %d  -  %s", (int)tilePaintBrush,
+				set.IsSolid(tilePaintBrush) ? "solid" : "passable");
+			const std::vector<std::string> &tg = set.Tags(tilePaintBrush);
+			if (!tg.empty())
+			{
+				std::string joined;
+				for (size_t i = 0; i < tg.size(); i++)
+				{ if (i) joined += ", "; joined += tg[i]; }
+				ImGui::TextDisabled("tags: %s", joined.c_str());
+			}
+			else ImGui::TextDisabled("no tags");
+		}
+		else
+			ImGui::TextDisabled("Eraser");
+		if (tileHavePick)
+			ImGui::TextDisabled("picked from cell %d, %d", (int)tilePickedX, (int)tilePickedY);
+		if (ImGui::Button("Edit Tile Set...", ImVec2(-1.f, 0.f)))
+			requestOpenTileSet = map->GetTileSetPath();
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Solid flags and tags live in the tileset, not in the map -\n"
+				"one edit there changes every cell of that tile everywhere.");
+		ImGui::TextDisabled("Pick tool (or Alt-click) selects the tile under the cursor.");
+
+		ImGui::Separator();
 		if (tileHoverValid)
-			ImGui::Text("cell %d, %d", (int)tileHoverX, (int)tileHoverY);
+		{
+			const int32 under = map->GetTile(tileHoverX, tileHoverY);
+			if (under >= 0)
+				ImGui::Text("cell %d, %d  -  tile %d%s", (int)tileHoverX, (int)tileHoverY,
+					(int)under, set.IsSolid(under) ? " (solid)" : "");
+			else
+				ImGui::Text("cell %d, %d  -  empty", (int)tileHoverX, (int)tileHoverY);
+		}
 		else
 			ImGui::TextDisabled("cursor outside the viewport");
 		// The two numbers worth watching while building a level.

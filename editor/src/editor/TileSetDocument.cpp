@@ -123,6 +123,29 @@ void TileSetDocument::SetSolidRange(const std::vector<int32>& indices, const boo
 	PushEdit(before, solid ? "Mark Tiles Solid" : "Mark Tiles Passable");
 }
 
+void TileSetDocument::SetShapeRange(const std::vector<int32>& indices, const int32 shape)
+{
+	bool any = false;
+	for (size_t i = 0; i < indices.size(); i++)
+		if (indices[i] >= 0
+			&& (set.Shape(indices[i]) != shape
+				|| (shape != TileShape2D::Box && !set.IsSolid(indices[i]))))
+		{ any = true; break; }
+	if (!any) return;
+
+	const std::string before = TileSet2DToString(set);
+	for (size_t i = 0; i < indices.size(); i++)
+	{
+		if (indices[i] < 0) continue;
+		set.tiles[indices[i]].shape = shape;
+		// A slope that is not solid is a slope nothing can stand on. Picking
+		// the shape is the author saying "this collides like this", so the
+		// solid flag follows rather than being a second thing to remember.
+		if (shape != TileShape2D::Box) set.tiles[indices[i]].solid = true;
+	}
+	PushEdit(before, shape == TileShape2D::Box ? "Set Tiles Square" : "Set Tile Slope");
+}
+
 void TileSetDocument::SetTag(const int32 index, const std::string& tag, const bool on)
 {
 	if (index < 0 || tag.empty()) return;

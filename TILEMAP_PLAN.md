@@ -1,11 +1,37 @@
 # Tilemaps: tileset assets, chunked map component, merged colliders
 
 **Status: all nine phases done, 2026-09-15 - engine, Lua, undo/redo, agent commands, MCP,
-the editor's paint mode and the on-ramp that reaches it.** Two gaps are called out below: a
-stroke driven by a real mouse drag has not been exercised, only its logic (Phase 7), and
-marking tiles solid still means hand-editing the `.p3dt` (Phase 8). Four
-pre-existing engine bugs were found and fixed on the way - see Phase 4 - and one is left
-open there as a deliberate decision rather than a side effect.
+the editor's paint mode and the on-ramp that reaches it.** Four pre-existing engine bugs
+were found and fixed on the way - see Phase 4 - and one is left open there as a deliberate
+decision rather than a side effect.
+
+**Both gaps this document used to list are closed (verified 2026-09-15); the text below
+that still describes them as open is stale.**
+
+- *"a stroke driven by a real mouse drag has not been exercised, only its logic"* -
+  exercised now, by injecting press/move/move/release through the agent socket into a
+  running editor. A single dab and a multi-cell drag both paint, and one drag is one undo
+  entry.
+- *"marking tiles solid still means hand-editing the `.p3dt`"* - the tileset document
+  editor (`editor/src/editor/UI/TileSetEditor.cpp`, commit 4eb0121) has Make Solid /
+  Make Passable over a click-and-shift-click selection, with the solid cells washed blue.
+
+What was actually wrong, found 2026-09-15 by a user who could not get the feature to work
+at all, and fixed:
+
+- **Undo was dead in the tileset editor.** `FocusedDocKind::TileSet` was wired into the
+  Edit menu's undo *action* but into neither the Ctrl+Z handler nor the menu's
+  `canUndo` check, so the shortcut did nothing and the item was permanently greyed out.
+- **`Space` toggled solid from anywhere**, including while typing a tag name, because the
+  shortcut was an unqualified `IsKeyPressed` with no focus or `WantTextInput` gate.
+- **"From Viewport" set the wrong zoom.** `zoomOrtho` is the half-extent of the viewport's
+  *larger* dimension; `view2D.halfHeight` is a half-height. Assigning one to the other was
+  wrong by the aspect ratio on every landscape viewport.
+- **The feature was unfindable.** Paint mode lived only in the View menu among display
+  toggles, with no shortcut; the Tile Palette appears only once paint mode is on, so the
+  panel explaining the feature was invisible until you had already found it. It is now a
+  `Tiles` toggle on the Scene View toolbar beside T/R/S, shortcut `B`, with a `PAINTING`
+  indicator. The 2D camera had the mirror problem - see the Game View note in Phase 9.
 
 Design doc for the **engine half** of a tiling editor. Written 2026-09-14 and implemented
 the same day. The editor half (paint mode, brushes, tile picker) is a separate document and
@@ -596,3 +622,186 @@ one amendment already folded into Phase 4.
 8. **A 200x60 map is 12000 tiles.** Any code path that is per-tile rather than per-chunk -
    serialization, collider rebuild, a naive `Fill` that rebuilds once per `SetTile` - will
    be the thing that makes the editor feel slow, and it will not show up on a 20x10 test map.
+
+---
+
+## Slopes, curves and a Sonic-style controller (2026-09-15)
+
+### Landed and verified
+
+- **Per-tile collision shapes.** `TileInfo2D::shape` (`TileShape2D`): `Box`, four
+  straight slopes, four curved floor arcs, four ceiling arcs. Serialized as an
+  optional `"shape"` string, omitted for `Box`, so tilesets written before this
+  round-trip byte-identical. Editable in the tileset document; the sheet draws
+  each cell's outline as the shape it actually is, from the same profile the
+  collider is built from.
+- **Sloped cells leave the rectangle merge** and become their own shapes -
+  straight slopes as one triangle, curves as eight trapezoid columns under
+  `TileShape2DHeight`. Measured on a 45-degree ramp: flat `1.95`, mid-ramp
+  `2.51`, plateau `2.97` against an expected `2.95`.
+- **2D raycast.** `Physics2DWorld::RayCast(from, to, ignore)`, exposed as
+  `physics2d:rayCast`. `ignore` skips one body - a sensor ray starts inside the
+  character, so without it every cast reports standing on your own head.
+  Verified: ground found at `y = 1.0` under a character at `x = 3`.
+- **`physics2d` global.** The 2D world existed in both hosts and was published
+  to neither, so a 2D game could not ask the world anything.
+- **`BodyType2D.Static/Kinematic/Dynamic`.** `setBodyType` had been callable
+  since Physics2D existed with no constants to pass it.
+- **A scene's `mainScript` was dead data.** `EnsureSceneCompanionScript` derives
+  `scenes/<Name>.lua` and CREATES it when missing, so it always succeeded and
+  always won; the authored field round-tripped through the file and was never
+  honoured. A scene could only ever run the one script named after it. Authored
+  now wins, companion is the fallback.
+
+### Chain terrain (2026-09-15, second pass)
+
+Chains were in the agreed scope and I substituted trapezoid columns for them.
+That substitution is what broke the sensors, so it was done properly afterwards.
+
+**`TileMap2D::BuildColliderChains()`** turns the solid region into closed
+outline loops: each solid cell contributes its CCW outline (box, slope triangle,
+or a sampled arc profile), every edge shared by two solid cells is cancelled
+against its reverse, the survivors are stitched end-to-end into loops, and
+collinear runs are dropped so a long flat floor is two points rather than two
+hundred. `Physics2D` carries them (`SetCompoundShapes(boxes, polys, chains)`)
+and `Physics2DWorld` creates them with `b2CreateChain`.
+
+It measurably fixed the thing it was meant to fix. On a curved hill the sensor
+character went from **stopping dead at the entrance** to climbing smoothly with
+a correct, stable surface angle (11.1 degrees up, -20.7 on the descent). No
+seam-normal spikes.
+
+**It is the default now.** `PYROS_TILE_CHAINS=0` falls back to the old
+boxes+polygons path.
+
+Getting there took one real bug, and it is worth writing down because the
+symptom was nothing like the cause. Terrain built from chains was not solid -
+a dynamic box dropped on it fell straight through and came to rest somewhere
+inside. Everything *looked* right: the loops were produced, they were wound
+counter-clockwise, and every `b2CreateChain` returned a valid id.
+
+The bisect that found it: a four-point flat chain in an empty world with one
+box dropped on it, no engine and no tile map. That established the Box2D
+contract exactly -
+
+| winding | isLoop | box rests at |
+|---|---|---|
+| **CCW** | **true** | **2.50 - correct** |
+| CW | true | 0.50 (falls through, rests inside) |
+| either | false | -74 (falls forever) |
+
+- so CCW + isLoop was right, and the usage was not the problem. Feeding the
+engine's REAL loop points into that same harness reproduced the failure exactly
+(rest at -2.67 in both), which moved the bug out of the physics and into
+`BuildColliderChains`. Printing the points showed loop 0 tracing the bottom, up
+the right side, back along the top - and then stopping two thirds of the way,
+closing with a straight line across the level.
+
+The stitching walk was bounded by
+
+```cpp
+for (size_t guard = 0; guard <= next.size() + 4; guard++)
+```
+
+and `next` is the edge container the walk ERASES from. The counter grows while
+the bound shrinks; they meet in the middle and the loop is abandoned about
+halfway round. Capturing the bound before the walk fixed it: loop 0 went from 12
+truncated points to 23, and the box rests at exactly 1.95.
+
+**Verified after the fix:** dynamic body rests correctly and runs and jumps; the
+sensor character runs the full loop on chain terrain (y 1.95 -> 8.05,
+|angle| 180 degrees, all 8 octants, fully inverted).
+
+### A lesson that cost several rounds
+
+Three separate "the engine is broken" stalls were **terrain I authored badly**,
+not engine bugs: arc tiles whose profiles do not meet (one ends at height 1, the
+next starts at 0) leave a real 1-unit cliff between them, and the character is
+correctly stopped by it. Tile profiles must be CONTINUOUS across neighbours -
+`0->1` must be followed by something that starts at 1.
+
+The thing that finally made this visible was **physics debug draw**, now
+reachable as an agent command (`{"cmd":"physics_debug","args":{"on":true}}`).
+Look at the collider before theorising about the controller.
+
+### The loop RUNS (2026-09-17)
+
+`projects/TileWorld` has a working Sonic loop. Verified on the saved scene with
+nothing hand-edited: the character sweeps `y = 1.95 -> 8.05` (ground to apex,
+exactly inner-apex minus half-height), reaches `|angle| = 180` degrees fully
+inverted, and visits **all 8 octants** of the circle. Wall positions check out
+to the centimetre - right wall `x = 40.05` (inner 41 minus 0.95), left wall
+`x = 33.95` (inner 33 plus 0.95).
+
+Four things had to be true, and each one was a separate bug:
+
+1. **Foot sensors must reject CEILINGS.** A foot sensor starts at hip height,
+   so an overhang lower than the character's head is NEARER than the floor and
+   wins "nearest hit" - the character plants itself on the UNDERSIDE of the
+   overhang and climbs it. Walking toward the loop, its own lower flank hangs
+   across the approach, and the character stuck to it at 58 degrees. A floor is
+   a surface whose normal points along the character's own up; anything else is
+   not a floor.
+
+2. **A loop needs LAYER SWITCHING.** This is the real reason loops are hard,
+   and no amount of geometry fixes it: in one collision layer the ring's own
+   material fills the space the entry runs through, so you stop at the foot of
+   it. Sonic switched collision layers at the loop mouth. Here the character is
+   kinematic and steers by sensors, so *choosing what the rays may see IS the
+   layer switch* - `rayCast` grew a second ignore, and the controller ignores
+   the loop while running past it and the ground once committed.
+
+3. **The ring must be finer than the sensor span.** At 0.5-unit cells the two
+   foot sensors (0.7 apart) both landed on one tread, so the measured angle was
+   ~1 degree and the character sat still on a staircase it could not read. At
+   0.25 the step is well under SNAP and the sensors span several treads.
+
+4. **A ring, not a blob.** Four quarter-arc tiles fill the cell minus the disc,
+   which is a solid lump with a hole - its lower-left quadrant is a wall from
+   the ground up. The loop is 452 cells of a true annulus, r=4..5.
+
+### How the loop looked before it worked (kept for the reasoning)
+
+`scenes/sonic.lua` traversed straight slopes and gentle curved hills but stopped
+dead at a loop, and its feel on ordinary ground was worse than the dynamic
+controller. Two causes were diagnosed here and both are now fixed - see "The
+loop RUNS" above. They are worth keeping because each produced a plausible
+wrong answer rather than an error:
+
+1. **Trapezoid columns gave sensors real vertical faces.** Eight convex quads
+   per curved tile meant internal faces at every column and tile seam, and a
+   downward ray landing on one returned a normal of `(-1,0)` - a 90-degree
+   "floor" mid-slope. Fixed by taking the surface angle from two sensor heights
+   rather than from any single face's normal, and by chain terrain removing the
+   internal faces altogether.
+2. **A 2x2 ring of quarter-arcs is not an annulus.** Each arc fills the whole
+   cell minus the disc, so the "ring" was a solid blob with a hole whose
+   lower-left quadrant walled off the approach. Fixed by building a true
+   annulus, 452 cells at 0.25.
+
+---
+
+## The save path clobbered a scene's main script (2026-09-17)
+
+`SaveSceneToFile` assigned the companion `<SceneName>.lua` to
+`sceneMainScriptPath` **unconditionally, on every save**, before writing meta.
+Combined with the load side doing the same thing, a scene could only ever run
+the one script named after it: set `mainScript`, save, and the field silently
+reverted. Worse, a test that set the script and saved would then run the WRONG
+script while reporting the right one - which is exactly how several hours went
+into "the loop does not work" when the loop controller was never running at all.
+
+The companion is still CREATED when missing, so a new scene always has
+somewhere to put its code; it just no longer overwrites an authored choice.
+
+There is now an agent command for it, because hand-editing the JSON was the
+only way and that was the thing the save destroyed:
+
+```
+{"cmd":"set_scene_main_script","args":{"path":"scenes/sonic.lua"}}
+```
+
+And `{"cmd":"physics_debug","args":{"on":true}}` draws the colliders. Use it
+early. Three separate "the engine is broken" stalls in this work were terrain
+authored badly - arc tiles whose profiles do not meet leave a real cliff - and
+one screenshot with colliders on showed each of them immediately.

@@ -32,6 +32,33 @@ namespace p3d {
 
 	void Physics2D::SetCompoundBoxes(const std::vector<Vec4> &boxes)
 	{
+		SetCompoundShapes(boxes, compoundPolys);
+	}
+
+	namespace {
+		bool SamePolys(const std::vector<Physics2D::Poly2D> &a,
+			const std::vector<Physics2D::Poly2D> &b)
+		{
+			if (a.size() != b.size()) return false;
+			for (size_t i = 0; i < a.size(); i++)
+			{
+				if (a[i].size() != b[i].size()) return false;
+				for (size_t k = 0; k < a[i].size(); k++)
+					if (a[i][k].x != b[i][k].x || a[i][k].y != b[i][k].y) return false;
+			}
+			return true;
+		}
+	}
+
+	void Physics2D::SetCompoundShapes(const std::vector<Vec4> &boxes,
+		const std::vector<Poly2D> &polys)
+	{
+		SetCompoundShapes(boxes, polys, compoundChains);
+	}
+
+	void Physics2D::SetCompoundShapes(const std::vector<Vec4> &boxes,
+		const std::vector<Poly2D> &polys, const std::vector<Poly2D> &chains)
+	{
 		// Compared rather than assigned blindly: TileMap2D recomputes its
 		// merge whenever the grid changes, and most edits do not change the
 		// collider set at all. Rebuilding an unchanged body would destroy and
@@ -44,9 +71,14 @@ namespace p3d {
 			for (size_t i = 0; i < boxes.size() && same; i++)
 				same = (boxes[i].x == compoundBoxes[i].x && boxes[i].y == compoundBoxes[i].y
 					&& boxes[i].z == compoundBoxes[i].z && boxes[i].w == compoundBoxes[i].w);
-			if (same) return;
+			// The polygons have to agree too, or editing only a slope would
+			// compare equal on the boxes and never rebuild the body.
+			if (same && SamePolys(polys, compoundPolys)
+				&& SamePolys(chains, compoundChains)) return;
 		}
 		compoundBoxes = boxes;
+		compoundPolys = polys;
+		compoundChains = chains;
 		shapesDirty = true;
 	}
 

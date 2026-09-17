@@ -114,8 +114,51 @@ namespace TileSetEditor {
 			// a glance across a 256-tile sheet.
 			if (set.IsSolid(i))
 			{
-				dl->AddRectFilled(p0, p1, IM_COL32(80, 170, 255, 70));
-				dl->AddRect(p0, p1, IM_COL32(110, 200, 255, 220), 0.f, 0, 2.f);
+				// The collision outline, drawn as the shape it actually is.
+				// A slope shown as a full blue square would be the same
+				// picture as the block it was drawn to replace.
+				const int32 sh = set.Shape(i);
+				if (sh == TileShape2D::Box)
+				{
+					dl->AddRectFilled(p0, p1, IM_COL32(80, 170, 255, 70));
+					dl->AddRect(p0, p1, IM_COL32(110, 200, 255, 220), 0.f, 0, 2.f);
+				}
+				else if (TileShape2DIsFloorProfile(sh) && sh != TileShape2D::SlopeBR
+					&& sh != TileShape2D::SlopeBL)
+				{
+					// Curved floors, drawn from the SAME profile the collider
+					// is built from - so what the sheet shows and what the
+					// physics does cannot drift apart.
+					const int kN = 12;
+					ImVec2 pts[kN + 3];
+					for (int k = 0; k <= kN; k++)
+					{
+						const float t = (float)k / (float)kN;
+						const float hgt = TileShape2DHeight(sh, t);
+						pts[k] = ImVec2(p0.x + t * (p1.x - p0.x),
+							p1.y - hgt * (p1.y - p0.y));
+					}
+					pts[kN + 1] = ImVec2(p1.x, p1.y);
+					pts[kN + 2] = ImVec2(p0.x, p1.y);
+					dl->AddConvexPolyFilled(pts, kN + 3, IM_COL32(80, 170, 255, 70));
+					dl->AddPolyline(pts, kN + 1, IM_COL32(110, 200, 255, 220), 0, 2.f);
+				}
+				else
+				{
+					// ImGui's y runs DOWN, so "bottom" here is p1.y.
+					const ImVec2 bl(p0.x, p1.y), br(p1.x, p1.y);
+					const ImVec2 tl(p0.x, p0.y), tr(p1.x, p0.y);
+					ImVec2 a2, b2, c2;
+					switch (sh)
+					{
+						case TileShape2D::SlopeBR: a2 = bl; b2 = br; c2 = tr; break;
+						case TileShape2D::SlopeBL: a2 = bl; b2 = br; c2 = tl; break;
+						case TileShape2D::SlopeTR: a2 = br; b2 = tr; c2 = tl; break;
+						default:                   a2 = bl; b2 = tr; c2 = tl; break;
+					}
+					dl->AddTriangleFilled(a2, b2, c2, IM_COL32(80, 170, 255, 70));
+					dl->AddTriangle(a2, b2, c2, IM_COL32(110, 200, 255, 220), 2.f);
+				}
 			}
 			if (IsSelected(i))
 				dl->AddRect(ImVec2(p0.x - 1, p0.y - 1), ImVec2(p1.x + 1, p1.y + 1),
@@ -171,11 +214,54 @@ namespace TileSetEditor {
 		for (size_t k = 0; k < g_selection.size(); k++)
 			if (!set.IsSolid(g_selection[k])) { allSolid = false; break; }
 
-		if (ImGui::Button(allSolid ? "Make Passable" : "Make Solid", ImVec2(150, 0))
-			|| ImGui::IsKeyPressed(ImGuiKey_Space))
+		// The Space shortcut has to be gated on this window having focus AND
+		// on no text field wanting the key. Unqualified, ImGui's key state is
+		// global: Space typed into the "new tag" box below - or pressed over
+		// the Scene View while this window merely sat open behind it - came
+		// through here and silently flipped the selection's solidity. A
+		// collision flag changing because you typed a space in a tag name is
+		// the kind of edit nobody thinks to look for.
+		const bool spaceHere = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)
+			&& !ImGui::GetIO().WantTextInput
+			&& ImGui::IsKeyPressed(ImGuiKey_Space);
+		if (ImGui::Button(allSolid ? "Make Passable" : "Make Solid", ImVec2(150, 0)) || spaceHere)
 			doc.SetSolidRange(g_selection, !allSolid);
 		ImGui::SameLine();
 		ImGui::TextDisabled("Solid cells are what a tile map turns into colliders.");
+
+		// Collision outline. Slopes exist because marking a diagonal tile
+		// solid used to give it a full square collider - the art sloped and
+		// the collision did not, so a "hill" walked like a staircase.
+		ImGui::TextDisabled("Collision shape");
+		int32 cur = set.Shape(g_selection[0]);
+		bool mixed = false;
+		for (size_t k = 1; k < g_selection.size(); k++)
+			if (set.Shape(g_selection[k]) != cur) { mixed = true; break; }
+
+		struct ShapeBtn { int32 shape; const char* label; const char* tip; };
+		static const ShapeBtn kShapes[] = {
+			{ TileShape2D::Box,     "Square",  "A full cell. What every solid tile was before." },
+			{ TileShape2D::SlopeBR, "Floor /", "Straight floor rising to the RIGHT." },
+			{ TileShape2D::SlopeBL, "Floor \\", "Straight floor rising to the LEFT." },
+			{ TileShape2D::SlopeTR, "Ceil /",  "Ceiling sloping down to the LEFT." },
+			{ TileShape2D::SlopeTL, "Ceil \\", "Ceiling sloping down to the RIGHT." },
+			{ TileShape2D::ArcConvexBR,  "Crest /",  "CURVED floor rising right, bulging up - a hill crest." },
+			{ TileShape2D::ArcConvexBL,  "Crest \\", "Curved floor rising left, bulging up." },
+			{ TileShape2D::ArcConcaveBR, "Dip /",    "Curved floor rising right, dished down - a valley or loop wall." },
+			{ TileShape2D::ArcConcaveBL, "Dip \\",   "Curved floor rising left, dished down." },
+		};
+		for (int b3i = 0; b3i < 9; b3i++)
+		{
+			if (b3i % 5) ImGui::SameLine();
+			const bool on = !mixed && cur == kShapes[b3i].shape;
+			if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.55f, 0.9f, 1.f));
+			if (ImGui::Button(kShapes[b3i].label, ImVec2(72, 0)))
+				doc.SetShapeRange(g_selection, kShapes[b3i].shape);
+			if (on) ImGui::PopStyleColor();
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kShapes[b3i].tip);
+		}
+		if (mixed) { ImGui::SameLine(); ImGui::TextDisabled("(mixed)"); }
+		ImGui::TextDisabled("Picking a slope also marks the tile solid.");
 
 		// --- tags ------------------------------------------------------------
 		const std::vector<std::string> tags = doc.AllTags();

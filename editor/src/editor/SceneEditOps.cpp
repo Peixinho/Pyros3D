@@ -1389,7 +1389,7 @@ bool SceneEditor::OpAddOccluder2D(uint32 goId, std::string& errOut)
 }
 
 bool SceneEditor::OpAddPhysics2D(uint32 goId, std::string& errOut,
-	const uint32 bodyType, const Vec2 &size)
+	const uint32 bodyType, const Vec2 &size, const bool fixedRotation)
 {
 	SceneObject* obj = sceneObjects->GetSceneObject(goId);
 	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
@@ -1406,7 +1406,9 @@ bool SceneEditor::OpAddPhysics2D(uint32 goId, std::string& errOut,
 		return false;
 	}
 	const std::string before = SnapshotSubtree(goId);
-	go->Add(std::make_shared<Physics2D>(bodyType, Shape2DType::Box, size));
+	std::shared_ptr<Physics2D> body = std::make_shared<Physics2D>(bodyType, Shape2DType::Box, size);
+	if (fixedRotation) body->SetFixedRotation(true);
+	go->Add(body);
 	MarkSceneDirty();
 	PushReplaceCommand(goId, before, "Add Physics 2D");
 	return true;
@@ -1513,6 +1515,53 @@ bool SceneEditor::OpAddTileMap2D(uint32 goId, const std::string& tileset,
 	// A snapshot pair is fine HERE: the map is empty at this point, so the
 	// two snapshots are small. Painting is what must not use it.
 	PushReplaceCommand(goId, before, "Add Tile Map");
+	return true;
+}
+
+// Paints ONE cell straight away and records what was there, so a drag shows
+// what it is doing while the button is still down. The stroke's undo entry is
+// pushed once, at the end, by OpCommitTileStroke.
+//
+// Painting only on mouse-up - which is what this used to do - means a drag
+// across twenty cells shows nothing at all until you let go. You cannot see
+// the shape you are drawing while you are drawing it, which is most of what a
+// brush is for.
+bool SceneEditor::OpPaintTileLive(uint32 goId, const int32 x, const int32 y,
+	const int32 index, int32& beforeOut)
+{
+	TileMap2D* map = RawFindTileMap2D(goId);
+	if (!map) return false;
+	beforeOut = map->GetTile(x, y);
+	if (beforeOut == index) return false;   // nothing to do, nothing to record
+	map->SetTile(x, y, index);
+	MarkSceneDirty();
+	return true;
+}
+
+// The single undo entry for a stroke whose cells are ALREADY applied. Not
+// OpSetTiles: that reads `before` off the map, which by now holds the painted
+// value, so every cell would look unchanged and the whole stroke would become
+// un-undoable.
+bool SceneEditor::OpCommitTileStroke(uint32 goId, const std::vector<Vec3>& cells,
+	const std::vector<int32>& befores, const char* what, std::string& errOut)
+{
+	if (!RawFindTileMap2D(goId)) { errOut = "this object has no TileMap2D"; return false; }
+	if (cells.size() != befores.size()) { errOut = "stroke/before size mismatch"; return false; }
+
+	std::vector<SetTilesCommand::Cell> delta;
+	delta.reserve(cells.size());
+	for (size_t i = 0; i < cells.size(); i++)
+	{
+		const int after = (int)cells[i].z;
+		if ((int)befores[i] == after) continue;
+		SetTilesCommand::Cell c;
+		c.x = (int)cells[i].x; c.y = (int)cells[i].y;
+		c.before = (int)befores[i]; c.after = after;
+		delta.push_back(c);
+	}
+	if (delta.empty()) return true;
+	sceneUndo.Push(std::make_unique<SetTilesCommand>(this, goId, std::move(delta),
+		what ? what : "Paint Tiles"));
 	return true;
 }
 

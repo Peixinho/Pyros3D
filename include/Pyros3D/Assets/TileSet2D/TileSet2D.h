@@ -35,6 +35,60 @@ namespace p3d {
 
 	// What one cell means. Only cells that differ from the default are
 	// stored, so a purely decorative tileset serializes to nothing here.
+	// The collision outline of one cell. Box is a full square - the only thing
+	// the collider could build before this existed, which is why a "slope"
+	// could only ever be a staircase of blocks.
+	//
+	// The four slopes are named by the corner holding the RIGHT ANGLE, which
+	// fixes the filled triangle unambiguously:
+	//   SlopeBR  right angle bottom-right; filled bl-br-tr; floor rising right
+	//   SlopeBL  right angle bottom-left;  filled bl-br-tl; floor rising left
+	//   SlopeTR  right angle top-right;    filled tl-tr-br; ceiling
+	//   SlopeTL  right angle top-left;     filled tl-tr-bl; ceiling
+	namespace TileShape2D {
+		enum {
+			Box = 0,
+			SlopeBR,
+			SlopeBL,
+			SlopeTR,
+			SlopeTL,
+			// Curved floors. Sonic-style terrain is not straight ramps - it is
+			// arcs, and an arc is not expressible as one triangle. These are
+			// quarter-circle profiles across the cell:
+			//   ArcConvex*   bulges UP  - the crest of a hill
+			//   ArcConcave*  dishes DOWN - the inside of a valley or a loop
+			// BR/BL is which way the surface rises, matching the slopes above.
+			ArcConvexBR,
+			ArcConvexBL,
+			ArcConcaveBR,
+			ArcConcaveBL,
+			// Ceiling arcs: the SAME four profiles, with the solid material
+			// ABOVE the curve instead of below. The top half of a loop is
+			// exactly this - you run on the underside of the ring - and it
+			// cannot be expressed by any floor shape, however oriented.
+			ArcCeilConvexBR,
+			ArcCeilConvexBL,
+			ArcCeilConcaveBR,
+			ArcCeilConcaveBL
+		};
+	}
+
+	// The surface height of a shape at `t` across the cell, t and the result
+	// both in 0..1. This is the one definition of what a tile's floor looks
+	// like: the collider builder turns it into geometry and a character
+	// controller can sample it directly, so the two can never disagree.
+	// Meaningless for the ceiling slopes and for Box - callers check first.
+	PYROS3D_API f32 TileShape2DHeight(const int32 shape, const f32 t);
+	// Whether this shape is a FLOOR profile, i.e. TileShape2DHeight applies.
+	PYROS3D_API bool TileShape2DIsFloorProfile(const int32 shape);
+	// A ceiling arc: same profile, solid above it rather than below.
+	PYROS3D_API bool TileShape2DIsCeilProfile(const int32 shape);
+	// The floor shape a ceiling arc borrows its curve from.
+	PYROS3D_API int32 TileShape2DCeilBase(const int32 shape);
+
+	PYROS3D_API const char* TileShape2DName(const int32 shape);
+	PYROS3D_API int32 TileShape2DFromName(const std::string &name);
+
 	struct PYROS3D_API TileInfo2D {
 		// Whether the collider builder treats this cell as filled. This is
 		// the whole of Phase 3's input: solid cells are greedy-merged into
@@ -43,6 +97,10 @@ namespace p3d {
 		// Free-form, for the game to read (e.g. "ice", "ladder"). Not
 		// interpreted by the engine.
 		std::vector<std::string> tags;
+		// The cell's collision outline. Only meaningful when solid; a
+		// non-solid cell has no collision of any shape. Box keeps every
+		// tileset written before this field behaving exactly as it did.
+		int32 shape = TileShape2D::Box;
 	};
 
 	// The contents of one .p3dt.
@@ -99,6 +157,19 @@ namespace p3d {
 		Vec4 UVRect(const int32 index) const;
 
 		bool IsSolid(const int32 index) const;
+		// Whether this cell carries `tag`. The tags are the documented way for
+		// a GAME to give a tile meaning the engine has no opinion about -
+		// "hazard", "ice", "ladder" - so this has to be answerable cheaply
+		// from a script, not just from the editor that writes them.
+		bool HasTag(const int32 index, const std::string &tag) const;
+		// The cell's tags, empty when it has none.
+		const std::vector<std::string> &Tags(const int32 index) const;
+		// The cell's collision outline (TileShape2D). Box for anything that
+		// has not been given one.
+		int32 Shape(const int32 index) const;
+		// Solid AND not a plain box - i.e. this cell needs its own polygon
+		// and must be kept out of the rectangle merge.
+		bool IsSloped(const int32 index) const;
 		// NULL when the cell carries no non-default information.
 		const TileInfo2D* Find(const int32 index) const;
 

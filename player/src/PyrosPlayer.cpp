@@ -796,6 +796,9 @@ void PyrosPlayer::ApplyProjection()
 void PyrosPlayer::PushLuaHostGlobals()
 {
 	lua["physics"] = static_cast<IPhysics*>(physics);
+	// Same name the editor publishes, so a scene script raycasts identically
+	// in the preview and in the shipped game.
+	lua["physics2d"] = physics2D;
 	lua["scene"] = scene;
 	lua["camera"] = activeCamera;
 	// Accepted and ignored: in the editor this redirects the *viewport* to a

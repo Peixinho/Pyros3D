@@ -13,6 +13,11 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Core/Logs/Log.h>
+#include <cstdlib>
+#include <cstdio>
+#include <cstdint>
+#include <utility>
+#include <map>
 #include <algorithm>
 #include <cmath>
 
@@ -303,7 +308,13 @@ namespace p3d {
 			for (int32 x = 0; x < w; x++)
 			{
 				const int32 t = GetTile(minX + x, minY + y);
-				if (t >= 0 && tileset.IsSolid(t)) solid[(size_t)y * w + x] = 1;
+				// Sloped cells are deliberately EXCLUDED from the merge. A
+				// rectangle run that swallowed one would replace its triangle
+				// with a full square - the slope would collide as a step, and
+				// the merge is what made "just mark the tile solid" produce a
+				// staircase. They come back as polygons in BuildColliderPolys.
+				if (t >= 0 && tileset.IsSolid(t) && !tileset.IsSloped(t))
+					solid[(size_t)y * w + x] = 1;
 			}
 
 		for (int32 y = 0; y < h; y++)
@@ -346,6 +357,289 @@ namespace p3d {
 		return out;
 	}
 
+	// One convex polygon per sloped cell, in the map's local space - the same
+	// space BuildColliderBoxes uses, so both go on the same body untouched.
+	//
+	// Wound counter-clockwise. Box2D computes its own hull so winding is not
+	// strictly load-bearing, but a consistent order keeps these readable next
+	// to the box list and makes a degenerate tile obvious.
+	std::vector<std::vector<Vec2> > TileMap2D::BuildColliderPolys() const
+	{
+		std::vector<std::vector<Vec2> > out;
+
+		int32 minX = 0, minY = 0, maxX = 0, maxY = 0;
+		if (!GetTileBounds(minX, minY, maxX, maxY)) return out;
+
+		for (int32 ty = minY; ty <= maxY; ty++)
+		{
+			for (int32 tx = minX; tx <= maxX; tx++)
+			{
+				const int32 t = GetTile(tx, ty);
+				if (t < 0 || !tileset.IsSloped(t)) continue;
+
+				// The cell's own rect. Corners are named for what they are so
+				// the four cases below read as pictures rather than algebra.
+				const f32 x0 = (f32)tx * tileSize.x;
+				const f32 x1 = (f32)(tx + 1) * tileSize.x;
+				const f32 y0 = (f32)ty * tileSize.y;
+				const f32 y1 = (f32)(ty + 1) * tileSize.y;
+				const Vec2 bl(x0, y0), br(x1, y0), tl(x0, y1), tr(x1, y1);
+
+				const int32 shape = tileset.Shape(t);
+
+				// A CURVED floor is not one convex piece - a valley wall is
+				// concave, and Box2D shapes must be convex - so it is emitted
+				// as trapezoid columns under its height profile. One code path
+				// would do for straight slopes too, but a ramp is exactly one
+				// triangle and spending eight shapes on it would multiply the
+				// collider count of an ordinary hill by eight.
+				const bool isCeil = TileShape2DIsCeilProfile(shape);
+				if (isCeil || shape == TileShape2D::ArcConvexBR || shape == TileShape2D::ArcConvexBL
+					|| shape == TileShape2D::ArcConcaveBR || shape == TileShape2D::ArcConcaveBL)
+				{
+					// A ceiling arc borrows the same curve and fills the other
+					// side of it, so the column loop below only has to know
+					// which end of each column is solid.
+					const int32 profile = isCeil ? TileShape2DCeilBase(shape) : shape;
+					const int32 kCols = 8;
+					for (int32 c = 0; c < kCols; c++)
+					{
+						const f32 t0 = (f32)c / (f32)kCols;
+						const f32 t1 = (f32)(c + 1) / (f32)kCols;
+						f32 h0 = TileShape2DHeight(profile, t0);
+						f32 h1 = TileShape2DHeight(profile, t1);
+						if (isCeil)
+						{
+							// Solid from the curve UP to the cell top, so the
+							// column's "height" is what is left above it.
+							h0 = 1.f - h0;
+							h1 = 1.f - h1;
+						}
+						// A column of zero height is no shape at all, and
+						// b2ComputeHull would reject it anyway. Give the thin
+						// end a floor so the surface stays continuous.
+						const f32 kMinH = 0.02f;
+						if (h0 < kMinH && h1 < kMinH) continue;
+						if (h0 < kMinH) h0 = kMinH;
+						if (h1 < kMinH) h1 = kMinH;
+
+						const f32 cx0 = ((f32)tx + t0) * tileSize.x;
+						const f32 cx1 = ((f32)tx + t1) * tileSize.x;
+						std::vector<Vec2> col;
+						if (isCeil)
+						{
+							// Hangs DOWN from the cell's top edge.
+							const f32 top = (f32)(ty + 1) * tileSize.y;
+							col.push_back(Vec2(cx0, top - h0 * tileSize.y));
+							col.push_back(Vec2(cx1, top - h1 * tileSize.y));
+							col.push_back(Vec2(cx1, top));
+							col.push_back(Vec2(cx0, top));
+						}
+						else
+						{
+							const f32 cy = (f32)ty * tileSize.y;
+							col.push_back(Vec2(cx0, cy));
+							col.push_back(Vec2(cx1, cy));
+							col.push_back(Vec2(cx1, cy + h1 * tileSize.y));
+							col.push_back(Vec2(cx0, cy + h0 * tileSize.y));
+						}
+						out.push_back(col);
+					}
+					continue;
+				}
+
+				std::vector<Vec2> poly;
+				switch (shape)
+				{
+					// Right angle bottom-right: floor rising to the right.
+					case TileShape2D::SlopeBR:
+						poly.push_back(bl); poly.push_back(br); poly.push_back(tr);
+						break;
+					// Right angle bottom-left: floor rising to the left.
+					case TileShape2D::SlopeBL:
+						poly.push_back(bl); poly.push_back(br); poly.push_back(tl);
+						break;
+					// Right angle top-right: ceiling.
+					case TileShape2D::SlopeTR:
+						poly.push_back(br); poly.push_back(tr); poly.push_back(tl);
+						break;
+					// Right angle top-left: ceiling.
+					case TileShape2D::SlopeTL:
+						poly.push_back(bl); poly.push_back(tr); poly.push_back(tl);
+						break;
+					default:
+						continue;
+				}
+				out.push_back(poly);
+			}
+		}
+		return out;
+	}
+
+	namespace {
+		// Vertex identity for stitching. Quantised, because two cells must
+		// agree on a shared corner exactly or the edge will not cancel and a
+		// seam survives into the chain - which is the whole thing this is
+		// here to remove. Tile corners are computed the same way from both
+		// sides, so this only has to absorb float noise.
+		typedef std::pair<int64, int64> VKey;
+		static VKey KeyOf(const Vec2 &p)
+		{
+			return VKey((int64)llround((f64)p.x * 4096.0),
+				(int64)llround((f64)p.y * 4096.0));
+		}
+
+		// One cell's solid outline in UNIT cell space, counter-clockwise.
+		// Empty for a shape with no area.
+		static void CellOutline(const int32 shape, const int32 arcSegments,
+			std::vector<Vec2> &out)
+		{
+			out.clear();
+			const Vec2 bl(0.f, 0.f), br(1.f, 0.f), tr(1.f, 1.f), tl(0.f, 1.f);
+			if (TileShape2DIsCeilProfile(shape))
+			{
+				// Solid ABOVE the curve: along the curve left to right, up the
+				// right side, back along the top, down the left.
+				const int32 base = TileShape2DCeilBase(shape);
+				for (int32 i = 0; i <= arcSegments; i++)
+				{
+					const f32 t = (f32)i / (f32)arcSegments;
+					out.push_back(Vec2(t, TileShape2DHeight(base, t)));
+				}
+				out.push_back(tr);
+				out.push_back(tl);
+				return;
+			}
+			switch (shape)
+			{
+				case TileShape2D::SlopeBR:
+					out.push_back(bl); out.push_back(br); out.push_back(tr); return;
+				case TileShape2D::SlopeBL:
+					out.push_back(bl); out.push_back(br); out.push_back(tl); return;
+				case TileShape2D::SlopeTR:
+					out.push_back(br); out.push_back(tr); out.push_back(tl); return;
+				case TileShape2D::SlopeTL:
+					out.push_back(bl); out.push_back(tr); out.push_back(tl); return;
+				case TileShape2D::ArcConvexBR:
+				case TileShape2D::ArcConvexBL:
+				case TileShape2D::ArcConcaveBR:
+				case TileShape2D::ArcConcaveBL:
+				{
+					// Solid BELOW the curve: along the bottom, up the right,
+					// back along the curve right to left, down the left.
+					out.push_back(bl); out.push_back(br);
+					for (int32 i = arcSegments; i >= 0; i--)
+					{
+						const f32 t = (f32)i / (f32)arcSegments;
+						out.push_back(Vec2(t, TileShape2DHeight(shape, t)));
+					}
+					return;
+				}
+				default:
+					out.push_back(bl); out.push_back(br);
+					out.push_back(tr); out.push_back(tl);
+					return;
+			}
+		}
+	}
+
+	std::vector<std::vector<Vec2> > TileMap2D::BuildColliderChains() const
+	{
+		std::vector<std::vector<Vec2> > loops;
+
+		int32 minX = 0, minY = 0, maxX = 0, maxY = 0;
+		if (!GetTileBounds(minX, minY, maxX, maxY)) return loops;
+
+		// Directed boundary edges, keyed from->to. An edge shared by two solid
+		// cells appears once in each direction, and the two cancel: everything
+		// left is real boundary.
+		std::map<std::pair<VKey, VKey>, int> edges;
+		std::map<VKey, Vec2> coord;
+
+		std::vector<Vec2> unit;
+		for (int32 ty = minY; ty <= maxY; ty++)
+		{
+			for (int32 tx = minX; tx <= maxX; tx++)
+			{
+				const int32 t = GetTile(tx, ty);
+				if (t < 0 || !tileset.IsSolid(t)) continue;
+				CellOutline(tileset.Shape(t), 8, unit);
+				if (unit.size() < 3) continue;
+
+				for (size_t i = 0; i < unit.size(); i++)
+				{
+					const Vec2 &u0 = unit[i];
+					const Vec2 &u1 = unit[(i + 1) % unit.size()];
+					const Vec2 a(((f32)tx + u0.x) * tileSize.x, ((f32)ty + u0.y) * tileSize.y);
+					const Vec2 b(((f32)tx + u1.x) * tileSize.x, ((f32)ty + u1.y) * tileSize.y);
+					const VKey ka = KeyOf(a), kb = KeyOf(b);
+					if (ka == kb) continue;          // zero-length, e.g. an arc
+					coord[ka] = a; coord[kb] = b;
+
+					std::map<std::pair<VKey, VKey>, int>::iterator rev
+						= edges.find(std::make_pair(kb, ka));
+					if (rev != edges.end())
+					{
+						// Interior: the neighbour owns the other side of it.
+						if (--rev->second <= 0) edges.erase(rev);
+					}
+					else edges[std::make_pair(ka, kb)]++;
+				}
+			}
+		}
+		if (edges.empty()) return loops;
+
+		// Stitch the survivors into closed loops by following each edge's end
+		// vertex to the edge that starts there.
+		std::multimap<VKey, VKey> next;
+		for (std::map<std::pair<VKey, VKey>, int>::const_iterator i = edges.begin();
+			i != edges.end(); ++i)
+			for (int k = 0; k < i->second; k++)
+				next.insert(std::make_pair(i->first.first, i->first.second));
+
+		while (!next.empty())
+		{
+			const VKey start = next.begin()->first;
+			VKey cur = start;
+			std::vector<Vec2> loop;
+			// Bounded so a malformed edge set cannot spin forever - but the
+			// bound is captured BEFORE the walk. `next` is erased from as the
+			// walk consumes edges, so testing against next.size() compares a
+			// growing counter with a shrinking container: they meet in the
+			// middle and the loop is abandoned about halfway round, leaving a
+			// partial outline that closes with a straight line across the
+			// level. Terrain built from it looks plausible and is not solid.
+			const size_t maxSteps = next.size() + 4;
+			for (size_t guard = 0; guard < maxSteps; guard++)
+			{
+				std::multimap<VKey, VKey>::iterator it = next.find(cur);
+				if (it == next.end()) break;
+				const VKey nxt = it->second;
+				next.erase(it);
+				loop.push_back(coord[cur]);
+				cur = nxt;
+				if (cur == start) break;
+			}
+			// Collinear runs cost a segment each and buy nothing; drop them so
+			// a long flat floor is two points, not two hundred.
+			if (loop.size() >= 3)
+			{
+				std::vector<Vec2> simple;
+				for (size_t i = 0; i < loop.size(); i++)
+				{
+					const Vec2 &p = loop[(i + loop.size() - 1) % loop.size()];
+					const Vec2 &c = loop[i];
+					const Vec2 &n = loop[(i + 1) % loop.size()];
+					const f32 cross = (c.x - p.x) * (n.y - c.y) - (c.y - p.y) * (n.x - c.x);
+					if (std::fabs(cross) > 1e-6f) simple.push_back(c);
+				}
+				if (simple.size() >= 4) loops.push_back(simple);
+				else if (loop.size() >= 4) loops.push_back(loop);
+			}
+		}
+		return loops;
+	}
+
 	bool TileMap2D::SyncColliders()
 	{
 		collidersDirty = false;
@@ -358,7 +652,33 @@ namespace p3d {
 				body = static_cast<Physics2D*>(comps[i].get());
 		if (!body) return false;
 
-		body->SetCompoundBoxes(BuildColliderBoxes());
+		// Terrain goes in as CHAIN LOOPS - one continuous outline with no
+		// internal faces.
+		//
+		// Merged boxes and per-tile polygons are separate convex pieces that
+		// meet edge to edge, and every one of those touching faces is a real
+		// surface: a downward sensor ray can land on the vertical side of a
+		// box and report a 90-degree "floor" in the middle of a gentle ramp.
+		// That breaks any controller that steers by surface normal. A chain
+		// has no internal faces - the edge shared by two solid cells is
+		// cancelled in BuildColliderChains before the loop is built.
+		//
+		// PYROS_TILE_CHAINS=0 falls back to the old boxes+polygons path.
+		static const char* chainEnv = getenv("PYROS_TILE_CHAINS");
+		static const bool kUseChains = !(chainEnv != NULL && chainEnv[0] == '0');
+		if (kUseChains)
+		{
+			const std::vector<std::vector<Vec2> > chains = BuildColliderChains();
+			if (!chains.empty())
+			{
+				body->SetCompoundShapes(std::vector<Vec4>(),
+					std::vector<Physics2D::Poly2D>(), chains);
+				body->SetCastsShadow(false);
+				return true;
+			}
+		}
+		body->SetCompoundShapes(BuildColliderBoxes(), BuildColliderPolys(),
+			std::vector<Physics2D::Poly2D>());
 
 		// Forced, not left to the author. A map's merged rectangles are four
 		// occluder segments each against a scene-wide budget of 32

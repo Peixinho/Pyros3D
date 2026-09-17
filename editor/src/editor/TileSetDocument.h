@@ -61,6 +61,10 @@ struct TileSetDocument {
 	// rather than twenty.
 	void SetSolidRange(const std::vector<p3d::int32>& indices, bool solid);
 	void SetTag(p3d::int32 index, const std::string& tag, bool on);
+	// The collision outline (TileShape2D). Setting anything other than Box
+	// also marks the tiles solid: a slope that is not solid collides with
+	// nothing, which is never what picking a slope shape means.
+	void SetShapeRange(const std::vector<p3d::int32>& indices, p3d::int32 shape);
 	// Cell size / margin / spacing. Re-cutting the sheet, which changes what
 	// every index means - hence one undo entry for the lot.
 	void SetGrid(p3d::int32 tileW, p3d::int32 tileH, p3d::int32 margin,

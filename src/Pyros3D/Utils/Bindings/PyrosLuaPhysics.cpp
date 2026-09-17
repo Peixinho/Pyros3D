@@ -9,6 +9,7 @@
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
+#include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
 
 namespace p3d {
 
@@ -81,6 +82,39 @@ namespace p3d {
 		// worldToTile returns two values rather than taking out-params: Lua
 		// has multiple returns and `local tx, ty = map:worldToTile(p)` is what
 		// a caller expects.
+		// setBodyType has been callable for as long as Physics2D has existed,
+		// and the constants to pass it were never exposed - so the only way to
+		// use it was to hardcode 0/1/2 and hope. A kinematic character is the
+		// normal way to write a sensor-driven controller, so this matters.
+		lua->create_named_table("BodyType2D",
+			"Static", (int)Body2DType::Static,
+			"Kinematic", (int)Body2DType::Kinematic,
+			"Dynamic", (int)Body2DType::Dynamic);
+
+		// The 2D world itself. It existed in both hosts and was reachable from
+		// neither - so a 2D game had no way to ask a question about the world,
+		// only to react to contacts after the fact. A ground sensor, a
+		// line-of-sight check and a hitscan shot are all this one call.
+		lua->new_usertype<Physics2DWorld>("Physics2DWorld",
+			// Returns nil on a miss rather than a table with hit=false, so
+			// `if hit then` is the whole test.
+			// The third argument is the body to SKIP - normally your own, since
+			// a sensor ray starts inside the character that casts it.
+			"rayCast", [](Physics2DWorld &w, const Vec2 &from, const Vec2 &to,
+				sol::optional<Physics2D*> ignore, sol::optional<Physics2D*> ignore2,
+				sol::this_state ts) -> sol::object {
+				const Physics2DWorld::RayHit2D r = w.RayCast(from, to,
+					ignore ? *ignore : NULL, ignore2 ? *ignore2 : NULL);
+				sol::state_view lv(ts);
+				if (!r.hit) return sol::object(sol::lua_nil);
+				return sol::object(lv, sol::in_place, lv.create_table_with(
+					"point", Vec2(r.point.x, r.point.y),
+					"normal", Vec2(r.normal.x, r.normal.y),
+					"fraction", r.fraction,
+					"component", r.component));
+			}
+			);
+
 		lua->new_usertype<TileMap2D>("TileMap2D",
 			"getTile", &TileMap2D::GetTile,
 			"setTile", &TileMap2D::SetTile,
@@ -111,6 +145,38 @@ namespace p3d {
 			"isSolidAt", [](TileMap2D &m, const int32 x, const int32 y) {
 				const int32 t = m.GetTile(x, y);
 				return t >= 0 && m.GetTileSet().IsSolid(t);
+			},
+			// Tags are the documented way for a game to give a tile meaning
+			// the engine has no opinion about - "hazard", "ice", "ladder".
+			// The tileset editor has written them since it existed and the
+			// .p3dt has always carried them, but NOTHING exposed them to Lua,
+			// so the only way to act on a tile's kind was to hardcode its
+			// atlas INDEX - which silently means a different tile the moment
+			// anyone re-cuts the sheet. These three close that.
+			"hasTagAt", [](TileMap2D &m, const int32 x, const int32 y, const std::string &tag) {
+				const int32 t = m.GetTile(x, y);
+				return t >= 0 && m.GetTileSet().HasTag(t, tag);
+			},
+			// The tags at a cell, as a 1-based Lua array; empty for an empty
+			// cell or an untagged one.
+			"getTagsAt", [](TileMap2D &m, const int32 x, const int32 y, sol::this_state ts) {
+				sol::state_view lv(ts);
+				sol::table out = lv.create_table();
+				const int32 t = m.GetTile(x, y);
+				if (t >= 0)
+				{
+					const std::vector<std::string> &tags = m.GetTileSet().Tags(t);
+					for (size_t i = 0; i < tags.size(); i++) out[i + 1] = tags[i];
+				}
+				return out;
+			},
+			// By tile INDEX rather than by cell, for code that already has one
+			// (e.g. straight out of getTile).
+			"tileHasTag", [](TileMap2D &m, const int32 index, const std::string &tag) {
+				return m.GetTileSet().HasTag(index, tag);
+			},
+			"tileIsSolid", [](TileMap2D &m, const int32 index) {
+				return m.GetTileSet().IsSolid(index);
 			},
 			"getTileSetPath", &TileMap2D::GetTileSetPath,
 			sol::base_classes, sol::bases<IComponent>()

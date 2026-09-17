@@ -132,6 +132,27 @@ namespace p3d {
 		int32 PaintedCount() const;
 		// Chunk coordinates holding at least one cell, in a stable order.
 		std::vector<std::pair<int32, int32> > NonEmptyChunks() const;
+		// One convex polygon per SLOPED solid cell. Slopes are excluded from
+		// the rectangle merge above, because merging one into a run turns its
+		// triangle back into the square it was drawn to replace.
+		std::vector<std::vector<Math::Vec2> > BuildColliderPolys() const;
+
+		// The solid region's OUTLINE, as closed loops of points.
+		//
+		// This is what terrain collision should be, and the reason is seams.
+		// Boxes and per-tile polygons are separate convex pieces that meet
+		// edge to edge, and every one of those internal faces is real: a ray
+		// that lands on one reports its normal, so a downward sensor in the
+		// middle of a gentle ramp can come back with (-1,0) - a vertical
+		// "floor". That breaks any controller that steers by surface normal,
+		// and it is why the sensor character stopped dead at the foot of a
+		// curve. A chain has no internal faces: the shared edge between two
+		// solid cells is cancelled here, before the loop is ever built, so
+		// only the true boundary survives.
+		//
+		// Wound counter-clockwise around solid material, which puts the
+		// surface on the outside where a character stands.
+		std::vector<std::vector<Math::Vec2> > BuildColliderChains() const;
 
 		// Centre of a cell, in the owner's local space.
 		Vec2 TileToWorld(const int32 x, const int32 y) const;

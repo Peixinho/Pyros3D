@@ -326,6 +326,16 @@ public:
 	// pivots, y running down - while a tile brush works in the world space
 	// Layer2D and Physics2D live in.
 	bool IsTilePaintMode() const { return tilePaintMode; }
+	// Collider outlines are otherwise invisible, so a collider that does not
+	// match its art is a silent bug. Exposed so it can be driven from a
+	// script, which is the only way to SEE terrain collision without a mouse.
+	void SetPhysicsDebug(const bool on) { showPhysicsDebug = on; }
+	bool IsPhysicsDebug() const { return showPhysicsDebug; }
+	// Set by the Tile Palette's "Edit Tile Set..." button; Editor drains it
+	// and opens the document. A request rather than a direct call because
+	// SceneEditor owns no document tabs.
+	std::string TakeOpenTileSetRequest()
+	{ std::string r; r.swap(requestOpenTileSet); return r; }
 	void SetTilePaintMode(const bool on);
 	// The palette window (tile picker, tool row, target map).
 	void ShowTilePalette();
@@ -356,8 +366,13 @@ public:
 	// screenshotted.
 	bool AgentTilePaintMode(const bool on, const std::string& object,
 		const int32 tile, const std::string& tool, std::string& errOut);
+	// fixedRotation matters more than its default suggests: a dynamic box
+	// that can spin tips over the first time it walks into a step, and a
+	// platformer character lying on its side looks like a rendering bug. It
+	// was reachable only from the Properties checkbox until now.
 	bool AgentAddPhysics2D(const std::string& name, std::string& errOut,
-		const uint32 bodyType = Body2DType::Dynamic, const Vec2 &size = Vec2(0.5f, 0.5f));
+		const uint32 bodyType = Body2DType::Dynamic, const Vec2 &size = Vec2(0.5f, 0.5f),
+		const bool fixedRotation = false);
 	// Viewport projection. A 2D scene is authored and judged through an
 	// orthographic view, so this is not a debug affordance - it is how you
 	// look at one.
@@ -682,6 +697,12 @@ public:
 	bool SetSceneMainScript(const std::string& absoluteOrRelativePath);
 	void ClearSceneMainScript();
 	const std::string& GetSceneMainScript() const { return sceneMainScriptPath; }
+	// Point the scene at a different script. Without this the only way to
+	// change it was to edit the .json by hand - and saving then wrote the
+	// editor's own (stale) path straight back over the edit, so the change
+	// silently reverted and every test after it ran the WRONG SCRIPT while
+	// looking like it ran the right one. That cost hours.
+	bool AgentSetSceneMainScript(const std::string& path, std::string& errOut);
 	bool EnsureAndBindSceneCompanionScript();
 	bool DebugAutoAttachScript(const std::string& absoluteScriptPath);
 #endif
@@ -938,6 +959,10 @@ private:
 		std::string& errOut);
 	// One undo entry for the whole batch - see SetTilesCommand for why a
 	// subtree snapshot is the wrong tool here.
+	bool OpPaintTileLive(uint32 goId, const int32 x, const int32 y,
+		const int32 index, int32& beforeOut);
+	bool OpCommitTileStroke(uint32 goId, const std::vector<Vec3>& cells,
+		const std::vector<int32>& befores, const char* what, std::string& errOut);
 	bool OpSetTiles(uint32 goId, const std::vector<Vec3>& cells, const char* what,
 		std::string& errOut);
 	// Attaches a Box2D rigid body.
@@ -946,7 +971,8 @@ private:
 	// because a level needs STATIC ground and there was no way to ask for it
 	// outside the Properties panel - every agent-created body fell.
 	bool OpAddPhysics2D(uint32 goId, std::string& errOut,
-		const uint32 bodyType = Body2DType::Dynamic, const Vec2 &size = Vec2(0.5f, 0.5f));
+		const uint32 bodyType = Body2DType::Dynamic, const Vec2 &size = Vec2(0.5f, 0.5f),
+		const bool fixedRotation = false);
 	// Marks a shape as blocking 2D light, with no physics involved.
 	bool OpAddOccluder2D(uint32 goId, std::string& errOut);
 	// Opt a sprite into 2D lighting (distance falloff, no N.L).
@@ -1334,6 +1360,7 @@ private:
 
 	// --- tile paint state ---------------------------------------------------
 	bool tilePaintMode = false;
+	std::string requestOpenTileSet;
 	// Object id of the map being painted. 0 means "pick the only one in the
 	// scene", resolved each frame so deleting and re-adding a map does not
 	// leave the brush pointing at a dead id.
@@ -1347,6 +1374,12 @@ private:
 	// up. UndoStack has no coalescing, so a per-cell push would fill its
 	// 200-deep history with a single drag - see SetTilesCommand.
 	std::vector<Vec3> tileStroke;
+	// What each cell of tileStroke held BEFORE the brush touched it. Captured
+	// as the stroke paints, because by commit time the map no longer knows.
+	std::vector<int32> tileStrokeBefore;
+	// The cell the Pick tool last selected, so the palette can name it.
+	int32 tilePickedX = 0, tilePickedY = 0;
+	bool tileHavePick = false;
 	bool tileStrokeActive = false;
 	int32 tileRectAnchorX = 0, tileRectAnchorY = 0;
 	// The atlas, for the picker. Cached by path so the palette does not reload

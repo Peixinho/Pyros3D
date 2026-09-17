@@ -7,6 +7,7 @@
 //               by hand after a bad re-slice.
 //============================================================================
 
+#include <cmath>
 #include <Pyros3D/Assets/TileSet2D/TileSet2D.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Ext/stb/stb_image.h>
@@ -105,6 +106,132 @@ namespace p3d {
 		return t != NULL && t->solid;
 	}
 
+	f32 TileShape2DHeight(const int32 shape, const f32 t)
+	{
+		const f32 x = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+		switch (shape)
+		{
+			case TileShape2D::SlopeBR: return x;
+			case TileShape2D::SlopeBL: return 1.f - x;
+			// Quarter circle centred on the cell corner the surface rises
+			// TOWARDS, so the profile leaves that corner vertically and the
+			// opposite one horizontally - a crest.
+			case TileShape2D::ArcConvexBR:
+				return std::sqrt(1.f - (1.f - x) * (1.f - x));
+			case TileShape2D::ArcConvexBL:
+				return std::sqrt(1.f - x * x);
+			// The complement: centred on the corner the surface rises FROM,
+			// so it starts flat and turns up hard - a valley wall.
+			case TileShape2D::ArcConcaveBR:
+				return 1.f - std::sqrt(1.f - x * x);
+			case TileShape2D::ArcConcaveBL:
+				return 1.f - std::sqrt(1.f - (1.f - x) * (1.f - x));
+			default: return 1.f;
+		}
+	}
+
+	bool TileShape2DIsCeilProfile(const int32 shape)
+	{
+		return shape == TileShape2D::ArcCeilConvexBR
+			|| shape == TileShape2D::ArcCeilConvexBL
+			|| shape == TileShape2D::ArcCeilConcaveBR
+			|| shape == TileShape2D::ArcCeilConcaveBL;
+	}
+
+	int32 TileShape2DCeilBase(const int32 shape)
+	{
+		switch (shape)
+		{
+			case TileShape2D::ArcCeilConvexBR:  return TileShape2D::ArcConvexBR;
+			case TileShape2D::ArcCeilConvexBL:  return TileShape2D::ArcConvexBL;
+			case TileShape2D::ArcCeilConcaveBR: return TileShape2D::ArcConcaveBR;
+			case TileShape2D::ArcCeilConcaveBL: return TileShape2D::ArcConcaveBL;
+			default: return TileShape2D::Box;
+		}
+	}
+
+	bool TileShape2DIsFloorProfile(const int32 shape)
+	{
+		switch (shape)
+		{
+			case TileShape2D::SlopeBR:
+			case TileShape2D::SlopeBL:
+			case TileShape2D::ArcConvexBR:
+			case TileShape2D::ArcConvexBL:
+			case TileShape2D::ArcConcaveBR:
+			case TileShape2D::ArcConcaveBL:
+				return true;
+			default: return false;
+		}
+	}
+
+	const char* TileShape2DName(const int32 shape)
+	{
+		switch (shape)
+		{
+			case TileShape2D::ArcCeilConvexBR:  return "arc_ceil_convex_br";
+			case TileShape2D::ArcCeilConvexBL:  return "arc_ceil_convex_bl";
+			case TileShape2D::ArcCeilConcaveBR: return "arc_ceil_concave_br";
+			case TileShape2D::ArcCeilConcaveBL: return "arc_ceil_concave_bl";
+			case TileShape2D::ArcConvexBR:  return "arc_convex_br";
+			case TileShape2D::ArcConvexBL:  return "arc_convex_bl";
+			case TileShape2D::ArcConcaveBR: return "arc_concave_br";
+			case TileShape2D::ArcConcaveBL: return "arc_concave_bl";
+			case TileShape2D::SlopeBR: return "slope_br";
+			case TileShape2D::SlopeBL: return "slope_bl";
+			case TileShape2D::SlopeTR: return "slope_tr";
+			case TileShape2D::SlopeTL: return "slope_tl";
+			default: return "box";
+		}
+	}
+
+	int32 TileShape2DFromName(const std::string &name)
+	{
+		if (name == "arc_ceil_convex_br")  return TileShape2D::ArcCeilConvexBR;
+		if (name == "arc_ceil_convex_bl")  return TileShape2D::ArcCeilConvexBL;
+		if (name == "arc_ceil_concave_br") return TileShape2D::ArcCeilConcaveBR;
+		if (name == "arc_ceil_concave_bl") return TileShape2D::ArcCeilConcaveBL;
+		if (name == "arc_convex_br")  return TileShape2D::ArcConvexBR;
+		if (name == "arc_convex_bl")  return TileShape2D::ArcConvexBL;
+		if (name == "arc_concave_br") return TileShape2D::ArcConcaveBR;
+		if (name == "arc_concave_bl") return TileShape2D::ArcConcaveBL;
+		if (name == "slope_br") return TileShape2D::SlopeBR;
+		if (name == "slope_bl") return TileShape2D::SlopeBL;
+		if (name == "slope_tr") return TileShape2D::SlopeTR;
+		if (name == "slope_tl") return TileShape2D::SlopeTL;
+		return TileShape2D::Box;
+	}
+
+	int32 TileSet2D::Shape(const int32 index) const
+	{
+		const TileInfo2D* t = Find(index);
+		return t == NULL ? TileShape2D::Box : t->shape;
+	}
+
+	bool TileSet2D::IsSloped(const int32 index) const
+	{
+		const TileInfo2D* t = Find(index);
+		return t != NULL && t->solid && t->shape != TileShape2D::Box;
+	}
+
+	bool TileSet2D::HasTag(const int32 index, const std::string &tag) const
+	{
+		const TileInfo2D* t = Find(index);
+		if (t == NULL) return false;
+		for (size_t i = 0; i < t->tags.size(); i++)
+			if (t->tags[i] == tag) return true;
+		return false;
+	}
+
+	const std::vector<std::string> &TileSet2D::Tags(const int32 index) const
+	{
+		// A shared empty rather than a temporary: this returns a reference,
+		// and the sparse map means most cells have no TileInfo2D at all.
+		static const std::vector<std::string> none;
+		const TileInfo2D* t = Find(index);
+		return t == NULL ? none : t->tags;
+	}
+
 	bool TileSet2DReadImageSize(const std::string &resolvedPath, int32 &w, int32 &h)
 	{
 		int iw = 0, ih = 0, comp = 0;
@@ -132,11 +259,16 @@ namespace p3d {
 			it != set.tiles.end(); ++it)
 		{
 			// A cell that says nothing is not worth a line.
-			if (!it->second.solid && it->second.tags.empty()) continue;
+			if (!it->second.solid && it->second.tags.empty()
+				&& it->second.shape == TileShape2D::Box) continue;
 			json t;
 			t["i"] = it->first;
 			if (it->second.solid) t["solid"] = true;
 			if (!it->second.tags.empty()) t["tags"] = it->second.tags;
+			// Omitted when it is a plain box, so a tileset that predates
+			// shapes round-trips byte-identical.
+			if (it->second.shape != TileShape2D::Box)
+				t["shape"] = TileShape2DName(it->second.shape);
 			arr.push_back(t);
 		}
 		if (!arr.empty()) j["tiles"] = arr;
@@ -195,6 +327,8 @@ namespace p3d {
 				if (idx < 0) continue;
 				TileInfo2D info;
 				info.solid = t.value("solid", false);
+				if (t.contains("shape") && t["shape"].is_string())
+					info.shape = TileShape2DFromName(t["shape"].get<std::string>());
 				if (t.contains("tags") && t["tags"].is_array())
 					for (size_t k = 0; k < t["tags"].size(); k++)
 						if (t["tags"][k].is_string())
