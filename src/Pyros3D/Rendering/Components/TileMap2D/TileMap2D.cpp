@@ -587,6 +587,48 @@ namespace p3d {
 		return out;
 	}
 
+	int32 TileMap2D::AutoGroupAt(const int32 x, const int32 y) const
+	{
+		const int32 t = GetTile(x, y);
+		return t < 0 ? -1 : tileset.AutoTileForTile(t);
+	}
+
+	void TileMap2D::RefitAuto(const int32 x, const int32 y)
+	{
+		const int32 g = AutoGroupAt(x, y);
+		if (g < 0) return;
+		// bit 0 north, 1 east, 2 south, 3 west - a neighbour counts only when
+		// it is the SAME group, so two terrains meeting get an edge each
+		// rather than merging into one blob.
+		int32 mask = 0;
+		if (AutoGroupAt(x, y + 1) == g) mask |= 1;
+		if (AutoGroupAt(x + 1, y) == g) mask |= 2;
+		if (AutoGroupAt(x, y - 1) == g) mask |= 4;
+		if (AutoGroupAt(x - 1, y) == g) mask |= 8;
+		const int32 want = tileset.AutoTileAt(g, mask);
+		if (want >= 0 && want != GetTile(x, y)) SetTile(x, y, want);
+	}
+
+	void TileMap2D::RefitAround(const int32 x, const int32 y)
+	{
+		RefitAuto(x, y + 1);
+		RefitAuto(x + 1, y);
+		RefitAuto(x, y - 1);
+		RefitAuto(x - 1, y);
+	}
+
+	bool TileMap2D::SetTileAuto(const int32 x, const int32 y, const int32 group)
+	{
+		if (group < 0 || (size_t)group >= tileset.autotiles.size()) return false;
+		// Provisional, so the cell is already a member of the group before the
+		// mask is worked out - otherwise it would fit itself against a cell
+		// that is not yet part of the terrain.
+		SetTile(x, y, tileset.autotiles[(size_t)group].base);
+		RefitAuto(x, y);
+		RefitAround(x, y);
+		return true;
+	}
+
 	bool TileMap2D::SetAnimationTime(const f32 seconds)
 	{
 		if (!tileset.HasAnims()) return false;

@@ -214,6 +214,21 @@ namespace p3d {
 		return t != NULL && t->solid && t->shape != TileShape2D::Box;
 	}
 
+	int32 TileSet2D::AutoTileForTile(const int32 index) const
+	{
+		for (size_t i = 0; i < autotiles.size(); i++)
+			if (index >= autotiles[i].base
+				&& index < autotiles[i].base + kAutoTileCount) return (int32)i;
+		return -1;
+	}
+
+	int32 TileSet2D::AutoTileAt(const int32 group, const int32 mask) const
+	{
+		if (group < 0 || (size_t)group >= autotiles.size()) return -1;
+		const int32 m = mask < 0 ? 0 : (mask > 15 ? 15 : mask);
+		return autotiles[(size_t)group].base + m;
+	}
+
 	int32 TileSet2D::AnimForTile(const int32 index) const
 	{
 		for (size_t i = 0; i < anims.size(); i++)
@@ -310,6 +325,18 @@ namespace p3d {
 			}
 			if (!an.empty()) j["anims"] = an;
 		}
+		if (!set.autotiles.empty())
+		{
+			nlohmann::json at = nlohmann::json::array();
+			for (size_t i = 0; i < set.autotiles.size(); i++)
+			{
+				nlohmann::json a1;
+				if (!set.autotiles[i].name.empty()) a1["name"] = set.autotiles[i].name;
+				a1["base"] = set.autotiles[i].base;
+				at.push_back(a1);
+			}
+			j["autotiles"] = at;
+		}
 
 		return j.dump(1, '\t');
 	}
@@ -355,6 +382,16 @@ namespace p3d {
 			return false;
 		}
 
+		if (j.contains("autotiles") && j["autotiles"].is_array())
+			for (size_t i = 0; i < j["autotiles"].size(); i++)
+			{
+				const nlohmann::json &a1 = j["autotiles"][i];
+				if (!a1.is_object() || !a1.contains("base")) continue;
+				AutoTile2D at;
+				at.name = a1.value("name", std::string());
+				at.base = (int32)a1.value("base", 0);
+				s.autotiles.push_back(at);
+			}
 		if (j.contains("anims") && j["anims"].is_array())
 		{
 			for (size_t i = 0; i < j["anims"].size(); i++)

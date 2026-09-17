@@ -170,6 +170,19 @@ namespace p3d {
 		// because Update() is handed an absolute clock and accumulating a
 		// delta from it is the bug that once made the editor step physics
 		// eight times too fast. No-op for a tileset with no animations.
+		// Terrain painting. Places the group at (x, y) and re-fits that cell
+		// and its four neighbours, so the seam between what you just painted
+		// and what was already there is correct on both sides.
+		bool SetTileAuto(const int32 x, const int32 y, const int32 group);
+		// Re-fits one cell if it belongs to a terrain group; no-op otherwise.
+		void RefitAuto(const int32 x, const int32 y);
+		// Re-fits the four neighbours of a cell. Call after ERASING, or the
+		// cells that used to border the erased one keep an edge against
+		// nothing.
+		void RefitAround(const int32 x, const int32 y);
+		// Which terrain group the cell holds, or -1.
+		int32 AutoGroupAt(const int32 x, const int32 y) const;
+
 		bool SetAnimationTime(const f32 seconds);
 		f32 AnimationTime() const { return animTime; }
 

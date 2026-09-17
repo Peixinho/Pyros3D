@@ -2405,6 +2405,26 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// {"cmd":"tile_paint_mode","args":{"on":true,"object":"Ground","tile":12,"tool":"rect"}}
 	// tile -1 is the eraser. Painting itself is done with set_tiles/fill_tiles
 	// - this is the mode the VIEWPORT is in, for a human at the mouse.
+	// {"cmd":"paint_terrain","args":{"object":"Level","group":0,"cells":[[3,1],[4,1]]}}
+	// Paints a terrain group and re-fits the seams - the editor picks the
+	// corner and edge pieces.
+	if (name == "paint_terrain")
+	{
+		std::vector<Vec3> cells;
+		if (a.is_object() && a.contains("cells") && a["cells"].is_array())
+			for (size_t i = 0; i < a["cells"].size(); i++)
+			{
+				const nlohmann::json &c = a["cells"][i];
+				if (!c.is_array() || c.size() < 2) continue;
+				cells.push_back(Vec3((f32)c[0].get<double>(), (f32)c[1].get<double>(), 0.f));
+			}
+		if (cells.empty()) throw std::runtime_error("no cells given");
+		const int32 grp = a.is_object() && a.contains("group")
+			? (int32)a["group"].get<int>() : 0;
+		if (!sceneView->AgentPaintTerrain(A("object"), grp, cells, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["cells"] = (int)cells.size(); return r;
+	}
 	// {"cmd":"set_solid_cells","args":{"object":"Level","cells":[[3,1,1],[4,1,2]]}}
 	// Per-cell collision override: 0 follow the tileset, 1 solid, 2 passable.
 	if (name == "set_solid_cells")

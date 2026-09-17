@@ -68,6 +68,9 @@ struct TileSetDocument {
 	// Make the selection one animation, in selection order. The FIRST cell is
 	// the key - the tile you paint and the one a map stores.
 	void AddAnim(const std::vector<p3d::int32>& indices, float fps);
+	// Make 16 consecutive tiles a terrain group, keyed on the first.
+	void AddAutoTile(p3d::int32 base, const std::string& name);
+	void RemoveAutoTileForTile(p3d::int32 index);
 	void RemoveAnimForTile(p3d::int32 index);
 	void SetAnimFps(p3d::int32 animIndex, float fps);
 	// Cell size / margin / spacing. Re-cutting the sheet, which changes what

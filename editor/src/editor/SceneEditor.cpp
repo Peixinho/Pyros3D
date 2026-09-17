@@ -8680,7 +8680,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				tileStrokeBefore.clear();
 				// Baseline for a collision stroke's undo, taken before the
 				// first cell changes.
-				tileStrokeSnapshot = (tileSolidMode != 0)
+				tileStrokeSnapshot = (tileSolidMode != 0 || tilePaintAuto >= 0)
 					? SnapshotSubtree(tilePaintTarget) : std::string();
 				tileRectAnchorX = tileHoverX;
 				tileRectAnchorY = tileHoverY;
@@ -8701,6 +8701,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							tileStrokeBefore.push_back((int32)was);
 						}
 					}
+				}
+				else if (tilePaintTool == 0 && tilePaintAuto >= 0)
+				{
+					if (OpPaintTerrainLive(tilePaintTarget, tileHoverX, tileHoverY,
+						tilePaintAuto))
+						tileStroke.push_back(Vec3((f32)tileHoverX, (f32)tileHoverY, 0.f));
 				}
 				else if (tilePaintTool == 0)
 				{
@@ -11615,6 +11621,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return OpAddUIComponent(obj->GetID(), kind, fontPath, errOut);
 	}
 
+	bool SceneEditor::AgentPaintTerrain(const std::string& object, const int32 group,
+		const std::vector<Vec3>& cells, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, object);
+		if (!obj) { errOut = "object '" + object + "' not found"; return false; }
+		TileMap2D* map = RawFindTileMap2D(obj->GetID());
+		if (!map) { errOut = "this object has no TileMap2D"; return false; }
+		if (group < 0 || (size_t)group >= map->GetTileSet().autotiles.size())
+		{ errOut = "no such terrain group"; return false; }
+		const std::string before = SnapshotSubtree(obj->GetID());
+		for (size_t i = 0; i < cells.size(); i++)
+			map->SetTileAuto((int32)cells[i].x, (int32)cells[i].y, group);
+		MarkSceneDirty();
+		PushReplaceCommand(obj->GetID(), before, "Paint Terrain");
+		return true;
+	}
+
 	bool SceneEditor::AgentSetSolidCells(const std::string& object,
 		const std::vector<Vec3>& cells, std::string& errOut)
 	{
@@ -14144,7 +14168,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (tileStroke.empty()
 				|| tileStroke.back().x != cell.x || tileStroke.back().y != cell.y)
 			{
-				if (tileSolidMode != 0)
+				if (tileSolidMode == 0 && tilePaintAuto >= 0)
+				{
+					PushReplaceCommand(tilePaintTarget, tileStrokeSnapshot, "Paint Terrain");
+					MarkSceneDirty();
+				}
+				else if (tileSolidMode != 0)
 				{
 					// Collision sub-mode: stamp the override, leave the tile
 					// alone. Recorded on the stroke so the whole drag is one
@@ -14160,6 +14189,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							tileStrokeBefore.push_back((int32)was);
 						}
 					}
+				}
+				else if (tilePaintAuto >= 0)
+				{
+					// Terrain touches up to five cells per dab, so the tile
+					// delta is the wrong undo unit - the subtree snapshot
+					// taken at the start of the stroke is the honest one.
+					if (OpPaintTerrainLive(tilePaintTarget, tileHoverX, tileHoverY,
+						tilePaintAuto))
+						tileStroke.push_back(cell);
 				}
 				else
 				{
@@ -14393,6 +14431,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 
 		const TileSet2D &set = map->GetTileSet();
+
+		// Terrain brushes. Painting one places the group and re-fits the seam
+		// on both sides, so you draw the SHAPE and the editor picks the
+		// corner pieces - which is the whole difference between painting a
+		// level and assembling one.
+		if (!set.autotiles.empty())
+		{
+			ImGui::TextDisabled("Terrain");
+			for (size_t i = 0; i < set.autotiles.size(); i++)
+			{
+				const bool on = (tilePaintAuto == (int32)i);
+				if (on) ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.55f, 0.9f, 1.f));
+				const std::string label = set.autotiles[i].name.empty()
+					? ("terrain " + std::to_string((int)i)) : set.autotiles[i].name;
+				ImGui::PushID((int)i + 9000);
+				if (ImGui::Button(label.c_str()))
+					tilePaintAuto = on ? -1 : (int32)i;
+				ImGui::PopID();
+				if (on) ImGui::PopStyleColor();
+				if (((i + 1) % 3) != 0 && i + 1 < set.autotiles.size()) ImGui::SameLine();
+			}
+			if (tilePaintAuto >= 0)
+				ImGui::TextDisabled("Painting TERRAIN - the tile picker is ignored.");
+			ImGui::Separator();
+		}
+
 		ImGui::TextDisabled("%s  -  %d tiles, %dx%d px",
 			map->GetTileSetPath().c_str(), set.TileCount(), set.tileW, set.tileH);
 
@@ -14433,7 +14497,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				// first uv - both run down, so no flip here.
 				if (ImGui::ImageButton("##tile", texId, ImVec2(cell, cell),
 					ImVec2(uv.x, uv.y), ImVec2(uv.z, uv.w)))
+				{
 					tilePaintBrush = i;
+					// Picking a single tile means you want that tile, not the
+					// terrain you had selected a moment ago.
+					tilePaintAuto = -1;
+				}
 				if (selected) ImGui::PopStyleColor();
 				if (ImGui::IsItemHovered())
 					ImGui::SetTooltip("tile %d%s", (int)i, set.IsSolid(i) ? "  (solid)" : "");

@@ -708,6 +708,8 @@ public:
 	// object could only be undone by reloading the scene or editing the JSON.
 	bool AgentRemoveObject(const std::string& name, std::string& errOut);
 	// Per-cell collision override: 0 follow the tileset, 1 solid, 2 passable.
+	bool AgentPaintTerrain(const std::string& object, const int32 group,
+		const std::vector<Vec3>& cells, std::string& errOut);
 	bool AgentSetSolidCells(const std::string& object,
 		const std::vector<Vec3>& cells, std::string& errOut);
 	// The world rect the viewport shows. Public so a caller can CHECK that a
@@ -972,6 +974,8 @@ private:
 	// subtree snapshot is the wrong tool here.
 	bool OpPaintTileLive(uint32 goId, const int32 x, const int32 y,
 		const int32 index, int32& beforeOut);
+	bool OpPaintTerrainLive(uint32 goId, const int32 x, const int32 y,
+		const int32 group);
 	bool OpCommitTileStroke(uint32 goId, const std::vector<Vec3>& cells,
 		const std::vector<int32>& befores, const char* what, std::string& errOut);
 	bool OpSetTiles(uint32 goId, const std::vector<Vec3>& cells, const char* what,
@@ -1393,6 +1397,10 @@ private:
 	// Paint sub-mode: 0 paints tiles, 1 and 2 stamp a per-cell collision
 	// override (solid / passable) without touching the artwork.
 	int32 tileSolidMode = 0;
+	// Terrain brush: the autotile group being painted, or -1 for a plain tile.
+	// Separate from tilePaintBrush so switching to a terrain and back keeps
+	// whichever single tile was selected.
+	int32 tilePaintAuto = -1;
 	std::string tileStrokeSnapshot;
 	bool tileHavePick = false;
 	bool tileStrokeActive = false;

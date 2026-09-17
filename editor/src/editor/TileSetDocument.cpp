@@ -164,6 +164,34 @@ void TileSetDocument::AddAnim(const std::vector<int32>& indices, const float fps
 	PushEdit(before, "Add Tile Animation");
 }
 
+void TileSetDocument::AddAutoTile(const int32 base, const std::string& name)
+{
+	if (base < 0 || base + TileSet2D::kAutoTileCount > set.TileCount()) return;
+	const std::string before = TileSet2DToString(set);
+	for (size_t i = 0; i < set.autotiles.size(); i++)
+		if (set.autotiles[i].base == base)
+		{ set.autotiles.erase(set.autotiles.begin() + i); break; }
+	AutoTile2D at;
+	at.base = base;
+	at.name = name;
+	set.autotiles.push_back(at);
+	// A terrain is geometry, so its tiles are solid unless the author says
+	// otherwise - painting a hillside that you fall through is never what was
+	// meant, and setting sixteen flags by hand is how it gets forgotten.
+	for (int32 k = 0; k < TileSet2D::kAutoTileCount; k++)
+		set.tiles[base + k].solid = true;
+	PushEdit(before, "Add Terrain");
+}
+
+void TileSetDocument::RemoveAutoTileForTile(const int32 index)
+{
+	const int32 g = set.AutoTileForTile(index);
+	if (g < 0) return;
+	const std::string before = TileSet2DToString(set);
+	set.autotiles.erase(set.autotiles.begin() + g);
+	PushEdit(before, "Remove Terrain");
+}
+
 void TileSetDocument::RemoveAnimForTile(const int32 index)
 {
 	for (size_t i = 0; i < set.anims.size(); i++)

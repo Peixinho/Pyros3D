@@ -162,6 +162,9 @@ namespace TileSetEditor {
 			}
 			// An animated tile is marked, because the sheet otherwise gives no
 			// hint that painting this cell puts a moving thing in the level.
+			if (set.AutoTileForTile(i) >= 0)
+				dl->AddRectFilled(ImVec2(p0.x + 1, p1.y - 5), ImVec2(p0.x + 7, p1.y - 1),
+					IM_COL32(120, 235, 140, 230));
 			if (set.AnimForTile(i) >= 0)
 				dl->AddTriangleFilled(ImVec2(p1.x - 7, p0.y + 1), ImVec2(p1.x - 1, p0.y + 4),
 					ImVec2(p1.x - 7, p0.y + 7), IM_COL32(255, 230, 120, 255));
@@ -267,6 +270,44 @@ namespace TileSetEditor {
 		}
 		if (mixed) { ImGui::SameLine(); ImGui::TextDisabled("(mixed)"); }
 		ImGui::TextDisabled("Picking a slope also marks the tile solid.");
+
+		// --- terrain ---------------------------------------------------------
+		// Sixteen consecutive tiles, indexed by which orthogonal neighbours
+		// share the group. Painting the GROUP then picks the corner and edge
+		// pieces, which is the difference between painting a level and
+		// assembling one by hand.
+		ImGui::TextDisabled("Terrain");
+		{
+			const int32 first = g_selection[0];
+			const int32 grp = set.AutoTileForTile(first);
+			if (grp >= 0)
+			{
+				ImGui::Text("tile %d is part of terrain \"%s\" (base %d)", (int)first,
+					set.autotiles[(size_t)grp].name.empty() ? "unnamed"
+						: set.autotiles[(size_t)grp].name.c_str(),
+					(int)set.autotiles[(size_t)grp].base);
+				ImGui::SameLine();
+				if (ImGui::Button("Remove terrain")) doc.RemoveAutoTileForTile(first);
+			}
+			else if (first + TileSet2D::kAutoTileCount <= set.TileCount())
+			{
+				static std::string newName;
+				ImGui::SetNextItemWidth(140);
+				ImGui::InputTextWithHint("##terrname", "name (e.g. grass)", &newName);
+				ImGui::SameLine();
+				if (ImGui::Button("Make terrain from 16"))
+				{
+					doc.AddAutoTile(first, newName);
+					newName.clear();
+				}
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Uses tile %d and the 15 after it, in neighbour-mask\n"
+						"order: bit 1 north, 2 east, 4 south, 8 west.\n"
+						"So +0 is an isolated lump and +15 is fully surrounded.", (int)first);
+			}
+			else
+				ImGui::TextDisabled("Needs 16 tiles from here to the end of the sheet.");
+		}
 
 		// --- animation -------------------------------------------------------
 		// The tile you PAINT is the first cell selected; the rest are frames.

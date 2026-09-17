@@ -1534,6 +1534,22 @@ bool SceneEditor::OpPaintTileLive(uint32 goId, const int32 x, const int32 y,
 	beforeOut = map->GetTile(x, y);
 	if (beforeOut == index) return false;   // nothing to do, nothing to record
 	map->SetTile(x, y, index);
+	// Erasing has to re-fit what is left, or the cells that bordered the
+	// erased one keep an edge drawn against nothing.
+	if (index < 0) map->RefitAround(x, y);
+	MarkSceneDirty();
+	return true;
+}
+
+// Terrain paint. Returns false when nothing changed, so a drag that re-crosses
+// a cell it already painted costs nothing.
+bool SceneEditor::OpPaintTerrainLive(uint32 goId, const int32 x, const int32 y,
+	const int32 group)
+{
+	TileMap2D* map = RawFindTileMap2D(goId);
+	if (!map) return false;
+	if (map->AutoGroupAt(x, y) == group) return false;
+	if (!map->SetTileAuto(x, y, group)) return false;
 	MarkSceneDirty();
 	return true;
 }
@@ -1591,6 +1607,14 @@ bool SceneEditor::OpSetTiles(uint32 goId, const std::vector<Vec3>& cells,
 
 	for (size_t i = 0; i < delta.size(); i++)
 		map->SetTile(delta[i].x, delta[i].y, delta[i].after);
+
+	// Erasing has to re-fit what is left. A terrain cell draws its edges from
+	// which neighbours are still there, so removing one leaves the cells that
+	// bordered it drawing an edge against nothing. Done after the whole batch,
+	// so a rect erase re-fits against the final state rather than against
+	// cells that are about to disappear too.
+	for (size_t i = 0; i < delta.size(); i++)
+		if (delta[i].after < 0) map->RefitAround(delta[i].x, delta[i].y);
 
 	MarkSceneDirty();
 	sceneUndo.Push(std::make_unique<SetTilesCommand>(this, goId, std::move(delta),

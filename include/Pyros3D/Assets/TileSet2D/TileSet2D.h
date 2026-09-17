@@ -98,6 +98,20 @@ namespace p3d {
 		f32 fps = 8.f;
 	};
 
+	// A terrain group: 16 consecutive tiles, indexed by which of the four
+	// orthogonal neighbours belong to the same group.
+	//
+	//   bit 0 = north (y+1), 1 = east, 2 = south, 3 = west
+	//
+	// So base+0 is an isolated lump and base+15 is fully surrounded. The
+	// author paints the GROUP and the map picks the picture, which is the
+	// whole point: choosing the right corner piece by hand for every cell is
+	// what makes hand-painting a tile level miserable.
+	struct PYROS3D_API AutoTile2D {
+		std::string name;
+		int32 base = 0;
+	};
+
 	struct PYROS3D_API TileInfo2D {
 		// Whether the collider builder treats this cell as filled. This is
 		// the whole of Phase 3's input: solid cells are greedy-merged into
@@ -139,6 +153,13 @@ namespace p3d {
 
 		// Animations, keyed by their first frame. Empty for a static tileset.
 		std::vector<TileAnim2D> anims;
+
+		// Terrain groups. Empty for a tileset painted cell by cell.
+		std::vector<AutoTile2D> autotiles;
+
+		// How many tiles one group occupies. Four orthogonal neighbours, so
+		// sixteen combinations.
+		static const int32 kAutoTileCount = 16;
 
 		// The atlas's pixel size. Everything below returns 0 / a zero rect
 		// until this is known - a tileset is arithmetic over an image, and
@@ -185,6 +206,11 @@ namespace p3d {
 		// Which animation `index` starts, or -1. Only the FIRST frame is a
 		// key: painting frame 2 of a flame should place that picture and stay
 		// there, not silently start the loop from the middle.
+		// Which terrain group `index` belongs to, or -1.
+		int32 AutoTileForTile(const int32 index) const;
+		// The tile for a group at a given neighbour mask (0..15).
+		int32 AutoTileAt(const int32 group, const int32 mask) const;
+
 		int32 AnimForTile(const int32 index) const;
 		// The tile to draw for animation `anim` at `seconds`. Falls back to
 		// the key tile for a malformed animation.
