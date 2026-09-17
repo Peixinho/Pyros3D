@@ -2319,7 +2319,19 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		f32 zoom = a.is_object() && a.contains("zoom") && a["zoom"].is_number()
 			? (f32)a["zoom"].get<double>() : 0.f;
 		sceneView->AgentSetViewport2D(c.size() > 0 ? c[0] : 0.f, c.size() > 1 ? c[1] : 0.f, zoom);
-		nlohmann::json r; r["ok"] = true; return r;
+		nlohmann::json r; r["ok"] = true;
+		// Report the rect the viewport now shows. The args are `center` and
+		// `zoom`; anything else is ignored silently, so calling it with the
+		// wrong names moves the camera to the origin and still answers
+		// {"ok":true}. Echoing the resulting rect makes that mistake visible
+		// in the reply instead of ten screenshots later.
+		p3d::f32 l, rr, b, t;
+		if (sceneView->GetView2DExtentPublic(l, rr, b, t))
+		{
+			r["left"] = l; r["right"] = rr; r["bottom"] = b; r["top"] = t;
+			r["center"] = { (l + rr) * 0.5f, (b + t) * 0.5f };
+		}
+		return r;
 	}
 	// {"cmd":"add_tilemap","args":{"object":"Ground","tileset":"assets/tiles/forest.p3dt","tileSize":[1,1]}}
 	// Adds a RenderingComponent too if the object has none - a map draws
@@ -2393,6 +2405,13 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// {"cmd":"tile_paint_mode","args":{"on":true,"object":"Ground","tile":12,"tool":"rect"}}
 	// tile -1 is the eraser. Painting itself is done with set_tiles/fill_tiles
 	// - this is the mode the VIEWPORT is in, for a human at the mouse.
+	// {"cmd":"remove_object","args":{"name":"Loop"}}
+	if (name == "remove_object")
+	{
+		if (!sceneView->AgentRemoveObject(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; return r;
+	}
 	// {"cmd":"set_scene_main_script","args":{"path":"scenes/foo.lua"}}
 	if (name == "set_scene_main_script")
 	{

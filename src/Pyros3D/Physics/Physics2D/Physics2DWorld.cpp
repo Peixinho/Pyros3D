@@ -296,10 +296,18 @@ namespace p3d {
 			if (p->HaveBody()) continue;
 
 			const Vec3 pos = p->GetOwner()->GetWorldPosition();
+			const Vec3 rot = p->GetOwner()->GetRotation();
 			b2BodyDef bd = b2DefaultBodyDef();
 			bd.type = TranslateBodyType(p->GetBodyType());
 			bd.position.x = pos.x;
 			bd.position.y = pos.y;
+			// The owner's rotation, at CREATION. Only the write-back in
+			// PullTransforms carried this, and that is the editor's authoring
+			// path - it does not run in Play. So a rotated body was built
+			// axis-aligned and, if static, stayed that way for the whole run:
+			// an angled platform collided as a flat one, in the game but not
+			// in the editor. Radians, as everywhere else in the engine.
+			bd.rotation = b2MakeRot(rot.z);
 			// v3 expresses this as a per-axis motion lock rather than one flag.
 			bd.motionLocks.angularZ = p->IsFixedRotation();
 			// What lets a contact event find its way back to a component:

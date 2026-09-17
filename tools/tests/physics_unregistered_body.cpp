@@ -18,8 +18,14 @@
 // back zeros would let the old bug pass on every platform.
 //
 //   c++ -std=c++17 -I include -I $(pkg-config --variable=includedir freetype2)/freetype2 \
+//       -I src/Pyros3D/Ext/box3d/include \
 //       tools/tests/physics_unregistered_body.cpp -o /tmp/physics_unregistered_body \
 //       -L build_gl -lPyrosEngine -Wl,-rpath,$PWD/build_gl
+//
+// The box3d include path is not optional: this pulls in Box3DPhysics.h, whose
+// <box3d/box3d.h> lives under the vendored Ext tree and is not on the default
+// search path. Without it the build dies before the test says anything, which
+// reads as "this test is broken" rather than "the command is missing a -I".
 //   /tmp/physics_unregistered_body
 #include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>

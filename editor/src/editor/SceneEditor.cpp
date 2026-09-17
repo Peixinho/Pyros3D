@@ -8632,6 +8632,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		UpdateViewportMouse();
 		if (!viewportMouseValid || editorDisabled)
 			return;
+		// Only ever assigned false before this, so the "not while the left
+		// button is down" guard on middle- and right-drag was permanently
+		// open: you could orbit or pan in the middle of a gizmo drag.
+		_leftMouse = true;
 
 		// Tile painting claims the click before anything else looks at it: in
 		// paint mode the left button is the brush, and letting it also run
@@ -11592,6 +11596,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return OpAddUIComponent(obj->GetID(), kind, fontPath, errOut);
 	}
 
+	bool SceneEditor::AgentRemoveObject(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		// Through the same path the Delete key uses, so it is one undo entry
+		// and children go with their parent.
+		DeleteGameObjectById(obj->GetID());
+		return true;
+	}
+
 	bool SceneEditor::AgentSetSceneMainScript(const std::string& path, std::string& errOut)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
@@ -11681,6 +11696,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			Matrix m;
 			m.Translate(pos);
 			CameraPivot->SetTransformationMatrix(m);
+			// SetTransformationMatrix writes only the LOCAL matrix, and the
+			// pivot is recomposed from rotX/rotY/pos only while orbiting or
+			// panning (see ShowViewport) - so nothing else will refresh it
+			// before a caller reads GetWorldTransformation(). Same call, for
+			// the same reason, that UpdateSceneView2D makes.
+			CameraPivot->RefreshTransformation();
 		}
 		if (Camera)
 		{

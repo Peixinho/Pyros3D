@@ -703,6 +703,14 @@ public:
 	// silently reverted and every test after it ran the WRONG SCRIPT while
 	// looking like it ran the right one. That cost hours.
 	bool AgentSetSceneMainScript(const std::string& path, std::string& errOut);
+	// Delete a GameObject by name. Objects could be ADDED from a script but
+	// never removed, so building a scene programmatically was one-way: a wrong
+	// object could only be undone by reloading the scene or editing the JSON.
+	bool AgentRemoveObject(const std::string& name, std::string& errOut);
+	// The world rect the viewport shows. Public so a caller can CHECK that a
+	// camera move actually happened.
+	bool GetView2DExtentPublic(f32& l, f32& r, f32& b, f32& t) const
+	{ return GetView2DExtent(l, r, b, t); }
 	bool EnsureAndBindSceneCompanionScript();
 	bool DebugAutoAttachScript(const std::string& absoluteScriptPath);
 #endif
