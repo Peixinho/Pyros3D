@@ -160,6 +160,11 @@ namespace TileSetEditor {
 					dl->AddTriangle(a2, b2, c2, IM_COL32(110, 200, 255, 220), 2.f);
 				}
 			}
+			// An animated tile is marked, because the sheet otherwise gives no
+			// hint that painting this cell puts a moving thing in the level.
+			if (set.AnimForTile(i) >= 0)
+				dl->AddTriangleFilled(ImVec2(p1.x - 7, p0.y + 1), ImVec2(p1.x - 1, p0.y + 4),
+					ImVec2(p1.x - 7, p0.y + 7), IM_COL32(255, 230, 120, 255));
 			if (IsSelected(i))
 				dl->AddRect(ImVec2(p0.x - 1, p0.y - 1), ImVec2(p1.x + 1, p1.y + 1),
 					IM_COL32(255, 210, 90, 255), 0.f, 0, 2.f);
@@ -262,6 +267,39 @@ namespace TileSetEditor {
 		}
 		if (mixed) { ImGui::SameLine(); ImGui::TextDisabled("(mixed)"); }
 		ImGui::TextDisabled("Picking a slope also marks the tile solid.");
+
+		// --- animation -------------------------------------------------------
+		// The tile you PAINT is the first cell selected; the rest are frames.
+		// A map stores only that key, so re-timing here re-times every map
+		// using the tileset and nothing in a scene has to change.
+		ImGui::TextDisabled("Animation");
+		const int32 keyTile = g_selection[0];
+		const int32 existing = set.AnimForTile(keyTile);
+		if (existing >= 0)
+		{
+			float fps = set.anims[(size_t)existing].fps;
+			ImGui::Text("tile %d cycles %d frames", (int)keyTile,
+				(int)set.anims[(size_t)existing].frames.size());
+			ImGui::SetNextItemWidth(120);
+			if (ImGui::DragFloat("fps##anim", &fps, 0.25f, 0.25f, 60.f, "%.2f"))
+				doc.SetAnimFps(existing, fps);
+			ImGui::SameLine();
+			if (ImGui::Button("Remove animation")) doc.RemoveAnimForTile(keyTile);
+		}
+		else if (g_selection.size() >= 2)
+		{
+			static float newFps = 8.f;
+			ImGui::SetNextItemWidth(120);
+			ImGui::DragFloat("fps##newanim", &newFps, 0.25f, 0.25f, 60.f, "%.2f");
+			ImGui::SameLine();
+			if (ImGui::Button("Animate selection"))
+				doc.AddAnim(g_selection, newFps);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("The first cell selected becomes the tile you paint;\n"
+					"the rest are its frames, in order.");
+		}
+		else
+			ImGui::TextDisabled("Select two or more cells to make an animation.");
 
 		// --- tags ------------------------------------------------------------
 		const std::vector<std::string> tags = doc.AllTags();

@@ -165,6 +165,14 @@ namespace p3d {
 		std::vector<Math::Vec3> SolidOverrides() const;
 		void ClearSolidOverrides();
 
+		// Sets the animation clock to an ABSOLUTE time in seconds and marks
+		// the chunks whose picture just changed. Absolute, not a delta,
+		// because Update() is handed an absolute clock and accumulating a
+		// delta from it is the bug that once made the editor step physics
+		// eight times too fast. No-op for a tileset with no animations.
+		bool SetAnimationTime(const f32 seconds);
+		f32 AnimationTime() const { return animTime; }
+
 		// Centre of a cell, in the owner's local space.
 		Vec2 TileToWorld(const int32 x, const int32 y) const;
 		// Which cell a local-space point falls in. Exact inverse of the above
@@ -296,6 +304,13 @@ namespace p3d {
 		// wrong. 1 forces solid, 2 forces passable; absent means "ask the
 		// tileset".
 		std::map<int64, uint8> solidOverride;
+
+		// Animation clock, and the frame each animation resolved to last time
+		// the meshes were built. A chunk is only rebuilt when a tile it
+		// actually contains changes picture - otherwise a single torch would
+		// re-upload every chunk in the level eight times a second.
+		f32 animTime = 0.f;
+		std::vector<int32> animLastFrame;
 
 		// Chunk keys in the order their geometries sit in the renderable, so
 		// an in-place refill can find the geometry belonging to a chunk.

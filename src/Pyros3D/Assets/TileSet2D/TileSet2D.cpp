@@ -214,6 +214,28 @@ namespace p3d {
 		return t != NULL && t->solid && t->shape != TileShape2D::Box;
 	}
 
+	int32 TileSet2D::AnimForTile(const int32 index) const
+	{
+		for (size_t i = 0; i < anims.size(); i++)
+			if (!anims[i].frames.empty() && anims[i].frames[0] == index) return (int32)i;
+		return -1;
+	}
+
+	int32 TileSet2D::AnimFrameAt(const int32 anim, const f32 seconds) const
+	{
+		if (anim < 0 || (size_t)anim >= anims.size()) return -1;
+		const TileAnim2D &a = anims[(size_t)anim];
+		if (a.frames.empty()) return -1;
+		if (a.frames.size() == 1 || a.fps <= 0.f) return a.frames[0];
+		const f64 adv = (f64)seconds * (f64)a.fps;
+		// fmod on the frame COUNT, not the duration: a long-running level
+		// would lose precision doing it in seconds, and the result here only
+		// ever needs to be an index.
+		int64 k = (int64)adv % (int64)a.frames.size();
+		if (k < 0) k += (int64)a.frames.size();
+		return a.frames[(size_t)k];
+	}
+
 	bool TileSet2D::HasTag(const int32 index, const std::string &tag) const
 	{
 		const TileInfo2D* t = Find(index);
@@ -272,6 +294,22 @@ namespace p3d {
 			arr.push_back(t);
 		}
 		if (!arr.empty()) j["tiles"] = arr;
+		// Animations. Omitted entirely when there are none, so a static
+		// tileset round-trips exactly as it did before they existed.
+		if (!set.anims.empty())
+		{
+			nlohmann::json an = nlohmann::json::array();
+			for (size_t i = 0; i < set.anims.size(); i++)
+			{
+				if (set.anims[i].frames.empty()) continue;
+				nlohmann::json a1;
+				if (!set.anims[i].name.empty()) a1["name"] = set.anims[i].name;
+				a1["frames"] = set.anims[i].frames;
+				a1["fps"] = set.anims[i].fps;
+				an.push_back(a1);
+			}
+			if (!an.empty()) j["anims"] = an;
+		}
 
 		return j.dump(1, '\t');
 	}
@@ -317,6 +355,22 @@ namespace p3d {
 			return false;
 		}
 
+		if (j.contains("anims") && j["anims"].is_array())
+		{
+			for (size_t i = 0; i < j["anims"].size(); i++)
+			{
+				const nlohmann::json &a1 = j["anims"][i];
+				if (!a1.is_object() || !a1.contains("frames")
+					|| !a1["frames"].is_array()) continue;
+				TileAnim2D an;
+				an.name = a1.value("name", std::string());
+				an.fps = (f32)a1.value("fps", 8.0);
+				for (size_t k = 0; k < a1["frames"].size(); k++)
+					if (a1["frames"][k].is_number())
+						an.frames.push_back((int32)a1["frames"][k].get<int>());
+				if (!an.frames.empty()) s.anims.push_back(an);
+			}
+		}
 		if (j.contains("tiles") && j["tiles"].is_array())
 		{
 			for (size_t i = 0; i < j["tiles"].size(); i++)

@@ -12080,6 +12080,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// way its tile says" is answerable without opening the scene file.
 		const std::vector<Vec3> ov = map->SolidOverrides();
 		outInfo["solidOverrides"] = (int)ov.size();
+		outInfo["anims"] = (int)map->GetTileSet().anims.size();
+		outInfo["animTime"] = map->AnimationTime();
 
 		int32 a = 0, b = 0, c = 0, d = 0;
 		if (map->GetTileBounds(a, b, c, d))

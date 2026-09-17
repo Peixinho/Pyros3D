@@ -146,6 +146,45 @@ void TileSetDocument::SetShapeRange(const std::vector<int32>& indices, const int
 	PushEdit(before, shape == TileShape2D::Box ? "Set Tiles Square" : "Set Tile Slope");
 }
 
+void TileSetDocument::AddAnim(const std::vector<int32>& indices, const float fps)
+{
+	if (indices.size() < 2) return;
+	const std::string before = TileSet2DToString(set);
+	// One animation per key tile: re-running this on the same first cell
+	// replaces rather than stacking, or a tile would have two answers.
+	for (size_t i = 0; i < set.anims.size(); i++)
+		if (!set.anims[i].frames.empty() && set.anims[i].frames[0] == indices[0])
+		{ set.anims.erase(set.anims.begin() + i); break; }
+	TileAnim2D a;
+	a.fps = fps > 0.f ? fps : 8.f;
+	for (size_t i = 0; i < indices.size(); i++)
+		if (indices[i] >= 0) a.frames.push_back(indices[i]);
+	if (a.frames.size() < 2) return;
+	set.anims.push_back(a);
+	PushEdit(before, "Add Tile Animation");
+}
+
+void TileSetDocument::RemoveAnimForTile(const int32 index)
+{
+	for (size_t i = 0; i < set.anims.size(); i++)
+		if (!set.anims[i].frames.empty() && set.anims[i].frames[0] == index)
+		{
+			const std::string before = TileSet2DToString(set);
+			set.anims.erase(set.anims.begin() + i);
+			PushEdit(before, "Remove Tile Animation");
+			return;
+		}
+}
+
+void TileSetDocument::SetAnimFps(const int32 animIndex, const float fps)
+{
+	if (animIndex < 0 || (size_t)animIndex >= set.anims.size()) return;
+	if (set.anims[(size_t)animIndex].fps == fps) return;
+	const std::string before = TileSet2DToString(set);
+	set.anims[(size_t)animIndex].fps = fps > 0.f ? fps : 8.f;
+	PushEdit(before, "Set Animation Speed");
+}
+
 void TileSetDocument::SetTag(const int32 index, const std::string& tag, const bool on)
 {
 	if (index < 0 || tag.empty()) return;

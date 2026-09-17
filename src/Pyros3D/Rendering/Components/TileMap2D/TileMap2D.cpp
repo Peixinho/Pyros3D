@@ -587,6 +587,44 @@ namespace p3d {
 		return out;
 	}
 
+	bool TileMap2D::SetAnimationTime(const f32 seconds)
+	{
+		if (!tileset.HasAnims()) return false;
+		animTime = seconds;
+
+		// Which animations changed picture since the last build.
+		const size_t n = tileset.anims.size();
+		if (animLastFrame.size() != n) animLastFrame.assign(n, -1);
+		std::vector<bool> changed(n, false);
+		bool any = false;
+		for (size_t i = 0; i < n; i++)
+		{
+			const int32 f = tileset.AnimFrameAt((int32)i, animTime);
+			if (f != animLastFrame[i]) { animLastFrame[i] = f; changed[i] = true; any = true; }
+		}
+		if (!any) return false;
+
+		// Only the chunks that contain one of those tiles. A level with one
+		// torch in it should re-upload one chunk, not all of them.
+		bool marked = false;
+		for (std::map<int64, Chunk>::const_iterator it = chunks.begin();
+			it != chunks.end(); ++it)
+		{
+			const Chunk &c = it->second;
+			bool hit = false;
+			for (size_t k = 0; k < c.cells.size() && !hit; k++)
+			{
+				if (c.cells[k] == 0) continue;
+				const int32 a = tileset.AnimForTile((int32)c.cells[k] - 1);
+				if (a >= 0 && (size_t)a < n && changed[(size_t)a]) hit = true;
+			}
+			if (hit && std::find(dirtyChunks.begin(), dirtyChunks.end(), it->first)
+				== dirtyChunks.end())
+			{ dirtyChunks.push_back(it->first); marked = true; }
+		}
+		return marked;
+	}
+
 	void TileMap2D::ClearSolidOverrides()
 	{
 		if (solidOverride.empty()) return;
@@ -778,7 +816,17 @@ namespace p3d {
 				// the atlas. The quad's BOTTOM edge takes the rect's bottom v,
 				// matching the winding every sprite in this engine uses
 				// (SpriteRig2D's QuadGeometry).
-				const Vec4 uv = tileset.UVRect((int32)cell - 1);
+				// The animated frame, when this tile starts one. The MAP still
+				// stores the key tile; only the picture changes, so nothing
+				// about collision, tags or serialization moves with it.
+				int32 drawTile = (int32)cell - 1;
+				const int32 anim = tileset.AnimForTile(drawTile);
+				if (anim >= 0)
+				{
+					const int32 f = tileset.AnimFrameAt(anim, animTime);
+					if (f >= 0) drawTile = f;
+				}
+				const Vec4 uv = tileset.UVRect(drawTile);
 
 				const __INDEX_C_TYPE__ base = (__INDEX_C_TYPE__)out.vertex.size();
 
@@ -925,6 +973,10 @@ namespace p3d {
 
 	void TileMap2D::Update(const f64 time)
 	{
+		// Before the rebuild check, so a frame change is picked up by the same
+		// pass that would have rebuilt an edit.
+		SetAnimationTime((f32)time);
+
 		if (fullDirty) Rebuild();
 		else if (!dirtyChunks.empty())
 		{

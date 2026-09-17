@@ -65,6 +65,11 @@ struct TileSetDocument {
 	// also marks the tiles solid: a slope that is not solid collides with
 	// nothing, which is never what picking a slope shape means.
 	void SetShapeRange(const std::vector<p3d::int32>& indices, p3d::int32 shape);
+	// Make the selection one animation, in selection order. The FIRST cell is
+	// the key - the tile you paint and the one a map stores.
+	void AddAnim(const std::vector<p3d::int32>& indices, float fps);
+	void RemoveAnimForTile(p3d::int32 index);
+	void SetAnimFps(p3d::int32 animIndex, float fps);
 	// Cell size / margin / spacing. Re-cutting the sheet, which changes what
 	// every index means - hence one undo entry for the lot.
 	void SetGrid(p3d::int32 tileW, p3d::int32 tileH, p3d::int32 margin,

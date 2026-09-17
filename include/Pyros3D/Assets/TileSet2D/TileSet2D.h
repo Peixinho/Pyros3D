@@ -89,6 +89,15 @@ namespace p3d {
 	PYROS3D_API const char* TileShape2DName(const int32 shape);
 	PYROS3D_API int32 TileShape2DFromName(const std::string &name);
 
+	// A cycling tile. The tile you PAINT is frames[0]; the rest are swapped in
+	// at runtime, so a map stores one index and the animation is a property of
+	// the tileset - re-time it and every map using it re-times with it.
+	struct PYROS3D_API TileAnim2D {
+		std::string name;
+		std::vector<int32> frames;
+		f32 fps = 8.f;
+	};
+
 	struct PYROS3D_API TileInfo2D {
 		// Whether the collider builder treats this cell as filled. This is
 		// the whole of Phase 3's input: solid cells are greedy-merged into
@@ -127,6 +136,9 @@ namespace p3d {
 
 		// Sparse: absent means a default-constructed TileInfo2D.
 		std::map<int32, TileInfo2D> tiles;
+
+		// Animations, keyed by their first frame. Empty for a static tileset.
+		std::vector<TileAnim2D> anims;
 
 		// The atlas's pixel size. Everything below returns 0 / a zero rect
 		// until this is known - a tileset is arithmetic over an image, and
@@ -170,6 +182,17 @@ namespace p3d {
 		// Solid AND not a plain box - i.e. this cell needs its own polygon
 		// and must be kept out of the rectangle merge.
 		bool IsSloped(const int32 index) const;
+		// Which animation `index` starts, or -1. Only the FIRST frame is a
+		// key: painting frame 2 of a flame should place that picture and stay
+		// there, not silently start the loop from the middle.
+		int32 AnimForTile(const int32 index) const;
+		// The tile to draw for animation `anim` at `seconds`. Falls back to
+		// the key tile for a malformed animation.
+		int32 AnimFrameAt(const int32 anim, const f32 seconds) const;
+		// True if any tile in the set animates - lets a map skip the whole
+		// per-frame check when nothing in it moves.
+		bool HasAnims() const { return !anims.empty(); }
+
 		// NULL when the cell carries no non-default information.
 		const TileInfo2D* Find(const int32 index) const;
 
