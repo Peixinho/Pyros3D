@@ -1240,6 +1240,16 @@ def create_scene(project_path: str, name: str) -> str:
         return _fail(err)
     if not name or "/" in name or "\\" in name:
         return _fail("Scene name must be a simple name (no path separators)")
+    # "Level1" and "Level1.json" mean the same scene. Taken literally, the
+    # second one wrote scenes/Level1.json.json (plus Level1.json.lua, and an
+    # entry in project.json for a scene nobody asked for).
+    name = name.strip()
+    if name.endswith(".json"):
+        name = name[:-5]
+    if not name:
+        return _fail("Scene name must be a simple name (no path separators)")
+    if name.endswith(".editor"):
+        return _fail("That is a scene sidecar name, not a scene")
 
     scene_file = proj / "scenes" / f"{name}.json"
     if scene_file.exists():
@@ -3486,8 +3496,11 @@ def build_game(project_path: str, output_dir: str, startup_scene: str | None = N
 
     args = {"outputDir": output_dir, "width": width, "height": height, "fullscreen": fullscreen}
     if startup_scene:
-        args["startupScene"] = startup_scene if startup_scene.startswith("scenes/") \
-            else f"scenes/{startup_scene}.json"
+        stem = startup_scene.strip()
+        if stem.endswith(".json"):
+            stem = stem[:-5]
+        args["startupScene"] = stem + ".json" if stem.startswith("scenes/") \
+            else f"scenes/{stem}.json"
     if title:
         args["title"] = title
 

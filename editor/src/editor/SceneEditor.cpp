@@ -7657,12 +7657,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				std::string path = sceneDialogPath;
 				if (project && project->IsOpen())
 				{
-					const bool hasSep = path.find('/') != std::string::npos || path.find('\\') != std::string::npos;
-					if (!hasSep)
+					const bool isAbsolute = !path.empty()
+						&& (path[0] == '/' || (path.size() >= 2 && path[1] == ':'));
+					if (!isAbsolute)
 					{
+						// Always a .json, and always under the project. The
+						// extension used to be added only when the typed name
+						// had no separator, so "scenes/Level1" saved an
+						// extensionless file - and it was resolved against the
+						// process CWD rather than the project, so it landed
+						// outside the project entirely.
 						if (path.size() < 5 || path.substr(path.size() - 5) != ".json")
 							path += ".json";
-						path = project->AbsolutePath(std::string("scenes/") + path);
+						const bool hasSep = path.find('/') != std::string::npos
+							|| path.find('\\') != std::string::npos;
+						path = project->AbsolutePath(hasSep ? path : (std::string("scenes/") + path));
 					}
 				}
 				bool ok = false;
@@ -7836,6 +7845,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	bool SceneEditor::SaveSceneToFile(const std::string &path)
 	{
 		if (path.size() == 0) return false;
+		if (ProjectManager::IsSceneSidecarPath(path))
+		{
+			echo("ERROR: refusing to save a scene over a sidecar: " + path);
+			return false;
+		}
 
 #ifdef LUA_BINDINGS
 		// Companion script shares the scene stem (Foo.json → Foo.lua). It is
@@ -8000,6 +8014,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	bool SceneEditor::LoadSceneFromFile(const std::string &path)
 	{
 		if (path.size() == 0) return false;
+		// A camera sidecar is not a scene, whatever its extension says.
+		// Loading one used to half-succeed and leave a trail of derived
+		// files (<scene>.json.editor.lua, and a sidecar of the sidecar the
+		// moment it was saved) beside the real scene.
+		if (ProjectManager::IsSceneSidecarPath(path))
+		{
+			echo("ERROR: " + path + " is a scene sidecar, not a scene");
+			return false;
+		}
 
 		NewScene(false);
 

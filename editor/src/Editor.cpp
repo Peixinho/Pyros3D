@@ -7233,10 +7233,17 @@ void Editor::DrawAssetsWindow()
 		if (filter == 7 && !ProjectManager::IsLuaExtension(e.relativePath)
 			&& e.relativePath.find(".json") == std::string::npos)
 			continue;
+		// …but never a sidecar, whose name also contains ".json".
+		if (ProjectManager::IsSceneSidecarPath(e.relativePath))
+			continue;
 
 		const std::string abs = project.AbsolutePath(e.relativePath);
 		const bool isLua = ProjectManager::IsLuaExtension(e.relativePath);
-		const bool isScene = !isLua && ((e.relativePath.find("scenes/") == 0)
+		// "anything under scenes/" was the test, which made a sidecar a
+		// scene: clicking one loaded it, and the editor then wrote a
+		// companion .lua and a sidecar's sidecar beside the real scene.
+		const bool isScene = !isLua && !ProjectManager::IsSceneSidecarPath(e.relativePath)
+			&& ((e.relativePath.find("scenes/") == 0)
 			|| (filter == 7 && e.relativePath.size() >= 5
 				&& e.relativePath.compare(e.relativePath.size() - 5, 5, ".json") == 0));
 		const bool isModel = ProjectManager::IsP3dm(e.relativePath);

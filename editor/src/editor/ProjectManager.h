@@ -270,6 +270,12 @@ public:
 	static std::string FindEngineShadersDir();
 	static std::string FindMiddleclassLua();
 	static bool IsSceneExtension(const std::string& path);
+	// <scene>.json.editor.json — the camera/view sidecar. It ends in .json,
+	// so every "is this a scene?" test that only looked at the extension said
+	// yes: clicking one in Assets loaded it AS a scene, which then created a
+	// companion <scene>.json.editor.lua and, on save, a sidecar's sidecar
+	// <scene>.json.editor.json.editor.json. Never a scene, never an asset.
+	static bool IsSceneSidecarPath(const std::string& path);
 	static bool IsModelCompanionExtension(const std::string& path);
 	// True for files that belong inside a model package (textures/, .thumbnails/,
 	// staged sources) and should not appear as standalone Assets entries.

@@ -255,7 +255,7 @@ void ProjectManager::ListScenes(std::vector<std::string>& outSceneRelPaths) cons
 		const std::string lower = ToLower(name);
 		if (lower.size() < 5 || lower.compare(lower.size() - 5, 5, ".json") != 0) continue;
 		// Sidecars are scene.json.editor.json — never treat them as scenes.
-		if (lower.find(".editor.json") != std::string::npos) continue;
+		if (IsSceneSidecarPath(lower)) continue;
 		outSceneRelPaths.push_back(("scenes/" + name));
 	}
 	std::sort(outSceneRelPaths.begin(), outSceneRelPaths.end());
@@ -345,9 +345,18 @@ bool ProjectManager::IsMaterialExtension(const std::string& path)
 	return ext == "mat" || ext == "material";
 }
 
+bool ProjectManager::IsSceneSidecarPath(const std::string& path)
+{
+	if (path.empty()) return false;
+	const std::string lower = ToLower(path);
+	return lower.find(".editor.json") != std::string::npos;
+}
+
 bool ProjectManager::IsSceneExtension(const std::string& path)
 {
-	return ExtensionLower(path) == "json";
+	// A sidecar is .json too, and answering "yes" here is what let one get
+	// opened as a scene - see IsSceneSidecarPath.
+	return ExtensionLower(path) == "json" && !IsSceneSidecarPath(path);
 }
 
 bool ProjectManager::IsAnimationExtension(const std::string& path)
@@ -423,6 +432,13 @@ bool ProjectManager::IsInternalAssetPath(const std::string& relativePath)
 	// hand-written shader imported into assets/shaders/ is a real asset and
 	// still shows.
 	if (rel.find("assets/materials/") == 0 && IsShaderExtension(rel))
+		return true;
+
+	// Scene sidecars (<scene>.json.editor.json). Written and read by the
+	// editor itself, never opened by hand - and while they were listed, a
+	// click on one opened it as a scene and spawned a whole family of
+	// derived files beside the real scene.
+	if (IsSceneSidecarPath(rel))
 		return true;
 
 	return false;
