@@ -33,6 +33,69 @@ at all, and fixed:
   `Tiles` toggle on the Scene View toolbar beside T/R/S, shortcut `B`, with a `PAINTING`
   indicator. The 2D camera had the mirror problem - see the Game View note in Phase 9.
 
+Slopes, curves and loops - added later, and **broken in five separate places until
+2026-09-19**, when a user reported that none of it worked. What was actually wrong,
+all of it measured rather than reasoned about:
+
+- **A lone triangle tile had no collider at all.** Box2D wants four points for a closed
+  chain loop and a triangle has three, so `BuildColliderChains` dropped it on a
+  `simple.size() >= 4` gate. A ramp with nothing under it, an isolated wedge, the end of a
+  ledge: solid in the tileset, drawn on screen, walked straight through. It now splits the
+  longest edge, which costs one vertex and changes the outline by nothing.
+- **The two collider paths disagreed about one cell.** `TileSet2D::IsSloped` required the
+  TILE to be solid, but solidity belongs to the CELL - `SetSolidOverride` exists precisely
+  to force one either way. A cell forced solid over a slope-shaped tile was swallowed by
+  the rectangle merge (a full square) while the chain builder gave it its triangle. Split
+  into `IsSloped` (shape only) and `HasOutline` (shape or drawn profile), which is the one
+  question both builders now ask.
+- **A loop could not be authored in the editor at all.** The tileset editor's shape row had
+  nine buttons and the format has thirteen: all four *ceiling arcs* - the solid-above-the-
+  curve half of a loop, the part you run along upside down - had no button. They could be
+  typed into a `.p3dt` by hand and the collider built them correctly, which is why this
+  went unnoticed.
+- **The two straight ceiling slopes were labelled as each other**, tooltips agreeing with
+  the wrong label, so picking one gave you its mirror.
+- **The tileset sheet drew all four ceiling arcs as the same wrong triangle.** Its preview
+  had its own hand-rolled idea of each shape; no branch matched a ceiling arc, so all four
+  fell through to the default. There is now one definition - `TileSet2DCellOutline` - that
+  the chain collider walks and every preview draws, so the picture and the physics cannot
+  drift. `tools/tests/tilemap_colliders.cpp` checks all thirteen shapes for winding, area
+  and name round-trip.
+
+And two things that were missing rather than wrong:
+
+- **Nothing in the editor showed a cell's collision while you painted.** A ramp tile and
+  the block beside it are equally square in 16px art; you painted, pressed Play, and found
+  out by walking into it. The paint overlay now draws the map's merged chain outline - read
+  off the sibling `Physics2D`, so it is the collider itself and costs nothing - with a
+  `Show` checkbox next to the Cell collision radios.
+- **No agent command set a tile's shape.** `set_tile_solid` could make a cell collide but
+  never say how. `set_tile_shape {"tiles":[...],"shape":"arc_ceil_convex_br"}` takes the
+  same names the `.p3dt` stores, and refuses an unknown one rather than silently squaring
+  the tile off.
+
+`projects/TileWorld` is the scene this was found in, and its `sonic.lua` had two bugs of
+its own, both worth recording because both looked exactly like engine faults:
+
+- `angleOf` was declared below `groundProbe`, so the two calls inside `groundProbe`
+  compiled as lookups of a global that never existed. The first time a foot sensor
+  straddled a step - which is the first thing that happens at the top of any ramp -
+  `update()` threw, aborted before placing the body, and the character froze for the rest
+  of the run. Lua closes over locals in scope at the point of definition; writing the
+  function later does not reach back.
+- **There were no push sensors at all.** Nothing in the controller cast horizontally, so
+  nothing in it could say "you cannot go there", and the foot sensors started at HIP
+  height and took the nearest surface below that - so a ledge a whole tile above the feet
+  was "the floor" and `plant()` put the character on top of it in one frame. Every wall in
+  the level was a ramp, and on screen the character slid up the face of a two-tile block
+  without jumping. Fixed with `STEP_UP` (the foot sensors now see only between a kerb
+  above the feet and a snap below them) and `wallProbe`/`clampAdvance` (three horizontal
+  rays, and a hit counts as a wall only when its normal is more than `WALL_DOT` off the
+  character's LOCAL up - world-space "vertical" means nothing once you are sideways in a
+  loop). `STEP_UP` has to clear the tallest riser the character is meant to run: a loop
+  built from square blocks is a staircase, which is the other argument for the arc
+  shapes.
+
 Design doc for the **engine half** of a tiling editor. Written 2026-09-14 and implemented
 the same day. The editor half (paint mode, brushes, tile picker) is a separate document and
 depends on Phases 1-4 of this one, which have landed.

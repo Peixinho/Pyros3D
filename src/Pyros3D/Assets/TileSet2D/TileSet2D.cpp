@@ -211,7 +211,13 @@ namespace p3d {
 	bool TileSet2D::IsSloped(const int32 index) const
 	{
 		const TileInfo2D* t = Find(index);
-		return t != NULL && t->solid && t->shape != TileShape2D::Box;
+		return t != NULL && t->shape != TileShape2D::Box;
+	}
+
+	bool TileSet2D::HasOutline(const int32 index) const
+	{
+		const TileInfo2D* t = Find(index);
+		return t != NULL && (t->shape != TileShape2D::Box || t->heights.size() >= 2);
 	}
 
 	bool TileSet2D::HasHeightProfile(const int32 index) const
@@ -300,6 +306,75 @@ namespace p3d {
 		static const std::vector<std::string> none;
 		const TileInfo2D* t = Find(index);
 		return t == NULL ? none : t->tags;
+	}
+
+	void TileSet2DCellOutline(const TileSet2D &set, const int32 tile,
+		const int32 arcSegments, std::vector<Vec2> &out)
+	{
+		out.clear();
+		const int32 segs = arcSegments < 1 ? 1 : arcSegments;
+		const int32 shape = (tile >= 0) ? set.Shape(tile) : TileShape2D::Box;
+		const Vec2 bl(0.f, 0.f), br(1.f, 0.f), tr(1.f, 1.f), tl(0.f, 1.f);
+
+		// A custom profile is always a FLOOR: solid below the curve. It wins
+		// over the preset shape, which is what "overrides the shape buttons"
+		// in the editor means.
+		if (tile >= 0 && set.HasHeightProfile(tile))
+		{
+			out.push_back(bl); out.push_back(br);
+			for (int32 i = segs; i >= 0; i--)
+			{
+				const f32 t = (f32)i / (f32)segs;
+				out.push_back(Vec2(t, set.SurfaceHeight(tile, t)));
+			}
+			return;
+		}
+
+		if (TileShape2DIsCeilProfile(shape))
+		{
+			// Solid ABOVE the curve: along the curve left to right, up the
+			// right side, back along the top, down the left.
+			const int32 base = TileShape2DCeilBase(shape);
+			for (int32 i = 0; i <= segs; i++)
+			{
+				const f32 t = (f32)i / (f32)segs;
+				out.push_back(Vec2(t, TileShape2DHeight(base, t)));
+			}
+			out.push_back(tr);
+			out.push_back(tl);
+			return;
+		}
+
+		switch (shape)
+		{
+			case TileShape2D::SlopeBR:
+				out.push_back(bl); out.push_back(br); out.push_back(tr); return;
+			case TileShape2D::SlopeBL:
+				out.push_back(bl); out.push_back(br); out.push_back(tl); return;
+			case TileShape2D::SlopeTR:
+				out.push_back(br); out.push_back(tr); out.push_back(tl); return;
+			case TileShape2D::SlopeTL:
+				out.push_back(bl); out.push_back(tr); out.push_back(tl); return;
+			case TileShape2D::ArcConvexBR:
+			case TileShape2D::ArcConvexBL:
+			case TileShape2D::ArcConcaveBR:
+			case TileShape2D::ArcConcaveBL:
+			{
+				// Solid BELOW the curve: along the bottom, up the right, back
+				// along the curve right to left, down the left.
+				out.push_back(bl); out.push_back(br);
+				for (int32 i = segs; i >= 0; i--)
+				{
+					const f32 t = (f32)i / (f32)segs;
+					out.push_back(Vec2(t, TileShape2DHeight(shape, t)));
+				}
+				return;
+			}
+			default:
+				out.push_back(bl); out.push_back(br);
+				out.push_back(tr); out.push_back(tl);
+				return;
+		}
 	}
 
 	bool TileSet2DReadImageSize(const std::string &resolvedPath, int32 &w, int32 &h)

@@ -314,7 +314,7 @@ namespace p3d {
 				// the merge is what made "just mark the tile solid" produce a
 				// staircase. They come back as polygons in BuildColliderPolys.
 				if (IsSolidCell(minX + x, minY + y)
-					&& !(t >= 0 && (tileset.IsSloped(t) || tileset.HasHeightProfile(t))))
+					&& !(t >= 0 && tileset.HasOutline(t)))
 					solid[(size_t)y * w + x] = 1;
 			}
 
@@ -377,7 +377,7 @@ namespace p3d {
 			{
 				const int32 t = GetTile(tx, ty);
 				if (t < 0 || !IsSolidCell(tx, ty)) continue;
-				if (!tileset.IsSloped(t) && !tileset.HasHeightProfile(t)) continue;
+				if (!tileset.HasOutline(t)) continue;
 
 				// The cell's own rect. Corners are named for what they are so
 				// the four cases below read as pictures rather than algebra.
@@ -496,71 +496,13 @@ namespace p3d {
 		}
 
 		// One cell's solid outline in UNIT cell space, counter-clockwise.
-		// Empty for a shape with no area.
-		// Takes the SET and the TILE, not just a shape, because a tile can
-		// carry its own height profile and that has to win over its preset.
+		// Lives in TileSet2D so the collider and anything DRAWING a tile's
+		// collision - the tileset sheet, the paint overlay - read one
+		// definition and cannot show a different shape from the one you hit.
 		static void CellOutline(const TileSet2D &set, const int32 tile,
 			const int32 arcSegments, std::vector<Vec2> &out)
 		{
-			out.clear();
-			const int32 shape = (tile >= 0) ? set.Shape(tile) : TileShape2D::Box;
-			// A custom profile is always a FLOOR: solid below the curve.
-			if (tile >= 0 && set.HasHeightProfile(tile))
-			{
-				const Vec2 bl0(0.f, 0.f), br0(1.f, 0.f);
-				out.push_back(bl0); out.push_back(br0);
-				for (int32 i = arcSegments; i >= 0; i--)
-				{
-					const f32 t = (f32)i / (f32)arcSegments;
-					out.push_back(Vec2(t, set.SurfaceHeight(tile, t)));
-				}
-				return;
-			}
-			const Vec2 bl(0.f, 0.f), br(1.f, 0.f), tr(1.f, 1.f), tl(0.f, 1.f);
-			if (TileShape2DIsCeilProfile(shape))
-			{
-				// Solid ABOVE the curve: along the curve left to right, up the
-				// right side, back along the top, down the left.
-				const int32 base = TileShape2DCeilBase(shape);
-				for (int32 i = 0; i <= arcSegments; i++)
-				{
-					const f32 t = (f32)i / (f32)arcSegments;
-					out.push_back(Vec2(t, TileShape2DHeight(base, t)));
-				}
-				out.push_back(tr);
-				out.push_back(tl);
-				return;
-			}
-			switch (shape)
-			{
-				case TileShape2D::SlopeBR:
-					out.push_back(bl); out.push_back(br); out.push_back(tr); return;
-				case TileShape2D::SlopeBL:
-					out.push_back(bl); out.push_back(br); out.push_back(tl); return;
-				case TileShape2D::SlopeTR:
-					out.push_back(br); out.push_back(tr); out.push_back(tl); return;
-				case TileShape2D::SlopeTL:
-					out.push_back(bl); out.push_back(tr); out.push_back(tl); return;
-				case TileShape2D::ArcConvexBR:
-				case TileShape2D::ArcConvexBL:
-				case TileShape2D::ArcConcaveBR:
-				case TileShape2D::ArcConcaveBL:
-				{
-					// Solid BELOW the curve: along the bottom, up the right,
-					// back along the curve right to left, down the left.
-					out.push_back(bl); out.push_back(br);
-					for (int32 i = arcSegments; i >= 0; i--)
-					{
-						const f32 t = (f32)i / (f32)arcSegments;
-						out.push_back(Vec2(t, TileShape2DHeight(shape, t)));
-					}
-					return;
-				}
-				default:
-					out.push_back(bl); out.push_back(br);
-					out.push_back(tr); out.push_back(tl);
-					return;
-			}
+			TileSet2DCellOutline(set, tile, arcSegments, out);
 		}
 	}
 
@@ -787,8 +729,37 @@ namespace p3d {
 					const f32 cross = (c.x - p.x) * (n.y - c.y) - (c.y - p.y) * (n.x - c.x);
 					if (std::fabs(cross) > 1e-6f) simple.push_back(c);
 				}
-				if (simple.size() >= 4) loops.push_back(simple);
-				else if (loop.size() >= 4) loops.push_back(loop);
+				// Under three corners there is no area to collide with - a
+				// walk that closed on itself immediately, or a loop that was
+				// collinear all the way round.
+				if (simple.size() >= 3)
+				{
+					// Box2D wants FOUR points for a closed chain, and a lone
+					// triangle has three. Dropping it - which is what the old
+					// `simple.size() >= 4` gate did - meant a ramp with nothing
+					// under it, an isolated wedge, or a cell forced solid over
+					// a slope tile produced NO collider at all: solid in the
+					// tileset, drawn on screen, and walked straight through.
+					// Splitting the longest edge costs one vertex and changes
+					// the outline not at all.
+					while (simple.size() < 4)
+					{
+						size_t at = 0;
+						f32 best = -1.f;
+						for (size_t i = 0; i < simple.size(); i++)
+						{
+							const Vec2 &a = simple[i];
+							const Vec2 &b = simple[(i + 1) % simple.size()];
+							const f32 d = (b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y);
+							if (d > best) { best = d; at = i; }
+						}
+						const Vec2 &a = simple[at];
+						const Vec2 &b = simple[(at + 1) % simple.size()];
+						simple.insert(simple.begin() + (long)at + 1,
+							Vec2((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f));
+					}
+					loops.push_back(simple);
+				}
 			}
 		}
 		return loops;

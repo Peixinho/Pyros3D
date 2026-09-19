@@ -206,9 +206,22 @@ namespace p3d {
 		// The cell's collision outline (TileShape2D). Box for anything that
 		// has not been given one.
 		int32 Shape(const int32 index) const;
-		// Solid AND not a plain box - i.e. this cell needs its own polygon
-		// and must be kept out of the rectangle merge.
+		// Not a plain box - i.e. this cell needs its own polygon and must be
+		// kept out of the rectangle merge.
+		//
+		// Deliberately says NOTHING about whether the tile is solid. Solidity
+		// belongs to the CELL, not the tile: TileMap2D::SetSolidOverride lets
+		// a map force one cell solid or passable, and this used to require
+		// tile->solid as well. So a cell forced solid over a slope-shaped tile
+		// was excluded from the polygon pass and swallowed by the rectangle
+		// merge instead - it collided as a full square, silently, while the
+		// chain builder (which asks the same question a different way) gave it
+		// its triangle. The two collider paths disagreed about the same cell.
 		bool IsSloped(const int32 index) const;
+		// This tile carries a collision outline of its own - a preset shape or
+		// a drawn height profile. The one question both collider builders ask
+		// before deciding whether a cell can join the rectangle merge.
+		bool HasOutline(const int32 index) const;
 		// Which animation `index` starts, or -1. Only the FIRST frame is a
 		// key: painting frame 2 of a flame should place that picture and stay
 		// there, not silently start the loop from the middle.
@@ -243,6 +256,20 @@ namespace p3d {
 		int32 imageW = 0;
 		int32 imageH = 0;
 	};
+
+	// One cell's SOLID outline in unit cell space (0..1 on both axes), wound
+	// counter-clockwise. `arcSegments` is how finely a curve is sampled; it
+	// is ignored by the straight shapes. A tile of -1, or one with no shape
+	// of its own, gives the full square.
+	//
+	// This is the single definition of what a tile's collision looks like.
+	// The chain-collider builder walks it, and so does anything that DRAWS a
+	// tile's collision - the tileset sheet's wash, the paint overlay. They
+	// used to each have their own idea of the same shape, and the ceiling
+	// arcs were the proof: the collider built them correctly and the sheet
+	// drew all four as one wrong triangle.
+	PYROS3D_API void TileSet2DCellOutline(const TileSet2D &set, const int32 tile,
+		const int32 arcSegments, std::vector<Vec2> &out);
 
 	// Reads an image's dimensions without decoding it. False if the file is
 	// missing or is not an image stb can identify.

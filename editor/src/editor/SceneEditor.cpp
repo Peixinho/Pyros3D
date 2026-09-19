@@ -14444,6 +14444,88 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				debugRenderer->drawLine(Vec3(l, y, z), Vec3(r, y, z), col);
 		}
 
+		// The COLLISION of what is already painted. A tileset's whole point,
+		// once it has slopes in it, is that a cell's collision is not its
+		// picture: a ramp tile and the square block beside it look equally
+		// square in a grid of 16px art, and until this drew them there was
+		// nothing in the editor that told you which cells were solid, let
+		// alone what shape they were solid in. You painted, pressed Play, and
+		// found out by walking into it.
+		//
+		// From TileSet2DCellOutline, the same outline the chain collider is
+		// built from, so this is a view of the collider rather than a second
+		// opinion about it. Only the cells on screen, and only when they are
+		// big enough to read - the same threshold the grid uses.
+		if (showTileCollision && cellsAcross < 400.f)
+		{
+			const Vec4 solidCol(0.45f, 1.f, 0.55f, 0.9f);
+
+			// The merged outline the map last handed to Box2D, read off the
+			// sibling body rather than recomputed - TileMap2D::Update()
+			// refreshes it the moment a cell changes, so this is free, and it
+			// is the collider ITSELF rather than a second drawing of the same
+			// idea. It also shows only the REAL boundary: a block of ground is
+			// one silhouette, not a cell-by-cell mesh of interior edges that
+			// nothing can ever touch.
+			const Physics2D* body = NULL;
+			if (map->GetOwner())
+			{
+				const std::vector<std::shared_ptr<IComponent> > &comps
+					= map->GetOwner()->GetComponents();
+				for (size_t i = 0; i < comps.size(); i++)
+					if (comps[i] && comps[i]->GetComponentType() == ComponentType::Physics2D)
+						body = static_cast<const Physics2D*>(comps[i].get());
+			}
+
+			const std::vector<Physics2D::Poly2D>* chains
+				= body ? &body->GetCompoundChains() : NULL;
+			if (chains && !chains->empty())
+			{
+				for (size_t i = 0; i < chains->size(); i++)
+				{
+					const Physics2D::Poly2D &loop = (*chains)[i];
+					for (size_t k = 0; k < loop.size(); k++)
+					{
+						const Vec2 &a = loop[k];
+						const Vec2 &b2 = loop[(k + 1) % loop.size()];
+						debugRenderer->drawLine(Vec3(o.x + a.x, o.y + a.y, z),
+							Vec3(o.x + b2.x, o.y + b2.y, z), solidCol);
+					}
+				}
+			}
+			else
+			{
+				// No body on this layer - a decorative map, or one whose
+				// colliders have not been built yet. Draw each solid cell's
+				// own outline so "which cells are solid, and in what shape"
+				// is still answerable while painting.
+				int32 cx0 = 0, cy0 = 0, cx1 = 0, cy1 = 0;
+				map->WorldToTile(Vec2(l - o.x, b - o.y), cx0, cy0);
+				map->WorldToTile(Vec2(r - o.x, t - o.y), cx1, cy1);
+				std::vector<Vec2> unit;
+				for (int32 cy = cy0; cy <= cy1; cy++)
+				{
+					for (int32 cx = cx0; cx <= cx1; cx++)
+					{
+						if (!map->IsSolidCell(cx, cy)) continue;
+						TileSet2DCellOutline(map->GetTileSet(), map->GetTile(cx, cy), 8, unit);
+						if (unit.size() < 3) continue;
+						for (size_t k = 0; k < unit.size(); k++)
+						{
+							const Vec2 &u0 = unit[k];
+							const Vec2 &u1 = unit[(k + 1) % unit.size()];
+							debugRenderer->drawLine(
+								Vec3(o.x + ((f32)cx + u0.x) * ts.x,
+									o.y + ((f32)cy + u0.y) * ts.y, z),
+								Vec3(o.x + ((f32)cx + u1.x) * ts.x,
+									o.y + ((f32)cy + u1.y) * ts.y, z),
+								solidCol);
+						}
+					}
+				}
+			}
+		}
+
 		// What a click would affect: one cell for the brush, the whole
 		// rectangle mid-drag.
 		int32 lox = tileHoverX, hix = tileHoverX, loy = tileHoverY, hiy = tileHoverY;
@@ -14667,6 +14749,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Painting stamps a collision override on the cell\n"
 				"instead of changing what is drawn there.");
+		ImGui::SameLine();
+		ImGui::Checkbox("Show##tilecol", &showTileCollision);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Outline every solid cell in the viewport, in the SHAPE\n"
+				"it collides as - a ramp as a ramp, a loop arc as an arc.\n"
+				"This is the collider itself, not a guess at it.");
 		if (tileSolidMode != 0)
 			ImGui::TextDisabled("Painting now edits COLLISION, not tiles.");
 

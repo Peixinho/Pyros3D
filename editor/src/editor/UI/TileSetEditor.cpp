@@ -28,6 +28,30 @@ namespace TileSetEditor {
 		{
 			return std::find(g_selection.begin(), g_selection.end(), i) != g_selection.end();
 		}
+
+		// A tile's collision outline, washed over the cell it belongs to.
+		//
+		// Built from TileSet2DCellOutline - the same function the chain
+		// collider walks - so there is exactly one answer to "what shape is
+		// this tile" and the picture cannot drift from the physics. Concave,
+		// because a dip and a ceiling arc both are; AddConvexPolyFilled on
+		// one of those draws a bow tie.
+		void DrawCellOutline(ImDrawList* dl, const TileSet2D &set, const int32 tile,
+			const ImVec2 &p0, const ImVec2 &p1)
+		{
+			std::vector<Vec2> unit;
+			TileSet2DCellOutline(set, tile, 12, unit);
+			if (unit.size() < 3) return;
+			std::vector<ImVec2> pts(unit.size());
+			for (size_t k = 0; k < unit.size(); k++)
+				// y is flipped: the outline is y-UP like the world, ImGui's
+				// screen space runs down.
+				pts[k] = ImVec2(p0.x + unit[k].x * (p1.x - p0.x),
+					p1.y - unit[k].y * (p1.y - p0.y));
+			dl->AddConcavePolyFilled(&pts[0], (int)pts.size(), IM_COL32(80, 170, 255, 70));
+			dl->AddPolyline(&pts[0], (int)pts.size(), IM_COL32(110, 200, 255, 220),
+				ImDrawFlags_Closed, 2.f);
+		}
 	}
 
 	void DrawWindow(TileSetDocument& doc, void* atlasTexId, FrameRequests& requests)
@@ -117,49 +141,14 @@ namespace TileSetEditor {
 				// The collision outline, drawn as the shape it actually is.
 				// A slope shown as a full blue square would be the same
 				// picture as the block it was drawn to replace.
-				const int32 sh = set.Shape(i);
-				if (sh == TileShape2D::Box)
-				{
-					dl->AddRectFilled(p0, p1, IM_COL32(80, 170, 255, 70));
-					dl->AddRect(p0, p1, IM_COL32(110, 200, 255, 220), 0.f, 0, 2.f);
-				}
-				else if (set.HasHeightProfile(i)
-					|| (TileShape2DIsFloorProfile(sh) && sh != TileShape2D::SlopeBR
-						&& sh != TileShape2D::SlopeBL))
-				{
-					// Curved floors, drawn from the SAME profile the collider
-					// is built from - so what the sheet shows and what the
-					// physics does cannot drift apart.
-					const int kN = 12;
-					ImVec2 pts[kN + 3];
-					for (int k = 0; k <= kN; k++)
-					{
-						const float t = (float)k / (float)kN;
-						const float hgt = set.SurfaceHeight(i, t);
-						pts[k] = ImVec2(p0.x + t * (p1.x - p0.x),
-							p1.y - hgt * (p1.y - p0.y));
-					}
-					pts[kN + 1] = ImVec2(p1.x, p1.y);
-					pts[kN + 2] = ImVec2(p0.x, p1.y);
-					dl->AddConvexPolyFilled(pts, kN + 3, IM_COL32(80, 170, 255, 70));
-					dl->AddPolyline(pts, kN + 1, IM_COL32(110, 200, 255, 220), 0, 2.f);
-				}
-				else
-				{
-					// ImGui's y runs DOWN, so "bottom" here is p1.y.
-					const ImVec2 bl(p0.x, p1.y), br(p1.x, p1.y);
-					const ImVec2 tl(p0.x, p0.y), tr(p1.x, p0.y);
-					ImVec2 a2, b2, c2;
-					switch (sh)
-					{
-						case TileShape2D::SlopeBR: a2 = bl; b2 = br; c2 = tr; break;
-						case TileShape2D::SlopeBL: a2 = bl; b2 = br; c2 = tl; break;
-						case TileShape2D::SlopeTR: a2 = br; b2 = tr; c2 = tl; break;
-						default:                   a2 = bl; b2 = tr; c2 = tl; break;
-					}
-					dl->AddTriangleFilled(a2, b2, c2, IM_COL32(80, 170, 255, 70));
-					dl->AddTriangle(a2, b2, c2, IM_COL32(110, 200, 255, 220), 2.f);
-				}
+				//
+				// Straight from the collider's own outline, so the sheet
+				// cannot show one shape while the physics builds another -
+				// which is exactly what the hand-rolled version here did with
+				// the four CEILING arcs: none of them matched any branch, so
+				// all four fell through to the default and drew as the same
+				// top-left triangle.
+				DrawCellOutline(dl, set, i, p0, p1);
 			}
 			// An animated tile is marked, because the sheet otherwise gives no
 			// hint that painting this cell puts a moving thing in the level.
@@ -247,19 +236,36 @@ namespace TileSetEditor {
 		for (size_t k = 1; k < g_selection.size(); k++)
 			if (set.Shape(g_selection[k]) != cur) { mixed = true; break; }
 
+		// Every shape the FORMAT can express has to be here. The four ceiling
+		// arcs were missing, and they are not a corner case: they are the
+		// solid-above-the-curve half of a loop, the part you run along
+		// upside down. Without a button, a loop could be described in a
+		// .p3dt by hand and built correctly by the collider, but could not be
+		// authored in the editor at all.
+		//
+		// The glyph in a label is the SURFACE you touch, not the filled
+		// corner. "Ceil /" is the ceiling that rises to the right - i.e. the
+		// tile whose right angle is top-LEFT. The two used to be labelled as
+		// each other, with tooltips that agreed with the wrong label, so
+		// picking a ceiling slope gave you its mirror.
 		struct ShapeBtn { int32 shape; const char* label; const char* tip; };
 		static const ShapeBtn kShapes[] = {
 			{ TileShape2D::Box,     "Square",  "A full cell. What every solid tile was before." },
 			{ TileShape2D::SlopeBR, "Floor /", "Straight floor rising to the RIGHT." },
 			{ TileShape2D::SlopeBL, "Floor \\", "Straight floor rising to the LEFT." },
-			{ TileShape2D::SlopeTR, "Ceil /",  "Ceiling sloping down to the LEFT." },
-			{ TileShape2D::SlopeTL, "Ceil \\", "Ceiling sloping down to the RIGHT." },
+			{ TileShape2D::SlopeTL, "Ceil /",  "Straight ceiling rising to the RIGHT - solid above it." },
+			{ TileShape2D::SlopeTR, "Ceil \\", "Straight ceiling falling to the RIGHT - solid above it." },
 			{ TileShape2D::ArcConvexBR,  "Crest /",  "CURVED floor rising right, bulging up - a hill crest." },
 			{ TileShape2D::ArcConvexBL,  "Crest \\", "Curved floor rising left, bulging up." },
 			{ TileShape2D::ArcConcaveBR, "Dip /",    "Curved floor rising right, dished down - a valley or loop wall." },
 			{ TileShape2D::ArcConcaveBL, "Dip \\",   "Curved floor rising left, dished down." },
+			{ TileShape2D::ArcCeilConvexBR,  "Roof /",  "The SAME crest with the solid ABOVE it - the top of a loop,\nrising right. You run on its underside." },
+			{ TileShape2D::ArcCeilConvexBL,  "Roof \\", "Crest profile, solid above, rising left." },
+			{ TileShape2D::ArcCeilConcaveBR, "Cove /",  "Dip profile, solid above - the inside shoulder of a loop,\nrising right." },
+			{ TileShape2D::ArcCeilConcaveBL, "Cove \\", "Dip profile, solid above, rising left." },
 		};
-		for (int b3i = 0; b3i < 9; b3i++)
+		const int kShapeCount = (int)(sizeof(kShapes) / sizeof(kShapes[0]));
+		for (int b3i = 0; b3i < kShapeCount; b3i++)
 		{
 			if (b3i % 5) ImGui::SameLine();
 			const bool on = !mixed && cur == kShapes[b3i].shape;
@@ -270,7 +276,8 @@ namespace TileSetEditor {
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", kShapes[b3i].tip);
 		}
 		if (mixed) { ImGui::SameLine(); ImGui::TextDisabled("(mixed)"); }
-		ImGui::TextDisabled("Picking a slope also marks the tile solid.");
+		ImGui::TextDisabled("Picking a slope also marks the tile solid. "
+			"Roof/Cove are solid ABOVE the curve - the top half of a loop.");
 
 		// --- custom collision profile ----------------------------------------
 		// Drawn, not typed. A height mask is a picture of a surface, and the

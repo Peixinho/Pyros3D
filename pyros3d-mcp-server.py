@@ -2063,6 +2063,101 @@ def _rect_bounds(rect) -> tuple:
     return min(x0, x1), min(y0, y1), max(x0, x1), max(y0, y1)
 
 
+TILE_SHAPES = (
+    "box",
+    "slope_br", "slope_bl", "slope_tr", "slope_tl",
+    "arc_convex_br", "arc_convex_bl", "arc_concave_br", "arc_concave_bl",
+    "arc_ceil_convex_br", "arc_ceil_convex_bl",
+    "arc_ceil_concave_br", "arc_ceil_concave_bl",
+)
+
+
+@mcp.tool()
+def set_tile_collision(project_path: str, tileset: str, tiles: list[int],
+                       solid: bool | None = None, shape: str | None = None) -> str:
+    """Mark tiles solid and give them a collision SHAPE, in a .p3dt tileset.
+
+    `tileset` is project-relative, "assets/" prefix and all. `tiles` are cell
+    indices into the sheet, row-major from the top left.
+
+    A tile's collision is not its picture. `shape` is one of:
+
+      box                  the full cell - what every solid tile is by default
+      slope_br / slope_bl  straight FLOOR, rising right / rising left
+      slope_tl / slope_tr  straight CEILING, rising right / falling right
+      arc_convex_br/_bl    curved floor bulging UP - a hill crest
+      arc_concave_br/_bl   curved floor dished DOWN - a valley or loop wall
+      arc_ceil_convex_*    the same crest with the solid ABOVE it
+      arc_ceil_concave_*   the same dip with the solid ABOVE it
+
+    The four arc_ceil_* shapes are the top half of a loop: you run along their
+    underside, upside down. No floor shape can express that however oriented,
+    which is why they exist.
+
+    Anything but "box" implies solid, so a slope cannot be set on a tile that
+    then fails to collide. Pass solid=False alone to make tiles passable.
+
+    Writes the .p3dt. Save any tileset document open on this file in the editor
+    first, or reopen it afterwards - this does not talk to an open document.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    path = proj / tileset
+    if not path.exists():
+        return _fail(f"tileset '{tileset}' not found under {_rel(proj)}")
+    if not tiles:
+        return _fail("no tiles given")
+    if shape is not None and shape not in TILE_SHAPES:
+        return _fail(f"unknown shape '{shape}' - one of {', '.join(TILE_SHAPES)}")
+
+    try:
+        data = json.loads(path.read_text())
+    except Exception as exc:
+        return _fail(f"could not read {tileset}: {exc}")
+
+    rows = data.get("tiles")
+    if not isinstance(rows, list):
+        rows = []
+    by_index = {int(r["i"]): r for r in rows if isinstance(r, dict) and "i" in r}
+
+    for t in tiles:
+        t = int(t)
+        row = by_index.get(t)
+        if row is None:
+            row = {"i": t}
+            by_index[t] = row
+            rows.append(row)
+        if shape is not None:
+            if shape == "box":
+                row.pop("shape", None)
+            else:
+                row["shape"] = shape
+                row["solid"] = True
+        if solid is not None:
+            row["solid"] = bool(solid)
+
+    # Drop rows that now say nothing: a tileset should serialize only what
+    # differs from the default, and a {"i": 4} with no fields is noise that
+    # grows every time this is called.
+    rows = [r for r in rows
+            if r.get("solid") or r.get("shape") or r.get("tags") or r.get("heights")]
+    rows.sort(key=lambda r: int(r["i"]))
+    # Key order and indentation as SaveTileSet2D writes them (tabs, i / solid /
+    # tags / shape / heights). Not cosmetic: without it every call rewrites the
+    # whole file into a different shape, and the diff of a one-tile edit is the
+    # entire tileset.
+    order = ("i", "solid", "tags", "shape", "heights")
+    data["tiles"] = [{k: r[k] for k in order if k in r} | {k: v for k, v in r.items()
+                                                           if k not in order}
+                     for r in rows]
+    path.write_text(json.dumps(data, indent="\t") + "\n")
+
+    touched = [r for r in rows if int(r["i"]) in {int(t) for t in tiles}]
+    return json.dumps({"tileset": tileset, "tiles": touched,
+                       "solidTotal": len(rows)}, indent=1)
+
+
 @mcp.tool()
 def add_tilemap(project_path: str, scene_name: str, name: str, tileset: str,
                 tile_size: list[float] | None = None, lit: bool = False) -> str:

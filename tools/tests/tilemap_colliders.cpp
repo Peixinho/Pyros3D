@@ -201,6 +201,131 @@ int main()
 			"with no tileset nothing is solid, so nothing collides");
 	}
 
+	// --- shapes: the outline every collider and every preview is built from -
+	//
+	// One place, one answer. The editor's tileset sheet and the paint overlay
+	// draw this function's output and the chain collider walks it, so checking
+	// the polygon here checks all three at once - and the ceiling arcs were
+	// exactly the case that had no coverage and no button, which is how all
+	// four came to be drawn as the same wrong triangle.
+	{
+		TileSet2D s;
+		s.image = "atlas.png";
+		s.tileW = s.tileH = 16;
+		s.SetImageSize(64, 64);
+
+		struct Case { int32 shape; const char* name; f32 area; };
+		// Signed area, counter-clockwise, in unit cell space. A straight slope
+		// is exactly half a cell; a quarter-circle arc is pi/4 or 1 - pi/4,
+		// and a ceiling arc is the complement of its floor.
+		static const f32 kPi4 = 0.7853981634f;
+		const Case cases[] = {
+			{ TileShape2D::Box,              "box",              1.f },
+			{ TileShape2D::SlopeBR,          "slope_br",         0.5f },
+			{ TileShape2D::SlopeBL,          "slope_bl",         0.5f },
+			{ TileShape2D::SlopeTR,          "slope_tr",         0.5f },
+			{ TileShape2D::SlopeTL,          "slope_tl",         0.5f },
+			{ TileShape2D::ArcConvexBR,      "arc_convex_br",    kPi4 },
+			{ TileShape2D::ArcConvexBL,      "arc_convex_bl",    kPi4 },
+			{ TileShape2D::ArcConcaveBR,     "arc_concave_br",   1.f - kPi4 },
+			{ TileShape2D::ArcConcaveBL,     "arc_concave_bl",   1.f - kPi4 },
+			{ TileShape2D::ArcCeilConvexBR,  "arc_ceil_convex_br",  1.f - kPi4 },
+			{ TileShape2D::ArcCeilConvexBL,  "arc_ceil_convex_bl",  1.f - kPi4 },
+			{ TileShape2D::ArcCeilConcaveBR, "arc_ceil_concave_br", kPi4 },
+			{ TileShape2D::ArcCeilConcaveBL, "arc_ceil_concave_bl", kPi4 },
+		};
+		for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++)
+		{
+			s.tiles[1].solid = true;
+			s.tiles[1].shape = cases[i].shape;
+			std::vector<Vec2> out;
+			TileSet2DCellOutline(s, 1, 256, out);
+
+			f32 area = 0.f;
+			bool inCell = true;
+			for (size_t k = 0; k < out.size(); k++)
+			{
+				const Vec2 &a = out[k];
+				const Vec2 &b = out[(k + 1) % out.size()];
+				area += a.x * b.y - b.x * a.y;
+				if (a.x < -1e-4f || a.x > 1.0001f || a.y < -1e-4f || a.y > 1.0001f)
+					inCell = false;
+			}
+			area *= 0.5f;
+
+			check(inCell, std::string(cases[i].name) + ": stays inside its cell");
+			// Positive is counter-clockwise, and the winding is load-bearing:
+			// a chain wound the other way collides from the INSIDE, which
+			// reads as bodies falling through the floor.
+			check(area > 0.f, std::string(cases[i].name) + ": wound counter-clockwise");
+			check(std::fabs(std::fabs(area) - cases[i].area) < 0.02f,
+				std::string(cases[i].name) + ": encloses the right area");
+
+			// The name round-trips, or a .p3dt saved with this shape reloads
+			// as something else.
+			check(TileShape2DFromName(TileShape2DName(cases[i].shape)) == cases[i].shape,
+				std::string(cases[i].name) + ": name round-trips");
+		}
+		// A ceiling arc and the floor arc it borrows from must TILE: together
+		// they fill the cell. That is what makes a loop's wall continuous.
+		s.tiles[1].shape = TileShape2D::ArcConvexBR;
+		s.tiles[2].solid = true;
+		s.tiles[2].shape = TileShape2D::ArcCeilConvexBR;
+		check(TileShape2DCeilBase(TileShape2D::ArcCeilConvexBR) == TileShape2D::ArcConvexBR,
+			"a ceiling arc borrows its floor arc's curve");
+	}
+
+	// --- a sloped cell never joins the rectangle merge ------------------------
+	{
+		TileSet2D s;
+		s.image = "atlas.png";
+		s.tileW = s.tileH = 16;
+		s.SetImageSize(64, 64);
+		s.tiles[1].solid = true;                              // plain block
+		s.tiles[2].solid = true; s.tiles[2].shape = TileShape2D::SlopeBR;
+		s.tiles[3].shape = TileShape2D::SlopeBR;              // shaped, NOT solid
+
+		{
+			TileMap2D m(Vec2(1.f, 1.f));
+			m.SetTileSet(s);
+			m.Fill(0, 0, 4, 0, 1);
+			m.SetTile(5, 0, 2);
+			const std::vector<Vec4> boxes = m.BuildColliderBoxes();
+			check(boxes.size() == 1, "the slope is left out of the merged floor");
+			check(m.BuildColliderPolys().size() == 1, "and comes back as its own polygon");
+		}
+
+		// A lone ramp with nothing under it. Box2D wants four points for a
+		// closed chain and a triangle has three, so this used to be dropped
+		// silently: solid in the tileset, drawn on screen, walked through.
+		{
+			TileMap2D m(Vec2(1.f, 1.f));
+			m.SetTileSet(s);
+			m.SetTile(0, 0, 2);
+			const std::vector<std::vector<Vec2> > ch = m.BuildColliderChains();
+			check(ch.size() == 1, "a lone ramp still gets a chain collider");
+			if (ch.size() == 1)
+				check(ch[0].size() >= 4, "and it has the four points Box2D needs");
+		}
+
+		// Solidity is the CELL's, the shape is the TILE's. Forcing a cell
+		// solid over a shaped-but-passable tile used to give it a full square
+		// from the box builder and a triangle from the chain builder - two
+		// collider paths disagreeing about one cell.
+		{
+			TileMap2D m(Vec2(1.f, 1.f));
+			m.SetTileSet(s);
+			m.SetTile(0, 0, 3);
+			m.SetSolidOverride(0, 0, 1);
+			check(m.BuildColliderBoxes().empty(),
+				"an override-solid slope is not swallowed by the box merge");
+			check(m.BuildColliderPolys().size() == 1,
+				"it collides as the triangle it is drawn as");
+			check(m.BuildColliderChains().size() == 1,
+				"and the chain path agrees");
+		}
+	}
+
 	printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "OK",
 		failures, failures == 1 ? "" : "s");
 	return failures ? 1 : 0;

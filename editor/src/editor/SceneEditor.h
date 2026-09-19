@@ -1405,6 +1405,11 @@ private:
 	// Paint sub-mode: 0 paints tiles, 1 and 2 stamp a per-cell collision
 	// override (solid / passable) without touching the artwork.
 	int32 tileSolidMode = 0;
+	// Whether the paint overlay draws every solid cell's collision outline.
+	// On by default: with slopes in a tileset the picture and the collision
+	// are different things, and painting a level without seeing the second
+	// one is painting blind.
+	bool showTileCollision = true;
 	// Terrain brush: the autotile group being painted, or -1 for a plain tile.
 	// Separate from tilePaintBrush so switching to a terrain and back keeps
 	// whichever single tile was selected.

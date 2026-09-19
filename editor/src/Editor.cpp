@@ -3160,6 +3160,42 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 	// {"cmd":"save_tileset"} - writes the focused document back to its .p3dt.
+	// {"cmd":"set_tile_shape","args":{"tiles":[16,17],"shape":"slope_br"}}
+	// The tile's COLLISION outline, by name - the same names a .p3dt stores,
+	// so this and the file cannot drift. Picking anything but "box" marks the
+	// tile solid, exactly as the shape buttons do.
+	//
+	// Without this the only shape reachable from a script was whatever the
+	// tileset already had: `set_tile_solid` could make a cell collide, but
+	// never say HOW, so a slope or a loop arc had to be typed into the .p3dt
+	// by hand. That is the one thing this command exists to end.
+	if (name == "set_tile_shape")
+	{
+		if (!activeTileSetDoc) throw std::runtime_error("no tile set open");
+		std::vector<p3d::int32> idx;
+		if (a.is_object() && a.contains("tiles") && a["tiles"].is_array())
+			for (size_t i = 0; i < a["tiles"].size(); i++)
+				if (a["tiles"][i].is_number()) idx.push_back((p3d::int32)a["tiles"][i].get<int>());
+		if (idx.empty()) throw std::runtime_error("no tiles given");
+		const std::string shapeName = A("shape");
+		if (shapeName.empty()) throw std::runtime_error("set_tile_shape: 'shape' is required");
+		const p3d::int32 shape = p3d::TileShape2DFromName(shapeName);
+		// FromName falls back to Box for anything it does not know, so a typo
+		// would silently square off a slope. Refuse instead, and say what the
+		// names are.
+		if (shape == p3d::TileShape2D::Box && shapeName != "box")
+			throw std::runtime_error("set_tile_shape: unknown shape \"" + shapeName
+				+ "\" - one of box, slope_br, slope_bl, slope_tr, slope_tl, "
+				"arc_convex_br, arc_convex_bl, arc_concave_br, arc_concave_bl, "
+				"arc_ceil_convex_br, arc_ceil_convex_bl, arc_ceil_concave_br, "
+				"arc_ceil_concave_bl");
+		activeTileSetDoc->SetShapeRange(idx, shape);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["shape"] = p3d::TileShape2DName(shape);
+		r["tiles"] = idx.size();
+		return r;
+	}
 	if (name == "save_tileset")
 	{
 		if (!activeTileSetDoc) throw std::runtime_error("no tile set open");
