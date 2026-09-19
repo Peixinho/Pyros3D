@@ -5399,9 +5399,6 @@ void Editor::DrawScriptEditorWindows()
 		CodeEditorDocument* doc = scriptDocs[i];
 		if (!doc) continue;
 
-		if (doc->editor.IsTextChanged())
-			doc->dirty = true;
-
 		char title[512];
 		snprintf(title, sizeof(title), u8"\uf121 %s###script_win_%u",
 			doc->GetDisplayName().c_str(), doc->id);
@@ -5441,6 +5438,7 @@ void Editor::DrawScriptEditorWindows()
 			if (doc->SaveToFile())
 			{
 				doc->editor.SetText(doc->editor.GetText());
+				doc->editor.ClearTextChanged();
 				doc->dirty = false;
 				echo("SUCCESS: Saved " + project.DisplayPath(doc->absolutePath));
 			}
@@ -5476,6 +5474,12 @@ void Editor::DrawScriptEditorWindows()
 		doc->editor.Render("##lua_editor", avail, true);
 		doc->editor.SetHandleKeyboardInputs(true);
 		doc->completionBlockEditorKeys = false;
+		// AFTER Render, which is what clears the flag: polled before it, this
+		// read the previous frame's leftovers - including the SetText() that
+		// loaded the file - and marked an untouched document dirty. Same
+		// order the Material Editor's Text tab uses.
+		if (doc->editor.IsTextChanged())
+			doc->dirty = true;
 		doc->AfterEditorRender();
 		if (doc->completionOpen)
 			doc->DrawCompletionPopup();
@@ -7827,6 +7831,7 @@ void Editor::ReloadScriptDocumentFromDisk(const std::string& absPath)
 		std::ostringstream ss;
 		ss << in.rdbuf();
 		doc->editor.SetText(ss.str());
+		doc->editor.ClearTextChanged();
 		doc->dirty = false;
 		doc->CloseCompletion();
 		return;

@@ -210,6 +210,11 @@ public:
 	void SetReadOnly(bool aValue);
 	bool IsReadOnly() const { return mReadOnly; }
 	bool IsTextChanged() const { return mTextChanged; }
+	// mTextChanged is otherwise only cleared by Render(), so a programmatic
+	// SetText() leaves it set until the next frame draws the widget - and
+	// anything polling IsTextChanged() before then reads a load as a user
+	// edit. Callers that fill the buffer themselves clear it here.
+	void ClearTextChanged() { mTextChanged = false; }
 	bool IsCursorPositionChanged() const { return mCursorPositionChanged; }
 
 	bool IsColorizerEnabled() const { return mColorizerEnabled; }

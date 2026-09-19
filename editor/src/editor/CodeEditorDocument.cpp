@@ -21,6 +21,10 @@ bool CodeEditorDocument::LoadFromFile(const std::string& path)
 	ss << in.rdbuf();
 	SetupForLua();
 	editor.SetText(ss.str());
+	// SetText() sets TextEditor's "changed" flag, which only clears when the
+	// widget next renders. A host polling it before that frame saw the LOAD
+	// as an edit, so a file was dirty the instant it was opened.
+	editor.ClearTextChanged();
 	absolutePath = path;
 	displayName = std::filesystem::path(path).filename().string();
 	dirty = false;
