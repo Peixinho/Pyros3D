@@ -207,6 +207,15 @@ jobs:
             -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
           /tmp/octahedral
 
+          # The Cornell box: colour bleeding and leak rejection. CPU-only
+          # and the slowest of these, but it is the test that decides
+          # whether any of the GI work is real - a white light must leave
+          # a red tint on a white floor beside a red wall, and a sealed
+          # box must not light its own outside.
+          c++ -std=c++17 -O2 -I include $FT tools/tests/ddgi.cpp -o /tmp/ddgi \
+            -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+          /tmp/ddgi
+
           # And that PyrosShader.glsl's SHIrradiance still agrees with the
           # C++ one. Reads the shader file and runs it through compute, so
           # it needs a backend that has compute - which is exactly the
