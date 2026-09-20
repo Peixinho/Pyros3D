@@ -114,9 +114,11 @@ namespace p3d {
 		ParticleSystemDesc();
 	};
 
-	// A real, reusable per-GameObject particle emitter - CPU-simulated
-	// (see the comment on why: no compute-shader/storage-buffer
-	// infrastructure exists on either backend today), self-contained
+	// A real, reusable per-GameObject particle emitter - CPU-simulated by
+	// default, optionally GPU-simulated (ParticleSystemDesc::gpuSimulation,
+	// which needs a backend with compute; this comment used to say no such
+	// infrastructure existed, which stopped being true once GL45, Metal
+	// and Vulkan grew IRenderDevice::Dispatch), self-contained
 	// (attach to a GameObject and it runs itself every frame via the
 	// IComponent::Update() hook SceneGraph::Update() already calls
 	// automatically - no manual per-frame driving needed by the owner,
