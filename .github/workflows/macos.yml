@@ -192,6 +192,13 @@ jobs:
             src/Pyros3D/Core/Math/Vec3.cpp -o /tmp/probe_grid
           /tmp/probe_grid
 
+          # BVH traversal against a brute-force scan. CPU-only, and the
+          # failure it guards is speckled noise or light through walls -
+          # both of which get blamed on the GI algorithm, not the tree.
+          c++ -std=c++17 -I include $FT tools/tests/bvh.cpp -o /tmp/bvh \
+            -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+          /tmp/bvh
+
           # And that PyrosShader.glsl's SHIrradiance still agrees with the
           # C++ one. Reads the shader file and runs it through compute, so
           # it needs a backend that has compute - which is exactly the

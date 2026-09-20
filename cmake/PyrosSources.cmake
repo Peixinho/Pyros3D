@@ -95,6 +95,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/SphericalHarmonics.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/IrradianceProbeGrid.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/IrradianceProbeBaker.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/RayScene.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/GLRenderDevice.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/IRenderDevice.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/GameObjects/GameObject.cpp
