@@ -114,6 +114,27 @@ namespace p3d {
 
 	}
 
+	// One mapping for both the compile and the preprocess path below.
+	// Was a ternary duplicated in each, which silently sent anything that
+	// wasn't Fragment down the vertex path - harmless while Vertex and
+	// Fragment were the only two stages, and exactly the wrong default the
+	// moment Compute existed (a compute shader compiled as a vertex shader
+	// fails on gl_GlobalInvocationID rather than on anything that names the
+	// real problem).
+	static shaderc_shader_kind ShadercKindForStage(const uint32 stage)
+	{
+		switch (stage)
+		{
+		case SpirvShaderStage::Fragment:
+			return shaderc_glsl_fragment_shader;
+		case SpirvShaderStage::Compute:
+			return shaderc_glsl_compute_shader;
+		case SpirvShaderStage::Vertex:
+		default:
+			return shaderc_glsl_vertex_shader;
+		}
+	}
+
 	bool SpirvShaderCompiler::Compile(const std::string &source, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog)
 	{
 		outSpirv.clear();
@@ -134,7 +155,7 @@ namespace p3d {
 			}
 		}
 
-		shaderc_shader_kind kind = (stage == SpirvShaderStage::Fragment) ? shaderc_glsl_fragment_shader : shaderc_glsl_vertex_shader;
+		shaderc_shader_kind kind = ShadercKindForStage(stage);
 
 		shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
@@ -262,7 +283,7 @@ namespace p3d {
 		// deal with flat, single-line, fully-resolved GLSL - see the
 		// header comment for why this is much more robust than pattern-
 		// matching the raw, still-conditional source text directly.
-		shaderc_shader_kind kind = (stage == SpirvShaderStage::Fragment) ? shaderc_glsl_fragment_shader : shaderc_glsl_vertex_shader;
+		shaderc_shader_kind kind = ShadercKindForStage(stage);
 		shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
 		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
@@ -573,6 +594,13 @@ namespace p3d {
 
 		ReflectResourceList(compiler, resources.uniform_buffers, SpirvResourceType::UniformBuffer, out);
 		ReflectResourceList(compiler, resources.sampled_images, SpirvResourceType::SampledImage, out);
+		// Compute's equivalent of the UBO list. Reported for every stage,
+		// not just Compute: a fragment shader is allowed to declare an
+		// SSBO too, and a reflection pass that only looked at them for
+		// compute modules would build a descriptor set layout missing a
+		// binding the shader really does use - which fails at pipeline
+		// creation on Vulkan rather than anywhere near the declaration.
+		ReflectResourceList(compiler, resources.storage_buffers, SpirvResourceType::StorageBuffer, out);
 
 		return out;
 	}

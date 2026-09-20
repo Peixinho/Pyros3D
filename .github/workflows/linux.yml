@@ -46,12 +46,34 @@ jobs:
             graphics: OpenGL
             context: SDL2
             vulkan: "OFF"
+            opengl: GL41
+            compute: "OFF"
             artifact: Pyros3D-linux-opengl
           - name: Vulkan
             graphics: Vulkan
             context: SDL2Vulkan
             vulkan: "ON"
+            opengl: GL41
+            compute: "OFF"
             artifact: Pyros3D-linux-vulkan
+          # The only job in the whole CI matrix that can actually RUN a
+          # compute shader. Compute is GL 4.3, and of the platforms this
+          # project builds for, Linux is the one where that is reachable
+          # without a GPU: Mesa's llvmpipe implements GL 4.5 in software,
+          # so a headless container gets real dispatches, real SSBO
+          # writes and a real readback to verify.
+          #
+          # macOS cannot host this at any speed (Apple caps OpenGL at
+          # 4.1), and the web target never will (WebGL2 has no compute
+          # stage). So if this job does not exercise the GL compute path,
+          # nothing does - see tools/tests/compute_smoke.cpp.
+          - name: OpenGL GL45 (compute)
+            graphics: OpenGL
+            context: SDL2
+            vulkan: "OFF"
+            opengl: GL45
+            compute: "ON"
+            artifact: Pyros3D-linux-opengl-gl45
 
     steps:
       # Before checkout, not after: actions/checkout needs git present to clone
@@ -85,6 +107,7 @@ jobs:
             libfreetype-dev \
             liblua5.4-dev \
             libgl1-mesa-dev \
+            libgl1-mesa-dri \
             libassimp-dev \
             libcurl4-openssl-dev
 
@@ -139,7 +162,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=Release \
             -DPYROS_GRAPHICS=${{ matrix.graphics }} \
             -DCONTEXT=${{ matrix.context }} \
-            -DOPENGL_VERSION=GL41 \
+            -DOPENGL_VERSION=${{ matrix.opengl }} \
             -DSTATIC_LIB=OFF \
             -DBUILD_VULKAN_BACKEND=${{ matrix.vulkan }} \
             ${VULKAN_SDK:+-DCMAKE_PREFIX_PATH=$VULKAN_SDK} \
@@ -227,6 +250,53 @@ jobs:
           echo "measured glibc floor: $floor"
           sed -i "s/- GLIBC_FLOOR_PLACEHOLDER/- ${floor/GLIBC_/glibc } or newer (measured from the binaries)/" package/README.txt
           grep glibc package/README.txt
+
+      - name: Compute smoke test
+        if: matrix.compute == 'ON'
+        # Built by hand rather than through CMake, matching every other
+        # binary in tools/tests (none of them are in the build system -
+        # see the compile line in each file's header comment). Kept that
+        # way deliberately here too: this links against the GL45 build
+        # tree specifically, which is one matrix entry out of three, and
+        # wiring a conditional target into the root CMakeLists for it
+        # would cost more than the two commands below.
+        #
+        # LIBGL_ALWAYS_SOFTWARE forces llvmpipe rather than whatever
+        # stub the container might otherwise pick. Without it a runner
+        # with no DRI device can land on a GL 1.4 software path, where
+        # the test correctly reports SKIP - and a SKIP here would be a
+        # silent loss of the only compute coverage in the project, so
+        # the step below turns that case into a hard failure on purpose.
+        run: |
+          set -euo pipefail
+          apt-get install -y --no-install-recommends xvfb
+          cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
+            src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
+          c++ -std=c++17 -DGL45 \
+            -I include -I include/Pyros3D/Ext/gl45 \
+            $(pkg-config --cflags freetype2) \
+            $(pkg-config --cflags sdl2) \
+            tools/tests/compute_smoke.cpp /tmp/glad45.o \
+            -o /tmp/compute_smoke \
+            -L build -lPyrosEngine $(pkg-config --libs sdl2) \
+            -Wl,-rpath,"$PWD/build"
+          set +e
+          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a /tmp/compute_smoke | tee /tmp/compute_out.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          echo "--- exit code $code ---"
+          if [ $code -ne 0 ]; then
+            echo "::error::compute_smoke failed - the GL compute path is broken"
+            exit 1
+          fi
+          # A SKIP exits 0 by design (so the test is safe to run anywhere),
+          # but on THIS job a skip means llvmpipe did not give us GL 4.3+
+          # and the coverage silently evaporated. Fail loudly instead.
+          if grep -q '^SKIP' /tmp/compute_out.txt; then
+            echo "::error::compute_smoke SKIPped on the one runner that is supposed to support compute - llvmpipe did not provide GL 4.3+"
+            exit 1
+          fi
+          grep -q '^PASS  compute_smoke' /tmp/compute_out.txt
 
       - name: Smoke run
         # A runner has no GPU and no display, so failing to open a window is

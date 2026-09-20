@@ -24,7 +24,21 @@ namespace p3d {
 		enum {
 			VertexShader = 0,
 			FragmentShader,
-			GeometryShader
+			GeometryShader,
+			// Not a stage of the graphics pipeline, and never linked
+			// alongside one: a compute program is a program whose ONLY
+			// attached stage is this. Kept in the same enum anyway
+			// because every device entry point that takes a stage
+			// (CreateShaderStage, BuildShaderSource) is shared with the
+			// graphics path and would otherwise need a parallel enum
+			// that means the same thing.
+			//
+			// Only meaningful on a backend whose
+			// IRenderDevice::SupportsCompute() returns true - GL41/GL42
+			// (compute is GL 4.3), GLES 3.0 and WebGL2 have no such
+			// stage at all, and CreateShaderStage returns 0 for it
+			// there rather than pretending.
+			ComputeShader
 		};
 	}
 

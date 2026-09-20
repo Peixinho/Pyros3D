@@ -16,6 +16,7 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <cstdlib>
+#include <cstring>
 
 namespace p3d {
 
@@ -907,6 +908,19 @@ namespace p3d {
 			return glCreateShader(GL_VERTEX_SHADER);
 		case ShaderType::FragmentShader:
 			return glCreateShader(GL_FRAGMENT_SHADER);
+		case ShaderType::ComputeShader:
+#if defined(GL45)
+			// GL_COMPUTE_SHADER is GL 4.3. Only the gl45 glad generation
+			// declares it, which is why this case is compiled out rather
+			// than guarded at runtime on the other profiles - on GL41/GL42
+			// the token does not exist to name.
+			return glCreateShader(GL_COMPUTE_SHADER);
+#else
+			// Same contract as the geometry stage below: 0 means "this
+			// profile has no such stage". A caller reaching here ignored
+			// SupportsCompute().
+			return 0;
+#endif
 		case ShaderType::GeometryShader:
 		default:
 			// Geometry shader creation was already commented out upstream
@@ -1787,5 +1801,253 @@ namespace p3d {
 		GLCHECKER(glBindFramebuffer(GL_DRAW_FRAMEBUFFER, (GLuint)prevDrawFBO));
 		GLCHECKER(glDeleteFramebuffers(2, fbos));
 	}
+
+#if defined(GL45)
+
+	// =====================================================================
+	// Compute
+	//
+	// GL45-only by construction: compute shaders are GL 4.3, and the gl41/
+	// gl42 glad generations under include/Pyros3D/Ext/ do not even declare
+	// glDispatchCompute or GL_SHADER_STORAGE_BUFFER, so this whole block
+	// would not compile there. GLES3 is excluded for the same reason plus a
+	// harder one - compute is GLES 3.1, and WebGL2 has no compute stage at
+	// all and never will.
+	//
+	// Note this is the ONE place in this file where a build-time profile
+	// check is not sufficient on its own: a GL45 binary can perfectly well
+	// be run against a 4.1 driver (macOS, or an old Mesa), where glad leaves
+	// every 4.3 entry point NULL. SupportsCompute() checks the pointers,
+	// not the #define, for exactly that reason - see below.
+	// =====================================================================
+
+	bool GLRenderDevice::SupportsCompute() const
+	{
+		// The function pointers, not GL_VERSION, and not the GL45 #define.
+		//
+		// glad resolves entry points against whatever context actually got
+		// created, so these are NULL on a driver that does not implement
+		// 4.3 regardless of what this binary was compiled for - which is
+		// the normal case for a GL45 build on macOS (Apple caps OpenGL at
+		// 4.1). Parsing GL_VERSION would also work but is famously easy to
+		// get wrong on drivers that prefix vendor text; a null check cannot
+		// be wrong, because a null pointer is precisely the thing that
+		// would crash.
+		//
+		// All four are checked rather than just glDispatchCompute: a
+		// partial loader state should read as "no compute" rather than
+		// crash later on whichever one happened to be missing.
+		return glDispatchCompute != NULL
+			&& glMemoryBarrier != NULL
+			&& glBindBufferBase != NULL
+			&& glGetBufferSubData != NULL;
+	}
+
+	bool GLRenderDevice::StorageRangeIsValid(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const char *what) const
+	{
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported(what);
+			return false;
+		}
+		std::map<DeviceHandle, uint32>::const_iterator it = storageBufferSizes.find(buffer);
+		if (it == storageBufferSizes.end())
+		{
+			echo(std::string("ERROR: ") + what + " called with an unknown storage buffer handle.");
+			return false;
+		}
+		// Checked as 64-bit so an offset + size that wraps uint32 cannot
+		// slip through as a small number and validate.
+		const uint64 end = (uint64)offset + (uint64)sizeBytes;
+		if (end > (uint64)it->second)
+		{
+			std::ostringstream msg;
+			msg << "ERROR: " << what << " range [" << offset << ", " << end
+				<< ") is outside the " << it->second << "-byte storage buffer.";
+			echo(msg.str());
+			return false;
+		}
+		return true;
+	}
+
+	uint32 GLRenderDevice::GetMaxComputeWorkGroupInvocations() const
+	{
+		if (!SupportsCompute())
+			return 0;
+		GLint value = 0;
+		GLCHECKER(glGetIntegerv(GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS, &value));
+		return (uint32)value;
+	}
+
+	uint32 GLRenderDevice::GetMaxComputeWorkGroupCount(const uint32 dimension) const
+	{
+		// Indexed query, one per dimension - glGetIntegerv on
+		// GL_MAX_COMPUTE_WORK_GROUP_COUNT is not valid, it needs
+		// glGetIntegeri_v with the axis as the index.
+		if (!SupportsCompute() || dimension > 2)
+			return 0;
+		GLint value = 0;
+		GLCHECKER(glGetIntegeri_v(GL_MAX_COMPUTE_WORK_GROUP_COUNT, (GLuint)dimension, &value));
+		return (uint32)value;
+	}
+
+	DeviceHandle GLRenderDevice::CreateComputePipeline(const DeviceHandle program)
+	{
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("CreateComputePipeline");
+			return 0;
+		}
+		if (program == 0 || glIsProgram((GLuint)program) == GL_FALSE)
+		{
+			echo("ERROR: CreateComputePipeline called with a handle that is not a linked GL program.");
+			return 0;
+		}
+		const DeviceHandle handle = nextComputePipelineHandle++;
+		computePipelines[handle] = (uint32)program;
+		return handle;
+	}
+
+	void GLRenderDevice::DestroyComputePipeline(const DeviceHandle pipeline)
+	{
+		// Drops the mapping only. The GL program itself belongs to whoever
+		// created it (Shader/its own DeleteProgram), exactly as
+		// DestroyPipeline does not delete a graphics program either -
+		// several pipelines may name one program.
+		computePipelines.erase(pipeline);
+	}
+
+	void GLRenderDevice::BindComputePipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
+	{
+		// cmd is ignored - GL has no command buffer (see the comment on
+		// CommandBufferHandle in IRenderDevice.h).
+		(void)cmd;
+		std::map<DeviceHandle, uint32>::const_iterator it = computePipelines.find(pipeline);
+		if (it == computePipelines.end())
+		{
+			echo("ERROR: BindComputePipeline called with an unknown pipeline handle.");
+			return;
+		}
+		GLCHECKER(glUseProgram((GLuint)it->second));
+	}
+
+	DeviceHandle GLRenderDevice::CreateStorageBuffer(const uint32 sizeBytes, const uint32 bindingPoint, const void *data)
+	{
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("CreateStorageBuffer");
+			return 0;
+		}
+		GLuint buffer = 0;
+		GLCHECKER(glGenBuffers(1, &buffer));
+		GLCHECKER(glBindBuffer(GL_SHADER_STORAGE_BUFFER, buffer));
+		// GL_DYNAMIC_DRAW rather than GL_STATIC_DRAW: an SSBO exists to be
+		// written by the GPU and usually re-read or re-written every frame,
+		// which is the opposite of what STATIC advertises to the driver.
+		GLCHECKER(glBufferData(GL_SHADER_STORAGE_BUFFER, (GLsizeiptr)sizeBytes, data, GL_DYNAMIC_DRAW));
+		// Bind to its indexed slot immediately, mirroring what
+		// CreateUniformBuffer does for UBOs. Note this is the
+		// GL_SHADER_STORAGE_BUFFER binding namespace, which is entirely
+		// separate from GL_UNIFORM_BUFFER's - binding 0 here does not
+		// collide with GlobalMatrices at UBO binding 0.
+		GLCHECKER(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, (GLuint)bindingPoint, buffer));
+		GLCHECKER(glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0));
+		storageBufferSizes[(DeviceHandle)buffer] = sizeBytes;
+		return (DeviceHandle)buffer;
+	}
+
+	void GLRenderDevice::UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data)
+	{
+		if (!StorageRangeIsValid(buffer, offset, sizeBytes, "UpdateStorageBuffer"))
+			return;
+		GLCHECKER(glBindBuffer(GL_SHADER_STORAGE_BUFFER, (GLuint)buffer));
+		GLCHECKER(glBufferSubData(GL_SHADER_STORAGE_BUFFER, (GLintptr)offset, (GLsizeiptr)sizeBytes, data));
+		GLCHECKER(glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0));
+	}
+
+	void GLRenderDevice::ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData)
+	{
+		if (outData == NULL)
+			return;
+		if (!StorageRangeIsValid(buffer, offset, sizeBytes, "ReadStorageBuffer"))
+		{
+			// Same reasoning as the base class's version: zero rather than
+			// leave the caller's memory undefined, so a failed read looks
+			// like a failed read and not like wrong shader output.
+			memset(outData, 0, sizeBytes);
+			return;
+		}
+		GLCHECKER(glBindBuffer(GL_SHADER_STORAGE_BUFFER, (GLuint)buffer));
+		GLCHECKER(glGetBufferSubData(GL_SHADER_STORAGE_BUFFER, (GLintptr)offset, (GLsizeiptr)sizeBytes, outData));
+		GLCHECKER(glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0));
+	}
+
+	void GLRenderDevice::BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint)
+	{
+		(void)cmd;
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("BindStorageBuffer");
+			return;
+		}
+		GLCHECKER(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, (GLuint)bindingPoint, (GLuint)buffer));
+	}
+
+	void GLRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)
+	{
+		if (buffer == 0)
+			return;
+		GLuint name = (GLuint)buffer;
+		GLCHECKER(glDeleteBuffers(1, &name));
+		storageBufferSizes.erase(buffer);
+	}
+
+	void GLRenderDevice::Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ)
+	{
+		(void)cmd;
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("Dispatch");
+			return;
+		}
+		// A zero in any dimension dispatches nothing. That is legal GL, and
+		// it is also exactly what an off-by-one in the caller's group
+		// arithmetic looks like (e.g. count/localSize with count < localSize
+		// yielding 0), so it is worth naming rather than silently doing
+		// nothing.
+		if (groupsX == 0 || groupsY == 0 || groupsZ == 0)
+		{
+			echo("WARNING: Dispatch called with a zero work group count - nothing will run. "
+				"Remember these are GROUP counts: use (items + localSize - 1) / localSize, not the item count.");
+			return;
+		}
+		GLCHECKER(glDispatchCompute((GLuint)groupsX, (GLuint)groupsY, (GLuint)groupsZ));
+	}
+
+	void GLRenderDevice::ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits)
+	{
+		(void)cmd;
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("ComputeBarrier");
+			return;
+		}
+		GLbitfield mask = 0;
+		if (barrierBits & ComputeBarrierBit::StorageBuffer) mask |= GL_SHADER_STORAGE_BARRIER_BIT;
+		if (barrierBits & ComputeBarrierBit::ImageAccess)   mask |= GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT;
+		if (barrierBits & ComputeBarrierBit::VertexBuffer)  mask |= GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT;
+		// GL_BUFFER_UPDATE_BARRIER_BIT is the one that covers a subsequent
+		// glGetBufferSubData - NOT GL_SHADER_STORAGE_BARRIER_BIT, which
+		// only orders shader-side access. Reading back without this is the
+		// classic "my compute shader produced the old values" bug, and it
+		// reproduces intermittently, which is worse.
+		if (barrierBits & ComputeBarrierBit::HostRead)      mask |= GL_BUFFER_UPDATE_BARRIER_BIT;
+		if (barrierBits == ComputeBarrierBit::All)          mask = GL_ALL_BARRIER_BITS;
+		if (mask == 0)
+			return;
+		GLCHECKER(glMemoryBarrier(mask));
+	}
+
+#endif /* GL45 */
 
 };

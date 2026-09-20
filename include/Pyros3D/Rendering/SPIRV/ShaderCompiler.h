@@ -35,7 +35,15 @@ namespace p3d {
 	{
 		enum {
 			Vertex = 0,
-			Fragment
+			Fragment,
+			// Compiles and reflects exactly like the other two - shaderc
+			// has a compute kind and spirv-cross's CompilerMSL emits a
+			// kernel from it with no special handling. What differs is
+			// downstream: the resulting module declares storage buffers
+			// (see SpirvResourceType::StorageBuffer) rather than vertex
+			// attributes, and a local workgroup size the dispatching
+			// backend has to respect.
+			Compute
 		};
 	}
 
@@ -44,6 +52,16 @@ namespace p3d {
 		enum {
 			UniformBuffer = 0,
 			SampledImage,
+			// An SSBO (`layout(std430, binding = N) buffer { ... }`).
+			// Distinct from UniformBuffer because the two live in
+			// different descriptor types on Vulkan
+			// (VK_DESCRIPTOR_TYPE_STORAGE_BUFFER vs _UNIFORM_BUFFER) and
+			// different binding-point namespaces on GL
+			// (GL_SHADER_STORAGE_BUFFER vs GL_UNIFORM_BUFFER - binding 0
+			// of one is not binding 0 of the other), so a caller that
+			// cannot tell them apart from reflection alone would bind
+			// every compute buffer to the wrong place.
+			StorageBuffer,
 			Unknown
 		};
 	}

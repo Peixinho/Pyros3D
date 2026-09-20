@@ -32,6 +32,36 @@ namespace p3d {
 		};
 	}
 
+	// What a ComputeBarrier() call is waiting on: the writes a dispatch
+	// just made, described by how the NEXT access is going to read them.
+	// Not the same axis as "which stage" - GL's glMemoryBarrier names the
+	// *reader*, not the writer, and getting that backwards is the classic
+	// way to write a barrier that compiles, runs, and protects nothing.
+	//
+	// Combinable with |. On a backend with no compute (SupportsCompute()
+	// false) these values are still legal to construct; the call that
+	// consumes them is what refuses.
+	namespace ComputeBarrierBit
+	{
+		enum {
+			None = 0,
+			// A shader is about to read an SSBO this dispatch wrote.
+			StorageBuffer = 0x1,
+			// A texture fetch / imageLoad is about to read an image this
+			// dispatch wrote via imageStore().
+			ImageAccess = 0x2,
+			// A draw call is about to source vertex attributes from a
+			// buffer this dispatch wrote - the GPU-particle case, where
+			// compute fills the instance buffer the very next draw reads.
+			VertexBuffer = 0x4,
+			// The CPU is about to read this back (ReadStorageBuffer).
+			HostRead = 0x8,
+			// Always correct, never precise. Fine for a smoke test or a
+			// once-a-frame transition; wasteful inside a hot loop.
+			All = 0x7FFFFFFF
+		};
+	}
+
 	namespace StencilOp
 	{
 		enum {
@@ -619,6 +649,89 @@ namespace p3d {
 		virtual void DestroyBuffer(const DeviceHandle buffer) = 0;
 		virtual void *MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType) = 0;
 		virtual void UnmapBuffer(const DeviceHandle buffer, const uint32 bufferType) = 0;
+
+		// ---- Compute -----------------------------------------------------
+		//
+		// Everything in this block is capability-gated on SupportsCompute()
+		// and, unlike the rest of this interface, is NOT pure virtual. That
+		// is deliberate: every other method here describes something all
+		// three backends can genuinely do, so a pure virtual correctly
+		// refuses to let a backend forget one. Compute is the first
+		// capability a conforming backend is allowed to simply not have -
+		// GL41/GL42 (compute is GL 4.3), GLES 3.0 and WebGL2 (no compute
+		// stage exists at all, and for WebGL2 never will) - and making
+		// these pure would force three of those to hand-write identical
+		// "I can't" stubs whose only job is to compile.
+		//
+		// So the base class implements them once, as a loud refusal
+		// (ComputeUnsupported() logs the method name and the reason), and a
+		// backend overrides only what it actually supports. The contract
+		// for callers is the same either way: ask SupportsCompute() first.
+		// Calling anything below without checking is a programming error,
+		// and it reports itself as one rather than silently doing nothing -
+		// which on a GPU path is indistinguishable from "the shader is
+		// wrong" and costs hours.
+
+		// The single source of truth. False on this base class, and on
+		// every backend that has not overridden it.
+		virtual bool SupportsCompute() const { return false; }
+
+		// Device limits a caller needs to size a dispatch correctly.
+		// Meaningless (0) when SupportsCompute() is false. maxWorkGroupCount
+		// is per-dimension; maxWorkGroupInvocations is the total threads a
+		// single work group may declare via layout(local_size_*), which is
+		// the limit that actually bites (GL guarantees only 1024, and real
+		// drivers do vary).
+		virtual uint32 GetMaxComputeWorkGroupInvocations() const { return 0; }
+		virtual uint32 GetMaxComputeWorkGroupCount(const uint32 dimension) const { (void)dimension; return 0; }
+
+		// A compute pipeline is just a linked program whose only attached
+		// stage is ShaderType::ComputeShader. It deliberately does NOT go
+		// through CreatePipeline(PipelineDesc): that struct is entirely
+		// graphics fixed-function state (depth test, blend, cull, vertex
+		// layout, render pass compatibility) and a dispatch has none of
+		// it. Overloading it would mean a pile of fields that must be
+		// ignored, and one of them - isShadowPass - selects a VkRenderPass,
+		// which is precisely the thing a compute pipeline must not have.
+		virtual DeviceHandle CreateComputePipeline(const DeviceHandle program);
+		virtual void DestroyComputePipeline(const DeviceHandle pipeline);
+		virtual void BindComputePipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline);
+
+		// Storage buffers (SSBOs). Separate from CreateUniformBuffer()
+		// because the two are different binding-point namespaces, not just
+		// different sizes: GL binding 0 of GL_SHADER_STORAGE_BUFFER and
+		// binding 0 of GL_UNIFORM_BUFFER are unrelated slots, and Vulkan
+		// gives them different descriptor types. A shared allocator that
+		// could not tell them apart would bind compute data over the
+		// engine's own UBOs.
+		//
+		// `data` may be NULL to allocate without initialising.
+		virtual DeviceHandle CreateStorageBuffer(const uint32 sizeBytes, const uint32 bindingPoint, const void *data);
+		virtual void UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data);
+		// Blocking read back to CPU memory. Correct only after a
+		// ComputeBarrier(ComputeBarrierBit::HostRead) - without one the read
+		// may observe the buffer's contents from before the dispatch, with
+		// no error reported anywhere.
+		virtual void ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData);
+		virtual void BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint);
+		virtual void DestroyStorageBuffer(const DeviceHandle buffer);
+
+		// Work GROUP counts, not thread counts - the total threads is this
+		// multiplied by the shader's own layout(local_size_x/y/z). Passing
+		// a thread count here is the single most common compute bug and
+		// silently over-dispatches by the local size, so the parameter
+		// names say `groups` and mean it.
+		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ);
+		// `barrierBits` is a mask of ComputeBarrierBit::* values.
+		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits);
+
+	protected:
+		// Shared loud refusal for every unimplemented compute entry point
+		// above. Logs `what` (the method name) once per distinct name, so
+		// a per-frame call site cannot flood the log into uselessness.
+		// Lives in IRenderDevice.cpp so this header need not pull in Log.h.
+		void ComputeUnsupported(const char *what) const;
+	public:
 
 		// Vertex attribute component type translation - engineType is one
 		// of GeometryBuffer.h's Buffer::Attribute::Type::Int/Short/Float/

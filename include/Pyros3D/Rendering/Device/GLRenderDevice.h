@@ -106,6 +106,26 @@ namespace p3d {
 		virtual void *MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType);
 		virtual void UnmapBuffer(const DeviceHandle buffer, const uint32 bufferType);
 
+		// Compute - see the block comment on IRenderDevice::SupportsCompute().
+		// Real implementations only under GL45; on GL41/GL42/GLES3 these
+		// are not overridden at all and the base class's loud refusal
+		// stands, because those profiles have no compute stage to call.
+#if defined(GL45)
+		virtual bool SupportsCompute() const;
+		virtual uint32 GetMaxComputeWorkGroupInvocations() const;
+		virtual uint32 GetMaxComputeWorkGroupCount(const uint32 dimension) const;
+		virtual DeviceHandle CreateComputePipeline(const DeviceHandle program);
+		virtual void DestroyComputePipeline(const DeviceHandle pipeline);
+		virtual void BindComputePipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline);
+		virtual DeviceHandle CreateStorageBuffer(const uint32 sizeBytes, const uint32 bindingPoint, const void *data);
+		virtual void UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data);
+		virtual void ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData);
+		virtual void BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint);
+		virtual void DestroyStorageBuffer(const DeviceHandle buffer);
+		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ);
+		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits);
+#endif
+
 		virtual uint32 TranslateAttributeType(const uint32 engineType);
 
 		virtual std::string BuildShaderSource(const std::string &definitions, const std::string &shaderBody);
@@ -245,6 +265,31 @@ namespace p3d {
 		// swapchain pass (harmless for GL BeginFrame no-ops, but wrong for
 		// any code that keys on the real target).
 		DeviceHandle currentDrawFBO = 0;
+
+#if defined(GL45)
+		// Compute pipeline handle -> GL program name. GL has no compute
+		// pipeline object at all (a linked program with a compute stage IS
+		// the pipeline, selected by plain glUseProgram), so this mirrors
+		// the `pipelines` table above: it exists only so
+		// CreateComputePipeline can hand back a stable DeviceHandle in the
+		// same shape as every other Create* here, and so BindComputePipeline
+		// can reject a handle that was never created instead of calling
+		// glUseProgram on an arbitrary integer.
+		std::map<DeviceHandle, uint32> computePipelines;
+		DeviceHandle nextComputePipelineHandle = 1;
+
+		// Size of each live storage buffer, by handle. ReadStorageBuffer and
+		// UpdateStorageBuffer use it to reject an out-of-range range before
+		// it reaches GL: glGetBufferSubData past the end is undefined
+		// behaviour that on some drivers reads adjacent GPU memory and
+		// returns it happily, which is a far worse failure than an error.
+		std::map<DeviceHandle, uint32> storageBufferSizes;
+		// Shared precondition check for UpdateStorageBuffer/ReadStorageBuffer:
+		// compute is supported, the handle is one we created, and
+		// [offset, offset+sizeBytes) is inside it. `what` names the caller
+		// for the log. Returns false if the caller must not proceed.
+		bool StorageRangeIsValid(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const char *what) const;
+#endif
 
 	};
 
