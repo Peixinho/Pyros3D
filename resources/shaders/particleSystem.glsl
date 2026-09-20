@@ -61,6 +61,16 @@ void main()
 
 	float size = mix(uStartSize, uEndSize, p3d_ease(vAge, uSizeEase));
 	size *= 1.0 + (aParticleData1.y - 0.5) * 2.0 * uSizeRandomJitter;
+	// Alive flag, 1.0 or 0.0. Zero collapses the quad to a point and it
+	// rasterizes nothing.
+	//
+	// Only GPU-simulated emitters ever set it to 0: the CPU path removes
+	// a dead particle by swapping the last live one into its slot and
+	// drawing fewer instances, which a compute shader cannot do without
+	// either atomics or a second compaction pass. The GPU path instead
+	// draws the whole pool every frame and relies on this line. The CPU
+	// path writes 1.0 unconditionally, so both agree here.
+	size *= aParticleData1.z;
 
 	float rotation = aParticleData1.x;
 	float c = cos(rotation);

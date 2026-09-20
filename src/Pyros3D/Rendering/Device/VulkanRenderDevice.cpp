@@ -3457,7 +3457,27 @@ namespace p3d {
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 		bufferInfo.size = allocLength;
-		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT;
+		// STORAGE_BUFFER alongside the two obvious ones, so a compute
+		// shader can write a buffer the draw then reads as vertex data -
+		// GPU particle simulation, where the dispatch fills the very
+		// per-instance attribute buffer the draw consumes.
+		//
+		// GL and Metal need no equivalent: their buffers carry no type at
+		// creation, so the same allocation can be bound to either target
+		// freely. Vulkan bakes usage in, and binding a buffer as a
+		// storage descriptor without this bit is invalid
+		// (VUID-VkWriteDescriptorSet-descriptorType-00327) - caught by
+		// validation rather than silently, but only at the bind, which is
+		// a long way from the allocation that forgot it.
+		//
+		// Unconditional rather than opt-in: it is one usage flag, it does
+		// not change the memory type chosen here, and threading a "will
+		// compute touch this?" parameter down through GeometryBuffer,
+		// AttributeBuffer and every caller would cost far more than it
+		// saves.
+		bufferInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT
+			| VK_BUFFER_USAGE_INDEX_BUFFER_BIT
+			| VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
 		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
 		VmaAllocationCreateInfo allocInfo = {};

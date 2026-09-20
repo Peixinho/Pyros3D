@@ -113,7 +113,7 @@ jobs:
       - name: Build
         run: cmake --build build --parallel "$(sysctl -n hw.ncpu)"
 
-      - name: Compute and GI tests
+      - name: Compute, GI and particle tests
         if: matrix.compute != 'none'
         # The macOS runners are the only CI machines with a real GPU, and
         # Metal and MoltenVK are the only backends whose compute path
@@ -128,6 +128,14 @@ jobs:
         run: |
           set -euo pipefail
           FT="$(pkg-config --cflags freetype2)"
+          # Hoisted rather than set inside the first Vulkan branch that
+          # needs them: three separate if/else blocks below use these, and
+          # relying on an earlier branch having run is the kind of
+          # ordering dependency that breaks the moment someone reorders
+          # the tests. FetchContent puts them in the build tree, not on
+          # any install prefix.
+          VMA="$(find . -name vk_mem_alloc.h -print -quit)"
+          VOLK="$(find . -name volk.h -print -quit)"
           if [ "${{ matrix.compute }}" = "metal" ]; then
             c++ -std=c++17 -DMETAL_BACKEND -DCOMPUTE_SMOKE_METAL \
               -I include $FT \
@@ -137,11 +145,7 @@ jobs:
               -Wl,-rpath,"$PWD/build"
           else
             # No SDL at all - the Vulkan leg runs headless via
-            # InitializeHeadless(). VMA and volk are FetchContent'd, so
-            # their headers are not on any install prefix; find them in
-            # the build tree the way the engine's own compile does.
-            VMA="$(find . -name vk_mem_alloc.h -print -quit)"
-            VOLK="$(find . -name volk.h -print -quit)"
+            # InitializeHeadless().
             c++ -std=c++17 -DVULKAN_BACKEND -DCOMPUTE_SMOKE_VULKAN \
               -I include -I "$(brew --prefix)/include" $FT \
               -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
@@ -190,8 +194,6 @@ jobs:
               -L build -lPyrosEngine -framework Foundation -framework Metal \
               -Wl,-rpath,"$PWD/build"
           else
-            VMA="$(find . -name vk_mem_alloc.h -print -quit)"
-            VOLK="$(find . -name volk.h -print -quit)"
             c++ -std=c++17 -DVULKAN_BACKEND -DPARITY_VULKAN \
               -I include -I "$(brew --prefix)/include" $FT \
               -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
@@ -201,6 +203,23 @@ jobs:
           # Run from the repo root - it reads resources/shaders/.
           /tmp/sh_parity | tee /tmp/parity_out.txt
           grep -q '^PASS  sh_shader_parity' /tmp/parity_out.txt
+
+          # GPU particle simulation against the CPU integrator it
+          # replaces. Same two-backend build shape as sh_parity above.
+          if [ "${{ matrix.compute }}" = "metal" ]; then
+            c++ -std=c++17 -DMETAL_BACKEND -DPARITY_METAL -I include $FT \
+              tools/tests/particles_gpu_parity.cpp -o /tmp/particles_parity \
+              -L build -lPyrosEngine -framework Foundation -framework Metal \
+              -Wl,-rpath,"$PWD/build"
+          else
+            c++ -std=c++17 -DVULKAN_BACKEND -DPARITY_VULKAN \
+              -I include -I "$(brew --prefix)/include" $FT \
+              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
+              tools/tests/particles_gpu_parity.cpp -o /tmp/particles_parity \
+              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+          fi
+          /tmp/particles_parity | tee /tmp/particles_out.txt
+          grep -q '^PASS  particles_gpu_parity' /tmp/particles_out.txt
 
       - name: Package
         if: matrix.package == 'yes'

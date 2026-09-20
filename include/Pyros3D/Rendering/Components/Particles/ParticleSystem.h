@@ -13,6 +13,7 @@
 #include <Pyros3D/Core/Math/Easing.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Core/Math/Random.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Other/Export.h>
 #include <vector>
 #include <memory>
@@ -66,6 +67,19 @@ namespace p3d {
 
 		Vec3 gravity;        // world-space acceleration, applied every frame
 		f32 damping;         // velocity *= (1 - damping*dt) every frame, 0 = none
+
+		// Simulate on the GPU instead of the CPU. Opt-in, and silently
+		// ignored where the backend has no compute (WebGL2, GLES3,
+		// GL41/GL42, and GL on macOS) - IsGPUSimulated() reports what
+		// actually happened, which is not always what was asked for.
+		//
+		// The trade is not free. GPU simulation cannot do the CPU path's
+		// swap-with-last compaction, so the draw submits maxParticles
+		// instances every frame rather than liveCount, with dead slots
+		// collapsed to zero-size quads in the vertex shader. Below a few
+		// thousand particles the CPU path is usually the better deal;
+		// above that the integration cost dominates and this wins.
+		bool gpuSimulation;
 
 		f32 startSize, endSize;     // world-space diameter, ramped over normalized age
 		f32 sizeRandomJitter;        // +/- fraction of size, randomized per particle
@@ -212,6 +226,11 @@ namespace p3d {
 
 		// Per-particle CPU-only simulation state (never uploaded to the
 		// GPU directly - GPU only ever sees the derived ParticleGPU below).
+		// True when the GPU path is actually running - desc.gpuSimulation
+		// was asked for AND the backend could provide it. Always check
+		// this rather than the desc flag.
+		bool IsGPUSimulated() const { return gpuActive; }
+
 		struct ParticleCPU
 		{
 			Vec3 velocity;
@@ -249,6 +268,44 @@ namespace p3d {
 		// Play() on a one-shot emitter defers its burst to the next Update()
 		// instead of spawning immediately - see Play() in ParticleSystem.cpp.
 		bool pendingBurst;
+
+		// ---- GPU simulation -------------------------------------------
+		// All of this is inert unless gpuActive.
+		bool gpuActive;
+		DeviceHandle gpuStage, gpuProgram, gpuPipeline;
+		// Per-particle simulation state, 3 vec4s: position+lifetime,
+		// velocity+spawnTime, rotation/rotationSpeed/seed/alive. Distinct
+		// from the attribute buffer, which the dispatch only ever WRITES -
+		// keeping every input here means spawning touches one buffer the
+		// device knows the size of, and never has to write into the
+		// vertex data the draw is reading.
+		DeviceHandle gpuStateBuffer;
+		// dt, time, gravity, damping, count - rewritten every step.
+		DeviceHandle gpuParamsBuffer;
+
+		// What the CPU still has to know per slot, and nothing more.
+		//
+		// Picking a free slot needs liveness, and reading liveness off the
+		// GPU every frame would stall the pipeline for the sake of two
+		// floats per particle. It does not have to: the CPU assigned both
+		// of these when it spawned the particle, so it can derive
+		// liveness itself and never read anything back.
+		struct SlotLife { f32 spawnTime; f32 lifetime; };
+		std::vector<SlotLife> slotLife;
+
+		// Two phases, and the split is forced by Vulkan. A Stream/Dynamic
+		// buffer there is a RING of buffers so the CPU can rewrite one
+		// while another is still being drawn - but a compute shader
+		// writes the single handle it was given, which would then be the
+		// wrong slot. So a GPU-simulated emitter needs a Static (single)
+		// attribute buffer, and that choice has to be made when the
+		// buffer is created - which means knowing whether the compute
+		// pipeline actually built BEFORE creating it.
+		bool CreateGPUPipeline();
+		bool CreateGPUBuffers();
+		void ShutdownGPUSimulation();
+		void UpdateGPU(const f64 time, const f32 dt);
+		void SpawnParticleGPU(const f64 time);
 
 		AttributeBuffer* particleBuffer;
 		ParticleSystemMaterial* material;
