@@ -65,6 +65,8 @@ namespace p3d
 			define += std::string("#define CELLSHADING\n");
 		if (options & ShaderUsage::Lighting2D)
 			define += std::string("#define LIGHTING2D\n");
+		if (options & ShaderUsage::GlobalIllumination)
+			define += std::string("#define GLOBALILLUMINATION\n");
 		if (options & ShaderUsage::ClipPlane)
 			define += std::string("#define CLIPSPACE\n");
 		if (options & ShaderUsage::DeferredRenderer_Gbuffer)
@@ -172,6 +174,16 @@ namespace p3d
 			Roughness = 0.5f;
 			uMetallic = AddUniform(Uniform("uMetallic", Uniforms::DataType::Float, &Metallic));
 			uRoughness = AddUniform(Uniform("uRoughness", Uniforms::DataType::Float, &Roughness));
+		}
+
+		if (options & ShaderUsage::GlobalIllumination)
+		{
+			// Engine-owned, like the shadow maps below: the volume
+			// belongs to the scene. Declared only under the flag,
+			// because a sampler a shader declares and nothing binds is
+			// a dropped draw on WebGL2.
+			AddUniform(Uniform("uDDGIIrradiance", Uniforms::DataUsage::DDGIIrradianceMap));
+			AddUniform(Uniform("uDDGIVisibility", Uniforms::DataUsage::DDGIVisibilityMap));
 		}
 
 		if (options & ShaderUsage::DirectionalShadow)

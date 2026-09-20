@@ -23,6 +23,7 @@
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
 #include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
+#include <Pyros3D/Rendering/GI/DDGIVolume.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
 #include <memory>
@@ -128,6 +129,17 @@ namespace p3d {
 		// probes) gets a single sample at its origin; per-fragment
 		// sampling needs the grid in a 3D texture and is a later step.
 		void SetAmbientProbeGrid(const IrradianceProbeGrid *Grid);
+
+		// Publishes a DDGI volume for AmbientMode 3. Borrowed, not
+		// owned. Uploading is lazy and keyed on `revision` - a caller
+		// bumps that when it has re-traced probes, and nothing is
+		// re-uploaded on a frame where nothing changed. Pass NULL to
+		// stop sampling it.
+		//
+		// A material only reads this if it was compiled with
+		// ShaderUsage::GlobalIllumination; the two atlas samplers do not
+		// exist in any other variant, which is the point of the flag.
+		void SetDDGIVolume(const DDGIVolume *Volume, const uint32 revision);
 		const IrradianceProbeGrid *GetAmbientProbeGrid() const { return AmbientProbeGrid; }
 
 		// The occluder set for 2D shadows, in world space. Filled by whoever
@@ -314,6 +326,14 @@ namespace p3d {
 			AmbientSH[9];
 		// Borrowed - see SetAmbientProbeGrid.
 		const IrradianceProbeGrid *AmbientProbeGrid = NULL;
+		// Borrowed - see SetDDGIVolume.
+		const DDGIVolume *DDGIVol = NULL;
+		uint32 DDGIRevision = 0;
+		uint32 DDGIUploadedRevision = 0xFFFFFFFFu;
+		Texture *DDGIIrradianceTex = NULL;
+		Texture *DDGIVisibilityTex = NULL;
+		static uint32 DDGIUniformsUBO;
+		void UploadDDGIIfDirty();
 		uint32
 			AmbientMode = 0;
 

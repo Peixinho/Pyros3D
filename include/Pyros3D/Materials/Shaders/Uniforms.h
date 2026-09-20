@@ -51,6 +51,12 @@ namespace p3d {
 				NumberOfSpotShadows = 24,
 
 				ClipPlanes = 25,
+				// DDGI probe atlases. Engine-owned rather than
+				// material-owned, like the shadow maps above - the
+				// volume belongs to the scene, not to whatever happens
+				// to be drawing.
+				DDGIIrradianceMap = 26,
+				DDGIVisibilityMap = 27,
 
 				// User Uniforms
 				Other = 200,

@@ -123,6 +123,9 @@
 // separate from the set=0 UBO bindings continuing below at 16) - see
 // SAMPLER_BINDING's comment above for why the two tracks don't collide.
 #define BIND_uMetallicRoughnessmap 16
+// DDGI probe atlases - see ShaderUsage::GlobalIllumination.
+#define BIND_uDDGIIrradiance 17
+#define BIND_uDDGIVisibility 18
 
 // Loose-uniform-turned-UBO bindings. Each block is declared in exactly one
 // stage (checked against actual usage: e.g. uCameraPos is only ever read
@@ -145,6 +148,8 @@
 #define BIND_MaterialUniforms 22
 #define BIND_ObjectLightCounts 23
 #define BIND_Occluders2D 24
+// DDGI volume description - see ShaderUsage::GlobalIllumination.
+#define BIND_DDGIUniforms 25
 #define MAX_OCCLUDERS_2D 32
 
 vec4 EncodeFloatRGBA( float v ) {
@@ -240,7 +245,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vWorldPositionShadow) varying_out vec4 vWorldPositionShadow;
     #endif
 
-    #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PARALLAXMAPPING) || defined(PBR)
+    #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PARALLAXMAPPING) || defined(PBR) || defined(GLOBALILLUMINATION)
         IO_LOCATION(LOC_vWorldPosition) varying_out vec4 vWorldPosition;
     #endif
 
@@ -429,7 +434,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             matAnimation += uBoneMatrix[int(aBonesID.w)] * aBonesWeight.w;
         #endif
 
-        #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
+        #if defined(SKINNING) || defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) ||  defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR) || defined(GLOBALILLUMINATION)
             #ifndef SKINNING
                 vWorldPosition=ModelMatrix * vec4(Position,1.0);
             #else
@@ -1036,7 +1041,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vWorldPositionShadow) varying_in vec4 vWorldPositionShadow;
     #endif
 
-    #if defined(SKINNING) || defined(ENVMAP) || defined(PARALLAXMAPPING) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
+    #if defined(SKINNING) || defined(ENVMAP) || defined(PARALLAXMAPPING) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR) || defined(GLOBALILLUMINATION)
         IO_LOCATION(LOC_vWorldPosition) varying_in vec4 vWorldPosition;
     #endif
 
@@ -1139,9 +1144,120 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
        // reaches the lighting pass without that pass knowing anything about
        // it. Materials with no normal (an unlit Color-only G-buffer variant)
        // fall through to the flat colour.
+   #ifdef GLOBALILLUMINATION
+       SAMPLER_BINDING(BIND_uDDGIIrradiance) uniform sampler2D uDDGIIrradiance;
+       SAMPLER_BINDING(BIND_uDDGIVisibility) uniform sampler2D uDDGIVisibility;
+
+       // Grid description. xyz = origin, w = probes per atlas row;
+       // then spacing, then counts, then (irradianceRes, visibilityRes,
+       // maxRayDistance, unused).
+       UBO_BINDING(BIND_DDGIUniforms) uniform DDGIUniforms {
+           vec4 uDDGIOrigin;
+           vec4 uDDGISpacing;
+           vec4 uDDGICounts;
+           vec4 uDDGIParams;
+       };
+
+       vec2 p3d_OctEncode(vec3 d)
+       {
+           float l1 = abs(d.x) + abs(d.y) + abs(d.z);
+           if (l1 < 1e-20) return vec2(0.0);
+           vec3 n = d / l1;
+           if (n.z < 0.0)
+           {
+               float ox = n.x;
+               n.x = (1.0 - abs(n.y)) * (ox >= 0.0 ? 1.0 : -1.0);
+               n.y = (1.0 - abs(ox))  * (n.y >= 0.0 ? 1.0 : -1.0);
+           }
+           return n.xy;
+       }
+
+       // Atlas UV for one probe's tile, given a direction. The +1 and
+       // the res/(res+2) scale skip the border: the border exists for
+       // hardware filtering to read, never to be addressed directly.
+       vec2 p3d_ProbeUV(float probeIndex, vec3 dir, float res)
+       {
+           float perRow = uDDGIParams.w;
+           float tile = res + 2.0;
+           float px = mod(probeIndex, perRow);
+           float py = floor(probeIndex / perRow);
+           vec2 oct = p3d_OctEncode(dir) * 0.5 + 0.5;
+           vec2 inTile = vec2(1.0) + oct * res;
+           vec2 atlasSize = vec2(perRow * tile, ceil(uDDGICounts.x * uDDGICounts.y * uDDGICounts.z / perRow) * tile);
+           return (vec2(px, py) * tile + inTile) / atlasSize;
+       }
+
+       // Indirect light from the eight surrounding probes, each weighted
+       // by a Chebyshev visibility test against its own distance
+       // moments. That test is what stops a probe on the far side of a
+       // wall lighting this side - see DDGIVolume.h.
+       vec3 SampleDDGI(vec3 worldPos, vec3 normal)
+       {
+           vec3 counts = uDDGICounts.xyz;
+           vec3 g = (worldPos - uDDGIOrigin.xyz) / uDDGISpacing.xyz;
+           g = clamp(g, vec3(0.0), counts - vec3(1.0));
+           vec3 baseF = min(floor(g), counts - vec3(2.0));
+           vec3 frac = g - baseF;
+
+           float irrRes = uDDGIParams.x;
+           float visRes = uDDGIParams.y;
+
+           vec3 sum = vec3(0.0);
+           float weightSum = 0.0;
+
+           for (int c = 0; c < 8; c++)
+           {
+               vec3 offset = vec3(float(c & 1), float((c >> 1) & 1), float((c >> 2) & 1));
+               vec3 pc = baseF + offset;
+               if (any(greaterThan(pc, counts - vec3(1.0)))) continue;
+
+               vec3 tri3 = mix(vec3(1.0) - frac, frac, offset);
+               float weight = tri3.x * tri3.y * tri3.z;
+               if (weight <= 0.0) continue;
+
+               vec3 probePos = uDDGIOrigin.xyz + uDDGISpacing.xyz * pc;
+               float probeIndex = (pc.z * counts.y + pc.y) * counts.x + pc.x;
+
+               vec3 toProbe = probePos - worldPos;
+               float dist = length(toProbe);
+               if (dist > 1e-5) toProbe /= dist;
+
+               // Backface rejection, smoothed so a rotating surface does
+               // not pop as a probe crosses behind it.
+               float facing = (dot(toProbe, normal) + 1.0) * 0.5;
+               weight *= facing * facing + 0.2;
+
+               vec2 vuv = p3d_ProbeUV(probeIndex, -toProbe, visRes);
+               vec2 moments = texture(uDDGIVisibility, vuv).rg;
+               float mean = moments.x;
+               float variance = max(moments.y - mean * mean, 0.0);
+               if (dist > mean)
+               {
+                   float diff = dist - mean;
+                   float cheb = variance / (variance + diff * diff);
+                   weight *= max(cheb * cheb * cheb, 0.0);
+               }
+               if (weight <= 1e-6) continue;
+
+               vec2 iuv = p3d_ProbeUV(probeIndex, normal, irrRes);
+               sum += texture(uDDGIIrradiance, iuv).rgb * weight;
+               weightSum += weight;
+           }
+           if (weightSum <= 1e-6) return vec3(0.0);
+           return sum / weightSum;
+       }
+   #endif
+
        vec3 AmbientAt()
        {
        #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
+       #ifdef GLOBALILLUMINATION
+           // Mode 3: a DDGI volume. Already irradiance-over-PI, because
+           // the volume gathers radiance and the gather is normalised -
+           // same convention as every other branch here.
+           if (uAmbientParams.x >= 2.5)
+               return max(SampleDDGI(vWorldPosition.xyz, normalize(vNormal)), vec3(0.0));
+       #endif
            if (uAmbientParams.x >= 1.5)
            {
                // Divided by PI, and that is load-bearing. This engine

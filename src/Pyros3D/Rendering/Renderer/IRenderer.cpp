@@ -113,6 +113,7 @@ uint32 IRenderer::ObjectMatrixUniformsUBO = 0;
 uint32 IRenderer::BoneMatricesUBO = 0;
 uint32 IRenderer::VelocityObjectUniformsUBO = 0;
 uint32 IRenderer::AmbientLightUniformsUBO = 0;
+uint32 IRenderer::DDGIUniformsUBO = 0;
 uint32 IRenderer::MaterialUniformsUBO = 0;
 uint32 IRenderer::ObjectLightCountsUBO = 0;
 bool IRenderer::VertexFrameUniformsUBOValid = false;
@@ -437,6 +438,10 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		// full declared block size and drops the draw outright when it is
 		// short, with the mesh simply never appearing.
 		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 14, 21);
+		// Four vec4s: origin+probesPerRow, spacing, counts, and
+		// (irradianceRes, visibilityRes, unused, probesPerRow) - see
+		// PyrosShader.glsl's DDGIUniforms block.
+		DDGIUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 4, 25);
 		MaterialUniformsUBO = device->CreateUniformBuffer(80, 22);
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
@@ -1483,6 +1488,56 @@ void IRenderer::SetAmbientMode(const uint32 Mode)
 	AmbientMode = Mode;
 }
 
+void IRenderer::SetDDGIVolume(const DDGIVolume *Volume, const uint32 revision)
+{
+	DDGIVol = (Volume != NULL && Volume->IsValid()) ? Volume : NULL;
+	DDGIRevision = revision;
+}
+
+void IRenderer::UploadDDGIIfDirty()
+{
+	if (DDGIVol == NULL || DDGIRevision == DDGIUploadedRevision)
+		return;
+
+	const ProbeAtlas &irr = DDGIVol->GetIrradianceAtlas();
+	const ProbeAtlas &vis = DDGIVol->GetVisibilityAtlas();
+
+	// Float targets, not 8-bit. Irradiance is not bounded to [0,1] -
+	// a probe near a bright light legitimately exceeds it, and
+	// clamping produces a hard plateau exactly where the indirect
+	// light is strongest. Visibility stores squared distances, which
+	// are worse: at any real scene scale they leave [0,1] immediately.
+	if (DDGIIrradianceTex == NULL)
+	{
+		DDGIIrradianceTex = new Texture();
+		DDGIIrradianceTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGB32F,
+			(int32)irr.GetWidth(), (int32)irr.GetHeight(), false);
+		// Bilinear across the tile, and clamped: the octahedral border
+		// is what makes filtering at a tile edge correct, and repeat
+		// would wrap into the neighbouring probe instead.
+		DDGIIrradianceTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	}
+	if (DDGIVisibilityTex == NULL)
+	{
+		DDGIVisibilityTex = new Texture();
+		DDGIVisibilityTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RG32F,
+			(int32)vis.GetWidth(), (int32)vis.GetHeight(), false);
+		DDGIVisibilityTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	}
+
+	DDGIIrradianceTex->UpdateData((void*)irr.GetData().data());
+	DDGIVisibilityTex->UpdateData((void*)vis.GetData().data());
+
+	Vec4 ddgi[4];
+	ddgi[0] = Vec4(DDGIVol->origin, (f32)irr.GetProbesPerRow());
+	ddgi[1] = Vec4(DDGIVol->spacing, 0.f);
+	ddgi[2] = Vec4((f32)DDGIVol->counts[0], (f32)DDGIVol->counts[1], (f32)DDGIVol->counts[2], 0.f);
+	ddgi[3] = Vec4((f32)irr.GetResolution(), (f32)vis.GetResolution(), 0.f, (f32)irr.GetProbesPerRow());
+	device->ReplaceUniformBuffer(DDGIUniformsUBO, sizeof(ddgi), ddgi);
+
+	DDGIUploadedRevision = DDGIRevision;
+}
+
 void IRenderer::SetAmbientProbeGrid(const IrradianceProbeGrid *Grid)
 {
 	// Only accept a grid that can actually be sampled. A half-allocated
@@ -2069,6 +2124,26 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// eight of them (colormap/fontmap/normalmap/displacement/env/
 			// refract/skybox/specular), while GL 4.1 guarantees at least 16
 			// per-stage texture image units.
+			case Uniforms::DataUsage::DDGIIrradianceMap:
+			case Uniforms::DataUsage::DDGIVisibilityMap:
+			{
+				// Uploaded lazily and only when the volume says it
+				// changed - see UploadDDGIIfDirty. Binding happens here
+				// rather than in BindShadowMaps because the unit has to
+				// be whatever Texture::Bind just handed out, and that is
+				// only known after the bind.
+				UploadDDGIIfDirty();
+				Texture *tex = ((*k).Usage == Uniforms::DataUsage::DDGIIrradianceMap)
+					? DDGIIrradianceTex : DDGIVisibilityTex;
+				int32 unit = 0;
+				if (tex != NULL)
+				{
+					tex->Bind();
+					unit = (int32)Texture::GetLastBindedUnit();
+				}
+				Shader::SendUniform((*k), &unit, (*_ShadersGlobalCache)[counter], 1);
+				break;
+			}
 			case Uniforms::DataUsage::DirectionalShadowMap:
 				if (DirectionalShadowMapsUnits.size() > 0)
 					Shader::SendUniform((*k), &DirectionalShadowMapsUnits[0], (*_ShadersGlobalCache)[counter], DirectionalShadowMapsUnits.size());
