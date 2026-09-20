@@ -548,6 +548,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		Renderer->SetAmbientGradient(Vec4(ambientSky.x*k, ambientSky.y*k, ambientSky.z*k, 1.f),
 									 Vec4(ambientEquator.x*k, ambientEquator.y*k, ambientEquator.z*k, 1.f),
 									 Vec4(ambientGround.x*k, ambientGround.y*k, ambientGround.z*k, 1.f));
+		{
+			// Scaled by the same ambientIntensity the other two modes are,
+			// so the slider means the same thing whichever source is
+			// selected. SH is linear, so scaling the coefficients scales
+			// the reconstructed irradiance by exactly that factor.
+			SphericalHarmonicsL2 sh;
+			for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount; i++)
+				sh.coefficients[i] = Vec3(ambientSH[i].x * k, ambientSH[i].y * k, ambientSH[i].z * k);
+			Renderer->SetAmbientSH(sh);
+		}
 	}
 
 	void SceneEditor::SwitchRenderer(bool useDeferred)
@@ -4503,7 +4513,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			sceneDirty = true;
 		}
 		ImGui::TextUnformatted("Ambient Source");
-		if (ImGui::Combo("##ambient_source", &ambientMode, "Color\0Gradient\0"))
+		if (ImGui::Combo("##ambient_source", &ambientMode, "Color\0Gradient\0Environment (SH)\0"))
 		{
 			ApplyEnvironment();
 			sceneDirty = true;
@@ -7889,6 +7899,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.ambientIntensity = ambientIntensity;
 			meta.background = backgroundColor;
 			meta.ambientMode = (uint32)ambientMode;
+			for (uint32 i = 0; i < 9; i++) meta.ambientSH[i] = ambientSH[i];
 			meta.ambientSky = ambientSky;
 			meta.ambientEquator = ambientEquator;
 			meta.ambientGround = ambientGround;
@@ -8137,6 +8148,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ambientIntensity = meta.ambientIntensity;
 			backgroundColor = meta.background;
 			ambientMode = (int)meta.ambientMode;
+			for (uint32 i = 0; i < 9; i++) ambientSH[i] = meta.ambientSH[i];
 			ambientSky = meta.ambientSky;
 			ambientEquator = meta.ambientEquator;
 			ambientGround = meta.ambientGround;

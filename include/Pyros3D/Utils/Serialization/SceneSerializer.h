@@ -116,6 +116,12 @@ namespace p3d {
 		Vec4 ambientSky = Vec4(0.32f, 0.38f, 0.45f, 1.f);
 		Vec4 ambientEquator = Vec4(0.20f, 0.20f, 0.20f, 1.f);
 		Vec4 ambientGround = Vec4(0.10f, 0.09f, 0.08f, 1.f);
+		// ambientMode 2: order-2 SH irradiance, nine RGB coefficients in
+		// SphericalHarmonicsL2's index order. Baked from a skybox by the
+		// editor and stored rather than recomputed - projecting six face
+		// images is a second or two of CPU work nobody should pay for at
+		// scene load, and the result is nine numbers.
+		Vec4 ambientSH[9];
 
 		// The post-effect chain, in the order it runs: each entry's output is
 		// the next one's LastRTT. Lives in the SCENE file rather than the

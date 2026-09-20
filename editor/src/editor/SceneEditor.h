@@ -796,6 +796,8 @@ private:
 	Vec4 ambientSky = Vec4(0.32f, 0.38f, 0.45f, 1.f);
 	Vec4 ambientEquator = Vec4(0.20f, 0.20f, 0.20f, 1.f);
 	Vec4 ambientGround = Vec4(0.10f, 0.09f, 0.08f, 1.f);
+	// SceneMeta::ambientSH - ambientMode 2. All zero until a skybox is baked.
+	Vec4 ambientSH[9];
 	// Folder the last skybox bake read its six faces from, so the field
 	// keeps what was typed and the scene remembers where it came from.
 	std::string ambientSkyboxFolder;

@@ -221,6 +221,15 @@ jobs:
           /tmp/particles_parity | tee /tmp/particles_out.txt
           grep -q '^PASS  particles_gpu_parity' /tmp/particles_out.txt
 
+          # A baked environment must survive save/load. Pure CPU, and the
+          # failure it guards is silent data loss rather than a crash.
+          c++ -std=c++17 -DLUA_BINDINGS -I include -I shared $FT \
+            -I "$(brew --prefix lua@5.4)/include/lua" \
+            tools/tests/sh_scene_roundtrip.cpp -o /tmp/sh_roundtrip \
+            -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+          /tmp/sh_roundtrip | tee /tmp/roundtrip_out.txt
+          grep -q '^PASS  sh_roundtrip' /tmp/roundtrip_out.txt
+
       - name: Package
         if: matrix.package == 'yes'
         run: |

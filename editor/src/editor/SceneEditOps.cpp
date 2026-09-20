@@ -5,6 +5,7 @@
 // two front ends can no longer apply different fixups for the same edit.
 
 #include "SceneEditor.h"
+#include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
 #include "SceneCommands.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include "PrefabResolver.h"
@@ -990,6 +991,8 @@ bool SceneEditor::BakeAmbientFromSkybox(const std::string& folder, std::string& 
 	static const char* kExts[4] = { ".png", ".jpg", ".jpeg", ".tga" };
 
 	Vec4 avg[6];
+	std::vector<f32> facePixels[6];
+	uint32 faceSize = 0;
 	for (int f = 0; f < 6; ++f)
 	{
 		std::string found;
@@ -1012,9 +1015,11 @@ bool SceneEditor::BakeAmbientFromSkybox(const std::string& folder, std::string& 
 			errOut = "could not read " + found;
 			return false;
 		}
-		// Plain mean of the face. An irradiance integral would weight by
-		// cos(theta) per texel; for three broad bands the difference is not
-		// worth carrying a full SH projection into the editor.
+		// Plain mean of the face, for the three-band gradient. Left exactly
+		// as it was - including reading the sRGB bytes as if they were
+		// linear - so re-baking a scene that uses the gradient produces
+		// the identical numbers it did before. The SH path below does NOT
+		// inherit that approximation; see its comment.
 		double r = 0, g = 0, b = 0;
 		const size_t n = (size_t)w * (size_t)h;
 		for (size_t i = 0; i < n; ++i)
@@ -1023,8 +1028,33 @@ bool SceneEditor::BakeAmbientFromSkybox(const std::string& folder, std::string& 
 			g += img[i * 3 + 1];
 			b += img[i * 3 + 2];
 		}
-		stbi_image_free(img);
 		avg[f] = Vec4((f32)(r / n / 255.0), (f32)(g / n / 255.0), (f32)(b / n / 255.0), 1.f);
+
+		// The same pixels again as LINEAR floats, for the SH projection.
+		//
+		// sRGB->linear matters here in a way it does not for a three-band
+		// average: irradiance is an integral of radiance, and radiance is
+		// linear. Projecting sRGB bytes directly overstates the midtones
+		// by roughly the gamma curve, which comes out as ambient that is
+		// too bright and too flat - exactly the look people blame on "SH
+		// being low frequency". The faces must also all be square and the
+		// same size, which ProjectCubemapToSH rechecks.
+		if (w != h || (faceSize != 0 && (uint32)w != faceSize))
+		{
+			stbi_image_free(img);
+			errOut = std::string("cubemap faces must be square and all the same size; '")
+				+ kFaces[f] + "' is " + std::to_string(w) + "x" + std::to_string(h);
+			return false;
+		}
+		faceSize = (uint32)w;
+		facePixels[f].resize(n * 3);
+		for (size_t i = 0; i < n * 3; ++i)
+		{
+			const f32 c = (f32)img[i] / 255.f;
+			facePixels[f][i] = (c <= 0.04045f) ? (c / 12.92f)
+											   : powf((c + 0.055f) / 1.055f, 2.4f);
+		}
+		stbi_image_free(img);
 	}
 
 	ambientSky = avg[2];     // posy
@@ -1032,7 +1062,35 @@ bool SceneEditor::BakeAmbientFromSkybox(const std::string& folder, std::string& 
 	ambientEquator = Vec4((avg[0].x + avg[1].x + avg[4].x + avg[5].x) * 0.25f,
 						  (avg[0].y + avg[1].y + avg[4].y + avg[5].y) * 0.25f,
 						  (avg[0].z + avg[1].z + avg[4].z + avg[5].z) * 0.25f, 1.f);
-	ambientMode = 1;
+	// Project the same six faces into SH. kFaces is already in the order
+	// ProjectCubemapToSH expects (+X, -X, +Y, -Y, +Z, -Z) - it is the
+	// engine's cubemap face order, which is why the loader uses it too.
+	{
+		std::vector<CubemapFacePixels> faces;
+		for (int f = 0; f < 6; ++f)
+			faces.push_back(CubemapFacePixels(facePixels[f].data(), faceSize));
+
+		SphericalHarmonicsL2 sh;
+		if (ProjectCubemapToSH(faces, sh))
+		{
+			for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount; i++)
+				ambientSH[i] = Vec4(sh.coefficients[i].x, sh.coefficients[i].y, sh.coefficients[i].z, 0.f);
+			// Mode 2, because it is strictly better than the gradient it
+			// replaces: a real cosine-weighted integral of the actual sky
+			// rather than three averaged bands. The gradient is still
+			// computed and still stored, so switching back in the
+			// dropdown works and nothing is lost.
+			ambientMode = 2;
+		}
+		else
+		{
+			// Leave mode 1. The gradient above is already computed and
+			// correct, so a failed projection costs accuracy, not the
+			// whole bake.
+			ambientMode = 1;
+			echo("BakeAmbientFromSkybox: SH projection failed; keeping the three-band gradient.");
+		}
+	}
 	ApplyEnvironment();
 	MarkSceneDirty();
 	return true;

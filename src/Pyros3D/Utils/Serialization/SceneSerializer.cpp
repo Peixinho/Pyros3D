@@ -1987,6 +1987,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			root["background"] = json::array({ meta->background.x, meta->background.y, meta->background.z });
 			root["ambientMode"] = meta->ambientMode;
 			root["ambientSky"] = json::array({ meta->ambientSky.x, meta->ambientSky.y, meta->ambientSky.z });
+			// Only when there is something to write: a scene that never
+			// baked an environment should not carry 27 zeroes, and their
+			// absence is what tells the loader to leave the defaults.
+			{
+				bool anySH = false;
+				for (uint32 i = 0; i < 9 && !anySH; i++)
+					anySH = (meta->ambientSH[i].x != 0.f || meta->ambientSH[i].y != 0.f || meta->ambientSH[i].z != 0.f);
+				if (anySH)
+				{
+					json sh = json::array();
+					for (uint32 i = 0; i < 9; i++)
+						sh.push_back(json::array({ meta->ambientSH[i].x, meta->ambientSH[i].y, meta->ambientSH[i].z }));
+					root["ambientSH"] = sh;
+				}
+			}
 			root["ambientEquator"] = json::array({ meta->ambientEquator.x, meta->ambientEquator.y, meta->ambientEquator.z });
 			root["ambientGround"] = json::array({ meta->ambientGround.x, meta->ambientGround.y, meta->ambientGround.z });
 			// Same rule as twoD: only written when there is something to
@@ -3480,6 +3495,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					out = Vec4(root[key][0].get<f32>(), root[key][1].get<f32>(), root[key][2].get<f32>(), 1.f);
 			};
 			readBand("ambientSky", outMeta->ambientSky);
+			if (root.contains("ambientSH") && root["ambientSH"].is_array() && root["ambientSH"].size() == 9)
+			{
+				for (uint32 i = 0; i < 9; i++)
+				{
+					const auto &c = root["ambientSH"][i];
+					if (c.is_array() && c.size() == 3)
+						outMeta->ambientSH[i] = Vec4(c[0].get<f32>(), c[1].get<f32>(), c[2].get<f32>(), 0.f);
+				}
+			}
 			readBand("ambientEquator", outMeta->ambientEquator);
 			readBand("ambientGround", outMeta->ambientGround);
 			}
