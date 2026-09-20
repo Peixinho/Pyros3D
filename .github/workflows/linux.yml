@@ -54,11 +54,18 @@ jobs:
             context: SDL2Vulkan
             vulkan: "ON"
             opengl: GL41
-            # Vulkan compute runs headless (InitializeHeadless - no
-            # surface, no window), so all this leg needs is an ICD.
-            # lavapipe is Mesa's software Vulkan device, the same idea as
-            # llvmpipe for GL on the leg below.
-            compute: "vulkan"
+            # No compute here, and not for want of a device: this leg
+            # configures with BUILD_SPIRV_TOOLING=OFF (see the Configure
+            # step for why), which means CompileShaderStage cannot
+            # produce a module for ANY stage on any backend. Vulkan on
+            # Linux is compile/link coverage, not a working renderer, so
+            # SupportsCompute() correctly reports false here.
+            #
+            # Vulkan compute IS covered - on macOS, against MoltenVK,
+            # where SPIRV_TOOLING is on. Tried lavapipe here first; the
+            # SKIP-is-a-failure guard below caught it immediately, which
+            # is the guard doing its job.
+            compute: "OFF"
             artifact: Pyros3D-linux-vulkan
           # The only job in the whole CI matrix that can actually RUN a
           # compute shader. Compute is GL 4.3, and of the platforms this
@@ -137,10 +144,7 @@ jobs:
         # linking it, which is why the backend wants Vulkan::Headers and not
         # Vulkan::Vulkan.
         run: |
-          # mesa-vulkan-drivers brings lavapipe, Mesa's software Vulkan
-          # device - the runners have no GPU, and the compute leg needs a
-          # real ICD to dispatch against.
-          apt-get install -y --no-install-recommends libvulkan-dev mesa-vulkan-drivers
+          apt-get install -y --no-install-recommends libvulkan-dev
           git clone --depth 1 --branch vulkan-sdk-1.4.357.0 \
             https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vulkan-headers
           cmake -S /tmp/vulkan-headers -B /tmp/vulkan-headers/build \
@@ -273,11 +277,14 @@ jobs:
         # with no DRI device can land on a GL 1.4 software path, where
         # the test correctly reports SKIP.
         #
-        # Vulkan: nothing to force - the test runs headless, and the
-        # loader finds lavapipe on its own from mesa-vulkan-drivers.
+        # Only the GL45 leg reaches here today - see the Vulkan entry in
+        # the matrix for why that backend is covered on macOS instead.
+        # The Vulkan branch below is kept because it is correct and costs
+        # nothing, and becomes live the moment a Linux leg builds with
+        # SPIRV_TOOLING on.
         #
-        # Either way a SKIP here means the coverage silently evaporated,
-        # so the step below turns that into a hard failure on purpose.
+        # A SKIP means the coverage silently evaporated, so the step
+        # turns that into a hard failure on purpose.
         run: |
           set -euo pipefail
           FT="$(pkg-config --cflags freetype2)"

@@ -121,7 +121,7 @@ bool IRenderer::CachedClipPlaneEnabled = false;
 Vec4 IRenderer::CachedClipPlane0;
 bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
-Vec4 IRenderer::CachedAmbientEnv[5];
+Vec4 IRenderer::CachedAmbientEnv[14];
 bool IRenderer::VelocityFrameUniformsUBOValid = false;
 Matrix IRenderer::CachedPrvProjectionMatrix;
 Matrix IRenderer::CachedPrvViewMatrix;
@@ -431,7 +431,12 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) + sizeof(Vec4), 18);
 		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
 		VelocityObjectUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 20);
-		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 5, 21);
+		// 14 vec4s, not 5: the block grew by the nine SH coefficients.
+		// The size here must match PyrosShader.glsl's AmbientLightUniforms
+		// exactly - WebGL2 validates a bound range against the shader's
+		// full declared block size and drops the draw outright when it is
+		// short, with the mesh simply never appearing.
+		AmbientLightUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 14, 21);
 		MaterialUniformsUBO = device->CreateUniformBuffer(80, 22);
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
@@ -1478,6 +1483,15 @@ void IRenderer::SetAmbientMode(const uint32 Mode)
 	AmbientMode = Mode;
 }
 
+void IRenderer::SetAmbientSH(const SphericalHarmonicsL2 &SH)
+{
+	for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount; i++)
+	{
+		const Vec3 &c = SH.coefficients[i];
+		AmbientSH[i] = Vec4(c.x, c.y, c.z, 0.f);
+	}
+}
+
 void IRenderer::EnableDepthBias(const Vec2& Bias)
 {
 	if (!IsUsingDepthBias)
@@ -1902,12 +1916,21 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// std140: five consecutive vec4s, matching PyrosShader.glsl's
 			// AmbientLightUniforms block exactly - flat colour, the three
 			// gradient bands, then params.x = mode.
-			Vec4 env[5];
+			Vec4 env[14];
 			env[0] = GlobalLight;
 			env[1] = AmbientSky;
 			env[2] = AmbientEquator;
 			env[3] = AmbientGround;
 			env[4] = Vec4((f32)AmbientMode, 0.f, 0.f, 0.f);
+			// Always uploaded, not just in mode 2. The block is one
+			// contiguous std140 allocation and ReplaceUniformBuffer
+			// re-specifies the whole thing (see its comment on
+			// orphaning), so writing only the first five would leave the
+			// SH coefficients undefined rather than merely unused - and
+			// they would then be read as garbage the moment anything
+			// switched to mode 2.
+			for (uint32 i = 0; i < 9; i++)
+				env[5 + i] = AmbientSH[i];
 			if (!AmbientLightUniformsUBOValid || memcmp(CachedAmbientEnv, env, sizeof(env)) != 0)
 			{
 				device->ReplaceUniformBuffer(AmbientLightUniformsUBO, sizeof(env), env);

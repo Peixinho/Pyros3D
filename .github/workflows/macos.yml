@@ -113,7 +113,7 @@ jobs:
       - name: Build
         run: cmake --build build --parallel "$(sysctl -n hw.ncpu)"
 
-      - name: Compute smoke test
+      - name: Compute and GI tests
         if: matrix.compute != 'none'
         # The macOS runners are the only CI machines with a real GPU, and
         # Metal and MoltenVK are the only backends whose compute path
@@ -171,6 +171,36 @@ jobs:
             exit 1
           fi
           grep -q '^PASS  compute_smoke' /tmp/compute_out.txt
+
+          # SH irradiance: pure CPU maths, checked against closed forms
+          # and brute-force integration. Cheap, and the failure mode it
+          # guards is ambient light that is quietly the wrong colour.
+          c++ -std=c++17 -I include tools/tests/sh_irradiance.cpp \
+            src/Pyros3D/Rendering/GI/SphericalHarmonics.cpp \
+            src/Pyros3D/Core/Math/Vec3.cpp -o /tmp/sh_irradiance
+          /tmp/sh_irradiance
+
+          # And that PyrosShader.glsl's SHIrradiance still agrees with the
+          # C++ one. Reads the shader file and runs it through compute, so
+          # it needs a backend that has compute - which is exactly the
+          # legs this step runs on.
+          if [ "${{ matrix.compute }}" = "metal" ]; then
+            c++ -std=c++17 -DMETAL_BACKEND -DPARITY_METAL -I include $FT \
+              tools/tests/sh_shader_parity.cpp -o /tmp/sh_parity \
+              -L build -lPyrosEngine -framework Foundation -framework Metal \
+              -Wl,-rpath,"$PWD/build"
+          else
+            VMA="$(find . -name vk_mem_alloc.h -print -quit)"
+            VOLK="$(find . -name volk.h -print -quit)"
+            c++ -std=c++17 -DVULKAN_BACKEND -DPARITY_VULKAN \
+              -I include -I "$(brew --prefix)/include" $FT \
+              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
+              tools/tests/sh_shader_parity.cpp -o /tmp/sh_parity \
+              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+          fi
+          # Run from the repo root - it reads resources/shaders/.
+          /tmp/sh_parity | tee /tmp/parity_out.txt
+          grep -q '^PASS  sh_shader_parity' /tmp/parity_out.txt
 
       - name: Package
         if: matrix.package == 'yes'

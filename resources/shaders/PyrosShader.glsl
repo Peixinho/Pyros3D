@@ -1087,12 +1087,50 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            // Environment lighting, gradient source: sky above, ground below,
            // equator around the horizon. uAmbientParams.x is the mode -
            // 0 uses uAmbientLight flat, which is what every material did
-           // before this block grew.
+           // before this block grew, 1 is the gradient, 2 is SH below.
            vec4 uAmbientSky;
            vec4 uAmbientEquator;
            vec4 uAmbientGround;
            vec4 uAmbientParams;
+           // Order-2 spherical harmonics: the real diffuse response of a
+           // captured environment, in nine RGB coefficients (.w unused,
+           // std140 gives an array of vec4 a 16-byte stride anyway so
+           // packing them tighter would buy nothing).
+           //
+           // Nine numbers rather than an irradiance cubemap because the
+           // cosine lobe a diffuse surface integrates against is smooth
+           // enough that order 2 captures it to within about 1% - so this
+           // costs no sampler, no texture unit and no cubemap render
+           // pass, and works unchanged on WebGL2. It is also exactly what
+           // an irradiance probe stores, so a probe grid later is a
+           // spatial array of these and nothing more.
+           //
+           // Index order is (l, m) -> l*(l+1)+m, matching
+           // SphericalHarmonicsL2::coefficients on the C++ side. They are
+           // written and read by index; the two must not drift.
+           vec4 uAmbientSH[9];
        };
+
+       // Ramamoorthi & Hanrahan's closed-form cosine convolution. Mirrors
+       // SphericalHarmonicsL2::Irradiance() exactly - if one changes the
+       // other must, because a CPU/GPU divergence here shows up as ambient
+       // that shifts when a material moves between the forward and the
+       // deferred path, which is a miserable thing to chase.
+       vec3 SHIrradiance(vec3 n)
+       {
+           const float c1 = 0.429043, c2 = 0.511664,
+                       c3 = 0.743125, c4 = 0.886227, c5 = 0.247708;
+           return uAmbientSH[8].rgb * (c1 * (n.x * n.x - n.y * n.y))
+                + uAmbientSH[6].rgb * (c3 * n.z * n.z)
+                + uAmbientSH[0].rgb * c4
+                - uAmbientSH[6].rgb * c5
+                + uAmbientSH[4].rgb * (2.0 * c1 * n.x * n.y)
+                + uAmbientSH[7].rgb * (2.0 * c1 * n.x * n.z)
+                + uAmbientSH[5].rgb * (2.0 * c1 * n.y * n.z)
+                + uAmbientSH[3].rgb * (2.0 * c2 * n.x)
+                + uAmbientSH[1].rgb * (2.0 * c2 * n.y)
+                + uAmbientSH[2].rgb * (2.0 * c2 * n.z);
+       }
 
        // The ambient term for THIS fragment. Normal-dependent in gradient
        // mode, which is why it is a function and not a constant: the
@@ -1104,6 +1142,25 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
        vec3 AmbientAt()
        {
        #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
+           if (uAmbientParams.x >= 1.5)
+           {
+               // Divided by PI, and that is load-bearing. This engine
+               // defines a light colour as the radiance a white Lambertian
+               // surface reflects at N.L == 1 - irradiance/PI - and the
+               // value returned here is multiplied straight into albedo by
+               // both the forward and the deferred path. Returning raw
+               // irradiance would make an environment of radiance 1 come
+               // back as PI and blow every ambient-lit surface out by
+               // 3.14x: the same factor, in the same direction, as the PBR
+               // light-colour bug in CalculatePBRLighting's comment.
+               //
+               // max() because order-2 SH rings slightly negative behind a
+               // sharp light source. Small, but a negative ambient
+               // subtracts from the direct lighting and shows up as black
+               // blotches on the shadowed side of a strongly lit
+               // environment.
+               return max(SHIrradiance(normalize(vNormal)) * (1.0 / 3.14159265359), vec3(0.0));
+           }
            if (uAmbientParams.x >= 0.5)
            {
                float y = clamp(normalize(vNormal).y, -1.0, 1.0);

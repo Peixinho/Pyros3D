@@ -92,6 +92,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/IRenderer.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/SphericalHarmonics.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/GLRenderDevice.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/IRenderDevice.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/GameObjects/GameObject.cpp

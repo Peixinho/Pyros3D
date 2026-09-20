@@ -21,6 +21,7 @@
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include <Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
 #include <memory>
@@ -103,6 +104,12 @@ namespace p3d {
 		// the flat GlobalLight colour.
 		void SetAmbientGradient(const Vec4 &Sky, const Vec4 &Equator, const Vec4 &Ground);
 		void SetAmbientMode(const uint32 Mode);
+		// Publishes a projected environment for AmbientMode 2. Does NOT
+		// switch the mode - a caller that has an environment may still
+		// want the flat or gradient ambient, and silently changing the
+		// look of a scene as a side effect of loading data is the kind
+		// of thing nobody finds until it ships.
+		void SetAmbientSH(const SphericalHarmonicsL2 &SH);
 
 		// The occluder set for 2D shadows, in world space. Filled by whoever
 		// knows what casts - Physics2DWorld does it from its own bodies - and
@@ -280,6 +287,12 @@ namespace p3d {
 		// is what every scene predating this did.
 		Vec4
 			AmbientSky, AmbientEquator, AmbientGround;
+		// Order-2 SH irradiance, consulted only when AmbientMode is 2.
+		// Nine RGB coefficients in SphericalHarmonicsL2's index order,
+		// carried as Vec4 because that is what the std140 block holds -
+		// .w is unused and an array of vec4 has a 16-byte stride anyway.
+		Vec4
+			AmbientSH[9];
 		uint32
 			AmbientMode = 0;
 
@@ -512,7 +525,7 @@ namespace p3d {
 		static Vec4 CachedClipPlane0;
 		static bool AmbientLightUniformsUBOValid;
 		static Vec4 CachedGlobalLight;
-		static Vec4 CachedAmbientEnv[5];
+		static Vec4 CachedAmbientEnv[14];
 		static bool VelocityFrameUniformsUBOValid;
 		static Matrix CachedPrvProjectionMatrix;
 		static Matrix CachedPrvViewMatrix;
