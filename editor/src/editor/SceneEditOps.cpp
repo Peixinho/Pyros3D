@@ -5,6 +5,7 @@
 // two front ends can no longer apply different fixups for the same edit.
 
 #include "SceneEditor.h"
+#include <Pyros3D/Rendering/GI/IrradianceProbeBaker.h>
 #include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
 #include "SceneCommands.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
@@ -1096,6 +1097,95 @@ bool SceneEditor::BakeAmbientFromSkybox(const std::string& folder, std::string& 
 	}
 	ApplyEnvironment();
 	MarkSceneDirty();
+	return true;
+}
+
+// Sizes a probe grid to the scene's own bounds and fills it by rendering
+// the scene from each probe.
+//
+// Bounds from the objects rather than an authored volume: a light-probe
+// volume with a gizmo is the right long-term answer, and requiring one
+// before probes do anything at all would mean nobody ever tries them.
+// Padded outwards so surfaces on the boundary sit inside the grid rather
+// than exactly on its clamped face.
+bool SceneEditor::BakeIrradianceProbes(std::string& errOut)
+{
+	if (scene == NULL)
+	{
+		errOut = "no scene";
+		return false;
+	}
+
+	Vec3 mn(1e30f, 1e30f, 1e30f), mx(-1e30f, -1e30f, -1e30f);
+	uint32 counted = 0;
+	std::vector<RenderingMesh*> meshes = RenderingComponent::GetRenderingMeshesSorted(scene);
+	for (size_t i = 0; i < meshes.size(); i++)
+	{
+		RenderingMesh* m = meshes[i];
+		if (m == NULL || m->renderingComponent == NULL) continue;
+		GameObject* go = m->renderingComponent->GetOwner();
+		if (go == NULL) continue;
+		const Vec3 c = go->GetWorldPosition();
+		const f32 r = go->GetBoundingSphereRadiusWorldSpace();
+		mn = Vec3(Min(mn.x, c.x - r), Min(mn.y, c.y - r), Min(mn.z, c.z - r));
+		mx = Vec3(Max(mx.x, c.x + r), Max(mx.y, c.y + r), Max(mx.z, c.z + r));
+		counted++;
+	}
+	if (counted == 0)
+	{
+		errOut = "scene has no renderable objects to bound";
+		return false;
+	}
+
+	const Vec3 pad = (mx - mn) * 0.1f;
+	mn = mn - pad;
+	mx = mx + pad;
+
+	const uint32 nx = (uint32)Max(2, ambientProbeCounts[0]);
+	const uint32 ny = (uint32)Max(2, ambientProbeCounts[1]);
+	const uint32 nz = (uint32)Max(2, ambientProbeCounts[2]);
+	const Vec3 extent = mx - mn;
+	// spacing spans count-1 intervals, so the last probe lands exactly on
+	// the far bound rather than one cell short of it.
+	const Vec3 spacing((extent.x) / (f32)(nx - 1),
+					   (extent.y) / (f32)(ny - 1),
+					   (extent.z) / (f32)(nz - 1));
+
+	IrradianceProbeGrid grid;
+	if (!grid.Allocate(mn, spacing, nx, ny, nz))
+	{
+		errOut = "invalid probe grid dimensions";
+		return false;
+	}
+
+	IrradianceProbeBaker baker(16);
+	if (!baker.IsSupported())
+	{
+		errOut = "this backend cannot read a texture back, so probes cannot be captured here";
+		return false;
+	}
+	// The far plane has to reach the whole scene or probes see clipped
+	// geometry and come back too dark.
+	const f32 diagonal = extent.magnitude();
+	baker.SetNearFar(0.05f, Max(10.f, diagonal * 2.f));
+
+	// budget 0 = the whole grid in one call. This is the editor's
+	// explicit "bake" button, so blocking is what the user asked for;
+	// the same call with a small budget per frame is the progressive
+	// path.
+	const uint32 done = baker.Update(scene, grid, 0);
+	if (done == 0)
+	{
+		errOut = "no probes could be captured";
+		return false;
+	}
+
+	ambientProbes = grid;
+	ambientMode = 2;
+	ApplyEnvironment();
+	MarkSceneDirty();
+	echo("Baked " + std::to_string(done) + " of " + std::to_string(grid.ProbeCount())
+		+ " irradiance probes.");
 	return true;
 }
 

@@ -557,6 +557,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount; i++)
 				sh.coefficients[i] = Vec3(ambientSH[i].x * k, ambientSH[i].y * k, ambientSH[i].z * k);
 			Renderer->SetAmbientSH(sh);
+			// A valid grid overrides the single projection - see
+			// IRenderer::SetAmbientProbeGrid. Republished every time
+			// because the editor runs several IRenderers and ambient is
+			// process-wide shared state that a renderer must assert
+			// rather than assume survived.
+			Renderer->SetAmbientProbeGrid(ambientProbes.IsValid() ? &ambientProbes : NULL);
 		}
 	}
 
@@ -4518,6 +4524,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ApplyEnvironment();
 			sceneDirty = true;
 		}
+		// Probes: indirect light that varies with position, as opposed to
+		// one value for the whole scene. Only meaningful in SH mode.
+		if (ambientMode == 2)
+		{
+			ImGui::DragInt3("Probe grid", ambientProbeCounts, 1, 2, 32);
+			if (ImGui::Button("Bake Irradiance Probes"))
+			{
+				std::string err;
+				if (!BakeIrradianceProbes(err))
+					echo("Bake Irradiance Probes failed: " + err);
+			}
+			ImGui::SameLine();
+			if (ambientProbes.IsValid())
+				ImGui::Text("%u probes", ambientProbes.ProbeCount());
+			else
+				ImGui::TextDisabled("no probes - using one global SH");
+		}
 		if (ambientMode == 1)
 		{
 			// Sky above, ground below, equator around the horizon - blended
@@ -7900,6 +7923,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.background = backgroundColor;
 			meta.ambientMode = (uint32)ambientMode;
 			for (uint32 i = 0; i < 9; i++) meta.ambientSH[i] = ambientSH[i];
+			meta.ambientProbes = ambientProbes;
 			meta.ambientSky = ambientSky;
 			meta.ambientEquator = ambientEquator;
 			meta.ambientGround = ambientGround;
@@ -8149,6 +8173,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			backgroundColor = meta.background;
 			ambientMode = (int)meta.ambientMode;
 			for (uint32 i = 0; i < 9; i++) ambientSH[i] = meta.ambientSH[i];
+			ambientProbes = meta.ambientProbes;
 			ambientSky = meta.ambientSky;
 			ambientEquator = meta.ambientEquator;
 			ambientGround = meta.ambientGround;

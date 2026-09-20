@@ -184,6 +184,14 @@ jobs:
             src/Pyros3D/Core/Math/Vec3.cpp -o /tmp/sh_irradiance
           /tmp/sh_irradiance
 
+          # Probe grid interpolation. Also CPU-only, and also guarding a
+          # failure that looks like plausible lighting rather than an error.
+          c++ -std=c++17 -I include tools/tests/probe_grid.cpp \
+            src/Pyros3D/Rendering/GI/IrradianceProbeGrid.cpp \
+            src/Pyros3D/Rendering/GI/SphericalHarmonics.cpp \
+            src/Pyros3D/Core/Math/Vec3.cpp -o /tmp/probe_grid
+          /tmp/probe_grid
+
           # And that PyrosShader.glsl's SHIrradiance still agrees with the
           # C++ one. Reads the shader file and runs it through compute, so
           # it needs a backend that has compute - which is exactly the

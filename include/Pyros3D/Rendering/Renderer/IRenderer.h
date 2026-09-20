@@ -22,6 +22,7 @@
 #include <Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
+#include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
 #include <memory>
@@ -110,6 +111,24 @@ namespace p3d {
 		// look of a scene as a side effect of loading data is the kind
 		// of thing nobody finds until it ships.
 		void SetAmbientSH(const SphericalHarmonicsL2 &SH);
+		// Publishes a probe grid for AmbientMode 2. While one is set, the
+		// ambient SH is resampled PER OBJECT from that object's world
+		// position instead of using the single environment projection -
+		// which is the entire difference between environment lighting
+		// and indirect light that varies with where you are standing.
+		//
+		// Borrowed, not owned: the grid lives in the scene. Pass NULL to
+		// go back to the single global SH.
+		//
+		// Per object rather than per fragment, deliberately. It costs
+		// nothing in the shader - the nine coefficients were already a
+		// uniform - and binding 21 is already a per-object dynamic ring
+		// binding on Vulkan and Metal, so the plumbing exists. The
+		// limitation is that one large object (a floor spanning many
+		// probes) gets a single sample at its origin; per-fragment
+		// sampling needs the grid in a 3D texture and is a later step.
+		void SetAmbientProbeGrid(const IrradianceProbeGrid *Grid);
+		const IrradianceProbeGrid *GetAmbientProbeGrid() const { return AmbientProbeGrid; }
 
 		// The occluder set for 2D shadows, in world space. Filled by whoever
 		// knows what casts - Physics2DWorld does it from its own bodies - and
@@ -293,6 +312,8 @@ namespace p3d {
 		// .w is unused and an array of vec4 has a 16-byte stride anyway.
 		Vec4
 			AmbientSH[9];
+		// Borrowed - see SetAmbientProbeGrid.
+		const IrradianceProbeGrid *AmbientProbeGrid = NULL;
 		uint32
 			AmbientMode = 0;
 

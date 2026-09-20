@@ -10,6 +10,7 @@
 #define SCENESERIALIZER_H
 
 #include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Other/Export.h>
@@ -122,6 +123,10 @@ namespace p3d {
 		// images is a second or two of CPU work nobody should pay for at
 		// scene load, and the result is nine numbers.
 		Vec4 ambientSH[9];
+		// ambientMode 2 with a grid: indirect light that varies with
+		// position. Empty until probes are baked; the single ambientSH
+		// above is what gets used then.
+		IrradianceProbeGrid ambientProbes;
 
 		// The post-effect chain, in the order it runs: each entry's output is
 		// the next one's LastRTT. Lives in the SCENE file rather than the

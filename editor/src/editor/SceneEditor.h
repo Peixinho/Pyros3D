@@ -14,6 +14,7 @@
 // std::isnan() calls if json.hpp were parsed first (see the `#undef isnan`
 // pattern in SceneEditor.cpp).
 #include <Pyros3D/Utils/Json/json.hpp>
+#include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
 // Same alias the rest of the editor code uses (MaterialEditor.h defines it
 // identically; redeclaring a namespace-scope alias to the same type is legal).
 using json = nlohmann::json;
@@ -798,6 +799,11 @@ private:
 	Vec4 ambientGround = Vec4(0.10f, 0.09f, 0.08f, 1.f);
 	// SceneMeta::ambientSH - ambientMode 2. All zero until a skybox is baked.
 	Vec4 ambientSH[9];
+	// SceneMeta::ambientProbes. When valid it takes precedence over the
+	// single ambientSH above: indirect light sampled per object instead
+	// of one value for the whole scene.
+	IrradianceProbeGrid ambientProbes;
+	int ambientProbeCounts[3] = { 6, 3, 6 };
 	// Folder the last skybox bake read its six faces from, so the field
 	// keeps what was typed and the scene remembers where it came from.
 	std::string ambientSkyboxFolder;
@@ -881,6 +887,11 @@ private:
 	// editor render nothing. Baking to the bands costs nothing at draw time
 	// and behaves identically on all three backends.
 	bool BakeAmbientFromSkybox(const std::string& folder, std::string& errOut);
+	// Fills a probe grid by rendering the scene from each probe. Sizes
+	// the grid to the scene's own bounds, so it needs no authored volume
+	// to be useful - a real light-probe volume with its own gizmo is the
+	// obvious next step and is not this.
+	bool BakeIrradianceProbes(std::string& errOut);
 	// mtime of the scene file as of the last successful load — AgentServer
 	// uses this to detect external edits (AgentReloadIfChanged).
 	time_t lastLoadMtime = 0;

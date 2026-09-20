@@ -2003,6 +2003,26 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					root["ambientSH"] = sh;
 				}
 			}
+			if (meta->ambientProbes.IsValid())
+			{
+				const IrradianceProbeGrid &g = meta->ambientProbes;
+				json pg;
+				pg["origin"] = json::array({ g.origin.x, g.origin.y, g.origin.z });
+				pg["spacing"] = json::array({ g.spacing.x, g.spacing.y, g.spacing.z });
+				pg["counts"] = json::array({ g.counts[0], g.counts[1], g.counts[2] });
+				// Flat, in Index() order, 27 floats per probe. Not nested
+				// per probe: a 16x8x16 grid is 2048 entries and the
+				// bracket noise would dwarf the numbers.
+				json coeffs = json::array();
+				for (size_t p = 0; p < g.probes.size(); p++)
+					for (uint32 c = 0; c < SphericalHarmonicsL2::kCoefficientCount; c++)
+					{
+						const Vec3 &v = g.probes[p].coefficients[c];
+						coeffs.push_back(v.x); coeffs.push_back(v.y); coeffs.push_back(v.z);
+					}
+				pg["coefficients"] = coeffs;
+				root["ambientProbes"] = pg;
+			}
 			root["ambientEquator"] = json::array({ meta->ambientEquator.x, meta->ambientEquator.y, meta->ambientEquator.z });
 			root["ambientGround"] = json::array({ meta->ambientGround.x, meta->ambientGround.y, meta->ambientGround.z });
 			// Same rule as twoD: only written when there is something to
@@ -3499,6 +3519,44 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					out = Vec4(root[key][0].get<f32>(), root[key][1].get<f32>(), root[key][2].get<f32>(), 1.f);
 			};
 			readBand("ambientSky", outMeta->ambientSky);
+			if (root.contains("ambientProbes") && root["ambientProbes"].is_object())
+			{
+				const auto &pg = root["ambientProbes"];
+				if (pg.contains("origin") && pg.contains("spacing") && pg.contains("counts")
+					&& pg.contains("coefficients") && pg["counts"].is_array() && pg["counts"].size() == 3)
+				{
+					const Vec3 o(pg["origin"][0].get<f32>(), pg["origin"][1].get<f32>(), pg["origin"][2].get<f32>());
+					const Vec3 sp(pg["spacing"][0].get<f32>(), pg["spacing"][1].get<f32>(), pg["spacing"][2].get<f32>());
+					const uint32 nx = pg["counts"][0].get<uint32>();
+					const uint32 ny = pg["counts"][1].get<uint32>();
+					const uint32 nz = pg["counts"][2].get<uint32>();
+					// Allocate() validates the dimensions, and the size
+					// check below validates the payload against them -
+					// between them a truncated or hand-edited grid is
+					// rejected rather than read past its end.
+					if (outMeta->ambientProbes.Allocate(o, sp, nx, ny, nz))
+					{
+						const auto &co = pg["coefficients"];
+						const size_t expected = (size_t)nx * ny * nz * SphericalHarmonicsL2::kCoefficientCount * 3;
+						if (co.is_array() && co.size() == expected)
+						{
+							size_t k = 0;
+							for (size_t p = 0; p < outMeta->ambientProbes.probes.size(); p++)
+								for (uint32 c = 0; c < SphericalHarmonicsL2::kCoefficientCount; c++)
+								{
+									outMeta->ambientProbes.probes[p].coefficients[c] =
+										Vec3(co[k].get<f32>(), co[k+1].get<f32>(), co[k+2].get<f32>());
+									k += 3;
+								}
+						}
+						else
+						{
+							echo("SceneSerializer: ambientProbes coefficient count does not match its grid - discarding the probe grid.");
+							outMeta->ambientProbes.Clear();
+						}
+					}
+				}
+			}
 			if (root.contains("ambientSH") && root["ambientSH"].is_array() && root["ambientSH"].size() == 9)
 			{
 				for (uint32 i = 0; i < 9; i++)

@@ -1483,6 +1483,14 @@ void IRenderer::SetAmbientMode(const uint32 Mode)
 	AmbientMode = Mode;
 }
 
+void IRenderer::SetAmbientProbeGrid(const IrradianceProbeGrid *Grid)
+{
+	// Only accept a grid that can actually be sampled. A half-allocated
+	// one would be rejected per object by Sample() anyway, silently, on
+	// every draw.
+	AmbientProbeGrid = (Grid != NULL && Grid->IsValid()) ? Grid : NULL;
+}
+
 void IRenderer::SetAmbientSH(const SphericalHarmonicsL2 &SH)
 {
 	for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount; i++)
@@ -2282,6 +2290,41 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			}
 		}
 		device->ReplaceUniformBuffer(ObjectMatrixUniformsUBO, sizeof(objectMatrixData), &objectMatrixData);
+
+		// Per-object probe lookup. Only when a grid is published and the
+		// scene is actually in SH mode - otherwise this is an extra UBO
+		// write per object for a block nothing reads differently, and
+		// ObjectMatrixUniforms above is already the measured-expensive
+		// one (see ReplaceUniformBuffer's comment on orphaning).
+		if (AmbientProbeGrid != NULL && AmbientMode == 2)
+		{
+			// The model matrix's translation IS the object's world
+			// position, and it is already in hand here - SendModelUniforms
+			// has no GameObject, and reaching for one would mean
+			// threading it through purely to read back a value this
+			// matrix was built from.
+			const SphericalHarmonicsL2 sampled = AmbientProbeGrid->Sample(ModelMatrix.GetTranslation());
+			// Same 14-vec4 layout as SendGlobalUniforms writes - the
+			// whole block, because ReplaceUniformBuffer re-specifies the
+			// entire allocation and writing only the tail would leave the
+			// flat colour and gradient undefined.
+			Vec4 env[14];
+			env[0] = GlobalLight;
+			env[1] = AmbientSky;
+			env[2] = AmbientEquator;
+			env[3] = AmbientGround;
+			env[4] = Vec4((f32)AmbientMode, 0.f, 0.f, 0.f);
+			for (uint32 i = 0; i < 9; i++)
+			{
+				const Vec3 &c = sampled.coefficients[i];
+				env[5 + i] = Vec4(c.x, c.y, c.z, 0.f);
+			}
+			device->ReplaceUniformBuffer(AmbientLightUniformsUBO, sizeof(env), env);
+			// The per-frame cache in SendGlobalUniforms no longer
+			// describes what is in the buffer, so make it re-upload next
+			// frame rather than skip on a stale comparison.
+			AmbientLightUniformsUBOValid = false;
+		}
 		if (rmesh->SkinningBones.size() > 0)
 		{
 			// Always upload the full UBO size. ReplaceUniformBuffer →
