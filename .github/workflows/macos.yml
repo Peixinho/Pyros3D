@@ -199,6 +199,14 @@ jobs:
             -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
           /tmp/bvh
 
+          # Octahedral encoding and the bordered probe atlas. CPU-only.
+          # The border rule is the one no texture wrap mode implements,
+          # and getting it wrong filters across the seam into unrelated
+          # directions - which reads as probe density, not a bug.
+          c++ -std=c++17 -I include $FT tools/tests/octahedral.cpp -o /tmp/octahedral \
+            -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+          /tmp/octahedral
+
           # And that PyrosShader.glsl's SHIrradiance still agrees with the
           # C++ one. Reads the shader file and runs it through compute, so
           # it needs a backend that has compute - which is exactly the
