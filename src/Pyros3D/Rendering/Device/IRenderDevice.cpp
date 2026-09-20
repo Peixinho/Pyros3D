@@ -14,6 +14,7 @@
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <cstring>
+#include <sstream>
 #include <set>
 
 namespace p3d {
@@ -42,6 +43,35 @@ namespace p3d {
 			+ "Check SupportsCompute() before calling. "
 			+ "(GL needs 4.3+/GL45 - macOS caps OpenGL at 4.1; "
 			+ "GLES needs 3.1 - WebGL2 has no compute stage at all.)");
+	}
+
+	bool IRenderDevice::StorageRangeIsValid(const std::map<DeviceHandle, uint32> &sizes,
+		const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes,
+		const char *what) const
+	{
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported(what);
+			return false;
+		}
+		std::map<DeviceHandle, uint32>::const_iterator it = sizes.find(buffer);
+		if (it == sizes.end())
+		{
+			echo(std::string("ERROR: ") + what + " called with an unknown storage buffer handle.");
+			return false;
+		}
+		// Checked as 64-bit so an offset + size that wraps uint32 cannot
+		// slip through as a small number and validate.
+		const uint64 end = (uint64)offset + (uint64)sizeBytes;
+		if (end > (uint64)it->second)
+		{
+			std::ostringstream msg;
+			msg << "ERROR: " << what << " range [" << offset << ", " << end
+				<< ") is outside the " << it->second << "-byte storage buffer.";
+			echo(msg.str());
+			return false;
+		}
+		return true;
 	}
 
 	DeviceHandle IRenderDevice::CreateComputePipeline(const DeviceHandle program)

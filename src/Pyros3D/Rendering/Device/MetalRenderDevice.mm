@@ -253,6 +253,8 @@ namespace p3d {
 		  nextBufferHandle(1), nextTextureHandle(1),
 		  currentTextureUnit(0), unitJustActivated(false), currentlyConfiguringTexture(0),
 		  nextFBOHandle(1), currentBoundFBO(0), currentReadFBO(0),
+		  nextComputePipelineHandle(1),
+		  computeCommandBuffer(NULL), currentComputeEncoder(NULL), boundComputePipeline(0),
 		  nextPipelineHandle(1), pipelineArchive(NULL),
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f), frameInProgress(false)
 	{
@@ -310,6 +312,24 @@ namespace p3d {
 				if (it->second.buffer != NULL) CFBridgingRelease(it->second.buffer);
 			}
 			buffers.clear();
+
+			// Compute, before the command queue goes: an encoder still
+			// open here would be leaked, and a committed-but-unwaited
+			// command buffer can outlive the queue it came from.
+			// FlushComputeEncoding is not used - it commits, and
+			// committing work during teardown is exactly what the render
+			// device lifetime notes warn about; these are dropped, not
+			// submitted.
+			if (currentComputeEncoder != NULL) { CFBridgingRelease(currentComputeEncoder); currentComputeEncoder = NULL; }
+			if (computeCommandBuffer != NULL) { CFBridgingRelease(computeCommandBuffer); computeCommandBuffer = NULL; }
+			for (std::map<DeviceHandle, ComputePipelineRecord>::iterator it = computePipelines.begin(); it != computePipelines.end(); ++it)
+			{
+				if (it->second.state != NULL) CFBridgingRelease(it->second.state);
+			}
+			computePipelines.clear();
+			// The MTLBuffers themselves were released by the `buffers`
+			// loop above - a storage buffer is an entry in that same map.
+			storageBufferSizes.clear();
 
 			if (depthTexture != NULL) { CFBridgingRelease(depthTexture); depthTexture = NULL; }
 			if (currentRenderEncoder != NULL) { CFBridgingRelease(currentRenderEncoder); currentRenderEncoder = NULL; }
@@ -1605,7 +1625,17 @@ namespace p3d {
 			return false;
 
 #ifdef METAL_SHADER_TOOLING
-		uint32 spirvStage = (it->second.engineShaderType == ShaderType::FragmentShader) ? SpirvShaderStage::Fragment : SpirvShaderStage::Vertex;
+		// A switch, not a ternary on Fragment: `? Fragment : Vertex` sends
+		// a compute stage down the vertex path, where it fails on
+		// gl_GlobalInvocationID instead of on anything that names the
+		// real problem. Same trap the shared ShaderCompiler.cpp had.
+		uint32 spirvStage;
+		switch (it->second.engineShaderType)
+		{
+		case ShaderType::FragmentShader: spirvStage = SpirvShaderStage::Fragment; break;
+		case ShaderType::ComputeShader:  spirvStage = SpirvShaderStage::Compute;  break;
+		default:                         spirvStage = SpirvShaderStage::Vertex;   break;
+		}
 
 		// CustomShaderMaterial-authored shaders (particleSystem.glsl and
 		// friends) use loose uniforms with no explicit layout(binding=) -
@@ -1738,6 +1768,10 @@ namespace p3d {
 				// quads never landed anywhere near their emitter.
 				spirv_cross::ShaderResources resources = mslCompiler.get_shader_resources();
 				std::set<uint32> passthroughBindings;
+				// Every MSL buffer index handed out below, so the storage
+				// buffer loop that follows can detect a collision rather
+				// than quietly overwrite one binding with another.
+				std::set<uint32> usedMslBufferIndices;
 				for (size_t i = 0; i < resources.uniform_buffers.size(); i++)
 				{
 					uint32 b = mslCompiler.get_decoration(resources.uniform_buffers[i].id, spv::DecorationBinding);
@@ -1774,8 +1808,65 @@ namespace p3d {
 					{
 						binding.msl_buffer = binding.binding;
 					}
+					usedMslBufferIndices.insert(binding.msl_buffer);
 					mslCompiler.add_msl_resource_binding(binding);
 				}
+
+				// Storage buffers (SSBOs) need the exact same treatment,
+				// and for the exact same reason - measured, not assumed:
+				// a compute kernel declaring `binding = 0` (Values) and
+				// `binding = 1` (Params) came out of SPIRV-Cross as
+				// buffer(1) and buffer(0) respectively, swapped, because
+				// the default numbering follows declaration/id order and
+				// not the binding decoration. The dispatch then read its
+				// element count out of the data buffer and wrote its
+				// results into the 4-byte params buffer. Nothing errored;
+				// the output buffer simply came back untouched.
+				//
+				// MSL has ONE buffer index space shared by UBOs and
+				// SSBOs, unlike GL (where GL_UNIFORM_BUFFER binding 0 and
+				// GL_SHADER_STORAGE_BUFFER binding 0 are unrelated slots)
+				// and unlike this engine's own GL backend. So a shader
+				// using UBO binding 0 and SSBO binding 0 together is
+				// portable to GL and NOT to Metal - which is also what
+				// Vulkan says, since bindings must be unique within a
+				// descriptor set there too. Rather than silently
+				// overwriting one with the other, that is refused here
+				// with a message that names both.
+				for (size_t i = 0; i < resources.storage_buffers.size(); i++)
+				{
+					const spirv_cross::Resource &res = resources.storage_buffers[i];
+					spirv_cross::MSLResourceBinding binding;
+					binding.stage = mslCompiler.get_execution_model();
+					binding.desc_set = mslCompiler.get_decoration(res.id, spv::DecorationDescriptorSet);
+					binding.binding = mslCompiler.get_decoration(res.id, spv::DecorationBinding);
+
+					// Metal allows [[buffer(0)]]..[[buffer(30)]]. A compute
+					// stage has no vertex buffers, so the whole range is
+					// available to it; a graphics stage must stay below
+					// kFirstVertexBufferIndex or it would land on top of
+					// one of the mesh's attribute buffers.
+					const uint32 ceiling = (it->second.engineShaderType == ShaderType::ComputeShader)
+						? kMaxMslBufferIndex + 1 : kFirstVertexBufferIndex;
+					if (binding.binding >= ceiling)
+					{
+						errorLog = "Metal: storage buffer binding " + std::to_string(binding.binding)
+							+ " is too high (max " + std::to_string(ceiling - 1) + " for this stage).";
+						return false;
+					}
+					if (usedMslBufferIndices.find(binding.binding) != usedMslBufferIndices.end())
+					{
+						errorLog = "Metal: storage buffer binding " + std::to_string(binding.binding)
+							+ " collides with a uniform buffer at the same binding. MSL has one buffer "
+							"index space for both (GL does not), so they must be given distinct "
+							"binding numbers - Vulkan requires this too.";
+						return false;
+					}
+					binding.msl_buffer = binding.binding;
+					usedMslBufferIndices.insert(binding.msl_buffer);
+					mslCompiler.add_msl_resource_binding(binding);
+				}
+
 				// Compact both [[texture(N)]] and [[sampler(N)]] into
 				// contiguous ranges, advancing by each resource's array
 				// size. Texture passthrough used to work for single
@@ -1829,6 +1920,24 @@ namespace p3d {
 					errorLog = "SPIRV-Cross produced empty MSL source";
 					return false;
 				}
+
+				// Capture the kernel's own layout(local_size_x/y/z) while
+				// the reflection object is still in scope. Metal's
+				// dispatchThreadgroups:threadsPerThreadgroup: takes the
+				// threadgroup size at the CALL site, unlike
+				// glDispatchCompute which reads it from the compiled
+				// shader - and Metal does not check the two against each
+				// other, so a mismatch silently runs the wrong number of
+				// threads per group. Reading it here means Dispatch()
+				// never has to be told what the shader already declared.
+				if (it->second.engineShaderType == ShaderType::ComputeShader)
+				{
+					const spirv_cross::SPIREntryPoint &entry =
+						mslCompiler.get_entry_point("main", spv::ExecutionModelGLCompute);
+					it->second.workgroupSize[0] = entry.workgroup_size.x > 0 ? entry.workgroup_size.x : 1;
+					it->second.workgroupSize[1] = entry.workgroup_size.y > 0 ? entry.workgroup_size.y : 1;
+					it->second.workgroupSize[2] = entry.workgroup_size.z > 0 ? entry.workgroup_size.z : 1;
+				}
 			}
 			catch (const std::exception &e)
 			{
@@ -1877,16 +1986,47 @@ namespace p3d {
 		std::map<DeviceHandle, ShaderStageRecord>::iterator shaderIt = shaderStages.find(shader);
 		if (progIt == programs.end() || shaderIt == shaderStages.end())
 			return;
-		if (shaderIt->second.engineShaderType == ShaderType::FragmentShader)
+		switch (shaderIt->second.engineShaderType)
+		{
+		case ShaderType::FragmentShader:
 			progIt->second.fragmentShader = shader;
-		else
+			break;
+		case ShaderType::ComputeShader:
+			// Marks the whole program as compute. Metal enforces the same
+			// exclusivity GL does - a compute function cannot be part of a
+			// render pipeline - so there is no valid program holding both.
+			progIt->second.computeShader = shader;
+			progIt->second.isCompute = true;
+			break;
+		default:
 			progIt->second.vertexShader = shader;
+			break;
+		}
 	}
 	bool MetalRenderDevice::LinkProgram(const DeviceHandle program, std::string &errorLog)
 	{
 		std::map<DeviceHandle, ProgramRecord>::iterator it = programs.find(program);
 		if (it == programs.end())
 			return false;
+
+		// A compute program has one stage and no vertex input, so none of
+		// the reflection below (attribute locations for the
+		// MTLVertexDescriptor, per-stage sampler/texture index merging
+		// across two stages) applies to it. Linking is really just
+		// "is the kernel compiled?" - the MTLComputePipelineState that
+		// would be the actual link step is built later, by
+		// CreateComputePipeline, because it needs no state from here.
+		if (it->second.isCompute)
+		{
+			std::map<DeviceHandle, ShaderStageRecord>::iterator cs = shaderStages.find(it->second.computeShader);
+			if (cs == shaderStages.end() || cs->second.function == NULL)
+			{
+				errorLog = "Compute program has no compiled compute stage";
+				return false;
+			}
+			return true;
+		}
+
 		std::map<DeviceHandle, ShaderStageRecord>::iterator vs = shaderStages.find(it->second.vertexShader);
 		std::map<DeviceHandle, ShaderStageRecord>::iterator fs = shaderStages.find(it->second.fragmentShader);
 		bool vsOk = vs != shaderStages.end() && vs->second.function != NULL;
@@ -2958,6 +3098,414 @@ namespace p3d {
 
 		currentVao = 0;
 		currentPipeline = 0;
+	}
+
+	// =====================================================================
+	// Compute
+	//
+	// The structural difference from GL, and the reason this is not a
+	// transliteration of GLRenderDevice's version: a dispatch cannot be
+	// encoded into a render pass. GL has no such concept - glDispatchCompute
+	// is just another call on the context - but Metal requires an
+	// MTLComputeCommandEncoder, and only one encoder may be open on a
+	// command buffer at a time. The frame's command buffer has an open
+	// MTLRenderCommandEncoder for effectively all of its life (see
+	// BeginFrame/EndFrame), so compute gets its own command buffer rather
+	// than trying to interleave.
+	//
+	// What that buys: dispatching outside a frame - a bake, a smoke test,
+	// any offline GPU work - is fully supported and needs no cooperation
+	// from the renderer. What it costs: dispatching *during* a frame, with
+	// the render encoder open, is refused rather than silently corrupting
+	// the frame. Suspending and resuming a render pass correctly means
+	// rebuilding the pass descriptor with Load actions and re-applying
+	// viewport, winding, pipeline and every bound resource, and there is
+	// no caller that needs it yet. When GPU particles arrive, that is the
+	// work to do here - and doing it speculatively now would be untested
+	// code on the frame path.
+	// =====================================================================
+
+	bool MetalRenderDevice::SupportsCompute() const
+	{
+		// Every Metal device supports compute - there is no feature bit to
+		// check and no OS version that lacks it. The only real question is
+		// whether this object has a device at all, and whether the shader
+		// toolchain that turns GLSL into an MSL kernel was built in: with
+		// METAL_SHADER_TOOLING off, CompileShaderStage cannot produce a
+		// function for ANY stage, so claiming compute support would be a
+		// lie that fails later and less clearly.
+#ifdef METAL_SHADER_TOOLING
+		return device != NULL;
+#else
+		return false;
+#endif
+	}
+
+	uint32 MetalRenderDevice::GetMaxComputeWorkGroupInvocations() const
+	{
+		if (device == NULL)
+			return 0;
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			// maxThreadsPerThreadgroup is per-dimension; the scalar limit
+			// on total threads in a group is the width component, which is
+			// what a 1D local_size_x is measured against.
+			return (uint32)mtlDevice.maxThreadsPerThreadgroup.width;
+		}
+	}
+
+	uint32 MetalRenderDevice::GetMaxComputeWorkGroupCount(const uint32 dimension) const
+	{
+		// Metal publishes no limit on the NUMBER of threadgroups - only on
+		// threads per group (above). Reporting a large value rather than 0
+		// keeps a caller's "does my dispatch fit?" check meaningful instead
+		// of making it fail on every Metal device; 0 here would read as
+		// "compute unsupported", which is the wrong answer.
+		if (device == NULL || dimension > 2)
+			return 0;
+		return 0x7FFFFFFF;
+	}
+
+	bool MetalRenderDevice::BeginComputeEncoding(const char *what)
+	{
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported(what);
+			return false;
+		}
+		if (currentComputeEncoder != NULL)
+			return true;
+
+		// The refusal described in the block comment above. Checked here
+		// rather than in each entry point so there is exactly one place
+		// that knows the rule.
+		if (currentRenderEncoder != NULL)
+		{
+			echo(std::string("ERROR: ") + what + " called while a render pass is open. "
+				"Metal cannot encode a dispatch inside a render pass - the render encoder must end first. "
+				"Dispatch outside BeginFrame()/EndFrame(), or extend MetalRenderDevice to suspend and resume the pass.");
+			return false;
+		}
+
+		@autoreleasepool
+		{
+			id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
+			if (queue == nil)
+			{
+				echo(std::string("ERROR: ") + what + " has no Metal command queue.");
+				return false;
+			}
+			id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
+			id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
+			if (cmdBuf == nil || encoder == nil)
+			{
+				echo(std::string("ERROR: ") + what + " could not open a Metal compute encoder.");
+				return false;
+			}
+			computeCommandBuffer = (void*)CFBridgingRetain(cmdBuf);
+			currentComputeEncoder = (void*)CFBridgingRetain(encoder);
+		}
+		return true;
+	}
+
+	void MetalRenderDevice::FlushComputeEncoding(const bool wait)
+	{
+		if (currentComputeEncoder == NULL && computeCommandBuffer == NULL)
+			return;
+		@autoreleasepool
+		{
+			if (currentComputeEncoder != NULL)
+			{
+				id<MTLComputeCommandEncoder> encoder = (__bridge id<MTLComputeCommandEncoder>)currentComputeEncoder;
+				[encoder endEncoding];
+				CFBridgingRelease(currentComputeEncoder);
+				currentComputeEncoder = NULL;
+			}
+			if (computeCommandBuffer != NULL)
+			{
+				id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)computeCommandBuffer;
+				[cmdBuf commit];
+				// waitUntilCompleted, not addCompletedHandler: the caller
+				// that asked for this is about to read the buffer's
+				// contents on the CPU, and MTLResourceStorageModeShared
+				// memory is only coherent once the GPU is actually done.
+				// Reading without this returns pre-dispatch data, which
+				// looks exactly like a broken shader.
+				if (wait)
+					[cmdBuf waitUntilCompleted];
+				CFBridgingRelease(computeCommandBuffer);
+				computeCommandBuffer = NULL;
+			}
+		}
+		boundComputePipeline = 0;
+	}
+
+	DeviceHandle MetalRenderDevice::CreateComputePipeline(const DeviceHandle program)
+	{
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("CreateComputePipeline");
+			return 0;
+		}
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
+		if (progIt == programs.end() || !progIt->second.isCompute)
+		{
+			echo("ERROR: CreateComputePipeline called with a handle that is not a linked compute program.");
+			return 0;
+		}
+		std::map<DeviceHandle, ShaderStageRecord>::iterator csIt = shaderStages.find(progIt->second.computeShader);
+		if (csIt == shaderStages.end() || csIt->second.function == NULL)
+		{
+			echo("ERROR: CreateComputePipeline: the program's compute stage has no compiled MTLFunction.");
+			return 0;
+		}
+
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			id<MTLFunction> function = (__bridge id<MTLFunction>)csIt->second.function;
+			NSError* nsError = nil;
+			id<MTLComputePipelineState> state = [mtlDevice newComputePipelineStateWithFunction:function error:&nsError];
+			if (state == nil)
+			{
+				echo(std::string("ERROR: newComputePipelineStateWithFunction failed: ")
+					+ (nsError ? [[nsError localizedDescription] UTF8String] : "unknown error"));
+				return 0;
+			}
+
+			// The kernel may declare more threads per group than this
+			// device can run. Metal reports that per pipeline (it depends
+			// on the compiled kernel's register use, not just the device),
+			// and dispatching past it is a hard API error, so it is worth
+			// catching at creation with a message that names both numbers.
+			const uint32 declared = csIt->second.workgroupSize[0] * csIt->second.workgroupSize[1] * csIt->second.workgroupSize[2];
+			const uint32 allowed = (uint32)state.maxTotalThreadsPerThreadgroup;
+			if (declared > allowed)
+			{
+				echo("ERROR: CreateComputePipeline: the kernel declares "
+					+ std::to_string(declared) + " threads per threadgroup but this pipeline allows at most "
+					+ std::to_string(allowed) + ". Lower its local_size.");
+				return 0;
+			}
+
+			ComputePipelineRecord record;
+			record.state = (void*)CFBridgingRetain(state);
+			record.workgroupSize[0] = csIt->second.workgroupSize[0];
+			record.workgroupSize[1] = csIt->second.workgroupSize[1];
+			record.workgroupSize[2] = csIt->second.workgroupSize[2];
+			DeviceHandle handle = nextComputePipelineHandle++;
+			computePipelines[handle] = record;
+			return handle;
+		}
+	}
+
+	void MetalRenderDevice::DestroyComputePipeline(const DeviceHandle pipeline)
+	{
+		std::map<DeviceHandle, ComputePipelineRecord>::iterator it = computePipelines.find(pipeline);
+		if (it == computePipelines.end())
+			return;
+		if (it->second.state != NULL)
+			CFBridgingRelease(it->second.state);
+		computePipelines.erase(it);
+		if (boundComputePipeline == pipeline)
+			boundComputePipeline = 0;
+	}
+
+	void MetalRenderDevice::BindComputePipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
+	{
+		(void)cmd;
+		std::map<DeviceHandle, ComputePipelineRecord>::const_iterator it = computePipelines.find(pipeline);
+		if (it == computePipelines.end())
+		{
+			echo("ERROR: BindComputePipeline called with an unknown pipeline handle.");
+			return;
+		}
+		if (!BeginComputeEncoding("BindComputePipeline"))
+			return;
+		@autoreleasepool
+		{
+			id<MTLComputeCommandEncoder> encoder = (__bridge id<MTLComputeCommandEncoder>)currentComputeEncoder;
+			id<MTLComputePipelineState> state = (__bridge id<MTLComputePipelineState>)it->second.state;
+			[encoder setComputePipelineState:state];
+		}
+		boundComputePipeline = pipeline;
+	}
+
+	DeviceHandle MetalRenderDevice::CreateStorageBuffer(const uint32 sizeBytes, const uint32 bindingPoint, const void *data)
+	{
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("CreateStorageBuffer");
+			return 0;
+		}
+		// Metal has no distinct storage-buffer type: an SSBO and a UBO are
+		// both just MTLBuffer, differing only in how the kernel declares
+		// them. So this reuses CreateBuffer's allocation wholesale rather
+		// than duplicating it - StorageModeShared is exactly what a
+		// readback needs on Apple Silicon (no blit, no staging buffer).
+		//
+		// bindingPoint is deliberately NOT applied here, unlike the GL
+		// version: Metal has no persistent indexed binding state outside
+		// an encoder, so the slot is set per-encoder by BindStorageBuffer.
+		(void)bindingPoint;
+		const DeviceHandle handle = CreateBuffer(0, 0, data, sizeBytes);
+		if (handle == 0)
+			return 0;
+		storageBufferSizes[handle] = sizeBytes;
+		return handle;
+	}
+
+	void MetalRenderDevice::UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data)
+	{
+		if (!StorageRangeIsValid(storageBufferSizes, buffer, offset, sizeBytes, "UpdateStorageBuffer") || data == NULL)
+			return;
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || it->second.buffer == NULL)
+			return;
+		@autoreleasepool
+		{
+			id<MTLBuffer> buf = (__bridge id<MTLBuffer>)it->second.buffer;
+			memcpy((uint8*)[buf contents] + offset, data, sizeBytes);
+		}
+	}
+
+	void MetalRenderDevice::ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData)
+	{
+		if (outData == NULL)
+			return;
+		if (!StorageRangeIsValid(storageBufferSizes, buffer, offset, sizeBytes, "ReadStorageBuffer"))
+		{
+			memset(outData, 0, sizeBytes);
+			return;
+		}
+		// Any dispatch still queued must finish before its writes are
+		// visible in shared memory. Flushing here rather than requiring
+		// the caller to have issued a HostRead barrier makes the readback
+		// correct by construction - the barrier remains the documented
+		// way to say it explicitly, and is a no-op if already flushed.
+		FlushComputeEncoding(true);
+
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || it->second.buffer == NULL)
+		{
+			memset(outData, 0, sizeBytes);
+			return;
+		}
+		@autoreleasepool
+		{
+			id<MTLBuffer> buf = (__bridge id<MTLBuffer>)it->second.buffer;
+			memcpy(outData, (const uint8*)[buf contents] + offset, sizeBytes);
+		}
+	}
+
+	void MetalRenderDevice::BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint)
+	{
+		(void)cmd;
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || it->second.buffer == NULL)
+		{
+			echo("ERROR: BindStorageBuffer called with an unknown buffer handle.");
+			return;
+		}
+		if (!BeginComputeEncoding("BindStorageBuffer"))
+			return;
+		@autoreleasepool
+		{
+			id<MTLComputeCommandEncoder> encoder = (__bridge id<MTLComputeCommandEncoder>)currentComputeEncoder;
+			id<MTLBuffer> buf = (__bridge id<MTLBuffer>)it->second.buffer;
+			// The MSL index equals the SPIR-V binding, the same convention
+			// CompileShaderStage() forces for uniform buffers (see the
+			// long comment there on msl_options and why the default
+			// declaration-order numbering is wrong for this engine).
+			[encoder setBuffer:buf offset:0 atIndex:bindingPoint];
+		}
+	}
+
+	void MetalRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)
+	{
+		storageBufferSizes.erase(buffer);
+		// The MTLBuffer was allocated by CreateBuffer, so it is freed by
+		// the matching DestroyBuffer rather than by hand here.
+		DestroyBuffer(buffer);
+	}
+
+	void MetalRenderDevice::Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ)
+	{
+		(void)cmd;
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("Dispatch");
+			return;
+		}
+		if (groupsX == 0 || groupsY == 0 || groupsZ == 0)
+		{
+			echo("WARNING: Dispatch called with a zero work group count - nothing will run. "
+				"Remember these are GROUP counts: use (items + localSize - 1) / localSize, not the item count.");
+			return;
+		}
+		if (boundComputePipeline == 0 || currentComputeEncoder == NULL)
+		{
+			echo("ERROR: Dispatch called with no compute pipeline bound - call BindComputePipeline first.");
+			return;
+		}
+		std::map<DeviceHandle, ComputePipelineRecord>::const_iterator it = computePipelines.find(boundComputePipeline);
+		if (it == computePipelines.end())
+			return;
+
+		@autoreleasepool
+		{
+			id<MTLComputeCommandEncoder> encoder = (__bridge id<MTLComputeCommandEncoder>)currentComputeEncoder;
+			MTLSize groups = MTLSizeMake(groupsX, groupsY, groupsZ);
+			// From the shader, never from the caller - see the capture in
+			// CompileShaderStage(). This is the half of the dispatch GL
+			// does not make you say, and the half Metal will not check.
+			MTLSize threadsPerGroup = MTLSizeMake(
+				it->second.workgroupSize[0],
+				it->second.workgroupSize[1],
+				it->second.workgroupSize[2]);
+			[encoder dispatchThreadgroups:groups threadsPerThreadgroup:threadsPerGroup];
+		}
+	}
+
+	void MetalRenderDevice::ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits)
+	{
+		(void)cmd;
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("ComputeBarrier");
+			return;
+		}
+		// HostRead is the one that means something structurally different
+		// on Metal: it is not a barrier at all but "end the encoder,
+		// commit, and wait", because CPU visibility of shared memory is a
+		// command-buffer completion property, not an encoder-ordering one.
+		if (barrierBits & ComputeBarrierBit::HostRead)
+		{
+			FlushComputeEncoding(true);
+			return;
+		}
+		if (currentComputeEncoder == NULL)
+			return;
+		@autoreleasepool
+		{
+			id<MTLComputeCommandEncoder> encoder = (__bridge id<MTLComputeCommandEncoder>)currentComputeEncoder;
+			// Metal hazard-tracks resources automatically by default
+			// (MTLHazardTrackingModeTracked), so a dispatch reading what a
+			// previous dispatch in the SAME encoder wrote is already
+			// ordered. This barrier is what makes that explicit and is
+			// required for untracked resources; issuing it costs an
+			// ordering point and nothing else.
+			MTLBarrierScope scope = 0;
+			if (barrierBits & (ComputeBarrierBit::StorageBuffer | ComputeBarrierBit::VertexBuffer))
+				scope |= MTLBarrierScopeBuffers;
+			if (barrierBits & ComputeBarrierBit::ImageAccess)
+				scope |= MTLBarrierScopeTextures;
+			if (barrierBits == ComputeBarrierBit::All)
+				scope = MTLBarrierScopeBuffers | MTLBarrierScopeTextures;
+			if (scope != 0)
+				[encoder memoryBarrierWithScope:scope];
+		}
 	}
 
 }

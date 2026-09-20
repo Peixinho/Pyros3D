@@ -303,6 +303,21 @@ namespace p3d {
 		// AutoFixForVulkan()) is reusable as-is - Metal has exactly the
 		// same "no glUniform equivalent, everything through buffers"
 		// constraint Vulkan already forced.
+		// Compute - see the block comment on IRenderDevice::SupportsCompute().
+		virtual bool SupportsCompute() const;
+		virtual uint32 GetMaxComputeWorkGroupInvocations() const;
+		virtual uint32 GetMaxComputeWorkGroupCount(const uint32 dimension) const;
+		virtual DeviceHandle CreateComputePipeline(const DeviceHandle program);
+		virtual void DestroyComputePipeline(const DeviceHandle pipeline);
+		virtual void BindComputePipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline);
+		virtual DeviceHandle CreateStorageBuffer(const uint32 sizeBytes, const uint32 bindingPoint, const void *data);
+		virtual void UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data);
+		virtual void ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData);
+		virtual void BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint);
+		virtual void DestroyStorageBuffer(const DeviceHandle buffer);
+		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ);
+		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits);
+
 		virtual std::string BuildShaderSource(const std::string &definitions, const std::string &shaderBody);
 		virtual DeviceHandle CreateShaderStage(const uint32 engineShaderType);
 		virtual bool CompileShaderStage(const DeviceHandle shader, const std::string &source, std::string &errorLog);
@@ -519,6 +534,17 @@ namespace p3d {
 			uint32 engineShaderType;
 			std::vector<uint32> spirv;
 			void* function; // id<MTLFunction>
+			// Compute only: the shader's own layout(local_size_x/y/z),
+			// read off the SPIR-V entry point at compile time. Metal has
+			// no equivalent of GL's "the shader declares it and
+			// glDispatchCompute only takes group counts" - 
+			// dispatchThreadgroups:threadsPerThreadgroup: needs BOTH
+			// numbers at the call site, and the threadsPerThreadgroup half
+			// has to match what the kernel was compiled with or the
+			// dispatch is wrong (Metal does not check). Captured here so
+			// Dispatch() never has to be told something the shader
+			// already knows. {1,1,1} for a non-compute stage.
+			uint32 workgroupSize[3];
 			// Engine UBO binding -> actual MSL [[buffer(N)]] index this
 			// stage's compiled MTLFunction reads from, populated only for
 			// bindings CompileShaderStage() had to remap (see its comment) -
@@ -547,7 +573,15 @@ namespace p3d {
 			std::string autoUboBlockName;
 			uint32 autoUboSize;
 			std::map<std::string, uint32> autoUboOffsets;
-			ShaderStageRecord() : engineShaderType(0), function(NULL), autoUboHasBlock(false), autoUboBinding(0), autoUboSize(0) {}
+			ShaderStageRecord() : engineShaderType(0), function(NULL), autoUboHasBlock(false), autoUboBinding(0), autoUboSize(0)
+			{
+				// Not a default member initializer, because this struct
+				// is created as `ShaderStageRecord record;` (default-init,
+				// not value-init) - an array left out of the init list
+				// there holds stack garbage, which as a threadgroup size
+				// is a dispatch of an arbitrary number of threads.
+				workgroupSize[0] = workgroupSize[1] = workgroupSize[2] = 1;
+			}
 		};
 		std::map<DeviceHandle, ShaderStageRecord> shaderStages;
 		DeviceHandle nextShaderStageHandle;
@@ -570,6 +604,13 @@ namespace p3d {
 		struct ProgramRecord
 		{
 			DeviceHandle vertexShader, fragmentShader;
+			// A compute program has this and neither of the two above.
+			// Kept in the same ProgramRecord rather than a separate table
+			// because AttachShaderStage/LinkProgram/DeleteProgram are
+			// shared entry points and would otherwise each need to guess
+			// which table a handle belongs to.
+			DeviceHandle computeShader;
+			bool isCompute;
 			std::map<std::string, uint32> attributeLocations;
 			// bit0 = used by vertex stage, bit1 = used by fragment stage.
 			std::map<uint32, uint32> bindingStageMask;
@@ -603,10 +644,53 @@ namespace p3d {
 			// and to stride consecutive texture/sampler slots - same role
 			// as VulkanRenderDevice::ProgramRecord::samplerArraySizes.
 			std::map<uint32, uint32> samplerArraySizes;
-			ProgramRecord() : vertexShader(0), fragmentShader(0) {}
+			ProgramRecord() : vertexShader(0), fragmentShader(0), computeShader(0), isCompute(false) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
 		DeviceHandle nextProgramHandle;
+
+		// ---- Compute ---------------------------------------------------
+		struct ComputePipelineRecord
+		{
+			void* state; // id<MTLComputePipelineState>
+			// Copied off the shader stage at creation time - see
+			// ShaderStageRecord::workgroupSize for why Dispatch() needs it.
+			uint32 workgroupSize[3];
+			ComputePipelineRecord() : state(NULL)
+			{
+				workgroupSize[0] = workgroupSize[1] = workgroupSize[2] = 1;
+			}
+		};
+		std::map<DeviceHandle, ComputePipelineRecord> computePipelines;
+		DeviceHandle nextComputePipelineHandle;
+
+		// Byte length of each live storage buffer, by handle. The MTLBuffer
+		// itself lives in `buffers` (a storage buffer IS an MTLBuffer -
+		// Metal has no separate type for one), so this only records which
+		// handles are storage buffers and how big, for range validation.
+		std::map<DeviceHandle, uint32> storageBufferSizes;
+
+		// Compute encoding is lazy and self-contained. `computeCommandBuffer`
+		// is a command buffer this device made purely for compute - NOT
+		// currentCommandBuffer, which belongs to the frame and is presented
+		// and committed by EndFrame(). They are kept separate because a
+		// dispatch must not be inside a render pass, and the frame's buffer
+		// has an open MTLRenderCommandEncoder for essentially all of its
+		// life. See BeginComputeEncoding().
+		void* computeCommandBuffer;   // id<MTLCommandBuffer>, nullable
+		void* currentComputeEncoder;  // id<MTLComputeCommandEncoder>, nullable
+		DeviceHandle boundComputePipeline;
+
+		// Opens the compute command buffer + encoder if not already open.
+		// Returns false (having logged, naming `what`) when compute cannot
+		// be encoded right now - no Metal device, or a render pass is
+		// currently open on the frame's command buffer.
+		bool BeginComputeEncoding(const char *what);
+		// Ends the encoder and commits the compute command buffer. With
+		// `wait`, blocks until the GPU has finished - which is what makes
+		// a subsequent ReadStorageBuffer see the dispatch's writes.
+		// A no-op when nothing is open.
+		void FlushComputeEncoding(const bool wait);
 
 		// One MTLBuffer per handle (void* -> id<MTLBuffer> in the .mm).
 		// No VMA/allocator member at all - MTLDevice's own
@@ -671,6 +755,10 @@ namespace p3d {
 		// builds needs (almost always 1, occasionally 2 - e.g. an
 		// instanced per-object transform buffer).
 		static const uint32 kFirstVertexBufferIndex = 24;
+		// Metal's hard cap: [[buffer(0)]] through [[buffer(30)]]. Only a
+		// compute stage can use the range above kFirstVertexBufferIndex,
+		// having no vertex buffers to collide with.
+		static const uint32 kMaxMslBufferIndex = 30;
 
 		// Metal's per-stage sampler argument table is 16 entries
 		// ([[sampler(0)]]..[[sampler(15)]]); the texture table allows 128.

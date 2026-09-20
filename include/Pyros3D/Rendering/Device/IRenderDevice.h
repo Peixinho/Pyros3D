@@ -731,6 +731,17 @@ namespace p3d {
 		// a per-frame call site cannot flood the log into uselessness.
 		// Lives in IRenderDevice.cpp so this header need not pull in Log.h.
 		void ComputeUnsupported(const char *what) const;
+		// Shared precondition check for UpdateStorageBuffer/ReadStorageBuffer
+		// on any backend: compute is supported, `buffer` is a handle the
+		// backend created, and [offset, offset+sizeBytes) is inside it.
+		// `sizes` is the backend's own handle->byte-length table, passed in
+		// because each device keeps its own; everything else about the
+		// check - including the wording of the complaint - is identical
+		// across backends and should stay that way. `what` names the
+		// caller for the log. False means the caller must not proceed.
+		bool StorageRangeIsValid(const std::map<DeviceHandle, uint32> &sizes,
+			const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes,
+			const char *what) const;
 	public:
 
 		// Vertex attribute component type translation - engineType is one

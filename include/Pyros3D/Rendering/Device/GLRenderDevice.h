@@ -284,11 +284,6 @@ namespace p3d {
 		// behaviour that on some drivers reads adjacent GPU memory and
 		// returns it happily, which is a far worse failure than an error.
 		std::map<DeviceHandle, uint32> storageBufferSizes;
-		// Shared precondition check for UpdateStorageBuffer/ReadStorageBuffer:
-		// compute is supported, the handle is one we created, and
-		// [offset, offset+sizeBytes) is inside it. `what` names the caller
-		// for the log. Returns false if the caller must not proceed.
-		bool StorageRangeIsValid(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const char *what) const;
 #endif
 
 	};

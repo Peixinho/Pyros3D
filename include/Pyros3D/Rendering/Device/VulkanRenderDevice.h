@@ -278,6 +278,21 @@ namespace p3d {
 
 		virtual uint32 TranslateAttributeType(const uint32 engineType);
 
+		// Compute - see the block comment on IRenderDevice::SupportsCompute().
+		virtual bool SupportsCompute() const;
+		virtual uint32 GetMaxComputeWorkGroupInvocations() const;
+		virtual uint32 GetMaxComputeWorkGroupCount(const uint32 dimension) const;
+		virtual DeviceHandle CreateComputePipeline(const DeviceHandle program);
+		virtual void DestroyComputePipeline(const DeviceHandle pipeline);
+		virtual void BindComputePipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline);
+		virtual DeviceHandle CreateStorageBuffer(const uint32 sizeBytes, const uint32 bindingPoint, const void *data);
+		virtual void UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data);
+		virtual void ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData);
+		virtual void BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint);
+		virtual void DestroyStorageBuffer(const DeviceHandle buffer);
+		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ);
+		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits);
+
 		virtual std::string BuildShaderSource(const std::string &definitions, const std::string &shaderBody);
 		virtual DeviceHandle CreateShaderStage(const uint32 engineShaderType);
 		virtual bool CompileShaderStage(const DeviceHandle shader, const std::string &source, std::string &errorLog);
@@ -392,6 +407,12 @@ namespace p3d {
 		VkPhysicalDevice physicalDevice;
 		VkDevice device;
 		uint32 graphicsQueueFamily, presentQueueFamily;
+		// Whether the family above also advertises VK_QUEUE_COMPUTE_BIT.
+		// The spec guarantees any graphics-capable family has it, so this
+		// is expected to be true everywhere - recorded rather than assumed
+		// because SupportsCompute() is a promise callers act on, and
+		// reading the flag we were actually given costs one bool.
+		bool graphicsQueueSupportsCompute;
 		VkQueue graphicsQueue, presentQueue;
 		VkSwapchainKHR swapchain;
 		VkFormat swapchainFormat;
@@ -500,6 +521,55 @@ namespace p3d {
 		VkCommandBuffer transferCommandBuffer;
 		bool transferCommandBufferRecording;
 		VkFence transferFence;
+
+		// ---- Compute ---------------------------------------------------
+		// Its own command buffer and fence, on the same graphics queue,
+		// for the same reason the transfer path has its own: a dispatch
+		// cannot be recorded inside a render pass, and frameCommandBuffer
+		// is inside one for effectively all of its life. See
+		// BeginOrGetComputeCommandBuffer().
+		VkCommandBuffer computeCommandBuffer;
+		VkFence computeFence;
+		bool computeCommandBufferRecording;
+
+		struct ComputePipelineRecord
+		{
+			VkPipeline pipeline;
+			VkPipelineLayout pipelineLayout;
+			VkDescriptorSetLayout setLayout;
+			VkDescriptorSet descriptorSet;
+			uint32 workgroupSize[3];
+			// Reflected SSBO bindings this kernel declares. Needed so
+			// Dispatch() can refuse before recording when the caller left
+			// one unbound - an unwritten descriptor is undefined content,
+			// which fails at draw/dispatch time rather than at the bind
+			// that forgot it (VUID-vkCmdDispatch-None-08114).
+			std::vector<uint32> storageBindings;
+			ComputePipelineRecord()
+				: pipeline(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE),
+				  setLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE)
+			{
+				workgroupSize[0] = workgroupSize[1] = workgroupSize[2] = 1;
+			}
+		};
+		std::map<DeviceHandle, ComputePipelineRecord> computePipelines;
+		DeviceHandle nextComputePipelineHandle;
+		// Byte length of each live storage buffer, by handle. The VkBuffer
+		// itself lives in `buffers`.
+		std::map<DeviceHandle, uint32> storageBufferSizes;
+		DeviceHandle boundComputePipeline;
+		// binding -> storage buffer handle, accumulated by BindStorageBuffer
+		// and written into the descriptor set by Dispatch. Deferred rather
+		// than written per bind because vkUpdateDescriptorSets mutates a
+		// set in place, and doing that once per buffer would rewrite the
+		// whole set N times for an N-buffer dispatch.
+		std::map<uint32, DeviceHandle> pendingStorageBindings;
+
+		VkCommandBuffer BeginOrGetComputeCommandBuffer(const char *what);
+		// Ends and submits the compute command buffer. With `wait`, blocks
+		// on computeFence until the GPU is done - which is what makes a
+		// subsequent ReadStorageBuffer see the dispatch's writes.
+		void FlushComputeCommands(const bool wait);
 		struct PendingStagingBuffer
 		{
 			VkBuffer buffer;
@@ -1247,6 +1317,15 @@ namespace p3d {
 		// interface change was needed to plumb it through.
 		struct ShaderStageRecord
 		{
+			// Compute only: the kernel's own layout(local_size_x/y/z),
+			// read off the SPIR-V entry point at compile time. Unlike
+			// Metal, Vulkan does NOT need this at dispatch (vkCmdDispatch
+			// takes group counts only, like GL) - it is kept so
+			// CreateComputePipeline can reject a kernel whose group size
+			// exceeds maxComputeWorkGroupInvocations with a message that
+			// names both numbers, instead of letting pipeline creation
+			// fail with a generic error.
+			uint32 workgroupSize[3];
 			uint32 engineShaderType; // ShaderType::VertexShader/FragmentShader
 			VkShaderModule module; // VK_NULL_HANDLE until CompileShaderStage() succeeds
 			// Kept around (not just the module) so LinkProgram() can
@@ -1272,7 +1351,10 @@ namespace p3d {
 			std::string autoUboBlockName;
 			uint32 autoUboSize;
 			std::map<std::string, uint32> autoUboOffsets;
-			ShaderStageRecord() : engineShaderType(0), module(VK_NULL_HANDLE), autoUboHasBlock(false), autoUboBinding(0), autoUboSize(0) {}
+			ShaderStageRecord() : engineShaderType(0), module(VK_NULL_HANDLE), autoUboHasBlock(false), autoUboBinding(0), autoUboSize(0)
+			{
+				workgroupSize[0] = workgroupSize[1] = workgroupSize[2] = 1;
+			}
 		};
 		std::map<DeviceHandle, ShaderStageRecord> shaderStages;
 		DeviceHandle nextShaderStageHandle;
@@ -1307,6 +1389,9 @@ namespace p3d {
 		struct ProgramRecord
 		{
 			DeviceHandle vertexShader, fragmentShader;
+			// A compute program has this and neither of the two above.
+			DeviceHandle computeShader;
+			bool isCompute;
 			VkDescriptorSetLayout descriptorSetLayout;
 			VkPipelineLayout pipelineLayout;
 			// Allocated lazily by the first BindUniformBlockIfPresent()
@@ -1425,7 +1510,7 @@ namespace p3d {
 			// reflection - which fallback image a binding needs when
 			// nothing bound a real one. See BindCurrentPipelineDescriptorSets().
 			std::map<uint32, uint32> samplerKinds;
-			ProgramRecord() : vertexShader(0), fragmentShader(0), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE), samplerSetLayout(VK_NULL_HANDLE) {}
+			ProgramRecord() : vertexShader(0), fragmentShader(0), computeShader(0), isCompute(false), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE), samplerSetLayout(VK_NULL_HANDLE) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
 		DeviceHandle nextProgramHandle;

@@ -10,38 +10,81 @@
 //      path graphics shaders take, which is the whole point of adding
 //      ShaderType::ComputeShader rather than a parallel API.
 //   3. A dispatch actually runs on the GPU and writes an SSBO.
-//   4. ComputeBarrier(HostRead) makes those writes visible to a readback.
+//   4. The writes are visible to a readback afterwards.
 //
-// Deliberately does NOT use the engine's Context classes: those live in
-// examples/WindowManagers and drag in ImGui's SDL2 backend. A compute test
-// needs a GL context and nothing else, so it makes a bare hidden-window one
-// itself. That also keeps it runnable headless, which is how CI runs it.
+// The verification (RunComputeVerification) is backend-agnostic and talks
+// only to IRenderDevice. Only the setup differs, and it differs a lot:
 //
-// macOS cannot run this: Apple caps OpenGL at 4.1 and compute is 4.3, so
-// SupportsCompute() is false there and the test SKIPs rather than fails.
-// That is the expected local result, not a problem - see the Linux CI job,
-// where Mesa's llvmpipe does implement GL 4.5 compute in software.
+//   GL    needs a real 4.3+ context, so it makes a bare hidden SDL2 window.
+//         Deliberately not the engine's Context classes - those live in
+//         examples/WindowManagers and drag in ImGui's SDL2 backend.
+//   Metal needs nothing at all. MetalRenderDevice's constructor creates its
+//         own MTLDevice and command queue; a CAMetalLayer is only required
+//         to draw, and this never draws. So there is no window here.
+//   Vulkan needs a window it does not actually use, which is a real
+//         limitation rather than a quirk of this test: VulkanRenderDevice
+//         only creates its VkDevice inside InitializeSwapchain(), and that
+//         takes a VkSurfaceKHR. So there is currently no headless Vulkan
+//         compute at all - a GI baker or any offline dispatch would hit
+//         the same wall. Making device creation separable from swapchain
+//         creation is the fix, and it is not done here.
 //
-//   c++ -std=c++17 -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
-//       -I $(pkg-config --variable=includedir freetype2)/freetype2 \
-//       $(pkg-config --cflags sdl2) \
-//       tools/tests/compute_smoke.cpp src/Pyros3D/Ext/gl45/glad.c \
-//       -o /tmp/compute_smoke \
+// Build for GL (Linux CI, or any GL 4.3+ machine):
+//
+//   cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
+//       src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
+//   c++ -std=c++17 -DGL45 -DCOMPUTE_SMOKE_GL \
+//       -I include -I include/Pyros3D/Ext/gl45 \
+//       $(pkg-config --cflags freetype2) $(pkg-config --cflags sdl2) \
+//       tools/tests/compute_smoke.cpp /tmp/glad45.o -o /tmp/compute_smoke \
 //       -L build_gl45 -lPyrosEngine $(pkg-config --libs sdl2) \
 //       -Wl,-rpath,$PWD/build_gl45
+//
+// Build for Metal (macOS):
+//
+//   c++ -std=c++17 -DMETAL_BACKEND -DCOMPUTE_SMOKE_METAL \
+//       -I include $(pkg-config --cflags freetype2) \
+//       tools/tests/compute_smoke.cpp -o /tmp/compute_smoke_metal \
+//       -L build_metal -lPyrosEngine -framework Foundation -framework Metal \
+//       -Wl,-rpath,$PWD/build_metal
+//
+// Build for Vulkan (Linux; needs a Vulkan runtime - lavapipe suffices):
+//
+//   c++ -std=c++17 -DVULKAN_BACKEND -DCOMPUTE_SMOKE_VULKAN \
+//       -I include $(pkg-config --cflags freetype2) $(pkg-config --cflags sdl2) \
+//       tools/tests/compute_smoke.cpp -o /tmp/compute_smoke_vk \
+//       -L build -lPyrosEngine $(pkg-config --libs sdl2) \
+//       -Wl,-rpath,$PWD/build
 //
 // pkg-config rather than sdl2-config: the latter only emits the inner
 // .../include/SDL2 directory, which makes the <SDL2/SDL.h> spelling used
 // here (and by every WindowManager in this repo) fail to resolve.
-//   /tmp/compute_smoke
 //
 // Exit code is 0 for PASS and for SKIP, 1 for FAIL - so CI can run it
 // unconditionally and only a real regression breaks the build.
+
+#if !defined(COMPUTE_SMOKE_GL) && !defined(COMPUTE_SMOKE_METAL) && !defined(COMPUTE_SMOKE_VULKAN)
+#error "Define COMPUTE_SMOKE_GL, COMPUTE_SMOKE_METAL or COMPUTE_SMOKE_VULKAN - see the build lines above."
+#endif
+
+#if defined(COMPUTE_SMOKE_GL)
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
-#include <Pyros3D/Materials/Shaders/Shaders.h>
-
 #include <SDL2/SDL.h>
+#endif
+
+#if defined(COMPUTE_SMOKE_METAL)
+#include <Pyros3D/Rendering/Device/MetalRenderDevice.h>
+#endif
+
+#if defined(COMPUTE_SMOKE_VULKAN)
+#include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
+#include <SDL2/SDL.h>
+#include <SDL2/SDL_vulkan.h>
+#endif
+
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <Pyros3D/Materials/Shaders/Shaders.h>
 
 #include <cstdio>
 #include <cstdlib>
@@ -59,36 +102,268 @@ static void check(bool cond, const char *what, const std::string &extra = std::s
 	if (!cond) failures++;
 }
 
-// The payload. Two things worth noting:
+// The payload. Three things worth noting:
 //
-//   - `data[i] = data[i] * 2 + i` rather than a constant fill. A constant
-//     would also pass if the dispatch never ran and the buffer happened to
-//     be zeroed to the expected value; a function of both the old contents
-//     AND the invocation id can only be produced by the shader actually
-//     running, over the right index, on the data we uploaded.
-//   - the bounds check. The dispatch rounds the element count up to a whole
-//     number of work groups, so the last group has invocations past the end
-//     of the buffer. Writing from those is out-of-bounds; GL's behaviour for
-//     that is "undefined", which in practice means it works until it
-//     silently corrupts something else.
+//   - `values[i] = values[i] * 2 + i` rather than a constant fill. A
+//     constant would also pass if the dispatch never ran and the buffer
+//     happened to be zeroed to the expected value; a function of both the
+//     old contents AND the invocation id can only be produced by the
+//     shader actually running, over the right index, on what we uploaded.
+//   - the element count arrives in a SECOND storage buffer rather than a
+//     uniform. A loose `uniform int` would work on GL, but on Metal it
+//     goes through AutoFixForVulkan's synthesized UBO and the engine's
+//     per-backend uniform plumbing - a whole extra mechanism this test
+//     would then be measuring instead of compute. Two SSBOs also prove
+//     multi-buffer binding, which is what real compute work needs anyway.
+//   - the bounds check is real, not decoration. See kElementCount.
 static const char *kComputeBody =
 	"layout(local_size_x = 64) in;\n"
 	"layout(std430, binding = 0) buffer Values { uint values[]; };\n"
-	// int, not uint, and that is not cosmetic: the engine's only integer
-	// uniform path is SendUniformInt -> glUniform1iv, and GL raises
-	// GL_INVALID_OPERATION for glUniform1i against a uint uniform. The
-	// uniform would then keep its default of 0, every invocation would
-	// take the early return, and the buffer would come back unmodified -
-	// which reads exactly like "the dispatch never ran".
-	"uniform int uCount;\n"
+	"layout(std430, binding = 1) buffer Params { uint count; };\n"
 	"void main() {\n"
 	"    uint i = gl_GlobalInvocationID.x;\n"
-	"    if (int(i) >= uCount) return;\n"
+	"    if (i >= count) return;\n"
 	"    values[i] = values[i] * 2u + i;\n"
 	"}\n";
 
-static const uint32 kElementCount = 1024;
+// Deliberately NOT a multiple of the local size (1000 = 15.625 groups), so
+// the last work group really does run invocations past the end of the
+// buffer and the shader's bounds check is exercised. A round 1024 would
+// make the dispatch exact and quietly test nothing.
+static const uint32 kElementCount = 1000;
 static const uint32 kLocalSize = 64;
+
+// Everything below talks only to IRenderDevice. Returns true if the device
+// reported compute support and the checks ran; false means "skipped".
+static bool RunComputeVerification(IRenderDevice &device)
+{
+	if (!device.SupportsCompute())
+		return false;
+
+	check(true, "SupportsCompute()");
+
+	const uint32 maxInvocations = device.GetMaxComputeWorkGroupInvocations();
+	check(maxInvocations >= kLocalSize,
+		"local_size_x fits the device's max threads per work group",
+		"limit=" + std::to_string(maxInvocations));
+	check(device.GetMaxComputeWorkGroupCount(0) > 0,
+		"max work group count is queryable");
+
+	// ---- compile + link through the engine's own shader path -----------
+
+	const DeviceHandle stage = device.CreateShaderStage(ShaderType::ComputeShader);
+	check(stage != 0, "CreateShaderStage(ComputeShader)");
+	if (stage == 0) return true;
+
+	{
+		// BuildShaderSource, not a hand-written "#version 450" - the point
+		// is that the engine's normal preamble assembly works for a
+		// compute stage too.
+		const std::string source = device.BuildShaderSource(std::string(), std::string(kComputeBody));
+		std::string errorLog;
+		const bool compiled = device.CompileShaderStage(stage, source, errorLog);
+		check(compiled, "CompileShaderStage(compute)", errorLog);
+		if (!compiled) { device.DeleteShaderStage(stage); return true; }
+	}
+
+	const DeviceHandle program = device.CreateProgram();
+	device.AttachShaderStage(program, stage);
+	{
+		std::string linkLog;
+		const bool linked = device.LinkProgram(program, linkLog);
+		check(linked, "LinkProgram(compute-only program)", linkLog);
+		if (!linked) { device.DeleteShaderStage(stage); return true; }
+	}
+
+	const DeviceHandle pipeline = device.CreateComputePipeline(program);
+	check(pipeline != 0, "CreateComputePipeline");
+	if (pipeline == 0) { device.DeleteShaderStage(stage); return true; }
+
+	// ---- upload, dispatch ----------------------------------------------
+
+	std::vector<uint32> input(kElementCount);
+	for (uint32 i = 0; i < kElementCount; i++)
+		input[i] = i * 3 + 7;
+
+	const uint32 sizeBytes = kElementCount * (uint32)sizeof(uint32);
+	const DeviceHandle ssbo = device.CreateStorageBuffer(sizeBytes, 0, input.data());
+	check(ssbo != 0, "CreateStorageBuffer(values)");
+
+	const uint32 countValue = kElementCount;
+	const DeviceHandle paramsBuffer = device.CreateStorageBuffer((uint32)sizeof(uint32), 1, &countValue);
+	check(paramsBuffer != 0, "CreateStorageBuffer(params)");
+
+	if (ssbo != 0 && paramsBuffer != 0)
+	{
+		device.BindComputePipeline(0, pipeline);
+		device.BindStorageBuffer(0, ssbo, 0);
+		device.BindStorageBuffer(0, paramsBuffer, 1);
+
+		// Group count, not thread count - the division is the whole reason
+		// Dispatch()'s parameters are named `groups`.
+		const uint32 groups = (kElementCount + kLocalSize - 1) / kLocalSize;
+		device.Dispatch(0, groups, 1, 1);
+
+		// ---- barrier, read back, verify --------------------------------
+
+		// Without this the readback may legally observe the pre-dispatch
+		// contents. It would then fail with "wrong values", pointing at
+		// the shader, when the real bug is the missing barrier - which is
+		// exactly the confusion this test exists to stop someone else
+		// having.
+		device.ComputeBarrier(0, ComputeBarrierBit::HostRead);
+
+		std::vector<uint32> output(kElementCount, 0xFFFFFFFFu);
+		device.ReadStorageBuffer(ssbo, 0, sizeBytes, output.data());
+
+		uint32 mismatches = 0;
+		uint32 firstBadIndex = 0;
+		for (uint32 i = 0; i < kElementCount; i++)
+		{
+			const uint32 expected = input[i] * 2u + i;
+			if (output[i] != expected)
+			{
+				if (mismatches == 0) firstBadIndex = i;
+				mismatches++;
+			}
+		}
+		if (mismatches == 0)
+		{
+			check(true, "dispatch wrote every element correctly",
+				std::to_string(kElementCount) + " elements, "
+				+ std::to_string(groups) + " work groups");
+		}
+		else
+		{
+			const uint32 i = firstBadIndex;
+			check(false, "dispatch wrote every element correctly",
+				std::to_string(mismatches) + " wrong; first at ["
+				+ std::to_string(i) + "] expected "
+				+ std::to_string(input[i] * 2u + i) + " got "
+				+ std::to_string(output[i]));
+		}
+
+		// Out-of-range access must be refused, not passed to the backend -
+		// see IRenderDevice::StorageRangeIsValid(). Checked by asking for
+		// one element past the end and requiring the sentinel to be zeroed
+		// rather than filled with whatever was adjacent.
+		uint32 sentinel = 0xABCDEF01u;
+		device.ReadStorageBuffer(ssbo, sizeBytes, (uint32)sizeof(uint32), &sentinel);
+		check(sentinel == 0,
+			"out-of-range ReadStorageBuffer is rejected and zeroes the output",
+			"got " + std::to_string(sentinel));
+	}
+
+	if (paramsBuffer != 0) device.DestroyStorageBuffer(paramsBuffer);
+	if (ssbo != 0) device.DestroyStorageBuffer(ssbo);
+	device.DestroyComputePipeline(pipeline);
+	device.DeleteProgram(program);
+	device.DeleteShaderStage(stage);
+	return true;
+}
+
+static int Report()
+{
+	printf("\n%s  compute_smoke: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
+	return failures == 0 ? 0 : 1;
+}
+
+// =========================================================================
+// Backend setup
+// =========================================================================
+
+#if defined(COMPUTE_SMOKE_METAL)
+
+int main(int argc, char **argv)
+{
+	(void)argc; (void)argv;
+
+	printf("      backend     Metal\n");
+
+	// No window, no layer, no SDL. MetalRenderDevice's constructor does
+	// MTLCreateSystemDefaultDevice() + newCommandQueue, which is the whole
+	// of what a dispatch needs; BindToLayer() is only required to draw.
+	MetalRenderDevice device;
+
+	if (!RunComputeVerification(device))
+	{
+		printf("SKIP  SupportsCompute() is false - no Metal GPU, or the engine was\n");
+		printf("      built without METAL_SHADER_TOOLING (shaderc/spirv-cross-msl).\n");
+		return 0;
+	}
+	return Report();
+}
+
+#elif defined(COMPUTE_SMOKE_VULKAN)
+
+int main(int argc, char **argv)
+{
+	(void)argc; (void)argv;
+
+	printf("      backend     Vulkan\n");
+
+	if (SDL_Init(SDL_INIT_VIDEO) != 0)
+	{
+		printf("FAIL  SDL_Init - %s\n", SDL_GetError());
+		return 1;
+	}
+
+	// The window exists only to produce a VkSurfaceKHR, because
+	// InitializeSwapchain() is where the VkDevice gets created - see the
+	// header comment. Nothing is ever presented to it.
+	SDL_Window *window = SDL_CreateWindow("compute_smoke",
+		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 64, 64,
+		SDL_WINDOW_VULKAN | SDL_WINDOW_HIDDEN);
+	if (window == NULL)
+	{
+		printf("SKIP  no Vulkan-capable window - %s\n", SDL_GetError());
+		SDL_Quit();
+		return 0;
+	}
+
+	unsigned int extCount = 0;
+	if (SDL_Vulkan_GetInstanceExtensions(window, &extCount, NULL) != SDL_TRUE)
+	{
+		printf("SKIP  SDL_Vulkan_GetInstanceExtensions failed - %s\n", SDL_GetError());
+		SDL_DestroyWindow(window); SDL_Quit();
+		return 0;
+	}
+	std::vector<const char*> extensions(extCount);
+	SDL_Vulkan_GetInstanceExtensions(window, &extCount, extensions.data());
+
+	int result = 0;
+	{
+		VulkanRenderDevice device(extensions);
+		VkSurfaceKHR surface = VK_NULL_HANDLE;
+		if (device.GetInstance() == VK_NULL_HANDLE)
+		{
+			printf("SKIP  no Vulkan instance - no loader or no ICD on this machine\n");
+		}
+		else if (SDL_Vulkan_CreateSurface(window, device.GetInstance(), &surface) != SDL_TRUE)
+		{
+			printf("SKIP  SDL_Vulkan_CreateSurface failed - %s\n", SDL_GetError());
+		}
+		else if (!device.InitializeSwapchain(surface, 64, 64))
+		{
+			printf("SKIP  InitializeSwapchain failed - no usable Vulkan device\n");
+		}
+		else if (!RunComputeVerification(device))
+		{
+			printf("SKIP  SupportsCompute() is false - the graphics queue family does not\n");
+			printf("      advertise VK_QUEUE_COMPUTE_BIT, or SPIRV_TOOLING is off.\n");
+		}
+		else
+		{
+			result = Report();
+		}
+	}
+
+	SDL_DestroyWindow(window);
+	SDL_Quit();
+	return result;
+}
+
+#elif defined(COMPUTE_SMOKE_GL)
 
 int main(int argc, char **argv)
 {
@@ -112,8 +387,8 @@ int main(int argc, char **argv)
 	// yields a 2.1 or 4.1 context, the null-pointer check in
 	// SupportsCompute() sees no glDispatchCompute, and the test reports
 	// the capability gate working rather than just "couldn't make a
-	// window". Which is the half of the gate worth testing locally, since
-	// it is the only half a Mac can reach.
+	// window". Which is the half of the gate worth testing there, since it
+	// is the only half a Mac can reach.
 	static const struct { int major, minor; } kVersions[] = {
 		{ 4, 5 }, { 4, 4 }, { 4, 3 }, { 0, 0 }
 	};
@@ -172,152 +447,31 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	printf("      backend     OpenGL\n");
 	printf("      GL_VERSION  %s\n", (const char*)glGetString(GL_VERSION));
 	printf("      GL_RENDERER %s\n", (const char*)glGetString(GL_RENDERER));
 
-	GLRenderDevice device;
-
-	if (!device.SupportsCompute())
+	int result;
 	{
-		printf("SKIP  SupportsCompute() is false on this driver - compute needs GL 4.3+\n");
-		printf("      (expected on macOS, which caps OpenGL at 4.1)\n");
-		SDL_GL_DeleteContext(glContext);
-		SDL_DestroyWindow(window);
-		SDL_Quit();
-		return 0;
-	}
-
-	check(true, "SupportsCompute()");
-
-	// The limit that actually constrains a dispatch - see
-	// IRenderDevice::GetMaxComputeWorkGroupInvocations().
-	const uint32 maxInvocations = device.GetMaxComputeWorkGroupInvocations();
-	check(maxInvocations >= kLocalSize,
-		"local_size_x fits GL_MAX_COMPUTE_WORK_GROUP_INVOCATIONS",
-		"limit=" + std::to_string(maxInvocations));
-	check(device.GetMaxComputeWorkGroupCount(0) > 0,
-		"GL_MAX_COMPUTE_WORK_GROUP_COUNT[0] is queryable");
-
-	// ---- 2. compile + link through the engine's own shader path --------
-
-	const DeviceHandle stage = device.CreateShaderStage(ShaderType::ComputeShader);
-	check(stage != 0, "CreateShaderStage(ComputeShader)");
-	if (stage == 0) goto done;
-
-	{
-		// BuildShaderSource, not a hand-written "#version 450" - the point
-		// is that the engine's normal preamble assembly works for a
-		// compute stage too.
-		const std::string source = device.BuildShaderSource(std::string(), std::string(kComputeBody));
-		std::string errorLog;
-		const bool compiled = device.CompileShaderStage(stage, source, errorLog);
-		check(compiled, "CompileShaderStage(compute)", errorLog);
-		if (!compiled) goto done;
-	}
-
-	{
-		const DeviceHandle program = device.CreateProgram();
-		device.AttachShaderStage(program, stage);
-		std::string linkLog;
-		const bool linked = device.LinkProgram(program, linkLog);
-		check(linked, "LinkProgram(compute-only program)", linkLog);
-		if (!linked) goto done;
-
-		const DeviceHandle pipeline = device.CreateComputePipeline(program);
-		check(pipeline != 0, "CreateComputePipeline");
-		if (pipeline == 0) goto done;
-
-		// ---- 3. upload, dispatch --------------------------------------
-
-		std::vector<uint32> input(kElementCount);
-		for (uint32 i = 0; i < kElementCount; i++)
-			input[i] = i * 3 + 7;
-
-		const uint32 sizeBytes = kElementCount * (uint32)sizeof(uint32);
-		const DeviceHandle ssbo = device.CreateStorageBuffer(sizeBytes, 0, input.data());
-		check(ssbo != 0, "CreateStorageBuffer");
-		if (ssbo == 0) goto done;
-
-		device.BindComputePipeline(0, pipeline);
-		device.BindStorageBuffer(0, ssbo, 0);
-
-		// uCount is a plain uniform on the compute program, so it goes
-		// through the same GetUniformLocation/SendUniformInt path
-		// everything else uses. BindComputePipeline already made the
-		// program current, which glUniform* requires.
-		const int32 countLocation = device.GetUniformLocation((uint32)program, "uCount");
-		check(countLocation >= 0, "GetUniformLocation(uCount) on a compute program");
-		if (countLocation >= 0)
+		// Scoped so the device releases its GL objects while the context
+		// is still current - see the render-device teardown ordering notes.
+		GLRenderDevice device;
+		if (!RunComputeVerification(device))
 		{
-			const int32 countValue = (int32)kElementCount;
-			device.SendUniformInt(countLocation, &countValue, 1);
-		}
-
-		// Group count, not thread count - the division is the whole
-		// reason Dispatch()'s parameters are named `groups`.
-		const uint32 groups = (kElementCount + kLocalSize - 1) / kLocalSize;
-		device.Dispatch(0, groups, 1, 1);
-
-		// ---- 4. barrier, read back, verify ----------------------------
-
-		// Without this the readback below may legally observe the
-		// pre-dispatch contents. It would then fail with "wrong values",
-		// pointing at the shader, when the real bug is the missing
-		// barrier - which is exactly the confusion this test exists to
-		// prevent someone else having.
-		device.ComputeBarrier(0, ComputeBarrierBit::HostRead);
-
-		std::vector<uint32> output(kElementCount, 0xFFFFFFFFu);
-		device.ReadStorageBuffer(ssbo, 0, sizeBytes, output.data());
-
-		uint32 mismatches = 0;
-		uint32 firstBadIndex = 0;
-		for (uint32 i = 0; i < kElementCount; i++)
-		{
-			const uint32 expected = input[i] * 2u + i;
-			if (output[i] != expected)
-			{
-				if (mismatches == 0) firstBadIndex = i;
-				mismatches++;
-			}
-		}
-		if (mismatches == 0)
-		{
-			check(true, "dispatch wrote every element correctly",
-				std::to_string(kElementCount) + " elements");
+			printf("SKIP  SupportsCompute() is false on this driver - compute needs GL 4.3+\n");
+			printf("      (expected on macOS, which caps OpenGL at 4.1)\n");
+			result = 0;
 		}
 		else
 		{
-			const uint32 i = firstBadIndex;
-			check(false, "dispatch wrote every element correctly",
-				std::to_string(mismatches) + " wrong; first at ["
-				+ std::to_string(i) + "] expected "
-				+ std::to_string(input[i] * 2u + i) + " got "
-				+ std::to_string(output[i]));
+			result = Report();
 		}
-
-		// Out-of-range access must be refused, not passed to GL - see
-		// GLRenderDevice::StorageRangeIsValid(). Checked by asking for one
-		// element past the end and requiring the sentinel to survive.
-		uint32 sentinel = 0xABCDEF01u;
-		device.ReadStorageBuffer(ssbo, sizeBytes, (uint32)sizeof(uint32), &sentinel);
-		check(sentinel == 0,
-			"out-of-range ReadStorageBuffer is rejected and zeroes the output",
-			"got " + std::to_string(sentinel));
-
-		device.DestroyStorageBuffer(ssbo);
-		device.DestroyComputePipeline(pipeline);
-		device.DeleteProgram(program);
 	}
-
-done:
-	if (stage != 0)
-		device.DeleteShaderStage(stage);
 
 	SDL_GL_DeleteContext(glContext);
 	SDL_DestroyWindow(window);
 	SDL_Quit();
-
-	printf("\n%s  compute_smoke: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
-	return failures == 0 ? 0 : 1;
+	return result;
 }
+
+#endif

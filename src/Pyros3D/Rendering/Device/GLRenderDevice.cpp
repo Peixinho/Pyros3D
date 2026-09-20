@@ -1843,33 +1843,6 @@ namespace p3d {
 			&& glGetBufferSubData != NULL;
 	}
 
-	bool GLRenderDevice::StorageRangeIsValid(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const char *what) const
-	{
-		if (!SupportsCompute())
-		{
-			ComputeUnsupported(what);
-			return false;
-		}
-		std::map<DeviceHandle, uint32>::const_iterator it = storageBufferSizes.find(buffer);
-		if (it == storageBufferSizes.end())
-		{
-			echo(std::string("ERROR: ") + what + " called with an unknown storage buffer handle.");
-			return false;
-		}
-		// Checked as 64-bit so an offset + size that wraps uint32 cannot
-		// slip through as a small number and validate.
-		const uint64 end = (uint64)offset + (uint64)sizeBytes;
-		if (end > (uint64)it->second)
-		{
-			std::ostringstream msg;
-			msg << "ERROR: " << what << " range [" << offset << ", " << end
-				<< ") is outside the " << it->second << "-byte storage buffer.";
-			echo(msg.str());
-			return false;
-		}
-		return true;
-	}
-
 	uint32 GLRenderDevice::GetMaxComputeWorkGroupInvocations() const
 	{
 		if (!SupportsCompute())
@@ -1958,7 +1931,7 @@ namespace p3d {
 
 	void GLRenderDevice::UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data)
 	{
-		if (!StorageRangeIsValid(buffer, offset, sizeBytes, "UpdateStorageBuffer"))
+		if (!StorageRangeIsValid(storageBufferSizes, buffer, offset, sizeBytes, "UpdateStorageBuffer"))
 			return;
 		GLCHECKER(glBindBuffer(GL_SHADER_STORAGE_BUFFER, (GLuint)buffer));
 		GLCHECKER(glBufferSubData(GL_SHADER_STORAGE_BUFFER, (GLintptr)offset, (GLsizeiptr)sizeBytes, data));
@@ -1969,7 +1942,7 @@ namespace p3d {
 	{
 		if (outData == NULL)
 			return;
-		if (!StorageRangeIsValid(buffer, offset, sizeBytes, "ReadStorageBuffer"))
+		if (!StorageRangeIsValid(storageBufferSizes, buffer, offset, sizeBytes, "ReadStorageBuffer"))
 		{
 			// Same reasoning as the base class's version: zero rather than
 			// leave the caller's memory undefined, so a failed read looks

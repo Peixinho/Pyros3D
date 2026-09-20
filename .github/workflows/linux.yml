@@ -272,7 +272,7 @@ jobs:
           apt-get install -y --no-install-recommends xvfb
           cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
             src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
-          c++ -std=c++17 -DGL45 \
+          c++ -std=c++17 -DGL45 -DCOMPUTE_SMOKE_GL \
             -I include -I include/Pyros3D/Ext/gl45 \
             $(pkg-config --cflags freetype2) \
             $(pkg-config --cflags sdl2) \

@@ -89,6 +89,9 @@ namespace p3d {
 		  commandPool(VK_NULL_HANDLE), frameCommandBuffer(VK_NULL_HANDLE), currentFrameSlot(0),
 		  nextAcquireSemaphoreIndex(0), currentFrameAcquireSemaphoreIndex(0), frameFence(VK_NULL_HANDLE),
 		  transferCommandBuffer(VK_NULL_HANDLE), transferCommandBufferRecording(false), transferFence(VK_NULL_HANDLE),
+		  computeCommandBuffer(VK_NULL_HANDLE), computeFence(VK_NULL_HANDLE), computeCommandBufferRecording(false),
+		  nextComputePipelineHandle(1), boundComputePipeline(0),
+		  graphicsQueueSupportsCompute(false),
 		  pendingStagingBytes(0), pipelineCache(VK_NULL_HANDLE),
 		  pendingClearColor(0.f, 0.f, 0.f, 1.f),
 		  captureRequested(false), capturedWidth(0), capturedHeight(0), capturedRedByteOffset(0), capturedFrameValid(false),
@@ -327,6 +330,18 @@ namespace p3d {
 			}
 			offscreenChainSemaphore = VK_NULL_HANDLE;
 			if (transferFence != VK_NULL_HANDLE) vkDestroyFence(device, transferFence, NULL);
+			// Compute pipelines own a VkPipeline, a pipeline layout and a
+			// descriptor set layout each; the descriptor sets themselves
+			// go back with the pool (destroyed below).
+			for (std::map<DeviceHandle, ComputePipelineRecord>::iterator cIt = computePipelines.begin(); cIt != computePipelines.end(); ++cIt)
+			{
+				if (cIt->second.pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, cIt->second.pipeline, NULL);
+				if (cIt->second.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, cIt->second.pipelineLayout, NULL);
+				if (cIt->second.setLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, cIt->second.setLayout, NULL);
+			}
+			computePipelines.clear();
+			storageBufferSizes.clear();
+			if (computeFence != VK_NULL_HANDLE) vkDestroyFence(device, computeFence, NULL);
 			for (size_t i = 0; i < imageAvailableSemaphores.size(); i++)
 				vkDestroySemaphore(device, imageAvailableSemaphores[i], NULL);
 			for (size_t i = 0; i < renderFinishedSemaphores.size(); i++)
@@ -788,6 +803,14 @@ namespace p3d {
 				{
 					physicalDevice = physicalDevices[d];
 					graphicsQueueFamily = presentQueueFamily = f;
+					// Expected to be set on every real device - the spec
+					// requires any graphics-capable family to also support
+					// compute - but read rather than assumed, so
+					// SupportsCompute() reports what this queue actually
+					// advertises. No separate compute queue is requested:
+					// one family doing both means a dispatch and a draw
+					// need no cross-queue ownership transfer.
+					graphicsQueueSupportsCompute = (queueFamilies[f].queueFlags & VK_QUEUE_COMPUTE_BIT) != 0;
 					foundQueueFamily = true;
 					break;
 				}
@@ -967,6 +990,18 @@ namespace p3d {
 			return false;
 		transferCommandBufferRecording = false;
 		pendingStagingBytes = 0;
+
+		// Compute gets its own command buffer + fence for the same reason
+		// the transfer path above has its own - see
+		// BeginOrGetComputeCommandBuffer(). fenceInfo is still
+		// CREATE_SIGNALED from the transfer fence, which is what the first
+		// FlushComputeCommands()'s vkResetFences needs too.
+		cmdAllocInfo.commandBufferCount = 1;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &computeCommandBuffer) != VK_SUCCESS)
+			return false;
+		if (vkCreateFence(device, &fenceInfo, NULL, &computeFence) != VK_SUCCESS)
+			return false;
+		computeCommandBufferRecording = false;
 
 		CreatePipelineCache();
 
@@ -2512,13 +2547,19 @@ namespace p3d {
 		// program's UBO bindings are VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC
 		// instead of plain UNIFORM_BUFFER, so the pool needs a
 		// reservation for that type too.
-		VkDescriptorPoolSize poolSizes[3] = {};
+		VkDescriptorPoolSize poolSizes[4] = {};
 		poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		poolSizes[0].descriptorCount = 64;
 		poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		poolSizes[1].descriptorCount = 131072;
 		poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 		poolSizes[2].descriptorCount = 64;
+		// Compute SSBOs. A pool holding no descriptors of a type cannot
+		// allocate a set that uses it at all - vkAllocateDescriptorSets
+		// returns VK_ERROR_OUT_OF_POOL_MEMORY, which reads as "out of
+		// memory" and actually means "you never asked for this type".
+		poolSizes[3].type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+		poolSizes[3].descriptorCount = 256;
 
 		VkDescriptorPoolCreateInfo poolInfo = {};
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
@@ -2535,7 +2576,7 @@ namespace p3d {
 		// draw against an unbound descriptor set.
 		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 		poolInfo.maxSets = 32768;
-		poolInfo.poolSizeCount = 3;
+		poolInfo.poolSizeCount = 4;
 		poolInfo.pPoolSizes = poolSizes;
 		return vkCreateDescriptorPool(device, &poolInfo, NULL, &descriptorPool) == VK_SUCCESS;
 	}
@@ -3476,7 +3517,17 @@ namespace p3d {
 			return false;
 
 #ifdef SPIRV_TOOLING
-		uint32 spirvStage = (it->second.engineShaderType == ShaderType::FragmentShader) ? SpirvShaderStage::Fragment : SpirvShaderStage::Vertex;
+		// A switch, not a ternary on Fragment: `? Fragment : Vertex` sends
+		// a compute stage down the vertex path, where it fails on
+		// gl_GlobalInvocationID rather than on anything naming the real
+		// problem. Same trap the shared ShaderCompiler.cpp had.
+		uint32 spirvStage;
+		switch (it->second.engineShaderType)
+		{
+		case ShaderType::FragmentShader: spirvStage = SpirvShaderStage::Fragment; break;
+		case ShaderType::ComputeShader:  spirvStage = SpirvShaderStage::Compute;  break;
+		default:                         spirvStage = SpirvShaderStage::Vertex;   break;
+		}
 
 		// Prefer compiling as-is when the source is already Vulkan-correct
 		// (every engine-shipped shader). AutoFixForVulkan always runs
@@ -3574,10 +3625,22 @@ namespace p3d {
 		std::map<DeviceHandle, ShaderStageRecord>::iterator shaderIt = shaderStages.find(shader);
 		if (progIt == programs.end() || shaderIt == shaderStages.end())
 			return;
-		if (shaderIt->second.engineShaderType == ShaderType::FragmentShader)
+		switch (shaderIt->second.engineShaderType)
+		{
+		case ShaderType::FragmentShader:
 			progIt->second.fragmentShader = shader;
-		else
+			break;
+		case ShaderType::ComputeShader:
+			// Marks the whole program as compute. Vulkan enforces the same
+			// exclusivity GL and Metal do - a compute stage cannot be part
+			// of a graphics pipeline - so no valid program holds both.
+			progIt->second.computeShader = shader;
+			progIt->second.isCompute = true;
+			break;
+		default:
 			progIt->second.vertexShader = shader;
+			break;
+		}
 	}
 
 	bool VulkanRenderDevice::LinkProgram(const DeviceHandle program, std::string &errorLog)
@@ -3597,6 +3660,22 @@ namespace p3d {
 		std::map<DeviceHandle, ProgramRecord>::iterator it = programs.find(program);
 		if (it == programs.end())
 			return false;
+		// A compute program has one stage, no vertex input, and its own
+		// single-stage descriptor set layout - none of the two-stage
+		// merging below applies. Its layout, pipeline layout and pipeline
+		// are all built by CreateComputePipeline, which needs no state
+		// from here, so linking is just "is the kernel compiled?".
+		if (it->second.isCompute)
+		{
+			std::map<DeviceHandle, ShaderStageRecord>::iterator cs = shaderStages.find(it->second.computeShader);
+			if (cs == shaderStages.end() || cs->second.module == VK_NULL_HANDLE)
+			{
+				errorLog = "Compute program has no compiled compute stage";
+				return false;
+			}
+			return true;
+		}
+
 		std::map<DeviceHandle, ShaderStageRecord>::iterator vs = shaderStages.find(it->second.vertexShader);
 		std::map<DeviceHandle, ShaderStageRecord>::iterator fs = shaderStages.find(it->second.fragmentShader);
 		bool vsOk = vs != shaderStages.end() && vs->second.module != VK_NULL_HANDLE;
@@ -7004,6 +7083,513 @@ namespace p3d {
 			vkQueueWaitIdle(graphicsQueue);
 		}
 		vkFreeCommandBuffers(device, commandPool, 1, &copyCmd);
+	}
+
+	// =====================================================================
+	// Compute
+	//
+	// Same structural constraint as Metal, for the same reason: a dispatch
+	// cannot be recorded inside a render pass. GL has no such concept -
+	// glDispatchCompute is just another call on the context - but
+	// vkCmdDispatch inside a VkRenderPass is invalid
+	// (VUID-vkCmdDispatch-renderpass), and frameCommandBuffer is inside one
+	// for effectively all of its life.
+	//
+	// So compute records into its own command buffer, submitted to the same
+	// graphics queue (which also carries VK_QUEUE_COMPUTE_BIT - see the
+	// queue selection), exactly as the transfer path already does. That
+	// makes dispatching OUTSIDE a frame - a bake, a smoke test, offline GPU
+	// work - fully supported with no cooperation from the renderer, and
+	// dispatching during a frame simply orders after whatever has been
+	// submitted rather than trying to interleave into the open pass.
+	// =====================================================================
+
+	bool VulkanRenderDevice::SupportsCompute() const
+	{
+#ifdef SPIRV_TOOLING
+		// SPIRV_TOOLING gates the GLSL->SPIR-V step; with it off,
+		// CompileShaderStage cannot produce a module for ANY stage, so
+		// claiming compute would be a lie that fails later and less
+		// clearly.
+		return device != VK_NULL_HANDLE
+			&& computeCommandBuffer != VK_NULL_HANDLE
+			&& graphicsQueueSupportsCompute;
+#else
+		return false;
+#endif
+	}
+
+	uint32 VulkanRenderDevice::GetMaxComputeWorkGroupInvocations() const
+	{
+		if (physicalDevice == VK_NULL_HANDLE)
+			return 0;
+		VkPhysicalDeviceProperties props = {};
+		vkGetPhysicalDeviceProperties(physicalDevice, &props);
+		return (uint32)props.limits.maxComputeWorkGroupInvocations;
+	}
+
+	uint32 VulkanRenderDevice::GetMaxComputeWorkGroupCount(const uint32 dimension) const
+	{
+		if (physicalDevice == VK_NULL_HANDLE || dimension > 2)
+			return 0;
+		VkPhysicalDeviceProperties props = {};
+		vkGetPhysicalDeviceProperties(physicalDevice, &props);
+		return (uint32)props.limits.maxComputeWorkGroupCount[dimension];
+	}
+
+	VkCommandBuffer VulkanRenderDevice::BeginOrGetComputeCommandBuffer(const char *what)
+	{
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported(what);
+			return VK_NULL_HANDLE;
+		}
+		if (!computeCommandBufferRecording)
+		{
+			// Wait for the previous dispatch before reusing the buffer -
+			// resetting a command buffer still executing on the GPU is
+			// VUID-vkResetCommandBuffer-commandBuffer-00045, and the
+			// fence starts signalled so the first call through here does
+			// not block.
+			vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+			vkResetCommandBuffer(computeCommandBuffer, 0);
+			VkCommandBufferBeginInfo beginInfo = {};
+			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			if (vkBeginCommandBuffer(computeCommandBuffer, &beginInfo) != VK_SUCCESS)
+				return VK_NULL_HANDLE;
+			computeCommandBufferRecording = true;
+		}
+		return computeCommandBuffer;
+	}
+
+	void VulkanRenderDevice::FlushComputeCommands(const bool wait)
+	{
+		if (!computeCommandBufferRecording || computeCommandBuffer == VK_NULL_HANDLE)
+			return;
+		vkEndCommandBuffer(computeCommandBuffer);
+		computeCommandBufferRecording = false;
+
+		vkResetFences(device, 1, &computeFence);
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &computeCommandBuffer;
+		if (SubmitGraphics(1, &submitInfo, computeFence) != VK_SUCCESS)
+		{
+			vkQueueWaitIdle(graphicsQueue);
+			return;
+		}
+		if (wait)
+			vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+	}
+
+	DeviceHandle VulkanRenderDevice::CreateComputePipeline(const DeviceHandle program)
+	{
+#ifndef SPIRV_TOOLING
+		(void)program;
+		ComputeUnsupported("CreateComputePipeline");
+		return 0;
+#else
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("CreateComputePipeline");
+			return 0;
+		}
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
+		if (progIt == programs.end() || !progIt->second.isCompute)
+		{
+			echo("ERROR: CreateComputePipeline called with a handle that is not a linked compute program.");
+			return 0;
+		}
+		std::map<DeviceHandle, ShaderStageRecord>::iterator csIt = shaderStages.find(progIt->second.computeShader);
+		if (csIt == shaderStages.end() || csIt->second.module == VK_NULL_HANDLE)
+		{
+			echo("ERROR: CreateComputePipeline: the program's compute stage has no VkShaderModule.");
+			return 0;
+		}
+
+		ComputePipelineRecord record;
+		SpirvShaderCompiler::ReflectWorkgroupSize(csIt->second.spirv, record.workgroupSize);
+		const uint32 declared = record.workgroupSize[0] * record.workgroupSize[1] * record.workgroupSize[2];
+		const uint32 allowed = GetMaxComputeWorkGroupInvocations();
+		if (allowed > 0 && declared > allowed)
+		{
+			echo("ERROR: CreateComputePipeline: the kernel declares "
+				+ std::to_string(declared) + " invocations per work group but this device allows at most "
+				+ std::to_string(allowed) + ". Lower its local_size.");
+			return 0;
+		}
+
+		// One descriptor set layout built straight from the kernel's
+		// reflected SSBOs - the same "derive the layout rather than
+		// hand-author one per variant" approach LinkProgram() uses for
+		// graphics, and exactly what SpirvResourceType::StorageBuffer was
+		// added to Reflect() for.
+		std::vector<VkDescriptorSetLayoutBinding> layoutBindings;
+		std::vector<SpirvResourceBinding> resources = SpirvShaderCompiler::Reflect(csIt->second.spirv);
+		for (size_t i = 0; i < resources.size(); i++)
+		{
+			if (resources[i].type != SpirvResourceType::StorageBuffer)
+				continue;
+			VkDescriptorSetLayoutBinding b = {};
+			b.binding = resources[i].binding;
+			b.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			b.descriptorCount = resources[i].arraySize;
+			b.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT;
+			layoutBindings.push_back(b);
+			record.storageBindings.push_back(resources[i].binding);
+		}
+
+		VkDescriptorSetLayoutCreateInfo layoutInfo = {};
+		layoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		layoutInfo.bindingCount = (uint32)layoutBindings.size();
+		layoutInfo.pBindings = layoutBindings.empty() ? NULL : layoutBindings.data();
+		if (vkCreateDescriptorSetLayout(device, &layoutInfo, NULL, &record.setLayout) != VK_SUCCESS)
+		{
+			echo("ERROR: CreateComputePipeline: vkCreateDescriptorSetLayout failed.");
+			return 0;
+		}
+
+		VkPipelineLayoutCreateInfo pipeLayoutInfo = {};
+		pipeLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pipeLayoutInfo.setLayoutCount = 1;
+		pipeLayoutInfo.pSetLayouts = &record.setLayout;
+		if (vkCreatePipelineLayout(device, &pipeLayoutInfo, NULL, &record.pipelineLayout) != VK_SUCCESS)
+		{
+			echo("ERROR: CreateComputePipeline: vkCreatePipelineLayout failed.");
+			vkDestroyDescriptorSetLayout(device, record.setLayout, NULL);
+			return 0;
+		}
+
+		VkComputePipelineCreateInfo pipelineInfo = {};
+		pipelineInfo.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
+		pipelineInfo.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		pipelineInfo.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT;
+		pipelineInfo.stage.module = csIt->second.module;
+		pipelineInfo.stage.pName = "main";
+		pipelineInfo.layout = record.pipelineLayout;
+		if (vkCreateComputePipelines(device, pipelineCache, 1, &pipelineInfo, NULL, &record.pipeline) != VK_SUCCESS)
+		{
+			echo("ERROR: CreateComputePipeline: vkCreateComputePipelines failed.");
+			vkDestroyPipelineLayout(device, record.pipelineLayout, NULL);
+			vkDestroyDescriptorSetLayout(device, record.setLayout, NULL);
+			return 0;
+		}
+
+		if (!EnsureDescriptorPool())
+		{
+			echo("ERROR: CreateComputePipeline: no descriptor pool.");
+			vkDestroyPipeline(device, record.pipeline, NULL);
+			vkDestroyPipelineLayout(device, record.pipelineLayout, NULL);
+			vkDestroyDescriptorSetLayout(device, record.setLayout, NULL);
+			return 0;
+		}
+		VkDescriptorSetAllocateInfo setAllocInfo = {};
+		setAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		setAllocInfo.descriptorPool = descriptorPool;
+		setAllocInfo.descriptorSetCount = 1;
+		setAllocInfo.pSetLayouts = &record.setLayout;
+		if (vkAllocateDescriptorSets(device, &setAllocInfo, &record.descriptorSet) != VK_SUCCESS)
+		{
+			echo("ERROR: CreateComputePipeline: vkAllocateDescriptorSets failed.");
+			vkDestroyPipeline(device, record.pipeline, NULL);
+			vkDestroyPipelineLayout(device, record.pipelineLayout, NULL);
+			vkDestroyDescriptorSetLayout(device, record.setLayout, NULL);
+			return 0;
+		}
+
+		DeviceHandle handle = nextComputePipelineHandle++;
+		computePipelines[handle] = record;
+		return handle;
+#endif
+	}
+
+	void VulkanRenderDevice::DestroyComputePipeline(const DeviceHandle pipeline)
+	{
+		std::map<DeviceHandle, ComputePipelineRecord>::iterator it = computePipelines.find(pipeline);
+		if (it == computePipelines.end() || device == VK_NULL_HANDLE)
+			return;
+		// Nothing may be destroyed while the GPU could still be reading
+		// it - the same ordering rule the destructor follows.
+		vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+		if (it->second.descriptorSet != VK_NULL_HANDLE && descriptorPool != VK_NULL_HANDLE)
+			vkFreeDescriptorSets(device, descriptorPool, 1, &it->second.descriptorSet);
+		if (it->second.pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, it->second.pipeline, NULL);
+		if (it->second.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, it->second.pipelineLayout, NULL);
+		if (it->second.setLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, it->second.setLayout, NULL);
+		computePipelines.erase(it);
+		if (boundComputePipeline == pipeline)
+		{
+			boundComputePipeline = 0;
+			pendingStorageBindings.clear();
+		}
+	}
+
+	void VulkanRenderDevice::BindComputePipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
+	{
+		(void)cmd;
+		if (computePipelines.find(pipeline) == computePipelines.end())
+		{
+			echo("ERROR: BindComputePipeline called with an unknown pipeline handle.");
+			return;
+		}
+		// Recorded at Dispatch() rather than here, along with the
+		// descriptor set - see the comment there.
+		boundComputePipeline = pipeline;
+		pendingStorageBindings.clear();
+	}
+
+	DeviceHandle VulkanRenderDevice::CreateStorageBuffer(const uint32 sizeBytes, const uint32 bindingPoint, const void *data)
+	{
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("CreateStorageBuffer");
+			return 0;
+		}
+		if (allocator == VK_NULL_HANDLE)
+			return 0;
+		// bindingPoint is not applied here: Vulkan binds through a
+		// descriptor set, written at Dispatch() time from whatever
+		// BindStorageBuffer() recorded.
+		(void)bindingPoint;
+
+		const uint32 allocLength = (sizeBytes == 0) ? 4 : sizeBytes;
+
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = allocLength;
+		bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+			| VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		// HOST_ACCESS_RANDOM, not SEQUENTIAL_WRITE like the vertex path:
+		// a storage buffer is read back as well as written, and
+		// SEQUENTIAL_WRITE may land in write-combined memory where CPU
+		// reads are correct but pathologically slow.
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+
+		BufferRecord record;
+		record.size = sizeBytes;
+		record.streamRingCount = 0;
+		record.streamWriteIndex = 0;
+		VmaAllocationInfo allocationInfo;
+		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &record.buffer, &record.allocation, &allocationInfo) != VK_SUCCESS)
+		{
+			echo("ERROR: CreateStorageBuffer: vmaCreateBuffer failed.");
+			return 0;
+		}
+		record.mapped = allocationInfo.pMappedData;
+		if (data != NULL && record.mapped != NULL && sizeBytes > 0)
+			memcpy(record.mapped, data, sizeBytes);
+
+		DeviceHandle handle = nextBufferHandle++;
+		buffers[handle] = record;
+		storageBufferSizes[handle] = sizeBytes;
+		return handle;
+	}
+
+	void VulkanRenderDevice::UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data)
+	{
+		if (!StorageRangeIsValid(storageBufferSizes, buffer, offset, sizeBytes, "UpdateStorageBuffer") || data == NULL)
+			return;
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || it->second.mapped == NULL)
+			return;
+		memcpy((uint8*)it->second.mapped + offset, data, sizeBytes);
+	}
+
+	void VulkanRenderDevice::ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData)
+	{
+		if (outData == NULL)
+			return;
+		if (!StorageRangeIsValid(storageBufferSizes, buffer, offset, sizeBytes, "ReadStorageBuffer"))
+		{
+			memset(outData, 0, sizeBytes);
+			return;
+		}
+		// Any dispatch still recorded or in flight must finish before its
+		// writes are visible. Flushing here rather than trusting the
+		// caller to have issued a HostRead barrier makes the readback
+		// correct by construction; the barrier stays the documented way
+		// to say it explicitly, and is a no-op once already flushed.
+		FlushComputeCommands(true);
+
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || it->second.mapped == NULL)
+		{
+			memset(outData, 0, sizeBytes);
+			return;
+		}
+		// The allocation is HOST_VISIBLE but not necessarily HOST_COHERENT
+		// on every device; invalidating is a no-op when it is, and the
+		// difference between correct data and stale cache lines when it
+		// is not.
+		vmaInvalidateAllocation(allocator, it->second.allocation, offset, sizeBytes);
+		memcpy(outData, (const uint8*)it->second.mapped + offset, sizeBytes);
+	}
+
+	void VulkanRenderDevice::BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint)
+	{
+		(void)cmd;
+		if (buffers.find(buffer) == buffers.end())
+		{
+			echo("ERROR: BindStorageBuffer called with an unknown buffer handle.");
+			return;
+		}
+		// Recorded, not written. vkUpdateDescriptorSets mutates a set in
+		// place, so writing one buffer at a time would rewrite the whole
+		// set once per bind; Dispatch() writes them all in a single call.
+		pendingStorageBindings[bindingPoint] = buffer;
+	}
+
+	void VulkanRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)
+	{
+		storageBufferSizes.erase(buffer);
+		// Allocated through vmaCreateBuffer into `buffers`, so the normal
+		// buffer teardown frees it.
+		DestroyBuffer(buffer);
+	}
+
+	void VulkanRenderDevice::Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ)
+	{
+		(void)cmd;
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("Dispatch");
+			return;
+		}
+		if (groupsX == 0 || groupsY == 0 || groupsZ == 0)
+		{
+			echo("WARNING: Dispatch called with a zero work group count - nothing will run. "
+				"Remember these are GROUP counts: use (items + localSize - 1) / localSize, not the item count.");
+			return;
+		}
+		std::map<DeviceHandle, ComputePipelineRecord>::iterator it = computePipelines.find(boundComputePipeline);
+		if (boundComputePipeline == 0 || it == computePipelines.end())
+		{
+			echo("ERROR: Dispatch called with no compute pipeline bound - call BindComputePipeline first.");
+			return;
+		}
+
+		// Every binding the kernel declares must have been bound. An
+		// unwritten descriptor is undefined content, and Vulkan reports
+		// that at dispatch (VUID-vkCmdDispatch-None-08114), far from the
+		// bind that was forgotten.
+		std::vector<VkDescriptorBufferInfo> bufferInfos;
+		std::vector<VkWriteDescriptorSet> writes;
+		bufferInfos.reserve(it->second.storageBindings.size());
+		writes.reserve(it->second.storageBindings.size());
+		for (size_t i = 0; i < it->second.storageBindings.size(); i++)
+		{
+			const uint32 binding = it->second.storageBindings[i];
+			std::map<uint32, DeviceHandle>::const_iterator bound = pendingStorageBindings.find(binding);
+			if (bound == pendingStorageBindings.end())
+			{
+				echo("ERROR: Dispatch: the kernel declares a storage buffer at binding "
+					+ std::to_string(binding) + " but nothing was bound there.");
+				return;
+			}
+			std::map<DeviceHandle, BufferRecord>::const_iterator bufIt = buffers.find(bound->second);
+			if (bufIt == buffers.end() || bufIt->second.buffer == VK_NULL_HANDLE)
+			{
+				echo("ERROR: Dispatch: the buffer bound at binding "
+					+ std::to_string(binding) + " no longer exists.");
+				return;
+			}
+			VkDescriptorBufferInfo info = {};
+			info.buffer = bufIt->second.buffer;
+			info.offset = 0;
+			info.range = VK_WHOLE_SIZE;
+			bufferInfos.push_back(info);
+		}
+		// Second pass so bufferInfos has stopped reallocating - a
+		// VkWriteDescriptorSet holds a POINTER into it, and a vector that
+		// grows after the write is built leaves that pointer dangling.
+		for (size_t i = 0; i < it->second.storageBindings.size(); i++)
+		{
+			VkWriteDescriptorSet w = {};
+			w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			w.dstSet = it->second.descriptorSet;
+			w.dstBinding = it->second.storageBindings[i];
+			w.dstArrayElement = 0;
+			w.descriptorCount = 1;
+			w.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+			w.pBufferInfo = &bufferInfos[i];
+			writes.push_back(w);
+		}
+
+		// The set must not be rewritten while a previous dispatch using it
+		// is still running - vkUpdateDescriptorSets mutates in place.
+		if (!writes.empty())
+		{
+			vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+			vkUpdateDescriptorSets(device, (uint32)writes.size(), writes.data(), 0, NULL);
+		}
+
+		VkCommandBuffer computeCmd = BeginOrGetComputeCommandBuffer("Dispatch");
+		if (computeCmd == VK_NULL_HANDLE)
+			return;
+		vkCmdBindPipeline(computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE, it->second.pipeline);
+		vkCmdBindDescriptorSets(computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+			it->second.pipelineLayout, 0, 1, &it->second.descriptorSet, 0, NULL);
+		vkCmdDispatch(computeCmd, groupsX, groupsY, groupsZ);
+	}
+
+	void VulkanRenderDevice::ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits)
+	{
+		(void)cmd;
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("ComputeBarrier");
+			return;
+		}
+		// HostRead means something structurally different here, as on
+		// Metal: CPU visibility is a submission/completion property, not
+		// an in-command-buffer ordering one, so this ends and submits the
+		// command buffer and waits rather than recording a barrier.
+		if (barrierBits & ComputeBarrierBit::HostRead)
+		{
+			FlushComputeCommands(true);
+			return;
+		}
+		if (!computeCommandBufferRecording)
+			return;
+
+		VkMemoryBarrier barrier = {};
+		barrier.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+		barrier.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+		VkPipelineStageFlags dstStage = 0;
+		if (barrierBits & ComputeBarrierBit::StorageBuffer)
+		{
+			barrier.dstAccessMask |= VK_ACCESS_SHADER_READ_BIT;
+			dstStage |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+		}
+		if (barrierBits & ComputeBarrierBit::ImageAccess)
+		{
+			barrier.dstAccessMask |= VK_ACCESS_SHADER_READ_BIT;
+			dstStage |= VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		}
+		if (barrierBits & ComputeBarrierBit::VertexBuffer)
+		{
+			// The consumer is the vertex-input stage reading attributes,
+			// not a shader read - a different access mask entirely, and
+			// the one people reach for last.
+			barrier.dstAccessMask |= VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_INDEX_READ_BIT;
+			dstStage |= VK_PIPELINE_STAGE_VERTEX_INPUT_BIT;
+		}
+		if (barrierBits == ComputeBarrierBit::All)
+		{
+			barrier.dstAccessMask = VK_ACCESS_MEMORY_READ_BIT | VK_ACCESS_MEMORY_WRITE_BIT;
+			dstStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		}
+		if (dstStage == 0)
+			return;
+		vkCmdPipelineBarrier(computeCommandBuffer,
+			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, dstStage, 0,
+			1, &barrier, 0, NULL, 0, NULL);
 	}
 
 };

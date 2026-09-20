@@ -217,6 +217,21 @@ namespace p3d {
 		// callers only ever pass a vertex shader's SPIR-V today.
 		static std::vector<SpirvStageInput> ReflectStageInputs(const std::vector<uint32> &spirv);
 
+		// A compute module's declared layout(local_size_x/y/z), written
+		// into outSize[3]. False (leaving outSize as {1,1,1}) if the
+		// module has no GLCompute entry point.
+		//
+		// Vulkan and GL both take only group counts at dispatch and read
+		// the group SIZE from the shader, so neither strictly needs this -
+		// but Metal takes both at the call site and checks neither against
+		// the other, so it does. It lives here rather than in
+		// MetalRenderDevice because the number is a property of the SPIR-V,
+		// and because every backend wants it for the same secondary
+		// reason: rejecting a kernel whose group size exceeds the device
+		// limit, with a message naming both numbers, instead of letting
+		// pipeline creation fail generically.
+		static bool ReflectWorkgroupSize(const std::vector<uint32> &spirv, uint32 outSize[3]);
+
 	};
 
 };

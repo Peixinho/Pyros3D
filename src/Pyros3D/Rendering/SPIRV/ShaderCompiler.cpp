@@ -605,6 +605,32 @@ namespace p3d {
 		return out;
 	}
 
+	bool SpirvShaderCompiler::ReflectWorkgroupSize(const std::vector<uint32> &spirv, uint32 outSize[3])
+	{
+		outSize[0] = outSize[1] = outSize[2] = 1;
+		if (spirv.empty())
+			return false;
+
+		spirv_cross::Compiler compiler(spirv);
+		// get_entry_points_and_stages() rather than get_entry_point("main",
+		// GLCompute) directly: the latter throws when the module has no
+		// such entry point, and "this is not a compute module" is a
+		// question a caller is allowed to ask without an exception.
+		spirv_cross::SmallVector<spirv_cross::EntryPoint> entries = compiler.get_entry_points_and_stages();
+		for (size_t i = 0; i < entries.size(); i++)
+		{
+			if (entries[i].execution_model != spv::ExecutionModelGLCompute)
+				continue;
+			const spirv_cross::SPIREntryPoint &entry =
+				compiler.get_entry_point(entries[i].name, entries[i].execution_model);
+			if (entry.workgroup_size.x > 0) outSize[0] = entry.workgroup_size.x;
+			if (entry.workgroup_size.y > 0) outSize[1] = entry.workgroup_size.y;
+			if (entry.workgroup_size.z > 0) outSize[2] = entry.workgroup_size.z;
+			return true;
+		}
+		return false;
+	}
+
 	std::vector<SpirvStageInput> SpirvShaderCompiler::ReflectStageInputs(const std::vector<uint32> &spirv)
 	{
 		std::vector<SpirvStageInput> out;
