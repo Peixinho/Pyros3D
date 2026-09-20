@@ -13,6 +13,7 @@
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <algorithm>
 #include <cfloat>
+#include <cstring>
 #include <cmath>
 
 namespace p3d {
@@ -75,6 +76,49 @@ namespace p3d {
 		}
 
 	} // namespace
+
+	namespace {
+		// Bit-cast, not a conversion: the shader reads these back with
+		// floatBitsToUint. A static_cast would silently lose any index
+		// above 2^24.
+		inline f32 UintAsFloat(const uint32 v)
+		{
+			f32 out;
+			memcpy(&out, &v, sizeof(out));
+			return out;
+		}
+	}
+
+	void RayScene::PackForGPU(std::vector<f32> &outTriangles, std::vector<f32> &outNodes,
+		std::vector<uint32> &outIndices) const
+	{
+		outTriangles.assign((size_t)triangles.size() * kTriangleStrideFloats, 0.f);
+		for (size_t i = 0; i < triangles.size(); i++)
+		{
+			f32 *t = &outTriangles[i * kTriangleStrideFloats];
+			const RayTriangle &s = triangles[i];
+			t[0]=s.v0.x; t[1]=s.v0.y; t[2]=s.v0.z;
+			t[4]=s.v1.x; t[5]=s.v1.y; t[6]=s.v1.z;
+			t[8]=s.v2.x; t[9]=s.v2.y; t[10]=s.v2.z;
+			t[12]=s.n0.x; t[13]=s.n0.y; t[14]=s.n0.z;
+			t[16]=s.n1.x; t[17]=s.n1.y; t[18]=s.n1.z;
+			t[20]=s.n2.x; t[21]=s.n2.y; t[22]=s.n2.z;
+			t[24]=UintAsFloat(s.materialIndex);
+		}
+
+		outNodes.assign((size_t)nodes.size() * kNodeStrideFloats, 0.f);
+		for (size_t i = 0; i < nodes.size(); i++)
+		{
+			f32 *n = &outNodes[i * kNodeStrideFloats];
+			const BVHNode &s = nodes[i];
+			n[0]=s.boundsMin.x; n[1]=s.boundsMin.y; n[2]=s.boundsMin.z;
+			n[3]=UintAsFloat(s.firstOrLeft);
+			n[4]=s.boundsMax.x; n[5]=s.boundsMax.y; n[6]=s.boundsMax.z;
+			n[7]=UintAsFloat(s.count);
+		}
+
+		outIndices = triangleIndices;
+	}
 
 	void RayScene::Clear()
 	{

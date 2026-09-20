@@ -236,6 +236,25 @@ jobs:
           /tmp/particles_parity | tee /tmp/particles_out.txt
           grep -q '^PASS  particles_gpu_parity' /tmp/particles_out.txt
 
+          # The BVH traversal kernel against the CPU intersector. Closes
+          # the chain: brute force -> CPU BVH -> GPU kernel, all on the
+          # same rays.
+          if [ "${{ matrix.compute }}" = "metal" ]; then
+            c++ -std=c++17 -DMETAL_BACKEND -DRTPARITY_METAL -I include $FT \
+              tools/tests/bvh_gpu.cpp -o /tmp/bvh_gpu \
+              -L build -lPyrosEngine -framework Foundation -framework Metal \
+              -Wl,-rpath,"$PWD/build"
+          else
+            c++ -std=c++17 -DVULKAN_BACKEND -DRTPARITY_VULKAN \
+              -I include -I "$(brew --prefix)/include" $FT \
+              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
+              tools/tests/bvh_gpu.cpp -o /tmp/bvh_gpu \
+              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+          fi
+          # Run from the repo root - it reads resources/shaders/gi/.
+          /tmp/bvh_gpu | tee /tmp/bvhgpu_out.txt
+          grep -q '^PASS  bvh_gpu' /tmp/bvhgpu_out.txt
+
           # A baked environment must survive save/load. Pure CPU, and the
           # failure it guards is silent data loss rather than a crash.
           c++ -std=c++17 -DLUA_BINDINGS -I include -I shared $FT \

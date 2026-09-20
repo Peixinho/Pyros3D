@@ -105,6 +105,23 @@ namespace p3d {
 		// compare it against the answer that cannot be wrong.
 		bool IntersectBruteForce(const Vec3 &origin, const Vec3 &direction, const f32 tMin, const f32 tMax, RayHit &outHit) const;
 
+		// Flattens into the exact float layout resources/shaders/gi/
+		// raytrace.glsl unpacks. Kept next to the traversal it feeds
+		// rather than in the caller, because the two are one contract:
+		// the strides and the field order are duplicated in GLSL and a
+		// silent disagreement produces garbage intersections, not an
+		// error.
+		//
+		// Triangles: 9 vec4 each (3 positions, 3 normals, material, 2
+		// spare). Nodes: 2 vec4 each, with firstOrLeft and count
+		// bit-cast into the w components - std430 would pad a vec3 to 16
+		// bytes anyway, so those slots are free.
+		void PackForGPU(std::vector<f32> &outTriangles, std::vector<f32> &outNodes,
+			std::vector<uint32> &outIndices) const;
+
+		static const uint32 kTriangleStrideFloats = 9 * 4;
+		static const uint32 kNodeStrideFloats = 2 * 4;
+
 		void Clear();
 		uint32 TriangleCount() const { return (uint32)triangles.size(); }
 		uint32 NodeCount() const { return (uint32)nodes.size(); }
