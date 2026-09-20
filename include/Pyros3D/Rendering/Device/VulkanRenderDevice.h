@@ -311,6 +311,7 @@ namespace p3d {
 		virtual void DestroyStorageBuffer(const DeviceHandle buffer);
 		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ);
 		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits);
+		virtual bool HasPendingComputeWork() const;
 
 		virtual std::string BuildShaderSource(const std::string &definitions, const std::string &shaderBody);
 		virtual DeviceHandle CreateShaderStage(const uint32 engineShaderType);

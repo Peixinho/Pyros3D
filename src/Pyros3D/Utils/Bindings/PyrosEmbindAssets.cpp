@@ -332,6 +332,9 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.property("looping", &ParticleSystemDesc::looping)
 		.property("emissionRate", &ParticleSystemDesc::emissionRate)
 		.property("burstCount", &ParticleSystemDesc::burstCount)
+		// Always false in practice on this binding's target: WebGL2 has no
+		// compute stage. Exposed anyway so one script runs everywhere.
+		.property("gpuSimulation", &ParticleSystemDesc::gpuSimulation)
 		.property("minLifetime", &ParticleSystemDesc::minLifetime)
 		.property("maxLifetime", &ParticleSystemDesc::maxLifetime)
 		.property("direction", &ParticleSystemDesc::direction)

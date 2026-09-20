@@ -215,6 +215,16 @@ namespace p3d {
 		// an authoring tool retuning an emitter, not for per-frame use.
 		void SetMaxParticles(const uint32 maxParticles);
 
+		// True when the GPU path is actually running - desc.gpuSimulation
+		// was asked for AND the backend could provide it. Always check
+		// this rather than the desc flag.
+		bool IsGPUSimulated() const { return gpuActive; }
+		// Switches paths on a live emitter. Discards every particle - the
+		// two paths keep their state in different places and nothing can
+		// be migrated between them - and rebuilds the attribute buffer,
+		// whose draw hint depends on the answer.
+		void SetGPUSimulation(const bool enabled);
+
 	private:
 
 		// Reads the owner's CURRENT world position as the spawn origin -
@@ -228,11 +238,6 @@ namespace p3d {
 
 		// Per-particle CPU-only simulation state (never uploaded to the
 		// GPU directly - GPU only ever sees the derived ParticleGPU below).
-		// True when the GPU path is actually running - desc.gpuSimulation
-		// was asked for AND the backend could provide it. Always check
-		// this rather than the desc flag.
-		bool IsGPUSimulated() const { return gpuActive; }
-
 		struct ParticleCPU
 		{
 			Vec3 velocity;
@@ -285,15 +290,24 @@ namespace p3d {
 		// dt, time, gravity, damping, count - rewritten every step.
 		DeviceHandle gpuParamsBuffer;
 
-		// What the CPU still has to know per slot, and nothing more.
+		// Where the next spawn goes. A rotating cursor, not a search.
 		//
-		// Picking a free slot needs liveness, and reading liveness off the
-		// GPU every frame would stall the pipeline for the sake of two
-		// floats per particle. It does not have to: the CPU assigned both
-		// of these when it spawned the particle, so it can derive
-		// liveness itself and never read anything back.
-		struct SlotLife { f32 spawnTime; f32 lifetime; };
-		std::vector<SlotLife> slotLife;
+		// The first version scanned the pool for a free slot, which is
+		// O(maxParticles) per spawn - fine at a few hundred particles and
+		// quadratic disaster at a million, where a single frame's
+		// emission would walk millions of slots. It is also unnecessary:
+		// particles are spawned in time order and have bounded lifetimes,
+		// so the slot least likely to still be alive is always the one
+		// spawned longest ago, which is exactly where a wrapping cursor
+		// already points. At capacity this overwrites the oldest particle,
+		// which is the right behaviour for an emitter that is over its
+		// budget anyway.
+		//
+		// It also makes a frame's spawns CONTIGUOUS, which is what lets
+		// them upload as one or two memcpys instead of one call each.
+		uint32 gpuSpawnCursor;
+		// This frame's new particles, 3 vec4s each, flushed by UpdateGPU.
+		std::vector<Vec4> gpuSpawnStaging;
 
 		// Two phases, and the split is forced by Vulkan. A Stream/Dynamic
 		// buffer there is a RING of buffers so the CPU can rewrite one
@@ -303,11 +317,14 @@ namespace p3d {
 		// attribute buffer, and that choice has to be made when the
 		// buffer is created - which means knowing whether the compute
 		// pipeline actually built BEFORE creating it.
+		void BuildSimulationBackend();
 		bool CreateGPUPipeline();
 		bool CreateGPUBuffers();
+		void ZeroGPUState();
 		void ShutdownGPUSimulation();
 		void UpdateGPU(const f64 time, const f32 dt);
 		void SpawnParticleGPU(const f64 time);
+		void FlushGPUSpawns();
 
 		AttributeBuffer* particleBuffer;
 		ParticleSystemMaterial* material;

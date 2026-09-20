@@ -487,6 +487,9 @@ void SceneEditor::ApplyParticleDesc(uint32 psId, const ParticleSystemDesc& desc)
 	// one setter that throws away every live particle, so re-applying an
 	// unchanged capacity on any other field's undo would visibly wipe the
 	// effect (SetMaxParticles' own early-out is what makes this safe).
+	// First: it rebuilds the attribute buffer and the compute pipeline, so
+	// every setter below has to apply to the backend that survives.
+	ps->SetGPUSimulation(desc.gpuSimulation);
 	ps->SetMaxParticles(desc.maxParticles);
 	ps->SetTexture(desc.texture);
 	ps->SetLooping(desc.looping);

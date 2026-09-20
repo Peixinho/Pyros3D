@@ -1,0 +1,177 @@
+{
+ "materials": [],
+ "roots": [
+  {
+   "children": [],
+   "components": [
+    {
+     "data": {
+      "pitch": 0,
+      "yaw": 0
+     },
+     "scriptFile": "demos/scripts/camera_fly.lua",
+     "type": "LuaComponent"
+    }
+   ],
+   "name": "Camera",
+   "position": [
+    0,
+    2,
+    15
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "tags": [
+    "Camera"
+   ]
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "blendMode": 0,
+     "boundingSphereRadius": 0.0,
+     "burstCount": 1,
+     "damping": 0.300000011920929,
+     "direction": [
+      0.0,
+      1.0,
+      0.0
+     ],
+     "emissionRate": 300000.0,
+     "endColor": [
+      0.300000011920929,
+      0.300000011920929,
+      0.300000011920929,
+      0.0
+     ],
+     "endSize": 0.09,
+     "fadeInFraction": 0.100000001490116,
+     "fadeOutFraction": 0.600000023841858,
+     "gpuSimulation": true,
+     "gravity": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "looping": true,
+     "maxLifetime": 3.5,
+     "maxParticles": 1000000,
+     "maxRotationSpeed": 0.400000005960464,
+     "maxSpeed": 5.0,
+     "minLifetime": 2.5,
+     "minRotationSpeed": -0.400000005960464,
+     "minSpeed": 1.5,
+     "sizeRandomJitter": 0.300000011920929,
+     "spreadAngle": 0.9,
+     "startColor": [
+      0.600000023841858,
+      0.600000023841858,
+      0.600000023841858,
+      1.0
+     ],
+     "startSize": 0.035,
+     "texture": "smoke.png",
+     "type": "ParticleSystem"
+    }
+   ],
+   "name": "",
+   "position": [
+    -4.0,
+    0.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "static": false,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "blendMode": 1,
+     "boundingSphereRadius": 0.0,
+     "burstCount": 1,
+     "damping": 0.100000001490116,
+     "direction": [
+      0.0,
+      1.0,
+      0.0
+     ],
+     "emissionRate": 300000.0,
+     "endColor": [
+      1.0,
+      0.200000002980232,
+      0.0,
+      1.0
+     ],
+     "endSize": 0.09,
+     "fadeInFraction": 0.0500000007450581,
+     "fadeOutFraction": 0.5,
+     "gpuSimulation": true,
+     "gravity": [
+      0.0,
+      -1.5,
+      0.0
+     ],
+     "looping": true,
+     "maxLifetime": 3.5,
+     "maxParticles": 1000000,
+     "maxRotationSpeed": 2.0,
+     "maxSpeed": 5.0,
+     "minLifetime": 2.5,
+     "minRotationSpeed": -2.0,
+     "minSpeed": 1.5,
+     "sizeRandomJitter": 0.400000005960464,
+     "spreadAngle": 0.9,
+     "startColor": [
+      1.0,
+      0.899999976158142,
+      0.400000005960464,
+      1.0
+     ],
+     "startSize": 0.035,
+     "texture": "smoke.png",
+     "type": "ParticleSystem"
+    }
+   ],
+   "name": "",
+   "position": [
+    4.0,
+    0.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1.0,
+    1.0,
+    1.0
+   ],
+   "static": false,
+   "tags": []
+  }
+ ],
+ "version": 1
+}

@@ -1314,6 +1314,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["looping"] = d.looping;
 			j["emissionRate"] = d.emissionRate;
 			j["burstCount"] = d.burstCount;
+			j["gpuSimulation"] = d.gpuSimulation;
 			j["minLifetime"] = d.minLifetime;
 			j["maxLifetime"] = d.maxLifetime;
 			j["direction"] = ToJson(d.direction);
@@ -2730,6 +2731,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			d.looping = j.value("looping", d.looping);
 			d.emissionRate = j.value("emissionRate", d.emissionRate);
 			d.burstCount = j.value("burstCount", d.burstCount);
+			// Defaults to false, so a scene saved before this existed
+			// keeps the CPU path it was authored against.
+			d.gpuSimulation = j.value("gpuSimulation", d.gpuSimulation);
 			d.minLifetime = j.value("minLifetime", d.minLifetime);
 			d.maxLifetime = j.value("maxLifetime", d.maxLifetime);
 			if ((j.find("direction") != j.end())) d.direction = Vec3FromJson(j["direction"]);

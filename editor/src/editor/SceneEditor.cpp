@@ -10441,6 +10441,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						after.maxParticles = (uint32)(propertiesParticleMax < 1 ? 1 : propertiesParticleMax);
 						PushParticleDescCommand(psId, d, after, "Set Particle Max Particles");
 					}
+
+					// Same reason as Max Particles above: switching paths
+					// throws away every live particle and rebuilds the
+					// buffer, so it goes through a command rather than
+					// being applied per-frame from a draft field.
+					{
+						bool gpu = d.gpuSimulation;
+						if (ImGui::Checkbox("GPU simulation", &gpu))
+						{
+							ParticleSystemDesc after = d;
+							after.gpuSimulation = gpu;
+							PushParticleDescCommand(psId, d, after, "Toggle Particle GPU Simulation");
+						}
+						// What was asked for and what happened are
+						// different questions - every backend without
+						// compute declines it, and a checkbox that stayed
+						// ticked while nothing changed would be a lie.
+						if (d.gpuSimulation && ps != NULL && !ps->IsGPUSimulated())
+						{
+							ImGui::SameLine();
+							ImGui::TextColored(ImVec4(1.f, 0.7f, 0.2f, 1.f), "(unavailable here)");
+							if (ImGui::IsItemHovered())
+								ImGui::SetTooltip("This backend has no compute shaders - running on the CPU.\n"
+									"Needs GL 4.3+, Vulkan or Metal; WebGL2 cannot do it at all.");
+						}
+					}
 				}
 				break;
 			default:

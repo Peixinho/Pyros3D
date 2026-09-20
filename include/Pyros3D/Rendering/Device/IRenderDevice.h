@@ -725,6 +725,22 @@ namespace p3d {
 		// `barrierBits` is a mask of ComputeBarrierBit::* values.
 		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits);
 
+		// True when dispatches have been recorded but not yet handed to
+		// the GPU. Exists because the alternative to asking is finding
+		// out the hard way.
+		//
+		// Metal and Vulkan both batch compute into their own command
+		// buffer, and a barrier whose reader lives OUTSIDE that buffer -
+		// a draw call, the CPU - has to submit it, not just record an
+		// ordering primitive. Getting that wrong produces no error: the
+		// dispatches pile up unexecuted and the reader sees whatever the
+		// buffer held before, which for a fresh allocation is zeroes. It
+		// cost a black screen and a real debugging session on GPU
+		// particles. A test can now assert this is false after a
+		// VertexBuffer barrier instead of needing a rendered frame to
+		// notice. Always false on GL, which defers nothing.
+		virtual bool HasPendingComputeWork() const { return false; }
+
 	protected:
 		// Shared loud refusal for every unimplemented compute entry point
 		// above. Logs `what` (the method name) once per distinct name, so

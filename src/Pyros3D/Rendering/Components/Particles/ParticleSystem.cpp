@@ -184,6 +184,7 @@ namespace p3d {
 		, gpuActive(false)
 		, gpuStage(0), gpuProgram(0), gpuPipeline(0)
 		, gpuStateBuffer(0), gpuParamsBuffer(0)
+		, gpuSpawnCursor(0)
 		, particleBuffer(NULL)
 		, material(g_pendingParticleMaterial)
 		, quad(NULL)
@@ -205,32 +206,7 @@ namespace p3d {
 
 		// Before the attribute buffer, because its draw hint depends on
 		// the answer - see CreateGPUPipeline()'s comment.
-		const bool useGPU = desc.gpuSimulation && CreateGPUPipeline();
-		if (desc.gpuSimulation && !useGPU)
-			echo("ParticleSystem: gpuSimulation requested but unavailable on this backend - using the CPU path.");
-
-		particleBuffer = new AttributeBuffer(Buffer::Type::Attribute,
-			useGPU ? Buffer::Draw::Static : Buffer::Draw::Stream);
-		particleBuffer->AddAttribute("aParticleData0", Buffer::Attribute::Type::Vec4, NULL, 0, 1);
-		particleBuffer->AddAttribute("aParticleData1", Buffer::Attribute::Type::Vec4, NULL, 0, 1);
-		particleBuffer->SendBuffer();
-		AddBuffer(particleBuffer);
-
-		// After the attribute buffer exists, because the dispatch writes
-		// into it and needs its device handle.
-		if (useGPU && !CreateGPUBuffers())
-		{
-			echo("ParticleSystem: GPU simulation buffers failed to allocate - using the CPU path.");
-			ShutdownGPUSimulation();
-		}
-
-		// Establish the buffer at full capacity right away - see the class
-		// comment on why every later Update() reuploads this exact same
-		// byte length (keeps GeometryBuffer::Update() on the cheap sub-
-		// data path instead of reallocating every frame). This first call
-		// is the one legitimate reallocation, from AddAttribute()'s
-		// zero-length initial SendBuffer() up to real capacity.
-		particleBuffer->Buffer->Update(&gpuState[0], (uint32)(gpuState.size() * sizeof(ParticleGPU)));
+		BuildSimulationBackend();
 	}
 
 	ParticleSystem::~ParticleSystem()
@@ -269,6 +245,16 @@ namespace p3d {
 	{
 		liveCount = 0;
 		pendingBurst = false;
+		if (gpuActive)
+		{
+			// The GPU path draws the whole pool every frame and hides dead
+			// slots with the alive flag, so "clear" means zero that flag -
+			// NOT drop the instance count to 0, which would stop the
+			// emitter rendering permanently, since nothing on this path
+			// ever raises it again.
+			ZeroGPUState();
+			return;
+		}
 		SetNumberInstances(0);
 	}
 
@@ -336,6 +322,15 @@ namespace p3d {
 		cpuState.assign(capacity, ParticleCPU());
 		gpuState.assign(capacity, ParticleGPU());
 		SetNumberInstances(0);
+		if (gpuActive)
+		{
+			// The GPU path's state SSBO and slot mirror are both sized by
+			// maxParticles, and neither can be resized in place - so the
+			// whole backend is rebuilt. Consistent with this setter's
+			// existing contract, which already discards every particle.
+			BuildSimulationBackend();
+			return;
+		}
 		// The one legitimate reallocation besides the constructor's - see the
 		// class comment on why every per-frame Update() instead reuploads
 		// this same (now new) fixed byte length.
@@ -531,6 +526,97 @@ namespace p3d {
 
 	} // namespace
 
+	// Creates the attribute buffer and, if asked for and available, the
+	// compute pipeline and its buffers. Shared by the constructor and by
+	// anything that has to switch paths afterwards, because the two are
+	// not independent: whether the dispatch exists decides the attribute
+	// buffer's draw hint (Static vs Stream - see CreateGPUPipeline's
+	// comment), so they cannot be set up separately or changed in place.
+	void ParticleSystem::BuildSimulationBackend()
+	{
+		ShutdownGPUSimulation();
+		if (particleBuffer != NULL)
+		{
+			RemoveBuffer(particleBuffer);
+			delete particleBuffer;
+			particleBuffer = NULL;
+		}
+
+		const bool useGPU = desc.gpuSimulation && CreateGPUPipeline();
+		if (desc.gpuSimulation && !useGPU)
+			echo("ParticleSystem: gpuSimulation requested but unavailable on this backend - using the CPU path.");
+
+		particleBuffer = new AttributeBuffer(Buffer::Type::Attribute,
+			useGPU ? Buffer::Draw::Static : Buffer::Draw::Stream);
+		particleBuffer->AddAttribute("aParticleData0", Buffer::Attribute::Type::Vec4, NULL, 0, 1);
+		particleBuffer->AddAttribute("aParticleData1", Buffer::Attribute::Type::Vec4, NULL, 0, 1);
+		particleBuffer->SendBuffer();
+		AddBuffer(particleBuffer);
+		// Re-materialise the CPU mirrors if a previous GPU build released
+		// them (see the end of this function). Switching back to the CPU
+		// path would otherwise index an empty vector here, and so would
+		// the upload just below - the failure is silent, because an empty
+		// vector's data() is not required to be null.
+		if (gpuState.size() != desc.maxParticles)
+		{
+			cpuState.assign(desc.maxParticles, ParticleCPU());
+			gpuState.assign(desc.maxParticles, ParticleGPU());
+			liveCount = 0;
+		}
+		// Establish the buffer at full capacity right away - see the class
+		// comment on why every later Update() reuploads this exact same
+		// byte length (keeps GeometryBuffer::Update() on the cheap sub-
+		// data path instead of reallocating every frame). This is the one
+		// legitimate reallocation, from AddAttribute()'s zero-length
+		// initial SendBuffer() up to real capacity.
+		particleBuffer->Buffer->Update(&gpuState[0], (uint32)(gpuState.size() * sizeof(ParticleGPU)));
+
+		// After the attribute buffer exists, because the dispatch writes
+		// into it and needs its device handle.
+		if (useGPU && !CreateGPUBuffers())
+		{
+			echo("ParticleSystem: GPU simulation buffers failed to allocate - using the CPU path.");
+			ShutdownGPUSimulation();
+		}
+		if (gpuActive)
+		{
+			echo("ParticleSystem: GPU simulation active, pool of "
+				+ std::to_string(desc.maxParticles) + " particles ("
+				+ std::to_string((desc.maxParticles * kGPUStateVec4s * sizeof(Vec4)) >> 20)
+				+ " MB state + "
+				+ std::to_string((desc.maxParticles * sizeof(ParticleGPU)) >> 20)
+				+ " MB instance data).");
+			// Nothing reads these again - simulation state lives in the
+			// SSBO and the attribute buffer is written by the dispatch.
+			// They were only needed to size and zero the attribute buffer
+			// just above. At a million particles they are ~60MB of CPU
+			// memory that would otherwise sit untouched for the lifetime
+			// of the emitter, so they are released rather than merely
+			// cleared (clear() keeps the capacity).
+			std::vector<ParticleCPU>().swap(cpuState);
+			std::vector<ParticleGPU>().swap(gpuState);
+		}
+		else
+		{
+			SetNumberInstances(liveCount);
+		}
+	}
+
+	void ParticleSystem::SetGPUSimulation(const bool enabled)
+	{
+		if (enabled == desc.gpuSimulation)
+			return;
+		desc.gpuSimulation = enabled;
+		// Every live particle goes, for the same reason SetMaxParticles
+		// discards them: the two paths keep their state in different
+		// places (cpuState/gpuState here, an SSBO there) and nothing owns
+		// a particle identity that could be migrated between them.
+		liveCount = 0;
+		pendingBurst = false;
+		emissionAccumulator = 0.0f;
+		BuildSimulationBackend();
+	}
+
 	bool ParticleSystem::CreateGPUPipeline()
 	{
 		IRenderDevice &dev = GetActiveRenderDevice();
@@ -570,15 +656,40 @@ namespace p3d {
 		return true;
 	}
 
+	// Clears every slot's alive flag. Chunked rather than done from one
+	// pool-sized temporary: at a million particles that staging buffer
+	// alone would be 48MB, allocated only to be copied once.
+	void ParticleSystem::ZeroGPUState()
+	{
+		if (gpuStateBuffer == 0)
+			return;
+		IRenderDevice &dev = GetActiveRenderDevice();
+		const uint32 stateBytes = desc.maxParticles * kGPUStateVec4s * (uint32)sizeof(Vec4);
+		const uint32 kChunkBytes = 1u << 20;
+		std::vector<uint8> zeros(kChunkBytes < stateBytes ? kChunkBytes : stateBytes, 0);
+		for (uint32 offset = 0; offset < stateBytes; offset += (uint32)zeros.size())
+		{
+			const uint32 n = ((stateBytes - offset) < (uint32)zeros.size())
+				? (stateBytes - offset) : (uint32)zeros.size();
+			dev.UpdateStorageBuffer(gpuStateBuffer, offset, n, zeros.data());
+		}
+		gpuSpawnCursor = 0;
+		gpuSpawnStaging.clear();
+	}
+
 	bool ParticleSystem::CreateGPUBuffers()
 	{
 		IRenderDevice &dev = GetActiveRenderDevice();
 
-		// Zero-initialised: alive (s2.w) is 0 for every slot, so an
-		// un-spawned pool simulates to nothing rather than to garbage.
+		// Must start zeroed: alive (s2.w) being 0 for every slot is what
+		// makes an un-spawned pool simulate to nothing instead of to
+		// garbage. Filled in bounded chunks rather than from one
+		// pool-sized temporary - at a million particles that staging
+		// vector alone would be 48MB, allocated only to be memcpy'd once
+		// and thrown away.
 		const uint32 stateBytes = desc.maxParticles * kGPUStateVec4s * (uint32)sizeof(Vec4);
-		std::vector<f32> zeros(stateBytes / sizeof(f32), 0.f);
-		gpuStateBuffer = dev.CreateStorageBuffer(stateBytes, 0, zeros.data());
+		gpuStateBuffer = dev.CreateStorageBuffer(stateBytes, 0, NULL);
+		ZeroGPUState();
 		gpuParamsBuffer = dev.CreateStorageBuffer(2 * (uint32)sizeof(Vec4), 2, NULL);
 		if (gpuStateBuffer == 0 || gpuParamsBuffer == 0)
 		{
@@ -586,12 +697,8 @@ namespace p3d {
 			return false;
 		}
 
-		slotLife.assign(desc.maxParticles, SlotLife());
-		for (uint32 i = 0; i < desc.maxParticles; i++)
-		{
-			slotLife[i].spawnTime = 0.f;
-			slotLife[i].lifetime = 0.f; // 0 lifetime reads as "free"
-		}
+		gpuSpawnCursor = 0;
+		gpuSpawnStaging.clear();
 
 		// Every slot is drawn every frame; dead ones collapse to nothing
 		// in the vertex shader. See ParticleSystemDesc::gpuSimulation.
@@ -613,21 +720,11 @@ namespace p3d {
 
 	void ParticleSystem::SpawnParticleGPU(const f64 time)
 	{
-		// Find a free slot without asking the GPU anything. slotLife holds
-		// the two numbers this CPU assigned when it spawned each particle,
-		// which is all liveness needs - see the comment on SlotLife.
-		uint32 slot = desc.maxParticles;
-		for (uint32 i = 0; i < desc.maxParticles; i++)
-		{
-			const f32 age = (f32)time - slotLife[i].spawnTime;
-			if (slotLife[i].lifetime <= 0.f || age >= slotLife[i].lifetime)
-			{
-				slot = i;
-				break;
-			}
-		}
-		if (slot >= desc.maxParticles)
-			return; // pool full - same hard cap the CPU path applies
+		// No search - see gpuSpawnCursor. Staged rather than uploaded here
+		// so a frame that spawns ten thousand particles does one upload,
+		// not ten thousand.
+		if (gpuSpawnStaging.size() >= (size_t)desc.maxParticles * kGPUStateVec4s)
+			return; // already staged a whole pool's worth this frame
 
 		Vec3 origin = Vec3::ZERO;
 		if (GetOwner() != NULL)
@@ -657,22 +754,45 @@ namespace p3d {
 		const f32 rotation = rng.Range(0.0f, 2.0f * (f32)PI);
 		const f32 seed = rng.NextFloat01();
 
-		Vec4 slotState[kGPUStateVec4s];
-		slotState[0] = Vec4(origin, lifetime);
-		slotState[1] = Vec4(worldDir * speed, (f32)time);
-		slotState[2] = Vec4(rotation, rotationSpeed, seed, 1.0f);
+		gpuSpawnStaging.push_back(Vec4(origin, lifetime));
+		gpuSpawnStaging.push_back(Vec4(worldDir * speed, (f32)time));
+		gpuSpawnStaging.push_back(Vec4(rotation, rotationSpeed, seed, 1.0f));
+	}
 
-		GetActiveRenderDevice().UpdateStorageBuffer(gpuStateBuffer,
-			slot * kGPUStateVec4s * (uint32)sizeof(Vec4),
-			kGPUStateVec4s * (uint32)sizeof(Vec4), slotState);
+	void ParticleSystem::FlushGPUSpawns()
+	{
+		if (gpuSpawnStaging.empty())
+			return;
+		IRenderDevice &dev = GetActiveRenderDevice();
 
-		slotLife[slot].spawnTime = (f32)time;
-		slotLife[slot].lifetime = lifetime;
+		const uint32 vec4Count = (uint32)gpuSpawnStaging.size();
+		const uint32 newParticles = vec4Count / kGPUStateVec4s;
+		const uint32 slotBytes = kGPUStateVec4s * (uint32)sizeof(Vec4);
+
+		// One upload, or two when the run wraps past the end of the pool.
+		// The cursor makes the slots contiguous; the wrap is the only
+		// reason this is not a single memcpy.
+		const uint32 firstRun = (gpuSpawnCursor + newParticles <= desc.maxParticles)
+			? newParticles : (desc.maxParticles - gpuSpawnCursor);
+
+		dev.UpdateStorageBuffer(gpuStateBuffer, gpuSpawnCursor * slotBytes,
+			firstRun * slotBytes, gpuSpawnStaging.data());
+
+		if (firstRun < newParticles)
+		{
+			dev.UpdateStorageBuffer(gpuStateBuffer, 0,
+				(newParticles - firstRun) * slotBytes,
+				gpuSpawnStaging.data() + (size_t)firstRun * kGPUStateVec4s);
+		}
+
+		gpuSpawnCursor = (gpuSpawnCursor + newParticles) % desc.maxParticles;
+		gpuSpawnStaging.clear();
 	}
 
 	void ParticleSystem::UpdateGPU(const f64 time, const f32 dt)
 	{
 		IRenderDevice &dev = GetActiveRenderDevice();
+		FlushGPUSpawns();
 
 		Vec4 params[2];
 		params[0] = Vec4(dt, (f32)time, (f32)desc.maxParticles, desc.damping);

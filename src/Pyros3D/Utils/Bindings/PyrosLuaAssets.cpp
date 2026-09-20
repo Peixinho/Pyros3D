@@ -398,6 +398,10 @@ namespace p3d {
 				"looping", &ParticleSystemDesc::looping,
 				"emissionRate", &ParticleSystemDesc::emissionRate,
 				"burstCount", &ParticleSystemDesc::burstCount,
+				// Opt-in GPU simulation. Ignored where the backend has no
+				// compute, so a script can ask for it unconditionally and
+				// still run on web - check IsGPUSimulated() for the truth.
+				"gpuSimulation", &ParticleSystemDesc::gpuSimulation,
 				"minLifetime", &ParticleSystemDesc::minLifetime,
 				"maxLifetime", &ParticleSystemDesc::maxLifetime,
 				"direction", &ParticleSystemDesc::direction,

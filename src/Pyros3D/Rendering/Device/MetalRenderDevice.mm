@@ -3468,6 +3468,11 @@ namespace p3d {
 		}
 	}
 
+	bool MetalRenderDevice::HasPendingComputeWork() const
+	{
+		return currentComputeEncoder != NULL || computeCommandBuffer != NULL;
+	}
+
 	void MetalRenderDevice::ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits)
 	{
 		(void)cmd;
@@ -3476,11 +3481,28 @@ namespace p3d {
 			ComputeUnsupported("ComputeBarrier");
 			return;
 		}
-		// HostRead is the one that means something structurally different
-		// on Metal: it is not a barrier at all but "end the encoder,
-		// commit, and wait", because CPU visibility of shared memory is a
-		// command-buffer completion property, not an encoder-ordering one.
-		if (barrierBits & ComputeBarrierBit::HostRead)
+		// Two of these are not encoder barriers at all, because what they
+		// hand the data to is not another dispatch in this encoder:
+		//
+		//   HostRead - CPU visibility of shared memory is a command-buffer
+		//     COMPLETION property, so this must commit and wait.
+		//   VertexBuffer - the reader is a draw call, which is recorded
+		//     into the frame's own command buffer, not this one. Leaving
+		//     the compute buffer open just accumulates dispatches that
+		//     never execute; the draw then samples whatever the buffer
+		//     held before, which for a freshly allocated particle pool is
+		//     zeroes. That is a black screen with no error anywhere, and
+		//     it is exactly what happened the first time GPU particles
+		//     were pointed at a real scene.
+		//
+		// The wait on VertexBuffer is heavier than Metal strictly needs -
+		// command buffers on one queue execute in submission order, so
+		// committing without waiting would already order the dispatch
+		// before the frame. It is kept because Vulkan's equivalent is NOT
+		// ordered without a semaphore, and one behaviour across backends
+		// is worth more here than one frame of latency. Revisit with a
+		// real semaphore chain if this shows up in a profile.
+		if (barrierBits & (ComputeBarrierBit::HostRead | ComputeBarrierBit::VertexBuffer))
 		{
 			FlushComputeEncoding(true);
 			return;

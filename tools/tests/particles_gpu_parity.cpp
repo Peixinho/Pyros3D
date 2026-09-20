@@ -198,15 +198,59 @@ int main()
 		device.BindStorageBuffer(0, outBuf, 1);
 		device.BindStorageBuffer(0, paramBuf, 2);
 		device.Dispatch(0, (kCount + 63) / 64, 1, 1);
-		// Each step reads what the previous one wrote. Without this the
-		// steps could overlap and the result would be non-deterministic
-		// in a way that only shows up under load.
-		device.ComputeBarrier(0, ComputeBarrierBit::StorageBuffer);
+		// Submits and waits, rather than the encoder-level
+		// StorageBuffer barrier that looks more natural here.
+		//
+		// The next loop iteration rewrites paramBuf from the CPU, and a
+		// dispatch that is recorded but NOT yet submitted has not read it
+		// yet - so without this every queued step would end up seeing the
+		// final iteration's parameters instead of its own. This test
+		// originally used StorageBuffer and passed anyway, purely because
+		// every step happened to write identical dt/gravity/damping,
+		// making "all 60 steps read the last params" indistinguishable
+		// from stepping properly. It stopped being indistinguishable the
+		// moment one step differed.
+		//
+		// ParticleSystem itself is not exposed to this: it flushes every
+		// frame via the VertexBuffer barrier, so only one frame's
+		// dispatch is ever queued against one frame's parameters.
+		device.ComputeBarrier(0, ComputeBarrierBit::HostRead);
 
 		StepCPU(cpu, dt, gravity[0], gravity[1], gravity[2], damping);
 	}
 
+	// The regression this exists for: a VertexBuffer barrier hands the
+	// data to a DRAW, which lives in another command buffer, so it must
+	// submit the dispatch rather than merely record an ordering
+	// primitive. When it did not, the particles never moved on screen and
+	// every check in this file still passed - because they all end with a
+	// HostRead, which does submit. Assert the submission directly.
+	{
+		// count = 0, so every invocation early-returns and the simulation
+		// does not advance - this is testing submission, not integration,
+		// and a 61st real step would put the GPU one frame ahead of the
+		// CPU and break the comparison below.
+		f32 noop[8] = { dt, 1.f, 0.f, damping, gravity[0], gravity[1], gravity[2], 0.f };
+		device.UpdateStorageBuffer(paramBuf, 0, sizeof(noop), noop);
+		device.BindComputePipeline(0, pipeline);
+		device.BindStorageBuffer(0, stateBuf, 0);
+		device.BindStorageBuffer(0, outBuf, 1);
+		device.BindStorageBuffer(0, paramBuf, 2);
+		device.Dispatch(0, (kCount + 63) / 64, 1, 1);
+		// Proves the assertion below is not vacuous: there has to be
+		// something queued for "it got submitted" to mean anything.
+		// Always false on GL, which defers nothing, so only assert where
+		// work is actually batched.
+#if defined(PARITY_METAL) || defined(PARITY_VULKAN)
+		check(device.HasPendingComputeWork(), "a recorded dispatch is pending before any barrier");
+#endif
+		device.ComputeBarrier(0, ComputeBarrierBit::VertexBuffer);
+		check(!device.HasPendingComputeWork(),
+			"a VertexBuffer barrier submits the dispatch instead of leaving it queued");
+	}
+
 	device.ComputeBarrier(0, ComputeBarrierBit::HostRead);
+	check(!device.HasPendingComputeWork(), "a HostRead barrier leaves nothing pending");
 	std::vector<f32> out(kCount * 2 * 4, 0.f);
 	device.ReadStorageBuffer(outBuf, 0, (uint32)(out.size() * sizeof(f32)), out.data());
 

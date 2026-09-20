@@ -7592,6 +7592,11 @@ namespace p3d {
 		vkCmdDispatch(computeCmd, groupsX, groupsY, groupsZ);
 	}
 
+	bool VulkanRenderDevice::HasPendingComputeWork() const
+	{
+		return computeCommandBufferRecording;
+	}
+
 	void VulkanRenderDevice::ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits)
 	{
 		(void)cmd;
@@ -7600,11 +7605,18 @@ namespace p3d {
 			ComputeUnsupported("ComputeBarrier");
 			return;
 		}
-		// HostRead means something structurally different here, as on
-		// Metal: CPU visibility is a submission/completion property, not
-		// an in-command-buffer ordering one, so this ends and submits the
-		// command buffer and waits rather than recording a barrier.
-		if (barrierBits & ComputeBarrierBit::HostRead)
+		// Two of these are not in-command-buffer barriers at all, because
+		// what reads the data next is not in this command buffer:
+		//
+		//   HostRead - CPU visibility is a submission/completion
+		//     property, so this must submit and wait.
+		//   VertexBuffer - the reader is a draw recorded into the frame's
+		//     command buffer. A vkCmdPipelineBarrier here would order
+		//     nothing against it, and leaving this buffer unsubmitted
+		//     means the dispatch never runs at all - the draw then reads
+		//     the buffer's previous contents with no error reported
+		//     anywhere. See MetalRenderDevice's matching comment.
+		if (barrierBits & (ComputeBarrierBit::HostRead | ComputeBarrierBit::VertexBuffer))
 		{
 			FlushComputeCommands(true);
 			return;
