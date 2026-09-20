@@ -21,13 +21,10 @@
 //   Metal needs nothing at all. MetalRenderDevice's constructor creates its
 //         own MTLDevice and command queue; a CAMetalLayer is only required
 //         to draw, and this never draws. So there is no window here.
-//   Vulkan needs a window it does not actually use, which is a real
-//         limitation rather than a quirk of this test: VulkanRenderDevice
-//         only creates its VkDevice inside InitializeSwapchain(), and that
-//         takes a VkSurfaceKHR. So there is currently no headless Vulkan
-//         compute at all - a GI baker or any offline dispatch would hit
-//         the same wall. Making device creation separable from swapchain
-//         creation is the fix, and it is not done here.
+//   Vulkan needs nothing either, via InitializeHeadless(). It used to
+//         need a window it never drew to, because a VkDevice only came
+//         into being inside InitializeSwapchain(); this test was the
+//         thing that made that limitation concrete, and it is fixed.
 //
 // Build for GL (Linux CI, or any GL 4.3+ machine):
 //
@@ -51,10 +48,15 @@
 // Build for Vulkan (Linux; needs a Vulkan runtime - lavapipe suffices):
 //
 //   c++ -std=c++17 -DVULKAN_BACKEND -DCOMPUTE_SMOKE_VULKAN \
-//       -I include $(pkg-config --cflags freetype2) $(pkg-config --cflags sdl2) \
+//       -I include -I <vulkan-headers> -I <vma> -I <volk> \
+//       $(pkg-config --cflags freetype2) \
 //       tools/tests/compute_smoke.cpp -o /tmp/compute_smoke_vk \
-//       -L build -lPyrosEngine $(pkg-config --libs sdl2) \
-//       -Wl,-rpath,$PWD/build
+//       -L build -lPyrosEngine -Wl,-rpath,$PWD/build
+//
+// (VMA and volk are FetchContent'd, so their headers live in the build
+// tree rather than on any install prefix - `find . -name vk_mem_alloc.h`.)
+// On macOS the loader needs VK_ICD_FILENAMES pointing at MoltenVK's ICD
+// manifest, since volk dlopen()s it.
 //
 // pkg-config rather than sdl2-config: the latter only emits the inner
 // .../include/SDL2 directory, which makes the <SDL2/SDL.h> spelling used
@@ -79,8 +81,6 @@
 
 #if defined(COMPUTE_SMOKE_VULKAN)
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
-#include <SDL2/SDL.h>
-#include <SDL2/SDL_vulkan.h>
 #endif
 
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
@@ -300,67 +300,34 @@ int main(int argc, char **argv)
 {
 	(void)argc; (void)argv;
 
-	printf("      backend     Vulkan\n");
+	printf("      backend     Vulkan (headless)\n");
 
-	if (SDL_Init(SDL_INIT_VIDEO) != 0)
-	{
-		printf("FAIL  SDL_Init - %s\n", SDL_GetError());
-		return 1;
-	}
+	// No window, no surface, no SDL. InitializeHeadless() builds the
+	// VkDevice, queue, allocator, command pool and fences and stops short
+	// of the swapchain - see its comment. This is also the shape a bake
+	// would take.
+	//
+	// No instance extensions requested for the same reason: the surface
+	// and platform-surface extensions exist only to present.
+	VulkanRenderDevice device;
 
-	// The window exists only to produce a VkSurfaceKHR, because
-	// InitializeSwapchain() is where the VkDevice gets created - see the
-	// header comment. Nothing is ever presented to it.
-	SDL_Window *window = SDL_CreateWindow("compute_smoke",
-		SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, 64, 64,
-		SDL_WINDOW_VULKAN | SDL_WINDOW_HIDDEN);
-	if (window == NULL)
+	if (device.GetInstance() == VK_NULL_HANDLE)
 	{
-		printf("SKIP  no Vulkan-capable window - %s\n", SDL_GetError());
-		SDL_Quit();
+		printf("SKIP  no Vulkan instance - no loader or no ICD on this machine\n");
 		return 0;
 	}
-
-	unsigned int extCount = 0;
-	if (SDL_Vulkan_GetInstanceExtensions(window, &extCount, NULL) != SDL_TRUE)
+	if (!device.InitializeHeadless())
 	{
-		printf("SKIP  SDL_Vulkan_GetInstanceExtensions failed - %s\n", SDL_GetError());
-		SDL_DestroyWindow(window); SDL_Quit();
+		printf("SKIP  InitializeHeadless failed - no usable Vulkan device\n");
 		return 0;
 	}
-	std::vector<const char*> extensions(extCount);
-	SDL_Vulkan_GetInstanceExtensions(window, &extCount, extensions.data());
-
-	int result = 0;
+	if (!RunComputeVerification(device))
 	{
-		VulkanRenderDevice device(extensions);
-		VkSurfaceKHR surface = VK_NULL_HANDLE;
-		if (device.GetInstance() == VK_NULL_HANDLE)
-		{
-			printf("SKIP  no Vulkan instance - no loader or no ICD on this machine\n");
-		}
-		else if (SDL_Vulkan_CreateSurface(window, device.GetInstance(), &surface) != SDL_TRUE)
-		{
-			printf("SKIP  SDL_Vulkan_CreateSurface failed - %s\n", SDL_GetError());
-		}
-		else if (!device.InitializeSwapchain(surface, 64, 64))
-		{
-			printf("SKIP  InitializeSwapchain failed - no usable Vulkan device\n");
-		}
-		else if (!RunComputeVerification(device))
-		{
-			printf("SKIP  SupportsCompute() is false - the graphics queue family does not\n");
-			printf("      advertise VK_QUEUE_COMPUTE_BIT, or SPIRV_TOOLING is off.\n");
-		}
-		else
-		{
-			result = Report();
-		}
+		printf("SKIP  SupportsCompute() is false - the graphics queue family does not\n");
+		printf("      advertise VK_QUEUE_COMPUTE_BIT, or SPIRV_TOOLING is off.\n");
+		return 0;
 	}
-
-	SDL_DestroyWindow(window);
-	SDL_Quit();
-	return result;
+	return Report();
 }
 
 #elif defined(COMPUTE_SMOKE_GL)

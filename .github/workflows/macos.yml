@@ -136,23 +136,22 @@ jobs:
               -framework Foundation -framework Metal \
               -Wl,-rpath,"$PWD/build"
           else
-            # VMA and volk are FetchContent'd, so their headers are not on
-            # any install prefix - find them in the build tree the same way
-            # the engine's own compile does.
+            # No SDL at all - the Vulkan leg runs headless via
+            # InitializeHeadless(). VMA and volk are FetchContent'd, so
+            # their headers are not on any install prefix; find them in
+            # the build tree the way the engine's own compile does.
             VMA="$(find . -name vk_mem_alloc.h -print -quit)"
             VOLK="$(find . -name volk.h -print -quit)"
             c++ -std=c++17 -DVULKAN_BACKEND -DCOMPUTE_SMOKE_VULKAN \
               -I include -I "$(brew --prefix)/include" $FT \
               -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
-              $(pkg-config --cflags sdl2) \
               tools/tests/compute_smoke.cpp -o /tmp/compute_smoke \
-              -L build -lPyrosEngine $(pkg-config --libs sdl2) \
-              -Wl,-rpath,"$PWD/build"
-            # volk dlopen()s the loader, and the loader needs MoltenVK's ICD
-            # manifest pointed at explicitly - the same reason this matrix
-            # entry ships no package (see its comment above).
+              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+            # volk dlopen()s the loader, so it has to be findable, and the
+            # loader needs MoltenVK's ICD manifest pointed at explicitly -
+            # the same reason this matrix entry ships no package (see its
+            # comment above).
             export VK_ICD_FILENAMES="$(brew --prefix)/etc/vulkan/icd.d/MoltenVK_icd.json"
-            export SDL_VULKAN_LIBRARY="$(brew --prefix)/lib/libvulkan.1.dylib"
             export DYLD_LIBRARY_PATH="$(brew --prefix)/lib:${DYLD_LIBRARY_PATH:-}"
           fi
           set +e

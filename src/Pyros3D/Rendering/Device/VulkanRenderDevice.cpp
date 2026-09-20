@@ -770,9 +770,28 @@ namespace p3d {
 
 	bool VulkanRenderDevice::InitializeSwapchain(VkSurfaceKHR newSurface, const uint32 width, const uint32 height)
 	{
-		if (instance == VK_NULL_HANDLE || newSurface == VK_NULL_HANDLE)
+		if (newSurface == VK_NULL_HANDLE)
 			return false;
+		return InitializeInternal(newSurface, width, height);
+	}
+
+	bool VulkanRenderDevice::InitializeHeadless()
+	{
+		// Everything except the swapchain. See the header comment for why
+		// this exists: compute had no way to run without a window, because
+		// the VkDevice was only ever created as a side effect of setting
+		// up presentation.
+		return InitializeInternal(VK_NULL_HANDLE, 0, 0);
+	}
+
+	bool VulkanRenderDevice::InitializeInternal(VkSurfaceKHR newSurface, const uint32 width, const uint32 height)
+	{
+		if (instance == VK_NULL_HANDLE)
+			return false;
+		// VK_NULL_HANDLE here is the headless path - every use of `surface`
+		// below is guarded on it.
 		surface = newSurface;
+		const bool headless = (newSurface == VK_NULL_HANDLE);
 
 		// Physical device: pick the first one with a queue family that
 		// supports both graphics and presenting to this surface - true on
@@ -797,9 +816,13 @@ namespace p3d {
 
 			for (uint32 f = 0; f < queueFamilyCount; f++)
 			{
+				// Headless asks only for graphics; there is nothing to
+				// present to, and requiring present support would reject
+				// every device on a machine with no surface at all.
 				VkBool32 presentSupport = VK_FALSE;
-				vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevices[d], f, surface, &presentSupport);
-				if ((queueFamilies[f].queueFlags & VK_QUEUE_GRAPHICS_BIT) && presentSupport)
+				if (!headless)
+					vkGetPhysicalDeviceSurfaceSupportKHR(physicalDevices[d], f, surface, &presentSupport);
+				if ((queueFamilies[f].queueFlags & VK_QUEUE_GRAPHICS_BIT) && (headless || presentSupport))
 				{
 					physicalDevice = physicalDevices[d];
 					graphicsQueueFamily = presentQueueFamily = f;
@@ -840,7 +863,12 @@ namespace p3d {
 		queueCreateInfo.pQueuePriorities = &queuePriority;
 
 		std::vector<const char*> deviceExtensions;
-		deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
+		// Requesting VK_KHR_swapchain headless is not merely pointless -
+		// a device with no WSI support at all would fail vkCreateDevice on
+		// an extension it cannot provide, which is exactly the machine a
+		// headless bake is most likely to run on.
+		if (!headless)
+			deviceExtensions.push_back(VK_KHR_SWAPCHAIN_EXTENSION_NAME);
 #if defined(__APPLE__)
 		// Required on MoltenVK alongside VK_KHR_portability_enumeration at
 		// the instance level.
@@ -910,7 +938,13 @@ namespace p3d {
 		if (vmaCreateAllocator(&allocatorInfo, &allocator) != VK_SUCCESS)
 			return false;
 
-		if (!CreateSwapchainAndFramebuffers(width, height))
+		// The only part of this function that actually needs a surface.
+		// Everything after it - command pool, command buffers, fences,
+		// the pipeline cache - is device-level and runs either way.
+		// renderFinishedSemaphores sizes itself from swapchainImages,
+		// which stays empty headless, so that loop is a no-op rather than
+		// a special case.
+		if (!headless && !CreateSwapchainAndFramebuffers(width, height))
 			return false;
 
 		// Command pool/buffer + sync objects for ClearAndPresent()'s

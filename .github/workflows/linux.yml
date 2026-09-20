@@ -54,7 +54,11 @@ jobs:
             context: SDL2Vulkan
             vulkan: "ON"
             opengl: GL41
-            compute: "OFF"
+            # Vulkan compute runs headless (InitializeHeadless - no
+            # surface, no window), so all this leg needs is an ICD.
+            # lavapipe is Mesa's software Vulkan device, the same idea as
+            # llvmpipe for GL on the leg below.
+            compute: "vulkan"
             artifact: Pyros3D-linux-vulkan
           # The only job in the whole CI matrix that can actually RUN a
           # compute shader. Compute is GL 4.3, and of the platforms this
@@ -72,7 +76,7 @@ jobs:
             context: SDL2
             vulkan: "OFF"
             opengl: GL45
-            compute: "ON"
+            compute: "gl"
             artifact: Pyros3D-linux-opengl-gl45
 
     steps:
@@ -133,7 +137,10 @@ jobs:
         # linking it, which is why the backend wants Vulkan::Headers and not
         # Vulkan::Vulkan.
         run: |
-          apt-get install -y --no-install-recommends libvulkan-dev
+          # mesa-vulkan-drivers brings lavapipe, Mesa's software Vulkan
+          # device - the runners have no GPU, and the compute leg needs a
+          # real ICD to dispatch against.
+          apt-get install -y --no-install-recommends libvulkan-dev mesa-vulkan-drivers
           git clone --depth 1 --branch vulkan-sdk-1.4.357.0 \
             https://github.com/KhronosGroup/Vulkan-Headers.git /tmp/vulkan-headers
           cmake -S /tmp/vulkan-headers -B /tmp/vulkan-headers/build \
@@ -252,7 +259,7 @@ jobs:
           grep glibc package/README.txt
 
       - name: Compute smoke test
-        if: matrix.compute == 'ON'
+        if: matrix.compute != 'OFF'
         # Built by hand rather than through CMake, matching every other
         # binary in tools/tests (none of them are in the build system -
         # see the compile line in each file's header comment). Kept that
@@ -261,39 +268,57 @@ jobs:
         # wiring a conditional target into the root CMakeLists for it
         # would cost more than the two commands below.
         #
-        # LIBGL_ALWAYS_SOFTWARE forces llvmpipe rather than whatever
+        # GL: LIBGL_ALWAYS_SOFTWARE forces llvmpipe rather than whatever
         # stub the container might otherwise pick. Without it a runner
         # with no DRI device can land on a GL 1.4 software path, where
-        # the test correctly reports SKIP - and a SKIP here would be a
-        # silent loss of the only compute coverage in the project, so
-        # the step below turns that case into a hard failure on purpose.
+        # the test correctly reports SKIP.
+        #
+        # Vulkan: nothing to force - the test runs headless, and the
+        # loader finds lavapipe on its own from mesa-vulkan-drivers.
+        #
+        # Either way a SKIP here means the coverage silently evaporated,
+        # so the step below turns that into a hard failure on purpose.
         run: |
           set -euo pipefail
-          apt-get install -y --no-install-recommends xvfb
-          cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
-            src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
-          c++ -std=c++17 -DGL45 -DCOMPUTE_SMOKE_GL \
-            -I include -I include/Pyros3D/Ext/gl45 \
-            $(pkg-config --cflags freetype2) \
-            $(pkg-config --cflags sdl2) \
-            tools/tests/compute_smoke.cpp /tmp/glad45.o \
-            -o /tmp/compute_smoke \
-            -L build -lPyrosEngine $(pkg-config --libs sdl2) \
-            -Wl,-rpath,"$PWD/build"
+          FT="$(pkg-config --cflags freetype2)"
+          if [ "${{ matrix.compute }}" = "gl" ]; then
+            apt-get install -y --no-install-recommends xvfb
+            cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
+              src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
+            c++ -std=c++17 -DGL45 -DCOMPUTE_SMOKE_GL \
+              -I include -I include/Pyros3D/Ext/gl45 \
+              $FT $(pkg-config --cflags sdl2) \
+              tools/tests/compute_smoke.cpp /tmp/glad45.o \
+              -o /tmp/compute_smoke \
+              -L build -lPyrosEngine $(pkg-config --libs sdl2) \
+              -Wl,-rpath,"$PWD/build"
+            RUNNER="LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a"
+          else
+            # Headless: no SDL, no xvfb, no window. VMA and volk are
+            # FetchContent'd, so their headers live in the build tree.
+            VMA="$(find . -name vk_mem_alloc.h -print -quit)"
+            VOLK="$(find . -name volk.h -print -quit)"
+            c++ -std=c++17 -DVULKAN_BACKEND -DCOMPUTE_SMOKE_VULKAN \
+              -I include -I "$VULKAN_SDK/include" $FT \
+              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
+              tools/tests/compute_smoke.cpp -o /tmp/compute_smoke \
+              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+            RUNNER=""
+          fi
           set +e
-          LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a /tmp/compute_smoke | tee /tmp/compute_out.txt
+          env $RUNNER /tmp/compute_smoke | tee /tmp/compute_out.txt
           code=${PIPESTATUS[0]}
           set -e
           echo "--- exit code $code ---"
           if [ $code -ne 0 ]; then
-            echo "::error::compute_smoke failed - the GL compute path is broken"
+            echo "::error::compute_smoke failed on ${{ matrix.compute }}"
             exit 1
           fi
           # A SKIP exits 0 by design (so the test is safe to run anywhere),
           # but on THIS job a skip means llvmpipe did not give us GL 4.3+
           # and the coverage silently evaporated. Fail loudly instead.
           if grep -q '^SKIP' /tmp/compute_out.txt; then
-            echo "::error::compute_smoke SKIPped on the one runner that is supposed to support compute - llvmpipe did not provide GL 4.3+"
+            echo "::error::compute_smoke SKIPped on ${{ matrix.compute }} - the backend reported no compute support"
             exit 1
           fi
           grep -q '^PASS  compute_smoke' /tmp/compute_out.txt

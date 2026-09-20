@@ -132,6 +132,25 @@ namespace p3d {
 		// swapchain) on failure.
 		bool InitializeSwapchain(VkSurfaceKHR surface, const uint32 width, const uint32 height);
 
+		// Creates the VkDevice, queue, allocator, command pool and
+		// sync objects WITHOUT a surface or a swapchain - everything
+		// needed to compute, upload, and render offscreen, but nothing
+		// that can be presented.
+		//
+		// Exists because until now a VkDevice only came into being as a
+		// side effect of setting up presentation, so there was no such
+		// thing as headless Vulkan compute: a dispatch needed a window it
+		// never drew to. A lightmap/probe bake is the obvious caller, and
+		// it is the one job with no frame to attach to. Metal needs no
+		// equivalent - MetalRenderDevice's constructor already makes its
+		// MTLDevice and queue outright.
+		//
+		// A device initialized this way must not be asked to present:
+		// BeginFrame/EndFrame and anything swapchain-shaped have nothing
+		// to work with. Mutually exclusive with InitializeSwapchain() -
+		// call one, once.
+		bool InitializeHeadless();
+
 		// Minimal "hello window" frame loop - acquires the next swapchain
 		// image, clears it to clearColor, and presents. Not part of
 		// IRenderDevice (no GL equivalent, and IRenderer doesn't drive
@@ -426,6 +445,9 @@ namespace p3d {
 		// RecreateSwapchain() on every resize. See the .cpp definition's
 		// comment for why oldSwapchain handling lives here.
 		bool CreateSwapchainAndFramebuffers(const uint32 width, const uint32 height);
+		// Shared body of InitializeSwapchain()/InitializeHeadless() -
+		// pass VK_NULL_HANDLE for the headless path.
+		bool InitializeInternal(VkSurfaceKHR newSurface, const uint32 width, const uint32 height);
 		// Destroys the current swapchain-size-dependent resources and
 		// rebuilds them against the surface's now-current size - called
 		// reactively from BeginFrame()/EndFrame() when a swapchain
