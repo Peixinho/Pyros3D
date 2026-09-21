@@ -85,13 +85,13 @@ int main()
 
 	// ---- CPU reference --------------------------------------------------
 	DDGIVolume cpu;
-	check(cpu.Allocate(Vec3(-4.f,-4.f,-4.f), Vec3(2.f,2.f,2.f), 4, 4, 4, 8, 16), "CPU volume allocates");
+	check(cpu.Allocate(Vec3(-4.f,-4.f,-4.f), Vec3(2.f,2.f,2.f), 4, 4, 4, 8, 16, 16, 4), "CPU volume allocates");
 	cpu.SetSkyColor(Vec3(0.f,0.f,0.f));
 	cpu.Update(scene, lights, kRays, kFrame, 0.f, 0);
 
 	// ---- GPU ------------------------------------------------------------
 	DDGIVolume gpu;
-	gpu.Allocate(Vec3(-4.f,-4.f,-4.f), Vec3(2.f,2.f,2.f), 4, 4, 4, 8, 16);
+	gpu.Allocate(Vec3(-4.f,-4.f,-4.f), Vec3(2.f,2.f,2.f), 4, 4, 4, 8, 16, 16, 4);
 	gpu.SetSkyColor(Vec3(0.f,0.f,0.f));
 
 	DDGICompute compute;
@@ -147,6 +147,60 @@ int main()
 				}
 		check(worst < 5e-3f, "GPU visibility moments match the CPU volume",
 			"worst relative |d| = " + std::to_string(worst));
+	}
+
+	// ---- prefiltered radiance ------------------------------------------
+	//
+	// The specular atlas is levels times larger and gathered through a
+	// different lobe, so it is the one most likely to be indexed
+	// wrongly - a level or a probe out of step still produces a
+	// plausible-looking reflection of the wrong part of the room.
+	// Comparing every texel of every level catches exactly that.
+	{
+		const ProbeAtlas &a = cpu.GetRadianceAtlas();
+		const ProbeAtlas &b = gpu.GetRadianceAtlas();
+		check(a.GetWidth()==b.GetWidth() && a.GetHeight()==b.GetHeight() && a.GetResolution()>0,
+			"radiance atlases are the same shape");
+		check(cpu.GetRadianceLevels()==4 && gpu.GetRadianceLevels()==4,
+			"both volumes prefiltered four roughness levels");
+
+		f32 worst=0.f, magnitude=0.f; uint32 worstTile=0;
+		const uint32 R=a.GetResolution();
+		const uint32 tiles = cpu.ProbeCount() * cpu.GetRadianceLevels();
+		for (uint32 t=0; t<tiles; t++)
+			for (uint32 y=0;y<R;y++)
+				for (uint32 x=0;x<R;x++)
+				{
+					const f32 *ca=a.At(t,x,y), *cb=b.At(t,x,y);
+					for (uint32 c=0;c<3;c++)
+					{
+						magnitude = fmaxf(magnitude, fabsf(ca[c]));
+						const f32 d=fabsf(ca[c]-cb[c]);
+						if (d>worst){worst=d;worstTile=t;}
+					}
+				}
+		check(magnitude > 1.f, "the CPU radiance reference is not all zeros",
+			"max = " + std::to_string(magnitude));
+		check(worst < 2e-3f, "GPU prefiltered radiance matches the CPU volume texel for texel",
+			"worst |d| = " + std::to_string(worst) + " at tile " + std::to_string(worstTile));
+
+		// A level-indexing error keeps every texel present but swaps
+		// which lobe wrote it, so the check above could in principle
+		// pass on a symmetric scene. This one cannot: the levels must
+		// differ from each other, and in the right direction.
+		f32 lvl0=0.f, lvl3=0.f;
+		for (uint32 p=0; p<cpu.ProbeCount(); p++)
+			for (uint32 y=0;y<R;y++)
+				for (uint32 x=0;x<R;x++)
+				{
+					const f32 *c0=b.At(gpu.RadianceTile(p,0),x,y);
+					const f32 *c3=b.At(gpu.RadianceTile(p,3),x,y);
+					lvl0 = fmaxf(lvl0, fabsf(c0[0]-c0[1]));
+					lvl3 = fmaxf(lvl3, fabsf(c3[0]-c3[1]));
+				}
+		check(lvl0 > lvl3 * 1.1f,
+			"the sharp level holds more colour contrast than the rough one",
+			"level 0 " + std::to_string(lvl0) + " vs level 3 " + std::to_string(lvl3));
 	}
 
 	// ---- and that it still bleeds colour --------------------------------

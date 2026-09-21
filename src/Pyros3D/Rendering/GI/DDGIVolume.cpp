@@ -18,7 +18,7 @@ namespace p3d {
 
 	DDGIVolume::DDGIVolume()
 		: origin(0.f,0.f,0.f), spacing(1.f,1.f,1.f),
-		  skyColor(0.f,0.f,0.f), maxRayDistance(100.f), updateCursor(0)
+		  radianceLevels(0), skyColor(0.f,0.f,0.f), maxRayDistance(100.f), updateCursor(0)
 	{
 		counts[0] = counts[1] = counts[2] = 0;
 	}
@@ -37,9 +37,27 @@ namespace p3d {
 					origin.z + spacing.z * (f32)z);
 	}
 
+	f32 DDGIVolume::MinRoughness()
+	{
+		// Chosen against the ray count, not by taste: at 128 rays the
+		// mean angle between neighbours is about 9 degrees, and a GGX
+		// lobe at roughness 0.08 has a comparable width. Narrower and
+		// the prefilter starts returning individual rays.
+		return 0.08f;
+	}
+
+	f32 DDGIVolume::LevelRoughness(const uint32 level, const uint32 levels)
+	{
+		if (levels <= 1)
+			return 1.f;
+		const f32 t = (f32)level / (f32)(levels - 1);
+		return MinRoughness() + (1.f - MinRoughness()) * t;
+	}
+
 	bool DDGIVolume::Allocate(const Vec3 &o, const Vec3 &s,
 		const uint32 nx, const uint32 ny, const uint32 nz,
-		const uint32 irradianceRes, const uint32 visibilityRes)
+		const uint32 irradianceRes, const uint32 visibilityRes,
+		const uint32 radianceRes, const uint32 levels)
 	{
 		if (nx < 2 || ny < 2 || nz < 2) return false;
 		if (s.x <= 0.f || s.y <= 0.f || s.z <= 0.f) return false;
@@ -57,6 +75,17 @@ namespace p3d {
 		// packing something into it later is free.
 		if (!irradiance.Allocate(total, irradianceRes, 4)) return false;
 		if (!visibility.Allocate(total, visibilityRes, 2)) return false;
+
+		// Specular is opt-out. The atlas is levels times the size of
+		// the irradiance one, so a scene that only wants bounce light
+		// should not be paying for it.
+		radianceLevels = levels;
+		radiance.Clear();
+		if (radianceLevels > 0)
+		{
+			if (!radiance.Allocate(total * radianceLevels, radianceRes, 4))
+				return false;
+		}
 
 		// A ray that escapes should be treated as sky at roughly the
 		// scale of the volume, not at infinity: the visibility moments
@@ -174,6 +203,7 @@ namespace p3d {
 
 		const uint32 irrRes = irradiance.GetResolution();
 		const uint32 visRes = visibility.GetResolution();
+		const uint32 radRes = radiance.GetResolution();
 		// Golden-ratio rotation per frame: successive frames land
 		// between each other's directions rather than repeating.
 		const f32 rotation = (f32)frame * 0.618033988749895f;
@@ -281,6 +311,70 @@ namespace p3d {
 				dst[0] = dst[0] * hysteresis + mean * (1.f - hysteresis);
 				dst[1] = dst[1] * hysteresis + mean2 * (1.f - hysteresis);
 			}
+
+			// ---- prefiltered radiance: GGX lobe per texel, per level --
+			//
+			// The same rays, gathered through a different filter. The
+			// irradiance pass above convolves with a cosine lobe, which
+			// is the diffuse BRDF; this convolves with the GGX
+			// distribution, which is the specular one. Nothing is
+			// re-traced - a second set of rays for specular would cost
+			// as much again and buy very little, because the rays are
+			// the same rays and only the weighting differs.
+			for (uint32 level = 0; level < radianceLevels; level++)
+			{
+				const f32 rough = LevelRoughness(level, radianceLevels);
+				const f32 a = rough * rough;
+				const f32 a2 = a * a;
+				const uint32 tile = RadianceTile(probe, level);
+
+				for (uint32 ty = 0; ty < radRes; ty++)
+				for (uint32 tx = 0; tx < radRes; tx++)
+				{
+					// N = V = R, Karis' approximation. It is what makes
+					// a single prefiltered map serve every view
+					// direction; the error it introduces is the loss of
+					// lobe stretching at grazing angles, which is the
+					// trade every engine doing split-sum accepts.
+					const Vec3 n = ProbeAtlas::TexelDirection(tx, ty, radRes);
+					Vec3 sum(0.f, 0.f, 0.f);
+					f32 weightSum = 0.f;
+					f32 bestDot = -1.f;
+					uint32 bestRay = 0;
+
+					for (uint32 r = 0; r < raysPerProbe; r++)
+					{
+						const f32 nDotL = n.dotProduct(rayDir[r]);
+						if (nDotL > bestDot) { bestDot = nDotL; bestRay = r; }
+						if (nDotL <= 0.f) continue;
+						Vec3 h = rayDir[r] + n;
+						const f32 hlen = h.magnitude();
+						if (hlen < 1e-6f) continue;
+						h = h * (1.f / hlen);
+						const f32 nDotH = std::max(0.f, n.dotProduct(h));
+						const f32 d = (nDotH * nDotH) * (a2 - 1.f) + 1.f;
+						const f32 ndf = a2 / std::max(kPi * d * d, 1e-8f);
+						const f32 w = ndf * nDotL;
+						if (w <= 1e-8f) continue;
+						sum += rayRadiance[r] * w;
+						weightSum += w;
+					}
+
+					if (weightSum > 1e-8f)
+						sum = sum * (1.f / weightSum);
+					else if (bestDot > 0.f)
+						// The lobe fell between rays. Returning black
+						// here would punch a hole in the reflection;
+						// the closest ray is a poor estimate but it is
+						// an estimate of the right thing.
+						sum = rayRadiance[bestRay];
+
+					f32 *dst = radiance.At(tile, tx, ty);
+					dst[0] = dst[0] * hysteresis + sum.x * (1.f - hysteresis);
+					dst[1] = dst[1] * hysteresis + sum.y * (1.f - hysteresis);
+					dst[2] = dst[2] * hysteresis + sum.z * (1.f - hysteresis);
+				}
+			}
 		}
 
 		if (updateCursor >= total)
@@ -291,12 +385,14 @@ namespace p3d {
 		// tracking which tiles are dirty would cost more than it saves.
 		irradiance.FillBorders();
 		visibility.FillBorders();
+		radiance.FillBorders();
 	}
 
-	Vec3 DDGIVolume::SampleIrradiance(const Vec3 &worldPosition, const Vec3 &normal) const
+	uint32 DDGIVolume::GatherProbes(const Vec3 &worldPosition, const Vec3 &normal,
+		uint32 *outProbes, f32 *outWeights) const
 	{
 		if (!IsValid())
-			return Vec3(0.f, 0.f, 0.f);
+			return 0;
 
 		f32 g[3] = {
 			(worldPosition.x - origin.x) / spacing.x,
@@ -315,10 +411,8 @@ namespace p3d {
 			frac[a] = g[a] - (f32)base[a];
 		}
 
-		const uint32 irrRes = irradiance.GetResolution();
 		const uint32 visRes = visibility.GetResolution();
-		Vec3 sum(0.f, 0.f, 0.f);
-		f32 weightSum = 0.f;
+		uint32 found = 0;
 
 		for (uint32 corner = 0; corner < 8; corner++)
 		{
@@ -364,8 +458,6 @@ namespace p3d {
 				const f32 *m = visibility.At(probe, vx, vy);
 				const f32 mean = m[0];
 				const f32 variance = std::max(0.f, m[1] - mean * mean);
-				// Bias along the normal so a surface does not occlude
-				// itself from its own probe.
 				const f32 d = distToProbe;
 				if (d > mean)
 				{
@@ -381,17 +473,96 @@ namespace p3d {
 			if (weight <= 1e-6f)
 				continue;
 
-			// Irradiance in the surface's normal direction.
-			const Vec2 oct = OctEncode(normal);
-			const uint32 ix = (uint32)std::min((f32)(irrRes - 1),
-				std::max(0.f, (oct.x * 0.5f + 0.5f) * (f32)irrRes));
-			const uint32 iy = (uint32)std::min((f32)(irrRes - 1),
-				std::max(0.f, (oct.y * 0.5f + 0.5f) * (f32)irrRes));
-			const f32 *c = irradiance.At(probe, ix, iy);
-			sum += Vec3(c[0], c[1], c[2]) * weight;
-			weightSum += weight;
+			outProbes[found] = probe;
+			outWeights[found] = weight;
+			found++;
 		}
+		return found;
+	}
 
+	Vec3 DDGIVolume::SampleIrradiance(const Vec3 &worldPosition, const Vec3 &normal) const
+	{
+		uint32 probes[8];
+		f32 weights[8];
+		const uint32 n = GatherProbes(worldPosition, normal, probes, weights);
+		if (n == 0)
+			return Vec3(0.f, 0.f, 0.f);
+
+		const uint32 irrRes = irradiance.GetResolution();
+		// Irradiance in the surface's normal direction - the same texel
+		// for every probe, because it is the surface's normal and not
+		// the probe's.
+		const Vec2 oct = OctEncode(normal);
+		const uint32 ix = (uint32)std::min((f32)(irrRes - 1),
+			std::max(0.f, (oct.x * 0.5f + 0.5f) * (f32)irrRes));
+		const uint32 iy = (uint32)std::min((f32)(irrRes - 1),
+			std::max(0.f, (oct.y * 0.5f + 0.5f) * (f32)irrRes));
+
+		Vec3 sum(0.f, 0.f, 0.f);
+		f32 weightSum = 0.f;
+		for (uint32 i = 0; i < n; i++)
+		{
+			const f32 *c = irradiance.At(probes[i], ix, iy);
+			sum += Vec3(c[0], c[1], c[2]) * weights[i];
+			weightSum += weights[i];
+		}
+		if (weightSum <= 1e-6f)
+			return Vec3(0.f, 0.f, 0.f);
+		return sum * (1.f / weightSum);
+	}
+
+	Vec3 DDGIVolume::SampleRadiance(const Vec3 &worldPosition, const Vec3 &normal,
+		const Vec3 &reflection, const f32 roughness) const
+	{
+		if (radianceLevels == 0 || radiance.GetResolution() == 0)
+			return Vec3(0.f, 0.f, 0.f);
+
+		uint32 probes[8];
+		f32 weights[8];
+		const uint32 n = GatherProbes(worldPosition, normal, probes, weights);
+		if (n == 0)
+			return Vec3(0.f, 0.f, 0.f);
+
+		// Where this roughness falls between two prefiltered levels.
+		// Linear in roughness rather than in the GGX alpha, matching
+		// how LevelRoughness lays the levels out - the two have to be
+		// inverses or a surface samples a lobe it was not filtered for.
+		f32 t = 0.f;
+		if (radianceLevels > 1)
+		{
+			const f32 minR = MinRoughness();
+			t = (std::min(std::max(roughness, minR), 1.f) - minR) / (1.f - minR);
+			t *= (f32)(radianceLevels - 1);
+		}
+		const uint32 lo = (uint32)std::min((f32)(radianceLevels - 1), floorf(t));
+		const uint32 hi = std::min(lo + 1, radianceLevels - 1);
+		const f32 lerp = std::min(std::max(t - (f32)lo, 0.f), 1.f);
+
+		Vec3 dir = reflection;
+		const f32 len = dir.magnitude();
+		if (len < 1e-6f)
+			return Vec3(0.f, 0.f, 0.f);
+		dir = dir * (1.f / len);
+
+		const uint32 radRes = radiance.GetResolution();
+		const Vec2 oct = OctEncode(dir);
+		const uint32 rx = (uint32)std::min((f32)(radRes - 1),
+			std::max(0.f, (oct.x * 0.5f + 0.5f) * (f32)radRes));
+		const uint32 ry = (uint32)std::min((f32)(radRes - 1),
+			std::max(0.f, (oct.y * 0.5f + 0.5f) * (f32)radRes));
+
+		Vec3 sum(0.f, 0.f, 0.f);
+		f32 weightSum = 0.f;
+		for (uint32 i = 0; i < n; i++)
+		{
+			const f32 *a = radiance.At(RadianceTile(probes[i], lo), rx, ry);
+			const f32 *b = radiance.At(RadianceTile(probes[i], hi), rx, ry);
+			const Vec3 v(a[0] + (b[0] - a[0]) * lerp,
+						 a[1] + (b[1] - a[1]) * lerp,
+						 a[2] + (b[2] - a[2]) * lerp);
+			sum += v * weights[i];
+			weightSum += weights[i];
+		}
 		if (weightSum <= 1e-6f)
 			return Vec3(0.f, 0.f, 0.f);
 		return sum * (1.f / weightSum);

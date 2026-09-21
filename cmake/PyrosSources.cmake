@@ -100,6 +100,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/DDGIVolume.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/SceneGI.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/DDGICompute.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/BRDFLut.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/GLRenderDevice.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/IRenderDevice.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/GameObjects/GameObject.cpp

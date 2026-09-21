@@ -58,9 +58,27 @@ namespace p3d {
 		// Irradiance tiles are small because irradiance is smooth;
 		// visibility needs more, because resolving which side of a wall
 		// edge a direction falls on is the whole job.
+		// `radianceLevels` roughness slices of prefiltered radiance for
+		// specular. Zero disables specular entirely and costs nothing -
+		// the atlas is not allocated and SampleRadiance returns black.
 		bool Allocate(const Vec3 &origin, const Vec3 &spacing,
 			const uint32 nx, const uint32 ny, const uint32 nz,
-			const uint32 irradianceRes = 8, const uint32 visibilityRes = 16);
+			const uint32 irradianceRes = 8, const uint32 visibilityRes = 16,
+			const uint32 radianceRes = 16, const uint32 radianceLevels = 4);
+
+		// The roughness a given prefilter level was gathered at.
+		//
+		// Level 0 is NOT roughness zero. A probe traces on the order of
+		// a hundred rays; a mirror lobe is narrower than the angle
+		// between neighbouring rays, so prefiltering at roughness 0
+		// gathers one ray and returns noise that looks like a mirror
+		// only by accident. The floor is where the lobe is wide enough
+		// that several rays land in it. Below that the shader has
+		// nothing better to offer than this level - which is the honest
+		// limit of probe-based specular, and why screen-space
+		// reflections exist.
+		static f32 LevelRoughness(const uint32 level, const uint32 levels);
+		static f32 MinRoughness();
 
 		bool IsValid() const;
 		uint32 ProbeCount() const { return counts[0] * counts[1] * counts[2]; }
@@ -99,6 +117,30 @@ namespace p3d {
 		// Chebyshev visibility.
 		Vec3 SampleIrradiance(const Vec3 &worldPosition, const Vec3 &normal) const;
 
+		// Prefiltered radiance along `reflection` for a surface of the
+		// given roughness - the first factor of the split sum. Multiply
+		// by BRDFLut's scale/bias to get the specular term.
+		//
+		// `normal` is still needed: it selects which probes may light
+		// this point at all, and that rejection is the same one the
+		// diffuse path does. Using the reflection vector for probe
+		// selection instead would pick probes on the far side of the
+		// surface whenever the view is grazing.
+		Vec3 SampleRadiance(const Vec3 &worldPosition, const Vec3 &normal,
+			const Vec3 &reflection, const f32 roughness) const;
+
+		const ProbeAtlas &GetRadianceAtlas() const { return radiance; }
+		ProbeAtlas &GetRadianceAtlasMutable() { return radiance; }
+		uint32 GetRadianceLevels() const { return radianceLevels; }
+		// Tile index of one probe at one prefilter level. Levels are
+		// stacked: all probes at level 0, then all at level 1. The
+		// shader has to reproduce this, so it is a named function and
+		// not an expression repeated in three places.
+		uint32 RadianceTile(const uint32 probe, const uint32 level) const
+		{
+			return level * ProbeCount() + probe;
+		}
+
 		const ProbeAtlas &GetIrradianceAtlas() const { return irradiance; }
 		const ProbeAtlas &GetVisibilityAtlas() const { return visibility; }
 		// Mutable access, for a GPU backend writing results back in.
@@ -106,7 +148,7 @@ namespace p3d {
 		// reader has to ask for write access explicitly.
 		ProbeAtlas &GetIrradianceAtlasMutable() { return irradiance; }
 		ProbeAtlas &GetVisibilityAtlasMutable() { return visibility; }
-		void FillAtlasBorders() { irradiance.FillBorders(); visibility.FillBorders(); }
+		void FillAtlasBorders() { irradiance.FillBorders(); visibility.FillBorders(); radiance.FillBorders(); }
 		f32 GetMaxRayDistance() const { return maxRayDistance; }
 		const Vec3 &GetSkyColor() const { return skyColor; }
 
@@ -126,6 +168,8 @@ namespace p3d {
 
 		ProbeAtlas irradiance;  // RGB
 		ProbeAtlas visibility;  // R = mean distance, G = mean squared
+		ProbeAtlas radiance;    // RGB, probeCount tiles per roughness level
+		uint32 radianceLevels;
 		Vec3 skyColor;
 		f32 maxRayDistance;
 		// Where the next budgeted Update() resumes.
@@ -133,6 +177,15 @@ namespace p3d {
 
 		// Evenly distributed directions, rotated per frame - see Update.
 		static Vec3 SphericalFibonacci(const uint32 index, const uint32 count, const f32 rotation);
+		// The eight surrounding probes and their trilinear * backface *
+		// Chebyshev weights. Shared by both samplers so specular and
+		// diffuse cannot disagree about which probes can see a point -
+		// if they did, a wall would leak in the reflection but not in
+		// the diffuse, which is far harder to recognise than both
+		// leaking.
+		uint32 GatherProbes(const Vec3 &worldPosition, const Vec3 &normal,
+			uint32 *outProbes, f32 *outWeights) const;
+
 		Vec3 ShadeHit(const RayScene &scene, const RayHit &hit,
 			const Vec3 &rayOrigin, const Vec3 &rayDir,
 			const std::vector<RayLight> &lights) const;

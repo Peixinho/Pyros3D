@@ -76,9 +76,12 @@ namespace p3d {
 		DeviceHandle traceStage, traceProgram, tracePipeline;
 		DeviceHandle irrStage, irrProgram, irrPipeline;
 		DeviceHandle visStage, visProgram, visPipeline;
+		// Only compiled when the volume asked for specular. A volume
+		// with no radiance levels must not pay for a fourth kernel.
+		DeviceHandle radStage, radProgram, radPipeline;
 
-		DeviceHandle bTris, bNodes, bIdx, bMats, bLights, bRays, bIrr, bVis, bParams;
-		uint32 maxRaysPerProbe, maxBatch;
+		DeviceHandle bTris, bNodes, bIdx, bMats, bLights, bRays, bIrr, bVis, bParams, bRad;
+		uint32 maxRaysPerProbe, maxBatch, radianceLevels;
 		uint32 cursor;
 	};
 

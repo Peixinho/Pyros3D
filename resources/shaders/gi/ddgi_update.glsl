@@ -5,6 +5,7 @@
 //   DDGI_STAGE_TRACE      one thread per (probe, ray)   - trace + shade
 //   DDGI_STAGE_IRRADIANCE one thread per (probe, texel) - cosine gather
 //   DDGI_STAGE_VISIBILITY one thread per (probe, texel) - distance moments
+//   DDGI_STAGE_RADIANCE   one thread per (probe, level, texel) - GGX gather
 //
 // Deliberately mirrors DDGIVolume's CPU implementation step for step -
 // same Fibonacci directions, same lobe exponents, same blend - because
@@ -21,6 +22,7 @@ layout(std430, binding = 5) buffer RayOut  { vec4 rayData[]; };     // 2 vec4: r
 layout(std430, binding = 6) buffer IrrOut  { vec4 irradiance[]; };  // one vec4 per atlas texel
 layout(std430, binding = 7) buffer VisOut  { vec4 visibility[]; };  // xy used
 layout(std430, binding = 8) buffer Params  { vec4 params[]; };
+layout(std430, binding = 9) buffer RadOut  { vec4 radiance[]; };   // prefiltered, levels stacked
 
 // params[0] = origin.xyz,          probeCountTotal
 // params[1] = spacing.xyz,         raysPerProbe
@@ -28,6 +30,7 @@ layout(std430, binding = 8) buffer Params  { vec4 params[]; };
 // params[3] = skyColor.rgb,        hysteresis
 // params[4] = irrRes, visRes, irrProbesPerRow, visProbesPerRow
 // params[5] = rotation, lightCount, probeOffset, probesThisDispatch
+// params[6] = radRes, radProbesPerRow, radLevels, minRoughness
 
 #define P_ORIGIN      params[0].xyz
 #define P_TOTAL       params[0].w
@@ -45,6 +48,20 @@ layout(std430, binding = 8) buffer Params  { vec4 params[]; };
 #define P_LIGHTCOUNT  params[5].y
 #define P_OFFSET      params[5].z
 #define P_BATCH       params[5].w
+#define P_RADRES      params[6].x
+#define P_RADPERROW   params[6].y
+#define P_RADLEVELS   params[6].z
+#define P_MINROUGH    params[6].w
+
+// Matches DDGIVolume::LevelRoughness. Level 0 is not roughness zero -
+// see the comment there; a lobe narrower than the angle between
+// neighbouring rays gathers one ray and returns noise.
+float p3d_LevelRoughness(uint level, float levels)
+{
+    if (levels <= 1.0) return 1.0;
+    float t = float(level) / (levels - 1.0);
+    return P_MINROUGH + (1.0 - P_MINROUGH) * t;
+}
 
 vec3 p3d_ProbePosition(uint probe)
 {
@@ -284,5 +301,74 @@ void main()
     uint o = ay * width + ax;
     vec2 prev = visibility[o].xy;
     visibility[o] = vec4(mix(vec2(mean, mean2), prev, P_HYSTERESIS), 0.0, 0.0);
+
+#elif defined(DDGI_STAGE_RADIANCE)
+    // The same rays as the irradiance gather, through the GGX
+    // distribution instead of a cosine lobe - the specular half of the
+    // split sum. No extra tracing: a second ray set for specular would
+    // double the cost of the frame and the rays would be the same rays.
+    uint res = uint(P_RADRES);
+    uint levels = uint(P_RADLEVELS);
+    uint perTile = res * res;
+    uint perProbe = perTile * levels;
+    if (levels == 0u || gid >= uint(P_BATCH) * perProbe) return;
+    uint localProbe = gid / perProbe;
+    uint rem = gid - localProbe * perProbe;
+    uint level = rem / perTile;
+    uint texel = rem - level * perTile;
+    uint probe = uint(P_OFFSET) + localProbe;
+    if (float(probe) >= P_TOTAL) return;
+
+    uint tx = texel % res, ty = texel / res;
+    // N = V = R, Karis' approximation - what lets one prefiltered map
+    // serve every view direction.
+    vec3 n = p3d_OctDecodeTexel(tx, ty, res);
+
+    float rough = p3d_LevelRoughness(level, P_RADLEVELS);
+    float a = rough * rough;
+    float a2 = a * a;
+
+    uint rays = uint(P_RAYS);
+    vec3 sum = vec3(0.0);
+    float wsum = 0.0;
+    float bestDot = -1.0;
+    uint bestRay = 0u;
+    for (uint r = 0u; r < rays; r++) {
+        vec3 rd = p3d_SphericalFibonacci(r, P_RAYS, P_ROTATION);
+        float nDotL = dot(n, rd);
+        if (nDotL > bestDot) { bestDot = nDotL; bestRay = r; }
+        if (nDotL <= 0.0) continue;
+        vec3 h = rd + n;
+        float hlen = length(h);
+        if (hlen < 1e-6) continue;
+        h /= hlen;
+        float nDotH = max(0.0, dot(n, h));
+        float dd = (nDotH * nDotH) * (a2 - 1.0) + 1.0;
+        float ndf = a2 / max(3.14159265358979 * dd * dd, 1e-8);
+        float w = ndf * nDotL;
+        if (w <= 1e-8) continue;
+        sum += rayData[(localProbe * rays + r) * 2u].rgb * w;
+        wsum += w;
+    }
+    if (wsum > 1e-8) sum /= wsum;
+    else if (bestDot > 0.0)
+        // The lobe fell between rays. Black here would punch a hole in
+        // the reflection; the nearest ray is a poor estimate of the
+        // right thing rather than a good estimate of nothing.
+        sum = rayData[(localProbe * rays + bestRay) * 2u].rgb;
+
+    // Levels are stacked: every probe at level 0, then every probe at
+    // level 1. DDGIVolume::RadianceTile does the same arithmetic, and
+    // the two have to agree or a rough surface samples a smooth
+    // probe's tile.
+    uint tile = level * uint(P_TOTAL) + probe;
+    uint tsz = res + 2u;
+    uint perRow = uint(P_RADPERROW);
+    uint px = tile % perRow, py = tile / perRow;
+    uint width = perRow * tsz;
+    uint ax = px * tsz + 1u + tx, ay = py * tsz + 1u + ty;
+    uint o = ay * width + ax;
+    vec3 prev = radiance[o].rgb;
+    radiance[o] = vec4(mix(sum, prev, P_HYSTERESIS), 0.0);
 #endif
 }
