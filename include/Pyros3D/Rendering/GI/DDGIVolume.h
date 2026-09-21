@@ -80,8 +80,19 @@ namespace p3d {
 		// exponential with `hysteresis`: 0 replaces outright (a one-shot
 		// bake), 0.97 converges over a few dozen frames while tolerating
 		// a moving light.
+		// `probeBudget` caps how many probes this call re-traces,
+		// resuming where the last call stopped; 0 means all of them.
+		//
+		// That budget is what makes this a live algorithm rather than a
+		// bake. Tracing every probe every frame is not affordable on the
+		// CPU, but tracing a slice of them is - each probe still gets
+		// refreshed on a fixed cycle, so a light that moves is followed
+		// with a lag of (probes / budget) frames instead of never.
+		// Round-robin rather than nearest-first so staleness is bounded
+		// rather than letting the probes behind the camera starve.
 		void Update(const RayScene &scene, const std::vector<RayLight> &lights,
-			const uint32 raysPerProbe, const uint32 frame, const f32 hysteresis);
+			const uint32 raysPerProbe, const uint32 frame, const f32 hysteresis,
+			const uint32 probeBudget = 0);
 
 		// Irradiance arriving at `worldPosition` on a surface facing
 		// `normal`, from the eight surrounding probes, weighted by
@@ -109,6 +120,8 @@ namespace p3d {
 		ProbeAtlas visibility;  // R = mean distance, G = mean squared
 		Vec3 skyColor;
 		f32 maxRayDistance;
+		// Where the next budgeted Update() resumes.
+		uint32 updateCursor;
 
 		// Evenly distributed directions, rotated per frame - see Update.
 		static Vec3 SphericalFibonacci(const uint32 index, const uint32 count, const f32 rotation);

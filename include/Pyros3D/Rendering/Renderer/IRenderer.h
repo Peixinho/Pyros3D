@@ -157,6 +157,20 @@ namespace p3d {
 		// triangles is a second or two, which is a load-time cost, not a
 		// per-frame one.
 		bool BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings &settings);
+
+		// One frame of refresh. Re-traces `probeBudget` probes, blends
+		// them into the atlases with `hysteresis`, and re-uploads - so a
+		// light that moves is followed rather than frozen at whatever it
+		// was when the volume was first built.
+		//
+		// The geometry and its BVH are kept from the initial build and
+		// reused; only the lights are re-read. Rebuilding a BVH per
+		// frame would dwarf the tracing, and moving GEOMETRY is a
+		// separate problem from moving light.
+		//
+		// Returns false if no volume has been built yet.
+		bool UpdateGlobalIllumination(SceneGraph *scene, const uint32 probeBudget,
+			const f32 hysteresis = 0.92f);
 		// Drops the baked volume and returns ambient to `fallbackMode`.
 		void ClearGlobalIllumination(const uint32 fallbackMode = 0);
 		const IrradianceProbeGrid *GetAmbientProbeGrid() const { return AmbientProbeGrid; }
@@ -352,6 +366,11 @@ namespace p3d {
 		// Owned when baked through BakeGlobalIllumination; NULL when the
 		// volume came from SetDDGIVolume, which borrows.
 		DDGIVolume *OwnedDDGI = NULL;
+		// Kept from the initial build so per-frame refresh does not have
+		// to re-extract geometry and rebuild the tree.
+		RayScene *OwnedRayScene = NULL;
+		uint32 DDGIFrame = 0;
+		uint32 DDGIRaysPerProbe = 128;
 		Texture *DDGIIrradianceTex = NULL;
 		Texture *DDGIVisibilityTex = NULL;
 		static uint32 DDGIUniformsUBO;

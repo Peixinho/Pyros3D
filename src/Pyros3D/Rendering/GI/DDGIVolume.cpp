@@ -18,7 +18,7 @@ namespace p3d {
 
 	DDGIVolume::DDGIVolume()
 		: origin(0.f,0.f,0.f), spacing(1.f,1.f,1.f),
-		  skyColor(0.f,0.f,0.f), maxRayDistance(100.f)
+		  skyColor(0.f,0.f,0.f), maxRayDistance(100.f), updateCursor(0)
 	{
 		counts[0] = counts[1] = counts[2] = 0;
 	}
@@ -166,7 +166,8 @@ namespace p3d {
 	}
 
 	void DDGIVolume::Update(const RayScene &scene, const std::vector<RayLight> &lights,
-		const uint32 raysPerProbe, const uint32 frame, const f32 hysteresis)
+		const uint32 raysPerProbe, const uint32 frame, const f32 hysteresis,
+		const uint32 probeBudget)
 	{
 		if (!IsValid() || raysPerProbe == 0)
 			return;
@@ -181,11 +182,20 @@ namespace p3d {
 		std::vector<Vec3> rayRadiance(raysPerProbe);
 		std::vector<f32> rayDistance(raysPerProbe);
 
-		for (uint32 z = 0; z < counts[2]; z++)
-		for (uint32 y = 0; y < counts[1]; y++)
-		for (uint32 x = 0; x < counts[0]; x++)
+		const uint32 total = ProbeCount();
+		const uint32 wanted = (probeBudget == 0 || probeBudget > total) ? total : probeBudget;
+
+		for (uint32 n = 0; n < wanted; n++)
 		{
-			const uint32 probe = Index(x, y, z);
+			if (updateCursor >= total)
+				updateCursor = 0;
+			const uint32 probe = updateCursor++;
+			// Inverse of Index(), which is row-major with X fastest. The
+			// two must agree or probes are written into the wrong cells,
+			// which looks like plausible lighting shifted by an axis.
+			const uint32 x = probe % counts[0];
+			const uint32 y = (probe / counts[0]) % counts[1];
+			const uint32 z = probe / (counts[0] * counts[1]);
 			const Vec3 p = ProbePosition(x, y, z);
 
 			for (uint32 r = 0; r < raysPerProbe; r++)
@@ -273,6 +283,12 @@ namespace p3d {
 			}
 		}
 
+		if (updateCursor >= total)
+			updateCursor = 0;
+
+		// Borders are refilled for the whole atlas rather than per probe
+		// touched: it is a cheap pass over data already in cache, and
+		// tracking which tiles are dirty would cost more than it saves.
 		irradiance.FillBorders();
 		visibility.FillBorders();
 	}

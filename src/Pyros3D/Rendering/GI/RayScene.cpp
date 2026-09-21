@@ -13,6 +13,8 @@
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <algorithm>
 #include <cfloat>
+#include <sstream>
+#include <Pyros3D/Core/Logs/Log.h>
 #include <cstring>
 #include <cmath>
 
@@ -134,67 +136,88 @@ namespace p3d {
 		if (scene == NULL)
 			return false;
 
-		std::vector<RenderingMesh*> meshes = RenderingComponent::GetRenderingMeshesSorted(scene);
-		for (size_t m = 0; m < meshes.size(); m++)
+		// Walk the scene's GameObjects and their components directly,
+		// rather than the renderer's registries.
+		//
+		// Both of those registries proved unreliable for this purpose.
+		// GetRenderingMeshesSorted() is frustum-culled, which is exactly
+		// wrong for a ray tracer - geometry behind the camera still
+		// bounces light. And GetRenderingComponents() came back holding
+		// three of this scene's six rendering components (Floor,
+		// BackWall, RightWall - every other root), while every
+		// GameObject demonstrably still owned its component. That is a
+		// registration bug somewhere else in the engine and it is not
+		// fixed here; walking the objects is both the authoritative
+		// answer and immune to it.
+		std::vector<std::shared_ptr<GameObject> > &objects = scene->GetAllGameObjectList();
+		for (size_t oi = 0; oi < objects.size(); oi++)
 		{
-			RenderingMesh *rm = meshes[m];
-			if (rm == NULL || rm->Geometry == NULL || rm->renderingComponent == NULL)
-				continue;
-			GameObject *owner = rm->renderingComponent->GetOwner();
+			GameObject *owner = objects[oi].get();
 			if (owner == NULL)
 				continue;
-
-			const std::vector<uint32> &idx = rm->Geometry->GetIndexData();
-			const std::vector<Vec3> &pos = rm->Geometry->GetVertexData();
-			const std::vector<Vec3> &nrm = rm->Geometry->GetNormalData();
-			if (idx.size() < 3 || pos.empty())
-				continue;
-
-			const Matrix world = owner->GetWorldTransformation();
-
-			// One material per mesh. Emissive is left at zero: the engine
-			// has no emissive material term to read, and inventing one
-			// from the albedo would make every bright surface a light.
-			RayMaterial mat;
-			GenericShaderMaterial *gm = dynamic_cast<GenericShaderMaterial*>(rm->Material.get());
-			if (gm != NULL)
+			const std::vector<std::shared_ptr<IComponent> > &components = owner->GetComponents();
+			for (size_t ci = 0; ci < components.size(); ci++)
 			{
-				const Vec4 c = gm->GetColor();
-				mat.albedo = Vec3(c.x, c.y, c.z);
-			}
-			const uint32 materialIndex = (uint32)materials.size();
-			materials.push_back(mat);
-
-			for (size_t i = 0; i + 2 < idx.size(); i += 3)
-			{
-				const uint32 a = idx[i], b = idx[i+1], c = idx[i+2];
-				if (a >= pos.size() || b >= pos.size() || c >= pos.size())
+				RenderingComponent *rc = dynamic_cast<RenderingComponent*>(components[ci].get());
+				if (rc == NULL)
 					continue;
 
-				RayTriangle tri;
-				tri.v0 = world * pos[a];
-				tri.v1 = world * pos[b];
-				tri.v2 = world * pos[c];
+				// LOD 0 - the real surface. Lower LODs exist for distance.
+				std::vector<RenderingMesh*> &meshes = rc->GetMeshes(0);
+				for (size_t m = 0; m < meshes.size(); m++)
+				{
+					RenderingMesh *rm = meshes[m];
+					if (rm == NULL || rm->Geometry == NULL)
+						continue;
 
-				if (a < nrm.size() && b < nrm.size() && c < nrm.size())
-				{
-					// w = 0 so the translation drops out - a normal is a
-					// direction, and Matrix*Vec3 would move it. Non-uniform
-					// scale would additionally need the inverse transpose;
-					// meshes here are uniformly scaled in practice, and a
-					// skewed normal costs shading accuracy on a bounce
-					// rather than a wrong intersection.
-					tri.n0 = (world * Vec4(nrm[a], 0.f)).xyz().normalize();
-					tri.n1 = (world * Vec4(nrm[b], 0.f)).xyz().normalize();
-					tri.n2 = (world * Vec4(nrm[c], 0.f)).xyz().normalize();
+					const std::vector<uint32> &idx = rm->Geometry->GetIndexData();
+					const std::vector<Vec3> &pos = rm->Geometry->GetVertexData();
+					const std::vector<Vec3> &nrm = rm->Geometry->GetNormalData();
+					if (idx.size() < 3 || pos.empty())
+						continue;
+
+					const Matrix world = owner->GetWorldTransformation();
+
+					RayMaterial mat;
+					GenericShaderMaterial *gm = dynamic_cast<GenericShaderMaterial*>(rm->Material.get());
+					if (gm != NULL)
+					{
+						const Vec4 c = gm->GetColor();
+						mat.albedo = Vec3(c.x, c.y, c.z);
+					}
+					const uint32 materialIndex = (uint32)materials.size();
+					materials.push_back(mat);
+
+					for (size_t i = 0; i + 2 < idx.size(); i += 3)
+					{
+						const uint32 a = idx[i], b = idx[i+1], c = idx[i+2];
+						if (a >= pos.size() || b >= pos.size() || c >= pos.size())
+							continue;
+
+						RayTriangle tri;
+						tri.v0 = world * pos[a];
+						tri.v1 = world * pos[b];
+						tri.v2 = world * pos[c];
+
+						if (a < nrm.size() && b < nrm.size() && c < nrm.size())
+						{
+							// w = 0 so the translation drops out - a normal is a
+							// direction. Non-uniform scale would want the inverse
+							// transpose; a skewed normal costs shading accuracy on
+							// a bounce rather than a wrong intersection.
+							tri.n0 = (world * Vec4(nrm[a], 0.f)).xyz().normalize();
+							tri.n1 = (world * Vec4(nrm[b], 0.f)).xyz().normalize();
+							tri.n2 = (world * Vec4(nrm[c], 0.f)).xyz().normalize();
+						}
+						else
+						{
+							const Vec3 fn = (tri.v1 - tri.v0).cross(tri.v2 - tri.v0).normalize();
+							tri.n0 = tri.n1 = tri.n2 = fn;
+						}
+						tri.materialIndex = materialIndex;
+						triangles.push_back(tri);
+					}
 				}
-				else
-				{
-					const Vec3 fn = (tri.v1 - tri.v0).cross(tri.v2 - tri.v0).normalize();
-					tri.n0 = tri.n1 = tri.n2 = fn;
-				}
-				tri.materialIndex = materialIndex;
-				triangles.push_back(tri);
 			}
 		}
 		return !triangles.empty();

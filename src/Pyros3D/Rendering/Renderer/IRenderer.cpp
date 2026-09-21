@@ -1498,6 +1498,16 @@ bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings 
 		ClearGlobalIllumination(AmbientMode == 3 ? 0 : AmbientMode);
 		return false;
 	}
+	// Keep the geometry and its tree for per-frame refresh - see
+	// UpdateGlobalIllumination. Rebuilt here rather than handed back by
+	// BakeSceneGI so that function stays a single self-contained call
+	// for anyone who only wants one.
+	if (OwnedRayScene == NULL)
+		OwnedRayScene = new RayScene();
+	if (OwnedRayScene->BuildFromScene(scene))
+		OwnedRayScene->Build(4);
+	DDGIRaysPerProbe = settings.raysPerProbe;
+	DDGIFrame = settings.passes;
 	// Bump the revision so the atlases actually re-upload - the upload
 	// is keyed on it, and a second bake with the same number would
 	// silently keep showing the first one.
@@ -1506,10 +1516,27 @@ bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings 
 	return true;
 }
 
+bool IRenderer::UpdateGlobalIllumination(SceneGraph *scene, const uint32 probeBudget, const f32 hysteresis)
+{
+	if (OwnedDDGI == NULL || OwnedRayScene == NULL || scene == NULL)
+		return false;
+	if (OwnedRayScene->TriangleCount() == 0)
+		return false;
+
+	UpdateSceneGI(scene, *OwnedRayScene, *OwnedDDGI, DDGIRaysPerProbe,
+		DDGIFrame++, hysteresis, probeBudget);
+	// The atlases changed, so the upload has to happen again - it is
+	// keyed on this and would otherwise keep showing the first frame's
+	// data forever.
+	DDGIRevision++;
+	return true;
+}
+
 void IRenderer::ClearGlobalIllumination(const uint32 fallbackMode)
 {
 	SetDDGIVolume(NULL, DDGIRevision + 1);
 	if (OwnedDDGI != NULL) { delete OwnedDDGI; OwnedDDGI = NULL; }
+	if (OwnedRayScene != NULL) { delete OwnedRayScene; OwnedRayScene = NULL; }
 	SetAmbientMode(fallbackMode);
 }
 
@@ -2900,6 +2927,13 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		// adding the UBO and the shader block was not enough on its own.
 		device->BindUniformBlockIfPresent(material->GetShader(), "Occluders2DBlock", 24);
 		device->BindUniformBlockIfPresent(material->GetShader(), "AmbientLightUniforms", 21);
+		// IfPresent, so this is a no-op for every material not compiled
+		// with ShaderUsage::GlobalIllumination - which is most of them.
+		// Without it the block reads as zeros, counts comes back 0, the
+		// probe loop never runs, and SampleDDGI returns black. That
+		// looks exactly like "the volume did not bake", which is where
+		// the first hour of looking went.
+		device->BindUniformBlockIfPresent(material->GetShader(), "DDGIUniforms", 25);
 		device->BindUniformBlockIfPresent(material->GetShader(), "MaterialUniforms", 22);
 		device->BindUniformBlockIfPresent(material->GetShader(), "ObjectLightCounts", 23);
 	}

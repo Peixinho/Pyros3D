@@ -72,6 +72,17 @@ namespace p3d {
 		}
 	}
 
+	void UpdateSceneGI(SceneGraph *scene, const RayScene &rays, DDGIVolume &volume,
+		const uint32 raysPerProbe, const uint32 frame, const f32 hysteresis,
+		const uint32 probeBudget)
+	{
+		if (scene == NULL || !volume.IsValid())
+			return;
+		std::vector<RayLight> lights;
+		CollectRayLights(scene, lights);
+		volume.Update(rays, lights, raysPerProbe, frame, hysteresis, probeBudget);
+	}
+
 	bool BakeSceneGI(SceneGraph *scene, const SceneGISettings &settings, DDGIVolume &outVolume)
 	{
 		if (scene == NULL || !settings.enabled)

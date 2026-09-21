@@ -1118,7 +1118,7 @@ bool SceneEditor::BakeIrradianceProbes(std::string& errOut)
 
 	Vec3 mn(1e30f, 1e30f, 1e30f), mx(-1e30f, -1e30f, -1e30f);
 	uint32 counted = 0;
-	std::vector<RenderingMesh*> meshes = RenderingComponent::GetRenderingMeshesSorted(scene);
+	std::vector<RenderingMesh*> meshes = RenderingComponent::GetRenderingMeshes(scene);
 	for (size_t i = 0; i < meshes.size(); i++)
 	{
 		RenderingMesh* m = meshes[i];

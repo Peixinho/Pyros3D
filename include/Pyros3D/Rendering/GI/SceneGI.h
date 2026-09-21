@@ -59,6 +59,18 @@ namespace p3d {
 	// settings.enabled is false.
 	PYROS3D_API bool BakeSceneGI(SceneGraph *scene, const SceneGISettings &settings, DDGIVolume &outVolume);
 
+	// One frame's worth of refresh on an already-allocated volume.
+	//
+	// Re-extracts the lights every call, which is the entire point: a
+	// light that moves, dims or turns off changes the indirect light
+	// within (probes / probeBudget) frames. The geometry is NOT
+	// re-extracted - `rays` is passed in and reused, because rebuilding
+	// a BVH per frame would cost far more than the tracing does and
+	// static geometry is the common case.
+	PYROS3D_API void UpdateSceneGI(SceneGraph *scene, const RayScene &rays,
+		DDGIVolume &volume, const uint32 raysPerProbe, const uint32 frame,
+		const f32 hysteresis, const uint32 probeBudget);
+
 	// The lights a ray tracer needs, pulled out of the scene graph.
 	// Exposed separately because a caller doing its own bake loop still
 	// wants this translation, and it is the part that knows about

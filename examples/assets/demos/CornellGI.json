@@ -108,19 +108,16 @@
    "children": [],
    "components": [
     {
-     "data": {
-      "pitch": 0,
-      "yaw": 0
-     },
-     "scriptFile": "demos/scripts/camera_fly.lua",
+     "data": {},
+     "scriptFile": "demos/scripts/static_camera.lua",
      "type": "LuaComponent"
     }
    ],
    "name": "Camera",
    "position": [
     0.0,
-    0.0,
-    16.0
+    0.5,
+    13.5
    ],
    "rotation": [
     0.0,
@@ -377,13 +374,18 @@
     {
      "castingShadows": false,
      "color": [
-      1.0,
-      0.97,
-      0.92,
+      1.15,
+      1.1,
+      1.02,
       1.0
      ],
-     "radius": 26.0,
+     "radius": 22.0,
      "type": "PointLight"
+    },
+    {
+     "data": {},
+     "scriptFile": "demos/scripts/gi_bake.lua",
+     "type": "LuaComponent"
     }
    ],
    "name": "Light",
@@ -396,34 +398,6 @@
     0.0,
     0.0,
     0.0
-   ],
-   "scale": [
-    1,
-    1,
-    1
-   ],
-   "static": true,
-   "tags": []
-  },
-  {
-   "children": [],
-   "components": [
-    {
-     "data": {},
-     "scriptFile": "demos/scripts/gi_bake.lua",
-     "type": "LuaComponent"
-    }
-   ],
-   "name": "GI",
-   "position": [
-    0,
-    0,
-    0
-   ],
-   "rotation": [
-    0,
-    0,
-    0
    ],
    "scale": [
     1,

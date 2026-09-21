@@ -15,6 +15,16 @@ namespace p3d {
 	// light without the binding layer growing a SceneGISettings usertype
 	// nobody would construct by hand. Every field optional:
 	//   renderer:bakeGI(scene, { counts = {6,4,6}, rays = 128,
+	// One frame of GI refresh, budgeted. Called every frame by a scene
+	// that wants indirect light to follow a moving light rather than be
+	// frozen at load.
+	template <typename R>
+	bool Renderer_UpdateGI(R &r, SceneGraph &scene, sol::optional<uint32> probes,
+		sol::optional<f32> hysteresis)
+	{
+		return r.UpdateGlobalIllumination(&scene, probes.value_or(16u), hysteresis.value_or(0.92f));
+	}
+
 	//                            passes = 6, sky = {0.1,0.12,0.16} })
 	template <typename R>
 	bool Renderer_BakeGI(R &r, SceneGraph &scene, sol::optional<sol::table> opts)
@@ -87,6 +97,7 @@ namespace p3d {
 				"unsetBackground", &DeferredRenderer::UnsetBackground,
 				"setGlobalLight", &DeferredRenderer::SetGlobalLight,
 				"bakeGI", &Renderer_BakeGI<DeferredRenderer>,
+				"updateGI", &Renderer_UpdateGI<DeferredRenderer>,
 				"clearGI", &DeferredRenderer::ClearGlobalIllumination,
 				"enableDepthBias", &DeferredRenderer::EnableDepthBias,
 				"disableDepthBias", &DeferredRenderer::DisableDepthBias,
