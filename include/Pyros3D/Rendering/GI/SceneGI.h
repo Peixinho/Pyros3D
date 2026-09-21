@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
 #include <Pyros3D/Other/Export.h>
+#include <string>
 
 namespace p3d {
 
@@ -33,10 +34,15 @@ namespace p3d {
 		// surfaces at the boundary sit inside it rather than exactly on
 		// its clamped face.
 		f32 padding;
+		// Where gi/*.glsl lives. The compute kernels are assembled from
+		// those files at runtime rather than embedded, so the GPU
+		// traversal cannot silently drift from the CPU one that is
+		// tested against it - the cost is that the path has to be known.
+		std::string shaderRoot;
 
 		SceneGISettings()
 			: enabled(false), raysPerProbe(128), passes(6),
-			  skyColor(0.f, 0.f, 0.f), padding(0.1f)
+			  skyColor(0.f, 0.f, 0.f), padding(0.1f), shaderRoot("resources/shaders")
 		{
 			counts[0] = 6; counts[1] = 4; counts[2] = 6;
 		}

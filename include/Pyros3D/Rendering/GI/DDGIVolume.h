@@ -101,6 +101,14 @@ namespace p3d {
 
 		const ProbeAtlas &GetIrradianceAtlas() const { return irradiance; }
 		const ProbeAtlas &GetVisibilityAtlas() const { return visibility; }
+		// Mutable access, for a GPU backend writing results back in.
+		// Deliberately separate from the const accessors above so a
+		// reader has to ask for write access explicitly.
+		ProbeAtlas &GetIrradianceAtlasMutable() { return irradiance; }
+		ProbeAtlas &GetVisibilityAtlasMutable() { return visibility; }
+		void FillAtlasBorders() { irradiance.FillBorders(); visibility.FillBorders(); }
+		f32 GetMaxRayDistance() const { return maxRayDistance; }
+		const Vec3 &GetSkyColor() const { return skyColor; }
 
 		// Sky colour for rays that hit nothing. Without one an enclosed
 		// scene is correct and an open one is black.

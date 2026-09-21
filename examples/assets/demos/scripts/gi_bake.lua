@@ -52,9 +52,17 @@ function GIDrive:update(time)
 		self.owner:setPosition(Vec3.new(math.sin(a) * 3.2, 4.0, math.cos(a) * 2.0))
 	end
 
-	-- 12 probes per frame, hysteresis 0.9: fast enough to visibly
-	-- follow the light, damped enough not to boil.
-	renderer:updateGI(scene, 12, 0.9)
+	-- Budget depends entirely on who is doing the tracing. On the GPU
+	-- the whole volume fits in a frame, so the bounce tracks the light
+	-- with no perceptible lag. On the CPU the same number would cost
+	-- tens of milliseconds a frame, so it gets rationed and the light
+	-- leads its own bounce slightly.
+	if self.onGPU == nil then
+		self.onGPU = renderer:isGIOnGPU()
+		print(self.onGPU and "CornellGI: tracing on the GPU"
+		                 or "CornellGI: tracing on the CPU (no compute here)")
+	end
+	renderer:updateGI(scene, self.onGPU and 0 or 12, 0.9)
 end
 
 return GIDrive

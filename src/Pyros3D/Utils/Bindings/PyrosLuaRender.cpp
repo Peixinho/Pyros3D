@@ -46,6 +46,7 @@ namespace p3d {
 			s.raysPerProbe = t.get_or("rays", s.raysPerProbe);
 			s.passes = t.get_or("passes", s.passes);
 			s.padding = t.get_or("padding", s.padding);
+			s.shaderRoot = t.get_or("shaderRoot", s.shaderRoot);
 			sol::optional<sol::table> sky = t["sky"];
 			if (sky)
 			{
@@ -98,6 +99,7 @@ namespace p3d {
 				"setGlobalLight", &DeferredRenderer::SetGlobalLight,
 				"bakeGI", &Renderer_BakeGI<DeferredRenderer>,
 				"updateGI", &Renderer_UpdateGI<DeferredRenderer>,
+				"isGIOnGPU", &DeferredRenderer::IsGlobalIlluminationOnGPU,
 				"clearGI", &DeferredRenderer::ClearGlobalIllumination,
 				"enableDepthBias", &DeferredRenderer::EnableDepthBias,
 				"disableDepthBias", &DeferredRenderer::DisableDepthBias,

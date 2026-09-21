@@ -1508,6 +1508,26 @@ bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings 
 		OwnedRayScene->Build(4);
 	DDGIRaysPerProbe = settings.raysPerProbe;
 	DDGIFrame = settings.passes;
+
+	// Hand the work to the GPU if this backend can take it. The CPU
+	// solve above still ran and is what the first frame shows - the
+	// compute path then takes over for every refresh, which is where
+	// the cost actually lives.
+	if (GPUCompute == NULL)
+		GPUCompute = new DDGICompute();
+	if (!GPUCompute->Initialize(*OwnedRayScene, *OwnedDDGI, settings.shaderRoot))
+	{
+		// Not an error. No compute, no shader files, or a kernel that
+		// would not build - the CPU path is still correct and still
+		// there, it just has to be rationed.
+		delete GPUCompute;
+		GPUCompute = NULL;
+		echo("BakeSceneGI: GPU probe tracing unavailable - refreshing on the CPU, which needs a small probe budget.");
+	}
+	else
+	{
+		echo("BakeSceneGI: probe tracing running in compute.");
+	}
 	// Bump the revision so the atlases actually re-upload - the upload
 	// is keyed on it, and a second bake with the same number would
 	// silently keep showing the first one.
@@ -1523,8 +1543,19 @@ bool IRenderer::UpdateGlobalIllumination(SceneGraph *scene, const uint32 probeBu
 	if (OwnedRayScene->TriangleCount() == 0)
 		return false;
 
-	UpdateSceneGI(scene, *OwnedRayScene, *OwnedDDGI, DDGIRaysPerProbe,
-		DDGIFrame++, hysteresis, probeBudget);
+	if (GPUCompute != NULL)
+	{
+		// Lights are re-read every refresh on both paths, which is what
+		// makes a moving light change the bounce.
+		std::vector<RayLight> lights;
+		CollectRayLights(scene, lights);
+		GPUCompute->Update(*OwnedDDGI, lights, DDGIRaysPerProbe, DDGIFrame++, hysteresis, probeBudget);
+	}
+	else
+	{
+		UpdateSceneGI(scene, *OwnedRayScene, *OwnedDDGI, DDGIRaysPerProbe,
+			DDGIFrame++, hysteresis, probeBudget);
+	}
 	// The atlases changed, so the upload has to happen again - it is
 	// keyed on this and would otherwise keep showing the first frame's
 	// data forever.
@@ -1536,6 +1567,7 @@ void IRenderer::ClearGlobalIllumination(const uint32 fallbackMode)
 {
 	SetDDGIVolume(NULL, DDGIRevision + 1);
 	if (OwnedDDGI != NULL) { delete OwnedDDGI; OwnedDDGI = NULL; }
+	if (GPUCompute != NULL) { delete GPUCompute; GPUCompute = NULL; }
 	if (OwnedRayScene != NULL) { delete OwnedRayScene; OwnedRayScene = NULL; }
 	SetAmbientMode(fallbackMode);
 }

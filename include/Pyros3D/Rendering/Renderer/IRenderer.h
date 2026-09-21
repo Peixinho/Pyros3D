@@ -25,6 +25,7 @@
 #include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
+#include <Pyros3D/Rendering/GI/DDGICompute.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
 #include <memory>
@@ -171,6 +172,11 @@ namespace p3d {
 		// Returns false if no volume has been built yet.
 		bool UpdateGlobalIllumination(SceneGraph *scene, const uint32 probeBudget,
 			const f32 hysteresis = 0.92f);
+		// True when probe tracing is running in compute rather than on
+		// the CPU. Worth asking before choosing a probe budget: the two
+		// differ by orders of magnitude, so a budget tuned for one is
+		// either wasteful or crippling on the other.
+		bool IsGlobalIlluminationOnGPU() const { return GPUCompute != NULL; }
 		// Drops the baked volume and returns ambient to `fallbackMode`.
 		void ClearGlobalIllumination(const uint32 fallbackMode = 0);
 		const IrradianceProbeGrid *GetAmbientProbeGrid() const { return AmbientProbeGrid; }
@@ -369,6 +375,10 @@ namespace p3d {
 		// Kept from the initial build so per-frame refresh does not have
 		// to re-extract geometry and rebuild the tree.
 		RayScene *OwnedRayScene = NULL;
+		// GPU tracing, when the backend has compute. NULL means the CPU
+		// path is doing the work - which is correct, just orders of
+		// magnitude slower, and is what WebGL2 always gets.
+		DDGICompute *GPUCompute = NULL;
 		uint32 DDGIFrame = 0;
 		uint32 DDGIRaysPerProbe = 128;
 		Texture *DDGIIrradianceTex = NULL;

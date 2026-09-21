@@ -272,6 +272,23 @@ jobs:
           /tmp/bvh_gpu | tee /tmp/bvhgpu_out.txt
           grep -q '^PASS  bvh_gpu' /tmp/bvhgpu_out.txt
 
+          # The DDGI compute port against the CPU volume it replaces -
+          # every interior texel of every probe, both atlases.
+          if [ "${{ matrix.compute }}" = "metal" ]; then
+            c++ -std=c++17 -DMETAL_BACKEND -DDDGIGPU_METAL -I include $FT \
+              tools/tests/ddgi_gpu.cpp -o /tmp/ddgi_gpu \
+              -L build -lPyrosEngine -framework Foundation -framework Metal \
+              -Wl,-rpath,"$PWD/build"
+          else
+            c++ -std=c++17 -DVULKAN_BACKEND -DDDGIGPU_VULKAN \
+              -I include -I "$(brew --prefix)/include" $FT \
+              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
+              tools/tests/ddgi_gpu.cpp -o /tmp/ddgi_gpu \
+              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+          fi
+          /tmp/ddgi_gpu | tee /tmp/ddgigpu_out.txt
+          grep -q '^PASS  ddgi_gpu' /tmp/ddgigpu_out.txt
+
           # A baked environment must survive save/load. Pure CPU, and the
           # failure it guards is silent data loss rather than a crash.
           c++ -std=c++17 -DLUA_BINDINGS -I include -I shared $FT \
