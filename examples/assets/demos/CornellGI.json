@@ -1,0 +1,438 @@
+{
+ "materials": [
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.8,
+    0.8,
+    0.78,
+    1.0
+   ],
+   "cullFace": 2,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 0,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 1073758209,
+   "reflectivity": 0.0,
+   "roughness": 0.5,
+   "shininess": 0.0,
+   "specular": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.75,
+    0.07,
+    0.07,
+    1.0
+   ],
+   "cullFace": 2,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 1,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 1073758209,
+   "reflectivity": 0.0,
+   "roughness": 0.5,
+   "shininess": 0.0,
+   "specular": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.08,
+    0.7,
+    0.1,
+    1.0
+   ],
+   "cullFace": 2,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 2,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 1073758209,
+   "reflectivity": 0.0,
+   "roughness": 0.5,
+   "shininess": 0.0,
+   "specular": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  }
+ ],
+ "roots": [
+  {
+   "children": [],
+   "components": [
+    {
+     "data": {
+      "pitch": 0,
+      "yaw": 0
+     },
+     "scriptFile": "demos/scripts/camera_fly.lua",
+     "type": "LuaComponent"
+    }
+   ],
+   "name": "Camera",
+   "position": [
+    0.0,
+    0.0,
+    16.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "tags": [
+    "Camera"
+   ]
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 0,
+     "renderable": {
+      "depth": 10.0,
+      "flip": false,
+      "height": 0.4,
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "tangentBitangent": false,
+      "width": 10.0
+     },
+     "type": "RenderingComponent"
+    }
+   ],
+   "name": "Floor",
+   "position": [
+    0.0,
+    -5.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 0,
+     "renderable": {
+      "depth": 10.0,
+      "flip": false,
+      "height": 0.4,
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "tangentBitangent": false,
+      "width": 10.0
+     },
+     "type": "RenderingComponent"
+    }
+   ],
+   "name": "Ceiling",
+   "position": [
+    0.0,
+    5.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 0,
+     "renderable": {
+      "depth": 0.4,
+      "flip": false,
+      "height": 10.0,
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "tangentBitangent": false,
+      "width": 10.0
+     },
+     "type": "RenderingComponent"
+    }
+   ],
+   "name": "BackWall",
+   "position": [
+    0.0,
+    0.0,
+    -5.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "depth": 10.0,
+      "flip": false,
+      "height": 10.0,
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "tangentBitangent": false,
+      "width": 0.4
+     },
+     "type": "RenderingComponent"
+    }
+   ],
+   "name": "LeftWall",
+   "position": [
+    -5.0,
+    0.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 2,
+     "renderable": {
+      "depth": 10.0,
+      "flip": false,
+      "height": 10.0,
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "tangentBitangent": false,
+      "width": 0.4
+     },
+     "type": "RenderingComponent"
+    }
+   ],
+   "name": "RightWall",
+   "position": [
+    5.0,
+    0.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 0,
+     "renderable": {
+      "depth": 3.0,
+      "flip": false,
+      "height": 3.2,
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "tangentBitangent": false,
+      "width": 3.0
+     },
+     "type": "RenderingComponent"
+    }
+   ],
+   "name": "Block",
+   "position": [
+    0.0,
+    -3.4,
+    -1.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": false,
+     "color": [
+      1.0,
+      0.97,
+      0.92,
+      1.0
+     ],
+     "radius": 26.0,
+     "type": "PointLight"
+    }
+   ],
+   "name": "Light",
+   "position": [
+    0.0,
+    4.0,
+    0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "data": {},
+     "scriptFile": "demos/scripts/gi_bake.lua",
+     "type": "LuaComponent"
+    }
+   ],
+   "name": "GI",
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  }
+ ],
+ "version": 1
+}

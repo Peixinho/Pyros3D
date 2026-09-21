@@ -24,6 +24,7 @@
 #include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
 #include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
+#include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
 #include <memory>
@@ -140,6 +141,24 @@ namespace p3d {
 		// ShaderUsage::GlobalIllumination; the two atlas samplers do not
 		// exist in any other variant, which is the point of the flag.
 		void SetDDGIVolume(const DDGIVolume *Volume, const uint32 revision);
+
+		// Builds a ray scene from `scene`, bakes a DDGI volume into it,
+		// publishes it and switches ambient to mode 3 - the whole path
+		// in one call, because every caller wants the same steps in the
+		// same order and getting that order wrong fails silently (bake
+		// before the lights exist and every probe is black).
+		//
+		// The volume is owned here rather than by the caller: it has to
+		// outlive the call, nothing else has a natural place to keep it,
+		// and scripts - which are the main caller - have no lifetime
+		// management to hang it on.
+		//
+		// Synchronous. A few hundred probes over a few thousand
+		// triangles is a second or two, which is a load-time cost, not a
+		// per-frame one.
+		bool BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings &settings);
+		// Drops the baked volume and returns ambient to `fallbackMode`.
+		void ClearGlobalIllumination(const uint32 fallbackMode = 0);
 		const IrradianceProbeGrid *GetAmbientProbeGrid() const { return AmbientProbeGrid; }
 
 		// The occluder set for 2D shadows, in world space. Filled by whoever
@@ -330,6 +349,9 @@ namespace p3d {
 		const DDGIVolume *DDGIVol = NULL;
 		uint32 DDGIRevision = 0;
 		uint32 DDGIUploadedRevision = 0xFFFFFFFFu;
+		// Owned when baked through BakeGlobalIllumination; NULL when the
+		// volume came from SetDDGIVolume, which borrows.
+		DDGIVolume *OwnedDDGI = NULL;
 		Texture *DDGIIrradianceTex = NULL;
 		Texture *DDGIVisibilityTex = NULL;
 		static uint32 DDGIUniformsUBO;

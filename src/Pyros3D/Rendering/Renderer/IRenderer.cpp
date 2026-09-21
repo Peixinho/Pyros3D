@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#include <sstream>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
@@ -1488,6 +1489,30 @@ void IRenderer::SetAmbientMode(const uint32 Mode)
 	AmbientMode = Mode;
 }
 
+bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings &settings)
+{
+	if (OwnedDDGI == NULL)
+		OwnedDDGI = new DDGIVolume();
+	if (!BakeSceneGI(scene, settings, *OwnedDDGI))
+	{
+		ClearGlobalIllumination(AmbientMode == 3 ? 0 : AmbientMode);
+		return false;
+	}
+	// Bump the revision so the atlases actually re-upload - the upload
+	// is keyed on it, and a second bake with the same number would
+	// silently keep showing the first one.
+	SetDDGIVolume(OwnedDDGI, DDGIRevision + 1);
+	SetAmbientMode(3);
+	return true;
+}
+
+void IRenderer::ClearGlobalIllumination(const uint32 fallbackMode)
+{
+	SetDDGIVolume(NULL, DDGIRevision + 1);
+	if (OwnedDDGI != NULL) { delete OwnedDDGI; OwnedDDGI = NULL; }
+	SetAmbientMode(fallbackMode);
+}
+
 void IRenderer::SetDDGIVolume(const DDGIVolume *Volume, const uint32 revision)
 {
 	DDGIVol = (Volume != NULL && Volume->IsValid()) ? Volume : NULL;
@@ -1510,7 +1535,7 @@ void IRenderer::UploadDDGIIfDirty()
 	if (DDGIIrradianceTex == NULL)
 	{
 		DDGIIrradianceTex = new Texture();
-		DDGIIrradianceTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGB32F,
+		DDGIIrradianceTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F,
 			(int32)irr.GetWidth(), (int32)irr.GetHeight(), false);
 		// Bilinear across the tile, and clamped: the octahedral border
 		// is what makes filtering at a tile edge correct, and repeat

@@ -6,9 +6,44 @@
 #ifdef LUA_BINDINGS
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+#include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 
 namespace p3d {
+
+	// Bakes GI from a Lua table, so a scene script can ask for indirect
+	// light without the binding layer growing a SceneGISettings usertype
+	// nobody would construct by hand. Every field optional:
+	//   renderer:bakeGI(scene, { counts = {6,4,6}, rays = 128,
+	//                            passes = 6, sky = {0.1,0.12,0.16} })
+	template <typename R>
+	bool Renderer_BakeGI(R &r, SceneGraph &scene, sol::optional<sol::table> opts)
+	{
+		SceneGISettings s;
+		s.enabled = true;
+		if (opts)
+		{
+			sol::table t = *opts;
+			sol::optional<sol::table> c = t["counts"];
+			if (c)
+			{
+				for (uint32 i = 0; i < 3; i++)
+				{
+					sol::optional<uint32> v = (*c)[i + 1];
+					if (v) s.counts[i] = *v;
+				}
+			}
+			s.raysPerProbe = t.get_or("rays", s.raysPerProbe);
+			s.passes = t.get_or("passes", s.passes);
+			s.padding = t.get_or("padding", s.padding);
+			sol::optional<sol::table> sky = t["sky"];
+			if (sky)
+			{
+				s.skyColor = Vec3((*sky)[1].get_or(0.f), (*sky)[2].get_or(0.f), (*sky)[3].get_or(0.f));
+			}
+		}
+		return r.BakeGlobalIllumination(&scene, s);
+	}
 
 	void RegisterLuaRenderEarly(sol::state* lua)
 	{
@@ -51,6 +86,8 @@ namespace p3d {
 				"setBackground", &DeferredRenderer::SetBackground,
 				"unsetBackground", &DeferredRenderer::UnsetBackground,
 				"setGlobalLight", &DeferredRenderer::SetGlobalLight,
+				"bakeGI", &Renderer_BakeGI<DeferredRenderer>,
+				"clearGI", &DeferredRenderer::ClearGlobalIllumination,
 				"enableDepthBias", &DeferredRenderer::EnableDepthBias,
 				"disableDepthBias", &DeferredRenderer::DisableDepthBias,
 				"setViewPort", &DeferredRenderer::SetViewPort,

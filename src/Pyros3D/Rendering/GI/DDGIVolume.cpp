@@ -47,7 +47,15 @@ namespace p3d {
 		origin = o; spacing = s;
 		counts[0] = nx; counts[1] = ny; counts[2] = nz;
 		const uint32 total = nx * ny * nz;
-		if (!irradiance.Allocate(total, irradianceRes, 3)) return false;
+		// FOUR channels for three channels of data. Metal has no
+		// three-component 32-bit float pixel format at all - there is
+		// MTLPixelFormatR32Float, RG32Float and RGBA32Float and nothing
+		// between - so an RGB32F upload is rejected outright ("AGX:
+		// Texture read/write assertion failed: bytes_per_row >=
+		// used_bytes_per_row", which names the symptom and not the
+		// cause). The alpha is unused and costs 25% of this atlas;
+		// packing something into it later is free.
+		if (!irradiance.Allocate(total, irradianceRes, 4)) return false;
 		if (!visibility.Allocate(total, visibilityRes, 2)) return false;
 
 		// A ray that escapes should be treated as sky at roughly the

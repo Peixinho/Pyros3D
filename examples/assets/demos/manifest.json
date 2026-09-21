@@ -624,5 +624,19 @@
     1
    ]
   }
+ },
+ {
+  "name": "Cornell Box (GI)",
+  "description": "Ray-traced DDGI. A single WHITE light - every tint on the white floor and the centre block is light that bounced off the red or green wall and carried its colour.",
+  "scene": "CornellGI.json",
+  "render": {
+   "type": "forward",
+   "globalLight": [
+    0.0,
+    0.0,
+    0.0,
+    1
+   ]
+  }
  }
 ]

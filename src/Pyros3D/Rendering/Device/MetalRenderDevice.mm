@@ -183,6 +183,17 @@ namespace {
 	// replaceRegion:'s bytesPerRow. Mirrors VulkanRenderDevice::BytesPerTexelVk()'s
 	// identical table (found there via a real crash - see that function's
 	// comment - so this is the already-debugged answer, not a guess).
+	// Every format TranslateTextureFormat() can produce must appear here.
+	//
+	// The `default` is a trap and has caught one already: RG32Float was
+	// missing, fell through to 4, and UploadTexture2D then handed
+	// replaceRegion a bytesPerRow half of what the texture needed.
+	// Metal's complaint is "AGX: Texture read/write assertion failed:
+	// bytes_per_row >= used_bytes_per_row", which names the symptom and
+	// not the format - and it only fires for formats nothing had
+	// uploaded before, so it stays hidden until someone adds one. It
+	// went unnoticed until a DDGI visibility atlas became the first
+	// RG32F texture in the engine.
 	p3d::uint32 BytesPerTexelMSL(MTLPixelFormat format)
 	{
 		switch (format)
@@ -190,13 +201,31 @@ namespace {
 			case MTLPixelFormatR8Unorm: return 1;
 			case MTLPixelFormatRG8Unorm: return 2;
 			case MTLPixelFormatR16Float: return 2;
+			case MTLPixelFormatDepth16Unorm: return 2;
+			case MTLPixelFormatR16Sint: return 2;
+			case MTLPixelFormatStencil8: return 1;
 			case MTLPixelFormatRGBA8Unorm:
 			case MTLPixelFormatBGRA8Unorm:
 			case MTLPixelFormatR32Float:
+			case MTLPixelFormatR32Sint:
+			case MTLPixelFormatRG16Float:
+			case MTLPixelFormatRG16Sint:
+			case MTLPixelFormatDepth32Float:
 				return 4;
-			case MTLPixelFormatRGBA16Float: return 8;
-			case MTLPixelFormatRGBA32Float: return 16;
-			default: return 4;
+			case MTLPixelFormatRGBA16Float:
+			case MTLPixelFormatRGBA16Sint:
+			case MTLPixelFormatRG32Float:
+			case MTLPixelFormatRG32Sint:
+				return 8;
+			case MTLPixelFormatRGBA32Float:
+			case MTLPixelFormatRGBA32Sint:
+				return 16;
+			default:
+				// Loud, because a silent wrong answer here corrupts an
+				// upload rather than failing it.
+				fprintf(stderr, "MetalRenderDevice: BytesPerTexelMSL has no case for MTLPixelFormat %u"
+					" - assuming 4 bytes, which is probably wrong.\n", (unsigned)format);
+				return 4;
 		}
 	}
 
