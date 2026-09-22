@@ -28,9 +28,16 @@ layout(std430, binding = 6) buffer IrrOut  { vec4 irradiance[]; };
 layout(std430, binding = 7) buffer VisOut  { vec4 visibility[]; };  // xy used
 layout(std430, binding = 8) buffer Params  { vec4 params[]; };
 layout(std430, binding = 9) buffer RadOut  { vec4 radiance[]; };   // prefiltered, levels stacked
-// Three vec4 per probe in the batch, written by DDGI_STAGE_STATS and
-// read straight back by the CPU, which makes the relocation DECISION -
-// see DDGIVolume::ProbeRayStats for why that lives in one place.
+// Three vec4 per probe in the VOLUME - not per probe in the batch -
+// written by DDGI_STAGE_STATS and read back once per update by the
+// CPU, which makes the relocation DECISION (see
+// DDGIVolume::ProbeRayStats for why that lives in one place).
+//
+// Indexed by absolute probe so every batch writes its own region and
+// one read at the end collects all of them. Batch-local indexing
+// forced a readback - and therefore a full GPU sync - after each
+// batch, which measured 6-15 ms per update against 0.2 ms of actual
+// tracing.
 layout(std430, binding = 10) buffer StatsOut { vec4 stats[]; };
 
 // params[0] = origin.xyz,          probeCountTotal
@@ -519,8 +526,8 @@ void main()
     }
 
     float openLength = length(open);
-    stats[gid * 3u + 0u] = vec4(float(backfaces) / float(rays), closestFront, openLength, 0.0);
-    stats[gid * 3u + 1u] = vec4(closestFrontDir, 0.0);
-    stats[gid * 3u + 2u] = vec4(openLength > 1e-6 ? open / openLength : vec3(0.0), 0.0);
+    stats[probe * 3u + 0u] = vec4(float(backfaces) / float(rays), closestFront, openLength, 0.0);
+    stats[probe * 3u + 1u] = vec4(closestFrontDir, 0.0);
+    stats[probe * 3u + 2u] = vec4(openLength > 1e-6 ? open / openLength : vec3(0.0), 0.0);
 #endif
 }

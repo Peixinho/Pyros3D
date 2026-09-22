@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/GI/DDGICompute.h>
+#include <chrono>
 #include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <algorithm>
@@ -185,8 +186,11 @@ namespace p3d {
 		// storage binding of their own.
 		paramProbes = volume.ProbeCount();
 		bParams = dev.CreateStorageBuffer((8 + paramProbes) * 4 * (uint32)sizeof(f32), 8, NULL);
+		// Sized for every probe, not for a batch: that is what lets the
+		// stats be collected in ONE readback at the end of the update
+		// instead of one per batch.
 		if (relocation)
-			bStats = dev.CreateStorageBuffer(maxBatch * 3 * 4 * (uint32)sizeof(f32), 10, NULL);
+			bStats = dev.CreateStorageBuffer(paramProbes * 3 * 4 * (uint32)sizeof(f32), 10, NULL);
 
 		const ProbeAtlas &rad = volume.GetRadianceAtlas();
 		if (radianceLevels > 0)
@@ -242,6 +246,11 @@ namespace p3d {
 	{
 		if (!initialized || !volume.IsValid())
 			return false;
+		const std::chrono::steady_clock::time_point tStart = std::chrono::steady_clock::now();
+		f64 statsMs = 0.0;
+		// The span of probes this update traced, so the single stats
+		// readback below knows what to apply.
+		uint32 tracedFirst = 0xFFFFFFFFu, tracedLast = 0;
 		IRenderDevice &dev = GetActiveRenderDevice();
 
 		const uint32 rays = std::min(raysPerProbe, maxRaysPerProbe);
@@ -362,29 +371,17 @@ namespace p3d {
 				const uint32 threads = batch * rad.GetResolution() * rad.GetResolution() * radianceLevels;
 				dev.Dispatch(0, (threads + 63) / 64, 1, 1);
 			}
-			// Relocation statistics, one thread per probe, reduced
-			// from the same rays. Read back below and turned into an
-			// offset by DDGIVolume::ApplyRelocation - the same
-			// function the CPU path calls.
+			// Relocation statistics, one thread per probe, reduced from
+			// the same rays. Only DISPATCHED here: the readback, and
+			// the GPU sync it forces, happen once after every batch
+			// has been recorded.
 			if (relocation)
 			{
 				dev.BindComputePipeline(0, statPipeline);
 				for (uint32 b = 0; b < bufCount; b++) dev.BindStorageBuffer(0, bufs[b], b);
 				dev.Dispatch(0, (batch + 63) / 64, 1, 1);
-				dev.ComputeBarrier(0, ComputeBarrierBit::HostRead);
-
-				std::vector<f32> st((size_t)batch * 3 * 4, 0.f);
-				dev.ReadStorageBuffer(bStats, 0, (uint32)(st.size()*sizeof(f32)), st.data());
-				for (uint32 i = 0; i < batch; i++)
-				{
-					ProbeRayStats s;
-					s.backfaceRatio = st[i*12 + 0];
-					s.closestFront  = st[i*12 + 1];
-					s.openLength    = st[i*12 + 2];
-					s.closestFrontDir = Vec3(st[i*12+4], st[i*12+5], st[i*12+6]);
-					s.openDir         = Vec3(st[i*12+8], st[i*12+9], st[i*12+10]);
-					volume.ApplyRelocation(cursor + i, s);
-				}
+				if (cursor < tracedFirst) tracedFirst = cursor;
+				if (cursor + batch > tracedLast) tracedLast = cursor + batch;
 			}
 			dev.ComputeBarrier(0, ComputeBarrierBit::StorageBuffer);
 
@@ -415,6 +412,38 @@ namespace p3d {
 				dev.ComputeBarrier(0, ComputeBarrierBit::HostRead);
 		}
 
+		// One sync for the whole update. The atlas readback below needs
+		// the GPU to have finished anyway, so the relocation stats ride
+		// along at no extra cost.
+		//
+		// Reading them per batch instead measured 6-15 ms per update
+		// against 0.2 ms of actual tracing: the cost was the stall, not
+		// the bytes. Three batches meant three full round trips, and
+		// every one of them waited for work that had only just been
+		// submitted.
+		if (relocation && tracedLast > tracedFirst)
+		{
+			const std::chrono::steady_clock::time_point tStatsRead = std::chrono::steady_clock::now();
+			dev.ComputeBarrier(0, ComputeBarrierBit::HostRead);
+			const uint32 count = tracedLast - tracedFirst;
+			std::vector<f32> st((size_t)count * 3 * 4, 0.f);
+			dev.ReadStorageBuffer(bStats, tracedFirst * 3 * 4 * (uint32)sizeof(f32),
+				(uint32)(st.size()*sizeof(f32)), st.data());
+			for (uint32 i = 0; i < count; i++)
+			{
+				ProbeRayStats s;
+				s.backfaceRatio = st[i*12 + 0];
+				s.closestFront  = st[i*12 + 1];
+				s.openLength    = st[i*12 + 2];
+				s.closestFrontDir = Vec3(st[i*12+4], st[i*12+5], st[i*12+6]);
+				s.openDir         = Vec3(st[i*12+8], st[i*12+9], st[i*12+10]);
+				volume.ApplyRelocation(tracedFirst + i, s);
+			}
+			statsMs += std::chrono::duration<f64, std::milli>(
+				std::chrono::steady_clock::now() - tStatsRead).count();
+		}
+
+		const std::chrono::steady_clock::time_point tReadStart = std::chrono::steady_clock::now();
 		// Read the atlases back into the volume so the existing texture
 		// upload path is unchanged. See the header on why this round
 		// trip is the weak point rather than the design.
@@ -456,6 +485,15 @@ namespace p3d {
 			volume.ValidateClassification();
 		}
 		volume.FillAtlasBorders();
+		if (getenv("PYROS_GI_TIMING") != NULL)
+		{
+			const std::chrono::steady_clock::time_point tEnd = std::chrono::steady_clock::now();
+			const f64 dispatchMs = std::chrono::duration<f64, std::milli>(tReadStart - tStart).count();
+			const f64 readMs = std::chrono::duration<f64, std::milli>(tEnd - tReadStart).count();
+			fprintf(stderr, "GI timing: trace %.2f ms, relocation stats %.2f ms, atlas readback %.2f ms\n",
+				dispatchMs - statsMs, statsMs, readMs);
+			fflush(stderr);
+		}
 		return true;
 	}
 

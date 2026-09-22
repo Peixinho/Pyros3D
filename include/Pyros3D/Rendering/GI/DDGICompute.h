@@ -54,11 +54,25 @@ namespace p3d {
 		// the atlases, and reads them back into `volume` so the existing
 		// texture upload path works unchanged.
 		//
-		// The readback is the honest weak point: about a megabyte per
-		// frame, which is far cheaper than CPU tracing but is still a
-		// round trip the GPU should not need. Writing the atlases
-		// straight into the sampled textures needs image-store support
-		// in IRenderDevice, which does not exist yet.
+		// There is one readback per update and it is not the expense it
+		// looks like. Measured on the Cornell demo (294 probes x 128
+		// rays, every probe every frame): about a megabyte, 1.3 ms, ~10%
+		// of a ~12 ms update. The rest is real GPU tracing.
+		//
+		// What DID cost 6-15 ms was reading the relocation statistics
+		// after every dispatch batch - three full round trips per
+		// update, each waiting on work that had only just been
+		// submitted. The stall, not the bytes. Both readbacks now
+		// happen once, at the end, sharing a single sync.
+		//
+		// So writing the atlases straight into the sampled textures
+		// (imageStore, which IRenderDevice does not have) would buy
+		// back that 1.3 ms at the price of a second sampling path -
+		// WebGL2 has no compute and would still need this one. Worth
+		// doing eventually; not worth doing first.
+		//
+		// `PYROS_GI_TIMING=1` prints the breakdown, which is how those
+		// numbers were arrived at rather than guessed.
 		bool Update(DDGIVolume &volume, const std::vector<RayLight> &lights,
 			const uint32 raysPerProbe, const uint32 frame, const f32 hysteresis,
 			const uint32 probeBudget);
