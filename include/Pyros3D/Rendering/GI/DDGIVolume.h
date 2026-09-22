@@ -311,6 +311,29 @@ namespace p3d {
 		// reports seeing, and Chebyshev fires the way it was meant to.
 		f32 GetFeedbackNormalBias() const;
 
+		// A wall-clock ceiling on one Update(), in milliseconds. 0 (the
+		// default) means no ceiling and `probeBudget` alone decides.
+		//
+		// A probe budget is the wrong unit for the CPU path, and the
+		// measurement says so: tracing one probe at 128 rays costs
+		// about 0.7 ms on a fast desktop, so the budget of 12 that the
+		// editor and the player default to is 8.6 ms - over half a
+		// 60Hz frame, before anything else in the engine runs. On a
+		// phone or a Raspberry Pi, which are exactly the machines with
+		// no compute to fall back from, it is the whole frame and
+		// more.
+		//
+		// The number of probes a machine can afford is not knowable in
+		// advance; the time it can afford is. With a budget set,
+		// Update traces until the budget is spent and stops - one
+		// probe minimum, so a slow machine still converges, just
+		// slower. The cursor means the rest are simply next in line.
+		void SetUpdateTimeBudget(const f32 milliseconds) { updateTimeBudgetMs = milliseconds; }
+		f32 GetUpdateTimeBudget() const { return updateTimeBudgetMs; }
+		// Probes traced by the last Update(). With a time budget this
+		// varies with the machine and with what else it is doing.
+		uint32 GetLastUpdatedProbeCount() const { return lastUpdatedProbes; }
+
 		// Sky colour for rays that hit nothing. Without one an enclosed
 		// scene is correct and an open one is black.
 		void SetSkyColor(const Vec3 &c) { skyColor = c; }
@@ -344,6 +367,8 @@ namespace p3d {
 		// Where ApplyRelocation writes until CommitRelocation runs.
 		std::vector<Vec4> pendingProbeData;
 		bool relocationEnabled;
+		f32 updateTimeBudgetMs;
+		uint32 lastUpdatedProbes;
 		// Classification gives up when a scene's winding says nearly
 		// every probe is buried - see the check at the end of Update.
 		bool classificationTrusted;

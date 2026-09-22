@@ -1600,12 +1600,29 @@ bool IRenderer::UpdateGlobalIllumination(SceneGraph *scene, const uint32 probeBu
 	{
 		// Lights are re-read every refresh on both paths, which is what
 		// makes a moving light change the bounce.
+		// No ceiling here: the whole volume fits in a frame on the GPU,
+		// and the volume object survives a backend switch - leaving a
+		// CPU-path budget on it would throttle the GPU for no reason.
+		OwnedDDGI->SetUpdateTimeBudget(0.f);
 		std::vector<RayLight> lights;
 		CollectRayLights(scene, lights);
 		GPUCompute->Update(*OwnedDDGI, lights, DDGIRaysPerProbe, DDGIFrame++, hysteresis, probeBudget);
 	}
 	else
 	{
+		// No compute on this backend - WebGL2 has no compute stage at
+		// all, and the GLES3 profile the web, Android and Raspberry Pi
+		// builds share is ES 3.0, where it does not exist either. So
+		// these are exactly the machines doing this on the CPU, and
+		// exactly the ones that cannot afford a fixed probe count: a
+		// probe costs about 0.7 ms at 128 rays on a fast desktop and
+		// several times that on a phone.
+		//
+		// A ceiling in milliseconds instead. Whatever the machine
+		// manages in that time is what it traces; the rest are next in
+		// line on the update cursor. A slow device converges slowly
+		// rather than dropping frames.
+		OwnedDDGI->SetUpdateTimeBudget(DDGICPUTimeBudgetMs);
 		UpdateSceneGI(scene, *OwnedRayScene, *OwnedDDGI, DDGIRaysPerProbe,
 			DDGIFrame++, hysteresis, probeBudget);
 	}

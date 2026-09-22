@@ -1039,10 +1039,11 @@ void PyrosPlayer::Update()
 	// ask which one is doing the work rather than trusting the number.
 	if (ddgiActive && meta.ddgiDynamic)
 	{
-		uint32 budget = meta.ddgiProbeBudget;
-		if (budget == 0 && !renderer->IsGlobalIlluminationOnGPU())
-			budget = 12;
-		renderer->UpdateGlobalIllumination(scene, budget, meta.ddgiHysteresis);
+		// 0 means "as many as fit": the whole volume on the GPU, and
+		// on the CPU whatever the renderer's millisecond ceiling
+		// allows. A fixed count cannot be right for both a desktop and
+		// a phone, and this build runs on both.
+		renderer->UpdateGlobalIllumination(scene, meta.ddgiProbeBudget, meta.ddgiHysteresis);
 	}
 	// Layer parallax is deliberately NOT applied here. It is three lines of
 	// Lua against Layer2D's factor, and doing it in the engine meant it

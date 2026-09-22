@@ -18,6 +18,7 @@
 //       -L build_gl -lPyrosEngine -Wl,-rpath,$PWD/build_gl
 //   /tmp/ddgi
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <string>
@@ -458,6 +459,86 @@ int main()
 		check(off == 0, "a scene with inverted winding disables classification rather than itself",
 			std::to_string(off) + " probes switched off");
 		check(lit > 0.05f, "and still lights the room", "E = " + std::to_string(lit));
+	}
+
+	// ---- the CPU path has to fit in a frame ------------------------------
+	//
+	// Every target without compute traces probes on the CPU: WebGL2 has
+	// no compute stage, and the GLES3 profile the web, Android and
+	// Raspberry Pi builds share is ES 3.0, where it does not exist
+	// either. Those are the slowest machines the engine runs on and
+	// they are the ones doing this work.
+	//
+	// A probe costs about 0.7 ms at 128 rays on a fast desktop, so the
+	// fixed budget of 12 probes the editor and player used to pass was
+	// 8.6 ms - over half a 60Hz frame here, and the entire frame on a
+	// phone. A count cannot be right for both; a ceiling in
+	// milliseconds can.
+	{
+		RayScene box;
+		const uint32 grey = AddMaterial(box, Vec3(0.75f, 0.75f, 0.75f));
+		const f32 B = 5.f;
+		AddQuad(box, Vec3(-B,-B,-B), Vec3( B,-B,-B), Vec3( B,-B, B), Vec3(-B,-B, B), grey);
+		AddQuad(box, Vec3(-B, B, B), Vec3( B, B, B), Vec3( B, B,-B), Vec3(-B, B,-B), grey);
+		AddQuad(box, Vec3(-B,-B, B), Vec3( B,-B, B), Vec3( B, B, B), Vec3(-B, B, B), grey);
+		AddQuad(box, Vec3( B,-B,-B), Vec3(-B,-B,-B), Vec3(-B, B,-B), Vec3( B, B,-B), grey);
+		AddQuad(box, Vec3(-B,-B,-B), Vec3(-B,-B, B), Vec3(-B, B, B), Vec3(-B, B,-B), grey);
+		AddQuad(box, Vec3( B,-B, B), Vec3( B,-B,-B), Vec3( B, B,-B), Vec3( B, B, B), grey);
+		box.Build(4);
+
+		std::vector<RayLight> lamp(1);
+		lamp[0].isPoint = 1.f;
+		lamp[0].positionOrDirection = Vec3(0.f, 3.f, 0.f);
+		lamp[0].color = Vec3(4.f, 4.f, 4.f);
+		lamp[0].range = 25.f;
+
+		DDGIVolume v;
+		v.Allocate(Vec3(-4,-4,-4), Vec3(2,2,2), 7,6,7, 8, 16);
+		v.Update(box, lamp, 128, 0, 0.f, 4);        // warm the caches
+
+		check(v.GetUpdateTimeBudget() == 0.f, "no ceiling by default");
+
+		// Unbounded probe count, bounded time. The budget is generous
+		// enough that a slow or loaded CI machine still passes, and
+		// small enough that "it ignored the budget" cannot.
+		const f32 budgetMs = 3.f;
+		v.SetUpdateTimeBudget(budgetMs);
+		f32 worstMs = 0.f;
+		uint32 fewest = 0xFFFFFFFFu, most = 0;
+		for (uint32 f = 0; f < 8; f++)
+		{
+			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+			v.Update(box, lamp, 128, f, 0.9f, 0);   // 0 = every probe, if it could
+			const f32 ms = (f32)std::chrono::duration<double, std::milli>(
+				std::chrono::steady_clock::now() - t0).count();
+			worstMs = fmaxf(worstMs, ms);
+			fewest = std::min(fewest, v.GetLastUpdatedProbeCount());
+			most = std::max(most, v.GetLastUpdatedProbeCount());
+		}
+		printf("      %u-probe volume, %.0f ms ceiling: %u-%u probes per update, worst %.2f ms\n",
+			v.ProbeCount(), budgetMs, fewest, most, worstMs);
+
+		// The volume has 294 probes and asking for all of them would be
+		// ~200 ms. Overshooting by one probe is expected - the budget
+		// is checked between probes, not inside one - so the allowance
+		// is the budget plus a probe's worth.
+		check(worstMs < budgetMs * 3.f,
+			"an update stops when its time is spent, whatever it was asked for",
+			"worst " + std::to_string(worstMs) + " ms against a " + std::to_string(budgetMs) + " ms ceiling");
+		check(most < v.ProbeCount(), "so it does not trace the whole volume",
+			std::to_string(most) + " of " + std::to_string(v.ProbeCount()));
+		// And it must still make progress: a ceiling that traced
+		// nothing would pass the check above and never converge.
+		check(fewest >= 1, "and always traces at least one probe",
+			std::to_string(fewest));
+
+		// A ceiling too small for even one probe still has to advance,
+		// or a slow machine's volume stays black forever.
+		v.SetUpdateTimeBudget(0.0001f);
+		v.Update(box, lamp, 128, 9, 0.9f, 0);
+		check(v.GetLastUpdatedProbeCount() == 1,
+			"a ceiling smaller than one probe still traces one",
+			std::to_string(v.GetLastUpdatedProbeCount()));
 	}
 
 	printf("\n%s  ddgi: %d failure(s)\n", failures?"FAIL":"PASS", failures);

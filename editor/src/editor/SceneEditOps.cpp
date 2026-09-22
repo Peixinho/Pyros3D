@@ -1156,10 +1156,11 @@ void SceneEditor::UpdateDDGIIfDynamic()
 	// renderer rather than guessing is the difference between indirect
 	// light that tracks a moving light and an editor that drops to
 	// single-digit frame rates the moment GI is switched on.
-	uint32 budget = (uint32)Max(0, ddgiProbeBudget);
-	if (budget == 0 && !Renderer->IsGlobalIlluminationOnGPU())
-		budget = 12;
-	Renderer->UpdateGlobalIllumination(scene, budget, ddgiHysteresis);
+	// 0 means "as many as fit". On the GPU that is the whole volume;
+	// on the CPU the renderer's own millisecond ceiling stops it, which
+	// is a limit the machine sets rather than one guessed here - the
+	// 12 that used to be hardcoded costs 8.6 ms on a fast desktop.
+	Renderer->UpdateGlobalIllumination(scene, (uint32)Max(0, ddgiProbeBudget), ddgiHysteresis);
 }
 
 bool SceneEditor::BakeIrradianceProbes(std::string& errOut)

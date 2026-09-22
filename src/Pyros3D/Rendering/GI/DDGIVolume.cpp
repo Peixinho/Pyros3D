@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
+#include <chrono>
 #include <algorithm>
 #include <cmath>
 
@@ -19,6 +20,7 @@ namespace p3d {
 	DDGIVolume::DDGIVolume()
 		: origin(0.f,0.f,0.f), spacing(1.f,1.f,1.f),
 		  radianceLevels(0), multiBounce(1.f), relocationEnabled(true), classificationTrusted(true),
+		  updateTimeBudgetMs(0.f), lastUpdatedProbes(0),
 		  skyColor(0.f,0.f,0.f), maxRayDistance(100.f), updateCursor(0)
 	{
 		counts[0] = counts[1] = counts[2] = 0;
@@ -367,8 +369,23 @@ namespace p3d {
 		if (multiBounce > 0.f)
 			SnapshotFeedback();
 
+		const std::chrono::steady_clock::time_point updateStart =
+			std::chrono::steady_clock::now();
+		lastUpdatedProbes = 0;
+
 		for (uint32 n = 0; n < wanted; n++)
 		{
+			// Checked before each probe rather than after, and never
+			// before the first: a budget too small for even one probe
+			// would otherwise make no progress at all and the volume
+			// would stay black forever rather than converge slowly.
+			if (n > 0 && updateTimeBudgetMs > 0.f)
+			{
+				const f32 spent = (f32)std::chrono::duration<f64, std::milli>(
+					std::chrono::steady_clock::now() - updateStart).count();
+				if (spent >= updateTimeBudgetMs)
+					break;
+			}
 			if (updateCursor >= total)
 				updateCursor = 0;
 			const uint32 probe = updateCursor++;
@@ -541,6 +558,8 @@ namespace p3d {
 			// Last, so this probe's atlases were written from the
 			// position it actually traced from. The new offset takes
 			// effect on its next update.
+			lastUpdatedProbes++;
+
 			if (relocationEnabled)
 			{
 				ProbeRayStats stats;

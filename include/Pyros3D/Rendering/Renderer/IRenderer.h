@@ -387,6 +387,11 @@ namespace p3d {
 		// position.
 		std::string DDGIShaderRoot;
 		uint32 DDGIRaysPerProbe = 128;
+		// What one CPU-path GI refresh may cost. 2 ms of a 16 ms frame
+		// is a visible but survivable share, and it is a ceiling rather
+		// than a cost - a scene whose probe budget is smaller than this
+		// buys finishes sooner.
+		f32 DDGICPUTimeBudgetMs = 2.f;
 		Texture *DDGIIrradianceTex = NULL;
 		Texture *DDGIVisibilityTex = NULL;
 		// Prefiltered radiance for specular, and the environment BRDF
