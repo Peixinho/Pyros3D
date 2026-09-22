@@ -7,6 +7,9 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/html5.h>
+#endif
 #include <sstream>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
@@ -1648,6 +1651,36 @@ void IRenderer::SetDDGIVolume(const DDGIVolume *Volume, const uint32 revision)
 	DDGIRevision = revision;
 }
 
+// The filter a 32-bit float texture may be sampled with here.
+//
+// WebGL2 can only filter one when OES_texture_float_linear is enabled,
+// and a texture asking for LINEAR without it is INCOMPLETE - it samples
+// as black, with no error. That is the whole indirect light gone on the
+// platform that is already tracing these probes on the CPU, so the
+// answer decides the filter rather than the other way round.
+//
+// Asked once: the context does not change underneath us, and the
+// probe atlases and the BRDF table have to agree - one of them
+// sampling black while the other does not would look like a bug in the
+// lighting rather than in the filter.
+static uint32 FloatTextureFilter()
+{
+#if defined(GLES3)
+#if defined(__EMSCRIPTEN__)
+	static const bool filterable =
+		emscripten_webgl_enable_extension(emscripten_webgl_get_current_context(),
+			"OES_texture_float_linear") != 0;
+	return filterable ? TextureFilter::Linear : TextureFilter::Nearest;
+#else
+	// Android and Raspberry Pi reach here too, and there is no way to
+	// ask from this side of the GL API. Nearest always works.
+	return TextureFilter::Nearest;
+#endif
+#else
+	return TextureFilter::Linear;
+#endif
+}
+
 void IRenderer::UploadDDGIIfDirty()
 {
 	if (DDGIVol == NULL || DDGIRevision == DDGIUploadedRevision)
@@ -1677,11 +1710,7 @@ void IRenderer::UploadDDGIIfDirty()
 	// correctness: the octahedral border exists to make FILTERING
 	// across a tile edge read the right directions, and with nearest
 	// sampling nothing filters across it. Blockier, and present.
-#if defined(GLES3)
-	const uint32 kAtlasFilter = TextureFilter::Nearest;
-#else
-	const uint32 kAtlasFilter = TextureFilter::Linear;
-#endif
+	const uint32 kAtlasFilter = FloatTextureFilter();
 
 	if (DDGIIrradianceTex == NULL)
 	{
@@ -1793,11 +1822,11 @@ void IRenderer::BuildBRDFLutIfNeeded()
 	// opposite end of the roughness range.
 	// Same rule as the atlases above - see UploadDDGIIfDirty. The table
 	// is smooth and 64x64, so nearest costs it very little.
-#if defined(GLES3)
-	BRDFLutTex->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-#else
-	BRDFLutTex->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-#endif
+	{
+		// The same decision the atlases take - see FloatTextureFilter.
+		const uint32 f = FloatTextureFilter();
+		BRDFLutTex->SetMinMagFilter(f, f);
+	}
 	BRDFLutTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	BRDFLutTex->UpdateData((void*)lut.GetData().data());
 }

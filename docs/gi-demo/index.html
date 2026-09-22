@@ -1,0 +1,188 @@
+<title>Cornell Box, Bounced</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500&display=swap">
+
+<style>
+  /* Light is the base set. Every colour below comes from a token so
+     the un-stamped (system) state resolves as one complete theme. */
+  :root {
+    --ground:   #eceef1;
+    --panel:    #f7f8f9;
+    --ink:      #14171b;
+    --ink-soft: #5d646d;
+    --rule:     #d3d8dd;
+    --wall-red:   #a8291d;
+    --wall-green: #1d7a36;
+    --shadow: 0 1px 2px rgba(20, 23, 27, .06), 0 8px 24px rgba(20, 23, 27, .06);
+    color-scheme: light dark;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:   #0e1013;
+      --panel:    #16191d;
+      --ink:      #e7eaee;
+      --ink-soft: #949ba4;
+      --rule:     #272c32;
+      --wall-red:   #e06a58;
+      --wall-green: #4bb86a;
+      --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:   #0e1013;
+    --panel:    #16191d;
+    --ink:      #e7eaee;
+    --ink-soft: #949ba4;
+    --rule:     #272c32;
+    --wall-red:   #e06a58;
+    --wall-green: #4bb86a;
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 8px 28px rgba(0,0,0,.45);
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    background: var(--ground);
+    color: var(--ink);
+    margin: 0;
+    padding: clamp(1.5rem, 4vw, 3.5rem) 1.25rem 5rem;
+    font-family: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+  main { max-width: 60rem; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+
+  .eyebrow {
+    font-family: "IBM Plex Mono", ui-monospace, monospace;
+    font-size: .72rem; font-weight: 500; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--ink-soft);
+    display: flex; gap: .6rem; align-items: baseline; flex-wrap: wrap;
+  }
+  h1 {
+    font-family: "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;
+    font-weight: 700; font-size: clamp(2rem, 5.2vw, 3.1rem);
+    line-height: 1.02; letter-spacing: -.015em; margin: .45rem 0 .5rem;
+    text-wrap: balance;
+  }
+  .standfirst {
+    margin: 0; max-width: 46ch; color: var(--ink-soft); font-size: 1.02rem;
+  }
+
+  /* The demo is the hero: it is the subject, not an illustration of it. */
+  .stage {
+    position: relative; background: #000;
+    border: 1px solid var(--rule); border-radius: 4px;
+    box-shadow: var(--shadow); overflow: hidden; aspect-ratio: 4 / 3;
+  }
+  canvas { display: block; width: 100%; height: 100%; outline: none; }
+  canvas:focus-visible { outline: 2px solid var(--wall-green); outline-offset: -2px; }
+  #status {
+    position: absolute; inset: 0; display: grid; place-items: center;
+    background: #000; color: #8d949c; padding: 1.5rem; text-align: center;
+    font-family: "IBM Plex Mono", monospace; font-size: .8rem; letter-spacing: .04em;
+  }
+  #status[hidden] { display: none; }
+
+  /* Readings, labelled by what each one measures - the labels encode
+     the four things the renderer is actually doing. */
+  .readings {
+    display: grid; gap: 1px; background: var(--rule);
+    border: 1px solid var(--rule); border-radius: 4px; overflow: hidden;
+    /* Two by two: four readings, and an auto-fit that lands on
+       three leaves a hole where the fourth should be. */
+    grid-template-columns: repeat(auto-fit, minmax(22rem, 1fr));
+  }
+  .reading { background: var(--panel); padding: 1.15rem 1.25rem; }
+  .reading dt {
+    font-family: "IBM Plex Mono", monospace; font-size: .68rem; font-weight: 500;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--ink-soft);
+    margin-bottom: .5rem;
+  }
+  .reading dd { margin: 0; font-size: .95rem; }
+  .red   { color: var(--wall-red);   font-weight: 500; }
+  .green { color: var(--wall-green); font-weight: 500; }
+
+  .note { border-top: 1px solid var(--rule); padding-top: 1.5rem; }
+  .note h2 {
+    font-family: "IBM Plex Mono", monospace; font-size: .72rem; font-weight: 500;
+    letter-spacing: .13em; text-transform: uppercase; color: var(--ink-soft);
+    margin: 0 0 .75rem;
+  }
+  .note p { margin: 0 0 .9rem; max-width: 68ch; font-size: .95rem; color: var(--ink-soft); }
+  .note p strong { color: var(--ink); font-weight: 500; }
+</style>
+
+<main>
+  <header>
+    <p class="eyebrow"><span>Pyros3D</span><span>&middot;</span><span>WebGL2</span><span>&middot;</span><span>dynamic diffuse GI</span></p>
+    <h1>Cornell box, bounced</h1>
+    <p class="standfirst">One white lamp near the ceiling. Everything else you can see is light that has hit something first.</p>
+  </header>
+
+  <div class="stage">
+    <canvas id="canvas" tabindex="-1" aria-label="Interactive Cornell box rendered in real time"></canvas>
+    <div id="status">loading &mdash; about 1.5 MB</div>
+  </div>
+
+  <dl class="readings">
+    <div class="reading">
+      <dt>Diffuse</dt>
+      <dd>The floor picks up <span class="red">red</span> on the left and <span class="green">green</span> on the right. The lamp is white; that colour arrived by bouncing.</dd>
+    </div>
+    <div class="reading">
+      <dt>Specular</dt>
+      <dd>The spheres reflect the room from the same probes &mdash; not a cubemap, not screen-space. Nothing behind the camera is missing from them.</dd>
+    </div>
+    <div class="reading">
+      <dt>Dynamic</dt>
+      <dd>The lamp orbits and the block slides. Bounce and soft shadow follow both: probes re-trace, and the ray-tracing tree refits as geometry moves.</dd>
+    </div>
+    <div class="reading">
+      <dt>Convergence</dt>
+      <dd>It brightens over the first seconds. That is the probe grid settling, and on this platform it is the honest speed.</dd>
+    </div>
+  </dl>
+
+  <section class="note">
+    <h2>Why it starts dim here</h2>
+    <p>
+      WebGL2 has no compute shaders, so every probe is traced <strong>on the CPU, in the browser</strong>,
+      under a millisecond-per-frame ceiling. On a desktop GPU the whole volume is re-solved every
+      frame and there is no visible convergence at all.
+    </p>
+    <p>
+      Same algorithm either way: 294 probes ray-traced against a BVH, multi-bounce feedback so light
+      that has bounced twice still counts, and probes that relocate themselves out of walls. The
+      geometry is built in code from primitives, so the entire download is the module and the
+      engine&rsquo;s shaders &mdash; no scene file, no textures.
+    </p>
+  </section>
+</main>
+
+<script>
+  var canvas = document.getElementById('canvas');
+  // If the module fails, say so in the page rather than leaving a
+  // black rectangle and no explanation.
+  window.addEventListener('error', function (e) {
+    var s = document.getElementById('status');
+    if (s) { s.hidden = false; s.textContent = 'the demo could not start: ' + (e.message || e.type); }
+  });
+  var Module = {
+    canvas: canvas,
+    print: function () {},
+    printErr: function (t) { console.error(t); },
+    onRuntimeInitialized: function () {
+      document.getElementById('status').hidden = true;
+    }
+  };
+  // Give the drawing buffer a real pixel size before the module claims
+  // the canvas - SDL reads it once at init and never asks again.
+  (function () {
+    var r = canvas.getBoundingClientRect();
+    var dpr = Math.min(window.devicePixelRatio || 1, 2);
+    canvas.width = Math.round((r.width || 1024) * dpr);
+    canvas.height = Math.round((r.height || 768) * dpr);
+  })();
+</script>
+<script src="./GIDemo.js"></script>

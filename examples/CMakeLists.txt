@@ -25,7 +25,7 @@ endif()
 
 # Helper: one example executable with the shared window + ImGui backends.
 function(pyros_add_example target_name)
-	cmake_parse_arguments(ARG "" "DEMO_DEFINE" "SOURCES" ${ARGN})
+	cmake_parse_arguments(ARG "SHADERS_ONLY" "DEMO_DEFINE" "SOURCES" ${ARGN})
 	add_executable(${target_name}
 		${ARG_SOURCES}
 		${PYROS_IMGUI_BACKEND_SOURCE}
@@ -64,13 +64,41 @@ function(pyros_add_example target_name)
 	if (EMSCRIPTEN)
 		pyros_emscripten_apply_compile(${target_name})
 		pyros_emscripten_apply_link(${target_name})
-		# Pack common assets + engine shaders into the virtual FS.
-		target_link_options(${target_name} PRIVATE
-			"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets@assets"
-			"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
-		)
+		if (ARG_SHADERS_ONLY)
+			# A demo that builds its own geometry and needs no textures.
+			# examples/assets is 32MB packed, which is most of what a
+			# browser would be made to download for nothing.
+			#
+			# EMBED, not preload: --preload-file emits a separate .data
+			# package the page fetches at runtime, which means the demo
+			# is three files that must stay together and be served with
+			# the right types. Embedding puts the shaders inside the
+			# wasm, so the deliverable is the page, the glue and one
+			# binary - which is what makes it droppable anywhere. Only
+			# reasonable because this set is ~200KB; the asset-packing
+			# path above stays as it is for demos with real content.
+			target_link_options(${target_name} PRIVATE
+				"SHELL:--embed-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
+			)
+		else()
+			# Pack common assets + engine shaders into the virtual FS.
+			target_link_options(${target_name} PRIVATE
+				"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets@assets"
+				"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
+			)
+		endif()
 	endif()
 endfunction()
+
+# Global illumination, built entirely in code so the whole web payload
+# is the module plus the engine's shaders - see GIDemo.h.
+pyros_add_example(GIDemo
+	SHADERS_ONLY
+	DEMO_DEFINE _GIDemo
+	SOURCES
+		${CMAKE_CURRENT_SOURCE_DIR}/GIDemo/GIDemo.cpp
+		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
+)
 
 # Minimal C++ API demo (ForwardRenderer + cube + light).
 pyros_add_example(CppApiDemo

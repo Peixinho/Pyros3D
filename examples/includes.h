@@ -1,5 +1,7 @@
 #if defined(_CppApiDemo)
 #include "CppApiDemo/CppApiDemo.h"
+#elif defined(_GIDemo)
+#include "GIDemo/GIDemo.h"
 #elif defined(_UIExample)
 #include "UIExample/UIExample.h"
 #elif defined(_WidgetGallery)

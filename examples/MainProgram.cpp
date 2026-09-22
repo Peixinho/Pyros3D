@@ -71,8 +71,18 @@ int main(int argc, char** argv) {
 	initialized = false;
 
 #ifdef PYROS_EMSCRIPTEN
-	// fps=0 → browser refresh rate; simulate_infinite_loop=1 never returns.
-	emscripten_set_main_loop(mainloop, 0, 1);
+	// fps=0 -> browser refresh rate. simulate_infinite_loop=0, so this
+	// RETURNS and main() exits normally.
+	//
+	// The 1 that used to be here makes Emscripten throw an "unwind"
+	// exception to escape main, which surfaces as an uncaught error in
+	// the page. Most hosts shrug at it; a sandboxed iframe need not,
+	// and one that treats an uncaught error in the frame as fatal
+	// replaces the whole document with nothing - the demo, the text
+	// around it, all of it. EXIT_RUNTIME defaults to 0, so the runtime
+	// stays alive after main returns and the loop keeps firing, which
+	// is what the unwind was faking.
+	emscripten_set_main_loop(mainloop, 0, 0);
 #else
 	// Create Context Window
 	window = new DEMO_NAME();
