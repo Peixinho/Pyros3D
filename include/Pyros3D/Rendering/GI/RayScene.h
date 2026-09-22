@@ -12,11 +12,13 @@
 
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Export.h>
+#include <memory>
 #include <vector>
 
 namespace p3d {
 
 	class SceneGraph;
+	class GameObject;
 
 	// One world-space triangle. Positions and normals are pre-transformed
 	// at build time rather than carrying a per-instance matrix: a ray
@@ -41,6 +43,43 @@ namespace p3d {
 		Vec3 emissive;
 		RayMaterial() : albedo(0.8f, 0.8f, 0.8f), emissive(0.f, 0.f, 0.f) {}
 	};
+
+	// One object's contribution, and what is needed to move it.
+	//
+	// Triangles are baked into world space, which is right for the
+	// tracer's inner loop and wrong the moment anything moves. Keeping
+	// the local-space copy and the matrix it was baked with means a
+	// moved object can be re-transformed without walking the scene
+	// graph again, without re-reading vertex buffers, and without
+	// rebuilding the tree.
+	struct PYROS3D_API RayInstance
+	{
+		// Weak, deliberately: a RayScene outlives individual objects,
+		// and an expired pointer is how it finds out that the scene's
+		// contents - not just its transforms - have changed.
+		std::weak_ptr<GameObject> owner;
+		uint32 firstTriangle, triangleCount;
+		Matrix world;
+		RayInstance() : firstTriangle(0), triangleCount(0) {}
+	};
+
+	// What RefreshTransforms found.
+	namespace RaySceneChange
+	{
+		enum Enum
+		{
+			// Nothing moved; the tree and the triangles still describe
+			// the scene.
+			None = 0,
+			// Something moved. The triangles have been updated; the BVH
+			// has not, and the caller must refit it.
+			Moved = 1,
+			// An object this scene was built from no longer exists, so
+			// the triangle list itself is wrong. A refit cannot help -
+			// the scene has to be extracted again.
+			NeedsRebuild = 2
+		};
+	}
 
 	// A node of the flattened BVH.
 	//
@@ -86,6 +125,34 @@ namespace p3d {
 		// CPU-side geometry, transformed to world space. Returns false if
 		// nothing renderable was found.
 		bool BuildFromScene(SceneGraph *scene);
+
+		// Per-object records, in the order they were extracted.
+		std::vector<RayInstance> instances;
+		// The same triangles before their world transform, parallel to
+		// `triangles`. What lets an instance be re-transformed in place.
+		std::vector<RayTriangle> localTriangles;
+
+		// Re-transforms any instance whose owner has moved since the
+		// last call, and reports what it found.
+		//
+		// Costs one matrix comparison per object and, for those that
+		// moved, one matrix multiply per vertex. That is the cheap half
+		// of following moving geometry; RefitBVH is the other half and
+		// the caller runs it when this returns Moved.
+		RaySceneChange::Enum RefreshTransforms();
+
+		// Recomputes every node's bounds bottom-up, leaving the tree's
+		// SHAPE alone.
+		//
+		// Orders of magnitude cheaper than Build() - one pass over the
+		// nodes, no sorting, no SAH evaluation - and the trade is
+		// quality: the split planes were chosen for where the geometry
+		// used to be, so a tree refitted over and over as things move
+		// far from their original positions grows overlapping nodes and
+		// traverses worse. Right for animation and for objects moving
+		// within their own neighbourhood; a scene that has been rearranged
+		// wants a real rebuild.
+		void RefitBVH();
 
 		// Builds the BVH over whatever is in `triangles`. Split by the
 		// surface area heuristic, which is worth the build cost here: the

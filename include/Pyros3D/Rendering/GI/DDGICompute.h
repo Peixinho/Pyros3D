@@ -63,6 +63,17 @@ namespace p3d {
 			const uint32 raysPerProbe, const uint32 frame, const f32 hysteresis,
 			const uint32 probeBudget);
 
+		// Re-uploads the triangles and the BVH after the scene has
+		// moved. Indices are untouched - a refit changes bounds and
+		// vertex positions, never which triangle sits in which leaf -
+		// so only two of the three geometry buffers are rewritten.
+		//
+		// Returns false if the geometry no longer fits what was
+		// allocated at Initialize time, which means the scene gained or
+		// lost triangles and wants a full rebuild rather than a
+		// refresh.
+		bool UpdateGeometry(const RayScene &scene);
+
 		void Shutdown();
 
 		uint32 GetProbeCursor() const { return cursor; }
@@ -87,6 +98,9 @@ namespace p3d {
 		uint32 maxRaysPerProbe, maxBatch, radianceLevels;
 		// Texels in one irradiance atlas - bIrr holds two of them.
 		uint32 irrTexels;
+		// Sizes the geometry buffers were created with, so a refresh
+		// can tell "the scene moved" from "the scene changed".
+		uint32 triBytes, nodeBytes;
 		// Probes the params buffer has room for, past its eight fixed
 		// vec4s: the per-probe relocation offsets ride there.
 		uint32 paramProbes;

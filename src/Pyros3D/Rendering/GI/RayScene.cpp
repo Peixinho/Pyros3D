@@ -122,12 +122,112 @@ namespace p3d {
 		outIndices = triangleIndices;
 	}
 
+	RaySceneChange::Enum RayScene::RefreshTransforms()
+	{
+		if (instances.empty() || localTriangles.size() != triangles.size())
+			return RaySceneChange::None;
+
+		bool moved = false;
+		for (size_t i = 0; i < instances.size(); i++)
+		{
+			RayInstance &inst = instances[i];
+			const std::shared_ptr<GameObject> owner = inst.owner.lock();
+			if (!owner)
+				// The scene is not just posed differently, it is a
+				// different scene. Say so and change nothing: a partial
+				// refresh over a stale triangle list is worse than an
+				// out-of-date one, because it looks current.
+				return RaySceneChange::NeedsRebuild;
+
+			const Matrix world = owner->GetWorldTransformation();
+			bool same = true;
+			for (uint32 e = 0; e < 16; e++)
+				// Exact comparison, not an epsilon. The question is
+				// "did anything write this matrix", and a transform
+				// that changed by less than an epsilon still wants its
+				// triangles moved by that much - the alternative is
+				// drift that never gets applied because each frame's
+				// step is individually too small.
+				if (world.m[e] != inst.world.m[e]) { same = false; break; }
+			if (same)
+				continue;
+
+			inst.world = world;
+			const uint32 end = inst.firstTriangle + inst.triangleCount;
+			for (uint32 t = inst.firstTriangle; t < end && t < triangles.size(); t++)
+			{
+				const RayTriangle &l = localTriangles[t];
+				RayTriangle &w = triangles[t];
+				w.v0 = world * l.v0;
+				w.v1 = world * l.v1;
+				w.v2 = world * l.v2;
+				// w = 0 so the translation drops out - same reasoning
+				// as the extraction above.
+				w.n0 = (world * Vec4(l.n0, 0.f)).xyz().normalize();
+				w.n1 = (world * Vec4(l.n1, 0.f)).xyz().normalize();
+				w.n2 = (world * Vec4(l.n2, 0.f)).xyz().normalize();
+			}
+			moved = true;
+		}
+		return moved ? RaySceneChange::Moved : RaySceneChange::None;
+	}
+
+	void RayScene::RefitBVH()
+	{
+		if (nodes.empty() || triangles.empty())
+			return;
+
+		// Back to front. Subdivide() appends both children after their
+		// parent, so a child's index is always greater than its
+		// parent's and one reverse pass visits every node after the
+		// nodes it depends on. No recursion, no stack, one pass.
+		for (int32 i = (int32)nodes.size() - 1; i >= 0; i--)
+		{
+			BVHNode &n = nodes[i];
+			if (n.count > 0)
+			{
+				Vec3 mn(1e30f, 1e30f, 1e30f), mx(-1e30f, -1e30f, -1e30f);
+				for (uint32 k = 0; k < n.count; k++)
+				{
+					const uint32 ti = triangleIndices[n.firstOrLeft + k];
+					if (ti >= triangles.size())
+						continue;
+					const RayTriangle &t = triangles[ti];
+					const Vec3 *v[3] = { &t.v0, &t.v1, &t.v2 };
+					for (uint32 c = 0; c < 3; c++)
+					{
+						mn = Vec3(std::min(mn.x, v[c]->x), std::min(mn.y, v[c]->y), std::min(mn.z, v[c]->z));
+						mx = Vec3(std::max(mx.x, v[c]->x), std::max(mx.y, v[c]->y), std::max(mx.z, v[c]->z));
+					}
+				}
+				n.boundsMin = mn;
+				n.boundsMax = mx;
+			}
+			else
+			{
+				// Interior. Children are at firstOrLeft and +1.
+				if (n.firstOrLeft + 1 >= nodes.size())
+					continue;
+				const BVHNode &l = nodes[n.firstOrLeft];
+				const BVHNode &r = nodes[n.firstOrLeft + 1];
+				n.boundsMin = Vec3(std::min(l.boundsMin.x, r.boundsMin.x),
+								   std::min(l.boundsMin.y, r.boundsMin.y),
+								   std::min(l.boundsMin.z, r.boundsMin.z));
+				n.boundsMax = Vec3(std::max(l.boundsMax.x, r.boundsMax.x),
+								   std::max(l.boundsMax.y, r.boundsMax.y),
+								   std::max(l.boundsMax.z, r.boundsMax.z));
+			}
+		}
+	}
+
 	void RayScene::Clear()
 	{
 		triangles.clear();
 		materials.clear();
 		nodes.clear();
 		triangleIndices.clear();
+		instances.clear();
+		localTriangles.clear();
 	}
 
 	bool RayScene::BuildFromScene(SceneGraph *scene)
@@ -188,6 +288,15 @@ namespace p3d {
 					const uint32 materialIndex = (uint32)materials.size();
 					materials.push_back(mat);
 
+					// One record per mesh, not per object: a model with
+					// several submeshes has several materials and
+					// several triangle ranges, and they all move
+					// together because they share an owner.
+					RayInstance inst;
+					inst.owner = objects[oi];
+					inst.world = world;
+					inst.firstTriangle = (uint32)triangles.size();
+
 					for (size_t i = 0; i + 2 < idx.size(); i += 3)
 					{
 						const uint32 a = idx[i], b = idx[i+1], c = idx[i+2];
@@ -215,8 +324,32 @@ namespace p3d {
 							tri.n0 = tri.n1 = tri.n2 = fn;
 						}
 						tri.materialIndex = materialIndex;
+
+						// The same triangle before the transform, so it
+						// can be re-transformed later without coming
+						// back here - see RefreshTransforms.
+						RayTriangle local = tri;
+						local.v0 = pos[a]; local.v1 = pos[b]; local.v2 = pos[c];
+						if (a < nrm.size() && b < nrm.size() && c < nrm.size())
+						{
+							local.n0 = nrm[a]; local.n1 = nrm[b]; local.n2 = nrm[c];
+						}
+						else
+						{
+							const Vec3 fn = (local.v1 - local.v0).cross(local.v2 - local.v0).normalize();
+							local.n0 = local.n1 = local.n2 = fn;
+						}
+						localTriangles.push_back(local);
 						triangles.push_back(tri);
 					}
+
+					inst.triangleCount = (uint32)triangles.size() - inst.firstTriangle;
+					// A mesh whose indices were all degenerate adds
+					// nothing and must not become an instance, or
+					// RefreshTransforms would re-transform an empty
+					// range every frame it moves.
+					if (inst.triangleCount > 0)
+						instances.push_back(inst);
 				}
 			}
 		}

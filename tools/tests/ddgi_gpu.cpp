@@ -493,6 +493,97 @@ int main()
 		}
 	}
 
+	// ---- geometry that moves ---------------------------------------------
+	//
+	// The triangles are baked into world space and the BVH built over
+	// them once. A moving LIGHT was always followed; moving GEOMETRY
+	// was not, so a door that opened went on blocking light where it
+	// used to be. RefitBVH updates the tree and DDGICompute::
+	// UpdateGeometry re-uploads it - and that upload is the part
+	// nothing else exercises.
+	{
+		RayScene room;
+		const uint32 grey = AddMat(room, Vec3(0.8f, 0.8f, 0.8f));
+		const f32 B = 6.f;
+		AddQuad(room, Vec3(-B,-B,-B), Vec3( B,-B,-B), Vec3( B,-B, B), Vec3(-B,-B, B), grey);
+		AddQuad(room, Vec3(-B, B, B), Vec3( B, B, B), Vec3( B, B,-B), Vec3(-B, B,-B), grey);
+		AddQuad(room, Vec3(-B,-B, B), Vec3( B,-B, B), Vec3( B, B, B), Vec3(-B, B, B), grey);
+		AddQuad(room, Vec3( B,-B,-B), Vec3(-B,-B,-B), Vec3(-B, B,-B), Vec3( B, B,-B), grey);
+		AddQuad(room, Vec3(-B,-B,-B), Vec3(-B,-B, B), Vec3(-B, B, B), Vec3(-B, B,-B), grey);
+		AddQuad(room, Vec3( B,-B, B), Vec3( B,-B,-B), Vec3( B, B,-B), Vec3( B, B, B), grey);
+		// A shutter between the lamp and the far corner. Its triangles
+		// are the last ones added, so they are easy to move.
+		const uint32 firstShutter = room.TriangleCount();
+		AddSolidBox(room, Vec3(0.f, 0.f, 0.f), Vec3(0.4f, B + 1.f, B + 1.f), grey);
+		const uint32 shutterCount = room.TriangleCount() - firstShutter;
+		room.Build(4);
+
+		std::vector<RayLight> lamp(1);
+		lamp[0].isPoint = 1.f;
+		lamp[0].positionOrDirection = Vec3(3.5f, 0.f, 0.f);
+		lamp[0].color = Vec3(8.f, 8.f, 8.f);
+		lamp[0].range = 40.f;
+
+		// Behind the shutter, where the lamp cannot reach directly.
+		const Vec3 shadowed(-4.f, 0.f, 0.f);
+		const Vec3 up2(0.f, 1.f, 0.f);
+
+		DDGIVolume mc, mg;
+		mc.Allocate(Vec3(-5,-5,-5), Vec3(2.5f,2.5f,2.5f), 5,5,5, 8, 16);
+		mg.Allocate(Vec3(-5,-5,-5), Vec3(2.5f,2.5f,2.5f), 5,5,5, 8, 16);
+
+		DDGICompute mv;
+		if (!mv.Initialize(room, mg, "resources/shaders"))
+			check(false, "DDGICompute initialises for the moving-geometry volume");
+		else
+		{
+			for (uint32 f = 0; f < 6; f++)
+			{
+				mc.Update(room, lamp, 128, f, 0.f, 0);
+				mv.Update(mg, lamp, 128, f, 0.f, 0);
+			}
+			const f32 blockedCPU = mc.SampleIrradiance(shadowed, up2).x;
+			const f32 blockedGPU = mg.SampleIrradiance(shadowed, up2).x;
+
+			// Slide the shutter out of the way, exactly as an object
+			// moving in a scene would.
+			for (uint32 t = firstShutter; t < firstShutter + shutterCount; t++)
+			{
+				room.triangles[t].v0.y += 14.f;
+				room.triangles[t].v1.y += 14.f;
+				room.triangles[t].v2.y += 14.f;
+			}
+			room.RefitBVH();
+			check(mv.UpdateGeometry(room), "the moved geometry uploads to the GPU");
+
+			for (uint32 f = 6; f < 14; f++)
+			{
+				mc.Update(room, lamp, 128, f, 0.f, 0);
+				mv.Update(mg, lamp, 128, f, 0.f, 0);
+			}
+			const f32 openCPU = mc.SampleIrradiance(shadowed, up2).x;
+			const f32 openGPU = mg.SampleIrradiance(shadowed, up2).x;
+
+			printf("      behind the shutter: CPU %.4f -> %.4f, GPU %.4f -> %.4f\n",
+				blockedCPU, openCPU, blockedGPU, openGPU);
+
+			// The point of the whole feature: moving the blocker has to
+			// change the light behind it. If this passes without the
+			// refit and the re-upload, the scene is being traced
+			// against geometry that is no longer there.
+			check(openCPU > blockedCPU * 1.5f,
+				"moving the shutter lets light reach what it was shading",
+				std::to_string(blockedCPU) + " -> " + std::to_string(openCPU));
+			check(openGPU > blockedGPU * 1.5f,
+				"and the GPU sees the move too - which needs the re-upload",
+				std::to_string(blockedGPU) + " -> " + std::to_string(openGPU));
+			check(fabsf(openGPU - openCPU) < 0.05f * fmaxf(openCPU, 1.f),
+				"with both agreeing on how much",
+				"CPU " + std::to_string(openCPU) + " vs GPU " + std::to_string(openGPU));
+			mv.Shutdown();
+		}
+	}
+
 	printf("\n%s  ddgi_gpu: %d failure(s)\n", failures?"FAIL":"PASS", failures);
 	return failures ? 1 : 0;
 }

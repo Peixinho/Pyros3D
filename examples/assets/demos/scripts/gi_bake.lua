@@ -16,7 +16,12 @@ local GIDrive = class('GIDrive')
 
 function GIDrive:initialize()
 	self.ready = false
-	self.t = 0.0
+	-- Elapsed time, accumulated. `time` in update() is the frame
+	-- DELTA, not a clock; this script used to subtract a stored
+	-- `self.t` from it, which is about zero every frame - so the light
+	-- below never actually moved and the demo quietly showed a static
+	-- solution while claiming to show a moving one.
+	self.elapsed = 0.0
 end
 
 function GIDrive:init(owner)
@@ -37,7 +42,6 @@ function GIDrive:update(time)
 			sky    = { 0.0, 0.0, 0.0 },
 		})
 		print(ok and "CornellGI: initial solve done" or "CornellGI: solve failed")
-		self.t = time
 		return
 	end
 
@@ -47,8 +51,9 @@ function GIDrive:update(time)
 	--
 	-- GI is not told about this in any way. UpdateSceneGI re-reads the
 	-- scene's lights on every refresh, so the bounce follows on its own.
+	self.elapsed = self.elapsed + time
 	if self.owner then
-		local a = (time - self.t) * 0.6
+		local a = self.elapsed * 0.6
 		self.owner:setPosition(Vec3.new(math.sin(a) * 3.2, 4.0, math.cos(a) * 2.0))
 	end
 

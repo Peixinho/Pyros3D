@@ -61,7 +61,10 @@ function PhysicsStress:update(time)
 
 	local dt = 0.016
 	if self.lastTime then
-		dt = math.max(0.0, math.min(0.05, time - self.lastTime))
+		-- `time` IS the frame delta already; subtracting the previous
+		-- one gave about zero, so whatever this drives never advanced.
+		-- Still clamped, so a hitch is not replayed as a burst.
+		dt = math.max(0.0, math.min(0.05, time))
 	end
 	self.lastTime = time
 

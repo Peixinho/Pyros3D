@@ -239,6 +239,12 @@ jobs:
           # that reads the scene once at load time.
           c++ $CF tools/tests/static_registration.cpp -o /tmp/static_registration $LD
           /tmp/static_registration
+          # Moving geometry: that the triangles follow an object and
+          # that the BVH follows the triangles. The second fails
+          # silently - a stale tree still returns hits, just against
+          # bounds nothing is inside any more.
+          c++ $CF tools/tests/ray_scene_moving.cpp -o /tmp/ray_scene_moving $LD
+          /tmp/ray_scene_moving
           c++ $CF tools/tests/tilemap_colliders.cpp -o /tmp/tilemap_colliders $LD
           /tmp/tilemap_colliders
           c++ $CF tools/tests/tilemap_mesh.cpp -o /tmp/tilemap_mesh $LD

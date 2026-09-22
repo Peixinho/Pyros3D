@@ -38,7 +38,7 @@ namespace p3d {
 		  bTris(0), bNodes(0), bIdx(0), bMats(0), bLights(0),
 		  radStage(0), radProgram(0), radPipeline(0),
 		  statStage(0), statProgram(0), statPipeline(0),
-		  bRays(0), bIrr(0), bVis(0), bParams(0), bRad(0), bStats(0), radianceLevels(0), irrTexels(0), paramProbes(0), relocation(false),
+		  bRays(0), bIrr(0), bVis(0), bParams(0), bRad(0), bStats(0), radianceLevels(0), irrTexels(0), triBytes(0), nodeBytes(0), paramProbes(0), relocation(false),
 		  maxRaysPerProbe(0), maxBatch(0), cursor(0)
 	{
 	}
@@ -151,6 +151,8 @@ namespace p3d {
 			matData[i*8+6] = scene.materials[i].emissive.z;
 		}
 
+		triBytes  = (uint32)(triData.size()*sizeof(f32));
+		nodeBytes = (uint32)(nodeData.size()*sizeof(f32));
 		bTris  = dev.CreateStorageBuffer((uint32)(triData.size()*sizeof(f32)), 0, triData.data());
 		bNodes = dev.CreateStorageBuffer((uint32)(nodeData.size()*sizeof(f32)), 1, nodeData.data());
 		bIdx   = dev.CreateStorageBuffer((uint32)(idxData.size()*sizeof(uint32)), 2, idxData.data());
@@ -454,6 +456,27 @@ namespace p3d {
 			volume.ValidateClassification();
 		}
 		volume.FillAtlasBorders();
+		return true;
+	}
+
+	bool DDGICompute::UpdateGeometry(const RayScene &scene)
+	{
+		if (!initialized)
+			return false;
+		std::vector<f32> triData, nodeData;
+		std::vector<uint32> idxData;
+		scene.PackForGPU(triData, nodeData, idxData);
+
+		// The buffers were sized once. A scene that has gained or lost
+		// geometry does not fit, and silently uploading a prefix would
+		// leave the tail describing triangles that no longer exist -
+		// which traces as geometry floating where the old object was.
+		if (triData.size()*sizeof(f32) != triBytes || nodeData.size()*sizeof(f32) != nodeBytes)
+			return false;
+
+		IRenderDevice &dev = GetActiveRenderDevice();
+		dev.UpdateStorageBuffer(bTris, 0, triBytes, triData.data());
+		dev.UpdateStorageBuffer(bNodes, 0, nodeBytes, nodeData.data());
 		return true;
 	}
 

@@ -381,6 +381,11 @@ namespace p3d {
 		// magnitude slower, and is what WebGL2 always gets.
 		DDGICompute *GPUCompute = NULL;
 		uint32 DDGIFrame = 0;
+		// Kept from the bake so the compute backend can be rebuilt
+		// without the caller's settings, which is what a refresh has to
+		// do when the scene's geometry changes shape rather than just
+		// position.
+		std::string DDGIShaderRoot;
 		uint32 DDGIRaysPerProbe = 128;
 		Texture *DDGIIrradianceTex = NULL;
 		Texture *DDGIVisibilityTex = NULL;

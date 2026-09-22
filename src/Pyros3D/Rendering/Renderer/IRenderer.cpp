@@ -1519,6 +1519,7 @@ bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings 
 	if (OwnedRayScene->BuildFromScene(scene))
 		OwnedRayScene->Build(4);
 	DDGIRaysPerProbe = settings.raysPerProbe;
+	DDGIShaderRoot = settings.shaderRoot;
 	DDGIFrame = settings.passes;
 
 	// Hand the work to the GPU if this backend can take it. The CPU
@@ -1554,6 +1555,51 @@ bool IRenderer::UpdateGlobalIllumination(SceneGraph *scene, const uint32 probeBu
 		return false;
 	if (OwnedRayScene->TriangleCount() == 0)
 		return false;
+
+	// Geometry, before the lights.
+	//
+	// A moving LIGHT was always followed - the lights are re-read every
+	// refresh. Moving GEOMETRY was not: the triangles were baked into
+	// world space once and the BVH built over them once, so a door that
+	// opened went on blocking light where it used to be. This is the
+	// other half.
+	//
+	// Refit rather than rebuild. Rebuilding the tree every frame would
+	// cost more than the tracing it accelerates, and a refit is exact
+	// for the bounds - what it loses is split-plane quality, which
+	// matters only once things have moved far from where the tree was
+	// built for.
+	{
+		const RaySceneChange::Enum change = OwnedRayScene->RefreshTransforms();
+		if (change == RaySceneChange::NeedsRebuild)
+		{
+			// An object the volume was built from is gone, so the
+			// triangle list describes a scene that no longer exists.
+			// Re-extract, which also re-sizes the GPU buffers.
+			if (!OwnedRayScene->BuildFromScene(scene))
+				return false;
+			OwnedRayScene->Build(4);
+			if (GPUCompute != NULL && !GPUCompute->UpdateGeometry(*OwnedRayScene))
+			{
+				// The geometry no longer fits the buffers allocated at
+				// Initialize time. Rebuild the compute side outright
+				// rather than trace against a stale scene.
+				delete GPUCompute;
+				GPUCompute = new DDGICompute();
+				if (!GPUCompute->Initialize(*OwnedRayScene, *OwnedDDGI, DDGIShaderRoot))
+				{
+					delete GPUCompute;
+					GPUCompute = NULL;
+				}
+			}
+		}
+		else if (change == RaySceneChange::Moved)
+		{
+			OwnedRayScene->RefitBVH();
+			if (GPUCompute != NULL)
+				GPUCompute->UpdateGeometry(*OwnedRayScene);
+		}
+	}
 
 	if (GPUCompute != NULL)
 	{

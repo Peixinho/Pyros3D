@@ -415,6 +415,11 @@
       "width": 1.5
      },
      "type": "RenderingComponent"
+    },
+    {
+     "data": {},
+     "scriptFile": "demos/scripts/slide_block.lua",
+     "type": "LuaComponent"
     }
    ],
    "name": "Block",
@@ -433,7 +438,7 @@
     1,
     1
    ],
-   "static": true,
+   "static": false,
    "tags": []
   },
   {

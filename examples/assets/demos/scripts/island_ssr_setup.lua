@@ -183,7 +183,10 @@ end
 
 function IslandSSRSetup:update(time)
 	if not self.tiles then return end
-	local t = time * self.scroll
+	-- `time` is the frame delta, not a clock, so this has to add up -
+	-- multiplying the delta gave a scroll offset that never advanced.
+	self.elapsed = (self.elapsed or 0.0) + time
+	local t = self.elapsed * self.scroll
 	local ox = (t * SCROLL_X) % TILE_SIZE
 	local oz = (t * SCROLL_Z) % TILE_SIZE
 
