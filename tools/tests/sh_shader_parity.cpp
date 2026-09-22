@@ -22,13 +22,28 @@
 //       -Wl,-rpath,$PWD/build_metal
 //   /tmp/sh_shader_parity            # run from the repo root
 //
+// Build for GL 4.5 (Linux; runs under llvmpipe + xvfb in CI, and
+// SKIPs anywhere the context tops out below 4.3 - macOS caps at
+// 4.1, so it cannot run there):
+//
+//   cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
+//       src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
+//   c++ -std=c++17 -DGL45 -DPARITY_GL -I include -I include/Pyros3D/Ext/gl45 \
+//       $(pkg-config --cflags freetype2) $(pkg-config --cflags sdl2) \
+//       tools/tests/sh_shader_parity.cpp /tmp/glad45.o -o /tmp/sh_parity \
+//       -L build -lPyrosEngine $(pkg-config --libs sdl2) -Wl,-rpath,$PWD/build
+//
 // Exits 0 for PASS and for SKIP (no compute on this machine), 1 for FAIL.
-#if defined(PARITY_METAL)
+#if defined(PARITY_GL)
+#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
+#include <SDL2/SDL.h>
+#elif defined(PARITY_METAL)
 #include <Pyros3D/Rendering/Device/MetalRenderDevice.h>
 #elif defined(PARITY_VULKAN)
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
 #else
-#error "Define PARITY_METAL or PARITY_VULKAN"
+#error "Define PARITY_GL, PARITY_METAL or PARITY_VULKAN"
 #endif
 
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
@@ -83,10 +98,9 @@ static bool ExtractGLSLFunction(const std::string &source, const std::string &si
 
 static const uint32 kNormalCount = 64; // one work group exactly
 
-int main(int argc, char **argv)
+// The comparison itself, on whatever device main() handed it.
+static int RunParity(IRenderDevice &device)
 {
-	(void)argc; (void)argv;
-
 	// ---- the shipped GLSL, verbatim ------------------------------------
 	std::string shaderFile;
 	{
@@ -108,25 +122,6 @@ int main(int argc, char **argv)
 	check(shIrradiance.find("uAmbientSH[0]") != std::string::npos,
 		"extracted SHIrradiance references the coefficient array");
 
-	// ---- device --------------------------------------------------------
-#if defined(PARITY_METAL)
-	MetalRenderDevice device;
-	printf("      backend     Metal\n");
-#else
-	VulkanRenderDevice device;
-	if (device.GetInstance() == VK_NULL_HANDLE || !device.InitializeHeadless())
-	{
-		printf("SKIP  no usable Vulkan device\n");
-		return 0;
-	}
-	printf("      backend     Vulkan (headless)\n");
-#endif
-
-	if (!device.SupportsCompute())
-	{
-		printf("SKIP  SupportsCompute() is false on this backend\n");
-		return 0;
-	}
 
 	// ---- a real environment, projected by the real projector -----------
 	//
@@ -266,4 +261,92 @@ int main(int argc, char **argv)
 
 	printf("\n%s  sh_shader_parity: %d failure(s)\n", failures == 0 ? "PASS" : "FAIL", failures);
 	return failures == 0 ? 0 : 1;
+}
+
+// Creates whatever context this backend needs, runs the comparison, and
+// tears down in the right order. Split from the test body so the same
+// body runs on three backends - and because a GL device has to be
+// destroyed while its context is still current, which a single main()
+// full of early returns cannot promise.
+int main()
+{
+#if defined(PARITY_GL)
+	// Same shape as tools/tests/compute_smoke.cpp's GL path, version
+	// fallback included: 4.3 is the real floor for compute, and the
+	// last entry takes the driver's default so that SupportsCompute()
+	// decides the outcome rather than SDL's context creation.
+	if (SDL_Init(SDL_INIT_VIDEO) != 0)
+	{
+		printf("FAIL  SDL_Init - %s\n", SDL_GetError());
+		return 1;
+	}
+	static const struct { int major, minor; } kVersions[] = {
+		{ 4, 5 }, { 4, 4 }, { 4, 3 }, { 0, 0 }
+	};
+	SDL_Window *window = NULL;
+	SDL_GLContext glContext = NULL;
+	for (size_t v = 0; v < sizeof(kVersions)/sizeof(kVersions[0]) && glContext == NULL; v++)
+	{
+		if (kVersions[v].major != 0)
+		{
+			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, kVersions[v].major);
+			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, kVersions[v].minor);
+			SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+		}
+		else SDL_GL_ResetAttributes();
+		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+		// Hidden: nothing is drawn, and a visible window under xvfb is
+		// one more thing that can fail for reasons unrelated to compute.
+		window = SDL_CreateWindow("parity", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+			64, 64, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+		if (window == NULL) continue;
+		glContext = SDL_GL_CreateContext(window);
+		if (glContext == NULL) { SDL_DestroyWindow(window); window = NULL; }
+	}
+	if (glContext == NULL)
+	{
+		printf("FAIL  could not create any GL context - %s\n", SDL_GetError());
+		SDL_Quit();
+		return 1;
+	}
+	if (gladLoadGL() == 0)
+	{
+		printf("FAIL  gladLoadGL could not resolve core GL entry points\n");
+		SDL_Quit();
+		return 1;
+	}
+	printf("      backend     OpenGL\n");
+	printf("      GL_VERSION  %s\n", (const char*)glGetString(GL_VERSION));
+	int rc;
+	{
+		// Scoped so the device releases its GL objects while the
+		// context is still current.
+		GLRenderDevice device;
+		SetActiveRenderDevice(&device);
+		if (!device.SupportsCompute())
+		{
+			printf("SKIP  SupportsCompute() is false on this GL context\n");
+			rc = 0;
+		}
+		else rc = RunParity(device);
+	}
+	SDL_GL_DeleteContext(glContext);
+	SDL_DestroyWindow(window);
+	SDL_Quit();
+	return rc;
+#elif defined(PARITY_METAL)
+	MetalRenderDevice device;
+	SetActiveRenderDevice(&device);
+	printf("      backend     Metal\n");
+	if (!device.SupportsCompute()) { printf("SKIP  no compute on this backend\n"); return 0; }
+	return RunParity(device);
+#else
+	VulkanRenderDevice device;
+	if (device.GetInstance() == VK_NULL_HANDLE || !device.InitializeHeadless())
+	{ printf("SKIP  no usable Vulkan device\n"); return 0; }
+	SetActiveRenderDevice(&device);
+	printf("      backend     Vulkan (headless)\n");
+	if (!device.SupportsCompute()) { printf("SKIP  no compute on this backend\n"); return 0; }
+	return RunParity(device);
+#endif
 }

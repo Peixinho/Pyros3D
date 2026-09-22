@@ -420,6 +420,60 @@ jobs:
           fi
           grep -q '^PASS  compute_smoke' /tmp/compute_out.txt
 
+      - name: Shader parity on GL compute
+        if: matrix.compute == 'gl'
+        # The only place the DDGI kernels' GLSL is RUN on OpenGL.
+        #
+        # Everything else that exercises compute for real - ddgi_gpu,
+        # bvh_gpu, the particle parity - runs on macOS against Metal and
+        # MoltenVK, because those are the only CI machines with a GPU.
+        # That left GL 4.5 supported on the strength of "it compiles,
+        # and compute_smoke dispatches a trivial kernel", while every
+        # backend-specific bug this engine has had in compute was in the
+        # real kernels: a SPIRV-Cross buffer-index swap, a barrier that
+        # ordered without submitting, a bytes-per-row assert. None of
+        # those would have been caught by a smoke test.
+        #
+        # These three are the cheap part of that coverage: two 64-thread
+        # dispatches and one of 1024 rays, so llvmpipe finishes them in
+        # seconds. Each reads the shipped GLSL, compiles it as compute
+        # and compares against the C++ it is supposed to mirror - so
+        # what they prove is that the shaders the renderer ships
+        # compile and compute the same answers on GL. bvh_gpu covers
+        # the BVH traversal kernel, which is the core of the tracing.
+        #
+        # ddgi_gpu is deliberately NOT here: 343 probes over several
+        # multi-update sections is millions of rays through a software
+        # rasteriser, and nobody has measured what that costs on
+        # llvmpipe. It stays on macOS until someone does.
+        #
+        # A SKIP is a hard failure here for the same reason it is in the
+        # step above: on this job it means the coverage evaporated.
+        run: |
+          set -euo pipefail
+          apt-get install -y --no-install-recommends xvfb
+          FT="$(pkg-config --cflags freetype2)"
+          SDLC="$(pkg-config --cflags sdl2)"
+          SDLL="$(pkg-config --libs sdl2)"
+          cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
+            src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
+          # bvh_gpu takes RTPARITY_GL rather than PARITY_GL - it
+          # predates the other two and kept its own define prefix.
+          for t in sh_shader_parity ddgi_specular_shader_parity bvh_gpu; do
+            if [ "$t" = "bvh_gpu" ]; then DEF=-DRTPARITY_GL; else DEF=-DPARITY_GL; fi
+            c++ -std=c++17 -O2 -DGL45 $DEF \
+              -I include -I include/Pyros3D/Ext/gl45 $FT $SDLC \
+              tools/tests/$t.cpp /tmp/glad45.o -o /tmp/$t \
+              -L build -lPyrosEngine $SDLL -Wl,-rpath,"$PWD/build"
+            # Run from the repo root - they read resources/shaders/.
+            LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a /tmp/$t | tee /tmp/$t.out
+            if grep -q '^SKIP' /tmp/$t.out; then
+              echo "::error::$t SKIPped - llvmpipe did not give us a GL 4.3+ compute context"
+              exit 1
+            fi
+            grep -q "^PASS  $t" /tmp/$t.out
+          done
+
       - name: Smoke run
         # A runner has no GPU and no display, so failing to open a window is
         # expected and fine. Death by signal is not - that is a broken package.
