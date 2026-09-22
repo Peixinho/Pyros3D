@@ -1661,6 +1661,28 @@ void IRenderer::UploadDDGIIfDirty()
 	// clamping produces a hard plateau exactly where the indirect
 	// light is strongest. Visibility stores squared distances, which
 	// are worse: at any real scene scale they leave [0,1] immediately.
+	// Float atlases and how they may be filtered.
+	//
+	// WebGL2 can only filter a 32-bit float texture when
+	// OES_texture_float_linear is present, and a texture asking for
+	// LINEAR without it is INCOMPLETE - it samples as black. Not an
+	// error, not a warning: the GI simply disappears on the one
+	// platform that already has no compute and is tracing these probes
+	// on the CPU to begin with. The extension is common on desktop
+	// browsers and far from universal on mobile.
+	//
+	// So the GLES3 profile - which the web, Android and Raspberry Pi
+	// builds share - asks for NEAREST, which float textures always
+	// support. What that costs is smoothness between probe texels, not
+	// correctness: the octahedral border exists to make FILTERING
+	// across a tile edge read the right directions, and with nearest
+	// sampling nothing filters across it. Blockier, and present.
+#if defined(GLES3)
+	const uint32 kAtlasFilter = TextureFilter::Nearest;
+#else
+	const uint32 kAtlasFilter = TextureFilter::Linear;
+#endif
+
 	if (DDGIIrradianceTex == NULL)
 	{
 		DDGIIrradianceTex = new Texture();
@@ -1669,6 +1691,7 @@ void IRenderer::UploadDDGIIfDirty()
 		// Bilinear across the tile, and clamped: the octahedral border
 		// is what makes filtering at a tile edge correct, and repeat
 		// would wrap into the neighbouring probe instead.
+		DDGIIrradianceTex->SetMinMagFilter(kAtlasFilter, kAtlasFilter);
 		DDGIIrradianceTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	}
 	if (DDGIVisibilityTex == NULL)
@@ -1676,6 +1699,7 @@ void IRenderer::UploadDDGIIfDirty()
 		DDGIVisibilityTex = new Texture();
 		DDGIVisibilityTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RG32F,
 			(int32)vis.GetWidth(), (int32)vis.GetHeight(), false);
+		DDGIVisibilityTex->SetMinMagFilter(kAtlasFilter, kAtlasFilter);
 		DDGIVisibilityTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	}
 
@@ -1685,6 +1709,7 @@ void IRenderer::UploadDDGIIfDirty()
 		DDGIRadianceTex = new Texture();
 		DDGIRadianceTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F,
 			(int32)rad.GetWidth(), (int32)rad.GetHeight(), false);
+		DDGIRadianceTex->SetMinMagFilter(kAtlasFilter, kAtlasFilter);
 		DDGIRadianceTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	}
 
@@ -1766,6 +1791,13 @@ void IRenderer::BuildBRDFLutIfNeeded()
 	// Clamped, because the table IS the domain: N.V and roughness are
 	// both already in [0,1] and a wrapped lookup would return the
 	// opposite end of the roughness range.
+	// Same rule as the atlases above - see UploadDDGIIfDirty. The table
+	// is smooth and 64x64, so nearest costs it very little.
+#if defined(GLES3)
+	BRDFLutTex->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+#else
+	BRDFLutTex->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+#endif
 	BRDFLutTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	BRDFLutTex->UpdateData((void*)lut.GetData().data());
 }
