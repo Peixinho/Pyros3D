@@ -63,6 +63,8 @@ namespace p3d {
 				// shared by every volume.
 				DDGIRadianceMap = 28,
 				BRDFLutMap = 29,
+				// Per-probe relocation offsets, one texel each.
+				DDGIProbeDataMap = 30,
 
 				// User Uniforms
 				Other = 200,

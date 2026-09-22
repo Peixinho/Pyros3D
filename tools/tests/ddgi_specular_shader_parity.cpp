@@ -96,10 +96,12 @@ int main()
 		if (!f.good()) { printf("FAIL  run from the repo root\n"); return 1; }
 		std::stringstream ss; ss << f.rdbuf(); file = ss.str();
 	}
-	std::string octEncode, probeUV, radianceUV, sampleRad, probePos, probeActive;
+	std::string octEncode, probeUV, radianceUV, sampleRad, probePos, probeActive, probeData;
 	check(ExtractGLSLFunction(file, "vec2 p3d_OctEncode(vec3 d)", octEncode), "found p3d_OctEncode");
 	check(ExtractGLSLFunction(file, "vec2 p3d_ProbeUV(float probeIndex", probeUV), "found p3d_ProbeUV");
 	check(ExtractGLSLFunction(file, "vec2 p3d_RadianceUV(float tileIndex", radianceUV), "found p3d_RadianceUV");
+	check(ExtractGLSLFunction(file, "vec4 p3d_ProbeData(float index", probeData),
+		"found p3d_ProbeData");
 	check(ExtractGLSLFunction(file, "vec3 p3d_ProbeWorldPos(vec3 cell", probePos),
 		"found p3d_ProbeWorldPos");
 	check(ExtractGLSLFunction(file, "bool p3d_ProbeActive(float index", probeActive),
@@ -209,8 +211,15 @@ int main()
 	     << "layout(std430, binding = 4) buffer OBuf { vec4 results[]; };\n"
 	     // The probe-offset block, which in the real shader is a UBO
 	     // sized by DDGI_MAX_PROBE_DATA. Same contents, same indexing.
-	     << "layout(std430, binding = 5) buffer PBuf { vec4 uDDGIProbes[]; };\n"
-	     << "#define DDGI_MAX_PROBE_DATA 1024\n"
+	     // The probe-data texture, which in the real shader is a
+	     // sampler read with texelFetch. Same contents, same indexing.
+	     << "layout(std430, binding = 5) buffer PBuf { vec4 probeData[]; };\n"
+	     << "const int uDDGIProbeData = 3;\n"
+	     << "vec4 p3d_Fetch(int which, ivec2 t) {\n"
+	     << "    int perRow = int(U[3].w);\n"
+	     << "    return probeData[t.y * perRow + t.x];\n"
+	     << "}\n"
+	     << "#define texelFetch(s, uv, lod) p3d_Fetch(s, uv)\n"
 	     // The UBO the real shader reads, as plain accessors.
 	     << "#define uDDGIOrigin U[0]\n"
 	     << "#define uDDGISpacing U[1]\n"
@@ -228,7 +237,7 @@ int main()
 	     << "    return (which == 1) ? visTex[o] : radTex[o];\n"
 	     << "}\n"
 	     << "#define texture(s, uv) p3d_Sample(s, uv)\n"
-	     << octEncode << "\n" << probePos << "\n" << probeActive << "\n"
+	     << octEncode << "\n" << probeData << "\n" << probePos << "\n" << probeActive << "\n"
 	     << probeUV << "\n" << radianceUV << "\n" << sampleRad << "\n"
 	     << "void main() {\n"
 	     << "    uint i = gl_GlobalInvocationID.x;\n"

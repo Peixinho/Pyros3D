@@ -186,6 +186,7 @@ namespace p3d
 			AddUniform(Uniform("uDDGIVisibility", Uniforms::DataUsage::DDGIVisibilityMap));
 			AddUniform(Uniform("uDDGIRadiance", Uniforms::DataUsage::DDGIRadianceMap));
 			AddUniform(Uniform("uBRDFLut", Uniforms::DataUsage::BRDFLutMap));
+			AddUniform(Uniform("uDDGIProbeData", Uniforms::DataUsage::DDGIProbeDataMap));
 		}
 
 		if (options & ShaderUsage::DirectionalShadow)

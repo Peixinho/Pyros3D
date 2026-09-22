@@ -115,7 +115,6 @@ uint32 IRenderer::BoneMatricesUBO = 0;
 uint32 IRenderer::VelocityObjectUniformsUBO = 0;
 uint32 IRenderer::AmbientLightUniformsUBO = 0;
 uint32 IRenderer::DDGIUniformsUBO = 0;
-uint32 IRenderer::DDGIProbeDataUBO = 0;
 uint32 IRenderer::MaterialUniformsUBO = 0;
 uint32 IRenderer::ObjectLightCountsUBO = 0;
 bool IRenderer::VertexFrameUniformsUBOValid = false;
@@ -449,10 +448,6 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		// and silently drops the draw. When the block grows, this
 		// grows.
 		DDGIUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 5, 25);
-		// Must match DDGI_MAX_PROBE_DATA in PyrosShader.glsl. 16KB is
-		// the block size GL ES 3 and WebGL2 guarantee, and the shader
-		// declares the array at exactly that length.
-		DDGIProbeDataUBO = device->CreateUniformBuffer(sizeof(Vec4) * 1024, 26);
 		MaterialUniformsUBO = device->CreateUniformBuffer(80, 22);
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
@@ -1692,24 +1687,40 @@ void IRenderer::UploadDDGIIfDirty()
 	// it as "no specular", never as "sample anyway".
 	ddgi[4] = Vec4((f32)rad.GetResolution(), (f32)rad.GetProbesPerRow(),
 		(f32)DDGIVol->GetRadianceLevels(), DDGIVolume::MinRoughness());
-	// Relocation offsets, and the flag that tells the shader whether to
-	// believe them. counts.w rides along rather than growing the block:
-	// a uniform block that changes size is one every shader using it
-	// has to be rebuilt for, and one whose C++ side someone forgets to
-	// resize reads garbage in silence.
+	// Relocation offsets, and the flag (counts.w) that tells the shader
+	// whether to believe them.
+	//
+	// One texel per probe, laid out with the same probes-per-row the
+	// irradiance atlas uses so the index arithmetic is the same
+	// everywhere. A texture rather than a uniform block because a block
+	// is capped at 16KB on the targets that matter - 1024 probes - and
+	// a volume larger than that had to render with relocation switched
+	// off.
 	{
 		const std::vector<Vec4> &pd = DDGIVol->GetProbeData();
-		const bool fits = !pd.empty() && pd.size() <= 1024;
-		ddgi[2].w = fits ? 1.f : 0.f;
-		if (fits)
+		const uint32 perRow = irr.GetProbesPerRow();
+		ddgi[2].w = (!pd.empty() && perRow > 0) ? 1.f : 0.f;
+		if (ddgi[2].w > 0.f)
 		{
-			// The tail matters: a shader indexing past what was
-			// uploaded would read whatever the block held before, and
-			// a stale w of 0 switches a probe off for good.
-			std::vector<Vec4> probes(1024, Vec4(0.f, 0.f, 0.f, 1.f));
-			for (size_t i = 0; i < pd.size(); i++) probes[i] = pd[i];
-			device->ReplaceUniformBuffer(DDGIProbeDataUBO,
-				(uint32)(probes.size() * sizeof(Vec4)), probes.data());
+			const uint32 rows = ((uint32)pd.size() + perRow - 1) / perRow;
+			if (DDGIProbeDataTex == NULL)
+			{
+				DDGIProbeDataTex = new Texture();
+				DDGIProbeDataTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F,
+					(int32)perRow, (int32)rows, false);
+				// Read with texelFetch, so filtering would never apply
+				// - but a driver still needs a complete, consistent
+				// sampler state, and Nearest says what is meant.
+				DDGIProbeDataTex->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+				DDGIProbeDataTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+			}
+			// The tail of the last row matters: a probe index never
+			// reaches it, but leaving it uninitialised means a driver
+			// reading past the upload sees whatever was there. Active
+			// and unoffset is the harmless value.
+			std::vector<Vec4> texels((size_t)perRow * rows, Vec4(0.f, 0.f, 0.f, 1.f));
+			for (size_t i = 0; i < pd.size(); i++) texels[i] = pd[i];
+			DDGIProbeDataTex->UpdateData((void*)texels.data());
 		}
 	}
 	device->ReplaceUniformBuffer(DDGIUniformsUBO, sizeof(ddgi), ddgi);
@@ -2346,6 +2357,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			case Uniforms::DataUsage::DDGIIrradianceMap:
 			case Uniforms::DataUsage::DDGIVisibilityMap:
 			case Uniforms::DataUsage::DDGIRadianceMap:
+			case Uniforms::DataUsage::DDGIProbeDataMap:
 			{
 				// Uploaded lazily and only when the volume says it
 				// changed - see UploadDDGIIfDirty. Binding happens here
@@ -2358,6 +2370,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				{
 					case Uniforms::DataUsage::DDGIIrradianceMap: tex = DDGIIrradianceTex; break;
 					case Uniforms::DataUsage::DDGIRadianceMap:   tex = DDGIRadianceTex;   break;
+					case Uniforms::DataUsage::DDGIProbeDataMap:  tex = DDGIProbeDataTex;  break;
 					default:                                     tex = DDGIVisibilityTex; break;
 				}
 				int32 unit = 0;
