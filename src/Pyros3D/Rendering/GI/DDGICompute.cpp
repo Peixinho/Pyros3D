@@ -37,7 +37,7 @@ namespace p3d {
 		  visStage(0), visProgram(0), visPipeline(0),
 		  bTris(0), bNodes(0), bIdx(0), bMats(0), bLights(0),
 		  radStage(0), radProgram(0), radPipeline(0),
-		  bRays(0), bIrr(0), bVis(0), bParams(0), bRad(0), radianceLevels(0),
+		  bRays(0), bIrr(0), bVis(0), bParams(0), bRad(0), radianceLevels(0), irrTexels(0),
 		  maxRaysPerProbe(0), maxBatch(0), cursor(0)
 	{
 	}
@@ -166,9 +166,14 @@ namespace p3d {
 		// atlases are 4- and 2-channel: an SSBO indexed as vec4 keeps
 		// the addressing arithmetic identical between the two stages,
 		// and the conversion happens once on readback.
-		bIrr = dev.CreateStorageBuffer(irr.GetWidth()*irr.GetHeight()*4*(uint32)sizeof(f32), 6, NULL);
+		// Twice the atlas: the live half the gather writes, and the
+		// snapshot half multi-bounce feeds back from. One buffer
+		// instead of an eleventh binding point - GL only guarantees
+		// eight storage blocks per stage and this already uses ten.
+		irrTexels = irr.GetWidth() * irr.GetHeight();
+		bIrr = dev.CreateStorageBuffer(irrTexels*2*4*(uint32)sizeof(f32), 6, NULL);
 		bVis = dev.CreateStorageBuffer(vis.GetWidth()*vis.GetHeight()*4*(uint32)sizeof(f32), 7, NULL);
-		bParams = dev.CreateStorageBuffer(7 * 4 * (uint32)sizeof(f32), 8, NULL);
+		bParams = dev.CreateStorageBuffer(8 * 4 * (uint32)sizeof(f32), 8, NULL);
 
 		const ProbeAtlas &rad = volume.GetRadianceAtlas();
 		if (radianceLevels > 0)
@@ -196,7 +201,7 @@ namespace p3d {
 		// visibility starts at maxRayDistance, not zero, or every probe
 		// fails its own Chebyshev test until it has been traced.
 		{
-			std::vector<f32> seed(irr.GetWidth()*irr.GetHeight()*4, 0.f);
+			std::vector<f32> seed((size_t)irrTexels*2*4, 0.f);
 			dev.UpdateStorageBuffer(bIrr, 0, (uint32)(seed.size()*sizeof(f32)), seed.data());
 			std::vector<f32> vseed(vis.GetWidth()*vis.GetHeight()*4, 0.f);
 			const std::vector<f32> &src = vis.GetData();
@@ -251,6 +256,27 @@ namespace p3d {
 		const ProbeAtlas &irr = volume.GetIrradianceAtlas();
 		const ProbeAtlas &vis = volume.GetVisibilityAtlas();
 		const ProbeAtlas &rad = volume.GetRadianceAtlas();
+
+		// Freeze the feedback source for the whole update, into the
+		// upper half of bIrr. Uploaded from the volume rather than
+		// copied GPU-side because the volume already holds exactly
+		// this data - the previous update was read back into it - and
+		// because it is what keeps the CPU reference and this in step:
+		// both feed back from the state before ANY probe in this
+		// update wrote, which no ordering between batches can
+		// otherwise guarantee.
+		if (volume.GetMultiBounce() > 0.f)
+		{
+			volume.SnapshotFeedback();
+			const std::vector<f32> &src = volume.GetFeedbackAtlas().GetData();
+			const uint32 ch = irr.GetChannels();
+			std::vector<f32> snap((size_t)irrTexels*4, 0.f);
+			for (uint32 t = 0; t < irrTexels && (size_t)(t+1)*ch <= src.size(); t++)
+				for (uint32 c = 0; c < ch && c < 4; c++)
+					snap[(size_t)t*4+c] = src[(size_t)t*ch+c];
+			dev.UpdateStorageBuffer(bIrr, irrTexels*4*(uint32)sizeof(f32),
+				(uint32)(snap.size()*sizeof(f32)), snap.data());
+		}
 		const f32 rotation = (f32)frame * 0.618033988749895f;
 		const uint32 lightCount = std::min<uint32>((uint32)lights.size(), 64);
 
@@ -261,7 +287,7 @@ namespace p3d {
 			if (cursor >= total) cursor = 0;
 			const uint32 batch = std::min(std::min(maxBatch, wanted - done), total - cursor);
 
-			f32 params[28] = {0};
+			f32 params[32] = {0};
 			params[0]=volume.origin.x; params[1]=volume.origin.y; params[2]=volume.origin.z; params[3]=(f32)total;
 			params[4]=volume.spacing.x; params[5]=volume.spacing.y; params[6]=volume.spacing.z; params[7]=(f32)rays;
 			params[8]=(f32)volume.counts[0]; params[9]=(f32)volume.counts[1]; params[10]=(f32)volume.counts[2];
@@ -273,6 +299,8 @@ namespace p3d {
 			params[20]=rotation; params[21]=(f32)lightCount; params[22]=(f32)cursor; params[23]=(f32)batch;
 			params[24]=(f32)rad.GetResolution(); params[25]=(f32)rad.GetProbesPerRow();
 			params[26]=(f32)radianceLevels; params[27]=DDGIVolume::MinRoughness();
+			params[28]=volume.GetMultiBounce(); params[29]=volume.GetFeedbackNormalBias();
+			params[30]=(f32)irrTexels;
 			dev.UpdateStorageBuffer(bParams, 0, sizeof(params), params);
 
 			const uint32 bufCount = radianceLevels > 0 ? 10 : 9;
@@ -342,7 +370,10 @@ namespace p3d {
 		// trip is the weak point rather than the design.
 		dev.ComputeBarrier(0, ComputeBarrierBit::HostRead);
 		{
-			std::vector<f32> tmp(irr.GetWidth()*irr.GetHeight()*4, 0.f);
+			// Only the live half - the upper half is the snapshot this
+			// update fed back from and reading it over the atlas would
+			// undo the update.
+			std::vector<f32> tmp((size_t)irrTexels*4, 0.f);
 			dev.ReadStorageBuffer(bIrr, 0, (uint32)(tmp.size()*sizeof(f32)), tmp.data());
 			std::vector<f32> &dst = volume.GetIrradianceAtlasMutable().GetData();
 			const uint32 ch = irr.GetChannels();

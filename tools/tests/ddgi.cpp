@@ -189,6 +189,83 @@ int main()
 			"L = " + std::to_string(l.x));
 	}
 
+	// ---- multi-bounce ----------------------------------------------------
+	//
+	// A probe ray reports the light on whatever it hits. With one
+	// bounce that is the DIRECT light there and nothing else, so a
+	// room lit indirectly - a lamp aimed at the ceiling - comes out
+	// nearly black however many rays are traced. Feeding the volume's
+	// own irradiance back at each hit adds a bounce per update, for no
+	// extra rays.
+	//
+	// The two things that can go wrong are opposite and both are
+	// checked: it does nothing, or it never stops.
+	{
+		RayScene box;
+		const uint32 grey = AddMaterial(box, Vec3(0.75f, 0.75f, 0.75f));
+		const f32 B = 5.f;
+		AddQuad(box, Vec3(-B,-B,-B), Vec3( B,-B,-B), Vec3( B,-B, B), Vec3(-B,-B, B), grey);
+		AddQuad(box, Vec3(-B, B, B), Vec3( B, B, B), Vec3( B, B,-B), Vec3(-B, B,-B), grey);
+		AddQuad(box, Vec3(-B,-B, B), Vec3( B,-B, B), Vec3( B, B, B), Vec3(-B, B, B), grey);
+		AddQuad(box, Vec3( B,-B,-B), Vec3(-B,-B,-B), Vec3(-B, B,-B), Vec3( B, B,-B), grey);
+		AddQuad(box, Vec3(-B,-B,-B), Vec3(-B,-B, B), Vec3(-B, B, B), Vec3(-B, B,-B), grey);
+		AddQuad(box, Vec3( B,-B, B), Vec3( B,-B,-B), Vec3( B, B,-B), Vec3( B, B, B), grey);
+		box.Build(4);
+
+		std::vector<RayLight> lamp(1);
+		lamp[0].isPoint = 1.f;
+		lamp[0].positionOrDirection = Vec3(0.f, 3.f, 0.f);
+		lamp[0].color = Vec3(3.f, 3.f, 3.f);
+		lamp[0].range = 25.f;
+
+		const Vec3 probePoint(0.f, -4.f, 0.f);
+
+		DDGIVolume single, multi;
+		single.Allocate(Vec3(-4,-4,-4), Vec3(2,2,2), 5,5,5, 8, 16);
+		multi .Allocate(Vec3(-4,-4,-4), Vec3(2,2,2), 5,5,5, 8, 16);
+		single.SetMultiBounce(0.f);
+
+		f32 prev = 0.f, growth = 0.f;
+		for (uint32 f = 0; f < 40; f++)
+		{
+			single.Update(box, lamp, 128, f, 0.f, 0);
+			multi.Update(box, lamp, 128, f, 0.f, 0);
+			const f32 e = multi.SampleIrradiance(probePoint, up).x;
+			// The growth over the LAST few updates, once it should
+			// have settled.
+			if (f >= 36) growth = fmaxf(growth, e - prev);
+			prev = e;
+		}
+		const f32 one = single.SampleIrradiance(probePoint, up).x;
+		const f32 many = multi.SampleIrradiance(probePoint, up).x;
+		printf("      one bounce %.4f, converged multi-bounce %.4f (x%.2f)\n",
+			one, many, many / fmaxf(one, 1e-6f));
+
+		check(many > one * 1.2f, "multi-bounce puts more light in the room than one bounce",
+			"x" + std::to_string(many / fmaxf(one, 1e-6f)));
+
+		// The series is sum of albedo^n, so a grey room of albedo 0.75
+		// lands near 1/(1-0.75) = 4x. Bounded on both sides: too low
+		// means the feedback is being swallowed, too high means it is
+		// being counted more than once per update.
+		check(many < one * 6.f, "and not more than the geometric series allows",
+			"x" + std::to_string(many / fmaxf(one, 1e-6f)));
+
+		// The failure that matters. Feedback is a loop; if its gain is
+		// wrong it does not look wrong for a few frames, it grows
+		// without bound and the scene whites out minutes later.
+		check(growth < many * 0.01f, "and it converges rather than running away",
+			"still growing by " + std::to_string(growth) + " per update at update 40");
+
+		// Leak-through-a-wall is the other thing feedback amplifies -
+		// whatever crosses a wall is re-injected every update - and it
+		// is the sealed-box check above that covers it, now that
+		// multi-bounce is on by default there. Not repeated here: this
+		// volume lies entirely INSIDE its box, so a sample beyond the
+		// floor is clamped back into the lit room and would measure a
+		// leak of exactly 1.0 whatever the code did.
+	}
+
 	printf("\n%s  ddgi: %d failure(s)\n", failures?"FAIL":"PASS", failures);
 	return failures ? 1 : 0;
 }

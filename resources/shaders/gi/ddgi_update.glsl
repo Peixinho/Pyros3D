@@ -19,7 +19,11 @@ layout(std430, binding = 2) buffer Idx     { uint indices[]; };
 layout(std430, binding = 3) buffer Mats    { vec4 materials[]; };   // 2 vec4: albedo, emissive
 layout(std430, binding = 4) buffer Lights  { vec4 lights[]; };      // 2 vec4: posOrDir+isPoint, color+range
 layout(std430, binding = 5) buffer RayOut  { vec4 rayData[]; };     // 2 vec4: radiance, distance
-layout(std430, binding = 6) buffer IrrOut  { vec4 irradiance[]; };  // one vec4 per atlas texel
+// TWICE the atlas: [0, irrTexels) is what this update writes, and
+// [irrTexels, 2*irrTexels) is the snapshot multi-bounce feeds back
+// from. One buffer rather than two so no new binding point is needed -
+// see P_IRRTEXELS.
+layout(std430, binding = 6) buffer IrrOut  { vec4 irradiance[]; };
 layout(std430, binding = 7) buffer VisOut  { vec4 visibility[]; };  // xy used
 layout(std430, binding = 8) buffer Params  { vec4 params[]; };
 layout(std430, binding = 9) buffer RadOut  { vec4 radiance[]; };   // prefiltered, levels stacked
@@ -31,6 +35,7 @@ layout(std430, binding = 9) buffer RadOut  { vec4 radiance[]; };   // prefiltere
 // params[4] = irrRes, visRes, irrProbesPerRow, visProbesPerRow
 // params[5] = rotation, lightCount, probeOffset, probesThisDispatch
 // params[6] = radRes, radProbesPerRow, radLevels, minRoughness
+// params[7] = multiBounce, feedbackNormalBias, irrTexels, unused
 
 #define P_ORIGIN      params[0].xyz
 #define P_TOTAL       params[0].w
@@ -52,6 +57,9 @@ layout(std430, binding = 9) buffer RadOut  { vec4 radiance[]; };   // prefiltere
 #define P_RADPERROW   params[6].y
 #define P_RADLEVELS   params[6].z
 #define P_MINROUGH    params[6].w
+#define P_MULTIBOUNCE params[7].x
+#define P_NORMALBIAS  params[7].y
+#define P_IRRTEXELS   params[7].z
 
 // Matches DDGIVolume::LevelRoughness. Level 0 is not roughness zero -
 // see the comment there; a lobe narrower than the angle between
@@ -159,6 +167,82 @@ bool p3d_TraceOccluded(vec3 o, vec3 d, float tMax)
     return false;
 }
 
+// Irradiance already in the volume at a point, from the snapshot half
+// of the buffer. Mirrors DDGIVolume::SampleIrradianceIn step for step -
+// same trilinear weights, same backface term, same Chebyshev test, same
+// NEAREST texel lookup (the CPU indexes texels directly, so filtering
+// here would be a difference the parity test could not explain away).
+vec3 p3d_FeedbackIrradiance(vec3 wp, vec3 n)
+{
+    vec3 counts = P_COUNTS;
+    vec3 g = (wp - P_ORIGIN) / P_SPACING;
+    g = clamp(g, vec3(0.0), counts - vec3(1.0));
+    vec3 baseF = min(floor(g), counts - vec3(2.0));
+    vec3 frac = g - baseF;
+
+    float irrRes = P_IRRRES;
+    float visRes = P_VISRES;
+    uint irrTile = uint(irrRes) + 2u;
+    uint visTile = uint(visRes) + 2u;
+    uint irrPerRow = uint(P_IRRPERROW);
+    uint visPerRow = uint(P_VISPERROW);
+    uint irrWidth = irrPerRow * irrTile;
+    uint visWidth = visPerRow * visTile;
+    uint base = uint(P_IRRTEXELS);
+
+    // The surface's own normal picks the texel, the same one for every
+    // probe - it is the surface's normal, not the probe's.
+    vec2 noct = p3d_OctEncodeDir(n);
+    uint ix = uint(min(irrRes - 1.0, max(0.0, (noct.x * 0.5 + 0.5) * irrRes)));
+    uint iy = uint(min(irrRes - 1.0, max(0.0, (noct.y * 0.5 + 0.5) * irrRes)));
+
+    vec3 sum = vec3(0.0);
+    float weightSum = 0.0;
+
+    for (int c = 0; c < 8; c++)
+    {
+        vec3 offset = vec3(float(c & 1), float((c >> 1) & 1), float((c >> 2) & 1));
+        vec3 pc = baseF + offset;
+        if (any(greaterThan(pc, counts - vec3(1.0)))) continue;
+
+        vec3 tri3 = mix(vec3(1.0) - frac, frac, offset);
+        float weight = tri3.x * tri3.y * tri3.z;
+        if (weight <= 0.0) continue;
+
+        vec3 probePos = P_ORIGIN + P_SPACING * pc;
+        uint probe = uint((pc.z * counts.y + pc.y) * counts.x + pc.x);
+
+        vec3 toProbe = probePos - wp;
+        float dist = length(toProbe);
+        if (dist > 1e-5) toProbe /= dist;
+
+        float facing = (dot(toProbe, n) + 1.0) * 0.5;
+        weight *= facing * facing + 0.2;
+
+        vec2 voct = p3d_OctEncodeDir(-toProbe);
+        uint vx = uint(min(visRes - 1.0, max(0.0, (voct.x * 0.5 + 0.5) * visRes)));
+        uint vy = uint(min(visRes - 1.0, max(0.0, (voct.y * 0.5 + 0.5) * visRes)));
+        uint vpx = probe % visPerRow, vpy = probe / visPerRow;
+        vec2 moments = visibility[(vpy * visTile + 1u + vy) * visWidth + vpx * visTile + 1u + vx].xy;
+        float mean = moments.x;
+        float variance = max(moments.y - mean * mean, 0.0);
+        if (dist > mean)
+        {
+            float diff = dist - mean;
+            float cheb = variance / (variance + diff * diff);
+            weight *= max(cheb * cheb * cheb, 0.0);
+        }
+        if (weight <= 1e-6) continue;
+
+        uint ipx = probe % irrPerRow, ipy = probe / irrPerRow;
+        uint o = (ipy * irrTile + 1u + iy) * irrWidth + ipx * irrTile + 1u + ix;
+        sum += irradiance[base + o].rgb * weight;
+        weightSum += weight;
+    }
+    if (weightSum <= 1e-6) return vec3(0.0);
+    return sum / weightSum;
+}
+
 // Mirrors DDGIVolume::ShadeHit.
 vec3 p3d_ShadeHit(uint tri, float t, vec3 o, vec3 d, float u, float v)
 {
@@ -199,6 +283,13 @@ vec3 p3d_ShadeHit(uint tri, float t, vec3 o, vec3 d, float u, float v)
         }
         outgoing += albedo * l1.rgb * (ndotl * atten);
     }
+
+    // Multi-bounce. Offset along the normal first, or a hit on a thin
+    // wall picks up the lit room on the other side and compounds it
+    // once per update - see DDGIVolume::GetFeedbackNormalBias.
+    if (P_MULTIBOUNCE > 0.0)
+        outgoing += albedo * P_MULTIBOUNCE * p3d_FeedbackIrradiance(point + n * P_NORMALBIAS, n);
+
     return outgoing;
 }
 

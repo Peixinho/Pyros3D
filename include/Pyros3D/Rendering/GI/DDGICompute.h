@@ -82,6 +82,8 @@ namespace p3d {
 
 		DeviceHandle bTris, bNodes, bIdx, bMats, bLights, bRays, bIrr, bVis, bParams, bRad;
 		uint32 maxRaysPerProbe, maxBatch, radianceLevels;
+		// Texels in one irradiance atlas - bIrr holds two of them.
+		uint32 irrTexels;
 		uint32 cursor;
 	};
 

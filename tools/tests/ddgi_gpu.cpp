@@ -286,6 +286,73 @@ int main()
 		}
 	}
 
+	// ---- multi-bounce, over several updates ------------------------------
+	//
+	// Everything above runs ONE update from a zeroed atlas, where the
+	// feedback term reads zeros and contributes nothing - so none of it
+	// tests multi-bounce at all. The interesting part only appears once
+	// there is light in the volume to feed back, which takes repeated
+	// updates, and it is also where the CPU and GPU could most easily
+	// drift: the CPU walks probes one at a time and the GPU traces 128
+	// at once, so they agree only because both snapshot the feedback
+	// source before either writes anything.
+	{
+		DDGIVolume mbCPU, mbGPU;
+		mbCPU.Allocate(Vec3(-4.f,-4.f,-4.f), Vec3(2.f,2.f,2.f), 4,4,4, 8, 16, 16, 4);
+		mbGPU.Allocate(Vec3(-4.f,-4.f,-4.f), Vec3(2.f,2.f,2.f), 4,4,4, 8, 16, 16, 4);
+		check(mbCPU.GetMultiBounce() > 0.f, "multi-bounce is on by default",
+			std::to_string(mbCPU.GetMultiBounce()));
+
+		DDGICompute mb;
+		if (!mb.Initialize(scene, mbGPU, "resources/shaders"))
+			check(false, "DDGICompute initialises for the multi-bounce volume");
+		else
+		{
+			f32 firstPass = 0.f, lastPass = 0.f;
+			for (uint32 f = 0; f < 5; f++)
+			{
+				mbCPU.Update(scene, lights, 64, f, 0.f, 0);
+				mb.Update(mbGPU, lights, 64, f, 0.f, 0);
+				const f32 e = mbCPU.SampleIrradiance(Vec3(0.f,-3.5f,0.f), Vec3(0,1,0)).x;
+				if (f == 0) firstPass = e;
+				lastPass = e;
+			}
+
+			// The point of multi-bounce: the same scene, the same
+			// rays, more light. If these were equal the feedback term
+			// would be doing nothing and the parity check below would
+			// be comparing two copies of the single-bounce answer.
+			check(lastPass > firstPass * 1.2f,
+				"light keeps arriving as bounces accumulate",
+				"pass 1 = " + std::to_string(firstPass) + ", pass 5 = " + std::to_string(lastPass));
+
+			const ProbeAtlas &a = mbCPU.GetIrradianceAtlas();
+			const ProbeAtlas &b = mbGPU.GetIrradianceAtlas();
+			const uint32 R = a.GetResolution();
+			f32 worst = 0.f, mag = 0.f;
+			for (uint32 p = 0; p < mbCPU.ProbeCount(); p++)
+				for (uint32 y = 0; y < R; y++)
+					for (uint32 x = 0; x < R; x++)
+					{
+						const f32 *ca = a.At(p,x,y), *cb = b.At(p,x,y);
+						for (uint32 c = 0; c < 3; c++)
+						{
+							mag = fmaxf(mag, fabsf(ca[c]));
+							worst = fmaxf(worst, fabsf(ca[c]-cb[c]));
+						}
+					}
+			// Looser than the single-update checks above on purpose:
+			// five updates of feedback compound float ordering
+			// differences between a sequential CPU gather and a
+			// parallel GPU one. Still three orders of magnitude below
+			// the values themselves.
+			check(worst < 5e-3f * fmaxf(mag, 1.f),
+				"five bounces of GPU feedback still match the CPU",
+				"worst |d| = " + std::to_string(worst) + " against max " + std::to_string(mag));
+			mb.Shutdown();
+		}
+	}
+
 	printf("\n%s  ddgi_gpu: %d failure(s)\n", failures?"FAIL":"PASS", failures);
 	return failures ? 1 : 0;
 }

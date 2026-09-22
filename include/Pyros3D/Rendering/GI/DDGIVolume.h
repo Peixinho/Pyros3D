@@ -147,10 +147,67 @@ namespace p3d {
 		// Deliberately separate from the const accessors above so a
 		// reader has to ask for write access explicitly.
 		ProbeAtlas &GetIrradianceAtlasMutable() { return irradiance; }
+		// The irradiance as it stood when the current update began -
+		// what multi-bounce feeds back from. See the member.
+		const ProbeAtlas &GetFeedbackAtlas() const { return feedback; }
+		// Refreshes the snapshot from the live atlas. Update() does
+		// this itself; a GPU backend driving the same volume calls it
+		// so that both are feeding back from the same thing.
+		void SnapshotFeedback() { feedback = irradiance; }
 		ProbeAtlas &GetVisibilityAtlasMutable() { return visibility; }
 		void FillAtlasBorders() { irradiance.FillBorders(); visibility.FillBorders(); radiance.FillBorders(); }
 		f32 GetMaxRayDistance() const { return maxRayDistance; }
 		const Vec3 &GetSkyColor() const { return skyColor; }
+
+		// How much of the light already in the volume a probe ray adds
+		// back when it hits a surface. 0 is one bounce; 1 is the real
+		// answer.
+		//
+		// This is the whole of multi-bounce, and it costs no rays. A
+		// ray that hits a wall currently reports only the DIRECT light
+		// on that wall, so a room lit by a lamp pointed at the ceiling
+		// comes out almost black - the first bounce is the ceiling and
+		// nothing carries it to the floor. Adding the irradiance the
+		// volume already holds at the hit point makes each update fold
+		// in one more bounce, and the series converges geometrically
+		// because albedo < 1: with albedo 0.75 the fixed point is 4x
+		// the single-bounce answer, which is what a real room does.
+		//
+		// The feedback reads the PREVIOUS update's atlas, so it lags by
+		// one update per bounce. That is the standard DDGI arrangement
+		// and the reason it is stable: a probe never reads a value it
+		// is in the middle of writing.
+		//
+		// Clamped to [0,1]. Above 1 the series diverges and the scene
+		// glows brighter every frame, which looks like a bug in the
+		// lighting rather than a number someone chose.
+		void SetMultiBounce(const f32 strength);
+		f32 GetMultiBounce() const { return multiBounce; }
+
+		// How far along the normal the feedback lookup moves off the
+		// surface it just hit. A quarter of the tightest probe spacing.
+		//
+		// Without it multi-bounce leaks through thin walls, and it is
+		// worth being precise about why, because the obvious
+		// explanation is wrong. The Chebyshev test compares the
+		// distance to a probe against the mean distance that probe
+		// sees in that direction. For a point ON a wall and a probe one
+		// spacing away on the OTHER side, those two are the same
+		// number - the probe's nearest surface in that direction IS
+		// this wall - so the test does not fire. The backface term is
+		// what should reject it, and it cannot: it bottoms out at 0.2
+		// rather than 0, deliberately, so that a surface rotating past
+		// the threshold does not pop.
+		//
+		// So 20% of a fully lit probe crosses the wall, and with
+		// feedback that 20% is re-injected every update and compounds.
+		// Measured in the sealed-box test: 0.0% leak on one bounce,
+		// 13.9% with multi-bounce and no bias.
+		//
+		// Moving the lookup off the surface fixes it at the root: the
+		// distance to the far-side probe grows past what that probe
+		// reports seeing, and Chebyshev fires the way it was meant to.
+		f32 GetFeedbackNormalBias() const;
 
 		// Sky colour for rays that hit nothing. Without one an enclosed
 		// scene is correct and an open one is black.
@@ -168,8 +225,21 @@ namespace p3d {
 
 		ProbeAtlas irradiance;  // RGB
 		ProbeAtlas visibility;  // R = mean distance, G = mean squared
+		// The irradiance atlas as it was when this update started.
+		//
+		// Multi-bounce feeds back from this rather than from the live
+		// atlas so that the answer does not depend on the order probes
+		// happen to be visited in: the CPU walks them one at a time, so
+		// probe 40 would otherwise see probe 39's brand-new value and
+		// probe 41's stale one. Worse, it would make the CPU
+		// unmatchable by the GPU, which traces 128 probes at once and
+		// cannot reproduce a sequential dependency - and the whole
+		// value of this class is being the thing the GPU is checked
+		// against.
+		ProbeAtlas feedback;
 		ProbeAtlas radiance;    // RGB, probeCount tiles per roughness level
 		uint32 radianceLevels;
+		f32 multiBounce;
 		Vec3 skyColor;
 		f32 maxRayDistance;
 		// Where the next budgeted Update() resumes.
@@ -185,6 +255,11 @@ namespace p3d {
 		// leaking.
 		uint32 GatherProbes(const Vec3 &worldPosition, const Vec3 &normal,
 			uint32 *outProbes, f32 *outWeights) const;
+
+		// SampleIrradiance against a given atlas - the live one for the
+		// public sampler, the snapshot for multi-bounce.
+		Vec3 SampleIrradianceIn(const ProbeAtlas &atlas, const Vec3 &worldPosition,
+			const Vec3 &normal) const;
 
 		Vec3 ShadeHit(const RayScene &scene, const RayHit &hit,
 			const Vec3 &rayOrigin, const Vec3 &rayDir,

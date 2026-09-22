@@ -18,7 +18,8 @@ namespace p3d {
 
 	DDGIVolume::DDGIVolume()
 		: origin(0.f,0.f,0.f), spacing(1.f,1.f,1.f),
-		  radianceLevels(0), skyColor(0.f,0.f,0.f), maxRayDistance(100.f), updateCursor(0)
+		  radianceLevels(0), multiBounce(1.f),
+		  skyColor(0.f,0.f,0.f), maxRayDistance(100.f), updateCursor(0)
 	{
 		counts[0] = counts[1] = counts[2] = 0;
 	}
@@ -35,6 +36,17 @@ namespace p3d {
 		return Vec3(origin.x + spacing.x * (f32)x,
 					origin.y + spacing.y * (f32)y,
 					origin.z + spacing.z * (f32)z);
+	}
+
+	void DDGIVolume::SetMultiBounce(const f32 strength)
+	{
+		multiBounce = std::min(std::max(strength, 0.f), 1.f);
+	}
+
+	f32 DDGIVolume::GetFeedbackNormalBias() const
+	{
+		const f32 s = std::min(std::min(spacing.x, spacing.y), spacing.z);
+		return s * 0.25f;
 	}
 
 	f32 DDGIVolume::MinRoughness()
@@ -191,6 +203,17 @@ namespace p3d {
 			// cancel and this is a plain product.
 			outgoing += albedo * light.color * (ndotl * attenuation);
 		}
+
+		// Multi-bounce, for the cost of one lookup. See SetMultiBounce.
+		//
+		// Offset along the normal first - see GetFeedbackNormalBias.
+		// Sampling at the hit point itself leaks through thin walls and
+		// then compounds that leak once per update, which is how a
+		// feedback term turns a small error into an obvious one.
+		if (multiBounce > 0.f)
+			outgoing += albedo * multiBounce *
+				SampleIrradianceIn(feedback, point + n * GetFeedbackNormalBias(), n);
+
 		return outgoing;
 	}
 
@@ -214,6 +237,11 @@ namespace p3d {
 
 		const uint32 total = ProbeCount();
 		const uint32 wanted = (probeBudget == 0 || probeBudget > total) ? total : probeBudget;
+
+		// Freeze what multi-bounce feeds back from, before any probe in
+		// this update has written. See the `feedback` member.
+		if (multiBounce > 0.f)
+			SnapshotFeedback();
 
 		for (uint32 n = 0; n < wanted; n++)
 		{
@@ -482,13 +510,21 @@ namespace p3d {
 
 	Vec3 DDGIVolume::SampleIrradiance(const Vec3 &worldPosition, const Vec3 &normal) const
 	{
+		return SampleIrradianceIn(irradiance, worldPosition, normal);
+	}
+
+	Vec3 DDGIVolume::SampleIrradianceIn(const ProbeAtlas &atlas,
+		const Vec3 &worldPosition, const Vec3 &normal) const
+	{
+		if (atlas.GetResolution() == 0)
+			return Vec3(0.f, 0.f, 0.f);
 		uint32 probes[8];
 		f32 weights[8];
 		const uint32 n = GatherProbes(worldPosition, normal, probes, weights);
 		if (n == 0)
 			return Vec3(0.f, 0.f, 0.f);
 
-		const uint32 irrRes = irradiance.GetResolution();
+		const uint32 irrRes = atlas.GetResolution();
 		// Irradiance in the surface's normal direction - the same texel
 		// for every probe, because it is the surface's normal and not
 		// the probe's.
@@ -502,7 +538,7 @@ namespace p3d {
 		f32 weightSum = 0.f;
 		for (uint32 i = 0; i < n; i++)
 		{
-			const f32 *c = irradiance.At(probes[i], ix, iy);
+			const f32 *c = atlas.At(probes[i], ix, iy);
 			sum += Vec3(c[0], c[1], c[2]) * weights[i];
 			weightSum += weights[i];
 		}

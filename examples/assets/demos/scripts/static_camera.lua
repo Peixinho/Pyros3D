@@ -20,7 +20,7 @@ function StaticCamera:init(owner)
 	-- intended size (Cube takes HALF-extents, and CornellGI.json was
 	-- passing full ones). With that fixed the room is 10 units across
 	-- and this is the distance that frames it.
-	owner:setPosition(Vec3.new(0.0, 0.0, 15.0))
+	owner:setPosition(Vec3.new(0.0, -1.1, 15.0))
 end
 
 return StaticCamera
