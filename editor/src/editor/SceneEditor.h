@@ -804,6 +804,29 @@ private:
 	// of one value for the whole scene.
 	IrradianceProbeGrid ambientProbes;
 	int ambientProbeCounts[3] = { 6, 3, 6 };
+	// SceneMeta's DDGI settings - ambientMode 3. Mirrored here the way
+	// every other environment field is, so the panel edits the editor's
+	// copy and SaveScene writes it out.
+	int ddgiCounts[3] = { 6, 4, 6 };
+	int ddgiRays = 128;
+	int ddgiPasses = 6;
+	Vec4 ddgiSky = Vec4(0.f, 0.f, 0.f, 1.f);
+	f32 ddgiMultiBounce = 1.f;
+	bool ddgiDynamic = true;
+	int ddgiProbeBudget = 0;
+	f32 ddgiHysteresis = 0.92f;
+	// Whether the current scene has a volume built. Not the same as
+	// ambientMode == 3: the mode is the intent, this is whether there
+	// is anything to sample yet.
+	bool ddgiBuilt = false;
+	// Solves the volume from the current scene and lights, and turns
+	// ambient mode 3 on. Returns false with a reason - the usual one is
+	// a scene with no geometry or no lights, where a bake would
+	// silently produce a black volume.
+	bool BakeDDGI(std::string& errOut);
+	// One frame of refresh, if the scene asked for a dynamic volume.
+	// Called from the per-frame update, cheap and a no-op when off.
+	void UpdateDDGIIfDynamic();
 	// Folder the last skybox bake read its six faces from, so the field
 	// keeps what was typed and the scene remembers where it came from.
 	std::string ambientSkyboxFolder;

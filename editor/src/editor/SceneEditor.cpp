@@ -4519,7 +4519,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			sceneDirty = true;
 		}
 		ImGui::TextUnformatted("Ambient Source");
-		if (ImGui::Combo("##ambient_source", &ambientMode, "Color\0Gradient\0Environment (SH)\0"))
+		if (ImGui::Combo("##ambient_source", &ambientMode,
+				"Color\0Gradient\0Environment (SH)\0Dynamic GI (DDGI)\0"))
 		{
 			ApplyEnvironment();
 			sceneDirty = true;
@@ -4540,6 +4541,72 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ImGui::Text("%u probes", ambientProbes.ProbeCount());
 			else
 				ImGui::TextDisabled("no probes - using one global SH");
+		}
+		// Ray-traced indirect light. Unlike the modes above, what this
+		// stores in the scene is the SETTINGS, not the result - the
+		// volume is solved from the scene each time it loads, because
+		// it is meant to keep changing afterwards.
+		if (ambientMode == 3)
+		{
+			ImGui::DragInt3("Probe grid##ddgi", ddgiCounts, 1, 2, 32);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Probes along each axis, spread over the scene's bounds.\n"
+								  "Cost is probes x rays, so this is the expensive knob.");
+			ImGui::DragInt("Rays per probe##ddgi", &ddgiRays, 1, 8, 256);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("More rays is less noise. 128 is a good default;\n"
+								  "256 is the most the compute path will use.");
+			ImGui::DragInt("Bake passes##ddgi", &ddgiPasses, 1, 1, 32);
+			ImGui::TextUnformatted("Sky");
+			ImGui::ColorEdit3("##ddgi_sky", (float*)&ddgiSky);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("What a probe ray sees when it hits nothing.\n"
+								  "Black is right for an interior; an outdoor scene\n"
+								  "with a black sky comes out far too dark.");
+			ImGui::DragFloat("Multi-bounce##ddgi", &ddgiMultiBounce, 0.01f, 0.f, 1.f, "%.2f");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("0 is a single bounce - much darker. 1 is the real\n"
+								  "answer, and costs no extra rays.");
+			ImGui::Checkbox("Follow moving lights##ddgi", &ddgiDynamic);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Keeps re-tracing probes so indirect light follows a\n"
+								  "light that moves. Off freezes the solve, which is\n"
+								  "free and right for lighting that never changes.");
+			if (ddgiDynamic)
+			{
+				ImGui::DragInt("Probes per frame##ddgi", &ddgiProbeBudget, 1, 0, 4096);
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("0 = all of them on the GPU, a safe few on the CPU.");
+				ImGui::DragFloat("Settling##ddgi", &ddgiHysteresis, 0.005f, 0.f, 0.99f, "%.3f");
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("How much of the previous solve each update keeps.\n"
+									  "Higher is steadier and slower to react.");
+			}
+			if (ImGui::Button("Solve Global Illumination"))
+			{
+				std::string err;
+				if (BakeDDGI(err))
+				{
+					echo("Global illumination solved.");
+					sceneDirty = true;
+				}
+				else
+					echo("ERROR: " + err);
+			}
+			ImGui::SameLine();
+			if (ddgiBuilt)
+				ImGui::Text(Renderer && Renderer->IsGlobalIlluminationOnGPU()
+					? "solved (GPU)" : "solved (CPU)");
+			else
+				ImGui::TextDisabled("not solved yet");
+			if (ddgiBuilt && ImGui::Button("Clear##ddgi"))
+			{
+				Renderer->ClearGlobalIllumination(0);
+				ddgiBuilt = false;
+				ambientMode = 0;
+				ApplyEnvironment();
+				sceneDirty = true;
+			}
 		}
 		if (ambientMode == 1)
 		{
@@ -5418,6 +5485,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		UpdateViewportMouse();
 		PollUIStyleFiles(time);
+		// Indirect light follows a light that moves, in the editor and
+		// not only in Play - moving a lamp and watching the bounce
+		// follow it is the whole point of a dynamic solution, and
+		// having to press Play to see it would make the viewport lie
+		// about what the scene looks like.
+		UpdateDDGIIfDynamic();
 
 		if (playMode)
 		{
@@ -7922,6 +7995,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.ambientIntensity = ambientIntensity;
 			meta.background = backgroundColor;
 			meta.ambientMode = (uint32)ambientMode;
+			for (uint32 i = 0; i < 3; i++) meta.ddgiCounts[i] = (uint32)Max(2, ddgiCounts[i]);
+			meta.ddgiRaysPerProbe = (uint32)Max(1, ddgiRays);
+			meta.ddgiPasses = (uint32)Max(1, ddgiPasses);
+			meta.ddgiSky = ddgiSky;
+			meta.ddgiMultiBounce = ddgiMultiBounce;
+			meta.ddgiDynamic = ddgiDynamic;
+			meta.ddgiProbeBudget = (uint32)Max(0, ddgiProbeBudget);
+			meta.ddgiHysteresis = ddgiHysteresis;
 			for (uint32 i = 0; i < 9; i++) meta.ambientSH[i] = ambientSH[i];
 			meta.ambientProbes = ambientProbes;
 			meta.ambientSky = ambientSky;
@@ -8172,6 +8253,30 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ambientIntensity = meta.ambientIntensity;
 			backgroundColor = meta.background;
 			ambientMode = (int)meta.ambientMode;
+			for (uint32 i = 0; i < 3; i++) ddgiCounts[i] = (int)meta.ddgiCounts[i];
+			ddgiRays = (int)meta.ddgiRaysPerProbe;
+			ddgiPasses = (int)meta.ddgiPasses;
+			ddgiSky = meta.ddgiSky;
+			ddgiMultiBounce = meta.ddgiMultiBounce;
+			ddgiDynamic = meta.ddgiDynamic;
+			ddgiProbeBudget = (int)meta.ddgiProbeBudget;
+			ddgiHysteresis = meta.ddgiHysteresis;
+			// A scene that asked for DDGI has settings but no volume -
+			// the solve is not stored, by design. Do it now, so opening
+			// the scene shows the lighting it was authored with rather
+			// than an unlit room with a button to press.
+			ddgiBuilt = false;
+			if (ambientMode == 3)
+			{
+				std::string err;
+				if (!BakeDDGI(err))
+				{
+					echo("Global illumination: " + err);
+					// Fall back rather than leave ambient mode 3 with
+					// no volume behind it, which samples as black.
+					ambientMode = 0;
+				}
+			}
 			for (uint32 i = 0; i < 9; i++) ambientSH[i] = meta.ambientSH[i];
 			ambientProbes = meta.ambientProbes;
 			ambientSky = meta.ambientSky;
@@ -12520,6 +12625,37 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				p["color"].size() > 3 ? (f32)p["color"][3].get<double>() : ambientLightColor.w);
 		if (p.contains("intensity") && p["intensity"].is_number())
 			ambientIntensity = (f32)p["intensity"].get<double>();
+		// 0 flat, 1 gradient, 2 SH, 3 DDGI - the Ambient Source combo.
+		if (p.contains("mode") && p["mode"].is_number())
+			ambientMode = std::min(3, std::max(0, p["mode"].get<int>()));
+		if (p.contains("ddgi") && p["ddgi"].is_object())
+		{
+			const json& g = p["ddgi"];
+			if (g.contains("counts") && g["counts"].is_array() && g["counts"].size() == 3)
+				for (int i = 0; i < 3; i++) ddgiCounts[i] = std::max(2, g["counts"][i].get<int>());
+			if (g.contains("rays") && g["rays"].is_number()) ddgiRays = std::max(1, g["rays"].get<int>());
+			if (g.contains("passes") && g["passes"].is_number()) ddgiPasses = std::max(1, g["passes"].get<int>());
+			if (g.contains("sky") && g["sky"].is_array() && g["sky"].size() >= 3)
+				ddgiSky = Vec4((f32)g["sky"][0].get<double>(), (f32)g["sky"][1].get<double>(),
+							   (f32)g["sky"][2].get<double>(), 1.f);
+			if (g.contains("multiBounce") && g["multiBounce"].is_number())
+				ddgiMultiBounce = std::min(1.f, std::max(0.f, (f32)g["multiBounce"].get<double>()));
+			if (g.contains("dynamic") && g["dynamic"].is_boolean()) ddgiDynamic = g["dynamic"].get<bool>();
+			if (g.contains("probeBudget") && g["probeBudget"].is_number())
+				ddgiProbeBudget = std::max(0, g["probeBudget"].get<int>());
+			if (g.contains("hysteresis") && g["hysteresis"].is_number())
+				ddgiHysteresis = std::min(0.999f, std::max(0.f, (f32)g["hysteresis"].get<double>()));
+		}
+		ApplyEnvironment();
+		// Solving is explicit rather than implied by mode 3: it walks
+		// the scene, builds a BVH and traces every probe, which is a
+		// second of work and not something a colour change should
+		// trigger.
+		if (p.value("solve", false))
+		{
+			std::string err;
+			if (!BakeDDGI(err)) { errOut = err; return false; }
+		}
 		MarkSceneDirty();
 		return true;
 	}

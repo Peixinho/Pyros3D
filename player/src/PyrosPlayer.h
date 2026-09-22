@@ -142,6 +142,11 @@ private:
 	// LoadGameScene because SceneMeta::View2D is read (and written - it
 	// follows and clamps) on every frame, not only at load.
 	SceneMeta meta;
+	// A DDGI volume was solved for this scene, so the per-frame refresh
+	// has something to refresh. Distinct from meta.ambientMode == 3,
+	// which is only the intent: a solve can fail (no geometry, no
+	// lights, no compute) and the player falls back to flat ambient.
+	bool ddgiActive = false;
 	// The scene file with its prefab references resolved, ready for the
 	// engine. Empty when there was nothing to resolve (or nothing to read),
 	// in which case the ordinary file-path load is used.

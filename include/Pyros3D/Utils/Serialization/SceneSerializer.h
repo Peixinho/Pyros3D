@@ -128,6 +128,38 @@ namespace p3d {
 		// above is what gets used then.
 		IrradianceProbeGrid ambientProbes;
 
+		// ambientMode 3: a DDGI volume - ray-traced indirect light that
+		// follows a light as it moves, with specular as well as diffuse.
+		//
+		// Only the SETTINGS are stored, never the result. The other
+		// ambient modes cache what they baked (nine SH coefficients, or
+		// a probe grid) because recomputing them costs a second or two
+		// of CPU; a DDGI volume is rebuilt from the scene in a few
+		// frames of compute and is meant to keep changing afterwards,
+		// so a stored atlas would be several megabytes of scene file
+		// that is stale the moment a light moves.
+		uint32 ddgiCounts[3] = { 6, 4, 6 };
+		uint32 ddgiRaysPerProbe = 128;
+		// Bake-time refinement passes. Each rotates the ray set, so
+		// more passes is less noise in the first visible frame.
+		uint32 ddgiPasses = 6;
+		Vec4 ddgiSky = Vec4(0.f, 0.f, 0.f, 1.f);
+		// Light that has bounced more than once. Off is a single
+		// bounce, which is much darker and rarely what anyone wants;
+		// see DDGIVolume::SetMultiBounce.
+		f32 ddgiMultiBounce = 1.f;
+		// Keep refreshing probes after the initial solve, so indirect
+		// light follows a light that moves. Off freezes the volume at
+		// whatever the scene looked like when it was built, which is
+		// the right choice for a scene whose lighting never changes.
+		bool ddgiDynamic = true;
+		// Probes re-traced per frame when dynamic, 0 meaning all of
+		// them. All of them is right on the GPU and far too slow on the
+		// CPU - IRenderer::IsGlobalIlluminationOnGPU is the thing to
+		// ask, and 0 here means "decide for me".
+		uint32 ddgiProbeBudget = 0;
+		f32 ddgiHysteresis = 0.92f;
+
 		// The post-effect chain, in the order it runs: each entry's output is
 		// the next one's LastRTT. Lives in the SCENE file rather than the
 		// project's, for the same reason the ambient does - it is part of how

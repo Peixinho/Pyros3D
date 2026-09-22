@@ -2023,6 +2023,23 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				pg["coefficients"] = coeffs;
 				root["ambientProbes"] = pg;
 			}
+			// DDGI settings, written only in DDGI mode: a scene that
+			// has never used it serializes exactly as it did before
+			// these fields existed. The volume itself is never stored -
+			// see SceneMeta::ddgiCounts.
+			if (meta->ambientMode == 3)
+			{
+				json gi;
+				gi["counts"] = json::array({ meta->ddgiCounts[0], meta->ddgiCounts[1], meta->ddgiCounts[2] });
+				gi["rays"] = meta->ddgiRaysPerProbe;
+				gi["passes"] = meta->ddgiPasses;
+				gi["sky"] = json::array({ meta->ddgiSky.x, meta->ddgiSky.y, meta->ddgiSky.z });
+				gi["multiBounce"] = meta->ddgiMultiBounce;
+				gi["dynamic"] = meta->ddgiDynamic;
+				gi["probeBudget"] = meta->ddgiProbeBudget;
+				gi["hysteresis"] = meta->ddgiHysteresis;
+				root["ddgi"] = gi;
+			}
 			root["ambientEquator"] = json::array({ meta->ambientEquator.x, meta->ambientEquator.y, meta->ambientEquator.z });
 			root["ambientGround"] = json::array({ meta->ambientGround.x, meta->ambientGround.y, meta->ambientGround.z });
 			// Same rule as twoD: only written when there is something to
@@ -3556,6 +3573,31 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 						}
 					}
 				}
+			}
+			if (root.contains("ddgi") && root["ddgi"].is_object())
+			{
+				const auto &gi = root["ddgi"];
+				if (gi.contains("counts") && gi["counts"].is_array() && gi["counts"].size() == 3)
+					for (uint32 i = 0; i < 3; i++)
+						// Two is the minimum a trilinear gather can
+						// interpolate between; DDGIVolume::Allocate
+						// refuses less, and a scene file is not a
+						// trusted source.
+						outMeta->ddgiCounts[i] = std::max(2u, gi["counts"][i].get<uint32>());
+				outMeta->ddgiRaysPerProbe = std::max(1u, gi.value("rays", outMeta->ddgiRaysPerProbe));
+				outMeta->ddgiPasses = std::max(1u, gi.value("passes", outMeta->ddgiPasses));
+				if (gi.contains("sky") && gi["sky"].is_array() && gi["sky"].size() >= 3)
+					outMeta->ddgiSky = Vec4(gi["sky"][0].get<f32>(), gi["sky"][1].get<f32>(),
+											gi["sky"][2].get<f32>(), 1.f);
+				// Clamped rather than trusted: above 1 the multi-bounce
+				// series diverges and the scene brightens without
+				// bound - see DDGIVolume::SetMultiBounce.
+				outMeta->ddgiMultiBounce = std::min(1.f, std::max(0.f,
+					gi.value("multiBounce", outMeta->ddgiMultiBounce)));
+				outMeta->ddgiDynamic = gi.value("dynamic", outMeta->ddgiDynamic);
+				outMeta->ddgiProbeBudget = gi.value("probeBudget", outMeta->ddgiProbeBudget);
+				outMeta->ddgiHysteresis = std::min(0.999f, std::max(0.f,
+					gi.value("hysteresis", outMeta->ddgiHysteresis)));
 			}
 			if (root.contains("ambientSH") && root["ambientSH"].is_array() && root["ambientSH"].size() == 9)
 			{

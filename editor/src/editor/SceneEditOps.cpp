@@ -1108,6 +1108,60 @@ bool SceneEditor::BakeAmbientFromSkybox(const std::string& folder, std::string& 
 // before probes do anything at all would mean nobody ever tries them.
 // Padded outwards so surfaces on the boundary sit inside the grid rather
 // than exactly on its clamped face.
+bool SceneEditor::BakeDDGI(std::string& errOut)
+{
+	if (scene == NULL) { errOut = "no scene"; return false; }
+	if (Renderer == NULL) { errOut = "no renderer"; return false; }
+
+	SceneGISettings gi;
+	gi.enabled = true;
+	gi.counts[0] = (uint32)Max(2, ddgiCounts[0]);
+	gi.counts[1] = (uint32)Max(2, ddgiCounts[1]);
+	gi.counts[2] = (uint32)Max(2, ddgiCounts[2]);
+	gi.raysPerProbe = (uint32)Max(1, ddgiRays);
+	gi.passes = (uint32)Max(1, ddgiPasses);
+	gi.skyColor = Vec3(ddgiSky.x, ddgiSky.y, ddgiSky.z);
+	// The editor runs from the build directory, where `shaders` is a
+	// symlink to resources/shaders - the same path the viewport's own
+	// materials are compiled from. Hardcoding "resources/shaders" here
+	// would work when the editor is launched from the repo root and
+	// nowhere else.
+	gi.shaderRoot = "shaders";
+
+	if (!Renderer->BakeGlobalIllumination(scene, gi))
+	{
+		// The usual causes are a scene with no geometry to bounce off
+		// and a scene with no lights, and both produce a volume that is
+		// uniformly black rather than an error - so BakeSceneGI reports
+		// them and this passes the reason through rather than leaving
+		// someone staring at an unchanged viewport.
+		errOut = "bake failed - the scene needs renderable geometry and at least one light";
+		ddgiBuilt = false;
+		return false;
+	}
+	ddgiBuilt = true;
+	ambientMode = 3;
+	ApplyEnvironment();
+	return true;
+}
+
+void SceneEditor::UpdateDDGIIfDynamic()
+{
+	if (Renderer == NULL || scene == NULL) return;
+	if (ambientMode != 3 || !ddgiBuilt || !ddgiDynamic) return;
+
+	// Budget 0 means "decide for me", and the two answers are orders of
+	// magnitude apart: on the GPU the whole volume fits in a frame, on
+	// the CPU a dozen probes is already milliseconds. Asking the
+	// renderer rather than guessing is the difference between indirect
+	// light that tracks a moving light and an editor that drops to
+	// single-digit frame rates the moment GI is switched on.
+	uint32 budget = (uint32)Max(0, ddgiProbeBudget);
+	if (budget == 0 && !Renderer->IsGlobalIlluminationOnGPU())
+		budget = 12;
+	Renderer->UpdateGlobalIllumination(scene, budget, ddgiHysteresis);
+}
+
 bool SceneEditor::BakeIrradianceProbes(std::string& errOut)
 {
 	if (scene == NULL)

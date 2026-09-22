@@ -548,6 +548,59 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 									 Vec4(meta.ambientEquator.x*k, meta.ambientEquator.y*k, meta.ambientEquator.z*k, 1.f),
 									 Vec4(meta.ambientGround.x*k, meta.ambientGround.y*k, meta.ambientGround.z*k, 1.f));
 	}
+	{
+		// SH and the probe grid, which a build never applied before
+		// this: a scene authored in Environment (SH) mode came up with
+		// the mode set and no coefficients behind it, so it sampled as
+		// black and looked like the ambient had been lost.
+		//
+		// Scaled by ambientIntensity like every other source, so the
+		// slider means the same thing whichever one is selected. SH is
+		// linear, so scaling coefficients scales the reconstruction.
+		const f32 k = meta.ambientIntensity;
+		SphericalHarmonicsL2 sh;
+		for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount; i++)
+			sh.coefficients[i] = Vec3(meta.ambientSH[i].x * k, meta.ambientSH[i].y * k,
+									  meta.ambientSH[i].z * k);
+		renderer->SetAmbientSH(sh);
+		renderer->SetAmbientProbeGrid(meta.ambientProbes.IsValid() ? &meta.ambientProbes : NULL);
+	}
+
+	// A DDGI scene carries its settings, not its solution - solve it
+	// here, once, before the first frame. See SceneMeta::ddgiCounts.
+	ddgiActive = false;
+	if (meta.ambientMode == 3)
+	{
+		SceneGISettings gi;
+		gi.enabled = true;
+		for (uint32 i = 0; i < 3; i++) gi.counts[i] = meta.ddgiCounts[i];
+		gi.raysPerProbe = meta.ddgiRaysPerProbe;
+		gi.passes = meta.ddgiPasses;
+		gi.skyColor = Vec3(meta.ddgiSky.x, meta.ddgiSky.y, meta.ddgiSky.z);
+		// Relative to the game directory, where build_game puts the
+		// shaders next to the binary - the same place the player's own
+		// materials come from.
+		gi.shaderRoot = "shaders";
+		if (renderer->BakeGlobalIllumination(scene, gi))
+		{
+			ddgiActive = true;
+			// Said out loud because the difference between GPU and CPU
+			// tracing here is two orders of magnitude, and a build that
+			// quietly fell back to the CPU path looks like a build that
+			// is simply slow.
+			echo(renderer->IsGlobalIlluminationOnGPU()
+				? "Global illumination solved (GPU tracing)."
+				: "Global illumination solved (CPU tracing - no compute on this backend).");
+		}
+		else
+		{
+			// Better a scene lit flatly than one lit by an ambient mode
+			// with nothing behind it, which samples black everywhere.
+			echo("WARNING: global illumination could not be solved - falling back to flat ambient.");
+			renderer->SetAmbientMode(0);
+		}
+	}
+
 	ResolveCamera(abs);
 	ApplyProjection();
 
@@ -979,6 +1032,18 @@ void PyrosPlayer::Update()
 	// casters at. Outside the physics guard on purpose - a scene with no
 	// physics still has occluders.
 	Occluder2D::PublishSceneOccluders(scene);
+
+	// One frame of probe refresh, so indirect light follows a light
+	// that moves. Budget 0 means "all of them", which is right on the
+	// GPU and would cost tens of milliseconds a frame on the CPU - so
+	// ask which one is doing the work rather than trusting the number.
+	if (ddgiActive && meta.ddgiDynamic)
+	{
+		uint32 budget = meta.ddgiProbeBudget;
+		if (budget == 0 && !renderer->IsGlobalIlluminationOnGPU())
+			budget = 12;
+		renderer->UpdateGlobalIllumination(scene, budget, meta.ddgiHysteresis);
+	}
 	// Layer parallax is deliberately NOT applied here. It is three lines of
 	// Lua against Layer2D's factor, and doing it in the engine meant it
 	// worked in a built game but not in the editor's play mode, and that a
