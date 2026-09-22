@@ -188,6 +188,90 @@ jobs:
       - name: Build
         run: cmake --build build --parallel "$(nproc)"
 
+      - name: CPU tests
+        # Everything in tools/tests that needs no GPU. They run HERE
+        # rather than on macOS because this is the cheapest runner and
+        # because none of them care what backend the library was built
+        # with - the GPU-bound tests are on macOS, which is the only CI
+        # machine with a real device.
+        #
+        # One matrix leg only: the same CPU code three times over
+        # teaches nothing.
+        #
+        # Built by hand, matching every other binary in tools/tests
+        # (none are in the build system - see the compile line in each
+        # file's header comment). Each returns non-zero on failure, so
+        # `set -e` is the whole check.
+        #
+        # Until this step existed, eleven of these ran nowhere at all:
+        # they were written, they passed on the author's machine, and
+        # CI never saw them again.
+        if: matrix.name == 'OpenGL'
+        run: |
+          set -euo pipefail
+          FT="$(pkg-config --cflags freetype2)"
+          # Split, and the order matters: GNU ld resolves left to
+          # right, so a -l that appears BEFORE the object needing it
+          # contributes nothing and the link fails on undefined
+          # symbols. macOS's linker does not care, which is exactly how
+          # a one-line build command that works on the author's machine
+          # gets committed and breaks here.
+          CF="-std=c++17 -O2 -I include $FT"
+          LD="-L build -lPyrosEngine -Wl,-rpath,$PWD/build"
+
+          # --- GI maths, CPU side -------------------------------------
+          # The environment BRDF table, against the integral it
+          # approximates and against the analytic fit it replaced.
+          c++ $CF tools/tests/brdf_lut.cpp -o /tmp/brdf_lut $LD
+          /tmp/brdf_lut
+          # Specular GI: directionality, roughness response, and that a
+          # reflection obeys the same wall a diffuse bounce does.
+          c++ $CF tools/tests/ddgi_specular.cpp -o /tmp/ddgi_specular $LD
+          /tmp/ddgi_specular
+
+          # --- scene, tiles, UI ---------------------------------------
+          c++ $CF tools/tests/child_registration.cpp -o /tmp/child_registration $LD
+          /tmp/child_registration
+          # Static objects must all be live after ONE update. They were
+          # not: the loop that moves them off the pending list erased
+          # and incremented, so it took three frames to register six
+          # objects - invisible in a running scene, fatal to anything
+          # that reads the scene once at load time.
+          c++ $CF tools/tests/static_registration.cpp -o /tmp/static_registration $LD
+          /tmp/static_registration
+          c++ $CF tools/tests/tilemap_colliders.cpp -o /tmp/tilemap_colliders $LD
+          /tmp/tilemap_colliders
+          c++ $CF tools/tests/tilemap_mesh.cpp -o /tmp/tilemap_mesh $LD
+          /tmp/tilemap_mesh
+          c++ $CF tools/tests/tileset_uv.cpp -o /tmp/tileset_uv $LD
+          /tmp/tileset_uv
+          c++ $CF tools/tests/ui_layout.cpp -o /tmp/ui_layout $LD
+          /tmp/ui_layout
+          c++ $CF tools/tests/ui_widgets.cpp -o /tmp/ui_widgets $LD
+          /tmp/ui_widgets
+
+          # Box3D's own headers are not on the include path the engine
+          # installs.
+          c++ $CF -I src/Pyros3D/Ext/box3d/include \
+            tools/tests/physics_unregistered_body.cpp -o /tmp/physics_unregistered_body $LD
+          /tmp/physics_unregistered_body
+
+          # These two reach into shared/, which the editor and the
+          # player both compile but the library does not export.
+          c++ $CF -I shared tools/tests/prefab_roundtrip.cpp -o /tmp/prefab_roundtrip $LD
+          # Wants a project-shaped directory to round-trip through, and
+          # takes its root as an argument.
+          mkdir -p /tmp/prefabproj/assets/prefabs /tmp/prefabproj/scenes
+          (cd /tmp/prefabproj && /tmp/prefab_roundtrip .)
+
+          # The same Lua the Configure step pointed CMake at - not
+          # whatever `pkg-config lua` resolves to, which on this image
+          # is a different major version and fails inside sol2 with a
+          # wall of template errors.
+          c++ $CF -DLUA_BINDINGS -I shared -I /usr/include/lua5.4 \
+            tools/tests/ui_dispatch.cpp -o /tmp/ui_dispatch $LD -llua5.4
+          /tmp/ui_dispatch
+
       - name: Package
         run: |
           set -euo pipefail

@@ -252,13 +252,31 @@ namespace p3d {
 
 		{
 			PYROS_PROFILE_SCOPE("Scene.StaticInit");
-			for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListStaticPrevious.begin(); i != _GameObjectListStaticPrevious.end(); i++)
+			// No i++ in the loop header: erase() already returns the
+			// iterator to the next element, and incrementing it as well
+			// steps over that element.
+			//
+			// This processed every OTHER static object per frame. The
+			// skipped ones stayed in the list and were picked up on the
+			// next Update - again every other one - so a scene of six
+			// static objects had three of them registered after the
+			// first frame, five after the second, and all six after the
+			// third. Nothing looked broken for long, which is why it
+			// survived: by the time anyone looked at a running scene it
+			// had converged.
+			//
+			// What it did break is anything that reads the scene ONCE,
+			// early. A GI bake at load time extracted half the geometry
+			// and lit the room through the missing walls; that was
+			// worked around by walking GetAllGameObjectList() instead
+			// of the rendering registry, and the real cause is this
+			// line.
+			for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListStaticPrevious.begin(); i != _GameObjectListStaticPrevious.end(); )
 			{
 				UpdateObjectTree((*i).get(), true);
 
 				_GameObjectListStaticAfter.push_back((*i));
 				i = _GameObjectListStaticPrevious.erase(i);
-				if (i == _GameObjectListStaticPrevious.end()) break;
 			}
 		}
 	}

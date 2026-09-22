@@ -298,6 +298,34 @@ jobs:
           /tmp/sh_roundtrip | tee /tmp/roundtrip_out.txt
           grep -q '^PASS  sh_roundtrip' /tmp/roundtrip_out.txt
 
+          # The specular sampler in PyrosShader.glsl against
+          # DDGIVolume::SampleRadiance, by reading the shipped GLSL and
+          # running it - the same trick sh_shader_parity uses, and it
+          # needs compute for the same reason.
+          #
+          # What it guards is not the lighting maths but the ATLAS
+          # ARITHMETIC: the radiance atlas stacks every probe at
+          # roughness level 0, then every probe at level 1, and a wrong
+          # stride still produces a perfectly plausible reflection of
+          # the wrong part of the room. It also carries probe
+          # relocation offsets, so it catches a shader that samples a
+          # probe where it no longer is.
+          if [ "${{ matrix.compute }}" = "metal" ]; then
+            c++ -std=c++17 -O2 -DMETAL_BACKEND -DPARITY_METAL -I include $FT \
+              tools/tests/ddgi_specular_shader_parity.cpp -o /tmp/ddgi_sp \
+              -L build -lPyrosEngine -framework Foundation -framework Metal \
+              -Wl,-rpath,"$PWD/build"
+          else
+            c++ -std=c++17 -O2 -DVULKAN_BACKEND -DPARITY_VULKAN \
+              -I include -I "$(brew --prefix)/include" $FT \
+              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
+              tools/tests/ddgi_specular_shader_parity.cpp -o /tmp/ddgi_sp \
+              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
+          fi
+          # Run from the repo root - it reads resources/shaders/.
+          /tmp/ddgi_sp | tee /tmp/ddgisp_out.txt
+          grep -q '^PASS  ddgi_specular_shader_parity' /tmp/ddgisp_out.txt
+
       - name: Package
         if: matrix.package == 'yes'
         run: |

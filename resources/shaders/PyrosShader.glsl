@@ -1885,6 +1885,17 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// why it is summed here rather than folded into _amb - the
 		// slot carries a finished term, not an ambient colour.
 		vec3 _indirect = diffuse.xyz * _amb;
+	#ifdef PBR
+		// Metals have no diffuse response - the (1-metallic) factor
+		// kD carries in CalculatePBRLighting, and the same one the
+		// FORWARD path applies to its ambient. Deferred did not, so a
+		// metal picked up diffuse ambient through the G-buffer that
+		// the identical material correctly refused in forward. The
+		// comment above this block has claimed "already multiplied by
+		// albedo and by (1-metallic) here" since the slot was
+		// repurposed; only the albedo half was ever true.
+		_indirect *= (1.0 - metallic);
+	#endif
 	#if defined(GLOBALILLUMINATION) && defined(PBR)
 		vec3 iblF0 = mix(vec3(0.04), diffuse.xyz, metallic);
 		_indirect += DDGISpecular(vWorldPosition.xyz, normalize(gbufferNormal.xyz),
