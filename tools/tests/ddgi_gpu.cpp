@@ -35,13 +35,30 @@ static void check(bool c, const std::string &what, const std::string &extra = ""
 
 static void AddQuad(RayScene &s, const Vec3 &a, const Vec3 &b, const Vec3 &c, const Vec3 &d, uint32 m)
 {
+	// Inward-facing - see the note in tools/tests/ddgi.cpp's AddQuad.
 	RayTriangle t1, t2;
-	t1.v0=a; t1.v1=b; t1.v2=c; t1.materialIndex=m;
-	t2.v0=a; t2.v1=c; t2.v2=d; t2.materialIndex=m;
-	Vec3 n=(b-a).cross(c-a).normalize();
+	t1.v0=a; t1.v1=c; t1.v2=b; t1.materialIndex=m;
+	t2.v0=a; t2.v1=d; t2.v2=c; t2.materialIndex=m;
+	Vec3 n=(c-a).cross(b-a).normalize();
 	t1.n0=t1.n1=t1.n2=n; t2.n0=t2.n1=t2.n2=n;
 	s.triangles.push_back(t1); s.triangles.push_back(t2);
 }
+// A solid object: faces pointing OUT of it, the opposite of AddQuad's
+// room shell. See tools/tests/ddgi.cpp.
+static void AddSolidBox(RayScene &s, const Vec3 &c, const Vec3 &h, uint32 mat)
+{
+	const Vec3 p000(c.x-h.x, c.y-h.y, c.z-h.z), p100(c.x+h.x, c.y-h.y, c.z-h.z);
+	const Vec3 p110(c.x+h.x, c.y+h.y, c.z-h.z), p010(c.x-h.x, c.y+h.y, c.z-h.z);
+	const Vec3 p001(c.x-h.x, c.y-h.y, c.z+h.z), p101(c.x+h.x, c.y-h.y, c.z+h.z);
+	const Vec3 p111(c.x+h.x, c.y+h.y, c.z+h.z), p011(c.x-h.x, c.y+h.y, c.z+h.z);
+	AddQuad(s, p001, p101, p100, p000, mat);
+	AddQuad(s, p010, p110, p111, p011, mat);
+	AddQuad(s, p000, p100, p110, p010, mat);
+	AddQuad(s, p101, p001, p011, p111, mat);
+	AddQuad(s, p001, p000, p010, p011, mat);
+	AddQuad(s, p100, p101, p111, p110, mat);
+}
+
 static uint32 AddMat(RayScene &s, const Vec3 &a)
 { RayMaterial m; m.albedo=a; s.materials.push_back(m); return (uint32)s.materials.size()-1; }
 
@@ -350,6 +367,129 @@ int main()
 				"five bounces of GPU feedback still match the CPU",
 				"worst |d| = " + std::to_string(worst) + " against max " + std::to_string(mag));
 			mb.Shutdown();
+		}
+	}
+
+	// ---- probe relocation ------------------------------------------------
+	//
+	// Nothing above relocates: the Cornell box has no probe inside
+	// geometry, so both paths leave every offset at zero and would
+	// agree perfectly while testing nothing. This scene puts a plane
+	// of probes inside a solid slab.
+	//
+	// The DECISION is shared C++ - the kernel only reduces each
+	// probe's rays to the statistics it needs - so what this actually
+	// checks is that the GPU's reduction produces the same numbers as
+	// the CPU's, and that the offsets it feeds back are then used when
+	// tracing. Get either wrong and the two diverge immediately,
+	// because a relocated probe traces from somewhere else.
+	{
+		RayScene room;
+		const uint32 grey = AddMat(room, Vec3(0.8f, 0.8f, 0.8f));
+		const f32 B = 6.f;
+		AddQuad(room, Vec3(-B,-B,-B), Vec3( B,-B,-B), Vec3( B,-B, B), Vec3(-B,-B, B), grey);
+		AddQuad(room, Vec3(-B, B, B), Vec3( B, B, B), Vec3( B, B,-B), Vec3(-B, B,-B), grey);
+		AddQuad(room, Vec3(-B,-B, B), Vec3( B,-B, B), Vec3( B, B, B), Vec3(-B, B, B), grey);
+		AddQuad(room, Vec3( B,-B,-B), Vec3(-B,-B,-B), Vec3(-B, B,-B), Vec3( B, B,-B), grey);
+		AddQuad(room, Vec3(-B,-B,-B), Vec3(-B,-B, B), Vec3(-B, B, B), Vec3(-B, B,-B), grey);
+		AddQuad(room, Vec3( B,-B, B), Vec3( B,-B,-B), Vec3( B, B,-B), Vec3( B, B, B), grey);
+		// Deliberately taller and deeper than the room, so it pokes
+		// through the walls instead of meeting them. A slab that ends
+		// exactly at a wall puts two triangles in the same plane -
+		// one facing in, one facing out - and a ray landing there can
+		// legitimately return either, so whether it counts as a
+		// backface becomes a coin toss decided by traversal order.
+		// The CPU and GPU walk the BVH differently and disagreed on
+		// 18 of 125 probes because of it, which looked like a
+		// relocation bug and was a modelling one.
+		AddSolidBox(room, Vec3(0.f, 0.f, 0.f), Vec3(0.8f, B + 1.f, B + 1.f), grey);
+		room.Build(4);
+
+		std::vector<RayLight> lamp(1);
+		lamp[0].isPoint = 1.f;
+		lamp[0].positionOrDirection = Vec3(3.f, 0.f, 0.f);
+		lamp[0].color = Vec3(6.f, 6.f, 6.f);
+		lamp[0].range = 30.f;
+
+		DDGIVolume rc, rg;
+		rc.Allocate(Vec3(-6,-6,-6), Vec3(3,3,3), 5,5,5, 8, 16);
+		rg.Allocate(Vec3(-6,-6,-6), Vec3(3,3,3), 5,5,5, 8, 16);
+
+		DDGICompute rel;
+		if (!rel.Initialize(room, rg, "resources/shaders"))
+			check(false, "DDGICompute initialises for the relocation volume");
+		else
+		{
+			for (uint32 f = 0; f < 8; f++)
+			{
+				rc.Update(room, lamp, 128, f, 0.f, 0);
+				rel.Update(rg, lamp, 128, f, 0.f, 0);
+			}
+
+			uint32 movedCPU = 0, movedGPU = 0, offCPU = 0, offGPU = 0;
+			f32 worstOffset = 0.f, worstFlag = 0.f;
+			for (uint32 p = 0; p < rc.ProbeCount(); p++)
+			{
+				const Vec4 &a = rc.GetProbeData()[p];
+				const Vec4 &b = rg.GetProbeData()[p];
+				if (fmaxf(fabsf(a.x), fmaxf(fabsf(a.y), fabsf(a.z))) > 1e-4f) movedCPU++;
+				if (fmaxf(fabsf(b.x), fmaxf(fabsf(b.y), fabsf(b.z))) > 1e-4f) movedGPU++;
+				if (a.w <= 0.5f) offCPU++;
+				if (b.w <= 0.5f) offGPU++;
+				worstOffset = fmaxf(worstOffset, fmaxf(fabsf(a.x-b.x),
+					fmaxf(fabsf(a.y-b.y), fabsf(a.z-b.z))));
+				worstFlag = fmaxf(worstFlag, fabsf(a.w - b.w));
+			}
+			printf("      relocation: CPU %u moved / %u off, GPU %u moved / %u off\n",
+				movedCPU, offCPU, movedGPU, offGPU);
+			check(movedGPU > 0, "the GPU relocates probes buried in the slab",
+				std::to_string(movedGPU));
+			check(worstFlag == 0.f, "and switches off exactly the probes the CPU does",
+				"CPU " + std::to_string(offCPU) + " vs GPU " + std::to_string(offGPU));
+			// Tight: both sides run the same decision on statistics
+			// that should be identical, so any difference is the
+			// reduction disagreeing, not float noise in a long chain.
+			check(movedCPU == movedGPU, "the same probes, not merely the same number",
+				"CPU " + std::to_string(movedCPU) + " vs GPU " + std::to_string(movedGPU));
+			// Tight, and it stays tight: relocation is a feedback loop
+			// - an offset changes where the probe traces from, which
+			// changes the statistics, which changes the offset - so a
+			// real difference does not stay small. Measured over eight
+			// updates the worst disagreement is 1.2e-5 and does not
+			// grow, which is float noise in two different intersectors
+			// and nothing else.
+			check(worstOffset < 1e-3f, "with offsets matching the CPU",
+				"worst |d| = " + std::to_string(worstOffset));
+
+			// And the offsets have to reach the trace: a probe moved
+			// on one side and not the other lights a different place.
+			const ProbeAtlas &ia = rc.GetIrradianceAtlas();
+			const ProbeAtlas &ib = rg.GetIrradianceAtlas();
+			const uint32 R = ia.GetResolution();
+			f32 worst = 0.f, mag = 0.f;
+			for (uint32 p = 0; p < rc.ProbeCount(); p++)
+				for (uint32 y = 0; y < R; y++)
+					for (uint32 x = 0; x < R; x++)
+					{
+						const f32 *ca = ia.At(p,x,y), *cb = ib.At(p,x,y);
+						for (uint32 c = 0; c < 3; c++)
+						{
+							mag = fmaxf(mag, fabsf(ca[c]));
+							worst = fmaxf(worst, fabsf(ca[c]-cb[c]));
+						}
+					}
+			// Looser than the 1e-6 the non-relocating comparisons hold
+			// to, and necessarily so: here the probe POSITIONS differ
+			// by ~1e-5, each probe traces a slightly different set of
+			// world points, and eight updates of multi-bounce feedback
+			// compound that. Under 1% of the brightest texel is the
+			// measured result and is not visible; what would matter is
+			// a probe placed somewhere else entirely, and the offset
+			// check above is what rules that out.
+			check(worst < 2e-2f * fmaxf(mag, 1.f),
+				"and the relocated probes trace to the same irradiance",
+				"worst |d| = " + std::to_string(worst) + " against max " + std::to_string(mag));
+			rel.Shutdown();
 		}
 	}
 

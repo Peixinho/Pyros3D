@@ -32,10 +32,11 @@ static void check(bool c, const std::string &w, const std::string &e = "")
 }
 static void AddQuad(RayScene &s, const Vec3 &a, const Vec3 &b, const Vec3 &c, const Vec3 &d, uint32 mat)
 {
+	// Inward-facing - see the note in tools/tests/ddgi.cpp's AddQuad.
 	RayTriangle t1, t2;
-	t1.v0=a; t1.v1=b; t1.v2=c; t1.materialIndex=mat;
-	t2.v0=a; t2.v1=c; t2.v2=d; t2.materialIndex=mat;
-	Vec3 n = (b-a).cross(c-a).normalize();
+	t1.v0=a; t1.v1=c; t1.v2=b; t1.materialIndex=mat;
+	t2.v0=a; t2.v1=d; t2.v2=c; t2.materialIndex=mat;
+	Vec3 n = (c-a).cross(b-a).normalize();
 	t1.n0=t1.n1=t1.n2=n; t2.n0=t2.n1=t2.n2=n;
 	s.triangles.push_back(t1); s.triangles.push_back(t2);
 }

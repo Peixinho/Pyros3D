@@ -153,6 +153,11 @@
 #define BIND_Occluders2D 24
 // DDGI volume description - see ShaderUsage::GlobalIllumination.
 #define BIND_DDGIUniforms 25
+// Per-probe relocation offsets - see DDGIVolume::SetProbeRelocation.
+// A block of its own rather than more members on DDGIUniforms because
+// it is sized by the probe count, and a block whose size changes is a
+// block every shader has to be recompiled for.
+#define BIND_DDGIProbeData 26
 #define MAX_OCCLUDERS_2D 32
 
 vec4 EncodeFloatRGBA( float v ) {
@@ -1170,6 +1175,40 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            vec4 uDDGIRadianceParams;
        };
 
+       // xyz = the probe's offset from its grid cell, w = 1 active,
+       // 0 switched off because it is buried in geometry.
+       //
+       // 1024 is the largest array that fits the 16KB uniform block
+       // every GL ES 3 and WebGL2 implementation is required to
+       // support. A volume with more probes than that simply does not
+       // relocate - uDDGICounts.w says so and the sampler falls back
+       // to grid positions, which is what it did before relocation
+       // existed.
+       #define DDGI_MAX_PROBE_DATA 1024
+       UBO_BINDING(BIND_DDGIProbeData) uniform DDGIProbeData {
+           vec4 uDDGIProbes[DDGI_MAX_PROBE_DATA];
+       };
+
+       // Where probe `index` actually is. Must agree with
+       // DDGIVolume::ProbePosition, or the shader measures distance to
+       // a place the probe is not - which is the exact error
+       // relocation exists to remove, reintroduced one level up.
+       vec3 p3d_ProbeWorldPos(vec3 cell, float index)
+       {
+           vec3 base = uDDGIOrigin.xyz + uDDGISpacing.xyz * cell;
+           if (uDDGICounts.w < 0.5 || index >= float(DDGI_MAX_PROBE_DATA)) return base;
+           return base + uDDGIProbes[int(index)].xyz;
+       }
+
+       // False for a probe classified as buried. Such a probe has no
+       // lighting to contribute and must be skipped outright, not
+       // merely dimmed - see DDGIVolume::SetProbeRelocation.
+       bool p3d_ProbeActive(float index)
+       {
+           if (uDDGICounts.w < 0.5 || index >= float(DDGI_MAX_PROBE_DATA)) return true;
+           return uDDGIProbes[int(index)].w > 0.5;
+       }
+
        vec2 p3d_OctEncode(vec3 d)
        {
            float l1 = abs(d.x) + abs(d.y) + abs(d.z);
@@ -1268,8 +1307,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                float weight = tri3.x * tri3.y * tri3.z;
                if (weight <= 0.0) continue;
 
-               vec3 probePos = uDDGIOrigin.xyz + uDDGISpacing.xyz * pc;
                float probeIndex = (pc.z * counts.y + pc.y) * counts.x + pc.x;
+               if (!p3d_ProbeActive(probeIndex)) continue;
+               vec3 probePos = p3d_ProbeWorldPos(pc, probeIndex);
 
                vec3 toProbe = probePos - worldPos;
                float dist = length(toProbe);
@@ -1350,8 +1390,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                float weight = tri3.x * tri3.y * tri3.z;
                if (weight <= 0.0) continue;
 
-               vec3 probePos = uDDGIOrigin.xyz + uDDGISpacing.xyz * pc;
                float probeIndex = (pc.z * counts.y + pc.y) * counts.x + pc.x;
+               if (!p3d_ProbeActive(probeIndex)) continue;
+               vec3 probePos = p3d_ProbeWorldPos(pc, probeIndex);
 
                vec3 toProbe = probePos - worldPos;
                float dist = length(toProbe);

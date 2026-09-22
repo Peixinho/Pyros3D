@@ -74,10 +74,11 @@ static bool ExtractGLSLFunction(const std::string &src, const std::string &sig, 
 
 static void AddQuad(RayScene &s, const Vec3 &a, const Vec3 &b, const Vec3 &c, const Vec3 &d, uint32 m)
 {
+	// Inward-facing - see the note in tools/tests/ddgi.cpp's AddQuad.
 	RayTriangle t1, t2;
-	t1.v0=a; t1.v1=b; t1.v2=c; t1.materialIndex=m;
-	t2.v0=a; t2.v1=c; t2.v2=d; t2.materialIndex=m;
-	Vec3 n=(b-a).cross(c-a).normalize();
+	t1.v0=a; t1.v1=c; t1.v2=b; t1.materialIndex=m;
+	t2.v0=a; t2.v1=d; t2.v2=c; t2.materialIndex=m;
+	Vec3 n=(c-a).cross(b-a).normalize();
 	t1.n0=t1.n1=t1.n2=n; t2.n0=t2.n1=t2.n2=n;
 	s.triangles.push_back(t1); s.triangles.push_back(t2);
 }
@@ -95,10 +96,14 @@ int main()
 		if (!f.good()) { printf("FAIL  run from the repo root\n"); return 1; }
 		std::stringstream ss; ss << f.rdbuf(); file = ss.str();
 	}
-	std::string octEncode, probeUV, radianceUV, sampleRad;
+	std::string octEncode, probeUV, radianceUV, sampleRad, probePos, probeActive;
 	check(ExtractGLSLFunction(file, "vec2 p3d_OctEncode(vec3 d)", octEncode), "found p3d_OctEncode");
 	check(ExtractGLSLFunction(file, "vec2 p3d_ProbeUV(float probeIndex", probeUV), "found p3d_ProbeUV");
 	check(ExtractGLSLFunction(file, "vec2 p3d_RadianceUV(float tileIndex", radianceUV), "found p3d_RadianceUV");
+	check(ExtractGLSLFunction(file, "vec3 p3d_ProbeWorldPos(vec3 cell", probePos),
+		"found p3d_ProbeWorldPos");
+	check(ExtractGLSLFunction(file, "bool p3d_ProbeActive(float index", probeActive),
+		"found p3d_ProbeActive");
 	check(ExtractGLSLFunction(file, "vec3 SampleDDGIRadiance(vec3 worldPos", sampleRad),
 		"found SampleDDGIRadiance");
 	if (failures) return 1;
@@ -134,12 +139,44 @@ int main()
 	std::vector<RayLight> lights(1);
 	lights[0].isPoint = 1.f;
 	lights[0].positionOrDirection = Vec3(0.f, 4.f, 0.f);
-	lights[0].color = Vec3(4.f,4.f,4.f);
+	// Bright: the pillar added below blocks a good deal of the room,
+	// and the "did the GPU produce anything at all" guard at the end
+	// has to stay a real check rather than one tuned down to pass.
+	lights[0].color = Vec3(16.f,16.f,16.f);
 	lights[0].range = 30.f;
 
 	DDGIVolume vol;
 	vol.Allocate(Vec3(-4,-4,-4), Vec3(2,2,2), 5,5,5, 8, 16, 16, 4);
-	vol.Update(scene, lights, 256, 0, 0.f, 0);
+	// A pillar, so some probes are buried and relocation actually
+	// produces offsets for the shader to disagree about. Without one
+	// every offset is zero and the new code path is never taken.
+	{
+		RayScene &sc = scene;
+		const uint32 grey = AddMat(sc, Vec3(0.7f, 0.7f, 0.7f));
+		const f32 P = 1.2f;
+		AddQuad(sc, Vec3(-P,-6, P), Vec3( P,-6, P), Vec3( P,-6,-P), Vec3(-P,-6,-P), grey);
+		AddQuad(sc, Vec3(-P, 6,-P), Vec3( P, 6,-P), Vec3( P, 6, P), Vec3(-P, 6, P), grey);
+		AddQuad(sc, Vec3(-P,-6,-P), Vec3( P,-6,-P), Vec3( P, 6,-P), Vec3(-P, 6,-P), grey);
+		AddQuad(sc, Vec3( P,-6, P), Vec3(-P,-6, P), Vec3(-P, 6, P), Vec3( P, 6, P), grey);
+		AddQuad(sc, Vec3(-P,-6, P), Vec3(-P,-6,-P), Vec3(-P, 6,-P), Vec3(-P, 6, P), grey);
+		AddQuad(sc, Vec3( P,-6,-P), Vec3( P,-6, P), Vec3( P, 6, P), Vec3( P, 6,-P), grey);
+		sc.Build(4);
+	}
+	for (uint32 f = 0; f < 4; f++)
+		vol.Update(scene, lights, 256, f, 0.f, 0);
+	{
+		uint32 moved = 0, offCount = 0;
+		for (uint32 p = 0; p < vol.ProbeCount(); p++)
+		{
+			const Vec4 &d = vol.GetProbeData()[p];
+			if (fmaxf(fabsf(d.x), fmaxf(fabsf(d.y), fabsf(d.z))) > 1e-4f) moved++;
+			if (d.w <= 0.5f) offCount++;
+		}
+		printf("      %u probes relocated, %u switched off\n", moved, offCount);
+		check(moved + offCount > 0,
+			"the scene actually relocates probes, so the offsets are exercised",
+			std::to_string(moved) + " moved, " + std::to_string(offCount) + " off");
+	}
 
 	const ProbeAtlas &vis = vol.GetVisibilityAtlas();
 	const ProbeAtlas &rad = vol.GetRadianceAtlas();
@@ -170,6 +207,10 @@ int main()
 	     << "layout(std430, binding = 2) buffer RBuf { vec4 radTex[]; };\n"
 	     << "layout(std430, binding = 3) buffer IBuf { vec4 inputs[]; };\n"
 	     << "layout(std430, binding = 4) buffer OBuf { vec4 results[]; };\n"
+	     // The probe-offset block, which in the real shader is a UBO
+	     // sized by DDGI_MAX_PROBE_DATA. Same contents, same indexing.
+	     << "layout(std430, binding = 5) buffer PBuf { vec4 uDDGIProbes[]; };\n"
+	     << "#define DDGI_MAX_PROBE_DATA 1024\n"
 	     // The UBO the real shader reads, as plain accessors.
 	     << "#define uDDGIOrigin U[0]\n"
 	     << "#define uDDGISpacing U[1]\n"
@@ -187,7 +228,8 @@ int main()
 	     << "    return (which == 1) ? visTex[o] : radTex[o];\n"
 	     << "}\n"
 	     << "#define texture(s, uv) p3d_Sample(s, uv)\n"
-	     << octEncode << "\n" << probeUV << "\n" << radianceUV << "\n" << sampleRad << "\n"
+	     << octEncode << "\n" << probePos << "\n" << probeActive << "\n"
+	     << probeUV << "\n" << radianceUV << "\n" << sampleRad << "\n"
 	     << "void main() {\n"
 	     << "    uint i = gl_GlobalInvocationID.x;\n"
 	     << "    vec3 p = inputs[i*3+0].xyz;\n"
@@ -220,6 +262,7 @@ int main()
 	U[15]=(f32)vol.GetIrradianceAtlas().GetProbesPerRow();
 	U[16]=(f32)rad.GetResolution(); U[17]=(f32)rad.GetProbesPerRow();
 	U[18]=(f32)vol.GetRadianceLevels(); U[19]=DDGIVolume::MinRoughness();
+	U[11]=1.f;                                    // counts.w: probe offsets are valid
 	U[20]=3.f;                                    // ambient mode 3 = DDGI
 	U[24]=(f32)vis.GetWidth(); U[25]=(f32)vis.GetHeight();
 	U[26]=(f32)rad.GetWidth(); U[27]=(f32)rad.GetHeight();
@@ -236,6 +279,13 @@ int main()
 	const DeviceHandle rBuf = device.CreateStorageBuffer((uint32)(radData.size()*sizeof(f32)), 2, radData.data());
 	const DeviceHandle iBuf = device.CreateStorageBuffer((uint32)(inputs.size()*sizeof(f32)), 3, inputs.data());
 	const DeviceHandle oBuf = device.CreateStorageBuffer(kSamples*4*(uint32)sizeof(f32), 4, NULL);
+	std::vector<f32> probeBuf(vol.ProbeCount()*4, 0.f);
+	for (uint32 i = 0; i < vol.ProbeCount(); i++)
+	{
+		const Vec4 &d = vol.GetProbeData()[i];
+		probeBuf[i*4+0]=d.x; probeBuf[i*4+1]=d.y; probeBuf[i*4+2]=d.z; probeBuf[i*4+3]=d.w;
+	}
+	const DeviceHandle pBuf = device.CreateStorageBuffer((uint32)(probeBuf.size()*sizeof(f32)), 5, probeBuf.data());
 
 	device.BindComputePipeline(0, pipeline);
 	device.BindStorageBuffer(0, uBuf, 0);
@@ -243,6 +293,7 @@ int main()
 	device.BindStorageBuffer(0, rBuf, 2);
 	device.BindStorageBuffer(0, iBuf, 3);
 	device.BindStorageBuffer(0, oBuf, 4);
+	device.BindStorageBuffer(0, pBuf, 5);
 	device.Dispatch(0, 1, 1, 1);
 	device.ComputeBarrier(0, ComputeBarrierBit::HostRead);
 
@@ -280,6 +331,7 @@ int main()
 	check(magnitude > 1.f, "the GPU produced non-zero radiance",
 		"sum = " + std::to_string(magnitude));
 
+	device.DestroyStorageBuffer(pBuf);
 	device.DestroyStorageBuffer(oBuf); device.DestroyStorageBuffer(iBuf);
 	device.DestroyStorageBuffer(rBuf); device.DestroyStorageBuffer(vBuf);
 	device.DestroyStorageBuffer(uBuf);

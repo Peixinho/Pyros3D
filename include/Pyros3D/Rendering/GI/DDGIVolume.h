@@ -31,6 +31,40 @@ namespace p3d {
 		RayLight() : positionOrDirection(0.f, -1.f, 0.f), isPoint(0.f), color(1.f, 1.f, 1.f), range(0.f) {}
 	};
 
+	// What a probe's own rays say about where it is sitting - the whole
+	// input to the relocation decision.
+	//
+	// Separated from the tracing that produces it because the GPU
+	// produces exactly these numbers in a compute stage and then hands
+	// them back: the decision itself then runs in ONE place for both
+	// paths, so they cannot drift. Everything else in this file is
+	// duplicated between C++ and GLSL and kept honest by a parity test;
+	// this is the one part that did not have to be.
+	struct PYROS3D_API ProbeRayStats
+	{
+		// Fraction of rays that struck a surface from behind, which can
+		// only happen if the probe is on the inside of it.
+		f32 backfaceRatio;
+		// Nearest front-facing hit, and which way it was.
+		f32 closestFront;
+		Vec3 closestFrontDir;
+		// Where the open space is: the non-backface ray directions
+		// summed, each weighted by how far it got, then normalised.
+		//
+		// NOT the single farthest ray, which is what this was first.
+		// That is a discontinuous function of 128 nearly equal
+		// distances, and the CPU and GPU intersectors differ in the
+		// last bits - so the two picked different rays, the probe
+		// walked off in different directions, and the difference
+		// compounded over updates. Twelve of 125 probes had diverged
+		// after eight. A weighted average is continuous in the
+		// distances: last-bit noise moves it by last-bit amounts.
+		f32 openLength;
+		Vec3 openDir;
+		ProbeRayStats() : backfaceRatio(0.f), closestFront(1e30f),
+			closestFrontDir(0.f,0.f,0.f), openLength(0.f), openDir(0.f,0.f,0.f) {}
+	};
+
 	// A DDGI probe volume.
 	//
 	// The difference from IrradianceProbeGrid is not resolution, it is
@@ -86,7 +120,75 @@ namespace p3d {
 		{
 			return (z * counts[1] + y) * counts[0] + x;
 		}
+		// Where the probe actually is: its grid cell plus whatever
+		// offset relocation has given it. This is the position rays
+		// are traced from and the position a gather measures distance
+		// to, so everything that cares about "where is probe N" must
+		// use it rather than recomputing the grid position.
 		Vec3 ProbePosition(const uint32 x, const uint32 y, const uint32 z) const;
+		// The unrelocated cell position. Only relocation itself and the
+		// clamp on its own offset need this.
+		Vec3 ProbeGridPosition(const uint32 x, const uint32 y, const uint32 z) const;
+
+		// Probes move, and probes switch off.
+		//
+		// A probe that lands inside a wall or a pillar is the last
+		// structural weakness of a fixed grid, and it is not a corner
+		// case: at any spacing, some probes land in geometry. Such a
+		// probe sees the inside of the surface in every direction, so
+		// it reports near-zero distances - and its Chebyshev test then
+		// rejects it for every point it should have lit, while the
+		// backface weight's 0.2 floor still leaks a fifth of it into
+		// points on the far side. Measured earlier in this volume's
+		// life: a sealed box with a probe exactly in the floor plane
+		// leaked 4.99 against 5.15 inside.
+		//
+		// Two fixes, both driven by statistics the trace already has:
+		//
+		//   RELOCATION nudges a probe out of geometry, toward the open
+		//   space its own rays found. Bounded to a fraction of the cell
+		//   so the trilinear weights - which are computed from the grid,
+		//   not from where the probe ended up - stay meaningful.
+		//
+		//   CLASSIFICATION switches off a probe that is still enclosed
+		//   after relocation. Inside a solid pillar there is nowhere to
+		//   move to, and the honest answer is that the probe has no
+		//   lighting to contribute.
+		void SetProbeRelocation(const bool on) { relocationEnabled = on; }
+		// One probe's relocation decision. Public because the compute
+		// backend calls it with statistics its own kernel produced -
+		// see ProbeRayStats.
+		// Writes into the PENDING offsets, not the live ones. An
+		// update must trace and gather against the positions the
+		// probes had when it started: the multi-bounce feedback
+		// gather reads its neighbours' positions, so relocating probe
+		// 0 mid-update would move the volume under probe 1. The CPU
+		// did exactly that and the GPU - which uploads offsets once
+		// per batch - could not reproduce it; 18 of 125 probes
+		// disagreed after a single update.
+		void ApplyRelocation(const uint32 probe, const ProbeRayStats &stats);
+		// Makes this pass's relocations live. Update() calls it; a GPU
+		// backend calls it after its last batch.
+		void CommitRelocation();
+		// The winding-is-unreliable check, over the whole volume. Run
+		// by Update; the compute backend runs it too, after writing
+		// back the probe data its own stats produced.
+		void ValidateClassification();
+		bool GetProbeRelocation() const { return relocationEnabled; }
+		// xyz = the probe's offset from its cell, w = 1 active, 0 off.
+		// One entry per probe, in Index() order. This is what the
+		// sampling shader needs uploaded to agree with the trace.
+		const std::vector<Vec4> &GetProbeData() const { return probeData; }
+		std::vector<Vec4> &GetProbeDataMutable() { return probeData; }
+		bool IsProbeActive(const uint32 probe) const
+		{
+			return probe >= probeData.size() || probeData[probe].w > 0.5f;
+		}
+		// Largest offset relocation may apply, per axis: just under half
+		// the spacing, so a relocated probe stays inside its own cell
+		// and the eight probes a point interpolates between are still
+		// the eight around it.
+		Vec3 GetMaxProbeOffset() const { return spacing * 0.45f; }
 
 		// Traces `raysPerProbe` rays from each probe, shades what they
 		// hit, and blends the result into both atlases.
@@ -236,6 +338,15 @@ namespace p3d {
 		// cannot reproduce a sequential dependency - and the whole
 		// value of this class is being the thing the GPU is checked
 		// against.
+		// Per-probe offset (xyz) and active flag (w) - see
+		// SetProbeRelocation.
+		std::vector<Vec4> probeData;
+		// Where ApplyRelocation writes until CommitRelocation runs.
+		std::vector<Vec4> pendingProbeData;
+		bool relocationEnabled;
+		// Classification gives up when a scene's winding says nearly
+		// every probe is buried - see the check at the end of Update.
+		bool classificationTrusted;
 		ProbeAtlas feedback;
 		ProbeAtlas radiance;    // RGB, probeCount tiles per roughness level
 		uint32 radianceLevels;
@@ -260,6 +371,7 @@ namespace p3d {
 		// public sampler, the snapshot for multi-bounce.
 		Vec3 SampleIrradianceIn(const ProbeAtlas &atlas, const Vec3 &worldPosition,
 			const Vec3 &normal) const;
+
 
 		Vec3 ShadeHit(const RayScene &scene, const RayHit &hit,
 			const Vec3 &rayOrigin, const Vec3 &rayDir,

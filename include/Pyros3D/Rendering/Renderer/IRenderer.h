@@ -391,6 +391,11 @@ namespace p3d {
 		Texture *BRDFLutTex = NULL;
 		void BuildBRDFLutIfNeeded();
 		static uint32 DDGIUniformsUBO;
+		// Per-probe relocation offsets. Fixed at DDGI_MAX_PROBE_DATA
+		// vec4s (16KB, the uniform block size every target is required
+		// to support); a volume with more probes than that renders
+		// without relocation rather than not at all.
+		static uint32 DDGIProbeDataUBO;
 		void UploadDDGIIfDirty();
 		uint32
 			AmbientMode = 0;

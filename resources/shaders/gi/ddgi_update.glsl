@@ -6,6 +6,7 @@
 //   DDGI_STAGE_IRRADIANCE one thread per (probe, texel) - cosine gather
 //   DDGI_STAGE_VISIBILITY one thread per (probe, texel) - distance moments
 //   DDGI_STAGE_RADIANCE   one thread per (probe, level, texel) - GGX gather
+//   DDGI_STAGE_STATS      one thread per probe - relocation statistics
 //
 // Deliberately mirrors DDGIVolume's CPU implementation step for step -
 // same Fibonacci directions, same lobe exponents, same blend - because
@@ -27,6 +28,10 @@ layout(std430, binding = 6) buffer IrrOut  { vec4 irradiance[]; };
 layout(std430, binding = 7) buffer VisOut  { vec4 visibility[]; };  // xy used
 layout(std430, binding = 8) buffer Params  { vec4 params[]; };
 layout(std430, binding = 9) buffer RadOut  { vec4 radiance[]; };   // prefiltered, levels stacked
+// Three vec4 per probe in the batch, written by DDGI_STAGE_STATS and
+// read straight back by the CPU, which makes the relocation DECISION -
+// see DDGIVolume::ProbeRayStats for why that lives in one place.
+layout(std430, binding = 10) buffer StatsOut { vec4 stats[]; };
 
 // params[0] = origin.xyz,          probeCountTotal
 // params[1] = spacing.xyz,         raysPerProbe
@@ -36,6 +41,9 @@ layout(std430, binding = 9) buffer RadOut  { vec4 radiance[]; };   // prefiltere
 // params[5] = rotation, lightCount, probeOffset, probesThisDispatch
 // params[6] = radRes, radProbesPerRow, radLevels, minRoughness
 // params[7] = multiBounce, feedbackNormalBias, irrTexels, unused
+// params[8 + probe] = that probe's relocation offset (xyz) and active
+//   flag (w). CPU-owned - the decision is made there - so it rides the
+//   params upload rather than needing a buffer of its own.
 
 #define P_ORIGIN      params[0].xyz
 #define P_TOTAL       params[0].w
@@ -60,6 +68,7 @@ layout(std430, binding = 9) buffer RadOut  { vec4 radiance[]; };   // prefiltere
 #define P_MULTIBOUNCE params[7].x
 #define P_NORMALBIAS  params[7].y
 #define P_IRRTEXELS   params[7].z
+#define P_PROBEDATA(i) params[8u + (i)]
 
 // Matches DDGIVolume::LevelRoughness. Level 0 is not roughness zero -
 // see the comment there; a lobe narrower than the angle between
@@ -71,6 +80,10 @@ float p3d_LevelRoughness(uint level, float levels)
     return P_MINROUGH + (1.0 - P_MINROUGH) * t;
 }
 
+// Where the probe actually is: its cell plus whatever offset
+// relocation gave it. Mirrors DDGIVolume::ProbePosition - a trace that
+// used the unrelocated position would fill the atlas for a place the
+// probe is not.
 vec3 p3d_ProbePosition(uint probe)
 {
     float nx = P_COUNTS.x, ny = P_COUNTS.y;
@@ -78,7 +91,7 @@ vec3 p3d_ProbePosition(uint probe)
     float rem = float(probe) - z * nx * ny;
     float y = floor(rem / nx);
     float x = rem - y * nx;
-    return P_ORIGIN + P_SPACING * vec3(x, y, z);
+    return P_ORIGIN + P_SPACING * vec3(x, y, z) + P_PROBEDATA(probe).xyz;
 }
 
 // Matches DDGIVolume::SphericalFibonacci exactly.
@@ -209,8 +222,11 @@ vec3 p3d_FeedbackIrradiance(vec3 wp, vec3 n)
         float weight = tri3.x * tri3.y * tri3.z;
         if (weight <= 0.0) continue;
 
-        vec3 probePos = P_ORIGIN + P_SPACING * pc;
         uint probe = uint((pc.z * counts.y + pc.y) * counts.x + pc.x);
+        // A probe classified as enclosed contributes nothing - the
+        // same rule DDGIVolume::GatherProbes applies.
+        if (P_PROBEDATA(probe).w <= 0.5) continue;
+        vec3 probePos = P_ORIGIN + P_SPACING * pc + P_PROBEDATA(probe).xyz;
 
         vec3 toProbe = probePos - wp;
         float dist = length(toProbe);
@@ -316,8 +332,21 @@ void main()
     // A miss records "nothing out to here", not zero - zero would claim
     // a wall at the probe itself and fail every Chebyshev test.
     float distance = (t < 0.0) ? P_MAXDIST : t;
+    // .y carries whether this ray struck a surface from BEHIND, which
+    // is the signal relocation reads. Geometric normal from the
+    // triangle's winding, not the interpolated vertex normals used for
+    // shading: a smooth normal can point back toward the ray on a
+    // curved surface seen edge-on and report a backface where there is
+    // none.
+    float backface = 0.0;
+    if (t >= 0.0)
+    {
+        uint tb = tri * TRI_STRIDE;
+        vec3 gn = cross(tris[tb+1u].xyz - tris[tb].xyz, tris[tb+2u].xyz - tris[tb].xyz);
+        backface = (dot(gn, dir) > 0.0) ? 1.0 : 0.0;
+    }
     rayData[gid * 2u + 0u] = vec4(radiance, 0.0);
-    rayData[gid * 2u + 1u] = vec4(distance, 0.0, 0.0, 0.0);
+    rayData[gid * 2u + 1u] = vec4(distance, backface, 0.0, 0.0);
 
 #elif defined(DDGI_STAGE_IRRADIANCE)
     uint res = uint(P_IRRRES);
@@ -461,5 +490,37 @@ void main()
     uint o = ay * width + ax;
     vec3 prev = radiance[o].rgb;
     radiance[o] = vec4(mix(sum, prev, P_HYSTERESIS), 0.0);
+
+#elif defined(DDGI_STAGE_STATS)
+    // One thread per probe: reduce its rays to the handful of numbers
+    // the relocation decision needs, and hand them to the CPU. The
+    // decision itself is NOT made here - DDGIVolume::ApplyRelocation
+    // makes it for both backends, so the two cannot drift.
+    if (gid >= uint(P_BATCH)) return;
+    uint probe = uint(P_OFFSET) + gid;
+    if (float(probe) >= P_TOTAL) return;
+
+    uint rays = uint(P_RAYS);
+    uint backfaces = 0u;
+    float closestFront = 1e30;
+    vec3 closestFrontDir = vec3(0.0);
+    vec3 open = vec3(0.0);
+
+    for (uint r = 0u; r < rays; r++)
+    {
+        vec4 d = rayData[(gid * rays + r) * 2u + 1u];
+        if (d.y > 0.5) { backfaces++; continue; }
+        vec3 rd = p3d_SphericalFibonacci(r, P_RAYS, P_ROTATION);
+        if (d.x < closestFront) { closestFront = d.x; closestFrontDir = rd; }
+        // Summed and weighted, not "the farthest one" - see
+        // DDGIVolume::ProbeRayStats::openLength for why picking a
+        // single ray put the two backends on different paths.
+        open += rd * d.x;
+    }
+
+    float openLength = length(open);
+    stats[gid * 3u + 0u] = vec4(float(backfaces) / float(rays), closestFront, openLength, 0.0);
+    stats[gid * 3u + 1u] = vec4(closestFrontDir, 0.0);
+    stats[gid * 3u + 2u] = vec4(openLength > 1e-6 ? open / openLength : vec3(0.0), 0.0);
 #endif
 }

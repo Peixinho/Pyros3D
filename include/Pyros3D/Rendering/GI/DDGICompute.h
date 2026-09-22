@@ -79,11 +79,18 @@ namespace p3d {
 		// Only compiled when the volume asked for specular. A volume
 		// with no radiance levels must not pay for a fourth kernel.
 		DeviceHandle radStage, radProgram, radPipeline;
+		// Relocation statistics. Only compiled when the volume wants
+		// relocation; the decision itself is made on the CPU.
+		DeviceHandle statStage, statProgram, statPipeline;
 
-		DeviceHandle bTris, bNodes, bIdx, bMats, bLights, bRays, bIrr, bVis, bParams, bRad;
+		DeviceHandle bTris, bNodes, bIdx, bMats, bLights, bRays, bIrr, bVis, bParams, bRad, bStats;
 		uint32 maxRaysPerProbe, maxBatch, radianceLevels;
 		// Texels in one irradiance atlas - bIrr holds two of them.
 		uint32 irrTexels;
+		// Probes the params buffer has room for, past its eight fixed
+		// vec4s: the per-probe relocation offsets ride there.
+		uint32 paramProbes;
+		bool relocation;
 		uint32 cursor;
 	};
 

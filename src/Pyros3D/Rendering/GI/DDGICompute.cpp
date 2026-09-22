@@ -37,7 +37,8 @@ namespace p3d {
 		  visStage(0), visProgram(0), visPipeline(0),
 		  bTris(0), bNodes(0), bIdx(0), bMats(0), bLights(0),
 		  radStage(0), radProgram(0), radPipeline(0),
-		  bRays(0), bIrr(0), bVis(0), bParams(0), bRad(0), radianceLevels(0), irrTexels(0),
+		  statStage(0), statProgram(0), statPipeline(0),
+		  bRays(0), bIrr(0), bVis(0), bParams(0), bRad(0), bStats(0), radianceLevels(0), irrTexels(0), paramProbes(0), relocation(false),
 		  maxRaysPerProbe(0), maxBatch(0), cursor(0)
 	{
 	}
@@ -119,11 +120,14 @@ namespace p3d {
 
 		echo("DDGICompute: kernels from " + usedRoot);
 		radianceLevels = volume.GetRadianceLevels();
+		relocation = volume.GetProbeRelocation();
 		if (!CompileStage(source, "DDGI_STAGE_TRACE", traceStage, traceProgram, tracePipeline)
 		 || !CompileStage(source, "DDGI_STAGE_IRRADIANCE", irrStage, irrProgram, irrPipeline)
 		 || !CompileStage(source, "DDGI_STAGE_VISIBILITY", visStage, visProgram, visPipeline)
 		 || (radianceLevels > 0
-			&& !CompileStage(source, "DDGI_STAGE_RADIANCE", radStage, radProgram, radPipeline)))
+			&& !CompileStage(source, "DDGI_STAGE_RADIANCE", radStage, radProgram, radPipeline))
+		 || (relocation
+			&& !CompileStage(source, "DDGI_STAGE_STATS", statStage, statProgram, statPipeline)))
 		{
 			Shutdown();
 			return false;
@@ -173,7 +177,14 @@ namespace p3d {
 		irrTexels = irr.GetWidth() * irr.GetHeight();
 		bIrr = dev.CreateStorageBuffer(irrTexels*2*4*(uint32)sizeof(f32), 6, NULL);
 		bVis = dev.CreateStorageBuffer(vis.GetWidth()*vis.GetHeight()*4*(uint32)sizeof(f32), 7, NULL);
-		bParams = dev.CreateStorageBuffer(8 * 4 * (uint32)sizeof(f32), 8, NULL);
+		// Eight fixed vec4s, then one per probe for the relocation
+		// offsets. Those are decided on the CPU, so they belong in the
+		// buffer the CPU already rewrites each batch rather than in a
+		// storage binding of their own.
+		paramProbes = volume.ProbeCount();
+		bParams = dev.CreateStorageBuffer((8 + paramProbes) * 4 * (uint32)sizeof(f32), 8, NULL);
+		if (relocation)
+			bStats = dev.CreateStorageBuffer(maxBatch * 3 * 4 * (uint32)sizeof(f32), 10, NULL);
 
 		const ProbeAtlas &rad = volume.GetRadianceAtlas();
 		if (radianceLevels > 0)
@@ -287,7 +298,10 @@ namespace p3d {
 			if (cursor >= total) cursor = 0;
 			const uint32 batch = std::min(std::min(maxBatch, wanted - done), total - cursor);
 
-			f32 params[32] = {0};
+			// Fixed block plus the probe offsets. Heap rather than a
+			// stack array now that it scales with the probe count.
+			std::vector<f32> paramBuf((size_t)(8 + paramProbes) * 4, 0.f);
+			f32 *params = paramBuf.data();
 			params[0]=volume.origin.x; params[1]=volume.origin.y; params[2]=volume.origin.z; params[3]=(f32)total;
 			params[4]=volume.spacing.x; params[5]=volume.spacing.y; params[6]=volume.spacing.z; params[7]=(f32)rays;
 			params[8]=(f32)volume.counts[0]; params[9]=(f32)volume.counts[1]; params[10]=(f32)volume.counts[2];
@@ -301,10 +315,20 @@ namespace p3d {
 			params[26]=(f32)radianceLevels; params[27]=DDGIVolume::MinRoughness();
 			params[28]=volume.GetMultiBounce(); params[29]=volume.GetFeedbackNormalBias();
 			params[30]=(f32)irrTexels;
-			dev.UpdateStorageBuffer(bParams, 0, sizeof(params), params);
+			{
+				const std::vector<Vec4> &pd = volume.GetProbeData();
+				for (uint32 i = 0; i < paramProbes && i < pd.size(); i++)
+				{
+					params[32 + i*4 + 0] = pd[i].x;
+					params[32 + i*4 + 1] = pd[i].y;
+					params[32 + i*4 + 2] = pd[i].z;
+					params[32 + i*4 + 3] = pd[i].w;
+				}
+			}
+			dev.UpdateStorageBuffer(bParams, 0, (uint32)(paramBuf.size()*sizeof(f32)), params);
 
-			const uint32 bufCount = radianceLevels > 0 ? 10 : 9;
-			const DeviceHandle bufs[10] = { bTris,bNodes,bIdx,bMats,bLights,bRays,bIrr,bVis,bParams,bRad };
+			const uint32 bufCount = relocation ? 11 : (radianceLevels > 0 ? 10 : 9);
+			const DeviceHandle bufs[11] = { bTris,bNodes,bIdx,bMats,bLights,bRays,bIrr,bVis,bParams,bRad,bStats };
 
 			// Trace.
 			dev.BindComputePipeline(0, tracePipeline);
@@ -335,6 +359,30 @@ namespace p3d {
 				for (uint32 b = 0; b < bufCount; b++) dev.BindStorageBuffer(0, bufs[b], b);
 				const uint32 threads = batch * rad.GetResolution() * rad.GetResolution() * radianceLevels;
 				dev.Dispatch(0, (threads + 63) / 64, 1, 1);
+			}
+			// Relocation statistics, one thread per probe, reduced
+			// from the same rays. Read back below and turned into an
+			// offset by DDGIVolume::ApplyRelocation - the same
+			// function the CPU path calls.
+			if (relocation)
+			{
+				dev.BindComputePipeline(0, statPipeline);
+				for (uint32 b = 0; b < bufCount; b++) dev.BindStorageBuffer(0, bufs[b], b);
+				dev.Dispatch(0, (batch + 63) / 64, 1, 1);
+				dev.ComputeBarrier(0, ComputeBarrierBit::HostRead);
+
+				std::vector<f32> st((size_t)batch * 3 * 4, 0.f);
+				dev.ReadStorageBuffer(bStats, 0, (uint32)(st.size()*sizeof(f32)), st.data());
+				for (uint32 i = 0; i < batch; i++)
+				{
+					ProbeRayStats s;
+					s.backfaceRatio = st[i*12 + 0];
+					s.closestFront  = st[i*12 + 1];
+					s.openLength    = st[i*12 + 2];
+					s.closestFrontDir = Vec3(st[i*12+4], st[i*12+5], st[i*12+6]);
+					s.openDir         = Vec3(st[i*12+8], st[i*12+9], st[i*12+10]);
+					volume.ApplyRelocation(cursor + i, s);
+				}
 			}
 			dev.ComputeBarrier(0, ComputeBarrierBit::StorageBuffer);
 
@@ -400,6 +448,11 @@ namespace p3d {
 				for (uint32 c = 0; c < ch && c < 4; c++)
 					dst[t*ch+c] = tmp[t*4+c];
 		}
+		if (relocation)
+		{
+			volume.CommitRelocation();
+			volume.ValidateClassification();
+		}
 		volume.FillAtlasBorders();
 		return true;
 	}
@@ -409,22 +462,22 @@ namespace p3d {
 		if (!initialized && tracePipeline == 0)
 			return;
 		IRenderDevice &dev = GetActiveRenderDevice();
-		const DeviceHandle bufs[10] = { bTris,bNodes,bIdx,bMats,bLights,bRays,bIrr,bVis,bParams,bRad };
-		for (uint32 i = 0; i < 10; i++) if (bufs[i] != 0) dev.DestroyStorageBuffer(bufs[i]);
-		bTris=bNodes=bIdx=bMats=bLights=bRays=bIrr=bVis=bParams=bRad=0;
+		const DeviceHandle bufs[11] = { bTris,bNodes,bIdx,bMats,bLights,bRays,bIrr,bVis,bParams,bRad,bStats };
+		for (uint32 i = 0; i < 11; i++) if (bufs[i] != 0) dev.DestroyStorageBuffer(bufs[i]);
+		bTris=bNodes=bIdx=bMats=bLights=bRays=bIrr=bVis=bParams=bRad=bStats=0;
 
-		const DeviceHandle pipes[4] = { tracePipeline, irrPipeline, visPipeline, radPipeline };
-		const DeviceHandle progs[4] = { traceProgram, irrProgram, visProgram, radProgram };
-		const DeviceHandle stages[4] = { traceStage, irrStage, visStage, radStage };
-		for (uint32 i = 0; i < 4; i++)
+		const DeviceHandle pipes[5] = { tracePipeline, irrPipeline, visPipeline, radPipeline, statPipeline };
+		const DeviceHandle progs[5] = { traceProgram, irrProgram, visProgram, radProgram, statProgram };
+		const DeviceHandle stages[5] = { traceStage, irrStage, visStage, radStage, statStage };
+		for (uint32 i = 0; i < 5; i++)
 		{
 			if (pipes[i] != 0) dev.DestroyComputePipeline(pipes[i]);
 			if (progs[i] != 0) dev.DeleteProgram(progs[i]);
 			if (stages[i] != 0) dev.DeleteShaderStage(stages[i]);
 		}
-		tracePipeline=irrPipeline=visPipeline=radPipeline=0;
-		traceProgram=irrProgram=visProgram=radProgram=0;
-		traceStage=irrStage=visStage=radStage=0;
+		tracePipeline=irrPipeline=visPipeline=radPipeline=statPipeline=0;
+		traceProgram=irrProgram=visProgram=radProgram=statProgram=0;
+		traceStage=irrStage=visStage=radStage=statStage=0;
 		initialized = false;
 		cursor = 0;
 		radianceLevels = 0;

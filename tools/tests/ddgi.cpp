@@ -33,14 +33,41 @@ static void check(bool c, const std::string &what, const std::string &extra = ""
 
 static void AddQuad(RayScene &s, const Vec3 &a, const Vec3 &b, const Vec3 &c, const Vec3 &d, uint32 mat)
 {
+	// Wound so the face points INTO the box, which is what a room is:
+	// you see a wall because its front faces you. The obvious winding
+	// (a,b,c) gives the opposite - the outside of a solid - and every
+	// surface then reads as a backface from inside, which is invisible
+	// to shading (ShadeHit flips the normal toward the ray) and fatal
+	// to probe classification, which uses exactly that signal to decide
+	// whether a probe is buried.
 	RayTriangle t1, t2;
-	t1.v0=a; t1.v1=b; t1.v2=c; t1.materialIndex=mat;
-	t2.v0=a; t2.v1=c; t2.v2=d; t2.materialIndex=mat;
-	Vec3 n = (b-a).cross(c-a).normalize();
+	t1.v0=a; t1.v1=c; t1.v2=b; t1.materialIndex=mat;
+	t2.v0=a; t2.v1=d; t2.v2=c; t2.materialIndex=mat;
+	Vec3 n = (c-a).cross(b-a).normalize();
 	t1.n0=t1.n1=t1.n2=n;
 	t2.n0=t2.n1=t2.n2=n;
 	s.triangles.push_back(t1);
 	s.triangles.push_back(t2);
+}
+
+// A solid object inside the room: six faces pointing OUT of it, which
+// is the opposite of AddQuad's room shell and is what makes the two
+// distinguishable to a probe. A probe inside this box sees backfaces
+// in every direction; a probe outside sees fronts.
+static void AddSolidBox(RayScene &s, const Vec3 &c, const Vec3 &h, uint32 mat)
+{
+	const Vec3 p000(c.x-h.x, c.y-h.y, c.z-h.z), p100(c.x+h.x, c.y-h.y, c.z-h.z);
+	const Vec3 p110(c.x+h.x, c.y+h.y, c.z-h.z), p010(c.x-h.x, c.y+h.y, c.z-h.z);
+	const Vec3 p001(c.x-h.x, c.y-h.y, c.z+h.z), p101(c.x+h.x, c.y-h.y, c.z+h.z);
+	const Vec3 p111(c.x+h.x, c.y+h.y, c.z+h.z), p011(c.x-h.x, c.y+h.y, c.z+h.z);
+	// AddQuad winds inward, so each face is given in the order that
+	// makes "inward for that quad" point away from the box centre.
+	AddQuad(s, p001, p101, p100, p000, mat);   // -Y
+	AddQuad(s, p010, p110, p111, p011, mat);   // +Y
+	AddQuad(s, p000, p100, p110, p010, mat);   // -Z
+	AddQuad(s, p101, p001, p011, p111, mat);   // +Z
+	AddQuad(s, p001, p000, p010, p011, mat);   // -X
+	AddQuad(s, p100, p101, p111, p110, mat);   // +X
 }
 
 static uint32 AddMaterial(RayScene &s, const Vec3 &albedo)
@@ -264,6 +291,173 @@ int main()
 		// volume lies entirely INSIDE its box, so a sample beyond the
 		// floor is clamped back into the lit room and would measure a
 		// leak of exactly 1.0 whatever the code did.
+	}
+
+	// ---- probe relocation -------------------------------------------------
+	//
+	// The last structural weakness of a fixed grid: a probe that lands
+	// inside geometry. It sees the inside of that surface in every
+	// direction, so its distance moments are near zero, and a point on
+	// the far side of the wall passes the Chebyshev test against
+	// them - while the backface weight's 0.2 floor lets a fifth of a
+	// fully lit probe through. The wall stops the light and the probe
+	// carries it across anyway.
+	//
+	// A room divided by a SOLID slab, with a probe plane landing inside
+	// the slab. Solid, not a single quad: a probe exactly coplanar with
+	// a zero-thickness quad never intersects it at all, so no statistic
+	// sees anything wrong and there is nothing for relocation to act
+	// on. Real walls have thickness, and that is the case worth fixing.
+	{
+		RayScene room;
+		const uint32 grey = AddMaterial(room, Vec3(0.8f, 0.8f, 0.8f));
+		const f32 B = 6.f;
+		AddQuad(room, Vec3(-B,-B,-B), Vec3( B,-B,-B), Vec3( B,-B, B), Vec3(-B,-B, B), grey);
+		AddQuad(room, Vec3(-B, B, B), Vec3( B, B, B), Vec3( B, B,-B), Vec3(-B, B,-B), grey);
+		AddQuad(room, Vec3(-B,-B, B), Vec3( B,-B, B), Vec3( B, B, B), Vec3(-B, B, B), grey);
+		AddQuad(room, Vec3( B,-B,-B), Vec3(-B,-B,-B), Vec3(-B, B,-B), Vec3( B, B,-B), grey);
+		AddQuad(room, Vec3(-B,-B,-B), Vec3(-B,-B, B), Vec3(-B, B, B), Vec3(-B, B,-B), grey);
+		AddQuad(room, Vec3( B,-B, B), Vec3( B,-B,-B), Vec3( B, B,-B), Vec3( B, B, B), grey);
+		// The divider, straddling x = 0 and sealing the room in two.
+		// Deliberately taller and deeper than the room, so it pokes
+		// through the walls instead of meeting them. A slab that ends
+		// exactly at a wall puts two triangles in the same plane -
+		// one facing in, one facing out - and a ray landing there can
+		// legitimately return either, so whether it counts as a
+		// backface becomes a coin toss decided by traversal order.
+		// The CPU and GPU walk the BVH differently and disagreed on
+		// 18 of 125 probes because of it, which looked like a
+		// relocation bug and was a modelling one.
+		AddSolidBox(room, Vec3(0.f, 0.f, 0.f), Vec3(0.8f, B + 1.f, B + 1.f), grey);
+		room.Build(4);
+
+		// Lit on the +X side only. The -X half has no light of its own,
+		// so anything measured there arrived through the slab.
+		std::vector<RayLight> lamp(1);
+		lamp[0].isPoint = 1.f;
+		lamp[0].positionOrDirection = Vec3(3.f, 0.f, 0.f);
+		lamp[0].color = Vec3(6.f, 6.f, 6.f);
+		lamp[0].range = 30.f;
+
+		// Spacing 3 from -6 puts a probe plane at exactly x = 0, inside
+		// the slab.
+		const Vec3 darkSide(-1.5f, 0.f, 0.f);       // just behind the slab
+		const Vec3 litSide( 1.5f, 0.f, 0.f);
+		const Vec3 towardSlab(-1.f, 0.f, 0.f);
+		const Vec3 awayFromSlab(1.f, 0.f, 0.f);
+
+		f32 darkOff = 0.f, darkOn = 0.f, litOff = 0.f, litOn = 0.f, maxOffset = 0.f;
+		uint32 moved = 0, switched = 0;
+
+		for (uint32 pass = 0; pass < 2; pass++)
+		{
+			DDGIVolume v;
+			v.Allocate(Vec3(-6,-6,-6), Vec3(3,3,3), 5,5,5, 8, 16);
+			v.SetProbeRelocation(pass == 1);
+			for (uint32 f = 0; f < 12; f++)
+				v.Update(room, lamp, 128, f, 0.f, 0);
+
+			// Facing the slab from the dark side: the worst case, since
+			// the backface term favours exactly the probes inside it.
+			const f32 dark = v.SampleIrradiance(darkSide, awayFromSlab).x;
+			const f32 lit = v.SampleIrradiance(litSide, towardSlab).x;
+			if (pass == 0) { darkOff = dark; litOff = lit; }
+			else
+			{
+				darkOn = dark; litOn = lit;
+				const Vec3 bound = v.GetMaxProbeOffset();
+				bool inCell = true;
+				for (uint32 p = 0; p < v.ProbeCount(); p++)
+				{
+					const Vec4 &d = v.GetProbeData()[p];
+					const f32 m = fmaxf(fabsf(d.x), fmaxf(fabsf(d.y), fabsf(d.z)));
+					if (m > 1e-4f) moved++;
+					if (d.w <= 0.5f) switched++;
+					maxOffset = fmaxf(maxOffset, m);
+					if (fabsf(d.x) > bound.x + 1e-4f || fabsf(d.y) > bound.y + 1e-4f ||
+						fabsf(d.z) > bound.z + 1e-4f)
+						inCell = false;
+				}
+				// A probe that wanders out of its own cell is being
+				// weighted by a trilinear interpolation computed for
+				// where it is not - a worse artefact than the one
+				// relocation set out to fix.
+				check(inCell, "every probe offset stays inside its own cell",
+					"largest " + std::to_string(maxOffset) + " against bound "
+					+ std::to_string(bound.x));
+			}
+		}
+
+		printf("      buried probes: %u/%u relocated, %u switched off, largest offset %.3f\n",
+			moved, 125u, switched, maxOffset);
+		printf("      behind the slab: %.4f -> %.4f   (lit side %.4f -> %.4f)\n",
+			darkOff, darkOn, litOff, litOn);
+
+		check(moved + switched > 0, "probes inside the slab are noticed at all",
+			std::to_string(moved) + " moved, " + std::to_string(switched) + " off");
+		// The residue, not the whole leak: Chebyshev already rejects
+		// most of what a buried probe would otherwise carry across, so
+		// what is left here is small in absolute terms - a few tenths
+		// of a percent of the lit side. It is still light arriving
+		// through a sealed wall from nowhere, it is exactly what makes
+		// a probe grid look subtly wrong rather than obviously broken,
+		// and it is what relocation is for.
+		check(darkOff > 1e-3f,
+			"without relocation, light crosses a solid wall",
+			"dark = " + std::to_string(darkOff) + " against lit "
+			+ std::to_string(litOff) + " (" + std::to_string(darkOff/fmaxf(litOff,1e-6f)) + ")");
+		check(darkOn < darkOff * 0.35f, "and relocation removes most of what is left",
+			std::to_string(darkOff) + " -> " + std::to_string(darkOn));
+		// Fixing a leak by putting the lights out would pass the check
+		// above and be worthless.
+		// It gets BRIGHTER, in fact: the probes inside the slab were
+		// being averaged into the lit side's gather as near-black, and
+		// moving them out stops that.
+		check(litOn > litOff * 0.5f, "without darkening the side that is lit",
+			"lit " + std::to_string(litOff) + " -> " + std::to_string(litOn));
+	}
+
+	// ---- content whose winding cannot be trusted ---------------------------
+	//
+	// Classification reads "was this surface hit from behind", which
+	// assumes triangles are wound with their fronts toward the probes.
+	// A scene wound the other way makes every probe look buried, and
+	// switching them all off would delete the lighting of a scene that
+	// merely has its normals backwards. The volume must notice and stop
+	// classifying instead.
+	{
+		RayScene inverted;
+		const uint32 grey = AddMaterial(inverted, Vec3(0.8f, 0.8f, 0.8f));
+		const f32 B = 4.f;
+		// AddQuad winds inward, so passing the corners in reverse winds
+		// these outward - a room whose walls all face away from it.
+		AddQuad(inverted, Vec3(-B,-B, B), Vec3( B,-B, B), Vec3( B,-B,-B), Vec3(-B,-B,-B), grey);
+		AddQuad(inverted, Vec3(-B, B,-B), Vec3( B, B,-B), Vec3( B, B, B), Vec3(-B, B, B), grey);
+		AddQuad(inverted, Vec3(-B, B, B), Vec3( B, B, B), Vec3( B,-B, B), Vec3(-B,-B, B), grey);
+		AddQuad(inverted, Vec3(-B, B,-B), Vec3(-B,-B,-B), Vec3( B,-B,-B), Vec3( B, B,-B), grey);
+		AddQuad(inverted, Vec3(-B, B,-B), Vec3(-B, B, B), Vec3(-B,-B, B), Vec3(-B,-B,-B), grey);
+		AddQuad(inverted, Vec3( B, B, B), Vec3( B, B,-B), Vec3( B,-B,-B), Vec3( B,-B, B), grey);
+		inverted.Build(4);
+
+		std::vector<RayLight> lamp(1);
+		lamp[0].isPoint = 1.f;
+		lamp[0].positionOrDirection = Vec3(0.f, 2.f, 0.f);
+		lamp[0].color = Vec3(5.f, 5.f, 5.f);
+		lamp[0].range = 20.f;
+
+		DDGIVolume v;
+		v.Allocate(Vec3(-3,-3,-3), Vec3(1.5f,1.5f,1.5f), 5,5,5, 8, 16);
+		for (uint32 f = 0; f < 6; f++)
+			v.Update(inverted, lamp, 128, f, 0.f, 0);
+
+		uint32 off = 0;
+		for (uint32 p = 0; p < v.ProbeCount(); p++)
+			if (v.GetProbeData()[p].w <= 0.5f) off++;
+		const f32 lit = v.SampleIrradiance(Vec3(0.f,-2.f,0.f), up).x;
+		printf("      inverted winding: %u/%u probes off, irradiance %.4f\n", off, v.ProbeCount(), lit);
+		check(off == 0, "a scene with inverted winding disables classification rather than itself",
+			std::to_string(off) + " probes switched off");
+		check(lit > 0.05f, "and still lights the room", "E = " + std::to_string(lit));
 	}
 
 	printf("\n%s  ddgi: %d failure(s)\n", failures?"FAIL":"PASS", failures);

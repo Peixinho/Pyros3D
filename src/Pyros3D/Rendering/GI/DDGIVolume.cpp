@@ -18,7 +18,7 @@ namespace p3d {
 
 	DDGIVolume::DDGIVolume()
 		: origin(0.f,0.f,0.f), spacing(1.f,1.f,1.f),
-		  radianceLevels(0), multiBounce(1.f),
+		  radianceLevels(0), multiBounce(1.f), relocationEnabled(true), classificationTrusted(true),
 		  skyColor(0.f,0.f,0.f), maxRayDistance(100.f), updateCursor(0)
 	{
 		counts[0] = counts[1] = counts[2] = 0;
@@ -31,11 +31,20 @@ namespace p3d {
 			&& irradiance.GetResolution() > 0 && visibility.GetResolution() > 0;
 	}
 
-	Vec3 DDGIVolume::ProbePosition(const uint32 x, const uint32 y, const uint32 z) const
+	Vec3 DDGIVolume::ProbeGridPosition(const uint32 x, const uint32 y, const uint32 z) const
 	{
 		return Vec3(origin.x + spacing.x * (f32)x,
 					origin.y + spacing.y * (f32)y,
 					origin.z + spacing.z * (f32)z);
+	}
+
+	Vec3 DDGIVolume::ProbePosition(const uint32 x, const uint32 y, const uint32 z) const
+	{
+		const Vec3 base = ProbeGridPosition(x, y, z);
+		const uint32 i = Index(x, y, z);
+		if (i >= probeData.size())
+			return base;
+		return base + Vec3(probeData[i].x, probeData[i].y, probeData[i].z);
 	}
 
 	void DDGIVolume::SetMultiBounce(const f32 strength)
@@ -91,6 +100,10 @@ namespace p3d {
 		// Specular is opt-out. The atlas is levels times the size of
 		// the irradiance one, so a scene that only wants bounce light
 		// should not be paying for it.
+		// One offset per probe, all zero: an unrelocated grid is exactly
+		// the grid, so a volume that never relocates behaves as before.
+		probeData.assign(total, Vec4(0.f, 0.f, 0.f, 1.f));
+
 		radianceLevels = levels;
 		radiance.Clear();
 		if (radianceLevels > 0)
@@ -135,6 +148,114 @@ namespace p3d {
 		const f32 cosTheta = 1.f - 2.f * i / n;
 		const f32 sinTheta = sqrtf(std::max(0.f, 1.f - cosTheta * cosTheta));
 		return Vec3(cosf(phi) * sinTheta, sinf(phi) * sinTheta, cosTheta);
+	}
+
+	void DDGIVolume::ApplyRelocation(const uint32 probe, const ProbeRayStats &stats)
+	{
+		if (probe >= probeData.size())
+			return;
+		if (pendingProbeData.size() != probeData.size())
+			pendingProbeData = probeData;
+
+		const Vec3 maxOffset = GetMaxProbeOffset();
+		const f32 cell = std::min(std::min(spacing.x, spacing.y), spacing.z);
+
+		// From the live offsets, not the pending ones: every probe in
+		// a pass steps from where it was when the pass began.
+		Vec3 offset(probeData[probe].x, probeData[probe].y, probeData[probe].z);
+		f32 active = 1.f;
+
+		if (stats.backfaceRatio > 0.25f)
+		{
+			// Inside something. Head for the most open direction the
+			// rays found; averaging the backface directions and
+			// reversing that sounds more principled and is worse,
+			// because a probe in a corner has backfaces pointing every
+			// way and their average is nearly zero.
+			if (stats.openLength > 1e-6f)
+				offset += stats.openDir * (cell * 0.25f);
+			// Still mostly enclosed: there is nowhere in this cell that
+			// is not inside geometry, so the probe has nothing to
+			// contribute and says so rather than contributing nonsense.
+			if (stats.backfaceRatio > 0.6f && classificationTrusted)
+				active = 0.f;
+		}
+		else if (stats.closestFront < cell * 0.12f)
+		{
+			// Not inside anything, but pressed against a surface, where
+			// its visibility moments are dominated by that one surface.
+			// Back away from it.
+			offset -= stats.closestFrontDir * (cell * 0.25f);
+		}
+		else if (stats.backfaceRatio < 0.05f && stats.closestFront > cell * 0.3f)
+		{
+			// Comfortably in the open. Drift back toward the cell
+			// centre, so a probe relocated around a wall that has since
+			// been deleted does not stay displaced forever.
+			offset = offset * 0.85f;
+		}
+		// Otherwise: hold.
+		//
+		// The gap between "buried" (0.25) and "comfortable" (0.05)
+		// exists because without it relocation never settles. A probe
+		// pushed just clear of a wall stops being buried, immediately
+		// starts drifting back toward the cell centre, is buried
+		// again, is pushed out again - orbiting the boundary forever.
+		// In a static scene that is visible flicker; across two
+		// backends it is worse, because a probe on a limit cycle
+		// amplifies the last-bit differences between two intersectors
+		// until the two disagree about where it is entirely.
+		//
+		// With the gap, a relocated probe lands in the hold band and
+		// stays there.
+
+		// Clamped per axis, not by length: the constraint is that the
+		// probe stays in its own cell, and a cell is a box.
+		offset.x = std::min(std::max(offset.x, -maxOffset.x), maxOffset.x);
+		offset.y = std::min(std::max(offset.y, -maxOffset.y), maxOffset.y);
+		offset.z = std::min(std::max(offset.z, -maxOffset.z), maxOffset.z);
+
+		pendingProbeData[probe] = Vec4(offset.x, offset.y, offset.z, active);
+	}
+
+	void DDGIVolume::CommitRelocation()
+	{
+		if (pendingProbeData.size() != probeData.size())
+			return;
+		probeData = pendingProbeData;
+		pendingProbeData.clear();
+	}
+
+	void DDGIVolume::ValidateClassification()
+	{
+		// "Inside geometry" is decided by how many rays hit a surface
+		// from behind, which assumes the scene's triangles are wound
+		// consistently with their fronts facing the space the probes
+		// are in. Plenty of real content is not: single-sided quads
+		// authored facing the wrong way, unclosed meshes, geometry
+		// mirrored by a negative scale. In such a scene every probe
+		// looks buried and classification would switch off the whole
+		// volume - GI silently disappears, and nothing says why.
+		//
+		// So it is the SIGNAL that gets disbelieved, not the scene. One
+		// way: once the winding is known to be unreliable it stays
+		// unreliable, and only classification is dropped - relocation
+		// keeps working, since it is driven by distances rather than by
+		// which side of a surface was hit.
+		if (!relocationEnabled || !classificationTrusted || probeData.empty())
+			return;
+		uint32 inactive = 0;
+		for (size_t i = 0; i < probeData.size(); i++)
+			if (probeData[i].w <= 0.5f) inactive++;
+		if (inactive * 4 <= probeData.size() * 3)
+			return;
+		classificationTrusted = false;
+		for (size_t i = 0; i < probeData.size(); i++)
+			probeData[i].w = 1.f;
+		echo("WARNING: DDGI - three quarters of the probes look enclosed, which almost "
+			 "always means the scene's triangle winding is inconsistent rather than that "
+			 "the probes are buried. Probe classification disabled for this volume; "
+			 "relocation still runs.");
 	}
 
 	Vec3 DDGIVolume::ShadeHit(const RayScene &scene, const RayHit &hit,
@@ -234,6 +355,9 @@ namespace p3d {
 		std::vector<Vec3> rayDir(raysPerProbe);
 		std::vector<Vec3> rayRadiance(raysPerProbe);
 		std::vector<f32> rayDistance(raysPerProbe);
+		// Whether each ray struck a surface from BEHIND - the signal
+		// relocation reads. See RelocateProbe.
+		std::vector<uint8> rayBackface(raysPerProbe, 0);
 
 		const uint32 total = ProbeCount();
 		const uint32 wanted = (probeBudget == 0 || probeBudget > total) ? total : probeBudget;
@@ -265,10 +389,20 @@ namespace p3d {
 				{
 					rayRadiance[r] = ShadeHit(scene, hit, p, d, lights);
 					rayDistance[r] = hit.t;
+					// GEOMETRIC normal, from the triangle's own winding,
+					// not the interpolated vertex normals ShadeHit uses.
+					// Smooth normals can point back toward the ray on a
+					// curved surface seen edge-on, which would report a
+					// backface where there is none and walk the probe
+					// out of a perfectly good cell.
+					const RayTriangle &tri = scene.triangles[hit.triangle];
+					const Vec3 gn = (tri.v1 - tri.v0).cross(tri.v2 - tri.v0);
+					rayBackface[r] = (gn.dotProduct(d) > 0.f) ? 1 : 0;
 				}
 				else
 				{
 					rayRadiance[r] = skyColor;
+					rayBackface[r] = 0;
 					// A miss is "nothing out to here", which is what the
 					// visibility moments should record - not zero, which
 					// would claim a wall at the probe itself.
@@ -403,10 +537,38 @@ namespace p3d {
 					dst[2] = dst[2] * hysteresis + sum.z * (1.f - hysteresis);
 				}
 			}
+
+			// Last, so this probe's atlases were written from the
+			// position it actually traced from. The new offset takes
+			// effect on its next update.
+			if (relocationEnabled)
+			{
+				ProbeRayStats stats;
+				uint32 backfaces = 0;
+				Vec3 open(0.f, 0.f, 0.f);
+				for (uint32 r = 0; r < raysPerProbe; r++)
+				{
+					if (rayBackface[r]) { backfaces++; continue; }
+					if (rayDistance[r] < stats.closestFront)
+					{
+						stats.closestFront = rayDistance[r];
+						stats.closestFrontDir = rayDir[r];
+					}
+					open += rayDir[r] * rayDistance[r];
+				}
+				stats.backfaceRatio = (f32)backfaces / (f32)raysPerProbe;
+				stats.openLength = open.magnitude();
+				if (stats.openLength > 1e-6f)
+					stats.openDir = open * (1.f / stats.openLength);
+				ApplyRelocation(probe, stats);
+			}
 		}
 
 		if (updateCursor >= total)
 			updateCursor = 0;
+
+		CommitRelocation();
+		ValidateClassification();
 
 		// Borders are refilled for the whole atlas rather than per probe
 		// touched: it is a cheap pass over data already in cache, and
@@ -497,6 +659,13 @@ namespace p3d {
 					weight *= std::max(cheb * cheb * cheb, 0.f);
 				}
 			}
+
+			// A probe classified as enclosed contributes nothing. Not
+			// merely dimmed: a probe inside a wall has no lighting to
+			// contribute at all, and letting it through at any weight
+			// is the leak relocation exists to remove.
+			if (!IsProbeActive(probe))
+				continue;
 
 			if (weight <= 1e-6f)
 				continue;
