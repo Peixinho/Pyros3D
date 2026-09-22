@@ -195,6 +195,51 @@ jobs:
         shell: pwsh
         run: cmake --build build --parallel
 
+      - name: CPU tests
+        # Windows ran no tests at all. It built four configurations and
+        # packaged them, and every assertion this repo has was checked
+        # on Linux or macOS - which is exactly backwards for the
+        # platform whose distinctive failure is an uninitialised member
+        # that reads as NULL under one compiler and garbage under
+        # another.
+        #
+        # One leg only: this is CPU code and MSVC is MSVC whichever
+        # backend the engine was built against. The DLL leg rather than
+        # the static one because linking against the import library
+        # needs nothing but PyrosEngine.lib, while a static libary
+        # would drag in every vcpkg dependency by hand.
+        #
+        # _IMPORT is what turns PYROS3D_API into dllimport for a
+        # consumer - see include/Pyros3D/Other/Export.h. Without it the
+        # macro is empty and class data symbols do not resolve.
+        #
+        # Built by hand rather than through CMake, matching every other
+        # binary in tools/tests.
+        if: matrix.name == 'OpenGL / DLL'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $inc = "build\vcpkg_installed\x64-windows\include"
+          # The DLL lives next to its import library; the tests load it
+          # at startup.
+          $env:PATH = "$PWD\build;$env:PATH"
+          $tests = @(
+            "brdf_lut", "sh_irradiance", "octahedral", "probe_grid",
+            "bvh", "ddgi", "ddgi_specular", "ray_scene_moving",
+            "static_registration", "child_registration"
+          )
+          foreach ($t in $tests) {
+            Write-Host "--- $t ---"
+            cl /nologo /std:c++17 /EHsc /O2 /D_IMPORT `
+              /I include /I $inc `
+              tools\tests\$t.cpp `
+              /Fe:"$env:TEMP\$t.exe" /Fo:"$env:TEMP\" `
+              /link /LIBPATH:build PyrosEngine.lib
+            if ($LASTEXITCODE -ne 0) { throw "$t failed to build" }
+            & "$env:TEMP\$t.exe"
+            if ($LASTEXITCODE -ne 0) { throw "$t failed" }
+          }
+
       - name: Package
         shell: pwsh
         run: |

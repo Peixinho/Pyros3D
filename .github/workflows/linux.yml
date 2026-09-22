@@ -434,18 +434,20 @@ jobs:
         # ordered without submitting, a bytes-per-row assert. None of
         # those would have been caught by a smoke test.
         #
-        # These three are the cheap part of that coverage: two 64-thread
-        # dispatches and one of 1024 rays, so llvmpipe finishes them in
-        # seconds. Each reads the shipped GLSL, compiles it as compute
+        # The first three are cheap: two 64-thread dispatches and one of
+        # 1024 rays, so llvmpipe finishes them in seconds. Each reads the shipped GLSL, compiles it as compute
         # and compares against the C++ it is supposed to mirror - so
         # what they prove is that the shaders the renderer ships
         # compile and compute the same answers on GL. bvh_gpu covers
         # the BVH traversal kernel, which is the core of the tracing.
         #
-        # ddgi_gpu is deliberately NOT here: 343 probes over several
-        # multi-update sections is millions of rays through a software
-        # rasteriser, and nobody has measured what that costs on
-        # llvmpipe. It stays on macOS until someone does.
+        # ddgi_gpu runs too, in the reduced configuration its Quick()
+        # describes: every kernel still executes and every texel is
+        # still compared to 1e-6, but the sections needing five to
+        # fourteen updates are skipped and named in the output. Not
+        # loosened - weakening a 1e-6 comparison to make it fit would
+        # have made the test pointless. 3.7s full against 0.8s reduced
+        # on a real GPU, and llvmpipe has none.
         #
         # A SKIP is a hard failure here for the same reason it is in the
         # step above: on this job it means the coverage evaporated.
@@ -457,15 +459,20 @@ jobs:
           SDLL="$(pkg-config --libs sdl2)"
           cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
             src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
-          # bvh_gpu takes RTPARITY_GL rather than PARITY_GL - it
-          # predates the other two and kept its own define prefix.
-          for t in sh_shader_parity ddgi_specular_shader_parity bvh_gpu; do
-            if [ "$t" = "bvh_gpu" ]; then DEF=-DRTPARITY_GL; else DEF=-DPARITY_GL; fi
+          # Each of these kept its own define prefix as it was written.
+          for t in sh_shader_parity ddgi_specular_shader_parity bvh_gpu ddgi_gpu; do
+            case "$t" in
+              bvh_gpu)  DEF=-DRTPARITY_GL ;;
+              ddgi_gpu) DEF=-DDDGIGPU_GL ;;
+              *)        DEF=-DPARITY_GL ;;
+            esac
             c++ -std=c++17 -O2 -DGL45 $DEF \
               -I include -I include/Pyros3D/Ext/gl45 $FT $SDLC \
               tools/tests/$t.cpp /tmp/glad45.o -o /tmp/$t \
               -L build -lPyrosEngine $SDLL -Wl,-rpath,"$PWD/build"
             # Run from the repo root - they read resources/shaders/.
+            # ddgi_gpu takes its reduced configuration here.
+            if [ "$t" = "ddgi_gpu" ]; then export DDGI_GPU_QUICK=1; fi
             LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a /tmp/$t | tee /tmp/$t.out
             if grep -q '^SKIP' /tmp/$t.out; then
               echo "::error::$t SKIPped - llvmpipe did not give us a GL 4.3+ compute context"

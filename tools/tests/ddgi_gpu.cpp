@@ -11,12 +11,27 @@
 //       -o /tmp/ddgi_gpu -L build_metal -lPyrosEngine \
 //       -framework Foundation -framework Metal -Wl,-rpath,$PWD/build_metal
 //   /tmp/ddgi_gpu            # run from the repo root
-#if defined(DDGIGPU_METAL)
+// Build for GL 4.5 (Linux; llvmpipe + xvfb in CI, SKIPs below 4.3).
+// DDGI_GPU_QUICK=1 there - see Quick() below for what it skips and
+// why it does not weaken anything:
+//
+//   cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
+//       src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
+//   c++ -std=c++17 -DGL45 -DDDGIGPU_GL -I include -I include/Pyros3D/Ext/gl45 \
+//       $(pkg-config --cflags freetype2) $(pkg-config --cflags sdl2) \
+//       tools/tests/ddgi_gpu.cpp /tmp/glad45.o -o /tmp/ddgi_gpu \
+//       -L build -lPyrosEngine $(pkg-config --libs sdl2) -Wl,-rpath,$PWD/build
+//
+#if defined(DDGIGPU_GL)
+#include <Pyros3D/Other/PyrosGL.h>
+#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
+#include <SDL2/SDL.h>
+#elif defined(DDGIGPU_METAL)
 #include <Pyros3D/Rendering/Device/MetalRenderDevice.h>
 #elif defined(DDGIGPU_VULKAN)
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
 #else
-#error "Define DDGIGPU_METAL or DDGIGPU_VULKAN"
+#error "Define DDGIGPU_GL, DDGIGPU_METAL or DDGIGPU_VULKAN"
 #endif
 
 #include <Pyros3D/Rendering/GI/DDGICompute.h>
@@ -31,6 +46,30 @@ static void check(bool c, const std::string &what, const std::string &extra = ""
 {
 	printf("%s  %s%s%s\n", c?"PASS":"FAIL", what.c_str(), extra.empty()?"":" - ", extra.c_str());
 	if(!c) failures++;
+}
+
+// DDGI_GPU_QUICK runs the single-update parity sections and SKIPS the
+// ones that need many updates to say anything.
+//
+// It exists for software rasterisation. llvmpipe is the only way
+// OpenGL compute runs in CI at all, and the full configuration is
+// millions of rays through a BVH with no hardware behind it - an
+// unmeasured cost to hand a build.
+//
+// What it does NOT do is weaken a single threshold. That was the first
+// attempt: scale the ray counts down everywhere and widen the
+// tolerances to match. It makes the numbers pass and it makes the test
+// worthless, because the whole value here is that GPU and CPU agree to
+// 1e-6 - a comparison loosened to 8e-2 would let a real GL divergence
+// through while still printing PASS. Fewer sections at full strength
+// beats every section at reduced strength.
+//
+// The sections skipped are named in the output, so the log says what
+// was covered rather than implying everything was.
+static bool Quick() { return getenv("DDGI_GPU_QUICK") != NULL; }
+static void Skipped(const char *what)
+{
+	printf("      SKIPPED (DDGI_GPU_QUICK): %s\n", what);
 }
 
 static void AddQuad(RayScene &s, const Vec3 &a, const Vec3 &b, const Vec3 &c, const Vec3 &d, uint32 m)
@@ -62,19 +101,10 @@ static void AddSolidBox(RayScene &s, const Vec3 &c, const Vec3 &h, uint32 mat)
 static uint32 AddMat(RayScene &s, const Vec3 &a)
 { RayMaterial m; m.albedo=a; s.materials.push_back(m); return (uint32)s.materials.size()-1; }
 
-int main()
+// The comparison itself, on whatever device main() handed it.
+static int RunParity(IRenderDevice &device)
 {
-#if defined(DDGIGPU_METAL)
-	MetalRenderDevice device;
-	SetActiveRenderDevice(&device);
-	printf("      backend     Metal\n");
-#else
-	VulkanRenderDevice device;
-	if (device.GetInstance()==VK_NULL_HANDLE || !device.InitializeHeadless())
-	{ printf("SKIP  no usable Vulkan device\n"); return 0; }
-	SetActiveRenderDevice(&device);
-	printf("      backend     Vulkan (headless)\n");
-#endif
+	(void)device;
 	if (!device.SupportsCompute())
 	{ printf("SKIP  SupportsCompute() is false\n"); return 0; }
 
@@ -313,6 +343,8 @@ int main()
 	// drift: the CPU walks probes one at a time and the GPU traces 128
 	// at once, so they agree only because both snapshot the feedback
 	// source before either writes anything.
+	if (Quick()) Skipped("multi-bounce over five updates");
+	else
 	{
 		DDGIVolume mbCPU, mbGPU;
 		mbCPU.Allocate(Vec3(-4.f,-4.f,-4.f), Vec3(2.f,2.f,2.f), 4,4,4, 8, 16, 16, 4);
@@ -383,6 +415,8 @@ int main()
 	// the CPU's, and that the offsets it feeds back are then used when
 	// tracing. Get either wrong and the two diverge immediately,
 	// because a relocated probe traces from somewhere else.
+	if (Quick()) Skipped("probe relocation over eight updates");
+	else
 	{
 		RayScene room;
 		const uint32 grey = AddMat(room, Vec3(0.8f, 0.8f, 0.8f));
@@ -501,6 +535,8 @@ int main()
 	// used to be. RefitBVH updates the tree and DDGICompute::
 	// UpdateGeometry re-uploads it - and that upload is the part
 	// nothing else exercises.
+	if (Quick()) Skipped("moving geometry over fourteen updates");
+	else
 	{
 		RayScene room;
 		const uint32 grey = AddMat(room, Vec3(0.8f, 0.8f, 0.8f));
@@ -586,4 +622,92 @@ int main()
 
 	printf("\n%s  ddgi_gpu: %d failure(s)\n", failures?"FAIL":"PASS", failures);
 	return failures ? 1 : 0;
+}
+
+// Creates whatever context this backend needs, runs the comparison, and
+// tears down in the right order. Split from the test body so the same
+// body runs on three backends - and because a GL device has to be
+// destroyed while its context is still current, which a single main()
+// full of early returns cannot promise.
+int main()
+{
+#if defined(DDGIGPU_GL)
+	// Same shape as tools/tests/compute_smoke.cpp's GL path, version
+	// fallback included: 4.3 is the real floor for compute, and the
+	// last entry takes the driver's default so that SupportsCompute()
+	// decides the outcome rather than SDL's context creation.
+	if (SDL_Init(SDL_INIT_VIDEO) != 0)
+	{
+		printf("FAIL  SDL_Init - %s\n", SDL_GetError());
+		return 1;
+	}
+	static const struct { int major, minor; } kVersions[] = {
+		{ 4, 5 }, { 4, 4 }, { 4, 3 }, { 0, 0 }
+	};
+	SDL_Window *window = NULL;
+	SDL_GLContext glContext = NULL;
+	for (size_t v = 0; v < sizeof(kVersions)/sizeof(kVersions[0]) && glContext == NULL; v++)
+	{
+		if (kVersions[v].major != 0)
+		{
+			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, kVersions[v].major);
+			SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, kVersions[v].minor);
+			SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+		}
+		else SDL_GL_ResetAttributes();
+		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+		// Hidden: nothing is drawn, and a visible window under xvfb is
+		// one more thing that can fail for reasons unrelated to compute.
+		window = SDL_CreateWindow("parity", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED,
+			64, 64, SDL_WINDOW_OPENGL | SDL_WINDOW_HIDDEN);
+		if (window == NULL) continue;
+		glContext = SDL_GL_CreateContext(window);
+		if (glContext == NULL) { SDL_DestroyWindow(window); window = NULL; }
+	}
+	if (glContext == NULL)
+	{
+		printf("FAIL  could not create any GL context - %s\n", SDL_GetError());
+		SDL_Quit();
+		return 1;
+	}
+	if (gladLoadGL() == 0)
+	{
+		printf("FAIL  gladLoadGL could not resolve core GL entry points\n");
+		SDL_Quit();
+		return 1;
+	}
+	printf("      backend     OpenGL\n");
+	printf("      GL_VERSION  %s\n", (const char*)glGetString(GL_VERSION));
+	int rc;
+	{
+		// Scoped so the device releases its GL objects while the
+		// context is still current.
+		GLRenderDevice device;
+		SetActiveRenderDevice(&device);
+		if (!device.SupportsCompute())
+		{
+			printf("SKIP  SupportsCompute() is false on this GL context\n");
+			rc = 0;
+		}
+		else rc = RunParity(device);
+	}
+	SDL_GL_DeleteContext(glContext);
+	SDL_DestroyWindow(window);
+	SDL_Quit();
+	return rc;
+#elif defined(DDGIGPU_METAL)
+	MetalRenderDevice device;
+	SetActiveRenderDevice(&device);
+	printf("      backend     Metal\n");
+	if (!device.SupportsCompute()) { printf("SKIP  no compute on this backend\n"); return 0; }
+	return RunParity(device);
+#else
+	VulkanRenderDevice device;
+	if (device.GetInstance() == VK_NULL_HANDLE || !device.InitializeHeadless())
+	{ printf("SKIP  no usable Vulkan device\n"); return 0; }
+	SetActiveRenderDevice(&device);
+	printf("      backend     Vulkan (headless)\n");
+	if (!device.SupportsCompute()) { printf("SKIP  no compute on this backend\n"); return 0; }
+	return RunParity(device);
+#endif
 }
