@@ -441,13 +441,17 @@ jobs:
         # compile and compute the same answers on GL. bvh_gpu covers
         # the BVH traversal kernel, which is the core of the tracing.
         #
-        # ddgi_gpu runs too, in the reduced configuration its Quick()
-        # describes: every kernel still executes and every texel is
-        # still compared to 1e-6, but the sections needing five to
-        # fourteen updates are skipped and named in the output. Not
-        # loosened - weakening a 1e-6 comparison to make it fit would
-        # have made the test pointless. 3.7s full against 0.8s reduced
-        # on a real GPU, and llvmpipe has none.
+        # ddgi_gpu runs in FULL here, including the multi-update
+        # sections - multi-bounce, relocation, moving geometry.
+        #
+        # It first ran reduced, because nobody had measured what
+        # llvmpipe makes of millions of rays with no hardware behind
+        # it and guessing at that in CI is how a suite becomes
+        # something people skip. Then it ran, and the whole step -
+        # four binaries, all four tests - took seven seconds, with the
+        # reduced ddgi_gpu under three. Full is about 4.6x that work.
+        # The caution is spent; DDGI_GPU_QUICK stays in the test for
+        # anywhere slower.
         #
         # A SKIP is a hard failure here for the same reason it is in the
         # step above: on this job it means the coverage evaporated.
@@ -471,8 +475,6 @@ jobs:
               tools/tests/$t.cpp /tmp/glad45.o -o /tmp/$t \
               -L build -lPyrosEngine $SDLL -Wl,-rpath,"$PWD/build"
             # Run from the repo root - they read resources/shaders/.
-            # ddgi_gpu takes its reduced configuration here.
-            if [ "$t" = "ddgi_gpu" ]; then export DDGI_GPU_QUICK=1; fi
             LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a /tmp/$t | tee /tmp/$t.out
             if grep -q '^SKIP' /tmp/$t.out; then
               echo "::error::$t SKIPped - llvmpipe did not give us a GL 4.3+ compute context"
