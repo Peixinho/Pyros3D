@@ -220,6 +220,72 @@ int main()
 	}
 
 	compute.Shutdown();
+	// ---- more probes than one dispatch batch ---------------------------
+	//
+	// DDGICompute traces at most kMaxBatchProbes (128) probes per
+	// dispatch and rewrites its Params buffer between batches. A
+	// storage barrier only ORDERS work inside the command buffer; it
+	// does not submit it, so without a flush every batch ends up
+	// reading the last batch's probe offset and all but the final
+	// batch is silently never written.
+	//
+	// Everything above this point uses 64 probes - one batch - and
+	// passes either way. That gap shipped: the Cornell demo has 294
+	// probes and only 37 of them had any irradiance at all, which
+	// looks exactly like a volume that has not converged yet.
+	{
+		const uint32 N = 7;                       // 343 probes = 3 batches
+		DDGIVolume bigCPU, bigGPU;
+		bigCPU.Allocate(Vec3(-4.f,-4.f,-4.f), Vec3(1.33f,1.33f,1.33f), N,N,N, 8, 16, 16, 4);
+		bigGPU.Allocate(Vec3(-4.f,-4.f,-4.f), Vec3(1.33f,1.33f,1.33f), N,N,N, 8, 16, 16, 4);
+		check(bigCPU.ProbeCount() > 128, "the volume needs more than one dispatch batch",
+			std::to_string(bigCPU.ProbeCount()) + " probes");
+
+		bigCPU.Update(scene, lights, 64, kFrame, 0.f, 0);
+
+		DDGICompute big;
+		if (!big.Initialize(scene, bigGPU, "resources/shaders"))
+			check(false, "DDGICompute initialises for the large volume");
+		else
+		{
+			check(big.Update(bigGPU, lights, 64, kFrame, 0.f, 0), "GPU update runs over three batches");
+
+			// Every probe, not a sample: the failure mode is a
+			// CONTIGUOUS RANGE of probes left untouched, which an
+			// average or a spot check sails straight past.
+			const ProbeAtlas &a = bigCPU.GetIrradianceAtlas();
+			const ProbeAtlas &b = bigGPU.GetIrradianceAtlas();
+			const uint32 R = a.GetResolution();
+			uint32 emptyGPU = 0, emptyCPU = 0, firstEmpty = 0xFFFFFFFFu;
+			f32 worst = 0.f;
+			for (uint32 p = 0; p < bigCPU.ProbeCount(); p++)
+			{
+				f32 mA = 0.f, mB = 0.f;
+				for (uint32 y = 0; y < R; y++)
+					for (uint32 x = 0; x < R; x++)
+					{
+						const f32 *ca = a.At(p,x,y), *cb = b.At(p,x,y);
+						for (uint32 c = 0; c < 3; c++)
+						{
+							mA = fmaxf(mA, fabsf(ca[c]));
+							mB = fmaxf(mB, fabsf(cb[c]));
+							worst = fmaxf(worst, fabsf(ca[c]-cb[c]));
+						}
+					}
+				if (mA <= 1e-6f) emptyCPU++;
+				if (mB <= 1e-6f) { emptyGPU++; if (firstEmpty == 0xFFFFFFFFu) firstEmpty = p; }
+			}
+			check(emptyGPU == emptyCPU,
+				"every probe the CPU lit, the GPU lit too - no batch was skipped",
+				"GPU empty " + std::to_string(emptyGPU) + ", CPU empty " + std::to_string(emptyCPU)
+				+ ", first GPU-empty probe " + std::to_string(firstEmpty)
+				+ " of " + std::to_string(bigCPU.ProbeCount()));
+			check(worst < 2e-3f, "and the three batches agree with the CPU texel for texel",
+				"worst |d| = " + std::to_string(worst));
+			big.Shutdown();
+		}
+	}
+
 	printf("\n%s  ddgi_gpu: %d failure(s)\n", failures?"FAIL":"PASS", failures);
 	return failures ? 1 : 0;
 }

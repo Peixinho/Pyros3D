@@ -94,12 +94,18 @@ namespace p3d
 			// one came back from a saved scene with its uniforms unwired.
 			Lighting2D = 0x20000000,
 			// Samples a DDGI probe volume for indirect light instead of
-			// the flat/gradient/SH ambient. Costs two samplers (the
-			// irradiance and visibility atlases), which is why it is a
+			// the flat/gradient/SH ambient. Costs four samplers - the
+			// irradiance, visibility and prefiltered-radiance atlases,
+			// plus the environment BRDF table - which is why it is a
 			// flag rather than always-on: WebGL2 validates every
 			// declared sampler and cannot run the volume's update
 			// anyway, so a material that does not ask for this must not
 			// declare them.
+			//
+			// The last two only do anything alongside PBR: specular
+			// needs an F0 and a roughness, and the Diffuse path has
+			// neither. A Diffuse|GlobalIllumination material still gets
+			// the bounce light, just no reflections.
 			//
 			// This spends one of the two bits this enum had left. The
 			// other is 0x40000000's sibling 0x80000000, which would make

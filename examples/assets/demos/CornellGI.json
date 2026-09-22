@@ -101,6 +101,74 @@
     0.0,
     1.0
    ]
+  },
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.95,
+    0.93,
+    0.88,
+    1.0
+   ],
+   "cullFace": 2,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 3,
+   "kind": "generic",
+   "metallic": 1.0,
+   "opacity": 1.0,
+   "options": 1077936129,
+   "reflectivity": 0.0,
+   "roughness": 0.1,
+   "shininess": 0.0,
+   "specular": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
+  },
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.95,
+    0.93,
+    0.88,
+    1.0
+   ],
+   "cullFace": 2,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 4,
+   "kind": "generic",
+   "metallic": 1.0,
+   "opacity": 1.0,
+   "options": 1077936129,
+   "reflectivity": 0.0,
+   "roughness": 0.35,
+   "shininess": 0.0,
+   "specular": [
+    0.0,
+    0.0,
+    0.0,
+    1.0
+   ]
   }
  ],
  "roots": [
@@ -116,8 +184,8 @@
    "name": "Camera",
    "position": [
     0.0,
-    0.5,
-    13.5
+    0.3,
+    8.6
    ],
    "rotation": [
     0.0,
@@ -142,14 +210,14 @@
      "cullTest": true,
      "material": 0,
      "renderable": {
-      "depth": 10.0,
+      "depth": 5.2,
       "flip": false,
-      "height": 0.4,
+      "height": 0.2,
       "kind": "primitive",
       "shape": "Cube",
       "smooth": false,
       "tangentBitangent": false,
-      "width": 10.0
+      "width": 5.2
      },
      "type": "RenderingComponent"
     }
@@ -181,14 +249,14 @@
      "cullTest": true,
      "material": 0,
      "renderable": {
-      "depth": 10.0,
+      "depth": 5.2,
       "flip": false,
-      "height": 0.4,
+      "height": 0.2,
       "kind": "primitive",
       "shape": "Cube",
       "smooth": false,
       "tangentBitangent": false,
-      "width": 10.0
+      "width": 5.2
      },
      "type": "RenderingComponent"
     }
@@ -220,14 +288,14 @@
      "cullTest": true,
      "material": 0,
      "renderable": {
-      "depth": 0.4,
+      "depth": 0.2,
       "flip": false,
-      "height": 10.0,
+      "height": 5.2,
       "kind": "primitive",
       "shape": "Cube",
       "smooth": false,
       "tangentBitangent": false,
-      "width": 10.0
+      "width": 5.2
      },
      "type": "RenderingComponent"
     }
@@ -259,14 +327,14 @@
      "cullTest": true,
      "material": 1,
      "renderable": {
-      "depth": 10.0,
+      "depth": 5.2,
       "flip": false,
-      "height": 10.0,
+      "height": 5.2,
       "kind": "primitive",
       "shape": "Cube",
       "smooth": false,
       "tangentBitangent": false,
-      "width": 0.4
+      "width": 0.2
      },
      "type": "RenderingComponent"
     }
@@ -298,14 +366,14 @@
      "cullTest": true,
      "material": 2,
      "renderable": {
-      "depth": 10.0,
+      "depth": 5.2,
       "flip": false,
-      "height": 10.0,
+      "height": 5.2,
       "kind": "primitive",
       "shape": "Cube",
       "smooth": false,
       "tangentBitangent": false,
-      "width": 0.4
+      "width": 0.2
      },
      "type": "RenderingComponent"
     }
@@ -337,14 +405,14 @@
      "cullTest": true,
      "material": 0,
      "renderable": {
-      "depth": 3.0,
+      "depth": 1.5,
       "flip": false,
-      "height": 3.2,
+      "height": 1.6,
       "kind": "primitive",
       "shape": "Cube",
       "smooth": false,
       "tangentBitangent": false,
-      "width": 3.0
+      "width": 1.5
      },
      "type": "RenderingComponent"
     }
@@ -352,7 +420,7 @@
    "name": "Block",
    "position": [
     0.0,
-    -3.4,
+    -3.2,
     -1.0
    ],
    "rotation": [
@@ -393,6 +461,84 @@
     0.0,
     4.0,
     0.0
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 3,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Sphere",
+      "radius": 0.9,
+      "segmentsW": 48,
+      "segmentsH": 48,
+      "smooth": true,
+      "flip": false,
+      "tangentBitangent": false
+     },
+     "type": "RenderingComponent"
+    }
+   ],
+   "name": "MirrorSphere",
+   "position": [
+    -2.6,
+    -3.9,
+    1.6
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 4,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Sphere",
+      "radius": 0.9,
+      "segmentsW": 48,
+      "segmentsH": 48,
+      "smooth": true,
+      "flip": false,
+      "tangentBitangent": false
+     },
+     "type": "RenderingComponent"
+    }
+   ],
+   "name": "BrushedSphere",
+   "position": [
+    2.6,
+    -3.9,
+    1.6
    ],
    "rotation": [
     0.0,

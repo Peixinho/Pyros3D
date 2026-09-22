@@ -122,6 +122,59 @@ int main()
 			"worst |d| = " + std::to_string(worst));
 	}
 
+	// ---- why the table is a texture and not a polynomial --------------
+	//
+	// The shader could skip the sampler entirely by evaluating
+	// Lazarov's well-known approximation to this table inline. It does
+	// not, and this is the measurement behind that decision: the fit
+	// is off by ~0.18 in scale and ~0.28 in bias against the real
+	// integral, which on a metal is a visible error in how much it
+	// reflects. (Fitting my own polynomial to this exact table got to
+	// 0.13 and no further - the mirror corner is too steep.)
+	//
+	// So the assertion is the inverse of the usual one: the fit must
+	// still be BAD ENOUGH to justify the sampler it replaced. If this
+	// ever fails, the approximation has become good enough to ship and
+	// uBRDFLut can go away.
+	{
+		BRDFLut ref;
+		ref.Generate(128, 1024);
+		f32 worstScale = 0.f, worstBias = 0.f, worstAt[2] = {0,0};
+		for (uint32 y = 0; y < 128; y++)
+			for (uint32 x = 0; x < 128; x++)
+			{
+				const f32 nDotV = ((f32)x + 0.5f) / 128.f;
+				const f32 rough = ((f32)y + 0.5f) / 128.f;
+
+				// EnvBRDFApprox, verbatim as the shader has it.
+				const f32 c0[4] = { -1.f, -0.0275f, -0.572f, 0.022f };
+				const f32 c1[4] = {  1.f,  0.0425f,  1.04f, -0.04f };
+				const f32 r[4] = { rough*c0[0]+c1[0], rough*c0[1]+c1[1],
+								   rough*c0[2]+c1[2], rough*c0[3]+c1[3] };
+				const f32 a004 = std::min(r[0]*r[0], powf(2.f, -9.28f*nDotV)) * r[0] + r[1];
+				const f32 scale = a004 * -1.04f + r[2];
+				const f32 bias  = a004 *  1.04f + r[3];
+
+				const f32 ds = fabsf(scale - ref.GetData()[(y*128+x)*2+0]);
+				const f32 db = fabsf(bias  - ref.GetData()[(y*128+x)*2+1]);
+				if (ds > worstScale) { worstScale = ds; worstAt[0]=nDotV; worstAt[1]=rough; }
+				worstBias = fmaxf(worstBias, db);
+			}
+		printf("      analytic fit vs integrated: worst scale %.4f (at N.V=%.2f r=%.2f), worst bias %.4f\n",
+			worstScale, worstAt[0], worstAt[1], worstBias);
+		check(worstScale > 0.05f || worstBias > 0.05f,
+			"the analytic fit is too far off to replace the sampled table",
+			"worst scale " + std::to_string(worstScale) + ", worst bias " + std::to_string(worstBias));
+		// And a floor on the same numbers: an error this large has to
+		// come from the approximation, not from a broken reference.
+		// k = r^2/2 was confirmed the right Smith k by brute force -
+		// the direct-lighting k and the alpha-squared k are 0.42 and
+		// 1.36 off respectively, against 0.18 for this one.
+		check(worstScale < 0.5f && worstBias < 0.5f,
+			"and not so far off that the table itself is suspect",
+			"worst scale " + std::to_string(worstScale));
+	}
+
 	printf("\n%s  brdf_lut: %d failure(s)\n", failures?"FAIL":"PASS", failures);
 	return failures ? 1 : 0;
 }

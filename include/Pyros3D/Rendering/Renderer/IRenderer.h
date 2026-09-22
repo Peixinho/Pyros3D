@@ -26,6 +26,7 @@
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Rendering/GI/DDGICompute.h>
+#include <Pyros3D/Rendering/GI/BRDFLut.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
 #include <memory>
@@ -383,6 +384,12 @@ namespace p3d {
 		uint32 DDGIRaysPerProbe = 128;
 		Texture *DDGIIrradianceTex = NULL;
 		Texture *DDGIVisibilityTex = NULL;
+		// Prefiltered radiance for specular, and the environment BRDF
+		// table. The table is scene-independent - one per renderer,
+		// built on first use and never touched again.
+		Texture *DDGIRadianceTex = NULL;
+		Texture *BRDFLutTex = NULL;
+		void BuildBRDFLutIfNeeded();
 		static uint32 DDGIUniformsUBO;
 		void UploadDDGIIfDirty();
 		uint32
@@ -730,6 +737,12 @@ namespace p3d {
 		void BindMesh(RenderingMesh* rmesh, IMaterial* material);
 		void BindShadowMaps(IMaterial* material);
 		void UnbindShadowMaps(IMaterial* material);
+		// The GI atlases bound for the draw in flight, in bind order.
+		// Texture::UnitBinded is a counter that Bind() advances and only
+		// Unbind() rewinds, so anything bound and left bound leaks a
+		// texture unit PER DRAW - see UnbindGITextures.
+		std::vector<Texture*> BoundGITextures;
+		void UnbindGITextures();
 
 		// The shadow pass overrides every caster's own material with one of
 		// these, so each vertex-shader variant a caster can need has to

@@ -442,7 +442,12 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		// Four vec4s: origin+probesPerRow, spacing, counts, and
 		// (irradianceRes, visibilityRes, unused, probesPerRow) - see
 		// PyrosShader.glsl's DDGIUniforms block.
-		DDGIUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 4, 25);
+		// FIVE vec4s, matching DDGIUniforms in PyrosShader.glsl exactly.
+		// An undersized uniform block is not a warning anywhere: GL and
+		// Metal read whatever follows, and WebGL2 validates the size
+		// and silently drops the draw. When the block grows, this
+		// grows.
+		DDGIUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 5, 25);
 		MaterialUniformsUBO = device->CreateUniformBuffer(80, 22);
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
@@ -1092,6 +1097,7 @@ void IRenderer::EndRender()
 		device->EndCommandBuffer(endRenderCmd);
 		// Unbind Shadow Maps
 		UnbindShadowMaps(LastMaterialPTR);
+		UnbindGITextures();
 		// Material After Render
 		LastMaterialPTR->AfterRender();
 	}
@@ -1166,6 +1172,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	{
 		// Material Stuff After Render
 		UnbindShadowMaps(LastMaterialPTR);
+		UnbindGITextures();
 		// After Render
 		LastMaterialPTR->AfterRender();
 	}
@@ -1609,17 +1616,59 @@ void IRenderer::UploadDDGIIfDirty()
 		DDGIVisibilityTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 	}
 
+	const ProbeAtlas &rad = DDGIVol->GetRadianceAtlas();
+	if (DDGIRadianceTex == NULL && rad.GetResolution() > 0)
+	{
+		DDGIRadianceTex = new Texture();
+		DDGIRadianceTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F,
+			(int32)rad.GetWidth(), (int32)rad.GetHeight(), false);
+		DDGIRadianceTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	}
+
 	DDGIIrradianceTex->UpdateData((void*)irr.GetData().data());
 	DDGIVisibilityTex->UpdateData((void*)vis.GetData().data());
+	if (DDGIRadianceTex != NULL)
+		DDGIRadianceTex->UpdateData((void*)rad.GetData().data());
 
-	Vec4 ddgi[4];
+	Vec4 ddgi[5];
 	ddgi[0] = Vec4(DDGIVol->origin, (f32)irr.GetProbesPerRow());
 	ddgi[1] = Vec4(DDGIVol->spacing, 0.f);
 	ddgi[2] = Vec4((f32)DDGIVol->counts[0], (f32)DDGIVol->counts[1], (f32)DDGIVol->counts[2], 0.f);
 	ddgi[3] = Vec4((f32)irr.GetResolution(), (f32)vis.GetResolution(), 0.f, (f32)irr.GetProbesPerRow());
+	// Specular description. levels == 0 is how the shader is told this
+	// volume has no radiance atlas, which is also the state a device
+	// that could not allocate one ends up in - so the shader must treat
+	// it as "no specular", never as "sample anyway".
+	ddgi[4] = Vec4((f32)rad.GetResolution(), (f32)rad.GetProbesPerRow(),
+		(f32)DDGIVol->GetRadianceLevels(), DDGIVolume::MinRoughness());
 	device->ReplaceUniformBuffer(DDGIUniformsUBO, sizeof(ddgi), ddgi);
-
 	DDGIUploadedRevision = DDGIRevision;
+}
+
+void IRenderer::BuildBRDFLutIfNeeded()
+{
+	if (BRDFLutTex != NULL)
+		return;
+	BRDFLut lut;
+	// 64x64 at 512 samples: the table is smooth everywhere except the
+	// mirror corner, and tools/tests/brdf_lut.cpp measures 64 samples
+	// as already within 0.026 of 1024. Generating it costs a few
+	// milliseconds once, against shipping a binary blob nobody can
+	// review or regenerate.
+	if (!lut.Generate(64, 512))
+		return;
+	// RG32F rather than a packed 8-bit texture: the scale channel runs
+	// to 1.0 and the bias to ~0.5, so 8 bits would quantise the
+	// grazing-angle rim - the one place the table matters most - into
+	// visible steps.
+	BRDFLutTex = new Texture();
+	BRDFLutTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RG32F,
+		(int32)lut.GetSize(), (int32)lut.GetSize(), false);
+	// Clamped, because the table IS the domain: N.V and roughness are
+	// both already in [0,1] and a wrapped lookup would return the
+	// opposite end of the roughness range.
+	BRDFLutTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	BRDFLutTex->UpdateData((void*)lut.GetData().data());
 }
 
 void IRenderer::SetAmbientProbeGrid(const IrradianceProbeGrid *Grid)
@@ -2208,8 +2257,24 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// eight of them (colormap/fontmap/normalmap/displacement/env/
 			// refract/skybox/specular), while GL 4.1 guarantees at least 16
 			// per-stage texture image units.
+			case Uniforms::DataUsage::BRDFLutMap:
+			{
+				// Scene-independent: the same table for every volume,
+				// every material and every frame. Built once.
+				BuildBRDFLutIfNeeded();
+				int32 unit = 0;
+				if (BRDFLutTex != NULL)
+				{
+					BRDFLutTex->Bind();
+					unit = (int32)Texture::GetLastBindedUnit();
+					BoundGITextures.push_back(BRDFLutTex);
+				}
+				Shader::SendUniform((*k), &unit, (*_ShadersGlobalCache)[counter], 1);
+				break;
+			}
 			case Uniforms::DataUsage::DDGIIrradianceMap:
 			case Uniforms::DataUsage::DDGIVisibilityMap:
+			case Uniforms::DataUsage::DDGIRadianceMap:
 			{
 				// Uploaded lazily and only when the volume says it
 				// changed - see UploadDDGIIfDirty. Binding happens here
@@ -2217,13 +2282,19 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				// be whatever Texture::Bind just handed out, and that is
 				// only known after the bind.
 				UploadDDGIIfDirty();
-				Texture *tex = ((*k).Usage == Uniforms::DataUsage::DDGIIrradianceMap)
-					? DDGIIrradianceTex : DDGIVisibilityTex;
+				Texture *tex = NULL;
+				switch ((*k).Usage)
+				{
+					case Uniforms::DataUsage::DDGIIrradianceMap: tex = DDGIIrradianceTex; break;
+					case Uniforms::DataUsage::DDGIRadianceMap:   tex = DDGIRadianceTex;   break;
+					default:                                     tex = DDGIVisibilityTex; break;
+				}
 				int32 unit = 0;
 				if (tex != NULL)
 				{
 					tex->Bind();
 					unit = (int32)Texture::GetLastBindedUnit();
+					BoundGITextures.push_back(tex);
 				}
 				Shader::SendUniform((*k), &unit, (*_ShadersGlobalCache)[counter], 1);
 				break;
@@ -3084,6 +3155,24 @@ void IRenderer::BindShadowMaps(IMaterial* material)
 			SpotShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
 		}
 	}
+}
+
+void IRenderer::UnbindGITextures()
+{
+	// In reverse, because Unbind() rewinds Texture::UnitBinded rather
+	// than releasing a particular unit - unbinding out of order would
+	// leave the counter pointing at a unit that is still bound.
+	//
+	// Without this the counter climbs by one per GI sampler per draw
+	// and never comes back down: the first few objects in a frame get
+	// valid units and everything after them is handed a unit past the
+	// hardware limit, which samples as black. It looks exactly like the
+	// volume not being uploaded, and it is why a metal sphere added
+	// late in the scene reflected nothing while the walls lit fine.
+	for (std::vector<Texture*>::reverse_iterator i = BoundGITextures.rbegin();
+		i != BoundGITextures.rend(); ++i)
+		(*i)->Unbind();
+	BoundGITextures.clear();
 }
 
 void IRenderer::UnbindShadowMaps(IMaterial* material)

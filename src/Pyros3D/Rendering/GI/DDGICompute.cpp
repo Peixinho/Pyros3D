@@ -312,6 +312,29 @@ namespace p3d {
 
 			cursor += batch;
 			done += batch;
+
+			// Submit before the next iteration rewrites Params.
+			//
+			// ComputeBarrier(StorageBuffer) is an ORDERING primitive
+			// inside the command buffer, not a submission: the
+			// dispatches above are still only recorded. The next
+			// iteration's UpdateStorageBuffer(bParams, ...) then
+			// overwrites the very buffer those unexecuted dispatches
+			// are going to read, so every batch ends up running with
+			// the LAST batch's probe offset - and all but the final
+			// batch of probes is silently never written.
+			//
+			// It produces no error and looks like a volume that simply
+			// did not converge. Measured in the Cornell demo: 37 of 294
+			// probes had any irradiance at all, 294 = 128+128+38. The
+			// same mistake, in the same shape, as the GPU-particle
+			// parity bug - see HasPendingComputeWork's comment.
+			//
+			// HostRead is the bit that forces the submission. Only when
+			// another batch follows; the readback below flushes the
+			// last one anyway.
+			if (done < wanted)
+				dev.ComputeBarrier(0, ComputeBarrierBit::HostRead);
 		}
 
 		// Read the atlases back into the volume so the existing texture

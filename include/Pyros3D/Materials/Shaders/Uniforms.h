@@ -57,6 +57,12 @@ namespace p3d {
 				// to be drawing.
 				DDGIIrradianceMap = 26,
 				DDGIVisibilityMap = 27,
+				// Prefiltered radiance, and the environment BRDF table
+				// the split sum multiplies it by. The table depends on
+				// nothing but the surface, so it is generated once and
+				// shared by every volume.
+				DDGIRadianceMap = 28,
+				BRDFLutMap = 29,
 
 				// User Uniforms
 				Other = 200,

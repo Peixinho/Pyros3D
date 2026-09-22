@@ -184,6 +184,8 @@ namespace p3d
 			// a dropped draw on WebGL2.
 			AddUniform(Uniform("uDDGIIrradiance", Uniforms::DataUsage::DDGIIrradianceMap));
 			AddUniform(Uniform("uDDGIVisibility", Uniforms::DataUsage::DDGIVisibilityMap));
+			AddUniform(Uniform("uDDGIRadiance", Uniforms::DataUsage::DDGIRadianceMap));
+			AddUniform(Uniform("uBRDFLut", Uniforms::DataUsage::BRDFLutMap));
 		}
 
 		if (options & ShaderUsage::DirectionalShadow)

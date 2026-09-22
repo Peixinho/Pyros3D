@@ -126,6 +126,9 @@
 // DDGI probe atlases - see ShaderUsage::GlobalIllumination.
 #define BIND_uDDGIIrradiance 17
 #define BIND_uDDGIVisibility 18
+// Prefiltered radiance for specular, and the environment BRDF table.
+#define BIND_uDDGIRadiance 19
+#define BIND_uBRDFLut 20
 
 // Loose-uniform-turned-UBO bindings. Each block is declared in exactly one
 // stage (checked against actual usage: e.g. uCameraPos is only ever read
@@ -1147,6 +1150,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
    #ifdef GLOBALILLUMINATION
        SAMPLER_BINDING(BIND_uDDGIIrradiance) uniform sampler2D uDDGIIrradiance;
        SAMPLER_BINDING(BIND_uDDGIVisibility) uniform sampler2D uDDGIVisibility;
+       SAMPLER_BINDING(BIND_uDDGIRadiance) uniform sampler2D uDDGIRadiance;
+       // (N.V, roughness) -> scale, bias on F0. Scene-independent, so
+       // one table serves every volume and every material - see
+       // BRDFLut.h for why it is generated rather than shipped.
+       SAMPLER_BINDING(BIND_uBRDFLut) uniform sampler2D uBRDFLut;
 
        // Grid description. xyz = origin, w = probes per atlas row;
        // then spacing, then counts, then (irradianceRes, visibilityRes,
@@ -1156,6 +1164,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            vec4 uDDGISpacing;
            vec4 uDDGICounts;
            vec4 uDDGIParams;
+           // x = radiance tile resolution, y = tiles per atlas row,
+           // z = roughness levels (0 = no specular), w = the minimum
+           // roughness level 0 was prefiltered at.
+           vec4 uDDGIRadianceParams;
        };
 
        vec2 p3d_OctEncode(vec3 d)
@@ -1187,10 +1199,133 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            return (vec2(px, py) * tile + inTile) / atlasSize;
        }
 
+       // Atlas UV for one RADIANCE tile. Separate from p3d_ProbeUV
+       // because that one derives the atlas height from the probe
+       // count, and this atlas holds probes TIMES levels.
+       vec2 p3d_RadianceUV(float tileIndex, vec3 dir)
+       {
+           float res = uDDGIRadianceParams.x;
+           float perRow = uDDGIRadianceParams.y;
+           float levels = uDDGIRadianceParams.z;
+           float tile = res + 2.0;
+           float px = mod(tileIndex, perRow);
+           float py = floor(tileIndex / perRow);
+           vec2 oct = p3d_OctEncode(dir) * 0.5 + 0.5;
+           vec2 inTile = vec2(1.0) + oct * res;
+           float tiles = uDDGICounts.x * uDDGICounts.y * uDDGICounts.z * levels;
+           vec2 atlasSize = vec2(perRow * tile, ceil(tiles / perRow) * tile);
+           return (vec2(px, py) * tile + inTile) / atlasSize;
+       }
+
        // Indirect light from the eight surrounding probes, each weighted
        // by a Chebyshev visibility test against its own distance
        // moments. That test is what stops a probe on the far side of a
        // wall lighting this side - see DDGIVolume.h.
+       // Prefiltered radiance along `refl`, from the same eight probes
+       // and the same Chebyshev rejection the diffuse gather uses. The
+       // two MUST agree on which probes can see this point: a wall that
+       // blocks the bounce light but not the reflection is far harder
+       // to recognise as a bug than one that blocks neither.
+       //
+       // Returns the first factor of the split sum only. The caller
+       // multiplies by the environment BRDF - see DDGISpecular below.
+       vec3 SampleDDGIRadiance(vec3 worldPos, vec3 normal, vec3 refl, float roughness)
+       {
+           float levels = uDDGIRadianceParams.z;
+           if (levels < 0.5) return vec3(0.0);
+
+           vec3 counts = uDDGICounts.xyz;
+           vec3 g = (worldPos - uDDGIOrigin.xyz) / uDDGISpacing.xyz;
+           g = clamp(g, vec3(0.0), counts - vec3(1.0));
+           vec3 baseF = min(floor(g), counts - vec3(2.0));
+           vec3 frac = g - baseF;
+           float visRes = uDDGIParams.y;
+           float probeTotal = counts.x * counts.y * counts.z;
+
+           // Which two prefilter levels this roughness falls between.
+           // Linear in roughness, matching DDGIVolume::LevelRoughness -
+           // the two are inverses and a surface that sampled a lobe it
+           // was not filtered for would be subtly over- or under-blurred
+           // everywhere.
+           float minR = uDDGIRadianceParams.w;
+           float t = 0.0;
+           if (levels > 1.5)
+               t = (clamp(roughness, minR, 1.0) - minR) / max(1.0 - minR, 1e-4) * (levels - 1.0);
+           float lo = min(floor(t), levels - 1.0);
+           float hi = min(lo + 1.0, levels - 1.0);
+           float lerpT = clamp(t - lo, 0.0, 1.0);
+
+           vec3 sum = vec3(0.0);
+           float weightSum = 0.0;
+
+           for (int c = 0; c < 8; c++)
+           {
+               vec3 offset = vec3(float(c & 1), float((c >> 1) & 1), float((c >> 2) & 1));
+               vec3 pc = baseF + offset;
+               if (any(greaterThan(pc, counts - vec3(1.0)))) continue;
+
+               vec3 tri3 = mix(vec3(1.0) - frac, frac, offset);
+               float weight = tri3.x * tri3.y * tri3.z;
+               if (weight <= 0.0) continue;
+
+               vec3 probePos = uDDGIOrigin.xyz + uDDGISpacing.xyz * pc;
+               float probeIndex = (pc.z * counts.y + pc.y) * counts.x + pc.x;
+
+               vec3 toProbe = probePos - worldPos;
+               float dist = length(toProbe);
+               if (dist > 1e-5) toProbe /= dist;
+
+               // Selected by the NORMAL, not the reflection vector: a
+               // probe behind the surface cannot light it however the
+               // view happens to be pointing, and using `refl` here
+               // would pick probes through the surface at grazing
+               // angles.
+               float facing = (dot(toProbe, normal) + 1.0) * 0.5;
+               weight *= facing * facing + 0.2;
+
+               vec2 vuv = p3d_ProbeUV(probeIndex, -toProbe, visRes);
+               vec2 moments = texture(uDDGIVisibility, vuv).rg;
+               float mean = moments.x;
+               float variance = max(moments.y - mean * mean, 0.0);
+               if (dist > mean)
+               {
+                   float diff = dist - mean;
+                   float cheb = variance / (variance + diff * diff);
+                   weight *= max(cheb * cheb * cheb, 0.0);
+               }
+               if (weight <= 1e-6) continue;
+
+               // Levels are stacked: every probe at level 0, then every
+               // probe at level 1. Same arithmetic as
+               // DDGIVolume::RadianceTile.
+               vec3 a = texture(uDDGIRadiance, p3d_RadianceUV(lo * probeTotal + probeIndex, refl)).rgb;
+               vec3 b = texture(uDDGIRadiance, p3d_RadianceUV(hi * probeTotal + probeIndex, refl)).rgb;
+               sum += mix(a, b, lerpT) * weight;
+               weightSum += weight;
+           }
+           if (weightSum <= 1e-6) return vec3(0.0);
+           return sum / weightSum;
+       }
+
+       // The finished specular term: prefiltered radiance times the
+       // environment BRDF. F0 is the surface's normal-incidence
+       // reflectance - 0.04 for a dielectric, the albedo for a metal.
+       vec3 DDGISpecular(vec3 worldPos, vec3 normal, vec3 viewDir, vec3 F0, float roughness)
+       {
+           // Mode 3 means a DDGI volume is what the ambient term IS.
+           // Without this a scene that switched back to flat ambient
+           // while a volume was still bound would keep its reflections
+           // and lose its bounce light.
+           if (uAmbientParams.x < 2.5 || uDDGIRadianceParams.z < 0.5) return vec3(0.0);
+           float nDotV = clamp(dot(normal, viewDir), 0.0, 1.0);
+           vec3 refl = reflect(-viewDir, normal);
+           vec3 pre = SampleDDGIRadiance(worldPos, normal, refl, roughness);
+           // The table is the domain: both axes are already [0,1] and
+           // the texture is clamped, so no remapping is needed here.
+           vec2 ab = texture(uBRDFLut, vec2(nDotV, roughness)).rg;
+           return pre * (F0 * ab.x + vec3(ab.y));
+       }
+
        vec3 SampleDDGI(vec3 worldPos, vec3 normal)
        {
            vec3 counts = uDDGICounts.xyz;
@@ -1643,11 +1778,24 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 // transparent depending only on how lit it was.
                 diffuse = vec4((factor * diffuse).rgb, diffuse.w);
             #elif defined(PBR)
-                // Ambient placeholder (no IBL yet): dielectric-only ambient
-                // response, scaled by the same per-channel ambient uniform
-                // every other lighting path uses. Metals get none, matching
-                // kD's (1-metallic) scaling in CalculatePBRLighting above.
+                // Dielectric-only ambient response, scaled by the same
+                // per-channel ambient uniform every other lighting path
+                // uses. Metals get none, matching kD's (1-metallic)
+                // scaling in CalculatePBRLighting above.
                 vec3 ambientPBR = diffuse.rgb * (1.0 - metallic) * AmbientAt();
+            #ifdef GLOBALILLUMINATION
+                // And the half metals DO get. This is the reason a
+                // metal lit only by indirect light used to come out
+                // black: the line above deliberately gives it no
+                // diffuse ambient, and until there was a specular term
+                // there was nothing else for it to reflect.
+                //
+                // F0 is the surface's normal-incidence reflectance:
+                // 0.04 for a dielectric, the albedo itself for a metal,
+                // which is the same mix CalculatePBRLighting uses.
+                vec3 iblF0 = mix(vec3(0.04), diffuse.rgb, metallic);
+                ambientPBR += DDGISpecular(vWorldPosition.xyz, Normal, EyeVec, iblF0, roughness);
+            #endif
                 diffuse = vec4(_pbrColor + ambientPBR, diffuse.w);
             #endif
         #endif
@@ -1691,7 +1839,17 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// emissive to (see MaterialCodegen.cpp); a Generic material has no
 		// emissive input, so it contributes nothing extra here.
 		vec3 _amb = AmbientAt();
-		FragData_r=vec4(diffuse.xyz,diffuse.x*_amb.x);
+		// The finished additive indirect term. Diffuse indirect is
+		// albedo-modulated; specular indirect is not, which is exactly
+		// why it is summed here rather than folded into _amb - the
+		// slot carries a finished term, not an ambient colour.
+		vec3 _indirect = diffuse.xyz * _amb;
+	#if defined(GLOBALILLUMINATION) && defined(PBR)
+		vec3 iblF0 = mix(vec3(0.04), diffuse.xyz, metallic);
+		_indirect += DDGISpecular(vWorldPosition.xyz, normalize(gbufferNormal.xyz),
+			normalize(vCameraPos - vWorldPosition.xyz), iblF0, roughness);
+	#endif
+		FragData_r=vec4(diffuse.xyz,_indirect.x);
 		// RGB is the second pass's F0 *tint*, not a Blinn-Phong specular
 		// colour any more (nothing ever read these three channels before -
 		// secondpassPoint/Spot.glsl sampled them into a local that was then
@@ -1706,11 +1864,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// comes from albedo/metallic instead, so it writes a neutral 1.0
 		// tint here and is left exactly as it was.
 		#ifdef PBR
-			FragData_g=vec4(1.0,1.0,1.0,diffuse.y*_amb.y);
+			FragData_g=vec4(1.0,1.0,1.0,_indirect.y);
 		#else
-			FragData_g=vec4(specular.xyz,diffuse.y*_amb.y);
+			FragData_g=vec4(specular.xyz,_indirect.y);
 		#endif
-		FragData_b=vec4(gbufferNormal.xyz,diffuse.z*_amb.z);
+		FragData_b=vec4(gbufferNormal.xyz,_indirect.z);
 		// Uses the already-resolved metallic/roughness locals (folds in
 		// uMetallicRoughnessmap sampling when PBRMAP is set too), not the
 		// raw uMetallic/uRoughness uniforms directly - see the #ifdef PBR
