@@ -199,6 +199,42 @@ GraphEditCommand::GraphEditCommand(MaterialEditorDocument* doc, const MaterialEd
 void GraphEditCommand::Undo() { doc_->RestoreGraphSnapshot(before_); }
 void GraphEditCommand::Redo() { doc_->RestoreGraphSnapshot(after_); }
 
+// A Generic material's texture slots, in the .mat file. They were never
+// written: a texture chosen in the Material editor's slot was gone the
+// next time the file was opened. Same keys as a scene's embedded
+// materials (SceneSerializer's colorMap / normalMap / ...), and the same
+// "assets/..." form, so the two cannot disagree about what a path means.
+namespace {
+	struct GenericTextureSlot {
+		const char* key;
+		Texture* (GenericShaderMaterial::*get)() const;
+		void (GenericShaderMaterial::*set)(const std::shared_ptr<Texture>&);
+	};
+	static const GenericTextureSlot kGenericTextureSlots[] = {
+		{ "colorMap", &GenericShaderMaterial::GetColorMap, &GenericShaderMaterial::SetColorMap },
+		{ "normalMap", &GenericShaderMaterial::GetNormalMap, &GenericShaderMaterial::SetNormalMap },
+		{ "specularMap", &GenericShaderMaterial::GetSpecularMap, &GenericShaderMaterial::SetSpecularMap },
+		{ "envMap", &GenericShaderMaterial::GetEnvMap, &GenericShaderMaterial::SetEnvMap },
+		{ "metallicRoughnessMap", &GenericShaderMaterial::GetMetallicRoughnessMap, &GenericShaderMaterial::SetMetallicRoughnessMap },
+	};
+}
+
+// "<project>/assets/x/y.png" -> "assets/x/y.png"; unchanged if there is
+// no assets/ component to anchor on.
+static std::string MaterialTexturePathForFile(const std::string& abs)
+{
+	const size_t at = abs.rfind("/assets/");
+	return at == std::string::npos ? abs : abs.substr(at + 1);
+}
+
+// The inverse, against the project that holds the .mat itself.
+static std::string MaterialTexturePathFromFile(const std::string& stored, const std::string& matPath)
+{
+	if (stored.empty() || stored[0] == '/' || stored.compare(0, 7, "assets/") != 0) return stored;
+	const size_t at = matPath.rfind("/assets/");
+	return at == std::string::npos ? stored : matPath.substr(0, at + 1) + stored;
+}
+
 bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 	std::ifstream f(path);
 	if (!f.is_open()) return false;
@@ -230,6 +266,13 @@ bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 		if (j.find("shininess") != j.end()) mat->SetShininess(j["shininess"]);
 		if (j.find("reflectivity") != j.end()) mat->SetReflectivity(j["reflectivity"]);
 		if (j.find("displacementHeight") != j.end()) mat->SetDisplacementHeight(j["displacementHeight"]);
+		for (size_t t = 0; t < sizeof(kGenericTextureSlots) / sizeof(kGenericTextureSlots[0]); t++) {
+			const GenericTextureSlot& slot = kGenericTextureSlots[t];
+			if (!j.contains(slot.key) || !j[slot.key].is_string()) continue;
+			auto tex = std::make_shared<Texture>();
+			if (tex->LoadTexture(MaterialTexturePathFromFile(j[slot.key].get<std::string>(), path), TextureType::Texture))
+				(mat.get()->*slot.set)(tex);
+		}
 		ReadCommonMaterialSettings(mat.get(), j);
 		currentMaterial = mat;
 	} else {
@@ -277,6 +320,11 @@ bool MaterialEditorDocument::SaveToFile(const std::string& path) {
 		j["shininess"] = gm->GetShininess();
 		j["reflectivity"] = gm->GetReflectivity();
 		j["displacementHeight"] = gm->GetDisplacementHeight();
+		for (size_t t = 0; t < sizeof(kGenericTextureSlots) / sizeof(kGenericTextureSlots[0]); t++) {
+			const Texture* tex = (gm->*kGenericTextureSlots[t].get)();
+			if (tex != NULL && !tex->GetFilename().empty())
+				j[kGenericTextureSlots[t].key] = MaterialTexturePathForFile(tex->GetFilename());
+		}
 	} else {
 		j["kind"] = "custom";
 		j["generatedGlslPath"] = generatedGlslPath;

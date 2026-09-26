@@ -2238,6 +2238,126 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// The Material editor's Generic panel, on a material asset: shader
+	// options (which rebuild the material, as the checkboxes do), colours,
+	// the scalars, the render flags and the five texture slots - under the
+	// keys set_material takes for a scene object's material. Saved after,
+	// as set_material_text is.
+	// {"cmd":"edit_material","args":{"path":"assets/materials/Rock.p3dmat",
+	//   "options":{"PBR":true,"NormalMap":true},"roughness":0.8,
+	//   "textures":{"color":"assets/textures/rock.png","normal":""}}}
+	if (name == "edit_material")
+	{
+		std::string aerr;
+		MaterialEditorDocument* doc = AgentOpenMaterial(A("path"), aerr);
+		if (!doc) throw std::runtime_error(aerr);
+		GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(doc->currentMaterial.get());
+		if (doc->editKind != MaterialEditKind::Generic || gm == NULL)
+			throw std::runtime_error("not a Generic material - use set_material_graph or set_material_text");
+
+		// Shader options, by the checkbox labels (spaces and case ignored).
+		if (a.contains("options") && a["options"].is_object())
+		{
+			struct Opt { const char* name; uint32 flag; };
+			static const Opt kOpts[] = {
+				{ "color", ShaderUsage::Color }, { "texture", ShaderUsage::Texture },
+				{ "pbr", ShaderUsage::PBR }, { "pbrmap", ShaderUsage::PBRMap },
+				{ "normalmap", ShaderUsage::BumpMapping }, { "specularmap", ShaderUsage::SpecularMap },
+				{ "envmap", ShaderUsage::EnvMap }, { "refract", ShaderUsage::Refraction },
+				{ "dirshadow", ShaderUsage::DirectionalShadow }, { "pointshadow", ShaderUsage::PointShadow },
+				{ "spotshadow", ShaderUsage::SpotShadow }, { "alphacutout", ShaderUsage::AlphaTest },
+				{ "vertexwind", ShaderUsage::VertexWind } };
+			uint32 opts = gm->GetOptions();
+			for (nlohmann::json::const_iterator it = a["options"].begin(); it != a["options"].end(); ++it)
+			{
+				std::string k;
+				for (size_t i = 0; i < it.key().size(); i++)
+					if (it.key()[i] != ' ' && it.key()[i] != '_') k += (char)tolower((unsigned char)it.key()[i]);
+				bool found = false;
+				for (size_t o = 0; o < sizeof(kOpts) / sizeof(kOpts[0]); o++)
+					if (k == kOpts[o].name)
+					{
+						if (it.value().get<bool>()) opts |= kOpts[o].flag; else opts &= ~kOpts[o].flag;
+						found = true;
+					}
+				if (!found) throw std::runtime_error("unknown shader option '" + it.key() + "'");
+			}
+			if (opts != gm->GetOptions())
+			{
+				// Same carry-over as the panel's rebuild.
+				std::shared_ptr<GenericShaderMaterial> fresh = std::make_shared<GenericShaderMaterial>(opts);
+				fresh->SetColor(gm->GetColor());
+				fresh->SetSpecular(gm->GetSpecular());
+				fresh->SetMetallic(gm->GetMetallic());
+				fresh->SetRoughness(gm->GetRoughness());
+				fresh->SetSSREnabled(gm->IsSSREnabled());
+				fresh->SetAlphaCutoff(gm->GetAlphaCutoff());
+				fresh->SetShininess(gm->GetShininess());
+				fresh->SetReflectivity(gm->GetReflectivity());
+				fresh->SetDisplacementHeight(gm->GetDisplacementHeight());
+				if (gm->GetColorMapShared()) fresh->SetColorMap(gm->GetColorMapShared());
+				doc->currentMaterial = fresh;
+				gm = fresh.get();
+			}
+		}
+		auto vec4 = [&](const char* key, Vec4& out) -> bool {
+			if (!a.contains(key) || !a[key].is_array() || a[key].size() < 3) return false;
+			out = Vec4((f32)a[key][0].get<double>(), (f32)a[key][1].get<double>(), (f32)a[key][2].get<double>(),
+				a[key].size() > 3 ? (f32)a[key][3].get<double>() : 1.f);
+			return true;
+		};
+		Vec4 v;
+		if (vec4("color", v)) gm->SetColor(v);
+		if (vec4("specular", v)) gm->SetSpecular(v);
+		if (a.contains("metallic")) gm->SetMetallic((f32)a["metallic"].get<double>());
+		if (a.contains("roughness")) gm->SetRoughness((f32)a["roughness"].get<double>());
+		if (a.contains("ssr")) gm->SetSSREnabled(a["ssr"].get<bool>());
+		if (a.contains("alphaCutoff")) gm->SetAlphaCutoff((f32)a["alphaCutoff"].get<double>());
+		if (a.contains("shininess")) gm->SetShininess((f32)a["shininess"].get<double>());
+		if (a.contains("reflectivity")) gm->SetReflectivity((f32)a["reflectivity"].get<double>());
+		if (a.contains("displacementHeight")) gm->SetDisplacementHeight((f32)a["displacementHeight"].get<double>());
+		if (a.contains("opacity")) gm->SetOpacity((f32)a["opacity"].get<double>());
+		if (a.contains("transparent")) gm->SetTransparencyFlag(a["transparent"].get<bool>());
+		if (a.contains("cullFace")) gm->SetCullFace((uint32)a["cullFace"].get<int>());
+		auto flag = [&](const char* key, bool& on) { if (!a.contains(key)) return false; on = a[key].get<bool>(); return true; };
+		bool on = false;
+		if (flag("blending", on)) { if (on) gm->EnableBlending(); else gm->DisableBlending(); }
+		if (flag("depthTest", on)) { if (on) gm->EnableDepthTest(); else gm->DisableDepthTest(); }
+		if (flag("depthWrite", on)) { if (on) gm->EnableDepthWrite(); else gm->DisableDepthWrite(); }
+		if (flag("wireframe", on)) { if (on) gm->StartRenderWireFrame(); else gm->StopRenderWireFrame(); }
+		if (flag("castShadows", on)) { if (on) gm->EnableCastingShadows(); else gm->DisableCastingShadows(); }
+
+		// Texture slots: a path loads it, as the slot's Browse does. There is
+		// no clearing one - the engine binds every slot it holds and has no
+		// way to drop one, and the panel offers none either.
+		if (a.contains("textures") && a["textures"].is_object())
+		{
+			for (nlohmann::json::const_iterator it = a["textures"].begin(); it != a["textures"].end(); ++it)
+			{
+				const std::string rel = it.value().is_string() ? it.value().get<std::string>() : std::string();
+				if (rel.empty())
+					throw std::runtime_error("texture slot '" + it.key() + "' needs a path - slots cannot be cleared");
+				std::shared_ptr<Texture> tex = std::make_shared<Texture>();
+				if (!tex->LoadTexture(project.AbsolutePath(rel), TextureType::Texture))
+					throw std::runtime_error("could not load texture " + rel);
+				const std::string& slot = it.key();
+				if (slot == "color") gm->SetColorMap(tex);
+				else if (slot == "normal") gm->SetNormalMap(tex);
+				else if (slot == "specular") gm->SetSpecularMap(tex);
+				else if (slot == "env") gm->SetEnvMap(tex);
+				else if (slot == "metallicRoughness") gm->SetMetallicRoughnessMap(tex);
+				else throw std::runtime_error("unknown texture slot '" + slot + "' (color, normal, specular, env, metallicRoughness)");
+			}
+		}
+		doc->dirty = true;
+		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath(), UseDeferredGBuffer()))
+			throw std::runtime_error("failed to save material to " + doc->absolutePath);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = project.RelativePath(doc->absolutePath);
+		r["options"] = gm->GetOptions();
+		return r;
+	}
 	if (name == "get_material_text")
 	{
 		std::string aerr;
