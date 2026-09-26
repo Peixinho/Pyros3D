@@ -1965,6 +1965,105 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// The File menu's other project items and the Project Settings modal.
+	// {"cmd":"new_project","args":{"parentDir":"/abs/dir","name":"MyGame"}}
+	if (name == "new_project")
+	{
+		const std::string parentDir = A("parentDir");
+		const std::string projName = A("name");
+		if (parentDir.empty() || projName.empty())
+			throw std::runtime_error("new_project requires 'parentDir' and 'name'");
+		projectDialogError.clear();
+		if (!CreateNewProject(parentDir, projName))
+			throw std::runtime_error(projectDialogError.empty() ? "failed to create project" : projectDialogError);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["projectPath"] = project.GetProjectPath();
+		return r;
+	}
+	// File > Save Project: the open scene if it is dirty, then project.json.
+	if (name == "save_project")
+	{
+		if (!project.IsOpen()) throw std::runtime_error("no project open");
+		if (sceneView && sceneView->IsSceneDirty())
+			sceneView->TrySaveCurrentScene();
+		std::string perr;
+		if (!project.Save(&perr))
+			throw std::runtime_error(perr);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	// File > Close Project. The menu asks about unsaved work in a modal,
+	// and a modal blocks this socket - so this refuses instead, unless the
+	// caller says the work may go.
+	if (name == "close_project")
+	{
+		if (!project.IsOpen()) throw std::runtime_error("no project open");
+		if (AnySceneHasUnsavedWork() && !(a.is_object() && a.value("discard", false)))
+			throw std::runtime_error("unsaved changes - save_project first, or pass \"discard\": true");
+		CloseProjectImmediate();
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	// The Project Settings modal. With no arguments it only reads;
+	// "name" and "renderer" ("forward" | "deferred") apply and save, as
+	// the modal's Apply does - undoable the same way.
+	if (name == "project_settings")
+	{
+		if (!project.IsOpen()) throw std::runtime_error("no project open");
+		bool changed = false;
+		if (a.is_object() && a.contains("renderer"))
+		{
+			std::string rt = a.value("renderer", std::string());
+			for (size_t i = 0; i < rt.size(); i++) rt[i] = (char)tolower((unsigned char)rt[i]);
+			if (rt != "forward" && rt != "deferred")
+				throw std::runtime_error("renderer must be forward or deferred");
+			const ProjectRendererType before = project.GetSettings().rendererType;
+			const ProjectRendererType after = (rt == "deferred") ? ProjectRendererType::Deferred : ProjectRendererType::Forward;
+			if (before != after)
+			{
+				project.GetSettingsMutable().rendererType = after;
+				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+					[this, before]() { project.GetSettingsMutable().rendererType = before; project.MarkDirty(); },
+					[this, after]() { project.GetSettingsMutable().rendererType = after; project.MarkDirty(); },
+					"Set Renderer Type"));
+				changed = true;
+			}
+		}
+		if (a.is_object() && a.contains("name"))
+		{
+			const std::string oldName = project.GetProjectName();
+			const std::string newName = a.value("name", std::string());
+			if (newName.empty()) throw std::runtime_error("name must not be empty");
+			if (newName != oldName)
+			{
+				project.SetProjectName(newName);
+				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+					[this, oldName]() { project.SetProjectName(oldName); },
+					[this, newName]() { project.SetProjectName(newName); },
+					"Set Project Name"));
+				changed = true;
+			}
+		}
+		if (changed)
+		{
+			project.MarkDirty();
+			std::string perr;
+			if (!project.Save(&perr))
+				throw std::runtime_error(perr);
+			SwitchAllScenesRenderer(project.GetSettings().rendererType == ProjectRendererType::Deferred);
+			UpdateWindowTitle();
+		}
+		nlohmann::json r;
+		r["name"] = project.GetProjectName();
+		r["path"] = project.GetProjectPath();
+		r["renderer"] = project.GetSettings().rendererType == ProjectRendererType::Deferred ? "deferred" : "forward";
+		r["changed"] = changed;
+		return r;
+	}
+
 	if (name == "create_material")
 	{
 		if (!project.IsOpen())
