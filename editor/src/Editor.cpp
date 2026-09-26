@@ -2092,7 +2092,11 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		if (!rig.empty() && fs::path(rig).is_absolute()) rig = project.RelativePath(rig);
 		if (!rig.empty() && !fs::exists(project.AbsolutePath(rig)))
 			throw std::runtime_error("no such model " + rig);
-		if (NewAnimationDocument(rig) == NULL)
+		// Absolute, like the New Animation dialog passes it (see
+		// BuildAnimationMeshChoices) - the rig is loaded straight from this
+		// path, so a project-relative one only resolved against the cwd and
+		// the preview came up empty with three "couldn't open" errors.
+		if (NewAnimationDocument(rig.empty() ? rig : project.AbsolutePath(rig)) == NULL)
 			throw std::runtime_error("could not create the document");
 		nlohmann::json r;
 		r["ok"] = true;
