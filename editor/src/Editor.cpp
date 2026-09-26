@@ -3372,6 +3372,125 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["solid"] = activeTileSetDoc->SolidCount();
 		return r;
 	}
+	// The rest of the Tile Set editor, on the focused document, through the
+	// same TileSetDocument calls its panel makes (each one undoable):
+	//   {"grid":{"tileWidth","tileHeight","margin","spacing","columns"}}
+	//   {"tag":{"tiles":[..],"name":"ice","on":true}}
+	//   {"animate":{"tiles":[..],"fps":8}}         "Animate selection"
+	//   {"animationFps":{"index":0,"fps":12}}
+	//   {"removeAnimation":{"tile":3}}
+	//   {"terrain":{"base":16,"name":"grass"}}     "Make terrain from 16"
+	//   {"removeTerrain":{"tile":16}}
+	//   {"heightProfile":{"tile":5,"heights":[..]}} (empty clears it)
+	// Several keys may be given at once; grid applies first, since it
+	// re-cuts the sheet and changes what every index means.
+	if (name == "edit_tileset")
+	{
+		if (!activeTileSetDoc) throw std::runtime_error("no tile set open");
+		TileSetDocument& d = *activeTileSetDoc;
+		auto ints = [](const nlohmann::json& arr) {
+			std::vector<p3d::int32> v;
+			if (arr.is_array())
+				for (size_t i = 0; i < arr.size(); i++)
+					if (arr[i].is_number()) v.push_back((p3d::int32)arr[i].get<int>());
+			return v;
+		};
+		auto tileIn = [&](p3d::int32 t) {
+			if (t < 0 || t >= (p3d::int32)d.set.TileCount())
+				throw std::runtime_error("tile " + std::to_string(t) + " is outside the sheet (0-"
+					+ std::to_string((int)d.set.TileCount() - 1) + ")");
+		};
+		if (a.contains("grid"))
+		{
+			const nlohmann::json& g = a["grid"];
+			d.SetGrid(std::max(1, g.value("tileWidth", (int)d.set.tileW)),
+				std::max(1, g.value("tileHeight", (int)d.set.tileH)),
+				std::max(0, g.value("margin", (int)d.set.margin)),
+				std::max(0, g.value("spacing", (int)d.set.spacing)),
+				std::max(0, g.value("columns", (int)d.set.columns)));
+		}
+		if (a.contains("tag"))
+		{
+			const nlohmann::json& t = a["tag"];
+			const std::string tag = t.value("name", std::string());
+			if (tag.empty()) throw std::runtime_error("tag: 'name' is required");
+			const std::vector<p3d::int32> tiles = ints(t.value("tiles", nlohmann::json::array()));
+			if (tiles.empty()) throw std::runtime_error("tag: no tiles given");
+			for (size_t i = 0; i < tiles.size(); i++) { tileIn(tiles[i]); d.SetTag(tiles[i], tag, t.value("on", true)); }
+		}
+		if (a.contains("animate"))
+		{
+			const std::vector<p3d::int32> tiles = ints(a["animate"].value("tiles", nlohmann::json::array()));
+			if (tiles.size() < 2) throw std::runtime_error("animate: needs at least two tiles");
+			for (size_t i = 0; i < tiles.size(); i++) tileIn(tiles[i]);
+			d.AddAnim(tiles, (float)a["animate"].value("fps", 8.0));
+		}
+		if (a.contains("animationFps"))
+		{
+			const int idx = a["animationFps"].value("index", -1);
+			if (idx < 0 || idx >= (int)d.set.anims.size()) throw std::runtime_error("animationFps: no animation at that index");
+			d.SetAnimFps(idx, (float)a["animationFps"].value("fps", 8.0));
+		}
+		if (a.contains("removeAnimation"))
+		{
+			const p3d::int32 t = a["removeAnimation"].value("tile", -1);
+			tileIn(t);
+			d.RemoveAnimForTile(t);
+		}
+		if (a.contains("terrain"))
+		{
+			const p3d::int32 base = a["terrain"].value("base", -1);
+			tileIn(base);
+			if (base + p3d::TileSet2D::kAutoTileCount > (p3d::int32)d.set.TileCount())
+				throw std::runtime_error("terrain: 16 tiles from the base must fit in the sheet");
+			d.AddAutoTile(base, a["terrain"].value("name", std::string("terrain")));
+		}
+		if (a.contains("removeTerrain"))
+		{
+			const p3d::int32 t = a["removeTerrain"].value("tile", -1);
+			tileIn(t);
+			d.RemoveAutoTileForTile(t);
+		}
+		if (a.contains("heightProfile"))
+		{
+			const nlohmann::json& h = a["heightProfile"];
+			const p3d::int32 t = h.value("tile", -1);
+			tileIn(t);
+			std::vector<float> heights;
+			if (h.contains("heights") && h["heights"].is_array())
+				for (size_t i = 0; i < h["heights"].size(); i++) heights.push_back((float)h["heights"][i].get<double>());
+			d.SetHeightProfile(t, heights);
+		}
+		nlohmann::json r; r["ok"] = true; return r;
+	}
+	// What the Tile Set editor shows, under edit_tileset's keys.
+	if (name == "tileset_info")
+	{
+		if (!activeTileSetDoc) throw std::runtime_error("no tile set open");
+		const p3d::TileSet2D& ts = activeTileSetDoc->set;
+		nlohmann::json r;
+		r["name"] = activeTileSetDoc->displayName;
+		r["image"] = ts.image;
+		r["grid"] = { { "tileWidth", ts.tileW }, { "tileHeight", ts.tileH }, { "margin", ts.margin },
+			{ "spacing", ts.spacing }, { "columns", ts.columns } };
+		r["tiles"] = (int)ts.TileCount();
+		r["solid"] = activeTileSetDoc->SolidCount();
+		r["dirty"] = activeTileSetDoc->dirty;
+		nlohmann::json anims = nlohmann::json::array();
+		for (size_t i = 0; i < ts.anims.size(); i++)
+			anims.push_back({ { "index", (int)i }, { "name", ts.anims[i].name }, { "frames", ts.anims[i].frames }, { "fps", ts.anims[i].fps } });
+		r["animations"] = anims;
+		nlohmann::json terr = nlohmann::json::array();
+		for (size_t i = 0; i < ts.autotiles.size(); i++)
+			terr.push_back({ { "name", ts.autotiles[i].name }, { "base", ts.autotiles[i].base } });
+		r["terrains"] = terr;
+		nlohmann::json tags = nlohmann::json::object();
+		for (std::map<p3d::int32, p3d::TileInfo2D>::const_iterator it = ts.tiles.begin(); it != ts.tiles.end(); ++it)
+			for (size_t k = 0; k < it->second.tags.size(); k++)
+				tags[it->second.tags[k]].push_back(it->first);
+		r["tags"] = tags;
+		return r;
+	}
 	// {"cmd":"set_tile_solid","args":{"tiles":[4,5,6],"solid":true}}
 	// Acts on the focused tile set document. One undo entry for the batch.
 	if (name == "set_tile_solid")
