@@ -748,6 +748,7 @@ namespace p3d {
 
 		// Saves Projection
 		this->projection = projection;
+		this->projectionValid = true;
 
 		// Universal Cache
 		// Shift current -> previous before overwriting, matching
@@ -1082,7 +1083,7 @@ namespace p3d {
 					float haveShadow = 0.f;
 					if (p->IsCastingShadows())
 					{
-						f32 txl = p->GetShadowPCFTexelSize();
+						f32 txl = p->GetShadowFilterPacked();
 						f32 bias = p->GetShadowBiasScale();
 						Matrix mvp[2];
 						mvp[0] = PointShadowMatrix[numberPoint];
@@ -1221,7 +1222,7 @@ namespace p3d {
 					float haveShadow = 0.f;
 					if (s->IsCastingShadows())
 					{
-						f32 txl = s->GetShadowPCFTexelSize();
+						f32 txl = s->GetShadowFilterPacked();
 						// numberSpot, not numberDir. This indexed the spot
 						// shadow matrices with the *directional* light
 						// counter while incrementing numberSpot below and
@@ -1296,19 +1297,14 @@ namespace p3d {
 					float haveShadow = 0.f;
 					if (d->IsCastingShadows())
 					{
-						f32 txl = d->GetShadowPCFTexelSize();
+						// See ILightComponent::GetShadowFilterPacked().
+						f32 txl = d->GetShadowFilterPacked();
 
-						Vec4 _ShadowFar;
-						if (d->GetNumberCascades() > 0) _ShadowFar.x = d->GetCascade(0).Far;
-						if (d->GetNumberCascades() > 1) _ShadowFar.y = d->GetCascade(1).Far;
-						if (d->GetNumberCascades() > 2) _ShadowFar.z = d->GetCascade(2).Far;
-						if (d->GetNumberCascades() > 3) _ShadowFar.w = d->GetCascade(3).Far;
-
-						Vec4 ShadowFar;
-						ShadowFar.x = 0.5f*(-_ShadowFar.x*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.x + 0.5f;
-						ShadowFar.y = 0.5f*(-_ShadowFar.y*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.y + 0.5f;
-						ShadowFar.z = 0.5f*(-_ShadowFar.z*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.z + 0.5f;
-						ShadowFar.w = 0.5f*(-_ShadowFar.w*projection.m.m[10] + projection.m.m[14]) / _ShadowFar.w + 0.5f;
+						// Linear view distances - see the matching comment in
+						// IRenderer::PreRender(). This copy used the raw,
+						// untranslated projection, so on Vulkan it picked
+						// cascades from the wrong depth convention.
+						Vec4 ShadowFar = d->GetCascadeSplits();
 
 						std::vector<Matrix> mvp;
 						for (int j = 0; j < (int)d->GetNumberCascades(); j++)
@@ -1387,7 +1383,7 @@ namespace p3d {
 						directionalLight.m[4] = position.x;      directionalLight.m[5] = position.y;          directionalLight.m[6] = position.z;
 						directionalLight.m[7] = direction.x;     directionalLight.m[8] = direction.y;         directionalLight.m[9] = direction.z;
 						directionalLight.m[10] = 0.0f;			 directionalLight.m[11] = 0.0f;				  directionalLight.m[12] = 0.0f;
-						directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowPCFTexelSize();  directionalLight.m[15] = (d->IsCastingShadows() ? 1.f : 0.f);
+						directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowFilterPacked();  directionalLight.m[15] = (d->IsCastingShadows() ? 1.f : 0.f);
 
 						_Lights.push_back(directionalLight);
 						// NumberOfDirectionalShadows is set in PreRender only.
@@ -1410,11 +1406,11 @@ namespace p3d {
 						pointLight.m[4] = position.x;    pointLight.m[5] = position.y;        pointLight.m[6] = position.z;
 						pointLight.m[7] = direction.x;   pointLight.m[8] = direction.y;       pointLight.m[9] = direction.z;
 						pointLight.m[10] = attenuation;  pointLight.m[11] = 0.f;				  pointLight.m[12] = 0.f;
-						pointLight.m[13] = (f32)type;	 pointLight.m[14] = p->GetShadowPCFTexelSize();
+						pointLight.m[13] = (f32)type;	 pointLight.m[14] = p->GetShadowFilterPacked();
 
 						if (p->IsCastingShadows())
 						{
-							pointLight.m[14] = p->GetShadowPCFTexelSize();
+							pointLight.m[14] = p->GetShadowFilterPacked();
 							pointLight.m[15] = (f32)pointCounter++;
 							// NumberOfPointShadows counted in PreRender only.
 						}
@@ -1443,7 +1439,7 @@ namespace p3d {
 
 						if (s->IsCastingShadows())
 						{
-							spotLight.m[14] = s->GetShadowPCFTexelSize();
+							spotLight.m[14] = s->GetShadowFilterPacked();
 							spotLight.m[15] = (f32)spotCounter++;
 							// NumberOfSpotShadows counted in PreRender only.
 						}

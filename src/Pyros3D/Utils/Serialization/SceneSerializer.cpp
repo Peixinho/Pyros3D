@@ -1453,6 +1453,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				j["aspect"] = c0.Ratio;
 				j["shadowBiasFactor"] = l->GetShadowBiasFactor();
 				j["shadowBiasUnits"] = l->GetShadowBiasUnits();
+				j["shadowSoftness"] = l->GetShadowSoftness();
+				j["shadowNormalBias"] = l->GetShadowNormalBias();
 			}
 			return j;
 		}
@@ -1477,6 +1479,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// spot lights, since deferred point shadows didn't render.
 				j["shadowBiasFactor"] = l->GetShadowBiasFactor();
 				j["shadowBiasUnits"] = l->GetShadowBiasUnits();
+				j["shadowSoftness"] = l->GetShadowSoftness();
+				j["shadowNormalBias"] = l->GetShadowNormalBias();
 				// The one a point light actually reacts to - the two above
 				// configure polygon offset, which never reaches an R32F
 				// colour cube map. See PointLight::SetShadowBiasScale().
@@ -1507,6 +1511,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// See the identical pair on PointLight above.
 				j["shadowBiasFactor"] = l->GetShadowBiasFactor();
 				j["shadowBiasUnits"] = l->GetShadowBiasUnits();
+				j["shadowSoftness"] = l->GetShadowSoftness();
+				j["shadowNormalBias"] = l->GetShadowNormalBias();
 			}
 			WriteVolumetric(j, l);
 			return j;
@@ -2868,11 +2874,20 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
 			{
+				// The fallbacks only reach a scene written by hand or by a tool
+				// that sets castingShadows alone - this serializer always
+				// writes every key. They match the editor's own defaults: a
+				// single 1024 cascade stretched over 100 m is 14 cm texels,
+				// which is not a usable shadow.
 				Projection proj;
-				proj.Perspective(j.value("fov", 70.0f), j.value("aspect", 1.777f), j.value("shadowNear", 1.0f), j.value("shadowFar", 100.0f));
-				l->EnableCastShadows(j.value("shadowWidth", 1024u), j.value("shadowHeight", 1024u), proj, j.value("shadowNear", 1.0f), j.value("shadowFar", 100.0f), j.value("cascades", 1u));
+				proj.Perspective(j.value("fov", 70.0f), j.value("aspect", 1.777f), j.value("shadowNear", 0.1f), j.value("shadowFar", 50.0f));
+				l->EnableCastShadows(j.value("shadowWidth", 2048u), j.value("shadowHeight", 2048u), proj, j.value("shadowNear", 0.1f), j.value("shadowFar", 50.0f), j.value("cascades", 4u));
 				if ((j.find("shadowBiasFactor") != j.end()) || (j.find("shadowBiasUnits") != j.end()))
 					l->SetShadowBias(j.value("shadowBiasFactor", 1.0f), j.value("shadowBiasUnits", 1.0f));
+				// Absent in scenes saved before these existed - the light keeps
+				// its constructor defaults (see ILightComponent).
+				if (j.find("shadowSoftness") != j.end()) l->SetShadowSoftness(j.value("shadowSoftness", 1.0f));
+				if (j.find("shadowNormalBias") != j.end()) l->SetShadowNormalBias(j.value("shadowNormalBias", 1.5f));
 			}
 			go->AddComponent(l);
 		}
@@ -2883,11 +2898,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
 			{
-				l->EnableCastShadows(j.value("shadowWidth", 512u), j.value("shadowHeight", 512u), j.value("shadowNear", 0.1f));
+				l->EnableCastShadows(j.value("shadowWidth", 1024u), j.value("shadowHeight", 1024u), j.value("shadowNear", 0.1f));
 				// Matches DirectionalLight's identical block above - see the
 				// serialize side's comment on why point/spot were missing it.
 				if ((j.find("shadowBiasFactor") != j.end()) || (j.find("shadowBiasUnits") != j.end()))
 					l->SetShadowBias(j.value("shadowBiasFactor", 1.0f), j.value("shadowBiasUnits", 1.0f));
+				// Absent in scenes saved before these existed - the light keeps
+				// its constructor defaults (see ILightComponent).
+				if (j.find("shadowSoftness") != j.end()) l->SetShadowSoftness(j.value("shadowSoftness", 1.0f));
+				if (j.find("shadowNormalBias") != j.end()) l->SetShadowNormalBias(j.value("shadowNormalBias", 1.5f));
 				// Point lights only, and the one that actually does anything
 				// for them - see PointLight::SetShadowBiasScale(), and note
 				// SetShadowBias()'s polygon offset is a no-op here because
@@ -2906,10 +2925,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			l->SetLightIntensity(j.value("intensity", 1.0f));
 			if (j.value("castingShadows", false))
 			{
-				l->EnableCastShadows(j.value("shadowWidth", 512u), j.value("shadowHeight", 512u), j.value("shadowNear", 0.1f));
+				l->EnableCastShadows(j.value("shadowWidth", 1024u), j.value("shadowHeight", 1024u), j.value("shadowNear", 0.1f));
 				// See the identical block on PointLight above.
 				if ((j.find("shadowBiasFactor") != j.end()) || (j.find("shadowBiasUnits") != j.end()))
 					l->SetShadowBias(j.value("shadowBiasFactor", 1.0f), j.value("shadowBiasUnits", 1.0f));
+				// Absent in scenes saved before these existed - the light keeps
+				// its constructor defaults (see ILightComponent).
+				if (j.find("shadowSoftness") != j.end()) l->SetShadowSoftness(j.value("shadowSoftness", 1.0f));
+				if (j.find("shadowNormalBias") != j.end()) l->SetShadowNormalBias(j.value("shadowNormalBias", 1.5f));
 			}
 			ReadVolumetric(j, l.get());
 			go->AddComponent(l);

@@ -334,6 +334,14 @@ namespace p3d {
 				"onInit", &LUA_DirectionalLight::on_init,
 				"onDestroy", &LUA_DirectionalLight::on_destroy,
 				"setShadowPCFTexelSize", &LUA_DirectionalLight::SetShadowPCFTexelSize,
+				// Filter radius and normal-offset bias, both in shadow-map
+				// texels - see ILightComponent::SetShadowSoftness() and
+				// SetShadowNormalBias(). setShadowPCFTexelSize is the old,
+				// deprecated spelling of the first.
+				"setShadowSoftness", &LUA_DirectionalLight::SetShadowSoftness,
+				"getShadowSoftness", &LUA_DirectionalLight::GetShadowSoftness,
+				"setShadowNormalBias", &LUA_DirectionalLight::SetShadowNormalBias,
+				"getShadowNormalBias", &LUA_DirectionalLight::GetShadowNormalBias,
 				// Shadow depth bias. Lights built from Lua defaulted to
 				// 0/0 (ILightComponent's constructor), which is shadow
 				// acne on every one of them, and there was no way to set
@@ -368,6 +376,14 @@ namespace p3d {
 				"onInit", &LUA_PointLight::on_init,
 				"onDestroy", &LUA_PointLight::on_destroy,
 				"setShadowPCFTexelSize", &LUA_PointLight::SetShadowPCFTexelSize,
+				// Filter radius and normal-offset bias, both in shadow-map
+				// texels - see ILightComponent::SetShadowSoftness() and
+				// SetShadowNormalBias(). setShadowPCFTexelSize is the old,
+				// deprecated spelling of the first.
+				"setShadowSoftness", &LUA_PointLight::SetShadowSoftness,
+				"getShadowSoftness", &LUA_PointLight::GetShadowSoftness,
+				"setShadowNormalBias", &LUA_PointLight::SetShadowNormalBias,
+				"getShadowNormalBias", &LUA_PointLight::GetShadowNormalBias,
 				// Shadow depth bias. Lights built from Lua defaulted to
 				// 0/0 (ILightComponent's constructor), which is shadow
 				// acne on every one of them, and there was no way to set
@@ -418,6 +434,14 @@ namespace p3d {
 				"getLightIntensity", &LUA_SpotLight::GetLightIntensity,
 				"setLightIntensity", &LUA_SpotLight::SetLightIntensity,
 				"setShadowPCFTexelSize", &LUA_SpotLight::SetShadowPCFTexelSize,
+				// Filter radius and normal-offset bias, both in shadow-map
+				// texels - see ILightComponent::SetShadowSoftness() and
+				// SetShadowNormalBias(). setShadowPCFTexelSize is the old,
+				// deprecated spelling of the first.
+				"setShadowSoftness", &LUA_SpotLight::SetShadowSoftness,
+				"getShadowSoftness", &LUA_SpotLight::GetShadowSoftness,
+				"setShadowNormalBias", &LUA_SpotLight::SetShadowNormalBias,
+				"getShadowNormalBias", &LUA_SpotLight::GetShadowNormalBias,
 				// Shadow depth bias. Lights built from Lua defaulted to
 				// 0/0 (ILightComponent's constructor), which is shadow
 				// acne on every one of them, and there was no way to set

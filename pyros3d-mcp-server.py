@@ -2502,8 +2502,10 @@ def add_model(project_path: str, scene_name: str, model_file: str, name: str | N
 def add_directional_light(project_path: str, scene_name: str, name: str = "Sun", parent_name: str | None = None,
                           position: list[float] | None = None, color: list[float] | None = None,
                           direction: list[float] | None = None, intensity: float = 1.0,
-                          casting_shadows: bool = False) -> str:
-    """Add a directional light (editor: Add > Lights > Directional)."""
+                          casting_shadows: bool = False, shadow_map_size: int = 2048) -> str:
+    """Add a directional light (editor: Add > Lights > Directional).
+
+    shadow_map_size is the texels per side of each shadow cascade."""
     proj, err = _resolve_project(project_path)
     if err:
         return _fail(err)
@@ -2515,7 +2517,7 @@ def add_directional_light(project_path: str, scene_name: str, name: str = "Sun",
     live = _live_or_none("add_light", {
         "name": name, "type": "DirectionalLight", "parent": parent_name or "",
         "position": position, "color": color, "direction": direction,
-        "intensity": intensity, "castingShadows": bool(casting_shadows),
+        "intensity": intensity, "castingShadows": bool(casting_shadows), "shadowMapSize": int(shadow_map_size),
     }, scene_file)
     if live is not None:
         return _fail(live) if isinstance(live, str) else f"Added DirectionalLight '{name}' (live editor)"
@@ -2529,6 +2531,8 @@ def add_directional_light(project_path: str, scene_name: str, name: str = "Sun",
         "direction": list(direction) if direction else [0.0, -1.0, 0.0],
         "intensity": intensity,
         "castingShadows": bool(casting_shadows),
+        "shadowWidth": int(shadow_map_size),
+        "shadowHeight": int(shadow_map_size),
     }
     obj["components"].append(comp)
     a_err = _add_to_scene(data, obj, parent_name)
@@ -2543,8 +2547,10 @@ def add_point_light(project_path: str, scene_name: str, name: str = "PointLight"
                     position: list[float] | None = None, color: list[float] | None = None,
                     radius: float = 10.0, intensity: float = 1.0, casting_shadows: bool = False,
                     volumetric_scattering: float = 0.0, volumetric_anisotropy: float = 0.6,
-                    volumetric_steps: int = 32) -> str:
-    """Add a point light (editor: Add > Lights > Point)."""
+                    volumetric_steps: int = 32, shadow_map_size: int = 1024) -> str:
+    """Add a point light (editor: Add > Lights > Point).
+
+    shadow_map_size is the texels per side of each cube-map face."""
     proj, err = _resolve_project(project_path)
     if err:
         return _fail(err)
@@ -2557,7 +2563,7 @@ def add_point_light(project_path: str, scene_name: str, name: str = "PointLight"
         "name": name, "type": "PointLight", "parent": parent_name or "",
         "position": position, "color": color,
         "radius": radius, "intensity": intensity,
-        "castingShadows": bool(casting_shadows),
+        "castingShadows": bool(casting_shadows), "shadowMapSize": int(shadow_map_size),
         "volumetricScattering": volumetric_scattering,
         "volumetricAnisotropy": volumetric_anisotropy,
         "volumetricSteps": volumetric_steps,
@@ -2574,6 +2580,8 @@ def add_point_light(project_path: str, scene_name: str, name: str = "PointLight"
         "intensity": intensity,
         "radius": radius,
         "castingShadows": bool(casting_shadows),
+        "shadowWidth": int(shadow_map_size),
+        "shadowHeight": int(shadow_map_size),
         "volumetricScattering": volumetric_scattering,
         "volumetricAnisotropy": volumetric_anisotropy,
         "volumetricSteps": volumetric_steps,
@@ -2592,8 +2600,11 @@ def add_spot_light(project_path: str, scene_name: str, name: str = "SpotLight", 
                    radius: float = 10.0, direction: list[float] | None = None,
                    intensity: float = 1.0, inner_cone: float = 30.0, outer_cone: float = 45.0,
                    casting_shadows: bool = False, volumetric_scattering: float = 0.0,
-                   volumetric_anisotropy: float = 0.6, volumetric_steps: int = 32) -> str:
-    """Add a spot light (editor: Add > Lights > Spot)."""
+                   volumetric_anisotropy: float = 0.6, volumetric_steps: int = 32,
+                   shadow_map_size: int = 1024) -> str:
+    """Add a spot light (editor: Add > Lights > Spot).
+
+    shadow_map_size is the texels per side of the shadow map."""
     proj, err = _resolve_project(project_path)
     if err:
         return _fail(err)
@@ -2607,7 +2618,7 @@ def add_spot_light(project_path: str, scene_name: str, name: str = "SpotLight", 
         "position": position, "color": color,
         "radius": radius, "direction": direction,
         "intensity": intensity, "inner": inner_cone, "outer": outer_cone,
-        "castingShadows": bool(casting_shadows),
+        "castingShadows": bool(casting_shadows), "shadowMapSize": int(shadow_map_size),
         "volumetricScattering": volumetric_scattering,
         "volumetricAnisotropy": volumetric_anisotropy,
         "volumetricSteps": volumetric_steps,
@@ -2627,6 +2638,8 @@ def add_spot_light(project_path: str, scene_name: str, name: str = "SpotLight", 
         "innerCone": inner_cone,
         "outterCone": outer_cone,  # editor's spelling (SceneSerializer)
         "castingShadows": bool(casting_shadows),
+        "shadowWidth": int(shadow_map_size),
+        "shadowHeight": int(shadow_map_size),
         "volumetricScattering": volumetric_scattering,
         "volumetricAnisotropy": volumetric_anisotropy,
         "volumetricSteps": volumetric_steps,
@@ -4450,7 +4463,10 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
     Properties panel, 3D
       set_light (name, color, intensity, radius, direction, inner, outer,
         castingShadows, shadowMapSize, shadowNear, shadowFar, shadowCascades,
-        shadowBiasFactor, shadowBiasUnits)
+        shadowBiasFactor, shadowBiasUnits, shadowSoftness (filter radius in
+        texels, 0-3), shadowNormalBias (texels, 0-7.9), shadowBiasScale (point
+        only)). Shadow keys change a casting light in place and keep the rest;
+        get_object reports the same keys.
       set_material (name, color, specular, metallic, roughness, shininess,
         reflectivity, alphaCutoff, opacity, transparent, cullFace, blending,
         depthTest, depthWrite, wireframe, castShadows)

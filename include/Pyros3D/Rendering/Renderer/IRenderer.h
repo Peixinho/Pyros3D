@@ -442,6 +442,12 @@ namespace p3d {
 		// Projection Matrix
 		Projection
 			projection;
+		// Whether `projection` holds a real camera projection yet. It is
+		// stored by RenderScene(), which runs AFTER PreRender() - so the
+		// shadow pass sees the previous frame's (harmless) and, on the very
+		// first frame, an uninitialised one (not harmless).
+		bool
+			projectionValid = false;
 
 		// Depth Bias
 		Vec2

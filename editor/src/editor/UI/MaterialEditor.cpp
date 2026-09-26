@@ -381,6 +381,49 @@ static bool CompileFallbackErrorShader(bool deferredGBuffer, std::unique_ptr<Sha
 	return MaterialEditor::CompileMaterialShaderText(BuildErrorFallbackShaderGLSL(deferredGBuffer), deferredGBuffer, outShader, NULL);
 }
 
+int MaterialEditor::RegenerateStaleGeneratedShaders(const std::string& projectRoot) {
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	const fs::path dir = fs::path(projectRoot) / "assets" / "materials";
+	if (!fs::is_directory(dir, ec)) return 0;
+	int rewritten = 0;
+	for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+		if (!it->is_regular_file(ec) || it->path().extension() != ".mat") continue;
+		MaterialEditorDocument doc;
+		if (!doc.LoadCustomSourceFromFile(it->path().string())) continue;
+		// Older .mat files never stored the path; Apply derives it from the
+		// .mat's own path the same way when it is missing.
+		std::string glslAbsPath = doc.generatedGlslPath.empty()
+			? (it->path().parent_path() / (it->path().stem().string() + ".generated.glsl")).string()
+			: JoinPath(projectRoot, doc.generatedGlslPath);
+		// Only a file Apply already wrote - a material never applied has
+		// nothing stale, and creating one here would be a new asset.
+		if (!fs::exists(glslAbsPath, ec)) continue;
+
+		MaterialCodegenResult gen;
+		if (doc.editMode == MaterialEditMode::Text) {
+			std::vector<std::string> textureNames;
+			for (const auto& t : doc.textTextures) textureNames.push_back(t.name);
+			gen = GenerateGLSLFromSimpleText(doc.simpleShaderText, textureNames);
+		} else {
+			gen = GenerateGLSL(doc.nodes, doc.connections);
+		}
+		if (!gen.error.empty()) continue;
+
+		std::string current;
+		{
+			std::ifstream in(glslAbsPath, std::ios::binary);
+			current.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+		}
+		if (current == gen.glsl) continue;
+		std::ofstream out(glslAbsPath, std::ios::binary | std::ios::trunc);
+		if (!out) continue;
+		out << gen.glsl;
+		rewritten++;
+	}
+	return rewritten;
+}
+
 bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer, std::string* errorOut) {
 	auto* cm = dynamic_cast<CustomShaderMaterial*>(doc.currentMaterial.get());
 	if (!cm) { if (errorOut) *errorOut = "Not a Custom Shader material"; return false; }

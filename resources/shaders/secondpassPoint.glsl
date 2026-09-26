@@ -93,49 +93,63 @@ void main() {
 // the old constant lived in projected depth, where it bought 0.075 world
 // units of slack at distance 5 and 4.8 at distance 40.
 
-float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, float bias, vec4 pos)
+// Filter settings arrive packed in uPCFTexelSize - see
+// ILightComponent::GetShadowFilterPacked() and PyrosShader.glsl.
+int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }
+float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }
+
+// Taps on the texel centres of the face the receiver projects onto,
+// weighted as bilinear taps - a tent filter, the cube-map counterpart of
+// ShadowPCF2D in secondpassSpot/Directional.glsl. The old kernel stepped
+// the lookup *vector* by uPCFTexelSize (0.0001) in world units, so all 16
+// taps read the same texel: every deferred point shadow was one hard,
+// aliased comparison. `n` is the receiver's view-space normal, pushed
+// out by the normal bias in units of the face's texel footprint (2*d/N).
+float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float packed, float bias, vec4 pos, vec3 n)
 {
-	vec4 position_ls = Matrix2 * pos;
-	position_ls.xyz/=position_ls.w;
-	vec4 abs_position = abs(position_ls);
-	float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
-	// fs_z is negative, so scaling it down moves the reference *toward* the
+	// Matrix2 is translate(-light) * cameraWorld - its rotation is the
+	// camera's, which is also what carries the view-space normal.
+	vec3 ls = (Matrix2 * pos).xyz;
+	float size = float(textureSize(shadowMap, 0).x);
+	vec3 a = abs(ls);
+	float ma = max(a.x, max(a.y, a.z));
+	ls += mat3(Matrix2) * n * (ShadowNormalBiasTexels(packed) * 2.0 * ma / size);
+	a = abs(ls);
+	ma = max(a.x, max(a.y, a.z));
+	// -ma is negative, so scaling it down moves the reference *toward* the
 	// light - exactly `bias` of the way there. Applied before the projection
 	// rather than after it so the slack stays a fixed distance ratio instead
 	// of a fixed step in a non-linear depth.
-	fs_z *= (1.0 - bias);
-	vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
+	vec4 clip = Matrix1 * vec4(0.0, 0.0, -ma * (1.0 - bias), 1.0);
 	// Matrix1 (uPointDepthsMVP, IRenderer.cpp) already includes the
 	// device's own shadow-bias remap (device->TranslateShadowBiasMatrix() *
-	// TranslateProjectionMatrix()) - GL's is Matrix::BIAS's Z row, the
-	// exact 0.5/0.5 remap this used to hardcode here; Vulkan's is a Z
-	// passthrough, since TranslateProjectionMatrix() already remapped Z to
-	// [0,1]. This is the identical fix PyrosShader.glsl's own PCFPOINT
-	// already carries (see its comment): re-applying *0.5+0.5 on top
-	// squashes every comparison depth into the upper half of the range, so
-	// the test passes almost everywhere and the light reads as blocked
-	// across whole surfaces at once - which is what the deferred point
-	// shadow did, and why the multiply was commented out at the call site
-	// in 2021 rather than debugged (see that commit, "Fixed Deferred
-	// Rendering Example in intel gpus"). The forward path was fixed and
-	// this copy was missed, so deferred point lights have been the only
-	// light type in the engine casting no shadow at all since.
+	// TranslateProjectionMatrix()) - GL's is Matrix::BIAS's Z row, Vulkan's
+	// is a Z passthrough. Re-applying *0.5+0.5 here is what once left
+	// deferred point lights casting no shadow at all.
 	float depth = clip.z / clip.w;
-	float shadow = 0.0;
-	float x = 0.0;
-	float y = 0.0;
 
-	for (y = -1.5 ; y <=1.5 ; y+=1.0)
-		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			// No extra `- scale*5.0` depth bias: `scale` is a texel size in
-			// the cube face's XY, so subtracting a multiple of it from a
-			// [0,1] depth was never dimensionally meaningful - it only
-			// existed to hide the double remap this used to do. Real depth
-			// bias comes from the shadow pass's polygon offset
-			// (ILightComponent::SetShadowBias).
-			shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;
-	shadow /= 16.0;
-	return shadow;
+	vec3 axis, t, b;
+	if (a.x >= a.y && a.x >= a.z) { axis = vec3(sign(ls.x), 0.0, 0.0); t = vec3(0.0, 0.0, 1.0); b = vec3(0.0, 1.0, 0.0); }
+	else if (a.y >= a.z)          { axis = vec3(0.0, sign(ls.y), 0.0); t = vec3(1.0, 0.0, 0.0); b = vec3(0.0, 0.0, 1.0); }
+	else                          { axis = vec3(0.0, 0.0, sign(ls.z)); t = vec3(1.0, 0.0, 0.0); b = vec3(0.0, 1.0, 0.0); }
+	vec2 st = (vec2(dot(ls, t), dot(ls, b)) / ma * 0.5 + 0.5) * size - 0.5;
+	vec2 base = floor(st);
+	vec2 f = st - base;
+	int K = ShadowFilterRadius(packed);
+	float sum = 0.0;
+	for (int j = -K; j <= K + 1; j++)
+	{
+		float wy = (j == -K) ? 1.0 - f.y : ((j == K + 1) ? f.y : 1.0);
+		for (int i = -K; i <= K + 1; i++)
+		{
+			float wx = (i == -K) ? 1.0 - f.x : ((i == K + 1) ? f.x : 1.0);
+			vec2 uv = (base + vec2(float(i), float(j)) + 0.5) / size * 2.0 - 1.0;
+			vec3 dir = axis + t * uv.x + b * uv.y;
+			sum += wx * wy * ((texture(shadowMap, dir).r >= depth) ? 1.0 : 0.0);
+		}
+	}
+	float nk = float(2 * K + 1);
+	return sum / (nk * nk);
 }
 
 // One tap, for the volumetric march - see secondpassSpot.glsl's
@@ -325,10 +339,11 @@ void main() {
 	float pcf = 1.0;
 	vec4 worldPos = vec4(v1, 1.0);
 
-	if (uHaveShadowmap>0.0)
-		pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, uShadowBias, worldPos);
-
 	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
+
+	if (uHaveShadowmap>0.0)
+		pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, uShadowBias, worldPos,
+			dot(vViewNormal, v1) > 0.0 ? -vViewNormal : vViewNormal);
 	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec3 specTint = texture(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
 	float lightRadius = uLightRadius;

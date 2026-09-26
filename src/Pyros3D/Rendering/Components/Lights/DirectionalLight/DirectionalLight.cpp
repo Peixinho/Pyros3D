@@ -241,7 +241,9 @@ namespace p3d {
 
 		// Build Frustums
 		f32 lambda = SPLIT_WEIGHT;
-		f32 ratio = Far / Near;
+		// A near of 0 (or less) would make the logarithmic split term
+		// divide by zero below.
+		f32 ratio = Far / Max(Near, 0.001f);
 		this->Cascades[0].Near = Near;
 		this->Cascades[0].Width = (f32)Width;
 		this->Cascades[0].Height = (f32)Height;
@@ -269,5 +271,101 @@ namespace p3d {
 	void DirectionalLight::UpdateCascadeFrustumPoints(const uint32 Cascade, const Vec3 &CameraPosition, const Vec3 &CameraDirection)
 	{
 		Cascades[Cascade].UpdateFrustumPoints(CameraPosition, CameraDirection);
+	}
+
+	Matrix DirectionalLight::ShadowViewMatrix(const Vec3 &worldDirection)
+	{
+		Vec3 up = fabs(worldDirection.z) > 0.99f ? Vec3(0.f, 1.f, 0.f) : Vec3(0.f, 0.f, -1.f);
+		Matrix view;
+		view.identity();
+		view.LookAt(Vec3::ZERO, worldDirection, up);
+		return view;
+	}
+
+	Vec4 DirectionalLight::GetCascadeSplits()
+	{
+		Vec4 s;
+		if (ShadowCascades > 0) s.x = Cascades[0].Far;
+		if (ShadowCascades > 1) s.y = Cascades[1].Far;
+		if (ShadowCascades > 2) s.z = Cascades[2].Far;
+		if (ShadowCascades > 3) s.w = Cascades[3].Far;
+		return s;
+	}
+
+	Matrix DirectionalLight::FitCascade(const uint32 Cascade, const Matrix &CameraWorld, const Projection &CameraProjection, const Matrix &LightView, const std::vector<RenderingMesh*> &Casters)
+	{
+		// Slice range in view distance. Every cascade after the first starts
+		// inside the previous one's blend band, so the band has both maps.
+		const f32 sliceFar = Cascades[Cascade].Far;
+		const f32 sliceNear = Cascade == 0 ? Cascades[0].Near : Cascades[Cascade - 1].Far * (1.f - CascadeBlendFraction);
+
+		// Frustum slice corners in camera space. m[11] is -1 for a
+		// perspective matrix and 0 for an orthographic one.
+		Vec3 corners[8];
+		const bool perspective = CameraProjection.m.m[11] != 0.f;
+		for (uint32 k = 0; k < 8; k++)
+		{
+			const f32 d = (k < 4) ? sliceNear : sliceFar;
+			const f32 sx = (k & 1) ? 1.f : -1.f;
+			const f32 sy = (k & 2) ? 1.f : -1.f;
+			if (perspective)
+			{
+				// Read the half-extents off the matrix itself rather than
+				// Fov/Aspect, which a Projection built with Ortho() never
+				// sets - an editor or agent that passed one left the fit
+				// with a zero-width frustum and no shadow at all.
+				const f32 tanX = 1.f / CameraProjection.m.m[0];
+				const f32 tanY = 1.f / CameraProjection.m.m[5];
+				corners[k] = Vec3(sx * tanX * d, sy * tanY * d, -d);
+			}
+			else
+			{
+				const f32 halfW = 1.f / CameraProjection.m.m[0];
+				const f32 halfH = 1.f / CameraProjection.m.m[5];
+				const f32 cx = -CameraProjection.m.m[12] * halfW;
+				const f32 cy = -CameraProjection.m.m[13] * halfH;
+				corners[k] = Vec3(cx + sx * halfW, cy + sy * halfH, -d);
+			}
+		}
+
+		// Bounding sphere, in camera space: the centroid of a symmetric
+		// frustum slice lies on its axis, and the radius depends only on
+		// the slice's shape - so neither changes as the camera rotates.
+		Vec3 centre;
+		for (uint32 k = 0; k < 8; k++) centre += corners[k];
+		centre = centre / 8.f;
+		f32 radius = 0.f;
+		for (uint32 k = 0; k < 8; k++) radius = Max(radius, corners[k].distance(centre));
+		// Rounded up so float noise in the corners cannot wobble it.
+		radius = ceilf(radius * 16.f) / 16.f;
+
+		const Vec3 worldCentre = CameraWorld * centre;
+		Vec4 lc = LightView * Vec4(worldCentre.x, worldCentre.y, worldCentre.z, 1.f);
+
+		// Snap to whole texels of this cascade's tile.
+		const f32 texel = (2.f * radius) / (f32)Max(1u, ShadowWidth);
+		lc.x = floorf(lc.x / texel) * texel;
+		lc.y = floorf(lc.y / texel) * texel;
+
+		// View space looks down -Z, so toward the light is +Z.
+		f32 minZ = lc.z - radius;
+		f32 maxZ = lc.z + radius;
+		for (std::vector<RenderingMesh*>::const_iterator i = Casters.begin(); i != Casters.end(); i++)
+		{
+			RenderingComponent* rc = (*i)->renderingComponent;
+			if (!rc || !rc->IsCastingShadows()) continue;
+			GameObject* owner = rc->GetOwner();
+			if (!owner) continue;
+			const Vec3 scale = owner->GetScale();
+			const f32 r = rc->GetBoundingSphereRadius() * Max(Max(fabs(scale.x), fabs(scale.y)), fabs(scale.z));
+			const Vec3 pos = owner->GetWorldTransformation() * rc->GetBoundingSphereCenter();
+			const Vec4 p = LightView * Vec4(pos.x, pos.y, pos.z, 1.f);
+			if (fabs(p.x - lc.x) > radius + r || fabs(p.y - lc.y) > radius + r) continue;
+			maxZ = Max(maxZ, p.z + r);
+		}
+
+		Cascades[Cascade].ortho.Ortho(lc.x - radius, lc.x + radius, lc.y - radius, lc.y + radius, -maxZ, -minZ);
+		Cascades[Cascade].CropMatrix = Cascades[Cascade].ortho.GetProjectionMatrix();
+		return Cascades[Cascade].CropMatrix;
 	}
 }

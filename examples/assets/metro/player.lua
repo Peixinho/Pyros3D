@@ -81,7 +81,7 @@ function P.buildFlashlight()
 	-- All three arguments are passed explicitly - sol does not apply
 	-- C++ default arguments, so EnableCastShadows(w, h) alone raises.
 	light:enableShadows(f.shadowSize, f.shadowSize, f.shadowNear)
-	light:setShadowPCFTexelSize(f.shadowPCF)
+	light:setShadowSoftness(f.shadowSoftness)
 	light:setShadowBias(f.shadowBiasFactor, f.shadowBiasUnits)
 
 	go:addComponent(light)

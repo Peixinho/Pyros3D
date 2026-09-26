@@ -954,30 +954,139 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
     #endif
 
-#if defined(DIRECTIONALSHADOW)
-            float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade)
+#if defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)
+            // Shadow filtering, shared by the three light types. The same
+            // functions live in secondpassDirectional/Point/Spot.glsl and in
+            // the editor's MaterialCodegen.cpp - keep all four in step.
+            //
+            // A light's filter settings arrive packed into one float (the
+            // light matrix's PCF slot) - see
+            // ILightComponent::GetShadowFilterPacked(): the integer part is
+            // the filter radius in texels, the fraction normal bias / 8.
+            int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }
+            float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }
+
+            // World-space size of one shadow-map texel at `pos`, for a
+            // shadow matrix M that maps it to [0,1] UV (perspective or
+            // orthographic). d(uv.x)/d(pos) at the map's centre is
+            // (rowX - 0.5*rowW)/w; one texel is 1/texels of UV.
+            float ShadowTexelWorld(mat4 M, vec4 pos, float texels)
             {
-                vec4 coord = sMatrix * pos;
-                if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
-                float shadow = 0.0;
-                float x = 0.0;
-                float y = 0.0;
-                for (y = -1.5 ; y <=1.5 ; y+=1.0)
-                    for (x = -1.5 ; x <=1.5 ; x+=1.0)
-                        shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0)));
-                shadow /= 16.0;
-                return shadow;
+                vec3 rowX = vec3(M[0][0], M[1][0], M[2][0]);
+                vec3 rowW = vec3(M[0][3], M[1][3], M[2][3]);
+                float w = dot(vec4(M[0][3], M[1][3], M[2][3], M[3][3]), pos);
+                return abs(w) / (texels * max(length(rowX - 0.5 * rowW), 1e-8));
             }
+
+            // Tent-filtered PCF built from one-texel comparisons. Every tap
+            // lands on a texel centre and is weighted as a bilinear sample
+            // would be, so a radius-K filter equals a (2K+1)^2 box of
+            // hardware-bilinear PCF lookups: smooth penumbrae with no
+            // banding, and no dependence on linear-filtered comparison
+            // samplers (unloadable on Apple GL - see
+            // DirectionalLight::EnableCastShadows). (2K+2)^2 taps.
+            // `rect` clamps the taps to one cascade's tile of an atlas.
+            float ShadowPCF2D(sampler2DShadow map, vec3 uvz, int K, vec2 size, vec4 rect)
+            {
+                vec2 st = uvz.xy * size - 0.5;
+                vec2 base = floor(st);
+                vec2 f = st - base;
+                float sum = 0.0;
+                for (int j = -K; j <= K + 1; j++)
+                {
+                    float wy = (j == -K) ? 1.0 - f.y : ((j == K + 1) ? f.y : 1.0);
+                    for (int i = -K; i <= K + 1; i++)
+                    {
+                        float wx = (i == -K) ? 1.0 - f.x : ((i == K + 1) ? f.x : 1.0);
+                        vec2 uv = clamp((base + vec2(float(i), float(j)) + 0.5) / size, rect.xy, rect.zw);
+                        sum += wx * wy * texture(map, vec3(uv, uvz.z));
+                    }
+                }
+                float n = float(2 * K + 1);
+                return sum / (n * n);
+            }
+
+            // The receiver's geometric normal in view space, from screen-space
+            // derivatives of its view-space position - normal-offset bias
+            // wants the true surface plane, not an interpolated or
+            // normal-mapped one. Must be called in uniform control flow (top
+            // of main, before any discard). Turned toward the camera, which
+            // also makes it independent of each backend's window-Y direction.
+            vec3 ShadowGeometricNormal(vec3 viewPos)
+            {
+                vec3 n = cross(dFdx(viewPos), dFdy(viewPos));
+                float len = length(n);
+                if (len < 1e-20) return vec3(0.0);
+                n /= len;
+                return dot(n, viewPos) > 0.0 ? -n : n;
+            }
+#endif
+
+#if defined(DIRECTIONALSHADOW)
             // Same batching idea as GlobalMatrices/LightsBlock, for the
-            // (up to 4) cascade matrices; uDirectionalShadowFar keeps its
-            // declared size but only element [0] is ever written or read -
-            // it's a single vec4 whose 4 components are the per-cascade
-            // far distances, not a real 4-element array.
+            // (up to 4) cascade matrices. uDirectionalShadowFar keeps its
+            // declared size but only element [0] is ever written or read:
+            // it is one vec4 of the four cascades' linear view-space far
+            // distances (DirectionalLight::GetCascadeSplits()), 0 for an
+            // unused cascade.
             UBO_BINDING(BIND_DirectionalShadowBlock) uniform DirectionalShadowBlock {
                 mat4 uDirectionalDepthsMVP[4];
                 vec4 uDirectionalShadowFar[4];
             };
             SAMPLER_BINDING(BIND_uDirectionalShadowMaps) uniform sampler2DShadow uDirectionalShadowMaps;
+
+            float ShadowCascadeFar(vec4 splits, int c)
+            {
+                if (c == 0) return splits.x;
+                if (c == 1) return splits.y;
+                if (c == 2) return splits.z;
+                return splits.w;
+            }
+
+            // One cascade of the atlas: cascade c's tile is the (c%2, c/2)
+            // quarter of the map when there is more than one.
+            float ShadowDirectionalCascade(int c, bool multi, float packed, vec4 pos, vec3 n)
+            {
+                mat4 M = uDirectionalDepthsMVP[c];
+                vec2 size = vec2(textureSize(uDirectionalShadowMaps, 0));
+                float tile = multi ? size.x * 0.5 : size.x;
+                vec4 p = vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(M, pos, tile)), 1.0);
+                vec4 coord = M * p;
+                vec4 rect = vec4(0.0, 0.0, 1.0, 1.0);
+                if (multi)
+                {
+                    vec2 off = vec2((c == 1 || c == 3) ? 0.5 : 0.0, (c >= 2) ? 0.5 : 0.0);
+                    coord.xy = coord.xy * 0.5 + off;
+                    rect = vec4(off + 0.5 / size, off + 0.5 - 0.5 / size);
+                }
+                return ShadowPCF2D(uDirectionalShadowMaps, coord.xyz, ShadowFilterRadius(packed), size, rect);
+            }
+
+            // Picks the cascade from the fragment's view depth and
+            // cross-fades into the next one over the last 10% of each
+            // (DirectionalLight::CascadeBlendFraction), fading the last out
+            // entirely, so neither the resolution step nor the end of the
+            // shadow distance shows as a line.
+            float DirectionalShadowFactor(float packed, vec4 pos, vec3 n)
+            {
+                vec4 splits = uDirectionalShadowFar[0];
+                bool multi = splits.y > 0.0;
+                int count = !multi ? 1 : (splits.w > 0.0 ? 4 : (splits.z > 0.0 ? 3 : 2));
+                float depth = -pos.z;
+                int c = count;
+                for (int i = 3; i >= 0; i--)
+                    if (i < count && depth < ShadowCascadeFar(splits, i)) c = i;
+                if (c >= count) return 1.0;
+                float cFar = ShadowCascadeFar(splits, c);
+                float t = clamp((depth - cFar * 0.9) / (cFar * 0.1), 0.0, 1.0);
+                float s = ShadowDirectionalCascade(c, multi, packed, pos, n);
+                if (t > 0.0)
+                {
+                    float next = (c + 1 < count) ? ShadowDirectionalCascade(c + 1, multi, packed, pos, n) : 1.0;
+                    s = mix(s, next, t);
+                }
+                return s;
+            }
         #endif
 
         #ifdef POINTSHADOW
@@ -986,43 +1095,56 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             //
             // `bias` is needed for the same reason: a point light's cube map
             // is an R32F *colour* attachment, so the polygon offset
-            // ILightComponent::SetShadowBias configures never reaches it and
-            // a lit surface sits one rounding error from shadowing itself.
-            // This copy had none at all, which showed as horizontal stripes
-            // across a face pointed straight at the light - striped on Vulkan
-            // and Metal, clean on GL, purely because the two sides of the
-            // comparison round the same tie differently per backend. See
-            // PointLight::SetShadowBiasScale() for what the value means.
-            float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float scale, float bias, vec4 pos)
+            // ILightComponent::SetShadowBias configures never reaches it.
+            // See PointLight::SetShadowBiasScale() for what the value means.
+            //
+            // Filtered like ShadowPCF2D: the taps are placed on the texel
+            // centres of the face the receiver projects onto (the set of
+            // centres is the same whichever way a face is oriented), and
+            // weighted as bilinear taps. Taps past a face's edge land on the
+            // neighbouring face, not exactly on a centre - harmless at the
+            // radii allowed.
+            float PCFPOINT(samplerCube shadowMap, mat4 Matrix1, mat4 Matrix2, float packed, float bias, vec4 pos, vec3 n)
             {
-                vec4 position_ls = Matrix2 * pos;
-                position_ls.xyz/=position_ls.w;
-                vec4 abs_position = abs(position_ls);
-                float fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));
-                // See secondpassPoint.glsl's identical line - fs_z is
-                // negative, so this moves the reference `bias` of the way
-                // toward the light, before the projection rather than after.
-                fs_z *= (1.0 - bias);
-                vec4 clip = Matrix1 * vec4(0.0, 0.0, fs_z, 1.0);
+                // Matrix2 is translate(-light) * cameraWorld: view space to
+                // the light-relative world vector. Its rotation is the
+                // camera's, which is also what carries the view-space normal.
+                vec3 ls = (Matrix2 * pos).xyz;
+                float size = float(textureSize(shadowMap, 0).x);
+                vec3 a = abs(ls);
+                float ma = max(a.x, max(a.y, a.z));
+                ls += mat3(Matrix2) * n * (ShadowNormalBiasTexels(packed) * 2.0 * ma / size);
+                a = abs(ls);
+                ma = max(a.x, max(a.y, a.z));
+                // Pulled `bias` of the way toward the light before the
+                // projection, not after - see secondpassPoint.glsl.
+                vec4 clip = Matrix1 * vec4(0.0, 0.0, -ma * (1.0 - bias), 1.0);
                 // Matrix1 (uPointDepthsMVP, IRenderer.cpp) already includes
-                // the device's own shadow-bias remap (device->
-                // TranslateShadowBiasMatrix() * TranslateProjectionMatrix())
-                // - GL's is Matrix::BIAS's Z row, the exact 0.5/0.5 remap
-                // this used to hardcode here; Vulkan's is a Z-passthrough,
-                // since TranslateProjectionMatrix() already remapped Z to
-                // [0,1]. Re-applying *0.5+0.5 on top double-transformed
-                // Vulkan's Z - the same bug class already fixed for
-                // directional/spot shadows, just missed here.
+                // the device's own shadow-bias remap, so no *0.5+0.5 here.
                 float depth = clip.z / clip.w;
-                float shadow = 0.0;
-                float x = 0.0;
-                float y = 0.0;
 
-                for (y = -1.5 ; y <=1.5 ; y+=1.0)
-                    for (x = -1.5 ; x <=1.5 ; x+=1.0)
-                        shadow += (texture(shadowMap, position_ls.xyz + vec3(vec2(x,y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;
-                shadow /= 16.0;
-                return shadow;
+                vec3 axis, t, b;
+                if (a.x >= a.y && a.x >= a.z) { axis = vec3(sign(ls.x), 0.0, 0.0); t = vec3(0.0, 0.0, 1.0); b = vec3(0.0, 1.0, 0.0); }
+                else if (a.y >= a.z)          { axis = vec3(0.0, sign(ls.y), 0.0); t = vec3(1.0, 0.0, 0.0); b = vec3(0.0, 0.0, 1.0); }
+                else                          { axis = vec3(0.0, 0.0, sign(ls.z)); t = vec3(1.0, 0.0, 0.0); b = vec3(0.0, 1.0, 0.0); }
+                vec2 st = (vec2(dot(ls, t), dot(ls, b)) / ma * 0.5 + 0.5) * size - 0.5;
+                vec2 base = floor(st);
+                vec2 f = st - base;
+                int K = ShadowFilterRadius(packed);
+                float sum = 0.0;
+                for (int j = -K; j <= K + 1; j++)
+                {
+                    float wy = (j == -K) ? 1.0 - f.y : ((j == K + 1) ? f.y : 1.0);
+                    for (int i = -K; i <= K + 1; i++)
+                    {
+                        float wx = (i == -K) ? 1.0 - f.x : ((i == K + 1) ? f.x : 1.0);
+                        vec2 uv = (base + vec2(float(i), float(j)) + 0.5) / size * 2.0 - 1.0;
+                        vec3 dir = axis + t * uv.x + b * uv.y;
+                        sum += wx * wy * ((texture(shadowMap, dir).r >= depth) ? 1.0 : 0.0);
+                    }
+                }
+                float nk = float(2 * K + 1);
+                return sum / (nk * nk);
             }
             // Samplers can never be members of a uniform block, so
             // uPointShadowMaps stays a plain uniform; only the matrix array
@@ -1034,13 +1156,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef SPOTSHADOW
-            float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
+            // This was a single comparison - the 4x4 loop had been commented
+            // out - so forward spot shadows were hard-edged and aliased
+            // while deferred ones were filtered.
+            float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float packed, vec4 pos, vec3 n)
             {
-                vec4 coord = sMatrix * pos;
-                coord.xyz/=coord.w;
-                float shadow = 0.0;
-                        shadow += texture(shadowMap, coord.xyz );
-                return shadow;
+                vec2 size = vec2(textureSize(shadowMap, 0));
+                vec4 p = vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(sMatrix, pos, size.x)), 1.0);
+                vec4 coord = sMatrix * p;
+                coord.xyz /= coord.w;
+                return ShadowPCF2D(shadowMap, coord.xyz, ShadowFilterRadius(packed), size, vec4(0.0, 0.0, 1.0, 1.0));
             }
 
             SAMPLER_BINDING(BIND_uSpotShadowMaps) uniform sampler2DShadow uSpotShadowMaps[4];
@@ -1506,6 +1631,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
     void main() {
 
+        // Before anything can discard - see ShadowGeometricNormal().
+        #if (defined(DIRECTIONALSHADOW) || defined(POINTSHADOW) || defined(SPOTSHADOW)) && (defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR))
+            vec3 shadowNormal = ShadowGeometricNormal(vWorldPositionShadow.xyz);
+        #endif
+
         #ifdef CLIPSPACE
             if (vClipDist < 0.0) discard;
         #endif
@@ -1712,11 +1842,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                         #ifdef DIRECTIONALSHADOW
                             float DirectionalShadow = 1.0;
                             if (L.HaveShadowMap) {
-                                bool MoreThanOneCascade = (uDirectionalShadowFar[0].y>0.0);
-                                if (gl_FragCoord.z<uDirectionalShadowFar[0].x) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.0, uDirectionalDepthsMVP[0],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
-                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].y) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.0, uDirectionalDepthsMVP[1],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
-                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].z) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.0, 0.5, uDirectionalDepthsMVP[2],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
-                                else if (gl_FragCoord.z<uDirectionalShadowFar[0].w) DirectionalShadow = PCFDIRECTIONAL( uDirectionalShadowMaps, 0.5,0.5, uDirectionalDepthsMVP[3],L.PCFTexelSize,vWorldPositionShadow, MoreThanOneCascade);
+                                DirectionalShadow = DirectionalShadowFactor(L.PCFTexelSize, vWorldPositionShadow, shadowNormal);
                             }
 
                             _diffuse += vec4(lightIntensity * L.Color.xyz * DirectionalShadow, lightIntensity * L.Color.w);
@@ -1759,7 +1885,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                             if (attenuation>0.0 && L.HaveShadowMap)
                             {
                                 PointShadow = 0.0;
-                                PointShadow+=PCFPOINT(uPointShadowMaps[0],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],L.PCFTexelSize,L.ShadowBiasScale,vWorldPositionShadow);
+                                PointShadow+=PCFPOINT(uPointShadowMaps[0],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],L.PCFTexelSize,L.ShadowBiasScale,vWorldPositionShadow,shadowNormal);
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * attenuation * PointShadow, lightIntensity * L.Color.w);
                             _specular += vec4(specularPower * L.Color.xyz * attenuation * specular.xyz * PointShadow, specularPower * L.Color.w * specular.w);
@@ -1802,7 +1928,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                             if (spotEffect>0.0 && attenuation>0.0 && L.HaveShadowMap)
                             {
                                 SpotShadow = 0.0;
-                                SpotShadow+=PCFSPOT(uSpotShadowMaps[0],uSpotDepthsMVP[L.ShadowMap],L.PCFTexelSize,vWorldPositionShadow);
+                                SpotShadow+=PCFSPOT(uSpotShadowMaps[0],uSpotDepthsMVP[L.ShadowMap],L.PCFTexelSize,vWorldPositionShadow,shadowNormal);
                             }
                             _diffuse += vec4(lightIntensity * L.Color.xyz * spotEffect * attenuation * SpotShadow, lightIntensity * L.Color.w);
                             _specular += vec4(specularPower * L.Color.xyz * spotEffect * attenuation * specular.xyz * SpotShadow, specularPower * L.Color.w * specular.w);

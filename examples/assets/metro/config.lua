@@ -89,26 +89,19 @@ C.flashlight = {
 	-- is the most expensive single thing in the frame and the beam is
 	-- soft enough that the difference does not read.
 	shadowSize = 1024,
-	-- A wider PCF kernel than one texel. The beam is broad and lands on
-	-- walls a couple of metres away, where a single-texel comparison
-	-- shows the map's own grid as blocky stair-stepping along every
-	-- shadow edge.
-	shadowPCF  = 1.6 / 1024.0,
+	-- Shadow filter radius in texels (0-3). The beam is broad and lands
+	-- on walls a couple of metres away, where a hard comparison shows the
+	-- map's own grid as stair-stepping along every shadow edge.
+	shadowSoftness = 2,
 	-- Slope-scaled depth bias, factor/units - the pair the scene
 	-- serializer writes, reaching Vulkan as depthBiasSlopeFactor and
-	-- depthBiasConstantFactor. Lua-built lights default to 0/0, which is
-	-- solid acne.
-	--
-	-- These are far larger than they look like they should be, and they
-	-- were measured, not guessed: the shadow projection is perspective
-	-- with a near/far of 1:30, so almost all of the depth range is spent
-	-- close to the light and a floor being grazed 15 m away has a tiny
-	-- NDC depth slope standing in for a large world-space error. 3.2/4.0
-	-- still striped the whole platform; 40/64 was completely clean; 12/16
-	-- is the lowest that stayed clean without visibly lifting shadows off
-	-- the foot of what casts them.
-	shadowBiasFactor = 6.0,
-	shadowBiasUnits  = 8.0,
+	-- depthBiasConstantFactor. The engine's normal-offset bias
+	-- (setShadowNormalBias, 1.5 texels by default) now removes the
+	-- distance- and angle-dependent acne that once needed 6/8 here - and
+	-- 40/64 before the beam's near plane was fixed - so this only has to
+	-- cover the filter's own footprint on a slope.
+	shadowBiasFactor = 2.0,
+	shadowBiasUnits  = 1.0,
 	-- The near plane of the beam's own shadow frustum. Pushed well out
 	-- from 0.12: nothing within half a metre of the eye casts (the
 	-- weapon has casting disabled), and a tighter near/far ratio is

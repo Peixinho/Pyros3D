@@ -637,6 +637,24 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	// Get Lights List
 	lcomps = ILightComponent::GetLightsOnScene(Scene);
 
+	// Every frame, not only when there is something to render. These hold
+	// raw pointers to the lights' shadow maps and were cleared inside the
+	// block below - so deleting the last light in a scene (or its last
+	// mesh) left last frame's pointers in place, and RenderScene()'s
+	// BindShadowMaps() bound a texture that no longer existed. GL's error
+	// check aborted the editor on it; Vulkan and Metal read freed memory.
+	DirectionalShadowMapsTextures.clear();
+	DirectionalShadowMatrix.clear();
+	NumberOfDirectionalShadows = 0;
+
+	PointShadowMapsTextures.clear();
+	PointShadowMatrix.clear();
+	NumberOfPointShadows = 0;
+
+	SpotShadowMapsTextures.clear();
+	SpotShadowMatrix.clear();
+	NumberOfSpotShadows = 0;
+
 	if (rmesh.size() > 0 && lcomps.size() > 0)
 	{
 		// Initialize Renderer
@@ -651,19 +669,6 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 		uint32 _bufferOptions = bufferOptions;
 		uint32 _glBufferOptions = glBufferOptions;
 		bool _clearDepthBuffer = clearDepthBuffer;
-
-		// ShadowMaps
-		DirectionalShadowMapsTextures.clear();
-		DirectionalShadowMatrix.clear();
-		NumberOfDirectionalShadows = 0;
-
-		PointShadowMapsTextures.clear();
-		PointShadowMatrix.clear();
-		NumberOfPointShadows = 0;
-
-		SpotShadowMapsTextures.clear();
-		SpotShadowMatrix.clear();
-		NumberOfSpotShadows = 0;
 
 		ViewMatrix = Camera->GetWorldTransformation().Inverse();
 		uint32 pointCounter = 0;
@@ -714,20 +719,26 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// Enable Depth Bias
 					SetShadowDepthBias(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
-					ViewMatrix.identity();
-					ViewMatrix.LookAt(Vec3::ZERO, direction, Vec3(0.f, 0.f, -1.f));
+					ViewMatrix = DirectionalLight::ShadowViewMatrix(direction);
+
+					// The camera actually rendering - see FitCascade(). Before
+					// the first RenderScene() there is none yet, so fall back
+					// to a plain 60-degree view rather than read garbage.
+					Projection cameraProjection = projection;
+					if (!projectionValid)
+						cameraProjection.Perspective(60.f, 16.f / 9.f, 0.1f, 1000.f);
+					const Matrix cameraWorld = Camera->GetWorldTransformation();
 
 					// Get Lights Shadow Map Texture
 					for (uint32 i = 0; i < d->GetNumberCascades(); i++)
 					{
-						d->UpdateCascadeFrustumPoints(i, Camera->GetWorldPosition(), Camera->GetDirection());
-						ProjectionMatrix = d->GetLightProjection(ViewMatrix, i, rmesh);
+						ProjectionMatrix = d->FitCascade(i, cameraWorld, cameraProjection, ViewMatrix, rmesh);
 
 						// Set Viewport
 						_SetViewPort((uint32)((float)(i % 2) * d->GetShadowWidth()), (uint32)((i <= (uint32)1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
 
 						// Update Culling
-						UpdateCulling(d->GetCascade(i).ortho.GetProjectionMatrix()*ViewMatrix);
+						UpdateCulling(ProjectionMatrix*ViewMatrix);
 
 						// Render Scene with Objects Material
 						for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
@@ -741,26 +752,17 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						}
 
 						// device->TranslateProjectionMatrix() (identity on
-						// GL) - this matrix maps a world-space fragment
+						// GL) - this matrix maps a view-space fragment
 						// into the shadow map's own UV+depth space for
 						// the main pass's comparison lookup, so it must
 						// use the *same* clip-space convention the
-						// shadow map was actually rendered with
-						// (RenderObject()'s own SendGlobalUniforms()
-						// call, a few lines up, already applies this same
-						// translation to what gets uploaded as
-						// uProjectionMatrix while rendering the shadow
-						// map itself - using the raw, un-translated
-						// matrix here instead would silently look up the
-						// wrong texel/depth on Vulkan, exactly the kind
-						// of "renders without error but is wrong" bug
-						// pixel-readback verification exists to catch).
+						// shadow map was actually rendered with.
 						// device->TranslateShadowBiasMatrix() (not the raw
 						// Matrix::BIAS constant) for the same reason - see
 						// its comment in IRenderDevice.h for why using
 						// BIAS directly here double-transforms Z on
 						// Vulkan.
-						DirectionalShadowMatrix.push_back((device->TranslateShadowBiasMatrix() * (device->TranslateProjectionMatrix(ProjectionMatrix) * ViewMatrix * Camera->GetWorldTransformation())));
+						DirectionalShadowMatrix.push_back((device->TranslateShadowBiasMatrix() * (device->TranslateProjectionMatrix(ProjectionMatrix) * ViewMatrix * cameraWorld)));
 
 					}
 
@@ -769,33 +771,14 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// Get Texture (only 1)
 					DirectionalShadowMapsTextures.push_back(d->GetShadowMapTexture());
 
-					// Set Shadow Far
-					Vec4 _ShadowFar;
-					if (d->GetNumberCascades() > 0) _ShadowFar.x = d->GetCascade(0).Far;
-					if (d->GetNumberCascades() > 1) _ShadowFar.y = d->GetCascade(1).Far;
-					if (d->GetNumberCascades() > 2) _ShadowFar.z = d->GetCascade(2).Far;
-					if (d->GetNumberCascades() > 3) _ShadowFar.w = d->GetCascade(3).Far;
-
-					// This maps a linear cascade-far distance into the
-					// same normalized depth space gl_FragCoord.z is
-					// compared against in the shader's cascade-selection
-					// branches (PyrosShader.glsl's DirectionalShadow
-					// block) - derived from the *main camera's*
-					// projection matrix's own Z-mapping terms, so it
-					// must use the same clip-space convention that
-					// projection matrix was actually uploaded with
-					// (SendGlobalUniforms() translates it for Vulkan -
-					// see TranslateProjectionMatrix()'s comment); using
-					// the raw GL-convention terms here would compute the
-					// wrong threshold and silently pick the wrong
-					// cascade (or none at all) on Vulkan.
-					Matrix translatedProjection = device->TranslateProjectionMatrix(projection.m);
-					Vec4 ShadowFar;
-					ShadowFar.x = 0.5f*(-_ShadowFar.x*translatedProjection.m[10] + translatedProjection.m[14]) / _ShadowFar.x + 0.5f;
-					ShadowFar.y = 0.5f*(-_ShadowFar.y*translatedProjection.m[10] + translatedProjection.m[14]) / _ShadowFar.y + 0.5f;
-					ShadowFar.z = 0.5f*(-_ShadowFar.z*translatedProjection.m[10] + translatedProjection.m[14]) / _ShadowFar.z + 0.5f;
-					ShadowFar.w = 0.5f*(-_ShadowFar.w*translatedProjection.m[10] + translatedProjection.m[14]) / _ShadowFar.w + 0.5f;
-					DirectionalShadowFar = ShadowFar;
+					// Linear view-space far distance per cascade. The shaders
+					// select (and cross-fade) cascades on the fragment's own
+					// view depth. This used to be each distance pushed
+					// through the camera's projection into window depth and
+					// compared with gl_FragCoord.z - correct only while the
+					// matrix used here matched the backend's clip
+					// convention, which the deferred path's copy never did.
+					DirectionalShadowFar = d->GetCascadeSplits();
 
 					// Disable Depth Bias
 					DisableDepthBias();

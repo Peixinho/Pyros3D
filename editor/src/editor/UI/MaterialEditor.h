@@ -57,6 +57,15 @@ namespace MaterialEditor {
 	bool CompileMaterialShaderText(const std::string& glslText, bool deferredGBuffer,
 	                               std::unique_ptr<p3d::Shader>* outShader, std::string* errorOut = nullptr);
 
+	// Rewrites every Custom material's <name>.generated.glsl under
+	// assets/materials/ whose text differs from what the current codegen
+	// produces for its .mat. That file is only written on Apply, so a
+	// change to the codegen template (the shadow sampling, say) otherwise
+	// never reaches an existing project: its materials keep compiling the
+	// old functions against new engine-side data. Run on project open,
+	// before the scene loads. Returns how many files were rewritten.
+	int RegenerateStaleGeneratedShaders(const std::string& projectRoot);
+
 	// Clears a material's existing samplers, then re-adds one per (sampler
 	// uniform name, texture path) pair with a non-empty path - the
 	// texture-loading loop ApplyGraphOrTextToLiveMaterial used to own

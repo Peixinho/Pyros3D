@@ -106,8 +106,50 @@ namespace p3d {
 		void SetVolumetricSteps(const uint32 steps) { volumetricSteps = (f32)steps; }
 		uint32 GetVolumetricSteps() const { return (uint32)volumetricSteps; }
 
-		void SetShadowPCFTexelSize(f32 texel) { pcfTexel = texel; }
-		f32 GetShadowPCFTexelSize() { return pcfTexel; }
+		// Shadow filter radius, in shadow-map texels: 0 is a single bilinear
+		// comparison (hard edge), 1 a 3x3 tent (the default), up to 3 for a
+		// 7x7 one. Whole texels, because the filter is built from one-texel
+		// comparisons weighted like bilinear taps - that is what makes it
+		// smooth rather than banded - and a fractional radius cannot keep
+		// its taps on texel centres. The value is rounded where it is used.
+		//
+		// This replaced SetShadowPCFTexelSize(), whose value was a kernel
+		// step in UV units defaulting to 0.0001: a fifth of a texel on a
+		// 2048 map, so all 16 taps of the "4x4 PCF" landed in the same
+		// texel and every shadow was a single hard, aliased comparison.
+		void SetShadowSoftness(const f32 texels) { ShadowSoftness = texels < 0.f ? 0.f : (texels > (f32)MaxShadowSoftness ? (f32)MaxShadowSoftness : texels); }
+		f32 GetShadowSoftness() const { return ShadowSoftness; }
+		static const uint32 MaxShadowSoftness = 3;
+		// Deprecated - kept so scripts written against it still run. The
+		// old kernel spanned +-1.5 steps of `uvStep`, so this converts to
+		// the radius in texels that covers the same footprint on this
+		// light's current map (call it after enableShadows()).
+		void SetShadowPCFTexelSize(const f32 uvStep) { SetShadowSoftness(1.5f * uvStep * (f32)(ShadowWidth > 0 ? ShadowWidth : 1024)); }
+
+		// Normal-offset bias, in shadow-map texels: how far the receiver is
+		// pushed along its own geometric normal before the lookup. A texel
+		// of the shadow map covers a footprint that grows with distance and
+		// with how obliquely the light grazes the surface; offsetting by a
+		// multiple of that footprint removes acne at every distance and
+		// angle at once, which a constant depth offset cannot - the reason
+		// spot lights needed polygon offsets like 40/64 and still acned on
+		// one backend but not another. Scaled by the receiver's slope to
+		// the light in the shader, so a surface facing the light straight
+		// on is barely moved.
+		void SetShadowNormalBias(const f32 texels) { ShadowNormalBias = texels < 0.f ? 0.f : (texels > MaxShadowNormalBias ? MaxShadowNormalBias : texels); }
+		f32 GetShadowNormalBias() const { return ShadowNormalBias; }
+		static constexpr f32 MaxShadowNormalBias = 7.9f;
+
+		// Both of the above, packed into the one float slot the forward
+		// light matrix and the deferred passes carry for them: the integer
+		// part is the filter radius, the fraction is normal bias / 8.
+		// Decoded by ShadowFilterRadius()/ShadowNormalOffset() in the
+		// shaders (PyrosShader.glsl, secondpass*.glsl, MaterialCodegen).
+		f32 GetShadowFilterPacked() const
+		{
+			const f32 radius = floorf(ShadowSoftness + 0.5f);
+			return radius + ShadowNormalBias / 8.f;
+		}
 
 		uint32 GetShadowWidth()
 		{
@@ -186,7 +228,8 @@ namespace p3d {
 
 		uint32 LightType;
 
-		f32 pcfTexel;
+		// See SetShadowSoftness() / SetShadowNormalBias().
+		f32 ShadowSoftness, ShadowNormalBias;
 
 		// See SetVolumetricScattering() - density 0 disables the march.
 		f32 volumetricDensity, volumetricAnisotropy, volumetricSteps;

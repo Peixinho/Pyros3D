@@ -203,8 +203,8 @@
      "shadowWidth": 1024,
      "shadowHeight": 1024,
      "shadowNear": 6.0,
-     "shadowBiasFactor": 40.0,
-     "shadowBiasUnits": 64.0
+     "shadowBiasFactor": 2.0,
+     "shadowBiasUnits": 1.0
     }
    ]
   },

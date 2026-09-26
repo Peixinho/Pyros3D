@@ -30,27 +30,46 @@ void main() {
 
 #ifdef FRAGMENT
 
-float PCFDIRECTIONAL(sampler2DShadow shadowMap, float width, float height, mat4 sMatrix, float scale, vec4 pos, bool MoreThanOneCascade)
-{
-	vec4 coord = sMatrix * pos;
-	if (MoreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(width,height);
-	float shadow = 0.0;
-	float x = 0.0;
-	float y = 0.0;
+// Shadow filtering - the same functions as PyrosShader.glsl's (see there
+// for the reasoning) and MaterialCodegen.cpp's; keep all four in step.
+// uPCFTexelSize carries ILightComponent::GetShadowFilterPacked(): filter
+// radius in texels in the integer part, normal bias / 8 in the fraction.
+int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }
+float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }
 
-	for (y = -1.5 ; y <=1.5 ; y+=1.0)
-		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			// texture() on a shadow sampler already returns a scalar float
-			// (the depth-compare result) - a trailing .x swizzle on a
-			// scalar is invalid GLSL, tolerated on some drivers but
-			// rejected outright by macOS's real GL41 compiler (and
-			// glslang's Vulkan validation). Pre-existing bug, unrelated to
-			// this pass's Vulkan-compat work - fixed here since it was
-			// blocking verification of that work (shader link failure ->
-			// shaderProgram==0 -> identical symptom either backend).
-			shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0)));
-	shadow /= 16.0;
-	return shadow;
+float ShadowTexelWorld(mat4 M, vec4 pos, float texels)
+{
+	vec3 rowX = vec3(M[0][0], M[1][0], M[2][0]);
+	vec3 rowW = vec3(M[0][3], M[1][3], M[2][3]);
+	float w = dot(vec4(M[0][3], M[1][3], M[2][3], M[3][3]), pos);
+	return abs(w) / (texels * max(length(rowX - 0.5 * rowW), 1e-8));
+}
+
+// The G-buffer normal, turned toward the camera (a double-sided surface
+// seen from behind stores the other side's).
+vec3 ShadowReceiverNormal(vec3 viewNormal, vec3 viewPos)
+{
+	return dot(viewNormal, viewPos) > 0.0 ? -viewNormal : viewNormal;
+}
+
+float ShadowPCF2D(sampler2DShadow map, vec3 uvz, int K, vec2 size, vec4 rect)
+{
+	vec2 st = uvz.xy * size - 0.5;
+	vec2 base = floor(st);
+	vec2 f = st - base;
+	float sum = 0.0;
+	for (int j = -K; j <= K + 1; j++)
+	{
+		float wy = (j == -K) ? 1.0 - f.y : ((j == K + 1) ? f.y : 1.0);
+		for (int i = -K; i <= K + 1; i++)
+		{
+			float wx = (i == -K) ? 1.0 - f.x : ((i == K + 1) ? f.x : 1.0);
+			vec2 uv = clamp((base + vec2(float(i), float(j)) + 0.5) / size, rect.xy, rect.zw);
+			sum += wx * wy * texture(map, vec3(uv, uvz.z));
+		}
+	}
+	float n = float(2 * K + 1);
+	return sum / (n * n);
 }
 
 vec4 diffuse = vec4(0.0,0.0,0.0,1.0);
@@ -150,6 +169,58 @@ UBO_BINDING(32) uniform DirectionalFragParams {
 
 SAMPLER_BINDING(4) uniform sampler2DShadow uShadowMap;
 
+float ShadowCascadeFar(vec4 splits, int c)
+{
+	if (c == 0) return splits.x;
+	if (c == 1) return splits.y;
+	if (c == 2) return splits.z;
+	return splits.w;
+}
+
+float ShadowDirectionalCascade(int c, bool multi, float packed, vec4 pos, vec3 n)
+{
+	mat4 M = uDirectionalDepthsMVP[c];
+	vec2 size = vec2(textureSize(uShadowMap, 0));
+	float tile = multi ? size.x * 0.5 : size.x;
+	vec4 p = vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(M, pos, tile)), 1.0);
+	vec4 coord = M * p;
+	vec4 rect = vec4(0.0, 0.0, 1.0, 1.0);
+	if (multi)
+	{
+		vec2 off = vec2((c == 1 || c == 3) ? 0.5 : 0.0, (c >= 2) ? 0.5 : 0.0);
+		coord.xy = coord.xy * 0.5 + off;
+		rect = vec4(off + 0.5 / size, off + 0.5 - 0.5 / size);
+	}
+	return ShadowPCF2D(uShadowMap, coord.xyz, ShadowFilterRadius(packed), size, rect);
+}
+
+// Cascade picked from the fragment's linear view depth, cross-faded into
+// the next over the last 10% of each and faded out after the last - see
+// PyrosShader.glsl's DirectionalShadowFactor. uDirectionalShadowFar holds
+// linear view distances now (DirectionalLight::GetCascadeSplits()); this
+// copy used to compare window depth against thresholds built from the
+// untranslated projection, which picked the wrong cascade on Vulkan.
+float DirectionalShadowFactor(float packed, vec4 pos, vec3 n)
+{
+	vec4 splits = uDirectionalShadowFar;
+	bool multi = splits.y > 0.0;
+	int count = !multi ? 1 : (splits.w > 0.0 ? 4 : (splits.z > 0.0 ? 3 : 2));
+	float depth = -pos.z;
+	int c = count;
+	for (int i = 3; i >= 0; i--)
+		if (i < count && depth < ShadowCascadeFar(splits, i)) c = i;
+	if (c >= count) return 1.0;
+	float cFar = ShadowCascadeFar(splits, c);
+	float t = clamp((depth - cFar * 0.9) / (cFar * 0.1), 0.0, 1.0);
+	float s = ShadowDirectionalCascade(c, multi, packed, pos, n);
+	if (t > 0.0)
+	{
+		float next = (c + 1 < count) ? ShadowDirectionalCascade(c + 1, multi, packed, pos, n) : 1.0;
+		s = mix(s, next, t);
+	}
+	return s;
+}
+
 // Fragment Color
 IO_LOCATION(0) out vec4 FragColor;
 
@@ -219,11 +290,7 @@ void main() {
 
 	if (uHaveShadowmap>0.0)
 	{
-	    bool MoreThanOneCascade = (uDirectionalShadowFar.y>0.0);
-	    if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.x) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.0, uDirectionalDepthsMVP[0],uPCFTexelSize,worldPos, MoreThanOneCascade);
-	    else if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.y) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.0, uDirectionalDepthsMVP[1],uPCFTexelSize,worldPos, MoreThanOneCascade);
-	    else if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.z) pcf = PCFDIRECTIONAL(uShadowMap, 0.0, 0.5, uDirectionalDepthsMVP[2],uPCFTexelSize,worldPos, MoreThanOneCascade);
-	    else if (texture(tDepth, Texcoord).r<uDirectionalShadowFar.w) pcf = PCFDIRECTIONAL(uShadowMap, 0.5,0.5, uDirectionalDepthsMVP[3],uPCFTexelSize,worldPos, MoreThanOneCascade);
+		pcf = DirectionalShadowFactor(uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1));
 	}
 	vec2 mr = texture(tMetallicRoughness, Texcoord).rg;
 	float roughness = mr.x;

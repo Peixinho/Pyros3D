@@ -314,6 +314,10 @@ EMSCRIPTEN_BINDINGS(pyros3d_render)
 		.function("getLightIntensity", &ILightComponent::GetLightIntensity)
 		.function("setLightIntensity", &ILightComponent::SetLightIntensity)
 		.function("setShadowPCFTexelSize", &ILightComponent::SetShadowPCFTexelSize)
+		.function("setShadowSoftness", &ILightComponent::SetShadowSoftness)
+		.function("getShadowSoftness", &ILightComponent::GetShadowSoftness)
+		.function("setShadowNormalBias", &ILightComponent::SetShadowNormalBias)
+		.function("getShadowNormalBias", &ILightComponent::GetShadowNormalBias)
 		.function("isCastingShadows", &ILightComponent::IsCastingShadows)
 		.function("disableCastShadows", &ILightComponent::DisableCastShadows);
 

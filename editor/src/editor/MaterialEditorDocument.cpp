@@ -298,6 +298,32 @@ bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 	return true;
 }
 
+bool MaterialEditorDocument::LoadCustomSourceFromFile(const std::string& path) {
+	std::ifstream f(path);
+	if (!f.is_open()) return false;
+	json j;
+	try { f >> j; } catch (...) { return false; }
+	if (j.value("kind", "generic") == "generic") return false;
+
+	const std::string modeStr = j.value("editMode", "inspector");
+	editMode = (modeStr == "text") ? MaterialEditMode::Text
+		: (modeStr == "nodegraph") ? MaterialEditMode::NodeGraph
+		: MaterialEditMode::Inspector;
+	editKind = MaterialEditKind::Custom;
+	ClearNodes();
+	ClearTextTextures();
+	generatedGlslPath = j.value("generatedGlslPath", std::string());
+	simpleShaderText = j.value("customShaderText", std::string());
+	if (j.find("nodes") != j.end())
+		DeserializeNodes(j["nodes"], nodes, nextNodeId);
+	if (j.find("connections") != j.end())
+		DeserializeConnections(j["connections"], connections);
+	if (j.find("textTextures") != j.end())
+		DeserializeTextTextures(j["textTextures"], textTextures, nextTextureInputId);
+	absolutePath = path;
+	return true;
+}
+
 bool MaterialEditorDocument::SaveToFile(const std::string& path) {
 	if (!currentMaterial) return false;
 

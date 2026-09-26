@@ -277,12 +277,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		AddForm_color = Vec4(1.f, 1.f, 1.f, 1.f);
 		// What the Cast Shadows checkbox used to hardcode; now just the
 		// starting value of an editable property.
-		PropertiesShadowBiasFactor = 5.f;
-		PropertiesShadowBiasUnits = 3.f;
+		PropertiesShadowBiasFactor = 2.f;
+		PropertiesShadowBiasUnits = 1.f;
 		PropertiesShadowMapSize = 2048;
-		PropertiesShadowNear = 0.01f;
+		PropertiesShadowNear = 0.1f;
 		PropertiesShadowFar = 50.f;
-		PropertiesShadowCascades = 1;
+		PropertiesShadowCascades = 4;
 		activeSceneCameraId = 0;
 		playModeSavedCameraId = 0;
 		viewportOverlayValid = false;
@@ -9278,28 +9278,74 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// (whose signature differs per light type).
 	bool SceneEditor::ShowShadowProperties(ILightComponent* light, bool directional)
 	{
-		if (light == NULL || !light->IsCastingShadows()) return false;
+		if (light == NULL) return false;
 
+		// Shown before Cast Shadows is ticked too, so the resolution and
+		// range can be chosen up front: the checkbox builds the map from
+		// these same fields. Filter and bias settings live on the light and
+		// apply immediately either way.
+		const bool casting = light->IsCastingShadows();
+		PointLight* point = dynamic_cast<PointLight*>(light);
 		bool rebuild = false;
 
-		f32 bias[2] = { PropertiesShadowBiasFactor, PropertiesShadowBiasUnits };
-		if (ImGui::DragFloat2("Shadow Bias", bias, 0.05f, -32.f, 32.f, "%.2f"))
-		{
-			PropertiesShadowBiasFactor = bias[0];
-			PropertiesShadowBiasUnits = bias[1];
-			light->SetShadowBias(PropertiesShadowBiasFactor, PropertiesShadowBiasUnits);
-		}
-		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip("glPolygonOffset factor / units for the shadow map pass.\nRaise to remove acne; too much detaches contact shadows.");
-
-		static const int32 sizes[] = { 512, 1024, 2048, 4096 };
-		int32 sizeIndex = 2;
-		for (int32 i = 0; i < 4; i++)
+		static const int32 sizes[] = { 256, 512, 1024, 2048, 4096 };
+		int32 sizeIndex = 3;
+		for (int32 i = 0; i < 5; i++)
 			if (sizes[i] == PropertiesShadowMapSize) sizeIndex = i;
-		if (ImGui::Combo("Map Size", &sizeIndex, "512\0" "1024\0" "2048\0" "4096\0"))
+		if (ImGui::Combo("Shadow Resolution", &sizeIndex, "256\0" "512\0" "1024\0" "2048\0" "4096\0"))
 		{
 			PropertiesShadowMapSize = sizes[sizeIndex];
 			rebuild = true;
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip(directional
+				? "Texels per side of each cascade's shadow map.\nWith more than one cascade the atlas is twice this on each side."
+				: point ? "Texels per side of each of the six cube-map faces." : "Texels per side of the shadow map.");
+
+		int32 softness = (int32)floorf(light->GetShadowSoftness() + 0.5f);
+		if (ImGui::SliderInt("Softness", &softness, 0, (int32)ILightComponent::MaxShadowSoftness))
+		{
+			light->SetShadowSoftness((f32)softness);
+			MarkSceneDirty();
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Filter radius in shadow-map texels.\n0 is a hard edge; each step widens the penumbra by a texel either side.");
+
+		f32 normalBias = light->GetShadowNormalBias();
+		if (ImGui::DragFloat("Normal Bias", &normalBias, 0.05f, 0.f, ILightComponent::MaxShadowNormalBias, "%.2f texels"))
+		{
+			light->SetShadowNormalBias(normalBias);
+			MarkSceneDirty();
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Pushes each receiver along its normal before the lookup, in texels of the map.\nRemoves acne at every distance and angle; too much detaches thin contact shadows.");
+
+		if (point)
+		{
+			// Polygon offset biases a depth attachment and a point light's
+			// cube map is a colour one, so "Shadow Bias" never did anything
+			// for it. This is its depth bias.
+			f32 scale = point->GetShadowBiasScale();
+			if (ImGui::DragFloat("Depth Bias", &scale, 0.001f, 0.f, 0.2f, "%.3f"))
+			{
+				point->SetShadowBiasScale(scale);
+				MarkSceneDirty();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Fraction of the receiver's distance to the light it is pulled toward it before comparing.");
+		}
+		else
+		{
+			f32 bias[2] = { PropertiesShadowBiasFactor, PropertiesShadowBiasUnits };
+			if (ImGui::DragFloat2("Depth Bias", bias, 0.05f, 0.f, 64.f, "%.2f"))
+			{
+				PropertiesShadowBiasFactor = bias[0];
+				PropertiesShadowBiasUnits = bias[1];
+				light->SetShadowBias(PropertiesShadowBiasFactor, PropertiesShadowBiasUnits);
+				MarkSceneDirty();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Slope-scaled / constant depth offset of the shadow pass.\nNormal Bias does most of the work now; this only has to cover the filter on slopes.");
 		}
 
 		if (directional)
@@ -9312,7 +9358,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				rebuild = true;
 			}
 			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Near / far depth range the shadow map covers.\nA range far larger than the scene wastes precision and causes acne.");
+				ImGui::SetTooltip("Distance from the camera over which shadows are drawn.\nThe cascades split this range; a shorter range gives every cascade more detail.");
 
 			if (ImGui::SliderInt("Cascades", &PropertiesShadowCascades, 1, 4))
 				rebuild = true;
@@ -9321,7 +9367,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			if (ImGui::DragFloat("Near", &PropertiesShadowNear, 0.01f, 0.001f, 1000.f, "%.3f"))
 				rebuild = true;
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Near plane of the light's shadow projection.\nKeep near/radius above ~1:100 or depth precision runs out.");
 		}
+
+		if (!casting) return false;
 
 		// Never rebuild just because ImGui clamped a display value — only when
 		// the authored settings actually differ from the live light.
@@ -9337,8 +9387,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					PropertiesShadowFar != light->GetShadowFar()
 					|| PropertiesShadowCascades != (int32)d->GetNumberCascades();
 			}
-			else
-				farOrCascadesChanged = false;
 			if (!sizeChanged && !nearChanged && !farOrCascadesChanged)
 				rebuild = false;
 		}
@@ -11636,6 +11684,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		// `project` only to report asset paths project-relative; NULL is
 		// fine and falls back to whatever the asset itself remembers.
+		// A light's shadow setup, under the keys set_light / add_light take,
+		// so a value read here can be written straight back.
+		void AgentLightShadowToJson(ILightComponent* l, json& j)
+		{
+			j["castingShadows"] = l->IsCastingShadows();
+			if (!l->IsCastingShadows()) return;
+			j["shadowMapSize"] = (int)l->GetShadowWidth();
+			j["shadowNear"] = (double)l->GetShadowNear();
+			j["shadowBiasFactor"] = (double)l->GetShadowBiasFactor();
+			j["shadowBiasUnits"] = (double)l->GetShadowBiasUnits();
+			j["shadowSoftness"] = (double)l->GetShadowSoftness();
+			j["shadowNormalBias"] = (double)l->GetShadowNormalBias();
+			if (DirectionalLight* d = dynamic_cast<DirectionalLight*>(l))
+			{
+				j["shadowFar"] = (double)d->GetShadowFar();
+				j["shadowCascades"] = (int)d->GetNumberCascades();
+			}
+			if (PointLight* pl = dynamic_cast<PointLight*>(l))
+				j["shadowBiasScale"] = (double)pl->GetShadowBiasScale();
+		}
+
 		json AgentComponentToJson(IComponent* c, const ProjectManager* project)
 		{
 			if (!c) return json();
@@ -11917,6 +11986,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				const Vec3 dir = l->GetLightDirection();
 				j["direction"] = { (double)dir.x, (double)dir.y, (double)dir.z };
 				j["intensity"] = (double)l->GetLightIntensity();
+				AgentLightShadowToJson(l, j);
 				return j;
 			}
 			if (SpotLight* l = dynamic_cast<SpotLight*>(c))
@@ -11926,6 +11996,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				j["radius"] = (double)l->GetLightRadius();
 				j["innerCone"] = (double)l->GetLightInnerCone();
 				j["outerCone"] = (double)l->GetLightOutterCone();
+				AgentLightShadowToJson(l, j);
 				return j;
 			}
 			if (PointLight* l = dynamic_cast<PointLight*>(c))
@@ -11933,6 +12004,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				j["type"] = "PointLight";
 				j["intensity"] = (double)l->GetLightIntensity();
 				j["radius"] = (double)l->GetLightRadius();
+				AgentLightShadowToJson(l, j);
 				return j;
 			}
 			if (AudioSource* a = dynamic_cast<AudioSource*>(c))
@@ -12776,30 +12848,51 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (p.contains("volumetricSteps") && p["volumetricSteps"].is_number())
 			il->SetVolumetricSteps((uint32)p["volumetricSteps"].get<int>());
 
-		if (!p.contains("castingShadows") || !p["castingShadows"].is_boolean())
-			return;
-		if (!p["castingShadows"].get<bool>())
+		// Shadows. Anything about the map itself (size, range, cascades,
+		// near) rebuilds it, keeping every setting not named here - so
+		// {"shadowMapSize": 4096} alone changes the resolution of a light
+		// that already casts, rather than being ignored without
+		// castingShadows or resetting the bias to defaults with it.
+		const bool hasCast = p.contains("castingShadows") && p["castingShadows"].is_boolean();
+		if (hasCast && !p["castingShadows"].get<bool>())
 		{
 			il->DisableCastShadows();
 			return;
 		}
-		const uint32 size = (uint32)p.value("shadowMapSize", 1024);
-		const f32 nearP = (f32)p.value("shadowNear", 0.1);
-		const f32 farP = (f32)p.value("shadowFar", 100.0);
-		const uint32 cascades = (uint32)p.value("shadowCascades", 1);
-		if (DirectionalLight* dl = dynamic_cast<DirectionalLight*>(light))
+		const bool wasCasting = il->IsCastingShadows();
+		const bool rebuildKey = p.contains("shadowMapSize") || p.contains("shadowNear")
+			|| p.contains("shadowFar") || p.contains("shadowCascades") || p.contains("shadowExtent");
+		if ((hasCast && !wasCasting) || (wasCasting && rebuildKey))
 		{
-			Projection proj;
-			const f32 e = (f32)p.value("shadowExtent", 30.0);
-			proj.Ortho(-e, e, -e, e, nearP, farP);
-			dl->EnableCastShadows(size, size, proj, nearP, farP, cascades);
+			DirectionalLight* dl = dynamic_cast<DirectionalLight*>(light);
+			const uint32 size = (uint32)p.value("shadowMapSize", wasCasting ? (int)il->GetShadowWidth() : 2048);
+			const f32 nearP = (f32)p.value("shadowNear", wasCasting ? (double)il->GetShadowNear() : 0.1);
+			const f32 farP = (f32)p.value("shadowFar", (wasCasting && dl) ? (double)dl->GetShadowFar() : 50.0);
+			const uint32 cascades = (uint32)p.value("shadowCascades", (wasCasting && dl) ? (int)dl->GetNumberCascades() : 4);
+			if (dl)
+			{
+				// Only the frustum matters to a cascade fit, and that now
+				// comes from the rendering camera each frame - this
+				// projection is a fallback the renderer no longer reads.
+				Projection proj;
+				proj.Perspective(60.f, 16.f / 9.f, nearP, farP);
+				dl->EnableCastShadows(size, size, proj, nearP, farP, cascades);
+			}
+			else if (PointLight* pl = dynamic_cast<PointLight*>(light))
+				pl->EnableCastShadows(size, size, nearP);
+			else if (SpotLight* sl = dynamic_cast<SpotLight*>(light))
+				sl->EnableCastShadows(size, size, nearP);
 		}
-		else if (PointLight* pl = dynamic_cast<PointLight*>(light))
-			pl->EnableCastShadows(size, size, nearP);
-		else if (SpotLight* sl = dynamic_cast<SpotLight*>(light))
-			sl->EnableCastShadows(size, size, nearP);
-		il->SetShadowBias((f32)p.value("shadowBiasFactor", 2.5),
-			(f32)p.value("shadowBiasUnits", 12.0));
+		if (p.contains("shadowBiasFactor") || p.contains("shadowBiasUnits"))
+			il->SetShadowBias((f32)p.value("shadowBiasFactor", (double)il->GetShadowBiasFactor()),
+				(f32)p.value("shadowBiasUnits", (double)il->GetShadowBiasUnits()));
+		if (p.contains("shadowSoftness") && p["shadowSoftness"].is_number())
+			il->SetShadowSoftness((f32)p["shadowSoftness"].get<double>());
+		if (p.contains("shadowNormalBias") && p["shadowNormalBias"].is_number())
+			il->SetShadowNormalBias((f32)p["shadowNormalBias"].get<double>());
+		if (PointLight* pl = dynamic_cast<PointLight*>(light))
+			if (p.contains("shadowBiasScale") && p["shadowBiasScale"].is_number())
+				pl->SetShadowBiasScale((f32)p["shadowBiasScale"].get<double>());
 	}
 
 	// Retune a light that already exists - the counterpart to AgentAddLight,

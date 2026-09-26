@@ -51,20 +51,55 @@ void main() {
 
 #ifdef FRAGMENT
 
-float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float scale, vec4 pos)
+// Shadow filtering - the same functions as PyrosShader.glsl's (see there
+// for the reasoning) and MaterialCodegen.cpp's; keep all four in step.
+// uPCFTexelSize carries ILightComponent::GetShadowFilterPacked(): filter
+// radius in texels in the integer part, normal bias / 8 in the fraction.
+int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }
+float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }
+
+float ShadowTexelWorld(mat4 M, vec4 pos, float texels)
 {
-	vec4 coord = sMatrix * pos;
-	coord.xyz/=coord.w;
-	float shadow = 0.0;
-	float x = 0.0;
-	float y = 0.0;
-	for (y = -1.5 ; y <=1.5 ; y+=1.0)
-		for (x = -1.5 ; x <=1.5 ; x+=1.0)
-			// See secondpassDirectional.glsl's comment on the pre-existing
-			// scalar-swizzle bug - fixed here too.
-			shadow += texture(shadowMap, (coord.xyz + vec3(vec2(x,y) * scale,0.0)));
-	shadow /= 16.0;
-	return shadow;
+	vec3 rowX = vec3(M[0][0], M[1][0], M[2][0]);
+	vec3 rowW = vec3(M[0][3], M[1][3], M[2][3]);
+	float w = dot(vec4(M[0][3], M[1][3], M[2][3], M[3][3]), pos);
+	return abs(w) / (texels * max(length(rowX - 0.5 * rowW), 1e-8));
+}
+
+// The G-buffer normal, turned toward the camera (a double-sided surface
+// seen from behind stores the other side's).
+vec3 ShadowReceiverNormal(vec3 viewNormal, vec3 viewPos)
+{
+	return dot(viewNormal, viewPos) > 0.0 ? -viewNormal : viewNormal;
+}
+
+float ShadowPCF2D(sampler2DShadow map, vec3 uvz, int K, vec2 size, vec4 rect)
+{
+	vec2 st = uvz.xy * size - 0.5;
+	vec2 base = floor(st);
+	vec2 f = st - base;
+	float sum = 0.0;
+	for (int j = -K; j <= K + 1; j++)
+	{
+		float wy = (j == -K) ? 1.0 - f.y : ((j == K + 1) ? f.y : 1.0);
+		for (int i = -K; i <= K + 1; i++)
+		{
+			float wx = (i == -K) ? 1.0 - f.x : ((i == K + 1) ? f.x : 1.0);
+			vec2 uv = clamp((base + vec2(float(i), float(j)) + 0.5) / size, rect.xy, rect.zw);
+			sum += wx * wy * texture(map, vec3(uv, uvz.z));
+		}
+	}
+	float n = float(2 * K + 1);
+	return sum / (n * n);
+}
+
+float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float packed, vec4 pos, vec3 n)
+{
+	vec2 size = vec2(textureSize(shadowMap, 0));
+	vec4 p = vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(sMatrix, pos, size.x)), 1.0);
+	vec4 coord = sMatrix * p;
+	coord.xyz /= coord.w;
+	return ShadowPCF2D(shadowMap, coord.xyz, ShadowFilterRadius(packed), size, vec4(0.0, 0.0, 1.0, 1.0));
 }
 
 // One tap, for the volumetric march below. PCFSPOT's 4x4 kernel is the
@@ -293,7 +328,7 @@ void main() {
 	vec4 worldPos = vec4(v1, 1.0);
 
 	if (uHaveShadowmap>0.0)
-		pcf = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos);
+		pcf = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1));
 
 	vec2 mr = texture(tMetallicRoughness, Texcoord).rg;
 	float roughness = mr.x;

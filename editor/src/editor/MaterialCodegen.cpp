@@ -323,74 +323,136 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"\tL.ShadowMap = int(Light[3][3]);\n"
 		"}\n"
 		"#ifndef DEFERRED_GBUFFER\n"
-		// 4x4 PCF over the cascade, straight from PyrosShader.glsl's
-		// own PCFDIRECTIONAL - the modern (non-GLLEGACY) form, where
-		// texture() on a sampler2DShadow already returns the compared
-		// result.
-		"float PCFDirectional(mat4 sMatrix, float offX, float offY, float scale, vec4 pos, bool moreThanOneCascade) {\n"
-		"\tvec4 coord = sMatrix * pos;\n"
-		"\tif (moreThanOneCascade) coord.xy = (coord.xy * 0.5) + vec2(offX, offY);\n"
-		"\tfloat shadow = 0.0;\n"
-		"\tfor (float y = -1.5; y <= 1.5; y += 1.0)\n"
-		"\t\tfor (float x = -1.5; x <= 1.5; x += 1.0)\n"
-		"\t\t\tshadow += texture(uDirectionalShadowMaps, coord.xyz + vec3(vec2(x, y) * scale, 0.0));\n"
-		"\treturn shadow / 16.0;\n"
+		// Shadow filtering - the same functions as PyrosShader.glsl's (see there for
+		// the reasoning) and secondpass*.glsl's. L.PCFTexelSize carries
+		// ILightComponent::GetShadowFilterPacked(): filter radius in texels in the
+		// integer part, normal bias / 8 in the fraction.
+		"int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }\n"
+		"float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }\n"
+		"float ShadowTexelWorld(mat4 M, vec4 pos, float texels) {\n"
+		"\tvec3 rowX = vec3(M[0][0], M[1][0], M[2][0]);\n"
+		"\tvec3 rowW = vec3(M[0][3], M[1][3], M[2][3]);\n"
+		"\tfloat w = dot(vec4(M[0][3], M[1][3], M[2][3], M[3][3]), pos);\n"
+		"\treturn abs(w) / (texels * max(length(rowX - 0.5 * rowW), 1e-8));\n"
 		"}\n"
-		// Cascade selection by view depth, mirroring PyrosShader.glsl's
-		// chain: uDirectionalShadowFar[0] is a single vec4 of the four
-		// cascade far distances, not a 4-element array.
+		// The interpolated view-space normal, turned toward the camera.
+		"vec3 ShadowReceiverNormal() {\n"
+		"\tvec3 n = normalize(vNormal);\n"
+		"\treturn dot(n, vWorldPositionShadow.xyz) > 0.0 ? -n : n;\n"
+		"}\n"
+		"float ShadowPCF2D(sampler2DShadow map, vec3 uvz, int K, vec2 size, vec4 rect) {\n"
+		"\tvec2 st = uvz.xy * size - 0.5;\n"
+		"\tvec2 base = floor(st);\n"
+		"\tvec2 f = st - base;\n"
+		"\tfloat sum = 0.0;\n"
+		"\tfor (int j = -K; j <= K + 1; j++) {\n"
+		"\t\tfloat wy = (j == -K) ? 1.0 - f.y : ((j == K + 1) ? f.y : 1.0);\n"
+		"\t\tfor (int i = -K; i <= K + 1; i++) {\n"
+		"\t\t\tfloat wx = (i == -K) ? 1.0 - f.x : ((i == K + 1) ? f.x : 1.0);\n"
+		"\t\t\tvec2 uv = clamp((base + vec2(float(i), float(j)) + 0.5) / size, rect.xy, rect.zw);\n"
+		"\t\t\tsum += wx * wy * texture(map, vec3(uv, uvz.z));\n"
+		"\t\t}\n"
+		"\t}\n"
+		"\tfloat n = float(2 * K + 1);\n"
+		"\treturn sum / (n * n);\n"
+		"}\n"
+		"float ShadowCascadeFar(vec4 splits, int c) {\n"
+		"\tif (c == 0) return splits.x;\n"
+		"\tif (c == 1) return splits.y;\n"
+		"\tif (c == 2) return splits.z;\n"
+		"\treturn splits.w;\n"
+		"}\n"
+		"float ShadowDirectionalCascade(int c, bool multi, float packed, vec4 pos, vec3 n) {\n"
+		"\tmat4 M = uDirectionalDepthsMVP[c];\n"
+		"\tvec2 size = vec2(textureSize(uDirectionalShadowMaps, 0));\n"
+		"\tfloat tile = multi ? size.x * 0.5 : size.x;\n"
+		"\tvec4 coord = M * vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(M, pos, tile)), 1.0);\n"
+		"\tvec4 rect = vec4(0.0, 0.0, 1.0, 1.0);\n"
+		"\tif (multi) {\n"
+		"\t\tvec2 off = vec2((c == 1 || c == 3) ? 0.5 : 0.0, (c >= 2) ? 0.5 : 0.0);\n"
+		"\t\tcoord.xy = coord.xy * 0.5 + off;\n"
+		"\t\trect = vec4(off + 0.5 / size, off + 0.5 - 0.5 / size);\n"
+		"\t}\n"
+		"\treturn ShadowPCF2D(uDirectionalShadowMaps, coord.xyz, ShadowFilterRadius(packed), size, rect);\n"
+		"}\n"
+		// uDirectionalShadowFar[0] holds the cascades' linear view-space far
+		// distances; cross-faded over the last 10% of each.
 		"float DirectionalShadowFactor(LIGHT L) {\n"
 		"\tif (!L.HaveShadowMap || uNumberOfDirectionalShadows <= 0) return 1.0;\n"
-		"\tbool multi = (uDirectionalShadowFar[0].y > 0.0);\n"
-		"\tif (gl_FragCoord.z < uDirectionalShadowFar[0].x) return PCFDirectional(uDirectionalDepthsMVP[0], 0.0, 0.0, L.PCFTexelSize, vWorldPositionShadow, multi);\n"
-		"\telse if (gl_FragCoord.z < uDirectionalShadowFar[0].y) return PCFDirectional(uDirectionalDepthsMVP[1], 0.5, 0.0, L.PCFTexelSize, vWorldPositionShadow, multi);\n"
-		"\telse if (gl_FragCoord.z < uDirectionalShadowFar[0].z) return PCFDirectional(uDirectionalDepthsMVP[2], 0.0, 0.5, L.PCFTexelSize, vWorldPositionShadow, multi);\n"
-		"\telse if (gl_FragCoord.z < uDirectionalShadowFar[0].w) return PCFDirectional(uDirectionalDepthsMVP[3], 0.5, 0.5, L.PCFTexelSize, vWorldPositionShadow, multi);\n"
-		"\treturn 1.0;\n"
+		"\tvec4 splits = uDirectionalShadowFar[0];\n"
+		"\tbool multi = splits.y > 0.0;\n"
+		"\tint count = !multi ? 1 : (splits.w > 0.0 ? 4 : (splits.z > 0.0 ? 3 : 2));\n"
+		"\tvec4 pos = vWorldPositionShadow;\n"
+		"\tvec3 n = ShadowReceiverNormal();\n"
+		"\tfloat depth = -pos.z;\n"
+		"\tint c = count;\n"
+		"\tfor (int i = 3; i >= 0; i--)\n"
+		"\t\tif (i < count && depth < ShadowCascadeFar(splits, i)) c = i;\n"
+		"\tif (c >= count) return 1.0;\n"
+		"\tfloat cFar = ShadowCascadeFar(splits, c);\n"
+		"\tfloat t = clamp((depth - cFar * 0.9) / (cFar * 0.1), 0.0, 1.0);\n"
+		"\tfloat s = ShadowDirectionalCascade(c, multi, L.PCFTexelSize, pos, n);\n"
+		"\tif (t > 0.0) {\n"
+		"\t\tfloat next = (c + 1 < count) ? ShadowDirectionalCascade(c + 1, multi, L.PCFTexelSize, pos, n) : 1.0;\n"
+		"\t\ts = mix(s, next, t);\n"
+		"\t}\n"
+		"\treturn s;\n"
 		"}\n"
-		// Point and spot both sample element [0] of their sampler array
-		// and index only the *matrix* by the light's slot. That mirrors
-		// PyrosShader.glsl exactly, and is not an oversight worth
-		// "fixing" here: indexing a sampler array by a value that varies
-		// with the light loop is not a constant expression, which core
-		// GLSL 3.30 does not allow. Diverging would also make a custom
-		// material shadow differently from a Generic one.
-		"float PCFPoint(mat4 m1, mat4 m2, float scale, vec4 pos) {\n"
-		"\tvec4 position_ls = m2 * pos;\n"
-		"\tposition_ls.xyz /= position_ls.w;\n"
-		"\tvec4 abs_position = abs(position_ls);\n"
-		"\tfloat fs_z = -max(abs_position.x, max(abs_position.y, abs_position.z));\n"
-		"\tvec4 clip = m1 * vec4(0.0, 0.0, fs_z, 1.0);\n"
-		// m1 already carries the device's shadow-bias/projection remap,
-		// so no extra *0.5+0.5 here - see PyrosShader.glsl's PCFPOINT,
-		// where re-applying it double-transformed Vulkan's Z.
+		// Point and spot both sample element [0] of their sampler array and index
+		// only the *matrix* by the light's slot. That mirrors PyrosShader.glsl
+		// exactly: indexing a sampler array by a value that varies with the light
+		// loop is not a constant expression, which core GLSL 3.30 does not allow.
+		"float PCFPoint(mat4 m1, mat4 m2, float packed, vec4 pos, vec3 n) {\n"
+		"\tvec3 ls = (m2 * pos).xyz;\n"
+		"\tfloat size = float(textureSize(uPointShadowMaps[0], 0).x);\n"
+		"\tvec3 a = abs(ls);\n"
+		"\tfloat ma = max(a.x, max(a.y, a.z));\n"
+		"\tls += mat3(m2) * n * (ShadowNormalBiasTexels(packed) * 2.0 * ma / size);\n"
+		"\ta = abs(ls);\n"
+		"\tma = max(a.x, max(a.y, a.z));\n"
+		"\t// m1 already carries the device's shadow-bias/projection remap, so no\n"
+		"\t// extra *0.5+0.5 here. 0.02 is PointLight's default bias scale - this\n"
+		"\t// path has no per-light value for it.\n"
+		"\tvec4 clip = m1 * vec4(0.0, 0.0, -ma * 0.98, 1.0);\n"
 		"\tfloat depth = clip.z / clip.w;\n"
-		"\tfloat shadow = 0.0;\n"
-		"\tfor (float y = -1.5; y <= 1.5; y += 1.0)\n"
-		"\t\tfor (float x = -1.5; x <= 1.5; x += 1.0)\n"
-		"\t\t\tshadow += (texture(uPointShadowMaps[0], position_ls.xyz + vec3(vec2(x, y) * scale, 0.0)).r >= depth) ? 1.0 : 0.0;\n"
-		"\treturn shadow / 16.0;\n"
+		"\tvec3 axis, t, b;\n"
+		"\tif (a.x >= a.y && a.x >= a.z) { axis = vec3(sign(ls.x), 0.0, 0.0); t = vec3(0.0, 0.0, 1.0); b = vec3(0.0, 1.0, 0.0); }\n"
+		"\telse if (a.y >= a.z)          { axis = vec3(0.0, sign(ls.y), 0.0); t = vec3(1.0, 0.0, 0.0); b = vec3(0.0, 0.0, 1.0); }\n"
+		"\telse                          { axis = vec3(0.0, 0.0, sign(ls.z)); t = vec3(1.0, 0.0, 0.0); b = vec3(0.0, 1.0, 0.0); }\n"
+		"\tvec2 st = (vec2(dot(ls, t), dot(ls, b)) / ma * 0.5 + 0.5) * size - 0.5;\n"
+		"\tvec2 base = floor(st);\n"
+		"\tvec2 f = st - base;\n"
+		"\tint K = ShadowFilterRadius(packed);\n"
+		"\tfloat sum = 0.0;\n"
+		"\tfor (int j = -K; j <= K + 1; j++) {\n"
+		"\t\tfloat wy = (j == -K) ? 1.0 - f.y : ((j == K + 1) ? f.y : 1.0);\n"
+		"\t\tfor (int i = -K; i <= K + 1; i++) {\n"
+		"\t\t\tfloat wx = (i == -K) ? 1.0 - f.x : ((i == K + 1) ? f.x : 1.0);\n"
+		"\t\t\tvec2 uv = (base + vec2(float(i), float(j)) + 0.5) / size * 2.0 - 1.0;\n"
+		"\t\t\tsum += wx * wy * ((texture(uPointShadowMaps[0], axis + t * uv.x + b * uv.y).r >= depth) ? 1.0 : 0.0);\n"
+		"\t\t}\n"
+		"\t}\n"
+		"\tfloat nk = float(2 * K + 1);\n"
+		"\treturn sum / (nk * nk);\n"
 		"}\n"
-		// Single tap, matching PyrosShader.glsl's PCFSPOT - its 4x4 loop
-		// is commented out there, and widening it here would make spot
-		// shadows softer on custom materials than on Generic ones.
-		"float PCFSpot(mat4 sMatrix, float scale, vec4 pos) {\n"
-		"\tvec4 coord = sMatrix * pos;\n"
+		"float PCFSpot(mat4 sMatrix, float packed, vec4 pos, vec3 n) {\n"
+		"\tvec2 size = vec2(textureSize(uSpotShadowMaps[0], 0));\n"
+		"\tvec4 coord = sMatrix * vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(sMatrix, pos, size.x)), 1.0);\n"
 		"\tcoord.xyz /= coord.w;\n"
-		"\treturn texture(uSpotShadowMaps[0], coord.xyz);\n"
+		"\treturn ShadowPCF2D(uSpotShadowMaps[0], coord.xyz, ShadowFilterRadius(packed), size, vec4(0.0, 0.0, 1.0, 1.0));\n"
 		"}\n"
-		// Slot clamped before use: nothing validates the packed index,
-		// and an out-of-range read of uPointDepthsMVP/uSpotDepthsMVP is
-		// undefined rather than merely wrong.
+		// Slot clamped before use: nothing validates the packed index, and an
+		// out-of-range read of uPointDepthsMVP/uSpotDepthsMVP is undefined rather
+		// than merely wrong.
 		"float PointShadowFactor(LIGHT L) {\n"
 		"\tif (!L.HaveShadowMap || uNumberOfPointShadows <= 0) return 1.0;\n"
 		"\tint slot = clamp(L.ShadowMap, 0, 3);\n"
-		"\treturn PCFPoint(uPointDepthsMVP[slot * 2], uPointDepthsMVP[slot * 2 + 1], L.PCFTexelSize, vWorldPositionShadow);\n"
+		"\treturn PCFPoint(uPointDepthsMVP[slot * 2], uPointDepthsMVP[slot * 2 + 1], L.PCFTexelSize, vWorldPositionShadow, ShadowReceiverNormal());\n"
 		"}\n"
 		"float SpotShadowFactor(LIGHT L) {\n"
 		"\tif (!L.HaveShadowMap || uNumberOfSpotShadows <= 0) return 1.0;\n"
 		"\tint slot = clamp(L.ShadowMap, 0, 3);\n"
-		"\treturn PCFSpot(uSpotDepthsMVP[slot], L.PCFTexelSize, vWorldPositionShadow);\n"
+		"\treturn PCFSpot(uSpotDepthsMVP[slot], L.PCFTexelSize, vWorldPositionShadow, ShadowReceiverNormal());\n"
 		"}\n"
 		"#endif\n"
 		"float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius) {\n"

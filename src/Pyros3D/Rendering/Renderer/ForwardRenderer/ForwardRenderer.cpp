@@ -79,7 +79,7 @@ namespace p3d {
 					// rather than a failure.
 					bool dirCanCastHere = d->IsCastingShadows() && directionalShadowCounter < MaxDirectionalShadowLights;
 					if (dirCanCastHere) directionalShadowCounter++;
-					directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowPCFTexelSize();  directionalLight.m[15] = (dirCanCastHere ? 1.f : -1.f);
+					directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowFilterPacked();  directionalLight.m[15] = (dirCanCastHere ? 1.f : -1.f);
 
 					_Lights.push_back(directionalLight);
 					// NumberOfDirectionalShadows is already set in PreRender
@@ -109,7 +109,7 @@ namespace p3d {
 					// a point light, so the slot is free - the packed light
 					// mat4 has no spare element otherwise.
 					pointLight.m[10] = attenuation;  pointLight.m[11] = p->GetShadowBiasScale(); pointLight.m[12] = 0.f;
-					pointLight.m[13] = (f32)type;	 pointLight.m[14] = p->GetShadowPCFTexelSize(); pointLight.m[15] = -1.f;
+					pointLight.m[13] = (f32)type;	 pointLight.m[14] = p->GetShadowFilterPacked(); pointLight.m[15] = -1.f;
 
 					// Clamped: this counter runs over every shadow-casting
 					// point light in the scene, before per-object culling and
@@ -121,7 +121,7 @@ namespace p3d {
 					// casts no shadow.
 					if (p->IsCastingShadows() && pointCounter < IRenderer::MaxPointShadowLights)
 					{
-						pointLight.m[14] = p->GetShadowPCFTexelSize();
+						pointLight.m[14] = p->GetShadowFilterPacked();
 						pointLight.m[15] = (f32)pointCounter++;
 						// NumberOfPointShadows counted in PreRender only.
 					}
@@ -152,7 +152,7 @@ namespace p3d {
 					// uSpotDepthsMVP is a mat4[4].
 					if (s->IsCastingShadows() && spotCounter < IRenderer::MaxSpotShadowLights)
 					{
-						spotLight.m[14] = s->GetShadowPCFTexelSize();
+						spotLight.m[14] = s->GetShadowFilterPacked();
 						spotLight.m[15] = (f32)spotCounter++;
 						// NumberOfSpotShadows counted in PreRender only.
 					}
@@ -181,6 +181,7 @@ namespace p3d {
 
 		// Saves Projection
 		this->projection = projection;
+		this->projectionValid = true;
 
 		// Universal Cache
 		PrvProjectionMatrix = ProjectionMatrix;

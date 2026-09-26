@@ -4849,6 +4849,10 @@ bool Editor::OpenProjectFromPath(const std::string& path)
 	CloseAllAnimationDocuments();
 	CloseAllCharacter2DDocuments();
 	CloseAllSceneDocuments();
+	// Before the scene loads, so its Custom materials compile the current
+	// generated shaders rather than ones from an older codegen template.
+	if (const int updated = MaterialEditor::RegenerateStaleGeneratedShaders(project.GetProjectPath()))
+		echo("Updated " + std::to_string(updated) + " custom material shader(s) to this engine version");
 	sceneView = CreateSceneDocument();
 	const std::string sceneAbs = project.AbsolutePath(project.GetActiveSceneRel());
 	std::error_code ec;

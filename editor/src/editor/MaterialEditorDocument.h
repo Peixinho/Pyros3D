@@ -184,6 +184,12 @@ struct MaterialEditorDocument {
 	// actually compiling/wiring it via ApplyGraphOrTextToLiveMaterial).
 	bool LoadFromFile(const std::string& path);
 	bool SaveToFile(const std::string& path);
+	// Just what codegen needs from a Custom .mat - edit mode, graph, text
+	// and generatedGlslPath - with no material built. LoadFromFile's
+	// placeholder CustomShaderMaterial compiles an empty shader, which the
+	// SPIR-V backends log as a failed compile; a batch pass over every
+	// material must not. False for a Generic material or an unreadable file.
+	bool LoadCustomSourceFromFile(const std::string& path);
 
 	// Agent/MCP bridge: bulk-replace nodes+connections from JSON (same
 	// "nodes"/"connections" array schema SaveToFile/LoadFromFile use).

@@ -18,6 +18,12 @@ namespace p3d {
 	{
 		LightType = type;
 		isCastingShadows = false;
+		// Only EnableCastShadows() ever set these, so a light that never
+		// cast reported whatever was in memory - zero on macOS, garbage on
+		// Windows - through GetShadowWidth() and the editor's panel.
+		ShadowWidth = ShadowHeight = 0;
+		ShadowNear = 0.1f;
+		ShadowFar = 100.f;
 		// 2/1, not 0/0. Zero is solid shadow acne, and it was what every
 		// light built from C++ or Lua got - only a scene carrying explicit
 		// shadowBiasFactor/shadowBiasUnits keys ever escaped it. These are
@@ -31,7 +37,8 @@ namespace p3d {
 		volumetricAnisotropy = 0.6f;
 		volumetricSteps = 32.f;
 		Intensity = 1.f;
-		pcfTexel = 0.0001f;
+		ShadowSoftness = 1.f;
+		ShadowNormalBias = 1.5f;
 	}
 
 	ILightComponent::~ILightComponent() = default;
