@@ -408,6 +408,8 @@ public:
 		const std::string& parentName, std::string& errOut);
 	bool AgentSetLight(const std::string& name, const json& p, std::string& errOut);
 	bool AgentSetParticles(const std::string& name, const json& p, std::string& errOut);
+	bool AgentSetPhysics(const std::string& name, const json& p, std::string& errOut);
+	bool AgentSetAudio(const std::string& name, const json& p, std::string& errOut);
 	bool AgentReadParticleFields(ParticleSystemDesc& desc, const json& p, std::string& errOut);
 	bool AgentSetViewOptions(const json& p, std::string& errOut);
 	bool AgentSetAmbient(const json& p, std::string& errOut);

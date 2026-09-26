@@ -2601,6 +2601,24 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// {"cmd":"set_physics","args":{"name":"Crate","mass":2,"impulse":[0,5,0]}}
+	if (name == "set_physics")
+	{
+		if (!sceneView->AgentSetPhysics(A("name"), a, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	// {"cmd":"set_audio","args":{"name":"Radio","volume":0.5,"filter":{"type":"lowpass","cutoff":800},"action":"play"}}
+	if (name == "set_audio")
+	{
+		if (!sceneView->AgentSetAudio(A("name"), a, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	// {"cmd":"set_particles","args":{"name":"Smoke","gpuSimulation":true,...}}
 	// Any add_particles key, on an existing emitter; undoable.
 	if (name == "set_particles")

@@ -11837,6 +11837,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				{
 					IMaterial* mat = rc->GetMeshes(0)[0]->Material.get();
 					j["opacity"] = (double)mat->GetOpacity();
+					// The Properties panel's material toggles, readable as
+					// well as writable (set_material takes the same keys).
+					// The material's castShadows is not the component's
+					// castingShadows above.
+					json mj;
+					mj["transparent"] = mat->IsTransparent();
+					mj["blending"] = mat->IsBlendingEnabled();
+					mj["depthTest"] = mat->IsDepthTesting();
+					mj["depthWrite"] = mat->IsDepthWritting();
+					mj["cullFace"] = (int)mat->GetCullFace();
+					mj["wireframe"] = mat->IsWireFrame();
+					mj["castShadows"] = mat->IsCastingShadows();
+					j["material"] = mj;
 					if (GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(mat))
 					{
 						const Vec4 col = gm->GetColor();
@@ -11881,6 +11894,42 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				j["looping"] = a->IsLooping();
 				j["spatialized"] = a->IsSpatialized();
 				j["playing"] = a->IsPlaying();
+				// Everything else set_audio can write, under the same keys,
+				// so a value can be read back the way it was set.
+				static const char* const kModels[] = { "none", "inverse", "linear", "exponential" };
+				static const char* const kFilters[] = { "none", "lowpass", "highpass", "bandpass" };
+				static const char* const kEQs[] = { "none", "peak", "notch", "lowshelf", "highshelf" };
+				j["pitch"] = (double)a->GetPitch();
+				j["pan"] = (double)a->GetPan();
+				const uint32 model = a->GetAttenuationModel();
+				j["attenuation"] = model < 4 ? kModels[model] : "inverse";
+				j["minDistance"] = (double)a->GetMinDistance();
+				j["maxDistance"] = (double)a->GetMaxDistance();
+				j["directionalAttenuation"] = (double)a->GetDirectionalAttenuation();
+				j["dopplerFactor"] = (double)a->GetDopplerFactor();
+				if (a->HasCone())
+					j["cone"] = { { "inner", (double)RADTODEG(a->GetConeInnerAngle()) },
+						{ "outer", (double)RADTODEG(a->GetConeOuterAngle()) },
+						{ "outerGain", (double)a->GetConeOuterGain() } };
+				else
+					j["cone"] = false;
+				const uint32 ft = a->GetFilterType();
+				if (ft != AudioFilterType::None && ft < 4)
+					j["filter"] = { { "type", kFilters[ft] }, { "cutoff", (double)a->GetFilterCutoff() },
+						{ "order", (int)a->GetFilterOrder() } };
+				else
+					j["filter"] = "none";
+				const uint32 eq = a->GetEQType();
+				if (eq != AudioEQType::None && eq < 5)
+					j["eq"] = { { "type", kEQs[eq] }, { "frequency", (double)a->GetEQFrequency() },
+						{ "gain", (double)a->GetEQGain() }, { "q", (double)a->GetEQQ() } };
+				else
+					j["eq"] = "none";
+				if (a->HasDelay())
+					j["delay"] = { { "seconds", (double)a->GetDelaySeconds() }, { "decay", (double)a->GetDelayDecay() },
+						{ "wet", (double)a->GetDelayWet() }, { "dry", (double)a->GetDelayDry() } };
+				else
+					j["delay"] = false;
 				return j;
 			}
 			if (IPhysicsComponent* p = dynamic_cast<IPhysicsComponent*>(c))
@@ -13026,13 +13075,183 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!psObj) { errOut = "'" + name + "' has no particle system"; return false; }
 		ParticleSystem* ps = (ParticleSystem*)psObj->GetPTR();
 
-		const ParticleSystemDesc before = ps->GetDesc();
-		ParticleSystemDesc after = before;
-		if (!AgentReadParticleFields(after, p, errOut))
-			return false;
-		if (p.is_object() && p.contains("texture"))
-			after.texture = LoadParticleTexture(ImportParticleTexture(p.value("texture", std::string())));
-		PushParticleDescCommand(psObj->GetID(), before, after, "Set Particles");
+		// Only push an undo step when a field was actually given - the
+		// Restart/Clear actions alone change no settings.
+		bool hasFields = false;
+		if (p.is_object())
+			for (json::const_iterator k = p.begin(); k != p.end(); ++k)
+				if (k.key() != "name" && k.key() != "restart" && k.key() != "clear")
+					hasFields = true;
+		if (hasFields)
+		{
+			const ParticleSystemDesc before = ps->GetDesc();
+			ParticleSystemDesc after = before;
+			if (!AgentReadParticleFields(after, p, errOut))
+				return false;
+			if (p.contains("texture"))
+				after.texture = LoadParticleTexture(ImportParticleTexture(p.value("texture", std::string())));
+			PushParticleDescCommand(psObj->GetID(), before, after, "Set Particles");
+		}
+		// The panel's two buttons. Restart clears first for the same reason
+		// the button does: a one-shot burst would otherwise land on top of
+		// the previous one's survivors.
+		if (p.is_object() && p.value("clear", false))
+			ps->Clear();
+		if (p.is_object() && p.value("restart", false))
+		{
+			ps->Clear();
+			ps->Play();
+		}
+		return true;
+	}
+
+	// The physics section of the Properties panel: mass, the two velocity
+	// "Apply" buttons, the upward-impulse button (any vector here) and
+	// Clean Forces. Shape and ghost are fixed at creation, as in the panel.
+	bool SceneEditor::AgentSetPhysics(const std::string& name, const json& p, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		IPhysicsComponent* pc = NULL;
+		for (const std::shared_ptr<IComponent>& c : go->GetComponents())
+			if ((pc = dynamic_cast<IPhysicsComponent*>(c.get())) != NULL) break;
+		if (!pc) { errOut = "'" + name + "' has no physics component"; return false; }
+
+		if (p.contains("mass") && p["mass"].is_number())
+		{
+			if (pc->GetShape() == CollisionShapes::StaticPlane)
+				{ errOut = "static planes are always immovable - mass cannot change"; return false; }
+			if (playMode) { errOut = "mass is an edit-mode setting; stop play first"; return false; }
+			pc->SetMass((f32)p["mass"].get<double>());
+			SyncPhysicsForGameObject(go);
+			MarkSceneDirty();
+		}
+		auto vec3 = [&p](const char* key, Vec3& out) -> bool {
+			const std::vector<f32> v = AgentVec3Field(p, key);
+			if (v.size() < 3) return false;
+			out = Vec3(v[0], v[1], v[2]);
+			return true;
+		};
+		Vec3 v;
+		if (vec3("linearVelocity", v)) pc->SetLinearVelocity(v);
+		if (vec3("angularVelocity", v)) pc->SetAngularVelocity(v);
+		if (vec3("impulse", v)) pc->ApplyCentralImpulse(v);
+		if (p.value("cleanForces", false)) pc->CleanForces();
+		return true;
+	}
+
+	// Everything in the audio source's Properties section, by the same key
+	// names add_audio takes. Transport ("action") and "seek" are runtime,
+	// like the panel's buttons; the rest is what the scene saves.
+	bool SceneEditor::AgentSetAudio(const std::string& name, const json& p, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		AudioSource* a = NULL;
+		for (const std::shared_ptr<IComponent>& c : go->GetComponents())
+			if ((a = dynamic_cast<AudioSource*>(c.get())) != NULL) break;
+		if (!a) { errOut = "'" + name + "' has no audio source"; return false; }
+		if (!a->IsLoaded()) a->EnsureLoaded();
+
+		auto F = [&p](const char* key, f32 dflt) -> f32 { return (f32)p.value(key, (double)dflt); };
+		auto has = [&p](const char* key) -> bool { return p.contains(key) && !p[key].is_null(); };
+		auto lower = [](std::string v) { for (size_t i = 0; i < v.size(); i++) v[i] = (char)tolower((unsigned char)v[i]); return v; };
+		auto pick = [&](const std::string& v, const char* const* names, int n) -> int {
+			const std::string w = lower(v);
+			for (int i = 0; i < n; i++) if (lower(names[i]) == w) return i;
+			return -1;
+		};
+		bool changed = false;
+
+		if (has("looping")) { a->SetLooping(p["looping"].get<bool>()); changed = true; }
+		if (has("spatialized")) { a->SetSpatialization(p["spatialized"].get<bool>()); changed = true; }
+		if (has("volume")) { a->SetVolume(F("volume", 1.f)); changed = true; }
+		if (has("pitch")) { a->SetPitch(F("pitch", 1.f)); changed = true; }
+		if (has("pan")) { a->SetPan(F("pan", 0.f)); changed = true; }
+		if (has("directionalAttenuation")) { a->SetDirectionalAttenuation(F("directionalAttenuation", 0.f)); changed = true; }
+		if (has("dopplerFactor")) { a->SetDopplerFactor(F("dopplerFactor", 1.f)); changed = true; }
+
+		if (has("attenuation") || has("minDistance") || has("maxDistance"))
+		{
+			static const char* const models[] = { "None", "Inverse", "Linear", "Exponential" };
+			int model = (int)a->GetAttenuationModel();
+			if (has("attenuation"))
+			{
+				model = pick(p.value("attenuation", std::string()), models, 4);
+				if (model < 0) { errOut = "unknown attenuation (none, inverse, linear, exponential)"; return false; }
+			}
+			a->SetAttenuation((uint32)model, F("minDistance", a->GetMinDistance()), F("maxDistance", a->GetMaxDistance()));
+			changed = true;
+		}
+
+		// cone: false clears it; an object sets it, angles in degrees.
+		if (has("cone"))
+		{
+			const json& c = p["cone"];
+			if (c.is_boolean() && !c.get<bool>()) a->ClearCone();
+			else if (c.is_object())
+				a->SetCone(DEGTORAD((f32)c.value("inner", (double)RADTODEG(a->HasCone() ? a->GetConeInnerAngle() : DEGTORAD(30.f)))),
+					DEGTORAD((f32)c.value("outer", (double)RADTODEG(a->HasCone() ? a->GetConeOuterAngle() : DEGTORAD(60.f)))),
+					(f32)c.value("outerGain", (double)(a->HasCone() ? a->GetConeOuterGain() : 0.f)));
+			else { errOut = "cone must be false or {inner, outer, outerGain}"; return false; }
+			changed = true;
+		}
+		// filter: "none" clears it; {type, cutoff, order} sets it.
+		if (has("filter"))
+		{
+			static const char* const types[] = { "None", "LowPass", "HighPass", "BandPass" };
+			const json& f = p["filter"];
+			const std::string t = f.is_string() ? f.get<std::string>() : (f.is_object() ? f.value("type", std::string()) : std::string());
+			const int type = pick(t, types, 4);
+			if (type < 0) { errOut = "unknown filter type (none, lowpass, highpass, bandpass)"; return false; }
+			if (type == AudioFilterType::None) a->ClearFilter();
+			else a->SetFilter((uint32)type,
+				f.is_object() ? (f32)f.value("cutoff", (double)a->GetFilterCutoff()) : a->GetFilterCutoff(),
+				f.is_object() ? (uint32)f.value("order", (int)Max((uint32)1, a->GetFilterOrder())) : Max((uint32)1, a->GetFilterOrder()));
+			changed = true;
+		}
+		// eq: "none" clears it; {type, frequency, gain, q} sets it.
+		if (has("eq"))
+		{
+			static const char* const types[] = { "None", "Peak", "Notch", "LowShelf", "HighShelf" };
+			const json& e = p["eq"];
+			const std::string t = e.is_string() ? e.get<std::string>() : (e.is_object() ? e.value("type", std::string()) : std::string());
+			const int type = pick(t, types, 5);
+			if (type < 0) { errOut = "unknown eq type (none, peak, notch, lowshelf, highshelf)"; return false; }
+			if (type == AudioEQType::None) a->ClearEQ();
+			else a->SetEQ((uint32)type,
+				e.is_object() ? (f32)e.value("frequency", 1000.0) : 1000.f,
+				e.is_object() ? (f32)e.value("gain", 0.0) : 0.f,
+				e.is_object() ? (f32)e.value("q", 1.0) : 1.f);
+			changed = true;
+		}
+		// delay: false clears it; {seconds, decay, wet, dry} sets it.
+		if (has("delay"))
+		{
+			const json& d = p["delay"];
+			if (d.is_boolean() && !d.get<bool>()) a->ClearDelay();
+			else if (d.is_object())
+				a->SetDelay((f32)d.value("seconds", 0.2), (f32)d.value("decay", 0.5),
+					(f32)d.value("wet", 1.0), (f32)d.value("dry", 1.0));
+			else { errOut = "delay must be false or {seconds, decay, wet, dry}"; return false; }
+			changed = true;
+		}
+
+		if (has("seek")) a->SeekSeconds(F("seek", 0.f));
+		if (has("action"))
+		{
+			const std::string act = lower(p.value("action", std::string()));
+			const f32 ms = F("fadeMs", 500.f);
+			if (act == "play") a->Play();
+			else if (act == "pause") a->Pause();
+			else if (act == "stop") a->Stop();
+			else if (act == "fadein") a->FadeIn(ms);
+			else if (act == "fadeout") a->FadeOut(ms);
+			else { errOut = "unknown action (play, pause, stop, fadeIn, fadeOut)"; return false; }
+		}
+		if (changed) MarkSceneDirty();
 		return true;
 	}
 
@@ -13920,6 +14139,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (fields.is_object() && fields.contains("opacity")) mat->SetOpacity((f32)fields["opacity"].get<double>());
 		if (fields.is_object() && fields.contains("transparent")) mat->SetTransparencyFlag(fields["transparent"].get<bool>());
 		if (fields.is_object() && fields.contains("cullFace")) mat->SetCullFace((uint32)fields["cullFace"].get<int>());
+		// The rest of the Properties panel's material toggles, so nothing
+		// there is out of an agent's reach.
+		auto flag = [&fields](const char* key, bool& out) -> bool {
+			if (!fields.is_object() || !fields.contains(key) || !fields[key].is_boolean()) return false;
+			out = fields[key].get<bool>();
+			return true;
+		};
+		bool on = false;
+		if (flag("blending", on)) { if (on) mat->EnableBlending(); else mat->DisableBlending(); }
+		if (flag("depthTest", on)) { if (on) mat->EnableDepthTest(); else mat->DisableDepthTest(); }
+		if (flag("depthWrite", on)) { if (on) mat->EnableDepthWrite(); else mat->DisableDepthWrite(); }
+		if (flag("wireframe", on)) { if (on) mat->StartRenderWireFrame(); else mat->StopRenderWireFrame(); }
+		if (flag("castShadows", on)) { if (on) mat->EnableCastingShadows(); else mat->DisableCastingShadows(); }
 		MarkSceneDirty();
 		return true;
 	}
