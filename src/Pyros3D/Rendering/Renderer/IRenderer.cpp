@@ -3064,12 +3064,19 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 	// CPU-side index data - tracks the new geometry. Only the VAOs are
 	// invalidated: the shader attribute/uniform location caches alongside
 	// them depend on the shader, not on the buffers, and stay valid.
-	if (rmesh->Geometry != NULL && rmesh->VAOCacheRevision != rmesh->Geometry->buffersRevision)
+	//
+	// The component's own attribute buffers count too (particle and
+	// instance streams - see RenderingComponent::ownBuffersRevision).
+	// Both counters only ever increase, so their sum changes whenever
+	// either does.
+	const uint32 buffersRevision = (rmesh->Geometry != NULL ? rmesh->Geometry->buffersRevision : 0)
+		+ (rmesh->renderingComponent != NULL ? rmesh->renderingComponent->ownBuffersRevision : 0);
+	if (rmesh->VAOCacheRevision != buffersRevision)
 	{
 		for (std::map<uint32, uint32>::iterator i = rmesh->VAOCache.begin(); i != rmesh->VAOCache.end(); i++)
 			device->DeleteVertexArray(i->second);
 		rmesh->VAOCache.clear();
-		rmesh->VAOCacheRevision = rmesh->Geometry->buffersRevision;
+		rmesh->VAOCacheRevision = buffersRevision;
 	}
 
 	// Everything this draw sources vertex data from: the geometry's own

@@ -97,7 +97,8 @@ namespace p3d {
 		// locations can differ across shader variants using this mesh.
 		std::map<uint32, uint32> VAOCache;
 
-		// Geometry->buffersRevision that VAOCache's entries were built
+		// Geometry->buffersRevision (plus the owning component's
+		// ownBuffersRevision) that VAOCache's entries were built
 		// against. A geometry can hand out new GPU buffers under a mesh that
 		// is already being drawn (Text::UpdateText() disposes and rebuilds
 		// in place), which leaves every cached VAO referencing freed buffer
@@ -312,6 +313,14 @@ namespace p3d {
 		// wins, and every chunk ends up drawing the last chunk's instances.
 		// BindMesh() walks the geometry's attributes and then these.
 		std::vector<AttributeBuffer*> ownAttributeBuffers;
+		// Bumped whenever ownAttributeBuffers gains or loses a buffer. A
+		// cached VAO bakes in these buffers exactly as it does the
+		// geometry's, so BindMesh() folds this into the same staleness
+		// check as IGeometry::buffersRevision. Without it, an emitter
+		// switched to GPU simulation after it had first been drawn kept
+		// drawing from the attribute buffer it had just deleted - live
+		// particles, and nothing on screen.
+		uint32 ownBuffersRevision = 0;
 
 		// Get Model Skeleton
 		const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }

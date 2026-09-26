@@ -40,6 +40,7 @@ namespace p3d {
 	void IRenderingInstancedComponent::AddBuffer(AttributeBuffer* buffer)
 	{
 		ownAttributeBuffers.push_back(buffer);
+		ownBuffersRevision++;
 	}
 
 	void IRenderingInstancedComponent::RemoveBuffer(AttributeBuffer* buffer)
@@ -49,6 +50,7 @@ namespace p3d {
 			if ((*i) == buffer)
 			{
 				ownAttributeBuffers.erase(i);
+				ownBuffersRevision++;
 				break;
 			}
 		}

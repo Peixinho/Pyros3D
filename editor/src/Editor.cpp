@@ -2601,6 +2601,16 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// {"cmd":"set_particles","args":{"name":"Smoke","gpuSimulation":true,...}}
+	// Any add_particles key, on an existing emitter; undoable.
+	if (name == "set_particles")
+	{
+		if (!sceneView->AgentSetParticles(A("name"), a, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "add_physics")
 	{
 		if (!sceneView->AgentAddPhysics(A("name"), a, A("parent"), err))

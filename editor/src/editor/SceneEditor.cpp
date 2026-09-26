@@ -12870,17 +12870,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
-	bool SceneEditor::AgentAddParticles(const std::string& name, const json& p,
-		const std::string& parentName, std::string& errOut)
+	// Every per-field key add_particles and set_particles accept, applied
+	// onto `desc`. Only keys present in `p` change anything, which is what
+	// lets set_particles be a partial edit. False with a reason on a bad
+	// enum value.
+	bool SceneEditor::AgentReadParticleFields(ParticleSystemDesc& desc, const json& p, std::string& errOut)
 	{
-		if (playMode) { errOut = "editor is in play mode"; return false; }
-		SceneObject* parent = NULL;
-		if (!parentName.empty())
-		{
-			parent = AgentFindGameObjectByName(sceneObjects, parentName);
-			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
-		}
-
 		auto F = [&p](const char* key, f32 dflt) -> f32 { return p.is_object() ? (f32)p.value(key, (double)dflt) : dflt; };
 		auto B = [&p](const char* key, bool dflt) -> bool { return p.is_object() ? p.value(key, dflt) : dflt; };
 		auto U = [&p](const char* key, uint32 dflt) -> uint32 { return p.is_object() ? p.value(key, dflt) : dflt; };
@@ -12894,18 +12889,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				(f32)p[key][2].get<double>(), (f32)p[key][3].get<double>());
 		};
 
-		ParticleSystemDesc desc;
-		// Same presets the Add form offers, by name, applied before the
-		// individual overrides below so a caller can say "fire, but slower".
-		const std::string preset = p.is_object() ? p.value("preset", std::string()) : std::string();
-		if (preset == "fire") ApplyParticlePreset(desc, 1);
-		else if (preset == "smoke") ApplyParticlePreset(desc, 2);
-		else if (preset == "explosion") ApplyParticlePreset(desc, 3);
-		else if (!preset.empty() && preset != "default")
-			{ errOut = "unknown preset '" + preset + "' (default, fire, smoke, explosion)"; return false; }
 
 		desc.maxParticles = U("maxParticles", desc.maxParticles);
 		desc.looping = B("looping", desc.looping);
+		desc.gpuSimulation = B("gpuSimulation", desc.gpuSimulation);
 		desc.emissionRate = F("emissionRate", desc.emissionRate);
 		desc.burstCount = U("burstCount", desc.burstCount);
 		desc.minLifetime = F("minLifetime", desc.minLifetime);
@@ -12964,6 +12951,33 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			else { errOut = "unknown blendMode '" + blend + "' (alpha, additive)"; return false; }
 		}
 
+		return true;
+	}
+
+	bool SceneEditor::AgentAddParticles(const std::string& name, const json& p,
+		const std::string& parentName, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* parent = NULL;
+		if (!parentName.empty())
+		{
+			parent = AgentFindGameObjectByName(sceneObjects, parentName);
+			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
+		}
+
+		ParticleSystemDesc desc;
+		// Same presets the Add form offers, by name, applied before the
+		// individual overrides below so a caller can say "fire, but slower".
+		const std::string preset = p.is_object() ? p.value("preset", std::string()) : std::string();
+		if (preset == "fire") ApplyParticlePreset(desc, 1);
+		else if (preset == "smoke") ApplyParticlePreset(desc, 2);
+		else if (preset == "explosion") ApplyParticlePreset(desc, 3);
+		else if (!preset.empty() && preset != "default")
+			{ errOut = "unknown preset '" + preset + "' (default, fire, smoke, explosion)"; return false; }
+
+		if (!AgentReadParticleFields(desc, p, errOut))
+			return false;
+
 		const std::string texture = p.is_object() ? p.value("texture", std::string()) : std::string();
 		desc.texture = LoadParticleTexture(ImportParticleTexture(texture));
 
@@ -12988,6 +13002,37 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
 		MarkSceneDirty();
 		PushAddCommand(obj);
+		return true;
+	}
+
+	// The same keys as add_particles, applied to an existing emitter -
+	// what the Properties panel does, through the same undoable command,
+	// so "gpuSimulation" here is exactly the GPU simulation checkbox.
+	bool SceneEditor::AgentSetParticles(const std::string& name, const json& p, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		SceneObject* psObj = NULL;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			SceneObject* so = (*i).second;
+			if (so == NULL || so->GetType() != SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT) continue;
+			ParticleSystem* cand = (ParticleSystem*)so->GetPTR();
+			if (cand != NULL && cand->GetOwner() == go) { psObj = so; break; }
+		}
+		if (!psObj) { errOut = "'" + name + "' has no particle system"; return false; }
+		ParticleSystem* ps = (ParticleSystem*)psObj->GetPTR();
+
+		const ParticleSystemDesc before = ps->GetDesc();
+		ParticleSystemDesc after = before;
+		if (!AgentReadParticleFields(after, p, errOut))
+			return false;
+		if (p.is_object() && p.contains("texture"))
+			after.texture = LoadParticleTexture(ImportParticleTexture(p.value("texture", std::string())));
+		PushParticleDescCommand(psObj->GetID(), before, after, "Set Particles");
 		return true;
 	}
 
