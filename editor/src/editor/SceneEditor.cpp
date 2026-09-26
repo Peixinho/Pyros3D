@@ -12699,6 +12699,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				p["color"].size() > 3 ? (f32)p["color"][3].get<double>() : ambientLightColor.w);
 		if (p.contains("intensity") && p["intensity"].is_number())
 			ambientIntensity = (f32)p["intensity"].get<double>();
+		// The rest of the Scene settings panel's colours: background, and
+		// the gradient source's three bands.
+		auto colour = [&p](const char* key, Vec4& out) {
+			if (!p.contains(key) || !p[key].is_array() || p[key].size() < 3) return;
+			out = Vec4((f32)p[key][0].get<double>(), (f32)p[key][1].get<double>(),
+				(f32)p[key][2].get<double>(), out.w);
+		};
+		colour("background", backgroundColor);
+		colour("sky", ambientSky);
+		colour("equator", ambientEquator);
+		colour("ground", ambientGround);
+		if (p.contains("probeCounts") && p["probeCounts"].is_array() && p["probeCounts"].size() == 3)
+			for (int i = 0; i < 3; i++) ambientProbeCounts[i] = std::min(32, std::max(2, p["probeCounts"][i].get<int>()));
+		if (p.contains("skyboxFolder") && p["skyboxFolder"].is_string())
+			ambientSkyboxFolder = p["skyboxFolder"].get<std::string>();
 		// 0 flat, 1 gradient, 2 SH, 3 DDGI - the Ambient Source combo.
 		if (p.contains("mode") && p["mode"].is_number())
 			ambientMode = std::min(3, std::max(0, p["mode"].get<int>()));
@@ -12729,6 +12744,26 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			std::string err;
 			if (!BakeDDGI(err)) { errOut = err; return false; }
+		}
+		// The panel's other three buttons, each explicit for the same
+		// reason as "solve".
+		if (p.value("bakeProbes", false))
+		{
+			std::string err;
+			if (!BakeIrradianceProbes(err)) { errOut = "bake irradiance probes: " + err; return false; }
+		}
+		if (p.value("bakeSkybox", false))
+		{
+			std::string err;
+			if (!BakeAmbientFromSkybox(ambientSkyboxFolder, err)) { errOut = "bake from skybox: " + err; return false; }
+		}
+		if (p.value("clear", false) && ddgiBuilt)
+		{
+			// DDGI's Clear button: drop the volume, back to flat ambient.
+			Renderer->ClearGlobalIllumination(0);
+			ddgiBuilt = false;
+			ambientMode = 0;
+			ApplyEnvironment();
 		}
 		MarkSceneDirty();
 		return true;
@@ -14289,6 +14324,34 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// project ask for" and "what is on screen" can differ.
 		out["twoD"] = sceneIsTwoD;
 		out["renderer"] = WillUseDeferredRenderer() ? "deferred" : "forward";
+		// The Scene settings panel, under the keys set_ambient takes.
+		{
+			auto rgb = [](const Vec4& c) { return json::array({ (double)c.x, (double)c.y, (double)c.z }); };
+			json env;
+			env["mode"] = ambientMode;
+			env["color"] = rgb(ambientLightColor);
+			env["intensity"] = (double)ambientIntensity;
+			env["background"] = rgb(backgroundColor);
+			env["sky"] = rgb(ambientSky);
+			env["equator"] = rgb(ambientEquator);
+			env["ground"] = rgb(ambientGround);
+			env["probeCounts"] = { ambientProbeCounts[0], ambientProbeCounts[1], ambientProbeCounts[2] };
+			env["probesBaked"] = ambientProbes.IsValid();
+			env["skyboxFolder"] = ambientSkyboxFolder;
+			json g;
+			g["counts"] = { ddgiCounts[0], ddgiCounts[1], ddgiCounts[2] };
+			g["rays"] = ddgiRays;
+			g["passes"] = ddgiPasses;
+			g["sky"] = rgb(ddgiSky);
+			g["multiBounce"] = (double)ddgiMultiBounce;
+			g["dynamic"] = ddgiDynamic;
+			g["probeBudget"] = ddgiProbeBudget;
+			g["hysteresis"] = (double)ddgiHysteresis;
+			g["solved"] = ddgiBuilt;
+			g["gpu"] = ddgiBuilt && Renderer != NULL && Renderer->IsGlobalIlluminationOnGPU();
+			env["ddgi"] = g;
+			out["environment"] = env;
+		}
 
 		// What is selected, so an agent can check the result of a click. The
 		// socket could set the selection by name but never read it back, which
