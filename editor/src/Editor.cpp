@@ -2570,7 +2570,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	if (name == "set_ui")
 	{
 		nlohmann::json props = (a.is_object() && a.contains("properties")) ? a["properties"] : nlohmann::json::object();
-		if (!sceneView->AgentSetUI(A("object"), props, err))
+		if (!sceneView->AgentSetUI(A("object").empty() ? A("name") : A("object"), props, err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -3216,7 +3216,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	if (name == "set_material")
 	{
-		if (!sceneView->AgentSetMaterial(A("object"), a.contains("material") ? a["material"] : a, err))
+		if (!sceneView->AgentSetMaterial(A("object").empty() ? A("name") : A("object"), a.contains("material") ? a["material"] : a, err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;

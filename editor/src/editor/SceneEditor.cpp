@@ -14296,18 +14296,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
-	bool SceneEditor::AgentSetMaterial(const std::string& objectName, const json& fields, std::string& errOut)
+	// set_material's fields, applied to a material; only keys present in
+	// `fields` change anything. Also what undo re-applies.
+	static void ApplyAgentMaterialFields(IMaterial* mat, const json& fields)
 	{
-		if (playMode) { errOut = "editor is in play mode"; return false; }
-		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
-		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
-		GameObject* go = (GameObject*)obj->GetPTR();
-		RenderingComponent* rc = NULL;
-		for (auto& c : go->GetComponents())
-			if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
-		if (!rc || rc->GetMeshes(0).empty() || !rc->GetMeshes(0)[0]->Material)
-			{ errOut = "object has no renderable material"; return false; }
-		IMaterial* mat = rc->GetMeshes(0)[0]->Material.get();
 		GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(mat);
 
 		if (gm)
@@ -14344,6 +14336,56 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (flag("depthWrite", on)) { if (on) mat->EnableDepthWrite(); else mat->DisableDepthWrite(); }
 		if (flag("wireframe", on)) { if (on) mat->StartRenderWireFrame(); else mat->StopRenderWireFrame(); }
 		if (flag("castShadows", on)) { if (on) mat->EnableCastingShadows(); else mat->DisableCastingShadows(); }
+	}
+
+	// The same keys, read back - the undo snapshot for set_material.
+	static json CaptureAgentMaterialFields(IMaterial* mat)
+	{
+		json j;
+		if (GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(mat))
+		{
+			const Vec4 c = gm->GetColor(), sp = gm->GetSpecular();
+			j["color"] = { c.x, c.y, c.z, c.w };
+			j["specular"] = { sp.x, sp.y, sp.z, sp.w };
+			j["shininess"] = gm->GetShininess();
+			j["reflectivity"] = gm->GetReflectivity();
+			j["metallic"] = gm->GetMetallic();
+			j["roughness"] = gm->GetRoughness();
+			j["alphaCutoff"] = gm->GetAlphaCutoff();
+		}
+		j["opacity"] = mat->GetOpacity();
+		j["transparent"] = mat->IsTransparent();
+		j["cullFace"] = (int)mat->GetCullFace();
+		j["blending"] = mat->IsBlendingEnabled();
+		j["depthTest"] = mat->IsDepthTesting();
+		j["depthWrite"] = mat->IsDepthWritting();
+		j["wireframe"] = mat->IsWireFrame();
+		j["castShadows"] = mat->IsCastingShadows();
+		return j;
+	}
+
+	bool SceneEditor::AgentSetMaterial(const std::string& objectName, const json& fields, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		RenderingComponent* rc = NULL;
+		for (auto& c : go->GetComponents())
+			if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+		if (!rc || rc->GetMeshes(0).empty() || !rc->GetMeshes(0)[0]->Material)
+			{ errOut = "object has no renderable material"; return false; }
+		const std::shared_ptr<IMaterial> matPtr = rc->GetMeshes(0)[0]->Material;
+		const json before = CaptureAgentMaterialFields(matPtr.get());
+		ApplyAgentMaterialFields(matPtr.get(), fields);
+		const json after = CaptureAgentMaterialFields(matPtr.get());
+		// One undo step for the whole call, like the panel's per-field
+		// ones - the snapshot is the same set of keys this command takes.
+		if (before != after)
+			sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+				[matPtr, before]() { ApplyAgentMaterialFields(matPtr.get(), before); },
+				[matPtr, after]() { ApplyAgentMaterialFields(matPtr.get(), after); },
+				"Set Material"));
 		MarkSceneDirty();
 		return true;
 	}

@@ -4451,7 +4451,7 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       set_light (name, color, intensity, radius, direction, inner, outer,
         castingShadows, shadowMapSize, shadowNear, shadowFar, shadowCascades,
         shadowBiasFactor, shadowBiasUnits)
-      set_material (object, color, specular, metallic, roughness, shininess,
+      set_material (name, color, specular, metallic, roughness, shininess,
         reflectivity, alphaCutoff, opacity, transparent, cullFace, blending,
         depthTest, depthWrite, wireframe, castShadows)
       set_physics (name, mass, linearVelocity, angularVelocity, impulse, cleanForces)
@@ -4468,7 +4468,7 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         bounciness, fixedRotation)
       set_layer2d (name, parallax, visible)
       set_sprite_animation (name, fps, pingPong, paused)
-      set_ui (object, properties), set_pivot, slice_spritesheet, set_autoplay2d
+      set_ui (name, properties), set_pivot, slice_spritesheet, set_autoplay2d
     Scene settings
       set_ambient (mode 0-3, color, intensity, background, sky, equator, ground,
         probeCounts, bakeProbes, skyboxFolder, bakeSkybox,
