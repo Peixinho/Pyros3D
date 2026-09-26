@@ -11,6 +11,7 @@
 #define MATERIALEDITOR_H
 
 #include "../MaterialEditorDocument.h"
+#include "../MaterialCodegen.h"
 #include <memory>
 #include <string>
 #include <utility>
@@ -74,6 +75,11 @@ namespace MaterialEditor {
 	void WireSamplers(p3d::CustomShaderMaterial* mat,
 	                  const std::vector<std::pair<std::string, std::string>>& samplerNameToTexturePath,
 	                  const std::string& projectRoot);
+
+	// Makes `mat`'s named parameters exactly the graph's Parameter nodes:
+	// declares each with the node's value (its type from the node), and
+	// removes any the graph no longer has.
+	void SyncParameters(p3d::CustomShaderMaterial* mat, const std::vector<MaterialCodegenResult::Parameter>& params);
 
 	// Builds WireSamplers' input list from the node graph's texture-node
 	// walk (NodeGraph mode) - looks each (nodeId, sampler name) pair up in

@@ -25,6 +25,7 @@
 #include <fstream>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <sstream>
 
 using namespace p3d;
@@ -212,46 +213,179 @@ bool IsPinHovered(ImVec2 pinPos, float radius) {
 	return (delta.x * delta.x + delta.y * delta.y) <= (radius * radius);
 }
 
-void HandleConnectionDrag(MaterialEditorDocument& doc, ImDrawList* drawList, const std::vector<PinPosition>& allPins) {
-	if (!doc.isDraggingConnection) return;
-	ImGuiIO& io = ImGui::GetIO();
-	drawList->AddLine(doc.dragStartPos, io.MousePos, ImGui::GetColorU32(ImVec4(0.6f, 0.8f, 1.f, 0.9f)), 2.f);
-
-	if (!ImGui::IsMouseDown(0)) {
-		for (const auto& p : allPins) {
-			if (!p.isOutput && p.nodeId != doc.dragFromNode && IsPinHovered(p.screenPos, 8.f)) {
-				MaterialConnection conn;
-				conn.fromNode = doc.dragFromNode;
-				conn.fromPinIndex = doc.dragFromPinIndex;
-				conn.toNode = p.nodeId;
-				conn.toPinIndex = p.pinIndex;
-				// Custom canvas gesture, not a standard ImGui widget - no
-				// IsItemActivated/IsItemDeactivatedAfterEdit to hang a
-				// commit boundary on, but the whole mutation happens in
-				// this one frame, so a plain before/after capture is enough
-				// (unlike node dragging below, which spans frames).
-				const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
-				// A pin accepts only one incoming connection - replace any existing one.
-				doc.connections.erase(std::remove_if(doc.connections.begin(), doc.connections.end(),
-					[&](const MaterialConnection& c) { return c.toNode == conn.toNode && c.toPinIndex == conn.toPinIndex; }),
-					doc.connections.end());
-				doc.connections.push_back(conn);
-				doc.dirty = true;
-				doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(), "Connect Nodes"));
-			}
-		}
-		doc.isDraggingConnection = false;
+// Pin colour by component count (MaterialNode::GetInput/OutputPinWidth):
+// scalar grey, vec2 green, vec3 yellow, vec4 pink, "any" blue.
+ImU32 PinColor(int width) {
+	switch (width) {
+		case 1: return ImGui::GetColorU32(ImVec4(0.75f, 0.75f, 0.78f, 1.f));
+		case 2: return ImGui::GetColorU32(ImVec4(0.55f, 0.85f, 0.45f, 1.f));
+		case 3: return ImGui::GetColorU32(ImVec4(0.95f, 0.8f, 0.3f, 1.f));
+		case 4: return ImGui::GetColorU32(ImVec4(0.9f, 0.45f, 0.75f, 1.f));
+		default: return ImGui::GetColorU32(ImVec4(0.5f, 0.6f, 1.f, 1.f));
 	}
 }
 
-void DrawAddNodeItem(MaterialEditorDocument& doc, MaterialNode::Type type, ImVec2 pos) {
-	if (ImGui::MenuItem(MaterialNode::TypeToString(type))) {
-		const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
-		doc.CreateNode(type, MaterialNode::TypeToString(type), pos);
-		doc.dirty = true;
-		doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(),
-			std::string("Add ") + MaterialNode::TypeToString(type) + " Node"));
+const MaterialNode* FindDocNode(const MaterialEditorDocument& doc, uint32_t id) {
+	for (const auto& n : doc.nodes) if (n.id == id) return &n;
+	return nullptr;
+}
+
+// "Param1", "Param2"... - parameter names are uniform names, so two nodes
+// must not share one by accident (on purpose, sharing is allowed: both
+// nodes then read the same uniform).
+std::string UniqueNodeName(const MaterialEditorDocument& doc, const char* base) {
+	for (int i = 1;; i++) {
+		const std::string name = std::string(base) + std::to_string(i);
+		bool taken = false;
+		for (const auto& n : doc.nodes) if (n.name == name) { taken = true; break; }
+		if (!taken) return name;
 	}
+}
+
+// Creates a node at `pos` (graph space) as one undo step. If a connection
+// was dropped on empty canvas to get here, the new node's first input is
+// wired to it in the same step.
+uint32_t AddNodeAt(MaterialEditorDocument& doc, MaterialNode::Type type, ImVec2 pos) {
+	const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
+	std::string name = MaterialNode::TypeDisplayName(type);
+	if (type == MaterialNode::FloatParameter) name = UniqueNodeName(doc, "Param");
+	if (type == MaterialNode::ColorParameter) name = UniqueNodeName(doc, "Color");
+	const uint32_t id = doc.CreateNode(type, name, pos);
+	for (auto& n : doc.nodes) {
+		if (n.id != id) continue;
+		if (type == MaterialNode::CustomExpression) n.userData = "a * b";
+		if (type == MaterialNode::FloatParameter) n.userData = "0.500000";
+		if (type == MaterialNode::ColorParameter) n.userData = "1.000000,1.000000,1.000000,1.000000";
+	}
+	if (doc.pendingConnect && MaterialNode::GetInputPinCount(type) > 0 && FindDocNode(doc, doc.pendingConnectNode)) {
+		MaterialConnection c;
+		c.fromNode = doc.pendingConnectNode;
+		c.fromPinIndex = doc.pendingConnectPin;
+		c.toNode = id;
+		c.toPinIndex = 0;
+		doc.connections.push_back(c);
+	}
+	doc.pendingConnect = false;
+	doc.selection.assign(1, id);
+	doc.dirty = true;
+	doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(),
+		std::string("Add ") + MaterialNode::TypeDisplayName(type) + " Node"));
+	return id;
+}
+
+void DeleteNodes(MaterialEditorDocument& doc, const std::vector<uint32_t>& ids, const char* description) {
+	if (ids.empty()) return;
+	const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
+	auto doomed = [&ids](uint32_t id) { return std::find(ids.begin(), ids.end(), id) != ids.end(); };
+	for (auto& n : doc.nodes)
+		if (doomed(n.id) && n.previewTex) { delete n.previewTex; n.previewTex = nullptr; }
+	doc.nodes.erase(std::remove_if(doc.nodes.begin(), doc.nodes.end(), [&](const MaterialNode& n) { return doomed(n.id); }), doc.nodes.end());
+	doc.connections.erase(std::remove_if(doc.connections.begin(), doc.connections.end(),
+		[&](const MaterialConnection& c) { return doomed(c.fromNode) || doomed(c.toNode); }), doc.connections.end());
+	doc.selection.clear();
+	doc.dirty = true;
+	doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(), description));
+}
+
+// Process-wide, so nodes copied in one material paste into another.
+// Texture preview pointers are never copied (they own their Texture).
+struct GraphClipboard {
+	std::vector<MaterialNode> nodes;
+	std::vector<MaterialConnection> connections; // only those between copied nodes
+	ImVec2 origin = ImVec2(0.f, 0.f);
+};
+GraphClipboard& Clipboard() { static GraphClipboard c; return c; }
+
+void CopySelection(const MaterialEditorDocument& doc) {
+	GraphClipboard& cb = Clipboard();
+	cb.nodes.clear();
+	cb.connections.clear();
+	bool first = true;
+	for (const auto& n : doc.nodes) {
+		if (!doc.IsSelected(n.id)) continue;
+		MaterialNode copy = n;
+		copy.previewTex = nullptr;
+		cb.nodes.push_back(copy);
+		if (first || n.pos.x < cb.origin.x) cb.origin.x = n.pos.x;
+		if (first || n.pos.y < cb.origin.y) cb.origin.y = n.pos.y;
+		first = false;
+	}
+	for (const auto& c : doc.connections)
+		if (doc.IsSelected(c.fromNode) && doc.IsSelected(c.toNode)) cb.connections.push_back(c);
+}
+
+// Pastes the clipboard with its top-left node at `at` (graph space), as new
+// nodes with fresh ids, and selects them.
+void PasteClipboard(MaterialEditorDocument& doc, ImVec2 at, const char* description) {
+	const GraphClipboard& cb = Clipboard();
+	if (cb.nodes.empty()) return;
+	const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
+	std::map<uint32_t, uint32_t> remap;
+	doc.selection.clear();
+	for (const auto& src : cb.nodes) {
+		MaterialNode n = src;
+		n.id = doc.nextNodeId++;
+		n.pos = ImVec2(src.pos.x - cb.origin.x + at.x, src.pos.y - cb.origin.y + at.y);
+		n.previewTex = nullptr;
+		remap[src.id] = n.id;
+		doc.nodes.push_back(n);
+		doc.selection.push_back(n.id);
+	}
+	for (const auto& c : cb.connections) {
+		MaterialConnection nc = c;
+		nc.fromNode = remap[c.fromNode];
+		nc.toNode = remap[c.toNode];
+		doc.connections.push_back(nc);
+	}
+	doc.dirty = true;
+	doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(), description));
+}
+
+void HandleConnectionDrag(MaterialEditorDocument& doc, ImDrawList* drawList, const std::vector<PinPosition>& allPins, bool canvasHovered) {
+	if (!doc.isDraggingConnection) return;
+	ImGuiIO& io = ImGui::GetIO();
+	// The source pin's position this frame (it may have scrolled/zoomed).
+	ImVec2 start = doc.dragStartPos;
+	for (const auto& p : allPins)
+		if (p.isOutput && p.nodeId == doc.dragFromNode && p.pinIndex == doc.dragFromPinIndex) { start = p.screenPos; break; }
+	const float dx = (io.MousePos.x - start.x) * 0.5f;
+	drawList->AddBezierCubic(start, ImVec2(start.x + dx, start.y), ImVec2(io.MousePos.x - dx, io.MousePos.y), io.MousePos,
+		ImGui::GetColorU32(ImVec4(0.6f, 0.8f, 1.f, 0.9f)), 2.f);
+
+	if (ImGui::IsMouseDown(0)) return;
+	doc.isDraggingConnection = false;
+
+	// A drag that began by pulling a link off an input already removed it
+	// (see the input-pin loop) and opened an edit baseline, so whatever
+	// happens now - reconnect elsewhere, or drop to delete - is one undo step.
+	const bool hadBaseline = doc.pendingEditBaselineValid;
+	for (const auto& p : allPins) {
+		if (p.isOutput || p.nodeId == doc.dragFromNode || !IsPinHovered(p.screenPos, 8.f)) continue;
+		MaterialConnection conn;
+		conn.fromNode = doc.dragFromNode;
+		conn.fromPinIndex = doc.dragFromPinIndex;
+		conn.toNode = p.nodeId;
+		conn.toPinIndex = p.pinIndex;
+		const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
+		// A pin accepts only one incoming connection - replace any existing one.
+		doc.connections.erase(std::remove_if(doc.connections.begin(), doc.connections.end(),
+			[&](const MaterialConnection& c) { return c.toNode == conn.toNode && c.toPinIndex == conn.toPinIndex; }),
+			doc.connections.end());
+		doc.connections.push_back(conn);
+		doc.dirty = true;
+		if (hadBaseline) doc.CommitGraphEdit("Reconnect");
+		else doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(), "Connect Nodes"));
+		return;
+	}
+	if (hadBaseline) { doc.CommitGraphEdit("Disconnect"); return; }
+	// Dropped on empty canvas: offer to add a node there, pre-wired.
+	if (canvasHovered || !ImGui::IsWindowHovered(ImGuiHoveredFlags_AllowWhenBlockedByActiveItem)) return; // over a node, or off the canvas
+	doc.pendingConnect = true;
+	doc.pendingConnectNode = doc.dragFromNode;
+	doc.pendingConnectPin = doc.dragFromPinIndex;
+	doc.addMenuFilter[0] = '\0';
+	doc.addMenuFocusFilter = true;
+	ImGui::OpenPopup("AddNodeMenu");
 }
 
 } // namespace
@@ -492,6 +626,7 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 
 	std::string glslText;
 	std::vector<std::pair<std::string, std::string>> samplerList;
+	std::vector<MaterialCodegenResult::Parameter> parameters;
 
 	if (doc.editMode == MaterialEditMode::Text) {
 		if (!doc.codeDoc) { if (errorOut) *errorOut = "No shader text to compile"; return false; }
@@ -507,6 +642,7 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 		if (!gen.error.empty()) { if (errorOut) *errorOut = gen.error; return false; }
 		glslText = gen.glsl;
 		samplerList = BuildNodeSamplerList(gen.textureSamplers, doc.nodes);
+		parameters = gen.parameters;
 		// codeDoc (if it exists from a previous visit to Text mode) is
 		// deliberately left untouched here - it holds the user's own simple
 		// snippet, an independent alternate representation of the material,
@@ -561,40 +697,11 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 	// up. Project-relative, so the scene stays portable.
 	cm->SetShaderFile(doc.generatedGlslPath);
 
-	// Fixed uniform set, always (re-)issued. SendUniform silently skips any
-	// name the active shader doesn't declare (GetUniformLocation returns -1
-	// -> Shaders.cpp's `Handle > -1` guard), so over-issuing is harmless.
-	cm->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-	cm->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
-	cm->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
-	cm->AddUniform(Uniform("uAmbientLight", Uniforms::DataUsage::GlobalAmbientLight));
-	cm->AddUniform(Uniform("uCameraPosition", Uniforms::DataUsage::CameraPosition));
-	cm->AddUniform(Uniform("uTime", Uniforms::DataUsage::Timer));
-	// Forward branch only (harmless to also issue in Deferred mode - the
-	// compiled shader simply doesn't declare these, so SendUniform's
-	// GetUniformLocation()==-1 guard skips them).
-	cm->AddUniform(Uniform("uLights", Uniforms::DataUsage::Lights));
-	cm->AddUniform(Uniform("uNumberOfLights", Uniforms::DataUsage::NumberOfLights));
-	// Directional shadow receiving (Forward branch of the generated shader).
-	// SendUniform skips names the active program does not declare, so these
-	// are harmless under Deferred, where the light passes shadow the
-	// G-buffer themselves.
-	cm->AddUniform(Uniform("uDirectionalShadowMaps", Uniforms::DataUsage::DirectionalShadowMap));
-	cm->AddUniform(Uniform("uDirectionalDepthsMVP", Uniforms::DataUsage::DirectionalShadowMatrix));
-	cm->AddUniform(Uniform("uDirectionalShadowFar", Uniforms::DataUsage::DirectionalShadowFar));
-	cm->AddUniform(Uniform("uNumberOfDirectionalShadows", Uniforms::DataUsage::NumberOfDirectionalShadows));
-	cm->AddUniform(Uniform("uPointShadowMaps", Uniforms::DataUsage::PointShadowMap));
-	cm->AddUniform(Uniform("uPointDepthsMVP", Uniforms::DataUsage::PointShadowMatrix));
-	cm->AddUniform(Uniform("uNumberOfPointShadows", Uniforms::DataUsage::NumberOfPointShadows));
-	cm->AddUniform(Uniform("uSpotShadowMaps", Uniforms::DataUsage::SpotShadowMap));
-	cm->AddUniform(Uniform("uSpotDepthsMVP", Uniforms::DataUsage::SpotShadowMatrix));
-	cm->AddUniform(Uniform("uNumberOfSpotShadows", Uniforms::DataUsage::NumberOfSpotShadows));
-	// Misleadingly named: IMaterial's flag is what gates
-	// IRenderer::BindShadowMaps(), i.e. whether this draw gets the shadow
-	// maps bound at all. Without it the samplers above are never given a
-	// unit and the lookup reads nothing. Casting is decided per object by
-	// RenderingComponent::EnableCastShadows(), not here.
-	cm->EnableCastingShadows();
+	// The fixed uniform set, shadow receiving included - one list shared
+	// with the scene loader and RecompileFromDisk, see
+	// CustomShaderMaterial::AddGeneratedShaderUniforms.
+	cm->AddGeneratedShaderUniforms();
+	SyncParameters(cm, parameters);
 
 	WireSamplers(cm, samplerList, projectRoot);
 
@@ -646,6 +753,17 @@ bool MaterialEditor::CompileMaterialShaderText(const std::string& glslText, bool
 		return false; // newShader cleans itself up; live material's previous shader is untouched
 	*outShader = std::move(newShader);
 	return true;
+}
+
+void MaterialEditor::SyncParameters(CustomShaderMaterial* mat, const std::vector<MaterialCodegenResult::Parameter>& params) {
+	if (!mat) return;
+	for (const std::string& name : mat->GetParameterNames()) {
+		bool keep = false;
+		for (const auto& p : params) if (p.name == name) { keep = true; break; }
+		if (!keep) mat->RemoveParameter(name);
+	}
+	for (const auto& p : params)
+		mat->DeclareParameter(p.name, p.isVector, Vec4(p.value[0], p.value[1], p.value[2], p.value[3]));
 }
 
 void MaterialEditor::WireSamplers(CustomShaderMaterial* mat,
@@ -748,6 +866,9 @@ bool MaterialEditor::RecompileFromDisk(CustomShaderMaterial* mat, const std::str
 	mat->SetShader(newShader.get());
 	mat->AdoptShader(std::move(newShader));
 	mat->MarkShaderBranch(deferredGBuffer);
+	// Idempotent; covers a material built before the uniform set grew
+	// (ambient environment, bones) as well as the scene loader's own call.
+	mat->AddGeneratedShaderUniforms();
 	return true;
 }
 
@@ -1363,8 +1484,42 @@ static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const 
 			}
 			break;
 		}
+		case MaterialNode::FloatParameter: {
+			// The node's name is the parameter's name - edited by renaming
+			// the node (double-click the title). The value here is the
+			// default the material starts with.
+			float val = 0.5f;
+			if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f", &val);
+			if (ImGui::DragFloat("Default", &val, 0.01f)) doc.dirty = true;
+			GraphUndoCommit(doc, "Set Parameter Default");
+			node.userData = std::to_string(val);
+			ImGui::TextDisabled("setParameter(\"%s\", x)", MaterialNode::SanitizeParameterName(node.name).c_str());
+			break;
+		}
+		case MaterialNode::ColorParameter: {
+			float color[4] = {1, 1, 1, 1};
+			if (!node.userData.empty())
+				sscanf(node.userData.c_str(), "%f,%f,%f,%f", &color[0], &color[1], &color[2], &color[3]);
+			if (ImGui::ColorEdit4("Default", color)) doc.dirty = true;
+			GraphUndoCommit(doc, "Set Parameter Default");
+			node.userData = std::to_string(color[0]) + "," + std::to_string(color[1]) + "," +
+				std::to_string(color[2]) + "," + std::to_string(color[3]);
+			ImGui::TextDisabled("setParameter(\"%s\", v)", MaterialNode::SanitizeParameterName(node.name).c_str());
+			break;
+		}
+		case MaterialNode::CustomExpression: {
+			// One GLSL expression over the vec4 inputs a, b, c, d. Any
+			// result type works (float/vec2/vec3/vec4 are widened).
+			ImGui::SetNextItemWidth(-1.f);
+			if (ImGui::InputTextMultiline("##expr", &node.userData, ImVec2(-1.f, 52.f))) doc.dirty = true;
+			GraphUndoCommit(doc, "Edit Expression");
+			ImGui::TextDisabled("inputs: a b c d (vec4)");
+			break;
+		}
 		case MaterialNode::Output: {
 			ImGui::Text("Material Output");
+			// The live sphere preview is the real picture; this swatch is only
+			// the constant part of Albedo.
 			Vec4 albedo(1.f, 1.f, 1.f, 1.f);
 			for (const auto& conn : doc.connections) {
 				if (conn.toNode == node.id && conn.toPinIndex == 0) {
@@ -1387,22 +1542,35 @@ static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const 
 			break;
 		}
 		default: {
-			Vec4 previewVal = node.ComputePreviewValue(node, doc.nodes, doc.connections);
 			const char* opName = node.GetOpName();
 			if (opName && opName[0] != '\0') ImGui::Text("%s", opName);
-			else ImGui::TextDisabled("%s", node.name.c_str());
+			else ImGui::TextDisabled("%s", MaterialNode::TypeDisplayName(node.type));
 
 			float previewWidth = ImGui::GetContentRegionAvail().x;
 			int totalPins = MaterialNode::GetInputPinCount(node.type) + MaterialNode::GetOutputPinCount(node.type);
 			if (totalPins == 0) totalPins = 1;
 			float previewHeight = std::max(16.f, (totalPins - 1) * pinSpacing + 20.f);
 			ImVec2 previewPos = ImGui::GetCursorScreenPos();
-			bgDrawList->AddRectFilled(previewPos, ImVec2(previewPos.x + previewWidth, previewPos.y + previewHeight),
-				ImGui::GetColorU32(ImVec4(previewVal.x, previewVal.y, previewVal.z, previewVal.w)));
-
-			char valStr[64];
-			snprintf(valStr, sizeof(valStr), "%.2f", previewVal.x);
-			bgDrawList->AddText(ImVec2(previewPos.x + 4.f, previewPos.y + 3.f), ImGui::GetColorU32(ImVec4(1.f, 1.f, 1.f, 0.9f)), valStr);
+			const ImVec2 previewMax(previewPos.x + previewWidth, previewPos.y + previewHeight);
+			if (node.IsPreviewDynamic(doc.nodes, doc.connections)) {
+				// The value depends on the pixel (or on time), so there is no
+				// single colour to show - a flat grey here used to read as a
+				// real 0.5. Diagonal hatching instead, and say so.
+				bgDrawList->AddRectFilled(previewPos, previewMax, ImGui::GetColorU32(ImVec4(0.12f, 0.12f, 0.14f, 1.f)));
+				bgDrawList->PushClipRect(previewPos, previewMax, true);
+				for (float x = -previewHeight; x < previewWidth; x += 8.f)
+					bgDrawList->AddLine(ImVec2(previewPos.x + x, previewMax.y), ImVec2(previewPos.x + x + previewHeight, previewPos.y),
+						ImGui::GetColorU32(ImVec4(0.3f, 0.3f, 0.35f, 1.f)), 1.f);
+				bgDrawList->PopClipRect();
+				bgDrawList->AddText(ImVec2(previewPos.x + 4.f, previewPos.y + 3.f), ImGui::GetColorU32(ImVec4(1.f, 1.f, 1.f, 0.7f)), "varies");
+			} else {
+				Vec4 previewVal = node.ComputePreviewValue(node, doc.nodes, doc.connections);
+				bgDrawList->AddRectFilled(previewPos, previewMax,
+					ImGui::GetColorU32(ImVec4(previewVal.x, previewVal.y, previewVal.z, previewVal.w)));
+				char valStr[64];
+				snprintf(valStr, sizeof(valStr), "%.2f", previewVal.x);
+				bgDrawList->AddText(ImVec2(previewPos.x + 4.f, previewPos.y + 3.f), ImGui::GetColorU32(ImVec4(1.f, 1.f, 1.f, 0.9f)), valStr);
+			}
 			break;
 		}
 	}
@@ -1420,11 +1588,41 @@ static ImVec2 EstimateNodeSize(const MaterialNode& node) {
 		case MaterialNode::Color: contentHeight = 66.f; break;
 		case MaterialNode::Texture: contentHeight = 112.f; break;
 		case MaterialNode::Output: contentHeight = 44.f; break;
+		case MaterialNode::FloatParameter: contentHeight = 48.f; break;
+		case MaterialNode::ColorParameter: contentHeight = 48.f; break;
+		case MaterialNode::CustomExpression: contentHeight = 84.f; break;
 		default: contentHeight = 40.f; break;
 	}
 	const float pinsHeight = (numPins > 0) ? (float)(numPins - 1) * 24.f + 20.f : 0.f;
 	const float height = 30.f /* header */ + std::max(contentHeight, pinsHeight) + 14.f;
-	return ImVec2(190.f, height);
+	return ImVec2(node.type == MaterialNode::CustomExpression ? 240.f : 190.f, height);
+}
+
+// The Add Node menu's contents, grouped. The search box flattens it.
+struct AddNodeGroup { const char* name; std::vector<MaterialNode::Type> types; };
+static const std::vector<AddNodeGroup>& AddNodeGroups() {
+	using N = MaterialNode;
+	static const std::vector<AddNodeGroup> groups = {
+		{ "Constants", { N::Color, N::Float, N::Int, N::Bool, N::Vec2Type, N::Vec3Type, N::Vec4Type } },
+		{ "Parameters", { N::FloatParameter, N::ColorParameter } },
+		{ "Textures", { N::Texture, N::NormalMap, N::Noise } },
+		{ "Math", { N::Add, N::Subtract, N::Multiply, N::Divide, N::Power, N::Modulo, N::Negate, N::Abs, N::Sqrt,
+			N::Sin, N::Cos, N::Tan, N::Min, N::Max, N::Clamp, N::Saturate, N::OneMinus, N::Fract, N::Floor,
+			N::Lerp, N::Remap, N::DotProduct, N::CrossProduct, N::Length, N::Normalize, N::Distance } },
+		{ "Comparison / Logic", { N::Equal, N::NotEqual, N::GreaterThan, N::LessThan, N::And, N::Or, N::Not, N::Step, N::SmoothStep } },
+		{ "Vector", { N::SplitVec2, N::SplitVec3, N::SplitVec4, N::CombineVec2, N::CombineVec3, N::CombineVec4 } },
+		{ "Geometry", { N::UVCoordinate, N::NormalVector, N::ObjectPosition, N::ObjectOrigin, N::CameraPosition,
+			N::ViewDirection, N::Fresnel, N::TimeValue } },
+		{ "Advanced", { N::CustomExpression } },
+	};
+	return groups;
+}
+
+static bool ContainsNoCase(const std::string& hay, const char* needle) {
+	std::string h = hay, n = needle;
+	std::transform(h.begin(), h.end(), h.begin(), [](unsigned char c) { return (char)tolower(c); });
+	std::transform(n.begin(), n.end(), n.begin(), [](unsigned char c) { return (char)tolower(c); });
+	return h.find(n) != std::string::npos;
 }
 
 static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
@@ -1437,11 +1635,17 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 		ImGui::TextColored(ImVec4(1.f, 0.4f, 0.35f, 1.f), "%s", doc.lastApplyError.c_str());
 		ImGui::Separator();
 	}
+	if (ImGui::SmallButton("Frame All")) doc.frameAllRequested = true;
+	ImGui::SameLine();
+	ImGui::TextDisabled("Right-click: add node | Drag empty space: select | Del: delete | %sC/%sV/%sD: copy/paste/duplicate | F: frame",
+		ShortcutPrefix(), ShortcutPrefix(), ShortcutPrefix());
 
 	avail = ImGui::GetContentRegionAvail();
 	if (avail.x < 10 || avail.y < 10) return;
 
-	bool canvasHovered = false;
+	bool canvasHovered = false;   // over a node
+	bool pinClicked = false;      // a pin took this frame's left click
+	bool nodeTitleClicked = false;
 	ImGuiIO& io = ImGui::GetIO();
 	static const float pinRadius = 5.f;
 
@@ -1454,11 +1658,30 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 
 	ImDrawList* canvasDrawList = ImGui::GetWindowDrawList();
 	ImVec2 canvasScreenPos = ImGui::GetCursorScreenPos();
+
+	// Frame All: fit every node's rect into the canvas with a margin.
+	if (doc.frameAllRequested && !doc.nodes.empty()) {
+		doc.frameAllRequested = false;
+		ImVec2 lo(1e9f, 1e9f), hi(-1e9f, -1e9f);
+		for (const auto& n : doc.nodes) {
+			const ImVec2 sz = EstimateNodeSize(n);
+			lo.x = std::min(lo.x, n.pos.x); lo.y = std::min(lo.y, n.pos.y);
+			hi.x = std::max(hi.x, n.pos.x + sz.x); hi.y = std::max(hi.y, n.pos.y + sz.y);
+		}
+		const float margin = 60.f;
+		const float zx = avail.x / std::max(hi.x - lo.x + 2.f * margin, 1.f);
+		const float zy = avail.y / std::max(hi.y - lo.y + 2.f * margin, 1.f);
+		doc.graphZoom = std::max(0.25f, std::min(std::min(zx, zy), 1.5f));
+		doc.graphOffset.x = (avail.x - (hi.x - lo.x) * doc.graphZoom) * 0.5f - lo.x * doc.graphZoom;
+		doc.graphOffset.y = (avail.y - (hi.y - lo.y) * doc.graphZoom) * 0.5f - lo.y * doc.graphZoom;
+	}
+	doc.frameAllRequested = false;
+
 	ImVec2 gridSize(40.f * doc.graphZoom, 40.f * doc.graphZoom);
-	int startX = (int)(-doc.graphOffset.x / doc.graphZoom);
-	int startY = (int)(-doc.graphOffset.y / doc.graphZoom);
-	int endX = startX + (int)(avail.x / gridSize.x) + 2;
-	int endY = startY + (int)(avail.y / gridSize.y) + 2;
+	int startX = (int)(-doc.graphOffset.x / gridSize.x) - 1;
+	int startY = (int)(-doc.graphOffset.y / gridSize.y) - 1;
+	int endX = startX + (int)(avail.x / gridSize.x) + 3;
+	int endY = startY + (int)(avail.y / gridSize.y) + 3;
 
 	for (int x = startX; x <= endX; x++) {
 		float sx = canvasScreenPos.x + doc.graphOffset.x + x * gridSize.x;
@@ -1470,95 +1693,155 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 	}
 
 	std::vector<PinPosition> allPins;
+	std::vector<std::pair<uint32_t, std::pair<ImVec2, ImVec2>>> nodeRects; // for box select
+	uint32_t contextNode = 0;
+	std::vector<uint32_t> deleteRequest;
 
 	for (auto& node : doc.nodes) {
 		const ImVec2 screenPos(node.pos.x * doc.graphZoom + canvasScreenPos.x + doc.graphOffset.x,
 			node.pos.y * doc.graphZoom + canvasScreenPos.y + doc.graphOffset.y);
 		const ImVec2 nodeSize = EstimateNodeSize(node);
+		nodeRects.push_back({ node.id, { screenPos, ImVec2(screenPos.x + nodeSize.x, screenPos.y + nodeSize.y) } });
+		const bool selected = doc.IsSelected(node.id);
 
 		ImGui::PushID((int)node.id);
 
 		ImVec4 bgColor(0.15f, 0.15f, 0.18f, 0.95f);
 		switch (node.type) {
 			case MaterialNode::Color: bgColor = ImVec4(0.3f, 0.2f, 0.4f, 0.95f); break;
-			case MaterialNode::Texture: bgColor = ImVec4(0.2f, 0.35f, 0.2f, 0.95f); break;
+			case MaterialNode::Texture: case MaterialNode::NormalMap: bgColor = ImVec4(0.2f, 0.35f, 0.2f, 0.95f); break;
 			case MaterialNode::Float: bgColor = ImVec4(0.2f, 0.25f, 0.4f, 0.95f); break;
+			case MaterialNode::FloatParameter: case MaterialNode::ColorParameter: bgColor = ImVec4(0.35f, 0.25f, 0.15f, 0.95f); break;
 			case MaterialNode::Output: bgColor = ImVec4(0.4f, 0.3f, 0.15f, 0.95f); break;
 			default: break;
 		}
 
 		ImGui::SetCursorScreenPos(screenPos);
 		ImGui::PushStyleColor(ImGuiCol_ChildBg, bgColor);
-		ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.05f, 0.05f, 0.06f, 1.f));
+		ImGui::PushStyleColor(ImGuiCol_Border, selected ? ImVec4(1.f, 0.75f, 0.25f, 1.f) : ImVec4(0.05f, 0.05f, 0.06f, 1.f));
 
 		// A real nested child - clipped to, and unable to move outside, the
 		// canvas child above (unlike a top-level ImGui::Begin() window).
 		ImGui::BeginChild("node", nodeSize, ImGuiChildFlags_Borders, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoMove);
 
-		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.95f, 1.f));
-		ImGui::TextUnformatted(node.name.c_str());
-		ImGui::PopStyleColor();
-		// An InvisibleButton laid directly over the title text, not
-		// IsItemHovered() on the text itself: Text widgets have no notion
-		// of "active" in ImGui, so the old check re-tested hover on the
-		// title's rect every single frame of the drag - the instant the
-		// cursor left that ~13px-tall label (trivially easy at normal drag
-		// speed, since node.pos hasn't moved yet on the frame hover is
-		// lost), the drag silently stopped applying delta. Net effect: the
-		// node never visibly moved. IsItemActive() on a real button latches
-		// from mouse-down to mouse-up regardless of where the cursor drifts
-		// meanwhile - the same idiom ImGui's own drag/slider widgets use
-		// internally, and what "drag a node's title to move it" needs.
-		const ImVec2 titleMin = ImGui::GetItemRectMin();
-		const ImVec2 titleSize = ImGui::GetItemRectSize();
-		ImGui::SetCursorScreenPos(titleMin);
-		ImGui::InvisibleButton("##drag_handle", titleSize);
-		const bool headerHovered = ImGui::IsItemActive();
-		// Must be read right here, immediately after the InvisibleButton -
-		// IsItemActivated()/IsItemDeactivated() refer to the *last* ImGui
-		// item, and DrawNodeBody()/the context-menu popup below draw many
-		// more items before the drag logic that consumes these runs.
-		const bool dragHandleActivated = ImGui::IsItemActivated();
-		const bool dragHandleDeactivated = ImGui::IsItemDeactivated();
+		bool dragHandleActivated = false, dragHandleDeactivated = false, headerHovered = false;
+		if (doc.renamingNode == node.id) {
+			// Inline rename. Parameter nodes' names are uniform names, so
+			// they are sanitized on commit.
+			if (doc.renameFocusPending) { ImGui::SetKeyboardFocusHere(); doc.renameFocusPending = false; }
+			ImGui::SetNextItemWidth(-1.f);
+			const bool enter = ImGui::InputText("##rename", doc.renameBuffer, sizeof(doc.renameBuffer), ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll);
+			if (enter || ImGui::IsItemDeactivated()) {
+				std::string newName = doc.renameBuffer;
+				if (MaterialNode::IsParameter(node.type)) newName = MaterialNode::SanitizeParameterName(newName);
+				if (!newName.empty() && newName != node.name && !ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+					const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
+					node.name = newName;
+					doc.dirty = true;
+					doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(), "Rename Node"));
+				}
+				doc.renamingNode = 0;
+			}
+		} else {
+			ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.95f, 0.95f, 1.f));
+			ImGui::TextUnformatted(node.name.c_str());
+			ImGui::PopStyleColor();
+			// An InvisibleButton laid directly over the title text, not
+			// IsItemHovered() on the text itself: Text widgets have no notion
+			// of "active" in ImGui, so the old check re-tested hover on the
+			// title's rect every single frame of the drag - the instant the
+			// cursor left that ~13px-tall label (trivially easy at normal drag
+			// speed, since node.pos hasn't moved yet on the frame hover is
+			// lost), the drag silently stopped applying delta. Net effect: the
+			// node never visibly moved. IsItemActive() on a real button latches
+			// from mouse-down to mouse-up regardless of where the cursor drifts
+			// meanwhile - the same idiom ImGui's own drag/slider widgets use
+			// internally, and what "drag a node's title to move it" needs.
+			const ImVec2 titleMin = ImGui::GetItemRectMin();
+			const ImVec2 titleSize(ImGui::GetContentRegionAvail().x, ImGui::GetItemRectSize().y);
+			ImGui::SetCursorScreenPos(titleMin);
+			ImGui::InvisibleButton("##drag_handle", titleSize);
+			headerHovered = ImGui::IsItemActive();
+			// Must be read right here, immediately after the InvisibleButton -
+			// IsItemActivated()/IsItemDeactivated() refer to the *last* ImGui
+			// item, and DrawNodeBody()/the context-menu popup below draw many
+			// more items before the drag logic that consumes these runs.
+			dragHandleActivated = ImGui::IsItemActivated();
+			dragHandleDeactivated = ImGui::IsItemDeactivated();
+			if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(0)) {
+				doc.renamingNode = node.id;
+				snprintf(doc.renameBuffer, sizeof(doc.renameBuffer), "%s", node.name.c_str());
+				doc.renameFocusPending = true;
+			}
+		}
 		ImGui::Separator();
 
 		const bool nodeHovered = ImGui::IsWindowHovered(ImGuiHoveredFlags_ChildWindows | ImGuiHoveredFlags_AllowWhenBlockedByActiveItem);
 		if (nodeHovered) canvasHovered = true;
 
+		// Click selects; Shift/Ctrl adds or toggles. A click on an already
+		// selected node keeps the selection, so the group can be dragged.
+		if (dragHandleActivated) {
+			nodeTitleClicked = true;
+			const bool additive = io.KeyShift || ShortcutMod();
+			if (additive) {
+				if (selected) doc.selection.erase(std::remove(doc.selection.begin(), doc.selection.end(), node.id), doc.selection.end());
+				else doc.selection.push_back(node.id);
+			} else if (!selected) {
+				doc.selection.assign(1, node.id);
+			}
+		}
+
 		DrawNodeBody(doc, node, projectRoot);
 
-		if (nodeHovered && ImGui::IsMouseClicked(1))
+		if (nodeHovered && ImGui::IsMouseClicked(1)) {
+			if (!doc.IsSelected(node.id)) doc.selection.assign(1, node.id);
 			ImGui::OpenPopup("NodeContextMenu");
+		}
 
 		if (ImGui::BeginPopup("NodeContextMenu")) {
-			if (ImGui::MenuItem("Delete Node")) {
-				const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
-				const uint32_t deleteId = node.id;
-				for (auto& n : doc.nodes) {
-					if (n.id == deleteId && n.previewTex) { delete n.previewTex; n.previewTex = nullptr; break; }
-				}
-				doc.nodes.erase(std::remove_if(doc.nodes.begin(), doc.nodes.end(), [deleteId](const MaterialNode& n) { return n.id == deleteId; }), doc.nodes.end());
-				doc.connections.erase(std::remove_if(doc.connections.begin(), doc.connections.end(), [deleteId](const MaterialConnection& c) { return c.fromNode == deleteId || c.toNode == deleteId; }), doc.connections.end());
-				doc.dirty = true;
-				doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(), "Delete Node"));
+			contextNode = node.id;
+			if (ImGui::MenuItem("Rename", "Double-click")) {
+				doc.renamingNode = node.id;
+				snprintf(doc.renameBuffer, sizeof(doc.renameBuffer), "%s", node.name.c_str());
+				doc.renameFocusPending = true;
 			}
+			if (ImGui::MenuItem("Duplicate", (std::string(ShortcutPrefix()) + "D").c_str())) {
+				CopySelection(doc);
+				PasteClipboard(doc, ImVec2(Clipboard().origin.x + 30.f, Clipboard().origin.y + 30.f), "Duplicate Nodes");
+			}
+			if (ImGui::MenuItem("Copy", (std::string(ShortcutPrefix()) + "C").c_str())) CopySelection(doc);
+			if (ImGui::MenuItem("Disconnect All")) {
+				const MaterialEditorDocument::GraphSnapshot before = doc.CaptureGraphSnapshot();
+				const uint32_t id = node.id;
+				doc.connections.erase(std::remove_if(doc.connections.begin(), doc.connections.end(),
+					[id](const MaterialConnection& c) { return c.fromNode == id || c.toNode == id; }), doc.connections.end());
+				doc.dirty = true;
+				doc.undo.Push(std::make_unique<GraphEditCommand>(&doc, before, doc.CaptureGraphSnapshot(), "Disconnect Node"));
+			}
+			ImGui::Separator();
+			if (ImGui::MenuItem(doc.selection.size() > 1 ? "Delete Selected" : "Delete Node", "Del"))
+				deleteRequest = doc.selection.empty() ? std::vector<uint32_t>{ node.id } : doc.selection;
 			ImGui::EndPopup();
 		}
 
 		// Node drag spans multiple frames (mouse held down), unlike the
 		// one-shot mutations above - IsItemActivated()/IsItemDeactivated()
-		// on the drag-handle InvisibleButton (captured right after it was
-		// drawn, see dragHandleActivated/dragHandleDeactivated above) give
-		// the same begin/end gesture boundary IsItemDeactivatedAfterEdit()
-		// gives standard widgets (a plain InvisibleButton has no "edited"
-		// concept, so the plain Deactivated edge is used instead).
+		// on the drag-handle InvisibleButton give the gesture boundary.
+		// Moves the whole selection when the dragged node is part of it.
 		if (dragHandleActivated)
 			doc.BeginGraphEdit();
 		if (!doc.isDraggingConnection && headerHovered && ImGui::IsMouseDragging(0)) {
 			ImVec2 delta(io.MouseDelta.x / doc.graphZoom, io.MouseDelta.y / doc.graphZoom);
-			node.pos.x += delta.x;
-			node.pos.y += delta.y;
-			if (delta.x != 0.f || delta.y != 0.f) doc.dirty = true;
+			if (delta.x != 0.f || delta.y != 0.f) {
+				for (auto& other : doc.nodes) {
+					if (other.id != node.id && !doc.IsSelected(other.id)) continue;
+					if (other.id != node.id && !doc.IsSelected(node.id)) continue;
+					other.pos.x += delta.x;
+					other.pos.y += delta.y;
+				}
+				doc.dirty = true;
+			}
 		}
 		if (dragHandleDeactivated)
 			doc.CommitGraphEdit("Move Node");
@@ -1583,114 +1866,196 @@ static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& pro
 			if (!label) { snprintf(lbl, sizeof(lbl), "In%d", i + 1); label = lbl; }
 			ImVec2 textSize = ImGui::CalcTextSize(label);
 			canvasDrawList->AddText(ImVec2(pinPos.x - pinRadius - 4.f - textSize.x, y - 6.f), ImGui::GetColorU32(ImVec4(0.9f, 0.9f, 0.9f, 1.f)), label);
-			canvasDrawList->AddCircleFilled(pinPos, pinRadius, ImGui::GetColorU32(ImVec4(0.5f, 0.6f, 1.f, 1.f)));
+			canvasDrawList->AddCircleFilled(pinPos, pinRadius, PinColor(MaterialNode::GetInputPinWidth(node.type, i)));
 
 			PinPosition pp; pp.nodeId = node.id; pp.pinIndex = i; pp.isOutput = false; pp.screenPos = pinPos;
 			allPins.push_back(pp);
+
+			// Pull a link off an input: it is removed, and the drag carries on
+			// from its source, so it can be dropped on another input (move)
+			// or anywhere else (delete) - one undo step either way.
+			if (!doc.isDraggingConnection && IsPinHovered(pinPos, pinRadius + 2.f) && ImGui::IsMouseClicked(0)) {
+				pinClicked = true;
+				for (auto it = doc.connections.begin(); it != doc.connections.end(); ++it) {
+					if (it->toNode != node.id || it->toPinIndex != i) continue;
+					doc.BeginGraphEdit();
+					doc.isDraggingConnection = true;
+					doc.dragFromNode = it->fromNode;
+					doc.dragFromPinIndex = it->fromPinIndex;
+					doc.dragStartPos = pinPos;
+					doc.connections.erase(it);
+					doc.dirty = true;
+					break;
+				}
+			}
 		}
 
-		if (numOutputs > 0) {
-			for (int i = 0; i < numOutputs; i++) {
-				float y = centerY + (i - (numOutputs - 1) * 0.5f) * 24.f;
-				ImVec2 pinPos(screenPos.x + nodeSize.x, y);
-				canvasDrawList->AddCircleFilled(pinPos, pinRadius, ImGui::GetColorU32(ImVec4(0.5f, 0.8f, 0.5f, 1.f)));
+		for (int i = 0; i < numOutputs; i++) {
+			float y = centerY + (i - (numOutputs - 1) * 0.5f) * 24.f;
+			ImVec2 pinPos(screenPos.x + nodeSize.x, y);
+			canvasDrawList->AddCircleFilled(pinPos, pinRadius, PinColor(MaterialNode::GetOutputPinWidth(node.type, i)));
 
-				const char* label = MaterialNode::GetOutputPinLabel(node.type, i);
-				char lbl[8];
-				if (!label) { snprintf(lbl, sizeof(lbl), "Out%d", i + 1); label = lbl; }
-				canvasDrawList->AddText(ImVec2(pinPos.x + pinRadius + 4.f, y - 6.f), ImGui::GetColorU32(ImVec4(0.7f, 0.8f, 0.5f, 1.f)), label);
+			const char* label = MaterialNode::GetOutputPinLabel(node.type, i);
+			char lbl[8];
+			if (!label) { snprintf(lbl, sizeof(lbl), "Out%d", i + 1); label = lbl; }
+			canvasDrawList->AddText(ImVec2(pinPos.x + pinRadius + 4.f, y - 6.f), ImGui::GetColorU32(ImVec4(0.7f, 0.8f, 0.5f, 1.f)), label);
 
-				PinPosition pp; pp.nodeId = node.id; pp.pinIndex = i; pp.isOutput = true; pp.screenPos = pinPos;
-				allPins.push_back(pp);
+			PinPosition pp; pp.nodeId = node.id; pp.pinIndex = i; pp.isOutput = true; pp.screenPos = pinPos;
+			allPins.push_back(pp);
 
-				if (IsPinHovered(pinPos, pinRadius + 2.f) && ImGui::IsMouseClicked(0)) {
-					doc.isDraggingConnection = true;
-					doc.dragFromNode = node.id;
-					doc.dragFromPinIndex = i;
-					doc.dragStartPos = pinPos;
-				}
+			if (!doc.isDraggingConnection && IsPinHovered(pinPos, pinRadius + 2.f) && ImGui::IsMouseClicked(0)) {
+				pinClicked = true;
+				doc.isDraggingConnection = true;
+				doc.dragFromNode = node.id;
+				doc.dragFromPinIndex = i;
+				doc.dragStartPos = pinPos;
 			}
 		}
 
 		ImGui::PopID();
 	}
+	(void)contextNode;
 
-	ImDrawList* bgDrawList = canvasDrawList; // connections/drag-line drawing below is unchanged, just renamed
+	ImDrawList* bgDrawList = canvasDrawList;
 	for (const auto& conn : doc.connections) {
 		ImVec2 fromPos, toPos;
 		bool foundFrom = false, foundTo = false;
+		int width = 0;
 		for (const auto& p : allPins) {
 			if (!foundFrom && p.nodeId == conn.fromNode && p.pinIndex == conn.fromPinIndex && p.isOutput) { fromPos = p.screenPos; foundFrom = true; }
 			if (!foundTo && p.nodeId == conn.toNode && p.pinIndex == conn.toPinIndex && !p.isOutput) { toPos = p.screenPos; foundTo = true; }
 		}
+		if (const MaterialNode* src = FindDocNode(doc, conn.fromNode)) width = MaterialNode::GetOutputPinWidth(src->type, conn.fromPinIndex);
 		if (foundFrom && foundTo) {
 			float dx = (toPos.x - fromPos.x) * 0.5f;
-			bgDrawList->AddBezierCubic(fromPos, ImVec2(fromPos.x + dx, fromPos.y), ImVec2(toPos.x - dx, toPos.y), toPos, ImGui::GetColorU32(ImVec4(0.4f, 0.6f, 0.9f, 0.7f)), 2.f);
+			const ImU32 col = (width == 0) ? ImGui::GetColorU32(ImVec4(0.4f, 0.6f, 0.9f, 0.7f)) : (PinColor(width) & 0xB0FFFFFF);
+			bgDrawList->AddBezierCubic(fromPos, ImVec2(fromPos.x + dx, fromPos.y), ImVec2(toPos.x - dx, toPos.y), toPos, col, 2.f);
 		}
 	}
 
-	if (!canvasHovered && !doc.isDraggingConnection && ImGui::IsWindowHovered()) {
+	const bool canvasWindowHovered = ImGui::IsWindowHovered();
+	const bool typing = io.WantTextInput;
+
+	// Box select: left-drag on empty canvas.
+	if (canvasWindowHovered && !canvasHovered && !pinClicked && !nodeTitleClicked && !doc.isDraggingConnection && ImGui::IsMouseClicked(0)) {
+		doc.boxSelecting = true;
+		doc.boxSelectStart = io.MousePos;
+		if (!io.KeyShift && !ShortcutMod()) doc.selection.clear();
+	}
+	if (doc.boxSelecting) {
+		const ImVec2 a(std::min(doc.boxSelectStart.x, io.MousePos.x), std::min(doc.boxSelectStart.y, io.MousePos.y));
+		const ImVec2 b(std::max(doc.boxSelectStart.x, io.MousePos.x), std::max(doc.boxSelectStart.y, io.MousePos.y));
+		canvasDrawList->AddRectFilled(a, b, ImGui::GetColorU32(ImVec4(0.3f, 0.5f, 0.9f, 0.15f)));
+		canvasDrawList->AddRect(a, b, ImGui::GetColorU32(ImVec4(0.4f, 0.6f, 1.f, 0.8f)));
+		if (!ImGui::IsMouseDown(0)) {
+			for (const auto& r : nodeRects) {
+				const bool overlaps = r.second.first.x < b.x && r.second.second.x > a.x && r.second.first.y < b.y && r.second.second.y > a.y;
+				if (overlaps && !doc.IsSelected(r.first)) doc.selection.push_back(r.first);
+			}
+			doc.boxSelecting = false;
+		}
+	}
+
+	if (!canvasHovered && !doc.isDraggingConnection && canvasWindowHovered) {
 		if (io.MouseWheel != 0) {
+			// Zoom about the cursor, so what is under it stays under it.
+			const float oldZoom = doc.graphZoom;
 			doc.graphZoom *= 1.f + io.MouseWheel * 0.1f;
 			doc.graphZoom = std::max(0.25f, std::min(doc.graphZoom, 4.f));
+			const ImVec2 m(io.MousePos.x - canvasScreenPos.x, io.MousePos.y - canvasScreenPos.y);
+			doc.graphOffset.x = m.x - (m.x - doc.graphOffset.x) * (doc.graphZoom / oldZoom);
+			doc.graphOffset.y = m.y - (m.y - doc.graphOffset.y) * (doc.graphZoom / oldZoom);
 		}
-		if (ImGui::IsMouseDragging(1)) {
+		if (ImGui::IsMouseDragging(1) || ImGui::IsMouseDragging(2)) {
 			doc.graphOffset.x += io.MouseDelta.x;
 			doc.graphOffset.y += io.MouseDelta.y;
 		}
-		if (ImGui::IsMouseClicked(1))
+		// Right-click opens the menu on release, and only if it was not a
+		// pan: IsMouseReleased with no drag past the threshold.
+		if (ImGui::IsMouseReleased(1) && ImGui::GetMouseDragDelta(1, 0.f).x == 0.f && ImGui::GetMouseDragDelta(1, 0.f).y == 0.f) {
+			doc.pendingConnect = false;
+			doc.addMenuFilter[0] = '\0';
+			doc.addMenuFocusFilter = true;
 			ImGui::OpenPopup("AddNodeMenu");
+		}
 	}
 
-	HandleConnectionDrag(doc, bgDrawList, allPins);
+	// Keyboard, while the canvas (or a node in it) has focus and no text
+	// field is being typed into. Focus, not hover: the Scene view binds the
+	// same Delete/Cmd+D keys to its own focused window, and hover would let
+	// one keystroke delete in both.
+	const bool canvasFocused = ImGui::IsWindowFocused(ImGuiFocusedFlags_ChildWindows);
+	if (canvasFocused && !typing && !ImGui::IsPopupOpen("", ImGuiPopupFlags_AnyPopupId)) {
+		if ((ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) && !doc.selection.empty())
+			deleteRequest = doc.selection;
+		if (ShortcutPressed(ImGuiKey_C) && !doc.selection.empty())
+			CopySelection(doc);
+		if (ShortcutPressed(ImGuiKey_V)) {
+			const ImVec2 mouseGraph((io.MousePos.x - canvasScreenPos.x - doc.graphOffset.x) / doc.graphZoom,
+				(io.MousePos.y - canvasScreenPos.y - doc.graphOffset.y) / doc.graphZoom);
+			PasteClipboard(doc, mouseGraph, "Paste Nodes");
+		}
+		if (ShortcutPressed(ImGuiKey_D) && !doc.selection.empty()) {
+			CopySelection(doc);
+			PasteClipboard(doc, ImVec2(Clipboard().origin.x + 30.f, Clipboard().origin.y + 30.f), "Duplicate Nodes");
+		}
+		if (ShortcutPressed(ImGuiKey_A)) {
+			doc.selection.clear();
+			for (const auto& n : doc.nodes) doc.selection.push_back(n.id);
+		}
+		if (ImGui::IsKeyPressed(ImGuiKey_F) && !ShortcutMod())
+			doc.frameAllRequested = true;
+		if (ImGui::IsKeyPressed(ImGuiKey_Escape))
+			doc.selection.clear();
+	}
+	if (!deleteRequest.empty())
+		DeleteNodes(doc, deleteRequest, deleteRequest.size() > 1 ? "Delete Nodes" : "Delete Node");
+
+	HandleConnectionDrag(doc, bgDrawList, allPins, canvasHovered);
 
 	if (ImGui::BeginPopup("AddNodeMenu")) {
-		ImVec2 mouseGraphPos(
-			(io.MousePos.x - canvasScreenPos.x - doc.graphOffset.x) / doc.graphZoom,
-			(io.MousePos.y - canvasScreenPos.y - doc.graphOffset.y) / doc.graphZoom);
+		// Where the menu was opened, not where the mouse is now.
+		const ImVec2 openPos = ImGui::GetWindowPos();
+		const ImVec2 menuGraphPos(
+			(openPos.x - canvasScreenPos.x - doc.graphOffset.x) / doc.graphZoom,
+			(openPos.y - canvasScreenPos.y - doc.graphOffset.y) / doc.graphZoom);
 
-		if (ImGui::BeginMenu("Constants")) {
-			DrawAddNodeItem(doc, MaterialNode::Color, mouseGraphPos);
-			DrawAddNodeItem(doc, MaterialNode::Float, mouseGraphPos);
-			DrawAddNodeItem(doc, MaterialNode::Texture, mouseGraphPos);
-			DrawAddNodeItem(doc, MaterialNode::Int, mouseGraphPos);
-			DrawAddNodeItem(doc, MaterialNode::Bool, mouseGraphPos);
-			DrawAddNodeItem(doc, MaterialNode::Vec2Type, mouseGraphPos);
-			DrawAddNodeItem(doc, MaterialNode::Vec3Type, mouseGraphPos);
-			DrawAddNodeItem(doc, MaterialNode::Vec4Type, mouseGraphPos);
-			ImGui::EndMenu();
-		}
-		if (ImGui::BeginMenu("Math")) {
-			for (auto t : { MaterialNode::Add, MaterialNode::Subtract, MaterialNode::Multiply, MaterialNode::Divide,
-				MaterialNode::Power, MaterialNode::Modulo, MaterialNode::Negate, MaterialNode::Abs, MaterialNode::Sqrt,
-				MaterialNode::Sin, MaterialNode::Cos, MaterialNode::Tan, MaterialNode::Min, MaterialNode::Max,
-				MaterialNode::Clamp, MaterialNode::Lerp, MaterialNode::DotProduct, MaterialNode::CrossProduct,
-				MaterialNode::Length, MaterialNode::Normalize, MaterialNode::Distance })
-				DrawAddNodeItem(doc, t, mouseGraphPos);
-			ImGui::EndMenu();
-		}
-		if (ImGui::BeginMenu("Comparison / Logic")) {
-			for (auto t : { MaterialNode::Equal, MaterialNode::NotEqual, MaterialNode::GreaterThan, MaterialNode::LessThan,
-				MaterialNode::And, MaterialNode::Or, MaterialNode::Not, MaterialNode::Step, MaterialNode::SmoothStep })
-				DrawAddNodeItem(doc, t, mouseGraphPos);
-			ImGui::EndMenu();
-		}
-		if (ImGui::BeginMenu("Vector")) {
-			for (auto t : { MaterialNode::SplitVec2, MaterialNode::SplitVec3, MaterialNode::SplitVec4,
-				MaterialNode::CombineVec2, MaterialNode::CombineVec3, MaterialNode::CombineVec4 })
-				DrawAddNodeItem(doc, t, mouseGraphPos);
-			ImGui::EndMenu();
-		}
-		if (ImGui::BeginMenu("Special")) {
-			for (auto t : { MaterialNode::ObjectPosition, MaterialNode::CameraPosition, MaterialNode::UVCoordinate,
-				MaterialNode::NormalVector, MaterialNode::TimeValue })
-				DrawAddNodeItem(doc, t, mouseGraphPos);
-			ImGui::EndMenu();
-		}
+		if (doc.addMenuFocusFilter) { ImGui::SetKeyboardFocusHere(); doc.addMenuFocusFilter = false; }
+		ImGui::SetNextItemWidth(200.f);
+		const bool enter = ImGui::InputTextWithHint("##filter", "Search nodes...", doc.addMenuFilter, sizeof(doc.addMenuFilter), ImGuiInputTextFlags_EnterReturnsTrue);
 		ImGui::Separator();
-		DrawAddNodeItem(doc, MaterialNode::Output, mouseGraphPos);
 
+		bool created = false;
+		if (doc.addMenuFilter[0] != '\0') {
+			// Flat, filtered list; Enter takes the first match.
+			bool first = true;
+			for (const auto& g : AddNodeGroups()) {
+				for (auto t : g.types) {
+					const std::string name = MaterialNode::TypeDisplayName(t);
+					if (!ContainsNoCase(name, doc.addMenuFilter) && !ContainsNoCase(MaterialNode::TypeToString(t), doc.addMenuFilter)) continue;
+					if ((enter && first) || ImGui::MenuItem(name.c_str())) { AddNodeAt(doc, t, menuGraphPos); created = true; }
+					first = false;
+					if (created) break;
+				}
+				if (created) break;
+			}
+			if (first) ImGui::TextDisabled("No match");
+		} else {
+			for (const auto& g : AddNodeGroups()) {
+				if (!ImGui::BeginMenu(g.name)) continue;
+				for (auto t : g.types)
+					if (ImGui::MenuItem(MaterialNode::TypeDisplayName(t))) { AddNodeAt(doc, t, menuGraphPos); created = true; }
+				ImGui::EndMenu();
+			}
+			ImGui::Separator();
+			if (ImGui::MenuItem("Output")) { AddNodeAt(doc, MaterialNode::Output, menuGraphPos); created = true; }
+			if (!Clipboard().nodes.empty() && ImGui::MenuItem("Paste", (std::string(ShortcutPrefix()) + "V").c_str()))
+				PasteClipboard(doc, menuGraphPos, "Paste Nodes");
+		}
+		if (created) ImGui::CloseCurrentPopup();
 		ImGui::EndPopup();
+	} else {
+		doc.pendingConnect = false;
 	}
 
 	ImGui::EndChild(); // ##node_canvas

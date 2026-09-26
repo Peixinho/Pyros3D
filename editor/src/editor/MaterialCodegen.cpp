@@ -32,16 +32,29 @@ std::string Vec4Literal(float x, float y, float z, float w) {
 // Walks the graph, emitting one memoized `vec4 nN = ...;` statement per
 // visited node (everything is represented as vec4 for simplicity, matching
 // MaterialNode::ComputePreviewValue's existing CPU-preview convention -
-// scalar-producing nodes just leave y/z/w unused and get a `.x` taken by
-// whichever consumer needs a scalar).
+// scalar-producing nodes broadcast to all four components, and whichever
+// consumer needs a scalar takes `.x`).
+//
+// One Codegen per shader stage: the Vertex Offset pin's subgraph runs in the
+// vertex shader, everything else in the fragment shader, and the built-in
+// inputs (UV, normal, position...) are spelled differently in each. A node
+// reached from both stages is simply emitted twice, once per stage.
+enum class Stage { Vertex, Fragment };
+
 class Codegen {
 public:
-	Codegen(const std::vector<MaterialNode>& nodes, const std::vector<MaterialConnection>& connections)
-		: nodes(nodes), connections(connections) {}
+	Codegen(const std::vector<MaterialNode>& nodes, const std::vector<MaterialConnection>& connections, Stage stage)
+		: nodes(nodes), connections(connections), stage(stage) {}
 
 	const MaterialNode* FindNode(uint32_t id) const {
 		for (const auto& n : nodes) if (n.id == id) return &n;
 		return nullptr;
+	}
+
+	bool IsInputConnected(uint32_t nodeId, int pinIndex) const {
+		for (const auto& c : connections)
+			if (c.toNode == nodeId && c.toPinIndex == pinIndex) return true;
+		return false;
 	}
 
 	// Resolves the GLSL expression feeding input pin `pinIndex` of `nodeId`,
@@ -59,15 +72,25 @@ public:
 	}
 
 	// Per-output-pin swizzle for multi-output nodes (Color's R/G/B/A/RGBA,
-	// Split*'s X/Y/Z/W) - broadcasts the selected scalar component back to a
-	// vec4 so every node's local var stays uniformly vec4-typed.
+	// Texture's RGBA/R/G/B/A, Split*'s X/Y/Z/W) - broadcasts the selected
+	// scalar component back to a vec4 so every node's local var stays
+	// uniformly vec4-typed.
 	std::string ApplyOutputSwizzle(const MaterialNode& src, int fromPinIndex, const std::string& varName) {
-		if (src.type == MaterialNode::Color) {
+		if (src.type == MaterialNode::Color || src.type == MaterialNode::ColorParameter) {
 			switch (fromPinIndex) {
 				case 0: return "vec4(" + varName + ".x)";
 				case 1: return "vec4(" + varName + ".y)";
 				case 2: return "vec4(" + varName + ".z)";
 				case 3: return "vec4(" + varName + ".w)";
+				default: return varName; // RGBA
+			}
+		}
+		if (src.type == MaterialNode::Texture) {
+			switch (fromPinIndex) {
+				case 1: return "vec4(" + varName + ".x)";
+				case 2: return "vec4(" + varName + ".y)";
+				case 3: return "vec4(" + varName + ".z)";
+				case 4: return "vec4(" + varName + ".w)";
 				default: return varName; // RGBA
 			}
 		}
@@ -78,6 +101,16 @@ public:
 		return varName;
 	}
 
+	// Built-in inputs, spelled for this stage. The vertex stage works from
+	// the (skinned) world-space position/normal main() computes before the
+	// offset is applied - see BuildTemplate.
+	std::string UVExpr() const { return stage == Stage::Fragment ? "vec4(vTexcoord, 0.0, 1.0)" : "vec4(aTexcoord, 0.0, 1.0)"; }
+	std::string NormalExpr() const { return stage == Stage::Fragment ? "vec4(p3d_N, 0.0)" : "vec4(p3d_worldNormal, 0.0)"; }
+	std::string PositionExpr() const { return stage == Stage::Fragment ? "vec4(vWorldPos.xyz, 1.0)" : "vec4(p3d_worldPos.xyz, 1.0)"; }
+	std::string ViewDirExpr() const {
+		return stage == Stage::Fragment ? "vec4(p3d_V, 0.0)" : "vec4(normalize(uCameraPosition - p3d_worldPos.xyz), 0.0)";
+	}
+
 	// Emits (memoized) the statement computing `node`'s value; returns its
 	// local variable name, or "" with `error` set on failure.
 	std::string EmitNode(const MaterialNode& node) {
@@ -86,8 +119,9 @@ public:
 		if (visiting.count(node.id)) { error = "Cycle detected in node graph at node " + std::to_string(node.id); return ""; }
 		visiting.insert(node.id);
 
-		const std::string var = "n" + std::to_string(node.id);
+		const std::string var = std::string(stage == Stage::Vertex ? "vn" : "n") + std::to_string(node.id);
 		std::string expr;
+		auto in = [&](int pin, const char* def) { return ResolveInput(node.id, pin, def); };
 
 		using T = MaterialNode::Type;
 		switch (node.type) {
@@ -131,57 +165,132 @@ public:
 				expr = Vec4Literal(v[0], v[1], v[2], v[3]);
 				break;
 			}
-			case T::Texture: {
-				std::string sampler = "uTex" + std::to_string((int)textureSamplers.size());
-				textureSamplers.push_back({node.id, sampler});
-				expr = "texture_2D(" + sampler + ", vTexcoord)";
+			case T::FloatParameter: case T::ColorParameter: {
+				const bool isVector = node.type == T::ColorParameter;
+				const std::string name = MaterialNode::SanitizeParameterName(node.name);
+				if (name.empty()) { error = "A parameter node has no name"; break; }
+				auto existing = parameterIndex.find(name);
+				if (existing != parameterIndex.end()) {
+					if (parameters[existing->second].isVector != isVector) {
+						error = "Parameter '" + name + "' is used as both a Float and a Color parameter";
+						break;
+					}
+				} else {
+					MaterialCodegenResult::Parameter p;
+					p.name = name;
+					p.isVector = isVector;
+					if (isVector) {
+						p.value[0] = p.value[1] = p.value[2] = p.value[3] = 1.f;
+						if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f,%f,%f,%f", &p.value[0], &p.value[1], &p.value[2], &p.value[3]);
+					} else {
+						p.value[0] = 0.5f;
+						if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f", &p.value[0]);
+					}
+					parameterIndex[name] = parameters.size();
+					parameters.push_back(p);
+				}
+				expr = isVector ? ("p_" + name) : ("vec4(p_" + name + ")");
 				break;
 			}
-			case T::Add: expr = "(" + ResolveInput(node.id,0,"vec4(0.0)") + " + " + ResolveInput(node.id,1,"vec4(0.0)") + ")"; break;
-			case T::Subtract: expr = "(" + ResolveInput(node.id,0,"vec4(0.0)") + " - " + ResolveInput(node.id,1,"vec4(0.0)") + ")"; break;
-			case T::Multiply: expr = "(" + ResolveInput(node.id,0,"vec4(1.0)") + " * " + ResolveInput(node.id,1,"vec4(1.0)") + ")"; break;
-			case T::Divide: expr = "(" + ResolveInput(node.id,0,"vec4(0.0)") + " / (" + ResolveInput(node.id,1,"vec4(1.0)") + " + vec4(0.0001)))"; break;
-			case T::Power: expr = "pow(abs(" + ResolveInput(node.id,0,"vec4(1.0)") + "), " + ResolveInput(node.id,1,"vec4(1.0)") + ")"; break;
-			case T::Modulo: expr = "mod(" + ResolveInput(node.id,0,"vec4(0.0)") + ", max(" + ResolveInput(node.id,1,"vec4(1.0)") + ", vec4(0.0001)))"; break;
-			case T::Negate: expr = "(-" + ResolveInput(node.id,0,"vec4(0.0)") + ")"; break;
-			case T::Abs: expr = "abs(" + ResolveInput(node.id,0,"vec4(0.0)") + ")"; break;
-			case T::Sqrt: expr = "sqrt(abs(" + ResolveInput(node.id,0,"vec4(0.0)") + "))"; break;
-			case T::Sin: expr = "sin(" + ResolveInput(node.id,0,"vec4(0.0)") + ")"; break;
-			case T::Cos: expr = "cos(" + ResolveInput(node.id,0,"vec4(0.0)") + ")"; break;
-			case T::Tan: expr = "tan(" + ResolveInput(node.id,0,"vec4(0.0)") + ")"; break;
-			case T::Min: expr = "min(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(0.0)") + ")"; break;
-			case T::Max: expr = "max(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(0.0)") + ")"; break;
-			case T::Clamp: expr = "clamp(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(0.0)") + ", " + ResolveInput(node.id,2,"vec4(1.0)") + ")"; break;
-			case T::Lerp: expr = "mix(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(1.0)") + ", " + ResolveInput(node.id,2,"vec4(0.5)") + ".x)"; break;
-			case T::DotProduct: expr = "vec4(dot(" + ResolveInput(node.id,0,"vec4(0.0)") + ".xyz, " + ResolveInput(node.id,1,"vec4(0.0)") + ".xyz))"; break;
-			case T::CrossProduct: expr = "vec4(cross(" + ResolveInput(node.id,0,"vec4(0.0)") + ".xyz, " + ResolveInput(node.id,1,"vec4(0.0)") + ".xyz), 0.0)"; break;
-			case T::Length: expr = "vec4(length(" + ResolveInput(node.id,0,"vec4(0.0)") + ".xyz))"; break;
-			case T::Normalize: expr = "vec4(normalize(" + ResolveInput(node.id,0,"vec4(0.0,0.0,1.0,0.0)") + ".xyz), 0.0)"; break;
-			case T::Distance: expr = "vec4(distance(" + ResolveInput(node.id,0,"vec4(0.0)") + ".xyz, " + ResolveInput(node.id,1,"vec4(0.0)") + ".xyz))"; break;
-			case T::Equal: expr = "vec4(equal(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(0.0)") + "))"; break;
-			case T::NotEqual: expr = "vec4(notEqual(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(0.0)") + "))"; break;
-			case T::GreaterThan: expr = "vec4(greaterThan(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(0.0)") + "))"; break;
-			case T::LessThan: expr = "vec4(lessThan(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(0.0)") + "))"; break;
-			case T::And: expr = "(((" + ResolveInput(node.id,0,"vec4(0.0)") + ".x > 0.5) && (" + ResolveInput(node.id,1,"vec4(0.0)") + ".x > 0.5)) ? vec4(1.0) : vec4(0.0))"; break;
-			case T::Or: expr = "(((" + ResolveInput(node.id,0,"vec4(0.0)") + ".x > 0.5) || (" + ResolveInput(node.id,1,"vec4(0.0)") + ".x > 0.5)) ? vec4(1.0) : vec4(0.0))"; break;
-			case T::Not: expr = "((" + ResolveInput(node.id,0,"vec4(0.0)") + ".x > 0.5) ? vec4(0.0) : vec4(1.0))"; break;
-			case T::Step: expr = "step(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(0.0)") + ")"; break;
-			case T::SmoothStep: expr = "smoothstep(" + ResolveInput(node.id,0,"vec4(0.0)") + ", " + ResolveInput(node.id,1,"vec4(1.0)") + ", " + ResolveInput(node.id,2,"vec4(0.5)") + ")"; break;
-			case T::SplitVec2: case T::SplitVec3: case T::SplitVec4:
-				expr = ResolveInput(node.id, 0, "vec4(0.0)"); // pass-through; consumer applies the X/Y/Z/W swizzle
+			case T::Texture: {
+				if (stage == Stage::Vertex) { error = "A Texture node can't feed Vertex Offset (textures are sampled per fragment)"; break; }
+				std::string sampler = "uTex" + std::to_string((int)textureSamplers.size());
+				textureSamplers.push_back({node.id, sampler});
+				expr = "texture_2D(" + sampler + ", (" + in(0, UVExpr().c_str()) + ").xy)";
 				break;
-			case T::CombineVec2: expr = "vec4(" + ResolveInput(node.id,0,"vec4(0.0)") + ".x, " + ResolveInput(node.id,1,"vec4(0.0)") + ".x, 0.0, 0.0)"; break;
-			case T::CombineVec3: expr = "vec4(" + ResolveInput(node.id,0,"vec4(0.0)") + ".x, " + ResolveInput(node.id,1,"vec4(0.0)") + ".x, " + ResolveInput(node.id,2,"vec4(0.0)") + ".x, 0.0)"; break;
-			case T::CombineVec4: expr = "vec4(" + ResolveInput(node.id,0,"vec4(0.0)") + ".x, " + ResolveInput(node.id,1,"vec4(0.0)") + ".x, " + ResolveInput(node.id,2,"vec4(0.0)") + ".x, " + ResolveInput(node.id,3,"vec4(1.0)") + ".x)"; break;
-			case T::UVCoordinate: expr = "vec4(vTexcoord, 0.0, 1.0)"; break;
-			case T::NormalVector: expr = "vec4(normalize(vNormal), 0.0)"; break;
-			case T::ObjectPosition: expr = "vWorldPos"; break;
+			}
+			case T::Add: expr = "(" + in(0,"vec4(0.0)") + " + " + in(1,"vec4(0.0)") + ")"; break;
+			case T::Subtract: expr = "(" + in(0,"vec4(0.0)") + " - " + in(1,"vec4(0.0)") + ")"; break;
+			case T::Multiply: expr = "(" + in(0,"vec4(1.0)") + " * " + in(1,"vec4(1.0)") + ")"; break;
+			case T::Divide: expr = "(" + in(0,"vec4(0.0)") + " / (" + in(1,"vec4(1.0)") + " + vec4(0.0001)))"; break;
+			case T::Power: expr = "pow(abs(" + in(0,"vec4(1.0)") + "), " + in(1,"vec4(1.0)") + ")"; break;
+			case T::Modulo: expr = "mod(" + in(0,"vec4(0.0)") + ", max(" + in(1,"vec4(1.0)") + ", vec4(0.0001)))"; break;
+			case T::Negate: expr = "(-" + in(0,"vec4(0.0)") + ")"; break;
+			case T::Abs: expr = "abs(" + in(0,"vec4(0.0)") + ")"; break;
+			case T::Sqrt: expr = "sqrt(abs(" + in(0,"vec4(0.0)") + "))"; break;
+			case T::Sin: expr = "sin(" + in(0,"vec4(0.0)") + ")"; break;
+			case T::Cos: expr = "cos(" + in(0,"vec4(0.0)") + ")"; break;
+			case T::Tan: expr = "tan(" + in(0,"vec4(0.0)") + ")"; break;
+			case T::Min: expr = "min(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(0.0)") + ")"; break;
+			case T::Max: expr = "max(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(0.0)") + ")"; break;
+			case T::Clamp: expr = "clamp(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(0.0)") + ", " + in(2,"vec4(1.0)") + ")"; break;
+			// Per channel: a scalar T arrives broadcast, so this is the old
+			// `.x` behaviour for every graph that fed it one.
+			case T::Lerp: expr = "mix(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(1.0)") + ", " + in(2,"vec4(0.5)") + ")"; break;
+			case T::DotProduct: expr = "vec4(dot(" + in(0,"vec4(0.0)") + ".xyz, " + in(1,"vec4(0.0)") + ".xyz))"; break;
+			case T::CrossProduct: expr = "vec4(cross(" + in(0,"vec4(0.0)") + ".xyz, " + in(1,"vec4(0.0)") + ".xyz), 0.0)"; break;
+			case T::Length: expr = "vec4(length(" + in(0,"vec4(0.0)") + ".xyz))"; break;
+			case T::Normalize: expr = "vec4(normalize(" + in(0,"vec4(0.0,0.0,1.0,0.0)") + ".xyz), 0.0)"; break;
+			case T::Distance: expr = "vec4(distance(" + in(0,"vec4(0.0)") + ".xyz, " + in(1,"vec4(0.0)") + ".xyz))"; break;
+			case T::Equal: expr = "vec4(equal(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(0.0)") + "))"; break;
+			case T::NotEqual: expr = "vec4(notEqual(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(0.0)") + "))"; break;
+			case T::GreaterThan: expr = "vec4(greaterThan(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(0.0)") + "))"; break;
+			case T::LessThan: expr = "vec4(lessThan(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(0.0)") + "))"; break;
+			case T::And: expr = "(((" + in(0,"vec4(0.0)") + ".x > 0.5) && (" + in(1,"vec4(0.0)") + ".x > 0.5)) ? vec4(1.0) : vec4(0.0))"; break;
+			case T::Or: expr = "(((" + in(0,"vec4(0.0)") + ".x > 0.5) || (" + in(1,"vec4(0.0)") + ".x > 0.5)) ? vec4(1.0) : vec4(0.0))"; break;
+			case T::Not: expr = "((" + in(0,"vec4(0.0)") + ".x > 0.5) ? vec4(0.0) : vec4(1.0))"; break;
+			case T::Step: expr = "step(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(0.0)") + ")"; break;
+			case T::SmoothStep: expr = "smoothstep(" + in(0,"vec4(0.0)") + ", " + in(1,"vec4(1.0)") + ", " + in(2,"vec4(0.5)") + ")"; break;
+			case T::SplitVec2: case T::SplitVec3: case T::SplitVec4:
+				expr = in(0, "vec4(0.0)"); // pass-through; consumer applies the X/Y/Z/W swizzle
+				break;
+			case T::CombineVec2: expr = "vec4(" + in(0,"vec4(0.0)") + ".x, " + in(1,"vec4(0.0)") + ".x, 0.0, 0.0)"; break;
+			case T::CombineVec3: expr = "vec4(" + in(0,"vec4(0.0)") + ".x, " + in(1,"vec4(0.0)") + ".x, " + in(2,"vec4(0.0)") + ".x, 0.0)"; break;
+			case T::CombineVec4: expr = "vec4(" + in(0,"vec4(0.0)") + ".x, " + in(1,"vec4(0.0)") + ".x, " + in(2,"vec4(0.0)") + ".x, " + in(3,"vec4(1.0)") + ".x)"; break;
+			case T::OneMinus: expr = "(vec4(1.0) - " + in(0,"vec4(0.0)") + ")"; break;
+			case T::Saturate: expr = "clamp(" + in(0,"vec4(0.0)") + ", 0.0, 1.0)"; break;
+			case T::Fract: expr = "fract(" + in(0,"vec4(0.0)") + ")"; break;
+			case T::Floor: expr = "floor(" + in(0,"vec4(0.0)") + ")"; break;
+			case T::Remap:
+				expr = "(" + in(3,"vec4(0.0)") + " + (" + in(0,"vec4(0.0)") + " - " + in(1,"vec4(0.0)") + ") / p3d_nz("
+					+ in(2,"vec4(1.0)") + " - " + in(1,"vec4(0.0)") + ") * (" + in(4,"vec4(1.0)") + " - " + in(3,"vec4(0.0)") + "))";
+				break;
+			case T::UVCoordinate: expr = UVExpr(); break;
+			// World space, like every other position/direction here and like
+			// the Normal pin that consumes it. Was the VIEW-space vNormal,
+			// which fed straight into Normal lit the surface from a direction
+			// that turned with the camera.
+			case T::NormalVector: expr = NormalExpr(); break;
+			case T::ObjectPosition: expr = PositionExpr(); break;
+			case T::ObjectOrigin: usesModelMatrix = true; expr = "vec4(uModelMatrix[3].xyz, 1.0)"; break;
 			case T::CameraPosition: usesCameraPosition = true; expr = "vec4(uCameraPosition, 1.0)"; break;
+			case T::ViewDirection: usesCameraPosition = true; expr = ViewDirExpr(); break;
 			case T::TimeValue: usesTime = true; expr = "vec4(uTime)"; break;
+			case T::Fresnel: {
+				usesCameraPosition = true;
+				const std::string n = in(1, NormalExpr().c_str());
+				expr = "vec4(pow(1.0 - clamp(dot(normalize(" + n + ".xyz), " + ViewDirExpr() + ".xyz), 0.0, 1.0), max(" + in(0,"vec4(5.0)") + ".x, 0.0001)))";
+				break;
+			}
+			case T::Noise:
+				expr = "vec4(p3d_noise(" + in(0, ("vec4(" + UVExpr() + ".xy, 0.0, 0.0)").c_str()) + ".xyz * " + in(1,"vec4(1.0)") + ".x))";
+				break;
+			case T::NormalMap: {
+				if (stage == Stage::Vertex) { error = "A Normal Map node can't feed Vertex Offset"; break; }
+				// A tangent-space sample -> world-space normal, with the tangent
+				// frame rebuilt from screen-space derivatives: no tangent
+				// attributes needed, so it works on every mesh (and skinned
+				// ones) - see p3d_PerturbNormal in the template.
+				expr = "vec4(p3d_PerturbNormal(p3d_N, vWorldPos.xyz, vTexcoord, " + in(0,"vec4(0.5, 0.5, 1.0, 1.0)") + ".xyz * 2.0 - 1.0, "
+					+ in(1,"vec4(1.0)") + ".x), 0.0)";
+				break;
+			}
+			case T::CustomExpression: {
+				// The user's expression sees four vec4 inputs a/b/c/d and may
+				// return a float or any vecN - p3d_v4 widens it. Emitted as a
+				// block so a/b/c/d don't leak into main()'s scope.
+				const std::string body = node.userData.empty() ? std::string("a") : node.userData;
+				statements.push_back("vec4 " + var + "; { vec4 a = " + in(0,"vec4(0.0)") + "; vec4 b = " + in(1,"vec4(0.0)")
+					+ "; vec4 c = " + in(2,"vec4(0.0)") + "; vec4 d = " + in(3,"vec4(0.0)") + "; " + var + " = p3d_v4(" + body + "); }");
+				visiting.erase(node.id);
+				emitted[node.id] = var;
+				return error.empty() ? var : "";
+			}
 			case T::Output: expr = "vec4(0.0)"; break; // never actually emitted as a statement (it's the traversal root)
 			default: expr = "vec4(0.5, 0.5, 0.5, 1.0)"; break;
 		}
 
+		if (!error.empty()) { visiting.erase(node.id); return ""; }
 		statements.push_back("vec4 " + var + " = " + expr + ";");
 		visiting.erase(node.id);
 		emitted[node.id] = var;
@@ -190,12 +299,16 @@ public:
 
 	const std::vector<MaterialNode>& nodes;
 	const std::vector<MaterialConnection>& connections;
+	Stage stage;
 	std::map<uint32_t, std::string> emitted;
 	std::set<uint32_t> visiting;
 	std::vector<std::string> statements;
 	std::vector<std::pair<uint32_t, std::string>> textureSamplers;
+	std::vector<MaterialCodegenResult::Parameter> parameters;
+	std::map<std::string, size_t> parameterIndex;
 	bool usesCameraPosition = false;
 	bool usesTime = false;
+	bool usesModelMatrix = false;
 	std::string error;
 };
 
@@ -213,12 +326,61 @@ public:
 // CalculatePBRLighting/DistributionGGX/GeometrySchlickGGX/GeometrySmith/
 // FresnelSchlick functions) rather than re-derived, so it matches how the
 // engine's built-in materials actually light a surface.
-std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, const std::string& normalConnectedExpr,
-                           const std::string& metallicExpr, const std::string& roughnessExpr,
-                           const std::string& emissiveExpr, const std::string& occlusionExpr,
-                           const std::vector<std::string>& statements,
-                           const std::vector<std::string>& samplerNames,
-                           bool usesTime) {
+// Everything the template needs from either front end (graph or Text mode).
+// Every *Expr is a vec4-valued GLSL expression over the fragment stage's
+// statements; vertexOffsetExpr over vertexStatements.
+struct TemplateInputs {
+	std::string albedo = "vec4(1.0)";
+	bool normalConnected = false;
+	std::string normal;               // world space, .xyz; only read when normalConnected
+	std::string metallic = "vec4(0.0)";
+	std::string roughness = "vec4(0.5)";
+	std::string emissive = "vec4(0.0)";
+	std::string occlusion = "vec4(1.0)";
+	std::string opacity = "vec4(1.0)";
+	bool alphaClipConnected = false;  // no discard at all otherwise - keeps early-Z
+	std::string alphaClip = "vec4(0.0)";
+	std::string reflection = "vec4(0.0)";
+	std::string vertexOffset;         // empty = no offset
+	std::vector<std::string> statements;
+	std::vector<std::string> vertexStatements;
+	std::vector<std::string> samplerNames;
+	std::vector<MaterialCodegenResult::Parameter> parameters;
+};
+
+// Declarations shared by both stages: parameter uniforms and the small
+// helper functions graph nodes expand to. Stage-neutral GLSL only - no
+// derivatives, no samplers.
+void EmitSharedPrelude(std::ostringstream& out, const TemplateInputs& in) {
+	out << "uniform float uTime;\n";
+	for (const auto& p : in.parameters)
+		out << "uniform " << (p.isVector ? "vec4" : "float") << " p_" << p.name << ";\n";
+	out <<
+		// Widens a Custom Expression's result, whatever its type, to the
+		// vec4 every node value is.
+		"vec4 p3d_v4(float x) { return vec4(x); }\n"
+		"vec4 p3d_v4(vec2 v) { return vec4(v, 0.0, 0.0); }\n"
+		"vec4 p3d_v4(vec3 v) { return vec4(v, 0.0); }\n"
+		"vec4 p3d_v4(vec4 v) { return v; }\n"
+		// Remap's divisor, kept away from zero without flipping its sign.
+		"vec4 p3d_nz(vec4 v) { return mix(v, vec4(1e-5), step(abs(v), vec4(1e-5))); }\n"
+		// Value noise over a hashed lattice, trilinear with a smoothstep
+		// fade: cheap, stage-neutral and the same on every backend (no
+		// texture, no bit ops, which GLES3 would allow but WebGL drivers
+		// have been unreliable with). Returns [0,1].
+		"float p3d_hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }\n"
+		"float p3d_noise(vec3 x) {\n"
+		"\tvec3 i = floor(x);\n"
+		"\tvec3 f = fract(x);\n"
+		"\tf = f * f * (3.0 - 2.0 * f);\n"
+		"\treturn mix(mix(mix(p3d_hash(i + vec3(0.0, 0.0, 0.0)), p3d_hash(i + vec3(1.0, 0.0, 0.0)), f.x),\n"
+		"\t               mix(p3d_hash(i + vec3(0.0, 1.0, 0.0)), p3d_hash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),\n"
+		"\t           mix(mix(p3d_hash(i + vec3(0.0, 0.0, 1.0)), p3d_hash(i + vec3(1.0, 0.0, 1.0)), f.x),\n"
+		"\t               mix(p3d_hash(i + vec3(0.0, 1.0, 1.0)), p3d_hash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);\n"
+		"}\n";
+}
+
+std::string BuildTemplate(const TemplateInputs& in) {
 	std::ostringstream out;
 	out <<
 		"#define varying_in in\n"
@@ -227,21 +389,48 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"#define texture_2D texture\n"
 		"#define texture_cube texture\n"
 		"#define MAX_LIGHTS 4\n"
+		// Matches PyrosShader.glsl / IRenderer's PYROS_MAX_BONES.
+		"#define MAX_BONES 60\n"
+		// highp, never mediump: this line lands after the device's own
+		// `precision highp float` preamble and silently wins. On Apple GPUs
+		// mediump is fp16, world-space positions through the MVP overflow
+		// it, and the whole mesh is dropped before rasterization - the
+		// web-only "invisible geometry" bug every shader in
+		// resources/shaders was fixed for.
 		"#if defined(GLES3)\n"
-		"\tprecision mediump float;\n"
+		"\tprecision highp float;\n"
 		"#endif\n"
 		"\n"
 		"// Generated by the Pyros3D Material Editor's node graph. Hand edits here\n"
 		"// are preserved until the graph is re-Applied (which overwrites this file).\n"
 		"// Contains both a Forward (real per-fragment lighting) and a Deferred\n"
 		"// G-buffer branch - DEFERRED_GBUFFER picks which one compiles, set by\n"
-		"// the project's Renderer setting at Apply time.\n"
+		"// the project's Renderer setting at Apply time. SKINNING is defined for\n"
+		"// skinned meshes by CustomShaderMaterial's variant cache.\n"
 		"\n"
+		;
+	// Read by CustomShaderMaterial::HasCustomShadow(): only a graph that
+	// moves vertices or cuts holes needs to cast its own shadow - every
+	// other material keeps the renderer's shared (cheaper) shadow shader.
+	if (!in.vertexOffset.empty() || in.alphaClipConnected)
+		out << "// P3D_CUSTOM_SHADOW\n\n";
+	out <<
 		"#ifdef VERTEX\n"
 		"attribute_in vec3 aPosition;\n"
 		"attribute_in vec3 aNormal;\n"
 		"attribute_in vec2 aTexcoord;\n"
+		// A plain uniform array, not PyrosShader.glsl's BoneMatrices block:
+		// that block is only uploaded for materials that SupportsUniformBlocks(),
+		// which a CustomShaderMaterial does not. Fed by DataUsage::Skinning.
+		"#ifdef SKINNING\n"
+		"attribute_in vec4 aBonesID;\n"
+		"attribute_in vec4 aBonesWeight;\n"
+		"uniform mat4 uBoneMatrix[MAX_BONES];\n"
+		"#endif\n"
 		"uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;\n"
+		"uniform vec3 uCameraPosition;\n";
+	EmitSharedPrelude(out, in);
+	out <<
 		"varying_out vec2 vTexcoord;\n"
 		"varying_out vec3 vNormal;\n"      // view-space - deferred G-buffer convention
 		"varying_out vec3 vNormalWorld;\n" // world-space - forward lighting convention
@@ -253,24 +442,60 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		// view space, so the two stay comparable.
 		"varying_out vec4 vWorldPositionShadow;\n"
 		"void main() {\n"
+		"\tvec4 p3d_localPos = vec4(aPosition, 1.0);\n"
+		"\tvec3 p3d_localNormal = aNormal;\n"
+		"#ifdef SKINNING\n"
+		"\tmat4 p3d_skin = uBoneMatrix[int(aBonesID.x)] * aBonesWeight.x\n"
+		"\t              + uBoneMatrix[int(aBonesID.y)] * aBonesWeight.y\n"
+		"\t              + uBoneMatrix[int(aBonesID.z)] * aBonesWeight.z\n"
+		"\t              + uBoneMatrix[int(aBonesID.w)] * aBonesWeight.w;\n"
+		"\tp3d_localPos = p3d_skin * p3d_localPos;\n"
+		"\tp3d_localNormal = (p3d_skin * vec4(aNormal, 0.0)).xyz;\n"
+		"#endif\n"
+		"\tvec4 p3d_worldPos = uModelMatrix * p3d_localPos;\n"
+		"\tvec3 p3d_worldNormal = normalize((uModelMatrix * vec4(p3d_localNormal, 0.0)).xyz);\n";
+	for (const auto& st : in.vertexStatements)
+		out << "\t" << st << "\n";
+	// World-space offset (Vertex Offset pin), before anything below derives
+	// from the position. The shadow pass draws with the engine's own depth
+	// material, so a displaced surface casts its undisplaced shadow.
+	if (!in.vertexOffset.empty())
+		out << "\tp3d_worldPos.xyz += (" << in.vertexOffset << ").xyz;\n";
+	out <<
 		"\tvTexcoord = aTexcoord;\n"
-		"\tvWorldPositionShadow = uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);\n"
-		"\tvNormal = (uViewMatrix * uModelMatrix * vec4(aNormal, 0.0)).xyz;\n"
-		"\tvNormalWorld = (uModelMatrix * vec4(aNormal, 0.0)).xyz;\n"
-		"\tvWorldPos = uModelMatrix * vec4(aPosition, 1.0);\n"
-		"\tgl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);\n"
+		"\tvNormalWorld = p3d_worldNormal;\n"
+		"\tvNormal = (uViewMatrix * vec4(p3d_worldNormal, 0.0)).xyz;\n"
+		"\tvWorldPos = p3d_worldPos;\n"
+		"\tvWorldPositionShadow = uViewMatrix * p3d_worldPos;\n"
+		"\tgl_Position = uProjectionMatrix * uViewMatrix * p3d_worldPos;\n"
 		"}\n"
 		"#endif\n"
 		"\n"
 		"#ifdef FRAGMENT\n"
 		"uniform vec4 uAmbientLight;\n"
+		// Environment ambient - see p3d_Ambient below.
+		"uniform vec4 uAmbientSky;\n"
+		"uniform vec4 uAmbientEquator;\n"
+		"uniform vec4 uAmbientGround;\n"
+		"uniform vec4 uAmbientParams;\n"
+		"uniform vec4 uAmbientSH[9];\n"
 		"uniform mat4 uViewMatrix;\n"
-		"uniform vec3 uCameraPosition;\n";
-	for (const auto& name : samplerNames)
+		"uniform mat4 uModelMatrix;\n"
+		"uniform vec3 uCameraPosition;\n"
+		// IMaterial's own opacity, multiplied into the Opacity pin.
+		"uniform float uOpacity;\n";
+	for (const auto& name : in.samplerNames)
 		out << "uniform sampler2D " << name << ";\n";
-	if (usesTime) out << "uniform float uTime;\n";
+	EmitSharedPrelude(out, in);
 	out <<
-		"#ifndef DEFERRED_GBUFFER\n"
+		// The lit forward branch - neither the G-buffer write nor the shadow
+		// pass's depth-only one (SHADOW_DEPTH, see CustomShaderMaterial's
+		// shadow variant), which must never declare the shadow-map samplers:
+		// it runs while those very maps are the render target.
+		"#if !defined(DEFERRED_GBUFFER) && !defined(SHADOW_DEPTH)\n"
+		"#define P3D_FORWARD_LIT\n"
+		"#endif\n"
+		"#ifdef P3D_FORWARD_LIT\n"
 		"uniform mat4 uLights[MAX_LIGHTS];\n"
 		"uniform int uNumberOfLights;\n"
 		// Directional shadow receiving. Forward only: under Deferred the
@@ -298,11 +523,13 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"varying_in vec3 vNormalWorld;\n"
 		"varying_in vec4 vWorldPos;\n"
 		"\n"
-		"#ifdef DEFERRED_GBUFFER\n"
+		"#if defined(DEFERRED_GBUFFER)\n"
 		"layout(location = 0) out vec4 FragData_r;\n"
 		"layout(location = 1) out vec4 FragData_g;\n"
 		"layout(location = 2) out vec4 FragData_b;\n"
 		"layout(location = 3) out vec4 FragData_pbr;\n"
+		"#elif defined(SHADOW_DEPTH)\n"
+		"out vec4 FragColor;\n"
 		"#else\n"
 		"out vec4 FragColor;\n"
 		"\n"
@@ -515,24 +742,98 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"}\n"
 		"#endif\n"
 		"\n"
-		"void main() {\n";
-	for (const auto& s : statements)
-		out << "\t" << s << "\n";
-	out <<
-		"\tvec3 albedo = (" << albedoExpr << ").xyz;\n"
-		"\tfloat metallic = (" << metallicExpr << ").x;\n"
-		"\tfloat roughness = clamp((" << roughnessExpr << ").x, 0.03, 1.0);\n"
-		"\tvec3 emissive = (" << emissiveExpr << ").xyz;\n"
-		"\tfloat occlusion = (" << occlusionExpr << ").x;\n"
+		// The ambient term, the same three modes as PyrosShader.glsl's
+		// AmbientAt() for a material without GLOBALILLUMINATION: 0 flat,
+		// 1 sky/equator/ground gradient, 2+ order-2 SH (a DDGI scene, mode
+		// 3, lands on SH exactly as a Generic material without the GI flag
+		// does). Before this every custom material used the flat colour in
+		// every mode. Returns irradiance/PI, like AmbientAt() - see there.
+		//
+		// SHIrradiance is a THIRD copy of that formula (C++
+		// SphericalHarmonicsL2::Irradiance and PyrosShader.glsl being the
+		// other two). Index order is (l,m) -> l*(l+1)+m in all three.
+		"vec3 p3d_SHIrradiance(vec3 n) {\n"
+		"\tconst float c1 = 0.429043, c2 = 0.511664, c3 = 0.743125, c4 = 0.886227, c5 = 0.247708;\n"
+		"\treturn uAmbientSH[8].rgb * (c1 * (n.x * n.x - n.y * n.y))\n"
+		"\t     + uAmbientSH[6].rgb * (c3 * n.z * n.z)\n"
+		"\t     + uAmbientSH[0].rgb * c4\n"
+		"\t     - uAmbientSH[6].rgb * c5\n"
+		"\t     + uAmbientSH[4].rgb * (2.0 * c1 * n.x * n.y)\n"
+		"\t     + uAmbientSH[7].rgb * (2.0 * c1 * n.x * n.z)\n"
+		"\t     + uAmbientSH[5].rgb * (2.0 * c1 * n.y * n.z)\n"
+		"\t     + uAmbientSH[3].rgb * (2.0 * c2 * n.x)\n"
+		"\t     + uAmbientSH[1].rgb * (2.0 * c2 * n.y)\n"
+		"\t     + uAmbientSH[2].rgb * (2.0 * c2 * n.z);\n"
+		"}\n"
+		"vec3 p3d_Ambient(vec3 n) {\n"
+		"\tif (uAmbientParams.x >= 1.5)\n"
+		"\t\treturn max(p3d_SHIrradiance(n) * (1.0 / 3.14159265359), vec3(0.0));\n"
+		"\tif (uAmbientParams.x >= 0.5) {\n"
+		"\t\tfloat y = clamp(n.y, -1.0, 1.0);\n"
+		"\t\treturn (y >= 0.0) ? mix(uAmbientEquator.rgb, uAmbientSky.rgb, y)\n"
+		"\t\t                  : mix(uAmbientEquator.rgb, uAmbientGround.rgb, -y);\n"
+		"\t}\n"
+		"\treturn uAmbientLight.rgb;\n"
+		"}\n"
+		// Normal Map node: tangent-space `m` -> world space, around the
+		// geometric normal N, with the tangent frame solved from screen-space
+		// derivatives of position and UV (Schueler's cotangent frame). The
+		// sign(det) term is what makes it independent of the backend's
+		// screen-Y direction: without it the frame mirrors on Vulkan/Metal,
+		// whose framebuffer Y runs the other way from GL's, and every bump
+		// lights inside out.
+		"vec3 p3d_PerturbNormal(vec3 N, vec3 p, vec2 uv, vec3 m, float strength) {\n"
+		"\tvec3 dp1 = dFdx(p);\n"
+		"\tvec3 dp2 = dFdy(p);\n"
+		"\tvec2 duv1 = dFdx(uv);\n"
+		"\tvec2 duv2 = dFdy(uv);\n"
+		"\tvec3 dp2perp = cross(dp2, N);\n"
+		"\tvec3 dp1perp = cross(N, dp1);\n"
+		"\tvec3 T = dp2perp * duv1.x + dp1perp * duv2.x;\n"
+		"\tvec3 B = dp2perp * duv1.y + dp1perp * duv2.y;\n"
+		"\tfloat det = dot(dp1, dp2perp);\n"
+		"\tfloat s = (det < 0.0) ? -1.0 : 1.0;\n"
+		"\tfloat invmax = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-20));\n"
+		"\tm.xy *= strength;\n"
+		"\treturn normalize(mat3(T * (invmax * s), B * (invmax * s), N) * m);\n"
+		"}\n"
 		"\n"
-		"#ifdef DEFERRED_GBUFFER\n";
-	if (normalConnected)
-		out << "\tvec3 normalOut = normalize((uViewMatrix * vec4(normalize((" << normalConnectedExpr << ")), 0.0)).xyz);\n";
-	else
-		out << "\tvec3 normalOut = normalize(vNormal);\n";
+		"void main() {\n"
+		// World normal and view direction, available to every node as
+		// World Normal / View Direction / Fresnel's default.
+		"\tvec3 p3d_N = normalize(vNormalWorld);\n"
+		"\tvec3 p3d_V = normalize(uCameraPosition - vWorldPos.xyz);\n";
+	for (const auto& st : in.statements)
+		out << "\t" << st << "\n";
 	out <<
+		"\tvec3 albedo = (" << in.albedo << ").xyz;\n"
+		"\tfloat metallic = (" << in.metallic << ").x;\n"
+		"\tfloat roughness = clamp((" << in.roughness << ").x, 0.03, 1.0);\n"
+		"\tvec3 emissive = (" << in.emissive << ").xyz;\n"
+		"\tfloat occlusion = (" << in.occlusion << ").x;\n"
+		"\tfloat opacity = clamp((" << in.opacity << ").x, 0.0, 1.0) * uOpacity;\n"
+		"\tfloat reflection = clamp((" << in.reflection << ").x, 0.0, 1.0);\n";
+	// Cutout: in both branches, so a clipped fragment never reaches the
+	// G-buffer either. Only when the pin is used - a shader containing
+	// `discard` at all loses early depth testing on some GPUs.
+	if (in.alphaClipConnected)
+		out << "\tif (opacity < (" << in.alphaClip << ").x) discard;\n";
+	if (in.normalConnected)
+		out << "\tvec3 N = normalize((" << in.normal << ").xyz);\n";
+	else
+		out << "\tvec3 N = p3d_N;\n";
+	out <<
+		"\n"
+		// Shadow pass: the offset position and the cutout above are all it
+		// needs. Depth in R, like PyrosShader.glsl's CASTSHADOWS - a point
+		// light's cube map is an R32F colour target that stores exactly
+		// this; the directional/spot targets are depth-only and drop it.
+		"#if defined(SHADOW_DEPTH)\n"
+		"\tFragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);\n"
+		"#elif defined(DEFERRED_GBUFFER)\n"
+		"\tvec3 normalOut = normalize((uViewMatrix * vec4(N, 0.0)).xyz);\n"
 		// Emissive goes into the albedo channel, and the three alphas
-		// carry that same value scaled by uAmbientLight.
+		// carry that same value scaled by the ambient.
 		//
 		// A previous attempt moved emissive out of the albedo channel and
 		// into the alphas alone, on the theory that anything in albedo
@@ -544,18 +845,17 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		// completely, not one lit pixel. The alphas alone do not get
 		// emissive to the screen. Keep it here.
 		"\tvec3 color = albedo * occlusion + emissive;\n"
-		"\tFragData_r = vec4(color, color.x * uAmbientLight.x);\n"
-		"\tFragData_g = vec4(1.0, 1.0, 1.0, color.y * uAmbientLight.y);\n"
-		"\tFragData_b = vec4(normalOut, color.z * uAmbientLight.z);\n"
-		"\tFragData_pbr = vec4(roughness, metallic, 0.0, 0.0);\n"
-		"#else\n";
-	if (normalConnected)
-		out << "\tvec3 N = normalize((" << normalConnectedExpr << "));\n";
-	else
-		out << "\tvec3 N = normalize(vNormalWorld);\n";
-	out <<
+		"\tvec3 ambient = p3d_Ambient(N);\n"
+		"\tFragData_r = vec4(color, color.x * ambient.x);\n"
+		"\tFragData_g = vec4(1.0, 1.0, 1.0, color.y * ambient.y);\n"
+		"\tFragData_b = vec4(normalOut, color.z * ambient.z);\n"
+		// z/w: SSR opt-in and strength, the same pair PyrosShader.glsl writes
+		// from uSSRReflective/uReflectivity - lastPass.glsl reflects only
+		// where z is set.
+		"\tFragData_pbr = vec4(roughness, metallic, reflection > 0.0 ? 1.0 : 0.0, reflection);\n"
+		"#else\n"
 		"\tvec3 Position = vWorldPos.xyz;\n"
-		"\tvec3 V = normalize(uCameraPosition - Position);\n"
+		"\tvec3 V = p3d_V;\n"
 		"\tvec3 pbrColor = vec3(0.0);\n"
 		"\tfor (int i = 0; i < MAX_LIGHTS; i++) {\n"
 		"\t\tif (i < uNumberOfLights) {\n"
@@ -585,9 +885,9 @@ std::string BuildTemplate(const std::string& albedoExpr, bool normalConnected, c
 		"\t\t\tpbrColor += CalculatePBRLighting(N, V, Ldir, L.Color.rgb, albedo, metallic, roughness) * atten * spotEffect * shadowFactor;\n"
 		"\t\t}\n"
 		"\t}\n"
-		"\tvec3 ambientPBR = albedo * occlusion * (1.0 - metallic) * uAmbientLight.rgb;\n"
+		"\tvec3 ambientPBR = albedo * occlusion * (1.0 - metallic) * p3d_Ambient(N);\n"
 		"\tvec3 color = pbrColor + ambientPBR + emissive;\n"
-		"\tFragColor = vec4(color, 1.0);\n"
+		"\tFragColor = vec4(color, opacity);\n"
 		"#endif\n"
 		"}\n"
 		"#endif\n";
@@ -602,9 +902,16 @@ const char* const kDefaultSimpleShaderText =
 	"float Roughness = 0.5;\n"
 	"vec3 Emissive = vec3(0.0, 0.0, 0.0);\n"
 	"float Occlusion = 1.0;\n"
+	"float Opacity = 1.0;\n"
+	"// SSR strength, 0..1 (Deferred renderer only).\n"
+	"float Reflection = 0.0;\n"
 	"\n"
-	"// Leave Normal at (0,0,0) to use the surface's own normal.\n"
-	"vec3 Normal = vec3(0.0, 0.0, 0.0);\n";
+	"// Leave Normal at (0,0,0) to use the surface's own normal. World space.\n"
+	"vec3 Normal = vec3(0.0, 0.0, 0.0);\n"
+	"\n"
+	"// Declare `float AlphaClip = 0.5;` to discard fragments whose Opacity is\n"
+	"// below it. Available here: p3d_N (world normal), p3d_V (view direction),\n"
+	"// vWorldPos, vTexcoord, uTime, uCameraPosition.\n";
 
 namespace {
 // Crude but sufficient word-boundary check for "<type> <name>" appearing
@@ -614,40 +921,65 @@ bool DeclaresVar(const std::string& body, const char* type, const char* name) {
 	std::regex re(std::string("\\b") + type + "\\s+" + name + "\\b");
 	return std::regex_search(body, re);
 }
+// Comments stripped, so the seed text's own "Declare `float AlphaClip`"
+// hint does not count as a declaration.
+std::string StripComments(const std::string& body) {
+	std::string out;
+	for (size_t i = 0; i < body.size(); i++) {
+		if (body.compare(i, 2, "//") == 0) { while (i < body.size() && body[i] != '\n') i++; if (i < body.size()) out += '\n'; continue; }
+		if (body.compare(i, 2, "/*") == 0) { size_t e = body.find("*/", i + 2); i = (e == std::string::npos) ? body.size() : e + 1; out += ' '; continue; }
+		out += body[i];
+	}
+	return out;
+}
 } // namespace
 
 MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody, const std::vector<std::string>& textureNames) {
 	MaterialCodegenResult result;
+	const std::string code = StripComments(userBody);
 
 	std::vector<std::string> statements;
 	// Only inject a default declaration for a name the user's own text
 	// doesn't already declare. kDefaultSimpleShaderText - the seed text
-	// every fresh/mode-switched Text document starts from - declares all six
-	// itself (with real types, not just assignments), so unconditionally
-	// injecting a second declaration of the same name in the same scope
-	// used to be a guaranteed GLSL "already defined" error on first use of
-	// Text mode. A snippet that only touches e.g. Roughness still compiles,
-	// since the other five fall back to their injected defaults.
+	// every fresh/mode-switched Text document starts from - declares most
+	// of them itself (with real types, not just assignments), so
+	// unconditionally injecting a second declaration of the same name in the
+	// same scope used to be a guaranteed GLSL "already defined" error on
+	// first use of Text mode. A snippet that only touches e.g. Roughness
+	// still compiles, since the rest fall back to their injected defaults.
 	std::ostringstream defaults;
-	if (!DeclaresVar(userBody, "vec3", "Albedo"))     defaults << "vec3 Albedo = vec3(1.0); ";
-	if (!DeclaresVar(userBody, "vec3", "Normal"))     defaults << "vec3 Normal = vec3(0.0); ";
-	if (!DeclaresVar(userBody, "float", "Metallic"))  defaults << "float Metallic = 0.0; ";
-	if (!DeclaresVar(userBody, "float", "Roughness")) defaults << "float Roughness = 0.5; ";
-	if (!DeclaresVar(userBody, "vec3", "Emissive"))   defaults << "vec3 Emissive = vec3(0.0); ";
-	if (!DeclaresVar(userBody, "float", "Occlusion")) defaults << "float Occlusion = 1.0; ";
+	if (!DeclaresVar(code, "vec3", "Albedo"))      defaults << "vec3 Albedo = vec3(1.0); ";
+	if (!DeclaresVar(code, "vec3", "Normal"))      defaults << "vec3 Normal = vec3(0.0); ";
+	if (!DeclaresVar(code, "float", "Metallic"))   defaults << "float Metallic = 0.0; ";
+	if (!DeclaresVar(code, "float", "Roughness"))  defaults << "float Roughness = 0.5; ";
+	if (!DeclaresVar(code, "vec3", "Emissive"))    defaults << "vec3 Emissive = vec3(0.0); ";
+	if (!DeclaresVar(code, "float", "Occlusion"))  defaults << "float Occlusion = 1.0; ";
+	if (!DeclaresVar(code, "float", "Opacity"))    defaults << "float Opacity = 1.0; ";
+	if (!DeclaresVar(code, "float", "Reflection")) defaults << "float Reflection = 0.0; ";
 	if (!defaults.str().empty()) statements.push_back(defaults.str());
 	statements.push_back(userBody);
 
+	TemplateInputs in;
+	in.statements = statements;
+	in.samplerNames = textureNames;
+	in.albedo = "vec4(Albedo, 1.0)";
 	// Normal is always "connected" here (unlike the node-graph path, there's
 	// no separate isPinConnected signal) - a zero vector is the sentinel for
-	// "not overridden", falling back to the geometric normal. Mathematically
-	// identical to the unconnected-Normal branch in both Forward and
-	// Deferred (vNormalWorld transformed by uViewMatrix == vNormal).
-	const std::string normalExpr = "(dot(Normal, Normal) > 0.0001 ? Normal : vNormalWorld)";
-
-	result.glsl = BuildTemplate("vec4(Albedo, 1.0)", /*normalConnected=*/true, normalExpr,
-		"vec4(Metallic)", "vec4(Roughness)", "vec4(Emissive, 0.0)", "vec4(Occlusion)",
-		statements, textureNames, /*usesTime=*/true);
+	// "not overridden", falling back to the geometric normal.
+	in.normalConnected = true;
+	in.normal = "vec4(dot(Normal, Normal) > 0.0001 ? Normal : p3d_N, 0.0)";
+	in.metallic = "vec4(Metallic)";
+	in.roughness = "vec4(Roughness)";
+	in.emissive = "vec4(Emissive, 0.0)";
+	in.occlusion = "vec4(Occlusion)";
+	in.opacity = "vec4(Opacity)";
+	in.reflection = "vec4(Reflection)";
+	// Cutout only when the snippet asks for it - see TemplateInputs.
+	if (DeclaresVar(code, "float", "AlphaClip")) {
+		in.alphaClipConnected = true;
+		in.alphaClip = "vec4(AlphaClip)";
+	}
+	result.glsl = BuildTemplate(in);
 	result.usesCameraPosition = true;
 	result.usesTime = true;
 	return result;
@@ -664,43 +996,58 @@ MaterialCodegenResult GenerateGLSL(const std::vector<MaterialNode>& nodes, const
 	if (outputCount == 0) { result.error = "Graph has no Output node"; return result; }
 	if (outputCount > 1) { result.error = "Graph has more than one Output node"; return result; }
 
-	Codegen cg(nodes, connections);
+	Codegen cg(nodes, connections, Stage::Fragment);
+	Codegen vg(nodes, connections, Stage::Vertex);
 
-	auto resolveOutputPin = [&](int pinIndex, const std::string& defaultExpr) -> std::string {
-		for (const auto& c : connections) {
-			if (c.toNode != outputNode->id || c.toPinIndex != pinIndex) continue;
-			const MaterialNode* src = cg.FindNode(c.fromNode);
-			if (!src) return defaultExpr;
-			std::string var = cg.EmitNode(*src);
-			if (!cg.error.empty()) return defaultExpr;
-			return cg.ApplyOutputSwizzle(*src, c.fromPinIndex, var);
-		}
-		return defaultExpr;
+	auto resolveOutputPin = [&](Codegen& gen, int pinIndex, const std::string& defaultExpr) -> std::string {
+		return gen.ResolveInput(outputNode->id, pinIndex, defaultExpr);
 	};
-	auto isPinConnected = [&](int pinIndex) {
-		for (const auto& c : connections)
-			if (c.toNode == outputNode->id && c.toPinIndex == pinIndex) return true;
-		return false;
-	};
+	auto isPinConnected = [&](int pinIndex) { return cg.IsInputConnected(outputNode->id, pinIndex); };
 
-	const std::string albedoExpr    = resolveOutputPin(0, "vec4(1.0)");
-	const bool normalConnected      = isPinConnected(1);
-	const std::string normalConnectedExpr = normalConnected ? (resolveOutputPin(1, "vec4(0.0,0.0,1.0,0.0)") + ".xyz") : std::string();
-	const std::string metallicExpr  = resolveOutputPin(2, "vec4(0.0)");
-	const std::string roughnessExpr = resolveOutputPin(3, "vec4(0.5)");
-	const std::string emissiveExpr  = resolveOutputPin(4, "vec4(0.0)");
-	const std::string occlusionExpr = resolveOutputPin(5, "vec4(1.0)");
-
+	TemplateInputs in;
+	using O = MaterialNode;
+	in.albedo    = resolveOutputPin(cg, O::OutAlbedo, "vec4(1.0)");
+	in.normalConnected = isPinConnected(O::OutNormal);
+	if (in.normalConnected) in.normal = resolveOutputPin(cg, O::OutNormal, "vec4(p3d_N, 0.0)");
+	in.metallic  = resolveOutputPin(cg, O::OutMetallic, "vec4(0.0)");
+	in.roughness = resolveOutputPin(cg, O::OutRoughness, "vec4(0.5)");
+	in.emissive  = resolveOutputPin(cg, O::OutEmissive, "vec4(0.0)");
+	in.occlusion = resolveOutputPin(cg, O::OutOcclusion, "vec4(1.0)");
+	in.opacity   = resolveOutputPin(cg, O::OutOpacity, "vec4(1.0)");
+	in.alphaClipConnected = isPinConnected(O::OutAlphaClip);
+	if (in.alphaClipConnected) in.alphaClip = resolveOutputPin(cg, O::OutAlphaClip, "vec4(0.0)");
+	in.reflection = resolveOutputPin(cg, O::OutReflection, "vec4(0.0)");
 	if (!cg.error.empty()) { result.error = cg.error; return result; }
 
-	std::vector<std::string> samplerNames;
-	samplerNames.reserve(cg.textureSamplers.size());
-	for (const auto& ts : cg.textureSamplers) samplerNames.push_back(ts.second);
+	if (isPinConnected(O::OutVertexOffset)) {
+		in.vertexOffset = resolveOutputPin(vg, O::OutVertexOffset, "vec4(0.0)");
+		if (!vg.error.empty()) { result.error = vg.error; return result; }
+	}
 
-	result.glsl = BuildTemplate(albedoExpr, normalConnected, normalConnectedExpr, metallicExpr, roughnessExpr, emissiveExpr, occlusionExpr,
-		cg.statements, samplerNames, cg.usesTime);
+	// One parameter list across both stages, the vertex stage's merged in
+	// behind the fragment's with the same Float-vs-Color check.
+	in.parameters = cg.parameters;
+	for (const auto& p : vg.parameters) {
+		bool found = false;
+		for (const auto& q : in.parameters) {
+			if (q.name != p.name) continue;
+			found = true;
+			if (q.isVector != p.isVector) {
+				result.error = "Parameter '" + p.name + "' is used as both a Float and a Color parameter";
+				return result;
+			}
+		}
+		if (!found) in.parameters.push_back(p);
+	}
+
+	in.statements = cg.statements;
+	in.vertexStatements = vg.statements;
+	for (const auto& ts : cg.textureSamplers) in.samplerNames.push_back(ts.second);
+
+	result.glsl = BuildTemplate(in);
 	result.textureSamplers = cg.textureSamplers;
-	result.usesCameraPosition = cg.usesCameraPosition;
-	result.usesTime = cg.usesTime;
+	result.parameters = in.parameters;
+	result.usesCameraPosition = cg.usesCameraPosition || vg.usesCameraPosition;
+	result.usesTime = cg.usesTime || vg.usesTime;
 	return result;
 }

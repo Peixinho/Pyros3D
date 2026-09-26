@@ -29,14 +29,16 @@ inline void CollectCandidates(const std::string& receiver, const std::string& pr
 	std::vector<Item> matches;
 	matches.reserve(96);
 
-	// The six surface outputs a Text-mode snippet actually assigns - see
+	// The surface outputs a Text-mode snippet assigns - see
 	// MaterialCodegen::kDefaultSimpleShaderText/GenerateGLSLFromSimpleText.
 	static const char* const kOutputs[] = {
 		"Albedo", "Normal", "Metallic", "Roughness", "Emissive", "Occlusion",
+		"Opacity", "AlphaClip", "Reflection",
 	};
 	// Read-only inputs the wrapping template declares as varyings/uniforms.
 	static const char* const kInputs[] = {
 		"vWorldPos", "vNormalWorld", "vTexcoord", "uTime", "uCameraPosition", "uAmbientLight",
+		"p3d_N", "p3d_V", "p3d_noise",
 	};
 	static const char* const kTypes[] = {
 		"float", "int", "bool", "vec2", "vec3", "vec4", "mat3", "mat4", "sampler2D",

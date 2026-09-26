@@ -65,6 +65,18 @@ namespace p3d {
 				BRDFLutMap = 29,
 				// Per-probe relocation offsets, one texel each.
 				DDGIProbeDataMap = 30,
+				// The environment-lighting half of AmbientLightUniforms,
+				// as loose uniforms: the block is only ever bound for
+				// PyrosShader.glsl, so a CustomShaderMaterial (the
+				// Material Editor's generated shaders) reaches the same
+				// gradient/SH ambient through these instead.
+				AmbientSky = 31,
+				AmbientEquator = 32,
+				AmbientGround = 33,
+				// x = ambient mode, as IRenderer::EffectiveAmbientMode().
+				AmbientParams = 34,
+				// vec4[9], SphericalHarmonicsL2's index order.
+				AmbientSH = 35,
 
 				// User Uniforms
 				Other = 200,
@@ -147,6 +159,11 @@ namespace p3d {
 				Type = Uniforms::DataType::Float;
 				break;
 			case Uniforms::DataUsage::GlobalAmbientLight:
+			case Uniforms::DataUsage::AmbientSky:
+			case Uniforms::DataUsage::AmbientEquator:
+			case Uniforms::DataUsage::AmbientGround:
+			case Uniforms::DataUsage::AmbientParams:
+			case Uniforms::DataUsage::AmbientSH:
 				Type = Uniforms::DataType::Vec4;
 				break;
 			case Uniforms::DataUsage::Lights:

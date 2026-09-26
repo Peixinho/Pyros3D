@@ -15,6 +15,9 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <cstring>
+#include <algorithm>
+#include <typeinfo>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
 // fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
@@ -565,8 +568,45 @@ GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
 	return shadowMaterial;
 }
 
+void IRenderer::RenderShadowCaster(RenderingMesh* mesh)
+{
+	GameObject* owner = mesh->renderingComponent->GetOwner();
+	IMaterial* mat = mesh->Material.get();
+	// Exactly the base class, like the renderers' variant swaps: subclasses
+	// hand-assign extraUniforms[]. Instanced geometry has no generated
+	// variant (the template reads no instance transform).
+	CustomShaderMaterial* csm = (mat != NULL && typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : NULL;
+	if (csm && !mesh->renderingComponent->IsInstanced() && csm->HasCustomShadow()
+		&& csm->UseShadowVariantForNextDraw(mesh->SkinningBones.size() > 0))
+	{
+		// The receive-side flag gates BindShadowMaps(): off for this draw,
+		// or the maps being rendered into would also be bound for sampling.
+		const bool receives = csm->IsCastingShadows();
+		const bool hadBias = csm->IsDepthBiasEnabled();
+		const f32 biasFactor = csm->GetDepthBiasFactor(), biasUnits = csm->GetDepthBiasUnits();
+		csm->DisableCastingShadows();
+		if (shadowMaterial->IsDepthBiasEnabled())
+			csm->EnableDethBias(shadowMaterial->GetDepthBiasFactor(), shadowMaterial->GetDepthBiasUnits());
+		else
+			csm->DisableDethBias();
+
+		RenderObject(mesh, owner, csm);
+
+		if (hadBias) csm->EnableDethBias(biasFactor, biasUnits); else csm->DisableDethBias();
+		if (receives) csm->EnableCastingShadows();
+		csm->RestoreOwnProgram();
+		return;
+	}
+	RenderObject(mesh, owner, PickShadowMaterial(mesh));
+}
+
 bool IRenderer::IsShadowMaterial(IMaterial* material) const
 {
+	// A CustomShaderMaterial drawing its own shadow variant - see
+	// RenderShadowCaster().
+	if (material != NULL && typeid(*material) == typeid(CustomShaderMaterial)
+		&& static_cast<CustomShaderMaterial*>(material)->IsDrawingShadowVariant())
+		return true;
 	return material == shadowMaterial
 		|| material == shadowSkinnedMaterial
 		|| material == shadowInstancedMaterial
@@ -747,7 +787,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 							if ((*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent())
 							{
 								if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-									RenderObject((*k), (*k)->renderingComponent->GetOwner(), PickShadowMaterial(*k));
+									RenderShadowCaster(*k);
 							}
 						}
 
@@ -896,7 +936,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 								if (ShadowCasterVisible(*k) && !(*k)->Material->IsTransparent())
 								{
 									if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-										RenderObject((*k), (*k)->renderingComponent->GetOwner(), PickShadowMaterial(*k));
+										RenderShadowCaster(*k);
 								}
 							}
 						}
@@ -1014,7 +1054,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 							if (ShadowCasterVisible(*k) && !(*k)->Material->IsTransparent())
 							{
 								if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-									RenderObject((*k), (*k)->renderingComponent->GetOwner(), PickShadowMaterial(*k));
+									RenderShadowCaster(*k);
 							}
 						}
 					}
@@ -1154,7 +1194,14 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	ModelViewProjectionMatrixInverseIsDirty = true;
 	ViewProjectionMatrixInverseIsDirty = true;
 
-	if ((LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material) && LastProgramUsed != -1)
+	// A program switch is a state change even for the same mesh+material:
+	// CustomShaderMaterial draws one material with several programs (its
+	// G-buffer/skinned/shadow variants), and each program has its own VAO
+	// and pipeline. Comparing only the pointers skipped BindMesh() when the
+	// shadow pass's last draw and the main pass's first were the same
+	// object, and drew it with the other program's pipeline.
+	const bool programChanged = LastProgramUsed != (int32)Material->GetShader();
+	if ((LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material || programChanged) && LastProgramUsed != -1)
 	{
 		// Material Stuff After Render
 		UnbindShadowMaps(LastMaterialPTR);
@@ -1162,9 +1209,9 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// After Render
 		LastMaterialPTR->AfterRender();
 	}
-	if (LastProgramUsed != Material->GetShader()) device->UseProgram(Material->GetShader());
+	if (programChanged) device->UseProgram(Material->GetShader());
 
-	if (LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material)
+	if (LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material || programChanged)
 	{
 		// Bind Mesh (resolves attribute/uniform locations; on desktop GL /
 		// GLES3 also builds and caches a VAO the first time this mesh is
@@ -1309,8 +1356,10 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		uint32 d = BlendFunc::One_Minus_Src_Alpha;
 		uint32 m = BlendEq::Add;
 
-		// Override for transparency
-		if (Material->blending)
+		// Override for transparency. Zero/Zero is "no factors chosen", not a
+		// request for black: it is what every scene saved while IMaterial
+		// left them uninitialised carries - see IMaterial's constructor.
+		if (Material->blending && !(Material->sfactor == BlendFunc::Zero && Material->dfactor == BlendFunc::Zero))
 		{
 			s = Material->sfactor;
 			d = Material->dfactor;
@@ -2386,6 +2435,24 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			case Uniforms::DataUsage::GlobalAmbientLight:
 				Shader::SendUniform((*k), &GlobalLight, (*_ShadersGlobalCache)[counter]);
 				break;
+			case Uniforms::DataUsage::AmbientSky:
+				Shader::SendUniform((*k), &AmbientSky, (*_ShadersGlobalCache)[counter]);
+				break;
+			case Uniforms::DataUsage::AmbientEquator:
+				Shader::SendUniform((*k), &AmbientEquator, (*_ShadersGlobalCache)[counter]);
+				break;
+			case Uniforms::DataUsage::AmbientGround:
+				Shader::SendUniform((*k), &AmbientGround, (*_ShadersGlobalCache)[counter]);
+				break;
+			case Uniforms::DataUsage::AmbientParams:
+			{
+				Vec4 params((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
+				Shader::SendUniform((*k), &params, (*_ShadersGlobalCache)[counter]);
+			}
+			break;
+			case Uniforms::DataUsage::AmbientSH:
+				Shader::SendUniform((*k), &AmbientSH[0], (*_ShadersGlobalCache)[counter], 9);
+				break;
 			case Uniforms::DataUsage::Lights:
 				if (Lights.size() > 0)
 					Shader::SendUniform((*k), &Lights[0], (*_ShadersGlobalCache)[counter], NumberOfLights);
@@ -2839,8 +2906,9 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	}
 }
 
-void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
+void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, RenderingMesh* rmesh)
 {
+	Vec4 ambientParams;
 	Vec2 screenDimensions((f32)Width, (f32)Height);
 	f32 timerF = (f32)Timer;
 	// SendGlobalUniforms()'s GlobalMatricesUBO write (this file, ~line 1371)
@@ -2912,6 +2980,36 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 	case Uniforms::DataUsage::GlobalAmbientLight:
 		valuePtr = &GlobalLight; valueSize = sizeof(GlobalLight);
 		break;
+	case Uniforms::DataUsage::AmbientSky:
+		valuePtr = &AmbientSky; valueSize = sizeof(Vec4);
+		break;
+	case Uniforms::DataUsage::AmbientEquator:
+		valuePtr = &AmbientEquator; valueSize = sizeof(Vec4);
+		break;
+	case Uniforms::DataUsage::AmbientGround:
+		valuePtr = &AmbientGround; valueSize = sizeof(Vec4);
+		break;
+	case Uniforms::DataUsage::AmbientParams:
+		ambientParams = Vec4((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
+		valuePtr = &ambientParams; valueSize = sizeof(Vec4);
+		break;
+	case Uniforms::DataUsage::AmbientSH:
+		valuePtr = &AmbientSH[0]; valueSize = sizeof(Vec4) * 9;
+		break;
+	// Bone palette for a loose `uniform mat4 uBoneMatrix[]` - the Material
+	// Editor's generated shaders. GenericShaderMaterial's bones go through
+	// the BoneMatrices UBO instead, so nothing needed this until now, and
+	// without it a skinned custom material stayed in bind pose on every
+	// SPIR-V backend while GL (SendModelUniforms' own case) animated.
+	// Clamped to the shader's array: the scratch-bounds check below drops
+	// a write that would overrun it entirely rather than truncating it.
+	case Uniforms::DataUsage::Skinning:
+		if (rmesh != NULL && rmesh->SkinningBones.size() > 0)
+		{
+			valuePtr = &rmesh->SkinningBones[0];
+			valueSize = (uint32)sizeof(Matrix) * (rmesh->SkinningBones.size() < PYROS_MAX_BONES ? (uint32)rmesh->SkinningBones.size() : PYROS_MAX_BONES);
+		}
+		break;
 	case Uniforms::DataUsage::Lights:
 		// Mirrors the LightsUBO upload in SendGlobalUniforms() above: the
 		// trailing unused slots (lightsToUpload < PYROS_MAX_LIGHTS) are
@@ -2930,6 +3028,36 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u)
 		break;
 	case Uniforms::DataUsage::ScreenDimensions:
 		valuePtr = &screenDimensions; valueSize = sizeof(screenDimensions);
+		break;
+	// The shadow matrices, as SendGlobalUniforms() sends them. Missing
+	// until now, so on every SPIR-V backend a CustomShaderMaterial's
+	// uDirectionalDepthsMVP/uPointDepthsMVP/uSpotDepthsMVP stayed zero: every
+	// fragment projected to the shadow map's origin, compared as lit, and a
+	// Material Editor material received no shadows at all - while the
+	// counts, splits and samplers above all arrived, which made it look
+	// like a sampling bug. GL was unaffected (its loose uniforms go through
+	// SendGlobalUniforms). Capped at what the generated shader declares:
+	// 4 cascades, 2 matrices per point light, one per spot light.
+	case Uniforms::DataUsage::DirectionalShadowMatrix:
+		if (!DirectionalShadowMatrix.empty())
+		{
+			valuePtr = &DirectionalShadowMatrix[0];
+			valueSize = (uint32)sizeof(Matrix) * (uint32)std::min<size_t>(DirectionalShadowMatrix.size(), 4);
+		}
+		break;
+	case Uniforms::DataUsage::PointShadowMatrix:
+		if (!PointShadowMatrix.empty())
+		{
+			valuePtr = &PointShadowMatrix[0];
+			valueSize = (uint32)sizeof(Matrix) * (uint32)std::min<size_t>(PointShadowMatrix.size(), 2 * PYROS_SHADOW_SAMPLER_SLOTS);
+		}
+		break;
+	case Uniforms::DataUsage::SpotShadowMatrix:
+		if (!SpotShadowMatrix.empty())
+		{
+			valuePtr = &SpotShadowMatrix[0];
+			valueSize = (uint32)sizeof(Matrix) * (uint32)std::min<size_t>(SpotShadowMatrix.size(), PYROS_SHADOW_SAMPLER_SLOTS);
+		}
 		break;
 	case Uniforms::DataUsage::DirectionalShadowFar:
 		valuePtr = &DirectionalShadowFar; valueSize = sizeof(DirectionalShadowFar);
@@ -3011,11 +3139,11 @@ void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		return;
 
 	for (std::list<Uniform>::const_iterator k = Material->GlobalUniforms.begin(); k != Material->GlobalUniforms.end(); k++)
-		CaptureExtraUniform(Material, *k);
+		CaptureExtraUniform(Material, *k, rmesh);
 	for (std::list<Uniform>::const_iterator k = Material->UserUniforms.begin(); k != Material->UserUniforms.end(); k++)
-		CaptureExtraUniform(Material, *k);
+		CaptureExtraUniform(Material, *k, rmesh);
 	for (std::list<Uniform>::const_iterator k = Material->ModelUniforms.begin(); k != Material->ModelUniforms.end(); k++)
-		CaptureExtraUniform(Material, *k);
+		CaptureExtraUniform(Material, *k, rmesh);
 
 	for (int i = 0; i < 2; i++)
 	{
@@ -3289,7 +3417,8 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 			pdesc.blendSrcFactor = BlendFunc::Src_Alpha;
 			pdesc.blendDstFactor = BlendFunc::One_Minus_Src_Alpha;
 			pdesc.blendEquation = BlendEq::Add;
-			if (material->blending)
+			// Same Zero/Zero rule as RenderObject()'s blend state.
+			if (material->blending && !(material->sfactor == BlendFunc::Zero && material->dfactor == BlendFunc::Zero))
 			{
 				pdesc.blendSrcFactor = material->sfactor;
 				pdesc.blendDstFactor = material->dfactor;

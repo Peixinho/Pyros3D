@@ -516,6 +516,9 @@ private:
 	// HostOpenProject reopens that project instead of the browse dialog.
 	// Used by "Open Recent" and by the Examples browser's Open button.
 	std::string pendingRecentProjectPath;
+	// Agent "focus_window": raised at the start of the next frame, since
+	// socket commands run between frames and ImGui can only focus inside one.
+	std::string pendingFocusWindow;
 
 	DemoLibrary demos;
 	bool openDemoBrowserModal = false;

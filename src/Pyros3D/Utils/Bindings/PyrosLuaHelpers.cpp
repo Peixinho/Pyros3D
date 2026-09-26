@@ -758,6 +758,12 @@ namespace p3d {
 	{
 		return std::dynamic_pointer_cast<GenericShaderMaterial>(m.Material);
 	}
+	// Same, for a Material Editor material - its parameters are only
+	// reachable through the CustomShaderMaterial usertype.
+	std::shared_ptr<CustomShaderMaterial> RenderingMesh_GetCustomMaterial(RenderingMesh &m)
+	{
+		return std::dynamic_pointer_cast<CustomShaderMaterial>(m.Material);
+	}
 
 	// SOL_CHECK_ARGUMENTS rejects shared_ptr<Cube> for a parameter typed
 	// shared_ptr<Renderable> even when Cube lists bases<Renderable> - sol's

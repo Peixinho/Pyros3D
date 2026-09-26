@@ -3759,16 +3759,31 @@ def set_material_graph(project_path: str, material_path: str, nodes: list[dict],
       Max, Clamp, Lerp, DotProduct, CrossProduct, Length, Normalize,
       Distance, Equal, NotEqual, GreaterThan, LessThan, And, Or, Not, Step,
       SmoothStep, SplitVec2, SplitVec3, SplitVec4, CombineVec2, CombineVec3,
-      CombineVec4, Output, ObjectPosition, CameraPosition, UVCoordinate,
-      NormalVector, TimeValue.
+      CombineVec4, Output, WorldPosition, CameraPosition, UVCoordinate,
+      NormalVector, TimeValue, ObjectOrigin, ViewDirection, Fresnel, OneMinus,
+      Saturate, Fract, Floor, Remap, Noise, NormalMap, FloatParameter,
+      ColorParameter, CustomExpression. ("ObjectPosition" is still accepted
+      as the old name of WorldPosition.)
+      Everything is world space: NormalVector, WorldPosition, ViewDirection,
+      and the Output's Normal pin.
       userData holds constant values as comma-separated floats (e.g. a Color
       node's "1,0,0,1"; a Float node's "0.5"); leave "" for non-constant
-      nodes. texturePath is only used by Texture nodes (path under
-      assets/textures/, e.g. "brick.png").
+      nodes. FloatParameter/ColorParameter: userData is the default value and
+      `name` is the parameter name scripts use
+      (mesh:getCustomMaterial():setParameter(name, value)). CustomExpression:
+      userData is one GLSL expression over vec4 inputs a, b, c, d (any
+      float/vecN result). texturePath is only used by Texture nodes (path
+      under assets/textures/, e.g. "brick.png").
     connections: list of {"fromNode": int, "fromPinIndex": int, "toNode": int,
       "toPinIndex": int}. Output's input pins are, in order: Albedo(0),
-      Normal(1), Metallic(2), Roughness(3), Emissive(4), Occlusion(5).
-      Color's output pins are R(0) G(1) B(2) A(3) RGBA(4).
+      Normal(1), Metallic(2), Roughness(3), Emissive(4), Occlusion(5),
+      Opacity(6), AlphaClip(7), Reflection(8, SSR strength, deferred only),
+      VertexOffset(9, world space; Texture/NormalMap can't feed it).
+      Color/ColorParameter output pins: R(0) G(1) B(2) A(3) RGBA(4).
+      Texture: input UV(0); outputs RGBA(0) R(1) G(2) B(3) A(4).
+      Input pins in order - Fresnel: Power, Normal. Remap: Value, InMin,
+      InMax, OutMin, OutMax. Noise: Position, Scale. NormalMap: Color,
+      Strength. Lerp: A, B, T (per channel). Clamp: X, Min, Max.
     """
     proj, err = _resolve_project(project_path)
     if err:

@@ -14,6 +14,8 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <string>
+#include <vector>
 
 namespace p3d
 {
@@ -41,15 +43,14 @@ namespace p3d
 		// Bind tex as next sampler unit and register uniformName = unit index.
 		void AddSampler(const std::string &uniformName, const std::shared_ptr<Texture> &tex);
 
-		// Removes every texture added via AddSampler() and their unit-index
-		// uniforms (AddSampler registers those as Usage::Other, same bucket
-		// as any other plain user uniform) - only safe on a material whose
-		// Usage::Other uniforms are exclusively sampler units it added
-		// itself; a subclass that also uses AddUniform(..., Other, ...) for
-		// its own non-sampler tunables (e.g. ParticleSystemMaterial) must
-		// not call this. Used by the Material Editor to reset bindings
-		// before re-wiring a node graph whose Texture nodes may have
-		// changed count/order since the last Apply.
+		// Removes every texture added via AddSampler() and exactly their
+		// unit-index uniforms, by name. Every other user uniform stays: it
+		// used to clear UserUniforms wholesale, which also freed IMaterial's
+		// own uOpacity - leaving IMaterial::opacityHandle dangling, so the
+		// next SetOpacity() wrote through freed memory - and dropped every
+		// parameter. Used by the Material Editor to reset bindings before
+		// re-wiring a node graph whose Texture nodes may have changed
+		// count/order since the last Apply.
 		void ClearSamplers();
 
 		std::vector<std::shared_ptr<Texture>> textures;
@@ -103,28 +104,79 @@ namespace p3d
 		// the swap below when it isn't needed (matches
 		// GenericShaderMaterial::IsCompiledForGBuffer()'s role).
 		bool IsCompiledForGBuffer() const { return hasKnownShaderBranch && deferredGBufferBranch; }
-		// Lazily compiles (once, cached) a DEFERRED_GBUFFER sibling of
-		// this material's own shader from the same source text and
-		// returns its program handle, without touching `shader` itself.
-		// A scene-loaded CustomShaderMaterial (SceneSerializer::
-		// BuildMaterial's "custom" kind) is only ever compiled Forward -
-		// see the .cpp for why this exists and what it fixes.
+
+		// Program variants. One CustomShaderMaterial is drawn under up to
+		// four different conditions - G-buffer pass or a forward pass
+		// (ForwardRenderer, or DeferredRenderer's translucent pass), on a
+		// static or a skinned mesh - while `shader` is compiled for only
+		// one of them. Each other variant is compiled lazily (once, cached)
+		// from the same source text with DEFERRED_GBUFFER / SKINNING
+		// defined or not, and never touches `shader` itself.
+		//
+		// Why each exists:
+		//  - G-buffer: a scene-loaded material is compiled Forward only
+		//    (see the .cpp), and its lighting code must not run inside the
+		//    MRT pass.
+		//  - Forward from a G-buffer material: a transparent object is drawn
+		//    in DeferredRenderer's translucent pass, a single-target forward
+		//    pass, so the G-buffer program there wrote FragData_r unlit.
+		//  - Skinned: bone attributes exist only on skinned geometry, and a
+		//    pipeline whose shader declares an attribute the mesh does not
+		//    have fails to build on Vulkan, so the same material needs a
+		//    SKINNING and a plain program side by side. Only built for a
+		//    source that mentions SKINNING at all.
+		//
+		// UseVariantForNextDraw() swaps shaderProgram and extraUniforms[]
+		// (every variant has its own std140 layout) for exactly one
+		// RenderObject(). Returns false when no swap is needed or the
+		// variant cannot be built - the caller then draws with the own
+		// program as before. Call RestoreOwnProgram() only after true.
+		// Scoped to exactly CustomShaderMaterial by the renderers (typeid):
+		// subclasses hand-assign extraUniforms[] and are left alone.
+		bool UseVariantForNextDraw(bool gbuffer, bool skinned);
+		// The shadow pass's variant (SHADOW_DEPTH): only the vertex offset
+		// and the alpha cutout, writing depth. Worth using only when
+		// HasCustomShadow() - a generated shader that moves vertices or cuts
+		// holes, so its shadow must too; anything else is better served by
+		// the renderer's shared shadow material. Same pairing rule as above:
+		// RestoreOwnProgram() only after true.
+		bool HasCustomShadow() const;
+		bool UseShadowVariantForNextDraw(bool skinned);
+		// True between a successful UseShadowVariantForNextDraw() and
+		// RestoreOwnProgram() - what makes IRenderer build this draw's
+		// pipeline against the shadow render pass.
+		bool IsDrawingShadowVariant() const { return activeVariant >= 0 && (activeVariant & 4) != 0; }
+		// The G-buffer, non-skinned variant - kept for existing callers.
 		uint32 GetOrBuildGBufferProgram();
-		// Paired calls around a single G-buffer RenderObject() -
-		// DeferredRenderer::RenderScene() is the only intended caller.
-		// Swaps both shaderProgram and extraUniforms[] (the two branches
-		// have different std140 layouts - the Forward branch declares
-		// uLights[]/uNumberOfLights that DEFERRED_GBUFFER doesn't) to the
-		// G-buffer sibling for exactly that one draw. Returns false (no
-		// swap performed, nothing to restore) if this material's source
-		// has no usable DEFERRED_GBUFFER branch to compile at all - e.g. a
-		// hand-written CustomShaderMaterial shader that never declares one
-		// - so the caller falls back to drawing with the Forward program
-		// as-is, same as before this mechanism existed, instead of
-		// binding a failed (program 0) link. Only call RestoreOwnProgram()
-		// when this returned true.
-		bool UseGBufferProgramForNextDraw();
+		bool UseGBufferProgramForNextDraw() { return UseVariantForNextDraw(true, false); }
 		void RestoreOwnProgram();
+
+		// The uniform set every Material Editor shader (MaterialCodegen)
+		// is written against: matrices, camera, time, lights, the
+		// environment ambient, the forward branch's shadow maps and the
+		// bone palette. There is exactly one list, here, because it used
+		// to be copied into the editor's Apply path, its recompile path and
+		// the scene loader - and the loader's copy stopped at uLights, so
+		// every custom material in a loaded scene received no shadows.
+		// Idempotent; names the program doesn't declare are skipped.
+		void AddGeneratedShaderUniforms();
+
+		// Named material parameters - the Material Editor's Float/Color
+		// Parameter nodes. `name` is what the graph shows; the shader
+		// uniform is "p_" + name, so a parameter can never collide with an
+		// engine uniform. Declare fixes the uniform's GLSL type (float or
+		// vec4); Set on an undeclared name declares it from the value given.
+		// Values survive SetShader()/ClearSamplers() and round-trip through
+		// scene files. Shared by every object using this material.
+		void DeclareParameter(const std::string &name, bool isVector, const Vec4 &defaultValue);
+		void SetParameter(const std::string &name, const Vec4 &value);
+		void SetParameter(const std::string &name, f32 value);
+		bool HasParameter(const std::string &name) const { return parameters.find(name) != parameters.end(); }
+		Vec4 GetParameter(const std::string &name) const;
+		bool IsVectorParameter(const std::string &name) const;
+		std::vector<std::string> GetParameterNames() const;
+		void RemoveParameter(const std::string &name);
+		static std::string ParameterUniformName(const std::string &name) { return "p_" + name; }
 
 	protected:
 
@@ -157,16 +209,35 @@ namespace p3d
 		bool hasKnownShaderBranch = false;
 		bool deferredGBufferBranch = false;
 
-		// Lazily-built DEFERRED_GBUFFER sibling of `shader`, and its own
-		// extraUniforms layout - see GetOrBuildGBufferProgram()/
-		// UseGBufferProgramForNextDraw(). Null until first requested.
-		std::unique_ptr<Shader> gbufferShader;
-		bool gbufferCompileFailed = false;
-		ExtraUniformsBlock gbufferExtraUniforms[2];
-		// Holds this material's own (Forward) extraUniforms[] while
-		// UseGBufferProgramForNextDraw()'s swap is in effect, so
-		// RestoreOwnProgram() can put it back - see both methods' .cpp.
+		// Lazily-built variants of `shader`, index = (gbuffer ? 1 : 0) |
+		// (skinned ? 2 : 0) | (shadow ? 4 : 0), each with its own
+		// extraUniforms layout - see UseVariantForNextDraw(). Dropped
+		// whenever SetShader() changes the source they were built from.
+		struct ProgramVariant
+		{
+			std::unique_ptr<Shader> shader;
+			bool failed = false;
+			ExtraUniformsBlock extraUniforms[2];
+		};
+		ProgramVariant variants[8];
+		int activeVariant = -1;
+		// Holds this material's own extraUniforms[] while a variant swap
+		// is in effect, so RestoreOwnProgram() can put it back.
 		ExtraUniformsBlock ownExtraUniformsBackup[2];
+		uint32 GetOrBuildVariant(int index);
+		void ResetVariants();
+		bool SwapToVariant(int index);
+
+		struct Parameter
+		{
+			bool isVector = true;
+			Vec4 value;
+			Uniform* handle = nullptr;
+		};
+		std::map<std::string, Parameter> parameters;
+		// (Re)creates each parameter's uniform - after ClearSamplers() or a
+		// type change dropped the old one.
+		void RegisterParameterUniform(const std::string &name, Parameter &p);
 
 		// Shared by PopulateAutoExtraUniforms() and
 		// GetOrBuildGBufferProgram() - fills outBlocks[VertexShader/

@@ -207,6 +207,14 @@ void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::
 	// already available is what "set up the preview" means the first time
 	// regardless of which flow opened the doc; a real Apply later still
 	// bumps applyGeneration and re-syncs normally via the check below.
+	// Opacity/transparency/culling are material settings, not shader
+	// source - edited from the Properties panel without an Apply - so they
+	// are mirrored every sync, ahead of the recompile gate.
+	if (previewMaterial && doc.currentMaterial) {
+		previewMaterial->SetOpacity(doc.currentMaterial->GetOpacity());
+		previewMaterial->SetTransparencyFlag(doc.currentMaterial->IsTransparent());
+		previewMaterial->SetCullFace(doc.currentMaterial->GetCullFace());
+	}
 	if (previewMaterial && doc.applyGeneration == lastSeenApplyGeneration) return;
 
 	std::unique_ptr<p3d::Shader> newShader;
@@ -248,30 +256,15 @@ void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::
 	// explicitly (same recurring gotcha as every other path in this code).
 	customPreview->AdoptShader(std::move(newShader));
 
-	// Fixed uniforms - same set ApplyGraphOrTextToLiveMaterial issues.
-	// SendUniform skips names the active shader doesn't declare, so
-	// over-issuing is harmless.
-	previewMaterial->AddUniform(p3d::Uniform("uProjectionMatrix", p3d::Uniforms::DataUsage::ProjectionMatrix));
-	previewMaterial->AddUniform(p3d::Uniform("uViewMatrix", p3d::Uniforms::DataUsage::ViewMatrix));
-	previewMaterial->AddUniform(p3d::Uniform("uModelMatrix", p3d::Uniforms::DataUsage::ModelMatrix));
-	previewMaterial->AddUniform(p3d::Uniform("uAmbientLight", p3d::Uniforms::DataUsage::GlobalAmbientLight));
-	previewMaterial->AddUniform(p3d::Uniform("uCameraPosition", p3d::Uniforms::DataUsage::CameraPosition));
-	previewMaterial->AddUniform(p3d::Uniform("uTime", p3d::Uniforms::DataUsage::Timer));
-	previewMaterial->AddUniform(p3d::Uniform("uLights", p3d::Uniforms::DataUsage::Lights));
-	previewMaterial->AddUniform(p3d::Uniform("uNumberOfLights", p3d::Uniforms::DataUsage::NumberOfLights));
-	previewMaterial->AddUniform(p3d::Uniform("uDirectionalShadowMaps", p3d::Uniforms::DataUsage::DirectionalShadowMap));
-	previewMaterial->AddUniform(p3d::Uniform("uDirectionalDepthsMVP", p3d::Uniforms::DataUsage::DirectionalShadowMatrix));
-	previewMaterial->AddUniform(p3d::Uniform("uDirectionalShadowFar", p3d::Uniforms::DataUsage::DirectionalShadowFar));
-	previewMaterial->AddUniform(p3d::Uniform("uNumberOfDirectionalShadows", p3d::Uniforms::DataUsage::NumberOfDirectionalShadows));
-	previewMaterial->AddUniform(p3d::Uniform("uPointShadowMaps", p3d::Uniforms::DataUsage::PointShadowMap));
-	previewMaterial->AddUniform(p3d::Uniform("uPointDepthsMVP", p3d::Uniforms::DataUsage::PointShadowMatrix));
-	previewMaterial->AddUniform(p3d::Uniform("uNumberOfPointShadows", p3d::Uniforms::DataUsage::NumberOfPointShadows));
-	previewMaterial->AddUniform(p3d::Uniform("uSpotShadowMaps", p3d::Uniforms::DataUsage::SpotShadowMap));
-	previewMaterial->AddUniform(p3d::Uniform("uSpotDepthsMVP", p3d::Uniforms::DataUsage::SpotShadowMatrix));
-	previewMaterial->AddUniform(p3d::Uniform("uNumberOfSpotShadows", p3d::Uniforms::DataUsage::NumberOfSpotShadows));
-	// See the same call in ApplyGraphOrTextToLiveMaterial - this is the
-	// receive-side gate for BindShadowMaps(), not a casting flag.
-	previewMaterial->EnableCastingShadows();
+	// The same fixed uniform set every generated shader is written against
+	// (idempotent - this runs on every re-sync), and the settings mirrored
+	// above, for a freshly created preview material.
+	customPreview->AddGeneratedShaderUniforms();
+	if (doc.currentMaterial) {
+		customPreview->SetOpacity(doc.currentMaterial->GetOpacity());
+		customPreview->SetTransparencyFlag(doc.currentMaterial->IsTransparent());
+		customPreview->SetCullFace(doc.currentMaterial->GetCullFace());
+	}
 
 	// Sampler wiring - same source split as the live-apply path
 	// (MaterialEditor::ApplyGraphOrTextToLiveMaterial): NodeGraph mode walks
@@ -283,6 +276,7 @@ void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::
 	} else {
 		MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
 		samplerList = MaterialEditor::BuildNodeSamplerList(gen.textureSamplers, doc.nodes);
+		MaterialEditor::SyncParameters(customPreview.get(), gen.parameters);
 	}
 	MaterialEditor::WireSamplers(customPreview.get(), samplerList, projectRoot);
 

@@ -40,9 +40,16 @@ namespace {
 		{ MaterialNode::SplitVec4, "SplitVec4" }, { MaterialNode::CombineVec2, "CombineVec2" },
 		{ MaterialNode::CombineVec3, "CombineVec3" }, { MaterialNode::CombineVec4, "CombineVec4" },
 		{ MaterialNode::Output, "Output" },
-		{ MaterialNode::ObjectPosition, "ObjectPosition" }, { MaterialNode::CameraPosition, "CameraPosition" },
+		{ MaterialNode::ObjectPosition, "WorldPosition" }, { MaterialNode::CameraPosition, "CameraPosition" },
 		{ MaterialNode::UVCoordinate, "UVCoordinate" }, { MaterialNode::NormalVector, "NormalVector" },
 		{ MaterialNode::TimeValue, "TimeValue" },
+		{ MaterialNode::ObjectOrigin, "ObjectOrigin" }, { MaterialNode::ViewDirection, "ViewDirection" },
+		{ MaterialNode::Fresnel, "Fresnel" }, { MaterialNode::OneMinus, "OneMinus" },
+		{ MaterialNode::Saturate, "Saturate" }, { MaterialNode::Fract, "Fract" },
+		{ MaterialNode::Floor, "Floor" }, { MaterialNode::Remap, "Remap" },
+		{ MaterialNode::Noise, "Noise" }, { MaterialNode::NormalMap, "NormalMap" },
+		{ MaterialNode::FloatParameter, "FloatParameter" }, { MaterialNode::ColorParameter, "ColorParameter" },
+		{ MaterialNode::CustomExpression, "CustomExpression" },
 	};
 	const int kTypeNameCount = sizeof(kTypeNames) / sizeof(kTypeNames[0]);
 }
@@ -57,7 +64,65 @@ bool MaterialNode::TypeFromString(const std::string& s, Type& outType) {
 	for (int i = 0; i < kTypeNameCount; i++) {
 		if (s == kTypeNames[i].name) { outType = kTypeNames[i].type; return true; }
 	}
+	// The name every graph saved before WorldPosition was called that.
+	if (s == "ObjectPosition") { outType = ObjectPosition; return true; }
 	return false;
+}
+
+const char* MaterialNode::TypeDisplayName(Type t) {
+	switch (t) {
+		case ObjectPosition: return "World Position";
+		case CameraPosition: return "Camera Position";
+		case UVCoordinate: return "UV";
+		case NormalVector: return "World Normal";
+		case TimeValue: return "Time";
+		case ObjectOrigin: return "Object Origin";
+		case ViewDirection: return "View Direction";
+		case OneMinus: return "One Minus";
+		case NormalMap: return "Normal Map";
+		case FloatParameter: return "Float Parameter";
+		case ColorParameter: return "Color Parameter";
+		case CustomExpression: return "Custom Expression";
+		case DotProduct: return "Dot Product";
+		case CrossProduct: return "Cross Product";
+		case GreaterThan: return "Greater Than";
+		case LessThan: return "Less Than";
+		case NotEqual: return "Not Equal";
+		case SmoothStep: return "Smooth Step";
+		case SplitVec2: return "Split Vec2"; case SplitVec3: return "Split Vec3"; case SplitVec4: return "Split Vec4";
+		case CombineVec2: return "Combine Vec2"; case CombineVec3: return "Combine Vec3"; case CombineVec4: return "Combine Vec4";
+		default: return TypeToString(t);
+	}
+}
+
+std::string MaterialNode::SanitizeParameterName(const std::string& name) {
+	std::string out;
+	for (char c : name) {
+		const bool ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+		out += ok ? c : '_';
+	}
+	if (!out.empty() && out[0] >= '0' && out[0] <= '9') out = "_" + out;
+	return out;
+}
+
+bool MaterialNode::IsPreviewDynamic(const std::vector<MaterialNode>& nodes, const std::vector<MaterialConnection>& connections) const {
+	// Depth-bounded rather than cycle-tracked: a cycle is a codegen error
+	// anyway, and this only has to stop, not diagnose it.
+	struct Walk {
+		const std::vector<MaterialNode>& nodes;
+		const std::vector<MaterialConnection>& connections;
+		bool Dynamic(const MaterialNode& n, int depth) const {
+			if (IsVaryingSource(n.type)) return true;
+			if (depth > 64) return false;
+			for (const auto& c : connections) {
+				if (c.toNode != n.id) continue;
+				for (const auto& src : nodes)
+					if (src.id == c.fromNode && Dynamic(src, depth + 1)) return true;
+			}
+			return false;
+		}
+	};
+	return Walk{ nodes, connections }.Dynamic(*this, 0);
 }
 
 Vec4 MaterialNode::ComputePreviewValue(const MaterialNode& self, const std::vector<MaterialNode>& nodes,
@@ -76,7 +141,11 @@ Vec4 MaterialNode::ComputePreviewValue(const MaterialNode& self, const std::vect
 			const MaterialNode* src = FindNode(conn.fromNode);
 			if (!src) return Vec4(0.f, 0.f, 0.f, 0.f);
 			Vec4 v = src->ComputePreviewValue(*src, nodes, connections);
-			if (src->type == Color) {
+			if (src->type == Texture && conn.fromPinIndex > 0) {
+				const float c = (conn.fromPinIndex == 1) ? v.x : (conn.fromPinIndex == 2) ? v.y : (conn.fromPinIndex == 3) ? v.z : v.w;
+				return Vec4(c, c, c, c);
+			}
+			if (src->type == Color || src->type == ColorParameter) {
 				switch (conn.fromPinIndex) {
 					case 0: return Vec4(v.x, v.x, v.x, v.x);
 					case 1: return Vec4(v.y, v.y, v.y, v.y);
@@ -97,13 +166,13 @@ Vec4 MaterialNode::ComputePreviewValue(const MaterialNode& self, const std::vect
 	auto In = [&](int pinIndex) { return GetInputValue(self.id, pinIndex); };
 
 	switch (type) {
-		case Color: {
+		case Color: case ColorParameter: {
 			float c[4] = {1, 1, 1, 1};
 			if (!self.userData.empty())
 				sscanf(self.userData.c_str(), "%f,%f,%f,%f", &c[0], &c[1], &c[2], &c[3]);
 			return Vec4(c[0], c[1], c[2], c[3]);
 		}
-		case Float: {
+		case Float: case FloatParameter: {
 			float val = 0.5f;
 			if (!self.userData.empty()) sscanf(self.userData.c_str(), "%f", &val);
 			return Vec4(val, val, val, 1.f);
@@ -141,16 +210,21 @@ Vec4 MaterialNode::ComputePreviewValue(const MaterialNode& self, const std::vect
 		}
 		case Divide: {
 			Vec4 a = In(0), b = In(1);
-			return Vec4(a.x / (b.x + 0.001f), a.y / (b.y + 0.001f),
-			           a.z / (b.z + 0.001f), a.w / (b.w + 0.001f));
+			// Same epsilon as the generated GLSL's `a / (b + 0.0001)`.
+			return Vec4(a.x / (b.x + 0.0001f), a.y / (b.y + 0.0001f),
+			           a.z / (b.z + 0.0001f), a.w / (b.w + 0.0001f));
 		}
 		case Power: {
 			Vec4 a = In(0), b = In(1);
-			return Vec4(powf(a.x, b.x), powf(a.y, b.y), powf(a.z, b.z), powf(a.w, b.w));
+			// abs() like the GLSL's pow(abs(a), b): a negative base is NaN
+			// in both otherwise, but only the shader guarded against it.
+			return Vec4(powf(fabsf(a.x), b.x), powf(fabsf(a.y), b.y), powf(fabsf(a.z), b.z), powf(fabsf(a.w), b.w));
 		}
 		case Modulo: {
 			Vec4 a = In(0), b = In(1);
-			auto m = [](float x, float y) { return y != 0.f ? fmodf(x, y) : 0.f; };
+			// GLSL mod() floors (x - y*floor(x/y)), unlike fmodf, and the
+			// shader clamps y to >= 0.0001.
+			auto m = [](float x, float y) { y = fmaxf(y, 0.0001f); return x - y * floorf(x / y); };
 			return Vec4(m(a.x, b.x), m(a.y, b.y), m(a.z, b.z), m(a.w, b.w));
 		}
 		case Negate: { Vec4 a = In(0); return Vec4(-a.x, -a.y, -a.z, -a.w); }
@@ -167,8 +241,9 @@ Vec4 MaterialNode::ComputePreviewValue(const MaterialNode& self, const std::vect
 			return Vec4(c(a.x,lo.x,hi.x), c(a.y,lo.y,hi.y), c(a.z,lo.z,hi.z), c(a.w,lo.w,hi.w));
 		}
 		case Lerp: {
+			// Per channel, like the shader's mix(a, b, t).
 			Vec4 a = In(0), b = In(1), t = In(2);
-			return a + (b - a) * t.x;
+			return Vec4(a.x + (b.x - a.x) * t.x, a.y + (b.y - a.y) * t.y, a.z + (b.z - a.z) * t.z, a.w + (b.w - a.w) * t.w);
 		}
 		case DotProduct: {
 			Vec4 a = In(0), b = In(1);
@@ -216,6 +291,32 @@ Vec4 MaterialNode::ComputePreviewValue(const MaterialNode& self, const std::vect
 		case CombineVec2: { Vec4 a=In(0), b=In(1); return Vec4(a.x, b.x, 0.f, 0.f); }
 		case CombineVec3: { Vec4 a=In(0), b=In(1), c=In(2); return Vec4(a.x, b.x, c.x, 0.f); }
 		case CombineVec4: { Vec4 a=In(0), b=In(1), c=In(2), d=In(3); return Vec4(a.x, b.x, c.x, d.x); }
+		case OneMinus: { Vec4 a = In(0); return Vec4(1.f - a.x, 1.f - a.y, 1.f - a.z, 1.f - a.w); }
+		case Saturate: {
+			Vec4 a = In(0);
+			auto c = [](float x) { return fminf(fmaxf(x, 0.f), 1.f); };
+			return Vec4(c(a.x), c(a.y), c(a.z), c(a.w));
+		}
+		case Fract: { Vec4 a = In(0); return Vec4(a.x - floorf(a.x), a.y - floorf(a.y), a.z - floorf(a.z), a.w - floorf(a.w)); }
+		case Floor: { Vec4 a = In(0); return Vec4(floorf(a.x), floorf(a.y), floorf(a.z), floorf(a.w)); }
+		case Remap: {
+			Vec4 x = In(0), i0 = In(1), i1 = In(2), o0 = In(3), o1 = In(4);
+			auto r = [](float x, float a, float b, float c, float d) {
+				float span = b - a;
+				if (fabsf(span) < 1e-5f) span = 1e-5f;
+				return c + (x - a) / span * (d - c);
+			};
+			return Vec4(r(x.x, i0.x, i1.x, o0.x, o1.x), r(x.y, i0.y, i1.y, o0.y, o1.y),
+			            r(x.z, i0.z, i1.z, o0.z, o1.z), r(x.w, i0.w, i1.w, o0.w, o1.w));
+		}
+		// Everything below varies per pixel - IsPreviewDynamic() marks the
+		// swatch as a placeholder, so these are only neutral stand-ins.
+		case Fresnel: return Vec4(0.2f, 0.2f, 0.2f, 1.f);
+		case Noise: return Vec4(0.5f, 0.5f, 0.5f, 1.f);
+		case NormalMap: return Vec4(0.f, 1.f, 0.f, 0.f);
+		case ViewDirection: return Vec4(0.f, 0.f, 1.f, 0.f);
+		case ObjectOrigin: return Vec4(0.f, 0.f, 0.f, 1.f);
+		case CustomExpression: return Vec4(0.5f, 0.5f, 0.5f, 1.f);
 		case UVCoordinate: return Vec4(0.5f, 0.5f, 0.f, 1.f); // UV not known outside the shader
 		case NormalVector: return Vec4(0.5f, 0.5f, 1.f, 0.f); // approximate "flat forward" preview
 		case ObjectPosition: return Vec4(0.f, 0.f, 0.f, 1.f);

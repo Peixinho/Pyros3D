@@ -126,6 +126,10 @@ namespace {
 	{
 		return std::dynamic_pointer_cast<GenericShaderMaterial>(m.Material);
 	}
+	std::shared_ptr<CustomShaderMaterial> RenderingMesh_GetCustomMaterial(RenderingMesh &m)
+	{
+		return std::dynamic_pointer_cast<CustomShaderMaterial>(m.Material);
+	}
 
 	// ----- DeferredRenderer IRenderer wrappers -----
 	void DeferredRenderer_PreRender(DeferredRenderer &r, const std::shared_ptr<GameObject> &cam, SceneGraph &scene)
@@ -280,7 +284,11 @@ EMSCRIPTEN_BINDINGS(pyros3d_render)
 		.constructor(&MakeCustomFromFile)
 		.class_function("fromShader", &MakeCustomFromShader, allow_raw_pointers())
 		.function("setShader", &CustomShaderMaterial::SetShader, allow_raw_pointers())
-		.function("addSampler", &CustomShaderMaterial::AddSampler);
+		.function("addSampler", &CustomShaderMaterial::AddSampler)
+		.function("setParameterVec4", select_overload<void(const std::string&, const Vec4&)>(&CustomShaderMaterial::SetParameter))
+		.function("setParameter", select_overload<void(const std::string&, f32)>(&CustomShaderMaterial::SetParameter))
+		.function("getParameter", &CustomShaderMaterial::GetParameter)
+		.function("hasParameter", &CustomShaderMaterial::HasParameter);
 
 	class_<Uniform>("Uniform")
 		.constructor<>()
@@ -307,6 +315,7 @@ EMSCRIPTEN_BINDINGS(pyros3d_render)
 		.constructor<int>()
 		.function("getDrawingType", &RenderingMesh::GetDrawingType)
 		.function("getGenericMaterial", &RenderingMesh_GetGenericMaterial)
+		.function("getCustomMaterial", &RenderingMesh_GetCustomMaterial)
 		.property("active", &RenderingMesh::Active)
 		.property("clickable", &RenderingMesh::Clickable)
 		.property("drawingType", &RenderingMesh::drawingType);

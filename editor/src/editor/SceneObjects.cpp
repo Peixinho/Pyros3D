@@ -321,13 +321,23 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 #endif
 }
 
+	// Every primitive the editor creates carries tangents and bitangents.
+	// They were never requested, and a Generic material with a normal map
+	// (BumpMapping) declares aTangent/aBitangent: on Vulkan/Metal a pipeline
+	// whose shader reads an attribute the mesh lacks fails to build, so the
+	// object silently did not draw - on GL it drew with garbage tangents.
+	// Nothing in the UI could turn them on. Two extra vec3 streams on a
+	// primitive cost nothing, and the flag is saved with the scene
+	// ("tangentBitangent"), so the loaded game gets the same geometry.
+	static const bool kPrimitiveTangents = true;
+
 	SceneObject* SceneObjects::CreateRenderingCube(GameObject *go, const f32 width, const f32 height, const f32 depth, bool smoothnormals, bool flipnormals)
 	{
 		uint32 id = ++_ID;
 		std::shared_ptr<RenderingComponent> rCube;
 		// Mesh
 		std::shared_ptr<Renderable> cubeMesh;
-		cubeMesh = std::make_shared<Cube>(width,height,depth,smoothnormals,flipnormals);
+		cubeMesh = std::make_shared<Cube>(width,height,depth,smoothnormals,flipnormals,kPrimitiveTangents);
 		rCube = MakeSceneRenderingComponent(cubeMesh, NewPrivateMaterial());
 		go->Add(rCube);
 
@@ -345,7 +355,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		std::shared_ptr<RenderingComponent> rSphere;
 		// Mesh
 		std::shared_ptr<Renderable> sphereMesh;
-		sphereMesh = std::make_shared<Sphere>(radius, segmentsw, segmentsh, smoothnormals, halfsphere, flipnormals);
+		sphereMesh = std::make_shared<Sphere>(radius, segmentsw, segmentsh, smoothnormals, halfsphere, flipnormals, kPrimitiveTangents);
 		rSphere = MakeSceneRenderingComponent(sphereMesh, NewPrivateMaterial());
 		go->Add(rSphere);
 
@@ -363,7 +373,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		std::shared_ptr<RenderingComponent> rCapsule;
 		// Mesh
 		std::shared_ptr<Renderable> capsuleMesh;
-		capsuleMesh = std::make_shared<Capsule>(radius, height, nrings, segmentsw, segmentsh, smoothnormals, flipnormals);
+		capsuleMesh = std::make_shared<Capsule>(radius, height, nrings, segmentsw, segmentsh, smoothnormals, flipnormals, kPrimitiveTangents);
 		rCapsule = MakeSceneRenderingComponent(capsuleMesh, NewPrivateMaterial());
 		go->Add(rCapsule);
 
@@ -381,7 +391,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		std::shared_ptr<RenderingComponent> rCone;
 		// Mesh
 		std::shared_ptr<Renderable> coneMesh;
-		coneMesh = std::make_shared<Cone>(radius, height, segmentsw, segmentsh, openended, smoothnormals, flipnormals);
+		coneMesh = std::make_shared<Cone>(radius, height, segmentsw, segmentsh, openended, smoothnormals, flipnormals, kPrimitiveTangents);
 		rCone = MakeSceneRenderingComponent(coneMesh, NewPrivateMaterial());
 		go->Add(rCone);
 
@@ -399,7 +409,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		std::shared_ptr<RenderingComponent> rCylinder;
 		// Mesh
 		std::shared_ptr<Renderable> cylinderMesh;
-		cylinderMesh = std::make_shared<Cylinder>(radius, height, segmentsw, segmentsh, openended, smoothnormals, flipnormals);
+		cylinderMesh = std::make_shared<Cylinder>(radius, height, segmentsw, segmentsh, openended, smoothnormals, flipnormals, kPrimitiveTangents);
 		rCylinder = MakeSceneRenderingComponent(cylinderMesh, NewPrivateMaterial());
 		go->Add(rCylinder);
 
@@ -417,7 +427,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		std::shared_ptr<RenderingComponent> rPlane;
 		// Mesh
 		std::shared_ptr<Renderable> planeMesh;
-		planeMesh = std::make_shared<Plane>(width, height, smoothnormals, flipnormals);
+		planeMesh = std::make_shared<Plane>(width, height, smoothnormals, flipnormals, kPrimitiveTangents);
 		rPlane = MakeSceneRenderingComponent(planeMesh, NewPrivateMaterial());
 		go->Add(rPlane);
 
@@ -435,7 +445,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		std::shared_ptr<RenderingComponent> rTorus;
 		// Mesh
 		std::shared_ptr<Renderable> torusMesh;
-		torusMesh = std::make_shared<Torus>(radius, tube, segmentsw, segmentsh, smoothnormals, flipnormals);
+		torusMesh = std::make_shared<Torus>(radius, tube, segmentsw, segmentsh, smoothnormals, flipnormals, kPrimitiveTangents);
 		rTorus = MakeSceneRenderingComponent(torusMesh, NewPrivateMaterial());
 		go->Add(rTorus);
 
@@ -453,7 +463,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		std::shared_ptr<RenderingComponent> rTorusKnot;
 		// Mesh
 		std::shared_ptr<Renderable> torusKnotMesh;
-		torusKnotMesh = std::make_shared<TorusKnot>(radius, tube, segmentsw, segmentsh, p, q, smoothnormals, flipnormals);
+		torusKnotMesh = std::make_shared<TorusKnot>(radius, tube, segmentsw, segmentsh, p, q, /*heightscale=*/1, smoothnormals, flipnormals, kPrimitiveTangents);
 		rTorusKnot = MakeSceneRenderingComponent(torusKnotMesh, NewPrivateMaterial());
 		go->Add(rTorusKnot);
 

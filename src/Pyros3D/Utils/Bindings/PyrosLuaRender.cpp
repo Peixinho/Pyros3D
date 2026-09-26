@@ -223,6 +223,7 @@ namespace p3d {
 				"geometry", &RenderingMesh::Geometry,
 				"material", &RenderingMesh::Material,
 				"getGenericMaterial", &RenderingMesh_GetGenericMaterial,
+				"getCustomMaterial", &RenderingMesh_GetCustomMaterial,
 				"drawingType", &RenderingMesh::drawingType,
 				"renderingComponent", &RenderingMesh::renderingComponent,
 				"cullingGeometry", &RenderingMesh::CullingGeometry,
@@ -564,6 +565,16 @@ namespace p3d {
 				),
 				"setShader", &CustomShaderMaterial::SetShader,
 				"addSampler", &CustomShaderMaterial::AddSampler,
+				// Material Editor Parameter nodes, by the name the graph
+				// shows: setParameter("Tint", Vec4(1,0,0,1)) or
+				// setParameter("Speed", 2.0). Shared by every object using
+				// this material.
+				"setParameter", sol::overload(
+					[](CustomShaderMaterial &m, const std::string &name, const Vec4 &v) { m.SetParameter(name, v); },
+					[](CustomShaderMaterial &m, const std::string &name, const Vec3 &v) { m.SetParameter(name, Vec4(v.x, v.y, v.z, 1.f)); },
+					[](CustomShaderMaterial &m, const std::string &name, f32 v) { m.SetParameter(name, v); }),
+				"getParameter", &CustomShaderMaterial::GetParameter,
+				"hasParameter", &CustomShaderMaterial::HasParameter,
 				sol::base_classes, sol::bases<IMaterial>()
 				);
 		}

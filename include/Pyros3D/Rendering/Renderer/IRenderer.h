@@ -308,7 +308,7 @@ namespace p3d {
 		// SendModelUniforms() use, plus the generic Uniform::Value path)
 		// and copies it into Material->extraUniformsScratch if its name is
 		// registered in Material->extraUniformOffsets.
-		void CaptureExtraUniform(IMaterial* Material, const Uniform &u);
+		void CaptureExtraUniform(IMaterial* Material, const Uniform &u, RenderingMesh* rmesh = NULL);
 
 		void StartClippingPlanes();
 		void EndClippingPlanes();
@@ -817,6 +817,14 @@ namespace p3d {
 
 		// Picks the shadow-pass override material for one caster.
 		GenericShaderMaterial* PickShadowMaterial(RenderingMesh* mesh);
+
+		// Draws one shadow caster: with PickShadowMaterial()'s shared
+		// material, or - for a Material Editor material that moves its
+		// vertices or cuts holes (CustomShaderMaterial::HasCustomShadow) -
+		// with that material's own SHADOW_DEPTH variant, so the shadow has
+		// the same displaced, cut-out shape as the surface. Borrows the
+		// shared shadow material's depth bias for that draw.
+		void RenderShadowCaster(RenderingMesh* mesh);
 
 		// True for exactly the materials PickShadowMaterial() can return.
 		// Single source of truth for "is this draw part of a shadow pass",

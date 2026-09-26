@@ -2169,6 +2169,17 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// File > Close Project. The menu asks about unsaved work in a modal,
 	// and a modal blocks this socket - so this refuses instead, unless the
 	// caller says the work may go.
+	// {"cmd":"focus_window","args":{"name":"Scene View"}} - brings a docked
+	// window's tab to the front. Opening a material (set_material_graph,
+	// apply_material...) docks its editor over the Scene View, and a live
+	// screenshot of a hidden Scene View is flat black.
+	if (name == "focus_window")
+	{
+		pendingFocusWindow = A("name");
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "close_project")
 	{
 		if (!project.IsOpen()) throw std::runtime_error("no project open");
@@ -2322,7 +2333,9 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// options (which rebuild the material, as the checkboxes do), colours,
 	// the scalars, the render flags and the five texture slots - under the
 	// keys set_material takes for a scene object's material. Saved after,
-	// as set_material_text is.
+	// as set_material_text is. On a Custom material only the render flags
+	// (opacity, transparent, blending, depth, cull, wireframe, castShadows)
+	// apply.
 	// {"cmd":"edit_material","args":{"path":"assets/materials/Rock.p3dmat",
 	//   "options":{"PBR":true,"NormalMap":true},"roughness":0.8,
 	//   "textures":{"color":"assets/textures/rock.png","normal":""}}}
@@ -2331,6 +2344,41 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		std::string aerr;
 		MaterialEditorDocument* doc = AgentOpenMaterial(A("path"), aerr);
 		if (!doc) throw std::runtime_error(aerr);
+
+		// The render settings every material kind shares - the Properties
+		// panel's Rendering section, drawn for Custom materials too.
+		auto applyCommon = [&](IMaterial* m) {
+			if (a.contains("opacity")) m->SetOpacity((f32)a["opacity"].get<double>());
+			if (a.contains("transparent")) m->SetTransparencyFlag(a["transparent"].get<bool>());
+			if (a.contains("cullFace")) m->SetCullFace((uint32)a["cullFace"].get<int>());
+			auto flag = [&](const char* key, bool& on) { if (!a.contains(key)) return false; on = a[key].get<bool>(); return true; };
+			bool on = false;
+			if (flag("blending", on)) { if (on) m->EnableBlending(); else m->DisableBlending(); }
+			if (flag("depthTest", on)) { if (on) m->EnableDepthTest(); else m->DisableDepthTest(); }
+			if (flag("depthWrite", on)) { if (on) m->EnableDepthWrite(); else m->DisableDepthWrite(); }
+			if (flag("wireframe", on)) { if (on) m->StartRenderWireFrame(); else m->StopRenderWireFrame(); }
+			if (flag("castShadows", on)) { if (on) m->EnableCastingShadows(); else m->DisableCastingShadows(); }
+		};
+
+		if (doc->editKind == MaterialEditKind::Custom && doc->currentMaterial)
+		{
+			// Custom: only the shared settings. Its surface lives in the
+			// graph or the text snippet.
+			static const char* kGenericOnly[] = { "options", "color", "specular", "metallic", "roughness", "ssr",
+				"alphaCutoff", "shininess", "reflectivity", "displacementHeight", "textures" };
+			for (const char* k : kGenericOnly)
+				if (a.contains(k))
+					throw std::runtime_error(std::string("'") + k + "' is a Generic material setting - a Custom material's surface is set with set_material_graph or set_material_text");
+			applyCommon(doc->currentMaterial.get());
+			doc->dirty = true;
+			if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath(), UseDeferredGBuffer()))
+				throw std::runtime_error("failed to save material to " + doc->absolutePath);
+			nlohmann::json r;
+			r["ok"] = true;
+			r["path"] = project.RelativePath(doc->absolutePath);
+			return r;
+		}
+
 		GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(doc->currentMaterial.get());
 		if (doc->editKind != MaterialEditKind::Generic || gm == NULL)
 			throw std::runtime_error("not a Generic material - use set_material_graph or set_material_text");
@@ -2398,16 +2446,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		if (a.contains("shininess")) gm->SetShininess((f32)a["shininess"].get<double>());
 		if (a.contains("reflectivity")) gm->SetReflectivity((f32)a["reflectivity"].get<double>());
 		if (a.contains("displacementHeight")) gm->SetDisplacementHeight((f32)a["displacementHeight"].get<double>());
-		if (a.contains("opacity")) gm->SetOpacity((f32)a["opacity"].get<double>());
-		if (a.contains("transparent")) gm->SetTransparencyFlag(a["transparent"].get<bool>());
-		if (a.contains("cullFace")) gm->SetCullFace((uint32)a["cullFace"].get<int>());
-		auto flag = [&](const char* key, bool& on) { if (!a.contains(key)) return false; on = a[key].get<bool>(); return true; };
-		bool on = false;
-		if (flag("blending", on)) { if (on) gm->EnableBlending(); else gm->DisableBlending(); }
-		if (flag("depthTest", on)) { if (on) gm->EnableDepthTest(); else gm->DisableDepthTest(); }
-		if (flag("depthWrite", on)) { if (on) gm->EnableDepthWrite(); else gm->DisableDepthWrite(); }
-		if (flag("wireframe", on)) { if (on) gm->StartRenderWireFrame(); else gm->StopRenderWireFrame(); }
-		if (flag("castShadows", on)) { if (on) gm->EnableCastingShadows(); else gm->DisableCastingShadows(); }
+		applyCommon(gm);
 
 		// Texture slots: a path loads it, as the slot's Browse does. There is
 		// no clearing one - the engine binds every slot it holds and has no
@@ -4420,6 +4459,12 @@ void Editor::DrawUI()
 	ImGui_ImplOpenGL3_NewFrame();
 #endif
 	ImGui::NewFrame();
+
+	if (!pendingFocusWindow.empty())
+	{
+		ImGui::SetWindowFocus(pendingFocusWindow.c_str());
+		pendingFocusWindow.clear();
+	}
 
 	// Esc stops play from anywhere (Scene View tab may be unfocused / mouse captured).
 	if (sceneView && sceneView->IsPlaying() && ImGui::IsKeyPressed(ImGuiKey_Escape))

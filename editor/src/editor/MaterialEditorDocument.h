@@ -73,6 +73,23 @@ struct MaterialEditorDocument {
 	int dragFromPinIndex = -1;
 	ImVec2 dragStartPos = ImVec2(0, 0);
 
+	// Canvas interaction state - editor-only, never serialized.
+	std::vector<uint32_t> selection;        // selected node ids
+	bool IsSelected(uint32_t id) const { for (uint32_t s : selection) if (s == id) return true; return false; }
+	uint32_t renamingNode = 0;              // node whose title is an inline text field, 0 = none
+	char renameBuffer[128] = {};
+	bool renameFocusPending = false;
+	bool boxSelecting = false;
+	ImVec2 boxSelectStart = ImVec2(0, 0);   // screen space
+	// A connection dropped on empty canvas opens the Add menu; the node
+	// picked there gets this output wired into its first input.
+	bool pendingConnect = false;
+	uint32_t pendingConnectNode = 0;
+	int pendingConnectPin = 0;
+	char addMenuFilter[64] = {};
+	bool addMenuFocusFilter = false;
+	bool frameAllRequested = false;
+
 	// Per-document undo/redo history (see UndoStack.h / the undo/redo plan).
 	// Custom-kind-only in practice (Generic kind has no graph, but the
 	// stack is harmless and unused for it).

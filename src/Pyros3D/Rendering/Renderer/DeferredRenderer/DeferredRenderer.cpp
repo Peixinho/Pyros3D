@@ -960,7 +960,7 @@ namespace p3d {
 						// UseGBufferProgramForNextDraw()'s comment for what
 						// this fixes for the base class.
 						CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
-						const bool usedCustomGBufferSwap = csm && !csm->IsCompiledForGBuffer() && csm->UseGBufferProgramForNextDraw();
+						const bool usedCustomGBufferSwap = csm && csm->UseVariantForNextDraw(true, (*j)->SkinningBones.size() > 0);
 
 						RenderObject((*j), (*j)->renderingComponent->GetOwner(), (*j)->Material.get());
 
@@ -1627,7 +1627,17 @@ namespace p3d {
 					});
 
 					NumberOfLights = Lights.size();
-					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material.get());
+					// A single-target forward pass: a CustomShaderMaterial
+					// compiled for the G-buffer must draw with its forward
+					// variant here, or its FragData_r write lands unlit as
+					// the object's final colour (and a skinned mesh needs
+					// the skinned one). See UseVariantForNextDraw().
+					IMaterial* mat = (*i)->Material.get();
+					CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
+					const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, (*i)->SkinningBones.size() > 0);
+					RenderObject((*i), (*i)->renderingComponent->GetOwner(), mat);
+					if (usedCustomSwap)
+						csm->RestoreOwnProgram();
 				}
 			}
 		}

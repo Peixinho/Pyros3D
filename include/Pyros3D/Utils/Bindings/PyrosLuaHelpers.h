@@ -138,6 +138,7 @@ void Texture_Resize2(Texture &t, uint32 width, uint32 height);
 SkeletonAnimationInstance* RenderingComponent_GetActiveSkeletonAnimation(RenderingComponent &rc);
 TextureAnimationInstance* RenderingComponent_GetActiveTextureAnimation(RenderingComponent &rc);
 std::shared_ptr<GenericShaderMaterial> RenderingMesh_GetGenericMaterial(RenderingMesh &m);
+std::shared_ptr<CustomShaderMaterial> RenderingMesh_GetCustomMaterial(RenderingMesh &m);
 std::shared_ptr<Renderable> LuaObjectToRenderable(const sol::object &o);
 std::shared_ptr<IMaterial> LuaObjectToMaterial(const sol::object &o);
 bool LuaObjectToMaterialOptions(const sol::object &o, uint32 &out);

@@ -90,6 +90,9 @@ namespace p3d
 		this->shader = shader;
 		shaderProgram = shader->ShaderProgram();
 
+		// Every cached variant was compiled from the previous source.
+		ResetVariants();
+
 		PopulateAutoExtraUniforms();
 	}
 
@@ -140,6 +143,35 @@ namespace p3d
 
 	uint32 CustomShaderMaterial::GetOrBuildGBufferProgram()
 	{
+		return GetOrBuildVariant(1);
+	}
+
+	// The same platform #defines the file constructor compiles with - every
+	// variant must match it, or a variant would pick a different
+	// precision/profile path than the program it stands in for.
+	static std::string PlatformDefines()
+	{
+		std::string define;
+#if defined(GLES3)
+		define += std::string("#define GLES3\n");
+#endif
+#if defined(GLES2_DESKTOP)
+		define += std::string("#define GLES2_DESKTOP\n");
+#endif
+#if defined(GLES3_DESKTOP)
+		define += std::string("#define GLES3_DESKTOP\n");
+#endif
+#if defined(GLLEGACY)
+		define += std::string("#define GLLEGACY\n");
+#endif
+#if defined(EMSCRIPTEN)
+		define += std::string("#define EMSCRIPTEN\n");
+#endif
+		return define;
+	}
+
+	uint32 CustomShaderMaterial::GetOrBuildVariant(int index)
+	{
 		// A CustomShaderMaterial loaded fresh from a scene (SceneSerializer::
 		// BuildMaterial's "custom" kind) only ever compiles `shader` once,
 		// Forward-only (see the constructors above - neither ever defines
@@ -165,81 +197,247 @@ namespace p3d
 		// - the Shader* constructor / SetShader() paths have no path), and
 		// have the G-buffer pass bind that instead - see
 		// DeferredRenderer::RenderScene()'s G-buffer loop.
-		if (!gbufferShader && !gbufferCompileFailed)
+		//
+		// The forward and skinned variants follow the same pattern - see
+		// UseVariantForNextDraw()'s comment in the header.
+		ProgramVariant &v = variants[index];
+		if (!v.shader && !v.failed)
 		{
-			gbufferShader.reset(new Shader());
-
-			std::string define;
-#if defined(GLES3)
-			define += std::string("#define GLES3\n");
-#endif
-#if defined(GLES2_DESKTOP)
-			define += std::string("#define GLES2_DESKTOP\n");
-#endif
-#if defined(GLES3_DESKTOP)
-			define += std::string("#define GLES3_DESKTOP\n");
-#endif
-#if defined(GLLEGACY)
-			define += std::string("#define GLLEGACY\n");
-#endif
-#if defined(EMSCRIPTEN)
-			define += std::string("#define EMSCRIPTEN\n");
-#endif
-			const std::string deferredDefine = "#define DEFERRED_GBUFFER\n";
-
-			if (!ShaderFilePath.empty())
-				gbufferShader->LoadShaderFile(ShaderFilePath.c_str());
-			else
-				gbufferShader->LoadShaderText(shader->GetShaderText());
-
-			gbufferShader->CompileShader(ShaderType::VertexShader, std::string("#define VERTEX\n") + deferredDefine + define);
-			gbufferShader->CompileShader(ShaderType::FragmentShader, std::string("#define FRAGMENT\n") + deferredDefine + define);
-			gbufferShader->LinkProgram();
-
-			if (gbufferShader->ShaderProgram() == 0)
+			if (!shader)
 			{
-				// This material's source has no usable DEFERRED_GBUFFER
-				// branch (e.g. a hand-written shader that never declares
-				// one) - give up permanently rather than recompiling a
-				// failing variant every draw. Caller falls back to
-				// drawing with the Forward program, unchanged from
-				// before this mechanism existed.
-				gbufferShader.reset();
-				gbufferCompileFailed = true;
+				v.failed = true;
+				return 0;
+			}
+			const bool gbuffer = (index & 1) != 0;
+			const bool skinned = (index & 2) != 0;
+			const bool shadow = (index & 4) != 0;
+			v.shader.reset(new Shader());
+			// The own program's source text first, the file only as a
+			// fallback. It is the same source, with includes already inlined
+			// - and ShaderFilePath is not always openable from here: the
+			// Material Editor records it project-relative (for scene
+			// portability), which the editor's working directory does not
+			// resolve, so every variant compiled from the path in the editor
+			// came up "COULDN'T OPEN/INCLUDE FILE" and silently fell back.
+			if (!shader->GetShaderText().empty())
+				v.shader->LoadShaderText(shader->GetShaderText());
+			else if (!ShaderFilePath.empty())
+				v.shader->LoadShaderFile(ShaderFilePath.c_str());
+
+			std::string defines = PlatformDefines();
+			if (gbuffer) defines += "#define DEFERRED_GBUFFER\n";
+			if (skinned) defines += "#define SKINNING\n";
+			if (shadow) defines += "#define SHADOW_DEPTH\n";
+			v.shader->CompileShader(ShaderType::VertexShader, std::string("#define VERTEX\n") + defines);
+			v.shader->CompileShader(ShaderType::FragmentShader, std::string("#define FRAGMENT\n") + defines);
+			v.shader->LinkProgram();
+
+			if (v.shader->ShaderProgram() == 0)
+			{
+				// This material's source has no usable branch for this
+				// variant (e.g. a hand-written shader that never declares
+				// DEFERRED_GBUFFER) - give up permanently rather than
+				// recompiling a failing variant every draw. The caller
+				// falls back to drawing with the own program.
+				v.shader.reset();
+				v.failed = true;
 				return 0;
 			}
 
-			PopulateExtraUniformsFor(gbufferShader->ShaderProgram(), gbufferExtraUniforms);
+			PopulateExtraUniformsFor(v.shader->ShaderProgram(), v.extraUniforms);
 		}
-		return gbufferShader ? gbufferShader->ShaderProgram() : 0;
+		return v.shader ? v.shader->ShaderProgram() : 0;
 	}
 
-	bool CustomShaderMaterial::UseGBufferProgramForNextDraw()
+	void CustomShaderMaterial::ResetVariants()
 	{
-		const uint32 program = GetOrBuildGBufferProgram();
+		for (int i = 0; i < 8; i++)
+		{
+			for (int b = 0; b < 2; b++)
+				if (variants[i].extraUniforms[b].bufferHandle != 0)
+					Device().DestroyUniformBuffer(variants[i].extraUniforms[b].bufferHandle);
+			variants[i].shader.reset();
+			variants[i].failed = false;
+			for (int b = 0; b < 2; b++)
+				variants[i].extraUniforms[b] = ExtraUniformsBlock();
+		}
+	}
+
+	bool CustomShaderMaterial::UseVariantForNextDraw(bool gbuffer, bool skinned)
+	{
+		const bool ownGBuffer = hasKnownShaderBranch && deferredGBufferBranch;
+		// A source that never mentions SKINNING has nothing to compile -
+		// every hand-written shader, and generated ones from before the
+		// template grew skinning. Draw those with the plain program, as
+		// before.
+		if (skinned && (!shader || shader->GetShaderText().find("SKINNING") == std::string::npos))
+			skinned = false;
+		// The own program is always the non-skinned variant of its branch.
+		// A material with an unknown branch was built by the file or
+		// Shader* constructor, which compile Forward.
+		if (gbuffer == ownGBuffer && !skinned)
+			return false;
+
+		return SwapToVariant((gbuffer ? 1 : 0) | (skinned ? 2 : 0));
+	}
+
+	bool CustomShaderMaterial::SwapToVariant(int index)
+	{
+		const uint32 program = GetOrBuildVariant(index);
 		if (program == 0)
 			return false;
 		ownExtraUniformsBackup[0] = extraUniforms[0];
 		ownExtraUniformsBackup[1] = extraUniforms[1];
-		extraUniforms[0] = gbufferExtraUniforms[0];
-		extraUniforms[1] = gbufferExtraUniforms[1];
+		extraUniforms[0] = variants[index].extraUniforms[0];
+		extraUniforms[1] = variants[index].extraUniforms[1];
 		shaderProgram = program;
+		activeVariant = index;
 		return true;
+	}
+
+	bool CustomShaderMaterial::HasCustomShadow() const
+	{
+		// The marker MaterialCodegen writes into a shader whose graph uses
+		// Vertex Offset or Alpha Clip.
+		return shader && shader->GetShaderText().find("P3D_CUSTOM_SHADOW") != std::string::npos;
+	}
+
+	bool CustomShaderMaterial::UseShadowVariantForNextDraw(bool skinned)
+	{
+		if (skinned && shader->GetShaderText().find("SKINNING") == std::string::npos)
+			skinned = false;
+		return SwapToVariant(4 | (skinned ? 2 : 0));
 	}
 
 	void CustomShaderMaterial::RestoreOwnProgram()
 	{
 		// Persist any bufferHandle SendExtraUniforms lazily allocated
-		// during the G-buffer draw, so the next one reuses it instead of
+		// during the variant's draw, so the next one reuses it instead of
 		// leaking/recreating a GPU buffer every frame.
-		gbufferExtraUniforms[0] = extraUniforms[0];
-		gbufferExtraUniforms[1] = extraUniforms[1];
+		if (activeVariant >= 0)
+		{
+			variants[activeVariant].extraUniforms[0] = extraUniforms[0];
+			variants[activeVariant].extraUniforms[1] = extraUniforms[1];
+		}
+		activeVariant = -1;
 		extraUniforms[0] = ownExtraUniformsBackup[0];
 		extraUniforms[1] = ownExtraUniformsBackup[1];
 		shaderProgram = shader->ShaderProgram();
 	}
 
-	CustomShaderMaterial::~CustomShaderMaterial() = default;
+	void CustomShaderMaterial::AddGeneratedShaderUniforms()
+	{
+		// AddUniform appends unconditionally, and this runs on every Apply
+		// of a live material - skip names already registered.
+		auto add = [this](const char* name, uint32 usage) {
+			for (const std::list<Uniform>* l : { &GlobalUniforms, &ModelUniforms })
+				for (const Uniform &u : *l)
+					if (u.Name == name) return;
+			AddUniform(Uniform(name, usage));
+		};
+		add("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix);
+		add("uViewMatrix", Uniforms::DataUsage::ViewMatrix);
+		add("uModelMatrix", Uniforms::DataUsage::ModelMatrix);
+		add("uCameraPosition", Uniforms::DataUsage::CameraPosition);
+		add("uTime", Uniforms::DataUsage::Timer);
+		add("uAmbientLight", Uniforms::DataUsage::GlobalAmbientLight);
+		add("uAmbientSky", Uniforms::DataUsage::AmbientSky);
+		add("uAmbientEquator", Uniforms::DataUsage::AmbientEquator);
+		add("uAmbientGround", Uniforms::DataUsage::AmbientGround);
+		add("uAmbientParams", Uniforms::DataUsage::AmbientParams);
+		add("uAmbientSH", Uniforms::DataUsage::AmbientSH);
+		add("uLights", Uniforms::DataUsage::Lights);
+		add("uNumberOfLights", Uniforms::DataUsage::NumberOfLights);
+		// Forward branch only - under Deferred the light passes shadow the
+		// G-buffer themselves, and the G-buffer program doesn't declare
+		// these, so they are skipped there.
+		add("uDirectionalShadowMaps", Uniforms::DataUsage::DirectionalShadowMap);
+		add("uDirectionalDepthsMVP", Uniforms::DataUsage::DirectionalShadowMatrix);
+		add("uDirectionalShadowFar", Uniforms::DataUsage::DirectionalShadowFar);
+		add("uNumberOfDirectionalShadows", Uniforms::DataUsage::NumberOfDirectionalShadows);
+		add("uPointShadowMaps", Uniforms::DataUsage::PointShadowMap);
+		add("uPointDepthsMVP", Uniforms::DataUsage::PointShadowMatrix);
+		add("uNumberOfPointShadows", Uniforms::DataUsage::NumberOfPointShadows);
+		add("uSpotShadowMaps", Uniforms::DataUsage::SpotShadowMap);
+		add("uSpotDepthsMVP", Uniforms::DataUsage::SpotShadowMatrix);
+		add("uNumberOfSpotShadows", Uniforms::DataUsage::NumberOfSpotShadows);
+		add("uBoneMatrix", Uniforms::DataUsage::Skinning);
+		// Misleadingly named: this is what gates IRenderer::BindShadowMaps(),
+		// i.e. whether a draw gets the shadow maps bound at all - without it
+		// the samplers above never get a unit. Casting is decided per object
+		// by RenderingComponent::EnableCastShadows(), not here.
+		EnableCastingShadows();
+	}
+
+	void CustomShaderMaterial::RegisterParameterUniform(const std::string &name, Parameter &p)
+	{
+		const std::string uniformName = ParameterUniformName(name);
+		for (std::list<Uniform>::iterator i = UserUniforms.begin(); i != UserUniforms.end(); ++i)
+			if (i->Name == uniformName) { UserUniforms.erase(i); break; }
+		if (p.isVector)
+			p.handle = AddUniform(Uniform(uniformName, Uniforms::DataType::Vec4, &p.value));
+		else
+			p.handle = AddUniform(Uniform(uniformName, Uniforms::DataType::Float, &p.value.x));
+	}
+
+	void CustomShaderMaterial::DeclareParameter(const std::string &name, bool isVector, const Vec4 &defaultValue)
+	{
+		Parameter &p = parameters[name];
+		p.isVector = isVector;
+		p.value = defaultValue;
+		RegisterParameterUniform(name, p);
+	}
+
+	void CustomShaderMaterial::SetParameter(const std::string &name, const Vec4 &value)
+	{
+		std::map<std::string, Parameter>::iterator it = parameters.find(name);
+		if (it == parameters.end()) { DeclareParameter(name, true, value); return; }
+		it->second.value = value;
+		if (it->second.handle)
+			it->second.handle->SetValue(it->second.isVector ? (void*)&it->second.value : (void*)&it->second.value.x);
+	}
+
+	void CustomShaderMaterial::SetParameter(const std::string &name, f32 value)
+	{
+		std::map<std::string, Parameter>::iterator it = parameters.find(name);
+		if (it == parameters.end()) { DeclareParameter(name, false, Vec4(value, value, value, value)); return; }
+		SetParameter(name, it->second.isVector ? Vec4(value, value, value, value) : Vec4(value, 0.f, 0.f, 0.f));
+	}
+
+	Vec4 CustomShaderMaterial::GetParameter(const std::string &name) const
+	{
+		std::map<std::string, Parameter>::const_iterator it = parameters.find(name);
+		return it == parameters.end() ? Vec4() : it->second.value;
+	}
+
+	bool CustomShaderMaterial::IsVectorParameter(const std::string &name) const
+	{
+		std::map<std::string, Parameter>::const_iterator it = parameters.find(name);
+		return it != parameters.end() && it->second.isVector;
+	}
+
+	std::vector<std::string> CustomShaderMaterial::GetParameterNames() const
+	{
+		std::vector<std::string> names;
+		for (std::map<std::string, Parameter>::const_iterator it = parameters.begin(); it != parameters.end(); ++it)
+			names.push_back(it->first);
+		return names;
+	}
+
+	void CustomShaderMaterial::RemoveParameter(const std::string &name)
+	{
+		std::map<std::string, Parameter>::iterator it = parameters.find(name);
+		if (it == parameters.end()) return;
+		const std::string uniformName = ParameterUniformName(name);
+		for (std::list<Uniform>::iterator i = UserUniforms.begin(); i != UserUniforms.end(); ++i)
+			if (i->Name == uniformName) { UserUniforms.erase(i); break; }
+		parameters.erase(it);
+	}
+
+	CustomShaderMaterial::~CustomShaderMaterial()
+	{
+		ResetVariants();
+	}
 
 	void CustomShaderMaterial::PreRender()
 	{
@@ -263,8 +461,10 @@ namespace p3d
 
 	void CustomShaderMaterial::ClearSamplers()
 	{
+		for (const std::string &name : samplerNames)
+			for (std::list<Uniform>::iterator i = UserUniforms.begin(); i != UserUniforms.end(); ++i)
+				if (i->Name == name) { UserUniforms.erase(i); break; }
 		textures.clear();
 		samplerNames.clear();
-		UserUniforms.clear();
 	}
 }

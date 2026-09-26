@@ -25,6 +25,14 @@ namespace p3d {
 		depthTestMode = 0; // Less
 		forceDepthWrite = false;
 		blending = false;
+		// Were never initialised: 0 on macOS, which is Zero/Zero - so the
+		// editor's "Blending" checkbox, which sets no factors, drew every
+		// material solid black - and whatever the stack held on Windows.
+		// Standard alpha blending, the same pair IRenderer uses for a
+		// transparent material without its own.
+		sfactor = BlendFunc::Src_Alpha;
+		dfactor = BlendFunc::One_Minus_Src_Alpha;
+		mode = BlendEq::Add;
 
 		// Add Opacity Uniform
 		opacityHandle = AddUniform(Uniform("uOpacity", Uniforms::DataType::Float, &this->opacity));

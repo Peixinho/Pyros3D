@@ -7,6 +7,8 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <typeinfo>
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 namespace p3d {
@@ -332,7 +334,15 @@ namespace p3d {
 					});
 
 					NumberOfLights = Lights.size();
-					RenderObject((*i), (*i)->renderingComponent->GetOwner(), (*i)->Material.get());
+					// A CustomShaderMaterial draws with its forward, skinned-
+					// or-not variant - see UseVariantForNextDraw(). Exactly
+					// the base class: subclasses hand-assign extraUniforms[].
+					IMaterial* mat = (*i)->Material.get();
+					CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
+					const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, (*i)->SkinningBones.size() > 0);
+					RenderObject((*i), (*i)->renderingComponent->GetOwner(), mat);
+					if (usedCustomSwap)
+						csm->RestoreOwnProgram();
 				}
 			}
 			}

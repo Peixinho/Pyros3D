@@ -790,6 +790,18 @@ namespace p3d {
 					}
 					if (!samplers.empty()) m["samplers"] = samplers;
 				}
+
+				const std::vector<std::string> params = cm->GetParameterNames();
+				if (!params.empty())
+				{
+					json pj = json::object();
+					for (const std::string &name : params)
+					{
+						const Vec4 v = cm->GetParameter(name);
+						pj[name] = { { "vector", cm->IsVectorParameter(name) }, { "value", { v.x, v.y, v.z, v.w } } };
+					}
+					m["parameters"] = pj;
+				}
 			}
 		}
 		else
@@ -2389,14 +2401,27 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// shader doesn't declare, so issuing the same fixed set
 			// ApplyGraphOrTextToLiveMaterial does is harmless for a shader
 			// that only uses some of them.
-			cm->AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-			cm->AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
-			cm->AddUniform(Uniform("uModelMatrix", Uniforms::DataUsage::ModelMatrix));
-			cm->AddUniform(Uniform("uAmbientLight", Uniforms::DataUsage::GlobalAmbientLight));
-			cm->AddUniform(Uniform("uCameraPosition", Uniforms::DataUsage::CameraPosition));
-			cm->AddUniform(Uniform("uTime", Uniforms::DataUsage::Timer));
-			cm->AddUniform(Uniform("uLights", Uniforms::DataUsage::Lights));
-			cm->AddUniform(Uniform("uNumberOfLights", Uniforms::DataUsage::NumberOfLights));
+			//
+			// The set now lives in one place, CustomShaderMaterial::
+			// AddGeneratedShaderUniforms(): this copy used to stop at
+			// uLights, so a loaded custom material never got its shadow
+			// maps bound and received no shadows in Forward.
+			cm->AddGeneratedShaderUniforms();
+
+			// Parameter values (Float/Color Parameter nodes). Declared
+			// before ApplyCommonMaterialFields, and after the samplers
+			// below would be fine too - neither clears them any more.
+			if (j.find("parameters") != j.end() && j["parameters"].is_object())
+			{
+				for (auto it = j["parameters"].begin(); it != j["parameters"].end(); ++it)
+				{
+					const json &pj = it.value();
+					Vec4 v;
+					if (pj.contains("value") && pj["value"].is_array() && pj["value"].size() >= 4)
+						v = Vec4(pj["value"][0].get<f32>(), pj["value"][1].get<f32>(), pj["value"][2].get<f32>(), pj["value"][3].get<f32>());
+					cm->DeclareParameter(it.key(), pj.value("vector", true), v);
+				}
+			}
 
 			// Rebind the samplers saved alongside the shader. Order matters:
 			// AddSampler hands out unit indices sequentially, so these have
@@ -2477,7 +2502,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		{
 			bool smooth = j.value("smooth", false);
 			bool flip = j.value("flip", false);
-			bool tb = j.value("tangentBitangent", false);
+			// Always, whatever the file says: every scene saved before the
+			// editor started requesting tangents carries false, and a
+			// normal-mapped Generic material on such a primitive does not
+			// draw at all on Vulkan/Metal (its pipeline reads aTangent). No
+			// UI ever set this deliberately, so there is no intent to honour.
+			const bool tb = true;
 			std::string shape = j.value("shape", "");
 
 			if (shape == "Cube") r = std::make_shared<Cube>(j.value("width", 1.0f), j.value("height", 1.0f), j.value("depth", 1.0f), smooth, flip, tb);
