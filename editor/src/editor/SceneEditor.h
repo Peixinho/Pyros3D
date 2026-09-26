@@ -410,6 +410,8 @@ public:
 	bool AgentSetParticles(const std::string& name, const json& p, std::string& errOut);
 	bool AgentSetPhysics(const std::string& name, const json& p, std::string& errOut);
 	bool AgentSetAudio(const std::string& name, const json& p, std::string& errOut);
+	// kind: occluder2d | physics2d | layer2d | sprite_animation.
+	bool AgentSetComponent2D(const std::string& kind, const std::string& name, const json& p, std::string& errOut);
 	bool AgentReadParticleFields(ParticleSystemDesc& desc, const json& p, std::string& errOut);
 	bool AgentSetViewOptions(const json& p, std::string& errOut);
 	bool AgentSetAmbient(const json& p, std::string& errOut);

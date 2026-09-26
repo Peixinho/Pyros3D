@@ -366,7 +366,13 @@ private:
 	// Set by LoadDefaultLayout(); consumed by the next DrawUI().
 	bool resetLayout;
 
-	SceneEditor* sceneView; // active document
+	SceneEditor* sceneView;
+
+	// The document the scene tab bar last showed as selected - see
+
+	// DrawSceneTabBar(). Compared, never dereferenced.
+
+	SceneEditor* tabBarActiveDoc = NULL; // active document
 	std::vector<SceneEditor*> sceneDocs;
 	uint32 nextSceneDocId;
 	std::vector<SceneEditor*> pendingCloseSceneDocs;

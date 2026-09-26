@@ -2648,6 +2648,17 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		nlohmann::json r; r["ok"] = true; r["bodyType"] = bts.empty() ? "dynamic" : bts;
 		r["fixedRotation"] = fixedRot; return r;
 	}
+	// The 2D sections of the Properties panel, one command each:
+	//   set_occluder2d   {name, shape: box|circle, halfExtents, enabled}
+	//   set_physics2d    {name, bodyType, shape, halfExtents, density, friction, bounciness, fixedRotation}
+	//   set_layer2d      {name, parallax, visible}
+	//   set_sprite_animation {name, fps, pingPong, paused}
+	if (name == "set_occluder2d" || name == "set_physics2d" || name == "set_layer2d" || name == "set_sprite_animation")
+	{
+		if (!sceneView->AgentSetComponent2D(name.substr(4), A("name"), a.is_object() ? a : nlohmann::json::object(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; return r;
+	}
 	if (name == "add_occluder2d")
 	{
 		if (!sceneView->AgentAddOccluder2D(A("name"), err))
@@ -5480,6 +5491,13 @@ void Editor::DrawSceneTabBar()
 {
 	if (ImGui::BeginTabBar("##ProjectSceneTabs", ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs | ImGuiTabBarFlags_FittingPolicyScroll))
 	{
+		// A document made active somewhere other than this tab bar - a new
+		// or reopened scene, an agent command - has to become the selected
+		// tab, not be switched away from. ImGui still has the previous tab
+		// selected on the next frame, and letting that tab re-activate its
+		// document silently undid the switch: new_scene followed at once by
+		// add_object put the object in the OLD scene.
+		const bool switchedElsewhere = (sceneView != tabBarActiveDoc);
 		for (size_t i = 0; i < sceneDocs.size(); ++i)
 		{
 			SceneEditor* doc = sceneDocs[i];
@@ -5489,6 +5507,8 @@ void Editor::DrawSceneTabBar()
 			ImGuiTabItemFlags flags = 0;
 			if (doc->IsSceneDirty())
 				flags |= ImGuiTabItemFlags_UnsavedDocument;
+			if (switchedElsewhere && doc == sceneView)
+				flags |= ImGuiTabItemFlags_SetSelected;
 
 			char label[256];
 			snprintf(label, sizeof(label), "%s###scene_tab_%u",
@@ -5496,13 +5516,17 @@ void Editor::DrawSceneTabBar()
 
 			if (ImGui::BeginTabItem(label, &open, flags))
 			{
-				if (sceneView != doc)
+				if (sceneView != doc && !switchedElsewhere)
 					SetActiveSceneDocument(doc);
 				ImGui::EndTabItem();
 			}
 			if (!open)
 				HostRequestCloseSceneDocument(doc);
 		}
+
+		// Recorded before "+" can create a document, so the new one counts
+		// as switched-elsewhere next frame and gets its tab selected.
+		tabBarActiveDoc = sceneView;
 
 		if (ImGui::TabItemButton("+", ImGuiTabItemFlags_Trailing | ImGuiTabItemFlags_NoTooltip))
 			OpenNewSceneDocument();

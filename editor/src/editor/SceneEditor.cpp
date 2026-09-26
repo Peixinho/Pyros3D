@@ -11643,6 +11643,39 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// this canvas" was being told until now.
 			switch (c->GetComponentType())
 			{
+			// The 2D components, under the keys set_occluder2d /
+			// set_physics2d / set_layer2d take.
+			case ComponentType::Occluder2D:
+			{
+				Occluder2D* oc = static_cast<Occluder2D*>(c);
+				j["type"] = "Occluder2D";
+				j["shape"] = oc->GetShapeType() == 1 ? "circle" : "box";
+				j["halfExtents"] = { (double)oc->GetSize().x, (double)oc->GetSize().y };
+				j["enabled"] = oc->IsEnabled();
+				return j;
+			}
+			case ComponentType::Physics2D:
+			{
+				Physics2D* ph = static_cast<Physics2D*>(c);
+				static const char* const kBody[] = { "static", "kinematic", "dynamic" };
+				j["type"] = "Physics2D";
+				j["bodyType"] = ph->GetBodyType() < 3 ? kBody[ph->GetBodyType()] : "dynamic";
+				j["shape"] = ph->GetShapeType() == 1 ? "circle" : "box";
+				j["halfExtents"] = { (double)ph->GetSize().x, (double)ph->GetSize().y };
+				j["density"] = (double)ph->GetDensity();
+				j["friction"] = (double)ph->GetFriction();
+				j["bounciness"] = (double)ph->GetRestitution();
+				j["fixedRotation"] = ph->IsFixedRotation();
+				return j;
+			}
+			case ComponentType::Layer2D:
+			{
+				Layer2D* l = static_cast<Layer2D*>(c);
+				j["type"] = "Layer2D";
+				j["parallax"] = { (double)l->GetParallax().x, (double)l->GetParallax().y };
+				j["visible"] = l->IsVisible();
+				return j;
+			}
 			case ComponentType::UICanvas:
 			{
 				UICanvas* cv = static_cast<UICanvas*>(c);
@@ -11856,6 +11889,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						j["materialColor"] = { (double)col.x, (double)col.y, (double)col.z, (double)col.w };
 					}
 				}
+				// Under set_sprite_animation's keys.
+				if (TextureAnimationInstance* ta = static_cast<TextureAnimationInstance*>(rc->GetActiveTextureAnimation()))
+					if (ta->GetOwner())
+						j["spriteAnimation"] = { { "frames", ta->GetOwner()->GetNumberFrames() },
+							{ "fps", (double)ta->GetFrameSpeed() }, { "pingPong", ta->IsYoyo() },
+							{ "paused", ta->IsPaused() } };
 				json rj = AgentRenderableToJson(rc->GetRenderable());
 				if (rj.is_object()) j["renderable"] = rj;
 				return j;
@@ -12489,6 +12528,116 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
 		return OpAddPhysics2D(obj->GetID(), errOut, bodyType, size, fixedRotation);
+	}
+
+	// The 2D component sections of the Properties panel - Occluder 2D,
+	// Physics 2D, Layer 2D and Sprite Animation - one command each, keyed
+	// the way the panel labels them. Each edit is one undo step made the
+	// way the panel makes it: snapshot the object, apply, push a replace.
+	namespace
+	{
+		template <typename T>
+		T* AgentFindComponent(GameObject* go)
+		{
+			for (const std::shared_ptr<IComponent>& c : go->GetComponents())
+				if (T* t = dynamic_cast<T*>(c.get())) return t;
+			return NULL;
+		}
+		bool AgentVec2(const json& p, const char* key, Vec2& out)
+		{
+			if (!p.contains(key) || !p[key].is_array() || p[key].size() < 2) return false;
+			out = Vec2((f32)p[key][0].get<double>(), (f32)p[key][1].get<double>());
+			return true;
+		}
+		// "box" / "circle" -> the 0/1 both 2D components use.
+		bool AgentShape2D(const json& p, uint32& out, std::string& errOut)
+		{
+			if (!p.contains("shape")) return false;
+			std::string v = p.value("shape", std::string());
+			for (size_t i = 0; i < v.size(); i++) v[i] = (char)tolower((unsigned char)v[i]);
+			if (v == "box") out = 0;
+			else if (v == "circle") out = 1;
+			else { errOut = "shape must be box or circle"; return false; }
+			return true;
+		}
+	}
+
+	bool SceneEditor::AgentSetComponent2D(const std::string& kind, const std::string& name,
+		const json& p, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		const uint32 goId = obj->GetID();
+		const std::string before = SnapshotSubtree(goId);
+		std::string label;
+		Vec2 v2;
+		uint32 shape = 0;
+
+		if (kind == "occluder2d")
+		{
+			Occluder2D* oc = AgentFindComponent<Occluder2D>(go);
+			if (!oc) { errOut = "'" + name + "' has no Occluder2D"; return false; }
+			if (AgentShape2D(p, shape, errOut)) oc->SetShapeType(shape);
+			else if (!errOut.empty()) return false;
+			if (AgentVec2(p, "halfExtents", v2)) oc->SetSize(v2);
+			if (p.contains("enabled")) oc->SetEnabled(p["enabled"].get<bool>());
+			label = "Set Occluder 2D";
+		}
+		else if (kind == "physics2d")
+		{
+			Physics2D* ph = AgentFindComponent<Physics2D>(go);
+			if (!ph) { errOut = "'" + name + "' has no Physics2D"; return false; }
+			if (p.contains("bodyType"))
+			{
+				std::string bt = p.value("bodyType", std::string());
+				for (size_t i = 0; i < bt.size(); i++) bt[i] = (char)tolower((unsigned char)bt[i]);
+				if (bt == "static") ph->SetBodyType(Body2DType::Static);
+				else if (bt == "kinematic") ph->SetBodyType(Body2DType::Kinematic);
+				else if (bt == "dynamic") ph->SetBodyType(Body2DType::Dynamic);
+				else { errOut = "bodyType must be static, kinematic or dynamic"; return false; }
+			}
+			if (AgentShape2D(p, shape, errOut)) ph->SetShapeType(shape);
+			else if (!errOut.empty()) return false;
+			if (AgentVec2(p, "halfExtents", v2)) ph->SetSize(v2);
+			if (p.contains("density")) ph->SetDensity((f32)p["density"].get<double>());
+			if (p.contains("friction")) ph->SetFriction((f32)p["friction"].get<double>());
+			if (p.contains("bounciness")) ph->SetRestitution((f32)p["bounciness"].get<double>());
+			if (p.contains("fixedRotation")) ph->SetFixedRotation(p["fixedRotation"].get<bool>());
+			label = "Set Physics 2D";
+		}
+		else if (kind == "layer2d")
+		{
+			Layer2D* l = AgentFindComponent<Layer2D>(go);
+			if (!l) { errOut = "'" + name + "' has no Layer2D"; return false; }
+			if (AgentVec2(p, "parallax", v2)) l->SetParallax(v2);
+			if (p.contains("visible")) l->SetVisible(p["visible"].get<bool>());
+			label = "Set Layer 2D";
+		}
+		else if (kind == "sprite_animation")
+		{
+			RenderingComponent* rc = AgentFindComponent<RenderingComponent>(go);
+			TextureAnimationInstance* inst = rc
+				? static_cast<TextureAnimationInstance*>(rc->GetActiveTextureAnimation()) : NULL;
+			if (!inst || !inst->GetOwner())
+				{ errOut = "'" + name + "' has no sprite animation - slice_spritesheet first"; return false; }
+			if (p.contains("fps")) inst->SetFrameSpeed((f32)p["fps"].get<double>());
+			if (p.contains("pingPong")) inst->YoYo(p["pingPong"].get<bool>());
+			// Runtime, like the panel's Pause/Resume button.
+			if (p.contains("paused"))
+			{
+				const bool paused = p["paused"].get<bool>();
+				if (paused && !inst->IsPaused()) inst->Pause();
+				else if (!paused && inst->IsPaused()) inst->Play(inst->IsLooping() ? -1 : inst->GetRepeat());
+			}
+			label = "Set Sprite Animation";
+		}
+		else { errOut = "unknown 2D component '" + kind + "'"; return false; }
+
+		MarkSceneDirty();
+		PushReplaceCommand(goId, before, label);
+		return true;
 	}
 
 	bool SceneEditor::AgentAddOccluder2D(const std::string& name, std::string& errOut)
