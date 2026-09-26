@@ -3907,6 +3907,28 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// {"cmd":"set_clip2d","args":{"clip":"Walk","duration":1.2}}
+	// The clip bar's length field, on an existing clip (new_clip2d only
+	// sets it at creation). Same 0.05s floor as the field.
+	if (name == "set_clip2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		const std::string clipName = A("clip");
+		if (!a.is_object() || !a.contains("duration") || !a["duration"].is_number())
+			throw std::runtime_error("set_clip2d: 'duration' is required");
+		int idx = -1;
+		for (size_t i = 0; i < doc->anim.clips.size(); i++)
+			if (doc->anim.clips[i].AnimationName == clipName) idx = (int)i;
+		if (idx < 0) throw std::runtime_error("clip '" + clipName + "' not found");
+		const std::string before = doc->Snapshot();
+		doc->anim.clips[idx].Duration = std::max(0.05f, (float)a["duration"].get<double>());
+		doc->SyncClipsToAsset();
+		doc->clipsRevision++;
+		doc->PushEdit(before, "Set Clip Length");
+		nlohmann::json r; r["ok"] = true; r["duration"] = doc->anim.clips[idx].Duration;
+		return r;
+	}
+
 	// {"cmd":"set_default_clip2d","args":{"clip":"Walk","loop":true}}
 	// The clip a scene gets when it places this character and says nothing
 	// else, so a character that walks by default walks in every scene.
