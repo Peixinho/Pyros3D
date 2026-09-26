@@ -329,7 +329,7 @@ namespace p3d
 				echo("ERROR: G-buffer shader for material options " + std::to_string(gbufferOptions)
 					+ " failed to build - meshes using it will occlude but never light.");
 			else
-				echo("GBUFFER: built sibling program for options " + std::to_string(gbufferOptions)
+				echo("TRACE: GBUFFER built sibling program for options " + std::to_string(gbufferOptions)
 					+ " (program " + std::to_string(ShadersList[gbufferOptions]->ShaderProgram()) + ")");
 		}
 		return ShadersList[gbufferOptions]->ShaderProgram();

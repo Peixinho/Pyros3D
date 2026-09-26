@@ -17,7 +17,7 @@ namespace p3d {
 		// every light in one pass, so it can only reach the shadow maps
 		// PyrosShader.glsl's fixed arrays declare.
 		ShadowMapsAreArrayIndexed = true;
-		echo("SUCCESS: Forward Renderer Created");
+		echo("TRACE: Forward Renderer Created");
 
 		ActivateCulling(CullingMode::FrustumCulling);
 

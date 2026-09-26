@@ -24,7 +24,7 @@ namespace p3d {
 	DeferredRenderer::DeferredRenderer(const uint32 Width, const uint32 Height, FrameBuffer* fbo) : IRenderer(Width, Height)
 	{
 
-		echo("SUCCESS: Deferred Renderer Created");
+		echo("TRACE: Deferred Renderer Created");
 
 		ActivateCulling(CullingMode::FrustumCulling);
 

@@ -419,7 +419,7 @@ namespace p3d {
 						BoundingSphereCenter = Component->BoundingSphereCenter;
 					}
 				}
-				echo("SUCCESS: Component Added to GameObject");
+				echo("TRACE: Component Added to GameObject");
 			}
 			else {
 				echo("ERROR: Component Already in GameObject");
@@ -487,7 +487,7 @@ namespace p3d {
 		}
 		if (found)
 		{
-			echo("SUCCESS: Component Removed from GameObject");
+			echo("TRACE: Component Removed from GameObject");
 		}
 		else {
 			echo("ERROR: Component Not Found in GameObject");
@@ -549,7 +549,7 @@ namespace p3d {
 				// rendering. Costs nothing for the common case of a child
 				// that has just been built.
 				Child->_ComponentsChanged = true;
-				echo("SUCCESS: GameObject added as a Child");
+				echo("TRACE: GameObject added as a Child");
 			}
 		}
 		else {
@@ -585,7 +585,7 @@ namespace p3d {
 				{
 					_Childs.erase(i);
 					found = true;
-					echo("SUCCESS: GameObject Removed as a Child");
+					echo("TRACE: GameObject Removed as a Child");
 					break;
 				}
 			}

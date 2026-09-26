@@ -36,7 +36,15 @@ namespace p3d {
 				Error = 0,
 				Warning = 1,
 				Success = 2,
-				Info = 3
+				Info = 3,
+				// Engine lifecycle bookkeeping - "GameObject Added to Scene",
+				// "Component Added to GameObject", "Renderer Created". One
+				// line per object means hundreds per scene load, and in the
+				// editor most of them are its own grid, gizmos, preview
+				// scenes and cameras, which the user never made. Below Info
+				// so the editor's Log panel (which runs at Info) drops it;
+				// PYROS_LOG_LEVEL=4 brings it back when that trace is wanted.
+				Trace = 4
 			};
 		}
 
@@ -101,6 +109,7 @@ namespace p3d {
 				if (Message.compare(0, 6, "ERROR:") == 0) return Level::Error;
 				if (Message.compare(0, 8, "WARNING:") == 0) return Level::Warning;
 				if (Message.compare(0, 8, "SUCCESS:") == 0) return Level::Success;
+				if (Message.compare(0, 6, "TRACE:") == 0) return Level::Trace;
 				return Level::Info;
 			}
 
@@ -158,7 +167,7 @@ namespace p3d {
 				if (!_initiated)
 				{
 					_initiated = true;
-					// PYROS_LOG_LEVEL=0..3 (Error/Warning/Success/Info)
+					// PYROS_LOG_LEVEL=0..4 (Error/Warning/Success/Info/Trace)
 					// raises _threshold before the first line is emitted.
 					// The default drops everything below Warning, which is
 					// right for normal use and useless when a downloaded
@@ -167,7 +176,7 @@ namespace p3d {
 					if (const char *lvl = getenv("PYROS_LOG_LEVEL"))
 					{
 						const int parsed = atoi(lvl);
-						if (parsed >= Level::Error && parsed <= Level::Info)
+						if (parsed >= Level::Error && parsed <= Level::Trace)
 							_threshold = parsed;
 					}
 					_message("=== Pyros3D Start ===");

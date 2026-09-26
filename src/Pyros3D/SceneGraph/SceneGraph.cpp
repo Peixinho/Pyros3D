@@ -15,7 +15,7 @@ namespace p3d {
 
 	SceneGraph::SceneGraph()
 	{
-		echo("SUCCESS: Scene Created");
+		echo("TRACE: Scene Created");
 	}
 
 	void SceneGraph::Add(const std::shared_ptr<GameObject> &GO)
@@ -61,7 +61,7 @@ namespace p3d {
 				if (_max.y > maxBounds.y) maxBounds.y = _max.y;
 				if (_max.z > maxBounds.z) maxBounds.z = _max.z;
 
-				echo("SUCCESS: GameObject Added to Scene");
+				echo("TRACE: GameObject Added to Scene");
 
 			}
 			else {
@@ -122,10 +122,10 @@ namespace p3d {
 				}
 			}
 		}
-		if (!found) echo("GameObject Not Found in Scene");
+		if (!found) echo("TRACE: GameObject Not Found in Scene");
 		else
 		{
-			echo("SUCCESS: GameObject Removed from Scene");
+			echo("TRACE: GameObject Removed from Scene");
 			// Was never pruned here before - left GetAllGameObjectList()
 			// returning dangling/removed entries after any Remove() call.
 			std::vector<std::shared_ptr<GameObject>>::iterator all_it = std::find_if(

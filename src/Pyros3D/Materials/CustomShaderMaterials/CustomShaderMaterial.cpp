@@ -49,11 +49,18 @@ namespace p3d
 			InternalShader.reset(new Shader());
 			shader = InternalShader.get();
 
-			shader->LoadShaderFile(ShaderFile.c_str());
-			shader->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
-			shader->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
+			// No file is a placeholder the caller fills with SetShader() (the
+			// Material Editor builds one per Custom material before compiling
+			// the real shader). Compiling nothing put a pair of "Missing
+			// entry point" failures in the log on every SPIR-V backend.
+			if (!ShaderFile.empty())
+			{
+				shader->LoadShaderFile(ShaderFile.c_str());
+				shader->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
+				shader->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
 
-			shader->LinkProgram();
+				shader->LinkProgram();
+			}
 		}
 
 		// Get Shader Program

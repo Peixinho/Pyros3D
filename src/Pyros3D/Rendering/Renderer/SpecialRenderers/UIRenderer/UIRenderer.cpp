@@ -14,7 +14,7 @@ namespace p3d {
 
 	UIRenderer::UIRenderer(const uint32 Width, const uint32 Height) : IRenderer(Width, Height)
 	{
-		echo("SUCCESS: UI Renderer Created");
+		echo("TRACE: UI Renderer Created");
 
 		// Only UI meshes, and nothing else sees them - see RenderLayer in
 		// RenderingComponent.h.

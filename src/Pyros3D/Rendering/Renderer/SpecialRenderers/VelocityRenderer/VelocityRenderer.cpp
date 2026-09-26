@@ -14,7 +14,7 @@ namespace p3d {
 	VelocityRenderer::VelocityRenderer(const uint32 Width, const uint32 Height) : IRenderer(Width, Height)
 	{
 
-		echo("SUCCESS: Velocity Renderer Created");
+		echo("TRACE: Velocity Renderer Created");
 
 		// Don't frustum-cull the velocity pass: a mismatched VP (or a
 		// shared-UBO hangover from Forward PreRender shadows) can drop

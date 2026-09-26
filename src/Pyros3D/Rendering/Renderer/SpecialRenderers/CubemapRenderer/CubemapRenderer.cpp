@@ -14,7 +14,7 @@ namespace p3d {
 	CubemapRenderer::CubemapRenderer(const uint32 Width, const uint32 Height) : IRenderer(Width, Height)
 	{
 
-		echo("SUCCESS: Forward Renderer Created");
+		echo("TRACE: Forward Renderer Created");
 
 		ActivateCulling(CullingMode::FrustumCulling);
 
