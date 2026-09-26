@@ -1005,7 +1005,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		|| name == "key_animation_pose" || name == "set_animation_keyframe"
 		|| name == "delete_animation_keyframe" || name == "set_animation_pose"
 		|| name == "add_animation_clip" || name == "remove_animation_clip"
-		|| name == "rename_animation_clip" || name == "set_animation_clip_duration"
+		|| name == "rename_animation_clip" || name == "set_animation_clip_duration" || name == "set_animation_clip"
 		|| name == "select_animation_bone" || name == "undo_animation" || name == "redo_animation"
 		|| name == "animation_blend" || name == "animation_ik" || name == "animation_joint_limit")
 	{
@@ -1303,17 +1303,48 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			return r;
 		}
 
-		if (name == "set_animation_clip_duration")
+		// The Clip Settings section: duration, Loop, Apply scale keys and
+		// Authored fps, any subset, as one undo step.
+		// set_animation_clip_duration is the older name and still works.
+		if (name == "set_animation_clip_duration" || name == "set_animation_clip")
 		{
 			const int clip = clipIndexArg("clip");
 			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
-			if (!a.is_object() || !a.contains("duration") || !a["duration"].is_number())
+			const bool hasDur = a.is_object() && a.contains("duration") && a["duration"].is_number();
+			if (name == "set_animation_clip_duration" && !hasDur)
 				throw std::runtime_error("duration required");
-			const float dur = (float)a["duration"].get<double>();
-			doc->PushSnapshotEdit("Change clip length", [&]() { doc->SetClipDuration(clip, dur); });
+			const bool hasLoop = a.is_object() && a.contains("loop") && a["loop"].is_boolean();
+			const bool hasScale = a.is_object() && a.contains("applyScale") && a["applyScale"].is_boolean();
+			const bool hasFps = a.is_object() && a.contains("authoredFps") && a["authoredFps"].is_number();
+			if (!hasDur && !hasLoop && !hasScale && !hasFps)
+				throw std::runtime_error("give duration, loop, applyScale or authoredFps");
+			doc->PushSnapshotEdit("Change clip settings", [&]() {
+				Animation& c = doc->clips[clip];
+				if (hasDur) doc->SetClipDuration(clip, (float)a["duration"].get<double>());
+				if (hasLoop)
+				{
+					if (a["loop"].get<bool>()) c.Flags |= p3d::ANIM_FLAG_LOOP;
+					else c.Flags &= ~(uint32_t)p3d::ANIM_FLAG_LOOP;
+				}
+				if (hasScale)
+				{
+					if (a["applyScale"].get<bool>()) c.Flags |= p3d::ANIM_FLAG_APPLY_SCALE;
+					else c.Flags &= ~(uint32_t)p3d::ANIM_FLAG_APPLY_SCALE;
+				}
+				if (hasFps)
+				{
+					c.AuthoredFps = std::min(240.f, std::max(1.f, (float)a["authoredFps"].get<double>()));
+					doc->snapFps = c.AuthoredFps;
+				}
+			});
+			if (hasScale) doc->clipsRevision++;
+			const Animation& c = doc->clips[clip];
 			nlohmann::json r;
 			r["clip"] = clip;
-			r["duration"] = doc->clips[clip].Duration;
+			r["duration"] = c.Duration;
+			r["loop"] = c.HasFlag(p3d::ANIM_FLAG_LOOP);
+			r["applyScale"] = c.HasFlag(p3d::ANIM_FLAG_APPLY_SCALE);
+			r["authoredFps"] = c.AuthoredFps;
 			return r;
 		}
 
@@ -1348,6 +1379,9 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			q.SetRotationFromEuler(Vec3((f32)DEGTORAD(eulerDeg.x), (f32)DEGTORAD(eulerDeg.y), (f32)DEGTORAD(eulerDeg.z)));
 			Matrix m = q.ConvertToMatrix();
 			m.Translate(pos);
+			// "bind": true is the panel's Reset to Bind.
+			if (a.is_object() && a.value("bind", false))
+				m = pv->instance->GetBindPoseLocal(boneId);
 
 			pv->poseOverrides[boneId] = m;
 			pv->instance->SetBoneLocalTransform(boneId, m);
@@ -1355,6 +1389,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			doc->selectedBone = boneId;
 			doc->selectedBoneName = boneName;
 
+			// What the bone holds now, not what was asked for - the two
+			// differ for "bind", and reporting the request would hide it.
+			{
+				Matrix now = pv->instance->GetBoneLocalTransform(boneId);
+				pos = now.GetTranslation();
+				const Vec3 e = now.GetEulerFromRotationMatrix();
+				eulerDeg = Vec3((f32)RADTODEG(e.x), (f32)RADTODEG(e.y), (f32)RADTODEG(e.z));
+			}
 			nlohmann::json r;
 			r["bone"] = boneName;
 			r["position"] = { pos.x, pos.y, pos.z };
