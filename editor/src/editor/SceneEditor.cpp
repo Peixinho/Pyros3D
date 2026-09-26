@@ -2111,6 +2111,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (grid && go == grid.get()) return true;
 		if (Camera && go == Camera.get()) return true;
 		if (CameraPivot && go == CameraPivot.get()) return true;
+		// The light/camera/sound icons are GameObjects in the scene too.
+		// Missing from this list, they showed up in scene_state as
+		// unnamed objects beside what the user actually placed.
+		if (dynamic_cast<IHelper*>(go) != NULL) return true;
 		return false;
 	}
 
@@ -13009,15 +13013,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				direction = Vec3((f32)p["direction"][0].get<double>(), (f32)p["direction"][1].get<double>(), (f32)p["direction"][2].get<double>());
 		}
 
+		// The component name, or the Add menu's short name, in any case.
+		std::string kind;
+		for (size_t i = 0; i < type.size(); i++) kind += (char)tolower((unsigned char)type[i]);
+		if (kind.size() > 5 && kind.compare(kind.size() - 5, 5, "light") == 0) kind.resize(kind.size() - 5);
 		SceneObject* lightObj = NULL;
-		if (type == "DirectionalLight")
+		if (kind == "directional")
 			lightObj = sceneObjects->CreateDirectionalLight(go, direction, color);
-		else if (type == "PointLight")
+		else if (kind == "point")
 			lightObj = sceneObjects->CreatePointLight(go, F("radius", 10.f), color);
-		else if (type == "SpotLight")
+		else if (kind == "spot")
 			lightObj = sceneObjects->CreateSpotLight(go, F("radius", 10.f), direction, F("outer", 45.f), F("inner", 30.f), color);
 		else
-			{ errOut = "unknown light type '" + type + "'"; sceneObjects->DestroySceneObject(obj->GetID()); return false; }
+			{ errOut = "unknown light type '" + type + "' (directional, point, spot)"; sceneObjects->DestroySceneObject(obj->GetID()); return false; }
 
 		if (!lightObj)
 		{

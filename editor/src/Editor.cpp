@@ -1965,6 +1965,98 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// The Assets panel's context menu, for what the socket could not reach.
+	// Paths are project-relative or absolute, as elsewhere.
+	//
+	// {"cmd":"open_asset","args":{"path":"assets/lua/player.lua"}}
+	// Opens the asset in its editor window: scene, script, material,
+	// animation, 2D character or tile set; a model opens the Animation
+	// Editor on it ("Animate This Model").
+	if (name == "open_asset" || name == "place_asset")
+	{
+		if (!project.IsOpen()) throw std::runtime_error("no project open");
+		const std::string rel = A("path");
+		if (rel.empty()) throw std::runtime_error("'path' is required");
+		const std::string abs = project.AbsolutePath(rel);
+		if (!fs::exists(abs)) throw std::runtime_error("no such file " + rel);
+		bool ok = false;
+		std::string kind;
+		if (name == "place_asset")
+		{
+			// "Place in Scene": models, sounds and 2D characters.
+			if (!(ProjectManager::IsP3dm(rel) || ProjectManager::IsSoundExtension(rel)
+				|| ProjectManager::IsCharacter2DExtension(rel)))
+				throw std::runtime_error("only models (.p3dm), sounds and 2D characters can be placed");
+			ok = sceneView && sceneView->PlaceAssetInScene(abs);
+			kind = "placed";
+		}
+		else if (ProjectManager::IsLuaExtension(rel)) { ok = OpenLuaScriptDocument(abs); kind = "script"; }
+		else if (ProjectManager::IsMaterialExtension(rel)) { ok = OpenMaterialDocument(abs); kind = "material"; }
+		else if (ProjectManager::IsAnimationExtension(rel)) { ok = OpenAnimationDocument(abs); kind = "animation"; }
+		else if (ProjectManager::IsCharacter2DExtension(rel)) { ok = OpenCharacter2DDocument(abs); kind = "character2d"; }
+		else if (ProjectManager::IsP3dm(rel)) { ok = OpenAnimationDocument(abs); kind = "animation"; }
+		else if (rel.size() > 5 && rel.compare(rel.size() - 5, 5, ".p3dt") == 0) { ok = OpenTileSetDocument(abs); kind = "tileset"; }
+		else if (!ProjectManager::IsSceneSidecarPath(rel) && rel.size() > 5
+			&& rel.compare(rel.size() - 5, 5, ".json") == 0) { ok = OpenSceneDocument(abs); kind = "scene"; }
+		else throw std::runtime_error("no editor opens " + rel);
+		if (!ok) throw std::runtime_error("could not open " + rel);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["kind"] = kind;
+		return r;
+	}
+	// "Create Tile Set..." on a texture - the modal's four numbers. Written
+	// beside the image as <image>.p3dt, as the modal does.
+	// {"cmd":"create_tileset","args":{"image":"assets/textures/tiles.png","tileWidth":16,"tileHeight":16}}
+	if (name == "create_tileset")
+	{
+		if (!project.IsOpen()) throw std::runtime_error("no project open");
+		std::string rel = A("image");
+		if (rel.empty()) throw std::runtime_error("'image' is required");
+		if (fs::path(rel).is_absolute()) rel = project.RelativePath(rel);
+		if (rel.empty()) throw std::runtime_error("the image must be inside the project");
+		p3d::int32 iw = 0, ih = 0;
+		if (!p3d::TileSet2DReadImageSize(project.AbsolutePath(rel), iw, ih))
+			throw std::runtime_error("could not read " + rel);
+		p3d::TileSet2D ts;
+		ts.image = rel;
+		ts.tileW = std::max(1, a.value("tileWidth", 16));
+		ts.tileH = std::max(1, a.value("tileHeight", 16));
+		ts.margin = std::max(0, a.value("margin", 0));
+		ts.spacing = std::max(0, a.value("spacing", 0));
+		ts.SetImageSize(iw, ih);
+		if (ts.TileCount() == 0)
+			throw std::runtime_error("no whole tile fits - the size or margin is too large");
+		std::string out = rel;
+		const size_t dot = out.find_last_of('.');
+		if (dot != std::string::npos) out = out.substr(0, dot);
+		out += ".p3dt";
+		std::string terr;
+		if (!p3d::SaveTileSet2D(project.AbsolutePath(out), ts, &terr))
+			throw std::runtime_error("could not write " + out + ": " + terr);
+		nlohmann::json r;
+		r["path"] = out;
+		r["columns"] = (int)ts.Columns();
+		r["rows"] = (int)ts.Rows();
+		r["tiles"] = (int)ts.TileCount();
+		return r;
+	}
+	// Assets > New Animation... - an unsaved Animation Editor document on a
+	// rig (a project model, or none). Written when saved (save_animation).
+	if (name == "new_animation")
+	{
+		if (!project.IsOpen()) throw std::runtime_error("no project open");
+		std::string rig = A("rig");
+		if (!rig.empty() && fs::path(rig).is_absolute()) rig = project.RelativePath(rig);
+		if (!rig.empty() && !fs::exists(project.AbsolutePath(rig)))
+			throw std::runtime_error("no such model " + rig);
+		if (NewAnimationDocument(rig) == NULL)
+			throw std::runtime_error("could not create the document");
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+
 	// The File menu's other project items and the Project Settings modal.
 	// {"cmd":"new_project","args":{"parentDir":"/abs/dir","name":"MyGame"}}
 	if (name == "new_project")
