@@ -633,6 +633,21 @@ namespace p3d {
 		// GL, just for a different reason (GL has no command buffer at
 		// all; this has one real one, shared for the whole frame).
 		bool frameInProgress;
+		// Why the dynamic UBO rings stopped being reset, reported with the
+		// "ring exhausted" warning. The reset lives in BeginFrame() after
+		// its early returns, so a run of skipped BeginFrames while the
+		// editor keeps drawing offscreen is what exhausts a ring - and
+		// which early return it was is the whole diagnosis.
+		struct RingResetStats
+		{
+			uint64 beginFrameCalls = 0;
+			uint64 lastResetCall = 0;
+			uint64 skippedInProgress = 0;
+			uint64 skippedNoSwapchain = 0;
+			uint64 skippedNoFramebuffers = 0;
+			uint64 skippedFenceWait = 0;
+		} ringStats;
+
 		uint32 currentImageIndex;
 
 		// Invoked by EndFrame() with the still-recording frameCommandBuffer,
@@ -1134,6 +1149,18 @@ namespace p3d {
 			}
 		};
 		std::map<DeviceHandle, BufferRecord> buffers;
+
+		// Buffers destroyed while a frame was recording. The frame's command
+		// buffer may already reference them - a particle emitter switched to
+		// GPU from the Properties panel deletes the attribute buffer it drew
+		// with a moment earlier - and freeing them then is a use-after-free
+		// on the GPU: MoltenVK loses the device, every later fence wait
+		// fails at once, and the dynamic UBO rings stop being reset. So
+		// they wait here, per frame slot, until that slot's fence says the
+		// GPU is done. See RetireOrDestroyBufferRecord().
+		std::vector<BufferRecord> retiredBuffers[MAX_FRAMES_IN_FLIGHT];
+		void RetireOrDestroyBufferRecord(BufferRecord &rec);
+		void ReleaseRetiredBuffers(const uint32 slot);
 		DeviceHandle nextBufferHandle;
 		bool AllocHostVisibleVertexBuffer(uint32 allocLength, VkBuffer *outBuffer, VmaAllocation *outAllocation, void **outMapped);
 		void DestroyBufferRecordResources(BufferRecord &rec);

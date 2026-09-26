@@ -297,6 +297,8 @@ namespace p3d {
 				if (it->second.image != VK_NULL_HANDLE) vmaDestroyImage(allocator, it->second.image, it->second.allocation);
 			}
 			textures.clear();
+			for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+				ReleaseRetiredBuffers(i);
 			for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); it++)
 				vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
 			buffers.clear();
@@ -1053,6 +1055,7 @@ namespace p3d {
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
 		if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
 			return false;
+		ReleaseRetiredBuffers(currentFrameSlot);
 
 		// Do not reset frameFence until acquire has actually succeeded -
 		// see BeginFrame()'s comment on the same sequencing bug (resetting
@@ -1315,6 +1318,7 @@ namespace p3d {
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
 		if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
 			return false;
+		ReleaseRetiredBuffers(currentFrameSlot);
 
 		// Do not reset frameFence until acquire has actually succeeded -
 		// see BeginFrame()'s comment on the same sequencing bug (resetting
@@ -1434,8 +1438,13 @@ namespace p3d {
 
 	void VulkanRenderDevice::BeginFrame()
 	{
+		ringStats.beginFrameCalls++;
 		if (swapchain == VK_NULL_HANDLE || frameInProgress)
+		{
+			if (frameInProgress) ringStats.skippedInProgress++;
+			else ringStats.skippedNoSwapchain++;
 			return;
+		}
 
 		hostMappedBuffersSafeThisFrame = false;
 
@@ -1458,6 +1467,7 @@ namespace p3d {
 		// mode this exists to close off.
 		if (framebuffers.empty() || renderPass == VK_NULL_HANDLE)
 		{
+			ringStats.skippedNoFramebuffers++;
 			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
 			return;
 		}
@@ -1477,8 +1487,13 @@ namespace p3d {
 		{
 			PYROS_PROFILE_SCOPE("VK.WaitFence");
 			if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
+			{
+				ringStats.skippedFenceWait++;
 				return;
+			}
 		}
+		ringStats.lastResetCall = ringStats.beginFrameCalls;
+		ReleaseRetiredBuffers(currentFrameSlot);
 
 		// The previous frame's GPU work is now complete - that is exactly
 		// what the wait above establishes - so every dynamic UBO slot is
@@ -3251,6 +3266,13 @@ namespace p3d {
 					it->second.warnedExhausted = true;
 					fprintf(stderr, "VulkanRenderDevice: dynamic UBO ring exhausted mid-frame - buffer %llu, %u writes into %u slots. Every draw after this point reads another draw's uniforms.\n",
 						(unsigned long long)buffer, it->second.writesThisFrame, it->second.slotCount);
+					// Why the ring was not reset: BeginFrame calls since its
+					// last reset, and which early return each took.
+					fprintf(stderr, "  last ring reset %llu BeginFrame call(s) ago; skipped since start: in-progress %llu, no-swapchain %llu, no-framebuffers %llu, fence-timeout %llu; frameInProgress=%d\n",
+						(unsigned long long)(ringStats.beginFrameCalls - ringStats.lastResetCall),
+						(unsigned long long)ringStats.skippedInProgress, (unsigned long long)ringStats.skippedNoSwapchain,
+						(unsigned long long)ringStats.skippedNoFramebuffers, (unsigned long long)ringStats.skippedFenceWait,
+						(int)frameInProgress);
 				}
 			}
 			it->second.currentSlot = (it->second.currentSlot + 1) % it->second.slotCount;
@@ -3372,7 +3394,7 @@ namespace p3d {
 		if (it == buffers.end() || allocator == VK_NULL_HANDLE)
 			return;
 		EnsureHostMappedBufferWritable();
-		DestroyBufferRecordResources(it->second);
+		RetireOrDestroyBufferRecord(it->second);
 
 		uint32 allocLength = (length == 0) ? 4 : length;
 		const bool useStreamRing = (bufferDraw == Buffer::Draw::Stream || bufferDraw == Buffer::Draw::Dynamic);
@@ -3445,7 +3467,7 @@ namespace p3d {
 		if (it == buffers.end())
 			return;
 		EnsureHostMappedBufferWritable();
-		DestroyBufferRecordResources(it->second);
+		RetireOrDestroyBufferRecord(it->second);
 		buffers.erase(it);
 	}
 
@@ -3514,6 +3536,38 @@ namespace p3d {
 		rec.buffer = VK_NULL_HANDLE;
 		rec.allocation = VK_NULL_HANDLE;
 		rec.mapped = NULL;
+	}
+
+	// Destroy now, unless a frame is recording - see retiredBuffers.
+	void VulkanRenderDevice::RetireOrDestroyBufferRecord(BufferRecord &rec)
+	{
+		if (!frameInProgress)
+		{
+			DestroyBufferRecordResources(rec);
+			return;
+		}
+		retiredBuffers[currentFrameSlot].push_back(rec);
+		// The resources belong to the retired copy now.
+		rec.buffer = VK_NULL_HANDLE;
+		rec.allocation = VK_NULL_HANDLE;
+		rec.mapped = NULL;
+		rec.streamRingCount = 0;
+		for (uint32 i = 0; i < BufferRecord::kMaxStreamRing; i++)
+		{
+			rec.streamBuffers[i] = VK_NULL_HANDLE;
+			rec.streamAllocations[i] = VK_NULL_HANDLE;
+			rec.streamMapped[i] = NULL;
+		}
+	}
+
+	// Called once `slot`'s fence has signalled: nothing it recorded can
+	// still be reading these.
+	void VulkanRenderDevice::ReleaseRetiredBuffers(const uint32 slot)
+	{
+		std::vector<BufferRecord> &list = retiredBuffers[slot];
+		for (size_t i = 0; i < list.size(); i++)
+			DestroyBufferRecordResources(list[i]);
+		list.clear();
 	}
 
 	void *VulkanRenderDevice::MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType)
