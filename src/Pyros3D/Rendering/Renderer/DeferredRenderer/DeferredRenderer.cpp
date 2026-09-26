@@ -795,9 +795,12 @@ namespace p3d {
 		// reason: don't hijack the active command buffer if this
 		// RenderScene() call is itself targeting a caller-bound offscreen
 		// FBO (e.g. a reflection pass) rather than the real swapchain.
+		// And only end a frame this call opened - see ForwardRenderer's
+		// identical ownFrame for what ending someone else's frame did.
 		bool isMainSwapchainPass = device->GetCurrentRenderTarget() == 0;
+		const bool ownFrame = isMainSwapchainPass && !device->IsFrameInProgress();
 
-		if (isMainSwapchainPass)
+		if (ownFrame)
 			device->BeginFrame();
 
 		// Clear the framebuffer the CALLER left bound, before this renderer
@@ -1637,7 +1640,7 @@ namespace p3d {
 
 		EndRender();
 
-		if (isMainSwapchainPass)
+		if (ownFrame)
 			device->EndFrame();
 	}
 

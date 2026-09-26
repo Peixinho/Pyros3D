@@ -1074,6 +1074,15 @@ void PyrosPlayer::Update()
 	if (AudioManager* audio = AudioManager::GetActive())
 		if (activeCamera) audio->SetListenerFromGameObject(activeCamera, dt);
 
+	// One frame for the scene, the post chain and the UI below. Left to
+	// themselves the renderer presented the scene and UIRenderer then opened
+	// and presented a second frame holding only the HUD over black - every
+	// game with a HUD flickered.
+	IRenderDevice &device = GetActiveRenderDevice();
+	const bool ownFrame = device.GetCurrentRenderTarget() == 0 && !device.IsFrameInProgress();
+	if (ownFrame)
+		device.BeginFrame();
+
 	renderer->ResetViewPort();
 	renderer->SetViewPort(0, 0, Width, Height);
 	renderer->PreRender(activeCamera, scene);
@@ -1132,6 +1141,9 @@ void PyrosPlayer::Update()
 			uiRenderer->RenderUI(overlayScene);
 		DispatchUIInput();
 	}
+
+	if (ownFrame)
+		device.EndFrame();
 
 #ifdef LUA_BINDINGS
 	// Between frames, never inside one: the script that asked for the

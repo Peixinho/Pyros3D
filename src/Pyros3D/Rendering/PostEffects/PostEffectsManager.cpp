@@ -596,6 +596,10 @@ namespace p3d {
 		}
 
 		IEffect *lastEffect = effects.back();
+		// Only a frame opened here is ended here - see ForwardRenderer's
+		// ownFrame. An application that composites a HUD after the chain
+		// holds the frame open itself.
+		const bool ownFrame = !device->IsFrameInProgress();
 		device->BeginFrame();
 		device->SetViewport(0, 0, Width, Height);
 		{
@@ -615,7 +619,8 @@ namespace p3d {
 		// unaffected by this); guarded by frameInProgress on Vulkan, so
 		// harmless if BeginFrame() above was itself a no-op (already in
 		// progress from something else).
-		device->EndFrame();
+		if (ownFrame)
+			device->EndFrame();
 
 		// See sceneClearColor's comment above - hand the scene's own clear
 		// colour back so the next frame's CaptureFrame() bind clears to it.

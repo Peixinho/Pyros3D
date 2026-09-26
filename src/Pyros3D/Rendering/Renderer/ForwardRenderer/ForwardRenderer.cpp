@@ -238,8 +238,16 @@ namespace p3d {
 		// pass, but the actual draw landing in the swapchain's) once
 		// color-attachment FBOs started working at all, exposing a call
 		// pattern that was never reachable before.
+		//
+		// And only a frame this call OPENED is this call's to end. An
+		// application that draws more after the 3D pass - a HUD through
+		// UIRenderer, a second scene - opens the frame itself, and ending it
+		// here presented the scene alone; the HUD then opened a second frame,
+		// cleared to black, and presented that. Half the frames on screen
+		// were a HUD over black.
 		bool isMainSwapchainPass = device->GetCurrentRenderTarget() == 0;
-		if (isMainSwapchainPass)
+		const bool ownFrame = isMainSwapchainPass && !device->IsFrameInProgress();
+		if (ownFrame)
 			device->BeginFrame();
 
 		// Viewport/scissor/depth-clear moved here, after BeginFrame() opens
@@ -340,7 +348,7 @@ namespace p3d {
 		EndRender();
 
 		// See the comment on BeginFrame() above.
-		if (isMainSwapchainPass)
+		if (ownFrame)
 			device->EndFrame();
 	}
 };

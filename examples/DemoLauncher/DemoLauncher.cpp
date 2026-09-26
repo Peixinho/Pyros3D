@@ -382,6 +382,15 @@ void DemoLauncher::Update()
 		PrepareImGuiFrame();
 	}
 
+	// One frame for the 3D pass, the post chain and the scene's HUD, all of
+	// which RenderHost.draw issues. Left to themselves the renderer presented
+	// the scene and UIRenderer then opened and presented a second frame
+	// holding only the HUD over black - every demo with a canvas flickered.
+	IRenderDevice &device = GetActiveRenderDevice();
+	const bool ownFrame = device.GetCurrentRenderTarget() == 0 && !device.IsFrameInProgress();
+	if (ownFrame)
+		device.BeginFrame();
+
 	{
 		PYROS_PROFILE_SCOPE("RenderHost.Draw");
 		sol::table host = lua["RenderHost"];
@@ -408,6 +417,10 @@ void DemoLauncher::Update()
 		PYROS_PROFILE_SCOPE("ImGui.End");
 		EndImGuiFrame();
 	}
+
+	// ImGui records into this through the device's UIRenderHook.
+	if (ownFrame)
+		device.EndFrame();
 }
 
 
