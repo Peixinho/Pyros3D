@@ -2529,7 +2529,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	if (name == "apply_ui_style")
 	{
-		if (!sceneView->AgentApplyUIStyle(A("object"), A("style"), err))
+		if (!sceneView->AgentApplyUIStyle(A("object").empty() ? A("name") : A("object"), A("style"), err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -2543,7 +2543,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	if (name == "revert_ui_style")
 	{
-		if (!sceneView->AgentRevertUIStyle(A("object"), err))
+		if (!sceneView->AgentRevertUIStyle(A("object").empty() ? A("name") : A("object"), err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -2551,7 +2551,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	if (name == "clear_ui_style")
 	{
-		if (!sceneView->AgentClearUIStyle(A("object"), err))
+		if (!sceneView->AgentClearUIStyle(A("object").empty() ? A("name") : A("object"), err))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;

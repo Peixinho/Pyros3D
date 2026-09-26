@@ -2912,9 +2912,28 @@ void SceneEditor::PushUIPropertyUndo(uint32 goId, const json& before, const json
 				if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect)
 				{ rect = static_cast<UIRect*>(cs[i].get()); break; }
 			if (rect && !rect->GetStyleRef().empty())
+			{
+				// Only what the linked style actually sets can override it.
+				// A style carries look, never layout, so recording pivot or an
+				// anchor here listed it as overridden and made Revert look
+				// broken: it cleared the list and left the value alone,
+				// because the style had nothing to put back. If the style
+				// cannot be read, every changed key counts, as before.
+				nlohmann::json styled;
+				bool haveStyled = false;
+				{
+					const std::string ref = rect->GetStyleRef();
+					const std::string abs = (project && project->IsOpen()) ? project->AbsolutePath(ref) : ref;
+					nlohmann::json style;
+					std::string rerr;
+					if (uistyle::ReadJsonFile(abs, style))
+						haveStyled = uistyle::Resolve(style, uistyle::LoadPalette(UIStylePalettePath()), styled, rerr);
+				}
 				for (json::const_iterator it = after.begin(); it != after.end(); ++it)
 					if (before.find(it.key()) == before.end() || before[it.key()] != it.value())
-						rect->AddStyleOverride(it.key());
+						if (!haveStyled || styled.contains(it.key()))
+							rect->AddStyleOverride(it.key());
+			}
 		}
 
 	sceneUndo.Push(std::make_unique<ApplyClosureCommand>(

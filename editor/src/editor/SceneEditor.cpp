@@ -11700,7 +11700,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				j["pivot"] = { (double)r->GetPivot().x, (double)r->GetPivot().y };
 				if (!r->IsVisible()) j["visible"] = false;
 				if (r->IsClipChildren()) j["clip"] = true;
-				if (!r->GetStyleRef().empty()) j["styleRef"] = r->GetStyleRef();
+				if (!r->GetStyleRef().empty())
+				{
+					j["styleRef"] = r->GetStyleRef();
+					// The fields this widget overrides locally - what the
+					// panel lists beside Revert.
+					if (!r->GetStyleOverrides().empty()) j["styleOverrides"] = r->GetStyleOverrides();
+				}
 				return j;
 			}
 			case ComponentType::UIImage:
@@ -13610,7 +13616,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (playMode) { errOut = "editor is in play mode"; return false; }
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
 		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
-		return OpApplyUIStyle(obj->GetID(), stylePath, errOut);
+		// A bare name ("Primary") is looked up the way the Style combo
+		// lists them - by file stem - so what extract_ui_style was given
+		// is what apply_ui_style takes back.
+		std::string path = stylePath;
+		if (path.find('/') == std::string::npos && path.find('.') == std::string::npos)
+		{
+			const std::vector<std::string> styles = ListUIStyles();
+			std::string match;
+			for (size_t i = 0; i < styles.size(); i++)
+				if (std::filesystem::path(styles[i]).stem().string() == path) match = styles[i];
+			if (match.empty())
+			{
+				errOut = "no UI style named '" + path + "' (list_ui_styles shows them)";
+				return false;
+			}
+			path = match;
+		}
+		return OpApplyUIStyle(obj->GetID(), path, errOut);
 	}
 
 	bool SceneEditor::AgentExtractUIStyle(const std::string& objectName, const std::string& name,
