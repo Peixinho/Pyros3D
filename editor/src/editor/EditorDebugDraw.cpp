@@ -79,86 +79,134 @@ static bool shouldSkipGO(GameObject* go, GameObject* skipA, GameObject* skipB, G
 	return go == skipA || go == skipB || go == skipC;
 }
 
-static void drawFrustum(DebugRenderer* dbg, const Vec3& pos, const Vec3& forward, const Vec3& upHint,
-	float fovDeg, float aspect, float n, float f, const Vec4& color,
-	bool orthographic = false, float orthoSize = 10.f)
+// An arc of the circle around `center` in the plane spanned by the unit
+// vectors x and y, from angle a0 to a1 (radians, measured from x toward y).
+static void drawArc(DebugRenderer* dbg, const Vec3& center, const Vec3& x, const Vec3& y,
+	float radius, float a0, float a1, const Vec4& color, int segments = 24)
 {
-	Vec3 fwd = forward.normalize();
-	Vec3 right = (fwd.cross(upHint)).normalize();
-	Vec3 up = (right.cross(fwd)).normalize();
+	Vec3 prev = center + x * (cosf(a0) * radius) + y * (sinf(a0) * radius);
+	for (int i = 1; i <= segments; i++) {
+		float a = a0 + (a1 - a0) * ((float)i / segments);
+		Vec3 p = center + x * (cosf(a) * radius) + y * (sinf(a) * radius);
+		dbg->drawLine(prev, p, color);
+		prev = p;
+	}
+}
+
+// A light's direction is stored in its owner's LOCAL space - every renderer
+// transforms it by the owner's world matrix before use (see
+// ForwardRenderer/DeferredRenderer). Drawing the raw vector showed where the
+// light would point on an unrotated object, so rotating a light with the
+// gizmo left its arrow/cone pointing the old way while the lighting moved.
+static Vec3 lightWorldDirection(GameObject* go, const Vec3& localDir) {
+	Vec3 d = (go->GetWorldTransformation() * Vec4(localDir, 0.f)).xyz();
+	return d.magnitude() > 1e-6f ? d.normalize() : Vec3(0, 0, -1);
+}
+
+// The camera's basis straight from its world matrix: the frustum rolls with
+// the camera. This used to rebuild "up" from a fixed world-Y hint, which
+// dropped any roll the camera had and produced NaNs (the cross product
+// collapses) for a camera looking straight up or down - a top-down camera,
+// the most common 2.5D setup, drew no frustum at all.
+static void cameraBasis(GameObject* cam, Vec3& fwd, Vec3& right, Vec3& up) {
+	const Matrix& M = cam->GetWorldTransformation();
+	fwd = Vec3(-M.m[8], -M.m[9], -M.m[10]).normalize();
+	up = Vec3(M.m[4], M.m[5], M.m[6]).normalize();
+	right = fwd.cross(up).normalize();
+	up = right.cross(fwd).normalize();
+}
+
+static void drawRect(DebugRenderer* dbg, const Vec3& c, const Vec3& right, const Vec3& up,
+	float hw, float hh, const Vec4& color, Vec3* corners = NULL)
+{
+	Vec3 tl = c + up * hh - right * hw;
+	Vec3 tr = c + up * hh + right * hw;
+	Vec3 bl = c - up * hh - right * hw;
+	Vec3 br = c - up * hh + right * hw;
+	dbg->drawLine(tl, tr, color);
+	dbg->drawLine(tr, br, color);
+	dbg->drawLine(br, bl, color);
+	dbg->drawLine(bl, tl, color);
+	if (corners) { corners[0] = tl; corners[1] = tr; corners[2] = br; corners[3] = bl; }
+}
+
+// `markerDist` places a small camera "body" - an image plane with an up
+// triangle over it - at a distance that reads on screen. The volume itself
+// runs to the far plane, which at the default 2000 is kilometres away: the
+// edges fan out of view and nothing in sight says which way is up or where
+// the camera's picture is. Blender draws its cameras the same way.
+static void drawFrustum(DebugRenderer* dbg, GameObject* cam, float fovDeg, float aspect,
+	float n, float f, float markerDist, const Vec4& color,
+	bool orthographic, float orthoSize)
+{
+	Vec3 pos = cam->GetWorldPosition();
+	Vec3 fwd, right, up;
+	cameraBasis(cam, fwd, right, up);
 
 	// An orthographic camera's volume is a box, not a pyramid: the near and
-	// far faces are the same size. Drawing it as a frustum anyway would
-	// show the wrong shape for the projection the camera actually uses.
-	float nh, nw, fh, fw;
-	if (orthographic)
-	{
-		nh = fh = orthoSize;
-		nw = fw = orthoSize * aspect;
-	}
-	else
-	{
-		float fov = (float)DEGTORAD(fovDeg);
-		nh = tanf(fov * 0.5f) * n;
-		nw = nh * aspect;
-		fh = tanf(fov * 0.5f) * f;
-		fw = fh * aspect;
-	}
+	// far faces are the same size. orthoSize is the half-height, matching
+	// RenderCameraPreview's Ortho() call.
+	const float tanHalf = tanf((float)DEGTORAD(fovDeg) * 0.5f);
+	auto halfH = [&](float d) { return orthographic ? orthoSize : tanHalf * d; };
 
-	Vec3 nc = pos + fwd * n;
-	Vec3 fc = pos + fwd * f;
+	Vec3 nearC[4], farC[4];
+	drawRect(dbg, pos + fwd * n, right, up, halfH(n) * aspect, halfH(n), color, nearC);
+	drawRect(dbg, pos + fwd * f, right, up, halfH(f) * aspect, halfH(f), color, farC);
+	for (int i = 0; i < 4; i++) dbg->drawLine(nearC[i], farC[i], color);
 
-	Vec3 ntl = nc + up * nh - right * nw;
-	Vec3 ntr = nc + up * nh + right * nw;
-	Vec3 nbl = nc - up * nh - right * nw;
-	Vec3 nbr = nc - up * nh + right * nw;
-
-	Vec3 ftl = fc + up * fh - right * fw;
-	Vec3 ftr = fc + up * fh + right * fw;
-	Vec3 fbl = fc - up * fh - right * fw;
-	Vec3 fbr = fc - up * fh + right * fw;
-
-	dbg->drawLine(ntl, ntr, color);
-	dbg->drawLine(ntr, nbr, color);
-	dbg->drawLine(nbr, nbl, color);
-	dbg->drawLine(nbl, ntl, color);
-	dbg->drawLine(ftl, ftr, color);
-	dbg->drawLine(ftr, fbr, color);
-	dbg->drawLine(fbr, fbl, color);
-	dbg->drawLine(fbl, ftl, color);
-	dbg->drawLine(ntl, ftl, color);
-	dbg->drawLine(ntr, ftr, color);
-	dbg->drawLine(nbl, fbl, color);
-	dbg->drawLine(nbr, fbr, color);
+	// The body. A perspective camera's edges meet at the eye, so they are
+	// drawn back to it from the marker plane; an ortho box has no apex.
+	float d = std::min(std::max(markerDist, n), f);
+	float hh = halfH(d), hw = hh * aspect;
+	Vec3 mc = pos + fwd * d;
+	Vec3 mk[4];
+	drawRect(dbg, mc, right, up, hw, hh, color, mk);
+	if (!orthographic)
+		for (int i = 0; i < 4; i++) dbg->drawLine(pos, mk[i], color);
+	float t = std::min(hw, hh) * 0.5f;
+	Vec3 t0 = mc + up * (hh * 1.1f) - right * t;
+	Vec3 t1 = mc + up * (hh * 1.1f) + right * t;
+	Vec3 t2 = mc + up * (hh * 1.1f + t * 0.9f);
+	dbg->drawLine(t0, t1, color);
+	dbg->drawLine(t1, t2, color);
+	dbg->drawLine(t2, t0, color);
 }
 
 void EditorDebugDraw::Draw(DebugRenderer* dbg, SceneGraph* sg, GameObject* viewCam,
 	float fovDeg, float aspect, p3d::uint32 viewportHeight,
 	GameObject* skipA, GameObject* skipB, GameObject* skipC,
-	const std::vector<SceneCameraDebugEntry>* sceneCameras)
+	const std::vector<SceneCameraDebugEntry>* sceneCameras,
+	IComponent* selectedComponent, GameObject* selectedCamera)
 {
 	if (!dbg || !viewCam || !sg) return;
-	drawLightGizmos(dbg, viewCam, fovDeg, aspect, viewportHeight, sg, skipA, skipB, skipC, sceneCameras);
+	drawLightGizmos(dbg, viewCam, fovDeg, aspect, viewportHeight, sg, skipA, skipB, skipC, sceneCameras,
+		selectedComponent, selectedCamera);
 }
 
 void EditorDebugDraw::drawLightGizmos(DebugRenderer* dbg, GameObject* viewCam, float fovDeg, float aspect,
 	p3d::uint32 viewportHeight, SceneGraph* sg,
 	GameObject* skipA, GameObject* skipB, GameObject* skipC,
-	const std::vector<SceneCameraDebugEntry>* sceneCameras)
+	const std::vector<SceneCameraDebugEntry>* sceneCameras,
+	IComponent* selectedComponent, GameObject* selectedCamera)
 {
 	(void)aspect;
 	const Vec3 camPos = viewCam->GetWorldPosition();
 	const float kMinIconPixels = 128.0f;
 
-	if (showCameraFrustum && sceneCameras) {
+	if (sceneCameras && showGizmoLines) {
 		for (std::vector<SceneCameraDebugEntry>::const_iterator ci = sceneCameras->begin(); ci != sceneCameras->end(); ++ci) {
 			GameObject* camGO = ci->go;
-			if (!camGO || !IsCameraOn(camGO)) continue;
-			Vec3 pos = camGO->GetWorldPosition();
-			Vec3 forward = (camGO->GetDirection() * -1.0f);
+			// Looking through a camera, its own frustum is the viewport edge:
+			// drawing it is at best invisible and at worst its near plane
+			// ruled across the middle of the picture.
+			if (!camGO || camGO == viewCam) continue;
+			const bool selected = (camGO == selectedCamera);
+			if (!selected && !(showAllCameraFrustums && IsCameraOn(camGO))) continue;
+			const float dist = (camGO->GetWorldPosition() - camPos).magnitude();
+			const float marker = worldSizeForPixels(std::max(dist, 0.001f), fovDeg, (float)viewportHeight, 60.0f);
 			const Vec4& c = ci->isViewCamera ? kActiveCameraFrustumColor : kCameraOverlayColor;
-			drawFrustum(dbg, pos, forward, Vec3(0, 1, 0), ci->settings.fov, aspect,
-				ci->settings.nearPlane, ci->settings.farPlane, c,
+			drawFrustum(dbg, camGO, ci->settings.fov, ci->aspect,
+				ci->settings.nearPlane, ci->settings.farPlane, marker, c,
 				ci->settings.orthographic, ci->settings.orthoSize);
 		}
 	}
@@ -216,52 +264,88 @@ void EditorDebugDraw::drawLightGizmos(DebugRenderer* dbg, GameObject* viewCam, f
 				continue;
 			}
 
-			if (!showLightGizmos || !IsOn(c)) continue;
+			if (!showGizmoLines) continue;
+			if (c != selectedComponent && !(showAllLightGizmos && IsOn(c))) continue;
 
 			const float dist = (go->GetWorldPosition() - camPos).magnitude();
 			const float minWorld = worldSizeForPixels(std::max(dist, 0.001f), fovDeg, (float)viewportHeight, kMinIconPixels);
 
 			if (DirectionalLight* dl = dynamic_cast<DirectionalLight*>(c)) {
+				// A sun has no position that matters and no volume, so what
+				// is drawn is its direction: a disc facing the light with
+				// parallel rays running out of it - parallel because that is
+				// what makes it read as a directional light rather than a
+				// spot - and an arrowhead on the central ray. Sized in screen
+				// pixels; the old single thin arrow was easy to miss.
 				Vec3 pos = go->GetWorldPosition();
-				Vec3 dir = dl->GetLightDirection().normalize();
-				float len = std::max(3.0f, minWorld);
-				Vec3 to = pos + dir * (len * 0.8f);
-				dbg->drawLine(pos, to, kLightOverlayColor);
+				Vec3 dir = lightWorldDirection(go, dl->GetLightDirection());
 				Vec3 upRef = fabs(dir.y) < 0.99f ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
 				Vec3 right = (upRef.cross(dir)).normalize();
 				Vec3 up = (dir.cross(right)).normalize();
-				float ah = 0.2f * len;
-				Vec3 tip = to;
-				Vec3 a0 = tip - dir * ah + right * (0.5f * ah);
-				Vec3 a1 = tip - dir * ah - right * (0.5f * ah);
-				Vec3 a2 = tip - dir * ah + up * (0.5f * ah);
-				Vec3 a3 = tip - dir * ah - up * (0.5f * ah);
-				dbg->drawLine(tip, a0, kLightOverlayColor);
-				dbg->drawLine(tip, a1, kLightOverlayColor);
-				dbg->drawLine(tip, a2, kLightOverlayColor);
-				dbg->drawLine(tip, a3, kLightOverlayColor);
-				drawCircle(dbg, pos, dir, 0.4f * minWorld, kLightOverlayColor, 28);
+				const float r = 0.3f * minWorld;
+				const float rayLen = 0.9f * minWorld;
+				drawCircle(dbg, pos, dir, r, kLightOverlayColor, 32);
+				drawCircle(dbg, pos, dir, r * 0.5f, kLightOverlayColor, 24);
+				for (int i = 0; i < 8; i++) {
+					float a = (2.0f * 3.1415926f * i) / 8;
+					Vec3 o = pos + (right * cosf(a) + up * sinf(a)) * r;
+					dbg->drawLine(o, o + dir * (rayLen * 0.7f), kLightOverlayColor);
+				}
+				Vec3 tip = pos + dir * rayLen;
+				dbg->drawLine(pos, tip, kLightOverlayColor);
+				float ah = 0.15f * rayLen;
+				for (int i = 0; i < 4; i++) {
+					float a = (2.0f * 3.1415926f * i) / 4;
+					Vec3 side = (right * cosf(a) + up * sinf(a)) * (0.5f * ah);
+					dbg->drawLine(tip, tip - dir * ah + side, kLightOverlayColor);
+				}
 			} else if (PointLight* pl = dynamic_cast<PointLight*>(c)) {
-				dbg->drawSphere(go->GetWorldPosition(), pl->GetLightRadius(), kLightOverlayColor);
-			} else if (SpotLight* sl = dynamic_cast<SpotLight*>(c)) {
+				// Three great circles plus the silhouette facing the viewer.
+				// DebugRenderer::drawSphere draws meridians only, all meeting
+				// at the poles: dense at the top and bottom, and no outline at
+				// all, so the radius - the one thing this is here to show -
+				// was hard to read off it.
 				Vec3 pos = go->GetWorldPosition();
-				Vec3 dir = sl->GetLightDirection();
+				float R = pl->GetLightRadius();
+				drawCircle(dbg, pos, Vec3(1, 0, 0), R, kLightOverlayColor);
+				drawCircle(dbg, pos, Vec3(0, 1, 0), R, kLightOverlayColor);
+				drawCircle(dbg, pos, Vec3(0, 0, 1), R, kLightOverlayColor);
+				Vec3 toEye = camPos - pos;
+				float dEye = toEye.magnitude();
+				if (dEye > R * 1.001f) {
+					// The visible outline of a sphere seen in perspective is
+					// a smaller circle nearer the eye, not a great circle.
+					float off = R * R / dEye;
+					float rs = sqrtf(std::max(R * R - off * off, 0.0f));
+					Vec3 n = toEye * (1.0f / dEye);
+					drawCircle(dbg, pos + n * off, n, rs, kLightOverlayColor);
+				}
+			} else if (SpotLight* sl = dynamic_cast<SpotLight*>(c)) {
+				// The lit volume is a cone of SLANT length R capped by a piece
+				// of the radius sphere: attenuation is by distance from the
+				// light (1 - d/R), not by depth along the axis. The cone angles
+				// are HALF angles - SetLightOutterCone stores cos(angle) and
+				// the shader compares it against dot(axis, L) directly - so
+				// they are not halved again here; this used to draw every
+				// spot at half its real width.
+				Vec3 pos = go->GetWorldPosition();
+				Vec3 fwd = lightWorldDirection(go, sl->GetLightDirection());
 				float R = sl->GetLightRadius();
-				float inner = (float)DEGTORAD(sl->GetLightInnerCone()) * 0.5f;
-				float outer = (float)DEGTORAD(sl->GetLightOutterCone()) * 0.5f;
-				Vec3 fwd = dir.normalize();
+				float outer = std::min((float)DEGTORAD(sl->GetLightOutterCone()), 3.1415926f * 0.5f);
+				float inner = std::min((float)DEGTORAD(sl->GetLightInnerCone()), outer);
 				Vec3 upRef = fabs(fwd.y) < 0.99f ? Vec3(0, 1, 0) : Vec3(1, 0, 0);
 				Vec3 right = (upRef.cross(fwd)).normalize();
 				Vec3 up = (fwd.cross(right)).normalize();
-				Vec3 tip = pos + fwd * R;
-				float rOuter = R * tanf(outer);
-				float rInner = R * tanf(inner);
-				drawCircle(dbg, tip, fwd, rOuter, kLightOverlayColor, 36);
-				drawCircle(dbg, tip, fwd, rInner, kLightOverlayColor, 36);
-				for (int i = 0; i < 6; i++) {
-					float a = (2.0f * 3.1415926f * i) / 6;
-					Vec3 dirR = (right * cosf(a) + up * sinf(a));
-					dbg->drawLine(pos, tip + dirR * rOuter, kLightOverlayColor);
+				drawCircle(dbg, pos + fwd * (R * cosf(outer)), fwd, R * sinf(outer), kLightOverlayColor, 36);
+				if (inner > 1e-3f && inner < outer - 1e-3f) {
+					const Vec4 innerColor = Vec4(0.6f, 0.6f, 0.0f, 1.0f);
+					drawCircle(dbg, pos + fwd * (R * cosf(inner)), fwd, R * sinf(inner), innerColor, 36);
+				}
+				const Vec3 sides[2] = { right, up };
+				for (int i = 0; i < 2; i++) {
+					drawArc(dbg, pos, fwd, sides[i], R, -outer, outer, kLightOverlayColor);
+					dbg->drawLine(pos, pos + (fwd * cosf(outer) + sides[i] * sinf(outer)) * R, kLightOverlayColor);
+					dbg->drawLine(pos, pos + (fwd * cosf(outer) - sides[i] * sinf(outer)) * R, kLightOverlayColor);
 				}
 			}
 		}

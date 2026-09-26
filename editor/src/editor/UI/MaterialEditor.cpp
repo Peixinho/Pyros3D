@@ -310,7 +310,50 @@ bool MaterialEditor::LoadFromFile(MaterialEditorDocument& doc, const std::string
 	return true;
 }
 
+// Where a material that has never been saved goes. Its name is not a safe
+// file name: one opened from the Properties panel is called
+// "<object> / Submesh 0", and the '/' made the path point into a folder
+// that does not exist, so Save failed with "Could not save to ...". Also
+// never lands on an existing file - a second "Cube / Submesh 0" from
+// another scene must not overwrite the first one's material.
+std::string MaterialEditor::DefaultSavePath(const MaterialEditorDocument& doc, const std::string& projectRoot) {
+	std::string stem;
+	for (char c : doc.materialName) {
+		if (c == '/' || c == '\\' || c == ':' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
+			c = '_';
+		stem += c;
+	}
+	const size_t first = stem.find_first_not_of(" ._");
+	const size_t last = stem.find_last_not_of(" ._");
+	stem = (first == std::string::npos) ? std::string("Material") : stem.substr(first, last - first + 1);
+
+	const std::string dir = JoinPath(projectRoot, "assets/materials/");
+	std::string path = dir + stem + ".mat";
+	std::error_code ec;
+	for (int n = 2; std::filesystem::exists(path, ec) && n < 1000; ++n)
+		path = dir + stem + " " + std::to_string(n) + ".mat";
+	return std::filesystem::path(path).lexically_normal().generic_string();
+}
+
+// The toolbar's Save / Save As..., shared with the save_material_document
+// socket command.
+bool MaterialEditor::SaveDocument(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+	std::string path = doc.absolutePath;
+	if (path.empty())
+		path = DefaultSavePath(doc, projectRoot);
+	if (!SaveToFile(doc, path, projectRoot, deferredGBuffer)) {
+		doc.lastApplyError = "Could not save to " + DisplayPath(path, projectRoot);
+		return false;
+	}
+	return true;
+}
+
 bool MaterialEditor::SaveToFile(MaterialEditorDocument& doc, const std::string& path, const std::string& projectRoot, bool deferredGBuffer) {
+	// A project need not have an assets/materials folder yet.
+	std::error_code dirEc;
+	const std::filesystem::path parent = std::filesystem::path(path).parent_path();
+	if (!parent.empty())
+		std::filesystem::create_directories(parent, dirEc);
 	if (doc.editKind == MaterialEditKind::Custom) {
 		std::string err;
 		if (!ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
@@ -750,13 +793,11 @@ static void DrawToolbar(MaterialEditorDocument& doc, const std::string& projectR
 		ImGui::TextDisabled("Mode: %s (set at creation)", modeLabel);
 	}
 
+	ImGui::Checkbox("Preview", &doc.showPreview);
+
 	const bool hasPath = !doc.absolutePath.empty();
 	if (ImGui::Button(hasPath ? "Save" : "Save As...", ImVec2(120.f, 0.f))) {
-		std::string path = doc.absolutePath;
-		if (path.empty())
-			path = JoinPath(projectRoot, "assets/materials/" + doc.materialName + ".mat");
-		if (!MaterialEditor::SaveToFile(doc, path, projectRoot, deferredGBuffer))
-			doc.lastApplyError = "Could not save to " + MaterialEditor::DisplayPath(path, projectRoot);
+		MaterialEditor::SaveDocument(doc, projectRoot, deferredGBuffer);
 	}
 	if (hasPath) {
 		ImGui::SameLine();
@@ -851,6 +892,9 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 		// other slots only expose a raw Texture*, so they're lost across a
 		// recreate. A pre-existing engine gap, not something to newly break.
 		if (gm->GetColorMapShared()) fresh->SetColorMap(gm->GetColorMapShared());
+		fresh->SetAssetPath(gm->GetAssetPath());
+		// Keep the first one replaced this frame if several stack up.
+		if (!doc.replacedMaterial) doc.replacedMaterial = doc.currentMaterial;
 		doc.currentMaterial = fresh;
 		gm = fresh.get();
 		doc.dirty = true;
@@ -1732,21 +1776,33 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 	// editing surface gets the whole window instead of sharing it with a
 	// property sheet that was collapsed most of the time anyway.
 
-	// Node graph / text content fills the whole remaining area - the preview
-	// (below) floats over its top-right corner afterward instead of
-	// stacking above it, so editing space isn't cut into a fixed-height
-	// horizontal band. contentTopLeft is captured now (absolute screen
-	// coords, so it survives whatever cursor/scroll state the mode content
-	// leaves behind) purely to anchor that overlay once the content beneath
-	// it has actually been drawn.
-	const ImVec2 contentTopLeft = ImGui::GetCursorScreenPos();
-	const float contentWidth = ImGui::GetContentRegionAvail().x;
-	const float contentHeight = ImGui::GetContentRegionAvail().y;
+	// The preview gets a pane of its own instead of floating over the
+	// content. It used to be a separate top-level window held at the
+	// display front every frame - needed only because it overlapped the
+	// node canvas, and ImGui resolves input between overlapping regions
+	// through the window z-stack - and that same forcing put it on top of
+	// modal popups too (the Save / Don't Save prompt drew underneath it).
+	// Side by side, nothing overlaps and nothing needs forcing.
+	//
+	// A Generic material has no editing surface here at all (its settings
+	// are in the Properties panel), so its preview takes the window.
+	const bool genericLayout = (doc.editMode == MaterialEditMode::Inspector);
+	const float availW = ImGui::GetContentRegionAvail().x;
+	const float spacingX = ImGui::GetStyle().ItemSpacing.x;
+	float previewPaneW = 0.f;
+	if (doc.showPreview && !genericLayout && availW >= 420.f)
+		previewPaneW = std::min(std::max(availW * 0.32f, 200.f), 360.f);
 
+	if (previewPaneW > 0.f)
+		ImGui::BeginChild("##MaterialContent", ImVec2(availW - previewPaneW - spacingX, 0.f), false);
 	switch (doc.editMode) {
 		case MaterialEditMode::Inspector: DrawInspectorTab(doc, projectRoot); break;
 		case MaterialEditMode::Text: DrawTextEditorTab(doc, projectRoot, deferredGBuffer); break;
 		case MaterialEditMode::NodeGraph: DrawNodeGraphTab(doc, projectRoot, deferredGBuffer); break;
+	}
+	if (previewPaneW > 0.f) {
+		ImGui::EndChild();
+		ImGui::SameLine();
 	}
 
 	// Debounced auto-apply (Custom kind only) - no separate Apply/Save
@@ -1827,88 +1883,35 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 
 	// Live sphere preview (Generic and Custom both - MaterialPreview::
 	// SyncFromDoc branches internally, Generic just points the sphere at
-	// the doc's own live GenericShaderMaterial with no compile step) - a
-	// genuine floating top-level window (Begin, not BeginChild) positioned
-	// over the top-right corner
-	// of whatever the node graph canvas / text editor just drew. This has
-	// to be a real window, not a second overlapping BeginChild sibling of
-	// the canvas: Dear ImGui only resolves hover/input ownership between
-	// truly overlapping regions through its top-level window z-stack -
-	// sibling child windows of the same parent don't get that, so orbit-
-	// dragging the sphere could drag the canvas underneath instead (or vice
-	// versa) depending on which one ImGui happened to treat as hovered.
-	// AlwaysAutoResize (rather than a hand-computed fixed height) means the
-	// "Lights" checkbox row below the image can never end up clipped by a
-	// height guess that didn't leave quite enough room.
-	if (doc.currentMaterial) {
+	// the doc's own live GenericShaderMaterial with no compile step).
+	if (doc.currentMaterial && doc.showPreview && (previewPaneW > 0.f || genericLayout)) {
 		if (!doc.preview) doc.preview = std::make_unique<MaterialPreview>();
 		// Matches the project's actual renderer (Editor::UseDeferredGBuffer)
 		// so the preview's lighting - including Deferred-only effects like
-		// SSR - matches what the material really looks like in-game. Safe
-		// now that MaterialPreview::EnsureInit() sets
-		// DeferredRenderer::SetSkipRenderToScreen(true) on its own renderer:
-		// the actual engine-level bug (RenderScene()'s final composite pass
-		// unconditionally re-drawing to the literal screen framebuffer, so
-		// two DeferredRenderer instances - this preview's and the main
-		// viewport's - stomped each other whenever both rendered in the
-		// same frame) is fixed at the source instead of dodged by avoiding
-		// Deferred here.
+		// SSR - matches what the material really looks like in-game.
 		doc.preview->EnsureInit(deferredGBuffer);
 		doc.preview->SyncFromDoc(doc, projectRoot);
 
-		// Fit the overlay to the space the Material Editor's own content
-		// area actually has, instead of drawing a fixed 220x220 wherever
-		// the top-right corner happens to be. It is a real top-level ImGui
-		// window (see the comment above for why it has to be) held at the
-		// display front every frame, so nothing clips it to its parent:
-		// once the editor's panel got smaller than the preview - shrinking
-		// the app, or dragging a dock splitter - the overlay simply carried
-		// on drawing past the panel's edges, over the Log/Assets panel
-		// below it and whatever else it reached. AlwaysAutoResize made that
-		// strictly worse: the window sized itself to its content, so a
-		// too-small panel could never push back on it.
-		const float margin = 8.f;
-		const ImGuiStyle& style = ImGui::GetStyle();
-		// Room the image itself can take: the panel, less the margin on
-		// each side, less this window's own padding and the "Lights"
-		// checkbox row that sits under the image.
-		const float chromeX = style.WindowPadding.x * 2.f;
-		const float chromeY = style.WindowPadding.y * 2.f + ImGui::GetFrameHeight() + style.ItemSpacing.y;
-		const float maxImgW = contentWidth - 2.f * margin - chromeX;
-		const float maxImgH = contentHeight - 2.f * margin - chromeY;
-		// Quantized so a splitter drag doesn't rebuild the preview's FBOs
-		// on every single pixel of movement (MaterialPreview::RenderFrame
-		// resizes its renderer/effects to width/height every render).
-		int side = (int)std::min({ 220.f, maxImgW, maxImgH });
+		if (previewPaneW > 0.f)
+			ImGui::BeginChild("##MaterialPreviewPane", ImVec2(previewPaneW, 0.f), true,
+				ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+		// Room for the image: what is left, less the "Lights" checkbox row
+		// DrawAndUpdate puts under it. Quantized so dragging a splitter
+		// does not rebuild the preview's FBOs on every pixel of movement
+		// (RenderFrame resizes its targets to width/height).
+		const ImVec2 avail = ImGui::GetContentRegionAvail();
+		const float rowH = ImGui::GetFrameHeightWithSpacing();
+		int side = (int)std::min({ avail.x, avail.y - rowH, genericLayout ? 512.f : 360.f });
 		side -= side % 8;
-		// Below this there is nothing useful left to look at, and forcing
-		// it in would put us back to overflowing the panel - drop the
-		// overlay for as long as the panel stays that small.
-		if (side >= 64)
-		{
+		if (side >= 64) {
 			doc.preview->width = doc.preview->height = side;
-			const float winW = (float)side + chromeX;
-			const float winH = (float)side + chromeY;
-			ImGui::SetNextWindowPos(ImVec2(
-				contentTopLeft.x + std::max(margin, contentWidth - winW - margin),
-				contentTopLeft.y + margin), ImGuiCond_Always);
-			ImGui::SetNextWindowSize(ImVec2(winW, winH), ImGuiCond_Always);
-			ImGuiWindowFlags flags = ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove
-				| ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoSavedSettings
-				| ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoNav;
-			ImGui::Begin("##MaterialPreviewFloat", nullptr, flags);
-			// Being a real window (see the comment above) only fixes hover
-			// ownership if it's actually topmost - being freshly Begin()'d
-			// doesn't raise it in the display/hit-test order on its own, and
-			// this window is never "appearing" (NoFocusOnAppearing, same ID
-			// every frame) or clicked-to-focus (nothing here calls
-			// SetWindowFocus, which would steal keyboard focus from the
-			// node/text editor every single frame). BringWindowToDisplayFront
-			// reorders it for rendering/hit-testing only, every frame,
-			// independent of focus - exactly what's needed here.
-			ImGui::BringWindowToDisplayFront(ImGui::GetCurrentWindow());
+			if (genericLayout)
+				ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.f, (avail.x - (float)side) * 0.5f));
 			doc.preview->DrawAndUpdate();
-			ImGui::End();
+		} else {
+			ImGui::TextDisabled("Too small for a preview");
 		}
+		if (previewPaneW > 0.f)
+			ImGui::EndChild();
 	}
 }

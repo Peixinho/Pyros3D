@@ -352,6 +352,11 @@ private:
 	// (assign_material) and the Properties panel's material picker.
 	bool AssignMaterialAsset(const std::string& objectName, int submeshIndex, const std::string& materialPath, std::string& errOut);
 	static std::string HostAssignMaterialAsset(const std::string& objectName, int submeshIndex, const std::string& materialPath);
+	static std::shared_ptr<p3d::IMaterial> HostLoadMaterialAsset(const std::string& path);
+	// Keeps open scenes in step with the Material Editor: meshes follow a
+	// material the editor rebuilt, and a scene whose object just got linked
+	// to a newly saved .mat is marked changed so the link gets saved.
+	void SyncMaterialDocumentsToScenes();
 
 	PropertiesTab* tabProperties;
 	ToolsTab* tabTools;

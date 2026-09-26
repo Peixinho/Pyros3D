@@ -799,6 +799,10 @@ namespace p3d {
 		}
 
 		// Shared IMaterial fields - written regardless of kind.
+		// The asset it came from, kept beside the inline data (which stays
+		// complete - a game loads that and never reads the .mat). An editor
+		// re-links objects to the live asset from this on load.
+		if (!mat->GetAssetPath().empty()) m["asset"] = RelativizeSceneAssetPath(mat->GetAssetPath());
 		m["opacity"] = mat->GetOpacity();
 		m["transparent"] = mat->IsTransparent();
 		m["cullFace"] = mat->GetCullFace();
@@ -2285,7 +2289,18 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return out;
 	}
 
+	static std::shared_ptr<IMaterial> BuildMaterialBody(const json &j, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets);
+
+	// See the "asset" key in GetOrAddMaterial.
 	static std::shared_ptr<IMaterial> BuildMaterial(const json &j, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets)
+	{
+		std::shared_ptr<IMaterial> mat = BuildMaterialBody(j, textureCache, outAssets);
+		if (mat && j.contains("asset") && j["asset"].is_string())
+			mat->SetAssetPath(ResolveSceneAssetPath(j["asset"].get<std::string>()));
+		return mat;
+	}
+
+	static std::shared_ptr<IMaterial> BuildMaterialBody(const json &j, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets)
 	{
 		std::string kind = j.value("kind", "unsupported");
 		if (kind == "generic")

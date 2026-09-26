@@ -111,6 +111,12 @@ namespace MaterialEditor {
 	// shader (via ApplyGraphOrTextToLiveMaterial) so the document is
 	// immediately renderable.
 	bool LoadFromFile(MaterialEditorDocument& doc, const std::string& path, const std::string& projectRoot, bool deferredGBuffer);
+	// assets/materials/<name>.mat for a material never saved before, with
+	// the name made file-safe and a number added rather than overwriting.
+	std::string DefaultSavePath(const MaterialEditorDocument& doc, const std::string& projectRoot);
+	// Save to the document's own file, or DefaultSavePath for one never
+	// saved. Sets lastApplyError on failure.
+	bool SaveDocument(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer);
 	bool SaveToFile(MaterialEditorDocument& doc, const std::string& path, const std::string& projectRoot, bool deferredGBuffer);
 
 	// Regenerates GLSL (NodeGraph mode: from the graph; Text mode: the raw

@@ -293,6 +293,8 @@ bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 	}
 
 	absolutePath = path;
+	// The material now IS this asset - see IMaterial::SetAssetPath.
+	if (currentMaterial) currentMaterial->SetAssetPath(path);
 	displayName = materialName;
 	dirty = false;
 	return true;
@@ -366,7 +368,12 @@ bool MaterialEditorDocument::SaveToFile(const std::string& path) {
 	if (!f.is_open()) return false;
 	f << j.dump(2);
 
+	if (absolutePath.empty()) justLinkedToFile = true;
 	absolutePath = path;
+	// Saving links the material to its file: an object using it (one
+	// opened from the Properties panel, say) now uses this asset, and the
+	// scene records that when it is next saved.
+	if (currentMaterial) currentMaterial->SetAssetPath(path);
 	displayName = materialName;
 	dirty = false;
 	return true;

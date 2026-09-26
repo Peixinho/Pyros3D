@@ -30,6 +30,11 @@ struct SceneCameraDebugEntry {
 	p3d::GameObject* go;
 	EditorCameraSettings settings;
 	bool isViewCamera;
+	// The aspect the frustum is drawn with. Not the editor viewport's: that
+	// is whatever shape the dock happens to be, and a camera's frustum
+	// changing when the panel was resized described nothing about the
+	// camera. The caller passes the aspect its preview renders at.
+	float aspect = 16.f / 9.f;
 };
 
 class EditorDebugDraw {
@@ -48,31 +53,39 @@ public:
 	bool IsNormalsOn(p3d::IComponent* comp) const;
 	void ForgetComponent(p3d::IComponent* comp);
 
-	void ToggleCameraFrustum(bool on) { showCameraFrustum = on; }
-	bool IsCameraFrustumOn() const { return showCameraFrustum; }
-
-	// A global switch for the light volume/cone overlays. They are per
-	// component otherwise, which is fine for the handful of lights a test
-	// scene has and useless for a real one - a lit interior has dozens, and
-	// hiding them one at a time through the hierarchy context menu is not a
-	// workflow. Defaults on, so nothing changes until it is asked for.
-	void ToggleLightGizmos(bool on) { showLightGizmos = on; }
-	bool AreLightGizmosOn() const { return showLightGizmos; }
+	// Light gizmos and camera frustums follow the selection: a light's
+	// volume/cone is drawn while that light COMPONENT is selected, a camera's
+	// frustum while its GameObject is. Drawing every one of them all the
+	// time buried a real scene - a lit interior has dozens of lights - so
+	// these two switches are the opt-in "show them all" mode instead, and
+	// the per-component eye buttons filter what that mode shows. Both
+	// default off.
+	void ToggleCameraFrustum(bool on) { showAllCameraFrustums = on; }
+	bool IsCameraFrustumOn() const { return showAllCameraFrustums; }
+	void ToggleLightGizmos(bool on) { showAllLightGizmos = on; }
+	bool AreLightGizmosOn() const { return showAllLightGizmos; }
+	// The master switch over both, selection included - for looking at a
+	// lit scene with nothing drawn over it. Defaults on.
+	void ToggleGizmoLines(bool on) { showGizmoLines = on; }
+	bool AreGizmoLinesOn() const { return showGizmoLines; }
 
 	void Draw(p3d::DebugRenderer* dbg, p3d::SceneGraph* scene, p3d::GameObject* viewCam,
 		float fovDeg, float aspect, p3d::uint32 viewportHeight,
 		p3d::GameObject* skipA = NULL, p3d::GameObject* skipB = NULL, p3d::GameObject* skipC = NULL,
-		const std::vector<SceneCameraDebugEntry>* sceneCameras = NULL);
+		const std::vector<SceneCameraDebugEntry>* sceneCameras = NULL,
+		p3d::IComponent* selectedComponent = NULL, p3d::GameObject* selectedCamera = NULL);
 
 private:
 	std::unordered_set<p3d::IComponent*> compsHidden;
 	std::unordered_set<p3d::GameObject*> camerasHidden;
 	std::unordered_set<p3d::IComponent*> renderingNormalsOn;
-	bool showCameraFrustum = false;
-	bool showLightGizmos = true;
+	bool showAllCameraFrustums = false;
+	bool showAllLightGizmos = false;
+	bool showGizmoLines = true;
 
 	void drawLightGizmos(p3d::DebugRenderer* dbg, p3d::GameObject* viewCam, float fovDeg, float aspect,
 		p3d::uint32 viewportHeight, p3d::SceneGraph* scene,
 		p3d::GameObject* skipA, p3d::GameObject* skipB, p3d::GameObject* skipC,
-		const std::vector<SceneCameraDebugEntry>* sceneCameras);
+		const std::vector<SceneCameraDebugEntry>* sceneCameras,
+		p3d::IComponent* selectedComponent, p3d::GameObject* selectedCamera);
 };

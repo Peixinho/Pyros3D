@@ -86,6 +86,13 @@ namespace p3d
 		void SetWind(const f32 strength, const f32 rate = 1.6f, const f32 spatialFrequency = 0.12f) { Wind = Vec4(strength, rate, spatialFrequency, 0.f); }
 		const Vec4 &GetWind() const { return Wind; }
 
+		// A new, independent material with the same options, properties
+		// and render state. Textures are shared, not reloaded - it is the
+		// material's settings that become separate. What cannot be
+		// reproduced: a font map (the Font is not kept) and textures added
+		// through AddTexture() under a custom uniform name.
+		std::shared_ptr<GenericShaderMaterial> Clone() const;
+
 		// Text
 		void SetTextFont(Font* font);
 

@@ -168,6 +168,17 @@ struct MaterialEditorDocument {
 	// Editor::deferredDestroyPreviewRenderers - because its FBO color
 	// texture is still referenced by this frame's draw list.
 	std::unique_ptr<MaterialPreview> preview;
+	// The Material Editor's preview pane - on by default, and a toggle
+	// in its toolbar for when the node graph wants the whole width.
+	bool showPreview = true;
+	// Set when a shader-option change swapped currentMaterial for a newly
+	// built one: Editor::SyncMaterialDocumentsToScenes re-points the meshes
+	// still using this one, then clears it.
+	std::shared_ptr<p3d::IMaterial> replacedMaterial;
+	// Set by the first save of a material that had no file (one opened from
+	// the Properties panel): its objects are now linked to the .mat, and the
+	// scenes using it must be saved for that to stick.
+	bool justLinkedToFile = false;
 
 	~MaterialEditorDocument();
 

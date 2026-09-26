@@ -137,6 +137,9 @@ SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint3
 	scene->Add(go);
 	size_t idCursor = 0;
 	SceneObject* obj = sceneObjects->Adopt(go.get(), parentId, preferredIds, &idCursor);
+	// An undone delete or a restored prefab rebuilds its materials from
+	// the inline copies; hand linked ones back their asset.
+	RelinkMaterialAssets();
 	if (obj)
 	{
 		// A subtree that came from a prefab instance carries which one in

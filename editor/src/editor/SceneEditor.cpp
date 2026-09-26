@@ -1506,10 +1506,26 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 			std::vector<SceneCameraDebugEntry> sceneCameraDebugScratch;
 			BuildSceneCameraDebugList(sceneCameraDebugScratch);
+			// Light gizmos follow the selected light COMPONENT (its row in the
+			// hierarchy or its viewport icon), not its host GameObject;
+			// a camera's frustum follows its GameObject.
+			IComponent* selectedDebugComp = NULL;
+			GameObject* selectedDebugCam = NULL;
+			if (SelectedSceneObject != NULL)
+			{
+				const uint32 selType = SelectedSceneObject->GetType();
+				if (selType == SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT
+					|| selType == SceneObjectTypes::POINTLIGHT_COMPONENT
+					|| selType == SceneObjectTypes::SPOTLIGHT_COMPONENT)
+					selectedDebugComp = (IComponent*)SelectedSceneObject->GetPTR();
+				else if (selType == SceneObjectTypes::GAMEOBJECT && IsSceneCamera(SelectedSceneObject->GetID()))
+					selectedDebugCam = (GameObject*)SelectedSceneObject->GetPTR();
+			}
 			if (editorDebugDraw)
 				editorDebugDraw->Draw(debugRenderer, scene, viewCam, viewFov,
 					(f32)dim.x / (f32)dim.y, viewH,
-					grid.get(), Camera.get(), CameraPivot.get(), &sceneCameraDebugScratch);
+					grid.get(), Camera.get(), CameraPivot.get(), &sceneCameraDebugScratch,
+					selectedDebugComp, selectedDebugCam);
 
 			if (debugRenderer)
 				debugRenderer->Render(viewCam->GetWorldTransformation().Inverse(),
@@ -2444,6 +2460,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			entry.go = (GameObject*)so->GetPTR();
 			entry.settings = i->second;
 			entry.isViewCamera = (i->first == activeSceneCameraId);
+			// The shape the Properties preview renders at, so the frustum in
+			// the viewport and the picture next to it agree.
+			entry.aspect = (f32)previewWidth / (f32)previewHeight;
 			out.push_back(entry);
 		}
 	}
@@ -5046,16 +5065,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::ShowViewOptions()
 	{
+		const bool gizmoLines = editorDebugDraw->AreGizmoLinesOn();
+		if (ImGui::MenuItem("Show Light & Camera Gizmos", NULL, gizmoLines))
+			editorDebugDraw->ToggleGizmoLines(!gizmoLines);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Light volumes, spot cones and camera frustums - the selected one's, or all of them with the options below.");
 		bool frustum = editorDebugDraw->IsCameraFrustumOn();
-		if (ImGui::MenuItem("Show Camera Frustums", NULL, frustum))
+		if (ImGui::MenuItem("Show All Camera Frustums", NULL, frustum, gizmoLines))
 			editorDebugDraw->ToggleCameraFrustum(!frustum);
-		if (ImGui::MenuItem("Show Physics Debug", NULL, showPhysicsDebug))
-			showPhysicsDebug = !showPhysicsDebug;
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Otherwise only the selected camera's frustum is drawn.");
 		const bool lightGizmos = editorDebugDraw->AreLightGizmosOn();
-		if (ImGui::MenuItem("Show Light Gizmos", NULL, lightGizmos))
+		if (ImGui::MenuItem("Show All Light Gizmos", NULL, lightGizmos, gizmoLines))
 			editorDebugDraw->ToggleLightGizmos(!lightGizmos);
 		if (ImGui::IsItemHovered())
-			ImGui::SetTooltip("The radius spheres and spot cones. Turn them off to see a lit scene.");
+			ImGui::SetTooltip("Radius spheres and spot cones for every light. Otherwise only the selected light component's is drawn.");
+		if (ImGui::MenuItem("Show Physics Debug", NULL, showPhysicsDebug))
+			showPhysicsDebug = !showPhysicsDebug;
 		// Both only mean anything in a 2D scene, so they are only offered
 		// there rather than sitting inert in every 3D scene's View menu.
 		if (sceneIsTwoD)
@@ -8339,6 +8365,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// just-built materials yet, so the skip-set stays empty.
 		if (ok && project)
 			RecompileOrphanedCustomMaterials(project->GetProjectPath(), usingDeferredRenderer, std::set<IMaterial*>());
+		if (ok) RelinkMaterialAssets();
 
 		AttachEditorObjects(furniture);
 		if (ok) RebuildHelpers();
@@ -9585,6 +9612,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							}
 							else
 								headMatName = "Generic Shader";
+							// A linked material is named by its file.
+							if (!meshes[m]->Material->GetAssetPath().empty())
+							{
+								headMatShaderLabel = DisplayPath(meshes[m]->Material->GetAssetPath());
+								headMatName = headMatShaderLabel.c_str();
+							}
 						}
 						char submeshHeader[320];
 						snprintf(submeshHeader, sizeof(submeshHeader), "Submesh %zu - %s###submesh_%zu", m, headMatName, m);
@@ -9619,7 +9652,28 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							{
 								std::shared_ptr<IMaterial> matPtr = meshes[m]->Material;
 								IMaterial* mat = matPtr.get();
-								ImGui::TextDisabled("Shared material - affects everything using it");
+								// Say whether it is actually shared - the old
+								// fixed line claimed so for every material,
+								// which told you nothing - and offer a way out.
+								// Counted per mesh across the whole scene.
+								const int matUsers = CountMaterialUsers(mat);
+								if (matUsers > 1)
+								{
+									ImGui::TextDisabled("Shared by %d meshes - edits affect all of them", matUsers);
+									GenericShaderMaterial* shareGsm = dynamic_cast<GenericShaderMaterial*>(mat);
+									if (shareGsm && ownerGO)
+									{
+										ImGui::SameLine();
+										if (ImGui::SmallButton("Make Unique"))
+										{
+											std::string uerr;
+											if (!OpAssignMaterial(ownerGO->GetID(), (int)m, sceneObjects->NewPrivateMaterial(shareGsm), uerr))
+												propertiesMaterialAssignError = uerr;
+										}
+										if (ImGui::IsItemHovered())
+											ImGui::SetTooltip("Give this submesh its own copy of the material,\nso it can be changed without affecting the others.");
+									}
+								}
 
 								// 2D lighting. A button rather than a checkbox
 								// because ShaderUsage is fixed when a
@@ -13028,6 +13082,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!p.is_object()) { errOut = "expected an object"; return false; }
 		if (p.contains("lightGizmos") && p["lightGizmos"].is_boolean())
 			editorDebugDraw->ToggleLightGizmos(p["lightGizmos"].get<bool>());
+		if (p.contains("gizmoLines") && p["gizmoLines"].is_boolean())
+			editorDebugDraw->ToggleGizmoLines(p["gizmoLines"].get<bool>());
 		if (p.contains("cameraFrustums") && p["cameraFrustums"].is_boolean())
 			editorDebugDraw->ToggleCameraFrustum(p["cameraFrustums"].get<bool>());
 		if (p.contains("physicsDebug") && p["physicsDebug"].is_boolean())
@@ -14512,6 +14568,110 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
 		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
 		return OpAssignMaterial(obj->GetID(), submeshIndex, mat, errOut);
+	}
+
+	// The material on one submesh of a named object - for the Properties
+	// panel's "Edit Material" button, reached from the socket.
+	bool SceneEditor::AgentGetMeshMaterial(const std::string& objectName, int submeshIndex,
+		std::shared_ptr<IMaterial>& out, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		RenderingComponent* rc = NULL;
+		for (auto& c : go->GetComponents())
+			if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+		std::vector<RenderingMesh*>& meshes = rc->GetMeshes(0);
+		if (submeshIndex < 0 || (size_t)submeshIndex >= meshes.size() || !meshes[submeshIndex]->Material)
+			{ errOut = "no material on that submesh"; return false; }
+		out = meshes[submeshIndex]->Material;
+		return true;
+	}
+
+	int SceneEditor::ReplaceMaterialEverywhere(IMaterial* oldMat, const std::shared_ptr<IMaterial>& fresh)
+	{
+		if (!oldMat || !fresh || oldMat == fresh.get()) return 0;
+		int changed = 0;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::RENDERING_COMPONENT) continue;
+			RenderingComponent* rc = (RenderingComponent*)i->second->GetPTR();
+			if (!rc) continue;
+			for (RenderingMesh* m : rc->GetMeshes(0))
+				if (m && m->Material.get() == oldMat) { m->Material = fresh; ++changed; }
+		}
+		return changed;
+	}
+
+	int SceneEditor::CountMaterialUsers(const IMaterial* mat) const
+	{
+		if (!mat) return 0;
+		int users = 0;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::RENDERING_COMPONENT) continue;
+			RenderingComponent* rc = (RenderingComponent*)i->second->GetPTR();
+			if (!rc) continue;
+			for (RenderingMesh* m : rc->GetMeshes(0))
+				if (m && m->Material.get() == mat) ++users;
+		}
+		return users;
+	}
+
+	void SceneEditor::RelinkMaterialAssets()
+	{
+		if (!hostLoadMaterialAsset) return;
+		// Distinct materials first - replacing while walking the meshes
+		// would visit the replacement too.
+		std::vector<std::shared_ptr<IMaterial>> linked;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::RENDERING_COMPONENT) continue;
+			RenderingComponent* rc = (RenderingComponent*)i->second->GetPTR();
+			if (!rc) continue;
+			for (RenderingMesh* m : rc->GetMeshes(0))
+			{
+				if (!m || !m->Material || m->Material->GetAssetPath().empty()) continue;
+				bool seen = false;
+				for (const std::shared_ptr<IMaterial>& l : linked) if (l == m->Material) { seen = true; break; }
+				if (!seen) linked.push_back(m->Material);
+			}
+		}
+		for (const std::shared_ptr<IMaterial>& mat : linked)
+		{
+			std::shared_ptr<IMaterial> live = hostLoadMaterialAsset(mat->GetAssetPath());
+			// A .mat that is gone keeps the inline copy - the object still
+			// renders as it was saved, it just no longer follows a file.
+			if (!live)
+			{
+				echo("WARNING: material asset " + DisplayPath(mat->GetAssetPath()) + " not found - using the scene's copy");
+				continue;
+			}
+			ReplaceMaterialEverywhere(mat.get(), live);
+		}
+	}
+
+	// The Properties panel's "Make Unique" button.
+	bool SceneEditor::AgentMakeMaterialUnique(const std::string& objectName, int submeshIndex, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, objectName);
+		if (!obj) { errOut = "object '" + objectName + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		RenderingComponent* rc = NULL;
+		for (auto& c : go->GetComponents())
+			if ((rc = dynamic_cast<RenderingComponent*>(c.get()))) break;
+		if (!rc) { errOut = "object has no RenderingComponent"; return false; }
+		std::vector<RenderingMesh*>& meshes = rc->GetMeshes(0);
+		if (submeshIndex < 0 || (size_t)submeshIndex >= meshes.size())
+			{ errOut = "submesh index out of range"; return false; }
+		GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(meshes[submeshIndex]->Material.get());
+		if (!gm) { errOut = "only a generic material can be made unique"; return false; }
+		return OpAssignMaterial(obj->GetID(), submeshIndex, sceneObjects->NewPrivateMaterial(gm), errOut);
 	}
 
 	void SceneEditor::RelativizeAgentAssetPaths(json& j) const

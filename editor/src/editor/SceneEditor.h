@@ -463,6 +463,21 @@ public:
 	// Assigns an already-constructed material (e.g. from a Material Editor
 	// document) onto a submesh directly, replacing whatever it had.
 	bool AgentAssignMaterial(const std::string& objectName, int submeshIndex, std::shared_ptr<p3d::IMaterial> mat, std::string& errOut);
+	bool AgentMakeMaterialUnique(const std::string& objectName, int submeshIndex, std::string& errOut);
+	// Points every mesh using `oldMat` at `fresh` instead. For a material
+	// the Material Editor rebuilt (a shader option change constructs a new
+	// GenericShaderMaterial) - without this the objects kept drawing the
+	// old one and silently stopped following their asset. Returns how many
+	// meshes changed.
+	int ReplaceMaterialEverywhere(p3d::IMaterial* oldMat, const std::shared_ptr<p3d::IMaterial>& fresh);
+	// A loaded scene builds each material from its inline copy. One that
+	// names an asset (IMaterial::GetAssetPath) is swapped for that asset's
+	// live Material Editor material, so editing the .mat reaches the
+	// object again. Runs after a scene load and after a subtree rebuild.
+	void RelinkMaterialAssets();
+	int CountMaterialUsers(const p3d::IMaterial* mat) const;
+	void SetHostMaterialAssetLoader(std::shared_ptr<p3d::IMaterial> (*loader)(const std::string& path)) { hostLoadMaterialAsset = loader; }
+	bool AgentGetMeshMaterial(const std::string& objectName, int submeshIndex, std::shared_ptr<p3d::IMaterial>& out, std::string& errOut);
 	// Viewport-image pixels to ImGui screen pixels, for injected mouse input.
 	// False when the viewport has not been laid out yet this session.
 	bool  AgentViewportToScreen(const f32 vx, const f32 vy, f32 &sx, f32 &sy) const;
@@ -960,6 +975,7 @@ private:
 	void (*hostOpenLuaScript)(const std::string&);
 	void (*hostEditMaterialInline)(std::shared_ptr<p3d::IMaterial>, const std::string&);
 	std::string (*hostAssignMaterialAsset)(const std::string&, int, const std::string&);
+	std::shared_ptr<p3d::IMaterial> (*hostLoadMaterialAsset)(const std::string&) = NULL;
 	void ExecutePendingUnsavedAction();
 	// Open Scene and Save Scene As share one modal.
 	bool showingSceneDialog, sceneDialogIsSave, sceneDialogBrowse;

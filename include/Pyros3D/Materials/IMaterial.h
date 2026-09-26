@@ -128,6 +128,14 @@ namespace p3d {
 		// Get Internal ID
 		uint32 GetInternalID();
 
+		// The material asset file (an editor .mat) this material was built
+		// from, or empty for one that belongs to a single object. The scene
+		// serializer writes it next to the material's inline data, so a
+		// scene keeps knowing which asset an object uses - the inline copy
+		// is still what a game loads, so a runtime never needs the .mat.
+		const std::string &GetAssetPath() const { return assetPath; }
+		void SetAssetPath(const std::string &path) { assetPath = path; }
+
 		// Depth Test and Write
 		// Enabling the depth TEST says nothing about depth WRITING, and this
 		// used to set forceDepthWrite too. Two things fell out of that, both
@@ -156,6 +164,8 @@ namespace p3d {
 		}
 
 	protected:
+
+		std::string assetPath;
 
 		// Depth Test and Write
 		bool forceDepthWrite, depthTest, depthWrite;

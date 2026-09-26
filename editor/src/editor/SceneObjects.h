@@ -177,10 +177,28 @@ class SceneObjects
 		SceneObject* CreateLuaComponent(GameObject *go, const std::shared_ptr<LuaComponent> &comp);
 #endif
 
+		// Every primitive gets a material of its own, so editing one cube's
+		// colour does not repaint every other primitive in the scene - they
+		// all used to share GenericMaterial. `from` is cloned when given
+		// (Duplicate, Make Unique), else the default primitive material.
+		// The result is recorded as private: see IsPrivateMaterial.
+		std::shared_ptr<GenericShaderMaterial> NewPrivateMaterial(const GenericShaderMaterial* from = NULL);
+		// True for a material NewPrivateMaterial made - one that belongs to a
+		// single object rather than being deliberately shared, like an
+		// assigned material asset. Duplicate copies a private material and
+		// shares anything else. A material loaded from a scene file is not
+		// private: the file does not say which materials were shared on
+		// purpose, so those stay shared until Make Unique.
+		bool IsPrivateMaterial(const IMaterial* mat) const;
+
 	protected:
 		std::map<uint32,SceneObject*> listObjects;
 		SceneGraph* Scene;
+		// The template NewPrivateMaterial clones - never assigned to a mesh.
 		std::shared_ptr<GenericShaderMaterial> GenericMaterial;
+		// Weak so a material dropped from every mesh is not kept alive, and
+		// a later material reusing its address is never mistaken for it.
+		mutable std::vector<std::weak_ptr<IMaterial>> privateMaterials;
 		SceneGraph* SceneHelpers;
 
 	private:

@@ -1,3 +1,4 @@
+#include <algorithm>
 #include "SceneObjects.h"
 #include "Helpers/IHelper.h"
 #include "Helpers/LightHelper.h"
@@ -46,6 +47,26 @@ namespace {
 	SceneObjects::~SceneObjects(void)
 	{
 
+	}
+
+	std::shared_ptr<GenericShaderMaterial> SceneObjects::NewPrivateMaterial(const GenericShaderMaterial* from)
+	{
+		std::shared_ptr<GenericShaderMaterial> m = (from ? from : GenericMaterial.get())->Clone();
+		// Prune while here, so the list tracks live materials only.
+		privateMaterials.erase(std::remove_if(privateMaterials.begin(), privateMaterials.end(),
+			[](const std::weak_ptr<IMaterial>& w) { return w.expired(); }), privateMaterials.end());
+		privateMaterials.push_back(m);
+		return m;
+	}
+
+	bool SceneObjects::IsPrivateMaterial(const IMaterial* mat) const
+	{
+		// Saved to a .mat since, so it is an asset now and shared on purpose.
+		if (!mat || !mat->GetAssetPath().empty()) return false;
+		for (const std::weak_ptr<IMaterial>& w : privateMaterials)
+			if (std::shared_ptr<IMaterial> p = w.lock())
+				if (p.get() == mat) return true;
+		return false;
 	}
 
     SceneObject* SceneObjects::GetSceneObject(const uint32 id)
@@ -307,7 +328,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		// Mesh
 		std::shared_ptr<Renderable> cubeMesh;
 		cubeMesh = std::make_shared<Cube>(width,height,depth,smoothnormals,flipnormals);
-		rCube = MakeSceneRenderingComponent(cubeMesh, GenericMaterial);
+		rCube = MakeSceneRenderingComponent(cubeMesh, NewPrivateMaterial());
 		go->Add(rCube);
 
 		SceneObject* obj = new SceneObject("Cube", rCube.get(), id);
@@ -325,7 +346,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		// Mesh
 		std::shared_ptr<Renderable> sphereMesh;
 		sphereMesh = std::make_shared<Sphere>(radius, segmentsw, segmentsh, smoothnormals, halfsphere, flipnormals);
-		rSphere = MakeSceneRenderingComponent(sphereMesh, GenericMaterial);
+		rSphere = MakeSceneRenderingComponent(sphereMesh, NewPrivateMaterial());
 		go->Add(rSphere);
 
 		SceneObject* obj = new SceneObject("Sphere", rSphere.get(), id);
@@ -343,7 +364,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		// Mesh
 		std::shared_ptr<Renderable> capsuleMesh;
 		capsuleMesh = std::make_shared<Capsule>(radius, height, nrings, segmentsw, segmentsh, smoothnormals, flipnormals);
-		rCapsule = MakeSceneRenderingComponent(capsuleMesh, GenericMaterial);
+		rCapsule = MakeSceneRenderingComponent(capsuleMesh, NewPrivateMaterial());
 		go->Add(rCapsule);
 
 		SceneObject* obj = new SceneObject("Capsule", rCapsule.get(), id);
@@ -361,7 +382,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		// Mesh
 		std::shared_ptr<Renderable> coneMesh;
 		coneMesh = std::make_shared<Cone>(radius, height, segmentsw, segmentsh, openended, smoothnormals, flipnormals);
-		rCone = MakeSceneRenderingComponent(coneMesh, GenericMaterial);
+		rCone = MakeSceneRenderingComponent(coneMesh, NewPrivateMaterial());
 		go->Add(rCone);
 
 		SceneObject* obj = new SceneObject("Cone", rCone.get(), id);
@@ -379,7 +400,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		// Mesh
 		std::shared_ptr<Renderable> cylinderMesh;
 		cylinderMesh = std::make_shared<Cylinder>(radius, height, segmentsw, segmentsh, openended, smoothnormals, flipnormals);
-		rCylinder = MakeSceneRenderingComponent(cylinderMesh, GenericMaterial);
+		rCylinder = MakeSceneRenderingComponent(cylinderMesh, NewPrivateMaterial());
 		go->Add(rCylinder);
 
 		SceneObject* obj = new SceneObject("Cylinder", rCylinder.get(), id);
@@ -397,7 +418,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		// Mesh
 		std::shared_ptr<Renderable> planeMesh;
 		planeMesh = std::make_shared<Plane>(width, height, smoothnormals, flipnormals);
-		rPlane = MakeSceneRenderingComponent(planeMesh, GenericMaterial);
+		rPlane = MakeSceneRenderingComponent(planeMesh, NewPrivateMaterial());
 		go->Add(rPlane);
 
 		SceneObject* obj = new SceneObject("Plane", rPlane.get(), id);
@@ -415,7 +436,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		// Mesh
 		std::shared_ptr<Renderable> torusMesh;
 		torusMesh = std::make_shared<Torus>(radius, tube, segmentsw, segmentsh, smoothnormals, flipnormals);
-		rTorus = MakeSceneRenderingComponent(torusMesh, GenericMaterial);
+		rTorus = MakeSceneRenderingComponent(torusMesh, NewPrivateMaterial());
 		go->Add(rTorus);
 
 		SceneObject* obj = new SceneObject("Torus", rTorus.get(), id);
@@ -433,7 +454,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		// Mesh
 		std::shared_ptr<Renderable> torusKnotMesh;
 		torusKnotMesh = std::make_shared<TorusKnot>(radius, tube, segmentsw, segmentsh, p, q, smoothnormals, flipnormals);
-		rTorusKnot = MakeSceneRenderingComponent(torusKnotMesh, GenericMaterial);
+		rTorusKnot = MakeSceneRenderingComponent(torusKnotMesh, NewPrivateMaterial());
 		go->Add(rTorusKnot);
 
 		SceneObject* obj = new SceneObject("TorusKnot", rTorusKnot.get(), id);
@@ -855,10 +876,18 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 			case ComponentType::RenderingComponent:
 			{
 				RenderingComponent* srcRc = (RenderingComponent*)(*c).get();
-				std::shared_ptr<IMaterial> mat = GenericMaterial;
+				std::shared_ptr<IMaterial> mat;
 				std::vector<RenderingMesh*>& meshes = srcRc->GetMeshes();
 				if (!meshes.empty() && meshes[0]->Material)
 					mat = meshes[0]->Material;
+				// A private material is copied, so the duplicate can be
+				// recoloured on its own; a shared one (an assigned asset)
+				// stays shared, as assigning it meant.
+				if (!mat)
+					mat = NewPrivateMaterial();
+				else if (IsPrivateMaterial(mat.get()))
+					if (GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(mat.get()))
+						mat = NewPrivateMaterial(gm);
 				std::shared_ptr<RenderingComponent> newRc = MakeSceneRenderingComponent(
 					srcRc->GetRenderableShared(), mat);
 				dupGo->Add(newRc);

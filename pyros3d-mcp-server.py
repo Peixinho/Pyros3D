@@ -4470,6 +4470,13 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       set_material (name, color, specular, metallic, roughness, shininess,
         reflectivity, alphaCutoff, opacity, transparent, cullFace, blending,
         depthTest, depthWrite, wireframe, castShadows)
+      edit_object_material (name, submesh) - open that submesh's material in
+        the Material Editor, as Properties > Edit Material does
+      save_material_document - the Material Editor's Save / Save As... on the
+        active material tab; replies with the path
+      make_material_unique (name, submesh) - give that submesh its own copy of a
+        shared generic material. New primitives already get their own;
+        materials loaded from a scene file stay shared until this.
       set_physics (name, mass, linearVelocity, angularVelocity, impulse, cleanForces)
       set_audio (name, volume, pitch, pan, looping, spatialized, attenuation,
         minDistance, maxDistance, directionalAttenuation, dopplerFactor,
@@ -4491,7 +4498,9 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         ddgi {counts, rays, passes, sky, multiBounce, dynamic, probeBudget,
         hysteresis}, solve, clear)
       scene_state -> "environment" reads all of it back
-      set_view_options (lightGizmos, cameraFrustums, physicsDebug, grid, chrome)
+      set_view_options (lightGizmos, cameraFrustums = show ALL; otherwise only
+        the selected light component / camera is drawn; gizmoLines = master
+        switch for both; physicsDebug, grid, chrome)
       set_renderer (type: forward|deferred), new_scene (kind: 3d|2d|ui)
     Project
       new_project (parentDir, name), save_project, close_project (discard),

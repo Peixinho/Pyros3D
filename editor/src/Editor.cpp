@@ -796,6 +796,40 @@ bool Editor::AssignMaterialAsset(const std::string& objectName, int submeshIndex
 	return sceneView->AgentAssignMaterial(objectName, submeshIndex, doc->currentMaterial, errOut);
 }
 
+std::shared_ptr<IMaterial> Editor::HostLoadMaterialAsset(const std::string& path)
+{
+	Editor* ed = Editor::getInstance();
+	if (!ed) return std::shared_ptr<IMaterial>();
+	std::string err;
+	MaterialEditorDocument* doc = ed->LoadMaterialQuietly(path, err);
+	return doc ? doc->currentMaterial : std::shared_ptr<IMaterial>();
+}
+
+void Editor::SyncMaterialDocumentsToScenes()
+{
+	for (size_t i = 0; i < materialDocs.size(); ++i)
+	{
+		MaterialEditorDocument* doc = materialDocs[i];
+		if (!doc) continue;
+		if (doc->replacedMaterial)
+		{
+			for (size_t s = 0; s < sceneDocs.size(); ++s)
+				if (sceneDocs[s] && sceneDocs[s]->ReplaceMaterialEverywhere(doc->replacedMaterial.get(), doc->currentMaterial) > 0)
+					sceneDocs[s]->MarkSceneDirty();
+			doc->replacedMaterial.reset();
+		}
+		if (doc->justLinkedToFile)
+		{
+			// Replacing a material with itself changes nothing, but the
+			// count says whether this scene uses it at all.
+			for (size_t s = 0; s < sceneDocs.size(); ++s)
+				if (sceneDocs[s] && sceneDocs[s]->CountMaterialUsers(doc->currentMaterial.get()) > 0)
+					sceneDocs[s]->MarkSceneDirty();
+			doc->justLinkedToFile = false;
+		}
+	}
+}
+
 std::string Editor::HostAssignMaterialAsset(const std::string& objectName, int submeshIndex, const std::string& materialPath)
 {
 	Editor* ed = Editor::getInstance();
@@ -2342,6 +2376,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				fresh->SetReflectivity(gm->GetReflectivity());
 				fresh->SetDisplacementHeight(gm->GetDisplacementHeight());
 				if (gm->GetColorMapShared()) fresh->SetColorMap(gm->GetColorMapShared());
+				fresh->SetAssetPath(gm->GetAssetPath());
+				doc->replacedMaterial = doc->currentMaterial;
 				doc->currentMaterial = fresh;
 				gm = fresh.get();
 			}
@@ -2447,6 +2483,42 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return obj;
 	}
 
+	// The Properties panel's "Edit Material": opens the material on one
+	// submesh of a scene object in the Material Editor, named as the panel
+	// names it. {"name":"Cube","submesh":0}
+	if (name == "edit_object_material")
+	{
+		const int submesh = a.is_object() ? a.value("submesh", 0) : 0;
+		std::shared_ptr<IMaterial> mat;
+		if (!sceneView->AgentGetMeshMaterial(A("name"), submesh, mat, err))
+			throw std::runtime_error(err);
+		MaterialEditorDocument* doc = EditMaterialInline(mat, A("name") + " / Submesh " + std::to_string(submesh));
+		nlohmann::json r;
+		r["ok"] = doc != NULL;
+		return r;
+	}
+	// The Material Editor toolbar's Save / Save As... on the active material
+	// document. Replies with where it went.
+	if (name == "save_material_document")
+	{
+		if (!activeMaterialDoc) throw std::runtime_error("no material document is active");
+		if (!MaterialEditor::SaveDocument(*activeMaterialDoc, project.GetProjectPath(), UseDeferredGBuffer()))
+			throw std::runtime_error(activeMaterialDoc->lastApplyError);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["path"] = project.DisplayPath(activeMaterialDoc->absolutePath);
+		return r;
+	}
+	// {"cmd":"make_material_unique","args":{"name":"Cube","submesh":0}}
+	if (name == "make_material_unique")
+	{
+		const int submesh = a.is_object() ? a.value("submesh", 0) : 0;
+		if (!sceneView->AgentMakeMaterialUnique(A("name"), submesh, err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "select_object")
 	{
 		if (!sceneView->AgentSelectObject(A("name"), A("component"), err))
@@ -4739,6 +4811,7 @@ void Editor::DrawUI()
 	// restores the correct camera/viewport state afterward, instead of the
 	// preview's leftover state bleeding into the main viewport, its gizmo,
 	// or its grid for the rest of this frame.
+	SyncMaterialDocumentsToScenes();
 	DrawMaterialEditorWindows();
 	DrawAnimationEditorWindows();
 	DrawCharacter2DEditorWindows();
@@ -7331,7 +7404,7 @@ void Editor::DrawUnsavedDocumentModal()
 				// material that has never been written anywhere yet.
 				std::string path = material->absolutePath;
 				if (path.empty())
-					path = project.AbsolutePath("assets/materials/" + material->materialName + ".mat");
+					path = MaterialEditor::DefaultSavePath(*material, project.GetProjectPath());
 				saved = MaterialEditor::SaveToFile(*material, path, project.GetProjectPath(), UseDeferredGBuffer());
 				if (!saved)
 					material->lastApplyError = "Could not save to " + path;
@@ -8330,6 +8403,7 @@ SceneEditor* Editor::CreateSceneDocument()
 		&Editor::HostOpenLuaScript,
 		&Editor::HostEditMaterialInline,
 		&Editor::HostAssignMaterialAsset);
+	doc->SetHostMaterialAssetLoader(&Editor::HostLoadMaterialAsset);
 	doc->SetHostNewSceneKind(&Editor::HostNewSceneKind);
 	doc->SetDebugPanelToggles(&showingProfiler, &showingRenderTargets);
 	doc->SetHostOpenCharacter2D(&Editor::HostOpenCharacter2D);
@@ -8417,9 +8491,18 @@ void Editor::CloseAllLuaScriptDocuments()
 MaterialEditorDocument* Editor::FindMaterialDocumentByPath(const std::string& absPath) const
 {
 	if (absPath.empty()) return NULL;
+	// Normalised on both sides: the same file reaches here spelled
+	// differently (a save builds root + "/" + rel, an agent path goes
+	// through ProjectManager::AbsolutePath), and a miss loads a SECOND copy
+	// of the .mat - an object linked to the first then stops following
+	// edits made in the second.
+	auto norm = [](const std::string& p) {
+		return std::filesystem::path(p).lexically_normal().generic_string();
+	};
+	const std::string want = norm(absPath);
 	for (size_t i = 0; i < materialDocs.size(); ++i)
 	{
-		if (materialDocs[i] && materialDocs[i]->absolutePath == absPath)
+		if (materialDocs[i] && !materialDocs[i]->absolutePath.empty() && norm(materialDocs[i]->absolutePath) == want)
 			return materialDocs[i];
 	}
 	return NULL;

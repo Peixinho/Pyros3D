@@ -374,6 +374,52 @@ namespace p3d
 			uDisplacementHeight->SetValue(&displacementHeight);
 	}
 
+	std::shared_ptr<GenericShaderMaterial> GenericShaderMaterial::Clone() const
+	{
+		std::shared_ptr<GenericShaderMaterial> m = std::make_shared<GenericShaderMaterial>(shaderID);
+		m->SetColor(Kd);
+		m->SetSpecular(Ks);
+		m->SetShininess(Shininess);
+		m->SetDisplacementHeight(displacementHeight);
+		m->SetReflectivity(Reflectivity);
+		m->SetMetallic(Metallic);
+		m->SetRoughness(Roughness);
+		m->SetSSREnabled(SSREnabled != 0.0f);
+		m->SetAlphaCutoff(AlphaCutoff);
+		m->Wind = Wind;
+		m->Ke = Ke;
+		m->Ka = Ka;
+
+		auto tex = [this](int32 id) { return id >= 0 && id < (int32)Textures.size() ? Textures[id] : std::shared_ptr<Texture>(); };
+		if (std::shared_ptr<Texture> t = tex(colorMapID)) m->SetColorMap(t);
+		if (std::shared_ptr<Texture> t = tex(specularMapID)) m->SetSpecularMap(t);
+		if (std::shared_ptr<Texture> t = tex(normalMapID)) m->SetNormalMap(t);
+		if (std::shared_ptr<Texture> t = tex(displacementMapID)) m->SetDisplacementMap(t);
+		if (std::shared_ptr<Texture> t = tex(envMapID)) m->SetEnvMap(t);
+		if (std::shared_ptr<Texture> t = tex(refractMapID)) m->SetRefractMap(t);
+		if (std::shared_ptr<Texture> t = tex(skyboxMapID)) m->SetSkyboxMap(t);
+		if (std::shared_ptr<Texture> t = tex(metallicRoughnessMapID)) m->SetMetallicRoughnessMap(t);
+
+		// IMaterial render state.
+		m->SetOpacity(opacity);
+		m->SetTransparencyFlag(isTransparent);
+		m->SetCullFace(cullFace);
+		m->isWireFrame = isWireFrame;
+		m->isCastingShadows = isCastingShadows;
+		m->depthTest = depthTest;
+		m->depthWrite = depthWrite;
+		m->forceDepthWrite = forceDepthWrite;
+		m->depthTestMode = depthTestMode;
+		m->depthBias = depthBias;
+		m->depthFactor = depthFactor;
+		m->depthUnits = depthUnits;
+		m->blending = blending;
+		m->sfactor = sfactor;
+		m->dfactor = dfactor;
+		m->mode = mode;
+		return m;
+	}
+
 	void GenericShaderMaterial::AddTexture(const std::string &uniformName, const std::shared_ptr<Texture> &texture)
 	{
 		uint32 id = Textures.size();
