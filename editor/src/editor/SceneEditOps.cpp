@@ -1128,7 +1128,12 @@ bool SceneEditor::BakeDDGI(std::string& errOut)
 	// nowhere else.
 	gi.shaderRoot = "shaders";
 
-	if (!Renderer->BakeGlobalIllumination(scene, gi))
+	std::vector<RenderingComponent*> chrome;
+	HideEditorChrome(chrome);
+	const bool baked = Renderer->BakeGlobalIllumination(scene, gi);
+	for (size_t i = 0; i < chrome.size(); ++i)
+		chrome[i]->Enable();
+	if (!baked)
 	{
 		// The usual causes are a scene with no geometry to bounce off
 		// and a scene with no lights, and both produce a volume that is
@@ -1160,7 +1165,14 @@ void SceneEditor::UpdateDDGIIfDynamic()
 	// on the CPU the renderer's own millisecond ceiling stops it, which
 	// is a limit the machine sets rather than one guessed here - the
 	// 12 that used to be hardcoded costs 8.6 ms on a fast desktop.
+	// Chrome hidden here too, not only in the solve: deleting an object
+	// makes the refresh re-extract the whole scene, and it would pick
+	// the icons up again then.
+	std::vector<RenderingComponent*> chrome;
+	HideEditorChrome(chrome);
 	Renderer->UpdateGlobalIllumination(scene, (uint32)Max(0, ddgiProbeBudget), ddgiHysteresis);
+	for (size_t i = 0; i < chrome.size(); ++i)
+		chrome[i]->Enable();
 }
 
 bool SceneEditor::BakeIrradianceProbes(std::string& errOut)

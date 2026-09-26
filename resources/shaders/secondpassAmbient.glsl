@@ -79,7 +79,16 @@ void main() {
 	// channels (see MaterialCodegen.cpp), which is what gets emissive
 	// ADDED after lighting here rather than packed into albedo and then
 	// attenuated by N.L the way it used to be.
+	//
+	// Floored at 1/64, not 1 - metallic. PyrosShader's G-buffer writer
+	// already applies (1 - metallic) to its DIFFUSE indirect and adds a
+	// specular term that must survive on a metal - so it divides its
+	// finished value by exactly this factor and the two cancel. At a flat 1 - metallic a pure metal
+	// multiplied its reflections by zero: DDGI specular never reached
+	// the screen in deferred. Generated custom materials still rely on
+	// this multiply, and at the floor they are unchanged but for 1/64 of
+	// ambient on a fully metallic surface.
 	float metallic = texture_2D(tMetallicRoughness, vec2(Texcoord.x,Texcoord.y)).g;
-	FragColor=vec4(ambient * (1.0 - metallic), 1.0);
+	FragColor=vec4(ambient * max(1.0 - metallic, 1.0 / 64.0), 1.0);
 }
 #endif

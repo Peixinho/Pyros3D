@@ -4305,15 +4305,35 @@ namespace p3d {
 	{
 		switch (format)
 		{
+		// Every format the TextureDataType switch above can produce must
+		// be listed. The default of 4 silently under-sizes anything
+		// wider: RG32F fell through to it, so every RG32F upload sent
+		// exactly HALF its data. That was the DDGI visibility atlas -
+		// every probe in the upper half of the index range read a mean
+		// depth of 0, Chebyshev rejected it, and half of every GI room
+		// had no indirect light at all - and the BRDF table, whose high
+		// roughness rows were never uploaded.
 		case VK_FORMAT_R8_UNORM: return 1;
-		case VK_FORMAT_R8G8_UNORM: return 2;
-		case VK_FORMAT_R16_SFLOAT: return 2;
+		case VK_FORMAT_R8G8_UNORM:
+		case VK_FORMAT_R16_SFLOAT:
+		case VK_FORMAT_R16_SINT:
+			return 2;
 		case VK_FORMAT_R8G8B8A8_UNORM:
 		case VK_FORMAT_B8G8R8A8_UNORM:
+		case VK_FORMAT_R16G16_SFLOAT:
+		case VK_FORMAT_R16G16_SINT:
 		case VK_FORMAT_R32_SFLOAT:
+		case VK_FORMAT_R32_SINT:
+		case VK_FORMAT_D32_SFLOAT:
 			return 4;
-		case VK_FORMAT_R16G16B16A16_SFLOAT: return 8;
-		case VK_FORMAT_R32G32B32A32_SFLOAT: return 16;
+		case VK_FORMAT_R16G16B16A16_SFLOAT:
+		case VK_FORMAT_R16G16B16A16_SINT:
+		case VK_FORMAT_R32G32_SFLOAT:
+		case VK_FORMAT_R32G32_SINT:
+			return 8;
+		case VK_FORMAT_R32G32B32A32_SFLOAT:
+		case VK_FORMAT_R32G32B32A32_SINT:
+			return 16;
 		default: return 4;
 		}
 	}

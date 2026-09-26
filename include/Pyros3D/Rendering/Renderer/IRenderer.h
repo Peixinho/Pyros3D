@@ -109,6 +109,9 @@ namespace p3d {
 		// the flat GlobalLight colour.
 		void SetAmbientGradient(const Vec4 &Sky, const Vec4 &Equator, const Vec4 &Ground);
 		void SetAmbientMode(const uint32 Mode);
+		// What the shader is told: AmbientMode, except that DDGI (3) with
+		// no volume published degrades to flat (0).
+		uint32 EffectiveAmbientMode() const;
 		// Publishes a projected environment for AmbientMode 2. Does NOT
 		// switch the mode - a caller that has an environment may still
 		// want the flat or gradient ambient, and silently changing the

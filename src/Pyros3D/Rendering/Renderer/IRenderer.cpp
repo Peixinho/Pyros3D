@@ -1499,6 +1499,22 @@ void IRenderer::SetAmbientMode(const uint32 Mode)
 	AmbientMode = Mode;
 }
 
+// Mode 3 with no volume behind it falls back to flat ambient.
+//
+// The mode is set per renderer, and a caller copying a scene's settings
+// onto a NEW renderer - the editor switching Forward<->Deferred, a
+// preview, a thumbnail - hands it mode 3 before anything has solved a
+// volume for it. The shader then reads the DDGI uniform block and
+// atlases that were never uploaded, and the result is not black: it is
+// a grid of saturated discs over every surface, which reads as broken
+// GI rather than as missing GI.
+uint32 IRenderer::EffectiveAmbientMode() const
+{
+	if (AmbientMode == 3 && DDGIVol == NULL)
+		return 0;
+	return AmbientMode;
+}
+
 bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings &settings)
 {
 	if (OwnedDDGI == NULL)
@@ -1681,6 +1697,40 @@ static uint32 FloatTextureFilter()
 #endif
 }
 
+// Makes `tex` exist at exactly this size, replacing it if the volume
+// has been re-solved at a different probe count.
+//
+// A texture created once and then fed a differently sized atlas is the
+// failure this exists to stop: UpdateData uploads the new buffer into
+// the old dimensions, and the shader - which derives the atlas size
+// from the probe counts in its uniform block, not from the texture -
+// then reads texels that are not where it thinks. The lighting does
+// not error; it goes dim and patchy, and stays that way until the
+// scene is reloaded.
+//
+// Which is exactly what pressing Solve after editing the probe grid
+// does, so it is the first thing anyone changing those numbers in the
+// editor would hit.
+static void EnsureGITexture(Texture *&tex, const uint32 dataType,
+	const uint32 width, const uint32 height, const uint32 filter)
+{
+	if (width == 0 || height == 0)
+		return;
+	if (tex != NULL && (tex->GetWidth() == width && tex->GetHeight() == height))
+		return;
+	if (tex != NULL)
+	{
+		delete tex;
+		tex = NULL;
+	}
+	tex = new Texture();
+	tex->CreateEmptyTexture(TextureType::Texture, dataType, (int32)width, (int32)height, false);
+	// Filtering across a tile is what the octahedral border exists for;
+	// clamped, because repeat would wrap into the neighbouring probe.
+	tex->SetMinMagFilter(filter, filter);
+	tex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+}
+
 void IRenderer::UploadDDGIIfDirty()
 {
 	if (DDGIVol == NULL || DDGIRevision == DDGIUploadedRevision)
@@ -1712,35 +1762,15 @@ void IRenderer::UploadDDGIIfDirty()
 	// sampling nothing filters across it. Blockier, and present.
 	const uint32 kAtlasFilter = FloatTextureFilter();
 
-	if (DDGIIrradianceTex == NULL)
-	{
-		DDGIIrradianceTex = new Texture();
-		DDGIIrradianceTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F,
-			(int32)irr.GetWidth(), (int32)irr.GetHeight(), false);
-		// Bilinear across the tile, and clamped: the octahedral border
-		// is what makes filtering at a tile edge correct, and repeat
-		// would wrap into the neighbouring probe instead.
-		DDGIIrradianceTex->SetMinMagFilter(kAtlasFilter, kAtlasFilter);
-		DDGIIrradianceTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	}
-	if (DDGIVisibilityTex == NULL)
-	{
-		DDGIVisibilityTex = new Texture();
-		DDGIVisibilityTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RG32F,
-			(int32)vis.GetWidth(), (int32)vis.GetHeight(), false);
-		DDGIVisibilityTex->SetMinMagFilter(kAtlasFilter, kAtlasFilter);
-		DDGIVisibilityTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	}
+	EnsureGITexture(DDGIIrradianceTex, TextureDataType::RGBA32F,
+		irr.GetWidth(), irr.GetHeight(), kAtlasFilter);
+	EnsureGITexture(DDGIVisibilityTex, TextureDataType::RG32F,
+		vis.GetWidth(), vis.GetHeight(), kAtlasFilter);
 
 	const ProbeAtlas &rad = DDGIVol->GetRadianceAtlas();
-	if (DDGIRadianceTex == NULL && rad.GetResolution() > 0)
-	{
-		DDGIRadianceTex = new Texture();
-		DDGIRadianceTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F,
-			(int32)rad.GetWidth(), (int32)rad.GetHeight(), false);
-		DDGIRadianceTex->SetMinMagFilter(kAtlasFilter, kAtlasFilter);
-		DDGIRadianceTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	}
+	if (rad.GetResolution() > 0)
+		EnsureGITexture(DDGIRadianceTex, TextureDataType::RGBA32F,
+			rad.GetWidth(), rad.GetHeight(), kAtlasFilter);
 
 	DDGIIrradianceTex->UpdateData((void*)irr.GetData().data());
 	DDGIVisibilityTex->UpdateData((void*)vis.GetData().data());
@@ -1774,17 +1804,11 @@ void IRenderer::UploadDDGIIfDirty()
 		if (ddgi[2].w > 0.f)
 		{
 			const uint32 rows = ((uint32)pd.size() + perRow - 1) / perRow;
-			if (DDGIProbeDataTex == NULL)
-			{
-				DDGIProbeDataTex = new Texture();
-				DDGIProbeDataTex->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F,
-					(int32)perRow, (int32)rows, false);
-				// Read with texelFetch, so filtering would never apply
-				// - but a driver still needs a complete, consistent
-				// sampler state, and Nearest says what is meant.
-				DDGIProbeDataTex->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-				DDGIProbeDataTex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-			}
+			// Read with texelFetch, so filtering never applies - but a
+			// driver still wants a consistent sampler state, and
+			// Nearest says what is meant.
+			EnsureGITexture(DDGIProbeDataTex, TextureDataType::RGBA32F,
+				perRow, rows, TextureFilter::Nearest);
 			// The tail of the last row matters: a probe index never
 			// reaches it, but leaving it uninitialised means a driver
 			// reading past the upload sees whatever was there. Active
@@ -2277,7 +2301,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			env[1] = AmbientSky;
 			env[2] = AmbientEquator;
 			env[3] = AmbientGround;
-			env[4] = Vec4((f32)AmbientMode, 0.f, 0.f, 0.f);
+			env[4] = Vec4((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
 			// Always uploaded, not just in mode 2. The block is one
 			// contiguous std140 allocation and ReplaceUniformBuffer
 			// re-specifies the whole thing (see its comment on
@@ -2705,7 +2729,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			env[1] = AmbientSky;
 			env[2] = AmbientEquator;
 			env[3] = AmbientGround;
-			env[4] = Vec4((f32)AmbientMode, 0.f, 0.f, 0.f);
+			env[4] = Vec4((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
 			for (uint32 i = 0; i < 9; i++)
 			{
 				const Vec3 &c = sampled.coefficients[i];

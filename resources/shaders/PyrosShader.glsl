@@ -1260,6 +1260,26 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            return (vec2(px, py) * tile + inTile) / atlasSize;
        }
 
+       // Where a surface looks the volume up: off the surface, along its
+       // normal, by a quarter of the tightest probe spacing - the same
+       // offset DDGIVolume::GetFeedbackNormalBias gives the CPU gather.
+       //
+       // Sampling ON the surface is the classic DDGI self-shadowing
+       // failure: a probe's recorded mean distance in this direction IS
+       // this surface, so `dist` and `mean` are the same number give or
+       // take ray noise and the Chebyshev test half-rejects probes that
+       // plainly see the point. A/B in the Cornell scene: without it
+       // every inside corner and the ceiling edge carry a dark seam.
+       //
+       // (Jagged texel-shaped blotches over whole walls are NOT this -
+       // that was the Vulkan backend uploading half the RG32F
+       // visibility atlas. See BytesPerTexelVk.)
+       vec3 p3d_DDGIShadingPos(vec3 worldPos, vec3 normal)
+       {
+           float s = min(uDDGISpacing.x, min(uDDGISpacing.y, uDDGISpacing.z));
+           return worldPos + normal * (0.25 * s);
+       }
+
        // Indirect light from the eight surrounding probes, each weighted
        // by a Chebyshev visibility test against its own distance
        // moments. That test is what stops a probe on the far side of a
@@ -1363,7 +1383,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            if (uAmbientParams.x < 2.5 || uDDGIRadianceParams.z < 0.5) return vec3(0.0);
            float nDotV = clamp(dot(normal, viewDir), 0.0, 1.0);
            vec3 refl = reflect(-viewDir, normal);
-           vec3 pre = SampleDDGIRadiance(worldPos, normal, refl, roughness);
+           vec3 pre = SampleDDGIRadiance(p3d_DDGIShadingPos(worldPos, normal), normal, refl, roughness);
            // The table is the domain: both axes are already [0,1] and
            // the texture is clamped, so no remapping is needed here.
            vec2 ab = texture(uBRDFLut, vec2(nDotV, roughness)).rg;
@@ -1436,7 +1456,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            // the volume gathers radiance and the gather is normalised -
            // same convention as every other branch here.
            if (uAmbientParams.x >= 2.5)
-               return max(SampleDDGI(vWorldPosition.xyz, normalize(vNormal)), vec3(0.0));
+           {
+               vec3 n = normalize(vNormal);
+               return max(SampleDDGI(p3d_DDGIShadingPos(vWorldPosition.xyz, n), n), vec3(0.0));
+           }
        #endif
            if (uAmbientParams.x >= 1.5)
            {
@@ -1904,6 +1927,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		vec3 iblF0 = mix(vec3(0.04), diffuse.xyz, metallic);
 		_indirect += DDGISpecular(vWorldPosition.xyz, normalize(gbufferNormal.xyz),
 			normalize(vCameraPos - vWorldPosition.xyz), iblF0, roughness);
+	#endif
+	#ifdef PBR
+		// secondpassAmbient.glsl multiplies these alphas by
+		// max(1 - metallic, 1/64). The (1 - metallic) above already
+		// belongs to the diffuse half only, so undo that multiply here
+		// or a metal's specular is scaled to nothing. Metallic is
+		// quantised the way the RGBA8 target will store it, so the
+		// divide and the multiply are the same number.
+		float _mq = floor(clamp(metallic, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
+		_indirect /= max(1.0 - _mq, 1.0 / 64.0);
 	#endif
 		FragData_r=vec4(diffuse.xyz,_indirect.x);
 		// RGB is the second pass's F0 *tint*, not a Blinn-Phong specular

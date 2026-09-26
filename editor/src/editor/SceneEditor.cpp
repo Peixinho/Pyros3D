@@ -666,6 +666,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// hardcoded ambient default - reapply the scene's actual value so
 		// switching Forward<->Deferred doesn't silently change the look.
 		ApplyEnvironment();
+		// A DDGI volume belongs to the renderer that solved it, so the
+		// old one went with `delete Renderer` above. Solve again for this
+		// one - a few frames of compute - or the viewport silently loses
+		// its indirect light the moment the renderer changes.
+		if (ambientMode == 3 && ddgiBuilt)
+		{
+			std::string err;
+			if (!BakeDDGI(err))
+				echo("Global illumination: " + err);
+		}
 
 		// Freshly constructed, not yet Bound - SetFramebufferPreserveDepth()
 		// only takes effect before ExternalFBO's render pass is first
@@ -2696,22 +2706,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// every ImGui frame (helpers/grid/editor cameras) and left shared renderer
 		// state / registration flags in a bad place after leaving camera selection.
 		std::vector<RenderingComponent*> disabled;
-		if (rGrid && rGrid->IsActive())
-		{
-			rGrid->Disable();
-			disabled.push_back(rGrid.get());
-		}
-		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
-			i != sceneObjects->GetList().end(); ++i)
-		{
-			if ((*i).second == NULL || !(*i).second->Helper) continue;
-			IHelper* helper = (IHelper*)(*i).second->Helper.get();
-			if (helper && helper->rcomp && helper->rcomp->IsActive())
-			{
-				helper->rcomp->Disable();
-				disabled.push_back(helper->rcomp.get());
-			}
-		}
+		HideEditorChrome(disabled);
 
 		previewEffects->ProcessPostEffects(&p);
 		previewEffects->Resize(previewWidth, previewHeight);
@@ -2735,6 +2730,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #endif
 		IRenderer::InvalidateSharedUniformCaches();
 		return previewEffects->GetViewportColor();
+	}
+
+	void SceneEditor::HideEditorChrome(std::vector<RenderingComponent*>& disabled)
+	{
+		if (rGrid && rGrid->IsActive())
+		{
+			rGrid->Disable();
+			disabled.push_back(rGrid.get());
+		}
+		if (sceneObjects == NULL) return;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+			i != sceneObjects->GetList().end(); ++i)
+		{
+			if ((*i).second == NULL || !(*i).second->Helper) continue;
+			IHelper* helper = (IHelper*)(*i).second->Helper.get();
+			if (helper && helper->rcomp && helper->rcomp->IsActive())
+			{
+				helper->rcomp->Disable();
+				disabled.push_back(helper->rcomp.get());
+			}
+		}
 	}
 
 	GameObject* SceneEditor::GetSelectedOwnerGameObject() const
@@ -5585,6 +5601,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			PYROS_PROFILE_SCOPE("Scene.Update");
 			scene->Update(time);
 		}
+		if (ddgiSolveAfterUpdate)
+		{
+			ddgiSolveAfterUpdate = false;
+			std::string err;
+			if (ambientMode == 3 && !BakeDDGI(err))
+			{
+				echo("Global illumination: " + err);
+				// Fall back rather than leave ambient mode 3 with no
+				// volume behind it.
+				ambientMode = 0;
+				ApplyEnvironment();
+			}
+		}
 #ifdef LUA_BINDINGS
 		if (playMode)
 		{
@@ -8262,21 +8291,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ddgiProbeBudget = (int)meta.ddgiProbeBudget;
 			ddgiHysteresis = meta.ddgiHysteresis;
 			// A scene that asked for DDGI has settings but no volume -
-			// the solve is not stored, by design. Do it now, so opening
+			// the solve is not stored, by design. Solve it, so opening
 			// the scene shows the lighting it was authored with rather
-			// than an unlit room with a button to press.
+			// than an unlit room with a button to press - but after the
+			// first scene->Update, not here. Lights register during that
+			// traversal, so a solve now traces a room with no lights in
+			// it ("the scene has no lights") and, with "Follow moving
+			// lights" off, the room stays unlit until Solve is pressed.
+			// Until then mode 3 has no volume and renders as flat
+			// ambient - see IRenderer::EffectiveAmbientMode.
 			ddgiBuilt = false;
-			if (ambientMode == 3)
-			{
-				std::string err;
-				if (!BakeDDGI(err))
-				{
-					echo("Global illumination: " + err);
-					// Fall back rather than leave ambient mode 3 with
-					// no volume behind it, which samples as black.
-					ambientMode = 0;
-				}
-			}
+			ddgiSolveAfterUpdate = (ambientMode == 3);
 			for (uint32 i = 0; i < 9; i++) ambientSH[i] = meta.ambientSH[i];
 			ambientProbes = meta.ambientProbes;
 			ambientSky = meta.ambientSky;

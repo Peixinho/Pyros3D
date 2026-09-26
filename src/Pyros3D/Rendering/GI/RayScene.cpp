@@ -259,7 +259,14 @@ namespace p3d {
 			for (size_t ci = 0; ci < components.size(); ci++)
 			{
 				RenderingComponent *rc = dynamic_cast<RenderingComponent*>(components[ci].get());
-				if (rc == NULL)
+				// A disabled component is not drawn, so it must not
+				// bounce light either. This is also how the editor keeps
+				// its own chrome - light and camera icons, the camera
+				// frustum - out of the solve: those are real GameObjects
+				// in the scene, and traced they stretched the volume to
+				// +-30 around a room of +-5 (and one carries a NaN
+				// transform until it is first drawn).
+				if (rc == NULL || !rc->IsActive())
 					continue;
 
 				// LOD 0 - the real surface. Lower LODs exist for distance.

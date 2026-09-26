@@ -819,6 +819,9 @@ private:
 	// ambientMode == 3: the mode is the intent, this is whether there
 	// is anything to sample yet.
 	bool ddgiBuilt = false;
+	// Set by scene load: solve once the scene has been updated and its
+	// lights have registered. See the load path in SceneEditor.cpp.
+	bool ddgiSolveAfterUpdate = false;
 	// Solves the volume from the current scene and lights, and turns
 	// ambient mode 3 on. Returns false with a reason - the usual one is
 	// a scene with no geometry or no lights, where a bake would
@@ -827,6 +830,13 @@ private:
 	// One frame of refresh, if the scene asked for a dynamic volume.
 	// Called from the per-frame update, cheap and a no-op when off.
 	void UpdateDDGIIfDynamic();
+	// Disables the grid and every light/camera/sound icon, appending each
+	// one it turned off so the caller can Enable() them again. For
+	// anything that must see the scene without the editor's chrome: the
+	// camera preview, and the GI solve, which traces every active
+	// RenderingComponent in the scene and would otherwise bounce light
+	// off the icons.
+	void HideEditorChrome(std::vector<RenderingComponent*>& disabled);
 	// Folder the last skybox bake read its six faces from, so the field
 	// keeps what was typed and the scene remembers where it came from.
 	std::string ambientSkyboxFolder;
