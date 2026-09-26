@@ -4437,6 +4437,76 @@ def editor_log(lines: int = 50) -> str:
 
 
 @mcp.tool()
+def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -> str:
+    """Run any command on the running editor (PyrosBuilder) and return its JSON result.
+
+    The dedicated tools here cover the common edits, often working on the
+    scene files directly. This is the whole editor: anything its panels can
+    do has a command, applied live, with the same undo steps the panels make.
+    The editor must be running with the project open.
+
+    Selected commands (args in parentheses; objects are addressed by name):
+
+    Properties panel, 3D
+      set_light (name, color, intensity, radius, direction, inner, outer,
+        castingShadows, shadowMapSize, shadowNear, shadowFar, shadowCascades,
+        shadowBiasFactor, shadowBiasUnits)
+      set_material (object, color, specular, metallic, roughness, shininess,
+        reflectivity, alphaCutoff, opacity, transparent, cullFace, blending,
+        depthTest, depthWrite, wireframe, castShadows)
+      set_physics (name, mass, linearVelocity, angularVelocity, impulse, cleanForces)
+      set_audio (name, volume, pitch, pan, looping, spatialized, attenuation,
+        minDistance, maxDistance, directionalAttenuation, dopplerFactor,
+        cone {inner, outer, outerGain} | false, filter {type, cutoff, order} | "none",
+        eq {type, frequency, gain, q} | "none", delay {seconds, decay, wet, dry} | false,
+        seek, action: play|pause|stop|fadeIn|fadeOut, fadeMs)
+      set_particles (name, any add_particles key incl. gpuSimulation, restart, clear)
+      set_camera, set_transform, set_tags, rename, reparent, duplicate, delete_object
+    Properties panel, 2D
+      set_occluder2d (name, shape: box|circle, halfExtents, enabled)
+      set_physics2d (name, bodyType, shape, halfExtents, density, friction,
+        bounciness, fixedRotation)
+      set_layer2d (name, parallax, visible)
+      set_sprite_animation (name, fps, pingPong, paused)
+      set_ui (object, properties), set_pivot, slice_spritesheet, set_autoplay2d
+    Scene settings
+      set_ambient (mode 0-3, color, intensity, background, sky, equator, ground,
+        probeCounts, bakeProbes, skyboxFolder, bakeSkybox,
+        ddgi {counts, rays, passes, sky, multiBounce, dynamic, probeBudget,
+        hysteresis}, solve, clear)
+      scene_state -> "environment" reads all of it back
+      set_view_options (lightGizmos, cameraFrustums, physicsDebug, grid, chrome)
+      set_renderer (type: forward|deferred), new_scene (kind: 3d|2d|ui)
+    Project
+      new_project (parentDir, name), save_project, close_project (discard),
+      project_settings (name, renderer) - no args reads them
+    Assets panel
+      open_asset (path), place_asset (path), create_tileset (image, tileWidth,
+      tileHeight, margin, spacing), new_animation (rig), delete_asset
+    Tile Set editor (focused document; open_asset / open_tileset first)
+      edit_tileset (grid, tag, animate, animationFps, removeAnimation, terrain,
+      removeTerrain, heightProfile), tileset_info, set_tile_solid,
+      set_tile_shape, save_tileset
+    Material editor
+      edit_material (path, options {PBR, Texture, ...}, colours, scalars, flags,
+      textures {color, normal, specular, env, metallicRoughness})
+    Animation editor
+      set_animation_clip (path, clip, duration, loop, applyScale, authoredFps),
+      set_animation_pose (path, bone, position, rotation in degrees, bind, key)
+    2D Character editor
+      set_clip2d (clip, duration), new_clip2d, rename_clip2d, set_bone2d, ...
+    Reading
+      status, scene_state, get_object (name), log (lines)
+
+    Errors come back as the editor's message, which names the valid values.
+    """
+    ok, res = _editor_call(cmd, args or {}, timeout=timeout)
+    if not ok:
+        return _fail(f"{cmd}: {res}")
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
 def play_mode(action: str = "start") -> str:
     """Start or stop play mode in the running editor.
 
@@ -5014,8 +5084,11 @@ def save_animation(save_as: str | None = None, animation: str | None = None) -> 
 
 
 @mcp.tool()
-def open_scene(project_path: str, scene_name: str) -> str:
+def open_scene_document(project_path: str, scene_name: str) -> str:
     """Open a scene as ANOTHER document, beside whatever is already open.
+
+    (Was also named open_scene, which the file-level scene reader above
+    already is - the server kept that one and silently dropped this.)
 
     Distinct from set_active_scene / loading one, which replaces the current
     document. Two open documents each keep their own renderer, selection and
