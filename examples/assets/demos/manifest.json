@@ -275,6 +275,28 @@
   }
  },
  {
+  "name": "SSAO (Deferred)",
+  "description": "The same teapot grid through the deferred renderer, whose SSAO darkens ambient light only.",
+  "scene": "SSAOExample.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.2,
+    0.2,
+    0.2,
+    0.2
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.01,
+    "far": 50
+   },
+   "effects": [
+    "ssao"
+   ]
+  }
+ },
+ {
   "name": "Motion Blur",
   "description": "Velocity-map motion blur on fast orbiting coloured objects; static cubes stay sharp for contrast.",
   "scene": "MotionBlur.json",

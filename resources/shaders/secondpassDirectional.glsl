@@ -155,6 +155,9 @@ SAMPLER_BINDING(3) uniform sampler2D tNormal;
 // PBR metallic/roughness G-buffer attachment - see PyrosShader.glsl's
 // FragData_pbr (.r=roughness, .g=metalness).
 SAMPLER_BINDING(5) uniform sampler2D tMetallicRoughness;
+// Ambient occlusion's share for direct light (.g) - see
+// deferredSSAOBlur.glsl. White when the renderer's SSAO is off.
+SAMPLER_BINDING(6) uniform sampler2D tAO;
 UBO_BINDING(32) uniform DirectionalFragParams {
 	vec2 uScreenDimensions;
 	vec3 uLightDirection;
@@ -301,6 +304,6 @@ void main() {
 	vec3 L = normalize(-uLightDirection);
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
-	FragColor = vec4(pbrColor, 1.0) * pcf;
+	FragColor = vec4(pbrColor * texture(tAO, Texcoord).g, 1.0) * pcf;
 }
 #endif

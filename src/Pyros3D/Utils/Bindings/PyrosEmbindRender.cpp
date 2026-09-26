@@ -188,6 +188,10 @@ namespace {
 	void DeferredRenderer_SetSSRDistances(DeferredRenderer &r, float step, float maxd) { r.SetSSRDistances(step, maxd); }
 	void DeferredRenderer_EnableSSR(DeferredRenderer &r) { r.EnableSSR(); }
 	void DeferredRenderer_DisableSSR(DeferredRenderer &r) { r.DisableSSR(); }
+	void DeferredRenderer_EnableSSAO(DeferredRenderer &r) { r.EnableSSAO(); }
+	void DeferredRenderer_DisableSSAO(DeferredRenderer &r) { r.DisableSSAO(); }
+	void DeferredRenderer_SetSSAODirectStrength(DeferredRenderer &r, float direct) { r.SetSSAODirectStrength(direct); }
+	void DeferredRenderer_SetSSAOParams(DeferredRenderer &r, float radius, float strength, float falloff) { r.SetSSAOParams(radius, strength, falloff); }
 
 	void Velocity_Render(VelocityRenderer &v, const Projection &proj, const std::shared_ptr<GameObject> &cam, SceneGraph &scene)
 	{
@@ -473,7 +477,11 @@ EMSCRIPTEN_BINDINGS(pyros3d_render)
 		.function("renderSceneOptions", &DeferredRenderer_RenderSceneOptions)
 		.function("setSSRDistances", &DeferredRenderer_SetSSRDistances)
 		.function("enableSSR", &DeferredRenderer_EnableSSR)
-		.function("disableSSR", &DeferredRenderer_DisableSSR);
+		.function("disableSSR", &DeferredRenderer_DisableSSR)
+		.function("enableSSAO", &DeferredRenderer_EnableSSAO)
+		.function("disableSSAO", &DeferredRenderer_DisableSSAO)
+		.function("setSSAOParams", &DeferredRenderer_SetSSAOParams)
+		.function("setSSAODirectStrength", &DeferredRenderer_SetSSAODirectStrength);
 
 	class_<VelocityRenderer>("VelocityRenderer")
 		.constructor<uint32, uint32>()

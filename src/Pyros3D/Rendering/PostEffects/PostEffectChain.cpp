@@ -20,6 +20,7 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/DepthOfFieldEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
+#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Core/Logs/Log.h>
 
 namespace p3d {
@@ -103,14 +104,16 @@ namespace p3d {
 				table["Vignette"] = vignette;
 
 				std::vector<CustomEffect::Param> ssao;
-				ssao.push_back(MakeParam("uRadius", "Radius", 0.2f, 0.01f, 2.f));
-				ssao.push_back(MakeParam("uStrength", "Strength", 1.5f, 0.f, 5.f));
-				ssao.push_back(MakeParam("uTreshOld", "Threshold", 2.f, 0.f, 10.f));
-				// 100, not 1 - that is what SSAOEffect's constructor sets, and
-				// it is the tiling rate of the 4x4 noise texture, not a strength.
-				// At 1 the noise barely varies across the screen and the kernel
-				// stops being randomly rotated, which shows up as banded blotches.
-				ssao.push_back(MakeParam("uScale", "Noise scale", 100.f, 1.f, 400.f));
+				ssao.push_back(MakeParam("uRadius", "Radius", 0.5f, 0.01f, 2.f));
+				ssao.push_back(MakeParam("uStrength", "Strength", 2.f, 0.f, 5.f));
+				// How far past the radius an occluder's vote fades out.
+				ssao.push_back(MakeParam("uTreshOld", "Falloff", 0.5f, 0.f, 10.f));
+				// Deferred only: the share of occlusion direct lights take too.
+				// 1 by default, like the post effect: at 0.5 a scene lit mostly
+				// by direct light showed next to no SSAO at all.
+				// There was a "Noise scale" here; the noise is tiled in screen
+				// space now and has no scale, so a saved value is ignored.
+				ssao.push_back(MakeParam("uDirect", "Direct light", 1.f, 0.f, 1.f));
 				table["SSAO"] = ssao;
 
 				std::vector<CustomEffect::Param> dof;
@@ -162,9 +165,9 @@ namespace p3d {
 				// name only so that the three cannot be ordered wrongly or
 				// half-added.
 				SSAOEffect* ssao = new SSAOEffect(RTT::Depth, width, height);
-				ssao->SetRadius(ParamOr(params, "uRadius", 0.2f));
-				ssao->SetStrength(ParamOr(params, "uStrength", 1.5f));
-				ssao->SetTreshOld(ParamOr(params, "uTreshOld", 2.f));
+				ssao->SetRadius(ParamOr(params, "uRadius", 0.5f));
+				ssao->SetStrength(ParamOr(params, "uStrength", 2.f));
+				ssao->SetTreshOld(ParamOr(params, "uTreshOld", 0.5f));
 				ssao->SetScale(ParamOr(params, "uScale", 100.f));
 				manager.AddEffect(ssao);
 				manager.AddEffect(new BlurSSAOEffect(RTT::LastRTT, width, height));
@@ -273,9 +276,12 @@ namespace p3d {
 		void Build(PostEffectsManager &manager,
 			const std::vector<SceneMeta::PostEffectEntry> &entries,
 			const uint32 width, const uint32 height,
-			ReadAssetFn readAsset, void *readAssetUser)
+			ReadAssetFn readAsset, void *readAssetUser,
+			DeferredRenderer *deferred)
 		{
 			manager.RemoveAllEffects();
+			if (deferred)
+				deferred->DisableSSAO();
 			if (width == 0 || height == 0)
 				return;
 
@@ -285,6 +291,17 @@ namespace p3d {
 				if (!e.enabled)
 					continue;
 
+				if (!e.effect.empty() && e.effect == "SSAO" && deferred)
+				{
+					// Same parameters, same defaults and the same meaning as
+					// the post effect's (uTreshOld is the falloff past the
+					// radius in both), so a scene looks alike either way.
+					deferred->SetSSAOParams(ParamOr(e.params, "uRadius", 0.5f),
+						ParamOr(e.params, "uStrength", 2.f), ParamOr(e.params, "uTreshOld", 0.5f));
+					deferred->SetSSAODirectStrength(ParamOr(e.params, "uDirect", 1.f));
+					deferred->EnableSSAO();
+					continue;
+				}
 				if (!e.effect.empty())
 				{
 					if (!AppendBuiltIn(manager, e.effect, width, height, e.params))

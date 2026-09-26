@@ -4,23 +4,31 @@ local SSAOSetup = class('SSAOSetup')
 function SSAOSetup:initialize()
 	self.owned = {}
 	self.keep = {}
-	self.radius = 0.2
-	self.strength = 1.5
-	self.threshold = 2.0
+	self.radius = 0.5
+	self.strength = 2.0
+	self.threshold = 0.5
 	self.scale = 1.0
 	self.blurIntensity = 1.0
+	self.direct = 1.0
+	self.enabled = true
 end
 
 function SSAOSetup:init(owner)
 	self.owner = owner
 	if not scene or not ASSETS_PATH then return end
 
+	-- A deferred renderer only shades what writes its G-buffer.
+	local usage = ShaderUsage.Diffuse
+	if renderer and renderer.enableSSAO then
+		usage = usage + ShaderUsage.DeferredRenderer_Gbuffer
+	end
+
 	local teapot = Model.new(ASSETS_PATH .. "teapotLOD1.p3dm", false)
 	self.keep[#self.keep + 1] = teapot
 	for j = 0, 9 do
 		for i = 0, 9 do
 			local go = GameObject.new()
-			local rc = RenderingComponent.new(teapot, ShaderUsage.Diffuse)
+			local rc = RenderingComponent.new(teapot, usage)
 			go:addComponent(rc)
 			go:setPosition(Vec3.new(-5 + i, 0.4, -5 + j))
 			go:setScale(Vec3.new(0.01, 0.01, 0.01))
@@ -34,7 +42,7 @@ function SSAOSetup:init(owner)
 	local floor = Plane.new(10, 10)
 	local gFloor = GameObject.new()
 	gFloor:setRotation(Vec3.new(math.rad(-90), 0, 0))
-	local rFloor = RenderingComponent.new(floor, ShaderUsage.Diffuse)
+	local rFloor = RenderingComponent.new(floor, usage)
 	gFloor:addComponent(rFloor)
 	scene:add(gFloor)
 	self.owned[#self.owned + 1] = gFloor
@@ -56,7 +64,18 @@ function SSAOSetup:drawUI()
 	self.threshold = imgui.sliderFloat("Threshold", self.threshold, 0.1, 5.0)
 	self.scale = imgui.sliderFloat("Scale", self.scale, 0.1, 5.0)
 	self.blurIntensity = imgui.sliderFloat("Blur", self.blurIntensity, 0.0, 3.0)
-	if ssaoSetParams then
+	if renderer and renderer.setSSAOParams then
+		-- Deferred: the renderer's own SSAO, on ambient light plus this
+		-- share of direct light.
+		self.direct = imgui.sliderFloat("Direct light", self.direct, 0.0, 1.0)
+		local on = imgui.checkbox("SSAO", self.enabled)
+		if on ~= self.enabled then
+			self.enabled = on
+			if on then renderer:enableSSAO() else renderer:disableSSAO() end
+		end
+		renderer:setSSAOParams(self.radius, self.strength, self.threshold)
+		renderer:setSSAODirectStrength(self.direct)
+	elseif ssaoSetParams then
 		ssaoSetParams(self.radius, self.strength, self.threshold, self.scale, self.blurIntensity)
 	end
 end

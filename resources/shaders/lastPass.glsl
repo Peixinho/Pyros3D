@@ -122,24 +122,33 @@ vec3 FresnelSchlick(float cosTheta, vec3 F0)
 // real, principled early-out, not a quality compromise, and keeps most
 // pixels in a typical scene out of the loop below entirely.
 const float SSR_ROUGHNESS_CUTOFF = 0.6;
-// McGuire/Mara screen-space DDA. SSR_PIXEL_STRIDE is the FLOOR on the
-// coarse stride, not the stride itself - uSSRStepDistance raises it (see
-// its comment above). Never go below 1: no temporal filter runs after
-// this, so a sub-pixel stride only burns steps, and jitter would turn
-// quantization into the stipple/comb noise SSRTest showed (view-dependent
-// holes along sphere silhouettes). Above 1 is a different trade and is
-// what the refine loop below exists for - it re-walks the last stride by
-// binary search, so a coarse stride of N costs SSR_REFINE_STEPS extra
-// taps and buys N times the reach out of the same SSR_COARSE_STEPS. The
-// hard cap is SSR_COARSE_STEPS*stride pixels: at stride 1 a reflection
-// physically cannot reach further than 128px across the screen, which is
-// fine for a room and useless for an open-water horizon.
+// McGuire/Mara screen-space DDA. The coarse stride is whichever is larger
+// of uSSRStepDistance (floored at 1px) and the stride that lets
+// SSR_COARSE_STEPS reach the ray's projected end. It used to be the
+// former alone, so a reflection physically could not travel further than
+// SSR_COARSE_STEPS*stride pixels: SSRTest (stride 1) drew 128px stubs
+// under each sphere and nothing beyond. Never below 1: no temporal filter
+// runs after this, so a sub-pixel stride only burns steps, and jitter
+// would turn quantization into the stipple/comb noise SSRTest showed.
+// The refine loop bisects the last stride, so a long stride costs
+// precision only on thin geometry, not on where the hit lands.
 const int SSR_COARSE_STEPS = 128;
-const int SSR_REFINE_STEPS = 6;
+const int SSR_REFINE_STEPS = 8;
 const float SSR_PIXEL_STRIDE = 1.0;
-const float SSR_THICKNESS = 0.35;
+const float SSR_MAX_PIXEL_STRIDE = 24.0;
+// View-space units. The floor on the depth slab a ray may be behind a
+// surface and still count as hitting it; the slab also grows with the
+// z-span of one coarse step and with distance (depth precision and
+// object size both scale with it).
+const float SSR_THICKNESS = 1.0;
+const float SSR_THICKNESS_PER_UNIT = 0.02;
 const float SSR_MIN_PIXELS = 2.5;
 const float SSR_COPLANAR_DOT = 0.95;
+// Glossy reflection blur: pixels of spread per pixel travelled at
+// roughness 1, its cap, and the taps spent on it.
+const float SSR_GLOSSY_SPREAD = 0.35;
+const float SSR_GLOSSY_MAX_PX = 28.0;
+const int SSR_GLOSSY_TAPS = 8;
 
 // uMatProj already goes through IRenderer::CaptureExtraUniform →
 // device->TranslateProjectionMatrix() (Vulkan Y-flip + Z remap; identity
@@ -167,16 +176,24 @@ vec2 ClipToUV(vec4 clipPos) {
 	return uv;
 }
 
+float SceneZAt(vec2 uv, vec4 z_info)
+{
+	float rawDepth = texture(tDepth, uv).r;
+	return (rawDepth >= 0.9999) ? -1e6 : -DecodeNativeDepth(rawDepth, z_info);
+}
+
 // Perspective-correct screen-space ray trace against tDepth (McGuire & Mara
 // JCGT 2014). Returns hit UV or (-1,-1) on miss. outConfidence is 1 at a
-// tight surface contact and falls off when the ray only grazes thickness
-// (used to soften noisy silhouette pixels).
-vec2 TraceSSR(vec3 rayOrigin, vec3 rayDir, vec4 z_info, out float outConfidence)
+// tight surface contact and falls off as the ray only grazes the slab.
+// outHitPixels is the screen distance travelled, for the glossy blur.
+vec2 TraceSSR(vec3 rayOrigin, vec3 rayDir, vec4 z_info, out float outConfidence, out float outHitPixels)
 {
 	outConfidence = 0.0;
+	outHitPixels = 0.0;
 	float maxRayDistance = uSSRMaxDistance;
 	float nearZ = uNearFar.x;
 
+	// Clip the ray at the near plane so its end projects to a finite pixel.
 	float rayLength = maxRayDistance;
 	float zEnd = rayOrigin.z + rayDir.z * maxRayDistance;
 	if (zEnd > -nearZ)
@@ -197,6 +214,21 @@ vec2 TraceSSR(vec3 rayOrigin, vec3 rayDir, vec4 z_info, out float outConfidence)
 
 	vec2 P0 = ClipToUV(H0) * uScreenDimensions;
 	vec2 P1 = ClipToUV(H1) * uScreenDimensions;
+
+	// Clip the screen-space segment to the viewport, so the stride below
+	// is spent on pixels that exist rather than on the off-screen tail of
+	// a 500-unit ray.
+	vec2 dir2 = P1 - P0;
+	float tMax = 1.0;
+	if (dir2.x > 0.0) tMax = min(tMax, (uScreenDimensions.x - P0.x) / dir2.x);
+	if (dir2.x < 0.0) tMax = min(tMax, -P0.x / dir2.x);
+	if (dir2.y > 0.0) tMax = min(tMax, (uScreenDimensions.y - P0.y) / dir2.y);
+	if (dir2.y < 0.0) tMax = min(tMax, -P0.y / dir2.y);
+	tMax = max(tMax, 0.0);
+	P1 = P0 + dir2 * tMax;
+	Q1 = mix(Q0, Q1, tMax);
+	k1 = mix(k0, k1, tMax);
+
 	vec2 P0orig = P0;
 	P1 += length(P1 - P0) < 0.0001 ? vec2(0.01) : vec2(0.0);
 	vec2 delta = P1 - P0;
@@ -217,7 +249,8 @@ vec2 TraceSSR(vec3 rayOrigin, vec3 rayDir, vec4 z_info, out float outConfidence)
 	float dk = (k1 - k0) * invdx;
 	vec2 dP = vec2(stepDir, delta.y * invdx);
 
-	float pixStride = max(SSR_PIXEL_STRIDE, uSSRStepDistance);
+	float reachStride = abs(delta.x) / float(SSR_COARSE_STEPS);
+	float pixStride = clamp(max(uSSRStepDistance, reachStride), SSR_PIXEL_STRIDE, SSR_MAX_PIXEL_STRIDE);
 	dP *= pixStride;
 	dQ *= pixStride;
 	dk *= pixStride;
@@ -225,16 +258,15 @@ vec2 TraceSSR(vec3 rayOrigin, vec3 rayDir, vec4 z_info, out float outConfidence)
 	vec4 pqk = vec4(P0, Q0.z, k0);
 	vec4 dPQK = vec4(dP, dQ.z, dk);
 
-	float rayZFar = pqk.z / pqk.w;
-	float rayZNear;
+	float rayZPrev = pqk.z / pqk.w;
 	bool hit = false;
-	vec2 hitPixel = vec2(-1.0);
-	float hitDepthDelta = 0.0;
+	float hitThickness = SSR_THICKNESS;
 
 	for (int i = 0; i < SSR_COARSE_STEPS; i++) {
 		pqk += dPQK;
-		rayZNear = rayZFar;
-		rayZFar = (dPQK.z * 0.5 + pqk.z) / (dPQK.w * 0.5 + pqk.w);
+		float rayZ = pqk.z / pqk.w;
+		float rayZNear = rayZPrev;
+		rayZPrev = rayZ;
 
 		vec2 pix = permute ? pqk.yx : pqk.xy;
 		// Stay off the reflector itself (and its immediate neighbours).
@@ -245,23 +277,19 @@ vec2 TraceSSR(vec3 rayOrigin, vec3 rayDir, vec4 z_info, out float outConfidence)
 		if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
 			break;
 
-		float rawDepth = texture(tDepth, uv).r;
-		if (rawDepth >= 0.9999)
+		float sceneZ = SceneZAt(uv, z_info);
+		if (sceneZ < -1e5)
 			continue;
 
-		float sceneZ = -DecodeNativeDepth(rawDepth, z_info);
-		// Thickness grows with the span of this DDA step so grazing /
-		// distant rays still catch the sphere instead of tunneling
-		// through (the view-dependent holes in SSRTest).
-		float stepSpan = abs(rayZFar - rayZNear);
-		float thickness = max(SSR_THICKNESS, stepSpan * 2.0);
-
-		float zNear = min(rayZNear, rayZFar);
-		float zFar = max(rayZNear, rayZFar);
-		if (zFar >= sceneZ - thickness && zNear <= sceneZ) {
+		float thickness = max(SSR_THICKNESS, abs(rayZ - rayZNear) * 2.0)
+			+ (-sceneZ) * SSR_THICKNESS_PER_UNIT;
+		float zMin = min(rayZNear, rayZ);
+		float zMax = max(rayZNear, rayZ);
+		// The step's z-range reaches behind the surface, but not so far
+		// behind it that the ray went round the back of the object.
+		if (zMin <= sceneZ && zMax >= sceneZ - thickness) {
 			hit = true;
-			hitPixel = uv;
-			hitDepthDelta = abs(sceneZ - mix(rayZNear, rayZFar, 0.5));
+			hitThickness = thickness;
 			break;
 		}
 	}
@@ -269,35 +297,29 @@ vec2 TraceSSR(vec3 rayOrigin, vec3 rayDir, vec4 z_info, out float outConfidence)
 	if (!hit)
 		return vec2(-1.0);
 
-	// Binary refine along the last stride (even at stride 1 this snaps to
-	// the depth crossing more tightly).
-	pqk -= dPQK;
-	dPQK /= max(pixStride, 1.0);
-	float stride = 0.5;
+	// Bisect the last stride: lo is in front of the depth buffer, hi is
+	// behind it. The hit is the first sample behind.
+	vec4 lo = pqk - dPQK;
+	vec4 hi = pqk;
 	for (int j = 0; j < SSR_REFINE_STEPS; j++) {
-		pqk += dPQK * stride;
-		rayZNear = rayZFar;
-		rayZFar = pqk.z / pqk.w;
-		vec2 pix = permute ? pqk.yx : pqk.xy;
-		vec2 uv = pix / uScreenDimensions;
-		if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0)
-			break;
-		float rawDepth = texture(tDepth, uv).r;
-		float sceneZ = (rawDepth >= 0.9999) ? 1e6 : -DecodeNativeDepth(rawDepth, z_info);
-		float thickness = max(SSR_THICKNESS, abs(rayZFar - rayZNear) * 2.0);
-		float zNear = min(rayZNear, rayZFar);
-		float zFar = max(rayZNear, rayZFar);
-		bool inside = (zFar >= sceneZ - thickness && zNear <= sceneZ);
-		stride = abs(stride) * 0.5;
-		if (inside) {
-			hitPixel = uv;
-			hitDepthDelta = abs(sceneZ - mix(rayZNear, rayZFar, 0.5));
-			stride = -stride;
-		}
+		vec4 mid = (lo + hi) * 0.5;
+		vec2 pix = permute ? mid.yx : mid.xy;
+		float sceneZ = SceneZAt(pix / uScreenDimensions, z_info);
+		if (mid.z / mid.w <= sceneZ)
+			hi = mid;
+		else
+			lo = mid;
 	}
 
-	outConfidence = 1.0 - smoothstep(0.0, SSR_THICKNESS * 2.0, hitDepthDelta);
-	return hitPixel;
+	vec2 hitPix = permute ? hi.yx : hi.xy;
+	vec2 hitUV = hitPix / uScreenDimensions;
+	float depthDelta = abs(SceneZAt(hitUV, z_info) - hi.z / hi.w);
+	// Relative to the slab the hit was accepted with - an absolute window
+	// here rejected every hit further than a few units from the camera,
+	// which on the island was the whole island.
+	outConfidence = 1.0 - smoothstep(0.5, 1.0, depthDelta / hitThickness);
+	outHitPixels = distance(hitPix, P0orig);
+	return hitUV;
 }
 
 void main() {
@@ -354,7 +376,8 @@ void main() {
 	// Nudge off the reflector so the first DDA sample isn't the surface itself.
 	vec3 rayOrigin = v1 + reflectDir * 0.08;
 	float hitConfidence = 0.0;
-	vec2 hitUV = TraceSSR(rayOrigin, reflectDir, z_info, hitConfidence);
+	float hitPixels = 0.0;
+	vec2 hitUV = TraceSSR(rayOrigin, reflectDir, z_info, hitConfidence, hitPixels);
 
 	if (hitUV.x < 0.0 || hitConfidence < 0.05) {
 		FragColor = vec4(baseColor, 1.0);
@@ -374,7 +397,29 @@ void main() {
 		return;
 	}
 
+	// A rough surface's lobe spreads the reflection out with distance, so
+	// widen a disk around the hit by roughness * distance travelled. A
+	// single tap made every material under the cutoff a perfect mirror,
+	// sharp edges and all, with a hard step where the cutoff fades it.
+	// Taps that land on the sky or back on the reflector's own plane keep
+	// the centre colour instead of bleeding it in.
 	vec3 reflectionColor = texture(tColor, hitUV).rgb;
+	float blurPx = min(roughness * roughness * hitPixels * SSR_GLOSSY_SPREAD, SSR_GLOSSY_MAX_PX);
+	if (blurPx > 0.75) {
+		vec3 sum = reflectionColor;
+		float wsum = 1.0;
+		for (int t = 0; t < SSR_GLOSSY_TAPS; t++) {
+			// Golden-angle spiral: even coverage with no fixed pattern.
+			float r = sqrt((float(t) + 0.5) / float(SSR_GLOSSY_TAPS));
+			float a = float(t) * 2.39996;
+			vec2 tapUV = hitUV + vec2(cos(a), sin(a)) * r * blurPx / uScreenDimensions;
+			float w = (texture(tDepth, tapUV).r >= 0.9999
+				|| dot(normalize(texture(tNormal, tapUV).xyz), N) > SSR_COPLANAR_DOT) ? 0.0 : 1.0;
+			sum += texture(tColor, tapUV).rgb * w;
+			wsum += w;
+		}
+		reflectionColor = sum / wsum;
+	}
 
 	// Debug 3: show raw hit color at full strength (no Fresnel fade).
 	if (uSSRDebug > 2.5) {
@@ -385,12 +430,15 @@ void main() {
 	float edgeDist = max(abs(hitUV.x*2.0-1.0), abs(hitUV.y*2.0-1.0));
 	float edgeFade = 1.0 - smoothstep(0.78, 1.0, edgeDist);
 	float roughnessFade = 1.0 - smoothstep(SSR_ROUGHNESS_CUTOFF*0.7, SSR_ROUGHNESS_CUTOFF, roughness);
+	// Fade out as the hit nears the march limit, not cut off at it.
+	float hitDistance = length(getPosViewSpace(texture(tDepth, hitUV).r, hitUV * uScreenDimensions, z_info, uMatProj, vp) - v1);
+	float distanceFade = 1.0 - smoothstep(0.75, 1.0, hitDistance / uSSRMaxDistance);
 
 	// Facing-angle dielectric mirrors need a boost past bare Schlick F0~0.04
 	// so SSRTest's floor reads as a mirror; confidence fades fragile hits
 	// instead of leaving stippled holes.
 	float mirrorFloor = 0.55 * (1.0 - metallic) * materialReflectivity;
-	vec3 reflectStrength = clamp(max(F, vec3(mirrorFloor)) * edgeFade * roughnessFade * hitConfidence, 0.0, 0.95);
+	vec3 reflectStrength = clamp(max(F, vec3(mirrorFloor)) * edgeFade * roughnessFade * distanceFade * hitConfidence, 0.0, 0.95);
 	FragColor = vec4(baseColor * (1.0 - reflectStrength) + reflectionColor * reflectStrength, 1.0);
 }
 #endif

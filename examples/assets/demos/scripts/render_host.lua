@@ -134,7 +134,16 @@ function RenderHost.setup(cfg, width, height)
 		if d then renderer:setSSRDistances(d[1], d[2]) end
 	end
 
-	local effects = cfg.effects or {}
+	-- On a deferred renderer SSAO is the renderer's own: it darkens ambient
+	-- light only, where the post-effect version can only darken the frame.
+	local effects = {}
+	for _, name in ipairs(cfg.effects or {}) do
+		if name == "ssao" and renderer.enableSSAO then
+			renderer:enableSSAO()
+		else
+			effects[#effects + 1] = name
+		end
+	end
 	state.effectCount = #effects
 	state.motionBlur = false
 	if #effects > 0 then

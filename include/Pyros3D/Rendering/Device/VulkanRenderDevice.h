@@ -1273,6 +1273,10 @@ namespace p3d {
 			case 32: // DirectionalFragParams
 			case 33: // PointVertParams
 			case 34: // SpotVertParams
+			case 35: // DeferredSSAOParams - two materials (the SSAO pass
+			         // and its blur) each own a buffer on this binding, and
+			         // every DeferredRenderer in the editor draws both.
+			case 36: // BlurSSAOParams (BlurSSAOEffect, a post effect)
 			case 37: // LastPassFragParams
 			case 38: // PointFragParams
 			case 39: // SpotFragParams

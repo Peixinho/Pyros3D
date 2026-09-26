@@ -138,6 +138,8 @@ namespace p3d {
 		deferredMaterialDirectional = new CustomShaderMaterial("shaders/secondpassDirectional.glsl");
 		deferredMaterialPoint = new CustomShaderMaterial("shaders/secondpassPoint.glsl");
 		deferredMaterialSpot = new CustomShaderMaterial("shaders/secondpassSpot.glsl");
+		deferredSSAO = new CustomShaderMaterial("shaders/deferredSSAO.glsl");
+		deferredSSAOBlur = new CustomShaderMaterial("shaders/deferredSSAOBlur.glsl");
 
 		// tDepth/tNormal/tMetallicRoughness (units 0-2) re-bind the same
 		// G-buffer attachments the lighting passes already sample, just
@@ -291,6 +293,12 @@ namespace p3d {
 		deferredMaterialPoint->AddUniform(Uniform("tMetallicRoughness", Uniforms::DataType::Int, &texID));
 		deferredMaterialSpot->AddUniform(Uniform("tMetallicRoughness", Uniforms::DataType::Int, &texID));
 
+		// Bound after the five G-buffer attachments - see the ambient draw.
+		texID = 5;
+		deferredMaterialAmbient->AddUniform(Uniform("tAO", Uniforms::DataType::Int, &texID));
+		deferredMaterialDirectional->AddUniform(Uniform("tAO", Uniforms::DataType::Int, &texID));
+		deferredMaterialPoint->AddUniform(Uniform("tAO", Uniforms::DataType::Int, &texID));
+		deferredMaterialSpot->AddUniform(Uniform("tAO", Uniforms::DataType::Int, &texID));
 		deferredMaterialAmbient->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		deferredMaterialAmbient->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 
@@ -339,6 +347,38 @@ namespace p3d {
 		// CullFace::DoubleSided for this reason (see its CreatePipeline
 		// call) - a full-screen quad has no meaningful back face to cull.
 		deferredMaterialAmbient->SetCullFace(CullFace::DoubleSided);
+
+		// SSAO - see EnableSSAO(). Defaults suit a scene built in metres.
+		ssaoEnabled = false;
+		ssaoRadius = 0.5f;
+		ssaoStrength = 2.0f;
+		ssaoFalloff = 0.5f;
+		ssaoSamples = 16.0f;
+		ssaoDirect = 1.0f;
+		uint32 ssaoUnit = 0;
+		deferredSSAO->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &ssaoUnit));
+		deferredSSAOBlur->AddUniform(Uniform("tAO", Uniforms::DataType::Int, &ssaoUnit));
+		ssaoUnit = 1;
+		deferredSSAO->AddUniform(Uniform("tNormal", Uniforms::DataType::Int, &ssaoUnit));
+		deferredSSAOBlur->AddUniform(Uniform("tDepth", Uniforms::DataType::Int, &ssaoUnit));
+		SetupSSAOMaterial(deferredSSAO, ssaoHandles[0]);
+		SetupSSAOMaterial(deferredSSAOBlur, ssaoHandles[1]);
+		ssaoTexture = new Texture();
+		ssaoTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
+		ssaoTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		ssaoFBO = new FrameBuffer();
+		ssaoFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ssaoTexture);
+		ssaoBlurTexture = new Texture();
+		ssaoBlurTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, Width, Height, false);
+		ssaoBlurTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		ssaoBlurFBO = new FrameBuffer();
+		ssaoBlurFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ssaoBlurTexture);
+		ssaoWhite = new Texture();
+		ssaoWhite->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, 1, 1, false);
+		{
+			uchar pixel[4] = { 255, 255, 255, 255 };
+			ssaoWhite->UpdateData(pixel);
+		}
 
 		deferredMaterialDirectional->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
 		dirDirHandle = deferredMaterialDirectional->AddUniform(Uniform("uLightDirection", Uniforms::DataUsage::Other, Uniforms::DataType::Vec3));
@@ -616,6 +656,8 @@ namespace p3d {
 		device->WaitIdle();
 		IRenderer::Resize(Width, Height);
 		lastPassFBO->Resize(Width, Height);
+		ssaoFBO->Resize(Width, Height);
+		ssaoBlurFBO->Resize(Width, Height);
 		// Resizing recreates previousFrameColorTexture's underlying image
 		// (same "resize destroys+recreates the VkImage" behavior as any
 		// other Vulkan texture - see Texture::Resize()), which puts it
@@ -661,6 +703,13 @@ namespace p3d {
 		delete deferredMaterialDirectional;
 		delete deferredMaterialPoint;
 		delete deferredMaterialSpot;
+		delete deferredSSAO;
+		delete deferredSSAOBlur;
+		delete ssaoFBO;
+		delete ssaoBlurFBO;
+		delete ssaoTexture;
+		delete ssaoBlurTexture;
+		delete ssaoWhite;
 		delete directionalLight;
 		delete pointLight;
 	}
@@ -1027,6 +1076,45 @@ namespace p3d {
 		// lowers the rate).
 		device->FlushOffscreenWork();
 
+		// Ambient occlusion, from the G-buffer the flush above just made
+		// readable, into the texture the ambient pass below multiplies by.
+		if (ssaoEnabled)
+		{
+			for (int m = 0; m < 2; m++)
+			{
+				ssaoHandles[m][0]->SetValue(&ssaoRadius);
+				ssaoHandles[m][1]->SetValue(&ssaoStrength);
+				ssaoHandles[m][2]->SetValue(&ssaoFalloff);
+				ssaoHandles[m][3]->SetValue(&ssaoSamples);
+				ssaoHandles[m][4]->SetValue(&ssaoDirect);
+			}
+			GameObject go = GameObject();
+
+			ssaoFBO->Bind();
+			InitRender();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Bind();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Bind();
+			RenderObject(directionalLight->GetMeshes()[0], &go, deferredSSAO);
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Unbind();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Unbind();
+			EndRender();
+			ssaoFBO->UnBind();
+
+			ssaoBlurFBO->Bind();
+			InitRender();
+			ssaoTexture->Bind();
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Bind();
+			RenderObject(directionalLight->GetMeshes()[0], &go, deferredSSAOBlur);
+			GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Unbind();
+			ssaoTexture->Unbind();
+			EndRender();
+			ssaoBlurFBO->UnBind();
+
+			// Same boundary as above, for the same reason: the ambient
+			// pass samples what these two passes just rendered.
+			device->FlushOffscreenWork();
+		}
+
 		lastPassFBO->Bind();
 		ClearBufferBit(Buffer_Bit::Color);
 		ClearScreen();
@@ -1037,6 +1125,12 @@ namespace p3d {
 		// Bind FBO Textures
 		for (int i = 0;i<(int)FBO->GetAttachments().size();i++)
 			FBO->GetAttachments()[i]->TexturePTR->Bind();
+
+		// The AO texture takes unit 5, after the five G-buffer attachments,
+		// for the ambient pass and every light pass. Each light's shadow map
+		// is bound onto the next free unit, which this pushes up to 6.
+		Texture *aoTexture = ssaoEnabled ? ssaoBlurTexture : ssaoWhite;
+		aoTexture->Bind();
 
 		// Ambient
 		{
@@ -1357,6 +1451,8 @@ namespace p3d {
 				};
 			}
 		}
+
+		aoTexture->Unbind();
 
 		// Prepare and Pack Lights to Send to Shaders
 		std::vector<Matrix> _Lights;
@@ -1683,6 +1779,69 @@ namespace p3d {
 	{
 		ssrDebugMode = (f32)mode;
 		lastPassSSRDebugHandle->SetValue(&ssrDebugMode);
+	}
+
+	void DeferredRenderer::SetupSSAOMaterial(CustomShaderMaterial *material, Uniform *handles[5])
+	{
+		material->AddUniform(Uniform("uScreenDimensions", Uniforms::DataUsage::ScreenDimensions));
+		material->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
+		material->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
+		handles[0] = material->AddUniform(Uniform("uSSAORadius", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		handles[1] = material->AddUniform(Uniform("uSSAOStrength", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		handles[2] = material->AddUniform(Uniform("uSSAOFalloff", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		handles[3] = material->AddUniform(Uniform("uSSAOSamples", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		handles[4] = material->AddUniform(Uniform("uSSAODirect", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+
+		// DeferredSSAOParams in deferredSSAO.glsl / deferredSSAOBlur.glsl,
+		// std140 by hand: two vec2s, a mat4 at 16, then five floats, and
+		// the block rounded up to a multiple of 16.
+		IMaterial::ExtraUniformsBlock &block = material->extraUniforms[0];
+		block.binding = 35;
+		block.blockName = "DeferredSSAOParams";
+		block.size = 112;
+		block.scratch.resize(block.size, 0);
+		block.offsets["uScreenDimensions"] = 0;
+		block.offsets["uNearFar"] = 8;
+		block.offsets["uMatProj"] = 16;
+		block.offsets["uSSAORadius"] = 80;
+		block.offsets["uSSAOStrength"] = 84;
+		block.offsets["uSSAOFalloff"] = 88;
+		block.offsets["uSSAOSamples"] = 92;
+		block.offsets["uSSAODirect"] = 96;
+		// See deferredLastPass's identical reset: the auto-populated
+		// fragment block would upload a second buffer to the same binding.
+		material->extraUniforms[1].binding = 0;
+		material->extraUniforms[1].bufferHandle = 0;
+		material->extraUniforms[1].size = 0;
+		material->extraUniforms[1].offsets.clear();
+		material->extraUniforms[1].scratch.clear();
+
+		material->DisableDepthTest();
+		material->DisableDepthWrite();
+		// A full-screen quad - see deferredMaterialAmbient's comment.
+		material->SetCullFace(CullFace::DoubleSided);
+	}
+
+	void DeferredRenderer::SetSSAODirectStrength(const f32 direct)
+	{
+		ssaoDirect = direct < 0.f ? 0.f : (direct > 1.f ? 1.f : direct);
+	}
+
+	void DeferredRenderer::EnableSSAO()
+	{
+		ssaoEnabled = true;
+	}
+
+	void DeferredRenderer::DisableSSAO()
+	{
+		ssaoEnabled = false;
+	}
+
+	void DeferredRenderer::SetSSAOParams(const f32 radius, const f32 strength, const f32 falloff)
+	{
+		ssaoRadius = radius;
+		ssaoStrength = strength;
+		ssaoFalloff = falloff;
 	}
 
 };

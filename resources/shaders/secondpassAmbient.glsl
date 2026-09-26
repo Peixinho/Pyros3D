@@ -41,6 +41,11 @@ SAMPLER_BINDING(3) uniform sampler2D tNormal;
 // PBR metallic/roughness G-buffer attachment - see PyrosShader.glsl's
 // FragData_pbr (.r=roughness, .g=metalness).
 SAMPLER_BINDING(5) uniform sampler2D tMetallicRoughness;
+// Ambient occlusion from deferredSSAO.glsl, or a white texture when the
+// renderer's SSAO is off. Only this pass reads it: occlusion belongs on
+// indirect light, and multiplying the finished frame by it (all SSAOEffect
+// can do as a post effect) darkens direct light and highlights too.
+SAMPLER_BINDING(6) uniform sampler2D tAO;
 UBO_BINDING(27) uniform AmbientFragParams {
 	vec2 uScreenDimensions;
 };
@@ -89,6 +94,7 @@ void main() {
 	// this multiply, and at the floor they are unchanged but for 1/64 of
 	// ambient on a fully metallic surface.
 	float metallic = texture_2D(tMetallicRoughness, vec2(Texcoord.x,Texcoord.y)).g;
-	FragColor=vec4(ambient * max(1.0 - metallic, 1.0 / 64.0), 1.0);
+	float ao = texture_2D(tAO, vec2(Texcoord.x,Texcoord.y)).r;
+	FragColor=vec4(ambient * max(1.0 - metallic, 1.0 / 64.0) * ao, 1.0);
 }
 #endif

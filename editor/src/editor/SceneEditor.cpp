@@ -434,7 +434,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return;
 		PostEffectChain::Build(*EffectsManager, postEffects,
 			(uint32)(dim.x > 0 ? dim.x : 1), (uint32)(dim.y > 0 ? dim.y : 1),
-			&SceneEditor::ReadPostEffectAsset, this);
+			&SceneEditor::ReadPostEffectAsset, this,
+			usingDeferredRenderer ? (DeferredRenderer*)Renderer : NULL);
 	}
 
 	std::vector<std::string> SceneEditor::ListPostEffectAssets()
@@ -691,6 +692,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		EffectsManager->SetRenderLastToTexture(true);
 		if (usingDeferredRenderer)
 			GetActiveRenderDevice().SetFramebufferPreserveDepth(EffectsManager->GetExternalFrameBuffer()->GetBindID(), true);
+		// Both of the above are new and empty: rebuild the scene's chain into
+		// them. SSAO in particular lives in the renderer when it is deferred.
+		ApplyPostEffects();
 	}
 
 	void SceneEditor::Init(const uint32 width, const uint32 height)
@@ -4399,10 +4403,20 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 			// Open by default: a chain is short and the parameters are the
 			// point of having it in the panel at all.
+			// The header spans the rest of the row and the remove button sits
+			// on top of its right end. Without AllowOverlap the header, being
+			// submitted first, took every click on the button - "X" only ever
+			// collapsed the entry and nothing could be removed. The button's
+			// x is measured here, on this row: after TreeNodeEx the cursor is
+			// on the next line and the available width is a whole row's.
+			const float removeW = ImGui::CalcTextSize("X").x + ImGui::GetStyle().FramePadding.x * 2.f;
+			const float removeX = ImGui::GetCursorPosX() + ImGui::GetContentRegionAvail().x - removeW;
 			const bool open = ImGui::TreeNodeEx("##entry",
-				ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen, "%s", label.c_str());
-			ImGui::SameLine(ImGui::GetContentRegionAvail().x - 5.f);
+				ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_DefaultOpen | ImGuiTreeNodeFlags_AllowOverlap,
+				"%s", label.c_str());
+			ImGui::SameLine(removeX);
 			if (ImGui::SmallButton("X")) removeAt = (int)i;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Remove");
 
 			if (open)
 			{

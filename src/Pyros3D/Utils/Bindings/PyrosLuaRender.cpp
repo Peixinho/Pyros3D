@@ -112,7 +112,12 @@ namespace p3d {
 				"preRender", sol::overload(&DeferredRenderer_PreRender, &DeferredRenderer_PreRenderTag),
 				"setSSRDistances", &DeferredRenderer::SetSSRDistances,
 				"enableSSR", &DeferredRenderer::EnableSSR,
-				"disableSSR", &DeferredRenderer::DisableSSR
+				"disableSSR", &DeferredRenderer::DisableSSR,
+				"enableSSAO", &DeferredRenderer::EnableSSAO,
+				"disableSSAO", &DeferredRenderer::DisableSSAO,
+				"isSSAOEnabled", &DeferredRenderer::IsSSAOEnabled,
+				"setSSAOParams", &DeferredRenderer::SetSSAOParams,
+				"setSSAODirectStrength", &DeferredRenderer::SetSSAODirectStrength
 				);
 		}
 

@@ -1432,7 +1432,7 @@ namespace p3d {
 		         // for a frame at a time.
 		case 22: // BIND_MaterialUniforms
 		case 23: // BIND_ObjectLightCounts
-		case 27: case 32: case 33: case 34: case 37: case 38: case 39:
+		case 27: case 32: case 33: case 34: case 35: case 36: case 37: case 38: case 39:
 		case 40: case 41: case 42:
 			return true;
 		default:

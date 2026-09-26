@@ -473,12 +473,15 @@ void PyrosPlayer::BuildPostEffectChain()
 		// scene's effects on screen, but keep the manager - rebuilding it per
 		// scene would throw away its capture textures for no reason.
 		if (effectsManager) effectsManager->RemoveAllEffects();
+		// SSAO on a deferred renderer is the renderer's, not the manager's.
+		if (DeferredRenderer* deferred = dynamic_cast<DeferredRenderer*>(renderer))
+			deferred->DisableSSAO();
 		return;
 	}
 	if (effectsManager == NULL)
 		effectsManager = new PostEffectsManager(Width, Height);
 	PostEffectChain::Build(*effectsManager, meta.postEffects, Width, Height,
-		&PyrosPlayer::ReadPostEffectAsset, this);
+		&PyrosPlayer::ReadPostEffectAsset, this, dynamic_cast<DeferredRenderer*>(renderer));
 }
 
 bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)

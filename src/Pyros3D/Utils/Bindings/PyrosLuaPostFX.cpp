@@ -99,9 +99,9 @@ namespace p3d {
 			});
 			lua->set_function("buildSSAOPostChain", [](PostEffectsManager &m, int width, int height) {
 				g_ssao = new SSAOEffect(RTT::Depth, width, height);
-				g_ssao->SetRadius(0.2f);
-				g_ssao->SetStrength(1.5f);
-				g_ssao->SetTreshOld(2.0f);
+				g_ssao->SetRadius(0.5f);
+				g_ssao->SetStrength(2.0f);
+				g_ssao->SetTreshOld(0.5f);
 				g_ssao->SetScale(1.0f);
 				g_ssaoBlur = new BlurSSAOEffect(RTT::LastRTT, width, height);
 				m.AddEffect(g_ssao);

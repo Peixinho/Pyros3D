@@ -216,6 +216,9 @@ SAMPLER_BINDING(3) uniform sampler2D tNormal;
 // PBR metallic/roughness G-buffer attachment - see PyrosShader.glsl's
 // FragData_pbr (.r=roughness, .g=metalness).
 SAMPLER_BINDING(5) uniform sampler2D tMetallicRoughness;
+// Ambient occlusion's share for direct light (.g) - see
+// deferredSSAOBlur.glsl. White when the renderer's SSAO is off.
+SAMPLER_BINDING(6) uniform sampler2D tAO;
 UBO_BINDING(39) uniform SpotFragParams {
 	vec2 uScreenDimensions;
 	vec3 uLightPosition;
@@ -344,7 +347,8 @@ void main() {
 	vec3 L = normalize(lightPosition - v1);
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
-	vec3 lit = pbrColor * spotEffect * attenuation * pcf;
+	// The surface only: the in-scatter below is light in the air.
+	vec3 lit = pbrColor * spotEffect * attenuation * pcf * texture(tAO, Texcoord).g;
 
 	// Volumetric in-scattering: what the light does to the medium between
 	// the camera and this pixel, rather than to the surface at it. Marched

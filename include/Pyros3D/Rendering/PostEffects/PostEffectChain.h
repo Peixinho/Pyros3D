@@ -20,6 +20,8 @@
 
 namespace p3d {
 
+	class DeferredRenderer;
+
 	// The one place that knows how to go from "what the scene file says" to
 	// "effects in a PostEffectsManager". The editor's viewport and the player
 	// both call Build(), so what you see while authoring is what ships - the
@@ -66,10 +68,17 @@ namespace p3d {
 		// one off in the editor does not lose its parameters. Anything that
 		// fails to build says so in the log and does not stop the rest of the
 		// chain: half a chain is a better answer than a black screen.
+		//
+		// `deferred` is the renderer the chain runs after, when that is a
+		// DeferredRenderer. An "SSAO" entry then goes to it instead of
+		// becoming passes here: it applies occlusion to ambient light only,
+		// where the post effect can only darken the finished frame. Its SSAO
+		// is switched off when the chain has no such entry.
 		PYROS3D_API void Build(PostEffectsManager &manager,
 			const std::vector<SceneMeta::PostEffectEntry> &entries,
 			const uint32 width, const uint32 height,
-			ReadAssetFn readAsset = NULL, void *readAssetUser = NULL);
+			ReadAssetFn readAsset = NULL, void *readAssetUser = NULL,
+			DeferredRenderer *deferred = NULL);
 
 	}
 

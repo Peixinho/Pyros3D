@@ -101,6 +101,27 @@ namespace p3d {
 		void SetSSRDebugMode(const uint32 mode);
 		uint32 GetSSRDebugMode() const { return (uint32)ssrDebugMode; }
 
+		// Screen-space ambient occlusion, applied to the ambient pass only -
+		// indirect light, where occlusion belongs - rather than to the
+		// finished frame the way SSAOEffect has to. Off by default. Radius
+		// and falloff are view-space units: radius is how far out an
+		// occluder is looked for, falloff how far past the radius its vote
+		// fades to nothing. PostEffectChain::Build routes a scene's "SSAO"
+		// entry here when it is given this renderer.
+		void EnableSSAO();
+		void DisableSSAO();
+		bool IsSSAOEnabled() const { return ssaoEnabled; }
+		void SetSSAOParams(const f32 radius, const f32 strength, const f32 falloff);
+		// How much of the occlusion direct lights also take, 0-1. Occlusion
+		// is physically an ambient term, but a scene lit mostly by direct
+		// light then shows none of it - 0.5 was measured as barely visible
+		// in the SSAO demo. 1 by default; lower it for a subtler, more
+		// ambient-only look.
+		void SetSSAODirectStrength(const f32 direct);
+		// The blurred occlusion term (white = unoccluded). Valid after
+		// RenderScene() while SSAO is enabled.
+		Texture* GetSSAOTexture() const { return ssaoBlurTexture; }
+
 		// The final composited frame (lastPassFBO's Color_Attachment0),
 		// already complete by the time RenderScene() reaches its "Render to
 		// Screen" draw (see SetSkipRenderToScreen()'s comment) - so a caller
@@ -219,6 +240,18 @@ namespace p3d {
 		CustomShaderMaterial *deferredMaterialDirectional;
 		CustomShaderMaterial *deferredMaterialPoint;
 		CustomShaderMaterial *deferredMaterialSpot;
+		// See EnableSSAO(). Raw occlusion, then its bilateral blur, both at
+		// full resolution; ssaoWhite stands in for the result while SSAO is
+		// off, so the ambient pass always has a real texture on its unit.
+		CustomShaderMaterial *deferredSSAO;
+		CustomShaderMaterial *deferredSSAOBlur;
+		FrameBuffer *ssaoFBO, *ssaoBlurFBO;
+		Texture *ssaoTexture, *ssaoBlurTexture, *ssaoWhite;
+		bool ssaoEnabled;
+		f32 ssaoRadius, ssaoStrength, ssaoFalloff, ssaoSamples, ssaoDirect;
+		// [material][radius, strength, falloff, samples, direct]
+		Uniform *ssaoHandles[2][5];
+		void SetupSSAOMaterial(CustomShaderMaterial *material, Uniform *handles[5]);
 		RenderingComponent *directionalLight;
 		RenderingComponent *pointLight;
 
