@@ -50,6 +50,7 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <vector>
 #include <map>
+#include <set>
 #include <string>
 #include <functional>
 
@@ -645,6 +646,9 @@ namespace p3d {
 			// and to stride consecutive texture/sampler slots - same role
 			// as VulkanRenderDevice::ProgramRecord::samplerArraySizes.
 			std::map<uint32, uint32> samplerArraySizes;
+			// Engine binding -> kFallbackCube | kFallbackDepth, from SPIR-V
+			// reflection: which placeholder FillUnboundSamplers() may use.
+			std::map<uint32, uint32> samplerKinds;
 			ProgramRecord() : vertexShader(0), fragmentShader(0), computeShader(0), isCompute(false) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
@@ -933,6 +937,23 @@ namespace p3d {
 		// attachment textures and opened no encoder; the next attachment to
 		// it opens one (see AttachFramebufferTexture2D).
 		bool boundFboAwaitingAttachment = false;
+
+		// Samplers a program declares but a draw never binds - shadow maps
+		// with no shadow-casting light, a PBR map a material lacks. Metal
+		// leaves those slots empty (undefined to sample; Metal API validation
+		// aborts the draw), where Vulkan fills them with typed fallbacks
+		// (FillUnwrittenSamplerDescriptors). Before each draw every declared
+		// slot the current encoder has not been given gets a 1x1 placeholder
+		// of the matching kind: white colour, or depth cleared to 1.0 (a
+		// shadow lookup reads lit) with a comparison sampler.
+		enum { kFallbackCube = 1, kFallbackDepth = 2, kFallbackKinds = 4 };
+		void* fallbackTextures[kFallbackKinds] = {};
+		void* fallbackSampler = NULL;
+		void* fallbackCompareSampler = NULL;
+		// (stage << 32 | MSL texture index) bound on the current encoder.
+		std::set<uint64> encoderBoundTextures;
+		void* GetFallbackTexture(const uint32 kind);
+		void FillUnboundSamplers(const DeviceHandle program);
 		// Pipelines are shared by description, as on Vulkan: the renderer
 		// caches them per RenderingMesh, so identical meshes asked for
 		// identical MTLRenderPipelineStates one each. Keyed on the

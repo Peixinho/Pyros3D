@@ -330,6 +330,10 @@ namespace p3d {
 			}
 			pipelines.clear();
 			pipelineByDescription.clear();
+			for (uint32 k = 0; k < kFallbackKinds; k++)
+				if (fallbackTextures[k] != NULL) { CFBridgingRelease(fallbackTextures[k]); fallbackTextures[k] = NULL; }
+			if (fallbackSampler != NULL) { CFBridgingRelease(fallbackSampler); fallbackSampler = NULL; }
+			if (fallbackCompareSampler != NULL) { CFBridgingRelease(fallbackCompareSampler); fallbackCompareSampler = NULL; }
 			pipelineRefs.clear();
 			pipelineDescriptionKey.clear();
 
@@ -608,6 +612,7 @@ namespace p3d {
 
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
+			encoderBoundTextures.clear();
 
 			// PyrosShader.glsl's geometry is authored CCW-front (OpenGL's
 			// convention). TranslateProjectionMatrix() no longer negates Y
@@ -1370,6 +1375,7 @@ namespace p3d {
 			}
 
 			BindProgramUniformBuffers(pipeIt->second.programHandle);
+			FillUnboundSamplers(pipeIt->second.programHandle);
 			[encoder drawPrimitives:(MTLPrimitiveType)nativeDrawType vertexStart:first vertexCount:count];
 		}
 	}
@@ -1405,6 +1411,7 @@ namespace p3d {
 			// __INDEX_C_TYPE__ (Global.h) is uint32 - matches
 			// MTLIndexTypeUInt32, same as VulkanRenderDevice's identical
 			// comment on its own DrawElements().
+			FillUnboundSamplers(pipeIt->second.programHandle);
 			id<MTLBuffer> ibo = (__bridge id<MTLBuffer>)iboIt->second.buffer;
 			[encoder drawIndexedPrimitives:(MTLPrimitiveType)nativeDrawType
 				indexCount:indexCount
@@ -1446,6 +1453,7 @@ namespace p3d {
 
 			BindProgramUniformBuffers(pipeIt->second.programHandle);
 
+			FillUnboundSamplers(pipeIt->second.programHandle);
 			id<MTLBuffer> ibo = (__bridge id<MTLBuffer>)iboIt->second.buffer;
 			[encoder drawIndexedPrimitives:(MTLPrimitiveType)nativeDrawType
 				indexCount:indexCount
@@ -2177,6 +2185,7 @@ namespace p3d {
 					it->second.samplerBindings[res.name] = res.binding;
 					it->second.samplerStageMask[res.binding] |= stageBit;
 					it->second.samplerArraySizes[res.binding] = res.arraySize;
+					it->second.samplerKinds[res.binding] = (res.isCube ? kFallbackCube : 0) | (res.isDepthCompare ? kFallbackDepth : 0);
 				}
 				else
 				{
@@ -2325,6 +2334,7 @@ namespace p3d {
 						[encoder setFragmentTexture:tex atIndex:textureIndex];
 						if (sampler != nil) [encoder setFragmentSamplerState:sampler atIndex:samplerIndex];
 					}
+					encoderBoundTextures.insert(((uint64)stage << 32) | (uint64)textureIndex);
 				}
 			}
 		}
@@ -2869,6 +2879,7 @@ namespace p3d {
 					id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
 					id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 					currentRenderEncoder = (void*)CFBridgingRetain(encoder);
+			encoderBoundTextures.clear();
 					[encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 					MTLViewport viewport = { 0.0, 0.0, (double)drawableWidth, (double)drawableHeight, 0.0, 1.0 };
 					[encoder setViewport:viewport];
@@ -3090,6 +3101,121 @@ namespace p3d {
 		}
 	}
 
+	void* MetalRenderDevice::GetFallbackTexture(const uint32 kind)
+	{
+		if (kind >= kFallbackKinds || device == NULL)
+			return NULL;
+		if (fallbackTextures[kind] != NULL)
+			return fallbackTextures[kind];
+		const bool cube = (kind & kFallbackCube) != 0;
+		const bool depth = (kind & kFallbackDepth) != 0;
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			MTLTextureDescriptor* desc = [[MTLTextureDescriptor alloc] init];
+			desc.textureType = cube ? MTLTextureTypeCube : MTLTextureType2D;
+			desc.pixelFormat = depth ? MTLPixelFormatDepth32Float : MTLPixelFormatRGBA8Unorm;
+			desc.width = 1;
+			desc.height = 1;
+			desc.mipmapLevelCount = 1;
+			desc.usage = depth ? (MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget) : MTLTextureUsageShaderRead;
+			desc.storageMode = depth ? MTLStorageModePrivate : MTLStorageModeShared;
+			id<MTLTexture> tex = [mtlDevice newTextureWithDescriptor:desc];
+			if (tex == nil)
+				return NULL;
+			const uint32 slices = cube ? 6u : 1u;
+			if (!depth)
+			{
+				const uint8 white[4] = { 255, 255, 255, 255 };
+				for (uint32 slice = 0; slice < slices; slice++)
+					[tex replaceRegion:MTLRegionMake2D(0, 0, 1, 1) mipmapLevel:0 slice:slice withBytes:white bytesPerRow:4 bytesPerImage:0];
+			}
+			else
+			{
+				// Private depth: clear each slice to far with its own pass.
+				// Same queue as every later draw, so they see it cleared.
+				id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
+				id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
+				for (uint32 slice = 0; slice < slices; slice++)
+				{
+					MTLRenderPassDescriptor* rpd = [MTLRenderPassDescriptor renderPassDescriptor];
+					rpd.depthAttachment.texture = tex;
+					rpd.depthAttachment.slice = slice;
+					rpd.depthAttachment.loadAction = MTLLoadActionClear;
+					rpd.depthAttachment.storeAction = MTLStoreActionStore;
+					rpd.depthAttachment.clearDepth = 1.0;
+					[[cmdBuf renderCommandEncoderWithDescriptor:rpd] endEncoding];
+				}
+				[cmdBuf commit];
+			}
+			fallbackTextures[kind] = (void*)CFBridgingRetain(tex);
+		}
+		return fallbackTextures[kind];
+	}
+
+	void MetalRenderDevice::FillUnboundSamplers(const DeviceHandle program)
+	{
+		if (currentRenderEncoder == NULL)
+			return;
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(program);
+		if (progIt == programs.end() || progIt->second.samplerStageMask.empty())
+			return;
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			if (fallbackSampler == NULL)
+			{
+				MTLSamplerDescriptor* sd = [[MTLSamplerDescriptor alloc] init];
+				sd.minFilter = MTLSamplerMinMagFilterNearest;
+				sd.magFilter = MTLSamplerMinMagFilterNearest;
+				sd.sAddressMode = sd.tAddressMode = sd.rAddressMode = MTLSamplerAddressModeClampToEdge;
+				fallbackSampler = (void*)CFBridgingRetain([mtlDevice newSamplerStateWithDescriptor:sd]);
+				sd.compareFunction = MTLCompareFunctionLessEqual;
+				fallbackCompareSampler = (void*)CFBridgingRetain([mtlDevice newSamplerStateWithDescriptor:sd]);
+			}
+			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
+			ProgramRecord &prog = progIt->second;
+			for (std::map<uint32, uint32>::iterator maskIt = prog.samplerStageMask.begin(); maskIt != prog.samplerStageMask.end(); ++maskIt)
+			{
+				const uint32 binding = maskIt->first;
+				std::map<uint32, uint32>::iterator arrIt = prog.samplerArraySizes.find(binding);
+				const uint32 arraySize = (arrIt != prog.samplerArraySizes.end() && arrIt->second > 0) ? arrIt->second : 1;
+				std::map<uint32, uint32>::iterator kindIt = prog.samplerKinds.find(binding);
+				const uint32 kind = kindIt != prog.samplerKinds.end() ? kindIt->second : 0;
+				for (int stage = 0; stage < 2; stage++)
+				{
+					if (!(maskIt->second & (1u << stage)))
+						continue;
+					std::map<uint32, uint32>::iterator tIt = prog.textureMslIndex[stage].find(binding);
+					std::map<uint32, uint32>::iterator sIt = prog.samplerMslIndex[stage].find(binding);
+					const NSUInteger textureBase = (tIt != prog.textureMslIndex[stage].end()) ? (NSUInteger)tIt->second : (NSUInteger)binding;
+					const NSUInteger samplerBase = (sIt != prog.samplerMslIndex[stage].end()) ? (NSUInteger)sIt->second : (NSUInteger)binding;
+					for (uint32 elem = 0; elem < arraySize; elem++)
+					{
+						const uint64 key = ((uint64)stage << 32) | (uint64)(textureBase + elem);
+						if (encoderBoundTextures.count(key))
+							continue;
+						id<MTLTexture> tex = (__bridge id<MTLTexture>)GetFallbackTexture(kind);
+						if (tex == nil)
+							continue;
+						id<MTLSamplerState> sampler = (__bridge id<MTLSamplerState>)((kind & kFallbackDepth) ? fallbackCompareSampler : fallbackSampler);
+						if (stage == 0)
+						{
+							[encoder setVertexTexture:tex atIndex:textureBase + elem];
+							[encoder setVertexSamplerState:sampler atIndex:samplerBase + elem];
+						}
+						else
+						{
+							[encoder setFragmentTexture:tex atIndex:textureBase + elem];
+							[encoder setFragmentSamplerState:sampler atIndex:samplerBase + elem];
+						}
+						encoderBoundTextures.insert(key);
+					}
+				}
+			}
+		}
+	}
+
 	void MetalRenderDevice::EndCurrentRenderEncoderIfOpen()
 	{
 		if (currentRenderEncoder == NULL)
@@ -3197,6 +3323,7 @@ namespace p3d {
 			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
+			encoderBoundTextures.clear();
 			[encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 
 			if (targetWidth > 0 && targetHeight > 0)
