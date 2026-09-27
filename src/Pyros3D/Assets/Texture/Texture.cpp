@@ -496,10 +496,10 @@ namespace p3d {
 	}
 
 	std::shared_ptr<Texture> Texture::LoadShared(const std::string& Filename,
-		const uint32 Type, bool Mipmapping)
+		const uint32 Type, bool Mipmapping, bool clampToEdge)
 	{
 		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
-		const std::string key = Filename + "|" + std::to_string(Type) + (Mipmapping ? "|m" : "|n");
+		const std::string key = Filename + "|" + std::to_string(Type) + (Mipmapping ? "|m" : "|n") + (clampToEdge ? "|c" : "");
 		{
 			std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
 			std::map<std::string, std::weak_ptr<Texture> >::iterator it = cache.find(key);
@@ -513,6 +513,7 @@ namespace p3d {
 		std::shared_ptr<Texture> tex = std::make_shared<Texture>();
 		if (!tex->LoadTexture(Filename, Type, Mipmapping))
 			return std::shared_ptr<Texture>();
+		if (clampToEdge) tex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
 		cache[key] = tex;
 		return tex;
@@ -526,6 +527,20 @@ namespace p3d {
 		for (std::map<std::string, std::weak_ptr<Texture> >::const_iterator it = cache.lower_bound(prefix);
 			it != cache.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it)
 			if (!it->second.expired()) return true;
+		return false;
+	}
+
+	bool Texture::IsSharedLoaded(const std::string& Filename, const bool clampToEdge)
+	{
+		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
+		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
+		const std::string prefix = Filename + "|";
+		for (std::map<std::string, std::weak_ptr<Texture> >::const_iterator it = cache.lower_bound(prefix);
+			it != cache.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it)
+		{
+			const bool clamped = it->first.size() >= 2 && it->first.compare(it->first.size() - 2, 2, "|c") == 0;
+			if (clamped == clampToEdge && !it->second.expired()) return true;
+		}
 		return false;
 	}
 

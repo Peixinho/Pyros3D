@@ -758,6 +758,7 @@ namespace p3d {
 			m["roughness"] = gm->GetRoughness();
 			m["ssrEnabled"] = gm->IsSSREnabled();
 
+			if (gm->GetColorMap() && gm->GetColorMap()->IsClampedToEdge()) m["clampMaps"] = true;
 			SerializeTextureRef(m, "colorMap", gm->GetColorMap());
 			SerializeTextureRef(m, "specularMap", gm->GetSpecularMap());
 			SerializeTextureRef(m, "normalMap", gm->GetNormalMap());
@@ -2260,15 +2261,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	// naming this file gets the one Texture - only for material maps,
 	// which nothing mutates after load. A sprite or UI image may have its
 	// filter or wrap changed per instance, so those keep their own copy.
-	static std::shared_ptr<Texture> GetOrLoadTexture(const std::string &path, std::map<std::string, std::shared_ptr<Texture>> &cache, LoadedSceneAssets* outAssets, const bool shared = false)
+	static std::shared_ptr<Texture> GetOrLoadTexture(const std::string &path, std::map<std::string, std::shared_ptr<Texture>> &cache, LoadedSceneAssets* outAssets, const bool shared = false, const bool clamp = false)
 	{
 		const std::string resolved = ResolveSceneAssetPath(path);
 		if (resolved.empty()) return nullptr;
-		const std::string key = shared ? "shared|" + resolved : resolved;
+		const std::string key = (shared ? (clamp ? "shared|c|" : "shared|") : "") + resolved;
 		std::map<std::string, std::shared_ptr<Texture>>::iterator it = cache.find(key);
 		if (it != cache.end()) return it->second;
 		std::shared_ptr<Texture> tex;
-		if (shared) tex = Texture::LoadShared(resolved, TextureType::Texture);
+		if (shared) tex = Texture::LoadShared(resolved, TextureType::Texture, true, clamp);
 		if (!tex)
 		{
 			tex = std::make_shared<Texture>();
@@ -2317,7 +2318,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		{
 			if (parent[key].is_object())
 				return GetOrLoadCubemap(parent[key], textureCache, outAssets);
-			return GetOrLoadTexture(parent[key].get<std::string>(), textureCache, outAssets, shared);
+			// "clampMaps" on a material: its maps cover one surface exactly
+			// (a terrain tile's colour map) and must not wrap at the edges.
+			return GetOrLoadTexture(parent[key].get<std::string>(), textureCache, outAssets, shared, shared && parent.value("clampMaps", false));
 		}
 		std::string dataKey = key + "Data";
 		if (parent.find(dataKey) != parent.end())
@@ -3752,11 +3755,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			images.push_back(ResolveSceneAssetPathIn(assetRoot, *it));
 		bundle.Fill(models, images, parallel, sharedTexturesOut);
 		PrepareHeightfields(root, assetRoot, bundle, parallel);
+		// A clamped material's maps are queued as "clamp|<path>" - a
+		// different LoadShared entry from the wrapping one.
 		if (sharedTexturesOut && root.contains("materials") && root["materials"].is_array())
 			for (const auto &m : root["materials"])
 				for (size_t k = 0; k < sizeof(kSharedMaterialMaps) / sizeof(kSharedMaterialMaps[0]); k++)
 					if (m.is_object() && m.contains(kSharedMaterialMaps[k]) && m[kSharedMaterialMaps[k]].is_string())
-						sharedTexturesOut->push_back(ResolveSceneAssetPathIn(assetRoot, m[kSharedMaterialMaps[k]].get<std::string>()));
+						sharedTexturesOut->push_back((m.value("clampMaps", false) ? "clamp|" : "")
+							+ ResolveSceneAssetPathIn(assetRoot, m[kSharedMaterialMaps[k]].get<std::string>()));
 	}
 
 	bool SceneSerializer::LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets, SceneMeta* outMeta)
@@ -4191,11 +4197,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		AssetBundle::Use use(prepared.bundle);
 		while (!prepared.uploadQueue.empty())
 		{
-			const std::string path = prepared.uploadQueue.back();
+			std::string path = prepared.uploadQueue.back();
 			prepared.uploadQueue.pop_back();
+			const bool clamp = path.compare(0, 6, "clamp|") == 0;
+			if (clamp) path = path.substr(6);
 			// Already up (another cell, the scene): nothing to spend.
-			if (path.empty() || path[0] == '*' || Texture::IsSharedLoaded(path)) continue;
-			if (std::shared_ptr<Texture> t = Texture::LoadShared(path, TextureType::Texture))
+			if (path.empty() || path[0] == '*' || Texture::IsSharedLoaded(path, clamp)) continue;
+			if (std::shared_ptr<Texture> t = Texture::LoadShared(path, TextureType::Texture, true, clamp))
 				prepared.uploaded.push_back(t);
 			return true;
 		}

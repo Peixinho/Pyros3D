@@ -189,13 +189,21 @@ namespace p3d {
 		// unloading a scene still returns the memory. Callers that need to
 		// mutate per-instance texture state (filter, wrap, transparency) must
 		// NOT use this - they would be editing every other user's texture.
+		//
+		// clampToEdge is part of the cache key: a terrain tile's own colour
+		// map must not wrap (bilinear filtering at its edge would blend in
+		// the opposite edge, a visible seam between tiles) while a tiling
+		// texture must, so the same file can exist once per mode.
 		static std::shared_ptr<Texture> LoadShared(const std::string& Filename,
-			const uint32 Type = TextureType::Texture, bool Mipmapping = true);
+			const uint32 Type = TextureType::Texture, bool Mipmapping = true, bool clampToEdge = false);
+		bool IsClampedToEdge() const { return SRepeat == TextureRepeat::ClampToEdge; }
 		// Drops entries whose texture is already gone. Housekeeping only.
 		static void PurgeSharedCache();
 		// True when LoadShared() would return an existing Texture for this
 		// file (any type or mip flag) - nothing to decode.
 		static bool IsSharedLoaded(const std::string& Filename);
+		// ...loaded in that wrap mode, which is its own cache entry.
+		static bool IsSharedLoaded(const std::string& Filename, const bool clampToEdge);
 
 		// Read and decode with no device call, so any thread may run them.
 		static bool DecodeFile(const std::string& Filename, DecodedImage& out);
