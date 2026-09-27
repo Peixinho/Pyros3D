@@ -929,6 +929,10 @@ namespace p3d {
 			PipelineRecord() : pipelineState(NULL), depthStencilState(NULL), programHandle(0), vertexBufferCount(0) {}
 		};
 		std::map<DeviceHandle, PipelineRecord> pipelines;
+		// Set when BeginRenderEncoderForTarget() found the bound FBO with no
+		// attachment textures and opened no encoder; the next attachment to
+		// it opens one (see AttachFramebufferTexture2D).
+		bool boundFboAwaitingAttachment = false;
 		// Pipelines are shared by description, as on Vulkan: the renderer
 		// caches them per RenderingMesh, so identical meshes asked for
 		// identical MTLRenderPipelineStates one each. Keyed on the

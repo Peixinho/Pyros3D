@@ -1416,6 +1416,10 @@ namespace p3d {
 
 	void MetalRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount)
 	{
+		// Zero instances draws nothing; Vulkan and GL take it as a no-op, Metal
+		// validation rejects it (an instanced component scaled down to none).
+		if (instanceCount == 0 || indexCount == 0)
+			return;
 		(void)cmd;
 		if (currentRenderEncoder == NULL || currentVao == 0 || currentPipeline == 0)
 			return;
@@ -2584,6 +2588,11 @@ namespace p3d {
 		@autoreleasepool
 		{
 			id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)it->second.texture;
+			// A Metal texture's level count is fixed at creation; with one
+			// level there is nothing to generate. Asking anyway is invalid
+			// (Metal API validation aborts) and cost a blocking GPU round trip.
+			if (mtlTex.mipmapLevelCount <= 1)
+				return;
 			id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
 			id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
 			id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
@@ -2828,6 +2837,7 @@ namespace p3d {
 		}
 
 		currentBoundFBO = 0;
+		boundFboAwaitingAttachment = false;
 		EndCurrentRenderEncoderIfOpen();
 		if (frameInProgress)
 		{
@@ -2939,7 +2949,7 @@ namespace p3d {
 		// frame's face 5. That is why +X came back full of zeroes after the
 		// other five faces started rendering correctly.
 		(void)existing;
-		const bool retargeting = currentRenderEncoder != NULL;
+		const bool retargeting = currentRenderEncoder != NULL || boundFboAwaitingAttachment;
 
 		if (nativeAttachmentFormat == FrameBufferAttachmentFormat::Depth_Attachment)
 			it->second.depthAttachment = ref;
@@ -3130,6 +3140,7 @@ namespace p3d {
 
 			MTLRenderPassDescriptor* rpd = [MTLRenderPassDescriptor renderPassDescriptor];
 			uint32 targetWidth = 0, targetHeight = 0;
+			bool anyAttachment = false;
 
 			for (std::map<uint32, FBOAttachmentRef>::iterator cIt = record.colorAttachments.begin(); cIt != record.colorAttachments.end(); cIt++)
 			{
@@ -3139,6 +3150,7 @@ namespace p3d {
 				id<MTLTexture> tex = (__bridge id<MTLTexture>)texIt->second.texture;
 				uint32 slot = cIt->first;
 				rpd.colorAttachments[slot].texture = tex;
+				anyAttachment = true;
 				rpd.colorAttachments[slot].loadAction = MTLLoadActionClear;
 				rpd.colorAttachments[slot].storeAction = MTLStoreActionStore;
 				rpd.colorAttachments[slot].clearColor = MTLClearColorMake(pendingClearColor.x, pendingClearColor.y, pendingClearColor.z, pendingClearColor.w);
@@ -3155,6 +3167,7 @@ namespace p3d {
 				{
 					id<MTLTexture> depthTex = (__bridge id<MTLTexture>)texIt->second.texture;
 					rpd.depthAttachment.texture = depthTex;
+					anyAttachment = true;
 					// preserveDepth (SetFramebufferPreserveDepth()) means a
 					// prior pass already wrote depth this session and it must
 					// survive - e.g. VelocityRenderer sampling the same depth
@@ -3170,6 +3183,16 @@ namespace p3d {
 					if (targetHeight == 0) targetHeight = texIt->second.height;
 				}
 			}
+
+			// Nothing to render into yet: FrameBuffer::AddAttach binds the FBO
+			// GL-style before its first attachment exists, and an encoder over
+			// an attachment-less descriptor is invalid - Metal API validation
+			// (MTL_DEBUG_LAYER=1) aborted editor startup on exactly this, in
+			// PainterPick's constructor. Every draw/clear path already checks
+			// for a NULL encoder; the attachment that follows opens it.
+			boundFboAwaitingAttachment = !anyAttachment;
+			if (!anyAttachment)
+				return;
 
 			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
