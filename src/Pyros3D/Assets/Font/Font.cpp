@@ -111,6 +111,7 @@ namespace p3d {
 		*/
 
 		uint32 index = 0;
+		bool atlasChanged = false;
 		for (uint32 i = 0; i < text.size(); i++)
 		{
 			switch (text[i])
@@ -186,6 +187,7 @@ namespace p3d {
 
 							// Add this properties to each glyph
 							glyphs[text[i]] = glp;
+							atlasChanged = true;
 						}
 					}
 
@@ -193,12 +195,17 @@ namespace p3d {
 					FT_Done_Glyph(glyph);
 
 				}
-				glyphMap->UpdateData(glyphMapData);
-
-
 				break;
 			}
 		}
+
+		// Once, and only if a glyph was baked. This used to sit inside the
+		// switch, so every visible character of every string re-uploaded the
+		// whole atlas even when all of them were cached - and on Vulkan each
+		// upload waits for the GPU. A HUD label updated per frame stalled
+		// the frame once per character.
+		if (atlasChanged)
+			glyphMap->UpdateData(glyphMapData);
 	}
 
 	f32 Font::GetFontSize()
