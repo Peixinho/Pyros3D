@@ -48,6 +48,7 @@ target_include_directories(PyrosEngine
 	PRIVATE
 		${OPENGL_INCLUDE_DIRS}
 		${SPIRV_TOOLING_INCLUDE_DIRS}
+		${ENET_INCLUDE_DIRS}
 )
 
 target_link_libraries(PyrosEngine
@@ -62,6 +63,13 @@ target_link_libraries(PyrosEngine
 		${METAL_BACKEND_LIBS}
 		${AUDIO_LIBS}
 )
+
+# Networking: ENet stays private - nothing in include/Pyros3D names it - and
+# PYROS_NETWORKING tells the engine and its users the transport is there.
+if (ENET_LIBRARIES)
+	target_link_libraries(PyrosEngine PRIVATE ${ENET_LIBRARIES})
+	target_compile_definitions(PyrosEngine PUBLIC PYROS_NETWORKING)
+endif()
 
 # Android File.cpp uses SDL_RWops — link SDL2 into the engine itself.
 if (ANDROID)

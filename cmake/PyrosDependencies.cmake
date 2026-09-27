@@ -94,6 +94,35 @@ set(BOX2D_LIBRARIES box2d)
 message(STATUS "Box2D: submodule ${BOX2D_DIR}")
 
 # ---------------------------------------------------------------------------
+# ENet (submodule: src/Pyros3D/Ext/enet @ v1.3.18)
+#
+# UDP transport for networked games: connections, reliable and unreliable
+# channels, fragmentation. Replication and prediction are the engine's own,
+# on top (see include/Pyros3D/Network). Not on the web - a browser has no UDP
+# sockets - so PYROS_NETWORKING is what code tests, not the platform.
+# ---------------------------------------------------------------------------
+set(ENET_LIBRARIES "")
+set(ENET_INCLUDE_DIRS "")
+if (NOT EMSCRIPTEN)
+	set(ENET_DIR ${CMAKE_SOURCE_DIR}/src/Pyros3D/Ext/enet)
+	if (NOT EXISTS "${ENET_DIR}/CMakeLists.txt")
+		message(FATAL_ERROR
+			"ENet submodule missing at ${ENET_DIR}. "
+			"Run: git submodule update --init --recursive")
+	endif()
+	add_subdirectory(${ENET_DIR} ${CMAKE_BINARY_DIR}/_deps/enet EXCLUDE_FROM_ALL)
+	# A static library linked into the engine's shared one.
+	set_target_properties(enet PROPERTIES POSITION_INDEPENDENT_CODE ON)
+	# ENet's own CMake links the socket libraries for MinGW only.
+	if (WIN32 AND NOT MINGW)
+		target_link_libraries(enet ws2_32 winmm)
+	endif()
+	set(ENET_INCLUDE_DIRS ${ENET_DIR}/include)
+	set(ENET_LIBRARIES enet)
+	message(STATUS "ENet: submodule ${ENET_DIR}")
+endif()
+
+# ---------------------------------------------------------------------------
 # Lua (optional)
 # ---------------------------------------------------------------------------
 if (HAVE_LUA_BINDINGS)

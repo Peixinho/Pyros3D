@@ -8,3 +8,6 @@
 [submodule "src/Pyros3D/Ext/box2d"]
 	path = src/Pyros3D/Ext/box2d
 	url = https://github.com/erincatto/box2d.git
+[submodule "src/Pyros3D/Ext/enet"]
+	path = src/Pyros3D/Ext/enet
+	url = https://github.com/lsalzman/enet.git
