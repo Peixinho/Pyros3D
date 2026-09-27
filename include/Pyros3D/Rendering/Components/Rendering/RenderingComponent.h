@@ -450,8 +450,30 @@ namespace p3d {
 		// Per-LOD switch distances, parallel to Meshes' LOD keys.
 		const std::vector<f32> &GetLODDistances() const { return LODDistances; }
 
+		// Re-reads the bounds from the renderable - after its geometry was
+		// rebuilt in place (a sculpted terrain tile), so culling and LOD see
+		// the new extent.
+		void RefreshBounds()
+		{
+			if (!renderable) return;
+			BoundingSphereRadius = renderable->GetBoundingSphereRadius();
+			BoundingSphereCenter = renderable->GetBoundingSphereCenter();
+			maxBounds = renderable->GetBoundingMaxValue();
+			minBounds = renderable->GetBoundingMinValue();
+		}
+
 		// Whether any levels beyond the first were given.
 		bool HasLOD() const { return LOD; }
+		// Every level's renderable, level 0 first. AddLOD() now keeps them
+		// alive: it used to take only their geometry pointers, so a level
+		// nothing else held (a scene loaded without LoadedSceneAssets) left
+		// the component drawing freed memory.
+		std::vector<std::shared_ptr<Renderable> > GetLODRenderables() const
+		{
+			std::vector<std::shared_ptr<Renderable> > all(1, renderable);
+			all.insert(all.end(), lodRenderables.begin(), lodRenderables.end());
+			return all;
+		}
 
 		// Returns LOD level based on distance
 		uint32 GetLODByDistance(const f32 Distance);
@@ -519,6 +541,7 @@ namespace p3d {
 
 		// Save Renderable Pointer
 		std::shared_ptr<Renderable> renderable;
+		std::vector<std::shared_ptr<Renderable> > lodRenderables;
 
 		// Casting Shadows
 		bool isCastingShadows;

@@ -103,7 +103,14 @@ namespace p3d {
 		Heightfield(HeightfieldMesh &&mesh, const std::shared_ptr<const HeightfieldData> &data, const uint32 step);
 
 		const std::shared_ptr<const HeightfieldData> &GetData() const { return data; }
+		// For sculpting (TerrainEditor): the heights every level of this
+		// tile shares. Rebuild() each level afterwards.
+		HeightfieldData* EditData() const { return const_cast<HeightfieldData*>(data.get()); }
 		uint32 GetStep() const { return step; }
+
+		// Rebuilds this level's vertices from the (edited) heights and
+		// uploads them again. Main thread.
+		void Rebuild();
 
 		// What a scene file records, so the tile can be saved back.
 		struct Source
@@ -115,6 +122,7 @@ namespace p3d {
 		Source source;
 
 	private:
+		void Upload(HeightfieldMesh &&mesh);
 		std::shared_ptr<const HeightfieldData> data;
 		uint32 step;
 	};

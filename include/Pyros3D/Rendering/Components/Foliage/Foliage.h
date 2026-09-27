@@ -39,6 +39,8 @@ namespace p3d {
 	class RenderingInstancedComponent;
 	class Renderable;
 	class IMaterial;
+	class GameObject;
+	class PaintableImage;
 
 	struct PYROS3D_API FoliageLayerSpec
 	{
@@ -77,6 +79,10 @@ namespace p3d {
 		// Any thread. densityMapPath is the resolved densityMap, or empty.
 		static void Generate(const HeightfieldData &ground, const FoliageLayerSpec &spec,
 			const std::string &densityMapPath, PreparedFoliageLayer &out);
+		// The same from a density map already in memory (being painted);
+		// NULL for none. Channel 0 is the keep probability.
+		static void Generate(const HeightfieldData &ground, const FoliageLayerSpec &spec,
+			const PaintableImage* densityMap, PreparedFoliageLayer &out);
 	};
 
 	class PYROS3D_API FoliageComponent : public IComponent
@@ -89,8 +95,11 @@ namespace p3d {
 			std::shared_ptr<Renderable> mesh, lodMesh;
 			std::shared_ptr<IMaterial> material, lodMaterial;
 			std::vector<std::shared_ptr<RenderingInstancedComponent> > blocks;
+			std::vector<std::shared_ptr<GameObject> > blockObjects;	// parallel to blocks
 			std::vector<Vec3> centres;	// tile-local, parallel to blocks
 			std::vector<uint32> counts;	// full instance count per block
+			// Loaded on first use by painting; what Regrow() reads when set.
+			std::shared_ptr<PaintableImage> densityMap;
 		};
 
 		FoliageComponent() {}
@@ -101,6 +110,19 @@ namespace p3d {
 		// them.
 		void AddLayer(const Layer &layer) { layers.push_back(layer); }
 		const std::vector<Layer> &GetLayers() const { return layers; }
+		std::vector<Layer> &GetLayers() { return layers; }
+
+		// Creates one transient child GameObject per block of `prepared`
+		// under `owner`, drawing the layer's mesh - what a load does, and
+		// what Regrow() does again. Main thread.
+		static void BuildBlocks(GameObject* owner, Layer &layer, PreparedFoliageLayer &prepared,
+			std::vector<std::shared_ptr<GameObject> >* created = NULL);
+
+		// Regenerates every layer from `ground` (after sculpting) or one
+		// layer (after painting its density map, -1 = all). The old blocks
+		// leave the scene at once and are destroyed a few Updates later,
+		// once no frame in flight can still be drawing them.
+		void Regrow(const HeightfieldData &ground, const int32 layerIndex = -1);
 
 		// Where the viewer is, in world space, this frame. Every foliage
 		// component thins and fades against it.
@@ -118,6 +140,8 @@ namespace p3d {
 
 	private:
 		std::vector<Layer> layers;
+		struct Retired { std::shared_ptr<GameObject> object; uint32 updatesLeft; };
+		std::vector<Retired> retired;
 	};
 
 }

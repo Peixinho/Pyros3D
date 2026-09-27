@@ -203,8 +203,27 @@ namespace p3d {
 		return k;
 	}
 
-	Heightfield::Heightfield(HeightfieldMesh &&mesh, const std::shared_ptr<const HeightfieldData> &data, const uint32 step)
-		: data(data), step(step)
+	void Heightfield::Rebuild()
+	{
+		if (!data) return;
+		HeightfieldData &d = *EditData();
+		d.minHeight = 1e30f; d.maxHeight = -1e30f;
+		for (size_t i = 0; i < d.heights.size(); i++)
+		{
+			d.minHeight = std::min(d.minHeight, d.heights[i]);
+			d.maxHeight = std::max(d.maxHeight, d.heights[i]);
+		}
+		HeightfieldMesh mesh;
+		HeightfieldMesh::Build(d, step, source.skirt, mesh);
+		// Same vertex count as before, but the attribute buffers interleave
+		// at SendBuffers() time, so they are rebuilt rather than patched.
+		// SendBuffers bumps buffersRevision, which is how the renderer
+		// learns the handles changed.
+		geometry->Dispose();
+		Upload(std::move(mesh));
+	}
+
+	void Heightfield::Upload(HeightfieldMesh &&mesh)
 	{
 		geometry->tVertex = std::move(mesh.vertex);
 		geometry->tNormal = std::move(mesh.normal);
@@ -223,15 +242,21 @@ namespace p3d {
 		attributes->AddAttribute("aTangent", Buffer::Attribute::Type::Vec3, &geometry->tTangent[0], geometry->tTangent.size());
 		attributes->AddAttribute("aBitangent", Buffer::Attribute::Type::Vec3, &geometry->tBitangent[0], geometry->tBitangent.size());
 		geometry->SendBuffers();
-		geometry->materialProperties.haveColor = true;
-		geometry->materialProperties.Color = Vec4(1.f, 1.f, 1.f, 1.f);
-		Geometries.push_back(geometry);
-		calculateTangentBitangent = true;
-
 		minBounds = Vec3(0.f, data ? data->minHeight : 0.f, 0.f);
 		maxBounds = Vec3(data ? data->size : 0.f, data ? data->maxHeight : 0.f, data ? data->size : 0.f);
 		BoundingSphereCenter = (minBounds + maxBounds) * 0.5f;
 		BoundingSphereRadius = maxBounds.distance(BoundingSphereCenter);
+	}
+
+	Heightfield::Heightfield(HeightfieldMesh &&mesh, const std::shared_ptr<const HeightfieldData> &data, const uint32 step)
+		: data(data), step(step)
+	{
+		geometry->materialProperties.haveColor = true;
+		geometry->materialProperties.Color = Vec4(1.f, 1.f, 1.f, 1.f);
+		calculateTangentBitangent = true;
+		if (mesh.vertex.empty()) return;
+		Upload(std::move(mesh));
+		Geometries.push_back(geometry);
 	}
 
 }

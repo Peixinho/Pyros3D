@@ -216,6 +216,7 @@ namespace p3d {
 
 		LODDistances.push_back(Distance);
 		LOD = true;
+		lodRenderables.push_back(renderable);
 	}
 
 	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions)
@@ -245,6 +246,7 @@ namespace p3d {
 
 		LODDistances.push_back(Distance);
 		LOD = true;
+		lodRenderables.push_back(renderable);
 	}
 
 	const uint32 RenderingComponent::GetLODSize() const

@@ -7,6 +7,7 @@
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
+#include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 
 namespace p3d {
 
@@ -111,6 +112,39 @@ namespace p3d {
 		lua->set_function("screenToWorldAtDepth", &ScreenToWorldAtDepth);
 		lua->set_function("setIKConstraintEnabled", &SetIKConstraintEnabled);
 		lua->set_function("setIKConstraintWeight", &SetIKConstraintWeight);
+
+		// terrain - ground height queries and runtime sculpting/painting
+		// (see TerrainEditor.h). One editor per process: a stroke's state
+		// (which tiles need collision and foliage rebuilt) lives in it
+		// between calls, until terrain.finishStroke().
+		{
+			static TerrainEditor editor;
+			sol::table terrain = lua->create_named_table("terrain");
+			terrain.set_function("heightAt", [](SceneGraph* scene, const f32 x, const f32 z) -> sol::optional<f32> {
+				f32 h = 0.f;
+				if (TerrainEditor::HeightAt(scene, x, z, h)) return h;
+				return sol::nullopt;
+			});
+			terrain.set_function("sculpt", [](SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const f32 amount,
+				const f32 hardness, const std::string &mode, sol::optional<f32> target) -> uint32 {
+				TerrainEditor::SculptMode m = TerrainEditor::Raise;
+				if (mode == "lower") m = TerrainEditor::Lower;
+				else if (mode == "smooth") m = TerrainEditor::Smooth;
+				else if (mode == "flatten") m = TerrainEditor::Flatten;
+				return editor.Sculpt(scene, x, z, radius, amount, hardness, m, target.value_or(0.f));
+			});
+			terrain.set_function("paintSplat", [](SceneGraph* scene, const f32 x, const f32 z, const f32 radius,
+				const uint32 layer, const f32 strength, const f32 hardness) -> uint32 {
+				return editor.PaintSplat(scene, x, z, radius, layer, strength, hardness);
+			});
+			terrain.set_function("paintFoliage", [](SceneGraph* scene, const f32 x, const f32 z, const f32 radius,
+				const uint32 layer, const f32 target, const f32 strength, const f32 hardness) -> uint32 {
+				return editor.PaintFoliage(scene, x, z, radius, layer, target, strength, hardness);
+			});
+			terrain.set_function("finishStroke", []() { editor.FinishStroke(); });
+			terrain.set_function("setAssetRoot", [](const std::string &root) { editor.SetAssetRoot(root); });
+			terrain.set_function("save", []() -> bool { return editor.Save(); });
+		}
 	}
 
 } // namespace p3d

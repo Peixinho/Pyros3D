@@ -6,6 +6,8 @@
 
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
+#include <Pyros3D/Assets/Texture/PaintableImage.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Core/File/File.h>
 #include <Pyros3D/Core/Logs/Log.h>
@@ -33,36 +35,6 @@ namespace p3d {
 		}
 		inline f32 Unit(const uint32 h) { return (f32)(h >> 8) / 16777216.f; }
 
-		struct DensityMap
-		{
-			int w = 0, h = 0;
-			std::vector<f32> v;
-			bool Load(const std::string &path)
-			{
-				File file;
-				if (!file.Open(path) || file.Size() == 0) return false;
-				int c = 0;
-				stbi_uc* px = stbi_load_from_memory(&file.GetData()[0], (int)file.Size(), &w, &h, &c, 1);
-				file.Close();
-				if (!px) { echo("ERROR: Foliage - could not decode density map " + path); return false; }
-				v.resize((size_t)w * h);
-				for (size_t i = 0; i < v.size(); i++) v[i] = px[i] / 255.f;
-				stbi_image_free(px);
-				return true;
-			}
-			// u, v in 0..1 across the tile, bilinear.
-			f32 At(const f32 u, const f32 t) const
-			{
-				const f32 fx = std::min(std::max(u, 0.f), 1.f) * (w - 1), fy = std::min(std::max(t, 0.f), 1.f) * (h - 1);
-				const int x0 = std::min((int)fx, w - 2 < 0 ? 0 : w - 2), y0 = std::min((int)fy, h - 2 < 0 ? 0 : h - 2);
-				const int x1 = std::min(x0 + 1, w - 1), y1 = std::min(y0 + 1, h - 1);
-				const f32 a = fx - x0, b = fy - y0;
-				const f32 top = v[(size_t)y0 * w + x0] * (1 - a) + v[(size_t)y0 * w + x1] * a;
-				const f32 bot = v[(size_t)y1 * w + x0] * (1 - a) + v[(size_t)y1 * w + x1] * a;
-				return top * (1 - b) + bot * b;
-			}
-		};
-
 		Vec3 GroundNormal(const HeightfieldData &g, const f32 x, const f32 z)
 		{
 			// One-sided at the tile's edges: HeightAt clamps outside the tile,
@@ -80,11 +52,18 @@ namespace p3d {
 	void PreparedFoliageLayer::Generate(const HeightfieldData &ground, const FoliageLayerSpec &spec,
 		const std::string &densityMapPath, PreparedFoliageLayer &out)
 	{
+		PaintableImage map;
+		const bool haveMap = !densityMapPath.empty() && map.Load(densityMapPath, 1);
+		Generate(ground, spec, haveMap ? &map : NULL, out);
+	}
+
+	void PreparedFoliageLayer::Generate(const HeightfieldData &ground, const FoliageLayerSpec &spec,
+		const PaintableImage* densityMap, PreparedFoliageLayer &out)
+	{
 		out.blocks.clear();
 		if (ground.samples < 2 || spec.density <= 0.f || spec.blockSize <= 0.f) return;
 
-		DensityMap map;
-		const bool haveMap = !densityMapPath.empty() && map.Load(densityMapPath);
+		const bool haveMap = densityMap && densityMap->width > 0;
 		const f32 cosMaxSlope = std::cos(spec.maxSlopeDegrees * (f32)M_PI / 180.f);
 		const uint32 perSide = (uint32)std::ceil(ground.size / spec.blockSize);
 
@@ -110,7 +89,7 @@ namespace p3d {
 					const uint32 h0 = Hash(spec.seed, bx, bz, k * 5u);
 					const f32 x = x0 + Unit(h0) * w;
 					const f32 z = z0 + Unit(Hash(h0 + 1u)) * d;
-					if (haveMap && Unit(Hash(h0 + 2u)) >= map.At(x / ground.size, z / ground.size)) continue;
+					if (haveMap && Unit(Hash(h0 + 2u)) >= densityMap->Sample(x / ground.size, z / ground.size, 0)) continue;
 					const f32 y = ground.HeightAt(x, z);
 					if (y < spec.minHeight || y > spec.maxHeight) continue;
 					const Vec3 n = GroundNormal(ground, x, z);
@@ -175,8 +154,84 @@ namespace p3d {
 		return 1.f - t * t;
 	}
 
+	void FoliageComponent::BuildBlocks(GameObject* owner, Layer &layer, PreparedFoliageLayer &prepared,
+		std::vector<std::shared_ptr<GameObject> >* created)
+	{
+		const f32 meshRadius = layer.mesh ? layer.mesh->GetBoundingSphereRadius() * std::max(layer.spec.maxScale, layer.spec.minScale) : 0.f;
+		const bool tinted = !(layer.spec.tintLow == Vec4(1.f, 1.f, 1.f, 1.f) && layer.spec.tintHigh == Vec4(1.f, 1.f, 1.f, 1.f));
+		const uint32 modelOptions = ShaderUsage::Diffuse | ShaderUsage::InstancedRendering;
+		for (size_t b = 0; b < prepared.blocks.size(); b++)
+		{
+			FoliageBlock &block = prepared.blocks[b];
+			std::shared_ptr<GameObject> child = std::make_shared<GameObject>();
+			child->SetName(layer.spec.name + "_block" + std::to_string(b));
+			child->SetTransient(true);
+			child->SetPosition(block.origin);
+			std::shared_ptr<RenderingInstancedComponent> ic = layer.material
+				? std::make_shared<RenderingInstancedComponent>(layer.mesh, layer.material, (uint32)block.transforms.size(), block.radius + meshRadius)
+				: std::make_shared<RenderingInstancedComponent>(layer.mesh, modelOptions, (uint32)block.transforms.size(), block.radius + meshRadius);
+			ic->transform = block.transforms;
+			ic->UpdateTransforms();
+			if (tinted)
+			{
+				ic->EnableInstanceColors();
+				ic->instanceColor = block.tints;
+				ic->UpdateInstanceColors();
+			}
+			if (layer.lodMesh)
+			{
+				ic->SetFirstLODDistance(layer.spec.lodDistance);
+				if (layer.lodMaterial) ic->AddLOD(layer.lodMesh, 1e9f, layer.lodMaterial);
+				else ic->AddLOD(layer.lodMesh, 1e9f, modelOptions);
+			}
+			if (layer.spec.castShadows) ic->EnableCastShadows(); else ic->DisableCastShadows();
+			child->AddComponent(ic);
+			if (owner) owner->Add(child);
+			if (created) created->push_back(child);
+			layer.blocks.push_back(ic);
+			layer.blockObjects.push_back(child);
+			layer.centres.push_back(block.origin);
+			layer.counts.push_back((uint32)block.transforms.size());
+		}
+	}
+
+	void FoliageComponent::Regrow(const HeightfieldData &ground, const int32 layerIndex)
+	{
+		GameObject* owner = GetOwner();
+		for (size_t l = 0; l < layers.size(); l++)
+		{
+			if (layerIndex >= 0 && (size_t)layerIndex != l) continue;
+			Layer &layer = layers[l];
+			for (size_t b = 0; b < layer.blockObjects.size(); b++)
+			{
+				if (owner) owner->Remove(layer.blockObjects[b]);
+				Retired r;
+				r.object = layer.blockObjects[b];
+				r.updatesLeft = 4;
+				retired.push_back(r);
+			}
+			layer.blocks.clear();
+			layer.blockObjects.clear();
+			layer.centres.clear();
+			layer.counts.clear();
+			if (!layer.mesh) continue;
+			PreparedFoliageLayer prepared;
+			PreparedFoliageLayer::Generate(ground, layer.spec, layer.densityMap.get(), prepared);
+			BuildBlocks(owner, layer, prepared);
+		}
+		// The new blocks start at full count; the next Update() thins them.
+		Update(0.0);
+	}
+
 	void FoliageComponent::Update(const f64 time)
 	{
+		// Blocks retired by Regrow() outlive the frames that may still draw them.
+		for (size_t i = 0; i < retired.size();)
+		{
+			if (retired[i].updatesLeft == 0) { retired[i] = retired.back(); retired.pop_back(); }
+			else { retired[i].updatesLeft--; i++; }
+		}
+
 		GameObject* owner = GetOwner();
 		if (!owner) return;
 		const Vec3 base = owner->GetWorldPosition();

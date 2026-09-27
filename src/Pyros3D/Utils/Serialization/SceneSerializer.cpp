@@ -3160,41 +3160,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 							layer.spec.densityMap.empty() ? std::string() : ResolveSceneAssetPath(layer.spec.densityMap), *prepared);
 					}
 
-					const f32 meshRadius = layer.mesh->GetBoundingSphereRadius() * std::max(layer.spec.maxScale, layer.spec.minScale);
-					const bool tinted = !(layer.spec.tintLow == Vec4(1.f, 1.f, 1.f, 1.f) && layer.spec.tintHigh == Vec4(1.f, 1.f, 1.f, 1.f));
-					for (size_t b = 0; b < prepared->blocks.size(); b++)
-					{
-						FoliageBlock &block = prepared->blocks[b];
-						std::shared_ptr<GameObject> child = std::make_shared<GameObject>();
-						child->SetName(layer.spec.name + "_block" + std::to_string(b));
-						child->SetTransient(true);
-						child->SetPosition(block.origin);
-						std::shared_ptr<RenderingInstancedComponent> ic = layer.material
-							? std::make_shared<RenderingInstancedComponent>(layer.mesh, layer.material, (uint32)block.transforms.size(), block.radius + meshRadius)
-							: std::make_shared<RenderingInstancedComponent>(layer.mesh,
-								(uint32)(ShaderUsage::Diffuse | ShaderUsage::InstancedRendering), (uint32)block.transforms.size(), block.radius + meshRadius);
-						ic->transform = block.transforms;
-						ic->UpdateTransforms();
-						if (tinted)
-						{
-							ic->EnableInstanceColors();
-							ic->instanceColor = block.tints;
-							ic->UpdateInstanceColors();
-						}
-						if (layer.lodMesh)
-						{
-							ic->SetFirstLODDistance(layer.spec.lodDistance);
-							if (layer.lodMaterial) ic->AddLOD(layer.lodMesh, 1e9f, layer.lodMaterial);
-							else ic->AddLOD(layer.lodMesh, 1e9f, (uint32)(ShaderUsage::Diffuse | ShaderUsage::InstancedRendering));
-						}
-						if (layer.spec.castShadows) ic->EnableCastShadows(); else ic->DisableCastShadows();
-						child->AddComponent(ic);
-						go->Add(child);
-						if (outAssets) outAssets->gameObjects.push_back(child);
-						layer.blocks.push_back(ic);
-						layer.centres.push_back(block.origin);
-						layer.counts.push_back((uint32)block.transforms.size());
-					}
+					std::vector<std::shared_ptr<GameObject> > created;
+					FoliageComponent::BuildBlocks(go, layer, *prepared, &created);
+					if (outAssets) outAssets->gameObjects.insert(outAssets->gameObjects.end(), created.begin(), created.end());
 					fc->AddLayer(layer);
 				}
 			go->AddComponent(fc);
