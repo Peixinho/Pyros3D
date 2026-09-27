@@ -10,6 +10,8 @@
 #include <Pyros3D/Utils/Streaming/AssetBundle.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
+#include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
 #include <Pyros3D/Physics/Components/HeightField/PhysicsHeightField.h>
 #include <functional>
 #include <set>
@@ -550,6 +552,54 @@ namespace p3d {
 	static Vec3 Vec3FromJson(const json &j) { return Vec3(j[0].get<f32>(), j[1].get<f32>(), j[2].get<f32>()); }
 	static Vec4 Vec4FromJson(const json &j) { return Vec4(j[0].get<f32>(), j[1].get<f32>(), j[2].get<f32>(), j[3].get<f32>()); }
 
+	// ---- foliage layers -------------------------------------------------
+	static json FoliageSpecToJson(const FoliageLayerSpec &s)
+	{
+		json j;
+		j["name"] = s.name;
+		j["density"] = s.density; j["blockSize"] = s.blockSize;
+		j["minScale"] = s.minScale; j["maxScale"] = s.maxScale;
+		j["tintLow"] = ToJson(s.tintLow); j["tintHigh"] = ToJson(s.tintHigh);
+		j["maxSlope"] = s.maxSlopeDegrees; j["minHeight"] = s.minHeight; j["maxHeight"] = s.maxHeight;
+		j["alignToGround"] = s.alignToGround; j["sink"] = s.sink; j["seed"] = s.seed;
+		j["fullDistance"] = s.fullDistance; j["fadeDistance"] = s.fadeDistance; j["shadowDistance"] = s.shadowDistance;
+		j["lodDistance"] = s.lodDistance; j["castShadows"] = s.castShadows;
+		if (!s.densityMap.empty()) j["densityMap"] = RelativizeSceneAssetPath(s.densityMap);
+		return j;
+	}
+
+	static FoliageLayerSpec FoliageSpecFromJson(const json &j)
+	{
+		FoliageLayerSpec s;
+		s.name = j.value("name", s.name);
+		s.density = std::max(0.f, j.value("density", s.density));
+		s.blockSize = std::max(1.f, j.value("blockSize", s.blockSize));
+		s.minScale = j.value("minScale", s.minScale); s.maxScale = j.value("maxScale", s.maxScale);
+		if (j.contains("tintLow") && j["tintLow"].is_array() && j["tintLow"].size() >= 4) s.tintLow = Vec4FromJson(j["tintLow"]);
+		if (j.contains("tintHigh") && j["tintHigh"].is_array() && j["tintHigh"].size() >= 4) s.tintHigh = Vec4FromJson(j["tintHigh"]);
+		s.maxSlopeDegrees = j.value("maxSlope", s.maxSlopeDegrees);
+		s.minHeight = j.value("minHeight", s.minHeight); s.maxHeight = j.value("maxHeight", s.maxHeight);
+		s.alignToGround = std::min(1.f, std::max(0.f, j.value("alignToGround", s.alignToGround)));
+		s.sink = j.value("sink", s.sink); s.seed = j.value("seed", s.seed);
+		s.fullDistance = j.value("fullDistance", s.fullDistance);
+		s.fadeDistance = std::max(s.fullDistance, j.value("fadeDistance", s.fadeDistance));
+		s.shadowDistance = j.value("shadowDistance", s.shadowDistance);
+		s.lodDistance = std::max(0.f, j.value("lodDistance", s.lodDistance));
+		s.castShadows = j.value("castShadows", s.castShadows);
+		s.densityMap = j.value("densityMap", std::string());
+		return s;
+	}
+
+	// Identifies one layer's instances over one tile: the heights they
+	// stand on and every setting that shapes them.
+	static std::string FoliageKey(const std::string &heightmapResolved, const json &layer)
+	{
+		json shape = layer;
+		shape.erase("mesh"); shape.erase("lodMesh"); shape.erase("material"); shape.erase("lodMaterial");
+		return "foliage|" + heightmapResolved + "|" + shape.dump();
+	}
+
+
 	// UI enums travel as names, not numbers: a scene file is edited by
 	// hand often enough that "MatchWidth" beats 1, and appending to an
 	// enum can never silently change what an existing scene means.
@@ -766,6 +816,9 @@ namespace p3d {
 			SerializeTextureRef(m, "envMap", gm->GetEnvMap());
 			SerializeTextureRef(m, "refractMap", gm->GetRefractMap());
 			m["alphaCutoff"] = gm->GetAlphaCutoff();
+			// Sway for VertexWind materials (grass): strength, rate, frequency.
+			if (gm->GetWind().x > 0.f)
+				m["wind"] = json::array({ gm->GetWind().x, gm->GetWind().y, gm->GetWind().z });
 			SerializeTextureRef(m, "skyboxMap", gm->GetSkyboxMap());
 			SerializeTextureRef(m, "metallicRoughnessMap", gm->GetMetallicRoughnessMap());
 		}
@@ -1170,6 +1223,25 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	static json SerializeComponent(IComponent* c, json &materialsArray, std::map<IMaterial*, uint32> &materialIdMap, sol::state* lua)
 	{
 		json j;
+		// The layers' settings, never their instances: those regrow from
+		// the tile on load (and their blocks are transient, not saved).
+		if (FoliageComponent* fc = dynamic_cast<FoliageComponent*>(c))
+		{
+			j["type"] = "Foliage";
+			json layers = json::array();
+			for (size_t l = 0; l < fc->GetLayers().size(); l++)
+			{
+				const FoliageComponent::Layer &layer = fc->GetLayers()[l];
+				json lj = FoliageSpecToJson(layer.spec);
+				if (layer.mesh) lj["mesh"] = SerializeRenderable(layer.mesh.get());
+				if (layer.material) lj["material"] = GetOrAddMaterial(layer.material.get(), materialsArray, materialIdMap);
+				if (layer.lodMesh) lj["lodMesh"] = SerializeRenderable(layer.lodMesh.get());
+				if (layer.lodMaterial) lj["lodMaterial"] = GetOrAddMaterial(layer.lodMaterial.get(), materialsArray, materialIdMap);
+				layers.push_back(lj);
+			}
+			j["layers"] = layers;
+			return j;
+		}
 		switch (c->GetComponentType())
 		{
 		case ComponentType::RenderingComponent:
@@ -1945,7 +2017,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		json children = json::array();
 		const std::vector<std::shared_ptr<GameObject>> &kids = go->GetChildren();
 		for (size_t i = 0; i < kids.size(); i++)
-			children.push_back(SerializeGameObject(kids[i].get(), materialsArray, materialIdMap, lua));
+			if (!kids[i]->IsTransient())
+				children.push_back(SerializeGameObject(kids[i].get(), materialsArray, materialIdMap, lua));
 		j["children"] = children;
 
 		return j;
@@ -2433,6 +2506,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "envMap", textureCache, outAssets, true)) gm->SetEnvMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets, true)) gm->SetRefractMap(t);
 			if (j.find("alphaCutoff") != j.end()) gm->SetAlphaCutoff(j.value("alphaCutoff", 0.5f));
+			if (j.contains("wind") && j["wind"].is_array() && j["wind"].size() >= 3)
+				gm->SetWind(j["wind"][0].get<f32>(), j["wind"][1].get<f32>(), j["wind"][2].get<f32>());
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache, outAssets, true)) gm->SetMetallicRoughnessMap(t);
 			ApplyCommonMaterialFields(gm.get(), j);
@@ -3039,6 +3114,90 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			d.colorEase = (uchar)j.value("colorEase", (int)d.colorEase);
 			d.boundingSphereRadius = j.value("boundingSphereRadius", d.boundingSphereRadius);
 			go->AddComponent(std::make_shared<ParticleSystem>(d));
+		}
+		else if (type == "Foliage")
+		{
+			// Grows from the terrain tile on this object, which is written
+			// before this component and so already built.
+			const Heightfield* tile = NULL;
+			const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+			for (size_t c = 0; c < comps.size() && !tile; c++)
+				if (RenderingComponent* rcomp = dynamic_cast<RenderingComponent*>(comps[c].get()))
+					tile = dynamic_cast<const Heightfield*>(rcomp->GetRenderable());
+			if (!tile || !tile->GetData()) { echo("WARNING: SceneSerializer - a Foliage component needs a terrain tile on the same object"); return; }
+			const std::string tilePath = ResolveSceneAssetPath(tile->source.heightmap);
+
+			std::shared_ptr<FoliageComponent> fc = std::make_shared<FoliageComponent>();
+			if (j.contains("layers") && j["layers"].is_array())
+				for (const auto &lj : j["layers"])
+				{
+					FoliageComponent::Layer layer;
+					layer.spec = FoliageSpecFromJson(lj);
+					layer.mesh = DeserializeRenderable(lj.value("mesh", json()), outAssets);
+					const uint32 matId = lj.value("material", (uint32)0xFFFFFFFF);
+					layer.material = matId < materialsById.size() ? materialsById[matId] : nullptr;
+					// A model may leave the material out: its submeshes then keep
+					// their own .p3dm materials, as a model object's do.
+					const bool modelMesh = dynamic_cast<Model*>(layer.mesh.get()) != NULL;
+					if (!layer.mesh || (!layer.material && !modelMesh))
+					{
+						echo("WARNING: SceneSerializer - skipping foliage layer '" + layer.spec.name + "': "
+							+ (!layer.mesh ? std::string("its mesh could not be built") : std::string("it has no material")));
+						continue;
+					}
+					if (layer.spec.lodDistance > 0.f && lj.contains("lodMesh"))
+					{
+						layer.lodMesh = DeserializeRenderable(lj["lodMesh"], outAssets);
+						const uint32 lodId = lj.value("lodMaterial", matId);
+						layer.lodMaterial = lodId < materialsById.size() ? materialsById[lodId] : layer.material;
+					}
+
+					std::shared_ptr<PreparedFoliageLayer> prepared = AssetBundle::TakeFoliage(FoliageKey(tilePath, lj));
+					if (!prepared)
+					{
+						prepared = std::make_shared<PreparedFoliageLayer>();
+						PreparedFoliageLayer::Generate(*tile->GetData(), layer.spec,
+							layer.spec.densityMap.empty() ? std::string() : ResolveSceneAssetPath(layer.spec.densityMap), *prepared);
+					}
+
+					const f32 meshRadius = layer.mesh->GetBoundingSphereRadius() * std::max(layer.spec.maxScale, layer.spec.minScale);
+					const bool tinted = !(layer.spec.tintLow == Vec4(1.f, 1.f, 1.f, 1.f) && layer.spec.tintHigh == Vec4(1.f, 1.f, 1.f, 1.f));
+					for (size_t b = 0; b < prepared->blocks.size(); b++)
+					{
+						FoliageBlock &block = prepared->blocks[b];
+						std::shared_ptr<GameObject> child = std::make_shared<GameObject>();
+						child->SetName(layer.spec.name + "_block" + std::to_string(b));
+						child->SetTransient(true);
+						child->SetPosition(block.origin);
+						std::shared_ptr<RenderingInstancedComponent> ic = layer.material
+							? std::make_shared<RenderingInstancedComponent>(layer.mesh, layer.material, (uint32)block.transforms.size(), block.radius + meshRadius)
+							: std::make_shared<RenderingInstancedComponent>(layer.mesh,
+								(uint32)(ShaderUsage::Diffuse | ShaderUsage::InstancedRendering), (uint32)block.transforms.size(), block.radius + meshRadius);
+						ic->transform = block.transforms;
+						ic->UpdateTransforms();
+						if (tinted)
+						{
+							ic->EnableInstanceColors();
+							ic->instanceColor = block.tints;
+							ic->UpdateInstanceColors();
+						}
+						if (layer.lodMesh)
+						{
+							ic->SetFirstLODDistance(layer.spec.lodDistance);
+							if (layer.lodMaterial) ic->AddLOD(layer.lodMesh, 1e9f, layer.lodMaterial);
+							else ic->AddLOD(layer.lodMesh, 1e9f, (uint32)(ShaderUsage::Diffuse | ShaderUsage::InstancedRendering));
+						}
+						if (layer.spec.castShadows) ic->EnableCastShadows(); else ic->DisableCastShadows();
+						child->AddComponent(ic);
+						go->Add(child);
+						if (outAssets) outAssets->gameObjects.push_back(child);
+						layer.blocks.push_back(ic);
+						layer.centres.push_back(block.origin);
+						layer.counts.push_back((uint32)block.transforms.size());
+					}
+					fc->AddLayer(layer);
+				}
+			go->AddComponent(fc);
 		}
 		else if (type == "IK")
 		{
@@ -3675,9 +3834,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			{
 				if (it.value().is_string())
 				{
-					// A heightmap is heights, not a texture - PrepareHeightfields
-					// reads it, and decoding it as RGBA8 too would be waste.
-					if (it.key() == "heightmap") continue;
+					// Heightmaps and density maps are data, not textures - read
+					// by PrepareHeightfields; decoding them as RGBA8 is waste.
+					if (it.key() == "heightmap" || it.key() == "densityMap") continue;
 					const std::string &v = it.value().get_ref<const std::string&>();
 					if (LooksLikeImagePath(v)) images.insert(v);
 				}
@@ -3700,6 +3859,31 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	// while the main thread loads something else. Anything that does not
 	// exist on disk is skipped (by Fill) so a missing file is reported once,
 	// by the load that needs it.
+	// Objects carrying both a terrain tile and a Foliage component: the
+	// foliage grows from that tile's heights.
+	static void CollectFoliage(const json &j, std::vector<std::pair<const json*, const json*> > &out)
+	{
+		if (j.is_object())
+		{
+			if (j.contains("components") && j["components"].is_array())
+			{
+				const json* tile = NULL;
+				const json* foliage = NULL;
+				for (const auto &c : j["components"])
+				{
+					if (!c.is_object()) continue;
+					if (c.value("type", std::string()) == "Foliage") foliage = &c;
+					else if (c.contains("renderable") && c["renderable"].is_object()
+						&& c["renderable"].value("kind", std::string()) == "heightfield") tile = &c["renderable"];
+				}
+				if (tile && foliage) out.push_back(std::make_pair(tile, foliage));
+			}
+			for (json::const_iterator it = j.begin(); it != j.end(); ++it) CollectFoliage(it.value(), out);
+		}
+		else if (j.is_array())
+			for (json::const_iterator it = j.begin(); it != j.end(); ++it) CollectFoliage(*it, out);
+	}
+
 	static void CollectHeightfields(const json &j, std::vector<const json*> &out)
 	{
 		if (j.is_object())
@@ -3735,6 +3919,26 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		else build(0, (uint32)specs.size());
 		for (size_t i = 0; i < specs.size(); i++)
 			if (prepared[i]) bundle.AddHeightfield(specs[i].Key(), prepared[i]);
+
+		// Foliage grows from the heights just decoded - found by tile path.
+		std::vector<std::pair<const json*, const json*> > foliage;
+		CollectFoliage(root, foliage);
+		for (size_t f = 0; f < foliage.size(); f++)
+		{
+			const HeightfieldSpec tileSpec = ReadHeightfieldSpec(*foliage[f].first, assetRoot);
+			std::shared_ptr<const HeightfieldData> ground;
+			for (size_t i = 0; i < specs.size() && !ground; i++)
+				if (prepared[i] && specs[i].Key() == tileSpec.Key()) ground = prepared[i]->data;
+			if (!ground || !foliage[f].second->contains("layers") || !(*foliage[f].second)["layers"].is_array()) continue;
+			for (const auto &lj : (*foliage[f].second)["layers"])
+			{
+				const FoliageLayerSpec ls = FoliageSpecFromJson(lj);
+				std::shared_ptr<PreparedFoliageLayer> layer = std::make_shared<PreparedFoliageLayer>();
+				PreparedFoliageLayer::Generate(*ground, ls,
+					ls.densityMap.empty() ? std::string() : ResolveSceneAssetPathIn(assetRoot, ls.densityMap), *layer);
+				bundle.AddFoliage(FoliageKey(tileSpec.path, lj), layer);
+			}
+		}
 	}
 
 	// The material keys GetOrLoadTexture loads shared - see BuildMaterialBody.

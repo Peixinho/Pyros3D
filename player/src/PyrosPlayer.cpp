@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "PyrosPlayer.h"
+#include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include "../../examples/WindowManagers/TextInputHook.h"
 #include "UIDispatch.h"
 
@@ -1089,6 +1090,8 @@ void PyrosPlayer::Update()
 	// frame's transforms so an arriving cell is drawn where it belongs.
 	if (worldStreamer && activeCamera)
 		worldStreamer->Update(activeCamera->GetWorldPosition());
+	// Foliage thins and fades against the camera the game is seen through.
+	if (activeCamera) FoliageComponent::SetViewer(activeCamera->GetWorldPosition());
 	scene->Update(time);
 	// The overlay is a real SceneGraph and needs solving every frame like any
 	// other - its UI layout, animations and component registration all happen

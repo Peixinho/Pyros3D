@@ -196,6 +196,30 @@ namespace p3d {
 		return p;
 	}
 
+	void AssetBundle::AddFoliage(const std::string &key, const std::shared_ptr<PreparedFoliageLayer> &prepared)
+	{
+		if (!prepared) return;
+		std::lock_guard<std::mutex> lock(mutex);
+		if (foliage.count(key)) return;
+		for (size_t i = 0; i < prepared->blocks.size(); i++)
+			bytes += prepared->blocks[i].transforms.size() * (sizeof(Matrix) + sizeof(Vec4));
+		foliage[key] = prepared;
+	}
+
+	std::shared_ptr<PreparedFoliageLayer> AssetBundle::TakeFoliage(const std::string &key)
+	{
+		AssetBundle* b = g_current;
+		if (!b) return std::shared_ptr<PreparedFoliageLayer>();
+		std::lock_guard<std::mutex> lock(b->mutex);
+		std::map<std::string, std::shared_ptr<PreparedFoliageLayer> >::iterator it = b->foliage.find(key);
+		if (it == b->foliage.end()) return std::shared_ptr<PreparedFoliageLayer>();
+		std::shared_ptr<PreparedFoliageLayer> p = it->second;
+		for (size_t i = 0; i < p->blocks.size(); i++)
+			b->bytes -= p->blocks[i].transforms.size() * (sizeof(Matrix) + sizeof(Vec4));
+		b->foliage.erase(it);
+		return p;
+	}
+
 	size_t AssetBundle::ImageCount() const { std::lock_guard<std::mutex> lock(mutex); return images.size(); }
 	size_t AssetBundle::ModelCount() const { std::lock_guard<std::mutex> lock(mutex); return models.size(); }
 	size_t AssetBundle::ByteSize() const { std::lock_guard<std::mutex> lock(mutex); return bytes; }

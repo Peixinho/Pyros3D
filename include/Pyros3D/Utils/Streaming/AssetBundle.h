@@ -24,6 +24,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
+#include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -65,6 +66,8 @@ namespace p3d {
 		// A terrain tile, prepared by the caller (PreparedHeightfield::
 		// Prepare, on any thread) and filed under its Key().
 		void AddHeightfield(const std::string &key, const std::shared_ptr<PreparedHeightfield> &prepared);
+		// One foliage layer's instances over one tile - see Foliage.h.
+		void AddFoliage(const std::string &key, const std::shared_ptr<PreparedFoliageLayer> &prepared);
 
 		size_t ImageCount() const;
 		size_t ModelCount() const;
@@ -87,12 +90,14 @@ namespace p3d {
 		static bool TakeImage(const std::string &path, Texture::DecodedImage &out);
 		static ModelLoader* TakeModel(const std::string &path);
 		static std::shared_ptr<PreparedHeightfield> TakeHeightfield(const std::string &key);
+		static std::shared_ptr<PreparedFoliageLayer> TakeFoliage(const std::string &key);
 
 	private:
 		mutable std::mutex mutex;
 		std::map<std::string, Texture::DecodedImage> images;
 		std::map<std::string, std::unique_ptr<ModelLoader> > models;
 		std::map<std::string, std::shared_ptr<PreparedHeightfield> > heightfields;
+		std::map<std::string, std::shared_ptr<PreparedFoliageLayer> > foliage;
 		size_t bytes;
 	};
 

@@ -261,6 +261,16 @@ namespace p3d {
 
 		RenderingComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const f32 Distance = 0.0f);
 		RenderingComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialOptions = 0, const f32 Distance = 0.0f);
+		// How far level 0 reaches. AddLOD() appends the NEXT level's
+		// distance and assumes this one is already there - which only the
+		// constructors' Distance argument set, and the instanced
+		// constructors have none. Call before the first AddLOD().
+		void SetFirstLODDistance(const f32 Distance)
+		{
+			if (LODDistances.empty()) LODDistances.push_back(Distance);
+			else LODDistances[0] = Distance;
+			LOD = true;
+		}
 		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material);
 		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions = 0);
 

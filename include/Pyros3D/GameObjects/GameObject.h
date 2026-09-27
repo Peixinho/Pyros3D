@@ -116,6 +116,13 @@ namespace p3d {
 		bool HaveTag(const std::string &tag);
 		const std::map<uint32, std::string> &GetTags() const { return TagsList; }
 
+		// Transient: built at load from something else in the scene (a
+		// foliage block from its terrain tile's layer), so it is never
+		// written to a scene file - saving it would duplicate it on every
+		// reload - and the editor does not list it.
+		bool IsTransient() const { return transient; }
+		void SetTransient(const bool t) { transient = t; }
+
 		// Static
 		bool IsStatic() { return isStatic; }
 
@@ -224,6 +231,7 @@ namespace p3d {
 
 		// Static
 		bool isStatic;
+		bool transient = false;
 
 		// Name
 		std::string Name;

@@ -189,9 +189,15 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 	// what it saw before. Without this the main pass would draw a canvas's
 	// quads a second time, out in the 3D world, because the Tag filter is
 	// include-only and cannot express "everything except".
+	//
+	// An instanced component with no instances draws nothing, so it is
+	// dropped here rather than paying for its binds - a foliage block faded
+	// out by distance, a particle system between bursts.
 	for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end();)
 	{
-		if ((*k)->renderingComponent->GetRenderLayer() != renderLayer)
+		RenderingComponent* rc = (*k)->renderingComponent;
+		if (rc->GetRenderLayer() != renderLayer
+			|| (rc->IsInstanced() && static_cast<IRenderingInstancedComponent*>(rc)->NumberOfInstances() == 0))
 			k = rmeshes.erase(k);
 		else ++k;
 	}
