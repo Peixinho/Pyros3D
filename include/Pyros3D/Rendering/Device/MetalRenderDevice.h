@@ -929,6 +929,14 @@ namespace p3d {
 			PipelineRecord() : pipelineState(NULL), depthStencilState(NULL), programHandle(0), vertexBufferCount(0) {}
 		};
 		std::map<DeviceHandle, PipelineRecord> pipelines;
+		// Pipelines are shared by description, as on Vulkan: the renderer
+		// caches them per RenderingMesh, so identical meshes asked for
+		// identical MTLRenderPipelineStates one each. Keyed on the
+		// description and the attachment pixel formats (values, so nothing
+		// to invalidate); reference-counted, the last DestroyPipeline frees.
+		std::map<std::string, DeviceHandle> pipelineByDescription;
+		std::map<DeviceHandle, uint32> pipelineRefs;
+		std::map<DeviceHandle, std::string> pipelineDescriptionKey;
 		DeviceHandle nextPipelineHandle;
 
 		// Persistent pipeline cache equivalent - MTLBinaryArchive

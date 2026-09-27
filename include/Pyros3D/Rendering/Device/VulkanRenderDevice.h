@@ -1655,6 +1655,20 @@ namespace p3d {
 		// mid-game may still be referenced by a frame the GPU is running
 		// (VUID-vkDestroyPipeline-pipeline-00765).
 		std::vector<VkPipeline> retiredPipelines[MAX_FRAMES_IN_FLIGHT];
+		// Pipelines are shared by description. The renderer caches pipelines
+		// per RenderingMesh, so a thousand identical cubes asked for a
+		// thousand identical VkPipelines (and MoltenVK built a Metal pipeline
+		// state for each): creation hitches when objects appear, and memory.
+		// Identical requests now get one handle, reference-counted; the last
+		// DestroyPipeline retires it. The key includes the target render pass
+		// by handle, so entries naming a pass are forgotten when it is
+		// destroyed (ForgetPipelinesForRenderPass) - a recycled handle value
+		// must not match a pipeline built for a different pass.
+		std::map<std::string, DeviceHandle> pipelineByDescription;
+		std::map<DeviceHandle, uint32> pipelineRefs;
+		std::map<DeviceHandle, std::string> pipelineDescriptionKey;
+		std::map<DeviceHandle, VkRenderPass> pipelineRenderPass;
+		void ForgetPipelinesForRenderPass(const VkRenderPass pass);
 		std::vector<VkPipeline> retiredPipelinesBeforeNextFrame;
 		bool AllocateSamplerSet(const VkDescriptorSetLayout layout, CachedSamplerSet &out);
 		void RetireSamplerSetsNaming(const uint64 handle);

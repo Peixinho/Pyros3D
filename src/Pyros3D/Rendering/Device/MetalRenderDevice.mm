@@ -329,6 +329,9 @@ namespace p3d {
 				if (it->second.depthStencilState != NULL) CFBridgingRelease(it->second.depthStencilState);
 			}
 			pipelines.clear();
+			pipelineByDescription.clear();
+			pipelineRefs.clear();
+			pipelineDescriptionKey.clear();
 
 			for (std::map<DeviceHandle, ShaderStageRecord>::iterator it = shaderStages.begin(); it != shaderStages.end(); ++it)
 			{
@@ -1000,6 +1003,42 @@ namespace p3d {
 				pipelineDesc.vertexDescriptor = vertexDesc;
 			}
 
+			// Everything the pipeline state below is built from - see
+			// pipelineByDescription.
+			std::string descriptionKey;
+			{
+				const auto put = [&descriptionKey](const auto &v) { descriptionKey.append(reinterpret_cast<const char*>(&v), sizeof(v)); };
+				put(desc.shaderProgram); put(desc.depthTest); put(desc.depthTestMode); put(desc.depthWrite);
+				put(desc.blendingEnabled); put(desc.blendSrcFactor); put(desc.blendDstFactor); put(desc.blendEquation);
+				put(desc.cullFace); put(desc.wireframe); put(desc.drawingType); put(desc.isShadowPass); put(desc.noVertexInput);
+				put((uint32)desc.vertexLayout.size());
+				for (size_t b = 0; b < desc.vertexLayout.size(); b++)
+				{
+					const IRenderDevice::VertexBufferLayoutDesc &layout = desc.vertexLayout[b];
+					put(layout.stride); put((uint32)layout.attributes.size());
+					for (size_t a = 0; a < layout.attributes.size(); a++)
+					{
+						put((uint32)layout.attributes[a].name.size()); descriptionKey.append(layout.attributes[a].name);
+						put(layout.attributes[a].type); put(layout.attributes[a].offset); put(layout.attributes[a].divisor);
+					}
+				}
+				for (NSUInteger c = 0; c < 8; c++)
+				{
+					const NSUInteger format = (NSUInteger)pipelineDesc.colorAttachments[c].pixelFormat;
+					put(format);
+				}
+				const NSUInteger depthFormat = (NSUInteger)pipelineDesc.depthAttachmentPixelFormat;
+				put(depthFormat);
+			}
+			{
+				std::map<std::string, DeviceHandle>::iterator shared = pipelineByDescription.find(descriptionKey);
+				if (shared != pipelineByDescription.end() && pipelines.find(shared->second) != pipelines.end())
+				{
+					pipelineRefs[shared->second]++;
+					return shared->second;
+				}
+			}
+
 			NSError* nsError = nil;
 			id<MTLRenderPipelineState> pipelineState = [mtlDevice newRenderPipelineStateWithDescriptor:pipelineDesc error:&nsError];
 			if (pipelineState == nil)
@@ -1021,6 +1060,9 @@ namespace p3d {
 
 			DeviceHandle handle = nextPipelineHandle++;
 			pipelines[handle] = record;
+			pipelineRefs[handle] = 1;
+			pipelineByDescription[descriptionKey] = handle;
+			pipelineDescriptionKey[handle] = descriptionKey;
 			return handle;
 		}
 	}
@@ -1030,6 +1072,22 @@ namespace p3d {
 		std::map<DeviceHandle, PipelineRecord>::iterator it = pipelines.find(pipeline);
 		if (it == pipelines.end())
 			return;
+		// Shared - see pipelineByDescription. Only the last user frees it.
+		std::map<DeviceHandle, uint32>::iterator refIt = pipelineRefs.find(pipeline);
+		if (refIt != pipelineRefs.end() && refIt->second > 1)
+		{
+			refIt->second--;
+			return;
+		}
+		if (refIt != pipelineRefs.end()) pipelineRefs.erase(refIt);
+		std::map<DeviceHandle, std::string>::iterator keyIt = pipelineDescriptionKey.find(pipeline);
+		if (keyIt != pipelineDescriptionKey.end())
+		{
+			std::map<std::string, DeviceHandle>::iterator byDesc = pipelineByDescription.find(keyIt->second);
+			if (byDesc != pipelineByDescription.end() && byDesc->second == pipeline)
+				pipelineByDescription.erase(byDesc);
+			pipelineDescriptionKey.erase(keyIt);
+		}
 		if (it->second.pipelineState != NULL) CFBridgingRelease(it->second.pipelineState);
 		if (it->second.depthStencilState != NULL) CFBridgingRelease(it->second.depthStencilState);
 		pipelines.erase(it);

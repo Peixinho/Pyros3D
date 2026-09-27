@@ -271,6 +271,10 @@ namespace p3d {
 			for (std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.begin(); it != pipelines.end(); it++)
 				vkDestroyPipeline(device, it->second, NULL);
 			pipelines.clear();
+			pipelineByDescription.clear();
+			pipelineRefs.clear();
+			pipelineDescriptionKey.clear();
+			pipelineRenderPass.clear();
 			for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 			{
 				for (size_t k = 0; k < retiredPipelines[i].size(); k++)
@@ -759,7 +763,10 @@ namespace p3d {
 		for (size_t i = 0; i < oldFramebuffers.size(); i++)
 			vkDestroyFramebuffer(device, oldFramebuffers[i], NULL);
 		if (oldRenderPass != VK_NULL_HANDLE)
+		{
+			ForgetPipelinesForRenderPass(oldRenderPass);
 			vkDestroyRenderPass(device, oldRenderPass, NULL);
+		}
 		if (oldDepthImageView != VK_NULL_HANDLE)
 			vkDestroyImageView(device, oldDepthImageView, NULL);
 		if (oldDepthImage != VK_NULL_HANDLE)
@@ -1549,6 +1556,7 @@ namespace p3d {
 		ringStats.lastResetCall = ringStats.beginFrameCalls;
 		ReleaseRetiredBuffers(currentFrameSlot);
 		GpuTimerCollect(currentFrameSlot);
+		FrameProfiler::Instance().Counter("Vulkan.Pipelines", (f64)pipelines.size());
 
 		// The previous frame's GPU work is now complete - that is exactly
 		// what the wait above establishes - so every dynamic UBO slot is
@@ -2381,6 +2389,36 @@ namespace p3d {
 			return 0;
 		}
 
+		// Everything the VkPipeline below is built from - see pipelineByDescription.
+		std::string descriptionKey;
+		{
+			const auto put = [&descriptionKey](const auto &v) { descriptionKey.append(reinterpret_cast<const char*>(&v), sizeof(v)); };
+			const auto putStr = [&descriptionKey, &put](const std::string &str) { put((uint32)str.size()); descriptionKey.append(str); };
+			put(desc.shaderProgram); put(desc.depthTest); put(desc.depthTestMode); put(desc.depthWrite);
+			put(desc.blendingEnabled); put(desc.blendSrcFactor); put(desc.blendDstFactor); put(desc.blendEquation);
+			put(desc.cullFace); put(desc.wireframe); put(desc.drawingType); put(desc.isShadowPass); put(desc.noVertexInput);
+			put((uint32)desc.vertexLayout.size());
+			for (size_t b = 0; b < desc.vertexLayout.size(); b++)
+			{
+				const VertexBufferLayoutDesc &layout = desc.vertexLayout[b];
+				put(layout.stride); put((uint32)layout.attributes.size());
+				for (size_t a = 0; a < layout.attributes.size(); a++)
+				{
+					putStr(layout.attributes[a].name); put(layout.attributes[a].type);
+					put(layout.attributes[a].offset); put(layout.attributes[a].divisor);
+				}
+			}
+			put(targetRenderPass); put(targetColorAttachmentCount); put(multisampling.rasterizationSamples);
+		}
+		{
+			std::map<std::string, DeviceHandle>::iterator shared = pipelineByDescription.find(descriptionKey);
+			if (shared != pipelineByDescription.end() && pipelines.find(shared->second) != pipelines.end())
+			{
+				pipelineRefs[shared->second]++;
+				return shared->second;
+			}
+		}
+
 		VkPipelineColorBlendAttachmentState blendAttachment = {};
 		blendAttachment.blendEnable = desc.blendingEnabled ? VK_TRUE : VK_FALSE;
 		blendAttachment.srcColorBlendFactor = TranslateBlendFactorVk(desc.blendSrcFactor);
@@ -2436,6 +2474,10 @@ namespace p3d {
 		DeviceHandle handle = nextPipelineHandle++;
 		pipelines[handle] = pipeline;
 		pipelineToProgram[handle] = desc.shaderProgram;
+		pipelineRefs[handle] = 1;
+		pipelineByDescription[descriptionKey] = handle;
+		pipelineDescriptionKey[handle] = descriptionKey;
+		pipelineRenderPass[handle] = targetRenderPass;
 
 		// No sampler set here any more: sets are shared by content and made
 		// on first use - see samplerSetCache. The pool still has to exist
@@ -2445,11 +2487,44 @@ namespace p3d {
 		return handle;
 	}
 
+	// Stops sharing - not destroying - pipelines built for `pass`: their
+	// users keep them, but no new request can match them once the handle
+	// value may be reused for a different render pass.
+	void VulkanRenderDevice::ForgetPipelinesForRenderPass(const VkRenderPass pass)
+	{
+		for (std::map<DeviceHandle, VkRenderPass>::iterator it = pipelineRenderPass.begin(); it != pipelineRenderPass.end(); ++it)
+		{
+			if (it->second != pass) continue;
+			std::map<DeviceHandle, std::string>::iterator keyIt = pipelineDescriptionKey.find(it->first);
+			if (keyIt == pipelineDescriptionKey.end()) continue;
+			std::map<std::string, DeviceHandle>::iterator byDesc = pipelineByDescription.find(keyIt->second);
+			if (byDesc != pipelineByDescription.end() && byDesc->second == it->first)
+				pipelineByDescription.erase(byDesc);
+		}
+	}
+
 	void VulkanRenderDevice::DestroyPipeline(const DeviceHandle pipeline)
 	{
 		std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.find(pipeline);
 		if (it == pipelines.end())
 			return;
+		// Shared - see pipelineByDescription. Only the last user retires it.
+		std::map<DeviceHandle, uint32>::iterator refIt = pipelineRefs.find(pipeline);
+		if (refIt != pipelineRefs.end() && refIt->second > 1)
+		{
+			refIt->second--;
+			return;
+		}
+		if (refIt != pipelineRefs.end()) pipelineRefs.erase(refIt);
+		std::map<DeviceHandle, std::string>::iterator keyIt = pipelineDescriptionKey.find(pipeline);
+		if (keyIt != pipelineDescriptionKey.end())
+		{
+			std::map<std::string, DeviceHandle>::iterator byDesc = pipelineByDescription.find(keyIt->second);
+			if (byDesc != pipelineByDescription.end() && byDesc->second == pipeline)
+				pipelineByDescription.erase(byDesc);
+			pipelineDescriptionKey.erase(keyIt);
+		}
+		pipelineRenderPass.erase(pipeline);
 		// Deferred like RetireOrDestroyBufferRecord - see retiredPipelines.
 		if (device != VK_NULL_HANDLE)
 		{
@@ -5515,7 +5590,10 @@ namespace p3d {
 			for (std::map<uint32, VkFramebuffer>::iterator fIt = it->second.framebuffersByTarget.begin(); fIt != it->second.framebuffersByTarget.end(); fIt++)
 				vkDestroyFramebuffer(device, fIt->second, NULL);
 			if (it->second.renderPass != VK_NULL_HANDLE)
+			{
+				ForgetPipelinesForRenderPass(it->second.renderPass);
 				vkDestroyRenderPass(device, it->second.renderPass, NULL);
+			}
 		}
 		fboRecords.erase(it);
 		if (currentBoundFBO == fbo)
