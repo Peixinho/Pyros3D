@@ -78,3 +78,28 @@ endif()
 if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 	target_compile_definitions(PyrosPlayer PRIVATE _IMPORT)
 endif()
+
+# PyrosServer - the same game, headless: no window, no GPU (NullRenderDevice),
+# for dedicated multiplayer servers. Built alongside the player; Build Game
+# ships it next to PyrosPlayer.
+add_executable(PyrosServer
+	${CMAKE_CURRENT_SOURCE_DIR}/src/server_main.cpp
+)
+target_include_directories(PyrosServer PRIVATE
+	${CMAKE_SOURCE_DIR}/include
+	${CMAKE_SOURCE_DIR}/shared
+)
+target_link_libraries(PyrosServer PRIVATE
+	PyrosEngine
+	${BOX3D_LIBRARIES}
+	${FREETYPE_LIBRARIES}
+	${LUA_LIBRARIES}
+)
+if (APPLE)
+	set_target_properties(PyrosServer PROPERTIES BUILD_RPATH "@executable_path")
+elseif (UNIX)
+	set_target_properties(PyrosServer PROPERTIES BUILD_RPATH "$ORIGIN")
+endif()
+if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
+	target_compile_definitions(PyrosServer PRIVATE _IMPORT)
+endif()

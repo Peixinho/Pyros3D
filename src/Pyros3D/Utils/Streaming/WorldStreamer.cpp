@@ -172,12 +172,19 @@ namespace p3d {
 
 	void WorldStreamer::Update(const Vec3 &focus, const f64 pumpBudgetMs)
 	{
+		Update(std::vector<Vec3>(1, focus), pumpBudgetMs);
+	}
+
+	void WorldStreamer::Update(const std::vector<Vec3> &foci, const f64 pumpBudgetMs)
+	{
 		CollectGraveyard(false);
 
 		for (std::map<CellKey, Cell>::iterator it = cells.begin(); it != cells.end(); ++it)
 		{
 			Cell &c = it->second;
-			const f32 d = DistanceToCell(focus, it->first);
+			// The nearest focus decides: wanted by one is wanted.
+			f32 d = 1e30f;
+			for (size_t f = 0; f < foci.size(); f++) d = std::min(d, DistanceToCell(foci[f], it->first));
 			switch (c.state)
 			{
 			case Cell::Unloaded:

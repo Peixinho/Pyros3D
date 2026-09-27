@@ -909,6 +909,14 @@ namespace p3d {
 		return it == clients.end() ? serverTick : it->second->viewTick;
 	}
 
+	std::vector<Vec3> NetworkSession::ClientViewers() const
+	{
+		std::vector<Vec3> v;
+		for (std::map<PeerId, std::unique_ptr<ClientState> >::const_iterator it = clients.begin(); it != clients.end(); ++it)
+			if (it->second->heardFrom) v.push_back(it->second->viewer);
+		return v;
+	}
+
 	f64 NetworkSession::ViewTick() const
 	{
 		return std::max(0.0, serverTick - settings.interpolationDelay * settings.tickRate);

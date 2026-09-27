@@ -56,6 +56,10 @@ namespace p3d {
 		// Once per frame. Also pumps AssetStreamer with pumpBudgetMs, so an
 		// app using a WorldStreamer must not pump it again.
 		void Update(const Vec3 &focus, const f64 pumpBudgetMs = 4.0);
+		// Several foci - a server keeping the world around every player: a
+		// cell is wanted while any focus is within loadRadius of it, and
+		// dropped only when all are past unloadRadius.
+		void Update(const std::vector<Vec3> &foci, const f64 pumpBudgetMs = 4.0);
 
 		// Blocks until every cell Update() would want at focus is in - for a
 		// loading screen, or spawning the player into a world.

@@ -137,6 +137,9 @@ namespace p3d {
 		struct RayHit { uint32 netId = 0; f32 distance = 0.f; Vec3 point; };
 		RayHit RaycastRewound(const PeerId shooter, const Vec3 &origin, const Vec3 &direction, const f32 maxDistance,
 			const f64 viewTick = -1.0) const;
+		// Server: every client's viewer - where to keep the world loaded.
+		std::vector<Vec3> ClientViewers() const;
+
 		// Client: the server tick its replicas are showing right now.
 		f64 ViewTick() const;
 		// Server: the view tick of a client's latest command.
