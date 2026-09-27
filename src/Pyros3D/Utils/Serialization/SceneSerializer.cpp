@@ -2444,13 +2444,65 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return nullptr;
 	}
 
+
+	// Scene load shares identical renderables (same JSON description) between
+	// components: a thousand identical cubes or lamps were a thousand
+	// geometries, and the renderer's automatic instancing only merges meshes
+	// that share geometry, so none of them batched. Weak, so a renderable
+	// nothing uses any more is still freed. Safe because nothing edits a
+	// component's renderable in place - changing one in the editor rebuilds
+	// it from JSON.
+	//
+	// Construct with the renderable's JSON and the output slot: on a cache
+	// hit the slot is filled at once; otherwise whatever the caller builds
+	// into it is cached when this goes out of scope, unless Forget()ed.
+	class SharedRenderableSlot
+	{
+	public:
+		SharedRenderableSlot(const json &j, std::shared_ptr<Renderable> &out) : out(out), key(j.dump()), remember(true)
+		{
+			std::map<std::string, std::weak_ptr<Renderable> >::iterator it = Cache().find(key);
+			if (it == Cache().end()) return;
+			out = it->second.lock();
+			if (out) remember = false;
+			else Cache().erase(it);
+		}
+		~SharedRenderableSlot() { if (remember && out) Cache()[key] = out; }
+		void Forget() { remember = false; }
+	private:
+		static std::map<std::string, std::weak_ptr<Renderable> > &Cache()
+		{
+			static std::map<std::string, std::weak_ptr<Renderable> > cache;
+			return cache;
+		}
+		std::shared_ptr<Renderable> &out;
+		std::string key;
+		bool remember;
+	};
+
+	static bool RenderableHasBones(const std::shared_ptr<Renderable> &r)
+	{
+		for (size_t i = 0; i < r->Geometries.size(); i++)
+			if (r->Geometries[i] && r->Geometries[i]->materialProperties.haveBones) return true;
+		return false;
+	}
+
 	static std::shared_ptr<Renderable> DeserializeRenderable(const json &j, LoadedSceneAssets* outAssets)
 	{
 		if (j.is_null()) return nullptr;
 		std::string kind = j.value("kind", "");
 		std::shared_ptr<Renderable> r;
 		if (kind == "model")
+		{
+			// Shared like primitives (see SharedRenderableSlot), which also
+			// stops every copy of a prop re-parsing its file - unless the
+			// model is skinned: its skeleton is posed per object, so skinned
+			// models keep one copy each.
+			SharedRenderableSlot shared(j, r);
+			if (r && !RenderableHasBones(r)) { if (outAssets) outAssets->renderables.push_back(r); return r; }
 			r = std::make_shared<Model>(ResolveSceneAssetPath(j.value("path", std::string())), j.value("mergeMeshes", true));
+			if (RenderableHasBones(r)) shared.Forget();
+		}
 		else if (kind == "text")
 		{
 			// No font pooling/dedup - each loaded Text gets its own Font
@@ -2500,6 +2552,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		}
 		else if (kind == "primitive")
 		{
+			SharedRenderableSlot shared(j, r);
+			if (r) { if (outAssets) outAssets->renderables.push_back(r); return r; }
+
 			bool smooth = j.value("smooth", false);
 			bool flip = j.value("flip", false);
 			// Always, whatever the file says: every scene saved before the
