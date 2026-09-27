@@ -11,6 +11,7 @@
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
+#include <Pyros3D/Network/NetworkIdentity.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
 #include <Pyros3D/Physics/Components/HeightField/PhysicsHeightField.h>
 #include <functional>
@@ -1223,6 +1224,16 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	static json SerializeComponent(IComponent* c, json &materialsArray, std::map<IMaterial*, uint32> &materialIdMap, sol::state* lua)
 	{
 		json j;
+		// Replication settings only - ids, owners and variables are runtime.
+		if (NetworkIdentity* ni = dynamic_cast<NetworkIdentity*>(c))
+		{
+			j["type"] = "NetworkIdentity";
+			if (!ni->prefab.empty()) j["prefab"] = ni->prefab;
+			if (ni->relevance > 0.f) j["relevance"] = ni->relevance;
+			if (ni->priority != 1.f) j["priority"] = ni->priority;
+			if (!ni->syncTransform) j["syncTransform"] = false;
+			return j;
+		}
 		// The layers' settings, never their instances: those regrow from
 		// the tile on load (and their blocks are transient, not saved).
 		if (FoliageComponent* fc = dynamic_cast<FoliageComponent*>(c))
@@ -3114,6 +3125,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			d.colorEase = (uchar)j.value("colorEase", (int)d.colorEase);
 			d.boundingSphereRadius = j.value("boundingSphereRadius", d.boundingSphereRadius);
 			go->AddComponent(std::make_shared<ParticleSystem>(d));
+		}
+		else if (type == "NetworkIdentity")
+		{
+			std::shared_ptr<NetworkIdentity> ni = std::make_shared<NetworkIdentity>();
+			ni->prefab = j.value("prefab", std::string());
+			ni->relevance = std::max(0.f, j.value("relevance", 0.f));
+			ni->priority = std::max(0.f, j.value("priority", 1.f));
+			ni->syncTransform = j.value("syncTransform", true);
+			go->AddComponent(ni);
 		}
 		else if (type == "Foliage")
 		{

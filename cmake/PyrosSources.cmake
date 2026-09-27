@@ -21,6 +21,8 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/WorldStreamer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetTransport.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetBuffer.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetworkIdentity.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetworkSession.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/IModelLoader.cpp
