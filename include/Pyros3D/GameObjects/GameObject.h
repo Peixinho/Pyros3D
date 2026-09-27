@@ -202,8 +202,25 @@ namespace p3d {
 
 	protected:
 
-		// Update Transformation
-		bool UpdateTransformation(const uint32 order = 0);
+		// Update Transformation. Rolls this object's previous-world matrix,
+		// so call it once per frame per object. walkAncestors=true refreshes
+		// the parent chain first (RefreshTransformation, objects outside the
+		// traversal); the scene traversal passes false because it has just
+		// updated the parent, and only re-walks if an ancestor went dirty
+		// after that.
+		bool UpdateTransformation(const uint32 order = 0, const bool walkAncestors = true);
+
+	private:
+
+		// Local matrix from position/rotation/scale (and look-at). Clears
+		// the dirty flag; touches no world or previous-world matrix.
+		bool UpdateLocalTransformation(const uint32 order);
+		// Brings this object's world matrix up to date with its ancestors'
+		// WITHOUT rolling any previous-world matrix - those belong to the
+		// once-per-frame UpdateTransformation of each object.
+		void RefreshWorldChain();
+
+	protected:
 
 		// Static
 		bool isStatic;

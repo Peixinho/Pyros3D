@@ -10,6 +10,7 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <string.h>
 #include <algorithm>
+#include <unordered_set>
 
 namespace p3d {
 
@@ -341,21 +342,23 @@ namespace p3d {
 		return _GameObjectListALL;
 	}
 
-	static void CollectSubtree(GameObject* go, std::vector<GameObject*> &out)
+	static void CollectSubtree(GameObject* go, std::vector<GameObject*> &out, std::unordered_set<GameObject*> &seen)
 	{
-		if (go == NULL) return;
-		for (size_t i = 0; i < out.size(); i++)
-			if (out[i] == go) return;
+		if (go == NULL || !seen.insert(go).second) return;
 		out.push_back(go);
 		const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
 		for (size_t i = 0; i < kids.size(); i++)
-			CollectSubtree(kids[i].get(), out);
+			CollectSubtree(kids[i].get(), out, seen);
 	}
 
 	void SceneGraph::CollectGameObjectsRecursive(std::vector<GameObject*> &out)
 	{
+		// The duplicate check used to be a linear search of `out` per node -
+		// quadratic, and two 2D systems (Occluder2D, Physics2DWorld) run
+		// this every frame even in scenes with nothing 2D in them.
+		std::unordered_set<GameObject*> seen(out.begin(), out.end());
 		for (size_t i = 0; i < _GameObjectListALL.size(); i++)
-			CollectSubtree(_GameObjectListALL[i].get(), out);
+			CollectSubtree(_GameObjectListALL[i].get(), out, seen);
 	}
 
 };

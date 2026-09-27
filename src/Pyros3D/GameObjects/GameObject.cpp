@@ -113,8 +113,8 @@ namespace p3d {
 	// Internal Update for Transformation
 	bool GameObject::InternalUpdate()
 	{
-		// Update Transformation
-		bool r = UpdateTransformation();
+		// Update Transformation - the traversal has just updated the parent
+		bool r = UpdateTransformation(0, false);
 
 		// The eight corners of the LOCAL box, each transformed once.
 		//
@@ -160,7 +160,47 @@ namespace p3d {
 	}
 
 	// Updates the Transformation Matrix
-	bool GameObject::UpdateTransformation(const uint32 order)
+	bool GameObject::UpdateTransformation(const uint32 order, const bool walkAncestors)
+	{
+		bool wasDirty = UpdateLocalTransformation(order);
+
+		_PrvWorldMatrix = _WorldMatrix;
+
+		if (_HaveOwner)
+		{
+			// This used to call _Owner->UpdateTransformation() for every
+			// object, from inside the traversal that had just updated that
+			// owner. Besides redoing each ancestor's matrices once per
+			// descendant, it rolled the owner's previous-world matrix a
+			// second time in the same frame, so every object with children
+			// had previous == current and motion vectors saw it as still.
+			bool refresh = walkAncestors;
+			for (GameObject* a = _Owner; !refresh && a != NULL; a = a->_Owner)
+				if (a->_IsDirty) refresh = true; // moved after its own update this frame
+			if (refresh)
+				_Owner->RefreshWorldChain();
+			_WorldMatrix = _Owner->_WorldMatrix * _LocalMatrix;
+			wasDirty = true;
+		}
+		else {
+			_WorldMatrix = _LocalMatrix;
+		}
+
+		// Set Bounding Sphere Scale
+		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
+
+		return wasDirty;
+	}
+
+	void GameObject::RefreshWorldChain()
+	{
+		if (_HaveOwner) _Owner->RefreshWorldChain();
+		UpdateLocalTransformation(0);
+		_WorldMatrix = _HaveOwner ? _Owner->_WorldMatrix * _LocalMatrix : _LocalMatrix;
+		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
+	}
+
+	bool GameObject::UpdateLocalTransformation(const uint32 order)
 	{
 		bool wasDirty = false;
 
@@ -242,21 +282,6 @@ namespace p3d {
 
 		}
 		_IsDirty = false;
-
-		_PrvWorldMatrix = _WorldMatrix;
-
-		if (_HaveOwner)
-		{
-			_Owner->UpdateTransformation();
-			_WorldMatrix = _Owner->_WorldMatrix * _LocalMatrix;
-			wasDirty = true;
-		}
-		else {
-			_WorldMatrix = _LocalMatrix;
-		}
-
-		// Set Bounding Sphere Scale
-		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
 
 		return wasDirty;
 	}
