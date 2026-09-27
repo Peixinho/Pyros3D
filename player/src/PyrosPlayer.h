@@ -39,6 +39,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIList.h>
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
+#include <Pyros3D/Utils/Streaming/WorldStreamer.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Audio/AudioManager.h>
 
@@ -262,6 +263,14 @@ private:
 	LoadedSceneAssets sceneAssets;
 	std::string currentSceneRel;
 	bool sceneLoaded;
+
+	// A streamed scene's cells (SceneMeta::World) - NULL for every other
+	// scene. Created with the scene, before its first frame; destroyed
+	// before the scene is unloaded, taking its cells with it.
+	std::unique_ptr<WorldStreamer> worldStreamer;
+	// Sounds, emitters and autoplay clips start when their objects arrive:
+	// with the scene, or with the streamed cell that carries them.
+	void StartSceneMedia(const std::vector<GameObject*> &objects);
 };
 
 #endif /* PYROSPLAYER_H */

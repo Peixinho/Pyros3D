@@ -424,6 +424,11 @@ namespace p3d {
 		// flat list - a rig parented under a layer is a child, and the flat
 		// list has no children in it.
 		static void StartAutoPlayInScene(SceneGraph* scene);
+		// The same for one subtree - a streamed cell arriving mid-game.
+		static void StartAutoPlayIn(GameObject* root);
+	private:
+		static void StartAutoPlayOn(const std::vector<GameObject*> &objects);
+	public:
 		bool HasBones() { return hasBones; }
 
 		// Get Model's Meshes

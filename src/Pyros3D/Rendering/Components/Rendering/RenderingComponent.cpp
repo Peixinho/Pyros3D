@@ -439,11 +439,8 @@ namespace p3d {
 
 namespace p3d {
 
-	void RenderingComponent::StartAutoPlayInScene(SceneGraph* scene)
+	void RenderingComponent::StartAutoPlayOn(const std::vector<GameObject*> &all)
 	{
-		if (scene == NULL) return;
-		std::vector<GameObject*> all;
-		scene->CollectGameObjectsRecursive(all);
 		for (size_t i = 0; i < all.size(); i++)
 		{
 			if (!all[i]) continue;
@@ -467,6 +464,26 @@ namespace p3d {
 					}
 			}
 		}
+	}
+
+	void RenderingComponent::StartAutoPlayInScene(SceneGraph* scene)
+	{
+		if (scene == NULL) return;
+		std::vector<GameObject*> all;
+		scene->CollectGameObjectsRecursive(all);
+		StartAutoPlayOn(all);
+	}
+
+	void RenderingComponent::StartAutoPlayIn(GameObject* root)
+	{
+		if (root == NULL) return;
+		std::vector<GameObject*> all(1, root);
+		for (size_t i = 0; i < all.size(); i++)
+		{
+			const std::vector<std::shared_ptr<GameObject> > &kids = all[i]->GetChildren();
+			for (size_t k = 0; k < kids.size(); k++) all.push_back(kids[k].get());
+		}
+		StartAutoPlayOn(all);
 	}
 
 	void RenderingComponent::SetSkeleton(const std::vector<Bone> &bones)

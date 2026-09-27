@@ -614,29 +614,34 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	// Sounds and emitters authored in the scene start with the scene, the
 	// same way entering play mode starts them in the editor. Anything a
 	// script wants to control instead can stop it on its first update.
-	int soundsStarted = 0, soundsMissing = 0;
-	std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
-	for (size_t i = 0; i < all.size(); ++i)
 	{
-		const std::vector<std::shared_ptr<IComponent>>& comps = all[i]->GetComponents();
-		for (size_t c = 0; c < comps.size(); ++c)
-		{
-			if (AudioSource* asrc = dynamic_cast<AudioSource*>(comps[c].get()))
-			{
-				if (!asrc->EnsureLoaded()) { ++soundsMissing; continue; }
-				asrc->ResetVelocityTracking();
-				asrc->Play();
-				++soundsStarted;
-			}
-			else if (ParticleSystem* ps = dynamic_cast<ParticleSystem*>(comps[c].get()))
-			{
-				ps->Clear();
-				ps->Play();
-			}
-		}
+		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
+		std::vector<GameObject*> objects;
+		for (size_t i = 0; i < all.size(); ++i) objects.push_back(all[i].get());
+		StartSceneMedia(objects);
 	}
-	if (soundsMissing > 0)
-		echo("WARNING: " + std::to_string(soundsMissing) + " sound(s) could not be loaded");
+
+	// A streamed world brings in the cells around the camera before the
+	// first frame - the player must not spawn into an empty world - and
+	// streams the rest from Update().
+	worldStreamer.reset();
+	if (meta.world.enabled)
+	{
+		worldStreamer.reset(new WorldStreamer(scene, abs, meta.world, physics, luaPtr));
+		worldStreamer->SetOnCellLoaded([this](const std::shared_ptr<GameObject> &root) {
+			std::vector<GameObject*> objects(1, root.get());
+			for (size_t i = 0; i < objects.size(); i++)
+			{
+				const std::vector<std::shared_ptr<GameObject> > &kids = objects[i]->GetChildren();
+				for (size_t k = 0; k < kids.size(); k++) objects.push_back(kids[k].get());
+			}
+			StartSceneMedia(objects);
+			RenderingComponent::StartAutoPlayIn(root.get());
+		});
+		const Vec3 focus = activeCamera ? activeCamera->GetWorldPosition() : Vec3();
+		worldStreamer->LoadAround(focus);
+		echo("Streamed world: " + std::to_string(worldStreamer->LoadedCount()) + " cell(s) loaded around the camera");
+	}
 
 #ifdef LUA_BINDINGS
 	// One update before the first frame so components spawned during load
@@ -667,12 +672,39 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	return true;
 }
 
+void PyrosPlayer::StartSceneMedia(const std::vector<GameObject*> &objects)
+{
+	int soundsMissing = 0;
+	for (size_t i = 0; i < objects.size(); ++i)
+	{
+		const std::vector<std::shared_ptr<IComponent>>& comps = objects[i]->GetComponents();
+		for (size_t c = 0; c < comps.size(); ++c)
+		{
+			if (AudioSource* asrc = dynamic_cast<AudioSource*>(comps[c].get()))
+			{
+				if (!asrc->EnsureLoaded()) { ++soundsMissing; continue; }
+				asrc->ResetVelocityTracking();
+				asrc->Play();
+			}
+			else if (ParticleSystem* ps = dynamic_cast<ParticleSystem*>(comps[c].get()))
+			{
+				ps->Clear();
+				ps->Play();
+			}
+		}
+	}
+	if (soundsMissing > 0)
+		echo("WARNING: " + std::to_string(soundsMissing) + " sound(s) could not be loaded");
+}
+
 void PyrosPlayer::UnloadGameScene()
 {
 	if (!sceneLoaded) return;
 #ifdef LUA_BINDINGS
 	sceneMainScript.reset();
 #endif
+	// Its cells are in the scene; they go first, by the streamer's hand.
+	worldStreamer.reset();
 	activeCamera = NULL;
 	SceneSerializer::UnloadScene(scene, sceneAssets);
 	sceneAssets = LoadedSceneAssets();
@@ -1053,6 +1085,10 @@ void PyrosPlayer::Update()
 	// worked in a built game but not in the editor's play mode, and that a
 	// script moving a layer would be fighting the engine for the same
 	// transform. The engine's job is the layer; what it does is the game's.
+	// Cells in and out around the camera, before the scene solves this
+	// frame's transforms so an arriving cell is drawn where it belongs.
+	if (worldStreamer && activeCamera)
+		worldStreamer->Update(activeCamera->GetWorldPosition());
 	scene->Update(time);
 	// The overlay is a real SceneGraph and needs solving every frame like any
 	// other - its UI layout, animations and component registration all happen
