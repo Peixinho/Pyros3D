@@ -49,6 +49,16 @@ namespace p3d {
 		void Begin(const char *name);
 		void End();
 
+		// Innermost open scope on the frame thread, "" when none. The render
+		// device labels GPU passes with it.
+		const char *CurrentScopeName() const;
+
+		// GPU time per pass label, from a frame that has finished on the GPU
+		// (a couple of frames behind the CPU scopes). The device publishes it.
+		void SetGpuTimings(const ScopeRecord *records, uint32 count);
+		uint32 GpuCount() const { return gpuCount_; }
+		const ScopeRecord &GpuAt(const uint32 i) const { return gpu_[i]; }
+
 		// A named value for this frame (body count, draw calls...), written
 		// alongside the scopes by PYROS_PROFILE_LOG. Last write wins.
 		void Counter(const char *name, f64 value);
@@ -113,6 +123,9 @@ namespace p3d {
 		static const uint32 kMaxCounters = 16;
 		ScopeRecord counters_[kMaxCounters]; // ms holds the value
 		uint32 counterCount_ = 0;
+
+		ScopeRecord gpu_[kMaxScopes];
+		uint32 gpuCount_ = 0;
 
 		static void CopyName(char *dst, const char *src);
 	};

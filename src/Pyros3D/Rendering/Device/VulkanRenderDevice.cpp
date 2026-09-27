@@ -338,6 +338,8 @@ namespace p3d {
 				if (frameDoneSemaphores[i] != VK_NULL_HANDLE) vkDestroySemaphore(device, frameDoneSemaphores[i], NULL);
 				frameDoneSemaphores[i] = VK_NULL_HANDLE;
 			}
+			if (gpuTimerPool != VK_NULL_HANDLE) vkDestroyQueryPool(device, gpuTimerPool, NULL);
+			gpuTimerPool = VK_NULL_HANDLE;
 			pendingFrameDoneSemaphore = VK_NULL_HANDLE;
 			frameFence = VK_NULL_HANDLE;
 			for (uint32 i = 0; i < OFFSCREEN_SLOTS; i++)
@@ -871,6 +873,18 @@ namespace p3d {
 		VkPhysicalDeviceProperties deviceProperties;
 		vkGetPhysicalDeviceProperties(physicalDevice, &deviceProperties);
 		minUniformBufferOffsetAlignment = deviceProperties.limits.minUniformBufferOffsetAlignment;
+		{
+			uint32 familyCount = 0;
+			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, NULL);
+			std::vector<VkQueueFamilyProperties> families(familyCount);
+			vkGetPhysicalDeviceQueueFamilyProperties(physicalDevice, &familyCount, families.data());
+			const uint32 validBits = graphicsQueueFamily < familyCount ? families[graphicsQueueFamily].timestampValidBits : 0;
+			if (validBits > 0 && deviceProperties.limits.timestampPeriod > 0.f)
+			{
+				gpuTimestampPeriodNs = deviceProperties.limits.timestampPeriod;
+				gpuTimestampMask = validBits >= 64 ? ~0ull : ((1ull << validBits) - 1ull);
+			}
+		}
 		supportedSampleCounts = deviceProperties.limits.framebufferColorSampleCounts & deviceProperties.limits.framebufferDepthSampleCounts;
 
 		// Logical device + queue.
@@ -1022,6 +1036,15 @@ namespace p3d {
 			if (vkCreateFence(device, &fenceInfo, NULL, &frameFences[i]) != VK_SUCCESS) return false;
 		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 			if (vkCreateSemaphore(device, &semInfo, NULL, &frameDoneSemaphores[i]) != VK_SUCCESS) return false;
+		if (gpuTimestampPeriodNs > 0.0)
+		{
+			VkQueryPoolCreateInfo qpInfo = {};
+			qpInfo.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
+			qpInfo.queryType = VK_QUERY_TYPE_TIMESTAMP;
+			qpInfo.queryCount = MAX_FRAMES_IN_FLIGHT * kGpuTimerPairs * 2;
+			if (vkCreateQueryPool(device, &qpInfo, NULL, &gpuTimerPool) != VK_SUCCESS)
+				gpuTimerPool = VK_NULL_HANDLE;
+		}
 		pendingFrameDoneSemaphore = VK_NULL_HANDLE;
 		frameFence = frameFences[0];
 		// Unsignaled: WaitOffscreenSlot is a no-op until that slot's first
@@ -1516,6 +1539,7 @@ namespace p3d {
 		}
 		ringStats.lastResetCall = ringStats.beginFrameCalls;
 		ReleaseRetiredBuffers(currentFrameSlot);
+		GpuTimerCollect(currentFrameSlot);
 
 		// The previous frame's GPU work is now complete - that is exactly
 		// what the wait above establishes - so every dynamic UBO slot is
@@ -1614,6 +1638,7 @@ namespace p3d {
 		renderPassBegin.renderArea.extent = swapchainExtent;
 		renderPassBegin.clearValueCount = 2;
 		renderPassBegin.pClearValues = clearValues;
+		frameGpuTimer = GpuTimerBegin(frameCommandBuffer, "Swapchain pass");
 		vkCmdBeginRenderPass(frameCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
 
 		// CreatePipeline() left viewport/scissor dynamic (see its comment) -
@@ -1652,6 +1677,7 @@ namespace p3d {
 		if (UIRenderHook) UIRenderHook(frameCommandBuffer);
 
 		vkCmdEndRenderPass(frameCommandBuffer);
+		GpuTimerEnd(frameCommandBuffer, frameGpuTimer);
 
 		// Capture happens *before* vkEndCommandBuffer/present - see the
 		// header comment on RequestFrameCapture() for why post-present is
@@ -6226,6 +6252,9 @@ namespace p3d {
 			if (attIt != textures.end())
 				attIt->second.layoutInitialized = true;
 		}
+		offscreenGpuTimer = frameInProgress
+			? GpuTimerBegin(offscreenCommandBuffer, FrameProfiler::Instance().CurrentScopeName())
+			: kNoGpuTimer;
 		vkCmdBeginRenderPass(offscreenCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
 
 		VkViewport viewport = { 0.0f, 0.0f, (f32)fbo.width, (f32)fbo.height, 0.0f, 1.0f };
@@ -6246,7 +6275,78 @@ namespace p3d {
 		if (!offscreenPassOpen)
 			return;
 		vkCmdEndRenderPass(offscreenCommandBuffer);
+		GpuTimerEnd(offscreenCommandBuffer, offscreenGpuTimer);
 		offscreenPassOpen = false;
+	}
+
+	uint32 VulkanRenderDevice::GpuTimerBegin(VkCommandBuffer cb, const char *label)
+	{
+		if (gpuTimerPool == VK_NULL_HANDLE || cb == VK_NULL_HANDLE)
+			return kNoGpuTimer;
+		const uint32 slot = currentFrameSlot;
+		const uint32 idx = gpuTimerCount[slot];
+		if (idx >= kGpuTimerPairs)
+			return kNoGpuTimer;
+		gpuTimerCount[slot] = idx + 1;
+		gpuTimerEnded[slot][idx] = false;
+		std::snprintf(gpuTimerLabel[slot][idx], sizeof(gpuTimerLabel[slot][idx]), "%s", (label && label[0]) ? label : "(no scope)");
+		// Vulkan 1.0: no host reset, so reset the pair in the command buffer,
+		// outside the render pass, right before it is written.
+		const uint32 q = (slot * kGpuTimerPairs + idx) * 2;
+		vkCmdResetQueryPool(cb, gpuTimerPool, q, 2);
+		vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, gpuTimerPool, q);
+		return idx;
+	}
+
+	void VulkanRenderDevice::GpuTimerEnd(VkCommandBuffer cb, uint32 &timer)
+	{
+		if (timer == kNoGpuTimer || gpuTimerPool == VK_NULL_HANDLE)
+			return;
+		const uint32 slot = currentFrameSlot;
+		vkCmdWriteTimestamp(cb, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, gpuTimerPool, (slot * kGpuTimerPairs + timer) * 2 + 1);
+		gpuTimerEnded[slot][timer] = true;
+		timer = kNoGpuTimer;
+	}
+
+	// Called once `slot`'s fence has signalled - every pair it recorded has
+	// executed. Sums per label, in first-seen order.
+	void VulkanRenderDevice::GpuTimerCollect(const uint32 slot)
+	{
+		const uint32 count = gpuTimerCount[slot];
+		gpuTimerCount[slot] = 0;
+		if (gpuTimerPool == VK_NULL_HANDLE || count == 0)
+			return;
+		std::vector<uint64_t> ticks(count * 2, 0);
+		if (vkGetQueryPoolResults(device, gpuTimerPool, slot * kGpuTimerPairs * 2, count * 2,
+				ticks.size() * sizeof(uint64_t), ticks.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT) != VK_SUCCESS)
+			return;
+
+		FrameProfiler::ScopeRecord records[FrameProfiler::kMaxScopes];
+		uint32 recordCount = 0;
+		f64 total = 0.0;
+		for (uint32 i = 0; i < count; i++)
+		{
+			if (!gpuTimerEnded[slot][i]) continue;
+			const uint64_t a = ticks[i * 2] & gpuTimestampMask, b = ticks[i * 2 + 1] & gpuTimestampMask;
+			if (b < a) continue;
+			const f64 ms = (f64)(b - a) * gpuTimestampPeriodNs * 1e-6;
+			total += ms;
+			uint32 r = 0;
+			while (r < recordCount && std::strncmp(records[r].name, gpuTimerLabel[slot][i], FrameProfiler::kMaxNameLen) != 0) r++;
+			if (r == recordCount)
+			{
+				if (recordCount == FrameProfiler::kMaxScopes - 1) continue;
+				std::snprintf(records[r].name, FrameProfiler::kMaxNameLen, "%s", gpuTimerLabel[slot][i]);
+				records[r].ms = 0.0;
+				records[r].depth = 0;
+				recordCount++;
+			}
+			records[r].ms += ms;
+		}
+		std::snprintf(records[recordCount].name, FrameProfiler::kMaxNameLen, "Total (sum of passes)");
+		records[recordCount].ms = total;
+		records[recordCount].depth = 0;
+		FrameProfiler::Instance().SetGpuTimings(records, recordCount + 1);
 	}
 
 	// Measured, so it does not get "optimised" again on suspicion: under a

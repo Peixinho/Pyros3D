@@ -874,6 +874,7 @@ namespace p3d {
 		ClearScreen();
 
 		// Bind Frame Buffer
+		FrameProfiler::Instance().Begin("Deferred.GBuffer");
 		FBO->Bind();
 
 		// Set ViewPort
@@ -982,6 +983,7 @@ namespace p3d {
 
 		// Unbind FrameBuffer
 		FBO->UnBind();
+		FrameProfiler::Instance().End();
 
 		// Refresh forwardDepthTexture with this frame's real G-buffer
 		// depth - see DeferredRenderer.h's comment on forwardDepthTexture
@@ -1090,6 +1092,7 @@ namespace p3d {
 			}
 			GameObject go = GameObject();
 
+			FrameProfiler::Instance().Begin("Deferred.SSAO");
 			ssaoFBO->Bind();
 			InitRender();
 			GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Bind();
@@ -1109,12 +1112,14 @@ namespace p3d {
 			ssaoTexture->Unbind();
 			EndRender();
 			ssaoBlurFBO->UnBind();
+			FrameProfiler::Instance().End();
 
 			// Same boundary as above, for the same reason: the ambient
 			// pass samples what these two passes just rendered.
 			device->FlushOffscreenWork();
 		}
 
+		FrameProfiler::Instance().Begin("Deferred.Lighting");
 		lastPassFBO->Bind();
 		ClearBufferBit(Buffer_Bit::Color);
 		ClearScreen();
@@ -1655,6 +1660,7 @@ namespace p3d {
 		// translucent pass - see the comment there.)
 
 		lastPassFBO->UnBind();
+		FrameProfiler::Instance().End();
 
 		// See SetSkipRenderToScreen()'s comment: this whole block re-draws
 		// the already-finished composite (colorTexture, untouched by

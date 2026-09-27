@@ -540,6 +540,26 @@ namespace p3d {
 		// the GPU was still busy with the last frame.
 		VkSemaphore frameDoneSemaphores[MAX_FRAMES_IN_FLIGHT];
 		VkSemaphore pendingFrameDoneSemaphore;
+
+		// GPU pass timing: a timestamp pair around every render pass recorded
+		// inside a frame, labelled with the profiler scope that began it,
+		// read back once that frame slot's fence has signalled and published
+		// through FrameProfiler::SetGpuTimings. Passes recorded between
+		// frames are not timed (their slot is reset later). No-op when the
+		// queue has no timestamp support.
+		static const uint32 kGpuTimerPairs = 256;
+		static const uint32 kNoGpuTimer = 0xFFFFFFFFu;
+		VkQueryPool gpuTimerPool = VK_NULL_HANDLE;
+		f64 gpuTimestampPeriodNs = 0.0;
+		uint64_t gpuTimestampMask = ~0ull;
+		uint32 gpuTimerCount[MAX_FRAMES_IN_FLIGHT] = {};
+		bool gpuTimerEnded[MAX_FRAMES_IN_FLIGHT][kGpuTimerPairs] = {};
+		char gpuTimerLabel[MAX_FRAMES_IN_FLIGHT][kGpuTimerPairs][48] = {};
+		uint32 offscreenGpuTimer = kNoGpuTimer;
+		uint32 frameGpuTimer = kNoGpuTimer;
+		uint32 GpuTimerBegin(VkCommandBuffer cb, const char *label);
+		void GpuTimerEnd(VkCommandBuffer cb, uint32 &timer);
+		void GpuTimerCollect(const uint32 slot);
 		// Convenience for paths that wait "until GPU is idle enough to
 		// touch shared resources" - equals frameFences[currentFrameSlot]
 		// only while a frame is open; prefer WaitAllFrameFences() for

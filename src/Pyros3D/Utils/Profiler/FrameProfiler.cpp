@@ -80,6 +80,20 @@ namespace p3d {
 		stack_.push_back(s);
 	}
 
+	const char *FrameProfiler::CurrentScopeName() const
+	{
+		if (!enabled_ || stack_.empty() || !OnFrameThread()) return "";
+		return stack_.back().name;
+	}
+
+	void FrameProfiler::SetGpuTimings(const ScopeRecord *records, uint32 count)
+	{
+		if (count > kMaxScopes) count = kMaxScopes;
+		for (uint32 i = 0; i < count; i++)
+			gpu_[i] = records[i];
+		gpuCount_ = count;
+	}
+
 	void FrameProfiler::Counter(const char *name, f64 value)
 	{
 		if (!enabled_ || !OnFrameThread()) return;
@@ -149,6 +163,8 @@ namespace p3d {
 					std::fprintf(log, " %s=%.3f", displayScopes_[i].name, displayScopes_[i].ms);
 				for (uint32 i = 0; i < counterCount_; i++)
 					std::fprintf(log, " %s=%.0f", counters_[i].name, counters_[i].ms);
+				for (uint32 i = 0; i < gpuCount_; i++)
+					std::fprintf(log, " gpu:%s=%.3f", gpu_[i].name, gpu_[i].ms);
 				std::fprintf(log, "\n");
 				std::fflush(log);
 			}
@@ -241,6 +257,28 @@ namespace p3d {
 				ImGui::Text("%.0f%%", (selfMs / denom) * 100.0);
 			}
 			ImGui::EndTable();
+		}
+
+		if (gpuCount_ > 0)
+		{
+			ImGui::Separator();
+			ImGui::TextUnformatted("GPU");
+			ImGui::TextDisabled("render passes, summed per CPU scope that began them (a few frames old)");
+			if (ImGui::BeginTable("gpu", 2, ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_SizingStretchProp))
+			{
+				ImGui::TableSetupColumn("Pass");
+				ImGui::TableSetupColumn("ms", ImGuiTableColumnFlags_WidthFixed, 64.f);
+				ImGui::TableHeadersRow();
+				for (uint32 i = 0; i < gpuCount_; i++)
+				{
+					ImGui::TableNextRow();
+					ImGui::TableSetColumnIndex(0);
+					ImGui::TextUnformatted(gpu_[i].name);
+					ImGui::TableSetColumnIndex(1);
+					ImGui::Text("%.3f", gpu_[i].ms);
+				}
+				ImGui::EndTable();
+			}
 		}
 
 		ImGui::End();
