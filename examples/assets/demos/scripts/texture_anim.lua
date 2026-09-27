@@ -1,7 +1,13 @@
--- Ticks a RenderingComponent's active TextureAnimation and pushes the
--- current frame onto the mesh material's color map - same per-frame work
--- the original RotatingTextureAnimatedCube C++ demo did manually. Also
--- spins the owner on Y (spin_y.lua's job) so one attach covers both.
+-- Makes sure the cube's TextureAnimation is playing, and spins the owner on
+-- Y (spin_y.lua's job) so one attach covers both.
+--
+-- It must NOT tick the animation or push frames onto the material itself:
+-- RenderingComponent::Update has done both since 2026-08-31, from the
+-- scene's absolute clock. This script used to do it too, from its own
+-- accumulated clock, so the animation saw two different times every frame
+-- and its elapsed time jumped between them - a static first frame, three
+-- frames, or all six far too fast, depending on how far apart the clocks
+-- happened to be that run.
 local TextureAnim = class('TextureAnim')
 local dTime = 0
 
@@ -15,36 +21,16 @@ function TextureAnim:init(owner)
 
 	self.instance = rc:getActiveTextureAnimation()
 	if self.instance then
-		self.anim = self.instance:getOwner()
 		-- Ensure looping playback (JSON repeat=0 → Play(0) already loops,
 		-- but re-play in case init order left the instance stopped).
 		if self.instance.play and not self.instance:isPlaying() then
 			self.instance:play(0)
 		end
 	end
-
-	-- getMeshes() must be the no-arg binding (sol ignores C++ defaults).
-	-- Prefer getMeshes(); fall back to getMeshesLOD(0) on older binaries.
-	local ok, meshes = pcall(function() return rc:getMeshes() end)
-	if not ok or not meshes then
-		ok, meshes = pcall(function() return rc:getMeshesLOD(0) end)
-	end
-	if ok and meshes and #meshes > 0 and meshes[1].getGenericMaterial then
-		self.material = meshes[1]:getGenericMaterial()
-	end
 end
 
 function TextureAnim:update(time)
-    dTime = time + dTime
-	if self.anim then
-		self.anim:update(dTime)
-	end
-	if self.instance and self.material then
-		local tex = self.instance:getTexture()
-		if tex then
-			self.material:setColorMap(tex)
-		end
-	end
+	dTime = time + dTime
 	if self.owner then
 		local r = self.owner:getRotation()
 		self.owner:setRotation(Vec3.new(r.x, dTime, r.z))
