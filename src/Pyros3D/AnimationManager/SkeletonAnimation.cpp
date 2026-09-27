@@ -567,214 +567,220 @@ namespace p3d {
 	void SkeletonAnimation::Update(const f32 time)
 	{
 		for (std::vector<SkeletonAnimationInstance*>::iterator i = Instances.begin(); i != Instances.end(); i++)
+			UpdateInstance(*i, time);
+	}
+
+	void SkeletonAnimation::UpdateInstance(SkeletonAnimationInstance* inst, const f32 time)
+	{
+		// Nothing playing and nothing to modify: leave the pose alone.
+		//
+		// The "Multiply Bones" loop below derives each bone's local
+		// transform from the playing list, so with an empty list it fell
+		// through to `trafo = Matrix()` and rewrote every bone to IDENTITY
+		// on every single frame. That did two bad things: it collapsed a
+		// skinned mesh that simply had no clip playing (identity local
+		// instead of the bind local), and it stomped any pose written from
+		// outside - SetBoneLocalTransform/ApplyPose - the very next tick,
+		// which is why an IK solver or the editor's posing could never
+		// hold on an instance owned by a running scene.
+		//
+		// Pose modifiers still run with nothing playing, though: a
+		// character standing on uneven ground wants its feet planted
+		// whether or not a clip happens to be driving it.
+		if (inst->AnimationsToPlay.empty())
 		{
-			// Nothing playing and nothing to modify: leave the pose alone.
-			//
-			// The "Multiply Bones" loop below derives each bone's local
-			// transform from the playing list, so with an empty list it fell
-			// through to `trafo = Matrix()` and rewrote every bone to IDENTITY
-			// on every single frame. That did two bad things: it collapsed a
-			// skinned mesh that simply had no clip playing (identity local
-			// instead of the bind local), and it stomped any pose written from
-			// outside - SetBoneLocalTransform/ApplyPose - the very next tick,
-			// which is why an IK solver or the editor's posing could never
-			// hold on an instance owned by a running scene.
-			//
-			// Pose modifiers still run with nothing playing, though: a
-			// character standing on uneven ground wants its feet planted
-			// whether or not a clip happens to be driving it.
-			if ((*i)->AnimationsToPlay.empty())
+			if (!inst->poseModifiers.empty())
 			{
-				if (!(*i)->poseModifiers.empty())
-				{
-					(*i)->RunPoseModifiers();
-					(*i)->RefreshSkinning();
-				}
-				continue;
+				inst->RunPoseModifiers();
+				inst->RefreshSkinning();
 			}
+			return;
+		}
 
-			for (std::vector<_SkeletonAnimation::SkeletonAnimation>::iterator _Anim = (*i)->AnimationsToPlay.begin(); _Anim != (*i)->AnimationsToPlay.end(); _Anim++)
+		for (std::vector<_SkeletonAnimation::SkeletonAnimation>::iterator _Anim = inst->AnimationsToPlay.begin(); _Anim != inst->AnimationsToPlay.end(); _Anim++)
+		{
+			if ((*_Anim)._isPaused)
 			{
-				if ((*_Anim)._isPaused)
+				if ((*_Anim)._pauseStart == -1)
+					(*_Anim)._pauseStart = time;
+			}
+			else {
+
+				if ((*_Anim)._resumed)
 				{
-					if ((*_Anim)._pauseStart == -1)
-						(*_Anim)._pauseStart = time;
+					(*_Anim)._resumed = false;
+					(*_Anim)._pauseTime += time - (*_Anim)._pauseStart;
+					(*_Anim)._pauseStart = -1;
 				}
-				else {
 
-					if ((*_Anim)._resumed)
+				// A reference: this used to copy the whole clip - every channel and
+				// keyframe - per instance per frame, twice the cost of the animation
+				// itself in a crowd.
+				const Animation &Anim = *(*_Anim).animation;
+
+				if ((*_Anim)._startTimeClock == -1.f)
+				{
+					(*_Anim)._startTimeClock = time;
+					if ((*_Anim).speed < 0 && (*_Anim)._startTime == 0)
+						(*_Anim)._startTime = (*_Anim).animation->Duration;
+				}
+
+				// Calculate Current Time
+				f32 currentTime = time - (*_Anim)._startTimeClock - (*_Anim)._pauseTime + (*_Anim)._startTime / (*_Anim).speed;
+
+				// Check if Ended
+				if (
+					(currentTime*(*_Anim).speed>0 && currentTime*(*_Anim).speed > (*_Anim).animation->Duration)
+					||
+					(currentTime*(*_Anim).speed < 0 && currentTime*(*_Anim).speed < 0)
+					) // Ended
+				{
+					if (currentTime*(*_Anim).speed > 0)
 					{
-						(*_Anim)._resumed = false;
-						(*_Anim)._pauseTime += time - (*_Anim)._pauseStart;
-						(*_Anim)._pauseStart = -1;
-					}
-
-					Animation Anim = *(*_Anim).animation;
-
-					if ((*_Anim)._startTimeClock == -1.f)
-					{
-						(*_Anim)._startTimeClock = time;
-						if ((*_Anim).speed < 0 && (*_Anim)._startTime == 0)
-							(*_Anim)._startTime = (*_Anim).animation->Duration;
-					}
-
-					// Calculate Current Time
-					f32 currentTime = time - (*_Anim)._startTimeClock - (*_Anim)._pauseTime + (*_Anim)._startTime / (*_Anim).speed;
-
-					// Check if Ended
-					if (
-						(currentTime*(*_Anim).speed>0 && currentTime*(*_Anim).speed > (*_Anim).animation->Duration)
-						||
-						(currentTime*(*_Anim).speed < 0 && currentTime*(*_Anim).speed < 0)
-						) // Ended
-					{
-						if (currentTime*(*_Anim).speed > 0)
+						if ((*_Anim)._repetition == -1)
 						{
-							if ((*_Anim)._repetition == -1)
+							(*_Anim).startTime = 0;
+							(*_Anim)._startTimeClock = time;
+							(*_Anim)._startTime = 0;
+							(*_Anim)._pauseTime = 0;
+						}
+						else if ((*_Anim)._repetition > 0) {
+							(*_Anim)._repetition--;
+							if ((*_Anim)._repetition > 0)
 							{
 								(*_Anim).startTime = 0;
 								(*_Anim)._startTimeClock = time;
 								(*_Anim)._startTime = 0;
 								(*_Anim)._pauseTime = 0;
 							}
-							else if ((*_Anim)._repetition > 0) {
-								(*_Anim)._repetition--;
-								if ((*_Anim)._repetition > 0)
-								{
-									(*_Anim).startTime = 0;
-									(*_Anim)._startTimeClock = time;
-									(*_Anim)._startTime = 0;
-									(*_Anim)._pauseTime = 0;
-								}
-							}
 						}
-						else if (currentTime*(*_Anim).speed < 0)
+					}
+					else if (currentTime*(*_Anim).speed < 0)
+					{
+						if ((*_Anim)._repetition == -1)
 						{
-							if ((*_Anim)._repetition == -1)
+							(*_Anim).startTime = 1;
+							(*_Anim)._startTimeClock = time;
+							(*_Anim)._startTime = (*_Anim).animation->Duration;
+							(*_Anim)._pauseTime = 0;
+						}
+						else if ((*_Anim)._repetition > 0) {
+							(*_Anim)._repetition--;
+							if ((*_Anim)._repetition > 0)
 							{
 								(*_Anim).startTime = 1;
 								(*_Anim)._startTimeClock = time;
 								(*_Anim)._startTime = (*_Anim).animation->Duration;
 								(*_Anim)._pauseTime = 0;
 							}
-							else if ((*_Anim)._repetition > 0) {
-								(*_Anim)._repetition--;
-								if ((*_Anim)._repetition > 0)
-								{
-									(*_Anim).startTime = 1;
-									(*_Anim)._startTimeClock = time;
-									(*_Anim)._startTime = (*_Anim).animation->Duration;
-									(*_Anim)._pauseTime = 0;
-								}
-							}
-						}
-					}
-
-					// Save Current Time to Animation Info
-					(*_Anim)._currentTime = currentTime *= (*_Anim).speed;
-
-					// Transform bones from animation
-					for (uint32 a = 0; a<Anim.Channels.size(); a++)
-					{
-						// Interpolation moved to SampleChannel() so the
-						// editor can evaluate a clip at an arbitrary time
-						// (scrubbing a timeline) through the exact same code
-						// the runtime plays it with.
-						// The bone this channel drives has to be resolved
-						// BEFORE sampling now, because its bind pose is what
-						// supplies any component the channel does not key.
-						if ((*i)->ChannelBoneIDCache[a] == -1)
-						{
-							for (std::vector<Bone>::iterator b = (*i)->skeleton.begin(); b != (*i)->skeleton.end(); b++)
-							{
-								if ((*b).name.compare(Anim.Channels[a].NodeName) == 0)
-								{
-									(*i)->ChannelBoneIDCache[a] = (*b).self;
-									break;
-								}
-							}
-						}
-
-						// A channel naming a node that is not a bone of this
-						// skeleton leaves the cache at -1, and indexing the
-						// pose vector with that is an out-of-bounds *write*.
-						// Assimp-exported clips routinely carry channels for
-						// armature/helper nodes, and the Animation Editor
-						// makes it easy to point a clip at a mesh it wasn't
-						// authored for, so this has to be survivable rather
-						// than merely unlikely.
-						if ((*i)->ChannelBoneIDCache[a] >= 0)
-						{
-							const int32 bid = (*i)->ChannelBoneIDCache[a];
-							const Matrix* bind = ((size_t)bid < (*i)->bindPose.size())
-								? &(*i)->bindPose[bid] : NULL;
-							(*_Anim).boneTransformationPerAnimation[bid] =
-								SkeletonAnimationInstance::SampleChannel(Anim.Channels[a], currentTime,
-									Anim.HasFlag(ANIM_FLAG_APPLY_SCALE), bind);
 						}
 					}
 				}
-			}
 
-			// Multiply Bones
-			for (std::vector<Bone>::iterator a = (*i)->skeleton.begin(); a != (*i)->skeleton.end(); a++)
-			{
-				Matrix trafo = ((*i)->AnimationsToPlay.size() > 1 ? (*i)->bindPose[(*a).self] : Matrix());
-				for (std::vector<_SkeletonAnimation::SkeletonAnimation>::reverse_iterator b = (*i)->AnimationsToPlay.rbegin(); b != (*i)->AnimationsToPlay.rend(); b++)
+				// Save Current Time to Animation Info
+				(*_Anim)._currentTime = currentTime *= (*_Anim).speed;
+
+				// Transform bones from animation
+				for (uint32 a = 0; a<Anim.Channels.size(); a++)
 				{
-					// Blending
-					if ((*i)->AnimationsToPlay.size() > 1)
+					// Interpolation moved to SampleChannel() so the
+					// editor can evaluate a clip at an arbitrary time
+					// (scrubbing a timeline) through the exact same code
+					// the runtime plays it with.
+					// The bone this channel drives has to be resolved
+					// BEFORE sampling now, because its bind pose is what
+					// supplies any component the channel does not key.
+					if (inst->ChannelBoneIDCache[a] == -1)
 					{
-						// Regular Bleding Animations
-						if (!(*b).HaveLayers)
+						for (std::vector<Bone>::iterator b = inst->skeleton.begin(); b != inst->skeleton.end(); b++)
 						{
-							if ((*i)->boneIDs[(*a).self] == 1)
-								trafo = SCALE((*b).boneTransformationPerAnimation[(*a).self], trafo, (*b).scale);
-						}
-
-						// Layered
-						else if ((*b).Layer->boneIDs[(*a).self] == 1)
-						{
-							if ((*b).Layer->usingLayer > 1)
+							if ((*b).name.compare(Anim.Channels[a].NodeName) == 0)
 							{
-								trafo = SCALE((*b).boneTransformationPerAnimation[(*a).self], trafo, (*b).scale);
-							}
-							else
-							{
-								trafo = (*b).boneTransformationPerAnimation[(*a).self];
+								inst->ChannelBoneIDCache[a] = (*b).self;
+								break;
 							}
 						}
 					}
 
-					// Normal Playback of One Animation
-					else {
-						trafo = (*b).boneTransformationPerAnimation[(*a).self];
+					// A channel naming a node that is not a bone of this
+					// skeleton leaves the cache at -1, and indexing the
+					// pose vector with that is an out-of-bounds *write*.
+					// Assimp-exported clips routinely carry channels for
+					// armature/helper nodes, and the Animation Editor
+					// makes it easy to point a clip at a mesh it wasn't
+					// authored for, so this has to be survivable rather
+					// than merely unlikely.
+					if (inst->ChannelBoneIDCache[a] >= 0)
+					{
+						const int32 bid = inst->ChannelBoneIDCache[a];
+						const Matrix* bind = ((size_t)bid < inst->bindPose.size())
+							? &inst->bindPose[bid] : NULL;
+						(*_Anim).boneTransformationPerAnimation[bid] =
+							SkeletonAnimationInstance::SampleChannel(Anim.Channels[a], currentTime,
+								Anim.HasFlag(ANIM_FLAG_APPLY_SCALE), bind);
 					}
 				}
-				// Apply Final Transformation to Bones
-				(*i)->boneTransformation[(*a).self] = trafo;
 			}
+		}
 
-			// Multiply bones with its parent - Tree
-			for (std::vector<Bone>::iterator a = (*i)->skeleton.begin(); a != (*i)->skeleton.end(); a++)
+		// Multiply Bones
+		for (std::vector<Bone>::iterator a = inst->skeleton.begin(); a != inst->skeleton.end(); a++)
+		{
+			Matrix trafo = (inst->AnimationsToPlay.size() > 1 ? inst->bindPose[(*a).self] : Matrix());
+			for (std::vector<_SkeletonAnimation::SkeletonAnimation>::reverse_iterator b = inst->AnimationsToPlay.rbegin(); b != inst->AnimationsToPlay.rend(); b++)
 			{
-				(*i)->Bones[(*a).self] = (*i)->GetParentMatrix((*a).parent, (*i)->boneTransformation) * (*i)->boneTransformation[(*a).self];
-			}
-
-			// Runtime IK and friends run HERE - after the clips have written
-			// the pose and the hierarchy is composed, before the result is
-			// uploaded. See AddPoseModifier: doing this from a component tick
-			// instead would be correct only by accident of update order.
-			(*i)->RunPoseModifiers();
-
-			// Send SubMesh Bones to Material
-			for (std::vector<RenderingMesh*>::iterator j = (*i)->rcomp->GetMeshes().begin(); j != (*i)->rcomp->GetMeshes().end(); j++)
-			{
-				for (std::map<int32, int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)
+				// Blending
+				if (inst->AnimationsToPlay.size() > 1)
 				{
-					// Set list of Bones Matrices
-					(*j)->SkinningBones[(*k).second] = ((*i)->Bones[(*k).first] * (*j)->BoneOffsetMatrix[(*k).first]);
+					// Regular Bleding Animations
+					if (!(*b).HaveLayers)
+					{
+						if (inst->boneIDs[(*a).self] == 1)
+							trafo = SCALE((*b).boneTransformationPerAnimation[(*a).self], trafo, (*b).scale);
+					}
+
+					// Layered
+					else if ((*b).Layer->boneIDs[(*a).self] == 1)
+					{
+						if ((*b).Layer->usingLayer > 1)
+						{
+							trafo = SCALE((*b).boneTransformationPerAnimation[(*a).self], trafo, (*b).scale);
+						}
+						else
+						{
+							trafo = (*b).boneTransformationPerAnimation[(*a).self];
+						}
+					}
 				}
+
+				// Normal Playback of One Animation
+				else {
+					trafo = (*b).boneTransformationPerAnimation[(*a).self];
+				}
+			}
+			// Apply Final Transformation to Bones
+			inst->boneTransformation[(*a).self] = trafo;
+		}
+
+		// Multiply bones with its parent - Tree
+		for (std::vector<Bone>::iterator a = inst->skeleton.begin(); a != inst->skeleton.end(); a++)
+		{
+			inst->Bones[(*a).self] = inst->GetParentMatrix((*a).parent, inst->boneTransformation) * inst->boneTransformation[(*a).self];
+		}
+
+		// Runtime IK and friends run HERE - after the clips have written
+		// the pose and the hierarchy is composed, before the result is
+		// uploaded. See AddPoseModifier: doing this from a component tick
+		// instead would be correct only by accident of update order.
+		inst->RunPoseModifiers();
+
+		// Send SubMesh Bones to Material
+		for (std::vector<RenderingMesh*>::iterator j = inst->rcomp->GetMeshes().begin(); j != inst->rcomp->GetMeshes().end(); j++)
+		{
+			for (std::map<int32, int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)
+			{
+				// Set list of Bones Matrices
+				(*j)->SkinningBones[(*k).second] = (inst->Bones[(*k).first] * (*j)->BoneOffsetMatrix[(*k).first]);
 			}
 		}
 	}

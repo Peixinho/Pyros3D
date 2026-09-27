@@ -671,7 +671,7 @@ namespace p3d {
 		{
 			SkeletonAnimationInstance* si =
 				static_cast<SkeletonAnimationInstance*>(activeSkeletonAnimation);
-			if (si->GetOwner()) si->GetOwner()->Update((f32)time);
+			if (si->GetOwner()) si->GetOwner()->UpdateInstance(si, (f32)time);
 		}
 
 		if (activeTextureAnimation == NULL) return;

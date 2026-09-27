@@ -388,6 +388,10 @@ namespace p3d {
 
 		// Void Update
 		void Update(const f32 time);
+		// One instance only - what a RenderingComponent drives each frame.
+		// Update() advanced every instance, and every component sharing
+		// this animation called it: N components cost N x N.
+		void UpdateInstance(SkeletonAnimationInstance* instance, const f32 time);
 
 		// Instance
 		SkeletonAnimationInstance* CreateInstance(RenderingComponent* Component);
