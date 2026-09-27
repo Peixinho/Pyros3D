@@ -531,6 +531,15 @@ namespace p3d {
 		uint32 currentFrameAcquireSemaphoreIndex;
 		std::vector<VkSemaphore> renderFinishedSemaphores;
 		VkFence frameFences[MAX_FRAMES_IN_FLIGHT];
+		// Signalled by each frame's submit and waited on by the next
+		// offscreen submit (or, if a frame renders nothing offscreen, by the
+		// next frame's own submit). It is what orders frame N's offscreen
+		// passes after frame N-1 finished sampling their targets - on the
+		// GPU. That used to be a CPU wait on frame N-1's fence at the first
+		// FBO bind of every frame, which left the CPU idle for as long as
+		// the GPU was still busy with the last frame.
+		VkSemaphore frameDoneSemaphores[MAX_FRAMES_IN_FLIGHT];
+		VkSemaphore pendingFrameDoneSemaphore;
 		// Convenience for paths that wait "until GPU is idle enough to
 		// touch shared resources" - equals frameFences[currentFrameSlot]
 		// only while a frame is open; prefer WaitAllFrameFences() for
@@ -997,9 +1006,6 @@ namespace p3d {
 		// Submits pending UploadTexture2D/GenerateMipmap work and frees
 		// staging buffers. Safe no-op when nothing is pending.
 		void FlushPendingTransfers();
-		// See the implementation comment - guards the draw paths against a
-		// pipeline whose sampler set could not be allocated.
-		bool PipelineIsMissingSamplerSet(const DeviceHandle pipeline) const;
 		void CreatePipelineCache();
 		void DestroyPipelineCache();
 		// Sets deviceIdleSinceLastSubmit=false then vkQueueSubmit.
@@ -1136,6 +1142,9 @@ namespace p3d {
 			// used to detect mid-frame ring wrap (GPU still references
 			// earlier slots in this command buffer).
 			uint32 writesThisFrame;
+			// The previous frame may still be reading its slots, so this
+			// frame's writes plus these must fit in the ring.
+			uint32 writesLastFrame = 0;
 			BufferRecord() : buffer(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), mapped(NULL), size(0),
 				streamRingCount(0), streamWriteIndex(0),
 				isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0), writesThisFrame(0)
@@ -1159,8 +1168,16 @@ namespace p3d {
 		// they wait here, per frame slot, until that slot's fence says the
 		// GPU is done. See RetireOrDestroyBufferRecord().
 		std::vector<BufferRecord> retiredBuffers[MAX_FRAMES_IN_FLIGHT];
+		// Buffers destroyed BETWEEN frames - a Lua Update() calling
+		// UIText:setText frees the old text mesh before BeginFrame. No slot
+		// fence covers them yet (the next slot's fence is two frames old,
+		// the last one predates any offscreen work submitted since), so they
+		// wait here for the next fenced frame submit, whose fence covers
+		// every earlier submit to the queue. See AdoptPendingRetirements().
+		std::vector<BufferRecord> retiredBeforeNextFrame;
 		void RetireOrDestroyBufferRecord(BufferRecord &rec);
 		void ReleaseRetiredBuffers(const uint32 slot);
+		void AdoptPendingRetirements();
 		DeviceHandle nextBufferHandle;
 		bool AllocHostVisibleVertexBuffer(uint32 allocLength, VkBuffer *outBuffer, VmaAllocation *outAllocation, void **outMapped);
 		void DestroyBufferRecordResources(BufferRecord &rec);
@@ -1522,12 +1539,8 @@ namespace p3d {
 			// every draw referencing that set (regardless of when it was
 			// recorded into a command buffer) reads whatever's there when
 			// the GPU actually executes it, not what was there at record
-			// time. Solved instead by giving each *pipeline* its own
-			// sampler descriptor set (pipelineSamplerSets below) - pipelines
-			// are already effectively per-(mesh,shader), at least as fine-
-			// grained as per-material for any real scene, since
-			// RenderingMesh::PipelineCache is keyed per-mesh, not shared
-			// globally even when two meshes share one Material instance.
+			// time. Solved by never rewriting a set: each distinct sampler
+			// combination gets its own immutable set - see samplerSetCache.
 			VkDescriptorSetLayout samplerSetLayout;
 			// Sampler uniform name (e.g. "uColormap") -> the binding
 			// PyrosShader.glsl's SAMPLER_BINDING/BIND_* macros gave it,
@@ -1587,60 +1600,47 @@ namespace p3d {
 		// (vkCmdBindDescriptorSets), so this is how it looks the program
 		// back up.
 		std::map<DeviceHandle, DeviceHandle> pipelineToProgram;
-		// This pipeline's own sampler descriptor set (set=1) - see the
-		// comment on ProgramRecord::samplerSetLayout for why this is
-		// per-pipeline rather than per-program. Allocated in
-		// CreatePipeline() using the owning program's samplerSetLayout;
-		// written to by SendUniformInt() once BindMesh()/Material::PreRender()
-		// actually bind a texture. currentPipeline (below) is which of
-		// these SendUniformInt() should target.
-		std::map<DeviceHandle, VkDescriptorSet> pipelineSamplerSets;
 
-		// One set per pipeline is not enough. The comment on
-		// ProgramRecord::samplerSetLayout justifies per-pipeline sets with
-		// "pipelines are already effectively per-(mesh,shader)";
-		// DeferredRenderer's lighting passes break that outright, drawing the
-		// SAME proxy mesh with the SAME material once per light and changing
-		// only which shadow map is bound. Every light then shared one set,
-		// and since vkUpdateDescriptorSets mutates a set in place while the
-		// GPU reads it when it *executes* the draw rather than when the draw
-		// was recorded, the last texture written won for all of them: with
-		// two point lights the first sampled the second's cube map, and with
-		// only the first casting, the dummy cube bound for the second blacked
-		// it out entirely. GL and Metal bind textures per draw and are both
-		// correct - measured, GL/Metal agree to 0.007% where Vulkan sits
-		// 0.39% from both.
+		// Sampler descriptor sets (set=1), shared by content. A set is
+		// allocated the first time a (layout, exact sampler combination) is
+		// drawn with, written once, and never written again - so no draw,
+		// this frame's or the previous frame's still in flight, can ever
+		// see a set change under it. That was the reason for the per-pipeline
+		// ring this replaces: DeferredRenderer draws one proxy mesh with one
+		// material once per light, changing only the shadow map, and a
+		// single set rewritten per light made every light sample the last
+		// one's map.
 		//
-		// So each pipeline gets a small ring of sets, and two rules that both
-		// matter (each was violated by one of two earlier attempts at this,
-		// and each failure looked like an unrelated mystery):
+		// The ring allocated kSamplerRingSize sets per PIPELINE up front,
+		// and pipelines are per mesh, so the pool (32768 sets) ran out at
+		// 4096 pipelines - about 2000 lit objects - and every object after
+		// that was silently not drawn (Physics Stress). Keyed by content,
+		// sets scale with distinct texture combinations instead.
 		//
-		//   1. The ring is allocated up front in CreatePipeline(). Nothing
-		//      asks the descriptor pool for memory mid-recording.
-		//   2. A draw takes the slot already holding its exact sampler
-		//      combination if one exists, and only writes a slot when no slot
-		//      matches. A set is therefore never rewritten while a recorded
-		//      draw - this frame's or the previous frame's, which is still in
-		//      flight - might still read it. Comparing against only the
-		//      *current* slot is not enough: two lights alternating A,B,A,B
-		//      advance the slot every draw and wrap onto a live set.
-		//
-		// More distinct combinations in flight than kSamplerRingSize wraps and
-		// is the old behaviour for the excess, so size it past the number of
-		// lights a pipeline is redrawn for times MAX_FRAMES_IN_FLIGHT.
-		static const uint32 kSamplerRingSize = 8;
-		std::map<DeviceHandle, std::vector<VkDescriptorSet> > pipelineSamplerRing;
-		// Per ring slot, the sampler combination it currently holds, and how
-		// many slots of the ring have been written at all.
-		std::map<std::pair<DeviceHandle, uint32>, std::vector<uint64> > pipelineSamplerRingCombo;
-		std::map<DeviceHandle, uint32> pipelineSamplerRingUsed;
+		// A cached set names raw view/sampler handles, so it is retired the
+		// moment either dies (RetireSamplerSetsNaming) - a recycled handle
+		// value must never match a stale set - and freed only once the
+		// frames that may have bound it have finished, like buffers.
+		struct CachedSamplerSet
+		{
+			VkDescriptorSet set;
+			VkDescriptorPool pool;
+		};
+		std::map<std::pair<VkDescriptorSetLayout, std::vector<uint64> >, CachedSamplerSet> samplerSetCache;
+		// Pools made when descriptorPool is exhausted; sampler sets only.
+		std::vector<VkDescriptorPool> samplerSetPools;
+		std::vector<CachedSamplerSet> retiredSamplerSets[MAX_FRAMES_IN_FLIGHT];
+		std::vector<CachedSamplerSet> retiredSamplerSetsBeforeNextFrame;
+		bool AllocateSamplerSet(const VkDescriptorSetLayout layout, CachedSamplerSet &out);
+		void RetireSamplerSetsNaming(const uint64 handle);
+		void ReleaseRetiredSamplerSets(const uint32 slot);
 		// The sampler state a draw *wants*, accumulated per pipeline as
-		// SendUniformInt() reports each texture unit and snapshotted into a
-		// ring slot at draw time. Sticky across draws, exactly as the
+		// SendUniformInt() reports each texture unit and looked up in
+		// samplerSetCache at draw time. Sticky across draws, exactly as the
 		// descriptor writes it replaces were.
 		std::map<DeviceHandle, std::map<uint32, VkDescriptorImageInfo> > pendingSamplerState;
-		// Picks (and writes only if no slot already holds it) the ring slot
-		// for `pipeline`'s current pendingSamplerState.
+		// The cached set for `pipeline`'s current pendingSamplerState,
+		// allocating and writing it the first time that combination is seen.
 		VkDescriptorSet ResolveSamplerSetForCurrentState(ProgramRecord &prog, const DeviceHandle pipeline);
 
 		// Fallback ("dummy") images for sampler bindings a pipeline
@@ -1897,7 +1897,10 @@ namespace p3d {
 		// why binding it earlier (before SendGlobalUniforms()/
 		// SendUserUniforms() have written this object's texture/shadow-
 		// map descriptors via SendUniformInt()) is invalid.
-		void BindCurrentPipelineDescriptorSets();
+		// False when the pipeline needs a sampler set and none could be had
+		// (pool exhaustion): the caller must skip the draw, since drawing
+		// with set 1 unbound crashes MoltenVK inside bindMetalResources.
+		bool BindCurrentPipelineDescriptorSets();
 		// Lazily creates `descriptorPool` (idempotent - returns true
 		// immediately if it already exists) - see its header comment for
 		// sizing. Was inlined only in BindUniformBlockIfPresent(); factored

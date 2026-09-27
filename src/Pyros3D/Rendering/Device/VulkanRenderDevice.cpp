@@ -110,7 +110,9 @@ namespace p3d {
 		{
 			frameCommandBuffers[i] = VK_NULL_HANDLE;
 			frameFences[i] = VK_NULL_HANDLE;
+			frameDoneSemaphores[i] = VK_NULL_HANDLE;
 		}
+		pendingFrameDoneSemaphore = VK_NULL_HANDLE;
 		// 0 = "not created yet" - GetOrCreateFallbackTexture() makes each
 		// one lazily, on the first draw that actually leaves that kind of
 		// sampler unbound.
@@ -271,6 +273,15 @@ namespace p3d {
 			pipelines.clear();
 			DestroyPipelineCache();
 			if (descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, descriptorPool, NULL);
+			// Destroying a pool frees its sets; the cache and retire lists
+			// only hold handles into these.
+			for (size_t i = 0; i < samplerSetPools.size(); i++)
+				vkDestroyDescriptorPool(device, samplerSetPools[i], NULL);
+			samplerSetPools.clear();
+			samplerSetCache.clear();
+			retiredSamplerSetsBeforeNextFrame.clear();
+			for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+				retiredSamplerSets[i].clear();
 			for (std::map<DeviceHandle, ProgramRecord>::iterator it = programs.begin(); it != programs.end(); it++)
 			{
 				if (it->second.pipelineLayout != VK_NULL_HANDLE) vkDestroyPipelineLayout(device, it->second.pipelineLayout, NULL);
@@ -299,6 +310,9 @@ namespace p3d {
 			textures.clear();
 			for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 				ReleaseRetiredBuffers(i);
+			for (size_t i = 0; i < retiredBeforeNextFrame.size(); i++)
+				DestroyBufferRecordResources(retiredBeforeNextFrame[i]);
+			retiredBeforeNextFrame.clear();
 			for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); it++)
 				vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
 			buffers.clear();
@@ -321,7 +335,10 @@ namespace p3d {
 			{
 				if (frameFences[i] != VK_NULL_HANDLE) vkDestroyFence(device, frameFences[i], NULL);
 				frameFences[i] = VK_NULL_HANDLE;
+				if (frameDoneSemaphores[i] != VK_NULL_HANDLE) vkDestroySemaphore(device, frameDoneSemaphores[i], NULL);
+				frameDoneSemaphores[i] = VK_NULL_HANDLE;
 			}
+			pendingFrameDoneSemaphore = VK_NULL_HANDLE;
 			frameFence = VK_NULL_HANDLE;
 			for (uint32 i = 0; i < OFFSCREEN_SLOTS; i++)
 			{
@@ -1003,6 +1020,9 @@ namespace p3d {
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 			if (vkCreateFence(device, &fenceInfo, NULL, &frameFences[i]) != VK_SUCCESS) return false;
+		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+			if (vkCreateSemaphore(device, &semInfo, NULL, &frameDoneSemaphores[i]) != VK_SUCCESS) return false;
+		pendingFrameDoneSemaphore = VK_NULL_HANDLE;
 		frameFence = frameFences[0];
 		// Unsignaled: WaitOffscreenSlot is a no-op until that slot's first
 		// Flush, which is what fenceInFlight already tracks.
@@ -1126,6 +1146,7 @@ namespace p3d {
 		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[imageIndex];
 		if (SubmitGraphics(1, &submitInfo, frameFence) != VK_SUCCESS)
 			return false;
+		AdoptPendingRetirements();
 
 		VkPresentInfoKHR presentInfo = {};
 		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1404,6 +1425,7 @@ namespace p3d {
 		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[imageIndex];
 		if (SubmitGraphics(1, &submitInfo, frameFence) != VK_SUCCESS)
 			return false;
+		AdoptPendingRetirements();
 
 		VkPresentInfoKHR presentInfo = {};
 		presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
@@ -1516,6 +1538,7 @@ namespace p3d {
 		{
 			if (it->second.isDynamicUniform)
 			{
+				it->second.writesLastFrame = it->second.writesThisFrame;
 				it->second.writesThisFrame = 0;
 				// Re-arm the report too: a wrap that happens once during a
 				// pathological resize and never again should not silence
@@ -1697,8 +1720,8 @@ namespace p3d {
 		// Capture/shadow offscreen submit may still be on the queue - wait
 		// on its semaphore so tonemap/main-pass sampling sees finished
 		// images without a mid-frame CPU fence (GL pipelines the same way).
-		VkSemaphore waitSems[2];
-		VkPipelineStageFlags waitStages[2];
+		VkSemaphore waitSems[3];
+		VkPipelineStageFlags waitStages[3];
 		uint32 waitCount = 0;
 		waitSems[waitCount] = imageAvailableSemaphores[currentFrameAcquireSemaphoreIndex];
 		waitStages[waitCount] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1713,7 +1736,18 @@ namespace p3d {
 			waitCount++;
 			offscreenChainSemaphore = VK_NULL_HANDLE;
 		}
+		// Last frame's "done" semaphore, if no offscreen submit took it this
+		// frame. Consumed here so it is unsignalled again before its slot
+		// comes round - it precedes this submit on the queue anyway.
+		const bool consumedFrameDone = pendingFrameDoneSemaphore != VK_NULL_HANDLE;
+		if (consumedFrameDone)
+		{
+			waitSems[waitCount] = pendingFrameDoneSemaphore;
+			waitStages[waitCount] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+			waitCount++;
+		}
 
+		VkSemaphore signalSems[2] = { renderFinishedSemaphores[currentImageIndex], frameDoneSemaphores[currentFrameSlot] };
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.waitSemaphoreCount = waitCount;
@@ -1721,8 +1755,8 @@ namespace p3d {
 		submitInfo.pWaitDstStageMask = waitStages;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
-		submitInfo.signalSemaphoreCount = 1;
-		submitInfo.pSignalSemaphores = &renderFinishedSemaphores[currentImageIndex];
+		submitInfo.signalSemaphoreCount = 2;
+		submitInfo.pSignalSemaphores = signalSems;
 		{
 			PYROS_PROFILE_SCOPE("VK.Submit");
 			if (SubmitGraphics(1, &submitInfo, frameFence) != VK_SUCCESS)
@@ -1732,6 +1766,8 @@ namespace p3d {
 				return;
 			}
 		}
+		pendingFrameDoneSemaphore = frameDoneSemaphores[currentFrameSlot];
+		AdoptPendingRetirements();
 
 		if (capturingThisFrame)
 		{
@@ -2366,61 +2402,10 @@ namespace p3d {
 		pipelines[handle] = pipeline;
 		pipelineToProgram[handle] = desc.shaderProgram;
 
-		// This pipeline's own sampler descriptor set (set=1) - see the
-		// comment on ProgramRecord::samplerSetLayout for why every
-		// pipeline gets its own instead of sharing one per program.
-		// EnsureDescriptorPool() (not just checking descriptorPool !=
-		// NULL) matters here specifically: BindMesh() calls CreatePipeline()
-		// *before* any uniform-sending call (BindUniformBlockIfPresent()'s
-		// other caller), so for a material with no "regular" UBO block to
-		// bind - every CustomShaderMaterial, since SupportsUniformBlocks()
-		// defaults false - this can be the very first thing in the whole
-		// program run that needs a descriptor pool at all. Checking-only
-		// silently skipped allocating a sampler set entirely in that case,
-		// which is invisible until the *next* frame's draw call statically
-		// referenced descriptor set 1 with nothing ever bound there
-		// (VUID-vkCmdDrawIndexed-None-08600) - found via ParticlesExample,
-		// whose whole scene is CustomShaderMaterial objects, so nothing
-		// else ever incidentally created the pool first.
-		if (EnsureDescriptorPool())
-		{
-			VkDescriptorSetAllocateInfo samplerSetAllocInfo = {};
-			samplerSetAllocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			samplerSetAllocInfo.descriptorPool = descriptorPool;
-			samplerSetAllocInfo.descriptorSetCount = 1;
-			samplerSetAllocInfo.pSetLayouts = &progIt->second.samplerSetLayout;
-			// The whole ring at once - see pipelineSamplerRing's comment for
-			// why it is a ring and why it is allocated here rather than
-			// lazily at draw time.
-			std::vector<VkDescriptorSet> ring;
-			for (uint32 r = 0; r < kSamplerRingSize; r++)
-			{
-				VkDescriptorSet samplerSet = VK_NULL_HANDLE;
-				if (vkAllocateDescriptorSets(device, &samplerSetAllocInfo, &samplerSet) != VK_SUCCESS)
-				{
-					// A SHORT ring is survivable - it just wraps sooner. An
-					// EMPTY one is not: the draw path binds set 1 only when
-					// a ring exists, so this pipeline would be drawn with
-					// its sampler set unbound, which is undefined and in
-					// practice a segfault inside MoltenVK rather than a
-					// missing texture. Say so loudly and let the caller
-					// see the failure instead of discovering it three
-					// frames later in a stack with no Pyros3D frames in it.
-					if (r == 0)
-						fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkAllocateDescriptorSets "
-							"(sampler set) failed for pipeline %u - descriptor pool exhausted; "
-							"this pipeline will not be drawn\n", handle);
-					break;
-				}
-				ring.push_back(samplerSet);
-			}
-			if (!ring.empty())
-			{
-				pipelineSamplerSets[handle] = ring[0];
-				pipelineSamplerRing[handle] = ring;
-				pipelineSamplerRingUsed[handle] = 0;
-			}
-		}
+		// No sampler set here any more: sets are shared by content and made
+		// on first use - see samplerSetCache. The pool still has to exist
+		// before the first draw, which is why this is Ensure, not a check.
+		EnsureDescriptorPool();
 
 		return handle;
 	}
@@ -2434,24 +2419,9 @@ namespace p3d {
 			vkDestroyPipeline(device, it->second, NULL);
 		pipelines.erase(it);
 		pipelineToProgram.erase(pipeline);
-		// Hand the whole sampler ring back to the pool. The pool carries
-		// FREE_DESCRIPTOR_SET_BIT for exactly this - see EnsureDescriptorPool().
-		// Safe here for the same reason the vkDestroyPipeline above is: this
-		// runs at teardown, with no command buffer still referencing them.
-		std::map<DeviceHandle, std::vector<VkDescriptorSet> >::iterator ringIt =
-			pipelineSamplerRing.find(pipeline);
-		if (ringIt != pipelineSamplerRing.end() && !ringIt->second.empty()
-			&& device != VK_NULL_HANDLE && descriptorPool != VK_NULL_HANDLE)
-		{
-			vkFreeDescriptorSets(device, descriptorPool,
-				(uint32)ringIt->second.size(), &ringIt->second[0]);
-		}
-		pipelineSamplerSets.erase(pipeline);
-		pipelineSamplerRing.erase(pipeline);
-		pipelineSamplerRingUsed.erase(pipeline);
+		// The pipeline owns no sampler sets - they are shared by content -
+		// so only its sticky sampler state goes.
 		pendingSamplerState.erase(pipeline);
-		for (uint32 r = 0; r < kSamplerRingSize; r++)
-			pipelineSamplerRingCombo.erase(std::pair<DeviceHandle, uint32>(pipeline, r));
 	}
 
 	void VulkanRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
@@ -2614,7 +2584,7 @@ namespace p3d {
 		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 		// FREE_DESCRIPTOR_SET_BIT so DeletePipeline/DeleteProgram can give
 		// their sets back. Without it the pool only ever grew: maxSets is
-		// 32768 and each pipeline takes kSamplerRingSize (8) of them, so the
+		// 32768 and each pipeline used to take 8 of them, so the
 		// device could create exactly 4096 pipelines for the whole session
 		// and never one more. Rebuilding pipelines - which is what every
 		// Forward<->Deferred switch does - burned through that in about six
@@ -2866,7 +2836,8 @@ namespace p3d {
 			}
 		}
 
-		BindCurrentPipelineDescriptorSets();
+		if (!BindCurrentPipelineDescriptorSets())
+			return;
 		vkCmdDraw(activeCommandBuffer, count, 1, first, 0);
 	}
 
@@ -2880,8 +2851,6 @@ namespace p3d {
 			fprintf(stderr, "VulkanRenderDevice::DrawElements: skipped draw - no valid pipeline is currently bound\n");
 			return;
 		}
-		if (PipelineIsMissingSamplerSet(currentPipeline))
-			return;
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		if (vaoIt == vaos.end())
 			return;
@@ -2905,7 +2874,8 @@ namespace p3d {
 			vboOffsets.push_back(0);
 		}
 
-		BindCurrentPipelineDescriptorSets();
+		if (!BindCurrentPipelineDescriptorSets())
+			return;
 
 		vkCmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
 		// __INDEX_C_TYPE__ (Global.h) is uint32 - matches VK_INDEX_TYPE_UINT32.
@@ -2923,8 +2893,6 @@ namespace p3d {
 			fprintf(stderr, "VulkanRenderDevice::DrawElementsInstanced: skipped draw - no valid pipeline is currently bound\n");
 			return;
 		}
-		if (PipelineIsMissingSamplerSet(currentPipeline))
-			return;
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 		if (vaoIt == vaos.end())
 			return;
@@ -2949,41 +2917,22 @@ namespace p3d {
 			vboOffsets.push_back(0);
 		}
 
-		BindCurrentPipelineDescriptorSets();
+		if (!BindCurrentPipelineDescriptorSets())
+			return;
 
 		vkCmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
 		vkCmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
 		vkCmdDrawIndexed(activeCommandBuffer, indexCount, instanceCount, 0, 0, 0);
 	}
 
-	// True when this pipeline's program declares a sampler set (set 1) but
-	// CreatePipeline could not allocate one - see the failure message there.
-	// Drawing anyway records a draw whose set 1 is never bound, which is
-	// undefined behaviour and, on MoltenVK, a SIGSEGV inside
-	// bindMetalResources while the command buffer is being submitted - a
-	// crash with no Pyros3D frame anywhere near the top of the stack.
-	// Skipping the draw loses one object and keeps the editor alive.
-	bool VulkanRenderDevice::PipelineIsMissingSamplerSet(const DeviceHandle pipeline) const
-	{
-		std::map<DeviceHandle, DeviceHandle>::const_iterator progHandleIt = pipelineToProgram.find(pipeline);
-		if (progHandleIt == pipelineToProgram.end())
-			return false;
-		std::map<DeviceHandle, ProgramRecord>::const_iterator progIt = programs.find(progHandleIt->second);
-		if (progIt == programs.end() || progIt->second.samplerSetLayout == VK_NULL_HANDLE)
-			return false;   // no sampler set expected at all
-		std::map<DeviceHandle, std::vector<VkDescriptorSet> >::const_iterator ringIt =
-			pipelineSamplerRing.find(pipeline);
-		return ringIt == pipelineSamplerRing.end() || ringIt->second.empty();
-	}
-
-	void VulkanRenderDevice::BindCurrentPipelineDescriptorSets()
+	bool VulkanRenderDevice::BindCurrentPipelineDescriptorSets()
 	{
 		std::map<DeviceHandle, DeviceHandle>::iterator progHandleIt = pipelineToProgram.find(currentPipeline);
 		if (progHandleIt == pipelineToProgram.end())
-			return;
+			return true;
 		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(progHandleIt->second);
 		if (progIt == programs.end())
-			return;
+			return true;
 		if (progIt->second.descriptorSet != VK_NULL_HANDLE)
 		{
 			// Dynamic offsets must be supplied in the same order the
@@ -3059,88 +3008,160 @@ namespace p3d {
 			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet,
 				dynamicOffsetCount, dynamicOffsetCount > 0 ? dynamicOffsets : NULL);
 		}
-		if (pipelineSamplerRing.find(currentPipeline) != pipelineSamplerRing.end())
+		if (progIt->second.samplerSetLayout != VK_NULL_HANDLE)
 		{
 			// Last chance to complete the snapshot - every material uniform
 			// for this draw has been sent by now, so anything still
 			// unwritten is a sampler nothing is ever going to bind.
 			FillUnwrittenSamplerDescriptors(progIt->second, VK_NULL_HANDLE);
 			VkDescriptorSet samplerSet = ResolveSamplerSetForCurrentState(progIt->second, currentPipeline);
-			if (samplerSet != VK_NULL_HANDLE)
-				vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSet, 0, NULL);
+			if (samplerSet == VK_NULL_HANDLE)
+				return false;
+			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSet, 0, NULL);
+		}
+		return true;
+	}
+
+	// The shared set holding this pipeline's current sampler state - see
+	// samplerSetCache. Sets are immutable once written, so any number of
+	// draws, pipelines and in-flight frames can bind the same one.
+	VkDescriptorSet VulkanRenderDevice::ResolveSamplerSetForCurrentState(ProgramRecord &prog, const DeviceHandle pipeline)
+	{
+		if (prog.samplerSetLayout == VK_NULL_HANDLE)
+			return VK_NULL_HANDLE;
+
+		// Empty when no sampler was ever bound: one unwritten set per layout
+		// serves every such pipeline, as the ring's slot 0 used to.
+		std::vector<uint64> combo;
+		std::map<DeviceHandle, std::map<uint32, VkDescriptorImageInfo> >::iterator stIt = pendingSamplerState.find(pipeline);
+		const bool haveState = stIt != pendingSamplerState.end() && !stIt->second.empty();
+		if (haveState)
+		{
+			combo.reserve(stIt->second.size() * 3);
+			for (std::map<uint32, VkDescriptorImageInfo>::const_iterator i = stIt->second.begin(); i != stIt->second.end(); i++)
+			{
+				combo.push_back((uint64)i->first);
+				combo.push_back((uint64)(uintptr_t)i->second.imageView);
+				combo.push_back((uint64)(uintptr_t)i->second.sampler);
+			}
+		}
+
+		const std::pair<VkDescriptorSetLayout, std::vector<uint64> > key(prog.samplerSetLayout, combo);
+		std::map<std::pair<VkDescriptorSetLayout, std::vector<uint64> >, CachedSamplerSet>::iterator hit = samplerSetCache.find(key);
+		if (hit != samplerSetCache.end())
+			return hit->second.set;
+
+		CachedSamplerSet entry;
+		if (!AllocateSamplerSet(prog.samplerSetLayout, entry))
+			return VK_NULL_HANDLE;
+
+		if (haveState)
+		{
+			for (std::map<uint32, VkDescriptorImageInfo>::const_iterator i = stIt->second.begin(); i != stIt->second.end(); i++)
+			{
+				uint32 arraySize = 1;
+				std::map<uint32, uint32>::iterator arrIt = prog.samplerArraySizes.find(i->first);
+				if (arrIt != prog.samplerArraySizes.end())
+					arraySize = arrIt->second;
+				std::vector<VkDescriptorImageInfo> imageInfos(arraySize, i->second);
+
+				VkWriteDescriptorSet write = {};
+				write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+				write.dstSet = entry.set;
+				write.dstBinding = i->first;
+				write.dstArrayElement = 0;
+				write.descriptorCount = arraySize;
+				write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+				write.pImageInfo = imageInfos.data();
+				vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+			}
+		}
+		samplerSetCache[key] = entry;
+		return entry.set;
+	}
+
+	// descriptorPool first; when it is full, a pool of sampler sets only.
+	// Allocating mid-recording is legal - it changes nothing a recorded
+	// command buffer refers to.
+	bool VulkanRenderDevice::AllocateSamplerSet(const VkDescriptorSetLayout layout, CachedSamplerSet &out)
+	{
+		VkDescriptorSetAllocateInfo info = {};
+		info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		info.descriptorSetCount = 1;
+		info.pSetLayouts = &layout;
+
+		std::vector<VkDescriptorPool> candidates;
+		if (EnsureDescriptorPool()) candidates.push_back(descriptorPool);
+		for (size_t i = samplerSetPools.size(); i-- > 0; ) candidates.push_back(samplerSetPools[i]);
+		for (size_t i = 0; i < candidates.size(); i++)
+		{
+			info.descriptorPool = candidates[i];
+			if (vkAllocateDescriptorSets(device, &info, &out.set) == VK_SUCCESS)
+			{
+				out.pool = candidates[i];
+				return true;
+			}
+		}
+
+		// 64 samplers per set is past any engine shader's sampler count.
+		static const uint32 kSetsPerPool = 1024;
+		VkDescriptorPoolSize size = {};
+		size.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+		size.descriptorCount = kSetsPerPool * 64;
+		VkDescriptorPoolCreateInfo poolInfo = {};
+		poolInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		poolInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
+		poolInfo.maxSets = kSetsPerPool;
+		poolInfo.poolSizeCount = 1;
+		poolInfo.pPoolSizes = &size;
+		VkDescriptorPool pool = VK_NULL_HANDLE;
+		if (vkCreateDescriptorPool(device, &poolInfo, NULL, &pool) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice: could not allocate a sampler descriptor set (pool creation failed) - the draw is skipped\n");
+			return false;
+		}
+		samplerSetPools.push_back(pool);
+		info.descriptorPool = pool;
+		if (vkAllocateDescriptorSets(device, &info, &out.set) != VK_SUCCESS)
+			return false;
+		out.pool = pool;
+		return true;
+	}
+
+	// A view or sampler named by cached sets is going away. Drop the sets
+	// from the cache now - a later object may reuse the same handle value -
+	// and free them once every frame that may have bound them has finished.
+	void VulkanRenderDevice::RetireSamplerSetsNaming(const uint64 handle)
+	{
+		if (handle == 0) return;
+		std::map<std::pair<VkDescriptorSetLayout, std::vector<uint64> >, CachedSamplerSet>::iterator it = samplerSetCache.begin();
+		while (it != samplerSetCache.end())
+		{
+			const std::vector<uint64> &combo = it->first.second;
+			bool names = false;
+			for (size_t i = 0; i + 2 < combo.size() && !names; i += 3)
+				names = combo[i + 1] == handle || combo[i + 2] == handle;
+			if (!names) { ++it; continue; }
+
+			if (frameInProgress)
+				retiredSamplerSets[currentFrameSlot].push_back(it->second);
+			else if (swapchain != VK_NULL_HANDLE)
+				retiredSamplerSetsBeforeNextFrame.push_back(it->second);
+			else
+			{
+				EnsureHostMappedBufferWritable();
+				vkFreeDescriptorSets(device, it->second.pool, 1, &it->second.set);
+			}
+			samplerSetCache.erase(it++);
 		}
 	}
 
-	// Returns the ring slot holding this pipeline's current sampler state.
-	// Searches *every* written slot for a match and only writes a new one when
-	// none holds it, so a set is never rewritten while a recorded draw might
-	// still read it - see rule 2 on pipelineSamplerRing. A pipeline drawn a
-	// thousand times with one set of textures stays on one slot; a pipeline
-	// drawn once per light gets a slot each and keeps them across frames.
-	VkDescriptorSet VulkanRenderDevice::ResolveSamplerSetForCurrentState(ProgramRecord &prog, const DeviceHandle pipeline)
+	void VulkanRenderDevice::ReleaseRetiredSamplerSets(const uint32 slot)
 	{
-		std::map<DeviceHandle, std::vector<VkDescriptorSet> >::iterator ringIt = pipelineSamplerRing.find(pipeline);
-		if (ringIt == pipelineSamplerRing.end() || ringIt->second.empty())
-			return VK_NULL_HANDLE;
-		const uint32 ringSize = (uint32)ringIt->second.size();
-
-		std::map<DeviceHandle, std::map<uint32, VkDescriptorImageInfo> >::iterator stIt = pendingSamplerState.find(pipeline);
-		if (stIt == pendingSamplerState.end() || stIt->second.empty())
-			return ringIt->second[0]; // no samplers ever bound - nothing to distinguish
-
-		// Key on the raw handles; std::map fixes the binding order.
-		std::vector<uint64> combo;
-		combo.reserve(stIt->second.size() * 3);
-		for (std::map<uint32, VkDescriptorImageInfo>::const_iterator i = stIt->second.begin(); i != stIt->second.end(); i++)
-		{
-			combo.push_back((uint64)i->first);
-			combo.push_back((uint64)(uintptr_t)i->second.imageView);
-			combo.push_back((uint64)(uintptr_t)i->second.sampler);
-		}
-
-		uint32 used = pipelineSamplerRingUsed[pipeline];
-		for (uint32 slot = 0; slot < used; slot++)
-		{
-			std::map<std::pair<DeviceHandle, uint32>, std::vector<uint64> >::iterator c =
-				pipelineSamplerRingCombo.find(std::pair<DeviceHandle, uint32>(pipeline, slot));
-			if (c != pipelineSamplerRingCombo.end() && c->second == combo)
-				return ringIt->second[slot];
-		}
-
-		// Nothing holds it. Take the next unwritten slot; once the ring is
-		// full this overwrites slot (used % ringSize), which is the old
-		// one-set-per-pipeline hazard again and only reached by a pipeline
-		// with more live texture combinations than the ring has slots.
-		uint32 slot = used % ringSize;
-		pipelineSamplerRingUsed[pipeline] = used + 1 > ringSize ? ringSize : used + 1;
-		VkDescriptorSet set = ringIt->second[slot];
-
-		// One write per binding, each filling every element of a shader-
-		// declared array (e.g. `uPointShadowMaps[4]`) with the same
-		// descriptor: the PCF helpers only read index 0 with a literal
-		// constant, but Vulkan requires every element the *type* declares to
-		// be valid the moment any element is dynamically accessed
-		// (VUID-vkCmdDrawIndexed-None-08114).
-		for (std::map<uint32, VkDescriptorImageInfo>::const_iterator i = stIt->second.begin(); i != stIt->second.end(); i++)
-		{
-			uint32 arraySize = 1;
-			std::map<uint32, uint32>::iterator arrIt = prog.samplerArraySizes.find(i->first);
-			if (arrIt != prog.samplerArraySizes.end())
-				arraySize = arrIt->second;
-			std::vector<VkDescriptorImageInfo> imageInfos(arraySize, i->second);
-
-			VkWriteDescriptorSet write = {};
-			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			write.dstSet = set;
-			write.dstBinding = i->first;
-			write.dstArrayElement = 0;
-			write.descriptorCount = arraySize;
-			write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			write.pImageInfo = imageInfos.data();
-			vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
-		}
-		pipelineSamplerRingCombo[std::pair<DeviceHandle, uint32>(pipeline, slot)] = combo;
-		return set;
+		std::vector<CachedSamplerSet> &list = retiredSamplerSets[slot];
+		for (size_t i = 0; i < list.size(); i++)
+			vkFreeDescriptorSets(device, list[i].pool, 1, &list[i].set);
+		list.clear();
 	}
 
 	DeviceHandle VulkanRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
@@ -3255,7 +3276,10 @@ namespace p3d {
 			// still references that slot. Overwriting it makes static meshes
 			// inherit later objects' ModelMatrices (Vulkan-only "walls
 			// crumbling" under high draw counts).
-			if (it->second.writesThisFrame >= it->second.slotCount)
+			// The previous frame may still be on the GPU reading its slots,
+			// so both frames' writes have to fit before the ring wraps
+			// into live data.
+			if (it->second.writesThisFrame + it->second.writesLastFrame >= it->second.slotCount)
 			{
 				// Reported once per buffer rather than once per process:
 				// which UBO is being hammered is the entire diagnosis, and a
@@ -3264,8 +3288,8 @@ namespace p3d {
 				if (!it->second.warnedExhausted)
 				{
 					it->second.warnedExhausted = true;
-					fprintf(stderr, "VulkanRenderDevice: dynamic UBO ring exhausted mid-frame - buffer %llu, %u writes into %u slots. Every draw after this point reads another draw's uniforms.\n",
-						(unsigned long long)buffer, it->second.writesThisFrame, it->second.slotCount);
+					fprintf(stderr, "VulkanRenderDevice: dynamic UBO ring exhausted mid-frame - buffer %llu, %u writes (+%u by the frame still in flight) into %u slots. Every draw after this point reads another draw's uniforms.\n",
+						(unsigned long long)buffer, it->second.writesThisFrame, it->second.writesLastFrame, it->second.slotCount);
 					// Why the ring was not reset: BeginFrame calls since its
 					// last reset, and which early return each took.
 					fprintf(stderr, "  last ring reset %llu BeginFrame call(s) ago; skipped since start: in-progress %llu, no-swapchain %llu, no-framebuffers %llu, fence-timeout %llu; frameInProgress=%d\n",
@@ -3393,7 +3417,8 @@ namespace p3d {
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || allocator == VK_NULL_HANDLE)
 			return;
-		EnsureHostMappedBufferWritable();
+		// The old storage is retired, not freed - see DestroyBuffer - and
+		// what replaces it is brand new, so nothing here needs the GPU idle.
 		RetireOrDestroyBufferRecord(it->second);
 
 		uint32 allocLength = (length == 0) ? 4 : length;
@@ -3466,7 +3491,9 @@ namespace p3d {
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end())
 			return;
-		EnsureHostMappedBufferWritable();
+		// No wait here: RetireOrDestroyBufferRecord defers the free to a frame
+		// fence. Waiting as well stalled the frame every time the HUD rebuilt
+		// its UI batch or a script changed a label.
 		RetireOrDestroyBufferRecord(it->second);
 		buffers.erase(it);
 	}
@@ -3538,15 +3565,27 @@ namespace p3d {
 		rec.mapped = NULL;
 	}
 
-	// Destroy now, unless a frame is recording - see retiredBuffers.
+	// Never frees under the GPU and, in the common cases, never waits for it
+	// either: mid-frame the record goes to this slot's list, between frames
+	// to the list the next frame submit adopts. Only a process that stops
+	// submitting frames (no swapchain, or a backlog that never drains) falls
+	// back to draining the GPU and destroying on the spot.
 	void VulkanRenderDevice::RetireOrDestroyBufferRecord(BufferRecord &rec)
 	{
-		if (!frameInProgress)
+		static const size_t kMaxPendingRetirements = 4096;
+		if (frameInProgress)
+			retiredBuffers[currentFrameSlot].push_back(rec);
+		else if (swapchain != VK_NULL_HANDLE && retiredBeforeNextFrame.size() < kMaxPendingRetirements)
+			retiredBeforeNextFrame.push_back(rec);
+		else
 		{
+			EnsureHostMappedBufferWritable();
+			for (size_t i = 0; i < retiredBeforeNextFrame.size(); i++)
+				DestroyBufferRecordResources(retiredBeforeNextFrame[i]);
+			retiredBeforeNextFrame.clear();
 			DestroyBufferRecordResources(rec);
 			return;
 		}
-		retiredBuffers[currentFrameSlot].push_back(rec);
 		// The resources belong to the retired copy now.
 		rec.buffer = VK_NULL_HANDLE;
 		rec.allocation = VK_NULL_HANDLE;
@@ -3564,10 +3603,26 @@ namespace p3d {
 	// still be reading these.
 	void VulkanRenderDevice::ReleaseRetiredBuffers(const uint32 slot)
 	{
+		ReleaseRetiredSamplerSets(slot);
 		std::vector<BufferRecord> &list = retiredBuffers[slot];
 		for (size_t i = 0; i < list.size(); i++)
 			DestroyBufferRecordResources(list[i]);
 		list.clear();
+	}
+
+	// Call right after a frame fence has been submitted, before the slot
+	// advances: that fence signals only once every earlier submit - the
+	// frames and offscreen work that could have used these - has finished.
+	void VulkanRenderDevice::AdoptPendingRetirements()
+	{
+		std::vector<CachedSamplerSet> &sets = retiredSamplerSets[currentFrameSlot];
+		sets.insert(sets.end(), retiredSamplerSetsBeforeNextFrame.begin(), retiredSamplerSetsBeforeNextFrame.end());
+		retiredSamplerSetsBeforeNextFrame.clear();
+		if (retiredBeforeNextFrame.empty())
+			return;
+		std::vector<BufferRecord> &list = retiredBuffers[currentFrameSlot];
+		list.insert(list.end(), retiredBeforeNextFrame.begin(), retiredBeforeNextFrame.end());
+		retiredBeforeNextFrame.clear();
 	}
 
 	void *VulkanRenderDevice::MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType)
@@ -4053,6 +4108,8 @@ namespace p3d {
 			return tex.sampler != VK_NULL_HANDLE;
 		if (tex.sampler != VK_NULL_HANDLE)
 		{
+			// Same handle-recycling hazard as ForgetSamplerDescriptorsForView.
+			RetireSamplerSetsNaming((uint64)(uintptr_t)tex.sampler);
 			vkDestroySampler(device, tex.sampler, NULL);
 			tex.sampler = VK_NULL_HANDLE;
 		}
@@ -4132,36 +4189,14 @@ namespace p3d {
 			}
 		}
 
-		// The ring-slot combos are handle-keyed too, and dropping them was
-		// missing - which is the same hazard this function exists for, just on
-		// the other map. ResolveSamplerSetForCurrentState() reuses a slot whose
-		// cached combo compares equal *without rewriting the descriptor*, and
-		// Vulkan recycles VkImageView handles: after a resize destroys this
-		// view and a new one lands on the same handle value, the stale combo
-		// matched and the descriptor set was left pointing at the destroyed
-		// object. Symptom was a deferred frame reading its G-buffer back as
-		// garbage after a window resize - a built game blowing out to white on
-		// ~12% of starts, always and only at a resized window size.
-		// Combos are flat (binding, view, sampler) triples - see that function.
-		std::map<std::pair<DeviceHandle, uint32>, std::vector<uint64> >::iterator c = pipelineSamplerRingCombo.begin();
-		while (c != pipelineSamplerRingCombo.end())
-		{
-			bool namesView = false;
-			for (size_t i = 1; i < c->second.size(); i += 3)
-			{
-				if (c->second[i] == (uint64)(uintptr_t)view) { namesView = true; break; }
-			}
-			if (namesView)
-			{
-				std::map<std::pair<DeviceHandle, uint32>, std::vector<uint64> >::iterator dead = c;
-				c++;
-				pipelineSamplerRingCombo.erase(dead);
-			}
-			else
-			{
-				c++;
-			}
-		}
+		// The cached sampler sets are handle-keyed too. Vulkan recycles
+		// VkImageView handles: after a resize destroys this view and a new one
+		// lands on the same handle value, a stale combo would match and the
+		// draw would bind a set pointing at the destroyed object. Symptom was
+		// a deferred frame reading its G-buffer back as garbage after a window
+		// resize - a built game blowing out to white on ~12% of starts, always
+		// and only at a resized window size.
+		RetireSamplerSetsNaming((uint64)(uintptr_t)view);
 	}
 
 	void VulkanRenderDevice::SendUniformInt(const int32 handle, const int32 *data, const uint32 count)
@@ -4178,7 +4213,7 @@ namespace p3d {
 		// same as UseProgram() (which sets currentProgram, gated only on
 		// shader identity, a coarser condition than mesh+material).
 		// Validating handle against currentProgram's reflected bindings
-		// but then writing into pipelineSamplerSets[currentPipeline]
+		// but then writing into currentPipeline's sampler state
 		// could target a set whose actual layout doesn't have that
 		// binding at all - a real, found-via-crash bug
 		// (VUID-VkWriteDescriptorSet-dstBinding-10009, "bindingCount of
@@ -4201,8 +4236,8 @@ namespace p3d {
 		if (texIt == textures.end() || texIt->second.view == VK_NULL_HANDLE)
 			return; // texture handle stale, or UploadTexture2D() never ran (no image yet)
 
-		if (pipelineSamplerRing.find(currentPipeline) == pipelineSamplerRing.end())
-			return; // no current pipeline / it has no sampler ring (CreatePipeline() failed, or descriptorPool wasn't ready yet)
+		if (progIt->second.samplerSetLayout == VK_NULL_HANDLE)
+			return; // this pipeline's program samples nothing
 
 		if (!RebuildSamplerIfDirty(texIt->second))
 			return;
@@ -6119,22 +6154,20 @@ namespace p3d {
 			// swapchain frame, e.g. DeferredRenderer G-buffer).
 			//
 			// Editor viewport CaptureFrame runs with frameInProgress
-			// (Editor::Draw). Skipping *all* waits then lets frame N
+			// (Editor::Draw). Skipping *all* ordering then lets frame N
 			// rewrite the viewport color while frame N-1's ImGui is
-			// still sampling it → main scene flicker. Wait every other
-			// frame slot; never the current one (reset, unsignaled).
+			// still sampling it → main scene flicker. Inside a frame that
+			// ordering is now on the GPU: this session's submit waits on
+			// frame N-1's frameDoneSemaphores entry (see
+			// FlushOffscreenCommandBuffer). This used to be a CPU wait on
+			// N-1's fence, which idled the CPU at the first FBO bind of
+			// every frame for as long as the GPU was still busy - most of
+			// the frame in play mode, reported by the profiler as
+			// "Renderer.ShadowMaps". Host-written buffers are unaffected:
+			// dynamic UBOs are rings, and the rest go through
+			// EnsureHostMappedBufferWritable().
 			if (!frameInProgress)
 				WaitAllFrameFences();
-			else
-			{
-				static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
-				for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
-				{
-					if (i == currentFrameSlot) continue;
-					if (frameFences[i] != VK_NULL_HANDLE)
-						vkWaitForFences(device, 1, &frameFences[i], VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
-				}
-			}
 			// Rotate onto the next slot rather than reusing the one just
 			// submitted, so this wait lands on a submit several sessions
 			// old (already finished) instead of the one the GPU is running
@@ -6712,11 +6745,15 @@ namespace p3d {
 		// recorded even though the CPU no longer blocks between them - a
 		// G-buffer written by one session and sampled by the next used to
 		// be ordered by that CPU fence wait, and this is what replaces it.
-		VkPipelineStageFlags chainStages[2] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
-		VkSemaphore waitSems[2];
+		VkPipelineStageFlags chainStages[3] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
+		VkSemaphore waitSems[3];
 		uint32 chainWaits = 0;
 		if (offscreenPrevSemaphore != VK_NULL_HANDLE) waitSems[chainWaits++] = offscreenPrevSemaphore;
 		if (offscreenChainSemaphore != VK_NULL_HANDLE) waitSems[chainWaits++] = offscreenChainSemaphore;
+		// The last frame's submit: its passes sampled targets this submit
+		// may be about to clear and redraw. See frameDoneSemaphores.
+		const VkSemaphore frameDoneWait = pendingFrameDoneSemaphore;
+		if (frameDoneWait != VK_NULL_HANDLE) waitSems[chainWaits++] = frameDoneWait;
 		VkSemaphore signalSems[2] = { slot.done, slot.doneForOffscreen };
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
@@ -6739,6 +6776,7 @@ namespace p3d {
 			slot.fenceInFlight = true;
 			offscreenChainSemaphore = slot.done;
 			offscreenPrevSemaphore = slot.doneForOffscreen;
+			if (frameDoneWait != VK_NULL_HANDLE) pendingFrameDoneSemaphore = VK_NULL_HANDLE;
 		}
 
 		offscreenCommandBufferRecording = false;
