@@ -5,9 +5,38 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "imgui.h"
 #include <algorithm>
+#include <atomic>
 #include <cstdio>
+#include <cstdlib>
+#include <thread>
 
 namespace p3d {
+
+	// The scope stack is one per profiler, not per thread, so only the thread
+	// that runs the frame may push onto it. Scopes opened from job workers
+	// are dropped rather than interleaved into the frame's stack.
+	static std::atomic<std::thread::id> gFrameThread;
+
+	static bool OnFrameThread()
+	{
+		return std::this_thread::get_id() == gFrameThread.load(std::memory_order_relaxed);
+	}
+
+	// PYROS_PROFILE_LOG=<path> appends the frame breakdown every 30 frames,
+	// for apps with no UI or socket to read it from (DemoLauncher, a built
+	// game). "-" writes to stderr.
+	static FILE* ProfileLogFile()
+	{
+		static bool opened = false;
+		static FILE* f = NULL;
+		if (!opened)
+		{
+			opened = true;
+			if (const char* path = std::getenv("PYROS_PROFILE_LOG"))
+				f = (path[0] == '-' && path[1] == 0) ? stderr : std::fopen(path, "a");
+		}
+		return f;
+	}
 
 	FrameProfiler &FrameProfiler::Instance()
 	{
@@ -33,6 +62,8 @@ namespace p3d {
 
 	void FrameProfiler::BeginFrame()
 	{
+		gFrameThread.store(std::this_thread::get_id(), std::memory_order_relaxed);
+		if (ProfileLogFile()) enabled_ = true;
 		if (!enabled_) return;
 		stack_.clear();
 		recordingScopeCount_ = 0;
@@ -41,7 +72,7 @@ namespace p3d {
 
 	void FrameProfiler::Begin(const char *name)
 	{
-		if (!enabled_) return;
+		if (!enabled_ || !OnFrameThread()) return;
 		OpenScope s;
 		CopyName(s.name, name);
 		s.start = Clock::now();
@@ -49,9 +80,21 @@ namespace p3d {
 		stack_.push_back(s);
 	}
 
+	void FrameProfiler::Counter(const char *name, f64 value)
+	{
+		if (!enabled_ || !OnFrameThread()) return;
+		for (uint32 i = 0; i < counterCount_; i++)
+			if (std::strncmp(counters_[i].name, name, kMaxNameLen) == 0) { counters_[i].ms = value; return; }
+		if (counterCount_ < kMaxCounters)
+		{
+			CopyName(counters_[counterCount_].name, name);
+			counters_[counterCount_++].ms = value;
+		}
+	}
+
 	void FrameProfiler::End()
 	{
-		if (!enabled_ || stack_.empty()) return;
+		if (!enabled_ || stack_.empty() || !OnFrameThread()) return;
 		OpenScope s = stack_.back();
 		stack_.pop_back();
 		const f64 ms = std::chrono::duration<f64, std::milli>(Clock::now() - s.start).count();
@@ -93,6 +136,23 @@ namespace p3d {
 			if (v > maxFrameMs_) maxFrameMs_ = v;
 		}
 		avgFrameMs_ = historyCount_ > 0 ? sum / (f64)historyCount_ : 0.0;
+
+		if (FILE* log = ProfileLogFile())
+		{
+			static uint32 frame = 0;
+			static const Clock::time_point start = Clock::now();
+			if (++frame % 30 == 0)
+			{
+				std::fprintf(log, "frame=%u t=%.2f ms=%.3f", frame,
+					std::chrono::duration<f64>(Clock::now() - start).count(), displayFrameMs_);
+				for (uint32 i = 0; i < displayScopeCount_; i++)
+					std::fprintf(log, " %s=%.3f", displayScopes_[i].name, displayScopes_[i].ms);
+				for (uint32 i = 0; i < counterCount_; i++)
+					std::fprintf(log, " %s=%.0f", counters_[i].name, counters_[i].ms);
+				std::fprintf(log, "\n");
+				std::fflush(log);
+			}
+		}
 	}
 
 	void FrameProfiler::DrawImGui(bool *p_open)

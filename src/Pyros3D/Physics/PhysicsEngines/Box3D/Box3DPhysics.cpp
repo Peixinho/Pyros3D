@@ -9,6 +9,7 @@
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/DebugDraw/PhysicsDebugDraw.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
 #include <Pyros3D/Physics/Components/Sphere/PhysicsSphere.h>
 #include <Pyros3D/Physics/Components/MultipleSphere/PhysicsMultipleSphere.h>
@@ -26,6 +27,31 @@
 namespace p3d {
 
 	namespace {
+
+		// Box3D's task hooks, backed by the engine's JobSystem so physics
+		// shares one pool with everything else instead of spinning up its own
+		// threads. b3World_Step runs on the main thread, not inside a job,
+		// and FinishTask's Wait() runs other queued jobs while it blocks -
+		// the two conditions Box3D's header gives for this not deadlocking.
+		void* EnqueuePhysicsTask(b3TaskCallback* task, void* taskContext, void*, const char*)
+		{
+			JobSystem &jobs = JobSystem::Instance();
+			if (jobs.WorkerCount() == 0)
+			{
+				task(taskContext);
+				return NULL; // ran inline: Box3D will not call FinishTask
+			}
+			JobCounter* counter = new JobCounter();
+			jobs.Run(task, taskContext, *counter);
+			return counter;
+		}
+
+		void FinishPhysicsTask(void* userTask, void*)
+		{
+			JobCounter* counter = static_cast<JobCounter*>(userTask);
+			JobSystem::Instance().Wait(*counter);
+			delete counter;
+		}
 
 		b3Vec3 ToB3(const Vec3 &v)
 		{
@@ -443,6 +469,10 @@ namespace p3d {
 		def.contactDampingRatio = 10.f;
 		def.createDebugShape = PhysicsDebugDraw::CreateDebugShapeCallback;
 		def.destroyDebugShape = PhysicsDebugDraw::DestroyDebugShapeCallback;
+		def.workerCount = JobSystem::Instance().WorkerCount() + 1; // + the stepping thread
+		def.enqueueTask = EnqueuePhysicsTask;
+		def.finishTask = FinishPhysicsTask;
+		def.userTaskContext = NULL;
 		m_world = b3CreateWorld(&def);
 		b3World_SetGravity(m_world, ToB3(Vec3(0.f, -9.8f, 0.f)));
 		physicsInitialized = true;
@@ -503,6 +533,9 @@ namespace p3d {
 		}
 		if (timeInterval > (f64)fixed * 2.0)
 			timeInterval = 0.0;
+
+		FrameProfiler::Instance().Counter("Physics.Bodies", (f64)b3World_GetCounters(m_world).bodyCount);
+		FrameProfiler::Instance().Counter("Physics.Steps", (f64)taken);
 
 		ProcessCollisionEvents();
 	}

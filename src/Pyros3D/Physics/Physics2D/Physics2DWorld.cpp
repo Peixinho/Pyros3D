@@ -12,6 +12,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <box2d/box2d.h>
 #include <cmath>
 #include <cstdlib>
@@ -20,6 +21,31 @@
 namespace p3d {
 
 	namespace {
+
+		// Box2D's task hooks, backed by the engine's JobSystem so physics
+		// shares one pool with everything else instead of spinning up its own
+		// threads. b2World_Step runs on the main thread, not inside a job,
+		// and FinishTask's Wait() runs other queued jobs while it blocks -
+		// the two conditions Box2D's header gives for this not deadlocking.
+		void* EnqueuePhysicsTask(b2TaskCallback* task, void* taskContext, void*)
+		{
+			JobSystem &jobs = JobSystem::Instance();
+			if (jobs.WorkerCount() == 0)
+			{
+				task(taskContext);
+				return NULL; // ran inline: Box2D will not call FinishTask
+			}
+			JobCounter* counter = new JobCounter();
+			jobs.Run(task, taskContext, *counter);
+			return counter;
+		}
+
+		void FinishPhysicsTask(void* userTask, void*)
+		{
+			JobCounter* counter = static_cast<JobCounter*>(userTask);
+			JobSystem::Instance().Wait(*counter);
+			delete counter;
+		}
 		// The split-handle dance both classes do so their headers stay
 		// box2d-free. See Physics2D::SetBodyHandle.
 		b2WorldId MakeWorldId(const uint16 index, const uint16 generation)
@@ -275,6 +301,10 @@ namespace p3d {
 			b2WorldDef def = b2DefaultWorldDef();
 			def.gravity.x = gravity.x;
 			def.gravity.y = gravity.y;
+			def.workerCount = JobSystem::Instance().WorkerCount() + 1;
+			def.enqueueTask = EnqueuePhysicsTask;
+			def.finishTask = FinishPhysicsTask;
+			def.userTaskContext = NULL;
 			b2WorldId w = b2CreateWorld(&def);
 			worldIndex = w.index1;
 			worldGeneration = w.generation;

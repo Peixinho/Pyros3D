@@ -49,6 +49,10 @@ namespace p3d {
 		void Begin(const char *name);
 		void End();
 
+		// A named value for this frame (body count, draw calls...), written
+		// alongside the scopes by PYROS_PROFILE_LOG. Last write wins.
+		void Counter(const char *name, f64 value);
+
 		// RAII helper — safe no-op when disabled.
 		struct Scope
 		{
@@ -105,6 +109,10 @@ namespace p3d {
 		f64 avgFrameMs_;
 		f64 minFrameMs_;
 		f64 maxFrameMs_;
+
+		static const uint32 kMaxCounters = 16;
+		ScopeRecord counters_[kMaxCounters]; // ms holds the value
+		uint32 counterCount_ = 0;
 
 		static void CopyName(char *dst, const char *src);
 	};
