@@ -17,6 +17,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Jobs/JobSystem.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/LoadStats.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/AssetBundle.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/AssetStreamer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/IModelLoader.cpp
