@@ -4,6 +4,16 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 project(Pyros3D)
 set(CMAKE_CXX_STANDARD 17)
 
+# An empty build type means no -O flag at all. The day-to-day editor build
+# dirs were configured that way and ran ~4x slower on the CPU, and build_game
+# shipped the -O0 PyrosPlayer sitting next to them. Pass
+# -DCMAKE_BUILD_TYPE=Debug when a debug build is actually wanted.
+get_property(PYROS_MULTI_CONFIG GLOBAL PROPERTY GENERATOR_IS_MULTI_CONFIG)
+if(NOT PYROS_MULTI_CONFIG AND NOT CMAKE_BUILD_TYPE)
+	set(CMAKE_BUILD_TYPE RelWithDebInfo CACHE STRING "Build type" FORCE)
+	message(STATUS "CMAKE_BUILD_TYPE not set - defaulting to RelWithDebInfo")
+endif()
+
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake)
 
 # Windows/MSVC-wide defines and flags. Must come before anything that adds a
