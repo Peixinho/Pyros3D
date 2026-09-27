@@ -32,10 +32,12 @@ namespace p3d {
 		std::vector<b3JointId> wheelJoints;
 		b3HullData* ownedHull;
 		b3MeshData* ownedMesh;
+		// Box3D keeps a pointer to it for the shape's lifetime.
+		b3HeightFieldData* ownedHeightField;
 		std::vector<b3Vec3> meshVerts;
 		std::vector<int32_t> meshIndices;
 
-		Box3DBodyHandles() : body(b3_nullBodyId), ownedHull(NULL), ownedMesh(NULL) {}
+		Box3DBodyHandles() : body(b3_nullBodyId), ownedHull(NULL), ownedMesh(NULL), ownedHeightField(NULL) {}
 	};
 
 	class PYROS3D_API Box3DPhysics : public IPhysics
@@ -110,6 +112,7 @@ namespace p3d {
 		virtual std::shared_ptr<IPhysicsComponent> CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass, bool ghost = false);
 		virtual std::shared_ptr<IPhysicsComponent> CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost = false);
 		virtual std::shared_ptr<IPhysicsComponent> CreateVehicle(const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost = false);
+		virtual std::shared_ptr<IPhysicsComponent> CreateHeightField(const std::shared_ptr<const HeightfieldData> &data);
 
 		virtual void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel);
 

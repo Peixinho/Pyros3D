@@ -168,8 +168,16 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 		std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
 		for (std::vector<RenderingComponent*>::iterator i = comps.begin(); i != comps.end(); i++)
 		{
-			f32 distance = (Camera->GetWorldPosition().distanceSQR((*i)->GetOwner()->GetWorldPosition() + ((*i)->GetBoundingSphereCenter() - (*i)->GetBoundingSphereRadius())*(*i)->GetOwner()->GetScale()));
-			(*i)->UpdateLOD((*i)->GetLODByDistance(fabs(distance)));
+			if (!(*i)->HasLOD()) continue;
+			// Squared distance to the bounding sphere, 0 from inside it. It
+			// was to (centre - radius) on every axis, a point outside the
+			// object: a camera standing on a 256 m terrain tile measured
+			// ~150 m and got a coarse level under its feet.
+			const Vec3 &scale = (*i)->GetOwner()->GetScale();
+			const f32 maxScale = std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z)));
+			const Vec3 centre = (*i)->GetOwner()->GetWorldPosition() + (*i)->GetBoundingSphereCenter() * scale;
+			const f32 d = std::max(0.f, Camera->GetWorldPosition().distance(centre) - (*i)->GetBoundingSphereRadius() * maxScale);
+			(*i)->UpdateLOD((*i)->GetLODByDistance(d * d));
 		}
 	}
 	// Get Meshes
@@ -328,7 +336,11 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 	scissorTestY = 0;
 	scissorTestWidth = (f32)Width;
 	scissorTestHeight = (f32)Height;
-	lod = false;
+	// On: only a component that was given levels (RenderingComponent::AddLOD,
+	// a terrain tile's steps) has anything to switch, and one that has them
+	// wants them used - a streamed terrain drawn at full detail to the
+	// horizon is not a working terrain.
+	lod = true;
 	ClipPlane = false;
 	IsCulling = false;
 	skipShadowMaps = false;

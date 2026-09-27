@@ -160,6 +160,42 @@ namespace p3d {
 		ForEachLargestFirst(existing, parallel, [this](const std::string &path) { AddImage(path); });
 	}
 
+	namespace {
+		size_t HeightfieldBytes(const PreparedHeightfield &p)
+		{
+			size_t b = p.data ? p.data->heights.size() * sizeof(f32) : 0;
+			for (size_t i = 0; i < p.meshes.size(); i++)
+			{
+				const HeightfieldMesh &m = p.meshes[i];
+				b += (m.vertex.size() + m.normal.size() + m.tangent.size() + m.bitangent.size()) * sizeof(Vec3)
+					+ m.texcoord.size() * sizeof(Vec2) + m.index.size() * sizeof(uint32);
+			}
+			return b;
+		}
+	}
+
+	void AssetBundle::AddHeightfield(const std::string &key, const std::shared_ptr<PreparedHeightfield> &prepared)
+	{
+		if (!prepared) return;
+		std::lock_guard<std::mutex> lock(mutex);
+		if (heightfields.count(key)) return;
+		bytes += HeightfieldBytes(*prepared);
+		heightfields[key] = prepared;
+	}
+
+	std::shared_ptr<PreparedHeightfield> AssetBundle::TakeHeightfield(const std::string &key)
+	{
+		AssetBundle* b = g_current;
+		if (!b) return std::shared_ptr<PreparedHeightfield>();
+		std::lock_guard<std::mutex> lock(b->mutex);
+		std::map<std::string, std::shared_ptr<PreparedHeightfield> >::iterator it = b->heightfields.find(key);
+		if (it == b->heightfields.end()) return std::shared_ptr<PreparedHeightfield>();
+		std::shared_ptr<PreparedHeightfield> p = it->second;
+		b->bytes -= HeightfieldBytes(*p);
+		b->heightfields.erase(it);
+		return p;
+	}
+
 	size_t AssetBundle::ImageCount() const { std::lock_guard<std::mutex> lock(mutex); return images.size(); }
 	size_t AssetBundle::ModelCount() const { std::lock_guard<std::mutex> lock(mutex); return models.size(); }
 	size_t AssetBundle::ByteSize() const { std::lock_guard<std::mutex> lock(mutex); return bytes; }

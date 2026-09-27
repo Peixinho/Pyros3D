@@ -440,6 +440,9 @@ namespace p3d {
 		// Per-LOD switch distances, parallel to Meshes' LOD keys.
 		const std::vector<f32> &GetLODDistances() const { return LODDistances; }
 
+		// Whether any levels beyond the first were given.
+		bool HasLOD() const { return LOD; }
+
 		// Returns LOD level based on distance
 		uint32 GetLODByDistance(const f32 Distance);
 

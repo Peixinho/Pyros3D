@@ -8,6 +8,10 @@
 
 #include <Pyros3D/Utils/Streaming/LoadStats.h>
 #include <Pyros3D/Utils/Streaming/AssetBundle.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
+#include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
+#include <Pyros3D/Physics/Components/HeightField/PhysicsHeightField.h>
+#include <functional>
 #include <set>
 #include <algorithm>
 #include <chrono>
@@ -852,6 +856,23 @@ namespace p3d {
 	static json SerializeRenderable(Renderable* r)
 	{
 		json j;
+		// A terrain tile: its settings, never its vertices - the heightmap
+		// is the source, and the levels are rebuilt from it on load.
+		if (Heightfield* hf = dynamic_cast<Heightfield*>(r))
+		{
+			const Heightfield::Source &src = hf->source;
+			j["kind"] = "heightfield";
+			j["heightmap"] = RelativizeSceneAssetPath(src.heightmap);
+			j["size"] = hf->GetData() ? hf->GetData()->size : 0.f;
+			j["heightScale"] = src.heightScale;
+			j["heightOffset"] = src.heightOffset;
+			j["skirt"] = src.skirt;
+			json lods = json::array();
+			for (size_t i = 0; i < src.levels.size(); i++)
+				lods.push_back(json{ { "step", src.levels[i].step }, { "distance", src.levels[i].distance } });
+			j["lods"] = lods;
+			return j;
+		}
 		// Decal IS-A Model (Decal : public Model) - must be checked
 		// first, or it'd fall into the generic Model branch below and be
 		// rejected there (a Decal never has a real GetPath(), it's built
@@ -1095,6 +1116,12 @@ namespace p3d {
 			json vtx = json::array();
 			for (size_t i = 0; i < vertex->size(); i++) vtx.push_back(ToJson((*vertex)[i]));
 			j["indices"] = idx; j["vertices"] = vtx;
+			return j;
+		}
+		case CollisionShapes::HeightFieldTerrain:
+		{
+			// Rebuilt on load from the terrain tile on the same object.
+			j["type"] = "Physics"; j["shape"] = "HeightField";
 			return j;
 		}
 		case CollisionShapes::MultipleSphere:
@@ -2195,6 +2222,40 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 
 	// ******************************* load *******************************
 
+	// A "heightfield" renderable's settings. Levels default to one at full
+	// detail; the first level's distance must be positive for switching to
+	// happen, and the last one covers everything beyond, whatever it says.
+	struct HeightfieldSpec
+	{
+		std::string path;		// resolved
+		std::string authored;	// as written, for saving back
+		f32 size = 256.f, heightScale = 100.f, heightOffset = 0.f, skirt = 2.f;
+		std::vector<HeightfieldLevel> levels;
+		std::string Key() const { return PreparedHeightfield::Key(path, size, heightScale, heightOffset, skirt, levels); }
+	};
+
+	static HeightfieldSpec ReadHeightfieldSpec(const json &r, const std::string &assetRoot)
+	{
+		HeightfieldSpec spec;
+		spec.authored = r.value("heightmap", std::string());
+		spec.path = ResolveSceneAssetPathIn(assetRoot, spec.authored);
+		spec.size = std::max(1.f, r.value("size", spec.size));
+		spec.heightScale = r.value("heightScale", spec.heightScale);
+		spec.heightOffset = r.value("heightOffset", spec.heightOffset);
+		spec.skirt = std::max(0.f, r.value("skirt", spec.skirt));
+		if (r.contains("lods") && r["lods"].is_array())
+			for (const auto &l : r["lods"])
+			{
+				HeightfieldLevel level;
+				level.step = std::max(1u, l.value("step", 1u));
+				level.distance = std::max(0.f, l.value("distance", 0.f));
+				spec.levels.push_back(level);
+			}
+		if (spec.levels.empty()) spec.levels.push_back(HeightfieldLevel());
+		return spec;
+	}
+
+
 	// shared: through Texture::LoadShared, so every scene and streamed cell
 	// naming this file gets the one Texture - only for material maps,
 	// which nothing mutates after load. A sprite or UI image may have its
@@ -2674,9 +2735,47 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			const bool isTileMap2D = j.value("tileMap2D", false);
 			const bool isGenerated = isCharacter2D || isTileMap2D;
 
-			std::shared_ptr<Renderable> renderable = isGenerated
-				? std::static_pointer_cast<Renderable>(std::make_shared<Plane>(1.f, 1.f))
-				: DeserializeRenderable(j.value("renderable", json()), outAssets);
+			// A terrain tile brings every detail level at once: level 0 is
+			// the component's renderable, the rest go through AddLOD below.
+			const json rj = j.value("renderable", json());
+			const bool isHeightfield = rj.is_object() && rj.value("kind", std::string()) == "heightfield";
+			f32 lod0Distance = 0.f;
+			std::vector<std::pair<std::shared_ptr<Renderable>, f32> > extraLods;
+			std::shared_ptr<Renderable> renderable;
+			if (isGenerated)
+				renderable = std::make_shared<Plane>(1.f, 1.f);
+			else if (isHeightfield)
+			{
+				const HeightfieldSpec spec = ReadHeightfieldSpec(rj, g_sceneAssetRoot);
+				std::shared_ptr<PreparedHeightfield> prepared = AssetBundle::TakeHeightfield(spec.Key());
+				if (!prepared)
+				{
+					prepared = std::make_shared<PreparedHeightfield>();
+					if (!PreparedHeightfield::Prepare(spec.path, spec.size, spec.heightScale, spec.heightOffset, spec.skirt, spec.levels, *prepared))
+						prepared.reset();
+				}
+				if (prepared)
+				{
+					const std::shared_ptr<const HeightfieldData> data = prepared->data;
+					for (size_t i = 0; i < prepared->meshes.size(); i++)
+					{
+						std::shared_ptr<Heightfield> hf = std::make_shared<Heightfield>(std::move(prepared->meshes[i]), data, spec.levels[i].step);
+						hf->source.heightmap = spec.authored;
+						hf->source.heightScale = spec.heightScale;
+						hf->source.heightOffset = spec.heightOffset;
+						hf->source.skirt = spec.skirt;
+						hf->source.levels = spec.levels;
+						if (outAssets) outAssets->renderables.push_back(hf);
+						// The last level covers everything beyond.
+						const bool last = (i + 1 == prepared->meshes.size());
+						const f32 reach = last ? 1e9f : spec.levels[i].distance;
+						if (i == 0) { renderable = hf; lod0Distance = (prepared->meshes.size() > 1) ? std::max(reach, 0.001f) : 0.f; }
+						else extraLods.push_back(std::make_pair(std::static_pointer_cast<Renderable>(hf), reach));
+					}
+				}
+			}
+			else
+				renderable = DeserializeRenderable(rj, outAssets);
 			if (!renderable) { echo("WARNING: SceneSerializer - skipping RenderingComponent, couldn't rebuild its renderable"); return; }
 			uint32 matId = j.value("material", (uint32)0xFFFFFFFF);
 			std::shared_ptr<IMaterial> mat = (matId < materialsById.size()) ? materialsById[matId] : nullptr;
@@ -2739,11 +2838,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			{
 #ifdef LUA_BINDINGS
 				rc = lua
-					? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, mat, 0.0f))
-					: std::make_shared<RenderingComponent>(renderable, mat, 0.0f);
+					? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, mat, lod0Distance))
+					: std::make_shared<RenderingComponent>(renderable, mat, lod0Distance);
 #else
-				rc = std::make_shared<RenderingComponent>(renderable, mat, 0.0f);
+				rc = std::make_shared<RenderingComponent>(renderable, mat, lod0Distance);
 #endif
+				for (size_t l = 0; l < extraLods.size(); l++)
+					rc->AddLOD(extraLods[l].first, extraLods[l].second, mat);
 			}
 			if (j.value("cullTest", true)) rc->EnableCullTest(); else rc->DisableCullTest();
 			if (j.value("castingShadows", true)) rc->EnableCastShadows(); else rc->DisableCastShadows();
@@ -3075,7 +3176,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		}
 		else if (type == "Physics")
 		{
-			std::shared_ptr<IPhysicsComponent> pc = DeserializePhysicsShape(j, physics);
+			std::shared_ptr<IPhysicsComponent> pc;
+			if (j.value("shape", std::string()) == "HeightField")
+			{
+				// The heights are the terrain tile's, already on this object -
+				// it is written before the Physics component, so it loads first.
+				const Heightfield* hf = NULL;
+				const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+				for (size_t c = 0; c < comps.size() && !hf; c++)
+					if (RenderingComponent* rcomp = dynamic_cast<RenderingComponent*>(comps[c].get()))
+						hf = dynamic_cast<const Heightfield*>(rcomp->GetRenderable());
+				if (!physics) echo("WARNING: SceneSerializer - can't rebuild a height field, LoadScene() was called with physics == NULL");
+				else if (!hf || !hf->GetData()) echo("WARNING: SceneSerializer - a HeightField physics component needs a terrain tile on the same object");
+				else pc = physics->CreateHeightField(hf->GetData());
+			}
+			else pc = DeserializePhysicsShape(j, physics);
 			if (pc) go->AddComponent(pc);
 		}
 		else if (type == "Vehicle")
@@ -3557,6 +3672,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			{
 				if (it.value().is_string())
 				{
+					// A heightmap is heights, not a texture - PrepareHeightfields
+					// reads it, and decoding it as RGBA8 too would be waste.
+					if (it.key() == "heightmap") continue;
 					const std::string &v = it.value().get_ref<const std::string&>();
 					if (LooksLikeImagePath(v)) images.insert(v);
 				}
@@ -3579,6 +3697,43 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	// while the main thread loads something else. Anything that does not
 	// exist on disk is skipped (by Fill) so a missing file is reported once,
 	// by the load that needs it.
+	static void CollectHeightfields(const json &j, std::vector<const json*> &out)
+	{
+		if (j.is_object())
+		{
+			if (j.value("kind", std::string()) == "heightfield") { out.push_back(&j); return; }
+			for (json::const_iterator it = j.begin(); it != j.end(); ++it) CollectHeightfields(it.value(), out);
+		}
+		else if (j.is_array())
+			for (json::const_iterator it = j.begin(); it != j.end(); ++it) CollectHeightfields(*it, out);
+	}
+
+	// Decodes every terrain tile the JSON names and builds all its levels,
+	// on the job system when parallel - a 257x257 tile is a few
+	// milliseconds of vertex work per level, none of which needs the device.
+	static void PrepareHeightfields(const json &root, const std::string &assetRoot, AssetBundle &bundle, const bool parallel)
+	{
+		std::vector<const json*> found;
+		CollectHeightfields(root, found);
+		if (found.empty()) return;
+		std::vector<HeightfieldSpec> specs;
+		for (size_t i = 0; i < found.size(); i++) specs.push_back(ReadHeightfieldSpec(*found[i], assetRoot));
+		std::vector<std::shared_ptr<PreparedHeightfield> > prepared(specs.size());
+		const std::function<void(uint32, uint32)> build = [&](uint32 begin, uint32 end) {
+			for (uint32 i = begin; i < end; i++)
+			{
+				std::shared_ptr<PreparedHeightfield> p = std::make_shared<PreparedHeightfield>();
+				if (PreparedHeightfield::Prepare(specs[i].path, specs[i].size, specs[i].heightScale, specs[i].heightOffset,
+						specs[i].skirt, specs[i].levels, *p))
+					prepared[i] = p;
+			}
+		};
+		if (parallel) JobSystem::Instance().ParallelFor((uint32)specs.size(), 1, build);
+		else build(0, (uint32)specs.size());
+		for (size_t i = 0; i < specs.size(); i++)
+			if (prepared[i]) bundle.AddHeightfield(specs[i].Key(), prepared[i]);
+	}
+
 	// The material keys GetOrLoadTexture loads shared - see BuildMaterialBody.
 	static const char* const kSharedMaterialMaps[] = { "colorMap", "specularMap", "normalMap",
 		"displacementMap", "envMap", "refractMap", "metallicRoughnessMap" };
@@ -3596,6 +3751,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		for (std::set<std::string>::const_iterator it = imageRefs.begin(); it != imageRefs.end(); ++it)
 			images.push_back(ResolveSceneAssetPathIn(assetRoot, *it));
 		bundle.Fill(models, images, parallel, sharedTexturesOut);
+		PrepareHeightfields(root, assetRoot, bundle, parallel);
 		if (sharedTexturesOut && root.contains("materials") && root["materials"].is_array())
 			for (const auto &m : root["materials"])
 				for (size_t k = 0; k < sizeof(kSharedMaterialMaps) / sizeof(kSharedMaterialMaps[0]); k++)

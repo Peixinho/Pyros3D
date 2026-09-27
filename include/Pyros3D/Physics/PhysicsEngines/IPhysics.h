@@ -17,6 +17,8 @@
 
 namespace p3d {
 
+	struct HeightfieldData;
+
 	// Circular Dependency
 	class PYROS3D_API IPhysicsComponent;
 
@@ -121,6 +123,8 @@ namespace p3d {
 		virtual std::shared_ptr<IPhysicsComponent> CreateTriangleMesh(RenderingComponent* rcomp, const f32 mass = 0.f, bool ghost = false) = 0;
 		virtual std::shared_ptr<IPhysicsComponent> CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass = 0.f, bool ghost = false) = 0;
 		virtual std::shared_ptr<IPhysicsComponent> CreateVehicle(const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost = false) = 0;
+		// A terrain tile's static collision - see PhysicsHeightField.
+		virtual std::shared_ptr<IPhysicsComponent> CreateHeightField(const std::shared_ptr<const HeightfieldData> &data) = 0;
 		virtual void AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel) = 0;
 
 		// ---- Joints ---------------------------------------------------

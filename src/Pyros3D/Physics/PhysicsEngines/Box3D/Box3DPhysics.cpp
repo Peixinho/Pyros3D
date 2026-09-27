@@ -19,6 +19,7 @@
 #include <Pyros3D/Physics/Components/Cylinder/PhysicsCylinder.h>
 #include <Pyros3D/Physics/Components/StaticPlane/PhysicsStaticPlane.h>
 #include <Pyros3D/Physics/Components/TriangleMesh/PhysicsTriangleMesh.h>
+#include <Pyros3D/Physics/Components/HeightField/PhysicsHeightField.h>
 #include <Pyros3D/Physics/Components/ConvexTriangleMesh/PhysicsConvexTriangleMesh.h>
 #include <Pyros3D/Physics/Components/ConvexHull/PhysicsConvexHull.h>
 #include <Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.h>
@@ -96,6 +97,54 @@ namespace p3d {
 			Quaternion q;
 			q.SetRotationFromEuler(euler);
 			return ToB3Quat(q);
+		}
+
+		// The owner's pose in world space, composed up its parent chain from
+		// each object's LOCAL values. Bodies used to be created at the local
+		// position, which only equals the world one for a root - every
+		// collider inside a streamed cell (a child of the cell's root) sat
+		// at the origin. Composed by hand rather than read from
+		// GetWorldTransformation(): a body is created when its object joins
+		// the scene, before the transform pass that fills that matrix in.
+		void WorldPose(GameObject* go, Vec3 &pos, b3Quat &rot)
+		{
+			b3Vec3 p = ToB3(go->GetPosition());
+			b3Quat q = EulerToB3Quat(go->GetRotation());
+			for (GameObject* parent = go->GetParent(); parent; parent = parent->GetParent())
+			{
+				const Vec3 &s = parent->GetScale();
+				const b3Quat pq = EulerToB3Quat(parent->GetRotation());
+				const b3Vec3 scaled = { p.x * s.x, p.y * s.y, p.z * s.z };
+				p = b3Add(ToB3(parent->GetPosition()), b3RotateVector(pq, scaled));
+				q = b3MulQuat(pq, q);
+			}
+			pos = FromB3(p);
+			rot = q;
+		}
+
+		// WorldPose's inverse: a simulated body's world pose as the local
+		// values its owner stores.
+		void LocalFromWorld(GameObject* go, const Vec3 &worldPos, const b3Quat &worldRot, Vec3 &localPos, Vec3 &localEuler)
+		{
+			GameObject* parent = go->GetParent();
+			if (!parent)
+			{
+				localPos = worldPos;
+				localEuler = FromB3Quat(worldRot).GetEulerFromQuaternion();
+				return;
+			}
+			Vec3 pp;
+			b3Quat pq;
+			WorldPose(parent, pp, pq);
+			Vec3 s(1.f, 1.f, 1.f);
+			for (GameObject* a = parent; a; a = a->GetParent())
+			{
+				const Vec3 &as = a->GetScale();
+				s = Vec3(s.x * as.x, s.y * as.y, s.z * as.z);
+			}
+			const b3Vec3 d = b3InvRotateVector(pq, ToB3(worldPos - pp));
+			localPos = Vec3(s.x != 0.f ? d.x / s.x : 0.f, s.y != 0.f ? d.y / s.y : 0.f, s.z != 0.f ? d.z / s.z : 0.f);
+			localEuler = FromB3Quat(b3InvMulQuat(pq, worldRot)).GetEulerFromQuaternion();
 		}
 
 		Matrix BodyToMatrix(b3BodyId body)
@@ -455,6 +504,11 @@ namespace p3d {
 			b3DestroyMesh(handles->ownedMesh);
 			handles->ownedMesh = NULL;
 		}
+		if (handles->ownedHeightField)
+		{
+			b3DestroyHeightField(handles->ownedHeightField);
+			handles->ownedHeightField = NULL;
+		}
 		handles->meshVerts.clear();
 		handles->meshIndices.clear();
 
@@ -695,8 +749,9 @@ namespace p3d {
 		}
 		if (pcomp->GetOwner())
 		{
-			def.position = ToB3Pos(pcomp->GetOwner()->GetPosition());
-			def.rotation = EulerToB3Quat(pcomp->GetOwner()->GetRotation());
+			Vec3 p;
+			WorldPose(pcomp->GetOwner(), p, def.rotation);
+			def.position = ToB3Pos(p);
 		}
 		def.userData = pcomp;
 		return def;
@@ -800,6 +855,28 @@ namespace p3d {
 			}
 		}
 		break;
+		case CollisionShapes::HeightFieldTerrain:
+		{
+			PhysicsHeightField* hfComp = static_cast<PhysicsHeightField*>(pcomp);
+			const std::shared_ptr<const HeightfieldData> &data = hfComp->GetData();
+			if (data && data->samples >= 2)
+			{
+				b3HeightFieldDef def = {};
+				// Only read during creation - the shape keeps its own copy.
+				def.heights = const_cast<float*>(&data->heights[0]);
+				def.scale = { data->Spacing(), 1.f, data->Spacing() };
+				def.countX = (int)data->samples;
+				def.countZ = (int)data->samples;
+				// The range every tile of this terrain shares, so heights on
+				// a border between two tiles quantize to the same value.
+				def.globalMinimumHeight = data->rangeMin;
+				def.globalMaximumHeight = std::max(data->rangeMax, data->rangeMin + 0.001f);
+				handles->ownedHeightField = b3CreateHeightField(&def);
+				if (handles->ownedHeightField)
+					b3CreateHeightFieldShape(body, &shapeDef, handles->ownedHeightField);
+			}
+		}
+		break;
 		case CollisionShapes::MultipleSphere:
 		{
 			PhysicsMultipleSphere* multi = static_cast<PhysicsMultipleSphere*>(pcomp);
@@ -875,8 +952,9 @@ namespace p3d {
 			bodyDef.type = (chassisMass == 0.f) ? b3_staticBody : b3_dynamicBody;
 			if (pcomp->GetOwner())
 			{
-				bodyDef.position = ToB3Pos(pcomp->GetOwner()->GetPosition());
-				bodyDef.rotation = EulerToB3Quat(pcomp->GetOwner()->GetRotation());
+				Vec3 p;
+				WorldPose(pcomp->GetOwner(), p, bodyDef.rotation);
+				bodyDef.position = ToB3Pos(p);
 			}
 			bodyDef.userData = pcomp;
 			bodyDef.enableSleep = false;
@@ -1022,10 +1100,10 @@ namespace p3d {
 			std::vector<VehicleWheel> &wheels = vcomp->GetWheels();
 
 			// Drive motors are applied in Update() before b3World_Step.
-			b3Pos p = b3Body_GetPosition(handles->body);
-			b3Quat q = b3Body_GetRotation(handles->body);
-			owner->SetPosition(FromB3Pos(p));
-			owner->SetRotation(FromB3Quat(q).GetEulerFromQuaternion());
+			Vec3 lp, le;
+			LocalFromWorld(owner, FromB3Pos(b3Body_GetPosition(handles->body)), b3Body_GetRotation(handles->body), lp, le);
+			owner->SetPosition(lp);
+			owner->SetRotation(le);
 
 			const size_t count = std::min(wheels.size(), handles->wheelBodies.size());
 			for (size_t i = 0; i < count; ++i)
@@ -1041,16 +1119,17 @@ namespace p3d {
 		// sensor bodies always use this path (solver noise must not move walls).
 		if (!m_simulationEnabled || pcomp->GetMass() <= 0.f || pcomp->IsGhost())
 		{
-			b3Body_SetTransform(handles->body,
-				ToB3Pos(owner->GetPosition()),
-				EulerToB3Quat(owner->GetRotation()));
+			Vec3 wp;
+			b3Quat wq;
+			WorldPose(owner, wp, wq);
+			b3Body_SetTransform(handles->body, ToB3Pos(wp), wq);
 			return;
 		}
 
-		b3Pos p = b3Body_GetPosition(handles->body);
-		b3Quat q = b3Body_GetRotation(handles->body);
-		owner->SetPosition(FromB3Pos(p));
-		owner->SetRotation(FromB3Quat(q).GetEulerFromQuaternion());
+		Vec3 lp, le;
+		LocalFromWorld(owner, FromB3Pos(b3Body_GetPosition(handles->body)), b3Body_GetRotation(handles->body), lp, le);
+		owner->SetPosition(lp);
+		owner->SetRotation(le);
 	}
 
 	void Box3DPhysics::RemovePhysicsComponent(IPhysicsComponent* pcomp)
@@ -1343,6 +1422,10 @@ namespace p3d {
 	std::shared_ptr<IPhysicsComponent> Box3DPhysics::CreateTriangleMesh(const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass, bool ghost)
 	{
 		return std::make_shared<PhysicsTriangleMesh>(this, index, vertex, mass, ghost);
+	}
+	std::shared_ptr<IPhysicsComponent> Box3DPhysics::CreateHeightField(const std::shared_ptr<const HeightfieldData> &data)
+	{
+		return std::make_shared<PhysicsHeightField>(this, data);
 	}
 	std::shared_ptr<IPhysicsComponent> Box3DPhysics::CreateVehicle(const std::shared_ptr<IPhysicsComponent> &ChassisShape, bool ghost)
 	{

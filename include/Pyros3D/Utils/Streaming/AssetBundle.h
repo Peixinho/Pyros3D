@@ -23,6 +23,7 @@
 
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <map>
 #include <memory>
 #include <mutex>
@@ -61,6 +62,10 @@ namespace p3d {
 		void Fill(const std::vector<std::string> &models, const std::vector<std::string> &images, bool parallel,
 			std::vector<std::string>* modelTexturesOut = NULL);
 
+		// A terrain tile, prepared by the caller (PreparedHeightfield::
+		// Prepare, on any thread) and filed under its Key().
+		void AddHeightfield(const std::string &key, const std::shared_ptr<PreparedHeightfield> &prepared);
+
 		size_t ImageCount() const;
 		size_t ModelCount() const;
 		// Pixels plus parsed vertex data, roughly - for budgets and traces.
@@ -81,11 +86,13 @@ namespace p3d {
 		// when no bundle is open or it does not hold the path.
 		static bool TakeImage(const std::string &path, Texture::DecodedImage &out);
 		static ModelLoader* TakeModel(const std::string &path);
+		static std::shared_ptr<PreparedHeightfield> TakeHeightfield(const std::string &key);
 
 	private:
 		mutable std::mutex mutex;
 		std::map<std::string, Texture::DecodedImage> images;
 		std::map<std::string, std::unique_ptr<ModelLoader> > models;
+		std::map<std::string, std::shared_ptr<PreparedHeightfield> > heightfields;
 		size_t bytes;
 	};
 
