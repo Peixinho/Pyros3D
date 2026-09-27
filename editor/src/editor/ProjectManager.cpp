@@ -1875,7 +1875,11 @@ namespace {
 		if (!fs::exists(from, ec)) return true;
 
 		fs::create_directories(to, ec);
-		for (fs::recursive_directory_iterator it(from, fs::directory_options::skip_permission_denied, ec), end;
+		// Symlinked folders are followed: a project may link a shared asset
+		// library in, and a build that silently left it out ran without its
+		// models and textures.
+		for (fs::recursive_directory_iterator it(from, fs::directory_options::skip_permission_denied
+				| fs::directory_options::follow_directory_symlink, ec), end;
 			it != end; it.increment(ec))
 		{
 			if (ec) { ec.clear(); continue; }
@@ -1888,15 +1892,22 @@ namespace {
 				continue;
 			}
 
-			const fs::path rel = fs::relative(src, from, ec);
-			if (ec) { ec.clear(); continue; }
+			// Lexical, not fs::relative: that one resolves symlinks, so a file
+			// inside a linked folder got a path climbing out to wherever the
+			// link points, and landed nowhere sensible in the build.
+			const fs::path rel = src.lexically_relative(from);
+			if (rel.empty()) continue;
 			const fs::path dst = to / rel;
 
-			if (it->is_directory(ec))
+			// fs::is_directory, not the entry's: the entry's cached status
+			// does not see through a symlink, so a linked folder was copied as
+			// a file and every file inside it then failed with "File exists".
+			if (fs::is_directory(src, ec))
 			{
 				fs::create_directories(dst, ec);
 				continue;
 			}
+			ec.clear();
 			fs::create_directories(dst.parent_path(), ec);
 			fs::copy_file(src, dst, fs::copy_options::overwrite_existing, ec);
 			if (ec)
@@ -1956,6 +1967,28 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	fs::permissions(playerDst, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
 		fs::perm_options::add, ec);
 	++r.filesCopied;
+
+	// The dedicated server, when it was built: the same game, headless, for
+	// hosting multiplayer (see player/src/server_main.cpp).
+	{
+#ifdef _WIN32
+		const fs::path server = fs::path(player).parent_path() / "PyrosServer.exe";
+#else
+		const fs::path server = fs::path(player).parent_path() / "PyrosServer";
+#endif
+		if (fs::exists(server, ec))
+		{
+			const fs::path serverDst = out / server.filename();
+			fs::copy_file(server, serverDst, fs::copy_options::overwrite_existing, ec);
+			if (!ec)
+			{
+				fs::permissions(serverDst, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
+					fs::perm_options::add, ec);
+				++r.filesCopied;
+			}
+			ec.clear();
+		}
+	}
 
 	// The engine is a shared library in every configuration that builds the
 	// editor, and the player looks for it beside itself (its rpath carries

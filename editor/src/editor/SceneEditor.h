@@ -1136,6 +1136,10 @@ public:
 	// Public because the Scene Settings panel and the agent bridge both edit
 	// it directly, the same way ambientLightColor is reached.
 	SceneMeta::View2D view2D;
+	// The scene's streamed-world settings (SceneMeta::World): cell size,
+	// radii and which cells exist. Round-tripped like view2D; the World
+	// panel and the agent bridge edit it.
+	SceneMeta::World sceneWorld;
 private:
 	// Round-trips through SceneMeta::twoD. A 2D scene is authored and played
 	// the same either way - on its own as a menu or a 2D game, or shown over

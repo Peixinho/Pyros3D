@@ -8011,6 +8011,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		sceneDirty = false;
 
 		ambientLightColor = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
+		sceneWorld = SceneMeta::World();
 		// A new scene has no chain. Left behind, the outgoing scene's effects
 		// kept running in the viewport and were written into the new scene
 		// file on the first save - a scene that had never had a post effect
@@ -8084,6 +8085,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.postEffects = postEffects;
 			meta.twoD = sceneIsTwoD;
 			meta.view2D = view2D;
+			// Saving dropped this: a streamed world came back from its first
+			// editor save as a plain scene with its cells orphaned on disk.
+			meta.world = sceneWorld;
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
 			meta.mainScript = sceneMainScriptPath;
@@ -8297,6 +8301,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					sceneMainScriptPath = ProjectManager::SceneScriptPathForSceneJson(path);
 				sceneIsTwoD = meta.twoD;
 				view2D = meta.view2D;
+				sceneWorld = meta.world;
 
 				// Re-apply the PROJECT's renderer for the scene just loaded.
 				// This document may have been forced to forward by a 2D scene
