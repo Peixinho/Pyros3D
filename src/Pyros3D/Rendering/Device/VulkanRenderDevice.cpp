@@ -5190,6 +5190,12 @@ namespace p3d {
 		(void)target;
 		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
 		if (it == textures.end()) return;
+		// Only a real change dirties the sampler: a rebuild destroys the
+		// VkSampler and evicts every cached descriptor set naming it, and
+		// callers re-apply unchanged state per draw (BindShadowMaps sets
+		// Nearest on every shadow map at every material change - measured
+		// as vkCreateSampler at the top of Physics Stress's draw path).
+		if (it->second.wrapS == engineRepeat) return;
 		it->second.wrapS = engineRepeat;
 		it->second.samplerDirty = true;
 	}
@@ -5197,7 +5203,7 @@ namespace p3d {
 	{
 		(void)target;
 		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
-		if (it == textures.end()) return;
+		if (it == textures.end() || it->second.wrapT == engineRepeat) return;
 		it->second.wrapT = engineRepeat;
 		it->second.samplerDirty = true;
 	}
@@ -5208,7 +5214,7 @@ namespace p3d {
 	{
 		(void)target;
 		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
-		if (it == textures.end()) return;
+		if (it == textures.end() || it->second.magFilter == engineFilter) return;
 		it->second.magFilter = engineFilter;
 		it->second.samplerDirty = true;
 	}
@@ -5217,6 +5223,7 @@ namespace p3d {
 		(void)target;
 		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
 		if (it == textures.end()) return;
+		if (it->second.minFilter == engineFilter && it->second.hasMipmap == hasMipmap) return;
 		it->second.minFilter = engineFilter;
 		// Real mipmap *generation* isn't implemented (GenerateMipmap() is
 		// a no-op, images are always created with 1 mip level - see
@@ -5245,7 +5252,7 @@ namespace p3d {
 	{
 		(void)target;
 		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
-		if (it == textures.end()) return;
+		if (it == textures.end() || it->second.compareModeEnabled) return;
 		it->second.compareModeEnabled = true;
 		it->second.samplerDirty = true;
 	}
