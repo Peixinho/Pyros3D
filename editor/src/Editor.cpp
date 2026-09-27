@@ -947,6 +947,10 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				gpu.push_back(g);
 			}
 			p["gpu"] = gpu;
+			nlohmann::json counters = nlohmann::json::object();
+			for (uint32 i = 0; i < prof.CounterCount(); i++)
+				counters[prof.CounterAt(i).name] = prof.CounterAt(i).ms;
+			p["counters"] = counters;
 			r["profiler"] = p;
 		}
 

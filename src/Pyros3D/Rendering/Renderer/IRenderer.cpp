@@ -22,6 +22,7 @@
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
 // fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
 #define PYROS_MAX_LIGHTS 4
+static_assert(PYROS_MAX_LIGHTS == p3d::IRenderer::MaxShaderLights, "IRenderer::MaxShaderLights must match PYROS_MAX_LIGHTS");
 
 // PyrosShader.glsl declares uPointShadowMaps[4] and uSpotShadowMaps[4].
 #define PYROS_SHADOW_SAMPLER_SLOTS 4
@@ -409,6 +410,10 @@ void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint3
 
 IRenderer::~IRenderer()
 {
+	for (std::map<AutoInstanceKey, std::vector<AutoInstanceBatch*> >::iterator k = autoInstanceBatches.begin(); k != autoInstanceBatches.end(); k++)
+		for (size_t b = 0; b < k->second.size(); b++)
+			delete k->second[b];
+	autoInstanceBatches.clear();
 	// UsesSharedUBOs is false for instances built via the no-arg
 	// IRenderer() - they never retained the shared UBOs.
 	if (UsesSharedUBOs)
@@ -418,6 +423,190 @@ IRenderer::~IRenderer()
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
 	delete shadowInstancedMaterial;
+}
+
+// ---------------------------------------------------------------------------
+// Automatic instancing
+//
+// Every visible mesh used to be its own draw: material, uniforms, descriptor
+// sets and a draw call each, so a scene of thousands of identical objects
+// (Physics Stress: ~7.7k spheres, a shadow pass and a main pass) spent most of
+// its frame recording draws. Meshes that share geometry and a plain opaque
+// GenericShaderMaterial now draw as one instanced call through the path
+// RenderingInstancedComponent already uses - the material's
+// INSTANCED_RENDERING variant, ModelMatrix = uModelMatrix * aInstancedTransform
+// - with an identity owner and pivot, so the instance matrix is each member's
+// own world * pivot and position, normals and shadows come out the same.
+//
+// Only where draw order cannot matter: opaque, depth-tested, depth-written.
+// Skinned, LOD'd, already-instanced and custom-material meshes draw as before.
+// ---------------------------------------------------------------------------
+
+static const uint32 kAutoInstanceMinimum = 4;
+
+static bool& AutoInstancingFlag()
+{
+	static bool enabled = []() {
+		const char* env = getenv("PYROS_AUTO_INSTANCING");
+		return !(env != NULL && env[0] == '0');
+	}();
+	return enabled;
+}
+
+void IRenderer::SetAutoInstancing(const bool enabled) { AutoInstancingFlag() = enabled; }
+bool IRenderer::IsAutoInstancing() { return AutoInstancingFlag(); }
+
+bool IRenderer::AutoInstanceEligible(RenderingMesh* mesh)
+{
+	RenderingComponent* rc = mesh->renderingComponent;
+	if (rc == NULL || rc->IsInstanced() || rc->GetLODSize() > 1 || !rc->GetRenderableShared())
+		return false;
+	if (!mesh->SkinningBones.empty() || mesh->Geometry == NULL)
+		return false;
+	IMaterial* mat = mesh->Material.get();
+	if (mat == NULL || typeid(*mat) != typeid(GenericShaderMaterial))
+		return false;
+	if ((static_cast<GenericShaderMaterial*>(mat)->GetOptions() & ShaderUsage::InstancedRendering) != 0)
+		return false;
+	return !mat->IsTransparent() && mat->IsDepthTesting() && mat->IsDepthWritting();
+}
+
+void IRenderer::BeginAutoInstancingFrame()
+{
+	autoInstanceFrame++;
+	autoInstanceOrdinal.clear();
+	autoInstanceBatchesThisFrame = autoInstanceObjectsThisFrame = 0;
+	// Batches unused for a while go: they hold their material and renderable
+	// alive, and the scene they were built for may be long gone.
+	for (std::map<AutoInstanceKey, std::vector<AutoInstanceBatch*> >::iterator k = autoInstanceBatches.begin(); k != autoInstanceBatches.end(); )
+	{
+		std::vector<AutoInstanceBatch*> &v = k->second;
+		for (size_t b = v.size(); b-- > 0; )
+			if (v[b]->lastUsedFrame + 300 < autoInstanceFrame)
+			{
+				delete v[b];
+				v.erase(v.begin() + b);
+			}
+		if (v.empty()) autoInstanceBatches.erase(k++);
+		else ++k;
+	}
+}
+
+IRenderer::AutoInstanceBatch* IRenderer::AcquireAutoInstanceBatch(RenderingMesh* source, const uint64 fingerprint, const uint32 count)
+{
+	const AutoInstanceKey key(source->Geometry, fingerprint);
+	uint32 &ordinal = autoInstanceOrdinal[key];
+	std::vector<AutoInstanceBatch*> &list = autoInstanceBatches[key];
+	if (ordinal >= list.size())
+		list.push_back(new AutoInstanceBatch());
+	AutoInstanceBatch* b = list[ordinal++];
+	if (b->capacity < count)
+	{
+		uint32 capacity = 64;
+		while (capacity < count) capacity *= 2;
+		RenderingComponent* rc = source->renderingComponent;
+		b->mesh = NULL;
+		b->comp.reset();
+		b->owner.reset();
+		b->owner = std::make_shared<GameObject>();
+		b->comp = std::make_shared<RenderingInstancedComponent>(rc->GetRenderableShared(), source->Material, capacity, rc->GetBoundingSphereRadius());
+		b->owner->Add(b->comp);
+		std::vector<RenderingMesh*> &meshes = b->comp->GetMeshes(0);
+		for (size_t i = 0; i < meshes.size(); i++)
+			if (meshes[i]->Geometry == source->Geometry) { b->mesh = meshes[i]; break; }
+		if (b->mesh == NULL)
+			return NULL;
+		// The members' own pivots go into their instance matrices.
+		b->mesh->Pivot.identity();
+		b->capacity = capacity;
+	}
+	// Members only share the material's content, not the object: draw with
+	// this group's first member's.
+	b->mesh->Material = source->Material;
+	b->lastUsedFrame = autoInstanceFrame;
+	return b;
+}
+
+void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures,
+	const std::function<void(RenderingMesh*, uint32)> &drawOne,
+	const std::function<void(RenderingMesh*, uint32)> &drawBatch)
+{
+	const uint32 n = (uint32)items.size();
+	if (!IsAutoInstancing())
+	{
+		for (uint32 i = 0; i < n; i++) drawOne(items[i], i);
+		return;
+	}
+
+	struct GroupKey
+	{
+		IGeometry* g; uint64 m; uint64 s;
+		bool operator<(const GroupKey &o) const
+		{
+			if (g != o.g) return g < o.g;
+			if (m != o.m) return m < o.m;
+			return s < o.s;
+		}
+	};
+	// One fingerprint per distinct material per pass - cheap even for scenes
+	// that give every object its own material.
+	std::map<IMaterial*, uint64> fingerprints;
+	std::map<GroupKey, uint32> groupIndex;
+	std::vector<std::vector<uint32> > groups;
+	std::vector<uint64> groupFingerprint;
+	std::vector<int32> groupOf(n, -1);
+	for (uint32 i = 0; i < n; i++)
+	{
+		if (!AutoInstanceEligible(items[i])) continue;
+		IMaterial* mat = items[i]->Material.get();
+		std::map<IMaterial*, uint64>::iterator fp = fingerprints.find(mat);
+		if (fp == fingerprints.end())
+			fp = fingerprints.insert(std::make_pair(mat, static_cast<GenericShaderMaterial*>(mat)->RenderFingerprint())).first;
+		const GroupKey key = { items[i]->Geometry, fp->second, signatures ? (*signatures)[i] : 0 };
+		std::map<GroupKey, uint32>::iterator it = groupIndex.find(key);
+		if (it == groupIndex.end())
+		{
+			it = groupIndex.insert(std::make_pair(key, (uint32)groups.size())).first;
+			groups.push_back(std::vector<uint32>());
+			groupFingerprint.push_back(fp->second);
+		}
+		groups[it->second].push_back(i);
+		groupOf[i] = (int32)it->second;
+	}
+
+	std::vector<bool> fallback(groups.size(), false);
+	for (uint32 i = 0; i < n; i++)
+	{
+		const int32 g = groupOf[i];
+		if (g < 0 || fallback[g] || groups[g].size() < kAutoInstanceMinimum)
+		{
+			drawOne(items[i], i);
+			continue;
+		}
+		if (groups[g][0] != i)
+			continue; // drawn with its batch
+
+		const std::vector<uint32> &members = groups[g];
+		AutoInstanceBatch* b = AcquireAutoInstanceBatch(items[i], groupFingerprint[g], (uint32)members.size());
+		if (b == NULL)
+		{
+			fallback[g] = true;
+			drawOne(items[i], i);
+			continue;
+		}
+		for (size_t k = 0; k < members.size(); k++)
+		{
+			RenderingMesh* m = items[members[k]];
+			b->comp->transform[k] = m->renderingComponent->GetOwner()->GetWorldTransformation() * m->Pivot;
+		}
+		b->comp->SetNumberInstances((uint32)members.size());
+		b->comp->UpdateTransforms();
+		drawBatch(b->mesh, i);
+		autoInstanceBatchesThisFrame++;
+		autoInstanceObjectsThisFrame += (uint32)members.size();
+		FrameProfiler::Instance().Counter("AutoInstance.Batches", (f64)autoInstanceBatchesThisFrame);
+		FrameProfiler::Instance().Counter("AutoInstance.Objects", (f64)autoInstanceObjectsThisFrame);
+	}
 }
 
 void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
@@ -568,6 +757,23 @@ GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
 	return shadowMaterial;
 }
 
+void IRenderer::RenderShadowCasters(const bool cullTest)
+{
+	std::vector<RenderingMesh*> casters;
+	casters.reserve(rmesh.size());
+	for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
+	{
+		RenderingComponent* rc = (*k)->renderingComponent;
+		if (rc->GetOwner() == NULL || (*k)->Material->IsTransparent()) continue;
+		if (!rc->IsCastingShadows() || !rc->IsActive()) continue;
+		if (cullTest && !ShadowCasterVisible(*k)) continue;
+		casters.push_back(*k);
+	}
+	DrawWithAutoInstancing(casters, NULL,
+		[this](RenderingMesh* m, uint32) { RenderShadowCaster(m); },
+		[this](RenderingMesh* m, uint32) { RenderShadowCaster(m); });
+}
+
 void IRenderer::RenderShadowCaster(RenderingMesh* mesh)
 {
 	GameObject* owner = mesh->renderingComponent->GetOwner();
@@ -667,6 +873,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const std::stri
 void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
 {
 	PYROS_PROFILE_SCOPE("Renderer.PreRender");
+	BeginAutoInstancingFrame();
 
 	// Group and Sort Meshes
 	{
@@ -780,16 +987,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						// Update Culling
 						UpdateCulling(ProjectionMatrix*ViewMatrix);
 
-						// Render Scene with Objects Material
-						for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
-						{
-
-							if ((*k)->renderingComponent->GetOwner() != NULL && !(*k)->Material->IsTransparent())
-							{
-								if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-									RenderShadowCaster(*k);
-							}
-						}
+						RenderShadowCasters(false);
 
 						// device->TranslateProjectionMatrix() (identity on
 						// GL) - this matrix maps a view-space fragment
@@ -928,18 +1126,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						_SetViewPort(0, 0, p->GetShadowWidth(), p->GetShadowHeight());
 
 						// Render Scene with Objects Material
-						for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
-						{
-
-							if ((*k)->renderingComponent->GetOwner() != NULL)
-							{
-								if (ShadowCasterVisible(*k) && !(*k)->Material->IsTransparent())
-								{
-									if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-										RenderShadowCaster(*k);
-								}
-							}
-						}
+						RenderShadowCasters(true);
 
 						EndClippingPlanes();
 
@@ -1046,18 +1233,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					_SetViewPort(0, 0, s->GetShadowWidth(), s->GetShadowHeight());
 
 					// Render Scene with Objects Material
-					for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
-					{
-
-						if ((*k)->renderingComponent->GetOwner() != NULL)
-						{
-							if (ShadowCasterVisible(*k) && !(*k)->Material->IsTransparent())
-							{
-								if ((*k)->renderingComponent->IsCastingShadows() && (*k)->renderingComponent->IsActive())
-									RenderShadowCaster(*k);
-							}
-						}
-					}
+					RenderShadowCasters(true);
 
 					EndClippingPlanes();
 

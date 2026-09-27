@@ -890,93 +890,103 @@ namespace p3d {
 		DrawBackground();
 
 		// Render Scene with Objects Material
+		// Visible opaque meshes first, then the draws - DrawWithAutoInstancing
+		// batches the ones that share geometry and material content.
+		std::vector<RenderingMesh*> visible;
+		visible.reserve(rmesh.size());
 		for (std::vector<RenderingMesh*>::iterator j = rmesh.begin(); j != rmesh.end(); j++)
 		{
-
-			if (!(*j)->Material->IsTransparent())
+			if ((*j)->Material->IsTransparent())
+				continue;
+			if ((*j)->renderingComponent->GetOwner() == NULL)
+				break;
+			// Culling Test
+			bool cullingTest = false;
+			switch ((*j)->CullingGeometry)
 			{
-				if ((*j)->renderingComponent->GetOwner() != NULL)
-				{
-					// Culling Test
-					bool cullingTest = false;
-					switch ((*j)->CullingGeometry)
-					{
-					case CullingGeometry::Box:
-						cullingTest = CullingBoxTest((*j), (*j)->renderingComponent->GetOwner());
-						break;
-					case CullingGeometry::Sphere:
-					default:
-						cullingTest = CullingSphereTest((*j), (*j)->renderingComponent->GetOwner());
-						break;
-					}
-					// RenderingComponent::DisableCullTest() was honoured by
-					// ForwardRenderer::RenderScene() and by the translucent
-					// loop further down in this very function, but not here
-					// - so on the deferred path it silently did nothing for
-					// any opaque (G-buffer) mesh, which is most of a scene.
-					// A caller that knows its bounding volume is wrong (or
-					// just wants a mesh drawn unconditionally) had no way to
-					// say so. Same one-liner as those two loops.
-					if (!(*j)->renderingComponent->IsCullTesting()) cullingTest = true;
-
-					if (cullingTest && (*j)->renderingComponent->IsActive() && (*j)->Active == true)
-					{
-						// Only materials that actually run PyrosShader.glsl's
-						// lit path (DIFFUSE/CELLSHADING/PBR) need swapping -
-						// their G-buffer branch reads gbuffer_normals, which
-						// the vertex stage only computes from aNormal when
-						// one of those is set (see PyrosShader.glsl). An
-						// unlit Color-only material (e.g. the editor's own
-						// grid helper, drawn through this same per-object
-						// loop) has no aNormal in its own mesh at all - the
-						// vertex shader for ITS G-buffer variant would need
-						// one anyway (DEFERRED_GBUFFER's gbuffer_normals
-						// write isn't itself gated on DIFFUSE), so swapping
-						// it in builds a pipeline whose vertex input state
-						// is missing a location the shader declares
-						// (VUID-VkGraphicsPipelineCreateInfo-Input-07904) -
-						// found via exactly this: the grid's own material
-						// failing pipeline creation once this swap covered
-						// every GenericShaderMaterial instead of just lit
-						// ones. An unlit material was never miscounted as
-						// "ambient" by the composite pass to begin with (its
-						// FragColor.w is just opacity either way), so
-						// leaving it on its own Forward-only program changes
-						// nothing it was already relying on.
-						static const uint32 kLitUsageMask = ShaderUsage::Diffuse | ShaderUsage::CellShading | ShaderUsage::PBR;
-						IMaterial* mat = (*j)->Material.get();
-						GenericShaderMaterial* gsm = dynamic_cast<GenericShaderMaterial*>(mat);
-						const bool needsGBufferSwap = gsm && !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLitUsageMask) != 0;
-						if (needsGBufferSwap)
-							gsm->UseGBufferProgramForNextDraw();
-
-						// Scoped to exactly CustomShaderMaterial (typeid, not
-						// dynamic_cast) rather than any subclass - subclasses
-						// like ParticleMaterial/CustomMaterialExample hand-
-						// assign extraUniforms[] themselves for an explicit
-						// hand-authored UBO, which this swap's std140 auto-
-						// layout probe (GetAutoUniformBlockLayout) doesn't
-						// know how to reproduce for a second, G-buffer-only
-						// program - see CustomShaderMaterial::
-						// UseGBufferProgramForNextDraw()'s comment for what
-						// this fixes for the base class.
-						CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
-						const bool usedCustomGBufferSwap = csm && csm->UseVariantForNextDraw(true, (*j)->SkinningBones.size() > 0);
-
-						RenderObject((*j), (*j)->renderingComponent->GetOwner(), (*j)->Material.get());
-
-						if (needsGBufferSwap)
-							gsm->RestoreOwnProgram();
-						if (usedCustomGBufferSwap)
-							csm->RestoreOwnProgram();
-					}
-
-				}
-				else {
-					break;
-				}
+			case CullingGeometry::Box:
+				cullingTest = CullingBoxTest((*j), (*j)->renderingComponent->GetOwner());
+				break;
+			case CullingGeometry::Sphere:
+			default:
+				cullingTest = CullingSphereTest((*j), (*j)->renderingComponent->GetOwner());
+				break;
 			}
+			// RenderingComponent::DisableCullTest() was honoured by
+			// ForwardRenderer::RenderScene() and by the translucent
+			// loop further down in this very function, but not here
+			// - so on the deferred path it silently did nothing for
+			// any opaque (G-buffer) mesh, which is most of a scene.
+			// A caller that knows its bounding volume is wrong (or
+			// just wants a mesh drawn unconditionally) had no way to
+			// say so. Same one-liner as those two loops.
+			if (!(*j)->renderingComponent->IsCullTesting()) cullingTest = true;
+			if (cullingTest && (*j)->renderingComponent->IsActive() && (*j)->Active == true)
+				visible.push_back(*j);
 		}
+
+		static const uint32 kLitUsageMask = ShaderUsage::Diffuse | ShaderUsage::CellShading | ShaderUsage::PBR;
+		DrawWithAutoInstancing(visible, NULL,
+			[&](RenderingMesh* mesh, uint32)
+			{
+				// Only materials that actually run PyrosShader.glsl's
+				// lit path (DIFFUSE/CELLSHADING/PBR) need swapping -
+				// their G-buffer branch reads gbuffer_normals, which
+				// the vertex stage only computes from aNormal when
+				// one of those is set (see PyrosShader.glsl). An
+				// unlit Color-only material (e.g. the editor's own
+				// grid helper, drawn through this same per-object
+				// loop) has no aNormal in its own mesh at all - the
+				// vertex shader for ITS G-buffer variant would need
+				// one anyway (DEFERRED_GBUFFER's gbuffer_normals
+				// write isn't itself gated on DIFFUSE), so swapping
+				// it in builds a pipeline whose vertex input state
+				// is missing a location the shader declares
+				// (VUID-VkGraphicsPipelineCreateInfo-Input-07904) -
+				// found via exactly this: the grid's own material
+				// failing pipeline creation once this swap covered
+				// every GenericShaderMaterial instead of just lit
+				// ones. An unlit material was never miscounted as
+				// "ambient" by the composite pass to begin with (its
+				// FragColor.w is just opacity either way), so
+				// leaving it on its own Forward-only program changes
+				// nothing it was already relying on.
+				IMaterial* mat = mesh->Material.get();
+				GenericShaderMaterial* gsm = dynamic_cast<GenericShaderMaterial*>(mat);
+				const bool needsGBufferSwap = gsm && !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLitUsageMask) != 0;
+				if (needsGBufferSwap)
+					gsm->UseGBufferProgramForNextDraw();
+
+				// Scoped to exactly CustomShaderMaterial (typeid, not
+				// dynamic_cast) rather than any subclass - subclasses
+				// like ParticleMaterial/CustomMaterialExample hand-
+				// assign extraUniforms[] themselves for an explicit
+				// hand-authored UBO, which this swap's std140 auto-
+				// layout probe (GetAutoUniformBlockLayout) doesn't
+				// know how to reproduce for a second, G-buffer-only
+				// program - see CustomShaderMaterial::
+				// UseGBufferProgramForNextDraw()'s comment for what
+				// this fixes for the base class.
+				CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
+				const bool usedCustomGBufferSwap = csm && csm->UseVariantForNextDraw(true, mesh->SkinningBones.size() > 0);
+
+				RenderObject(mesh, mesh->renderingComponent->GetOwner(), mesh->Material.get());
+
+				if (needsGBufferSwap)
+					gsm->RestoreOwnProgram();
+				if (usedCustomGBufferSwap)
+					csm->RestoreOwnProgram();
+			},
+			[&](RenderingMesh* batchMesh, uint32)
+			{
+				// The instanced sibling of whatever the single draw would
+				// have used: plus DEFERRED_GBUFFER exactly when it swaps.
+				GenericShaderMaterial* gsm = static_cast<GenericShaderMaterial*>(batchMesh->Material.get());
+				const bool gbuffer = !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLitUsageMask) != 0;
+				gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering | (gbuffer ? ShaderUsage::DeferredRenderer_Gbuffer : 0));
+				RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), gsm);
+				gsm->RestoreOwnProgram();
+			});
 
 		// End Rendering
 		EndRender();

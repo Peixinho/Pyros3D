@@ -267,7 +267,59 @@ namespace p3d
 		}
 	}
 
+	namespace {
+		struct FingerprintHasher
+		{
+			uint64 h = 1469598103934665603ull;
+			void Bytes(const void* p, size_t n)
+			{
+				const uchar* b = static_cast<const uchar*>(p);
+				for (size_t i = 0; i < n; i++) h = (h ^ b[i]) * 1099511628211ull;
+			}
+			template <typename T> void Value(const T &v) { Bytes(&v, sizeof(T)); }
+			void Vec(const Vec4 &v) { Value(v.x); Value(v.y); Value(v.z); Value(v.w); }
+			void Uniforms(const std::list<Uniform> &list)
+			{
+				for (std::list<Uniform>::const_iterator u = list.begin(); u != list.end(); u++)
+				{
+					Value(u->NameID); Value(u->Usage); Value(u->Type);
+					const size_t n = u->Value.size();
+					Value(n);
+					if (n) Bytes(&u->Value[0], n);
+				}
+			}
+		};
+	}
+
+	uint64 GenericShaderMaterial::RenderFingerprint() const
+	{
+		FingerprintHasher f;
+		f.Value(shaderID);
+		const size_t textureCount = Textures.size();
+		f.Value(textureCount);
+		for (size_t i = 0; i < textureCount; i++) f.Value(Textures[i].get());
+		f.Value(colorMapID); f.Value(specularMapID); f.Value(normalMapID); f.Value(displacementMapID);
+		f.Value(envMapID); f.Value(skyboxMapID); f.Value(refractMapID); f.Value(fontMapID); f.Value(metallicRoughnessMapID);
+		f.Vec(Ke); f.Vec(Ka); f.Vec(Kd); f.Vec(Ks); f.Vec(Wind);
+		f.Value(Shininess); f.Value(UseLights); f.Value(displacementHeight); f.Value(Reflectivity);
+		f.Value(Metallic); f.Value(Roughness); f.Value(SSREnabled); f.Value(AlphaCutoff);
+		// IMaterial's render state.
+		f.Value(isWireFrame); f.Value(forceDepthWrite); f.Value(depthTest); f.Value(depthWrite); f.Value(depthTestMode);
+		f.Value(isCastingShadows); f.Value(cullFace); f.Value(isTransparent); f.Value(opacity);
+		f.Value(depthFactor); f.Value(depthUnits); f.Value(depthBias);
+		f.Value(blending); f.Value(sfactor); f.Value(dfactor); f.Value(mode);
+		// Whatever the fields above miss, the uniforms carry: every value this
+		// material sends, by name.
+		f.Uniforms(GlobalUniforms); f.Uniforms(ModelUniforms); f.Uniforms(UserUniforms);
+		return f.h;
+	}
+
 	uint32 GenericShaderMaterial::GetOrBuildGBufferProgram()
+	{
+		return GetOrBuildVariantProgram(ShaderUsage::DeferredRenderer_Gbuffer);
+	}
+
+	uint32 GenericShaderMaterial::GetOrBuildVariantProgram(const uint32 extraOptions)
 	{
 		// shaderID (this material's own options, chosen once at
 		// construction - by SceneObjects::GenericMaterial for editor-added
@@ -307,7 +359,7 @@ namespace p3d
 		// style branch selection already uses elsewhere in the engine), and
 		// have the G-buffer pass bind *that* instead of this material's own
 		// program - see DeferredRenderer::RenderScene()'s G-buffer loop.
-		const uint32 gbufferOptions = shaderID | ShaderUsage::DeferredRenderer_Gbuffer;
+		const uint32 gbufferOptions = shaderID | extraOptions;
 		if (ShadersList.find(gbufferOptions) == ShadersList.end())
 		{
 			ShadersList[gbufferOptions] = new Shader();
@@ -326,8 +378,8 @@ namespace p3d
 			ok = ShadersList[gbufferOptions]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str()) && ok;
 			ok = ShadersList[gbufferOptions]->LinkProgram() && ok;
 			if (!ok)
-				echo("ERROR: G-buffer shader for material options " + std::to_string(gbufferOptions)
-					+ " failed to build - meshes using it will occlude but never light.");
+				echo("ERROR: shader variant for material options " + std::to_string(gbufferOptions)
+					+ " failed to build - a G-buffer variant's meshes occlude but never light, an instanced one's do not draw.");
 			else
 				echo("TRACE: GBUFFER built sibling program for options " + std::to_string(gbufferOptions)
 					+ " (program " + std::to_string(ShadersList[gbufferOptions]->ShaderProgram()) + ")");

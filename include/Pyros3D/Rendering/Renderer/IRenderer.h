@@ -29,6 +29,8 @@
 #include <Pyros3D/Rendering/GI/BRDFLut.h>
 #include <Pyros3D/Other/Export.h>
 #include <algorithm>
+#include <functional>
+#include <map>
 #include <memory>
 
 namespace p3d {
@@ -50,6 +52,15 @@ namespace p3d {
 		IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* externalDevice = NULL);
 		virtual ~IRenderer();
 		void ClearBufferBit(const uint32 Option);
+
+		// Automatic instancing: visible meshes that share geometry and a
+		// plain opaque GenericShaderMaterial draw as one instanced call.
+		// On by default; PYROS_AUTO_INSTANCING=0 turns it off at startup.
+		// Lights one forward draw can use (PyrosShader.glsl's MAX_LIGHTS).
+		static const uint32 MaxShaderLights = 4;
+
+		static void SetAutoInstancing(const bool enabled);
+		static bool IsAutoInstancing();
 
 		// Depth Buffer
 		void EnableClearDepthBuffer();
@@ -256,6 +267,38 @@ namespace p3d {
 		void RenderOverlayObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material) { RenderObject(rmesh, owner, Material); }
 
 	protected:
+
+		// ---- Automatic instancing (see IRenderer.cpp) ----
+		// A renderer-owned instanced component wrapping the same renderable
+		// and material, whose per-instance transforms are the members' world
+		// matrices. One per draw per frame, since a draw's instance buffer
+		// must not be rewritten before the GPU has read it.
+		struct AutoInstanceBatch
+		{
+			std::shared_ptr<GameObject> owner;
+			std::shared_ptr<RenderingInstancedComponent> comp;
+			RenderingMesh* mesh = NULL;
+			uint32 capacity = 0;
+			uint64 lastUsedFrame = 0;
+		};
+		// Geometry and material *content* (GenericShaderMaterial::RenderFingerprint).
+		typedef std::pair<IGeometry*, uint64> AutoInstanceKey;
+		std::map<AutoInstanceKey, std::vector<AutoInstanceBatch*> > autoInstanceBatches;
+		std::map<AutoInstanceKey, uint32> autoInstanceOrdinal;
+		uint64 autoInstanceFrame = 0;
+		uint32 autoInstanceBatchesThisFrame = 0, autoInstanceObjectsThisFrame = 0;
+		static bool AutoInstanceEligible(RenderingMesh* mesh);
+		AutoInstanceBatch* AcquireAutoInstanceBatch(RenderingMesh* source, const uint64 fingerprint, const uint32 count);
+		// Once per RenderScene, before its first pass.
+		void BeginAutoInstancingFrame();
+		// Draws `items` in order, except that eligible ones sharing geometry,
+		// material and signature (the forward pass's light set) draw together
+		// as one batch where the first of them stands. `signatures` may be
+		// NULL when nothing but geometry and material distinguishes a draw.
+		void DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures,
+			const std::function<void(RenderingMesh*, uint32)> &drawOne,
+			const std::function<void(RenderingMesh*, uint32)> &drawBatch);
+
 
 		// Group by:
 		//  -Asset and Material
@@ -825,6 +868,10 @@ namespace p3d {
 		// the same displaced, cut-out shape as the surface. Borrows the
 		// shared shadow material's depth bias for that draw.
 		void RenderShadowCaster(RenderingMesh* mesh);
+		// Every shadow caster in `rmesh` for the pass just set up, through
+		// DrawWithAutoInstancing. cullTest: point/spot faces cull against
+		// the light's frustum; directional cascades have always drawn all.
+		void RenderShadowCasters(const bool cullTest);
 
 		// True for exactly the materials PickShadowMaterial() can return.
 		// Single source of truth for "is this draw part of a shadow pass",

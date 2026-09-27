@@ -62,6 +62,8 @@ namespace p3d {
 		// A named value for this frame (body count, draw calls...), written
 		// alongside the scopes by PYROS_PROFILE_LOG. Last write wins.
 		void Counter(const char *name, f64 value);
+		uint32 CounterCount() const { return counterCount_; }
+		const ScopeRecord &CounterAt(const uint32 i) const { return counters_[i]; }
 
 		// RAII helper — safe no-op when disabled.
 		struct Scope

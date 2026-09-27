@@ -135,6 +135,21 @@ namespace p3d
 		// anything else (a Forward pass, a shadow pass, another
 		// material's uniforms being resolved against the wrong program).
 		void UseGBufferProgramForNextDraw() { shaderProgram = GetOrBuildGBufferProgram(); }
+		// The general form: this material's options plus `extraOptions`
+		// (ShaderUsage bits - DeferredRenderer_Gbuffer, InstancedRendering),
+		// compiled once and cached like every ShadersList entry. The
+		// renderer's automatic instancing draws with shaderID|InstancedRendering.
+		uint32 GetOrBuildVariantProgram(const uint32 extraOptions);
+		// Hash of everything that decides how this material renders: shader
+		// options, parameters, textures, uniform values and render state.
+		// Two materials with the same fingerprint draw identically, so the
+		// renderer's automatic instancing batches their meshes together -
+		// editor scenes give every object a private copy, and pointer
+		// identity alone would batch nothing there. Identity is not part of
+		// it: a script that changes one object's colour changes only that
+		// object's fingerprint.
+		uint64 RenderFingerprint() const;
+		void UseVariantProgramForNextDraw(const uint32 extraOptions) { shaderProgram = GetOrBuildVariantProgram(extraOptions); }
 		void RestoreOwnProgram() { shaderProgram = ShadersList[shaderID]->ShaderProgram(); }
 		const uint32 &GetOptions() const { return shaderID; }
 		const Vec4 &GetColor() const { return Kd; }

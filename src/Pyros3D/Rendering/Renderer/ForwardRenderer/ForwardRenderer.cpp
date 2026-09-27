@@ -281,71 +281,116 @@ namespace p3d {
 		// Render Scene with Objects Material
 		{
 			PYROS_PROFILE_SCOPE("Forward.DrawMeshes");
+			// Visibility and each object's light set first, then the draws -
+			// DrawWithAutoInstancing batches objects that share geometry,
+			// material and light set.
+			std::vector<RenderingMesh*> visible;
+			std::vector<uint64> lightSignature;
+			std::vector<uint32> lightStart;
+			std::vector<uint16> lightIndex;
+			visible.reserve(rmesh.size());
+			std::vector<uint16> objectLights;
 			for (std::vector<RenderingMesh*>::iterator i = rmesh.begin(); i != rmesh.end(); i++)
 			{
-
-			Lights.clear();
-			if ((*i)->renderingComponent->GetOwner() != NULL)
-			{
+				GameObject* owner = (*i)->renderingComponent->GetOwner();
+				if (owner == NULL)
+					continue;
 				// Culling Test
 				bool cullingTest = false;
 				switch ((*i)->CullingGeometry)
 				{
 				case CullingGeometry::Box:
-					cullingTest = CullingBoxTest((*i), (*i)->renderingComponent->GetOwner());
+					cullingTest = CullingBoxTest((*i), owner);
 					break;
 				case CullingGeometry::Sphere:
 				default:
-					cullingTest = CullingSphereTest((*i), (*i)->renderingComponent->GetOwner());
+					cullingTest = CullingSphereTest((*i), owner);
 					break;
 				}
 				if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
-				if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
+				if (!cullingTest || !(*i)->renderingComponent->IsActive() || (*i)->Active != true)
+					continue;
+
+				const Vec3 objectPosition = owner->GetWorldPosition();
+				objectLights.clear();
+				for (uint32 l = 0; l < _Lights.size(); l++)
 				{
-					Vec3 objectPosition = (*i)->renderingComponent->GetOwner()->GetWorldPosition();
-					for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
+					const Matrix &L = _Lights[l];
+					if (L.m[13] == 1) objectLights.push_back((uint16)l);
+					else if (L.m[13] == 2 || L.m[13] == 3)
 					{
-						if ((*_l).m[13] == 1) Lights.push_back(*_l);
-						else if ((*_l).m[13] == 2 || (*_l).m[13] == 3)
-						{
-							Vec3 _lPos = Vec3((*_l).m[4], (*_l).m[5], (*_l).m[6]);
-							if ((_lPos.distance(objectPosition) - ((*i)->renderingComponent->GetOwner()->GetBoundingSphereRadiusWorldSpace())) < (*_l).m[10])
-								Lights.push_back(*_l);
-						}
+						Vec3 _lPos = Vec3(L.m[4], L.m[5], L.m[6]);
+						if ((_lPos.distance(objectPosition) - owner->GetBoundingSphereRadiusWorldSpace()) < L.m[10])
+							objectLights.push_back((uint16)l);
 					}
+				}
 
-					// PyrosShader.glsl only has room for MAX_LIGHTS (4); when
-					// more lights than that are relevant to this object,
-					// whatever's past the cap gets silently dropped further
-					// down (SendGlobalUniforms's UBO upload clamps to
-					// PYROS_MAX_LIGHTS). Sort nearest-first so it's the
-					// *farthest* lights that get dropped, not an arbitrary
-					// subset in scene-registration order. Directional lights
-					// have no meaningful position/distance and are always
-					// prioritized first.
-					std::stable_sort(Lights.begin(), Lights.end(), [&objectPosition](const Matrix &a, const Matrix &b) {
-						bool aDirectional = (a.m[13] == 1);
-						bool bDirectional = (b.m[13] == 1);
-						if (aDirectional != bDirectional) return aDirectional;
-						if (aDirectional) return false;
-						f32 aDistSQR = Vec3(a.m[4], a.m[5], a.m[6]).distanceSQR(objectPosition);
-						f32 bDistSQR = Vec3(b.m[4], b.m[5], b.m[6]).distanceSQR(objectPosition);
-						return aDistSQR < bDistSQR;
-					});
+				// PyrosShader.glsl only has room for MAX_LIGHTS (4); when
+				// more lights than that are relevant to this object,
+				// whatever's past the cap gets silently dropped further
+				// down (SendGlobalUniforms's UBO upload clamps to
+				// PYROS_MAX_LIGHTS). Sort nearest-first so it's the
+				// *farthest* lights that get dropped, not an arbitrary
+				// subset in scene-registration order. Directional lights
+				// have no meaningful position/distance and are always
+				// prioritized first.
+				std::stable_sort(objectLights.begin(), objectLights.end(), [&objectPosition, &_Lights](const uint16 ia, const uint16 ib) {
+					const Matrix &a = _Lights[ia];
+					const Matrix &b = _Lights[ib];
+					bool aDirectional = (a.m[13] == 1);
+					bool bDirectional = (b.m[13] == 1);
+					if (aDirectional != bDirectional) return aDirectional;
+					if (aDirectional) return false;
+					f32 aDistSQR = Vec3(a.m[4], a.m[5], a.m[6]).distanceSQR(objectPosition);
+					f32 bDistSQR = Vec3(b.m[4], b.m[5], b.m[6]).distanceSQR(objectPosition);
+					return aDistSQR < bDistSQR;
+				});
 
-					NumberOfLights = Lights.size();
+				// The batch key: the lights the shader will actually use,
+				// as a set - objects lit by the same lights in a different
+				// distance order render identically.
+				uint16 used[MaxShaderLights];
+				const uint32 usedCount = objectLights.size() < MaxShaderLights ? (uint32)objectLights.size() : MaxShaderLights;
+				for (uint32 u = 0; u < usedCount; u++) used[u] = objectLights[u];
+				std::sort(used, used + usedCount);
+				uint64 signature = 1469598103934665603ull ^ usedCount;
+				for (uint32 u = 0; u < usedCount; u++)
+					signature = (signature ^ used[u]) * 1099511628211ull;
+
+				visible.push_back(*i);
+				lightSignature.push_back(signature);
+				lightStart.push_back((uint32)lightIndex.size());
+				lightIndex.insert(lightIndex.end(), objectLights.begin(), objectLights.end());
+			}
+			lightStart.push_back((uint32)lightIndex.size());
+
+			const std::function<void(uint32)> setLights = [&](const uint32 item) {
+				Lights.clear();
+				for (uint32 k = lightStart[item]; k < lightStart[item + 1]; k++)
+					Lights.push_back(_Lights[lightIndex[k]]);
+				NumberOfLights = Lights.size();
+			};
+
+			DrawWithAutoInstancing(visible, &lightSignature,
+				[&](RenderingMesh* mesh, const uint32 item) {
+					setLights(item);
 					// A CustomShaderMaterial draws with its forward, skinned-
 					// or-not variant - see UseVariantForNextDraw(). Exactly
 					// the base class: subclasses hand-assign extraUniforms[].
-					IMaterial* mat = (*i)->Material.get();
+					IMaterial* mat = mesh->Material.get();
 					CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
-					const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, (*i)->SkinningBones.size() > 0);
-					RenderObject((*i), (*i)->renderingComponent->GetOwner(), mat);
+					const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, mesh->SkinningBones.size() > 0);
+					RenderObject(mesh, mesh->renderingComponent->GetOwner(), mat);
 					if (usedCustomSwap)
 						csm->RestoreOwnProgram();
-				}
-			}
-			}
+				},
+				[&](RenderingMesh* batchMesh, const uint32 firstItem) {
+					setLights(firstItem);
+					GenericShaderMaterial* gsm = static_cast<GenericShaderMaterial*>(batchMesh->Material.get());
+					gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering);
+					RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), gsm);
+					gsm->RestoreOwnProgram();
+				});
 		}
 
 		// Disable Scissor Test
