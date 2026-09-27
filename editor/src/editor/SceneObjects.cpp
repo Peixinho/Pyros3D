@@ -167,6 +167,26 @@ namespace {
 		}
 	}
 
+	void SceneObjects::Forget(const uint32 id)
+	{
+		// The registry entries only - the objects stay exactly as they are,
+		// owned by whoever made them (a streamed cell's root belongs to the
+		// WorldStreamer, which removes it from the scene itself).
+		std::vector<uint32> children;
+		for (std::map<uint32, SceneObject*>::iterator i = listObjects.begin(); i != listObjects.end(); i++)
+			if (i->second != NULL && i->second->GetParentID() == id) children.push_back(i->first);
+		for (size_t c = 0; c < children.size(); c++) Forget(children[c]);
+		std::map<uint32, SceneObject*>::iterator entry = listObjects.find(id);
+		if (entry == listObjects.end()) return;
+		if (entry->second && entry->second->Helper)
+		{
+			Scene->Remove(entry->second->Helper);
+			entry->second->Helper.reset();
+		}
+		delete entry->second;
+		listObjects.erase(entry);
+	}
+
 	void SceneObjects::CollectAdoptOrderIds(GameObject* go, std::vector<uint32>& out)
 	{
 		if (go == NULL) return;
@@ -178,9 +198,10 @@ namespace {
 			if (!RegistryTypeForComponent(components[i].get(), type, cname)) continue;
 			out.push_back(GetSceneObjectID(components[i].get()));
 		}
+		// The same children Adopt() walks - it skips transient ones.
 		const std::vector<std::shared_ptr<GameObject>>& children = go->GetChildren();
 		for (size_t i = 0; i < children.size(); i++)
-			CollectAdoptOrderIds(children[i].get(), out);
+			if (!children[i]->IsTransient()) CollectAdoptOrderIds(children[i].get(), out);
 	}
 
 	// Takes the next preferred id when there is one and it is free, so a
@@ -205,7 +226,7 @@ namespace {
 	}
 
 	SceneObject* SceneObjects::Adopt(GameObject* go, const uint32 parentID,
-		const std::vector<uint32>* preferredIds, size_t* cursorOpt)
+		const std::vector<uint32>* preferredIds, size_t* cursorOpt, const bool keepNames)
 	{
 		if (go == NULL) return NULL;
 
@@ -217,7 +238,8 @@ namespace {
 		SceneObject* obj = new SceneObject(name, go, id, SceneObjectTypes::GAMEOBJECT);
 		listObjects[id] = obj;
 		obj->SetParentID(parentID);
-		SetName(id, name);
+		if (keepNames) { obj->Name = name; obj->NameID = MakeStringID(name); }
+		else SetName(id, name);
 
 		// Components become their own registry entries parented to the
 		// GameObject, exactly as the Create* methods above arrange them.
@@ -231,12 +253,15 @@ namespace {
 			SceneObject* cobj = new SceneObject(cname, (*c).get(), cid, type);
 			listObjects[cid] = cobj;
 			cobj->SetParentID(id);
-			SetName(cid, cname);
+			if (keepNames) { cobj->Name = cname; cobj->NameID = MakeStringID(cname); }
+			else SetName(cid, cname);
 		}
 
+		// Transient children (foliage blocks, grown from their tile at load)
+		// are not the user's objects: not listed, not selectable, not saved.
 		const std::vector<std::shared_ptr<GameObject>> &children = go->GetChildren();
 		for (std::vector<std::shared_ptr<GameObject>>::const_iterator k = children.begin(); k != children.end(); k++)
-			Adopt((*k).get(), id, preferredIds, &cursor);
+			if (!(*k)->IsTransient()) Adopt((*k).get(), id, preferredIds, &cursor, keepNames);
 
 		return obj;
 	}

@@ -195,7 +195,7 @@ namespace p3d {
 				else AssetStreamer::Instance().SetPriority(c.ticket, d);
 				break;
 			case Cell::Loaded:
-				if (d > world.unloadRadius) Unload(it->first);
+				if (d > world.unloadRadius && !(unloadVeto && c.root && unloadVeto(c.root))) Unload(it->first);
 				break;
 			}
 		}
@@ -221,6 +221,21 @@ namespace p3d {
 		if (!graveyard.empty() && IsActiveRenderDeviceSet())
 			GetActiveRenderDevice().WaitIdle();
 		CollectGraveyard(true);
+	}
+
+	bool WorldStreamer::FindCell(const GameObject* root, int32 &x, int32 &z) const
+	{
+		for (std::map<CellKey, Cell>::const_iterator it = cells.begin(); it != cells.end(); ++it)
+			if (it->second.root.get() == root) { x = it->first.first; z = it->first.second; return true; }
+		return false;
+	}
+
+	std::vector<std::shared_ptr<GameObject> > WorldStreamer::LoadedRoots() const
+	{
+		std::vector<std::shared_ptr<GameObject> > out;
+		for (std::map<CellKey, Cell>::const_iterator it = cells.begin(); it != cells.end(); ++it)
+			if (it->second.root) out.push_back(it->second.root);
+		return out;
 	}
 
 	uint32 WorldStreamer::LoadedCount() const

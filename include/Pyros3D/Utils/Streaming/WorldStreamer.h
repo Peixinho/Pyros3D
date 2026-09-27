@@ -29,6 +29,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
+#include <algorithm>
 #include <deque>
 #include <functional>
 #include <map>
@@ -75,6 +76,24 @@ namespace p3d {
 		typedef std::function<void(const std::shared_ptr<GameObject> &root)> CellCallback;
 		void SetOnCellLoaded(const CellCallback &cb) { onLoaded = cb; }
 		void SetOnCellUnloading(const CellCallback &cb) { onUnloading = cb; }
+
+		// Asked before a cell leaves: true keeps it loaded. The editor keeps
+		// a cell with unsaved edits in memory until it is saved.
+		typedef std::function<bool(const std::shared_ptr<GameObject> &root)> UnloadVeto;
+		void SetUnloadVeto(const UnloadVeto &veto) { unloadVeto = veto; }
+
+		// New load/unload radii, from the next Update() on.
+		void SetRadii(const f32 load, const f32 unload) { world.loadRadius = load; world.unloadRadius = std::max(load, unload); }
+
+		// Unloads one cell now, veto or not (the editor ending play mode).
+		void UnloadCell(const int32 x, const int32 z) { Unload(CellKey(x, z)); }
+
+		// Which cell a loaded root belongs to.
+		bool FindCell(const GameObject* root, int32 &x, int32 &z) const;
+		// Every loaded cell's root.
+		std::vector<std::shared_ptr<GameObject> > LoadedRoots() const;
+		// The file a cell lives in.
+		std::string CellPath(const int32 x, const int32 z) const { return cellsDir + CellFileName(x, z); }
 
 		uint32 LoadedCount() const;
 		uint32 LoadingCount() const;
@@ -125,6 +144,7 @@ namespace p3d {
 		std::deque<Grave> graveyard;
 
 		CellCallback onLoaded, onUnloading;
+		UnloadVeto unloadVeto;
 	};
 
 }

@@ -15,6 +15,8 @@
 #include <algorithm>
 
 #include "SceneEditor.h"
+#include "EditorWorld.h"
+#include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectChain.h>
 #include <Pyros3D/AnimationManager/IKSolver.h>
 // Sprite-sheet animation: UpdateTextureAnimationPreview drives instances
@@ -4831,6 +4833,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		DrawPostEffectsInProperties();
 
 		ImGui::Spacing();
+		if (!sceneIsTwoD) DrawWorldSettings();
+		ImGui::Spacing();
 		ImGui::TextUnformatted("Scene Script");
 		ImGui::TextDisabled("Companion file scenes/<SceneName>.lua (also under Assets → Lua / Scenes).");
 		if (scenePath.empty())
@@ -5593,6 +5597,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// outside Play mode lasted exactly one frame and looked like the
 		// setting did nothing.
 		GameObject* viewCam = GetViewCameraGO();
+		// The streamed world and its foliage follow whatever the viewport is
+		// looking through - the editor camera, or the game's in play.
+		if (viewCam)
+		{
+			FoliageComponent::SetViewer(viewCam->GetWorldPosition());
+			if (editorWorld) editorWorld->Update(viewCam->GetWorldPosition());
+		}
 		if (!playMode && editorChromeVisible)
 		{
 			for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); i++)
@@ -6546,6 +6557,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		gizmoDragging = false;
 		_leftMouse = false;
 		playMode = true;
+		if (editorWorld) editorWorld->EnterPlay();
 		playPhysicsLastTime = -1.0;
 		editorDisabled = true;
 #ifdef LUA_BINDINGS
@@ -6683,6 +6695,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (obj == NULL || obj->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
 			if (obj->GetParentID() != 0) continue;
 			if (IsInternalGameObject((GameObject*)obj->GetPTR())) continue;
+			// A streamed cell is restored by the world, from its file - not by
+			// rebuilding it here, which put a second copy beside the one the
+			// streamer brings back (see EditorWorld::ExitPlay).
+			if (editorWorld && editorWorld->IsCellRoot((GameObject*)obj->GetPTR())) continue;
 			roots.push_back(obj->GetID());
 		}
 		for (size_t i = 0; i < roots.size(); ++i)
@@ -6981,6 +6997,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Before the physics re-sync below, so bodies belonging to objects
 		// that are about to go are not synced (and are unregistered by the
 		// removal itself).
+		// Before the sweep: cells that streamed in during play are the
+		// streamer's to remove, not stray spawns.
+		if (editorWorld) editorWorld->ExitPlay();
 		RemovePlayModeSpawnedObjects();
 		// After the sweep (a spawned child inside an authored root is removed
 		// there, which puts that root back to matching its snapshot and saves
@@ -7975,6 +7994,161 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 	}
 
+	void SceneEditor::StartEditorWorld()
+	{
+		editorWorld.reset();
+		if (!sceneWorld.enabled || scenePath.empty()) return;
+#ifdef LUA_BINDINGS
+		sol::state* lua = sharedLua;
+#else
+		sol::state* lua = NULL;
+#endif
+		SceneEditor* self = this;
+		editorWorld.reset(new EditorWorld(scene, sceneObjects, scenePath, sceneWorld, physics, lua,
+			[self](GameObject*) { self->RebuildHelpers(); }));
+	}
+
+	bool SceneEditor::SplitIntoCells(const f32 cellSize, std::string &error, uint32* cellsWritten)
+	{
+		if (playMode) { error = "stop play mode first"; return false; }
+		if (scenePath.empty()) { error = "save the scene first - its cells are written beside it"; return false; }
+		if (sceneWorld.enabled) { error = "the scene is already a streamed world"; return false; }
+		if (cellSize < 1.f) { error = "cell size must be at least 1 m"; return false; }
+
+		// What stays in the scene file, loaded whatever the camera does.
+		auto persistent = [this](const uint32 id, GameObject* go) {
+			if (IsSceneCamera(id) || go->HaveTag("Persistent")) return true;
+			const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+			for (size_t c = 0; c < cs.size(); c++)
+				if (dynamic_cast<DirectionalLight*>(cs[c].get()) || dynamic_cast<UICanvas*>(cs[c].get())) return true;
+			return false;
+		};
+
+		struct Member { uint32 id; std::shared_ptr<GameObject> go; };
+		std::map<std::pair<int32, int32>, std::vector<Member> > cells;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); ++i)
+		{
+			SceneObject* obj = i->second;
+			if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT || obj->GetParentID() != 0) continue;
+			GameObject* go = (GameObject*)obj->GetPTR();
+			if (!go || IsInternalGameObject(go) || persistent(i->first, go)) continue;
+			int32 x, z;
+			WorldStreamer::CellOf(go->GetWorldPosition(), cellSize, x, z);
+			Member m;
+			m.id = i->first;
+			m.go = SceneObjects::FindSharedGameObject(scene, go);
+			if (m.go) cells[std::make_pair(x, z)].push_back(m);
+		}
+		if (cells.empty()) { error = "nothing to split - every root is persistent"; return false; }
+
+		DeselectSceneObject();
+		selection.clear();
+		const std::filesystem::path sp(scenePath);
+		const std::string cellsDir = sp.filename().string() + ".cells";
+		const std::filesystem::path cellsAbs = sp.parent_path() / cellsDir;
+#ifdef LUA_BINDINGS
+		sol::state* lua = sharedLua;
+#else
+		sol::state* lua = NULL;
+#endif
+		// The objects leave the scene for good: nothing may still be drawing them.
+		if (IsActiveRenderDeviceSet()) GetActiveRenderDevice().WaitIdle();
+		SceneMeta::World w;
+		w.enabled = true;
+		w.cellSize = cellSize;
+		w.loadRadius = cellSize * 2.f;
+		w.unloadRadius = cellSize * 2.5f;
+		w.cellsDir = cellsDir;
+		uint32 written = 0;
+		for (std::map<std::pair<int32, int32>, std::vector<Member> >::iterator c = cells.begin(); c != cells.end(); ++c)
+		{
+			std::shared_ptr<GameObject> root = std::make_shared<GameObject>();
+			root->SetName("Cell_" + std::to_string(c->first.first) + "_" + std::to_string(c->first.second));
+			const Vec3 origin(c->first.first * cellSize, 0.f, c->first.second * cellSize);
+			root->SetPosition(origin);
+			for (size_t m = 0; m < c->second.size(); m++)
+			{
+				Member &mem = c->second[m];
+				sceneObjects->Forget(mem.id);
+				scene->Remove(mem.go);
+				mem.go->SetPosition(mem.go->GetPosition() - origin);
+				root->Add(mem.go);
+			}
+			const std::string path = (cellsAbs / WorldStreamer::CellFileName(c->first.first, c->first.second)).string();
+			if (!EditorWorld::WriteCell(root.get(), path, scenePath, lua, error)) return false;
+			w.cells.push_back(c->first);
+			written++;
+		}
+		sceneWorld = w;
+		sceneUndo.Clear();
+		// The scene keeps what stayed, and the world block that names the cells.
+		if (!SaveSceneToFile(scenePath)) { error = "the cells were written but the scene could not be saved"; return false; }
+		StartEditorWorld();
+		if (cellsWritten) *cellsWritten = written;
+		echo("World: split the scene into " + std::to_string(written) + " cell(s) of " + std::to_string((int)cellSize) + " m");
+		return true;
+	}
+
+	bool SceneEditor::AgentSetWorld(const json &args, std::string &err)
+	{
+		if (!args.is_object()) { err = "set_world takes an object"; return false; }
+		if (args.contains("split"))
+		{
+			uint32 n = 0;
+			return SplitIntoCells(args["split"].get<f32>(), err, &n);
+		}
+		if (!sceneWorld.enabled) { err = "not a streamed world - split it first ({\"split\": cellSize})"; return false; }
+		sceneWorld.loadRadius = std::max(0.f, args.value("loadRadius", sceneWorld.loadRadius));
+		sceneWorld.unloadRadius = std::max(sceneWorld.loadRadius, args.value("unloadRadius", sceneWorld.unloadRadius));
+		if (editorWorld) editorWorld->SetRadii(sceneWorld.loadRadius, sceneWorld.unloadRadius);
+		MarkSceneDirty();
+		return true;
+	}
+
+	void SceneEditor::DrawWorldSettings()
+	{
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Streamed World");
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Split into square cells, each its own file, loaded around\nthe camera - in the game and in the editor.");
+		if (!sceneWorld.enabled)
+		{
+			static float splitSize = 256.f;
+			ImGui::TextUnformatted("Cell size (m)");
+			ImGui::SetNextItemWidth(-1);
+			ImGui::DragFloat("##worldCellSize", &splitSize, 1.f, 8.f, 4096.f, "%.0f");
+			if (ImGui::Button("Split into cells", ImVec2(-1, 0)))
+			{
+				std::string err;
+				if (!SplitIntoCells(splitSize, err)) echo("ERROR: World - " + err);
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Moves every non-persistent root into the cell its position\nfalls in and saves the scene. Cameras, directional lights,\nUI canvases and objects tagged \"Persistent\" stay. Not undoable.");
+			return;
+		}
+		ImGui::Text("%u cells of %.0f m in %s", (unsigned)sceneWorld.cells.size(), sceneWorld.cellSize, sceneWorld.cellsDir.c_str());
+		float load = sceneWorld.loadRadius, unload = sceneWorld.unloadRadius;
+		ImGui::TextUnformatted("Load within (m)");
+		ImGui::SetNextItemWidth(-1);
+		const bool a = ImGui::DragFloat("##worldLoad", &load, 1.f, 0.f, 100000.f, "%.0f");
+		ImGui::TextUnformatted("Unload beyond (m)");
+		ImGui::SetNextItemWidth(-1);
+		const bool b = ImGui::DragFloat("##worldUnload", &unload, 1.f, 0.f, 100000.f, "%.0f");
+		if (a || b)
+		{
+			json j;
+			j["loadRadius"] = load;
+			j["unloadRadius"] = unload;
+			std::string err;
+			AgentSetWorld(j, err);
+		}
+		if (editorWorld)
+		{
+			const uint32_t dirty = editorWorld->DirtyCount();
+			ImGui::Text("%u loaded, %u with unsaved edits", (unsigned)editorWorld->LoadedRoots().size(), (unsigned)dirty);
+		}
+	}
+
 	void SceneEditor::NewScene(bool applyProjectDefaults)
 	{
 		(void)applyProjectDefaults;
@@ -7990,6 +8164,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Physics2D* as body user data and dispatches contacts through them.
 		if (physics2D) physics2D->Clear();
 
+		// The streamed world's cells first: the streamer owns them and takes
+		// them out of the scene (and the registry) itself.
+		editorWorld.reset();
 		// Drops every user GameObject/component (and its helper) - the
 		// SceneGraph holds the only strong references, so this frees them.
 		sceneObjects->DestroyAll();
@@ -8091,10 +8268,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
 			meta.mainScript = sceneMainScriptPath;
-			ok = SceneSerializer::SaveScene(scene, path, sharedLua, &meta);
+			// Loaded cells live in their own files, never in the scene's.
+			ok = SceneSerializer::SaveScene(scene, path, sharedLua, &meta,
+				editorWorld ? editorWorld->LoadedRoots() : std::set<const GameObject*>());
 #else
-			ok = SceneSerializer::SaveScene(scene, path, NULL, &meta);
+			ok = SceneSerializer::SaveScene(scene, path, NULL, &meta,
+				editorWorld ? editorWorld->LoadedRoots() : std::set<const GameObject*>());
 #endif
+			if (ok && editorWorld)
+			{
+				std::string cellErr;
+				if (!editorWorld->SaveCells(cellErr)) { echo("ERROR: saving world cells - " + cellErr); ok = false; }
+			}
 			// Before AttachEditorObjects() because the collapse pass matches
 			// roots by position in GetAllGameObjectList(), so that list must
 			// still hold exactly what SaveScene wrote - user content only.
@@ -8372,6 +8557,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			scenePath = path;
 			sceneDirty = false;
 			lastLoadMtime = SceneEditor::FileMtime(path);
+			StartEditorWorld();
 		}
 		else echo("ERROR: failed to load scene from " + path);
 
@@ -14802,6 +14988,43 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// render-target pixels, so this scales back and re-adds the origin.
 		sx = viewportImgMin.x + vx * (viewportImgSize.x / dim.x);
 		sy = viewportImgMin.y + vy * (viewportImgSize.y / dim.y);
+		return true;
+	}
+
+	json SceneEditor::AgentWorldState()
+	{
+		json r;
+		r["enabled"] = sceneWorld.enabled;
+		r["cellSize"] = sceneWorld.cellSize;
+		r["loadRadius"] = sceneWorld.loadRadius;
+		r["unloadRadius"] = sceneWorld.unloadRadius;
+		r["cellsDir"] = sceneWorld.cellsDir;
+		r["cellCount"] = (uint32)sceneWorld.cells.size();
+		json loaded = json::array();
+		if (editorWorld)
+		{
+			const std::set<const GameObject*> roots = editorWorld->LoadedRoots();
+			for (std::set<const GameObject*>::const_iterator it = roots.begin(); it != roots.end(); ++it)
+			{
+				int32 x, z;
+				if (editorWorld->Streamer().FindCell(*it, x, z)) loaded.push_back(json::array({ x, z }));
+			}
+			r["dirty"] = editorWorld->DirtyCount();
+		}
+		r["loaded"] = loaded;
+		if (CameraPivot) r["viewPivot"] = json::array({ CameraPivot->GetPosition().x, CameraPivot->GetPosition().y, CameraPivot->GetPosition().z });
+		return r;
+	}
+
+	bool SceneEditor::AgentSetViewPivot(const json &args, std::string &err)
+	{
+		if (!args.is_object() || !args.contains("position") || !args["position"].is_array() || args["position"].size() < 3)
+		{
+			err = "set_view_pivot needs {\"position\":[x,y,z]}";
+			return false;
+		}
+		const json &p = args["position"];
+		CameraPivot->SetPosition(Vec3(p[0].get<f32>(), p[1].get<f32>(), p[2].get<f32>()));
 		return true;
 	}
 

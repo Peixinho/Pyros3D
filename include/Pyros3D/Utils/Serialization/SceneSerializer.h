@@ -16,6 +16,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <string>
+#include <set>
 #include <vector>
 #include <map>
 #include <memory>
@@ -300,6 +301,11 @@ namespace p3d {
 		// that (existence-only, as before).
 		// `meta`, if non-NULL, writes scene-level fields (mainScript, …).
 		static bool SaveScene(SceneGraph* scene, const std::string &filePath, sol::state* lua = NULL, const SceneMeta* meta = NULL);
+		// The same, leaving out the given roots - a streamed world's loaded
+		// cells, which are written to their own files. Transient roots are
+		// always left out.
+		static bool SaveScene(SceneGraph* scene, const std::string &filePath, sol::state* lua, const SceneMeta* meta,
+			const std::set<const GameObject*> &skipRoots);
 
 		// Populates `scene` from `filePath` - does NOT clear it first,
 		// call SceneGraph::RemoveAll() beforehand if starting fresh is

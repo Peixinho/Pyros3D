@@ -2119,6 +2119,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 
 	bool SceneSerializer::SaveScene(SceneGraph* scene, const std::string &filePath, sol::state* lua, const SceneMeta* meta)
 	{
+		return SaveScene(scene, filePath, lua, meta, std::set<const GameObject*>());
+	}
+
+	bool SceneSerializer::SaveScene(SceneGraph* scene, const std::string &filePath, sol::state* lua, const SceneMeta* meta,
+		const std::set<const GameObject*> &skipRoots)
+	{
 		g_sceneAssetRoot = InferAssetRootFromScenePath(filePath);
 
 		json root;
@@ -2271,7 +2277,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		json roots = json::array();
 		std::vector<std::shared_ptr<GameObject>> &all = scene->GetAllGameObjectList();
 		for (size_t i = 0; i < all.size(); i++)
+		{
+			if (all[i]->IsTransient() || skipRoots.count(all[i].get())) continue;
 			roots.push_back(SerializeGameObject(all[i].get(), materialsArray, materialIdMap, lua));
+		}
 
 		root["materials"] = materialsArray;
 		root["roots"] = roots;

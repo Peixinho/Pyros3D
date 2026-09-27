@@ -23,6 +23,7 @@ using json = nlohmann::json;
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>   // LoadedSceneAssets
+#include "EditorWorld.h"
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>   // Body2DType/Shape2DType defaults
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
@@ -492,6 +493,12 @@ public:
 	LoadedSceneAssets sceneAssets;
 
 	json  AgentSceneState();
+	// Streamed worlds over the socket - see EditorWorld. world_state reads
+	// the settings, the loaded cells and how many have unsaved edits;
+	// set_view_pivot moves the editor camera's orbit centre (and with it
+	// what streams in).
+	json  AgentWorldState();
+	bool  AgentSetViewPivot(const json &args, std::string &err);
 	// The post-effect chain, over the socket. Read first: an agent has no
 	// other way to learn the built-in names, what each one exposes, or which
 	// .glsl files this project has - and an entry naming an effect that does
@@ -1140,6 +1147,20 @@ public:
 	// radii and which cells exist. Round-tripped like view2D; the World
 	// panel and the agent bridge edit it.
 	SceneMeta::World sceneWorld;
+	// Streams sceneWorld's cells around the viewport camera while editing;
+	// NULL unless the scene is a streamed world.
+	std::unique_ptr<EditorWorld> editorWorld;
+	void StartEditorWorld();
+	// Turns the saved scene into a streamed world: every root that is not
+	// persistent (a camera, a directional light, a UI canvas, or tagged
+	// "Persistent") moves into the cell its position falls in, each cell is
+	// written to <Scene>.cells/<x>_<z>.json, the scene is saved with only
+	// what stays, and the cells stream back in around the camera. Not
+	// undoable - it clears the undo history.
+	bool SplitIntoCells(const f32 cellSize, std::string &error, uint32* cellsWritten = NULL);
+	// World panel values: radii apply live; disabling keeps the files.
+	bool AgentSetWorld(const json &args, std::string &err);
+	void DrawWorldSettings();
 private:
 	// Round-trips through SceneMeta::twoD. A 2D scene is authored and played
 	// the same either way - on its own as a menu or a 2D game, or shown over

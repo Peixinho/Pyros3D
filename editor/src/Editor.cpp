@@ -2526,6 +2526,24 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	std::string err;
 	if (name == "scene_state")
 		return sceneView->AgentSceneState();
+	if (name == "world_state")
+		return sceneView->AgentWorldState();
+	// The World section of Scene Settings. {"split": 256} splits the saved
+	// scene into cells; {"loadRadius": .., "unloadRadius": ..} tunes a world.
+	if (name == "set_world")
+	{
+		if (!sceneView->AgentSetWorld(a, err)) throw std::runtime_error(err);
+		nlohmann::json r = sceneView->AgentWorldState();
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "set_view_pivot")
+	{
+		if (!sceneView->AgentSetViewPivot(a, err)) throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 
 	if (name == "get_object")
 	{

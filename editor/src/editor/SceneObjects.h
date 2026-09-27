@@ -120,8 +120,18 @@ class SceneObjects
 		// the subtree (see CollectAdoptOrderIds) and reused where still
 		// free - which is how a subtree survives undo's delete-and-reinsert
 		// with the ids other undo entries are still holding.
+		//
+		// keepNames registers the objects under the names they have instead
+		// of making them unique scene-wide - for a streamed cell, whose
+		// objects legitimately share names with other cells' ("Ground" in
+		// every one), and whose file would otherwise be rewritten with
+		// "Ground(12)" and grow another suffix on every load.
 		SceneObject* Adopt(GameObject* go, const uint32 parentID = 0,
-			const std::vector<uint32>* preferredIds = NULL, size_t* cursorOpt = NULL);
+			const std::vector<uint32>* preferredIds = NULL, size_t* cursorOpt = NULL, const bool keepNames = false);
+		// Drops a registered subtree's entries (and viewport icons) without
+		// touching its objects - for things the editor shows but does not
+		// own, like a streamed cell leaving memory.
+		void Forget(const uint32 id);
 		// The ids of a live subtree, in exactly that order.
 		void CollectAdoptOrderIds(GameObject* go, std::vector<uint32>& out);
 		static bool RegistryTypeForComponent(IComponent* c, uint32& type, std::string& name);

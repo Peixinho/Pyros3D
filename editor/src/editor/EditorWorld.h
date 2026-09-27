@@ -1,0 +1,86 @@
+//============================================================================
+// Name        : EditorWorld.h
+// Author      : Duarte Peixinho
+// Description : Editing a streamed world (SceneMeta::World). The world is
+//               too big to load whole, so the editor streams it like the
+//               game does - around the camera the viewport is looking
+//               through - and makes each loaded cell editable: its objects
+//               are adopted into the registry (hierarchy, selection, undo)
+//               when it arrives and forgotten when it leaves.
+//
+//               A cell is dirty when what it would save differs from its
+//               file, and a dirty cell is never unloaded - it stays in
+//               memory until it is saved, so moving the camera away cannot
+//               lose an edit. Saving writes every dirty loaded cell to its
+//               own file; the scene file itself never holds cell contents.
+//
+//               Play mode streams too, around the play camera. Edited cells
+//               are saved when Play starts, and stopping drops every cell -
+//               whatever play did to them is discarded - so the editor
+//               camera streams them back exactly as they are on disk.
+//============================================================================
+
+#ifndef EDITORWORLD_H
+#define EDITORWORLD_H
+
+#include <Pyros3D/Utils/Streaming/WorldStreamer.h>
+#include <functional>
+#include <map>
+#include <memory>
+#include <set>
+#include <string>
+
+namespace sol { class state; }
+
+class SceneObjects;
+
+namespace p3d { class SceneGraph; class IPhysics; class GameObject; }
+
+class EditorWorld
+{
+public:
+	// adopted/forgetting: the editor's hooks for a cell arriving and
+	// leaving - registry, helpers, anything else it keeps per object.
+	EditorWorld(p3d::SceneGraph* scene, SceneObjects* objects, const std::string &scenePath,
+		const p3d::SceneMeta::World &world, p3d::IPhysics* physics, sol::state* lua,
+		const std::function<void(p3d::GameObject*)> &adopted);
+	~EditorWorld();
+
+	void Update(const p3d::Vec3 &focus);
+
+	// Every loaded cell's root - left out of the scene file on save.
+	std::set<const p3d::GameObject*> LoadedRoots() const;
+	bool IsCellRoot(const p3d::GameObject* go) const;
+
+	// Writes every loaded cell whose content changed. False on a failed
+	// write (reported); the rest are still written.
+	bool SaveCells(std::string &error);
+	uint32_t DirtyCount() const;
+
+	void EnterPlay();
+	void ExitPlay();
+
+	const p3d::WorldStreamer &Streamer() const { return *streamer; }
+	void SetRadii(const float load, const float unload) { streamer->SetRadii(load, unload); }
+
+	// Writes `root` (already built, not in the scene) as cell (x, z) of a
+	// world whose cells live beside scenePath - what splitting a scene does.
+	static bool WriteCell(p3d::GameObject* root, const std::string &cellPath, const std::string &scenePath,
+		sol::state* lua, std::string &error);
+
+private:
+	bool IsDirty(const p3d::GameObject* root) const;
+
+	p3d::SceneGraph* scene;
+	SceneObjects* objects;
+	std::string scenePath;
+	sol::state* lua;
+	std::unique_ptr<p3d::WorldStreamer> streamer;
+	// What each loaded cell looked like on disk (as serialized when it
+	// arrived, or last saved), to tell edits from nothing.
+	std::map<const p3d::GameObject*, std::string> saved;
+	bool playing = false;
+	std::set<const p3d::GameObject*> knownDirty;
+};
+
+#endif
