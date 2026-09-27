@@ -1232,6 +1232,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (ni->relevance > 0.f) j["relevance"] = ni->relevance;
 			if (ni->priority != 1.f) j["priority"] = ni->priority;
 			if (!ni->syncTransform) j["syncTransform"] = false;
+			if (ni->predicted) j["predicted"] = true;
+			j["hitRadius"] = ni->hitRadius;
+			j["hitHeight"] = ni->hitHeight;
 			return j;
 		}
 		// The layers' settings, never their instances: those regrow from
@@ -3133,6 +3136,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			ni->relevance = std::max(0.f, j.value("relevance", 0.f));
 			ni->priority = std::max(0.f, j.value("priority", 1.f));
 			ni->syncTransform = j.value("syncTransform", true);
+			ni->predicted = j.value("predicted", false);
+			ni->hitRadius = std::max(0.f, j.value("hitRadius", ni->hitRadius));
+			ni->hitHeight = std::max(0.f, j.value("hitHeight", ni->hitHeight));
 			go->AddComponent(ni);
 		}
 		else if (type == "Foliage")

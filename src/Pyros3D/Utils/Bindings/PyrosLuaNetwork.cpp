@@ -147,6 +147,42 @@ namespace p3d {
 		net.set_function("onPeerLeft", [session, lua](sol::protected_function fn) {
 			if (NetworkSession* s = session()) s->onPeerLeft = [fn, lua](const PeerId p) { Call(fn, "onPeerLeft", p, NULL, lua); };
 		});
+		// Prediction: fn(go, input) with input a table of the values given
+		// to network.input, and dt.
+		net.set_function("setSimulate", [session, lua](sol::protected_function fn) {
+			NetworkSession* s = session();
+			if (!s) return;
+			s->SetSimulate([fn, lua](GameObject* go, const std::vector<NetValue> &input, const f32 dt) {
+				sol::table t = lua->create_table();
+				for (size_t i = 0; i < input.size(); i++) t[i + 1] = ToLua(*lua, input[i]);
+				sol::protected_function_result r = fn(go, t, dt);
+				if (!r.valid()) { sol::error err = r; echo(std::string("ERROR: network simulate - ") + err.what()); }
+			});
+		});
+		net.set_function("input", [session](sol::variadic_args va) {
+			NetworkSession* s = session();
+			if (!s) return;
+			std::vector<NetValue> input;
+			for (auto v : va) input.push_back(FromLua(v));
+			s->SetInput(input);
+		});
+		// Server: what `shooter` hit, as they saw the world. Returns the
+		// object (or nil), the distance and the point.
+		net.set_function("raycast", [session](const uint32 shooter, const Vec3 &origin, const Vec3 &direction, const f32 maxDistance,
+			sol::optional<f64> viewTick) -> std::tuple<GameObject*, f32, Vec3> {
+			NetworkSession* s = session();
+			if (!s) return std::make_tuple((GameObject*)NULL, 0.f, Vec3());
+			const NetworkSession::RayHit hit = s->RaycastRewound(shooter, origin, direction, maxDistance, viewTick.value_or(-1.0));
+			return std::make_tuple(hit.netId ? s->Find(hit.netId) : (GameObject*)NULL, hit.distance, hit.point);
+		});
+		// Client: the tick on screen now - send it with a fire event. Server:
+		// a client's, from its latest command.
+		net.set_function("viewTick", [session](sol::optional<uint32> peer) {
+			NetworkSession* s = session();
+			if (!s) return 0.0;
+			return s->GetRole() == NetworkSession::Client ? s->ViewTick() : s->ViewTickOf(peer.value_or(0));
+		});
+
 		net.set_function("stats", [session, lua]() {
 			sol::table t = lua->create_table();
 			NetworkSession* s = session();

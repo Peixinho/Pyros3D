@@ -63,6 +63,8 @@ namespace p3d {
 		f32 relevanceHysteresis = 50.f;		// metres past the radius before despawn
 		uint32 bytesPerTick = 4000;			// per client; 4000 x 30 Hz ~ 1 Mbit/s
 		f32 interpolationDelay = 0.1f;		// seconds
+		f32 commandRate = 60.f;				// predicted input commands a second
+		f32 historySeconds = 1.f;			// how far back hit tests may rewind
 		uint32 maxClients = 100;
 		NetQuantization quantization;
 	};
@@ -111,6 +113,35 @@ namespace p3d {
 		typedef std::function<void(const PeerId sender, const std::vector<NetValue> &args)> RpcHandler;
 		void OnRpc(const std::string &name, const RpcHandler &handler) { rpcHandlers[name] = handler; }
 
+		// Prediction. `simulate` is the game's movement code for predicted
+		// objects: it reads one command's input and moves the object by dt.
+		// The server runs it on every command it receives, in order - the
+		// authoritative result - and the owning client runs it the moment
+		// the command is made, then, when the server's state for that
+		// command arrives, snaps to it and replays the commands still in
+		// flight. It must be deterministic given the object's transform and
+		// variables, and kinematic: rigid bodies cannot be rewound.
+		typedef std::function<void(GameObject* go, const std::vector<NetValue> &input, const f32 dt)> Simulate;
+		void SetSimulate(const Simulate &fn) { simulate = fn; }
+		// Client: this frame's input for the objects it owns; sampled into
+		// commands at commandRate (the latest input holds until replaced).
+		void SetInput(const std::vector<NetValue> &input) { currentInput = input; }
+
+		// Server: a ray against every replicated object's hit capsule as
+		// `shooter` SAW them - rewound to that client's view time (its
+		// interpolated past) - so a hit on screen is a hit on the server.
+		// The shooter's own objects are skipped. netId 0 when nothing.
+		// viewTick: the tick the shooter was looking at when it fired - a
+		// client sends ViewTick() with its fire event; < 0 uses the view
+		// tick of its latest command, which is up to one latency stale.
+		struct RayHit { uint32 netId = 0; f32 distance = 0.f; Vec3 point; };
+		RayHit RaycastRewound(const PeerId shooter, const Vec3 &origin, const Vec3 &direction, const f32 maxDistance,
+			const f64 viewTick = -1.0) const;
+		// Client: the server tick its replicas are showing right now.
+		f64 ViewTick() const;
+		// Server: the view tick of a client's latest command.
+		f64 ViewTickOf(const PeerId peer) const;
+
 		// Server: a client joined / left. Client: joined the server (peer is
 		// the id it was given) / lost it.
 		std::function<void(const PeerId peer)> onPeerJoined, onPeerLeft;
@@ -145,6 +176,8 @@ namespace p3d {
 		void WriteVarDelta(NetWriter &w, NetworkIdentity* id, std::map<std::string, uint32> &acked, ClientState &c);
 		uint32 VarId(ClientState &c, const std::string &name);
 		void PoseReplicas();
+		void RunClientCommands(const f64 dt);
+		void Reconcile(NetworkIdentity* id, GameObject* go, const uint32 ackSeq, const Vec3 &position, const Quaternion &rotation);
 		std::shared_ptr<GameObject> LoadPrefab(const std::string &prefab);
 		void RemoveEntity(const uint32 netId);
 
@@ -170,6 +203,10 @@ namespace p3d {
 		std::map<std::string, std::string> prefabText;	// cache of prefab files
 		std::map<uint32, std::string> varNames;			// client: id -> name the server sent
 		Stats stats;
+		Simulate simulate;
+		std::vector<NetValue> currentInput;
+		f64 commandAccumulator = 0.0;
+		uint32 nextCommandSeq = 1;
 	};
 
 }

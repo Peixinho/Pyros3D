@@ -29,17 +29,26 @@ namespace p3d {
 				// server -> client, snapshot channel
 				Snapshot = 10,
 				// client -> server, unsequenced
-				Ack = 20
+				Ack = 20, Commands = 21
 			};
 		}
 
 		namespace Mask
 		{
-			enum : uint8 { Position = 1, Rotation = 2, Vars = 4 };
+			// Predict: the owner's own predicted object - the authoritative
+			// transform after the last command the server processed.
+			enum : uint8 { Position = 1, Rotation = 2, Vars = 4, Predict = 8 };
 		}
 
 		// Kept in flight per client until acknowledged or too old.
 		const uint32 kMaxInflightTicks = 64;
+		// Commands resent with each new one, so a lost packet costs nothing.
+		const size_t kCommandRedundancy = 4;
+		// Commands an owner keeps unacknowledged before giving up on old ones.
+		const size_t kMaxPendingCommands = 240;
+
+		void WriteValue(NetWriter &w, const NetValue &v);
+		NetValue ReadValue(NetReader &r);
 
 		Quaternion ToQuat(const Vec3 &euler)
 		{
@@ -131,6 +140,12 @@ namespace p3d {
 		std::map<uint32, std::vector<Sent> > inflight;	// tick -> what that snapshot carried
 		std::map<std::string, uint32> varIds;			// names this client has been told
 		uint32 nextVarId = 1;
+		// Prediction: last command applied per object, what the owner was
+		// told last, the view tick of its latest command, and how many more
+		// commands it may send this tick (so a client cannot run faster).
+		std::map<uint32, uint32> lastSeq, sentSeq;
+		f64 viewTick = 0.0;
+		f32 commandCredit = 0.f;
 	};
 
 	NetworkSession::NetworkSession(SceneGraph* scene, const std::string &scenePath, IPhysics* physics, sol::state* lua)
@@ -376,6 +391,7 @@ namespace p3d {
 		else if (role == Client && welcomed)
 		{
 			serverTick += dt * settings.tickRate;
+			RunClientCommands(dt);
 			tickAccumulator += dt;
 			if (tickAccumulator >= tickLength)
 			{
@@ -392,6 +408,23 @@ namespace p3d {
 	{
 		RegisterNewIdentities();
 		const uint32 tick = (uint32)serverTick;
+
+		// Where everything was, for rewound hit tests.
+		const size_t keep = (size_t)std::max(2.f, settings.historySeconds * settings.tickRate) + 1;
+		for (std::map<uint32, std::unique_ptr<Entity> >::iterator ei = entities.begin(); ei != entities.end(); ++ei)
+		{
+			std::vector<NetworkIdentity::Past> &h = ei->second->identity->history;
+			NetworkIdentity::Past past;
+			past.tick = tick;
+			past.position = ei->second->go->GetWorldPosition();
+			h.push_back(past);
+			if (h.size() > keep) h.erase(h.begin(), h.begin() + (h.size() - keep));
+		}
+		// Each tick earns a client the commands a tick is worth, plus slack
+		// for jitter; a client sending faster than that is dropped to it.
+		const f32 perTick = settings.commandRate / std::max(settings.tickRate, 1.f);
+		for (std::map<PeerId, std::unique_ptr<ClientState> >::iterator ci = clients.begin(); ci != clients.end(); ++ci)
+			ci->second->commandCredit = std::min(ci->second->commandCredit + perTick, perTick * 4.f + 2.f);
 		stats.lastSnapshotBytes = 0;
 		stats.lastSnapshotEntities = 0;
 
@@ -420,12 +453,15 @@ namespace p3d {
 				std::map<uint32, std::unique_ptr<Entity> >::iterator ei = entities.find(k->first);
 				if (ei == entities.end()) continue;
 				Entity &e = *ei->second;
-				// The owner moves its own object; echoing it back would fight it.
-				if (e.identity->owner == c.peer) continue;
+				// The owner moves its own object, so its transform is never
+				// echoed back - except a predicted one's authoritative state,
+				// once per command the server processed.
+				const bool mine = e.identity->owner == c.peer;
 				const Vec3 pos = e.go->GetPosition();
 				const Quaternion rot = ToQuat(e.go->GetRotation());
-				bool dirty = !k->second.acked;
-				if (!dirty && e.identity->syncTransform) dirty = Moved(pos, k->second.position) || Turned(rot, k->second.rotation);
+				bool dirty = !k->second.acked && !mine;
+				if (!dirty && e.identity->syncTransform && !mine) dirty = Moved(pos, k->second.position) || Turned(rot, k->second.rotation);
+				if (!dirty && mine && e.identity->predicted) dirty = c.lastSeq[e.netId] != c.sentSeq[e.netId];
 				if (!dirty)
 					for (std::map<std::string, uint32>::const_iterator v = e.identity->varVersion.begin(); v != e.identity->varVersion.end() && !dirty; ++v)
 					{
@@ -456,8 +492,10 @@ namespace p3d {
 				const Vec3 pos = e.go->GetPosition();
 				const Quaternion rot = ToQuat(e.go->GetRotation());
 				uint8 mask = 0;
-				if (e.identity->syncTransform && (!k.acked || Moved(pos, k.position))) mask |= Mask::Position;
-				if (e.identity->syncTransform && (!k.acked || Turned(rot, k.rotation))) mask |= Mask::Rotation;
+				const bool mine = e.identity->owner == c.peer;
+				if (!mine && e.identity->syncTransform && (!k.acked || Moved(pos, k.position))) mask |= Mask::Position;
+				if (!mine && e.identity->syncTransform && (!k.acked || Turned(rot, k.rotation))) mask |= Mask::Rotation;
+				if (mine && e.identity->predicted && c.lastSeq[e.netId] != c.sentSeq[e.netId]) mask |= Mask::Predict;
 				std::vector<std::string> changedVars;
 				for (std::map<std::string, uint32>::const_iterator v = e.identity->varVersion.begin(); v != e.identity->varVersion.end(); ++v)
 				{
@@ -465,9 +503,16 @@ namespace p3d {
 					if (a == k.varVersions.end() || a->second < v->second) changedVars.push_back(v->first);
 				}
 				if (!changedVars.empty()) mask |= Mask::Vars;
+				if (mask == 0 && changedVars.empty()) continue;
 				entry.U8(mask);
 				if (mask & Mask::Position) entry.Position(pos, settings.quantization);
 				if (mask & Mask::Rotation) entry.Rotation(rot);
+				if (mask & Mask::Predict)
+				{
+					entry.VarU32(c.lastSeq[e.netId]);
+					entry.Position(pos, settings.quantization);
+					entry.Rotation(rot);
+				}
 				if (mask & Mask::Vars)
 				{
 					entry.VarU32((uint32)changedVars.size());
@@ -484,6 +529,8 @@ namespace p3d {
 				body.Bytes(entry.data.data(), entry.Size());
 				count++;
 				k.accumulator = 0.f;
+				// Unreliable, but the next processed command resends it anyway.
+				if (mask & Mask::Predict) c.sentSeq[e.netId] = c.lastSeq[e.netId];
 				ClientState::Sent s;
 				s.netId = e.netId; s.mask = mask; s.position = pos; s.rotation = rot;
 				for (size_t v = 0; v < changedVars.size(); v++) s.varVersions[changedVars[v]] = e.identity->varVersion[changedVars[v]];
@@ -508,7 +555,7 @@ namespace p3d {
 		w.Position(viewer, settings.quantization);
 		std::vector<Entity*> owned;
 		for (std::map<uint32, std::unique_ptr<Entity> >::iterator it = entities.begin(); it != entities.end(); ++it)
-			if (it->second->identity && it->second->identity->owner == localPeer) owned.push_back(it->second.get());
+			if (it->second->identity && it->second->identity->owner == localPeer && !it->second->identity->predicted) owned.push_back(it->second.get());
 		w.VarU32((uint32)owned.size());
 		for (size_t i = 0; i < owned.size(); i++)
 		{
@@ -594,7 +641,7 @@ namespace p3d {
 				Quaternion q = r.Rotation();
 				if (!r.Ok()) break;
 				std::map<uint32, std::unique_ptr<Entity> >::iterator ei = entities.find(netId);
-				if (ei == entities.end() || ei->second->identity->owner != from) continue;
+				if (ei == entities.end() || ei->second->identity->owner != from || ei->second->identity->predicted) continue;
 				ei->second->go->SetPosition(p);
 				ei->second->go->SetRotation(q.GetEulerFromQuaternion());
 			}
@@ -608,6 +655,31 @@ namespace p3d {
 			if (!r.Ok()) return;
 			std::map<std::string, RpcHandler>::iterator h = rpcHandlers.find(name);
 			if (h != rpcHandlers.end()) h->second(from, args);
+		}
+		else if (type == Msg::Commands)
+		{
+			const uint32 netId = r.VarU32();
+			const f64 view = r.U32() / 16.0;
+			const uint32 n = r.U8();
+			std::map<uint32, std::unique_ptr<Entity> >::iterator ei = entities.find(netId);
+			if (ei == entities.end() || ei->second->identity->owner != from || !ei->second->identity->predicted) return;
+			c.viewTick = view;
+			const f32 dt = 1.f / std::max(settings.commandRate, 1.f);
+			for (uint32 i = 0; i < n && r.Ok(); i++)
+			{
+				const uint32 seq = r.VarU32();
+				const uint32 argc = r.U8();
+				std::vector<NetValue> input;
+				for (uint32 a = 0; a < argc && r.Ok(); a++) input.push_back(ReadValue(r));
+				if (!r.Ok()) break;
+				// Redundant copies of what was already applied are skipped;
+				// what is new is applied in order, as far as credit allows.
+				if (seq <= c.lastSeq[netId]) continue;
+				if (c.commandCredit < 1.f) break;
+				c.commandCredit -= 1.f;
+				if (simulate) simulate(ei->second->go, input, dt);
+				c.lastSeq[netId] = seq;
+			}
 		}
 	}
 
@@ -725,6 +797,15 @@ namespace p3d {
 				Quaternion rot;
 				if (mask & Mask::Position) pos = r.Position(settings.quantization);
 				if (mask & Mask::Rotation) rot = r.Rotation();
+				uint32 ackSeq = 0;
+				Vec3 predictPos;
+				Quaternion predictRot;
+				if (mask & Mask::Predict)
+				{
+					ackSeq = r.VarU32();
+					predictPos = r.Position(settings.quantization);
+					predictRot = r.Rotation();
+				}
 				std::vector<std::pair<uint32, NetValue> > vars;
 				if (mask & Mask::Vars)
 				{
@@ -740,6 +821,8 @@ namespace p3d {
 					std::map<uint32, std::string>::const_iterator name = varNames.find(vars[v].first);
 					if (name != varNames.end()) id->vars[name->second] = vars[v].second;
 				}
+				if ((mask & Mask::Predict) && id->predicted && id->owner == localPeer)
+					Reconcile(id, ei->second->go, ackSeq, predictPos, predictRot);
 				if (!id->replica || !(mask & (Mask::Position | Mask::Rotation))) continue;
 				// A sample: whatever this snapshot did not carry is unchanged.
 				NetworkIdentity::Sample s;
@@ -757,6 +840,138 @@ namespace p3d {
 		default:
 			break;
 		}
+	}
+
+	void NetworkSession::RunClientCommands(const f64 dt)
+	{
+		std::vector<Entity*> predicted;
+		for (std::map<uint32, std::unique_ptr<Entity> >::iterator it = entities.begin(); it != entities.end(); ++it)
+			if (it->second->identity->predicted && it->second->identity->owner == localPeer) predicted.push_back(it->second.get());
+		if (predicted.empty() || !simulate) { commandAccumulator = 0.0; return; }
+
+		const f64 step = 1.0 / std::max(settings.commandRate, 1.f);
+		commandAccumulator += dt;
+		int made = 0;
+		while (commandAccumulator >= step && made < 8)
+		{
+			commandAccumulator -= step;
+			made++;
+			const uint32 seq = nextCommandSeq++;
+			for (size_t i = 0; i < predicted.size(); i++)
+			{
+				NetworkIdentity* id = predicted[i]->identity;
+				// Ahead of the server: the player sees the move now.
+				simulate(predicted[i]->go, currentInput, (f32)step);
+				NetworkIdentity::Command cmd;
+				cmd.seq = seq;
+				cmd.input = currentInput;
+				id->pending.push_back(cmd);
+				if (id->pending.size() > kMaxPendingCommands) id->pending.erase(id->pending.begin());
+
+				NetWriter w;
+				w.U8(Msg::Commands);
+				w.VarU32(predicted[i]->netId);
+				// What this client is looking at, for rewound hit tests.
+				const f64 view = ViewTick();
+				w.U32((uint32)(view * 16.0));
+				const size_t first = id->pending.size() > kCommandRedundancy ? id->pending.size() - kCommandRedundancy : 0;
+				w.U8((uint8)(id->pending.size() - first));
+				for (size_t c = first; c < id->pending.size(); c++)
+				{
+					w.VarU32(id->pending[c].seq);
+					w.U8((uint8)std::min<size_t>(id->pending[c].input.size(), 255));
+					for (size_t a = 0; a < id->pending[c].input.size() && a < 255; a++) WriteValue(w, id->pending[c].input[a]);
+				}
+				transport.Send(1, NetChannel::Unsequenced, w.data.data(), w.Size());
+			}
+		}
+		if (made == 8) commandAccumulator = 0.0;
+	}
+
+	void NetworkSession::Reconcile(NetworkIdentity* id, GameObject* go, const uint32 ackSeq, const Vec3 &position, const Quaternion &rotation)
+	{
+		// The server's result for command ackSeq; the ones after it are
+		// replayed on top, so the prediction stays ahead from the right
+		// starting point. When client and server agree - the usual case -
+		// this lands exactly where the object already was.
+		while (!id->pending.empty() && id->pending.front().seq <= ackSeq) id->pending.erase(id->pending.begin());
+		Quaternion q = rotation;
+		go->SetPosition(position);
+		go->SetRotation(q.GetEulerFromQuaternion());
+		const f32 dt = 1.f / std::max(settings.commandRate, 1.f);
+		for (size_t i = 0; i < id->pending.size(); i++)
+			if (simulate) simulate(go, id->pending[i].input, dt);
+	}
+
+	f64 NetworkSession::ViewTickOf(const PeerId peer) const
+	{
+		std::map<PeerId, std::unique_ptr<ClientState> >::const_iterator it = clients.find(peer);
+		return it == clients.end() ? serverTick : it->second->viewTick;
+	}
+
+	f64 NetworkSession::ViewTick() const
+	{
+		return std::max(0.0, serverTick - settings.interpolationDelay * settings.tickRate);
+	}
+
+	NetworkSession::RayHit NetworkSession::RaycastRewound(const PeerId shooter, const Vec3 &origin, const Vec3 &direction, const f32 maxDistance,
+		const f64 viewTick) const
+	{
+		RayHit best;
+		const f32 len = direction.magnitude();
+		if (len <= 0.f) return best;
+		const Vec3 d = direction * (1.f / len);
+		f64 view = viewTick >= 0.0 ? viewTick : (shooter == 0 ? serverTick : ViewTickOf(shooter));
+		// A client may not claim to see further back than history, nor the
+		// future.
+		view = std::min(serverTick, std::max(view, serverTick - settings.historySeconds * settings.tickRate));
+		f32 bestT = maxDistance;
+		for (std::map<uint32, std::unique_ptr<Entity> >::const_iterator it = entities.begin(); it != entities.end(); ++it)
+		{
+			const NetworkIdentity* id = it->second->identity;
+			if (shooter != 0 && id->owner == shooter) continue;
+			if (id->hitRadius <= 0.f) continue;
+			// Where it was at the view tick, between the two recorded ticks
+			// around it; the present if history does not reach that far.
+			Vec3 p = it->second->go->GetWorldPosition();
+			const std::vector<NetworkIdentity::Past> &h = id->history;
+			for (size_t i = 0; i + 1 < h.size(); i++)
+				if (h[i].tick <= view && h[i + 1].tick >= view)
+				{
+					const f32 t = h[i + 1].tick > h[i].tick ? (f32)((view - h[i].tick) / (f64)(h[i + 1].tick - h[i].tick)) : 0.f;
+					p = h[i].position + (h[i + 1].position - h[i].position) * t;
+					break;
+				}
+			// Closest point on the capsule's axis to the ray, then a sphere
+			// of hitRadius there: exact for a sphere, close for a capsule.
+			const Vec3 a = p, b = p + Vec3(0.f, id->hitHeight, 0.f);
+			const Vec3 ab = b - a;
+			const f32 abLen2 = ab.dotProduct(ab);
+			f32 s = 0.f;
+			if (abLen2 > 0.f)
+			{
+				// Segment parameter of the closest approach between the ray
+				// (origin + d*t) and the axis (a + ab*s).
+				const Vec3 w0 = origin - a;
+				const f32 bdot = d.dotProduct(ab), dw = d.dotProduct(w0), abw = ab.dotProduct(w0);
+				const f32 denom = abLen2 - bdot * bdot;
+				s = denom > 1e-6f ? (abw - bdot * dw) / denom : 0.f;
+				s = std::min(std::max(s, 0.f), 1.f);
+			}
+			const Vec3 c = a + ab * s;
+			const Vec3 oc = origin - c;
+			const f32 bq = oc.dotProduct(d);
+			const f32 cq = oc.dotProduct(oc) - id->hitRadius * id->hitRadius;
+			const f32 disc = bq * bq - cq;
+			if (disc < 0.f) continue;
+			const f32 t = -bq - std::sqrt(disc);
+			if (t < 0.f || t > bestT) continue;
+			bestT = t;
+			best.netId = it->first;
+			best.distance = t;
+			best.point = origin + d * t;
+		}
+		return best;
 	}
 
 	void NetworkSession::PoseReplicas()

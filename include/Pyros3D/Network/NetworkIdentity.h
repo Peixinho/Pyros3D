@@ -63,6 +63,14 @@ namespace p3d {
 		f32 relevance = 0.f;		// metres; 0 = the session's default
 		f32 priority = 1.f;			// share of the bandwidth budget relative to others
 		bool syncTransform = true;
+		// Moved by the session's simulate function from its owner's input:
+		// the server runs it authoritatively, the owner runs it ahead of the
+		// server and reconciles (see NetworkSession::SetSimulate). Without
+		// this, an owned object is moved by its client directly.
+		bool predicted = false;
+		// The capsule rewound hit tests use: from the object's position up
+		// hitHeight metres, hitRadius around (hitHeight 0: a sphere).
+		f32 hitRadius = 0.4f, hitHeight = 1.8f;
 
 		// 0 until the server has registered it.
 		uint32 GetNetId() const { return netId; }
@@ -102,6 +110,14 @@ namespace p3d {
 		// Client interpolation: server tick -> transform.
 		struct Sample { f64 tick; Vec3 position; Quaternion rotation; };
 		std::vector<Sample> samples;
+
+		// Server: world positions by tick, for rewound hit tests.
+		struct Past { uint32 tick; Vec3 position; };
+		std::vector<Past> history;
+
+		// Owner, predicting: commands the server has not processed yet.
+		struct Command { uint32 seq; std::vector<NetValue> input; };
+		std::vector<Command> pending;
 	};
 
 }

@@ -78,6 +78,8 @@ int main()
 	fs::create_directories(root / "scenes");
 	fs::create_directories(root / "assets" / "prefabs");
 	std::ofstream(root / "assets" / "prefabs" / "Crate.prefab") << "{\"prefabVersion\":1,\"root\":{\"name\":\"Crate\"}}";
+	std::ofstream(root / "assets" / "prefabs" / "Player.prefab") << "{\"prefabVersion\":1,\"root\":{\"name\":\"Player\","
+		"\"components\":[{\"type\":\"NetworkIdentity\",\"predicted\":true}]}}";
 	const std::string scenePath = (root / "scenes" / "Test.json").string();
 
 	World server(scenePath), client(scenePath);
@@ -188,6 +190,70 @@ int main()
 	Id(many[5].get())->SetVar("team", NetValue::FromString("red"));
 	check(Run(server, client, [&] { NetValue v; return Id(client.session.Find(Id(many[5].get())->GetNetId()))->GetVar("team", v) && v.text == "red"; }, 5.0),
 		"a variable converges through 25% snapshot loss");
+
+	// ---- prediction ----
+	server.session.Transport().SetSimulatedConditions(0, 0, 0.f);
+	for (size_t i = 0; i < many.size(); i++) server.session.Destroy(many[i].get());
+	// The game's movement code, run by both ends: 5 m/s along the input.
+	const NetworkSession::Simulate walk = [](GameObject* go, const std::vector<NetValue> &in, const f32 dt) {
+		if (in.size() < 2) return;
+		go->SetPosition(go->GetPosition() + Vec3((f32)in[0].number, 0.f, (f32)in[1].number) * (5.f * dt));
+	};
+	server.session.SetSimulate(walk);
+	client.session.SetSimulate(walk);
+	std::shared_ptr<GameObject> hero = server.session.Spawn("assets/prefabs/Player.prefab", Vec3(0, 0, 0), Vec3(), me);
+	const uint32 heroId = Id(hero.get())->GetNetId();
+	check(Run(server, client, [&] { return client.session.Find(heroId) != NULL; }, 3.0), "a predicted player reaches its owner");
+	GameObject* local = client.session.Find(heroId);
+	check(Id(local)->predicted, "flagged predicted by its prefab");
+	server.session.Transport().SetSimulatedConditions(60, 0, 0.f);
+	client.session.Transport().SetSimulatedConditions(60, 0, 0.f);
+	Run(server, client, nullptr, 0.3);
+
+	client.session.SetInput({ NetValue::FromNumber(1), NetValue::FromNumber(0) });
+	Run(server, client, nullptr, 0.1);
+	printf("after 0.1 s: owner x %.3f, server x %.3f\n", local->GetPosition().x, hero->GetPosition().x);
+	check(local->GetPosition().x > hero->GetPosition().x + 0.3f, "the owner moves at once, well ahead of what the server has heard");
+	Run(server, client, nullptr, 0.9);
+	client.session.SetInput({ NetValue::FromNumber(0), NetValue::FromNumber(0) });
+	Run(server, client, nullptr, 1.0);
+	printf("stopped: owner x %.4f, server x %.4f\n", local->GetPosition().x, hero->GetPosition().x);
+	check(std::fabs(local->GetPosition().x - hero->GetPosition().x) < 0.002f, "after reconciling, owner and server agree");
+	check(std::fabs(hero->GetPosition().x - 5.f) < 0.3f, "and moved 5 m in the second of input");
+
+	// A client making commands twice as fast (a sped-up clock) cannot move
+	// the server faster, and is pulled back to it.
+	const f32 start = hero->GetPosition().x;
+	client.session.SetInput({ NetValue::FromNumber(1), NetValue::FromNumber(0) });
+	for (int i = 0; i < 60; i++)
+	{
+		server.Frame(g_dt);
+		client.Frame(g_dt * 2.0);
+		std::this_thread::sleep_for(std::chrono::microseconds((int)(g_dt * 1e6)));
+	}
+	client.session.SetInput({ NetValue::FromNumber(0), NetValue::FromNumber(0) });
+	Run(server, client, nullptr, 1.0);
+	const f32 moved = hero->GetPosition().x - start;
+	printf("sped-up client: server moved %.2f m (honest would be 5.0, cheating 10.0), owner at %.2f\n", moved, local->GetPosition().x - start);
+	check(moved < 7.5f, "the server caps a client's command rate");
+	check(std::fabs(local->GetPosition().x - hero->GetPosition().x) < 0.002f, "and the cheater is reconciled back to it");
+
+	// ---- lag compensation ----
+	std::shared_ptr<GameObject> target = server.session.Spawn("assets/prefabs/Crate.prefab", Vec3(0, 0, 20), Vec3());
+	const uint32 targetId = Id(target.get())->GetNetId();
+	Run(server, client, [&] { return client.session.Find(targetId) != NULL; }, 3.0);
+	// Keep the client's view tick flowing: it rides on its commands.
+	client.session.SetInput({ NetValue::FromNumber(0), NetValue::FromNumber(0) });
+	Run(server, client, nullptr, 1.0, [&] { target->SetPosition(target->GetPosition() + Vec3(10.f * (f32)g_dt, 0, 0)); });
+	// The client fires: it sends where it aimed and the tick it was seeing.
+	const Vec3 sighted = client.session.Find(targetId)->GetPosition();
+	const f64 firedAt = client.session.ViewTick();
+	const Vec3 origin = sighted + Vec3(0.f, 0.9f, -10.f);
+	const NetworkSession::RayHit rewound = server.session.RaycastRewound(me, origin, Vec3(0, 0, 1), 50.f, firedAt);
+	const NetworkSession::RayHit present = server.session.RaycastRewound(0, origin, Vec3(0, 0, 1), 50.f);
+	printf("target on the client at x %.2f, on the server at x %.2f\n", sighted.x, target->GetPosition().x);
+	check(rewound.netId == targetId && std::fabs(rewound.distance - (10.f - 0.4f)) < 0.2f, "a shot where the client saw the target hits, rewound");
+	check(present.netId == 0, "the same shot against the present misses");
 
 	client.session.Shutdown();
 	check(Run(server, client, [&] { return server.session.Transport().PeerCount() == 0; }, 3.0), "the server sees the client leave");
