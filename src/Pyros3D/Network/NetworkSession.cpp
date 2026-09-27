@@ -368,7 +368,7 @@ namespace p3d {
 			{
 				tickAccumulator -= tickLength;
 				serverTick += 1.0;
-				ServerTick();
+				RunServerTick();
 				ran++;
 			}
 			if (ran == 3) tickAccumulator = 0.0;
@@ -380,7 +380,7 @@ namespace p3d {
 			if (tickAccumulator >= tickLength)
 			{
 				tickAccumulator = std::fmod(tickAccumulator, tickLength);
-				ClientTick();
+				RunClientTick();
 			}
 			PoseReplicas();
 		}
@@ -388,7 +388,7 @@ namespace p3d {
 		stats.replicated = (uint32)entities.size();
 	}
 
-	void NetworkSession::ServerTick()
+	void NetworkSession::RunServerTick()
 	{
 		RegisterNewIdentities();
 		const uint32 tick = (uint32)serverTick;
@@ -500,7 +500,7 @@ namespace p3d {
 		}
 	}
 
-	void NetworkSession::ClientTick()
+	void NetworkSession::RunClientTick()
 	{
 		NetWriter w;
 		w.U8(Msg::Ack);

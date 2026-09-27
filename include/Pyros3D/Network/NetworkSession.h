@@ -134,8 +134,8 @@ namespace p3d {
 		struct ClientState;
 		struct Entity;
 
-		void ServerTick();
-		void ClientTick();
+		void RunServerTick();
+		void RunClientTick();
 		void HandleMessage(const NetEvent &e);
 		void HandleServerMessage(const PeerId from, NetReader &r, const uint8 type);
 		void HandleClientMessage(NetReader &r, const uint8 type);

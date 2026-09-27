@@ -40,6 +40,7 @@
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Streaming/WorldStreamer.h>
+#include <Pyros3D/Network/NetworkSession.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Audio/AudioManager.h>
 
@@ -268,6 +269,9 @@ private:
 	// scene. Created with the scene, before its first frame; destroyed
 	// before the scene is unloaded, taking its cells with it.
 	std::unique_ptr<WorldStreamer> worldStreamer;
+	// The scene's network session, made when a script first hosts or joins
+	// (see RegisterLuaNetwork); gone with the scene.
+	std::unique_ptr<NetworkSession> network;
 	// Sounds, emitters and autoplay clips start when their objects arrive:
 	// with the scene, or with the streamed cell that carries them.
 	void StartSceneMedia(const std::vector<GameObject*> &objects);

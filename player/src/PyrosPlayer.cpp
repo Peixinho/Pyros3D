@@ -8,6 +8,7 @@
 
 #include "PyrosPlayer.h"
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
+#include <Pyros3D/Utils/Bindings/PyrosLuaNetwork.h>
 #include "../../examples/WindowManagers/TextInputHook.h"
 #include "UIDispatch.h"
 
@@ -307,6 +308,13 @@ void PyrosPlayer::Init()
 
 #ifdef LUA_BINDINGS
 	GenerateBindings(&lua);
+	// `network`: the session belongs to the loaded scene and is made the
+	// first time a script hosts or joins.
+	RegisterLuaNetwork(&lua, [this]() -> NetworkSession* {
+		if (!network && sceneLoaded)
+			network.reset(new NetworkSession(scene, ResolvePath(currentSceneRel), physics, &lua));
+		return network.get();
+	});
 	// Behaviour scripts call class('Name') as a global. require_file caches
 	// the module but does not set _G.class, so the assignment matters - same
 	// as Editor::InitLuaHost and DemoLauncher.
@@ -706,6 +714,8 @@ void PyrosPlayer::UnloadGameScene()
 #endif
 	// Its cells are in the scene; they go first, by the streamer's hand.
 	worldStreamer.reset();
+	// Replicas and spawned objects live in the scene too.
+	network.reset();
 	activeCamera = NULL;
 	SceneSerializer::UnloadScene(scene, sceneAssets);
 	sceneAssets = LoadedSceneAssets();
@@ -1092,6 +1102,14 @@ void PyrosPlayer::Update()
 		worldStreamer->Update(activeCamera->GetWorldPosition());
 	// Foliage thins and fades against the camera the game is seen through.
 	if (activeCamera) FoliageComponent::SetViewer(activeCamera->GetWorldPosition());
+	// The network before the scene: snapshots pose replicas, and the scene
+	// then solves their transforms for this frame. Relevance is measured
+	// from the camera.
+	if (network)
+	{
+		if (activeCamera) network->SetViewer(activeCamera->GetWorldPosition());
+		network->Update(dt);
+	}
 	scene->Update(time);
 	// The overlay is a real SceneGraph and needs solving every frame like any
 	// other - its UI layout, animations and component registration all happen

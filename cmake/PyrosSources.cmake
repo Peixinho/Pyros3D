@@ -40,6 +40,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaAudio.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaMisc.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaUI.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaNetwork.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Serialization/SceneSerializer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Geometry/Geometry.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/FPS/FPS.cpp
