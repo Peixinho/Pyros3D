@@ -1651,6 +1651,11 @@ namespace p3d {
 		std::vector<VkDescriptorPool> samplerSetPools;
 		std::vector<CachedSamplerSet> retiredSamplerSets[MAX_FRAMES_IN_FLIGHT];
 		std::vector<CachedSamplerSet> retiredSamplerSetsBeforeNextFrame;
+		// Pipelines go the same way: a mesh or instancing batch destroyed
+		// mid-game may still be referenced by a frame the GPU is running
+		// (VUID-vkDestroyPipeline-pipeline-00765).
+		std::vector<VkPipeline> retiredPipelines[MAX_FRAMES_IN_FLIGHT];
+		std::vector<VkPipeline> retiredPipelinesBeforeNextFrame;
 		bool AllocateSamplerSet(const VkDescriptorSetLayout layout, CachedSamplerSet &out);
 		void RetireSamplerSetsNaming(const uint64 handle);
 		void ReleaseRetiredSamplerSets(const uint32 slot);

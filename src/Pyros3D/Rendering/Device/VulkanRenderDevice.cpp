@@ -271,6 +271,15 @@ namespace p3d {
 			for (std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.begin(); it != pipelines.end(); it++)
 				vkDestroyPipeline(device, it->second, NULL);
 			pipelines.clear();
+			for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
+			{
+				for (size_t k = 0; k < retiredPipelines[i].size(); k++)
+					vkDestroyPipeline(device, retiredPipelines[i][k], NULL);
+				retiredPipelines[i].clear();
+			}
+			for (size_t k = 0; k < retiredPipelinesBeforeNextFrame.size(); k++)
+				vkDestroyPipeline(device, retiredPipelinesBeforeNextFrame[k], NULL);
+			retiredPipelinesBeforeNextFrame.clear();
 			DestroyPipelineCache();
 			if (descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, descriptorPool, NULL);
 			// Destroying a pool frees its sets; the cache and retire lists
@@ -2441,8 +2450,19 @@ namespace p3d {
 		std::map<DeviceHandle, VkPipeline>::iterator it = pipelines.find(pipeline);
 		if (it == pipelines.end())
 			return;
+		// Deferred like RetireOrDestroyBufferRecord - see retiredPipelines.
 		if (device != VK_NULL_HANDLE)
-			vkDestroyPipeline(device, it->second, NULL);
+		{
+			if (frameInProgress)
+				retiredPipelines[currentFrameSlot].push_back(it->second);
+			else if (swapchain != VK_NULL_HANDLE)
+				retiredPipelinesBeforeNextFrame.push_back(it->second);
+			else
+			{
+				EnsureHostMappedBufferWritable();
+				vkDestroyPipeline(device, it->second, NULL);
+			}
+		}
 		pipelines.erase(it);
 		pipelineToProgram.erase(pipeline);
 		// The pipeline owns no sampler sets - they are shared by content -
@@ -3184,6 +3204,9 @@ namespace p3d {
 
 	void VulkanRenderDevice::ReleaseRetiredSamplerSets(const uint32 slot)
 	{
+		for (size_t i = 0; i < retiredPipelines[slot].size(); i++)
+			vkDestroyPipeline(device, retiredPipelines[slot][i], NULL);
+		retiredPipelines[slot].clear();
 		std::vector<CachedSamplerSet> &list = retiredSamplerSets[slot];
 		for (size_t i = 0; i < list.size(); i++)
 			vkFreeDescriptorSets(device, list[i].pool, 1, &list[i].set);
@@ -3641,6 +3664,9 @@ namespace p3d {
 	// frames and offscreen work that could have used these - has finished.
 	void VulkanRenderDevice::AdoptPendingRetirements()
 	{
+		std::vector<VkPipeline> &pipes = retiredPipelines[currentFrameSlot];
+		pipes.insert(pipes.end(), retiredPipelinesBeforeNextFrame.begin(), retiredPipelinesBeforeNextFrame.end());
+		retiredPipelinesBeforeNextFrame.clear();
 		std::vector<CachedSamplerSet> &sets = retiredSamplerSets[currentFrameSlot];
 		sets.insert(sets.end(), retiredSamplerSetsBeforeNextFrame.begin(), retiredSamplerSetsBeforeNextFrame.end());
 		retiredSamplerSetsBeforeNextFrame.clear();
