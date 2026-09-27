@@ -191,6 +191,28 @@ namespace p3d {
 		// means false, so every existing scene keeps loading as a 3D one.
 		bool twoD = false;
 
+		// ---- a streamed world --------------------------------------------
+		// Objects split into square cells on the XZ plane, each cell one
+		// subtree file (the shape DeserializeSubtree reads) in cellsDir,
+		// named "<x>_<z>.json". WorldStreamer loads the cells within
+		// loadRadius of the camera and drops those past unloadRadius; the
+		// gap between the two keeps a camera on a border from reloading a
+		// cell every frame. The scene file itself keeps what must always
+		// be there - player, sun, UI, scripts. Absent from a scene file
+		// means not streamed: everything is in the scene file, as always.
+		struct World
+		{
+			bool enabled = false;
+			f32 cellSize = 256.f;
+			f32 loadRadius = 512.f;
+			f32 unloadRadius = 640.f;
+			// Relative to the scene file's directory.
+			std::string cellsDir;
+			// The cells that exist, so the streamer never probes the disk.
+			std::vector<std::pair<int32, int32> > cells;
+		};
+		World world;
+
 		// ---- how a 2D scene is framed -----------------------------------
 		// A 2D scene has a viewpoint, not a camera. What is on screen is two
 		// numbers - where the view is centred and how much of the world it
@@ -352,6 +374,26 @@ namespace p3d {
 		// being applied to the scene.
 		static std::shared_ptr<GameObject> DeserializeSubtree(const std::string &subtreeJson, const std::string &scenePathForAssetRoot,
 			IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL);
+
+		// DeserializeSubtree split in two for streaming. PrepareSubtreeFile
+		// does everything that needs no device or scene - reads and parses
+		// the file, decodes every image and parses every model it names -
+		// so any thread may run it (AssetStreamer's work). NULL on a missing
+		// or malformed file, already logged. InstantiatePrepared is the
+		// main-thread rest: builds the GameObjects, taking bytes from the
+		// prepared data instead of the disk. Instantiate each prepared
+		// subtree once; its decoded data is consumed by the first call.
+		struct PreparedSubtree;
+		static std::shared_ptr<PreparedSubtree> PrepareSubtreeFile(const std::string &subtreePath, const std::string &scenePathForAssetRoot);
+		static std::shared_ptr<GameObject> InstantiatePrepared(PreparedSubtree &prepared,
+			IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL);
+		// Main thread, optional, before InstantiatePrepared: uploads ONE of
+		// the subtree's textures, so a caller with a frame budget can spread
+		// them over frames - an upload with mips is the costly part of the
+		// main-thread half. False once there is nothing left to upload.
+		static bool UploadNextPrepared(PreparedSubtree &prepared);
+		// Decoded bytes still held - for memory budgets and traces.
+		static size_t PreparedByteSize(const PreparedSubtree &prepared);
 	};
 
 }

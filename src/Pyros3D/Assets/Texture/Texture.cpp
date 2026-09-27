@@ -7,6 +7,8 @@
 //============================================================================
 
 #include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Utils/Streaming/LoadStats.h>
+#include <Pyros3D/Utils/Streaming/AssetBundle.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <string.h>
@@ -14,6 +16,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include <Pyros3D/Ext/stb/stb_image.h>
 #include <cstdint>   // INT64_MAX, used by BleedTransparentEdges below
+#include <map>
+#include <mutex>
 
 namespace p3d {
 
@@ -68,20 +72,15 @@ namespace p3d {
 
 	bool Texture::LoadTexture(const std::string& Filename, const uint32 Type, bool Mipmapping, const uint32 level)
 	{
-		File* file = new File();
-		bool status;
-
 		if (this->GL_ID == -1)
 			this->GL_ID = Device().CreateTextureObject();
 
 		this->Type = Type;
 
-		status = file->Open(Filename);
+		DecodedImage image;
+		bool status = AssetBundle::TakeImage(Filename, image) || DecodeFile(Filename, image);
 		if (status)
-		{
-			status = LoadTextureFromMemory(file->GetData(), file->Size(), Type, Mipmapping, level);
-			file->Close();
-		}
+			status = UploadDecoded(image, Mipmapping, level);
 		// Only record a real, successfully-loaded file's path - a failed
 		// load falls through to the checkerboard fallback below, which
 		// isn't actually this Filename's image data.
@@ -115,7 +114,6 @@ namespace p3d {
 			this->SetTextureByteAlignment(1);
 			status = true;
 		}
-		delete file;
 		return status;
 	}
 
@@ -209,58 +207,76 @@ namespace p3d {
 		}
 	}
 
+	bool Texture::DecodeFile(const std::string& Filename, DecodedImage& out)
+	{
+		File file;
+		{
+			LoadStats::Scope t(LoadStats::FileRead);
+			if (!file.Open(Filename))
+				return false;
+		}
+		const bool ok = file.Size() > 0 && DecodeMemory(&file.GetData()[0], file.Size(), out);
+		file.Close();
+		return ok;
+	}
+
+	bool Texture::DecodeMemory(const uchar* data, const size_t length, DecodedImage& out)
+	{
+		LoadStats::Scope t(LoadStats::TextureDecode);
+		int32 w, h, bpp;
+		uchar* imagePTR = (data && length) ? stbi_load_from_memory(data, (int)length, &w, &h, &bpp, 4) : NULL;
+
+		// Check the result *before* touching w/h/imagePTR. On failure stb
+		// returns NULL and leaves w/h uninitialized, so the resize() below
+		// was handed a garbage size - std::length_error escaping as far as
+		// terminate() - and the memcpy() read from NULL. Any format stb
+		// cannot decode reaches this (it has no DDS support at all), so an
+		// unreadable texture killed the process instead of returning false.
+		if (!imagePTR)
+		{
+			echo("ERROR: Failed to Open Texture");
+			return false;
+		}
+
+		out.width = w;
+		out.height = h;
+		out.pixels.assign(imagePTR, imagePTR + (size_t)w * h * 4);
+		stbi_image_free(imagePTR);
+
+		// Before upload, so mip generation sees the bled colours too.
+		BleedTransparentEdges(out.pixels, w, h);
+		return true;
+	}
+
 	bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type, bool Mipmapping, const uint32 level)
 	{
-		bool failed = false;
-		bool ImageLoaded = false;
-
 		// Cache the raw compressed bytes as a fallback source for scene
-		// serialization - LoadTexture() (which calls this internally)
-		// clears it right after setting a real Filename, since a path is
-		// strictly better than embedding bytes; this only actually
-		// survives for a Texture built directly via this method (no
-		// path available at all).
+		// serialization - LoadTexture() clears it right after setting a real
+		// Filename, since a path is strictly better than embedding bytes;
+		// this only survives for a Texture built directly via this method
+		// (no path available at all).
 		this->RawData = data;
 
 		if (this->GL_ID == -1) {
 			this->GL_ID = Device().CreateTextureObject();
 		}
 
-		int32 w, h, bpp;
-		std::vector<uchar> pixels;
-
-		uchar* imagePTR;
-		imagePTR = stbi_load_from_memory(&data[0], length, &w, &h, &bpp ,4);
-
-		// Check the result *before* touching w/h/imagePTR. On failure stb
-		// returns NULL and leaves w/h uninitialized, so the resize() below
-		// was handed a garbage size - std::length_error escaping as far as
-		// terminate() - and the memcpy() read from NULL. The check existed
-		// already; it just ran three lines too late to do its job. Any
-		// format stb cannot decode reaches this (it has no DDS support at
-		// all), so an unreadable texture killed the process instead of
-		// returning false.
-		ImageLoaded = imagePTR!=NULL;
-		if (!ImageLoaded) {
-			echo("ERROR: Failed to Open Texture");
+		DecodedImage image;
+		if (data.empty() || !DecodeMemory(&data[0], length, image))
 			return false;
-		}
+		return UploadDecoded(image, Mipmapping, level);
+	}
 
-		pixels.resize(w * h * 4 * sizeof(uchar));
-		memcpy(&pixels[0], imagePTR, w * h * 4 * sizeof(uchar));
-		stbi_image_free(imagePTR);
-
-		// Before upload, so mip generation sees the bled colours too.
-		BleedTransparentEdges(pixels, w, h);
-
+	bool Texture::UploadDecoded(DecodedImage& image, bool Mipmapping, const uint32 level)
+	{
 		if (this->Width.size() < level + 1)
 		{
 			this->Width.resize(level + 1);
 			this->Height.resize(level + 1);
 		}
 
-		this->Width[level] = w;
-		this->Height[level] = h;
+		this->Width[level] = image.width;
+		this->Height[level] = image.height;
 		this->haveImage = true;
 		this->Transparency = TextureTransparency::Opaque;
 		this->DataType = TextureDataType::RGBA;
@@ -270,8 +286,8 @@ namespace p3d {
 			return false;
 		}
 
-		// create default texture
-		return CreateTexture(&pixels[0], Mipmapping, level);
+		LoadStats::Scope t(LoadStats::TextureUpload);
+		return CreateTexture(&image.pixels[0], Mipmapping, level);
 	}
 
 	bool Texture::CreateTexture(uchar* data, bool Mipmapping, const uint32 level, const uint32 msaa)
@@ -470,6 +486,13 @@ namespace p3d {
 			static std::map<std::string, std::weak_ptr<Texture> > cache;
 			return cache;
 		}
+		// Loads happen on the main thread, but IsSharedLoaded() is asked
+		// from loader threads filling an AssetBundle.
+		std::mutex &SharedTextureCacheMutex()
+		{
+			static std::mutex m;
+			return m;
+		}
 	}
 
 	std::shared_ptr<Texture> Texture::LoadShared(const std::string& Filename,
@@ -477,22 +500,38 @@ namespace p3d {
 	{
 		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
 		const std::string key = Filename + "|" + std::to_string(Type) + (Mipmapping ? "|m" : "|n");
-		std::map<std::string, std::weak_ptr<Texture> >::iterator it = cache.find(key);
-		if (it != cache.end())
 		{
-			if (std::shared_ptr<Texture> hit = it->second.lock())
-				return hit;
-			cache.erase(it);
+			std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
+			std::map<std::string, std::weak_ptr<Texture> >::iterator it = cache.find(key);
+			if (it != cache.end())
+			{
+				if (std::shared_ptr<Texture> hit = it->second.lock())
+					return hit;
+				cache.erase(it);
+			}
 		}
 		std::shared_ptr<Texture> tex = std::make_shared<Texture>();
 		if (!tex->LoadTexture(Filename, Type, Mipmapping))
 			return std::shared_ptr<Texture>();
+		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
 		cache[key] = tex;
 		return tex;
 	}
 
+	bool Texture::IsSharedLoaded(const std::string& Filename)
+	{
+		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
+		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
+		const std::string prefix = Filename + "|";
+		for (std::map<std::string, std::weak_ptr<Texture> >::const_iterator it = cache.lower_bound(prefix);
+			it != cache.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it)
+			if (!it->second.expired()) return true;
+		return false;
+	}
+
 	void Texture::PurgeSharedCache()
 	{
+		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
 		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
 		std::map<std::string, std::weak_ptr<Texture> >::iterator i = cache.begin();
 		while (i != cache.end())

@@ -85,6 +85,13 @@ namespace p3d {
 		std::mutex gSpirvCacheMutex;
 		std::map<uint64, std::vector<uint32> > gSpirvMemCache;
 
+		// AutoFixForVulkan's preprocessed text, by exact source and stage.
+		// The SPIR-V cache cannot help that pass: its key is the post-fix
+		// text, which names a per-shader block, so every particle system in
+		// a level ran shaderc's preprocessor again - 70% of loading Rossio.
+		std::mutex gPreprocessMutex;
+		std::map<std::pair<uint32, std::string>, std::string> gPreprocessCache;
+
 		bool LoadSpirvFromDisk(uint64 key, std::vector<uint32> &out)
 		{
 			std::ifstream in(SpirvCachePath(key).c_str(), std::ios::binary);
@@ -283,18 +290,31 @@ namespace p3d {
 		// deal with flat, single-line, fully-resolved GLSL - see the
 		// header comment for why this is much more robust than pattern-
 		// matching the raw, still-conditional source text directly.
-		shaderc_shader_kind kind = ShadercKindForStage(stage);
-		shaderc::Compiler compiler;
-		shaderc::CompileOptions options;
-		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
-
-		shaderc::PreprocessedSourceCompilationResult preResult = compiler.PreprocessGlsl(source, kind, "shader", options);
-		if (preResult.GetCompilationStatus() != shaderc_compilation_status_success)
+		std::string flat;
+		const std::pair<uint32, std::string> preKey(stage, source);
+		bool preprocessed = false;
 		{
-			errorLog = preResult.GetErrorMessage();
-			return false;
+			std::lock_guard<std::mutex> lock(gPreprocessMutex);
+			std::map<std::pair<uint32, std::string>, std::string>::iterator it = gPreprocessCache.find(preKey);
+			if (it != gPreprocessCache.end()) { flat = it->second; preprocessed = true; }
 		}
-		std::string flat(preResult.cbegin(), preResult.cend());
+		if (!preprocessed)
+		{
+			shaderc_shader_kind kind = ShadercKindForStage(stage);
+			shaderc::Compiler compiler;
+			shaderc::CompileOptions options;
+			options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
+
+			shaderc::PreprocessedSourceCompilationResult preResult = compiler.PreprocessGlsl(source, kind, "shader", options);
+			if (preResult.GetCompilationStatus() != shaderc_compilation_status_success)
+			{
+				errorLog = preResult.GetErrorMessage();
+				return false;
+			}
+			flat.assign(preResult.cbegin(), preResult.cend());
+			std::lock_guard<std::mutex> lock(gPreprocessMutex);
+			gPreprocessCache[preKey] = flat;
+		}
 
 		std::vector<std::string> lines;
 		{

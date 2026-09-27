@@ -15,6 +15,7 @@
 #include <iostream>
 #include <fstream>
 #include <vector>
+#include <mutex>
 #if defined(ANDROID)
 #include <android/log.h>
 #endif
@@ -73,19 +74,31 @@ namespace p3d {
 			//
 			// Fixed-capacity ring: a long-running app must not grow this
 			// without bound, and dropping the oldest lines is the right
-			// trade when the newest are what you are looking at. Not
-			// thread-safe - logging here is called from the main thread.
+			// trade when the newest are what you are looking at. Loader
+			// threads log too (a texture that fails to open), so every
+			// access goes through _mutex, and MessageAt() hands back a copy
+			// that a concurrent write cannot pull out from under the reader.
 			static std::vector<Entry> _entries;
 			static unsigned int _entriesStart;
 			static const unsigned int _entriesMax = 1024;
+			static std::recursive_mutex &_mutex();
 
-			static unsigned int MessageCount() { return (unsigned int)_entries.size(); }
-			// 0 is the oldest line still retained, not the oldest ever logged.
-			static const Entry &MessageAt(const unsigned int i)
+			static unsigned int MessageCount()
 			{
+				std::lock_guard<std::recursive_mutex> lock(_mutex());
+				return (unsigned int)_entries.size();
+			}
+			// 0 is the oldest line still retained, not the oldest ever logged.
+			static Entry MessageAt(const unsigned int i)
+			{
+				std::lock_guard<std::recursive_mutex> lock(_mutex());
 				return _entries[(_entriesStart + i) % _entries.size()];
 			}
-			static void ClearMessages() { _entries.clear(); _entriesStart = 0; }
+			static void ClearMessages()
+			{
+				std::lock_guard<std::recursive_mutex> lock(_mutex());
+				_entries.clear(); _entriesStart = 0;
+			}
 
 			// Anything above this is dropped outright - not recorded, not
 			// printed. Defaults to Warning because the engine logs a SUCCESS
@@ -135,6 +148,7 @@ namespace p3d {
 			// std::cerr and would otherwise have every message appear twice.
 			static void _message(const std::string &Message, const bool mirrorToConsole = true)
 			{
+				std::lock_guard<std::recursive_mutex> lock(_mutex());
 				if (_classify(Message) > _threshold)
 					return;
 				_record(Message);
@@ -164,6 +178,7 @@ namespace p3d {
 			}
 			static void _echo(const std::string &Message)
 			{
+				std::lock_guard<std::recursive_mutex> lock(_mutex());
 				if (!_initiated)
 				{
 					_initiated = true;

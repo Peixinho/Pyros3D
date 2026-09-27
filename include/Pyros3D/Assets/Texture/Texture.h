@@ -94,6 +94,15 @@ namespace p3d {
 
 	class PYROS3D_API Texture {
 
+	public:
+
+		// Pixels ready for upload: RGBA8, edges already bled.
+		struct DecodedImage
+		{
+			int32 width = 0, height = 0;
+			std::vector<uchar> pixels;
+		};
+
 	private:
 
 		// Internal ID for GL
@@ -141,6 +150,8 @@ namespace p3d {
 		std::vector<uchar> RawData;
 
 		bool CreateTexture(uchar* data = NULL, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0);
+		// The device half of a load: records the size and uploads.
+		bool UploadDecoded(DecodedImage& image, bool Mipmapping, const uint32 level);
 
 		void GetGLModes();
 		void GetInternalFormat();
@@ -161,7 +172,8 @@ namespace p3d {
 		// Constructor
 		Texture();
 
-		// Texture
+		// Texture. Inside an open AssetBundle::Use it takes the pixels from
+		// the bundle rather than reading the file - see AssetBundle.h.
 		bool LoadTexture(const std::string& Filename, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
 		// A shared, path-keyed load: returns the SAME Texture for the same
 		// file instead of decoding and uploading it again.
@@ -181,6 +193,13 @@ namespace p3d {
 			const uint32 Type = TextureType::Texture, bool Mipmapping = true);
 		// Drops entries whose texture is already gone. Housekeeping only.
 		static void PurgeSharedCache();
+		// True when LoadShared() would return an existing Texture for this
+		// file (any type or mip flag) - nothing to decode.
+		static bool IsSharedLoaded(const std::string& Filename);
+
+		// Read and decode with no device call, so any thread may run them.
+		static bool DecodeFile(const std::string& Filename, DecodedImage& out);
+		static bool DecodeMemory(const uchar* data, const size_t length, DecodedImage& out);
 		bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
 		bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0); // msaa if using multisample only
 		void SetMinMagFilter(const uint32 MinFilter, const uint32 MagFilter);

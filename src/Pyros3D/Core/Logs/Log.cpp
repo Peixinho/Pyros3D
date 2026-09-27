@@ -20,6 +20,12 @@ namespace p3d {
 		int _LOG::_threshold = Level::Warning;
 		bool _LOG::_mirrorStdout = true;
 
+		std::recursive_mutex &_LOG::_mutex()
+		{
+			static std::recursive_mutex m;
+			return m;
+		}
+
 	};
 
 };

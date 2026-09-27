@@ -6,6 +6,11 @@
 // Description : Scene save/load to JSON
 //============================================================================
 
+#include <Pyros3D/Utils/Streaming/LoadStats.h>
+#include <Pyros3D/Utils/Streaming/AssetBundle.h>
+#include <set>
+#include <algorithm>
+#include <chrono>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Core/Logs/Log.h>
@@ -345,7 +350,9 @@ namespace p3d {
 		}
 	}
 
-	static std::string ResolveSceneAssetPath(const std::string &path)
+	// Explicit root, so a loader thread can resolve a cell's paths while
+	// the main thread is mid-load with assetRoot set to its own.
+	static std::string ResolveSceneAssetPathIn(const std::string &assetRoot, const std::string &path)
 	{
 		if (path.empty()) return path;
 		if (SceneAssetFileExists(path)) return path;
@@ -360,9 +367,9 @@ namespace p3d {
 			if (pos != std::string::npos)
 			{
 				relative = relative.substr(pos + marker.size());
-				if (!g_sceneAssetRoot.empty())
+				if (!assetRoot.empty())
 				{
-					const std::string candidate = EnsureTrailingSlash(g_sceneAssetRoot) + relative;
+					const std::string candidate = EnsureTrailingSlash(assetRoot) + relative;
 					if (SceneAssetFileExists(candidate) || relative != NormalizeSlashes(path))
 						return candidate;
 				}
@@ -386,9 +393,9 @@ namespace p3d {
 			}
 		}
 
-		if (!g_sceneAssetRoot.empty())
+		if (!assetRoot.empty())
 		{
-			const std::string root = EnsureTrailingSlash(g_sceneAssetRoot);
+			const std::string root = EnsureTrailingSlash(assetRoot);
 			const std::string joined = root + relative;
 			if (SceneAssetFileExists(joined))
 				return joined;
@@ -414,6 +421,11 @@ namespace p3d {
 				return joined;
 		}
 		return path;
+	}
+
+	static std::string ResolveSceneAssetPath(const std::string &path)
+	{
+		return ResolveSceneAssetPathIn(g_sceneAssetRoot, path);
 	}
 
 	// ******************************* helpers *******************************
@@ -716,7 +728,7 @@ namespace p3d {
 	// create a fresh Texture, no natural dedup key). `outAssets`, if
 	// non-NULL, records every Texture actually constructed (not cache
 	// hits) - see LoadedSceneAssets.
-	static std::shared_ptr<Texture> DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets);
+	static std::shared_ptr<Texture> DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets, const bool shared = false);
 
 	// ******************************* save *******************************
 
@@ -2122,6 +2134,20 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				}
 				root["view2D"] = vj;
 			}
+			if (meta->world.enabled)
+			{
+				const SceneMeta::World &w = meta->world;
+				json wj;
+				wj["cellSize"] = (double)w.cellSize;
+				wj["loadRadius"] = (double)w.loadRadius;
+				wj["unloadRadius"] = (double)w.unloadRadius;
+				wj["cellsDir"] = w.cellsDir;
+				json cells = json::array();
+				for (size_t i = 0; i < w.cells.size(); i++)
+					cells.push_back(json::array({ w.cells[i].first, w.cells[i].second }));
+				wj["cells"] = cells;
+				root["world"] = wj;
+			}
 		}
 
 		json materialsArray = json::array();
@@ -2169,15 +2195,25 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 
 	// ******************************* load *******************************
 
-	static std::shared_ptr<Texture> GetOrLoadTexture(const std::string &path, std::map<std::string, std::shared_ptr<Texture>> &cache, LoadedSceneAssets* outAssets)
+	// shared: through Texture::LoadShared, so every scene and streamed cell
+	// naming this file gets the one Texture - only for material maps,
+	// which nothing mutates after load. A sprite or UI image may have its
+	// filter or wrap changed per instance, so those keep their own copy.
+	static std::shared_ptr<Texture> GetOrLoadTexture(const std::string &path, std::map<std::string, std::shared_ptr<Texture>> &cache, LoadedSceneAssets* outAssets, const bool shared = false)
 	{
 		const std::string resolved = ResolveSceneAssetPath(path);
 		if (resolved.empty()) return nullptr;
-		std::map<std::string, std::shared_ptr<Texture>>::iterator it = cache.find(resolved);
+		const std::string key = shared ? "shared|" + resolved : resolved;
+		std::map<std::string, std::shared_ptr<Texture>>::iterator it = cache.find(key);
 		if (it != cache.end()) return it->second;
-		std::shared_ptr<Texture> tex = std::make_shared<Texture>();
-		tex->LoadTexture(resolved, TextureType::Texture);
-		cache[resolved] = tex;
+		std::shared_ptr<Texture> tex;
+		if (shared) tex = Texture::LoadShared(resolved, TextureType::Texture);
+		if (!tex)
+		{
+			tex = std::make_shared<Texture>();
+			tex->LoadTexture(resolved, TextureType::Texture);
+		}
+		cache[key] = tex;
 		if (outAssets) outAssets->textures.push_back(tex);
 		return tex;
 	}
@@ -2214,13 +2250,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return tex;
 	}
 
-	static std::shared_ptr<Texture> DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets)
+	static std::shared_ptr<Texture> DeserializeTextureRef(const json &parent, const std::string &key, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets, const bool shared)
 	{
 		if (parent.find(key) != parent.end())
 		{
 			if (parent[key].is_object())
 				return GetOrLoadCubemap(parent[key], textureCache, outAssets);
-			return GetOrLoadTexture(parent[key].get<std::string>(), textureCache, outAssets);
+			return GetOrLoadTexture(parent[key].get<std::string>(), textureCache, outAssets, shared);
 		}
 		std::string dataKey = key + "Data";
 		if (parent.find(dataKey) != parent.end())
@@ -2326,15 +2362,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if ((j.find("metallic") != j.end())) gm->SetMetallic(j["metallic"].get<f32>());
 			if ((j.find("roughness") != j.end())) gm->SetRoughness(j["roughness"].get<f32>());
 			if (j.value("ssrEnabled", false)) gm->SetSSREnabled(true);
-			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "colorMap", textureCache, outAssets)) gm->SetColorMap(t);
-			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "specularMap", textureCache, outAssets)) gm->SetSpecularMap(t);
-			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "normalMap", textureCache, outAssets)) gm->SetNormalMap(t);
-			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "displacementMap", textureCache, outAssets)) gm->SetDisplacementMap(t);
-			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "envMap", textureCache, outAssets)) gm->SetEnvMap(t);
-			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets)) gm->SetRefractMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "colorMap", textureCache, outAssets, true)) gm->SetColorMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "specularMap", textureCache, outAssets, true)) gm->SetSpecularMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "normalMap", textureCache, outAssets, true)) gm->SetNormalMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "displacementMap", textureCache, outAssets, true)) gm->SetDisplacementMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "envMap", textureCache, outAssets, true)) gm->SetEnvMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets, true)) gm->SetRefractMap(t);
 			if (j.find("alphaCutoff") != j.end()) gm->SetAlphaCutoff(j.value("alphaCutoff", 0.5f));
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);
-			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache, outAssets)) gm->SetMetallicRoughnessMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache, outAssets, true)) gm->SetMetallicRoughnessMap(t);
 			ApplyCommonMaterialFields(gm.get(), j);
 			return gm;
 		}
@@ -3499,6 +3535,74 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	}
 
 
+	// ***************************** prefetch *****************************
+
+	static bool LooksLikeImagePath(const std::string &v)
+	{
+		const size_t dot = v.find_last_of('.');
+		if (dot == std::string::npos || v.size() - dot > 5) return false;
+		std::string ext = v.substr(dot + 1);
+		for (size_t i = 0; i < ext.size(); i++) ext[i] = (char)tolower((unsigned char)ext[i]);
+		return ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "tga" || ext == "bmp"
+			|| ext == "psd" || ext == "gif" || ext == "hdr" || ext == "pic";
+	}
+
+	static void CollectPrefetchPaths(const json &j, std::set<std::string> &models, std::set<std::string> &images)
+	{
+		if (j.is_object())
+		{
+			if (j.value("kind", std::string()) == "model" && j.contains("path") && j["path"].is_string())
+				models.insert(j["path"].get<std::string>());
+			for (json::const_iterator it = j.begin(); it != j.end(); ++it)
+			{
+				if (it.value().is_string())
+				{
+					const std::string &v = it.value().get_ref<const std::string&>();
+					if (LooksLikeImagePath(v)) images.insert(v);
+				}
+				else CollectPrefetchPaths(it.value(), models, images);
+			}
+		}
+		else if (j.is_array())
+			for (json::const_iterator it = j.begin(); it != j.end(); ++it)
+				CollectPrefetchPaths(*it, models, images);
+	}
+
+	// Parses every model and decodes every image the scene names into
+	// bundle, spread over the job system. The load itself stays single-
+	// threaded and unchanged: inside the bundle's Use it just finds its
+	// bytes already decoded. Uploads remain on this thread, where the
+	// device lives.
+	//
+	// Paths are resolved against assetRoot up front, never through
+	// g_sceneAssetRoot, so a loader thread can do this for a streamed cell
+	// while the main thread loads something else. Anything that does not
+	// exist on disk is skipped (by Fill) so a missing file is reported once,
+	// by the load that needs it.
+	// The material keys GetOrLoadTexture loads shared - see BuildMaterialBody.
+	static const char* const kSharedMaterialMaps[] = { "colorMap", "specularMap", "normalMap",
+		"displacementMap", "envMap", "refractMap", "metallicRoughnessMap" };
+
+	// sharedTexturesOut, when given, receives every path that will load
+	// through Texture::LoadShared: material maps and model textures.
+	static void PrefetchSceneAssets(const json &root, const std::string &assetRoot, AssetBundle &bundle, const bool parallel,
+		std::vector<std::string>* sharedTexturesOut = NULL)
+	{
+		std::set<std::string> modelRefs, imageRefs;
+		CollectPrefetchPaths(root, modelRefs, imageRefs);
+		std::vector<std::string> models, images;
+		for (std::set<std::string>::const_iterator it = modelRefs.begin(); it != modelRefs.end(); ++it)
+			models.push_back(ResolveSceneAssetPathIn(assetRoot, *it));
+		for (std::set<std::string>::const_iterator it = imageRefs.begin(); it != imageRefs.end(); ++it)
+			images.push_back(ResolveSceneAssetPathIn(assetRoot, *it));
+		bundle.Fill(models, images, parallel, sharedTexturesOut);
+		if (sharedTexturesOut && root.contains("materials") && root["materials"].is_array())
+			for (const auto &m : root["materials"])
+				for (size_t k = 0; k < sizeof(kSharedMaterialMaps) / sizeof(kSharedMaterialMaps[0]); k++)
+					if (m.is_object() && m.contains(kSharedMaterialMaps[k]) && m[kSharedMaterialMaps[k]].is_string())
+						sharedTexturesOut->push_back(ResolveSceneAssetPathIn(assetRoot, m[kSharedMaterialMaps[k]].get<std::string>()));
+	}
+
 	bool SceneSerializer::LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets, SceneMeta* outMeta)
 	{
 		std::ifstream in(filePath.c_str());
@@ -3517,6 +3621,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets, SceneMeta* outMeta)
 	{
 		const std::string &filePath = scenePathForAssetRoot;
+		LoadStats::Reset();
+		const std::chrono::steady_clock::time_point loadStart = std::chrono::steady_clock::now();
 		json root;
 		try
 		{
@@ -3584,6 +3690,24 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// constructor default) when the file predates this field.
 			outMeta->twoD = (root.contains("twoD") && root["twoD"].is_boolean())
 				? root["twoD"].get<bool>() : false;
+
+			outMeta->world = SceneMeta::World();
+			if (root.contains("world") && root["world"].is_object())
+			{
+				const json &wj = root["world"];
+				SceneMeta::World &w = outMeta->world;
+				w.enabled = true;
+				// A cell must have some size, and the unload ring must sit
+				// outside the load ring or cells would flicker in and out.
+				w.cellSize = std::max(1.f, (f32)wj.value("cellSize", (double)w.cellSize));
+				w.loadRadius = std::max(0.f, (f32)wj.value("loadRadius", (double)w.loadRadius));
+				w.unloadRadius = std::max(w.loadRadius, (f32)wj.value("unloadRadius", (double)w.unloadRadius));
+				w.cellsDir = wj.value("cellsDir", std::string());
+				if (wj.contains("cells") && wj["cells"].is_array())
+					for (const auto &c : wj["cells"])
+						if (c.is_array() && c.size() >= 2 && c[0].is_number_integer() && c[1].is_number_integer())
+							w.cells.push_back(std::make_pair(c[0].get<int32>(), c[1].get<int32>()));
+			}
 
 			// Present means enabled. A scene written before this has no
 			// "view2D" and keeps being framed by whatever camera object its
@@ -3736,6 +3860,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 		}
 
+		// Everything the scene names, decoded up front on every core. The
+		// bundle frees whatever the load below does not claim (a path only a
+		// script uses, a skinned model's second copy).
+		AssetBundle bundle;
+		PrefetchSceneAssets(root, g_sceneAssetRoot, bundle, true);
+		AssetBundle::Use useBundle(bundle);
+
 		std::map<std::string, std::shared_ptr<Texture>> textureCache;
 		// Fonts are pooled by (path, size) for the length of one load. A
 		// glyph atlas is a megabyte of texture (Font.h's MAP_SIZE), so a
@@ -3790,7 +3921,37 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		ResolvePendingIKTargets(scene);
 
 		g_sceneAssetRoot.clear();
+		if (LoadStats::TraceEnabled())
+			LoadStats::Print(filePath.c_str(), std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - loadStart).count());
 		return true;
+	}
+
+	// Shared by DeserializeSubtree and InstantiatePrepared: one subtree
+	// object ({"root": ..., "materials": [...]}) into GameObjects. The
+	// caller sets g_sceneAssetRoot.
+	static std::shared_ptr<GameObject> DeserializeSubtreeJson(const json &subtree, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
+	{
+		std::map<std::string, std::shared_ptr<Texture>> textureCache;
+		// Fonts are pooled by (path, size) for the length of one load. A
+		// glyph atlas is a megabyte of texture (Font.h's MAP_SIZE), so a
+		// menu with twenty labels sharing one font must not build twenty
+		// of them - which is exactly what the older Text path does, one
+		// raw `new Font` per Text.
+		std::map<std::string, std::shared_ptr<Font>> fontCache;
+		std::vector<std::shared_ptr<IMaterial>> materialsById;
+		if (subtree.find("materials") != subtree.end())
+		{
+			LoadStats::Scope t(LoadStats::MaterialBuild);
+			for (auto &mj : subtree["materials"])
+			{
+				std::shared_ptr<IMaterial> mat = BuildMaterial(mj, textureCache, outAssets);
+				materialsById.push_back(mat);
+				if (mat && outAssets) outAssets->materials.push_back(mat);
+			}
+		}
+
+		LoadStats::Scope t(LoadStats::ObjectBuild);
+		return DeserializeGameObject(subtree["root"], materialsById, textureCache, fontCache, physics, lua, outAssets);
 	}
 
 	std::shared_ptr<GameObject> SceneSerializer::DeserializeSubtree(const std::string &subtreeJson, const std::string &scenePathForAssetRoot,
@@ -3813,27 +3974,91 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		}
 
 		g_sceneAssetRoot = InferAssetRootFromScenePath(scenePathForAssetRoot);
-
-		std::map<std::string, std::shared_ptr<Texture>> textureCache;
-		// Fonts are pooled by (path, size) for the length of one load. A
-		// glyph atlas is a megabyte of texture (Font.h's MAP_SIZE), so a
-		// menu with twenty labels sharing one font must not build twenty
-		// of them - which is exactly what the older Text path does, one
-		// raw `new Font` per Text.
-		std::map<std::string, std::shared_ptr<Font>> fontCache;
-		std::vector<std::shared_ptr<IMaterial>> materialsById;
-		if (subtree.find("materials") != subtree.end())
-			for (auto &mj : subtree["materials"])
-			{
-				std::shared_ptr<IMaterial> mat = BuildMaterial(mj, textureCache, outAssets);
-				materialsById.push_back(mat);
-				if (mat && outAssets) outAssets->materials.push_back(mat);
-			}
-
-		std::shared_ptr<GameObject> result = DeserializeGameObject(subtree["root"], materialsById, textureCache, fontCache, physics, lua, outAssets);
-
+		std::shared_ptr<GameObject> result = DeserializeSubtreeJson(subtree, physics, lua, outAssets);
 		g_sceneAssetRoot.clear();
 		return result;
+	}
+
+	struct SceneSerializer::PreparedSubtree
+	{
+		json subtree;
+		std::string assetRoot;
+		std::string path;
+		AssetBundle bundle;
+		// Textures the subtree loads through Texture::LoadShared, uploaded
+		// one per UploadNextPrepared() call; `uploaded` keeps each alive in
+		// that weak cache until the instantiate that wants it.
+		std::vector<std::string> uploadQueue;
+		std::vector<std::shared_ptr<Texture> > uploaded;
+	};
+
+	std::shared_ptr<SceneSerializer::PreparedSubtree> SceneSerializer::PrepareSubtreeFile(const std::string &subtreePath, const std::string &scenePathForAssetRoot)
+	{
+		std::string text;
+		{
+			LoadStats::Scope t(LoadStats::FileRead);
+			std::ifstream in(subtreePath.c_str(), std::ios::binary);
+			if (!in.is_open())
+			{
+				echo("ERROR: SceneSerializer::PrepareSubtreeFile - couldn't open " + subtreePath);
+				return nullptr;
+			}
+			std::stringstream buffer;
+			buffer << in.rdbuf();
+			text = buffer.str();
+		}
+		std::shared_ptr<PreparedSubtree> p = std::make_shared<PreparedSubtree>();
+		try
+		{
+			p->subtree = json::parse(text);
+		}
+		catch (const std::exception&)
+		{
+			echo("ERROR: SceneSerializer::PrepareSubtreeFile - invalid JSON in " + subtreePath);
+			return nullptr;
+		}
+		if (!p->subtree.is_object() || p->subtree.find("root") == p->subtree.end())
+		{
+			echo("ERROR: SceneSerializer::PrepareSubtreeFile - missing 'root' in " + subtreePath);
+			return nullptr;
+		}
+		p->path = subtreePath;
+		p->assetRoot = InferAssetRootFromScenePath(scenePathForAssetRoot);
+		PrefetchSceneAssets(p->subtree, p->assetRoot, p->bundle, false, &p->uploadQueue);
+		std::sort(p->uploadQueue.begin(), p->uploadQueue.end());
+		p->uploadQueue.erase(std::unique(p->uploadQueue.begin(), p->uploadQueue.end()), p->uploadQueue.end());
+		return p;
+	}
+
+	bool SceneSerializer::UploadNextPrepared(PreparedSubtree &prepared)
+	{
+		AssetBundle::Use use(prepared.bundle);
+		while (!prepared.uploadQueue.empty())
+		{
+			const std::string path = prepared.uploadQueue.back();
+			prepared.uploadQueue.pop_back();
+			// Already up (another cell, the scene): nothing to spend.
+			if (path.empty() || path[0] == '*' || Texture::IsSharedLoaded(path)) continue;
+			if (std::shared_ptr<Texture> t = Texture::LoadShared(path, TextureType::Texture))
+				prepared.uploaded.push_back(t);
+			return true;
+		}
+		return false;
+	}
+
+	std::shared_ptr<GameObject> SceneSerializer::InstantiatePrepared(PreparedSubtree &prepared, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets)
+	{
+		AssetBundle::Use use(prepared.bundle);
+		const std::string previousRoot = g_sceneAssetRoot;
+		g_sceneAssetRoot = prepared.assetRoot;
+		std::shared_ptr<GameObject> result = DeserializeSubtreeJson(prepared.subtree, physics, lua, outAssets);
+		g_sceneAssetRoot = previousRoot;
+		return result;
+	}
+
+	size_t SceneSerializer::PreparedByteSize(const PreparedSubtree &prepared)
+	{
+		return prepared.bundle.ByteSize();
 	}
 
 	void SceneSerializer::UnloadScene(SceneGraph* scene, LoadedSceneAssets &assets)

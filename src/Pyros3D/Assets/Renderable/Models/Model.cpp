@@ -7,6 +7,8 @@
 //============================================================================
 
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/Utils/Streaming/LoadStats.h>
+#include <Pyros3D/Utils/Streaming/AssetBundle.h>
 
 namespace p3d {
 
@@ -55,8 +57,17 @@ namespace p3d {
 		Path = ModelPath;
 		MergeMeshes = mergeMeshes;
 
-		mesh = new ModelLoader();
-		if (!mesh->Load(ModelPath))
+		bool loaded = true;
+		if (ModelLoader* parked = AssetBundle::TakeModel(ModelPath))
+			mesh = parked;
+		else
+		{
+			mesh = new ModelLoader();
+			LoadStats::Scope t(LoadStats::ModelParse);
+			loaded = mesh->Load(ModelPath);
+		}
+		LoadStats::Scope build(LoadStats::ModelBuild);
+		if (!loaded)
 		{
 			echo(std::string("ERROR: Model - failed to load ") + ModelPath);
 			delete mesh;
