@@ -13,6 +13,7 @@
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
+#include <Pyros3D/Physics/PhysicsStepping.h>
 #include <box2d/box2d.h>
 #include <cmath>
 #include <cstdlib>
@@ -582,14 +583,15 @@ namespace p3d {
 		// not then run a hundred catch-up steps at once.
 		static const f64 FIXED_STEP = 1.0 / 60.0;
 		accumulator += (dt > 0.25 ? 0.25 : dt);
+		const int maxSteps = (int)MaxPhysicsCatchUpSteps(); // see PhysicsStepping.h
 		int steps = 0;
-		while (accumulator >= FIXED_STEP && steps < 8)
+		while (accumulator >= FIXED_STEP && steps < maxSteps)
 		{
 			b2World_Step(world, (float)FIXED_STEP, 4);
 			accumulator -= FIXED_STEP;
 			steps++;
 		}
-		if (steps == 8) accumulator = 0.0;
+		if (steps == maxSteps) accumulator = 0.0;
 
 		DispatchContacts(&world);
 

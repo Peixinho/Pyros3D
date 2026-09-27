@@ -10,6 +10,7 @@
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/DebugDraw/PhysicsDebugDraw.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
+#include <Pyros3D/Physics/PhysicsStepping.h>
 #include <Pyros3D/Physics/Components/Box/PhysicsBox.h>
 #include <Pyros3D/Physics/Components/Sphere/PhysicsSphere.h>
 #include <Pyros3D/Physics/Components/MultipleSphere/PhysicsMultipleSphere.h>
@@ -517,7 +518,7 @@ namespace p3d {
 		const float fixed = 1.f / 60.f;
 		int maxSteps = (int)steps;
 		if (maxSteps < 1) maxSteps = 1;
-		if (maxSteps > 8) maxSteps = 8;
+		if (maxSteps > (int)MaxPhysicsCatchUpSteps()) maxSteps = (int)MaxPhysicsCatchUpSteps(); // see PhysicsStepping.h
 
 		int taken = 0;
 		while (timeInterval >= (f64)fixed && taken < maxSteps)
