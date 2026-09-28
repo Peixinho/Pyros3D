@@ -2541,7 +2541,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// strength,hardness,layer,density}, terrain_stroke {points:[[x,z]..],dt},
 	// terrain_create {name,tilesX,tilesZ,tileSize,samples,heightRange,origin}.
 	if (name == "terrain_state" || name == "terrain_brush" || name == "terrain_stroke" || name == "terrain_create"
-		|| name == "terrain_add_grass")
+		|| name == "terrain_add_grass" || name == "get_foliage" || name == "set_foliage_layer" || name == "remove_foliage_layer")
 	{
 		nlohmann::json r;
 		if (!sceneView->AgentTerrain(name, a, r, err)) throw std::runtime_error(err);

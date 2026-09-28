@@ -80,6 +80,7 @@ using json = nlohmann::json;
 #include "UIStyleResolver.h"
 #include "UndoStack.h"
 #include "TerrainTools.h"
+#include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <ctime>
 #include <filesystem>
 #include <map>
@@ -1168,6 +1169,14 @@ public:
 	// Writes the brushes' edits (heights, splat and density maps). Part of
 	// saving the scene, and of entering Play.
 	bool SaveTerrain();
+	// Properties: a terrain tile's foliage layers.
+	void DrawFoliageProperties(GameObject* go, uint32 goId);
+	// Sets one layer's settings and regrows it when what grows changed.
+	void ApplyFoliageSpec(uint32 goId, uint32 layer, const FoliageLayerSpec& spec);
+	// A layer added or removed from the Properties panel rebuilds the
+	// object, so it runs next frame, outside the panel drawing from it.
+	json pendingFoliageOp;
+	SceneObject* ResolveTerrainTarget(const json& args, std::string& errOut);
 	void StartEditorWorld();
 	// Turns the saved scene into a streamed world: every root that is not
 	// persistent (a camera, a directional light, a UI canvas, or tagged

@@ -243,7 +243,8 @@ namespace p3d {
 			if (!fl.densityMap)
 			{
 				fl.densityMap = std::make_shared<PaintableImage>();
-				if (fl.spec.densityMap.empty() || !fl.densityMap->Load(Resolve(fl.spec.densityMap), 1))
+				const std::string saved = !fl.densityMapPath.empty() ? fl.densityMapPath : Resolve(fl.spec.densityMap);
+				if (fl.spec.densityMap.empty() || !fl.densityMap->Load(saved, 1))
 				{
 					// None yet: everywhere at full density, a pixel per metre
 					// (edges on the tile's edges, like its heights).
@@ -488,7 +489,11 @@ namespace p3d {
 						std::filesystem::path hp(hf->source.heightmap);
 						fl.spec.densityMap = (hp.parent_path() / (hp.stem().string() + "_" + (fl.spec.name.empty() ? std::to_string(l) : fl.spec.name) + "_density.png")).generic_string();
 					}
-					if (fl.densityMap->Save(Resolve(fl.spec.densityMap))) state.foliageDirty[l] = false;
+					if (fl.densityMap->Save(Resolve(fl.spec.densityMap)))
+					{
+						state.foliageDirty[l] = false;
+						fl.densityMapPath = Resolve(fl.spec.densityMap);
+					}
 					else ok = false;
 				}
 		}

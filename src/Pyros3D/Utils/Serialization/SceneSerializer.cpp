@@ -3192,6 +3192,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 						layer.lodMaterial = lodId < materialsById.size() ? materialsById[lodId] : layer.material;
 					}
 
+					if (!layer.spec.densityMap.empty()) layer.densityMapPath = ResolveSceneAssetPath(layer.spec.densityMap);
 					std::shared_ptr<PreparedFoliageLayer> prepared = AssetBundle::TakeFoliage(FoliageKey(tilePath, lj));
 					if (!prepared)
 					{

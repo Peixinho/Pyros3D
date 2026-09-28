@@ -216,7 +216,10 @@ namespace p3d {
 			layer.counts.clear();
 			if (!layer.mesh) continue;
 			PreparedFoliageLayer prepared;
-			PreparedFoliageLayer::Generate(ground, layer.spec, layer.densityMap.get(), prepared);
+			// The map being painted, else the saved one - growing at full
+			// density here would undo every stroke that ever thinned it.
+			if (layer.densityMap) PreparedFoliageLayer::Generate(ground, layer.spec, layer.densityMap.get(), prepared);
+			else PreparedFoliageLayer::Generate(ground, layer.spec, layer.densityMapPath, prepared);
 			BuildBlocks(owner, layer, prepared);
 		}
 		// The new blocks start at full count; the next Update() thins them.

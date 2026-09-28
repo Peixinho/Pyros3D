@@ -9814,6 +9814,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					// element is a rect plus what fills it, and splitting
 					// those across three nodes to edit one button is busywork.
 					DrawUIComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
+					DrawFoliageProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 #ifdef LUA_BINDINGS
 					DrawGameObjectScriptProperties(SelectedSceneObject->GetID());
 #endif

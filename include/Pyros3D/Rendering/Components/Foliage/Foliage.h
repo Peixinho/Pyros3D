@@ -100,6 +100,9 @@ namespace p3d {
 			std::vector<uint32> counts;	// full instance count per block
 			// Loaded on first use by painting; what Regrow() reads when set.
 			std::shared_ptr<PaintableImage> densityMap;
+			// spec.densityMap resolved: what Regrow() reads when the map is
+			// not in memory (set by whoever builds the layer).
+			std::string densityMapPath;
 		};
 
 		FoliageComponent() {}
