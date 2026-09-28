@@ -12,6 +12,7 @@
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 #include <fstream>
