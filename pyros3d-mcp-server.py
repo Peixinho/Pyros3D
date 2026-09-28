@@ -4517,6 +4517,30 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         the selected light component / camera is drawn; gizmoLines = master
         switch for both; physicsDebug, grid, chrome)
       set_renderer (type: forward|deferred), new_scene (kind: 3d|2d|ui)
+    Streamed world (Scene settings > World)
+      world_state, set_world ({"split": cellSize} splits the saved scene into
+        cells; loadRadius, unloadRadius), set_view_pivot (position, distance)
+    Terrain panel (3D scenes)
+      terrain_state (x, z -> height), terrain_brush (on, tool: raise|lower|
+        smooth|flatten|paint|foliage, radius, strength 0-1, hardness 0-1,
+        layer, density), terrain_stroke (points [[x,z],...], dt) - one undo
+        entry, terrain_create (name, tilesX, tilesZ, tileSize, samples,
+        heightRange, origin), terrain_add_grass (name|id). Brush edits are
+        written with save_scene.
+    Foliage (Properties on a terrain tile)
+      get_foliage (name|id), set_foliage_layer (name|id, layer, density,
+        blockSize, minScale, maxScale, tintLow, tintHigh, maxSlope, minHeight,
+        maxHeight, alignToGround, sink, seed, fullDistance, fadeDistance,
+        shadowDistance, lodDistance, castShadows, layerName),
+        add_foliage_layer (name|id, mesh: assets/models/x.p3dm, layer keys),
+        remove_foliage_layer (name|id, layer),
+        bake_foliage_impostor (name|id, layer, distance) - the model on a
+        crossed card as the layer's far mesh, on every tile under the target
+    Networking
+      set_play_network (role: offline|host|client, address, port) - how Play
+        joins; network_state; get/add/set/remove_network_identity (name|id,
+        prefab, relevance, priority, syncTransform, predicted, hitRadius,
+        hitHeight)
     Project
       new_project (parentDir, name), save_project, close_project (discard),
       project_settings (name, renderer) - no args reads them
