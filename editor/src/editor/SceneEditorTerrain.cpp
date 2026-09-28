@@ -147,6 +147,7 @@ namespace {
 		case TerrainTools::Flatten: return "Flatten Terrain";
 		case TerrainTools::PaintTexture: return "Paint Terrain Texture";
 		case TerrainTools::PaintFoliage: return "Paint Foliage";
+		case TerrainTools::Place: return "Place Objects";
 		default: return "Terrain Stroke";
 		}
 	}
@@ -216,13 +217,101 @@ void SceneEditor::UpdateTerrainBrush()
 	Vec3 o, d;
 	const bool ok = viewportMouseValid && ViewportRay(o, d);
 	terrainTools->Update(scene, ok, o, d, ImGui::GetIO().DeltaTime);
+	if (terrainTools->Stroking() && terrainTools->tool == TerrainTools::Place && terrainTools->HoverValid())
+	{
+		std::string err;
+		if (!PlaceDab(terrainTools->HoverPoint().x, terrainTools->HoverPoint().z, err) && !err.empty())
+		{
+			echo("ERROR: Place - " + err);
+			EndTerrainStroke();
+		}
+	}
+}
+
+bool SceneEditor::BeginTerrainStroke()
+{
+	if (!terrainTools || !terrainTools->BeginStroke(scene)) return false;
+	placeLastValid = false;
+	if (terrainTools->tool == TerrainTools::Place && !placeGroupOpen)
+	{
+		sceneUndo.BeginGroup("Place " + std::filesystem::path(terrainTools->placeAsset).stem().string());
+		placeGroupOpen = true;
+	}
+	return true;
+}
+
+bool SceneEditor::PlaceDab(const f32 x, const f32 z, std::string& errOut)
+{
+	TerrainTools &t = Terrain();
+	if (placeLastValid)
+	{
+		const f32 dx = x - placeLastX, dz = z - placeLastZ;
+		if (dx * dx + dz * dz < t.placeSpacing * t.placeSpacing) return true;
+	}
+	if (t.placeAsset.empty()) { errOut = "no asset to place - pick a model or prefab"; return false; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+	f32 h;
+	Vec3 n;
+	if (!TerrainTools::GroundPoint(scene, x, z, h, n)) return true;	// off the terrain: skip, keep going
+	placeLastValid = true;
+	placeLastX = x;
+	placeLastZ = z;
+
+	auto rnd = [this]() { placeRandom = placeRandom * 1664525u + 1013904223u; return (f32)(placeRandom >> 8) / 16777216.f; };
+	const f32 s = t.placeScaleMin + (t.placeScaleMax - t.placeScaleMin) * rnd();
+	Vec3 rot(0.f, t.placeRandomYaw ? rnd() * 6.2831853f : 0.f, 0.f);	// radians, as the engine's Euler angles are
+	if (t.placeAlign)
+	{
+		rot.x = std::atan2(n.z, n.y);
+		rot.z = -std::atan2(n.x, n.y);
+	}
+	const Vec3 pos(x, h, z);
+	const std::string abs = project->AbsolutePath(t.placeAsset);
+	uint32 id = 0;
+	if (ProjectManager::IsPrefabExtension(abs))
+	{
+		id = OpInstantiatePrefab(t.placeAsset, pos, errOut);
+		if (!id) return false;
+		// The add's snapshot has the prefab's own pose; this step, in the
+		// same group, turns and scales it.
+		if (!OpSetTransform(id, pos, rot, Vec3(s, s, s), errOut)) return false;
+	}
+	else if (ProjectManager::IsP3dm(abs))
+	{
+		SceneObject* obj = sceneObjects->CreateGameObject(std::filesystem::path(abs).stem().string());
+		if (!obj) { errOut = "could not create an object"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		if (!sceneObjects->CreateRenderingModel(go, abs)) { sceneObjects->DestroySceneObject(obj->GetID()); errOut = "could not load " + t.placeAsset; return false; }
+		go->SetPosition(pos);
+		go->SetRotation(rot);
+		go->SetScale(Vec3(s, s, s));
+		PushAddCommand(obj);
+		id = obj->GetID();
+	}
+	else { errOut = t.placeAsset + " is not a model (.p3dm) or a prefab"; return false; }
+
+	// A streamed world keeps it in the cell it stands in.
+	if (editorWorld)
+	{
+		int32 cx, cz;
+		editorWorld->CellOf(pos, cx, cz);
+		if (!MoveObjectToCell(id, cx, cz, errOut)) return false;
+	}
+	MarkSceneDirty();
+	return true;
 }
 
 void SceneEditor::EndTerrainStroke()
 {
 	if (!terrainTools || !terrainTools->Stroking()) return;
 	std::vector<TerrainEditor::TileSnapshot> before, after;
-	if (!terrainTools->EndStroke(before, after)) return;
+	const bool changed = terrainTools->EndStroke(before, after);
+	if (placeGroupOpen)
+	{
+		placeGroupOpen = false;
+		sceneUndo.EndGroup();
+	}
+	if (!changed) return;
 	sceneUndo.Push(std::unique_ptr<IUndoableCommand>(new TerrainStrokeCommand(this, terrainTools.get(), scene,
 		before, after, StrokeName(terrainTools->tool))));
 	MarkSceneDirty();
@@ -250,14 +339,14 @@ void SceneEditor::ShowTerrainPanel()
 		return;
 	}
 
-	static const char* labels[TerrainTools::ToolCount] = { "Raise", "Lower", "Smooth", "Flatten", "Texture", "Foliage" };
+	static const char* labels[TerrainTools::ToolCount] = { "Raise", "Lower", "Smooth", "Flatten", "Texture", "Foliage", "Place" };
 	ImGui::TextDisabled("Sculpt");
 	for (int i = 0; i < TerrainTools::ToolCount; i++)
 	{
 		// Two to a row, so a narrow panel does not clip the last one.
 		if (i == TerrainTools::PaintTexture) ImGui::TextDisabled("Paint");
 		else if (i % 2 == 1) ImGui::SameLine();
-		if (i == TerrainTools::PaintFoliage) ImGui::SameLine();
+		if (i == TerrainTools::PaintFoliage || i == TerrainTools::Place) ImGui::SameLine();
 		if (ImGui::RadioButton(labels[i], t.tool == i)) t.tool = (TerrainTools::Tool)i;
 	}
 	ImGui::Separator();
@@ -273,6 +362,21 @@ void SceneEditor::ShowTerrainPanel()
 		t.layer = std::max(0, std::min(3, t.layer));
 		ImGui::Combo("Layer", &t.layer, layers, 4);
 		ImGui::TextWrapped("Paints the tile's splat map. Layer textures are the splat material's layer0..layer3 samplers.");
+	}
+	if (t.tool == TerrainTools::Place)
+	{
+		ImGui::InputTextWithHint("Asset", "assets/models/tree.p3dm or .prefab", &t.placeAsset);
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL")) t.placeAsset = std::string((const char*)payload->Data);
+			ImGui::EndDragDropTarget();
+		}
+		ImGui::SliderFloat("Spacing", &t.placeSpacing, 0.5f, 100.f, "%.1f m", ImGuiSliderFlags_Logarithmic);
+		ImGui::DragFloatRange2("Scale", &t.placeScaleMin, &t.placeScaleMax, 0.01f, 0.01f, 20.f, "%.2f", "%.2f");
+		ImGui::Checkbox("Random yaw", &t.placeRandomYaw);
+		ImGui::SameLine();
+		ImGui::Checkbox("Align to slope", &t.placeAlign);
+		ImGui::TextWrapped("Click places one; a drag places one per spacing. One undo step per stroke.");
 	}
 	if (t.tool == TerrainTools::PaintFoliage)
 	{
@@ -444,6 +548,12 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		t.hardness = std::min(1.f, std::max(0.f, args.value("hardness", t.hardness)));
 		t.layer = std::max(0, args.value("layer", t.layer));
 		t.density = std::min(1.f, std::max(0.f, args.value("density", t.density)));
+		t.placeAsset = args.value("asset", t.placeAsset);
+		t.placeSpacing = std::max(0.1f, args.value("spacing", t.placeSpacing));
+		t.placeScaleMin = std::max(0.01f, args.value("scaleMin", t.placeScaleMin));
+		t.placeScaleMax = std::max(t.placeScaleMin, args.value("scaleMax", t.placeScaleMax));
+		t.placeRandomYaw = args.value("randomYaw", t.placeRandomYaw);
+		t.placeAlign = args.value("alignToSlope", t.placeAlign);
 		if (args.contains("on"))
 		{
 			if (args.value("on", false) && (sceneIsTwoD || playMode)) { errOut = "terrain brushes need a 3D scene outside play"; return false; }
@@ -470,10 +580,18 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		const bool wasActive = t.active;
 		t.active = true;
 		t.Update(scene, true, Vec3(x0, h0 + 1000.f, z0), Vec3(0.f, -1.f, 0.f), 0.f);
-		if (!t.BeginStroke(scene)) { t.active = wasActive; errOut = "could not start a stroke there"; return false; }
+		if (!BeginTerrainStroke()) { t.active = wasActive; errOut = "could not start a stroke there"; return false; }
 		uint32 dabs = 0;
 		for (size_t i = 0; i < pts.size(); i++)
-			if (t.ApplyAt(scene, pts[i].at(0).get<f32>(), pts[i].at(1).get<f32>(), dt)) dabs++;
+		{
+			const f32 px = pts[i].at(0).get<f32>(), pz = pts[i].at(1).get<f32>();
+			if (t.tool == TerrainTools::Place)
+			{
+				if (!PlaceDab(px, pz, errOut)) { EndTerrainStroke(); t.active = wasActive; return false; }
+				dabs++;
+			}
+			else if (t.ApplyAt(scene, px, pz, dt)) dabs++;
+		}
 		const size_t undoBefore = sceneUndo.UndoCount();
 		EndTerrainStroke();
 		t.active = wasActive;

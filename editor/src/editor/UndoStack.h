@@ -59,6 +59,13 @@ public:
 
 	bool CanUndo() const { return !undoStack_.empty(); }
 	bool CanRedo() const { return !redoStack_.empty(); }
+	// Everything pushed between these becomes ONE entry (undone last-first,
+	// redone first-last) - a brush stroke that placed twenty objects is one
+	// step, not twenty. Nests; an empty group pushes nothing.
+	void BeginGroup(const std::string& description);
+	void EndGroup();
+	bool InGroup() const { return groupDepth_ > 0; }
+
 	void Undo(); // no-op if CanUndo() is false
 	void Redo(); // no-op if CanRedo() is false
 
@@ -79,6 +86,9 @@ private:
 	std::vector<std::unique_ptr<IUndoableCommand>> redoStack_;
 	size_t maxDepth_;
 	size_t maxMemoryBytes_;
+	int groupDepth_ = 0;
+	std::vector<std::unique_ptr<IUndoableCommand>> group_;
+	std::string groupDescription_;
 
 	void EnforceLimits();
 };

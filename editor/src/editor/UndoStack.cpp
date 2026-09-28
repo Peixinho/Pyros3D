@@ -9,9 +9,45 @@ UndoStack::~UndoStack()
 {
 }
 
+namespace {
+	class GroupCommand : public IUndoableCommand {
+	public:
+		GroupCommand(std::vector<std::unique_ptr<IUndoableCommand>> &&cmds, const std::string& description)
+			: cmds_(std::move(cmds)), description_(description) {}
+		void Undo() override { for (size_t i = cmds_.size(); i-- > 0;) cmds_[i]->Undo(); }
+		void Redo() override { for (size_t i = 0; i < cmds_.size(); i++) cmds_[i]->Redo(); }
+		std::string Description() const override { return description_; }
+		size_t MemoryCost() const override
+		{
+			size_t n = sizeof(*this);
+			for (size_t i = 0; i < cmds_.size(); i++) n += cmds_[i]->MemoryCost();
+			return n;
+		}
+	private:
+		std::vector<std::unique_ptr<IUndoableCommand>> cmds_;
+		std::string description_;
+	};
+}
+
+void UndoStack::BeginGroup(const std::string& description)
+{
+	if (groupDepth_++ == 0) { group_.clear(); groupDescription_ = description; }
+}
+
+void UndoStack::EndGroup()
+{
+	if (groupDepth_ == 0 || --groupDepth_ > 0) return;
+	std::vector<std::unique_ptr<IUndoableCommand>> cmds;
+	cmds.swap(group_);
+	if (cmds.empty()) return;
+	if (cmds.size() == 1) Push(std::move(cmds[0]));
+	else Push(std::unique_ptr<IUndoableCommand>(new GroupCommand(std::move(cmds), groupDescription_)));
+}
+
 void UndoStack::Push(std::unique_ptr<IUndoableCommand> cmd)
 {
 	if (!cmd) return;
+	if (groupDepth_ > 0) { group_.push_back(std::move(cmd)); return; }
 	redoStack_.clear();
 	undoStack_.push_back(std::move(cmd));
 	EnforceLimits();

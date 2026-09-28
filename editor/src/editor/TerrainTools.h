@@ -32,7 +32,7 @@ namespace p3d { class SceneGraph; class GameObject; class DebugRenderer; }
 class TerrainTools
 {
 public:
-	enum Tool { Raise, Lower, Smooth, Flatten, PaintTexture, PaintFoliage, ToolCount };
+	enum Tool { Raise, Lower, Smooth, Flatten, PaintTexture, PaintFoliage, Place, ToolCount };
 	static const char* ToolName(const Tool t);
 	static bool ToolFromName(const std::string &name, Tool &out);
 
@@ -43,6 +43,13 @@ public:
 	float hardness = 0.5f;		// 0 = soft edge, 1 = hard disc
 	int layer = 0;				// splat channel or foliage layer
 	float density = 1.f;		// what a foliage stroke paints toward
+	// Place: one object from placeAsset (a .p3dm or .prefab, project-
+	// relative) per placeSpacing metres of stroke, on the ground.
+	std::string placeAsset;
+	float placeSpacing = 8.f;
+	float placeScaleMin = 0.8f, placeScaleMax = 1.2f;
+	bool placeRandomYaw = true;
+	bool placeAlign = false;		// tilt to the ground's slope
 
 	void SetAssetRoot(const std::string &root) { editor.SetAssetRoot(root); }
 	// A new scene: every tile known so far is gone. Settings stay.
@@ -64,6 +71,8 @@ public:
 	// Release: finishes the stroke. True with the tiles' states before and
 	// after when it changed anything - the undo entry.
 	bool EndStroke(std::vector<p3d::TerrainEditor::TileSnapshot> &before, std::vector<p3d::TerrainEditor::TileSnapshot> &after);
+	// Ground height and normal at a world position.
+	static bool GroundPoint(p3d::SceneGraph* scene, const float x, const float z, float &height, Vec3 &normal);
 	void Restore(p3d::SceneGraph* scene, const std::vector<p3d::TerrainEditor::TileSnapshot> &snapshots) { editor.Restore(scene, snapshots); }
 
 	// Writes every edited tile's maps. False if any file failed.

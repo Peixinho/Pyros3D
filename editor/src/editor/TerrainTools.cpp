@@ -24,7 +24,7 @@ using json = nlohmann::json;
 namespace fs = std::filesystem;
 
 namespace {
-	const char* kToolNames[TerrainTools::ToolCount] = { "raise", "lower", "smooth", "flatten", "paint", "foliage" };
+	const char* kToolNames[TerrainTools::ToolCount] = { "raise", "lower", "smooth", "flatten", "paint", "foliage", "place" };
 
 	// Ground height at a world position from a tile list, false off every tile.
 	bool GroundAt(const std::vector<TerrainTile> &tiles, const f32 x, const f32 z, f32 &h)
@@ -182,6 +182,7 @@ bool TerrainTools::ApplyAt(SceneGraph* scene, const float x, const float z, cons
 	case Smooth: return editor.Sculpt(scene, x, z, radius, blend, hardness, TerrainEditor::Smooth) > 0;
 	case Flatten: return editor.Sculpt(scene, x, z, radius, blend, hardness, TerrainEditor::Flatten, flattenTarget) > 0;
 	case PaintTexture: return editor.PaintSplat(scene, x, z, radius, (uint32)std::max(0, std::min(3, layer)), blend, hardness) > 0;
+	case Place: return false;	// SceneEditor places: it owns the objects
 	case PaintFoliage: return editor.PaintFoliage(scene, x, z, radius, (uint32)std::max(0, layer), std::min(std::max(density, 0.f), 1.f), blend, hardness) > 0;
 	default: return false;
 	}
@@ -193,6 +194,18 @@ bool TerrainTools::EndStroke(std::vector<TerrainEditor::TileSnapshot> &before, s
 	stroking = false;
 	editor.FinishStroke();
 	return editor.TakeStrokeUndo(before, after);
+}
+
+bool TerrainTools::GroundPoint(SceneGraph* scene, const float x, const float z, float &height, Vec3 &normal)
+{
+	const std::vector<TerrainTile> tiles = TerrainEditor::FindTiles(scene);
+	if (!::GroundAt(tiles, x, z, height)) return false;
+	const float d = 0.5f;
+	float hx0 = height, hx1 = height, hz0 = height, hz1 = height;
+	::GroundAt(tiles, x - d, z, hx0); ::GroundAt(tiles, x + d, z, hx1);
+	::GroundAt(tiles, x, z - d, hz0); ::GroundAt(tiles, x, z + d, hz1);
+	normal = Vec3(-(hx1 - hx0) / (2.f * d), 1.f, -(hz1 - hz0) / (2.f * d)).normalize();
+	return true;
 }
 
 bool TerrainTools::HasUnsaved(const GameObject* root) const
@@ -224,7 +237,7 @@ void TerrainTools::DrawOverlay(DebugRenderer* debug, SceneGraph* scene) const
 	const std::vector<TerrainTile> tiles = TerrainEditor::FindTiles(scene);
 	const Vec4 colours[ToolCount] = {
 		Vec4(0.3f, 1.f, 0.4f, 1.f), Vec4(1.f, 0.45f, 0.3f, 1.f), Vec4(0.4f, 0.8f, 1.f, 1.f),
-		Vec4(1.f, 0.9f, 0.3f, 1.f), Vec4(1.f, 0.4f, 1.f, 1.f), Vec4(0.6f, 1.f, 0.2f, 1.f) };
+		Vec4(1.f, 0.9f, 0.3f, 1.f), Vec4(1.f, 0.4f, 1.f, 1.f), Vec4(0.6f, 1.f, 0.2f, 1.f), Vec4(1.f, 1.f, 1.f, 1.f) };
 	const Vec4 outer = colours[tool];
 	const Vec4 inner(outer.x, outer.y, outer.z, 0.5f);
 	// Draped: each segment end sits on the ground, a little above it.
@@ -546,6 +559,12 @@ json TerrainTools::State(SceneGraph* scene) const
 	r["hardness"] = hardness;
 	r["layer"] = layer;
 	r["density"] = density;
+	r["asset"] = placeAsset;
+	r["spacing"] = placeSpacing;
+	r["scaleMin"] = placeScaleMin;
+	r["scaleMax"] = placeScaleMax;
+	r["randomYaw"] = placeRandomYaw;
+	r["alignToSlope"] = placeAlign;
 	r["stroking"] = stroking;
 	r["hoverValid"] = hoverValid;
 	if (hoverValid) r["hover"] = { hover.x, hover.y, hover.z };

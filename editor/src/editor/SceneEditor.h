@@ -1185,6 +1185,15 @@ public:
 	bool ViewportRay(Vec3 &origin, Vec3 &direction) const;
 	void UpdateTerrainBrush();
 	void EndTerrainStroke();
+	// Starts a stroke at the brush's hover point: opens the undo group a
+	// Place stroke collects its objects in.
+	bool BeginTerrainStroke();
+	// The Place tool's dab: one object on the ground at (x, z) if the stroke
+	// has moved placeSpacing since the last one.
+	bool PlaceDab(const f32 x, const f32 z, std::string& errOut);
+	bool placeGroupOpen = false, placeLastValid = false;
+	f32 placeLastX = 0.f, placeLastZ = 0.f;
+	uint32 placeRandom = 12345u;
 	// Writes the brushes' edits (heights, splat and density maps). Part of
 	// saving the scene, and of entering Play.
 	bool SaveTerrain();

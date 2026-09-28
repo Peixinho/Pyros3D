@@ -4525,8 +4525,10 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         set_view_options (cellGrid)
     Terrain panel (3D scenes)
       terrain_state (x, z -> height), terrain_brush (on, tool: raise|lower|
-        smooth|flatten|paint|foliage, radius, strength 0-1, hardness 0-1,
-        layer, density), terrain_stroke (points [[x,z],...], dt) - one undo
+        smooth|flatten|paint|foliage|place, radius, strength 0-1, hardness 0-1,
+        layer, density; place: asset (.p3dm|.prefab), spacing, scaleMin,
+        scaleMax, randomYaw, alignToSlope), terrain_stroke (points [[x,z],...],
+        dt) - one undo
         entry, terrain_create (name, tilesX, tilesZ, tileSize, samples,
         heightRange, origin; import with heightmap (square image), worldSize,
         baseHeight), terrain_add_grass (name|id), terrain_layer

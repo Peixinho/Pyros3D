@@ -9488,7 +9488,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (IsTerrainMode() && !playMode && !sceneIsTwoD)
 		{
 			UpdateTerrainBrush();
-			if (terrainTools->BeginStroke(scene)) return;
+			if (BeginTerrainStroke()) return;
 		}
 
 		const int32 axisClicked = axisHelper->MouseClick();
