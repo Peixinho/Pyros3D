@@ -131,7 +131,7 @@ namespace p3d {
 			NetworkSession* s = session();
 			if (!s) return;
 			std::vector<NetValue> args;
-			for (auto v : va) args.push_back(FromLua(v));
+			for (auto v : va) args.push_back(FromLua(v.as<sol::object>()));	// explicit: MSVC will not convert a stack_proxy implicitly
 			s->Rpc(target, name, args);
 		});
 		net.set_function("on", [session, lua](const std::string &name, sol::protected_function fn) {
@@ -163,7 +163,7 @@ namespace p3d {
 			NetworkSession* s = session();
 			if (!s) return;
 			std::vector<NetValue> input;
-			for (auto v : va) input.push_back(FromLua(v));
+			for (auto v : va) input.push_back(FromLua(v.as<sol::object>()));
 			s->SetInput(input);
 		});
 		// Server: what `shooter` hit, as they saw the world. Returns the

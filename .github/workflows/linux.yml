@@ -291,6 +291,10 @@ jobs:
           c++ $CF -DLUA_BINDINGS -I shared -I /usr/include/lua5.4 \
             tools/tests/ui_dispatch.cpp -o /tmp/ui_dispatch $LD -llua5.4
           /tmp/ui_dispatch
+          # network.rpc / network.input from Lua, values intact.
+          c++ $CF -DLUA_BINDINGS -DPYROS_NETWORKING -I /usr/include/lua5.4 -I src/Pyros3D/Ext/box3d/include \
+            tools/tests/lua_network.cpp -o /tmp/lua_network $LD -llua5.4
+          /tmp/lua_network
 
       - name: Package
         run: |
