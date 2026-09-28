@@ -113,13 +113,27 @@ int main(int argc, char** argv)
 		check(s.PendingCount() == 0, "nothing left pending");
 	}
 
+	// Both requests' work done (or the streamer has no threads, where
+	// Pump does it): what the Pump checks below assume.
+	auto waitReady = [&s](const std::vector<AssetStreamer::Ticket> &ts) {
+		for (int i = 0; i < 5000; i++)
+		{
+			bool all = true;
+			for (size_t k = 0; k < ts.size(); k++) all = all && s.GetState(ts[k]) == AssetStreamer::Ready;
+			if (all) return;
+			std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		}
+	};
+
 	// Pump honours the budget: ten 5 ms finishes against a 12 ms budget.
 	{
 		int finished = 0;
+		std::vector<AssetStreamer::Ticket> tickets;
 		for (int i = 0; i < 10; i++)
-			s.Submit([] {}, [&] { finished++; std::this_thread::sleep_for(std::chrono::milliseconds(5)); });
-		// Empty work: give the loader ample time to mark all ten Ready.
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			tickets.push_back(s.Submit([] {}, [&] { finished++; std::this_thread::sleep_for(std::chrono::milliseconds(5)); }));
+		// Until the loader has marked all ten Ready - a fixed sleep was a
+		// race on a loaded CI machine.
+		waitReady(tickets);
 		const uint32 ran = s.Pump(12.0);
 		check(ran >= 1 && ran <= 4, "Pump stops once the budget is spent");
 		check(s.Pump(0.0) == 1, "a zero budget still makes progress");
@@ -131,9 +145,9 @@ int main(int argc, char** argv)
 	{
 		int steps = 0;
 		bool other = false;
-		s.SubmitSteps([] {}, [&]() { return ++steps >= 3; });
-		s.Submit([] {}, [&] { other = true; });
-		std::this_thread::sleep_for(std::chrono::milliseconds(50));
+		const AssetStreamer::Ticket a = s.SubmitSteps([] {}, [&]() { return ++steps >= 3; });
+		const AssetStreamer::Ticket b = s.Submit([] {}, [&] { other = true; });
+		waitReady({ a, b });
 		s.Pump(0.0);
 		check(steps == 1 && !other, "one step per zero-budget Pump");
 		s.Pump(0.0);
