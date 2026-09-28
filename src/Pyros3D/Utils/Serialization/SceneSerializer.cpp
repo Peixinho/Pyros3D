@@ -62,6 +62,7 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cone.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cylinder.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Capsule.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Torus.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/TorusKnot.h>
@@ -1012,6 +1013,14 @@ namespace p3d {
 			j["smooth"] = prim->IsSmooth();
 			j["flip"] = prim->IsFlipped();
 			j["tangentBitangent"] = prim->HasTangentBitangent();
+			if (Card* card = dynamic_cast<Card*>(prim))
+			{
+				j["shape"] = "Card";
+				j["left"] = card->GetLeft(); j["right"] = card->GetRight();
+				j["bottom"] = card->GetBottom(); j["top"] = card->GetTop();
+				j["crossed"] = card->IsCrossed();
+				return j;
+			}
 			switch (prim->GetPrimitiveType())
 			{
 			case PrimitiveType::Cube:
@@ -2773,6 +2782,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			else if (shape == "Cone") r = std::make_shared<Cone>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
 			else if (shape == "Cylinder") r = std::make_shared<Cylinder>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
 			else if (shape == "Plane") r = std::make_shared<Plane>(j.value("width", 1.0f), j.value("height", 1.0f), smooth, flip, tb);
+			// Explicit bounds, not half extents: see Card.h.
+			else if (shape == "Card") r = std::make_shared<Card>(j.value("left", -0.5f), j.value("right", 0.5f), j.value("bottom", 0.f), j.value("top", 1.f), j.value("crossed", true));
 			else if (shape == "Capsule") r = std::make_shared<Capsule>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("numRings", 8u), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, flip, tb);
 			else if (shape == "Torus") r = std::make_shared<Torus>(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), smooth, flip, tb);
 			else if (shape == "TorusKnot") r = std::make_shared<TorusKnot>(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), j.value("p", 2.0f), j.value("q", 3.0f), j.value("heightScale", 1u), smooth, flip, tb);

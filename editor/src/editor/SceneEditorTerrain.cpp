@@ -8,8 +8,13 @@
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
 
+#include <Pyros3D/Assets/Texture/PaintableImage.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
 #include <algorithm>
+#include <filesystem>
+#include <functional>
 #include <cmath>
 
 namespace {
@@ -471,6 +476,69 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		out["tilesWithGrass"] = tiles;
 		return true;
 	}
+	// A model scattered as a foliage layer on every tile under an object:
+	// {"name"|"id", "mesh": "assets/models/x.p3dm", <layer keys>?}.
+	if (command == "add_foliage_layer")
+	{
+		if (playMode) { errOut = "stop play mode first"; return false; }
+		SceneObject* target = ResolveTerrainTarget(args, errOut);
+		if (!target) return false;
+		const std::string meshRel = args.value("mesh", std::string());
+		if (meshRel.empty() || !project || !std::filesystem::exists(project->AbsolutePath(meshRel)))
+		{ errOut = "'mesh' must name a model in the project (assets/models/...p3dm)"; return false; }
+		FoliageLayerSpec spec;
+		spec.name = std::filesystem::path(meshRel).stem().string();
+		spec.density = 0.01f;
+		spec.blockSize = 64.f;
+		spec.maxSlopeDegrees = 25.f;
+		spec.sink = 0.1f;
+		spec.fullDistance = 250.f;
+		spec.fadeDistance = 400.f;
+		spec.shadowDistance = 60.f;
+		PatchSpec(spec, args);
+		json layer = SpecJson(spec);
+		layer.erase("densityMap");
+		layer["mesh"] = { { "kind", "model" }, { "mergeMeshes", true }, { "path", meshRel } };
+
+		const uint32 id = target->GetID();
+		const std::string before = SnapshotSubtree(id);
+		json tree;
+		try { tree = json::parse(before); }
+		catch (const std::exception &e) { errOut = e.what(); return false; }
+		int tiles = 0;
+		std::function<void(json &)> visit = [&](json &node) {
+			if (!node.is_object()) return;
+			json &comps = node["components"];
+			bool isTile = false;
+			json* foliage = NULL;
+			for (size_t c = 0; comps.is_array() && c < comps.size(); c++)
+			{
+				if (comps[c].value("type", std::string()) == "RenderingComponent" && comps[c].contains("renderable")
+					&& comps[c]["renderable"].is_object() && comps[c]["renderable"].value("kind", std::string()) == "heightfield") isTile = true;
+				if (comps[c].value("type", std::string()) == "Foliage") foliage = &comps[c];
+			}
+			if (isTile)
+			{
+				json l = layer;
+				l["seed"] = spec.seed + (uint32)tiles * 7919u;
+				if (foliage) (*foliage)["layers"].push_back(l);
+				else comps.push_back({ { "type", "Foliage" }, { "layers", json::array({ l }) } });
+				tiles++;
+			}
+			if (node.contains("children") && node["children"].is_array())
+				for (size_t i = 0; i < node["children"].size(); i++) visit(node["children"][i]);
+		};
+		visit(tree["root"]);
+		if (tiles == 0) { errOut = "no terrain tiles there"; return false; }
+		const bool wasCamera = IsSceneCamera(id);
+		std::unique_ptr<ReplaceGameObjectCommand> cmd(new ReplaceGameObjectCommand(this, target->GetParentID(), before, tree.dump(),
+			wasCamera, wasCamera ? sceneCameras[id] : EditorCameraSettings(), target->Helper != nullptr, id, "Add Foliage Layer"));
+		cmd->Redo();
+		sceneUndo.Push(std::move(cmd));
+		MarkSceneDirty();
+		out["tiles"] = tiles;
+		return true;
+	}
 	// A tile's foliage layers, as the Properties panel shows them.
 	if (command == "get_foliage")
 	{
@@ -634,11 +702,27 @@ void SceneEditor::DrawFoliageProperties(GameObject* go, uint32 goId)
 			s.fadeDistance = std::max(s.fadeDistance, s.fullDistance);
 			ImGui::TextDisabled("Density map: %s", s.densityMap.empty() ? "(none - paint with the Foliage brush)" : s.densityMap.c_str());
 			if (ImGui::SmallButton("Remove Layer")) removeLayer = (int)i;
+			if (dynamic_cast<Model*>(layer.mesh.get()))
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton(layer.lodMesh ? "Rebake Impostor" : "Bake Impostor"))
+					pendingImpostorBake = { { "id", goId }, { "layer", (int)i } };
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Renders the model onto a card that stands in for it\npast the far-mesh distance.");
+			}
 			ImGui::TreePop();
 		}
 		ImGui::PopID();
 	}
 	if (isTile && ImGui::Button("Add Grass Layer")) addGrass = true;
+	static std::string modelLayerPath;
+	if (isTile)
+	{
+		ImGui::InputTextWithHint("##foliage_model", "assets/models/tree.p3dm", &modelLayerPath);
+		ImGui::SameLine();
+		if (ImGui::Button("Add Model Layer") && !modelLayerPath.empty())
+			pendingFoliageOp = { { "cmd", "add_foliage_layer" }, { "id", goId }, { "mesh", modelLayerPath } };
+	}
 	ImGui::PopID();
 
 	if (removeLayer >= 0)
@@ -659,4 +743,106 @@ SceneObject* SceneEditor::ResolveTerrainTarget(const json& args, std::string& er
 	else target = SelectedSceneObject;
 	if (!target || target->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "select the terrain (or a tile) first"; return NULL; }
 	return target;
+}
+
+bool SceneEditor::BakeFoliageImpostor(const json& a, json& out, std::string& errOut)
+{
+	const json args = a.is_object() ? a : json::object();
+	if (playMode) { errOut = "stop play mode first"; return false; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+	SceneObject* target = ResolveTerrainTarget(args, errOut);
+	if (!target) return false;
+	const uint32 id = target->GetID();
+	const int layerIndex = args.value("layer", 0);
+	const std::string before = SnapshotSubtree(id);
+	json tree;
+	try { tree = json::parse(before); }
+	catch (const std::exception &e) { errOut = e.what(); return false; }
+	// Layer `layerIndex` of every tile under the target - a whole terrain
+	// shares one bake - as long as it scatters the same model as the first.
+	std::vector<json*> layers;
+	std::function<void(json &)> visit = [&](json &node) {
+		if (!node.is_object()) return;
+		json &comps = node["components"];
+		for (size_t c = 0; comps.is_array() && c < comps.size(); c++)
+			if (comps[c].value("type", std::string()) == "Foliage" && comps[c]["layers"].is_array()
+				&& layerIndex >= 0 && (size_t)layerIndex < comps[c]["layers"].size())
+				layers.push_back(&comps[c]["layers"][layerIndex]);
+		if (node.contains("children") && node["children"].is_array())
+			for (size_t i = 0; i < node["children"].size(); i++) visit(node["children"][i]);
+	};
+	visit(tree["root"]);
+	if (layers.empty()) { errOut = "no foliage layer " + std::to_string(layerIndex) + " there"; return false; }
+	json* layer = layers[0];
+	const json mesh = layer->value("mesh", json());
+	if (!mesh.is_object() || mesh.value("kind", std::string()) != "model" || mesh.value("path", std::string()).empty())
+	{ errOut = "the layer's mesh is not a model - only models have an impostor to bake"; return false; }
+	const std::string modelRel = mesh.value("path", std::string());
+
+	std::vector<unsigned char> rgba;
+	uint32 w = 0, h = 0;
+	f32 left, right, bottom, top;
+	if (!RenderImpostorRGBA8(project->AbsolutePath(modelRel), rgba, w, h, left, right, bottom, top))
+	{ errOut = "could not render " + modelRel; return false; }
+
+	namespace fs = std::filesystem;
+	const std::string texRel = "assets/terrain/impostors/" + fs::path(modelRel).stem().string() + "_impostor.png";
+	std::error_code ec;
+	fs::create_directories(fs::path(project->AbsolutePath(texRel)).parent_path(), ec);
+	if (!PaintableImage::WritePNG(project->AbsolutePath(texRel), (int32)w, (int32)h, 4, rgba.data()))
+	{ errOut = "could not write " + texRel; return false; }
+
+	// Tinted layers draw with per-instance colours, and a shader reading
+	// them needs the buffer - so the card's material asks for them exactly
+	// when the layer has them.
+	const FoliageLayerSpec spec = [&]() { FoliageLayerSpec s; PatchSpec(s, *layer); return s; }();
+	const bool tinted = !(spec.tintLow == Vec4(1.f, 1.f, 1.f, 1.f) && spec.tintHigh == Vec4(1.f, 1.f, 1.f, 1.f));
+	uint32 options = ShaderUsage::Texture | ShaderUsage::Diffuse | ShaderUsage::InstancedRendering | ShaderUsage::PBR | ShaderUsage::AlphaTest;
+	if (tinted) options |= (1u << 25);
+
+	if (!tree.contains("materials") || !tree["materials"].is_array()) tree["materials"] = json::array();
+	json &materials = tree["materials"];
+	uint32 matId = 0;
+	for (size_t i = 0; i < materials.size(); i++) matId = std::max(matId, materials[i].value("id", 0u) + 1);
+	json m;
+	m["id"] = matId;
+	m["kind"] = "generic";
+	m["options"] = options;
+	m["color"] = { 1, 1, 1, 1 };
+	m["colorMap"] = texRel;
+	m["clampMaps"] = true;
+	m["alphaCutoff"] = 0.5;
+	m["cullFace"] = 2;
+	m["roughness"] = 0.9;
+	m["castingShadows"] = false;
+	materials.push_back(m);
+
+	// Where the card takes over: the layer's own setting if it has one, else
+	// half way to where it thins out.
+	const f32 lodDistance = args.contains("distance") ? args.value("distance", 0.f)
+		: (spec.lodDistance > 0.f ? spec.lodDistance : std::max(10.f, spec.fullDistance * 0.5f));
+	int baked = 0;
+	for (size_t i = 0; i < layers.size(); i++)
+	{
+		json &l = *layers[i];
+		if (!l.contains("mesh") || l["mesh"].value("path", std::string()) != modelRel) continue;
+		l["lodMesh"] = { { "kind", "primitive" }, { "shape", "Card" },
+			{ "left", left }, { "right", right }, { "bottom", bottom }, { "top", top } };
+		l["lodMaterial"] = matId;
+		l["lodDistance"] = lodDistance;
+		baked++;
+	}
+
+	const bool wasCamera = IsSceneCamera(id);
+	std::unique_ptr<ReplaceGameObjectCommand> cmd(new ReplaceGameObjectCommand(this, target->GetParentID(), before, tree.dump(),
+		wasCamera, wasCamera ? sceneCameras[id] : EditorCameraSettings(), target->Helper != nullptr, id, "Bake Impostor"));
+	cmd->Redo();
+	sceneUndo.Push(std::move(cmd));
+	MarkSceneDirty();
+	out["texture"] = texRel;
+	out["size"] = { w, h };
+	out["card"] = { left, right, bottom, top };
+	out["lodDistance"] = lodDistance;
+	out["tiles"] = baked;
+	return true;
 }

@@ -2645,6 +2645,116 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return ok;
 	}
 
+	bool SceneEditor::RenderImpostorRGBA8(const std::string& p3dmPath, std::vector<unsigned char>& outRGBA,
+		uint32& outW, uint32& outH, f32& left, f32& right, f32& bottom, f32& top)
+	{
+		outRGBA.clear();
+		outW = outH = 0;
+		if (p3dmPath.empty()) return false;
+		GetActiveRenderDevice().WaitIdle();
+		if (!impostorRenderer)
+		{
+			impostorRenderer = new ForwardRenderer(impostorSize, impostorSize);
+			impostorRenderer->SetSkipShadowMaps(true);
+			impostorEffects = new PostEffectsManager(impostorSize, impostorSize);
+			impostorEffects->GetExternalFrameBuffer()->SetDebugName("Impostor bake");
+		}
+
+		SceneGraph* bakeScene = new SceneGraph();
+		bool ok = false;
+		try
+		{
+			std::shared_ptr<GameObject> modelGo = std::make_shared<GameObject>();
+			std::shared_ptr<Renderable> mesh = std::make_shared<Model>(p3dmPath, true);
+			if (!mesh || mesh->Geometries.empty()) { delete bakeScene; return false; }
+			std::shared_ptr<RenderingComponent> rModel = std::make_shared<RenderingComponent>(
+				mesh, ShaderUsage::Diffuse | ShaderUsage::SpecularColor);
+			rModel->DisableCastShadows();
+			modelGo->Add(rModel);
+			bakeScene->Add(modelGo);
+			// Lit from the front and above, as a card is mostly seen: the
+			// light it shows is baked in, whichever way the sun is.
+			std::shared_ptr<GameObject> lightGo = std::make_shared<GameObject>();
+			lightGo->Add(std::make_shared<DirectionalLight>(Vec4(1.f, 1.f, 1.f, 1.f), Vec3(-0.3f, -1.f, -0.6f)));
+			bakeScene->Add(lightGo);
+			std::shared_ptr<GameObject> fillGo = std::make_shared<GameObject>();
+			fillGo->Add(std::make_shared<DirectionalLight>(Vec4(0.35f, 0.37f, 0.42f, 1.f), Vec3(0.4f, 0.3f, -0.8f)));
+			bakeScene->Add(fillGo);
+			std::shared_ptr<GameObject> cam = std::make_shared<GameObject>();
+			bakeScene->Add(cam);
+			bakeScene->Update(0);
+
+			const Vec3 bmin = mesh->GetBoundingMinValue(), bmax = mesh->GetBoundingMaxValue();
+			// Centred on the model's own vertical axis, which is what an
+			// instance turns about - not on its bounding box.
+			const f32 half = Max(Max(fabsf(bmin.x), fabsf(bmax.x)), Max(fabsf(bmin.z), fabsf(bmax.z)));
+			const f32 height = bmax.y - bmin.y;
+			if (!(half > 1e-4f) || !(height > 1e-4f)) { delete bakeScene; return false; }
+			const f32 side = Max(2.f * half, height);
+			const f32 depth = Max(half * 4.f, 1.f);
+			Matrix view;
+			view.LookAt(Vec3(0.f, bmin.y + side * 0.5f, depth), Vec3(0.f, bmin.y + side * 0.5f, 0.f), Vec3::UP);
+			cam->SetTransformationMatrix(view.Inverse());
+			bakeScene->Update(0);
+			Projection p;
+			p.Ortho(-side * 0.5f, side * 0.5f, -side * 0.5f, side * 0.5f, 0.01f, depth * 2.f);
+
+			std::vector<unsigned char> passes[2];
+			for (int pass = 0; pass < 2; pass++)
+			{
+				const f32 bg = pass == 0 ? 0.f : 1.f;
+				impostorRenderer->SetBackground(Vec4(bg, bg, bg, 1.f));
+				impostorEffects->ProcessPostEffects(&p);
+				impostorRenderer->ResetViewPort();
+				impostorRenderer->SetViewPort(0, 0, impostorSize, impostorSize);
+				impostorRenderer->PreRender(cam.get(), bakeScene);
+				impostorRenderer->ApplyBackgroundClearColor();
+				impostorEffects->CaptureFrame();
+				impostorRenderer->RenderScene(p, cam.get(), bakeScene);
+				impostorEffects->EndCapture();
+				GetActiveRenderDevice().WaitIdle();
+				Texture* src = impostorEffects->GetViewportColor();
+				if (!src) throw std::runtime_error("no colour target");
+				std::vector<uchar> pixels = src->GetTextureData();
+				if (!ConvertPreviewPixelsToRGBA8(pixels, src->GetDataType(), src->GetWidth(), src->GetHeight(), passes[pass]))
+					throw std::runtime_error("readback failed");
+#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
+				FlipRGBA8Vertically(passes[pass], src->GetWidth(), src->GetHeight());
+#endif
+			}
+
+			// Crop the square frame to the card: all of the width the model
+			// can turn through, and its height from the bottom up.
+			const uint32 n = impostorSize;
+			const uint32 w = Max(1u, (uint32)((2.f * half) / side * n + 0.5f));
+			const uint32 h = Max(1u, (uint32)(height / side * n + 0.5f));
+			const uint32 x0 = (n - w) / 2, y0 = n - h;	// row 0 is the top
+			outRGBA.resize((size_t)w * h * 4);
+			for (uint32 y = 0; y < h; y++)
+				for (uint32 x = 0; x < w; x++)
+				{
+					const size_t si = ((size_t)(y0 + y) * n + (x0 + x)) * 4, di = ((size_t)y * w + x) * 4;
+					const unsigned char* b = &passes[0][si];
+					const unsigned char* wh = &passes[1][si];
+					// Over black the pixel is a*c; over white a*c + (1 - a).
+					const int diff = ((int)wh[0] - b[0] + (int)wh[1] - b[1] + (int)wh[2] - b[2]) / 3;
+					const int a = 255 - Max(0, Min(255, diff));
+					for (int c = 0; c < 3; c++)
+						outRGBA[di + c] = (unsigned char)(a > 0 ? Min(255, (int)b[c] * 255 / a) : 0);
+					outRGBA[di + 3] = (unsigned char)a;
+				}
+			outW = w;
+			outH = h;
+			left = -half; right = half;
+			bottom = bmin.y; top = bmax.y;
+			ok = true;
+		}
+		catch (const std::exception& e) { echo(std::string("ERROR: impostor bake failed: ") + e.what()); }
+		GetActiveRenderDevice().WaitIdle();
+		delete bakeScene;
+		return ok;
+	}
+
 	std::string SceneEditor::EnsureModelThumbnail(const std::string& p3dmPath, bool force)
 	{
 		namespace fs = std::filesystem;
@@ -2719,6 +2829,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::ProcessPendingModelThumbnails(int maxPerFrame)
 	{
+		// The Properties panel's Bake Impostor, here because this runs
+		// outside the ImGui frame, where an offscreen pass is safe.
+		if (!pendingImpostorBake.is_null())
+		{
+			json args, out;
+			args.swap(pendingImpostorBake);
+			std::string err;
+			if (!BakeFoliageImpostor(args, out, err)) echo("ERROR: bake impostor - " + err);
+			else echo("SUCCESS: baked impostor " + out.value("texture", std::string()));
+		}
 		if (maxPerFrame < 1) maxPerFrame = 1;
 		int done = 0;
 		while (done < maxPerFrame && !pendingModelThumbnails.empty())
@@ -9091,6 +9211,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		thumbEffects = NULL;
 		delete thumbRenderer;
 		thumbRenderer = NULL;
+		delete impostorEffects;
+		impostorEffects = NULL;
+		delete impostorRenderer;
+		impostorRenderer = NULL;
 		delete previewEffects;
 		previewEffects = NULL;
 		delete previewRenderer;

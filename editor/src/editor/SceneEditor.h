@@ -1018,6 +1018,23 @@ private:
 	PostEffectsManager* thumbEffects;
 	enum { previewWidth = 320, previewHeight = 180 };
 	enum { thumbWidth = 128, thumbHeight = 128 };
+	// Impostor baking: its own larger offscreen target, made on first bake.
+	ForwardRenderer* impostorRenderer = NULL;
+	PostEffectsManager* impostorEffects = NULL;
+	enum { impostorSize = 512 };
+public:
+	// A model's side view, orthographic, as RGBA8 with real alpha (rendered
+	// over black and over white; alpha is where the two differ), cropped
+	// to the model. The bounds are the card's in model space: x across,
+	// y up, the model's origin at x = 0.
+	bool RenderImpostorRGBA8(const std::string& p3dmPath, std::vector<unsigned char>& outRGBA,
+		uint32& outW, uint32& outH, f32& left, f32& right, f32& bottom, f32& top);
+	// Bakes a foliage layer's model into an impostor card and makes it the
+	// layer's far mesh. Offscreen - runs between frames (agent command, or
+	// queued from the panel into ProcessPendingModelThumbnails).
+	bool BakeFoliageImpostor(const json& args, json& out, std::string& errOut);
+	json pendingImpostorBake;
+private:
 
 	bool IsSceneCamera(uint32 id) const;
 	void UnregisterSceneCamera(uint32 id);
