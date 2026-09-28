@@ -331,6 +331,31 @@ void SceneEditor::ShowTerrainPanel()
 		ImGui::TextWrapped("Adds a grass layer to every tile of the selected terrain. Paint where it grows with the Foliage tool.");
 		if (ImGui::Button("Add Grass to Selection")) pendingGrass = true;
 	}
+	static json pendingImport;
+	if (ImGui::CollapsingHeader("Import Heightmap##terrain_import"))
+	{
+		static std::string heightmap;
+		static float worldSize = 1024.f, tileSize = 256.f, range = 300.f, base = 0.f;
+		static int samplesIndex = 2;
+		static const char* sampleLabels[] = { "65", "129", "257", "513" };
+		static const int sampleValues[] = { 65, 129, 257, 513 };
+		ImGui::InputTextWithHint("Image", "assets/terrain/height.png", &heightmap);
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL")) heightmap = std::string((const char*)payload->Data);
+			ImGui::EndDragDropTarget();
+		}
+		ImGui::InputFloat("World size (m)", &worldSize, 64.f, 256.f, "%.0f");
+		ImGui::InputFloat("Tile size (m)", &tileSize, 16.f, 64.f, "%.0f");
+		ImGui::InputFloat("Height range (m)", &range, 10.f, 50.f, "%.0f");
+		ImGui::InputFloat("Base height (m)", &base, 1.f, 10.f, "%.1f");
+		ImGui::Combo("Samples per tile", &samplesIndex, sampleLabels, 4);
+		const int across = std::max(1, (int)std::lround(worldSize / std::max(1.f, tileSize)));
+		ImGui::TextDisabled("%d x %d tiles. A square 8 or 16-bit image; black = base.", across, across);
+		if (ImGui::Button("Import"))
+			pendingImport = { { "name", "Terrain" }, { "heightmap", heightmap }, { "worldSize", worldSize }, { "tileSize", tileSize },
+				{ "heightRange", range }, { "baseHeight", base }, { "samples", sampleValues[samplesIndex] } };
+	}
 	if (ImGui::CollapsingHeader("Create Terrain##terrain_create"))
 	{
 		static TerrainTools::CreateParams params;
@@ -372,6 +397,13 @@ void SceneEditor::ShowTerrainPanel()
 		json out;
 		lastError.clear();
 		AgentTerrain("terrain_add_grass", json::object(), out, lastError);
+	}
+	if (!pendingImport.is_null())
+	{
+		json args, out;
+		args.swap(pendingImport);
+		lastError.clear();
+		if (!AgentTerrain("terrain_create", args, out, lastError) && lastError.empty()) lastError = "failed";
 	}
 	if (!pendingCreate.is_null())
 	{
@@ -462,6 +494,19 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		p.tileSize = args.value("tileSize", p.tileSize);
 		p.samples = args.value("samples", p.samples);
 		p.heightRange = args.value("heightRange", p.heightRange);
+		// Import: {"heightmap": project-relative or absolute path, "worldSize":
+		// metres the image covers, "baseHeight"}; tiles = worldSize / tileSize.
+		if (args.contains("heightmap"))
+		{
+			const std::string hm = args.value("heightmap", std::string());
+			p.importPath = std::filesystem::path(hm).is_absolute() ? hm : project->AbsolutePath(hm);
+			p.baseHeight = args.value("baseHeight", 0.f);
+			if (args.contains("worldSize"))
+			{
+				const int tiles = std::max(1, (int)std::lround(args.value("worldSize", 0.f) / std::max(1.f, p.tileSize)));
+				p.tilesX = p.tilesZ = tiles;
+			}
+		}
 		if (args.contains("origin") && args["origin"].is_array() && args["origin"].size() >= 3)
 			p.origin = Vec3(args["origin"][0].get<f32>(), args["origin"][1].get<f32>(), args["origin"][2].get<f32>());
 		std::string subtree;

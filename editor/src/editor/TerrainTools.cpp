@@ -9,6 +9,7 @@
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
+#include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 
 #include <algorithm>
@@ -289,13 +290,31 @@ bool TerrainTools::CreateTerrain(const CreateParams &params, const std::string &
 	}
 
 	// Heights: 0 m is a quarter of the way up the range, so there is room
-	// to dig as well as to raise.
-	const float offset = -params.heightRange * 0.25f;
+	// to dig as well as to raise. An import maps its image onto the range
+	// from baseHeight instead.
+	const bool importing = !params.importPath.empty();
+	const float offset = importing ? params.baseHeight : -params.heightRange * 0.25f;
 	const int32 n = params.samples;
 	const std::vector<uint16> flat((size_t)n * n, (uint16)std::lround(0.25 * 65535.0));
 	const int32 splatPx = std::min(1024, std::max(16, (int32)params.tileSize + 1));
 	std::vector<uchar> splat((size_t)splatPx * splatPx * 4, 0);
 	for (size_t i = 0; i < splat.size(); i += 4) splat[i] = 255;
+
+	// The source, as 0..1 over the whole terrain's extent.
+	HeightfieldData source;
+	const float extentX = params.tilesX * params.tileSize, extentZ = params.tilesZ * params.tileSize;
+	if (importing)
+	{
+		if (params.tilesX != params.tilesZ) { error = "an imported heightmap is square: use as many tiles along X as along Z"; return false; }
+		if (!HeightfieldData::LoadFile(params.importPath, extentX, 1.f, 0.f, source))
+		{ error = "could not read " + params.importPath + " as a square heightmap"; return false; }
+	}
+	// Normalized source height at terrain-local (x, z), clamped to the edge.
+	auto sourceAt = [&source, extentX, extentZ](const float x, const float z) {
+		return source.HeightAt(std::min(std::max(x, 0.f), extentX), std::min(std::max(z, 0.f), extentZ));
+	};
+	std::vector<uint16> imported;
+	std::vector<uchar> importedSplat;
 
 	json tree;
 	json rootObj;
@@ -313,8 +332,41 @@ bool TerrainTools::CreateTerrain(const CreateParams &params, const std::string &
 			const std::string heightRel = relDir + "/" + stem + ".png";
 			const std::string splatRel = relDir + "/" + stem + "_splat.png";
 			if (fs::exists(root / heightRel, ec)) { error = heightRel + " already exists - pick another name"; return false; }
-			if (!PaintableImage::WritePNG16((root / heightRel).string(), n, n, &flat[0])
-				|| !PaintableImage::WritePNG((root / splatRel).string(), splatPx, splatPx, 4, &splat[0]))
+			const uint16* heightPixels = &flat[0];
+			const uchar* splatPixels = &splat[0];
+			if (importing)
+			{
+				// This tile's square of the source, edges shared with its
+				// neighbours (the same positions sample the same heights).
+				const float x0 = tx * params.tileSize, z0 = tz * params.tileSize;
+				imported.assign((size_t)n * n, 0);
+				for (int32 r = 0; r < n; r++)
+					for (int32 c = 0; c < n; c++)
+					{
+						const float h = sourceAt(x0 + c * params.tileSize / (n - 1), z0 + r * params.tileSize / (n - 1));
+						imported[(size_t)r * n + c] = (uint16)std::lround(std::min(std::max(h, 0.f), 1.f) * 65535.f);
+					}
+				// Rock where the ground is steeper than ~25 degrees, fully
+				// by ~40: layer 0 (grass) elsewhere.
+				importedSplat.assign((size_t)splatPx * splatPx * 4, 0);
+				const float d = params.tileSize / (splatPx - 1);
+				for (int32 r = 0; r < splatPx; r++)
+					for (int32 c = 0; c < splatPx; c++)
+					{
+						const float x = x0 + c * d, z = z0 + r * d;
+						const float dx = (sourceAt(x + d, z) - sourceAt(x - d, z)) * params.heightRange / (2.f * d);
+						const float dz = (sourceAt(x, z + d) - sourceAt(x, z - d)) * params.heightRange / (2.f * d);
+						const float slope = std::atan(std::sqrt(dx * dx + dz * dz)) * 57.29578f;
+						const float rock = std::min(std::max((slope - 25.f) / 15.f, 0.f), 1.f);
+						uchar* p = &importedSplat[((size_t)r * splatPx + c) * 4];
+						p[0] = (uchar)std::lround((1.f - rock) * 255.f);
+						p[2] = (uchar)std::lround(rock * 255.f);
+					}
+				heightPixels = &imported[0];
+				splatPixels = &importedSplat[0];
+			}
+			if (!PaintableImage::WritePNG16((root / heightRel).string(), n, n, heightPixels)
+				|| !PaintableImage::WritePNG((root / splatRel).string(), splatPx, splatPx, 4, splatPixels))
 			{ error = "could not write the maps under " + relDir; return false; }
 
 			const uint32 matId = (uint32)materials.size();

@@ -4528,7 +4528,8 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         smooth|flatten|paint|foliage, radius, strength 0-1, hardness 0-1,
         layer, density), terrain_stroke (points [[x,z],...], dt) - one undo
         entry, terrain_create (name, tilesX, tilesZ, tileSize, samples,
-        heightRange, origin), terrain_add_grass (name|id), terrain_layer
+        heightRange, origin; import with heightmap (square image), worldSize,
+        baseHeight), terrain_add_grass (name|id), terrain_layer
         (layer 0-3, texture - every splat tile's ground texture; no texture
         reads them). Brush edits are
         written with save_scene.

@@ -90,6 +90,12 @@ public:
 		int samples = 129;
 		float heightRange = 200.f;
 		Vec3 origin;
+		// Import: heights from this square image (absolute path; 8 or
+		// 16-bit, first channel) stretched over the whole terrain - image
+		// row 0 along z = 0 - black at baseHeight, white heightRange above.
+		// Steep ground starts out painted with the rock layer.
+		std::string importPath;
+		float baseHeight = 0.f;
 	};
 	static bool CreateTerrain(const CreateParams &params, const std::string &projectRoot, std::string &subtreeJson, std::string &error);
 
