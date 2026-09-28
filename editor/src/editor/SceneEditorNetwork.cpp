@@ -123,6 +123,8 @@ void SceneEditor::UpdatePlayNetwork(const f64 time)
 		}
 	}
 	if (!playNetwork) return;
+	playNetwork->Transport().SetSimulatedConditions((uint32)std::max(0, playNetLatencyMs), (uint32)std::max(0, playNetJitterMs),
+		std::min(std::max(playNetLoss, 0.f), 1.f));
 	// Relevance is measured from whatever the viewport looks through.
 	if (GameObject* viewCam = GetViewCameraGO()) playNetwork->SetViewer(viewCam->GetWorldPosition());
 	playNetwork->Update(dt);
@@ -177,6 +179,15 @@ void SceneEditor::DrawNetworkPlayControls()
 			ImGui::SetNextItemWidth(140.f);
 			ImGui::InputInt("Port", &playNetPort);
 			playNetPort = std::max(1, std::min(65535, playNetPort));
+			ImGui::Separator();
+			ImGui::TextDisabled("Simulate a real connection (this end's packets)");
+			ImGui::SetNextItemWidth(140.f);
+			ImGui::SliderInt("Latency", &playNetLatencyMs, 0, 500, "%d ms");
+			ImGui::SetNextItemWidth(140.f);
+			ImGui::SliderInt("Jitter", &playNetJitterMs, 0, 200, "%d ms");
+			float lossPct = playNetLoss * 100.f;
+			ImGui::SetNextItemWidth(140.f);
+			if (ImGui::SliderFloat("Loss", &lossPct, 0.f, 50.f, "%.0f %%")) playNetLoss = lossPct / 100.f;
 		}
 		ImGui::EndPopup();
 	}
@@ -243,6 +254,9 @@ bool SceneEditor::AgentNetwork(const std::string& command, const json& a, json& 
 		}
 		playNetAddress = args.value("address", playNetAddress);
 		playNetPort = std::max(1, std::min(65535, args.value("port", playNetPort)));
+		playNetLatencyMs = std::max(0, args.value("latencyMs", playNetLatencyMs));
+		playNetJitterMs = std::max(0, args.value("jitterMs", playNetJitterMs));
+		playNetLoss = std::min(1.f, std::max(0.f, args.value("loss", playNetLoss)));
 		return AgentNetwork("network_state", args, out, errOut);
 	}
 	if (command == "network_state")
@@ -250,6 +264,9 @@ bool SceneEditor::AgentNetwork(const std::string& command, const json& a, json& 
 		out["playRole"] = kRoleNames[std::max(0, std::min(2, playNetRole))];
 		out["address"] = playNetAddress;
 		out["port"] = playNetPort;
+		out["latencyMs"] = playNetLatencyMs;
+		out["jitterMs"] = playNetJitterMs;
+		out["loss"] = playNetLoss;
 		if (playNetwork)
 		{
 			const NetworkSession::Role r = playNetwork->GetRole();

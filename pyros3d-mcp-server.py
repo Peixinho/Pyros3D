@@ -4545,8 +4545,9 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         bake_foliage_impostor (name|id, layer, distance) - the model on a
         crossed card as the layer's far mesh, on every tile under the target
     Networking
-      set_play_network (role: offline|host|client, address, port) - how Play
-        joins; network_state; get/add/set/remove_network_identity (name|id,
+      set_play_network (role: offline|host|client, address, port, latencyMs,
+        jitterMs, loss 0-1 - simulated on this end) - how Play joins;
+        network_state; get/add/set/remove_network_identity (name|id,
         prefab, relevance, priority, syncTransform, predicted, hitRadius,
         hitHeight)
     Project

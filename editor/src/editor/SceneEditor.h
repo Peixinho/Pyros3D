@@ -1247,6 +1247,10 @@ public:
 	std::string playNetAddress = "127.0.0.1";
 	int playNetPort = 47400;
 	bool playNetStarted = false;
+	// Simulated conditions on this end's outgoing packets (0 = off): the
+	// round trip a player on a real connection would have.
+	int playNetLatencyMs = 0, playNetJitterMs = 0;
+	float playNetLoss = 0.f;
 	f64 playNetLastTime = -1.0;
 	void RegisterPlayNetwork();
 	void UpdatePlayNetwork(const f64 time);
