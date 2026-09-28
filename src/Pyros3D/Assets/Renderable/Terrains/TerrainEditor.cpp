@@ -105,6 +105,7 @@ namespace p3d {
 		for (size_t i = 0; i < tiles.size(); i++)
 			if (Overlaps(tiles[i], x, z, radius)) touched.push_back(tiles[i]);
 		if (touched.empty()) return 0;
+		for (size_t i = 0; i < touched.size(); i++) Touch(touched[i]);
 
 		// Smoothing reads its neighbours from how the ground was BEFORE this
 		// step, in world space and across tile borders - reading a tile
@@ -214,6 +215,7 @@ namespace p3d {
 			TileState &state = State(tiles[i]);
 			std::shared_ptr<PaintableImage> img = SplatImage(tiles[i], state);
 			if (!img) continue;
+			Touch(tiles[i]);
 			const f32 size = tiles[i].Size();
 			if (img->Paint((x - tiles[i].origin.x) / size, (z - tiles[i].origin.z) / size, radius / size, radius / size,
 					layer, 1.f, strength, hardness, true))
@@ -247,8 +249,17 @@ namespace p3d {
 					// (edges on the tile's edges, like its heights).
 					const int32 px = std::min(1025, std::max(2, (int32)tile.Size() + 1));
 					fl.densityMap->Create(px, px, 1, 255);
+					// Named now rather than at Save(): the layer's saved
+					// form names its map, and an object rebuilt from that
+					// form before a save must still find it.
+					if (fl.spec.densityMap.empty())
+					{
+						std::filesystem::path hp(tile.levels[0]->source.heightmap);
+						fl.spec.densityMap = (hp.parent_path() / (hp.stem().string() + "_" + (fl.spec.name.empty() ? std::to_string(layer) : fl.spec.name) + "_density.png")).generic_string();
+					}
 				}
 			}
+			Touch(tile);
 			const f32 size = tile.Size();
 			if (fl.densityMap->Paint((x - tile.origin.x) / size, (z - tile.origin.z) / size, radius / size, radius / size,
 					0, target, strength, hardness, false))
@@ -288,6 +299,152 @@ namespace p3d {
 			}
 		}
 		strokeTiles.clear();
+		if (recording)
+		{
+			recording = false;
+			lastBefore.swap(strokeBefore);
+			lastAfter.clear();
+			for (size_t i = 0; i < strokeTouched.size(); i++) lastAfter.push_back(Capture(strokeTouched[i]));
+			strokeBefore.clear();
+			strokeTouched.clear();
+		}
+	}
+
+	TerrainEditor::TileSnapshot TerrainEditor::Capture(const TerrainTile &tile)
+	{
+		TileSnapshot snap;
+		snap.heightmap = tile.levels[0]->source.heightmap;
+		snap.heights = tile.Data()->heights;
+		for (size_t i = 0; i < states.size(); i++)
+			if (states[i].owner == tile.owner && states[i].splat) snap.splat = states[i].splat->pixels;
+		if (tile.foliage)
+		{
+			const std::vector<FoliageComponent::Layer> &layers = tile.foliage->GetLayers();
+			snap.density.resize(layers.size());
+			for (size_t l = 0; l < layers.size(); l++)
+				if (layers[l].densityMap) snap.density[l] = layers[l].densityMap->pixels;
+		}
+		return snap;
+	}
+
+	void TerrainEditor::Touch(const TerrainTile &tile)
+	{
+		if (!recording) return;
+		for (size_t i = 0; i < strokeTouched.size(); i++)
+			if (strokeTouched[i].owner == tile.owner)
+			{
+				// Already recorded - but a map loaded since (this stroke's
+				// first dab on it) is still as it was: record it now.
+				TileSnapshot &snap = strokeBefore[i];
+				const TileSnapshot now = Capture(tile);
+				if (snap.splat.empty()) snap.splat = now.splat;
+				if (snap.density.size() < now.density.size()) snap.density.resize(now.density.size());
+				for (size_t l = 0; l < now.density.size(); l++)
+					if (snap.density[l].empty()) snap.density[l] = now.density[l];
+				return;
+			}
+		strokeTouched.push_back(tile);
+		strokeBefore.push_back(Capture(tile));
+	}
+
+	void TerrainEditor::BeginStroke()
+	{
+		recording = true;
+		strokeBefore.clear();
+		strokeTouched.clear();
+	}
+
+	bool TerrainEditor::TakeStrokeUndo(std::vector<TileSnapshot> &before, std::vector<TileSnapshot> &after)
+	{
+		before.swap(lastBefore);
+		after.swap(lastAfter);
+		lastBefore.clear();
+		lastAfter.clear();
+		return !before.empty();
+	}
+
+	void TerrainEditor::Restore(SceneGraph* scene, const std::vector<TileSnapshot> &snapshots)
+	{
+		strokeScene = scene;
+		std::vector<TerrainTile> tiles = FindTiles(scene);
+		for (size_t s = 0; s < snapshots.size(); s++)
+		{
+			const TileSnapshot &snap = snapshots[s];
+			for (size_t t = 0; t < tiles.size(); t++)
+			{
+				const TerrainTile &tile = tiles[t];
+				if (tile.levels[0]->source.heightmap != snap.heightmap) continue;
+				TileState &state = State(tile);
+				HeightfieldData &d = *tile.Data();
+				bool regrowAll = false;
+				if (snap.heights.size() == d.heights.size() && snap.heights != d.heights)
+				{
+					d.heights = snap.heights;
+					for (size_t l = 0; l < tile.levels.size(); l++) tile.levels[l]->Rebuild();
+					if (tile.rendering) tile.rendering->RefreshBounds();
+					if (tile.collision)
+					{
+						tile.collision->Unregister(scene);
+						tile.collision->Register(scene);
+					}
+					state.heightsDirty = true;
+					regrowAll = true;
+				}
+				if (!snap.splat.empty())
+				{
+					std::shared_ptr<PaintableImage> img = SplatImage(tile, state);
+					if (img && img->pixels.size() == snap.splat.size())
+					{
+						img->pixels = snap.splat;
+						img->Upload();
+						state.splatDirty = true;
+					}
+				}
+				if (tile.foliage)
+				{
+					std::vector<FoliageComponent::Layer> &layers = tile.foliage->GetLayers();
+					if (state.foliageDirty.size() < layers.size()) state.foliageDirty.resize(layers.size(), false);
+					for (size_t l = 0; l < layers.size(); l++)
+					{
+						const bool had = l < snap.density.size() && !snap.density[l].empty();
+						if (had && layers[l].densityMap && layers[l].densityMap->pixels.size() == snap.density[l].size())
+						{
+							if (layers[l].densityMap->pixels == snap.density[l]) continue;
+							layers[l].densityMap->pixels = snap.density[l];
+						}
+						else if (!had && layers[l].densityMap) layers[l].densityMap.reset();	// back to the file
+						else continue;
+						state.foliageDirty[l] = true;
+						if (!regrowAll) tile.foliage->Regrow(d, (int32)l);
+					}
+					if (regrowAll) tile.foliage->Regrow(d);
+				}
+				break;
+			}
+		}
+	}
+
+	bool TerrainEditor::HasUnsaved(const GameObject* owner) const
+	{
+		for (size_t i = 0; i < states.size(); i++)
+		{
+			if (states[i].owner != owner) continue;
+			if (states[i].heightsDirty || states[i].splatDirty) return true;
+			for (size_t l = 0; l < states[i].foliageDirty.size(); l++) if (states[i].foliageDirty[l]) return true;
+		}
+		return false;
+	}
+
+	void TerrainEditor::Forget(const GameObject* owner)
+	{
+		for (size_t i = states.size(); i-- > 0;) if (states[i].owner == owner) states.erase(states.begin() + i);
+		for (size_t i = strokeTiles.size(); i-- > 0;) if (strokeTiles[i].owner == owner) strokeTiles.erase(strokeTiles.begin() + i);
+		for (size_t i = strokeTouched.size(); i-- > 0;)
+			if (strokeTouched[i].owner == owner)
+			{
+				strokeTouched.erase(strokeTouched.begin() + i);
+				strokeBefore.erase(strokeBefore.begin() + i);
+			}
 	}
 
 	bool TerrainEditor::Save()
@@ -323,7 +480,8 @@ namespace p3d {
 				for (size_t l = 0; l < state.foliageDirty.size() && l < tile->foliage->GetLayers().size(); l++)
 				{
 					FoliageComponent::Layer &fl = tile->foliage->GetLayers()[l];
-					if (!fl.densityMap) continue;
+					// None in memory: the file is already what it should be.
+					if (!fl.densityMap) { state.foliageDirty[l] = false; continue; }
 					if (fl.spec.densityMap.empty())
 					{
 						// Next to the heightmap: "<heightmap>_<layer>_density.png".

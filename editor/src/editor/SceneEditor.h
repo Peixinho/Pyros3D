@@ -79,6 +79,7 @@ using json = nlohmann::json;
 // with the player (shared/UIStyleResolver.h).
 #include "UIStyleResolver.h"
 #include "UndoStack.h"
+#include "TerrainTools.h"
 #include <ctime>
 #include <filesystem>
 #include <map>
@@ -328,6 +329,13 @@ public:
 	// pivots, y running down - while a tile brush works in the world space
 	// Layer2D and Physics2D live in.
 	bool IsTilePaintMode() const { return tilePaintMode; }
+	// --- terrain brushes (3D) -------------------------------------------
+	bool IsTerrainMode() const;
+	void SetTerrainMode(const bool on);
+	// The Terrain panel: tools, brush, layers, and creating terrain.
+	void ShowTerrainPanel();
+	// terrain_* agent commands, one dispatcher (see SceneEditorTerrain.cpp).
+	bool AgentTerrain(const std::string& command, const json& args, json& out, std::string& errOut);
 	// Collider outlines are otherwise invisible, so a collider that does not
 	// match its art is a silent bug. Exposed so it can be driven from a
 	// script, which is the only way to SEE terrain collision without a mouse.
@@ -1150,6 +1158,16 @@ public:
 	// Streams sceneWorld's cells around the viewport camera while editing;
 	// NULL unless the scene is a streamed world.
 	std::unique_ptr<EditorWorld> editorWorld;
+	// The terrain brushes (see TerrainTools.h), made on first use.
+	std::unique_ptr<TerrainTools> terrainTools;
+	TerrainTools &Terrain();
+	// The viewport cursor's world-space ray, false when it is off the view.
+	bool ViewportRay(Vec3 &origin, Vec3 &direction) const;
+	void UpdateTerrainBrush();
+	void EndTerrainStroke();
+	// Writes the brushes' edits (heights, splat and density maps). Part of
+	// saving the scene, and of entering Play.
+	bool SaveTerrain();
 	void StartEditorWorld();
 	// Turns the saved scene into a streamed world: every root that is not
 	// persistent (a camera, a directional light, a UI canvas, or tagged

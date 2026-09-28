@@ -833,7 +833,7 @@ namespace p3d {
 			else
 			{
 				m["kind"] = "custom";
-				if (!cm->GetShaderFile().empty()) m["shaderFile"] = cm->GetShaderFile();
+				if (!cm->GetShaderFile().empty()) m["shaderFile"] = RelativizeSceneAssetPath(cm->GetShaderFile());
 				else m["shaderSource"] = cm->GetShaderObject()->GetShaderText();
 
 				// The shader alone is not the whole material: every texture
@@ -853,6 +853,9 @@ namespace p3d {
 						json entry;
 						entry["name"] = names[s];
 						SerializeTextureRef(entry, "texture", cm->textures[s].get());
+						// A map covering one surface exactly (a terrain
+						// tile's splat map) must not wrap at its edges.
+						if (cm->textures[s] && cm->textures[s]->IsClampedToEdge()) entry["clampMaps"] = true;
 						// Skip a sampler whose texture has neither a file nor
 						// raw data - nothing to restore, and an entry with
 						// only a name would rebind unit indices on load.
@@ -2630,7 +2633,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				{
 					const std::string name = sj.value("name", std::string());
 					if (name.empty()) continue;
-					if (std::shared_ptr<Texture> t = DeserializeTextureRef(sj, "texture", textureCache, outAssets))
+					// Shared, like a generic material's maps: a terrain's
+					// layer textures are named by every tile.
+					if (std::shared_ptr<Texture> t = DeserializeTextureRef(sj, "texture", textureCache, outAssets, true))
 						cm->AddSampler(name, t);
 				}
 			}

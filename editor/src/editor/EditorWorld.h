@@ -60,6 +60,13 @@ public:
 	void EnterPlay();
 	void ExitPlay();
 
+	// Edits a cell's JSON does not show - a terrain tile's sculpted
+	// heights live in its heightmap file - so a cell holding one would
+	// look clean and unload. Asked on top of the JSON check.
+	void SetExtraDirty(const std::function<bool(const p3d::GameObject*)> &fn) { extraDirty = fn; }
+	// A cell is about to leave: anything keeping pointers into it lets go.
+	void SetOnUnloading(const std::function<void(p3d::GameObject*)> &fn) { onUnloading = fn; }
+
 	const p3d::WorldStreamer &Streamer() const { return *streamer; }
 	void SetRadii(const float load, const float unload) { streamer->SetRadii(load, unload); }
 
@@ -81,6 +88,8 @@ private:
 	std::map<const p3d::GameObject*, std::string> saved;
 	bool playing = false;
 	std::set<const p3d::GameObject*> knownDirty;
+	std::function<bool(const p3d::GameObject*)> extraDirty;
+	std::function<void(p3d::GameObject*)> onUnloading;
 };
 
 #endif

@@ -2537,6 +2537,17 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// The Terrain panel: terrain_state {x,z}?, terrain_brush {on,tool,radius,
+	// strength,hardness,layer,density}, terrain_stroke {points:[[x,z]..],dt},
+	// terrain_create {name,tilesX,tilesZ,tileSize,samples,heightRange,origin}.
+	if (name == "terrain_state" || name == "terrain_brush" || name == "terrain_stroke" || name == "terrain_create"
+		|| name == "terrain_add_grass")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentTerrain(name, a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "set_view_pivot")
 	{
 		if (!sceneView->AgentSetViewPivot(a, err)) throw std::runtime_error(err);
@@ -7654,6 +7665,7 @@ void Editor::DrawTilePaletteWindow()
 	// Drained after the window: creating objects inside another window's
 	// Begin/End pair is how ImGui asserts rather than draws.
 	sceneView->DrainTileLayerRequest();
+	sceneView->ShowTerrainPanel();
 	// Drained after the window is drawn, not inside it: OpenTileSetDocument
 	// creates a document and can re-dock, and doing that from inside another
 	// window's Begin/End pair is how you get an ImGui assert instead of a tab.

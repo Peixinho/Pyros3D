@@ -52,6 +52,8 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AssetCommands.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneObjects.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/EditorWorld.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/TerrainTools.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorTerrain.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/ProjectManager.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/DemoLibrary.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AgentServer.cpp

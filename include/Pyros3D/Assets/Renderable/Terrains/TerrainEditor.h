@@ -103,6 +103,33 @@ namespace p3d {
 		// Returns false if any file failed.
 		bool Save();
 
+		// Whether `owner`'s tile has edits Save() has not written - a
+		// streamed cell holding one must not be unloaded.
+		bool HasUnsaved(const GameObject* owner) const;
+		// `owner` is leaving the scene (its cell unloaded): drop what is
+		// kept for it. Unsaved edits to it are lost.
+		void Forget(const GameObject* owner);
+
+		// Undo. A tile's editable state - heights, splat pixels, density
+		// maps - keyed by its heightmap path, which outlives the GameObject
+		// (a cell can unload and come back as a new one).
+		struct TileSnapshot
+		{
+			std::string heightmap;
+			std::vector<f32> heights;
+			std::vector<uchar> splat;
+			std::vector<std::vector<uchar> > density;	// per foliage layer; empty = none loaded
+		};
+		// Between BeginStroke() and FinishStroke(), the first touch of each
+		// tile records how it was; FinishStroke() records how it ended, and
+		// TakeStrokeUndo() hands both over (false when nothing changed).
+		void BeginStroke();
+		bool TakeStrokeUndo(std::vector<TileSnapshot> &before, std::vector<TileSnapshot> &after);
+		// Puts tiles back as snapshotted: meshes, collision, splat texture
+		// and foliage all follow, and the tiles count as edited. Tiles not
+		// in the scene now are skipped.
+		void Restore(SceneGraph* scene, const std::vector<TileSnapshot> &snapshots);
+
 		// Per tile, the splat map being painted and the density maps, loaded
 		// on first touch.
 		struct TileState
@@ -118,6 +145,12 @@ namespace p3d {
 		TileState &State(const TerrainTile &tile);
 		std::shared_ptr<PaintableImage> SplatImage(const TerrainTile &tile, TileState &state);
 		std::string Resolve(const std::string &path) const;
+		TileSnapshot Capture(const TerrainTile &tile);
+		void Touch(const TerrainTile &tile);	// records the before-snapshot once per stroke
+		bool recording = false;
+		std::vector<TileSnapshot> strokeBefore;
+		std::vector<TerrainTile> strokeTouched;
+		std::vector<TileSnapshot> lastBefore, lastAfter;
 		std::vector<TileState> states;
 		std::vector<TerrainTile> strokeTiles;
 		SceneGraph* strokeScene = NULL;

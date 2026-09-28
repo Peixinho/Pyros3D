@@ -96,6 +96,14 @@ void SceneEditor::RawDeleteSubtree(uint32 objId)
 	}
 	if (scriptRenderCamera == go)
 		scriptRenderCamera = nullptr;
+	// A terrain tile's brush edits live in memory until saved, and whatever
+	// rebuilds this subtree (undo, a replace) reloads the tile from its
+	// files - so they are written first, and the brushes let go of it.
+	if (terrainTools)
+	{
+		if (terrainTools->HasUnsaved(go)) SaveTerrain();
+		terrainTools->Forget(go);
+	}
 	sceneObjects->DestroySceneObject(objId);
 	if (wasCamera)
 	{

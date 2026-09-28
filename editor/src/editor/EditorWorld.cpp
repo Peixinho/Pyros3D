@@ -28,6 +28,7 @@ EditorWorld::EditorWorld(SceneGraph* scene, SceneObjects* objects, const std::st
 		if (adopted) adopted(root.get());
 	});
 	streamer->SetOnCellUnloading([this](const std::shared_ptr<GameObject> &root) {
+		if (onUnloading) onUnloading(root.get());
 		const uint32_t id = this->objects->GetSceneObjectID(root.get());
 		if (id) this->objects->Forget(id);
 		saved.erase(root.get());
@@ -42,6 +43,7 @@ EditorWorld::EditorWorld(SceneGraph* scene, SceneObjects* objects, const std::st
 		// unload radius is asked every frame, and serializing it every frame
 		// to learn the same answer would be waste.
 		if (knownDirty.count(root.get())) return true;
+		if (extraDirty && extraDirty(root.get())) return true;
 		if (!IsDirty(root.get())) return false;
 		knownDirty.insert(root.get());
 		return true;

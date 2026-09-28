@@ -1015,6 +1015,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				SetTilePaintMode(!tilePaintMode);
 				if (tilePaintMode) uiEditMode = false;
 			}
+			// In 3D, B is the terrain brush - the same "fourth tool" slot.
+			if (plainKey && !sceneIsTwoD && ImGui::IsKeyPressed(ImGuiKey_B))
+				SetTerrainMode(!IsTerrainMode());
 			if ((ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) && !ImGui::GetIO().WantTextInput)
 				DeleteSelected();
 			if (ImGui::IsKeyPressed(ImGuiKey_D) && ShortcutMod())
@@ -1064,6 +1067,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ImGui::SameLine();
 				ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.f, 1.f), "PAINTING");
 			}
+		}
+		if (!sceneIsTwoD && !playMode)
+		{
+			ImGui::SameLine();
+			const bool sculpting = IsTerrainMode();
+			if (sculpting)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.55f, 0.9f, 1.f));
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.62f, 1.f, 1.f));
+			}
+			if (ImGui::SmallButton("Terrain")) SetTerrainMode(!sculpting);
+			if (sculpting) ImGui::PopStyleColor(2);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Terrain brushes (B)\n"
+					"The left button sculpts or paints the terrain under the cursor\n"
+					"instead of selecting. Tools and brush are in the Terrain panel.");
 		}
 		if (playMode) ImGui::EndDisabled();
 		ImGui::SameLine();
@@ -1260,7 +1279,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		UICanvas* editingCanvas = uiEditMode ? GetEditingCanvas() : NULL;
 		if (editingCanvas)
 			HandleCanvasInput(editingCanvas);
-		else
+		else if (!IsTerrainMode())
 			HandleViewportGizmoInput(viewCam);
 
 		const uint32 viewW = (uint32)dim.x;
@@ -1533,6 +1552,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					grid.get(), Camera.get(), CameraPivot.get(), &sceneCameraDebugScratch,
 					selectedDebugComp, selectedDebugCam);
 
+			if (terrainTools && !playMode) terrainTools->DrawOverlay(debugRenderer, scene);
 			if (debugRenderer)
 				debugRenderer->Render(viewCam->GetWorldTransformation().Inverse(),
 					(isPerspective ? projection : projectionOrtho).GetProjectionMatrix());
@@ -1667,6 +1687,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// cursor, and the overlay drawn from Draw2DReference needs the cell it
 		// resolved to.
 		UpdateTilePainting();
+		UpdateTerrainBrush();
 		if (!playMode && editorChromeVisible)
 			DrawSceneViewportIcons(imgMin, imgSize, viewCam);
 
@@ -6557,6 +6578,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		gizmoDragging = false;
 		_leftMouse = false;
 		playMode = true;
+		// Stopping rebuilds whatever play changed from its saved state, and a
+		// streamed cell is dropped outright - so unsaved brush edits are
+		// written now, as edited cells are.
+		EndTerrainStroke();
+		SaveTerrain();
 		if (editorWorld) editorWorld->EnterPlay();
 		playPhysicsLastTime = -1.0;
 		editorDisabled = true;
@@ -8006,6 +8032,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		SceneEditor* self = this;
 		editorWorld.reset(new EditorWorld(scene, sceneObjects, scenePath, sceneWorld, physics, lua,
 			[self](GameObject*) { self->RebuildHelpers(); }));
+		// Sculpted heights are in files, not in the cell's JSON: a cell with
+		// unsaved brush edits must stay, and one leaving takes its tiles out
+		// of the brushes' bookkeeping.
+		editorWorld->SetExtraDirty([self](const GameObject* root) {
+			return self->terrainTools && self->terrainTools->HasUnsaved(root); });
+		editorWorld->SetOnUnloading([self](GameObject* root) {
+			if (self->terrainTools) self->terrainTools->Forget(root); });
 	}
 
 	bool SceneEditor::SplitIntoCells(const f32 cellSize, std::string &error, uint32* cellsWritten)
@@ -8167,6 +8200,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// The streamed world's cells first: the streamer owns them and takes
 		// them out of the scene (and the registry) itself.
 		editorWorld.reset();
+		if (terrainTools) terrainTools->ResetScene();
 		// Drops every user GameObject/component (and its helper) - the
 		// SceneGraph holds the only strong references, so this frees them.
 		sceneObjects->DestroyAll();
@@ -8275,6 +8309,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ok = SceneSerializer::SaveScene(scene, path, NULL, &meta,
 				editorWorld ? editorWorld->LoadedRoots() : std::set<const GameObject*>());
 #endif
+			if (ok && !SaveTerrain()) ok = false;
 			if (ok && editorWorld)
 			{
 				std::string cellErr;
@@ -9246,6 +9281,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 		}
 
+		// The terrain brush claims the click the same way, when it lands on
+		// terrain; off it, the click is the viewport's as usual.
+		if (IsTerrainMode() && !playMode && !sceneIsTwoD)
+		{
+			UpdateTerrainBrush();
+			if (terrainTools->BeginStroke(scene)) return;
+		}
+
 		const int32 axisClicked = axisHelper->MouseClick();
 		// Every entry on that widget is a 3D orientation, and six of the seven
 		// point somewhere a 2D scene cannot be looked at from: side and top
@@ -9294,6 +9337,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		(void)e;
 		_leftMouse = false;
 		if (tileStrokeActive) EndTileStroke();
+		EndTerrainStroke();
 	}
 
 	void SceneEditor::MouseMiddlePress(Event::Input::Info e)
@@ -15025,6 +15069,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		const json &p = args["position"];
 		CameraPivot->SetPosition(Vec3(p[0].get<f32>(), p[1].get<f32>(), p[2].get<f32>()));
+		// "distance": how far the eye sits from the pivot, along its current
+		// direction - enough to frame a whole terrain from a script.
+		if (args.contains("distance") && Camera)
+		{
+			const f32 d = std::max(0.1f, args.value("distance", 20.f));
+			const Vec3 at = Camera->GetPosition();
+			Camera->SetPosition(at.magnitude() > 1e-4f ? at.normalize() * d : Vec3(0.f, 0.f, d));
+		}
 		return true;
 	}
 
