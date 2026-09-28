@@ -6,6 +6,7 @@
 //       tools/tests/paintable_image.cpp -o /tmp/paintable_image \
 //       -L build_ed_vk -lPyrosEngine -Wl,-rpath,$PWD/build_ed_vk
 //   /tmp/paintable_image
+#include <filesystem>
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 
@@ -53,7 +54,7 @@ int main()
 	check(c[2] > 150 && c[0] > c[1], "the painted layer took over; the others kept their ratio");
 
 	// PNG round trips.
-	const std::string p8 = "/tmp/pyros_paint_test.png";
+	const std::string p8 = (std::filesystem::temp_directory_path() / "pyros_paint_test.png").string();
 	check(s.Save(p8), "8-bit save");
 	PaintableImage back;
 	check(back.Load(p8, 4) && back.pixels == s.pixels, "8-bit round trip is exact");
@@ -61,7 +62,7 @@ int main()
 
 	std::vector<uint16> h(17 * 17);
 	for (size_t i = 0; i < h.size(); i++) h[i] = (uint16)(i * 239 % 65536);
-	const std::string p16 = "/tmp/pyros_paint_test16.png";
+	const std::string p16 = (std::filesystem::temp_directory_path() / "pyros_paint_test16.png").string();
 	check(PaintableImage::WritePNG16(p16, 17, 17, &h[0]), "16-bit save");
 	HeightfieldData hd;
 	check(HeightfieldData::LoadFile(p16, 16.f, 65535.f, 0.f, hd), "loads as a heightmap");

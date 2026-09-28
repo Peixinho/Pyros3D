@@ -239,6 +239,24 @@ jobs:
             & "$env:TEMP\$t.exe"
             if ($LASTEXITCODE -ne 0) { throw "$t failed" }
           }
+          # Streaming, terrain, foliage and networking: these include
+          # Box3D's headers (physics components) and need the engine's
+          # PUBLIC PYROS_NETWORKING define repeated.
+          $tests2 = @(
+            "asset_streamer", "world_streamer", "heightfield", "foliage",
+            "paintable_image", "net_transport", "net_session"
+          )
+          foreach ($t in $tests2) {
+            Write-Host "--- $t ---"
+            cl /nologo /std:c++17 /EHsc /O2 /D_IMPORT /DPYROS_NETWORKING `
+              /I include /I $inc /I src\Pyros3D\Ext\box3d\include `
+              tools\tests\$t.cpp `
+              /Fe:"$env:TEMP\$t.exe" /Fo:"$env:TEMP\" `
+              /link /LIBPATH:build PyrosEngine.lib
+            if ($LASTEXITCODE -ne 0) { throw "$t failed to build" }
+            & "$env:TEMP\$t.exe"
+            if ($LASTEXITCODE -ne 0) { throw "$t failed" }
+          }
 
       - name: Package
         shell: pwsh

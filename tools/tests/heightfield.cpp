@@ -8,6 +8,7 @@
 //       tools/tests/heightfield.cpp -o /tmp/heightfield \
 //       -L build_ed_vk -lPyrosEngine -Wl,-rpath,$PWD/build_ed_vk
 //   /tmp/heightfield
+#include <filesystem>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
 #include <Pyros3D/Physics/Components/HeightField/PhysicsHeightField.h>
@@ -44,7 +45,7 @@ int main()
 			const f32 dx = (c - 32) / 32.f, dz = (r - 32) / 32.f;
 			px[r * N + c] = (unsigned char)std::lround(255.f * std::max(0.f, 1.f - (dx * dx + dz * dz)));
 		}
-	const std::string png = "/tmp/pyros_heightfield_test.png";
+	const std::string png = (std::filesystem::temp_directory_path() / "pyros_heightfield_test.png").string();
 	stbi_write_png(png.c_str(), N, N, 1, px.data(), N);
 
 	HeightfieldData data;

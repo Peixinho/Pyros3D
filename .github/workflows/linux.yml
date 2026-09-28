@@ -262,6 +262,20 @@ jobs:
             tools/tests/physics_unregistered_body.cpp -o /tmp/physics_unregistered_body $LD
           /tmp/physics_unregistered_body
 
+          # --- streaming, terrain, foliage, networking ---------------
+          # Background loading and world cells; heightfield tiles, their
+          # LODs and collision; foliage scattering and density painting;
+          # the brushes' image painting; the ENet transport and the
+          # replication session (over loopback: real sockets, real
+          # timing). PYROS_NETWORKING is the engine's PUBLIC define,
+          # which a hand-built consumer has to repeat.
+          for t in asset_streamer world_streamer heightfield foliage paintable_image net_transport net_session; do
+            echo "--- $t ---"
+            c++ $CF -DPYROS_NETWORKING -I src/Pyros3D/Ext/box3d/include \
+              tools/tests/$t.cpp -o /tmp/$t $LD
+            /tmp/$t
+          done
+
           # These two reach into shared/, which the editor and the
           # player both compile but the library does not export.
           c++ $CF -I shared tools/tests/prefab_roundtrip.cpp -o /tmp/prefab_roundtrip $LD

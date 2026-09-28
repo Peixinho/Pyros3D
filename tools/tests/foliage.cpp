@@ -6,6 +6,7 @@
 //       tools/tests/foliage.cpp -o /tmp/foliage \
 //       -L build_ed_vk -lPyrosEngine -Wl,-rpath,$PWD/build_ed_vk
 //   /tmp/foliage
+#include <filesystem>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #define STB_IMAGE_WRITE_STATIC
@@ -87,7 +88,7 @@ int main()
 	{
 		std::vector<unsigned char> px(64 * 64);
 		for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++) px[y * 64 + x] = x < 16 ? 255 : 0;
-		const std::string path = "/tmp/pyros_foliage_density.png";
+		const std::string path = (std::filesystem::temp_directory_path() / "pyros_foliage_density.png").string();
 		stbi_write_png(path.c_str(), 64, 64, 1, px.data(), 64);
 		PreparedFoliageLayer masked;
 		PreparedFoliageLayer::Generate(ground, spec, path, masked);
