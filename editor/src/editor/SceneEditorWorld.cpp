@@ -385,6 +385,9 @@ bool SceneEditor::BakeFarCell(const int32 x, const int32 z, GameObject* root, co
 			}
 		const fs::path colourPath = dir / (stem + "_farcolor.png");
 		if (!PaintableImage::WritePNG(colourPath.string(), cn, cn, 4, &col[0])) { errOut = "could not write " + colourPath.string(); return false; }
+		// A far version being replaced may still hold the old picture; the
+		// new one must not be handed that one back from the cache.
+		Texture::ForgetShared(colourPath.string());
 
 		json m;
 		m["id"] = (uint32)t;

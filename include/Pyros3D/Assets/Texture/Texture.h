@@ -199,6 +199,10 @@ namespace p3d {
 		bool IsClampedToEdge() const { return SRepeat == TextureRepeat::ClampToEdge; }
 		// Drops entries whose texture is already gone. Housekeeping only.
 		static void PurgeSharedCache();
+		// The file changed on disk: the next LoadShared() of it reads it
+		// again. Textures already handed out keep what they have - their
+		// users let go of them as they are rebuilt.
+		static void ForgetShared(const std::string& Filename);
 		// True when LoadShared() would return an existing Texture for this
 		// file (any type or mip flag) - nothing to decode.
 		static bool IsSharedLoaded(const std::string& Filename);

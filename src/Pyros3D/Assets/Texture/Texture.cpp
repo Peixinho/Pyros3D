@@ -519,6 +519,15 @@ namespace p3d {
 		return tex;
 	}
 
+	void Texture::ForgetShared(const std::string& Filename)
+	{
+		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
+		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
+		const std::string prefix = Filename + "|";
+		std::map<std::string, std::weak_ptr<Texture> >::iterator it = cache.lower_bound(prefix);
+		while (it != cache.end() && it->first.compare(0, prefix.size(), prefix) == 0) it = cache.erase(it);
+	}
+
 	bool Texture::IsSharedLoaded(const std::string& Filename)
 	{
 		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());

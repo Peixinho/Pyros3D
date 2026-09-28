@@ -1188,6 +1188,12 @@ public:
 	// Writes the brushes' edits (heights, splat and density maps). Part of
 	// saving the scene, and of entering Play.
 	bool SaveTerrain();
+	// A terrain ground layer's texture (0..3), on every splat tile of the
+	// scene: loaded ones live, unloaded cells' files rewritten. `record`
+	// pushes the undo entry.
+	bool SetTerrainLayerTexture(const int layer, const std::string& textureRel, const bool record, std::string& errOut);
+	// The layer textures the scene's splat tiles use now ("" = none found).
+	std::string TerrainLayerTexture(const int layer);
 	// Properties: a terrain tile's foliage layers.
 	void DrawFoliageProperties(GameObject* go, uint32 goId);
 	// Sets one layer's settings and regrows it when what grows changed.

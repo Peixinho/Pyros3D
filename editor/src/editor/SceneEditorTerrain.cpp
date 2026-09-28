@@ -13,6 +13,10 @@
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
 #include <algorithm>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <fstream>
+#include <set>
 #include <filesystem>
 #include <functional>
 #include <cmath>
@@ -287,6 +291,38 @@ void SceneEditor::ShowTerrainPanel()
 		ImGui::TextDisabled("Cursor: not over terrain");
 	ImGui::TextDisabled("Edits are written with the scene (Save).");
 
+	if (ImGui::CollapsingHeader("Layers##terrain_layers"))
+	{
+		static const char* layerNames[4] = { "0", "1", "2", "3" };
+		static std::string layerPath[4];
+		static bool layerLoaded = false;
+		if (!layerLoaded || ImGui::IsWindowAppearing())
+		{
+			for (int k = 0; k < 4; k++) layerPath[k] = TerrainLayerTexture(k);
+			layerLoaded = true;
+		}
+		ImGui::TextWrapped("Every splat tile's ground textures. Drop a texture from Assets on a slot.");
+		for (int k = 0; k < 4; k++)
+		{
+			ImGui::PushID(k);
+			ImGui::SetNextItemWidth(-60.f);
+			ImGui::InputText(layerNames[k], &layerPath[k]);
+			if (ImGui::BeginDragDropTarget())
+			{
+				if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL"))
+					layerPath[k] = std::string((const char*)payload->Data);
+				ImGui::EndDragDropTarget();
+			}
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Apply"))
+			{
+				std::string err;
+				if (!SetTerrainLayerTexture(k, layerPath[k], true, err)) echo("ERROR: terrain layer - " + err);
+				layerPath[k] = TerrainLayerTexture(k);
+			}
+			ImGui::PopID();
+		}
+	}
 	static json pendingCreate;
 	static bool pendingGrass = false;
 	static std::string lastError;
@@ -468,6 +504,18 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		MarkSceneDirty();
 		out = t.State(scene);
 		out["name"] = obj->GetName();
+		return true;
+	}
+	// {"layer":0-3,"texture":"assets/..."} - a ground layer on every splat
+	// tile. Without "texture": reads all four.
+	if (command == "terrain_layer")
+	{
+		if (args.contains("texture"))
+		{
+			if (!SetTerrainLayerTexture(args.value("layer", 0), args.value("texture", std::string()), true, errOut)) return false;
+		}
+		out["layers"] = json::array();
+		for (int k = 0; k < 4; k++) out["layers"].push_back(TerrainLayerTexture(k));
 		return true;
 	}
 	// A grass layer on every terrain tile under an object (the selection
@@ -880,4 +928,101 @@ void SceneEditor::DrainPendingOps()
 			: (network ? AgentNetwork(cmd, op, out, err) : AgentTerrain(cmd, op, out, err));
 		if (!ok) echo("ERROR: " + err);
 	}
+}
+
+namespace {
+	// Loaded splat tiles' materials, with the index of sampler "layer<k>".
+	void ForEachSplatLayer(SceneGraph* scene, const int layer, const std::function<void(CustomShaderMaterial*, size_t)> &fn)
+	{
+		const std::string name = "layer" + std::to_string(layer);
+		const std::vector<TerrainTile> tiles = TerrainEditor::FindTiles(scene);
+		std::set<CustomShaderMaterial*> seen;
+		for (size_t t = 0; t < tiles.size(); t++)
+		{
+			if (!tiles[t].rendering) continue;
+			const std::vector<RenderingMesh*> meshes = tiles[t].rendering->GetMeshes();
+			for (size_t m = 0; m < meshes.size(); m++)
+			{
+				CustomShaderMaterial* cm = meshes[m] ? dynamic_cast<CustomShaderMaterial*>(meshes[m]->Material.get()) : NULL;
+				if (!cm || !seen.insert(cm).second) continue;
+				const std::vector<std::string> &names = cm->GetSamplerNames();
+				for (size_t i = 0; i < names.size() && i < cm->textures.size(); i++)
+					if (names[i] == name) fn(cm, i);
+			}
+		}
+	}
+}
+
+std::string SceneEditor::TerrainLayerTexture(const int layer)
+{
+	std::string found;
+	ForEachSplatLayer(scene, layer, [&found, this](CustomShaderMaterial* cm, size_t i) {
+		if (found.empty() && cm->textures[i]) found = project ? project->RelativePath(cm->textures[i]->GetFilename()) : cm->textures[i]->GetFilename();
+	});
+	return found;
+}
+
+bool SceneEditor::SetTerrainLayerTexture(const int layer, const std::string& textureRel, const bool record, std::string& errOut)
+{
+	if (layer < 0 || layer > 3) { errOut = "layer must be 0..3"; return false; }
+	if (playMode) { errOut = "stop play mode first"; return false; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+	const std::string abs = project->AbsolutePath(textureRel);
+	if (textureRel.empty() || !std::filesystem::exists(abs)) { errOut = "no such texture: " + textureRel; return false; }
+	const std::string before = TerrainLayerTexture(layer);
+
+	// Loaded tiles, live. The same unit, a different texture: the sampler
+	// keeps its index, so nothing else about the material changes.
+	std::shared_ptr<Texture> tex = Texture::LoadShared(abs, TextureType::Texture, true, false);
+	if (!tex) { errOut = "could not load " + textureRel; return false; }
+	int changed = 0;
+	ForEachSplatLayer(scene, layer, [&tex, &changed](CustomShaderMaterial* cm, size_t i) { cm->textures[i] = tex; changed++; });
+
+	// Unloaded cells: their files, as JSON - no GPU work for cells nobody
+	// is looking at. The material's sampler entry names the texture.
+	int files = 0;
+	if (editorWorld)
+	{
+		const std::string name = "layer" + std::to_string(layer);
+		const std::vector<std::pair<int32_t, int32_t> > cells = editorWorld->Cells();
+		for (size_t c = 0; c < cells.size(); c++)
+		{
+			if (editorWorld->CellRoot(cells[c].first, cells[c].second)) continue;	// done live above
+			if (editorWorld->IsLoading(cells[c].first, cells[c].second)) { errOut = "a cell is loading - try again"; return false; }
+			const std::string path = editorWorld->Streamer().CellPath(cells[c].first, cells[c].second);
+			std::ifstream in(path.c_str(), std::ios::binary);
+			if (!in) continue;
+			json tree;
+			try { in >> tree; }
+			catch (const std::exception &) { continue; }
+			in.close();
+			bool touched = false;
+			if (tree.contains("materials") && tree["materials"].is_array())
+				for (auto &m : tree["materials"])
+					if (m.contains("samplers") && m["samplers"].is_array())
+						for (auto &smp : m["samplers"])
+							if (smp.value("name", std::string()) == name) { smp["texture"] = textureRel; touched = true; }
+			if (!touched) continue;
+			std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+			out << tree.dump();
+			if (!out) { errOut = "could not write " + path; return false; }
+			files++;
+		}
+	}
+	if (changed == 0 && files == 0) { errOut = "no splat terrain tiles use layer" + std::to_string(layer); return false; }
+	if (record && !before.empty() && before != textureRel)
+	{
+		sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+			[this, layer, before]() { std::string e; SetTerrainLayerTexture(layer, before, false, e); },
+			[this, layer, textureRel]() { std::string e; SetTerrainLayerTexture(layer, textureRel, false, e); },
+			"Set Terrain Layer " + std::to_string(layer)));
+	}
+	MarkSceneDirty();
+	// Far versions are coloured from the layers' averages.
+	if (editorWorld && sceneWorld.farRadius > 0.f)
+	{
+		std::string e;
+		if (BakeFarCells(true, farResolution, e) < 0) echo("ERROR: baking far versions - " + e);
+	}
+	return true;
 }
