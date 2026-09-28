@@ -56,6 +56,8 @@ namespace p3d {
 		uint32 roundTripMs = 0;
 		uint32 roundTripVarianceMs = 0;
 		f32 packetLoss = 0.f;		// 0..1
+		// Application payload to and from this peer since it connected
+		// (ENet's headers and resends not included).
 		uint64 bytesSent = 0, bytesReceived = 0;
 	};
 

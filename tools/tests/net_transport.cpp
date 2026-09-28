@@ -123,6 +123,18 @@ int main()
 
 	NetPeerStats st;
 	check(server.GetStats(clientId, st) && st.bytesReceived > 0, "stats report traffic");
+	// Per peer, exactly the payload: a server with many clients reads each
+	// one's own traffic, not the whole host's.
+	{
+		const uint64 before = st.bytesSent;
+		std::vector<uchar> blob(1000, 7);
+		server.Send(clientId, NetChannel::Reliable, blob.data(), blob.size());
+		server.Flush();
+		NetPeerStats after;
+		check(server.GetStats(clientId, after) && after.bytesSent - before == 1000, "bytesSent counts that peer's payload exactly");
+		NetPeerStats none;
+		check(!server.GetStats(clientId + 999, none), "no stats for a peer that is not there");
+	}
 
 	client.Disconnect(1);
 	se.clear(); ce.clear();

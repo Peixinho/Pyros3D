@@ -60,6 +60,10 @@ namespace p3d {
 		bool initialised = false;
 		PeerId nextId = 1;
 		std::map<PeerId, ENetPeer*> peers;
+		// Application bytes to and from each peer (ENet's own counters are
+		// host-wide, or reset by its throttle).
+		struct Bytes { uint64 sent = 0, received = 0; };
+		std::map<PeerId, Bytes> bytes;
 
 		// Simulated conditions - see SetSimulatedConditions().
 		struct Delayed { uint64 due; PeerId peer; uint32 channel; std::vector<uchar> data; };
@@ -90,6 +94,7 @@ namespace p3d {
 				enet_packet_destroy(packet);
 				return false;
 			}
+			bytes[id].sent += length;
 			return true;
 		}
 
@@ -190,6 +195,7 @@ namespace p3d {
 				e.type = NetEvent::Disconnected;
 				e.peer = Impl::IdOf(ev.peer);
 				impl->peers.erase(e.peer);
+				impl->bytes.erase(e.peer);
 				ev.peer->data = NULL;
 				out.push_back(e);
 				break;
@@ -198,6 +204,7 @@ namespace p3d {
 				e.peer = Impl::IdOf(ev.peer);
 				e.channel = ev.channelID;
 				e.data.assign(ev.packet->data, ev.packet->data + ev.packet->dataLength);
+				impl->bytes[e.peer].received += ev.packet->dataLength;
 				enet_packet_destroy(ev.packet);
 				out.push_back(e);
 				break;
@@ -259,6 +266,7 @@ namespace p3d {
 		enet_host_destroy(impl->host);
 		impl->host = NULL;
 		impl->peers.clear();
+		impl->bytes.clear();
 		impl->delayed.clear();
 	}
 
@@ -287,8 +295,12 @@ namespace p3d {
 		out.roundTripMs = p->roundTripTime;
 		out.roundTripVarianceMs = p->roundTripTimeVariance;
 		out.packetLoss = (f32)p->packetLoss / (f32)ENET_PEER_PACKET_LOSS_SCALE;
-		out.bytesSent = impl->host ? impl->host->totalSentData : 0;
-		out.bytesReceived = impl->host ? impl->host->totalReceivedData : 0;
+		// This peer's, not the host's: every peer used to report the
+		// whole host's traffic, so a server's per-client bandwidth read as
+		// the sum over all its clients.
+		std::map<PeerId, Impl::Bytes>::const_iterator b = impl->bytes.find(peer);
+		out.bytesSent = b == impl->bytes.end() ? 0 : b->second.sent;
+		out.bytesReceived = b == impl->bytes.end() ? 0 : b->second.received;
 		return true;
 	}
 
