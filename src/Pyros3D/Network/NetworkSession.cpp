@@ -183,7 +183,7 @@ namespace p3d {
 		transport.Shutdown();
 		std::vector<uint32> ids;
 		for (std::map<uint32, std::unique_ptr<Entity> >::iterator it = entities.begin(); it != entities.end(); ++it) ids.push_back(it->first);
-		for (size_t i = 0; i < ids.size(); i++) RemoveEntity(ids[i]);
+		for (size_t i = 0; i < ids.size(); i++) RemoveEntity(ids[i], true);
 		clients.clear();
 		role = Offline;
 		welcomed = false;
@@ -259,12 +259,32 @@ namespace p3d {
 		RemoveEntity(netId);
 	}
 
-	void NetworkSession::RemoveEntity(const uint32 netId)
+	void NetworkSession::RemoveEntity(const uint32 netId, const bool release)
 	{
 		std::map<uint32, std::unique_ptr<Entity> >::iterator it = entities.find(netId);
 		if (it == entities.end()) return;
 		Entity &e = *it->second;
 		if (e.spawned && scene) scene->Remove(e.spawned);
+		// Released - the session is ending: a bound object outlives the
+		// session that numbered it (the editor's next Play, a host that
+		// shuts down and hosts again), so its identity goes back
+		// unregistered, or the next session sees a net id already set,
+		// skips it, and never replicates it. Only if it is still alive - a
+		// cell that unloaded took it along. (Not on a Destroy mid-session:
+		// the next tick would register it straight back.)
+		if (release && !e.spawned && e.identity)
+		{
+			const std::vector<NetworkIdentity*> &all = NetworkIdentity::All();
+			if (std::find(all.begin(), all.end(), e.identity) != all.end())
+			{
+				e.identity->netId = 0;
+				e.identity->owner = 0;
+				e.identity->replica = false;
+				e.identity->samples.clear();
+				e.identity->history.clear();
+				e.identity->pending.clear();
+			}
+		}
 		entities.erase(it);
 	}
 

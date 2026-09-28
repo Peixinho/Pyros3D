@@ -81,6 +81,8 @@ using json = nlohmann::json;
 #include "UndoStack.h"
 #include "TerrainTools.h"
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
+#include <Pyros3D/Network/NetworkSession.h>
+#include <functional>
 #include <ctime>
 #include <filesystem>
 #include <map>
@@ -1193,6 +1195,29 @@ public:
 	// A layer added or removed from the Properties panel rebuilds the
 	// object, so it runs next frame, outside the panel drawing from it.
 	json pendingFoliageOp;
+	// Runs it, at the start of Update() - outside any ImGui window.
+	void DrainPendingOps();
+
+	// --- networking (SceneEditorNetwork.cpp) ------------------------------
+	// Play as a host or a client: the session scripts reach as `network`,
+	// made on first use during Play (or at Play for a Host/Client role) and
+	// shut down at Stop.
+	std::unique_ptr<NetworkSession> playNetwork;
+	int playNetRole = 0;	// 0 offline, 1 host, 2 client
+	std::string playNetAddress = "127.0.0.1";
+	int playNetPort = 47400;
+	bool playNetStarted = false;
+	f64 playNetLastTime = -1.0;
+	void RegisterPlayNetwork();
+	void UpdatePlayNetwork(const f64 time);
+	void StopPlayNetwork();
+	void DrawNetworkPlayControls();
+	void DrawNetworkIdentityProperties(GameObject* go, uint32 goId);
+	// Rebuilds object `id` from its own saved form after `edit` changes it:
+	// one undo entry. For component adds and removes.
+	bool EditSubtreeJson(uint32 id, const std::function<bool(json&, std::string&)>& edit,
+		const std::string& description, std::string& errOut);
+	bool AgentNetwork(const std::string& command, const json& args, json& out, std::string& errOut);
 	SceneObject* ResolveTerrainTarget(const json& args, std::string& errOut);
 	void StartEditorWorld();
 	// Turns the saved scene into a streamed world: every root that is not

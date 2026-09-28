@@ -1117,6 +1117,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			EnterPlayMode();
 		}
+		DrawNetworkPlayControls();
 		if (activeSceneCameraId != 0)
 		{
 			SceneObject* activeCamObj = sceneObjects->GetSceneObject(activeSceneCameraId);
@@ -2957,6 +2958,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// script could not raycast the world it was actually running in.
 		(*sharedLua)["physics2d"] = physics2D;
 		(*sharedLua)["scene"] = scene;
+		RegisterPlayNetwork();
 
 		// Expose the active scene camera so game scripts can use it for audio/shake.
 		GameObject* luaCamera = nullptr;
@@ -5095,6 +5097,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Blocks 2D light. No physics needed - a painted wall\ncan cast without being solid to the simulation.");
 
+			if (ImGui::MenuItem("Network Identity"))
+			{
+				pendingFoliageOp = { { "cmd", "add_network_identity" }, { "id", goId } };
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Replicates the object: the server streams its transform\nand variables to the clients it is relevant to.");
 			if (ImGui::MenuItem("Physics 2D"))
 			{
 				std::string perr;
@@ -5688,6 +5697,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::Update(const f64 time)
 	{
+		DrainPendingOps();
 		UpdateViewportMouse();
 		PollUIStyleFiles(time);
 		// Indirect light follows a light that moves, in the editor and
@@ -5699,6 +5709,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		if (playMode)
 		{
+			// The network before the scene, as in the player: snapshots
+			// pose replicas, and the scene then sees them where they are.
+			UpdatePlayNetwork(time);
 			PYROS_PROFILE_SCOPE("Scene.Physics");
 			// `time` is the application's absolute clock - the same value
 			// scene->Update() and the animation systems take - but
@@ -7043,6 +7056,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// mouse-move handler re-warping the cursor to the window centre is
 		// exactly what made Stop look like it never released the mouse.
 		LuaInputBridge::ClearAllCallbacks();
+		StopPlayNetwork();
 		if (sharedLua)
 		{
 			(*sharedLua)["editorAutoCapture"] = false;
@@ -8321,6 +8335,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// them out of the scene (and the registry) itself.
 		editorWorld.reset();
 		if (terrainTools) terrainTools->ResetScene();
+		// The session belongs to the scene being replaced (a script's
+		// loadScene() during Play); the next one makes its own.
+		StopPlayNetwork();
 		// Drops every user GameObject/component (and its helper) - the
 		// SceneGraph holds the only strong references, so this frees them.
 		sceneObjects->DestroyAll();
@@ -9939,6 +9956,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					// those across three nodes to edit one button is busywork.
 					DrawUIComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawFoliageProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
+					DrawNetworkIdentityProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 #ifdef LUA_BINDINGS
 					DrawGameObjectScriptProperties(SelectedSceneObject->GetID());
 #endif

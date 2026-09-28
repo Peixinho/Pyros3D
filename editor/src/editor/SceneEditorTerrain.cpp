@@ -201,13 +201,6 @@ bool SceneEditor::ViewportRay(Vec3 &origin, Vec3 &direction) const
 
 void SceneEditor::UpdateTerrainBrush()
 {
-	if (!pendingFoliageOp.is_null())
-	{
-		json op, out;
-		op.swap(pendingFoliageOp);
-		std::string err;
-		if (!AgentTerrain(op.value("cmd", std::string()), op, out, err)) echo("ERROR: " + err);
-	}
 	if (!IsTerrainMode()) return;
 	Terrain();
 	if (playMode || sceneIsTwoD)
@@ -845,4 +838,17 @@ bool SceneEditor::BakeFoliageImpostor(const json& a, json& out, std::string& err
 	out["lodDistance"] = lodDistance;
 	out["tiles"] = baked;
 	return true;
+}
+
+void SceneEditor::DrainPendingOps()
+{
+	if (!pendingFoliageOp.is_null())
+	{
+		json op, out;
+		op.swap(pendingFoliageOp);
+		std::string err;
+		const std::string cmd = op.value("cmd", std::string());
+		const bool network = cmd.find("network") != std::string::npos;
+		if (!(network ? AgentNetwork(cmd, op, out, err) : AgentTerrain(cmd, op, out, err))) echo("ERROR: " + err);
+	}
 }

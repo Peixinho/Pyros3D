@@ -2557,6 +2557,16 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// Networking: set_play_network {role,address,port}, network_state,
+	// get/add/set/remove_network_identity {name|id, <identity keys>}.
+	if (name == "set_play_network" || name == "network_state" || name == "get_network_identity"
+		|| name == "add_network_identity" || name == "set_network_identity" || name == "remove_network_identity")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentNetwork(name, a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "set_view_pivot")
 	{
 		if (!sceneView->AgentSetViewPivot(a, err)) throw std::runtime_error(err);

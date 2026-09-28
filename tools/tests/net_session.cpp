@@ -258,6 +258,28 @@ int main()
 	client.session.Shutdown();
 	check(Run(server, client, [&] { return server.session.Transport().PeerCount() == 0; }, 3.0), "the server sees the client leave");
 	server.session.Shutdown();
+
+	// ---- a second session over the same scene ----
+	// The editor's next Play, or a host that stops and hosts again: its
+	// bound objects must be numbered afresh, not skipped as already known.
+	check(Id(serverDoor)->GetNetId() == 0 && Id(clientDoor)->GetNetId() == 0, "shutting down releases bound identities");
+	{
+		// Server side only: in one process NetworkIdentity::All() holds the
+		// client's copies too, and a second server would number those as
+		// well - two real processes (two editors, a game and a server)
+		// never share it.
+		World server2(scenePath);
+		std::shared_ptr<GameObject> sd;
+		for (auto &g : server.scene.GetAllGameObjectList()) if (g.get() == serverDoor) sd = g;
+		for (auto &g : client.scene.GetAllGameObjectList()) if (g.get() == clientDoor) client.scene.Remove(g);
+		server.scene.Remove(sd);
+		server2.scene.Add(sd);
+		check(server2.session.Host(port, settings), "hosts again");
+		for (int i = 0; i < 10; i++) server2.Frame(g_dt);
+		const uint32 again = Id(sd.get())->GetNetId();
+		check(again != 0 && server2.session.Find(again) == sd.get(), "the bound door is registered by the second session");
+		server2.session.Shutdown();
+	}
 	fs::remove_all(root);
 	printf("%s\n", failures ? "FAILED" : "ALL PASS");
 	return failures ? 1 : 0;

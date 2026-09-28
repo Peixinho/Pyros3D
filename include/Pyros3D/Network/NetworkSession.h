@@ -182,7 +182,7 @@ namespace p3d {
 		void RunClientCommands(const f64 dt);
 		void Reconcile(NetworkIdentity* id, GameObject* go, const uint32 ackSeq, const Vec3 &position, const Quaternion &rotation);
 		std::shared_ptr<GameObject> LoadPrefab(const std::string &prefab);
-		void RemoveEntity(const uint32 netId);
+		void RemoveEntity(const uint32 netId, const bool release = false);
 
 		SceneGraph* scene;
 		std::string scenePath;
