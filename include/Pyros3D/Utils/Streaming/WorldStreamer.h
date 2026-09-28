@@ -164,8 +164,8 @@ namespace p3d {
 
 		// Distance on XZ from p to the cell's square, 0 inside it.
 		f32 DistanceToCell(const Vec3 &p, const CellKey &key) const;
-		void RequestLoad(const CellKey &key, const f32 distance, const bool far = false);
-		void Finish(const CellKey &key, const std::shared_ptr<SceneSerializer::PreparedSubtree> &prepared, const bool far = false);
+		void RequestLoad(const CellKey &key, const f32 distance, const bool farVersion = false);
+		void Finish(const CellKey &key, const std::shared_ptr<SceneSerializer::PreparedSubtree> &prepared, const bool farVersion = false);
 		void Unload(const CellKey &key);
 		void UnloadFar(const CellKey &key);
 		void Bury(const std::shared_ptr<LoadedSceneAssets> &assets);

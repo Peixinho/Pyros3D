@@ -133,10 +133,10 @@ namespace p3d {
 		return std::sqrt(dx * dx + dz * dz);
 	}
 
-	void WorldStreamer::RequestLoad(const CellKey &key, const f32 distance, const bool far)
+	void WorldStreamer::RequestLoad(const CellKey &key, const f32 distance, const bool farVersion)
 	{
 		Cell &c = cells[key];
-		const std::string path = cellsDir + (far ? FarFileName(key.first, key.second) : CellFileName(key.first, key.second));
+		const std::string path = cellsDir + (farVersion ? FarFileName(key.first, key.second) : CellFileName(key.first, key.second));
 		const std::string sceneFile = scenePath;
 		std::shared_ptr<std::shared_ptr<SceneSerializer::PreparedSubtree> > slot =
 			std::make_shared<std::shared_ptr<SceneSerializer::PreparedSubtree> >();
@@ -154,7 +154,7 @@ namespace p3d {
 				*slot = SceneSerializer::PrepareSubtreeFile(path, sceneFile);
 				*workMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
 			},
-			[this, key, slot, requested, workMs, uploadMs, uploads, far]() -> bool {
+			[this, key, slot, requested, workMs, uploadMs, uploads, farVersion]() -> bool {
 				const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 				if (*slot && SceneSerializer::UploadNextPrepared(**slot))
 				{
@@ -163,8 +163,8 @@ namespace p3d {
 					return false;
 				}
 				const f64 mat0 = LoadStats::Ms(LoadStats::MaterialBuild), obj0 = LoadStats::Ms(LoadStats::ObjectBuild);
-				Finish(key, *slot, far);
-				if (LoadStats::TraceEnabled() && !far)
+				Finish(key, *slot, farVersion);
+				if (LoadStats::TraceEnabled() && !farVersion)
 				{
 					const f64 finishMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
 					const f64 totalMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - requested).count();
@@ -178,7 +178,7 @@ namespace p3d {
 			distance);
 		// 0 when the streamer has been shut down: leave it unloaded rather
 		// than waiting on a request that will never come back.
-		if (far)
+		if (farVersion)
 		{
 			c.farTicket = ticket;
 			c.farState = ticket ? Cell::Loading : Cell::Unloaded;
@@ -188,10 +188,10 @@ namespace p3d {
 		c.state = ticket ? Cell::Loading : Cell::Unloaded;
 	}
 
-	void WorldStreamer::Finish(const CellKey &key, const std::shared_ptr<SceneSerializer::PreparedSubtree> &prepared, const bool far)
+	void WorldStreamer::Finish(const CellKey &key, const std::shared_ptr<SceneSerializer::PreparedSubtree> &prepared, const bool farVersion)
 	{
 		Cell &c = cells[key];
-		if (far)
+		if (farVersion)
 		{
 			c.farTicket = 0;
 			c.farState = Cell::Loaded;

@@ -179,11 +179,11 @@ int main()
 			w.Update(at, 100.0);
 			for (int x = 0; x <= 4; x++)
 			{
-				const std::string full = "Cell_" + std::to_string(x), far = "Far_" + std::to_string(x);
+				const std::string full = "Cell_" + std::to_string(x), farName = "Far_" + std::to_string(x);
 				// A cell within the far radius must be one or the other,
 				// once it has had a chance to load.
-				if (step > 2 && !inScene(scene, full) && !inScene(scene, far) && std::fabs(at.x - (x * 100 + 50)) < 350.f) gap = true;
-				if (inScene(scene, full) && inScene(scene, far)) gap = true;	// both at once is a z-fight
+				if (step > 2 && !inScene(scene, full) && !inScene(scene, farName) && std::fabs(at.x - (x * 100 + 50)) < 350.f) gap = true;
+				if (inScene(scene, full) && inScene(scene, farName)) gap = true;	// both at once is a z-fight
 			}
 			std::this_thread::sleep_for(std::chrono::milliseconds(2));
 		}

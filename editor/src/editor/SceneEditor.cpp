@@ -8331,15 +8331,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		// Far versions.
 		ImGui::Spacing();
-		float far = sceneWorld.farRadius;
+		// Not "far": that is a macro in the Windows headers.
+		float farEdit = sceneWorld.farRadius;
 		ImGui::TextUnformatted("Far versions out to (m)");
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Past the load radius, a cell's terrain is drawn from a small\nbaked copy out to here - so the horizon is not empty. 0: off.");
 		ImGui::SetNextItemWidth(-1);
-		if (ImGui::DragFloat("##worldFar", &far, 10.f, 0.f, 100000.f, far > 0.f ? "%.0f" : "off"))
+		if (ImGui::DragFloat("##worldFar", &farEdit, 10.f, 0.f, 100000.f, farEdit > 0.f ? "%.0f" : "off"))
 		{
 			json j;
-			j["farRadius"] = far;
+			j["farRadius"] = farEdit;
 			std::string err;
 			AgentSetWorld(j, err);
 		}
