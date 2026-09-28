@@ -2648,11 +2648,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	}
 
 	bool SceneEditor::RenderImpostorRGBA8(const std::string& p3dmPath, std::vector<unsigned char>& outRGBA,
-		uint32& outW, uint32& outH, f32& left, f32& right, f32& bottom, f32& top)
+		uint32& outW, uint32& outH, f32& left, f32& right, f32& bottom, f32& top, std::shared_ptr<GameObject> subject)
 	{
 		outRGBA.clear();
 		outW = outH = 0;
-		if (p3dmPath.empty()) return false;
+		if (p3dmPath.empty() && !subject) return false;
 		GetActiveRenderDevice().WaitIdle();
 		if (!impostorRenderer)
 		{
@@ -2666,13 +2666,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		bool ok = false;
 		try
 		{
-			std::shared_ptr<GameObject> modelGo = std::make_shared<GameObject>();
-			std::shared_ptr<Renderable> mesh = std::make_shared<Model>(p3dmPath, true);
-			if (!mesh || mesh->Geometries.empty()) { delete bakeScene; return false; }
-			std::shared_ptr<RenderingComponent> rModel = std::make_shared<RenderingComponent>(
-				mesh, ShaderUsage::Diffuse | ShaderUsage::SpecularColor);
-			rModel->DisableCastShadows();
-			modelGo->Add(rModel);
+			std::shared_ptr<GameObject> modelGo = subject;
+			std::shared_ptr<Renderable> mesh;
+			if (!modelGo)
+			{
+				modelGo = std::make_shared<GameObject>();
+				mesh = std::make_shared<Model>(p3dmPath, true);
+				if (!mesh || mesh->Geometries.empty()) { delete bakeScene; return false; }
+				std::shared_ptr<RenderingComponent> rModel = std::make_shared<RenderingComponent>(
+					mesh, ShaderUsage::Diffuse | ShaderUsage::SpecularColor);
+				rModel->DisableCastShadows();
+				modelGo->Add(rModel);
+			}
 			bakeScene->Add(modelGo);
 			// Lit from the front and above, as a card is mostly seen: the
 			// light it shows is baked in, whichever way the sun is.
@@ -2686,7 +2691,36 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			bakeScene->Add(cam);
 			bakeScene->Update(0);
 
-			const Vec3 bmin = mesh->GetBoundingMinValue(), bmax = mesh->GetBoundingMaxValue();
+			Vec3 bmin, bmax;
+			if (mesh) { bmin = mesh->GetBoundingMinValue(); bmax = mesh->GetBoundingMaxValue(); }
+			else
+			{
+				// Every part of the object, in its own space: each renderable's
+				// box carried through its owner's transform.
+				bool any = false;
+				std::vector<GameObject*> parts;
+				std::function<void(GameObject*)> collect = [&](GameObject* g) {
+					parts.push_back(g);
+					for (size_t i = 0; i < g->GetChildren().size(); i++) collect(g->GetChildren()[i].get());
+				};
+				collect(modelGo.get());
+				for (size_t p = 0; p < parts.size(); p++)
+					for (size_t c = 0; c < parts[p]->GetComponents().size(); c++)
+						if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(parts[p]->GetComponents()[c].get()))
+						{
+							if (!rc->GetRenderable()) continue;
+							const Vec3 a = rc->GetRenderable()->GetBoundingMinValue(), b = rc->GetRenderable()->GetBoundingMaxValue();
+							const Matrix m = parts[p]->GetWorldTransformation();
+							for (int k = 0; k < 8; k++)
+							{
+								const Vec3 corner = m * Vec3(k & 1 ? b.x : a.x, k & 2 ? b.y : a.y, k & 4 ? b.z : a.z);
+								if (!any) { bmin = bmax = corner; any = true; }
+								bmin = Vec3(Min(bmin.x, corner.x), Min(bmin.y, corner.y), Min(bmin.z, corner.z));
+								bmax = Vec3(Max(bmax.x, corner.x), Max(bmax.y, corner.y), Max(bmax.z, corner.z));
+							}
+						}
+				if (!any) { delete bakeScene; return false; }
+			}
 			// Centred on the model's own vertical axis, which is what an
 			// instance turns about - not on its bounding box.
 			const f32 half = Max(Max(fabsf(bmin.x), fabsf(bmax.x)), Max(fabsf(bmin.z), fabsf(bmax.z)));
@@ -2831,6 +2865,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::ProcessPendingModelThumbnails(int maxPerFrame)
 	{
+		// Far versions whose impostor cards could not be rendered inside the
+		// frame they were baked in.
+		if (!farRebakeQueue.empty() && editorWorld)
+		{
+			std::set<std::pair<int32, int32> > cells;
+			cells.swap(farRebakeQueue);
+			std::string err;
+			for (std::set<std::pair<int32, int32> >::const_iterator c = cells.begin(); c != cells.end(); ++c)
+				if (BakeFarCellAt(c->first, c->second, farResolution, true, err) < 0) { echo("ERROR: baking far versions - " + err); break; }
+		}
 		// The Properties panel's Bake Impostor, here because this runs
 		// outside the ImGui frame, where an offscreen pass is safe.
 		if (!pendingImpostorBake.is_null())
@@ -8272,6 +8316,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		sceneWorld.unloadRadius = std::max(sceneWorld.loadRadius, args.value("unloadRadius", sceneWorld.unloadRadius));
 		sceneWorld.farRadius = std::max(0.f, args.value("farRadius", sceneWorld.farRadius));
 		farResolution = std::max(3, std::min(257, args.value("farResolution", farResolution)));
+		farObjectMinSize = std::max(0.1f, args.value("farObjectMinSize", farObjectMinSize));
 		if (editorWorld)
 		{
 			editorWorld->SetRadii(sceneWorld.loadRadius, sceneWorld.unloadRadius);
@@ -8344,13 +8389,20 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			std::string err;
 			AgentSetWorld(j, err);
 		}
+		ImGui::TextUnformatted("Far objects at least (m)");
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Objects this big or bigger come along as impostor cards.");
+		ImGui::SetNextItemWidth(-1);
+		ImGui::DragFloat("##worldFarObj", &farObjectMinSize, 0.5f, 0.5f, 1000.f, "%.1f");
 		ImGui::TextUnformatted("Far resolution (samples)");
 		ImGui::SetNextItemWidth(-1);
 		ImGui::SliderInt("##worldFarRes", &farResolution, 9, 129);
 		if (ImGui::Button("Bake Far Versions", ImVec2(-1, 0)))
 		{
 			std::string err;
-			const int n = BakeFarCells(true, farResolution, err);
+			// Inside the ImGui frame: pictures not baked yet follow between
+			// frames (farRebakeQueue).
+			const int n = BakeFarCells(true, farResolution, err, false);
 			if (n < 0) echo("ERROR: World - " + err);
 			else echo("SUCCESS: baked " + std::to_string(n) + " far version(s)");
 		}
@@ -8466,7 +8518,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (sceneWorld.farRadius > 0.f)
 			{
 				SaveTerrain();
-				if (BakeFarCells(false, farResolution, cellErr) < 0) echo("ERROR: baking far versions - " + cellErr);
+				if (BakeFarCells(false, farResolution, cellErr, false) < 0) echo("ERROR: baking far versions - " + cellErr);
 			}
 		}
 
@@ -15254,6 +15306,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		r["cellCount"] = (uint32)sceneWorld.cells.size();
 		r["farRadius"] = sceneWorld.farRadius;
 		r["farResolution"] = farResolution;
+		r["farObjectMinSize"] = farObjectMinSize;
 		r["farCells"] = (uint32)sceneWorld.farCells.size();
 		if (editorWorld) r["farShown"] = editorWorld->FarShownCount();
 		json loaded = json::array();

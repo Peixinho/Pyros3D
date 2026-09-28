@@ -1030,7 +1030,8 @@ public:
 	// to the model. The bounds are the card's in model space: x across,
 	// y up, the model's origin at x = 0.
 	bool RenderImpostorRGBA8(const std::string& p3dmPath, std::vector<unsigned char>& outRGBA,
-		uint32& outW, uint32& outH, f32& left, f32& right, f32& bottom, f32& top);
+		uint32& outW, uint32& outH, f32& left, f32& right, f32& bottom, f32& top,
+		std::shared_ptr<GameObject> subject = nullptr);	// bake this (not in any scene) instead of the file
 	// Bakes a foliage layer's model into an impostor card and makes it the
 	// layer's far mesh. Offscreen - runs between frames (agent command, or
 	// queued from the panel into ProcessPendingModelThumbnails).
@@ -1230,11 +1231,21 @@ public:
 	// coloured from its material, written to <x>_<z>.far.json (and its
 	// maps) beside the cell. `root` is the cell's root, loaded or built
 	// off-scene. False with nothing written when it has no terrain.
-	bool BakeFarCell(const int32 x, const int32 z, GameObject* root, const int resolution, std::string& errOut);
+	// Objects of at least farObjectMinSize metres come along as impostor
+	// cards (baked once per distinct object, cached by its content under
+	// assets/terrain/impostors). A card not baked yet is only rendered when
+	// allowRender - an offscreen pass inside the ImGui frame is not safe -
+	// else the cell goes to farRebakeQueue, drained between frames.
+	bool BakeFarCell(const int32 x, const int32 z, GameObject* root, const int resolution, std::string& errOut,
+		const bool allowRender = true);
 	// Every cell (all = true, reading unloaded ones from disk) or only the
 	// loaded ones - what saving re-bakes. Returns how many were written.
-	int BakeFarCells(const bool all, const int resolution, std::string& errOut);
+	int BakeFarCells(const bool all, const int resolution, std::string& errOut, const bool allowRender = true);
+	// One cell, loaded or read off-scene: 1 baked, 0 nothing to bake, -1 error.
+	int BakeFarCellAt(const int32 x, const int32 z, const int resolution, const bool allowRender, std::string& errOut);
 	int farResolution = 33;
+	float farObjectMinSize = 4.f;
+	std::set<std::pair<int32, int32> > farRebakeQueue;
 	// Runs it, at the start of Update() - outside any ImGui window.
 	void DrainPendingOps();
 

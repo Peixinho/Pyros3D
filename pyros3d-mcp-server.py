@@ -4519,7 +4519,9 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       set_renderer (type: forward|deferred), new_scene (kind: 3d|2d|ui)
     Streamed world (Scene settings > World)
       world_state, set_world ({"split": cellSize} splits the saved scene into
-        cells; loadRadius, unloadRadius), set_view_pivot (position, distance),
+        cells; loadRadius, unloadRadius; farRadius, farResolution,
+        farObjectMinSize, bakeFar: true - far versions: terrain plus impostor
+        cards of objects that big), set_view_pivot (position, distance),
         move_to_cell (name|id, cell [x,z]?) - into the cell under it (a cell's
         members that were moved also change cell on save_scene),
         set_view_options (cellGrid)

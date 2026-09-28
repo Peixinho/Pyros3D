@@ -17,6 +17,9 @@
 #include <map>
 
 #include <cmath>
+#include <set>
+#include <cstdio>
+#include <functional>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -303,12 +306,39 @@ namespace {
 	};
 }
 
-bool SceneEditor::BakeFarCell(const int32 x, const int32 z, GameObject* root, const int resolution, std::string& errOut)
+bool SceneEditor::BakeFarCell(const int32 x, const int32 z, GameObject* root, const int resolution, std::string& errOut,
+	const bool allowRender)
 {
 	if (!editorWorld || !root || !project || !project->IsOpen()) { errOut = "no streamed world or project"; return false; }
 	std::vector<FarTile> tiles;
 	CollectFarTiles(root, Vec3(), tiles);
-	if (tiles.empty()) return false;
+
+	// Large objects: the cell's direct children (a building of several
+	// parts is one) at least farObjectMinSize across, terrain aside.
+	std::vector<GameObject*> objects;
+	for (size_t i = 0; i < root->GetChildren().size(); i++)
+	{
+		GameObject* go = root->GetChildren()[i].get();
+		if (!go || go->IsTransient()) continue;
+		std::vector<FarTile> own;
+		CollectFarTiles(go, Vec3(), own);
+		if (!own.empty()) continue;
+		f32 extent = 0.f;
+		std::function<void(GameObject*)> measure = [&](GameObject* g) {
+			for (size_t c = 0; c < g->GetComponents().size(); c++)
+				if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(g->GetComponents()[c].get()))
+					if (rc->GetRenderable())
+					{
+						const Vec3 sz = rc->GetRenderable()->GetBoundingMaxValue() - rc->GetRenderable()->GetBoundingMinValue();
+						extent = std::max(extent, std::max(sz.x, std::max(sz.y, sz.z)));
+					}
+			for (size_t k = 0; k < g->GetChildren().size(); k++) if (g->GetChildren()[k] && !g->GetChildren()[k]->IsTransient()) measure(g->GetChildren()[k].get());
+		};
+		measure(go);
+		const Vec3 sc = go->GetScale();
+		if (extent * std::max(sc.x, std::max(sc.y, sc.z)) >= farObjectMinSize) objects.push_back(go);
+	}
+	if (tiles.empty() && objects.empty()) return false;
 
 	namespace fs = std::filesystem;
 	const fs::path projectRoot(project->GetProjectPath());
@@ -420,6 +450,93 @@ bool SceneEditor::BakeFarCell(const int32 x, const int32 z, GameObject* root, co
 		children.push_back(tileJson);
 	}
 
+	// The objects, as cards. Each distinct object - its saved form with its
+	// own position, yaw, scale and name taken out - is baked once and kept
+	// by content, so a hundred copies of a house are one picture.
+#ifdef LUA_BINDINGS
+	sol::state* lua = sharedLua;
+#else
+	sol::state* lua = NULL;
+#endif
+	std::map<std::string, uint32> impostorMaterial;
+	const fs::path impostorDir = projectRoot / "assets" / "terrain" / "impostors";
+	bool deferred = false;
+	for (size_t o = 0; o < objects.size(); o++)
+	{
+		GameObject* go = objects[o];
+		json form;
+		try { form = json::parse(SceneSerializer::SerializeSubtree(go, scenePath, lua)); }
+		catch (const std::exception &) { continue; }
+		if (!form.contains("root")) continue;
+		json &r = form["root"];
+		const json rot = r.value("rotation", json::array({ 0, 0, 0 }));
+		r["position"] = { 0, 0, 0 };
+		r["rotation"] = { rot.size() > 0 ? rot[0] : json(0), 0, rot.size() > 2 ? rot[2] : json(0) };
+		r["scale"] = { 1, 1, 1 };
+		r["name"] = "";
+		const std::string text = form.dump();
+		char hex[32];
+		std::snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)std::hash<std::string>()(text));
+		const fs::path texPath = impostorDir / (std::string("obj_") + hex + ".png");
+		const fs::path metaPath = impostorDir / (std::string("obj_") + hex + ".json");
+		std::error_code ec;
+		if (!fs::exists(texPath, ec) || !fs::exists(metaPath, ec))
+		{
+			if (!allowRender) { deferred = true; continue; }
+			LoadedSceneAssets temp;
+			std::shared_ptr<GameObject> subject = SceneSerializer::DeserializeSubtree(text, scenePath, NULL, NULL, &temp);
+			std::vector<unsigned char> rgba;
+			uint32 w = 0, h = 0;
+			f32 l, rr, b, t;
+			if (!subject || !RenderImpostorRGBA8(std::string(), rgba, w, h, l, rr, b, t, subject)) continue;
+			fs::create_directories(impostorDir, ec);
+			if (!PaintableImage::WritePNG(texPath.string(), (int32)w, (int32)h, 4, rgba.data())) { errOut = "could not write " + texPath.string(); return false; }
+			Texture::ForgetShared(texPath.string());
+			std::ofstream meta(metaPath.string().c_str());
+			meta << json({ { "left", l }, { "right", rr }, { "bottom", b }, { "top", t } }).dump();
+		}
+		json bounds;
+		try { std::ifstream in(metaPath.string().c_str()); in >> bounds; }
+		catch (const std::exception &) { continue; }
+
+		std::map<std::string, uint32>::iterator mat = impostorMaterial.find(hex);
+		if (mat == impostorMaterial.end())
+		{
+			const uint32 id = (uint32)materials.size();
+			json m;
+			m["id"] = id;
+			m["kind"] = "generic";
+			m["options"] = ShaderUsage::Texture | ShaderUsage::Diffuse | ShaderUsage::AlphaTest;
+			m["color"] = { 1, 1, 1, 1 };
+			m["colorMap"] = rel(texPath);
+			m["clampMaps"] = true;
+			m["alphaCutoff"] = 0.5;
+			m["cullFace"] = 2;
+			m["roughness"] = 0.9;
+			m["castingShadows"] = false;
+			materials.push_back(m);
+			mat = impostorMaterial.insert(std::make_pair(std::string(hex), id)).first;
+		}
+		json card;
+		card["name"] = "FarObject_" + std::to_string(o);
+		card["position"] = { go->GetPosition().x, go->GetPosition().y, go->GetPosition().z };
+		card["rotation"] = { 0, go->GetRotation().y, 0 };
+		card["scale"] = { go->GetScale().x, go->GetScale().y, go->GetScale().z };
+		card["children"] = json::array();
+		json rc;
+		rc["type"] = "RenderingComponent";
+		rc["material"] = mat->second;
+		rc["castingShadows"] = false;
+		rc["cullTest"] = true;
+		rc["renderable"] = { { "kind", "primitive" }, { "shape", "Card" }, { "left", bounds.value("left", -1.f) }, { "right", bounds.value("right", 1.f) },
+			{ "bottom", bounds.value("bottom", 0.f) }, { "top", bounds.value("top", 1.f) }, { "crossed", true } };
+		card["components"] = json::array({ rc });
+		children.push_back(card);
+	}
+	// Some pictures still to render: this cell comes round again between
+	// frames, where an offscreen pass is safe (see ProcessPendingModelThumbnails).
+	if (deferred) farRebakeQueue.insert(std::make_pair(x, z));
+
 	json tree;
 	tree["root"] = { { "name", "Far_" + std::to_string(x) + "_" + std::to_string(z) },
 		{ "position", { root->GetPosition().x, root->GetPosition().y, root->GetPosition().z } },
@@ -440,33 +557,42 @@ bool SceneEditor::BakeFarCell(const int32 x, const int32 z, GameObject* root, co
 	return true;
 }
 
-int SceneEditor::BakeFarCells(const bool all, const int resolution, std::string& errOut)
+int SceneEditor::BakeFarCellAt(const int32 x, const int32 z, const int resolution, const bool allowRender, std::string& errOut)
+{
+	if (!editorWorld) { errOut = "the scene is not a streamed world"; return -1; }
+	std::string err;
+	if (std::shared_ptr<GameObject> root = editorWorld->CellRoot(x, z))
+	{
+		if (BakeFarCell(x, z, root.get(), resolution, err, allowRender)) return 1;
+		if (!err.empty()) { errOut = err; return -1; }
+		return 0;
+	}
+	if (editorWorld->IsLoading(x, z)) return 0;
+	// Not loaded: read off-scene just long enough to bake.
+	const std::string path = editorWorld->Streamer().CellPath(x, z);
+	std::ifstream in(path.c_str(), std::ios::binary);
+	if (!in) return 0;
+	std::stringstream ss;
+	ss << in.rdbuf();
+	LoadedSceneAssets temp;
+	std::shared_ptr<GameObject> root = SceneSerializer::DeserializeSubtree(ss.str(), scenePath, NULL, NULL, &temp);
+	if (!root) return 0;
+	if (BakeFarCell(x, z, root.get(), resolution, err, allowRender)) return 1;
+	if (!err.empty()) { errOut = err; return -1; }
+	return 0;
+}
+
+int SceneEditor::BakeFarCells(const bool all, const int resolution, std::string& errOut, const bool allowRender)
 {
 	if (!editorWorld) { errOut = "the scene is not a streamed world"; return -1; }
 	int baked = 0;
 	const std::vector<std::pair<int32_t, int32_t> > cells = editorWorld->Cells();
 	for (size_t i = 0; i < cells.size(); i++)
 	{
-		const int32 x = cells[i].first, z = cells[i].second;
-		std::string err;
-		if (std::shared_ptr<GameObject> root = editorWorld->CellRoot(x, z))
-		{
-			if (BakeFarCell(x, z, root.get(), resolution, err)) baked++;
-			else if (!err.empty()) { errOut = err; return -1; }
-			continue;
-		}
-		if (!all || editorWorld->IsLoading(x, z)) continue;
-		// Not loaded: read off-scene just long enough to bake.
-		const std::string path = editorWorld->Streamer().CellPath(x, z);
-		std::ifstream in(path.c_str(), std::ios::binary);
-		if (!in) continue;
-		std::stringstream ss;
-		ss << in.rdbuf();
-		LoadedSceneAssets temp;
-		std::shared_ptr<GameObject> root = SceneSerializer::DeserializeSubtree(ss.str(), scenePath, NULL, NULL, &temp);
-		if (!root) continue;
-		if (BakeFarCell(x, z, root.get(), resolution, err)) baked++;
-		else if (!err.empty()) { errOut = err; return -1; }
+		if (!all && !editorWorld->CellRoot(cells[i].first, cells[i].second)) continue;
+		const int r = BakeFarCellAt(cells[i].first, cells[i].second, resolution, allowRender, errOut);
+		if (r < 0) return -1;
+		baked += r;
 	}
 	return baked;
 }
