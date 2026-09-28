@@ -573,6 +573,18 @@ namespace p3d {
 		VkCommandBuffer transferCommandBuffer;
 		bool transferCommandBufferRecording;
 		VkFence transferFence;
+		// A small ring of them, so an upload need not wait for the GPU:
+		// transferCommandBuffer/transferFence are the current slot's. A
+		// texture upload submits without waiting (FlushPendingTransfers
+		// (false)) and moves on to the next slot; its staging buffers are
+		// freed once its fence has signalled - checked each BeginFrame, or
+		// waited for when the ring comes back round to it. Streaming a
+		// cell's splat map used to block the CPU for most of a frame.
+		static const int kTransferSlots = 16;	// an upload and its mips take two
+		VkCommandBuffer transferSlotBuffers[kTransferSlots];
+		VkFence transferSlotFences[kTransferSlots];
+		bool transferSlotInFlight[kTransferSlots];
+		int transferSlot = 0;
 
 		// ---- Compute ---------------------------------------------------
 		// Its own command buffer and fence, on the same graphics queue,
@@ -629,6 +641,9 @@ namespace p3d {
 		};
 		std::vector<PendingStagingBuffer> pendingStagingBuffers;
 		VkDeviceSize pendingStagingBytes;
+		std::vector<PendingStagingBuffer> transferSlotStaging[kTransferSlots];
+		// Frees what finished transfers held; `all` waits for every one.
+		void ReclaimTransferSlots(const bool all);
 
 		// Persistent VkPipelineCache (loaded/saved under ~/.cache/pyros3d).
 		VkPipelineCache pipelineCache;
@@ -1025,7 +1040,11 @@ namespace p3d {
 		VkCommandBuffer BeginOrGetTransferCommandBuffer();
 		// Submits pending UploadTexture2D/GenerateMipmap work and frees
 		// staging buffers. Safe no-op when nothing is pending.
-		void FlushPendingTransfers();
+		// `wait` = false: submit and return; the GPU finishes the copy
+		// before anything submitted after it samples the image (same
+		// queue, and the upload's own barrier), and the CPU never waits.
+		// Readbacks and teardown keep the default.
+		void FlushPendingTransfers(const bool wait = true);
 		void CreatePipelineCache();
 		void DestroyPipelineCache();
 		// Sets deviceIdleSinceLastSubmit=false then vkQueueSubmit.

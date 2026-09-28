@@ -36,6 +36,16 @@ namespace p3d
 
 		virtual ~CustomShaderMaterial();
 
+		// The GPU ring behind an extra-uniform block, one per (program,
+		// block): every draw writes its own slot, so all the materials drawn
+		// with one program can share it. One ring per material was up to
+		// 64 MB each (a dynamic binding's ring) - a streamed terrain with a
+		// material per tile spent ~40 MB of GPU memory per cell on them.
+		// IRenderer asks for it on first use; released when the last
+		// CustomShaderMaterial goes.
+		static uint32 SharedExtraBuffer(const uint32 program, const ExtraUniformsBlock &block);
+		static bool IsSharedExtraBuffer(const uint32 handle);
+
 		virtual void PreRender();
 
 		virtual void AfterRender();
@@ -204,7 +214,9 @@ namespace p3d
 		// Owned only when `shader` was built internally (from a file) or
 		// handed over by an AdoptShader() call - null when `shader` points
 		// at a caller-owned Shader (SetShader() alone never takes ownership).
-		std::unique_ptr<Shader> InternalShader;
+		// Shared: programs compiled from the same source and defines are one
+		// program for every material that uses them (see the .cpp).
+		std::shared_ptr<Shader> InternalShader;
 
 		bool hasKnownShaderBranch = false;
 		bool deferredGBufferBranch = false;
@@ -215,7 +227,7 @@ namespace p3d
 		// whenever SetShader() changes the source they were built from.
 		struct ProgramVariant
 		{
-			std::unique_ptr<Shader> shader;
+			std::shared_ptr<Shader> shader;
 			bool failed = false;
 			ExtraUniformsBlock extraUniforms[2];
 		};

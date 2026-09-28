@@ -260,6 +260,7 @@ namespace p3d {
 		{
 			FlushPendingTransfers();
 			vkDeviceWaitIdle(device);
+			ReclaimTransferSlots(true);
 
 			// Resource tables (buffers/shader modules/pipelines/pipeline
 			// layouts) must be torn down before the allocator/device that
@@ -363,7 +364,9 @@ namespace p3d {
 				offscreenSlots[i] = OffscreenSlot();
 			}
 			offscreenChainSemaphore = VK_NULL_HANDLE;
-			if (transferFence != VK_NULL_HANDLE) vkDestroyFence(device, transferFence, NULL);
+			for (int i = 0; i < kTransferSlots; i++)
+				if (transferSlotFences[i] != VK_NULL_HANDLE) vkDestroyFence(device, transferSlotFences[i], NULL);
+			transferFence = VK_NULL_HANDLE;
 			// Compute pipelines own a VkPipeline, a pipeline layout and a
 			// descriptor set layout each; the descriptor sets themselves
 			// go back with the pool (destroyed below).
@@ -1075,14 +1078,21 @@ namespace p3d {
 		}
 		offscreenChainSemaphore = VK_NULL_HANDLE;
 
-		cmdAllocInfo.commandBufferCount = 1;
-		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &transferCommandBuffer) != VK_SUCCESS)
+		cmdAllocInfo.commandBufferCount = (uint32)kTransferSlots;
+		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, transferSlotBuffers) != VK_SUCCESS)
 			return false;
 		// Signaled so the first FlushPendingTransfers can vkResetFences
 		// (VUID-vkResetFences-pFences-01105 requires signaled state).
 		fenceInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
-		if (vkCreateFence(device, &fenceInfo, NULL, &transferFence) != VK_SUCCESS)
-			return false;
+		for (int i = 0; i < kTransferSlots; i++)
+		{
+			if (vkCreateFence(device, &fenceInfo, NULL, &transferSlotFences[i]) != VK_SUCCESS)
+				return false;
+			transferSlotInFlight[i] = false;
+		}
+		transferSlot = 0;
+		transferCommandBuffer = transferSlotBuffers[0];
+		transferFence = transferSlotFences[0];
 		transferCommandBufferRecording = false;
 		pendingStagingBytes = 0;
 
@@ -1514,9 +1524,13 @@ namespace p3d {
 		// start the swapchain frame so EndFrame can wait on it.
 		if (offscreenCommandBufferRecording)
 			FlushOffscreenCommandBuffer();
-		// Asset loads batch into transferCommandBuffer - make sure every
-		// texture/mip is GPU-ready before any draw can sample them.
-		FlushPendingTransfers();
+		// Asset loads batch into transferCommandBuffer - submitted before
+		// this frame's work, so every texture/mip is GPU-ready before any
+		// draw samples it (same queue; the transfers end in shader-read
+		// barriers). No CPU wait: that is what made a streamed cell's
+		// textures stall the frame. Finished transfers free their staging.
+		FlushPendingTransfers(false);
+		ReclaimTransferSlots(false);
 
 		// Self-heal: if a previous RecreateSwapchain() call bailed out
 		// (e.g. a momentarily degenerate 0x0 extent mid-resize - see its
@@ -4383,7 +4397,7 @@ namespace p3d {
 		// is submitted, and the draw about to sample this texture will be
 		// submitted first - see TextureRecord::pendingUpload.
 		if (texIt->second.pendingUpload)
-			FlushPendingTransfers();
+			FlushPendingTransfers(false);	// submitted ahead of the draw is all it needs
 
 		EnsureSampledLayout(texIt->second);
 
@@ -5023,10 +5037,10 @@ namespace p3d {
 		// MoltenVK (Apple M3): submitting a transfer CB that batches many
 		// vkCmdCopyBufferToImage ops (scene loads with several large
 		// albedo maps) segfaults inside MVKCmdBufferImageCopy::encode.
-		// Flushing each CPU upload immediately keeps submits small and
-		// matches GL's synchronous texImage behavior. BeginFrame still
+		// Flushing each CPU upload immediately keeps submits small. Not
+		// waiting on it: see FlushPendingTransfers(). BeginFrame still
 		// flushes any leftover GenerateMipmap work.
-		FlushPendingTransfers();
+		FlushPendingTransfers(false);
 	}
 	// Was a complete no-op stub. Real multisample VkImage creation,
 	// mirroring UploadTexture2D()'s image-creation half above (lines
@@ -5275,8 +5289,9 @@ namespace p3d {
 		tex.samplerDirty = true;
 		// Same MoltenVK batching hazard as UploadTexture2D - don't leave a
 		// large mip-chain blit sequence sitting in the transfer CB to be
-		// merged with the next texture's staging copy.
-		FlushPendingTransfers();
+		// merged with the next texture's staging copy. Submitted, not
+		// waited on - the draws that sample it come after it on the queue.
+		FlushPendingTransfers(false);
 	}
 
 	// All of these operate on currentlyConfiguringTexture (see
@@ -6651,8 +6666,9 @@ namespace p3d {
 		// Same reasoning as GetOrCreateFallbackTexture()'s flush: this runs
 		// mid-frame from a draw that is about to sample the image, so the
 		// barrier cannot be left sitting in the batched transfer buffer.
-		// Once per image for the whole run.
-		FlushPendingTransfers();
+		// Once per image for the whole run. Submitting is enough: the draw
+		// is submitted after it.
+		FlushPendingTransfers(false);
 		tex.layoutInitialized = true;
 	}
 
@@ -6806,6 +6822,15 @@ namespace p3d {
 			return VK_NULL_HANDLE;
 		if (!transferCommandBufferRecording)
 		{
+			// The ring came back round to a slot the GPU may still be on.
+			if (transferSlotInFlight[transferSlot])
+			{
+				vkWaitForFences(device, 1, &transferSlotFences[transferSlot], VK_TRUE, UINT64_MAX);
+				for (size_t i = 0; i < transferSlotStaging[transferSlot].size(); i++)
+					vmaDestroyBuffer(allocator, transferSlotStaging[transferSlot][i].buffer, transferSlotStaging[transferSlot][i].allocation);
+				transferSlotStaging[transferSlot].clear();
+				transferSlotInFlight[transferSlot] = false;
+			}
 			vkResetCommandBuffer(transferCommandBuffer, 0);
 			VkCommandBufferBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -6817,7 +6842,22 @@ namespace p3d {
 		return transferCommandBuffer;
 	}
 
-	void VulkanRenderDevice::FlushPendingTransfers()
+	void VulkanRenderDevice::ReclaimTransferSlots(const bool all)
+	{
+		if (device == VK_NULL_HANDLE) return;
+		for (int i = 0; i < kTransferSlots; i++)
+		{
+			if (!transferSlotInFlight[i]) continue;
+			if (all) vkWaitForFences(device, 1, &transferSlotFences[i], VK_TRUE, UINT64_MAX);
+			else if (vkGetFenceStatus(device, transferSlotFences[i]) != VK_SUCCESS) continue;
+			for (size_t b = 0; b < transferSlotStaging[i].size(); b++)
+				vmaDestroyBuffer(allocator, transferSlotStaging[i][b].buffer, transferSlotStaging[i][b].allocation);
+			transferSlotStaging[i].clear();
+			transferSlotInFlight[i] = false;
+		}
+	}
+
+	void VulkanRenderDevice::FlushPendingTransfers(const bool wait)
 	{
 		if (!transferCommandBufferRecording || transferCommandBuffer == VK_NULL_HANDLE)
 			return;
@@ -6833,17 +6873,27 @@ namespace p3d {
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &transferCommandBuffer;
-		if (SubmitGraphics(1, &submitInfo, transferFence) != VK_SUCCESS)
-		{
+		const bool submitted = SubmitGraphics(1, &submitInfo, transferFence) == VK_SUCCESS;
+		if (!submitted)
 			vkQueueWaitIdle(graphicsQueue);
+		else if (wait)
+			vkWaitForFences(device, 1, &transferFence, VK_TRUE, UINT64_MAX);
+
+		if (submitted && !wait)
+		{
+			// In flight: its staging buffers wait for its fence, and the
+			// next transfer records into the next slot.
+			transferSlotStaging[transferSlot].insert(transferSlotStaging[transferSlot].end(), pendingStagingBuffers.begin(), pendingStagingBuffers.end());
+			transferSlotInFlight[transferSlot] = true;
+			transferSlot = (transferSlot + 1) % kTransferSlots;
+			transferCommandBuffer = transferSlotBuffers[transferSlot];
+			transferFence = transferSlotFences[transferSlot];
 		}
 		else
 		{
-			vkWaitForFences(device, 1, &transferFence, VK_TRUE, UINT64_MAX);
+			for (size_t i = 0; i < pendingStagingBuffers.size(); i++)
+				vmaDestroyBuffer(allocator, pendingStagingBuffers[i].buffer, pendingStagingBuffers[i].allocation);
 		}
-
-		for (size_t i = 0; i < pendingStagingBuffers.size(); i++)
-			vmaDestroyBuffer(allocator, pendingStagingBuffers[i].buffer, pendingStagingBuffers[i].allocation);
 		pendingStagingBuffers.clear();
 		pendingStagingBytes = 0;
 		transferCommandBufferRecording = false;

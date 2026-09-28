@@ -6,6 +6,9 @@
 // Description : Custom Shader Materials
 //=================================================================================
 
+#include <map>
+#include <memory>
+#include <mutex>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <cassert>
@@ -20,8 +23,84 @@ namespace p3d
 		return GetActiveRenderDevice();
 	}
 
+	namespace {
+		// Compiled programs by (defines, source). A scene with a thousand
+		// terrain tiles holds a thousand materials built from one shader
+		// file, and each compiled it - and each of its variants - again:
+		// about a second of glslang per tile, and a hitch every time a
+		// streamed cell brought one in. Weak: a program nobody uses is
+		// freed as before. Failed compiles are not kept.
+		std::mutex &ProgramCacheMutex() { static std::mutex m; return m; }
+		std::map<std::string, std::weak_ptr<Shader> > &ProgramCache() { static std::map<std::string, std::weak_ptr<Shader> > c; return c; }
+
+		std::shared_ptr<Shader> SharedProgram(const std::string &sourceText, const std::string &defines)
+		{
+			const std::string key = defines + '\x1f' + sourceText;
+			{
+				std::lock_guard<std::mutex> lock(ProgramCacheMutex());
+				std::map<std::string, std::weak_ptr<Shader> >::iterator it = ProgramCache().find(key);
+				if (it != ProgramCache().end())
+				{
+					if (std::shared_ptr<Shader> hit = it->second.lock()) return hit;
+					ProgramCache().erase(it);
+				}
+			}
+			std::shared_ptr<Shader> s = std::make_shared<Shader>();
+			s->LoadShaderText(sourceText);
+			s->CompileShader(ShaderType::VertexShader, std::string("#define VERTEX\n") + defines);
+			s->CompileShader(ShaderType::FragmentShader, std::string("#define FRAGMENT\n") + defines);
+			s->LinkProgram();
+			if (s->ShaderProgram() != 0)
+			{
+				std::lock_guard<std::mutex> lock(ProgramCacheMutex());
+				ProgramCache()[key] = s;
+			}
+			return s;
+		}
+	}
+
+	namespace {
+		struct RingKey
+		{
+			uint32 program, binding, size;
+			std::string name;
+			bool operator<(const RingKey &o) const
+			{
+				if (program != o.program) return program < o.program;
+				if (binding != o.binding) return binding < o.binding;
+				if (size != o.size) return size < o.size;
+				return name < o.name;
+			}
+		};
+		std::map<RingKey, uint32> &SharedRings() { static std::map<RingKey, uint32> r; return r; }
+		int &LiveMaterials() { static int n = 0; return n; }
+	}
+
+	uint32 CustomShaderMaterial::SharedExtraBuffer(const uint32 program, const ExtraUniformsBlock &block)
+	{
+		RingKey key;
+		key.program = program;
+		key.binding = block.binding;
+		key.size = block.size;
+		key.name = block.blockName;
+		std::map<RingKey, uint32>::iterator it = SharedRings().find(key);
+		if (it != SharedRings().end()) return it->second;
+		const uint32 handle = Device().CreateUniformBuffer(block.size, block.binding);
+		if (handle) SharedRings()[key] = handle;
+		return handle;
+	}
+
+	bool CustomShaderMaterial::IsSharedExtraBuffer(const uint32 handle)
+	{
+		if (!handle) return false;
+		for (std::map<RingKey, uint32>::const_iterator it = SharedRings().begin(); it != SharedRings().end(); ++it)
+			if (it->second == handle) return true;
+		return false;
+	}
+
 	CustomShaderMaterial::CustomShaderMaterial(const std::string& ShaderFile) : IMaterial()
 	{
+		LiveMaterials()++;
 		ShaderFilePath = ShaderFile;
 
 		StringID number = (MakeStringID(ShaderFile)) + (MakeStringID(ShaderFile));
@@ -56,10 +135,18 @@ namespace p3d
 			if (!ShaderFile.empty())
 			{
 				shader->LoadShaderFile(ShaderFile.c_str());
-				shader->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
-				shader->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
-
-				shader->LinkProgram();
+				if (!shader->GetShaderText().empty())
+				{
+					// The same source as another material's: the same program.
+					InternalShader = SharedProgram(shader->GetShaderText(), define);
+					shader = InternalShader.get();
+				}
+				else
+				{
+					shader->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
+					shader->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
+					shader->LinkProgram();
+				}
 			}
 		}
 
@@ -73,6 +160,7 @@ namespace p3d
 
 	CustomShaderMaterial::CustomShaderMaterial(Shader* shader)
 	{
+		LiveMaterials()++;
 		shaderProgram = shader->ShaderProgram();
 
 		this->shader = shader;
@@ -125,7 +213,7 @@ namespace p3d
 			// see IsPerObjectDynamicBinding()) per recompile.
 			if (block.bufferHandle != 0)
 			{
-				Device().DestroyUniformBuffer(block.bufferHandle);
+				if (!IsSharedExtraBuffer(block.bufferHandle)) Device().DestroyUniformBuffer(block.bufferHandle);
 				block.bufferHandle = 0;
 			}
 			block.binding = binding;
@@ -211,7 +299,10 @@ namespace p3d
 			const bool gbuffer = (index & 1) != 0;
 			const bool skinned = (index & 2) != 0;
 			const bool shadow = (index & 4) != 0;
-			v.shader.reset(new Shader());
+			std::string defines = PlatformDefines();
+			if (gbuffer) defines += "#define DEFERRED_GBUFFER\n";
+			if (skinned) defines += "#define SKINNING\n";
+			if (shadow) defines += "#define SHADOW_DEPTH\n";
 			// The own program's source text first, the file only as a
 			// fallback. It is the same source, with includes already inlined
 			// - and ShaderFilePath is not always openable from here: the
@@ -219,18 +310,17 @@ namespace p3d
 			// portability), which the editor's working directory does not
 			// resolve, so every variant compiled from the path in the editor
 			// came up "COULDN'T OPEN/INCLUDE FILE" and silently fell back.
+			// Shared with every other material of the same source.
 			if (!shader->GetShaderText().empty())
-				v.shader->LoadShaderText(shader->GetShaderText());
-			else if (!ShaderFilePath.empty())
-				v.shader->LoadShaderFile(ShaderFilePath.c_str());
-
-			std::string defines = PlatformDefines();
-			if (gbuffer) defines += "#define DEFERRED_GBUFFER\n";
-			if (skinned) defines += "#define SKINNING\n";
-			if (shadow) defines += "#define SHADOW_DEPTH\n";
-			v.shader->CompileShader(ShaderType::VertexShader, std::string("#define VERTEX\n") + defines);
-			v.shader->CompileShader(ShaderType::FragmentShader, std::string("#define FRAGMENT\n") + defines);
-			v.shader->LinkProgram();
+				v.shader = SharedProgram(shader->GetShaderText(), defines);
+			else
+			{
+				v.shader.reset(new Shader());
+				if (!ShaderFilePath.empty()) v.shader->LoadShaderFile(ShaderFilePath.c_str());
+				v.shader->CompileShader(ShaderType::VertexShader, std::string("#define VERTEX\n") + defines);
+				v.shader->CompileShader(ShaderType::FragmentShader, std::string("#define FRAGMENT\n") + defines);
+				v.shader->LinkProgram();
+			}
 
 			if (v.shader->ShaderProgram() == 0)
 			{
@@ -254,7 +344,7 @@ namespace p3d
 		for (int i = 0; i < 8; i++)
 		{
 			for (int b = 0; b < 2; b++)
-				if (variants[i].extraUniforms[b].bufferHandle != 0)
+				if (variants[i].extraUniforms[b].bufferHandle != 0 && !IsSharedExtraBuffer(variants[i].extraUniforms[b].bufferHandle))
 					Device().DestroyUniformBuffer(variants[i].extraUniforms[b].bufferHandle);
 			variants[i].shader.reset();
 			variants[i].failed = false;
@@ -437,6 +527,16 @@ namespace p3d
 	CustomShaderMaterial::~CustomShaderMaterial()
 	{
 		ResetVariants();
+		// IMaterial's destructor frees extraUniforms[]' buffers: not the
+		// shared ones.
+		for (int i = 0; i < 2; i++)
+			if (IsSharedExtraBuffer(extraUniforms[i].bufferHandle)) extraUniforms[i].bufferHandle = 0;
+		if (--LiveMaterials() == 0 && IsActiveRenderDeviceSet())
+		{
+			for (std::map<RingKey, uint32>::iterator it = SharedRings().begin(); it != SharedRings().end(); ++it)
+				Device().DestroyUniformBuffer(it->second);
+			SharedRings().clear();
+		}
 	}
 
 	void CustomShaderMaterial::PreRender()

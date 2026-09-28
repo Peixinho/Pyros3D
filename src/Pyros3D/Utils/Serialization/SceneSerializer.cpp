@@ -3995,6 +3995,16 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					if (m.is_object() && m.contains(kSharedMaterialMaps[k]) && m[kSharedMaterialMaps[k]].is_string())
 						sharedTexturesOut->push_back((m.value("clampMaps", false) ? "clamp|" : "")
 							+ ResolveSceneAssetPathIn(assetRoot, m[kSharedMaterialMaps[k]].get<std::string>()));
+		// A custom material's samplers load shared too (a terrain tile's
+		// splat map and layers): uploaded a step at a time like the rest,
+		// or every cell's splat map went up inside its material build.
+		if (sharedTexturesOut && root.contains("materials") && root["materials"].is_array())
+			for (const auto &m : root["materials"])
+				if (m.is_object() && m.contains("samplers") && m["samplers"].is_array())
+					for (const auto &smp : m["samplers"])
+						if (smp.is_object() && smp.contains("texture") && smp["texture"].is_string())
+							sharedTexturesOut->push_back((smp.value("clampMaps", false) ? "clamp|" : "")
+								+ ResolveSceneAssetPathIn(assetRoot, smp["texture"].get<std::string>()));
 	}
 
 	bool SceneSerializer::LoadScene(SceneGraph* scene, const std::string &filePath, IPhysics* physics, sol::state* lua, LoadedSceneAssets* outAssets, SceneMeta* outMeta)

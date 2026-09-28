@@ -3345,7 +3345,15 @@ void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		if (block.binding == 0)
 			continue;
 		if (block.bufferHandle == 0)
-			block.bufferHandle = device->CreateUniformBuffer(block.size, block.binding);
+		{
+			// A custom material's ring is its program's (see
+			// CustomShaderMaterial::SharedExtraBuffer); its subclasses fill
+			// their blocks by hand and keep their own.
+			if (typeid(*Material) == typeid(CustomShaderMaterial))
+				block.bufferHandle = CustomShaderMaterial::SharedExtraBuffer(Material->GetShader(), block);
+			else
+				block.bufferHandle = device->CreateUniformBuffer(block.size, block.binding);
+		}
 		// This material's own buffer, explicitly - NOT whatever the device's
 		// global binding-point registry happens to hold (see
 		// IRenderDevice::BindUniformBlockIfPresent()). Two live instances of
