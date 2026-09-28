@@ -47,6 +47,66 @@ namespace p3d {
 		if (!cellsDir.empty() && cellsDir.back() != '/') cellsDir += "/";
 		for (size_t i = 0; i < world.cells.size(); i++)
 			cells[world.cells[i]] = Cell();
+		for (size_t i = 0; i < world.farCells.size(); i++)
+			cells[world.farCells[i]].hasFar = true;
+	}
+
+	std::string WorldStreamer::FarFileName(const int32 x, const int32 z)
+	{
+		return std::to_string(x) + "_" + std::to_string(z) + ".far.json";
+	}
+
+	void WorldStreamer::AddFarCell(const int32 x, const int32 z)
+	{
+		const CellKey key(x, z);
+		Cell &c = cells[key];
+		if (!c.hasFar)
+		{
+			c.hasFar = true;
+			world.farCells.push_back(key);
+		}
+		// A new far version replaces the one in memory.
+		if (c.farState != Cell::Unloaded) UnloadFar(key);
+	}
+
+	uint32 WorldStreamer::FarShownCount() const
+	{
+		uint32 n = 0;
+		for (std::map<CellKey, Cell>::const_iterator it = cells.begin(); it != cells.end(); ++it)
+			if (it->second.farShown) n++;
+		return n;
+	}
+
+	void WorldStreamer::SyncFarVisibility(Cell &c)
+	{
+		const bool show = c.farRoot && !(c.state == Cell::Loaded && c.root);
+		if (show == c.farShown) return;
+		if (show) scene->Add(c.farRoot);
+		else scene->Remove(c.farRoot);
+		c.farShown = show;
+	}
+
+	void WorldStreamer::Bury(const std::shared_ptr<LoadedSceneAssets> &assets)
+	{
+		if (!assets) return;
+		Grave g;
+		g.assets = assets;
+		g.updatesLeft = kGraveUpdates;
+		graveyard.push_back(g);
+	}
+
+	void WorldStreamer::UnloadFar(const CellKey &key)
+	{
+		Cell &c = cells[key];
+		if (c.farState == Cell::Loading && c.farTicket)
+			AssetStreamer::Instance().Cancel(c.farTicket);
+		if (c.farRoot && c.farShown) scene->Remove(c.farRoot);
+		Bury(c.farAssets);
+		c.farState = Cell::Unloaded;
+		c.farTicket = 0;
+		c.farRoot.reset();
+		c.farAssets.reset();
+		c.farShown = false;
 	}
 
 	WorldStreamer::~WorldStreamer()
@@ -73,10 +133,10 @@ namespace p3d {
 		return std::sqrt(dx * dx + dz * dz);
 	}
 
-	void WorldStreamer::RequestLoad(const CellKey &key, const f32 distance)
+	void WorldStreamer::RequestLoad(const CellKey &key, const f32 distance, const bool far)
 	{
 		Cell &c = cells[key];
-		const std::string path = cellsDir + CellFileName(key.first, key.second);
+		const std::string path = cellsDir + (far ? FarFileName(key.first, key.second) : CellFileName(key.first, key.second));
 		const std::string sceneFile = scenePath;
 		std::shared_ptr<std::shared_ptr<SceneSerializer::PreparedSubtree> > slot =
 			std::make_shared<std::shared_ptr<SceneSerializer::PreparedSubtree> >();
@@ -88,13 +148,13 @@ namespace p3d {
 		// full of new textures spreads over frames instead of hitching one.
 		std::shared_ptr<f64> uploadMs = std::make_shared<f64>(0.0);
 		std::shared_ptr<uint32> uploads = std::make_shared<uint32>(0);
-		c.ticket = AssetStreamer::Instance().SubmitSteps(
+		const AssetStreamer::Ticket ticket = AssetStreamer::Instance().SubmitSteps(
 			[slot, path, sceneFile, workMs] {
 				const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 				*slot = SceneSerializer::PrepareSubtreeFile(path, sceneFile);
 				*workMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
 			},
-			[this, key, slot, requested, workMs, uploadMs, uploads]() -> bool {
+			[this, key, slot, requested, workMs, uploadMs, uploads, far]() -> bool {
 				const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 				if (*slot && SceneSerializer::UploadNextPrepared(**slot))
 				{
@@ -103,8 +163,8 @@ namespace p3d {
 					return false;
 				}
 				const f64 mat0 = LoadStats::Ms(LoadStats::MaterialBuild), obj0 = LoadStats::Ms(LoadStats::ObjectBuild);
-				Finish(key, *slot);
-				if (LoadStats::TraceEnabled())
+				Finish(key, *slot, far);
+				if (LoadStats::TraceEnabled() && !far)
 				{
 					const f64 finishMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
 					const f64 totalMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - requested).count();
@@ -116,14 +176,34 @@ namespace p3d {
 				return true;
 			},
 			distance);
-		// 0 when the streamer has been shut down: leave the cell unloaded
-		// rather than waiting on a request that will never come back.
-		c.state = c.ticket ? Cell::Loading : Cell::Unloaded;
+		// 0 when the streamer has been shut down: leave it unloaded rather
+		// than waiting on a request that will never come back.
+		if (far)
+		{
+			c.farTicket = ticket;
+			c.farState = ticket ? Cell::Loading : Cell::Unloaded;
+			return;
+		}
+		c.ticket = ticket;
+		c.state = ticket ? Cell::Loading : Cell::Unloaded;
 	}
 
-	void WorldStreamer::Finish(const CellKey &key, const std::shared_ptr<SceneSerializer::PreparedSubtree> &prepared)
+	void WorldStreamer::Finish(const CellKey &key, const std::shared_ptr<SceneSerializer::PreparedSubtree> &prepared, const bool far)
 	{
 		Cell &c = cells[key];
+		if (far)
+		{
+			c.farTicket = 0;
+			c.farState = Cell::Loaded;
+			if (!prepared) return;
+			c.farAssets = std::make_shared<LoadedSceneAssets>();
+			// No physics: nobody walks on the horizon. Transient: never
+			// saved with the scene it is shown in.
+			c.farRoot = SceneSerializer::InstantiatePrepared(*prepared, NULL, NULL, c.farAssets.get());
+			if (c.farRoot) c.farRoot->SetTransient(true);
+			SyncFarVisibility(c);
+			return;
+		}
 		c.ticket = 0;
 		c.state = Cell::Loaded;
 		if (!prepared) return;	// already logged; stays empty until left
@@ -135,6 +215,7 @@ namespace p3d {
 			if (onLoaded) onLoaded(c.root);
 		}
 		else echo("ERROR: WorldStreamer - cell " + CellFileName(key.first, key.second) + " built nothing");
+		SyncFarVisibility(c);
 	}
 
 	void WorldStreamer::Unload(const CellKey &key)
@@ -147,14 +228,13 @@ namespace p3d {
 			if (onUnloading) onUnloading(c.root);
 			scene->Remove(c.root);
 		}
-		if (c.assets)
-		{
-			Grave g;
-			g.assets = c.assets;
-			g.updatesLeft = kGraveUpdates;
-			graveyard.push_back(g);
-		}
-		c = Cell();
+		Bury(c.assets);
+		// The far version outlives its cell: keep it, and show it again.
+		c.state = Cell::Unloaded;
+		c.ticket = 0;
+		c.root.reset();
+		c.assets.reset();
+		SyncFarVisibility(c);
 	}
 
 	void WorldStreamer::CollectGraveyard(const bool all)
@@ -198,6 +278,21 @@ namespace p3d {
 				if (d > world.unloadRadius && !(unloadVeto && c.root && unloadVeto(c.root))) Unload(it->first);
 				break;
 			}
+
+			// The far version: wanted out to farRadius (dropped a tenth
+			// past it), queued behind every full cell - the ground under the
+			// camera matters more than the horizon.
+			if (c.hasFar && world.farRadius > 0.f)
+			{
+				const f32 farUnload = world.farRadius * 1.1f;
+				if (c.farState == Cell::Unloaded && d <= world.farRadius && d > world.loadRadius * 0.5f)
+					RequestLoad(it->first, d + world.farRadius * 2.f, true);
+				else if (c.farState != Cell::Unloaded && d > farUnload)
+					UnloadFar(it->first);
+				else if (c.farState == Cell::Loading)
+					AssetStreamer::Instance().SetPriority(c.farTicket, d + world.farRadius * 2.f);
+			}
+			else if (c.farState != Cell::Unloaded) UnloadFar(it->first);
 		}
 
 		AssetStreamer::Instance().Pump(pumpBudgetMs);
@@ -217,7 +312,10 @@ namespace p3d {
 	void WorldStreamer::UnloadAll()
 	{
 		for (std::map<CellKey, Cell>::iterator it = cells.begin(); it != cells.end(); ++it)
+		{
 			if (it->second.state != Cell::Unloaded) Unload(it->first);
+			if (it->second.farState != Cell::Unloaded) UnloadFar(it->first);
+		}
 		if (!graveyard.empty() && IsActiveRenderDeviceSet())
 			GetActiveRenderDevice().WaitIdle();
 		CollectGraveyard(true);
@@ -250,7 +348,7 @@ namespace p3d {
 	{
 		uint32 n = 0;
 		for (std::map<CellKey, Cell>::const_iterator it = cells.begin(); it != cells.end(); ++it)
-			if (it->second.state == Cell::Loading) n++;
+			if (it->second.state == Cell::Loading || it->second.farState == Cell::Loading) n++;
 		return n;
 	}
 

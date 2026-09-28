@@ -8,6 +8,7 @@
 //       tools/tests/world_streamer.cpp -o /tmp/world_streamer \
 //       -L build_ed_vk -lPyrosEngine -Wl,-rpath,$PWD/build_ed_vk
 //   /tmp/world_streamer && PYROS_STREAM_WORKERS=0 /tmp/world_streamer
+#include <cmath>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
@@ -141,6 +142,59 @@ int main()
 		check(w.IsLoaded(3, 0) && w.IsLoaded(2, 0) && w.IsLoaded(4, 0), "LoadAround loads the ring before returning");
 	}
 	check(!inScene(scene, "Cell_3") && inScene(scene, "Player"), "destroying the streamer removes its cells, not the scene's own objects");
+
+	// ---- far versions ----
+	// Every cell but 5 gets a far file; out to 400 m a cell shows it while
+	// its full version is not loaded, and the swap leaves no gap.
+	for (int x = 0; x <= 4; x++)
+		write(root / "scenes" / "World.cells" / WorldStreamer::FarFileName(x, 0),
+			"{\"root\":{\"name\":\"Far_" + std::to_string(x) + "\",\"position\":[" + std::to_string(x * 100) + ",0,0]}}");
+	{
+		SceneMeta::World fw = meta.world;
+		fw.farRadius = 400.f;
+		for (int x = 0; x <= 4; x++) fw.farCells.push_back(std::make_pair(x, 0));
+		{
+			// Round trip through a saved scene.
+			SceneMeta m = meta;
+			m.world = fw;
+			const std::string again = (root / "scenes" / "Far.json").string();
+			SceneSerializer::SaveScene(&scene, again, NULL, &m);
+			SceneGraph s2;
+			SceneMeta m2;
+			SceneSerializer::LoadScene(&s2, again, NULL, NULL, NULL, &m2);
+			check(m2.world.farRadius == 400.f && m2.world.farCells == fw.farCells, "far radius and far cells round-trip");
+		}
+		WorldStreamer w(&scene, scenePath, fw);
+		// At x=50: cells 0 and 1 are in full; 2..4 (150..350 m) show far.
+		settle(w, Vec3(50, 0, 50));
+		check(w.IsLoaded(0, 0) && !inScene(scene, "Far_0") && !inScene(scene, "Far_1"), "a loaded cell hides its far version");
+		check(inScene(scene, "Far_2") && inScene(scene, "Far_3") && inScene(scene, "Far_4"), "cells past loadRadius show far");
+		check(w.FarShownCount() == 3, "and only those");
+		// Walk to x=450: cells 3 and 4 come in full, 0 goes far, and at no
+		// Update is a cell neither loaded nor showing its far version.
+		bool gap = false;
+		for (int step = 0; step <= 40; step++)
+		{
+			const Vec3 at(50.f + step * 10.f, 0, 50);
+			w.Update(at, 100.0);
+			for (int x = 0; x <= 4; x++)
+			{
+				const std::string full = "Cell_" + std::to_string(x), far = "Far_" + std::to_string(x);
+				// A cell within the far radius must be one or the other,
+				// once it has had a chance to load.
+				if (step > 2 && !inScene(scene, full) && !inScene(scene, far) && std::fabs(at.x - (x * 100 + 50)) < 350.f) gap = true;
+				if (inScene(scene, full) && inScene(scene, far)) gap = true;	// both at once is a z-fight
+			}
+			std::this_thread::sleep_for(std::chrono::milliseconds(2));
+		}
+		settle(w, Vec3(450, 0, 50));
+		check(!gap, "walking the strip, every cell is exactly one of full or far");
+		check(w.IsLoaded(4, 0) && !inScene(scene, "Far_4") && inScene(scene, "Far_0"), "the swap follows the focus both ways");
+		// Past the far radius, nothing.
+		settle(w, Vec3(5000, 0, 50));
+		check(w.FarShownCount() == 0 && w.LoadedCount() == 0, "beyond the far radius nothing is kept");
+	}
+	check(!inScene(scene, "Far_2"), "destroying the streamer removes far versions too");
 	check(AssetStreamer::Instance().PendingCount() == 0, "nothing left pending");
 
 	fs::remove_all(root);

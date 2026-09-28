@@ -6,6 +6,15 @@
 #include "EditorWorld.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Streaming/WorldStreamer.h>
+#include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
+#include <Pyros3D/Assets/Texture/PaintableImage.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
+#include <algorithm>
+#include <map>
 
 #include <cmath>
 #include <filesystem>
@@ -229,4 +238,232 @@ void SceneEditor::DrawWorldCellProperties(GameObject* go, uint32 goId)
 		pendingFoliageOp = { { "cmd", "move_to_cell" }, { "id", goId } };
 	if (ImGui::IsItemHovered())
 		ImGui::SetTooltip("Streams it with the cell under it instead of keeping it\nloaded everywhere. A cell that is not loaded gets it in its\nfile, and it leaves the scene until that cell streams in.");
+}
+
+namespace {
+	struct FarTile
+	{
+		Vec3 offset;			// from the cell root
+		const Heightfield* hf = NULL;
+		IMaterial* material = NULL;
+	};
+
+	// Terrain tiles under `node`, with their offset from the cell root
+	// (tiles are never rotated or scaled, so positions just add up).
+	void CollectFarTiles(GameObject* node, const Vec3 &offset, std::vector<FarTile> &out)
+	{
+		for (size_t c = 0; c < node->GetComponents().size(); c++)
+			if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(node->GetComponents()[c].get()))
+				if (const Heightfield* hf = dynamic_cast<const Heightfield*>(rc->GetRenderable()))
+					if (hf->GetData())
+					{
+						FarTile t;
+						t.offset = offset;
+						t.hf = hf;
+						if (!rc->GetMeshes().empty() && rc->GetMeshes()[0]) t.material = rc->GetMeshes()[0]->Material.get();
+						out.push_back(t);
+					}
+		for (size_t i = 0; i < node->GetChildren().size(); i++)
+		{
+			GameObject* child = node->GetChildren()[i].get();
+			if (child && !child->IsTransient()) CollectFarTiles(child, offset + child->GetPosition(), out);
+		}
+	}
+
+	// Images a bake reads, loaded once per bake.
+	struct ImageCache
+	{
+		std::map<std::string, std::shared_ptr<PaintableImage> > images;
+		std::map<std::string, Vec3> averages;
+		const PaintableImage* Get(const std::string &path)
+		{
+			std::map<std::string, std::shared_ptr<PaintableImage> >::iterator it = images.find(path);
+			if (it != images.end()) return it->second.get();
+			std::shared_ptr<PaintableImage> img = std::make_shared<PaintableImage>();
+			if (path.empty() || !img->Load(path, 4)) img.reset();
+			images[path] = img;
+			return img.get();
+		}
+		// A ground texture's average colour: all a far tile can show of it.
+		Vec3 Average(const std::string &path)
+		{
+			std::map<std::string, Vec3>::iterator it = averages.find(path);
+			if (it != averages.end()) return it->second;
+			Vec3 sum(0.5f, 0.5f, 0.5f);
+			if (const PaintableImage* img = Get(path))
+			{
+				double r = 0, g = 0, b = 0;
+				const size_t n = (size_t)img->width * img->height;
+				for (size_t i = 0; i < n; i++) { r += img->pixels[i * 4]; g += img->pixels[i * 4 + 1]; b += img->pixels[i * 4 + 2]; }
+				if (n) sum = Vec3((f32)(r / n / 255.0), (f32)(g / n / 255.0), (f32)(b / n / 255.0));
+			}
+			averages[path] = sum;
+			return sum;
+		}
+	};
+}
+
+bool SceneEditor::BakeFarCell(const int32 x, const int32 z, GameObject* root, const int resolution, std::string& errOut)
+{
+	if (!editorWorld || !root || !project || !project->IsOpen()) { errOut = "no streamed world or project"; return false; }
+	std::vector<FarTile> tiles;
+	CollectFarTiles(root, Vec3(), tiles);
+	if (tiles.empty()) return false;
+
+	namespace fs = std::filesystem;
+	const fs::path projectRoot(project->GetProjectPath());
+	const std::string farJson = editorWorld->Streamer().FarPath(x, z);
+	const fs::path dir = fs::path(farJson).parent_path();
+	auto rel = [&projectRoot](const fs::path &p) { return p.lexically_normal().lexically_relative(projectRoot.lexically_normal()).generic_string(); };
+	const int32 n = std::max(3, std::min(257, resolution));
+	const int32 cn = (n - 1) * 2;			// colour texels a side
+	ImageCache localCache;
+	ImageCache* cache = &localCache;
+
+	json materials = json::array(), children = json::array();
+	for (size_t t = 0; t < tiles.size(); t++)
+	{
+		const FarTile &tile = tiles[t];
+		const HeightfieldData &d = *tile.hf->GetData();
+		const Heightfield::Source &src = tile.hf->source;
+		const f32 scale = src.heightScale != 0.f ? src.heightScale : 1.f;
+		const std::string stem = std::to_string(x) + "_" + std::to_string(z) + "_t" + std::to_string(t);
+
+		// Heights, resampled, in the tile's own 16-bit mapping.
+		std::vector<uint16> px((size_t)n * n);
+		for (int32 r = 0; r < n; r++)
+			for (int32 c = 0; c < n; c++)
+			{
+				const f32 h = d.HeightAt((f32)c / (n - 1) * d.size, (f32)r / (n - 1) * d.size);
+				px[(size_t)r * n + c] = (uint16)std::lround(std::min(std::max((h - src.heightOffset) / scale, 0.f), 1.f) * 65535.f);
+			}
+		const fs::path heightPath = dir / (stem + "_far.png");
+		if (!PaintableImage::WritePNG16(heightPath.string(), n, n, &px[0])) { errOut = "could not write " + heightPath.string(); return false; }
+
+		// Colour, from what the tile's material shows: a splat map over
+		// four ground textures (each reduced to its average), or a plain
+		// colour map.
+		const PaintableImage* splat = NULL;
+		Vec3 layerColour[4] = { Vec3(0.3f, 0.45f, 0.2f), Vec3(0.4f, 0.32f, 0.22f), Vec3(0.45f, 0.45f, 0.43f), Vec3(0.75f, 0.7f, 0.5f) };
+		const PaintableImage* colourMap = NULL;
+		if (CustomShaderMaterial* cm = dynamic_cast<CustomShaderMaterial*>(tile.material))
+		{
+			const std::vector<std::string> &names = cm->GetSamplerNames();
+			for (size_t i = 0; i < names.size() && i < cm->textures.size(); i++)
+			{
+				if (!cm->textures[i]) continue;
+				const std::string file = cm->textures[i]->GetFilename();
+				if (names[i] == "splatMap") splat = cache->Get(file);
+				else if (names[i].size() == 6 && names[i].compare(0, 5, "layer") == 0 && names[i][5] >= '0' && names[i][5] <= '3')
+					layerColour[names[i][5] - '0'] = cache->Average(file);
+			}
+		}
+		else if (GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(tile.material))
+			if (gm->GetColorMap()) colourMap = cache->Get(gm->GetColorMap()->GetFilename());
+		std::vector<uchar> col((size_t)cn * cn * 4, 255);
+		for (int32 r = 0; r < cn; r++)
+			for (int32 c = 0; c < cn; c++)
+			{
+				const f32 u = (c + 0.5f) / cn, v = (r + 0.5f) / cn;
+				Vec3 rgb(0.35f, 0.45f, 0.25f);
+				if (splat)
+				{
+					f32 w[4], sum = 0.f;
+					for (int k = 0; k < 4; k++) { w[k] = splat->Sample(u, v, (uint32)k); sum += w[k]; }
+					if (sum > 1e-4f)
+					{
+						rgb = Vec3();
+						for (int k = 0; k < 4; k++) rgb = rgb + layerColour[k] * (w[k] / sum);
+					}
+				}
+				else if (colourMap)
+					rgb = Vec3(colourMap->Sample(u, v, 0), colourMap->Sample(u, v, 1), colourMap->Sample(u, v, 2));
+				uchar* p = &col[((size_t)r * cn + c) * 4];
+				p[0] = (uchar)std::lround(std::min(std::max(rgb.x, 0.f), 1.f) * 255.f);
+				p[1] = (uchar)std::lround(std::min(std::max(rgb.y, 0.f), 1.f) * 255.f);
+				p[2] = (uchar)std::lround(std::min(std::max(rgb.z, 0.f), 1.f) * 255.f);
+			}
+		const fs::path colourPath = dir / (stem + "_farcolor.png");
+		if (!PaintableImage::WritePNG(colourPath.string(), cn, cn, 4, &col[0])) { errOut = "could not write " + colourPath.string(); return false; }
+
+		json m;
+		m["id"] = (uint32)t;
+		m["kind"] = "generic";
+		m["options"] = ShaderUsage::Texture | ShaderUsage::Diffuse;
+		m["color"] = { 1, 1, 1, 1 };
+		m["colorMap"] = rel(colourPath);
+		m["clampMaps"] = true;
+		m["roughness"] = 0.95;
+		m["castingShadows"] = false;
+		materials.push_back(m);
+
+		json tileJson;
+		tileJson["name"] = "FarTile_" + std::to_string(t);
+		tileJson["position"] = { tile.offset.x, tile.offset.y, tile.offset.z };
+		tileJson["rotation"] = { 0, 0, 0 };
+		tileJson["scale"] = { 1, 1, 1 };
+		tileJson["children"] = json::array();
+		json rc;
+		rc["type"] = "RenderingComponent";
+		rc["material"] = (uint32)t;
+		rc["castingShadows"] = false;
+		rc["cullTest"] = true;
+		// A deeper skirt than the tile's: the far tile meets full tiles
+		// sampled 4-8x finer, and the skirt is what hides the step.
+		rc["renderable"] = { { "kind", "heightfield" }, { "heightmap", rel(heightPath) }, { "size", d.size },
+			{ "heightScale", src.heightScale }, { "heightOffset", src.heightOffset }, { "skirt", std::max(src.skirt, d.size / 16.f) },
+			{ "lods", json::array({ { { "step", 1 }, { "distance", 0 } } }) } };
+		tileJson["components"] = json::array({ rc });
+		children.push_back(tileJson);
+	}
+
+	json tree;
+	tree["root"] = { { "name", "Far_" + std::to_string(x) + "_" + std::to_string(z) },
+		{ "position", { root->GetPosition().x, root->GetPosition().y, root->GetPosition().z } },
+		{ "rotation", { 0, 0, 0 } }, { "scale", { 1, 1, 1 } }, { "components", json::array() }, { "children", children } };
+	tree["materials"] = materials;
+	std::ofstream out(farJson.c_str(), std::ios::binary | std::ios::trunc);
+	out << tree.dump();
+	if (!out) { errOut = "could not write " + farJson; return false; }
+	out.close();
+
+	editorWorld->AddFarCell(x, z);
+	const std::pair<int32, int32> key(x, z);
+	if (std::find(sceneWorld.farCells.begin(), sceneWorld.farCells.end(), key) == sceneWorld.farCells.end())
+	{
+		sceneWorld.farCells.push_back(key);
+		MarkSceneDirty();
+	}
+	return true;
+}
+
+int SceneEditor::BakeFarCells(const bool all, const int resolution, std::string& errOut)
+{
+	if (!editorWorld) { errOut = "the scene is not a streamed world"; return -1; }
+	int baked = 0;
+	const std::vector<std::pair<int32_t, int32_t> > cells = editorWorld->Cells();
+	for (size_t i = 0; i < cells.size(); i++)
+	{
+		const int32 x = cells[i].first, z = cells[i].second;
+		std::string err;
+		if (std::shared_ptr<GameObject> root = editorWorld->CellRoot(x, z))
+		{
+			if (BakeFarCell(x, z, root.get(), resolution, err)) baked++;
+			else if (!err.empty()) { errOut = err; return -1; }
+			continue;
+		}
+		if (!all || editorWorld->IsLoading(x, z)) continue;
+		// Not loaded: read off-scene just long enough to bake.
+		const std::string path = editorWorld->Streamer().CellPath(x, z);
+		std::ifstream in(path.c_str(), std::ios::binary);
+		if (!in) continue;
+		std::stringstream ss;
+		ss << in.rdbuf();
+		LoadedSceneAssets temp;
+		std::shared_ptr<GameObject> root = SceneSerializer::DeserializeSubtree(ss.str(), scenePath, NULL, NULL, &temp);
+		if (!root) continue;
+		if (BakeFarCell(x, z, root.get(), resolution, err)) baked++;
+		else if (!err.empty()) { errOut = err; return -1; }
+	}
+	return baked;
 }

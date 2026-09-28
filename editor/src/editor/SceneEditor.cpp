@@ -8270,8 +8270,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!sceneWorld.enabled) { err = "not a streamed world - split it first ({\"split\": cellSize})"; return false; }
 		sceneWorld.loadRadius = std::max(0.f, args.value("loadRadius", sceneWorld.loadRadius));
 		sceneWorld.unloadRadius = std::max(sceneWorld.loadRadius, args.value("unloadRadius", sceneWorld.unloadRadius));
-		if (editorWorld) editorWorld->SetRadii(sceneWorld.loadRadius, sceneWorld.unloadRadius);
+		sceneWorld.farRadius = std::max(0.f, args.value("farRadius", sceneWorld.farRadius));
+		farResolution = std::max(3, std::min(257, args.value("farResolution", farResolution)));
+		if (editorWorld)
+		{
+			editorWorld->SetRadii(sceneWorld.loadRadius, sceneWorld.unloadRadius);
+			editorWorld->SetFarRadius(sceneWorld.farRadius);
+		}
 		MarkSceneDirty();
+		// {"bakeFar": true} bakes every cell's far version now.
+		if (args.value("bakeFar", false))
+			return BakeFarCells(true, farResolution, err) >= 0;
 		return true;
 	}
 
@@ -8314,9 +8323,40 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		if (editorWorld)
 		{
-			const uint32_t dirty = editorWorld->DirtyCount();
+			// Cached: DirtyCount() serializes every loaded cell, and this
+			// runs every frame the panel is open.
+			const size_t dirty = editorWorld->DirtyRootsCached().size();
 			ImGui::Text("%u loaded, %u with unsaved edits", (unsigned)editorWorld->LoadedRoots().size(), (unsigned)dirty);
 		}
+
+		// Far versions.
+		ImGui::Spacing();
+		float far = sceneWorld.farRadius;
+		ImGui::TextUnformatted("Far versions out to (m)");
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Past the load radius, a cell's terrain is drawn from a small\nbaked copy out to here - so the horizon is not empty. 0: off.");
+		ImGui::SetNextItemWidth(-1);
+		if (ImGui::DragFloat("##worldFar", &far, 10.f, 0.f, 100000.f, far > 0.f ? "%.0f" : "off"))
+		{
+			json j;
+			j["farRadius"] = far;
+			std::string err;
+			AgentSetWorld(j, err);
+		}
+		ImGui::TextUnformatted("Far resolution (samples)");
+		ImGui::SetNextItemWidth(-1);
+		ImGui::SliderInt("##worldFarRes", &farResolution, 9, 129);
+		if (ImGui::Button("Bake Far Versions", ImVec2(-1, 0)))
+		{
+			std::string err;
+			const int n = BakeFarCells(true, farResolution, err);
+			if (n < 0) echo("ERROR: World - " + err);
+			else echo("SUCCESS: baked " + std::to_string(n) + " far version(s)");
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Every cell with terrain, loaded or not. Saving re-bakes the\nloaded cells, so edits keep their far versions current.");
+		if (editorWorld)
+			ImGui::Text("%u cells have one, %u showing", (unsigned)sceneWorld.farCells.size(), (unsigned)editorWorld->FarShownCount());
 	}
 
 	void SceneEditor::NewScene(bool applyProjectDefaults)
@@ -8419,6 +8459,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			std::string cellErr;
 			if (ReassignCellMembers(cellErr) < 0) echo("ERROR: moving objects between cells - " + cellErr);
 			sceneWorld.cells = editorWorld->Cells();
+			// Whatever was edited is in a loaded cell, so their far versions
+			// follow - from the terrain's files, hence written first - and
+			// before the scene, whose world lists the cells that have one.
+			if (sceneWorld.farRadius > 0.f)
+			{
+				SaveTerrain();
+				if (BakeFarCells(false, farResolution, cellErr) < 0) echo("ERROR: baking far versions - " + cellErr);
+			}
 		}
 
 		std::vector<std::shared_ptr<GameObject>> furniture;
@@ -15203,6 +15251,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		r["unloadRadius"] = sceneWorld.unloadRadius;
 		r["cellsDir"] = sceneWorld.cellsDir;
 		r["cellCount"] = (uint32)sceneWorld.cells.size();
+		r["farRadius"] = sceneWorld.farRadius;
+		r["farResolution"] = farResolution;
+		r["farCells"] = (uint32)sceneWorld.farCells.size();
+		if (editorWorld) r["farShown"] = editorWorld->FarShownCount();
 		json loaded = json::array();
 		if (editorWorld)
 		{

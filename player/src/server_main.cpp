@@ -157,6 +157,8 @@ int main(int argc, char** argv)
 
 	// The whole streamed world would be the whole map; a server keeps
 	// loaded what its players are near, which is where anything happens.
+	// No far versions: nothing here is drawn.
+	meta.world.farRadius = 0.f;
 	WorldStreamer* world = meta.world.enabled ? new WorldStreamer(scene, sceneAbs, meta.world, physics, luaPtr) : NULL;
 
 	f64 t = 0.0;

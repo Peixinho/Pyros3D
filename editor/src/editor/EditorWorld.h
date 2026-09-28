@@ -79,6 +79,10 @@ public:
 	bool IsLoading(const int32_t x, const int32_t z) const { return streamer->IsLoading(x, z); }
 	// Registers a cell whose file the caller has just written.
 	void AddCell(const int32_t x, const int32_t z) { streamer->AddCell(x, z); }
+	// Far versions (see WorldStreamer).
+	void AddFarCell(const int32_t x, const int32_t z) { streamer->AddFarCell(x, z); }
+	void SetFarRadius(const float r) { streamer->SetFarRadius(r); }
+	uint32_t FarShownCount() const { return streamer->FarShownCount(); }
 	// Every cell the world has, loaded or not.
 	const std::vector<std::pair<int32_t, int32_t> > &Cells() const { return streamer->GetWorld().cells; }
 

@@ -20,6 +20,12 @@
 //               WaitIdle, would stall the GPU every time the player crossed
 //               a border.
 //
+//               Far versions (SceneMeta::World::farRadius): a cell that
+//               has one shows it from loadRadius out to farRadius - loaded
+//               like a cell, at a lower priority, never with physics - and
+//               hides it the moment its full version is in, so the swap
+//               leaves no gap.
+//
 //               Main thread only.
 //============================================================================
 
@@ -113,6 +119,15 @@ namespace p3d {
 		std::vector<std::shared_ptr<GameObject> > LoadedRoots() const;
 		// The file a cell lives in.
 		std::string CellPath(const int32 x, const int32 z) const { return cellsDir + CellFileName(x, z); }
+		// Its far version's file.
+		std::string FarPath(const int32 x, const int32 z) const { return cellsDir + FarFileName(x, z); }
+		static std::string FarFileName(const int32 x, const int32 z);
+		// A cell whose far version was (re)written: loaded, or reloaded if
+		// it was showing, from the next Update().
+		void AddFarCell(const int32 x, const int32 z);
+		void SetFarRadius(const f32 r) { world.farRadius = std::max(0.f, r); }
+		// Far versions in the scene right now.
+		uint32 FarShownCount() const;
 
 		uint32 LoadedCount() const;
 		uint32 LoadingCount() const;
@@ -137,13 +152,25 @@ namespace p3d {
 			AssetStreamer::Ticket ticket = 0;
 			std::shared_ptr<GameObject> root;
 			std::shared_ptr<LoadedSceneAssets> assets;
+			// The far version, loaded on its own and shown only while the
+			// full cell is not.
+			bool hasFar = false;
+			State farState = Unloaded;
+			AssetStreamer::Ticket farTicket = 0;
+			std::shared_ptr<GameObject> farRoot;
+			std::shared_ptr<LoadedSceneAssets> farAssets;
+			bool farShown = false;
 		};
 
 		// Distance on XZ from p to the cell's square, 0 inside it.
 		f32 DistanceToCell(const Vec3 &p, const CellKey &key) const;
-		void RequestLoad(const CellKey &key, const f32 distance);
-		void Finish(const CellKey &key, const std::shared_ptr<SceneSerializer::PreparedSubtree> &prepared);
+		void RequestLoad(const CellKey &key, const f32 distance, const bool far = false);
+		void Finish(const CellKey &key, const std::shared_ptr<SceneSerializer::PreparedSubtree> &prepared, const bool far = false);
 		void Unload(const CellKey &key);
+		void UnloadFar(const CellKey &key);
+		void Bury(const std::shared_ptr<LoadedSceneAssets> &assets);
+		// Far in the scene exactly when it is loaded and the cell is not.
+		void SyncFarVisibility(Cell &c);
 		void CollectGraveyard(const bool all);
 
 		SceneGraph* scene;

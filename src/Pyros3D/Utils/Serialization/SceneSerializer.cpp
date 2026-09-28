@@ -2279,6 +2279,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				for (size_t i = 0; i < w.cells.size(); i++)
 					cells.push_back(json::array({ w.cells[i].first, w.cells[i].second }));
 				wj["cells"] = cells;
+				if (w.farRadius > 0.f || !w.farCells.empty())
+				{
+					wj["farRadius"] = (double)w.farRadius;
+					json farCells = json::array();
+					for (size_t i = 0; i < w.farCells.size(); i++)
+						farCells.push_back(json::array({ w.farCells[i].first, w.farCells[i].second }));
+					wj["farCells"] = farCells;
+				}
 				root["world"] = wj;
 			}
 		}
@@ -4093,6 +4101,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					for (const auto &c : wj["cells"])
 						if (c.is_array() && c.size() >= 2 && c[0].is_number_integer() && c[1].is_number_integer())
 							w.cells.push_back(std::make_pair(c[0].get<int32>(), c[1].get<int32>()));
+				w.farRadius = std::max(0.f, (f32)wj.value("farRadius", 0.0));
+				if (wj.contains("farCells") && wj["farCells"].is_array())
+					for (const auto &c : wj["farCells"])
+						if (c.is_array() && c.size() >= 2 && c[0].is_number_integer() && c[1].is_number_integer())
+							w.farCells.push_back(std::make_pair(c[0].get<int32>(), c[1].get<int32>()));
 			}
 
 			// Present means enabled. A scene written before this has no

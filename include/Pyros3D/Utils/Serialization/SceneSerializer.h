@@ -211,6 +211,12 @@ namespace p3d {
 			std::string cellsDir;
 			// The cells that exist, so the streamer never probes the disk.
 			std::vector<std::pair<int32, int32> > cells;
+			// Far versions: past loadRadius and out to farRadius a cell is
+			// drawn from "<x>_<z>.far.json" - its terrain at a fraction of
+			// the resolution, no physics, no foliage - so the horizon is not
+			// empty. 0 = none. farCells lists the cells that have one.
+			f32 farRadius = 0.f;
+			std::vector<std::pair<int32, int32> > farCells;
 		};
 		World world;
 

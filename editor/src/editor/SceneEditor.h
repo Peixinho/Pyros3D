@@ -1211,6 +1211,15 @@ public:
 	int ReassignCellMembers(std::string& errOut);
 	bool AgentMoveToCell(const json& args, json& out, std::string& errOut);
 	void DrawWorldCellProperties(GameObject* go, uint32 goId);
+	// Far versions: cell (x, z)'s terrain at `resolution` samples a side,
+	// coloured from its material, written to <x>_<z>.far.json (and its
+	// maps) beside the cell. `root` is the cell's root, loaded or built
+	// off-scene. False with nothing written when it has no terrain.
+	bool BakeFarCell(const int32 x, const int32 z, GameObject* root, const int resolution, std::string& errOut);
+	// Every cell (all = true, reading unloaded ones from disk) or only the
+	// loaded ones - what saving re-bakes. Returns how many were written.
+	int BakeFarCells(const bool all, const int resolution, std::string& errOut);
+	int farResolution = 33;
 	// Runs it, at the start of Update() - outside any ImGui window.
 	void DrainPendingOps();
 
