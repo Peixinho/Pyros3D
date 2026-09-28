@@ -419,10 +419,6 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		if (playMode) { errOut = "stop play mode first"; return false; }
 		if (sceneIsTwoD) { errOut = "terrain needs a 3D scene"; return false; }
 		if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
-		// A streamed world's content lives in its cells; a terrain made here
-		// would land in the always-loaded scene file instead. Create it in
-		// the plain scene and split that into cells.
-		if (sceneWorld.enabled) { errOut = "the scene is a streamed world - create terrain before splitting it into cells"; return false; }
 		TerrainTools::CreateParams p;
 		p.name = args.value("name", p.name);
 		p.tilesX = args.value("tilesX", p.tilesX);
@@ -434,6 +430,37 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 			p.origin = Vec3(args["origin"][0].get<f32>(), args["origin"][1].get<f32>(), args["origin"][2].get<f32>());
 		std::string subtree;
 		if (!TerrainTools::CreateTerrain(p, project->GetProjectPath(), subtree, errOut)) return false;
+		if (editorWorld)
+		{
+			// A streamed world keeps its content in cells: each tile goes to
+			// the cell under its centre, loaded or not (see MoveObjectToCell).
+			// Tiles the size of a cell line up with them exactly.
+			const json tree = json::parse(subtree);
+			const json &tiles = tree["root"]["children"];
+			uint32 placed = 0;
+			for (size_t i = 0; i < tiles.size(); i++)
+			{
+				json one;
+				one["root"] = tiles[i];
+				one["root"]["position"] = { p.origin.x + tiles[i]["position"][0].get<f32>(), p.origin.y + tiles[i]["position"][1].get<f32>(),
+					p.origin.z + tiles[i]["position"][2].get<f32>() };
+				one["materials"] = tree["materials"];
+				SceneObject* tile = RawInsertSubtree(one.dump(), 0, false, EditorCameraSettings(), true);
+				if (!tile) { errOut = "a tile could not be built"; return false; }
+				const Vec3 centre = ((GameObject*)tile->GetPTR())->GetWorldPosition() + Vec3(p.tileSize * 0.5f, 0.f, p.tileSize * 0.5f);
+				int32 cx, cz;
+				editorWorld->CellOf(centre, cx, cz);
+				if (!MoveObjectToCell(tile->GetID(), cx, cz, errOut)) return false;
+				placed++;
+			}
+			if (p.tileSize != editorWorld->CellSize())
+				echo("WARNING: terrain tiles of " + std::to_string((int)p.tileSize) + " m in cells of " + std::to_string((int)editorWorld->CellSize())
+					+ " m - a tile streams with the cell under its centre; tiles the size of a cell line up exactly");
+			MarkSceneDirty();
+			out = t.State(scene);
+			out["tilesPlaced"] = placed;
+			return true;
+		}
 		SceneObject* obj = RawInsertSubtree(subtree, 0, false, EditorCameraSettings(), true);
 		if (!obj) { errOut = "the terrain's maps were written, but it could not be built"; return false; }
 		PushAddCommand(obj);
@@ -849,6 +876,8 @@ void SceneEditor::DrainPendingOps()
 		std::string err;
 		const std::string cmd = op.value("cmd", std::string());
 		const bool network = cmd.find("network") != std::string::npos;
-		if (!(network ? AgentNetwork(cmd, op, out, err) : AgentTerrain(cmd, op, out, err))) echo("ERROR: " + err);
+		const bool ok = cmd == "move_to_cell" ? AgentMoveToCell(op, out, err)
+			: (network ? AgentNetwork(cmd, op, out, err) : AgentTerrain(cmd, op, out, err));
+		if (!ok) echo("ERROR: " + err);
 	}
 }

@@ -2567,6 +2567,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// A cell's (or the scene's) direct child into the cell under it, or
+	// {"cell":[x,z]}. {"name"|"id"}
+	if (name == "move_to_cell")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentMoveToCell(a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "set_view_pivot")
 	{
 		if (!sceneView->AgentSetViewPivot(a, err)) throw std::runtime_error(err);

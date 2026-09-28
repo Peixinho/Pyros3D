@@ -1195,6 +1195,22 @@ public:
 	// A layer added or removed from the Properties panel rebuilds the
 	// object, so it runs next frame, outside the panel drawing from it.
 	json pendingFoliageOp;
+
+	// --- streamed world cells (SceneEditorWorld.cpp) ----------------------
+	// The cell grid over the ground: every cell the world has, coloured by
+	// loaded / unsaved / on disk only, and the load radius around the camera.
+	bool showCellGrid = true;
+	void DrawCellGrid(DebugRenderer* debug, GameObject* viewCam);
+	// Moves object `id` into cell (x, z), keeping where it is in the world:
+	// a loaded cell adopts it (undoable); an unloaded one - or one that does
+	// not exist yet - gets it written into its file and the object leaves
+	// the scene (not undoable: it is on disk now).
+	bool MoveObjectToCell(uint32 id, const int32 x, const int32 z, std::string& errOut);
+	// On save: every direct child of a loaded cell whose position is now in
+	// another cell moves there. Returns how many moved, -1 on an error.
+	int ReassignCellMembers(std::string& errOut);
+	bool AgentMoveToCell(const json& args, json& out, std::string& errOut);
+	void DrawWorldCellProperties(GameObject* go, uint32 goId);
 	// Runs it, at the start of Update() - outside any ImGui window.
 	void DrainPendingOps();
 

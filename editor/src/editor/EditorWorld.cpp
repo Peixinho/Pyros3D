@@ -12,6 +12,8 @@
 #include <Pyros3D/Core/Logs/Log.h>
 
 #include <filesystem>
+#include <chrono>
+#include <cmath>
 #include <fstream>
 
 using namespace p3d;
@@ -146,4 +148,27 @@ void EditorWorld::ExitPlay()
 		int32 x, z;
 		if (streamer->FindCell(roots[i].get(), x, z)) streamer->UnloadCell(x, z);
 	}
+}
+
+void EditorWorld::CellOf(const Vec3 &p, int32_t &x, int32_t &z) const
+{
+	WorldStreamer::CellOf(p, streamer->CellSize(), x, z);
+}
+
+Vec3 EditorWorld::CellOrigin(const int32_t x, const int32_t z) const
+{
+	return Vec3((float)x * streamer->CellSize(), 0.f, (float)z * streamer->CellSize());
+}
+
+const std::set<const GameObject*> &EditorWorld::DirtyRootsCached()
+{
+	const double now = std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+	if (dirtyCacheTime >= 0.0 && now - dirtyCacheTime < 1.0) return dirtyCache;
+	dirtyCacheTime = now;
+	dirtyCache.clear();
+	const std::vector<std::shared_ptr<GameObject> > roots = streamer->LoadedRoots();
+	for (size_t i = 0; i < roots.size(); i++)
+		if (knownDirty.count(roots[i].get()) || IsDirty(roots[i].get()) || (extraDirty && extraDirty(roots[i].get())))
+			dirtyCache.insert(roots[i].get());
+	return dirtyCache;
 }

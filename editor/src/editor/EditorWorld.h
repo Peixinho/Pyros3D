@@ -29,6 +29,7 @@
 #include <memory>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace sol { class state; }
 
@@ -68,6 +69,22 @@ public:
 	void SetOnUnloading(const std::function<void(p3d::GameObject*)> &fn) { onUnloading = fn; }
 
 	const p3d::WorldStreamer &Streamer() const { return *streamer; }
+
+	// Cells by position. A cell's root sits at its corner, unrotated.
+	float CellSize() const { return streamer->CellSize(); }
+	void CellOf(const p3d::Vec3 &p, int32_t &x, int32_t &z) const;
+	p3d::Vec3 CellOrigin(const int32_t x, const int32_t z) const;
+	std::shared_ptr<p3d::GameObject> CellRoot(const int32_t x, const int32_t z) const { return streamer->GetCellRoot(x, z); }
+	bool HasCell(const int32_t x, const int32_t z) const { return streamer->HasCell(x, z); }
+	bool IsLoading(const int32_t x, const int32_t z) const { return streamer->IsLoading(x, z); }
+	// Registers a cell whose file the caller has just written.
+	void AddCell(const int32_t x, const int32_t z) { streamer->AddCell(x, z); }
+	// Every cell the world has, loaded or not.
+	const std::vector<std::pair<int32_t, int32_t> > &Cells() const { return streamer->GetWorld().cells; }
+
+	// Loaded cells with unsaved edits, recomputed at most once a second -
+	// for drawing, where serializing every cell every frame would cost.
+	const std::set<const p3d::GameObject*> &DirtyRootsCached();
 	void SetRadii(const float load, const float unload) { streamer->SetRadii(load, unload); }
 
 	// Writes `root` (already built, not in the scene) as cell (x, z) of a
@@ -90,6 +107,8 @@ private:
 	std::set<const p3d::GameObject*> knownDirty;
 	std::function<bool(const p3d::GameObject*)> extraDirty;
 	std::function<void(p3d::GameObject*)> onUnloading;
+	std::set<const p3d::GameObject*> dirtyCache;
+	double dirtyCacheTime = -1.0;
 };
 
 #endif

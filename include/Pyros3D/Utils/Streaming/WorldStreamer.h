@@ -88,6 +88,25 @@ namespace p3d {
 		// Unloads one cell now, veto or not (the editor ending play mode).
 		void UnloadCell(const int32 x, const int32 z) { Unload(CellKey(x, z)); }
 
+		// A cell made after the world was opened (the editor placing an
+		// object where no cell was): it loads like the rest from the next
+		// Update(). The caller writes its file first.
+		void AddCell(const int32 x, const int32 z)
+		{
+			const CellKey key(x, z);
+			if (cells.find(key) != cells.end()) return;
+			cells[key] = Cell();
+			world.cells.push_back(key);
+		}
+		bool HasCell(const int32 x, const int32 z) const { return cells.find(CellKey(x, z)) != cells.end(); }
+		// Read from disk right now: its file must not change under it.
+		bool IsLoading(const int32 x, const int32 z) const
+		{
+			std::map<CellKey, Cell>::const_iterator it = cells.find(CellKey(x, z));
+			return it != cells.end() && it->second.state == Cell::Loading;
+		}
+		f32 CellSize() const { return world.cellSize; }
+		const SceneMeta::World &GetWorld() const { return world; }
 		// Which cell a loaded root belongs to.
 		bool FindCell(const GameObject* root, int32 &x, int32 &z) const;
 		// Every loaded cell's root.

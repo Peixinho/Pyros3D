@@ -1554,6 +1554,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					selectedDebugComp, selectedDebugCam);
 
 			if (terrainTools && !playMode) terrainTools->DrawOverlay(debugRenderer, scene);
+			if (showCellGrid && !playMode) DrawCellGrid(debugRenderer, viewCam);
 			if (debugRenderer)
 				debugRenderer->Render(viewCam->GetWorldTransformation().Inverse(),
 					(isPerspective ? projection : projectionOrtho).GetProjectionMatrix());
@@ -5250,6 +5251,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::SetTooltip("Radius spheres and spot cones for every light. Otherwise only the selected light component's is drawn.");
 		if (ImGui::MenuItem("Show Physics Debug", NULL, showPhysicsDebug))
 			showPhysicsDebug = !showPhysicsDebug;
+		if (ImGui::MenuItem("Show World Cells", NULL, showCellGrid, sceneWorld.enabled))
+			showCellGrid = !showCellGrid;
 		// Both only mean anything in a 2D scene, so they are only offered
 		// there rather than sitting inert in every 3D scene's View menu.
 		if (sceneIsTwoD)
@@ -8408,6 +8411,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 #endif
 
+		// A cell's objects that were moved out of its square go to the cell
+		// they are in now - before the scene's meta is written, since that
+		// lists the cells and a move may have made one.
+		if (editorWorld && !playMode)
+		{
+			std::string cellErr;
+			if (ReassignCellMembers(cellErr) < 0) echo("ERROR: moving objects between cells - " + cellErr);
+			sceneWorld.cells = editorWorld->Cells();
+		}
+
 		std::vector<std::shared_ptr<GameObject>> furniture;
 		DetachEditorObjects(furniture);
 		bool ok = false;
@@ -9957,6 +9970,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					DrawUIComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawFoliageProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawNetworkIdentityProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
+					DrawWorldCellProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 #ifdef LUA_BINDINGS
 					DrawGameObjectScriptProperties(SelectedSceneObject->GetID());
 #endif
@@ -13478,6 +13492,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			editorDebugDraw->ToggleGizmoLines(p["gizmoLines"].get<bool>());
 		if (p.contains("cameraFrustums") && p["cameraFrustums"].is_boolean())
 			editorDebugDraw->ToggleCameraFrustum(p["cameraFrustums"].get<bool>());
+		if (p.contains("cellGrid") && p["cellGrid"].is_boolean())
+			showCellGrid = p["cellGrid"].get<bool>();
 		if (p.contains("physicsDebug") && p["physicsDebug"].is_boolean())
 			showPhysicsDebug = p["physicsDebug"].get<bool>();
 		if (p.contains("grid") && p["grid"].is_boolean())
