@@ -49,6 +49,9 @@ public:
 
 		AttributeBuffer* vb = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Static);
 		vb->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3, tVertex.data(), static_cast<uint32>(tVertex.size()));
+		// GridMaterial's Color shader declares it; on Vulkan an input with
+		// no attribute behind it is invalid (VUID-...-Input-07904).
+		vb->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3, tNormal.data(), static_cast<uint32>(tNormal.size()));
 		vb->AddAttribute("aColor", Buffer::Attribute::Type::Vec4, colors.data(), static_cast<uint32>(colors.size()));
 		Attributes.push_back(vb);
 
