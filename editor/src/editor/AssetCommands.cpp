@@ -19,14 +19,20 @@ DeleteAssetCommand::DeleteAssetCommand(ProjectManager* project, const std::strin
 void DeleteAssetCommand::Undo()
 {
 	std::string err;
-	project_->MoveFromTrash(trashRelativePath_, project_->AbsolutePath(originalRelativePath_), &err);
+	if (ProjectManager::IsModelPackageKey(originalRelativePath_))
+		project_->RestoreModelPackage(trashRelativePath_, originalRelativePath_, &err);
+	else
+		project_->MoveFromTrash(trashRelativePath_, project_->AbsolutePath(originalRelativePath_), &err);
 	trashRelativePath_.clear();
 }
 
 void DeleteAssetCommand::Redo()
 {
 	std::string err;
-	trashRelativePath_ = project_->MoveToTrash(project_->AbsolutePath(originalRelativePath_), &err);
+	if (ProjectManager::IsModelPackageKey(originalRelativePath_))
+		trashRelativePath_ = project_->TrashModelPackage(originalRelativePath_, &err);
+	else
+		trashRelativePath_ = project_->MoveToTrash(project_->AbsolutePath(originalRelativePath_), &err);
 }
 
 std::string DeleteAssetCommand::Description() const
@@ -48,9 +54,19 @@ ImportOverwriteCommand::ImportOverwriteCommand(ProjectManager* project, const st
 void ImportOverwriteCommand::Undo()
 {
 	std::string err;
-	const std::string dest = project_->AbsolutePath(importedRelativePath_);
 	// Trash whatever the import left at `dest`, then bring back whatever
 	// (if anything) occupied it before the import.
+	if (ProjectManager::IsModelPackageKey(importedRelativePath_))
+	{
+		trashOfImported_ = project_->TrashModelPackage(importedRelativePath_, &err);
+		if (!trashOfPrevious_.empty())
+		{
+			project_->RestoreModelPackage(trashOfPrevious_, importedRelativePath_, &err);
+			trashOfPrevious_.clear();
+		}
+		return;
+	}
+	const std::string dest = project_->AbsolutePath(importedRelativePath_);
 	trashOfImported_ = project_->MoveToTrash(dest, &err);
 	if (!trashOfPrevious_.empty())
 	{
@@ -62,6 +78,20 @@ void ImportOverwriteCommand::Undo()
 void ImportOverwriteCommand::Redo()
 {
 	std::string err;
+	if (ProjectManager::IsModelPackageKey(importedRelativePath_))
+	{
+		std::error_code ec;
+		const fs::path p3dm = project_->AbsolutePath(importedRelativePath_ + ".p3dm");
+		const fs::path dir = project_->AbsolutePath(importedRelativePath_);
+		if (fs::exists(p3dm, ec) || fs::exists(dir, ec))
+			trashOfPrevious_ = project_->TrashModelPackage(importedRelativePath_, &err);
+		if (!trashOfImported_.empty())
+		{
+			project_->RestoreModelPackage(trashOfImported_, importedRelativePath_, &err);
+			trashOfImported_.clear();
+		}
+		return;
+	}
 	const std::string dest = project_->AbsolutePath(importedRelativePath_);
 	// If Undo() restored the previous content, trash it again first (a
 	// fresh trash entry, same as any other re-trash) so the imported

@@ -46,6 +46,7 @@ namespace ImGui {
 			_priv::dir = _priv::readDirectory.Open(_priv::path, _priv::extension);
 			_priv::listbox_items.clear();
 			_priv::selectedPath.clear();
+			_priv::selectedDir = -1;
 			for (std::vector<_FileInfo>::iterator i = _priv::dir.begin(); i != _priv::dir.end(); i++)
 			{
 				if ((*i).NamePrefix.size()>0)
@@ -126,6 +127,26 @@ namespace ImGui {
 						*Open = false;
 						ImGui::CloseCurrentPopup();
 						(*buffer) = _priv::selectedPath;
+						_priv::lastVisitedPath = _priv::path;
+						ImGui::Spacing();
+						ImGui::EndPopup();
+						return true;
+					}
+				}
+				ImGui::SameLine();
+				// Import Model (and zip drops) can take a whole download
+				// folder - clicking a directory only navigates into it, so
+				// this is how you pick the folder itself.
+				if (ImGui::Button("Select Folder"))
+				{
+					std::string folder = _priv::path;
+					while (folder.size() > 1 && folder.back() == '/')
+						folder.pop_back();
+					if (!folder.empty())
+					{
+						*Open = false;
+						ImGui::CloseCurrentPopup();
+						(*buffer) = folder;
 						_priv::lastVisitedPath = _priv::path;
 						ImGui::Spacing();
 						ImGui::EndPopup();

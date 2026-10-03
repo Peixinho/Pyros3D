@@ -149,6 +149,8 @@ namespace {
 		case ComponentType::Physics:             type = SceneObjectTypes::PHYSICS_COMPONENT;          name = "Physics";           return true;
 		case ComponentType::AudioSource:         type = SceneObjectTypes::AUDIO_SOURCE_COMPONENT;     name = "Sound";             return true;
 		case ComponentType::ParticleSystem:      type = SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT;  name = "Particles";         return true;
+		case ComponentType::Terrain:             type = SceneObjectTypes::TERRAIN_COMPONENT;          name = "Terrain";           return true;
+		case ComponentType::TileMap2D:           type = SceneObjectTypes::TILEMAP_COMPONENT;          name = "Tile Map";          return true;
 #ifdef LUA_BINDINGS
 		case ComponentType::LuaComponent:
 		{

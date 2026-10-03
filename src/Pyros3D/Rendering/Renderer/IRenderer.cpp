@@ -1396,8 +1396,19 @@ static uint64 PipelineCacheKey(const uint32 shader, const uint32 targetFBO, cons
 static uint32 EffectiveCullFace(RenderingMesh* rmesh, IMaterial* Material)
 {
 	const uint32 cf = Material->GetCullFace();
-	if (rmesh->Material.get() != Material && rmesh->Material->GetCullFace() != cf)
-		return rmesh->Material->GetCullFace();
+	// Keep an intentionally DoubleSided override (shadow materials,
+	// deferred fullscreen quads). Falling through to the mesh's BackFace
+	// undoes why those overrides are DoubleSided: a caster with flipped
+	// winding or an open shell writes nothing into the shadow map, so the
+	// object receives shadows from others but never self-shadows or casts.
+	if (cf == CullFace::DoubleSided)
+		return cf;
+	if (rmesh->Material && rmesh->Material.get() != Material)
+	{
+		const uint32 meshCf = rmesh->Material->GetCullFace();
+		if (meshCf != cf)
+			return meshCf;
+	}
 	return cf;
 }
 
@@ -2356,7 +2367,11 @@ void IRenderer::DeactivateCulling()
 bool IRenderer::CullingSphereTest(RenderingMesh* rmesh, GameObject* owner)
 {
 	if (!IsCulling || !culling) return true;
-	return culling->SphereInFrustum(owner->GetWorldPosition(), owner->GetBoundingSphereRadiusWorldSpace());
+	// The sphere's own centre, not the object's origin: the two only agree
+	// for geometry built around its origin. A terrain tile's origin is its
+	// corner, and a sphere there leaves the far half of the tile outside it -
+	// the tile vanished whenever that corner left the screen.
+	return culling->SphereInFrustum(owner->GetWorldTransformation() * owner->GetBoundingSphereCenter(), owner->GetBoundingSphereRadiusWorldSpace());
 }
 
 bool IRenderer::CullingBoxTest(RenderingMesh* rmesh, GameObject* owner)

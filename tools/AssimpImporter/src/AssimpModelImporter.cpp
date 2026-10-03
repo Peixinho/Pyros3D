@@ -7,8 +7,222 @@
 //============================================================================
 
 #include "AssimpModelImporter.h"
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
+#include <filesystem>
+#include <fstream>
 
 namespace p3d {
+
+	namespace {
+
+		// Sketchfab (and a lot of DCC exports) store a static mesh under a
+		// node chain: an axis fix, a 0.01 scale, and a translation that is
+		// the object's position in the original map. Leaving those on the
+		// nodes — which this importer does not skin — drops the mesh in
+		// the wrong orientation at centimetre scale, which reads as
+		// inside-out faces and z-fighting. Bake them, then pull a mesh
+		// that landed kilometres away back to the origin.
+		void RecenterIfFarFromOrigin(std::vector<SubMesh>& subMeshes)
+		{
+			bool any = false;
+			Vec3 mn, mx;
+			for (size_t s = 0; s < subMeshes.size(); ++s)
+			{
+				const SubMesh& sm = subMeshes[s];
+				for (size_t i = 0; i < sm.tVertex.size(); ++i)
+				{
+					const Vec3& v = sm.tVertex[i];
+					if (!any) { mn = mx = v; any = true; continue; }
+					if (v.x < mn.x) mn.x = v.x;
+					if (v.y < mn.y) mn.y = v.y;
+					if (v.z < mn.z) mn.z = v.z;
+					if (v.x > mx.x) mx.x = v.x;
+					if (v.y > mx.y) mx.y = v.y;
+					if (v.z > mx.z) mx.z = v.z;
+				}
+			}
+			if (!any) return;
+
+			const bool originInside =
+				mn.x <= 0.f && mx.x >= 0.f &&
+				mn.y <= 0.f && mx.y >= 0.f &&
+				mn.z <= 0.f && mx.z >= 0.f;
+			if (originInside) return;
+
+			const Vec3 center = (mn + mx) * 0.5f;
+			const Vec3 extent = (mx - mn) * 0.5f;
+			if (center.magnitude() <= extent.magnitude() * 2.f + 1.f) return;
+
+			for (size_t s = 0; s < subMeshes.size(); ++s)
+			{
+				SubMesh& sm = subMeshes[s];
+				for (size_t i = 0; i < sm.tVertex.size(); ++i)
+					sm.tVertex[i] -= center;
+			}
+			echo("Model import: recentered mesh (it was placed far from the origin)");
+		}
+
+		// A mesh whose triangles wind against its own normals is invisible
+		// from the outside under backface culling, and a mesh whose normals
+		// point inward shows the interior. Sketchfab's viewer hides both
+		// by drawing double-sided.
+		void FixFacing(SubMesh& sm)
+		{
+			if (!sm.hasNormal || sm.tNormal.size() != sm.tVertex.size() || sm.tIndex.size() < 3)
+				return;
+
+			Vec3 mn, mx;
+			mn = mx = sm.tVertex[0];
+			for (size_t i = 1; i < sm.tVertex.size(); ++i)
+			{
+				const Vec3& v = sm.tVertex[i];
+				if (v.x < mn.x) mn.x = v.x;
+				if (v.y < mn.y) mn.y = v.y;
+				if (v.z < mn.z) mn.z = v.z;
+				if (v.x > mx.x) mx.x = v.x;
+				if (v.y > mx.y) mx.y = v.y;
+				if (v.z > mx.z) mx.z = v.z;
+			}
+			const Vec3 center = (mn + mx) * 0.5f;
+
+			double outward = 0.0;
+			int outwardN = 0;
+			const size_t vstep = std::max<size_t>(1, sm.tVertex.size() / 4000);
+			for (size_t i = 0; i < sm.tVertex.size(); i += vstep)
+			{
+				const Vec3 d = sm.tVertex[i] - center;
+				outward += (double)sm.tNormal[i].dotProduct(d);
+				++outwardN;
+			}
+			if (outwardN > 0 && outward < 0.0)
+			{
+				for (size_t i = 0; i < sm.tNormal.size(); ++i)
+					sm.tNormal[i].negateSelf();
+				echo("Model import: flipped inward normals on '" + sm.Name + "'");
+			}
+
+			int agree = 0, disagree = 0;
+			const size_t tris = sm.tIndex.size() / 3;
+			const size_t step = std::max<size_t>(1, tris / 4000);
+			for (size_t t = 0; t < tris; t += step)
+			{
+				const uint32 i0 = sm.tIndex[t * 3];
+				const uint32 i1 = sm.tIndex[t * 3 + 1];
+				const uint32 i2 = sm.tIndex[t * 3 + 2];
+				if (i0 >= sm.tVertex.size() || i1 >= sm.tVertex.size() || i2 >= sm.tVertex.size())
+					continue;
+				const Vec3 e1 = sm.tVertex[i1] - sm.tVertex[i0];
+				const Vec3 e2 = sm.tVertex[i2] - sm.tVertex[i0];
+				const Vec3 fn = e1.cross(e2);
+				const Vec3 vn = sm.tNormal[i0] + sm.tNormal[i1] + sm.tNormal[i2];
+				if (fn.dotProduct(vn) >= 0.f) ++agree;
+				else ++disagree;
+			}
+			if (disagree > agree)
+			{
+				for (size_t t = 0; t < tris; ++t)
+					std::swap(sm.tIndex[t * 3 + 1], sm.tIndex[t * 3 + 2]);
+				// Tangents were built from the old winding. Negating the
+				// bitangent keeps the tangent frame matched to the new one.
+				if (sm.hasTangentBitangent)
+				{
+					for (size_t i = 0; i < sm.tBitangent.size(); ++i)
+						sm.tBitangent[i].negateSelf();
+				}
+				echo("Model import: flipped backfacing triangles on '" + sm.Name + "'");
+			}
+		}
+
+		std::string EmbeddedExtension(const aiTexture* tex)
+		{
+			std::string hint;
+			if (tex->achFormatHint[0] != '\0')
+				hint = tex->achFormatHint;
+			for (size_t i = 0; i < hint.size(); ++i)
+				hint[i] = (char)tolower((unsigned char)hint[i]);
+			if (hint == "jpeg") hint = "jpg";
+			if (hint == "png" || hint == "jpg" || hint == "tga" || hint == "bmp" || hint == "webp")
+				return hint;
+
+			const unsigned char* b = reinterpret_cast<const unsigned char*>(tex->pcData);
+			const size_t n = (tex->mHeight == 0) ? (size_t)tex->mWidth : 0;
+			if (n >= 8 && b[0] == 0x89 && b[1] == 'P' && b[2] == 'N' && b[3] == 'G')
+				return "png";
+			if (n >= 3 && b[0] == 0xFF && b[1] == 0xD8)
+				return "jpg";
+			return "tga";
+		}
+
+		// "*0" is an Assimp embedded texture. Copy it out as a real file
+		// the rest of the pipeline already knows how to package.
+		std::string MaterializeEmbedded(const aiScene* scene, const std::string& stored,
+			std::vector<AssimpModelImporter::PendingEmbeddedTexture>& pending)
+		{
+			if (stored.empty() || stored[0] != '*') return stored;
+			const int idx = atoi(stored.c_str() + 1);
+			if (scene == NULL || idx < 0 || (unsigned)idx >= scene->mNumTextures || scene->mTextures[idx] == NULL)
+				return stored;
+
+			for (size_t i = 0; i < pending.size(); ++i)
+			{
+				if (pending[i].relativePath.size() > 0)
+				{
+					// Same index already extracted.
+					const std::string tag = "embedded_" + std::to_string(idx) + ".";
+					if (pending[i].relativePath.find(tag) != std::string::npos)
+						return pending[i].relativePath;
+				}
+			}
+
+			const aiTexture* tex = scene->mTextures[idx];
+			AssimpModelImporter::PendingEmbeddedTexture out;
+			const std::string ext = EmbeddedExtension(tex);
+			out.relativePath = "textures/embedded_" + std::to_string(idx) + "." + ext;
+
+			if (tex->mHeight == 0)
+			{
+				const unsigned char* b = reinterpret_cast<const unsigned char*>(tex->pcData);
+				out.bytes.assign(b, b + (size_t)tex->mWidth);
+			}
+			else
+			{
+				// Uncompressed BGRA. Write a TGA so we don't need an encoder.
+				const int w = (int)tex->mWidth;
+				const int h = (int)tex->mHeight;
+				out.bytes.resize(18 + (size_t)w * (size_t)h * 4);
+				out.bytes[2] = 2;
+				out.bytes[12] = (unsigned char)(w & 0xFF);
+				out.bytes[13] = (unsigned char)((w >> 8) & 0xFF);
+				out.bytes[14] = (unsigned char)(h & 0xFF);
+				out.bytes[15] = (unsigned char)((h >> 8) & 0xFF);
+				out.bytes[16] = 32;
+				out.bytes[17] = 8; // 32-bit, origin top
+				unsigned char* dst = &out.bytes[18];
+				for (int y = 0; y < h; ++y)
+				{
+					for (int x = 0; x < w; ++x)
+					{
+						const aiTexel& p = tex->pcData[y * w + x];
+						dst[0] = p.b; dst[1] = p.g; dst[2] = p.r; dst[3] = p.a;
+						dst += 4;
+					}
+				}
+				// Extension was guessed as tga when uncompressed; force it.
+				out.relativePath = "textures/embedded_" + std::to_string(idx) + ".tga";
+			}
+
+			if (out.bytes.empty()) return stored;
+			const std::string rel = out.relativePath;
+			pending.push_back(std::move(out));
+			echo("Model import: extracted embedded texture " + rel);
+			return rel;
+		}
+
+	}
+
+	namespace fs = std::filesystem;
 
 	AssimpModelImporter::AssimpModelImporter() {}
 
@@ -19,24 +233,48 @@ namespace p3d {
 		// Assimp Importer
 		Assimp::Importer Importer;
 
-		// Load Model
-		assimp_model = Importer.ReadFile(Filename.c_str(), aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
+		pendingEmbedded.clear();
 
-		// Path Relative to Model File
-		std::string RelativePath = Filename.substr(0, Filename.find_last_of("/") + 1);
+		// Load Model
+		const unsigned int flags = aiProcessPreset_TargetRealtime_Fast | aiProcess_OptimizeMeshes | aiProcess_JoinIdenticalVertices | aiProcess_LimitBoneWeights | aiProcess_FlipUVs | aiProcess_CalcTangentSpace;
+		assimp_model = Importer.ReadFile(Filename.c_str(), flags);
 
 		if (!assimp_model)
 		{
 			echo("Failed To Import Model: " + Filename + " ERROR: " + Importer.GetErrorString());
 			return false;
 		}
-		else {
 
+		bool skinned = assimp_model->mNumAnimations > 0;
+		if (!skinned)
+		{
+			for (uint32 i = 0; i < assimp_model->mNumMeshes; i++)
+			{
+				if (assimp_model->mMeshes[i]->HasBones()) { skinned = true; break; }
+			}
+		}
+
+		// Static props: bake the node chain (axis, scale, map placement)
+		// into the vertices. Skinned meshes keep the node graph so the
+		// skeleton stays valid.
+		if (!skinned)
+		{
+			assimp_model = Importer.ReadFile(Filename.c_str(), flags | aiProcess_PreTransformVertices);
+			if (!assimp_model)
+			{
+				echo("Failed To Import Model: " + Filename + " ERROR: " + Importer.GetErrorString());
+				return false;
+			}
+		}
+
+		{
 			// Build Skeleton
 			// initial bone count
 			boneCount = 0;
-			// Get Skeleton
-			GetBone(assimp_model->mRootNode);
+			// A node hierarchy with no skin weights is not a skeleton.
+			// Recording one made every static mesh report HasBones().
+			if (skinned)
+				GetBone(assimp_model->mRootNode);
 
 			for (uint32 i = 0; i < assimp_model->mNumMeshes; i++)
 			{
@@ -234,6 +472,8 @@ namespace p3d {
 				texFound = assimp_model->mMaterials[i]->GetTexture(aiTextureType_DIFFUSE, 0, &path);
 				if (texFound != AI_SUCCESS)
 					texFound = assimp_model->mMaterials[i]->GetTexture(aiTextureType_BASE_COLOR, 0, &path);
+				if (texFound != AI_SUCCESS)
+					texFound = assimp_model->mMaterials[i]->GetTexture(aiTextureType_EMISSIVE, 0, &path);
 				if (texFound == AI_SUCCESS)
 				{
 					material.haveColorMap = true;
@@ -274,6 +514,21 @@ namespace p3d {
 				// Add Material to List
 				materials.push_back(material);
 			}
+
+			for (size_t m = 0; m < materials.size(); ++m)
+			{
+				if (materials[m].haveColorMap)
+					materials[m].colorMap = MaterializeEmbedded(assimp_model, materials[m].colorMap, pendingEmbedded);
+				if (materials[m].haveNormalMap)
+					materials[m].normalMap = MaterializeEmbedded(assimp_model, materials[m].normalMap, pendingEmbedded);
+				if (materials[m].haveSpecularMap)
+					materials[m].specularMap = MaterializeEmbedded(assimp_model, materials[m].specularMap, pendingEmbedded);
+			}
+
+			if (!skinned)
+				RecenterIfFarFromOrigin(subMeshes);
+			for (size_t s = 0; s < subMeshes.size(); ++s)
+				FixFacing(subMeshes[s]);
 		}
 		Importer.FreeScene();
 
@@ -318,6 +573,17 @@ namespace p3d {
 
 	bool AssimpModelImporter::ConvertToPyrosFormat(const std::string &Filename)
 	{
+		for (size_t i = 0; i < pendingEmbedded.size(); ++i)
+		{
+			const fs::path dest = fs::path(Filename).parent_path() / pendingEmbedded[i].relativePath;
+			std::error_code ec;
+			fs::create_directories(dest.parent_path(), ec);
+			std::ofstream out(dest.string().c_str(), std::ios::binary | std::ios::trunc);
+			if (out && !pendingEmbedded[i].bytes.empty())
+				out.write(reinterpret_cast<const char*>(pendingEmbedded[i].bytes.data()),
+					(std::streamsize)pendingEmbedded[i].bytes.size());
+		}
+
 		BinaryFile *bin = new BinaryFile();
 
 		if (bin->Open(Filename.c_str(), 'w'))

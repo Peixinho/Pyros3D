@@ -1165,8 +1165,10 @@ static void DrawCommonMaterialSettings(MaterialEditorDocument& doc, IMaterial* m
 	}
 
 	uint32 cullFace = mat->GetCullFace();
-	static const char* cullLabels[] = { "None", "Front", "Back" };
+	// Labels match CullFace::{BackFace,FrontFace,DoubleSided}.
+	static const char* cullLabels[] = { "Back", "Front", "Double Sided" };
 	int cullIdx = (int)cullFace;
+	if (cullIdx < 0 || cullIdx > 2) cullIdx = 0;
 	if (ImGui::Combo("Cull Face", &cullIdx, cullLabels, IM_ARRAYSIZE(cullLabels))) {
 		const uint32 before = cullFace;
 		mat->SetCullFace((uint32)cullIdx);
@@ -1186,10 +1188,12 @@ static void DrawCommonMaterialSettings(MaterialEditorDocument& doc, IMaterial* m
 		MAT_TOGGLE(before, StartRenderWireFrame(), StopRenderWireFrame());
 	}
 
-	bool castShadows = mat->IsCastingShadows();
-	if (ImGui::Checkbox("Cast Shadows", &castShadows)) {
-		const bool before = !castShadows;
-		if (castShadows) mat->EnableCastingShadows(); else mat->DisableCastingShadows();
+	// Material bit = sample shadow maps. Casting into the map is
+	// RenderingComponent::EnableCastShadows() on the object.
+	bool receiveShadows = mat->IsCastingShadows();
+	if (ImGui::Checkbox("Receive Shadows", &receiveShadows)) {
+		const bool before = !receiveShadows;
+		if (receiveShadows) mat->EnableCastingShadows(); else mat->DisableCastingShadows();
 		doc.dirty = true;
 		MAT_TOGGLE(before, EnableCastingShadows(), DisableCastingShadows());
 	}

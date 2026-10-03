@@ -21,9 +21,10 @@ using namespace p3d;
 EditorWorld::EditorWorld(SceneGraph* scene, SceneObjects* objects, const std::string &scenePath,
 	const SceneMeta::World &world, IPhysics* physics, sol::state* lua,
 	const std::function<void(GameObject*)> &adopted)
-	: scene(scene), objects(objects), scenePath(scenePath), lua(lua)
+	: scene(scene), objects(objects), scenePath(scenePath), lua(lua), farRadius(world.farRadius)
 {
 	streamer.reset(new WorldStreamer(scene, scenePath, world, physics, lua));
+	ApplyFarRadius();
 	streamer->SetOnCellLoaded([this, adopted](const std::shared_ptr<GameObject> &root) {
 		this->objects->Adopt(root.get(), 0, NULL, NULL, true);
 		saved[root.get()] = SceneSerializer::SerializeSubtree(root.get(), this->scenePath, this->lua);
@@ -66,9 +67,43 @@ bool EditorWorld::IsDirty(const GameObject* root) const
 	return SceneSerializer::SerializeSubtree(const_cast<GameObject*>(root), scenePath, lua) != it->second;
 }
 
-void EditorWorld::Update(const Vec3 &focus)
+void EditorWorld::Update(const std::vector<Vec3> &foci)
 {
-	streamer->Update(focus);
+	streamer->Update(foci);
+}
+
+namespace
+{
+	void RefreshSubtree(GameObject* go)
+	{
+		if (!go) return;
+		go->RefreshTransformation();
+		for (size_t i = 0; i < go->GetChildren().size(); i++) RefreshSubtree(go->GetChildren()[i].get());
+	}
+}
+
+void EditorWorld::LoadAround(const std::vector<Vec3> &foci)
+{
+	streamer->LoadAround(foci);
+	// A cell that came in just now has not been through a scene update:
+	// its objects' world matrices still say the origin, and the caller is
+	// about to ask where they are.
+	const std::vector<std::shared_ptr<GameObject> > roots = streamer->LoadedRoots();
+	for (size_t i = 0; i < roots.size(); i++) RefreshSubtree(roots[i].get());
+}
+
+void EditorWorld::ApplyFarRadius()
+{
+	// Large rather than infinite: the streamer orders far loads by
+	// distance + 2 * radius, and a float has to keep the distance.
+	streamer->SetFarRadius((playing || farRadius <= 0.f) ? farRadius : std::max(farRadius, 1.0e6f));
+}
+
+bool EditorWorld::IsFar(const GameObject* go) const
+{
+	GameObject* top = const_cast<GameObject*>(go);
+	while (top && top->GetParent()) top = top->GetParent();
+	return streamer->IsFarRoot(top);
 }
 
 std::set<const GameObject*> EditorWorld::LoadedRoots() const
@@ -135,11 +170,13 @@ void EditorWorld::EnterPlay()
 	else if (dirty)
 		echo("ERROR: World: could not save edited cells before Play - " + err);
 	playing = true;
+	ApplyFarRadius();
 }
 
 void EditorWorld::ExitPlay()
 {
 	playing = false;
+	ApplyFarRadius();
 	// Everything play touched goes back to how it is on disk: every cell is
 	// dropped, and the editor camera streams its own back in from file.
 	const std::vector<std::shared_ptr<GameObject> > roots = streamer->LoadedRoots();

@@ -37,7 +37,7 @@ struct ProjectSettings {
 	// project never set one (panel falls back to its defaults).
 	nlohmann::json aiAssistant;
 	// Which rig each animation asset is previewed on, as
-	// { "assets/animations/walk.p3da": "assets/models/human/human.p3dm" }.
+	// { "assets/animations/walk.p3da": "assets/models/human.p3dm" }.
 	// A .p3da has nowhere to record this (the format is clips and nothing
 	// else, and adding a field would break every existing file and the
 	// runtime loader), and it is genuinely project-scoped rather than
@@ -152,16 +152,29 @@ public:
 		std::string& outP3daAbsolute, std::string* errorOut = NULL,
 		std::string* outTrashedExisting = NULL);
 
-	// Convert source model → assets/models/<stem>/<stem>.p3dm via AssimpImporter,
-	// packaging textures and companion files into that folder.
-	// Returns absolute path to .p3dm on success. If a package folder already
-	// exists at that destination (re-importing over an existing model), the
-	// whole pre-existing folder is trashed first (see MoveToTrash) rather
-	// than having its contents silently overwritten file-by-file -
+	// Convert source model → always the same layout under assets/models/:
+	//   assets/models/<stem>.p3dm     (the mesh, at the models root)
+	//   assets/models/<stem>/         (textures/, staged source, thumbnails)
+	// via AssimpImporter. Returns absolute path to .p3dm on success.
+	// Re-importing over an existing package trashes the previous .p3dm and
+	// folder together as one unit (see TrashModelPackage) -
 	// `outTrashedPackageDir`, if non-NULL, receives the .trash/-relative
-	// path it was moved to ("" if nothing existed there before).
+	// path ("" if nothing existed there before).
+	// packageStemOverride: when importing a Sketchfab folder/zip (or a
+	// generic scene.gltf inside one), the package is named after the
+	// download rather than "scene". Empty = derive from the file name.
 	bool ImportModel(const std::string& sourcePath, std::string& outP3dmAbsolute, std::string* errorOut = NULL,
-		std::string* outTrashedPackageDir = NULL);
+		std::string* outTrashedPackageDir = NULL, const std::string& packageStemOverride = "");
+
+	// Model package identity: "assets/models/<stem>" (no extension). The
+	// .p3dm lives at <key>.p3dm and sidecars in <key>/.
+	static bool IsModelPackageKey(const std::string& relativePath);
+	static std::string ModelPackageKeyFromP3dmRel(const std::string& p3dmRelative);
+	// Move both assets/models/<stem>.p3dm and assets/models/<stem>/ (when
+	// present) into one .trash bundle. Empty string on failure / nothing there.
+	std::string TrashModelPackage(const std::string& packageKeyRel, std::string* errorOut = NULL);
+	bool RestoreModelPackage(const std::string& trashRelativePath, const std::string& packageKeyRel,
+		std::string* errorOut = NULL);
 
 	// Copy/convert a dropped or browsed file into the matching assets/ folder
 	// by extension (models, textures, sounds, shaders, lua, materials, scenes).
@@ -174,13 +187,13 @@ public:
 
 	// Delete a file or empty directory under the project (relative path) -
 	// actually moves it to .trash/ (see MoveToTrash) rather than removing
-	// it outright. Deleting a .p3dm under assets/models/<stem>/ removes
-	// (trashes) the whole package folder - in that case `outMovedFromRelativePath`
-	// (if non-NULL) is the package folder's relative path, NOT `relativePath`
-	// itself, since that's what actually got moved and is what a later
-	// MoveFromTrash restore needs as its destination. `outTrashRelativePath`,
-	// if non-NULL, receives the .trash/-relative path it was moved to (for
-	// that MoveFromTrash call) - both out-params are empty on failure.
+	// it outright. Deleting a model .p3dm (or its sidecar folder) trashes
+	// the whole package (assets/models/<stem>.p3dm + assets/models/<stem>/)
+	// as one unit - in that case `outMovedFromRelativePath` (if non-NULL) is
+	// the package key "assets/models/<stem>", NOT the clicked path, since
+	// that's what RestoreModelPackage needs. `outTrashRelativePath`, if
+	// non-NULL, receives the .trash/-relative bundle path - both out-params
+	// are empty on failure.
 	bool DeleteAsset(const std::string& relativePath, std::string* errorOut = NULL,
 		std::string* outTrashRelativePath = NULL, std::string* outMovedFromRelativePath = NULL);
 
@@ -310,9 +323,12 @@ public:
 	// <scene>.json.editor.json.editor.json. Never a scene, never an asset.
 	static bool IsSceneSidecarPath(const std::string& path);
 	static bool IsModelCompanionExtension(const std::string& path);
-	// True for files that belong inside a model package (textures/, .thumbnails/,
-	// staged sources) and should not appear as standalone Assets entries.
-	static bool IsInternalAssetPath(const std::string& relativePath);
+	// True for files that belong inside a model package (staged .fbx/.gltf/.bin,
+	// .thumbnails/) and should not appear as standalone Assets entries.
+	// Directories are not internal: the package folder has to be openable.
+	// Pass isDirectory when the caller already knows, so a folder whose
+	// name contains a dot is not mistaken for a staged file.
+	static bool IsInternalAssetPath(const std::string& relativePath, bool isDirectory = false);
 	// scenes/*.lua companions — not reusable GameObject scripts; hide from Assets.
 	static bool IsSceneLuaScript(const std::string& relativePath);
 

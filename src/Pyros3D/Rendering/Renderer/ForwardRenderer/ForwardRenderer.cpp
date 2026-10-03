@@ -312,7 +312,8 @@ namespace p3d {
 				if (!cullingTest || !(*i)->renderingComponent->IsActive() || (*i)->Active != true)
 					continue;
 
-				const Vec3 objectPosition = owner->GetWorldPosition();
+				// The bounding sphere's centre - see CullingSphereTest.
+				const Vec3 objectPosition = owner->GetWorldTransformation() * owner->GetBoundingSphereCenter();
 				objectLights.clear();
 				for (uint32 l = 0; l < _Lights.size(); l++)
 				{

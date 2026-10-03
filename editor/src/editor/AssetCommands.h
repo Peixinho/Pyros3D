@@ -14,12 +14,11 @@ class ProjectManager;
 
 // Reverses ProjectManager::DeleteAsset(). `trashRelativePath` is where
 // DeleteAsset() moved the file/folder to; Undo() moves it back to
-// `originalRelativePath` (which - for a deleted .p3dm - is the whole
-// model package folder's path, not the .p3dm file itself; see DeleteAsset's
-// own outMovedFromRelativePath doc comment). Redo() re-trashes it, which
-// mints a *new* trash path each time (MoveToTrash always does), so
-// trashRelativePath_ is reassigned on every Redo(), not fixed at
-// construction.
+// `originalRelativePath` (which - for a deleted model - is the package
+// key "assets/models/<stem>", restored via RestoreModelPackage; see
+// DeleteAsset's outMovedFromRelativePath). Redo() re-trashes it, which
+// mints a *new* trash path each time, so trashRelativePath_ is
+// reassigned on every Redo(), not fixed at construction.
 class DeleteAssetCommand : public IUndoableCommand {
 public:
 	DeleteAssetCommand(ProjectManager* project, const std::string& originalRelativePath,

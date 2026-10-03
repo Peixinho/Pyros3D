@@ -68,6 +68,59 @@ namespace {
 #endif
 	}
 
+	// Sketchfab downloads are a folder (often a zip): textures/ next to
+	// source/<model>. Pick the file the viewer would open.
+	std::string FindPrimaryModelFile(const fs::path& root)
+	{
+		struct Hit { int score; std::string path; };
+		Hit best;
+		best.score = -1;
+		std::error_code ec;
+		if (!fs::exists(root, ec)) return std::string();
+
+		fs::recursive_directory_iterator it(root, fs::directory_options::skip_permission_denied, ec);
+		const fs::recursive_directory_iterator end;
+		for (; !ec && it != end; it.increment(ec))
+		{
+			if (it.depth() > 5)
+			{
+				it.disable_recursion_pending();
+				continue;
+			}
+			if (it->is_directory(ec))
+			{
+				const std::string n = it->path().filename().string();
+				if (n == "__MACOSX" || n == ".trash" || (!n.empty() && n[0] == '.'))
+					it.disable_recursion_pending();
+				continue;
+			}
+			if (!it->is_regular_file(ec)) continue;
+			const std::string name = it->path().filename().string();
+			if (name.empty() || name[0] == '.') continue;
+
+			const std::string lower = ToLower(name);
+			const std::string ext = ExtensionLower(name);
+			int band = 0;
+			if (lower == "scene.gltf") band = 6;
+			else if (lower == "scene.glb") band = 5;
+			else if (ext == "gltf") band = 4;
+			else if (ext == "glb") band = 3;
+			else if (ext == "fbx" || ext == "obj" || ext == "dae") band = 2;
+			else if (ProjectManager::IsModelSourceExtension(it->path().string())
+				|| ProjectManager::IsP3dm(it->path().string()))
+				band = 1;
+			else continue;
+
+			const int score = band * 100 - (int)it.depth();
+			if (score > best.score)
+			{
+				best.score = score;
+				best.path = it->path().string();
+			}
+		}
+		return best.path;
+	}
+
 }
 
 ProjectManager::ProjectManager()
@@ -273,7 +326,7 @@ void ProjectManager::ListAssets(const std::string& underRelative, std::vector<Pr
 	{
 		const std::string rel = RelativePath(p.string());
 		if (rel.empty()) return;
-		if (IsInternalAssetPath(rel)) return;
+		if (IsInternalAssetPath(rel, isDir)) return;
 		ProjectAssetEntry e;
 		e.relativePath = rel;
 		e.name = p.filename().string();
@@ -405,7 +458,7 @@ bool ProjectManager::IsModelCompanionExtension(const std::string& path)
 		|| IsTextureExtension(path);
 }
 
-bool ProjectManager::IsInternalAssetPath(const std::string& relativePath)
+bool ProjectManager::IsInternalAssetPath(const std::string& relativePath, bool isDirectory)
 {
 	if (relativePath.empty()) return false;
 	std::string rel = relativePath;
@@ -419,10 +472,17 @@ bool ProjectManager::IsInternalAssetPath(const std::string& relativePath)
 		|| rel == ".thumbnails")
 		return true;
 
-	// Everything under a model package except the .p3dm itself (textures/,
-	// staged .obj/.fbx, companions, etc.) stays with the model.
-	if (rel.find("assets/models/") == 0 && !IsP3dm(rel))
+	// Staged sources (.fbx/.gltf/.bin) under a model package stay with the
+	// model and are not assets of their own. The .p3dm sits at the models
+	// root (always visible); the sidecar folder assets/models/<stem>/ and
+	// its textures stay visible too so people can find them when a model
+	// comes in untextured.
+	if (rel.find("assets/models/") == 0 && !IsP3dm(rel) && !IsTextureExtension(rel))
+	{
+		if (isDirectory) return false;
+		if (ExtensionLower(rel).empty()) return false;
 		return true;
+	}
 
 	// The Material Editor's codegen output. <name>.generated.glsl sits beside
 	// the .mat that produced it, is rewritten wholesale on every Apply, and
@@ -476,24 +536,51 @@ void ProjectManager::CopyModelPackageSidecars(const std::string& sourceFile, con
 		const fs::path p = it->path();
 		if (p == srcFile) continue;
 		const std::string ext = ExtensionLower(p.string());
-		if (ext != "mtl" && ext != "bin") continue;
-		if (p.stem().string() == stem || p.filename().string().find(stem) == 0)
-			copyFileTo(p, destDir / p.filename());
+		if (ext == "mtl" || ext == "bin")
+		{
+			if (p.stem().string() == stem || p.filename().string().find(stem) == 0)
+				copyFileTo(p, destDir / p.filename());
+		}
+		else if (IsTextureExtension(p.string()))
+			copyFileTo(p, destDir / "textures" / p.filename());
 	}
 
 	// Stage common texture folders so Assimp relative paths like
 	// "textures/foo.png" still resolve during convert; PackageReferenced*
 	// then copies only referenced files into textures/ and rewrites the p3dm.
+	// Walk parents too: a Sketchfab download keeps the mesh in source/ and
+	// the images in a sibling textures/ folder. Stop at a project root so
+	// this never sweeps the whole assets tree.
 	const char* subdirs[] = {
 		"textures", "Textures", "texture", "Texture",
 		"maps", "Maps", "materials", "Materials", "images", "Images"
 	};
-	for (size_t i = 0; i < sizeof(subdirs) / sizeof(subdirs[0]); ++i)
+	fs::path walk = srcDir;
+	for (int up = 0; up < 4 && !walk.empty(); ++up)
 	{
-		fs::path sub = srcDir / subdirs[i];
-		if (!fs::exists(sub, ec) || !fs::is_directory(sub, ec)) continue;
-		fs::copy(sub, destDir / subdirs[i],
-			fs::copy_options::recursive | fs::copy_options::overwrite_existing, ec);
+		if (fs::exists(walk / "project.json", ec)) break;
+		for (size_t i = 0; i < sizeof(subdirs) / sizeof(subdirs[0]); ++i)
+		{
+			fs::path sub = walk / subdirs[i];
+			if (!fs::exists(sub, ec) || !fs::is_directory(sub, ec)) continue;
+			// Always land in textures/ so house.fbm/Foo.png and
+			// textures/Foo.png resolve to the same packaged file.
+			// Copy file-by-file: fs::copy into an existing directory nests
+			// a second textures/ folder instead of merging.
+			const fs::path destSub = destDir / "textures";
+			if (fs::equivalent(sub, destSub, ec)) continue;
+			ec.clear();
+			for (fs::recursive_directory_iterator fit(sub, ec), fend; !ec && fit != fend; fit.increment(ec))
+			{
+				if (!fit->is_regular_file(ec)) continue;
+				const fs::path rel = fs::relative(fit->path(), sub, ec);
+				if (ec || rel.empty()) { ec.clear(); continue; }
+				copyFileTo(fit->path(), destSub / rel);
+			}
+			ec.clear();
+		}
+		if (!walk.has_parent_path() || walk.parent_path() == walk) break;
+		walk = walk.parent_path();
 	}
 }
 
@@ -576,6 +663,30 @@ namespace {
 				cand = (root / subdirs[s] / asPath).lexically_normal();
 				if (fs::exists(cand, ec) && fs::is_regular_file(cand, ec))
 					return fs::weakly_canonical(cand, ec);
+			}
+
+			// Sketchfab: model lives in source/, textures in the sibling
+			// folder one or two levels up (and FBX writes house.fbm/Name.png
+			// for a file that is actually textures/Name.png).
+			fs::path ancestor = root;
+			for (int up = 0; up < 3; ++up)
+			{
+				if (!ancestor.has_parent_path()) break;
+				const fs::path parent = ancestor.parent_path();
+				if (parent.empty() || parent == ancestor) break;
+				if (fs::exists(parent / "project.json", ec)) break;
+				ancestor = parent;
+
+				cand = ancestor / asPath.filename();
+				if (fs::exists(cand, ec) && fs::is_regular_file(cand, ec))
+					return fs::weakly_canonical(cand, ec);
+				const char* upDirs[] = { "textures", "Textures", "maps", "Maps", "images", "Images" };
+				for (size_t s = 0; s < sizeof(upDirs) / sizeof(upDirs[0]); ++s)
+				{
+					cand = ancestor / upDirs[s] / asPath.filename();
+					if (fs::exists(cand, ec) && fs::is_regular_file(cand, ec))
+						return fs::weakly_canonical(cand, ec);
+				}
 			}
 		}
 		return fs::path();
@@ -669,13 +780,22 @@ bool ProjectManager::PackageReferencedModelTextures(const std::string& p3dmPath,
 	// sourceAbs -> relative path stored in p3dm (textures/foo.png)
 	std::map<std::string, std::string> remapped;
 
-	// The project's shared texture folder, derived from modelDir rather than
-	// from TexturesPath() because this function is static. modelDir is
-	// <project>/assets/models/<package>, so this is <project>/assets/textures
-	// - the same place the "../../textures/" the remapper stores resolves to,
-	// so the check and the stored path cannot disagree.
+	// Shared textures live at <project>/assets/textures. modelDir is
+	// <project>/assets/models/<stem>, so ../../textures is that folder.
 	const fs::path sharedTexturesDir =
 		(fs::path(modelDir) / ".." / ".." / "textures").lexically_normal();
+	// Paths stored in the .p3dm are resolved relative to the .p3dm's
+	// parent (assets/models/). Package-local textures therefore use
+	// "<stem>/textures/..." and shared ones use "../textures/...".
+	const fs::path p3dmParent = fs::path(p3dmPath).parent_path();
+	auto RelToP3dmParent = [&](const fs::path& absFile) -> std::string {
+		std::error_code relEc;
+		fs::path rel = fs::relative(absFile, p3dmParent, relEc);
+		if (relEc || rel.empty())
+			rel = fs::path(modelDir).filename() / "textures" / absFile.filename();
+		std::string s = rel.generic_string();
+		return s;
+	};
 
 	auto remapOne = [&](const std::string& stored) -> std::string {
 		if (stored.empty()) return stored;
@@ -714,7 +834,7 @@ bool ProjectManager::PackageReferencedModelTextures(const std::string& p3dmPath,
 			if (fs::exists(shared, ec) && !fs::equivalent(shared, resolved, ec)
 				&& FilesHaveSameContent(shared, resolved))
 			{
-				const std::string rel = std::string("../../textures/") + resolved.filename().string();
+				const std::string rel = RelToP3dmParent(shared);
 				remapped[absKey] = rel;
 				return rel;
 			}
@@ -730,7 +850,7 @@ bool ProjectManager::PackageReferencedModelTextures(const std::string& p3dmPath,
 			return stored;
 		}
 
-		const std::string rel = std::string("textures/") + destName;
+		const std::string rel = RelToP3dmParent(dest);
 		remapped[absKey] = rel;
 		return rel;
 	};
@@ -851,11 +971,8 @@ bool ProjectManager::ImportAssetFile(const std::string& sourcePath, std::string&
 	}
 
 	std::error_code ec;
-	if (fs::is_directory(sourcePath, ec))
-	{
-		if (errorOut) *errorOut = "Drop individual files (folders not supported yet)";
-		return false;
-	}
+	if (fs::is_directory(sourcePath, ec) || ExtensionLower(sourcePath) == "zip")
+		return ImportModel(sourcePath, outAbsolute, errorOut, outTrashedExisting);
 
 	// Already inside this project — nothing to do.
 	{
@@ -998,6 +1115,168 @@ bool ProjectManager::MoveFromTrash(const std::string& trashRelativePath, const s
 	return true;
 }
 
+bool ProjectManager::IsModelPackageKey(const std::string& relativePath)
+{
+	if (relativePath.size() <= 14) return false;
+	std::string rel = relativePath;
+	for (size_t i = 0; i < rel.size(); ++i)
+		if (rel[i] == '\\') rel[i] = '/';
+	if (rel.rfind("assets/models/", 0) != 0) return false;
+	const std::string rest = rel.substr(14);
+	if (rest.empty() || rest.find('/') != std::string::npos || rest.find('.') != std::string::npos)
+		return false;
+	return true;
+}
+
+std::string ProjectManager::ModelPackageKeyFromP3dmRel(const std::string& p3dmRelative)
+{
+	std::string rel = p3dmRelative;
+	for (size_t i = 0; i < rel.size(); ++i)
+		if (rel[i] == '\\') rel[i] = '/';
+	if (!IsP3dm(rel) || rel.rfind("assets/models/", 0) != 0)
+		return std::string();
+	fs::path p(rel);
+	// New layout: assets/models/<stem>.p3dm → assets/models/<stem>
+	if (p.parent_path().generic_string() == "assets/models")
+		return std::string("assets/models/") + p.stem().string();
+	// Legacy nested: assets/models/<stem>/<stem>.p3dm → assets/models/<stem>
+	if (p.parent_path().filename() == p.stem()
+		&& p.parent_path().parent_path().generic_string() == "assets/models")
+		return p.parent_path().generic_string();
+	return std::string();
+}
+
+std::string ProjectManager::TrashModelPackage(const std::string& packageKeyRel, std::string* errorOut)
+{
+	if (!IsOpen())
+	{
+		if (errorOut) *errorOut = "No project open";
+		return std::string();
+	}
+	if (!IsModelPackageKey(packageKeyRel))
+	{
+		if (errorOut) *errorOut = "Not a model package key: " + packageKeyRel;
+		return std::string();
+	}
+
+	std::error_code ec;
+	const fs::path p3dmAbs = AbsolutePath(packageKeyRel + ".p3dm");
+	const fs::path dirAbs = AbsolutePath(packageKeyRel);
+	const bool haveP3dm = fs::exists(p3dmAbs, ec);
+	const bool haveDir = fs::exists(dirAbs, ec);
+	if (!haveP3dm && !haveDir)
+	{
+		if (errorOut) *errorOut = "Nothing to trash for " + packageKeyRel;
+		return std::string();
+	}
+
+	const std::string trashDir = AbsolutePath(".trash");
+	fs::create_directories(trashDir, ec);
+	if (ec)
+	{
+		if (errorOut) *errorOut = "Failed to create .trash: " + ec.message();
+		return std::string();
+	}
+
+	std::string safeName = packageKeyRel;
+	for (char& c : safeName) if (c == '/' || c == '\\') c = '_';
+	const long long stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::system_clock::now().time_since_epoch()).count();
+	std::string trashRel = ".trash/" + std::to_string(stamp) + "_" + safeName + "_pkg";
+	std::string trashAbs = AbsolutePath(trashRel);
+	for (int suffix = 1; fs::exists(trashAbs, ec); ++suffix)
+	{
+		trashRel = ".trash/" + std::to_string(stamp) + "_" + std::to_string(suffix) + "_" + safeName + "_pkg";
+		trashAbs = AbsolutePath(trashRel);
+	}
+	fs::create_directories(trashAbs, ec);
+	if (ec)
+	{
+		if (errorOut) *errorOut = "Failed to create trash bundle: " + ec.message();
+		return std::string();
+	}
+
+	const std::string stem = fs::path(packageKeyRel).filename().string();
+	if (haveP3dm)
+	{
+		fs::rename(p3dmAbs, fs::path(trashAbs) / (stem + ".p3dm"), ec);
+		if (ec)
+		{
+			if (errorOut) *errorOut = "Failed to trash .p3dm: " + ec.message();
+			return std::string();
+		}
+	}
+	if (haveDir)
+	{
+		fs::rename(dirAbs, fs::path(trashAbs) / stem, ec);
+		if (ec)
+		{
+			if (errorOut) *errorOut = "Failed to trash package folder: " + ec.message();
+			return std::string();
+		}
+	}
+	projectDirty = true;
+	return trashRel;
+}
+
+bool ProjectManager::RestoreModelPackage(const std::string& trashRelativePath, const std::string& packageKeyRel,
+	std::string* errorOut)
+{
+	if (!IsOpen())
+	{
+		if (errorOut) *errorOut = "No project open";
+		return false;
+	}
+	if (!IsModelPackageKey(packageKeyRel))
+	{
+		if (errorOut) *errorOut = "Not a model package key: " + packageKeyRel;
+		return false;
+	}
+
+	const std::string trashAbs = AbsolutePath(trashRelativePath);
+	std::error_code ec;
+	if (!fs::exists(trashAbs, ec) || !fs::is_directory(trashAbs, ec))
+	{
+		if (errorOut) *errorOut = "Trash package missing: " + trashRelativePath;
+		return false;
+	}
+
+	const fs::path modelsRoot = ModelsPath();
+	fs::create_directories(modelsRoot, ec);
+	const std::string stem = fs::path(packageKeyRel).filename().string();
+	const fs::path destP3dm = modelsRoot / (stem + ".p3dm");
+	const fs::path destDir = modelsRoot / stem;
+	if (fs::exists(destP3dm, ec) || fs::exists(destDir, ec))
+	{
+		if (errorOut) *errorOut = "Destination already occupied: " + packageKeyRel;
+		return false;
+	}
+
+	const fs::path srcP3dm = fs::path(trashAbs) / (stem + ".p3dm");
+	const fs::path srcDir = fs::path(trashAbs) / stem;
+	if (fs::exists(srcP3dm, ec))
+	{
+		fs::rename(srcP3dm, destP3dm, ec);
+		if (ec)
+		{
+			if (errorOut) *errorOut = "Failed to restore .p3dm: " + ec.message();
+			return false;
+		}
+	}
+	if (fs::exists(srcDir, ec))
+	{
+		fs::rename(srcDir, destDir, ec);
+		if (ec)
+		{
+			if (errorOut) *errorOut = "Failed to restore package folder: " + ec.message();
+			return false;
+		}
+	}
+	fs::remove(trashAbs, ec); // empty bundle dir
+	projectDirty = true;
+	return true;
+}
+
 bool ProjectManager::DeleteAsset(const std::string& relativePath, std::string* errorOut, std::string* outTrashRelativePath,
 	std::string* outMovedFromRelativePath)
 {
@@ -1027,20 +1306,21 @@ bool ProjectManager::DeleteAsset(const std::string& relativePath, std::string* e
 		return false;
 	}
 
-	// Model packages live at assets/models/<stem>/ — deleting the .p3dm
-	// trashes the whole package (textures, staged source, etc.) as one unit.
-	if (IsP3dm(relativePath))
+	// Model packages: assets/models/<stem>.p3dm + assets/models/<stem>/.
+	// Deleting either half (or a legacy nested .p3dm) trashes both as one unit.
 	{
-		fs::path rel(relativePath);
-		fs::path parent = rel.parent_path();
-		if (!parent.empty() && parent.filename() == rel.stem()
-			&& parent.string().find("assets/models/") == 0)
+		std::string packageKey;
+		if (IsModelPackageKey(relativePath))
+			packageKey = relativePath;
+		else if (IsP3dm(relativePath))
+			packageKey = ModelPackageKeyFromP3dmRel(relativePath);
+		if (!packageKey.empty())
 		{
-			const std::string trashRel = MoveToTrash(AbsolutePath(parent.string()), errorOut);
+			const std::string trashRel = TrashModelPackage(packageKey, errorOut);
 			if (trashRel.empty())
 				return false;
 			if (outTrashRelativePath) *outTrashRelativePath = trashRel;
-			if (outMovedFromRelativePath) *outMovedFromRelativePath = parent.string();
+			if (outMovedFromRelativePath) *outMovedFromRelativePath = packageKey;
 			projectDirty = true;
 			return true;
 		}
@@ -1493,7 +1773,7 @@ bool ProjectManager::ImportAnimation(const std::string& sourcePath, const std::s
 }
 
 bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& outP3dmAbsolute, std::string* errorOut,
-	std::string* outTrashedPackageDir)
+	std::string* outTrashedPackageDir, const std::string& packageStemOverride)
 {
 	outP3dmAbsolute.clear();
 	if (outTrashedPackageDir) outTrashedPackageDir->clear();
@@ -1509,14 +1789,93 @@ bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& out
 	}
 
 	std::error_code ec;
-	const std::string stem = fs::path(sourcePath).stem().string();
+
+	// A dropped folder or .zip (the way Sketchfab and most stores ship a
+	// model: source/ + textures/, or one archive of that). Unpack if
+	// needed, then import the mesh inside it.
+	if (fs::is_directory(sourcePath, ec) || ExtensionLower(sourcePath) == "zip")
+	{
+		fs::path root(sourcePath);
+		fs::path cleanup;
+		const std::string folderStem = fs::is_directory(sourcePath, ec)
+			? fs::path(sourcePath).filename().string()
+			: fs::path(sourcePath).stem().string();
+		if (!fs::is_directory(sourcePath, ec))
+		{
+			cleanup = fs::temp_directory_path(ec) / ("pyros-import-" + folderStem);
+			fs::remove_all(cleanup, ec);
+			fs::create_directories(cleanup, ec);
+			if (ec)
+			{
+				if (errorOut) *errorOut = "Failed to create a temp folder for the zip: " + ec.message();
+				return false;
+			}
+			std::ostringstream cmd;
+			cmd << "tar -xf " << ShellQuote(sourcePath) << " -C " << ShellQuote(cleanup.string());
+			if (!RunProcess(cmd.str(), errorOut))
+			{
+				fs::remove_all(cleanup);
+				if (errorOut && errorOut->empty())
+					*errorOut = "Could not unzip (tar -xf failed)";
+				return false;
+			}
+			root = cleanup;
+		}
+
+		const std::string modelFile = FindPrimaryModelFile(root);
+		if (modelFile.empty())
+		{
+			if (!cleanup.empty()) fs::remove_all(cleanup);
+			if (errorOut) *errorOut = "No model file inside that folder (.gltf, .glb, .fbx, .obj, ...)";
+			return false;
+		}
+		const std::string stemOverride = packageStemOverride.empty() ? folderStem : packageStemOverride;
+		const bool ok = ImportModel(modelFile, outP3dmAbsolute, errorOut, outTrashedPackageDir, stemOverride);
+		if (!cleanup.empty()) fs::remove_all(cleanup);
+		return ok;
+	}
+
+	auto GenericModelStem = [](const std::string& s) {
+		const std::string l = ToLower(s);
+		return l.empty() || l == "scene" || l == "model" || l == "untitled"
+			|| l == "mesh" || l == "source" || l == "root";
+	};
+
+	std::string stem = packageStemOverride;
+	if (stem.empty())
+	{
+		stem = fs::path(sourcePath).stem().string();
+		// Sketchfab's default name is scene.gltf / Untitled.glb / source/foo.fbx
+		// - name the package after the download folder instead.
+		if (GenericModelStem(stem) || ToLower(fs::path(sourcePath).parent_path().filename().string()) == "source")
+		{
+			fs::path walk = fs::path(sourcePath).parent_path();
+			if (ToLower(walk.filename().string()) == "source")
+				walk = walk.parent_path();
+			while (!walk.empty() && GenericModelStem(walk.filename().string()))
+			{
+				if (!walk.has_parent_path() || walk.parent_path() == walk) break;
+				walk = walk.parent_path();
+			}
+			if (!walk.empty() && !GenericModelStem(walk.filename().string()))
+				stem = walk.filename().string();
+		}
+	}
+	for (size_t i = 0; i < stem.size(); ++i)
+		if (stem[i] == ' ' || stem[i] == '/' || stem[i] == '\\') stem[i] = '_';
 	if (stem.empty())
 	{
 		if (errorOut) *errorOut = "Invalid model filename";
 		return false;
 	}
 
-	const fs::path modelDir = fs::path(ModelsPath()) / stem;
+	// Always the same layout:
+	//   assets/models/<stem>.p3dm
+	//   assets/models/<stem>/   (textures, staged source, thumbnails)
+	const fs::path modelsRoot = ModelsPath();
+	const fs::path modelDir = modelsRoot / stem;
+	const fs::path outP3dm = modelsRoot / (stem + ".p3dm");
+	const std::string packageKey = std::string("assets/models/") + stem;
 
 	// A .p3dm re-"imported" from right where it already lives is a true
 	// no-op - must be checked BEFORE the trash step below, or re-importing
@@ -1525,22 +1884,20 @@ bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& out
 	if (IsP3dm(sourcePath))
 	{
 		const std::string alreadyRel = RelativePath(sourcePath);
-		if (!alreadyRel.empty() && alreadyRel.find("assets/models/") == 0)
+		if (!alreadyRel.empty() && ModelPackageKeyFromP3dmRel(alreadyRel) == packageKey
+			&& fs::equivalent(sourcePath, outP3dm, ec))
 		{
-			outP3dmAbsolute = sourcePath;
+			outP3dmAbsolute = outP3dm.string();
 			return true;
 		}
+		ec.clear();
 	}
 
-	// Re-importing over an existing package (same model name imported
-	// again, from a genuinely different source) would otherwise silently
-	// overwrite its contents file-by-file below - trash the whole
-	// pre-existing folder as one unit first so undo can restore it
-	// exactly, rather than trying to reconstruct which individual files
-	// got clobbered.
-	if (fs::exists(modelDir, ec) && !fs::is_empty(modelDir, ec))
+	// Re-importing over an existing package trashes .p3dm + sidecar folder
+	// together so undo can restore both.
+	if (fs::exists(outP3dm, ec) || fs::exists(modelDir, ec))
 	{
-		const std::string trashRel = MoveToTrash(modelDir.string(), errorOut);
+		const std::string trashRel = TrashModelPackage(packageKey, errorOut);
 		if (trashRel.empty())
 			return false;
 		if (outTrashedPackageDir) *outTrashedPackageDir = trashRel;
@@ -1555,8 +1912,7 @@ bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& out
 
 	if (IsP3dm(sourcePath))
 	{
-		const fs::path dest = modelDir / (stem + ".p3dm");
-		fs::copy_file(sourcePath, dest, fs::copy_options::overwrite_existing, ec);
+		fs::copy_file(sourcePath, outP3dm, fs::copy_options::overwrite_existing, ec);
 		if (ec)
 		{
 			if (errorOut) *errorOut = "Failed to copy .p3dm into project: " + ec.message();
@@ -1565,10 +1921,10 @@ bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& out
 		CopyModelPackageSidecars(sourcePath, modelDir.string());
 		{
 			std::string texErr;
-			if (!PackageReferencedModelTextures(dest.string(), sourcePath, modelDir.string(), &texErr) && errorOut && !texErr.empty())
+			if (!PackageReferencedModelTextures(outP3dm.string(), sourcePath, modelDir.string(), &texErr) && errorOut && !texErr.empty())
 				*errorOut = texErr; // non-fatal if empty; still keep the model
 		}
-		outP3dmAbsolute = dest.string();
+		outP3dmAbsolute = outP3dm.string();
 		projectDirty = true;
 		return true;
 	}
@@ -1586,8 +1942,8 @@ bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& out
 		return false;
 	}
 
-	// Stage source + companions into the package folder, convert, then copy
-	// only the textures the .p3dm actually references and rewrite paths.
+	// Stage source + companions into the sidecar folder, convert to the
+	// models-root .p3dm, then copy only the textures the .p3dm references.
 	const fs::path stagedSrc = modelDir / fs::path(sourcePath).filename();
 	fs::copy_file(sourcePath, stagedSrc, fs::copy_options::overwrite_existing, ec);
 	if (ec)
@@ -1597,8 +1953,7 @@ bool ProjectManager::ImportModel(const std::string& sourcePath, std::string& out
 	}
 	CopyModelPackageSidecars(sourcePath, modelDir.string());
 
-	const fs::path outBase = modelDir / stem; // converter appends .p3dm
-	const fs::path outP3dm = fs::path(outBase.string() + ".p3dm");
+	const fs::path outBase = modelsRoot / stem; // converter appends .p3dm
 
 	std::ostringstream cmd;
 	cmd << ShellQuote(importer) << " --model " << ShellQuote(stagedSrc.string()) << " " << ShellQuote(outBase.string());

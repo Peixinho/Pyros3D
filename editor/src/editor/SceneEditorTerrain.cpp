@@ -5,6 +5,7 @@
 #include "SceneEditor.h"
 #include "EditorWorld.h"
 #include "SceneCommands.h"
+#include "MaterialCodegen.h"
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
@@ -89,6 +90,35 @@ namespace {
 		s.castShadows = j.value("castShadows", s.castShadows);
 	}
 
+	// What the foliage and material commands edit inside an object's
+	// snapshot: a Terrain object's tile template - itself a subtree, one
+	// tile and the materials it uses - or else the snapshot.
+	json &TileSubtree(json &tree)
+	{
+		if (tree.contains("root") && tree["root"].is_object() && tree["root"].contains("components") && tree["root"]["components"].is_array())
+			for (auto &c : tree["root"]["components"])
+				if (c.is_object() && c.value("type", std::string()) == "Terrain" && c.contains("tileTemplate") && c["tileTemplate"].is_object())
+					return c["tileTemplate"];
+		return tree;
+	}
+
+	TerrainComponent* TerrainOn(GameObject* go)
+	{
+		if (!go) return NULL;
+		for (size_t c = 0; c < go->GetComponents().size(); c++)
+			if (TerrainComponent* tc = dynamic_cast<TerrainComponent*>(go->GetComponents()[c].get())) return tc;
+		return NULL;
+	}
+
+	// The template's foliage layers (NULL when it has none).
+	json* TemplateFoliageLayers(json &tmpl)
+	{
+		if (!tmpl.contains("root") || !tmpl["root"].contains("components") || !tmpl["root"]["components"].is_array()) return NULL;
+		for (auto &c : tmpl["root"]["components"])
+			if (c.is_object() && c.value("type", std::string()) == "Foliage" && c.contains("layers") && c["layers"].is_array()) return &c["layers"];
+		return NULL;
+	}
+
 	SceneObject* FindGameObjectNamed(SceneObjects* objects, const std::string &name)
 	{
 		for (std::map<uint32, SceneObject*>::const_iterator i = objects->GetList().begin(); i != objects->GetList().end(); ++i)
@@ -148,6 +178,12 @@ namespace {
 		case TerrainTools::PaintTexture: return "Paint Terrain Texture";
 		case TerrainTools::PaintFoliage: return "Paint Foliage";
 		case TerrainTools::Place: return "Place Objects";
+		case TerrainTools::Hole: return "Cut Terrain Hole";
+		case TerrainTools::Fill: return "Fill Terrain Hole";
+		case TerrainTools::Dig: return "Dig Cave";
+		case TerrainTools::Pack: return "Fill Cave";
+		case TerrainTools::CaveSmooth: return "Smooth Cave";
+		case TerrainTools::CaveLevel: return "Level Cave Floor";
 		default: return "Terrain Stroke";
 		}
 	}
@@ -159,7 +195,31 @@ TerrainTools &SceneEditor::Terrain()
 	// Where the scene's relative map paths resolve - asked for on every use,
 	// since the project can change under a live SceneEditor.
 	if (project && project->IsOpen()) terrainTools->SetAssetRoot(project->GetProjectPath());
+	// Set here for the same reason: ResetScene() starts the brushes over,
+	// and the world they must ask is whichever one is open now.
+	SceneEditor* self = this;
+	terrainTools->SetEditable([self](const GameObject* owner) { return !(self->editorWorld && self->editorWorld->IsFar(owner)); });
 	return *terrainTools;
+}
+
+void SceneEditor::LiftViewAboveTerrain()
+{
+	if (worldViewLiftTries <= 0 || playMode || sceneIsTwoD || !CameraPivot) return;
+	GameObject* viewCam = GetViewCameraGO();
+	if (!viewCam || activeSceneCameraId != 0) return;
+	worldViewLiftTries--;
+	const Vec3 pivot = CameraPivot->GetWorldPosition();
+	const Vec3 eye = viewCam->GetWorldPosition();
+	f32 h;
+	if (!TerrainEditor::HeightAt(scene, eye.x, eye.z, h)) return;
+	worldViewLiftTries = 0;
+	if (eye.y > h + 1.f) return;
+	f32 hp = h;
+	TerrainEditor::HeightAt(scene, pivot.x, pivot.z, hp);
+	// The pivot onto its ground, and higher still if that leaves the eye
+	// under the ground it stands over.
+	const f32 lift = std::max(hp - pivot.y, h + 2.f - eye.y);
+	CameraPivot->SetPosition(CameraPivot->GetPosition() + Vec3(0.f, lift, 0.f));
 }
 
 bool SceneEditor::IsTerrainMode() const
@@ -231,6 +291,7 @@ void SceneEditor::UpdateTerrainBrush()
 bool SceneEditor::BeginTerrainStroke()
 {
 	if (!terrainTools || !terrainTools->BeginStroke(scene)) return false;
+	if (terrainTools->IsCaveTool()) EnsureCaveMaterials();
 	placeLastValid = false;
 	if (terrainTools->tool == TerrainTools::Place && !placeGroupOpen)
 	{
@@ -319,43 +380,521 @@ void SceneEditor::EndTerrainStroke()
 
 bool SceneEditor::SaveTerrain()
 {
-	if (!terrainTools) return true;
-	if (project && project->IsOpen()) terrainTools->SetAssetRoot(project->GetProjectPath());
-	if (terrainTools->Save()) return true;
-	echo("ERROR: saving terrain - a heightmap, splat or density map could not be written");
+	const std::vector<TerrainComponent*> terrains = SceneTerrains();
+	// Which terrain tiles are about to be written: their part of the
+	// overview follows them.
+	std::map<TerrainComponent*, std::vector<std::pair<int32, int32> > > written;
+	if (terrainTools)
+	{
+		const std::vector<const GameObject*> owners = terrainTools->UnsavedOwners();
+		for (size_t i = 0; i < owners.size(); i++)
+			for (size_t t = 0; t < terrains.size(); t++)
+			{
+				int32 x, z;
+				if (terrains[t]->TileOf(owners[i], x, z)) written[terrains[t]].push_back(std::make_pair(x, z));
+			}
+		if (project && project->IsOpen()) terrainTools->SetAssetRoot(project->GetProjectPath());
+		if (!terrainTools->Save())
+		{
+			echo("ERROR: saving terrain - a heightmap, splat or density map could not be written");
+			return false;
+		}
+	}
+	bool ok = true;
+	for (size_t t = 0; t < terrains.size(); t++)
+	{
+		const uint32 id = sceneObjects->GetSceneObjectID(terrains[t]->GetOwner());
+		const bool all = terrainOverviewStale.count(id) > 0 || !terrains[t]->HasOverview();
+		std::map<TerrainComponent*, std::vector<std::pair<int32, int32> > >::const_iterator w = written.find(terrains[t]);
+		if (!all && w == written.end()) continue;
+		std::string err;
+		if (!terrains[t]->BakeOverview(all ? NULL : &w->second, err))
+		{
+			echo("ERROR: baking the terrain overview - " + err);
+			ok = false;
+		}
+		else terrainOverviewStale.erase(id);
+	}
+	return ok;
+}
+
+std::vector<TerrainComponent*> SceneEditor::SceneTerrains() const
+{
+	std::vector<TerrainComponent*> out;
+	const std::vector<TerrainComponent*> &all = TerrainComponent::Instances();
+	for (size_t i = 0; i < all.size(); i++)
+		if (all[i]->GetOwner() && sceneObjects && sceneObjects->GetSceneObjectID(all[i]->GetOwner()) != 0) out.push_back(all[i]);
+	return out;
+}
+
+void SceneEditor::UpdateTerrainObjects(const std::vector<Vec3>& foci)
+{
+	TerrainComponent::SetViewers(scene, foci);
+	const std::vector<TerrainComponent*> terrains = SceneTerrains();
+	SceneEditor* self = this;
+	for (size_t i = 0; i < terrains.size(); i++)
+	{
+		// A scene never saved has no path for its objects to find the
+		// project by.
+		if (terrains[i]->GetAssetRoot().empty() && project && project->IsOpen())
+			terrains[i]->SetAssetRoot(project->GetProjectPath());
+		if (terrains[i]->HasHooks()) continue;
+		// A tile with unsaved brush edits stays until it is saved, and one
+		// leaving takes itself out of the brushes' bookkeeping.
+		terrains[i]->SetUnloadVeto([self](GameObject* tile) {
+			return !self->playMode && self->terrainTools && self->terrainTools->HasUnsaved(tile); });
+		terrains[i]->SetOnTileUnloading([self](GameObject* tile) {
+			if (self->terrainTools) self->terrainTools->Forget(tile); });
+	}
+}
+
+void SceneEditor::EnsureCaveMaterials()
+{
+	if (!project || !project->IsOpen()) return;
+	namespace fs = std::filesystem;
+	const std::vector<TerrainComponent*> terrains = SceneTerrains();
+	for (size_t i = 0; i < terrains.size(); i++)
+	{
+		if (!terrains[i]->GetSettings().caveMaterial.empty()) continue;
+		// Cave walls have no unwrap, so the rock is laid on by world
+		// position from three sides and blended by which way the wall
+		// faces. Written once into the project, then the user's to change.
+		const std::string shaderRel = "assets/terrain/cave_rock.glsl";
+		const fs::path root(project->GetProjectPath());
+		std::error_code ec;
+		std::string rock = "assets/terrain/layers/rock.png";
+		if (!fs::exists(root / rock, ec)) rock = TerrainLayerTexture(2);
+		if (rock.empty() || !fs::exists(root / rock, ec)) continue;	// plain grey walls
+		if (!fs::exists(root / shaderRel, ec))
+		{
+			const char* body =
+				"vec3 bw = abs(p3d_N);\n"
+				"bw = bw / max(bw.x + bw.y + bw.z, 0.0001);\n"
+				"vec3 Albedo = texture_2D(rock, vWorldPos.zy / 5.0).rgb * bw.x\n"
+				"    + texture_2D(rock, vWorldPos.xz / 5.0).rgb * bw.y\n"
+				"    + texture_2D(rock, vWorldPos.xy / 5.0).rgb * bw.z;\n"
+				"Albedo *= 0.8;\n"
+				"float Metallic = 0.0;\n"
+				"float Roughness = 0.95;\n";
+			const MaterialCodegenResult gen = GenerateGLSLFromSimpleText(body, { "rock" });
+			if (!gen.error.empty()) { echo("ERROR: cave shader - " + gen.error); continue; }
+			fs::create_directories((root / shaderRel).parent_path(), ec);
+			std::ofstream out((root / shaderRel).string().c_str(), std::ios::binary | std::ios::trunc);
+			out << gen.glsl;
+			if (!out) continue;
+		}
+		const json m = { { "id", 0 }, { "kind", "custom" }, { "shaderFile", shaderRel }, { "castingShadows", false },
+			{ "samplers", json::array({ { { "name", "rock" }, { "texture", rock } } }) } };
+		terrains[i]->SetCaveMaterial(m.dump());
+		MarkSceneDirty();
+	}
+}
+
+namespace {
+	TerrainComponent* FindTerrain(GameObject* go)
+	{
+		if (!go) return NULL;
+		for (size_t c = 0; c < go->GetComponents().size(); c++)
+			if (TerrainComponent* tc = dynamic_cast<TerrainComponent*>(go->GetComponents()[c].get())) return tc;
+		return NULL;
+	}
+
+	json TerrainInfo(TerrainComponent* tc, const std::string &name, const uint32 id)
+	{
+		const TerrainComponent::Settings &s = tc->GetSettings();
+		const Vec3 at = tc->GetOwner() ? tc->GetOwner()->GetWorldPosition() : Vec3();
+		return { { "name", name }, { "id", id }, { "directory", s.directory }, { "tilesX", s.tilesX }, { "tilesZ", s.tilesZ },
+			{ "tileSize", s.tileSize }, { "loadRadius", s.loadRadius }, { "unloadRadius", s.unloadRadius },
+			{ "viewDistance", s.viewDistance }, { "overviewSamples", s.overviewSamples }, { "centre", { at.x, at.y, at.z } },
+			{ "corner", { at.x + tc->Corner().x, at.y, at.z + tc->Corner().z } },
+			{ "loaded", tc->LoadedCount() }, { "loading", tc->LoadingCount() }, { "distant", tc->DistantCount() },
+			{ "overview", tc->HasOverview() } };
+	}
+}
+
+bool SceneEditor::ConvertTerrainToObjects(const json& args, json& out, std::string& errOut)
+{
+	if (playMode) { errOut = "stop play mode first"; return false; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+	if (scenePath.empty()) { errOut = "save the scene first"; return false; }
+	if (terrainTools && terrainTools->Stroking()) EndTerrainStroke();
+	// What is on disk must be what is on screen: the conversion reads and
+	// rewrites the files.
+	if (!AgentSave(errOut)) return false;
+	const std::string path = scenePath;
+	if (!TerrainTools::ConvertSceneTerrains(path, project->GetProjectPath(), args.value("force", false), out, errOut)) return false;
+	if (!LoadSceneFromFile(path)) { errOut = "the scene was converted but could not be reloaded"; return false; }
+	// The new terrains have maps but no overview yet.
+	const std::vector<TerrainComponent*> terrains = SceneTerrains();
+	for (size_t i = 0; i < terrains.size(); i++)
+	{
+		std::string err;
+		if (!terrains[i]->HasOverview() && !terrains[i]->BakeOverview(NULL, err)) echo("ERROR: baking the terrain overview - " + err);
+	}
+	return true;
+}
+
+bool SceneEditor::AgentTerrainObject(const std::string& command, const json& a, json& out, std::string& errOut)
+{
+	const json args = a.is_object() ? a : json::object();
+	if (command == "terrain_convert") return ConvertTerrainToObjects(args, out, errOut);
+	if (command == "terrain_info")
+	{
+		out["terrains"] = json::array();
+		const std::vector<TerrainComponent*> terrains = SceneTerrains();
+		for (size_t i = 0; i < terrains.size(); i++)
+		{
+			const uint32 id = sceneObjects->GetSceneObjectID(terrains[i]->GetOwner());
+			SceneObject* so = sceneObjects->GetSceneObject(id);
+			out["terrains"].push_back(TerrainInfo(terrains[i], so ? so->GetName() : std::string(), id));
+		}
+		return true;
+	}
+	// Noise tunnels under the terrain around a point: {"centre": [x, y, z]
+	// (default: the view's pivot), "radius", "seed", "size", "width",
+	// "minDepth", "maxDepth"}. One undo entry.
+	if (command == "terrain_generate_caves")
+	{
+		if (playMode || sceneIsTwoD) { errOut = "caves need a 3D scene outside play"; return false; }
+		if (SceneTerrains().empty()) { errOut = "caves belong to a Terrain object: there is none in this scene"; return false; }
+		TerrainTools &t = Terrain();
+		if (t.Stroking()) EndTerrainStroke();
+		Vec3 centre = CameraPivot ? CameraPivot->GetWorldPosition() : Vec3();
+		if (args.contains("centre") && args["centre"].is_array() && args["centre"].size() >= 3)
+			centre = Vec3(args["centre"][0].get<f32>(), args["centre"][1].get<f32>(), args["centre"][2].get<f32>());
+		const f32 radius = std::min(std::max(args.value("radius", 150.f), 4.f), 4000.f);
+		// The tiles it reaches must be in: it digs what is loaded.
+		const std::vector<TerrainComponent*> terrains = SceneTerrains();
+		std::vector<Vec3> foci;
+		for (int k = 0; k < 9; k++) foci.push_back(centre + Vec3((k % 3 - 1) * radius, 0.f, (k / 3 - 1) * radius));
+		for (size_t i = 0; i < terrains.size(); i++) terrains[i]->LoadAround(foci);
+		EnsureCaveMaterials();
+		t.BeginRecording();
+		const uint32 tiles = t.GenerateCaves(scene, centre, radius, args.value("seed", 1u), std::max(4.f, args.value("size", 48.f)),
+			std::min(std::max(args.value("width", 0.09f), 0.f), 0.5f), args.value("minDepth", 6.f), args.value("maxDepth", 90.f));
+		const size_t undoBefore = sceneUndo.UndoCount();
+		EndTerrainStroke();
+		out["tiles"] = tiles;
+		out["undoEntry"] = sceneUndo.UndoCount() > undoBefore;
+		return true;
+	}
+	// Caves saved by an older build: openings and walls made again from
+	// the voxels of every loaded tile. One undo entry.
+	if (command == "terrain_resync_caves")
+	{
+		if (playMode || sceneIsTwoD) { errOut = "caves need a 3D scene outside play"; return false; }
+		TerrainTools &t = Terrain();
+		if (t.Stroking()) EndTerrainStroke();
+		t.BeginRecording();
+		out["tiles"] = t.ResyncCaves(scene);
+		EndTerrainStroke();
+		return true;
+	}
+	// The rest name one terrain: by id, by name, the selection, or the
+	// scene's only one.
+	TerrainComponent* tc = NULL;
+	SceneObject* target = NULL;
+	if (args.contains("id") || args.contains("name") || SelectedSceneObject)
+	{
+		std::string ignored;
+		target = ResolveTerrainTarget(args, ignored);
+		if (target) tc = FindTerrain((GameObject*)target->GetPTR());
+	}
+	if (!tc)
+	{
+		const std::vector<TerrainComponent*> terrains = SceneTerrains();
+		if (terrains.size() == 1)
+		{
+			tc = terrains[0];
+			target = sceneObjects->GetSceneObject(sceneObjects->GetSceneObjectID(tc->GetOwner()));
+		}
+	}
+	if (!tc || !target) { errOut = "name a Terrain object ('name' or 'id'), or select one"; return false; }
+	if (command == "set_terrain")
+	{
+		const TerrainComponent::Settings was = tc->GetSettings();
+		const f32 load = std::max(0.f, args.value("loadRadius", was.loadRadius));
+		const f32 unload = std::max(load, args.value("unloadRadius", std::max(was.unloadRadius, load * 1.25f)));
+		const f32 view = std::max(0.f, args.value("viewDistance", was.viewDistance));
+		const uint32 id = target->GetID();
+		auto apply = [this, id](const f32 l, const f32 u, const f32 v) {
+			SceneObject* so = sceneObjects->GetSceneObject(id);
+			TerrainComponent* t = so ? FindTerrain((GameObject*)so->GetPTR()) : NULL;
+			if (!t) return;
+			t->SetRadii(l, u);
+			t->SetViewDistance(v);
+			MarkSceneDirty();
+		};
+		apply(load, unload, view);
+		sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+			[apply, was]() { apply(was.loadRadius, was.unloadRadius, was.viewDistance); },
+			[apply, load, unload, view]() { apply(load, unload, view); }, "Edit Terrain"));
+		out = TerrainInfo(tc, target->GetName(), id);
+		return true;
+	}
+	if (command == "terrain_bake_overview")
+	{
+		if (!SaveTerrain()) { errOut = "the terrain's maps could not be saved"; return false; }
+		if (!tc->BakeOverview(NULL, errOut)) return false;
+		out = TerrainInfo(tc, target->GetName(), target->GetID());
+		return true;
+	}
+	errOut = "unknown terrain command " + command;
 	return false;
 }
 
-void SceneEditor::ShowTerrainPanel()
+void SceneEditor::DrawTerrainProperties(GameObject* go, uint32 goId)
 {
-	if (!IsTerrainMode() || sceneIsTwoD) return;
-	TerrainTools &t = *terrainTools;
-	ImGui::SetNextWindowSize(ImVec2(300, 420), ImGuiCond_FirstUseEver);
-	bool open = true;
-	if (!ImGui::Begin("Terrain", &open))
-	{
-		ImGui::End();
-		if (!open) SetTerrainMode(false);
-		return;
-	}
+	TerrainComponent* tc = FindTerrain(go);
+	if (!tc) return;
+	if (!ImGui::CollapsingHeader("Terrain##props_terrain", ImGuiTreeNodeFlags_DefaultOpen)) return;
+	ImGui::PushID("terrain_props");
+	const TerrainComponent::Settings &s = tc->GetSettings();
+	ImGui::Text("%d x %d tiles of %.0f m (%.0f x %.0f m)", s.tilesX, s.tilesZ, s.tileSize, s.tilesX * s.tileSize, s.tilesZ * s.tileSize);
+	ImGui::TextDisabled("%s", s.directory.c_str());
+	ImGui::Text("%u tile(s) loaded, %u loading, %u drawn from the overview", tc->LoadedCount(), tc->LoadingCount(), tc->DistantCount());
+	if (!tc->HasOverview())
+		ImGui::TextColored(ImVec4(1.f, 0.8f, 0.3f, 1.f), "No overview yet: tiles past the load radius are not drawn.");
 
-	static const char* labels[TerrainTools::ToolCount] = { "Raise", "Lower", "Smooth", "Flatten", "Texture", "Foliage", "Place" };
+	// One undo entry per drag: sent when the widget is let go.
+	static f32 load = 0.f, unload = 0.f, view = 0.f;
+	static uint32 editing = 0;
+	if (editing != goId || !ImGui::IsAnyItemActive()) { load = s.loadRadius; unload = s.unloadRadius; view = s.viewDistance; editing = goId; }
+	bool commit = false;
+	ImGui::DragFloat("Full tiles within (m)", &load, 8.f, 0.f, 100000.f, "%.0f");
+	commit |= ImGui::IsItemDeactivatedAfterEdit();
+	ImGui::DragFloat("Dropped past (m)", &unload, 8.f, 0.f, 100000.f, "%.0f");
+	commit |= ImGui::IsItemDeactivatedAfterEdit();
+	ImGui::DragFloat("Drawn out to (m)", &view, 16.f, 0.f, 1000000.f, view > 0.f ? "%.0f" : "everything");
+	commit |= ImGui::IsItemDeactivatedAfterEdit();
+	if (commit)
+		pendingFoliageOp = { { "cmd", "set_terrain" }, { "id", goId }, { "loadRadius", load }, { "unloadRadius", std::max(load, unload) },
+			{ "viewDistance", view } };
+
+	ImGui::TextDisabled("To sculpt, paint or dig: select the Terrain component in the tree (or press B).\nIts brushes are in the Tools window.");
+	if (ImGui::Button("Bake Overview")) pendingFoliageOp = { { "cmd", "terrain_bake_overview" }, { "id", goId } };
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Rebuilds the low-resolution ground drawn past the load radius\nfrom every tile's maps. Saving does this for edited tiles.");
+
+	// Foliage: the layers every tile grows, from the template. An edit
+	// rebuilds the terrain's tiles, so it is sent when the widget is let go.
+	ImGui::Separator();
+	ImGui::TextDisabled("Foliage (every tile)");
+	static std::vector<FoliageLayerSpec> specs;
+	static std::vector<bool> isModel;
+	static uint32 specsFor = 0;
+	static std::string specsFrom;
+	if (specsFor != goId || (!ImGui::IsAnyItemActive() && specsFrom != s.tileTemplate))
+	{
+		specs.clear();
+		isModel.clear();
+		try
+		{
+			json tmpl = json::parse(s.tileTemplate);
+			if (json* layers = TemplateFoliageLayers(tmpl))
+				for (size_t i = 0; i < layers->size(); i++)
+				{
+					FoliageLayerSpec spec;
+					PatchSpec(spec, (*layers)[i]);
+					spec.name = (*layers)[i].value("name", std::string());
+					specs.push_back(spec);
+					isModel.push_back((*layers)[i].contains("mesh") && (*layers)[i]["mesh"].value("kind", std::string()) == "model");
+				}
+		}
+		catch (const std::exception &) {}
+		specsFor = goId;
+		specsFrom = s.tileTemplate;
+	}
+	for (size_t i = 0; i < specs.size(); i++)
+	{
+		FoliageLayerSpec &fs = specs[i];
+		ImGui::PushID((int)i);
+		const std::string title = "Layer " + std::to_string(i) + (fs.name.empty() ? std::string() : ": " + fs.name) + "###layer";
+		if (ImGui::TreeNodeEx(title.c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			bool send = false;
+			ImGui::DragFloat("Density /m2", &fs.density, 0.01f, 0.f, 50.f, "%.3f"); send |= ImGui::IsItemDeactivatedAfterEdit();
+			ImGui::DragFloat("Min scale", &fs.minScale, 0.01f, 0.01f, 10.f); send |= ImGui::IsItemDeactivatedAfterEdit();
+			ImGui::DragFloat("Max scale", &fs.maxScale, 0.01f, 0.01f, 10.f); send |= ImGui::IsItemDeactivatedAfterEdit();
+			ImGui::DragFloat("Max slope", &fs.maxSlopeDegrees, 0.5f, 0.f, 90.f, "%.0f deg"); send |= ImGui::IsItemDeactivatedAfterEdit();
+			ImGui::DragFloat("Full density to", &fs.fullDistance, 1.f, 0.f, 5000.f, "%.0f m"); send |= ImGui::IsItemDeactivatedAfterEdit();
+			ImGui::DragFloat("Fade out by", &fs.fadeDistance, 1.f, 0.f, 5000.f, "%.0f m"); send |= ImGui::IsItemDeactivatedAfterEdit();
+			ImGui::DragFloat("Far mesh from", &fs.lodDistance, 1.f, 0.f, 5000.f, "%.0f m"); send |= ImGui::IsItemDeactivatedAfterEdit();
+			if (send)
+			{
+				json op = SpecJson(fs);
+				op.erase("densityMap");
+				op.erase("name");
+				op["cmd"] = "set_foliage_layer";
+				op["id"] = goId;
+				op["layer"] = (int)i;
+				pendingFoliageOp = op;
+			}
+			if (ImGui::SmallButton("Remove Layer"))
+				pendingFoliageOp = { { "cmd", "remove_foliage_layer" }, { "id", goId }, { "layer", (int)i } };
+			if (isModel[i])
+			{
+				ImGui::SameLine();
+				if (ImGui::SmallButton("Bake Impostor")) pendingImpostorBake = { { "id", goId }, { "layer", (int)i } };
+			}
+			ImGui::TreePop();
+		}
+		ImGui::PopID();
+	}
+	if (ImGui::Button("Add Grass Layer")) pendingFoliageOp = { { "cmd", "terrain_add_grass" }, { "id", goId } };
+	static std::string terrainModelLayer;
+	ImGui::InputTextWithHint("##terrain_foliage_model", "assets/models/tree.p3dm", &terrainModelLayer);
+	ImGui::SameLine();
+	if (ImGui::Button("Add Model Layer") && !terrainModelLayer.empty())
+		pendingFoliageOp = { { "cmd", "add_foliage_layer" }, { "id", goId }, { "mesh", terrainModelLayer } };
+	ImGui::PopID();
+}
+
+namespace {
+	// What the New Terrain window asked for, run after its End().
+	json g_pendingTerrainCreate, g_pendingTerrainImport;
+	std::string g_terrainCreateError;
+}
+
+bool SceneEditor::IsTerrainSelection() const
+{
+	if (!SelectedSceneObject || sceneIsTwoD) return false;
+	if (SelectedSceneObject->GetType() == SceneObjectTypes::TERRAIN_COMPONENT) return true;
+	// A terrain saved before terrains were objects: its tile's mesh.
+	if (SelectedSceneObject->GetType() == SceneObjectTypes::RENDERING_COMPONENT)
+	{
+		RenderingComponent* rc = (RenderingComponent*)SelectedSceneObject->GetPTR();
+		return rc && dynamic_cast<Heightfield*>(rc->GetRenderable()) != NULL;
+	}
+	return false;
+}
+
+bool SceneEditor::IsTileMapSelection() const
+{
+	return SelectedSceneObject && SelectedSceneObject->GetType() == SceneObjectTypes::TILEMAP_COMPONENT;
+}
+
+void SceneEditor::SyncToolsToSelection()
+{
+	if (playMode) return;
+	const uint32 now = SelectedSceneObject ? SelectedSceneObject->GetID() : 0;
+	if (now == toolsSelection) return;
+	const int was = toolsSelectionKind;
+	const int kind = IsTerrainSelection() ? 1 : (IsTileMapSelection() ? 2 : 0);
+	toolsSelection = now;
+	toolsSelectionKind = kind;
+	// The component's tool starts with its selection and ends with it: the
+	// left button in the viewport is the brush for as long as the component
+	// is what is selected, and never otherwise.
+	if (kind == 1) SetTerrainMode(true);
+	else if (was == 1) SetTerrainMode(false);
+	if (kind == 2)
+	{
+		tilePaintTarget = SelectedSceneObject->GetParentID();
+		uiEditMode = false;
+		SetTilePaintMode(true);
+	}
+	else if (was == 2) SetTilePaintMode(false);
+}
+
+void SceneEditor::LeaveComponentTools()
+{
+	if (!SelectedSceneObject) return;
+	if (!IsTerrainSelection() && !IsTileMapSelection()) { SetTerrainMode(false); SetTilePaintMode(false); return; }
+	if (SceneObject* owner = sceneObjects->GetSceneObject(SelectedSceneObject->GetParentID())) SelectSceneObject(owner);
+}
+
+void SceneEditor::ToggleComponentTools()
+{
+	if (playMode) return;
+	if (IsTerrainSelection() || IsTileMapSelection()) { LeaveComponentTools(); return; }
+	const uint32 want = sceneIsTwoD ? SceneObjectTypes::TILEMAP_COMPONENT : SceneObjectTypes::TERRAIN_COMPONENT;
+	// The one under the selected object if there is one, else the scene's first.
+	SceneObject* found = NULL;
+	const uint32 under = SelectedSceneObject ? SelectedSceneObject->GetID() : 0;
+	for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); ++i)
+	{
+		if (!i->second || i->second->GetType() != want) continue;
+		if (!found) found = i->second;
+		if (under && i->second->GetParentID() == under) { found = i->second; break; }
+	}
+	if (found) SelectSceneObject(found);
+	else if (!sceneIsTwoD) showNewTerrain = true;	// nothing to edit yet: offer to make one
+}
+
+void SceneEditor::DrawTerrainTools()
+{
+	if (sceneIsTwoD) return;
+	TerrainTools &t = Terrain();
+	// The ring is grey over ground that is still a far version; say why.
+	if (t.HoverValid() && !t.HoverEditable())
+		ImGui::TextColored(ImVec4(1.f, 0.8f, 0.3f, 1.f), "Loading the cell under the brush...");
+
+	static const char* labels[TerrainTools::ToolCount] = { "Raise", "Lower", "Smooth", "Flatten", "Texture", "Foliage", "Place", "Cut Hole", "Fill Hole", "Dig Cave", "Fill Cave", "Smooth Cave", "Level Floor" };
 	ImGui::TextDisabled("Sculpt");
 	for (int i = 0; i < TerrainTools::ToolCount; i++)
 	{
 		// Two to a row, so a narrow panel does not clip the last one.
 		if (i == TerrainTools::PaintTexture) ImGui::TextDisabled("Paint");
-		else if (i % 2 == 1) ImGui::SameLine();
-		if (i == TerrainTools::PaintFoliage || i == TerrainTools::Place) ImGui::SameLine();
+		else if (i == TerrainTools::Hole) ImGui::TextDisabled("Holes");
+		else if (i == TerrainTools::Dig) ImGui::TextDisabled("Caves");
+		else if (i < TerrainTools::PaintTexture && i % 2 == 1) ImGui::SameLine();
+		if (i == TerrainTools::PaintFoliage || i == TerrainTools::Place || i == TerrainTools::Fill || i == TerrainTools::Pack
+			|| i == TerrainTools::CaveLevel) ImGui::SameLine();
 		if (ImGui::RadioButton(labels[i], t.tool == i)) t.tool = (TerrainTools::Tool)i;
 	}
 	ImGui::Separator();
 	ImGui::SliderFloat("Radius", &t.radius, 0.5f, 200.f, "%.1f m", ImGuiSliderFlags_Logarithmic);
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ctrl + scroll wheel over the viewport changes it too.");
 	ImGui::SliderFloat("Strength", &t.strength, 0.01f, 1.f, "%.2f");
 	ImGui::SliderFloat("Hardness", &t.hardness, 0.f, 1.f, "%.2f");
 	if (ImGui::IsItemHovered()) ImGui::SetTooltip("0: fades from the centre to the edge. 1: a hard disc.");
 	if (t.tool == TerrainTools::Flatten)
 		ImGui::TextWrapped("Levels the ground to the height where the stroke starts.");
+	static json pendingCaves;
+	if (t.IsCaveTool())
+	{
+		if (t.CaveRadius() > t.radius)
+			ImGui::TextColored(ImVec4(1.f, 0.8f, 0.3f, 1.f), "Working at %.1f m: caves here are made of %.1f m voxels,\nand a smaller brush would not open the rock.",
+				t.CaveRadius(), t.CaveRadius() / 1.5f);
+		if (t.tool == TerrainTools::Dig || t.tool == TerrainTools::Pack)
+			ImGui::TextWrapped("Works where the cursor points - on the ground, or on a cave's wall - for as long as it is held: "
+				"the wall gives way at a rate set by Strength, so holding it bores a tunnel along the view. "
+				"Where it breaks the surface the ground opens.");
+		else if (t.tool == TerrainTools::CaveSmooth)
+			ImGui::TextWrapped("Rounds off what the cursor points at: the ridges between overlapping digs, a rough wall or floor.");
+		else
+			ImGui::TextWrapped("Makes a flat floor at the height where the stroke starts: rock is filled in below it and dug away above, "
+				"within the brush. Drag along a tunnel to give it a floor to walk on; the radius is also the headroom.");
+		if (ImGui::TreeNodeEx("Generate tunnels", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			static int seed = 1;
+			static float area = 150.f, size = 48.f, width = 0.09f, minDepth = 6.f, maxDepth = 90.f;
+			ImGui::InputInt("Seed", &seed);
+			ImGui::DragFloat("Area radius (m)", &area, 2.f, 10.f, 2000.f, "%.0f");
+			ImGui::DragFloat("Bend size (m)", &size, 1.f, 8.f, 400.f, "%.0f");
+			ImGui::SliderFloat("Tunnel width", &width, 0.03f, 0.3f, "%.2f");
+			ImGui::DragFloat("Shallowest (m)", &minDepth, 0.5f, -10.f, 500.f, "%.0f");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Metres under the ground where tunnels start. 0 or less lets them break the surface.");
+			ImGui::DragFloat("Deepest (m)", &maxDepth, 1.f, 1.f, 2000.f, "%.0f");
+			maxDepth = std::max(maxDepth, minDepth + 4.f);
+			if (ImGui::Button("Generate Around the View"))
+				pendingCaves = { { "seed", std::max(0, seed) }, { "radius", area }, { "size", size }, { "width", width },
+					{ "minDepth", minDepth }, { "maxDepth", maxDepth } };
+			ImGui::TreePop();
+		}
+	}
+	if (!pendingCaves.is_null())
+	{
+		json op, ignored;
+		op.swap(pendingCaves);
+		op["cmd"] = "terrain_generate_caves";
+		pendingFoliageOp = op;
+	}
+	if (t.tool == TerrainTools::Hole || t.tool == TerrainTools::Fill)
+		ImGui::TextWrapped("A hole has no surface and no collision: cut one where a mesh of your own takes over, then place the "
+			"mesh in it. On the ground it opens the terrain; pointed at a cave's wall or floor it opens the cave "
+			"(a door, a shaft, a hand-made tunnel). Only the radius matters.");
 	if (t.tool == TerrainTools::PaintTexture)
 	{
 		static const char* layers[] = { "0  Grass", "1  Dirt", "2  Rock", "3  Sand" };
@@ -427,15 +966,43 @@ void SceneEditor::ShowTerrainPanel()
 			ImGui::PopID();
 		}
 	}
-	static json pendingCreate;
-	static bool pendingGrass = false;
-	static std::string lastError;
+	// A scene whose terrain is still a tile object per cell (or per child):
+	// offer to make it one Terrain object.
+	{
+		bool legacy = false;
+		const std::vector<TerrainTile> tiles = TerrainEditor::FindTiles(scene);
+		for (size_t i = 0; i < tiles.size() && !legacy; i++)
+		{
+			GameObject* parent = tiles[i].owner ? tiles[i].owner->GetParent() : NULL;
+			legacy = !(parent && TerrainOn(parent));
+		}
+		if (legacy && ImGui::CollapsingHeader("Terrain Object##terrain_convert", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			ImGui::TextWrapped("This scene keeps each terrain tile as an object of its own. Converting makes the terrain one object "
+				"that streams its tiles itself. It saves the scene and rewrites its files; the maps are not touched.");
+			if (ImGui::Button("Convert to Terrain Object")) pendingFoliageOp = { { "cmd", "terrain_convert" } };
+		}
+	}
 	if (ImGui::CollapsingHeader("Grass Preset##terrain_foliage"))
 	{
-		ImGui::TextWrapped("Adds a grass layer to every tile of the selected terrain. Paint where it grows with the Foliage tool.");
-		if (ImGui::Button("Add Grass to Selection")) pendingGrass = true;
+		ImGui::TextWrapped("Adds a grass layer to every tile of this terrain. Paint where it grows with the Foliage tool.");
+		// Runs between frames: it rebuilds the object this window is showing.
+		if (ImGui::Button("Add Grass") && SelectedSceneObject)
+			pendingFoliageOp = { { "cmd", "terrain_add_grass" }, { "id", SelectedSceneObject->GetParentID() } };
 	}
-	static json pendingImport;
+}
+
+void SceneEditor::ShowNewTerrainWindow()
+{
+	json &pendingCreate = g_pendingTerrainCreate;
+	json &pendingImport = g_pendingTerrainImport;
+	std::string &lastError = g_terrainCreateError;
+	if (showNewTerrain && !sceneIsTwoD)
+	{
+		ImGui::SetNextWindowSize(ImVec2(340, 460), ImGuiCond_FirstUseEver);
+		if (ImGui::Begin("New Terrain", &showNewTerrain))
+		{
+			ImGui::TextWrapped("Makes a Terrain object. Select its Terrain component in the tree to sculpt and paint it.");
 	if (ImGui::CollapsingHeader("Import Heightmap##terrain_import"))
 	{
 		static std::string heightmap;
@@ -460,7 +1027,7 @@ void SceneEditor::ShowTerrainPanel()
 			pendingImport = { { "name", "Terrain" }, { "heightmap", heightmap }, { "worldSize", worldSize }, { "tileSize", tileSize },
 				{ "heightRange", range }, { "baseHeight", base }, { "samples", sampleValues[samplesIndex] } };
 	}
-	if (ImGui::CollapsingHeader("Create Terrain##terrain_create"))
+	if (ImGui::CollapsingHeader("Create Terrain##terrain_create", ImGuiTreeNodeFlags_DefaultOpen))
 	{
 		static TerrainTools::CreateParams params;
 		static std::string name = "Terrain";
@@ -475,11 +1042,36 @@ void SceneEditor::ShowTerrainPanel()
 		ImGui::InputFloat("Tile size (m)", &params.tileSize, 16.f, 64.f, "%.0f");
 		ImGui::Combo("Samples", &samplesIndex, sampleLabels, 4);
 		ImGui::InputFloat("Height range (m)", &params.heightRange, 10.f, 50.f, "%.0f");
+		// How the ground starts out.
+		static int generatorIndex = 1;
+		static const char* generatorLabels[] = { "Flat", "Hills (Perlin noise)", "Mountains (ridged noise)" };
+		static const char* generatorNames[] = { "flat", "perlin", "ridged" };
+		static int seed = 1;
+		ImGui::Combo("Ground", &generatorIndex, generatorLabels, 3);
+		if (generatorIndex != 0)
+		{
+			ImGui::InputInt("Seed", &seed);
+			ImGui::SameLine();
+			if (ImGui::SmallButton("Random")) seed = (int)(ImGui::GetTime() * 1000.0) % 100000 + 1;
+			ImGui::DragFloat("Feature size (m)", &params.featureSize, 5.f, 10.f, 20000.f, "%.0f");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far it is from one hill to the next.");
+			ImGui::SliderInt("Detail (octaves)", &params.octaves, 1, 8);
+			ImGui::SliderFloat("Roughness", &params.roughness, 0.2f, 0.8f, "%.2f");
+			ImGui::SliderFloat("Height used", &params.amount, 0.05f, 0.9f, "%.2f");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How much of the height range the hills span.");
+		}
+		ImGui::TextDisabled("%.0f x %.0f m, centred on the origin.", params.tilesX * params.tileSize, params.tilesZ * params.tileSize);
 		if (ImGui::Button("Create"))
 		{
 			params.name = name;
 			params.samples = sampleValues[samplesIndex];
 			json args;
+			args["generator"] = generatorNames[generatorIndex];
+			args["seed"] = std::max(0, seed);
+			args["featureSize"] = params.featureSize;
+			args["octaves"] = params.octaves;
+			args["roughness"] = params.roughness;
+			args["amount"] = params.amount;
 			args["name"] = params.name;
 			args["tilesX"] = params.tilesX;
 			args["tilesZ"] = params.tilesZ;
@@ -491,30 +1083,23 @@ void SceneEditor::ShowTerrainPanel()
 		}
 		if (!lastError.empty()) ImGui::TextColored(ImVec4(1.f, 0.4f, 0.4f, 1.f), "%s", lastError.c_str());
 	}
-	ImGui::End();
-	if (!open) SetTerrainMode(false);
+		}
+		ImGui::End();
+	}
 	// After End(): building objects inside another window's Begin/End pair
 	// is how ImGui asserts.
-	if (pendingGrass)
-	{
-		pendingGrass = false;
-		json out;
-		lastError.clear();
-		AgentTerrain("terrain_add_grass", json::object(), out, lastError);
-	}
-	if (!pendingImport.is_null())
-	{
-		json args, out;
-		args.swap(pendingImport);
-		lastError.clear();
-		if (!AgentTerrain("terrain_create", args, out, lastError) && lastError.empty()) lastError = "failed";
-	}
-	if (!pendingCreate.is_null())
-	{
-		json args, out;
-		args.swap(pendingCreate);
-		if (!AgentTerrain("terrain_create", args, out, lastError) && lastError.empty()) lastError = "failed";
-	}
+	json args, out;
+	if (!pendingImport.is_null()) args.swap(pendingImport);
+	else if (!pendingCreate.is_null()) args.swap(pendingCreate);
+	if (args.is_null()) return;
+	lastError.clear();
+	if (!AgentTerrain("terrain_create", args, out, lastError)) { if (lastError.empty()) lastError = "failed"; return; }
+	// Made: straight to editing it.
+	showNewTerrain = false;
+	if (SelectedSceneObject)
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); ++i)
+			if (i->second && i->second->GetType() == SceneObjectTypes::TERRAIN_COMPONENT && i->second->GetParentID() == SelectedSceneObject->GetID())
+			{ SelectSceneObject(i->second); break; }
 }
 
 bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& out, std::string& errOut)
@@ -530,6 +1115,16 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 			f32 h;
 			if (TerrainEditor::HeightAt(scene, args.value("x", 0.f), args.value("z", 0.f), h)) out["height"] = h;
 			else out["height"] = nullptr;
+			// With "y" too: how much of that point is cave air (0..1), and
+			// whether the ground above it is open.
+			if (args.contains("y"))
+			{
+				const Vec3 at(args.value("x", 0.f), args.value("y", 0.f), args.value("z", 0.f));
+				f32 air = 0.f;
+				const std::vector<TerrainComponent*> terrains = SceneTerrains();
+				for (size_t i = 0; i < terrains.size(); i++) air = std::max(air, terrains[i]->AirAt(at));
+				out["air"] = air;
+			}
 		}
 		return true;
 	}
@@ -540,7 +1135,7 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		{
 			TerrainTools::Tool tool;
 			if (!TerrainTools::ToolFromName(args.value("tool", std::string()), tool))
-			{ errOut = "tool must be raise, lower, smooth, flatten, paint or foliage"; return false; }
+			{ errOut = "tool must be raise, lower, smooth, flatten, paint, foliage, place, hole, fill, dig, pack, cavesmooth or cavelevel"; return false; }
 			t.tool = tool;
 		}
 		t.radius = std::max(0.1f, args.value("radius", t.radius));
@@ -572,8 +1167,44 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		if (t.Stroking()) EndTerrainStroke();
 		const f32 dt = args.value("dt", 1.f / 60.f);
 		const json &pts = args["points"];
-		const f32 x0 = pts[0].at(0).get<f32>(), z0 = pts[0].at(1).get<f32>();
+		const f32 x0 = pts[0].at(0).get<f32>(), z0 = pts[0].at(pts[0].size() >= 3 ? 2 : 1).get<f32>();
 		f32 h0;
+		// A streamed world: the cells under the stroke come in now, not a
+		// few frames from now - until they do the ground there is a far
+		// version, which no brush touches.
+		if (editorWorld)
+		{
+			std::vector<Vec3> foci;
+			bool missing = false;
+			for (size_t i = 0; i < pts.size(); i++)
+			{
+				foci.push_back(Vec3(pts[i].at(0).get<f32>(), 0.f, pts[i].at(pts[i].size() >= 3 ? 2 : 1).get<f32>()));
+				int32 cx, cz;
+				editorWorld->CellOf(foci.back(), cx, cz);
+				if (editorWorld->HasCell(cx, cz) && !editorWorld->CellRoot(cx, cz)) missing = true;
+			}
+			if (missing) editorWorld->LoadAround(foci);
+		}
+		{
+			std::vector<Vec3> foci;
+			for (size_t i = 0; i < pts.size(); i++) foci.push_back(Vec3(pts[i].at(0).get<f32>(), 0.f, pts[i].at(pts[i].size() >= 3 ? 2 : 1).get<f32>()));
+			const std::vector<TerrainComponent*> terrains = SceneTerrains();
+			for (size_t k = 0; k < terrains.size(); k++)
+			{
+				// Every tile the brush reaches, not only the one under its
+				// centre: a dab near a border edits both sides of it.
+				bool missing = false;
+				for (size_t i = 0; i < foci.size() && !missing; i++)
+					for (int corner = 0; corner < 5 && !missing; corner++)
+					{
+						const Vec3 at = foci[i] + Vec3(corner == 1 ? t.radius : (corner == 2 ? -t.radius : 0.f), 0.f,
+							corner == 3 ? t.radius : (corner == 4 ? -t.radius : 0.f));
+						int32 tx, tz;
+						missing = terrains[k]->TileAt(at, tx, tz) && !terrains[k]->GetTile(tx, tz);
+					}
+				if (missing) terrains[k]->LoadAround(foci);
+			}
+		}
 		if (!TerrainEditor::HeightAt(scene, x0, z0, h0)) { errOut = "the first point is not over terrain"; return false; }
 		// Stand in for the cursor at the first point, so Flatten picks up
 		// its height exactly as a click there would.
@@ -584,11 +1215,21 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		uint32 dabs = 0;
 		for (size_t i = 0; i < pts.size(); i++)
 		{
-			const f32 px = pts[i].at(0).get<f32>(), pz = pts[i].at(1).get<f32>();
+			const f32 px = pts[i].at(0).get<f32>(), pz = pts[i].at(pts[i].size() >= 3 ? 2 : 1).get<f32>();
 			if (t.tool == TerrainTools::Place)
 			{
 				if (!PlaceDab(px, pz, errOut)) { EndTerrainStroke(); t.active = wasActive; return false; }
 				dabs++;
+			}
+			// A cave tool takes [x, y, z]; with two numbers it works at the
+			// surface.
+			else if ((t.IsCaveTool() || t.IsHoleTool()) && pts[i].size() >= 3)
+			{
+				// The floor tool levels to the first point's height, or to
+				// "level" when given.
+				if (i == 0 && t.tool == TerrainTools::CaveLevel) t.SetLevel(args.value("level", pts[0].at(1).get<f32>()));
+				const Vec3 at(px, t.tool == TerrainTools::CaveLevel ? t.Level() : pts[i].at(1).get<f32>(), pts[i].at(2).get<f32>());
+				if (t.ApplyAt3D(scene, at, dt)) dabs++;
 			}
 			else if (t.ApplyAt(scene, px, pz, dt)) dabs++;
 		}
@@ -612,6 +1253,16 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		p.tileSize = args.value("tileSize", p.tileSize);
 		p.samples = args.value("samples", p.samples);
 		p.heightRange = args.value("heightRange", p.heightRange);
+		// Generated ground: {"generator": "flat"|"perlin"|"ridged", "seed",
+		// "featureSize" (m), "octaves", "roughness" 0..1, "amount" 0..0.9,
+		// "baseHeight"}.
+		p.generator = args.value("generator", p.generator);
+		p.seed = args.value("seed", p.seed);
+		p.featureSize = args.value("featureSize", p.featureSize);
+		p.octaves = args.value("octaves", p.octaves);
+		p.roughness = args.value("roughness", p.roughness);
+		p.amount = args.value("amount", p.amount);
+		p.baseHeight = args.value("baseHeight", p.baseHeight);
 		// Import: {"heightmap": project-relative or absolute path, "worldSize":
 		// metres the image covers, "baseHeight"}; tiles = worldSize / tileSize.
 		if (args.contains("heightmap"))
@@ -629,39 +1280,17 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 			p.origin = Vec3(args["origin"][0].get<f32>(), args["origin"][1].get<f32>(), args["origin"][2].get<f32>());
 		std::string subtree;
 		if (!TerrainTools::CreateTerrain(p, project->GetProjectPath(), subtree, errOut)) return false;
-		if (editorWorld)
-		{
-			// A streamed world keeps its content in cells: each tile goes to
-			// the cell under its centre, loaded or not (see MoveObjectToCell).
-			// Tiles the size of a cell line up with them exactly.
-			const json tree = json::parse(subtree);
-			const json &tiles = tree["root"]["children"];
-			uint32 placed = 0;
-			for (size_t i = 0; i < tiles.size(); i++)
-			{
-				json one;
-				one["root"] = tiles[i];
-				one["root"]["position"] = { p.origin.x + tiles[i]["position"][0].get<f32>(), p.origin.y + tiles[i]["position"][1].get<f32>(),
-					p.origin.z + tiles[i]["position"][2].get<f32>() };
-				one["materials"] = tree["materials"];
-				SceneObject* tile = RawInsertSubtree(one.dump(), 0, false, EditorCameraSettings(), true);
-				if (!tile) { errOut = "a tile could not be built"; return false; }
-				const Vec3 centre = ((GameObject*)tile->GetPTR())->GetWorldPosition() + Vec3(p.tileSize * 0.5f, 0.f, p.tileSize * 0.5f);
-				int32 cx, cz;
-				editorWorld->CellOf(centre, cx, cz);
-				if (!MoveObjectToCell(tile->GetID(), cx, cz, errOut)) return false;
-				placed++;
-			}
-			if (p.tileSize != editorWorld->CellSize())
-				echo("WARNING: terrain tiles of " + std::to_string((int)p.tileSize) + " m in cells of " + std::to_string((int)editorWorld->CellSize())
-					+ " m - a tile streams with the cell under its centre; tiles the size of a cell line up exactly");
-			MarkSceneDirty();
-			out = t.State(scene);
-			out["tilesPlaced"] = placed;
-			return true;
-		}
 		SceneObject* obj = RawInsertSubtree(subtree, 0, false, EditorCameraSettings(), true);
 		if (!obj) { errOut = "the terrain's maps were written, but it could not be built"; return false; }
+		// The terrain is one object in the scene file, streamed world or
+		// not: it brings its own tiles in. What is drawn past them comes
+		// from the overview, baked now from the maps just written.
+		if (TerrainComponent* tc = FindTerrain((GameObject*)obj->GetPTR()))
+		{
+			if (tc->GetAssetRoot().empty()) tc->SetAssetRoot(project->GetProjectPath());
+			std::string bakeErr;
+			if (!tc->BakeOverview(NULL, bakeErr)) echo("ERROR: baking the terrain overview - " + bakeErr);
+		}
 		PushAddCommand(obj);
 		SelectSceneObject(obj);
 		MarkSceneDirty();
@@ -695,7 +1324,7 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		json tree;
 		try { tree = json::parse(before); }
 		catch (const std::exception &e) { errOut = e.what(); return false; }
-		const int tiles = TerrainTools::AddGrassLayer(tree, project->GetProjectPath(), errOut);
+		const int tiles = TerrainTools::AddGrassLayer(TileSubtree(tree), project->GetProjectPath(), errOut);
 		if (tiles <= 0) return false;
 		const bool wasCamera = IsSceneCamera(id);
 		std::unique_ptr<ReplaceGameObjectCommand> cmd(new ReplaceGameObjectCommand(this, target->GetParentID(), before, tree.dump(),
@@ -759,7 +1388,7 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 			if (node.contains("children") && node["children"].is_array())
 				for (size_t i = 0; i < node["children"].size(); i++) visit(node["children"][i]);
 		};
-		visit(tree["root"]);
+		visit(TileSubtree(tree)["root"]);
 		if (tiles == 0) { errOut = "no terrain tiles there"; return false; }
 		const bool wasCamera = IsSceneCamera(id);
 		std::unique_ptr<ReplaceGameObjectCommand> cmd(new ReplaceGameObjectCommand(this, target->GetParentID(), before, tree.dump(),
@@ -777,6 +1406,36 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		if (!target) return false;
 		FoliageComponent* fc = FindFoliage((GameObject*)target->GetPTR());
 		out["layers"] = json::array();
+		// A Terrain object: the layers every tile grows, from its template;
+		// instances are those of the tiles loaded now.
+		if (TerrainComponent* tc = TerrainOn((GameObject*)target->GetPTR()))
+		{
+			json tmpl;
+			try { tmpl = json::parse(tc->GetSettings().tileTemplate); }
+			catch (const std::exception &e) { errOut = e.what(); return false; }
+			if (json* layers = TemplateFoliageLayers(tmpl))
+				for (size_t i = 0; i < layers->size(); i++)
+				{
+					FoliageLayerSpec spec;
+					PatchSpec(spec, (*layers)[i]);
+					spec.name = (*layers)[i].value("name", std::string());
+					json l = SpecJson(spec);
+					l.erase("densityMap");
+					uint32 instances = 0, blocks = 0;
+					const std::vector<std::shared_ptr<GameObject> > &kids = target ? ((GameObject*)target->GetPTR())->GetChildren() : std::vector<std::shared_ptr<GameObject> >();
+					for (size_t k = 0; k < kids.size(); k++)
+						if (FoliageComponent* tf = FindFoliage(kids[k].get()))
+							if (i < tf->GetLayers().size())
+							{
+								for (size_t b = 0; b < tf->GetLayers()[i].counts.size(); b++) instances += tf->GetLayers()[i].counts[b];
+								blocks += (uint32)tf->GetLayers()[i].blocks.size();
+							}
+					l["instances"] = instances;
+					l["blocks"] = blocks;
+					out["layers"].push_back(l);
+				}
+			return true;
+		}
 		if (fc)
 			for (size_t i = 0; i < fc->GetLayers().size(); i++)
 			{
@@ -794,6 +1453,35 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	{
 		SceneObject* target = ResolveTerrainTarget(args, errOut);
 		if (!target) return false;
+		// A Terrain object: the layer is in its template, and every tile
+		// is made again from it - one undo entry, like adding a layer.
+		if (TerrainOn((GameObject*)target->GetPTR()))
+		{
+			if (playMode) { errOut = "stop play mode first"; return false; }
+			const uint32 tid = target->GetID();
+			const std::string before = SnapshotSubtree(tid);
+			json tree;
+			try { tree = json::parse(before); }
+			catch (const std::exception &e) { errOut = e.what(); return false; }
+			json* layers = TemplateFoliageLayers(TileSubtree(tree));
+			const int index = args.value("layer", 0);
+			if (!layers || index < 0 || (size_t)index >= layers->size()) { errOut = "no foliage layer " + std::to_string(index) + " there"; return false; }
+			json &lj = (*layers)[index];
+			FoliageLayerSpec spec;
+			PatchSpec(spec, lj);
+			spec.name = lj.value("name", std::string());
+			PatchSpec(spec, args);
+			const json now = SpecJson(spec);
+			for (json::const_iterator it = now.begin(); it != now.end(); ++it)
+				if (it.key() != "densityMap") lj[it.key()] = it.value();
+			const bool wasCamera = IsSceneCamera(tid);
+			std::unique_ptr<ReplaceGameObjectCommand> cmd(new ReplaceGameObjectCommand(this, target->GetParentID(), before, tree.dump(),
+				wasCamera, wasCamera ? sceneCameras[tid] : EditorCameraSettings(), target->Helper != nullptr, tid, "Edit Foliage Layer"));
+			cmd->Redo();
+			sceneUndo.Push(std::move(cmd));
+			MarkSceneDirty();
+			return AgentTerrain("get_foliage", args, out, errOut);
+		}
 		FoliageComponent* fc = FindFoliage((GameObject*)target->GetPTR());
 		const int layer = args.value("layer", 0);
 		if (!fc || layer < 0 || (size_t)layer >= fc->GetLayers().size()) { errOut = "no foliage layer " + std::to_string(layer) + " there"; return false; }
@@ -819,7 +1507,7 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		catch (const std::exception &e) { errOut = e.what(); return false; }
 		const int layer = args.value("layer", 0);
 		bool removed = false;
-		json &comps = tree["root"]["components"];
+		json &comps = TileSubtree(tree)["root"]["components"];
 		for (size_t c = 0; comps.is_array() && c < comps.size() && !removed; c++)
 		{
 			if (comps[c].value("type", std::string()) != "Foliage") continue;
@@ -1002,7 +1690,7 @@ bool SceneEditor::BakeFoliageImpostor(const json& a, json& out, std::string& err
 		if (node.contains("children") && node["children"].is_array())
 			for (size_t i = 0; i < node["children"].size(); i++) visit(node["children"][i]);
 	};
-	visit(tree["root"]);
+	visit(TileSubtree(tree)["root"]);
 	if (layers.empty()) { errOut = "no foliage layer " + std::to_string(layerIndex) + " there"; return false; }
 	json* layer = layers[0];
 	const json mesh = layer->value("mesh", json());
@@ -1031,8 +1719,9 @@ bool SceneEditor::BakeFoliageImpostor(const json& a, json& out, std::string& err
 	uint32 options = ShaderUsage::Texture | ShaderUsage::Diffuse | ShaderUsage::InstancedRendering | ShaderUsage::PBR | ShaderUsage::AlphaTest;
 	if (tinted) options |= (1u << 25);
 
-	if (!tree.contains("materials") || !tree["materials"].is_array()) tree["materials"] = json::array();
-	json &materials = tree["materials"];
+	json &pool = TileSubtree(tree);
+	if (!pool.contains("materials") || !pool["materials"].is_array()) pool["materials"] = json::array();
+	json &materials = pool["materials"];
 	uint32 matId = 0;
 	for (size_t i = 0; i < materials.size(); i++) matId = std::max(matId, materials[i].value("id", 0u) + 1);
 	json m;
@@ -1087,8 +1776,11 @@ void SceneEditor::DrainPendingOps()
 		std::string err;
 		const std::string cmd = op.value("cmd", std::string());
 		const bool network = cmd.find("network") != std::string::npos;
+		const bool terrainObject = cmd == "set_terrain" || cmd == "terrain_bake_overview" || cmd == "terrain_convert"
+			|| cmd == "terrain_generate_caves" || cmd == "terrain_resync_caves";
 		const bool ok = cmd == "move_to_cell" ? AgentMoveToCell(op, out, err)
-			: (network ? AgentNetwork(cmd, op, out, err) : AgentTerrain(cmd, op, out, err));
+			: (network ? AgentNetwork(cmd, op, out, err)
+				: (terrainObject ? AgentTerrainObject(cmd, op, out, err) : AgentTerrain(cmd, op, out, err)));
 		if (!ok) echo("ERROR: " + err);
 	}
 }
@@ -1122,6 +1814,23 @@ std::string SceneEditor::TerrainLayerTexture(const int layer)
 	ForEachSplatLayer(scene, layer, [&found, this](CustomShaderMaterial* cm, size_t i) {
 		if (found.empty() && cm->textures[i]) found = project ? project->RelativePath(cm->textures[i]->GetFilename()) : cm->textures[i]->GetFilename();
 	});
+	// No tile loaded to read it from: a Terrain object's template says.
+	if (found.empty())
+	{
+		const std::string name = "layer" + std::to_string(layer);
+		const std::vector<TerrainComponent*> terrains = SceneTerrains();
+		for (size_t t = 0; t < terrains.size() && found.empty(); t++)
+		{
+			json tmpl;
+			try { tmpl = json::parse(terrains[t]->GetSettings().tileTemplate); }
+			catch (const std::exception &) { continue; }
+			if (tmpl.contains("materials") && tmpl["materials"].is_array())
+				for (const auto &m : tmpl["materials"])
+					if (m.contains("samplers") && m["samplers"].is_array())
+						for (const auto &smp : m["samplers"])
+							if (found.empty() && smp.value("name", std::string()) == name) found = smp.value("texture", std::string());
+		}
+	}
 	return found;
 }
 
@@ -1169,6 +1878,29 @@ bool SceneEditor::SetTerrainLayerTexture(const int layer, const std::string& tex
 			std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
 			out << tree.dump();
 			if (!out) { errOut = "could not write " + path; return false; }
+			files++;
+		}
+	}
+	// Terrain objects: their template names the texture every tile to come
+	// will use. The tiles loaded now were retextured live, above; the
+	// overview is coloured from the layers and is baked again on save.
+	{
+		const std::string name = "layer" + std::to_string(layer);
+		const std::vector<TerrainComponent*> terrains = SceneTerrains();
+		for (size_t t = 0; t < terrains.size(); t++)
+		{
+			json tmpl;
+			try { tmpl = json::parse(terrains[t]->GetSettings().tileTemplate); }
+			catch (const std::exception &) { continue; }
+			bool touched = false;
+			if (tmpl.contains("materials") && tmpl["materials"].is_array())
+				for (auto &m : tmpl["materials"])
+					if (m.contains("samplers") && m["samplers"].is_array())
+						for (auto &smp : m["samplers"])
+							if (smp.value("name", std::string()) == name) { smp["texture"] = textureRel; touched = true; }
+			if (!touched) continue;
+			terrains[t]->SetTileTemplate(tmpl.dump(), false);
+			terrainOverviewStale.insert(sceneObjects->GetSceneObjectID(terrains[t]->GetOwner()));
 			files++;
 		}
 	}

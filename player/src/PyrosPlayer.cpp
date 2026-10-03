@@ -7,6 +7,8 @@
 //============================================================================
 
 #include "PyrosPlayer.h"
+#include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
+#include <Pyros3D/Utils/Streaming/AssetStreamer.h>
 #include <cstdio>
 #include <cstdlib>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
@@ -687,6 +689,14 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		worldStreamer->LoadAround(focus);
 		echo("Streamed world: " + std::to_string(worldStreamer->LoadedCount()) + " cell(s) loaded around the camera");
 	}
+	// Terrains stream their own tiles; the ground under the camera is in
+	// before the first frame for the same reason.
+	{
+		const std::vector<Vec3> viewers(1, activeCamera ? activeCamera->GetWorldPosition() : Vec3());
+		TerrainComponent::SetViewers(scene, viewers);
+		const std::vector<TerrainComponent*> &terrains = TerrainComponent::Instances();
+		for (size_t i = 0; i < terrains.size(); i++) terrains[i]->LoadAround(viewers);
+	}
 
 #ifdef LUA_BINDINGS
 	// One update before the first frame so components spawned during load
@@ -1169,6 +1179,10 @@ void PyrosPlayer::Update()
 	// frame's transforms so an arriving cell is drawn where it belongs.
 	if (worldStreamer && activeCamera)
 		worldStreamer->Update(activeCamera->GetWorldPosition());
+	// Terrains follow the same camera. The world's streamer pumps the
+	// loader they share; without one it is pumped here.
+	if (activeCamera) TerrainComponent::SetViewers(scene, std::vector<Vec3>(1, activeCamera->GetWorldPosition()));
+	if (!worldStreamer) AssetStreamer::Instance().Pump(4.0);
 	// Foliage thins and fades against the camera the game is seen through.
 	if (activeCamera) FoliageComponent::SetViewer(activeCamera->GetWorldPosition());
 	// The network before the scene: snapshots pose replicas, and the scene

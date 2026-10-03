@@ -86,7 +86,11 @@ namespace p3d {
 			// A grid of cells from one tileset, drawn as a few batched meshes
 			// rather than one GameObject per cell. Holds the grid only; the
 			// geometry lives on a sibling RenderingComponent. See TileMap2D.h.
-			TileMap2D
+			TileMap2D,
+			// A terrain: one object that streams its own tiles in around
+			// the viewers and draws the rest from a baked overview. See
+			// TerrainComponent.h.
+			Terrain
 		};
 	}
 

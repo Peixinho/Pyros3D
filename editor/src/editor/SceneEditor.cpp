@@ -17,6 +17,7 @@
 #include "SceneEditor.h"
 #include "EditorWorld.h"
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
+#include <Pyros3D/Utils/Streaming/AssetStreamer.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectChain.h>
 #include <Pyros3D/AnimationManager/IKSolver.h>
 // Sprite-sheet animation: UpdateTextureAnimationPreview drives instances
@@ -1017,14 +1018,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// tile brush IS the fourth tool - it changes what the left button
 			// does over the viewport exactly as T/R/S change what the gizmo
 			// does. Only in 2D: there is nothing to paint into otherwise.
-			if (plainKey && sceneIsTwoD && ImGui::IsKeyPressed(ImGuiKey_B))
-			{
-				SetTilePaintMode(!tilePaintMode);
-				if (tilePaintMode) uiEditMode = false;
-			}
-			// In 3D, B is the terrain brush - the same "fourth tool" slot.
-			if (plainKey && !sceneIsTwoD && ImGui::IsKeyPressed(ImGuiKey_B))
-				SetTerrainMode(!IsTerrainMode());
+			// B goes to the scene's brush-edited component (its terrain, or
+			// in 2D its tile map) and back; Esc only back.
+			if (plainKey && ImGui::IsKeyPressed(ImGuiKey_B)) ToggleComponentTools();
+			if (ImGui::IsKeyPressed(ImGuiKey_Escape) && (IsTerrainMode() || tilePaintMode)) LeaveComponentTools();
 			if ((ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) && !ImGui::GetIO().WantTextInput)
 				DeleteSelected();
 			if (ImGui::IsKeyPressed(ImGuiKey_D) && ShortcutMod())
@@ -1043,53 +1040,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (localTransform) UseLocalManipulator();
 			else UseGlobalManipulator();
 		}
-		// The tile brush, as a TOOL next to the other three. It used to exist
-		// only as "Tile Paint Mode" in the View menu, filed between "Show
-		// Physics Debug" and "Show Light Gizmos" - i.e. among display toggles
-		// - with no shortcut and nothing anywhere saying the viewport had a
-		// third input mode at all. The Tile Palette appears only once the
-		// mode is on, so the panel that would have explained the feature was
-		// invisible until you had already found the feature.
-		if (sceneIsTwoD && !playMode)
+		// Terrain brushes and the tile palette are not viewport modes with
+		// a button here: they are the tools of a component, and come up in
+		// the Tools window when that component is selected in the tree. What
+		// the left button will do is said here, with the way out.
+		if (!playMode && (IsTerrainMode() || tilePaintMode))
 		{
 			ImGui::SameLine();
-			const bool painting = tilePaintMode;
-			if (painting)
-			{
-				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.55f, 0.9f, 1.f));
-				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.62f, 1.f, 1.f));
-			}
-			if (ImGui::SmallButton("Tiles"))
-			{
-				SetTilePaintMode(!tilePaintMode);
-				if (tilePaintMode) uiEditMode = false;
-			}
-			if (painting) ImGui::PopStyleColor(2);
+			ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.f, 1.f), tilePaintMode ? "PAINTING TILES (Esc)" : "EDITING TERRAIN (Esc)");
 			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Tile Paint Mode (B)\n"
-					"The left button paints into a Tile Map 2D instead of selecting.\n"
-					"Pick the brush and the tile in the Tile Palette panel.");
-			if (painting)
-			{
-				ImGui::SameLine();
-				ImGui::TextColored(ImVec4(0.4f, 0.8f, 1.f, 1.f), "PAINTING");
-			}
-		}
-		if (!sceneIsTwoD && !playMode)
-		{
-			ImGui::SameLine();
-			const bool sculpting = IsTerrainMode();
-			if (sculpting)
-			{
-				ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.25f, 0.55f, 0.9f, 1.f));
-				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(0.3f, 0.62f, 1.f, 1.f));
-			}
-			if (ImGui::SmallButton("Terrain")) SetTerrainMode(!sculpting);
-			if (sculpting) ImGui::PopStyleColor(2);
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Terrain brushes (B)\n"
-					"The left button sculpts or paints the terrain under the cursor\n"
-					"instead of selecting. Tools and brush are in the Terrain panel.");
+				ImGui::SetTooltip("The left button works the selected component's tool (see the Tools window)\ninstead of selecting. Esc, or selecting anything else, ends it.");
 		}
 		if (playMode) ImGui::EndDisabled();
 		ImGui::SameLine();
@@ -2039,6 +1999,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						node_open = false;
 					break;
 				}
+				case SceneObjectTypes::TERRAIN_COMPONENT:
+				case SceneObjectTypes::TILEMAP_COMPONENT:
 				case SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT:
 				case SceneObjectTypes::POINTLIGHT_COMPONENT:
 				case SceneObjectTypes::SPOTLIGHT_COMPONENT:
@@ -2122,6 +2084,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						|| nodeType == SceneObjectTypes::AUDIO_SOURCE_COMPONENT
 						|| nodeType == SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT
 						|| nodeType == SceneObjectTypes::LUA_COMPONENT
+						|| nodeType == SceneObjectTypes::TERRAIN_COMPONENT
+						|| nodeType == SceneObjectTypes::TILEMAP_COMPONENT
 						|| nodeType == SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT
 						|| nodeType == SceneObjectTypes::POINTLIGHT_COMPONENT
 						|| nodeType == SceneObjectTypes::SPOTLIGHT_COMPONENT;
@@ -2522,8 +2486,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	std::string SceneEditor::ModelThumbnailPath(const std::string& p3dmPath)
 	{
 		namespace fs = std::filesystem;
-		// v2: previous framing sat too low on wide/flat meshes (island roofs only).
-		return (fs::path(p3dmPath).parent_path() / ".thumbnails" / "thumb.png").string();
+		// Sidecar folder next to the models-root .p3dm:
+		// assets/models/<stem>.p3dm → assets/models/<stem>/.thumbnails/
+		const fs::path p(p3dmPath);
+		return (p.parent_path() / p.stem() / ".thumbnails" / "thumb.png").string();
 	}
 
 	bool SceneEditor::RenderModelPreviewToRGBA8(const std::string& p3dmPath,
@@ -3007,6 +2973,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		case SceneObjectTypes::AUDIO_SOURCE_COMPONENT:
 		case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT:
 		case SceneObjectTypes::LUA_COMPONENT:
+		case SceneObjectTypes::TERRAIN_COMPONENT:
+		case SceneObjectTypes::TILEMAP_COMPONENT:
 		{
 			IComponent* c = (IComponent*)SelectedSceneObject->GetPTR();
 			return c ? c->GetOwner() : NULL;
@@ -5369,11 +5337,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// A third viewport mode. Mutually exclusive with canvas mode: both
 		// claim the left button over the viewport, and a click that could mean
 		// either is a click that does the wrong one half the time.
-		if (ImGui::MenuItem("Tile Paint Mode", "B", tilePaintMode, sceneIsTwoD))
-		{
-			SetTilePaintMode(!tilePaintMode);
-			if (tilePaintMode) uiEditMode = false;
-		}
+		if (ImGui::MenuItem(sceneIsTwoD ? "Edit Tile Map" : "Edit Terrain", "B", sceneIsTwoD ? tilePaintMode : IsTerrainMode()))
+			ToggleComponentTools();
 		if (ImGui::MenuItem("Canvas (2D) Mode", "", uiEditMode))
 		{
 			if (!uiEditMode && !haveCanvas)
@@ -5856,7 +5821,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (viewCam)
 		{
 			FoliageComponent::SetViewer(viewCam->GetWorldPosition());
-			if (editorWorld) editorWorld->Update(viewCam->GetWorldPosition());
+			std::vector<Vec3> foci(1, viewCam->GetWorldPosition());
+			if (!playMode && activeSceneCameraId == 0)
+			{
+				// What the view is looking at, and where the brush is:
+				// from above, neither is anywhere near the eye.
+				if (CameraPivot) foci.push_back(CameraPivot->GetWorldPosition());
+				if (terrainTools && terrainTools->active && terrainTools->HoverValid())
+					foci.push_back(terrainTools->HoverPoint());
+			}
+			SyncToolsToSelection();
+			UpdateTerrainObjects(foci);
+			// The world's streamer pumps the loader; a scene without one
+			// still has terrains loading tiles through it.
+			if (editorWorld) editorWorld->Update(foci);
+			else AssetStreamer::Instance().Pump(4.0);
+			LiftViewAboveTerrain();
 		}
 		if (!playMode && editorChromeVisible)
 		{
@@ -5981,9 +5961,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// that is exactly ViewportWorldPerPixel(), so the point under the
 			// cursor stays under the cursor at any zoom; the old fixed 1/75
 			// meant a pan crawled when zoomed out and shot across the scene
-			// when zoomed in. Perspective keeps 1/75 - there is no single
-			// answer there, since every depth scales differently.
-			const f32 k = viewIsOrtho ? ViewportWorldPerPixel() : (1.f / 75.f);
+			// when zoomed in.
+			// Perspective has no single answer - every depth scales
+			// differently - so it takes the pivot's depth, the thing the view
+			// is centred on: what is there follows the cursor. Floored at the
+			// old fixed 1/75, which is what that comes to up close.
+			const f32 k = viewIsOrtho ? ViewportWorldPerPixel()
+				: std::max(1.f / 75.f, (f32)(2.f * Camera->GetPosition().magnitude()
+					* std::tan((f32)DEGTORAD(GetViewFovDeg()) * 0.5f) / std::max(1.f, (f32)dim.y)));
 			rotation = rotY * rotX;
 			Matrix m = rotation.ConvertToMatrix();
 			Matrix m2; m2.Translate((rotY * rotX).ConvertToMatrix()*(pos - Vec3((mousePosition.x - mouse.x) * k, -(mousePosition.y - mouse.y) * k, 0)));
@@ -7539,7 +7524,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		if (!helper)
-			node_clicked = sceneObjects->GetSceneObjectID(rm->renderingComponent->GetOwner());
+		{
+			// The mesh's owner, or the nearest ancestor the scene knows: a
+			// terrain's tiles are its own to make and drop, not objects in
+			// the hierarchy, so clicking the ground selects the Terrain.
+			GameObject* owner = rm->renderingComponent->GetOwner();
+			node_clicked = sceneObjects->GetSceneObjectID(owner);
+			while (node_clicked == 0 && owner && owner->GetParent())
+			{
+				owner = owner->GetParent();
+				node_clicked = sceneObjects->GetSceneObjectID(owner);
+			}
+		}
 
 		SceneObject* pickedSO = sceneObjects->GetSceneObject(node_clicked);
 		if (pickedSO == NULL)
@@ -8263,6 +8259,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	void SceneEditor::StartEditorWorld()
 	{
 		editorWorld.reset();
+		worldViewLiftTries = 240;
+		terrainOverviewStale.clear();
 		if (!sceneWorld.enabled || scenePath.empty()) return;
 #ifdef LUA_BINDINGS
 		sol::state* lua = sharedLua;
@@ -8279,6 +8277,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return self->terrainTools && self->terrainTools->HasUnsaved(root); });
 		editorWorld->SetOnUnloading([self](GameObject* root) {
 			if (self->terrainTools) self->terrainTools->Forget(root); });
+		worldViewLiftTries = 240;
 	}
 
 	bool SceneEditor::SplitIntoCells(const f32 cellSize, std::string &error, uint32* cellsWritten)
@@ -9473,6 +9472,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// it moved the camera outright. Nothing you do to the editor's view
 		// should change what the game is showing.
 		if (playMode) return;
+		// Ctrl + wheel sizes the terrain brush instead of zooming: a tenth
+		// per notch, so it is as fine at 1 m as at 100. (Cmd too - on a Mac
+		// Ctrl + scroll may be taken by the system's own zoom.)
+		if (viewportMouseValid && !editorDisabled && IsTerrainMode()
+			&& (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeySuper))
+		{
+			TerrainTools &t = Terrain();
+			t.radius = std::min(200.f, std::max(0.5f, t.radius * std::pow(1.1f, f32(e.Value))));
+			return;
+		}
 		if (viewportMouseValid && !editorDisabled)
 		{
 
@@ -9481,11 +9490,31 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				if (isPerspective)
 				{
-					// zoomOrtho In and Out
-					Vec3 finalPosition;
+					// A tenth of the distance to the pivot per notch, never
+					// under the old flat 1 unit: at arm's length it feels as it
+					// always did, and from 3 km up over a terrain a notch
+					// moves 300 m instead of one. Floor the eye so scroll-in
+					// cannot pass through the pivot (and leave a singular /
+					// non-finite view matrix for physics debug draw).
 					Vec3 direction = Vec3(Camera->GetLocalTransformation().m[8], Camera->GetLocalTransformation().m[9], Camera->GetLocalTransformation().m[10]);
-					finalPosition -= direction * f32(e.Value);
-					Camera->SetPosition(Camera->GetPosition() + finalPosition);
+					if (!std::isfinite(direction.x) || !std::isfinite(direction.y) || !std::isfinite(direction.z)
+						|| direction.magnitude() < 1e-6f)
+						direction = Vec3(0.f, 0.f, 1.f);
+					else
+						direction.normalizeSelf();
+					const Vec3 eye = Camera->GetPosition();
+					const f32 dist = eye.magnitude();
+					const f32 step = std::max(1.f, dist * 0.1f);
+					const f32 delta = f32(e.Value) * step;
+					// e.Value > 0 zooms in (toward pivot). Keep at least 0.5.
+					const f32 minDist = 0.5f;
+					f32 newDist = dist - delta;
+					if (newDist < minDist) newDist = minDist;
+					if (newDist > 1.0e7f) newDist = 1.0e7f;
+					if (dist > 1e-6f)
+						Camera->SetPosition(eye * (newDist / dist));
+					else
+						Camera->SetPosition(direction * newDist);
 				}
 				else
 				{
@@ -10133,6 +10162,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					// element is a rect plus what fills it, and splitting
 					// those across three nodes to edit one button is busywork.
 					DrawUIComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
+					DrawTerrainProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawFoliageProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawNetworkIdentityProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawWorldCellProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
@@ -10157,6 +10187,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					// for every assign call below instead.
 					SceneObject* ownerGO = sceneObjects->GetSceneObject(SelectedSceneObject->GetParentID());
 					const std::string ownerName = ownerGO ? ownerGO->GetName() : SelectedSceneObject->Name;
+
+					// Component flag = write into the light's shadow map
+					// (cast + self-shadow). Per-material "Receive Shadows"
+					// below is the sample side and is a different bit.
+					{
+						bool cast = r->IsCastingShadows();
+						if (ImGui::Checkbox("Cast Shadows", &cast))
+						{
+							const bool before = !cast;
+							if (cast) r->EnableCastShadows(); else r->DisableCastShadows();
+							RenderingComponent* rcPtr = r;
+							sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+								[rcPtr, before]() { if (before) rcPtr->EnableCastShadows(); else rcPtr->DisableCastShadows(); },
+								[rcPtr, before]() { if (!before) rcPtr->EnableCastShadows(); else rcPtr->DisableCastShadows(); },
+								"Toggle Cast Shadows"));
+							MarkSceneDirty();
+						}
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Write this mesh into light shadow maps.\nOff: still receives shadows from others, but never casts or self-shadows.");
+					}
+
 					if (meshes.empty())
 						ImGui::TextDisabled("(no submeshes)");
 					for (size_t m = 0; m < meshes.size(); ++m)
@@ -10321,8 +10372,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 								}
 
 								uint32 cullFace = mat->GetCullFace();
-								static const char* cullLabels[] = { "None", "Front", "Back" };
+								// Labels match CullFace::{BackFace,FrontFace,DoubleSided}.
+								static const char* cullLabels[] = { "Back", "Front", "Double Sided" };
 								int cullIdx = (int)cullFace;
+								if (cullIdx < 0 || cullIdx > 2) cullIdx = 0;
 								if (ImGui::Combo("Cull Face", &cullIdx, cullLabels, IM_ARRAYSIZE(cullLabels)))
 								{
 									const uint32 before = cullFace;
@@ -10342,11 +10395,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 									MAT_TOGGLE(before, StartRenderWireFrame(), StopRenderWireFrame());
 								}
 
-								bool castShadows = mat->IsCastingShadows();
-								if (ImGui::Checkbox("Cast Shadows", &castShadows))
+								// Material flag = sample shadow maps (receive).
+								// Writing into the map is RenderingComponent::
+								// EnableCastShadows(), exposed on the component
+								// above the submesh list.
+								bool receiveShadows = mat->IsCastingShadows();
+								if (ImGui::Checkbox("Receive Shadows", &receiveShadows))
 								{
-									const bool before = !castShadows;
-									if (castShadows) mat->EnableCastingShadows(); else mat->DisableCastingShadows();
+									const bool before = !receiveShadows;
+									if (receiveShadows) mat->EnableCastingShadows(); else mat->DisableCastingShadows();
 									MAT_TOGGLE(before, EnableCastingShadows(), DisableCastingShadows());
 								}
 
@@ -10472,6 +10529,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						ImGui::PopID();
 					}
 				}
+				break;
+				case SceneObjectTypes::TERRAIN_COMPONENT:
+				{
+					IComponent* c = (IComponent*)SelectedSceneObject->GetPTR();
+					if (c && c->GetOwner()) DrawTerrainProperties(c->GetOwner(), SelectedSceneObject->GetParentID());
+				}
+				break;
+				case SceneObjectTypes::TILEMAP_COMPONENT:
+					ImGui::TextUnformatted("Tile Map 2D");
+					ImGui::TextDisabled("Its palette and brushes are in the Tools window.");
 				break;
 				case SceneObjectTypes::LUA_COMPONENT:
 				{
@@ -11410,10 +11477,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				// Model - prefer project assets; convert source formats via AssimpImporter.
 				ImGui::Text("Import Model");
 				if (project && project->IsOpen())
-					ImGui::TextDisabled("Imports into assets/models/ as .p3dm");
+					ImGui::TextDisabled("Imports as assets/models/<name>.p3dm + <name>/ folder");
 				else
 					ImGui::TextDisabled("Open a project to convert/import into assets/models");
-				ImGui::FilePath("Path", "", "p3dm,obj,fbx,dae,gltf,glb,blend,3ds", &AddForm_modelPath, 1024, &showDir);
+				ImGui::FilePath("Path", "", "p3dm,obj,fbx,dae,gltf,glb,blend,3ds,zip", &AddForm_modelPath, 1024, &showDir);
 				break;
 			case 10:
 				// Directional Light
@@ -11643,7 +11710,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					if (!trashedPackageDir.empty())
 					{
 						const std::string importedRel = project->RelativePath(imported);
-						const std::string packageRel = std::filesystem::path(importedRel).parent_path().string();
+						const std::string packageRel = ProjectManager::ModelPackageKeyFromP3dmRel(importedRel);
 						if (!packageRel.empty())
 							sceneUndo.Push(std::make_unique<ImportOverwriteCommand>(project, packageRel, trashedPackageDir,
 								"Import Model (overwrite) '" + packageRel + "'"));
@@ -12073,6 +12140,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (ImGui::BeginMenu("Add", ""))
 		{
 			ShowAddObjectMenuItems();
+			// A terrain is made in its own small window: its size, tiles and
+			// how the ground is generated.
+			if (!sceneIsTwoD)
+			{
+				ImGui::Separator();
+				if (ImGui::MenuItem("Terrain...")) showNewTerrain = true;
+			}
 			ImGui::EndMenu();
 		}
 	}
@@ -12168,6 +12242,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::TextDisabled("Play mode — stop to use tools");
 			return;
 		}
+		// A component with tools of its own: they are what this window shows
+		// while it is selected.
+		if (IsTerrainSelection()) { DrawTerrainTools(); return; }
+		if (IsTileMapSelection()) { DrawTilePaletteTools(); return; }
 		if (SelectedSceneObject != NULL)
 		{
 			// A backend that cannot hand ImGui a texture handle returns NULL;
@@ -14318,7 +14396,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (!trashedPackageDir.empty())
 			{
 				const std::string importedRel = project->RelativePath(outAbs);
-				const std::string packageRel = std::filesystem::path(importedRel).parent_path().string();
+				const std::string packageRel = ProjectManager::ModelPackageKeyFromP3dmRel(importedRel);
 				if (!packageRel.empty())
 					sceneUndo.Push(std::make_unique<ImportOverwriteCommand>(project, packageRel, trashedPackageDir,
 						"Import Model (overwrite) '" + packageRel + "'"));
@@ -15065,6 +15143,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		case SceneObjectTypes::PHYSICS_COMPONENT: return "Physics";
 		case SceneObjectTypes::AUDIO_SOURCE_COMPONENT: return "AudioSource";
 		case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT: return "ParticleSystem";
+		case SceneObjectTypes::TERRAIN_COMPONENT: return "Terrain";
+		case SceneObjectTypes::TILEMAP_COMPONENT: return "TileMap2D";
 #ifdef LUA_BINDINGS
 		case SceneObjectTypes::LUA_COMPONENT: return "LuaComponent";
 #endif
@@ -15435,6 +15515,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		r["loaded"] = loaded;
 		if (CameraPivot) r["viewPivot"] = json::array({ CameraPivot->GetPosition().x, CameraPivot->GetPosition().y, CameraPivot->GetPosition().z });
+		if (Camera) r["viewEye"] = json::array({ Camera->GetWorldPosition().x, Camera->GetWorldPosition().y, Camera->GetWorldPosition().z });
 		return r;
 	}
 
@@ -15447,6 +15528,19 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		const json &p = args["position"];
 		CameraPivot->SetPosition(Vec3(p[0].get<f32>(), p[1].get<f32>(), p[2].get<f32>()));
+		// "yaw" / "pitch", degrees: which way the view looks at the pivot -
+		// what a middle-drag orbits to. Pitch 90 is straight down.
+		if (args.contains("yaw") || args.contains("pitch"))
+		{
+			rotY.AxisToQuaternion(Vec3(0.f, -1.f, 0.f), (f32)DEGTORAD(args.value("yaw", 0.f)));
+			rotX.AxisToQuaternion(Vec3(-1.f, 0.f, 0.f), (f32)DEGTORAD(args.value("pitch", 30.f)));
+			qX = Quaternion();
+			qY = Quaternion();
+			rotation = rotY * rotX;
+			Matrix m = rotation.ConvertToMatrix();
+			m.Translate(CameraPivot->GetPosition());
+			CameraPivot->SetTransformationMatrix(m);
+		}
 		// "distance": how far the eye sits from the pivot, along its current
 		// direction - enough to frame a whole terrain from a script.
 		if (args.contains("distance") && Camera)
@@ -16355,19 +16449,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		echo("SUCCESS: added tile layer \"" + layerName + "\"");
 	}
 
-	void SceneEditor::ShowTilePalette()
+	void SceneEditor::DrawTilePaletteTools()
 	{
-		if (!tilePaintMode) return;
-		if (!ImGui::Begin("Tile Palette", NULL))
-		{
-			ImGui::End();
-			return;
-		}
-
 		if (!sceneIsTwoD)
 		{
 			ImGui::TextWrapped("Tile painting is for 2D scenes.");
-			ImGui::End();
 			return;
 		}
 
@@ -16420,7 +16506,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				"or right-click an object > Add Component > Tile Map 2D.");
 			ImGui::Spacing();
 			ImGui::TextDisabled("Need a tileset first? Right-click any image in\nAssets > Create Tile Set.");
-			ImGui::End();
 			return;
 		}
 
@@ -16446,7 +16531,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				"draw order and parallax.");
 
 		TileMap2D* map = RawFindTileMap2D(tilePaintTarget);
-		if (!map) { ImGui::End(); return; }
+		if (!map) return;
 
 		ImGui::RadioButton("Brush", &tilePaintTool, 0);
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Paint cells as you drag.");
@@ -16626,7 +16711,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			(int)map->PaintedCount(), (int)map->NonEmptyChunks().size(),
 			(int)map->BuildColliderBoxes().size());
 
-		ImGui::End();
 	}
 
 	bool SceneEditor::AgentTilePaintMode(const bool on, const std::string& object,

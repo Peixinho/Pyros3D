@@ -670,8 +670,12 @@ namespace p3d {
 		// SceneEditor installs a shared renderer first, so this is a no-op.
 		m_debugDraw->EnsureDebugRenderer();
 
-		// Broad-phase cull uses drawingBounds; center a large box on the camera.
-		const Vec3 camPos = Camera->GetWorldPosition();
+		// Broad-phase cull uses drawingBounds. Box3D asserts b3IsValidAABB
+		// (finite, lower <= upper) - a NaN/Inf camera world position from a
+		// broken orbit/zoom/scene-cam transform must not reach b3World_Draw.
+		Vec3 camPos = Camera->GetWorldPosition();
+		if (!std::isfinite(camPos.x) || !std::isfinite(camPos.y) || !std::isfinite(camPos.z))
+			camPos = Vec3(0.f, 0.f, 0.f);
 		const f32 extent = 500.f;
 		m_draw.drawingBounds.lowerBound = { camPos.x - extent, camPos.y - extent, camPos.z - extent };
 		m_draw.drawingBounds.upperBound = { camPos.x + extent, camPos.y + extent, camPos.z + extent };
@@ -871,6 +875,17 @@ namespace p3d {
 				// a border between two tiles quantize to the same value.
 				def.globalMinimumHeight = data->rangeMin;
 				def.globalMaximumHeight = std::max(data->rangeMax, data->rangeMin + 0.001f);
+				// Holes: cells nothing stands on. Read at creation only.
+				std::vector<uint8_t> cellMaterials;
+				if (data->holes.size() == data->heights.size())
+				{
+					const uint32 cells = data->samples - 1;
+					cellMaterials.resize((size_t)cells * cells);
+					for (uint32 r = 0; r < cells; r++)
+						for (uint32 c = 0; c < cells; c++)
+							cellMaterials[(size_t)r * cells + c] = data->IsHoleCell(c, r) ? B3_HEIGHT_FIELD_HOLE : 0;
+					def.materialIndices = &cellMaterials[0];
+				}
 				handles->ownedHeightField = b3CreateHeightField(&def);
 				if (handles->ownedHeightField)
 					b3CreateHeightFieldShape(body, &shapeDef, handles->ownedHeightField);

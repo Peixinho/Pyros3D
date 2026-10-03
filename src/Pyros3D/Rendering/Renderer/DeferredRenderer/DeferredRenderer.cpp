@@ -1615,7 +1615,8 @@ namespace p3d {
 				if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
 				if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
 				{
-					Vec3 objectPosition = (*i)->renderingComponent->GetOwner()->GetWorldPosition();
+					// The bounding sphere's centre - see CullingSphereTest.
+					Vec3 objectPosition = (*i)->renderingComponent->GetOwner()->GetWorldTransformation() * (*i)->renderingComponent->GetOwner()->GetBoundingSphereCenter();
 					for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
 					{
 						if ((*_l).m[13] == 1) Lights.push_back(*_l);

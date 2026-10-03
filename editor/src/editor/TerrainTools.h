@@ -32,7 +32,14 @@ namespace p3d { class SceneGraph; class GameObject; class DebugRenderer; }
 class TerrainTools
 {
 public:
-	enum Tool { Raise, Lower, Smooth, Flatten, PaintTexture, PaintFoliage, Place, ToolCount };
+	enum Tool { Raise, Lower, Smooth, Flatten, PaintTexture, PaintFoliage, Place, Hole, Fill, Dig, Pack, CaveSmooth, CaveLevel, ToolCount };
+	// The radius the cave tools really work with: a cave is made of voxels,
+	// and a sphere much smaller than one and a half of them is nothing the
+	// voxels can hold - the brush then touched the rock without ever
+	// opening it.
+	float CaveRadius() const;
+	// The two that work in depth: a sphere at the cursor, not a disc on the ground.
+	bool IsCaveTool() const { return tool == Dig || tool == Pack || tool == CaveSmooth || tool == CaveLevel; }
 	static const char* ToolName(const Tool t);
 	static bool ToolFromName(const std::string &name, Tool &out);
 
@@ -52,13 +59,23 @@ public:
 	bool placeAlign = false;		// tilt to the ground's slope
 
 	void SetAssetRoot(const std::string &root) { editor.SetAssetRoot(root); }
+	// Which tiles a stroke may change - see TerrainEditor::SetEditable. A
+	// streamed world's far versions are ground to aim at, never to edit.
+	void SetEditable(const p3d::TerrainEditor::TileFilter &fn) { editor.SetEditable(fn); }
 	// A new scene: every tile known so far is gone. Settings stay.
-	void ResetScene() { editor = p3d::TerrainEditor(); stroking = false; hoverValid = false; }
+	void ResetScene() { editor = p3d::TerrainEditor(); stroking = false; hoverValid = false; hoverEditable = false; }
 
 	// The cursor's ray, every frame the tool is on: finds the ground under
 	// it and, during a stroke, applies the brush there for dt seconds.
 	void Update(p3d::SceneGraph* scene, const bool rayValid, const Vec3 &origin, const Vec3 &direction, const float dt);
 	bool HoverValid() const { return hoverValid; }
+	// False while the ground under the cursor is a far version: the cell is
+	// not loaded (yet), and the brush does nothing there until it is.
+	bool HoverEditable() const { return hoverValid && hoverEditable; }
+	// Whether the cursor is on a cave's wall rather than on the ground:
+	// the hole tools then cut the cave, not the terrain.
+	bool HoverOnCave() const { return hoverValid && hoverOnCave; }
+	bool IsHoleTool() const { return tool == Hole || tool == Fill; }
 	const Vec3 &HoverPoint() const { return hover; }
 
 	// Press: starts a stroke if the cursor is on terrain (false otherwise -
@@ -68,6 +85,20 @@ public:
 	// One dab at a world position, for dt seconds - what Update() does at
 	// the cursor, and what a scripted stroke does along its points.
 	bool ApplyAt(p3d::SceneGraph* scene, const float x, const float z, const float dt);
+	// The cave tools' dab: a sphere at a world position.
+	// dt seconds of it: the cave brushes work at a rate set by strength.
+	bool ApplyAt3D(p3d::SceneGraph* scene, const Vec3 &centre, const float dt);
+	// The height Level Floor levels to: where the stroke began, unless set.
+	void SetLevel(const float y) { flattenTarget = y; }
+	float Level() const { return flattenTarget; }
+	// Noise tunnels around a point - one undo entry, taken like a stroke's
+	// (BeginStroke / EndStroke around it).
+	uint32_t GenerateCaves(p3d::SceneGraph* scene, const Vec3 &centre, const float radius, const uint32_t seed, const float size,
+		const float width, const float minDepth, const float maxDepth)
+	{ return editor.GenerateCaves(scene, centre, radius, seed, size, width, minDepth, maxDepth); }
+	uint32_t ResyncCaves(p3d::SceneGraph* scene) { return editor.ResyncCaves(scene); }
+	// Starts recording without a cursor (a scripted or generated edit).
+	void BeginRecording() { stroking = true; editor.BeginStroke(); }
 	// Release: finishes the stroke. True with the tiles' states before and
 	// after when it changed anything - the undo entry.
 	bool EndStroke(std::vector<p3d::TerrainEditor::TileSnapshot> &before, std::vector<p3d::TerrainEditor::TileSnapshot> &after);
@@ -80,6 +111,8 @@ public:
 	// Tiles under `root` with edits Save() has not written.
 	bool HasUnsaved(const p3d::GameObject* root) const;
 	uint32_t UnsavedCount(p3d::SceneGraph* scene) const;
+	// The tiles Save() is about to write.
+	std::vector<const p3d::GameObject*> UnsavedOwners() const { return editor.UnsavedOwners(); }
 	// `root` is leaving the scene.
 	void Forget(p3d::GameObject* root);
 
@@ -98,15 +131,40 @@ public:
 		float tileSize = 128.f;
 		int samples = 129;
 		float heightRange = 200.f;
-		Vec3 origin;
+		Vec3 origin;	// where the terrain's centre goes
 		// Import: heights from this square image (absolute path; 8 or
 		// 16-bit, first channel) stretched over the whole terrain - image
 		// row 0 along z = 0 - black at baseHeight, white heightRange above.
 		// Steep ground starts out painted with the rock layer.
 		std::string importPath;
 		float baseHeight = 0.f;
+		// Generated ground, when nothing is imported: "flat", "perlin"
+		// (rolling hills: fractal Perlin noise) or "ridged" (mountains:
+		// the same noise folded into sharp ridges). Features are about
+		// featureSize metres across; each of `octaves` layers halves that
+		// and scales its height by roughness; `amount` is how much of
+		// heightRange the result spans. The same seed makes the same
+		// ground. Steep ground starts out painted with the rock layer.
+		std::string generator = "flat";
+		uint32_t seed = 1;
+		float featureSize = 600.f;
+		int octaves = 5;
+		float roughness = 0.5f;
+		float amount = 0.6f;
 	};
 	static bool CreateTerrain(const CreateParams &params, const std::string &projectRoot, std::string &subtreeJson, std::string &error);
+
+	// A scene saved before terrains were objects keeps each tile as an
+	// object of its own - under a root, or one per cell of a streamed
+	// world. This rewrites the files on disk: every such set of tiles (one
+	// per maps directory) becomes a Terrain object in the scene file, made
+	// from the first tile's settings, and the tile objects - with their
+	// cells' terrain far versions - are removed. The maps are not touched.
+	// `report` says what it did ("terrains": [{name, tilesX, tilesZ, ...}]).
+	// Tiles that differ from the first (another material, other foliage)
+	// stop it unless `force`. The caller reloads the scene.
+	static bool ConvertSceneTerrains(const std::string &scenePath, const std::string &projectRoot, const bool force,
+		nlohmann::json &report, std::string &error);
 
 	// Adds a grass foliage layer to every terrain tile in a subtree's JSON
 	// (SnapshotSubtree's form), writing the blade texture into the project
@@ -120,9 +178,13 @@ private:
 
 	p3d::TerrainEditor editor;
 	bool hoverValid = false;
+	bool hoverEditable = false;
+	bool hoverOnCave = false;
 	Vec3 hover;
 	bool stroking = false;
 	float flattenTarget = 0.f;
+	// Cave dabs remesh a tile: applied thirty times a second, not every frame.
+	float caveDt = 0.f;
 };
 
 #endif

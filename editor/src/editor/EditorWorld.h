@@ -47,7 +47,16 @@ public:
 		const std::function<void(p3d::GameObject*)> &adopted);
 	~EditorWorld();
 
-	void Update(const p3d::Vec3 &focus);
+	// Cells load around every focus. The editor's eye is rarely where the
+	// work is - an orbit camera stands back from what it looks at - so the
+	// viewport hands over the eye, the point it orbits and the brush.
+	void Update(const std::vector<p3d::Vec3> &foci);
+	// Blocks until the cells around `focus` are in - a scripted stroke
+	// cannot wait a few frames for the ground it is about to edit.
+	void LoadAround(const std::vector<p3d::Vec3> &foci);
+	// Whether `go` belongs to a cell's far version: a baked stand-in, drawn
+	// but never edited.
+	bool IsFar(const p3d::GameObject* go) const;
 
 	// Every loaded cell's root - left out of the scene file on save.
 	std::set<const p3d::GameObject*> LoadedRoots() const;
@@ -81,7 +90,10 @@ public:
 	void AddCell(const int32_t x, const int32_t z) { streamer->AddCell(x, z); }
 	// Far versions (see WorldStreamer).
 	void AddFarCell(const int32_t x, const int32_t z) { streamer->AddFarCell(x, z); }
-	void SetFarRadius(const float r) { streamer->SetFarRadius(r); }
+	// The world's own radius is the game's. While editing, every far
+	// version there is shows - the terrain must not end where the game's
+	// horizon would, 4 km from an eye that is itself kilometres up.
+	void SetFarRadius(const float r) { farRadius = r; ApplyFarRadius(); }
 	uint32_t FarShownCount() const { return streamer->FarShownCount(); }
 	// Every cell the world has, loaded or not.
 	const std::vector<std::pair<int32_t, int32_t> > &Cells() const { return streamer->GetWorld().cells; }
@@ -98,6 +110,8 @@ public:
 
 private:
 	bool IsDirty(const p3d::GameObject* root) const;
+	void ApplyFarRadius();
+	float farRadius = 0.f;
 
 	p3d::SceneGraph* scene;
 	SceneObjects* objects;

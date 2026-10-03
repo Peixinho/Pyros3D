@@ -397,6 +397,16 @@ namespace p3d {
 		// subtree once; its decoded data is consumed by the first call.
 		struct PreparedSubtree;
 		static std::shared_ptr<PreparedSubtree> PrepareSubtreeFile(const std::string &subtreePath, const std::string &scenePathForAssetRoot);
+		// The same from JSON text already in hand, with the asset root
+		// itself rather than a scene path to infer it from - a terrain
+		// builds each tile's subtree from its template. `label` names it in
+		// error messages. Any thread.
+		static std::shared_ptr<PreparedSubtree> PrepareSubtreeText(const std::string &subtreeJson, const std::string &assetRoot,
+			const std::string &label);
+		// One material from its scene-file form ({"kind": ...}), paths
+		// resolved against assetRoot. Main thread. Null if it cannot be
+		// built.
+		static std::shared_ptr<IMaterial> BuildMaterialFromText(const std::string &materialJson, const std::string &assetRoot);
 		static std::shared_ptr<GameObject> InstantiatePrepared(PreparedSubtree &prepared,
 			IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL);
 		// Main thread, optional, before InstantiatePrepared: uploads ONE of

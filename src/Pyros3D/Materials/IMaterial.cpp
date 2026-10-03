@@ -21,6 +21,14 @@ namespace p3d {
 		isCastingShadows = false;
 		cullFace = CullFace::BackFace;
 		depthBias = false;
+		// Saved with every material whether the bias is on or not: left
+		// unset they were whatever was in memory, different in every file.
+		depthFactor = depthUnits = 0.f;
+		// Was never set: IsTransparent() is `opacity < 1`, so a garbage
+		// opacity (common: a small float left on the stack) made the mesh
+		// skip the shadow pass entirely - it still drew and received
+		// shadows, but never cast or self-shadowed.
+		opacity = 1.f;
 		depthTest = depthWrite = true;
 		depthTestMode = 0; // Less
 		forceDepthWrite = false;

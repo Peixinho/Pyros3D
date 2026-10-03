@@ -90,6 +90,7 @@ namespace p3d {
 					const f32 x = x0 + Unit(h0) * w;
 					const f32 z = z0 + Unit(Hash(h0 + 1u)) * d;
 					if (haveMap && Unit(Hash(h0 + 2u)) >= densityMap->Sample(x / ground.size, z / ground.size, 0)) continue;
+					if (ground.IsHoleAt(x, z)) continue;	// nothing grows over a hole
 					const f32 y = ground.HeightAt(x, z);
 					if (y < spec.minHeight || y > spec.maxHeight) continue;
 					const Vec3 n = GroundNormal(ground, x, z);

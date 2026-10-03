@@ -209,7 +209,9 @@ namespace p3d {
 			if (Geometry->materialProperties.Twosided) genMat->SetCullFace(CullFace::DoubleSided);
 			if (Geometry->materialProperties.haveColor) genMat->SetColor(Geometry->materialProperties.Color);
 			if (Geometry->materialProperties.haveSpecular) genMat->SetSpecular(Geometry->materialProperties.Specular);
-			if (Geometry->materialProperties.Opacity) genMat->SetOpacity(Geometry->materialProperties.Opacity);
+			// Always apply - `if (Opacity)` skipped 0 (intentional fade) and
+			// relied on IMaterial's default, which used to be uninitialised.
+			genMat->SetOpacity(Geometry->materialProperties.Opacity);
 			if (Geometry->materialProperties.haveColorMap)
 			{
 				// Shared, not a fresh decode per submesh - see
@@ -544,7 +546,7 @@ namespace p3d {
 		std::vector<std::shared_ptr<Renderable> > lodRenderables;
 
 		// Casting Shadows
-		bool isCastingShadows;
+		bool isCastingShadows = true;
 
 		// List of Meshes of this Model
 		std::map< uint32, std::vector<RenderingMesh*> > Meshes;
@@ -572,7 +574,7 @@ namespace p3d {
 		std::vector<f32> LODDistances;
 
 		// Culling
-		bool cullTest;
+		bool cullTest = true;
 
 		// INTERNAL - Components of this Type
 		static std::vector<IComponent*> Components;

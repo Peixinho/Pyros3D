@@ -45,6 +45,8 @@
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Streaming/WorldStreamer.h>
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
+#include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
+#include <Pyros3D/Utils/Streaming/AssetStreamer.h>
 #include <Pyros3D/Network/NetworkSession.h>
 #include <Pyros3D/Network/NetRendezvous.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
@@ -283,7 +285,11 @@ int main(int argc, char** argv)
 
 		const std::chrono::steady_clock::time_point work0 = std::chrono::steady_clock::now();
 		session->Update(dt);
+		// Cells and terrain tiles around every player; the world's streamer
+		// pumps the loader both use.
+		TerrainComponent::SetViewers(scene, session->ClientViewers());
 		if (world) world->Update(session->ClientViewers());
+		else AssetStreamer::Instance().Pump(4.0);
 		physics->Update(dt, 10);
 		scene->Update(t);
 #ifdef LUA_BINDINGS

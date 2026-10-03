@@ -44,7 +44,12 @@ namespace SceneObjectTypes {
 		PHYSICS_COMPONENT,
 		AUDIO_SOURCE_COMPONENT,
 		LUA_COMPONENT,
-		PARTICLE_SYSTEM_COMPONENT
+		PARTICLE_SYSTEM_COMPONENT,
+		// Components that are edited with tools rather than only inspected:
+		// selecting one in the tree is how its tools come up in the Tools
+		// window (terrain brushes, the tile palette).
+		TERRAIN_COMPONENT,
+		TILEMAP_COMPONENT
 	};
 };
 

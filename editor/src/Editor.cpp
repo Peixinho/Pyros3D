@@ -2570,12 +2570,29 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	// The Terrain panel: terrain_state {x,z}?, terrain_brush {on,tool,radius,
 	// strength,hardness,layer,density}, terrain_stroke {points:[[x,z]..],dt},
-	// terrain_create {name,tilesX,tilesZ,tileSize,samples,heightRange,origin}.
+	// terrain_create {name,tilesX,tilesZ,tileSize,samples,heightRange,origin}
+	// makes one Terrain object, centred on origin.
 	if (name == "terrain_state" || name == "terrain_brush" || name == "terrain_stroke" || name == "terrain_create"
 		|| name == "terrain_add_grass" || name == "terrain_layer" || name == "get_foliage" || name == "set_foliage_layer" || name == "remove_foliage_layer" || name == "add_foliage_layer")
 	{
 		nlohmann::json r;
 		if (!sceneView->AgentTerrain(name, a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
+	// Terrain objects: terrain_info lists them; set_terrain {name|id,
+	// loadRadius, unloadRadius, viewDistance}; terrain_bake_overview
+	// {name|id}; terrain_convert {force} turns a scene's per-tile terrain
+	// (a tile object per cell) into Terrain objects.
+	// terrain_generate_caves {centre, radius, seed, size, width, minDepth,
+	// maxDepth}: noise tunnels under the terrain. Caves are also dug by
+	// hand: terrain_brush {tool: "dig"|"pack"} + terrain_stroke with
+	// [x, y, z] points.
+	if (name == "terrain_info" || name == "set_terrain" || name == "terrain_bake_overview" || name == "terrain_convert"
+		|| name == "terrain_generate_caves" || name == "terrain_resync_caves")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentTerrainObject(name, a, r, err)) throw std::runtime_error(err);
 		r["ok"] = true;
 		return r;
 	}
@@ -3670,6 +3687,17 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			ImGui::GetIO().AddMousePosEvent(sx, sy);
 		SetMouseMove(sx, sy);
 
+		// {"wheel": notches, "ctrl": true}: the scroll wheel at that
+		// position, with Ctrl held for its length if asked - what zooms the
+		// view, or sizes a brush.
+		if (a.is_object() && a.contains("wheel"))
+		{
+			ImGuiIO& io = ImGui::GetIO();
+			const bool hadCtrl = io.KeyCtrl;
+			if (a.value("ctrl", false)) io.KeyCtrl = true;
+			SetMouseWheel(a.value("wheel", 0.f));
+			io.KeyCtrl = hadCtrl;
+		}
 		const std::string action = a.is_object() ? a.value("action", "move") : "move";
 		if (action == "press" || action == "release")
 		{
@@ -4529,12 +4557,10 @@ void Editor::ProcessPendingFileDrops()
 			echo("Imported: " + (rel.empty() ? out : rel));
 			if (sceneView && !trashedExisting.empty() && !rel.empty())
 			{
-				// A .p3dm import trashes the whole package folder (see
-				// ImportModel), not the .p3dm file itself - `out` is the
-				// .p3dm path either way, so the undo command needs the
-				// package folder's relative path in that case.
+				// Model imports trash .p3dm + sidecar folder as one package
+				// key (assets/models/<stem>); other assets trash the file.
 				const std::string importedRel = ProjectManager::IsP3dm(out)
-					? std::filesystem::path(rel).parent_path().string() : rel;
+					? ProjectManager::ModelPackageKeyFromP3dmRel(rel) : rel;
 				if (!importedRel.empty())
 					sceneView->PushUndoCommand(std::make_unique<ImportOverwriteCommand>(&project, importedRel, trashedExisting,
 						"Import (overwrite) '" + importedRel + "'"));
@@ -7788,11 +7814,10 @@ void Editor::ShowCreateTileSetModal()
 void Editor::DrawTilePaletteWindow()
 {
 	if (!sceneView) return;
-	sceneView->ShowTilePalette();
 	// Drained after the window: creating objects inside another window's
 	// Begin/End pair is how ImGui asserts rather than draws.
 	sceneView->DrainTileLayerRequest();
-	sceneView->ShowTerrainPanel();
+	sceneView->ShowNewTerrainWindow();
 	sceneView->ShowNetworkPanel();
 	// Drained after the window is drawn, not inside it: OpenTileSetDocument
 	// creates a document and can re-dock, and doing that from inside another
@@ -8020,7 +8045,7 @@ void Editor::DrawAssetsWindow()
 	{
 		const ProjectAssetEntry& e = assets[i];
 		if (!e.isDirectory) continue;
-		if (ProjectManager::IsInternalAssetPath(e.relativePath)) continue;
+		if (ProjectManager::IsInternalAssetPath(e.relativePath, true)) continue;
 
 		if (col > 0) ImGui::SameLine(0.f, spacing);
 		ImGui::PushID((int)(i + 100000));

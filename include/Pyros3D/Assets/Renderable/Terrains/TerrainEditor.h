@@ -24,6 +24,7 @@
 
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Other/Export.h>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -46,6 +47,9 @@ namespace p3d {
 		IPhysicsComponent* collision = NULL;	// NULL when the tile has none
 		FoliageComponent* foliage = NULL;		// NULL when the tile has none
 		Vec3 origin;							// world position of its corner
+		// A Terrain's stand-in for a tile that is not loaded: ground to
+		// aim at and stand a query on, never edited.
+		bool distant = false;
 
 		HeightfieldData* Data() const { return levels.empty() ? NULL : levels[0]->EditData(); }
 		f32 Size() const { const HeightfieldData* d = Data(); return d ? d->size : 0.f; }
@@ -64,6 +68,16 @@ namespace p3d {
 		// resolve - the project root. Needed to load a density map for
 		// painting and to save anything.
 		void SetAssetRoot(const std::string &root) { assetRoot = root; }
+
+		// Tiles the brushes must leave alone: a streamed world's far
+		// versions are terrain tiles too - baked stand-ins for cells that
+		// are not loaded - and a stroke landing on one would edit the
+		// stand-in, not the ground. False from `fn` keeps a tile out of
+		// Sculpt / PaintSplat / PaintFoliage; it is still ground to
+		// FindTiles and HeightAt. Unset, every tile is editable.
+		typedef std::function<bool(const GameObject* owner)> TileFilter;
+		void SetEditable(const TileFilter &fn) { editable = fn; }
+		bool IsEditable(const GameObject* owner) const { return !editable || editable(owner); }
 
 		// Every terrain tile in the scene (at any depth - streamed cells are
 		// children of their cell's root).
@@ -92,6 +106,40 @@ namespace p3d {
 		uint32 PaintFoliage(SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const uint32 layer,
 			const f32 target, const f32 strength, const f32 hardness);
 
+		// Cuts (open = true) or fills holes: every grid cell whose centre
+		// is within `radius` of (x, z). A hole has no triangles and no
+		// collision - see HeightfieldData::holes. Returns how many tiles
+		// changed.
+		uint32 CutHoles(SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const bool open);
+
+		// Caves, under a Terrain object's tiles (see CaveVolume.h): a sphere
+		// dug out of the rock (air = true) or packed back in, at a world
+		// position. Where the sphere breaks the surface the ground opens
+		// (or closes) with it - the tile's holes follow the caves inside
+		// the brush. Returns how many tiles changed; 0 on tiles that are
+		// not a Terrain's.
+		uint32 Dig(SceneGraph* scene, const Vec3 &centre, const f32 radius, const bool air);
+		// CutHoles() for a cave: an opening in its walls (or its ring of
+		// ground) at a world position - no triangles, no collision there.
+		// Returns how many tiles changed.
+		uint32 CutCaveHoles(SceneGraph* scene, const Vec3 &centre, const f32 radius, const bool open);
+		// One dab of a cave brush (CaveVolume::BrushMode: dig, fill,
+		// smooth, level) - Dig() a little at a time, and the two that
+		// tidy a cave up. `level` is the floor's world height for Level.
+		uint32 CaveBrush(SceneGraph* scene, const int mode, const Vec3 &centre, const f32 radius, const f32 amount,
+			const f32 hardness, const f32 level);
+		// Noise tunnels (CaveVolume::Generate) under every loaded tile of
+		// every Terrain within `radius` of `centre` on the plane. With
+		// minDepth at or under zero they break the surface, and the ground
+		// opens there. Returns how many tiles changed.
+		uint32 GenerateCaves(SceneGraph* scene, const Vec3 &centre, const f32 radius, const uint32 seed, const f32 size,
+			const f32 width, const f32 minDepth, const f32 maxDepth);
+
+		// Every loaded tile that has caves: its openings and walls made
+		// again from its voxels - for caves saved by an older build, whose
+		// openings were cut differently. Returns how many tiles.
+		uint32 ResyncCaves(SceneGraph* scene);
+
 		// The stroke is over: rebuild collision and regrow foliage on every
 		// tile it touched.
 		void FinishStroke();
@@ -106,6 +154,8 @@ namespace p3d {
 		// Whether `owner`'s tile has edits Save() has not written - a
 		// streamed cell holding one must not be unloaded.
 		bool HasUnsaved(const GameObject* owner) const;
+		// Every tile with edits Save() has not written.
+		std::vector<const GameObject*> UnsavedOwners() const;
 		// `owner` is leaving the scene (its cell unloaded): drop what is
 		// kept for it. Unsaved edits to it are lost.
 		void Forget(const GameObject* owner);
@@ -117,6 +167,8 @@ namespace p3d {
 		{
 			std::string heightmap;
 			std::vector<f32> heights;
+			std::vector<uchar> holes;	// empty = none
+			std::vector<uchar> caves;	// CaveVolume::ToBlob; empty = none
 			std::vector<uchar> splat;
 			std::vector<std::vector<uchar> > density;	// per foliage layer; empty = none loaded
 		};
@@ -135,7 +187,8 @@ namespace p3d {
 		struct TileState
 		{
 			GameObject* owner = NULL;
-			bool heightsDirty = false, collisionDirty = false, splatDirty = false;
+			bool heightsDirty = false, collisionDirty = false, splatDirty = false, holesDirty = false;
+			bool cavesDirty = false, caveCollisionDirty = false;
 			std::vector<bool> foliageDirty;
 			std::shared_ptr<PaintableImage> splat;
 			std::string splatPath;
@@ -143,6 +196,12 @@ namespace p3d {
 
 	private:
 		TileState &State(const TerrainTile &tile);
+		std::vector<TerrainTile> EditableTiles(SceneGraph* scene) const;
+		// After a tile's caves changed: its holes within `reach` of (x, z)
+		// become what the caves say (air at the surface), levels rebuilt.
+		void SyncHolesToCaves(const TerrainTile &tile, const f32 x, const f32 z, const f32 reach);
+		void MarkCaveEdit(const TerrainTile &tile);
+		TileFilter editable;
 		std::shared_ptr<PaintableImage> SplatImage(const TerrainTile &tile, TileState &state);
 		std::string Resolve(const std::string &path) const;
 		TileSnapshot Capture(const TerrainTile &tile);

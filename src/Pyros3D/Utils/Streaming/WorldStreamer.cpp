@@ -77,6 +77,14 @@ namespace p3d {
 		return n;
 	}
 
+	bool WorldStreamer::IsFarRoot(const GameObject* root) const
+	{
+		if (!root) return false;
+		for (std::map<CellKey, Cell>::const_iterator it = cells.begin(); it != cells.end(); ++it)
+			if (it->second.farRoot.get() == root) return true;
+		return false;
+	}
+
 	void WorldStreamer::SyncFarVisibility(Cell &c)
 	{
 		const bool show = c.farRoot && !(c.state == Cell::Loaded && c.root);
@@ -300,7 +308,12 @@ namespace p3d {
 
 	void WorldStreamer::LoadAround(const Vec3 &focus)
 	{
-		Update(focus, 0.0);
+		LoadAround(std::vector<Vec3>(1, focus));
+	}
+
+	void WorldStreamer::LoadAround(const std::vector<Vec3> &foci)
+	{
+		Update(foci, 0.0);
 		while (LoadingCount() > 0)
 		{
 			AssetStreamer::Instance().Flush();

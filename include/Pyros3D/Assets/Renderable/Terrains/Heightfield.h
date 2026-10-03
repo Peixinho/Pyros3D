@@ -40,6 +40,41 @@ namespace p3d {
 		// same for every tile loaded with the same settings - the physics
 		// shape quantizes against it so neighbouring tiles line up.
 		f32 rangeMin = 0.f, rangeMax = 0.f;
+		// Optional, parallel to heights: normals handed in rather than
+		// taken from this grid. A piece cut from a larger grid (a terrain's
+		// distant tile, from its overview) knows the ground past its own
+		// edge; its own differences do not, and each piece would shade its
+		// border from one side - a seam along every tile.
+		std::vector<Vec3> normals;
+		// Where the mesh's 0..1 texture coordinates land: offset + scale *
+		// uv. A piece of a larger grid samples its piece of one texture.
+		Vec2 uvOffset = Vec2(0.f, 0.f), uvScale = Vec2(1.f, 1.f);
+
+		// Optional, parallel to heights: how much of a hole each grid point
+		// is, 0 (ground) to 255. Where it passes 127 there is no ground:
+		// the mesh is cut along that contour - between grid points, so a
+		// hole's rim is as round as the brush that made it, not a
+		// staircase of cells - and the physics shape lets things through.
+		// That is how a tunnel or a cave mouth (a mesh of its own - a
+		// heightfield cannot overhang) gets past the surface. Heights are
+		// still defined there. Empty = no holes.
+		std::vector<uchar> holes;
+		f32 HoleAt(const uint32 column, const uint32 row) const
+		{
+			return holes.empty() ? 0.f : holes[(size_t)row * samples + column] / 255.f;
+		}
+		// Whether the cell is more hole than ground - what physics, which
+		// works in whole cells, goes by.
+		bool IsHoleCell(const uint32 column, const uint32 row) const
+		{
+			if (holes.empty() || column + 1 >= samples || row + 1 >= samples) return false;
+			return HoleAt(column, row) + HoleAt(column + 1, row) + HoleAt(column, row + 1) + HoleAt(column + 1, row + 1) > 2.f;
+		}
+		// Whether local (x, z) is over a hole.
+		bool IsHoleAt(const f32 x, const f32 z) const;
+		// Reads a hole mask (any 8-bit image, first channel, resampled to
+		// this grid's points). False when unreadable.
+		bool LoadHoles(const std::string &path);
 
 		f32 Spacing() const { return samples > 1 ? size / (f32)(samples - 1) : 0.f; }
 		f32 At(const uint32 column, const uint32 row) const { return heights[(size_t)row * samples + column]; }
@@ -96,8 +131,10 @@ namespace p3d {
 		std::shared_ptr<HeightfieldData> data;
 		std::vector<HeightfieldMesh> meshes;	// parallel to the levels
 
+		// holesPath, when not empty and readable, is the tile's hole mask.
 		static bool Prepare(const std::string &heightmapPath, const f32 size, const f32 heightScale, const f32 heightOffset,
-			const f32 skirt, const std::vector<HeightfieldLevel> &levels, PreparedHeightfield &out);
+			const f32 skirt, const std::vector<HeightfieldLevel> &levels, PreparedHeightfield &out,
+			const std::string &holesPath = std::string());
 		// Identifies one set of Prepare() arguments, for AssetBundle.
 		static std::string Key(const std::string &heightmapPath, const f32 size, const f32 heightScale, const f32 heightOffset,
 			const f32 skirt, const std::vector<HeightfieldLevel> &levels);
@@ -124,6 +161,8 @@ namespace p3d {
 		struct Source
 		{
 			std::string heightmap;
+			// The hole mask's file, empty when the tile has none.
+			std::string holes;
 			f32 heightScale = 1.f, heightOffset = 0.f, skirt = 1.f;
 			std::vector<HeightfieldLevel> levels;
 		};

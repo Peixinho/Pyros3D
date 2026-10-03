@@ -5,6 +5,7 @@
 //============================================================================
 
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
+#include <Pyros3D/Assets/Texture/PaintableImage.h>
 #include <Pyros3D/Core/File/File.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/stb/stb_image.h>
@@ -85,8 +86,40 @@ namespace p3d {
 		return h22 + (h21 - h22) * (1.f - u) + (h12 - h22) * (1.f - v);
 	}
 
+	bool HeightfieldData::IsHoleAt(const f32 x, const f32 z) const
+	{
+		if (holes.empty() || samples < 2) return false;
+		const f32 s = Spacing();
+		const f32 fx = std::min(std::max(x / s, 0.f), (f32)(samples - 1)), fz = std::min(std::max(z / s, 0.f), (f32)(samples - 1));
+		const uint32 c = std::min((uint32)fx, samples - 2), r = std::min((uint32)fz, samples - 2);
+		const f32 u = fx - (f32)c, v = fz - (f32)r;
+		const f32 top = HoleAt(c, r) + (HoleAt(c + 1, r) - HoleAt(c, r)) * u;
+		const f32 bottom = HoleAt(c, r + 1) + (HoleAt(c + 1, r + 1) - HoleAt(c, r + 1)) * u;
+		return top + (bottom - top) * v > 0.5f;
+	}
+
+	bool HeightfieldData::LoadHoles(const std::string &path)
+	{
+		if (samples < 2) return false;
+		PaintableImage img;
+		if (!img.Load(path, 1) || img.width < 1 || img.height < 1) return false;
+		holes.assign((size_t)samples * samples, 0);
+		bool any = false;
+		for (uint32 r = 0; r < samples; r++)
+			for (uint32 c = 0; c < samples; c++)
+			{
+				const f32 v = img.Sample((f32)c / (samples - 1), (f32)r / (samples - 1), 0);
+				const uchar q = (uchar)std::lround(std::min(std::max(v, 0.f), 1.f) * 255.f);
+				holes[(size_t)r * samples + c] = q;
+				any = any || q > 127;
+			}
+		if (!any) holes.clear();
+		return true;
+	}
+
 	Vec3 HeightfieldData::NormalAt(const uint32 column, const uint32 row) const
 	{
+		if (normals.size() == heights.size() && !normals.empty()) return normals[(size_t)row * samples + column];
 		const uint32 c0 = column > 0 ? column - 1 : column, c1 = std::min(column + 1, samples - 1);
 		const uint32 r0 = row > 0 ? row - 1 : row, r1 = std::min(row + 1, samples - 1);
 		const f32 s = Spacing();
@@ -124,14 +157,82 @@ namespace p3d {
 				const uint32 gc = c * st, gr = r * st;
 				out.vertex.push_back(Vec3(gc * spacing, data.At(gc, gr), gr * spacing));
 				out.normal.push_back(data.NormalAt(gc, gr));
-				out.texcoord.push_back(Vec2((f32)gc / cells, (f32)gr / cells));
+				out.texcoord.push_back(Vec2(data.uvOffset.x + data.uvScale.x * (f32)gc / cells,
+					data.uvOffset.y + data.uvScale.y * (f32)gr / cells));
 			}
 
 		out.index.reserve((size_t)(n - 1) * (n - 1) * 6 + (size_t)4 * (n - 1) * 6);
+		// How much of a hole each point of this level is. A coarser level
+		// stands for several points with one, and takes the LEAST open of
+		// them: its cut is rougher, and it must err toward leaving ground
+		// in - under which there is rock - never toward opening wider than
+		// what lies beneath covers.
+		const bool holed = !data.holes.empty() && !g_headless;
+		std::vector<f32> hole;
+		if (holed)
+		{
+			hole.resize(gridCount);
+			const int32 reach = (int32)st / 2;
+			for (uint32 r = 0; r < n; r++)
+				for (uint32 c = 0; c < n; c++)
+				{
+					f32 least = 1.f;
+					for (int32 dz = -reach; dz <= reach; dz++)
+						for (int32 dx = -reach; dx <= reach; dx++)
+						{
+							const int32 gc = std::min(std::max((int32)(c * st) + dx, 0), (int32)data.samples - 1);
+							const int32 gr = std::min(std::max((int32)(r * st) + dz, 0), (int32)data.samples - 1);
+							least = std::min(least, data.HoleAt((uint32)gc, (uint32)gr));
+						}
+					hole[(size_t)r * n + c] = least;
+				}
+		}
 		for (uint32 r = 0; r + 1 < n; r++)
 			for (uint32 c = 0; c + 1 < n; c++)
 			{
 				const uint32 i11 = r * n + c, i12 = i11 + 1, i21 = i11 + n, i22 = i21 + 1;
+				if (holed)
+				{
+					// The quad's corners in winding order, and which are hole.
+					const uint32 corner[4] = { i11, i21, i22, i12 };
+					const f32 h[4] = { hole[i11], hole[i21], hole[i22], hole[i12] };
+					const uint32 open = (h[0] > 0.5f) + (h[1] > 0.5f) + (h[2] > 0.5f) + (h[3] > 0.5f);
+					if (open == 4) continue;
+					if (open > 0)
+					{
+						// The rim crosses this quad. What is left of it is a
+						// polygon: its ground corners, and on each side where
+						// ground turns to hole the point where the field
+						// passes one half - marching squares, so the rim runs
+						// between grid points instead of along them.
+						uint32 poly[8];
+						uint32 count = 0;
+						for (uint32 k = 0; k < 4; k++)
+						{
+							const uint32 a = k, b = (k + 1) % 4;
+							if (h[a] <= 0.5f) poly[count++] = corner[a];
+							if ((h[a] > 0.5f) != (h[b] > 0.5f))
+							{
+								// Always from the lower-numbered grid point, so
+								// the two quads sharing this side put the rim's
+								// point in the very same place.
+								uint32 va = corner[a], vb = corner[b];
+								f32 ha = h[a], hb = h[b];
+								if (va > vb) { std::swap(va, vb); std::swap(ha, hb); }
+								const f32 t = (0.5f - ha) / (hb - ha);
+								out.vertex.push_back(out.vertex[va] + (out.vertex[vb] - out.vertex[va]) * t);
+								out.normal.push_back((out.normal[va] + (out.normal[vb] - out.normal[va]) * t).normalize());
+								out.texcoord.push_back(out.texcoord[va] + (out.texcoord[vb] - out.texcoord[va]) * t);
+								poly[count++] = (uint32)out.vertex.size() - 1;
+							}
+						}
+						for (uint32 k = 1; k + 1 < count; k++)
+						{
+							out.index.push_back(poly[0]); out.index.push_back(poly[k]); out.index.push_back(poly[k + 1]);
+						}
+						continue;
+					}
+				}
 				out.index.push_back(i11); out.index.push_back(i21); out.index.push_back(i12);
 				out.index.push_back(i22); out.index.push_back(i12); out.index.push_back(i21);
 			}
@@ -164,9 +265,34 @@ namespace p3d {
 				for (uint32 k = 0; k + 1 < n; k++)
 				{
 					const uint32 top0 = Edge::Grid(e, k, n), top1 = Edge::Grid(e, k + 1, n);
-					const uint32 bot0 = base + k, bot1 = base + k + 1;
-					out.index.push_back(top0); out.index.push_back(top1); out.index.push_back(bot0);
-					out.index.push_back(bot0); out.index.push_back(top1); out.index.push_back(bot1);
+					uint32 t0 = top0, t1 = top1, b0 = base + k, b1 = base + k + 1;
+					if (holed)
+					{
+						// An opening on the border: no skirt under it, and
+						// where the rim crosses this stretch of the edge the
+						// skirt stops at the rim, not at the next grid point -
+						// or it hangs into the opening like a curtain.
+						const bool open0 = hole[top0] > 0.5f, open1 = hole[top1] > 0.5f;
+						if (open0 && open1) continue;
+						if (open0 != open1)
+						{
+							// From the lower-numbered point, as the surface does.
+							uint32 va = top0, vb = top1;
+							if (va > vb) std::swap(va, vb);
+							const f32 t = (0.5f - hole[va]) / (hole[vb] - hole[va]);
+							const uint32 mid = (uint32)out.vertex.size();
+							out.vertex.push_back(out.vertex[va] + (out.vertex[vb] - out.vertex[va]) * t);
+							out.normal.push_back((out.normal[va] + (out.normal[vb] - out.normal[va]) * t).normalize());
+							out.texcoord.push_back(out.texcoord[va] + (out.texcoord[vb] - out.texcoord[va]) * t);
+							out.vertex.push_back(out.vertex[mid] - Vec3(0.f, skirtDepth, 0.f));
+							out.normal.push_back(out.normal[mid]);
+							out.texcoord.push_back(out.texcoord[mid]);
+							if (open0) { t0 = mid; b0 = mid + 1; }
+							else { t1 = mid; b1 = mid + 1; }
+						}
+					}
+					out.index.push_back(t0); out.index.push_back(t1); out.index.push_back(b0);
+					out.index.push_back(b0); out.index.push_back(t1); out.index.push_back(b1);
 				}
 			}
 		}
@@ -186,7 +312,7 @@ namespace p3d {
 	}
 
 	bool PreparedHeightfield::Prepare(const std::string &heightmapPath, const f32 size, const f32 heightScale, const f32 heightOffset,
-		const f32 skirt, const std::vector<HeightfieldLevel> &levels, PreparedHeightfield &out)
+		const f32 skirt, const std::vector<HeightfieldLevel> &levels, PreparedHeightfield &out, const std::string &holesPath)
 	{
 		out.data = std::make_shared<HeightfieldData>();
 		if (!HeightfieldData::LoadFile(heightmapPath, size, heightScale, heightOffset, *out.data))
@@ -194,6 +320,7 @@ namespace p3d {
 			out.data.reset();
 			return false;
 		}
+		if (!holesPath.empty()) out.data->LoadHoles(holesPath);
 		out.meshes.resize(std::max<size_t>(levels.size(), 1));
 		for (size_t i = 0; i < out.meshes.size(); i++)
 			HeightfieldMesh::Build(*out.data, levels.empty() ? 1 : levels[i].step, skirt, out.meshes[i]);

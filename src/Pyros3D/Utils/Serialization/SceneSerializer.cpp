@@ -10,6 +10,7 @@
 #include <Pyros3D/Utils/Streaming/AssetBundle.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
+#include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Network/NetworkIdentity.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
@@ -104,6 +105,8 @@ namespace p3d {
 	// paths) against ASSETS_PATH when the recorded file is missing.
 	// Editor projects use the folder that contains scenes/ as the root.
 	static std::string g_sceneAssetRoot;
+	// The key a Terrain component keeps its tile template under.
+	static const char* const kTerrainTemplateKey = "tileTemplate";
 
 	// Key interpolation, shared by both 2D clip key kinds so rotations and
 	// positions cannot drift apart about how it is spelled. Omitted entirely
@@ -922,6 +925,7 @@ namespace p3d {
 			const Heightfield::Source &src = hf->source;
 			j["kind"] = "heightfield";
 			j["heightmap"] = RelativizeSceneAssetPath(src.heightmap);
+			if (!src.holes.empty()) j["holes"] = RelativizeSceneAssetPath(src.holes);
 			j["size"] = hf->GetData() ? hf->GetData()->size : 0.f;
 			j["heightScale"] = src.heightScale;
 			j["heightOffset"] = src.heightOffset;
@@ -1247,6 +1251,30 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (ni->predicted) j["predicted"] = true;
 			j["hitRadius"] = ni->hitRadius;
 			j["hitHeight"] = ni->hitHeight;
+			return j;
+		}
+		// The terrain's settings and its tile template. Its tiles are
+		// transient children it makes again on load.
+		if (TerrainComponent* tc = dynamic_cast<TerrainComponent*>(c))
+		{
+			const TerrainComponent::Settings &s = tc->GetSettings();
+			j["type"] = "Terrain";
+			j["directory"] = s.directory;
+			j["tilesX"] = s.tilesX;
+			j["tilesZ"] = s.tilesZ;
+			j["tileSize"] = s.tileSize;
+			j["loadRadius"] = s.loadRadius;
+			j["unloadRadius"] = s.unloadRadius;
+			j["viewDistance"] = s.viewDistance;
+			j["overviewSamples"] = s.overviewSamples;
+			j["caveVoxel"] = s.caveVoxel;
+			if (!s.caveMaterial.empty())
+			{
+				try { j["caveMaterial"] = json::parse(s.caveMaterial); }
+				catch (const std::exception&) {}
+			}
+			try { j[kTerrainTemplateKey] = json::parse(s.tileTemplate); }
+			catch (const std::exception&) { j[kTerrainTemplateKey] = json::object(); }
 			return j;
 		}
 		// The layers' settings, never their instances: those regrow from
@@ -2346,6 +2374,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	{
 		std::string path;		// resolved
 		std::string authored;	// as written, for saving back
+		std::string holes, holesAuthored;	// the hole mask, if any
 		f32 size = 256.f, heightScale = 100.f, heightOffset = 0.f, skirt = 2.f;
 		std::vector<HeightfieldLevel> levels;
 		std::string Key() const { return PreparedHeightfield::Key(path, size, heightScale, heightOffset, skirt, levels); }
@@ -2356,6 +2385,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		HeightfieldSpec spec;
 		spec.authored = r.value("heightmap", std::string());
 		spec.path = ResolveSceneAssetPathIn(assetRoot, spec.authored);
+		spec.holesAuthored = r.value("holes", std::string());
+		if (!spec.holesAuthored.empty()) spec.holes = ResolveSceneAssetPathIn(assetRoot, spec.holesAuthored);
 		spec.size = std::max(1.f, r.value("size", spec.size));
 		spec.heightScale = r.value("heightScale", spec.heightScale);
 		spec.heightOffset = r.value("heightOffset", spec.heightOffset);
@@ -2876,7 +2907,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				if (!prepared)
 				{
 					prepared = std::make_shared<PreparedHeightfield>();
-					if (!PreparedHeightfield::Prepare(spec.path, spec.size, spec.heightScale, spec.heightOffset, spec.skirt, spec.levels, *prepared))
+					if (!PreparedHeightfield::Prepare(spec.path, spec.size, spec.heightScale, spec.heightOffset, spec.skirt, spec.levels, *prepared, spec.holes))
 						prepared.reset();
 				}
 				if (prepared)
@@ -2886,6 +2917,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					{
 						std::shared_ptr<Heightfield> hf = std::make_shared<Heightfield>(std::move(prepared->meshes[i]), data, spec.levels[i].step);
 						hf->source.heightmap = spec.authored;
+						hf->source.holes = spec.holesAuthored;
 						hf->source.heightScale = spec.heightScale;
 						hf->source.heightOffset = spec.heightOffset;
 						hf->source.skirt = spec.skirt;
@@ -2916,41 +2948,28 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			std::shared_ptr<RenderingComponent> rc;
 			if (isModel)
 			{
-				// Diffuse only here — shadow shader variants sample depth
-				// maps that may not exist yet on load (GL: unloadable depth
-				// sampler; Vulkan: validation/segfault). Shadows still work
-				// via EnableCastShadows + lights; the material picks up
-				// Texture/Specular from the .p3dm in BuildMaterials.
+				// Same flags CreateRenderingModel uses: Diffuse + Skinning +
+				// the three receive-side shadow samplers. Dropping the shadow
+				// flags here (an earlier "maps may not exist yet on load"
+				// precaution) left every model reloaded from a scene file
+				// unable to sample shadow maps - BindShadowMaps() gates on
+				// material->IsCastingShadows(), which those flags set - so a
+				// house that cast into the map still looked fully lit with
+				// no self-shadowing after save/reload. Empty map lists just
+				// bind nothing; HaveShadowMap on each light stays false.
 				//
-				// Plus Skinning for a model that carries a skeleton. The
-				// serialized material's own options are deliberately dropped
-				// for a Model (per-submesh materials are rebuilt from the
-				// .p3dm instead, so package textures survive a reload), and
-				// Skinning went with them - so a skinned model loaded from a
-				// scene file compiled the *non*-skinned shader variant and
-				// ignored its bone palette entirely. The animation still ran,
-				// the bones still updated, and the mesh still drew: in its
-				// unskinned bone-local layout, which reads as a motionless
-				// heap of body parts. Only the scene path was affected; the
-				// C++ demos passed Skinning explicitly and always worked.
-				// BuildMaterials() masks this straight back off for any
-				// submesh whose geometry has no bone data, so a rigid prop
-				// inside an animated model is unaffected.
 				// Skinning unconditionally, NOT only when the component
-				// carries a serialized "skeletonAnimation".
-				//
-				// A rig can also be driven entirely from a script - load a
-				// clip, createInstance(rc), playClip() - and nothing about
-				// that appears in the scene file. Those models got the
-				// unskinned variant, so the clip played, the bone matrices
-				// were computed and uploaded every frame, and the vertex
-				// shader ignored them: the mesh stood in bind pose for ever.
-				// That is why the enemies in a Lua-driven game never walked
-				// while the editor's own animation preview did.
-				//
-				// Safe for props: BuildMaterials() masks this straight back
-				// off for any submesh whose geometry has no bone data.
-				uint32 opts = ShaderUsage::Diffuse | ShaderUsage::Skinning;
+				// carries a serialized "skeletonAnimation". A rig can also
+				// be driven entirely from a script - load a clip,
+				// createInstance(rc), playClip() - and nothing about that
+				// appears in the scene file. Those models got the unskinned
+				// variant, so the clip played, the bone matrices were
+				// computed and uploaded every frame, and the vertex shader
+				// ignored them: the mesh stood in bind pose for ever.
+				// BuildMaterials() masks Skinning straight back off for any
+				// submesh whose geometry has no bone data.
+				uint32 opts = ShaderUsage::Diffuse | ShaderUsage::Skinning
+					| ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow | ShaderUsage::SpotShadow;
 #ifdef LUA_BINDINGS
 				rc = lua
 					? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, opts))
@@ -3173,6 +3192,22 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			ni->hitRadius = std::max(0.f, j.value("hitRadius", ni->hitRadius));
 			ni->hitHeight = std::max(0.f, j.value("hitHeight", ni->hitHeight));
 			go->AddComponent(ni);
+		}
+		else if (type == "Terrain")
+		{
+			TerrainComponent::Settings s;
+			s.directory = j.value("directory", std::string());
+			s.tilesX = j.value("tilesX", s.tilesX);
+			s.tilesZ = j.value("tilesZ", s.tilesZ);
+			s.tileSize = j.value("tileSize", s.tileSize);
+			s.loadRadius = j.value("loadRadius", s.loadRadius);
+			s.unloadRadius = j.value("unloadRadius", s.unloadRadius);
+			s.viewDistance = j.value("viewDistance", s.viewDistance);
+			s.overviewSamples = j.value("overviewSamples", s.overviewSamples);
+			s.caveVoxel = j.value("caveVoxel", s.caveVoxel);
+			if (j.contains("caveMaterial") && j["caveMaterial"].is_object()) s.caveMaterial = j["caveMaterial"].dump();
+			s.tileTemplate = j.contains(kTerrainTemplateKey) ? j[kTerrainTemplateKey].dump() : std::string("{}");
+			go->AddComponent(std::make_shared<TerrainComponent>(s, g_sceneAssetRoot, physics, lua));
 		}
 		else if (type == "Foliage")
 		{
@@ -3868,6 +3903,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					const std::string &v = it.value().get_ref<const std::string&>();
 					if (LooksLikeImagePath(v)) images.insert(v);
 				}
+				// A terrain's tile template names files per tile ("{tile}"):
+				// nothing to fetch until a tile is made from it.
+				else if (it.key() == kTerrainTemplateKey) continue;
 				else CollectPrefetchPaths(it.value(), models, images);
 			}
 		}
@@ -3906,7 +3944,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				}
 				if (tile && foliage) out.push_back(std::make_pair(tile, foliage));
 			}
-			for (json::const_iterator it = j.begin(); it != j.end(); ++it) CollectFoliage(it.value(), out);
+			for (json::const_iterator it = j.begin(); it != j.end(); ++it)
+				if (it.key() != kTerrainTemplateKey) CollectFoliage(it.value(), out);
 		}
 		else if (j.is_array())
 			for (json::const_iterator it = j.begin(); it != j.end(); ++it) CollectFoliage(*it, out);
@@ -3917,7 +3956,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		if (j.is_object())
 		{
 			if (j.value("kind", std::string()) == "heightfield") { out.push_back(&j); return; }
-			for (json::const_iterator it = j.begin(); it != j.end(); ++it) CollectHeightfields(it.value(), out);
+			for (json::const_iterator it = j.begin(); it != j.end(); ++it)
+				if (it.key() != kTerrainTemplateKey) CollectHeightfields(it.value(), out);
 		}
 		else if (j.is_array())
 			for (json::const_iterator it = j.begin(); it != j.end(); ++it) CollectHeightfields(*it, out);
@@ -3939,7 +3979,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			{
 				std::shared_ptr<PreparedHeightfield> p = std::make_shared<PreparedHeightfield>();
 				if (PreparedHeightfield::Prepare(specs[i].path, specs[i].size, specs[i].heightScale, specs[i].heightOffset,
-						specs[i].skirt, specs[i].levels, *p))
+						specs[i].skirt, specs[i].levels, *p, specs[i].holes))
 					prepared[i] = p;
 			}
 		};
@@ -4437,6 +4477,45 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		std::sort(p->uploadQueue.begin(), p->uploadQueue.end());
 		p->uploadQueue.erase(std::unique(p->uploadQueue.begin(), p->uploadQueue.end()), p->uploadQueue.end());
 		return p;
+	}
+
+	std::shared_ptr<SceneSerializer::PreparedSubtree> SceneSerializer::PrepareSubtreeText(const std::string &subtreeJson,
+		const std::string &assetRoot, const std::string &label)
+	{
+		std::shared_ptr<PreparedSubtree> p = std::make_shared<PreparedSubtree>();
+		try
+		{
+			p->subtree = json::parse(subtreeJson);
+		}
+		catch (const std::exception&)
+		{
+			echo("ERROR: SceneSerializer::PrepareSubtreeText - invalid JSON for " + label);
+			return nullptr;
+		}
+		if (!p->subtree.is_object() || p->subtree.find("root") == p->subtree.end())
+		{
+			echo("ERROR: SceneSerializer::PrepareSubtreeText - missing 'root' in " + label);
+			return nullptr;
+		}
+		p->path = label;
+		p->assetRoot = assetRoot;
+		PrefetchSceneAssets(p->subtree, p->assetRoot, p->bundle, false, &p->uploadQueue);
+		std::sort(p->uploadQueue.begin(), p->uploadQueue.end());
+		p->uploadQueue.erase(std::unique(p->uploadQueue.begin(), p->uploadQueue.end()), p->uploadQueue.end());
+		return p;
+	}
+
+	std::shared_ptr<IMaterial> SceneSerializer::BuildMaterialFromText(const std::string &materialJson, const std::string &assetRoot)
+	{
+		json j;
+		try { j = json::parse(materialJson); }
+		catch (const std::exception&) { echo("ERROR: SceneSerializer::BuildMaterialFromText - invalid JSON"); return nullptr; }
+		const std::string previousRoot = g_sceneAssetRoot;
+		g_sceneAssetRoot = assetRoot;
+		std::map<std::string, std::shared_ptr<Texture>> textureCache;
+		std::shared_ptr<IMaterial> mat = BuildMaterial(j, textureCache, NULL);
+		g_sceneAssetRoot = previousRoot;
+		return mat;
 	}
 
 	bool SceneSerializer::UploadNextPrepared(PreparedSubtree &prepared)

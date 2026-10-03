@@ -8,6 +8,7 @@
 //       tools/tests/heightfield.cpp -o /tmp/heightfield \
 //       -L build_ed_vk -lPyrosEngine -Wl,-rpath,$PWD/build_ed_vk
 //   /tmp/heightfield
+#include <algorithm>
 #include <filesystem>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
@@ -138,6 +139,63 @@ int main()
 		HeightfieldMesh again;
 		HeightfieldMesh::Build(data, 1, 3.f, again);
 		check(again.vertex.size() == m1.vertex.size(), "switched off, full detail is built again");
+	}
+
+	// Holes: a field on the grid points, cut along its half-way contour.
+	{
+		HeightfieldData d;
+		d.samples = 9;
+		d.size = 8.f;
+		d.heights.assign(81, 0.f);
+		HeightfieldMesh whole;
+		HeightfieldMesh::Build(d, 1, 0.f, whole);
+		d.holes.assign(81, 0);
+		// One grid point fully hole: the four cells round it each lose a
+		// corner, along a rim half way to their other corners.
+		d.holes[4 * 9 + 4] = 255;
+		HeightfieldMesh cut;
+		HeightfieldMesh::Build(d, 1, 0.f, cut);
+		check(cut.vertex.size() == whole.vertex.size() + 8, "a one-point hole adds two rim points to each of its four cells");
+		check(cut.index.size() == whole.index.size() + 4 * 3, "each cell round the hole becomes a pentagon");
+		bool rimHalfWay = true;
+		for (size_t i = whole.vertex.size(); i < cut.vertex.size(); i++)
+		{
+			const f32 dx = std::fabs(cut.vertex[i].x - 4.f), dz = std::fabs(cut.vertex[i].z - 4.f);
+			rimHalfWay = rimHalfWay && near(std::max(dx, dz), 0.5f, 0.01f) && std::min(dx, dz) < 1e-4f;
+		}
+		check(rimHalfWay, "the rim is half way along each side");
+		check(d.IsHoleAt(4.f, 4.f) && !d.IsHoleAt(1.f, 1.f), "IsHoleAt: over the hole, and not");
+		check(!d.IsHoleCell(3, 3), "a cell with one hole corner is still ground to physics");
+		d.holes[4 * 9 + 5] = d.holes[5 * 9 + 4] = d.holes[5 * 9 + 5] = 255;
+		check(d.IsHoleCell(4, 4), "a cell with every corner hole is a hole");
+		HeightfieldMesh open;
+		HeightfieldMesh::Build(d, 1, 0.f, open);
+		bool none = true;
+		for (size_t i = 0; i + 2 < open.index.size(); i += 3)
+		{
+			const Vec3 c = (open.vertex[open.index[i]] + open.vertex[open.index[i + 1]] + open.vertex[open.index[i + 2]]) * (1.f / 3.f);
+			none = none && !(c.x > 4.01f && c.x < 4.99f && c.z > 4.01f && c.z < 4.99f);
+		}
+		check(none, "no triangle inside a cell that is all hole");
+		// A coarser level stands for several points with one and takes the
+		// least open: a hole this small closes, a wider one stays - and
+		// never opens wider than the full-detail one.
+		HeightfieldMesh coarse, coarseWhole;
+		HeightfieldMesh::Build(d, 2, 0.f, coarse);
+		for (uint32 r = 2; r <= 6; r++) for (uint32 c = 2; c <= 6; c++) d.holes[r * 9 + c] = 255;
+		HeightfieldMesh wide;
+		HeightfieldMesh::Build(d, 2, 0.f, wide);
+		d.holes.clear();
+		HeightfieldMesh::Build(d, 2, 0.f, coarseWhole);
+		check(coarse.index.size() == coarseWhole.index.size(), "a hole smaller than a coarse cell closes at that level");
+		check(wide.index != coarseWhole.index, "a wider one stays open");
+		bool inside = true;
+		for (size_t i = 0; i + 2 < wide.index.size(); i += 3)
+		{
+			const Vec3 c = (wide.vertex[wide.index[i]] + wide.vertex[wide.index[i + 1]] + wide.vertex[wide.index[i + 2]]) * (1.f / 3.f);
+			inside = inside && !(c.x > 3.01f && c.x < 4.99f && c.z > 3.01f && c.z < 4.99f);
+		}
+		check(inside, "and its middle is open at the coarse level too");
 	}
 
 	remove(png.c_str());

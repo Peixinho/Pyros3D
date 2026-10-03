@@ -105,28 +105,43 @@ namespace __READFILES {
 
 #else   // Mac OSX and Linux
 
-			DIR*    dir;
-			dirent* pdir;
+			DIR* dir = opendir(Path.c_str());
+			if (dir == NULL)
+				return Contents;
 
-			dir = opendir(Path.c_str());
-
-			while (pdir = readdir(dir)) {
+			while (dirent* pdir = readdir(dir)) {
 				_FileInfo f;
 				f.Name = pdir->d_name;
 				f.NameLowered = f.Name;
 				std::transform(f.NameLowered.begin(), f.NameLowered.end(), f.NameLowered.begin(), ::tolower);
 
-				// Check if is Folder or File
-				std::string tempPath = Path + std::string("/") + f.Name;
-				DIR *temp = opendir(tempPath.c_str());
-				if (temp == NULL) f.isFolder = false;
-				else f.isFolder = true;
+				// Prefer d_type when the filesystem fills it in - opendir()
+				// on every entry used to leak a DIR* per folder and, on a
+				// path with spaces or a busy directory, sometimes failed
+				// and labelled real folders as files (so the browser hid
+				// them when filtering by extension).
+				if (pdir->d_type == DT_DIR)
+					f.isFolder = true;
+				else if (pdir->d_type == DT_REG)
+					f.isFolder = false;
+				else
+				{
+					// Symlink / unknown: probe once and close it.
+					std::string tempPath = Path;
+					if (!tempPath.empty() && tempPath.back() != '/')
+						tempPath.push_back('/');
+					tempPath += f.Name;
+					DIR* temp = opendir(tempPath.c_str());
+					f.isFolder = (temp != NULL);
+					if (temp != NULL) closedir(temp);
+				}
 
 				f.NamePrefix = (f.isFolder ? "[D]" : "[F]") + f.Name;
 
 				if (!f.isFolder || (f.isFolder && ShowFolders))
 					Contents.push_back(f);
 			}
+			closedir(dir);
 
 #endif
 

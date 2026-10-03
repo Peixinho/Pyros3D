@@ -71,6 +71,7 @@ namespace p3d {
 		// Blocks until every cell Update() would want at focus is in - for a
 		// loading screen, or spawning the player into a world.
 		void LoadAround(const Vec3 &focus);
+		void LoadAround(const std::vector<Vec3> &foci);
 
 		// Everything out, now. Stalls for the GPU, like UnloadScene.
 		void UnloadAll();
@@ -128,6 +129,8 @@ namespace p3d {
 		void SetFarRadius(const f32 r) { world.farRadius = std::max(0.f, r); }
 		// Far versions in the scene right now.
 		uint32 FarShownCount() const;
+		// Whether `root` is a cell's far version rather than the cell.
+		bool IsFarRoot(const GameObject* root) const;
 
 		uint32 LoadedCount() const;
 		uint32 LoadingCount() const;

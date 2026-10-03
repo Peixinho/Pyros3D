@@ -165,7 +165,13 @@ void MaterialPreview::EnsureInit(bool useDeferred) {
 void MaterialPreview::CreateSphere() {
 	if (sphereGO || !scene) return;
 	sphereGO = std::make_shared<p3d::GameObject>();
-	auto mesh = std::make_shared<p3d::Sphere>(1.0f, 32, 24, /*smooth=*/true);
+	// With tangents. A material whose shader has the Normal Map option
+	// declares aTangent/aBitangent, and on Vulkan/Metal a draw whose
+	// geometry lacks an attribute the shader declares is dropped - so every
+	// normal-mapped material (which is most imported model materials)
+	// previewed as an empty background. Shaders that don't declare them
+	// just ignore the extra streams.
+	auto mesh = std::make_shared<p3d::Sphere>(1.0f, 32, 24, /*smooth=*/true, /*HalfSphere=*/false, /*flip=*/false, /*TangentBitangent=*/true);
 	auto rc = std::make_shared<p3d::RenderingComponent>(mesh, previewMaterial);
 	rc->DisableCastShadows();
 	sphereRC = rc.get();

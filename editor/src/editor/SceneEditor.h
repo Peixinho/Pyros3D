@@ -81,6 +81,7 @@ using json = nlohmann::json;
 #include "UndoStack.h"
 #include "TerrainTools.h"
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
+#include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <Pyros3D/Network/NetworkSession.h>
 #include <functional>
 #include <ctime>
@@ -336,7 +337,25 @@ public:
 	bool IsTerrainMode() const;
 	void SetTerrainMode(const bool on);
 	// The Terrain panel: tools, brush, layers, and creating terrain.
-	void ShowTerrainPanel();
+	// The terrain's tools - brushes, ground layers - as the Tools window
+	// shows them while a Terrain (or a terrain tile) is selected.
+	void DrawTerrainTools();
+	// Add > Terrain...: size, tiles and how the ground is generated.
+	void ShowNewTerrainWindow();
+	bool showNewTerrain = false;
+	// What the selection is, for the Tools window and the viewport: a
+	// Terrain component (or an old-style tile's mesh), a Tile Map component.
+	bool IsTerrainSelection() const;
+	bool IsTileMapSelection() const;
+	// Selecting such a component starts its tool in the viewport; selecting
+	// anything else ends it. Once a frame.
+	void SyncToolsToSelection();
+	uint32 toolsSelection = 0;
+	int toolsSelectionKind = 0;
+	// B: to the scene's terrain (3D) or tile map (2D) component and back.
+	void ToggleComponentTools();
+	// Esc: back to the object that carries the component.
+	void LeaveComponentTools();
 	// terrain_* agent commands, one dispatcher (see SceneEditorTerrain.cpp).
 	bool AgentTerrain(const std::string& command, const json& args, json& out, std::string& errOut);
 	// Collider outlines are otherwise invisible, so a collider that does not
@@ -351,7 +370,7 @@ public:
 	{ std::string r; r.swap(requestOpenTileSet); return r; }
 	void SetTilePaintMode(const bool on);
 	// The palette window (tile picker, tool row, target map).
-	void ShowTilePalette();
+	void DrawTilePaletteTools();
 	// Drained by the host after the palette window closes: creating objects
 	// inside another window's Begin/End pair is how ImGui asserts.
 	void DrainTileLayerRequest()
@@ -1201,11 +1220,35 @@ public:
 	// has moved placeSpacing since the last one.
 	bool PlaceDab(const f32 x, const f32 z, std::string& errOut);
 	bool placeGroupOpen = false, placeLastValid = false;
+	// A streamed world opens with the view at the origin, and a terrain's
+	// ground is rarely at height 0 there: under it, every tile is
+	// back-facing and the scene looks empty. Once the ground under the pivot
+	// has streamed in, a view below it is lifted onto it. Frames left to try.
+	void LiftViewAboveTerrain();
+	int worldViewLiftTries = 0;
 	f32 placeLastX = 0.f, placeLastZ = 0.f;
 	uint32 placeRandom = 12345u;
 	// Writes the brushes' edits (heights, splat and density maps). Part of
 	// saving the scene, and of entering Play.
 	bool SaveTerrain();
+
+	// --- terrain objects (TerrainComponent) --------------------------------
+	// Every Terrain in this scene.
+	std::vector<TerrainComponent*> SceneTerrains() const;
+	// Once a frame: where this scene's terrains should stream around, and
+	// the brushes' say in which tiles may leave.
+	void UpdateTerrainObjects(const std::vector<Vec3>& foci);
+	// Terrains whose overview no longer matches their maps or layers and
+	// is baked whole at the next save (by scene object id).
+	std::set<uint32> terrainOverviewStale;
+	// Old per-tile terrain (a tile object per cell, or under a root) into
+	// Terrain objects: saves, rewrites the files, reloads the scene.
+	bool ConvertTerrainToObjects(const json& args, json& out, std::string& errOut);
+	// Gives every Terrain that has none a rock material for its cave
+	// walls (a shader written into the project on first use).
+	void EnsureCaveMaterials();
+	bool AgentTerrainObject(const std::string& command, const json& args, json& out, std::string& errOut);
+	void DrawTerrainProperties(GameObject* go, uint32 goId);
 	// A terrain ground layer's texture (0..3), on every splat tile of the
 	// scene: loaded ones live, unloaded cells' files rewritten. `record`
 	// pushes the undo entry.

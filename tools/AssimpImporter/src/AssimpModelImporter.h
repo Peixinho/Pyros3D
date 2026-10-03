@@ -21,7 +21,8 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <assimp/material.h>
-#include <assimp/Importer.hpp> 
+#include <assimp/Importer.hpp>
+#include <vector>
 
 
 namespace p3d {
@@ -38,6 +39,14 @@ namespace p3d {
 
 		bool ConvertToPyrosFormat(const std::string &Filename);
 
+		// Compressed bytes of Assimp "*0" textures, written next to the
+		// .p3dm in ConvertToPyrosFormat. Kept here because Load() frees
+		// the Assimp scene before the output path is known.
+		struct PendingEmbeddedTexture {
+			std::string relativePath;
+			std::vector<unsigned char> bytes;
+		};
+
 	private:
 
 		// assimp model
@@ -48,6 +57,8 @@ namespace p3d {
 
 		// aux function to construct skeleton            
 		void GetBone(aiNode *bone, const int32 &parentID = -1);
+
+		std::vector<PendingEmbeddedTexture> pendingEmbedded;
 	};
 }
 

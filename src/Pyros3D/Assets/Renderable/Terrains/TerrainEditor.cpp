@@ -11,6 +11,8 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
+#include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
+#include <Pyros3D/Assets/Renderable/Terrains/CaveVolume.h>
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
@@ -27,6 +29,19 @@ namespace p3d {
 		{
 			const f32 s = t.Size();
 			return x + r >= t.origin.x && z + r >= t.origin.z && x - r <= t.origin.x + s && z - r <= t.origin.z + s;
+		}
+	}
+
+	namespace {
+		// The Terrain a tile belongs to, and which of its tiles it is.
+		TerrainComponent* TerrainOf(const TerrainTile &tile, int32 &x, int32 &z)
+		{
+			GameObject* parent = tile.owner ? tile.owner->GetParent() : NULL;
+			if (!parent) return NULL;
+			for (size_t c = 0; c < parent->GetComponents().size(); c++)
+				if (TerrainComponent* tc = dynamic_cast<TerrainComponent*>(parent->GetComponents()[c].get()))
+					return tc->TileOf(tile.owner, x, z) ? tc : NULL;
+			return NULL;
 		}
 	}
 
@@ -62,9 +77,19 @@ namespace p3d {
 			if (tile.levels.empty() || !tile.Data()) continue;
 			tile.owner = go;
 			tile.origin = go->GetWorldPosition();
+			tile.distant = TerrainComponent::IsDistantTile(go);
 			tiles.push_back(tile);
 		}
 		return tiles;
+	}
+
+	std::vector<TerrainTile> TerrainEditor::EditableTiles(SceneGraph* scene) const
+	{
+		std::vector<TerrainTile> tiles = FindTiles(scene);
+		std::vector<TerrainTile> out;
+		for (size_t i = 0; i < tiles.size(); i++)
+			if (!tiles[i].distant && (!editable || editable(tiles[i].owner))) out.push_back(tiles[i]);
+		return out;
 	}
 
 	bool TerrainEditor::HeightAt(SceneGraph* scene, const f32 x, const f32 z, f32 &height)
@@ -100,7 +125,7 @@ namespace p3d {
 	{
 		if (radius <= 0.f) return 0;
 		strokeScene = scene;
-		std::vector<TerrainTile> tiles = FindTiles(scene);
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
 		std::vector<TerrainTile> touched;
 		for (size_t i = 0; i < tiles.size(); i++)
 			if (Overlaps(tiles[i], x, z, radius)) touched.push_back(tiles[i]);
@@ -168,11 +193,248 @@ namespace p3d {
 			TileState &state = State(tile);
 			state.heightsDirty = true;
 			state.collisionDirty = true;
+			{
+				// Caves under it stop at the ground, wherever that is now.
+				int32 tx, tz;
+				TerrainComponent* tc = TerrainOf(tile, tx, tz);
+				if (tc && tc->TileCaves(tx, tz))
+				{
+					// And the ground's openings are where the caves reach
+					// the surface, which has just moved: raise it over a
+					// pit and the pit is roofed, lower it onto a cave and
+					// the cave opens.
+					SyncHolesToCaves(tile, x, z, radius + s * 2.f);
+					tc->RebuildCave(tx, tz, false);
+					state.caveCollisionDirty = true;
+				}
+			}
 			bool listed = false;
 			for (size_t i = 0; i < strokeTiles.size(); i++) listed = listed || strokeTiles[i].owner == tile.owner;
 			if (!listed) strokeTiles.push_back(tile);
 		}
 		return changedTiles;
+	}
+
+	uint32 TerrainEditor::CutHoles(SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const bool open)
+	{
+		if (radius <= 0.f) return 0;
+		strokeScene = scene;
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
+		uint32 changedTiles = 0;
+		for (size_t t = 0; t < tiles.size(); t++)
+		{
+			const TerrainTile &tile = tiles[t];
+			if (!Overlaps(tile, x, z, radius)) continue;
+			HeightfieldData &d = *tile.Data();
+			if (d.samples < 2) continue;
+			const f32 s = d.Spacing();
+			// The field ramps from ground to hole across two cells around
+			// the brush's rim, linear in distance - so where it passes one
+			// half, which is where the mesh is cut, is the brush's circle.
+			const f32 reach = radius + s;
+			const int32 c0 = std::max(0, (int32)std::floor((x - reach - tile.origin.x) / s));
+			const int32 c1 = std::min((int32)d.samples - 1, (int32)std::ceil((x + reach - tile.origin.x) / s));
+			const int32 r0 = std::max(0, (int32)std::floor((z - reach - tile.origin.z) / s));
+			const int32 r1 = std::min((int32)d.samples - 1, (int32)std::ceil((z + reach - tile.origin.z) / s));
+			bool touched = false, changed = false;
+			for (int32 r = r0; r <= r1; r++)
+				for (int32 c = c0; c <= c1; c++)
+				{
+					const f32 wx = tile.origin.x + c * s, wz = tile.origin.z + r * s;
+					const f32 dist = std::sqrt((wx - x) * (wx - x) + (wz - z) * (wz - z));
+					const f32 inside = std::min(std::max(0.5f + (radius - dist) / (2.f * s), 0.f), 1.f);
+					if (inside <= 0.f) continue;
+					const f32 was = d.HoleAt((uint32)c, (uint32)r);
+					const f32 now = open ? std::max(was, inside) : std::min(was, 1.f - inside);
+					const uchar q = (uchar)std::lround(now * 255.f);
+					if (!d.holes.empty() && q == d.holes[(size_t)r * d.samples + c]) continue;
+					if (d.holes.empty() && q == 0) continue;
+					if (!touched) { Touch(tile); touched = true; }
+					if (d.holes.empty()) d.holes.assign((size_t)d.samples * d.samples, 0);
+					d.holes[(size_t)r * d.samples + c] = q;
+					changed = true;
+				}
+			if (!changed) continue;
+			changedTiles++;
+			for (size_t l = 0; l < tile.levels.size(); l++) tile.levels[l]->Rebuild();
+			TileState &state = State(tile);
+			state.holesDirty = true;
+			state.collisionDirty = true;
+			bool listed = false;
+			for (size_t i = 0; i < strokeTiles.size(); i++) listed = listed || strokeTiles[i].owner == tile.owner;
+			if (!listed) strokeTiles.push_back(tile);
+		}
+		return changedTiles;
+	}
+
+	void TerrainEditor::SyncHolesToCaves(const TerrainTile &tile, const f32 x, const f32 z, const f32 reach)
+	{
+		int32 tx, tz;
+		TerrainComponent* tc = TerrainOf(tile, tx, tz);
+		if (!tc) return;
+		HeightfieldData &d = *tile.Data();
+		const f32 s = d.Spacing();
+		const int32 c0 = std::max(0, (int32)std::floor((x - reach - tile.origin.x) / s));
+		const int32 c1 = std::min((int32)d.samples - 1, (int32)std::ceil((x + reach - tile.origin.x) / s));
+		const int32 r0 = std::max(0, (int32)std::floor((z - reach - tile.origin.z) / s));
+		const int32 r1 = std::min((int32)d.samples - 1, (int32)std::ceil((z + reach - tile.origin.z) / s));
+		bool changed = false;
+		for (int32 r = r0; r <= r1; r++)
+			for (int32 c = c0; c <= c1; c++)
+			{
+				// How open the surface is there: the terrain ends a little
+				// outside the cave's rim, on the ring of ground the cave's
+				// own mesh carries round every opening.
+				const Vec3 at(tile.origin.x + c * s, tile.origin.y + d.At((uint32)c, (uint32)r), tile.origin.z + r * s);
+				const uchar q = (uchar)std::lround(std::min(std::max(tc->OpeningAt(at), 0.f), 1.f) * 255.f);
+				const uchar was = d.holes.empty() ? 0 : d.holes[(size_t)r * d.samples + c];
+				if (q == was) continue;
+				if (d.holes.empty()) d.holes.assign((size_t)d.samples * d.samples, 0);
+				d.holes[(size_t)r * d.samples + c] = q;
+				changed = true;
+			}
+		if (!changed) return;
+		for (size_t l = 0; l < tile.levels.size(); l++) tile.levels[l]->Rebuild();
+		TileState &state = State(tile);
+		state.holesDirty = true;
+		state.collisionDirty = true;
+	}
+
+	void TerrainEditor::MarkCaveEdit(const TerrainTile &tile)
+	{
+		TileState &state = State(tile);
+		state.cavesDirty = true;
+		state.caveCollisionDirty = true;
+		bool listed = false;
+		for (size_t i = 0; i < strokeTiles.size(); i++) listed = listed || strokeTiles[i].owner == tile.owner;
+		if (!listed) strokeTiles.push_back(tile);
+	}
+
+	uint32 TerrainEditor::Dig(SceneGraph* scene, const Vec3 &centre, const f32 radius, const bool air)
+	{
+		if (radius <= 0.f) return 0;
+		strokeScene = scene;
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
+		uint32 changedTiles = 0;
+		for (size_t t = 0; t < tiles.size(); t++)
+		{
+			const TerrainTile &tile = tiles[t];
+			int32 tx, tz;
+			TerrainComponent* tc = TerrainOf(tile, tx, tz);
+			if (!tc) continue;
+			// The tile's lattice reaches a voxel past each border.
+			const f32 reach = radius + tc->CaveVoxel() * (CaveVolume::kApron + 1.f);
+			if (!Overlaps(tile, centre.x, centre.z, reach)) continue;
+			Touch(tile);
+			if (!tc->CarveTile(tx, tz, centre, radius, air)) continue;
+			changedTiles++;
+			// The walls now, their collision when the stroke ends.
+			SyncHolesToCaves(tile, centre.x, centre.z, reach);
+			tc->RebuildCave(tx, tz, false);
+			MarkCaveEdit(tile);
+		}
+		return changedTiles;
+	}
+
+	uint32 TerrainEditor::CaveBrush(SceneGraph* scene, const int mode, const Vec3 &centre, const f32 radius, const f32 amount,
+		const f32 hardness, const f32 level)
+	{
+		if (radius <= 0.f || amount <= 0.f) return 0;
+		strokeScene = scene;
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
+		uint32 changedTiles = 0;
+		for (size_t t = 0; t < tiles.size(); t++)
+		{
+			const TerrainTile &tile = tiles[t];
+			int32 tx, tz;
+			TerrainComponent* tc = TerrainOf(tile, tx, tz);
+			if (!tc) continue;
+			const f32 reach = radius + tc->CaveVoxel() * (CaveVolume::kApron + 1.f);
+			if (!Overlaps(tile, centre.x, centre.z, reach)) continue;
+			Touch(tile);
+			if (!tc->BrushTile(tx, tz, mode, centre, radius, amount, hardness, level)) continue;
+			changedTiles++;
+			SyncHolesToCaves(tile, centre.x, centre.z, reach);
+			tc->RebuildCave(tx, tz, false);
+			MarkCaveEdit(tile);
+		}
+		return changedTiles;
+	}
+
+	uint32 TerrainEditor::CutCaveHoles(SceneGraph* scene, const Vec3 &centre, const f32 radius, const bool open)
+	{
+		if (radius <= 0.f) return 0;
+		strokeScene = scene;
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
+		uint32 changedTiles = 0;
+		for (size_t t = 0; t < tiles.size(); t++)
+		{
+			const TerrainTile &tile = tiles[t];
+			int32 tx, tz;
+			TerrainComponent* tc = TerrainOf(tile, tx, tz);
+			if (!tc || !tc->TileCaves(tx, tz)) continue;
+			if (!Overlaps(tile, centre.x, centre.z, radius + tc->CaveVoxel() * (CaveVolume::kApron + 1.f))) continue;
+			Touch(tile);
+			if (!tc->CutCaveHole(tx, tz, centre, radius, open)) continue;
+			changedTiles++;
+			tc->RebuildCave(tx, tz, false);
+			MarkCaveEdit(tile);
+		}
+		return changedTiles;
+	}
+
+	uint32 TerrainEditor::GenerateCaves(SceneGraph* scene, const Vec3 &centre, const f32 radius, const uint32 seed, const f32 size,
+		const f32 width, const f32 minDepth, const f32 maxDepth)
+	{
+		strokeScene = scene;
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
+		uint32 changedTiles = 0;
+		for (size_t t = 0; t < tiles.size(); t++)
+		{
+			const TerrainTile &tile = tiles[t];
+			int32 tx, tz;
+			TerrainComponent* tc = TerrainOf(tile, tx, tz);
+			if (!tc) continue;
+			if (radius > 0.f && !Overlaps(tile, centre.x, centre.z, radius + tc->CaveVoxel() * (CaveVolume::kApron + 1.f))) continue;
+			Touch(tile);
+			CaveVolume* v = tc->TileCaves(tx, tz, true);
+			if (!v) continue;
+			CaveVolume::Noise noise;
+			noise.seed = seed;
+			noise.size = size;
+			noise.width = width;
+			noise.minDepth = minDepth;
+			noise.maxDepth = maxDepth;
+			// The noise is sampled in the terrain's own space, so tunnels
+			// carry on from one tile into the next.
+			const Vec3 inTerrain = tile.origin - tc->TileOrigin(0, 0);
+			if (!v->Generate(*tile.Data(), Vec3(inTerrain.x, tile.origin.y, inTerrain.z), centre - tile.origin, radius, noise)) continue;
+			changedTiles++;
+			SyncHolesToCaves(tile, tile.origin.x + tile.Size() * 0.5f, tile.origin.z + tile.Size() * 0.5f, tile.Size());
+			tc->RebuildCave(tx, tz, false);
+			MarkCaveEdit(tile);
+		}
+		return changedTiles;
+	}
+
+	uint32 TerrainEditor::ResyncCaves(SceneGraph* scene)
+	{
+		strokeScene = scene;
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
+		uint32 count = 0;
+		for (size_t t = 0; t < tiles.size(); t++)
+		{
+			const TerrainTile &tile = tiles[t];
+			int32 tx, tz;
+			TerrainComponent* tc = TerrainOf(tile, tx, tz);
+			if (!tc || !tc->TileCaves(tx, tz)) continue;
+			Touch(tile);
+			SyncHolesToCaves(tile, tile.origin.x + tile.Size() * 0.5f, tile.origin.z + tile.Size() * 0.5f, tile.Size());
+			tc->RebuildCave(tx, tz, false);
+			MarkCaveEdit(tile);
+			count++;
+		}
+		return count;
 	}
 
 	std::shared_ptr<PaintableImage> TerrainEditor::SplatImage(const TerrainTile &tile, TileState &state)
@@ -207,7 +469,7 @@ namespace p3d {
 	{
 		if (radius <= 0.f || layer > 3) return 0;
 		strokeScene = scene;
-		std::vector<TerrainTile> tiles = FindTiles(scene);
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
 		uint32 changed = 0;
 		for (size_t i = 0; i < tiles.size(); i++)
 		{
@@ -233,7 +495,7 @@ namespace p3d {
 	{
 		if (radius <= 0.f) return 0;
 		strokeScene = scene;
-		std::vector<TerrainTile> tiles = FindTiles(scene);
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
 		uint32 changed = 0;
 		for (size_t i = 0; i < tiles.size(); i++)
 		{
@@ -291,9 +553,15 @@ namespace p3d {
 				tile.collision->Register(strokeScene);
 				state.collisionDirty = false;
 			}
+			if (state.caveCollisionDirty)
+			{
+				int32 tx, tz;
+				if (TerrainComponent* tc = TerrainOf(tile, tx, tz)) tc->RebuildCave(tx, tz, true);
+				state.caveCollisionDirty = false;
+			}
 			if (tile.foliage)
 			{
-				if (state.heightsDirty) tile.foliage->Regrow(*tile.Data());
+				if (state.heightsDirty || state.holesDirty) tile.foliage->Regrow(*tile.Data());
 				else
 					for (size_t l = 0; l < state.foliageDirty.size(); l++)
 						if (state.foliageDirty[l]) tile.foliage->Regrow(*tile.Data(), (int32)l);
@@ -316,6 +584,11 @@ namespace p3d {
 		TileSnapshot snap;
 		snap.heightmap = tile.levels[0]->source.heightmap;
 		snap.heights = tile.Data()->heights;
+		snap.holes = tile.Data()->holes;
+		{
+			int32 tx, tz;
+			if (TerrainComponent* tc = TerrainOf(tile, tx, tz)) snap.caves = tc->CaveBlob(tx, tz);
+		}
 		for (size_t i = 0; i < states.size(); i++)
 			if (states[i].owner == tile.owner && states[i].splat) snap.splat = states[i].splat->pixels;
 		if (tile.foliage)
@@ -391,6 +664,31 @@ namespace p3d {
 					state.heightsDirty = true;
 					regrowAll = true;
 				}
+				if (snap.holes != d.holes)
+				{
+					d.holes = snap.holes;
+					for (size_t l = 0; l < tile.levels.size(); l++) tile.levels[l]->Rebuild();
+					if (tile.collision)
+					{
+						tile.collision->Unregister(scene);
+						tile.collision->Register(scene);
+					}
+					state.holesDirty = true;
+					regrowAll = true;
+				}
+				{
+					int32 tx, tz;
+					TerrainComponent* tc = TerrainOf(tile, tx, tz);
+					if (tc && tc->CaveBlob(tx, tz) != snap.caves)
+					{
+						tc->SetCaveBlob(tx, tz, snap.caves);
+						state.cavesDirty = true;
+					}
+					// The caves did not change but the ground over them did:
+					// their walls stop at the ground and carry a ring of it,
+					// so they are made again for the ground that is back.
+					else if (tc && regrowAll && tc->TileCaves(tx, tz)) tc->RebuildCave(tx, tz, true);
+				}
 				if (!snap.splat.empty())
 				{
 					std::shared_ptr<PaintableImage> img = SplatImage(tile, state);
@@ -430,10 +728,18 @@ namespace p3d {
 		for (size_t i = 0; i < states.size(); i++)
 		{
 			if (states[i].owner != owner) continue;
-			if (states[i].heightsDirty || states[i].splatDirty) return true;
+			if (states[i].heightsDirty || states[i].splatDirty || states[i].holesDirty || states[i].cavesDirty) return true;
 			for (size_t l = 0; l < states[i].foliageDirty.size(); l++) if (states[i].foliageDirty[l]) return true;
 		}
 		return false;
+	}
+
+	std::vector<const GameObject*> TerrainEditor::UnsavedOwners() const
+	{
+		std::vector<const GameObject*> out;
+		for (size_t i = 0; i < states.size(); i++)
+			if (states[i].owner && HasUnsaved(states[i].owner)) out.push_back(states[i].owner);
+		return out;
 	}
 
 	void TerrainEditor::Forget(const GameObject* owner)
@@ -470,6 +776,32 @@ namespace p3d {
 					px[i] = (uint16)std::lround(std::min(std::max(u, 0.f), 1.f) * 65535.f);
 				}
 				if (PaintableImage::WritePNG16(Resolve(hf->source.heightmap), (int32)d.samples, (int32)d.samples, &px[0])) state.heightsDirty = false;
+				else ok = false;
+			}
+			if (state.cavesDirty)
+			{
+				int32 tx, tz;
+				TerrainComponent* tc = TerrainOf(*tile, tx, tz);
+				if (!tc || tc->SaveCaves(tx, tz)) state.cavesDirty = false;
+				else ok = false;
+			}
+			if (state.holesDirty)
+			{
+				// Next to the heightmap: "<heightmap>_holes.png", a pixel per
+				// grid point, white where there is no ground. Written even
+				// when the last hole was filled, so the file says so.
+				const HeightfieldData &d = *tile->Data();
+				const uint32 cells = d.samples;
+				std::filesystem::path hp(hf->source.heightmap);
+				const std::string rel = !hf->source.holes.empty() ? hf->source.holes
+					: (hp.parent_path() / (hp.stem().string() + "_holes.png")).generic_string();
+				std::vector<uchar> px((size_t)cells * cells, 0);
+				for (size_t i = 0; i < px.size() && i < d.holes.size(); i++) px[i] = d.holes[i];
+				if (PaintableImage::WritePNG(Resolve(rel), (int32)cells, (int32)cells, 1, &px[0]))
+				{
+					state.holesDirty = false;
+					for (size_t l = 0; l < tile->levels.size(); l++) tile->levels[l]->source.holes = rel;
+				}
 				else ok = false;
 			}
 			if (state.splatDirty && state.splat)
