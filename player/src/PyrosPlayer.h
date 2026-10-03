@@ -89,6 +89,14 @@ public:
 	PyrosPlayer();
 	virtual ~PyrosPlayer();
 
+	// Launch flags, before Init():
+	//   --scene <scenes/x.json>   start there instead of game.json's scene
+	//   --connect <host>[:port]   join a server once the scene has started
+	//   --host [port]             host one (a listen server)
+	// A script that hosts or joins itself decides; these apply only while
+	// the session is still offline. The editor's Launch Client uses them.
+	void SetLaunchArgs(int argc, char** argv);
+
 	virtual void Init();
 	virtual void Update();
 	virtual void Shutdown();
@@ -272,6 +280,9 @@ private:
 	// The scene's network session, made when a script first hosts or joins
 	// (see RegisterLuaNetwork); gone with the scene.
 	std::unique_ptr<NetworkSession> network;
+	std::string launchScene, launchConnect;
+	int launchHostPort = 0;
+	bool launchNetDone = false;
 	// Sounds, emitters and autoplay clips start when their objects arrive:
 	// with the scene, or with the streamed cell that carries them.
 	void StartSceneMedia(const std::vector<GameObject*> &objects);

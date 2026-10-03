@@ -164,6 +164,29 @@ namespace p3d {
 		};
 		const Stats &GetStats() const { return stats; }
 
+		// What the session is replicating right now - for tools (the
+		// editor's Network panel), not for game logic.
+		struct EntityInfo
+		{
+			uint32 netId = 0;
+			GameObject* object = NULL;
+			PeerId owner = 0;
+			std::string prefab;			// spawned from, or empty (bound by scene path)
+			bool predicted = false;
+			uint32 knownBy = 0;			// server: clients it has been spawned on
+			std::map<std::string, NetValue> vars;
+		};
+		std::vector<EntityInfo> Entities() const;
+		// Server: every connected client. Client: the server, as peer 0.
+		struct PeerInfo
+		{
+			PeerId peer = 0;
+			NetPeerStats transport;
+			uint32 knows = 0;			// server: objects spawned on it
+			Vec3 viewer;				// server: where relevance is measured from
+		};
+		std::vector<PeerInfo> Peers() const;
+
 	private:
 		struct ClientState;
 		struct Entity;

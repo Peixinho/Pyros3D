@@ -1273,6 +1273,15 @@ public:
 	bool EditSubtreeJson(uint32 id, const std::function<bool(json&, std::string&)>& edit,
 		const std::string& description, std::string& errOut);
 	bool AgentNetwork(const std::string& command, const json& args, json& out, std::string& errOut);
+	// Launch Client / Run Server: the game built to a scratch folder and a
+	// PyrosPlayer (--connect) or PyrosServer started from it, on playNetPort.
+	struct LaunchedProcess { long pid = 0; std::string what, log; };
+	std::vector<LaunchedProcess> launchedProcesses;
+	bool LaunchNetworkProcess(const bool server, std::string& errOut);
+	void CloseLaunchedProcesses();
+	// The Network panel: the session's peers and replicated objects.
+	bool showNetworkPanel = false;
+	void ShowNetworkPanel();
 	SceneObject* ResolveTerrainTarget(const json& args, std::string& errOut);
 	void StartEditorWorld();
 	// Turns the saved scene into a streamed world: every root that is not

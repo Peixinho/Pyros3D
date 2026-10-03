@@ -7,6 +7,8 @@
 //============================================================================
 
 #include "PyrosPlayer.h"
+#include <cstdio>
+#include <cstdlib>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaNetwork.h>
 #include "../../examples/WindowManagers/TextInputHook.h"
@@ -126,6 +128,18 @@ const PlayerManifest& PlayerManifestInstance()
 }
 
 // ================================ player ================================
+
+void PyrosPlayer::SetLaunchArgs(int argc, char** argv)
+{
+	for (int i = 1; i < argc; i++)
+	{
+		const std::string a = argv[i];
+		const bool hasValue = i + 1 < argc && argv[i + 1][0] != '-';
+		if (a == "--scene" && hasValue) launchScene = argv[++i];
+		else if (a == "--connect" && hasValue) launchConnect = argv[++i];
+		else if (a == "--host") launchHostPort = hasValue ? std::atoi(argv[++i]) : 47400;
+	}
+}
 
 PyrosPlayer::PyrosPlayer()
 	: ClassName(PlayerManifestInstance().width, PlayerManifestInstance().height,
@@ -398,9 +412,10 @@ end
 	LuaComponent::SetUpdatesEnabled(true);
 #endif
 
-	if (!LoadGameScene(m.startupScene))
+	const std::string firstScene = launchScene.empty() ? m.startupScene : launchScene;
+	if (!LoadGameScene(firstScene))
 	{
-		echo("ERROR: could not load startup scene " + m.startupScene);
+		echo("ERROR: could not load startup scene " + firstScene);
 		Close();
 		return;
 	}
@@ -1105,6 +1120,29 @@ void PyrosPlayer::Update()
 	// The network before the scene: snapshots pose replicas, and the scene
 	// then solves their transforms for this frame. Relevance is measured
 	// from the camera.
+	// --connect / --host, once the scene's scripts have had their start -
+	// and only if none of them has hosted or joined already.
+	if (!launchNetDone && sceneLoaded && (!launchConnect.empty() || launchHostPort > 0))
+	{
+		launchNetDone = true;
+		if (!network) network.reset(new NetworkSession(scene, ResolvePath(currentSceneRel), physics, &lua));
+		if (network->GetRole() == NetworkSession::Offline)
+		{
+			bool ok;
+			if (launchHostPort > 0) ok = network->Host((uint16)launchHostPort);
+			else
+			{
+				std::string host = launchConnect;
+				int port = 47400;
+				const size_t colon = host.rfind(':');
+				if (colon != std::string::npos) { port = std::atoi(host.c_str() + colon + 1); host = host.substr(0, colon); }
+				ok = network->Connect(host, (uint16)port);
+			}
+			std::fprintf(stderr, "PyrosPlayer: %s %s\n", launchHostPort > 0 ? "hosting on port" : "joining",
+				launchHostPort > 0 ? std::to_string(launchHostPort).c_str() : launchConnect.c_str());
+			if (!ok) std::fprintf(stderr, "PyrosPlayer: network start failed\n");
+		}
+	}
 	if (network)
 	{
 		if (activeCamera) network->SetViewer(activeCamera->GetWorldPosition());

@@ -1962,6 +1962,10 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 
 	// ---- the runtime ----
 	const fs::path playerDst = out / fs::path(player).filename();
+	// Removed, not overwritten: a game launched from this folder may still
+	// be running it, and writing over a running signed binary kills it on
+	// macOS. A new file leaves the running one its own copy.
+	fs::remove(playerDst, ec);
 	fs::copy_file(player, playerDst, fs::copy_options::overwrite_existing, ec);
 	if (ec) { r.error = "Could not copy the player: " + ec.message(); return r; }
 	fs::permissions(playerDst, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec,
@@ -1979,6 +1983,7 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 		if (fs::exists(server, ec))
 		{
 			const fs::path serverDst = out / server.filename();
+			fs::remove(serverDst, ec);	// see the player's copy above
 			fs::copy_file(server, serverDst, fs::copy_options::overwrite_existing, ec);
 			if (!ec)
 			{

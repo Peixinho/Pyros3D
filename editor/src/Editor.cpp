@@ -2560,7 +2560,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// Networking: set_play_network {role,address,port}, network_state,
 	// get/add/set/remove_network_identity {name|id, <identity keys>}.
 	if (name == "set_play_network" || name == "network_state" || name == "get_network_identity"
-		|| name == "add_network_identity" || name == "set_network_identity" || name == "remove_network_identity")
+		|| name == "add_network_identity" || name == "set_network_identity" || name == "remove_network_identity"
+		|| name == "launch_network")
 	{
 		nlohmann::json r;
 		if (!sceneView->AgentNetwork(name, a, r, err)) throw std::runtime_error(err);
@@ -7694,6 +7695,7 @@ void Editor::DrawTilePaletteWindow()
 	// Begin/End pair is how ImGui asserts rather than draws.
 	sceneView->DrainTileLayerRequest();
 	sceneView->ShowTerrainPanel();
+	sceneView->ShowNetworkPanel();
 	// Drained after the window is drawn, not inside it: OpenTileSetDocument
 	// creates a document and can re-dock, and doing that from inside another
 	// window's Begin/End pair is how you get an ImGui assert instead of a tab.

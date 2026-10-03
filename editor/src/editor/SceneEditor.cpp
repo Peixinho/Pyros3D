@@ -9342,6 +9342,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		thumbEffects = NULL;
 		delete thumbRenderer;
 		thumbRenderer = NULL;
+		// Whatever Launch Client / Run Server started: a dedicated server has
+		// no window to close it from.
+		CloseLaunchedProcesses();
 		delete impostorEffects;
 		impostorEffects = NULL;
 		delete impostorRenderer;

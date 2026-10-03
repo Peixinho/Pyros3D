@@ -114,6 +114,21 @@ int main()
 	check(Run(server, client, [&] { NetValue v; return Id(clientDoor)->GetVar("open", v) && v.boolean; }, 3.0),
 		"a scene object is bound by path and receives its variables");
 
+	// What a tool sees: the session's own account of what it replicates.
+	{
+		bool door = false;
+		const std::vector<NetworkSession::EntityInfo> ents = server.session.Entities();
+		for (size_t i = 0; i < ents.size(); i++)
+			if (ents[i].object == serverDoor)
+				door = ents[i].prefab.empty() && ents[i].owner == 0 && ents[i].knownBy == 1 && ents[i].vars.count("open") == 1;
+		check(door, "Entities() lists the bound door: no prefab, server-owned, on one client, with its variable");
+		const std::vector<NetworkSession::PeerInfo> peers = server.session.Peers();
+		check(peers.size() == 1 && peers[0].peer == me && peers[0].knows >= 2 && peers[0].transport.bytesSent > 0,
+			"Peers() lists the one client, what it knows and its traffic");
+		const std::vector<NetworkSession::PeerInfo> up = client.session.Peers();
+		check(up.size() == 1 && up[0].peer == 0 && up[0].transport.bytesReceived > 0, "a client's one peer is the server");
+	}
+
 	// Motion: A slides along +x at 5 m/s; the replica follows, smoothly,
 	// about interpolationDelay behind.
 	std::vector<f32> seen;

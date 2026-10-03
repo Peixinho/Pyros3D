@@ -189,6 +189,52 @@ namespace p3d {
 		welcomed = false;
 	}
 
+	std::vector<NetworkSession::EntityInfo> NetworkSession::Entities() const
+	{
+		std::vector<EntityInfo> out;
+		for (std::map<uint32, std::unique_ptr<Entity> >::const_iterator it = entities.begin(); it != entities.end(); ++it)
+		{
+			const Entity &e = *it->second;
+			EntityInfo info;
+			info.netId = e.netId;
+			info.object = e.go;
+			info.prefab = e.prefab;
+			if (e.identity)
+			{
+				info.owner = e.identity->owner;
+				info.predicted = e.identity->predicted;
+				info.vars = e.identity->vars;
+			}
+			for (std::map<PeerId, std::unique_ptr<ClientState> >::const_iterator c = clients.begin(); c != clients.end(); ++c)
+				if (c->second->known.count(e.netId)) info.knownBy++;
+			out.push_back(info);
+		}
+		return out;
+	}
+
+	std::vector<NetworkSession::PeerInfo> NetworkSession::Peers() const
+	{
+		std::vector<PeerInfo> out;
+		if (role == Server)
+			for (std::map<PeerId, std::unique_ptr<ClientState> >::const_iterator c = clients.begin(); c != clients.end(); ++c)
+			{
+				PeerInfo p;
+				p.peer = c->first;
+				transport.GetStats(c->first, p.transport);
+				p.knows = (uint32)c->second->known.size();
+				p.viewer = c->second->viewer;
+				out.push_back(p);
+			}
+		else if (role == Client)
+		{
+			PeerInfo p;
+			p.peer = 0;
+			transport.GetStats(1, p.transport);	// the client's one peer, the server
+			out.push_back(p);
+		}
+		return out;
+	}
+
 	bool NetworkSession::IsReady() const
 	{
 		return role == Server || (role == Client && welcomed);

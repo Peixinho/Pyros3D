@@ -10,7 +10,10 @@
 #include <Pyros3D/Utils/Bindings/PyrosLuaNetwork.h>
 #endif
 
+#include "ProcessLauncher.h"
 #include <algorithm>
+#include <cstdio>
+#include <filesystem>
 
 namespace {
 	const char* kRoleNames[3] = { "offline", "host", "client" };
@@ -65,6 +68,33 @@ namespace {
 			hitHeight = std::max(0.f, j.value("hitHeight", hitHeight));
 		}
 	};
+}
+
+namespace {
+	std::string ValueText(const NetValue &v)
+	{
+		char buf[96];
+		switch (v.type)
+		{
+		case NetValue::Number: std::snprintf(buf, sizeof(buf), "%g", v.number); return buf;
+		case NetValue::Bool: return v.boolean ? "true" : "false";
+		case NetValue::String: return "\"" + v.text + "\"";
+		case NetValue::Vector: std::snprintf(buf, sizeof(buf), "(%g, %g, %g)", v.vector.x, v.vector.y, v.vector.z); return buf;
+		default: return "nil";
+		}
+	}
+
+	json ValueJson(const NetValue &v)
+	{
+		switch (v.type)
+		{
+		case NetValue::Number: return v.number;
+		case NetValue::Bool: return v.boolean;
+		case NetValue::String: return v.text;
+		case NetValue::Vector: return json::array({ v.vector.x, v.vector.y, v.vector.z });
+		default: return nullptr;
+		}
+	}
 }
 
 bool SceneEditor::EditSubtreeJson(uint32 id, const std::function<bool(json&, std::string&)>& edit,
@@ -157,6 +187,8 @@ void SceneEditor::DrawNetworkPlayControls()
 			ImGui::TextColored(ImVec4(0.4f, 0.85f, 1.f, 1.f), "CLIENT #%u, %u objects", (unsigned)playNetwork->LocalPeer(), (unsigned)st.replicated);
 		else
 			ImGui::TextColored(ImVec4(1.f, 0.7f, 0.3f, 1.f), "CLIENT connecting...");
+		ImGui::SameLine();
+		if (ImGui::SmallButton(showNetworkPanel ? "Net*" : "Net")) showNetworkPanel = !showNetworkPanel;
 		return;
 	}
 	static const char* labels[3] = { "Offline", "Host", "Client" };
@@ -189,6 +221,8 @@ void SceneEditor::DrawNetworkPlayControls()
 			ImGui::SetNextItemWidth(140.f);
 			if (ImGui::SliderFloat("Loss", &lossPct, 0.f, 50.f, "%.0f %%")) playNetLoss = lossPct / 100.f;
 		}
+		ImGui::Separator();
+		if (ImGui::Button("Network panel...")) { showNetworkPanel = true; ImGui::CloseCurrentPopup(); }
 		ImGui::EndPopup();
 	}
 }
@@ -259,8 +293,19 @@ bool SceneEditor::AgentNetwork(const std::string& command, const json& a, json& 
 		playNetLoss = std::min(1.f, std::max(0.f, args.value("loss", playNetLoss)));
 		return AgentNetwork("network_state", args, out, errOut);
 	}
+	// {"what":"client"|"server"} - the Network panel's Launch Client / Run
+	// Server, on the Play port. {"what":"close"} ends everything launched.
+	if (command == "launch_network")
+	{
+		const std::string what = args.value("what", std::string("client"));
+		if (what == "close") CloseLaunchedProcesses();
+		else if (what != "client" && what != "server") { errOut = "what must be client, server or close"; return false; }
+		else if (!LaunchNetworkProcess(what == "server", errOut)) return false;
+		return AgentNetwork("network_state", args, out, errOut);
+	}
 	if (command == "network_state")
 	{
+		if (args.contains("panel")) showNetworkPanel = args.value("panel", false);
 		out["playRole"] = kRoleNames[std::max(0, std::min(2, playNetRole))];
 		out["address"] = playNetAddress;
 		out["port"] = playNetPort;
@@ -276,8 +321,31 @@ bool SceneEditor::AgentNetwork(const std::string& command, const json& a, json& 
 			out["peers"] = (uint32)playNetwork->ClientViewers().size();
 			out["replicated"] = playNetwork->GetStats().replicated;
 			out["serverTick"] = playNetwork->ServerTick();
+			json ents = json::array();
+			const std::vector<NetworkSession::EntityInfo> entities = playNetwork->Entities();
+			for (size_t i = 0; i < entities.size(); i++)
+			{
+				json vars = json::object();
+				for (std::map<std::string, NetValue>::const_iterator v = entities[i].vars.begin(); v != entities[i].vars.end(); ++v)
+					vars[v->first] = ValueJson(v->second);
+				ents.push_back({ { "netId", entities[i].netId }, { "name", entities[i].object ? entities[i].object->GetName() : std::string() },
+					{ "owner", entities[i].owner }, { "prefab", entities[i].prefab }, { "predicted", entities[i].predicted },
+					{ "knownBy", entities[i].knownBy }, { "vars", vars } });
+			}
+			out["entities"] = ents;
+			json prs = json::array();
+			const std::vector<NetworkSession::PeerInfo> peers = playNetwork->Peers();
+			for (size_t i = 0; i < peers.size(); i++)
+				prs.push_back({ { "peer", peers[i].peer }, { "rttMs", peers[i].transport.roundTripMs }, { "loss", peers[i].transport.packetLoss },
+					{ "bytesSent", peers[i].transport.bytesSent }, { "bytesReceived", peers[i].transport.bytesReceived }, { "knows", peers[i].knows } });
+			out["peerList"] = prs;
 		}
 		else out["role"] = "none";
+		json procs = json::array();
+		for (size_t i = 0; i < launchedProcesses.size(); i++)
+			procs.push_back({ { "what", launchedProcesses[i].what }, { "pid", launchedProcesses[i].pid },
+				{ "running", ProcessLauncher::IsRunning(launchedProcesses[i].pid) }, { "log", launchedProcesses[i].log } });
+		out["launched"] = procs;
 		return true;
 	}
 
@@ -351,4 +419,151 @@ bool SceneEditor::AgentNetwork(const std::string& command, const json& a, json& 
 	}
 	errOut = "unknown network command " + command;
 	return false;
+}
+
+bool SceneEditor::LaunchNetworkProcess(const bool server, std::string& errOut)
+{
+	namespace fs = std::filesystem;
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+	if (scenePath.empty()) { errOut = "save the scene first"; return false; }
+	// The build copies files off disk: unsaved edits would not be in it.
+	// Not while playing - saving mid-play would write the played state.
+	if (!playMode && sceneDirty && !SaveSceneToFile(scenePath)) { errOut = "could not save the scene"; return false; }
+
+	ProjectManager::BuildOptions opts;
+	std::error_code ec;
+	opts.outputDir = (fs::temp_directory_path(ec) / "pyros_launch" / project->GetProjectName()).string();
+	opts.startupSceneRel = project->RelativePath(scenePath);
+	opts.title = project->GetProjectName() + (server ? " (server)" : " (client)");
+	opts.width = 960;
+	opts.height = 540;
+	opts.deferred = (project->GetSettings().rendererType == ProjectRendererType::Deferred);
+	const ProjectManager::BuildResult built = project->BuildGame(opts);
+	if (!built.ok) { errOut = "build failed: " + built.error; return false; }
+
+#ifdef _WIN32
+	const char* exeName = server ? "PyrosServer.exe" : "PyrosPlayer.exe";
+#else
+	const char* exeName = server ? "PyrosServer" : "PyrosPlayer";
+#endif
+	const fs::path exe = fs::path(built.outputDir) / exeName;
+	if (!fs::exists(exe, ec)) { errOut = std::string(exeName) + " is not in the build - was it compiled?"; return false; }
+	const std::string port = std::to_string(playNetPort);
+	std::vector<std::string> args;
+	if (server) args = { "--game", built.outputDir, "--scene", opts.startupSceneRel, "--port", port };
+	else args = { "--scene", opts.startupSceneRel, "--connect", "127.0.0.1:" + port };
+
+	LaunchedProcess p;
+	p.what = server ? "server :" + port : "client " + std::to_string(launchedProcesses.size() + 1);
+	p.log = (fs::path(built.outputDir) / (std::string(server ? "server" : "client") + "_" + std::to_string(launchedProcesses.size() + 1) + ".log")).string();
+	p.pid = ProcessLauncher::Launch(exe.string(), args, built.outputDir, p.log, errOut);
+	if (!p.pid) return false;
+	launchedProcesses.push_back(p);
+	echo("SUCCESS: launched " + p.what + " (pid " + std::to_string(p.pid) + "), log " + p.log);
+	return true;
+}
+
+void SceneEditor::CloseLaunchedProcesses()
+{
+	for (size_t i = 0; i < launchedProcesses.size(); i++) ProcessLauncher::Terminate(launchedProcesses[i].pid);
+	launchedProcesses.clear();
+}
+
+void SceneEditor::ShowNetworkPanel()
+{
+	if (!showNetworkPanel) return;
+	ProcessLauncher::IsRunning(0);	// reaps what was closed earlier
+	ImGui::SetNextWindowSize(ImVec2(460, 420), ImGuiCond_FirstUseEver);
+	if (!ImGui::Begin("Network", &showNetworkPanel)) { ImGui::End(); return; }
+
+	// --- testing with more than one program -------------------------------
+	ImGui::TextDisabled("Test with other programs (port %d)", playNetPort);
+	bool wantClient = false, wantServer = false;
+	if (ImGui::Button("Launch Client")) wantClient = true;
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Builds the game to a scratch folder and starts it, joining\n127.0.0.1 on the Play port. Play as Host here first, or Run Server.");
+	ImGui::SameLine();
+	if (ImGui::Button("Run Server")) wantServer = true;
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Builds the game and starts its dedicated server (no window)\non the Play port. Then Play as Client here, or launch clients.");
+	for (size_t i = 0; i < launchedProcesses.size(); i++)
+	{
+		ImGui::PushID((int)i);
+		const bool alive = ProcessLauncher::IsRunning(launchedProcesses[i].pid);
+		ImGui::TextColored(alive ? ImVec4(0.5f, 0.9f, 0.5f, 1.f) : ImVec4(0.6f, 0.6f, 0.6f, 1.f), "%s  pid %ld  %s",
+			launchedProcesses[i].what.c_str(), launchedProcesses[i].pid, alive ? "running" : "exited");
+		ImGui::SameLine();
+		if (ImGui::SmallButton(alive ? "Close" : "Forget"))
+		{
+			ProcessLauncher::Terminate(launchedProcesses[i].pid);
+			launchedProcesses.erase(launchedProcesses.begin() + i);
+			ImGui::PopID();
+			break;
+		}
+		ImGui::PopID();
+	}
+	if (launchedProcesses.size() > 1 && ImGui::SmallButton("Close all")) CloseLaunchedProcesses();
+	ImGui::Separator();
+
+	// --- the session ---------------------------------------------------
+	if (!playNetwork || playNetwork->GetRole() == NetworkSession::Offline)
+		ImGui::TextDisabled(playMode ? "No session: nothing has hosted or joined." : "Press Play (Net: Host or Client) to see the session.");
+	else
+	{
+		const bool server = playNetwork->GetRole() == NetworkSession::Server;
+		ImGui::Text("%s  tick %u  %s", server ? "Server" : "Client", (unsigned)playNetwork->ServerTick(),
+			playNetwork->IsReady() ? "" : "(connecting)");
+		const std::vector<NetworkSession::PeerInfo> peers = playNetwork->Peers();
+		if (ImGui::CollapsingHeader(("Peers (" + std::to_string(peers.size()) + ")###net_peers").c_str(), ImGuiTreeNodeFlags_DefaultOpen)
+			&& ImGui::BeginTable("net_peers_table", 6, ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV | ImGuiTableFlags_SizingStretchProp))
+		{
+			ImGui::TableSetupColumn("Peer"); ImGui::TableSetupColumn("RTT"); ImGui::TableSetupColumn("Loss");
+			ImGui::TableSetupColumn("Sent"); ImGui::TableSetupColumn("Recv"); ImGui::TableSetupColumn("Objects");
+			ImGui::TableHeadersRow();
+			for (size_t i = 0; i < peers.size(); i++)
+			{
+				const NetworkSession::PeerInfo &p = peers[i];
+				ImGui::TableNextRow();
+				ImGui::TableNextColumn(); ImGui::Text(p.peer == 0 ? "server" : "#%u", (unsigned)p.peer);
+				ImGui::TableNextColumn(); ImGui::Text("%u ms", (unsigned)p.transport.roundTripMs);
+				ImGui::TableNextColumn(); ImGui::Text("%.0f%%", p.transport.packetLoss * 100.f);
+				ImGui::TableNextColumn(); ImGui::Text("%.1f KB", p.transport.bytesSent / 1024.0);
+				ImGui::TableNextColumn(); ImGui::Text("%.1f KB", p.transport.bytesReceived / 1024.0);
+				ImGui::TableNextColumn(); if (server) ImGui::Text("%u", (unsigned)p.knows); else ImGui::TextDisabled("-");
+			}
+			ImGui::EndTable();
+		}
+		const std::vector<NetworkSession::EntityInfo> entities = playNetwork->Entities();
+		if (ImGui::CollapsingHeader(("Replicated objects (" + std::to_string(entities.size()) + ")###net_entities").c_str(), ImGuiTreeNodeFlags_DefaultOpen))
+			for (size_t i = 0; i < entities.size(); i++)
+			{
+				const NetworkSession::EntityInfo &e = entities[i];
+				ImGui::PushID((int)e.netId);
+				const std::string name = e.object ? e.object->GetName() : std::string("(gone)");
+				std::string line = "#" + std::to_string(e.netId) + "  " + name + "  -  "
+					+ (e.owner == 0 ? std::string("server") : "peer " + std::to_string(e.owner))
+					+ (e.predicted ? ", predicted" : "") + (e.prefab.empty() ? ", bound" : ", " + e.prefab);
+				if (server) line += "  -  on " + std::to_string(e.knownBy) + " client(s)";
+				const bool open = ImGui::TreeNodeEx("row", e.vars.empty() ? ImGuiTreeNodeFlags_Leaf : 0, "%s", line.c_str());
+				// Clicking the row selects the object, as clicking it in the tree would.
+				if (ImGui::IsItemClicked() && e.object)
+					if (const uint32 id = sceneObjects->GetSceneObjectID(e.object))
+						if (SceneObject* so = sceneObjects->GetSceneObject(id)) SelectSceneObject(so);
+				if (open)
+				{
+					for (std::map<std::string, NetValue>::const_iterator v = e.vars.begin(); v != e.vars.end(); ++v)
+						ImGui::BulletText("%s = %s", v->first.c_str(), ValueText(v->second).c_str());
+					ImGui::TreePop();
+				}
+				ImGui::PopID();
+			}
+	}
+	ImGui::End();
+
+	// After End(): a build copies a project's worth of files.
+	if (wantClient || wantServer)
+	{
+		std::string err;
+		if (!LaunchNetworkProcess(wantServer, err)) echo("ERROR: launch - " + err);
+	}
 }

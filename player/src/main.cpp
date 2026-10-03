@@ -30,6 +30,7 @@ int main(int argc, char** argv)
 	InstallCrashHandler();
 
 	PyrosPlayer* game = new PyrosPlayer();
+	game->SetLaunchArgs(argc, argv);
 	game->Init();
 
 	while (game->IsRunning())

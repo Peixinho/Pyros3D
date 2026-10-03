@@ -4549,7 +4549,10 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
     Networking
       set_play_network (role: offline|host|client, address, port, latencyMs,
         jitterMs, loss 0-1 - simulated on this end) - how Play joins;
-        network_state; get/add/set/remove_network_identity (name|id,
+        network_state (panel: bool opens the Network panel; reports entities,
+        peerList and launched while playing); launch_network (what: client|
+        server|close - builds the game to a scratch folder and starts
+        PyrosPlayer --connect / PyrosServer on the Play port); get/add/set/remove_network_identity (name|id,
         prefab, relevance, priority, syncTransform, predicted, hitRadius,
         hitHeight)
     Project
