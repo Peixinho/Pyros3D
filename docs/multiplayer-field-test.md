@@ -140,7 +140,7 @@ a built 8 x 8 km streamed world (1024 cells), `PyrosServer` at 30 Hz,
 | Layout | Server frame avg / worst | Out per player | Server memory |
 |---|---|---|---|
 | players spread over the map | 2.6-2.9 ms / 7 ms | 8 kbit/s | 212 MB, with ~930 of the 1024 cells loaded |
-| all within 200 m | 3.7 ms / 11 ms | 262 kbit/s | under 100 MB |
+| all within 200 m | 2.7-2.8 ms / 8 ms | 262 kbit/s | 34 MB |
 
 The first run of the spread layout used 5.7 GB: the server was building
 every terrain tile's render geometry (6.8 MB a cell). It now builds none
