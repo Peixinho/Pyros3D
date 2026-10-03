@@ -70,6 +70,14 @@ namespace p3d {
 		// where two tiles at different steps meet. UVs run 0..1 across the
 		// tile. Any thread.
 		static void Build(const HeightfieldData &data, const uint32 step, const f32 skirtDepth, HeightfieldMesh &out);
+
+		// For a process that draws nothing (a dedicated server): every
+		// level is built at the coarsest step - one quad a tile - instead
+		// of megabytes of vertices nobody will see. The heights, which
+		// physics and height queries read, are untouched. Process-wide;
+		// set before anything loads.
+		static void SetHeadless(const bool on);
+		static bool IsHeadless();
 	};
 
 	// One detail level: every step-th grid point, used while the camera

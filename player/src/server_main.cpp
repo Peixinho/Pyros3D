@@ -47,6 +47,7 @@
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
 #include <Pyros3D/Network/NetworkSession.h>
 #include <Pyros3D/Network/NetRendezvous.h>
+#include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
 #include <Pyros3D/Core/Logs/Log.h>
@@ -112,6 +113,11 @@ int main(int argc, char** argv)
 		}
 		return 0;
 	}
+
+	// Nothing here is drawn: terrain tiles keep their heights (physics
+	// stands on those) and build no render geometry - measured at 6.8 MB a
+	// cell, which with players spread over an 8 km map was 6 GB.
+	HeightfieldMesh::SetHeadless(true);
 
 	// The game folder: --game, else wherever game.json is found from here.
 	std::error_code ec;

@@ -124,6 +124,22 @@ int main()
 	check(near(p.y, ground + radius, 0.15f), "the ball rests on the terrain, in world space");
 	check(near(p.x, 1064.f, 0.5f) && near(p.z, -436.f, 0.5f), "and where it was dropped, over the tile - not at the origin");
 
+	// Headless (a dedicated server): no render geometry to speak of, the
+	// heights - what physics and queries read - exactly as they were.
+	{
+		const std::vector<f32> before = data.heights;
+		HeightfieldMesh::SetHeadless(true);
+		HeightfieldMesh hm;
+		HeightfieldMesh::Build(data, 1, 3.f, hm);
+		HeightfieldMesh::SetHeadless(false);
+		printf("headless: %zu vertices (full detail has %zu)\n", hm.vertex.size(), m1.vertex.size());
+		check(hm.vertex.size() <= 16 && !hm.index.empty(), "a headless tile is one quad and its skirt");
+		check(data.heights == before && near(data.At(0, 0), before[0], 0.f), "and its heights are untouched");
+		HeightfieldMesh again;
+		HeightfieldMesh::Build(data, 1, 3.f, again);
+		check(again.vertex.size() == m1.vertex.size(), "switched off, full detail is built again");
+	}
+
 	remove(png.c_str());
 	printf("%s\n", failures ? "FAILED" : "ALL PASS");
 	return failures ? 1 : 0;

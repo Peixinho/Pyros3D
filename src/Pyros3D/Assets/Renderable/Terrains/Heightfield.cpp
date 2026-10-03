@@ -10,6 +10,7 @@
 #include <Pyros3D/Ext/stb/stb_image.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 
 namespace p3d {
@@ -94,11 +95,16 @@ namespace p3d {
 		return Vec3(-dx, 1.f, -dz).normalize();
 	}
 
+	namespace { std::atomic<bool> g_headless(false); }
+	void HeightfieldMesh::SetHeadless(const bool on) { g_headless = on; }
+	bool HeightfieldMesh::IsHeadless() { return g_headless; }
+
 	void HeightfieldMesh::Build(const HeightfieldData &data, uint32 step, const f32 skirtDepth, HeightfieldMesh &out)
 	{
 		out = HeightfieldMesh();
 		if (data.samples < 2) return;
 		const uint32 cells = data.samples - 1;
+		if (g_headless) step = cells;	// one quad: see SetHeadless
 		// The largest power of two <= step that divides the grid, so the
 		// last row and column land exactly on the tile's edge.
 		uint32 st = 1;
