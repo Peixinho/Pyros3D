@@ -372,6 +372,14 @@ jobs:
         run: |
           chmod +x .github/scripts/bundle-macos.sh
           ./.github/scripts/bundle-macos.sh package/demolauncher package/editor package/player
+          # The packaged runtime must start from its own folder, with only
+          # what was bundled beside it: it is what Build Game copies into
+          # every game, on this platform and - as a template - on others.
+          # --print-key makes the server key and exits before any scene.
+          mkdir -p /tmp/template-check/scenes
+          echo '{"startupScene":"scenes/S.json"}' > /tmp/template-check/game.json
+          package/player/PyrosServer --game /tmp/template-check --print-key
+          test -s /tmp/template-check/server.key
 
       - name: Smoke run
         if: matrix.package == 'yes'

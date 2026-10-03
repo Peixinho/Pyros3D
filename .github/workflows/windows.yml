@@ -539,6 +539,19 @@ jobs:
           if ($crashed) { exit 1 }
           exit 0
 
+      - name: Packaged runtime starts
+        # What Build Game copies into every game (and what other platforms
+        # use as their Windows template) must run from its own folder.
+        # --print-key makes the server key and exits before any scene.
+        shell: pwsh
+        run: |
+          $g = Join-Path $env:RUNNER_TEMP "template-check"
+          New-Item -ItemType Directory -Force -Path "$g\scenes" | Out-Null
+          Set-Content -Path "$g\game.json" -Value '{"startupScene":"scenes/S.json"}'
+          & "package\player\PyrosServer.exe" --game $g --print-key
+          if ($LASTEXITCODE -ne 0) { throw "PyrosServer exited with $LASTEXITCODE" }
+          if (-not (Test-Path "$g\server.key")) { throw "no server.key was written" }
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
