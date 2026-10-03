@@ -16,12 +16,13 @@ namespace p3d {
 		// Set RTT
 		UseRTT(Tex1);
 
+		Uniform texRes;
 		texRes.Name = "uTexResolution";
 		texRes.Type = Uniforms::DataType::Float;
 		texRes.Usage = Uniforms::PostEffects::Other;
 		f32 res = (f32)Height;
 		texRes.SetValue(&res);
-		AddUniform(texRes);
+		resHandle = AddUniform(texRes);
 
 		// See BlurXEffect.cpp's identical comment - binding 29, not 28
 		// (BlurXEffect's own - see SSAOEffect.cpp's comment on
@@ -110,6 +111,15 @@ namespace p3d {
 	}
 
 	BlurYEffect::~BlurYEffect() {
+	}
+
+	void BlurYEffect::Resize(const uint32 width, const uint32 height)
+	{
+		IEffect::Resize(width, height);
+		// See BlurXEffect::Resize - this one steps in Y, so the uniform is
+		// the height.
+		f32 res = (f32)height;
+		resHandle->SetValue(&res);
 	}
 
 };

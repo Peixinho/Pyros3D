@@ -199,6 +199,9 @@ namespace p3d {
 	attachment = new Texture();
 	attachment->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
 	attachment->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	// Linear: these targets are read back at a different size (bloom's
+	// mips, TAA's history). Nearest turns that into squares.
+	attachment->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 	fbo->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, attachment);
     }
 

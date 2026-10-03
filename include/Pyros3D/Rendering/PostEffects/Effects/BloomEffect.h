@@ -13,19 +13,27 @@
 
 namespace p3d {
 
+	class PostEffectsManager;
+
+	// The built-in "Bloom" entry. threshold/knee/intensity default to
+	// 0.8, 0.35 and 1 when the chain has no overrides.
+	PYROS3D_API void AppendBloom(PostEffectsManager &manager, const uint32 width, const uint32 height,
+		const f32 threshold, const f32 knee, const f32 intensity);
+
 	// Bloom is three things: find what is bright, blur it, add it back.
-	// This used to be one pass that did all three at once - 48 taps in a
-	// 0.004-spaced grid, squared, added to the source - which meant the blur
-	// radius was fixed in texture space (so it changed size with the
-	// viewport), the threshold was a branch on the red channel alone, and
-	// bright pixels were squared into whatever came out. It also called
-	// texture2D(), which does not exist in GLSL 3.30 core or ES3, so it did
-	// not compile at all.
 	//
-	// Split in two now, with PostEffectChain::AppendBuiltIn() putting the
-	// existing separable BlurX/BlurY between them at quarter resolution:
-	// that is where a bloom's blur belongs, it costs a sixteenth of the taps,
-	// and the radius then scales with the frame instead of drifting with it.
+	// The blur is a mip chain (half, quarter, eighth, sixteenth), not a
+	// fixed number of texels. A 7-tap gaussian on a quarter-resolution
+	// buffer is about twelve screen pixels whatever the window is, so the
+	// same setting was a blob in a small viewport and a hard square halo
+	// in a large one. Each mip is a fraction of the frame, so the halo
+	// covers the same share of the picture at every resolution. The
+	// downsample taps half a texel, and the upsample is a 3x3 tent, so a
+	// viewport whose size is not a multiple of the mip ratio does not come
+	// back as blocks or a shimmering grid.
+	//
+	// AppendBloom() builds that chain. The two classes below are the ends
+	// of it; the mips in between are an implementation detail.
 
 	// Keeps what is brighter than `threshold`, rolled in over a soft `knee`
 	// so a surface drifting past the threshold brightens gradually instead of

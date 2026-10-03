@@ -69,7 +69,7 @@ namespace {
 	{
 		delete g_velocityRenderer;
 		g_velocityRenderer = new VelocityRenderer((uint32)width, (uint32)height);
-		g_motionBlur = new MotionBlurEffect(RTT::Color, g_velocityRenderer->GetTexture(), (uint32)width, (uint32)height);
+		g_motionBlur = new MotionBlurEffect(RTT::Color, g_velocityRenderer->GetTexture(), g_velocityRenderer->GetDepthTexture(), (uint32)width, (uint32)height);
 		g_motionBlur->SetTargetFPS(60.0f);
 		g_motionBlur->SetCurrentFPS(60.0f);
 		m.AddEffect(g_motionBlur);
@@ -78,7 +78,11 @@ namespace {
 	void MotionBlurRenderVelocity(const Projection &proj, const std::shared_ptr<GameObject> &cam, SceneGraph &scene)
 	{
 		if (g_velocityRenderer && cam)
+		{
 			g_velocityRenderer->RenderVelocityMap(proj, cam.get(), &scene);
+			if (g_motionBlur)
+				g_motionBlur->SetCameraReproject(g_velocityRenderer->GetCameraReproject());
+		}
 	}
 
 	void MotionBlurSetFPS(float currentFps)
@@ -208,9 +212,10 @@ EMSCRIPTEN_BINDINGS(pyros3d_postfx)
 		.function("setSoftness", &VignetteEffect::SetSoftness);
 
 	class_<MotionBlurEffect, base<IEffect>>("MotionBlur")
-		.constructor<int, Texture *, int, int>(allow_raw_pointers())
+		.constructor<int, Texture *, Texture *, int, int>(allow_raw_pointers())
 		.function("setTargetFPS", &MotionBlurEffect::SetTargetFPS)
-		.function("setCurrentFPS", &MotionBlurEffect::SetCurrentFPS);
+		.function("setCurrentFPS", &MotionBlurEffect::SetCurrentFPS)
+		.function("setCameraReproject", &MotionBlurEffect::SetCameraReproject);
 
 	class_<PostEffectsManager>("PostEffectsManager")
 		.constructor<int, int>()

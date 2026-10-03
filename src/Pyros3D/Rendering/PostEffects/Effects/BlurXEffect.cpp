@@ -16,12 +16,13 @@ namespace p3d {
         // Set RTT
         UseRTT(Tex1);
 
+		Uniform texRes;
 		texRes.Name = "uTexResolution";
 		texRes.Type = Uniforms::DataType::Float;
 		texRes.Usage = Uniforms::PostEffects::Other;
 		f32 res = (f32)Width;
 		texRes.SetValue(&res);
-		AddUniform(texRes);
+		resHandle = AddUniform(texRes);
 
 		// See SSAOEffect.cpp's comment on extraUniformsBinding -
 		// uTexResolution is used in the *vertex* stage here, not the
@@ -120,5 +121,15 @@ namespace p3d {
 
     BlurXEffect::~BlurXEffect() {
     }
+
+	void BlurXEffect::Resize(const uint32 width, const uint32 height)
+	{
+		IEffect::Resize(width, height);
+		// The offsets are n / uTexResolution texels. Left at the size this
+		// was built with, a resized viewport samples the wrong distance:
+		// a wide bloom at one window size and a tight one at another.
+		f32 res = (f32)width;
+		resHandle->SetValue(&res);
+	}
 
 };

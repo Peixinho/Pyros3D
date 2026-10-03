@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/Effects/BloomEffect.h>
+#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 
 namespace p3d {
 
@@ -46,6 +47,9 @@ namespace p3d {
 		: IEffect(Width, Height)
 	{
 		UseRTT(Tex1);
+		// HDR, or a light at 4.0 and a light at 1.2 become the same texel
+		// before the blur ever sees them.
+		UseHDRAttachment();
 
 		FragmentShaderString = std::string(kPreamble) +
 			"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
@@ -57,8 +61,7 @@ namespace p3d {
 			"	float uThreshold;\n"
 			"	float uKnee;\n"
 			"};\n"
-			"void main() {\n"
-			"	vec3 c = texture_2D(uTex0, vTexcoord).rgb;\n"
+			"vec3 Prefilter(vec3 c) {\n"
 			// Rec. 709 luma. The old pass branched on .r alone, so a
 			// saturated blue light never bloomed and a dull red one did.
 			"	float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));\n"
@@ -68,7 +71,21 @@ namespace p3d {
 			"	float k = max(uKnee, 0.0001);\n"
 			"	float soft = clamp((luma - uThreshold + k) / (2.0 * k), 0.0, 1.0);\n"
 			"	float weight = max(luma - uThreshold, k * soft * soft) / max(luma, 0.0001);\n"
-			"	FragColor = vec4(c * weight, 1.0);\n"
+			"	c *= weight;\n"
+			// One texel far above the rest otherwise owns the whole mip
+			// below it. Dividing by luma keeps the energy but stops the spike.
+			"	return c / (1.0 + dot(c, vec3(0.2126, 0.7152, 0.0722)));\n"
+			"}\n"
+			"void main() {\n"
+			// Four taps of the source, half a texel apart: this pass is half
+			// the frame, and a single point sample aliases into a flicker
+			// as the window size changes which source texel it lands on.
+			"	vec2 texel = 0.5 / vec2(textureSize(uTex0, 0));\n"
+			"	vec3 c = Prefilter(texture_2D(uTex0, vTexcoord + vec2(-texel.x, -texel.y)).rgb)\n"
+			"		+ Prefilter(texture_2D(uTex0, vTexcoord + vec2( texel.x, -texel.y)).rgb)\n"
+			"		+ Prefilter(texture_2D(uTex0, vTexcoord + vec2(-texel.x,  texel.y)).rgb)\n"
+			"		+ Prefilter(texture_2D(uTex0, vTexcoord + vec2( texel.x,  texel.y)).rgb);\n"
+			"	FragColor = vec4(c * 0.25, 1.0);\n"
 			"}";
 
 		CompileShaders();
@@ -113,6 +130,7 @@ namespace p3d {
 
 	void BloomCompositeEffect::Build(const uint32 Width, const uint32 Height)
 	{
+		UseHDRAttachment();
 		FragmentShaderString = std::string(kPreamble) +
 			"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
 			"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n"
@@ -146,5 +164,167 @@ namespace p3d {
 	void BloomCompositeEffect::SetIntensity(const f32 &v) { intensity = v; intensityHandle->SetValue(&intensity); }
 
 	BloomCompositeEffect::~BloomCompositeEffect() {}
+
+	namespace {
+
+		uint32 MipSize(const uint32 full, const f32 scale)
+		{
+			const uint32 v = (uint32)((f32)full * scale);
+			return v > 0 ? v : 1;
+		}
+
+		// Half of whatever came in. The four taps sit half a texel off the
+		// centre, so together they cover the 2x2 that this pixel stands
+		// for. A full-texel offset misses that box whenever the mip size
+		// is not exactly half (integer truncation), and the miss lines up
+		// differently at every window size - squares at one resolution, a
+		// grid at the next. Karis weights keep one hot texel from owning
+		// the whole tap; a plain average of equal neighbours is unchanged.
+		class BloomDownsampleEffect : public IEffect {
+		public:
+			BloomDownsampleEffect(const uint32 width, const uint32 height) : IEffect(width, height)
+			{
+				UseRTT(RTT::LastRTT);
+				UseHDRAttachment();
+				FragmentShaderString = std::string(kPreamble) +
+					"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+					"float Luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }\n"
+					"void Tap(vec2 uv, inout vec3 sum, inout float wsum) {\n"
+					"	vec3 c = texture_2D(uTex0, uv).rgb;\n"
+					"	float w = 1.0 / (1.0 + Luma(c));\n"
+					"	sum += c * w;\n"
+					"	wsum += w;\n"
+					"}\n"
+					"void main() {\n"
+					"	vec2 texel = 0.5 / vec2(textureSize(uTex0, 0));\n"
+					"	vec3 sum = vec3(0.0);\n"
+					"	float wsum = 0.0;\n"
+					"	Tap(vTexcoord + texel * vec2(-1.0, -1.0), sum, wsum);\n"
+					"	Tap(vTexcoord + texel * vec2( 1.0, -1.0), sum, wsum);\n"
+					"	Tap(vTexcoord + texel * vec2(-1.0,  1.0), sum, wsum);\n"
+					"	Tap(vTexcoord + texel * vec2( 1.0,  1.0), sum, wsum);\n"
+					"	FragColor = vec4(sum / max(wsum, 0.0001), 1.0);\n"
+					"}";
+				CompileShaders();
+			}
+		};
+
+		// The threshold image, stretched up with the same tent and nothing
+		// added. Used for the last step so the half-resolution prefilter
+		// itself is not composited: that mask is one texel per two screen
+		// pixels, and once the highlight clips to white the bilinear ramp
+		// disappears and the terminator comes back as blocks. The glow is
+		// the blurred mips; the sharp highlight is already in the base.
+		class BloomStretchEffect : public IEffect {
+		public:
+			BloomStretchEffect(Texture* src, const uint32 width, const uint32 height) : IEffect(width, height)
+			{
+				UseCustomTexture(src);
+				UseHDRAttachment();
+				FragmentShaderString = std::string(kPreamble) +
+					"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+					"void main() {\n"
+					"	vec2 t = 1.0 / vec2(textureSize(uTex0, 0));\n"
+					"	vec2 uv = vTexcoord;\n"
+					"	vec3 s = texture_2D(uTex0, uv + t * vec2(-1.0, -1.0)).rgb\n"
+					"		+ texture_2D(uTex0, uv + t * vec2( 0.0, -1.0)).rgb * 2.0\n"
+					"		+ texture_2D(uTex0, uv + t * vec2( 1.0, -1.0)).rgb\n"
+					"		+ texture_2D(uTex0, uv + t * vec2(-1.0,  0.0)).rgb * 2.0\n"
+					"		+ texture_2D(uTex0, uv).rgb * 4.0\n"
+					"		+ texture_2D(uTex0, uv + t * vec2( 1.0,  0.0)).rgb * 2.0\n"
+					"		+ texture_2D(uTex0, uv + t * vec2(-1.0,  1.0)).rgb\n"
+					"		+ texture_2D(uTex0, uv + t * vec2( 0.0,  1.0)).rgb * 2.0\n"
+					"		+ texture_2D(uTex0, uv + t * vec2( 1.0,  1.0)).rgb;\n"
+					"	FragColor = vec4(s * (1.0 / 16.0), 1.0);\n"
+					"}";
+				CompileShaders();
+			}
+		};
+
+		// finer + a 3x3 tent of the coarser mip. One bilinear tap of a mip
+		// that is not exactly twice as small lands on a rectangle; the tent
+		// overlaps those rectangles, which is what removes the blocks.
+		class BloomUpsampleEffect : public IEffect {
+		public:
+			BloomUpsampleEffect(Texture* finer, Texture* coarser, const uint32 width, const uint32 height) : IEffect(width, height)
+			{
+				UseCustomTexture(finer);
+				UseCustomTexture(coarser);
+				UseHDRAttachment();
+				FragmentShaderString = std::string(kPreamble) +
+					"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
+					"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n"
+					"vec3 Tent(vec2 uv) {\n"
+					"	vec2 t = 1.0 / vec2(textureSize(uTex1, 0));\n"
+					"	vec3 s = texture_2D(uTex1, uv + t * vec2(-1.0, -1.0)).rgb\n"
+					"		+ texture_2D(uTex1, uv + t * vec2( 0.0, -1.0)).rgb * 2.0\n"
+					"		+ texture_2D(uTex1, uv + t * vec2( 1.0, -1.0)).rgb\n"
+					"		+ texture_2D(uTex1, uv + t * vec2(-1.0,  0.0)).rgb * 2.0\n"
+					"		+ texture_2D(uTex1, uv).rgb * 4.0\n"
+					"		+ texture_2D(uTex1, uv + t * vec2( 1.0,  0.0)).rgb * 2.0\n"
+					"		+ texture_2D(uTex1, uv + t * vec2(-1.0,  1.0)).rgb\n"
+					"		+ texture_2D(uTex1, uv + t * vec2( 0.0,  1.0)).rgb * 2.0\n"
+					"		+ texture_2D(uTex1, uv + t * vec2( 1.0,  1.0)).rgb;\n"
+					"	return s * (1.0 / 16.0);\n"
+					"}\n"
+					"void main() {\n"
+					"	FragColor = vec4(texture_2D(uTex0, vTexcoord).rgb + Tent(vTexcoord), 1.0);\n"
+					"}";
+				CompileShaders();
+			}
+		};
+
+	}
+
+	void AppendBloom(PostEffectsManager &manager, const uint32 width, const uint32 height,
+		const f32 threshold, const f32 knee, const f32 intensity)
+	{
+		// Whatever ran before us is what the bloom gets added to. On an
+		// empty chain that is RTT::Color, the captured scene.
+		IEffect* previous = manager.GetLastEffect();
+
+		const f32 scales[4] = { 0.5f, 0.25f, 0.125f, 0.0625f };
+		IEffect* level[4];
+
+		BloomBrightPassEffect* pre = new BloomBrightPassEffect(RTT::LastRTT, MipSize(width, scales[0]), MipSize(height, scales[0]));
+		pre->SetThreshold(threshold);
+		pre->SetKnee(knee);
+		pre->SetResizeScale(scales[0]);
+		manager.AddEffect(pre);
+		level[0] = pre;
+
+		for (int i = 1; i < 4; i++)
+		{
+			BloomDownsampleEffect* down = new BloomDownsampleEffect(MipSize(width, scales[i]), MipSize(height, scales[i]));
+			down->SetResizeScale(scales[i]);
+			manager.AddEffect(down);
+			level[i] = down;
+		}
+
+		// Fold the wide mips back up to the quarter buffer. Stopping there
+		// leaves the half-resolution prefilter out of the composite - see
+		// BloomStretchEffect.
+		IEffect* up = level[3];
+		for (int i = 2; i >= 1; i--)
+		{
+			BloomUpsampleEffect* u = new BloomUpsampleEffect(level[i]->GetTexture(), up->GetTexture(),
+				MipSize(width, scales[i]), MipSize(height, scales[i]));
+			u->SetResizeScale(scales[i]);
+			manager.AddEffect(u);
+			up = u;
+		}
+
+		BloomStretchEffect* stretch = new BloomStretchEffect(up->GetTexture(), MipSize(width, scales[0]), MipSize(height, scales[0]));
+		stretch->SetResizeScale(scales[0]);
+		manager.AddEffect(stretch);
+
+		BloomCompositeEffect* composite = (previous != NULL)
+			? new BloomCompositeEffect(previous->GetTexture(), width, height)
+			: new BloomCompositeEffect(RTT::Color, width, height);
+		composite->SetIntensity(intensity);
+		// The second input is RTT::LastRTT, which at draw time is whatever
+		// ran immediately before - the half-resolution upsample.
+		manager.AddEffect(composite);
+	}
 
 };

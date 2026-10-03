@@ -159,6 +159,9 @@ namespace p3d {
 		// actually asks for it - a velocity pass is a full extra draw of the
 		// scene, not something every chain should pay for.
 		Texture* EnsureVelocityMap();
+		// The velocity pass's depth. 1 where nothing was drawn, which is how
+		// motion blur tells the sky from a mesh. NULL until EnsureVelocityMap().
+		Texture* GetVelocityDepth();
 		bool HaveVelocityMap() const { return velocityRenderer != NULL; }
 		// currentFps scales how far the blur smears: the effect works in
 		// "how much of a target frame did this movement take", so a slow

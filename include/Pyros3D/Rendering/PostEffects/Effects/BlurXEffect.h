@@ -17,8 +17,9 @@ namespace p3d {
 	public:
 		BlurXEffect(const uint32 Tex1, const uint32 Width, const uint32 Height);
 		virtual ~BlurXEffect();
+		virtual void Resize(const uint32 width, const uint32 height);
 	private:
-		Uniform texRes;
+		Uniform* resHandle;
 	};
 
 };

@@ -30,6 +30,11 @@ namespace p3d {
 		// The velocity pass's own depth, unjittered. 1.0 wherever no mesh
 		// was drawn - sky and background, which have no velocity written.
 		Texture* GetDepthTexture() { return depthMap; }
+		// prevVP * inverse(currentVP), from the matrices this pass just
+		// drew with. Identity until a second frame exists. Motion blur
+		// reprojects the sky with it, because nothing writes the sky's
+		// velocity into the map.
+		const Matrix &GetCameraReproject() const { return cameraReproject; }
 
 	protected:
 		
@@ -40,6 +45,11 @@ namespace p3d {
 		Texture* depthMap;
 		FrameBuffer* fbo;
 		GenericShaderMaterial* velocityMaterial;
+		// This renderer's own matrices, not IRenderer's shared ones: the UI
+		// pass and the other renderer both overwrite those before we draw.
+		bool havePrevious = false;
+		Matrix previousProjection, previousView;
+		Matrix cameraReproject;
 
 	};
 

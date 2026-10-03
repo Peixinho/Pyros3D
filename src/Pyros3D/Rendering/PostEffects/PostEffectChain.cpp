@@ -214,40 +214,10 @@ namespace p3d {
 			}
 			if (name == "Bloom")
 			{
-				// Bright pass and blur at a quarter of the frame. Bloom is
-				// low-frequency by nature, so the smaller buffer costs a
-				// sixteenth of the taps and is not visible in the result;
-				// SetResizeScale keeps it a quarter when the viewport
-				// changes (see IEffect::SetResizeScale).
-				const uint32 bw = width / 4 > 0 ? width / 4 : 1;
-				const uint32 bh = height / 4 > 0 ? height / 4 : 1;
-
-				// Whatever ran before us is what the bloom gets added to. On
-				// an empty chain that is RTT::Color, the captured scene -
-				// and it has to be asked for as an RTT rather than grabbed
-				// as a texture, since the manager swaps what Color resolves
-				// to under the deferred renderer (SetSceneSourceTexture).
-				IEffect* previous = manager.GetLastEffect();
-
-				BloomBrightPassEffect* bright = new BloomBrightPassEffect(RTT::LastRTT, bw, bh);
-				bright->SetThreshold(ParamOr(params, "uThreshold", 0.8f));
-				bright->SetKnee(ParamOr(params, "uKnee", 0.35f));
-				bright->SetResizeScale(0.25f);
-
-				BlurXEffect* bx = new BlurXEffect(RTT::LastRTT, bw, bh);
-				BlurYEffect* by = new BlurYEffect(RTT::LastRTT, bw, bh);
-				bx->SetResizeScale(0.25f);
-				by->SetResizeScale(0.25f);
-
-				BloomCompositeEffect* composite = (previous != NULL)
-					? new BloomCompositeEffect(previous->GetTexture(), width, height)
-					: new BloomCompositeEffect(RTT::Color, width, height);
-				composite->SetIntensity(ParamOr(params, "uIntensity", 1.f));
-
-				manager.AddEffect(bright);
-				manager.AddEffect(bx);
-				manager.AddEffect(by);
-				manager.AddEffect(composite);
+				AppendBloom(manager, width, height,
+					ParamOr(params, "uThreshold", 0.8f),
+					ParamOr(params, "uKnee", 0.35f),
+					ParamOr(params, "uIntensity", 1.f));
 				return true;
 			}
 			if (name == "MotionBlur")
@@ -258,7 +228,7 @@ namespace p3d {
 				// The velocity map comes from the manager because producing
 				// it is a render pass, not a fullscreen quad.
 				Texture* velocity = manager.EnsureVelocityMap();
-				MotionBlurEffect* mb = new MotionBlurEffect(RTT::LastRTT, velocity, width, height);
+				MotionBlurEffect* mb = new MotionBlurEffect(RTT::LastRTT, velocity, manager.GetVelocityDepth(), width, height);
 				mb->SetTargetFPS(ParamOr(params, "uTargetFPS", 60.f));
 				// A sane starting value for the first frame; the caller
 				// replaces it every frame through RenderVelocityPass().

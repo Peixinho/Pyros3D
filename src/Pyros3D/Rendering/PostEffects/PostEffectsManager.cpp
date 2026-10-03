@@ -47,6 +47,10 @@ namespace p3d {
 		// TranslateTextureFormat()) - no backend work needed.
 		Color->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
 		Color->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		// Every post effect samples this, several of them between texels
+		// (bloom's downsample, TAA's history). Left unset, the filter is
+		// whatever the Texture member happened to hold.
+		Color->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 
 		Depth = new Texture();
 		Depth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, Width, Height, false);
@@ -342,6 +346,11 @@ namespace p3d {
 		return velocityRenderer->GetTexture();
 	}
 
+	Texture* PostEffectsManager::GetVelocityDepth()
+	{
+		return velocityRenderer != NULL ? velocityRenderer->GetDepthTexture() : NULL;
+	}
+
 	void PostEffectsManager::RenderVelocityPass(const Projection &projection, GameObject* camera,
 		SceneGraph* scene, const f32 currentFps)
 	{
@@ -355,7 +364,10 @@ namespace p3d {
 		{
 			MotionBlurEffect* mb = dynamic_cast<MotionBlurEffect*>(*i);
 			if (mb != NULL)
+			{
 				mb->SetCurrentFPS(currentFps);
+				mb->SetCameraReproject(velocityRenderer->GetCameraReproject());
+			}
 		}
 	}
 

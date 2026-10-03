@@ -29,6 +29,9 @@ namespace p3d {
 		// RGBA16F successfully on both backends. Velocity still lives in .rg.
 		velocityMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
 		velocityMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		// Nearest: a linear blend of two velocities is a direction nothing
+		// moved in, and it shows up as a kink in the smear.
+		velocityMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 
 		// Depth as a texture (not a renderbuffer) - same multi-attach path
 		// as PostEffectsManager / Deferred G-buffer. Keeps Vulkan's
@@ -56,6 +59,9 @@ namespace p3d {
 	void VelocityRenderer::Resize(const uint32 &Width, const uint32 &Height)
 	{
 		fbo->Resize(Width, Height);
+		// A velocity from the old size lands on the wrong texel.
+		havePrevious = false;
+		cameraReproject = Matrix();
 
 		IRenderer::Resize(Width, Height);
 	}
@@ -77,14 +83,33 @@ namespace p3d {
 		this->Camera = Camera;
 		this->projection = Projection;
 
+		// Our own previous frame, not whatever Prv* currently holds. Those
+		// belong to whichever renderer ran last (the scene, then the UI),
+		// so reading them made a camera move and an object move disagree,
+		// and the first frame after a resize smeared the whole picture.
+		const Matrix curP = projection.m;
+		const Matrix curV = Camera->GetWorldTransformation().Inverse();
+		const Matrix prvP = havePrevious ? previousProjection : curP;
+		const Matrix prvV = havePrevious ? previousView : curV;
+		// Same matrices the velocity shader multiplies, including the
+		// backend's clip-space fix, so a sky texel reprojected with this
+		// matches a mesh texel written by that shader.
+		IRenderDevice &device = GetActiveRenderDevice();
+		const Matrix curVP = device.TranslateProjectionMatrix(curP) * curV;
+		const Matrix prvVP = device.TranslateProjectionMatrix(prvP) * prvV;
+		cameraReproject = havePrevious ? prvVP * curVP.Inverse() : Matrix();
+		previousProjection = curP;
+		previousView = curV;
+		havePrevious = true;
+
 		// Universal Cache
-		PrvProjectionMatrix = ProjectionMatrix;
-		ProjectionMatrix = projection.m;
+		PrvProjectionMatrix = prvP;
+		ProjectionMatrix = curP;
 		NearFarPlane = Vec2(projection.Near, projection.Far);
 
 		// View Matrix and Position
-		PrvViewMatrix = ViewMatrix;
-		ViewMatrix = Camera->GetWorldTransformation().Inverse();
+		PrvViewMatrix = prvV;
+		ViewMatrix = curV;
 		CameraPosition = Camera->GetWorldPosition();
 
 		// Flags

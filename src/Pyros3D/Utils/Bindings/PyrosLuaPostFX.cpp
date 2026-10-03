@@ -75,14 +75,18 @@ namespace p3d {
 			lua->set_function("buildMotionBlurPostChain", [](PostEffectsManager &m, int width, int height) {
 				delete g_velocityRenderer;
 				g_velocityRenderer = new VelocityRenderer((uint32)width, (uint32)height);
-				g_motionBlur = new MotionBlurEffect(RTT::Color, g_velocityRenderer->GetTexture(), (uint32)width, (uint32)height);
+				g_motionBlur = new MotionBlurEffect(RTT::Color, g_velocityRenderer->GetTexture(), g_velocityRenderer->GetDepthTexture(), (uint32)width, (uint32)height);
 				g_motionBlur->SetTargetFPS(60.0f);
 				g_motionBlur->SetCurrentFPS(60.0f);
 				m.AddEffect(g_motionBlur);
 			});
 			lua->set_function("motionBlurRenderVelocity", [](const Projection &proj, GameObject *cam, SceneGraph *scene) {
 				if (g_velocityRenderer && cam && scene)
+				{
 					g_velocityRenderer->RenderVelocityMap(proj, cam, scene);
+					if (g_motionBlur)
+						g_motionBlur->SetCameraReproject(g_velocityRenderer->GetCameraReproject());
+				}
 			});
 			lua->set_function("motionBlurSetFPS", [](float currentFps) {
 				if (g_motionBlur)
@@ -232,11 +236,12 @@ namespace p3d {
 
 		{
 			// MotionBlur
-			sol::constructors<sol::types<int, Texture*, int, int>> con;
+			sol::constructors<sol::types<int, Texture*, Texture*, int, int>> con;
 			lua->new_usertype<MotionBlurEffect>("MotionBlur",
 				con,
 				"setTargetFPS", &MotionBlurEffect::SetTargetFPS,
 				"setCurrentFPS", &MotionBlurEffect::SetCurrentFPS,
+				"setCameraReproject", &MotionBlurEffect::SetCameraReproject,
 				sol::base_classes, sol::bases<IEffect>()
 				);
 		}

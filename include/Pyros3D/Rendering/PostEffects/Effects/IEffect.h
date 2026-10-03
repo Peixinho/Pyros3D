@@ -88,7 +88,10 @@ namespace p3d {
 		void CompileShaders();
 
 		// Custom Dimensions
-		void Resize(const uint32 width, const uint32 height);
+		// Virtual so a pass whose uniforms depend on its size (the blurs'
+		// texel step) can follow a viewport change. PostEffectsManager
+		// calls this through an IEffect*.
+		virtual void Resize(const uint32 width, const uint32 height);
 		const uint32 GetWidth() const;
 		const uint32 GetHeight() const;
 
