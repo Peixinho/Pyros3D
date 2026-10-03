@@ -679,13 +679,41 @@ namespace p3d {
 		frameInProgress = false;
 	}
 
-	uint32 MetalRenderDevice::TranslateBufferBit(const uint32 bufferBits) { (void)bufferBits; return 0; }
-	// Real no-op, not a stub - see VulkanRenderDevice::Clear()'s identical
-	// reasoning: the clear already happens via BeginFrame()'s render pass
-	// load action (pendingClearColor, set by SetClearColor() below),
-	// there's no separate "clear now" operation outside a render pass on
-	// this backend either.
-	void MetalRenderDevice::Clear(const uint32 nativeBufferBits) { (void)nativeBufferBits; }
+	uint32 MetalRenderDevice::TranslateBufferBit(const uint32 bufferBits) { return bufferBits; }
+	// The clear already happens via the encoder's load action
+	// (pendingClearColor, set by SetClearColor() below) - there is no
+	// separate "clear now" operation inside a render pass on this backend.
+	//
+	// Except for depth on an FBO whose depth is preserved
+	// (SetFramebufferPreserveDepth()): its encoder *loaded* depth, so a
+	// caller asking for a clear - ForwardRenderer at the top of every frame
+	// rendered into such a capture - would otherwise draw over last frame's
+	// depth. Vulkan clears there with vkCmdClearAttachments; here the
+	// encoder is reopened with a depth Clear and every colour Load. Not for
+	// a scissored clear (AxisHelper's corner): a load action covers the
+	// whole target, and wiping all of it is what that scissor prevents.
+	void MetalRenderDevice::Clear(const uint32 nativeBufferBits)
+	{
+		if (!(nativeBufferBits & Buffer_Bit::Depth) || currentRenderEncoder == NULL || currentBoundFBO == 0)
+			return;
+		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(currentBoundFBO);
+		if (it == fboRecords.end() || !it->second.preserveDepth || it->second.depthAttachment.texture == 0)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator depthIt = textures.find(it->second.depthAttachment.texture);
+		if (depthIt == textures.end())
+			return;
+		if (scissorEnabled && (lastScissor[0] > 0 || lastScissor[1] > 0
+			|| lastScissor[2] < depthIt->second.width || lastScissor[3] < depthIt->second.height))
+			return;
+		const uint32 viewport[4] = { lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3] };
+		const bool restoreScissor = scissorEnabled;
+		const uint32 scissor[4] = { lastScissor[0], lastScissor[1], lastScissor[2], lastScissor[3] };
+		BeginRenderEncoderForTarget(currentBoundFBO, true);
+		if (viewport[2] > 0 && viewport[3] > 0)
+			SetViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
+		if (restoreScissor)
+			SetScissorRect((f32)scissor[0], (f32)scissor[1], (f32)scissor[2], (f32)scissor[3]);
+	}
 	void MetalRenderDevice::SetClearColor(const Vec4 &color) { lastClearColor = color; pendingClearColor = color; }
 
 	// =====================================================================
@@ -726,6 +754,8 @@ namespace p3d {
 			rect.y = (NSUInteger)(y > 0.f ? y : 0.f);
 			rect.width = (NSUInteger)(width > 0.f ? width : 0.f);
 			rect.height = (NSUInteger)(height > 0.f ? height : 0.f);
+			lastScissor[0] = (uint32)rect.x; lastScissor[1] = (uint32)rect.y;
+			lastScissor[2] = (uint32)rect.width; lastScissor[3] = (uint32)rect.height;
 			[encoder setScissorRect:rect];
 		}
 	}
@@ -734,6 +764,7 @@ namespace p3d {
 	// whole viewport.
 	void MetalRenderDevice::SetScissorTestEnabled(const bool enabled)
 	{
+		scissorEnabled = enabled;
 		if (enabled || currentRenderEncoder == NULL) return;
 		@autoreleasepool
 		{
@@ -918,6 +949,21 @@ namespace p3d {
 				pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
 			else if (currentBoundFBO == 0)
 				pipelineDesc.depthAttachmentPixelFormat = MTLPixelFormatDepth32Float;
+			// A multisample target needs a pipeline that rasterises at its
+			// sample count - Metal API validation rejects the draw otherwise.
+			// Every attachment of one FBO shares a count, so the first found
+			// is the answer.
+			NSUInteger rasterSamples = 1;
+			if (currentBoundFBO != 0 && boundFboIt != fboRecords.end())
+			{
+				DeviceHandle probe = boundFboIt->second.depthAttachment.texture;
+				if (!boundFboIt->second.colorAttachments.empty())
+					probe = boundFboIt->second.colorAttachments.begin()->second.texture;
+				std::map<DeviceHandle, TextureRecord>::iterator probeIt = textures.find(probe);
+				if (probeIt != textures.end() && probeIt->second.samples > 1)
+					rasterSamples = probeIt->second.samples;
+			}
+			pipelineDesc.rasterSampleCount = rasterSamples;
 			// Color-only offscreen targets (every IEffect FBO, including
 			// PostEffectsManager::GetViewportColor()'s gamma blit) must keep
 			// Invalid: a pipeline that declares Depth32Float against a
@@ -1034,6 +1080,7 @@ namespace p3d {
 				}
 				const NSUInteger depthFormat = (NSUInteger)pipelineDesc.depthAttachmentPixelFormat;
 				put(depthFormat);
+				put(rasterSamples);
 			}
 			{
 				std::map<std::string, DeviceHandle>::iterator shared = pipelineByDescription.find(descriptionKey);
@@ -2585,7 +2632,74 @@ namespace p3d {
 		}
 	}
 
-	void MetalRenderDevice::UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height) { (void)target; (void)samples; (void)internalFormat; (void)width; (void)height; LogStub("UploadTexture2DMultisample"); }
+	uint32 MetalRenderDevice::GetMaxSamples() const
+	{
+		if (device == NULL)
+			return 1;
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			for (uint32 n = 8; n > 1; n >>= 1)
+				if ([mtlDevice supportsTextureSampleCount:n])
+					return n;
+		}
+		return 1;
+	}
+
+	// Never uploaded into, like GL's glTexImage2DMultisample(): a
+	// multisample texture is only ever filled by rendering into it, and
+	// read back either by a resolve (BlitFramebuffer()) or by a shader's
+	// texelFetch on a sampler2DMS.
+	void MetalRenderDevice::UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height)
+	{
+		(void)target;
+		if (currentlyConfiguringTexture == 0 || device == NULL || width == 0 || height == 0)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end())
+			return;
+		TextureRecord &tex = it->second;
+
+		uint32 wantedSamples = 1;
+		const uint32 maxSamples = GetMaxSamples();
+		for (uint32 n = maxSamples; n > 1; n >>= 1)
+			if (n <= samples) { wantedSamples = n; break; }
+
+		const MTLPixelFormat wantedFormat = (MTLPixelFormat)internalFormat;
+		if (tex.texture != NULL && tex.width == width && tex.height == height && tex.samples == wantedSamples
+			&& ((__bridge id<MTLTexture>)tex.texture).pixelFormat == wantedFormat)
+			return;
+
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			if (tex.texture != NULL) { CFBridgingRelease(tex.texture); tex.texture = NULL; }
+			MTLTextureDescriptor* texDesc = [[MTLTextureDescriptor alloc] init];
+			texDesc.textureType = wantedSamples > 1 ? MTLTextureType2DMultisample : MTLTextureType2D;
+			texDesc.pixelFormat = wantedFormat;
+			texDesc.width = width;
+			texDesc.height = height;
+			texDesc.sampleCount = wantedSamples;
+			texDesc.mipmapLevelCount = 1;
+			texDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
+			// Private: the CPU never touches it, and a shared multisample
+			// texture is not allowed on Apple Silicon.
+			texDesc.storageMode = MTLStorageModePrivate;
+			id<MTLTexture> newTex = [mtlDevice newTextureWithDescriptor:texDesc];
+			if (newTex == nil)
+			{
+				fprintf(stderr, "MetalRenderDevice::UploadTexture2DMultisample: newTextureWithDescriptor failed (%ux%u, samples=%u)\n", width, height, wantedSamples);
+				return;
+			}
+			tex.texture = (void*)CFBridgingRetain(newTex);
+			tex.width = width;
+			tex.height = height;
+			tex.samples = wantedSamples;
+			tex.isCubemap = false;
+			tex.hasMipmap = false;
+			tex.mipsGenerated = false;
+		}
+	}
 
 	void MetalRenderDevice::GenerateMipmap(const uint32 target)
 	{
@@ -3036,18 +3150,124 @@ namespace p3d {
 	{
 		UploadTexture2D(0, 0, nativeFormat, width, height, 0, 0, NULL, false);
 	}
-	// MSAA render targets aren't implemented on this backend yet (see
-	// UploadTexture2DMultisample()); fall back to a single-sampled
-	// attachment so the FBO is still complete and depth-tests correctly,
-	// rather than leaving it with no attachment at all.
 	void MetalRenderDevice::RenderbufferStorageMultisample(const uint32 nativeFormat, const uint32 samples, const uint32 width, const uint32 height)
 	{
-		(void)samples;
-		RenderbufferStorage(nativeFormat, width, height);
+		UploadTexture2DMultisample(0, samples, nativeFormat, width, height);
 	}
 
-	void MetalRenderDevice::SetMultisampleEnabled(const bool enabled) { (void)enabled; LogStub("SetMultisampleEnabled"); }
-	void MetalRenderDevice::BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter) { (void)srcX0; (void)srcY0; (void)srcX1; (void)srcY1; (void)dstX0; (void)dstY0; (void)dstX1; (void)dstY1; (void)engineMask; (void)engineFilter; LogStub("BlitFramebuffer"); }
+	// Nothing to toggle, as on Vulkan: the sample count belongs to the
+	// attachments, and CreatePipeline() reads it from them.
+	void MetalRenderDevice::SetMultisampleEnabled(const bool enabled) { (void)enabled; }
+
+	// GL's glBlitFramebuffer(): source is the Read-bound FBO, destination
+	// the Write-bound one. A multisample source resolves through a render
+	// pass whose store action is the resolve, which is the only way Metal
+	// resolves (there is no resolve command) - and it does depth as well
+	// as colour, which Vulkan's vkCmdResolveImage does not. Anything else
+	// is a straight copy on a blit encoder.
+	//
+	// Binding the destination for Write already opened an encoder that
+	// clears it. That encoder is ended here and not reopened: reopening
+	// would clear the result straight back out, and nothing draws into a
+	// blit destination before it is unbound anyway.
+	void MetalRenderDevice::BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter)
+	{
+		(void)engineFilter;
+		std::map<DeviceHandle, FBORecord>::iterator srcFbo = fboRecords.find(currentReadFBO);
+		std::map<DeviceHandle, FBORecord>::iterator dstFbo = fboRecords.find(currentBoundFBO);
+		if (srcFbo == fboRecords.end() || dstFbo == fboRecords.end())
+		{
+			fprintf(stderr, "MetalRenderDevice::BlitFramebuffer: needs a Read-bound source (%u) and a Write-bound destination (%u)\n", currentReadFBO, currentBoundFBO);
+			return;
+		}
+		const bool depth = (engineMask == FBOBufferBit::Depth);
+		if (engineMask == FBOBufferBit::Stencil)
+		{
+			fprintf(stderr, "MetalRenderDevice::BlitFramebuffer: stencil is not implemented on this backend\n");
+			return;
+		}
+		DeviceHandle srcId = 0, dstId = 0;
+		if (depth)
+		{
+			srcId = srcFbo->second.depthAttachment.texture;
+			dstId = dstFbo->second.depthAttachment.texture;
+		}
+		else
+		{
+			if (!srcFbo->second.colorAttachments.empty()) srcId = srcFbo->second.colorAttachments.begin()->second.texture;
+			if (!dstFbo->second.colorAttachments.empty()) dstId = dstFbo->second.colorAttachments.begin()->second.texture;
+		}
+		std::map<DeviceHandle, TextureRecord>::iterator srcTex = textures.find(srcId);
+		std::map<DeviceHandle, TextureRecord>::iterator dstTex = textures.find(dstId);
+		if (srcId == 0 || dstId == 0 || srcTex == textures.end() || dstTex == textures.end()
+			|| srcTex->second.texture == NULL || dstTex->second.texture == NULL)
+		{
+			fprintf(stderr, "MetalRenderDevice::BlitFramebuffer: source or destination has no matching attachment\n");
+			return;
+		}
+		const uint32 w = srcX1 - srcX0, h = srcY1 - srcY0;
+		if (w != dstX1 - dstX0 || h != dstY1 - dstY0)
+		{
+			fprintf(stderr, "MetalRenderDevice::BlitFramebuffer: scaling blits are not implemented (%ux%u -> %ux%u)\n", w, h, dstX1 - dstX0, dstY1 - dstY0);
+			return;
+		}
+
+		EndCurrentRenderEncoderIfOpen();
+		bool ownCommandBuffer = false;
+		@autoreleasepool
+		{
+			if (currentCommandBuffer == NULL)
+			{
+				id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
+				currentCommandBuffer = (void*)CFBridgingRetain([queue commandBuffer]);
+				ownCommandBuffer = true;
+			}
+			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
+			id<MTLTexture> src = (__bridge id<MTLTexture>)srcTex->second.texture;
+			id<MTLTexture> dst = (__bridge id<MTLTexture>)dstTex->second.texture;
+
+			if (srcTex->second.samples > 1 && dstTex->second.samples == 1)
+			{
+				MTLRenderPassDescriptor* rpd = [MTLRenderPassDescriptor renderPassDescriptor];
+				if (depth)
+				{
+					rpd.depthAttachment.texture = src;
+					rpd.depthAttachment.loadAction = MTLLoadActionLoad;
+					rpd.depthAttachment.storeAction = MTLStoreActionMultisampleResolve;
+					rpd.depthAttachment.resolveTexture = dst;
+					// Sample 0, not an average: a blend of two depths is a
+					// surface that is not there. Same answer GL gives.
+					rpd.depthAttachment.depthResolveFilter = MTLMultisampleDepthResolveFilterSample0;
+				}
+				else
+				{
+					rpd.colorAttachments[0].texture = src;
+					rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
+					rpd.colorAttachments[0].storeAction = MTLStoreActionMultisampleResolve;
+					rpd.colorAttachments[0].resolveTexture = dst;
+				}
+				[[cmdBuf renderCommandEncoderWithDescriptor:rpd] endEncoding];
+			}
+			else
+			{
+				id<MTLBlitCommandEncoder> blit = [cmdBuf blitCommandEncoder];
+				[blit copyFromTexture:src sourceSlice:0 sourceLevel:0
+					sourceOrigin:MTLOriginMake(srcX0, srcY0, 0)
+					sourceSize:MTLSizeMake(w, h, 1)
+					toTexture:dst destinationSlice:0 destinationLevel:0
+					destinationOrigin:MTLOriginMake(dstX0, dstY0, 0)];
+				[blit endEncoding];
+			}
+
+			if (ownCommandBuffer)
+			{
+				[cmdBuf commit];
+				[cmdBuf waitUntilCompleted];
+				CFBridgingRelease(currentCommandBuffer);
+				currentCommandBuffer = NULL;
+			}
+		}
+	}
 	// See IRenderDevice.h's comment on CopyDepthTexture for why this
 	// exists - DeferredRenderer needs forwardDepthTexture (lastPassFBO's
 	// real depth attachment) populated with the G-buffer's just-finished
@@ -3240,7 +3460,7 @@ namespace p3d {
 	// which happens to need no reordering since TextureType::CubemapPositive_X
 	// .. CubemapNegative_Z (0..5) is already Metal's own +X,-X,+Y,-Y,+Z,-Z
 	// cube-slice order.
-	void MetalRenderDevice::BeginRenderEncoderForTarget(const DeviceHandle fbo)
+	void MetalRenderDevice::BeginRenderEncoderForTarget(const DeviceHandle fbo, const bool clearDepthOnly)
 	{
 		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(fbo);
 		if (it == fboRecords.end())
@@ -3277,7 +3497,7 @@ namespace p3d {
 				uint32 slot = cIt->first;
 				rpd.colorAttachments[slot].texture = tex;
 				anyAttachment = true;
-				rpd.colorAttachments[slot].loadAction = MTLLoadActionClear;
+				rpd.colorAttachments[slot].loadAction = clearDepthOnly ? MTLLoadActionLoad : MTLLoadActionClear;
 				rpd.colorAttachments[slot].storeAction = MTLStoreActionStore;
 				rpd.colorAttachments[slot].clearColor = MTLClearColorMake(pendingClearColor.x, pendingClearColor.y, pendingClearColor.z, pendingClearColor.w);
 				if (cIt->second.target >= kCubemapFaceTargetBase)
@@ -3300,7 +3520,7 @@ namespace p3d {
 					// buffer the main pass just wrote - so Load instead of
 					// Clear, matching VulkanRenderDevice's identical use of
 					// this flag.
-					rpd.depthAttachment.loadAction = record.preserveDepth ? MTLLoadActionLoad : MTLLoadActionClear;
+					rpd.depthAttachment.loadAction = (record.preserveDepth && !clearDepthOnly) ? MTLLoadActionLoad : MTLLoadActionClear;
 					rpd.depthAttachment.storeAction = MTLStoreActionStore;
 					rpd.depthAttachment.clearDepth = 1.0;
 					if (record.depthAttachment.target >= kCubemapFaceTargetBase)

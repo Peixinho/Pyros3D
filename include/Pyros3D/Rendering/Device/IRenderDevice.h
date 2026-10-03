@@ -977,6 +977,18 @@ namespace p3d {
 		virtual void SetMultisampleEnabled(const bool enabled) = 0;
 		virtual void BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter) = 0;
 
+		// The largest sample count a multisample colour+depth render target
+		// can have on this device - 1 means MSAA is unavailable. Anti-
+		// aliasing settings clamp to this rather than ask for a count the
+		// device would silently round down, so what the game reports is what
+		// is actually rendering.
+		virtual uint32 GetMaxSamples() const { return 1; }
+		// Whether BlitFramebuffer() with FBOBufferBit::Depth can resolve a
+		// multisample depth attachment into a single-sample one. Vulkan's
+		// vkCmdResolveImage is colour-only, so it cannot - a caller that
+		// needs the depth there resolves it with a shader instead.
+		virtual bool CanBlitResolveDepth() const { return false; }
+
 		// Copies a depth texture's contents into another same-size depth
 		// texture. Exists for DeferredRenderer's benefit: its lighting
 		// pass needs to *sample* the G-buffer's depth as a plain texture

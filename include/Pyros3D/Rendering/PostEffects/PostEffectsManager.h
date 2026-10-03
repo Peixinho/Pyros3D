@@ -12,6 +12,7 @@
 #include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
 
 #ifndef POSTEFFECTSMANAGER_H
 #define	POSTEFFECTSMANAGER_H
@@ -22,6 +23,7 @@ namespace p3d {
 	// declared so every translation unit that draws a post effect does not
 	// also pull in a renderer it will never touch.
 	class VelocityRenderer;
+	class AntiAliasingStage;
 
 	using namespace Uniforms;
 
@@ -94,6 +96,38 @@ namespace p3d {
 
 		const uint32 GetNumberEffects() const;
 
+		// Anti-aliasing, separate from the chain - see AntiAliasingStage.h
+		// for where each mode runs. Applied at the next CaptureFrame(), so it
+		// is safe to call mid-frame (a script toggling it, a settings menu).
+		// deferred is which renderer draws the frame: MSAA is not possible
+		// under it and falls back (see AntiAliasing::Resolve).
+		void SetAntiAliasing(const AntiAliasingMode mode, const bool deferred);
+		AntiAliasingMode GetAntiAliasing() const;
+		// What actually runs, after the renderer/device fallbacks.
+		AntiAliasingMode GetEffectiveAntiAliasing() const;
+		// The offset the renderer has to apply to this frame's projection -
+		// IRenderer::SetProjectionJitter(). Zero unless TAA is on. Set it
+		// for the scene pass only and back to zero after, or every other
+		// render that renderer does shakes with it.
+		Vec2 GetProjectionJitter();
+		// Next TAA frame starts from the current image alone. Call on a scene
+		// load or a camera cut - anything where last frame is not this one.
+		void ResetTemporalHistory();
+
+		// Whether ProcessPostEffects() produces an image other than the
+		// capture: a chain, or an anti-aliasing pass. MSAA alone does not -
+		// its result is the capture itself, resolved.
+		bool HasPasses();
+		// Whether the frame has to go through CaptureFrame()/
+		// ProcessPostEffects() at all: HasPasses(), or MSAA, whose samples
+		// only exist in the capture target.
+		bool NeedsCapture();
+
+		// Keep depth across binds of the capture, on whichever target is
+		// current - the multisample one included. Replaces calling
+		// SetFramebufferPreserveDepth() on GetExternalFrameBuffer() directly.
+		void SetCapturePreserveDepth(const bool preserve);
+
 		// The effect a new one would be appended after, or NULL for an empty
 		// chain. A multi-pass built-in needs it: its last pass has to
 		// composite over the image as it entered the group, and that is this
@@ -137,6 +171,10 @@ namespace p3d {
 
 		void CreateQuad();
 		void EnsureViewportGammaEffect();
+		// Builds whatever a SetAntiAliasing() since the last frame asked for.
+		void ApplyAntiAliasing();
+		bool ChainReadsDepth() const;
+		bool ChainUsesVelocity() const;
 		void BlitViewportGamma();
 
 		// Set Quad Geometry
@@ -185,8 +223,13 @@ namespace p3d {
 		// - not part of the public effects chain.
 		IEffect* viewportGammaEffect;
 
-		// See EnsureVelocityMap(). NULL unless a chain asked for one.
+		// See EnsureVelocityMap(). NULL unless a chain or TAA asked for one.
 		VelocityRenderer* velocityRenderer = NULL;
+
+		AntiAliasingStage* aaStage = NULL;
+		// Which target CaptureFrame() bound, so EndCapture() unbinds the same
+		// one even if the mode changed in between.
+		FrameBuffer* boundCapture = NULL;
 	};
 
 };

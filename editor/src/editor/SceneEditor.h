@@ -897,6 +897,14 @@ private:
 	// depends on the renderer - see overlayGetsOwnLayer there.
 	void RunViewportPostEffects(GameObject* viewCam, SceneGraph* scene, bool isPerspective,
 		Projection &projection, Projection &projectionOrtho);
+	// The anti-aliasing mode the viewport should be running: the project's,
+	// unless a script changed it during Play. Applied every frame - the
+	// manager ignores a request that changes nothing.
+	p3d::AntiAliasingMode WantedAntiAliasing() const;
+	// Set by the Lua setAntiAliasing() during Play and dropped when Play
+	// stops, so testing a game's options menu does not edit the project.
+	bool aaScriptOverride = false;
+	p3d::AntiAliasingMode aaScriptMode = p3d::AntiAliasingMode::Off;
 	// Reads a project-relative .glsl for PostEffectChain::Build. Static so it
 	// can be a plain function pointer; `user` is the SceneEditor.
 	static bool ReadPostEffectAsset(const std::string &path, std::string &sourceOut, void *user);

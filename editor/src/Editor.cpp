@@ -2221,11 +2221,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			const ProjectRendererType after = (rt == "deferred") ? ProjectRendererType::Deferred : ProjectRendererType::Forward;
 			if (before != after)
 			{
-				project.GetSettingsMutable().rendererType = after;
-				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
-					[this, before]() { project.GetSettingsMutable().rendererType = before; project.MarkDirty(); },
-					[this, after]() { project.GetSettingsMutable().rendererType = after; project.MarkDirty(); },
-					"Set Renderer Type"));
+				SetProjectRendererType(after);
 				changed = true;
 			}
 		}
@@ -2244,6 +2240,33 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				changed = true;
 			}
 		}
+		if (a.is_object() && a.contains("antiAliasing"))
+		{
+			const std::string aa = a.value("antiAliasing", std::string());
+			p3d::AntiAliasingMode after;
+			if (!p3d::AntiAliasing::FromString(aa, after))
+				throw std::runtime_error("antiAliasing must be one of off, fxaa, smaa, taa, msaa2x, msaa4x, msaa8x");
+			const bool deferred = project.GetSettings().rendererType == ProjectRendererType::Deferred;
+			const std::vector<p3d::AntiAliasingMode> supported = p3d::AntiAliasing::Supported(deferred, GetActiveRenderDevice().GetMaxSamples());
+			if (std::find(supported.begin(), supported.end(), after) == supported.end())
+			{
+				std::string names;
+				for (size_t i = 0; i < supported.size(); i++)
+					names += (i ? ", " : "") + p3d::AntiAliasing::ToString(supported[i]);
+				throw std::runtime_error(p3d::AntiAliasing::ToString(after) + " is not available with the "
+					+ (deferred ? "deferred" : "forward") + " renderer on this device; choose one of " + names);
+			}
+			const p3d::AntiAliasingMode before = project.GetSettings().antiAliasing;
+			if (before != after)
+			{
+				project.GetSettingsMutable().antiAliasing = after;
+				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+					[this, before]() { project.GetSettingsMutable().antiAliasing = before; project.MarkDirty(); },
+					[this, after]() { project.GetSettingsMutable().antiAliasing = after; project.MarkDirty(); },
+					"Set Anti-aliasing"));
+				changed = true;
+			}
+		}
 		if (changed)
 		{
 			project.MarkDirty();
@@ -2257,6 +2280,13 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["name"] = project.GetProjectName();
 		r["path"] = project.GetProjectPath();
 		r["renderer"] = project.GetSettings().rendererType == ProjectRendererType::Deferred ? "deferred" : "forward";
+		r["antiAliasing"] = p3d::AntiAliasing::ToString(project.GetSettings().antiAliasing);
+		// What the viewport actually runs - the renderer and the device can
+		// both stand in the way (see AntiAliasing::Resolve).
+		r["effectiveAntiAliasing"] = p3d::AntiAliasing::ToString(p3d::AntiAliasing::Resolve(
+			project.GetSettings().antiAliasing,
+			project.GetSettings().rendererType == ProjectRendererType::Deferred,
+			GetActiveRenderDevice().GetMaxSamples()));
 		r["changed"] = changed;
 		return r;
 	}
@@ -5975,14 +6005,7 @@ void Editor::DrawProjectDialogs()
 			// NOT revert it, only skips the Name/Save step) - Ctrl+Z while
 			// this modal is open is the only way to revert an accidental
 			// change today.
-			const ProjectRendererType before = project.GetSettings().rendererType;
-			const ProjectRendererType after = (rendererIdx == 1) ? ProjectRendererType::Deferred : ProjectRendererType::Forward;
-			project.GetSettingsMutable().rendererType = after;
-			project.MarkDirty();
-			projectUndo.Push(std::make_unique<ApplyClosureCommand>(
-				[this, before]() { project.GetSettingsMutable().rendererType = before; project.MarkDirty(); },
-				[this, after]() { project.GetSettingsMutable().rendererType = after; project.MarkDirty(); },
-				"Set Renderer Type"));
+			SetProjectRendererType((rendererIdx == 1) ? ProjectRendererType::Deferred : ProjectRendererType::Forward);
 		}
 
 		if (rendererIdx == 1)
@@ -5997,6 +6020,47 @@ void Editor::DrawProjectDialogs()
 					"deferred, every sprite gets a hard ring of its invisible border.\n"
 					"There is nothing to gain either: 2D lighting is a few lights on flat\n"
 					"quads, which is what forward is good at.");
+		}
+
+		// Applied as soon as it changes - the viewports read the setting every
+		// frame, so there is nothing for Apply to do but save it.
+		{
+			const p3d::AntiAliasingMode current = project.GetSettings().antiAliasing;
+			const bool deferred = (rendererIdx == 1);
+			const uint32 maxSamples = GetActiveRenderDevice().GetMaxSamples();
+			const std::vector<p3d::AntiAliasingMode> modes = p3d::AntiAliasing::Supported(deferred, maxSamples);
+			// Only a sample count above this device's limit gets here - a
+			// project authored on a machine with more MSAA than this one.
+			std::string preview = p3d::AntiAliasing::DisplayName(current);
+			const p3d::AntiAliasingMode effective = p3d::AntiAliasing::Resolve(current, deferred, maxSamples);
+			if (effective != current)
+				preview += std::string(" (runs as ") + p3d::AntiAliasing::DisplayName(effective) + ")";
+			if (ImGui::BeginCombo("Anti-aliasing", preview.c_str()))
+			{
+				for (size_t i = 0; i < modes.size(); i++)
+				{
+					const p3d::AntiAliasingMode m = modes[i];
+					if (ImGui::Selectable(p3d::AntiAliasing::DisplayName(m), m == current) && m != current)
+					{
+						const p3d::AntiAliasingMode before = current;
+						project.GetSettingsMutable().antiAliasing = m;
+						project.MarkDirty();
+						projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+							[this, before]() { project.GetSettingsMutable().antiAliasing = before; project.MarkDirty(); },
+							[this, m]() { project.GetSettingsMutable().antiAliasing = m; project.MarkDirty(); },
+							"Set Anti-aliasing"));
+					}
+				}
+				ImGui::EndCombo();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("The game starts with this; scripts can change it with setAntiAliasing().\n"
+					"FXAA: cheapest, slightly soft. SMAA: sharper, a little more cost.\n"
+					"TAA: smoothest, also catches shimmering; can ghost on fast motion.\n"
+					"MSAA: geometry edges only, Forward renderer only.");
+			const std::string reason = p3d::AntiAliasing::FallbackReason(current, deferred, maxSamples);
+			if (!reason.empty())
+				ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f), "%s", reason.c_str());
 		}
 
 		ImGui::TextDisabled("Each scene has scenes/<SceneName>.lua — open via Scene menu, or click Scene in the tree → Properties.");
@@ -6045,6 +6109,24 @@ void Editor::DrawProjectDialogs()
 	// Drawn from here so it is reachable both with a project open and from
 	// the welcome splash, which is the whole point of it.
 	DrawDemoBrowser();
+}
+
+void Editor::SetProjectRendererType(ProjectRendererType after)
+{
+	const ProjectRendererType before = project.GetSettings().rendererType;
+	if (before == after)
+		return;
+	const p3d::AntiAliasingMode aaBefore = project.GetSettings().antiAliasing;
+	// Renderer rule only: a device limit is this machine's, not the project's.
+	const p3d::AntiAliasingMode aaAfter = p3d::AntiAliasing::Resolve(aaBefore,
+		after == ProjectRendererType::Deferred, p3d::AntiAliasing::SampleCount(aaBefore));
+	project.GetSettingsMutable().rendererType = after;
+	project.GetSettingsMutable().antiAliasing = aaAfter;
+	project.MarkDirty();
+	projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+		[this, before, aaBefore]() { project.GetSettingsMutable().rendererType = before; project.GetSettingsMutable().antiAliasing = aaBefore; project.MarkDirty(); },
+		[this, after, aaAfter]() { project.GetSettingsMutable().rendererType = after; project.GetSettingsMutable().antiAliasing = aaAfter; project.MarkDirty(); },
+		"Set Renderer Type"));
 }
 
 void Editor::SwitchAllScenesRenderer(bool useDeferred)

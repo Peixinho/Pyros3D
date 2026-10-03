@@ -101,6 +101,8 @@ namespace {
 		m.startupScene = j.value("startupScene", std::string());
 		m.serverPublicKey = j.value("serverPublicKey", std::string());
 		m.deferred = (j.value("renderer", std::string("forward")) == "deferred");
+		if (j.contains("antiAliasing") && !AntiAliasing::FromString(j.value("antiAliasing", std::string()), m.antiAliasing))
+			echo("WARNING: game.json has an unknown \"antiAliasing\" - running without anti-aliasing");
 		m.width = j.value("width", m.width);
 		m.height = j.value("height", m.height);
 		m.fullscreen = j.value("fullscreen", false);
@@ -169,6 +171,7 @@ PyrosPlayer::PyrosPlayer()
 	resizePending = false;
 	pendingResizeWidth = pendingResizeHeight = 0;
 	effectsManager = NULL;
+	antiAliasingMode = PlayerManifestInstance().antiAliasing;
 	cameraFov = 70.f;
 	cameraNear = 0.1f;
 	cameraFar = 2000.f;
@@ -487,9 +490,21 @@ bool PyrosPlayer::ReadPostEffectAsset(const std::string& path, std::string& sour
 	return true;
 }
 
-bool PyrosPlayer::HavePostEffects() const
+bool PyrosPlayer::HavePostEffects()
 {
-	return effectsManager != NULL && effectsManager->GetNumberEffects() > 0;
+	if (antiAliasingMode != AntiAliasingMode::Off)
+		EnsureEffectsManager();
+	if (effectsManager == NULL)
+		return false;
+	effectsManager->SetAntiAliasing(antiAliasingMode, gbufferFBO != NULL);
+	return effectsManager->NeedsCapture();
+}
+
+PostEffectsManager* PyrosPlayer::EnsureEffectsManager()
+{
+	if (effectsManager == NULL)
+		effectsManager = new PostEffectsManager(Width, Height);
+	return effectsManager;
 }
 
 // Called after every scene load, including a mid-game loadScene(): the chain
@@ -507,8 +522,7 @@ void PyrosPlayer::BuildPostEffectChain()
 			deferred->DisableSSAO();
 		return;
 	}
-	if (effectsManager == NULL)
-		effectsManager = new PostEffectsManager(Width, Height);
+	EnsureEffectsManager();
 	PostEffectChain::Build(*effectsManager, meta.postEffects, Width, Height,
 		&PyrosPlayer::ReadPostEffectAsset, this, dynamic_cast<DeferredRenderer*>(renderer));
 }
@@ -567,6 +581,8 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	// predates the field, the scene carries the authored one.
 	// The scene's chain, before anything renders with it.
 	BuildPostEffectChain();
+	// TAA's history belongs to the scene that just went away.
+	if (effectsManager) effectsManager->ResetTemporalHistory();
 
 	renderer->SetGlobalLight(Vec4(meta.ambientLight.x * meta.ambientIntensity,
 								  meta.ambientLight.y * meta.ambientIntensity,
@@ -924,7 +940,40 @@ void PyrosPlayer::PushLuaHostGlobals()
 	// different camera, and a script written against play mode will call it.
 	// Here the render camera is whatever the scene says, so honouring it is
 	// exactly right - it is the same thing.
-	lua["setRenderCamera"] = [this](GameObject* go) { if (go) activeCamera = go; };
+	lua["setRenderCamera"] = [this](GameObject* go) {
+		if (!go) return;
+		// A cut - see ResetTemporalHistory().
+		if (go != activeCamera && effectsManager) effectsManager->ResetTemporalHistory();
+		activeCamera = go;
+	};
+
+	// Anti-aliasing at run time, for an options menu. Takes effect next
+	// frame. The mode is what was asked for; getEffectiveAntiAliasing() is
+	// what runs after the renderer/device fallbacks, and
+	// getSupportedAntiAliasing() is what a menu should offer.
+	lua["setAntiAliasing"] = [this](const std::string& name) {
+		AntiAliasingMode mode;
+		if (!AntiAliasing::FromString(name, mode))
+		{
+			echo("ERROR: setAntiAliasing: unknown mode \"" + name + "\" (off, fxaa, smaa, taa, msaa2x, msaa4x, msaa8x)");
+			return false;
+		}
+		antiAliasingMode = mode;
+		return true;
+	};
+	lua["getAntiAliasing"] = [this]() { return AntiAliasing::ToString(antiAliasingMode); };
+	lua["getEffectiveAntiAliasing"] = [this]() {
+		return AntiAliasing::ToString(AntiAliasing::Resolve(antiAliasingMode, gbufferFBO != NULL,
+			GetActiveRenderDevice().GetMaxSamples()));
+	};
+	lua["getSupportedAntiAliasing"] = [this](sol::this_state s) {
+		sol::state_view view(s);
+		sol::table t = view.create_table();
+		const std::vector<AntiAliasingMode> modes = AntiAliasing::Supported(gbufferFBO != NULL, GetActiveRenderDevice().GetMaxSamples());
+		for (size_t i = 0; i < modes.size(); i++)
+			t[i + 1] = AntiAliasing::ToString(modes[i]);
+		return t;
+	};
 	lua["loadScene"] = [this](const std::string& name) { pendingLoadSceneName = name; };
 
 	// The scene's own 2D view, as a table of plain functions rather than a
@@ -1209,13 +1258,19 @@ void PyrosPlayer::Update()
 	// pointed the renderer at RenderLayer::None here on the assumption that a
 	// 2D scene was canvas-only; that is what UI is for, and it would have
 	// drawn nothing at all for a real 2D game.
-	// Only wrapped when there is a chain: with none, capturing would render
-	// the scene into an FBO that nothing presents, i.e. a black window for
-	// every game that has no post effects.
+	// Only wrapped when there is a chain or anti-aliasing: with neither,
+	// capturing would render the scene into an FBO that nothing presents,
+	// i.e. a black window for every game that has no post effects.
 	const bool postFX = HavePostEffects();
-	if (postFX) effectsManager->CaptureFrame();
+	if (postFX)
+	{
+		effectsManager->CaptureFrame();
+		// TAA's sub-pixel offset; zero for every other mode.
+		renderer->SetProjectionJitter(effectsManager->GetProjectionJitter());
+	}
 
 	renderer->RenderScene(projection, activeCamera, scene);
+	renderer->SetProjectionJitter(Vec2(0.f, 0.f));
 
 	if (postFX)
 	{

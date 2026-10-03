@@ -264,9 +264,33 @@ namespace p3d {
 		// scene the way DebugRenderer's depth-disabled immediate-mode
 		// lines don't. Not virtual: RenderObject() itself isn't, and every
 		// subclass shares this one implementation.
-		void RenderOverlayObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material) { RenderObject(rmesh, owner, Material); }
+		//
+		// Drawn with the scene's projection minus any jitter (see
+		// SetProjectionJitter()): an editor helper is not part of the image
+		// temporal anti-aliasing accumulates, and a grid that moves by a
+		// fraction of a pixel every frame shimmers.
+		void RenderOverlayObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material);
+
+		// Sub-pixel offset for temporal anti-aliasing, in NDC units (2/width
+		// is one pixel). Applied to the projection of the next RenderScene()
+		// only - the caller's Projection is left as it is, so the velocity
+		// pass, debug lines and UI that are handed the same Projection all
+		// stay still. Zero turns it off.
+		void SetProjectionJitter(const Vec2 &ndcOffset) { projectionJitter = ndcOffset; }
+		const Vec2 &GetProjectionJitter() const { return projectionJitter; }
+		// `m` moved by `jitter` in clip space: every column picks up jitter
+		// times its w row, so the shift is the same in NDC whether the
+		// projection is perspective (w = -z) or orthographic (w = 1).
+		static Matrix JitterProjection(const Matrix &m, const Vec2 &jitter);
 
 	protected:
+
+		// The projection RenderScene() should use - `projection` jittered.
+		Matrix ScenePassProjection(const p3d::Projection &projection) const;
+		Vec2 projectionJitter;
+		// The matrix RenderScene() installed before it was jittered, for
+		// RenderOverlayObject().
+		Matrix unjitteredProjectionMatrix;
 
 		// ---- Automatic instancing (see IRenderer.cpp) ----
 		// A renderer-owned instanced component wrapping the same renderable

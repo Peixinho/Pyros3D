@@ -171,6 +171,7 @@ inline void CollectCandidates(const std::string& receiver, const std::string& pr
 		"error", "assert", "pcall", "xpcall", "select", "next",
 		"setMouseCaptured", "warpMouseToCenter", "getWindowSize", "getMousePosition",
 		"placeDecalAtCursor",
+		"setAntiAliasing", "getAntiAliasing", "getEffectiveAntiAliasing", "getSupportedAntiAliasing",
 	};
 	static const char* const kModules[] = {
 		"math", "string", "table", "os", "coroutine", "Input", "Key", "MouseButton",

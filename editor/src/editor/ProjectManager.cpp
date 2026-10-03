@@ -1698,6 +1698,7 @@ bool ProjectManager::WriteProjectJson(std::string* errorOut) const
 		settingsJ["rendererType"] = "deferred";
 	else
 		settingsJ["rendererType"] = "forward";
+	settingsJ["antiAliasing"] = p3d::AntiAliasing::ToString(settings.antiAliasing);
 	// AI Assistant panel settings (provider/model/key/...) - the panel
 	// owns the schema, the project just persists it per project.
 	if (!settings.aiAssistant.is_null())
@@ -1758,6 +1759,8 @@ bool ProjectManager::LoadProjectJson(const std::string& jsonPath, std::string* e
 		std::string rt = s.value("rendererType", "forward");
 		if (rt == "deferred") settings.rendererType = ProjectRendererType::Deferred;
 		else settings.rendererType = ProjectRendererType::Forward;
+		// Unknown names keep the default rather than turning AA off.
+		p3d::AntiAliasing::FromString(s.value("antiAliasing", std::string()), settings.antiAliasing);
 		if (s.contains("aiAssistant") && s["aiAssistant"].is_object())
 			settings.aiAssistant = s["aiAssistant"];
 		if (s.contains("animationBindings") && s["animationBindings"].is_object())
@@ -2144,6 +2147,9 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	manifest["title"] = opts.title.empty() ? projectName : opts.title;
 	manifest["startupScene"] = sceneRel;
 	manifest["renderer"] = opts.deferred ? "deferred" : "forward";
+	// The requested mode; the player applies its own renderer/device
+	// fallbacks, the same as the editor viewport does.
+	manifest["antiAliasing"] = p3d::AntiAliasing::ToString(settings.antiAliasing);
 	manifest["width"] = opts.width;
 	manifest["height"] = opts.height;
 	manifest["fullscreen"] = opts.fullscreen;
