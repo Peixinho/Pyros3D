@@ -67,6 +67,23 @@ namespace p3d {
 		f32 historySeconds = 1.f;			// how far back hit tests may rewind
 		uint32 maxClients = 100;
 		NetQuantization quantization;
+		// Joining. A server with a password refuses a client that does not
+		// send the same one (Connect's settings carry the client's).
+		std::string password;
+		// Reconnection. Server: a client that drops keeps its objects for
+		// this many seconds; coming back within them (the same client
+		// process) it takes them over again under its new peer id. 0: a
+		// drop is a leave. Client, with autoReconnect: retries the server
+		// for this long (at least 5 s) before giving up.
+		f32 reconnectGrace = 0.f;
+		bool autoReconnect = false;
+		// Server: the fastest a client may move an object it owns directly
+		// (metres a second; 0 = unchecked). A move that would need more is
+		// not applied - a teleport becomes travel at this speed. Predicted
+		// objects are server-simulated and never needed it.
+		f32 maxClientSpeed = 0.f;
+		// Server: a connection that has not said hello within this is cut.
+		f32 handshakeTimeout = 5.f;
 	};
 
 	class PYROS3D_API NetworkSession
@@ -148,6 +165,33 @@ namespace p3d {
 		// Server: a client joined / left. Client: joined the server (peer is
 		// the id it was given) / lost it.
 		std::function<void(const PeerId peer)> onPeerJoined, onPeerLeft;
+		// Server, with reconnectGrace: a client dropped (its objects stay,
+		// onPeerLeft follows only if the grace runs out); it came back as
+		// newPeer and owns again what oldPeer owned. Without a rejoin
+		// handler a return is reported as oldPeer leaving and newPeer
+		// joining.
+		std::function<void(const PeerId peer)> onPeerDropped;
+		std::function<void(const PeerId newPeer, const PeerId oldPeer)> onPeerRejoined;
+		// Client: the server refused the connection (wrong password,
+		// banned, kicked, version mismatch).
+		std::function<void(const std::string &reason)> onRejected;
+		// Server: a client tried to move its object faster than
+		// maxClientSpeed allows.
+		std::function<void(const PeerId peer, const uint32 netId)> onSuspicious;
+
+		// Server: ends a client's session, telling it why. Ban also
+		// refuses its address from now on (Bans() to persist; BanAddress
+		// to restore).
+		void Kick(const PeerId peer, const std::string &reason = "kicked");
+		void Ban(const PeerId peer, const std::string &reason = "banned");
+		void BanAddress(const std::string &address) { if (!address.empty()) bans.insert(address); }
+		void Unban(const std::string &address) { bans.erase(address); }
+		const std::set<std::string> &Bans() const { return bans; }
+		std::string PeerAddress(const PeerId peer) const { return transport.PeerAddress(peer); }
+		// Client: why the last connection was refused or lost; trying to
+		// get back to the server after a drop.
+		const std::string &LastError() const { return lastError; }
+		bool IsReconnecting() const { return reconnecting; }
 
 		// How a client builds a spawned object. The default loads the prefab
 		// file as a scene subtree; a host that expands nested prefabs (the
@@ -161,6 +205,7 @@ namespace p3d {
 			uint32 lastSnapshotBytes = 0;	// server: largest to one client last tick
 			uint32 lastSnapshotEntities = 0;
 			f64 clockOffsetTicks = 0.0;		// client: server tick - local estimate, last correction
+			uint32 rejectedMoves = 0;		// server: client moves refused by maxClientSpeed
 		};
 		const Stats &GetStats() const { return stats; }
 
@@ -233,6 +278,22 @@ namespace p3d {
 		std::vector<NetValue> currentInput;
 		f64 commandAccumulator = 0.0;
 		uint32 nextCommandSeq = 1;
+
+		void SendReject(const PeerId peer, const std::string &reason);
+		void ClearReplicas();
+		// Seconds this session has been updated for: timeouts and graces.
+		f64 clock = 0.0;
+		// This process's identity across its own reconnections.
+		uint64 token = 0;
+		struct Lingering { PeerId peer = 0; f64 expires = 0.0; };
+		std::map<uint64, Lingering> lingering;	// server: dropped, within grace
+		std::set<std::string> bans;
+		std::string lastError;
+		// Client: where it connected, to go back there.
+		std::string lastAddress;
+		uint16 lastPort = 0;
+		bool reconnecting = false, rejected = false;
+		f64 reconnectUntil = 0.0, nextReconnectAt = 0.0;
 	};
 
 }

@@ -61,6 +61,10 @@ namespace p3d {
 			s.bytesPerTick = x.get_or("bytesPerTick", s.bytesPerTick);
 			s.interpolationDelay = x.get_or("interpolationDelay", s.interpolationDelay);
 			s.maxClients = x.get_or("maxClients", s.maxClients);
+			s.password = x.get_or("password", s.password);
+			s.reconnectGrace = x.get_or("reconnectGrace", s.reconnectGrace);
+			s.autoReconnect = x.get_or("autoReconnect", s.autoReconnect);
+			s.maxClientSpeed = x.get_or("maxClientSpeed", s.maxClientSpeed);
 			return s;
 		}
 
@@ -147,6 +151,39 @@ namespace p3d {
 		net.set_function("onPeerLeft", [session, lua](sol::protected_function fn) {
 			if (NetworkSession* s = session()) s->onPeerLeft = [fn, lua](const PeerId p) { Call(fn, "onPeerLeft", p, NULL, lua); };
 		});
+		// Reconnection and refusal - see NetworkSession. A script error in
+		// one is reported, like the others.
+		net.set_function("onPeerDropped", [session, lua](sol::protected_function fn) {
+			if (NetworkSession* s = session()) s->onPeerDropped = [fn, lua](const PeerId p) { Call(fn, "onPeerDropped", p, NULL, lua); };
+		});
+		net.set_function("onPeerRejoined", [session](sol::protected_function fn) {
+			if (NetworkSession* s = session()) s->onPeerRejoined = [fn](const PeerId now, const PeerId was) {
+				sol::protected_function_result r = fn(now, was);
+				if (!r.valid()) { sol::error e = r; echo(std::string("ERROR: network onPeerRejoined - ") + e.what()); }
+			};
+		});
+		net.set_function("onRejected", [session](sol::protected_function fn) {
+			if (NetworkSession* s = session()) s->onRejected = [fn](const std::string &reason) {
+				sol::protected_function_result r = fn(reason);
+				if (!r.valid()) { sol::error e = r; echo(std::string("ERROR: network onRejected - ") + e.what()); }
+			};
+		});
+		net.set_function("onSuspicious", [session](sol::protected_function fn) {
+			if (NetworkSession* s = session()) s->onSuspicious = [fn](const PeerId p, const uint32 netId) {
+				sol::protected_function_result r = fn(p, netId);
+				if (!r.valid()) { sol::error e = r; echo(std::string("ERROR: network onSuspicious - ") + e.what()); }
+			};
+		});
+		net.set_function("kick", [session](const PeerId p, sol::optional<std::string> reason) {
+			if (NetworkSession* s = session()) s->Kick(p, reason.value_or("kicked"));
+		});
+		net.set_function("ban", [session](const PeerId p, sol::optional<std::string> reason) {
+			if (NetworkSession* s = session()) s->Ban(p, reason.value_or("banned"));
+		});
+		net.set_function("unban", [session](const std::string &address) { if (NetworkSession* s = session()) s->Unban(address); });
+		net.set_function("peerAddress", [session](const PeerId p) { NetworkSession* s = session(); return s ? s->PeerAddress(p) : std::string(); });
+		net.set_function("lastError", [session]() { NetworkSession* s = session(); return s ? s->LastError() : std::string(); });
+		net.set_function("isReconnecting", [session]() { NetworkSession* s = session(); return s && s->IsReconnecting(); });
 		// Prediction: fn(go, input) with input a table of the values given
 		// to network.input, and dt.
 		net.set_function("setSimulate", [session, lua](sol::protected_function fn) {

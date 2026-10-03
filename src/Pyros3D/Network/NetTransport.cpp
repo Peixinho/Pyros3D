@@ -253,7 +253,9 @@ namespace p3d {
 
 	void NetTransport::Disconnect(const PeerId peer)
 	{
-		if (ENetPeer* p = impl->PeerOf(peer)) enet_peer_disconnect(p, 0);
+		// _later: what is already queued for it (a "why you were refused"
+		// message) goes out first.
+		if (ENetPeer* p = impl->PeerOf(peer)) enet_peer_disconnect_later(p, 0);
 	}
 
 	void NetTransport::Shutdown()
@@ -304,6 +306,15 @@ namespace p3d {
 		return true;
 	}
 
+	std::string NetTransport::PeerAddress(const PeerId peer) const
+	{
+		ENetPeer* p = impl->PeerOf(peer);
+		if (!p) return std::string();
+		char ip[64] = { 0 };
+		if (enet_address_get_host_ip(&p->address, ip, sizeof(ip)) != 0) return std::string();
+		return ip;
+	}
+
 	void NetTransport::SetSimulatedConditions(const uint32 latencyMs, const uint32 jitterMs, const f32 loss)
 	{
 		impl->latencyMs = latencyMs;
@@ -324,6 +335,7 @@ namespace p3d {
 	void NetTransport::Broadcast(const uint32, const void*, const size_t) {}
 	void NetTransport::Flush() {}
 	void NetTransport::Disconnect(const PeerId) {}
+	std::string NetTransport::PeerAddress(const PeerId) const { return std::string(); }
 	void NetTransport::Shutdown() {}
 	bool NetTransport::IsServer() const { return false; }
 	bool NetTransport::IsConnected() const { return false; }

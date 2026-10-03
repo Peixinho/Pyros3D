@@ -5,6 +5,7 @@
 //============================================================================
 
 #include <Pyros3D/Network/NetworkSession.h>
+#include <random>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
@@ -26,12 +27,19 @@ namespace p3d {
 			{
 				// server -> client, reliable
 				Welcome = 1, Spawn = 2, Despawn = 3, VarName = 4, Rpc = 5,
+				Owner = 6,		// an object changed hands (its owner came back)
+				Reject = 7,		// the connection is refused; a reason follows
 				// server -> client, snapshot channel
 				Snapshot = 10,
 				// client -> server, unsequenced
-				Ack = 20, Commands = 21
+				Ack = 20, Commands = 21,
+				// client -> server, reliable, the first thing it says
+				Hello = 22
 			};
 		}
+		// Bumped when the wire format changes: a client and a server that
+		// disagree are told so instead of misreading each other.
+		const uint8 kProtocolVersion = 2;
 
 		namespace Mask
 		{
@@ -146,10 +154,22 @@ namespace p3d {
 		std::map<uint32, uint32> lastSeq, sentSeq;
 		f64 viewTick = 0.0;
 		f32 commandCredit = 0.f;
+		// Joining: nothing but a Hello is heard until it has been welcomed.
+		bool welcomed = false, kicked = false;
+		uint64 token = 0;
+		f64 connectedAt = 0.0;
+		// Client-moved objects: the last move accepted, for maxClientSpeed.
+		struct Move { Vec3 position; f64 at = 0.0; };
+		std::map<uint32, Move> lastMove;
 	};
 
 	NetworkSession::NetworkSession(SceneGraph* scene, const std::string &scenePath, IPhysics* physics, sol::state* lua)
-		: scene(scene), scenePath(scenePath), physics(physics), lua(lua) {}
+		: scene(scene), scenePath(scenePath), physics(physics), lua(lua)
+	{
+		std::random_device rd;
+		token = ((uint64)rd() << 32) ^ (uint64)rd();
+		if (token == 0) token = 1;
+	}
 
 	NetworkSession::~NetworkSession()
 	{
@@ -175,6 +195,10 @@ namespace p3d {
 		if (!transport.Connect(address, port)) return false;
 		role = Client;
 		welcomed = false;
+		rejected = false;
+		lastError.clear();
+		lastAddress = address;
+		lastPort = port;
 		return true;
 	}
 
@@ -185,8 +209,44 @@ namespace p3d {
 		for (std::map<uint32, std::unique_ptr<Entity> >::iterator it = entities.begin(); it != entities.end(); ++it) ids.push_back(it->first);
 		for (size_t i = 0; i < ids.size(); i++) RemoveEntity(ids[i], true);
 		clients.clear();
+		lingering.clear();
+		reconnecting = false;
 		role = Offline;
 		welcomed = false;
+	}
+
+	void NetworkSession::SendReject(const PeerId peer, const std::string &reason)
+	{
+		NetWriter w;
+		w.U8(Msg::Reject);
+		w.String(reason);
+		transport.Send(peer, NetChannel::Reliable, w.data.data(), w.Size());
+		transport.Disconnect(peer);	// after what is queued, the reason included
+	}
+
+	void NetworkSession::Kick(const PeerId peer, const std::string &reason)
+	{
+		if (role != Server) return;
+		std::map<PeerId, std::unique_ptr<ClientState> >::iterator c = clients.find(peer);
+		if (c == clients.end()) return;
+		c->second->kicked = true;	// a kick is a leave, never a drop to come back from
+		SendReject(peer, reason);
+	}
+
+	void NetworkSession::Ban(const PeerId peer, const std::string &reason)
+	{
+		if (role != Server) return;
+		BanAddress(transport.PeerAddress(peer));
+		Kick(peer, reason);
+	}
+
+	void NetworkSession::ClearReplicas()
+	{
+		std::vector<uint32> ids;
+		for (std::map<uint32, std::unique_ptr<Entity> >::iterator it = entities.begin(); it != entities.end(); ++it) ids.push_back(it->first);
+		for (size_t i = 0; i < ids.size(); i++) RemoveEntity(ids[i], true);
+		varNames.clear();
+		latestSnapshotTick = 0.0;
 	}
 
 	std::vector<NetworkSession::EntityInfo> NetworkSession::Entities() const
@@ -426,7 +486,12 @@ namespace p3d {
 		if (role == Client) transport.Send(1, NetChannel::Reliable, w.data.data(), w.Size());
 		else if (role == Server)
 		{
-			if (target == 0) transport.Broadcast(NetChannel::Reliable, w.data.data(), w.Size());
+			if (target == 0)
+			{
+				// Players only: a connection still saying hello is not one.
+				for (std::map<PeerId, std::unique_ptr<ClientState> >::iterator c = clients.begin(); c != clients.end(); ++c)
+					if (c->second->welcomed) transport.Send(c->first, NetChannel::Reliable, w.data.data(), w.Size());
+			}
 			else transport.Send(target, NetChannel::Reliable, w.data.data(), w.Size());
 		}
 	}
@@ -434,9 +499,41 @@ namespace p3d {
 	void NetworkSession::Update(const f64 dt)
 	{
 		if (role == Offline) return;
+		clock += dt;
 		std::vector<NetEvent> events;
 		transport.Poll(events);
 		for (size_t i = 0; i < events.size(); i++) HandleMessage(events[i]);
+
+		if (role == Server)
+		{
+			// A connection that never said hello; a dropped client whose
+			// grace ran out - now it has left.
+			std::vector<PeerId> silent;
+			for (std::map<PeerId, std::unique_ptr<ClientState> >::iterator c = clients.begin(); c != clients.end(); ++c)
+				if (!c->second->welcomed && !c->second->kicked && clock - c->second->connectedAt > settings.handshakeTimeout) silent.push_back(c->first);
+			for (size_t i = 0; i < silent.size(); i++) { clients[silent[i]]->kicked = true; SendReject(silent[i], "no hello"); }
+			std::vector<PeerId> gone;
+			for (std::map<uint64, Lingering>::iterator l = lingering.begin(); l != lingering.end();)
+				if (clock >= l->second.expires) { gone.push_back(l->second.peer); l = lingering.erase(l); }
+				else ++l;
+			for (size_t i = 0; i < gone.size(); i++) if (onPeerLeft) onPeerLeft(gone[i]);
+		}
+		else if (reconnecting && clock >= nextReconnectAt)
+		{
+			if (clock > reconnectUntil)
+			{
+				// Gave up: now it is lost.
+				reconnecting = false;
+				lastError = "connection lost";
+				const PeerId was = localPeer;
+				Shutdown();
+				if (onPeerLeft) onPeerLeft(was);
+				return;
+			}
+			nextReconnectAt = clock + 1.0;
+			transport.Shutdown();
+			transport.Connect(lastAddress, lastPort);
+		}
 
 		const f64 tickLength = 1.0 / std::max(settings.tickRate, 1.f);
 		if (role == Server)
@@ -638,16 +735,28 @@ namespace p3d {
 		{
 			if (role == Server)
 			{
+				// Not a player yet: it must say hello first (see Msg::Hello).
 				std::unique_ptr<ClientState> c(new ClientState());
 				c->peer = e.peer;
+				c->connectedAt = clock;
 				clients[e.peer] = std::move(c);
+				if (bans.count(transport.PeerAddress(e.peer)))
+				{
+					clients[e.peer]->kicked = true;
+					SendReject(e.peer, "banned");
+				}
+			}
+			else
+			{
+				// Who this is and what it knows: the protocol it speaks, the
+				// token that makes a reconnection recognisable, the password.
 				NetWriter w;
-				w.U8(Msg::Welcome);
-				w.VarU32(e.peer);
-				w.F32(settings.tickRate);
-				w.VarU32((uint32)serverTick);
-				transport.Send(e.peer, NetChannel::Reliable, w.data.data(), w.Size());
-				if (onPeerJoined) onPeerJoined(e.peer);
+				w.U8(Msg::Hello);
+				w.U8(kProtocolVersion);
+				w.U32((uint32)(token >> 32));
+				w.U32((uint32)(token & 0xffffffffu));
+				w.String(settings.password);
+				transport.Send(1, NetChannel::Reliable, w.data.data(), w.Size());
 			}
 			return;
 		}
@@ -655,12 +764,36 @@ namespace p3d {
 		{
 			if (role == Server)
 			{
-				clients.erase(e.peer);
-				if (onPeerLeft) onPeerLeft(e.peer);
+				std::map<PeerId, std::unique_ptr<ClientState> >::iterator c = clients.find(e.peer);
+				if (c == clients.end()) return;
+				const bool wasPlayer = c->second->welcomed, kicked = c->second->kicked;
+				const uint64 itsToken = c->second->token;
+				clients.erase(c);
+				if (!wasPlayer) return;	// never joined: nobody to tell
+				if (!kicked && settings.reconnectGrace > 0.f && itsToken != 0)
+				{
+					// Dropped, not left: its objects wait for it.
+					Lingering l;
+					l.peer = e.peer;
+					l.expires = clock + settings.reconnectGrace;
+					lingering[itsToken] = l;
+					if (onPeerDropped) onPeerDropped(e.peer);
+				}
+				else if (onPeerLeft) onPeerLeft(e.peer);
 			}
 			else
 			{
+				const bool was = welcomed;
 				welcomed = false;
+				if (reconnecting) return;	// a failed retry: the timer goes on
+				if (was && !rejected && settings.autoReconnect)
+				{
+					reconnecting = true;
+					reconnectUntil = clock + std::max(settings.reconnectGrace, 5.f);
+					nextReconnectAt = clock + 0.5;
+					return;
+				}
+				if (lastError.empty()) lastError = was ? "connection lost" : "could not connect";
 				if (onPeerLeft) onPeerLeft(e.peer);
 			}
 			return;
@@ -676,6 +809,54 @@ namespace p3d {
 		std::map<PeerId, std::unique_ptr<ClientState> >::iterator ci = clients.find(from);
 		if (ci == clients.end()) return;
 		ClientState &c = *ci->second;
+		if (!c.welcomed)
+		{
+			if (type != Msg::Hello || c.kicked) return;
+			const uint8 version = r.U8();
+			const uint32 hi = r.U32(), lo = r.U32();
+			const std::string password = r.String();
+			if (!r.Ok()) { c.kicked = true; SendReject(from, "bad hello"); return; }
+			if (version != kProtocolVersion) { c.kicked = true; SendReject(from, "version mismatch"); return; }
+			if (!settings.password.empty() && password != settings.password) { c.kicked = true; SendReject(from, "wrong password"); return; }
+			c.welcomed = true;
+			c.token = ((uint64)hi << 32) | lo;
+
+			// The same client, back within its grace: what its old peer id
+			// owned is its again.
+			PeerId old = 0;
+			std::map<uint64, Lingering>::iterator back = lingering.find(c.token);
+			if (back != lingering.end())
+			{
+				old = back->second.peer;
+				lingering.erase(back);
+				for (std::map<uint32, std::unique_ptr<Entity> >::iterator ei = entities.begin(); ei != entities.end(); ++ei)
+				{
+					if (!ei->second->identity || ei->second->identity->owner != old) continue;
+					ei->second->identity->owner = from;
+					NetWriter ow;
+					ow.U8(Msg::Owner);
+					ow.VarU32(ei->first);
+					ow.VarU32(from);
+					for (std::map<PeerId, std::unique_ptr<ClientState> >::iterator oc = clients.begin(); oc != clients.end(); ++oc)
+						if (oc->first != from && oc->second->known.count(ei->first))
+							transport.Send(oc->first, NetChannel::Reliable, ow.data.data(), ow.Size());
+				}
+			}
+			NetWriter w;
+			w.U8(Msg::Welcome);
+			w.VarU32(from);
+			w.F32(settings.tickRate);
+			w.VarU32((uint32)serverTick);
+			w.Bool(old != 0);
+			transport.Send(from, NetChannel::Reliable, w.data.data(), w.Size());
+			if (old != 0 && onPeerRejoined) onPeerRejoined(from, old);
+			else
+			{
+				if (old != 0 && onPeerLeft) onPeerLeft(old);
+				if (onPeerJoined) onPeerJoined(from);
+			}
+			return;
+		}
 		if (type == Msg::Ack)
 		{
 			const uint32 tick = r.VarU32();
@@ -708,6 +889,28 @@ namespace p3d {
 				if (!r.Ok()) break;
 				std::map<uint32, std::unique_ptr<Entity> >::iterator ei = entities.find(netId);
 				if (ei == entities.end() || ei->second->identity->owner != from || ei->second->identity->predicted) continue;
+				if (settings.maxClientSpeed > 0.f)
+				{
+					// How far it could honestly have come since the last move
+					// accepted, with a metre and half again for jitter. More
+					// is not applied, and not remembered: the allowance keeps
+					// growing, so a jump turns into travel at the limit.
+					std::map<uint32, ClientState::Move>::iterator m = c.lastMove.find(netId);
+					if (m != c.lastMove.end())
+					{
+						const f32 allowed = settings.maxClientSpeed * 1.5f * (f32)(clock - m->second.at) + 1.f;
+						if (p.distance(m->second.position) > allowed)
+						{
+							stats.rejectedMoves++;
+							if (onSuspicious) onSuspicious(from, netId);
+							continue;
+						}
+					}
+					ClientState::Move accepted;
+					accepted.position = p;
+					accepted.at = clock;
+					c.lastMove[netId] = accepted;
+				}
 				ei->second->go->SetPosition(p);
 				ei->second->go->SetRotation(q.GetEulerFromQuaternion());
 			}
@@ -758,12 +961,35 @@ namespace p3d {
 			localPeer = r.VarU32();
 			settings.tickRate = r.F32();
 			const uint32 tick = r.VarU32();
+			r.Bool();	// rejoined: the objects it owned are its again
 			if (!r.Ok()) return;
+			// A reconnection starts from nothing: the server tells it the
+			// world again, and what it had before is stale.
+			if (!entities.empty()) ClearReplicas();
+			reconnecting = false;
+			lastError.clear();
 			NetPeerStats st;
 			transport.GetStats(1, st);
 			serverTick = tick + (st.roundTripMs * 0.0005) * settings.tickRate;
 			welcomed = true;
 			if (onPeerJoined) onPeerJoined(localPeer);
+		}
+		break;
+		case Msg::Reject:
+		{
+			lastError = r.String();
+			if (!r.Ok()) lastError = "refused";
+			rejected = true;
+			reconnecting = false;
+			if (onRejected) onRejected(lastError);
+		}
+		break;
+		case Msg::Owner:
+		{
+			const uint32 netId = r.VarU32();
+			const uint32 owner = r.VarU32();
+			std::map<uint32, std::unique_ptr<Entity> >::iterator e = entities.find(netId);
+			if (r.Ok() && e != entities.end() && e->second->identity) e->second->identity->owner = owner;
 		}
 		break;
 		case Msg::VarName:

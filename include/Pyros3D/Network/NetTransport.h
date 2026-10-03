@@ -94,6 +94,9 @@ namespace p3d {
 		bool IsConnected() const;		// client: joined; server: hosting
 		uint32 PeerCount() const;
 		bool GetStats(const PeerId peer, NetPeerStats &out) const;
+		// The peer's address ("203.0.113.7"), empty when unknown - what a
+		// ban is recorded against.
+		std::string PeerAddress(const PeerId peer) const;
 
 		// Simulated conditions for testing: every packet sent from here is
 		// delayed by latencyMs +- jitterMs, and dropped with probability

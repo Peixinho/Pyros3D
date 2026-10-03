@@ -11,6 +11,7 @@
 #endif
 
 #include "ProcessLauncher.h"
+#include <imgui_internal.h>
 #include <algorithm>
 #include <cstdio>
 #include <filesystem>
@@ -471,10 +472,20 @@ void SceneEditor::CloseLaunchedProcesses()
 
 void SceneEditor::ShowNetworkPanel()
 {
+	// Just opened: bring its tab to the front, or it opens behind Log.
+	static bool wasShown = false;
+	const bool justOpened = showNetworkPanel && !wasShown;
+	wasShown = showNetworkPanel;
 	if (!showNetworkPanel) return;
+	if (justOpened) ImGui::SetNextWindowFocus();
 	ProcessLauncher::IsRunning(0);	// reaps what was closed earlier
-	ImGui::SetNextWindowSize(ImVec2(460, 420), ImGuiCond_FirstUseEver);
-	if (!ImGui::Begin("Network", &showNetworkPanel)) { ImGui::End(); return; }
+	// A tab beside Log and Assets, like the Profiler - wherever the Log
+	// window is docked in this layout. First use only: after that it stays
+	// where the user leaves it. (A new window id, so layouts saved while
+	// this panel floated do not keep it floating.)
+	if (ImGuiWindow* log = ImGui::FindWindowByName("Log"))
+		if (log->DockId != 0) ImGui::SetNextWindowDockID(log->DockId, ImGuiCond_FirstUseEver);
+	if (!ImGui::Begin("Network###network_panel", &showNetworkPanel)) { ImGui::End(); return; }
 
 	// --- testing with more than one program -------------------------------
 	ImGui::TextDisabled("Test with other programs (port %d)", playNetPort);

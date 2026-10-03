@@ -619,6 +619,7 @@ void Editor::BuildDefaultLayout(const ImGuiID dockspaceID, const ImVec2 &size)
 	// targets both want the full width when you are actually reading them.
 	ImGui::DockBuilderDockWindow("Profiler", bottom);
 	ImGui::DockBuilderDockWindow("Render Targets", bottom);
+	ImGui::DockBuilderDockWindow("Network###network_panel", bottom);
 	ImGui::DockBuilderDockWindow("Tools", rightTools);
 	// The tile brush's palette shares the Tools tab. It is a tool palette, it
 	// is only visible in paint mode, and it wants to sit beside the viewport
