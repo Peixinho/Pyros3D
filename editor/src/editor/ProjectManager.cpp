@@ -2072,6 +2072,8 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	manifest["width"] = opts.width;
 	manifest["height"] = opts.height;
 	manifest["fullscreen"] = opts.fullscreen;
+	manifest["server"] = { { "port", opts.server.port }, { "maxClients", opts.server.maxClients }, { "tickRate", opts.server.tickRate },
+		{ "password", opts.server.password }, { "reconnectGrace", opts.server.reconnectGrace }, { "maxClientSpeed", opts.server.maxClientSpeed } };
 	// Written explicitly so a build never depends on the player's built-in
 	// default, and so it is an obvious thing to edit by hand.
 	manifest["background"] = { 0.0, 0.0, 0.0, 1.0 };

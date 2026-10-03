@@ -11,6 +11,12 @@
 //                 PyrosServer [--game <dir>] [--scene <scenes/x.json>]
 //                             [--port 47400] [--max-clients 100]
 //                             [--tick 30] [--frame-rate 60]
+//                             [--password <p>] [--reconnect-grace <s>]
+//                             [--max-speed <m/s>] [--stats <seconds>]
+//
+//               Defaults come from game.json's "server" block (what Build
+//               Game's dialog wrote); a flag overrides. Banned addresses
+//               are kept in bans.txt beside game.json, one a line.
 //
 //               Scripts see HEADLESS = true. A scene script that calls
 //               network.host() itself decides the port; otherwise the server
@@ -41,6 +47,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <set>
 #include <sstream>
 #include <thread>
 
@@ -91,10 +98,16 @@ int main(int argc, char** argv)
 		catch (const std::exception &e) { fprintf(stderr, "PyrosServer: game.json - %s\n", e.what()); return 1; }
 	}
 	const std::string sceneRel = Arg(argc, argv, "--scene", manifest.value("startupScene", std::string()));
-	const uint16 port = (uint16)std::stoi(Arg(argc, argv, "--port", "47400"));
+	// game.json's "server" block, then the flags over it.
+	const json sv = manifest.contains("server") && manifest["server"].is_object() ? manifest["server"] : json::object();
+	const uint16 port = (uint16)std::stoi(Arg(argc, argv, "--port", std::to_string(sv.value("port", 47400))));
 	NetworkSettings settings;
-	settings.maxClients = (uint32)std::stoi(Arg(argc, argv, "--max-clients", "100"));
-	settings.tickRate = std::stof(Arg(argc, argv, "--tick", "30"));
+	settings.maxClients = (uint32)std::stoi(Arg(argc, argv, "--max-clients", std::to_string(sv.value("maxClients", 100))));
+	settings.tickRate = std::stof(Arg(argc, argv, "--tick", std::to_string(sv.value("tickRate", 30.f))));
+	settings.password = Arg(argc, argv, "--password", sv.value("password", std::string()));
+	settings.reconnectGrace = std::stof(Arg(argc, argv, "--reconnect-grace", std::to_string(sv.value("reconnectGrace", 30.f))));
+	settings.maxClientSpeed = std::stof(Arg(argc, argv, "--max-speed", std::to_string(sv.value("maxClientSpeed", 0.f))));
+	const f64 statsEvery = std::stod(Arg(argc, argv, "--stats", "0"));
 	const f64 frameRate = std::stod(Arg(argc, argv, "--frame-rate", "60"));
 
 	// Every GPU call the loaders make lands here and does nothing.
@@ -176,9 +189,25 @@ int main(int argc, char** argv)
 		fprintf(stderr, "PyrosServer: could not host on port %u\n", (unsigned)port);
 		return 1;
 	}
+	// Bans outlive the process.
+	const fs::path bansFile = game / "bans.txt";
+	{
+		std::ifstream in(bansFile.string().c_str());
+		std::string line;
+		while (std::getline(in, line)) if (!line.empty()) session->BanAddress(line);
+	}
+	size_t bansSaved = session->Bans().size();
+	const auto saveBans = [&]() {
+		std::ofstream out(bansFile.string().c_str(), std::ios::trunc);
+		for (std::set<std::string>::const_iterator b = session->Bans().begin(); b != session->Bans().end(); ++b) out << *b << "\n";
+		bansSaved = session->Bans().size();
+	};
 	echo("PyrosServer: " + sceneRel + " on port " + std::to_string(session->GetRole() == NetworkSession::Server ? port : 0)
 		+ ", " + std::to_string(settings.maxClients) + " players, " + std::to_string((int)settings.tickRate) + " Hz");
 
+	uint32 statFrames = 0;
+	f64 statMs = 0.0, statWorst = 0.0, statClock = 0.0;
+	uint64 statSent = 0;
 	const std::chrono::duration<f64> frame(1.0 / std::max(frameRate, 1.0));
 	std::chrono::steady_clock::time_point next = std::chrono::steady_clock::now();
 	std::chrono::steady_clock::time_point last = next;
@@ -189,6 +218,7 @@ int main(int argc, char** argv)
 		last = now;
 		t += dt;
 
+		const std::chrono::steady_clock::time_point work0 = std::chrono::steady_clock::now();
 		session->Update(dt);
 		if (world) world->Update(session->ClientViewers());
 		physics->Update(dt, 10);
@@ -200,12 +230,34 @@ int main(int argc, char** argv)
 			catch (const std::exception &e) { echo(std::string("ERROR: scene main script update - ") + e.what()); }
 		}
 #endif
+		if (session->Bans().size() != bansSaved) saveBans();
+		// --stats: what a frame costs and what goes out, every few seconds.
+		if (statsEvery > 0.0)
+		{
+			const f64 ms = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - work0).count();
+			statFrames++;
+			statMs += ms;
+			statWorst = std::max(statWorst, ms);
+			statClock += dt;
+			if (statClock >= statsEvery)
+			{
+				uint64 sent = 0;
+				const std::vector<NetworkSession::PeerInfo> peers = session->Peers();
+				for (size_t i = 0; i < peers.size(); i++) sent += peers[i].transport.bytesSent;
+				fprintf(stderr, "PyrosServer: %zu players, %u objects, frame avg %.2f ms worst %.2f ms, %.1f kbit/s out per player\n",
+					peers.size(), session->GetStats().replicated, statMs / std::max(1u, statFrames), statWorst,
+					peers.empty() ? 0.0 : (f64)(sent - statSent) * 8.0 / 1000.0 / statClock / (f64)peers.size());
+				statSent = sent;
+				statFrames = 0; statMs = 0.0; statWorst = 0.0; statClock = 0.0;
+			}
+		}
 		next += std::chrono::duration_cast<std::chrono::steady_clock::duration>(frame);
 		if (next < std::chrono::steady_clock::now()) next = std::chrono::steady_clock::now();	// fell behind: do not spiral
 		std::this_thread::sleep_until(next);
 	}
 
 	echo("PyrosServer: shutting down");
+	if (session->Bans().size() != bansSaved) saveBans();
 	session->Shutdown();
 	delete session;
 	delete world;

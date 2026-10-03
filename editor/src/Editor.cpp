@@ -3514,6 +3514,18 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		opts.width = a.value("width", 1280);
 		opts.height = a.value("height", 720);
 		opts.fullscreen = a.value("fullscreen", false);
+		// "server": {port, maxClients, tickRate, password, reconnectGrace,
+		// maxClientSpeed} - game.json's defaults for PyrosServer.
+		if (a.contains("server") && a["server"].is_object())
+		{
+			const nlohmann::json &sv = a["server"];
+			opts.server.port = sv.value("port", opts.server.port);
+			opts.server.maxClients = sv.value("maxClients", opts.server.maxClients);
+			opts.server.tickRate = sv.value("tickRate", opts.server.tickRate);
+			opts.server.password = sv.value("password", opts.server.password);
+			opts.server.reconnectGrace = sv.value("reconnectGrace", opts.server.reconnectGrace);
+			opts.server.maxClientSpeed = sv.value("maxClientSpeed", opts.server.maxClientSpeed);
+		}
 		opts.deferred = (project.GetSettings().rendererType == ProjectRendererType::Deferred);
 
 		ProjectManager::BuildResult br = project.BuildGame(opts);

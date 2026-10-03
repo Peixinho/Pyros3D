@@ -138,6 +138,7 @@ void PyrosPlayer::SetLaunchArgs(int argc, char** argv)
 		if (a == "--scene" && hasValue) launchScene = argv[++i];
 		else if (a == "--connect" && hasValue) launchConnect = argv[++i];
 		else if (a == "--host") launchHostPort = hasValue ? std::atoi(argv[++i]) : 47400;
+		else if (a == "--password" && hasValue) launchPassword = argv[++i];
 	}
 }
 
@@ -1126,17 +1127,25 @@ void PyrosPlayer::Update()
 	{
 		launchNetDone = true;
 		if (!network) network.reset(new NetworkSession(scene, ResolvePath(currentSceneRel), physics, &lua));
+		// Said out loud unless the game's script has its own handler: a
+		// refused connection otherwise looks like a game that does nothing.
+		if (!network->onRejected)
+			network->onRejected = [](const std::string &reason) { std::fprintf(stderr, "PyrosPlayer: the server refused the connection - %s\n", reason.c_str()); };
 		if (network->GetRole() == NetworkSession::Offline)
 		{
 			bool ok;
-			if (launchHostPort > 0) ok = network->Host((uint16)launchHostPort);
+			NetworkSettings launchSettings;
+			launchSettings.password = launchPassword;
+			launchSettings.autoReconnect = true;	// a dropped connection is retried
+			launchSettings.reconnectGrace = 30.f;
+			if (launchHostPort > 0) ok = network->Host((uint16)launchHostPort, launchSettings);
 			else
 			{
 				std::string host = launchConnect;
 				int port = 47400;
 				const size_t colon = host.rfind(':');
 				if (colon != std::string::npos) { port = std::atoi(host.c_str() + colon + 1); host = host.substr(0, colon); }
-				ok = network->Connect(host, (uint16)port);
+				ok = network->Connect(host, (uint16)port, launchSettings);
 			}
 			std::fprintf(stderr, "PyrosPlayer: %s %s\n", launchHostPort > 0 ? "hosting on port" : "joining",
 				launchHostPort > 0 ? std::to_string(launchHostPort).c_str() : launchConnect.c_str());

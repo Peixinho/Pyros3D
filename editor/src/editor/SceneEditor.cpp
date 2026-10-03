@@ -11875,6 +11875,31 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		ImGui::InputInt("Height", &buildDialogHeight);
 		ImGui::Checkbox("Fullscreen", &buildDialogFullscreen);
 
+		// The dedicated server's defaults (game.json "server"); PyrosServer's
+		// flags override them when it is started.
+		if (ImGui::CollapsingHeader("Dedicated server"))
+		{
+			ImGui::SetNextItemWidth(120.f);
+			ImGui::InputInt("Port", &buildDialogServer.port);
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(120.f);
+			ImGui::InputInt("Max players", &buildDialogServer.maxClients);
+			ImGui::SetNextItemWidth(120.f);
+			ImGui::InputFloat("Tick rate (Hz)", &buildDialogServer.tickRate, 1.f, 10.f, "%.0f");
+			ImGui::SetNextItemWidth(200.f);
+			ImGui::InputText("Password", &buildDialogServer.password);
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Empty: anyone may join. Stored in game.json as plain text.");
+			ImGui::SetNextItemWidth(120.f);
+			ImGui::InputFloat("Reconnect grace (s)", &buildDialogServer.reconnectGrace, 5.f, 30.f, "%.0f");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How long a dropped player's objects wait for it to come back. 0: a drop is a leave.");
+			ImGui::SetNextItemWidth(120.f);
+			ImGui::InputFloat("Max client speed (m/s)", &buildDialogServer.maxClientSpeed, 1.f, 10.f, "%.0f");
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The fastest a client may move an object it owns directly. 0: unchecked.\nPredicted objects are server-simulated and do not need it.");
+			buildDialogServer.port = std::max(1, std::min(65535, buildDialogServer.port));
+			buildDialogServer.maxClients = std::max(1, std::min(4000, buildDialogServer.maxClients));
+			buildDialogServer.tickRate = std::max(1.f, std::min(120.f, buildDialogServer.tickRate));
+		}
+
 		ImGui::Spacing();
 		ImGui::TextDisabled("Renderer: %s (from Project Settings)",
 			project && project->GetSettings().rendererType == ProjectRendererType::Deferred ? "deferred" : "forward");
@@ -11902,6 +11927,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			opts.height = buildDialogHeight;
 			opts.fullscreen = buildDialogFullscreen;
 			opts.deferred = (project->GetSettings().rendererType == ProjectRendererType::Deferred);
+			opts.server = buildDialogServer;
 
 			ProjectManager::BuildResult r = project->BuildGame(opts);
 			buildDialogError = r.error;

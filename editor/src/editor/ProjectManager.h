@@ -249,6 +249,17 @@ public:
 		int height = 720;
 		bool fullscreen = false;
 		bool deferred = false;       // set from ProjectSettings by the caller
+		// What the dedicated server (PyrosServer, shipped beside the game)
+		// starts with - written to game.json's "server" block; its
+		// command-line flags still override.
+		struct Server {
+			int port = 47400;
+			int maxClients = 100;
+			float tickRate = 30.f;
+			std::string password;         // empty: anyone may join
+			float reconnectGrace = 30.f;  // seconds a dropped player's objects wait
+			float maxClientSpeed = 0.f;   // m/s for client-moved objects; 0 = unchecked
+		} server;
 	};
 	struct BuildResult {
 		bool ok = false;

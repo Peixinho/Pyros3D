@@ -244,7 +244,7 @@ jobs:
           # PUBLIC PYROS_NETWORKING define repeated.
           $tests2 = @(
             "asset_streamer", "world_streamer", "heightfield", "foliage",
-            "paintable_image", "net_transport", "net_session"
+            "paintable_image", "net_transport", "net_session", "net_join"
           )
           foreach ($t in $tests2) {
             Write-Host "--- $t ---"

@@ -1345,6 +1345,7 @@ private:
 	int32 buildDialogWidth = 1280;
 	int32 buildDialogHeight = 720;
 	bool buildDialogFullscreen = false;
+	ProjectManager::BuildOptions::Server buildDialogServer;
 	bool openCreatePrefabModal = false;
 	bool openApplyPrefabModal = false;
 	uint32 prefabModalTargetId = 0;
