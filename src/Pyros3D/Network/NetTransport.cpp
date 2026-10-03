@@ -64,6 +64,7 @@ namespace p3d {
 		// host-wide, or reset by its throttle).
 		struct Bytes { uint64 sent = 0, received = 0; };
 		std::map<PeerId, Bytes> bytes;
+		NetTransport::Tap tap;
 
 		// Simulated conditions - see SetSimulatedConditions().
 		struct Delayed { uint64 due; PeerId peer; uint32 channel; std::vector<uchar> data; };
@@ -95,6 +96,7 @@ namespace p3d {
 				return false;
 			}
 			bytes[id].sent += length;
+			if (tap) tap(id, (const uchar*)data, length, true);
 			return true;
 		}
 
@@ -205,6 +207,7 @@ namespace p3d {
 				e.channel = ev.channelID;
 				e.data.assign(ev.packet->data, ev.packet->data + ev.packet->dataLength);
 				impl->bytes[e.peer].received += ev.packet->dataLength;
+				if (impl->tap) impl->tap(e.peer, ev.packet->data, ev.packet->dataLength, false);
 				enet_packet_destroy(ev.packet);
 				out.push_back(e);
 				break;
@@ -306,6 +309,8 @@ namespace p3d {
 		return true;
 	}
 
+	void NetTransport::SetTap(const Tap &tap) { impl->tap = tap; }
+
 	std::string NetTransport::PeerAddress(const PeerId peer) const
 	{
 		ENetPeer* p = impl->PeerOf(peer);
@@ -336,6 +341,7 @@ namespace p3d {
 	void NetTransport::Flush() {}
 	void NetTransport::Disconnect(const PeerId) {}
 	std::string NetTransport::PeerAddress(const PeerId) const { return std::string(); }
+	void NetTransport::SetTap(const Tap &) {}
 	void NetTransport::Shutdown() {}
 	bool NetTransport::IsServer() const { return false; }
 	bool NetTransport::IsConnected() const { return false; }

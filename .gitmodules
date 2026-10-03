@@ -11,3 +11,6 @@
 [submodule "src/Pyros3D/Ext/enet"]
 	path = src/Pyros3D/Ext/enet
 	url = https://github.com/lsalzman/enet.git
+[submodule "src/Pyros3D/Ext/monocypher"]
+	path = src/Pyros3D/Ext/monocypher
+	url = https://github.com/LoupVaillant/Monocypher.git

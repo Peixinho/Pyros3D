@@ -259,6 +259,10 @@ public:
 			std::string password;         // empty: anyone may join
 			float reconnectGrace = 30.f;  // seconds a dropped player's objects wait
 			float maxClientSpeed = 0.f;   // m/s for client-moved objects; 0 = unchecked
+			// The server's PUBLIC key (what PyrosServer prints at start):
+			// written to game.json so the game refuses any other server.
+			// Empty: clients join whatever answers.
+			std::string publicKey;
 		} server;
 	};
 	struct BuildResult {

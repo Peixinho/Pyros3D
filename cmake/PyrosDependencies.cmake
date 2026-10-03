@@ -123,6 +123,27 @@ if (NOT EMSCRIPTEN)
 endif()
 
 # ---------------------------------------------------------------------------
+# Monocypher (submodule: src/Pyros3D/Ext/monocypher @ 4.0.3)
+#
+# The network session's cryptography: an X25519 key exchange and
+# XChaCha20-Poly1305 on every message (see src/Pyros3D/Network/NetCrypto.h).
+# One portable C file, public domain; private to the engine like ENet.
+# Built everywhere - the session compiles on the web too, where only the
+# transport is missing.
+# ---------------------------------------------------------------------------
+set(MONOCYPHER_DIR ${CMAKE_SOURCE_DIR}/src/Pyros3D/Ext/monocypher)
+if (NOT EXISTS "${MONOCYPHER_DIR}/src/monocypher.c")
+	message(FATAL_ERROR
+		"Monocypher submodule missing at ${MONOCYPHER_DIR}. "
+		"Run: git submodule update --init --recursive")
+endif()
+add_library(monocypher STATIC ${MONOCYPHER_DIR}/src/monocypher.c)
+target_include_directories(monocypher PUBLIC ${MONOCYPHER_DIR}/src)
+set_target_properties(monocypher PROPERTIES POSITION_INDEPENDENT_CODE ON)
+set(MONOCYPHER_LIBRARIES monocypher)
+message(STATUS "Monocypher: submodule ${MONOCYPHER_DIR}")
+
+# ---------------------------------------------------------------------------
 # Lua (optional)
 # ---------------------------------------------------------------------------
 if (HAVE_LUA_BINDINGS)

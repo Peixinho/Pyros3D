@@ -29,6 +29,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Other/Global.h>
 #include <Pyros3D/Core/Math/Math.h>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -94,6 +95,11 @@ namespace p3d {
 		bool IsConnected() const;		// client: joined; server: hosting
 		uint32 PeerCount() const;
 		bool GetStats(const PeerId peer, NetPeerStats &out) const;
+		// Every payload as it goes out (true) and comes in (false), exactly
+		// as it is on the wire - for a traffic meter, or a test that wants
+		// to know what an eavesdropper would read. Not for game logic.
+		typedef std::function<void(const PeerId peer, const uchar* data, const size_t length, const bool outgoing)> Tap;
+		void SetTap(const Tap &tap);
 		// The peer's address ("203.0.113.7"), empty when unknown - what a
 		// ban is recorded against.
 		std::string PeerAddress(const PeerId peer) const;

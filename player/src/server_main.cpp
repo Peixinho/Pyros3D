@@ -18,6 +18,13 @@
 //               Game's dialog wrote); a flag overrides. Banned addresses
 //               are kept in bans.txt beside game.json, one a line.
 //
+//               The server's long-term key lives in server.key beside
+//               game.json - made on the first run, never shipped to
+//               players. Its public half is printed at start (and by
+//               --print-key, which then exits): put that in Build Game's
+//               "Server public key" and clients will refuse any server
+//               that is not this one.
+//
 //               Scripts see HEADLESS = true. A scene script that calls
 //               network.host() itself decides the port; otherwise the server
 //               hosts on --port once the scene has started.
@@ -108,6 +115,23 @@ int main(int argc, char** argv)
 	settings.reconnectGrace = std::stof(Arg(argc, argv, "--reconnect-grace", std::to_string(sv.value("reconnectGrace", 30.f))));
 	settings.maxClientSpeed = std::stof(Arg(argc, argv, "--max-speed", std::to_string(sv.value("maxClientSpeed", 0.f))));
 	const f64 statsEvery = std::stod(Arg(argc, argv, "--stats", "0"));
+	{
+		const fs::path keyFile = game / "server.key";
+		std::string secret;
+		{ std::ifstream in(keyFile.string().c_str()); std::getline(in, secret); }
+		if (NetworkSession::PublicKeyOf(secret).empty())
+		{
+			secret = NetworkSession::GenerateSecretKey();
+			std::ofstream out(keyFile.string().c_str(), std::ios::trunc);
+			out << secret << "\n";
+			out.close();
+			std::error_code kec;
+			fs::permissions(keyFile, fs::perms::owner_read | fs::perms::owner_write, fs::perm_options::replace, kec);
+		}
+		settings.serverSecretKey = secret;
+		fprintf(stderr, "PyrosServer: public key %s\n", NetworkSession::PublicKeyOf(secret).c_str());
+		for (int i = 1; i < argc; i++) if (std::string(argv[i]) == "--print-key") { printf("%s\n", NetworkSession::PublicKeyOf(secret).c_str()); return 0; }
+	}
 	const f64 frameRate = std::stod(Arg(argc, argv, "--frame-rate", "60"));
 
 	// Every GPU call the loaders make lands here and does nothing.

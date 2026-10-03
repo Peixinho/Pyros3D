@@ -65,6 +65,10 @@ namespace p3d {
 			s.reconnectGrace = x.get_or("reconnectGrace", s.reconnectGrace);
 			s.autoReconnect = x.get_or("autoReconnect", s.autoReconnect);
 			s.maxClientSpeed = x.get_or("maxClientSpeed", s.maxClientSpeed);
+			// serverKey: the server's PUBLIC key, pinned by a client.
+			// serverSecretKey: a server's own long-term key.
+			s.serverPublicKey = x.get_or("serverKey", s.serverPublicKey);
+			s.serverSecretKey = x.get_or("serverSecretKey", s.serverSecretKey);
 			return s;
 		}
 
@@ -182,6 +186,8 @@ namespace p3d {
 		});
 		net.set_function("unban", [session](const std::string &address) { if (NetworkSession* s = session()) s->Unban(address); });
 		net.set_function("peerAddress", [session](const PeerId p) { NetworkSession* s = session(); return s ? s->PeerAddress(p) : std::string(); });
+		net.set_function("generateKey", []() { return NetworkSession::GenerateSecretKey(); });
+		net.set_function("publicKey", [](const std::string &secret) { return NetworkSession::PublicKeyOf(secret); });
 		net.set_function("lastError", [session]() { NetworkSession* s = session(); return s ? s->LastError() : std::string(); });
 		net.set_function("isReconnecting", [session]() { NetworkSession* s = session(); return s && s->IsReconnecting(); });
 		// Prediction: fn(go, input) with input a table of the values given

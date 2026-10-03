@@ -3525,6 +3525,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			opts.server.password = sv.value("password", opts.server.password);
 			opts.server.reconnectGrace = sv.value("reconnectGrace", opts.server.reconnectGrace);
 			opts.server.maxClientSpeed = sv.value("maxClientSpeed", opts.server.maxClientSpeed);
+			opts.server.publicKey = sv.value("publicKey", opts.server.publicKey);
 		}
 		opts.deferred = (project.GetSettings().rendererType == ProjectRendererType::Deferred);
 

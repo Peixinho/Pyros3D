@@ -11895,6 +11895,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::SetNextItemWidth(120.f);
 			ImGui::InputFloat("Max client speed (m/s)", &buildDialogServer.maxClientSpeed, 1.f, 10.f, "%.0f");
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The fastest a client may move an object it owns directly. 0: unchecked.\nPredicted objects are server-simulated and do not need it.");
+			ImGui::SetNextItemWidth(420.f);
+			ImGui::InputTextWithHint("Server public key", "64 hex characters - printed by PyrosServer at start", &buildDialogServer.publicKey);
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Pins the game to one server: a client refuses any server that cannot\nprove it holds the matching secret (server.key, made by PyrosServer on\nits first run and never shipped). Empty: clients join whatever answers.\nTraffic is encrypted either way.");
 			buildDialogServer.port = std::max(1, std::min(65535, buildDialogServer.port));
 			buildDialogServer.maxClients = std::max(1, std::min(4000, buildDialogServer.maxClients));
 			buildDialogServer.tickRate = std::max(1.f, std::min(120.f, buildDialogServer.tickRate));

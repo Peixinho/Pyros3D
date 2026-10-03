@@ -275,6 +275,11 @@ jobs:
               tools/tests/$t.cpp -o /tmp/$t $LD
             /tmp/$t
           done
+          # The session's encryption: the cipher on its own (it lives in
+          # src/, hence the include path) and a pinned server key.
+          c++ $CF -DPYROS_NETWORKING -I src/Pyros3D/Network -I src/Pyros3D/Ext/box3d/include \
+            tools/tests/net_crypto.cpp -o /tmp/net_crypto $LD
+          /tmp/net_crypto
 
           # These two reach into shared/, which the editor and the
           # player both compile but the library does not export.

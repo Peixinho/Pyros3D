@@ -84,6 +84,16 @@ namespace p3d {
 		f32 maxClientSpeed = 0.f;
 		// Server: a connection that has not said hello within this is cut.
 		f32 handshakeTimeout = 5.f;
+		// Every session is encrypted: a key agreed afresh per connection,
+		// then every message sealed (see src/Pyros3D/Network/NetCrypto.h).
+		// That alone stops eavesdropping. To also stop someone standing in
+		// between, give the server a long-term key - serverSecretKey, 64
+		// hex characters from NetworkSession::GenerateSecretKey(), kept
+		// private - and give clients its public half (PublicKeyOf) as
+		// serverPublicKey: they then refuse any server that cannot prove
+		// it holds the secret.
+		std::string serverSecretKey;
+		std::string serverPublicKey;
 	};
 
 	class PYROS3D_API NetworkSession
@@ -191,6 +201,10 @@ namespace p3d {
 		// Client: why the last connection was refused or lost; trying to
 		// get back to the server after a drop.
 		const std::string &LastError() const { return lastError; }
+		// A new long-term server key (the secret half, 64 hex characters),
+		// and the public half of one, to hand to clients.
+		static std::string GenerateSecretKey();
+		static std::string PublicKeyOf(const std::string &secretKeyHex);
 		bool IsReconnecting() const { return reconnecting; }
 
 		// How a client builds a spawned object. The default loads the prefab
@@ -239,8 +253,8 @@ namespace p3d {
 		void RunServerTick();
 		void RunClientTick();
 		void HandleMessage(const NetEvent &e);
-		void HandleServerMessage(const PeerId from, NetReader &r, const uint8 type);
-		void HandleClientMessage(NetReader &r, const uint8 type);
+		void HandleServerMessage(const PeerId from, NetReader &r, const uint8 type, const bool sealed);
+		void HandleClientMessage(NetReader &r, const uint8 type, const bool sealed);
 		void RegisterNewIdentities();
 		void SendSpawn(ClientState &c, Entity &e);
 		void SendDespawn(ClientState &c, const uint32 netId);
@@ -280,6 +294,10 @@ namespace p3d {
 		uint32 nextCommandSeq = 1;
 
 		void SendReject(const PeerId peer, const std::string &reason);
+		// Sealed with that peer's session key once there is one.
+		void SendSecure(const PeerId peer, const uint32 channel, const void* data, const size_t length);
+		struct Secure;	// this end's keys - private, it names the cipher
+		std::unique_ptr<Secure> secure;
 		void ClearReplicas();
 		// Seconds this session has been updated for: timeouts and graces.
 		f64 clock = 0.0;

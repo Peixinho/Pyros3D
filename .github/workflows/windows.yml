@@ -244,12 +244,13 @@ jobs:
           # PUBLIC PYROS_NETWORKING define repeated.
           $tests2 = @(
             "asset_streamer", "world_streamer", "heightfield", "foliage",
-            "paintable_image", "net_transport", "net_session", "net_join"
+            "paintable_image", "net_transport", "net_session", "net_join",
+            "net_crypto"
           )
           foreach ($t in $tests2) {
             Write-Host "--- $t ---"
             cl /nologo /std:c++17 /EHsc /O2 /D_IMPORT /DPYROS_NETWORKING `
-              /I include /I $inc /I src\Pyros3D\Ext\box3d\include `
+              /I include /I $inc /I src\Pyros3D\Ext\box3d\include /I src\Pyros3D\Network `
               tools\tests\$t.cpp `
               /Fe:"$env:TEMP\$t.exe" /Fo:"$env:TEMP\" `
               /link /LIBPATH:build PyrosEngine.lib

@@ -99,6 +99,7 @@ namespace {
 
 		m.title = j.value("title", m.title);
 		m.startupScene = j.value("startupScene", std::string());
+		m.serverPublicKey = j.value("serverPublicKey", std::string());
 		m.deferred = (j.value("renderer", std::string("forward")) == "deferred");
 		m.width = j.value("width", m.width);
 		m.height = j.value("height", m.height);
@@ -139,6 +140,7 @@ void PyrosPlayer::SetLaunchArgs(int argc, char** argv)
 		else if (a == "--connect" && hasValue) launchConnect = argv[++i];
 		else if (a == "--host") launchHostPort = hasValue ? std::atoi(argv[++i]) : 47400;
 		else if (a == "--password" && hasValue) launchPassword = argv[++i];
+		else if (a == "--server-key" && hasValue) launchServerKey = argv[++i];
 	}
 }
 
@@ -1136,6 +1138,7 @@ void PyrosPlayer::Update()
 			bool ok;
 			NetworkSettings launchSettings;
 			launchSettings.password = launchPassword;
+			launchSettings.serverPublicKey = !launchServerKey.empty() ? launchServerKey : PlayerManifestInstance().serverPublicKey;
 			launchSettings.autoReconnect = true;	// a dropped connection is retried
 			launchSettings.reconnectGrace = 30.f;
 			if (launchHostPort > 0) ok = network->Host((uint16)launchHostPort, launchSettings);

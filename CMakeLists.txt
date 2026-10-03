@@ -66,6 +66,7 @@ target_link_libraries(PyrosEngine
 
 # Networking: ENet stays private - nothing in include/Pyros3D names it - and
 # PYROS_NETWORKING tells the engine and its users the transport is there.
+target_link_libraries(PyrosEngine PRIVATE ${MONOCYPHER_LIBRARIES})
 if (ENET_LIBRARIES)
 	target_link_libraries(PyrosEngine PRIVATE ${ENET_LIBRARIES})
 	target_compile_definitions(PyrosEngine PUBLIC PYROS_NETWORKING)

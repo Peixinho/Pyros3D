@@ -4558,7 +4558,8 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
     Project
       build_game (outputDir, startupScene, title, width, height, fullscreen,
         server {port, maxClients, tickRate, password, reconnectGrace,
-        maxClientSpeed} - written to game.json for PyrosServer),
+        maxClientSpeed, publicKey} - written to game.json for PyrosServer;
+        publicKey pins clients to the server whose key PyrosServer prints),
       new_project (parentDir, name), save_project, close_project (discard),
       project_settings (name, renderer) - no args reads them
     Assets panel

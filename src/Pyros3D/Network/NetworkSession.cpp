@@ -5,6 +5,8 @@
 //============================================================================
 
 #include <Pyros3D/Network/NetworkSession.h>
+#include "NetCrypto.h"
+#include <cstring>
 #include <random>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -29,17 +31,19 @@ namespace p3d {
 				Welcome = 1, Spawn = 2, Despawn = 3, VarName = 4, Rpc = 5,
 				Owner = 6,		// an object changed hands (its owner came back)
 				Reject = 7,		// the connection is refused; a reason follows
+				Key = 8,		// the server's half of the key exchange, in the clear
 				// server -> client, snapshot channel
 				Snapshot = 10,
 				// client -> server, unsequenced
 				Ack = 20, Commands = 21,
-				// client -> server, reliable, the first thing it says
-				Hello = 22
+				// client -> server, reliable: its half of the key exchange, in
+				// the clear, then - sealed - who it is and the password
+				Hello = 22, Auth = 23
 			};
 		}
 		// Bumped when the wire format changes: a client and a server that
 		// disagree are told so instead of misreading each other.
-		const uint8 kProtocolVersion = 2;
+		const uint8 kProtocolVersion = 3;
 
 		namespace Mask
 		{
@@ -154,8 +158,10 @@ namespace p3d {
 		std::map<uint32, uint32> lastSeq, sentSeq;
 		f64 viewTick = 0.0;
 		f32 commandCredit = 0.f;
-		// Joining: nothing but a Hello is heard until it has been welcomed.
+		// Joining: nothing but a Hello, then an Auth, is heard until it has
+		// been welcomed.
 		bool welcomed = false, kicked = false;
+		NetCipher cipher;	// ready once it has said hello
 		uint64 token = 0;
 		f64 connectedAt = 0.0;
 		// Client-moved objects: the last move accepted, for maxClientSpeed.
@@ -163,8 +169,38 @@ namespace p3d {
 		std::map<uint32, Move> lastMove;
 	};
 
+	struct NetworkSession::Secure
+	{
+		NetKeyPair fresh;		// client: this connection's key pair
+		NetCipher cipher;		// client: the channel to the server
+		NetKeyPair longTerm;	// server: settings.serverSecretKey, when given
+	};
+
+	std::string NetworkSession::GenerateSecretKey() { return NetKeyPair::Generate().SecretHex(); }
+
+	std::string NetworkSession::PublicKeyOf(const std::string &secretKeyHex)
+	{
+		NetKeyPair k;
+		return NetKeyPair::FromSecretHex(secretKeyHex, k) ? k.PublicHex() : std::string();
+	}
+
+	void NetworkSession::SendSecure(const PeerId peer, const uint32 channel, const void* data, const size_t length)
+	{
+		NetCipher* cipher = NULL;
+		if (role == Server)
+		{
+			std::map<PeerId, std::unique_ptr<ClientState> >::iterator c = clients.find(peer);
+			if (c != clients.end()) cipher = &c->second->cipher;
+		}
+		else cipher = &secure->cipher;
+		if (!cipher || !cipher->Ready()) { transport.Send(peer, channel, data, length); return; }
+		std::vector<uchar> sealed;
+		cipher->Seal((const uchar*)data, length, sealed);
+		transport.Send(peer, channel, sealed.data(), sealed.size());
+	}
+
 	NetworkSession::NetworkSession(SceneGraph* scene, const std::string &scenePath, IPhysics* physics, sol::state* lua)
-		: scene(scene), scenePath(scenePath), physics(physics), lua(lua)
+		: scene(scene), scenePath(scenePath), physics(physics), lua(lua), secure(new Secure())
 	{
 		std::random_device rd;
 		token = ((uint64)rd() << 32) ^ (uint64)rd();
@@ -181,6 +217,9 @@ namespace p3d {
 		if (role != Offline) return false;
 		settings = s;
 		if (!transport.Host(port, s.maxClients)) return false;
+		secure->longTerm = NetKeyPair();
+		if (!s.serverSecretKey.empty() && !NetKeyPair::FromSecretHex(s.serverSecretKey, secure->longTerm))
+			echo("WARNING: NetworkSession - serverSecretKey is not 64 hex characters; hosting without a long-term key");
 		role = Server;
 		localPeer = 0;
 		welcomed = true;
@@ -220,7 +259,7 @@ namespace p3d {
 		NetWriter w;
 		w.U8(Msg::Reject);
 		w.String(reason);
-		transport.Send(peer, NetChannel::Reliable, w.data.data(), w.Size());
+		SendSecure(peer, NetChannel::Reliable, w.data.data(), w.Size());
 		transport.Disconnect(peer);	// after what is queued, the reason included
 	}
 
@@ -436,7 +475,7 @@ namespace p3d {
 		c.varIds[name] = id;
 		NetWriter w;
 		w.U8(Msg::VarName); w.VarU32(id); w.String(name);
-		transport.Send(c.peer, NetChannel::Reliable, w.data.data(), w.Size());
+		SendSecure(c.peer, NetChannel::Reliable, w.data.data(), w.Size());
 		return id;
 	}
 
@@ -457,7 +496,7 @@ namespace p3d {
 			w.VarU32(VarId(c, v->first));
 			WriteValue(w, v->second);
 		}
-		transport.Send(c.peer, NetChannel::Reliable, w.data.data(), w.Size());
+		SendSecure(c.peer, NetChannel::Reliable, w.data.data(), w.Size());
 		// A spawn carries the full state, reliably: that is its ack.
 		ClientState::Known k;
 		k.acked = true;
@@ -472,7 +511,7 @@ namespace p3d {
 		NetWriter w;
 		w.U8(Msg::Despawn);
 		w.VarU32(netId);
-		transport.Send(c.peer, NetChannel::Reliable, w.data.data(), w.Size());
+		SendSecure(c.peer, NetChannel::Reliable, w.data.data(), w.Size());
 		c.known.erase(netId);
 	}
 
@@ -483,16 +522,16 @@ namespace p3d {
 		w.String(name);
 		w.VarU32((uint32)args.size());
 		for (size_t i = 0; i < args.size(); i++) WriteValue(w, args[i]);
-		if (role == Client) transport.Send(1, NetChannel::Reliable, w.data.data(), w.Size());
+		if (role == Client) SendSecure(1, NetChannel::Reliable, w.data.data(), w.Size());
 		else if (role == Server)
 		{
 			if (target == 0)
 			{
 				// Players only: a connection still saying hello is not one.
 				for (std::map<PeerId, std::unique_ptr<ClientState> >::iterator c = clients.begin(); c != clients.end(); ++c)
-					if (c->second->welcomed) transport.Send(c->first, NetChannel::Reliable, w.data.data(), w.Size());
+					if (c->second->welcomed) SendSecure(c->first, NetChannel::Reliable, w.data.data(), w.Size());
 			}
-			else transport.Send(target, NetChannel::Reliable, w.data.data(), w.Size());
+			else SendSecure(target, NetChannel::Reliable, w.data.data(), w.Size());
 		}
 	}
 
@@ -702,7 +741,7 @@ namespace p3d {
 			if (count == 0) continue;
 			w.VarU32(count);
 			w.Bytes(body.data.data(), body.Size());
-			transport.Send(c.peer, NetChannel::Snapshot, w.data.data(), w.Size());
+			SendSecure(c.peer, NetChannel::Snapshot, w.data.data(), w.Size());
 			c.inflight[tick] = sent;
 			while (!c.inflight.empty() && c.inflight.begin()->first + kMaxInflightTicks < tick) c.inflight.erase(c.inflight.begin());
 			stats.lastSnapshotBytes = std::max(stats.lastSnapshotBytes, (uint32)w.Size());
@@ -726,7 +765,7 @@ namespace p3d {
 			w.Position(owned[i]->go->GetPosition(), settings.quantization);
 			w.Rotation(ToQuat(owned[i]->go->GetRotation()));
 		}
-		transport.Send(1, NetChannel::Unsequenced, w.data.data(), w.Size());
+		SendSecure(1, NetChannel::Unsequenced, w.data.data(), w.Size());
 	}
 
 	void NetworkSession::HandleMessage(const NetEvent &e)
@@ -750,12 +789,14 @@ namespace p3d {
 			{
 				// Who this is and what it knows: the protocol it speaks, the
 				// token that makes a reconnection recognisable, the password.
+				// A key pair for this connection only, and its public half -
+				// the one thing said in the clear.
+				secure->cipher.Reset();
+				secure->fresh = NetKeyPair::Generate();
 				NetWriter w;
 				w.U8(Msg::Hello);
 				w.U8(kProtocolVersion);
-				w.U32((uint32)(token >> 32));
-				w.U32((uint32)(token & 0xffffffffu));
-				w.String(settings.password);
+				for (int i = 0; i < 32; i++) w.U8(secure->fresh.pub[i]);
 				transport.Send(1, NetChannel::Reliable, w.data.data(), w.Size());
 			}
 			return;
@@ -785,6 +826,7 @@ namespace p3d {
 			{
 				const bool was = welcomed;
 				welcomed = false;
+				secure->cipher.Reset();
 				if (reconnecting) return;	// a failed retry: the timer goes on
 				if (was && !rejected && settings.autoReconnect)
 				{
@@ -798,25 +840,61 @@ namespace p3d {
 			}
 			return;
 		}
-		NetReader r(e.data);
+		// Sealed, once that peer has a key: what does not open with it -
+		// forged, altered, replayed, or sent in the clear - is dropped.
+		NetCipher* cipher = NULL;
+		if (role == Server)
+		{
+			std::map<PeerId, std::unique_ptr<ClientState> >::iterator c = clients.find(e.peer);
+			if (c == clients.end()) return;
+			cipher = &c->second->cipher;
+		}
+		else cipher = &secure->cipher;
+		std::vector<uchar> opened;
+		const bool sealed = cipher->Ready();
+		if (sealed && !cipher->Open(e.data.data(), e.data.size(), opened)) return;
+		NetReader r(sealed ? opened : e.data);
 		const uint8 type = r.U8();
-		if (role == Server) HandleServerMessage(e.peer, r, type);
-		else HandleClientMessage(r, type);
+		if (role == Server) HandleServerMessage(e.peer, r, type, sealed);
+		else HandleClientMessage(r, type, sealed);
 	}
 
-	void NetworkSession::HandleServerMessage(const PeerId from, NetReader &r, const uint8 type)
+	void NetworkSession::HandleServerMessage(const PeerId from, NetReader &r, const uint8 type, const bool sealed)
 	{
 		std::map<PeerId, std::unique_ptr<ClientState> >::iterator ci = clients.find(from);
 		if (ci == clients.end()) return;
 		ClientState &c = *ci->second;
 		if (!c.welcomed)
 		{
-			if (type != Msg::Hello || c.kicked) return;
-			const uint8 version = r.U8();
+			if (c.kicked) return;
+			if (!sealed)
+			{
+				// The hello: the client's fresh public key. The answer is
+				// this end's, and from here on the two only talk sealed.
+				if (type != Msg::Hello) return;
+				const uint8 version = r.U8();
+				uint8 clientPublic[32];
+				for (int i = 0; i < 32; i++) clientPublic[i] = r.U8();
+				if (!r.Ok()) { c.kicked = true; SendReject(from, "bad hello"); return; }
+				if (version != kProtocolVersion) { c.kicked = true; SendReject(from, "version mismatch"); return; }
+				const NetKeyPair fresh = NetKeyPair::Generate();
+				const bool hasLongTerm = secure->longTerm.Valid();
+				NetWriter kw;
+				kw.U8(Msg::Key);
+				for (int i = 0; i < 32; i++) kw.U8(fresh.pub[i]);
+				kw.Bool(hasLongTerm);
+				if (hasLongTerm) for (int i = 0; i < 32; i++) kw.U8(secure->longTerm.pub[i]);
+				transport.Send(from, NetChannel::Reliable, kw.data.data(), kw.Size());
+				uint8 staticShared[32];
+				if (hasLongTerm) NetSharedSecret(secure->longTerm.secret, clientPublic, staticShared);
+				c.cipher.Establish(fresh.secret, clientPublic, hasLongTerm ? staticShared : NULL, clientPublic, fresh.pub, true);
+				return;
+			}
+			// Sealed now: who it is, and the password.
+			if (type != Msg::Auth) return;
 			const uint32 hi = r.U32(), lo = r.U32();
 			const std::string password = r.String();
 			if (!r.Ok()) { c.kicked = true; SendReject(from, "bad hello"); return; }
-			if (version != kProtocolVersion) { c.kicked = true; SendReject(from, "version mismatch"); return; }
 			if (!settings.password.empty() && password != settings.password) { c.kicked = true; SendReject(from, "wrong password"); return; }
 			c.welcomed = true;
 			c.token = ((uint64)hi << 32) | lo;
@@ -839,7 +917,7 @@ namespace p3d {
 					ow.VarU32(from);
 					for (std::map<PeerId, std::unique_ptr<ClientState> >::iterator oc = clients.begin(); oc != clients.end(); ++oc)
 						if (oc->first != from && oc->second->known.count(ei->first))
-							transport.Send(oc->first, NetChannel::Reliable, ow.data.data(), ow.Size());
+							SendSecure(oc->first, NetChannel::Reliable, ow.data.data(), ow.Size());
 				}
 			}
 			NetWriter w;
@@ -848,7 +926,7 @@ namespace p3d {
 			w.F32(settings.tickRate);
 			w.VarU32((uint32)serverTick);
 			w.Bool(old != 0);
-			transport.Send(from, NetChannel::Reliable, w.data.data(), w.Size());
+			SendSecure(from, NetChannel::Reliable, w.data.data(), w.Size());
 			if (old != 0 && onPeerRejoined) onPeerRejoined(from, old);
 			else
 			{
@@ -952,8 +1030,53 @@ namespace p3d {
 		}
 	}
 
-	void NetworkSession::HandleClientMessage(NetReader &r, const uint8 type)
+	void NetworkSession::HandleClientMessage(NetReader &r, const uint8 type, const bool sealed)
 	{
+		if (!sealed)
+		{
+			// In the clear the server says only two things: no, or its key.
+			if (type == Msg::Reject)
+			{
+				lastError = r.String();
+				if (!r.Ok()) lastError = "refused";
+				rejected = true;
+				reconnecting = false;
+				if (onRejected) onRejected(lastError);
+				return;
+			}
+			if (type != Msg::Key) return;
+			uint8 serverPublic[32], longTerm[32];
+			for (int i = 0; i < 32; i++) serverPublic[i] = r.U8();
+			const bool hasLongTerm = r.Bool();
+			if (hasLongTerm) for (int i = 0; i < 32; i++) longTerm[i] = r.U8();
+			if (!r.Ok()) return;
+			// A pinned server must show the key that was pinned. Anyone can
+			// show it - but only the holder of its secret half arrives at
+			// the session key that the next message is sealed with.
+			if (!settings.serverPublicKey.empty())
+			{
+				uint8 pinned[32];
+				if (!hasLongTerm || !NetHexToKey(settings.serverPublicKey, pinned) || std::memcmp(pinned, longTerm, 32) != 0)
+				{
+					lastError = "server key mismatch";
+					rejected = true;
+					reconnecting = false;
+					transport.Disconnect(1);
+					if (onRejected) onRejected(lastError);
+					return;
+				}
+			}
+			uint8 staticShared[32];
+			if (hasLongTerm) NetSharedSecret(secure->fresh.secret, longTerm, staticShared);
+			secure->cipher.Establish(secure->fresh.secret, serverPublic, hasLongTerm ? staticShared : NULL, secure->fresh.pub, serverPublic, false);
+			NetWriter w;
+			w.U8(Msg::Auth);
+			w.U32((uint32)(token >> 32));
+			w.U32((uint32)(token & 0xffffffffu));
+			w.String(settings.password);
+			SendSecure(1, NetChannel::Reliable, w.data.data(), w.Size());
+			return;
+		}
 		switch (type)
 		{
 		case Msg::Welcome:
@@ -1174,7 +1297,7 @@ namespace p3d {
 					w.U8((uint8)std::min<size_t>(id->pending[c].input.size(), 255));
 					for (size_t a = 0; a < id->pending[c].input.size() && a < 255; a++) WriteValue(w, id->pending[c].input[a]);
 				}
-				transport.Send(1, NetChannel::Unsequenced, w.data.data(), w.Size());
+				SendSecure(1, NetChannel::Unsequenced, w.data.data(), w.Size());
 			}
 		}
 		if (made == 8) commandAccumulator = 0.0;
