@@ -434,6 +434,10 @@ namespace p3d {
 		// default automatic hazard tracking covers read-after-write
 		// between encoders without the caller doing anything.
 		virtual void BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter);
+		virtual uint32 GetMaxSamples() const;
+		// Metal resolves depth as a render-pass store action, which every
+		// Apple GPU this backend runs on supports.
+		virtual bool CanBlitResolveDepth() const { return true; }
 		virtual void CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height);
 
 	private:
@@ -890,7 +894,10 @@ namespace p3d {
 		// above) - there's no render-pass object to defer building, so
 		// every attach just updates FBORecord and the *next* real bind
 		// builds the descriptor from whatever's there right then.
-		void BeginRenderEncoderForTarget(const DeviceHandle fbo);
+		// clearDepthOnly: reopen on the same target keeping every colour
+		// attachment's contents and clearing depth - Clear()'s mid-pass
+		// depth clear, which Metal can only express as a load action.
+		void BeginRenderEncoderForTarget(const DeviceHandle fbo, const bool clearDepthOnly = false);
 		// (Re)allocates depthTexture at drawableWidth x drawableHeight -
 		// called by BindToLayer()/NotifySurfaceResized() (both know the
 		// new size already). Depth32Float, private storage (never sampled
@@ -971,6 +978,11 @@ namespace p3d {
 		void* pipelineArchive; // id<MTLBinaryArchive>, nullable - absent on older OS versions
 
 		Vec4 pendingClearColor;
+		// What SetScissorTestEnabled()/SetScissorRect() last set, so Clear()
+		// can tell a scissored clear (which a load action cannot honour)
+		// from a full one.
+		bool scissorEnabled = false;
+		uint32 lastScissor[4] = { 0, 0, 0, 0 };
 		bool frameInProgress;
 
 	};

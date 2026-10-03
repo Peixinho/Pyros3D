@@ -98,11 +98,20 @@ namespace p3d {
 		// fragile for DemoLauncher).
 		rmesh = GroupAndSortAssets(Scene, Camera);
 
-		if (rmesh.size() > 0)
+		// Cleared even with nothing to draw: TAA reads this map every frame,
+		// and an empty scene would otherwise leave it holding whatever the
+		// last scene with meshes wrote.
 		{
 
 			// Save Time
 			Timer = Scene->GetTime();
+
+			// Zero velocity where nothing is drawn. The clear colour is the
+			// scene background's, and Vulkan/Metal clear on Bind - a grey sky
+			// read back as a 0.2 UV/frame velocity.
+			IRenderDevice &dev = GetActiveRenderDevice();
+			const Vec4 sceneClear = dev.GetClearColor();
+			dev.SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
 
 			// Bind FBO (color + depth were attached once in the ctor).
 			// Re-AddAttach every frame breaks Vulkan: Bind already opens a
@@ -139,6 +148,7 @@ namespace p3d {
 			}
 
 			fbo->UnBind();
+			dev.SetClearColor(sceneClear);
 
 			EndRender();
 		}

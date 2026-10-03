@@ -508,6 +508,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return GetPostEffectAssetInfo(entry.asset).params;
 	}
 
+	p3d::AntiAliasingMode SceneEditor::WantedAntiAliasing() const
+	{
+		if (playMode && aaScriptOverride)
+			return aaScriptMode;
+		if (project != NULL && project->IsOpen())
+			return project->GetSettings().antiAliasing;
+		return ProjectSettings().antiAliasing;
+	}
+
 	void SceneEditor::RunViewportPostEffects(GameObject* viewCam, SceneGraph* scene, bool isPerspective,
 		Projection &projection, Projection &projectionOrtho)
 	{
@@ -692,8 +701,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// The viewport is an ImGui image, not a swapchain - see
 		// PostEffectsManager::SetRenderLastToTexture().
 		EffectsManager->SetRenderLastToTexture(true);
-		if (usingDeferredRenderer)
-			GetActiveRenderDevice().SetFramebufferPreserveDepth(EffectsManager->GetExternalFrameBuffer()->GetBindID(), true);
+		EffectsManager->SetCapturePreserveDepth(true);
 		// Both of the above are new and empty: rebuild the scene's chain into
 		// them. SSAO in particular lives in the renderer when it is deferred.
 		ApplyPostEffects();
@@ -853,17 +861,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// The viewport is an ImGui image, not a swapchain - see
 		// PostEffectsManager::SetRenderLastToTexture().
 		EffectsManager->SetRenderLastToTexture(true);
-		// Deferred's gizmo/grid overlay (see ShowViewport()) explicitly
-		// copies DeferredRenderer's real scene depth into this FBO's Depth
-		// attachment right before rebinding it each frame, so that bind
-		// must not clear depth back to 1.0 the way a normal capture would -
-		// must be set before ExternalFBO's render pass is first built (i.e.
-		// before any Bind()), same as DeferredRenderer.cpp does for its own
-		// lastPassFBO. Forward mode never touches this (its capture wraps
-		// the real RenderScene() call, which needs depth cleared fresh each
-		// frame like any normal draw), so left at the default there.
-		if (usingDeferredRenderer)
-			GetActiveRenderDevice().SetFramebufferPreserveDepth(EffectsManager->GetExternalFrameBuffer()->GetBindID(), true);
+		// The gizmo/grid overlay (see ShowViewport()) re-binds this FBO and
+		// depth-tests against the scene depth already in it - copied there
+		// from DeferredRenderer, or left there by Forward's own RenderScene()
+		// when a post chain ran in between. On Vulkan a bind clears depth
+		// back to 1.0 unless told otherwise, and the grid then drew straight
+		// through every object. Forward still gets a fresh depth each frame:
+		// RenderScene() clears it itself. Must be set before ExternalFBO's
+		// render pass is first built (i.e. before any Bind()), same as
+		// DeferredRenderer.cpp does for its own lastPassFBO.
+		EffectsManager->SetCapturePreserveDepth(true);
 		// Independent of the Forward/Deferred switch: it composites into
 		// whatever target the viewport is already assembling, so it is built
 		// here once and SwitchRenderer() leaves it alone.
@@ -1350,7 +1357,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// every frame for exactly this reason; whoever renders last wins, so
 		// the viewport has to state its value rather than assume it survived.
 		ApplyEnvironment();
+		// Before CaptureFrame(), which is where a changed mode is built - an
+		// MSAA switch changes which target that binds.
+		EffectsManager->SetAntiAliasing(WantedAntiAliasing(), usingDeferredRenderer);
 		EffectsManager->CaptureFrame();
+		// TAA's sub-pixel offset, for the scene pass only. Cleared once the
+		// frame is done, not straight after RenderScene(): the grid drawn
+		// below goes through RenderOverlayObject(), which needs to know the
+		// scene was jittered in order to draw itself without it.
+		Renderer->SetProjectionJitter(EffectsManager->GetProjectionJitter());
 		{
 			PYROS_PROFILE_SCOPE("Viewport.RenderScene");
 			if (isPerspective)
@@ -1376,7 +1391,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Not done when there is no chain, because then there is nothing to
 		// protect and no second image to composite: the capture is the
 		// viewport, and the overlay belongs in it.
-		const bool chainWillRun = (EffectsManager->GetNumberEffects() > 0);
+		//
+		// Anti-aliasing passes count as a chain here: TAA would smear the
+		// gizmos with the camera, and FXAA/SMAA would blur the grid lines and
+		// icon edges that are meant to stay crisp.
+		const bool chainWillRun = EffectsManager->HasPasses();
 		const bool overlayGetsOwnLayer = chainWillRun || usingDeferredRenderer;
 		if (chainWillRun && !usingDeferredRenderer)
 		{
@@ -1418,8 +1437,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			// Forward, chain already run just above. Same transparent canvas,
 			// and no depth copy needed: RenderScene() wrote this very
-			// attachment's depth, and re-binding does not clear it (which is
-			// the same thing the Deferred branch relies on for its copy).
+			// attachment's depth, and re-binding does not clear it - see
+			// SetCapturePreserveDepth() in Init().
 			GetActiveRenderDevice().SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
 			EffectsManager->CaptureFrame();
 			ClearOverlayCapture();
@@ -1594,6 +1613,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// above, before the overlay existed - see overlayGetsOwnLayer.
 		if (!(chainWillRun && !usingDeferredRenderer))
 			RunViewportPostEffects(viewCam, scene, isPerspective, projection, projectionOrtho);
+		Renderer->SetProjectionJitter(Vec2(0.f, 0.f));
 
 		void* viewportTex = NULL;
 		// DeferredRenderer::RenderScene()'s final composite always targets
@@ -2227,6 +2247,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::SetScriptRenderCamera(GameObject* go)
 	{
+		// A cut: the last frame's history was seen from somewhere else.
+		if (go != scriptRenderCamera && EffectsManager != NULL)
+			EffectsManager->ResetTemporalHistory();
 		scriptRenderCamera = go;
 		if (go && playMode)
 			echo(std::string("SUCCESS: Render camera set to \"") + go->GetName() + "\"");
@@ -3031,6 +3054,36 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Expose setRenderCamera() so scripts can override which camera renders the viewport.
 		SceneEditor* self = this;
 		(*sharedLua)["setRenderCamera"] = [self](GameObject* go) { self->SetScriptRenderCamera(go); };
+
+		// Anti-aliasing, the same four functions PyrosPlayer has. Changing it
+		// here lasts until Play stops - see aaScriptOverride.
+		(*sharedLua)["setAntiAliasing"] = [self](const std::string &name) {
+			p3d::AntiAliasingMode mode;
+			if (!p3d::AntiAliasing::FromString(name, mode))
+			{
+				echo("ERROR: setAntiAliasing: unknown mode \"" + name + "\" (off, fxaa, smaa, taa, msaa2x, msaa4x, msaa8x)");
+				return false;
+			}
+			self->aaScriptOverride = true;
+			self->aaScriptMode = mode;
+			return true;
+		};
+		(*sharedLua)["getAntiAliasing"] = [self]() {
+			return p3d::AntiAliasing::ToString(self->WantedAntiAliasing());
+		};
+		(*sharedLua)["getEffectiveAntiAliasing"] = [self]() {
+			return p3d::AntiAliasing::ToString(p3d::AntiAliasing::Resolve(self->WantedAntiAliasing(),
+				self->usingDeferredRenderer, GetActiveRenderDevice().GetMaxSamples()));
+		};
+		(*sharedLua)["getSupportedAntiAliasing"] = [self](sol::this_state s) {
+			sol::state_view lua(s);
+			sol::table t = lua.create_table();
+			const std::vector<p3d::AntiAliasingMode> modes =
+				p3d::AntiAliasing::Supported(self->usingDeferredRenderer, GetActiveRenderDevice().GetMaxSamples());
+			for (size_t i = 0; i < modes.size(); i++)
+				t[i + 1] = p3d::AntiAliasing::ToString(modes[i]);
+			return t;
+		};
 
 		// Scene transitions. Queued, not immediate: the caller is running
 		// inside a LuaComponent owned by the scene graph this tears down,
@@ -6758,6 +6811,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		gizmoDragging = false;
 		_leftMouse = false;
 		playMode = true;
+		aaScriptOverride = false;
+		if (EffectsManager != NULL)
+			EffectsManager->ResetTemporalHistory();
 		// Stopping rebuilds whatever play changed from its saved state, and a
 		// streamed cell is dropped outright - so unsaved brush edits are
 		// written now, as edited cells are.
@@ -7155,6 +7211,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// SyncPhysicsForGameObject skips while playMode is true — clear it
 		// before pushing restored transforms back into the physics world.
 		playMode = false;
+		aaScriptOverride = false;
+		if (EffectsManager != NULL)
+			EffectsManager->ResetTemporalHistory();
 
 		// Put the author's viewpoint back exactly as it was. Play drives this
 		// same camera object, so without this a Play session leaves you
@@ -8678,6 +8737,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	bool SceneEditor::LoadSceneFromFile(const std::string &path)
 	{
 		if (path.size() == 0) return false;
+		if (EffectsManager != NULL)
+			EffectsManager->ResetTemporalHistory();
 		// A camera sidecar is not a scene, whatever its extension says.
 		// Loading one used to half-succeed and leave a trail of derived
 		// files (<scene>.json.editor.lua, and a sidecar of the sidecar the
@@ -15580,7 +15641,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// Same texture ShowViewport() picks, post-effect chain included -
 			// this exists to report what is on screen, so it follows that
 			// choice rather than restating half of it.
-			Texture* src = (EffectsManager->GetNumberEffects() > 0)
+			Texture* src = EffectsManager->HasPasses()
 				? EffectsManager->GetFinalTexture()
 				: (usingDeferredRenderer
 					? static_cast<DeferredRenderer*>(Renderer)->GetColorTexture()
@@ -15602,7 +15663,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// Deferred frame - and looked exactly like the helpers had
 			// stopped rendering. This screenshot is what an agent driving
 			// the editor sees, so it has to show what the window shows.
-			if (EffectsManager->GetNumberEffects() > 0 || usingDeferredRenderer)
+			if (EffectsManager->HasPasses() || usingDeferredRenderer)
 			{
 				Texture* ov = EffectsManager->GetViewportColor();
 				if (ov != NULL && ov->GetWidth() == w && ov->GetHeight() == h)

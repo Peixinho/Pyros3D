@@ -190,6 +190,18 @@ namespace p3d {
         TextureUnits++;
     }
     
+    void IEffect::UseHDRAttachment()
+    {
+	delete fbo;
+	delete attachment;
+	fbo = new FrameBuffer();
+	fbo->SetDebugName("Post effect (HDR)");
+	attachment = new Texture();
+	attachment->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, Width, Height, false);
+	attachment->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+	fbo->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, attachment);
+    }
+
     void IEffect::Resize(const uint32 width, const uint32 height)
     {
         // Save Dimensions

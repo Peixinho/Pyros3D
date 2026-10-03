@@ -205,6 +205,8 @@ namespace p3d {
 
 		virtual void SetMultisampleEnabled(const bool enabled);
 		virtual void BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter);
+		virtual uint32 GetMaxSamples() const;
+		virtual bool CanBlitResolveDepth() const { return true; }
 		virtual void CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height);
 
 	private:

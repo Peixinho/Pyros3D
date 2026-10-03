@@ -851,6 +851,41 @@ void IRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camer
 
 }
 
+Matrix IRenderer::JitterProjection(const Matrix &m, const Vec2 &jitter)
+{
+	Matrix out = m;
+	for (uint32 c = 0; c < 4; c++)
+	{
+		out.m[c * 4 + 0] += jitter.x * m.m[c * 4 + 3];
+		out.m[c * 4 + 1] += jitter.y * m.m[c * 4 + 3];
+	}
+	return out;
+}
+
+Matrix IRenderer::ScenePassProjection(const p3d::Projection &projection) const
+{
+	if (projectionJitter.x == 0.f && projectionJitter.y == 0.f)
+		return projection.m;
+	return JitterProjection(projection.m, projectionJitter);
+}
+
+void IRenderer::RenderOverlayObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
+{
+	if (projectionJitter.x == 0.f && projectionJitter.y == 0.f)
+	{
+		RenderObject(rmesh, owner, Material);
+		return;
+	}
+	const Matrix jittered = ProjectionMatrix;
+	ProjectionMatrix = unjitteredProjectionMatrix;
+	ProjectionMatrixInverseIsDirty = true;
+	ViewProjectionMatrixIsDirty = true;
+	RenderObject(rmesh, owner, Material);
+	ProjectionMatrix = jittered;
+	ProjectionMatrixInverseIsDirty = true;
+	ViewProjectionMatrixIsDirty = true;
+}
+
 void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene)
 {
 	PreRender(Camera, Scene, 0);

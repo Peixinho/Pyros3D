@@ -5746,19 +5746,19 @@ namespace p3d {
 			// image, never re-used as a same-format attachment directly.
 			desc.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 
-			// ...except a depth attachment the caller has declared it fills
-			// itself before binding (see SetFramebufferPreserveDepth). Load
-			// it instead of clearing, and both entry and exit layouts become
-			// DEPTH_STENCIL_ATTACHMENT_OPTIMAL - that is the layout
-			// CopyDepthTexture() leaves its destination in and expects to
-			// find it in again next frame, and UNDEFINED as an initialLayout
-			// would license the driver to discard exactly the contents being
-			// preserved.
+			// ...except a depth attachment whose contents must outlive the
+			// pass (see SetFramebufferPreserveDepth): loaded instead of
+			// cleared, and entered in the same SHADER_READ_ONLY_OPTIMAL every
+			// pass leaves it in. UNDEFINED as an initialLayout would license
+			// the driver to discard exactly the contents being preserved, and
+			// resting in any other layout would break the post effects that
+			// sample this depth between two of its passes. A brand-new image
+			// is moved into that layout before its first pass - see
+			// BeginOffscreenRenderPassForTarget().
 			if (isDepth && fbo.preserveDepth)
 			{
 				desc.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
-				desc.initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
-				desc.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+				desc.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 			}
 
 			attachmentDescs.push_back(desc);
@@ -6375,8 +6375,28 @@ namespace p3d {
 		for (size_t i = 0; i < fbo.pendingAttachments.size(); i++)
 		{
 			std::map<DeviceHandle, TextureRecord>::iterator attIt = textures.find(fbo.pendingAttachments[i].textureId);
-			if (attIt != textures.end())
-				attIt->second.layoutInitialized = true;
+			if (attIt == textures.end())
+				continue;
+			// A preserved depth pass is entered in SHADER_READ_ONLY_OPTIMAL,
+			// which a never-used image is not in yet.
+			if (!attIt->second.layoutInitialized && fbo.preserveDepth
+				&& fbo.pendingAttachments[i].format == FrameBufferAttachmentFormat::Depth_Attachment
+				&& attIt->second.image != VK_NULL_HANDLE)
+			{
+				VkImageMemoryBarrier toShaderRead = {};
+				toShaderRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+				toShaderRead.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+				toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				toShaderRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toShaderRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+				toShaderRead.image = attIt->second.image;
+				toShaderRead.subresourceRange = { VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1 };
+				toShaderRead.srcAccessMask = 0;
+				toShaderRead.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+				vkCmdPipelineBarrier(offscreenCommandBuffer, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+					VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, NULL, 0, NULL, 1, &toShaderRead);
+			}
+			attIt->second.layoutInitialized = true;
 		}
 		offscreenGpuTimer = frameInProgress
 			? GpuTimerBegin(offscreenCommandBuffer, FrameProfiler::Instance().CurrentScopeName())
@@ -7285,10 +7305,9 @@ namespace p3d {
 
 		// Same "just finished being written+finalLayout-transitioned by
 		// its own render pass" reasoning as CopyDepthTexture()'s identical
-		// barrier comment - both src and dst sit in SHADER_READ_ONLY_OPTIMAL
-		// (color) or DEPTH_STENCIL_ATTACHMENT_OPTIMAL (depth) between
-		// passes on this backend.
-		VkImageLayout restLayout = aspect == VK_IMAGE_ASPECT_COLOR_BIT ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		// barrier comment - colour and depth alike sit in
+		// SHADER_READ_ONLY_OPTIMAL between passes on this backend.
+		VkImageLayout restLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		VkImageMemoryBarrier toSrcTransfer = {};
 		toSrcTransfer.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
 		toSrcTransfer.oldLayout = restLayout;
@@ -7383,6 +7402,14 @@ namespace p3d {
 		vkFreeCommandBuffers(device, commandPool, 1, &blitCmd);
 	}
 
+	uint32 VulkanRenderDevice::GetMaxSamples() const
+	{
+		for (uint32 bit = VK_SAMPLE_COUNT_64_BIT; bit > VK_SAMPLE_COUNT_1_BIT; bit >>= 1)
+			if (supportedSampleCounts & bit)
+				return bit;
+		return 1;
+	}
+
 	void VulkanRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)
 	{
 		// See IRenderDevice.h's comment on CopyDepthTexture for why this
@@ -7466,11 +7493,11 @@ namespace p3d {
 		copyRegion.extent = { width, height, 1 };
 		vkCmdCopyImage(copyCmd, srcIt->second.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstIt->second.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &copyRegion);
 
-		// src goes back to SHADER_READ_ONLY_OPTIMAL (still sampled as
-		// tDepth by the same lighting pass right after this copy runs);
-		// dst goes to DEPTH_STENCIL_ATTACHMENT_OPTIMAL, matching the
-		// initialLayout its own render pass will expect the next time
-		// it's bound as an FBO's depth attachment.
+		// Both go back to SHADER_READ_ONLY_OPTIMAL: src is still sampled as
+		// tDepth by the same lighting pass right after this copy runs, and
+		// dst is what a preserved-depth render pass expects to enter in
+		// (see BuildMultiAttachmentRenderPass()).
+		dstIt->second.layoutInitialized = true;
 		VkImageMemoryBarrier toSrcFinal = toSrcTransfer;
 		toSrcFinal.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
 		toSrcFinal.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -7479,9 +7506,9 @@ namespace p3d {
 
 		VkImageMemoryBarrier toDstFinal = toDstTransfer;
 		toDstFinal.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-		toDstFinal.newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+		toDstFinal.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
 		toDstFinal.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-		toDstFinal.dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		toDstFinal.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
 		VkImageMemoryBarrier toFinalBarriers[2] = { toSrcFinal, toDstFinal };
 		vkCmdPipelineBarrier(copyCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT, 0, 0, NULL, 0, NULL, 2, toFinalBarriers);

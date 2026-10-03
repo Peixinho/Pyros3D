@@ -1655,6 +1655,11 @@ namespace p3d {
 		for (std::vector<uint32>::const_iterator i = colorAttachmentIndices.begin(); i != colorAttachmentIndices.end(); i++)
 			BufferIDs.push_back(GL_COLOR_ATTACHMENT0 + *i);
 		GLCHECKER(glDrawBuffers((GLsizei)BufferIDs.size(), &BufferIDs[0]));
+		// FrameBuffer::Init() with a depth attachment first set the read
+		// buffer to NONE as well, and it stays that way once colour is
+		// added. A colour blit *from* such an FBO - the MSAA capture's
+		// resolve - is then silently a no-op, not an error.
+		GLCHECKER(glReadBuffer(BufferIDs[0]));
 	}
 
 	uint32 GLRenderDevice::CheckFramebufferStatus()
@@ -1771,6 +1776,24 @@ namespace p3d {
 			break;
 		};
 		GLCHECKER(glBlitFramebuffer(srcX0, srcY0, srcX1, srcY1, dstX0, dstY0, dstX1, dstY1, Mask, Filter));
+	}
+
+	uint32 GLRenderDevice::GetMaxSamples() const
+	{
+#if defined(GLES3)
+		// Texture::CreateTexture() has no multisample-texture path on ES -
+		// GL_TEXTURE_2D_MULTISAMPLE is ES 3.1, which WebGL2 does not have.
+		return 1;
+#else
+		// Multisample *textures*, colour and depth both, since that is what
+		// a resolvable capture is built from; GL_MAX_SAMPLES alone is the
+		// renderbuffer limit and can be higher.
+		GLint color = 1, depth = 1;
+		glGetIntegerv(GL_MAX_COLOR_TEXTURE_SAMPLES, &color);
+		glGetIntegerv(GL_MAX_DEPTH_TEXTURE_SAMPLES, &depth);
+		const GLint m = color < depth ? color : depth;
+		return m > 1 ? (uint32)m : 1;
+#endif
 	}
 
 	void GLRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)

@@ -176,6 +176,10 @@ protected:
 	// requested type). Does not touch project.json itself; callers decide
 	// whether/how to persist the choice.
 	void SwitchAllScenesRenderer(bool useDeferred);
+	// The project's renderer setting, as one undo step. An anti-aliasing
+	// mode the new renderer cannot run (MSAA under Deferred) is replaced by
+	// its fallback in the same step, since the settings list never offers it.
+	void SetProjectRendererType(ProjectRendererType after);
 	// Recompiles every live CustomShaderMaterial for the branch matching
 	// useDeferred: open Material Editor tabs through their own docs (whose
 	// compiledShader ownership and generated-GLSL text stay in sync),

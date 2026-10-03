@@ -10,6 +10,7 @@
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/GammaEncodeEffect.h>
+#include <Pyros3D/Rendering/PostEffects/AntiAliasingStage.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
@@ -69,6 +70,8 @@ namespace p3d {
 		ExternalFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, Color);
 
 		fullscreenVao = device->CreateVertexArray();
+
+		aaStage = new AntiAliasingStage(Width, Height);
 	}
 
 	FrameBuffer* PostEffectsManager::GetExternalFrameBuffer()
@@ -78,11 +81,112 @@ namespace p3d {
 
 	void PostEffectsManager::CaptureFrame()
 	{
-		ExternalFBO->Bind();
+		ApplyAntiAliasing();
+		boundCapture = aaStage->IsMSAA() ? aaStage->GetMultisampleFrameBuffer() : ExternalFBO;
+		boundCapture->Bind();
 	}
 	void PostEffectsManager::EndCapture()
 	{
-		ExternalFBO->UnBind();
+		if (boundCapture == NULL)
+		{
+			ExternalFBO->UnBind();
+			return;
+		}
+		FrameBuffer* const was = boundCapture;
+		boundCapture = NULL;
+		was->UnBind();
+		// Everything downstream reads the single-sample capture, so the
+		// samples are folded into it here, before any of it runs.
+		if (was != ExternalFBO)
+			aaStage->ResolveMultisample(ExternalFBO, ChainReadsDepth(), fullscreenVao);
+	}
+
+	void PostEffectsManager::ApplyAntiAliasing()
+	{
+		if (!aaStage->IsPending())
+			return;
+		Texture *velocity = NULL, *velocityDepth = NULL;
+		if (aaStage->WantsVelocity())
+		{
+			EnsureVelocityMap();
+			velocity = velocityRenderer->GetTexture();
+			velocityDepth = velocityRenderer->GetDepthTexture();
+		}
+		// Waits for the GPU before freeing anything.
+		aaStage->Apply(velocity, velocityDepth, Depth);
+		finalTexture = NULL;
+
+		// TAA may have been the only reader of the velocity pass, and that
+		// pass is a full extra draw of the scene every frame.
+		if (!aaStage->WantsVelocity() && velocityRenderer != NULL && !ChainUsesVelocity())
+		{
+			delete velocityRenderer;
+			velocityRenderer = NULL;
+		}
+	}
+
+	bool PostEffectsManager::ChainReadsDepth() const
+	{
+		for (std::vector<IEffect*>::const_iterator i = effects.begin(); i != effects.end(); i++)
+			for (std::vector<RTT::Info>::const_iterator r = (*i)->RTTOrder.begin(); r != (*i)->RTTOrder.end(); r++)
+				if ((*r).Type == RTT::Depth || ((*r).Type == RTT::CustomTexture && (*r).texture == Depth))
+					return true;
+		return false;
+	}
+
+	bool PostEffectsManager::ChainUsesVelocity() const
+	{
+		if (velocityRenderer == NULL)
+			return false;
+		Texture* const v = velocityRenderer->GetTexture();
+		for (std::vector<IEffect*>::const_iterator i = effects.begin(); i != effects.end(); i++)
+			for (std::vector<RTT::Info>::const_iterator r = (*i)->RTTOrder.begin(); r != (*i)->RTTOrder.end(); r++)
+				if ((*r).Type == RTT::CustomTexture && (*r).texture == v)
+					return true;
+		return false;
+	}
+
+	void PostEffectsManager::SetAntiAliasing(const AntiAliasingMode mode, const bool deferred)
+	{
+		aaStage->Request(mode, deferred);
+	}
+
+	AntiAliasingMode PostEffectsManager::GetAntiAliasing() const
+	{
+		return aaStage->GetRequested();
+	}
+
+	AntiAliasingMode PostEffectsManager::GetEffectiveAntiAliasing() const
+	{
+		return aaStage->GetEffective();
+	}
+
+	Vec2 PostEffectsManager::GetProjectionJitter()
+	{
+		ApplyAntiAliasing();
+		return aaStage->GetJitter();
+	}
+
+	void PostEffectsManager::ResetTemporalHistory()
+	{
+		aaStage->ResetHistory();
+	}
+
+	bool PostEffectsManager::HasPasses()
+	{
+		ApplyAntiAliasing();
+		return !effects.empty() || aaStage->HasPasses();
+	}
+
+	bool PostEffectsManager::NeedsCapture()
+	{
+		return HasPasses() || aaStage->IsMSAA();
+	}
+
+	void PostEffectsManager::SetCapturePreserveDepth(const bool preserve)
+	{
+		device->SetFramebufferPreserveDepth(ExternalFBO->GetBindID(), preserve);
+		aaStage->SetPreserveDepth(preserve);
 	}
 
 	void PostEffectsManager::Resize(const uint32 width, const uint32 height)
@@ -112,6 +216,8 @@ namespace p3d {
 		// here.
 		if (velocityRenderer != NULL)
 			velocityRenderer->Resize(Width, Height);
+
+		aaStage->Resize(Width, Height);
 
 		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
 		{
@@ -224,7 +330,7 @@ namespace p3d {
 		// Falls back to the capture on purpose - a caller showing "the result"
 		// should not have to branch on whether a chain exists, and with no chain
 		// the result IS the captured frame.
-		if (renderLastToTexture && finalTexture != NULL && !effects.empty())
+		if (renderLastToTexture && finalTexture != NULL && (!effects.empty() || aaStage->HasPasses()))
 			return finalTexture;
 		return Color;
 	}
@@ -266,16 +372,37 @@ namespace p3d {
 
 	void PostEffectsManager::ProcessPostEffects(Projection* projection)
 	{
-		if (effects.empty())
+		ApplyAntiAliasing();
+
+		// TAA, the chain, then FXAA/SMAA - see AntiAliasingStage.h for why
+		// the anti-aliasing passes sit on either side of the chain.
+		std::vector<IEffect*> run;
+		IEffect* const taaPass = aaStage->PrepareTAA(projection->m * viewMatrix, haveViewMatrix);
+		if (taaPass != NULL)
+			run.push_back(taaPass);
+		run.insert(run.end(), effects.begin(), effects.end());
+		const size_t finalStart = run.size();
+		aaStage->AppendFinalPasses(run);
+		// Something has to put the frame on the swapchain. TAA cannot be the
+		// one that does: its output is next frame's history, so it has to
+		// land in its own texture. With MSAA and nothing else, the resolved
+		// capture is the frame and only needs copying out.
+		if (!renderLastToTexture && (run.empty() ? aaStage->IsMSAA() : run.back() == taaPass))
+			run.push_back(aaStage->GetCopyPass());
+		if (run.empty())
+		{
+			finalTexture = NULL;
+			aaStage->EndFrame(false);
 			return;
+		}
 
 		// Save Near and Far Planes
 		Vec2 NearFarPlane = Vec2(projection->Near, projection->Far);
 		Vec2 ScreenDimensions = Vec2((f32)Width, (f32)Height);
 
-		// Post-effect RTT binds start at unit 0; a prior RenderScene that
-		// leaked UnitBinded would make uTex0/uTex1 point at the wrong units
-		// while the uniforms still say 0/1 (sharp colour, zero velocity).
+		// Post-effect RTT binds start at unit 0; a prior RenderScene that
+		// leaked UnitBinded would make uTex0/uTex1 point at the wrong units
+		// while the uniforms still say 0/1 (sharp colour, zero velocity).
 		Texture::ResetUnitCounter();
 
 		// "The last render target", before any effect has run, is the frame
@@ -288,7 +415,10 @@ namespace p3d {
 		// from a scene file, since "read whatever came before me" is the
 		// obvious thing for an effect to ask for and the only thing an
 		// author-supplied effect can portably ask for.
-		Texture* const sceneFrame = (sceneSource != NULL) ? sceneSource : Color;
+		//
+		// Not const: after TAA, "the frame" every chain effect means by
+		// RTT::Color is TAA's output, not the raw jittered capture.
+		Texture* sceneFrame = (sceneSource != NULL) ? sceneSource : Color;
 		LastRTT = sceneFrame;
 
 		// Each effect pass below clears its own target to transparent
@@ -414,9 +544,9 @@ namespace p3d {
 					(*i).uniform.Type = Uniforms::DataType::Vec2;
 					valuePtr = &ScreenDimensions; valueSize = sizeof(ScreenDimensions);
 					break;
-				case PostEffects::ProjectionFromScene:
-					(*i).uniform.Type = Uniforms::DataType::Matrix;
-					valuePtr = &projection->m; valueSize = sizeof(projection->m);
+				case PostEffects::ProjectionFromScene:
+					(*i).uniform.Type = Uniforms::DataType::Matrix;
+					valuePtr = &projection->m; valueSize = sizeof(projection->m);
 					break;
 				case PostEffects::ViewFromScene:
 				case PostEffects::InverseViewFromScene:
@@ -468,8 +598,8 @@ namespace p3d {
 					case PostEffects::ScreenDimensions:
 						Shader::SendUniform((*i).uniform, &ScreenDimensions, (*i).handle);
 						break;
-					case PostEffects::ProjectionFromScene:
-						Shader::SendUniform((*i).uniform, &projection->m, (*i).handle);
+					case PostEffects::ProjectionFromScene:
+						Shader::SendUniform((*i).uniform, &projection->m, (*i).handle);
 						break;
 					case PostEffects::ViewFromScene:
 					case PostEffects::InverseViewFromScene:
@@ -529,10 +659,8 @@ namespace p3d {
 					// pointing at the wrong texture two effects later.
 					if (effect->GetColorOverride() != NULL)
 						effect->GetColorOverride()->Unbind();
-					else if (sceneSource != NULL)
-						sceneSource->Unbind();
 					else
-						Color->Unbind();
+						sceneFrame->Unbind();
 					break;
 				case RTT::Depth:
 					Depth->Unbind();
@@ -556,16 +684,20 @@ namespace p3d {
 			// One short of the end normally - the last effect is the
 			// swapchain pass below. Staying offscreen means it is just
 			// another effect and the loop runs the lot.
-			const size_t offscreenCount = renderLastToTexture ? effects.size() : (effects.size() - 1);
+			const size_t offscreenCount = renderLastToTexture ? run.size() : (run.size() - 1);
 			for (size_t idx = 0; idx < offscreenCount; ++idx)
 			{
-				IEffect *effect = effects[idx];
+				IEffect *effect = run[idx];
+				if (idx == finalStart)
+					aaStage->SetFinalInput(LastRTT);
 				activeFBO = effect->fbo;
 				device->SetViewport(0, 0, effect->Width, effect->Height);
 				activeFBO->Bind();
 				drawEffect(effect, false);
 				activeFBO->UnBind();
 				LastRTT = activeFBO->GetAttachments()[0]->TexturePTR;
+				if (effect == taaPass)
+					sceneFrame = LastRTT;
 			}
 		}
 
@@ -592,10 +724,13 @@ namespace p3d {
 			finalTexture = LastRTT;
 			device->UseProgram(0);
 			device->SetClearColor(sceneClearColor);
+			aaStage->EndFrame(taaPass != NULL);
 			return;
 		}
 
-		IEffect *lastEffect = effects.back();
+		IEffect *lastEffect = run.back();
+		if (run.size() - 1 == finalStart)
+			aaStage->SetFinalInput(LastRTT);
 		// Only a frame opened here is ended here - see ForwardRenderer's
 		// ownFrame. An application that composites a HUD after the chain
 		// holds the frame open itself.
@@ -625,6 +760,7 @@ namespace p3d {
 		// See sceneClearColor's comment above - hand the scene's own clear
 		// colour back so the next frame's CaptureFrame() bind clears to it.
 		device->SetClearColor(sceneClearColor);
+		aaStage->EndFrame(taaPass != NULL);
 	}
 
 	PostEffectsManager::~PostEffectsManager()
@@ -644,6 +780,10 @@ namespace p3d {
 		{
 			delete (*i);
 		}
+
+		// Before the capture and the velocity map: its passes sample both.
+		delete aaStage;
+		aaStage = NULL;
 
 		delete ExternalFBO;
 
@@ -715,7 +855,8 @@ namespace p3d {
 		// longer contains motion blur would keep paying for a full extra
 		// draw of the scene, every frame, forever. Rebuilds happen when a
 		// scene loads or a parameter changes; frames happen always.
-		if (velocityRenderer != NULL)
+		// Unless TAA reads it - that is not part of the chain being cleared.
+		if (velocityRenderer != NULL && !aaStage->WantsVelocity())
 		{
 			delete velocityRenderer;
 			velocityRenderer = NULL;

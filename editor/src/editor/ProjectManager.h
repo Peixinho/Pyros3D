@@ -13,6 +13,7 @@
 #include <vector>
 
 #include <Pyros3D/Utils/Json/json.hpp>
+#include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
 
 struct ProjectAssetEntry {
 	std::string relativePath; // under project root, e.g. assets/models/foo.p3dm
@@ -26,6 +27,11 @@ struct ProjectSettings {
 	// Deprecated: scene scripts are scenes/<SceneName>.lua companions.
 	std::string defaultMainScript;
 	ProjectRendererType rendererType = ProjectRendererType::Forward;
+	// The game's starting anti-aliasing mode, exported to game.json; a
+	// script can change it at run time. What is stored is what was asked
+	// for - MSAA stays MSAA here even while the renderer is Deferred, so
+	// switching back to Forward does not lose the choice.
+	p3d::AntiAliasingMode antiAliasing = p3d::AntiAliasingMode::FXAA;
 	// AI Assistant panel settings (provider, baseUrl, model, apiKey, ...).
 	// Opaque JSON on purpose - the panel owns the schema. Null when the
 	// project never set one (panel falls back to its defaults).

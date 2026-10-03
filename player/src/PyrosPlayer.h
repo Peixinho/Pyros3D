@@ -30,6 +30,7 @@
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectChain.h>
+#include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
@@ -65,6 +66,10 @@ struct PlayerManifest
 	std::string title = "Pyros3D";
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
 	bool deferred = false;                 // matches ProjectSettings::rendererType
+	// The starting mode, as the project asked for it; scripts change it
+	// with setAntiAliasing(). Off when game.json predates the setting, so
+	// an older build keeps looking the way it shipped.
+	p3d::AntiAliasingMode antiAliasing = p3d::AntiAliasingMode::Off;
 	int width = 1280;
 	int height = 720;
 	bool fullscreen = false;
@@ -249,7 +254,14 @@ private:
 	// would render the scene into an FBO that nothing then presents.
 	PostEffectsManager* effectsManager;
 	void BuildPostEffectChain();
-	bool HavePostEffects() const;
+	// Whether this frame goes through the manager: a chain, or any
+	// anti-aliasing mode (MSAA included - its samples live in the capture).
+	bool HavePostEffects();
+	PostEffectsManager* EnsureEffectsManager();
+	// game.json's mode until a script calls setAntiAliasing(). Kept here, not
+	// only in the manager, because the manager does not exist until a scene
+	// or a mode needs it.
+	AntiAliasingMode antiAliasingMode;
 	// Reads a game-relative .glsl for PostEffectChain::Build; `user` is the
 	// player. Assets ship beside the binary, so this is ResolvePath().
 	static bool ReadPostEffectAsset(const std::string& path, std::string& sourceOut, void* user);

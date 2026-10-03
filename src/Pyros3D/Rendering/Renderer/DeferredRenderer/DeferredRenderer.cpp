@@ -807,7 +807,8 @@ namespace p3d {
 		// not previously needed by anything DeferredRenderer itself drew.
 		PrvProjectionMatrix = ProjectionMatrix;
 		PrvViewMatrix = ViewMatrix;
-		ProjectionMatrix = projection.m;
+		unjitteredProjectionMatrix = projection.m;
+		ProjectionMatrix = ScenePassProjection(projection);
 		NearFarPlane = Vec2(projection.Near, projection.Far);
 
 		// View Matrix and Position
@@ -1563,7 +1564,7 @@ namespace p3d {
 					};
 
 					// Universal Cache
-					ProjectionMatrix = projection.m;
+					ProjectionMatrix = ScenePassProjection(projection);
 					NearFarPlane = Vec2(projection.Near, projection.Far);
 
 				}

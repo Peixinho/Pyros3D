@@ -76,6 +76,7 @@ namespace p3d {
 	class PYROS3D_API IEffect {
 
 		friend class PostEffectsManager;
+		friend class AntiAliasingStage;
 
 	public:
 
@@ -125,6 +126,11 @@ namespace p3d {
 		// RTT to Use
 		void UseCustomTexture(Texture *texture);
 		void UseRTT(const uint32 RTT);
+
+		// Renders into RGBA16F instead of RGBA8. For a pass that runs before
+		// tonemapping and whose output is read back as HDR - an 8-bit target
+		// clips everything above 1.0 before bloom or the tonemapper see it.
+		void UseHDRAttachment();
 
 		// Shaders Strings
 		std::string FragmentShaderString;

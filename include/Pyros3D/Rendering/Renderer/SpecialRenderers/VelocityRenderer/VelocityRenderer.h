@@ -27,6 +27,9 @@ namespace p3d {
 		void Resize(const uint32 &Width, const uint32 &Height);
 		
 		Texture* GetTexture();
+		// The velocity pass's own depth, unjittered. 1.0 wherever no mesh
+		// was drawn - sky and background, which have no velocity written.
+		Texture* GetDepthTexture() { return depthMap; }
 
 	protected:
 		
