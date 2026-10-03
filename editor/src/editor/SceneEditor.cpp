@@ -11875,6 +11875,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		ImGui::InputInt("Height", &buildDialogHeight);
 		ImGui::Checkbox("Fullscreen", &buildDialogFullscreen);
 
+		// The platform to build for. Other than this machine's needs that
+		// platform's runtime as a template - present or not is said here,
+		// before the Build button is pressed.
+		{
+			static const char* platforms[] = { "This machine", "windows", "linux", "macos" };
+			int current = 0;
+			for (int i = 1; i < 4; i++) if (buildDialogPlatform == platforms[i]) current = i;
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::Combo("Platform", &current, platforms, 4)) buildDialogPlatform = current == 0 ? std::string() : platforms[current];
+			if (!buildDialogPlatform.empty() && buildDialogPlatform != ProjectManager::HostPlatform())
+			{
+				const std::string tpl = ProjectManager::FindPlayerTemplate(buildDialogPlatform);
+				if (tpl.empty())
+					ImGui::TextColored(ImVec4(1.f, 0.75f, 0.35f, 1.f), "No %s template - run tools/fetch_templates.sh", buildDialogPlatform.c_str());
+				else
+					ImGui::TextDisabled("Template: %s", tpl.c_str());
+			}
+		}
+
 		// The dedicated server's defaults (game.json "server"); PyrosServer's
 		// flags override them when it is started.
 		if (ImGui::CollapsingHeader("Dedicated server"))
@@ -11931,6 +11950,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			opts.fullscreen = buildDialogFullscreen;
 			opts.deferred = (project->GetSettings().rendererType == ProjectRendererType::Deferred);
 			opts.server = buildDialogServer;
+			opts.platform = buildDialogPlatform;
 
 			ProjectManager::BuildResult r = project->BuildGame(opts);
 			buildDialogError = r.error;

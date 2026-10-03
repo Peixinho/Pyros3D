@@ -249,6 +249,12 @@ public:
 		int height = 720;
 		bool fullscreen = false;
 		bool deferred = false;       // set from ProjectSettings by the caller
+		// "windows", "linux" or "macos"; empty = the machine the editor
+		// runs on. Another platform's runtime (player, server and their
+		// libraries) comes from a template folder - see
+		// FindPlayerTemplate - since this machine cannot compile it; the
+		// project's scenes, assets and scripts are the same everywhere.
+		std::string platform;
 		// What the dedicated server (PyrosServer, shipped beside the game)
 		// starts with - written to game.json's "server" block; its
 		// command-line flags still override.
@@ -276,6 +282,12 @@ public:
 		size_t filesCopied = 0;
 	};
 	BuildResult BuildGame(const BuildOptions& opts) const;
+	// The platform this editor runs on, as BuildOptions::platform names it.
+	static const char* HostPlatform();
+	// Where another platform's runtime is kept: templates/<platform>/ beside
+	// the editor or one level up, else ~/.pyros3d/templates/<platform>/
+	// (what tools/fetch_templates.sh fills from CI). Empty when not found.
+	static std::string FindPlayerTemplate(const std::string& platform);
 
 	// The three things a build needs that live outside the project: the
 	// player binary, the engine's staged shaders/ folder, and middleclass.lua.

@@ -315,6 +315,13 @@ jobs:
           cp -R resources/shaders        "$out/demolauncher/shaders"
 
           cp build/editor/PyrosBuilder   "$out/editor"
+          # The game runtime: what Build Game ships, here so a downloaded
+          # editor can build a game at all - and so another platform's
+          # editor can use this folder as its template for this one
+          # (tools/fetch_templates.sh).
+          mkdir -p "$out/player"
+          cp build/player/PyrosPlayer build/player/PyrosServer "$out/player"
+          cp build/libPyrosEngine*.so* "$out/player" 2>/dev/null || true
           cp build/editor/AssimpImporter "$out/editor"
           cp -R editor/assets            "$out/editor/assets"
           cp -R resources/shaders        "$out/editor/shaders"
@@ -353,7 +360,7 @@ jobs:
       - name: Bundle dependencies
         run: |
           chmod +x .github/scripts/bundle-linux.sh
-          ./.github/scripts/bundle-linux.sh package/demolauncher package/editor
+          ./.github/scripts/bundle-linux.sh package/demolauncher package/editor package/player
 
       - name: Record the glibc floor
         # The minimum glibc is a measured property of the binaries, not a fact

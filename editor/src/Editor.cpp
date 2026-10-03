@@ -3514,6 +3514,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		opts.width = a.value("width", 1280);
 		opts.height = a.value("height", 720);
 		opts.fullscreen = a.value("fullscreen", false);
+		opts.platform = a.value("platform", std::string());	// windows|linux|macos; empty = this machine
 		// "server": {port, maxClients, tickRate, password, reconnectGrace,
 		// maxClientSpeed} - game.json's defaults for PyrosServer.
 		if (a.contains("server") && a["server"].is_object())
@@ -3535,6 +3536,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		r["outputDir"] = br.outputDir;
 		r["files"] = br.filesCopied;
+		r["platform"] = opts.platform.empty() ? std::string(ProjectManager::HostPlatform()) : opts.platform;
 		r["warnings"] = br.warnings;
 		return r;
 	}

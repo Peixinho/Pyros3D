@@ -308,6 +308,13 @@ jobs:
           # does not link assimp and so never had it copied into build\editor.
           Copy-Item "build\tools\AssimpImporter\*.dll" "$out\editor" -ErrorAction SilentlyContinue
           Copy-Item "build\editor\*.dll"            "$out\editor" -ErrorAction SilentlyContinue
+          # The game runtime - see the Linux workflow's note. Every DLL the
+          # editor needs is a superset of what the player needs.
+          New-Item -ItemType Directory -Force -Path "$out\player" | Out-Null
+          Copy-Item "build\player\PyrosPlayer.exe" "$out\player"
+          Copy-Item "build\player\PyrosServer.exe" "$out\player"
+          Copy-Item "build\player\*.dll"           "$out\player" -ErrorAction SilentlyContinue
+          Copy-Item "$out\editor\*.dll"            "$out\player" -ErrorAction SilentlyContinue
           Copy-Item "editor\assets"                 "$out\editor\assets" -Recurse
           Copy-Item "resources\shaders"             "$out\editor\shaders" -Recurse
           # Editor.cpp loads "<PYROS_ASSET_ROOT>/assets/middleclass.lua", and
@@ -437,7 +444,7 @@ jobs:
           $systemOk = '^(api-ms-win-|ext-ms-win-|kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|comdlg32|winmm|ws2_32|opengl32|glu32|imm32|version|setupapi|cfgmgr32|crypt32|bcrypt|ncrypt|secur32|iphlpapi|dbghelp|shlwapi|rpcrt4|msvcrt|ucrtbase|dwmapi|uxtheme|hid|wldap32|normaliz|d3d\d+|dxgi|vulkan-1|mfplat|mf|winhttp|dnsapi|powrprof)'
 
           $failed = $false
-          foreach ($dir in @("package\demolauncher", "package\editor")) {
+          foreach ($dir in @("package\demolauncher", "package\editor", "package\player")) {
             $present = @{}
             Get-ChildItem "$dir\*.dll" -ErrorAction SilentlyContinue | ForEach-Object { $present[$_.Name.ToLower()] = $true }
 

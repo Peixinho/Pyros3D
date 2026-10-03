@@ -1824,6 +1824,38 @@ std::string ProjectManager::FindPlayerBinary()
 	return std::string();
 }
 
+const char* ProjectManager::HostPlatform()
+{
+#if defined(_WIN32)
+	return "windows";
+#elif defined(__APPLE__)
+	return "macos";
+#else
+	return "linux";
+#endif
+}
+
+std::string ProjectManager::FindPlayerTemplate(const std::string& platform)
+{
+	if (platform.empty()) return std::string();
+	std::error_code ec;
+	const fs::path cwd = fs::current_path(ec);
+	std::vector<fs::path> candidates = { cwd / "templates" / platform, cwd / ".." / "templates" / platform };
+	const char* home = std::getenv("HOME");
+#ifdef _WIN32
+	if (!home) home = std::getenv("USERPROFILE");
+#endif
+	if (home) candidates.push_back(fs::path(home) / ".pyros3d" / "templates" / platform);
+	const std::string exe = platform == "windows" ? "PyrosPlayer.exe" : "PyrosPlayer";
+	for (size_t i = 0; i < candidates.size(); ++i)
+	{
+		fs::path p = fs::weakly_canonical(candidates[i], ec);
+		if (!ec && fs::exists(p / exe, ec)) return p.string();
+		ec.clear();
+	}
+	return std::string();
+}
+
 std::string ProjectManager::FindEngineShadersDir()
 {
 	std::error_code ec;
@@ -1949,8 +1981,27 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 		return r;
 	}
 
-	const std::string player = FindPlayerBinary();
-	if (player.empty())
+	// Another platform's runtime comes whole from its template folder.
+	const bool foreign = !opts.platform.empty() && opts.platform != HostPlatform();
+	std::string templateDir;
+	if (foreign)
+	{
+		if (opts.platform != "windows" && opts.platform != "linux" && opts.platform != "macos")
+		{
+			r.error = "Unknown platform '" + opts.platform + "' - windows, linux or macos";
+			return r;
+		}
+		templateDir = FindPlayerTemplate(opts.platform);
+		if (templateDir.empty())
+		{
+			r.error = "No " + opts.platform + " player template. Run tools/fetch_templates.sh (it downloads them from CI) "
+				"or put that platform's PyrosPlayer, PyrosServer and libraries in ~/.pyros3d/templates/" + opts.platform + "/";
+			return r;
+		}
+	}
+
+	const std::string player = foreign ? std::string() : FindPlayerBinary();
+	if (!foreign && player.empty())
 	{
 		r.error = "PyrosPlayer not found. Build it first (-DBUILD_PLAYER=ON) - "
 			"it is the runtime the game ships with.";
@@ -1959,6 +2010,29 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 
 	fs::create_directories(out, ec);
 	if (ec) { r.error = "Could not create " + out.string() + ": " + ec.message(); return r; }
+
+	if (foreign)
+	{
+		// Everything in the template: the player, the server, the engine
+		// library and whatever they load.
+		for (fs::recursive_directory_iterator it(templateDir, ec), end; it != end && !ec; it.increment(ec))
+		{
+			if (!it->is_regular_file(ec)) continue;
+			const fs::path rel = it->path().lexically_relative(templateDir);
+			const fs::path dst = out / rel;
+			fs::create_directories(dst.parent_path(), ec);
+			fs::remove(dst, ec);
+			fs::copy_file(it->path(), dst, fs::copy_options::overwrite_existing, ec);
+			if (ec) { r.error = "Could not copy " + rel.string() + " from the " + opts.platform + " template: " + ec.message(); return r; }
+			// Unix runtimes have no extension to say they are programs.
+			if (opts.platform != "windows" && !it->path().has_extension())
+				fs::permissions(dst, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec, fs::perm_options::add, ec);
+			++r.filesCopied;
+			ec.clear();
+		}
+	}
+	else
+	{
 
 	// ---- the runtime ----
 	const fs::path playerDst = out / fs::path(player).filename();
@@ -2030,6 +2104,7 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	if (!engineCopied)
 		r.warnings.push_back("The engine library was not found next to the player - if this build "
 			"does not launch elsewhere, copy libPyrosEngine beside the executable.");
+	}	// the host's own runtime
 
 	// ---- engine shaders ----
 	const std::string shaders = FindEngineShadersDir();
@@ -2072,6 +2147,7 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	manifest["width"] = opts.width;
 	manifest["height"] = opts.height;
 	manifest["fullscreen"] = opts.fullscreen;
+	manifest["platform"] = foreign ? opts.platform : std::string(HostPlatform());
 	if (!opts.server.publicKey.empty()) manifest["serverPublicKey"] = opts.server.publicKey;
 	manifest["server"] = { { "port", opts.server.port }, { "maxClients", opts.server.maxClients }, { "tickRate", opts.server.tickRate },
 		{ "password", opts.server.password }, { "reconnectGrace", opts.server.reconnectGrace }, { "maxClientSpeed", opts.server.maxClientSpeed } };
