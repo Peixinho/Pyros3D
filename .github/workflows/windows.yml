@@ -308,13 +308,12 @@ jobs:
           # does not link assimp and so never had it copied into build\editor.
           Copy-Item "build\tools\AssimpImporter\*.dll" "$out\editor" -ErrorAction SilentlyContinue
           Copy-Item "build\editor\*.dll"            "$out\editor" -ErrorAction SilentlyContinue
-          # The game runtime - see the Linux workflow's note. Every DLL the
-          # editor needs is a superset of what the player needs.
+          # The game runtime - see the Linux workflow's note. Its DLLs are
+          # copied at the end of this step, once the editor's are all in.
           New-Item -ItemType Directory -Force -Path "$out\player" | Out-Null
           Copy-Item "build\player\PyrosPlayer.exe" "$out\player"
           Copy-Item "build\player\PyrosServer.exe" "$out\player"
           Copy-Item "build\player\*.dll"           "$out\player" -ErrorAction SilentlyContinue
-          Copy-Item "$out\editor\*.dll"            "$out\player" -ErrorAction SilentlyContinue
           Copy-Item "editor\assets"                 "$out\editor\assets" -Recurse
           Copy-Item "resources\shaders"             "$out\editor\shaders" -Recurse
           # Editor.cpp loads "<PYROS_ASSET_ROOT>/assets/middleclass.lua", and
@@ -379,6 +378,11 @@ jobs:
             Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\demolauncher" -ErrorAction SilentlyContinue
             Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\editor"       -ErrorAction SilentlyContinue
           }
+
+          # The player's DLLs, last: by now the editor's folder holds the
+          # engine, vcpkg's runtime, the MSVC runtime and shaderc - a
+          # superset of what the player and the server import.
+          Copy-Item "$out\editor\*.dll" "$out\player" -Force -ErrorAction SilentlyContinue
 
           # Both executables resolve "assets/..." and "shaders/..." against the
           # working directory, so they have to be started from their own
