@@ -269,7 +269,7 @@ jobs:
           # replication session (over loopback: real sockets, real
           # timing). PYROS_NETWORKING is the engine's PUBLIC define,
           # which a hand-built consumer has to repeat.
-          for t in asset_streamer world_streamer heightfield foliage paintable_image net_transport net_session net_join; do
+          for t in asset_streamer world_streamer heightfield foliage paintable_image net_transport net_session net_join net_rendezvous; do
             echo "--- $t ---"
             c++ $CF -DPYROS_NETWORKING -I src/Pyros3D/Ext/box3d/include \
               tools/tests/$t.cpp -o /tmp/$t $LD

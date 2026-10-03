@@ -95,6 +95,15 @@ namespace p3d {
 		bool IsConnected() const;		// client: joined; server: hosting
 		uint32 PeerCount() const;
 		bool GetStats(const PeerId peer, NetPeerStats &out) const;
+		// Meeting through NAT - see NetRendezvous.h. A host announces `name`
+		// to the rendezvous service (and keeps doing so); a client asks the
+		// service for the name and connects to wherever it says, giving up
+		// - a Disconnected event - after a few seconds without an answer.
+		bool Register(const std::string &rendezvousAddress, const uint16 rendezvousPort, const std::string &name);
+		bool ConnectVia(const std::string &rendezvousAddress, const uint16 rendezvousPort, const std::string &name);
+		// Host: the service has acknowledged the announcement.
+		bool IsRegistered() const;
+
 		// Every payload as it goes out (true) and comes in (false), exactly
 		// as it is on the wire - for a traffic meter, or a test that wants
 		// to know what an eavesdropper would read. Not for game logic.

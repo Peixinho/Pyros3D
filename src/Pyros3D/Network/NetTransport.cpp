@@ -5,9 +5,11 @@
 //============================================================================
 
 #include <Pyros3D/Network/NetTransport.h>
+#include <Pyros3D/Network/NetRendezvous.h>
 #include <Pyros3D/Core/Logs/Log.h>
 
 #include <algorithm>
+#include <cstring>
 #include <chrono>
 #include <deque>
 #include <map>
@@ -51,6 +53,61 @@ namespace p3d {
 			return (uint64)std::chrono::duration_cast<std::chrono::milliseconds>(
 				std::chrono::steady_clock::now().time_since_epoch()).count();
 		}
+
+		// ---- rendezvous datagrams (see NetRendezvous.h) ----
+		// Raw UDP on the game's own socket, told apart from ENet's by this
+		// prefix; one type byte follows.
+		const char kRvMagic[8] = { 'P', 'Y', 'R', 'O', 'S', 'R', 'V', '1' };
+		namespace Rv {
+			enum {
+				Register = 'R',	// host -> service: name
+				Ack = 'A',		// service -> host
+				Taken = 'T',	// service -> host: another host holds that name
+				Query = 'Q',	// client -> service: name
+				HostAt = 'H',	// service -> client: the host's address
+				NoHost = 'N',	// service -> client: nobody by that name
+				Punch = 'P',	// service -> host: a client's address, send toward it
+				Hole = 'X'		// host -> client: carries nothing; opens the host's router
+			};
+		}
+		const size_t kRvHeader = sizeof(kRvMagic) + 1;
+		const size_t kRvNameMax = 64;
+
+		bool IsRv(const uchar* data, const size_t n) { return n >= kRvHeader && std::memcmp(data, kRvMagic, sizeof(kRvMagic)) == 0; }
+
+		void RvSend(const ENetSocket socket, const ENetAddress &to, const uint8 type, const void* payload = NULL, const size_t n = 0)
+		{
+			uchar packet[kRvHeader + kRvNameMax];
+			if (n > kRvNameMax) return;
+			std::memcpy(packet, kRvMagic, sizeof(kRvMagic));
+			packet[sizeof(kRvMagic)] = type;
+			if (n) std::memcpy(packet + kRvHeader, payload, n);
+			ENetBuffer b;
+			b.data = packet;
+			b.dataLength = kRvHeader + n;
+			enet_socket_send(socket, &to, &b, 1);
+		}
+
+		// An address as six bytes: ENet keeps the host in network order
+		// already, the port goes low byte first.
+		void RvPutAddress(uchar out[6], const ENetAddress &a)
+		{
+			std::memcpy(out, &a.host, 4);
+			out[4] = (uchar)(a.port & 0xff);
+			out[5] = (uchar)(a.port >> 8);
+		}
+		ENetAddress RvGetAddress(const uchar in[6])
+		{
+			ENetAddress a;
+			std::memcpy(&a.host, in, 4);
+			a.port = (enet_uint16)(in[4] | (in[5] << 8));
+			return a;
+		}
+		bool SameAddress(const ENetAddress &a, const ENetAddress &b) { return a.host == b.host && a.port == b.port; }
+
+		// ENet's intercept callback is given the host and nothing else.
+		std::mutex g_hostsMutex;
+		std::map<ENetHost*, void*> g_hosts;
 	}
 
 	struct NetTransport::Impl
@@ -72,6 +129,147 @@ namespace p3d {
 		uint32 latencyMs = 0, jitterMs = 0;
 		f32 loss = 0.f;
 		std::mt19937 rng{ 12345u };
+
+		// Rendezvous - see NetRendezvous.h.
+		struct RvPacket { ENetAddress from; std::vector<uchar> data; };
+		std::vector<RvPacket> rvInbox;		// filled by Intercept, inside enet_host_service
+		bool rvActive = false, rvRegistered = false, rvAsking = false, rvWarned = false;
+		ENetAddress rvService;
+		std::string rvName;
+		uint64 rvNextSend = 0, rvDeadline = 0;
+		struct Punch { ENetAddress to; int remaining; uint64 next; };
+		std::vector<Punch> punches;
+
+		static int ENET_CALLBACK Intercept(ENetHost* host, ENetEvent*)
+		{
+			if (!IsRv(host->receivedData, host->receivedDataLength)) return 0;
+			std::lock_guard<std::mutex> lock(g_hostsMutex);
+			std::map<ENetHost*, void*>::iterator it = g_hosts.find(host);
+			if (it != g_hosts.end())
+			{
+				Impl* self = (Impl*)it->second;
+				// Bounded: these are a handful a second at most when honest.
+				if (self->rvInbox.size() < 64)
+				{
+					RvPacket pkt;
+					pkt.from = host->receivedAddress;
+					pkt.data.assign(host->receivedData, host->receivedData + host->receivedDataLength);
+					self->rvInbox.push_back(pkt);
+				}
+			}
+			return 1;	// never ENet's to parse
+		}
+
+		void Watch()
+		{
+			std::lock_guard<std::mutex> lock(g_hostsMutex);
+			g_hosts[host] = this;
+			host->intercept = &Impl::Intercept;
+		}
+
+		void Unwatch()
+		{
+			std::lock_guard<std::mutex> lock(g_hostsMutex);
+			g_hosts.erase(host);
+		}
+
+		void Rendezvous(std::vector<NetEvent> &out)
+		{
+			if (!rvActive) { rvInbox.clear(); return; }
+			const uint64 now = NowMs();
+			std::vector<RvPacket> inbox;
+			inbox.swap(rvInbox);
+			for (size_t i = 0; i < inbox.size(); i++)
+			{
+				const RvPacket &pkt = inbox[i];
+				// Only the service is listened to: anyone else saying "send
+				// toward this address" would be using this host to knock on
+				// a stranger's door.
+				if (!SameAddress(pkt.from, rvService)) continue;
+				const uint8 type = pkt.data[sizeof(kRvMagic)];
+				const uchar* body = pkt.data.data() + kRvHeader;
+				const size_t n = pkt.data.size() - kRvHeader;
+				if (server)
+				{
+					if (type == Rv::Ack) rvRegistered = true;
+					else if (type == Rv::Taken && !rvWarned)
+					{
+						rvWarned = true;
+						echo("WARNING: NetTransport - the rendezvous name '" + rvName + "' is held by another host");
+					}
+					else if (type == Rv::Punch && n >= 6 && punches.size() < 64)
+					{
+						Punch p;
+						p.to = RvGetAddress(body);
+						p.remaining = 4;
+						p.next = now;
+						punches.push_back(p);
+					}
+				}
+				else if (rvAsking)
+				{
+					if (type == Rv::HostAt && n >= 6)
+					{
+						rvAsking = false;
+						const ENetAddress at = RvGetAddress(body);
+						// ENet's own connect attempts, repeated, are this
+						// side's half of the punch.
+						ENetPeer* p = enet_host_connect(host, &at, NetChannel::Count, 0);
+						if (p) { p->data = (void*)(uintptr_t)1; peers[1] = p; }
+						else rvDeadline = now;	// fall through to "could not"
+					}
+					else if (type == Rv::NoHost) { rvAsking = false; rvDeadline = now; }
+				}
+			}
+			if (server)
+			{
+				// Announce - and, by doing so, keep the router's door to
+				// the service open: every 5 s once acknowledged.
+				if (now >= rvNextSend)
+				{
+					RvSend(host->socket, rvService, Rv::Register, rvName.data(), rvName.size());
+					rvNextSend = now + (rvRegistered ? 5000 : 1000);
+				}
+				for (size_t i = 0; i < punches.size();)
+				{
+					if (now >= punches[i].next)
+					{
+						RvSend(host->socket, punches[i].to, Rv::Hole);
+						punches[i].next = now + 150;
+						if (--punches[i].remaining <= 0) { punches.erase(punches.begin() + i); continue; }
+					}
+					++i;
+				}
+			}
+			else if (rvAsking)
+			{
+				if (now >= rvDeadline) rvAsking = false;
+				else if (now >= rvNextSend)
+				{
+					RvSend(host->socket, rvService, Rv::Query, rvName.data(), rvName.size());
+					rvNextSend = now + 500;
+				}
+			}
+			// The service never answered, knew no such host, or the
+			// connect could not start: to whoever is waiting, a connection
+			// that did not happen.
+			if (!server && !rvAsking && rvDeadline != 0 && !PeerOf(1))
+			{
+				rvDeadline = 0;
+				NetEvent e;
+				e.type = NetEvent::Disconnected;
+				e.peer = 1;
+				out.push_back(e);
+			}
+			else if (!server && !rvAsking && PeerOf(1)) rvDeadline = 0;
+		}
+
+		static bool Resolve(const std::string &name, const uint16 port, ENetAddress &out)
+		{
+			if (enet_address_set_host(&out, name.c_str()) != 0) return false;
+			out.port = port;
+			return true;
+		}
 
 		static PeerId IdOf(ENetPeer* p) { return (PeerId)(uintptr_t)p->data; }
 
@@ -215,7 +413,47 @@ namespace p3d {
 				break;
 			}
 		}
+		impl->Rendezvous(out);
 	}
+
+	bool NetTransport::Register(const std::string &rendezvousAddress, const uint16 rendezvousPort, const std::string &name)
+	{
+		if (!impl->host || !impl->server || name.empty() || name.size() > kRvNameMax) return false;
+		if (!Impl::Resolve(rendezvousAddress, rendezvousPort, impl->rvService))
+		{
+			echo("ERROR: NetTransport - could not resolve the rendezvous service " + rendezvousAddress);
+			return false;
+		}
+		impl->rvName = name;
+		impl->rvActive = true;
+		impl->rvRegistered = impl->rvWarned = false;
+		impl->rvNextSend = 0;
+		impl->Watch();
+		return true;
+	}
+
+	bool NetTransport::ConnectVia(const std::string &rendezvousAddress, const uint16 rendezvousPort, const std::string &name)
+	{
+		if (!impl->initialised || impl->host || name.empty() || name.size() > kRvNameMax) return false;
+		ENetAddress service;
+		if (!Impl::Resolve(rendezvousAddress, rendezvousPort, service))
+		{
+			echo("ERROR: NetTransport - could not resolve the rendezvous service " + rendezvousAddress);
+			return false;
+		}
+		impl->host = enet_host_create(NULL, 1, NetChannel::Count, 0, 0);
+		if (!impl->host) return false;
+		impl->server = false;
+		impl->rvService = service;
+		impl->rvName = name;
+		impl->rvActive = impl->rvAsking = true;
+		impl->rvNextSend = 0;
+		impl->rvDeadline = NowMs() + 5000;
+		impl->Watch();
+		return true;
+	}
+
+	bool NetTransport::IsRegistered() const { return impl->rvActive && impl->rvRegistered; }
 
 	bool NetTransport::Send(const PeerId peer, const uint32 channel, const void* data, const size_t length)
 	{
@@ -268,8 +506,13 @@ namespace p3d {
 		for (std::map<PeerId, ENetPeer*>::const_iterator it = impl->peers.begin(); it != impl->peers.end(); ++it)
 			enet_peer_disconnect_now(it->second, 0);
 		enet_host_flush(impl->host);
+		impl->Unwatch();
 		enet_host_destroy(impl->host);
 		impl->host = NULL;
+		impl->rvActive = impl->rvRegistered = impl->rvAsking = false;
+		impl->rvDeadline = 0;
+		impl->rvInbox.clear();
+		impl->punches.clear();
 		impl->peers.clear();
 		impl->bytes.clear();
 		impl->delayed.clear();
@@ -327,7 +570,118 @@ namespace p3d {
 		impl->loss = std::min(std::max(loss, 0.f), 1.f);
 	}
 
+	// ---- the service ----
+
+	struct NetRendezvous::Impl
+	{
+		bool initialised = false, open = false;
+		ENetSocket socket = ENET_SOCKET_NULL;
+		struct Entry { ENetAddress at; uint64 heard; };
+		std::map<std::string, Entry> hosts;
+	};
+
+	NetRendezvous::NetRendezvous() : impl(new Impl()) { impl->initialised = AcquireENet(); }
+
+	NetRendezvous::~NetRendezvous()
+	{
+		Stop();
+		if (impl->initialised) ReleaseENet();
+		delete impl;
+	}
+
+	bool NetRendezvous::Start(const uint16 port)
+	{
+		if (!impl->initialised || impl->open) return false;
+		impl->socket = enet_socket_create(ENET_SOCKET_TYPE_DATAGRAM);
+		if (impl->socket == ENET_SOCKET_NULL) return false;
+		ENetAddress any;
+		any.host = ENET_HOST_ANY;
+		any.port = port;
+		if (enet_socket_bind(impl->socket, &any) != 0)
+		{
+			enet_socket_destroy(impl->socket);
+			impl->socket = ENET_SOCKET_NULL;
+			return false;
+		}
+		enet_socket_set_option(impl->socket, ENET_SOCKOPT_NONBLOCK, 1);
+		impl->open = true;
+		return true;
+	}
+
+	void NetRendezvous::Stop()
+	{
+		if (!impl->open) return;
+		enet_socket_destroy(impl->socket);
+		impl->socket = ENET_SOCKET_NULL;
+		impl->open = false;
+		impl->hosts.clear();
+	}
+
+	bool NetRendezvous::Running() const { return impl->open; }
+	uint32 NetRendezvous::HostCount() const { return (uint32)impl->hosts.size(); }
+
+	void NetRendezvous::Update()
+	{
+		if (!impl->open) return;
+		const uint64 now = NowMs();
+		uchar packet[256];
+		// Bounded per call, so a flood cannot hold the caller here.
+		for (int i = 0; i < 512; i++)
+		{
+			ENetAddress from;
+			ENetBuffer b;
+			b.data = packet;
+			b.dataLength = sizeof(packet);
+			const int n = enet_socket_receive(impl->socket, &from, &b, 1);
+			if (n <= 0) break;
+			if (!IsRv(packet, (size_t)n)) continue;
+			const uint8 type = packet[sizeof(kRvMagic)];
+			const std::string name((const char*)packet + kRvHeader, (size_t)n - kRvHeader);
+			if (name.empty() || name.size() > kRvNameMax) continue;
+			std::map<std::string, Impl::Entry>::iterator it = impl->hosts.find(name);
+			const bool live = it != impl->hosts.end() && now - it->second.heard < 60000;
+			if (type == Rv::Register)
+			{
+				// First come, first served, until it goes quiet.
+				if (live && !SameAddress(it->second.at, from)) { RvSend(impl->socket, from, Rv::Taken); continue; }
+				if (it == impl->hosts.end() && impl->hosts.size() >= 4096) continue;
+				Impl::Entry e;
+				e.at = from;
+				e.heard = now;
+				impl->hosts[name] = e;
+				RvSend(impl->socket, from, Rv::Ack);
+			}
+			else if (type == Rv::Query)
+			{
+				if (!live) { RvSend(impl->socket, from, Rv::NoHost); continue; }
+				// Each is told where the other is, as this service saw it.
+				uchar address[6];
+				RvPutAddress(address, it->second.at);
+				RvSend(impl->socket, from, Rv::HostAt, address, 6);
+				RvPutAddress(address, from);
+				RvSend(impl->socket, it->second.at, Rv::Punch, address, 6);
+			}
+		}
+		for (std::map<std::string, Impl::Entry>::iterator it = impl->hosts.begin(); it != impl->hosts.end();)
+		{
+			if (now - it->second.heard >= 60000) it = impl->hosts.erase(it);
+			else ++it;
+		}
+	}
+
 #else	// no UDP sockets here (the web build)
+
+	struct NetRendezvous::Impl {};
+	NetRendezvous::NetRendezvous() : impl(new Impl()) {}
+	NetRendezvous::~NetRendezvous() { delete impl; }
+	bool NetRendezvous::Start(const uint16) { return false; }
+	void NetRendezvous::Stop() {}
+	void NetRendezvous::Update() {}
+	bool NetRendezvous::Running() const { return false; }
+	uint32 NetRendezvous::HostCount() const { return 0; }
+	bool NetTransport::Register(const std::string &, const uint16, const std::string &) { return false; }
+	bool NetTransport::ConnectVia(const std::string &, const uint16, const std::string &) { return false; }
+	bool NetTransport::IsRegistered() const { return false; }
 
 	struct NetTransport::Impl {};
 	bool NetTransport::Available() { return false; }

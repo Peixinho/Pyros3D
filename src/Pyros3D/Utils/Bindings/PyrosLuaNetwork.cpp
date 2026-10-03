@@ -69,6 +69,10 @@ namespace p3d {
 			// serverSecretKey: a server's own long-term key.
 			s.serverPublicKey = x.get_or("serverKey", s.serverPublicKey);
 			s.serverSecretKey = x.get_or("serverSecretKey", s.serverSecretKey);
+			// Meeting through NAT: the rendezvous service and the name
+			// the host announces / the client asks for.
+			s.rendezvous = x.get_or("rendezvous", s.rendezvous);
+			s.sessionName = x.get_or("sessionName", s.sessionName);
 			return s;
 		}
 

@@ -95,6 +95,9 @@ public:
 	//   --connect <host>[:port]   join a server once the scene has started
 	//   --host [port]             host one (a listen server)
 	//   --password <p>            the server's password, for either
+	//   --rendezvous <host[:port]> --session <name>
+	//                             meet through NAT (NetRendezvous.h): with --host,
+	//                             announce the name; alone, join whoever holds it
 	//   --server-key <hex>        the server's public key, to pin (else game.json's
 	//                             "serverPublicKey", when it has one)
 	// A script that hosts or joins itself decides; these apply only while
@@ -284,7 +287,7 @@ private:
 	// The scene's network session, made when a script first hosts or joins
 	// (see RegisterLuaNetwork); gone with the scene.
 	std::unique_ptr<NetworkSession> network;
-	std::string launchScene, launchConnect, launchPassword, launchServerKey;
+	std::string launchScene, launchConnect, launchPassword, launchServerKey, launchRendezvous, launchSession;
 	int launchHostPort = 0;
 	bool launchNetDone = false;
 	// Sounds, emitters and autoplay clips start when their objects arrive:

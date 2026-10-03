@@ -6,6 +6,7 @@
 
 #include <Pyros3D/Network/NetworkSession.h>
 #include "NetCrypto.h"
+#include <cstdlib>
 #include <cstring>
 #include <random>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
@@ -212,11 +213,42 @@ namespace p3d {
 		Shutdown();
 	}
 
+	namespace {
+		// "host" or "host:port".
+		void SplitRendezvous(const std::string &text, std::string &host, uint16 &port)
+		{
+			host = text;
+			port = 47400;
+			const size_t colon = text.rfind(':');
+			if (colon == std::string::npos) return;
+			host = text.substr(0, colon);
+			const int p = std::atoi(text.c_str() + colon + 1);
+			if (p > 0 && p < 65536) port = (uint16)p;
+		}
+	}
+
+	bool NetworkSession::Dial()
+	{
+		if (settings.rendezvous.empty() || settings.sessionName.empty()) return transport.Connect(lastAddress, lastPort);
+		std::string service;
+		uint16 servicePort;
+		SplitRendezvous(settings.rendezvous, service, servicePort);
+		return transport.ConnectVia(service, servicePort, settings.sessionName);
+	}
+
 	bool NetworkSession::Host(const uint16 port, const Settings &s)
 	{
 		if (role != Offline) return false;
 		settings = s;
 		if (!transport.Host(port, s.maxClients)) return false;
+		if (!s.rendezvous.empty() && !s.sessionName.empty())
+		{
+			std::string service;
+			uint16 servicePort;
+			SplitRendezvous(s.rendezvous, service, servicePort);
+			if (!transport.Register(service, servicePort, s.sessionName))
+				echo("WARNING: NetworkSession - could not announce '" + s.sessionName + "' to " + s.rendezvous + "; hosting unannounced");
+		}
 		secure->longTerm = NetKeyPair();
 		if (!s.serverSecretKey.empty() && !NetKeyPair::FromSecretHex(s.serverSecretKey, secure->longTerm))
 			echo("WARNING: NetworkSession - serverSecretKey is not 64 hex characters; hosting without a long-term key");
@@ -231,13 +263,13 @@ namespace p3d {
 	{
 		if (role != Offline) return false;
 		settings = s;
-		if (!transport.Connect(address, port)) return false;
+		lastAddress = address;
+		lastPort = port;
+		if (!Dial()) return false;
 		role = Client;
 		welcomed = false;
 		rejected = false;
 		lastError.clear();
-		lastAddress = address;
-		lastPort = port;
 		return true;
 	}
 
@@ -571,7 +603,7 @@ namespace p3d {
 			}
 			nextReconnectAt = clock + 1.0;
 			transport.Shutdown();
-			transport.Connect(lastAddress, lastPort);
+			Dial();
 		}
 
 		const f64 tickLength = 1.0 / std::max(settings.tickRate, 1.f);

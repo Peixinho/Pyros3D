@@ -94,6 +94,12 @@ namespace p3d {
 		// it holds the secret.
 		std::string serverSecretKey;
 		std::string serverPublicKey;
+		// Meeting through NAT (NetRendezvous.h): with both set, a host
+		// announces sessionName to the rendezvous service ("host" or
+		// "host:port", default port 47400) and a client's Connect asks the
+		// service for that name instead of using the address it was given.
+		std::string rendezvous;
+		std::string sessionName;
 	};
 
 	class PYROS3D_API NetworkSession
@@ -293,6 +299,8 @@ namespace p3d {
 		f64 commandAccumulator = 0.0;
 		uint32 nextCommandSeq = 1;
 
+		// Client: the transport's connect - direct, or by rendezvous.
+		bool Dial();
 		void SendReject(const PeerId peer, const std::string &reason);
 		// Sealed with that peer's session key once there is one.
 		void SendSecure(const PeerId peer, const uint32 channel, const void* data, const size_t length);

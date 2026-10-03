@@ -18,6 +18,14 @@
 //               Game's dialog wrote); a flag overrides. Banned addresses
 //               are kept in bans.txt beside game.json, one a line.
 //
+//               Players hosting from home (PyrosPlayer --host) sit behind
+//               routers; --rendezvous-service [port] runs, instead of a
+//               game, the small service they meet through (see
+//               NetRendezvous.h) - on a machine with a public address.
+//               A dedicated server on a public address does not need it,
+//               though --rendezvous <host[:port]> --session <name> lets
+//               players find one by name too.
+//
 //               The server's long-term key lives in server.key beside
 //               game.json - made on the first run, never shipped to
 //               players. Its public half is printed at start (and by
@@ -38,6 +46,7 @@
 #include <Pyros3D/Utils/Streaming/WorldStreamer.h>
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
 #include <Pyros3D/Network/NetworkSession.h>
+#include <Pyros3D/Network/NetRendezvous.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
 #include <Pyros3D/Core/Logs/Log.h>
@@ -82,6 +91,28 @@ int main(int argc, char** argv)
 	// A server's log is its console; show what a player's would hide.
 	LOG::_LOG::SetLevel(LOG::Level::Info);
 
+	// --rendezvous-service [port]: no game - only the meeting point.
+	for (int i = 1; i < argc; i++)
+	{
+		if (std::string(argv[i]) != "--rendezvous-service") continue;
+		const int servicePort = (i + 1 < argc && argv[i + 1][0] != '-') ? std::atoi(argv[i + 1]) : 47400;
+		NetRendezvous service;
+		if (!service.Start((uint16)servicePort))
+		{
+			fprintf(stderr, "PyrosServer: could not open UDP port %d for the rendezvous service\n", servicePort);
+			return 1;
+		}
+		fprintf(stderr, "PyrosServer: rendezvous service on UDP port %d\n", servicePort);
+		uint32 shown = 0;
+		while (g_running)
+		{
+			service.Update();
+			if (service.HostCount() != shown) { shown = service.HostCount(); fprintf(stderr, "PyrosServer: %u host(s) announced\n", shown); }
+			std::this_thread::sleep_for(std::chrono::milliseconds(5));
+		}
+		return 0;
+	}
+
 	// The game folder: --game, else wherever game.json is found from here.
 	std::error_code ec;
 	fs::path game = Arg(argc, argv, "--game", fs::current_path(ec).string());
@@ -114,6 +145,8 @@ int main(int argc, char** argv)
 	settings.password = Arg(argc, argv, "--password", sv.value("password", std::string()));
 	settings.reconnectGrace = std::stof(Arg(argc, argv, "--reconnect-grace", std::to_string(sv.value("reconnectGrace", 30.f))));
 	settings.maxClientSpeed = std::stof(Arg(argc, argv, "--max-speed", std::to_string(sv.value("maxClientSpeed", 0.f))));
+	settings.rendezvous = Arg(argc, argv, "--rendezvous", sv.value("rendezvous", std::string()));
+	settings.sessionName = Arg(argc, argv, "--session", sv.value("sessionName", std::string()));
 	const f64 statsEvery = std::stod(Arg(argc, argv, "--stats", "0"));
 	{
 		const fs::path keyFile = game / "server.key";

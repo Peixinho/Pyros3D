@@ -141,6 +141,8 @@ void PyrosPlayer::SetLaunchArgs(int argc, char** argv)
 		else if (a == "--host") launchHostPort = hasValue ? std::atoi(argv[++i]) : 47400;
 		else if (a == "--password" && hasValue) launchPassword = argv[++i];
 		else if (a == "--server-key" && hasValue) launchServerKey = argv[++i];
+		else if (a == "--rendezvous" && hasValue) launchRendezvous = argv[++i];
+		else if (a == "--session" && hasValue) launchSession = argv[++i];
 	}
 }
 
@@ -1125,7 +1127,8 @@ void PyrosPlayer::Update()
 	// from the camera.
 	// --connect / --host, once the scene's scripts have had their start -
 	// and only if none of them has hosted or joined already.
-	if (!launchNetDone && sceneLoaded && (!launchConnect.empty() || launchHostPort > 0))
+	const bool launchByName = !launchRendezvous.empty() && !launchSession.empty();
+	if (!launchNetDone && sceneLoaded && (!launchConnect.empty() || launchHostPort > 0 || launchByName))
 	{
 		launchNetDone = true;
 		if (!network) network.reset(new NetworkSession(scene, ResolvePath(currentSceneRel), physics, &lua));
@@ -1139,6 +1142,8 @@ void PyrosPlayer::Update()
 			NetworkSettings launchSettings;
 			launchSettings.password = launchPassword;
 			launchSettings.serverPublicKey = !launchServerKey.empty() ? launchServerKey : PlayerManifestInstance().serverPublicKey;
+			launchSettings.rendezvous = launchRendezvous;
+			launchSettings.sessionName = launchSession;
 			launchSettings.autoReconnect = true;	// a dropped connection is retried
 			launchSettings.reconnectGrace = 30.f;
 			if (launchHostPort > 0) ok = network->Host((uint16)launchHostPort, launchSettings);
@@ -1151,7 +1156,7 @@ void PyrosPlayer::Update()
 				ok = network->Connect(host, (uint16)port, launchSettings);
 			}
 			std::fprintf(stderr, "PyrosPlayer: %s %s\n", launchHostPort > 0 ? "hosting on port" : "joining",
-				launchHostPort > 0 ? std::to_string(launchHostPort).c_str() : launchConnect.c_str());
+				launchHostPort > 0 ? std::to_string(launchHostPort).c_str() : (launchByName ? launchSession.c_str() : launchConnect.c_str()));
 			if (!ok) std::fprintf(stderr, "PyrosPlayer: network start failed\n");
 		}
 	}
