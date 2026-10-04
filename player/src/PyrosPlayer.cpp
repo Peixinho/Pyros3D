@@ -756,6 +756,23 @@ void PyrosPlayer::UnloadGameScene()
 {
 	if (!sceneLoaded) return;
 #ifdef LUA_BINDINGS
+	// The scripts of the scene being left are told first: destroy() is where
+	// they put away what they made. Dropping the script without it - which is
+	// what this did - left everything a script had spawned in the next scene:
+	// a title screen's helicopter, figure and sky standing in the level it
+	// had just loaded.
+	{
+		std::vector<GameObject*> all;
+		scene->CollectGameObjectsRecursive(all);
+		for (size_t i = 0; i < all.size(); i++)
+		{
+			if (!all[i]) continue;
+			const std::vector<std::shared_ptr<IComponent> > &cs = all[i]->GetComponents();
+			for (size_t c = 0; c < cs.size(); c++)
+				if (LuaComponent* lc = dynamic_cast<LuaComponent*>(cs[c].get())) lc->ResetLifecycle();
+		}
+	}
+	if (sceneMainScript) sceneMainScript->ResetLifecycle();
 	sceneMainScript.reset();
 #endif
 	// Its cells are in the scene; they go first, by the streamer's hand.
@@ -764,6 +781,9 @@ void PyrosPlayer::UnloadGameScene()
 	network.reset();
 	activeCamera = NULL;
 	SceneSerializer::UnloadScene(scene, sceneAssets);
+	// ...and whatever a script made and did not put away goes with the scene:
+	// UnloadScene() removes only what the scene file itself had loaded.
+	scene->RemoveAll();
 	sceneAssets = LoadedSceneAssets();
 	sceneLoaded = false;
 }
