@@ -41,7 +41,10 @@ namespace p3d {
 
 	class PYROS3D_API HttpService {
 	public:
-		struct Request
+		// Exported in its own right: a nested type does not take the outer
+		// class's export, and Cookie() is defined in the library. Without
+		// this a DLL build's users (PyrosServer) could not link it.
+		struct PYROS3D_API Request
 		{
 			std::string method;		// GET, POST ...
 			std::string path;		// "/api/status" - decoded, without the query
