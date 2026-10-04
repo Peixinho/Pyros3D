@@ -10,6 +10,9 @@
 //============================================================================
 
 #include "PyrosPlayer.h"
+#include <cstdio>
+#include <cstdlib>
+#include <chrono>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
@@ -33,8 +36,20 @@ int main(int argc, char** argv)
 	game->SetLaunchArgs(argc, argv);
 	game->Init();
 
+	// PYROS_QUIT_AFTER=<seconds>: the game closes itself, the way closing its
+	// window does. For checking from a script that a build starts, runs and
+	// leaves cleanly (exit code 0, no crash report) with nobody at the mouse.
+	double quitAfter = 0.0;
+	if (const char* q = std::getenv("PYROS_QUIT_AFTER")) quitAfter = std::atof(q);
+	const std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+
 	while (game->IsRunning())
 	{
+		if (quitAfter > 0.0 && std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count() > quitAfter)
+		{
+			quitAfter = 0.0;
+			game->Close();
+		}
 		FrameProfiler& prof = FrameProfiler::Instance();
 		prof.BeginFrame();
 		{
@@ -59,6 +74,12 @@ int main(int argc, char** argv)
 		GetActiveRenderDevice().WaitIdle();
 
 	game->Shutdown();
-	delete game;
-	return 0;
+	// Everything that has to be closed has been, above. What `delete game` adds
+	// is the script state's own teardown - and that runs after the window and
+	// the render device are gone: every object a script was still holding (a
+	// mesh it had made, a label) frees its buffers through no device at all,
+	// and quitting the game ended in a crash report instead of a quiet exit.
+	// The dedicated server leaves the same way, for the same reason.
+	fflush(stdout); fflush(stderr);
+	std::_Exit(0);
 }

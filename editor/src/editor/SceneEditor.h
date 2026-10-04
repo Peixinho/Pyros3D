@@ -148,6 +148,24 @@ class SceneEditor : public IUInterface {
 	// dragging inside the Material Editor kept driving the editor camera.
 	void NotifyViewportNotDrawn();
 	void ShowHierarchy();
+
+	// ---- getting to things in a big scene (SceneEditorNavigate.cpp) ---------
+	struct NavEntry
+	{
+		std::string name;
+		p3d::Vec3 position;
+		uint32 id = 0;				// its SceneObject, when it is in the scene now
+		bool inCell = false;		// in a cell of a streamed world that is not loaded
+		int32 cellX = 0, cellZ = 0;
+	};
+	void GoToPoint(const p3d::Vec3 &at, const p3d::f32 distance);
+	void FrameGameObject(p3d::GameObject* go);
+	bool FrameSelection();
+	void NavSearch(const std::string &query, std::vector<NavEntry> &out, const size_t most);
+	void NavGoTo(const NavEntry &e);
+	void DrawNavigateBar();
+	bool AgentFrameObject(const std::string &name, std::string &errOut);
+	json AgentFindObjects(const std::string &query, const size_t most);
 	virtual void ShowProperties();
 	// GameObject + Scene menus. The scene's own New/Open/Save live in the
 	// host's File menu instead - see ShowFileMenuItems.
@@ -1205,6 +1223,15 @@ public:
 	// radii and which cells exist. Round-tripped like view2D; the World
 	// panel and the agent bridge edit it.
 	SceneMeta::World sceneWorld;
+	// Navigation (SceneEditorNavigate.cpp): the search box's text and what it
+	// found, the objects of the unloaded cells (read once a scene), something
+	// travelled to that is selected when its cell has loaded, and the go-to field.
+	void BuildNavIndex();
+	std::string navQuery, navResultsFor, navResultsScene, navIndexFor, navPendingName;
+	std::vector<NavEntry> navResults, navIndex;
+	p3d::Vec3 navPendingAt;
+	int navPendingFrames = 0;
+	float navGoto[2] = { 0.f, 0.f };
 	// Streams sceneWorld's cells around the viewport camera while editing;
 	// NULL unless the scene is a streamed world.
 	std::unique_ptr<EditorWorld> editorWorld;

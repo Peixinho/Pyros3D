@@ -2631,6 +2631,32 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// Getting to things in a big scene - what the Scene Tree's search box, F and
+	// the go-to field do (SceneEditorNavigate.cpp).
+	//   frame_object {"name"}                 the view goes to it and it is selected; a cell that is not loaded is travelled to
+	//   find_objects {"query", "limit"}       names with the text in them, in the scene and in unloaded cells
+	//   goto {"x", "z", "distance"}           the view goes to a place
+	if (name == "frame_object")
+	{
+		if (!sceneView->AgentFrameObject(A("name"), err)) throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "find_objects")
+	{
+		nlohmann::json r;
+		r["objects"] = sceneView->AgentFindObjects(A("query"), (size_t)(a.is_object() ? a.value("limit", 100) : 100));
+		return r;
+	}
+	if (name == "goto")
+	{
+		if (!a.is_object() || !a.contains("x") || !a.contains("z")) throw std::runtime_error("goto needs {\"x\":..,\"z\":..}");
+		sceneView->GoToPoint(p3d::Vec3(a.value("x", 0.f), a.value("y", 0.f), a.value("z", 0.f)), a.value("distance", 0.f));
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "set_view_pivot")
 	{
 		if (!sceneView->AgentSetViewPivot(a, err)) throw std::runtime_error(err);

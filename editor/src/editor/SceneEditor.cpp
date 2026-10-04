@@ -1022,6 +1022,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// B goes to the scene's brush-edited component (its terrain, or
 			// in 2D its tile map) and back; Esc only back.
 			if (plainKey && ImGui::IsKeyPressed(ImGuiKey_B)) ToggleComponentTools();
+			// F: the view goes to what is selected (SceneEditorNavigate.cpp)
+			if (plainKey && !ImGui::GetIO().WantTextInput && ImGui::IsKeyPressed(ImGuiKey_F)) FrameSelection();
 			if (ImGui::IsKeyPressed(ImGuiKey_Escape) && (IsTerrainMode() || tilePaintMode)) LeaveComponentTools();
 			if ((ImGui::IsKeyPressed(ImGuiKey_Delete) || ImGui::IsKeyPressed(ImGuiKey_Backspace)) && !ImGui::GetIO().WantTextInput)
 				DeleteSelected();
@@ -1708,6 +1710,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::ShowHierarchy()
 	{
+		DrawNavigateBar();
+		// F with the tree in front: the view goes to what is selected
+		if (!playMode && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput
+			&& !ImGui::GetIO().KeyCtrl && !ImGui::GetIO().KeySuper && !ImGui::GetIO().KeyAlt && ImGui::IsKeyPressed(ImGuiKey_F))
+			FrameSelection();
 		ImGui::SetNextItemOpen(true);
 		if (ImGui::TreeNode("Scene"))
 		{
@@ -2059,6 +2066,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					}
 					SelectSceneObject(sceneObjects->GetSceneObject(node_clicked));
 				}
+				// double-click an object: the view goes to it
+				if ((*i).second->GetType() == SceneObjectTypes::GAMEOBJECT && (*i).second->GetID() != draggin_id
+					&& ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+					FrameGameObject((GameObject*)(*i).second->GetPTR());
 
 #ifdef LUA_BINDINGS
 				// Double-click a script component to open it in the code editor.
@@ -5930,10 +5941,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (fabsf(scale.y) < 1e-4f) scale.y = 1.f;
 				if (fabsf(scale.z) < 1e-4f) scale.z = 1.f;
 			}
-			go->SetPosition(_translation);
-			go->SetRotation(_rotation);
-			go->SetScale(scale);
-			SyncPhysicsForGameObject(go);
+			if (go)
+			{
+				go->SetPosition(_translation);
+				go->SetRotation(_rotation);
+				go->SetScale(scale);
+				SyncPhysicsForGameObject(go);
+			}
 		}
 
 		// Update Scene
@@ -8363,7 +8377,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		editorWorld->SetExtraDirty([self](const GameObject* root) {
 			return self->terrainTools && self->terrainTools->HasUnsaved(root); });
 		editorWorld->SetOnUnloading([self](GameObject* root) {
-			if (self->terrainTools) self->terrainTools->Forget(root); });
+			if (self->terrainTools) self->terrainTools->Forget(root);
+			// Whatever is selected in a cell that is going away is not selected any
+			// more: its SceneObject is about to be freed, and the transform fields,
+			// the gizmo and the properties panel would all go on using it. Moving the
+			// view a long way at once - a search result, a go-to - unloads the cell
+			// the selection was in on the very next frame.
+			GameObject* sel = self->GetSelectedOwnerGameObject();
+			for (GameObject* at = sel; at; at = at->HaveParent() ? at->GetParent() : NULL)
+			{
+				if (at != root) continue;
+				self->SelectAndFocusSceneObject(NULL);
+				self->sub_selection = -1;
+				break;
+			}
+		});
 		worldViewLiftTries = 240;
 	}
 
@@ -9443,6 +9471,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		if (shutDownDone) return;
 		shutDownDone = true;
+
+		// First of all, the world streamer. Unloading its cells takes them out of
+		// the scene, forgets them in the scene tree and asks this editor what was
+		// selected in them - so it has to go while the scene, the tree and the
+		// editor are all still whole. As a member it used to go last, after this
+		// function had deleted every one of those: closing a streamed world, or
+		// the editor with one open, crashed every time.
+		editorWorld.reset();
 
 		// All your Shutdown Code Here
 		//
