@@ -131,7 +131,9 @@ namespace p3d {
 		// PostEffectsManager-style capture-around-RenderScene() the way
 		// ForwardRenderer supports - it must read this texture directly
 		// instead.
-		Texture* GetColorTexture() const { return colorTexture; }
+		// With SSR on and the screen draw skipped this is the SSR-composited
+		// copy instead - see RenderScene()'s ssrToTexture.
+		Texture* GetColorTexture() const { return ssrOutputValid && ssrOutTexture ? ssrOutTexture : colorTexture; }
 
 		// RenderScene()'s final "Render to Screen" draw re-renders the
 		// already-finished composite (this same colorTexture, above) as one
@@ -200,6 +202,9 @@ namespace p3d {
 		// black at creation so frame 1 has no reflections rather than
 		// needing an explicit "first frame" flag.
 		Texture* previousFrameColorTexture;
+		Texture* ssrOutTexture = NULL;
+		FrameBuffer* ssrOutFBO = NULL;
+		bool ssrOutputValid = false;
 		FrameBuffer* previousFrameFBO;
 
 		// Fallback shadow-comparison textures, bound to uShadowMap

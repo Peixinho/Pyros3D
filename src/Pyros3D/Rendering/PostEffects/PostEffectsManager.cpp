@@ -529,6 +529,8 @@ namespace p3d {
 				}
 			}
 
+			effect->PreDraw();
+
 			// Send Uniforms
 			for (std::list<__UniformPostProcess>::iterator i = effect->Uniforms.begin(); i != effect->Uniforms.end(); i++)
 			{

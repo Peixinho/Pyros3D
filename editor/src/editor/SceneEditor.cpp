@@ -6,6 +6,7 @@
 // Description : Pyros Scene
 //============================================================================
 
+#include <unordered_map>
 #include <cmath>
 #include "ShortcutMod.h"
 #include <set>
@@ -1307,6 +1308,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// mode, which would have silently turned shadows off there.
 		Occluder2D::PublishSceneOccluders(scene);
 
+#ifdef LUA_BINDINGS
+		if (playMode && sceneMainScript)
+			sceneMainScript->PreRender();
+#endif
 		Renderer->PreRender(viewCam, scene);
 		Renderer->ApplyBackgroundClearColor();
 		// Same reason ApplyBackgroundClearColor() is re-asserted every frame
@@ -1452,7 +1457,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				physics2D->Step(ImGui::GetIO().DeltaTime, scene);
 			else
 				physics2D->PullTransforms();
-			if (showPhysicsDebug && debugRenderer && !playMode)
+			if (PhysicsDebugFlag() && debugRenderer && !playMode)
 				physics2D->DebugDraw(debugRenderer);
 		}
 
@@ -1463,7 +1468,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// exactly can still look wrong because a BODY is the wrong size or in
 		// the wrong place, and there is no way to tell those apart from a
 		// screenshot of the mesh alone.
-		if (showPhysicsDebug && physics)
+		if (PhysicsDebugFlag() && physics)
 			physics->RenderDebugDraw((isPerspective ? projection : projectionOrtho), viewCam);
 
 		// Outside the physics2D block: a rig does not need a physics world.
@@ -1508,6 +1513,30 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// instead, which works in the plane the content is actually in.
 			if (rGrid && rGrid->IsActive() && !sceneIsTwoD)
 				Renderer->RenderOverlayObject(rGrid->GetMeshes()[0], grid.get(), GridMaterial.get());
+
+			// Light/sound/particle/empty icons: kept off the scene layer so SSR
+			// and the post chain never see them, drawn here instead, farthest
+			// first because they blend.
+			if (editorChromeVisible && !playMode)
+			{
+				const Vec3 eye = viewCam->GetWorldPosition();
+				std::vector<std::pair<f32, IHelper*> > icons;
+				for (std::map<uint32, SceneObject*>::const_iterator hi = sceneObjects->GetList().begin();
+					hi != sceneObjects->GetList().end(); ++hi)
+				{
+					if (!hi->second || !hi->second->Helper) continue;
+					IHelper* h = (IHelper*)hi->second->Helper.get();
+					if (!h->rcomp || !h->rcomp->IsActive() || h->rcomp->GetMeshes().empty()) continue;
+					icons.push_back(std::make_pair(eye.distance(h->GetWorldPosition()), h));
+				}
+				std::sort(icons.begin(), icons.end(),
+					[](const std::pair<f32, IHelper*>& l, const std::pair<f32, IHelper*>& r) { return l.first > r.first; });
+				for (size_t hi = 0; hi < icons.size(); ++hi)
+				{
+					RenderingMesh* hm = icons[hi].second->rcomp->GetMeshes()[0];
+					if (hm && hm->Material) Renderer->RenderOverlayObject(hm, icons[hi].second, hm->Material.get());
+				}
+			}
 
 			std::vector<SceneCameraDebugEntry> sceneCameraDebugScratch;
 			BuildSceneCameraDebugList(sceneCameraDebugScratch);
@@ -2391,12 +2420,27 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// clicked, while the same click worked in a flat 3D one.
 		std::vector<GameObject*> all;
 		scene->CollectGameObjectsRecursive(all);
+		// One pass over the registry instead of one per lookup:
+		// GetSceneObjectID() is a linear scan, and a few thousand objects
+		// with a lookup each made this loop quadratic - seconds per frame,
+		// which is the stall you saw on the first frame after Stop.
+		std::unordered_map<void*, uint32> idByPtr;
+		{
+			const std::map<uint32, SceneObject*>& reg = sceneObjects->GetList();
+			idByPtr.reserve(reg.size());
+			for (std::map<uint32, SceneObject*>::const_iterator ri = reg.begin(); ri != reg.end(); ++ri)
+				if (ri->second) idByPtr.insert(std::make_pair(ri->second->GetPTR(), ri->second->GetID()));
+		}
+		auto idOf = [&](void* ptr) -> uint32 {
+			std::unordered_map<void*, uint32>::const_iterator f = idByPtr.find(ptr);
+			return f == idByPtr.end() ? 0 : f->second;
+		};
 		for (std::vector<GameObject*>::iterator it = all.begin(); it != all.end(); ++it)
 		{
 			GameObject* go = *it;
 			if (!go || IsInternalGameObject(go)) continue;
 
-			uint32 goId = sceneObjects->GetSceneObjectID(go);
+			uint32 goId = idOf(go);
 			if (IsSceneCamera(goId) && go != viewCam && editorDebugDraw->IsCameraOn(go))
 				drawIconAt(u8"\uf030", go->GetWorldPosition(), IM_COL32(0, 255, 255, 255), 22.f, goId);
 
@@ -2409,7 +2453,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				// its own scene object, so the Properties panel opens on the
 				// light rather than on its host GameObject; fall back to the
 				// GameObject when it is not.
-				uint32 pickId = sceneObjects->GetSceneObjectID(c);
+				uint32 pickId = idOf(c);
 				if (pickId == 0) pickId = goId;
 				if (dynamic_cast<DirectionalLight*>(c))
 					drawIconAt(u8"\uf185", go->GetWorldPosition(), IM_COL32(255, 220, 0, 255), 18.f, pickId);
@@ -5127,6 +5171,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (ImGui::MenuItem("Cylinder")) { OpenAddFormOnGameObject(goId, 16); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Cone")) { OpenAddFormOnGameObject(goId, 15); ImGui::CloseCurrentPopup(); }
 				if (ImGui::MenuItem("Static Plane")) { OpenAddFormOnGameObject(goId, 18); ImGui::CloseCurrentPopup(); }
+				ImGui::Separator();
+				if (ImGui::MenuItem("Mesh Collider (from model)"))
+				{
+					std::string err;
+					if (!OpAddMeshCollider(goId, err)) echo("ERROR: mesh collider - " + err);
+					ImGui::CloseCurrentPopup();
+				}
 				ImGui::EndMenu();
 			}
 			ImGui::Separator();
@@ -5314,8 +5365,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			editorDebugDraw->ToggleLightGizmos(!lightGizmos);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Radius spheres and spot cones for every light. Otherwise only the selected light component's is drawn.");
-		if (ImGui::MenuItem("Show Physics Debug", NULL, showPhysicsDebug))
-			showPhysicsDebug = !showPhysicsDebug;
+		if (ImGui::MenuItem("Show Physics Debug", NULL, PhysicsDebugFlag()))
+			PhysicsDebugFlag() = !PhysicsDebugFlag();
 		if (ImGui::MenuItem("Show World Cells", NULL, showCellGrid, sceneWorld.enabled))
 			showCellGrid = !showCellGrid;
 		// Both only mean anything in a 2D scene, so they are only offered
@@ -6863,6 +6914,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			GameObject* go = all[i];
 			if (!go || playModeExistingObjects.count(go) != 0) continue;
+			// Terrain tiles, caves and foliage blocks stream in and out on
+			// their own while the game runs. They are not a script's spawns:
+			// cutting one out here left its terrain believing the tile was
+			// still loaded, so it never came back.
+			if (go->IsTransient()) continue;
 			GameObject* parent = go->GetParent();
 			if (parent != NULL && playModeExistingObjects.count(parent) == 0) continue;
 			toRemove.push_back(go);
@@ -13787,7 +13843,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (p.contains("cellGrid") && p["cellGrid"].is_boolean())
 			showCellGrid = p["cellGrid"].get<bool>();
 		if (p.contains("physicsDebug") && p["physicsDebug"].is_boolean())
-			showPhysicsDebug = p["physicsDebug"].get<bool>();
+			PhysicsDebugFlag() = p["physicsDebug"].get<bool>();
 		if (p.contains("grid") && p["grid"].is_boolean())
 			showGrid2D = p["grid"].get<bool>();
 		// Grid, helper meshes and billboard icons together - what Play mode
@@ -14370,6 +14426,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		MarkSceneDirty();
 		PushAddCommand(obj);
 		return true;
+	}
+
+	bool SceneEditor::AgentAddMeshCollider(const std::string& name, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return false; }
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		return OpAddMeshCollider(obj->GetID(), errOut);
 	}
 
 	bool SceneEditor::AgentAddModel(const std::string& name, const std::string& modelFile, const json& p,
@@ -15192,6 +15256,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (fields.is_object() && fields.contains("reflectivity")) gm->SetReflectivity((f32)fields["reflectivity"].get<double>());
 			if (fields.is_object() && fields.contains("metallic")) gm->SetMetallic((f32)fields["metallic"].get<double>());
 			if (fields.is_object() && fields.contains("roughness")) gm->SetRoughness((f32)fields["roughness"].get<double>());
+			if (fields.is_object() && fields.contains("ssr") && fields["ssr"].is_boolean()) gm->SetSSREnabled(fields["ssr"].get<bool>());
 			if (fields.is_object() && fields.contains("alphaCutoff")) gm->SetAlphaCutoff((f32)fields["alphaCutoff"].get<double>());
 		}
 		if (fields.is_object() && fields.contains("opacity")) mat->SetOpacity((f32)fields["opacity"].get<double>());
@@ -15225,6 +15290,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			j["reflectivity"] = gm->GetReflectivity();
 			j["metallic"] = gm->GetMetallic();
 			j["roughness"] = gm->GetRoughness();
+			j["ssr"] = gm->IsSSREnabled();
 			j["alphaCutoff"] = gm->GetAlphaCutoff();
 		}
 		j["opacity"] = mat->GetOpacity();

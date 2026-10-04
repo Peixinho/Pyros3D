@@ -438,6 +438,25 @@ namespace p3d {
             if (on_destroy) { on_destroy(*this); }
         }
 
+        // Called by the host once per frame while a frame is open, just
+        // before it renders the scene. Update() runs before the frame
+        // exists, so a script that wants to render something else first (a
+        // second camera into a texture) has to do it here.
+        void PreRender()
+        {
+            if (!s_updatesEnabled || !initialized || !data.valid()) return;
+            sol::protected_function pf = data["preRender"];
+            if (!pf.valid()) return;
+            sol::protected_function_result r = pf(data);
+            if (!r.valid()) {
+                sol::error err = r;
+                echo(std::string("ERROR: LuaComponent preRender - ") + err.what());
+            }
+            // Whatever the script drew offscreen has to be readable by the
+            // passes that follow; on Vulkan it is still queued otherwise.
+            GetActiveRenderDevice().FlushOffscreenWork();
+        }
+
         // Call destroy hooks and allow Init to fire again (editor Stop Play).
         void ResetLifecycle()
         {

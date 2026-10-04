@@ -87,6 +87,12 @@ namespace p3d {
 		// it. False when no tile does.
 		static bool HeightAt(SceneGraph* scene, const f32 x, const f32 z, f32 &height);
 
+		// The four splat layer weights (summing to about one) under a world
+		// position, from the tile that holds it. False when no loaded tile
+		// does or its splat map cannot be read. Reads the painted pixels,
+		// so a stroke not yet saved counts.
+		bool SplatAt(SceneGraph* scene, const f32 x, const f32 z, f32 weights[4]);
+
 		// Heights within `radius` of (x, z): Raise/Lower by up to `amount`
 		// metres at the centre, Smooth toward the neighbourhood average,
 		// Flatten toward `target`. `hardness` as PaintableImage's. Rebuilds

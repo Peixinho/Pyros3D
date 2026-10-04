@@ -1110,6 +1110,29 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	if (command == "terrain_state")
 	{
 		out = t.State(scene);
+		// {"grid":{"x0":..,"z0":..,"step":..,"nx":..,"nz":..}}: heights in one
+		// call, row-major over z then x (null where there is no terrain).
+		// One call per sample is ~12 ms over the socket, which makes any
+		// map of the ground - a shoreline mask, a slope chart - unusable.
+		if (args.contains("grid") && args["grid"].is_object())
+		{
+			const json &g = args["grid"];
+			const f32 x0 = g.value("x0", 0.f), z0 = g.value("z0", 0.f), step = std::max(0.01f, g.value("step", 1.f));
+			const int nx = std::min(2048, std::max(1, g.value("nx", 1))), nz = std::min(2048, std::max(1, g.value("nz", 1)));
+			json rows = json::array();
+			for (int iz = 0; iz < nz; iz++)
+			{
+				json row = json::array();
+				for (int ix = 0; ix < nx; ix++)
+				{
+					f32 h;
+					if (TerrainEditor::HeightAt(scene, x0 + ix * step, z0 + iz * step, h)) row.push_back(h);
+					else row.push_back(nullptr);
+				}
+				rows.push_back(row);
+			}
+			out["grid"] = rows;
+		}
 		if (args.contains("x") && args.contains("z"))
 		{
 			f32 h;

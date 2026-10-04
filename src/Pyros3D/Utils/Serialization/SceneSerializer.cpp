@@ -1180,6 +1180,14 @@ namespace p3d {
 				PhysicsTriangleMesh* s = static_cast<PhysicsTriangleMesh*>(pc);
 				index = &s->GetIndexData(); vertex = &s->GetVertexData();
 				j["shape"] = "TriangleMesh";
+				// A collider made from the object's own model is rebuilt
+				// from it on load, like a terrain tile's height field.
+				if (s->IsFromRenderable())
+				{
+					j["type"] = "Physics";
+					j["source"] = "renderable";
+					return j;
+				}
 			}
 			j["type"] = "Physics";
 			json idx = json::array();
@@ -1720,6 +1728,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["vehicleSteering"] = v->GetVehicleSteering(); j["steeringIncrement"] = v->GetSteeringIncrement(); j["steeringClamp"] = v->GetSteeringClamp();
 			j["suspensionStiffness"] = v->GetSuspensionStiffness(); j["suspensionDamping"] = v->GetSuspensionDamping();
 			j["suspensionCompression"] = v->GetSuspensionCompression(); j["suspensionRestLength"] = v->GetSuspensionRestLength();
+			j["driveWheels"] = v->GetDriveWheels();
+			j["suspensionLower"] = v->GetSuspensionLowerLimit(); j["suspensionUpper"] = v->GetSuspensionUpperLimit();
+			if (v->HasCenterOfMass()) j["centerOfMass"] = ToJson(v->GetCenterOfMass());
 			json wheels = json::array();
 			for (size_t i = 0; i < v->GetWheels().size(); i++)
 			{
@@ -2977,6 +2988,46 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 #else
 				rc = std::make_shared<RenderingComponent>(renderable, opts);
 #endif
+				// The materials are the package's again, but which faces are
+				// drawn is the scene's to say: a model made double-sided in
+				// the editor (a building whose walls have one side) stays
+				// that way. The saved material is submesh 0's, so only the
+				// submeshes that agree with submesh 0 follow it.
+				if (mat && !rc->GetMeshes().empty() && rc->GetMeshes()[0]->Material
+					&& rc->GetMeshes()[0]->Material->GetCullFace() != mat->GetCullFace())
+				{
+					const uint32 built = rc->GetMeshes()[0]->Material->GetCullFace();
+					for (size_t m = 0; m < rc->GetMeshes().size(); m++)
+						if (rc->GetMeshes()[m]->Material && rc->GetMeshes()[m]->Material->GetCullFace() == built)
+							rc->GetMeshes()[m]->Material->SetCullFace(mat->GetCullFace());
+				}
+				// Likewise how shiny it is: an import that came in with a
+				// full white highlight and was toned down in the editor
+				// keeps the scene's value. Roughness rides along: the PBR
+				// lobe is what a deferred scene actually shows, and a
+				// package's 0 is a mirror.
+				GenericShaderMaterial* saved = dynamic_cast<GenericShaderMaterial*>(mat.get());
+				GenericShaderMaterial* first = rc->GetMeshes().empty() ? NULL : dynamic_cast<GenericShaderMaterial*>(rc->GetMeshes()[0]->Material.get());
+				if (saved && first)
+				{
+					const Vec4 builtKs = first->GetSpecular();
+					const f32 builtShine = first->GetShininess();
+					const f32 builtRough = first->GetRoughness();
+					const Vec4 &ks = saved->GetSpecular();
+					const bool differs = ks.x != builtKs.x || ks.y != builtKs.y || ks.z != builtKs.z || saved->GetShininess() != builtShine
+						|| saved->GetRoughness() != builtRough;
+					for (size_t m = 0; differs && m < rc->GetMeshes().size(); m++)
+					{
+						GenericShaderMaterial* g = dynamic_cast<GenericShaderMaterial*>(rc->GetMeshes()[m]->Material.get());
+						if (!g) continue;
+						const Vec4 &k = g->GetSpecular();
+						if (k.x != builtKs.x || k.y != builtKs.y || k.z != builtKs.z || g->GetShininess() != builtShine
+							|| g->GetRoughness() != builtRough) continue;
+						g->SetSpecular(ks);
+						g->SetShininess(saved->GetShininess());
+						g->SetRoughness(saved->GetRoughness());
+					}
+				}
 			}
 			else
 			{
@@ -3415,6 +3466,17 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				else if (!hf || !hf->GetData()) echo("WARNING: SceneSerializer - a HeightField physics component needs a terrain tile on the same object");
 				else pc = physics->CreateHeightField(hf->GetData());
 			}
+			else if (j.value("shape", std::string()) == "TriangleMesh" && j.value("source", std::string()) == "renderable")
+			{
+				// The triangles are the model's, already on this object.
+				RenderingComponent* source = NULL;
+				const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+				for (size_t c = 0; c < comps.size() && !source; c++)
+					source = dynamic_cast<RenderingComponent*>(comps[c].get());
+				if (!physics) echo("WARNING: SceneSerializer - can't rebuild a mesh collider, LoadScene() was called with physics == NULL");
+				else if (!source) echo("WARNING: SceneSerializer - a mesh collider needs a model on the same object");
+				else pc = physics->CreateTriangleMesh(source, j.value("mass", 0.0f), j.value("ghost", false));
+			}
 			else pc = DeserializePhysicsShape(j, physics);
 			if (pc) go->AddComponent(pc);
 		}
@@ -3432,6 +3494,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			v->SetVehicleSteering(j.value("vehicleSteering", 0.0f)); v->SetSteeringIncrement(j.value("steeringIncrement", 0.04f)); v->SetSteeringClamp(j.value("steeringClamp", 0.3f));
 			v->SetSuspensionStiffness(j.value("suspensionStiffness", 20.0f)); v->SetSuspensionDamping(j.value("suspensionDamping", 2.3f));
 			v->SetSuspensionCompression(j.value("suspensionCompression", 4.4f)); v->SetSuspensionRestLength(j.value("suspensionRestLength", 0.6f));
+			v->SetDriveWheels(j.value("driveWheels", (uint32)VehicleDrive::Rear));
+			v->SetSuspensionLimits(j.value("suspensionLower", -0.2f), j.value("suspensionUpper", 0.15f));
+			if (j.find("centerOfMass") != j.end()) v->SetCenterOfMass(Vec3FromJson(j["centerOfMass"]));
 			if ((j.find("wheels") != j.end()))
 			{
 				for (auto &wj : j["wheels"])

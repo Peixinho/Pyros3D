@@ -861,6 +861,12 @@ static uint32 KeyNameToCode(const std::string &nameIn)
 	if (n == "RIGHT")     return Event::Input::Keyboard::Right;
 	if (n == "UP")        return Event::Input::Keyboard::Up;
 	if (n == "DOWN")      return Event::Input::Keyboard::Down;
+	// What a first-person game holds down: without these a script's sprint,
+	// walk and free look could not be driven from the socket.
+	if (n == "LSHIFT" || n == "SHIFT")     return Event::Input::Keyboard::LShift;
+	if (n == "LCONTROL" || n == "LCTRL" || n == "CTRL") return Event::Input::Keyboard::LControl;
+	if (n == "LALT" || n == "ALT")         return Event::Input::Keyboard::LAlt;
+	if (n == "TAB")       return Event::Input::Keyboard::Tab;
 	if (n == "PAGEUP")    return Event::Input::Keyboard::PageUp;
 	if (n == "PAGEDOWN")  return Event::Input::Keyboard::PageDown;
 	// The viewport's view presets are on the numpad and were unreachable from
@@ -3235,6 +3241,16 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// The Add Component menu's Physics > Mesh Collider (from model):
+	// {"name":"House"}.
+	if (name == "add_mesh_collider")
+	{
+		if (!sceneView->AgentAddMeshCollider(A("name"), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "add_model")
 	{
 		if (!sceneView->AgentAddModel(A("name"), A("file"), a.is_object() ? a : nlohmann::json::object(), A("parent"), err))
@@ -3702,10 +3718,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		if (action == "press" || action == "release")
 		{
 			const bool down = (action == "press");
+			// {"button":"left"|"right"|"middle"}; left when omitted
+			const std::string btn = a.value("button", std::string("left"));
+			const int imBtn = btn == "right" ? 1 : (btn == "middle" ? 2 : 0);
+			const int engBtn = btn == "right" ? Event::Input::Mouse::Right
+				: (btn == "middle" ? Event::Input::Mouse::Middle : Event::Input::Mouse::Left);
 			if (ImGui::GetCurrentContext() != NULL)
-				ImGui::GetIO().AddMouseButtonEvent(0, down);
-			if (down) SetMouseButtonPressed(Event::Input::Mouse::Left);
-			else      SetMouseButtonReleased(Event::Input::Mouse::Left);
+				ImGui::GetIO().AddMouseButtonEvent(imBtn, down);
+			if (down) SetMouseButtonPressed(engBtn);
+			else      SetMouseButtonReleased(engBtn);
 		}
 		nlohmann::json r;
 		r["x"] = sx; r["y"] = sy; r["action"] = action;

@@ -244,17 +244,48 @@ namespace p3d {
 			"setSuspensionDamping", &PhysicsVehicle::SetSuspensionDamping,
 			"setSuspensionCompression", &PhysicsVehicle::SetSuspensionCompression,
 			"setSuspensionRestLength", &PhysicsVehicle::SetSuspensionRestLength,
+			// Engine and brakes act through the wheels: see PhysicsVehicle.h
+			// for what the forces mean and which way is forward.
+			"setDriveWheels", &PhysicsVehicle::SetDriveWheels,
+			"setHandBrakeForce", &PhysicsVehicle::SetHandBrakeForce,
+			"getHandBrakeForce", &PhysicsVehicle::GetHandBrakeForce,
+			"setSuspensionLimits", &PhysicsVehicle::SetSuspensionLimits,
+			"setCenterOfMass", &PhysicsVehicle::SetCenterOfMass,
 			"addWheel", &PhysicsVehicle::AddWheel,
 			"getWheelCount", [](PhysicsVehicle &v) { return (uint32)v.GetWheels().size(); },
 			"getWheelTransform", [](PhysicsVehicle &v, uint32 i) -> Matrix {
 				if (i >= v.GetWheels().size()) return Matrix();
 				return v.GetWheels()[i].Transformation;
 			},
+			"isWheelInContact", [](PhysicsVehicle &v, uint32 i) {
+				return i < v.GetWheels().size() ? v.GetWheels()[i].InContact : false;
+			},
+			// Where a wheel is relative to the chassis, for placing its model
+			// as a child of the vehicle: metres up its suspension from where
+			// it was added, and radians about its steering axis and its axle.
+			"getWheelTravel", [](PhysicsVehicle &v, uint32 i) {
+				return i < v.GetWheels().size() ? v.GetWheels()[i].Travel : 0.f;
+			},
+			"getWheelSteer", [](PhysicsVehicle &v, uint32 i) {
+				return i < v.GetWheels().size() ? v.GetWheels()[i].Steer : 0.f;
+			},
+			"getWheelSpin", [](PhysicsVehicle &v, uint32 i) {
+				return i < v.GetWheels().size() ? v.GetWheels()[i].Spin : 0.f;
+			},
+			// Radians a second on the axle; positive rolls forward.
+			"getWheelSpinSpeed", [](PhysicsVehicle &v, uint32 i) {
+				return i < v.GetWheels().size() ? v.GetWheels()[i].SpinSpeed : 0.f;
+			},
 			"isFrontWheel", [](PhysicsVehicle &v, uint32 i) {
 				return i < v.GetWheels().size() ? v.GetWheels()[i].IsFrontWheel : false;
 			},
 			sol::base_classes, sol::bases<IPhysicsComponent, IComponent>()
 			);
+
+		lua->create_named_table("VehicleDrive",
+			"Rear", (int)VehicleDrive::Rear,
+			"Front", (int)VehicleDrive::Front,
+			"All", (int)VehicleDrive::All);
 
 		(*lua)["asPhysicsVehicle"] = [](const std::shared_ptr<IPhysicsComponent> &c) -> std::shared_ptr<PhysicsVehicle> {
 			return std::dynamic_pointer_cast<PhysicsVehicle>(c);
@@ -302,7 +333,15 @@ namespace p3d {
 				"createBox", &IPhysics::CreateBox,
 				"createCapsule", &IPhysics::CreateCapsule,
 				"createCone", &IPhysics::CreateCone,
-				"createConvexHull", &IPhysics::CreateConvexHull,
+				// From a Lua array of Vec3. Bound to the C++ signature alone it
+				// wanted a std::vector userdata, which no script can make.
+				"createConvexHull", [](IPhysics &p, const sol::table &points, const f32 mass, const bool ghost) {
+					std::vector<Vec3> list;
+					list.reserve(points.size());
+					for (size_t i = 1; i <= points.size(); i++)
+						list.push_back(points.get<Vec3>(i));
+					return p.CreateConvexHull(list, mass, ghost);
+				},
 				"createCylinder", &IPhysics::CreateCylinder,
 				"createMultiplerSphere", &IPhysics::CreateMultipleSphere,
 				"createSphere", &IPhysics::CreateSphere,

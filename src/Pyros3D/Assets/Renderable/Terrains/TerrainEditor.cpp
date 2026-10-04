@@ -104,6 +104,22 @@ namespace p3d {
 		return false;
 	}
 
+	bool TerrainEditor::SplatAt(SceneGraph* scene, const f32 x, const f32 z, f32 weights[4])
+	{
+		const std::vector<TerrainTile> tiles = FindTiles(scene);
+		for (size_t i = 0; i < tiles.size(); i++)
+		{
+			if (tiles[i].distant || !tiles[i].Contains(x, z)) continue;
+			std::shared_ptr<PaintableImage> img = SplatImage(tiles[i], State(tiles[i]));
+			if (!img || img->channels < 4) continue;
+			const f32 size = tiles[i].Size();
+			for (uint32 c = 0; c < 4; c++)
+				weights[c] = img->Sample((x - tiles[i].origin.x) / size, (z - tiles[i].origin.z) / size, c);
+			return true;
+		}
+		return false;
+	}
+
 	TerrainEditor::TileState &TerrainEditor::State(const TerrainTile &tile)
 	{
 		for (size_t i = 0; i < states.size(); i++)

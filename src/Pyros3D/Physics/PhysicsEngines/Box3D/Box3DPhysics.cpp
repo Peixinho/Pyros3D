@@ -240,7 +240,10 @@ namespace p3d {
 			points.reserve(vertex.size());
 			for (size_t i = 0; i < vertex.size(); ++i)
 				points.push_back(ToB3(vertex[i]));
-			return b3CreateHull(points.data(), (int)points.size(), 0);
+			// The last argument is how many vertices the hull may keep, and
+			// Box3D clamps it up to 4: passed 0, every hull in the engine came
+			// back a tetrahedron through four of its points.
+			return b3CreateHull(points.data(), (int)points.size(), 64);
 		}
 
 	}
@@ -538,25 +541,255 @@ namespace p3d {
 		m_simulationEnabled = true;
 	}
 
-	void Box3DPhysics::ApplyVehicleMotors(IPhysicsComponent* pcomp)
+	namespace {
+
+		// A wheel's own axes in chassis space: up its suspension, and along
+		// its axle at right angles to that.
+		void WheelAxes(const VehicleWheel &wheel, b3Vec3 &up, b3Vec3 &axle)
+		{
+			up = b3Neg(ToB3(wheel.Direction));
+			up = (b3LengthSquared(up) < 1e-6f) ? b3Vec3_axisY : b3Normalize(up);
+			axle = ToB3(wheel.Axle);
+			axle = b3Sub(axle, b3MulSV(b3Dot(axle, up), up));
+			axle = (b3LengthSquared(axle) < 1e-6f) ? b3Vec3_axisX : b3Normalize(axle);
+		}
+
+		b3Pos OffsetPos(const b3Pos &p, const b3Vec3 &v)
+		{
+			b3Pos r = { p.x + v.x, p.y + v.y, p.z + v.z };
+			return r;
+		}
+
+		b3Vec3 PosDelta(const b3Pos &a, const b3Pos &b)
+		{
+			b3Vec3 r = { (float)(a.x - b.x), (float)(a.y - b.y), (float)(a.z - b.z) };
+			return r;
+		}
+
+		struct WheelRay
+		{
+			b3BodyId self;
+			float fraction;
+			b3Vec3 normal;
+			bool hit;
+		};
+
+		// The closest thing under a wheel that is not the vehicle itself.
+		float WheelRayFcn(b3ShapeId shapeId, b3Pos point, b3Vec3 normal, float fraction, uint64_t userMaterialId,
+			int triangleIndex, int childIndex, void* context)
+		{
+			(void)point; (void)userMaterialId; (void)triangleIndex; (void)childIndex;
+			WheelRay* ray = (WheelRay*)context;
+			if (b3Shape_IsSensor(shapeId)) return -1.f;
+			const b3BodyId other = b3Shape_GetBody(shapeId);
+			if (B3_ID_EQUALS(other, ray->self)) return -1.f;
+			ray->hit = true;
+			ray->fraction = fraction;
+			ray->normal = normal;
+			return fraction;
+		}
+
+		// Where a tyre meets the ground, for the friction pass.
+		struct WheelContact
+		{
+			size_t wheel;
+			b3Pos point;        // where the tyre pushes along its heading
+			b3Pos sidePoint;    // where it pushes sideways: raised toward the weight
+			b3Vec3 forward;
+			b3Vec3 side;
+			float grip;         // the most the tyre can give this step, as an impulse
+			float hold;         // the most the brake may give
+			float sideScale;
+			float longitudinal; // given so far
+			float lateral;
+		};
+
+		// What an impulse along `axis` at `point` has to move.
+		float EffectiveMass(const float invMass, const b3Matrix3 &invInertia, const b3Pos &com, const b3Pos &point, const b3Vec3 &axis)
+		{
+			const b3Vec3 arm = b3Cross(PosDelta(point, com), axis);
+			const float k = invMass + b3Dot(arm, b3MulMV(invInertia, arm));
+			return k > 1e-9f ? 1.f / k : 0.f;
+		}
+
+	}
+
+	// One step of a vehicle's wheels, run before the solver's.
+	//
+	// The wheels are rays, not bodies. A wheel that is a body on a joint is a
+	// second thing for the solver to hold together with the first: it met
+	// every lip in the ground as a wall, it was pulled off its hub in a hard
+	// corner, and it needed a mass of its own that the suspension then had to
+	// be tuned around. A ray has none of that - it only measures how far the
+	// ground is, and everything the wheel does is a force on the chassis.
+	void Box3DPhysics::StepVehicle(IPhysicsComponent* pcomp, const f32 dt)
 	{
 		if (!pcomp || pcomp->GetShape() != CollisionShapes::Vehicle) return;
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
+		const b3BodyId body = handles->body;
+		if (b3Body_GetType(body) != b3_dynamicBody) return;
 
 		PhysicsVehicle* vcomp = static_cast<PhysicsVehicle*>(pcomp);
 		std::vector<VehicleWheel> &wheels = vcomp->GetWheels();
-		const f32 steer = vcomp->GetVehicleSteering();
-		const size_t jointCount = std::min(wheels.size(), handles->wheelJoints.size());
+		const float mass = b3Body_GetMass(body);
+		if (wheels.empty() || mass <= 0.f) return;
 
-		// Only push authored steering into the joints. Drive/brake are demo-side
-		// (Lua applyCentralForce / etc.) — do not special-case propulsion here.
-		for (size_t i = 0; i < jointCount; ++i)
+		const b3Pos origin = b3Body_GetPosition(body);
+		const b3Quat rot = b3Body_GetRotation(body);
+		const b3Pos com = b3Body_GetWorldCenterOfMass(body);
+		const b3Matrix3 invInertia = b3Body_GetWorldInverseRotationalInertia(body);
+		const b3Vec3 gravity = b3World_GetGravity(m_world);
+		const float invMass = 1.f / mass;
+
+		// Each wheel carries its share of the vehicle. At its Position the
+		// spring gives exactly that share, so the vehicle rests where it was
+		// drawn, whatever it weighs and however stiff it is sprung.
+		const float share = mass / (float)wheels.size();
+		const float load = share * b3Length(gravity);
+		float hertz = vcomp->GetSuspensionStiffness();
+		if (hertz > 12.f || hertz < 0.5f) hertz = 2.f;
+		float ratio = vcomp->GetSuspensionDamping();
+		if (ratio > 1.5f || ratio < 0.05f) ratio = 0.6f;
+		const float omega = 2.f * 3.14159265358979323846f * hertz;
+		const float stiffness = share * omega * omega;
+		const float damping = 2.f * ratio * share * omega;
+		const float lower = std::min(vcomp->GetSuspensionLowerLimit(), 0.f);
+		const float upper = std::max(vcomp->GetSuspensionUpperLimit(), 0.f);
+
+		const float engine = vcomp->GetEngineForce();
+		const float brake = std::max(vcomp->GetBreakingForce(), 0.f);
+		const float handBrake = std::max(vcomp->GetHandBrakeForce(), 0.f);
+		const uint32 drive = vcomp->GetDriveWheels();
+		const float steerClamp = vcomp->GetSteeringClamp() > 0.05f ? vcomp->GetSteeringClamp() : 0.45f;
+		const float steer = std::max(-steerClamp, std::min(steerClamp, vcomp->GetVehicleSteering()));
+
+		std::vector<WheelContact> contacts;
+		contacts.reserve(wheels.size());
+
+		for (size_t i = 0; i < wheels.size(); ++i)
 		{
-			b3JointId joint = handles->wheelJoints[i];
-			if (joint.index1 == 0) continue;
-			if (wheels[i].IsFrontWheel)
-				b3WheelJoint_SetTargetSteeringAngle(joint, steer);
+			VehicleWheel &wheel = wheels[i];
+			const bool front = wheel.IsFrontWheel;
+			const float radius = wheel.Radius > 0.05f ? wheel.Radius : 0.35f;
+			wheel.Steer = front ? steer : 0.f;
+
+			b3Vec3 up, axle;
+			WheelAxes(wheel, up, axle);
+			up = b3RotateVector(rot, up);
+			axle = b3RotateVector(rot, axle);
+			b3Vec3 forward = b3Cross(axle, up);
+			if (wheel.Steer != 0.f)
+				forward = b3Add(b3MulSV(cosf(wheel.Steer), forward), b3MulSV(sinf(wheel.Steer), b3Cross(up, forward)));
+
+			// From the top of the travel, down to where the tyre would hang.
+			const b3Pos top = OffsetPos(origin, b3Add(b3RotateVector(rot, ToB3(wheel.Position)), b3MulSV(upper, up)));
+			const float reach = (upper - lower) + radius;
+			WheelRay ray;
+			ray.self = body;
+			ray.hit = false;
+			ray.fraction = 1.f;
+			ray.normal = up;
+			b3World_CastRay(m_world, top, b3MulSV(-reach, up), b3DefaultQueryFilter(), WheelRayFcn, &ray);
+
+			const bool driven = (drive == VehicleDrive::All) || ((drive == VehicleDrive::Front) == front);
+			const float hold = brake + (front ? 0.f : handBrake);
+			const bool locked = !front && handBrake > 0.f;
+
+			float push = 0.f;
+			float travel = lower;
+			b3Pos point = top;
+			if (ray.hit && b3Dot(ray.normal, up) > 0.3f)
+			{
+				const float distance = ray.fraction * reach;
+				travel = upper - (distance - radius);
+				point = OffsetPos(top, b3MulSV(-distance, up));
+				const b3Vec3 velocity = b3Body_GetWorldPointVelocity(body, point);
+				push = load + stiffness * travel - damping * b3Dot(velocity, up);
+				// past the end of its travel: the bump stop
+				if (travel > upper) push += 6.f * stiffness * (travel - upper);
+				push = std::max(0.f, std::min(push, 6.f * load));
+			}
+
+			wheel.InContact = push > 0.f;
+			if (wheel.InContact)
+			{
+				wheel.Travel = std::min(travel, upper + 0.03f);
+				b3Body_ApplyForce(body, b3MulSV(push, ray.normal), point, true);
+
+				WheelContact contact;
+				contact.wheel = i;
+				contact.point = point;
+				// On the ground: the heading without its climb, and across it.
+				b3Vec3 heading = b3Sub(forward, b3MulSV(b3Dot(forward, ray.normal), ray.normal));
+				if (b3LengthSquared(heading) < 1e-6f) continue;
+				contact.forward = b3Normalize(heading);
+				contact.side = b3Cross(ray.normal, contact.forward);
+				// A sideways push at the ground rolls the body about its
+				// weight. RollInfluence is how much of that is let through.
+				const float roll = std::max(0.f, std::min(1.f, wheel.RollInfluence));
+				const float rise = b3Dot(PosDelta(com, point), up) * (1.f - roll);
+				contact.sidePoint = OffsetPos(point, b3MulSV(std::max(rise, 0.f), up));
+				contact.grip = (wheel.Friction > 0.f ? wheel.Friction : 1.f) * push * dt;
+				contact.hold = std::min(hold * dt, contact.grip);
+				// a wheel that is not turning has no say in where it slides
+				contact.sideScale = locked ? 0.7f : 1.f;
+				contact.longitudinal = 0.f;
+				contact.lateral = 0.f;
+				if (hold <= 0.f && driven && engine != 0.f)
+				{
+					contact.longitudinal = std::max(-contact.grip, std::min(contact.grip, engine * dt));
+					b3Body_ApplyLinearImpulse(body, b3MulSV(contact.longitudinal, contact.forward), point, true);
+				}
+				contacts.push_back(contact);
+
+				const float along = b3Dot(b3Body_GetWorldPointVelocity(body, point), contact.forward);
+				wheel.SpinSpeed = locked ? 0.f : along / radius;
+			}
+			else
+			{
+				// hanging: the hub drops to the end of its travel
+				wheel.Travel = std::max(lower, wheel.Travel - 1.5f * dt);
+				if (hold > 0.f) wheel.SpinSpeed = 0.f;
+				else if (driven && engine != 0.f) wheel.SpinSpeed += (engine > 0.f ? 1.f : -1.f) * 40.f * dt;
+				else wheel.SpinSpeed *= std::max(0.f, 1.f - 0.6f * dt);
+				wheel.SpinSpeed = std::max(-90.f, std::min(90.f, wheel.SpinSpeed));
+			}
+			wheel.Spin = fmodf(wheel.Spin + wheel.SpinSpeed * dt, 2.f * 3.14159265358979323846f);
+		}
+
+		// Tyres hold the ground: sideways always, along their heading when
+		// braked. Each takes out the slip it sees - and what gravity is about
+		// to add this step, or a car parked across a hill creeps down it - as
+		// far as its grip allows. A few rounds, one wheel after another, so
+		// that four tyres on one body agree instead of each doing the whole
+		// job and the body being thrown back the other way.
+		for (int round = 0; round < 4; ++round)
+		{
+			for (size_t c = 0; c < contacts.size(); ++c)
+			{
+				WheelContact &contact = contacts[c];
+				if (contact.hold > 0.f)
+				{
+					const b3Vec3 velocity = b3Body_GetWorldPointVelocity(body, contact.point);
+					const float slip = b3Dot(velocity, contact.forward) + b3Dot(gravity, contact.forward) * dt;
+					const float wanted = contact.longitudinal
+						- EffectiveMass(invMass, invInertia, com, contact.point, contact.forward) * slip;
+					const float given = std::max(-contact.hold, std::min(contact.hold, wanted));
+					b3Body_ApplyLinearImpulse(body, b3MulSV(given - contact.longitudinal, contact.forward), contact.point, true);
+					contact.longitudinal = given;
+				}
+
+				const float room = contact.grip * contact.grip - contact.longitudinal * contact.longitudinal;
+				const float limit = (room > 0.f ? sqrtf(room) : 0.f) * contact.sideScale;
+				const b3Vec3 velocity = b3Body_GetWorldPointVelocity(body, contact.sidePoint);
+				const float slip = b3Dot(velocity, contact.side) + b3Dot(gravity, contact.side) * dt;
+				const float wanted = contact.lateral
+					- EffectiveMass(invMass, invInertia, com, contact.sidePoint, contact.side) * slip;
+				const float given = std::max(-limit, std::min(limit, wanted));
+				b3Body_ApplyLinearImpulse(body, b3MulSV(given - contact.lateral, contact.side), contact.sidePoint, true);
+				contact.lateral = given;
+			}
 		}
 	}
 
@@ -580,7 +813,7 @@ namespace p3d {
 			// Motors must be set before the solver step (DemoLauncher steps
 			// physics before Scene/Lua UpdateTransformations).
 			for (size_t i = 0; i < m_vehicles.size(); ++i)
-				ApplyVehicleMotors(m_vehicles[i]);
+				StepVehicle(m_vehicles[i], fixed);
 
 			b3World_Step(m_world, fixed, 4);
 			timeInterval -= (f64)fixed;
@@ -854,8 +1087,17 @@ namespace p3d {
 				def.vertexCount = (int)handles->meshVerts.size();
 				def.triangleCount = triCount;
 				handles->ownedMesh = b3CreateMesh(&def, NULL, 0);
+				// The vertices are the model's own: a model placed at a
+				// scale (an import in centimetres at 0.01) collides at
+				// that scale, not at the size of the file.
+				b3Vec3 meshScale = b3Vec3_one;
+				if (pcomp->GetOwner())
+				{
+					const Vec3 &s = pcomp->GetOwner()->GetScale();
+					if (s.x != 0.f && s.y != 0.f && s.z != 0.f) meshScale = { s.x, s.y, s.z };
+				}
 				if (handles->ownedMesh)
-					b3CreateMeshShape(body, &shapeDef, handles->ownedMesh, b3Vec3_one);
+					b3CreateMeshShape(body, &shapeDef, handles->ownedMesh, meshScale);
 			}
 		}
 		break;
@@ -992,15 +1234,29 @@ namespace p3d {
 			if (chassis)
 				AttachChassisShapes(chassis, handles, handles->body, shapeDef);
 
+			if (bodyDef.type == b3_dynamicBody)
+			{
+				// The chassis weighs what it was given. Density is worked out
+				// from an estimate of the shape's volume, and for a hull that
+				// estimate is 1: without this a car of 1300 kg came out at
+				// several tonnes.
+				b3MassData md = b3Body_GetMassData(handles->body);
+				if (md.mass > 1e-6f)
+				{
+					const float scale = chassisMass / md.mass;
+					md.mass = chassisMass;
+					md.inertia.cx = b3MulSV(scale, md.inertia.cx);
+					md.inertia.cy = b3MulSV(scale, md.inertia.cy);
+					md.inertia.cz = b3MulSV(scale, md.inertia.cz);
+				}
+				if (vehicle->HasCenterOfMass())
+					md.center = ToB3(vehicle->GetCenterOfMass());
+				b3Body_SetMassData(handles->body, md);
+			}
+
 			pcomp->SaveRigidBodyPTR(handles);
 			m_vehicles.push_back(pcomp);
 
-			std::vector<VehicleWheel> &wheels = vehicle->GetWheels();
-			for (uint32 i = 0; i < wheels.size(); ++i)
-			{
-				AddWheel(pcomp, wheels[i].Direction, wheels[i].Axle, wheels[i].Radius, wheels[i].Width,
-					wheels[i].Friction, wheels[i].RollInfluence, wheels[i].Position, wheels[i].IsFrontWheel);
-			}
 		}
 		else
 		{
@@ -1010,90 +1266,11 @@ namespace p3d {
 
 	void Box3DPhysics::AddWheel(IPhysicsComponent *pcomp, const Vec3 &WheelDirection, const Vec3 &WheelAxle, const f32 WheelRadius, const f32 WheelWidth, const f32 WheelFriction, const f32 WheelRollInfluence, const Vec3 &Position, bool isFrontWheel)
 	{
-		(void)WheelDirection;
-		(void)WheelWidth;
-		(void)WheelRollInfluence;
-
-		PhysicsVehicle* vehicle = static_cast<PhysicsVehicle*>(pcomp);
-		Box3DBodyHandles* handles = GetHandles(pcomp);
-		if (!handles || handles->body.index1 == 0) return;
-
-		// Sphere wheels: keep body orientation = chassis so getWheelTransform
-		// matches Bullet/mesh authorship. Put spin/suspension axes in the joint
-		// frames (Driving tips the body for cylinders — wrong for mesh spheres).
-		b3Pos chassisPos = b3Body_GetPosition(handles->body);
-		b3Quat chassisRot = b3Body_GetRotation(handles->body);
-		b3Vec3 axle = b3Normalize(ToB3(WheelAxle));
-		if (b3LengthSquared(axle) < 0.01f)
-			axle = b3Vec3_axisX;
-		b3Vec3 worldOffset = b3RotateVector(chassisRot, ToB3(Position));
-
-		b3BodyDef wheelDef = b3DefaultBodyDef();
-		wheelDef.type = b3_dynamicBody;
-		wheelDef.position.x = chassisPos.x + worldOffset.x;
-		wheelDef.position.y = chassisPos.y + worldOffset.y;
-		wheelDef.position.z = chassisPos.z + worldOffset.z;
-		wheelDef.rotation = chassisRot;
-		wheelDef.allowFastRotation = true;
-		wheelDef.enableSleep = false;
-
-		b3BodyId wheelBody = b3CreateBody(m_world, &wheelDef);
-
-		b3ShapeDef shapeDef = b3DefaultShapeDef();
-		shapeDef.density = 2.f;
-		shapeDef.baseMaterial.friction = WheelFriction > 0.1f ? WheelFriction : 3.f;
-		if (shapeDef.baseMaterial.friction < 1.5f)
-			shapeDef.baseMaterial.friction = 3.f;
-		shapeDef.enableContactEvents = true;
-
-		b3Sphere sphere;
-		sphere.center = b3Vec3_zero;
-		sphere.radius = WheelRadius > 0.05f ? WheelRadius : 0.35f;
-		b3CreateSphereShape(wheelBody, &shapeDef, &sphere);
-		b3Body_ApplyMassFromShapes(wheelBody);
-
-		b3WheelJointDef jointDef = b3DefaultWheelJointDef();
-		jointDef.base.bodyIdA = handles->body;
-		jointDef.base.bodyIdB = wheelBody;
-		jointDef.base.localFrameA.p = ToB3(Position);
-		// Suspension along chassis Y (joint X → Y).
-		jointDef.base.localFrameA.q = b3ComputeQuatBetweenUnitVectors(b3Vec3_axisX, b3Vec3_axisY);
-		jointDef.base.localFrameB.p = b3Vec3_zero;
-		// Spin around WheelAxle in body space (joint Z → axle).
-		jointDef.base.localFrameB.q = b3ComputeQuatBetweenUnitVectors(b3Vec3_axisZ, axle);
-		jointDef.base.collideConnected = false;
-
-		// Map legacy Bullet-ish suspension params into Box3D Hertz/ratio.
-		f32 hertz = vehicle->GetSuspensionStiffness();
-		if (hertz > 12.f) hertz = 4.f;
-		if (hertz < 1.f) hertz = 4.f;
-		f32 damp = vehicle->GetSuspensionDamping();
-		if (damp > 1.2f || damp < 0.05f) damp = 0.7f;
-
-		jointDef.enableSuspensionSpring = true;
-		jointDef.suspensionHertz = hertz;
-		jointDef.suspensionDampingRatio = damp;
-		jointDef.enableSuspensionLimit = true;
-		jointDef.lowerSuspensionLimit = -0.2f;
-		jointDef.upperSuspensionLimit = 0.15f;
-
-		jointDef.enableSpinMotor = !isFrontWheel;
-		jointDef.spinSpeed = 0.f;
-		jointDef.maxSpinTorque = 80.f;
-		jointDef.enableSteering = isFrontWheel;
-		jointDef.steeringHertz = 10.f;
-		jointDef.steeringDampingRatio = 0.7f;
-		jointDef.targetSteeringAngle = 0.f;
-		jointDef.maxSteeringTorque = 40.f;
-		jointDef.enableSteeringLimit = true;
-		const f32 steerClamp = vehicle->GetSteeringClamp() > 0.05f ? vehicle->GetSteeringClamp() : 0.45f;
-		jointDef.lowerSteeringLimit = -steerClamp;
-		jointDef.upperSteeringLimit = steerClamp;
-
-		b3JointId joint = b3CreateWheelJoint(m_world, &jointDef);
-
-		handles->wheelBodies.push_back(wheelBody);
-		handles->wheelJoints.push_back(joint);
+		// Nothing to build: a wheel is a ray cast from the chassis each step,
+		// and all there is to it is already in the vehicle's list. See
+		// StepVehicle().
+		(void)pcomp; (void)WheelDirection; (void)WheelAxle; (void)WheelRadius; (void)WheelWidth;
+		(void)WheelFriction; (void)WheelRollInfluence; (void)Position; (void)isFrontWheel;
 	}
 
 	void Box3DPhysics::UpdateTransformations(IPhysicsComponent* pcomp)
@@ -1120,11 +1297,21 @@ namespace p3d {
 			owner->SetPosition(lp);
 			owner->SetRotation(le);
 
-			const size_t count = std::min(wheels.size(), handles->wheelBodies.size());
-			for (size_t i = 0; i < count; ++i)
+			// Each wheel where its suspension, steering and rolling have it.
+			const b3Pos origin = b3Body_GetPosition(handles->body);
+			const b3Quat rot = b3Body_GetRotation(handles->body);
+			for (size_t i = 0; i < wheels.size(); ++i)
 			{
-				if (handles->wheelBodies[i].index1 != 0)
-					wheels[i].Transformation = BodyToMatrix(handles->wheelBodies[i]);
+				b3Vec3 up, axle;
+				WheelAxes(wheels[i], up, axle);
+				const b3Quat turned = b3MulQuat(b3MakeQuatFromAxisAngle(up, wheels[i].Steer), b3MakeQuatFromAxisAngle(axle, wheels[i].Spin));
+				const b3Vec3 hub = b3Add(ToB3(wheels[i].Position), b3MulSV(wheels[i].Travel, up));
+				const b3Pos at = OffsetPos(origin, b3RotateVector(rot, hub));
+				Matrix m = FromB3Quat(b3MulQuat(rot, turned)).ConvertToMatrix();
+				m.m[12] = (f32)at.x;
+				m.m[13] = (f32)at.y;
+				m.m[14] = (f32)at.z;
+				wheels[i].Transformation = m;
 			}
 			return;
 		}

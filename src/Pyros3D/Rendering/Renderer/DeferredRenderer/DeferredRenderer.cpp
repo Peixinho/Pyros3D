@@ -665,6 +665,7 @@ namespace p3d {
 		// dummyShadowsWarmedUp-gated clear in RenderScene() only ever
 		// fires once and won't catch this. Re-clear unconditionally here
 		// instead of trying to track a second warm-up flag.
+		if (ssrOutFBO) ssrOutFBO->Resize(Width, Height);
 		previousFrameFBO->Resize(Width, Height);
 		previousFrameFBO->Bind();
 		device->SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
@@ -689,6 +690,8 @@ namespace p3d {
 		device->WaitIdle();
 		delete lastPassFBO;
 		delete colorTexture;
+		delete ssrOutFBO;
+		delete ssrOutTexture;
 		delete previousFrameFBO;
 		delete previousFrameColorTexture;
 		delete forwardDepthTexture;
@@ -781,6 +784,7 @@ namespace p3d {
 
 		// Get Lights List
 		std::vector<IComponent*> lcomps = ILightComponent::GetLightsOnScene(Scene);
+		PublishLightsToSmoke(lcomps);
 
 		// Save Time
 		Timer = Scene->GetTime();
@@ -1682,7 +1686,28 @@ namespace p3d {
 		// for any caller (every editor use today) that only ever reads
 		// GetColorTexture() and may have another such caller also drawing
 		// to framebuffer 0 in the same frame.
-		if (!skipRenderToScreen) {
+		//
+		// SSR is the exception: it only exists in that pass's shader, so a
+		// caller that reads GetColorTexture() (the editor's viewport) would
+		// never see a reflection. With SSR on, the pass runs into
+		// ssrOutTexture instead of framebuffer 0 and GetColorTexture()
+		// hands that out - the same pixels the Player puts on screen.
+		const bool ssrToTexture = skipRenderToScreen && ssrEnabled > 0.5f;
+		ssrOutputValid = false;
+		if (ssrToTexture)
+		{
+			if (!ssrOutTexture)
+			{
+				ssrOutTexture = new Texture();
+				ssrOutTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, this->Width, this->Height, false);
+				ssrOutTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+				ssrOutFBO = new FrameBuffer();
+				ssrOutFBO->SetDebugName("Deferred SSR output");
+				ssrOutFBO->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ssrOutTexture);
+			}
+			ssrOutFBO->Bind();
+		}
+		if (!skipRenderToScreen || ssrToTexture) {
 			ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
 			ClearDepthBuffer();
 			ClearScreen();
@@ -1738,6 +1763,11 @@ namespace p3d {
 			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment3)->Unbind();
 			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment2)->Unbind();
 			GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Unbind();
+			if (ssrToTexture)
+			{
+				ssrOutFBO->UnBind();
+				ssrOutputValid = true;
+			}
 		}
 		// Next frame's SSR reprojection needs this frame's real camera
 		// regardless of whether the screen draw above ran - kept outside

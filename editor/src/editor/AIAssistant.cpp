@@ -318,7 +318,7 @@ static const AIToolDef kAITools[] = {
 		{ { "on", "boolean", "true for canvas mode, false for the 3D scene", false } } },
 	{ "post_effects",   "The scene's post-effect chain, in the order it runs, plus every built-in effect and every .glsl effect asset this project has - with the parameters each one takes. Read this before adding or tuning one: an effect name that does not exist is skipped silently.", {} },
 	{ "add_post_effect", "Add a post effect to the scene's chain. Order matters - each effect reads what the one before produced.",
-		{ { "effect", "string", "Built-in name (see post_effects), e.g. Bloom, Vignette, SSAO, DepthOfField, MotionBlur", false },
+		{ { "effect", "string", "Built-in name (see post_effects), e.g. Bloom, Vignette, SSAO, DepthOfField, MotionBlur, VolumetricSmoke", false },
 		  { "asset", "string", "Project-relative .glsl effect instead of a built-in", false },
 		  { "index", "integer", "Where in the chain (0-based); appended by default", false },
 		  { "enabled", "boolean", "Off keeps it in the scene without running it", false },

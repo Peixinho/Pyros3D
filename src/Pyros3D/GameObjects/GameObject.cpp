@@ -520,9 +520,13 @@ namespace p3d {
 	}
 	void GameObject::UpdateComponents(const f64 time)
 	{
-		for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
+		// By index, and holding the component: a script's update may add a
+		// component to its own object, or take one off, and either moves the
+		// vector under an iterator.
+		for (size_t i = 0; i < Components.size(); i++)
 		{
-			(*i)->Update(time);
+			std::shared_ptr<IComponent> component = Components[i];
+			component->Update(time);
 		}
 	}
 

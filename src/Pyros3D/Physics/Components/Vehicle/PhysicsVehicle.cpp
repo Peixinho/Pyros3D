@@ -36,6 +36,12 @@ namespace p3d {
 		suspensionCompression = 4.4f;
 		suspensionRestLength = 0.6f;
 
+		driveWheels = VehicleDrive::Rear;
+		gHandBrakeForce = 0.f;
+		suspensionLower = -0.2f;
+		suspensionUpper = 0.15f;
+		hasCenterOfMass = false;
+
 		// Save Chassis Shape
 		this->chassisShape = ChassisShape;
 
@@ -54,6 +60,11 @@ namespace p3d {
 		wheel.RollInfluence = WheelRollInfluence;
 		wheel.IsFrontWheel = isFrontWheel;
 		wheel.Transformation = Matrix();
+		wheel.Travel = 0.f;
+		wheel.Spin = 0.f;
+		wheel.SpinSpeed = 0.f;
+		wheel.Steer = 0.f;
+		wheel.InContact = false;
 
 		if (rigidBodyRegistered)
 		{

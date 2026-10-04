@@ -8,6 +8,8 @@
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
+#include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
+#include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 
 namespace p3d {
 
@@ -125,6 +127,14 @@ namespace p3d {
 				if (TerrainEditor::HeightAt(scene, x, z, h)) return h;
 				return sol::nullopt;
 			});
+			terrain.set_function("splatAt", [](SceneGraph* scene, const f32 x, const f32 z, sol::this_state ts) -> sol::object {
+				f32 w[4];
+				sol::state_view lv(ts);
+				if (!editor.SplatAt(scene, x, z, w)) return sol::make_object(lv, sol::nil);
+				sol::table t = lv.create_table();
+				for (int i = 0; i < 4; i++) t[i + 1] = w[i];
+				return t;
+			});
 			terrain.set_function("sculpt", [](SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const f32 amount,
 				const f32 hardness, const std::string &mode, sol::optional<f32> target) -> uint32 {
 				TerrainEditor::SculptMode m = TerrainEditor::Raise;
@@ -144,6 +154,48 @@ namespace p3d {
 			terrain.set_function("finishStroke", []() { editor.FinishStroke(); });
 			terrain.set_function("setAssetRoot", [](const std::string &root) { editor.SetAssetRoot(root); });
 			terrain.set_function("save", []() -> bool { return editor.Save(); });
+		}
+		{
+			// VolumetricSmoke - smoke clouds that fill the space around
+			// them and stop at colliders. Drawn by the "VolumetricSmoke"
+			// post effect; a scene without it in its chain shows nothing.
+			sol::table smoke = lua->create_named_table("VolumetricSmoke");
+			// spawn(physics, position, color, radius, growTime, lifeTime,
+			// fadeTime) -> slot, or -1 when every slot is taken. Pass nil
+			// for physics to ignore the world.
+			smoke.set_function("spawn", [](IPhysics* physics, const Vec3 &position, const Vec3 &color,
+				const f32 radius, const f32 growTime, const f32 lifeTime, const f32 fadeTime) -> int32 {
+				return VolumetricSmoke::Spawn(physics, position, color, radius, growTime, lifeTime, fadeTime);
+			});
+			// The same, with the two things that make it something other
+			// than a smoke grenade. rise: what a step up costs the fill
+			// against a step sideways (smoke is 0.85; 2 to 3 keeps it low
+			// along the floor). emission: above 0 it is fire, giving off
+			// `color` instead of being lit.
+			// blast: for fire, 0 is flames and 1 the solid ball of an explosion.
+			smoke.set_function("spawnEx", [](IPhysics* physics, const Vec3 &position, const Vec3 &color,
+				const f32 radius, const f32 growTime, const f32 lifeTime, const f32 fadeTime,
+				const f32 rise, const f32 emission, sol::optional<f32> blast) -> int32 {
+				return VolumetricSmoke::Spawn(physics, position, color, radius, growTime, lifeTime, fadeTime, rise, emission, blast.value_or(0.f));
+			});
+			smoke.set_function("update", [](const f32 dt) { VolumetricSmoke::Update(dt); });
+			smoke.set_function("remove", [](const int32 id) { VolumetricSmoke::Remove(id); });
+			smoke.set_function("clear", []() { VolumetricSmoke::Clear(); });
+			smoke.set_function("count", []() -> uint32 { return VolumetricSmoke::GetActiveCount(); });
+			smoke.set_function("capacity", []() -> uint32 { return (uint32)VolumetricSmoke::MaxClouds; });
+			// How many voxels the fill reached - small means it was boxed in.
+			smoke.set_function("cells", [](const int32 id) -> uint32 {
+				return (id >= 0 && id < VolumetricSmoke::MaxClouds) ? VolumetricSmoke::GetCloud((uint32)id).cells : 0;
+			});
+			smoke.set_function("setCellSize", [](const f32 size) { VolumetricSmoke::SetCellSize(size); });
+			// The smoke is lit by the scene's own lights and ambient. These
+			// two override that, and useSceneLighting() undoes them.
+			smoke.set_function("setLight", [](const Vec3 &towardLight, const Vec3 &color) { VolumetricSmoke::SetLight(towardLight, color); });
+			smoke.set_function("setAmbient", [](const Vec3 &color) { VolumetricSmoke::SetAmbient(color); });
+			smoke.set_function("useSceneLighting", []() { VolumetricSmoke::UseSceneLighting(); });
+			// Washes the whole frame toward a colour: 0 none, 1 nothing else.
+			smoke.set_function("setScreenFlash", [](const Vec3 &color, const f32 amount) { VolumetricSmoke::SetScreenFlash(color, amount); });
+			smoke.set_function("setWind", [](const Vec3 &wind) { VolumetricSmoke::SetWind(wind); });
 		}
 	}
 

@@ -71,6 +71,8 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BlurYEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BloomEffect.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/VolumetricSmokeEffect.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/VolumetricSmoke.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/RTTDebug.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SSAOCompositeEffect.cpp

@@ -13,6 +13,7 @@
 #include <Pyros3D/Assets/Renderable/Renderables.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Components/Rendering/SpriteRig2D.h>
@@ -212,6 +213,17 @@ namespace p3d {
 			// Always apply - `if (Opacity)` skipped 0 (intentional fade) and
 			// relied on IMaterial's default, which used to be uninitialised.
 			genMat->SetOpacity(Geometry->materialProperties.Opacity);
+			// A material imported as less than solid is drawn that way. The
+			// opacity was read from the file and handed to the shader, but
+			// the material stayed in the opaque pass with blending off, so
+			// glass came out as a painted panel.
+			if (Geometry->materialProperties.Opacity < 0.999f)
+			{
+				genMat->EnableBlending();
+				genMat->BlendingEquation(BlendEq::Add);
+				genMat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+				genMat->SetTransparencyFlag(true);
+			}
 			if (Geometry->materialProperties.haveColorMap)
 			{
 				// Shared, not a fresh decode per submesh - see

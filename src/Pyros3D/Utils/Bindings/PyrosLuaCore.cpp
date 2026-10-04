@@ -96,6 +96,9 @@ namespace p3d {
 
 	void RegisterLuaCore(sol::state* lua)
 	{
+		// Process-wide ambient multiplier (see IRenderer::SetAmbientScale).
+		lua->set_function("setAmbientScale", [](const f32 scale) { IRenderer::SetAmbientScale(scale); });
+		lua->set_function("getAmbientScale", []() { return IRenderer::GetAmbientScale(); });
 		{
 			// SceneGraph
 			lua->new_usertype<SceneGraph>("Scene",

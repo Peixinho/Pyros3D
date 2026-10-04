@@ -910,6 +910,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
     #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
         IO_LOCATION(LOC_vNormal) varying_in vec3 vNormal;
+        // A double-sided material is lit from the side being looked at: the
+        // back of a single-sided wall takes the opposite normal. (With
+        // culling on, only front faces get here and this is 1.)
+        #define P3D_FACE_SIGN (gl_FrontFacing ? 1.0 : -1.0)
     #endif
 
     #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
@@ -1582,7 +1586,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            // same convention as every other branch here.
            if (uAmbientParams.x >= 2.5)
            {
-               vec3 n = normalize(vNormal);
+               vec3 n = normalize(vNormal) * P3D_FACE_SIGN;
                return max(SampleDDGI(p3d_DDGIShadingPos(vWorldPosition.xyz, n), n), vec3(0.0));
            }
        #endif
@@ -1603,11 +1607,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                // subtracts from the direct lighting and shows up as black
                // blotches on the shadowed side of a strongly lit
                // environment.
-               return max(SHIrradiance(normalize(vNormal)) * (1.0 / 3.14159265359), vec3(0.0));
+               return max(SHIrradiance(normalize(vNormal) * P3D_FACE_SIGN) * (1.0 / 3.14159265359), vec3(0.0));
            }
            if (uAmbientParams.x >= 0.5)
            {
-               float y = clamp(normalize(vNormal).y, -1.0, 1.0);
+               float y = clamp(normalize(vNormal).y * P3D_FACE_SIGN, -1.0, 1.0);
                return (y >= 0.0) ? mix(uAmbientEquator.rgb, uAmbientSky.rgb, y)
                                  : mix(uAmbientEquator.rgb, uAmbientGround.rgb, -y);
            }
@@ -1711,12 +1715,18 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
             vec3 Normal;
             #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
-                Normal = normalize(transpose3(vTangentMatrix) * (texture_2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0));
+                Normal = normalize(transpose3(vTangentMatrix) * (texture_2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0)) * P3D_FACE_SIGN;
                 #if defined(DEFERRED_GBUFFER)
                     gbufferNormal.xyz = (vViewMatrix * vec4(Normal,0)).xyz;
                 #endif
-            #else
+            #elif defined(TEXTRENDERING)
+                // not a normal at all here: the per-character colour
                 Normal = vNormal;
+            #else
+                Normal = vNormal * P3D_FACE_SIGN;
+                #if defined(DEFERRED_GBUFFER)
+                    gbufferNormal.xyz *= P3D_FACE_SIGN;
+                #endif
             #endif
         #endif
 

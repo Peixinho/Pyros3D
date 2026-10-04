@@ -1617,6 +1617,40 @@ bool SceneEditor::OpAddOccluder2D(uint32 goId, std::string& errOut)
 	return true;
 }
 
+// A static collider with the triangles of the object's own model: what
+// lets a character walk the floors and stairs of an imported building.
+bool SceneEditor::OpAddMeshCollider(uint32 goId, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
+	{
+		errOut = "not a game object";
+		return false;
+	}
+	if (!physics) { errOut = "physics engine not available"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	RenderingComponent* source = NULL;
+	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+	for (size_t c = 0; c < comps.size(); c++)
+	{
+		if (dynamic_cast<IPhysicsComponent*>(comps[c].get())) { errOut = "this object already has a physics component"; return false; }
+		if (!source) source = dynamic_cast<RenderingComponent*>(comps[c].get());
+	}
+	if (!source || source->GetMeshes().empty()) { errOut = "a mesh collider needs a model or primitive on the object"; return false; }
+	const std::string before = SnapshotSubtree(goId);
+	std::shared_ptr<IPhysicsComponent> pcomp = physics->CreateTriangleMesh(source, 0.f, false);
+	if (!pcomp) { errOut = "failed to create the mesh collider"; return false; }
+	go->Add(pcomp);
+	uint32 id = ++sceneObjects->_ID;
+	SceneObject* row = new SceneObject("Physics Mesh Collider", pcomp.get(), id, SceneObjectTypes::PHYSICS_COMPONENT);
+	sceneObjects->listObjects[id] = row;
+	row->SetParentID(goId);
+	SyncPhysicsForGameObject(go);
+	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Add Mesh Collider");
+	return true;
+}
+
 bool SceneEditor::OpAddPhysics2D(uint32 goId, std::string& errOut,
 	const uint32 bodyType, const Vec2 &size, const bool fixedRotation)
 {

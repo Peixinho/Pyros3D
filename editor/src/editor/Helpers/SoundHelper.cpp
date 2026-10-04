@@ -36,6 +36,10 @@ SoundHelper::SoundHelper(GameObject* owner) : IHelper(HELPER_TYPE::SOUND)
 
 	rcomp = std::make_shared<RenderingComponent>(handle, material);
 	rcomp->DisableCastShadows();
+	// Out of every scene pass and drawn by hand over the finished frame
+	// (SceneEditor::DrawHelperOverlay): an icon in the G-buffer is lit,
+	// bloomed, and mirrored by every SSR surface in the scene.
+	rcomp->SetRenderLayer(RenderLayer::None);
 
 	Add(rcomp);
 }

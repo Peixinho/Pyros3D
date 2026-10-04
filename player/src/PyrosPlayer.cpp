@@ -1263,6 +1263,10 @@ void PyrosPlayer::Update()
 
 	renderer->ResetViewPort();
 	renderer->SetViewPort(0, 0, Width, Height);
+#ifdef LUA_BINDINGS
+	if (sceneMainScript)
+		sceneMainScript->PreRender();
+#endif
 	renderer->PreRender(activeCamera, scene);
 	renderer->ApplyBackgroundClearColor();
 	// A 2D scene renders through the *normal* pass, not a suppressed one. Its

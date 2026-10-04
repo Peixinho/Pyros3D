@@ -20,6 +20,7 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/DepthOfFieldEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/VolumetricSmokeEffect.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Core/Logs/Log.h>
 
@@ -40,13 +41,16 @@ namespace p3d {
 		// small ones stay small; motion blur needed a velocity map, which
 		// the manager now owns and the caller drives.
 		//
-		// Screen-space reflection is not here and has no effect class any
-		// more. The DeferredRenderer traces reflections in its lighting pass
-		// from the G-buffer it already has, per material - see
-		// DeferredRenderer::EnableSSR() and GenericShaderMaterial::
-		// SetSSREnabled(). A post-effect pass could only work from what the
-		// chain can see, which is colour and depth and no normals, so it was
-		// the strictly worse of the two and nothing used it.
+		// Screen-space reflection has no effect class. The DeferredRenderer
+		// traces reflections in its lighting pass from the G-buffer it
+		// already has, per material - see DeferredRenderer::EnableSSR() and
+		// GenericShaderMaterial::SetSSREnabled(). A post-effect pass could
+		// only work from what the chain can see, which is colour and depth
+		// and no normals, so it was the strictly worse of the two. "SSR" in
+		// the list below is only the scene-level master switch for that
+		// renderer feature, routed in Build() the way SSAO is: it does
+		// nothing on a renderer that is not deferred, and a material still
+		// has to opt in.
 		const std::vector<std::string> &ListBuiltIn()
 		{
 			static std::vector<std::string> names;
@@ -66,6 +70,13 @@ namespace p3d {
 				// RenderVelocityPass() every frame; without that it is inert
 				// rather than wrong, so it is safe to offer.
 				names.push_back("MotionBlur");
+				// Master switch for the deferred renderer's per-material
+				// reflections - see Build().
+				names.push_back("SSR");
+				// Two passes behind one name - see AppendBuiltIn(). Draws
+				// whatever clouds VolumetricSmoke holds, so it is inert
+				// until something spawns one.
+				names.push_back("VolumetricSmoke");
 			}
 			return names;
 		}
@@ -132,6 +143,25 @@ namespace p3d {
 				bloom.push_back(MakeParam("uKnee", "Knee", 0.35f, 0.f, 1.f));
 				bloom.push_back(MakeParam("uIntensity", "Intensity", 1.f, 0.f, 4.f));
 				table["Bloom"] = bloom;
+
+				std::vector<CustomEffect::Param> ssr;
+				// Screen pixels per coarse step: reach is about 128 times
+				// this. Open water wants 4-8; a room wants 1.
+				ssr.push_back(MakeParam("uStep", "Step (pixels)", 4.f, 1.f, 16.f));
+				// View-space clip of the ray; scale with the scene.
+				ssr.push_back(MakeParam("uMaxDistance", "Max distance", 150.f, 5.f, 1000.f));
+				table["SSR"] = ssr;
+
+				std::vector<CustomEffect::Param> smoke;
+				// 1/m: at 3, a metre of smoke hides 95% of what is behind it.
+				smoke.push_back(MakeParam("uDensity", "Density", 3.f, 0.1f, 10.f));
+				smoke.push_back(MakeParam("uNoiseScale", "Billow size", 0.45f, 0.1f, 3.f));
+				smoke.push_back(MakeParam("uErosion", "Billow depth", 0.7f, 0.f, 1.f));
+				smoke.push_back(MakeParam("uShadow", "Self shadow", 0.3f, 0.f, 2.f));
+				// Metres between samples: smaller is smoother and slower.
+				smoke.push_back(MakeParam("uStep", "Step (metres)", 0.35f, 0.1f, 1.f));
+				smoke.push_back(MakeParam("uMaxSteps", "Max steps", 56.f, 8.f, 96.f));
+				table["VolumetricSmoke"] = smoke;
 			}
 			std::map<std::string, std::vector<CustomEffect::Param> >::const_iterator it = table.find(name);
 			return (it != table.end()) ? it->second : none;
@@ -157,6 +187,10 @@ namespace p3d {
 			const uint32 width, const uint32 height,
 			const std::map<std::string, std::vector<f32> > &params)
 		{
+			// Handled by the deferred renderer in Build(); on any other
+			// renderer it is a no-op rather than an unknown-effect error.
+			if (name == "SSR")
+				return true;
 			if (name == "SSAO")
 			{
 				// Depth in, occlusion out; blur it; then multiply the original
@@ -220,6 +254,28 @@ namespace p3d {
 					ParamOr(params, "uIntensity", 1.f));
 				return true;
 			}
+			if (name == "VolumetricSmoke")
+			{
+				// The march at half resolution, then a full-resolution pass
+				// that lays it over the chain so far. Belongs before
+				// tonemapping and bloom: the smoke is lit like the scene and
+				// wants to be graded with it.
+				IEffect* previous = manager.GetLastEffect();
+				const uint32 hw = width / 2 > 0 ? width / 2 : 1;
+				const uint32 hh = height / 2 > 0 ? height / 2 : 1;
+				VolumetricSmokeEffect* march = new VolumetricSmokeEffect(hw, hh);
+				march->SetResizeScale(0.5f);
+				march->SetDensity(ParamOr(params, "uDensity", 3.f));
+				march->SetNoise(ParamOr(params, "uNoiseScale", 0.45f), ParamOr(params, "uErosion", 0.7f));
+				march->SetShadow(ParamOr(params, "uShadow", 0.3f));
+				march->SetStep(ParamOr(params, "uStep", 0.35f));
+				march->SetMaxSteps(ParamOr(params, "uMaxSteps", 56.f));
+				manager.AddEffect(march);
+				manager.AddEffect((previous != NULL)
+					? new VolumetricSmokeCompositeEffect(previous->GetTexture(), width, height)
+					: new VolumetricSmokeCompositeEffect(RTT::Color, width, height));
+				return true;
+			}
 			if (name == "MotionBlur")
 			{
 				// Reads LastRTT, so it composes with whatever came before -
@@ -251,7 +307,10 @@ namespace p3d {
 		{
 			manager.RemoveAllEffects();
 			if (deferred)
+			{
 				deferred->DisableSSAO();
+				deferred->DisableSSR();
+			}
 			if (width == 0 || height == 0)
 				return;
 
@@ -261,6 +320,15 @@ namespace p3d {
 				if (!e.enabled)
 					continue;
 
+				if (e.effect == "SSR")
+				{
+					if (deferred)
+					{
+						deferred->SetSSRDistances(ParamOr(e.params, "uStep", 4.f), ParamOr(e.params, "uMaxDistance", 150.f));
+						deferred->EnableSSR();
+					}
+					continue;
+				}
 				if (!e.effect.empty() && e.effect == "SSAO" && deferred)
 				{
 					// Same parameters, same defaults and the same meaning as

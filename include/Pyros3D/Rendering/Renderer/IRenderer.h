@@ -115,6 +115,18 @@ namespace p3d {
 		// DrawBackground() inside RenderScene runs too late for that clear.
 		void ApplyBackgroundClearColor();
 		void SetGlobalLight(const Vec4 &Light);
+		// Hands this scene's lights and ambient to VolumetricSmoke. Called
+		// by each renderer as it gathers its lights - including while there
+		// is no smoke yet, because a cloud works out what the sun can reach
+		// at the moment it is spawned.
+		void PublishLightsToSmoke(const std::vector<IComponent*> &lights);
+		// Multiplies the flat and gradient ambient at upload time, for every
+		// renderer in the process. A day/night script drives it without
+		// having to know who owns the ambient colours: the editor re-asserts
+		// them every frame and the player sets them once, and neither
+		// disturbs the scale.
+		static void SetAmbientScale(const f32 Scale) { AmbientScale = Scale < 0.f ? 0.f : Scale; }
+		static f32 GetAmbientScale() { return AmbientScale; }
 		// Ambient as a three-band gradient over the world-space normal -
 		// sky above, ground below, equator around the horizon. Mode 0 keeps
 		// the flat GlobalLight colour.
@@ -714,6 +726,8 @@ namespace p3d {
 		static Vec4 CachedClipPlane0;
 		static bool AmbientLightUniformsUBOValid;
 		static Vec4 CachedGlobalLight;
+		static f32 AmbientScale;
+		static Vec4 ScaleAmbient(const Vec4 &c) { return Vec4(c.x * AmbientScale, c.y * AmbientScale, c.z * AmbientScale, c.w); }
 		static Vec4 CachedAmbientEnv[14];
 		static bool VelocityFrameUniformsUBOValid;
 		static Matrix CachedPrvProjectionMatrix;

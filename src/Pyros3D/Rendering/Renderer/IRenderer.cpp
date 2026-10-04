@@ -6,6 +6,7 @@
 // Description : Renderer Interface
 //============================================================================
 
+#include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/html5.h>
@@ -130,6 +131,7 @@ bool IRenderer::CachedClipPlaneEnabled = false;
 Vec4 IRenderer::CachedClipPlane0;
 bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
+f32 IRenderer::AmbientScale = 1.f;
 Vec4 IRenderer::CachedAmbientEnv[14];
 bool IRenderer::VelocityFrameUniformsUBOValid = false;
 Matrix IRenderer::CachedPrvProjectionMatrix;
@@ -923,6 +925,18 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const std::stri
 	PreRender(Camera, Scene, MakeStringID(Tag));
 }
 
+// Smoke is drawn by a post effect, which sees a depth buffer and nothing of
+// the scene. This is where it learns what is lighting that scene.
+void IRenderer::PublishLightsToSmoke(const std::vector<IComponent*> &lights)
+{
+	// The gradient's sky and horizon are what reach the top and sides of a
+	// cloud; the ground band lights the underside nobody sees.
+	Vec3 ambient = (AmbientMode == 1)
+		? Vec3(AmbientSky.x * 0.6f + AmbientEquator.x * 0.4f, AmbientSky.y * 0.6f + AmbientEquator.y * 0.4f, AmbientSky.z * 0.6f + AmbientEquator.z * 0.4f)
+		: Vec3(GlobalLight.x, GlobalLight.y, GlobalLight.z);
+	VolumetricSmoke::CaptureLights(lights, ambient * AmbientScale);
+}
+
 void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
 {
 	PYROS_PROFILE_SCOPE("Renderer.PreRender");
@@ -936,6 +950,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 	// Get Lights List
 	lcomps = ILightComponent::GetLightsOnScene(Scene);
+	PublishLightsToSmoke(lcomps);
 
 	// Every frame, not only when there is something to render. These hold
 	// raw pointers to the lights' shadow maps and were cleared inside the
@@ -2573,10 +2588,10 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// AmbientLightUniforms block exactly - flat colour, the three
 			// gradient bands, then params.x = mode.
 			Vec4 env[14];
-			env[0] = GlobalLight;
-			env[1] = AmbientSky;
-			env[2] = AmbientEquator;
-			env[3] = AmbientGround;
+			env[0] = ScaleAmbient(GlobalLight);
+			env[1] = ScaleAmbient(AmbientSky);
+			env[2] = ScaleAmbient(AmbientEquator);
+			env[3] = ScaleAmbient(AmbientGround);
 			env[4] = Vec4((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
 			// Always uploaded, not just in mode 2. The block is one
 			// contiguous std140 allocation and ReplaceUniformBuffer
@@ -2677,16 +2692,16 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			}
 			break;
 			case Uniforms::DataUsage::GlobalAmbientLight:
-				Shader::SendUniform((*k), &GlobalLight, (*_ShadersGlobalCache)[counter]);
+				{ Vec4 v = ScaleAmbient(GlobalLight); Shader::SendUniform((*k), &v, (*_ShadersGlobalCache)[counter]); }
 				break;
 			case Uniforms::DataUsage::AmbientSky:
-				Shader::SendUniform((*k), &AmbientSky, (*_ShadersGlobalCache)[counter]);
+				{ Vec4 v = ScaleAmbient(AmbientSky); Shader::SendUniform((*k), &v, (*_ShadersGlobalCache)[counter]); }
 				break;
 			case Uniforms::DataUsage::AmbientEquator:
-				Shader::SendUniform((*k), &AmbientEquator, (*_ShadersGlobalCache)[counter]);
+				{ Vec4 v = ScaleAmbient(AmbientEquator); Shader::SendUniform((*k), &v, (*_ShadersGlobalCache)[counter]); }
 				break;
 			case Uniforms::DataUsage::AmbientGround:
-				Shader::SendUniform((*k), &AmbientGround, (*_ShadersGlobalCache)[counter]);
+				{ Vec4 v = ScaleAmbient(AmbientGround); Shader::SendUniform((*k), &v, (*_ShadersGlobalCache)[counter]); }
 				break;
 			case Uniforms::DataUsage::AmbientParams:
 			{
@@ -3019,10 +3034,10 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// entire allocation and writing only the tail would leave the
 			// flat colour and gradient undefined.
 			Vec4 env[14];
-			env[0] = GlobalLight;
-			env[1] = AmbientSky;
-			env[2] = AmbientEquator;
-			env[3] = AmbientGround;
+			env[0] = ScaleAmbient(GlobalLight);
+			env[1] = ScaleAmbient(AmbientSky);
+			env[2] = ScaleAmbient(AmbientEquator);
+			env[3] = ScaleAmbient(AmbientGround);
 			env[4] = Vec4((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
 			for (uint32 i = 0; i < 9; i++)
 			{
@@ -3152,7 +3167,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 
 void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, RenderingMesh* rmesh)
 {
-	Vec4 ambientParams;
+	Vec4 ambientParams, scaledAmbient;
 	Vec2 screenDimensions((f32)Width, (f32)Height);
 	f32 timerF = (f32)Timer;
 	// SendGlobalUniforms()'s GlobalMatricesUBO write (this file, ~line 1371)
@@ -3222,16 +3237,16 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, Rende
 		valuePtr = &timerF; valueSize = sizeof(timerF);
 		break;
 	case Uniforms::DataUsage::GlobalAmbientLight:
-		valuePtr = &GlobalLight; valueSize = sizeof(GlobalLight);
+		scaledAmbient = ScaleAmbient(GlobalLight); valuePtr = &scaledAmbient; valueSize = sizeof(Vec4);
 		break;
 	case Uniforms::DataUsage::AmbientSky:
-		valuePtr = &AmbientSky; valueSize = sizeof(Vec4);
+		scaledAmbient = ScaleAmbient(AmbientSky); valuePtr = &scaledAmbient; valueSize = sizeof(Vec4);
 		break;
 	case Uniforms::DataUsage::AmbientEquator:
-		valuePtr = &AmbientEquator; valueSize = sizeof(Vec4);
+		scaledAmbient = ScaleAmbient(AmbientEquator); valuePtr = &scaledAmbient; valueSize = sizeof(Vec4);
 		break;
 	case Uniforms::DataUsage::AmbientGround:
-		valuePtr = &AmbientGround; valueSize = sizeof(Vec4);
+		scaledAmbient = ScaleAmbient(AmbientGround); valuePtr = &scaledAmbient; valueSize = sizeof(Vec4);
 		break;
 	case Uniforms::DataUsage::AmbientParams:
 		ambientParams = Vec4((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);

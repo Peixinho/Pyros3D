@@ -361,8 +361,8 @@ public:
 	// Collider outlines are otherwise invisible, so a collider that does not
 	// match its art is a silent bug. Exposed so it can be driven from a
 	// script, which is the only way to SEE terrain collision without a mouse.
-	void SetPhysicsDebug(const bool on) { showPhysicsDebug = on; }
-	bool IsPhysicsDebug() const { return showPhysicsDebug; }
+	void SetPhysicsDebug(const bool on) { PhysicsDebugFlag() = on; }
+	bool IsPhysicsDebug() const { return playMode ? showPhysicsDebugPlay : showPhysicsDebug; }
 	// Set by the Tile Palette's "Edit Tile Set..." button; Editor drains it
 	// and opens the document. A request rather than a direct call because
 	// SceneEditor owns no document tabs.
@@ -453,6 +453,7 @@ public:
 	bool AgentAddParticles(const std::string& name, const json& p,
 		const std::string& parentName, std::string& errOut);
 	bool AgentAddPhysics(const std::string& name, const json& p, const std::string& parentName, std::string& errOut);
+	bool AgentAddMeshCollider(const std::string& name, std::string& errOut);
 	bool AgentAddModel(const std::string& name, const std::string& modelFile, const json& p,
 		const std::string& parentName, std::string& errOut);
 	bool AgentApplyUIStyle(const std::string& objectName, const std::string& stylePath, std::string& errOut);
@@ -1124,6 +1125,7 @@ private:
 	// half-extents. Defaulted so existing callers are unchanged, but exposed
 	// because a level needs STATIC ground and there was no way to ask for it
 	// outside the Properties panel - every agent-created body fell.
+	bool OpAddMeshCollider(uint32 goId, std::string& errOut);
 	bool OpAddPhysics2D(uint32 goId, std::string& errOut,
 		const uint32 bodyType = Body2DType::Dynamic, const Vec2 &size = Vec2(0.5f, 0.5f),
 		const bool fixedRotation = false);
@@ -1647,7 +1649,13 @@ private:
 	// See SetDebugPanelToggles().
 	bool* showProfilerFlag;
 	bool* showRenderTargetsFlag;
+	// Collider outlines have their own switch per mode. Walking the whole
+	// physics world with a line per edge cost about half the main thread of a
+	// forested scene in Play, so Play starts with them off; the menu item and
+	// the socket command act on whichever mode is current.
 	bool showPhysicsDebug;
+	bool showPhysicsDebugPlay = false;
+	bool& PhysicsDebugFlag() { return playMode ? showPhysicsDebugPlay : showPhysicsDebug; }
 	// Built so 2D colliders can be *drawn*; never stepped in edit mode, the
 	// same way the Box3D world has its simulation disabled there.
 	Physics2DWorld* physics2D;

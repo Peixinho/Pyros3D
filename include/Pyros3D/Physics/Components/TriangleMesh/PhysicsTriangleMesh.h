@@ -25,11 +25,16 @@ namespace p3d {
 		const std::vector<unsigned> &GetIndexData() const { return index; }
 		const std::vector<Vec3> &GetVertexData() const { return vertex; }
 
+		// Built from the RenderingComponent on the same object: a scene
+		// file then stores that fact, not a copy of the model's triangles.
+		bool IsFromRenderable() const { return fromRenderable; }
+
 	protected:
 
 		// Store Triangle Mesh Data
 		std::vector<unsigned> index;
 		std::vector<Vec3> vertex;
+		bool fromRenderable = false;
 
 	};
 

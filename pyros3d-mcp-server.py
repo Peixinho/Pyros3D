@@ -5953,6 +5953,9 @@ _BUILTIN_POST_EFFECTS: dict[str, dict[str, tuple[float, float, float]]] = {
     "DepthOfField": {"uFocalPosition": (20.0, 0.0, 500.0), "uFocalRange": (2.0, 0.01, 100.0),
                      "uRatioL": (3.1, 0.0, 8.0), "uRatioH": (1.0, 0.0, 8.0)},
     "MotionBlur":   {"uTargetFPS": (60.0, 15.0, 240.0)},
+    "VolumetricSmoke": {"uDensity": (3.0, 0.1, 10.0), "uNoiseScale": (0.45, 0.1, 3.0),
+                        "uErosion": (0.7, 0.0, 1.0), "uShadow": (0.3, 0.0, 2.0),
+                        "uStep": (0.35, 0.1, 1.0), "uMaxSteps": (56.0, 8.0, 96.0)},
 }
 
 _EFFECT_PARAM_COMPONENTS = {"float": 1, "int": 1, "vec2": 2, "vec3": 3, "vec4": 4}

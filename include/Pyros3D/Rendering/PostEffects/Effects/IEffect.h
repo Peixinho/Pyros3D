@@ -122,6 +122,12 @@ namespace p3d {
 
 	protected:
 
+		// Called by PostEffectsManager just before this effect's uniforms
+		// are gathered, every frame it draws. For an effect whose inputs are
+		// not a handful of values someone sets, but state it has to go and
+		// read - VolumetricSmokeEffect packs the live clouds here.
+		virtual void PreDraw() {}
+
 		Uniform* AddUniform(const Uniform &Data);
 
 		int32 positionHandle, texcoordHandle;
