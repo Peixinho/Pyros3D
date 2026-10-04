@@ -79,7 +79,7 @@ namespace p3d {
 					// black. Now the extras light the scene and simply cast
 					// no shadow, which is a limit a content author can see
 					// rather than a failure.
-					bool dirCanCastHere = d->IsCastingShadows() && directionalShadowCounter < MaxDirectionalShadowLights;
+					bool dirCanCastHere = !unshadowed && d->IsCastingShadows() && directionalShadowCounter < MaxDirectionalShadowLights;
 					if (dirCanCastHere) directionalShadowCounter++;
 					directionalLight.m[13] = (f32)type;	  	 directionalLight.m[14] = d->GetShadowFilterPacked();  directionalLight.m[15] = (dirCanCastHere ? 1.f : -1.f);
 
@@ -121,7 +121,7 @@ namespace p3d {
 					// uPointDepthsMVP[ShadowMap*2] out of a mat4[8] - one past
 					// the end. Past the limit the light still lights, it just
 					// casts no shadow.
-					if (p->IsCastingShadows() && pointCounter < IRenderer::MaxPointShadowLights)
+					if (!unshadowed && p->IsCastingShadows() && pointCounter < IRenderer::MaxPointShadowLights)
 					{
 						pointLight.m[14] = p->GetShadowFilterPacked();
 						pointLight.m[15] = (f32)pointCounter++;
@@ -152,7 +152,7 @@ namespace p3d {
 
 					// Clamped for the same reason as the point counter above -
 					// uSpotDepthsMVP is a mat4[4].
-					if (s->IsCastingShadows() && spotCounter < IRenderer::MaxSpotShadowLights)
+					if (!unshadowed && s->IsCastingShadows() && spotCounter < IRenderer::MaxSpotShadowLights)
 					{
 						spotLight.m[14] = s->GetShadowFilterPacked();
 						spotLight.m[15] = (f32)spotCounter++;

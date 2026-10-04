@@ -25,6 +25,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetworkIdentity.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetworkSession.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetCrypto.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/HttpService.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/IModelLoader.cpp
@@ -41,6 +42,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaPostFX.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaAudio.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaMisc.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaJson.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaUI.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaNetwork.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Serialization/SceneSerializer.cpp

@@ -391,12 +391,23 @@ namespace p3d {
 		if (h && b3Body_IsValid(h->body)) b3Body_SetGravityScale(h->body, scale);
 	}
 
+	static void DrawnPose(const b3BodyId body, const f64 owed, b3Pos &pos, b3Quat &rot);
+
+	// Where the body is drawn, not where its last whole step left it: the
+	// same pose UpdateTransformations() gives the object. Whatever asks is
+	// about to place something by it - a camera behind a car, a rider in a
+	// seat - and placed by the stepped pose it stood still on a frame that
+	// took no step and jumped on one that took two, while the car itself,
+	// drawn carried forward, moved every frame: the car shook in its own
+	// camera.
 	Vec3 Box3DPhysics::GetBodyPosition(IPhysicsComponent *pcomp)
 	{
 		if (!pcomp) return Vec3();
 		Box3DBodyHandles* h = GetHandles(pcomp);
 		if (!h || !b3Body_IsValid(h->body)) return Vec3();
-		const b3Pos p = b3Body_GetPosition(h->body);
+		b3Pos p;
+		b3Quat q;
+		DrawnPose(h->body, m_simulationEnabled ? timeInterval : 0.0, p, q);
 		return Vec3((f32)p.x, (f32)p.y, (f32)p.z);
 	}
 
@@ -405,7 +416,9 @@ namespace p3d {
 		if (!pcomp) return Quaternion();
 		Box3DBodyHandles* h = GetHandles(pcomp);
 		if (!h || !b3Body_IsValid(h->body)) return Quaternion();
-		const b3Quat q = b3Body_GetRotation(h->body);
+		b3Pos p;
+		b3Quat q;
+		DrawnPose(h->body, m_simulationEnabled ? timeInterval : 0.0, p, q);
 		return Quaternion((f32)q.s, (f32)q.v.x, (f32)q.v.y, (f32)q.v.z);
 	}
 
@@ -1273,6 +1286,28 @@ namespace p3d {
 		(void)WheelFriction; (void)WheelRollInfluence; (void)Position; (void)isFrontWheel;
 	}
 
+	// Where a moving body is NOW, for drawing. The world advances in whole
+	// 1/60 s steps, and a frame hardly ever lands on one: it takes none, one
+	// or two, so a body drawn at its last step stood still one frame and
+	// jumped two steps the next - everything simulated juddered against a
+	// camera that moves every frame. The part of a step still owed is
+	// carried forward along the body's own velocity; the simulation itself
+	// is untouched.
+	static void DrawnPose(const b3BodyId body, const f64 owed, b3Pos &pos, b3Quat &rot)
+	{
+		pos = b3Body_GetPosition(body);
+		rot = b3Body_GetRotation(body);
+		f32 dt = (f32)owed;
+		if (dt <= 0.f || !b3Body_IsAwake(body)) return;
+		if (dt > 1.f / 60.f) dt = 1.f / 60.f;
+		const b3Vec3 v = b3Body_GetLinearVelocity(body);
+		const b3Vec3 w = b3Body_GetAngularVelocity(body);
+		pos = OffsetPos(pos, b3MulSV(dt, v));
+		const f32 speed = b3Length(w);
+		if (speed > 1e-4f)
+			rot = b3NormalizeQuat(b3MulQuat(b3MakeQuatFromAxisAngle(b3MulSV(1.f / speed, w), speed * dt), rot));
+	}
+
 	void Box3DPhysics::UpdateTransformations(IPhysicsComponent* pcomp)
 	{
 		if (!pcomp->RigidBodyRegistered()) return;
@@ -1292,14 +1327,15 @@ namespace p3d {
 			std::vector<VehicleWheel> &wheels = vcomp->GetWheels();
 
 			// Drive motors are applied in Update() before b3World_Step.
+			b3Pos origin;
+			b3Quat rot;
+			DrawnPose(handles->body, m_simulationEnabled ? timeInterval : 0.0, origin, rot);
 			Vec3 lp, le;
-			LocalFromWorld(owner, FromB3Pos(b3Body_GetPosition(handles->body)), b3Body_GetRotation(handles->body), lp, le);
+			LocalFromWorld(owner, FromB3Pos(origin), rot, lp, le);
 			owner->SetPosition(lp);
 			owner->SetRotation(le);
 
 			// Each wheel where its suspension, steering and rolling have it.
-			const b3Pos origin = b3Body_GetPosition(handles->body);
-			const b3Quat rot = b3Body_GetRotation(handles->body);
 			for (size_t i = 0; i < wheels.size(); ++i)
 			{
 				b3Vec3 up, axle;
@@ -1328,8 +1364,11 @@ namespace p3d {
 			return;
 		}
 
+		b3Pos drawnAt;
+		b3Quat drawnRot;
+		DrawnPose(handles->body, timeInterval, drawnAt, drawnRot);
 		Vec3 lp, le;
-		LocalFromWorld(owner, FromB3Pos(b3Body_GetPosition(handles->body)), b3Body_GetRotation(handles->body), lp, le);
+		LocalFromWorld(owner, FromB3Pos(drawnAt), drawnRot, lp, le);
 		owner->SetPosition(lp);
 		owner->SetRotation(le);
 	}

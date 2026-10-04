@@ -86,6 +86,14 @@ namespace p3d {
 		int32 Play(const uint32 animation, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f, const std::string &LayerName = "");
 		void ChangeProperties(const uint32 animationOrder, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f);
 		void Pause();
+		// One property of a playing clip, without starting it again -
+		// ChangeProperties() sets the start time too, so calling it every
+		// frame to fade a clip holds the clip still. The scale is the blend
+		// against what is under it (0: all this clip, 1: none of it), which
+		// is what a cross-fade runs; the speed changes from the frame the
+		// clip is on, so a walk can keep pace with the feet.
+		void SetAnimationScale(const uint32 animationOrder, const f32 scale);
+		void SetAnimationSpeed(const uint32 animationOrder, const f32 speed);
 		void PauseAnimation(const uint32 animationOrder);
 		void ResumeAnimation(const uint32 animationOrder);
 		void Resume();
@@ -229,6 +237,29 @@ namespace p3d {
 		// Runs every registered modifier then recomposes. Called by Update();
 		// exposed so a caller posing by hand can get the same treatment.
 		void RunPoseModifiers();
+		// A rotation laid over one bone AFTER the clips have posed it, about
+		// the bone's own joint and in MODEL space - "turn the head 30 degrees
+		// about the model's up axis", whatever the clip has the neck doing.
+		// It is how a character looks where the player is looking: the walk
+		// cycle keeps the body, and the head, neck and spine each take a share
+		// of the view's yaw and pitch on top of it.
+		//
+		// Applied by Update() every frame, between the clips and the pose
+		// modifiers, in the order the bones were given - give parents before
+		// children. It is NOT applied while nothing is playing: with no clip
+		// to put the bone back first, it would wind round a little more each
+		// frame.
+		void SetBoneAim(const int32 boneId, const Quaternion &rotation);
+		void ClearBoneAim(const int32 boneId);
+		void ApplyBoneAims();
+		// Scale what is skinned to a bone AND everything below it, about the
+		// bone's joint, without touching the pose: the joints stay where the
+		// clip put them (so anything attached to them does too), only the
+		// skin is drawn smaller or larger. Near zero it takes a part out of
+		// the picture - the head of a body seen through its own eyes, a limb
+		// that has come off. Stays until cleared.
+		void SetBoneScale(const int32 boneId, const Vec3 &scale);
+		void ClearBoneScale(const int32 boneId);
 		// Puts every bone back to its bind transform and uploads. This IS
 		// what "no animation playing" now looks like: the constructor seeds
 		// boneTransformation from bindPose, Stop()/StopAnimation() return to
@@ -334,6 +365,22 @@ namespace p3d {
 			void* userData;
 		};
 		std::vector<PoseModifierEntry> poseModifiers;
+
+		// Per-bone aim rotations, in registration order. See SetBoneAim.
+		struct BoneAim {
+			int32 bone;
+			Quaternion rotation;
+		};
+		std::vector<BoneAim> boneAims;
+
+		// See SetBoneScale.
+		struct BoneScale {
+			int32 bone;
+			Vec3 scale;
+		};
+		std::vector<BoneScale> boneScales;
+		// Bones -> every submesh's skinning matrices, with the scales applied.
+		void UploadSkinning();
 
 	};
 

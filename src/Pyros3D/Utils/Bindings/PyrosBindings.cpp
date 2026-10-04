@@ -11,6 +11,8 @@ namespace p3d {
 
 	bool LuaComponent::s_updatesEnabled = true;
 
+	void RegisterLuaJson(sol::state* lua);		// PyrosLuaJson.cpp
+
 	void GenerateBindings(sol::state* lua)
 	{
 		lua->open_libraries(sol::lib::base, sol::lib::math, sol::lib::coroutine, sol::lib::table, sol::lib::string);
@@ -30,6 +32,7 @@ namespace p3d {
 		RegisterLuaAssetsLate(lua);
 		RegisterLuaAudio(lua);
 		RegisterLuaMisc(lua);
+		RegisterLuaJson(lua);
 		RegisterLuaUI(lua);
 	}
 

@@ -218,6 +218,27 @@ namespace p3d {
 			UpdateObjectTree(kids[i].get(), callUpdate);
 	}
 
+	namespace {
+		void SettleTree(GameObject* go, const bool parentMoved)
+		{
+			if (!go) return;
+			const bool moved = go->SettleTransformation(parentMoved);
+			const std::vector<std::shared_ptr<GameObject>> &kids = go->GetChildren();
+			for (size_t i = 0; i < kids.size(); i++)
+				SettleTree(kids[i].get(), moved);
+		}
+	}
+
+	void SceneGraph::SettleTransforms()
+	{
+		PYROS_PROFILE_SCOPE("SceneGraph.Settle");
+		for (size_t i = 0; i < _GameObjectListDynamic.size(); i++)
+		{
+			GameObject* go = _GameObjectListDynamic[i].get();
+			if (go && go->Scene == this) SettleTree(go, false);
+		}
+	}
+
 	void SceneGraph::Update(const f64 &Timer)
 	{
 		PYROS_PROFILE_SCOPE("SceneGraph.Update");

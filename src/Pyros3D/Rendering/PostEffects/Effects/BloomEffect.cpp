@@ -62,6 +62,13 @@ namespace p3d {
 			"	float uKnee;\n"
 			"};\n"
 			"vec3 Prefilter(vec3 c) {\n"
+			// A pixel that is not a number - one bad specular highlight is
+			// enough - is still not a number after every downsample, and by
+			// the smallest mip it is a texel the size of a hand on screen:
+			// the bloom came back as black rectangles over the frame. Such a
+			// pixel has no light in it to bloom; neither has a negative one.
+			"	if (!(c.r == c.r) || !(c.g == c.g) || !(c.b == c.b)) return vec3(0.0);\n"
+			"	c = clamp(c, vec3(0.0), vec3(64000.0));\n"
 			// Rec. 709 luma. The old pass branched on .r alone, so a
 			// saturated blue light never bloomed and a dull red one did.
 			"	float luma = dot(c, vec3(0.2126, 0.7152, 0.0722));\n"

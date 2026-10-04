@@ -13,6 +13,8 @@
 //                             [--tick 30] [--frame-rate 60]
 //                             [--password <p>] [--reconnect-grace <s>]
 //                             [--max-speed <m/s>] [--stats <seconds>]
+//                             [--admin-port <n>] [--admin-bind 127.0.0.1]
+//                             [--admin-password <p>] [--admin-dir assets/admin]
 //
 //               Defaults come from game.json's "server" block (what Build
 //               Game's dialog wrote); a flag overrides. Banned addresses
@@ -33,6 +35,22 @@
 //               "Server public key" and clients will refuse any server
 //               that is not this one.
 //
+//               Managing it from a browser: --admin-port serves the files in
+//               --admin-dir (a page the game ships) and, under /api/, whatever
+//               the game's scripts answer:
+//
+//                 admin.on("status", function(req) return { players = 3 } end)
+//                     -- GET or POST /api/status; req.data is the JSON sent
+//
+//               /api/login takes {"password": ...} and gives the browser a
+//               session cookie; every other /api/ call needs it. The password
+//               is --admin-password, else $PYROS_ADMIN_PASSWORD, else game.json's
+//               server.adminPassword - and without one the page is only served
+//               on 127.0.0.1. It is plain HTTP: over the internet, reach it
+//               through an SSH tunnel or a reverse proxy that does TLS.
+//               store.read(name) / store.write(name, text) keep small files in
+//               data/ beside game.json, for settings that outlive the process.
+//
 //               Scripts see HEADLESS = true. A scene script that calls
 //               network.host() itself decides the port; otherwise the server
 //               hosts on --port once the scene has started.
@@ -49,6 +67,7 @@
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
 #include <Pyros3D/Network/NetworkSession.h>
 #include <Pyros3D/Network/NetRendezvous.h>
+#include <Pyros3D/Network/HttpService.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
@@ -66,6 +85,8 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <map>
+#include <random>
 #include <set>
 #include <sstream>
 #include <thread>
@@ -174,6 +195,12 @@ int main(int argc, char** argv)
 		for (int i = 1; i < argc; i++) if (std::string(argv[i]) == "--print-key") { printf("%s\n", NetworkSession::PublicKeyOf(secret).c_str()); return 0; }
 	}
 	const f64 frameRate = std::stod(Arg(argc, argv, "--frame-rate", "60"));
+	const uint16 adminPort = (uint16)std::stoi(Arg(argc, argv, "--admin-port", std::to_string(sv.value("adminPort", 0))));
+	const std::string adminBind = Arg(argc, argv, "--admin-bind", sv.value("adminBind", std::string("127.0.0.1")));
+	const std::string adminDir = Arg(argc, argv, "--admin-dir", sv.value("adminDir", std::string("assets/admin")));
+	std::string adminPassword = Arg(argc, argv, "--admin-password", "");
+	if (adminPassword.empty()) { const char* env = std::getenv("PYROS_ADMIN_PASSWORD"); if (env) adminPassword = env; }
+	if (adminPassword.empty()) adminPassword = sv.value("adminPassword", std::string());
 
 	// Every GPU call the loaders make lands here and does nothing.
 	std::shared_ptr<IRenderDevice> device = std::make_shared<NullRenderDevice>();
@@ -189,12 +216,64 @@ int main(int argc, char** argv)
 	try { lua["class"] = lua.require_file("class", (game / "lua" / "middleclass.lua").string()); }
 	catch (const std::exception &e) { echo(std::string("ERROR: lua/middleclass.lua - ") + e.what()); }
 	lua.set_function("__pyros_log", [](const std::string &msg) { echo(msg); });
+	lua["echo"] = [](const std::string &msg) { p3d::LOG::_LOG::_echo(msg); };		// as the player and the editor give scripts
 	lua.script("function print(...) local t = {} for i = 1, select('#', ...) do t[i] = tostring(select(i, ...)) end __pyros_log(table.concat(t, '\\t')) end");
 	lua["HEADLESS"] = true;
 	lua["scene"] = scene;
 	lua["physics"] = static_cast<IPhysics*>(physics);
 	lua["ASSETS_PATH"] = (game / "assets").string() + "/";
 	sol::state* luaPtr = &lua;
+
+	// Places the server keeps loaded whether or not a player is near: a streamed
+	// world and its terrain are otherwise only there round the players, and a
+	// script that has to look at the ground before anyone has joined - to roll
+	// where things spawn - finds none.  server.keepLoaded({ Vec3, ... })
+	std::vector<Vec3> keepLoaded;
+	{
+		sol::table server = lua.create_named_table("server");
+		server.set_function("keepLoaded", [&keepLoaded](sol::optional<sol::table> points) {
+			keepLoaded.clear();
+			if (!points) return;
+			for (const auto &kv : *points) if (kv.second.is<Vec3>()) keepLoaded.push_back(kv.second.as<Vec3>());
+		});
+	}
+
+	// What the admin page can ask: admin.on(name, fn) answers /api/<name>.
+	std::map<std::string, sol::protected_function> adminHandlers;
+	{
+		sol::table admin = lua.create_named_table("admin");
+		admin.set_function("on", [&adminHandlers](const std::string &name, sol::protected_function fn) { adminHandlers[name] = fn; });
+		// Small files that outlive the process, in data/ beside game.json.
+		const fs::path dataDir = game / "data";
+		const auto safe = [](const std::string &name) {
+			if (name.empty() || name.size() > 64 || name[0] == '.') return false;
+			for (size_t i = 0; i < name.size(); i++)
+			{
+				const char c = name[i];
+				if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.')) return false;
+			}
+			return true;
+		};
+		sol::table store = lua.create_named_table("store");
+		store.set_function("read", [dataDir, safe](const std::string &name, sol::this_state ts) -> sol::object {
+			sol::state_view L(ts);
+			if (!safe(name)) return sol::make_object(L, sol::lua_nil);
+			std::ifstream in((dataDir / name).string().c_str(), std::ios::binary);
+			if (!in.is_open()) return sol::make_object(L, sol::lua_nil);
+			std::stringstream ss;
+			ss << in.rdbuf();
+			return sol::make_object(L, ss.str());
+		});
+		store.set_function("write", [dataDir, safe](const std::string &name, const std::string &text) {
+			if (!safe(name)) return false;
+			std::error_code dec;
+			fs::create_directories(dataDir, dec);
+			std::ofstream out((dataDir / name).string().c_str(), std::ios::binary | std::ios::trunc);
+			if (!out.is_open()) return false;
+			out << text;
+			return true;
+		});
+	}
 #else
 	sol::state* luaPtr = NULL;
 #endif
@@ -254,6 +333,101 @@ int main(int argc, char** argv)
 		fprintf(stderr, "PyrosServer: could not host on port %u\n", (unsigned)port);
 		return 1;
 	}
+	// The admin page. Everything under /api/ but the login needs the cookie
+	// the login gave out; a wrong password costs a wait that grows.
+	HttpService web;
+#ifdef LUA_BINDINGS
+	std::map<std::string, f64> adminSessions;		// token -> when it stops being good
+	f64 loginNotBefore = 0.0;
+	uint32 loginFailures = 0;
+	f64* clock = &t;
+	if (adminPort != 0)
+	{
+		const bool local = adminBind == "127.0.0.1" || adminBind == "localhost";
+		if (adminPassword.empty() && !local)
+			fprintf(stderr, "PyrosServer: --admin-port ignored: no admin password, and %s is not this machine only\n", adminBind.c_str());
+		else
+		{
+			web.SetStaticRoot((game / adminDir).string());
+			web.SetHandler([&](const HttpService::Request &q, HttpService::Response &r) {
+				const std::string name = q.path.substr(5);
+				const auto fail = [&r](const int status, const char* why) { r.status = status; r.body = std::string("{\"error\":\"") + why + "\"}"; };
+				// a page on another site cannot make the browser send this header
+				if (q.method != "GET" && q.headers.find("x-requested-with") == q.headers.end()) { fail(403, "missing X-Requested-With"); return; }
+				const std::string token = q.Cookie("pyros_admin");
+				std::map<std::string, f64>::iterator s = token.empty() ? adminSessions.end() : adminSessions.find(token);
+				if (s != adminSessions.end() && s->second < *clock) { adminSessions.erase(s); s = adminSessions.end(); }
+				const bool in = adminPassword.empty() || s != adminSessions.end();
+
+				if (name == "session") { r.body = std::string("{\"loggedIn\":") + (in ? "true" : "false") + ",\"passwordNeeded\":" + (adminPassword.empty() ? "false" : "true") + "}"; return; }
+				if (name == "login")
+				{
+					if (*clock < loginNotBefore) { fail(429, "wait a moment before trying again"); return; }
+					std::string given;
+					try { given = json::parse(q.body).value("password", std::string()); } catch (const std::exception &) {}
+					// compared in full whatever the first difference: no telling how much was right
+					unsigned char diff = (unsigned char)(given.size() != adminPassword.size());
+					for (size_t i = 0; i < given.size() && i < adminPassword.size(); i++) diff |= (unsigned char)(given[i] ^ adminPassword[i]);
+					if (adminPassword.empty() || diff != 0)
+					{
+						loginFailures++;
+						loginNotBefore = *clock + std::min(30.0, (f64)loginFailures);
+						echo("PyrosServer: admin login refused from " + q.remote);
+						fail(401, "wrong password");
+						return;
+					}
+					loginFailures = 0;
+					std::random_device rd;
+					std::string fresh;
+					const char* hex = "0123456789abcdef";
+					for (int i = 0; i < 16; i++) { const unsigned v = rd(); for (int k = 0; k < 4; k++) fresh += hex[(v >> (k * 4)) & 15]; }
+					adminSessions[fresh] = *clock + 12.0 * 3600.0;
+					r.headers["Set-Cookie"] = "pyros_admin=" + fresh + "; Path=/; HttpOnly; SameSite=Strict; Max-Age=43200";
+					r.body = "{\"ok\":true}";
+					echo("PyrosServer: admin logged in from " + q.remote);
+					return;
+				}
+				if (!in) { fail(401, "log in first"); return; }
+				if (name == "logout") { if (s != adminSessions.end()) adminSessions.erase(s); r.headers["Set-Cookie"] = "pyros_admin=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0"; r.body = "{\"ok\":true}"; return; }
+
+				std::map<std::string, sol::protected_function>::iterator h = adminHandlers.find(name);
+				if (h == adminHandlers.end()) { fail(404, "no such call"); return; }
+				sol::table req = lua.create_table();
+				req["method"] = q.method;
+				req["name"] = name;
+				req["query"] = q.query;
+				req["body"] = q.body;
+				req["remote"] = q.remote;
+				if (!q.body.empty())
+				{
+					sol::protected_function_result decoded = lua["json"]["decode"](q.body);
+					if (decoded.valid()) req["data"] = decoded.get<sol::object>(0);
+				}
+				sol::protected_function_result out = h->second(req);
+				if (!out.valid())
+				{
+					sol::error e = out;
+					echo(std::string("ERROR: admin.on('") + name + "') - " + e.what());
+					fail(500, "the script failed; see the server log");
+					return;
+				}
+				if (out.return_count() >= 2 && out.get<sol::object>(1).is<int>()) r.status = out.get<int>(1);
+				sol::object value = out.return_count() >= 1 ? out.get<sol::object>(0) : sol::make_object(lua, sol::lua_nil);
+				if (value.is<std::string>()) r.body = value.as<std::string>();
+				else
+				{
+					sol::protected_function_result text = lua["json"]["encode"](value);
+					r.body = text.valid() ? text.get<std::string>() : std::string("null");
+				}
+			});
+			if (web.Start(adminPort, adminBind))
+				echo("PyrosServer: admin page on http://" + adminBind + ":" + std::to_string(adminPort) + "/" + (adminPassword.empty() ? "  (no password: this machine only)" : ""));
+			else
+				fprintf(stderr, "PyrosServer: could not serve the admin page on %s:%u\n", adminBind.c_str(), (unsigned)adminPort);
+		}
+	}
+#endif
+
 	// Bans outlive the process.
 	const fs::path bansFile = game / "bans.txt";
 	{
@@ -285,16 +459,22 @@ int main(int argc, char** argv)
 
 		const std::chrono::steady_clock::time_point work0 = std::chrono::steady_clock::now();
 		session->Update(dt);
+		web.Poll();
 		// Cells and terrain tiles around every player; the world's streamer
 		// pumps the loader both use.
-		TerrainComponent::SetViewers(scene, session->ClientViewers());
-		if (world) world->Update(session->ClientViewers());
+		std::vector<Vec3> viewers = session->ClientViewers();
+#ifdef LUA_BINDINGS
+		viewers.insert(viewers.end(), keepLoaded.begin(), keepLoaded.end());
+#endif
+		TerrainComponent::SetViewers(scene, viewers);
+		if (world) world->Update(viewers);
 		else AssetStreamer::Instance().Pump(4.0);
 		physics->Update(dt, 10);
 		scene->Update(t);
 #ifdef LUA_BINDINGS
 		if (mainScript)
 		{
+			// the clock, not the delta: LuaComponent turns it into the frame's delta itself
 			try { mainScript->Update(t); }
 			catch (const std::exception &e) { echo(std::string("ERROR: scene main script update - ") + e.what()); }
 		}
@@ -326,6 +506,7 @@ int main(int argc, char** argv)
 	}
 
 	echo("PyrosServer: shutting down");
+	web.Stop();
 	if (session->Bans().size() != bansSaved) saveBans();
 	session->Shutdown();
 	delete session;

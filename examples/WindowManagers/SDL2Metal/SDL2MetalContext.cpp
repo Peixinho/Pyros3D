@@ -266,7 +266,8 @@ namespace p3d {
             }
         }
 
-        SetTime(SDL_GetTicks());
+        frameClock.Tick((f64)SDL_GetPerformanceCounter() / (f64)SDL_GetPerformanceFrequency());
+        SetTime(frameClock.Seconds() * 1000.0);
         fps.setFPS(SDL_GetTicks());
     }
 

@@ -25,6 +25,7 @@
 
 #ifdef METAL_BACKEND
 
+#include <Pyros3D/Utils/FrameClock/FrameClock.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_metal.h>
 #include "Pyros3D/Core/Context/Context.h"
@@ -81,9 +82,9 @@ namespace p3d {
             const Vec2 GetMousePosition() const;
 
             // Time
-            virtual f64 GetTime() { return SDL_GetTicks() * 0.001; }
-            virtual f64 GetTimeMilliSeconds() { return SDL_GetTicks(); }
-            virtual f64 GetTimeMicroSeconds() { return SDL_GetTicks(); }
+            virtual f64 GetTime() { return frameClock.Seconds(); }
+            virtual f64 GetTimeMilliSeconds() { return frameClock.Seconds() * 1000.0; }
+            virtual f64 GetTimeMicroSeconds() { return frameClock.Seconds() * 1000000.0; }
 
         protected:
 
@@ -117,6 +118,8 @@ namespace p3d {
 
             // Game FPS
             FPS fps;
+            // the time of the frame being built: see FrameClock.h
+            FrameClock frameClock;
 
             // save mouse positions
             f32 mouseX, mouseY;

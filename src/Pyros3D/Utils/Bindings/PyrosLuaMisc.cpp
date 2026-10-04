@@ -180,6 +180,8 @@ namespace p3d {
 			});
 			smoke.set_function("update", [](const f32 dt) { VolumetricSmoke::Update(dt); });
 			smoke.set_function("remove", [](const int32 id) { VolumetricSmoke::Remove(id); });
+			// 1 is a grenade's wall of smoke; a signal smoke is well under it.
+			smoke.set_function("setThickness", [](const int32 id, const f32 thickness) { VolumetricSmoke::SetThickness(id, thickness); });
 			smoke.set_function("clear", []() { VolumetricSmoke::Clear(); });
 			smoke.set_function("count", []() -> uint32 { return VolumetricSmoke::GetActiveCount(); });
 			smoke.set_function("capacity", []() -> uint32 { return (uint32)VolumetricSmoke::MaxClouds; });

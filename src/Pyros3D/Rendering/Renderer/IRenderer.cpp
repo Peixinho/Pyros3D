@@ -132,6 +132,8 @@ Vec4 IRenderer::CachedClipPlane0;
 bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
 f32 IRenderer::AmbientScale = 1.f;
+Vec4 IRenderer::BackgroundOverride(0.f, 0.f, 0.f, 1.f);
+bool IRenderer::BackgroundOverrideSet = false;
 Vec4 IRenderer::CachedAmbientEnv[14];
 bool IRenderer::VelocityFrameUniformsUBOValid = false;
 Matrix IRenderer::CachedPrvProjectionMatrix;
@@ -195,25 +197,24 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 	// An instanced component with no instances draws nothing, so it is
 	// dropped here rather than paying for its binds - a foliage block faded
 	// out by distance, a particle system between bursts.
-	for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end();)
+	//
+	// One pass over the list, keeping what stays. Erasing one at a time
+	// moved everything after it down for every mesh dropped: with a few
+	// thousand meshes and a few hundred of them faded-out foliage blocks,
+	// that copying was a twentieth of the frame.
 	{
-		RenderingComponent* rc = (*k)->renderingComponent;
-		if (rc->GetRenderLayer() != renderLayer
-			|| (rc->IsInstanced() && static_cast<IRenderingInstancedComponent*>(rc)->NumberOfInstances() == 0))
-			k = rmeshes.erase(k);
-		else ++k;
-	}
-
-	if (Tag != 0)
-	{
-		for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end();)
+		const uint32 layer = renderLayer;
+		size_t kept = 0;
+		for (size_t k = 0; k < rmeshes.size(); k++)
 		{
-			if (!(*k)->renderingComponent->GetOwner()->HaveTag(Tag))
-			{
-				k = rmeshes.erase(k);
-			}
-			else ++k;
+			RenderingComponent* rc = rmeshes[k]->renderingComponent;
+			if (rc->GetRenderLayer() != layer
+				|| (rc->IsInstanced() && static_cast<IRenderingInstancedComponent*>(rc)->NumberOfInstances() == 0))
+				continue;
+			if (Tag != 0 && !rc->GetOwner()->HaveTag(Tag)) continue;
+			rmeshes[kept++] = rmeshes[k];
 		}
+		rmeshes.resize(kept);
 	}
 
 	for (std::vector<RenderingMesh*>::iterator k = rmeshes.begin(); k != rmeshes.end(); k++)
@@ -352,6 +353,7 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 	ClipPlane = false;
 	IsCulling = false;
 	skipShadowMaps = false;
+	unshadowed = false;
 
 	// GlobalMatricesUBOValid etc. are NOT reset here - they're static/shared
 	// once at program start, and must stay whatever they currently are if
@@ -547,6 +549,24 @@ IRenderer::AutoInstanceBatch* IRenderer::AcquireAutoInstanceBatch(RenderingMesh*
 	return b;
 }
 
+// A material's fingerprint reads every field and every uniform it has, and
+// it was read again by every pass that drew: each shadow cascade, each cube
+// face, the G-buffer - a scene that gives each object its own material paid
+// for a thousand of them several times a frame. Nothing changes a material
+// between one view's PreRender() and the passes that follow it, so within
+// that span each is worked out once.
+namespace {
+	std::map<IMaterial*, uint64> g_fingerprintsThisView;
+	uint64 FingerprintThisView(GenericShaderMaterial* mat)
+	{
+		std::map<IMaterial*, uint64>::iterator it = g_fingerprintsThisView.find(mat);
+		if (it != g_fingerprintsThisView.end()) return it->second;
+		const uint64 f = mat->RenderFingerprint();
+		g_fingerprintsThisView[mat] = f;
+		return f;
+	}
+}
+
 void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures,
 	const std::function<void(RenderingMesh*, uint32)> &drawOne,
 	const std::function<void(RenderingMesh*, uint32)> &drawBatch)
@@ -581,7 +601,7 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		IMaterial* mat = items[i]->Material.get();
 		std::map<IMaterial*, uint64>::iterator fp = fingerprints.find(mat);
 		if (fp == fingerprints.end())
-			fp = fingerprints.insert(std::make_pair(mat, static_cast<GenericShaderMaterial*>(mat)->RenderFingerprint())).first;
+			fp = fingerprints.insert(std::make_pair(mat, FingerprintThisView(static_cast<GenericShaderMaterial*>(mat)))).first;
 		const GroupKey key = { items[i]->Geometry, fp->second, signatures ? (*signatures)[i] : 0 };
 		std::map<GroupKey, uint32>::iterator it = groupIndex.find(key);
 		if (it == groupIndex.end())
@@ -939,6 +959,7 @@ void IRenderer::PublishLightsToSmoke(const std::vector<IComponent*> &lights)
 
 void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
 {
+	g_fingerprintsThisView.clear();
 	PYROS_PROFILE_SCOPE("Renderer.PreRender");
 	BeginAutoInstancingFrame();
 
@@ -1202,7 +1223,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 					// Put the scene's own clear colour back - see the
 					// device->SetClearColor() call in the face loop above.
-					device->SetClearColor(BackgroundColorSet ? BackgroundColor : Vec4(0.f, 0.f, 0.f, 1.f));
+					device->SetClearColor(BackgroundOverrideSet ? BackgroundOverride : (BackgroundColorSet ? BackgroundColor : Vec4(0.f, 0.f, 0.f, 1.f)));
 
 					// Done rendering the 6 faces - every other pass from
 					// here on (this light's own record-keeping, the next
@@ -1678,7 +1699,9 @@ void IRenderer::DrawBackground()
 	// a background of its own kept clearing to Island's blue. Not
 	// backend-specific - reproduced identically on GL, Vulkan and Metal,
 	// since all three just hold the last SetClearColor() value.
-	device->SetClearColor(BackgroundColorSet ? BackgroundColor : kDefaultBackgroundColor);
+	// The run-time override (SetBackgroundOverride) stands in for a background, never for the lack of one:
+	// a renderer with no background is a thumbnail or a preview, not a view of the world.
+	device->SetClearColor((BackgroundOverrideSet && BackgroundColorSet) ? BackgroundOverride : (BackgroundColorSet ? BackgroundColor : kDefaultBackgroundColor));
 }
 
 void IRenderer::DepthTest(const uint32 test)
@@ -2349,7 +2372,7 @@ void IRenderer::SetBackground(const Vec4& Color)
 	// Apply immediately so the next offscreen FBO Bind() (Vulkan clears at
 	// begin-render-pass; GL at glClear) sees this colour - Island water
 	// reflection/refraction must match GL's sky clear on Vulkan too.
-	if (device) device->SetClearColor(BackgroundColor);
+	if (device) device->SetClearColor(BackgroundOverrideSet ? BackgroundOverride : BackgroundColor);
 }
 
 void IRenderer::ApplyBackgroundClearColor()

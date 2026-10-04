@@ -126,6 +126,9 @@ namespace p3d {
 		bool IsReady() const;	// server hosting, or client welcomed
 		NetTransport &Transport() { return transport; }
 		const Settings &GetSettings() const { return settings; }
+		// Server: the password new clients must send, from now on ("" for none).
+		// Whoever is already in stays in.
+		void SetPassword(const std::string &password) { settings.password = password; }
 		uint32 ServerTick() const { return (uint32)serverTick; }
 
 		// Server: builds `prefab` in the scene and replicates it; `owner` is

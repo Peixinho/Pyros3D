@@ -54,7 +54,23 @@ namespace p3d {
 		// GetWorldTransformation()/GetWorldPosition() keep returning a
 		// stale matrix forever even though GetPosition() reads back the
 		// new value correctly.
-		void RefreshTransformation() { UpdateTransformation(); }
+		// Brings this object's world matrix up to date NOW, for whoever is
+		// about to read it. Its children are not touched here - they are
+		// carried along by SettleTransformation, which is told by the flag.
+		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; }
+
+		// The transform looked at a second time, late in the frame, for
+		// whatever moved after the scene's traversal had been past it - a
+		// script that runs once the scene has updated places things, and
+		// without this they were drawn where they had been the frame
+		// before: a parachute a frame behind the body it hangs over, a
+		// carried gun a frame behind the hands, every frame, by speed times
+		// frame time. It does nothing for an object that has not moved, and
+		// it leaves the previous-frame matrices alone, which the once-a-
+		// frame update has already rolled: motion vectors still see one
+		// frame's movement. Returns whether the world matrix changed, so the
+		// walk knows the children have to follow.
+		bool SettleTransformation(const bool parentMoved);
 
 		// Local Space
 		const Matrix &GetLocalTransformation() const;
@@ -222,6 +238,11 @@ namespace p3d {
 		// Local matrix from position/rotation/scale (and look-at). Clears
 		// the dirty flag; touches no world or previous-world matrix.
 		bool UpdateLocalTransformation(const uint32 order);
+		// Refreshed by hand since the traversal: the children still stand
+		// where the old world matrix put them.
+		bool _RefreshedLate = false;
+		// The world-space box, from the local one and the world matrix.
+		void UpdateWorldBounds();
 		// Brings this object's world matrix up to date with its ancestors'
 		// WITHOUT rolling any previous-world matrix - those belong to the
 		// once-per-frame UpdateTransformation of each object.

@@ -374,7 +374,8 @@ namespace p3d {
         if (drawableW > 0 && drawableH > 0 && ((uint32)drawableW != Width || (uint32)drawableH != Height))
             OnResize((uint32)drawableW, (uint32)drawableH);
 
-        SetTime(SDL_GetTicks());
+        frameClock.Tick((f64)SDL_GetPerformanceCounter() / (f64)SDL_GetPerformanceFrequency());
+        SetTime(frameClock.Seconds() * 1000.0);
         fps.setFPS(SDL_GetTicks());
     }
 

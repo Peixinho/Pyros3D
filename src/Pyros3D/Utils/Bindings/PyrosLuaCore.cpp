@@ -99,6 +99,11 @@ namespace p3d {
 		// Process-wide ambient multiplier (see IRenderer::SetAmbientScale).
 		lua->set_function("setAmbientScale", [](const f32 scale) { IRenderer::SetAmbientScale(scale); });
 		lua->set_function("getAmbientScale", []() { return IRenderer::GetAmbientScale(); });
+		// A background colour set while the game runs, which every view clears to (see
+		// IRenderer::SetBackgroundOverride). clearBackgroundColor() gives each scene its own
+		// background back - call it when the script that set it is destroyed.
+		lua->set_function("setBackgroundColor", [](const f32 r, const f32 g, const f32 b) { IRenderer::SetBackgroundOverride(Vec4(r, g, b, 1.f)); });
+		lua->set_function("clearBackgroundColor", []() { IRenderer::ClearBackgroundOverride(); });
 		{
 			// SceneGraph
 			lua->new_usertype<SceneGraph>("Scene",
@@ -313,6 +318,8 @@ namespace p3d {
 				"activateCulling", &ForwardRenderer::ActivateCulling,
 				"deactivateCulling", &ForwardRenderer::DeactivateCulling,
 				"renderScene", &ForwardRenderer_RenderScene,
+				// A second view in the same frame - see IRenderer::SetUnshadowed().
+				"setUnshadowed", [](ForwardRenderer &r, const bool on) { r.SetUnshadowed(on); },
 				"preRender", sol::overload(&ForwardRenderer_PreRender, &ForwardRenderer_PreRenderTag)
 				);
 		}

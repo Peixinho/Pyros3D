@@ -65,6 +65,10 @@ namespace p3d {
 			Vec3 color;
 			f32 growth;           // 0..1, how much of the fill is showing
 			f32 density;          // 0..1, fades the whole cloud
+			// 0..1, how thick it is at its thickest. A grenade is 1: a wall
+			// nobody sees through. A signal smoke is a fraction of that - a
+			// colour hanging in the air, with the world still there behind it.
+			f32 thickness;
 			f32 age;
 			f32 growTime, lifeTime, fadeTime;
 			// 0 for smoke. Above it the cloud is fire: it gives off its
@@ -75,7 +79,7 @@ namespace p3d {
 			// 1: a blast, burning solid right through.
 			f32 blast;
 			uint32 cells;         // voxels the fill reached
-			Cloud() : active(false), growth(0.f), density(0.f), age(0.f),
+			Cloud() : active(false), growth(0.f), density(0.f), thickness(1.f), age(0.f),
 				growTime(1.f), lifeTime(1.f), fadeTime(1.f), emission(0.f), blast(0.f), cells(0) {}
 		};
 
@@ -102,6 +106,8 @@ namespace p3d {
 		static void Update(const f32 dt);
 
 		static void Remove(const int32 id);
+		// See Cloud::thickness. Takes effect on the next Update().
+		static void SetThickness(const int32 id, const f32 thickness);
 		static void Clear();
 
 		static uint32 GetActiveCount();

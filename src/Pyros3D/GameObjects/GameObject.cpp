@@ -116,6 +116,13 @@ namespace p3d {
 		// Update Transformation - the traversal has just updated the parent
 		bool r = UpdateTransformation(0, false);
 
+		UpdateWorldBounds();
+
+		return r;
+	}
+
+	void GameObject::UpdateWorldBounds()
+	{
 		// The eight corners of the LOCAL box, each transformed once.
 		//
 		// This used to pre-transform min/max and then transform the corners
@@ -155,8 +162,29 @@ namespace p3d {
 
 		minBoundsWorldSpace = min;
 		maxBoundsWorldSpace = max;
+	}
 
-		return r;
+	bool GameObject::SettleTransformation(const bool parentMoved)
+	{
+		const bool wasDirty = _IsDirty;
+		// Moved and refreshed by hand - a body put under a parachute, a
+		// camera put behind a car - is already where it should be, but what
+		// hangs from it is not: a harness on that body was drawn where the
+		// body had been a frame earlier, a metre behind in a fall.
+		const bool late = _RefreshedLate;
+		_RefreshedLate = false;
+		if (!wasDirty && !parentMoved) return late;
+		if (wasDirty)
+		{
+			// the local matrix is rebuilt; what it was a frame ago stays what it was
+			const Matrix prv = _PrvLocalMatrix;
+			UpdateLocalTransformation(0);
+			_PrvLocalMatrix = prv;
+		}
+		_WorldMatrix = _HaveOwner ? (_Owner->_WorldMatrix * _LocalMatrix) : _LocalMatrix;
+		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
+		UpdateWorldBounds();
+		return true;
 	}
 
 	// Updates the Transformation Matrix

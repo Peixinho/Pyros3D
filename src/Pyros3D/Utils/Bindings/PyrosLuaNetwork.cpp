@@ -188,6 +188,7 @@ namespace p3d {
 		net.set_function("ban", [session](const PeerId p, sol::optional<std::string> reason) {
 			if (NetworkSession* s = session()) s->Ban(p, reason.value_or("banned"));
 		});
+		net.set_function("setPassword", [session](const std::string &password) { if (NetworkSession* s = session()) s->SetPassword(password); });
 		net.set_function("unban", [session](const std::string &address) { if (NetworkSession* s = session()) s->Unban(address); });
 		net.set_function("peerAddress", [session](const PeerId p) { NetworkSession* s = session(); return s ? s->PeerAddress(p) : std::string(); });
 		net.set_function("generateKey", []() { return NetworkSession::GenerateSecretKey(); });

@@ -36,6 +36,26 @@ namespace p3d {
 		}
 	}
 
+	namespace {
+		std::vector<AudioSource*> &LiveSources()
+		{
+			static std::vector<AudioSource*> live;
+			return live;
+		}
+	}
+
+	uint32 AudioSource::StopAll()
+	{
+		std::vector<AudioSource*> &live = LiveSources();
+		uint32 sounding = 0;
+		for (size_t i = 0; i < live.size(); i++)
+		{
+			if (live[i]->IsPlaying()) sounding++;
+			live[i]->Stop();
+		}
+		return sounding;
+	}
+
 	AudioSource::AudioSource(const std::string &file, const bool stream, const std::shared_ptr<AudioBus> &bus)
 		: IComponent(), file(file), loaded(false), sound(NULL), bus(bus),
 		looping(false), spatialized(true), volume(1.f), pitch(1.f), pan(0.f),
@@ -46,6 +66,7 @@ namespace p3d {
 		lastPosition(Vec3::ZERO), lastUpdateTime(0.0), hasLastUpdate(false),
 		chain(new detail::AudioEffectChain())
 	{
+		LiveSources().push_back(this);
 	}
 
 	bool AudioSource::TryLoadFromFile()
@@ -100,6 +121,9 @@ namespace p3d {
 
 	AudioSource::~AudioSource()
 	{
+		std::vector<AudioSource*> &live = LiveSources();
+		for (size_t i = 0; i < live.size(); i++)
+			if (live[i] == this) { live[i] = live.back(); live.pop_back(); break; }
 		// See Sound::~Sound() - uninit only while the engine still exists.
 		if (sound != NULL)
 		{

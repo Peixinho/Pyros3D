@@ -80,6 +80,12 @@ namespace p3d {
 		void Pause();
 		// Stops and rewinds, so the next Play() starts from the beginning.
 		void Stop();
+		// Every source there is, stopped: attached to something in a scene or
+		// not. A script that takes its engine loop off the car when it is
+		// destroyed still holds the source, and it went on playing after the
+		// editor left Play until the collector got to it.
+		// Returns how many were still sounding.
+		static uint32 StopAll();
 		bool IsPlaying() const;
 
 		void SetLooping(const bool looping);

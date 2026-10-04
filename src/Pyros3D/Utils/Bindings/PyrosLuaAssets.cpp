@@ -217,6 +217,14 @@ namespace p3d {
 				// (physics bodies), then upload once.
 				"setBoneWorld", &SkeletonAnimationInstance::SetBoneWorldTransform,
 				"refreshSkinning", &SkeletonAnimationInstance::RefreshSkinning,
+				// Turn a bone on top of whatever clip is posing it: the head
+				// toward where the player looks. Model space, about the joint.
+				"setBoneAim", &SkeletonAnimationInstance::SetBoneAim,
+				"clearBoneAim", &SkeletonAnimationInstance::ClearBoneAim,
+				// Scale the skin of a bone and everything below it about its
+				// joint; the pose is untouched. Near zero hides the part.
+				"setBoneScale", &SkeletonAnimationInstance::SetBoneScale,
+				"clearBoneScale", &SkeletonAnimationInstance::ClearBoneScale,
 				"getBoneLocal", &SkeletonAnimationInstance::GetBoneLocalTransform,
 				"resetToBindPose", &SkeletonAnimationInstance::ResetToBindPose,
 				"getBonePosition", [](SkeletonAnimationInstance& self, int32 boneId) -> Vec3 {
@@ -299,6 +307,9 @@ namespace p3d {
 				},
 				"play", &SkeletonAnimationInstance::Play,
 				"changeProperties", &SkeletonAnimationInstance::ChangeProperties,
+				// Fade or re-pace a playing clip where it is: see the header.
+				"setAnimationScale", &SkeletonAnimationInstance::SetAnimationScale,
+				"setAnimationSpeed", &SkeletonAnimationInstance::SetAnimationSpeed,
 				"pause", &SkeletonAnimationInstance::Pause,
 				"PauseAnimation", &SkeletonAnimationInstance::PauseAnimation,
 				"resumeAnimation", &SkeletonAnimationInstance::ResumeAnimation,

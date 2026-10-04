@@ -92,9 +92,32 @@ namespace p3d {
 		return out;
 	}
 
+	namespace {
+		// The scene's tiles, found once a frame. FindTiles() walks every
+		// object in the scene and asks each component what it is, which on
+		// a world of a few thousand objects is over a millisecond - and a
+		// script asking the height of the ground at thirty points round the
+		// player, as one that listens for the shore does, paid it thirty
+		// times: a 40-60 ms frame twice a second. Tiles come and go in the
+		// scene's Update(), so within a frame the list cannot change.
+		const std::vector<TerrainTile> &TilesThisFrame(SceneGraph* scene)
+		{
+			static SceneGraph* forScene = NULL;
+			static f64 forTime = -1.0;
+			static std::vector<TerrainTile> tiles;
+			if (scene != forScene || scene->GetUpdateTime() != forTime)
+			{
+				tiles = TerrainEditor::FindTiles(scene);
+				forScene = scene;
+				forTime = scene ? scene->GetUpdateTime() : -1.0;
+			}
+			return tiles;
+		}
+	}
+
 	bool TerrainEditor::HeightAt(SceneGraph* scene, const f32 x, const f32 z, f32 &height)
 	{
-		const std::vector<TerrainTile> tiles = FindTiles(scene);
+		const std::vector<TerrainTile> &tiles = TilesThisFrame(scene);
 		for (size_t i = 0; i < tiles.size(); i++)
 			if (tiles[i].Contains(x, z))
 			{

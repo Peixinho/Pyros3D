@@ -153,6 +153,15 @@ namespace p3d {
 								"\n"
 								"	vec3 P, Pr, Pl, Pu, Pd;\n"
 								"	getPosViewSpace(d0, sc, z_info, P, matProj, ssao_vp);\n"
+								// Far away the sampling radius is smaller than a pixel and the
+								// depth buffer is coarser than the radius: the normal rebuilt from
+								// neighbouring depths is noise, and so is the occlusion - open
+								// ground at a distance came out blotched and banded. The effect
+								// fades out as the radius shrinks towards a pixel on screen, and
+								// pixels past that are not sampled at all.
+								"	float radiusPx = uRadius * abs(matProj[1][1]) / max(-P.z, 0.001) * uScreen.y * 0.5;\n"
+								"	float fade = smoothstep(2.0, 6.0, radiusPx);\n"
+								"	if (fade <= 0.0) { FragColor = vec4(1.0); return; }\n"
 								"	getPosViewSpace(texture_2D(uTex0, vTexcoord + vec2(px.x, 0.0)).r, sc + vec2(1.0, 0.0), z_info, Pr, matProj, ssao_vp);\n"
 								"	getPosViewSpace(texture_2D(uTex0, vTexcoord - vec2(px.x, 0.0)).r, sc - vec2(1.0, 0.0), z_info, Pl, matProj, ssao_vp);\n"
 								"	getPosViewSpace(texture_2D(uTex0, vTexcoord + vec2(0.0, px.y)).r, sc + vec2(0.0, 1.0), z_info, Pu, matProj, ssao_vp);\n"
@@ -188,7 +197,9 @@ namespace p3d {
 								"	float radius = uRadius;\n"
 								"	// Keeps a flat surface from occluding itself through depth-buffer\n"
 								"	// quantization; grows with distance, where that quantization does.\n"
-								"	float bias = 0.03 * radius + 0.0005 * (-P.z);\n"
+								// ...which is the square of the distance over the near plane: a
+								// 24-bit buffer resolves about z*z / (near * 2^24) metres.
+								"	float bias = 0.03 * radius + 0.0005 * (-P.z) + 3.0 * P.z * P.z / (max(uNearFar.x, 0.0001) * 16777216.0);\n"
 								"	float occlusion = 0.0;\n"
 								"	int samples = uSamples;\n"
 								"	for (int i = 0; i < 64; i++) {\n"
@@ -227,7 +238,7 @@ namespace p3d {
 								"		occlusion += (sceneZ >= samplePos.z + bias ? 1.0 : 0.0) * range;\n"
 								"	}\n"
 								"	float ao = clamp(1.0 - (occlusion / float(samples)) * uStrength, 0.0, 1.0);\n"
-								"	FragColor = vec4(ao);\n"
+								"	FragColor = vec4(mix(1.0, ao, fade));\n"
 								"}";
 
 		CompileShaders();

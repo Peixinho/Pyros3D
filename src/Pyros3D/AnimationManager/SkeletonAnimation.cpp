@@ -245,12 +245,46 @@ namespace p3d {
 
 	void SkeletonAnimationInstance::Stop()
 	{
-		AnimationsToPlay.clear();
+		// One at a time, through StopAnimation(): a clip playing on a layer
+		// holds a count on it (usingLayer), and clearing the list outright
+		// left that count standing. The next clip played on the same layer
+		// then looked like a SECOND user of it, took the blend-between-users
+		// path with nothing to blend against, and the layer's bones sat in
+		// the bind pose - a character whose arms snapped out to a T the
+		// moment it changed what its upper body was doing.
+		while (!AnimationsToPlay.empty())
+			StopAnimation((uint32)AnimationsToPlay.size() - 1);
 		// Update() no longer touches an instance with nothing playing, so
 		// without this the rig would freeze in whatever pose the last clip
 		// left it in. "Stopped" should read as neutral, and neutral is the
 		// bind pose - the same thing a freshly constructed instance shows.
 		ResetToBindPose();
+	}
+
+	void SkeletonAnimationInstance::SetAnimationScale(const uint32 animationOrder, const f32 scale)
+	{
+		if (animationOrder < AnimationsToPlay.size())
+			AnimationsToPlay[animationOrder].scale = scale;
+	}
+
+	void SkeletonAnimationInstance::SetAnimationSpeed(const uint32 animationOrder, const f32 speed)
+	{
+		if (animationOrder >= AnimationsToPlay.size() || speed == 0.f) return;
+		_SkeletonAnimation::SkeletonAnimation &anim = AnimationsToPlay[animationOrder];
+		if (anim.speed == speed) return;
+		// Carry on from where the clip is. Its time is
+		//     (elapsed + _startTime / speed) * speed
+		// so changing the speed alone would jump it. Move the start so that
+		// the same elapsed time gives the same clip time at the new speed.
+		// The clock is left running: starting it again from the frame on
+		// show costs the clip a frame each time, and a walk whose pace is
+		// trimmed every few frames to follow the feet stutters visibly.
+		if (anim._startTimeClock != -1.f)
+		{
+			const f32 elapsed = (anim._currentTime - anim._startTime) / anim.speed;
+			anim._startTime = anim._currentTime - elapsed * speed;
+		}
+		anim.speed = speed;
 	}
 
 	void SkeletonAnimationInstance::PauseAnimation(const uint32 animationOrder)
@@ -724,42 +758,45 @@ namespace p3d {
 		}
 
 		// Multiply Bones
+		//
+		// Two passes. Clips with no layer pose the WHOLE skeleton and blend
+		// with each other; a clip on a layer then takes that layer's bones
+		// over, as far as its scale lets it (0: entirely, 1: not at all).
+		//
+		// It used to be one pass in which a bone on a layer in use was
+		// skipped by every unlayered clip, and a lone layered clip was
+		// written straight in. That left nothing underneath a layer to blend
+		// from, so a layered clip could only ever cut in and cut out: a
+		// character raising a rifle went from a walk to the aim in one
+		// frame. With a base under it, the same clip can be faded in by
+		// running its scale from 1 down to 0, and out again the other way.
+		// At scale 0 - what playClip() and every existing caller passes -
+		// the result is what it always was.
+		const bool blending = inst->AnimationsToPlay.size() > 1;
 		for (std::vector<Bone>::iterator a = inst->skeleton.begin(); a != inst->skeleton.end(); a++)
 		{
-			Matrix trafo = (inst->AnimationsToPlay.size() > 1 ? inst->bindPose[(*a).self] : Matrix());
-			for (std::vector<_SkeletonAnimation::SkeletonAnimation>::reverse_iterator b = inst->AnimationsToPlay.rbegin(); b != inst->AnimationsToPlay.rend(); b++)
+			const int32 id = (*a).self;
+			Matrix trafo = (blending ? inst->bindPose[id] : Matrix());
+			if (!blending)
 			{
-				// Blending
-				if (inst->AnimationsToPlay.size() > 1)
-				{
-					// Regular Bleding Animations
-					if (!(*b).HaveLayers)
-					{
-						if (inst->boneIDs[(*a).self] == 1)
-							trafo = SCALE((*b).boneTransformationPerAnimation[(*a).self], trafo, (*b).scale);
-					}
-
-					// Layered
-					else if ((*b).Layer->boneIDs[(*a).self] == 1)
-					{
-						if ((*b).Layer->usingLayer > 1)
-						{
-							trafo = SCALE((*b).boneTransformationPerAnimation[(*a).self], trafo, (*b).scale);
-						}
-						else
-						{
-							trafo = (*b).boneTransformationPerAnimation[(*a).self];
-						}
-					}
-				}
-
 				// Normal Playback of One Animation
-				else {
-					trafo = (*b).boneTransformationPerAnimation[(*a).self];
+				trafo = inst->AnimationsToPlay[0].boneTransformationPerAnimation[id];
+			}
+			else
+			{
+				for (std::vector<_SkeletonAnimation::SkeletonAnimation>::reverse_iterator b = inst->AnimationsToPlay.rbegin(); b != inst->AnimationsToPlay.rend(); b++)
+				{
+					if (!(*b).HaveLayers)
+						trafo = SCALE((*b).boneTransformationPerAnimation[id], trafo, (*b).scale);
+				}
+				for (std::vector<_SkeletonAnimation::SkeletonAnimation>::reverse_iterator b = inst->AnimationsToPlay.rbegin(); b != inst->AnimationsToPlay.rend(); b++)
+				{
+					if ((*b).HaveLayers && (*b).Layer->boneIDs[id] == 1)
+						trafo = SCALE((*b).boneTransformationPerAnimation[id], trafo, (*b).scale);
 				}
 			}
 			// Apply Final Transformation to Bones
-			inst->boneTransformation[(*a).self] = trafo;
+			inst->boneTransformation[id] = trafo;
 		}
 
 		// Multiply bones with its parent - Tree
@@ -772,17 +809,11 @@ namespace p3d {
 		// the pose and the hierarchy is composed, before the result is
 		// uploaded. See AddPoseModifier: doing this from a component tick
 		// instead would be correct only by accident of update order.
+		inst->ApplyBoneAims();
 		inst->RunPoseModifiers();
 
 		// Send SubMesh Bones to Material
-		for (std::vector<RenderingMesh*>::iterator j = inst->rcomp->GetMeshes().begin(); j != inst->rcomp->GetMeshes().end(); j++)
-		{
-			for (std::map<int32, int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)
-			{
-				// Set list of Bones Matrices
-				(*j)->SkinningBones[(*k).second] = (inst->Bones[(*k).first] * (*j)->BoneOffsetMatrix[(*k).first]);
-			}
-		}
+		inst->UploadSkinning();
 	}
 
 	void SkeletonAnimation::SetAnimations(const std::vector<Animation> &clips)
@@ -1019,6 +1050,46 @@ namespace p3d {
 		}
 	}
 
+	void SkeletonAnimationInstance::SetBoneAim(const int32 boneId, const Quaternion &rotation)
+	{
+		if (boneId < 0 || (size_t)boneId >= boneTransformation.size()) return;
+		for (size_t i = 0; i < boneAims.size(); i++)
+		{
+			if (boneAims[i].bone == boneId) { boneAims[i].rotation = rotation; return; }
+		}
+		BoneAim a;
+		a.bone = boneId;
+		a.rotation = rotation;
+		boneAims.push_back(a);
+	}
+
+	void SkeletonAnimationInstance::ClearBoneAim(const int32 boneId)
+	{
+		for (size_t i = 0; i < boneAims.size(); i++)
+		{
+			if (boneAims[i].bone == boneId) { boneAims.erase(boneAims.begin() + i); return; }
+		}
+	}
+
+	void SkeletonAnimationInstance::ApplyBoneAims()
+	{
+		if (boneAims.empty()) return;
+		for (size_t i = 0; i < boneAims.size(); i++)
+		{
+			const int32 id = boneAims[i].bone;
+			// Turn the bone where it stands: about its own joint, in model
+			// space, and then back into the space of its parent.
+			const Matrix global = Bones[id];
+			const Vec3 at = global.GetTranslation();
+			Matrix toJoint, fromJoint;
+			toJoint.Translate(-at.x, -at.y, -at.z);
+			fromJoint.Translate(at);
+			const Matrix turned = fromJoint * boneAims[i].rotation.ConvertToMatrix() * toJoint * global;
+			boneTransformation[id] = GetParentMatrix(skeleton[id].parent, boneTransformation).Inverse() * turned;
+			RefreshHierarchy();
+		}
+	}
+
 	void SkeletonAnimationInstance::RunPoseModifiers()
 	{
 		if (poseModifiers.empty()) return;
@@ -1045,10 +1116,67 @@ namespace p3d {
 		RefreshHierarchy();
 
 		// Send SubMesh Bones to Material
+		UploadSkinning();
+	}
+
+	void SkeletonAnimationInstance::SetBoneScale(const int32 boneId, const Vec3 &scale)
+	{
+		if (boneId < 0 || (size_t)boneId >= skeleton.size()) return;
+		for (size_t i = 0; i < boneScales.size(); i++)
+		{
+			if (boneScales[i].bone == boneId) { boneScales[i].scale = scale; return; }
+		}
+		BoneScale s;
+		s.bone = boneId;
+		s.scale = scale;
+		boneScales.push_back(s);
+	}
+
+	void SkeletonAnimationInstance::ClearBoneScale(const int32 boneId)
+	{
+		for (size_t i = 0; i < boneScales.size(); i++)
+		{
+			if (boneScales[i].bone == boneId) { boneScales.erase(boneScales.begin() + i); return; }
+		}
+	}
+
+	void SkeletonAnimationInstance::UploadSkinning()
+	{
+		// A scaled bone: its skin, and the skin of every bone below it, is
+		// scaled about ITS joint - Bones[a] * S * Bones[a]^-1 in model space,
+		// put in front of the skinning matrix. The pose itself is untouched.
+		std::vector<Matrix> pre;
+		std::vector<uint8> scaled;
+		if (!boneScales.empty())
+		{
+			pre.resize(Bones.size());
+			scaled.assign(Bones.size(), 0);
+			for (size_t i = 0; i < boneScales.size(); i++)
+			{
+				const int32 a = boneScales[i].bone;
+				if (a < 0 || (size_t)a >= Bones.size()) continue;
+				Matrix s;
+				s.Scale(boneScales[i].scale);
+				const Matrix about = Bones[a] * s * Bones[a].Inverse();
+				for (size_t b = 0; b < Bones.size() && b < skeleton.size(); b++)
+				{
+					int32 p = (int32)b;
+					int32 guard = 0;
+					while (p >= 0 && p != a && guard++ < 256) p = skeleton[p].parent;
+					if (p != a) continue;
+					pre[b] = about * pre[b];
+					scaled[b] = 1;
+				}
+			}
+		}
 		for (std::vector<RenderingMesh*>::iterator j = rcomp->GetMeshes().begin(); j != rcomp->GetMeshes().end(); j++)
 		{
 			for (std::map<int32, int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)
-				(*j)->SkinningBones[(*k).second] = (Bones[(*k).first] * (*j)->BoneOffsetMatrix[(*k).first]);
+			{
+				const int32 b = (*k).first;
+				const Matrix skin = Bones[b] * (*j)->BoneOffsetMatrix[b];
+				(*j)->SkinningBones[(*k).second] = (!scaled.empty() && (size_t)b < scaled.size() && scaled[b]) ? pre[b] * skin : skin;
+			}
 		}
 	}
 

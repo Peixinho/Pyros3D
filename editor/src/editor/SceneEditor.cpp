@@ -5968,6 +5968,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				catch (...) { echo("ERROR: Project main script update failed"); }
 			}
 			UpdateSceneMainScript(time);
+			// what the scripts have just moved is drawn where they put it
+			scene->SettleTransforms();
 		}
 #endif
 
@@ -7212,6 +7214,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
 #endif
 		ForEachAudioSourceInScene(scene, StopAudioSourceForPlayMode, NULL);
+		// And the sounds scripts made for themselves, which are not components
+		// of anything in the scene: see Sound::StopAll().
+		{
+			const uint32 left = Sound::StopAll() + AudioSource::StopAll();
+			if (left > 0)
+			{
+				char buf[96];
+				snprintf(buf, sizeof(buf), "Play mode - silenced %u sound(s) the scripts had left playing", left);
+				echo(buf);
+			}
+		}
 		// Every emitter goes idle; the next UpdateParticlePreview() restarts
 		// whichever one the restored selection asks for.
 		ForEachParticleSystemInScene(scene, StopParticleSystemForPlayMode, NULL);

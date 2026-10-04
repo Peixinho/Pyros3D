@@ -2981,6 +2981,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// submesh whose geometry has no bone data.
 				uint32 opts = ShaderUsage::Diffuse | ShaderUsage::Skinning
 					| ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow | ShaderUsage::SpotShadow;
+				// Cutout is the scene's to say as well: a package does not
+				// record that its leaves, fences or hair are cards with holes
+				// in them. A model whose saved material has Alpha Cutout on is
+				// built with it on every submesh - one whose texture has no
+				// holes loses nothing to the test - and keeps its cutoff.
+				GenericShaderMaterial* savedCut = dynamic_cast<GenericShaderMaterial*>(mat.get());
+				const bool cutout = savedCut && (savedCut->GetOptions() & ShaderUsage::AlphaTest);
+				if (cutout) opts |= ShaderUsage::AlphaTest;
 #ifdef LUA_BINDINGS
 				rc = lua
 					? std::static_pointer_cast<RenderingComponent>(std::make_shared<LUA_RenderingComponent>(renderable, opts))
@@ -2988,6 +2996,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 #else
 				rc = std::make_shared<RenderingComponent>(renderable, opts);
 #endif
+				for (size_t m = 0; cutout && m < rc->GetMeshes().size(); m++)
+				{
+					GenericShaderMaterial* g = dynamic_cast<GenericShaderMaterial*>(rc->GetMeshes()[m]->Material.get());
+					if (g) g->SetAlphaCutoff(savedCut->GetAlphaCutoff());
+				}
 				// The materials are the package's again, but which faces are
 				// drawn is the scene's to say: a model made double-sided in
 				// the editor (a building whose walls have one side) stays

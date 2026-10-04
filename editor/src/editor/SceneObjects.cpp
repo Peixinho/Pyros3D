@@ -1,4 +1,5 @@
 #include <algorithm>
+#include <unordered_set>
 #include "SceneObjects.h"
 #include "Helpers/IHelper.h"
 #include "Helpers/LightHelper.h"
@@ -293,24 +294,24 @@ namespace {
 		uint32 nameID = MakeStringID(Name);
 		std::string name = Name;
 
-		bool found = true;
+		// Every other object's name, gathered once: the suffix is then counted up
+		// against that set. Rescanning the whole registry from the start for each
+		// taken suffix (as this did) is quadratic in the number of same-named
+		// objects - a terrain of a thousand tiles all called "Tile" took minutes.
+		std::unordered_set<uint32> taken;
+		taken.reserve(listObjects.size());
+		for (std::map<uint32,SceneObject*>::iterator i=listObjects.begin();i!=listObjects.end();i++)
+			if ((*i).second != NULL && id!=(*i).second->GetID())
+				taken.insert((*i).second->NameID);
 		std::ostringstream append;
-		do
+		uint32 count = 1;
+		while (taken.find(nameID) != taken.end())
 		{
-			uint32 count = 1;
-			for (std::map<uint32,SceneObject*>::iterator i=listObjects.begin();i!=listObjects.end();i++)
-			{
-				if ((*i).second->NameID==nameID && id!=(*i).second->GetID())
-				{
-					append.str("");
-					append << "(" << count << ")";
-					nameID = MakeStringID(name + append.str());
-					i=listObjects.begin();
-					count++;
-				}
-			}
-			found = false;
-		}while(found);
+			append.str("");
+			append << "(" << count << ")";
+			nameID = MakeStringID(name + append.str());
+			count++;
+		}
 
 			obj->Name = name + append.str();
 	obj->NameID = MakeStringID(obj->Name);

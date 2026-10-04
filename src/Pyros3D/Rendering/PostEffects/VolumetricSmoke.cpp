@@ -367,8 +367,15 @@ namespace p3d {
 			if (fade > 1.f) fade = 1.f;
 			// Thins from the outside in as it goes.
 			c.growth = g * (0.7f + 0.3f * fade);
-			c.density = fade * fade * (3.f - 2.f * fade);
+			c.density = fade * fade * (3.f - 2.f * fade) * c.thickness;
 		}
+	}
+
+	void VolumetricSmoke::SetThickness(const int32 id, const f32 thickness)
+	{
+		if (id < 0 || id >= (int32)MaxClouds || !clouds[id].active) return;
+		clouds[id].thickness = thickness < 0.f ? 0.f : (thickness > 1.f ? 1.f : thickness);
+		clouds[id].density = clouds[id].thickness;
 	}
 
 	void VolumetricSmoke::Remove(const int32 id)

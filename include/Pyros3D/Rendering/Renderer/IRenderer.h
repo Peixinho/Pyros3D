@@ -127,6 +127,16 @@ namespace p3d {
 		// disturbs the scale.
 		static void SetAmbientScale(const f32 Scale) { AmbientScale = Scale < 0.f ? 0.f : Scale; }
 		static f32 GetAmbientScale() { return AmbientScale; }
+		// A background colour set at run time, over whatever each renderer was
+		// given: while set, every renderer in the process that has a background
+		// clears to this one instead. It is how a script changes the backdrop
+		// while the game runs (time of day, going underwater, a flash) without
+		// owning the renderers, and it keeps the main view and any second view a
+		// script draws in agreement. Cleared, each renderer goes back to its own.
+		static void SetBackgroundOverride(const Vec4 &Color) { BackgroundOverride = Color; BackgroundOverrideSet = true; }
+		static void ClearBackgroundOverride() { BackgroundOverrideSet = false; }
+		static bool HasBackgroundOverride() { return BackgroundOverrideSet; }
+		static const Vec4 &GetBackgroundOverride() { return BackgroundOverride; }
 		// Ambient as a three-band gradient over the world-space normal -
 		// sky above, ground below, equator around the horizon. Mode 0 keeps
 		// the flat GlobalLight colour.
@@ -245,6 +255,12 @@ namespace p3d {
 		// so PreRender doesn't rebind FBOs or stomp shared uniform caches.
 		void SetSkipShadowMaps(const bool skip) { skipShadowMaps = skip; }
 		bool GetSkipShadowMaps() const { return skipShadowMaps; }
+
+		// A second view drawn inside another renderer's frame (a scope, a mirror):
+		// it neither redraws the lights' shared shadow maps nor samples them, since
+		// they are fitted to the main view. Its lights light and cast nothing.
+		void SetUnshadowed(const bool on) { unshadowed = on; skipShadowMaps = on; }
+		bool IsUnshadowed() const { return unshadowed; }
 
 		// Shared PyrosShader UBO handles (bindings 0/18/22, …). DebugRenderer
 		// must Retain/Release these rather than CreateUniformBuffer() at the
@@ -558,6 +574,8 @@ namespace p3d {
 			IsCulling;
 		bool
 			skipShadowMaps;
+		bool
+			unshadowed;
 		// Owned whenever IsCulling is true; ActivateCulling()/DeactivateCulling()
 		// always go through .reset() so re-activating or repeated deactivation
 		// can't leak or double-free the previous FrustumCulling.
@@ -727,6 +745,8 @@ namespace p3d {
 		static bool AmbientLightUniformsUBOValid;
 		static Vec4 CachedGlobalLight;
 		static f32 AmbientScale;
+		static Vec4 BackgroundOverride;
+		static bool BackgroundOverrideSet;
 		static Vec4 ScaleAmbient(const Vec4 &c) { return Vec4(c.x * AmbientScale, c.y * AmbientScale, c.z * AmbientScale, c.w); }
 		static Vec4 CachedAmbientEnv[14];
 		static bool VelocityFrameUniformsUBOValid;

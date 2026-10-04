@@ -1243,6 +1243,8 @@ void PyrosPlayer::Update()
 		catch (const std::exception& e) { echo(std::string("ERROR: scene main script update - ") + e.what()); }
 	}
 #endif
+	// what the script has just moved is drawn where it put it
+	scene->SettleTransforms();
 
 	// The scene's own 2D view, after the script has had its say. A script
 	// that moves the followed object, or writes view.center itself, has run by

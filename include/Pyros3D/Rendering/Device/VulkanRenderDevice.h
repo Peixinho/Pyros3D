@@ -767,7 +767,7 @@ namespace p3d {
 		// one's semaphore, so passes still execute in the order they were
 		// recorded, which is what a G-buffer written by one session and
 		// sampled by the next relies on. Only the CPU's wait is gone.
-		static const uint32 OFFSCREEN_SLOTS = 4;
+		static const uint32 OFFSCREEN_SLOTS = 32;
 		struct OffscreenSlot
 		{
 			VkCommandBuffer cmd;

@@ -34,10 +34,32 @@ namespace p3d {
 		}
 	}
 
+	namespace {
+		// every Sound alive, for StopAll(): added when built, removed when destroyed
+		std::vector<Sound*> &LiveSounds()
+		{
+			static std::vector<Sound*> live;
+			return live;
+		}
+	}
+
+	uint32 Sound::StopAll()
+	{
+		std::vector<Sound*> &live = LiveSounds();
+		uint32 sounding = 0;
+		for (size_t i = 0; i < live.size(); i++)
+		{
+			if (live[i]->GetPlayingCount() > 0) sounding++;
+			live[i]->Stop();
+		}
+		return sounding;
+	}
+
 	Sound::Sound(const std::string &file, const uint32 voices, const std::shared_ptr<AudioBus> &bus)
 		: file(file), loaded(false), bus(bus), nextVoice(0),
 		attenuationModel(AttenuationModel::Linear), minDistance(1.f), maxDistance(100.f)
 	{
+		LiveSounds().push_back(this);
 		AudioManager* audio = AudioManager::GetActive();
 		if (audio == NULL || !audio->IsInitialized())
 		{
@@ -130,6 +152,9 @@ namespace p3d {
 
 	Sound::~Sound()
 	{
+		std::vector<Sound*> &live = LiveSounds();
+		for (size_t i = 0; i < live.size(); i++)
+			if (live[i] == this) { live[i] = live.back(); live.pop_back(); break; }
 		DestroyVoices();
 		// `bus` releases its reference here, after every voice that routed
 		// through it is gone.

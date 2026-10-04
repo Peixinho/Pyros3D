@@ -485,7 +485,8 @@ namespace p3d {
         if (vulkanDevice->QueryRealSurfaceExtent(realW, realH) && (realW != Width || realH != Height))
             OnResize(realW, realH);
 
-		SetTime(SDL_GetTicks());
+		frameClock.Tick((f64)SDL_GetPerformanceCounter() / (f64)SDL_GetPerformanceFrequency());
+        SetTime(frameClock.Seconds() * 1000.0);
         fps.setFPS(SDL_GetTicks());
 #if defined(__APPLE__)
         // MoltenVK creates/replaces the CAMetalLayer on first present (and

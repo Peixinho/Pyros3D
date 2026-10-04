@@ -125,6 +125,14 @@ namespace p3d {
 		// buttons must not both light up, and the one underneath must not
 		// receive the click.
 		GameObject* UpdateInput(const Vec2 &canvasPoint, const bool pointerDown, const bool pointerInside = true);
+		// Where the pointer was, in canvas coordinates, the last time
+		// UpdateInput() ran, and whether it was over the view at all. A
+		// script that does its own hit-testing - a drag between lists, a
+		// right click - needs the same point the widgets were given: the
+		// window's mouse position is not it wherever the game is drawn in
+		// part of a window, as it is in the editor's viewport.
+		const Vec2 &GetPointer() const { return pointer; }
+		bool IsPointerInside() const { return pointerInside; }
 
 		// What every widget reported during the last UpdateInput/UpdateText/
 		// UpdateKey/UpdateScroll call, as (element, UIEventFlag bits). A
@@ -232,6 +240,10 @@ namespace p3d {
 		SceneGraph* registeredScene;
 
 		static std::vector<IComponent*> Components;
+
+	private:
+		Vec2 pointer;
+		bool pointerInside = false;
 	};
 
 };

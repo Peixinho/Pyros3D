@@ -246,6 +246,8 @@ namespace p3d {
 	GameObject* UICanvas::UpdateInput(const Vec2 &canvasPoint, const bool pointerDown, const bool pointerInside)
 	{
 		events.clear();
+		pointer = canvasPoint;
+		this->pointerInside = pointerInside;
 
 		// While a dialog is open, nothing outside it exists as far as the
 		// pointer is concerned. Blocked widgets are told the pointer is

@@ -76,6 +76,14 @@ namespace p3d {
 		// Silences every voice of this sound.
 		void Stop();
 
+		// Silences every Sound there is. For whatever ends a session from
+		// outside - the editor leaving Play - where the things that own the
+		// sounds are scripts: their objects live until the collector gets to
+		// them, and a rotor, a wind loop or a long one-shot that nobody
+		// stopped went on playing over the editor.
+		// Returns how many were still sounding.
+		static uint32 StopAll();
+
 		// How many voices are currently sounding - mostly useful for tuning
 		// the pool size.
 		uint32 GetPlayingCount() const;

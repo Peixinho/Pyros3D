@@ -46,6 +46,13 @@ namespace p3d {
 
 		// Update
 		void Update(const f64 &Timer);
+		// Whatever has moved since Update() - by a script run after it - put
+		// where it now is, before the frame is drawn. See
+		// GameObject::SettleTransformation. Cheap when nothing moved.
+		void SettleTransforms();
+		// The time the last Update() was given: the same all through one
+		// frame, which is what makes it a key for work done once a frame.
+		f64 GetUpdateTime() const { return timer; }
 		// Add Child to Scene
 		void Add(const std::shared_ptr<GameObject> &GO);
 		// Remove Child from Scene

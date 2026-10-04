@@ -88,7 +88,22 @@ namespace p3d {
 		// Show/hide is per-component-active rather than removing the object
 		// from the scene: the layout stays solved, so showing it again costs
 		// nothing and cannot lose its place.
+		void UI_SetVisibleBelow(GameObject* go, bool visible);
+
+		// The element's own visibility as well as its pictures and text: a
+		// screen authored hidden (so that it is not drawn over the editor's
+		// view of the scene) has `visible` off on its rect, the canvas skips
+		// everything under it, and switching its images back on showed
+		// nothing. Only the element asked for is touched that way; what is
+		// under it keeps whatever each was given.
 		void UI_SetVisible(GameObject* go, bool visible)
+		{
+			if (!go) return;
+			if (UIRect* r = FindComponent<UIRect>(go, ComponentType::UIRect)) r->SetVisible(visible);
+			UI_SetVisibleBelow(go, visible);
+		}
+
+		void UI_SetVisibleBelow(GameObject* go, bool visible)
 		{
 			if (!go) return;
 			const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
@@ -100,7 +115,7 @@ namespace p3d {
 				if (visible) cs[i]->Enable(); else cs[i]->Disable();
 			}
 			const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
-			for (size_t i = 0; i < kids.size(); i++) UI_SetVisible(kids[i].get(), visible);
+			for (size_t i = 0; i < kids.size(); i++) UI_SetVisibleBelow(kids[i].get(), visible);
 		}
 
 		// A bar or a fill: 0..1 of its parent's width, by moving one anchor.
@@ -112,6 +127,21 @@ namespace p3d {
 			if (!r) return;
 			const f32 f = fraction < 0.f ? 0.f : (fraction > 1.f ? 1.f : fraction);
 			r->SetAnchors(r->GetAnchorMin(), Vec2(f, r->GetAnchorMax().y));
+		}
+
+		// Where the element sits against its anchors: the same four numbers the
+		// editor's rect shows (min x, min y, max x, max y). A script moves or
+		// resizes an element by reading them once and writing them back shifted.
+		std::tuple<f32, f32, f32, f32> UI_GetOffsets(GameObject* go)
+		{
+			UIRect* r = FindComponent<UIRect>(go, ComponentType::UIRect);
+			if (!r) return std::make_tuple(0.f, 0.f, 0.f, 0.f);
+			return std::make_tuple(r->GetOffsetMin().x, r->GetOffsetMin().y, r->GetOffsetMax().x, r->GetOffsetMax().y);
+		}
+		void UI_SetOffsets(GameObject* go, const f32 minX, const f32 minY, const f32 maxX, const f32 maxY)
+		{
+			UIRect* r = FindComponent<UIRect>(go, ComponentType::UIRect);
+			if (r) r->SetOffsets(Vec2(minX, minY), Vec2(maxX, maxY));
 		}
 
 		void UI_SetInteractable(GameObject* go, bool on)
@@ -364,10 +394,46 @@ namespace p3d {
 		ui.set_function("setTint", &UI_SetTint);
 		ui.set_function("setVisible", &UI_SetVisible);
 		ui.set_function("setFill", &UI_SetFill);
+		ui.set_function("getOffsets", &UI_GetOffsets);
+		ui.set_function("setOffsets", &UI_SetOffsets);
 		ui.set_function("setInteractable", &UI_SetInteractable);
 		// Polled as an alternative to the button's onClick handler, for a
 		// script that would rather ask than be called.
 		ui.set_function("wasClicked", &UI_WasClicked);
+		// x, y, width, height = ui.rect(go): where the element is on the
+		// canvas, as last solved. What lets a script hit-test against a
+		// layout authored in the editor instead of carrying a copy of it.
+		ui.set_function("rect", [](GameObject* go) {
+			UIRect* r = FindComponent<UIRect>(go, ComponentType::UIRect);
+			if (!r) return std::make_tuple(0.f, 0.f, 0.f, 0.f);
+			const UIRectValue &v = r->GetRect();
+			return std::make_tuple(v.x, v.y, v.width, v.height);
+		});
+		// ui.setTexture(go, texture): what the element's image shows - a
+		// render target as readily as a file, which is how a view of the
+		// world (a character preview, a minimap) gets into the UI. nil
+		// goes back to a plain tinted rectangle.
+		ui.set_function("setTexture", [](GameObject* go, sol::optional<std::shared_ptr<Texture> > texture) {
+			UIImage* im = FindComponent<UIImage>(go, ComponentType::UIImage);
+			if (!im) return false;
+			im->SetTexture(texture ? *texture : std::shared_ptr<Texture>());
+			return true;
+		});
+		// x, y, inside = ui.pointer(scene): where the pointer is on the canvas,
+		// as the widgets were last told - right in the editor's viewport and
+		// in a built game alike, which getMousePosition() is not.
+		ui.set_function("pointer", [](SceneGraph* scene) {
+			if (scene)
+			{
+				std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+				if (!canvases.empty())
+				{
+					const Vec2 &p = canvases.back()->GetPointer();
+					return std::make_tuple(p.x, p.y, canvases.back()->IsPointerInside());
+				}
+			}
+			return std::make_tuple(0.f, 0.f, false);
+		});
 
 		// The rest of the widget set. Values first, because that is what a
 		// script actually wants from a control.

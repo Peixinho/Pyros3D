@@ -90,6 +90,14 @@ void main() {
 
 	vec4 z_info = vec4(uNearFar.x, uNearFar.y, uNearFar.x*uNearFar.y, uNearFar.x - uNearFar.y);
 	vec3 P = getPosViewSpace(d0, gl_FragCoord.xy, z_info);
+	// Far away the sampling radius is smaller than a pixel and the depth buffer
+	// is coarser than the radius: every sample lands on the surface it started
+	// from, a few depth steps off, and whole hillsides came out occluded. The
+	// effect fades out as the radius shrinks towards a pixel on screen, and
+	// pixels past that are not sampled at all.
+	float radiusPx = uSSAORadius * abs(uMatProj[1][1]) / max(-P.z, 0.001) * uScreenDimensions.y * 0.5;
+	float fade = smoothstep(2.0, 6.0, radiusPx);
+	if (fade <= 0.0) { FragColor = vec4(1.0); return; }
 	vec3 N = normalize(texture_2D(tNormal, Texcoord).xyz);
 
 	ivec2 q = ivec2(mod(gl_FragCoord.xy, 4.0));
@@ -104,7 +112,9 @@ void main() {
 	float radius = uSSAORadius;
 	// Keeps a flat surface from occluding itself through depth-buffer
 	// quantization; grows with distance, where that quantization does.
-	float bias = 0.03 * radius + 0.0005 * (-P.z);
+	// ...which is the square of the distance over the near plane: a 24-bit
+	// buffer resolves about z*z / (near * 2^24) metres.
+	float bias = 0.03 * radius + 0.0005 * (-P.z) + 3.0 * P.z * P.z / (max(uNearFar.x, 0.0001) * 16777216.0);
 	int samples = int(uSSAOSamples);
 	float occlusion = 0.0;
 	for (int i = 0; i < 32; i++) {
@@ -131,6 +141,7 @@ void main() {
 		occlusion += (sceneZ >= samplePos.z + bias ? 1.0 : 0.0) * range;
 	}
 	float ao = clamp(1.0 - (occlusion / float(samples)) * uSSAOStrength, 0.0, 1.0);
+	ao = mix(1.0, ao, fade);
 	FragColor = vec4(ao, ao, ao, 1.0);
 }
 #endif
