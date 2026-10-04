@@ -197,7 +197,22 @@ int main(int argc, char** argv)
 				if (saved.is_object() && saved.contains("map") && saved["map"].is_string()) map = saved["map"].get<std::string>();
 			}
 		}
-		if (map.empty() || !fs::exists(game / "scenes" / (map + ".json"), ec)) map = sv.value("map", std::string());
+		if (map != "random" && (map.empty() || !fs::exists(game / "scenes" / (map + ".json"), ec))) map = sv.value("map", std::string());
+		// "random": one of the game's maps ("server": { "maps": [...] }), a new
+		// roll every time the server starts.
+		if (map == "random")
+		{
+			std::vector<std::string> maps;
+			if (sv.contains("maps") && sv["maps"].is_array())
+				for (const json &m : sv["maps"])
+					if (m.is_string() && fs::exists(game / "scenes" / (m.get<std::string>() + ".json"), ec)) maps.push_back(m.get<std::string>());
+			map.clear();
+			if (!maps.empty())
+			{
+				std::random_device rd;
+				map = maps[rd() % maps.size()];
+			}
+		}
 		if (!map.empty() && fs::exists(game / "scenes" / (map + ".json"), ec)) sceneRel = "scenes/" + map + ".json";
 		else sceneRel = manifest.value("startupScene", std::string());
 	}
@@ -268,6 +283,8 @@ int main(int argc, char** argv)
 		// server.restart(): everyone is dropped and the server comes back as it
 		// would from the command line - how a change of map takes effect.
 		server.set_function("restart", []() { g_restart = true; g_running = false; });
+		// which map this is: the scene's name
+		server["map"] = fs::path(sceneRel).stem().string();
 		server.set_function("keepLoaded", [&keepLoaded](sol::optional<sol::table> points) {
 			keepLoaded.clear();
 			if (!points) return;
