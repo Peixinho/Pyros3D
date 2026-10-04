@@ -6725,6 +6725,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// hanging off the old one goes first. projectMainScript deliberately
 		// survives - that persistence is the point of it.
 		static_cast<Box3DPhysics*>(physics)->SetSimulationEnabled(false);
+		// The scripts of the scene being left are told first, as they are when
+		// Play stops: destroy() is where they put away what they made. Then
+		// whatever they made and did not put away goes with them. Neither
+		// happened here, and loading replaces only the objects the scene file
+		// has: a title screen's sky - its sun, its clouds, its birds - was
+		// still there in the level it loaded, beside the level's own, with
+		// nothing left to move it. Two suns, and birds hanging in the air.
+		ResetSceneMainScriptLifecycle();
+		ResetLuaComponentsLifecycle();
+		RemovePlayModeSpawnedObjects();
 		sceneMainScript.reset();
 		sceneMainScriptPath.clear();
 		DeselectSceneObject();
@@ -6744,6 +6754,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 		// Put the fresh graph into the same state EnterPlayMode() leaves one
 		// in - LoadSceneFromFile() builds it for editing, not for playing.
+		// What this scene starts with, so that what its scripts spawn can be
+		// told apart at the next load, or when Play stops.
+		playModeExistingObjects.clear();
+		{
+			std::vector<GameObject*> all;
+			if (scene) scene->CollectGameObjectsRecursive(all);
+			playModeExistingObjects.insert(all.begin(), all.end());
+		}
 		SetEditorChromeVisible(false);
 		ResolvePlayModeCamera();
 		SyncPhysicsFromScene();

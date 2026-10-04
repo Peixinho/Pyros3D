@@ -174,8 +174,14 @@ namespace p3d {
 		static std::vector<uchar> atlas;
 		static uint32 atlasVersion;
 		static f32 cellSize;
-		static Vec3 lightDirection, lightColor, ambient, wind;
-		static bool manualLight, manualAmbient;
+		// One to a line: MSVC refuses the second and later names of a list of statics in
+		// an exported class (C2487), which is what broke the Windows build.
+		static Vec3 lightDirection;
+		static Vec3 lightColor;
+		static Vec3 ambient;
+		static Vec3 wind;
+		static bool manualLight;
+		static bool manualAmbient;
 		static f32 screenFlash;
 		static Vec3 screenFlashColor;
 		static std::vector<LocalLight> localLights;

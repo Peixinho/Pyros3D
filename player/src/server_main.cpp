@@ -89,6 +89,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdio>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -586,5 +587,12 @@ int main(int argc, char** argv)
 		fprintf(stderr, "PyrosServer: could not restart itself - start it again by hand\n");
 		return 1;
 	}
-	return 0;
+	// Everything that has to be saved or closed has been, above. What is left
+	// is the script state's own teardown, and that runs after the render
+	// device is gone: a renderable a script was still holding (a sphere it had
+	// made) destroyed its buffers through no device at all, and every clean
+	// stop of the server ended in a segmentation fault instead of an exit
+	// code of 0. There is nothing in it worth running: leave.
+	fflush(stdout); fflush(stderr);
+	std::_Exit(0);
 }
