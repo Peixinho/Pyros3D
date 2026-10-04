@@ -79,6 +79,12 @@
 #endif
 #include "PrefabResolver.h"
 
+#ifdef _WIN32
+#include <process.h>
+#else
+#include <unistd.h>
+#endif
+
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -98,6 +104,10 @@ namespace fs = std::filesystem;
 namespace {
 	std::atomic<bool> g_running(true);
 	void OnSignal(int) { g_running = false; }
+	// server.restart(): the loop ends as for a signal, and the process starts
+	// itself again once everything is put away - onto whatever map the match's
+	// settings now name.
+	std::atomic<bool> g_restart(false);
 
 	std::string Arg(int argc, char** argv, const char* name, const std::string &fallback)
 	{
@@ -144,6 +154,9 @@ int main(int argc, char** argv)
 
 	// The game folder: --game, else wherever game.json is found from here.
 	std::error_code ec;
+	// (for restarting: the arguments are relative to where it was started)
+	const fs::path startedIn = fs::current_path(ec);
+	const fs::path startedAs = fs::absolute(fs::path(argv[0]), ec);
 	fs::path game = Arg(argc, argv, "--game", fs::current_path(ec).string());
 	if (!fs::exists(game / "game.json", ec))
 	{
@@ -164,9 +177,30 @@ int main(int argc, char** argv)
 		try { in >> manifest; }
 		catch (const std::exception &e) { fprintf(stderr, "PyrosServer: game.json - %s\n", e.what()); return 1; }
 	}
-	const std::string sceneRel = Arg(argc, argv, "--scene", manifest.value("startupScene", std::string()));
 	// game.json's "server" block, then the flags over it.
 	const json sv = manifest.contains("server") && manifest["server"].is_object() ? manifest["server"] : json::object();
+	// Which map. A server has no scene of its own to be given: it runs the map
+	// its match is set to - what the admin page last saved (data/match.json),
+	// or the game's default for a server that has never been set up
+	// ("server": { "map" }) - as scenes/<map>.json. --scene overrides, for
+	// running one by hand; a game with no maps to choose between falls back to
+	// its startup scene.
+	std::string sceneRel = Arg(argc, argv, "--scene", std::string());
+	if (sceneRel.empty())
+	{
+		std::string map;
+		{
+			std::ifstream in((game / "data" / "match.json").string().c_str());
+			if (in.is_open())
+			{
+				json saved = json::parse(in, NULL, false);
+				if (saved.is_object() && saved.contains("map") && saved["map"].is_string()) map = saved["map"].get<std::string>();
+			}
+		}
+		if (map.empty() || !fs::exists(game / "scenes" / (map + ".json"), ec)) map = sv.value("map", std::string());
+		if (!map.empty() && fs::exists(game / "scenes" / (map + ".json"), ec)) sceneRel = "scenes/" + map + ".json";
+		else sceneRel = manifest.value("startupScene", std::string());
+	}
 	const uint16 port = (uint16)std::stoi(Arg(argc, argv, "--port", std::to_string(sv.value("port", 47400))));
 	NetworkSettings settings;
 	settings.maxClients = (uint32)std::stoi(Arg(argc, argv, "--max-clients", std::to_string(sv.value("maxClients", 100))));
@@ -231,6 +265,9 @@ int main(int argc, char** argv)
 	std::vector<Vec3> keepLoaded;
 	{
 		sol::table server = lua.create_named_table("server");
+		// server.restart(): everyone is dropped and the server comes back as it
+		// would from the command line - how a change of map takes effect.
+		server.set_function("restart", []() { g_restart = true; g_running = false; });
 		server.set_function("keepLoaded", [&keepLoaded](sol::optional<sol::table> points) {
 			keepLoaded.clear();
 			if (!points) return;
@@ -519,5 +556,18 @@ int main(int argc, char** argv)
 	delete physics;
 	delete scene;
 	SetActiveRenderDevice(NULL);
+	if (g_restart)
+	{
+		echo("PyrosServer: restarting");
+		fflush(stdout); fflush(stderr);
+		fs::current_path(startedIn, ec);
+#ifdef _WIN32
+		_execv(startedAs.string().c_str(), argv);
+#else
+		execv(startedAs.string().c_str(), argv);
+#endif
+		fprintf(stderr, "PyrosServer: could not restart itself - start it again by hand\n");
+		return 1;
+	}
 	return 0;
 }
