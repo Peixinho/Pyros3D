@@ -2093,6 +2093,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			ok = sceneView && sceneView->PlaceAssetInScene(abs);
 			kind = "placed";
 		}
+		else if (ProjectManager::IsPrefabExtension(rel)) { ok = OpenPrefabDocument(abs); kind = "prefab"; }
 		else if (ProjectManager::IsLuaExtension(rel)) { ok = OpenLuaScriptDocument(abs); kind = "script"; }
 		else if (ProjectManager::IsMaterialExtension(rel)) { ok = OpenMaterialDocument(abs); kind = "material"; }
 		else if (ProjectManager::IsAnimationExtension(rel)) { ok = OpenAnimationDocument(abs); kind = "animation"; }
@@ -2645,6 +2646,16 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	//   goto {"x", "z", "distance"}           the view goes to a place
 	// Hide in Editor / Show in Editor on the scene tree's menu: an object and
 	// everything under it, not drawn while working. Editor-only.
+	// Edit Prefab on a .prefab in the assets: the prefab alone in a tab; Save
+	// (save_scene) writes it back.
+	if (name == "edit_prefab")
+	{
+		const std::string rel = a.value("path", std::string());
+		if (rel.empty() || !OpenPrefabDocument(project.AbsolutePath(rel))) throw std::runtime_error("could not open the prefab " + rel);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "set_hidden")
 	{
 		if (!sceneView->AgentSetHidden(A("name"), a.value("hidden", true), err)) throw std::runtime_error(err);
@@ -2671,6 +2682,28 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		if (!sceneView->AgentFrameObject(A("name"), err)) throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
+		return r;
+	}
+	// what the render device is holding: textures by size, buffers, bytes (and the process's own footprint is the caller's to read)
+	if (name == "gpu_memory")
+	{
+		nlohmann::json r = nlohmann::json::parse(p3d::GetActiveRenderDevice().MemoryReport(), NULL, false);
+		if (r.is_discarded()) r = nlohmann::json::object();
+		nlohmann::json fbos = nlohmann::json::array();
+		const std::vector<p3d::FrameBuffer*> &live = p3d::FrameBuffer::GetLiveFrameBuffers();
+		for (size_t i = 0; i < live.size(); i++)
+		{
+			if (!live[i]) continue;
+			nlohmann::json f;
+			f["name"] = live[i]->GetDebugName();
+			nlohmann::json atts = nlohmann::json::array();
+			std::vector<p3d::FBOAttachment*> a2 = live[i]->GetAttachments();
+			for (size_t k = 0; k < a2.size(); k++)
+				if (a2[k] && a2[k]->TexturePTR) atts.push_back(std::to_string(a2[k]->TexturePTR->GetWidth()) + "x" + std::to_string(a2[k]->TexturePTR->GetHeight()));
+			f["attachments"] = atts;
+			fbos.push_back(f);
+		}
+		r["framebuffers"] = fbos;
 		return r;
 	}
 	if (name == "find_objects")
@@ -8364,7 +8397,9 @@ void Editor::DrawAssetsWindow()
 		if (dbl)
 		{
 			selectedAssetRel = e.relativePath;
-			if (isScene)
+			if (ProjectManager::IsPrefabExtension(e.relativePath))
+				OpenPrefabDocument(abs);
+			else if (isScene)
 				OpenSceneDocument(abs);
 			else if (isLua)
 				OpenLuaScriptDocument(abs);
@@ -8412,6 +8447,8 @@ void Editor::DrawAssetsWindow()
 			// What you right-clicked comes first, then what you can do with
 			// it, then the create-new entries that belong to the folder
 			// rather than to this tile, and Delete last.
+			if (ProjectManager::IsPrefabExtension(e.relativePath) && ImGui::MenuItem("Edit Prefab"))
+				OpenPrefabDocument(abs);
 			if (isScene && ImGui::MenuItem("Open Scene"))
 				OpenSceneDocument(abs);
 			if (isLua && ImGui::MenuItem("Open Script"))
@@ -9054,6 +9091,86 @@ bool Editor::OpenSceneDocument(const std::string& absPath)
 	}
 	echo("Opened scene: " + (rel.empty() ? absPath : rel));
 	return true;
+}
+
+bool Editor::OpenPrefabDocument(const std::string& absPath)
+{
+	namespace fs = std::filesystem;
+	if (absPath.empty() || !project.IsOpen()) return false;
+	const std::string rel = project.RelativePath(absPath);
+	if (rel.empty() || !ProjectManager::IsPrefabExtension(rel)) return false;
+	const std::string stem = fs::path(absPath).stem().string();
+	const fs::path dir = fs::path(project.AbsolutePath(".pyros")) / "prefabs";
+	const std::string scene = (dir / (stem + ".json")).string();
+
+	if (SceneEditor* existing = FindSceneDocumentByPath(scene))
+	{
+		SetActiveSceneDocument(existing);
+		return true;
+	}
+	// Written afresh every time it is opened: the prefab's file is what is
+	// being edited, and this is only somewhere to stand it.
+	std::error_code ec;
+	fs::create_directories(dir, ec);
+	{
+		nlohmann::json j;
+		j["version"] = 1;
+		j["ambientLight"] = { 0.62, 0.64, 0.68 };
+		j["ambientIntensity"] = 1.0;
+		j["background"] = { 0.32, 0.36, 0.42 };
+		j["materials"] = nlohmann::json::array();
+		j["postEffects"] = nlohmann::json::array();
+		nlohmann::json sun;
+		sun["name"] = "Prefab Light";
+		sun["position"] = { 0.0, 60.0, 0.0 };
+		sun["rotation"] = { 0.0, 0.0, 0.0 };
+		sun["scale"] = { 1.0, 1.0, 1.0 };
+		sun["static"] = false;
+		sun["tags"] = nlohmann::json::array();
+		sun["children"] = nlohmann::json::array();
+		nlohmann::json light;
+		light["type"] = "DirectionalLight";
+		light["color"] = { 1.0, 0.97, 0.92, 1.0 };
+		light["direction"] = { -0.45, -0.80, -0.38 };
+		light["intensity"] = 1.0;
+		light["castingShadows"] = false;
+		sun["components"] = nlohmann::json::array({ light });
+		nlohmann::json inst;
+		inst["prefab"] = rel;
+		inst["name"] = stem;
+		inst["position"] = { 0.0, 0.0, 0.0 };
+		inst["rotation"] = { 0.0, 0.0, 0.0 };
+		inst["scale"] = { 1.0, 1.0, 1.0 };
+		inst["tags"] = nlohmann::json::array();
+		j["roots"] = nlohmann::json::array({ sun, inst });
+		std::ofstream out(scene.c_str(), std::ios::binary | std::ios::trunc);
+		if (!out.is_open()) { echo("ERROR: could not write " + scene); return false; }
+		out << j.dump(1);
+	}
+	SceneEditor::hostPrefabChanged = &Editor::HostPrefabChanged;
+	SceneEditor* doc = CreateSceneDocument();
+	doc->prefabEditRel = rel;                 // (before it loads: such a tab is given no script of its own)
+	if (!doc->LoadSceneFromFile(scene))
+	{
+		DestroySceneDocument(doc);
+		if (sceneDocs.empty())
+			sceneView = CreateSceneDocument();
+		echo("ERROR: failed to open prefab: " + rel);
+		return false;
+	}
+	GetActiveRenderDevice().WaitIdle();
+	SetActiveSceneDocument(doc);
+	echo("Opened prefab: " + rel + " - Save writes it back, for every scene that uses it");
+	return true;
+}
+
+void Editor::HostPrefabChanged(const std::string& rel, SceneEditor* from)
+{
+	Editor* ed = Editor::getInstance();
+	if (!ed) return;
+	for (size_t i = 0; i < ed->sceneDocs.size(); ++i)
+		if (ed->sceneDocs[i] && ed->sceneDocs[i] != from)
+			ed->sceneDocs[i]->TakePrefabFromFile(rel);
 }
 
 bool Editor::OpenNewSceneDocument()

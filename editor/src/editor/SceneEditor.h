@@ -214,6 +214,14 @@ public:
 	void NewScene(bool applyProjectDefaults = true);
 	bool SaveSceneToFile(const std::string &path);
 	bool LoadSceneFromFile(const std::string &path);
+	// Set on a tab that is a prefab being edited (Editor::OpenPrefabDocument):
+	// the prefab's path in the project. Saving such a tab writes the prefab.
+	std::string prefabEditRel;
+	// Every instance here of the prefab at `rel` that had not been changed
+	// by hand is made again from its file.
+	void TakePrefabFromFile(const std::string& rel);
+	// The host's: told when a prefab tab has written its prefab (set once, for all tabs).
+	static void (*hostPrefabChanged)(const std::string& rel, SceneEditor* from);
 	// Recompiles every CustomShaderMaterial assigned to a GameObject in
 	// this scene (LOD 0 only, matching AgentSetMaterial/AgentAssignMaterial's
 	// own convention) that isn't in skipMaterials - those are handled by

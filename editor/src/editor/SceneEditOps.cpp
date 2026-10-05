@@ -784,6 +784,18 @@ std::vector<uint32> SceneEditor::FindPrefabInstances(const std::string& relPath,
 	return out;
 }
 
+void (*SceneEditor::hostPrefabChanged)(const std::string&, SceneEditor*) = NULL;
+
+void SceneEditor::TakePrefabFromFile(const std::string& rel)
+{
+	if (playMode || !project || !project->IsOpen()) return;
+	const std::vector<uint32> inSync = FindPrefabInstances(rel, 0, true);     // (differ from the file now: they were in step with the old one)
+	int n = 0;
+	for (size_t i = 0; i < inSync.size(); ++i)
+		if (RawRebuildPrefabInstance(inSync[i], rel)) ++n;
+	if (n > 0) echo("Prefab " + rel + " changed: " + std::to_string(n) + " instance(s) here made again from it");
+}
+
 bool SceneEditor::OpApplyPrefab(uint32 objId, std::string& errOut)
 {
 	if (playMode || editorDisabled) { errOut = "not while playing"; return false; }

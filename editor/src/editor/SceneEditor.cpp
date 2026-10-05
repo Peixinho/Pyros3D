@@ -8685,6 +8685,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	bool SceneEditor::SaveSceneToFile(const std::string &path)
 	{
 		if (path.size() == 0) return false;
+		// A prefab's own tab: what is saved is the prefab. Its one instance
+		// here is written to the prefab's file first - so that the scene
+		// written after it is, again, only a reference to it.
+		if (!prefabEditRel.empty())
+		{
+			bool applied = false;
+			for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
+				i != sceneObjects->GetList().end(); ++i)
+			{
+				SceneObject* o = i->second;
+				if (!o || o->GetType() != SceneObjectTypes::GAMEOBJECT || o->prefabSource != prefabEditRel) continue;
+				std::string err;
+				if (OpApplyPrefab(o->GetID(), err)) applied = true;
+				else echo("ERROR: prefab not saved - " + err);
+				break;
+			}
+			if (applied && hostPrefabChanged) hostPrefabChanged(prefabEditRel, this);
+		}
 		if (ProjectManager::IsSceneSidecarPath(path))
 		{
 			echo("ERROR: refusing to save a scene over a sidecar: " + path);
@@ -8706,7 +8724,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			std::string scriptAbs;
 			std::string err;
-			if (project && project->IsOpen())
+			if (!prefabEditRel.empty())
+			{
+				// a prefab's tab: no script to make for it
+			}
+			else if (project && project->IsOpen())
 			{
 				if (project->EnsureSceneCompanionScript(path, scriptAbs, &err))
 				{
@@ -8971,6 +8993,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				}
 				if (!authored.empty())
 					sceneMainScriptPath = authored;
+				else if (!prefabEditRel.empty())
+					sceneMainScriptPath.clear();              // a prefab's tab runs nothing
 				else if (project && project->IsOpen()
 					&& project->EnsureSceneCompanionScript(path, companion, &err))
 				{

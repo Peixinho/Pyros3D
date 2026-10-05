@@ -475,6 +475,15 @@ private:
 	void SetActiveSceneDocument(SceneEditor* doc);
 	SceneEditor* FindSceneDocumentByPath(const std::string& absPath) const;
 	bool OpenSceneDocument(const std::string& absPath);
+	// A prefab, alone, in a scene tab of its own: looked at from every side,
+	// edited like any object, and written back to its file on Save - which
+	// is every scene's that uses it. (The tab is a small scene kept under the
+	// project's .pyros/prefabs folder, holding one instance of the prefab and
+	// a light to see it by.)
+	bool OpenPrefabDocument(const std::string& absPath);
+	// A prefab's file changed (a prefab tab was saved): every other open
+	// scene that has instances of it takes it up.
+	static void HostPrefabChanged(const std::string& rel, SceneEditor* from);
 	bool OpenNewSceneDocument();
 	// Same, but the scene starts marked twoD with a Canvas, in 2D mode.
 	bool OpenNew2DSceneDocument();
