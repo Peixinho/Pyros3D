@@ -286,6 +286,25 @@ int main(int argc, char** argv)
 		server.set_function("restart", []() { g_restart = true; g_running = false; });
 		// which map this is: the scene's name
 		server["map"] = fs::path(sceneRel).stem().string();
+		// server.option("team-size"): what this server was launched with - the value
+		// after --team-size on the command line, else "team-size" in game.json's
+		// "server" section, else nil. For whatever a game's own script wants to be
+		// told at launch; the engine does not look at any of it.
+		std::vector<std::string> launchArgs(argv, argv + argc);
+		server.set_function("option", [launchArgs, sv](const std::string &name, sol::this_state ts) -> sol::object {
+			sol::state_view L(ts);
+			const std::string flag = "--" + name;
+			for (size_t i = 1; i + 1 < launchArgs.size(); i++)
+				if (launchArgs[i] == flag) return sol::make_object(L, launchArgs[i + 1]);
+			if (sv.is_object() && sv.contains(name))
+			{
+				const auto &v = sv[name];
+				if (v.is_string()) return sol::make_object(L, v.get<std::string>());
+				if (v.is_number()) return sol::make_object(L, v.get<double>());
+				if (v.is_boolean()) return sol::make_object(L, v.get<bool>());
+			}
+			return sol::make_object(L, sol::lua_nil);
+		});
 		server.set_function("keepLoaded", [&keepLoaded](sol::optional<sol::table> points) {
 			keepLoaded.clear();
 			if (!points) return;
