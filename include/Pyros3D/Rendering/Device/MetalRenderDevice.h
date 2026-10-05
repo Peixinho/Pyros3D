@@ -748,6 +748,13 @@ namespace p3d {
 		virtual std::string MemoryReport();
 	private:
 		std::map<DeviceHandle, BufferRecord> buffers;
+		// program -> binding point -> the buffer that program was told to
+		// read there (BindUniformBlockIfPresent with a handle). Looked up
+		// before uniformBufferByBindingPoint, which holds one buffer per
+		// binding point for the whole device: every post effect's own
+		// parameter block sits at the same point, so the last effect made
+		// had its block read by all of them.
+		std::map<DeviceHandle, std::map<uint32, DeviceHandle> > explicitBlockBuffers;
 		DeviceHandle nextBufferHandle;
 		// Same binding-number convention as VulkanRenderDevice::
 		// IsPerObjectDynamicBinding() (copied, not shared - see this

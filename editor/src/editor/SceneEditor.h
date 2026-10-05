@@ -548,6 +548,7 @@ public:
 	// (tinst->GetOwner()), which is a use-after-free. Traced with a print in
 	// ~TextureAnimation: it fired during the load itself.
 	LoadedSceneAssets sceneAssets;
+	void PruneSceneAssets();
 
 	json  AgentSceneState();
 	// Streamed worlds over the socket - see EditorWorld. world_state reads
@@ -1700,6 +1701,8 @@ private:
 	std::set<GameObject*> playModeExistingObjects;
 	std::map<uint32, PlayModeSubtree> playModeSubtrees;
 	bool playModeSavedDirty;
+	// Names of the Lua globals that existed when Play was pressed.
+	std::set<std::string> playModeGlobals;
 	// Root ids in scene-graph (= saved file) order when Play started.
 	std::vector<uint32> playModeRootOrder;
 	bool playMode;

@@ -24,6 +24,8 @@
 #define ClassName SDL2Context
 #endif
 
+#include <set>
+#include <string>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Physics/Physics.h>
 #include <Pyros3D/Core/Projection/Projection.h>
@@ -211,6 +213,10 @@ private:
 	// being true.
 	void PushLuaHostGlobals();
 	sol::state lua;
+	// The Lua globals there were before the first scene ran: at shutdown
+	// whatever the game added is dropped, so that what it holds is freed
+	// while there is still a device to free it on.
+	std::set<std::string> engineGlobals;
 	std::shared_ptr<LuaComponent> sceneMainScript;
 	std::string pendingLoadSceneName;
 #endif

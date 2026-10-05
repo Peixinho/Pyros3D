@@ -6853,6 +6853,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (playMode) return;
 		scriptRenderCamera = nullptr;
 		echo("SUCCESS: Entering play mode");
+#ifdef LUA_BINDINGS
+		// The globals as they stand before the game runs: see StopPlayMode.
+		playModeGlobals.clear();
+		if (sharedLua)
+			for (const auto &kv : sharedLua->globals())
+				if (kv.first.is<std::string>()) playModeGlobals.insert(kv.first.as<std::string>());
+#endif
 		// Every mutator already refuses to run while playMode is true, so
 		// nothing new can be pushed during play - this just protects
 		// against replaying stale edit-mode undo history against the
@@ -7260,6 +7267,45 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		playModeRootOrder.clear();
 	}
 
+	// sceneAssets keeps alive whatever a load or a subtree insert built, and
+	// nothing ever took an entry out: an object deleted, or a subtree rebuilt
+	// by Stop or by undo, stayed whole - its components, their geometry and
+	// textures - until the scene was closed. A HUD the game had touched was
+	// rebuilt on every Stop, and each Play left its thousand buffers and
+	// thirty textures behind. An entry only this list still holds, and that
+	// the registry no longer points at, is let go; then the renderables,
+	// materials and textures nothing else holds, round again while any went
+	// (a material holds its textures).
+	void SceneEditor::PruneSceneAssets()
+	{
+		std::set<const GameObject*> registered;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); ++i)
+			if (i->second != NULL && i->second->GetType() == SceneObjectTypes::GAMEOBJECT)
+				registered.insert((const GameObject*)i->second->GetPTR());
+		bool went = true;
+		while (went)
+		{
+			went = false;
+			for (size_t i = sceneAssets.gameObjects.size(); i-- > 0; )
+				if (sceneAssets.gameObjects[i].use_count() == 1 && registered.count(sceneAssets.gameObjects[i].get()) == 0)
+				{
+					sceneAssets.gameObjects.erase(sceneAssets.gameObjects.begin() + i);
+					went = true;
+				}
+		}
+		went = true;
+		while (went)
+		{
+			went = false;
+			for (size_t i = sceneAssets.renderables.size(); i-- > 0; )
+				if (sceneAssets.renderables[i].use_count() == 1) { sceneAssets.renderables.erase(sceneAssets.renderables.begin() + i); went = true; }
+			for (size_t i = sceneAssets.materials.size(); i-- > 0; )
+				if (sceneAssets.materials[i].use_count() == 1) { sceneAssets.materials.erase(sceneAssets.materials.begin() + i); went = true; }
+			for (size_t i = sceneAssets.textures.size(); i-- > 0; )
+				if (sceneAssets.textures[i].use_count() == 1) { sceneAssets.textures.erase(sceneAssets.textures.begin() + i); went = true; }
+		}
+	}
+
 	void SceneEditor::StopPlayMode()
 	{
 
@@ -7414,6 +7460,43 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		editorDisabled = false;
 		if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
 			SelectSceneObject(SelectedSceneObject);
+#ifdef LUA_BINDINGS
+		// Everything the session's scripts made and let go of - textures,
+		// meshes, materials, renderers, sounds - is a few bytes of userdata
+		// to Lua and megabytes to the engine, so the collector, which paces
+		// itself by what Lua allocated, never got round to it: an editor
+		// gained about 600 MB and a thousand GPU buffers with every Play.
+		// Twice, since objects with finalizers are freed the cycle after
+		// the one that finds them.
+		if (sharedLua)
+		{
+			// Play is a run of the game from its start, and a game starts
+			// with no globals of its own. The editor's Lua state outlives
+			// the session, so a global the game made stayed for the next
+			// Play to find: `World = World or {}` handed the second run the
+			// first one's world - stale state for the game to trip on, and
+			// every object that world held kept alive. Whatever was not
+			// there before Play goes.
+			std::vector<std::string> made;
+			for (const auto &kv : sharedLua->globals())
+				if (kv.first.is<std::string>() && playModeGlobals.count(kv.first.as<std::string>()) == 0)
+					made.push_back(kv.first.as<std::string>());
+			for (size_t i = 0; i < made.size(); i++)
+				(*sharedLua)[made[i]] = sol::lua_nil;
+			playModeGlobals.clear();
+			// And the scene's script is made again from its file. The
+			// instance that ran the session still held the session - the
+			// game object and everything under it, 300 MB of a 4 km island's
+			// textures - until the next Play wrote over its fields; and the
+			// next Play ran the file as it was when the scene was opened,
+			// whatever had been saved to it since.
+			if (sceneMainScript)
+				RebuildSceneMainScriptInstance();
+			sharedLua->collect_garbage();
+			sharedLua->collect_garbage();
+		}
+#endif
+		PruneSceneAssets();
 		// Last, after everything above has had its chance to mark the scene.
 		sceneDirty = playModeSavedDirty;
 	}

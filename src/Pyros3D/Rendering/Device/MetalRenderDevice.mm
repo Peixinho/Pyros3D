@@ -1267,7 +1267,17 @@ namespace p3d {
 	// Nothing left to do here except match GL's no-op-if-absent contract,
 	// so a caller that always calls this defensively (same as the GL/
 	// Vulkan paths) doesn't need a Metal-specific branch.
-	void MetalRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle) { (void)program; (void)blockName; (void)bindingPoint; (void)bufferHandle; }
+	void MetalRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string &blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle)
+	{
+		// Buffers are bound at draw time (BindProgramUniformBuffers), so all
+		// there is to do here is remember which one this program named. No
+		// handle means "whatever is registered at that binding point", which
+		// is what the draw falls back to. Two haze-then-smoke effects in a
+		// chain drew black without this: the haze read the smoke's block.
+		(void)blockName;
+		if (bufferHandle != 0)
+			explicitBlockBuffers[program][bindingPoint] = bufferHandle;
+	}
 
 	// Metal's clip space is NOT identical to Vulkan's: both remap Z to
 	// [0,1], but Metal's NDC Y axis points *up*, matching OpenGL - it's
@@ -1390,10 +1400,22 @@ namespace p3d {
 			{
 				const uint32 bindingPoint = bIt->first;
 				const uint32 stageMask = bIt->second;
-				std::map<uint32, DeviceHandle>::iterator bufHandleIt = uniformBufferByBindingPoint.find(bindingPoint);
-				if (bufHandleIt == uniformBufferByBindingPoint.end())
-					continue;
-				std::map<DeviceHandle, BufferRecord>::iterator bufIt = buffers.find(bufHandleIt->second);
+				// The buffer this program named for the binding, if it named one.
+				DeviceHandle wanted = 0;
+				std::map<DeviceHandle, std::map<uint32, DeviceHandle> >::iterator named = explicitBlockBuffers.find(programHandle);
+				if (named != explicitBlockBuffers.end())
+				{
+					std::map<uint32, DeviceHandle>::iterator n = named->second.find(bindingPoint);
+					if (n != named->second.end()) wanted = n->second;
+				}
+				if (wanted == 0)
+				{
+					std::map<uint32, DeviceHandle>::iterator bufHandleIt = uniformBufferByBindingPoint.find(bindingPoint);
+					if (bufHandleIt == uniformBufferByBindingPoint.end())
+						continue;
+					wanted = bufHandleIt->second;
+				}
+				std::map<DeviceHandle, BufferRecord>::iterator bufIt = buffers.find(wanted);
 				if (bufIt == buffers.end() || bufIt->second.buffer == NULL)
 					continue;
 				id<MTLBuffer> buf = (__bridge id<MTLBuffer>)bufIt->second.buffer;
@@ -1712,6 +1734,12 @@ namespace p3d {
 	}
 	void MetalRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)
 	{
+		for (std::map<DeviceHandle, std::map<uint32, DeviceHandle> >::iterator p = explicitBlockBuffers.begin(); p != explicitBlockBuffers.end(); ++p)
+			for (std::map<uint32, DeviceHandle>::iterator b = p->second.begin(); b != p->second.end(); )
+			{
+				if (b->second == buffer) p->second.erase(b++);
+				else ++b;
+			}
 		for (std::map<uint32, DeviceHandle>::iterator it = uniformBufferByBindingPoint.begin(); it != uniformBufferByBindingPoint.end(); )
 		{
 			if (it->second == buffer)
@@ -2338,7 +2366,7 @@ namespace p3d {
 			CFBridgingRelease(it->second.function);
 		shaderStages.erase(it);
 	}
-	void MetalRenderDevice::DeleteProgram(const DeviceHandle program) { programs.erase(program); }
+	void MetalRenderDevice::DeleteProgram(const DeviceHandle program) { programs.erase(program); explicitBlockBuffers.erase(program); }
 
 	// Unlike GL, a Metal sampler has no real "uniform location" to query -
 	// repurposed (same as VulkanRenderDevice's identical override) to mean

@@ -337,8 +337,10 @@ namespace p3d {
 			for (size_t i = 0; i < retiredBeforeNextFrame.size(); i++)
 				DestroyBufferRecordResources(retiredBeforeNextFrame[i]);
 			retiredBeforeNextFrame.clear();
+			// The record's way, not vmaDestroyBuffer on its current buffer: a
+			// stream buffer is a ring of them, and only the one in use went.
 			for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); it++)
-				vmaDestroyBuffer(allocator, it->second.buffer, it->second.allocation);
+				DestroyBufferRecordResources(it->second);
 			buffers.clear();
 			for (std::map<DeviceHandle, ShaderStageRecord>::iterator it = shaderStages.begin(); it != shaderStages.end(); it++)
 				if (it->second.module != VK_NULL_HANDLE)

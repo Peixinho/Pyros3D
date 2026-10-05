@@ -439,6 +439,10 @@ end
 #endif
 
 	const std::string firstScene = launchScene.empty() ? m.startupScene : launchScene;
+#ifdef LUA_BINDINGS
+	for (const auto &kv : lua.globals())
+		if (kv.first.is<std::string>()) engineGlobals.insert(kv.first.as<std::string>());
+#endif
 	if (!LoadGameScene(firstScene))
 	{
 		echo("ERROR: could not load startup scene " + firstScene);
@@ -808,6 +812,15 @@ void PyrosPlayer::UnloadGameScene()
 	scene->RemoveAll();
 	sceneAssets = LoadedSceneAssets();
 	sceneLoaded = false;
+#ifdef LUA_BINDINGS
+	// What the scene's scripts made and let go of is a few bytes of userdata
+	// to Lua and megabytes of models and textures to the engine: the
+	// collector paces itself by the first, so a level left for the menu was
+	// still in memory when the next one loaded. Twice - an object with a
+	// finalizer is freed the cycle after the one that finds it.
+	lua.collect_garbage();
+	lua.collect_garbage();
+#endif
 }
 
 void PyrosPlayer::ResolveCamera(const std::string& sceneAbsPath)
@@ -1717,6 +1730,23 @@ void PyrosPlayer::Shutdown()
 		GetActiveRenderDevice().WaitIdle();
 
 	UnloadGameScene();
+#ifdef LUA_BINDINGS
+	// The game's own globals go, and what they held with them, while the
+	// device is still there: a game keeps its world in a global, and that
+	// world's models and textures were otherwise never freed at all (1810
+	// objects reported leaked by vkDestroyDevice on a 4 km map).
+	if (!engineGlobals.empty())
+	{
+		std::vector<std::string> made;
+		for (const auto &kv : lua.globals())
+			if (kv.first.is<std::string>() && engineGlobals.count(kv.first.as<std::string>()) == 0)
+				made.push_back(kv.first.as<std::string>());
+		for (size_t i = 0; i < made.size(); i++)
+			lua[made[i]] = sol::lua_nil;
+		lua.collect_garbage();
+		lua.collect_garbage();
+	}
+#endif
 
 	// Before the renderer: an effect owns GPU objects created against the
 	// device the renderer publishes, and ~PostEffectsManager waits on it.
