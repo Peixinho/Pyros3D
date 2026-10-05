@@ -90,6 +90,15 @@ int main(int argc, char** argv)
 		std::atomic<bool> started(false);
 		const AssetStreamer::Ticket loading = s.Submit([&] { started = true; while (!gate.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1)); worked++; }, [&] { finished++; }, -1.f);
 		if (threaded) while (!started.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+		// Every OTHER loader thread is given something to hold as well: with one
+		// of them idle, the request below was not queued at all - it was picked
+		// up at once, and "cancel a queued request" cancelled one already working
+		// (one run in a few hundred).
+		std::atomic<int> held(0);
+		const uint32 others = s.WorkerCount() > 1 ? s.WorkerCount() - 1 : 0;
+		for (uint32 i = 0; i < others; i++)
+			s.Submit([&] { held++; while (!gate.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1)); }, nullptr, -1.f);
+		while (held.load() < (int)others) std::this_thread::sleep_for(std::chrono::milliseconds(1));
 		const AssetStreamer::Ticket queued = s.Submit([&] { worked++; }, [&] { finished++; }, 0.f);
 		check(s.Cancel(queued), "cancel a queued request");
 		if (threaded)
@@ -146,8 +155,13 @@ int main(int argc, char** argv)
 		int steps = 0;
 		bool other = false;
 		const AssetStreamer::Ticket a = s.SubmitSteps([] {}, [&]() { return ++steps >= 3; });
+		// The line is the order work FINISHED in, and with two loader threads
+		// either of two requests submitted together can finish first: `a` is
+		// let finish before `b` is so much as submitted. (Submitted together,
+		// this passed or failed by which thread won - it failed on Linux CI.)
+		waitReady({ a });
 		const AssetStreamer::Ticket b = s.Submit([] {}, [&] { other = true; });
-		waitReady({ a, b });
+		waitReady({ b });
 		s.Pump(0.0);
 		check(steps == 1 && !other, "one step per zero-budget Pump");
 		s.Pump(0.0);
