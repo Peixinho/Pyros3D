@@ -12,17 +12,22 @@
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <cmath>
+#include <atomic>
 
 namespace p3d {
 
+	static std::atomic<int> gLiveOccluder2D(0);
+	uint32 Occluder2D::LiveCount() { const int n = gLiveOccluder2D.load(); return n > 0 ? (uint32)n : 0; }
+
 	Occluder2D::Occluder2D(const uint32 shape, const Vec2 &size)
 	{
+		gLiveOccluder2D++;
 		shapeType = shape;
 		this->size = size;
 		enabled = true;
 	}
 
-	Occluder2D::~Occluder2D() {}
+	Occluder2D::~Occluder2D() { gLiveOccluder2D--; }
 
 	namespace {
 		// One shape, in world space, appended as line segments.
@@ -59,7 +64,10 @@ namespace p3d {
 	void Occluder2D::PublishSceneOccluders(SceneGraph* Scene)
 	{
 		std::vector<Vec4> segments;
-		if (Scene != NULL)
+		// Nothing anywhere that could cast a 2D shadow: the scene is not gone
+		// through for one. (It was, every frame - every object and every
+		// component of a 3D game - and a twentieth of the frame went on it.)
+		if (Scene != NULL && (Occluder2D::LiveCount() > 0 || Physics2D::LiveCount() > 0))
 		{
 			// Recursive for the same reason Physics2DWorld::Sync is: an occluder
 		// inside a layer is a child, and the flat list has no children in it.

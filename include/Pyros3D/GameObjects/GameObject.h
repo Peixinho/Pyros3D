@@ -296,6 +296,12 @@ namespace p3d {
 		f32 BoundingSphereRadiusWorldSpace;
 		Vec3 maxBoundsWorldSpace;
 		Vec3 minBoundsWorldSpace;
+		// What the world box above was last worked out from: with the same
+		// matrix and the same local box it is still right, and most of a scene
+		// never moves (UpdateWorldBounds).
+		Matrix _BoundsFromWorld;
+		Vec3 _BoundsFromMin, _BoundsFromMax;
+		bool _BoundsKnown = false;
 	};
 
 };

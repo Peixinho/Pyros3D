@@ -286,7 +286,9 @@ namespace p3d {
 		// Recursive, not GetAllGameObjectList(): a body parented under a
 		// Layer2D root is a child, and the flat list does not contain it.
 		std::vector<GameObject*> all;
-		Scene->CollectGameObjectsRecursive(all);
+		// (with no 2D body anywhere there is nothing to find: the scene is
+		// not gone through - see Physics2D::LiveCount)
+		if (Physics2D::LiveCount() > 0) Scene->CollectGameObjectsRecursive(all);
 		for (size_t i = 0; i < all.size(); i++)
 		{
 			if (!all[i]) continue;

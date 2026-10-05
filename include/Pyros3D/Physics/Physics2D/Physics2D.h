@@ -56,6 +56,10 @@ namespace p3d {
 			const uint32 shape = Shape2DType::Box,
 			const Vec2 &size = Vec2(0.5f, 0.5f));
 		virtual ~Physics2D();
+		// How many of these exist, anywhere. A scene with none - every 3D
+		// game - is not searched for them: that search is the whole scene,
+		// every frame.
+		static uint32 LiveCount();
 
 		virtual void Register(SceneGraph* Scene) {}
 		virtual void Init() {}

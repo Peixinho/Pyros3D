@@ -8,6 +8,7 @@
 
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
+#include <cstring>
 
 namespace p3d {
 
@@ -136,6 +137,15 @@ namespace p3d {
 		const Matrix &W = GetWorldTransformation();
 		const Vec3 &_min = minBounds;
 		const Vec3 &_max = maxBounds;
+
+		// Asked for every frame, for every object - and most of a scene has
+		// not moved since the last one. The same matrix and the same local box
+		// give the same answer.
+		if (_BoundsKnown && std::memcmp(W.m, _BoundsFromWorld.m, sizeof(W.m)) == 0
+			&& _min.x == _BoundsFromMin.x && _min.y == _BoundsFromMin.y && _min.z == _BoundsFromMin.z
+			&& _max.x == _BoundsFromMax.x && _max.y == _BoundsFromMax.y && _max.z == _BoundsFromMax.z)
+			return;
+		_BoundsFromWorld = W; _BoundsFromMin = _min; _BoundsFromMax = _max; _BoundsKnown = true;
 
 		Vec3 v[8];
 		v[0] = W * _min;

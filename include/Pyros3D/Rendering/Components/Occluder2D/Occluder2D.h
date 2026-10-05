@@ -42,6 +42,8 @@ namespace p3d {
 		Occluder2D(const uint32 shape = Occluder2DShape::Box,
 			const Vec2 &size = Vec2(0.5f, 0.5f));
 		virtual ~Occluder2D();
+		// How many of these exist, anywhere: see Physics2D::LiveCount.
+		static uint32 LiveCount();
 
 		virtual void Register(SceneGraph* Scene) {}
 		virtual void Init() {}

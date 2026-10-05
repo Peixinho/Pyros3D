@@ -348,6 +348,7 @@ namespace p3d {
 		std::map<AutoInstanceKey, uint32> autoInstanceOrdinal;
 		uint64 autoInstanceFrame = 0;
 		uint32 autoInstanceBatchesThisFrame = 0, autoInstanceObjectsThisFrame = 0;
+		uint32 autoInstanceSinglesThisFrame = 0;
 		static bool AutoInstanceEligible(RenderingMesh* mesh);
 		AutoInstanceBatch* AcquireAutoInstanceBatch(RenderingMesh* source, const uint64 fingerprint, const uint32 count);
 		// Once per RenderScene, before its first pass.

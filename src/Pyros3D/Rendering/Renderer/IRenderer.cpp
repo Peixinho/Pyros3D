@@ -498,7 +498,7 @@ void IRenderer::BeginAutoInstancingFrame()
 {
 	autoInstanceFrame++;
 	autoInstanceOrdinal.clear();
-	autoInstanceBatchesThisFrame = autoInstanceObjectsThisFrame = 0;
+	autoInstanceBatchesThisFrame = autoInstanceObjectsThisFrame = autoInstanceSinglesThisFrame = 0;
 	// Batches unused for a while go: they hold their material and renderable
 	// alive, and the scene they were built for may be long gone.
 	for (std::map<AutoInstanceKey, std::vector<AutoInstanceBatch*> >::iterator k = autoInstanceBatches.begin(); k != autoInstanceBatches.end(); )
@@ -622,6 +622,9 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		if (g < 0 || fallback[g] || groups[g].size() < kAutoInstanceMinimum)
 		{
 			drawOne(items[i], i);
+			// (what is left drawn one at a time, all passes of the frame: the
+			// number that says whether a frame's cost is its draw calls)
+			FrameProfiler::Instance().Counter("AutoInstance.Singles", (f64)(++autoInstanceSinglesThisFrame));
 			continue;
 		}
 		if (groups[g][0] != i)

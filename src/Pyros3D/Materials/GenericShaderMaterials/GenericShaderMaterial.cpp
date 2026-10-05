@@ -9,6 +9,7 @@
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Assets/Font/Font.h>
 #include <Pyros3D/Resources/Resources.h>
+#include <cstring>
 
 namespace p3d
 {
@@ -273,8 +274,30 @@ namespace p3d
 			uint64 h = 1469598103934665603ull;
 			void Bytes(const void* p, size_t n)
 			{
+				// Eight bytes at a go, then what is left one at a time. (A byte
+				// at a time, over every uniform of every material every frame,
+				// this was a twentieth of the frame on a map of two thousand
+				// objects.) Only ever compared with fingerprints made the same
+				// way in the same run.
 				const uchar* b = static_cast<const uchar*>(p);
-				for (size_t i = 0; i < n; i++) h = (h ^ b[i]) * 1099511628211ull;
+				size_t i = 0;
+				for (; i + 8 <= n; i += 8)
+				{
+					uint64 w;
+					std::memcpy(&w, b + i, 8);
+					h = (h ^ w) * 0x9E3779B97F4A7C15ull;
+					h ^= h >> 29;
+				}
+				// (and the tail - which is the whole of an int or a float, most of
+				// what is hashed here - as one word too, with its length in it so
+				// that 01 and 01 00 differ)
+				if (i < n)
+				{
+					uint64 w = 0;
+					std::memcpy(&w, b + i, n - i);
+					h = (h ^ w ^ ((uint64)(n - i) << 56)) * 0x9E3779B97F4A7C15ull;
+					h ^= h >> 29;
+				}
 			}
 			template <typename T> void Value(const T &v) { Bytes(&v, sizeof(T)); }
 			void Vec(const Vec4 &v) { Value(v.x); Value(v.y); Value(v.z); Value(v.w); }

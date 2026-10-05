@@ -8,11 +8,16 @@
 
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <box2d/box2d.h>
+#include <atomic>
 
 namespace p3d {
 
+	static std::atomic<int> gLivePhysics2D(0);
+	uint32 Physics2D::LiveCount() { const int n = gLivePhysics2D.load(); return n > 0 ? (uint32)n : 0; }
+
 	Physics2D::Physics2D(const uint32 bodyType, const uint32 shape, const Vec2 &size)
 	{
+		gLivePhysics2D++;
 		this->bodyType = bodyType;
 		this->shapeType = shape;
 		this->size = size;
@@ -28,7 +33,7 @@ namespace p3d {
 		bodyGeneration = 0;
 	}
 
-	Physics2D::~Physics2D() {}
+	Physics2D::~Physics2D() { gLivePhysics2D--; }
 
 	void Physics2D::SetCompoundBoxes(const std::vector<Vec4> &boxes)
 	{
