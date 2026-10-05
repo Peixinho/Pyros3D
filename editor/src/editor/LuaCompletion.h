@@ -169,7 +169,7 @@ inline void CollectCandidates(const std::string& receiver, const std::string& pr
 	static const char* const kBuiltinFns[] = {
 		"require", "pairs", "ipairs", "tonumber", "tostring", "type", "print",
 		"error", "assert", "pcall", "xpcall", "select", "next",
-		"setMouseCaptured", "warpMouseToCenter", "getWindowSize", "getMousePosition",
+		"setMouseCaptured", "warpMouseToCenter", "getMouseDelta", "getWindowSize", "getMousePosition",
 		"placeDecalAtCursor",
 		"setAntiAliasing", "getAntiAliasing", "getEffectiveAntiAliasing", "getSupportedAntiAliasing",
 	};

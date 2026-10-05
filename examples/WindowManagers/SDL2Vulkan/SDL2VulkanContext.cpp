@@ -7,6 +7,7 @@
 //               comment for scope (Vulkan roadmap Phase 5 Step C).
 //============================================================================
 
+#include <Pyros3D/Core/InputManager/InputManager.h>
 #include "SDL2VulkanContext.h"
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
@@ -407,7 +408,12 @@ namespace p3d {
                 MouseButtonReleased(sdl_event.button.button);
 
             if (sdl_event.type == SDL_MOUSEMOTION)
+            {
+                // (the motion itself, for a captured pointer: see InputManager::ConsumeMouseDelta.
+                // Before the move is announced, so whoever hears of the move can ask for it.)
+                InputManager::AddMouseDelta((f32)sdl_event.motion.xrel, (f32)sdl_event.motion.yrel);
                 MouseMove(sdl_event.motion.x,sdl_event.motion.y);
+            }
 
             if (sdl_event.type == SDL_MOUSEWHEEL)
                 MouseWheel(sdl_event.wheel.y);

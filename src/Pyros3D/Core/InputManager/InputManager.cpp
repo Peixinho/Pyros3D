@@ -10,6 +10,8 @@
 
 namespace p3d {
 
+	f32 InputManager::mouseDX = 0.f;
+	f32 InputManager::mouseDY = 0.f;
 	uint32 InputManager::mouseX = 0;
 	uint32 InputManager::mouseY = 0;
 
@@ -69,6 +71,17 @@ namespace p3d {
 		m.Input = Event::Input::Mouse::Wheel;
 		m.Value = delta;
 		MouseWheelEvents(m);
+	}
+	void InputManager::AddMouseDelta(const f32 dx, const f32 dy)
+	{
+		mouseDX += dx;
+		mouseDY += dy;
+	}
+	Vec2 InputManager::ConsumeMouseDelta()
+	{
+		const Vec2 d(mouseDX, mouseDY);
+		mouseDX = mouseDY = 0.f;
+		return d;
 	}
 	Vec2 InputManager::GetMousePosition()
 	{

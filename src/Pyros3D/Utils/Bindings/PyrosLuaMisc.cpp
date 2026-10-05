@@ -10,6 +10,8 @@
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -18,6 +20,17 @@ namespace p3d {
 
 	void RegisterLuaMisc(sol::state* lua)
 	{
+		// Seconds on a steady clock, as finely as the machine counts them: for a
+		// script that wants to know how long something of its own took (there is
+		// no os library here). Only differences mean anything.
+		// logSlowFrames("perf.log", 25): every frame of 25 ms or more, with what
+		// took the time, to that file (FrameProfiler::LogSlowFrames). ("", 0) stops.
+		lua->set_function("logSlowFrames", [](const std::string &path, const f64 ms) {
+			FrameProfiler::LogSlowFrames(path.c_str(), ms);
+		});
+		lua->set_function("getClock", []() {
+			return std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
+		});
 		{
 			// Input - real keyboard/mouse enums plus the LuaInputBridge
 			// registration API (see PyrosBindings.h's LuaInputBridge

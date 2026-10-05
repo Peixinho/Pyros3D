@@ -38,6 +38,25 @@ namespace p3d {
 		return f;
 	}
 
+	// Slow frames, one line each, for a build on a machine nobody can attach to:
+	// see FrameProfiler::LogSlowFrames.
+	static FILE* gSlowLog = NULL;
+	static f64 gSlowMs = 0.0;
+
+	void FrameProfiler::LogSlowFrames(const char* path, const f64 thresholdMs)
+	{
+		if (gSlowLog && gSlowLog != stderr) std::fclose(gSlowLog);
+		gSlowLog = NULL;
+		gSlowMs = thresholdMs;
+		if (!path || !path[0] || thresholdMs <= 0.0) return;
+		gSlowLog = std::fopen(path, "w");
+		if (gSlowLog)
+		{
+			std::fprintf(gSlowLog, "# frames slower than %.0f ms: time since start, the wall time the frame took, then every scope of 1 ms or more\n", thresholdMs);
+			std::fflush(gSlowLog);
+		}
+	}
+
 	FrameProfiler &FrameProfiler::Instance()
 	{
 		static FrameProfiler inst;
@@ -63,7 +82,7 @@ namespace p3d {
 	void FrameProfiler::BeginFrame()
 	{
 		gFrameThread.store(std::this_thread::get_id(), std::memory_order_relaxed);
-		if (ProfileLogFile()) enabled_ = true;
+		if (ProfileLogFile() || gSlowLog) enabled_ = true;
 		if (!enabled_) return;
 		stack_.clear();
 		recordingScopeCount_ = 0;
@@ -150,6 +169,39 @@ namespace p3d {
 			if (v > maxFrameMs_) maxFrameMs_ = v;
 		}
 		avgFrameMs_ = historyCount_ > 0 ? sum / (f64)historyCount_ : 0.0;
+
+		if (gSlowLog)
+		{
+			// The wall time from one frame's end to the next: what the player
+			// feels, and it holds whatever no scope covers (the present, the
+			// event pump, a stall in the driver).
+			static Clock::time_point start = Clock::now(), last = Clock::now(), lastSummary = Clock::now();
+			static uint32 frames = 0, slow = 0;
+			static f64 worst = 0.0;
+			const Clock::time_point now = Clock::now();
+			const f64 wall = std::chrono::duration<f64, std::milli>(now - last).count();
+			last = now;
+			frames++;
+			if (wall > worst) worst = wall;
+			if (wall >= gSlowMs && frames > 1)
+			{
+				slow++;
+				std::fprintf(gSlowLog, "t=%.2f wall=%.1f scoped=%.1f", std::chrono::duration<f64>(now - start).count(), wall, displayFrameMs_);
+				for (uint32 i = 0; i < displayScopeCount_; i++)
+					if (displayScopes_[i].ms >= 1.0) std::fprintf(gSlowLog, " %s=%.1f", displayScopes_[i].name, displayScopes_[i].ms);
+				for (uint32 i = 0; i < counterCount_; i++)
+					std::fprintf(gSlowLog, " %s=%.0f", counters_[i].name, counters_[i].ms);
+				std::fprintf(gSlowLog, "\n");
+			}
+			const f64 since = std::chrono::duration<f64>(now - lastSummary).count();
+			if (since >= 10.0)
+			{
+				std::fprintf(gSlowLog, "# t=%.0f: %u frames in %.0f s (%.0f fps), %u slow, worst %.1f ms\n",
+					std::chrono::duration<f64>(now - start).count(), frames, since, (f64)frames / since, slow, worst);
+				std::fflush(gSlowLog);
+				lastSummary = now; frames = 0; slow = 0; worst = 0.0;
+			}
+		}
 
 		if (FILE* log = ProfileLogFile())
 		{

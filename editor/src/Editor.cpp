@@ -426,6 +426,10 @@ end
 		lua.set_function("isMouseCaptured", []() {
 			return SDL_GetRelativeMouseMode() == SDL_TRUE;
 		});
+		// How far the mouse moved since this was last asked (x, y in device counts), for a
+		// camera that holds the pointer: ask once a frame. Asked just after capturing, the
+		// first answer holds the jump to the middle - throw it away.
+		lua.set_function("getMouseDelta", []() { const Vec2 d = InputManager::ConsumeMouseDelta(); return std::make_tuple(d.x, d.y); });
 		lua.set_function("warpMouseToCenter", [this]() {
 			SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
 		});
@@ -3798,6 +3802,11 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 
 		if (ImGui::GetCurrentContext() != NULL)
 			ImGui::GetIO().AddMousePosEvent(sx, sy);
+		{
+			// (an injected move is a motion too, for scripts that read getMouseDelta)
+			const Vec2 was = InputManager::GetMousePosition();
+			InputManager::AddMouseDelta(sx - was.x, sy - was.y);
+		}
 		SetMouseMove(sx, sy);
 
 		// {"wheel": notches, "ctrl": true}: the scroll wheel at that

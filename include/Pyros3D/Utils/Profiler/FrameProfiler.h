@@ -38,6 +38,12 @@ namespace p3d {
 
 		static FrameProfiler &Instance();
 
+		// Writes a line for every frame that takes thresholdMs or longer - when,
+		// how long, and every scope of it - and a summary every ten seconds, to
+		// `path` (started afresh). For finding a stutter on a machine with no
+		// editor and no debugger. An empty path or a threshold of 0 turns it off.
+		static void LogSlowFrames(const char* path, const f64 thresholdMs);
+
 		void SetEnabled(const bool enabled) { enabled_ = enabled; }
 		bool IsEnabled() const { return enabled_; }
 		void Toggle() { enabled_ = !enabled_; }

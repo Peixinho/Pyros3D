@@ -325,6 +325,14 @@ namespace p3d {
 
 		// Mouse Events
 		static Vec2 GetMousePosition();
+		// Relative mouse motion (the device's own counts, as the window system
+		// reports them) gathered since the last call, then cleared. What a
+		// captured-pointer camera should turn by: positions are clamped to the
+		// window, and a camera that re-centres the pointer and reads positions
+		// counts the same motion more than once when several motion events
+		// arrive in one frame - which is every frame, with a 1000 Hz+ mouse.
+		static Vec2 ConsumeMouseDelta();
+		static void AddMouseDelta(const f32 dx, const f32 dy);
 
 		// Add Events
 		template< class X, class Y >
@@ -424,6 +432,7 @@ namespace p3d {
 		static void SetMouseWheel(const f32 delta);
 		static void MousePressed(const  uint32 e);
 		static void MouseReleased(const uint32 e);
+		static f32 mouseDX, mouseDY;
 		static uint32 mouseX;
 		static uint32 mouseY;
 
