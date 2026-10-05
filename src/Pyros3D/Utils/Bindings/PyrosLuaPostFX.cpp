@@ -7,6 +7,7 @@
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
+#include <Pyros3D/Rendering/PostEffects/PostEffectChain.h>
 
 namespace p3d {
 
@@ -28,7 +29,19 @@ namespace p3d {
 				"getExternalFrameBuffer", &PostEffectsManager::GetExternalFrameBuffer,
 				"getColor", &PostEffectsManager::GetColor,
 				"getDepth", &PostEffectsManager::GetDepth,
-				"getLastRTT", &PostEffectsManager::GetLastRTT
+				"getLastRTT", &PostEffectsManager::GetLastRTT,
+				// A second view with effects of its own - a scope's picture, a
+				// mirror, a monitor in the scene: the chain ends in a texture
+				// instead of on the screen, and is told which way its camera
+				// looks (the effects that walk rays into the scene need it).
+				"setRenderLastToTexture", &PostEffectsManager::SetRenderLastToTexture,
+				// Handed out the way a script holds any texture - to put on a
+				// material - but it stays the manager's: it is not freed when
+				// the script lets go of it, and it must not outlive the manager.
+				"getFinalTexture", [](PostEffectsManager &m) {
+					return std::shared_ptr<Texture>(m.GetFinalTexture(), [](Texture*) {});
+				},
+				"setViewMatrix", &PostEffectsManager::SetViewMatrix
 				);
 		}
 		{
@@ -47,7 +60,8 @@ namespace p3d {
 			lua->set_function("addPostEffect", [](PostEffectsManager &m, const std::string &name, int width, int height) {
 				if (name == "tonemap")
 					m.AddEffect(new TonemapEffect(RTT::Color, width, height));
-				else
+				// any effect a scene can name ("SSAO", "Bloom", "VolumetricSmoke" ...), with its defaults
+				else if (!PostEffectChain::AppendBuiltIn(m, name, (uint32)width, (uint32)height))
 					echo("ERROR: addPostEffect - unknown effect '" + name + "'");
 			});
 
