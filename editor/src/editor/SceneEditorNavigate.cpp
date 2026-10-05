@@ -254,6 +254,114 @@ void SceneEditor::DrawNavigateBar()
 }
 
 // ---- the same, for the agent bridge ----------------------------------------
+// ---------------------------------------------------------------- hidden in the editor
+namespace {
+	// What draws, on one object.
+	void SetDrawn(GameObject* go, const bool drawn)
+	{
+		const std::vector<std::shared_ptr<IComponent> >& cs = go->GetComponents();
+		for (size_t i = 0; i < cs.size(); i++)
+		{
+			if (!cs[i]) continue;
+			const bool draws = dynamic_cast<RenderingComponent*>(cs[i].get()) != NULL
+				|| cs[i]->GetComponentType() == ComponentType::UICanvas;
+			if (!draws) continue;
+			if (drawn) cs[i]->Enable(); else cs[i]->Disable();
+		}
+	}
+	void SetDrawnBelow(GameObject* go, const bool drawn)
+	{
+		SetDrawn(go, drawn);
+		const std::vector<std::shared_ptr<GameObject> >& kids = go->GetChildren();
+		for (size_t i = 0; i < kids.size(); i++)
+			if (kids[i]) SetDrawnBelow(kids[i].get(), drawn);
+	}
+}
+
+void SceneEditor::SetEditorHidden(uint32 goId, bool hidden)
+{
+	SceneObject* obj = sceneObjects ? sceneObjects->GetSceneObject(goId) : NULL;
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (!go) return;
+	if (hidden) editorHidden.insert(goId);
+	else
+	{
+		editorHidden.erase(goId);
+		// drawn again - unless something above it is still hidden, which the
+		// next EnforceEditorHidden() puts right
+		if (!playMode) SetDrawnBelow(go, true);
+	}
+	if (!playMode) EnforceEditorHidden();
+	// (kept with the scene's editor settings, not in the scene: no "unsaved changes")
+	if (!scenePath.empty()) SaveEditorSidecar(scenePath);
+}
+
+void SceneEditor::ShowAllEditorHidden()
+{
+	const std::set<uint32> was = editorHidden;
+	editorHidden.clear();
+	for (std::set<uint32>::const_iterator i = was.begin(); i != was.end(); ++i)
+	{
+		SceneObject* obj = sceneObjects ? sceneObjects->GetSceneObject(*i) : NULL;
+		if (obj && obj->GetType() == SceneObjectTypes::GAMEOBJECT && obj->GetPTR() && !playMode)
+			SetDrawnBelow((GameObject*)obj->GetPTR(), true);
+	}
+	if (!scenePath.empty()) SaveEditorSidecar(scenePath);
+}
+
+void SceneEditor::EnforceEditorHidden()
+{
+	if (editorHidden.empty() || !sceneObjects) return;
+	for (std::set<uint32>::iterator i = editorHidden.begin(); i != editorHidden.end();)
+	{
+		SceneObject* obj = sceneObjects->GetSceneObject(*i);
+		if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT || !obj->GetPTR())
+		{
+			i = editorHidden.erase(i);              // deleted since
+			continue;
+		}
+		SetDrawnBelow((GameObject*)obj->GetPTR(), false);
+		++i;
+	}
+}
+
+void SceneEditor::SuspendEditorHidden()
+{
+	if (!sceneObjects) return;
+	for (std::set<uint32>::const_iterator i = editorHidden.begin(); i != editorHidden.end(); ++i)
+	{
+		SceneObject* obj = sceneObjects->GetSceneObject(*i);
+		if (obj && obj->GetType() == SceneObjectTypes::GAMEOBJECT && obj->GetPTR())
+			SetDrawnBelow((GameObject*)obj->GetPTR(), true);
+	}
+}
+
+bool SceneEditor::AgentSetHidden(const std::string& name, bool hidden, std::string& errOut)
+{
+	if (!sceneObjects) { errOut = "no scene"; return false; }
+	for (std::map<uint32, SceneObject*>::const_iterator o = sceneObjects->GetList().begin(); o != sceneObjects->GetList().end(); ++o)
+	{
+		if (!o->second || o->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+		if (o->second->GetName() != name) continue;
+		SetEditorHidden(o->second->GetID(), hidden);
+		return true;
+	}
+	errOut = "no object named " + name;
+	return false;
+}
+
+nlohmann::json SceneEditor::AgentListHidden() const
+{
+	nlohmann::json names = nlohmann::json::array();
+	for (std::set<uint32>::const_iterator i = editorHidden.begin(); i != editorHidden.end(); ++i)
+	{
+		SceneObject* obj = sceneObjects ? sceneObjects->GetSceneObject(*i) : NULL;
+		if (obj) names.push_back(obj->GetName());
+	}
+	return names;
+}
+
 bool SceneEditor::AgentFrameObject(const std::string &name, std::string &errOut)
 {
 	std::vector<NavEntry> found;

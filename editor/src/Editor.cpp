@@ -2643,6 +2643,29 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	//   frame_object {"name"}                 the view goes to it and it is selected; a cell that is not loaded is travelled to
 	//   find_objects {"query", "limit"}       names with the text in them, in the scene and in unloaded cells
 	//   goto {"x", "z", "distance"}           the view goes to a place
+	// Hide in Editor / Show in Editor on the scene tree's menu: an object and
+	// everything under it, not drawn while working. Editor-only.
+	if (name == "set_hidden")
+	{
+		if (!sceneView->AgentSetHidden(A("name"), a.value("hidden", true), err)) throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["hidden"] = sceneView->AgentListHidden();
+		return r;
+	}
+	if (name == "list_hidden")
+	{
+		nlohmann::json r;
+		r["hidden"] = sceneView->AgentListHidden();
+		return r;
+	}
+	if (name == "show_all_hidden")
+	{
+		sceneView->ShowAllEditorHidden();
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "frame_object")
 	{
 		if (!sceneView->AgentFrameObject(A("name"), err)) throw std::runtime_error(err);

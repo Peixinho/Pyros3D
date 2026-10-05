@@ -1092,6 +1092,29 @@ private:
 	void UnregisterSceneCamera(uint32 id);
 	void RegisterSceneCamera(uint32 id, const EditorCameraSettings& settings = EditorCameraSettings());
 	void ApplyCameraTagsFromScene();
+public:
+	// ---- Hidden in the editor ----
+	// An object (and everything under it) the author does not want to look at
+	// while working - a HUD drawn over the scene, a roof, a fog volume. It is
+	// the editor's own business: nothing of it is in the scene file (it is
+	// kept in the scene's .editor.json), a built game never hears of it, and
+	// Play shows everything, as the game will.
+	//
+	// Done by switching off what draws - rendering components (which UI
+	// images and text are) and canvases - on the object and its children.
+	// A component's on/off is not saved with a scene, so this cannot leak.
+	std::set<uint32> editorHidden;                 // GameObject scene-object ids, each hidden itself
+	bool IsEditorHidden(uint32 goId) const { return editorHidden.count(goId) != 0; }
+	void SetEditorHidden(uint32 goId, bool hidden);
+	void ShowAllEditorHidden();
+	// Every frame out of Play: what is hidden stays hidden, whatever was
+	// undone, pasted or added under it since.
+	void EnforceEditorHidden();
+	// Everything drawn again, the list kept: for Play.
+	void SuspendEditorHidden();
+	bool AgentSetHidden(const std::string& name, bool hidden, std::string& errOut);
+	nlohmann::json AgentListHidden() const;
+private:
 	bool SaveEditorSidecar(const std::string& scenePath) const;
 	bool LoadEditorSidecar(const std::string& scenePath);
 	void BuildSceneCameraDebugList(std::vector<SceneCameraDebugEntry>& out) const;

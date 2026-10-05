@@ -1731,6 +1731,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					ImGui::TextDisabled("Stop play mode to edit");
 				else
 				{
+					if (!editorHidden.empty() && ImGui::MenuItem("Show Everything Hidden in the Editor"))
+						ShowAllEditorHidden();
 #ifdef LUA_BINDINGS
 					if (!scenePath.empty() && ImGui::MenuItem("Open Scene Script"))
 					{
@@ -2306,6 +2308,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (active != NULL)
 				j["activeCamera"] = active->GetName();
 		}
+		// what is hidden in the editor, by name
+		json hidden = json::array();
+		for (std::set<uint32>::const_iterator i = editorHidden.begin(); i != editorHidden.end(); ++i)
+		{
+			SceneObject* so = sceneObjects->GetSceneObject(*i);
+			if (so != NULL) hidden.push_back(so->GetName());
+		}
+		if (!hidden.empty()) j["hidden"] = hidden;
 		std::ofstream out(path + ".editor.json");
 		if (!out) return false;
 		out << j.dump(2);
@@ -2314,12 +2324,30 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	bool SceneEditor::LoadEditorSidecar(const std::string& path)
 	{
+		editorHidden.clear();                 // (the scene before this one's)
 		if (path.size() == 0) return false;
 		std::ifstream in(path + ".editor.json");
 		if (!in) return false;
 		json j;
 		try { in >> j; }
 		catch (...) { return false; }
+
+		if (j.contains("hidden") && j["hidden"].is_array())
+		{
+			for (json::iterator it = j["hidden"].begin(); it != j["hidden"].end(); ++it)
+			{
+				if (!it->is_string()) continue;
+				const std::string name = it->get<std::string>();
+				for (std::map<uint32, SceneObject*>::const_iterator o = sceneObjects->GetList().begin(); o != sceneObjects->GetList().end(); ++o)
+				{
+					if (o->second == NULL || o->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+					if (o->second->GetName() != name) continue;
+					editorHidden.insert(o->second->GetID());
+					break;
+				}
+			}
+			EnforceEditorHidden();
+		}
 
 		std::string activeName;
 		if (j.contains("activeCamera") && j["activeCamera"].is_string())
@@ -2491,6 +2519,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		if (!obj) return "";
 		std::string label = EditorIcons::ForSceneObject(obj, IsSceneCamera(obj->GetID())) + obj->GetName();
+		if (obj->GetType() == SceneObjectTypes::GAMEOBJECT && IsEditorHidden(obj->GetID())) label += "   (hidden)";
 #ifdef LUA_BINDINGS
 		// Show a script glyph on the GO while collapsed so attach is obvious.
 		if (obj->GetType() == SceneObjectTypes::GAMEOBJECT && sceneObjects)
@@ -5610,6 +5639,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				}
 				if (go && !IsInternalGameObject(go))
 					ShowAddComponentMenu(obj->GetID());
+				if (go && !IsInternalGameObject(go))
+				{
+					// the editor's own: not in the scene file, not in the game
+					const bool hidden = IsEditorHidden(obj->GetID());
+					if (ImGui::MenuItem(hidden ? "Show in Editor" : "Hide in Editor"))
+						SetEditorHidden(obj->GetID(), !hidden);
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("This object and everything under it, in the editor only:\nPlay and the built game draw it as always.");
+				}
 				if (go && !IsInternalGameObject(go) && ImGui::MenuItem("Duplicate"))
 				{
 					SelectSceneObject(obj);
@@ -5824,6 +5862,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::Update(const f64 time)
 	{
+		// what the author hid stays hidden (not in Play: the game shows all)
+		if (!playMode) EnforceEditorHidden();
 		DrainPendingOps();
 		UpdateViewportMouse();
 		PollUIStyleFiles(time);
@@ -6793,6 +6833,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::EnterPlayMode()
 	{
+		// the game shows everything: what was hidden to work round is drawn
+		// again before anything about the scene is noted down for Stop
+		SuspendEditorHidden();
 		// Save where the AUTHOR was looking. Play drives this same camera - a
 		// self-framing 2D scene writes view2D onto it every frame - so without
 		// this, pressing Play destroys the viewpoint you had set up, and any
