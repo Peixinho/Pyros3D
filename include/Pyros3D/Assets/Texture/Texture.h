@@ -215,6 +215,9 @@ namespace p3d {
 		bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
 		bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0); // msaa if using multisample only
 		void SetMinMagFilter(const uint32 MinFilter, const uint32 MagFilter);
+		// Whether it is already filtered this way: lets a caller that only wants to be sure
+		// skip SetMinMagFilter, which binds and unbinds on whichever unit is active.
+		bool HasMinMagFilter(const uint32 MinFilter, const uint32 MagFilter) const { return this->MinFilter == MinFilter && this->MagFilter == MagFilter; }
 		void SetRepeat(const uint32 WrapS, const uint32 WrapT, const int32 WrapR = -1);
 		void SetBorderColor(const Vec4 &Color);
 		void EnableCompareMode();

@@ -3719,6 +3719,19 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 	}
 }
 
+// SetMinMagFilter binds the texture on whichever unit is active and then binds nothing
+// there. Called on every shadow-map bind, that unit was the one the material's last
+// texture had just been given - so on GL every lit, textured, shadow-receiving mesh drew
+// with its colour map (or its normal map) unbound, i.e. black. So: only when the filter
+// really is wrong, and then on the unit the shadow map is about to take, which is free.
+static void EnsureNearest(Texture* map)
+{
+	if (map->HasMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest)) return;
+	map->Bind();
+	map->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+	map->Unbind();
+}
+
 void IRenderer::BindShadowMaps(IMaterial* material)
 {
 	// Bind Shadows Textures
@@ -3729,8 +3742,8 @@ void IRenderer::BindShadowMaps(IMaterial* material)
 		{
 			// Depth+compare + Linear is unloadable on Apple GL (sampler2DShadow
 			// then hits unit 0's colour map). Maps created before the Nearest
-			// fix in EnableCastShadows still need this every bind.
-			(*i)->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+			// fix in EnableCastShadows still need it.
+			EnsureNearest(*i);
 			(*i)->Bind();
 			DirectionalShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
 		}
@@ -3745,7 +3758,7 @@ void IRenderer::BindShadowMaps(IMaterial* material)
 		SpotShadowMapsUnits.clear();
 		for (std::vector<Texture*>::iterator i = SpotShadowMapsTextures.begin(); i != SpotShadowMapsTextures.end(); i++)
 		{
-			(*i)->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+			EnsureNearest(*i);
 			(*i)->Bind();
 			SpotShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
 		}
