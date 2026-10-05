@@ -146,6 +146,14 @@ namespace p3d {
 		// Main thread: takes mesh's arrays and uploads them. data is kept
 		// for queries (and a physics shape) and shared across LODs.
 		Heightfield(HeightfieldMesh &&mesh, const std::shared_ptr<const HeightfieldData> &data, const uint32 step);
+		~Heightfield();
+
+		// Goes up whenever any Heightfield is made or destroyed. Something that
+		// keeps a list of them for a while (TerrainEditor's tiles-this-frame)
+		// compares it to know its list is stale - a scene swapped for another
+		// by a script, within one frame, leaves a list of pointers to tiles
+		// that are gone.
+		static uint32 Generation();
 
 		const std::shared_ptr<const HeightfieldData> &GetData() const { return data; }
 		// For sculpting (TerrainEditor): the heights every level of this

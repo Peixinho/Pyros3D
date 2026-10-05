@@ -104,12 +104,21 @@ namespace p3d {
 		{
 			static SceneGraph* forScene = NULL;
 			static f64 forTime = -1.0;
+			static uint32 forGeneration = 0;
 			static std::vector<TerrainTile> tiles;
-			if (scene != forScene || scene->GetUpdateTime() != forTime)
+			// ... except when a script swaps the scene for another: the new
+			// scene is the same object at the same time, and its tiles are new
+			// ones - the list held pointers to the old scene's, already
+			// destroyed, and the first height asked for in the new scene read
+			// through one (a crash going from a title screen into the game).
+			// Any tile made or destroyed since the list was made makes it stale.
+			const uint32 generation = Heightfield::Generation();
+			if (scene != forScene || scene->GetUpdateTime() != forTime || generation != forGeneration)
 			{
 				tiles = TerrainEditor::FindTiles(scene);
 				forScene = scene;
 				forTime = scene ? scene->GetUpdateTime() : -1.0;
+				forGeneration = generation;
 			}
 			return tiles;
 		}
@@ -121,7 +130,9 @@ namespace p3d {
 		for (size_t i = 0; i < tiles.size(); i++)
 			if (tiles[i].Contains(x, z))
 			{
-				height = tiles[i].origin.y + tiles[i].Data()->HeightAt(x - tiles[i].origin.x, z - tiles[i].origin.z);
+				const HeightfieldData* data = tiles[i].Data();
+				if (!data) continue;
+				height = tiles[i].origin.y + data->HeightAt(x - tiles[i].origin.x, z - tiles[i].origin.z);
 				return true;
 			}
 		return false;

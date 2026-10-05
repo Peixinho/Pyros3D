@@ -381,9 +381,14 @@ namespace p3d {
 		BoundingSphereRadius = maxBounds.distance(BoundingSphereCenter);
 	}
 
+	static std::atomic<uint32> heightfieldGeneration(0);
+	uint32 Heightfield::Generation() { return heightfieldGeneration.load(); }
+	Heightfield::~Heightfield() { heightfieldGeneration++; }
+
 	Heightfield::Heightfield(HeightfieldMesh &&mesh, const std::shared_ptr<const HeightfieldData> &data, const uint32 step)
 		: data(data), step(step)
 	{
+		heightfieldGeneration++;
 		geometry->materialProperties.haveColor = true;
 		geometry->materialProperties.Color = Vec4(1.f, 1.f, 1.f, 1.f);
 		calculateTangentBitangent = true;
