@@ -155,6 +155,18 @@ namespace p3d {
 		// <project>/scenes/<file>.json → <project>/
 		if (sp.parent_path().filename() == "scenes")
 			return EnsureTrailingSlash(sp.parent_path().parent_path().string());
+		// Anywhere else inside a project - a prefab being edited stands in
+		// <project>/.pyros/prefabs/ - the project is the nearest folder above
+		// that has a project.json. Without this the root came out empty, nothing
+		// was made relative, and a prefab saved from its own tab had the model
+		// and every texture written with the whole path of the machine it was
+		// saved on.
+		fs::path up = sp.parent_path();
+		for (int depth = 0; depth < 6 && !up.empty() && up != up.parent_path(); ++depth, up = up.parent_path())
+		{
+			if (fs::exists(up / "project.json", ec))
+				return EnsureTrailingSlash(up.string());
+		}
 		return std::string();
 	}
 
