@@ -1077,7 +1077,16 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						// Update Culling
 						UpdateCulling(ProjectionMatrix*ViewMatrix);
 
-						RenderShadowCasters(false);
+						// Only what stands in this cascade's box. It was every
+						// caster in the scene, into a map that covers a few
+						// tens of metres round the camera: on a map of two
+						// thousand objects, two thousand draws a frame where a
+						// hundred land in the map - the biggest cost of the
+						// frame on the CPU. The box is exact for this: sideways
+						// it is the cascade, and toward the light FitCascade
+						// has already stretched it to every caster that can
+						// throw a shadow into it.
+						RenderShadowCasters(true);
 
 						// device->TranslateProjectionMatrix() (identity on
 						// GL) - this matrix maps a view-space fragment

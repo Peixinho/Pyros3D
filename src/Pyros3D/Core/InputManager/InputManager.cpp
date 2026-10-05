@@ -10,8 +10,9 @@
 
 namespace p3d {
 
-	f32 InputManager::mouseDX = 0.f;
-	f32 InputManager::mouseDY = 0.f;
+	// (file statics, not members: MSVC will not have them declared in an exported class)
+	static f32 mouseDX = 0.f;
+	static f32 mouseDY = 0.f;
 	uint32 InputManager::mouseX = 0;
 	uint32 InputManager::mouseY = 0;
 

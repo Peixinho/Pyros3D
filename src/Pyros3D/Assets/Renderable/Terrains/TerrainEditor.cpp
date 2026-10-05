@@ -113,11 +113,19 @@ namespace p3d {
 			// through one (a crash going from a title screen into the game).
 			// Any tile made or destroyed since the list was made makes it stale.
 			const uint32 generation = Heightfield::Generation();
-			if (scene != forScene || scene->GetUpdateTime() != forTime || generation != forGeneration)
+			// The list is kept for as long as it is right, not just for the frame:
+			// finding the tiles walks the whole scene, and with the scene's time
+			// as the key it was found again every frame (and more than once in a
+			// frame wherever the time differs between callers) - a tenth of the
+			// frame in a game whose scripts ask for heights. Tiles made or
+			// destroyed make it stale at once; a tile that was made before it was
+			// added to the scene is picked up by the look every half second.
+			const f64 now = scene ? scene->GetUpdateTime() : -1.0;
+			if (scene != forScene || generation != forGeneration || now < forTime || now - forTime > 0.5)
 			{
 				tiles = TerrainEditor::FindTiles(scene);
 				forScene = scene;
-				forTime = scene ? scene->GetUpdateTime() : -1.0;
+				forTime = now;
 				forGeneration = generation;
 			}
 			return tiles;

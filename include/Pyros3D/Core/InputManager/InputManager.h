@@ -432,7 +432,6 @@ namespace p3d {
 		static void SetMouseWheel(const f32 delta);
 		static void MousePressed(const  uint32 e);
 		static void MouseReleased(const uint32 e);
-		static f32 mouseDX, mouseDY;
 		static uint32 mouseX;
 		static uint32 mouseY;
 
