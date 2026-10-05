@@ -89,7 +89,10 @@ bool SceneEditor::MoveObjectToCell(uint32 id, const int32 x, const int32 z, std:
 		std::ifstream in(path.c_str(), std::ios::binary);
 		std::stringstream ss;
 		ss << in.rdbuf();
-		cellRoot = SceneSerializer::DeserializeSubtree(ss.str(), scenePath, physics, lua, &temp);
+		// (a cell's file names its prefab instances: put in, as on any load)
+		std::string cellText = ss.str();
+		prefab::ExpandSubtreeText(cellText, scenePath);
+		cellRoot = SceneSerializer::DeserializeSubtree(cellText, scenePath, physics, lua, &temp);
 		if (!cellRoot) { errOut = "could not read " + path; return false; }
 	}
 	else
@@ -575,7 +578,9 @@ int SceneEditor::BakeFarCellAt(const int32 x, const int32 z, const int resolutio
 	std::stringstream ss;
 	ss << in.rdbuf();
 	LoadedSceneAssets temp;
-	std::shared_ptr<GameObject> root = SceneSerializer::DeserializeSubtree(ss.str(), scenePath, NULL, NULL, &temp);
+	std::string cellText = ss.str();
+	prefab::ExpandSubtreeText(cellText, scenePath);
+	std::shared_ptr<GameObject> root = SceneSerializer::DeserializeSubtree(cellText, scenePath, NULL, NULL, &temp);
 	if (!root) return 0;
 	if (BakeFarCell(x, z, root.get(), resolution, err, allowRender)) return 1;
 	if (!err.empty()) { errOut = err; return -1; }

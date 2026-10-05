@@ -390,6 +390,8 @@ int main(int argc, char** argv)
 	// loaded what its players are near, which is where anything happens.
 	// No far versions: nothing here is drawn.
 	meta.world.farRadius = 0.f;
+	// the cells name their prefab instances, as the scene does
+	SceneSerializer::SetSubtreeFileFilter(prefab::ExpandSubtreeText);
 	WorldStreamer* world = meta.world.enabled ? new WorldStreamer(scene, sceneAbs, meta.world, physics, luaPtr) : NULL;
 
 	f64 t = 0.0;

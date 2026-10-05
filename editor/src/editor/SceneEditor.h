@@ -690,7 +690,10 @@ public:
 	// Resolves prefab references in a scene file on the way in, and writes
 	// them back on the way out. Both wrap the engine calls, which know
 	// nothing about any of this.
-	std::string ExpandSceneFileForLoad(const std::string& path);
+	std::string ExpandSceneFileForLoad(const std::string& path, std::vector<std::string>* outRootPrefabPaths = NULL);
+	// the roots' prefab links from the load in progress, applied once the
+	// scene's objects are registered
+	std::vector<std::string> pendingRootPrefabPaths;
 	void CollapseSceneFileAfterSave(const std::string& path);
 	// Re-attaches instance links to the just-loaded objects, by root order.
 	void RelinkPrefabInstancesAfterLoad(const std::vector<std::string>& rootPrefabPaths);

@@ -75,8 +75,11 @@
 
 #include <Pyros3D/Utils/Json/json.hpp>
 
+#include <filesystem>
 #include <fstream>
 #include <functional>
+#include <mutex>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -157,6 +160,12 @@ namespace prefab {
 		ForEachMaterialRef(copy, [&pool](json& ref) {
 			const size_t id = ref.get<size_t>();
 			ref = (id < pool.size()) ? pool[id] : json();
+			// "id" is the entry's place in its own pool - a different number
+			// in the scene's pool than in the prefab's - and not part of what
+			// the material is. Left in, a house saved from a scene (its
+			// material numbered 1325 there) never matched its prefab (0), and
+			// every instance was quietly written out in full on the first save.
+			if (ref.is_object()) ref.erase("id");
 		});
 		if (copy.is_object())
 		{
@@ -189,6 +198,16 @@ namespace prefab {
 
 		// Appends `from` to `into`, reusing an identical entry when there is
 		// one. Returns old index → new index.
+		// Two pool entries are the same material when everything but "id"
+		// (the entry's place in its own pool) is equal.
+		inline bool SameMaterial(const json& a, const json& b)
+		{
+			if (!a.is_object() || !b.is_object()) return a == b;
+			json x = a, y = b;
+			x.erase("id"); y.erase("id");
+			return x == y;
+		}
+
 		inline std::vector<size_t> MergePool(json& into, const json& from)
 		{
 			std::vector<size_t> remap(from.size(), 0);
@@ -196,8 +215,12 @@ namespace prefab {
 			{
 				size_t found = into.size();
 				for (size_t k = 0; k < into.size(); ++k)
-					if (into[k] == from[i]) { found = k; break; }
-				if (found == into.size()) into.push_back(from[i]);
+					if (SameMaterial(into[k], from[i])) { found = k; break; }
+				if (found == into.size())
+				{
+					into.push_back(from[i]);
+					if (into.back().is_object()) into.back()["id"] = found;
+				}
 				remap[i] = found;
 			}
 			return remap;
@@ -230,13 +253,16 @@ namespace prefab {
 		// Collapsing a root removes the only references to its materials, and
 		// without this the pool would grow by a prefab's worth of dead
 		// entries on every save.
-		inline void CompactPool(json& scene)
+		inline void CompactPool(json& pool, json& refs);
+		inline void CompactPool(json& scene) { CompactPool(scene["materials"], scene["roots"]); }
+
+		// `refs`: whatever numbers into `pool` - a scene's roots, a subtree's root.
+		inline void CompactPool(json& pool, json& refs)
 		{
-			json& pool = scene["materials"];
 			if (!pool.is_array() || pool.empty()) return;
 
 			std::vector<bool> used(pool.size(), false);
-			ForEachMaterialRef(scene["roots"], [&used](json& ref) {
+			ForEachMaterialRef(refs, [&used](json& ref) {
 				const size_t id = ref.get<size_t>();
 				if (id < used.size()) used[id] = true;
 			});
@@ -251,7 +277,7 @@ namespace prefab {
 			}
 			if (compacted.size() == pool.size()) return;
 
-			ForEachMaterialRef(scene["roots"], [&remap](json& ref) {
+			ForEachMaterialRef(refs, [&remap](json& ref) {
 				const size_t id = ref.get<size_t>();
 				if (id < remap.size()) ref = remap[id];
 			});
@@ -272,21 +298,22 @@ namespace prefab {
 	// other's. What is left is purely local: CollapseScene() below matches
 	// instances by position in "roots", so nesting needs it to walk the tree
 	// and key off the "prefab" marker each expanded node already carries.
-	inline void ExpandScene(json& scene, const LoadFn& load,
+	// Every prefab reference in `list` (a scene's roots, the children of a
+	// streamed cell's root) replaced by the subtree it names, its materials
+	// merged into `pool`.
+	inline void ExpandInstances(json& list, json& pool, const LoadFn& load,
 		std::vector<Link>& outLinks, std::vector<std::string>& outErrors)
 	{
-		if (!scene.is_object() || scene.find("roots") == scene.end() || !scene["roots"].is_array())
-			return;
-		if (scene.find("materials") == scene.end() || !scene["materials"].is_array())
-			scene["materials"] = json::array();
-
-		json& roots = scene["roots"];
-		for (size_t i = 0; i < roots.size(); ++i)
+		if (!list.is_array()) return;
+		for (size_t i = 0; i < list.size(); ++i)
 		{
-			json& entry = roots[i];
+			json& entry = list[i];
 			if (!entry.is_object()) continue;
 			json::iterator ref = entry.find("prefab");
 			if (ref == entry.end() || !ref->is_string()) continue;
+			// (an instance written out in full keeps its link as a note: it
+			// is already whole, and is not to be replaced by its source)
+			if (entry.find("components") != entry.end()) continue;
 
 			const std::string path = ref->get<std::string>();
 			const json prefabJson = load(path);
@@ -298,7 +325,7 @@ namespace prefab {
 
 			json expanded = prefabJson["root"];
 			const std::vector<size_t> remap =
-				detail::MergePool(scene["materials"], prefabJson.value("materials", json::array()));
+				detail::MergePool(pool, prefabJson.value("materials", json::array()));
 			ForEachMaterialRef(expanded, [&remap](json& m) {
 				const size_t id = m.get<size_t>();
 				if (id < remap.size()) m = remap[id];
@@ -314,8 +341,18 @@ namespace prefab {
 			link.prefabPath = path;
 			outLinks.push_back(link);
 
-			roots[i] = expanded;
+			list[i] = expanded;
 		}
+	}
+
+	inline void ExpandScene(json& scene, const LoadFn& load,
+		std::vector<Link>& outLinks, std::vector<std::string>& outErrors)
+	{
+		if (!scene.is_object() || scene.find("roots") == scene.end() || !scene["roots"].is_array())
+			return;
+		if (scene.find("materials") == scene.end() || !scene["materials"].is_array())
+			scene["materials"] = json::array();
+		ExpandInstances(scene["roots"], scene["materials"], load, outLinks, outErrors);
 	}
 
 	// ------------------------------ collapse -----------------------------
@@ -382,6 +419,141 @@ namespace prefab {
 		}
 
 		detail::CompactPool(scene);
+	}
+
+	// ------------------------- streamed cells ---------------------------
+	//
+	// A streamed world keeps its objects in cell files beside the scene
+	// (<scene>.cells/x_z.json), each a subtree - {"root": the cell,
+	// "materials": [...]} - that the engine reads by itself as the player
+	// comes near. The cell's own children are where a house or a tree is, so
+	// that is where a reference can stand: "roots only" there means "the
+	// cell's children only".
+	//
+	//   load:  cell file -> ExpandSubtreeText() -> the engine
+	//          (SceneSerializer::SetSubtreeFileFilter - any thread)
+	//   save:  the engine's text -> CollapseSubtreeText() -> cell file
+	//
+	// Nothing remembers which child of a cell was an instance once the
+	// engine has built it, so saving links by CONTENT: a child that is
+	// exactly what a prefab under assets/prefabs is, is written as an
+	// instance of it. A child changed in any way no longer is, and is
+	// written in full.
+
+	// <project>/scenes/X.json -> <project>/
+	inline std::string ProjectRootOfScene(const std::string& scenePath)
+	{
+		std::error_code ec;
+		std::filesystem::path p(scenePath);
+		return p.parent_path().parent_path().string();
+	}
+
+	namespace detail {
+		struct CachedPrefab { std::string abs; std::filesystem::file_time_type stamp; json data; };
+		inline std::mutex& CacheLock() { static std::mutex m; return m; }
+		inline std::vector<CachedPrefab>& Cache() { static std::vector<CachedPrefab> c; return c; }
+
+		// A .prefab, read once and again only when the file has changed.
+		// Cells load on worker threads, several at a time.
+		inline json CachedRead(const std::string& abs)
+		{
+			std::error_code ec;
+			const std::filesystem::file_time_type stamp = std::filesystem::last_write_time(abs, ec);
+			std::lock_guard<std::mutex> lock(CacheLock());
+			std::vector<CachedPrefab>& cache = Cache();
+			for (size_t i = 0; i < cache.size(); ++i)
+				if (cache[i].abs == abs)
+				{
+					if (!ec && cache[i].stamp == stamp) return cache[i].data;
+					cache[i].stamp = stamp;
+					cache[i].data = ReadPrefabFile(abs);
+					return cache[i].data;
+				}
+			CachedPrefab c;
+			c.abs = abs; c.stamp = stamp; c.data = ReadPrefabFile(abs);
+			cache.push_back(c);
+			return c.data;
+		}
+	}
+
+	// A cell file's text with its instances put in. Left exactly as it was
+	// when it names no prefab (most cells, and every far version).
+	inline void ExpandSubtreeText(std::string& text, const std::string& scenePath)
+	{
+		if (text.find("\"prefab\"") == std::string::npos) return;
+		json subtree;
+		try { subtree = json::parse(text); }
+		catch (const std::exception&) { return; }
+		if (!subtree.is_object() || subtree.find("root") == subtree.end()) return;
+		json& root = subtree["root"];
+		if (!root.is_object() || root.find("children") == root.end()) return;
+		if (subtree.find("materials") == subtree.end() || !subtree["materials"].is_array())
+			subtree["materials"] = json::array();
+		const std::string base = ProjectRootOfScene(scenePath);
+		std::vector<Link> links;
+		std::vector<std::string> errors;
+		ExpandInstances(root["children"], subtree["materials"],
+			[&base](const std::string& rel) { return detail::CachedRead((std::filesystem::path(base) / rel).string()); },
+			links, errors);
+		if (links.empty()) return;
+		text = subtree.dump();
+	}
+
+	// The other way, for a cell about to be written: each child of the cell
+	// that is exactly a prefab under <project>/assets/prefabs becomes an
+	// instance of it. Returns how many.
+	inline size_t CollapseSubtreeText(std::string& text, const std::string& scenePath)
+	{
+		namespace fs = std::filesystem;
+		const std::string base = ProjectRootOfScene(scenePath);
+		std::error_code ec;
+		const fs::path dir = fs::path(base) / "assets" / "prefabs";
+		if (!fs::is_directory(dir, ec)) return 0;
+		std::vector<std::pair<std::string, json> > prefabs;
+		for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+		{
+			if (!it->is_regular_file(ec) || it->path().extension() != ".prefab") continue;
+			const json data = detail::CachedRead(it->path().string());
+			if (!data.is_object() || data.find("root") == data.end()) continue;
+			// an object with nothing drawn or solid in it is not worth linking by looks
+			const json& r = data["root"];
+			if (r.value("components", json::array()).empty() && r.value("children", json::array()).empty()) continue;
+			prefabs.push_back(std::make_pair(fs::relative(it->path(), base, ec).generic_string(), data));
+		}
+		if (prefabs.empty()) return 0;
+
+		json subtree;
+		try { subtree = json::parse(text); }
+		catch (const std::exception&) { return 0; }
+		if (!subtree.is_object() || subtree.find("root") == subtree.end()) return 0;
+		json& root = subtree["root"];
+		if (!root.is_object() || root.find("children") == root.end() || !root["children"].is_array()) return 0;
+		const json pool = subtree.value("materials", json::array());
+		size_t made = 0;
+		json& kids = root["children"];
+		for (size_t i = 0; i < kids.size(); ++i)
+		{
+			if (!kids[i].is_object()) continue;
+			for (size_t k = 0; k < prefabs.size(); ++k)
+			{
+				if (!MatchesPrefab(kids[i], pool, prefabs[k].second)) continue;
+				// (tags: the prefab's own are part of it; the union is what an instance has)
+				json reference;
+				reference["prefab"] = prefabs[k].first;
+				reference["name"] = kids[i].value("name", std::string());
+				if (kids[i].find("position") != kids[i].end()) reference["position"] = kids[i]["position"];
+				if (kids[i].find("rotation") != kids[i].end()) reference["rotation"] = kids[i]["rotation"];
+				if (kids[i].find("scale") != kids[i].end()) reference["scale"] = kids[i]["scale"];
+				if (kids[i].find("tags") != kids[i].end()) reference["tags"] = kids[i]["tags"];
+				kids[i] = reference;
+				made++;
+				break;
+			}
+		}
+		if (!made) return 0;
+		if (subtree.find("materials") != subtree.end()) detail::CompactPool(subtree["materials"], subtree["root"]);
+		text = subtree.dump();
+		return made;
 	}
 
 	// The prefab an already-expanded root says it came from, or empty. Lets

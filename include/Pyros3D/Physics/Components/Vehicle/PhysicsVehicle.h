@@ -36,6 +36,10 @@ namespace p3d {
 		f32 SpinSpeed;
 		f32 Steer;
 		bool InContact;
+		// A wheel that is not there any more - lost, or run down to nothing:
+		// it holds nothing up and pushes on nothing, and that corner of the
+		// body comes down on whatever is under it.
+		bool Disabled = false;
 
 	};
 

@@ -8884,19 +8884,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// handed a scene whose roots are all written out in full. An empty
 		// string means the file could not be read at all; the engine's own
 		// call below reports that.
-		const std::string expanded = ExpandSceneFileForLoad(path);
 		std::vector<std::string> rootPrefabPaths;
-		if (!expanded.empty())
-		{
-			try
-			{
-				const nlohmann::json j = nlohmann::json::parse(expanded);
-				if (j.is_object() && j.find("roots") != j.end() && j["roots"].is_array())
-					for (size_t i = 0; i < j["roots"].size(); ++i)
-						rootPrefabPaths.push_back(prefab::LinkOf(j["roots"][i]));
-			}
-			catch (const std::exception&) { rootPrefabPaths.clear(); }
-		}
+		const std::string expanded = ExpandSceneFileForLoad(path, &rootPrefabPaths);
+		pendingRootPrefabPaths = rootPrefabPaths;
 
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
@@ -9013,6 +9003,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			std::vector<std::shared_ptr<GameObject>> roots = scene->GetAllGameObjectList();
 			for (std::vector<std::shared_ptr<GameObject>>::iterator i = roots.begin(); i != roots.end(); i++)
 				sceneObjects->Adopt((*i).get());
+			// Now that each root has its editor object: which of them are
+			// prefab instances. (This ran straight after the engine's load,
+			// before any of them had one - so no link was ever set, and the
+			// first save wrote every instance out as a plain object.)
+			RelinkPrefabInstancesAfterLoad(pendingRootPrefabPaths);
+			pendingRootPrefabPaths.clear();
 			ApplyCameraTagsFromScene();
 			LoadEditorSidecar(path);
 			scenePath = path;

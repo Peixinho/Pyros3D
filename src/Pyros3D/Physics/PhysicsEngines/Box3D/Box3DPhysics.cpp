@@ -686,6 +686,14 @@ namespace p3d {
 			const bool front = wheel.IsFrontWheel;
 			const float radius = wheel.Radius > 0.05f ? wheel.Radius : 0.35f;
 			wheel.Steer = front ? steer : 0.f;
+			if (wheel.Disabled)
+			{
+				// no ray, no spring, no grip: hanging at the bottom of its travel
+				wheel.InContact = false;
+				wheel.Travel = lower;
+				wheel.SpinSpeed = 0.f;
+				continue;
+			}
 
 			b3Vec3 up, axle;
 			WheelAxes(wheel, up, axle);

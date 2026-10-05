@@ -4519,6 +4519,17 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		std::vector<std::shared_ptr<Texture> > uploaded;
 	};
 
+	static SceneSerializer::SubtreeFileFilter &SubtreeFilter()
+	{
+		static SceneSerializer::SubtreeFileFilter filter;
+		return filter;
+	}
+
+	void SceneSerializer::SetSubtreeFileFilter(const SubtreeFileFilter &filter)
+	{
+		SubtreeFilter() = filter;
+	}
+
 	std::shared_ptr<SceneSerializer::PreparedSubtree> SceneSerializer::PrepareSubtreeFile(const std::string &subtreePath, const std::string &scenePathForAssetRoot)
 	{
 		std::string text;
@@ -4534,6 +4545,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			buffer << in.rdbuf();
 			text = buffer.str();
 		}
+		if (SubtreeFilter()) SubtreeFilter()(text, scenePathForAssetRoot);
 		std::shared_ptr<PreparedSubtree> p = std::make_shared<PreparedSubtree>();
 		try
 		{

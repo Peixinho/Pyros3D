@@ -455,6 +455,10 @@ std::string PyrosPlayer::ExpandSceneFile(const std::string& absPath)
 	buffer << in.rdbuf();
 	in.close();
 
+	// a scene that names no prefab is handed over as it is, unparsed
+	// (empty: "nothing to put in - read the file yourself")
+	if (buffer.str().find("\"prefab\"") == std::string::npos) return std::string();
+
 	json sceneJson;
 	try { sceneJson = json::parse(buffer.str()); }
 	catch (const std::exception&) { return std::string(); } // the engine reports it
@@ -690,6 +694,8 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	worldStreamer.reset();
 	if (meta.world.enabled)
 	{
+		// the cells name their prefab instances, as the scene does
+		SceneSerializer::SetSubtreeFileFilter(prefab::ExpandSubtreeText);
 		worldStreamer.reset(new WorldStreamer(scene, abs, meta.world, physics, luaPtr));
 		worldStreamer->SetOnCellLoaded([this](const std::shared_ptr<GameObject> &root) {
 			std::vector<GameObject*> objects(1, root.get());

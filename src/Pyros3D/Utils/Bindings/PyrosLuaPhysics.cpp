@@ -263,6 +263,14 @@ namespace p3d {
 				std::vector<VehicleWheel> &w = v.GetWheels();
 				if (i < w.size() && radius > 0.f) w[i].Radius = radius;
 			},
+			// false: the wheel is gone - see VehicleWheel::Disabled
+			"setWheelEnabled", [](PhysicsVehicle &v, uint32 i, bool on) {
+				std::vector<VehicleWheel> &w = v.GetWheels();
+				if (i < w.size()) w[i].Disabled = !on;
+			},
+			"isWheelEnabled", [](PhysicsVehicle &v, uint32 i) {
+				return i < v.GetWheels().size() && !v.GetWheels()[i].Disabled;
+			},
 			"getWheelTransform", [](PhysicsVehicle &v, uint32 i) -> Matrix {
 				if (i >= v.GetWheels().size()) return Matrix();
 				return v.GetWheels()[i].Transformation;

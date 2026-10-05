@@ -9,6 +9,7 @@
 #ifndef SCENESERIALIZER_H
 #define SCENESERIALIZER_H
 
+#include <functional>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -397,6 +398,14 @@ namespace p3d {
 		// subtree once; its decoded data is consumed by the first call.
 		struct PreparedSubtree;
 		static std::shared_ptr<PreparedSubtree> PrepareSubtreeFile(const std::string &subtreePath, const std::string &scenePathForAssetRoot);
+		// A caller's pass over a subtree FILE's text before the engine reads
+		// it: the same door LoadSceneFromText() is for a scene, for the
+		// files the engine opens by itself (a streamed world's cells). The
+		// engine says nothing about what the pass is for. It is called from
+		// whatever thread PrepareSubtreeFile runs on - several at once - so
+		// it must be safe there; set it once, before anything streams.
+		typedef std::function<void(std::string &text, const std::string &scenePathForAssetRoot)> SubtreeFileFilter;
+		static void SetSubtreeFileFilter(const SubtreeFileFilter &filter);
 		// The same from JSON text already in hand, with the asset root
 		// itself rather than a scene path to infer it from - a terrain
 		// builds each tile's subtree from its template. `label` names it in

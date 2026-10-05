@@ -10,6 +10,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Core/Logs/Log.h>
+#include "PrefabResolver.h"
 
 #include <filesystem>
 #include <chrono>
@@ -23,6 +24,9 @@ EditorWorld::EditorWorld(SceneGraph* scene, SceneObjects* objects, const std::st
 	const std::function<void(GameObject*)> &adopted)
 	: scene(scene), objects(objects), scenePath(scenePath), lua(lua), farRadius(world.farRadius)
 {
+	// A cell's file names its prefab instances; the engine reads cells by
+	// itself, so they are put in on the way (shared/PrefabResolver.h).
+	SceneSerializer::SetSubtreeFileFilter(prefab::ExpandSubtreeText);
 	streamer.reset(new WorldStreamer(scene, scenePath, world, physics, lua));
 	ApplyFarRadius();
 	streamer->SetOnCellLoaded([this, adopted](const std::shared_ptr<GameObject> &root) {
@@ -133,7 +137,10 @@ bool EditorWorld::WriteCell(GameObject* root, const std::string &cellPath, const
 {
 	std::error_code ec;
 	std::filesystem::create_directories(std::filesystem::path(cellPath).parent_path(), ec);
-	const std::string text = SceneSerializer::SerializeSubtree(root, scenePath, lua);
+	std::string text = SceneSerializer::SerializeSubtree(root, scenePath, lua);
+	// ... and taken out again: whatever in the cell is exactly a prefab is
+	// written as an instance of it, so it goes on following its source.
+	prefab::CollapseSubtreeText(text, scenePath);
 	std::ofstream out(cellPath.c_str(), std::ios::binary | std::ios::trunc);
 	if (!out.is_open()) { error = "could not write " + cellPath; return false; }
 	out << text;

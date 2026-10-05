@@ -833,8 +833,9 @@ bool SceneEditor::OpApplyPrefab(uint32 objId, std::string& errOut)
 // These two wrap its calls so that what is stored on disk is references, and
 // what the engine ever sees is not.
 
-std::string SceneEditor::ExpandSceneFileForLoad(const std::string& path)
+std::string SceneEditor::ExpandSceneFileForLoad(const std::string& path, std::vector<std::string>* outRootPrefabPaths)
 {
+	if (outRootPrefabPaths) outRootPrefabPaths->clear();
 	std::ifstream in(path.c_str());
 	if (!in.is_open()) return std::string();
 	std::stringstream buffer;
@@ -842,6 +843,10 @@ std::string SceneEditor::ExpandSceneFileForLoad(const std::string& path)
 	in.close();
 
 	if (!project || !project->IsOpen()) return buffer.str();
+	// A scene that names no prefab is handed over as it is: parsing megabytes
+	// of JSON here only to find nothing to do was a second and a third read
+	// of every scene, on every load.
+	if (buffer.str().find("\"prefab\"") == std::string::npos) return buffer.str();
 
 	nlohmann::json sceneJson;
 	try { sceneJson = nlohmann::json::parse(buffer.str()); }
@@ -856,6 +861,12 @@ std::string SceneEditor::ExpandSceneFileForLoad(const std::string& path)
 
 	for (size_t i = 0; i < errors.size(); ++i)
 		echo("ERROR: prefab not found, its objects are missing from this scene: " + errors[i]);
+
+	// which root is an instance of what - expanded just now, or written out
+	// in full with its link kept
+	if (outRootPrefabPaths && sceneJson.find("roots") != sceneJson.end() && sceneJson["roots"].is_array())
+		for (size_t i = 0; i < sceneJson["roots"].size(); ++i)
+			outRootPrefabPaths->push_back(prefab::LinkOf(sceneJson["roots"][i]));
 
 	if (links.empty()) return buffer.str();
 	return sceneJson.dump();
