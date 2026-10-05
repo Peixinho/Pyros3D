@@ -17,6 +17,7 @@
 // VMA_STATIC_VULKAN_FUNCTIONS=1 then "just works" by calling through
 // those same global names.
 #define VMA_IMPLEMENTATION
+#include <utility>
 #include <chrono>
 #include <atomic>
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
@@ -41,6 +42,55 @@
 #include <vector>
 #include <cstring>
 #include <cstdio>
+
+// Where a draw's time goes, call by call: each of the Vulkan calls and device
+// functions on the draw path is timed and counted, and published as counters
+// at the end of the frame ("VKt.<name>.us" and "VKt.<name>.n") when
+// PYROS_VK_TIMING is not "0". The G-buffer pass cost five times more CPU on
+// an NVIDIA Windows machine than on a Mac for the same draws, and no scope
+// says which step of a draw that is. A timer costs two clock reads; the
+// counters only go to the profiler, so this is cheap enough to leave on.
+namespace {
+	enum { kVkT_UpdateDescriptorSets, kVkT_AllocateDescriptorSets, kVkT_CmdBindDescriptorSets, kVkT_CmdBindPipeline, kVkT_CmdDrawIndexed, kVkT_CmdBindVertexBuffers, kVkT_CmdBindIndexBuffer, kVkT_CreateGraphicsPipelines, kVkT_CmdBeginRenderPass, kVkT_CmdEndRenderPass, kVkT_DrawElements, kVkT_DrawElementsInstanced, kVkT_BindSets, kVkT_BindPipelineFn, kVkT_UboReplace, kVkT_UboUpdate, kVkT_Count };
+	const char* const kVkTNames[kVkT_Count] = { "UpdateDescriptorSets", "AllocateDescriptorSets", "CmdBindDescriptorSets", "CmdBindPipeline", "CmdDrawIndexed", "CmdBindVertexBuffers", "CmdBindIndexBuffer", "CreateGraphicsPipelines", "CmdBeginRenderPass", "CmdEndRenderPass", "DrawElements", "DrawElementsInstanced", "BindSets", "BindPipelineFn", "UboReplace", "UboUpdate" };
+	uint64_t gVkTNs[kVkT_Count] = {};
+	uint32_t gVkTN[kVkT_Count] = {};
+	struct PyrosVkTimer
+	{
+		int idx; std::chrono::steady_clock::time_point t0;
+		explicit PyrosVkTimer(const int i) : idx(i), t0(std::chrono::steady_clock::now()) {}
+		~PyrosVkTimer()
+		{
+			gVkTNs[idx] += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
+			gVkTN[idx]++;
+		}
+	};
+	inline void PyrosPublishVkTimers()
+	{
+		for (int i = 0; i < kVkT_Count; i++)
+		{
+			if (gVkTN[i] == 0) continue;
+			char name[64];
+			std::snprintf(name, sizeof(name), "VKt.%s.us", kVkTNames[i]);
+			p3d::FrameProfiler::Instance().Counter(name, (double)gVkTNs[i] / 1000.0);
+			std::snprintf(name, sizeof(name), "VKt.%s.n", kVkTNames[i]);
+			p3d::FrameProfiler::Instance().Counter(name, (double)gVkTN[i]);
+			gVkTNs[i] = 0; gVkTN[i] = 0;
+		}
+	}
+}
+
+// (a temporary timer and the call, in one expression: it is timed to the end of the statement)
+#define PyrosT_UpdateDescriptorSets(...) (PyrosVkTimer(kVkT_UpdateDescriptorSets), vkUpdateDescriptorSets(__VA_ARGS__))
+#define PyrosT_AllocateDescriptorSets(...) (PyrosVkTimer(kVkT_AllocateDescriptorSets), vkAllocateDescriptorSets(__VA_ARGS__))
+#define PyrosT_CmdBindDescriptorSets(...) (PyrosVkTimer(kVkT_CmdBindDescriptorSets), vkCmdBindDescriptorSets(__VA_ARGS__))
+#define PyrosT_CmdBindPipeline(...) (PyrosVkTimer(kVkT_CmdBindPipeline), vkCmdBindPipeline(__VA_ARGS__))
+#define PyrosT_CmdDrawIndexed(...) (PyrosVkTimer(kVkT_CmdDrawIndexed), vkCmdDrawIndexed(__VA_ARGS__))
+#define PyrosT_CmdBindVertexBuffers(...) (PyrosVkTimer(kVkT_CmdBindVertexBuffers), vkCmdBindVertexBuffers(__VA_ARGS__))
+#define PyrosT_CmdBindIndexBuffer(...) (PyrosVkTimer(kVkT_CmdBindIndexBuffer), vkCmdBindIndexBuffer(__VA_ARGS__))
+#define PyrosT_CreateGraphicsPipelines(...) (PyrosVkTimer(kVkT_CreateGraphicsPipelines), vkCreateGraphicsPipelines(__VA_ARGS__))
+#define PyrosT_CmdBeginRenderPass(...) (PyrosVkTimer(kVkT_CmdBeginRenderPass), vkCmdBeginRenderPass(__VA_ARGS__))
+#define PyrosT_CmdEndRenderPass(...) (PyrosVkTimer(kVkT_CmdEndRenderPass), vkCmdEndRenderPass(__VA_ARGS__))
 
 // Every wait on the GPU and every submit to it, timed and counted: published
 // as counters at the end of the frame (VK.Waits, VK.WaitUs, VK.Submits,
@@ -1472,9 +1522,9 @@ namespace p3d {
 		renderPassBegin.renderArea.extent = swapchainExtent;
 		renderPassBegin.clearValueCount = 2;
 		renderPassBegin.pClearValues = clearValues;
-		vkCmdBeginRenderPass(frameCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+		PyrosT_CmdBeginRenderPass(frameCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
 
-		vkCmdBindPipeline(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineIt->second);
+		PyrosT_CmdBindPipeline(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, pipelineIt->second);
 
 		// CreatePipeline() left viewport/scissor dynamic (see its comment) -
 		// set them here to the full swapchain extent every frame.
@@ -1493,19 +1543,19 @@ namespace p3d {
 		if (progIt != programs.end()) ResolvePendingUniformSet(progIt->second);
 		if (progIt != programs.end() && progIt->second.descriptorSet != VK_NULL_HANDLE)
 		{
-			vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
+			PyrosT_CmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
 			progIt->second.descriptorSetBound = true;
 		}
 
 		VkBuffer vbo = vboIt->second.buffer;
 		VkDeviceSize vboOffset = 0;
-		vkCmdBindVertexBuffers(frameCommandBuffer, 0, 1, &vbo, &vboOffset);
+		PyrosT_CmdBindVertexBuffers(frameCommandBuffer, 0, 1, &vbo, &vboOffset);
 		// __INDEX_C_TYPE__ (Global.h) is uint32 - matches VK_INDEX_TYPE_UINT32.
-		vkCmdBindIndexBuffer(frameCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		PyrosT_CmdBindIndexBuffer(frameCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
 
-		vkCmdDrawIndexed(frameCommandBuffer, indexCount, 1, 0, 0, 0);
+		PyrosT_CmdDrawIndexed(frameCommandBuffer, indexCount, 1, 0, 0, 0);
 
-		vkCmdEndRenderPass(frameCommandBuffer);
+		PyrosT_CmdEndRenderPass(frameCommandBuffer);
 		vkEndCommandBuffer(frameCommandBuffer);
 
 		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
@@ -1719,7 +1769,7 @@ namespace p3d {
 		renderPassBegin.clearValueCount = 2;
 		renderPassBegin.pClearValues = clearValues;
 		frameGpuTimer = GpuTimerBegin(frameCommandBuffer, "Swapchain pass");
-		vkCmdBeginRenderPass(frameCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+		PyrosT_CmdBeginRenderPass(frameCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
 
 		// CreatePipeline() left viewport/scissor dynamic (see its comment) -
 		// set them here once, to the full swapchain extent, rather than
@@ -1757,13 +1807,13 @@ namespace p3d {
 		// into the still-open render pass - see UIRenderHook's comment.
 		if (UIRenderHook) UIRenderHook(frameCommandBuffer);
 
-		vkCmdEndRenderPass(frameCommandBuffer);
+		PyrosT_CmdEndRenderPass(frameCommandBuffer);
 		GpuTimerEnd(frameCommandBuffer, frameGpuTimer);
 
 		// Capture happens *before* vkEndCommandBuffer/present - see the
 		// header comment on RequestFrameCapture() for why post-present is
 		// invalid. The render pass's finalLayout already transitioned the
-		// image to PRESENT_SRC_KHR at vkCmdEndRenderPass() just above
+		// image to PRESENT_SRC_KHR at PyrosT_CmdEndRenderPass() just above
 		// (baked into InitializeSwapchain()'s VkAttachmentDescription), so
 		// the copy needs its own barrier there and back, all still within
 		// this same frameCommandBuffer/submission - no separate
@@ -1909,6 +1959,7 @@ namespace p3d {
 			FrameProfiler::Instance().Counter("VK.WaitUs", (f64)gVkWaitNs.exchange(0) / 1000.0);
 			FrameProfiler::Instance().Counter("VK.Submits", (f64)gVkSubmits.exchange(0));
 			FrameProfiler::Instance().Counter("VK.SubmitUs", (f64)gVkSubmitNs.exchange(0) / 1000.0);
+			PyrosPublishVkTimers();
 			PYROS_PROFILE_SCOPE("VK.Present");
 			presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
 		}
@@ -2521,7 +2572,7 @@ namespace p3d {
 		pipelineInfo.subpass = 0;
 
 		VkPipeline pipeline = VK_NULL_HANDLE;
-		VkResult result = vkCreateGraphicsPipelines(device, pipelineCache != VK_NULL_HANDLE ? pipelineCache : VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
+		VkResult result = PyrosT_CreateGraphicsPipelines(device, pipelineCache != VK_NULL_HANDLE ? pipelineCache : VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
 		// Bad/stale pipeline-cache data can make some drivers fail (or
 		// worse) - drop the cache and retry once with a fresh one.
 		if (result != VK_SUCCESS && pipelineCache != VK_NULL_HANDLE)
@@ -2532,7 +2583,7 @@ namespace p3d {
 			emptyCache.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
 			if (vkCreatePipelineCache(device, &emptyCache, NULL, &pipelineCache) != VK_SUCCESS)
 				pipelineCache = VK_NULL_HANDLE;
-			result = vkCreateGraphicsPipelines(device, pipelineCache != VK_NULL_HANDLE ? pipelineCache : VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
+			result = PyrosT_CreateGraphicsPipelines(device, pipelineCache != VK_NULL_HANDLE ? pipelineCache : VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
 		}
 		if (result != VK_SUCCESS)
 		{
@@ -2616,6 +2667,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
 	{
+		PyrosVkTimer pyrosTimer(kVkT_BindPipelineFn);
 		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen) || cmd == 0)
 			return;
@@ -2627,7 +2679,7 @@ namespace p3d {
 			return;
 		}
 		currentPipeline = pipeline;
-		vkCmdBindPipeline(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, it->second);
+		PyrosT_CmdBindPipeline(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, it->second);
 
 		// Deliberately *not* binding descriptor sets here (moved to
 		// DrawElements()/DrawElementsInstanced(), right before the
@@ -2908,7 +2960,7 @@ namespace p3d {
 			allocInfo.descriptorPool = descriptorPool;
 			allocInfo.descriptorSetCount = 1;
 			allocInfo.pSetLayouts = &progIt->second.descriptorSetLayout;
-			if (vkAllocateDescriptorSets(device, &allocInfo, &progIt->second.descriptorSet) != VK_SUCCESS)
+			if (PyrosT_AllocateDescriptorSets(device, &allocInfo, &progIt->second.descriptorSet) != VK_SUCCESS)
 				return;
 		}
 
@@ -2937,7 +2989,7 @@ namespace p3d {
 			if (s->second == progIt->second.descriptorSet) progIt->second.uniformSetsByBuffers.erase(s++);
 			else ++s;
 		}
-		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+		PyrosT_UpdateDescriptorSets(device, 1, &write, 0, NULL);
 		progIt->second.writtenBindings[bindingPoint] = wanted;
 	}
 
@@ -3081,7 +3133,7 @@ namespace p3d {
 			allocInfo.descriptorPool = descriptorPool;
 			allocInfo.descriptorSetCount = 1;
 			allocInfo.pSetLayouts = &prog.descriptorSetLayout;
-			if (vkAllocateDescriptorSets(device, &allocInfo, &set) != VK_SUCCESS)
+			if (PyrosT_AllocateDescriptorSets(device, &allocInfo, &set) != VK_SUCCESS)
 				return VK_NULL_HANDLE;
 		}
 
@@ -3107,7 +3159,7 @@ namespace p3d {
 		}
 		for (size_t i = 0; i < writes.size(); i++) writes[i].pBufferInfo = &infos[i];
 		if (!writes.empty())
-			vkUpdateDescriptorSets(device, (uint32)writes.size(), writes.data(), 0, NULL);
+			PyrosT_UpdateDescriptorSets(device, (uint32)writes.size(), writes.data(), 0, NULL);
 		prog.uniformSetsByBuffers[wanted] = set;
 		return set;
 	}
@@ -3246,7 +3298,7 @@ namespace p3d {
 					vbos.push_back(vboIt->second.buffer);
 					vboOffsets.push_back(0);
 				}
-				vkCmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
+				PyrosT_CmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
 			}
 		}
 
@@ -3257,6 +3309,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount)
 	{
+		PyrosVkTimer pyrosTimer(kVkT_DrawElements);
 		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen) || cmd == 0 || currentVao == 0)
 			return;
@@ -3291,14 +3344,15 @@ namespace p3d {
 		if (!BindCurrentPipelineDescriptorSets())
 			return;
 
-		vkCmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
+		PyrosT_CmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
 		// __INDEX_C_TYPE__ (Global.h) is uint32 - matches VK_INDEX_TYPE_UINT32.
-		vkCmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexed(activeCommandBuffer, indexCount, 1, 0, 0, 0);
+		PyrosT_CmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		PyrosT_CmdDrawIndexed(activeCommandBuffer, indexCount, 1, 0, 0, 0);
 	}
 
 	void VulkanRenderDevice::DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount)
 	{
+		PyrosVkTimer pyrosTimer(kVkT_DrawElementsInstanced);
 		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen) || cmd == 0 || currentVao == 0)
 			return;
@@ -3334,13 +3388,14 @@ namespace p3d {
 		if (!BindCurrentPipelineDescriptorSets())
 			return;
 
-		vkCmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
-		vkCmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
-		vkCmdDrawIndexed(activeCommandBuffer, indexCount, instanceCount, 0, 0, 0);
+		PyrosT_CmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
+		PyrosT_CmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		PyrosT_CmdDrawIndexed(activeCommandBuffer, indexCount, instanceCount, 0, 0, 0);
 	}
 
 	bool VulkanRenderDevice::BindCurrentPipelineDescriptorSets()
 	{
+		PyrosVkTimer pyrosTimer(kVkT_BindSets);
 		std::map<DeviceHandle, DeviceHandle>::iterator progHandleIt = pipelineToProgram.find(currentPipeline);
 		if (progHandleIt == pipelineToProgram.end())
 			return true;
@@ -3420,7 +3475,7 @@ namespace p3d {
 					? 0u
 					: (uint32_t)((VkDeviceSize)bufRecIt->second.currentSlot * bufRecIt->second.alignedSlotSize);
 			}
-			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet,
+			PyrosT_CmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet,
 				dynamicOffsetCount, dynamicOffsetCount > 0 ? dynamicOffsets : NULL);
 			progIt->second.descriptorSetBound = true;
 		}
@@ -3433,7 +3488,7 @@ namespace p3d {
 			VkDescriptorSet samplerSet = ResolveSamplerSetForCurrentState(progIt->second, currentPipeline);
 			if (samplerSet == VK_NULL_HANDLE)
 				return false;
-			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSet, 0, NULL);
+			PyrosT_CmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSet, 0, NULL);
 		}
 		return true;
 	}
@@ -3489,7 +3544,7 @@ namespace p3d {
 				write.descriptorCount = arraySize;
 				write.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 				write.pImageInfo = imageInfos.data();
-				vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
+				PyrosT_UpdateDescriptorSets(device, 1, &write, 0, NULL);
 			}
 		}
 		samplerSetCache[key] = entry;
@@ -3512,7 +3567,7 @@ namespace p3d {
 		for (size_t i = 0; i < candidates.size(); i++)
 		{
 			info.descriptorPool = candidates[i];
-			if (vkAllocateDescriptorSets(device, &info, &out.set) == VK_SUCCESS)
+			if (PyrosT_AllocateDescriptorSets(device, &info, &out.set) == VK_SUCCESS)
 			{
 				out.pool = candidates[i];
 				return true;
@@ -3538,7 +3593,7 @@ namespace p3d {
 		}
 		samplerSetPools.push_back(pool);
 		info.descriptorPool = pool;
-		if (vkAllocateDescriptorSets(device, &info, &out.set) != VK_SUCCESS)
+		if (PyrosT_AllocateDescriptorSets(device, &info, &out.set) != VK_SUCCESS)
 			return false;
 		out.pool = pool;
 		return true;
@@ -3686,6 +3741,7 @@ namespace p3d {
 	// UpdateUniformBuffer() for the rest, all landing in the same slot.
 	void VulkanRenderDevice::UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data)
 	{
+		PyrosVkTimer pyrosTimer(kVkT_UboUpdate);
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || it->second.mapped == NULL)
 			return;
@@ -3696,6 +3752,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void *data)
 	{
+		PyrosVkTimer pyrosTimer(kVkT_UboReplace);
 		// No orphaning trick needed here the way GLRenderDevice's
 		// ReplaceUniformBuffer() (see its comment) needs one for
 		// glBufferSubData - this is a plain host-memory memcpy into
@@ -6858,7 +6915,7 @@ namespace p3d {
 		offscreenGpuTimer = frameInProgress
 			? GpuTimerBegin(offscreenCommandBuffer, FrameProfiler::Instance().CurrentScopeName())
 			: kNoGpuTimer;
-		vkCmdBeginRenderPass(offscreenCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
+		PyrosT_CmdBeginRenderPass(offscreenCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
 
 		VkViewport viewport = { 0.0f, 0.0f, (f32)fbo.width, (f32)fbo.height, 0.0f, 1.0f };
 		VkRect2D scissor = { { 0, 0 }, { fbo.width, fbo.height } };
@@ -6877,7 +6934,7 @@ namespace p3d {
 	{
 		if (!offscreenPassOpen)
 			return;
-		vkCmdEndRenderPass(offscreenCommandBuffer);
+		PyrosT_CmdEndRenderPass(offscreenCommandBuffer);
 		GpuTimerEnd(offscreenCommandBuffer, offscreenGpuTimer);
 		offscreenPassOpen = false;
 	}
@@ -8201,7 +8258,7 @@ namespace p3d {
 		setAllocInfo.descriptorPool = descriptorPool;
 		setAllocInfo.descriptorSetCount = 1;
 		setAllocInfo.pSetLayouts = &record.setLayout;
-		if (vkAllocateDescriptorSets(device, &setAllocInfo, &record.descriptorSet) != VK_SUCCESS)
+		if (PyrosT_AllocateDescriptorSets(device, &setAllocInfo, &record.descriptorSet) != VK_SUCCESS)
 		{
 			echo("ERROR: CreateComputePipeline: vkAllocateDescriptorSets failed.");
 			vkDestroyPipeline(device, record.pipeline, NULL);
@@ -8437,14 +8494,14 @@ namespace p3d {
 		if (!writes.empty())
 		{
 			PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
-			vkUpdateDescriptorSets(device, (uint32)writes.size(), writes.data(), 0, NULL);
+			PyrosT_UpdateDescriptorSets(device, (uint32)writes.size(), writes.data(), 0, NULL);
 		}
 
 		VkCommandBuffer computeCmd = BeginOrGetComputeCommandBuffer("Dispatch");
 		if (computeCmd == VK_NULL_HANDLE)
 			return;
-		vkCmdBindPipeline(computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE, it->second.pipeline);
-		vkCmdBindDescriptorSets(computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE,
+		PyrosT_CmdBindPipeline(computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE, it->second.pipeline);
+		PyrosT_CmdBindDescriptorSets(computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE,
 			it->second.pipelineLayout, 0, 1, &it->second.descriptorSet, 0, NULL);
 		vkCmdDispatch(computeCmd, groupsX, groupsY, groupsZ);
 	}

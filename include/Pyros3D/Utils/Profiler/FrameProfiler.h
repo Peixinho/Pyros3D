@@ -128,7 +128,7 @@ namespace p3d {
 		f64 minFrameMs_;
 		f64 maxFrameMs_;
 
-		static const uint32 kMaxCounters = 16;
+		static const uint32 kMaxCounters = 64;
 		ScopeRecord counters_[kMaxCounters]; // ms holds the value
 		uint32 counterCount_ = 0;
 
