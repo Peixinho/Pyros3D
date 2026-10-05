@@ -113,6 +113,15 @@ namespace p3d {
 		std::vector<uint32> Height;
 		bool haveImage;
 		bool isMipMap, isMipMapManual;
+		// Something is drawn into it (FrameBuffer attaches it). What reads
+		// it back as a picture has to know: on a device whose render targets
+		// start at the bottom (IRenderDevice::RenderTargetOriginIsTopLeft)
+		// its rows are the other way up from a loaded image's.
+		bool renderTarget = false;
+	public:
+		void MarkRenderTarget() { renderTarget = true; }
+		bool IsRenderTarget() const { return renderTarget; }
+	protected:
 		uint32 cubemapFaces;
 		// Sample count for TextureType::Texture_Multisample - Resize() needs
 		// this to re-issue UploadTexture2DMultisample() with the same

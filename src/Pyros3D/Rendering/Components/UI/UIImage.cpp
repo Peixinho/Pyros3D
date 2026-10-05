@@ -17,7 +17,7 @@ namespace p3d {
 	}
 
 	void UIQuad::Rebuild(const f32 width, const f32 height, const Vec2 &pivot,
-		const Vec4 &border, const Vec2 &textureSize)
+		const Vec4 &border, const Vec2 &textureSize, const bool flipV)
 	{
 		// Same in-place rebuild Text::UpdateText() does - Dispose() the GPU
 		// buffers, clear the CPU arrays, refill, Build(). IGeometry bumps
@@ -70,6 +70,9 @@ namespace p3d {
 			u[0] = 0.f; u[1] = 0.f; u[2] = 1.f; u[3] = 1.f;
 			v[0] = 0.f; v[1] = 0.f; v[2] = 1.f; v[3] = 1.f;
 		}
+
+		if (flipV)
+			for (uint32 i = 0; i < 4; i++) v[i] = 1.f - v[i];
 
 		const Vec3 normal(0.f, 0.f, 1.f);
 		const uint32 cols = sliced ? 3 : 1;
@@ -223,8 +226,12 @@ namespace p3d {
 			return;
 
 		UIQuad* q = static_cast<UIQuad*>(GetRenderable());
+		// A picture something drew (a view rendered for the UI to show) has
+		// its first row at the bottom on OpenGL and at the top elsewhere: the
+		// player's portrait in an inventory stood on its head on GL alone.
+		const bool flipV = texture->IsRenderTarget() && !GetActiveRenderDevice().RenderTargetOriginIsTopLeft();
 		q->Rebuild(rect.width, rect.height, pivot, border,
-			Vec2((f32)texture->GetWidth(), (f32)texture->GetHeight()));
+			Vec2((f32)texture->GetWidth(), (f32)texture->GetHeight()), flipV);
 
 		builtWidth = rect.width;
 		builtHeight = rect.height;

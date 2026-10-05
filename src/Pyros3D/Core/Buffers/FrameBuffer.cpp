@@ -189,6 +189,7 @@ namespace p3d {
 		attach->EngineAttachmentFormat = attachmentFormat;
 		attach->AttachmentType = FBOAttachmentType::Texture;
 		attach->TexturePTR = attachment;
+		if (attachment) attachment->MarkRenderTarget();
 		attach->NativeTextureTarget = TextureType;
 
 		// Get Attatchment Format

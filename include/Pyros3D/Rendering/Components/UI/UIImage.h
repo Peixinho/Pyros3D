@@ -34,8 +34,10 @@ namespace p3d {
 		// the position UIRect wrote). border is (left, top, right, bottom)
 		// in canvas units - all zero builds a plain 2-triangle quad.
 		// textureSize is what the border is measured against in UV space.
+		// flipV: the picture's rows run bottom to top (a render target on
+		// OpenGL) - v is turned over so it still shows the right way up.
 		void Rebuild(const f32 width, const f32 height, const Vec2 &pivot,
-			const Vec4 &border, const Vec2 &textureSize);
+			const Vec4 &border, const Vec2 &textureSize, const bool flipV = false);
 	};
 
 	class PYROS3D_API UIImage : public RenderingComponent {
