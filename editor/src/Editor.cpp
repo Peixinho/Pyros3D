@@ -399,6 +399,13 @@ function print(...)
 end
 )LUA");
 
+		// A built game keeps its settings in a folder of the player's own; in the editor
+		// the same calls work, in a folder of the editor's.
+		{
+			char* pref = SDL_GetPrefPath("Pyros3D", "Editor");
+			GenerateStoreBindings(&lua, pref ? std::string(pref) : std::string("."));
+			if (pref) SDL_free(pref);
+		}
 		lua.set_function("setMouseCaptured", [this](bool captured) {
 			if (captured)
 			{

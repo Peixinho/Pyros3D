@@ -386,6 +386,22 @@ end
 	});
 	lua.set_function("getWindowSize", [this]() { return std::make_tuple((int)Width, (int)Height); });
 	lua.set_function("quitGame", [this]() { Close(); });
+	// The whole screen, or a window: the desktop's own resolution, so nothing about the
+	// display changes and Alt+Tab is instant. Alt+Enter and F11 do the same from the
+	// keyboard in any game (Update()).
+	lua.set_function("setFullscreen", [this](bool on) {
+		return SDL_SetWindowFullscreen(GetSDLWindow(), on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0) == 0;
+	});
+	lua.set_function("isFullscreen", [this]() {
+		return (SDL_GetWindowFlags(GetSDLWindow()) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) != 0;
+	});
+	// Settings that outlive the game: a folder of this player's own, per game.
+	{
+		const std::string title = PlayerManifestInstance().title.empty() ? std::string("Game") : PlayerManifestInstance().title;
+		char* pref = SDL_GetPrefPath("Pyros3D", title.c_str());
+		GenerateStoreBindings(&lua, pref ? std::string(pref) : std::string("."));
+		if (pref) SDL_free(pref);
+	}
 
 	// Runtime spawning. Registered here rather than in the engine's
 	// bindings because a prefab is a tooling concept - what the engine
@@ -1157,6 +1173,19 @@ void PyrosPlayer::Update()
 {
 	if (!sceneLoaded) return;
 
+	// Alt+Enter or F11: the whole screen, and back. On the press, not while held.
+	{
+		static bool wasDown = false;
+		const Uint8* k = SDL_GetKeyboardState(NULL);
+		const bool down = k[SDL_SCANCODE_F11] || ((k[SDL_SCANCODE_LALT] || k[SDL_SCANCODE_RALT]) && k[SDL_SCANCODE_RETURN]);
+		if (down && !wasDown)
+		{
+			const bool full = (SDL_GetWindowFlags(GetSDLWindow()) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) != 0;
+			SDL_SetWindowFullscreen(GetSDLWindow(), full ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
+		}
+		wasDown = down;
+	}
+
 	// At the top of the frame, before anything renders - see OnResize().
 	ApplyPendingResizeIfAny();
 
@@ -1315,6 +1344,18 @@ void PyrosPlayer::Update()
 	if (postFX)
 	{
 		effectsManager->EndCapture();
+		// Under Deferred the scene's depth is the renderer's, not the capture's:
+		// the capture's own depth was never drawn into and reads "nothing there"
+		// in every pixel. An effect that tests against the scene - smoke that
+		// must stop at a wall or a hill, ambient occlusion - saw straight through
+		// the world in a built game (the editor has always made this copy).
+		if (gbufferFBO != NULL && effectsManager->GetDepth() != NULL)
+		{
+			DeferredRenderer* dr = static_cast<DeferredRenderer*>(renderer);
+			if (dr->GetDepthTexture() != NULL)
+				GetActiveRenderDevice().CopyDepthTexture(dr->GetDepthTexture()->GetBindID(),
+					effectsManager->GetDepth()->GetBindID(), Width, Height);
+		}
 		// Under Deferred the capture does not hold the scene - the renderer's
 		// final composite targets framebuffer 0 - so the chain is pointed at
 		// its colour output instead. Same reasoning as the editor viewport.

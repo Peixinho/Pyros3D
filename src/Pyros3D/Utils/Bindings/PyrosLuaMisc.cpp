@@ -10,6 +10,9 @@
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
+#include <filesystem>
+#include <fstream>
+#include <sstream>
 
 namespace p3d {
 
@@ -199,6 +202,39 @@ namespace p3d {
 			smoke.set_function("setScreenFlash", [](const Vec3 &color, const f32 amount) { VolumetricSmoke::SetScreenFlash(color, amount); });
 			smoke.set_function("setWind", [](const Vec3 &wind) { VolumetricSmoke::SetWind(wind); });
 		}
+	}
+
+	void GenerateStoreBindings(sol::state* lua, const std::string &directory)
+	{
+		const std::filesystem::path dir(directory);
+		const auto safe = [](const std::string &name) {
+			if (name.empty() || name.size() > 64 || name[0] == '.') return false;
+			for (size_t i = 0; i < name.size(); i++)
+			{
+				const char c = name[i];
+				if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.')) return false;
+			}
+			return true;
+		};
+		sol::table store = lua->create_named_table("store");
+		store.set_function("read", [dir, safe](const std::string &name, sol::this_state ts) -> sol::object {
+			sol::state_view L(ts);
+			if (!safe(name)) return sol::make_object(L, sol::lua_nil);
+			std::ifstream in((dir / name).string().c_str(), std::ios::binary);
+			if (!in.is_open()) return sol::make_object(L, sol::lua_nil);
+			std::stringstream ss;
+			ss << in.rdbuf();
+			return sol::make_object(L, ss.str());
+		});
+		store.set_function("write", [dir, safe](const std::string &name, const std::string &text) {
+			if (!safe(name)) return false;
+			std::error_code ec;
+			std::filesystem::create_directories(dir, ec);
+			std::ofstream out((dir / name).string().c_str(), std::ios::binary | std::ios::trunc);
+			if (!out.is_open()) return false;
+			out << text;
+			return true;
+		});
 	}
 
 } // namespace p3d

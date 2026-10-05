@@ -752,6 +752,13 @@ namespace p3d {
 	// annotated; this free function was the only thing left unexported.
 	PYROS3D_API void GenerateBindings(sol::state* lua);
 
+	// store.read(name) / store.write(name, text): small files that outlive the
+	// process - settings, key bindings, a saved game - kept in `directory`,
+	// which the host chooses (a per-user folder for a game, data/ beside
+	// game.json for a server). A name is letters, digits, '_', '-' and '.':
+	// never a path.
+	PYROS3D_API void GenerateStoreBindings(sol::state* lua, const std::string &directory);
+
 };
 #endif /* PYROSBINDINGS_H */
 #endif
