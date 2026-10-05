@@ -1122,6 +1122,9 @@ namespace p3d {
 		// Shaders.cpp/GeometryBuffer.cpp's asset-loading paths might, ahead
 		// of any window/device existing) fail gracefully (return 0).
 		VmaAllocator allocator;
+	public:
+		virtual std::string MemoryReport();
+	private:
 
 		// Host-visible/coherent, persistently mapped - simplest correct
 		// choice for a first working path (device-local + staging-buffer

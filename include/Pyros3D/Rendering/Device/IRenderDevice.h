@@ -227,6 +227,13 @@ namespace p3d {
 		// there is no separate offscreen submission queue.
 		virtual void FlushOffscreenWork() {}
 
+		// What this device is holding, as JSON text: how many textures and
+		// buffers and how many bytes of each, the textures grouped by size, and
+		// the largest ones. For answering "where did the memory go" from a tool
+		// or a script - not something a frame should call. "{}" from a backend
+		// that does not keep count.
+		virtual std::string MemoryReport() { return "{}"; }
+
 		// Narrower than WaitIdle(): blocks only until previously-submitted
 		// *offscreen* sessions have completed, leaving frame/present work
 		// alone. Exists because DeferredRenderer needs its G-buffer pass to

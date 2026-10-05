@@ -2872,6 +2872,104 @@ namespace p3d {
 		progIt->second.writtenBindings[bindingPoint] = wanted;
 	}
 
+	std::string VulkanRenderDevice::MemoryReport()
+	{
+		struct Group { uint32 w, h; VkFormat format; bool depth, cube; uint32 count; uint64 bytes; };
+		std::map<std::string, Group> groups;
+		uint64 textureBytes = 0, depthBytes = 0;
+		for (std::map<DeviceHandle, TextureRecord>::iterator it = textures.begin(); it != textures.end(); ++it)
+		{
+			const TextureRecord &r = it->second;
+			uint64 bytes = 0;
+			if (r.allocation != VK_NULL_HANDLE)
+			{
+				VmaAllocationInfo info;
+				vmaGetAllocationInfo(allocator, r.allocation, &info);
+				bytes = (uint64)info.size;
+			}
+			textureBytes += bytes;
+			if (r.isDepthTexture) depthBytes += bytes;
+			const std::string key = std::to_string(r.width) + "x" + std::to_string(r.height) + "/" + std::to_string((int)r.format)
+				+ (r.isCubemap ? "c" : "") + (r.mipLevels > 1 ? "m" : "");
+			Group &g = groups[key];
+			if (g.count == 0) { g.w = r.width; g.h = r.height; g.format = r.format; g.depth = r.isDepthTexture; g.cube = r.isCubemap; g.bytes = 0; }
+			g.count++;
+			g.bytes += bytes;
+		}
+		std::vector<Group> sorted;
+		for (std::map<std::string, Group>::iterator g = groups.begin(); g != groups.end(); ++g) sorted.push_back(g->second);
+		std::sort(sorted.begin(), sorted.end(), [](const Group &a, const Group &b) { return a.bytes > b.bytes; });
+
+		// Buffers: the uniform rings (one block of slots each) apart from the
+		// geometry, and both by size - a thousand of one size is a pattern.
+		uint64 bufferBytes = 0, uniformBytes = 0, streamBytes = 0;
+		uint32 uniformCount = 0;
+		std::map<uint64, std::pair<uint32, uint64> > bufferSizes;      // rounded size -> count, bytes
+		for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); ++it)
+		{
+			uint64 bytes = 0;
+			if (it->second.allocation != VK_NULL_HANDLE)
+			{
+				VmaAllocationInfo info;
+				vmaGetAllocationInfo(allocator, it->second.allocation, &info);
+				bytes += (uint64)info.size;
+			}
+			for (uint32 s = 0; s < it->second.streamRingCount && s < BufferRecord::kMaxStreamRing; s++)
+				if (it->second.streamAllocations[s] != VK_NULL_HANDLE)
+				{
+					VmaAllocationInfo info;
+					vmaGetAllocationInfo(allocator, it->second.streamAllocations[s], &info);
+					bytes += (uint64)info.size;
+					streamBytes += (uint64)info.size;
+				}
+			bufferBytes += bytes;
+			if (it->second.isDynamicUniform) { uniformBytes += bytes; uniformCount++; }
+			uint64 bucket = 1024;
+			while (bucket < bytes) bucket *= 2;
+			std::pair<uint32, uint64> &b = bufferSizes[(it->second.isDynamicUniform ? 1 : 0) + bucket * 2];
+			b.first++;
+			b.second += bytes;
+		}
+		VmaTotalStatistics total;
+		vmaCalculateStatistics(allocator, &total);
+
+		std::string out = "{";
+		out += "\"textures\":" + std::to_string(textures.size());
+		out += ",\"textureBytes\":" + std::to_string(textureBytes);
+		out += ",\"depthBytes\":" + std::to_string(depthBytes);
+		out += ",\"buffers\":" + std::to_string(buffers.size());
+		out += ",\"bufferBytes\":" + std::to_string(bufferBytes);
+		out += ",\"allocatedBytes\":" + std::to_string((uint64)total.total.statistics.allocationBytes);
+		out += ",\"reservedBytes\":" + std::to_string((uint64)total.total.statistics.blockBytes);
+		out += ",\"pipelines\":" + std::to_string(pipelines.size());
+		out += ",\"uniformBuffers\":" + std::to_string(uniformCount);
+		out += ",\"uniformBytes\":" + std::to_string(uniformBytes);
+		out += ",\"streamBytes\":" + std::to_string(streamBytes);
+		out += ",\"buffersBySize\":[";
+		{
+			bool first = true;
+			for (std::map<uint64, std::pair<uint32, uint64> >::iterator b = bufferSizes.begin(); b != bufferSizes.end(); ++b)
+			{
+				if (!first) out += ",";
+				first = false;
+				out += "{\"upTo\":" + std::to_string(b->first / 2) + ",\"uniform\":" + ((b->first & 1) ? "true" : "false")
+					+ ",\"count\":" + std::to_string(b->second.first) + ",\"bytes\":" + std::to_string(b->second.second) + "}";
+			}
+		}
+		out += "]";
+		out += ",\"bySize\":[";
+		for (size_t i = 0; i < sorted.size() && i < 40; i++)
+		{
+			const Group &g = sorted[i];
+			if (i) out += ",";
+			out += "{\"w\":" + std::to_string(g.w) + ",\"h\":" + std::to_string(g.h) + ",\"format\":" + std::to_string((int)g.format)
+				+ ",\"depth\":" + (g.depth ? "true" : "false") + ",\"cube\":" + (g.cube ? "true" : "false")
+				+ ",\"count\":" + std::to_string(g.count) + ",\"bytes\":" + std::to_string(g.bytes) + "}";
+		}
+		out += "]}";
+		return out;
+	}
+
 	VkDescriptorSet VulkanRenderDevice::UniformSetForBuffers(ProgramRecord &prog, const std::map<uint32, DeviceHandle> &wanted)
 	{
 		std::map<std::map<uint32, DeviceHandle>, VkDescriptorSet>::iterator hit = prog.uniformSetsByBuffers.find(wanted);
