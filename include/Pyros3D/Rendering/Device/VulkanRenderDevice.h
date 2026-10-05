@@ -1617,9 +1617,33 @@ namespace p3d {
 			// reflection - which fallback image a binding needs when
 			// nothing bound a real one. See BindCurrentPipelineDescriptorSets().
 			std::map<uint32, uint32> samplerKinds;
-			ProgramRecord() : vertexShader(0), fragmentShader(0), computeShader(0), isCompute(false), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE), samplerSetLayout(VK_NULL_HANDLE) {}
+			// descriptorSet may be bound by draws that are recorded and not
+			// yet run, and a set in that state must never be written again:
+			// vkUpdateDescriptorSets on it invalidates the whole command
+			// buffer (every draw in it - a frame that comes out blank or
+			// white). So when a program is pointed at a DIFFERENT buffer
+			// for a binding it already has - two materials sharing one
+			// program, each with its own block; every particle system is
+			// that - it moves to another set instead: one per combination
+			// of buffers, written once, kept here and found again.
+			// descriptorSetBound says whether the current one has been
+			// bound since it was last written.
+			bool descriptorSetBound;
+			// One of the buffers the set in hand was written with has been
+			// destroyed: it is not to be found again under what is left.
+			bool descriptorSetStale;
+			std::map<std::map<uint32, DeviceHandle>, VkDescriptorSet> uniformSetsByBuffers;
+			// Sets whose buffers are gone, and the frame they were let go
+			// in: written again and reused once nothing can still name them.
+			std::vector<std::pair<VkDescriptorSet, uint64> > retiredUniformSets;
+			ProgramRecord() : vertexShader(0), fragmentShader(0), computeShader(0), isCompute(false), descriptorSetLayout(VK_NULL_HANDLE), pipelineLayout(VK_NULL_HANDLE), descriptorSet(VK_NULL_HANDLE), samplerSetLayout(VK_NULL_HANDLE), descriptorSetBound(false), descriptorSetStale(false) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
+		// Counts EndFrame()s - how long ago a uniform set was let go of.
+		uint64 uniformSetFrame;
+		// The program's set for the buffers `wanted` names, made (or taken
+		// from the retired ones) and written whole if there is none yet.
+		VkDescriptorSet UniformSetForBuffers(ProgramRecord &prog, const std::map<uint32, DeviceHandle> &wanted);
 		DeviceHandle nextProgramHandle;
 		// Set by UseProgram() - which program's reflected data
 		// (attributeLocations/samplerBindings/etc) SendUniform*() and

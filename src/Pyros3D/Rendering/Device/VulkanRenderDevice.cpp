@@ -103,7 +103,7 @@ namespace p3d {
 		  nextFBOHandle(1), shadowPipelineRenderPass(VK_NULL_HANDLE), pointShadowCubeFacePass(false),
 		  nextVaoHandle(1), currentVao(0), currentPipeline(0),
 		  allocator(VK_NULL_HANDLE), descriptorPool(VK_NULL_HANDLE),
-		  nextBufferHandle(1), minUniformBufferOffsetAlignment(256), nextShaderStageHandle(1), nextAutoUboBinding(kFirstAutoUboBinding), nextProgramHandle(1), currentProgram(0), nextPipelineHandle(1),
+		  nextBufferHandle(1), minUniformBufferOffsetAlignment(256), nextShaderStageHandle(1), nextAutoUboBinding(kFirstAutoUboBinding), uniformSetFrame(0), nextProgramHandle(1), currentProgram(0), nextPipelineHandle(1),
 		  nextTextureHandle(1), currentlyConfiguringTexture(0), unitJustActivated(false), currentTextureUnit(0)
 	{
 		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
@@ -1449,7 +1449,10 @@ namespace p3d {
 		vkCmdSetDepthBias(frameCommandBuffer, 0.0f, 0.0f, 0.0f);
 
 		if (progIt != programs.end() && progIt->second.descriptorSet != VK_NULL_HANDLE)
+		{
 			vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
+			progIt->second.descriptorSetBound = true;
+		}
 
 		VkBuffer vbo = vboIt->second.buffer;
 		VkDeviceSize vboOffset = 0;
@@ -1692,6 +1695,7 @@ namespace p3d {
 	{
 		if (!frameInProgress)
 			return;
+		uniformSetFrame++;
 
 		// Safety: anything still batched offscreen (should already have
 		// been flushed by EnsureFrameCommandBufferForSwapchainDraw when
@@ -2702,12 +2706,18 @@ namespace p3d {
 		// instead of plain UNIFORM_BUFFER, so the pool needs a
 		// reservation for that type too.
 		VkDescriptorPoolSize poolSizes[4] = {};
+		// Every program takes a set of these (a dozen or so descriptors),
+		// and a program used with several buffer combinations takes one
+		// per combination (ProgramRecord::uniformSetsByBuffers). The two
+		// counts were 64: a game's worth of programs asks for hundreds.
+		// MoltenVK hands out sets past a pool's sizes; a driver that keeps
+		// to them refuses, and that program then draws with no uniforms.
 		poolSizes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-		poolSizes[0].descriptorCount = 64;
+		poolSizes[0].descriptorCount = 65536;
 		poolSizes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
 		poolSizes[1].descriptorCount = 131072;
 		poolSizes[2].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-		poolSizes[2].descriptorCount = 64;
+		poolSizes[2].descriptorCount = 65536;
 		// Compute SSBOs. A pool holding no descriptors of a type cannot
 		// allocate a set that uses it at all - vkAllocateDescriptorSets
 		// returns VK_ERROR_OUT_OF_POOL_MEMORY, which reads as "out of
@@ -2797,6 +2807,29 @@ namespace p3d {
 		if (!EnsureDescriptorPool())
 			return;
 
+		// The set in hand has been bound by a draw that may not have run
+		// yet: it cannot be written. This program goes to the set for the
+		// buffers it is now asked for - see ProgramRecord::uniformSetsByBuffers.
+		if (progIt->second.descriptorSet != VK_NULL_HANDLE && progIt->second.descriptorSetBound)
+		{
+			ProgramRecord &prog = progIt->second;
+			if (prog.descriptorSetStale)
+				prog.retiredUniformSets.push_back(std::make_pair(prog.descriptorSet, uniformSetFrame));
+			else
+				prog.uniformSetsByBuffers[prog.writtenBindings] = prog.descriptorSet;
+			prog.descriptorSetStale = false;
+			std::map<uint32, DeviceHandle> asked = prog.writtenBindings;
+			asked[bindingPoint] = wanted;
+			const VkDescriptorSet set = UniformSetForBuffers(prog, asked);
+			if (set == VK_NULL_HANDLE)
+				return;
+			prog.descriptorSet = set;
+			prog.writtenBindings = asked;
+			// found or freshly written, it is complete: nothing more may be written to it
+			prog.descriptorSetBound = true;
+			return;
+		}
+
 		// Lazily allocate this program's descriptor set - see the header
 		// comment on ProgramRecord::descriptorSet.
 		if (progIt->second.descriptorSet == VK_NULL_HANDLE)
@@ -2829,8 +2862,67 @@ namespace p3d {
 		write.descriptorCount = 1;
 		write.descriptorType = recIt->second.isDynamicUniform ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
 		write.pBufferInfo = &bufferInfo;
+		// written in place: whatever combination this set was filed under no longer describes it
+		for (std::map<std::map<uint32, DeviceHandle>, VkDescriptorSet>::iterator s = progIt->second.uniformSetsByBuffers.begin(); s != progIt->second.uniformSetsByBuffers.end(); )
+		{
+			if (s->second == progIt->second.descriptorSet) progIt->second.uniformSetsByBuffers.erase(s++);
+			else ++s;
+		}
 		vkUpdateDescriptorSets(device, 1, &write, 0, NULL);
 		progIt->second.writtenBindings[bindingPoint] = wanted;
+	}
+
+	VkDescriptorSet VulkanRenderDevice::UniformSetForBuffers(ProgramRecord &prog, const std::map<uint32, DeviceHandle> &wanted)
+	{
+		std::map<std::map<uint32, DeviceHandle>, VkDescriptorSet>::iterator hit = prog.uniformSetsByBuffers.find(wanted);
+		if (hit != prog.uniformSetsByBuffers.end())
+			return hit->second;
+
+		// One let go of long enough ago that no command buffer still names it, or a new one.
+		VkDescriptorSet set = VK_NULL_HANDLE;
+		for (size_t i = 0; i < prog.retiredUniformSets.size(); i++)
+		{
+			if (uniformSetFrame - prog.retiredUniformSets[i].second < 4) continue;
+			set = prog.retiredUniformSets[i].first;
+			prog.retiredUniformSets.erase(prog.retiredUniformSets.begin() + i);
+			break;
+		}
+		if (set == VK_NULL_HANDLE)
+		{
+			VkDescriptorSetAllocateInfo allocInfo = {};
+			allocInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			allocInfo.descriptorPool = descriptorPool;
+			allocInfo.descriptorSetCount = 1;
+			allocInfo.pSetLayouts = &prog.descriptorSetLayout;
+			if (vkAllocateDescriptorSets(device, &allocInfo, &set) != VK_SUCCESS)
+				return VK_NULL_HANDLE;
+		}
+
+		std::vector<VkDescriptorBufferInfo> infos;
+		std::vector<VkWriteDescriptorSet> writes;
+		infos.reserve(wanted.size());
+		for (std::map<uint32, DeviceHandle>::const_iterator w = wanted.begin(); w != wanted.end(); ++w)
+		{
+			std::map<DeviceHandle, BufferRecord>::iterator rec = buffers.find(w->second);
+			if (rec == buffers.end()) continue;
+			VkDescriptorBufferInfo info = {};
+			info.buffer = rec->second.buffer;
+			info.offset = 0;
+			info.range = rec->second.size;
+			infos.push_back(info);
+			VkWriteDescriptorSet write = {};
+			write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			write.dstSet = set;
+			write.dstBinding = w->first;
+			write.descriptorCount = 1;
+			write.descriptorType = rec->second.isDynamicUniform ? VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC : VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+			writes.push_back(write);
+		}
+		for (size_t i = 0; i < writes.size(); i++) writes[i].pBufferInfo = &infos[i];
+		if (!writes.empty())
+			vkUpdateDescriptorSets(device, (uint32)writes.size(), writes.data(), 0, NULL);
+		prog.uniformSetsByBuffers[wanted] = set;
+		return set;
 	}
 
 	// Unused by DrawElements()/DrawElementsInstanced() below - Vulkan bakes
@@ -3142,6 +3234,7 @@ namespace p3d {
 			}
 			vkCmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet,
 				dynamicOffsetCount, dynamicOffsetCount > 0 ? dynamicOffsets : NULL);
+			progIt->second.descriptorSetBound = true;
 		}
 		if (progIt->second.samplerSetLayout != VK_NULL_HANDLE)
 		{
@@ -3463,10 +3556,27 @@ namespace p3d {
 		// descriptor aimed at freed memory.
 		for (std::map<DeviceHandle, ProgramRecord>::iterator pIt = programs.begin(); pIt != programs.end(); ++pIt)
 		{
+			// The sets written for a combination this buffer was part of: no
+			// longer findable, and reusable once the frames that may still
+			// name them are done. Not the one in hand - that one loses the
+			// binding below, and is replaced the next time it is asked for.
+			for (std::map<std::map<uint32, DeviceHandle>, VkDescriptorSet>::iterator s = pIt->second.uniformSetsByBuffers.begin(); s != pIt->second.uniformSetsByBuffers.end(); )
+			{
+				bool names = false;
+				for (std::map<uint32, DeviceHandle>::const_iterator b = s->first.begin(); b != s->first.end(); ++b)
+					if (b->second == buffer) { names = true; break; }
+				if (!names) { ++s; continue; }
+				if (s->second != pIt->second.descriptorSet)
+					pIt->second.retiredUniformSets.push_back(std::make_pair(s->second, uniformSetFrame));
+				pIt->second.uniformSetsByBuffers.erase(s++);
+			}
 			for (std::map<uint32, DeviceHandle>::iterator wIt = pIt->second.writtenBindings.begin(); wIt != pIt->second.writtenBindings.end(); )
 			{
 				if (wIt->second == buffer)
+				{
 					pIt->second.writtenBindings.erase(wIt++);
+					pIt->second.descriptorSetStale = true;
+				}
 				else
 					++wIt;
 			}
