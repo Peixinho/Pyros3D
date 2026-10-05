@@ -133,6 +133,7 @@ bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
 f32 IRenderer::AmbientScale = 1.f;
 Vec4 IRenderer::BackgroundOverride(0.f, 0.f, 0.f, 1.f);
+Vec4 IRenderer::ShaderGlobals[IRenderer::kShaderGlobals];
 bool IRenderer::BackgroundOverrideSet = false;
 Vec4 IRenderer::CachedAmbientEnv[14];
 bool IRenderer::VelocityFrameUniformsUBOValid = false;
@@ -2735,6 +2736,9 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			case Uniforms::DataUsage::AmbientSH:
 				Shader::SendUniform((*k), &AmbientSH[0], (*_ShadersGlobalCache)[counter], 9);
 				break;
+			case Uniforms::DataUsage::ShaderGlobals:
+				Shader::SendUniform((*k), &ShaderGlobals[0], (*_ShadersGlobalCache)[counter], kShaderGlobals);
+				break;
 			case Uniforms::DataUsage::Lights:
 				if (Lights.size() > 0)
 					Shader::SendUniform((*k), &Lights[0], (*_ShadersGlobalCache)[counter], NumberOfLights);
@@ -3277,6 +3281,9 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, Rende
 		break;
 	case Uniforms::DataUsage::AmbientSH:
 		valuePtr = &AmbientSH[0]; valueSize = sizeof(Vec4) * 9;
+		break;
+	case Uniforms::DataUsage::ShaderGlobals:
+		valuePtr = &ShaderGlobals[0]; valueSize = sizeof(Vec4) * kShaderGlobals;
 		break;
 	// Bone palette for a loose `uniform mat4 uBoneMatrix[]` - the Material
 	// Editor's generated shaders. GenericShaderMaterial's bones go through

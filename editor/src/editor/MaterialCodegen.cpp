@@ -353,6 +353,15 @@ struct TemplateInputs {
 // derivatives, no samplers.
 void EmitSharedPrelude(std::ostringstream& out, const TemplateInputs& in) {
 	out << "uniform float uTime;\n";
+	// The application's sixteen (IRenderer::SetShaderGlobal), for a material
+	// whose text reads them - not declared otherwise, so no other material
+	// carries them about.
+	{
+		bool reads = false;
+		for (const auto& st : in.statements) if (st.find("uGlobals") != std::string::npos) reads = true;
+		for (const auto& st : in.vertexStatements) if (st.find("uGlobals") != std::string::npos) reads = true;
+		if (reads) out << "uniform vec4 uGlobals[16];\n";
+	}
 	for (const auto& p : in.parameters)
 		out << "uniform " << (p.isVector ? "vec4" : "float") << " p_" << p.name << ";\n";
 	out <<

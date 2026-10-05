@@ -77,6 +77,12 @@ namespace p3d {
 				AmbientParams = 34,
 				// vec4[9], SphericalHarmonicsL2's index order.
 				AmbientSH = 35,
+				// vec4[16] that are the application's to fill
+				// (IRenderer::SetShaderGlobal) and any shader's to read:
+				// `uniform vec4 uGlobals[16];`. For what a scene's script
+				// knows and a material has to draw - where things touched
+				// the water, where the wind is from.
+				ShaderGlobals = 36,
 
 				// User Uniforms
 				Other = 200,
@@ -164,6 +170,7 @@ namespace p3d {
 			case Uniforms::DataUsage::AmbientGround:
 			case Uniforms::DataUsage::AmbientParams:
 			case Uniforms::DataUsage::AmbientSH:
+			case Uniforms::DataUsage::ShaderGlobals:
 				Type = Uniforms::DataType::Vec4;
 				break;
 			case Uniforms::DataUsage::Lights:

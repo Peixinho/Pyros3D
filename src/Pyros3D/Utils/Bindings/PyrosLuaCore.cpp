@@ -107,6 +107,14 @@ namespace p3d {
 			for (auto a : va) { if (n >= 4) break; v[n++] = a.get<f32>(); }
 			return PostEffectsManager::SetEffectParam(effect, param, v, n);
 		});
+		// setShaderGlobal(index, x, y, z, w): one of the sixteen vec4 every shader may read as
+		// uGlobals[index] (index 0..15; see IRenderer::SetShaderGlobal).
+		lua->set_function("setShaderGlobal", [](const uint32 index, sol::variadic_args va) {
+			f32 v[4] = { 0.f, 0.f, 0.f, 0.f };
+			uint32 n = 0;
+			for (auto a : va) { if (n >= 4) break; v[n++] = a.get<f32>(); }
+			IRenderer::SetShaderGlobal(index, Vec4(v[0], v[1], v[2], v[3]));
+		});
 		lua->set_function("getAmbientScale", []() { return IRenderer::GetAmbientScale(); });
 		// A background colour set while the game runs, which every view clears to (see
 		// IRenderer::SetBackgroundOverride). clearBackgroundColor() gives each scene its own

@@ -436,6 +436,9 @@ namespace p3d
 		add("uAmbientGround", Uniforms::DataUsage::AmbientGround);
 		add("uAmbientParams", Uniforms::DataUsage::AmbientParams);
 		add("uAmbientSH", Uniforms::DataUsage::AmbientSH);
+		// only a shader that reads them (see IRenderer::SetShaderGlobal)
+		if (shader && shader->GetShaderText().find("uGlobals") != std::string::npos)
+			add("uGlobals", Uniforms::DataUsage::ShaderGlobals);
 		add("uLights", Uniforms::DataUsage::Lights);
 		add("uNumberOfLights", Uniforms::DataUsage::NumberOfLights);
 		// Forward branch only - under Deferred the light passes shadow the

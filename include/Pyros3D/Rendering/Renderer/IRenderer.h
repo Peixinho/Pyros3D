@@ -151,6 +151,15 @@ namespace p3d {
 		// look of a scene as a side effect of loading data is the kind
 		// of thing nobody finds until it ships.
 		void SetAmbientSH(const SphericalHarmonicsL2 &SH);
+
+		// Sixteen vec4 that belong to the application: whatever it puts in
+		// one, every shader that declares `uniform vec4 uGlobals[16];`
+		// reads (the Material Editor's shaders get the declaration when
+		// their text uses the name). Process-wide, like the ambient: what a
+		// script knows about the world is the same in every view of it.
+		static const uint32 kShaderGlobals = 16;
+		static void SetShaderGlobal(const uint32 index, const Vec4 &value) { if (index < kShaderGlobals) ShaderGlobals[index] = value; }
+		static const Vec4 &GetShaderGlobal(const uint32 index) { return ShaderGlobals[index < kShaderGlobals ? index : 0]; }
 		// Publishes a probe grid for AmbientMode 2. While one is set, the
 		// ambient SH is resampled PER OBJECT from that object's world
 		// position instead of using the single environment projection -
@@ -746,6 +755,7 @@ namespace p3d {
 		static Vec4 CachedGlobalLight;
 		static f32 AmbientScale;
 		static Vec4 BackgroundOverride;
+		static Vec4 ShaderGlobals[kShaderGlobals];
 		static bool BackgroundOverrideSet;
 		static Vec4 ScaleAmbient(const Vec4 &c) { return Vec4(c.x * AmbientScale, c.y * AmbientScale, c.z * AmbientScale, c.w); }
 		static Vec4 CachedAmbientEnv[14];
