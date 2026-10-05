@@ -94,6 +94,14 @@ namespace p3d {
 		// against one long-lived PostEffectsManager instance.
 		void RemoveAllEffects();
 
+		// Sets a parameter of an effect authored as an asset (CustomEffect), by
+		// the effect's own name, in every chain that has one - a game changes
+		// its fog with the time of day, its tint when the player is hurt. As
+		// with the ambient scale there is one answer for the whole process: a
+		// script does not know which view's chain it is talking to. Returns how
+		// many effects took it.
+		static uint32 SetEffectParam(const std::string &effectName, const std::string &paramName, const f32 *values, const uint32 count);
+
 		const uint32 GetNumberEffects() const;
 
 		// Anti-aliasing, separate from the chain - see AntiAliasingStage.h

@@ -13,6 +13,8 @@
 #include <Pyros3D/Rendering/PostEffects/AntiAliasingStage.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/CustomEffect.h>
+#include <set>
 
 namespace p3d {
 
@@ -30,8 +32,33 @@ namespace p3d {
 		return std::make_shared<GLRenderDevice>();
 	}
 
+	// Every manager alive, for SetEffectParam().
+	static std::set<PostEffectsManager*> &LiveManagers()
+	{
+		static std::set<PostEffectsManager*> live;
+		return live;
+	}
+
+	uint32 PostEffectsManager::SetEffectParam(const std::string &effectName, const std::string &paramName, const f32 *values, const uint32 count)
+	{
+		uint32 taken = 0;
+		std::set<PostEffectsManager*> &live = LiveManagers();
+		for (std::set<PostEffectsManager*>::iterator m = live.begin(); m != live.end(); ++m)
+		{
+			std::vector<IEffect*> &list = (*m)->effects;
+			for (size_t i = 0; i < list.size(); i++)
+			{
+				CustomEffect* fx = dynamic_cast<CustomEffect*>(list[i]);
+				if (fx != NULL && fx->GetEffectName() == effectName && fx->SetParam(paramName, values, count))
+					taken++;
+			}
+		}
+		return taken;
+	}
+
 	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(ResolvePostEffectsDevice()), fullscreenVao(0), viewportGammaEffect(NULL)
 	{
+		LiveManagers().insert(this);
 		// Save Dimensions
 		Width = width;
 		Height = height;
@@ -779,6 +806,7 @@ namespace p3d {
 
 	PostEffectsManager::~PostEffectsManager()
 	{
+		LiveManagers().erase(this);
 		// Same in-flight-submission hazard as RemoveAllEffects() below, and
 		// the same fix - at shutdown the last frame's command buffer is
 		// routinely still executing, so tearing these down unguarded is a

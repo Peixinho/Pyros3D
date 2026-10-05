@@ -7,6 +7,7 @@
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
+#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 
 namespace p3d {
@@ -98,6 +99,14 @@ namespace p3d {
 	{
 		// Process-wide ambient multiplier (see IRenderer::SetAmbientScale).
 		lua->set_function("setAmbientScale", [](const f32 scale) { IRenderer::SetAmbientScale(scale); });
+		// setPostEffectParam("Atmosphere", "uFogColor", r, g, b, a): a parameter of a
+		// post effect that is an asset, by the effect's name. Up to four numbers.
+		lua->set_function("setPostEffectParam", [](const std::string &effect, const std::string &param, sol::variadic_args va) {
+			f32 v[4] = { 0.f, 0.f, 0.f, 0.f };
+			uint32 n = 0;
+			for (auto a : va) { if (n >= 4) break; v[n++] = a.get<f32>(); }
+			return PostEffectsManager::SetEffectParam(effect, param, v, n);
+		});
 		lua->set_function("getAmbientScale", []() { return IRenderer::GetAmbientScale(); });
 		// A background colour set while the game runs, which every view clears to (see
 		// IRenderer::SetBackgroundOverride). clearBackgroundColor() gives each scene its own
