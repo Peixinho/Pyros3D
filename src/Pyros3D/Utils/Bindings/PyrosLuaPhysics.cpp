@@ -253,6 +253,16 @@ namespace p3d {
 			"setCenterOfMass", &PhysicsVehicle::SetCenterOfMass,
 			"addWheel", &PhysicsVehicle::AddWheel,
 			"getWheelCount", [](PhysicsVehicle &v) { return (uint32)v.GetWheels().size(); },
+			// One wheel's grip and size, changed while it drives: a tyre that
+			// goes flat, ice under one side, a wheel that is lost.
+			"setWheelFriction", [](PhysicsVehicle &v, uint32 i, f32 friction) {
+				std::vector<VehicleWheel> &w = v.GetWheels();
+				if (i < w.size()) w[i].Friction = friction;
+			},
+			"setWheelRadius", [](PhysicsVehicle &v, uint32 i, f32 radius) {
+				std::vector<VehicleWheel> &w = v.GetWheels();
+				if (i < w.size() && radius > 0.f) w[i].Radius = radius;
+			},
 			"getWheelTransform", [](PhysicsVehicle &v, uint32 i) -> Matrix {
 				if (i >= v.GetWheels().size()) return Matrix();
 				return v.GetWheels()[i].Transformation;
