@@ -2,6 +2,8 @@
 // Name        : FrameProfiler.cpp
 //============================================================================
 
+#include <string>
+#include <map>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "imgui.h"
 #include <algorithm>
@@ -183,6 +185,11 @@ namespace p3d {
 			last = now;
 			frames++;
 			if (wall > worst) worst = wall;
+			// every frame's scopes and counters, summed: the summary gives their
+			// averages, which is what says where a steady low frame rate goes
+			static std::map<std::string, f64> sums;
+			for (uint32 i = 0; i < displayScopeCount_; i++) sums[displayScopes_[i].name] += displayScopes_[i].ms;
+			for (uint32 i = 0; i < counterCount_; i++) sums[std::string("#") + counters_[i].name] += counters_[i].ms;
 			if (wall >= gSlowMs && frames > 1)
 			{
 				slow++;
@@ -198,6 +205,11 @@ namespace p3d {
 			{
 				std::fprintf(gSlowLog, "# t=%.0f: %u frames in %.0f s (%.0f fps), %u slow, worst %.1f ms\n",
 					std::chrono::duration<f64>(now - start).count(), frames, since, (f64)frames / since, slow, worst);
+				std::fprintf(gSlowLog, "#   average a frame (ms; # is a counter):");
+				for (std::map<std::string, f64>::const_iterator i = sums.begin(); i != sums.end(); ++i)
+					if (i->second / (f64)frames >= 0.2) std::fprintf(gSlowLog, " %s=%.2f", i->first.c_str(), i->second / (f64)frames);
+				std::fprintf(gSlowLog, "\n");
+				sums.clear();
 				std::fflush(gSlowLog);
 				lastSummary = now; frames = 0; slow = 0; worst = 0.0;
 			}

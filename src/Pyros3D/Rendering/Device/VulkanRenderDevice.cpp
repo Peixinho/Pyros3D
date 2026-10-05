@@ -17,6 +17,8 @@
 // VMA_STATIC_VULKAN_FUNCTIONS=1 then "just works" by calling through
 // those same global names.
 #define VMA_IMPLEMENTATION
+#include <chrono>
+#include <atomic>
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>   // DrawingType
@@ -39,6 +41,34 @@
 #include <vector>
 #include <cstring>
 #include <cstdio>
+
+// Every wait on the GPU and every submit to it, timed and counted: published
+// as counters at the end of the frame (VK.Waits, VK.WaitUs, VK.Submits,
+// VK.SubmitUs) so the frame profiler and the slow-frame log (FrameProfiler::
+// LogSlowFrames) show what the frame spent blocked on the driver - which no
+// scope shows, because the waits are scattered over every pass.
+namespace {
+	std::atomic<uint64_t> gVkWaitNs(0), gVkSubmitNs(0);
+	std::atomic<uint32_t> gVkWaits(0), gVkSubmits(0);
+	inline VkResult PyrosTimedWaitForFences(VkDevice d, uint32_t n, const VkFence* f, VkBool32 all, uint64_t timeout)
+	{
+		// (a fence already signalled is not a wait)
+		if (n == 1 && vkGetFenceStatus(d, f[0]) == VK_SUCCESS) return VK_SUCCESS;
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		const VkResult r = vkWaitForFences(d, n, f, all, timeout);
+		gVkWaitNs += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
+		gVkWaits++;
+		return r;
+	}
+	inline VkResult PyrosTimedQueueSubmit(VkQueue q, uint32_t n, const VkSubmitInfo* i, VkFence f)
+	{
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		const VkResult r = vkQueueSubmit(q, n, i, f);
+		gVkSubmitNs += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
+		gVkSubmits++;
+		return r;
+	}
+}
 
 namespace p3d {
 
@@ -1134,7 +1164,7 @@ namespace p3d {
 		// FRAME_WAIT_TIMEOUT_NS for why UINT64_MAX here can hang the
 		// process during a window resize.
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
-		if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
+		if (PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
 			return false;
 		ReleaseRetiredBuffers(currentFrameSlot);
 
@@ -1244,7 +1274,7 @@ namespace p3d {
 
 	VkResult VulkanRenderDevice::SubmitGraphics(uint32 submitCount, const VkSubmitInfo *infos, VkFence fence)
 	{
-		return vkQueueSubmit(graphicsQueue, submitCount, infos, fence);
+		return PyrosTimedQueueSubmit(graphicsQueue, submitCount, infos, fence);
 	}
 
 	bool VulkanRenderDevice::QueryRealSurfaceExtent(uint32 &width, uint32 &height) const
@@ -1365,7 +1395,7 @@ namespace p3d {
 		SubmitGraphics(1, &submitInfo, fence);
 		if (fence != VK_NULL_HANDLE)
 		{
-			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+			PyrosTimedWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 			vkDestroyFence(device, fence, NULL);
 		}
 		else
@@ -1398,7 +1428,7 @@ namespace p3d {
 		// FRAME_WAIT_TIMEOUT_NS for why UINT64_MAX here can hang the
 		// process during a window resize.
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
-		if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
+		if (PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
 			return false;
 		ReleaseRetiredBuffers(currentFrameSlot);
 
@@ -1577,7 +1607,7 @@ namespace p3d {
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
 		{
 			PYROS_PROFILE_SCOPE("VK.WaitFence");
-			if (vkWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
+			if (PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
 			{
 				ringStats.skippedFenceWait++;
 				return;
@@ -1852,7 +1882,7 @@ namespace p3d {
 			// actually finishes before reading the staging buffer's mapped
 			// memory - diagnostic-only, so a stall here is acceptable
 			// (this is not on any normal, non-capturing frame's path).
-			vkWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
+			PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, UINT64_MAX);
 
 			capturedPixels.resize((size_t)swapchainExtent.width * swapchainExtent.height * 4);
 			memcpy(capturedPixels.data(), captureStagingMapped, capturedPixels.size());
@@ -1874,6 +1904,11 @@ namespace p3d {
 		presentInfo.pImageIndices = &currentImageIndex;
 		VkResult presentResult;
 		{
+			// (what the frame spent blocked on the driver: see PyrosTimedWaitForFences)
+			FrameProfiler::Instance().Counter("VK.Waits", (f64)gVkWaits.exchange(0));
+			FrameProfiler::Instance().Counter("VK.WaitUs", (f64)gVkWaitNs.exchange(0) / 1000.0);
+			FrameProfiler::Instance().Counter("VK.Submits", (f64)gVkSubmits.exchange(0));
+			FrameProfiler::Instance().Counter("VK.SubmitUs", (f64)gVkSubmitNs.exchange(0) / 1000.0);
 			PYROS_PROFILE_SCOPE("VK.Present");
 			presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
 		}
@@ -5942,7 +5977,7 @@ namespace p3d {
 		SubmitGraphics(1, &submitInfo, fence);
 		if (fence != VK_NULL_HANDLE)
 		{
-			vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
+			PyrosTimedWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX);
 			vkDestroyFence(device, fence, NULL);
 		}
 		else
@@ -6966,7 +7001,7 @@ namespace p3d {
 		for (uint32 i = 0; i < MAX_FRAMES_IN_FLIGHT; i++)
 		{
 			if (frameFences[i] != VK_NULL_HANDLE)
-				vkWaitForFences(device, 1, &frameFences[i], VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
+				PyrosTimedWaitForFences(device, 1, &frameFences[i], VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
 		}
 	}
 
@@ -6984,7 +7019,7 @@ namespace p3d {
 			if (frameInProgress && i == currentFrameSlot)
 				continue;
 			if (frameFences[i] != VK_NULL_HANDLE)
-				vkWaitForFences(device, 1, &frameFences[i], VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
+				PyrosTimedWaitForFences(device, 1, &frameFences[i], VK_TRUE, FRAME_WAIT_TIMEOUT_NS);
 		}
 		hostMappedBuffersSafeThisFrame = true;
 	}
@@ -6994,7 +7029,7 @@ namespace p3d {
 		if (!slot.fenceInFlight || slot.fence == VK_NULL_HANDLE)
 			return;
 
-		vkWaitForFences(device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
+		PyrosTimedWaitForFences(device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
 
 		if (offscreenChainSemaphore == slot.done)
 		{
@@ -7016,7 +7051,7 @@ namespace p3d {
 			if (vkCreateFence(device, &fenceInfo, NULL, &consumeFence) == VK_SUCCESS)
 			{
 				SubmitGraphics(1, &consume, consumeFence);
-				vkWaitForFences(device, 1, &consumeFence, VK_TRUE, UINT64_MAX);
+				PyrosTimedWaitForFences(device, 1, &consumeFence, VK_TRUE, UINT64_MAX);
 				vkDestroyFence(device, consumeFence, NULL);
 			}
 			else
@@ -7040,7 +7075,7 @@ namespace p3d {
 			if (vkCreateFence(device, &fi, NULL, &cf) == VK_SUCCESS)
 			{
 				SubmitGraphics(1, &consume, cf);
-				vkWaitForFences(device, 1, &cf, VK_TRUE, UINT64_MAX);
+				PyrosTimedWaitForFences(device, 1, &cf, VK_TRUE, UINT64_MAX);
 				vkDestroyFence(device, cf, NULL);
 			}
 			else { SubmitGraphics(1, &consume, VK_NULL_HANDLE); vkQueueWaitIdle(graphicsQueue); }
@@ -7267,7 +7302,7 @@ namespace p3d {
 			// The ring came back round to a slot the GPU may still be on.
 			if (transferSlotInFlight[transferSlot])
 			{
-				vkWaitForFences(device, 1, &transferSlotFences[transferSlot], VK_TRUE, UINT64_MAX);
+				PyrosTimedWaitForFences(device, 1, &transferSlotFences[transferSlot], VK_TRUE, UINT64_MAX);
 				for (size_t i = 0; i < transferSlotStaging[transferSlot].size(); i++)
 					vmaDestroyBuffer(allocator, transferSlotStaging[transferSlot][i].buffer, transferSlotStaging[transferSlot][i].allocation);
 				transferSlotStaging[transferSlot].clear();
@@ -7290,7 +7325,7 @@ namespace p3d {
 		for (int i = 0; i < kTransferSlots; i++)
 		{
 			if (!transferSlotInFlight[i]) continue;
-			if (all) vkWaitForFences(device, 1, &transferSlotFences[i], VK_TRUE, UINT64_MAX);
+			if (all) PyrosTimedWaitForFences(device, 1, &transferSlotFences[i], VK_TRUE, UINT64_MAX);
 			else if (vkGetFenceStatus(device, transferSlotFences[i]) != VK_SUCCESS) continue;
 			for (size_t b = 0; b < transferSlotStaging[i].size(); b++)
 				vmaDestroyBuffer(allocator, transferSlotStaging[i][b].buffer, transferSlotStaging[i][b].allocation);
@@ -7319,7 +7354,7 @@ namespace p3d {
 		if (!submitted)
 			vkQueueWaitIdle(graphicsQueue);
 		else if (wait)
-			vkWaitForFences(device, 1, &transferFence, VK_TRUE, UINT64_MAX);
+			PyrosTimedWaitForFences(device, 1, &transferFence, VK_TRUE, UINT64_MAX);
 
 		if (submitted && !wait)
 		{
@@ -7814,7 +7849,7 @@ namespace p3d {
 		SubmitGraphics(1, &submitInfo, blitFence);
 		if (blitFence != VK_NULL_HANDLE)
 		{
-			vkWaitForFences(device, 1, &blitFence, VK_TRUE, UINT64_MAX);
+			PyrosTimedWaitForFences(device, 1, &blitFence, VK_TRUE, UINT64_MAX);
 			vkDestroyFence(device, blitFence, NULL);
 		}
 		else
@@ -7951,7 +7986,7 @@ namespace p3d {
 		SubmitGraphics(1, &submitInfo, copyFence);
 		if (copyFence != VK_NULL_HANDLE)
 		{
-			vkWaitForFences(device, 1, &copyFence, VK_TRUE, UINT64_MAX);
+			PyrosTimedWaitForFences(device, 1, &copyFence, VK_TRUE, UINT64_MAX);
 			vkDestroyFence(device, copyFence, NULL);
 		}
 		else
@@ -8027,7 +8062,7 @@ namespace p3d {
 			// VUID-vkResetCommandBuffer-commandBuffer-00045, and the
 			// fence starts signalled so the first call through here does
 			// not block.
-			vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+			PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
 			vkResetCommandBuffer(computeCommandBuffer, 0);
 			VkCommandBufferBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -8057,7 +8092,7 @@ namespace p3d {
 			return;
 		}
 		if (wait)
-			vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+			PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
 	}
 
 	DeviceHandle VulkanRenderDevice::CreateComputePipeline(const DeviceHandle program)
@@ -8188,7 +8223,7 @@ namespace p3d {
 			return;
 		// Nothing may be destroyed while the GPU could still be reading
 		// it - the same ordering rule the destructor follows.
-		vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+		PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
 		if (it->second.descriptorSet != VK_NULL_HANDLE && descriptorPool != VK_NULL_HANDLE)
 			vkFreeDescriptorSets(device, descriptorPool, 1, &it->second.descriptorSet);
 		if (it->second.pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, it->second.pipeline, NULL);
@@ -8401,7 +8436,7 @@ namespace p3d {
 		// is still running - vkUpdateDescriptorSets mutates in place.
 		if (!writes.empty())
 		{
-			vkWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+			PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
 			vkUpdateDescriptorSets(device, (uint32)writes.size(), writes.data(), 0, NULL);
 		}
 
