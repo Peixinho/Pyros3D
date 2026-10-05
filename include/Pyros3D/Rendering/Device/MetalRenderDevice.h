@@ -728,8 +728,25 @@ namespace p3d {
 			uint32 alignedSlotSize;
 			uint32 slotCount;
 			uint32 currentSlot;
-			BufferRecord() : buffer(NULL), length(0), isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0) {}
+			// A ring starts small and doubles when the frames that may
+			// still be read have filled it, up to maxSlotCount
+			// (ReplaceUniformBuffer). writes[0] is this frame's count and
+			// the rest the frames before it, oldest last; EndFrame shifts
+			// them. A grown ring starts counting again - nothing recorded
+			// reads the new buffer, and the encoders keep the old one alive.
+			static const uint32 kFramesRead = 3;
+			uint32 maxSlotCount;
+			uint32 writes[kFramesRead];
+			uint32 bindingPoint, demandThisFrame, peakWrites, growths;
+			BufferRecord() : buffer(NULL), length(0), isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0),
+				maxSlotCount(1), bindingPoint(0), demandThisFrame(0), peakWrites(0), growths(0)
+			{
+				for (uint32 i = 0; i < kFramesRead; i++) writes[i] = 0;
+			}
 		};
+	public:
+		virtual std::string MemoryReport();
+	private:
 		std::map<DeviceHandle, BufferRecord> buffers;
 		DeviceHandle nextBufferHandle;
 		// Same binding-number convention as VulkanRenderDevice::

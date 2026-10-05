@@ -633,10 +633,43 @@ namespace p3d {
 		frameInProgress = true;
 	}
 
+	std::string MetalRenderDevice::MemoryReport()
+	{
+		// the uniform rings only: what each holds against what a frame has asked of it
+		std::string out = "{\"rings\":[";
+		bool first = true;
+		for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); ++it)
+		{
+			const BufferRecord &b = it->second;
+			if (!b.isDynamicUniform) continue;
+			if (!first) out += ",";
+			first = false;
+			out += "{\"handle\":" + std::to_string((unsigned long long)it->first) + ",\"binding\":" + std::to_string(b.bindingPoint)
+				+ ",\"slotBytes\":" + std::to_string(b.alignedSlotSize) + ",\"slots\":" + std::to_string(b.slotCount)
+				+ ",\"bytes\":" + std::to_string((unsigned long long)b.alignedSlotSize * b.slotCount)
+				+ ",\"peak\":" + std::to_string(b.peakWrites > b.demandThisFrame ? b.peakWrites : b.demandThisFrame)
+				+ ",\"maxSlots\":" + std::to_string(b.maxSlotCount) + ",\"growths\":" + std::to_string(b.growths)
+				+ ",\"exhausted\":false}";
+		}
+		out += "]}";
+		return out;
+	}
+
 	void MetalRenderDevice::EndFrame()
 	{
 		if (!frameInProgress)
 			return;
+
+		// The rings' frame turns over: this frame's writes become the last one's.
+		for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); ++it)
+		{
+			BufferRecord &rec = it->second;
+			if (!rec.isDynamicUniform) continue;
+			if (rec.demandThisFrame > rec.peakWrites) rec.peakWrites = rec.demandThisFrame;
+			rec.demandThisFrame = 0;
+			for (uint32 i = BufferRecord::kFramesRead - 1; i > 0; i--) rec.writes[i] = rec.writes[i - 1];
+			rec.writes[0] = 0;
+		}
 
 		@autoreleasepool
 		{
@@ -1582,6 +1615,16 @@ namespace p3d {
 			if (slotCount > kMaxDynamicUboSlots)
 				slotCount = kMaxDynamicUboSlots;
 		}
+		// How far it may grow, not where it starts - see
+		// VulkanRenderDevice::CreateUniformBuffer() for the measurement
+		// (1.1 GB reserved by 71 rings for 1.3 MB of writes a frame).
+		const uint32 maxSlotCount = slotCount;
+		if (dynamic)
+		{
+			uint32 start = (64u * 1024u) / alignedSlotSize;
+			if (start < 16u) start = 16u;
+			if (start < slotCount) slotCount = start;
+		}
 
 		@autoreleasepool
 		{
@@ -1597,6 +1640,8 @@ namespace p3d {
 			record.isDynamicUniform = dynamic;
 			record.alignedSlotSize = alignedSlotSize;
 			record.slotCount = slotCount;
+			record.maxSlotCount = maxSlotCount;
+			record.bindingPoint = bindingPoint;
 			record.currentSlot = 0;
 			DeviceHandle handle = nextBufferHandle++;
 			buffers[handle] = record;
@@ -1631,7 +1676,38 @@ namespace p3d {
 		// behavior.
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it != buffers.end() && it->second.isDynamicUniform)
-			it->second.currentSlot = (it->second.currentSlot + 1) % it->second.slotCount;
+		{
+			BufferRecord &rec = it->second;
+			rec.demandThisFrame++;
+			uint64_t live = 1;
+			for (uint32 i = 0; i < BufferRecord::kFramesRead; i++) live += rec.writes[i];
+			if (live >= rec.slotCount && rec.slotCount < rec.maxSlotCount)
+			{
+				// Full: a larger buffer under the same handle. Draws read
+				// the record when they are recorded, so the next one binds
+				// the new buffer; those already recorded hold the old one.
+				uint32 slots = rec.slotCount;
+				while (slots < rec.maxSlotCount && slots < live * 2) slots *= 2;
+				if (slots > rec.maxSlotCount) slots = rec.maxSlotCount;
+				@autoreleasepool
+				{
+					id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+					id<MTLBuffer> larger = [mtlDevice newBufferWithLength:(NSUInteger)rec.alignedSlotSize * slots options:MTLResourceStorageModeShared];
+					if (larger != nil)
+					{
+						memset(larger.contents, 0, (size_t)rec.alignedSlotSize * slots);
+						if (rec.buffer != NULL) CFBridgingRelease(rec.buffer);
+						rec.buffer = (void*)CFBridgingRetain(larger);
+						rec.slotCount = slots;
+						rec.currentSlot = slots - 1;
+						for (uint32 i = 0; i < BufferRecord::kFramesRead; i++) rec.writes[i] = 0;
+						rec.growths++;
+					}
+				}
+			}
+			rec.currentSlot = (rec.currentSlot + 1) % rec.slotCount;
+			rec.writes[0]++;
+		}
 		UpdateUniformBuffer(buffer, 0, sizeBytes, data);
 	}
 	void MetalRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)

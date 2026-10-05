@@ -1188,6 +1188,21 @@ namespace p3d {
 			// The previous frame may still be reading its slots, so this
 			// frame's writes plus these must fit in the ring.
 			uint32 writesLastFrame = 0;
+			// For MemoryReport(): the binding point it was made for, the
+			// most slots any one frame has written, how many frames wrote
+			// to it at all, and whether it ever ran out.
+			uint32 bindingPoint = 0;
+			uint32 peakWrites = 0;
+			// A ring starts small and doubles when a frame asks for more
+			// than it holds (GrowUniformRing), up to this many slots.
+			// demandThisFrame counts every write of the frame; a growth
+			// starts writesThisFrame again, since nothing in flight reads
+			// the new buffer.
+			uint32 maxSlotCount = 1;
+			uint32 demandThisFrame = 0;
+			uint32 growths = 0;
+			uint64 framesUsed = 0;
+			bool everExhausted = false;
 			BufferRecord() : buffer(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), mapped(NULL), size(0),
 				streamRingCount(0), streamWriteIndex(0),
 				isDynamicUniform(false), alignedSlotSize(0), slotCount(1), currentSlot(0), writesThisFrame(0)
@@ -1219,6 +1234,10 @@ namespace p3d {
 		// every earlier submit to the queue. See AdoptPendingRetirements().
 		std::vector<BufferRecord> retiredBeforeNextFrame;
 		void RetireOrDestroyBufferRecord(BufferRecord &rec);
+		// Doubles a uniform ring that a frame has filled: a new buffer
+		// under the same handle, the old one kept until the frames that
+		// read it are done, and every descriptor set that named it let go.
+		bool GrowUniformRing(const DeviceHandle handle, BufferRecord &rec);
 		void ReleaseRetiredBuffers(const uint32 slot);
 		void AdoptPendingRetirements();
 		DeviceHandle nextBufferHandle;
@@ -1635,6 +1654,10 @@ namespace p3d {
 			// One of the buffers the set in hand was written with has been
 			// destroyed: it is not to be found again under what is left.
 			bool descriptorSetStale;
+			// A ring this program reads was replaced by a larger one, and
+			// the set it held went with the old buffer: the next bind
+			// takes a set for writtenBindings (ResolvePendingUniformSet).
+			bool uniformSetPending = false;
 			std::map<std::map<uint32, DeviceHandle>, VkDescriptorSet> uniformSetsByBuffers;
 			// Sets whose buffers are gone, and the frame they were let go
 			// in: written again and reused once nothing can still name them.
@@ -1647,6 +1670,7 @@ namespace p3d {
 		// The program's set for the buffers `wanted` names, made (or taken
 		// from the retired ones) and written whole if there is none yet.
 		VkDescriptorSet UniformSetForBuffers(ProgramRecord &prog, const std::map<uint32, DeviceHandle> &wanted);
+		void ResolvePendingUniformSet(ProgramRecord &prog);
 		DeviceHandle nextProgramHandle;
 		// Set by UseProgram() - which program's reflected data
 		// (attributeLocations/samplerBindings/etc) SendUniform*() and
@@ -1717,6 +1741,23 @@ namespace p3d {
 		std::map<DeviceHandle, VkRenderPass> pipelineRenderPass;
 		void ForgetPipelinesForRenderPass(const VkRenderPass pass);
 		std::vector<VkPipeline> retiredPipelinesBeforeNextFrame;
+		// A sampler rebuilt mid-frame (RebuildSamplerIfDirty): the same deferral.
+		std::vector<VkSampler> retiredSamplers[MAX_FRAMES_IN_FLIGHT];
+		std::vector<VkSampler> retiredSamplersBeforeNextFrame;
+		// A destroyed texture's image and views (DestroyTextureObject): a
+		// world that streams unloads textures the frame in flight, or a
+		// transfer still queued, is using.
+		struct RetiredImage
+		{
+			VkImage image;
+			VmaAllocation allocation;
+			std::vector<VkImageView> views;
+			VkSampler sampler;
+			RetiredImage() : image(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), sampler(VK_NULL_HANDLE) {}
+		};
+		std::vector<RetiredImage> retiredImages[MAX_FRAMES_IN_FLIGHT];
+		std::vector<RetiredImage> retiredImagesBeforeNextFrame;
+		void DestroyRetiredImage(RetiredImage &r);
 		bool AllocateSamplerSet(const VkDescriptorSetLayout layout, CachedSamplerSet &out);
 		void RetireSamplerSetsNaming(const uint64 handle);
 		void ReleaseRetiredSamplerSets(const uint32 slot);

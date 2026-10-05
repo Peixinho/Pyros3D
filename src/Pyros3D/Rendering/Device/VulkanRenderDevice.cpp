@@ -281,10 +281,20 @@ namespace p3d {
 				for (size_t k = 0; k < retiredPipelines[i].size(); k++)
 					vkDestroyPipeline(device, retiredPipelines[i][k], NULL);
 				retiredPipelines[i].clear();
+				for (size_t k = 0; k < retiredSamplers[i].size(); k++)
+					vkDestroySampler(device, retiredSamplers[i][k], NULL);
+				retiredSamplers[i].clear();
+				for (size_t k = 0; k < retiredImages[i].size(); k++) DestroyRetiredImage(retiredImages[i][k]);
+				retiredImages[i].clear();
 			}
 			for (size_t k = 0; k < retiredPipelinesBeforeNextFrame.size(); k++)
 				vkDestroyPipeline(device, retiredPipelinesBeforeNextFrame[k], NULL);
 			retiredPipelinesBeforeNextFrame.clear();
+			for (size_t k = 0; k < retiredSamplersBeforeNextFrame.size(); k++)
+				vkDestroySampler(device, retiredSamplersBeforeNextFrame[k], NULL);
+			retiredSamplersBeforeNextFrame.clear();
+			for (size_t k = 0; k < retiredImagesBeforeNextFrame.size(); k++) DestroyRetiredImage(retiredImagesBeforeNextFrame[k]);
+			retiredImagesBeforeNextFrame.clear();
 			DestroyPipelineCache();
 			if (descriptorPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, descriptorPool, NULL);
 			// Destroying a pool frees its sets; the cache and retire lists
@@ -1448,6 +1458,7 @@ namespace p3d {
 		// its comment) overrides it for shadow-casting passes.
 		vkCmdSetDepthBias(frameCommandBuffer, 0.0f, 0.0f, 0.0f);
 
+		if (progIt != programs.end()) ResolvePendingUniformSet(progIt->second);
 		if (progIt != programs.end() && progIt->second.descriptorSet != VK_NULL_HANDLE)
 		{
 			vkCmdBindDescriptorSets(frameCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 0, 1, &progIt->second.descriptorSet, 0, NULL);
@@ -1596,6 +1607,9 @@ namespace p3d {
 		{
 			if (it->second.isDynamicUniform)
 			{
+				if (it->second.demandThisFrame > it->second.peakWrites) it->second.peakWrites = it->second.demandThisFrame;
+				if (it->second.demandThisFrame > 0) it->second.framesUsed++;
+				it->second.demandThisFrame = 0;
 				it->second.writesLastFrame = it->second.writesThisFrame;
 				it->second.writesThisFrame = 0;
 				// Re-arm the report too: a wrap that happens once during a
@@ -2810,6 +2824,24 @@ namespace p3d {
 		// The set in hand has been bound by a draw that may not have run
 		// yet: it cannot be written. This program goes to the set for the
 		// buffers it is now asked for - see ProgramRecord::uniformSetsByBuffers.
+		// (A program whose set went with a ring that grew has none in hand,
+		// and takes a whole one the same way rather than a set with only
+		// this binding in it.)
+		if (progIt->second.uniformSetPending)
+		{
+			ProgramRecord &prog = progIt->second;
+			std::map<uint32, DeviceHandle> asked = prog.writtenBindings;
+			asked[bindingPoint] = wanted;
+			const VkDescriptorSet set = UniformSetForBuffers(prog, asked);
+			if (set == VK_NULL_HANDLE)
+				return;
+			prog.uniformSetPending = false;
+			prog.descriptorSet = set;
+			prog.writtenBindings = asked;
+			prog.descriptorSetStale = false;
+			prog.descriptorSetBound = true;
+			return;
+		}
 		if (progIt->second.descriptorSet != VK_NULL_HANDLE && progIt->second.descriptorSetBound)
 		{
 			ProgramRecord &prog = progIt->second;
@@ -2945,6 +2977,26 @@ namespace p3d {
 		out += ",\"uniformBuffers\":" + std::to_string(uniformCount);
 		out += ",\"uniformBytes\":" + std::to_string(uniformBytes);
 		out += ",\"streamBytes\":" + std::to_string(streamBytes);
+		// every uniform ring: what it was sized for against what a frame has ever asked of it
+		out += ",\"rings\":[";
+		{
+			bool first = true;
+			for (std::map<DeviceHandle, BufferRecord>::iterator it = buffers.begin(); it != buffers.end(); ++it)
+			{
+				const BufferRecord &b = it->second;
+				if (!b.isDynamicUniform) continue;
+				if (!first) out += ",";
+				first = false;
+				out += "{\"handle\":" + std::to_string((uint64)it->first) + ",\"binding\":" + std::to_string(b.bindingPoint)
+					+ ",\"slotBytes\":" + std::to_string((uint64)b.alignedSlotSize) + ",\"slots\":" + std::to_string(b.slotCount)
+					+ ",\"bytes\":" + std::to_string((uint64)b.alignedSlotSize * b.slotCount)
+					+ ",\"peak\":" + std::to_string(b.peakWrites > b.demandThisFrame ? b.peakWrites : b.demandThisFrame)
+					+ ",\"framesUsed\":" + std::to_string(b.framesUsed)
+					+ ",\"maxSlots\":" + std::to_string(b.maxSlotCount) + ",\"growths\":" + std::to_string(b.growths)
+					+ ",\"exhausted\":" + (b.everExhausted ? "true" : "false") + "}";
+			}
+		}
+		out += "]";
 		out += ",\"buffersBySize\":[";
 		{
 			bool first = true;
@@ -3258,6 +3310,7 @@ namespace p3d {
 		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(progHandleIt->second);
 		if (progIt == programs.end())
 			return true;
+		ResolvePendingUniformSet(progIt->second);
 		if (progIt->second.descriptorSet != VK_NULL_HANDLE)
 		{
 			// Dynamic offsets must be supplied in the same order the
@@ -3487,6 +3540,12 @@ namespace p3d {
 		for (size_t i = 0; i < retiredPipelines[slot].size(); i++)
 			vkDestroyPipeline(device, retiredPipelines[slot][i], NULL);
 		retiredPipelines[slot].clear();
+		for (size_t i = 0; i < retiredSamplers[slot].size(); i++)
+			vkDestroySampler(device, retiredSamplers[slot][i], NULL);
+		retiredSamplers[slot].clear();
+		for (size_t i = 0; i < retiredImages[slot].size(); i++)
+			DestroyRetiredImage(retiredImages[slot][i]);
+		retiredImages[slot].clear();
 		std::vector<CachedSamplerSet> &list = retiredSamplerSets[slot];
 		for (size_t i = 0; i < list.size(); i++)
 			vkFreeDescriptorSets(device, list[i].pool, 1, &list[i].set);
@@ -3517,6 +3576,20 @@ namespace p3d {
 			if (slotCount < 4096u) slotCount = 4096u;
 			if (slotCount > DYNAMIC_UBO_SLOT_COUNT) slotCount = DYNAMIC_UBO_SLOT_COUNT;
 		}
+		// That is how far a ring may grow, not where it starts. Measured in
+		// an editor with a 4 km island in Play: 71 rings reserved 1.1 GB
+		// between them, and the busiest frame of each, added up, wrote
+		// 1.3 MB - most are a material's own block, written once or twice
+		// a frame into room for 37449. A ring starts at about 64 KB and
+		// doubles when a frame fills it (GrowUniformRing).
+		const uint32 maxSlotCount = slotCount;
+		if (dynamic)
+		{
+			const VkDeviceSize kStartBytes = 64ull * 1024ull;
+			uint32 start = (uint32)(kStartBytes / alignedSlotSize);
+			if (start < 16u) start = 16u;
+			if (start < slotCount) slotCount = start;
+		}
 		VkDeviceSize totalSize = alignedSlotSize * slotCount;
 
 		VkBufferCreateInfo bufferInfo = {};
@@ -3534,6 +3607,8 @@ namespace p3d {
 		record.isDynamicUniform = dynamic;
 		record.alignedSlotSize = alignedSlotSize;
 		record.slotCount = slotCount;
+		record.maxSlotCount = maxSlotCount;
+		record.bindingPoint = bindingPoint;
 		record.currentSlot = 0;
 		VmaAllocationInfo allocationInfo;
 		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &record.buffer, &record.allocation, &allocationInfo) != VK_SUCCESS)
@@ -3608,12 +3683,19 @@ namespace p3d {
 			// The previous frame may still be on the GPU reading its slots,
 			// so both frames' writes have to fit before the ring wraps
 			// into live data.
+			it->second.demandThisFrame++;
+			// Full, and allowed to be larger: a larger one, and this write is
+			// the first into it.
+			if (it->second.writesThisFrame + it->second.writesLastFrame >= it->second.slotCount
+				&& it->second.slotCount < it->second.maxSlotCount)
+				GrowUniformRing(buffer, it->second);
 			if (it->second.writesThisFrame + it->second.writesLastFrame >= it->second.slotCount)
 			{
 				// Reported once per buffer rather than once per process:
 				// which UBO is being hammered is the entire diagnosis, and a
 				// single global flag hid that. Still once, because at this
 				// point it is happening thousands of times a frame.
+				it->second.everExhausted = true;
 				if (!it->second.warnedExhausted)
 				{
 					it->second.warnedExhausted = true;
@@ -3632,6 +3714,94 @@ namespace p3d {
 			it->second.writesThisFrame++;
 		}
 		UpdateUniformBuffer(buffer, 0, sizeBytes, data);
+	}
+
+	bool VulkanRenderDevice::GrowUniformRing(const DeviceHandle handle, BufferRecord &rec)
+	{
+		uint32 slots = rec.slotCount;
+		// room for this frame and the one in flight, twice over
+		const uint64 need = ((uint64)rec.writesThisFrame + rec.writesLastFrame + 1) * 2;
+		while (slots < rec.maxSlotCount && slots < need) slots *= 2;
+		if (slots > rec.maxSlotCount) slots = rec.maxSlotCount;
+		if (slots <= rec.slotCount) return false;
+
+		VkBufferCreateInfo bufferInfo = {};
+		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bufferInfo.size = rec.alignedSlotSize * slots;
+		bufferInfo.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
+		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		allocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		VkBuffer larger = VK_NULL_HANDLE;
+		VmaAllocation allocation = VK_NULL_HANDLE;
+		VmaAllocationInfo allocationInfo;
+		if (vmaCreateBuffer(allocator, &bufferInfo, &allocInfo, &larger, &allocation, &allocationInfo) != VK_SUCCESS)
+			return false;       // stays as it was, and the caller reports the ring as full
+		if (allocationInfo.pMappedData != NULL)
+			memset(allocationInfo.pMappedData, 0, (size_t)bufferInfo.size);
+
+		// The old buffer is still read by the draws already recorded and by
+		// the frame in flight, through the sets that name it. It goes the
+		// way any freed buffer does, and so do those sets.
+		BufferRecord old = rec;
+		old.streamRingCount = 0;
+		RetireOrDestroyBufferRecord(old);
+
+		rec.buffer = larger;
+		rec.allocation = allocation;
+		rec.mapped = allocationInfo.pMappedData;
+		rec.slotCount = slots;
+		// nothing recorded reads the new buffer: it starts empty. currentSlot
+		// is stepped by the caller before it writes.
+		rec.currentSlot = slots - 1;
+		rec.writesThisFrame = 0;
+		rec.writesLastFrame = 0;
+		rec.growths++;
+
+		for (std::map<DeviceHandle, ProgramRecord>::iterator pIt = programs.begin(); pIt != programs.end(); ++pIt)
+		{
+			ProgramRecord &prog = pIt->second;
+			bool inHandRetired = false;
+			for (std::map<std::map<uint32, DeviceHandle>, VkDescriptorSet>::iterator s = prog.uniformSetsByBuffers.begin(); s != prog.uniformSetsByBuffers.end(); )
+			{
+				bool names = false;
+				for (std::map<uint32, DeviceHandle>::const_iterator b = s->first.begin(); b != s->first.end(); ++b)
+					if (b->second == handle) { names = true; break; }
+				if (!names) { ++s; continue; }
+				if (s->second == prog.descriptorSet) inHandRetired = true;
+				prog.retiredUniformSets.push_back(std::make_pair(s->second, uniformSetFrame));
+				prog.uniformSetsByBuffers.erase(s++);
+			}
+			bool written = false;
+			for (std::map<uint32, DeviceHandle>::const_iterator w = prog.writtenBindings.begin(); w != prog.writtenBindings.end(); ++w)
+				if (w->second == handle) { written = true; break; }
+			if (!written && !inHandRetired) continue;
+			// The set in hand has the old buffer written into it. It cannot
+			// be rewritten (a recorded draw may name it), so the program
+			// takes another at its next bind.
+			if (prog.descriptorSet != VK_NULL_HANDLE)
+			{
+				if (!inHandRetired)
+					prog.retiredUniformSets.push_back(std::make_pair(prog.descriptorSet, uniformSetFrame));
+				prog.descriptorSet = VK_NULL_HANDLE;
+				prog.uniformSetPending = true;
+			}
+		}
+		return true;
+	}
+
+	void VulkanRenderDevice::ResolvePendingUniformSet(ProgramRecord &prog)
+	{
+		if (!prog.uniformSetPending) return;
+		if (!EnsureDescriptorPool()) return;
+		const VkDescriptorSet set = UniformSetForBuffers(prog, prog.writtenBindings);
+		if (set == VK_NULL_HANDLE) return;
+		prog.uniformSetPending = false;
+		prog.descriptorSet = set;
+		prog.descriptorSetStale = false;
+		// complete as written: nothing more may be written to it
+		prog.descriptorSetBound = true;
 	}
 
 	void VulkanRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)
@@ -3964,6 +4134,12 @@ namespace p3d {
 		std::vector<VkPipeline> &pipes = retiredPipelines[currentFrameSlot];
 		pipes.insert(pipes.end(), retiredPipelinesBeforeNextFrame.begin(), retiredPipelinesBeforeNextFrame.end());
 		retiredPipelinesBeforeNextFrame.clear();
+		std::vector<VkSampler> &samplersNow = retiredSamplers[currentFrameSlot];
+		samplersNow.insert(samplersNow.end(), retiredSamplersBeforeNextFrame.begin(), retiredSamplersBeforeNextFrame.end());
+		retiredSamplersBeforeNextFrame.clear();
+		std::vector<RetiredImage> &imagesNow = retiredImages[currentFrameSlot];
+		imagesNow.insert(imagesNow.end(), retiredImagesBeforeNextFrame.begin(), retiredImagesBeforeNextFrame.end());
+		retiredImagesBeforeNextFrame.clear();
 		std::vector<CachedSamplerSet> &sets = retiredSamplerSets[currentFrameSlot];
 		sets.insert(sets.end(), retiredSamplerSetsBeforeNextFrame.begin(), retiredSamplerSetsBeforeNextFrame.end());
 		retiredSamplerSetsBeforeNextFrame.clear();
@@ -4459,7 +4635,18 @@ namespace p3d {
 		{
 			// Same handle-recycling hazard as ForgetSamplerDescriptorsForView.
 			RetireSamplerSetsNaming((uint64)(uintptr_t)tex.sampler);
-			vkDestroySampler(device, tex.sampler, NULL);
+			// Not destroyed here: this runs mid-frame, when a draw sets a
+			// texture whose wrap or filter was changed since its last use,
+			// and the draws already recorded sample through the old one
+			// (a HUD image shared by two widgets did this a dozen times a
+			// Play - VUID-vkDestroySampler-sampler-01082). It goes when
+			// this frame slot comes round again, like a retired pipeline.
+			if (frameInProgress)
+				retiredSamplers[currentFrameSlot].push_back(tex.sampler);
+			else if (swapchain != VK_NULL_HANDLE)
+				retiredSamplersBeforeNextFrame.push_back(tex.sampler);
+			else
+				vkDestroySampler(device, tex.sampler, NULL);
 			tex.sampler = VK_NULL_HANDLE;
 		}
 
@@ -4821,6 +5008,14 @@ namespace p3d {
 		return handle;
 	}
 
+	void VulkanRenderDevice::DestroyRetiredImage(RetiredImage &r)
+	{
+		if (r.sampler != VK_NULL_HANDLE) vkDestroySampler(device, r.sampler, NULL);
+		for (size_t i = 0; i < r.views.size(); i++) vkDestroyImageView(device, r.views[i], NULL);
+		if (r.image != VK_NULL_HANDLE && allocator != VK_NULL_HANDLE) vmaDestroyImage(allocator, r.image, r.allocation);
+		r = RetiredImage();
+	}
+
 	void VulkanRenderDevice::DestroyTextureObject(const DeviceHandle texture)
 	{
 		// Drop any ImGui descriptor handed out for this texture - it points
@@ -4842,26 +5037,43 @@ namespace p3d {
 			return;
 		if (device != VK_NULL_HANDLE)
 		{
-			if (it->second.sampler != VK_NULL_HANDLE) vkDestroySampler(device, it->second.sampler, NULL);
+			// Nothing is destroyed here unless no frame will come round to
+			// do it: a streamed cell lets go of its textures while the frame
+			// in flight still samples them and, for one just loaded, while
+			// its upload may still be queued (VUID-vkDestroyImage-image-01000,
+			// ten times in 45 s of a 4 km desert).
+			RetiredImage r;
+			r.sampler = it->second.sampler;
 			// Same handle-recycling hazard as the resize path - see
 			// ForgetSamplerDescriptorsForView()'s header comment.
 			ForgetSamplerDescriptorsForView(it->second.view);
-			if (it->second.view != VK_NULL_HANDLE) vkDestroyImageView(device, it->second.view, NULL);
+			if (it->second.view != VK_NULL_HANDLE) r.views.push_back(it->second.view);
 			// A render-target texture also has one cached view per attachment
 			// target (GetOrCreateRenderTargetView() - level-0-only views used
-			// as framebuffer attachments). Every other destroy path already
-			// releases these; this one didn't, so each render target left one
-			// VkImageView alive for the process's whole lifetime and
-			// vkDestroyDevice reported them as leaked objects.
+			// as framebuffer attachments), released with it.
 			for (std::map<uint32, VkImageView>::iterator rtIt = it->second.renderTargetViewsByTarget.begin(); rtIt != it->second.renderTargetViewsByTarget.end(); rtIt++)
 			{
 				ForgetSamplerDescriptorsForView(rtIt->second);
-				vkDestroyImageView(device, rtIt->second, NULL);
+				r.views.push_back(rtIt->second);
 			}
 			it->second.renderTargetViewsByTarget.clear();
+			if (allocator != VK_NULL_HANDLE && it->second.image != VK_NULL_HANDLE)
+			{
+				r.image = it->second.image;
+				r.allocation = it->second.allocation;
+			}
+			if (frameInProgress)
+				retiredImages[currentFrameSlot].push_back(r);
+			else if (swapchain != VK_NULL_HANDLE && retiredImagesBeforeNextFrame.size() < 4096)
+				retiredImagesBeforeNextFrame.push_back(r);
+			else
+			{
+				EnsureHostMappedBufferWritable();
+				for (size_t n = 0; n < retiredImagesBeforeNextFrame.size(); n++) DestroyRetiredImage(retiredImagesBeforeNextFrame[n]);
+				retiredImagesBeforeNextFrame.clear();
+				DestroyRetiredImage(r);
+			}
 		}
-		if (allocator != VK_NULL_HANDLE && it->second.image != VK_NULL_HANDLE)
-			vmaDestroyImage(allocator, it->second.image, it->second.allocation);
 		textures.erase(it);
 		if (currentlyConfiguringTexture == texture)
 			currentlyConfiguringTexture = 0;
