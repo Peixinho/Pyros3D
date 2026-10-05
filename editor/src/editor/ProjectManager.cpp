@@ -281,7 +281,13 @@ std::string ProjectManager::RelativePath(const std::string& absolute) const
 	std::error_code ec;
 	fs::path abs = fs::absolute(absolute, ec);
 	fs::path root = fs::absolute(projectPath, ec);
-	fs::path rel = fs::relative(abs, root, ec);
+	// By the path as written first. fs::relative resolves symbolic links before it
+	// compares, so a project whose assets folder is a link to somewhere else had every
+	// file in it come out as "outside the project": the asset browser was empty and
+	// nothing in it could be referred to.
+	fs::path rel = abs.lexically_normal().lexically_relative(root.lexically_normal());
+	if (rel.empty() || *rel.begin() == "..")
+		rel = fs::relative(abs, root, ec);
 	if (ec || rel.empty() || *rel.begin() == "..")
 		return std::string();
 	return rel.generic_string();
