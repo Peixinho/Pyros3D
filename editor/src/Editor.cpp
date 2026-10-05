@@ -3163,6 +3163,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["mainScript"] = project.DisplayPath(sceneView->GetSceneMainScript());
 		return r;
 	}
+	// {"cmd":"helper_icons","args":{"on":false}} - View > Show Helper Icons
+	if (name == "helper_icons")
+	{
+		const bool on = !a.is_object() || !a.contains("on") || a["on"].get<bool>();
+		sceneView->SetHelperIcons(on);
+		nlohmann::json r; r["ok"] = true; r["on"] = sceneView->AreHelperIconsOn();
+		return r;
+	}
 	// {"cmd":"physics_debug","args":{"on":true}}
 	if (name == "physics_debug")
 	{

@@ -388,6 +388,11 @@ public:
 	// match its art is a silent bug. Exposed so it can be driven from a
 	// script, which is the only way to SEE terrain collision without a mouse.
 	void SetPhysicsDebug(const bool on) { PhysicsDebugFlag() = on; }
+	// The icons that stand for what has no shape of its own - a light, a
+	// sound, an emitter, an empty object. View > Show Helper Icons: a scene
+	// with a few hundred of them is hard to see for them.
+	void SetHelperIcons(const bool on) { showHelperIcons = on; }
+	bool AreHelperIconsOn() const { return showHelperIcons; }
 	bool IsPhysicsDebug() const { return playMode ? showPhysicsDebugPlay : showPhysicsDebug; }
 	// Set by the Tile Palette's "Edit Tile Set..." button; Editor drains it
 	// and opens the document. A request rather than a direct call because
@@ -1806,6 +1811,7 @@ private:
 	// and the helper meshes while leaving the billboard icons on top of the
 	// frame is not "chrome hidden" by any useful definition.
 	bool editorChromeVisible = true;
+	bool showHelperIcons = true;
 
 	// Selected Scene Object
 	SceneObject* SelectedSceneObject;

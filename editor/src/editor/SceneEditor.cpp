@@ -1519,7 +1519,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// Light/sound/particle/empty icons: kept off the scene layer so SSR
 			// and the post chain never see them, drawn here instead, farthest
 			// first because they blend.
-			if (editorChromeVisible && !playMode)
+			if (editorChromeVisible && showHelperIcons && !playMode)
 			{
 				const Vec3 eye = viewCam->GetWorldPosition();
 				std::vector<std::pair<f32, IHelper*> > icons;
@@ -1701,7 +1701,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// resolved to.
 		UpdateTilePainting();
 		UpdateTerrainBrush();
-		if (!playMode && editorChromeVisible)
+		if (!playMode && editorChromeVisible && showHelperIcons)
 			DrawSceneViewportIcons(imgMin, imgSize, viewCam);
 
 		if (showingAddFrom) ShowAddForm();
@@ -5405,6 +5405,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			editorDebugDraw->ToggleLightGizmos(!lightGizmos);
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Radius spheres and spot cones for every light. Otherwise only the selected light component's is drawn.");
+		if (ImGui::MenuItem("Show Helper Icons", NULL, showHelperIcons))
+			showHelperIcons = !showHelperIcons;
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("The icons for lights, sounds, particle emitters and empty objects. Hidden, they cannot be clicked in the view either: pick those in the tree.");
 		if (ImGui::MenuItem("Show Physics Debug", NULL, PhysicsDebugFlag()))
 			PhysicsDebugFlag() = !PhysicsDebugFlag();
 		if (ImGui::MenuItem("Show World Cells", NULL, showCellGrid, sceneWorld.enabled))
@@ -5947,9 +5951,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if ((*i).second->Helper)
 				{
 					IHelper* helper = (IHelper*)(*i).second->Helper.get();
-					if (helper->type == HELPER_TYPE::LIGHT || helper->type == HELPER_TYPE::SOUND
+					if (showHelperIcons && (helper->type == HELPER_TYPE::LIGHT || helper->type == HELPER_TYPE::SOUND
 						|| helper->type == HELPER_TYPE::PARTICLES
-						|| GameObjectShowsEmptyHelper(helper->owner))
+						|| GameObjectShowsEmptyHelper(helper->owner)))
 					{
 						helper->rcomp->Enable();
 						helper->Update(viewCam, projection.GetProjectionMatrix(), isPerspective, projectionOrtho.Right, projectionOrtho.Top);
