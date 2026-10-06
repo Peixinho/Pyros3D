@@ -190,6 +190,8 @@ namespace p3d {
 			static std::map<std::string, f64> sums;
 			for (uint32 i = 0; i < displayScopeCount_; i++) sums[displayScopes_[i].name] += displayScopes_[i].ms;
 			for (uint32 i = 0; i < counterCount_; i++) sums[std::string("#") + counters_[i].name] += counters_[i].ms;
+			// (and what the GPU took for each pass, where the device times them)
+			for (uint32 i = 0; i < gpuCount_; i++) sums[std::string("gpu:") + gpu_[i].name] += gpu_[i].ms;
 			if (wall >= gSlowMs && frames > 1)
 			{
 				slow++;

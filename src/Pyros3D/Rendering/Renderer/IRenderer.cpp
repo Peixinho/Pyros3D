@@ -234,8 +234,21 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 	// parts of one cutout character: they share an owner, so they share a
 	// distance, and an unstable sort permuted them arbitrarily - an arm would
 	// be behind the torso in one build and in front of it in the next.
-	Sort::_Camera = Camera;
-	std::stable_sort(_TranslucidMeshes.begin(), _TranslucidMeshes.end(), Sort::sortRenderingMeshes);
+	//
+	// Each one's distance worked out once, and the sort on those. (The
+	// comparison used to work out both distances - and the camera's place -
+	// every time it was asked: with a thousand panes of glass in a scene,
+	// tens of thousands of times a frame.)
+	{
+		const Vec3 eye = Camera->GetWorldPosition();
+		std::vector<std::pair<f32, RenderingMesh*> > keyed;
+		keyed.reserve(_TranslucidMeshes.size());
+		for (size_t k = 0; k < _TranslucidMeshes.size(); k++)
+			keyed.push_back(std::make_pair(eye.distanceSQR(_TranslucidMeshes[k]->renderingComponent->GetOwner()->GetWorldPosition()), _TranslucidMeshes[k]));
+		std::stable_sort(keyed.begin(), keyed.end(),
+			[](const std::pair<f32, RenderingMesh*> &x, const std::pair<f32, RenderingMesh*> &y) { return x.first < y.first; });
+		for (size_t k = 0; k < keyed.size(); k++) _TranslucidMeshes[k] = keyed[k].second;
+	}
 
 	// final list
 	for (std::vector<RenderingMesh*>::reverse_iterator i = _TranslucidMeshes.rbegin(); i != _TranslucidMeshes.rend(); i++)
