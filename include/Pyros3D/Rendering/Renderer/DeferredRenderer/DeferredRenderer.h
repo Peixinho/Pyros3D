@@ -110,6 +110,10 @@ namespace p3d {
 		// entry here when it is given this renderer.
 		void EnableSSAO();
 		void DisableSSAO();
+		// Ambient occlusion worked out at half the frame's width and height (a
+		// quarter of the cost) and stretched back over it. Off by default.
+		static void SetSSAOHalfResolution(const bool half);
+		static bool IsSSAOHalfResolution();
 		bool IsSSAOEnabled() const { return ssaoEnabled; }
 		void SetSSAOParams(const f32 radius, const f32 strength, const f32 falloff);
 		// How much of the occlusion direct lights also take, 0-1. Occlusion

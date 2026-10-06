@@ -12,6 +12,13 @@
 
 namespace p3d {
 
+	// Ambient occlusion at half the frame's resolution: every deferred
+	// renderer's, like the ambient light and the clear colour.
+	static bool g_ssaoHalfResolution = false;
+	void DeferredRenderer::SetSSAOHalfResolution(const bool half) { g_ssaoHalfResolution = half; }
+	bool DeferredRenderer::IsSSAOHalfResolution() { return g_ssaoHalfResolution; }
+
+
 	f32 f(f32 r)
 	{
 		return r * (2.f * (tanf((f32)PI / 4.f)));
@@ -656,8 +663,11 @@ namespace p3d {
 		device->WaitIdle();
 		IRenderer::Resize(Width, Height);
 		lastPassFBO->Resize(Width, Height);
-		ssaoFBO->Resize(Width, Height);
-		ssaoBlurFBO->Resize(Width, Height);
+		{
+			const bool halfAO = g_ssaoHalfResolution && Width >= 64 && Height >= 64;
+			ssaoFBO->Resize(halfAO ? Width / 2 : Width, halfAO ? Height / 2 : Height);
+			ssaoBlurFBO->Resize(halfAO ? Width / 2 : Width, halfAO ? Height / 2 : Height);
+		}
 		// Resizing recreates previousFrameColorTexture's underlying image
 		// (same "resize destroys+recreates the VkImage" behavior as any
 		// other Vulkan texture - see Texture::Resize()), which puts it
@@ -1109,6 +1119,23 @@ namespace p3d {
 			GameObject go = GameObject();
 
 			FrameProfiler::Instance().Begin("Deferred.SSAO");
+			// At half the frame's size when asked (SetSSAOHalfResolution): a
+			// quarter of the pixels for the sixteen depth reads each one costs,
+			// and the blur after it. The lighting pass reads the result by
+			// texture coordinate, so it is stretched back over the frame there.
+			// For these two passes the renderer's size IS the smaller one - the
+			// shaders work out where they are from it.
+			const uint32 fullWidth = Width, fullHeight = Height;
+			const bool halfAO = g_ssaoHalfResolution && Width >= 64 && Height >= 64;
+			const uint32 aoWidth = halfAO ? (Width / 2) : Width, aoHeight = halfAO ? (Height / 2) : Height;
+			if (ssaoTexture->GetWidth() != aoWidth || ssaoTexture->GetHeight() != aoHeight)
+			{
+				device->WaitIdle();
+				ssaoFBO->Resize(aoWidth, aoHeight);
+				ssaoBlurFBO->Resize(aoWidth, aoHeight);
+			}
+			Width = aoWidth; Height = aoHeight;
+			_SetViewPort(0, 0, aoWidth, aoHeight);
 			ssaoFBO->Bind();
 			InitRender();
 			GetGBufferAttachment(FrameBufferAttachmentFormat::Depth_Attachment)->Bind();
@@ -1128,6 +1155,8 @@ namespace p3d {
 			ssaoTexture->Unbind();
 			EndRender();
 			ssaoBlurFBO->UnBind();
+			Width = fullWidth; Height = fullHeight;
+			_SetViewPort(0, 0, fullWidth, fullHeight);
 			FrameProfiler::Instance().End();
 
 			// Same boundary as above, for the same reason: the ambient

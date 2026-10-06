@@ -156,10 +156,13 @@ void PyrosPlayer::SetLaunchArgs(int argc, char** argv)
 PyrosPlayer::PyrosPlayer()
 	: ClassName(PlayerManifestInstance().width, PlayerManifestInstance().height,
 		PlayerManifestInstance().title,
-		PlayerManifestInstance().fullscreen
-			? (WindowType::Fullscreen | WindowType::Close)
-			: (WindowType::Close | WindowType::Resize))
+		// (a game that starts full screen takes the desktop's own size, the way
+		// Alt+Enter and setFullscreen do - below. An exclusive mode at the
+		// window's size was asked for here, and on macOS that came out as a
+		// plain window of that size.)
+		WindowType::Close | WindowType::Resize)
 {
+
 	scene = NULL;
 	overlayScene = NULL;
 	physics2D = new Physics2DWorld();
@@ -1228,6 +1231,17 @@ void PyrosPlayer::Update()
 			SDL_SetWindowFullscreen(GetSDLWindow(), full ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
 		}
 		wasDown = down;
+	}
+
+	// (on the first frame, not when the window is made: asked for then, macOS
+	// leaves it a window)
+	{
+		static bool startFullscreen = PlayerManifestInstance().fullscreen;
+		if (startFullscreen && GetSDLWindow() != NULL)
+		{
+			startFullscreen = false;
+			SDL_SetWindowFullscreen(GetSDLWindow(), SDL_WINDOW_FULLSCREEN_DESKTOP);
+		}
 	}
 
 	// At the top of the frame, before anything renders - see OnResize().

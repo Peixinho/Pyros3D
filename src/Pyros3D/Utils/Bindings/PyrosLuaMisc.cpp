@@ -12,6 +12,7 @@
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -34,6 +35,9 @@ namespace p3d {
 		// 1 by default; 0 draws everything. See IRenderer::TooSmallToSee.
 		lua->set_function("setSmallObjectCull", [](const f32 pixels) { IRenderer::SetSmallObjectCull(pixels); });
 		lua->set_function("getSmallObjectCull", []() { return IRenderer::GetSmallObjectCull(); });
+		// setSSAOHalfResolution(true): the deferred renderer's ambient occlusion
+		// at half resolution - see DeferredRenderer::SetSSAOHalfResolution.
+		lua->set_function("setSSAOHalfResolution", [](const bool half) { DeferredRenderer::SetSSAOHalfResolution(half); });
 		lua->set_function("getClock", []() {
 			return std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
 		});
