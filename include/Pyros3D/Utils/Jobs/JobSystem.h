@@ -54,6 +54,9 @@ namespace p3d {
 		// fn(begin, end) for each, the caller taking a share. Returns when
 		// every batch has finished.
 		void ParallelFor(uint32 count, uint32 minBatch, const std::function<void(uint32 begin, uint32 end)> &fn);
+		// Prints what handing work out costs on this machine (PYROS_JOB_BENCH=1
+		// has the player do it at start).
+		void Benchmark();
 
 	private:
 		JobSystem();

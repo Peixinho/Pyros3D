@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Assets/AssetPreload.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
@@ -489,6 +490,8 @@ end
 
 	LuaComponent::SetUpdatesEnabled(true);
 #endif
+
+	if (std::getenv("PYROS_JOB_BENCH")) JobSystem::Instance().Benchmark();
 
 	// The project's quality settings (game.json "quality"), before any script
 	// runs: a script may still change them.
