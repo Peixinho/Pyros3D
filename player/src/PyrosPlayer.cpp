@@ -6,6 +6,7 @@
 // Description : See PyrosPlayer.h.
 //============================================================================
 
+#include <thread>
 #include <chrono>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
@@ -1507,9 +1508,21 @@ void PyrosPlayer::Update()
 		{
 			PYROS_PROFILE_SCOPE("Player.FrameLimit");
 			const f64 waitMs = std::chrono::duration<f64, std::milli>(nextFrameAt - now).count();
-			// (sleep to within a millisecond and a half of it, then spin: a
-			// sleep alone overshoots by as much as that)
+			// (sleep to within a millisecond and a half of it - SDL's sleep
+			// overshoots by as much as that - then, where the system's own
+			// sleep is good to a fraction of a millisecond, sleep most of what
+			// is left too; only the last of it is spun away. Spinning the
+			// whole millisecond and a half was a tenth of a core, every frame,
+			// on the machines this limit is there to keep cool.)
 			if (waitMs > 2.0) SDL_Delay((Uint32)(waitMs - 1.5));
+#ifndef _WIN32
+			for (;;)
+			{
+				const f64 left = std::chrono::duration<f64, std::milli>(nextFrameAt - std::chrono::steady_clock::now()).count();
+				if (left <= 0.3) break;
+				std::this_thread::sleep_for(std::chrono::duration<f64, std::milli>(left - 0.25));
+			}
+#endif
 			while (std::chrono::steady_clock::now() < nextFrameAt) {}
 			autoScale.presentWaitMs += waitMs;
 		}

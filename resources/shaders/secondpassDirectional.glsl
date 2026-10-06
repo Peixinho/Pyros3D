@@ -284,6 +284,15 @@ void main() {
 	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);
 
 	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
+	// Turned away from the light: CalculatePBRLighting() ends in a multiply
+	// by max(dot(N, L), 0), so what follows adds exactly nothing - and what
+	// follows is the shadow lookup, 16 to 36 samples of the map. On a low sun
+	// that is every wall, trunk and slope on the far side.
+	if (dot(vViewNormal, normalize(-uLightDirection)) <= 0.0)
+	{
+		FragColor = vec4(0.0);
+		return;
+	}
 	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec3 specTint = texture(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec4 lightColor = uLightColor;

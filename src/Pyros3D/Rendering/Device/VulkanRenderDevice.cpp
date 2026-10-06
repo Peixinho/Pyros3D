@@ -54,14 +54,21 @@ namespace {
 	enum { kVkT_UpdateDescriptorSets, kVkT_AllocateDescriptorSets, kVkT_CmdBindDescriptorSets, kVkT_CmdBindPipeline, kVkT_CmdDrawIndexed, kVkT_CmdBindVertexBuffers, kVkT_CmdBindIndexBuffer, kVkT_CreateGraphicsPipelines, kVkT_CmdBeginRenderPass, kVkT_CmdEndRenderPass, kVkT_DrawElements, kVkT_DrawElementsInstanced, kVkT_BindSets, kVkT_BindPipelineFn, kVkT_UboReplace, kVkT_UboUpdate, kVkT_Count };
 	const char* const kVkTNames[kVkT_Count] = { "UpdateDescriptorSets", "AllocateDescriptorSets", "CmdBindDescriptorSets", "CmdBindPipeline", "CmdDrawIndexed", "CmdBindVertexBuffers", "CmdBindIndexBuffer", "CreateGraphicsPipelines", "CmdBeginRenderPass", "CmdEndRenderPass", "DrawElements", "DrawElementsInstanced", "BindSets", "BindPipelineFn", "UboReplace", "UboUpdate" };
 	uint64_t gVkTriangles = 0;
+	bool gVkTimersOn = true;
+	uint32_t gVkTimerFrame = 0;
 	uint64_t gVkTNs[kVkT_Count] = {};
 	uint32_t gVkTN[kVkT_Count] = {};
 	struct PyrosVkTimer
 	{
+		// Timed one frame in sixteen (gVkTimersOn): a frame of five hundred
+		// draws read the clock six thousand times for these, a twentieth of
+		// all the CPU the frame took. The counters say what the last timed
+		// frame did.
 		int idx; std::chrono::steady_clock::time_point t0;
-		explicit PyrosVkTimer(const int i) : idx(i), t0(std::chrono::steady_clock::now()) {}
+		explicit PyrosVkTimer(const int i) : idx(gVkTimersOn ? i : -1) { if (idx >= 0) t0 = std::chrono::steady_clock::now(); }
 		~PyrosVkTimer()
 		{
+			if (idx < 0) return;
 			gVkTNs[idx] += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
 			gVkTN[idx]++;
 		}
@@ -71,9 +78,17 @@ namespace {
 		// (triangles handed to the GPU this frame, all passes: thousands)
 		p3d::FrameProfiler::Instance().Counter("VK.KTris", (double)gVkTriangles / 1000.0);
 		gVkTriangles = 0;
+		const bool timed = gVkTimersOn;
+		gVkTimersOn = (++gVkTimerFrame % 16) == 0;
+		if (!timed) return;
 		for (int i = 0; i < kVkT_Count; i++)
 		{
-			if (gVkTN[i] == 0) continue;
+			// (a step that did not happen this frame still says so once it has
+			// ever been seen: a counter left alone keeps its last value, and
+			// the log then showed one pipeline made every frame for ever)
+			static bool seen[kVkT_Count] = {};
+			if (gVkTN[i] == 0 && !seen[i]) continue;
+			seen[i] = true;
 			char name[64];
 			std::snprintf(name, sizeof(name), "VKt.%s.us", kVkTNames[i]);
 			p3d::FrameProfiler::Instance().Counter(name, (double)gVkTNs[i] / 1000.0);
