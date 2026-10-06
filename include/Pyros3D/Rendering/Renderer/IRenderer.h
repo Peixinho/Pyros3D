@@ -9,6 +9,7 @@
 #ifndef IRENDERER_H
 #define IRENDERER_H
 
+#include <unordered_map>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Core/Projection/Projection.h>
@@ -257,6 +258,8 @@ namespace p3d {
 		// says yes to, in their order; `keep` is called from several threads
 		// at once and must only read.
 		static void SetParallelCulling(const bool on);
+		// The frame's lists built on every core (off by default: slower where frames are capped).
+		static void SetParallelLists(const bool on);
 		static void CullInParallel(std::vector<RenderingMesh*> &meshes, const std::function<bool(RenderingMesh*)> &keep);
 		// The frame's list as culling wants it (see BuildCullList): a sphere
 		// and a few bits a mesh, in the list's order.
@@ -265,6 +268,37 @@ namespace p3d {
 		std::vector<uint8> cullFlags;
 		void BuildCullList();
 		bool CullListTest(const size_t i);
+		void CullEntry(const size_t i, RenderingMesh* m);
+		void GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const uint32 Tag, std::vector<RenderingMesh*> &opaque, std::vector<RenderingMesh*> &translucent);
+		void SortTranslucent(GameObject* Camera, std::vector<RenderingMesh*> &translucent);
+
+		// The frame's list kept from one frame to the next (see RenderState.h):
+		// made from scratch only when what is drawn may have changed, and
+		// otherwise put right where something moved. One for each scene and
+		// tag this renderer draws.
+		struct FrameList
+		{
+			bool valid = false;
+			uint32 version = 0, layer = 0;
+			bool lod = false, sorting = false;
+			uint64 movedSeq = 0;
+			std::vector<RenderingMesh*> opaque, translucent;
+			// each mesh's material and whether it is switched on, as they were
+			// when the list was made: both are plain fields anybody may write
+			std::vector<IMaterial*> materialOf;
+			std::vector<uint8> activeOf;
+			std::vector<std::pair<IMaterial*, bool> > materials;        // each material once, and whether it was see-through
+			std::vector<Vec4> sphere;
+			std::vector<uint8> flags;
+			std::vector<Vec3> translucentPlace;     // where each see-through mesh's object is: what it is sorted by
+			std::vector<RenderingComponent*> lodComponents;
+			std::vector<std::pair<RenderingComponent*, bool> > instanced;      // and whether it had no instances
+			std::unordered_map<GameObject*, std::vector<uint32> > where;        // an owner's places in the kept arrays
+		};
+		std::map<std::pair<SceneGraph*, uint32>, FrameList> frameLists;
+		// Fills rmesh, cullSphere and cullFlags for this frame.
+		void UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32 Tag);
+		// (PYROS_FRAME_LISTS=0 makes the list from scratch every frame, as before.)
 		static f32 GetSmallObjectCull();
 		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
 
@@ -358,6 +392,7 @@ namespace p3d {
 		// must not be rewritten before the GPU has read it.
 		struct AutoInstanceBatch
 		{
+			bool failed = false;        // could not be made for this geometry: single draws instead
 			std::shared_ptr<GameObject> owner;
 			std::shared_ptr<RenderingInstancedComponent> comp;
 			RenderingMesh* mesh = NULL;

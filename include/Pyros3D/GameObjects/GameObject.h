@@ -10,6 +10,7 @@
 #define	GAMEOBJECT_H
 
 #include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
@@ -133,6 +134,16 @@ namespace p3d {
 		SceneGraph* GetScene() const { return Scene; }
 		// The scene this object is in, through whatever it hangs from (NULL: none).
 		SceneGraph* GetOwningScene() { return FindScene(); }
+		// Says this object's place or size in the world was worked out again
+		// (RenderState's moved log) - once between one reading of the log and the next.
+		void NoteMovedOnce()
+		{
+			const uint32_t epoch = RenderState::ReadEpoch.load(std::memory_order_relaxed);
+			if (_MovedNoted == epoch) return;
+			_MovedNoted = epoch;
+			RenderState::NoteMoved(this);
+		}
+		uint32_t _MovedNoted = 0;
 		// Whether LookAt(GameObject*) is currently in force. Goes false on
 		// its own if the target is destroyed.
 		bool IsLookingAtGameObject() const { return _IsLookingAtGameObject; }

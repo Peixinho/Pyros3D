@@ -120,7 +120,15 @@ namespace p3d {
 		// while a frame is being made, asleep between frames.
 		void WorkerLoop()
 		{
-			static const std::chrono::microseconds kSpin(250);
+			// (PYROS_JOB_SPIN_US: how long, in microseconds - a quarter of a
+			// millisecond unless said. A game running flat out, frame after
+			// frame, wants its workers up for the whole of each: longer than
+			// the gaps between one burst and the next.)
+			static const std::chrono::microseconds kSpin([]() -> long long {
+				const char* v = std::getenv("PYROS_JOB_SPIN_US");
+				const long long us = v ? std::strtoll(v, NULL, 10) : 250;
+				return us < 0 ? 0 : us;
+			}());
 			for (;;)
 			{
 				if (TryRunOne()) continue;

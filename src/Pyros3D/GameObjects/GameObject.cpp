@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <cstring>
 #include <typeinfo>
@@ -206,6 +207,7 @@ namespace p3d {
 			_PrvLocalMatrix = prv;
 		}
 		_WorldMatrix = _HaveOwner ? (_Owner->_WorldMatrix * _LocalMatrix) : _LocalMatrix;
+		NoteMovedOnce();
 		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
 		UpdateWorldBounds();
 		return true;
@@ -232,10 +234,12 @@ namespace p3d {
 			if (refresh)
 				_Owner->RefreshWorldChain();
 			_WorldMatrix = _Owner->_WorldMatrix * _LocalMatrix;
+			NoteMovedOnce();
 			wasDirty = true;
 		}
 		else {
 			_WorldMatrix = _LocalMatrix;
+			NoteMovedOnce();
 		}
 
 		// Set Bounding Sphere Scale
@@ -249,6 +253,7 @@ namespace p3d {
 		if (_HaveOwner) _Owner->RefreshWorldChain();
 		UpdateLocalTransformation(0);
 		_WorldMatrix = _HaveOwner ? _Owner->_WorldMatrix * _LocalMatrix : _LocalMatrix;
+		NoteMovedOnce();
 		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
 	}
 
@@ -487,6 +492,7 @@ namespace p3d {
 					maxBounds = Component->maxBounds;
 					BoundingSphereRadius = Component->BoundingSphereRadius;
 					BoundingSphereCenter = Component->BoundingSphereCenter;
+					NoteMovedOnce();
 				}
 				else {
 					if (minBounds.x > Component->minBounds.x) minBounds.x = Component->minBounds.x;
@@ -499,6 +505,7 @@ namespace p3d {
 					{
 						BoundingSphereRadius = Component->BoundingSphereRadius;
 						BoundingSphereCenter = Component->BoundingSphereCenter;
+						NoteMovedOnce();
 					}
 				}
 				echo("TRACE: Component Added to GameObject");
@@ -548,6 +555,7 @@ namespace p3d {
 				// Recheck Bounding
 				minBounds = maxBounds = BoundingSphereCenter = Vec3();
 				BoundingSphereRadius = 0;
+				NoteMovedOnce();
 
 				for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
 				{
@@ -556,6 +564,7 @@ namespace p3d {
 					{
 						BoundingSphereRadius = Component->BoundingSphereRadius;
 						BoundingSphereCenter = Component->BoundingSphereCenter;
+						NoteMovedOnce();
 					}
 					if (minBounds.x > Component->minBounds.x) minBounds.x = Component->minBounds.x;
 					if (minBounds.y > Component->minBounds.y) minBounds.y = Component->minBounds.y;
@@ -701,6 +710,7 @@ namespace p3d {
 				maxBounds = c->maxBounds;
 				BoundingSphereRadius = c->BoundingSphereRadius;
 				BoundingSphereCenter = c->BoundingSphereCenter;
+				NoteMovedOnce();
 				first = false;
 				continue;
 			}
@@ -714,12 +724,14 @@ namespace p3d {
 			{
 				BoundingSphereRadius = c->BoundingSphereRadius;
 				BoundingSphereCenter = c->BoundingSphereCenter;
+				NoteMovedOnce();
 			}
 		}
 		if (first)
 		{
 			minBounds = maxBounds = BoundingSphereCenter = Vec3();
 			BoundingSphereRadius = 0.f;
+			NoteMovedOnce();
 		}
 		// The world-space box is derived from these in InternalUpdate(),
 		// which runs every frame - nothing more to do here.
@@ -764,11 +776,13 @@ namespace p3d {
 
 	void GameObject::AddTag(const std::string &tag)
 	{
+		RenderState::Touch();
 		uint32 tagID = MakeStringID(tag);
 		TagsList[tagID] = tag;
 	}
 	void GameObject::RemoveTag(const std::string &tag)
 	{
+		RenderState::Touch();
 		uint32 tagID = MakeStringID(tag);
 		TagsList.erase(tagID);
 	}

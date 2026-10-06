@@ -7,6 +7,15 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
+#include <execinfo.h>
+#include <dlfcn.h>
+#endif
+#include <map>
+#include <string>
+#include <algorithm>
+#include <mutex>
+#include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 // In the .cpp only: the AnimationManager headers include this one, so pulling
@@ -192,6 +201,7 @@ namespace p3d {
 	// every instance still in place.
 	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material)
 	{
+		RenderState::Touch();
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
 		{
@@ -222,6 +232,7 @@ namespace p3d {
 
 	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions)
 	{
+		RenderState::Touch();
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
 		{
@@ -252,6 +263,7 @@ namespace p3d {
 
 	void RenderingComponent::AddLODOwnMaterials(const std::shared_ptr<Renderable> &renderable, const f32 Distance)
 	{
+		RenderState::Touch();
 		const std::vector<RenderingMesh*> &own = Meshes[0];
 		if (!renderable || own.empty()) return;
 		const uint32 LODLVL = (uint32)Meshes.size();
@@ -279,6 +291,7 @@ namespace p3d {
 
 	void RenderingComponent::ClearLODs()
 	{
+		RenderState::Touch();
 		if (Meshes.size() <= 1) { LOD = false; if (LODDistances.size() > 1) LODDistances.resize(1); return; }
 		// the scene is drawing one level's meshes: make that the nearest
 		// before the others go
@@ -302,6 +315,7 @@ namespace p3d {
 
 	void RenderingComponent::SetShadowRenderable(const std::shared_ptr<Renderable> &renderable)
 	{
+		RenderState::Touch();
 		for (size_t i = 0; i < shadowMeshes.size(); i++) delete shadowMeshes[i];
 		shadowMeshes.clear();
 		shadowRenderable.reset();
@@ -368,6 +382,7 @@ namespace p3d {
 			for (std::vector<RenderingMesh*>::iterator k = Meshes[0].begin(); k != Meshes[0].end(); k++)
 				// Add Mesh
 				Scene->GetRenderingMeshes().push_back((*k));
+				RenderState::Touch();
 
 			Registered = true;
 			this->Scene = Scene;
@@ -388,6 +403,7 @@ namespace p3d {
 						if ((*k) == (*i1))
 						{
 							Scene->GetRenderingMeshes().erase(k);
+							RenderState::Touch();
 							break;
 						}
 					}
@@ -398,6 +414,7 @@ namespace p3d {
 			for (std::vector<RenderingMesh*>::iterator i = GetMeshes(lod).begin(); i != GetMeshes(lod).end(); i++)
 			{
 				Scene->GetRenderingMeshes().push_back((*i));
+				RenderState::Touch();
 			}
 		}
 	}
@@ -445,6 +462,7 @@ namespace p3d {
 						if ((*k) == (*i1))
 						{
 							Scene->GetRenderingMeshes().erase(k);
+							RenderState::Touch();
 							break;
 						}
 					}
@@ -505,10 +523,12 @@ namespace p3d {
 
 	void RenderingComponent::EnableCastShadows()
 	{
+		if (!isCastingShadows) RenderState::Touch();
 		isCastingShadows = true;
 	}
 	void RenderingComponent::DisableCastShadows()
 	{
+		if (isCastingShadows) RenderState::Touch();
 		isCastingShadows = false;
 	}
 	bool RenderingComponent::IsCastingShadows()
@@ -749,6 +769,69 @@ namespace p3d {
 	}
 
 	uint32 RenderingComponent::SeenEpoch = 0;
+
+	std::atomic<uint32_t> RenderState::Version(1);
+	std::atomic<uint32_t> RenderState::ReadEpoch(1);
+	namespace {
+		// The last so many objects moved, and how many there have ever been.
+		const size_t kMovedKept = 1 << 16;
+		std::vector<GameObject*> &MovedRing() { static std::vector<GameObject*> ring(kMovedKept, (GameObject*)NULL); return ring; }
+		uint64_t g_movedCount = 0;
+		std::mutex &MovedMutex() { static std::mutex m; return m; }
+	}
+	void RenderState::Touch()
+	{
+		Version.fetch_add(1, std::memory_order_relaxed);
+#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
+		static const bool trace = std::getenv("PYROS_TRACE_TOUCH") != NULL;
+		if (trace)
+		{
+			static std::mutex m;
+			static std::map<std::string, uint64_t> by;
+			static uint64_t calls = 0;
+			std::lock_guard<std::mutex> lock(m);
+			void* frames[6];
+			const int n = backtrace(frames, 6);
+			std::string who;
+			for (int i = 1; i < n && i < 5; i++)
+			{
+				Dl_info info;
+				if (dladdr(frames[i], &info) && info.dli_sname) { who += info.dli_sname; who += " < "; }
+			}
+			by[who]++;
+			if (++calls % 3000 == 0)
+			{
+				fprintf(stderr, "[touch] %llu calls so far:\n", (unsigned long long)calls);
+				std::vector<std::pair<uint64_t, std::string> > top;
+				for (std::map<std::string, uint64_t>::iterator i = by.begin(); i != by.end(); ++i) top.push_back(std::make_pair(i->second, i->first));
+				std::sort(top.rbegin(), top.rend());
+				for (size_t i = 0; i < top.size() && i < 6; i++) fprintf(stderr, "[touch]   %8llu  %s\n", (unsigned long long)top[i].first, top[i].second.substr(0, 230).c_str());
+				by.clear();
+			}
+		}
+#endif
+	}
+	void RenderState::NoteMoved(GameObject* object)
+	{
+		std::lock_guard<std::mutex> lock(MovedMutex());
+		MovedRing()[g_movedCount % kMovedKept] = object;
+		g_movedCount++;
+	}
+	uint64_t RenderState::MovedCount()
+	{
+		std::lock_guard<std::mutex> lock(MovedMutex());
+		return g_movedCount;
+	}
+	bool RenderState::MovedSince(const uint64_t seq, std::vector<GameObject*> &out)
+	{
+		std::lock_guard<std::mutex> lock(MovedMutex());
+		out.clear();
+		ReadEpoch.fetch_add(1, std::memory_order_relaxed);
+		if (seq > g_movedCount || g_movedCount - seq > kMovedKept) return false;
+		out.reserve((size_t)(g_movedCount - seq));
+		for (uint64_t k = seq; k < g_movedCount; k++) out.push_back(MovedRing()[k % kMovedKept]);
+		return true;
+	}
 
 	void RenderingComponent::Update(const f64 time)
 	{

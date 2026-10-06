@@ -10,6 +10,7 @@
 #define	RENDERINGCOMPONENT_H
 
 #include <Pyros3D/Components/IComponent.h>
+#include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Materials/IMaterial.h>
@@ -300,6 +301,7 @@ namespace p3d {
 		void ClearLODs();
 
 		virtual ~RenderingComponent();
+		virtual bool ChangesWhatIsDrawn() const { return true; }
 
 		// What is drawn into shadow maps in place of this component's own
 		// meshes while its nearest level of detail is the one in use: a
@@ -335,12 +337,12 @@ namespace p3d {
 		virtual uint32 GetComponentType() const { return ComponentType::RenderingComponent; }
 
 		// See RenderLayer above. World unless something moves it.
-		void SetRenderLayer(const uint32 layer) { renderLayer = layer; }
+		void SetRenderLayer(const uint32 layer) { if (renderLayer != layer) RenderState::Touch(); renderLayer = layer; }
 		uint32 GetRenderLayer() const { return renderLayer; }
 
 		void SetCullingGeometry(const uint32 Geometry);
-		void EnableCullTest() { cullTest = true; }
-		void DisableCullTest() { cullTest = false; }
+		void EnableCullTest() { if (!cullTest) RenderState::Touch(); cullTest = true; }
+		void DisableCullTest() { if (cullTest) RenderState::Touch(); cullTest = false; }
 		bool IsCullTesting() { return cullTest; }
 
 		// A skinned mesh nobody is drawing need not be posed. Off by default

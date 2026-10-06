@@ -106,6 +106,7 @@ namespace p3d {
 		// setShadowCasterViewCull(false): the sun's map takes every caster in
 		// its box again, as it did - to compare against.
 		// setParallelCulling(false): culling on the main thread alone, to compare.
+		lua->set_function("setParallelLists", [](const bool on) { IRenderer::SetParallelLists(on); });
 		lua->set_function("setParallelCulling", [](const bool on) { IRenderer::SetParallelCulling(on); });
 		lua->set_function("setShadowCasterViewCull", [](const bool on) { IRenderer::SetShadowCasterViewCull(on); });
 		// setSSAOHalfResolution(true): the deferred renderer's ambient occlusion

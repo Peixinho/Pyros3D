@@ -10,6 +10,7 @@
 #define	ICOMPONENT_H
 
 #include <vector>
+#include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Other/Export.h>
@@ -146,8 +147,11 @@ namespace p3d {
 		virtual uint32 GetComponentType() const { return ComponentType::Unknown; }
 
 		bool IsActive() { return active; }
-		void Disable() { active = false; }
-		void Enable() { active = true; }
+		void Disable() { if (active && ChangesWhatIsDrawn()) RenderState::Touch(); active = false; }
+		void Enable() { if (!active && ChangesWhatIsDrawn()) RenderState::Touch(); active = true; }
+		// Whether switching it on or off changes what a renderer's kept list of
+		// a scene holds (RenderState): a component that draws meshes, yes.
+		virtual bool ChangesWhatIsDrawn() const { return false; }
 
 		virtual const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }
 		virtual const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }

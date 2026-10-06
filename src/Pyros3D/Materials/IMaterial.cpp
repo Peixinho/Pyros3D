@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 namespace p3d {

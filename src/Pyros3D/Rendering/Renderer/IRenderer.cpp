@@ -6,7 +6,9 @@
 // Description : Renderer Interface
 //============================================================================
 
+#include <unordered_set>
 #include <cstdlib>
+#include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <string>
@@ -171,12 +173,15 @@ namespace { uint32 g_shadowEvery = 1; }
 void IRenderer::SetShadowUpdateInterval(const uint32 frames) { g_shadowEvery = frames < 1 ? 1 : (frames > 8 ? 8 : frames); }
 uint32 IRenderer::GetShadowUpdateInterval() { return g_shadowEvery; }
 
-std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
+// What a scene draws for this renderer, as the scene has it: the opaque
+// meshes, and those that are seen through (in the order they were gathered -
+// SortTranslucent wants that).
+void IRenderer::GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const uint32 Tag, std::vector<RenderingMesh*> &_OpaqueMeshes, std::vector<RenderingMesh*> &_TranslucidMeshes)
 {
+	_OpaqueMeshes.clear();
+	_TranslucidMeshes.clear();
 
 	// Sort and Group Objects From Scene
-	std::vector<RenderingMesh*> _OpaqueMeshes;
-	std::vector<RenderingMesh*> _TranslucidMeshes;
 
 	// LOD
 	if (lod)
@@ -237,7 +242,11 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 		}
 		else _OpaqueMeshes.push_back((*k));
 	}
+}
 
+// Nearest last, for drawing back to front (appended to the opaque list reversed).
+void IRenderer::SortTranslucent(GameObject* Camera, std::vector<RenderingMesh*> &_TranslucidMeshes)
+{
 	// sorting translucid
 	//
 	// STABLE, so meshes at the same distance keep the order they were
@@ -260,6 +269,14 @@ std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, Gam
 			[](const std::pair<f32, RenderingMesh*> &x, const std::pair<f32, RenderingMesh*> &y) { return x.first < y.first; });
 		for (size_t k = 0; k < keyed.size(); k++) _TranslucidMeshes[k] = keyed[k].second;
 	}
+}
+
+std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
+{
+	std::vector<RenderingMesh*> _OpaqueMeshes;
+	std::vector<RenderingMesh*> _TranslucidMeshes;
+	GatherFrameMeshes(Scene, Camera, Tag, _OpaqueMeshes, _TranslucidMeshes);
+	SortTranslucent(Camera, _TranslucidMeshes);
 
 	// final list
 	for (std::vector<RenderingMesh*>::reverse_iterator i = _TranslucidMeshes.rbegin(); i != _TranslucidMeshes.rend(); i++)
@@ -608,6 +625,9 @@ IRenderer::AutoInstanceBatch* IRenderer::AcquireAutoInstanceBatch(RenderingMesh*
 	if (ordinal >= list.size())
 		list.push_back(new AutoInstanceBatch());
 	AutoInstanceBatch* b = list[ordinal++];
+	// (a batch that could not be made is not tried again every frame: making
+	// one is an object, a component and its buffers)
+	if (b->failed) return NULL;
 	if (b->capacity < count)
 	{
 		uint32 capacity = 64;
@@ -630,13 +650,21 @@ IRenderer::AutoInstanceBatch* IRenderer::AcquireAutoInstanceBatch(RenderingMesh*
 				if (has) { of = levels[l]; break; }
 			}
 		}
+		// (or it is the mesh the component casts its shadow from - a
+		// simplified copy of the model, which is not one of its levels)
+		if (const std::shared_ptr<Renderable> &shadow = rc->GetShadowRenderable())
+			for (size_t g = 0; g < shadow->Geometries.size(); g++)
+				if (shadow->Geometries[g] == source->Geometry) { of = shadow; break; }
 		b->comp = std::make_shared<RenderingInstancedComponent>(of, source->Material, capacity, rc->GetBoundingSphereRadius());
 		b->owner->Add(b->comp);
 		std::vector<RenderingMesh*> &meshes = b->comp->GetMeshes(0);
 		for (size_t i = 0; i < meshes.size(); i++)
 			if (meshes[i]->Geometry == source->Geometry) { b->mesh = meshes[i]; break; }
 		if (b->mesh == NULL)
+		{
+			b->failed = true;
 			return NULL;
+		}
 		// The members' own pivots go into their instance matrices.
 		b->mesh->Pivot.identity();
 		b->capacity = capacity;
@@ -910,6 +938,7 @@ namespace {
 	// 1.15 ms with it on - all the culling of a frame is a tenth of a millisecond,
 	// and waking the workers costs more. For a scene with far more to cull.
 	bool g_parallelCulling = false;
+	bool g_parallelLists = false;       // (measured slower on a capped frame: the workers are asleep when it starts)
 	template <class Keep>
 	void AnswerInParallel(const size_t count, std::vector<uint8> &answers, const Keep &keep)
 	{
@@ -926,6 +955,7 @@ namespace {
 	}
 }
 void IRenderer::SetParallelCulling(const bool on) { g_parallelCulling = on; }
+void IRenderer::SetParallelLists(const bool on) { g_parallelLists = on; }
 
 // What every culling pass of the frame asks about, for each mesh of the
 // frame's list, side by side in one array: its sphere in the world and what
@@ -933,33 +963,234 @@ void IRenderer::SetParallelCulling(const bool on) { g_parallelCulling = on; }
 // sixteen bytes a mesh in order, where each used to follow the mesh to its
 // component to its object to its matrix - three or four places in memory a
 // mesh, a pass.
+void IRenderer::CullEntry(const size_t i, RenderingMesh* m)
+{
+	RenderingComponent* rc = m->renderingComponent;
+	GameObject* owner = rc->GetOwner();
+	uint8 f = 0;
+	if (owner != NULL)
+	{
+		f |= CullOwner;
+		const Matrix &world = owner->GetWorldTransformation();
+		const Vec3 &local = owner->GetBoundingSphereCenter();
+		cullSphere[i] = Vec4(world.m[0] * local.x + world.m[4] * local.y + world.m[8] * local.z + world.m[12],
+			world.m[1] * local.x + world.m[5] * local.y + world.m[9] * local.z + world.m[13],
+			world.m[2] * local.x + world.m[6] * local.y + world.m[10] * local.z + world.m[14],
+			owner->GetBoundingSphereRadiusWorldSpace());
+	}
+	if (m->Material && m->Material->IsTransparent()) f |= CullTransparent;
+	if (rc->IsActive()) { f |= CullComponentActive; if (m->Active == true) f |= CullMeshActive; }
+	if (rc->IsCastingShadows()) f |= CullCasts;
+	if (rc->IsCullTesting()) f |= CullTested;
+	if (m->CullingGeometry == CullingGeometry::Box) f |= CullBox;
+	cullFlags[i] = f;
+}
+
 void IRenderer::BuildCullList()
 {
 	const size_t n = rmesh.size();
 	cullSphere.resize(n);
 	cullFlags.resize(n);
-	for (size_t i = 0; i < n; i++)
+	// (SetParallelLists(true) builds it on every core: slower where frames are
+	// capped and the workers asleep when it starts.)
+	const std::function<void(uint32, uint32)> build = [this](uint32 begin, uint32 end) {
+		for (size_t i = begin; i < end; i++) CullEntry(i, rmesh[i]);
+	};
+	if (g_parallelLists && n >= 512 && JobSystem::Instance().WorkerCount() > 0) JobSystem::Instance().ParallelFor((uint32)n, 128, build);
+	else build(0, (uint32)n);
+}
+
+// The frame's list, kept. See FrameList in the header and RenderState.h.
+void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
+{
+	static const bool keep = []() { const char* v = std::getenv("PYROS_FRAME_LISTS"); return !(v && v[0] == '0'); }();
+	static const bool verify = std::getenv("PYROS_VERIFY_LISTS") != NULL;
+	if (!keep)
 	{
-		RenderingMesh* m = rmesh[i];
-		RenderingComponent* rc = m->renderingComponent;
-		GameObject* owner = rc->GetOwner();
-		uint8 f = 0;
-		if (owner != NULL)
+		rmesh = GroupAndSortAssets(Scene, Camera, Tag);
+		BuildCullList();
+		return;
+	}
+	FrameList &L = frameLists[std::make_pair(Scene, Tag)];
+	bool fresh = !L.valid || L.version != RenderState::Version.load(std::memory_order_relaxed)
+		|| L.layer != renderLayer || L.lod != lod || L.sorting != sorting;
+
+	if (!fresh)
+	{
+		// Levels of detail follow the camera every frame (and say so, through
+		// RenderState, when one of them changes what the scene draws).
+		if (lod)
 		{
-			f |= CullOwner;
-			const Matrix &world = owner->GetWorldTransformation();
-			const Vec3 &local = owner->GetBoundingSphereCenter();
-			cullSphere[i] = Vec4(world.m[0] * local.x + world.m[4] * local.y + world.m[8] * local.z + world.m[12],
-				world.m[1] * local.x + world.m[5] * local.y + world.m[9] * local.z + world.m[13],
-				world.m[2] * local.x + world.m[6] * local.y + world.m[10] * local.z + world.m[14],
-				owner->GetBoundingSphereRadiusWorldSpace());
+			const Vec3 eye = Camera->GetWorldPosition();
+			for (size_t i = 0; i < L.lodComponents.size(); i++)
+			{
+				RenderingComponent* c = L.lodComponents[i];
+				const Vec3 &scale = c->GetOwner()->GetScale();
+				const f32 maxScale = std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z)));
+				const Vec3 centre = c->GetOwner()->GetWorldPosition() + c->GetBoundingSphereCenter() * scale;
+				const f32 d = std::max(0.f, eye.distance(centre) - c->GetBoundingSphereRadius() * maxScale);
+				c->UpdateLOD(c->GetLODByDistance(d * d));
+			}
 		}
-		if (m->Material && m->Material->IsTransparent()) f |= CullTransparent;
-		if (rc->IsActive()) { f |= CullComponentActive; if (m->Active == true) f |= CullMeshActive; }
-		if (rc->IsCastingShadows()) f |= CullCasts;
-		if (rc->IsCullTesting()) f |= CullTested;
-		if (m->CullingGeometry == CullingGeometry::Box) f |= CullBox;
-		cullFlags[i] = f;
+		for (size_t i = 0; i < L.instanced.size() && !fresh; i++)
+			if ((static_cast<IRenderingInstancedComponent*>(L.instanced[i].first)->NumberOfInstances() == 0) != L.instanced[i].second) fresh = true;
+		// (a mesh's material and its own switch are fields anybody writes:
+		// looked at, one place in memory a mesh)
+		const size_t nOpaque = L.opaque.size();
+		for (size_t i = 0; i < nOpaque + L.translucent.size() && !fresh; i++)
+		{
+			RenderingMesh* m = i < nOpaque ? L.opaque[i] : L.translucent[i - nOpaque];
+			if (m->Material.get() != L.materialOf[i] || (m->Active == true ? 1 : 0) != L.activeOf[i]) fresh = true;
+		}
+		// (...and whether each material is seen through, which is the
+		// material's to change. Asked of each material once, not of each mesh:
+		// a scene has a few hundred. Only after the meshes: every one of these
+		// is then still some mesh's, and so still there.)
+		for (size_t i = 0; i < L.materials.size() && !fresh; i++)
+			if (L.materials[i].first->IsTransparent() != L.materials[i].second) fresh = true;
+		if (L.version != RenderState::Version.load(std::memory_order_relaxed)) fresh = true;
+	}
+
+	// (the kept arrays hold the opaque meshes and then those that are seen
+	// through, in the order they were gathered)
+	const size_t nOpaque0 = L.opaque.size();
+	auto meshAt = [&L](const size_t i) -> RenderingMesh* { return i < L.opaque.size() ? L.opaque[i] : L.translucent[i - L.opaque.size()]; };
+	auto placeOf = [](RenderingMesh* m) -> Vec3 {
+		GameObject* o = m->renderingComponent->GetOwner();
+		return o != NULL ? o->GetWorldPosition() : Vec3();
+	};
+	(void)nOpaque0;
+	if (fresh)
+	{
+		GatherFrameMeshes(Scene, Camera, Tag, L.opaque, L.translucent);
+		L.version = RenderState::Version.load(std::memory_order_relaxed);
+		L.layer = renderLayer; L.lod = lod; L.sorting = sorting;
+		L.movedSeq = RenderState::MovedCount();
+		// (everything has just been read: what moves from here on has to be
+		// noted again - an object is noted once between one reading and the next)
+		RenderState::ReadEpoch.fetch_add(1, std::memory_order_relaxed);
+		const size_t nOpaque = L.opaque.size(), n = nOpaque + L.translucent.size();
+		L.materialOf.resize(n); L.activeOf.resize(n);
+		L.lodComponents.clear(); L.instanced.clear(); L.where.clear();
+		rmesh = L.opaque;
+		rmesh.insert(rmesh.end(), L.translucent.begin(), L.translucent.end());
+		BuildCullList();
+		L.sphere = cullSphere; L.flags = cullFlags;
+		L.translucentPlace.resize(L.translucent.size());
+		L.materials.clear();
+		std::unordered_set<IMaterial*> seenMaterials;
+		for (size_t i = 0; i < n; i++)
+		{
+			RenderingMesh* m = meshAt(i);
+			L.materialOf[i] = m->Material.get();
+			L.activeOf[i] = m->Active == true ? 1 : 0;
+			if (m->Material && seenMaterials.insert(m->Material.get()).second) L.materials.push_back(std::make_pair(m->Material.get(), m->Material->IsTransparent()));
+			RenderingComponent* rc = m->renderingComponent;
+			if (rc->GetOwner() != NULL) L.where[rc->GetOwner()].push_back((uint32)i);
+			if (i >= nOpaque) L.translucentPlace[i - nOpaque] = placeOf(m);
+		}
+		// (every component with levels, drawn at the moment or not: one that
+		// is too far off to be in the list now is the one that comes back)
+		{
+			const std::vector<RenderingComponent*> &comps = RenderingComponent::GetRenderingComponents(Scene);
+			for (size_t i = 0; i < comps.size(); i++)
+			{
+				if (comps[i]->HasLOD() && comps[i]->GetOwner() != NULL) L.lodComponents.push_back(comps[i]);
+				// (one with no instances is left out of the list - and is the
+				// one to watch for getting some)
+				if (comps[i]->IsInstanced()) L.instanced.push_back(std::make_pair(comps[i], static_cast<IRenderingInstancedComponent*>(comps[i])->NumberOfInstances() == 0));
+			}
+		}
+		L.valid = true;
+	}
+	else
+	{
+		// Where things are: only what has been moved since this was last here.
+		const size_t nOpaque = L.opaque.size();
+		std::vector<GameObject*> moved;
+		cullSphere.swap(L.sphere); cullFlags.swap(L.flags);
+		if (RenderState::MovedSince(L.movedSeq, moved))
+		{
+			L.movedSeq += moved.size();
+			for (size_t k = 0; k < moved.size(); k++)
+			{
+				std::unordered_map<GameObject*, std::vector<uint32> >::iterator at = L.where.find(moved[k]);
+				if (at == L.where.end()) continue;
+				for (size_t e = 0; e < at->second.size(); e++)
+				{
+					const uint32 idx = at->second[e];
+					CullEntry(idx, meshAt(idx));
+					if (idx >= nOpaque) L.translucentPlace[idx - nOpaque] = placeOf(meshAt(idx));
+				}
+			}
+		}
+		else
+		{
+			// more has moved than is remembered: all of them, then
+			L.movedSeq = RenderState::MovedCount();
+			for (size_t idx = 0; idx < nOpaque + L.translucent.size(); idx++)
+			{
+				CullEntry(idx, meshAt(idx));
+				if (idx >= nOpaque) L.translucentPlace[idx - nOpaque] = placeOf(meshAt(idx));
+			}
+		}
+		cullSphere.swap(L.sphere); cullFlags.swap(L.flags);
+	}
+
+	// This frame's: the opaque as kept, then what is seen through, furthest
+	// first (nearest last - sorted by how far each is, those equally far in
+	// the order they were gathered, as SortTranslucent does it; then turned
+	// round).
+	{
+		const size_t nOpaque = L.opaque.size(), nSeen = L.translucent.size();
+		const Vec3 eye = Camera->GetWorldPosition();
+		std::vector<std::pair<f32, uint32> > keyed(nSeen);
+		for (size_t k = 0; k < nSeen; k++) keyed[k] = std::make_pair(eye.distanceSQR(L.translucentPlace[k]), (uint32)k);
+		std::stable_sort(keyed.begin(), keyed.end(), [](const std::pair<f32, uint32> &x, const std::pair<f32, uint32> &y) { return x.first < y.first; });
+		rmesh.resize(nOpaque + nSeen);
+		cullSphere.resize(nOpaque + nSeen); cullFlags.resize(nOpaque + nSeen);
+		if (nOpaque)
+		{
+			std::memcpy(&rmesh[0], &L.opaque[0], nOpaque * sizeof(RenderingMesh*));
+			std::memcpy(&cullSphere[0], &L.sphere[0], nOpaque * sizeof(Vec4));
+			std::memcpy(&cullFlags[0], &L.flags[0], nOpaque);
+		}
+		for (size_t k = 0; k < nSeen; k++)
+		{
+			const uint32 from = keyed[nSeen - 1 - k].second;
+			rmesh[nOpaque + k] = L.translucent[from];
+			cullSphere[nOpaque + k] = L.sphere[nOpaque + from];
+			cullFlags[nOpaque + k] = L.flags[nOpaque + from];
+		}
+	}
+	Scene->SetRenderingMeshesSorted(rmesh);
+
+	// PYROS_VERIFY_LISTS=1: the kept list held against one made from scratch.
+	if (verify)
+	{
+		static uint64 frames = 0, wrong = 0;
+		const std::vector<RenderingMesh*> keptMeshes = rmesh;
+		const std::vector<Vec4> keptSphere = cullSphere;
+		const std::vector<uint8> keptFlags = cullFlags;
+		rmesh = GroupAndSortAssets(Scene, Camera, Tag);
+		BuildCullList();
+		bool same = rmesh.size() == keptMeshes.size();
+		size_t at = 0;
+		for (size_t i = 0; same && i < rmesh.size(); i++)
+			if (rmesh[i] != keptMeshes[i] || cullFlags[i] != keptFlags[i]
+				|| fabsf(cullSphere[i].x - keptSphere[i].x) + fabsf(cullSphere[i].y - keptSphere[i].y) + fabsf(cullSphere[i].z - keptSphere[i].z) + fabsf(cullSphere[i].w - keptSphere[i].w) > 1e-3f)
+			{ same = false; at = i; }
+		frames++;
+		if (!same && ++wrong <= 30)
+		{
+			GameObject* o = (at < rmesh.size() && rmesh[at]->renderingComponent) ? rmesh[at]->renderingComponent->GetOwner() : NULL;
+			fprintf(stderr, "[lists] WRONG at frame %llu: %zu kept, %zu fresh; first difference at %zu (%s)%s\n", (unsigned long long)frames, keptMeshes.size(), rmesh.size(), at,
+				o ? o->GetName().c_str() : "?", (at < keptMeshes.size() && at < rmesh.size() && rmesh[at] == keptMeshes[at]) ? (cullFlags[at] != keptFlags[at] ? " - its flags" : " - its sphere") : " - another mesh");
+			if (at < keptSphere.size() && at < cullSphere.size())
+				fprintf(stderr, "[lists]   %s: kept (%.3f %.3f %.3f r %.3f) fresh (%.3f %.3f %.3f r %.3f)\n", fresh ? "made afresh this frame" : "kept from before",
+					keptSphere[at].x, keptSphere[at].y, keptSphere[at].z, keptSphere[at].w, cullSphere[at].x, cullSphere[at].y, cullSphere[at].z, cullSphere[at].w);
+		}
+		if (frames % 600 == 0) fprintf(stderr, "[lists] %llu frames, %llu wrong, %s\n", (unsigned long long)frames, (unsigned long long)wrong, fresh ? "made afresh" : "kept");
 	}
 }
 
@@ -1275,8 +1506,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	// Group and Sort Meshes
 	{
 		PYROS_PROFILE_SCOPE("Renderer.GroupAndSort");
-		rmesh = GroupAndSortAssets(Scene, Camera, Tag);
-		BuildCullList();
+		UseFrameList(Scene, Camera, Tag);
 	}
 
 	// Get Lights List
