@@ -83,7 +83,10 @@ namespace p3d
 		// IRenderer::SendModelUniforms() into ObjectMatrixUniforms' uWind,
 		// which is why this is stored here rather than in the fragment-only
 		// MaterialUniforms block.
-		void SetWind(const f32 strength, const f32 rate = 1.6f, const f32 spatialFrequency = 0.12f) { Wind = Vec4(strength, rate, spatialFrequency, 0.f); }
+		// skyLean: how far the surface's normal leans to the sky for
+		// lighting (0 as modelled, 1 straight up) - grass and leaves then
+		// take the light the ground takes instead of each card's own.
+		void SetWind(const f32 strength, const f32 rate = 1.6f, const f32 spatialFrequency = 0.12f, const f32 skyLean = 0.f) { Wind = Vec4(strength, rate, spatialFrequency, skyLean); }
 		const Vec4 &GetWind() const { return Wind; }
 
 		// A new, independent material with the same options, properties

@@ -492,6 +492,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             #else
                 vNormal = normalize((ModelMatrix * (matAnimation * vec4(aNormal,0.0))).xyz);
             #endif
+            #ifdef VERTEXWIND
+                // uWind.w: how far a leaf's normal leans to the sky (0 as it
+                // was modelled, 1 straight up). A blade of grass is a card
+                // standing on end, and lit by its own face a field of them
+                // is half in the dark whichever way the sun is; leaning to
+                // the sky they take the light the ground under them takes.
+                if (uWind.w > 0.0) vNormal = normalize(mix(vNormal, vec3(0.0, 1.0, 0.0), min(uWind.w, 1.0)));
+            #endif
         #endif
 
         #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
@@ -913,7 +921,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // A double-sided material is lit from the side being looked at: the
         // back of a single-sided wall takes the opposite normal. (With
         // culling on, only front faces get here and this is 1.)
-        #define P3D_FACE_SIGN (gl_FrontFacing ? 1.0 : -1.0)
+        // Not what sways in the wind: that is a leaf, lit alike on both of
+        // its sides (and, leant to the sky by uWind.w, must not be turned
+        // to face the ground when seen from behind).
+        #ifdef VERTEXWIND
+            #define P3D_FACE_SIGN 1.0
+        #else
+            #define P3D_FACE_SIGN (gl_FrontFacing ? 1.0 : -1.0)
+        #endif
     #endif
 
     #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)

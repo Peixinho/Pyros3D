@@ -1080,7 +1080,7 @@ int TerrainTools::AddGrassLayer(json &subtree, const std::string &projectRoot, s
 	m["alphaCutoff"] = 0.5;
 	m["cullFace"] = 2;
 	m["roughness"] = 0.85;
-	m["wind"] = { 0.16, 1.6, 0.14 };
+	m["wind"] = { 0.16, 1.6, 0.14, 0.85 };       // (sways, and is lit as the ground under it is)
 	m["castingShadows"] = false;
 
 	json layer;

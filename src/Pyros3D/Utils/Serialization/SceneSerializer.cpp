@@ -835,7 +835,9 @@ namespace p3d {
 			m["alphaCutoff"] = gm->GetAlphaCutoff();
 			// Sway for VertexWind materials (grass): strength, rate, frequency.
 			if (gm->GetWind().x > 0.f)
-				m["wind"] = json::array({ gm->GetWind().x, gm->GetWind().y, gm->GetWind().z });
+				m["wind"] = gm->GetWind().w != 0.f
+					? json::array({ gm->GetWind().x, gm->GetWind().y, gm->GetWind().z, gm->GetWind().w })
+					: json::array({ gm->GetWind().x, gm->GetWind().y, gm->GetWind().z });
 			SerializeTextureRef(m, "skyboxMap", gm->GetSkyboxMap());
 			SerializeTextureRef(m, "metallicRoughnessMap", gm->GetMetallicRoughnessMap());
 		}
@@ -2635,7 +2637,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets, true)) gm->SetRefractMap(t);
 			if (j.find("alphaCutoff") != j.end()) gm->SetAlphaCutoff(j.value("alphaCutoff", 0.5f));
 			if (j.contains("wind") && j["wind"].is_array() && j["wind"].size() >= 3)
-				gm->SetWind(j["wind"][0].get<f32>(), j["wind"][1].get<f32>(), j["wind"][2].get<f32>());
+				gm->SetWind(j["wind"][0].get<f32>(), j["wind"][1].get<f32>(), j["wind"][2].get<f32>(), j["wind"].size() >= 4 ? j["wind"][3].get<f32>() : 0.f);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache, outAssets, true)) gm->SetMetallicRoughnessMap(t);
 			ApplyCommonMaterialFields(gm.get(), j);
