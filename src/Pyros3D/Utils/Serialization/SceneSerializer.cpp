@@ -2232,6 +2232,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		{
 			root["ambientLight"] = json::array({ meta->ambientLight.x, meta->ambientLight.y, meta->ambientLight.z });
 			root["ambientIntensity"] = meta->ambientIntensity;
+			if (meta->terrainShadowsBaked)
+				root["terrainShadows"] = { { "baked", true }, { "resolution", meta->terrainShadowsResolution }, { "reach", meta->terrainShadowsReach } };
 			root["background"] = json::array({ meta->background.x, meta->background.y, meta->background.z });
 			root["ambientMode"] = meta->ambientMode;
 			root["ambientSky"] = json::array({ meta->ambientSky.x, meta->ambientSky.y, meta->ambientSky.z });
@@ -4368,6 +4370,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				outMeta->ambientLight = Vec4(al[0].get<f32>(), al[1].get<f32>(), al[2].get<f32>(), al[0].get<f32>());
 			if (root.contains("ambientIntensity") && root["ambientIntensity"].is_number())
 				outMeta->ambientIntensity = root["ambientIntensity"].get<f32>();
+			if (root.contains("terrainShadows") && root["terrainShadows"].is_object())
+			{
+				const json &ts = root["terrainShadows"];
+				outMeta->terrainShadowsBaked = ts.value("baked", false);
+				outMeta->terrainShadowsResolution = ts.value("resolution", 512u);
+				outMeta->terrainShadowsReach = ts.value("reach", 800.f);
+			}
 			if (root.contains("background") && root["background"].is_array() && root["background"].size() >= 3)
 			{
 				const auto &bg = root["background"];

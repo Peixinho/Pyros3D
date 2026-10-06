@@ -168,9 +168,41 @@ UBO_BINDING(32) uniform DirectionalFragParams {
 	mat4 uDirectionalDepthsMVP[4];
 	vec4 uDirectionalShadowFar;
 	float uHaveShadowmap;
+	// The terrain's baked shadow - see TerrainHorizonShade() below.
+	mat4 uViewInverse;
+	vec4 uHorizonRect;		// world x,z of its corner; 1 / its size in x and z
+	vec4 uHorizonSun;		// which of 16 directions the sun lies in (0-16), the sine of its height, on/off, softness
 };
 
 SAMPLER_BINDING(4) uniform sampler2DShadow uShadowMap;
+// Four pictures side by side, four directions each in their channels - each
+// the sine of the height the sun has to reach, in that direction, to clear
+// the ground between (TerrainHorizon.h; sixteen directions).
+SAMPLER_BINDING(7) uniform sampler2D uHorizonMap;
+
+float TerrainHorizonOf(vec2 uv, float k, float edge)
+{
+	float column = floor(k * 0.25);
+	vec4 t = texture(uHorizonMap, vec2((clamp(uv.x, edge, 1.0 - edge) + column) * 0.25, uv.y));
+	float c = k - column * 4.0;
+	return c < 0.5 ? t.r : (c < 1.5 ? t.g : (c < 2.5 ? t.b : t.a));
+}
+
+// 1 where the sun shows over the terrain from here, 0 where a hill is in its
+// way; between the two directions the sun lies between.
+float TerrainHorizonShade(vec3 viewPos)
+{
+	if (uHorizonSun.z < 0.5) return 1.0;
+	vec3 world = (uViewInverse * vec4(viewPos, 1.0)).xyz;
+	vec2 uv = (world.xz - uHorizonRect.xy) * uHorizonRect.zw;
+	if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return 1.0;
+	float edge = 2.0 / float(textureSize(uHorizonMap, 0).x);
+	float k0 = floor(uHorizonSun.x);
+	float k1 = mod(k0 + 1.0, 16.0);
+	k0 = mod(k0, 16.0);
+	float horizon = mix(TerrainHorizonOf(uv, k0, edge), TerrainHorizonOf(uv, k1, edge), uHorizonSun.x - floor(uHorizonSun.x));
+	return smoothstep(horizon - uHorizonSun.w, horizon + uHorizonSun.w, uHorizonSun.y);
+}
 
 float ShadowCascadeFar(vec4 splits, int c)
 {
@@ -313,6 +345,6 @@ void main() {
 	vec3 L = normalize(-uLightDirection);
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
-	FragColor = vec4(pbrColor * texture(tAO, Texcoord).g, 1.0) * pcf;
+	FragColor = vec4(pbrColor * texture(tAO, Texcoord).g, 1.0) * pcf * TerrainHorizonShade(v1);
 }
 #endif

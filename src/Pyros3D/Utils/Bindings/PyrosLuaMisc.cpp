@@ -19,6 +19,7 @@
 #include <filesystem>
 #include <fstream>
 #include <sstream>
+#include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
 
 namespace p3d {
 
@@ -272,6 +273,20 @@ end
 		{
 			static TerrainEditor editor;
 			sol::table terrain = lua->create_named_table("terrain");
+			// terrain.bakeShadows(scene [, resolution, reach]) works the terrain's
+			// own shadow out now (TerrainHorizon) and has the scene use it - what
+			// a scene with "terrainShadows" baked gets while it loads; for a
+			// script that has changed the ground. terrain.clearShadows(scene)
+			// goes back to the terrain casting into the shadow maps.
+			terrain.set_function("bakeShadows", sol::overload(
+				[](SceneGraph* scene) { if (scene) scene->SetTerrainHorizon(TerrainHorizon::Bake(scene)); return scene && scene->GetTerrainHorizon() != NULL; },
+				[](SceneGraph* scene, const uint32 resolution, const f32 reach) { if (scene) scene->SetTerrainHorizon(TerrainHorizon::Bake(scene, resolution, reach)); return scene && scene->GetTerrainHorizon() != NULL; }));
+			// terrain.shadeAt(scene, x, z, toSun): 1 in the sun, 0 in a hill's shade
+			// (1 where nothing is baked).
+			terrain.set_function("shadeAt", [](SceneGraph* scene, const f32 x, const f32 z, const Vec3 &toSun) -> f32 {
+				return (scene && scene->GetTerrainHorizon()) ? scene->GetTerrainHorizon()->ShadeAt(x, z, toSun) : 1.f;
+			});
+			terrain.set_function("clearShadows", [](SceneGraph* scene) { if (scene) scene->SetTerrainHorizon(std::shared_ptr<TerrainHorizon>()); });
 			terrain.set_function("heightAt", [](SceneGraph* scene, const f32 x, const f32 z) -> sol::optional<f32> {
 				f32 h = 0.f;
 				if (TerrainEditor::HeightAt(scene, x, z, h)) return h;

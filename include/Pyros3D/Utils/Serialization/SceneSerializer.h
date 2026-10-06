@@ -101,6 +101,17 @@ namespace p3d {
 		// Lighting makes between an ambient colour and its intensity multiplier.
 		f32 ambientIntensity = 1.f;
 
+		// The terrain's own shadow, baked while the scene loads for play
+		// (TerrainHorizon): hills shade the land behind them at any hour and
+		// any distance, and the terrain is left out of the sun's shadow maps.
+		// Off: the terrain casts into the maps like anything else. An editor
+		// leaves it unbaked while the scene is being worked on - the ground is
+		// being moved - and bakes when Play is pressed. "terrainShadows":
+		// { "baked": true, "resolution": 512, "reach": 800 } in the file.
+		bool terrainShadowsBaked = false;
+		uint32 terrainShadowsResolution = 512;
+		f32 terrainShadowsReach = 800.f;
+
 		// What the frame clears to, and deliberately NOT the ambient colour.
 		// Both used to be 0.2 grey - the editor hardcoded the viewport clear and
 		// the ambient default happened to match it exactly - so any surface the

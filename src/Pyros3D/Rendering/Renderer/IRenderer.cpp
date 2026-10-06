@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <cstdlib>
+#include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <string>
 #include <cctype>
 #include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
@@ -917,6 +918,7 @@ namespace {
 		bool verify = false;
 	} g_shadowView;
 	bool g_shadowViewCullWanted = true;
+	bool g_terrainShadowBaked = false;
 	uint32 g_shadowCastersDrawn = 0, g_shadowCastersLeftOut = 0;
 
 	bool ShadowReachesView(RenderingMesh* m)
@@ -967,6 +969,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		RenderingComponent* rc = (*k)->renderingComponent;
 		if (rc->GetOwner() == NULL || (*k)->Material->IsTransparent()) continue;
 		if (!rc->IsCastingShadows() || !rc->IsActive()) continue;
+		if (g_terrainShadowBaked && dynamic_cast<Heightfield*>(rc->GetRenderable()) != NULL) continue;
 		// Something that casts with a mesh of its own for the purpose
 		// (RenderingComponent::SetShadowRenderable): that, once for the
 		// component, in place of every mesh of its nearest level.
@@ -1147,6 +1150,8 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	// first frame, and nothing is left out then).
 	smallCullEye = Camera != NULL ? Camera->GetWorldPosition() : Vec3();
 	if (Scene != NULL && Camera != NULL) Scene->_NoteViewedFrom(smallCullEye);
+	// (a scene whose terrain's shadow is baked: the terrain is left out of the shadow maps)
+	g_terrainShadowBaked = Scene != NULL && Scene->GetTerrainHorizon() != NULL;
 	smallCullScale = (Camera != NULL && projectionValid && projection.m.m[11] != 0.f)
 		? fabsf(projection.m.m[5]) * 0.5f * (f32)(viewPortEndY > 0 ? viewPortEndY : Height) : 0.f;
 	smallCullFactor = 2.f;       // the shadow passes below; RenderScene() puts it back to 1

@@ -501,6 +501,10 @@ public:
 	bool AgentAddCamera(const std::string& name, const json& p,
 		f32 fov, f32 nearPlane, f32 farPlane, bool active, std::string& errOut);
 	bool AgentSetTransform(const std::string& name, const json& t, std::string& errOut);
+	// SceneMeta's terrain shadow settings: baked when Play is pressed, live while editing.
+	bool terrainShadowsBaked = false;
+	uint32 terrainShadowsResolution = 512;
+	f32 terrainShadowsReach = 800.f;
 	bool AgentSetTags(const std::string& name, const json& addTags, const json& removeTags, std::string& errOut);
 	int AgentSetShadowDetail(const std::string& name, const std::string& prefix, const f32 ratio, std::string& errOut);
 	// Levels of detail of a model, as the inspector's list and set_lods have

@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
+#include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
@@ -395,6 +396,11 @@ namespace p3d {
 		dirShadowDepthsMVPHandle = deferredMaterialDirectional->AddUniform(Uniform("uDirectionalDepthsMVP", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 		dirShadowFarHandle = deferredMaterialDirectional->AddUniform(Uniform("uDirectionalShadowFar", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		dirHaveShadowHandle = deferredMaterialDirectional->AddUniform(Uniform("uHaveShadowmap", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		// The terrain's baked shadow (TerrainHorizon), where the scene has one.
+		dirHorizonMapHandle = deferredMaterialDirectional->AddUniform(Uniform("uHorizonMap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
+		dirHorizonRectHandle = deferredMaterialDirectional->AddUniform(Uniform("uHorizonRect", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		dirHorizonSunHandle = deferredMaterialDirectional->AddUniform(Uniform("uHorizonSun", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		deferredMaterialDirectional->AddUniform(Uniform("uViewInverse", Uniforms::DataUsage::ViewMatrixInverse));
 		deferredMaterialDirectional->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialDirectional->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
 
@@ -405,7 +411,7 @@ namespace p3d {
 		// alignment, each mat4 rounds up to the next 16-byte boundary).
 		deferredMaterialDirectional->extraUniforms[0].binding = 32;
 		deferredMaterialDirectional->extraUniforms[0].blockName = "DirectionalFragParams";
-		deferredMaterialDirectional->extraUniforms[0].size = 420;
+		deferredMaterialDirectional->extraUniforms[0].size = 528;
 		deferredMaterialDirectional->extraUniforms[0].scratch.resize(deferredMaterialDirectional->extraUniforms[0].size, 0);
 		deferredMaterialDirectional->extraUniforms[0].offsets["uScreenDimensions"] = 0;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uLightDirection"] = 16;
@@ -416,6 +422,10 @@ namespace p3d {
 		deferredMaterialDirectional->extraUniforms[0].offsets["uDirectionalDepthsMVP"] = 144;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uDirectionalShadowFar"] = 400;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uHaveShadowmap"] = 416;
+		// (the mat4 rounds up from 420 to the next 16: 432)
+		deferredMaterialDirectional->extraUniforms[0].offsets["uViewInverse"] = 432;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uHorizonRect"] = 496;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uHorizonSun"] = 512;
 
 		deferredMaterialDirectional->DisableDepthTest();
 		deferredMaterialDirectional->DisableDepthWrite();
@@ -1487,7 +1497,29 @@ namespace p3d {
 					dirShadowHandle->SetValue(&shadowUnit);
 					dirHaveShadowHandle->SetValue(&haveShadow);
 
+					// The terrain's baked shadow: how high the sun stands and which
+					// way it lies, for the shader to hold against what was baked.
+					// (Direction k of the bake looks along (cos k*22.5, sin k*22.5)
+					// in x and z.) Without one a white texel stands in and z says off.
+					TerrainHorizon* horizon = (Scene != NULL && Scene->GetTerrainHorizon()) ? Scene->GetTerrainHorizon().get() : NULL;
+					Texture* horizonTexture = (horizon != NULL && horizon->GetTexture() != NULL) ? horizon->GetTexture() : ssaoWhite;
+					horizonTexture->Bind();
+					int horizonUnit = Texture::GetLastBindedUnit();
+					dirHorizonMapHandle->SetValue(&horizonUnit);
+					Vec4 horizonRect, horizonSun;
+					if (horizonTexture != ssaoWhite)
+					{
+						const Vec3 toSun = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize() * -1.f;
+						f32 turn = atan2f(toSun.z, toSun.x) / 6.28318531f;
+						if (turn < 0.f) turn += 1.f;
+						horizonRect = horizon->GetRect();
+						horizonSun = Vec4(turn * (f32)TerrainHorizon::Directions, toSun.y, 1.f, horizon->softness);
+					}
+					dirHorizonRectHandle->SetValue(&horizonRect);
+					dirHorizonSunHandle->SetValue(&horizonSun);
+
 					RenderObject(directionalLight->GetMeshes()[0], d->GetOwner(), deferredMaterialDirectional);
+					horizonTexture->Unbind();
 
 					if (d->IsCastingShadows())
 					{

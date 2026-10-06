@@ -3449,6 +3449,21 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// set_terrain_shadows {baked, resolution?, reach?}: the scene's terrain
+	// shadow is baked when the map loads for play (see TerrainHorizon).
+	if (name == "set_terrain_shadows")
+	{
+		if (a.is_object() && a.contains("baked")) sceneView->terrainShadowsBaked = a.value("baked", false);
+		if (a.is_object() && a.contains("resolution")) sceneView->terrainShadowsResolution = (uint32)std::max(64, std::min(2048, a.value("resolution", 512)));
+		if (a.is_object() && a.contains("reach")) sceneView->terrainShadowsReach = a.value("reach", 800.f);
+		sceneView->MarkSceneDirty();
+		nlohmann::json r;
+		r["ok"] = true;
+		r["baked"] = sceneView->terrainShadowsBaked;
+		r["resolution"] = sceneView->terrainShadowsResolution;
+		r["reach"] = sceneView->terrainShadowsReach;
+		return r;
+	}
 	if (name == "set_view_options")
 	{
 		if (!sceneView->AgentSetViewOptions(a.is_object() ? a : nlohmann::json::object(), err))

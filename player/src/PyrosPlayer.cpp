@@ -8,6 +8,7 @@
 
 #include <thread>
 #include <chrono>
+#include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
 #include <Pyros3D/Assets/AssetPreload.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
@@ -690,6 +691,12 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	BuildPostEffectChain();
 	// TAA's history belongs to the scene that just went away.
 	if (effectsManager) effectsManager->ResetTemporalHistory();
+
+	// The terrain's shadow, where the scene asks for it baked: worked out here,
+	// as part of loading the map (see TerrainHorizon).
+	scene->SetTerrainHorizon(meta.terrainShadowsBaked
+		? TerrainHorizon::Bake(scene, meta.terrainShadowsResolution, meta.terrainShadowsReach)
+		: std::shared_ptr<TerrainHorizon>());
 
 	renderer->SetGlobalLight(Vec4(meta.ambientLight.x * meta.ambientIntensity,
 								  meta.ambientLight.y * meta.ambientIntensity,

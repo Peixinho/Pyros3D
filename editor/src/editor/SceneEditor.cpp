@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <unordered_map>
+#include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
 #include <Pyros3D/Assets/AssetPreload.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
@@ -4862,6 +4863,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ApplyEnvironment();
 			sceneDirty = true;
 		}
+		// The terrain's own shadow: worked out once when the game loads the
+		// map (and when Play is pressed here), instead of the terrain being
+		// drawn into the sun's shadow maps every frame. Live while editing.
+		if (ImGui::Checkbox("Bake terrain shadows for play", &terrainShadowsBaked)) sceneDirty = true;
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Hills shade the land behind them at any hour and any distance, for one\n"
+				"texture lookup. Only the terrain is in it: what stands on it keeps its\n"
+				"shadow maps. While editing, the terrain casts live as it is sculpted.");
+		if (terrainShadowsBaked)
+		{
+			int res = (int)terrainShadowsResolution;
+			ImGui::SetNextItemWidth(120.f);
+			if (ImGui::InputInt("Texels a side##terrain_shadow_res", &res, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue))
+			{ terrainShadowsResolution = (uint32)std::max(64, std::min(2048, res)); sceneDirty = true; }
+			ImGui::SetNextItemWidth(120.f);
+			if (ImGui::DragFloat("Reach (m)##terrain_shadow_reach", &terrainShadowsReach, 5.f, 50.f, 4000.f, "%.0f")) sceneDirty = true;
+		}
 		// Separate from the ambient on purpose: when the two matched (both
 		// were 0.2 grey) every unlit surface came out exactly the background
 		// value and became invisible - which in Deferred reads as the
@@ -6867,6 +6885,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (q.contains("shadowUpdateInterval")) IRenderer::SetShadowUpdateInterval((uint32)std::max(1, q.value("shadowUpdateInterval", 1)));
 			if (q.contains("ssaoHalfResolution")) DeferredRenderer::SetSSAOHalfResolution(q.value("ssaoHalfResolution", false));
 		}
+		// The terrain's shadow is baked for play, as a built game bakes it
+		// while its map loads; Stop goes back to the terrain casting live.
+		if (terrainShadowsBaked && scene)
+			scene->SetTerrainHorizon(p3d::TerrainHorizon::Bake(scene, terrainShadowsResolution, terrainShadowsReach));
 		p3d::Model::SharedRequests(true);
 		if (project)
 			for (size_t i = 0; i < project->GetSettings().preload.size(); i++)
@@ -7351,6 +7373,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		scriptRenderCamera = nullptr;
 		echo("SUCCESS: Stopping play mode");
 		p3d::AssetPreload::Clear();
+		if (scene) scene->SetTerrainHorizon(std::shared_ptr<p3d::TerrainHorizon>());
 		// (the editor's own view goes back to the engine's defaults)
 		IRenderer::SetSmallObjectCull(1.f);
 		IRenderer::SetShadowUpdateInterval(1);
@@ -8894,6 +8917,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			SceneMeta meta;
 			meta.ambientLight = ambientLightColor;
 			meta.ambientIntensity = ambientIntensity;
+			meta.terrainShadowsBaked = terrainShadowsBaked;
+			meta.terrainShadowsResolution = terrainShadowsResolution;
+			meta.terrainShadowsReach = terrainShadowsReach;
 			meta.background = backgroundColor;
 			meta.ambientMode = (uint32)ambientMode;
 			for (uint32 i = 0; i < 3; i++) meta.ddgiCounts[i] = (uint32)Max(2, ddgiCounts[i]);
@@ -9159,6 +9185,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			ambientLightColor = meta.ambientLight;
 			ambientIntensity = meta.ambientIntensity;
+			terrainShadowsBaked = meta.terrainShadowsBaked;
+			terrainShadowsResolution = meta.terrainShadowsResolution;
+			terrainShadowsReach = meta.terrainShadowsReach;
 			backgroundColor = meta.background;
 			ambientMode = (int)meta.ambientMode;
 			for (uint32 i = 0; i < 3; i++) ddgiCounts[i] = (int)meta.ddgiCounts[i];

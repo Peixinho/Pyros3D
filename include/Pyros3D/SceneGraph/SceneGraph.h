@@ -21,6 +21,8 @@
 using namespace p3d::Math;
 
 namespace p3d {
+	class TerrainHorizon;
+
 
 	class PYROS3D_API GameObject;
 	// Circular Dependency - defined in Components/IComponent.h
@@ -74,6 +76,11 @@ namespace p3d {
 		// cell unloads - what it holds stays valid, if no longer in the scene.)
 		const std::vector<std::shared_ptr<GameObject> > &Watch(const std::string &prefix);
 		uint32 WatchedVersion(const std::string &prefix);
+		// The terrain's baked shadow, if it has been baked (TerrainHorizon):
+		// what the sun's light is held against, as well as its shadow maps.
+		void SetTerrainHorizon(const std::shared_ptr<TerrainHorizon> &horizon) { terrainHorizon = horizon; }
+		const std::shared_ptr<TerrainHorizon> &GetTerrainHorizon() const { return terrainHorizon; }
+
 		// Where this scene was last looked at from (a renderer says, each time
 		// it prepares a view of it), and whether it has been at all: what a
 		// script measures "how far from the player's eye" against.
@@ -153,6 +160,7 @@ namespace p3d {
 		// registering such things has cost this Update, and how many waited)
 		bool inStreamedSubtree = false;
 Vec3 lastViewPosition; bool viewed = false;
+		std::shared_ptr<TerrainHorizon> terrainHorizon;
 		struct NameWatch { std::vector<std::shared_ptr<GameObject> > objects; std::unordered_set<GameObject*> have; uint32 version = 1; };
 		std::map<std::string, NameWatch> nameWatches;
 		// (what left a watch is let go of at the next update, not under the
