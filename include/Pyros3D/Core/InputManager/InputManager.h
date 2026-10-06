@@ -332,6 +332,10 @@ namespace p3d {
 		// counts the same motion more than once when several motion events
 		// arrive in one frame - which is every frame, with a 1000 Hz+ mouse.
 		static Vec2 ConsumeMouseDelta();
+		// Whether a key is held at this moment (pressed and not yet released):
+		// for whatever starts listening after the press - a control handed
+		// back to a character whose key never came up.
+		static bool IsKeyDown(const uint32 e);
 		static void AddMouseDelta(const f32 dx, const f32 dy);
 
 		// Add Events

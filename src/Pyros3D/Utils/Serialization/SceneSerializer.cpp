@@ -3049,6 +3049,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				{
 					GenericShaderMaterial* g = dynamic_cast<GenericShaderMaterial*>(rc->GetMeshes()[m]->Material.get());
 					if (g) g->SetAlphaCutoff(savedCut->GetAlphaCutoff());
+					// A surface whose holes are cut by the test is solid where it
+					// is not cut - unless the scene's material says it is seen
+					// through as well. A package often gives its leaves an opacity
+					// a little under one (an exporter's way of saying "this
+					// texture has alpha"), and BuildMaterials() draws anything
+					// under one blended: after everything solid, and writing depth
+					// across the whole of each card. The leaves came out pale, and
+					// whatever see-through thing lay behind them - water, glass -
+					// had a card-shaped hole in it.
+					if (g && g->IsTransparent() && !mat->IsTransparent())
+					{
+						g->SetOpacity(1.f);
+						g->SetTransparencyFlag(false);
+						g->DisableBlending();
+					}
 				}
 				// The materials are the package's again, but which faces are
 				// drawn is the scene's to say: a model made double-sided in

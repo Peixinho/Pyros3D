@@ -6,6 +6,7 @@
 // Description : Input Manager
 //============================================================================
 
+#include <unordered_set>
 #include <Pyros3D/Core/InputManager/InputManager.h>
 
 namespace p3d {
@@ -105,8 +106,12 @@ namespace p3d {
 		EventsMapReleased[e](m);
 	}
 
+	static std::unordered_set<uint32> &KeysDown() { static std::unordered_set<uint32> keys; return keys; }
+	bool InputManager::IsKeyDown(const uint32 e) { return KeysDown().count(e) != 0; }
+
 	void InputManager::KeyPressed(const uint32 e)
 	{
+		KeysDown().insert(e);
 
 		Event::Input::Info k;
 		k.Type = Event::Type::OnPress;
@@ -117,6 +122,7 @@ namespace p3d {
 	}
 	void InputManager::KeyReleased(const uint32 e)
 	{
+		KeysDown().erase(e);
 
 		Event::Input::Info k;
 		k.Type = Event::Type::OnRelease;

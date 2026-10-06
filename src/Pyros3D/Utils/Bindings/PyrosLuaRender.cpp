@@ -648,6 +648,13 @@ namespace p3d {
 				// some renderer is drawing it; rc:wasSeenRecently() says whether.
 				// rc:setShadowDetail(0.25): its shadow is drawn from its own model
 				// with a quarter of the triangles. 0 puts it back.
+				// rc:addSimplifiedLOD(0.2, 170): a further level of detail made from
+				// its own model with a fifth of the triangles, drawn out to 170 m
+				// (to any distance if not said). The component's first level
+				// reaches as far as its constructor's distance.
+				"addSimplifiedLOD", sol::overload(
+					[](LUA_RenderingComponent &c, const f32 ratio) { return c.AddSimplifiedLOD(ratio); },
+					[](LUA_RenderingComponent &c, const f32 ratio, const f32 reach) { return c.AddSimplifiedLOD(ratio, reach); }),
 				"setShadowDetail", [](LUA_RenderingComponent &c, const f32 ratio) { return c.SetShadowDetail(ratio); },
 				"getShadowDetail", [](LUA_RenderingComponent &c) { return c.GetShadowDetail(); },
 				"setAnimateWhenUnseen", [](LUA_RenderingComponent &c, const bool on) { c.SetAnimateWhenUnseen(on); },

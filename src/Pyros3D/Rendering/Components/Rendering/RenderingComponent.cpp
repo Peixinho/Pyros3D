@@ -289,6 +289,16 @@ namespace p3d {
 		lodOwnMaterials[LODLVL] = true;
 	}
 
+	bool RenderingComponent::AddSimplifiedLOD(const f32 ratio, const f32 reach)
+	{
+		Model* model = dynamic_cast<Model*>(renderable.get());
+		if (!model || model->GetPath().empty()) return false;
+		std::shared_ptr<SimplifiedModel> simple = SimplifiedModel::LoadShared(model->GetPath(), ratio);
+		if (!simple || simple->Geometries.empty()) return false;
+		AddLODOwnMaterials(simple, reach);
+		return true;
+	}
+
 	void RenderingComponent::ClearLODs()
 	{
 		RenderState::Touch();

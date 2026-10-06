@@ -430,6 +430,8 @@ end
 		// camera that holds the pointer: ask once a frame. Asked just after capturing, the
 		// first answer holds the jump to the middle - throw it away.
 		lua.set_function("getMouseDelta", []() { const Vec2 d = InputManager::ConsumeMouseDelta(); return std::make_tuple(d.x, d.y); });
+		// isKeyDown(Key.W): whether the key is held at this moment
+		lua.set_function("isKeyDown", [](const uint32 key) { return InputManager::IsKeyDown(key); });
 		lua.set_function("warpMouseToCenter", [this]() {
 			SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
 		});

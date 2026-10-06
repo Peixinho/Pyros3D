@@ -295,6 +295,11 @@ namespace p3d {
 		// for sub-mesh: for a level made from the same model (SimplifiedModel),
 		// whose sub-meshes are the model's in the same order.
 		void AddLODOwnMaterials(const std::shared_ptr<Renderable> &renderable, const f32 Distance);
+		// The usual further level: the component's own model with this share
+		// of its triangles (SimplifiedModel), in its own materials, drawn out
+		// to `reach` metres. Only where the nearest level is a Model read from
+		// a file; returns whether it took.
+		bool AddSimplifiedLOD(const f32 ratio, const f32 reach = 1e9f);
 		// Whether level `lod` (1 and up) was added that way.
 		bool LODUsesOwnMaterials(const uint32 lod) const { return lod < lodOwnMaterials.size() && lodOwnMaterials[lod]; }
 		// Back to the nearest level alone (an editor rebuilding the list).
