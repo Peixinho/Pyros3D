@@ -1173,6 +1173,15 @@ namespace p3d {
 				case LIGHT_TYPE::POINT:
 				{
 					PointLight* p = (PointLight*)(*i);
+					// One that reaches nothing in view is not drawn. Every point
+					// light in the scene was - its uniforms sent, its volume
+					// drawn - wherever it was and however dim: a village of two
+					// hundred street lamps, off for the day, was two hundred
+					// draws a frame and two milliseconds. (Not one that casts a
+					// shadow: its place in the list of shadow matrices is by
+					// count, and it is counted below.)
+					if (!p->IsCastingShadows() && !LightAffectsView(p->GetOwner()->GetWorldPosition(), p->GetLightRadius()))
+						break;
 					// Point Lights
 					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.f)).xyz();
 					pointPosHandle->SetValue(&pos);

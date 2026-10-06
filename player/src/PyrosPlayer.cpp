@@ -6,6 +6,7 @@
 // Description : See PyrosPlayer.h.
 //============================================================================
 
+#include <chrono>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
 #include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
@@ -397,6 +398,12 @@ end
 	// what keeps a deferred frame affordable on a high-resolution screen.
 	lua.set_function("setRenderScale", [this](const f32 scale) { SetRenderScale(scale); });
 	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
+	// setAutoRenderScale(fps, lowest, highest): the scale is moved by itself to
+	// hold that frame rate where it is the GPU that cannot (0 fps turns it off
+	// and leaves the scale where it is).
+	lua.set_function("setAutoRenderScale", [this](const f32 fps, sol::optional<f32> lo, sol::optional<f32> hi) {
+		SetAutoRenderScale(fps, lo ? *lo : 0.4f, hi ? *hi : 1.f);
+	});
 	lua.set_function("getRenderSize", [this]() { return std::make_tuple((int)RenderWidth(), (int)RenderHeight()); });
 	lua.set_function("quitGame", [this]() { Close(); });
 	// The whole screen, or a window: the desktop's own resolution, so nothing about the
@@ -1353,7 +1360,9 @@ void PyrosPlayer::Update()
 	if (ownFrame)
 	{
 		PYROS_PROFILE_SCOPE("Player.BeginFrame");
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		device.BeginFrame();
+		autoScale.gpuWaitMs += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
 	}
 
 	renderer->ResetViewPort();
@@ -1444,8 +1453,11 @@ void PyrosPlayer::Update()
 	if (ownFrame)
 	{
 		PYROS_PROFILE_SCOPE("Player.EndFrame");
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		device.EndFrame();
+		autoScale.presentWaitMs += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
 	}
+	StepAutoRenderScale(dt);
 
 #ifdef LUA_BINDINGS
 	// Between frames, never inside one: the script that asked for the
@@ -1701,6 +1713,51 @@ uint32 PyrosPlayer::ScaledSize(const uint32 full) const
 }
 uint32 PyrosPlayer::RenderWidth() const { return ScaledSize((uint32)Width); }
 uint32 PyrosPlayer::RenderHeight() const { return ScaledSize((uint32)Height); }
+
+// The render scale kept where the frame rate asked for holds, by itself.
+// What says the GPU is the limit is the wait for it at the top of a frame
+// (the previous frame's fence); what says there is room is time spent idle in
+// the present (a display that caps the rate) or, with no cap, frames coming
+// faster than asked. Looked at every second and a half, moved a step at a
+// time - changing the size reallocates every target, which is a hitch of its
+// own - and never for a frame that was slow for some other reason: when the
+// GPU is not being waited for, a smaller picture would not help.
+void PyrosPlayer::SetAutoRenderScale(const f32 targetFps, const f32 minScale, const f32 maxScale)
+{
+	autoScale.targetFps = targetFps;
+	autoScale.minScale = minScale < 0.25f ? 0.25f : minScale;
+	autoScale.maxScale = maxScale > 1.f ? 1.f : maxScale;
+	if (autoScale.maxScale < autoScale.minScale) autoScale.maxScale = autoScale.minScale;
+	autoScale.time = 0.0; autoScale.frames = 0; autoScale.gpuWaitMs = autoScale.presentWaitMs = 0.0;
+}
+
+void PyrosPlayer::StepAutoRenderScale(const f64 dt)
+{
+	AutoScale &A = autoScale;
+	FrameProfiler::Instance().Counter("Render.ScalePct", (f64)renderScale * 100.0);
+	if (A.targetFps <= 0.f) { A.gpuWaitMs = A.presentWaitMs = 0.0; return; }
+	A.time += dt; A.frames++;
+	if (A.time < 1.5 || A.frames < 20) return;
+	const f64 frameMs = A.time * 1000.0 / (f64)A.frames;
+	const f64 gpuWait = A.gpuWaitMs / (f64)A.frames, idle = A.presentWaitMs / (f64)A.frames;
+	const f64 want = 1000.0 / (f64)A.targetFps;
+	A.time = 0.0; A.frames = 0; A.gpuWaitMs = A.presentWaitMs = 0.0;
+
+	f32 next = renderScale;
+	if (frameMs > want * 1.06 && gpuWait > 1.0)
+	{
+		// short of the rate, and waiting on the GPU: by how much decides the step
+		next = renderScale * (frameMs > want * 1.3 ? 0.85f : 0.93f);
+	}
+	else if (gpuWait < 0.3 && (idle > want * 0.25 || frameMs < want * 0.85))
+	{
+		// room to spare: a small step back up
+		next = renderScale * 1.05f;
+	}
+	if (next < A.minScale) next = A.minScale;
+	if (next > A.maxScale) next = A.maxScale;
+	SetRenderScale(next);
+}
 
 void PyrosPlayer::SetRenderScale(f32 scale)
 {

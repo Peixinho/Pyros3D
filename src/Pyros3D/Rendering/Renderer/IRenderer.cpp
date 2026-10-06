@@ -2482,6 +2482,13 @@ bool IRenderer::LightAffectsView(const Vec3 &worldPosition, const f32 radius)
 {
 	if (!IsCulling || !culling) return true;
 	if (radius <= 0.f) return true;
+	// (and one that lights a patch of under a pixel lights nothing that shows:
+	// a lamp turned down to nothing for the day, a lantern a mile off)
+	if (smallCullScale > 0.f)
+	{
+		const f32 limit = 0.75f / smallCullScale;
+		if (radius * radius < limit * limit * smallCullEye.distanceSQR(worldPosition)) return false;
+	}
 	return culling->SphereInFrustum(worldPosition, radius);
 }
 
