@@ -207,7 +207,7 @@ private:
 	// The fraction of the window's size the scene is rendered at (SetRenderScale).
 	f32 renderScale = 1.f;
 	// (SetAutoRenderScale: what a second and a half of frames spent waiting for the GPU and idle in the present)
-	struct AutoScale { f32 targetFps = 0.f, minScale = 0.4f, maxScale = 1.f; f64 time = 0.0, gpuWaitMs = 0.0, presentWaitMs = 0.0; uint32 frames = 0; bool roomBefore = false; } autoScale;
+	struct AutoScale { f32 targetFps = 0.f, minScale = 0.4f, maxScale = 1.f; f64 time = 0.0, gpuWaitMs = 0.0, presentWaitMs = 0.0; uint32 frames = 0; bool roomBefore = false; int shortLooks = 0, roomLooks = 0, sinceChange = 100, downBlockedLooks = 0, upBlockedLooks = 0; f64 triedDownFrom = 0.0; } autoScale;
 	void StepAutoRenderScale(const f64 dt);
 	// (setFrameRateLimit: frames a second at most, and when the next one is due)
 	f32 frameRateLimit = 0.f;

@@ -251,7 +251,18 @@ namespace p3d {
 			{
 				const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 				go->RegisterComponents(this);
-				streamedRegistrationMs += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
+				const f64 took = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
+				streamedRegistrationMs += took;
+				// PYROS_STREAM_TRACE=1: anything whose registration alone is over
+				// 3 ms is named - one object can be most of a cell's cost.
+				static const bool trace = std::getenv("PYROS_STREAM_TRACE") != NULL;
+				if (trace && took > 3.0)
+				{
+					std::string kinds;
+					const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+					for (size_t i = 0; i < cs.size(); i++) if (cs[i]) { kinds += typeid(*cs[i]).name(); kinds += " "; }
+					fprintf(stderr, "[stream] %.1f ms to register %s (%s)\n", took, go->GetName().c_str(), kinds.c_str());
+				}
 			}
 			else
 				go->RegisterComponents(this);

@@ -1258,7 +1258,10 @@ void PyrosPlayer::Update()
 	}
 
 	// At the top of the frame, before anything renders - see OnResize().
-	ApplyPendingResizeIfAny();
+	{
+		PYROS_PROFILE_SCOPE("Player.Resize");
+		ApplyPendingResizeIfAny();
+	}
 
 	const f64 time = GetTime();
 	const f64 dt = GetTimeInterval();
@@ -1797,26 +1800,79 @@ void PyrosPlayer::StepAutoRenderScale(const f64 dt)
 	const f64 want = 1000.0 / (f64)A.targetFps;
 	A.time = 0.0; A.frames = 0; A.gpuWaitMs = A.presentWaitMs = 0.0;
 
+	// Changing the scale is not free - every target is reallocated and the post
+	// chain rebuilt, a hitch of tens of milliseconds - so it moves between a
+	// few fixed rungs and seldom: down a rung after two looks running that are
+	// short of the rate on the GPU's account (two rungs if far short), up a
+	// rung only after six looks running with room AND when the frame the
+	// bigger picture would cost - by the square of the scales - still fits.
+	static const f32 kRungs[] = { 1.f, 0.86f, 0.74f, 0.64f, 0.55f, 0.47f, 0.40f, 0.34f, 0.29f, 0.25f };
+	static const int kRungCount = (int)(sizeof(kRungs) / sizeof(kRungs[0]));
+	int rung = 0;
+	for (int r = 1; r < kRungCount; r++) if (fabsf(kRungs[r] - renderScale) < fabsf(kRungs[rung] - renderScale)) rung = r;
 	f32 next = renderScale;
-	// room to spare: idle in the present, or frames coming a tenth faster than asked
+	// Short of the rate, whoever's fault it looks like: on a machine where the
+	// GPU and the CPU share their heat, a frame that is slow on the CPU's
+	// account is as often as not slow because of what the GPU is being asked
+	// for. So a rung down is tried - and if a look later the frame is no
+	// better for it, it is taken back and not tried again for a while (a
+	// machine that really is held up by its CPU keeps its sharp picture).
+	const bool shortOfIt = frameMs > want * 1.06;
 	const bool room = (gpuWait < 0.3 && idle > want * 0.25) || frameMs < want * 0.90;
-	if (frameMs > want * 1.06 && gpuWait > 1.0)
+	A.sinceChange++;
+	if (A.triedDownFrom > 0.0 && A.sinceChange == 2)
 	{
-		// short of the rate, and waiting on the GPU: by how much decides the step
-		next = renderScale * (frameMs > want * 1.3 ? 0.85f : 0.93f);
-		A.roomBefore = false;
+		// the verdict on the last step down
+		if (frameMs > A.triedDownFrom * 0.97 && rung > 0 && gpuWait < 1.0)
+		{
+			rung -= 1;
+			A.downBlockedLooks = 20;       // half a minute
+		}
+		A.triedDownFrom = 0.0;
+		A.shortLooks = A.roomLooks = 0;
+	}
+	else if (shortOfIt)
+	{
+		A.roomLooks = 0;
+		if (A.downBlockedLooks > 0 && gpuWait < 1.0) A.downBlockedLooks--;
+		else if (++A.shortLooks >= 2 || frameMs > want * 1.4)
+		{
+			A.triedDownFrom = frameMs;
+			rung += (frameMs > want * 1.4) ? 2 : 1;
+			A.shortLooks = 0;
+			A.upBlockedLooks = 60;
+		}
 	}
 	else if (room)
 	{
-		// a small step back up - but only when the look before said the same
-		// (a step up that has to be taken back is two hitches)
-		if (A.roomBefore) next = renderScale * 1.04f;
-		A.roomBefore = true;
+		A.shortLooks = 0;
+		// (Up is taken far more slowly than down: the heat of a bigger picture
+		// arrives a minute after the picture does, and a machine that slows
+		// itself down when hot then loses more than the step gained. Half a
+		// minute of room, a minute and a half after any step down, and only
+		// when the bigger picture should fit with a third to spare.)
+		if (A.upBlockedLooks > 0) A.upBlockedLooks--;
+		else if (++A.roomLooks >= 20 && rung > 0)
+		{
+			// what the frame costs now is the frame less what was waited out;
+			// a rung up multiplies the GPU's part of it by the pixels (all of
+			// it, to be on the safe side)
+			const f64 busy = frameMs - idle;
+			const f64 grow = (f64)(kRungs[rung - 1] * kRungs[rung - 1]) / (f64)(kRungs[rung] * kRungs[rung]);
+			if (busy * grow < want * 0.68) rung -= 1;
+			A.roomLooks = 0;
+		}
 	}
 	else
-		A.roomBefore = false;
+	{
+		A.shortLooks = 0;
+		A.roomLooks = 0;
+	}
+	if (rung >= kRungCount) rung = kRungCount - 1;
+	next = kRungs[rung];
 	if (next < A.minScale) next = A.minScale;
 	if (next > A.maxScale) next = A.maxScale;
+	if (fabsf(next - renderScale) >= 0.004f) A.sinceChange = 0;
 	SetRenderScale(next);
 }
 
