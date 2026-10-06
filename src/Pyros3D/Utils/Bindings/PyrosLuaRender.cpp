@@ -277,6 +277,10 @@ namespace p3d {
 			);
 		lua->new_usertype<DirectionalLight>("DirectionalLightBase",
 			"getLightDirection", &DirectionalLight::GetLightDirection,
+			// (on a light a scene already has - what getComponent("DirectionalLight")
+			// hands back - as well as on one a script makes)
+			"setShadowCascades", [](DirectionalLight &l, const uint32 cascades, const f32 reach) { l.SetShadowCascades(cascades, reach); },
+			"getNumberCascades", [](DirectionalLight &l) { return l.GetNumberCascades(); },
 			"setLightDirection", &DirectionalLight::SetLightDirection,
 			sol::base_classes, sol::bases<ILightComponent, IComponent>()
 			);
@@ -326,6 +330,9 @@ namespace p3d {
 				"update", &LUA_DirectionalLight::Update,
 				"destroy", &LUA_DirectionalLight::Destroy,
 				"enableShadows", &LUA_DirectionalLight::EnableCastShadows,
+				// light:setShadowCascades(2, 60): how many cascades and how far the
+				// shadow reaches, on a light already casting.
+				"setShadowCascades", [](LUA_DirectionalLight &l, const uint32 cascades, const f32 reach) { l.SetShadowCascades(cascades, reach); },
 				"getLightProjection", &LUA_DirectionalLight::GetLightProjection,
 				"updateCascadeFrustumPoints", &LUA_DirectionalLight::UpdateCascadeFrustumPoints,
 				"getNumberCascades", &LUA_DirectionalLight::GetNumberCascades,

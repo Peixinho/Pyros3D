@@ -292,6 +292,22 @@ namespace p3d {
 		return s;
 	}
 
+	void DirectionalLight::SetShadowCascades(const uint32 Cascades, const f32 Far)
+	{
+		if (!IsCastingShadows()) return;
+		const uint32 count = Cascades < 1 ? 1 : (Cascades > 4 ? 4 : Cascades);
+		const f32 reach = Far > ShadowNear + 1.f ? Far : ShadowNear + 1.f;
+		if (count == GetNumberCascades() && fabsf(reach - ShadowFar) < 0.01f) return;
+		const f32 biasFactor = GetShadowBiasFactor(), biasUnits = GetShadowBiasUnits();
+		const f32 softness = GetShadowSoftness(), normalBias = GetShadowNormalBias();
+		Projection projection;
+		projection.Perspective(70.f, 1.777f, ShadowNear, reach);
+		EnableCastShadows(ShadowWidth, ShadowHeight, projection, ShadowNear, reach, count);
+		SetShadowBias(biasFactor, biasUnits);
+		SetShadowSoftness(softness);
+		SetShadowNormalBias(normalBias);
+	}
+
 	Matrix DirectionalLight::FitCascade(const uint32 Cascade, const Matrix &CameraWorld, const Projection &CameraProjection, const Matrix &LightView, const std::vector<RenderingMesh*> &Casters)
 	{
 		// Slice range in view distance. Every cascade after the first starts

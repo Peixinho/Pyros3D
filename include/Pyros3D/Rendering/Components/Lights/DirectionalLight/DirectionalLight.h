@@ -61,6 +61,11 @@ namespace p3d {
 		virtual uint32 GetComponentType() const { return ComponentType::DirectionalLight; }
 
 		void EnableCastShadows(const uint32 Width, const uint32 Height, const Projection &projection, const f32 Near, const f32 Far, const uint32 Cascades = 1);
+		// How many cascades the shadow is in and how far from the eye it
+		// reaches, changed on a light that is already casting: its map's size,
+		// its biases and its softness stay as they are. What a game's "shadow
+		// quality" setting moves. Nothing on a light that casts none.
+		void SetShadowCascades(const uint32 Cascades, const f32 Far);
 
 		// Legacy crop-box fit, kept for the Lua binding only. The renderer
 		// uses FitCascade() - see there for what was wrong with this one.
