@@ -10,6 +10,7 @@
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
 
 namespace p3d {
 
@@ -775,6 +776,7 @@ namespace p3d {
 		if (o.is<std::shared_ptr<Cube>>()) return o.as<std::shared_ptr<Cube>>();
 		if (o.is<std::shared_ptr<Sphere>>()) return o.as<std::shared_ptr<Sphere>>();
 		if (o.is<std::shared_ptr<Plane>>()) return o.as<std::shared_ptr<Plane>>();
+		if (o.is<std::shared_ptr<Card>>()) return o.as<std::shared_ptr<Card>>();
 		if (o.is<std::shared_ptr<Capsule>>()) return o.as<std::shared_ptr<Capsule>>();
 		if (o.is<std::shared_ptr<Cone>>()) return o.as<std::shared_ptr<Cone>>();
 		if (o.is<std::shared_ptr<Cylinder>>()) return o.as<std::shared_ptr<Cylinder>>();

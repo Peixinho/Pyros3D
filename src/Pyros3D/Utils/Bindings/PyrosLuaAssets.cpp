@@ -8,6 +8,7 @@
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
 
 namespace p3d {
 
@@ -62,6 +63,16 @@ namespace p3d {
 				);
 		}
 		{
+			// Card.new(left, right, bottom, top[, crossed]): an upright quad
+			// standing on its base - what an impostor's picture is put on
+			// (see Card.h); crossed, the default, adds a second at right angles.
+			lua->new_usertype<Card>("Card",
+				sol::factories(
+					[](float left, float right, float bottom, float top, bool crossed) { return std::make_shared<Card>(left, right, bottom, top, crossed); },
+					[](float left, float right, float bottom, float top) { return std::make_shared<Card>(left, right, bottom, top); }
+				),
+				sol::base_classes, sol::bases<Renderable>()
+				);
 			// Plane - shared_ptr via sol::factories
 			lua->new_usertype<Plane>("Plane",
 				sol::factories(
