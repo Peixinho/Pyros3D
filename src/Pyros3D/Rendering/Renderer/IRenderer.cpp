@@ -1146,6 +1146,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	// the last projection this renderer drew with - there is none yet on its
 	// first frame, and nothing is left out then).
 	smallCullEye = Camera != NULL ? Camera->GetWorldPosition() : Vec3();
+	if (Scene != NULL && Camera != NULL) Scene->_NoteViewedFrom(smallCullEye);
 	smallCullScale = (Camera != NULL && projectionValid && projection.m.m[11] != 0.f)
 		? fabsf(projection.m.m[5]) * 0.5f * (f32)(viewPortEndY > 0 ? viewPortEndY : Height) : 0.f;
 	smallCullFactor = 2.f;       // the shadow passes below; RenderScene() puts it back to 1

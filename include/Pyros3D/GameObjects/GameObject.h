@@ -131,6 +131,8 @@ namespace p3d {
 		// is SceneGraph's to change, through Add()/Remove(). Exposed so the
 		// back-pointer can be asserted on rather than only inferred.
 		SceneGraph* GetScene() const { return Scene; }
+		// The scene this object is in, through whatever it hangs from (NULL: none).
+		SceneGraph* GetOwningScene() { return FindScene(); }
 		// Whether LookAt(GameObject*) is currently in force. Goes false on
 		// its own if the target is destroyed.
 		bool IsLookingAtGameObject() const { return _IsLookingAtGameObject; }
@@ -222,6 +224,8 @@ namespace p3d {
 		// awake object's ancestors are all awake.
 		bool _SubtreeAwake = true;
 		bool _StreamedIn = false;
+		// The scene that has this object in one of its name watches (SceneGraph::Watch).
+		SceneGraph* _WatchScene = NULL;
 		uint8_t _IdleFrames = 0;
 		uint8_t _SleptFrames = 0;
 		// (the local boxes of this and everything under it, for the scene's

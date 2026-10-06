@@ -9,6 +9,9 @@
 #ifndef SCENEGRAPH_H
 #define	SCENEGRAPH_H
 
+#include <string>
+#include <map>
+#include <unordered_set>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -59,7 +62,30 @@ namespace p3d {
 		// meshes into the render lists, their bodies into the physics world -
 		// was a hundred milliseconds in the frame it arrived. 2 ms by default;
 		// 0 registers everything at once.
-		void SetStreamedRegistrationBudget(const f64 ms) { streamedRegistrationBudgetMs = ms; }
+// Everything in the scene whose name starts with `prefix`, kept up
+		// to date as objects come and go - a cell streaming in, a thing a
+		// script makes - instead of the scene being walked to look for them.
+		// The first call for a prefix looks through the scene once; after
+		// that the list is added to and taken from as objects are registered
+		// and removed. WatchedVersion() goes up whenever the list changes, so
+		// a caller that has dealt with the list need only look again when it
+		// has. (By the name an object has when it enters the scene.)
+		// (Shared pointers: a caller may keep the list over frames in which a
+		// cell unloads - what it holds stays valid, if no longer in the scene.)
+		const std::vector<std::shared_ptr<GameObject> > &Watch(const std::string &prefix);
+		uint32 WatchedVersion(const std::string &prefix);
+		// Where this scene was last looked at from (a renderer says, each time
+		// it prepares a view of it), and whether it has been at all: what a
+		// script measures "how far from the player's eye" against.
+		const Vec3 &GetLastViewPosition() const { return lastViewPosition; }
+		bool HasBeenViewed() const { return viewed; }
+		void _NoteViewedFrom(const Vec3 &eye) { lastViewPosition = eye; viewed = true; }
+
+		// (GameObject says when it is registered here and when it leaves)
+		void _NoteEntered(GameObject* go);
+		void _NoteLeft(GameObject* go);
+
+				void SetStreamedRegistrationBudget(const f64 ms) { streamedRegistrationBudgetMs = ms; }
 		// Add Child to Scene
 		void Add(const std::shared_ptr<GameObject> &GO);
 		// Remove Child from Scene
@@ -126,7 +152,13 @@ namespace p3d {
 		// (the walk is inside something that arrived by streaming; and what
 		// registering such things has cost this Update, and how many waited)
 		bool inStreamedSubtree = false;
-		f64 streamedRegistrationMs = 0.0, streamedRegistrationBudgetMs = 2.0;
+Vec3 lastViewPosition; bool viewed = false;
+		struct NameWatch { std::vector<std::shared_ptr<GameObject> > objects; std::unordered_set<GameObject*> have; uint32 version = 1; };
+		std::map<std::string, NameWatch> nameWatches;
+		// (what left a watch is let go of at the next update, not under the
+		// feet of whoever is in the middle of removing it)
+		std::vector<std::shared_ptr<GameObject> > watchReleased;
+				f64 streamedRegistrationMs = 0.0, streamedRegistrationBudgetMs = 2.0;
 		uint32 streamedDeferred = 0;
 
 	public:

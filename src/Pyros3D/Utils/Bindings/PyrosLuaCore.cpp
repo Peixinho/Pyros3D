@@ -133,6 +133,12 @@ namespace p3d {
 				"removeGameobject", &SceneGraph_RemoveGameObjectObj,
 				"getTime", &SceneGraph::GetTime,
 				"getAllGameObjects", &SceneGraph::GetAllGameObjectList,
+				// scene:watch("Lamp_"): every object whose name starts with that,
+				// kept up to date as cells stream in and out - no walk of the
+				// scene. scene:watchedVersion("Lamp_") goes up when the list
+				// changes: deal with the list again only then.
+				"watch", [](SceneGraph &s, const std::string &prefix) { return s.Watch(prefix); },
+				"watchedVersion", [](SceneGraph &s, const std::string &prefix) { return s.WatchedVersion(prefix); },
 				"save", [lua](SceneGraph &scene, const std::string &path) {
 					return SceneSerializer::SaveScene(&scene, path, lua);
 				},

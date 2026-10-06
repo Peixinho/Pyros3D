@@ -7356,6 +7356,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		IRenderer::SetShadowUpdateInterval(1);
 		DeferredRenderer::SetSSAOHalfResolution(false);
 #ifdef LUA_BINDINGS
+		if (sharedLua) p3d::LuaClearTasks(sharedLua);
 		LuaComponent::SetUpdatesEnabled(false);
 		ResetSceneMainScriptLifecycle();
 		ResetLuaComponentsLifecycle();

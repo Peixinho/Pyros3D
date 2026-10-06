@@ -43,6 +43,7 @@ namespace p3d {
 	// Destructor
 	GameObject::~GameObject()
 	{
+		if (_WatchScene) _WatchScene->_NoteLeft(this);
 		// Orphan the children before they are released.
 		//
 		// _Owner is a raw back-pointer, and a child can outlive its parent:
@@ -733,6 +734,7 @@ namespace p3d {
 				(*i)->Register(Scene);
 			}
 			_ComponentsChanged = false;
+			if (Scene) Scene->_NoteEntered(this);
 		}
 	}
 	void GameObject::UnregisterComponents(SceneGraph* Scene)
@@ -743,6 +745,7 @@ namespace p3d {
 		{
 			(*i)->Unregister(Scene);
 		}
+		if (Scene) Scene->_NoteLeft(this);
 	}
 
 	void GameObject::UnregisterComponentsTree(SceneGraph* Scene)

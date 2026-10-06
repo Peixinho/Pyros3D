@@ -1264,6 +1264,9 @@ void PyrosPlayer::ApplyPendingSceneLoadIfAny()
 	if (rel.find('/') == std::string::npos && rel.find('\\') == std::string::npos)
 		rel = "scenes/" + rel + ".json";
 
+#ifdef LUA_BINDINGS
+	p3d::LuaClearTasks(&lua);
+#endif
 	if (!LoadGameScene(rel))
 		echo("ERROR: loadScene(\"" + requested + "\") failed");
 }

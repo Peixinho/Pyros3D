@@ -41,6 +41,9 @@ namespace p3d {
 	// growing faster than that keeps up with). PYROS_LUA_GC=auto leaves Lua's
 	// own collector alone.
 	PYROS3D_API void LuaCollectWithinBudget(sol::state* lua, const f64 budgetMs = 1.0);
+	// Drops every task scripts have running (`tasks`): when the scene they
+	// were working on goes.
+	PYROS3D_API void LuaClearTasks(sol::state* lua);
 	void RegisterLuaUI(sol::state* lua);
 
 }

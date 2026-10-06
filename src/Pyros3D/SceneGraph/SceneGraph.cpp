@@ -6,6 +6,7 @@
 // Description : SceneGraph
 //============================================================================
 
+#include <functional>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
@@ -167,6 +168,10 @@ namespace p3d {
 
 	SceneGraph::~SceneGraph()
 	{
+		// (nothing that was being watched is left pointing at this scene)
+		for (std::map<std::string, NameWatch>::iterator w = nameWatches.begin(); w != nameWatches.end(); ++w)
+			for (size_t i = 0; i < w->second.objects.size(); i++) w->second.objects[i]->_WatchScene = NULL;
+		nameWatches.clear();
 		// Deliberately not RemoveAll(): that routes through Remove(), which
 		// echoes a line per object and re-searches the lists each time. The
 		// work that actually matters here is the same either way - unregister
@@ -363,6 +368,7 @@ namespace p3d {
 
 		// (what counts "drawn lately" for skinned meshes posed only when seen)
 		RenderingComponent::SeenEpoch++;
+		watchReleased.clear();
 
 		// Save Time
 		timer = Timer;
@@ -502,6 +508,76 @@ namespace p3d {
 	const f64 &SceneGraph::GetTime() const
 	{
 		return timer;
+	}
+
+	namespace {
+		// The pointer that owns `go`: its parent's, or the scene's for a root.
+		std::shared_ptr<GameObject> OwnerOf(GameObject* go, const std::vector<std::shared_ptr<GameObject> > &roots)
+		{
+			if (GameObject* parent = go->GetParent())
+			{
+				const std::vector<std::shared_ptr<GameObject> > &kids = parent->GetChildren();
+				for (size_t i = 0; i < kids.size(); i++) if (kids[i].get() == go) return kids[i];
+				return std::shared_ptr<GameObject>();
+			}
+			for (size_t i = 0; i < roots.size(); i++) if (roots[i].get() == go) return roots[i];
+			return std::shared_ptr<GameObject>();
+		}
+	}
+
+	const std::vector<std::shared_ptr<GameObject> > &SceneGraph::Watch(const std::string &prefix)
+	{
+		std::map<std::string, NameWatch>::iterator it = nameWatches.find(prefix);
+		if (it != nameWatches.end()) return it->second.objects;
+		NameWatch &w = nameWatches[prefix];
+		std::function<void(GameObject*)> look = [&](GameObject* go)
+		{
+			if (go->GetName().compare(0, prefix.size(), prefix) == 0 && w.have.find(go) == w.have.end())
+			{
+				if (std::shared_ptr<GameObject> held = OwnerOf(go, GetAllGameObjectList())) { w.have.insert(go); w.objects.push_back(held); go->_WatchScene = this; }
+			}
+			const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
+			for (size_t i = 0; i < kids.size(); i++) if (kids[i]) look(kids[i].get());
+		};
+		const std::vector<std::shared_ptr<GameObject> > &roots = GetAllGameObjectList();
+		for (size_t i = 0; i < roots.size(); i++)
+			if (roots[i] && !roots[i]->GetParent()) look(roots[i].get());
+		return w.objects;
+	}
+
+	uint32 SceneGraph::WatchedVersion(const std::string &prefix)
+	{
+		Watch(prefix);
+		return nameWatches[prefix].version;
+	}
+
+	void SceneGraph::_NoteEntered(GameObject* go)
+	{
+		if (nameWatches.empty()) return;
+		const std::string &name = go->GetName();
+		for (std::map<std::string, NameWatch>::iterator w = nameWatches.begin(); w != nameWatches.end(); ++w)
+			if (name.compare(0, w->first.size(), w->first) == 0 && w->second.have.find(go) == w->second.have.end())
+			{
+				std::shared_ptr<GameObject> held = OwnerOf(go, GetAllGameObjectList());
+				if (!held) continue;
+				w->second.have.insert(go);
+				w->second.objects.push_back(held);
+				w->second.version++;
+				go->_WatchScene = this;
+			}
+	}
+
+	void SceneGraph::_NoteLeft(GameObject* go)
+	{
+		if (go->_WatchScene != this) return;
+		go->_WatchScene = NULL;
+		for (std::map<std::string, NameWatch>::iterator w = nameWatches.begin(); w != nameWatches.end(); ++w)
+			if (w->second.have.erase(go))
+			{
+				std::vector<std::shared_ptr<GameObject> > &list = w->second.objects;
+				for (size_t i = 0; i < list.size(); i++) if (list[i].get() == go) { watchReleased.push_back(list[i]); list.erase(list.begin() + i); break; }
+				w->second.version++;
+			}
 	}
 
 	void SceneGraph::AddGameObject(const std::shared_ptr<GameObject> &GO) { Add(GO); }

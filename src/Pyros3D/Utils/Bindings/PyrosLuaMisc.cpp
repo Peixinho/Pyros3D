@@ -22,10 +22,24 @@
 
 namespace p3d {
 
+	void LuaClearTasks(sol::state* lua)
+	{
+		if (lua == NULL) return;
+		sol::protected_function clear = (*lua)["tasks"]["clear"];
+		if (clear.valid()) clear();
+	}
+
 	void LuaCollectWithinBudget(sol::state* lua, const f64 budgetMs)
 	{
 		static const bool automatic = []() { const char* v = std::getenv("PYROS_LUA_GC"); return v != NULL && std::string(v) == "auto"; }();
-		if (lua == NULL || automatic) return;
+		if (lua == NULL) return;
+		// (this is the scripts' once-a-frame housekeeping: what they have
+		// spread over frames is given its share first - see `tasks`)
+		{
+			sol::protected_function pump = (*lua)["tasks"]["_pump"];
+			if (pump.valid()) pump();
+		}
+		if (automatic) return;
 		lua_State* L = lua->lua_state();
 		// (per state: the one taken over, and how big its heap was when a
 		// cycle last finished)
@@ -94,9 +108,63 @@ namespace p3d {
 		// setSSAOHalfResolution(true): the deferred renderer's ambient occlusion
 		// at half resolution - see DeferredRenderer::SetSSAOHalfResolution.
 		lua->set_function("setSSAOHalfResolution", [](const bool half) { DeferredRenderer::SetSSAOHalfResolution(half); });
+		// viewDistance(object): metres from where its scene was last looked at
+		// from - the player's eye, whatever is carrying it - to the object.
+		// What "do this only for what is near" is measured with; -1 before
+		// anything has been drawn. (rc:wasSeenRecently() says whether a thing
+		// is being drawn at all.)
+		lua->set_function("viewDistance", [](GameObject* go) -> f64 {
+			if (go == NULL) return -1.0;
+			SceneGraph* scene = go->GetOwningScene();
+			if (scene == NULL || !scene->HasBeenViewed()) return -1.0;
+			return (f64)scene->GetLastViewPosition().distance(go->GetWorldPosition());
+		});
 		lua->set_function("getClock", []() {
 			return std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
 		});
+		// tasks: work spread over frames. tasks.run(function() ... tasks.pause() ... end, ms)
+		// starts fn as a coroutine given `ms` of each frame (0.3 if not said);
+		// tasks.pause(), called from inside it as often as is convenient, hands
+		// the frame back once that much has been used and carries on from there
+		// the next. tasks.run returns a handle: handle.done, tasks.cancel(handle),
+		// handle.onDone = function. tasks.clear() drops them all (the engine
+		// does when a scene goes). Run by the host once a frame.
+		lua->script(R"LUA(
+tasks = {}
+local list, current = {}, nil
+function tasks.run(fn, ms)
+	local t = { co = coroutine.create(fn), budget = (ms or 0.3) / 1000, done = false }
+	list[#list + 1] = t
+	return t
+end
+function tasks.pause()
+	local t = current
+	if t and getClock() - t.t0 > t.budget then coroutine.yield() end
+end
+function tasks.cancel(t) if t then t.done = true end end
+function tasks.clear() for i = #list, 1, -1 do list[i].done = true list[i] = nil end end
+function tasks.count() return #list end
+function tasks._pump()
+	local i = 1
+	while i <= #list do
+		local t = list[i]
+		if not t.done then
+			t.t0 = getClock()
+			current = t
+			local ok, err = coroutine.resume(t.co)
+			current = nil
+			if not ok then
+				echo("ERROR: task - " .. tostring(err))
+				t.done = true
+			elseif coroutine.status(t.co) == "dead" then
+				t.done = true
+				if t.onDone then pcall(t.onDone) end
+			end
+		end
+		if t.done then table.remove(list, i) else i = i + 1 end
+	end
+end
+)LUA");
 		{
 			// Input - real keyboard/mouse enums plus the LuaInputBridge
 			// registration API (see PyrosBindings.h's LuaInputBridge
