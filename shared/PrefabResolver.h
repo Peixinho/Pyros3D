@@ -167,6 +167,56 @@ namespace prefab {
 			// every instance was quietly written out in full on the first save.
 			if (ref.is_object()) ref.erase("id");
 		});
+		// The names of what is inside, without the number in brackets the
+		// editor gives the second and later object of a name in a scene
+		// ("Door_01(6)"): it is the editor's, to tell them apart in its tree,
+		// and says nothing about the instance. Left in, every instance but the
+		// first of a prefab with children stopped matching it, and a save
+		// wrote each of them out in full.
+		{
+			struct Names
+			{
+				static void Plain(json& node, const bool isRoot)
+				{
+					if (!node.is_object()) return;
+					if (!isRoot && node.contains("name") && node["name"].is_string())
+					{
+						const std::string name = node["name"].get<std::string>();
+						if (!name.empty() && name[name.size() - 1] == ')')
+						{
+							const size_t open = name.find_last_of('(');
+							if (open != std::string::npos && open + 1 < name.size() - 1
+								&& name.find_first_not_of("0123456789", open + 1) == name.size() - 1)
+							{
+								size_t end = open;
+								while (end > 0 && name[end - 1] == ' ') end--;
+								node["name"] = name.substr(0, end);
+							}
+						}
+					}
+					if (node.contains("children") && node["children"].is_array())
+						for (size_t i = 0; i < node["children"].size(); ++i) Plain(node["children"][i], false);
+				}
+			};
+			Names::Plain(copy, true);
+		}
+		// Numbers as the engine holds them. It keeps single precision and
+		// writes what it has ("0.6200000047683716"); a prefab written by a
+		// tool, or by hand, says "0.62". The same value once loaded - and
+		// compared as written, no instance of such a prefab ever matched it.
+		{
+			struct Numbers
+			{
+				static void Single(json& node)
+				{
+					if (node.is_number_float()) node = (double)(float)node.get<double>();
+					else if (node.is_number_integer() || node.is_number_unsigned()) { /* counts and ids: as they are */ }
+					else if (node.is_object()) { for (json::iterator i = node.begin(); i != node.end(); ++i) Single(*i); }
+					else if (node.is_array()) { for (size_t i = 0; i < node.size(); ++i) Single(node[i]); }
+				}
+			};
+			Numbers::Single(copy);
+		}
 		if (copy.is_object())
 		{
 			size_t n = 0;
