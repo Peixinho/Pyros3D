@@ -419,7 +419,18 @@ namespace p3d {
 		IEffect* const taaPass = aaStage->PrepareTAA(projection->m * viewMatrix, haveViewMatrix);
 		if (taaPass != NULL)
 			run.push_back(taaPass);
-		run.insert(run.end(), effects.begin(), effects.end());
+		// (effects with nothing to do this frame are left out - IEffect::IsIdle -
+		// unless that would leave nothing at all to carry the frame to where it
+		// is shown)
+		{
+			std::vector<IEffect*> finals;
+			aaStage->AppendFinalPasses(finals);
+			size_t busy = 0;
+			for (size_t e = 0; e < effects.size(); e++) if (!effects[e]->IsIdle()) busy++;
+			const bool mayDrop = busy > 0 || !finals.empty();
+			for (size_t e = 0; e < effects.size(); e++)
+				if (!mayDrop || !effects[e]->IsIdle()) run.push_back(effects[e]);
+		}
 		const size_t finalStart = run.size();
 		aaStage->AppendFinalPasses(run);
 		// Something has to put the frame on the swapchain. TAA cannot be the

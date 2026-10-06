@@ -84,6 +84,13 @@ namespace p3d {
 
 		virtual ~IEffect();
 
+		// Nothing to do this frame: the chain passes over the effect as if it
+		// were not in it, and whatever follows reads what came before. For an
+		// effect that draws something only some of the time - smoke, when
+		// there is smoke - and otherwise costs its full-screen passes for
+		// nothing.
+		virtual bool IsIdle() const { return false; }
+
 		// Compile Shader
 		void CompileShaders();
 

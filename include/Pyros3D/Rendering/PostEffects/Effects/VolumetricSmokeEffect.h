@@ -8,6 +8,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/Effects/IEffect.h>
+#include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 
 #ifndef VOLUMETRICSMOKEEFFECT_H
 #define	VOLUMETRICSMOKEEFFECT_H
@@ -22,6 +23,8 @@ namespace p3d {
 	// every pixel on screen.
 	class PYROS3D_API VolumetricSmokeEffect : public IEffect {
 	public:
+		// (no cloud anywhere: nothing to march through and nothing to lay over the frame)
+		virtual bool IsIdle() const { return VolumetricSmoke::GetActiveCount() == 0; }
 		VolumetricSmokeEffect(const uint32 Width, const uint32 Height);
 		virtual ~VolumetricSmokeEffect();
 
@@ -51,6 +54,8 @@ namespace p3d {
 	// keeps a clean edge instead of a smoke-coloured halo.
 	class PYROS3D_API VolumetricSmokeCompositeEffect : public IEffect {
 	public:
+		// (no cloud anywhere: nothing to march through and nothing to lay over the frame)
+		virtual bool IsIdle() const { return VolumetricSmoke::GetActiveCount() == 0; }
 		// The frame to composite over: RTT::Color, or an earlier effect's output.
 		VolumetricSmokeCompositeEffect(const uint32 TexColor, const uint32 Width, const uint32 Height);
 		VolumetricSmokeCompositeEffect(Texture* color, const uint32 Width, const uint32 Height);
