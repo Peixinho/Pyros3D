@@ -135,6 +135,10 @@ namespace p3d {
 					[](const std::string &path) { return std::make_shared<Model>(path); },
 					[](const std::string &path, bool mergeMeshes) { return std::make_shared<Model>(path, mergeMeshes); }
 				),
+				// The model's own box, in its own units: how big it is and where
+				// its middle lies - what a stand-in for it has to be the size of.
+				"getBoundingMin", [](Model &m) { return m.GetBoundingMinValue(); },
+				"getBoundingMax", [](Model &m) { return m.GetBoundingMaxValue(); },
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
