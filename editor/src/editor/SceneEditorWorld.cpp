@@ -509,20 +509,20 @@ bool SceneEditor::BakeFarCell(const int32 x, const int32 z, GameObject* root, co
 					materials.push_back(m);
 					mat = impostorMaterial.insert(std::make_pair(key, id)).first;
 				}
-				json far;
-				far["name"] = "FarObject_" + std::to_string(o);
-				far["position"] = { go->GetPosition().x, go->GetPosition().y, go->GetPosition().z };
-				far["rotation"] = { go->GetRotation().x, go->GetRotation().y, go->GetRotation().z };
-				far["scale"] = { go->GetScale().x, go->GetScale().y, go->GetScale().z };
-				far["children"] = json::array();
+				json standIn;
+				standIn["name"] = "FarObject_" + std::to_string(o);
+				standIn["position"] = { go->GetPosition().x, go->GetPosition().y, go->GetPosition().z };
+				standIn["rotation"] = { go->GetRotation().x, go->GetRotation().y, go->GetRotation().z };
+				standIn["scale"] = { go->GetScale().x, go->GetScale().y, go->GetScale().z };
+				standIn["children"] = json::array();
 				json rc;
 				rc["type"] = "RenderingComponent";
 				rc["material"] = mat->second;
 				rc["castingShadows"] = false;
 				rc["cullTest"] = true;
 				rc["renderable"] = { { "kind", "simplified" }, { "path", (*comp)["renderable"].value("path", std::string()) }, { "ratio", 0.3 } };
-				far["components"] = json::array({ rc });
-				children.push_back(far);
+				standIn["components"] = json::array({ rc });
+				children.push_back(standIn);
 				continue;
 			}
 		}

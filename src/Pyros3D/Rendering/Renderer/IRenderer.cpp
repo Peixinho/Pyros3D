@@ -3476,7 +3476,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				if (rmesh->SkinningBones.size() > 0)
 				{
 					const std::vector<Matrix> &palette = (!rmesh->ShadowSkinningBones.empty() && IsShadowMaterial(Material)) ? rmesh->ShadowSkinningBones : rmesh->SkinningBones;
-					Shader::SendUniform((*k), &palette[0], (*_ShadersModelCache)[counter], palette.size());
+					Shader::SendUniform((*k), (void*)&palette[0], (*_ShadersModelCache)[counter], (uint32)palette.size());
 				}
 			}
 			break;
