@@ -38,6 +38,9 @@
 #include <set>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
+#ifdef LUA_BINDINGS
+#include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+#endif
 
 using json = nlohmann::json;
 namespace fs = std::filesystem;
@@ -1352,6 +1355,12 @@ void PyrosPlayer::Update()
 		PYROS_PROFILE_SCOPE("Player.Script");
 		try { sceneMainScript->Update(time); }
 		catch (const std::exception& e) { echo(std::string("ERROR: scene main script update - ") + e.what()); }
+	}
+	// (the scripts' garbage, collected here and within a budget rather than
+	// wherever in the next frame Lua would have chosen)
+	{
+		PYROS_PROFILE_SCOPE("Player.LuaGC");
+		p3d::LuaCollectWithinBudget(&lua, 1.0);
 	}
 #endif
 	// what the script has just moved is drawn where it put it

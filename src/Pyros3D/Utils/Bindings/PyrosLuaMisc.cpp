@@ -13,12 +13,51 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
+#include <map>
+#include <string>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
 
 namespace p3d {
+
+	void LuaCollectWithinBudget(sol::state* lua, const f64 budgetMs)
+	{
+		static const bool automatic = []() { const char* v = std::getenv("PYROS_LUA_GC"); return v != NULL && std::string(v) == "auto"; }();
+		if (lua == NULL || automatic) return;
+		lua_State* L = lua->lua_state();
+		// (per state: the one taken over, and how big its heap was when a
+		// cycle last finished)
+		static std::map<lua_State*, f64> afterCycleKb;
+		std::map<lua_State*, f64>::iterator known = afterCycleKb.find(L);
+		if (known == afterCycleKb.end())
+		{
+			lua_gc(L, LUA_GCSTOP);
+			known = afterCycleKb.insert(std::make_pair(L, (f64)lua_gc(L, LUA_GCCOUNT))).first;
+		}
+		const f64 nowKb = (f64)lua_gc(L, LUA_GCCOUNT);
+		// Falling behind - the heap half as big again as a finished cycle
+		// left it, and more - buys a longer look, up to four times the budget.
+		f64 budget = budgetMs;
+		const f64 grown = known->second > 1.0 ? nowKb / known->second : 1.0;
+		if (grown > 1.5) budget *= (grown > 3.0 ? 4.0 : 2.0);
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		uint32 steps = 0;
+		for (;;)
+		{
+#if LUA_VERSION_NUM >= 505
+			const int finished = lua_gc(L, LUA_GCSTEP, (size_t)0);
+#else
+			const int finished = lua_gc(L, LUA_GCSTEP, 0);
+#endif
+			steps++;
+			if (finished) { known->second = (f64)lua_gc(L, LUA_GCCOUNT); break; }
+			if (std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count() >= budget) break;
+		}
+		FrameProfiler::Instance().Counter("Lua.HeapMb", nowKb / 1024.0);
+		FrameProfiler::Instance().Counter("Lua.GcSteps", (f64)steps);
+	}
 
 	void RegisterLuaMisc(sol::state* lua)
 	{

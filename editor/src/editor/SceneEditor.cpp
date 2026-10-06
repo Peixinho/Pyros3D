@@ -57,6 +57,9 @@
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
 #include <Pyros3D/Ext/stb/stb_image_write.h>
+#ifdef LUA_BINDINGS
+#include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+#endif
 
 #define MAX_F32 3.40282e+38
 
@@ -6026,6 +6029,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				catch (...) { echo("ERROR: Project main script update failed"); }
 			}
 			UpdateSceneMainScript(time);
+			// (the scripts' garbage, within a budget: see LuaCollectWithinBudget)
+			if (sharedLua)
+			{
+				PYROS_PROFILE_SCOPE("Editor.LuaGC");
+				p3d::LuaCollectWithinBudget(sharedLua, 1.0);
+			}
 			// what the scripts have just moved is drawn where they put it
 			scene->SettleTransforms();
 		}

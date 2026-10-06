@@ -29,6 +29,18 @@ namespace p3d {
 	void RegisterLuaPostFX(sol::state* lua);
 	void RegisterLuaAudio(sol::state* lua);
 	void RegisterLuaMisc(sol::state* lua);
+
+	// Garbage collection where a frame can afford it. Left to itself Lua
+	// collects whenever enough has been allocated - in the middle of whatever
+	// function happens to allocate next - and a step can be several
+	// milliseconds: a game whose scripts make thousands of small objects a
+	// frame stuttered a dozen times a minute, the time landing in functions
+	// that do almost nothing. Call this once a frame, after the scripts have
+	// run: the first call stops the automatic collector for that state, and
+	// each call then collects for about budgetMs (more when the heap is
+	// growing faster than that keeps up with). PYROS_LUA_GC=auto leaves Lua's
+	// own collector alone.
+	PYROS3D_API void LuaCollectWithinBudget(sol::state* lua, const f64 budgetMs = 1.0);
 	void RegisterLuaUI(sol::state* lua);
 
 }
