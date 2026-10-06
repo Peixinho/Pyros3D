@@ -10499,6 +10499,35 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						if (ImGui::IsItemHovered())
 							ImGui::SetTooltip("Write this mesh into light shadow maps.\nOff: still receives shadows from others, but never casts or self-shadows.");
 					}
+					// What the shadow is drawn from: the mesh itself, or the same
+					// model with a share of its triangles (generated - see
+					// p3d::SimplifiedModel). A shadow shows an outline.
+					if (r->IsCastingShadows() && dynamic_cast<p3d::Model*>(r->GetRenderable()) != NULL)
+					{
+						static const f32 kShares[] = { 0.f, 0.5f, 0.25f, 0.1f };
+						static const char* kNames[] = { "The mesh itself", "Half the triangles", "A quarter of the triangles", "A tenth of the triangles" };
+						int now = 0;
+						for (int i = 1; i < 4; i++) if (fabsf(r->GetShadowDetail() - kShares[i]) < 0.02f) now = i;
+						ImGui::SetNextItemWidth(220.f);
+						if (ImGui::BeginCombo("Shadow from", (r->GetShadowDetail() > 0.f && now == 0) ? "A share of the triangles" : kNames[now]))
+						{
+							for (int i = 0; i < 4; i++)
+								if (ImGui::Selectable(kNames[i], i == now))
+								{
+									const f32 before = r->GetShadowDetail(), after = kShares[i];
+									RenderingComponent* rcPtr = r;
+									rcPtr->SetShadowDetail(after);
+									sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+										[rcPtr, before]() { rcPtr->SetShadowDetail(before); },
+										[rcPtr, after]() { rcPtr->SetShadowDetail(after); },
+										"Set Shadow Detail"));
+									MarkSceneDirty();
+								}
+							ImGui::EndCombo();
+						}
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Draw this object into shadow maps from a simplified copy of its model.\nThe shadow keeps its shape; the shadow pass draws far fewer triangles.\nNot for skinned meshes.");
+					}
 
 					if (meshes.empty())
 						ImGui::TextDisabled("(no submeshes)");
@@ -15290,6 +15319,45 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			for (auto& tag : removeTags) if (tag.is_string()) go->RemoveTag(tag.get<std::string>());
 		MarkSceneDirty();
 		return true;
+	}
+
+	// set_shadow_detail: one object by name, or every loaded object whose name
+	// starts with `prefix` (a forest is five hundred objects). Returns how many
+	// took it, -1 on an error.
+	int SceneEditor::AgentSetShadowDetail(const std::string& name, const std::string& prefix, const f32 ratio, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return -1; }
+		if (name.empty() && prefix.empty()) { errOut = "give \"name\" or \"prefix\""; return -1; }
+		int took = 0;
+		std::vector<std::pair<RenderingComponent*, f32> > changed;
+		std::function<void(GameObject*)> visit = [&](GameObject* go)
+		{
+			const std::string &n = go->GetName();
+			if ((!name.empty() && n == name) || (!prefix.empty() && n.compare(0, prefix.size(), prefix) == 0))
+			{
+				const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+				for (size_t i = 0; i < cs.size(); i++)
+					if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(cs[i].get()))
+					{
+						const f32 before = rc->GetShadowDetail();
+						if (rc->SetShadowDetail(ratio)) { took++; changed.push_back(std::make_pair(rc, before)); }
+						else rc->SetShadowDetail(before);
+					}
+			}
+			const std::vector<std::shared_ptr<GameObject> > kids = go->GetChildren();
+			for (size_t i = 0; i < kids.size(); i++) if (kids[i]) visit(kids[i].get());
+		};
+		const std::vector<std::shared_ptr<GameObject> > roots = scene->GetAllGameObjectList();
+		for (size_t i = 0; i < roots.size(); i++) if (roots[i] && !roots[i]->GetParent()) visit(roots[i].get());
+		if (took > 0)
+		{
+			sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+				[changed]() { for (size_t i = 0; i < changed.size(); i++) changed[i].first->SetShadowDetail(changed[i].second); },
+				[changed, ratio]() { for (size_t i = 0; i < changed.size(); i++) changed[i].first->SetShadowDetail(ratio); },
+				"Set Shadow Detail"));
+			MarkSceneDirty();
+		}
+		return took;
 	}
 
 	bool SceneEditor::AgentRename(const std::string& name, const std::string& newName, std::string& errOut)

@@ -290,6 +290,22 @@ namespace p3d {
 
 		virtual ~RenderingComponent();
 
+		// What is drawn into shadow maps in place of this component's own
+		// meshes while its nearest level of detail is the one in use: a
+		// shadow shows an outline, and the outline of a tree is not four
+		// thousand triangles. Its sub-meshes are drawn with the materials of
+		// the component's own, in order (so a cut-out still cuts out). Not for
+		// skinned meshes. An empty pointer goes back to casting itself.
+		void SetShadowRenderable(const std::shared_ptr<Renderable> &renderable);
+		const std::shared_ptr<Renderable> &GetShadowRenderable() const { return shadowRenderable; }
+		const std::vector<RenderingMesh*> &GetShadowMeshes() const { return shadowMeshes; }
+		// The usual way to ask for one: the component's own model with this
+		// share of its triangles (SimplifiedModel), 0.25 for a quarter. 0 or 1
+		// goes back to casting itself. Only where the nearest level is a Model
+		// read from a file; returns whether it took.
+		bool SetShadowDetail(const f32 ratio);
+		f32 GetShadowDetail() const { return shadowDetail; }
+
 		virtual void Register(SceneGraph* Scene);
 		virtual void Init() {}
 		// Advances the active texture animation and puts its current frame on
@@ -572,6 +588,9 @@ namespace p3d {
 		// Save Renderable Pointer
 		std::shared_ptr<Renderable> renderable;
 		std::vector<std::shared_ptr<Renderable> > lodRenderables;
+		std::shared_ptr<Renderable> shadowRenderable;
+		std::vector<RenderingMesh*> shadowMeshes;
+		f32 shadowDetail = 0.f;
 
 		// Casting Shadows
 		bool isCastingShadows = true;

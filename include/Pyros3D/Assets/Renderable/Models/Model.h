@@ -92,6 +92,32 @@ namespace p3d {
 		bool MergeMeshes;
 
 	};
+
+	// A model with fewer triangles, made from the model itself: its vertices
+	// are gathered into the cells of a grid and each cell becomes one vertex,
+	// the grid chosen so that about `ratio` of the triangles are left. Coarse
+	// - it keeps the outline, not the surface - which is what something drawn
+	// far away, or only into a shadow map, needs. Same sub-meshes in the same
+	// order as the model, each with its material properties, so whatever
+	// materials the model is drawn with fit this too.
+	class PYROS3D_API SimplifiedModel : public Renderable {
+	public:
+		SimplifiedModel(const std::shared_ptr<Model> &source, const f32 ratio);
+		virtual ~SimplifiedModel() {}
+
+		const std::string &GetPath() const { return Path; }
+		f32 GetRatio() const { return Ratio; }
+		uint32 GetTriangleCount() const { return Triangles; }
+		uint32 GetSourceTriangleCount() const { return SourceTriangles; }
+
+		// One for a file and a ratio, while anybody holds it.
+		static std::shared_ptr<SimplifiedModel> LoadShared(const std::string &ModelPath, const f32 ratio);
+
+	protected:
+		std::string Path;
+		f32 Ratio;
+		uint32 Triangles, SourceTriangles;
+	};
 };
 
 #endif /* MODEL_H */

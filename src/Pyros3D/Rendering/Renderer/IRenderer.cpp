@@ -967,6 +967,23 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		RenderingComponent* rc = (*k)->renderingComponent;
 		if (rc->GetOwner() == NULL || (*k)->Material->IsTransparent()) continue;
 		if (!rc->IsCastingShadows() || !rc->IsActive()) continue;
+		// Something that casts with a mesh of its own for the purpose
+		// (RenderingComponent::SetShadowRenderable): that, once for the
+		// component, in place of every mesh of its nearest level.
+		if (!rc->shadowMeshes.empty() && rc->LodInUse == 0)
+		{
+			if (*k != rc->Meshes[0][0]) continue;
+			for (size_t sm = 0; sm < rc->shadowMeshes.size(); sm++)
+			{
+				RenderingMesh* proxy = rc->shadowMeshes[sm];
+				if (!proxy->Material || proxy->Material->IsTransparent()) continue;
+				if (cullTest && !ShadowCasterVisible(proxy)) continue;
+				if (cullTest && g_shadowView.on && !ShadowReachesView(proxy)) { g_shadowCastersLeftOut++; continue; }
+				g_shadowCastersDrawn++;
+				casters.push_back(proxy);
+			}
+			continue;
+		}
 		if (cullTest && !ShadowCasterVisible(*k)) continue;
 		if (cullTest && g_shadowView.on && !ShadowReachesView(*k)) { g_shadowCastersLeftOut++; continue; }
 		g_shadowCastersDrawn++;

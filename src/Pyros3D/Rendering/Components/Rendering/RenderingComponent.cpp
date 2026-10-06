@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 // In the .cpp only: the AnimationManager headers include this one, so pulling
 // them into the header would be circular - which is why activeTextureAnimation
@@ -249,6 +250,44 @@ namespace p3d {
 		lodRenderables.push_back(renderable);
 	}
 
+	void RenderingComponent::SetShadowRenderable(const std::shared_ptr<Renderable> &renderable)
+	{
+		for (size_t i = 0; i < shadowMeshes.size(); i++) delete shadowMeshes[i];
+		shadowMeshes.clear();
+		shadowRenderable.reset();
+		if (!renderable || renderable->Geometries.empty()) return;
+		const std::vector<RenderingMesh*> &own = Meshes[0];
+		if (own.empty()) return;
+		for (size_t i = 0; i < renderable->Geometries.size(); i++)
+			if (renderable->Geometries[i]->materialProperties.haveBones)
+			{
+				echo("WARNING: RenderingComponent - a skinned mesh cannot be given a shadow renderable");
+				return;
+			}
+		shadowRenderable = renderable;
+		for (size_t i = 0; i < renderable->Geometries.size(); i++)
+		{
+			RenderingMesh* m = new RenderingMesh(0);
+			m->Geometry = renderable->Geometries[i];
+			m->Material = own[std::min(i, own.size() - 1)]->Material;
+			m->CullingGeometry = own[std::min(i, own.size() - 1)]->CullingGeometry;
+			m->renderingComponent = this;
+			shadowMeshes.push_back(m);
+		}
+	}
+
+	bool RenderingComponent::SetShadowDetail(const f32 ratio)
+	{
+		shadowDetail = 0.f;
+		if (ratio <= 0.f || ratio >= 0.999f) { SetShadowRenderable(std::shared_ptr<Renderable>()); return true; }
+		Model* model = dynamic_cast<Model*>(renderable.get());
+		if (!model || model->GetPath().empty()) { SetShadowRenderable(std::shared_ptr<Renderable>()); return false; }
+		SetShadowRenderable(SimplifiedModel::LoadShared(model->GetPath(), ratio));
+		if (shadowMeshes.empty()) return false;
+		shadowDetail = ratio;
+		return true;
+	}
+
 	const uint32 RenderingComponent::GetLODSize() const
 	{
 		return Meshes.size();
@@ -436,6 +475,8 @@ namespace p3d {
 		}
 		// Clear Meshes List
 		Meshes.clear();
+		for (size_t i = 0; i < shadowMeshes.size(); i++) delete shadowMeshes[i];
+		shadowMeshes.clear();
 	}
 };
 

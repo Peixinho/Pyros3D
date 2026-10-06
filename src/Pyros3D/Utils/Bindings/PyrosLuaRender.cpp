@@ -639,6 +639,10 @@ namespace p3d {
 				"disableCastShadows", &LUA_RenderingComponent::DisableCastShadows,
 				// rc:setAnimateWhenUnseen(false): its skeleton is posed only while
 				// some renderer is drawing it; rc:wasSeenRecently() says whether.
+				// rc:setShadowDetail(0.25): its shadow is drawn from its own model
+				// with a quarter of the triangles. 0 puts it back.
+				"setShadowDetail", [](LUA_RenderingComponent &c, const f32 ratio) { return c.SetShadowDetail(ratio); },
+				"getShadowDetail", [](LUA_RenderingComponent &c) { return c.GetShadowDetail(); },
 				"setAnimateWhenUnseen", [](LUA_RenderingComponent &c, const bool on) { c.SetAnimateWhenUnseen(on); },
 				"wasSeenRecently", [](LUA_RenderingComponent &c) { return c.WasSeenRecently(); },
 				"isCastingShadows", &LUA_RenderingComponent::IsCastingShadows,

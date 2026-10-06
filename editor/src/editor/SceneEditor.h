@@ -502,6 +502,7 @@ public:
 		f32 fov, f32 nearPlane, f32 farPlane, bool active, std::string& errOut);
 	bool AgentSetTransform(const std::string& name, const json& t, std::string& errOut);
 	bool AgentSetTags(const std::string& name, const json& addTags, const json& removeTags, std::string& errOut);
+	int AgentSetShadowDetail(const std::string& name, const std::string& prefix, const f32 ratio, std::string& errOut);
 	bool AgentRename(const std::string& name, const std::string& newName, std::string& errOut);
 	bool AgentReparent(const std::string& name, const std::string& newParentName, std::string& errOut);
 	bool AgentDuplicate(const std::string& name, std::string& errOut);

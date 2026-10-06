@@ -1358,6 +1358,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			{
 				j["material"] = GetOrAddMaterial(mat, materialsArray, materialIdMap);
 				j["renderable"] = renderableJson;
+				if (rc->GetShadowDetail() > 0.f) j["shadowDetail"] = rc->GetShadowDetail();
 				// (the further levels of detail: see the loader)
 				if (rc->HasLOD() && renderableJson.value("kind", std::string()) != "heightfield")
 				{
@@ -3131,6 +3132,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 			if (j.value("cullTest", true)) rc->EnableCullTest(); else rc->DisableCullTest();
 			if (j.value("castingShadows", true)) rc->EnableCastShadows(); else rc->DisableCastShadows();
+			// ("shadowDetail": the share of the model's triangles its shadow is drawn with)
+			if (j.contains("shadowDetail")) rc->SetShadowDetail(j.value("shadowDetail", 0.f));
 			go->AddComponent(rc);
 
 			if (j.find("skeletonAnimation") != j.end())

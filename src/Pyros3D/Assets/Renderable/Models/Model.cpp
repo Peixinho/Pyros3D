@@ -6,6 +6,9 @@
 // Description : Model Geometry
 //============================================================================
 
+#include <cstdint>
+#include <cmath>
+#include <unordered_map>
 #include <filesystem>
 #include <algorithm>
 #include <map>
@@ -330,6 +333,154 @@ namespace p3d {
 
 		// Calculate Model's Bounding Box
 		CalculateBounding();
+	}
+
+	namespace {
+		// The cell of a grid a point falls in, as one number.
+		inline uint64_t CellOf(const Vec3 &p, const Vec3 &lo, const f32 inv)
+		{
+			const uint64_t x = (uint64_t)std::max(0.f, (p.x - lo.x) * inv) & 0x1FFFFF;
+			const uint64_t y = (uint64_t)std::max(0.f, (p.y - lo.y) * inv) & 0x1FFFFF;
+			const uint64_t z = (uint64_t)std::max(0.f, (p.z - lo.z) * inv) & 0x1FFFFF;
+			return (x << 42) | (y << 21) | z;
+		}
+		// How many triangles are left with cells this big (three corners in
+		// three different cells).
+		uint32 TrianglesLeft(const ModelGeometry &g, const Vec3 &lo, const f32 cell, std::vector<uint64_t> &cells)
+		{
+			const f32 inv = 1.f / cell;
+			cells.resize(g.tVertex.size());
+			for (size_t v = 0; v < g.tVertex.size(); v++) cells[v] = CellOf(g.tVertex[v], lo, inv);
+			uint32 left = 0;
+			for (size_t t = 0; t + 2 < g.index.size(); t += 3)
+			{
+				const uint64_t a = cells[g.index[t]], b = cells[g.index[t + 1]], c = cells[g.index[t + 2]];
+				if (a != b && b != c && a != c) left++;
+			}
+			return left;
+		}
+	}
+
+	SimplifiedModel::SimplifiedModel(const std::shared_ptr<Model> &source, const f32 ratio)
+		: Ratio(std::max(0.01f, std::min(1.f, ratio))), Triangles(0), SourceTriangles(0)
+	{
+		if (!source) return;
+		Path = source->GetPath();
+		skeleton = source->GetSkeleton();
+		for (size_t gi = 0; gi < source->Geometries.size(); gi++)
+		{
+			const ModelGeometry &g = *static_cast<ModelGeometry*>(source->Geometries[gi]);
+			const uint32 tris = (uint32)(g.index.size() / 3);
+			SourceTriangles += tris;
+			ModelGeometry* out = new ModelGeometry();
+			out->materialProperties = g.materialProperties;
+			out->MapBoneIDs = g.MapBoneIDs;
+			out->BoneOffsetMatrix = g.BoneOffsetMatrix;
+
+			const uint32 want = std::max(4u, (uint32)((f32)tris * Ratio));
+			if (tris <= 16 || want >= tris || g.tVertex.empty())
+			{
+				// nothing to gain: as it is
+				out->index = g.index;
+				out->tVertex = g.tVertex; out->tNormal = g.tNormal; out->tTexcoord = g.tTexcoord;
+				out->tTangent = g.tTangent; out->tBitangent = g.tBitangent;
+				out->tBonesID = g.tBonesID; out->tBonesWeight = g.tBonesWeight;
+			}
+			else
+			{
+				Vec3 lo = g.tVertex[0], hi = g.tVertex[0];
+				for (size_t v = 1; v < g.tVertex.size(); v++)
+				{
+					const Vec3 &p = g.tVertex[v];
+					lo.x = std::min(lo.x, p.x); lo.y = std::min(lo.y, p.y); lo.z = std::min(lo.z, p.z);
+					hi.x = std::max(hi.x, p.x); hi.y = std::max(hi.y, p.y); hi.z = std::max(hi.z, p.z);
+				}
+				const f32 diagonal = std::max(1e-5f, hi.distance(lo));
+				// The smallest cell that leaves no more than was asked for:
+				// halved in on, between a thousandth of the model and half of it.
+				std::vector<uint64_t> cells;
+				f32 small = diagonal / 1024.f, big = diagonal * 0.5f;
+				for (int step = 0; step < 14; step++)
+				{
+					const f32 mid = sqrtf(small * big);
+					if (TrianglesLeft(g, lo, mid, cells) > want) small = mid; else big = mid;
+				}
+				TrianglesLeft(g, lo, big, cells);
+
+				std::unordered_map<uint64_t, uint32> vertexOf;
+				std::vector<uint32> members;      // how many of the model's vertices each new one stands for
+				std::vector<uint32> newIndex(g.tVertex.size());
+				const bool n = g.tNormal.size() == g.tVertex.size(), uv = g.tTexcoord.size() == g.tVertex.size();
+				const bool tb = g.tTangent.size() == g.tVertex.size() && g.tBitangent.size() == g.tVertex.size();
+				const bool bones = g.tBonesID.size() == g.tVertex.size() && g.tBonesWeight.size() == g.tVertex.size();
+				for (size_t v = 0; v < g.tVertex.size(); v++)
+				{
+					std::unordered_map<uint64_t, uint32>::iterator it = vertexOf.find(cells[v]);
+					if (it == vertexOf.end())
+					{
+						const uint32 id = (uint32)out->tVertex.size();
+						vertexOf[cells[v]] = id;
+						newIndex[v] = id;
+						out->tVertex.push_back(g.tVertex[v]);
+						members.push_back(1);
+						// what cannot be averaged is the first one's: where on the
+						// texture, which bones
+						if (n) out->tNormal.push_back(g.tNormal[v]);
+						if (uv) out->tTexcoord.push_back(g.tTexcoord[v]);
+						if (tb) { out->tTangent.push_back(g.tTangent[v]); out->tBitangent.push_back(g.tBitangent[v]); }
+						if (bones) { out->tBonesID.push_back(g.tBonesID[v]); out->tBonesWeight.push_back(g.tBonesWeight[v]); }
+					}
+					else
+					{
+						newIndex[v] = it->second;
+						out->tVertex[it->second] += g.tVertex[v];
+						members[it->second]++;
+						if (n) out->tNormal[it->second] += g.tNormal[v];
+					}
+				}
+				for (size_t v = 0; v < out->tVertex.size(); v++)
+				{
+					out->tVertex[v] = out->tVertex[v] / (f32)members[v];
+					if (n)
+					{
+						const Vec3 &nn = out->tNormal[v];
+						out->tNormal[v] = (nn.x * nn.x + nn.y * nn.y + nn.z * nn.z > 1e-12f) ? nn.normalize() : Vec3(0.f, 1.f, 0.f);
+					}
+				}
+				for (size_t t = 0; t + 2 < g.index.size(); t += 3)
+				{
+					const uint32 a = newIndex[g.index[t]], b = newIndex[g.index[t + 1]], c = newIndex[g.index[t + 2]];
+					if (a == b || b == c || a == c) continue;
+					out->index.push_back((__INDEX_C_TYPE__)a); out->index.push_back((__INDEX_C_TYPE__)b); out->index.push_back((__INDEX_C_TYPE__)c);
+				}
+			}
+			Triangles += (uint32)(out->index.size() / 3);
+			out->CreateBuffers();
+			out->SendBuffers();
+			Geometries.push_back(out);
+		}
+		CalculateBounding();
+	}
+
+	std::shared_ptr<SimplifiedModel> SimplifiedModel::LoadShared(const std::string &ModelPath, const f32 ratio)
+	{
+		static std::map<std::string, std::weak_ptr<SimplifiedModel> > cache;
+		static std::mutex guard;
+		std::error_code ec;
+		std::string full = std::filesystem::absolute(std::filesystem::path(ModelPath), ec).lexically_normal().string();
+		if (ec || full.empty()) full = ModelPath;
+		const std::string key = full + "|" + std::to_string((int)(std::max(0.01f, std::min(1.f, ratio)) * 1000.f + 0.5f));
+		{
+			std::lock_guard<std::mutex> lock(guard);
+			std::map<std::string, std::weak_ptr<SimplifiedModel> >::iterator it = cache.find(key);
+			if (it != cache.end()) { if (std::shared_ptr<SimplifiedModel> hit = it->second.lock()) return hit; cache.erase(it); }
+		}
+		std::shared_ptr<Model> source = Model::LoadShared(ModelPath, true);
+		if (!source || source->Geometries.empty()) return std::shared_ptr<SimplifiedModel>();
+		std::shared_ptr<SimplifiedModel> made = std::make_shared<SimplifiedModel>(source, ratio);
+		std::lock_guard<std::mutex> lock(guard);
+		cache[key] = made;
+		return made;
 	}
 
 	// Debug Skeleton
