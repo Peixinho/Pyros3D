@@ -53,6 +53,13 @@ namespace p3d {
 		// The time the last Update() was given: the same all through one
 		// frame, which is what makes it a key for work done once a frame.
 		f64 GetUpdateTime() const { return timer; }
+		// How long a frame may spend registering the components of objects that
+		// arrived by streaming (GameObject::SetStreamedIn). What does not fit
+		// waits for the next frame: a cell of a few hundred objects - their
+		// meshes into the render lists, their bodies into the physics world -
+		// was a hundred milliseconds in the frame it arrived. 2 ms by default;
+		// 0 registers everything at once.
+		void SetStreamedRegistrationBudget(const f64 ms) { streamedRegistrationBudgetMs = ms; }
 		// Add Child to Scene
 		void Add(const std::shared_ptr<GameObject> &GO);
 		// Remove Child from Scene
@@ -116,6 +123,11 @@ namespace p3d {
 		void GrowBounds(const Vec3 &_min, const Vec3 &_max);
 		// (this Update: objects gone through, and subtrees left asleep)
 		uint32 visitedThisUpdate = 0, sleepingThisUpdate = 0;
+		// (the walk is inside something that arrived by streaming; and what
+		// registering such things has cost this Update, and how many waited)
+		bool inStreamedSubtree = false;
+		f64 streamedRegistrationMs = 0.0, streamedRegistrationBudgetMs = 2.0;
+		uint32 streamedDeferred = 0;
 
 	public:
 

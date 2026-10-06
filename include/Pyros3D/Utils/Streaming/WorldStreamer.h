@@ -174,6 +174,8 @@ namespace p3d {
 		void Bury(const std::shared_ptr<LoadedSceneAssets> &assets);
 		// Far in the scene exactly when it is loaded and the cell is not.
 		void SyncFarVisibility(Cell &c);
+		// (LoadAround is running: cells finishing now are registered at once)
+		bool loadingAllAtOnce = false;
 		void CollectGraveyard(const bool all);
 
 		SceneGraph* scene;

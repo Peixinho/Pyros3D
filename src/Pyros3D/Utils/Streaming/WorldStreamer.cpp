@@ -208,7 +208,7 @@ namespace p3d {
 			// No physics: nobody walks on the horizon. Transient: never
 			// saved with the scene it is shown in.
 			c.farRoot = SceneSerializer::InstantiatePrepared(*prepared, NULL, NULL, c.farAssets.get());
-			if (c.farRoot) c.farRoot->SetTransient(true);
+			if (c.farRoot) { c.farRoot->SetTransient(true); c.farRoot->SetStreamedIn(!loadingAllAtOnce); }
 			SyncFarVisibility(c);
 			return;
 		}
@@ -219,6 +219,10 @@ namespace p3d {
 		c.root = SceneSerializer::InstantiatePrepared(*prepared, physics, lua, c.assets.get());
 		if (c.root)
 		{
+			// (its components go into the scene's lists a few milliseconds a
+			// frame - SceneGraph::SetStreamedRegistrationBudget - unless this is
+			// the world being put in place before anything is shown)
+			c.root->SetStreamedIn(!loadingAllAtOnce);
 			scene->Add(c.root);
 			if (onLoaded) onLoaded(c.root);
 		}
@@ -313,6 +317,9 @@ namespace p3d {
 
 	void WorldStreamer::LoadAround(const std::vector<Vec3> &foci)
 	{
+		// (everything this brings in is wanted whole before the first frame:
+		// see Finish)
+		loadingAllAtOnce = true;
 		Update(foci, 0.0);
 		while (LoadingCount() > 0)
 		{
@@ -320,6 +327,7 @@ namespace p3d {
 			// A Flush can finish a cell that another request was waiting
 			// on; loop until nothing this streamer asked for is pending.
 		}
+		loadingAllAtOnce = false;
 	}
 
 	void WorldStreamer::UnloadAll()

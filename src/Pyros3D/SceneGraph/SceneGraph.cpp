@@ -17,6 +17,7 @@
 #include <typeinfo>
 #include <cmath>
 #include <cstdlib>
+#include <chrono>
 
 namespace p3d {
 
@@ -224,13 +225,38 @@ namespace p3d {
 		}
 		const bool wasAsleep = !go->_SubtreeAwake;
 		go->_SubtreeAwake = true;
+
+		// Something that arrived by streaming is brought in a few
+		// milliseconds a frame: once this frame's share is spent, an object
+		// whose components are still to be registered - and so everything
+		// under it - is left exactly as it is until the next frame. It stays
+		// awake, so the walk comes back to it.
+		const bool outerStreamed = inStreamedSubtree;
+		const uint32 deferredBefore = streamedDeferred;
+		if (go->_StreamedIn) inStreamedSubtree = true;
+		const bool budgeted = inStreamedSubtree && streamedRegistrationBudgetMs > 0.0 && go->_ComponentsChanged;
+		// (waiting its turn: it is still put where it belongs - a script may
+		// ask where a thing in a cell that has just arrived is - but nothing
+		// of it is registered or updated yet)
+		const bool waiting = budgeted && streamedRegistrationMs >= streamedRegistrationBudgetMs;
+		if (waiting) streamedDeferred++;
 		visitedThisUpdate++;
 
 		const bool wasDirty = go->_IsDirty;
 		const bool componentsChanged = go->_ComponentsChanged;
-		if (callUpdate) go->Update(timer);
-		go->RegisterComponents(this);
-		go->UpdateComponents(timer);
+		if (!waiting)
+		{
+			if (callUpdate) go->Update(timer);
+			if (budgeted)
+			{
+				const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+				go->RegisterComponents(this);
+				streamedRegistrationMs += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
+			}
+			else
+				go->RegisterComponents(this);
+			go->UpdateComponents(timer);
+		}
 		go->InternalUpdate();
 		// (InternalUpdate has just put the world matrix it had in _PrvWorldMatrix)
 		const bool moved = std::memcmp(go->_PrvWorldMatrix.m, go->_WorldMatrix.m, sizeof(go->_WorldMatrix.m)) != 0;
@@ -277,6 +303,9 @@ namespace p3d {
 			if (k->_TreeMax.z > go->_TreeMax.z) go->_TreeMax.z = k->_TreeMax.z;
 		}
 		go->_SubtreeAwake = childAwake || go->_IdleFrames < kIdleBeforeSleep;
+		// (all of what streamed in under this is in: from here on it is like anything else)
+		if (go->_StreamedIn && streamedDeferred == deferredBefore) go->_StreamedIn = false;
+		inStreamedSubtree = outerStreamed;
 		// (falling asleep, or going back to sleep after a look: the next look
 		// regardless is some frames off, and not the same frame for everybody)
 		if (!go->_SubtreeAwake) go->_SleptFrames = wasAsleep ? 0 : (uint8_t)((reinterpret_cast<uintptr_t>(go) >> 6) % kLongestSleep);
@@ -323,6 +352,7 @@ namespace p3d {
 		// Save Time
 		timer = Timer;
 		visitedThisUpdate = sleepingThisUpdate = 0;
+		streamedRegistrationMs = 0.0; streamedDeferred = 0; inStreamedSubtree = false;
 
 		minBounds = maxBounds = Vec3();
 
@@ -437,6 +467,11 @@ namespace p3d {
 		}
 		FrameProfiler::Instance().Counter("Scene.Walked", (f64)visitedThisUpdate);
 		FrameProfiler::Instance().Counter("Scene.Asleep", (f64)sleepingThisUpdate);
+		if (streamedDeferred > 0 || streamedRegistrationMs > 0.0)
+		{
+			FrameProfiler::Instance().Counter("Scene.StreamRegMs", streamedRegistrationMs);
+			FrameProfiler::Instance().Counter("Scene.StreamWaiting", (f64)streamedDeferred);
+		}
 	}
 
 	const Vec3 &SceneGraph::GetMinBounds() const

@@ -49,6 +49,13 @@ namespace p3d {
 		// here do. Cheap: it stops at the first ancestor already awake.
 		void Wake();
 		bool IsAwake() const { return _SubtreeAwake; }
+		// This object and everything under it arrived while the game was
+		// running (a streamed cell): its components are registered a few
+		// milliseconds' worth a frame, not all in the frame it arrived - see
+		// SceneGraph::SetStreamedRegistrationBudget. Cleared by the scene's
+		// walk once all of it is in.
+		void SetStreamedIn(const bool streamed) { _StreamedIn = streamed; }
+		bool IsStreamedIn() const { return _StreamedIn; }
 		// Destroy Function
 		virtual void Destroy();
 
@@ -214,6 +221,7 @@ namespace p3d {
 		// _SubtreeAwake is false only when this and all below it are idle; an
 		// awake object's ancestors are all awake.
 		bool _SubtreeAwake = true;
+		bool _StreamedIn = false;
 		uint8_t _IdleFrames = 0;
 		uint8_t _SleptFrames = 0;
 		// (the local boxes of this and everything under it, for the scene's
