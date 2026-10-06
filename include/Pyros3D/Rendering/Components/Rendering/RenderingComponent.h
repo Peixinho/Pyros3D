@@ -158,6 +158,9 @@ namespace p3d {
 		std::map<int32, Matrix> BoneOffsetMatrix;
 		// Bones Matrix List
 		std::vector<Matrix> SkinningBones;
+		// The same for shadow maps, where it differs (a bone scaled for the
+		// view only - SkeletonAnimationInstance::SetBoneScaleInView). Empty: the same.
+		std::vector<Matrix> ShadowSkinningBones;
 
 		// Whether this mesh's geometry actually supplies aTexcoord, cached
 		// because IRenderer::PickShadowMaterial() has to know it per draw.

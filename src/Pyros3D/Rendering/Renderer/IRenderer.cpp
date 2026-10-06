@@ -3384,9 +3384,11 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// the shader's mat4 uBoneMatrix[MAX_BONES] block; on macOS GL
 			// that left the binding unloadable / zeros, so skinned meshes
 			// stayed in bind pose ("no animation").
-			uint32 bonesToUpload = rmesh->SkinningBones.size() < PYROS_MAX_BONES ? (uint32)rmesh->SkinningBones.size() : PYROS_MAX_BONES;
+			// (into a shadow map: the pose kept for shadows, where there is one)
+			const std::vector<Matrix> &palette = (!rmesh->ShadowSkinningBones.empty() && IsShadowMaterial(Material)) ? rmesh->ShadowSkinningBones : rmesh->SkinningBones;
+			uint32 bonesToUpload = palette.size() < PYROS_MAX_BONES ? (uint32)palette.size() : PYROS_MAX_BONES;
 			Matrix boneUpload[PYROS_MAX_BONES]; // default-ctor = identity pad past bonesToUpload
-			memcpy(boneUpload, &rmesh->SkinningBones[0], sizeof(Matrix) * bonesToUpload);
+			memcpy(boneUpload, &palette[0], sizeof(Matrix) * bonesToUpload);
 			device->ReplaceUniformBuffer(BoneMatricesUBO, sizeof(Matrix) * PYROS_MAX_BONES, boneUpload);
 		}
 		device->ReplaceUniformBuffer(VelocityObjectUniformsUBO, sizeof(Matrix), &PrvModelMatrix);
@@ -3472,7 +3474,10 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			case Uniforms::DataUsage::Skinning:
 			{
 				if (rmesh->SkinningBones.size() > 0)
-					Shader::SendUniform((*k), &rmesh->SkinningBones[0], (*_ShadersModelCache)[counter], rmesh->SkinningBones.size());
+				{
+					const std::vector<Matrix> &palette = (!rmesh->ShadowSkinningBones.empty() && IsShadowMaterial(Material)) ? rmesh->ShadowSkinningBones : rmesh->SkinningBones;
+					Shader::SendUniform((*k), &palette[0], (*_ShadersModelCache)[counter], palette.size());
+				}
 			}
 			break;
 			case Uniforms::DataUsage::ModelViewProjectionMatrixInverse:

@@ -259,6 +259,10 @@ namespace p3d {
 		// the picture - the head of a body seen through its own eyes, a limb
 		// that has come off. Stays until cleared.
 		void SetBoneScale(const int32 boneId, const Vec3 &scale);
+		// The same, but only for what is drawn to be looked at: in shadow maps
+		// the bone keeps its size. A head scaled away so that the camera inside
+		// it sees out is still on the shoulders of the shadow.
+		void SetBoneScaleInView(const int32 boneId, const Vec3 &scale);
 		void ClearBoneScale(const int32 boneId);
 		// Puts every bone back to its bind transform and uploads. This IS
 		// what "no animation playing" now looks like: the constructor seeds
@@ -377,6 +381,7 @@ namespace p3d {
 		struct BoneScale {
 			int32 bone;
 			Vec3 scale;
+			bool viewOnly = false;
 		};
 		std::vector<BoneScale> boneScales;
 		// Bones -> every submesh's skinning matrices, with the scales applied.

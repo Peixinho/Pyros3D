@@ -1124,12 +1124,19 @@ namespace p3d {
 		if (boneId < 0 || (size_t)boneId >= skeleton.size()) return;
 		for (size_t i = 0; i < boneScales.size(); i++)
 		{
-			if (boneScales[i].bone == boneId) { boneScales[i].scale = scale; return; }
+			if (boneScales[i].bone == boneId) { boneScales[i].scale = scale; boneScales[i].viewOnly = false; return; }
 		}
 		BoneScale s;
 		s.bone = boneId;
 		s.scale = scale;
 		boneScales.push_back(s);
+	}
+
+	void SkeletonAnimationInstance::SetBoneScaleInView(const int32 boneId, const Vec3 &scale)
+	{
+		SetBoneScale(boneId, scale);
+		for (size_t i = 0; i < boneScales.size(); i++)
+			if (boneScales[i].bone == boneId) boneScales[i].viewOnly = true;
 	}
 
 	void SkeletonAnimationInstance::ClearBoneScale(const int32 boneId)
@@ -1145,12 +1152,18 @@ namespace p3d {
 		// A scaled bone: its skin, and the skin of every bone below it, is
 		// scaled about ITS joint - Bones[a] * S * Bones[a]^-1 in model space,
 		// put in front of the skinning matrix. The pose itself is untouched.
-		std::vector<Matrix> pre;
-		std::vector<uint8> scaled;
+		// (Twice where a scale is for the view only - SetBoneScaleInView: with
+		// every scale for what is looked at, and with only the others for the
+		// shadow maps.)
+		std::vector<Matrix> pre, preShadow;
+		std::vector<uint8> scaled, scaledShadow;
+		bool anyViewOnly = false;
 		if (!boneScales.empty())
 		{
 			pre.resize(Bones.size());
 			scaled.assign(Bones.size(), 0);
+			for (size_t i = 0; i < boneScales.size(); i++) if (boneScales[i].viewOnly) anyViewOnly = true;
+			if (anyViewOnly) { preShadow.resize(Bones.size()); scaledShadow.assign(Bones.size(), 0); }
 			for (size_t i = 0; i < boneScales.size(); i++)
 			{
 				const int32 a = boneScales[i].bone;
@@ -1166,16 +1179,21 @@ namespace p3d {
 					if (p != a) continue;
 					pre[b] = about * pre[b];
 					scaled[b] = 1;
+					if (anyViewOnly && !boneScales[i].viewOnly) { preShadow[b] = about * preShadow[b]; scaledShadow[b] = 1; }
 				}
 			}
 		}
 		for (std::vector<RenderingMesh*>::iterator j = rcomp->GetMeshes().begin(); j != rcomp->GetMeshes().end(); j++)
 		{
+			if (anyViewOnly) (*j)->ShadowSkinningBones.resize((*j)->SkinningBones.size());
+			else if (!(*j)->ShadowSkinningBones.empty()) (*j)->ShadowSkinningBones.clear();
 			for (std::map<int32, int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)
 			{
 				const int32 b = (*k).first;
 				const Matrix skin = Bones[b] * (*j)->BoneOffsetMatrix[b];
 				(*j)->SkinningBones[(*k).second] = (!scaled.empty() && (size_t)b < scaled.size() && scaled[b]) ? pre[b] * skin : skin;
+				if (anyViewOnly && (size_t)(*k).second < (*j)->ShadowSkinningBones.size())
+					(*j)->ShadowSkinningBones[(*k).second] = ((size_t)b < scaledShadow.size() && scaledShadow[b]) ? preShadow[b] * skin : skin;
 			}
 		}
 	}
