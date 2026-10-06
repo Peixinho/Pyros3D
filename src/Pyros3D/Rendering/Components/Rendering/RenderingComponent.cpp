@@ -657,6 +657,8 @@ namespace p3d {
 		return any;
 	}
 
+	uint32 RenderingComponent::SeenEpoch = 0;
+
 	void RenderingComponent::Update(const f64 time)
 	{
 		RefreshSpriteParts2D();
@@ -671,7 +673,7 @@ namespace p3d {
 		{
 			SkeletonAnimationInstance* si =
 				static_cast<SkeletonAnimationInstance*>(activeSkeletonAnimation);
-			if (si->GetOwner()) si->GetOwner()->UpdateInstance(si, (f32)time);
+			if (si->GetOwner() && (animateWhenUnseen || WasSeenRecently())) si->GetOwner()->UpdateInstance(si, (f32)time);
 		}
 
 		if (activeTextureAnimation == NULL) return;

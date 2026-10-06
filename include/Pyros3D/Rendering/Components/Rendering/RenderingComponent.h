@@ -316,6 +316,20 @@ namespace p3d {
 		void DisableCullTest() { cullTest = false; }
 		bool IsCullTesting() { return cullTest; }
 
+		// A skinned mesh nobody is drawing need not be posed. Off by default
+		// (SetAnimateWhenUnseen(false) asks for it): the clips keep their
+		// time - they are read off the clock - but the bones stay where they
+		// were until a renderer draws the mesh again, in any pass, shadows
+		// included. What reads the bones meanwhile reads that pose; the frame
+		// it comes back into view is drawn in it too, and the next is right.
+		void SetAnimateWhenUnseen(const bool animate) { animateWhenUnseen = animate; }
+		bool IsAnimatingWhenUnseen() const { return animateWhenUnseen; }
+		// Drawn in one of the last few frames (a renderer says so: MarkSeen).
+		bool WasSeenRecently() const { return (uint32)(SeenEpoch - lastSeenEpoch) <= 8u; }
+		void MarkSeen() { lastSeenEpoch = SeenEpoch; }
+		// Counted up once for every scene update.
+		static uint32 SeenEpoch;
+
 		void EnableCastShadows();
 		void DisableCastShadows();
 		bool IsCastingShadows();
@@ -589,6 +603,8 @@ namespace p3d {
 
 		// Culling
 		bool cullTest = true;
+		bool animateWhenUnseen = true;
+		uint32 lastSeenEpoch = SeenEpoch;
 
 		// INTERNAL - Components of this Type
 		static std::vector<IComponent*> Components;

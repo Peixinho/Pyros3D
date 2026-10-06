@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <string.h>
 #include <algorithm>
@@ -359,6 +360,9 @@ namespace p3d {
 	void SceneGraph::Update(const f64 &Timer)
 	{
 		PYROS_PROFILE_SCOPE("SceneGraph.Update");
+
+		// (what counts "drawn lately" for skinned meshes posed only when seen)
+		RenderingComponent::SeenEpoch++;
 
 		// Save Time
 		timer = Timer;

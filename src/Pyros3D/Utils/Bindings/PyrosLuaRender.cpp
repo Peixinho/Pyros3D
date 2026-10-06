@@ -637,6 +637,10 @@ namespace p3d {
 				"isCullTesting", &LUA_RenderingComponent::IsCullTesting,
 				"enableCastShadows", &LUA_RenderingComponent::EnableCastShadows,
 				"disableCastShadows", &LUA_RenderingComponent::DisableCastShadows,
+				// rc:setAnimateWhenUnseen(false): its skeleton is posed only while
+				// some renderer is drawing it; rc:wasSeenRecently() says whether.
+				"setAnimateWhenUnseen", [](LUA_RenderingComponent &c, const bool on) { c.SetAnimateWhenUnseen(on); },
+				"wasSeenRecently", [](LUA_RenderingComponent &c) { return c.WasSeenRecently(); },
 				"isCastingShadows", &LUA_RenderingComponent::IsCastingShadows,
 				"getRenderable", &LUA_RenderingComponent::GetRenderable,
 				"getSkeleton", &LUA_RenderingComponent::GetSkeleton,

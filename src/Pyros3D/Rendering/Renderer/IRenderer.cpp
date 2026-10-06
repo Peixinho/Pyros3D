@@ -1700,6 +1700,9 @@ static uint32 EffectiveCullFace(RenderingMesh* rmesh, IMaterial* Material)
 
 void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
 {
+	// (whoever animates only what is drawn - RenderingComponent::SetAnimateWhenUnseen - is told)
+	if (rmesh->renderingComponent) rmesh->renderingComponent->MarkSeen();
+
 	// See the comment on CommandBufferHandle in IRenderDevice.h - GL ignores
 	// this value entirely (ignored/no-op on this backend), so per-object
 	// granularity here costs nothing; a real per-frame command buffer is a
