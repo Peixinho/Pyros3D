@@ -2616,6 +2616,19 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	// A foliage layer's model baked onto an impostor card, made the layer's
 	// far mesh. {"name"|"id", "layer", "distance"?}
+	// A model's picture on a card: {"model": "assets/models/x/x.p3dm", "out"?:
+	// "assets/.../x_impostor.png"}. Writes the picture and answers with where
+	// it went and the card's bounds (left, right, bottom, top) - what a scene
+	// object's far level of detail is made from ("lods" on a
+	// RenderingComponent: a Card with those bounds and a cutout material on
+	// the picture).
+	if (name == "bake_model_impostor")
+	{
+		nlohmann::json r;
+		if (!sceneView->BakeModelImpostor(a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "bake_foliage_impostor")
 	{
 		nlohmann::json r;

@@ -1099,6 +1099,7 @@ public:
 	// layer's far mesh. Offscreen - runs between frames (agent command, or
 	// queued from the panel into ProcessPendingModelThumbnails).
 	bool BakeFoliageImpostor(const json& args, json& out, std::string& errOut);
+	bool BakeModelImpostor(const json& args, json& out, std::string& errOut);
 	json pendingImpostorBake;
 private:
 

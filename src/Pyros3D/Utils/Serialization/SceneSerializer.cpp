@@ -1358,6 +1358,25 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			{
 				j["material"] = GetOrAddMaterial(mat, materialsArray, materialIdMap);
 				j["renderable"] = renderableJson;
+				// (the further levels of detail: see the loader)
+				if (rc->HasLOD() && renderableJson.value("kind", std::string()) != "heightfield")
+				{
+					const std::vector<std::shared_ptr<Renderable> > levels = rc->GetLODRenderables();
+					const std::vector<f32> &reach = rc->GetLODDistances();
+					json lods = json::array();
+					for (size_t l = 1; l < levels.size() && l - 1 < reach.size(); l++)
+					{
+						if (!levels[l] || rc->GetMeshes((uint32)l).empty() || !rc->GetMeshes((uint32)l)[0]->Material) continue;
+						const json lr = SerializeRenderable(levels[l].get());
+						if (lr.is_null()) continue;
+						json e;
+						e["distance"] = reach[l - 1];
+						e["renderable"] = lr;
+						e["material"] = GetOrAddMaterial(rc->GetMeshes((uint32)l)[0]->Material.get(), materialsArray, materialIdMap);
+						lods.push_back(e);
+					}
+					if (!lods.empty()) j["lods"] = lods;
+				}
 			}
 			if (isTileMap2D) j["tileMap2D"] = true;
 
@@ -3065,6 +3084,50 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 #endif
 				for (size_t l = 0; l < extraLods.size(); l++)
 					rc->AddLOD(extraLods[l].first, extraLods[l].second, mat);
+			}
+			// Further levels of detail, for anything but a terrain tile (which
+			// brings its own): "lods": [ { "distance": where this level takes
+			// over, "renderable": ..., "material": id }, ... ], nearest first.
+			// A tree that is a few thousand triangles close to is a card with
+			// its picture on it at a hundred metres, and a forest of them was
+			// most of what a frame drew.
+			if (!isGenerated && !isHeightfield && j.contains("lods") && j["lods"].is_array())
+			{
+				std::vector<std::shared_ptr<Renderable> > levelRenderable;
+				std::vector<std::shared_ptr<IMaterial> > levelMaterial;
+				std::vector<f32> levelFrom;
+				for (const auto &l : j["lods"])
+				{
+					if (!l.is_object()) continue;
+					const f32 from = l.value("distance", 0.f);
+					const uint32 lm = l.value("material", (uint32)0xFFFFFFFF);
+					std::shared_ptr<IMaterial> lmat = (lm < materialsById.size()) ? materialsById[lm] : nullptr;
+					// One renderable for every object that asks for the same one:
+					// five hundred trees with the same card are then five hundred
+					// copies of one mesh, which is what lets them be drawn together.
+					// (Weak: it lives as long as something uses it.)
+					static std::map<std::string, std::weak_ptr<Renderable> > sharedLevels;
+					std::shared_ptr<Renderable> lr;
+					if (from > 0.f && lmat)
+					{
+						const std::string key = l.value("renderable", json()).dump();
+						std::map<std::string, std::weak_ptr<Renderable> >::iterator hit = sharedLevels.find(key);
+						if (hit != sharedLevels.end()) lr = hit->second.lock();
+						if (!lr)
+						{
+							lr = DeserializeRenderable(l.value("renderable", json()), outAssets);
+							if (lr) sharedLevels[key] = lr;
+						}
+					}
+					if (!lr) { echo("WARNING: SceneSerializer - a level of detail could not be rebuilt and is left out"); continue; }
+					levelRenderable.push_back(lr); levelMaterial.push_back(lmat); levelFrom.push_back(from);
+				}
+				if (!levelRenderable.empty())
+				{
+					rc->SetFirstLODDistance(levelFrom[0]);
+					for (size_t l = 0; l < levelRenderable.size(); l++)
+						rc->AddLOD(levelRenderable[l], (l + 1 < levelRenderable.size()) ? levelFrom[l + 1] : 1e9f, levelMaterial[l]);
+				}
 			}
 			if (j.value("cullTest", true)) rc->EnableCullTest(); else rc->DisableCullTest();
 			if (j.value("castingShadows", true)) rc->EnableCastShadows(); else rc->DisableCastShadows();

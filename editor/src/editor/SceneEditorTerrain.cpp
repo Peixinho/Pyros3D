@@ -1687,6 +1687,31 @@ SceneObject* SceneEditor::ResolveTerrainTarget(const json& args, std::string& er
 	return target;
 }
 
+bool SceneEditor::BakeModelImpostor(const json& a, json& out, std::string& errOut)
+{
+	const json args = a.is_object() ? a : json::object();
+	if (playMode) { errOut = "stop play mode first"; return false; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+	const std::string modelRel = args.value("model", std::string());
+	if (modelRel.empty()) { errOut = "bake_model_impostor needs {\"model\": \"assets/...p3dm\"}"; return false; }
+	std::vector<unsigned char> rgba;
+	uint32 w = 0, h = 0;
+	f32 left, right, bottom, top;
+	if (!RenderImpostorRGBA8(project->AbsolutePath(modelRel), rgba, w, h, left, right, bottom, top))
+	{ errOut = "could not render " + modelRel; return false; }
+	namespace fs = std::filesystem;
+	const std::string texRel = args.value("out", (fs::path(modelRel).parent_path() / (fs::path(modelRel).stem().string() + "_impostor.png")).generic_string());
+	std::error_code ec;
+	fs::create_directories(fs::path(project->AbsolutePath(texRel)).parent_path(), ec);
+	if (!PaintableImage::WritePNG(project->AbsolutePath(texRel), (int32)w, (int32)h, 4, rgba.data()))
+	{ errOut = "could not write " + texRel; return false; }
+	Texture::ForgetShared(project->AbsolutePath(texRel));
+	out["texture"] = texRel;
+	out["width"] = w; out["height"] = h;
+	out["left"] = left; out["right"] = right; out["bottom"] = bottom; out["top"] = top;
+	return true;
+}
+
 bool SceneEditor::BakeFoliageImpostor(const json& a, json& out, std::string& errOut)
 {
 	const json args = a.is_object() ? a : json::object();

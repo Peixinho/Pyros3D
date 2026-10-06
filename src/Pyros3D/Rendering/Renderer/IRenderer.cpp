@@ -495,7 +495,10 @@ bool IRenderer::IsAutoInstancing() { return AutoInstancingFlag(); }
 bool IRenderer::AutoInstanceEligible(RenderingMesh* mesh)
 {
 	RenderingComponent* rc = mesh->renderingComponent;
-	if (rc == NULL || rc->IsInstanced() || rc->GetLODSize() > 1 || !rc->GetRenderableShared())
+	// (a component with levels of detail too: whichever level it is showing
+	// is batched with the others showing the same - a forest's far cards are
+	// one draw, where leaving these out made every tree a draw of its own)
+	if (rc == NULL || rc->IsInstanced() || !rc->GetRenderableShared())
 		return false;
 	if (!mesh->SkinningBones.empty() || mesh->Geometry == NULL)
 		return false;
@@ -545,7 +548,20 @@ IRenderer::AutoInstanceBatch* IRenderer::AcquireAutoInstanceBatch(RenderingMesh*
 		b->comp.reset();
 		b->owner.reset();
 		b->owner = std::make_shared<GameObject>();
-		b->comp = std::make_shared<RenderingInstancedComponent>(rc->GetRenderableShared(), source->Material, capacity, rc->GetBoundingSphereRadius());
+		// The renderable this mesh is of: the component's own, or the one of
+		// the level of detail it belongs to.
+		std::shared_ptr<Renderable> of = rc->GetRenderableShared();
+		{
+			const std::vector<std::shared_ptr<Renderable> > levels = rc->GetLODRenderables();
+			for (size_t l = 0; l < levels.size(); l++)
+			{
+				if (!levels[l]) continue;
+				bool has = false;
+				for (size_t g = 0; g < levels[l]->Geometries.size() && !has; g++) has = levels[l]->Geometries[g] == source->Geometry;
+				if (has) { of = levels[l]; break; }
+			}
+		}
+		b->comp = std::make_shared<RenderingInstancedComponent>(of, source->Material, capacity, rc->GetBoundingSphereRadius());
 		b->owner->Add(b->comp);
 		std::vector<RenderingMesh*> &meshes = b->comp->GetMeshes(0);
 		for (size_t i = 0; i < meshes.size(); i++)
