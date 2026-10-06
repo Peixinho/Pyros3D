@@ -250,6 +250,56 @@ namespace p3d {
 		lodRenderables.push_back(renderable);
 	}
 
+	void RenderingComponent::AddLODOwnMaterials(const std::shared_ptr<Renderable> &renderable, const f32 Distance)
+	{
+		const std::vector<RenderingMesh*> &own = Meshes[0];
+		if (!renderable || own.empty()) return;
+		const uint32 LODLVL = (uint32)Meshes.size();
+		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
+		{
+			RenderingMesh* m = new RenderingMesh(LODLVL);
+			m->Geometry = renderable->Geometries[i];
+			if (renderable->Geometries[i]->materialProperties.haveBones)
+			{
+				m->MapBoneIDs = renderable->Geometries[i]->MapBoneIDs;
+				m->BoneOffsetMatrix = renderable->Geometries[i]->BoneOffsetMatrix;
+			}
+			const RenderingMesh* like = own[std::min((size_t)i, own.size() - 1)];
+			m->Material = like->Material;
+			m->CullingGeometry = like->CullingGeometry;
+			m->renderingComponent = this;
+			Meshes[LODLVL].push_back(m);
+		}
+		LODDistances.push_back(Distance);
+		LOD = true;
+		lodRenderables.push_back(renderable);
+		lodOwnMaterials.resize(LODLVL + 1, false);
+		lodOwnMaterials[LODLVL] = true;
+	}
+
+	void RenderingComponent::ClearLODs()
+	{
+		if (Meshes.size() <= 1) { LOD = false; if (LODDistances.size() > 1) LODDistances.resize(1); return; }
+		// the scene is drawing one level's meshes: make that the nearest
+		// before the others go
+		if (LodInUse != 0)
+		{
+			if (Registered && Scene) UpdateLOD(0);
+			else LodInUse = 0;
+		}
+		for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end();)
+		{
+			if (i->first == 0) { ++i; continue; }
+			for (size_t k = 0; k < i->second.size(); k++) delete i->second[k];
+			i = Meshes.erase(i);
+		}
+		if (LODDistances.size() > 1) LODDistances.resize(1);
+		// (GetLODRenderables() puts the nearest level's first by itself)
+		lodRenderables.clear();
+		lodOwnMaterials.clear();
+		LOD = false;
+	}
+
 	void RenderingComponent::SetShadowRenderable(const std::shared_ptr<Renderable> &renderable)
 	{
 		for (size_t i = 0; i < shadowMeshes.size(); i++) delete shadowMeshes[i];

@@ -1023,6 +1023,14 @@ namespace p3d {
 			j["mergeMeshes"] = model->GetMergeMeshes();
 			return j;
 		}
+		if (SimplifiedModel* simple = dynamic_cast<SimplifiedModel*>(r))
+		{
+			if (simple->GetPath().empty()) return json();
+			j["kind"] = "simplified";
+			j["path"] = RelativizeSceneAssetPath(simple->GetPath());
+			j["ratio"] = simple->GetRatio();
+			return j;
+		}
 		if (Primitive* prim = dynamic_cast<Primitive*>(r))
 		{
 			j["kind"] = "primitive";
@@ -1373,7 +1381,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 						json e;
 						e["distance"] = reach[l - 1];
 						e["renderable"] = lr;
-						e["material"] = GetOrAddMaterial(rc->GetMeshes((uint32)l)[0]->Material.get(), materialsArray, materialIdMap);
+						if (rc->LODUsesOwnMaterials((uint32)l)) e["ownMaterials"] = true;
+						else e["material"] = GetOrAddMaterial(rc->GetMeshes((uint32)l)[0]->Material.get(), materialsArray, materialIdMap);
 						lods.push_back(e);
 					}
 					if (!lods.empty()) j["lods"] = lods;
@@ -2797,6 +2806,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			r = std::make_shared<Model>(ResolveSceneAssetPath(j.value("path", std::string())), j.value("mergeMeshes", true));
 			if (RenderableHasBones(r)) shared.Forget();
 		}
+		else if (kind == "simplified")
+		{
+			// (the model with a share of its triangles: SimplifiedModel, one for
+			// a file and a ratio)
+			r = SimplifiedModel::LoadShared(ResolveSceneAssetPath(j.value("path", std::string())), j.value("ratio", 0.25f));
+		}
 		else if (kind == "text")
 		{
 			// No font pooling/dedup - each loaded Text gets its own Font
@@ -3108,8 +3123,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					// copies of one mesh, which is what lets them be drawn together.
 					// (Weak: it lives as long as something uses it.)
 					static std::map<std::string, std::weak_ptr<Renderable> > sharedLevels;
+					const bool own = l.value("ownMaterials", false);
 					std::shared_ptr<Renderable> lr;
-					if (from > 0.f && lmat)
+					if (from > 0.f && (lmat || own))
 					{
 						const std::string key = l.value("renderable", json()).dump();
 						std::map<std::string, std::weak_ptr<Renderable> >::iterator hit = sharedLevels.find(key);
@@ -3121,13 +3137,17 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 						}
 					}
 					if (!lr) { echo("WARNING: SceneSerializer - a level of detail could not be rebuilt and is left out"); continue; }
-					levelRenderable.push_back(lr); levelMaterial.push_back(lmat); levelFrom.push_back(from);
+					levelRenderable.push_back(lr); levelMaterial.push_back(own ? std::shared_ptr<IMaterial>() : lmat); levelFrom.push_back(from);
 				}
 				if (!levelRenderable.empty())
 				{
 					rc->SetFirstLODDistance(levelFrom[0]);
 					for (size_t l = 0; l < levelRenderable.size(); l++)
-						rc->AddLOD(levelRenderable[l], (l + 1 < levelRenderable.size()) ? levelFrom[l + 1] : 1e9f, levelMaterial[l]);
+					{
+						const f32 reach = (l + 1 < levelRenderable.size()) ? levelFrom[l + 1] : 1e9f;
+						if (levelMaterial[l]) rc->AddLOD(levelRenderable[l], reach, levelMaterial[l]);
+						else rc->AddLODOwnMaterials(levelRenderable[l], reach);
+					}
 				}
 			}
 			if (j.value("cullTest", true)) rc->EnableCullTest(); else rc->DisableCullTest();

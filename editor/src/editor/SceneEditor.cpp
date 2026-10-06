@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <unordered_map>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
 #include <Pyros3D/Assets/AssetPreload.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <cmath>
@@ -5871,6 +5872,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::Update(const f64 time)
 	{
+		if (!deferredEdits.empty())
+		{
+			std::vector<std::function<void()> > run;
+			run.swap(deferredEdits);
+			for (size_t i = 0; i < run.size(); i++) run[i]();
+		}
 		// what the author hid stays hidden (not in Play: the game shows all)
 		if (!playMode) EnforceEditorHidden();
 		DrainPendingOps();
@@ -10540,6 +10547,59 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						}
 						if (ImGui::IsItemHovered())
 							ImGui::SetTooltip("Draw this object into shadow maps from a simplified copy of its model.\nThe shadow keeps its shape; the shadow pass draws far fewer triangles.\nNot for skinned meshes.");
+					}
+					// The model at a distance: simplified copies of itself, or a
+					// card with its picture on it, each from a distance on.
+					if (dynamic_cast<p3d::Model*>(r->GetRenderable()) != NULL && ImGui::TreeNode("Levels of detail"))
+					{
+						RenderingComponent* rcPtr = r;
+						json levels = DescribeLODs(r);
+						uint32 fullTris = 0;
+						for (size_t g = 0; g < r->GetRenderable()->Geometries.size(); g++) fullTris += (uint32)(r->GetRenderable()->Geometries[g]->GetIndexData().size() / 3);
+						ImGui::TextDisabled("Nearest: the model itself, %u triangles", fullTris);
+						json edited = levels;
+						bool change = false;
+						for (size_t l = 0; l < levels.size(); l++)
+						{
+							ImGui::PushID((int)l);
+							const std::string kind = levels[l].value("kind", std::string("other"));
+							f32 from = levels[l].value("distance", 0.f);
+							ImGui::SetNextItemWidth(90.f);
+							if (ImGui::InputFloat("m on:", &from, 0.f, 0.f, "%.0f", ImGuiInputTextFlags_EnterReturnsTrue) && from > 0.f) { edited[l]["distance"] = from; change = true; }
+							ImGui::SameLine();
+							if (kind == "simplified") ImGui::Text("simplified to %.0f%% (%u triangles)", levels[l].value("ratio", 0.f) * 100.f, levels[l].value("triangles", 0u));
+							else if (kind == "impostor") ImGui::Text("a card with its picture (%u triangles)", levels[l].value("triangles", 0u));
+							else ImGui::Text("another mesh (%u triangles)", levels[l].value("triangles", 0u));
+							ImGui::SameLine();
+							if (ImGui::SmallButton("Remove")) { edited.erase(edited.begin() + l); change = true; ImGui::PopID(); break; }
+							ImGui::PopID();
+						}
+						bool keepable = true;
+						for (size_t l = 0; l < edited.size(); l++) if (edited[l].value("kind", std::string()) == "other") keepable = false;
+						static f32 addFrom = 40.f, addRatio = 0.3f;
+						ImGui::SetNextItemWidth(90.f); ImGui::InputFloat("m##lodFrom", &addFrom, 0.f, 0.f, "%.0f");
+						ImGui::SameLine(); ImGui::SetNextItemWidth(110.f); ImGui::SliderFloat("of the triangles", &addRatio, 0.05f, 0.9f, "%.2f");
+						if (!keepable) ImGui::BeginDisabled();
+						if (ImGui::Button("Add a simplified level") && addFrom > 0.f) { edited.push_back({ { "kind", "simplified" }, { "ratio", addRatio }, { "distance", addFrom } }); change = true; }
+						ImGui::SameLine();
+						if (ImGui::Button("Add an impostor card") && addFrom > 0.f) { edited.push_back({ { "kind", "impostor" }, { "distance", addFrom } }); change = true; }
+						if (!keepable)
+						{
+							ImGui::EndDisabled();
+							ImGui::TextDisabled("This object has a level that was not made here; remove it to edit the list.");
+						}
+						if (change)
+						{
+							// (next frame: this one may still be drawing the meshes that go)
+							json spec = json::array();
+							for (size_t l = 0; l < edited.size(); l++)
+							{
+								if (edited[l].value("kind", std::string()) == "other") continue;
+								spec.push_back({ { "kind", edited[l]["kind"] }, { "distance", edited[l]["distance"] }, { "ratio", edited[l].value("ratio", 0.3f) } });
+							}
+							deferredEdits.push_back([this, rcPtr, spec]() { std::string e; if (!ApplyLODs(rcPtr, spec, e)) echo("ERROR: levels of detail - " + e); });
+						}
+						ImGui::TreePop();
 					}
 
 					if (meshes.empty())
@@ -15332,6 +15392,166 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			for (auto& tag : removeTags) if (tag.is_string()) go->RemoveTag(tag.get<std::string>());
 		MarkSceneDirty();
 		return true;
+	}
+
+	namespace {
+		struct LodLevel
+		{
+			std::shared_ptr<Renderable> renderable;
+			std::shared_ptr<IMaterial> material;      // empty: the model's own, sub-mesh for sub-mesh
+			f32 from = 0.f;
+		};
+		std::vector<LodLevel> CaptureLods(RenderingComponent* rc)
+		{
+			std::vector<LodLevel> out;
+			const std::vector<std::shared_ptr<Renderable> > all = rc->GetLODRenderables();
+			const std::vector<f32> &reach = rc->GetLODDistances();
+			for (size_t l = 1; l < all.size() && l - 1 < reach.size(); l++)
+			{
+				if (!all[l] || rc->GetMeshes((uint32)l).empty()) continue;
+				LodLevel lv;
+				lv.renderable = all[l];
+				if (!rc->LODUsesOwnMaterials((uint32)l)) lv.material = rc->GetMeshes((uint32)l)[0]->Material;
+				lv.from = reach[l - 1];
+				out.push_back(lv);
+			}
+			return out;
+		}
+		void RebuildLods(RenderingComponent* rc, std::vector<LodLevel> levels)
+		{
+			std::sort(levels.begin(), levels.end(), [](const LodLevel &a, const LodLevel &b) { return a.from < b.from; });
+			rc->ClearLODs();
+			if (levels.empty()) return;
+			rc->SetFirstLODDistance(levels[0].from);
+			for (size_t l = 0; l < levels.size(); l++)
+			{
+				const f32 reach = (l + 1 < levels.size()) ? levels[l + 1].from : 1e9f;
+				if (levels[l].material) rc->AddLOD(levels[l].renderable, reach, levels[l].material);
+				else rc->AddLODOwnMaterials(levels[l].renderable, reach);
+			}
+		}
+	}
+
+	json SceneEditor::DescribeLODs(RenderingComponent* rc)
+	{
+		json out = json::array();
+		const std::vector<LodLevel> levels = CaptureLods(rc);
+		for (size_t l = 0; l < levels.size(); l++)
+		{
+			json e;
+			e["distance"] = levels[l].from;
+			uint32 tris = 0;
+			for (size_t g = 0; g < levels[l].renderable->Geometries.size(); g++) tris += (uint32)(levels[l].renderable->Geometries[g]->GetIndexData().size() / 3);
+			e["triangles"] = tris;
+			if (SimplifiedModel* sm = dynamic_cast<SimplifiedModel*>(levels[l].renderable.get())) { e["kind"] = "simplified"; e["ratio"] = sm->GetRatio(); }
+			else if (dynamic_cast<Card*>(levels[l].renderable.get())) e["kind"] = "impostor";
+			else e["kind"] = "other";
+			out.push_back(e);
+		}
+		return out;
+	}
+
+	bool SceneEditor::ApplyLODs(RenderingComponent* rc, const json& spec, std::string& errOut)
+	{
+		if (!spec.is_array()) { errOut = "levels must be an array"; return false; }
+		Model* model = dynamic_cast<Model*>(rc->GetRenderable());
+		if (!model || model->GetPath().empty()) { errOut = "levels of detail are made from a model read from a file"; return false; }
+		const std::vector<LodLevel> before = CaptureLods(rc);
+		std::vector<LodLevel> after;
+		for (const json &l : spec)
+		{
+			if (!l.is_object()) continue;
+			LodLevel lv;
+			lv.from = l.value("distance", 0.f);
+			if (lv.from <= 0.f) { errOut = "every level needs the distance it takes over at"; return false; }
+			const std::string kind = l.value("kind", std::string("simplified"));
+			if (kind == "simplified")
+			{
+				lv.renderable = SimplifiedModel::LoadShared(model->GetPath(), l.value("ratio", 0.3f));
+				if (!lv.renderable) { errOut = "could not simplify " + model->GetPath(); return false; }
+			}
+			else if (kind == "impostor")
+			{
+				if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+				const std::string rel = project->RelativePath(model->GetPath());
+				if (rel.empty()) { errOut = "the model is not inside the project"; return false; }
+				std::map<std::string, std::pair<std::shared_ptr<Renderable>, std::shared_ptr<IMaterial> > >::iterator have = impostorLevels.find(rel);
+				if (have == impostorLevels.end())
+				{
+					json baked;
+					if (!BakeModelImpostor(json{ { "model", rel } }, baked, errOut)) return false;
+					std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(ShaderUsage::Texture | ShaderUsage::Diffuse | ShaderUsage::AlphaTest);
+					mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
+					mat->SetColorMap(Texture::LoadShared(project->AbsolutePath(baked.value("texture", std::string())), TextureType::Texture, true, true));
+					mat->SetAlphaCutoff(0.5f);
+					mat->SetRoughness(0.9f);
+					mat->SetCullFace(CullFace::DoubleSided);
+					mat->DisableCastingShadows();
+					std::shared_ptr<Renderable> card = std::make_shared<Card>(baked.value("left", -1.f), baked.value("right", 1.f), baked.value("bottom", 0.f), baked.value("top", 2.f), true);
+					have = impostorLevels.insert(std::make_pair(rel, std::make_pair(card, std::shared_ptr<IMaterial>(mat)))).first;
+				}
+				lv.renderable = have->second.first;
+				lv.material = have->second.second;
+			}
+			else { errOut = "a level is \"simplified\" or \"impostor\""; return false; }
+			after.push_back(lv);
+		}
+		RebuildLods(rc, after);
+		sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+			[rc, before]() { RebuildLods(rc, before); },
+			[rc, after]() { RebuildLods(rc, after); },
+			"Set Levels of Detail"));
+		MarkSceneDirty();
+		return true;
+	}
+
+	bool SceneEditor::AgentGetLODs(const std::string& name, json& out, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		GameObject* go = (GameObject*)obj->GetPTR();
+		const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+		for (size_t i = 0; i < cs.size(); i++)
+			if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(cs[i].get()))
+			{
+				uint32 tris = 0;
+				if (rc->GetRenderable()) for (size_t g = 0; g < rc->GetRenderable()->Geometries.size(); g++) tris += (uint32)(rc->GetRenderable()->Geometries[g]->GetIndexData().size() / 3);
+				out["triangles"] = tris;
+				out["levels"] = DescribeLODs(rc);
+				out["shadowDetail"] = rc->GetShadowDetail();
+				return true;
+			}
+		errOut = "object '" + name + "' draws nothing";
+		return false;
+	}
+
+	int SceneEditor::AgentSetLODs(const std::string& name, const std::string& prefix, const json& levels, std::string& errOut)
+	{
+		if (playMode) { errOut = "editor is in play mode"; return -1; }
+		if (name.empty() && prefix.empty()) { errOut = "give \"name\" or \"prefix\""; return -1; }
+		int took = 0;
+		std::string firstErr;
+		std::function<void(GameObject*)> visit = [&](GameObject* go)
+		{
+			const std::string &n = go->GetName();
+			if ((!name.empty() && n == name) || (!prefix.empty() && n.compare(0, prefix.size(), prefix) == 0))
+			{
+				const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+				for (size_t i = 0; i < cs.size(); i++)
+					if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(cs[i].get()))
+					{
+						std::string e;
+						if (ApplyLODs(rc, levels, e)) took++;
+						else if (firstErr.empty()) firstErr = e;
+					}
+			}
+			const std::vector<std::shared_ptr<GameObject> > kids = go->GetChildren();
+			for (size_t i = 0; i < kids.size(); i++) if (kids[i]) visit(kids[i].get());
+		};
+		const std::vector<std::shared_ptr<GameObject> > roots = scene->GetAllGameObjectList();
+		for (size_t i = 0; i < roots.size(); i++) if (roots[i] && !roots[i]->GetParent()) visit(roots[i].get());
+		if (took == 0 && !firstErr.empty()) { errOut = firstErr; return -1; }
+		return took;
 	}
 
 	// set_shadow_detail: one object by name, or every loaded object whose name

@@ -503,6 +503,20 @@ public:
 	bool AgentSetTransform(const std::string& name, const json& t, std::string& errOut);
 	bool AgentSetTags(const std::string& name, const json& addTags, const json& removeTags, std::string& errOut);
 	int AgentSetShadowDetail(const std::string& name, const std::string& prefix, const f32 ratio, std::string& errOut);
+	// Levels of detail of a model, as the inspector's list and set_lods have
+	// them: [ { "kind": "simplified", "ratio": 0.3, "distance": 40 },
+	//         { "kind": "impostor", "distance": 120 } ] - each with the
+	// distance it takes over at, nearest first. An empty list leaves the model
+	// alone at every distance.
+	json DescribeLODs(RenderingComponent* rc);
+	bool ApplyLODs(RenderingComponent* rc, const json& levels, std::string& errOut);
+	int AgentSetLODs(const std::string& name, const std::string& prefix, const json& levels, std::string& errOut);
+	bool AgentGetLODs(const std::string& name, json& out, std::string& errOut);
+	// Edits made from a panel that free what the frame being drawn may still
+	// hold: run at the start of the next update.
+	std::vector<std::function<void()> > deferredEdits;
+	// One card and one material for a model's impostor, for every object given it.
+	std::map<std::string, std::pair<std::shared_ptr<Renderable>, std::shared_ptr<IMaterial> > > impostorLevels;
 	bool AgentRename(const std::string& name, const std::string& newName, std::string& errOut);
 	bool AgentReparent(const std::string& name, const std::string& newParentName, std::string& errOut);
 	bool AgentDuplicate(const std::string& name, std::string& errOut);

@@ -3488,6 +3488,24 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// set_shadow_detail {name | prefix, ratio}: the object's shadow (or that of
 	// every loaded object whose name starts with prefix) is drawn from its
 	// model with that share of the triangles; 0 puts it back.
+	// set_lods {name | prefix, levels: [{kind: "simplified", ratio, distance} | {kind: "impostor", distance}]}
+	// and get_lods {name}: a model's levels of detail (see SceneEditor::ApplyLODs).
+	if (name == "set_lods")
+	{
+		const int took = sceneView->AgentSetLODs(a.value("name", std::string()), a.value("prefix", std::string()), a.contains("levels") ? a["levels"] : nlohmann::json::array(), err);
+		if (took < 0) throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		r["objects"] = took;
+		return r;
+	}
+	if (name == "get_lods")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentGetLODs(A("name"), r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "set_shadow_detail")
 	{
 		const int took = sceneView->AgentSetShadowDetail(a.value("name", std::string()), a.value("prefix", std::string()), a.value("ratio", 0.25f), err);

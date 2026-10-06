@@ -287,6 +287,14 @@ namespace p3d {
 		}
 		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material);
 		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions = 0);
+		// A further level drawn with the materials of the nearest one, sub-mesh
+		// for sub-mesh: for a level made from the same model (SimplifiedModel),
+		// whose sub-meshes are the model's in the same order.
+		void AddLODOwnMaterials(const std::shared_ptr<Renderable> &renderable, const f32 Distance);
+		// Whether level `lod` (1 and up) was added that way.
+		bool LODUsesOwnMaterials(const uint32 lod) const { return lod < lodOwnMaterials.size() && lodOwnMaterials[lod]; }
+		// Back to the nearest level alone (an editor rebuilding the list).
+		void ClearLODs();
 
 		virtual ~RenderingComponent();
 
@@ -588,6 +596,7 @@ namespace p3d {
 		// Save Renderable Pointer
 		std::shared_ptr<Renderable> renderable;
 		std::vector<std::shared_ptr<Renderable> > lodRenderables;
+		std::vector<bool> lodOwnMaterials;      // by level; level 0 is false
 		std::shared_ptr<Renderable> shadowRenderable;
 		std::vector<RenderingMesh*> shadowMeshes;
 		f32 shadowDetail = 0.f;
