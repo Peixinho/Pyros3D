@@ -905,7 +905,11 @@ GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
 // job system's workers and the answers put back in order. (Under a few
 // hundred meshes the sharing out costs more than it saves.)
 namespace {
-	bool g_parallelCulling = true;
+	// OFF unless asked for. Measured on a scene of four thousand meshes, switched
+	// every ten seconds in one run: the view pass took 0.95 ms with it off and
+	// 1.15 ms with it on - all the culling of a frame is a tenth of a millisecond,
+	// and waking the workers costs more. For a scene with far more to cull.
+	bool g_parallelCulling = false;
 	template <class Keep>
 	void AnswerInParallel(const size_t count, std::vector<uint8> &answers, const Keep &keep)
 	{

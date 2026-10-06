@@ -250,10 +250,10 @@ namespace p3d {
 		static void SetShadowUpdateInterval(const uint32 frames);
 		static uint32 GetShadowUpdateInterval();
 		// The sun's casters that cannot throw a shadow into the view are left
-		// out of its map (on by default; off to compare against).
+		// out of its map (off by default: it lost on a scene of four thousand meshes; off to compare against).
 		static void SetShadowCasterViewCull(const bool on);
-		// Culling shared out among the job system's workers (on by default;
-		// off to compare against). CullInParallel keeps the meshes `keep`
+		// Culling shared out among the job system's workers (off by default: it lost on a scene of four thousand meshes;
+		// on to try it). CullInParallel keeps the meshes `keep`
 		// says yes to, in their order; `keep` is called from several threads
 		// at once and must only read.
 		static void SetParallelCulling(const bool on);
