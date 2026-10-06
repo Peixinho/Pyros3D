@@ -8,6 +8,7 @@
 
 #include <thread>
 #include <chrono>
+#include <Pyros3D/Assets/AssetPreload.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
 #include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
@@ -115,6 +116,8 @@ namespace {
 		m.height = j.value("height", m.height);
 		m.fullscreen = j.value("fullscreen", false);
 		m.renderScale = j.value("renderScale", 1.f);
+		if (j.contains("preload") && j["preload"].is_array())
+			for (const auto &e : j["preload"]) if (e.is_string()) m.preload.push_back(e.get<std::string>());
 		if (j.contains("background") && j["background"].is_array() && j["background"].size() >= 3)
 			m.background = Vec4(j["background"][0].get<f32>(), j["background"][1].get<f32>(),
 				j["background"][2].get<f32>(), j["background"].size() > 3 ? j["background"][3].get<f32>() : 1.f);
@@ -474,6 +477,11 @@ end
 
 	LuaComponent::SetUpdatesEnabled(true);
 #endif
+
+	// What the project asked to have ready before anything is played (its
+	// "preload" list): read here, kept for as long as the game runs.
+	for (size_t i = 0; i < m.preload.size(); i++)
+		AssetPreload::Add((fs::path(m.root) / m.preload[i]).string());
 
 	const std::string firstScene = launchScene.empty() ? m.startupScene : launchScene;
 #ifdef LUA_BINDINGS

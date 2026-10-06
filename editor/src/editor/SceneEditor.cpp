@@ -7,6 +7,8 @@
 //============================================================================
 
 #include <unordered_map>
+#include <Pyros3D/Assets/AssetPreload.h>
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <cmath>
 #include "ShortcutMod.h"
 #include <set>
@@ -6846,6 +6848,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::EnterPlayMode()
 	{
+		// The project's preload list, as a built game has it: read before the
+		// scripts start. (And from here on, which models scripts ask for is
+		// noted - "Fill from last Play" in the project settings uses it.)
+		p3d::Model::SharedRequests(true);
+		if (project)
+			for (size_t i = 0; i < project->GetSettings().preload.size(); i++)
+				p3d::AssetPreload::Add((std::filesystem::path(project->GetProjectPath()) / project->GetSettings().preload[i]).string());
 		// the game shows everything: what was hidden to work round is drawn
 		// again before anything about the scene is noted down for Stop
 		SuspendEditorHidden();
@@ -7325,6 +7334,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!playMode) return;
 		scriptRenderCamera = nullptr;
 		echo("SUCCESS: Stopping play mode");
+		p3d::AssetPreload::Clear();
 #ifdef LUA_BINDINGS
 		LuaComponent::SetUpdatesEnabled(false);
 		ResetSceneMainScriptLifecycle();

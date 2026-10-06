@@ -6,6 +6,10 @@
 // Description : Model Geometry
 //============================================================================
 
+#include <filesystem>
+#include <algorithm>
+#include <map>
+#include <mutex>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Utils/Streaming/LoadStats.h>
 #include <Pyros3D/Utils/Streaming/AssetBundle.h>
@@ -50,6 +54,55 @@ namespace p3d {
 		// used to get a huge radius = distance from 0 to the farthest corner).
 		BoundingSphereCenter = (minBounds + maxBounds) * 0.5f;
 		BoundingSphereRadius = maxBounds.distance(BoundingSphereCenter);
+	}
+
+	namespace {
+		std::map<std::string, std::weak_ptr<Model> > &SharedModels() { static std::map<std::string, std::weak_ptr<Model> > m; return m; }
+		std::vector<std::string> &SharedModelRequests() { static std::vector<std::string> v; return v; }
+		std::mutex &SharedModelsMutex() { static std::mutex m; return m; }
+	}
+
+	std::shared_ptr<Model> Model::LoadShared(const std::string &ModelPath, bool mergeMeshes)
+	{
+		// (one spelling for a file, however it was written: "assets/x" and
+		// "/the/game/assets/x" are the same model)
+		std::error_code ec;
+		std::string full = std::filesystem::absolute(std::filesystem::path(ModelPath), ec).lexically_normal().string();
+		if (ec || full.empty()) full = ModelPath;
+		const std::string key = full + (mergeMeshes ? "|m" : "|s");
+		{
+			std::lock_guard<std::mutex> lock(SharedModelsMutex());
+			std::vector<std::string> &asked = SharedModelRequests();
+			if (std::find(asked.begin(), asked.end(), full) == asked.end()) asked.push_back(full);
+			std::map<std::string, std::weak_ptr<Model> >::iterator it = SharedModels().find(key);
+			if (it != SharedModels().end())
+			{
+				if (std::shared_ptr<Model> hit = it->second.lock()) return hit;
+				SharedModels().erase(it);
+			}
+		}
+		std::shared_ptr<Model> made = std::make_shared<Model>(ModelPath, mergeMeshes);
+		std::lock_guard<std::mutex> lock(SharedModelsMutex());
+		SharedModels()[key] = made;
+		return made;
+	}
+
+	void Model::ForgetShared(const std::string &ModelPath)
+	{
+		std::lock_guard<std::mutex> lock(SharedModelsMutex());
+		std::error_code ec;
+		std::string full = std::filesystem::absolute(std::filesystem::path(ModelPath), ec).lexically_normal().string();
+		if (ec || full.empty()) full = ModelPath;
+		SharedModels().erase(full + "|m");
+		SharedModels().erase(full + "|s");
+	}
+
+	std::vector<std::string> Model::SharedRequests(const bool clear)
+	{
+		std::lock_guard<std::mutex> lock(SharedModelsMutex());
+		std::vector<std::string> out = SharedModelRequests();
+		if (clear) SharedModelRequests().clear();
+		return out;
 	}
 
 	Model::Model(const std::string ModelPath, bool mergeMeshes)

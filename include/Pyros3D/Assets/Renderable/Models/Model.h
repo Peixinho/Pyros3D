@@ -9,6 +9,7 @@
 #ifndef MODEL_H
 #define MODEL_H
 
+#include <memory>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/ModelLoader.h>
 #include <Pyros3D/Other/Export.h>
@@ -46,6 +47,19 @@ namespace p3d {
 		Model(const std::string ModelPath, bool mergeMeshes = true);
 
 		virtual ~Model() {}
+
+		// One Model for a file, however many ask for it: the same object
+		// while anybody still holds it, read again once nobody does. What a
+		// script's Model.new() returns. Two things drawn from the same Model
+		// can be drawn together (automatic instancing); two copies of the
+		// file cannot, and each costs the file's read and its buffers again.
+		static std::shared_ptr<Model> LoadShared(const std::string &ModelPath, bool mergeMeshes = true);
+		// The file changed on disk: the next LoadShared() reads it again.
+		static void ForgetShared(const std::string &ModelPath);
+		// Every file LoadShared() has been asked for since the last call to
+		// this with clear = true, in the order first asked (what a preload
+		// list is made from - see AssetPreload).
+		static std::vector<std::string> SharedRequests(const bool clear = false);
 
 		// Model loader, skeleton and animation
 		IModelLoader* mesh;

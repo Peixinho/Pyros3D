@@ -9,6 +9,9 @@
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
+#include <Pyros3D/Assets/AssetPreload.h>
+#include <map>
+#include <memory>
 
 namespace p3d {
 
@@ -132,6 +135,13 @@ namespace p3d {
 			// Model - shared_ptr via sol::factories
 			lua->new_usertype<Model>("Model",
 				sol::factories(
+					// (one Model for a file, whoever asks: Model::LoadShared. Two
+					// things made from the same file are then one set of buffers
+					// and can be drawn together. Model.newUnique reads its own.)
+					[](const std::string &path) { return Model::LoadShared(path); },
+					[](const std::string &path, bool mergeMeshes) { return Model::LoadShared(path, mergeMeshes); }
+				),
+				"newUnique", sol::overload(
 					[](const std::string &path) { return std::make_shared<Model>(path); },
 					[](const std::string &path, bool mergeMeshes) { return std::make_shared<Model>(path, mergeMeshes); }
 				),
@@ -195,11 +205,35 @@ namespace p3d {
 
 	void RegisterLuaAssetsMid(sol::state* lua)
 	{
+		// preload(path) / preload({ path, ... }): read now, kept until the scene
+		// goes - so that the first use of it later is not a halt. Models and
+		// textures. preloaded() says how many are held.
+		lua->set_function("preload", sol::overload(
+			[](const std::string &path) { return AssetPreload::Add(path); },
+			[](sol::table list) {
+				bool all = true;
+				for (size_t i = 1; i <= list.size(); i++) { sol::optional<std::string> p = list[i]; if (p) all = AssetPreload::Add(*p) && all; }
+				return all;
+			}));
+		lua->set_function("preloaded", []() { return (int)AssetPreload::Count(); });
+
 		{
 			// Skeleton Animation
 			sol::constructors<sol::types<>> con;
 			lua->new_usertype<SkeletonAnimation>("SekeletonAnimation",
 				con,
+				// SekeletonAnimation.shared(path): the one set of clips read from
+				// that file, for everybody who plays them (each still makes its
+				// own instance) - read once while anybody holds it.
+				"shared", [](const std::string &path) {
+					static std::map<std::string, std::weak_ptr<SkeletonAnimation> > cache;
+					std::map<std::string, std::weak_ptr<SkeletonAnimation> >::iterator it = cache.find(path);
+					if (it != cache.end()) { if (std::shared_ptr<SkeletonAnimation> hit = it->second.lock()) return hit; cache.erase(it); }
+					std::shared_ptr<SkeletonAnimation> made = std::make_shared<SkeletonAnimation>();
+					made->LoadAnimation(path);
+					cache[path] = made;
+					return made;
+				},
 				"loadAnimation", &SkeletonAnimation::LoadAnimation,
 				"getNumberAnimatons", &SkeletonAnimation::GetNumberAnimations,
 				"update", &SkeletonAnimation::Update,

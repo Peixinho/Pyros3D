@@ -337,6 +337,7 @@ private:
 	std::vector<std::pair<uint32, int> > pendingKeyReleases;
 
 	nlohmann::json HandleAgentCommand(const nlohmann::json& cmd);
+	std::vector<std::string> PreloadFromLastPlay();
 	// Agent/MCP bridge helper: resolves a project-relative or absolute .mat
 	// path and finds-or-opens it as a live MaterialEditorDocument. Returns
 	// NULL and sets errOut on failure (no project, file doesn't exist, ...).

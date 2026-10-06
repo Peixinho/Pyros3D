@@ -2055,6 +2055,7 @@ bool ProjectManager::WriteProjectJson(std::string* errorOut) const
 
 	json settingsJ;
 	settingsJ["defaultMainScript"] = settings.defaultMainScript;
+	if (!settings.preload.empty()) settingsJ["preload"] = settings.preload;
 	if (settings.rendererType == ProjectRendererType::Deferred)
 		settingsJ["rendererType"] = "deferred";
 	else
@@ -2117,6 +2118,8 @@ bool ProjectManager::LoadProjectJson(const std::string& jsonPath, std::string* e
 	{
 		const json& s = root["settings"];
 		settings.defaultMainScript = s.value("defaultMainScript", std::string());
+		if (s.contains("preload") && s["preload"].is_array())
+			for (const json &e : s["preload"]) if (e.is_string()) settings.preload.push_back(e.get<std::string>());
 		std::string rt = s.value("rendererType", "forward");
 		if (rt == "deferred") settings.rendererType = ProjectRendererType::Deferred;
 		else settings.rendererType = ProjectRendererType::Forward;
@@ -2514,6 +2517,7 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	manifest["width"] = opts.width;
 	manifest["height"] = opts.height;
 	manifest["fullscreen"] = opts.fullscreen;
+	if (!settings.preload.empty()) manifest["preload"] = settings.preload;
 	manifest["platform"] = foreign ? opts.platform : std::string(HostPlatform());
 	if (!opts.server.publicKey.empty()) manifest["serverPublicKey"] = opts.server.publicKey;
 	manifest["server"] = { { "port", opts.server.port }, { "maxClients", opts.server.maxClients }, { "tickRate", opts.server.tickRate },

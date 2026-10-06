@@ -26,6 +26,10 @@ enum class ProjectRendererType { Forward, Deferred };
 struct ProjectSettings {
 	// Deprecated: scene scripts are scenes/<SceneName>.lua companions.
 	std::string defaultMainScript;
+	// Models and textures read before the game starts and kept for as long as
+	// it runs (p3d::AssetPreload), so that the first use of one is not a halt.
+	// Project-relative paths ("assets/models/x.p3dm"); exported to game.json.
+	std::vector<std::string> preload;
 	ProjectRendererType rendererType = ProjectRendererType::Forward;
 	// The game's starting anti-aliasing mode, exported to game.json; a
 	// script can change it at run time. What is stored is what was asked

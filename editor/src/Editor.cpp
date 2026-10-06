@@ -889,6 +889,25 @@ static uint32 KeyNameToCode(const std::string &nameIn)
 	return 0xFFFFFFFF;
 }
 
+// The models scripts asked for since Play was last pressed, as the project's
+// preload list wants them: inside the project, relative to it, sorted.
+std::vector<std::string> Editor::PreloadFromLastPlay()
+{
+	std::vector<std::string> out;
+	std::error_code ec;
+	const std::filesystem::path root = std::filesystem::absolute(std::filesystem::path(project.GetProjectPath()), ec).lexically_normal();
+	const std::vector<std::string> asked = p3d::Model::SharedRequests(false);
+	for (size_t i = 0; i < asked.size(); i++)
+	{
+		const std::filesystem::path rel = std::filesystem::path(asked[i]).lexically_relative(root);
+		const std::string r = rel.generic_string();
+		if (r.empty() || r.compare(0, 2, "..") == 0) continue;
+		if (std::find(out.begin(), out.end(), r) == out.end()) out.push_back(r);
+	}
+	std::sort(out.begin(), out.end());
+	return out;
+}
+
 nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 {
 	const std::string name = cmd.value("cmd", std::string());
@@ -2285,6 +2304,29 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				changed = true;
 			}
 		}
+		// "preload": [paths] sets the list; "capturePreload": true sets it to
+		// every model the scripts asked for since Play was last pressed.
+		if (a.is_object() && (a.contains("preload") || a.value("capturePreload", false)))
+		{
+			std::vector<std::string> after;
+			if (a.contains("preload"))
+			{
+				if (!a["preload"].is_array()) throw std::runtime_error("preload must be an array of project-relative paths");
+				for (const nlohmann::json &e : a["preload"]) if (e.is_string() && !e.get<std::string>().empty()) after.push_back(e.get<std::string>());
+			}
+			else
+				after = PreloadFromLastPlay();
+			const std::vector<std::string> before = project.GetSettings().preload;
+			if (before != after)
+			{
+				project.GetSettingsMutable().preload = after;
+				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+					[this, before]() { project.GetSettingsMutable().preload = before; project.MarkDirty(); },
+					[this, after]() { project.GetSettingsMutable().preload = after; project.MarkDirty(); },
+					"Set Preload List"));
+				changed = true;
+			}
+		}
 		if (changed)
 		{
 			project.MarkDirty();
@@ -2298,6 +2340,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["name"] = project.GetProjectName();
 		r["path"] = project.GetProjectPath();
 		r["renderer"] = project.GetSettings().rendererType == ProjectRendererType::Deferred ? "deferred" : "forward";
+		r["preload"] = project.GetSettings().preload;
 		r["antiAliasing"] = p3d::AntiAliasing::ToString(project.GetSettings().antiAliasing);
 		// What the viewport actually runs - the renderer and the device can
 		// both stand in the way (see AntiAliasing::Resolve).
@@ -6227,6 +6270,44 @@ void Editor::DrawProjectDialogs()
 			const std::string reason = p3d::AntiAliasing::FallbackReason(current, deferred, maxSamples);
 			if (!reason.empty())
 				ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f), "%s", reason.c_str());
+		}
+
+		// What is read before the game starts, so its first use is not a halt.
+		if (ImGui::CollapsingHeader("Preload"))
+		{
+			ImGui::TextDisabled("Models and textures read up front and kept while the game runs.");
+			std::vector<std::string> list = project.GetSettings().preload;
+			bool edited = false;
+			for (size_t i = 0; i < list.size(); i++)
+			{
+				ImGui::PushID((int)i);
+				if (ImGui::SmallButton("x")) { list.erase(list.begin() + i); edited = true; ImGui::PopID(); break; }
+				ImGui::SameLine();
+				ImGui::TextUnformatted(list[i].c_str());
+				ImGui::PopID();
+			}
+			static char addPath[512] = "";
+			ImGui::SetNextItemWidth(360.f);
+			ImGui::InputTextWithHint("##preloadAdd", "assets/models/name.p3dm", addPath, sizeof(addPath));
+			ImGui::SameLine();
+			if (ImGui::Button("Add") && addPath[0])
+			{
+				if (std::find(list.begin(), list.end(), std::string(addPath)) == list.end()) { list.push_back(addPath); edited = true; }
+				addPath[0] = 0;
+			}
+			if (ImGui::Button("Fill from last Play")) { list = PreloadFromLastPlay(); edited = true; }
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Every model the scripts asked for since Play was last pressed.\nPlay the game through what matters first, stop, then press this.");
+			if (edited && list != project.GetSettings().preload)
+			{
+				const std::vector<std::string> before = project.GetSettings().preload, after = list;
+				project.GetSettingsMutable().preload = after;
+				project.MarkDirty();
+				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+					[this, before]() { project.GetSettingsMutable().preload = before; project.MarkDirty(); },
+					[this, after]() { project.GetSettingsMutable().preload = after; project.MarkDirty(); },
+					"Set Preload List"));
+			}
 		}
 
 		ImGui::TextDisabled("Each scene has scenes/<SceneName>.lua — open via Scene menu, or click Scene in the tree → Properties.");
