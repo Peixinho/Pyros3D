@@ -244,6 +244,8 @@ namespace p3d {
 		uint32 GetRenderLayer() const { return renderLayer; }
 
 		void SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
+		static void SetSmallObjectCull(const f32 pixels);
+		static f32 GetSmallObjectCull();
 		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
 
 		// Resize
@@ -571,6 +573,16 @@ namespace p3d {
 		bool ShadowCasterVisible(RenderingMesh* rmesh);
 
 		bool CullingSphereTest(RenderingMesh* rmesh, GameObject* owner);
+		// An object whose bounding sphere would be drawn smaller than this many
+		// pixels across its radius is left out of a view altogether - it is a
+		// speck, and it costs its whole draw and all its triangles all the
+		// same (a rifle on the ground 300 m off is 47,000 triangles in two
+		// pixels). The same for every renderer; 0 turns it off. A shadow pass
+		// goes by twice the size, measured from the camera the frame is for.
+		// Only objects that are cull-tested are considered.
+		bool TooSmallToSee(GameObject* owner) const;
+		Vec3 smallCullEye;
+		f32 smallCullScale = 0.f, smallCullFactor = 1.f;
 		bool CullingPointTest(RenderingMesh* rmesh, GameObject* owner);
 
 		// Is a light's sphere of influence anywhere in the view frustum?

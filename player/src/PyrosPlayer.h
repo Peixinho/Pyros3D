@@ -65,6 +65,8 @@ using namespace p3d;
 // file is a clear error rather than a silent black window.
 struct PlayerManifest
 {
+	// the fraction of the window's size the scene is rendered at (PyrosPlayer::SetRenderScale)
+	float renderScale = 1.f;
 	std::string title = "Pyros3D";
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
 	std::string serverPublicKey;           // pinned when joining with --connect; empty = any server
@@ -115,6 +117,8 @@ public:
 	virtual void Update();
 	virtual void Shutdown();
 	virtual void OnResize(const uint32 width, const uint32 height);
+	void SetRenderScale(f32 scale);
+	f32 GetRenderScale() const { return renderScale; }
 
 private:
 
@@ -198,6 +202,11 @@ private:
 	void ApplyPendingResizeIfAny();
 	uint32 pendingResizeWidth, pendingResizeHeight;
 	bool resizePending;
+	// The fraction of the window's size the scene is rendered at (SetRenderScale).
+	f32 renderScale = 1.f;
+	uint32 ScaledSize(const uint32 full) const;
+	uint32 RenderWidth() const;
+	uint32 RenderHeight() const;
 
 	// Scene switches requested by a script (loadScene("Level2")) are queued,
 	// not immediate: the caller is running inside a component owned by the

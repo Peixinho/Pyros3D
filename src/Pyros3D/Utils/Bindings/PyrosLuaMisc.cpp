@@ -11,6 +11,7 @@
 #include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
@@ -28,6 +29,11 @@ namespace p3d {
 		lua->set_function("logSlowFrames", [](const std::string &path, const f64 ms) {
 			FrameProfiler::LogSlowFrames(path.c_str(), ms);
 		});
+		// setSmallObjectCull(pixels): things that would be drawn smaller than
+		// that (the radius of their bounding sphere, in pixels) are not drawn.
+		// 1 by default; 0 draws everything. See IRenderer::TooSmallToSee.
+		lua->set_function("setSmallObjectCull", [](const f32 pixels) { IRenderer::SetSmallObjectCull(pixels); });
+		lua->set_function("getSmallObjectCull", []() { return IRenderer::GetSmallObjectCull(); });
 		lua->set_function("getClock", []() {
 			return std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
 		});

@@ -426,7 +426,13 @@ namespace p3d {
 		// one that does: its output is next frame's history, so it has to
 		// land in its own texture. With MSAA and nothing else, the resolved
 		// capture is the frame and only needs copying out.
-		if (!renderLastToTexture && (run.empty() ? aaStage->IsMSAA() : run.back() == taaPass))
+		// Drawing into something of another size than the chain's own: the last
+		// pass has to be one that goes by the texture's own coordinates. The
+		// anti-aliasing passes do, and so does the copy; an effect of the
+		// scene's may go by the pixel it is drawing, so it is not left last.
+		const bool scaled = !renderLastToTexture && outputWidth != 0 && outputHeight != 0
+			&& (outputWidth != Width || outputHeight != Height);
+		if (!renderLastToTexture && (run.empty() ? (aaStage->IsMSAA() || scaled) : (run.back() == taaPass || (scaled && finalStart == run.size()))))
 			run.push_back(aaStage->GetCopyPass());
 		if (run.empty())
 		{
@@ -777,7 +783,8 @@ namespace p3d {
 		// holds the frame open itself.
 		const bool ownFrame = !device->IsFrameInProgress();
 		device->BeginFrame();
-		device->SetViewport(0, 0, Width, Height);
+		if (scaled) device->SetViewport(0, 0, outputWidth, outputHeight);
+		else device->SetViewport(0, 0, Width, Height);
 		{
 			PYROS_PROFILE_SCOPE("PostFX.Present");
 			drawEffect(lastEffect, true);

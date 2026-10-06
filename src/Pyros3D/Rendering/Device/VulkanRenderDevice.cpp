@@ -53,6 +53,7 @@
 namespace {
 	enum { kVkT_UpdateDescriptorSets, kVkT_AllocateDescriptorSets, kVkT_CmdBindDescriptorSets, kVkT_CmdBindPipeline, kVkT_CmdDrawIndexed, kVkT_CmdBindVertexBuffers, kVkT_CmdBindIndexBuffer, kVkT_CreateGraphicsPipelines, kVkT_CmdBeginRenderPass, kVkT_CmdEndRenderPass, kVkT_DrawElements, kVkT_DrawElementsInstanced, kVkT_BindSets, kVkT_BindPipelineFn, kVkT_UboReplace, kVkT_UboUpdate, kVkT_Count };
 	const char* const kVkTNames[kVkT_Count] = { "UpdateDescriptorSets", "AllocateDescriptorSets", "CmdBindDescriptorSets", "CmdBindPipeline", "CmdDrawIndexed", "CmdBindVertexBuffers", "CmdBindIndexBuffer", "CreateGraphicsPipelines", "CmdBeginRenderPass", "CmdEndRenderPass", "DrawElements", "DrawElementsInstanced", "BindSets", "BindPipelineFn", "UboReplace", "UboUpdate" };
+	uint64_t gVkTriangles = 0;
 	uint64_t gVkTNs[kVkT_Count] = {};
 	uint32_t gVkTN[kVkT_Count] = {};
 	struct PyrosVkTimer
@@ -67,6 +68,9 @@ namespace {
 	};
 	inline void PyrosPublishVkTimers()
 	{
+		// (triangles handed to the GPU this frame, all passes: thousands)
+		p3d::FrameProfiler::Instance().Counter("VK.KTris", (double)gVkTriangles / 1000.0);
+		gVkTriangles = 0;
 		for (int i = 0; i < kVkT_Count; i++)
 		{
 			if (gVkTN[i] == 0) continue;
@@ -3347,6 +3351,7 @@ namespace p3d {
 		PyrosT_CmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
 		// __INDEX_C_TYPE__ (Global.h) is uint32 - matches VK_INDEX_TYPE_UINT32.
 		PyrosT_CmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		gVkTriangles += (uint64_t)(indexCount) / 3 * (uint64_t)(1);
 		PyrosT_CmdDrawIndexed(activeCommandBuffer, indexCount, 1, 0, 0, 0);
 	}
 
@@ -3390,6 +3395,7 @@ namespace p3d {
 
 		PyrosT_CmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
 		PyrosT_CmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		gVkTriangles += (uint64_t)(indexCount) / 3 * (uint64_t)(instanceCount);
 		PyrosT_CmdDrawIndexed(activeCommandBuffer, indexCount, instanceCount, 0, 0, 0);
 	}
 

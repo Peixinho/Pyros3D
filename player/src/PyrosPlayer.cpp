@@ -6,6 +6,7 @@
 // Description : See PyrosPlayer.h.
 //============================================================================
 
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
 #include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
@@ -108,6 +109,7 @@ namespace {
 		m.width = j.value("width", m.width);
 		m.height = j.value("height", m.height);
 		m.fullscreen = j.value("fullscreen", false);
+		m.renderScale = j.value("renderScale", 1.f);
 		if (j.contains("background") && j["background"].is_array() && j["background"].size() >= 3)
 			m.background = Vec4(j["background"][0].get<f32>(), j["background"][1].get<f32>(),
 				j["background"][2].get<f32>(), j["background"].size() > 3 ? j["background"][3].get<f32>() : 1.f);
@@ -309,19 +311,20 @@ void PyrosPlayer::Init()
 		echo("Startup scene is 2D - using the forward renderer (deferred cannot blend sprites)");
 	}
 
+	renderScale = m.renderScale < 0.25f ? 0.25f : (m.renderScale > 1.f ? 1.f : m.renderScale);
 	if (m.deferred && !sceneWantsForward)
 	{
-		BuildGBuffer(Width, Height);
-		renderer = new DeferredRenderer(Width, Height, gbufferFBO);
+		BuildGBuffer(RenderWidth(), RenderHeight());
+		renderer = new DeferredRenderer(RenderWidth(), RenderHeight(), gbufferFBO);
 	}
 	else
-		renderer = new ForwardRenderer(Width, Height);
+		renderer = new ForwardRenderer(RenderWidth(), RenderHeight());
 
 	// Independent of that choice: it composites over whatever the frame
 	// already drew.
 	uiRenderer = new UIRenderer(Width, Height);
 
-	renderer->SetViewPort(0, 0, Width, Height);
+	renderer->SetViewPort(0, 0, RenderWidth(), RenderHeight());
 	// Asserted explicitly, never left to the default. The clear colour is
 	// device-global state that outlives any one renderer (see
 	// IRenderer::DrawBackground), so "whatever it happened to be" is not a
@@ -389,6 +392,12 @@ end
 		SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
 	});
 	lua.set_function("getWindowSize", [this]() { return std::make_tuple((int)Width, (int)Height); });
+	// The fraction of the window's size the scene is rendered at, 0.25 to 1
+	// (the UI is always at the window's own). A game's graphics setting, and
+	// what keeps a deferred frame affordable on a high-resolution screen.
+	lua.set_function("setRenderScale", [this](const f32 scale) { SetRenderScale(scale); });
+	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
+	lua.set_function("getRenderSize", [this]() { return std::make_tuple((int)RenderWidth(), (int)RenderHeight()); });
 	lua.set_function("quitGame", [this]() { Close(); });
 	// The whole screen, or a window: the desktop's own resolution, so nothing about the
 	// display changes and Alt+Tab is instant. Alt+Enter and F11 do the same from the
@@ -522,18 +531,23 @@ bool PyrosPlayer::ReadPostEffectAsset(const std::string& path, std::string& sour
 
 bool PyrosPlayer::HavePostEffects()
 {
-	if (antiAliasingMode != AntiAliasingMode::Off)
+	if (antiAliasingMode != AntiAliasingMode::Off || renderScale < 0.999f)
 		EnsureEffectsManager();
 	if (effectsManager == NULL)
 		return false;
 	effectsManager->SetAntiAliasing(antiAliasingMode, gbufferFBO != NULL);
-	return effectsManager->NeedsCapture();
+	// (rendered smaller than the window, something has to carry the frame to
+	// it: the chain's last pass does, so there is always a chain to run)
+	return effectsManager->NeedsCapture() || renderScale < 0.999f;
 }
 
 PostEffectsManager* PyrosPlayer::EnsureEffectsManager()
 {
 	if (effectsManager == NULL)
-		effectsManager = new PostEffectsManager(Width, Height);
+		effectsManager = new PostEffectsManager(RenderWidth(), RenderHeight());
+	// (the chain works at the size the scene is rendered at, and its last pass
+	// fills the window: see SetRenderScale)
+	effectsManager->SetOutputSize(Width, Height);
 	return effectsManager;
 }
 
@@ -553,7 +567,7 @@ void PyrosPlayer::BuildPostEffectChain()
 		return;
 	}
 	EnsureEffectsManager();
-	PostEffectChain::Build(*effectsManager, meta.postEffects, Width, Height,
+	PostEffectChain::Build(*effectsManager, meta.postEffects, RenderWidth(), RenderHeight(),
 		&PyrosPlayer::ReadPostEffectAsset, this, dynamic_cast<DeferredRenderer*>(renderer));
 }
 
@@ -1215,7 +1229,10 @@ void PyrosPlayer::Update()
 	const f64 time = GetTime();
 	const f64 dt = GetTimeInterval();
 
-	physics->Update(dt, 10);
+	{
+		PYROS_PROFILE_SCOPE("Player.Physics");
+		physics->Update(dt, 10);
+	}
 	// 2D bodies, after the 3D world and before the scene solves its
 	// transforms - Step() writes positions onto GameObjects and they have to
 	// be in place before anything reads them this frame.
@@ -1311,6 +1328,7 @@ void PyrosPlayer::Update()
 #ifdef LUA_BINDINGS
 	if (sceneMainScript)
 	{
+		PYROS_PROFILE_SCOPE("Player.Script");
 		try { sceneMainScript->Update(time); }
 		catch (const std::exception& e) { echo(std::string("ERROR: scene main script update - ") + e.what()); }
 	}
@@ -1333,13 +1351,19 @@ void PyrosPlayer::Update()
 	IRenderDevice &device = GetActiveRenderDevice();
 	const bool ownFrame = device.GetCurrentRenderTarget() == 0 && !device.IsFrameInProgress();
 	if (ownFrame)
+	{
+		PYROS_PROFILE_SCOPE("Player.BeginFrame");
 		device.BeginFrame();
+	}
 
 	renderer->ResetViewPort();
-	renderer->SetViewPort(0, 0, Width, Height);
+	renderer->SetViewPort(0, 0, RenderWidth(), RenderHeight());
 #ifdef LUA_BINDINGS
 	if (sceneMainScript)
+	{
+		PYROS_PROFILE_SCOPE("Player.ScriptPreRender");
 		sceneMainScript->PreRender();
+	}
 #endif
 	renderer->PreRender(activeCamera, scene);
 	renderer->ApplyBackgroundClearColor();
@@ -1377,7 +1401,7 @@ void PyrosPlayer::Update()
 			DeferredRenderer* dr = static_cast<DeferredRenderer*>(renderer);
 			if (dr->GetDepthTexture() != NULL)
 				GetActiveRenderDevice().CopyDepthTexture(dr->GetDepthTexture()->GetBindID(),
-					effectsManager->GetDepth()->GetBindID(), Width, Height);
+					effectsManager->GetDepth()->GetBindID(), RenderWidth(), RenderHeight());
 		}
 		// Under Deferred the capture does not hold the scene - the renderer's
 		// final composite targets framebuffer 0 - so the chain is pointed at
@@ -1406,6 +1430,7 @@ void PyrosPlayer::Update()
 	// not the one from the previous frame.
 	if (uiRenderer)
 	{
+		PYROS_PROFILE_SCOPE("Player.UI");
 		uiRenderer->Resize(Width, Height);
 		uiRenderer->RenderUI(scene);
 		// The overlay composites over the finished frame, including over the
@@ -1417,7 +1442,10 @@ void PyrosPlayer::Update()
 	}
 
 	if (ownFrame)
+	{
+		PYROS_PROFILE_SCOPE("Player.EndFrame");
 		device.EndFrame();
+	}
 
 #ifdef LUA_BINDINGS
 	// Between frames, never inside one: the script that asked for the
@@ -1661,6 +1689,31 @@ void PyrosPlayer::DispatchUIInput()
 	}
 }
 
+// The scene is rendered at a fraction of the window's size and the last pass
+// of the post chain fills the window with it; the UI is drawn after, at the
+// window's own size, so text stays sharp. What a 4K screen on an integrated
+// GPU needs: every pass of a deferred frame costs by the pixel.
+uint32 PyrosPlayer::ScaledSize(const uint32 full) const
+{
+	const uint32 v = (uint32)((f32)full * renderScale + 0.5f);
+	// (even, and never nothing)
+	return v < 16 ? 16 : (v & ~1u);
+}
+uint32 PyrosPlayer::RenderWidth() const { return ScaledSize((uint32)Width); }
+uint32 PyrosPlayer::RenderHeight() const { return ScaledSize((uint32)Height); }
+
+void PyrosPlayer::SetRenderScale(f32 scale)
+{
+	if (scale < 0.25f) scale = 0.25f;
+	if (scale > 1.f) scale = 1.f;
+	if (fabsf(scale - renderScale) < 0.004f) return;
+	renderScale = scale;
+	// applied where a window resize is: at the top of the next frame
+	pendingResizeWidth = (uint32)Width;
+	pendingResizeHeight = (uint32)Height;
+	resizePending = true;
+}
+
 void PyrosPlayer::OnResize(const uint32 width, const uint32 height)
 {
 	ClassName::OnResize(width, height);
@@ -1687,8 +1740,10 @@ void PyrosPlayer::ApplyPendingResizeIfAny()
 	if (!resizePending) return;
 	resizePending = false;
 
-	const uint32 w = pendingResizeWidth, h = pendingResizeHeight;
-	if (w == 0 || h == 0) return; // minimised
+	const uint32 fullW = pendingResizeWidth, fullH = pendingResizeHeight;
+	if (fullW == 0 || fullH == 0) return; // minimised
+	// What is rendered is this big; the window is fullW x fullH (SetRenderScale).
+	const uint32 w = ScaledSize(fullW), h = ScaledSize(fullH);
 
 	// Guarded on a real size change, like SceneEditor's own G-buffer resize:
 	// everything below is expensive and none of it has anything to do when
@@ -1717,6 +1772,7 @@ void PyrosPlayer::ApplyPendingResizeIfAny()
 	if (effectsManager)
 	{
 		effectsManager->Resize(w, h);
+		effectsManager->SetOutputSize(fullW, fullH);
 		BuildPostEffectChain();
 	}
 	ApplyProjection();

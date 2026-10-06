@@ -978,6 +978,15 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 {
 	g_fingerprintsThisView.clear();
 	PYROS_PROFILE_SCOPE("Renderer.PreRender");
+	// What "too small to see" is measured with, for this view: the camera's
+	// place, and how many pixels a thing as wide as it is far covers (from
+	// the last projection this renderer drew with - there is none yet on its
+	// first frame, and nothing is left out then).
+	smallCullEye = Camera != NULL ? Camera->GetWorldPosition() : Vec3();
+	smallCullScale = (Camera != NULL && projectionValid && projection.m.m[11] != 0.f)
+		? fabsf(projection.m.m[5]) * 0.5f * (f32)(viewPortEndY > 0 ? viewPortEndY : Height) : 0.f;
+	smallCullFactor = 2.f;       // the shadow passes below; RenderScene() puts it back to 1
+
 	BeginAutoInstancingFrame();
 
 	// Group and Sort Meshes
@@ -2428,9 +2437,25 @@ void IRenderer::DeactivateCulling()
 	culling.reset();
 }
 
+namespace { f32 g_smallObjectPixels = 1.f; }
+void IRenderer::SetSmallObjectCull(const f32 pixels) { g_smallObjectPixels = pixels < 0.f ? 0.f : pixels; }
+f32 IRenderer::GetSmallObjectCull() { return g_smallObjectPixels; }
+
+bool IRenderer::TooSmallToSee(GameObject* owner) const
+{
+	if (g_smallObjectPixels <= 0.f || smallCullScale <= 0.f || owner == NULL) return false;
+	const f32 r = owner->GetBoundingSphereRadiusWorldSpace();
+	if (r <= 0.f) return false;
+	const Vec3 c = owner->GetWorldTransformation() * owner->GetBoundingSphereCenter();
+	// radius over distance, against the size of the limit at one unit away
+	const f32 limit = g_smallObjectPixels * smallCullFactor / smallCullScale;
+	return r * r < limit * limit * smallCullEye.distanceSQR(c);
+}
+
 bool IRenderer::CullingSphereTest(RenderingMesh* rmesh, GameObject* owner)
 {
 	if (!IsCulling || !culling) return true;
+	if (TooSmallToSee(owner)) return false;
 	// The sphere's own centre, not the object's origin: the two only agree
 	// for geometry built around its origin. A terrain tile's origin is its
 	// corner, and a sphere there leaves the far half of the tile outside it -
@@ -2441,6 +2466,7 @@ bool IRenderer::CullingSphereTest(RenderingMesh* rmesh, GameObject* owner)
 bool IRenderer::CullingBoxTest(RenderingMesh* rmesh, GameObject* owner)
 {
 	if (!IsCulling || !culling) return true;
+	if (TooSmallToSee(owner)) return false;
 	AABox aabb = AABox(owner->GetBoundingMinValueWorldSpace(), owner->GetBoundingMaxValueWorldSpace());
 
 	// Return test

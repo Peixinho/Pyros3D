@@ -802,6 +802,7 @@ namespace p3d {
 		// Saves Projection
 		this->projection = projection;
 		this->projectionValid = true;
+		smallCullFactor = 1.f;
 
 		// Universal Cache
 		// Shift current -> previous before overwriting, matching

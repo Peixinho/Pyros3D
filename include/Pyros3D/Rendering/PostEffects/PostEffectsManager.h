@@ -54,6 +54,12 @@ namespace p3d {
 		// changed. Only turn this on somewhere that presents a frame of its own -
 		// otherwise nothing does, and Vulkan waits forever on a fence no present
 		// ever drives.
+		// The size of what the last effect draws into when it goes to the
+		// swapchain: the window's, where the chain itself works at a smaller
+		// size (a game rendering below the window's resolution). The last
+		// pass then scales the frame up as it draws. 0 x 0 - the default -
+		// means the chain's own size.
+		void SetOutputSize(const uint32 width, const uint32 height) { outputWidth = width; outputHeight = height; }
 		void SetRenderLastToTexture(const bool enabled) { renderLastToTexture = enabled; }
 		bool GetRenderLastToTexture() const { return renderLastToTexture; }
 
@@ -201,6 +207,7 @@ namespace p3d {
 		Texture *Color, *Depth, *LastRTT;
 		// See SetRenderLastToTexture().
 		bool renderLastToTexture = false;
+		uint32 outputWidth = 0, outputHeight = 0;
 		// See SetSceneSourceTexture().
 		Texture* sceneSource = NULL;
 		// See SetViewMatrix().
