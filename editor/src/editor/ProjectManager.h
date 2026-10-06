@@ -30,6 +30,18 @@ struct ProjectSettings {
 	// it runs (p3d::AssetPreload), so that the first use of one is not a halt.
 	// Project-relative paths ("assets/models/x.p3dm"); exported to game.json.
 	std::vector<std::string> preload;
+	// What the game trades for frame rate, exported to game.json as "quality"
+	// and applied when it starts (and by the editor while playing):
+	//   smallObjectCull      pixels under which a thing is not drawn (0 off)
+	//   shadowUpdateInterval the sun's shadow map is redrawn every N frames
+	//   ssaoHalfResolution   ambient occlusion at half resolution
+	//   renderScale          the 3D view's share of the window, 0.25-1
+	//   autoRenderScaleFps   hold this rate by moving the scale (0 off),
+	//   autoRenderScaleMin   between this
+	//   frameRateLimit       0 none, -1 the display's (where it is 50-75 Hz), or a rate
+	// Whatever is missing keeps the engine's default. A script can still
+	// change any of them.
+	nlohmann::json quality;
 	ProjectRendererType rendererType = ProjectRendererType::Forward;
 	// The game's starting anti-aliasing mode, exported to game.json; a
 	// script can change it at run time. What is stored is what was asked

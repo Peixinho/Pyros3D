@@ -6851,6 +6851,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// The project's preload list, as a built game has it: read before the
 		// scripts start. (And from here on, which models scripts ask for is
 		// noted - "Fill from last Play" in the project settings uses it.)
+		// (and its quality settings, those that are the renderer's: a built
+		// game starts with them - see ProjectSettings::quality)
+		if (project && project->GetSettings().quality.is_object())
+		{
+			const nlohmann::json &q = project->GetSettings().quality;
+			if (q.contains("smallObjectCull")) IRenderer::SetSmallObjectCull(q.value("smallObjectCull", 1.f));
+			if (q.contains("shadowUpdateInterval")) IRenderer::SetShadowUpdateInterval((uint32)std::max(1, q.value("shadowUpdateInterval", 1)));
+			if (q.contains("ssaoHalfResolution")) DeferredRenderer::SetSSAOHalfResolution(q.value("ssaoHalfResolution", false));
+		}
 		p3d::Model::SharedRequests(true);
 		if (project)
 			for (size_t i = 0; i < project->GetSettings().preload.size(); i++)
@@ -7335,6 +7344,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		scriptRenderCamera = nullptr;
 		echo("SUCCESS: Stopping play mode");
 		p3d::AssetPreload::Clear();
+		// (the editor's own view goes back to the engine's defaults)
+		IRenderer::SetSmallObjectCull(1.f);
+		IRenderer::SetShadowUpdateInterval(1);
+		DeferredRenderer::SetSSAOHalfResolution(false);
 #ifdef LUA_BINDINGS
 		LuaComponent::SetUpdatesEnabled(false);
 		ResetSceneMainScriptLifecycle();

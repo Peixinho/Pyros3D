@@ -69,6 +69,8 @@ struct PlayerManifest
 	// the fraction of the window's size the scene is rendered at (PyrosPlayer::SetRenderScale)
 	float renderScale = 1.f;
 	std::vector<std::string> preload;      // game.json "preload": read before the first scene
+	// game.json "quality" (see ProjectSettings::quality): -1 where it says nothing
+	float qSmallCull = -1.f, qRenderScale = -1.f, qAutoFps = -1.f, qAutoMin = 0.42f, qFrameLimit = -2.f; int qShadowEvery = -1, qSsaoHalf = -1;
 	std::string title = "Pyros3D";
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
 	std::string serverPublicKey;           // pinned when joining with --connect; empty = any server

@@ -2304,6 +2304,22 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				changed = true;
 			}
 		}
+		// "quality": { ... } replaces the project's quality settings (see
+		// ProjectSettings::quality for the names); {} clears them.
+		if (a.is_object() && a.contains("quality"))
+		{
+			if (!a["quality"].is_object()) throw std::runtime_error("quality must be an object");
+			const nlohmann::json before = project.GetSettings().quality, after = a["quality"];
+			if (before != after)
+			{
+				project.GetSettingsMutable().quality = after;
+				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+					[this, before]() { project.GetSettingsMutable().quality = before; project.MarkDirty(); },
+					[this, after]() { project.GetSettingsMutable().quality = after; project.MarkDirty(); },
+					"Set Quality Settings"));
+				changed = true;
+			}
+		}
 		// "preload": [paths] sets the list; "capturePreload": true sets it to
 		// every model the scripts asked for since Play was last pressed.
 		if (a.is_object() && (a.contains("preload") || a.value("capturePreload", false)))
@@ -2341,6 +2357,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["path"] = project.GetProjectPath();
 		r["renderer"] = project.GetSettings().rendererType == ProjectRendererType::Deferred ? "deferred" : "forward";
 		r["preload"] = project.GetSettings().preload;
+		r["quality"] = project.GetSettings().quality.is_object() ? project.GetSettings().quality : nlohmann::json::object();
 		r["antiAliasing"] = p3d::AntiAliasing::ToString(project.GetSettings().antiAliasing);
 		// What the viewport actually runs - the renderer and the device can
 		// both stand in the way (see AntiAliasing::Resolve).
@@ -6282,6 +6299,56 @@ void Editor::DrawProjectDialogs()
 			const std::string reason = p3d::AntiAliasing::FallbackReason(current, deferred, maxSamples);
 			if (!reason.empty())
 				ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f), "%s", reason.c_str());
+		}
+
+		// What the game trades for frame rate. Applied when a built game
+		// starts and while playing here; a script can still change any of it.
+		if (ImGui::CollapsingHeader("Quality"))
+		{
+			nlohmann::json q = project.GetSettings().quality.is_object() ? project.GetSettings().quality : nlohmann::json::object();
+			const nlohmann::json was = q;
+			f32 cull = q.value("smallObjectCull", 1.f);
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::SliderFloat("Skip things smaller than (pixels)", &cull, 0.f, 6.f, "%.1f")) q["smallObjectCull"] = cull;
+			int every = q.value("shadowUpdateInterval", 1);
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::SliderInt("Redraw the sun's shadows every (frames)", &every, 1, 4)) q["shadowUpdateInterval"] = every;
+			bool half = q.value("ssaoHalfResolution", false);
+			if (ImGui::Checkbox("Ambient occlusion at half resolution", &half)) q["ssaoHalfResolution"] = half;
+			f32 scale = q.value("renderScale", 1.f);
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::SliderFloat("Render scale", &scale, 0.25f, 1.f, "%.2f")) q["renderScale"] = scale;
+			f32 autoFps = q.value("autoRenderScaleFps", 0.f);
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::InputFloat("Hold this frame rate by moving the scale (0: off)", &autoFps, 0.f, 0.f, "%.0f")) q["autoRenderScaleFps"] = autoFps < 0.f ? 0.f : autoFps;
+			if (autoFps > 0.f)
+			{
+				f32 lowest = q.value("autoRenderScaleMin", 0.42f);
+				ImGui::SetNextItemWidth(160.f);
+				if (ImGui::SliderFloat("...never below", &lowest, 0.25f, 1.f, "%.2f")) q["autoRenderScaleMin"] = lowest;
+			}
+			static const char* kLimit[] = { "No frame limit", "The display's rate (50-75 Hz displays)", "A fixed rate" };
+			const f32 limit = q.value("frameRateLimit", 0.f);
+			int mode = limit < 0.f ? 1 : (limit > 0.f ? 2 : 0);
+			ImGui::SetNextItemWidth(280.f);
+			if (ImGui::Combo("Frame limit", &mode, kLimit, 3)) q["frameRateLimit"] = mode == 0 ? 0.f : (mode == 1 ? -1.f : (limit > 0.f ? limit : 60.f));
+			if (mode == 2)
+			{
+				f32 fixed = limit > 0.f ? limit : 60.f;
+				ImGui::SetNextItemWidth(160.f);
+				if (ImGui::InputFloat("Frames a second", &fixed, 0.f, 0.f, "%.0f") && fixed > 0.f) q["frameRateLimit"] = fixed;
+			}
+			if (ImGui::Button("Engine defaults")) q = nlohmann::json::object();
+			if (q != was)
+			{
+				const nlohmann::json before = was, after = q;
+				project.GetSettingsMutable().quality = after;
+				project.MarkDirty();
+				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
+					[this, before]() { project.GetSettingsMutable().quality = before; project.MarkDirty(); },
+					[this, after]() { project.GetSettingsMutable().quality = after; project.MarkDirty(); },
+					"Set Quality Settings"));
+			}
 		}
 
 		// What is read before the game starts, so its first use is not a halt.

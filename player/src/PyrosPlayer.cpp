@@ -116,6 +116,17 @@ namespace {
 		m.height = j.value("height", m.height);
 		m.fullscreen = j.value("fullscreen", false);
 		m.renderScale = j.value("renderScale", 1.f);
+		if (j.contains("quality") && j["quality"].is_object())
+		{
+			const json &q = j["quality"];
+			m.qSmallCull = q.value("smallObjectCull", -1.f);
+			m.qShadowEvery = q.value("shadowUpdateInterval", -1);
+			if (q.contains("ssaoHalfResolution")) m.qSsaoHalf = q.value("ssaoHalfResolution", false) ? 1 : 0;
+			m.qRenderScale = q.value("renderScale", -1.f);
+			m.qAutoFps = q.value("autoRenderScaleFps", -1.f);
+			m.qAutoMin = q.value("autoRenderScaleMin", 0.42f);
+			m.qFrameLimit = q.value("frameRateLimit", -2.f);
+		}
 		if (j.contains("preload") && j["preload"].is_array())
 			for (const auto &e : j["preload"]) if (e.is_string()) m.preload.push_back(e.get<std::string>());
 		if (j.contains("background") && j["background"].is_array() && j["background"].size() >= 3)
@@ -477,6 +488,26 @@ end
 
 	LuaComponent::SetUpdatesEnabled(true);
 #endif
+
+	// The project's quality settings (game.json "quality"), before any script
+	// runs: a script may still change them.
+	if (m.qSmallCull >= 0.f) IRenderer::SetSmallObjectCull(m.qSmallCull);
+	if (m.qShadowEvery >= 1) IRenderer::SetShadowUpdateInterval((uint32)m.qShadowEvery);
+	if (m.qSsaoHalf >= 0) DeferredRenderer::SetSSAOHalfResolution(m.qSsaoHalf == 1);
+	if (m.qRenderScale > 0.f) SetRenderScale(m.qRenderScale);
+	if (m.qAutoFps >= 0.f) SetAutoRenderScale(m.qAutoFps, m.qAutoMin, 1.f);
+	if (m.qFrameLimit > -1.5f)
+	{
+		f32 limit = m.qFrameLimit;
+		if (limit < 0.f)
+		{
+			// the display's own rate, where that is an ordinary one
+			SDL_DisplayMode mode;
+			const int display = GetSDLWindow() ? SDL_GetWindowDisplayIndex(GetSDLWindow()) : 0;
+			limit = (SDL_GetCurrentDisplayMode(display < 0 ? 0 : display, &mode) == 0 && mode.refresh_rate >= 50 && mode.refresh_rate <= 75) ? (f32)mode.refresh_rate : 0.f;
+		}
+		frameRateLimit = limit;
+	}
 
 	// What the project asked to have ready before anything is played (its
 	// "preload" list): read here, kept for as long as the game runs.
