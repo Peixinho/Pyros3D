@@ -11,6 +11,12 @@
 #include <string.h>
 #include <algorithm>
 #include <unordered_set>
+#include <cstring>
+#include <set>
+#include <string>
+#include <typeinfo>
+#include <cmath>
+#include <cstdlib>
 
 namespace p3d {
 
@@ -21,6 +27,7 @@ namespace p3d {
 
 	void SceneGraph::Add(const std::shared_ptr<GameObject> &GO)
 	{
+		if (GO) GO->Wake();
 		if (!GO)
 		{
 			echo("ERROR: Null GameObject");
@@ -191,23 +198,46 @@ namespace p3d {
 			Remove(*i);
 	}
 
-	void SceneGraph::UpdateObjectTree(GameObject* go, bool callUpdate)
+	void SceneGraph::UpdateObjectTree(GameObject* go, bool callUpdate, bool parentMoved)
 	{
 		if (!go) return;
 
+		// Asleep: nothing in this subtree has moved, changed or had anything to
+		// update for a few frames, so it is not walked - a scene is mostly
+		// things that stand still, and walking all of it was a tenth of the
+		// frame. What it would have added to the scene's bounds is kept on it.
+		// Anything that changes an object wakes it (GameObject::Wake), and one
+		// that somehow was not woken is looked at again within kLongestSleep
+		// frames regardless.
+		static const uint8_t kIdleBeforeSleep = 3, kLongestSleep = 40;
+		bool sweep = false;
+		if (!parentMoved && !go->_SubtreeAwake)
+		{
+			if (++go->_SleptFrames < kLongestSleep)
+			{
+				sleepingThisUpdate++;
+				GrowBounds(go->_TreeMin, go->_TreeMax);
+				return;
+			}
+			// the look that is taken regardless: this and all under it
+			sweep = true;
+		}
+		const bool wasAsleep = !go->_SubtreeAwake;
+		go->_SubtreeAwake = true;
+		visitedThisUpdate++;
+
+		const bool wasDirty = go->_IsDirty;
+		const bool componentsChanged = go->_ComponentsChanged;
 		if (callUpdate) go->Update(timer);
 		go->RegisterComponents(this);
 		go->UpdateComponents(timer);
 		go->InternalUpdate();
+		// (InternalUpdate has just put the world matrix it had in _PrvWorldMatrix)
+		const bool moved = std::memcmp(go->_PrvWorldMatrix.m, go->_WorldMatrix.m, sizeof(go->_WorldMatrix.m)) != 0;
 
 		Vec3 _min = go->GetBoundingMinValue();
 		Vec3 _max = go->GetBoundingMaxValue();
-		if (_min.x < minBounds.x) minBounds.x = _min.x;
-		if (_min.y < minBounds.y) minBounds.y = _min.y;
-		if (_min.z < minBounds.z) minBounds.z = _min.z;
-		if (_max.x > maxBounds.x) maxBounds.x = _max.x;
-		if (_max.y > maxBounds.y) maxBounds.y = _max.y;
-		if (_max.z > maxBounds.z) maxBounds.z = _max.z;
+		GrowBounds(_min, _max);
 
 		// Children after the parent, deliberately: InternalUpdate() above has
 		// just refreshed this object's world matrix, and a child's transform
@@ -215,13 +245,60 @@ namespace p3d {
 		// remove children while this walk is in progress.
 		const std::vector<std::shared_ptr<GameObject>> kids = go->GetChildren();
 		for (size_t i = 0; i < kids.size(); i++)
-			UpdateObjectTree(kids[i].get(), callUpdate);
+			UpdateObjectTree(kids[i].get(), callUpdate, parentMoved || moved || sweep);
+
+		// Busy if it moved, was changed, or has something that updates; idle
+		// for a few frames running and it sleeps - once everything under it
+		// does. (Read after the children are all done: one of them may have
+		// woken another that had already been passed over.)
+		bool busy = moved || wasDirty || go->_IsDirty || componentsChanged || go->_ComponentsChanged || go->WantsUpdate();
+		if (!busy)
+		{
+			const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+			for (size_t i = 0; i < comps.size() && !busy; i++)
+				if (comps[i] && comps[i]->NeedsUpdate()) busy = true;
+		}
+		if (busy) go->_IdleFrames = 0;
+		else if (go->_IdleFrames < 255) go->_IdleFrames++;
+
+		bool childAwake = false;
+		go->_TreeMin = _min; go->_TreeMax = _max;
+		const std::vector<std::shared_ptr<GameObject>> &now = go->GetChildren();
+		for (size_t i = 0; i < now.size(); i++)
+		{
+			GameObject* k = now[i].get();
+			if (!k) continue;
+			if (k->_SubtreeAwake) childAwake = true;
+			if (k->_TreeMin.x < go->_TreeMin.x) go->_TreeMin.x = k->_TreeMin.x;
+			if (k->_TreeMin.y < go->_TreeMin.y) go->_TreeMin.y = k->_TreeMin.y;
+			if (k->_TreeMin.z < go->_TreeMin.z) go->_TreeMin.z = k->_TreeMin.z;
+			if (k->_TreeMax.x > go->_TreeMax.x) go->_TreeMax.x = k->_TreeMax.x;
+			if (k->_TreeMax.y > go->_TreeMax.y) go->_TreeMax.y = k->_TreeMax.y;
+			if (k->_TreeMax.z > go->_TreeMax.z) go->_TreeMax.z = k->_TreeMax.z;
+		}
+		go->_SubtreeAwake = childAwake || go->_IdleFrames < kIdleBeforeSleep;
+		// (falling asleep, or going back to sleep after a look: the next look
+		// regardless is some frames off, and not the same frame for everybody)
+		if (!go->_SubtreeAwake) go->_SleptFrames = wasAsleep ? 0 : (uint8_t)((reinterpret_cast<uintptr_t>(go) >> 6) % kLongestSleep);
+	}
+
+	void SceneGraph::GrowBounds(const Vec3 &_min, const Vec3 &_max)
+	{
+		if (_min.x < minBounds.x) minBounds.x = _min.x;
+		if (_min.y < minBounds.y) minBounds.y = _min.y;
+		if (_min.z < minBounds.z) minBounds.z = _min.z;
+		if (_max.x > maxBounds.x) maxBounds.x = _max.x;
+		if (_max.y > maxBounds.y) maxBounds.y = _max.y;
+		if (_max.z > maxBounds.z) maxBounds.z = _max.z;
 	}
 
 	namespace {
 		void SettleTree(GameObject* go, const bool parentMoved)
 		{
 			if (!go) return;
+			// (asleep, and nothing above it moved: nothing here is dirty - a
+			// dirty object is awake)
+			if (!parentMoved && !go->IsAwake()) return;
 			const bool moved = go->SettleTransformation(parentMoved);
 			const std::vector<std::shared_ptr<GameObject>> &kids = go->GetChildren();
 			for (size_t i = 0; i < kids.size(); i++)
@@ -245,6 +322,7 @@ namespace p3d {
 
 		// Save Time
 		timer = Timer;
+		visitedThisUpdate = sleepingThisUpdate = 0;
 
 		minBounds = maxBounds = Vec3();
 
@@ -258,7 +336,7 @@ namespace p3d {
 			for (const std::shared_ptr<GameObject> &go : dynamicSnapshot)
 			{
 				if (!go || go->Scene != this) continue;
-				UpdateObjectTree(go.get(), true);
+				UpdateObjectTree(go.get(), true, false);
 			}
 		}
 
@@ -268,7 +346,7 @@ namespace p3d {
 			for (const std::shared_ptr<GameObject> &go : staticAfterSnapshot)
 			{
 				if (!go || go->Scene != this) continue;
-				UpdateObjectTree(go.get(), false);
+				UpdateObjectTree(go.get(), false, false);
 			}
 		}
 
@@ -295,12 +373,70 @@ namespace p3d {
 			// line.
 			for (std::vector<std::shared_ptr<GameObject>>::iterator i = _GameObjectListStaticPrevious.begin(); i != _GameObjectListStaticPrevious.end(); )
 			{
-				UpdateObjectTree((*i).get(), true);
+				UpdateObjectTree((*i).get(), true, false);
 
 				_GameObjectListStaticAfter.push_back((*i));
 				i = _GameObjectListStaticPrevious.erase(i);
 			}
 		}
+		// PYROS_VERIFY_SLEEP=1: every object the walk left asleep is checked for
+		// anything the walk would have done to it - a transform not applied, a
+		// component waiting to be registered or with something to update. The
+		// count is a counter (Scene.SleepViolations) and the first of each kind
+		// goes to stderr. A missed wake-up shows here instead of as something
+		// that stands still, or is drawn where it was, some frames too long.
+		{
+			static const bool verify = std::getenv("PYROS_VERIFY_SLEEP") != NULL;
+			if (verify)
+			{
+				uint32 bad = 0;
+				std::vector<std::pair<GameObject*, bool> > stack;
+				for (size_t l = 0; l < 2; l++)
+				{
+					const std::vector<std::shared_ptr<GameObject>> &list = l == 0 ? _GameObjectListDynamic : _GameObjectListStaticAfter;
+					for (size_t k = 0; k < list.size(); k++) if (list[k] && list[k]->Scene == this) stack.push_back(std::make_pair(list[k].get(), false));
+				}
+				static std::set<std::string> told;
+				while (!stack.empty())
+				{
+					GameObject* go = stack.back().first;
+					const bool under = stack.back().second || !go->_SubtreeAwake;
+					stack.pop_back();
+					if (under)
+					{
+						const char* why = NULL;
+						std::string what;
+						if (go->_IsDirty) why = "dirty";
+						else if (go->_ComponentsChanged) why = "components changed";
+						else if (go->WantsUpdate()) { why = "wants update"; what = typeid(*go).name(); }
+						else
+						{
+							const Matrix expect = go->_HaveOwner ? (go->_Owner->_WorldMatrix * go->_LocalMatrix) : go->_LocalMatrix;
+							for (uint32 m = 0; m < 16 && !why; m++)
+								if (fabs(expect.m[m] - go->_WorldMatrix.m[m]) > 1e-4f * (1.f + fabs(expect.m[m]))) why = "world matrix stale";
+							const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+							for (size_t c = 0; c < cs.size() && !why; c++)
+								if (cs[c] && cs[c]->NeedsUpdate()) { why = "component needs update"; what = typeid(*cs[c]).name(); }
+						}
+						if (why)
+						{
+							bad++;
+							const std::string key = std::string(why) + "/" + what + "/" + go->GetName();
+							if (told.size() < 60 && told.insert(key).second)
+								fprintf(stderr, "[sleep] %s asleep but %s %s\n", go->GetName().c_str(), why, what.c_str());
+						}
+					}
+					const std::vector<std::shared_ptr<GameObject>> &kids = go->GetChildren();
+					for (size_t k = 0; k < kids.size(); k++) if (kids[k]) stack.push_back(std::make_pair(kids[k].get(), under));
+				}
+				FrameProfiler::Instance().Counter("Scene.SleepViolations", (f64)bad);
+				static uint64 total = 0, frames = 0;
+				total += bad; frames++;
+				if (frames % 600 == 0) fprintf(stderr, "[sleep] %llu frames checked, %llu violations in all\n", (unsigned long long)frames, (unsigned long long)total);
+			}
+		}
+		FrameProfiler::Instance().Counter("Scene.Walked", (f64)visitedThisUpdate);
+		FrameProfiler::Instance().Counter("Scene.Asleep", (f64)sleepingThisUpdate);
 	}
 
 	const Vec3 &SceneGraph::GetMinBounds() const

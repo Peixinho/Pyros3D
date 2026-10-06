@@ -128,6 +128,16 @@ namespace p3d {
 		virtual void Register(SceneGraph* Scene) = 0;
 		virtual void Init() = 0;
 		virtual void Update(const f64 time = 0) = 0;
+		// Whether Update() has anything to do just now. An object none of
+		// whose components do, and which is not moving, is left out of the
+		// scene's walk until something changes it (GameObject::Wake): a
+		// scene is mostly things that stand still. True unless a component
+		// says otherwise - a class whose Update() is empty, or does nothing
+		// in some state, overrides this, and anything that would make it
+		// true again wakes the owner.
+		virtual bool NeedsUpdate() const { return true; }
+		// The owner back into the scene's walk: call when NeedsUpdate() turns true.
+		void WakeOwner();
 		virtual void Destroy() = 0;
 		virtual void Unregister(SceneGraph* Scene) = 0;
 

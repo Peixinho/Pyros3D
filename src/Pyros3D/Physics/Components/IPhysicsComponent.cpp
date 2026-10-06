@@ -77,6 +77,13 @@ namespace p3d {
 		return Shape;
 	}
 
+	bool IPhysicsComponent::NeedsUpdate() const
+	{
+		if (PhysicsEngine == NULL) return true;
+		if (!const_cast<IPhysicsComponent*>(this)->RigidBodyRegistered()) return true;
+		return Shape == CollisionShapes::Vehicle || (mass > 0.f && !const_cast<IPhysicsComponent*>(this)->IsGhost());
+	}
+
 	void IPhysicsComponent::Update(const f64 time)
 	{
 		if (PhysicsEngine == NULL) return;
@@ -176,6 +183,7 @@ namespace p3d {
 
 	void IPhysicsComponent::SetMass(const f32 newMass)
 	{
+		WakeOwner();
 		mass = newMass;
 		if (PhysicsEngine == NULL) return;
 		PhysicsEngine->SetMass(this, newMass);

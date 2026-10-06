@@ -56,6 +56,7 @@ namespace p3d {
 		virtual void Register(SceneGraph* Scene) {}
 		virtual void Init() {}
 		virtual void Update(const f64 time = 0) {}
+		virtual bool NeedsUpdate() const { return false; }
 		virtual void Destroy() {}
 		virtual void Unregister(SceneGraph* Scene) {}
 

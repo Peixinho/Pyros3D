@@ -101,6 +101,8 @@ namespace p3d {
 			if (on_destroy) { on_destroy(*this); }
 			//(*this->lua)[name] = sol::nil;
 		}
+		// (asleep in the scene's walk unless there is something to call: see GameObject::WantsUpdate)
+		virtual bool WantsUpdate() const { return !initialized || (bool)on_update; }
 		std::function<void(LUA_GameObject&, p3d::f64)> on_update;
 		std::function<void(LUA_GameObject&)> on_init;
 		std::function<void(LUA_GameObject&)> on_destroy;
@@ -154,6 +156,8 @@ namespace p3d {
 			//(*this->lua)[name] = sol::nil;
 		}
 
+		// (see IComponent::NeedsUpdate)
+		virtual bool NeedsUpdate() const { return !initialized || (bool)on_update || p3d::DirectionalLight::NeedsUpdate(); }
 		std::function<void(LUA_DirectionalLight&, p3d::f64)> on_update;
 		std::function<void(LUA_DirectionalLight&)> on_init;
 		std::function<void(LUA_DirectionalLight&)> on_destroy;
@@ -199,6 +203,8 @@ namespace p3d {
 			//(*this->lua)[name] = sol::nil;
 		}
 
+		// (see IComponent::NeedsUpdate)
+		virtual bool NeedsUpdate() const { return !initialized || (bool)on_update || p3d::PointLight::NeedsUpdate(); }
 		std::function<void(LUA_PointLight&, p3d::f64)> on_update;
 		std::function<void(LUA_PointLight&)> on_init;
 		std::function<void(LUA_PointLight&)> on_destroy;
@@ -245,6 +251,8 @@ namespace p3d {
 			//(*this->lua)[name] = sol::nil;
 		}
 
+		// (see IComponent::NeedsUpdate)
+		virtual bool NeedsUpdate() const { return !initialized || (bool)on_update || p3d::SpotLight::NeedsUpdate(); }
 		std::function<void(LUA_SpotLight&, p3d::f64)> on_update;
 		std::function<void(LUA_SpotLight&)> on_init;
 		std::function<void(LUA_SpotLight&)> on_destroy;
@@ -294,6 +302,8 @@ namespace p3d {
 			if (on_destroy) { on_destroy(*this); }
 		}
 
+		// (see IComponent::NeedsUpdate)
+		virtual bool NeedsUpdate() const { return !initialized || (bool)on_update || p3d::RenderingComponent::NeedsUpdate(); }
 		std::function<void(LUA_RenderingComponent&, p3d::f64)> on_update;
 		std::function<void(LUA_RenderingComponent&)> on_init;
 		std::function<void(LUA_RenderingComponent&)> on_destroy;
@@ -359,6 +369,8 @@ namespace p3d {
             RenderingInstancedComponent::nrInstances = instances;
         }
 
+        // (see IComponent::NeedsUpdate)
+        virtual bool NeedsUpdate() const { return !initialized || (bool)on_update || p3d::RenderingInstancedComponent::NeedsUpdate(); }
         std::function<void(LUA_RenderingInstancedComponent&, p3d::f64)> on_update;
         std::function<void(LUA_RenderingInstancedComponent&)> on_init;
         std::function<void(LUA_RenderingInstancedComponent&)> on_destroy;

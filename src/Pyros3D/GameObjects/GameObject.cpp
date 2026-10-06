@@ -9,6 +9,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <cstring>
+#include <typeinfo>
 
 namespace p3d {
 
@@ -108,6 +109,18 @@ namespace p3d {
 	void GameObject::Init() {}
 	// Virtual Function To Update
 	void GameObject::Update(const f64 time) {}
+	bool GameObject::WantsUpdate() const { return typeid(*this) != typeid(GameObject); }
+	void GameObject::Wake()
+	{
+		// (this one counts as busy again; those above it only need to be walked)
+		_IdleFrames = 0;
+		for (GameObject* g = this; g != NULL; g = g->_Owner)
+		{
+			if (g->_SubtreeAwake && g != this) break;
+			g->_SubtreeAwake = true;
+		}
+	}
+	void IComponent::WakeOwner() { if (Owner != NULL) Owner->Wake(); }
 	// Virtual Function on Destroy
 	void GameObject::Destroy() {}
 
@@ -352,24 +365,28 @@ namespace p3d {
 		_Rotation = transformation.GetRotation(_Scale).GetEulerFromRotationMatrix();
 		_IsDirty = true;
 		_IsUsingCustomMatrix = true;
+		if (!_SubtreeAwake || _IdleFrames) Wake();
 	}
 	// Properties Getters and Setters
 	void GameObject::SetPosition(const Vec3 &position)
 	{
 		_IsDirty = true;
 		_Position = position;
+		if (!_SubtreeAwake || _IdleFrames) Wake();
 	}
 	// Sets Rotation
 	void GameObject::SetRotation(const Vec3 &rotation)
 	{
 		_IsDirty = true;
 		_Rotation = rotation;
+		if (!_SubtreeAwake || _IdleFrames) Wake();
 	}
 	// Sets Scale
 	void GameObject::SetScale(const Vec3 &scale)
 	{
 		_IsDirty = true;
 		_Scale = scale;
+		if (!_SubtreeAwake || _IdleFrames) Wake();
 	}
 	// Gets Position
 	const Vec3 &GameObject::GetPosition() const
@@ -461,6 +478,7 @@ namespace p3d {
 				Component->Owner = this;
 				// Change Flag
 				_ComponentsChanged = true;
+				Wake();
 
 				if (Components.size() == 1)
 				{
@@ -522,6 +540,7 @@ namespace p3d {
 				Components.erase(i);
 				// Change Flag
 				_ComponentsChanged = true;
+				Wake();
 
 				found = true;
 
@@ -609,6 +628,8 @@ namespace p3d {
 			if (found) echo("ERROR: GameObject Already Added");
 			else {
 				_Childs.push_back(Child);
+				Child->Wake();
+				Wake();
 				// The scene registers components lazily, only when this flag
 				// is set (see RegisterComponents). An object that was already
 				// registered somewhere else has it cleared, so without this a
@@ -616,6 +637,7 @@ namespace p3d {
 				// rendering. Costs nothing for the common case of a child
 				// that has just been built.
 				Child->_ComponentsChanged = true;
+				Child->Wake();
 				echo("TRACE: GameObject added as a Child");
 			}
 		}
@@ -652,6 +674,7 @@ namespace p3d {
 				{
 					_Childs.erase(i);
 					found = true;
+					Wake();
 					echo("TRACE: GameObject Removed as a Child");
 					break;
 				}
@@ -665,6 +688,7 @@ namespace p3d {
 
 	void GameObject::RefreshComponentBounds()
 	{
+		Wake();
 		bool first = true;
 		for (std::vector<std::shared_ptr<IComponent> >::iterator i = Components.begin(); i != Components.end(); i++)
 		{
@@ -714,6 +738,7 @@ namespace p3d {
 	void GameObject::UnregisterComponents(SceneGraph* Scene)
 	{
 		_ComponentsChanged = true;
+		Wake();
 		for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
 		{
 			(*i)->Unregister(Scene);

@@ -28,6 +28,9 @@ namespace HELPER_TYPE
 
 class IHelper : public GameObject {
 public:
+	// (a helper is moved by the editor when what it marks moves, and that wakes it:
+	// it has no Update of its own for the scene's walk to call - GameObject::WantsUpdate)
+	virtual bool WantsUpdate() const { return false; }
 	IHelper(uint32 Type) { type = Type; }
 	virtual void Update(GameObject *Camera, Matrix projection, bool isPerspective, f32 right, f32 top) = 0;
 	std::shared_ptr<RenderingComponent> rcomp;

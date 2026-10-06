@@ -40,6 +40,15 @@ namespace p3d {
 		virtual void Init();
 		// Virtual Function To Update GameObject
 		virtual void Update(const f64 time = 0);
+		// Whether Update() has anything to do: true for any class that is not
+		// plainly a GameObject, unless it says otherwise (see IComponent::
+		// NeedsUpdate, and SceneGraph::UpdateObjectTree for what it is for).
+		virtual bool WantsUpdate() const;
+		// Back into the scene's walk, with everything above it. Anything that
+		// changes what an object is or where it is calls this; the setters
+		// here do. Cheap: it stops at the first ancestor already awake.
+		void Wake();
+		bool IsAwake() const { return _SubtreeAwake; }
 		// Destroy Function
 		virtual void Destroy();
 
@@ -57,7 +66,7 @@ namespace p3d {
 		// Brings this object's world matrix up to date NOW, for whoever is
 		// about to read it. Its children are not touched here - they are
 		// carried along by SettleTransformation, which is told by the flag.
-		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; }
+		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; Wake(); }
 
 		// The transform looked at a second time, late in the frame, for
 		// whatever moved after the scene's traversal had been past it - a
@@ -200,6 +209,16 @@ namespace p3d {
 		Matrix _WorldMatrix;
 		Matrix _PrvWorldMatrix;
 		bool _IsDirty, _IsUsingCustomMatrix;
+		// The scene's walk leaves out an object that has had nothing to do for
+		// a few frames, and with it everything under it that is the same.
+		// _SubtreeAwake is false only when this and all below it are idle; an
+		// awake object's ancestors are all awake.
+		bool _SubtreeAwake = true;
+		uint8_t _IdleFrames = 0;
+		uint8_t _SleptFrames = 0;
+		// (the local boxes of this and everything under it, for the scene's
+		// bounds while it is not walked)
+		Vec3 _TreeMin, _TreeMax;
 
 		// Local Transformation Matrix
 		Matrix _LocalMatrix;

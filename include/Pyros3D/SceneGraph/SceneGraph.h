@@ -112,7 +112,10 @@ namespace p3d {
 		// updated - a child GameObject simply did not render. Runs after the
 		// parent's own InternalUpdate() because a child's world transform is
 		// relative to the matrix that call has just refreshed.
-		void UpdateObjectTree(GameObject* go, bool callUpdate);
+		void UpdateObjectTree(GameObject* go, bool callUpdate, bool parentMoved);
+		void GrowBounds(const Vec3 &_min, const Vec3 &_max);
+		// (this Update: objects gone through, and subtrees left asleep)
+		uint32 visitedThisUpdate = 0, sleepingThisUpdate = 0;
 
 	public:
 

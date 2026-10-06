@@ -46,6 +46,9 @@ namespace p3d {
 		virtual void Register(SceneGraph* Scene);
 		virtual void Init();
 		virtual void Update(const f64 time = 0);
+		// A body that the simulation moves, or one not made yet. A wall's pose
+		// is its object's, and is only handed over again when the object moves.
+		virtual bool NeedsUpdate() const;
 		virtual void Destroy();
 		virtual void Unregister(SceneGraph* Scene);
 

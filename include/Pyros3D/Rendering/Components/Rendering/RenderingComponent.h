@@ -300,6 +300,8 @@ namespace p3d {
 		// not a delta), which is what TextureAnimation::Update() expects and
 		// is what makes calling it from several components idempotent.
 		virtual void Update(const f64 time = 0);
+		// (only while an animation is bound to it: see Update())
+		virtual bool NeedsUpdate() const { return activeSkeletonAnimation != NULL || activeTextureAnimation != NULL; }
 		virtual void Destroy() {}
 		virtual void Unregister(SceneGraph* Scene);
 
@@ -520,7 +522,7 @@ namespace p3d {
 		// (SkeletonAnimation.cpp) - real, minimal, automatic association,
 		// not a serializer-side shadow map. NULL if no skeleton animation
 		// has ever been created against this component.
-		void SetActiveSkeletonAnimation(void* instance) { activeSkeletonAnimation = instance; }
+		void SetActiveSkeletonAnimation(void* instance) { activeSkeletonAnimation = instance; WakeOwner(); }
 		void* GetActiveSkeletonAnimation() const { return activeSkeletonAnimation; }
 
 		// Opt-in equivalent for texture animation - unlike skeleton
@@ -531,7 +533,7 @@ namespace p3d {
 		// automatically - a caller calls this once after creating the
 		// instance if they want its playback state (not behavior -
 		// nothing here auto-drives a material) to be capturable.
-		void SetActiveTextureAnimation(void* instance) { activeTextureAnimation = instance; }
+		void SetActiveTextureAnimation(void* instance) { activeTextureAnimation = instance; WakeOwner(); }
 		void* GetActiveTextureAnimation() const { return activeTextureAnimation; }
 
 	protected:
