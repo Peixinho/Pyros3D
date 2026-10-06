@@ -1209,8 +1209,12 @@ namespace p3d {
 					// draws a frame and two milliseconds. (Not one that casts a
 					// shadow: its place in the list of shadow matrices is by
 					// count, and it is counted below.)
-					if (!p->IsCastingShadows() && !LightAffectsView(p->GetOwner()->GetWorldPosition(), p->GetLightRadius()))
-						break;
+					{
+						// (PYROS_NO_LIGHT_CULL=1 draws them all, to compare against)
+						static const bool cullLights = std::getenv("PYROS_NO_LIGHT_CULL") == NULL;
+						if (cullLights && !p->IsCastingShadows() && !LightAffectsView(p->GetOwner()->GetWorldPosition(), p->GetLightRadius()))
+							break;
+					}
 					// Point Lights
 					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.f)).xyz();
 					pointPosHandle->SetValue(&pos);

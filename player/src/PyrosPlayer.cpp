@@ -1767,16 +1767,23 @@ void PyrosPlayer::StepAutoRenderScale(const f64 dt)
 	A.time = 0.0; A.frames = 0; A.gpuWaitMs = A.presentWaitMs = 0.0;
 
 	f32 next = renderScale;
+	// room to spare: idle in the present, or frames coming a tenth faster than asked
+	const bool room = (gpuWait < 0.3 && idle > want * 0.25) || frameMs < want * 0.90;
 	if (frameMs > want * 1.06 && gpuWait > 1.0)
 	{
 		// short of the rate, and waiting on the GPU: by how much decides the step
 		next = renderScale * (frameMs > want * 1.3 ? 0.85f : 0.93f);
+		A.roomBefore = false;
 	}
-	else if (gpuWait < 0.3 && (idle > want * 0.25 || frameMs < want * 0.85))
+	else if (room)
 	{
-		// room to spare: a small step back up
-		next = renderScale * 1.05f;
+		// a small step back up - but only when the look before said the same
+		// (a step up that has to be taken back is two hitches)
+		if (A.roomBefore) next = renderScale * 1.04f;
+		A.roomBefore = true;
 	}
+	else
+		A.roomBefore = false;
 	if (next < A.minScale) next = A.minScale;
 	if (next > A.maxScale) next = A.maxScale;
 	SetRenderScale(next);

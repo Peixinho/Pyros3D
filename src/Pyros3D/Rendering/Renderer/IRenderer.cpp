@@ -1127,7 +1127,11 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						// it is the cascade, and toward the light FitCascade
 						// has already stretched it to every caster that can
 						// throw a shadow into it.
-						RenderShadowCasters(true);
+						{
+							// (PYROS_NO_SHADOW_CULL=1 draws every caster, to compare against)
+							static const bool cullCasters = std::getenv("PYROS_NO_SHADOW_CULL") == NULL;
+							RenderShadowCasters(cullCasters);
+						}
 
 						// device->TranslateProjectionMatrix() (identity on
 						// GL) - this matrix maps a view-space fragment
