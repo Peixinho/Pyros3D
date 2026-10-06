@@ -3,6 +3,7 @@
 // objects into cells that are not loaded - or do not exist yet.
 
 #include "SceneEditor.h"
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include "EditorWorld.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Streaming/WorldStreamer.h>
@@ -477,6 +478,54 @@ bool SceneEditor::BakeFarCell(const int32 x, const int32 z, GameObject* root, co
 		r["rotation"] = { rot.size() > 0 ? rot[0] : json(0), 0, rot.size() > 2 ? rot[2] : json(0) };
 		r["scale"] = { 1, 1, 1 };
 		r["name"] = "";
+		// A building - a model of some size, read from a file - stands in the
+		// distance as itself with a share of its triangles (SimplifiedModel),
+		// in its own material: a card of it, two pictures crossed, is seen for
+		// what it is from across a valley. Small things stay cards.
+		{
+			RenderingComponent* body = NULL;
+			for (size_t c = 0; c < go->GetComponents().size() && !body; c++) body = dynamic_cast<RenderingComponent*>(go->GetComponents()[c].get());
+			Model* model = body ? dynamic_cast<Model*>(body->GetRenderable()) : NULL;
+			uint32 tris = 0;
+			if (model) for (size_t g = 0; g < model->Geometries.size(); g++) tris += (uint32)(model->Geometries[g]->GetIndexData().size() / 3);
+			const json* comp = NULL;
+			if (model && r.contains("components"))
+				for (const json &c : r["components"])
+					if (c.value("type", std::string()) == "RenderingComponent" && c.contains("renderable") && c["renderable"].value("kind", std::string()) == "model") { comp = &c; break; }
+			const bool skinned = model && !model->Geometries.empty() && model->Geometries[0]->materialProperties.haveBones;
+			if (model && comp && !skinned && tris >= 1500 && model->GetBoundingMinValue().distance(model->GetBoundingMaxValue()) >= 8.f
+				&& comp->contains("material") && (*comp)["material"].is_number_unsigned() && form.contains("materials")
+				&& (*comp)["material"].get<size_t>() < form["materials"].size())
+			{
+				json m = form["materials"][(*comp)["material"].get<size_t>()];
+				m.erase("id");
+				m["castingShadows"] = false;
+				const std::string key = "simplified|" + m.dump();
+				std::map<std::string, uint32>::iterator mat = impostorMaterial.find(key);
+				if (mat == impostorMaterial.end())
+				{
+					const uint32 id = (uint32)materials.size();
+					m["id"] = id;
+					materials.push_back(m);
+					mat = impostorMaterial.insert(std::make_pair(key, id)).first;
+				}
+				json far;
+				far["name"] = "FarObject_" + std::to_string(o);
+				far["position"] = { go->GetPosition().x, go->GetPosition().y, go->GetPosition().z };
+				far["rotation"] = { go->GetRotation().x, go->GetRotation().y, go->GetRotation().z };
+				far["scale"] = { go->GetScale().x, go->GetScale().y, go->GetScale().z };
+				far["children"] = json::array();
+				json rc;
+				rc["type"] = "RenderingComponent";
+				rc["material"] = mat->second;
+				rc["castingShadows"] = false;
+				rc["cullTest"] = true;
+				rc["renderable"] = { { "kind", "simplified" }, { "path", (*comp)["renderable"].value("path", std::string()) }, { "ratio", 0.3 } };
+				far["components"] = json::array({ rc });
+				children.push_back(far);
+				continue;
+			}
+		}
 		const std::string text = form.dump();
 		char hex[32];
 		std::snprintf(hex, sizeof(hex), "%016llx", (unsigned long long)std::hash<std::string>()(text));

@@ -346,11 +346,44 @@ namespace p3d {
 		}
 		// How many triangles are left with cells this big (three corners in
 		// three different cells).
-		uint32 TrianglesLeft(const ModelGeometry &g, const Vec3 &lo, const f32 cell, std::vector<uint64_t> &cells)
+		// What two vertices must also share to become one: the part of the
+		// texture they are on, and the way their surface faces. Vertices that
+		// stand together but belong to different pieces of the picture - a
+		// baked texture is many pieces - joined into one that had a single
+		// place on it, and every triangle round it was smeared across the
+		// picture from one piece to another; and the two sides of a thin wall
+		// became one sheet.
+		inline uint64_t SurfaceOf(const ModelGeometry &g, const size_t v, const f32 cell, const f32 diagonal)
+		{
+			uint64_t key = 0;
+			if (g.tTexcoord.size() == g.tVertex.size())
+			{
+				// (as fine on the picture as the cell is on the model: a cell a
+				// tenth of the model is a tenth of the picture)
+				const f32 per = std::max(2.f, std::min(64.f, diagonal / cell * 0.5f));
+				const Vec2 &t = g.tTexcoord[v];
+				const int64_t u = (int64_t)floorf(t.x * per), w = (int64_t)floorf(t.y * per);
+				key = (uint64_t)(u & 0xFFFF) | ((uint64_t)(w & 0xFFFF) << 16);
+			}
+			if (g.tNormal.size() == g.tVertex.size())
+			{
+				const Vec3 &n = g.tNormal[v];
+				const f32 ax = fabsf(n.x), ay = fabsf(n.y), az = fabsf(n.z);
+				const uint64_t facing = (ax >= ay && ax >= az) ? (n.x >= 0.f ? 0 : 1) : ((ay >= az) ? (n.y >= 0.f ? 2 : 3) : (n.z >= 0.f ? 4 : 5));
+				key |= facing << 32;
+			}
+			return key;
+		}
+		uint32 TrianglesLeft(const ModelGeometry &g, const Vec3 &lo, const f32 cell, std::vector<uint64_t> &cells, const f32 diagonal)
 		{
 			const f32 inv = 1.f / cell;
 			cells.resize(g.tVertex.size());
-			for (size_t v = 0; v < g.tVertex.size(); v++) cells[v] = CellOf(g.tVertex[v], lo, inv);
+			for (size_t v = 0; v < g.tVertex.size(); v++)
+			{
+				// (the place and the surface, mixed into one number)
+				const uint64_t place = CellOf(g.tVertex[v], lo, inv), surface = SurfaceOf(g, v, cell, diagonal);
+				cells[v] = place ^ (surface * 0x9E3779B97F4A7C15ull + (place << 6) + (place >> 2));
+			}
 			uint32 left = 0;
 			for (size_t t = 0; t + 2 < g.index.size(); t += 3)
 			{
@@ -403,9 +436,9 @@ namespace p3d {
 				for (int step = 0; step < 14; step++)
 				{
 					const f32 mid = sqrtf(small * big);
-					if (TrianglesLeft(g, lo, mid, cells) > want) small = mid; else big = mid;
+					if (TrianglesLeft(g, lo, mid, cells, diagonal) > want) small = mid; else big = mid;
 				}
-				TrianglesLeft(g, lo, big, cells);
+				TrianglesLeft(g, lo, big, cells, diagonal);
 
 				std::unordered_map<uint64_t, uint32> vertexOf;
 				std::vector<uint32> members;      // how many of the model's vertices each new one stands for
