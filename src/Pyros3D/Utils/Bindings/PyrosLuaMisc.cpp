@@ -30,13 +30,26 @@ namespace p3d {
 		// (per state: the one taken over, and how big its heap was when a
 		// cycle last finished)
 		static std::map<lua_State*, f64> afterCycleKb;
+		static std::map<lua_State*, bool> midCycle;
 		std::map<lua_State*, f64>::iterator known = afterCycleKb.find(L);
 		if (known == afterCycleKb.end())
 		{
 			lua_gc(L, LUA_GCSTOP);
 			known = afterCycleKb.insert(std::make_pair(L, (f64)lua_gc(L, LUA_GCCOUNT))).first;
+			midCycle[L] = false;
 		}
 		const f64 nowKb = (f64)lua_gc(L, LUA_GCCOUNT);
+		FrameProfiler::Instance().Counter("Lua.HeapMb", nowKb / 1024.0);
+		// Between cycles nothing is collected until the heap has grown a
+		// quarter over what the last one left: a collector that starts again
+		// the frame after it finishes spends its whole budget every frame
+		// going over a heap with almost nothing new in it.
+		if (!midCycle[L] && nowKb < known->second * 1.25 + 256.0)
+		{
+			FrameProfiler::Instance().Counter("Lua.GcSteps", 0.0);
+			return;
+		}
+		midCycle[L] = true;
 		// Falling behind - the heap half as big again as a finished cycle
 		// left it, and more - buys a longer look, up to four times the budget.
 		f64 budget = budgetMs;
@@ -52,10 +65,9 @@ namespace p3d {
 			const int finished = lua_gc(L, LUA_GCSTEP, 0);
 #endif
 			steps++;
-			if (finished) { known->second = (f64)lua_gc(L, LUA_GCCOUNT); break; }
+			if (finished) { known->second = (f64)lua_gc(L, LUA_GCCOUNT); midCycle[L] = false; break; }
 			if (std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count() >= budget) break;
 		}
-		FrameProfiler::Instance().Counter("Lua.HeapMb", nowKb / 1024.0);
 		FrameProfiler::Instance().Counter("Lua.GcSteps", (f64)steps);
 	}
 
