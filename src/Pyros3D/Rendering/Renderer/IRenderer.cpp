@@ -897,6 +897,67 @@ GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
 	return shadowMaterial;
 }
 
+// A cascade's map is a square round the sphere that holds a slice of the
+// view - several times the ground the slice itself stands on - and every
+// caster in the square was drawn into it. Most throw their shadow where the
+// camera is not looking. So, for the sun: the slice of the view (opened up a
+// little, for a map that is kept a frame while the camera turns) and the way
+// the light travels; a caster is drawn only if its bounding sphere, carried
+// along the light, can come inside that slice. It errs on drawing: a caster
+// is left out only when one plane of the slice has all of it behind and the
+// light is not carrying its shadow toward that plane.
+namespace {
+	struct ShadowViewCull
+	{
+		bool on = false;
+		Vec3 n[6], p[6];     // inward normals and a point on each plane, world space
+		Vec3 light;          // the way the light travels
+		f32 margin = 0.f;
+		Vec3 probe[512];     // PYROS_VERIFY_SHADOW_CULL: points all through the slice itself
+		bool verify = false;
+	} g_shadowView;
+	bool g_shadowViewCullWanted = true;
+	uint32 g_shadowCastersDrawn = 0, g_shadowCastersLeftOut = 0;
+
+	bool ShadowReachesView(RenderingMesh* m)
+	{
+		RenderingComponent* rc = m->renderingComponent;
+		if (rc->IsInstanced() || !rc->IsCullTesting()) return true;
+		GameObject* owner = rc->GetOwner();
+		const Vec3 scale = owner->GetScale();
+		const f32 r = rc->GetBoundingSphereRadius() * Max(Max(fabs(scale.x), fabs(scale.y)), fabs(scale.z)) + g_shadowView.margin;
+		const Vec3 c = owner->GetWorldTransformation() * rc->GetBoundingSphereCenter();
+		for (int k = 0; k < 6; k++)
+		{
+			const Vec3 &pn = g_shadowView.n[k];
+			if (pn.dotProduct(c - g_shadowView.p[k]) < -r && pn.dotProduct(g_shadowView.light) <= 0.f)
+			{
+				// PYROS_VERIFY_SHADOW_CULL=1: the answer checked the slow way -
+				// no point of the slice may lie in this caster's shadow.
+				if (g_shadowView.verify)
+				{
+					const f32 real = r - g_shadowView.margin;
+					for (int q = 0; q < 512; q++)
+					{
+						const Vec3 to = g_shadowView.probe[q] - c;
+						const f32 along = to.dotProduct(g_shadowView.light);
+						if (along < 0.f) continue;
+						const Vec3 off = to - g_shadowView.light * along;
+						if (off.dotProduct(off) < real * real)
+						{
+							fprintf(stderr, "[shadow-cull] WRONG: %s was left out and shadows a point of the view\n", owner->GetName().c_str());
+							return true;
+						}
+					}
+				}
+				return false;
+			}
+		}
+		return true;
+	}
+}
+void IRenderer::SetShadowCasterViewCull(const bool on) { g_shadowViewCullWanted = on; }
+
 void IRenderer::RenderShadowCasters(const bool cullTest)
 {
 	std::vector<RenderingMesh*> casters;
@@ -907,6 +968,8 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		if (rc->GetOwner() == NULL || (*k)->Material->IsTransparent()) continue;
 		if (!rc->IsCastingShadows() || !rc->IsActive()) continue;
 		if (cullTest && !ShadowCasterVisible(*k)) continue;
+		if (cullTest && g_shadowView.on && !ShadowReachesView(*k)) { g_shadowCastersLeftOut++; continue; }
+		g_shadowCastersDrawn++;
 		casters.push_back(*k);
 	}
 	DrawWithAutoInstancing(casters, NULL,
@@ -1220,7 +1283,48 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						{
 							// (PYROS_NO_SHADOW_CULL=1 draws every caster, to compare against)
 							static const bool cullCasters = std::getenv("PYROS_NO_SHADOW_CULL") == NULL;
+							// ...and of those, only what can throw its shadow into
+							// this slice of the view (see ShadowReachesView).
+							g_shadowView.on = false;
+							if (g_shadowViewCullWanted && cameraProjection.m.m[11] != 0.f)
+							{
+								const Cascade slice = d->GetCascade(i);
+								const f32 sliceFar = slice.Far;
+								const f32 sliceNear = i == 0 ? d->GetCascade(0).Near : d->GetCascade(i - 1).Far * (1.f - DirectionalLight::CascadeBlendFraction);
+								// (opened up: a quarter wider than the view, and more
+								// when the map is kept for frames the camera may turn in)
+								const f32 open = Min(2.f, 1.25f + 0.35f * (f32)(g_shadowEvery > 1 ? g_shadowEvery - 1 : 0));
+								const f32 tanX = open / cameraProjection.m.m[0];
+								const f32 tanY = open / cameraProjection.m.m[5];
+								g_shadowView.margin = 2.f + sliceFar * 0.03f;
+								const Vec3 cn[6] = { Vec3(0, 0, -1), Vec3(0, 0, 1), Vec3(1, 0, -tanX), Vec3(-1, 0, -tanX), Vec3(0, 1, -tanY), Vec3(0, -1, -tanY) };
+								const Vec3 cp[6] = { Vec3(0, 0, -sliceNear), Vec3(0, 0, -sliceFar), Vec3(), Vec3(), Vec3(), Vec3() };
+								for (int k = 0; k < 6; k++)
+								{
+									g_shadowView.p[k] = cameraWorld * cp[k];
+									g_shadowView.n[k] = ((cameraWorld * (cp[k] + cn[k])) - g_shadowView.p[k]).normalize();
+								}
+								// the light looks down its own -Z
+								g_shadowView.light = Vec3(-ViewMatrix.m[2], -ViewMatrix.m[6], -ViewMatrix.m[10]).normalize();
+								static const bool verify = std::getenv("PYROS_VERIFY_SHADOW_CULL") != NULL;
+								g_shadowView.verify = verify;
+								if (verify)
+								{
+									const f32 tx = 1.f / cameraProjection.m.m[0], ty = 1.f / cameraProjection.m.m[5];
+									for (int q = 0; q < 512; q++)
+									{
+										const f32 depth = sliceNear + (sliceFar - sliceNear) * ((f32)(q / 64) / 7.f);
+										const f32 u = (f32)(q % 8) / 3.5f - 1.f, v = (f32)((q / 8) % 8) / 3.5f - 1.f;
+										g_shadowView.probe[q] = cameraWorld * Vec3(u * tx * depth, v * ty * depth, -depth);
+									}
+								}
+								g_shadowView.on = true;
+							}
+							if (i == 0) g_shadowCastersDrawn = g_shadowCastersLeftOut = 0;
 							RenderShadowCasters(cullCasters);
+							g_shadowView.on = false;
+							FrameProfiler::Instance().Counter("Shadow.SunCasters", (f64)g_shadowCastersDrawn);
+							FrameProfiler::Instance().Counter("Shadow.SunLeftOut", (f64)g_shadowCastersLeftOut);
 						}
 
 						// device->TranslateProjectionMatrix() (identity on

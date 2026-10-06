@@ -88,6 +88,9 @@ namespace p3d {
 		lua->set_function("getSmallObjectCull", []() { return IRenderer::GetSmallObjectCull(); });
 		// setShadowUpdateInterval(2): the sun's shadow map every other frame.
 		lua->set_function("setShadowUpdateInterval", [](const uint32 frames) { IRenderer::SetShadowUpdateInterval(frames); });
+		// setShadowCasterViewCull(false): the sun's map takes every caster in
+		// its box again, as it did - to compare against.
+		lua->set_function("setShadowCasterViewCull", [](const bool on) { IRenderer::SetShadowCasterViewCull(on); });
 		// setSSAOHalfResolution(true): the deferred renderer's ambient occlusion
 		// at half resolution - see DeferredRenderer::SetSSAOHalfResolution.
 		lua->set_function("setSSAOHalfResolution", [](const bool half) { DeferredRenderer::SetSSAOHalfResolution(half); });

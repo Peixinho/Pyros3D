@@ -249,6 +249,9 @@ namespace p3d {
 		// the frame before used in between. 1 by default.
 		static void SetShadowUpdateInterval(const uint32 frames);
 		static uint32 GetShadowUpdateInterval();
+		// The sun's casters that cannot throw a shadow into the view are left
+		// out of its map (on by default; off to compare against).
+		static void SetShadowCasterViewCull(const bool on);
 		static f32 GetSmallObjectCull();
 		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
 
