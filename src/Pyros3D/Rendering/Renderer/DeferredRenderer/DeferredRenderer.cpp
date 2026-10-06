@@ -918,38 +918,17 @@ namespace p3d {
 		// Render Scene with Objects Material
 		// Visible opaque meshes first, then the draws - DrawWithAutoInstancing
 		// batches the ones that share geometry and material content.
-		std::vector<RenderingMesh*> visible;
-		visible.reserve(rmesh.size());
-		for (std::vector<RenderingMesh*>::iterator j = rmesh.begin(); j != rmesh.end(); j++)
-		{
-			if ((*j)->Material->IsTransparent())
-				continue;
-			if ((*j)->renderingComponent->GetOwner() == NULL)
-				break;
-			// Culling Test
-			bool cullingTest = false;
-			switch ((*j)->CullingGeometry)
-			{
-			case CullingGeometry::Box:
-				cullingTest = CullingBoxTest((*j), (*j)->renderingComponent->GetOwner());
-				break;
-			case CullingGeometry::Sphere:
-			default:
-				cullingTest = CullingSphereTest((*j), (*j)->renderingComponent->GetOwner());
-				break;
-			}
-			// RenderingComponent::DisableCullTest() was honoured by
-			// ForwardRenderer::RenderScene() and by the translucent
-			// loop further down in this very function, but not here
-			// - so on the deferred path it silently did nothing for
-			// any opaque (G-buffer) mesh, which is most of a scene.
-			// A caller that knows its bounding volume is wrong (or
-			// just wants a mesh drawn unconditionally) had no way to
-			// say so. Same one-liner as those two loops.
-			if (!(*j)->renderingComponent->IsCullTesting()) cullingTest = true;
-			if (cullingTest && (*j)->renderingComponent->IsActive() && (*j)->Active == true)
-				visible.push_back(*j);
-		}
+		// (what is in the view: asked of every mesh, in parallel - IRenderer::CullInParallel)
+		std::vector<RenderingMesh*> visible(rmesh);
+		CullInParallel(visible, [this](RenderingMesh* m) -> bool {
+			if (m->Material->IsTransparent()) return false;
+			RenderingComponent* rc = m->renderingComponent;
+			GameObject* owner = rc->GetOwner();
+			if (owner == NULL) return false;
+			if (!rc->IsActive() || m->Active != true) return false;
+			if (!rc->IsCullTesting()) return true;
+			return m->CullingGeometry == CullingGeometry::Box ? CullingBoxTest(m, owner) : CullingSphereTest(m, owner);
+		});
 
 		static const uint32 kLitUsageMask = ShaderUsage::Diffuse | ShaderUsage::CellShading | ShaderUsage::PBR;
 		DrawWithAutoInstancing(visible, NULL,

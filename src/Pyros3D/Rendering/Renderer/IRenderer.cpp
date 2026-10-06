@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <cstdlib>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <string>
 #include <cctype>
@@ -898,6 +899,38 @@ GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
 	return shadowMaterial;
 }
 
+// Culling is a question asked of every mesh in the scene, several times a
+// frame (the view, and each cascade of each shadow), and each answer depends
+// on nothing but the mesh and the view: the meshes are shared out among the
+// job system's workers and the answers put back in order. (Under a few
+// hundred meshes the sharing out costs more than it saves.)
+namespace {
+	bool g_parallelCulling = true;
+	template <class Keep>
+	void AnswerInParallel(const size_t count, std::vector<uint8> &answers, const Keep &keep)
+	{
+		answers.resize(count);
+		if (!g_parallelCulling || count < 512 || JobSystem::Instance().WorkerCount() == 0)
+		{
+			for (size_t i = 0; i < count; i++) answers[i] = keep((uint32)i);
+			return;
+		}
+		uint8* out = &answers[0];
+		JobSystem::Instance().ParallelFor((uint32)count, 256, [out, &keep](uint32 begin, uint32 end) {
+			for (uint32 i = begin; i < end; i++) out[i] = keep(i);
+		});
+	}
+}
+void IRenderer::SetParallelCulling(const bool on) { g_parallelCulling = on; }
+void IRenderer::CullInParallel(std::vector<RenderingMesh*> &meshes, const std::function<bool(RenderingMesh*)> &keep)
+{
+	std::vector<uint8> answers;
+	AnswerInParallel(meshes.size(), answers, [&](const uint32 i) -> uint8 { return keep(meshes[i]) ? 1 : 0; });
+	size_t kept = 0;
+	for (size_t i = 0; i < meshes.size(); i++) if (answers[i]) meshes[kept++] = meshes[i];
+	meshes.resize(kept);
+}
+
 // A cascade's map is a square round the sphere that holds a slice of the
 // view - several times the ground the slice itself stands on - and every
 // caster in the square was drawn into it. Most throw their shadow where the
@@ -962,20 +995,34 @@ void IRenderer::SetShadowCasterViewCull(const bool on) { g_shadowViewCullWanted 
 
 void IRenderer::RenderShadowCasters(const bool cullTest)
 {
-	std::vector<RenderingMesh*> casters;
-	casters.reserve(rmesh.size());
-	for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
-	{
-		RenderingComponent* rc = (*k)->renderingComponent;
-		if (rc->GetOwner() == NULL || (*k)->Material->IsTransparent()) continue;
-		if (!rc->IsCastingShadows() || !rc->IsActive()) continue;
-		if (g_terrainShadowBaked && dynamic_cast<Heightfield*>(rc->GetRenderable()) != NULL) continue;
+	// What each mesh has to say for itself, asked in parallel: 0 not a caster
+	// here, 1 drawn, 2 left out as unable to throw a shadow into the view,
+	// 3 the first mesh of a component that casts from a mesh of its own.
+	std::vector<uint8> answers;
+	AnswerInParallel(rmesh.size(), answers, [&](const uint32 i) -> uint8 {
+		RenderingMesh* m = rmesh[i];
+		RenderingComponent* rc = m->renderingComponent;
+		if (rc->GetOwner() == NULL || m->Material->IsTransparent()) return 0;
+		if (!rc->IsCastingShadows() || !rc->IsActive()) return 0;
+		if (g_terrainShadowBaked && dynamic_cast<Heightfield*>(rc->GetRenderable()) != NULL) return 0;
 		// Something that casts with a mesh of its own for the purpose
 		// (RenderingComponent::SetShadowRenderable): that, once for the
 		// component, in place of every mesh of its nearest level.
-		if (!rc->shadowMeshes.empty() && rc->LodInUse == 0)
+		if (!rc->shadowMeshes.empty() && rc->LodInUse == 0) return (m == rc->Meshes[0][0]) ? 3 : 0;
+		if (cullTest && !ShadowCasterVisible(m)) return 0;
+		if (cullTest && g_shadowView.on && !ShadowReachesView(m)) return 2;
+		return 1;
+	});
+	std::vector<RenderingMesh*> casters;
+	casters.reserve(rmesh.size());
+	for (size_t i = 0; i < rmesh.size(); i++)
+	{
+		const uint8 a = answers[i];
+		if (a == 1) { g_shadowCastersDrawn++; casters.push_back(rmesh[i]); }
+		else if (a == 2) g_shadowCastersLeftOut++;
+		else if (a == 3)
 		{
-			if (*k != rc->Meshes[0][0]) continue;
+			RenderingComponent* rc = rmesh[i]->renderingComponent;
 			for (size_t sm = 0; sm < rc->shadowMeshes.size(); sm++)
 			{
 				RenderingMesh* proxy = rc->shadowMeshes[sm];
@@ -985,12 +1032,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 				g_shadowCastersDrawn++;
 				casters.push_back(proxy);
 			}
-			continue;
 		}
-		if (cullTest && !ShadowCasterVisible(*k)) continue;
-		if (cullTest && g_shadowView.on && !ShadowReachesView(*k)) { g_shadowCastersLeftOut++; continue; }
-		g_shadowCastersDrawn++;
-		casters.push_back(*k);
 	}
 	DrawWithAutoInstancing(casters, NULL,
 		[this](RenderingMesh* m, uint32) { RenderShadowCaster(m); },

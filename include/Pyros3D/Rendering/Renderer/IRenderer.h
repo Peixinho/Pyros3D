@@ -252,6 +252,12 @@ namespace p3d {
 		// The sun's casters that cannot throw a shadow into the view are left
 		// out of its map (on by default; off to compare against).
 		static void SetShadowCasterViewCull(const bool on);
+		// Culling shared out among the job system's workers (on by default;
+		// off to compare against). CullInParallel keeps the meshes `keep`
+		// says yes to, in their order; `keep` is called from several threads
+		// at once and must only read.
+		static void SetParallelCulling(const bool on);
+		static void CullInParallel(std::vector<RenderingMesh*> &meshes, const std::function<bool(RenderingMesh*)> &keep);
 		static f32 GetSmallObjectCull();
 		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
 
