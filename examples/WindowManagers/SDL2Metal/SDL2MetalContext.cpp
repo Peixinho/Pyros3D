@@ -233,8 +233,17 @@ namespace p3d {
             if (sdl_event.type == SDL_TEXTINPUT)
                 PyrosTextInput::Notify(sdl_event.text.text);
 
+            // A key held down is pressed once. The system sends the press again and
+            // again while it is held (its auto-repeat): passed on, anything a key
+            // switches - a screen opened with Tab - flipped back and forth for as
+            // long as the key was down a moment too long. The keys text is edited
+            // with still repeat: that is what the repeat is for.
             if (sdl_event.type == SDL_KEYDOWN)
-                KeyPressed(sdl_event.key.keysym.sym);
+            {
+                const SDL_Keycode sym = sdl_event.key.keysym.sym;
+                const bool edits = sym == SDLK_BACKSPACE || sym == SDLK_DELETE || sym == SDLK_LEFT || sym == SDLK_RIGHT || sym == SDLK_UP || sym == SDLK_DOWN;
+                if (sdl_event.key.repeat == 0 || edits) KeyPressed(sym);
+            }
 
             if (sdl_event.type == SDL_KEYUP)
                 KeyReleased(sdl_event.key.keysym.sym);
