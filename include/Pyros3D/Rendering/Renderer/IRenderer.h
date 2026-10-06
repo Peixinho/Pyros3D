@@ -258,6 +258,13 @@ namespace p3d {
 		// at once and must only read.
 		static void SetParallelCulling(const bool on);
 		static void CullInParallel(std::vector<RenderingMesh*> &meshes, const std::function<bool(RenderingMesh*)> &keep);
+		// The frame's list as culling wants it (see BuildCullList): a sphere
+		// and a few bits a mesh, in the list's order.
+		enum { CullOwner = 1, CullTransparent = 2, CullComponentActive = 4, CullMeshActive = 8, CullCasts = 16, CullTested = 32, CullBox = 64 };
+		std::vector<Vec4> cullSphere;
+		std::vector<uint8> cullFlags;
+		void BuildCullList();
+		bool CullListTest(const size_t i);
 		static f32 GetSmallObjectCull();
 		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
 

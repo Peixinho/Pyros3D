@@ -918,17 +918,19 @@ namespace p3d {
 		// Render Scene with Objects Material
 		// Visible opaque meshes first, then the draws - DrawWithAutoInstancing
 		// batches the ones that share geometry and material content.
-		// (what is in the view: asked of every mesh, in parallel - IRenderer::CullInParallel)
-		std::vector<RenderingMesh*> visible(rmesh);
-		CullInParallel(visible, [this](RenderingMesh* m) -> bool {
-			if (m->Material->IsTransparent()) return false;
-			RenderingComponent* rc = m->renderingComponent;
-			GameObject* owner = rc->GetOwner();
-			if (owner == NULL) return false;
-			if (!rc->IsActive() || m->Active != true) return false;
-			if (!rc->IsCullTesting()) return true;
-			return m->CullingGeometry == CullingGeometry::Box ? CullingBoxTest(m, owner) : CullingSphereTest(m, owner);
-		});
+		// (what is in the view, from the frame's cull list - IRenderer::BuildCullList)
+		std::vector<RenderingMesh*> visible;
+		visible.reserve(rmesh.size());
+		if (cullFlags.size() != rmesh.size()) BuildCullList();
+		{
+			const uint8 need = CullOwner | CullComponentActive | CullMeshActive;
+			for (size_t k = 0; k < rmesh.size(); k++)
+			{
+				const uint8 f = cullFlags[k];
+				if ((f & need) != need || (f & CullTransparent)) continue;
+				if (!(f & CullTested) || CullListTest(k)) visible.push_back(rmesh[k]);
+			}
+		}
 
 		static const uint32 kLitUsageMask = ShaderUsage::Diffuse | ShaderUsage::CellShading | ShaderUsage::PBR;
 		DrawWithAutoInstancing(visible, NULL,

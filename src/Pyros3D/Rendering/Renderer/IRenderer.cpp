@@ -926,6 +926,73 @@ namespace {
 	}
 }
 void IRenderer::SetParallelCulling(const bool on) { g_parallelCulling = on; }
+
+// What every culling pass of the frame asks about, for each mesh of the
+// frame's list, side by side in one array: its sphere in the world and what
+// kind of thing it is. The view and each cascade of each shadow then read
+// sixteen bytes a mesh in order, where each used to follow the mesh to its
+// component to its object to its matrix - three or four places in memory a
+// mesh, a pass.
+void IRenderer::BuildCullList()
+{
+	const size_t n = rmesh.size();
+	cullSphere.resize(n);
+	cullFlags.resize(n);
+	for (size_t i = 0; i < n; i++)
+	{
+		RenderingMesh* m = rmesh[i];
+		RenderingComponent* rc = m->renderingComponent;
+		GameObject* owner = rc->GetOwner();
+		uint8 f = 0;
+		if (owner != NULL)
+		{
+			f |= CullOwner;
+			const Matrix &world = owner->GetWorldTransformation();
+			const Vec3 &local = owner->GetBoundingSphereCenter();
+			cullSphere[i] = Vec4(world.m[0] * local.x + world.m[4] * local.y + world.m[8] * local.z + world.m[12],
+				world.m[1] * local.x + world.m[5] * local.y + world.m[9] * local.z + world.m[13],
+				world.m[2] * local.x + world.m[6] * local.y + world.m[10] * local.z + world.m[14],
+				owner->GetBoundingSphereRadiusWorldSpace());
+		}
+		if (m->Material && m->Material->IsTransparent()) f |= CullTransparent;
+		if (rc->IsActive()) { f |= CullComponentActive; if (m->Active == true) f |= CullMeshActive; }
+		if (rc->IsCastingShadows()) f |= CullCasts;
+		if (rc->IsCullTesting()) f |= CullTested;
+		if (m->CullingGeometry == CullingGeometry::Box) f |= CullBox;
+		cullFlags[i] = f;
+	}
+}
+
+// Mesh i of the frame's list against the frustum that is set now (and "too
+// small to see" for the pass that is being drawn). The same answer as
+// CullingSphereTest / CullingBoxTest.
+bool IRenderer::CullListTest(const size_t i)
+{
+	if (!IsCulling || !culling) return true;
+	if (cullFlags[i] & CullBox) return CullingBoxTest(rmesh[i], rmesh[i]->renderingComponent->GetOwner());
+	const Vec4 &s = cullSphere[i];
+	const Vec3 c(s.x, s.y, s.z);
+	const f32 pixels = GetSmallObjectCull();
+	bool in = true;
+	if (pixels > 0.f && smallCullScale > 0.f && s.w > 0.f)
+	{
+		const f32 limit = pixels * smallCullFactor / smallCullScale;
+		if (s.w * s.w < limit * limit * smallCullEye.distanceSQR(c)) in = false;
+	}
+	if (in) in = culling->SphereInFrustum(c, s.w);
+	// PYROS_VERIFY_CULL=1: every answer held against the one the mesh's own
+	// object gives.
+	static const bool verify = std::getenv("PYROS_VERIFY_CULL") != NULL;
+	if (verify)
+	{
+		static uint64 asked = 0, wrong = 0;
+		const bool was = CullingSphereTest(rmesh[i], rmesh[i]->renderingComponent->GetOwner());
+		asked++;
+		if (was != in && ++wrong <= 20) fprintf(stderr, "[cull] WRONG: %s list says %d, object says %d\n", rmesh[i]->renderingComponent->GetOwner()->GetName().c_str(), (int)in, (int)was);
+		if (asked % 2000000 == 0) fprintf(stderr, "[cull] %llu asked, %llu wrong\n", (unsigned long long)asked, (unsigned long long)wrong);
+	}
+	return in;
+}
 void IRenderer::CullInParallel(std::vector<RenderingMesh*> &meshes, const std::function<bool(RenderingMesh*)> &keep)
 {
 	std::vector<uint8> answers;
@@ -1004,16 +1071,16 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	// 3 the first mesh of a component that casts from a mesh of its own.
 	std::vector<uint8> answers;
 	AnswerInParallel(rmesh.size(), answers, [&](const uint32 i) -> uint8 {
+		const uint8 f = cullFlags[i];
+		if ((f & (CullOwner | CullCasts | CullComponentActive)) != (CullOwner | CullCasts | CullComponentActive) || (f & CullTransparent)) return 0;
 		RenderingMesh* m = rmesh[i];
 		RenderingComponent* rc = m->renderingComponent;
-		if (rc->GetOwner() == NULL || m->Material->IsTransparent()) return 0;
-		if (!rc->IsCastingShadows() || !rc->IsActive()) return 0;
-		if (g_terrainShadowBaked && dynamic_cast<Heightfield*>(rc->GetRenderable()) != NULL) return 0;
 		// Something that casts with a mesh of its own for the purpose
 		// (RenderingComponent::SetShadowRenderable): that, once for the
 		// component, in place of every mesh of its nearest level.
 		if (!rc->shadowMeshes.empty() && rc->LodInUse == 0) return (m == rc->Meshes[0][0]) ? 3 : 0;
-		if (cullTest && !ShadowCasterVisible(m)) return 0;
+		if (cullTest && (f & CullTested) && !CullListTest(i)) return 0;
+		if (g_terrainShadowBaked && dynamic_cast<Heightfield*>(rc->GetRenderable()) != NULL) return 0;
 		if (cullTest && g_shadowView.on && !ShadowReachesView(m)) return 2;
 		return 1;
 	});
@@ -1209,6 +1276,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	{
 		PYROS_PROFILE_SCOPE("Renderer.GroupAndSort");
 		rmesh = GroupAndSortAssets(Scene, Camera, Tag);
+		BuildCullList();
 	}
 
 	// Get Lights List
@@ -2743,12 +2811,25 @@ bool IRenderer::TooSmallToSee(GameObject* owner) const
 bool IRenderer::CullingSphereTest(RenderingMesh* rmesh, GameObject* owner)
 {
 	if (!IsCulling || !culling) return true;
-	if (TooSmallToSee(owner)) return false;
 	// The sphere's own centre, not the object's origin: the two only agree
 	// for geometry built around its origin. A terrain tile's origin is its
 	// corner, and a sphere there leaves the far half of the tile outside it -
 	// the tile vanished whenever that corner left the screen.
-	return culling->SphereInFrustum(owner->GetWorldTransformation() * owner->GetBoundingSphereCenter(), owner->GetBoundingSphereRadiusWorldSpace());
+	// (Worked out once for both questions - too small to see, and in the
+	// view: it was a matrix times a point for each, on every mesh, for every
+	// view and cascade.)
+	const Matrix &world = owner->GetWorldTransformation();
+	const Vec3 &local = owner->GetBoundingSphereCenter();
+	const Vec3 c(world.m[0] * local.x + world.m[4] * local.y + world.m[8] * local.z + world.m[12],
+		world.m[1] * local.x + world.m[5] * local.y + world.m[9] * local.z + world.m[13],
+		world.m[2] * local.x + world.m[6] * local.y + world.m[10] * local.z + world.m[14]);
+	const f32 r = owner->GetBoundingSphereRadiusWorldSpace();
+	if (g_smallObjectPixels > 0.f && smallCullScale > 0.f && r > 0.f)
+	{
+		const f32 limit = g_smallObjectPixels * smallCullFactor / smallCullScale;
+		if (r * r < limit * limit * smallCullEye.distanceSQR(c)) return false;
+	}
+	return culling->SphereInFrustum(c, r);
 }
 
 bool IRenderer::CullingBoxTest(RenderingMesh* rmesh, GameObject* owner)
