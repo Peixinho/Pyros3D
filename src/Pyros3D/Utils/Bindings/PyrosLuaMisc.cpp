@@ -74,6 +74,8 @@ namespace p3d {
 		// 1 by default; 0 draws everything. See IRenderer::TooSmallToSee.
 		lua->set_function("setSmallObjectCull", [](const f32 pixels) { IRenderer::SetSmallObjectCull(pixels); });
 		lua->set_function("getSmallObjectCull", []() { return IRenderer::GetSmallObjectCull(); });
+		// setShadowUpdateInterval(2): the sun's shadow map every other frame.
+		lua->set_function("setShadowUpdateInterval", [](const uint32 frames) { IRenderer::SetShadowUpdateInterval(frames); });
 		// setSSAOHalfResolution(true): the deferred renderer's ambient occlusion
 		// at half resolution - see DeferredRenderer::SetSSAOHalfResolution.
 		lua->set_function("setSSAOHalfResolution", [](const bool half) { DeferredRenderer::SetSSAOHalfResolution(half); });

@@ -6,6 +6,9 @@
 // Description : Renderer Interface
 //============================================================================
 
+#include <cstdlib>
+#include <string>
+#include <cctype>
 #include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #if defined(__EMSCRIPTEN__)
@@ -159,6 +162,12 @@ namespace Sort {
 		return (a2 < b2);
 	}
 }
+
+// How often the sun's shadow map is redrawn: every frame (1), every other (2)...
+// One number for every renderer, like the ambient light.
+namespace { uint32 g_shadowEvery = 1; }
+void IRenderer::SetShadowUpdateInterval(const uint32 frames) { g_shadowEvery = frames < 1 ? 1 : (frames > 8 ? 8 : frames); }
+uint32 IRenderer::GetShadowUpdateInterval() { return g_shadowEvery; }
 
 std::vector<RenderingMesh*> IRenderer::GroupAndSortAssets(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
 {
@@ -492,6 +501,63 @@ static bool& AutoInstancingFlag()
 void IRenderer::SetAutoInstancing(const bool enabled) { AutoInstancingFlag() = enabled; }
 bool IRenderer::IsAutoInstancing() { return AutoInstancingFlag(); }
 
+// PYROS_TRIS_DUMP=<file>: what the triangles of a frame are. Every draw is
+// tallied by the object it belongs to (the name of its topmost parent and
+// its own, numbers taken off) and every ten seconds or so the table is
+// written to the file: triangles a frame, draws a frame, how much of it was
+// for shadow maps, the mesh's own size. Works in a built game, which has no
+// editor to ask - it is how a forest and the rifles lying about were found
+// to be most of what a frame drew.
+namespace {
+	struct TrisDump
+	{
+		bool on = false;
+		std::string path;
+		struct Row { uint64 tris = 0, shadowTris = 0, draws = 0; uint32 meshTris = 0; };
+		std::map<std::string, Row> rows;
+		uint32 frames = 0;
+		TrisDump() { if (const char* p = std::getenv("PYROS_TRIS_DUMP")) { path = p; on = !path.empty(); } }
+		static std::string Plain(const std::string &n)
+		{
+			size_t e = n.size();
+			while (e > 0 && (std::isdigit((unsigned char)n[e - 1]) || n[e - 1] == '_' || n[e - 1] == ' ' || n[e - 1] == '(' || n[e - 1] == ')')) e--;
+			return n.substr(0, e);
+		}
+		void Add(RenderingMesh* mesh, GameObject* owner, const bool shadow)
+		{
+			GameObject* root = owner;
+			while (root && root->GetParent()) root = root->GetParent();
+			const uint32 meshTris = (uint32)(mesh->Geometry->GetIndexData().size() / 3);
+			const uint64 inst = mesh->renderingComponent->IsInstanced() ? (uint64)((IRenderingInstancedComponent*)mesh->renderingComponent)->NumberOfInstances() : 1;
+			std::string key = (root ? Plain(root->GetName()) : std::string("?")) + " / " + (owner ? Plain(owner->GetName()) : std::string("?"));
+			if (key == " / ") key = "(drawn together) " + std::to_string(meshTris) + "-triangle mesh";
+			Row &r = rows[key];
+			r.tris += meshTris * inst; r.draws++; r.meshTris = meshTris;
+			if (shadow) r.shadowTris += meshTris * inst;
+		}
+		void Frame()
+		{
+			if (++frames < 600) return;
+			std::vector<std::pair<uint64, std::string> > order;
+			uint64 all = 0, allDraws = 0;
+			for (std::map<std::string, Row>::iterator i = rows.begin(); i != rows.end(); ++i) { order.push_back(std::make_pair(i->second.tris, i->first)); all += i->second.tris; allDraws += i->second.draws; }
+			std::sort(order.rbegin(), order.rend());
+			if (FILE* f = std::fopen(path.c_str(), "w"))
+			{
+				std::fprintf(f, "%.0f thousand triangles and %.0f draws a frame (over %u frames)\n", (f64)all / frames / 1000.0, (f64)allDraws / frames, frames);
+				std::fprintf(f, "%8s %7s %7s %9s  %s\n", "ktris/f", "draws/f", "shadow", "mesh tris", "object");
+				for (size_t i = 0; i < order.size() && i < 40; i++)
+				{
+					const Row &r = rows[order[i].second];
+					std::fprintf(f, "%8.1f %7.1f %6.0f%% %9u  %s\n", (f64)r.tris / frames / 1000.0, (f64)r.draws / frames, r.tris ? 100.0 * (f64)r.shadowTris / (f64)r.tris : 0.0, r.meshTris, order[i].second.c_str());
+				}
+				std::fclose(f);
+			}
+			rows.clear(); frames = 0;
+		}
+	} g_trisDump;
+}
+
 bool IRenderer::AutoInstanceEligible(RenderingMesh* mesh)
 {
 	RenderingComponent* rc = mesh->renderingComponent;
@@ -513,6 +579,7 @@ bool IRenderer::AutoInstanceEligible(RenderingMesh* mesh)
 void IRenderer::BeginAutoInstancingFrame()
 {
 	autoInstanceFrame++;
+	if (g_trisDump.on) g_trisDump.Frame();
 	autoInstanceOrdinal.clear();
 	autoInstanceBatchesThisFrame = autoInstanceObjectsThisFrame = autoInstanceSinglesThisFrame = 0;
 	// Batches unused for a while go: they hold their material and renderable
@@ -1002,6 +1069,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	smallCullScale = (Camera != NULL && projectionValid && projection.m.m[11] != 0.f)
 		? fabsf(projection.m.m[5]) * 0.5f * (f32)(viewPortEndY > 0 ? viewPortEndY : Height) : 0.f;
 	smallCullFactor = 2.f;       // the shadow passes below; RenderScene() puts it back to 1
+	shadowPassCounter++;
 
 	BeginAutoInstancingFrame();
 
@@ -1084,6 +1152,28 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// Increase Number of Shadows
 					NumberOfDirectionalShadows++;
 
+					// The map made on an earlier frame, where the sun's map is
+					// only redrawn every so many (SetShadowUpdateInterval). It
+					// is still read with the right matrix: light-space is what
+					// was kept, and this frame's camera goes on the end. What
+					// is a frame old is where the casters were - nothing to
+					// see at a frame's distance - and half of all the
+					// triangles a frame draws can be this pass.
+					{
+						std::map<ILightComponent*, std::vector<Matrix> >::iterator kept = sunLightSpace.find(d);
+						if (g_shadowEvery > 1 && (shadowPassCounter % g_shadowEvery) != 0
+							&& kept != sunLightSpace.end() && kept->second.size() == d->GetNumberCascades() && d->GetShadowMapTexture() != NULL)
+						{
+							const Matrix cameraNow = Camera->GetWorldTransformation();
+							for (size_t c = 0; c < kept->second.size(); c++)
+								DirectionalShadowMatrix.push_back(kept->second[c] * cameraNow);
+							DirectionalShadowMapsTextures.push_back(d->GetShadowMapTexture());
+							DirectionalShadowFar = d->GetCascadeSplits();
+							break;
+						}
+						sunLightSpace[d].clear();
+					}
+
 					// Bind FBO
 					d->GetShadowFBO()->Bind();
 
@@ -1144,6 +1234,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						// its comment in IRenderDevice.h for why using
 						// BIAS directly here double-transforms Z on
 						// Vulkan.
+						sunLightSpace[d].push_back(device->TranslateShadowBiasMatrix() * (device->TranslateProjectionMatrix(ProjectionMatrix) * ViewMatrix));
 						DirectionalShadowMatrix.push_back((device->TranslateShadowBiasMatrix() * (device->TranslateProjectionMatrix(ProjectionMatrix) * ViewMatrix * cameraWorld)));
 
 					}
@@ -1707,6 +1798,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	else if (blending && (!Material->IsTransparent() || !Material->blending)) DisableBlending();
 
 	// Draw — WebGL2/GLES3 support instanced draws (needed by ParticleSystem).
+	if (g_trisDump.on) g_trisDump.Add(rmesh, owner, IsShadowMaterial(Material));
 	if (rmesh->renderingComponent->IsInstanced())
 	{
 		device->DrawElementsInstanced(cmd, DrawType, rmesh->Geometry->GetIndexData().size(), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances());

@@ -245,6 +245,10 @@ namespace p3d {
 
 		void SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY);
 		static void SetSmallObjectCull(const f32 pixels);
+		// The sun's shadow map redrawn every `frames` frames, and the map of
+		// the frame before used in between. 1 by default.
+		static void SetShadowUpdateInterval(const uint32 frames);
+		static uint32 GetShadowUpdateInterval();
 		static f32 GetSmallObjectCull();
 		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
 
@@ -583,6 +587,9 @@ namespace p3d {
 		bool TooSmallToSee(GameObject* owner) const;
 		Vec3 smallCullEye;
 		f32 smallCullScale = 0.f, smallCullFactor = 1.f;
+		// (SetShadowUpdateInterval: each sun's light-space matrices as last drawn, and this renderer's count of passes)
+		std::map<ILightComponent*, std::vector<Matrix> > sunLightSpace;
+		uint32 shadowPassCounter = 0;
 		bool CullingPointTest(RenderingMesh* rmesh, GameObject* owner);
 
 		// Is a light's sphere of influence anywhere in the view frustum?
