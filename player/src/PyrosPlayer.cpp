@@ -404,6 +404,16 @@ end
 	// what keeps a deferred frame affordable on a high-resolution screen.
 	lua.set_function("setRenderScale", [this](const f32 scale) { SetRenderScale(scale); });
 	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
+	// setFrameRateLimit(fps): no more frames a second than that (0: as many
+	// as there are). getDisplayRefreshRate(): what the screen the window is on
+	// can show, or 0 when it will not say.
+	lua.set_function("setFrameRateLimit", [this](const f32 fps) { frameRateLimit = fps < 0.f ? 0.f : fps; });
+	lua.set_function("getDisplayRefreshRate", [this]() {
+		SDL_DisplayMode mode;
+		const int display = GetSDLWindow() ? SDL_GetWindowDisplayIndex(GetSDLWindow()) : 0;
+		if (SDL_GetCurrentDisplayMode(display < 0 ? 0 : display, &mode) != 0) return 0;
+		return mode.refresh_rate;
+	});
 	// setAutoRenderScale(fps, lowest, highest): the scale is moved by itself to
 	// hold that frame rate where it is the GPU that cannot (0 fps turns it off
 	// and leaves the scale where it is).
@@ -1479,6 +1489,27 @@ void PyrosPlayer::Update()
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		device.EndFrame();
 		autoScale.presentWaitMs += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
+	}
+	// No more frames than asked for (SetFrameRateLimit): what a display cannot
+	// show is heat and nothing else - and a machine that slows itself down when
+	// hot then cannot hold the rate it could have. Waited out here, at the end
+	// of the frame; counted as idle for the render scale, which is what it is.
+	if (frameRateLimit > 0.f)
+	{
+		const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+		const std::chrono::duration<f64> period(1.0 / (f64)frameRateLimit);
+		if (nextFrameAt.time_since_epoch().count() == 0 || now > nextFrameAt + period * 4) nextFrameAt = now;
+		nextFrameAt += std::chrono::duration_cast<std::chrono::steady_clock::duration>(period);
+		if (nextFrameAt > now)
+		{
+			PYROS_PROFILE_SCOPE("Player.FrameLimit");
+			const f64 waitMs = std::chrono::duration<f64, std::milli>(nextFrameAt - now).count();
+			// (sleep to within a millisecond and a half of it, then spin: a
+			// sleep alone overshoots by as much as that)
+			if (waitMs > 2.0) SDL_Delay((Uint32)(waitMs - 1.5));
+			while (std::chrono::steady_clock::now() < nextFrameAt) {}
+			autoScale.presentWaitMs += waitMs;
+		}
 	}
 	StepAutoRenderScale(dt);
 

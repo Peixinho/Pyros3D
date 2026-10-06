@@ -57,6 +57,7 @@
 #include <string>
 #include <vector>
 #include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
+#include <chrono>
 
 using namespace p3d;
 
@@ -208,6 +209,9 @@ private:
 	// (SetAutoRenderScale: what a second and a half of frames spent waiting for the GPU and idle in the present)
 	struct AutoScale { f32 targetFps = 0.f, minScale = 0.4f, maxScale = 1.f; f64 time = 0.0, gpuWaitMs = 0.0, presentWaitMs = 0.0; uint32 frames = 0; bool roomBefore = false; } autoScale;
 	void StepAutoRenderScale(const f64 dt);
+	// (setFrameRateLimit: frames a second at most, and when the next one is due)
+	f32 frameRateLimit = 0.f;
+	std::chrono::steady_clock::time_point nextFrameAt;
 	uint32 ScaledSize(const uint32 full) const;
 	uint32 RenderWidth() const;
 	uint32 RenderHeight() const;
