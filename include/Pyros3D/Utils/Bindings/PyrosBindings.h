@@ -12,6 +12,11 @@
 #define SOL_CHECK_ARGUMENTS
 
 #include <Pyros3D/Ext/sol/sol.hpp>
+#include <string>
+#include <cstdio>
+#include <cstdlib>
+#include <chrono>
+#include <map>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -438,12 +443,36 @@ namespace p3d {
 
             // WireLua rethrows on init/update failure (DemoLauncher needs it).
             // Swallow here so a bad script cannot abort the editor host.
+            // PYROS_LUA_COMPONENT_TIMES=1: what each script costs - its updates'
+            // time summed by script file, written to stderr every 600 frames of
+            // the first component to update. (Which of a scene's scripted
+            // objects are worth a millisecond is not to be seen any other way:
+            // they all run inside the scene's walk.)
+            static const bool timed = std::getenv("PYROS_LUA_COMPONENT_TIMES") != NULL;
+            const std::chrono::steady_clock::time_point t0 = timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point();
             try {
                 FireInit();
                 if (on_update) { on_update(*this, dt); }
             }
             catch (const std::exception&) {}
             catch (...) {}
+            if (timed)
+            {
+                static std::map<std::string, std::pair<double, unsigned> > spent;
+                static const LuaComponent* first = NULL;
+                static unsigned frames = 0;
+                std::pair<double, unsigned> &e = spent[scriptFile];
+                e.first += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                e.second++;
+                if (first == NULL) first = this;
+                if (first == this && ++frames >= 600)
+                {
+                    fprintf(stderr, "[lua components] a frame, over %u frames:\n", frames);
+                    for (std::map<std::string, std::pair<double, unsigned> >::iterator i = spent.begin(); i != spent.end(); ++i)
+                        fprintf(stderr, "[lua components]   %7.3f ms  x%5.1f  %s\n", i->second.first / frames, (double)i->second.second / frames, i->first.c_str());
+                    spent.clear(); frames = 0; first = NULL;
+                }
+            }
         }
         virtual void Destroy()
         {
