@@ -1578,7 +1578,23 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// artwork and describing nothing. A 2D scene gets Draw2DReference()
 			// instead, which works in the plane the content is actually in.
 			if (rGrid && rGrid->IsActive() && !sceneIsTwoD)
+			{
+				// Lifted a hair towards the eye. A scene's ground is very often a
+				// plane at y = 0 too, and the grid then fights it for every pixel;
+				// under temporal anti-aliasing the depth it is tested against is
+				// drawn a different sub-pixel off each frame, so who wins changes
+				// every frame and the lines flicker. Half a pixel of that, on a
+				// plane, is a height of (distance * a pixel's angle / 2) - so the
+				// lift is taken for the far end of the grid from where the eye is,
+				// and is a few centimetres at most from any ordinary view.
+				const Vec3 eye = viewCam->GetWorldPosition();
+				const f32 reach = eye.magnitude() + 22.f;
+				const f32 pixel = isPerspective ? 2.f * tanf(viewFov * 0.5f * 0.017453293f) / (dim.y > 1.f ? dim.y : 1.f) : 0.f;
+				const f32 lift = 0.6f * reach * pixel;
+				grid->SetPosition(Vec3(0.f, eye.y >= 0.f ? lift : -lift, 0.f));
+				grid->Update();
 				Renderer->RenderOverlayObject(rGrid->GetMeshes()[0], grid.get(), GridMaterial.get());
+			}
 
 			// Light/sound/particle/empty icons: kept off the scene layer so SSR
 			// and the post chain never see them, drawn here instead, farthest
