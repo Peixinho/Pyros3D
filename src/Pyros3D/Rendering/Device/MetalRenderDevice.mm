@@ -3429,10 +3429,8 @@ namespace p3d {
 #if PYROS_HAVE_METALFX
 		if (@available(macOS 13.0, *))
 		{
-			// Not offered yet: it runs, but what it makes of this engine's frames is
-			// softer than the built-in filter (the jitter and motion conventions are
-			// not settled). PYROS_METALFX=1 turns it on to work on it.
-			static const bool on = getenv("PYROS_METALFX") != NULL;
+			// (PYROS_NO_METALFX=1 to be without it)
+			static const bool on = getenv("PYROS_NO_METALFX") == NULL;
 			if (on && device != NULL && [MTLFXTemporalScalerDescriptor supportsDevice:(__bridge id<MTLDevice>)device]) return "metalfx";
 		}
 #endif

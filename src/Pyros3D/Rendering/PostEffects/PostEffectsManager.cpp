@@ -8,6 +8,9 @@
 
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <cstdlib>
+#include <algorithm>
+#include <cmath>
+#include <chrono>
 #include <cstdio>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
@@ -518,7 +521,16 @@ namespace p3d {
 			// (the upscale is not a pass of the chain - it is done after the
 			// chain's last, below - so all that is left to add is the copy that
 			// puts its result on the screen)
-			if (!renderLastToTexture) run.push_back(aaStage->GetCopyPass());
+			// A temporal upscaler settles and enlarges; it does not sharpen. The
+			// built-in filter, at the size shown, is the sharpening over it (one
+			// to one it resamples nothing) - and is what puts the frame on screen.
+			if (upscalePass == NULL) upscalePass = new SharpUpscaleEffect(RTT::LastRTT, outputWidth, outputHeight, upscaleSharpness);
+			else if (upscalePass->GetWidth() != outputWidth || upscalePass->GetHeight() != outputHeight)
+			{
+				device->WaitIdle();
+				upscalePass->Resize(outputWidth, outputHeight);
+			}
+			if (!renderLastToTexture) run.push_back(upscalePass);
 		}
 		else
 		if ((scaled || (renderLastToTexture && WillUpscale())) && sharpUpscale)
@@ -955,9 +967,11 @@ namespace p3d {
 			// The stage's jitter is in clip space (a pixel is 2/size); the
 			// motion is in texture coordinates, from where a point was to where
 			// it is. Which way round an upscaler wants each is its own
-			// convention: kept as two signs each, found by trying them.
+			// convention: two signs each (PYROS_UPSCALE_SIGNS to try others).
 			static const Vec4 signs = []() {
-				Vec4 v(-1.f, 1.f, -1.f, -1.f);          // jitter x, jitter y, motion x, motion y
+				// (found on MetalFX against buildings standing still, then with the
+				// camera swinging and nodding: any other choice smears)
+				Vec4 v(1.f, 1.f, -1.f, -1.f);           // jitter x, jitter y, motion x, motion y
 				if (const char* e = std::getenv("PYROS_UPSCALE_SIGNS")) sscanf(e, "%f,%f,%f,%f", &v.x, &v.y, &v.z, &v.w);
 				return v;
 			}();
@@ -968,8 +982,28 @@ namespace p3d {
 			frame.motionScaleY = signs.w * (f32)Height;
 			frame.reset = temporalReset;
 			frame.cameraNear = projection->Near; frame.cameraFar = projection->Far;
+			// (the vertical field of view, out of the projection; the time since
+			// the last frame, by the clock)
+			frame.cameraFovY = projection->m.m[5] != 0.f ? 2.f * atanf(1.f / fabsf(projection->m.m[5])) : 1.f;
+			{
+				static std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+				const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+				frame.frameMs = std::min(100.f, std::max(1.f, std::chrono::duration<f32, std::milli>(now - last).count()));
+				last = now;
+			}
 			temporalReset = false;
 			if (device->RunTemporalUpscale(frame)) LastRTT = output;
+			if (renderLastToTexture)
+			{
+				// (into a texture: the sharpening is drawn here, there being no
+				// pass to the screen for it to be)
+				activeFBO = upscalePass->fbo;
+				device->SetViewport(0, 0, upscalePass->Width, upscalePass->Height);
+				activeFBO->Bind();
+				drawEffect(upscalePass, false);
+				activeFBO->UnBind();
+				LastRTT = activeFBO->GetAttachments()[0]->TexturePTR;
+			}
 		}
 
 		if (renderLastToTexture)

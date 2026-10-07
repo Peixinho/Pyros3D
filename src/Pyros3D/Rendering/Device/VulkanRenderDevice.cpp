@@ -43,6 +43,33 @@
 #include <cstring>
 #include <cstdio>
 
+// AMD's FSR interface (see RunTemporalUpscale). Its header marks its functions
+// for export from AMD's own DLL, in a spelling only Microsoft's compiler has:
+// here they are only ever called through pointers, so it is spelled away.
+#if !defined(_WIN32)
+#define __declspec(x)
+#endif
+#include "../../Ext/fidelityfx/ffx_api/ffx_api.h"
+#include "../../Ext/fidelityfx/ffx_api/ffx_upscale.h"
+#include "../../Ext/fidelityfx/ffx_api/vk/ffx_api_vk.h"
+#if !defined(_WIN32)
+#undef __declspec
+#endif
+#include <set>
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+// (windows.h has words of its own for these, and the engine uses them as names)
+#undef near
+#undef far
+#undef CreateWindow
+#endif
+
 // Where a draw's time goes, call by call: each of the Vulkan calls and device
 // functions on the draw path is timed and counted, and published as counters
 // at the end of the frame ("VKt.<name>.us" and "VKt.<name>.n") when
@@ -7962,6 +7989,251 @@ namespace p3d {
 			if (supportedSampleCounts & bit)
 				return bit;
 		return 1;
+	}
+
+	// ---- AMD FSR 3.1 -------------------------------------------------------
+	// AMD publishes the upscaler as a library with a small C interface
+	// (Ext/fidelityfx/ffx_api, MIT) and, for Vulkan, a ready-built
+	// amd_fidelityfx_vk.dll for Windows (FidelityFX SDK 1.1.4, the last with a
+	// Vulkan backend). It is looked for beside the program when first asked
+	// about; found, "fsr3" is a temporal upscaler this device has.
+	namespace
+	{
+		struct FsrLibrary
+		{
+			bool tried = false;
+			void* module = NULL;
+			PfnFfxCreateContext CreateContext = NULL;
+			PfnFfxDestroyContext DestroyContext = NULL;
+			PfnFfxDispatch Dispatch = NULL;
+			ffxContext context = NULL;
+			uint32 key[4] = { 0, 0, 0, 0 };          // the sizes the context was made for
+			std::set<VkImage> outputs;               // images made for it to write into
+			bool saidWhy = false;
+		};
+		FsrLibrary g_fsr;
+
+		void FsrMessage(uint32_t type, const wchar_t* message)
+		{
+			fprintf(stderr, "FSR %s: %ls\n", type == FFX_API_MESSAGE_TYPE_ERROR ? "error" : "warning", message ? message : L"");
+		}
+
+		bool FsrLoad()
+		{
+			if (g_fsr.tried) return g_fsr.module != NULL;
+			g_fsr.tried = true;
+			if (std::getenv("PYROS_NO_FSR3") != NULL) return false;
+#if defined(_WIN32)
+			HMODULE module = LoadLibraryA("amd_fidelityfx_vk.dll");
+			if (module == NULL) return false;
+			g_fsr.CreateContext = (PfnFfxCreateContext)GetProcAddress(module, "ffxCreateContext");
+			g_fsr.DestroyContext = (PfnFfxDestroyContext)GetProcAddress(module, "ffxDestroyContext");
+			g_fsr.Dispatch = (PfnFfxDispatch)GetProcAddress(module, "ffxDispatch");
+			if (!g_fsr.CreateContext || !g_fsr.DestroyContext || !g_fsr.Dispatch) { FreeLibrary(module); return false; }
+			g_fsr.module = (void*)module;
+			fprintf(stderr, "FSR 3.1: amd_fidelityfx_vk.dll loaded\n");
+#endif
+			return g_fsr.module != NULL;
+		}
+
+		FfxApiResource FsrResource(const VkImage image, const VkFormat format, const uint32 width, const uint32 height, const VkImageUsageFlags usage, const uint32_t state)
+		{
+			VkImageCreateInfo info = {};
+			info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+			info.imageType = VK_IMAGE_TYPE_2D;
+			info.format = format;
+			info.extent = { width, height, 1 };
+			info.mipLevels = 1;
+			info.arrayLayers = 1;
+			info.samples = VK_SAMPLE_COUNT_1_BIT;
+			info.usage = usage;
+			return ffxApiGetResourceVK((void*)image, ffxApiGetImageResourceDescriptionVK(image, info, 0), state);
+		}
+	}
+
+	const char* VulkanRenderDevice::TemporalUpscalerId() const
+	{
+		return FsrLoad() ? "fsr3" : "";
+	}
+
+	bool VulkanRenderDevice::RunTemporalUpscale(const TemporalUpscale &frame)
+	{
+		if (device == VK_NULL_HANDLE || !FsrLoad()) return false;
+		std::map<DeviceHandle, TextureRecord>::iterator c = textures.find(frame.color), d = textures.find(frame.depth),
+			m = textures.find(frame.motion), o = textures.find(frame.output);
+		if (c == textures.end() || d == textures.end() || m == textures.end() || o == textures.end()) return false;
+
+		// The context: made for one pair of sizes, and made again for another.
+		const uint32 key[4] = { frame.renderWidth, frame.renderHeight, frame.outputWidth, frame.outputHeight };
+		bool fresh = false;
+		if (g_fsr.context == NULL || memcmp(key, g_fsr.key, sizeof(key)) != 0)
+		{
+			vkDeviceWaitIdle(device);
+			if (g_fsr.context != NULL) { g_fsr.DestroyContext(&g_fsr.context, NULL); g_fsr.context = NULL; }
+			memcpy(g_fsr.key, key, sizeof(key));
+			ffxCreateBackendVKDesc backend = {};
+			backend.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_BACKEND_VK;
+			backend.vkDevice = device;
+			backend.vkPhysicalDevice = physicalDevice;
+			backend.vkDeviceProcAddr = vkGetDeviceProcAddr;
+			ffxCreateContextDescUpscale upscale = {};
+			upscale.header.type = FFX_API_CREATE_CONTEXT_DESC_TYPE_UPSCALE;
+			upscale.header.pNext = &backend.header;
+			// (what it is given has been through the whole post chain: not HDR;
+			// depth as the engine writes it - 0 near, 1 far; motion at the size rendered)
+			upscale.flags = 0;
+			upscale.maxRenderSize.width = frame.renderWidth; upscale.maxRenderSize.height = frame.renderHeight;
+			upscale.maxUpscaleSize.width = frame.outputWidth; upscale.maxUpscaleSize.height = frame.outputHeight;
+			upscale.fpMessage = &FsrMessage;
+			const ffxReturnCode_t made = g_fsr.CreateContext(&g_fsr.context, &upscale.header, NULL);
+			if (made != FFX_API_RETURN_OK || g_fsr.context == NULL)
+			{
+				g_fsr.context = NULL;
+				if (!g_fsr.saidWhy) { g_fsr.saidWhy = true; fprintf(stderr, "FSR 3.1: no upscaler for %ux%u -> %ux%u (code %u)\n", key[0], key[1], key[2], key[3], (unsigned)made); }
+				return false;
+			}
+			fprintf(stderr, "FSR 3.1: upscaling %ux%u -> %ux%u\n", key[0], key[1], key[2], key[3]);
+			fresh = true;
+		}
+
+		// What it writes into has to be an image a compute shader may write: the
+		// one behind this handle is made again as one, once (nothing drawn into
+		// it matters - it is the upscaler's to fill, every frame).
+		bool outputIsNew = false;
+		if (g_fsr.outputs.find(o->second.image) == g_fsr.outputs.end())
+		{
+			vkDeviceWaitIdle(device);
+			TextureRecord &tex = o->second;
+			VkImageCreateInfo imageInfo = {};
+			imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+			imageInfo.imageType = VK_IMAGE_TYPE_2D;
+			imageInfo.format = tex.format;
+			imageInfo.extent = { frame.outputWidth, frame.outputHeight, 1 };
+			imageInfo.mipLevels = 1;
+			imageInfo.arrayLayers = 1;
+			imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+			imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+			imageInfo.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+			imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+			imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			VmaAllocationCreateInfo allocInfo = {};
+			allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+			VkImage image = VK_NULL_HANDLE; VmaAllocation allocation = VK_NULL_HANDLE; VkImageView view = VK_NULL_HANDLE;
+			if (vmaCreateImage(allocator, &imageInfo, &allocInfo, &image, &allocation, NULL) != VK_SUCCESS)
+			{
+				if (!g_fsr.saidWhy) { g_fsr.saidWhy = true; fprintf(stderr, "FSR 3.1: could not make an output image it can write (format %d)\n", (int)tex.format); }
+				return false;
+			}
+			VkImageViewCreateInfo viewInfo = {};
+			viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+			viewInfo.image = image;
+			viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			viewInfo.format = tex.format;
+			viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			if (vkCreateImageView(device, &viewInfo, NULL, &view) != VK_SUCCESS) { vmaDestroyImage(allocator, image, allocation); return false; }
+			if (tex.view != VK_NULL_HANDLE) vkDestroyImageView(device, tex.view, NULL);
+			if (tex.image != VK_NULL_HANDLE) vmaDestroyImage(allocator, tex.image, tex.allocation);
+			tex.image = image; tex.allocation = allocation; tex.view = view;
+			tex.width = frame.outputWidth; tex.height = frame.outputHeight; tex.mipLevels = 1;
+			g_fsr.outputs.insert(image);
+			outputIsNew = true;
+		}
+
+		// Into the frame's own command buffer, between two of its passes, as a
+		// depth copy goes; with none open, one of its own, waited for.
+		const bool batch = offscreenCommandBufferRecording;
+		VkCommandBuffer cmd = VK_NULL_HANDLE;
+		if (batch)
+		{
+			EndOffscreenRenderPassIfOpen();
+			cmd = offscreenCommandBuffer;
+		}
+		else
+		{
+			VkCommandBufferAllocateInfo allocate = {};
+			allocate.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			allocate.commandPool = commandPool;
+			allocate.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			allocate.commandBufferCount = 1;
+			if (vkAllocateCommandBuffers(device, &allocate, &cmd) != VK_SUCCESS) return false;
+			VkCommandBufferBeginInfo begin = {};
+			begin.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+			begin.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			vkBeginCommandBuffer(cmd, &begin);
+		}
+		if (outputIsNew)
+		{
+			VkImageMemoryBarrier toRead = {};
+			toRead.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+			toRead.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			toRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+			toRead.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toRead.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+			toRead.image = o->second.image;
+			toRead.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			toRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &toRead);
+		}
+
+		// Everything it is handed is as the engine leaves a texture between
+		// passes - readable by a shader - and it hands them back so.
+		const VkImageUsageFlags sampled = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+		ffxDispatchDescUpscale dispatch = {};
+		dispatch.header.type = FFX_API_DISPATCH_DESC_TYPE_UPSCALE;
+		dispatch.commandList = (void*)cmd;
+		dispatch.color = FsrResource(c->second.image, c->second.format, frame.renderWidth, frame.renderHeight, sampled, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+		dispatch.depth = FsrResource(d->second.image, d->second.format, frame.renderWidth, frame.renderHeight, VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+		dispatch.motionVectors = FsrResource(m->second.image, m->second.format, frame.renderWidth, frame.renderHeight, sampled, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+		dispatch.output = FsrResource(o->second.image, o->second.format, frame.outputWidth, frame.outputHeight, sampled | VK_IMAGE_USAGE_STORAGE_BIT, FFX_API_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+		// (which way round it wants the jitter and the motion is its own
+		// convention. Taken to be MetalFX's, which was found by trying - the two
+		// were designed to take the same inputs - and PYROS_FSR_SIGNS=jx,jy,mx,my
+		// turns any of the four over to try another.)
+		static const Vec4 signs = []() {
+			Vec4 v(1.f, 1.f, 1.f, 1.f);
+			if (const char* e = std::getenv("PYROS_FSR_SIGNS")) sscanf(e, "%f,%f,%f,%f", &v.x, &v.y, &v.z, &v.w);
+			return v;
+		}();
+		dispatch.jitterOffset.x = signs.x * frame.jitterX;
+		dispatch.jitterOffset.y = signs.y * frame.jitterY;
+		dispatch.motionVectorScale.x = signs.z * frame.motionScaleX;
+		dispatch.motionVectorScale.y = signs.w * frame.motionScaleY;
+		dispatch.renderSize.width = frame.renderWidth; dispatch.renderSize.height = frame.renderHeight;
+		dispatch.upscaleSize.width = frame.outputWidth; dispatch.upscaleSize.height = frame.outputHeight;
+		dispatch.enableSharpening = false;           // (the engine sharpens after it)
+		dispatch.sharpness = 0.f;
+		dispatch.frameTimeDelta = frame.frameMs > 0.f ? frame.frameMs : 16.f;
+		dispatch.preExposure = 1.f;
+		dispatch.reset = frame.reset || fresh;
+		dispatch.cameraNear = frame.cameraNear;
+		dispatch.cameraFar = frame.cameraFar;
+		dispatch.cameraFovAngleVertical = frame.cameraFovY;
+		dispatch.viewSpaceToMetersFactor = 1.f;
+		dispatch.flags = 0;
+		const ffxReturnCode_t ran = g_fsr.Dispatch(&g_fsr.context, &dispatch.header);
+
+		if (!batch)
+		{
+			vkEndCommandBuffer(cmd);
+			VkSubmitInfo submit = {};
+			submit.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			submit.commandBufferCount = 1;
+			submit.pCommandBuffers = &cmd;
+			VkFenceCreateInfo fenceInfo = {};
+			fenceInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+			VkFence fence = VK_NULL_HANDLE;
+			vkCreateFence(device, &fenceInfo, NULL, &fence);
+			SubmitGraphics(1, &submit, fence);
+			if (fence != VK_NULL_HANDLE) { PyrosTimedWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX); vkDestroyFence(device, fence, NULL); }
+			else vkQueueWaitIdle(graphicsQueue);
+			vkFreeCommandBuffers(device, commandPool, 1, &cmd);
+		}
+		if (ran != FFX_API_RETURN_OK)
+		{
+			if (!g_fsr.saidWhy) { g_fsr.saidWhy = true; fprintf(stderr, "FSR 3.1: the upscale failed (code %u)\n", (unsigned)ran); }
+			return false;
+		}
+		return true;
 	}
 
 	void VulkanRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)

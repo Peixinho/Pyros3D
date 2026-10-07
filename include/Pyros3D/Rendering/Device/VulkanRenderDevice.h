@@ -394,6 +394,10 @@ namespace p3d {
 		virtual void BlitFramebuffer(const uint32 srcX0, const uint32 srcY0, const uint32 srcX1, const uint32 srcY1, const uint32 dstX0, const uint32 dstY0, const uint32 dstX1, const uint32 dstY1, const uint32 engineMask, const uint32 engineFilter);
 		virtual uint32 GetMaxSamples() const;
 		virtual void CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height);
+		// AMD FSR 3.1's upscaler, through AMD's own library (amd_fidelityfx_vk.dll
+		// beside the program - Windows; there is no build of it for anything else).
+		virtual const char* TemporalUpscalerId() const;
+		virtual bool RunTemporalUpscale(const TemporalUpscale &frame);
 
 		// Real ImGui-on-Vulkan integration - wraps ImGui_ImplVulkan_Init/
 		// NewFrame/Shutdown so example code never links the vendored

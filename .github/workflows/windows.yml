@@ -314,6 +314,15 @@ jobs:
           Copy-Item "build\player\PyrosPlayer.exe" "$out\player"
           Copy-Item "build\player\PyrosServer.exe" "$out\player"
           Copy-Item "build\player\*.dll"           "$out\player" -ErrorAction SilentlyContinue
+          # AMD's FSR 3.1 upscaler for Vulkan: AMD's own signed build of it, from
+          # the last FidelityFX SDK with a Vulkan backend (1.1.4, MIT). The
+          # engine looks for it beside the program and offers "fsr3" when it is
+          # there; without it nothing is lost but that choice.
+          try {
+            Invoke-WebRequest -Uri "https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK/raw/v1.1.4/PrebuiltSignedDLL/amd_fidelityfx_vk.dll" -OutFile "$out\player\amd_fidelityfx_vk.dll"
+            Copy-Item "$out\player\amd_fidelityfx_vk.dll" "$out\editor"
+            Write-Host "FSR 3.1: $((Get-Item "$out\player\amd_fidelityfx_vk.dll").Length) bytes"
+          } catch { Write-Warning "FSR 3.1 library not fetched: $_" }
           Copy-Item "editor\assets"                 "$out\editor\assets" -Recurse
           Copy-Item "resources\shaders"             "$out\editor\shaders" -Recurse
           # Editor.cpp loads "<PYROS_ASSET_ROOT>/assets/middleclass.lua", and
