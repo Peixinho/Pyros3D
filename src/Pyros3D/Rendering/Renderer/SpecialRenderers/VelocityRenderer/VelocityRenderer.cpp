@@ -184,6 +184,10 @@ namespace p3d {
 			ClearScreen();
 
 			// Render Scene with Objects Material
+			// How many pixels a unit of size covers at a unit's distance, and the
+			// radius on screen below which a mover is left to the camera's motion.
+			const f32 pixelsPerUnitAtOne = fabsf(projection.m.m[5]) * 0.5f * (f32)Height;
+			static const f32 kSmallestMoverPixels = 14.f;
 			for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
 			{
 				if ((*k)->renderingComponent->GetOwner() != NULL)
@@ -205,6 +209,17 @@ namespace p3d {
 						// object the scene has stopped updating.)
 						if (dynamicOnly && !bones && ((!everything && movedNow.find(owner) == movedNow.end())
 							|| !MovedVisibly(owner->GetPrvWorldTransformation(), owner->GetWorldTransformation()))) continue;
+						// (...and big enough on screen for its own motion to matter:
+						// a bot two hundred metres off is a dozen pixels, and
+						// settled by the camera's motion alone it looks no
+						// different. Drawing every mover at any distance was a
+						// millisecond of the frame.)
+						if (dynamicOnly)
+						{
+							const f32 radius = owner->GetBoundingSphereRadiusWorldSpace();
+							const f32 distance = (owner->GetWorldPosition() - CameraPosition).magnitude();
+							if (distance > radius && radius / distance * pixelsPerUnitAtOne < kSmallestMoverPixels) continue;
+						}
 						RenderObject((*k), owner, velocityMaterial);
 					}
 				}
