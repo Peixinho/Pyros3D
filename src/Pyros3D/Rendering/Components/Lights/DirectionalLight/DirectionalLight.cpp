@@ -308,7 +308,7 @@ namespace p3d {
 		SetShadowNormalBias(normalBias);
 	}
 
-	Matrix DirectionalLight::FitCascade(const uint32 Cascade, const Matrix &CameraWorld, const Projection &CameraProjection, const Matrix &LightView, const std::vector<RenderingMesh*> &Casters)
+	Matrix DirectionalLight::FitCascade(const uint32 Cascade, const Matrix &CameraWorld, const Projection &CameraProjection, const Matrix &LightView, const std::vector<RenderingMesh*> &Casters, const Vec4* Spheres, const uint8* Flags, const uint8 CastMask)
 	{
 		// Slice range in view distance. Every cascade after the first starts
 		// inside the previous one's blend band, so the band has both maps.
@@ -366,6 +366,27 @@ namespace p3d {
 		// View space looks down -Z, so toward the light is +Z.
 		f32 minZ = lc.z - radius;
 		f32 maxZ = lc.z + radius;
+		if (Spheres != NULL && Flags != NULL)
+		{
+			// The casters' bounds as the renderer already keeps them (a sphere
+			// in the world and what the mesh is, one of each a mesh): three
+			// dot products a mesh, where asking each object for its matrix
+			// and its sphere again was most of a millisecond a frame.
+			const f32* L = LightView.m;
+			const size_t n = Casters.size();
+			for (size_t i = 0; i < n; i++)
+			{
+				if ((Flags[i] & CastMask) != CastMask) continue;
+				const Vec4 &sp = Spheres[i];
+				const f32 px = L[0] * sp.x + L[4] * sp.y + L[8] * sp.z + L[12];
+				if (fabs(px - lc.x) > radius + sp.w) continue;
+				const f32 py = L[1] * sp.x + L[5] * sp.y + L[9] * sp.z + L[13];
+				if (fabs(py - lc.y) > radius + sp.w) continue;
+				const f32 pz = L[2] * sp.x + L[6] * sp.y + L[10] * sp.z + L[14];
+				maxZ = Max(maxZ, pz + sp.w);
+			}
+		}
+		else
 		for (std::vector<RenderingMesh*>::const_iterator i = Casters.begin(); i != Casters.end(); i++)
 		{
 			RenderingComponent* rc = (*i)->renderingComponent;

@@ -91,7 +91,8 @@ namespace p3d {
 		// Depth covers the sphere and is extended toward the light over
 		// every shadow-casting mesh whose bounds overlap it, so a caster
 		// outside the view still throws its shadow in.
-		Matrix FitCascade(const uint32 Cascade, const Matrix &CameraWorld, const Projection &CameraProjection, const Matrix &LightView, const std::vector<RenderingMesh*> &Casters);
+		Matrix FitCascade(const uint32 Cascade, const Matrix &CameraWorld, const Projection &CameraProjection, const Matrix &LightView, const std::vector<RenderingMesh*> &Casters,
+			const Vec4* Spheres = NULL, const uint8* Flags = NULL, const uint8 CastMask = 0);
 
 		// Linear view-space far distance of each cascade (unused ones 0).
 		// The shaders select a cascade by comparing the fragment's view

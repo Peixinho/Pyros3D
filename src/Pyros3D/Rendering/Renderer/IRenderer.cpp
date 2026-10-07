@@ -1630,7 +1630,9 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// Get Lights Shadow Map Texture
 					for (uint32 i = 0; i < d->GetNumberCascades(); i++)
 					{
-						ProjectionMatrix = d->FitCascade(i, cameraWorld, cameraProjection, ViewMatrix, rmesh);
+						ProjectionMatrix = (cullSphere.size() == rmesh.size() && cullFlags.size() == rmesh.size() && !rmesh.empty())
+							? d->FitCascade(i, cameraWorld, cameraProjection, ViewMatrix, rmesh, &cullSphere[0], &cullFlags[0], (uint8)(CullOwner | CullCasts))
+							: d->FitCascade(i, cameraWorld, cameraProjection, ViewMatrix, rmesh);
 
 						// Set Viewport
 						_SetViewPort((uint32)((float)(i % 2) * d->GetShadowWidth()), (uint32)((i <= (uint32)1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());

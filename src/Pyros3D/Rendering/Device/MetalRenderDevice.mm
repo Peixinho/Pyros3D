@@ -433,6 +433,10 @@ namespace p3d {
 			// framebufferOnly's perf benefit (lets the driver skip a
 			// present-compatible memory layout) is free to take.
 			layer.framebufferOnly = YES;
+			// PYROS_METAL_DISPLAY_SYNC=0|1 (see the note below; the default is
+			// decided where it is measured)
+			if (const char* sync = getenv("PYROS_METAL_DISPLAY_SYNC"))
+				if (@available(macOS 10.13, *)) layer.displaySyncEnabled = (sync[0] != '0') ? YES : NO;
 			// Deliberately not setting displaySyncEnabled = NO here, having
 			// measured it. The backend is capped at exactly 60fps and that
 			// property looks like the cause (it defaults to YES, and
