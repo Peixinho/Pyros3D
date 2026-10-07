@@ -60,6 +60,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
 #include <Pyros3D/Rendering/Device/NullRenderDevice.h>
+#include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Streaming/WorldStreamer.h>
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
@@ -152,6 +153,7 @@ int main(int argc, char** argv)
 	// stands on those) and build no render geometry - measured at 6.8 MB a
 	// cell, which with players spread over an 8 km map was 6 GB.
 	HeightfieldMesh::SetHeadless(true);
+	FoliageComponent::SetHeadless(true);
 
 	// The game folder: --game, else wherever game.json is found from here.
 	std::error_code ec;

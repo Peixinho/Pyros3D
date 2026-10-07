@@ -155,6 +155,8 @@ namespace p3d {
 		return 1.f - t * t;
 	}
 
+	static bool g_foliageHeadless = false;
+	void FoliageComponent::SetHeadless(const bool on) { g_foliageHeadless = on; }
 	static bool g_thinning = true;
 	void FoliageComponent::SetThinning(const bool on) { g_thinning = on; }
 	bool FoliageComponent::GetThinning() { return g_thinning; }
@@ -171,6 +173,7 @@ namespace p3d {
 	void FoliageComponent::BuildBlocks(GameObject* owner, Layer &layer, PreparedFoliageLayer &prepared,
 		std::vector<std::shared_ptr<GameObject> >* created)
 	{
+		if (g_foliageHeadless) { prepared.blocks.clear(); return; }
 		const f32 meshRadius = layer.mesh ? layer.mesh->GetBoundingSphereRadius() * std::max(layer.spec.maxScale, layer.spec.minScale) : 0.f;
 		const bool tinted = !(layer.spec.tintLow == Vec4(1.f, 1.f, 1.f, 1.f) && layer.spec.tintHigh == Vec4(1.f, 1.f, 1.f, 1.f));
 		const uint32 modelOptions = ShaderUsage::Diffuse | ShaderUsage::InstancedRendering;

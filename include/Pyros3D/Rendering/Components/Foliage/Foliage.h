@@ -150,6 +150,9 @@ namespace p3d {
 		static f32 ThinningAt(const FoliageLayerSpec &spec, const f32 d);
 		// Thinning for every layer that asks for it (on unless said): off, a
 		// field is drawn plant for plant, as before there was any.
+		// A process that draws nothing (a dedicated server) grows none: the
+		// plants are only ever looked at.
+		static void SetHeadless(const bool on);
 		static void SetThinning(const bool on);
 		static bool GetThinning();
 

@@ -156,15 +156,19 @@ namespace p3d {
 
 	private:
 		DeviceHandle NextHandle() { return ++lastHandle; }
-		void CreateScratch(const DeviceHandle h, const uint32 bytes) { scratch[h].assign(bytes, 0); }
+		// A buffer's size is noted, and its memory made only if it is mapped:
+		// a server keeps none of what it will never draw. (Every vertex buffer
+		// had a zeroed copy here - 170 MB of one on a game's island.)
+		void CreateScratch(const DeviceHandle h, const uint32 bytes) { scratchSize[h] = bytes; scratch.erase(h); }
 		void* MapScratch(const DeviceHandle h)
 		{
 			std::vector<uchar> &b = scratch[h];
-			if (b.empty()) b.resize(64 * 1024);
+			if (b.empty()) { const std::map<DeviceHandle, uint32>::const_iterator s = scratchSize.find(h); b.resize(std::max<size_t>(64 * 1024, s != scratchSize.end() ? s->second : 0)); }
 			return &b[0];
 		}
 		DeviceHandle lastHandle = 0;
 		std::map<DeviceHandle, std::vector<uchar> > scratch;
+		std::map<DeviceHandle, uint32> scratchSize;
 	};
 
 }

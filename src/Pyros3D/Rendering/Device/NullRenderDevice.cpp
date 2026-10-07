@@ -70,7 +70,7 @@ namespace p3d {
 	DeviceHandle NullRenderDevice::CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length) { const DeviceHandle h = NextHandle(); CreateScratch(h, length); return h; }
 	void NullRenderDevice::ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length) {  }
 	void NullRenderDevice::UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void *data, const uint32 length) {  }
-	void NullRenderDevice::DestroyBuffer(const DeviceHandle buffer) { scratch.erase(buffer); }
+	void NullRenderDevice::DestroyBuffer(const DeviceHandle buffer) { scratch.erase(buffer); scratchSize.erase(buffer); }
 	void* NullRenderDevice::MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType) { return MapScratch(buffer); }
 	void NullRenderDevice::UnmapBuffer(const DeviceHandle buffer, const uint32 bufferType) {  }
 	uint32 NullRenderDevice::TranslateAttributeType(const uint32 engineType) { return 0; }
