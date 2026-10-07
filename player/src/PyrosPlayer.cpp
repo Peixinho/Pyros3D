@@ -432,6 +432,8 @@ end
 	// what keeps a deferred frame affordable on a high-resolution screen.
 	lua.set_function("setRenderScale", [this](const f32 scale) { SetRenderScale(scale); });
 	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
+	// setSunLaysAmbient(false): the ambient light in a lighting pass of its own again (to compare)
+	lua.set_function("setSunLaysAmbient", [](const bool on) { DeferredRenderer::SetSunLaysAmbient(on); });
 	// setUpscaleSharpness(0.6): how sharp a frame rendered below the window's size is
 	// brought up to it (0..1); negative for a plain stretch
 	// The upscaler and how far below the window the scene is rendered (see

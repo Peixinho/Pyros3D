@@ -168,6 +168,10 @@ UBO_BINDING(32) uniform DirectionalFragParams {
 	mat4 uDirectionalDepthsMVP[4];
 	vec4 uDirectionalShadowFar;
 	float uHaveShadowmap;
+	// 1: this pass lays the ambient light as well (the ambient pass is then
+	// not drawn - the two read the same G-buffer, and reading it once is
+	// cheaper than reading it twice).
+	float uAmbientToo;
 	// The terrain's baked shadow - see TerrainHorizonShade() below.
 	mat4 uViewInverse;
 	vec4 uHorizonRect;		// world x,z of its corner; 1 / its size in x and z
@@ -315,18 +319,27 @@ void main() {
 
 	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, uMatProj, vp);
 
-	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
+	vec4 normalAndAmbient = texture(tNormal, Texcoord);
+	vec3 vViewNormal = normalize(normalAndAmbient.xyz);
+	vec4 diffuseAndAmbient = texture(tDiffuse, Texcoord);
+	vec4 specularAndAmbient = texture(tSpecular, Texcoord);
+	vec2 mr = texture(tMetallicRoughness, Texcoord).rg;
+	vec2 ao = texture(tAO, Texcoord).rg;        // r: for the ambient light, g: for the direct
+	// The ambient light (it rides in the three alphas), as secondpassAmbient.glsl lays it.
+	vec3 ambient = vec3(0.0);
+	if (uAmbientToo > 0.5)
+		ambient = vec3(diffuseAndAmbient.w, specularAndAmbient.w, normalAndAmbient.w) * max(1.0 - mr.y, 1.0 / 64.0) * ao.r;
 	// Turned away from the light: CalculatePBRLighting() ends in a multiply
 	// by max(dot(N, L), 0), so what follows adds exactly nothing - and what
 	// follows is the shadow lookup, 16 to 36 samples of the map. On a low sun
 	// that is every wall, trunk and slope on the far side.
 	if (dot(vViewNormal, normalize(-uLightDirection)) <= 0.0)
 	{
-		FragColor = vec4(0.0);
+		FragColor = vec4(ambient, 1.0);
 		return;
 	}
-	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
-	vec3 specTint = texture(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
+	vec3 color = diffuseAndAmbient.xyz;
+	vec3 specTint = specularAndAmbient.xyz;
 	vec4 lightColor = uLightColor;
 
 	float pcf = 1.0;
@@ -336,7 +349,6 @@ void main() {
 	{
 		pcf = DirectionalShadowFactor(uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1));
 	}
-	vec2 mr = texture(tMetallicRoughness, Texcoord).rg;
 	float roughness = mr.x;
 	float metallic = mr.y;
 
@@ -345,6 +357,6 @@ void main() {
 	vec3 L = normalize(-uLightDirection);
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
-	FragColor = vec4(pbrColor * texture(tAO, Texcoord).g, 1.0) * pcf * TerrainHorizonShade(v1);
+	FragColor = vec4(pbrColor * ao.g * pcf * TerrainHorizonShade(v1) + ambient, 1.0);
 }
 #endif

@@ -113,6 +113,12 @@ namespace p3d {
 		// Ambient occlusion worked out at half the frame's width and height (a
 		// quarter of the cost) and stretched back over it. Off by default.
 		static void SetSSAOHalfResolution(const bool half);
+		// One lighting pass for the ambient light and the first sun together,
+		// in place of one each. The picture is the same; so, measured on an M3,
+		// is the time - the sun's pass is dominated by its own work, not by
+		// reading the G-buffer - so it is off unless asked for.
+		static void SetSunLaysAmbient(const bool on);
+		static bool GetSunLaysAmbient();
 		static bool IsSSAOHalfResolution();
 		bool IsSSAOEnabled() const { return ssaoEnabled; }
 		void SetSSAOParams(const f32 radius, const f32 strength, const f32 falloff);
@@ -269,6 +275,7 @@ namespace p3d {
 
 		// Uniform Handlers
 		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle, *pointShadowBiasHandle;
+		Uniform *dirAmbientTooHandle = NULL;
 		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle, *dirHorizonMapHandle, *dirHorizonRectHandle, *dirHorizonSunHandle;
 		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle, *spotShadowDepthsMVPHandle, *spotShadowPCFTexelHandle, *spotHaveShadowHandle;
 

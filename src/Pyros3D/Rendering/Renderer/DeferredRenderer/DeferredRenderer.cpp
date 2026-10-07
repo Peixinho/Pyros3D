@@ -13,6 +13,12 @@
 
 namespace p3d {
 
+	// Whether a sun's pass lays the ambient light as well (see RenderScene).
+	static bool g_sunLaysAmbient = false;
+	void DeferredRenderer::SetSunLaysAmbient(const bool on) { g_sunLaysAmbient = on; }
+	bool DeferredRenderer::GetSunLaysAmbient() { return g_sunLaysAmbient; }
+
+
 	// Ambient occlusion at half the frame's resolution: every deferred
 	// renderer's, like the ambient light and the clear colour.
 	static bool g_ssaoHalfResolution = false;
@@ -396,6 +402,7 @@ namespace p3d {
 		dirShadowDepthsMVPHandle = deferredMaterialDirectional->AddUniform(Uniform("uDirectionalDepthsMVP", Uniforms::DataUsage::Other, Uniforms::DataType::Matrix));
 		dirShadowFarHandle = deferredMaterialDirectional->AddUniform(Uniform("uDirectionalShadowFar", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		dirHaveShadowHandle = deferredMaterialDirectional->AddUniform(Uniform("uHaveShadowmap", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+		dirAmbientTooHandle = deferredMaterialDirectional->AddUniform(Uniform("uAmbientToo", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 		// The terrain's baked shadow (TerrainHorizon), where the scene has one.
 		dirHorizonMapHandle = deferredMaterialDirectional->AddUniform(Uniform("uHorizonMap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
 		dirHorizonRectHandle = deferredMaterialDirectional->AddUniform(Uniform("uHorizonRect", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
@@ -422,6 +429,7 @@ namespace p3d {
 		deferredMaterialDirectional->extraUniforms[0].offsets["uDirectionalDepthsMVP"] = 144;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uDirectionalShadowFar"] = 400;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uHaveShadowmap"] = 416;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uAmbientToo"] = 420;
 		// (the mat4 rounds up from 420 to the next 16: 432)
 		deferredMaterialDirectional->extraUniforms[0].offsets["uViewInverse"] = 432;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uHorizonRect"] = 496;
@@ -1174,6 +1182,18 @@ namespace p3d {
 		aoTexture->Bind();
 
 		// Ambient
+		// The ambient light. Where there is a sun, the sun's pass lays it along
+		// with its own (uAmbientToo): both read the whole G-buffer for every
+		// pixel of the frame, and the target they add into has just been
+		// cleared - one pass over it in place of two. With no sun, its own pass.
+		bool sunLaysAmbient = false;
+		{
+			static const bool allowed = std::getenv("PYROS_NO_LIGHT_MERGE") == NULL;
+			const bool merge = allowed && g_sunLaysAmbient;
+			for (std::vector<IComponent*>::iterator i = lcomps.begin(); merge && i != lcomps.end() && !sunLaysAmbient; i++)
+				if ((*i)->GetOwner() != NULL && ((ILightComponent*)(*i))->GetLightType() == LIGHT_TYPE::DIRECTIONAL) sunLaysAmbient = true;
+		}
+		if (!sunLaysAmbient)
 		{
 			GameObject go = GameObject();
 			RenderObject(directionalLight->GetMeshes()[0], &go, deferredMaterialAmbient);
@@ -1477,6 +1497,18 @@ namespace p3d {
 					}
 					dirShadowHandle->SetValue(&shadowUnit);
 					dirHaveShadowHandle->SetValue(&haveShadow);
+					// (the first sun drawn carries the ambient light; any after it,
+					// only its own. Carrying it, the pass WRITES where the others
+					// add: the target was cleared to the scene's background, which
+					// is what the sky keeps, and under everything else the ambient
+					// pass used to write over it.)
+					const bool carriesAmbient = sunLaysAmbient;
+					sunLaysAmbient = false;
+					{
+						const f32 ambientToo = carriesAmbient ? 1.f : 0.f;
+						dirAmbientTooHandle->SetValue((void*)&ambientToo);
+						deferredMaterialDirectional->BlendingFunction(BlendFunc::One, carriesAmbient ? BlendFunc::Zero : BlendFunc::One);
+					}
 
 					// The terrain's baked shadow: how high the sun stands and which
 					// way it lies, for the shader to hold against what was baked.
