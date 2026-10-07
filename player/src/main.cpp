@@ -9,6 +9,10 @@
 //               one thing.
 //============================================================================
 
+#if defined(__APPLE__)
+#include <pthread.h>
+#include <pthread/qos.h>
+#endif
 #include "PyrosPlayer.h"
 #include <cstdio>
 #include <cstdlib>
@@ -26,6 +30,14 @@ int main(int argc, char** argv)
 	// going nowhere. Reattach first, so everything below can be seen by
 	// anyone who ran it from a terminal to watch exactly that.
 	AttachToParentConsole();
+
+#if defined(__APPLE__)
+	// The thread the game runs on asks for the performance cores. Started
+	// from a Finder window it has them anyway; started from a terminal, a
+	// script or another program it inherits whatever that had, and a busy
+	// machine then runs the whole frame on an efficiency core.
+	pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#endif
 
 	// Before anything else: on Windows an access violation otherwise kills
 	// the process with no output at all, which from the outside is exactly

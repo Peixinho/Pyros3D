@@ -4,6 +4,10 @@
 // Description : See JobSystem.h.
 //============================================================================
 
+#if defined(__APPLE__)
+#include <pthread.h>
+#include <pthread/qos.h>
+#endif
 #include <chrono>
 #include <atomic>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
@@ -120,6 +124,11 @@ namespace p3d {
 		// while a frame is being made, asleep between frames.
 		void WorkerLoop()
 		{
+#if defined(__APPLE__)
+			// Work the frame is waiting for: on the performance cores, not
+			// wherever the scheduler puts a thread nobody has spoken for.
+			pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
+#endif
 			// (PYROS_JOB_SPIN_US: how long, in microseconds - a quarter of a
 			// millisecond unless said. A game running flat out, frame after
 			// frame, wants its workers up for the whole of each: longer than
