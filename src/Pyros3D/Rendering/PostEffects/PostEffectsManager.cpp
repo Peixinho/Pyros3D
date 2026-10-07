@@ -208,7 +208,9 @@ namespace p3d {
 	bool PostEffectsManager::HasPasses()
 	{
 		ApplyAntiAliasing();
-		return !effects.empty() || aaStage->HasPasses();
+		// (a frame that is to come out bigger than it is rendered has a pass to
+		// run even with no effect and no anti-aliasing: the one that makes it so)
+		return !effects.empty() || aaStage->HasPasses() || WillUpscale();
 	}
 
 	bool PostEffectsManager::NeedsCapture()
@@ -268,7 +270,6 @@ namespace p3d {
 
 		// Resize External FBO
 		ExternalFBO->Resize(Width, Height);
-		if (upscalePass != NULL) upscalePass->Resize(Width, Height);
 
 		if (viewportGammaEffect != NULL)
 			viewportGammaEffect->Resize(Width, Height);
@@ -486,7 +487,9 @@ namespace p3d {
 		// scene's may go by the pixel it is drawing, so it is not left last.
 		const bool scaled = !renderLastToTexture && outputWidth != 0 && outputHeight != 0
 			&& (outputWidth != Width || outputHeight != Height);
-		if (scaled && sharpUpscale)
+		// (into a texture as well as onto the screen: an editor's viewport shows
+		// the chain's last texture, and that is then the size of the viewport)
+		if ((scaled || (renderLastToTexture && WillUpscale())) && sharpUpscale)
 		{
 			// (bigger than it was rendered: the last pass is the one that
 			// makes it so, whatever came before it)
@@ -518,7 +521,12 @@ namespace p3d {
 			}
 			else
 			{
-				if (upscalePass == NULL) upscalePass = new SharpUpscaleEffect(RTT::LastRTT, Width, Height, upscaleSharpness);
+				if (upscalePass == NULL) upscalePass = new SharpUpscaleEffect(RTT::LastRTT, outputWidth, outputHeight, upscaleSharpness);
+				else if (upscalePass->GetWidth() != outputWidth || upscalePass->GetHeight() != outputHeight)
+				{
+					device->WaitIdle();
+					upscalePass->Resize(outputWidth, outputHeight);
+				}
 				run.push_back(upscalePass);
 			}
 		}

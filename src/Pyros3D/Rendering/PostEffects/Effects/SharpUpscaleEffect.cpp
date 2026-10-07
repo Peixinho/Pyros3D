@@ -78,7 +78,10 @@ namespace p3d {
 								"	vec3 amount = sqrt(clamp(min(lo, 2.0 - hi) / max(hi, vec3(1e-4)), 0.0, 1.0));\n"
 								"	vec3 k = amount * (") + peak + std::string(");\n"
 								"	vec3 sharp = (c + (n + s + e + w) * k) / (1.0 + 4.0 * k);\n"
-								"	FragColor = vec4(max(sharp, vec3(0.0)), m.a);\n"
+								// (and never past what the neighbourhood holds: across a
+								// hard edge - a horizon - the sharpening would otherwise
+								// leave a bright line on one side and a dark one on the other)
+								"	FragColor = vec4(clamp(sharp, lo, hi), m.a);\n"
 								"}\n");
 
 		CompileShaders();

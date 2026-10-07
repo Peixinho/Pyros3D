@@ -517,6 +517,29 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return GetPostEffectAssetInfo(entry.asset).params;
 	}
 
+	p3d::f32 SceneEditor::ViewportRenderScale() const
+	{
+		if (!playMode) return 1.f;
+		// (Auto is the game's to move, from its frame rate: here it is shown at
+		// the middle of its range)
+		const p3d::f32 scale = p3d::Upscaling::Scale(viewQuality);
+		return scale > 0.f ? scale : 0.59f;
+	}
+
+	void SceneEditor::UpscalePreviewFromProject()
+	{
+		if (viewUpscaleSetByHand) return;
+		viewUpscaler = p3d::UpscalerMode::FSR1;
+		viewQuality = p3d::UpscaleQuality::Native;
+		if (project == NULL || !project->IsOpen()) return;
+		const nlohmann::json &q = project->GetSettings().quality;
+		if (!q.is_object()) return;
+		p3d::Upscaling::FromString(q.value("upscaler", std::string("fsr1")), viewUpscaler);
+		if (!p3d::Upscaling::FromString(q.value("upscaleQuality", std::string()), viewQuality))
+			viewQuality = q.value("autoRenderScaleFps", 0.f) > 0.f ? p3d::UpscaleQuality::Auto
+				: (q.value("renderScale", 1.f) < 0.999f ? p3d::UpscaleQuality::Quality : p3d::UpscaleQuality::Native);
+	}
+
 	p3d::AntiAliasingMode SceneEditor::WantedAntiAliasing() const
 	{
 		if (playMode && aaScriptOverride)
@@ -1072,6 +1095,32 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::PopStyleColor(2);
 			ImGui::SameLine();
 			ImGui::TextColored(ImVec4(1.f, 0.75f, 0.2f, 1.f), "PLAYING");
+			// The upscaler and the render quality, to try them as a built game
+			// would run them (see ViewportRenderScale).
+			{
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(120.f);
+				if (ImGui::BeginCombo("##upscaler", p3d::Upscaling::DisplayName(p3d::Upscaling::Resolve(viewUpscaler)), ImGuiComboFlags_HeightLargest))
+				{
+					const std::vector<p3d::UpscalerMode> modes = p3d::Upscaling::Supported();
+					for (size_t u = 0; u < modes.size(); u++)
+						if (ImGui::Selectable(p3d::Upscaling::DisplayName(modes[u]), modes[u] == p3d::Upscaling::Resolve(viewUpscaler)))
+							SetUpscalePreview(modes[u], viewQuality);
+					ImGui::EndCombo();
+				}
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Upscaler: what brings the picture up to the viewport's size\nwhen it is rendered below it (the quality beside this)");
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(150.f);
+				if (ImGui::BeginCombo("##upquality", p3d::Upscaling::DisplayName(viewQuality), ImGuiComboFlags_HeightLargest))
+				{
+					const std::vector<p3d::UpscaleQuality> &all = p3d::Upscaling::AllQualities();
+					for (size_t u = 0; u < all.size(); u++)
+						if (ImGui::Selectable(p3d::Upscaling::DisplayName(all[u]), all[u] == viewQuality))
+							SetUpscalePreview(viewUpscaler, all[u]);
+					ImGui::EndCombo();
+				}
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Render quality: how much of the viewport's size the scene is rendered at.\nAuto is the game's to move by its frame rate; here it shows 59%%.");
+			}
 			// The two runtime views the demo launcher and the player carry,
 			// put where a running scene is actually being watched. They exist
 			// outside Play too (View > Windows, F3) - this is just the moment
@@ -1260,8 +1309,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		else if (!IsTerrainMode())
 			HandleViewportGizmoInput(viewCam);
 
-		const uint32 viewW = (uint32)dim.x;
-		const uint32 viewH = (uint32)dim.y;
+		// What is rendered is this big; the viewport is dim. They differ only in
+		// Play, with a render quality below Native chosen (ViewportRenderScale):
+		// everything below draws at viewW x viewH, and the chain's last pass -
+		// the upscaler - brings it to the viewport's size.
+		const f32 previewScale = ViewportRenderScale();
+		const uint32 viewW = std::max(16u, (uint32)(dim.x * previewScale + 0.5f));
+		const uint32 viewH = std::max(16u, (uint32)(dim.y * previewScale + 0.5f));
+		EffectsManager->SetOutputSize((uint32)dim.x, (uint32)dim.y);
+		EffectsManager->SetSharpUpscale(p3d::Upscaling::Resolve(viewUpscaler) != p3d::UpscalerMode::Off, 0.85f);
+		EffectsManager->SetUpscaler(viewUpscaler);
 
 		// Camera preview shares IRenderer statics (shadow counts, MaterialUniforms,
 		// etc.) with the main ForwardRenderer. Run it *before* the viewport pass
@@ -3134,6 +3191,43 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			return p3d::AntiAliasing::ToString(p3d::AntiAliasing::Resolve(self->WantedAntiAliasing(),
 				self->usingDeferredRenderer, GetActiveRenderDevice().GetMaxSamples()));
 		};
+		// The upscaler and render quality, as the player gives them to a built
+		// game (see PyrosPlayer): here they move the Play viewport's preview.
+		(*sharedLua)["getSupportedUpscalers"] = []() {
+			std::vector<std::string> names;
+			const std::vector<p3d::UpscalerMode> modes = p3d::Upscaling::Supported();
+			for (size_t i = 0; i < modes.size(); i++) names.push_back(p3d::Upscaling::ToString(modes[i]));
+			return sol::as_table(names);
+		};
+		(*sharedLua)["getUpscalerLabel"] = [](const std::string &name) {
+			p3d::UpscalerMode mode = p3d::UpscalerMode::Sharp;
+			return std::string(p3d::Upscaling::FromString(name, mode) ? p3d::Upscaling::DisplayName(mode) : name.c_str());
+		};
+		(*sharedLua)["setUpscaler"] = [self](const std::string &name) {
+			p3d::UpscalerMode mode = self->viewUpscaler;
+			if (!p3d::Upscaling::FromString(name, mode)) echo("setUpscaler: no upscaler is called \"" + name + "\"");
+			self->SetUpscalePreview(mode, self->viewQuality);
+			return p3d::Upscaling::ToString(p3d::Upscaling::Resolve(mode));
+		};
+		(*sharedLua)["getUpscaler"] = [self]() { return p3d::Upscaling::ToString(p3d::Upscaling::Resolve(self->viewUpscaler)); };
+		(*sharedLua)["getRequestedUpscaler"] = [self]() { return p3d::Upscaling::ToString(self->viewUpscaler); };
+		(*sharedLua)["getUpscaleQualities"] = []() {
+			std::vector<std::string> names;
+			const std::vector<p3d::UpscaleQuality> &all = p3d::Upscaling::AllQualities();
+			for (size_t i = 0; i < all.size(); i++) names.push_back(p3d::Upscaling::ToString(all[i]));
+			return sol::as_table(names);
+		};
+		(*sharedLua)["getUpscaleQualityLabel"] = [](const std::string &name) {
+			p3d::UpscaleQuality q = p3d::UpscaleQuality::Auto;
+			return std::string(p3d::Upscaling::FromString(name, q) ? p3d::Upscaling::DisplayName(q) : name.c_str());
+		};
+		(*sharedLua)["setUpscaleQuality"] = [self](const std::string &name) {
+			p3d::UpscaleQuality q = self->viewQuality;
+			if (!p3d::Upscaling::FromString(name, q)) echo("setUpscaleQuality: no quality is called \"" + name + "\"");
+			self->SetUpscalePreview(self->viewUpscaler, q);
+		};
+		(*sharedLua)["getUpscaleQuality"] = [self]() { return p3d::Upscaling::ToString(self->viewQuality); };
+		(*sharedLua)["getRenderScale"] = [self]() { return self->ViewportRenderScale(); };
 		(*sharedLua)["getSupportedAntiAliasing"] = [self](sol::this_state s) {
 			sol::state_view lua(s);
 			sol::table t = lua.create_table();
@@ -6873,6 +6967,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::EnterPlayMode()
 	{
+		UpscalePreviewFromProject();
 		// The project's preload list, as a built game has it: read before the
 		// scripts start. (And from here on, which models scripts ask for is
 		// noted - "Fill from last Play" in the project settings uses it.)

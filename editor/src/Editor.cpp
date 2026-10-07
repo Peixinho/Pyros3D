@@ -3825,6 +3825,33 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["warnings"] = br.warnings;
 		return r;
 	}
+	// set_upscale_preview {upscaler?: "off"|"sharp"|"fsr1"|..., quality?: "native"|"quality"|"balanced"|"performance"|"auto"}
+	// and get_upscale_preview: the Play viewport's upscaler and render quality
+	// (the two lists on the Play toolbar).
+	if (name == "set_upscale_preview" || name == "get_upscale_preview")
+	{
+		UpscalerMode mode = sceneView->GetUpscalePreviewMode();
+		UpscaleQuality quality = sceneView->GetUpscalePreviewQuality();
+		if (name == "set_upscale_preview")
+		{
+			if (a.contains("upscaler") && !Upscaling::FromString(a["upscaler"].get<std::string>(), mode))
+				throw std::runtime_error("set_upscale_preview: no upscaler is called '" + a["upscaler"].get<std::string>() + "'");
+			if (a.contains("quality") && !Upscaling::FromString(a["quality"].get<std::string>(), quality))
+				throw std::runtime_error("set_upscale_preview: no quality is called '" + a["quality"].get<std::string>() + "'");
+			sceneView->SetUpscalePreview(mode, quality);
+		}
+		nlohmann::json r;
+		r["ok"] = true;
+		r["upscaler"] = Upscaling::ToString(mode);
+		r["runs"] = Upscaling::ToString(Upscaling::Resolve(mode));
+		r["quality"] = Upscaling::ToString(quality);
+		r["renderScale"] = sceneView->ViewportRenderScale();
+		nlohmann::json supported = nlohmann::json::array();
+		const std::vector<UpscalerMode> modes = Upscaling::Supported();
+		for (size_t i = 0; i < modes.size(); i++) supported.push_back(Upscaling::ToString(modes[i]));
+		r["supported"] = supported;
+		return r;
+	}
 	if (name == "set_renderer")
 	{
 		const std::string type = A("type");

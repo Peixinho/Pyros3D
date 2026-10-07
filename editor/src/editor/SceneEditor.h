@@ -14,6 +14,7 @@
 // std::isnan() calls if json.hpp were parsed first (see the `#undef isnan`
 // pattern in SceneEditor.cpp).
 #include <Pyros3D/Utils/Json/json.hpp>
+#include <Pyros3D/Rendering/PostEffects/Upscaling.h>
 #include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
 // Same alias the rest of the editor code uses (MaterialEditor.h defines it
 // identically; redeclaring a namespace-scope alias to the same type is legal).
@@ -975,8 +976,23 @@ private:
 	// unless a script changed it during Play. Applied every frame - the
 	// manager ignores a request that changes nothing.
 	p3d::AntiAliasingMode WantedAntiAliasing() const;
+public:
+	void SetUpscalePreview(const p3d::UpscalerMode upscaler, const p3d::UpscaleQuality quality) { viewUpscaler = upscaler; viewQuality = quality; viewUpscaleSetByHand = true; }
+	p3d::UpscalerMode GetUpscalePreviewMode() const { return viewUpscaler; }
+	p3d::UpscaleQuality GetUpscalePreviewQuality() const { return viewQuality; }
+	// The share of the viewport's size the scene is rendered at this frame (1 outside Play).
+	p3d::f32 ViewportRenderScale() const;
+private:
 	// Set by the Lua setAntiAliasing() during Play and dropped when Play
 	// stops, so testing a game's options menu does not edit the project.
+	// In Play, the viewport can be rendered below its size and brought up to it
+	// by any of the engine's upscalers (Upscaling.h), as a built game is: to see
+	// what a choice looks like without building one. Starts each Play as the
+	// project has it unless set by hand (the toolbar, a script, the agent).
+	p3d::UpscalerMode viewUpscaler = p3d::UpscalerMode::Sharp;
+	p3d::UpscaleQuality viewQuality = p3d::UpscaleQuality::Native;
+	bool viewUpscaleSetByHand = false;
+	void UpscalePreviewFromProject();
 	bool aaScriptOverride = false;
 	p3d::AntiAliasingMode aaScriptMode = p3d::AntiAliasingMode::Off;
 	// Reads a project-relative .glsl for PostEffectChain::Build. Static so it

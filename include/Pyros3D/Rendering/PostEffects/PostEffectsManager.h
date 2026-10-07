@@ -69,6 +69,8 @@ namespace p3d {
 		// IsUsingFsr(): which of the two it turned out to be.
 		void SetSharpUpscale(const bool on, const f32 sharpness = 0.85f);
 		bool GetSharpUpscale() const { return sharpUpscale; }
+		// Whether the chain ends in an upscaling pass as things stand.
+		bool WillUpscale() const { return sharpUpscale && outputWidth != 0 && outputHeight != 0 && (outputWidth != Width || outputHeight != Height); }
 		bool IsUsingFsr() const { return fsrState == 1 && preferFsr; }
 		// Which of the two brings the frame up to size: AMD's FSR 1 (two passes
 		// at the size shown - some milliseconds of an integrated GPU at 4K), or
