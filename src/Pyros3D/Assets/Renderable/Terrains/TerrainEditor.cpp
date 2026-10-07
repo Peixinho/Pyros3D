@@ -143,6 +143,13 @@ namespace p3d {
 				height = tiles[i].origin.y + data->HeightAt(x - tiles[i].origin.x, z - tiles[i].origin.z);
 				return true;
 			}
+		// No tile there in memory: a terrain that loads round the viewer has
+		// its overview for the rest of it - coarser, and the whole of the
+		// ground. (Without it everything further off than the loaded tiles
+		// was no ground at all: a game took a desert for the sea.)
+		const std::vector<TerrainComponent*> &terrains = TerrainComponent::Instances();
+		for (size_t i = 0; i < terrains.size(); i++)
+			if (terrains[i] && terrains[i]->GetSceneOfTerrain() == scene && terrains[i]->OverviewHeightAt(x, z, height)) return true;
 		return false;
 	}
 

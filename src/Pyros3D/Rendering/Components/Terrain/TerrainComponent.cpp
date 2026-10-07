@@ -693,6 +693,24 @@ namespace p3d {
 		return Join(assetRoot, settings.directory + (colour ? "/overview_color.png" : "/overview.png"));
 	}
 
+	bool TerrainComponent::OverviewHeightAt(const f32 worldX, const f32 worldZ, f32 &height) const
+	{
+		if (!overviewLoaded || overviewSide < 2 || settings.overviewSamples < 2) return false;
+		const Vec3 base = (Owner ? Owner->GetWorldPosition() : Vec3()) + Corner();
+		const f32 spacing = settings.tileSize / (f32)(settings.overviewSamples - 1);
+		const f32 gx = (worldX - base.x) / spacing, gz = (worldZ - base.z) / spacing;
+		const f32 maxX = (f32)((uint32)settings.tilesX * (settings.overviewSamples - 1));
+		const f32 maxZ = (f32)((uint32)settings.tilesZ * (settings.overviewSamples - 1));
+		if (gx < 0.f || gz < 0.f || gx > maxX || gz > maxZ) return false;
+		const uint32 x0 = std::min((uint32)gx, overviewSide - 2), z0 = std::min((uint32)gz, overviewSide - 2);
+		const f32 fx = gx - (f32)x0, fz = gz - (f32)z0;
+		const std::vector<f32> &H = overviewHeights;
+		const f32 a = H[(size_t)z0 * overviewSide + x0], b = H[(size_t)z0 * overviewSide + x0 + 1];
+		const f32 c = H[(size_t)(z0 + 1) * overviewSide + x0], d = H[(size_t)(z0 + 1) * overviewSide + x0 + 1];
+		height = base.y + (a + (b - a) * fx) * (1.f - fz) + (c + (d - c) * fx) * fz;
+		return true;
+	}
+
 	bool TerrainComponent::LoadOverview()
 	{
 		overviewTried = true;

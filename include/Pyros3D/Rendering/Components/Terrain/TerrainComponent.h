@@ -209,6 +209,11 @@ namespace p3d {
 		// be read or written.
 		bool BakeOverview(const std::vector<std::pair<int32, int32> >* only, std::string &error);
 		bool HasOverview() const { return overviewLoaded; }
+		// The ground's height at a place in the world, read from the overview:
+		// coarse, but there for the whole terrain whichever tiles are loaded.
+		// False outside the terrain, or with no overview.
+		bool OverviewHeightAt(const f32 worldX, const f32 worldZ, f32 &height) const;
+		const SceneGraph* GetSceneOfTerrain() const { return scene; }
 
 		// One tile's subtree JSON, from the template. Any thread.
 		static std::string BuildTileJson(const Settings &settings, const std::string &tileTemplate, const std::string &assetRoot,
