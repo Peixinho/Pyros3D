@@ -433,6 +433,8 @@ end
 	lua.set_function("setRenderScale", [this](const f32 scale) { SetRenderScale(scale); });
 	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
 	// setSunLaysAmbient(false): the ambient light in a lighting pass of its own again (to compare)
+	// setNearestFirst(false): the G-buffer in the scene's own order again (to compare)
+	lua.set_function("setNearestFirst", [](const bool on) { DeferredRenderer::SetNearestFirst(on); });
 	lua.set_function("setSunLaysAmbient", [](const bool on) { DeferredRenderer::SetSunLaysAmbient(on); });
 	// setUpscaleSharpness(0.6): how sharp a frame rendered below the window's size is
 	// brought up to it (0..1); negative for a plain stretch

@@ -117,6 +117,10 @@ namespace p3d {
 		// in place of one each. The picture is the same; so, measured on an M3,
 		// is the time - the sun's pass is dominated by its own work, not by
 		// reading the G-buffer - so it is off unless asked for.
+		// The G-buffer drawn nearest object first, so that what is hidden is not
+		// shaded (on unless said).
+		static void SetNearestFirst(const bool on);
+		static bool GetNearestFirst();
 		static void SetSunLaysAmbient(const bool on);
 		static bool GetSunLaysAmbient();
 		static bool IsSSAOHalfResolution();

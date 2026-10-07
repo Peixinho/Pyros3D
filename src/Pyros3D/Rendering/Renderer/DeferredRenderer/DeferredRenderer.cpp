@@ -15,6 +15,10 @@ namespace p3d {
 
 	// Whether a sun's pass lays the ambient light as well (see RenderScene).
 	static bool g_sunLaysAmbient = false;
+	// Whether the G-buffer is drawn nearest object first (see RenderScene).
+	static bool g_gbufferNearestFirst = true;
+	void DeferredRenderer::SetNearestFirst(const bool on) { g_gbufferNearestFirst = on; }
+	bool DeferredRenderer::GetNearestFirst() { return g_gbufferNearestFirst; }
 	void DeferredRenderer::SetSunLaysAmbient(const bool on) { g_sunLaysAmbient = on; }
 	bool DeferredRenderer::GetSunLaysAmbient() { return g_sunLaysAmbient; }
 
@@ -929,6 +933,8 @@ namespace p3d {
 		// (what is in the view, from the frame's cull list - IRenderer::BuildCullList)
 		std::vector<RenderingMesh*> visible;
 		visible.reserve(rmesh.size());
+		std::vector<uint32> visibleAt;
+		visibleAt.reserve(rmesh.size());
 		if (cullFlags.size() != rmesh.size()) BuildCullList();
 		{
 			const uint8 need = CullOwner | CullComponentActive | CullMeshActive;
@@ -936,8 +942,27 @@ namespace p3d {
 			{
 				const uint8 f = cullFlags[k];
 				if ((f & need) != need || (f & CullTransparent)) continue;
-				if (!(f & CullTested) || CullListTest(k)) visible.push_back(rmesh[k]);
+				if (!(f & CullTested) || CullListTest(k)) { visible.push_back(rmesh[k]); visibleAt.push_back((uint32)k); }
 			}
+		}
+		// Nearest first. What is drawn first hides what is drawn after it, and
+		// a pixel that is hidden is not shaded: in the order things happened to
+		// be added to the scene, a field of grass seen along the ground was
+		// shaded many times over, far blades first and near ones on top.
+		if (g_gbufferNearestFirst && visible.size() > 1)
+		{
+			const Vec3 eye = Camera->GetWorldPosition();
+			std::vector<std::pair<f32, uint32> > order(visible.size());
+			for (size_t k = 0; k < visible.size(); k++)
+			{
+				const Vec4 &sp = cullSphere[visibleAt[k]];
+				const f32 dx = sp.x - eye.x, dy = sp.y - eye.y, dz = sp.z - eye.z;
+				order[k] = std::make_pair(sqrtf(dx * dx + dy * dy + dz * dz) - sp.w, (uint32)k);
+			}
+			std::sort(order.begin(), order.end());
+			std::vector<RenderingMesh*> sorted(visible.size());
+			for (size_t k = 0; k < order.size(); k++) sorted[k] = visible[order[k].second];
+			visible.swap(sorted);
 		}
 
 		static const uint32 kLitUsageMask = ShaderUsage::Diffuse | ShaderUsage::CellShading | ShaderUsage::PBR;
