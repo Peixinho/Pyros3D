@@ -407,6 +407,8 @@ namespace p3d {
 		// chain, the same way it pushes a view matrix nothing may read.
 		if (velocityRenderer == NULL || camera == NULL || scene == NULL)
 			return;
+		// (TAA alone reading it: only what moves by itself need be drawn)
+		velocityRenderer->SetDynamicOnly(!ChainUsesVelocity());
 		velocityRenderer->RenderVelocityMap(projection, camera, scene);
 		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
 		{

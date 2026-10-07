@@ -6,6 +6,10 @@
 // Description : Dynamic Cube Map aka Environment Map
 //============================================================================
 
+#include <cmath>
+#include <unordered_set>
+#include <Pyros3D/Rendering/RenderState.h>
+#include <cstring>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
 #include <Pyros3D/Other/PyrosGL.h>
 
@@ -74,6 +78,15 @@ namespace p3d {
 		delete velocityMaterial;
 	}
 
+	// Whether an object's matrix changed by more than a body at rest under
+	// physics trembles: a tenth of a millimetre, or as much turn at a metre.
+	static bool MovedVisibly(const Matrix &before, const Matrix &now)
+	{
+		for (int i = 0; i < 16; i++)
+			if (fabsf(before.m[i] - now.m[i]) > 1e-4f) return true;
+		return false;
+	}
+
 	void VelocityRenderer::RenderVelocityMap(const p3d::Projection &Projection, GameObject* Camera, SceneGraph* Scene)
 	{
 
@@ -123,6 +136,16 @@ namespace p3d {
 		// fragile for DemoLauncher).
 		rmesh = GroupAndSortAssets(Scene, Camera);
 
+		// What has been moved since this pass last ran.
+		std::unordered_set<GameObject*> movedNow;
+		bool everything = false;
+		{
+			std::vector<GameObject*> moved;
+			if (RenderState::MovedSince(movedSeq, moved)) movedNow.insert(moved.begin(), moved.end());
+			else everything = true;         // more than the log remembers
+			movedSeq = RenderState::MovedCount();
+		}
+
 		// Cleared even with nothing to draw: TAA reads this map every frame,
 		// and an empty scene would otherwise leave it holding whatever the
 		// last scene with meshes wrote.
@@ -167,7 +190,22 @@ namespace p3d {
 				{
 					if ((*k)->renderingComponent->IsActive() && (*k)->Active == true)
 					{
-						RenderObject((*k), (*k)->renderingComponent->GetOwner(), velocityMaterial);
+						// (SetDynamicOnly) Only what moves by itself: an object whose place in the
+						// world changed since the last frame, or one with bones.
+						// Everything else stood still, and whoever reads this map
+						// (TAA, motion blur) works its motion out from depth and
+						// the two cameras. This pass used to draw the whole scene
+						// again, object by object - four thousand draws and two
+						// million triangles a frame on a game's island.
+						GameObject* owner = (*k)->renderingComponent->GetOwner();
+						const bool bones = !(*k)->SkinningBones.empty();
+						// (moved: its matrix was worked out again since this pass
+						// last looked - RenderState's log - AND came out different.
+						// The matrix kept from "last frame" means nothing on an
+						// object the scene has stopped updating.)
+						if (dynamicOnly && !bones && ((!everything && movedNow.find(owner) == movedNow.end())
+							|| !MovedVisibly(owner->GetPrvWorldTransformation(), owner->GetWorldTransformation()))) continue;
+						RenderObject((*k), owner, velocityMaterial);
 					}
 				}
 			}

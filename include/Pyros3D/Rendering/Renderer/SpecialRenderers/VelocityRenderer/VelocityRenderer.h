@@ -23,6 +23,10 @@ namespace p3d {
 		~VelocityRenderer();
 		
 		void RenderVelocityMap(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene);
+		// Draw only what moves by itself (objects that moved since last frame,
+		// and anything with bones), for a reader that works the rest out from
+		// depth and the cameras - TAA does. Off: the whole scene, as motion blur reads it.
+		void SetDynamicOnly(const bool only) { dynamicOnly = only; }
 
 		void Resize(const uint32 &Width, const uint32 &Height);
 		
@@ -37,6 +41,8 @@ namespace p3d {
 		const Matrix &GetCameraReproject() const { return cameraReproject; }
 
 	protected:
+		bool dynamicOnly = false;
+		uint64_t movedSeq = 0;
 		
 		virtual void RenderScene(const p3d::Projection &projection, GameObject* Camera, SceneGraph* Scene) {}
 

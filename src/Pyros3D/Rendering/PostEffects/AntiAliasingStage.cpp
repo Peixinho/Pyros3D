@@ -144,6 +144,8 @@ namespace p3d {
 			taa[1] = new TAAResolveEffect(velocity, velocityDepth, Width, Height);
 			taa[0]->SetHistory(taa[1]->GetTexture());
 			taa[1]->SetHistory(taa[0]->GetTexture());
+			taa[0]->SetSceneDepth(captureDepth);
+			taa[1]->SetSceneDepth(captureDepth);
 			taaCurrent = 0;
 			break;
 

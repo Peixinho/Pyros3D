@@ -275,6 +275,7 @@ namespace p3d {
 			"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n" // velocity, UV/frame
 			"SAMPLER_BINDING(2) uniform sampler2D uTex2;\n" // velocity pass depth
 			"SAMPLER_BINDING(3) uniform sampler2D uTex3;\n" // history
+			"SAMPLER_BINDING(4) uniform sampler2D uTex4;\n" // the scene's own depth
 			"UBO_BINDING(48) uniform TAAParams {\n"
 			"	mat4 uReproject;\n"
 			"	vec4 uParams;\n" // x: history valid
@@ -336,16 +337,19 @@ namespace p3d {
 			"			vec2 o = vec2(float(x), float(y)) * texel;\n"
 			"			vec3 c = ToYCoCg(max(texture(uTex0, uv + o).rgb, vec3(0.0)));\n"
 			"			m1 += c; m2 += c * c; mn = min(mn, c); mx = max(mx, c);\n"
-			"			float d = texture(uTex2, uv + o).r;\n"
+			"			float d = texture(uTex4, uv + o).r;\n"
 			"			if (d < bestDepth) { bestDepth = d; bestUV = uv + o; }\n"
 			"		}\n"
 			"	}\n"
 			"	vec2 velocity;\n"
-			"	if (bestDepth >= 0.99999) {\n"
-			// Nothing drawn here in the velocity pass - sky or background.
-			// Reproject the far plane with the camera's own motion instead
-			// of reading a velocity nobody wrote.
-			"		vec4 prev = uReproject * vec4(UVToNDC(uv), 1.0, 1.0);\n"
+			// The velocity pass draws only what moves by itself. Where it drew
+			// the surface that is seen here (its depth and the scene's agree),
+			// that is the motion; everywhere else the point stood still in the
+			// world, and where it was on screen last frame follows from its depth
+			// and the two cameras.
+			"	float drawn = texture(uTex2, bestUV).r;\n"
+			"	if (drawn >= 0.99999 || abs(drawn - bestDepth) > 0.002) {\n"
+			"		vec4 prev = uReproject * vec4(UVToNDC(uv), min(bestDepth, 1.0) * 2.0 - 1.0, 1.0);\n"
 			"		velocity = (prev.w > 0.0) ? uv - NDCToUV(prev.xy / prev.w) : vec2(0.0);\n"
 			"	} else {\n"
 			"		velocity = texture(uTex1, bestUV).rg;\n"
@@ -385,6 +389,11 @@ namespace p3d {
 	void TAAResolveEffect::SetHistory(Texture* history)
 	{
 		UseCustomTexture(history);
+	}
+
+	void TAAResolveEffect::SetSceneDepth(Texture* depth)
+	{
+		UseCustomTexture(depth);
 	}
 
 	void TAAResolveEffect::SetFrameParams(const Matrix &reproject, const bool historyValid)

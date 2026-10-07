@@ -5,6 +5,7 @@
 
 #include <Pyros3D/Rendering/PostEffects/Effects/FsrEffect.h>
 #include <algorithm>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -32,6 +33,8 @@ namespace p3d {
 		// (EASU reads through textureGather, which WebGL 2 does not have)
 		return false;
 #else
+		// (PYROS_NO_FSR=1: the built-in filter, to compare the two)
+		if (getenv("PYROS_NO_FSR") != NULL) return false;
 		std::ifstream a(kPortability), b(kFsr);
 		return (bool)a && (bool)b;
 #endif

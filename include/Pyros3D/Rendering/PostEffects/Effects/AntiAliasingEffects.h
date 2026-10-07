@@ -55,6 +55,8 @@ namespace p3d {
 		// The other half's texture. Separate from the constructor because
 		// the two halves each need the other to exist first.
 		void SetHistory(Texture* history);
+		// The scene's depth (after the history: it is the shader's uTex4).
+		void SetSceneDepth(Texture* depth);
 
 		// reproject maps this frame's clip space to last frame's, for pixels
 		// the velocity pass drew nothing into. historyValid false outputs the

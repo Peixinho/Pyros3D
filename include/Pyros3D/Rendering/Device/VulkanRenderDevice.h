@@ -1333,6 +1333,15 @@ namespace p3d {
 			         // draw (symptom: island triangles discard-flicker).
 			case 18: // BIND_ObjectMatrixUniforms
 			case 19: // BIND_BoneMatrices
+			case 17: // BIND_VelocityFrameUniforms - last frame's view and
+			         // projection, the camera's own of whichever renderer is
+			         // drawing. Every IRenderer writes it (static buffer, one
+			         // for the process), and a frame has several: the scene,
+			         // a map, a preview in the UI. Not dynamic, the last one
+			         // to write gave ITS last frame to every draw of the
+			         // frame - the velocity pass measured the whole world
+			         // moving against some other camera, and TAA built on it
+			         // reprojected everything that stands still.
 			case 20: // BIND_VelocityObjectUniforms
 			case 22: // BIND_MaterialUniforms
 			case 23: // BIND_ObjectLightCounts

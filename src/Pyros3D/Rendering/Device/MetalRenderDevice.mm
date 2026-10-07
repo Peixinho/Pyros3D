@@ -1595,6 +1595,7 @@ namespace p3d {
 		case 16: // BIND_VertexFrameUniforms
 		case 18: // BIND_ObjectMatrixUniforms
 		case 19: // BIND_BoneMatrices
+		case 17: // BIND_VelocityFrameUniforms - see VulkanRenderDevice.h's case 17
 		case 20: // BIND_VelocityObjectUniforms
 		case 21: // BIND_AmbientLightUniforms - see VulkanRenderDevice.h's own
 		         // case 21 for the full account. Every IRenderer instance
