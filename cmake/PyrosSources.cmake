@@ -73,6 +73,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/VignetteEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BlurXEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SharpUpscaleEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BlurYEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BloomEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/VolumetricSmokeEffect.cpp

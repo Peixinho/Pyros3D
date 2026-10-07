@@ -60,6 +60,11 @@ namespace p3d {
 		// pass then scales the frame up as it draws. 0 x 0 - the default -
 		// means the chain's own size.
 		void SetOutputSize(const uint32 width, const uint32 height) { outputWidth = width; outputHeight = height; }
+		// A chain that ends somewhere bigger than it works at (SetOutputSize)
+		// gets there through a sharpening resample (SharpUpscaleEffect), not a
+		// plain stretch. On unless said otherwise; sharpness 0..1.
+		void SetSharpUpscale(const bool on, const f32 sharpness = 0.6f);
+		bool GetSharpUpscale() const { return sharpUpscale; }
 		void SetRenderLastToTexture(const bool enabled) { renderLastToTexture = enabled; }
 		bool GetRenderLastToTexture() const { return renderLastToTexture; }
 
@@ -208,6 +213,9 @@ namespace p3d {
 		// See SetRenderLastToTexture().
 		bool renderLastToTexture = false;
 		uint32 outputWidth = 0, outputHeight = 0;
+		bool sharpUpscale = true;
+		f32 upscaleSharpness = 0.6f;
+		IEffect* upscalePass = NULL;
 		// See SetSceneSourceTexture().
 		Texture* sceneSource = NULL;
 		// See SetViewMatrix().

@@ -10,6 +10,7 @@
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/GammaEncodeEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/SharpUpscaleEffect.h>
 #include <Pyros3D/Rendering/PostEffects/AntiAliasingStage.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
@@ -220,6 +221,20 @@ namespace p3d {
 		aaStage->SetPreserveDepth(preserve);
 	}
 
+	void PostEffectsManager::SetSharpUpscale(const bool on, const f32 sharpness)
+	{
+		if (sharpness != upscaleSharpness && upscalePass != NULL)
+		{
+			// (the amount is compiled in: a pass made for another is made again.
+			// Not freed under a frame that may still be drawing with it.)
+			GetActiveRenderDevice().WaitIdle();
+			delete upscalePass;
+			upscalePass = NULL;
+		}
+		sharpUpscale = on;
+		upscaleSharpness = sharpness;
+	}
+
 	void PostEffectsManager::Resize(const uint32 width, const uint32 height)
 	{
 		if (width == 0 || height == 0)
@@ -233,6 +248,7 @@ namespace p3d {
 
 		// Resize External FBO
 		ExternalFBO->Resize(Width, Height);
+		if (upscalePass != NULL) upscalePass->Resize(Width, Height);
 
 		if (viewportGammaEffect != NULL)
 			viewportGammaEffect->Resize(Width, Height);
@@ -443,6 +459,14 @@ namespace p3d {
 		// scene's may go by the pixel it is drawing, so it is not left last.
 		const bool scaled = !renderLastToTexture && outputWidth != 0 && outputHeight != 0
 			&& (outputWidth != Width || outputHeight != Height);
+		if (scaled && sharpUpscale)
+		{
+			// (bigger than it was rendered: the last pass is the one that
+			// makes it so, whatever came before it)
+			if (upscalePass == NULL) upscalePass = new SharpUpscaleEffect(RTT::LastRTT, Width, Height, upscaleSharpness);
+			run.push_back(upscalePass);
+		}
+		else
 		if (!renderLastToTexture && (run.empty() ? (aaStage->IsMSAA() || scaled) : (run.back() == taaPass || (scaled && finalStart == run.size()))))
 			run.push_back(aaStage->GetCopyPass());
 		if (run.empty())
@@ -842,6 +866,7 @@ namespace p3d {
 		}
 
 		// Before the capture and the velocity map: its passes sample both.
+		delete upscalePass;
 		delete aaStage;
 		aaStage = NULL;
 

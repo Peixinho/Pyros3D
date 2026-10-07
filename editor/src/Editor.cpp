@@ -6350,6 +6350,9 @@ void Editor::DrawProjectDialogs()
 			if (ImGui::SliderInt("Redraw the sun's shadows every (frames)", &every, 1, 4)) q["shadowUpdateInterval"] = every;
 			bool half = q.value("ssaoHalfResolution", false);
 			if (ImGui::Checkbox("Ambient occlusion at half resolution", &half)) q["ssaoHalfResolution"] = half;
+			f32 sharp = q.value("upscaleSharpness", 0.6f);
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::SliderFloat("Upscale sharpness (below full render scale; under 0: plain)", &sharp, -0.1f, 1.f, "%.2f")) q["upscaleSharpness"] = sharp;
 			f32 scale = q.value("renderScale", 1.f);
 			ImGui::SetNextItemWidth(160.f);
 			if (ImGui::SliderFloat("Render scale", &scale, 0.25f, 1.f, "%.2f")) q["renderScale"] = scale;
