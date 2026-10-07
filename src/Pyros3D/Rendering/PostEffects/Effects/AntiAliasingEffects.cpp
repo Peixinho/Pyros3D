@@ -291,6 +291,34 @@ namespace p3d {
 			"vec2 UVToNDC(vec2 uv) { return uv * 2.0 - 1.0; }\n"
 			"vec2 NDCToUV(vec2 n) { return n * 0.5 + 0.5; }\n"
 			"#endif\n"
+			// The history, read through a Catmull-Rom filter (nine filtered taps for
+			// its sixteen texels). It is read between texels every frame the
+			// picture moves, and read plainly each of those readings is a blur
+			// laid over the last: a turning camera wiped the grass smooth.
+			"vec3 History(vec2 uv) {\n"
+			"	vec2 size = vec2(textureSize(uTex3, 0));\n"
+			"	vec2 inv = 1.0 / size;\n"
+			"	vec2 sp = uv * size;\n"
+			"	vec2 tc = floor(sp - 0.5) + 0.5;\n"
+			"	vec2 f = sp - tc;\n"
+			"	vec2 w0 = f * (-0.5 + f * (1.0 - 0.5 * f));\n"
+			"	vec2 w1 = 1.0 + f * f * (-2.5 + 1.5 * f);\n"
+			"	vec2 w2 = f * (0.5 + f * (2.0 - 1.5 * f));\n"
+			"	vec2 w3 = f * f * (-0.5 + 0.5 * f);\n"
+			"	vec2 w12 = w1 + w2;\n"
+			"	vec2 t0 = (tc - 1.0) * inv;\n"
+			"	vec2 t3 = (tc + 2.0) * inv;\n"
+			"	vec2 t12 = (tc + w2 / w12) * inv;\n"
+			"	return texture(uTex3, vec2(t0.x, t0.y)).rgb * (w0.x * w0.y)\n"
+			"		+ texture(uTex3, vec2(t12.x, t0.y)).rgb * (w12.x * w0.y)\n"
+			"		+ texture(uTex3, vec2(t3.x, t0.y)).rgb * (w3.x * w0.y)\n"
+			"		+ texture(uTex3, vec2(t0.x, t12.y)).rgb * (w0.x * w12.y)\n"
+			"		+ texture(uTex3, vec2(t12.x, t12.y)).rgb * (w12.x * w12.y)\n"
+			"		+ texture(uTex3, vec2(t3.x, t12.y)).rgb * (w3.x * w12.y)\n"
+			"		+ texture(uTex3, vec2(t0.x, t3.y)).rgb * (w0.x * w3.y)\n"
+			"		+ texture(uTex3, vec2(t12.x, t3.y)).rgb * (w12.x * w3.y)\n"
+			"		+ texture(uTex3, vec2(t3.x, t3.y)).rgb * (w3.x * w3.y);\n"
+			"}\n"
 			"void main() {\n"
 			"	vec2 uv = vTexcoord;\n"
 			"	vec3 cur = max(texture(uTex0, uv).rgb, vec3(0.0));\n"
@@ -329,7 +357,7 @@ namespace p3d {
 			"	}\n"
 			"	vec2 prevUV = uv - velocity;\n"
 			"	if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0)))) { FragColor = vec4(cur, 1.0); return; }\n"
-			"	vec3 hist = ToYCoCg(texture(uTex3, prevUV).rgb);\n"
+			"	vec3 hist = ToYCoCg(max(History(prevUV), vec3(0.0)));\n"
 			// Variance clip, bounded by the min/max box: tighter than the box
 			// alone, so stale history from a disocclusion goes faster.
 			"	vec3 mean = m1 / 9.0;\n"
@@ -341,8 +369,13 @@ namespace p3d {
 			// dominates the average and flickers for frames.
 			"	float lc = dot(cur, vec3(0.299, 0.587, 0.114));\n"
 			"	float lh = dot(hist, vec3(0.299, 0.587, 0.114));\n"
-			"	float wc = 0.1 / (1.0 + lc);\n"
-			"	float wh = 0.9 / (1.0 + lh);\n"
+			// The share of this frame: a tenth standing still, up to nearly half
+			// when the picture is moving under the pixel - a moving thing is
+			// then made of fewer, newer frames and smears less.
+			"	float moved = clamp(length(velocity * vec2(textureSize(uTex0, 0))) * 0.5, 0.0, 1.0);\n"
+			"	float share = mix(0.1, 0.45, moved);\n"
+			"	float wc = share / (1.0 + lc);\n"
+			"	float wh = (1.0 - share) / (1.0 + lh);\n"
 			"	FragColor = vec4((cur * wc + hist * wh) / (wc + wh), 1.0);\n"
 			"}\n";
 

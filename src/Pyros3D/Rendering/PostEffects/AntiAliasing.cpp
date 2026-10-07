@@ -87,6 +87,15 @@ namespace p3d {
 
 		AntiAliasingMode Resolve(const AntiAliasingMode requested, const bool deferred, const uint32 maxSamples)
 		{
+#if defined(METAL_BACKEND)
+			// On the Metal backend the velocity pass does not come out still
+			// for a still picture, and TAA built on it never settles: grain
+			// standing, streaks at edges. Until that pass is right there, TAA
+			// asked for on Metal is FXAA. (Vulkan - MoltenVK on a Mac
+			// included - is not affected.)
+			if (requested == AntiAliasingMode::TAA)
+				return AntiAliasingMode::FXAA;
+#endif
 			if (!IsMSAA(requested))
 				return requested;
 			if (deferred || maxSamples < 2)
@@ -114,6 +123,8 @@ namespace p3d {
 			if (effective == requested)
 				return std::string();
 			const std::string from = DisplayName(requested), to = DisplayName(effective);
+			if (requested == AntiAliasingMode::TAA)
+				return from + " does not settle on the Metal backend yet - using " + to;
 			if (deferred)
 				return from + " is not available under the deferred renderer - using " + to;
 			if (maxSamples < 2)

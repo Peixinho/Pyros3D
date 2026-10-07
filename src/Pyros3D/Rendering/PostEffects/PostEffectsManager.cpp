@@ -434,12 +434,15 @@ namespace p3d {
 	{
 		ApplyAntiAliasing();
 
-		// TAA, the chain, then FXAA/SMAA - see AntiAliasingStage.h for why
-		// the anti-aliasing passes sit on either side of the chain.
+		// The chain, then TAA, then FXAA/SMAA. TAA used to come first, and the
+		// chain's effects then read a settled picture against this frame's
+		// depth - which is jittered, a different sub-pixel every frame. Along
+		// every edge the two disagreed: fog laid by depth left a dark line
+		// the whole length of the horizon. After the chain, colour and depth
+		// are of the same frame for everything that reads both, and what TAA
+		// settles is the finished picture.
 		std::vector<IEffect*> run;
 		IEffect* const taaPass = aaStage->PrepareTAA(projection->m * viewMatrix, haveViewMatrix);
-		if (taaPass != NULL)
-			run.push_back(taaPass);
 		// (effects with nothing to do this frame are left out - IEffect::IsIdle -
 		// unless that would leave nothing at all to carry the frame to where it
 		// is shown)
@@ -448,10 +451,12 @@ namespace p3d {
 			aaStage->AppendFinalPasses(finals);
 			size_t busy = 0;
 			for (size_t e = 0; e < effects.size(); e++) if (!effects[e]->IsIdle()) busy++;
-			const bool mayDrop = busy > 0 || !finals.empty();
+			const bool mayDrop = busy > 0 || !finals.empty() || taaPass != NULL;
 			for (size_t e = 0; e < effects.size(); e++)
 				if (!mayDrop || !effects[e]->IsIdle()) run.push_back(effects[e]);
 		}
+		if (taaPass != NULL)
+			run.push_back(taaPass);
 		const size_t finalStart = run.size();
 		aaStage->AppendFinalPasses(run);
 		// Something has to put the frame on the swapchain. TAA cannot be the
@@ -806,6 +811,9 @@ namespace p3d {
 				IEffect *effect = run[idx];
 				if (idx == finalStart)
 					aaStage->SetFinalInput(LastRTT);
+				// (what TAA settles is what the chain made of the frame - or the
+				// frame itself, with no chain before it)
+				if (effect == taaPass) effect->SetColorOverride(idx > 0 ? LastRTT : NULL);
 				activeFBO = effect->fbo;
 				device->SetViewport(0, 0, effect->Width, effect->Height);
 				activeFBO->Bind();
