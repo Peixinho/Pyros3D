@@ -581,6 +581,7 @@ namespace p3d {
 		j["alignToGround"] = s.alignToGround; j["sink"] = s.sink; j["seed"] = s.seed;
 		j["fullDistance"] = s.fullDistance; j["fadeDistance"] = s.fadeDistance; j["shadowDistance"] = s.shadowDistance;
 		j["lodDistance"] = s.lodDistance; j["castShadows"] = s.castShadows;
+		if (s.thinDensity < 1.f) { j["thinFrom"] = s.thinFrom; j["thinTo"] = s.thinTo; j["thinDensity"] = s.thinDensity; }
 		if (!s.densityMap.empty()) j["densityMap"] = RelativizeSceneAssetPath(s.densityMap);
 		return j;
 	}
@@ -602,6 +603,9 @@ namespace p3d {
 		s.fadeDistance = std::max(s.fullDistance, j.value("fadeDistance", s.fadeDistance));
 		s.shadowDistance = j.value("shadowDistance", s.shadowDistance);
 		s.lodDistance = std::max(0.f, j.value("lodDistance", s.lodDistance));
+		s.thinFrom = std::max(0.f, j.value("thinFrom", s.thinFrom));
+		s.thinTo = std::max(s.thinFrom, j.value("thinTo", s.thinTo));
+		s.thinDensity = std::min(1.f, std::max(0.05f, j.value("thinDensity", s.thinDensity)));
 		s.castShadows = j.value("castShadows", s.castShadows);
 		s.densityMap = j.value("densityMap", std::string());
 		return s;

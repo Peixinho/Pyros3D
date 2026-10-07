@@ -55,6 +55,12 @@ namespace p3d {
 		f32 sink = 0.05f;			// metres pushed into the ground
 		uint32 seed = 1;
 		f32 fullDistance = 60.f, fadeDistance = 120.f, shadowDistance = 60.f;
+		// Thinning: from thinFrom to thinTo metres the plants drawn fall to
+		// thinDensity of them (1: none taken), and those left grow, so that
+		// the ground is covered as it was. Far off a plant is a few pixels,
+		// and what a field costs to draw is how many plants it is - not how
+		// much of the picture they fill.
+		f32 thinFrom = 0.f, thinTo = 0.f, thinDensity = 1.f;
 		f32 lodDistance = 0.f;		// 0: no far mesh
 		bool castShadows = true;
 		// Optional greyscale PNG over the tile (0..1 = keep probability).
@@ -140,6 +146,12 @@ namespace p3d {
 
 		// Fraction of a block drawn at distance d, for a spec.
 		static f32 DensityAt(const FoliageLayerSpec &spec, const f32 d);
+		// The share of plants a layer's thinning leaves at a distance.
+		static f32 ThinningAt(const FoliageLayerSpec &spec, const f32 d);
+		// Thinning for every layer that asks for it (on unless said): off, a
+		// field is drawn plant for plant, as before there was any.
+		static void SetThinning(const bool on);
+		static bool GetThinning();
 
 	private:
 		std::vector<Layer> layers;

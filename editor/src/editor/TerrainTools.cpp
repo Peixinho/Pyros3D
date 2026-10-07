@@ -1097,6 +1097,10 @@ int TerrainTools::AddGrassLayer(json &subtree, const std::string &projectRoot, s
 	layer["sink"] = -0.6;
 	layer["fullDistance"] = 45;
 	layer["fadeDistance"] = 110;
+	// (far off, a third of the tufts and each one bigger: see FoliageLayerSpec::thinDensity)
+	layer["thinFrom"] = 12;
+	layer["thinTo"] = 60;
+	layer["thinDensity"] = 0.33;
 	layer["shadowDistance"] = 0;
 	layer["castShadows"] = false;
 

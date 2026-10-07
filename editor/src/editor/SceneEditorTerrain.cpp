@@ -60,7 +60,8 @@ namespace {
 			{ "maxSlope", s.maxSlopeDegrees }, { "minHeight", s.minHeight }, { "maxHeight", s.maxHeight },
 			{ "alignToGround", s.alignToGround }, { "sink", s.sink }, { "seed", s.seed },
 			{ "fullDistance", s.fullDistance }, { "fadeDistance", s.fadeDistance }, { "shadowDistance", s.shadowDistance },
-			{ "lodDistance", s.lodDistance }, { "castShadows", s.castShadows }, { "densityMap", s.densityMap } };
+			{ "lodDistance", s.lodDistance }, { "castShadows", s.castShadows }, { "densityMap", s.densityMap },
+			{ "thinFrom", s.thinFrom }, { "thinTo", s.thinTo }, { "thinDensity", s.thinDensity } };
 	}
 
 	// The keys set_foliage_layer takes - the scene file's own names.
@@ -88,6 +89,9 @@ namespace {
 		s.shadowDistance = std::max(0.f, j.value("shadowDistance", s.shadowDistance));
 		s.lodDistance = std::max(0.f, j.value("lodDistance", s.lodDistance));
 		s.castShadows = j.value("castShadows", s.castShadows);
+		s.thinFrom = std::max(0.f, j.value("thinFrom", s.thinFrom));
+		s.thinTo = std::max(s.thinFrom, j.value("thinTo", s.thinTo));
+		s.thinDensity = std::min(1.f, std::max(0.05f, j.value("thinDensity", s.thinDensity)));
 	}
 
 	// What the foliage and material commands edit inside an object's
@@ -720,6 +724,11 @@ void SceneEditor::DrawTerrainProperties(GameObject* go, uint32 goId)
 			ImGui::DragFloat("Full density to", &fs.fullDistance, 1.f, 0.f, 5000.f, "%.0f m"); send |= ImGui::IsItemDeactivatedAfterEdit();
 			ImGui::DragFloat("Fade out by", &fs.fadeDistance, 1.f, 0.f, 5000.f, "%.0f m"); send |= ImGui::IsItemDeactivatedAfterEdit();
 			ImGui::DragFloat("Far mesh from", &fs.lodDistance, 1.f, 0.f, 5000.f, "%.0f m"); send |= ImGui::IsItemDeactivatedAfterEdit();
+			ImGui::DragFloat("Thin out from", &fs.thinFrom, 1.f, 0.f, 5000.f, "%.0f m"); send |= ImGui::IsItemDeactivatedAfterEdit();
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Far off, fewer plants are drawn and each one left is drawn bigger,\nso the ground stays covered. What a field costs is how many plants it is.");
+			ImGui::DragFloat("Thinned by", &fs.thinTo, 1.f, 0.f, 5000.f, "%.0f m"); send |= ImGui::IsItemDeactivatedAfterEdit();
+			ImGui::SliderFloat("Plants kept", &fs.thinDensity, 0.1f, 1.f, "%.2f"); send |= ImGui::IsItemDeactivatedAfterEdit();
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("1: no thinning.");
 			if (send)
 			{
 				json op = SpecJson(fs);
@@ -1639,6 +1648,12 @@ void SceneEditor::DrawFoliageProperties(GameObject* go, uint32 goId)
 			ImGui::DragFloat("Fade out by", &s.fadeDistance, 1.f, 0.f, 5000.f, "%.0f m"); track();
 			ImGui::DragFloat("Shadows to", &s.shadowDistance, 1.f, 0.f, 5000.f, "%.0f m"); track();
 			ImGui::DragFloat("Far mesh from", &s.lodDistance, 1.f, 0.f, 5000.f, "%.0f m"); track();
+			ImGui::DragFloat("Thin out from", &s.thinFrom, 1.f, 0.f, 5000.f, "%.0f m"); track();
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("Far off, fewer plants are drawn and each one left is drawn bigger,\nso the ground stays covered. What a field costs is how many plants it is.");
+			ImGui::DragFloat("Thinned by", &s.thinTo, 1.f, 0.f, 5000.f, "%.0f m"); track();
+			ImGui::SliderFloat("Plants kept", &s.thinDensity, 0.1f, 1.f, "%.2f"); track();
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("1: no thinning.");
+			s.thinTo = std::max(s.thinTo, s.thinFrom);
 			bool shadows = s.castShadows;
 			if (ImGui::Checkbox("Cast shadows", &shadows)) { s.castShadows = shadows; immediate(true); }
 			s.fadeDistance = std::max(s.fadeDistance, s.fullDistance);

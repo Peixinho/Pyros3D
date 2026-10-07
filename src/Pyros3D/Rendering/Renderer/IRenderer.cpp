@@ -795,7 +795,7 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		SpotShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, 4);
 		VertexFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 3, 16);
 		VelocityFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 17);
-		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) + sizeof(Vec4), 18);
+		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) + sizeof(Vec4) * 2, 18);
 		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
 		VelocityObjectUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 20);
 		// 14 vec4s, not 5: the block grew by the nine SH coefficients.
@@ -3689,9 +3689,17 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		// to LightsBlock's existing partial writes.
 		// std140: mat4 uModelMatrix then vec4 uWind - one upload, so the
 		// two can't drift apart the way two separate writes could.
-		struct { Matrix model; Vec4 wind; } objectMatrixData;
+		struct { Matrix model; Vec4 wind; Vec4 growth; } objectMatrixData;
 		objectMatrixData.model = ModelMatrix;
 		objectMatrixData.wind = Vec4(0.f, 0.f, 0.f, 0.f);
+		// (an instanced component's growth of its instances: see
+		// IRenderingInstancedComponent::SetInstanceGrowth)
+		objectMatrixData.growth = Vec4(1.f, 1.f, 0.f, 0.f);
+		if (rmesh != NULL && rmesh->renderingComponent != NULL && rmesh->renderingComponent->IsInstanced())
+		{
+			const Vec2 &growth = static_cast<IRenderingInstancedComponent*>(rmesh->renderingComponent)->GetInstanceGrowth();
+			objectMatrixData.growth = Vec4(growth.x, growth.y, 0.f, 0.f);
+		}
 		{
 			GenericShaderMaterial* genericMat = dynamic_cast<GenericShaderMaterial*>(Material);
 			if (genericMat != NULL && (genericMat->GetOptions() & ShaderUsage::VertexWind))

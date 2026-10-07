@@ -323,9 +323,10 @@ namespace p3d {
 		};
 		device->ReplaceUniformBuffer(IRenderer::GetSharedGlobalMatricesUBO(), sizeof(Matrix) * 2, globalMatricesData);
 
-		struct { Matrix model; Vec4 wind; } objectMatrixData;
+		struct { Matrix model; Vec4 wind; Vec4 growth; } objectMatrixData;
 		objectMatrixData.model = modelMatrix;
 		objectMatrixData.wind = Vec4(0.f, 0.f, 0.f, 0.f);
+		objectMatrixData.growth = Vec4(1.f, 1.f, 0.f, 0.f);
 		device->ReplaceUniformBuffer(IRenderer::GetSharedObjectMatrixUniformsUBO(), sizeof(objectMatrixData), &objectMatrixData);
 
 		IRenderer::MarkSharedGlobalMatricesDirty();

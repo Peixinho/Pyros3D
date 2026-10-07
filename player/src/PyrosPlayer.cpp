@@ -435,6 +435,9 @@ end
 	// setSunLaysAmbient(false): the ambient light in a lighting pass of its own again (to compare)
 	// setNearestFirst(false): the G-buffer in the scene's own order again (to compare)
 	lua.set_function("setNearestFirst", [](const bool on) { DeferredRenderer::SetNearestFirst(on); });
+	// setFoliageThinning(false): every plant of a field drawn, however far (see FoliageLayerSpec::thinDensity)
+	lua.set_function("setFoliageThinning", [](const bool on) { FoliageComponent::SetThinning(on); });
+	lua.set_function("getFoliageThinning", []() { return FoliageComponent::GetThinning(); });
 	lua.set_function("setSunLaysAmbient", [](const bool on) { DeferredRenderer::SetSunLaysAmbient(on); });
 	// setUpscaleSharpness(0.6): how sharp a frame rendered below the window's size is
 	// brought up to it (0..1); negative for a plain stretch

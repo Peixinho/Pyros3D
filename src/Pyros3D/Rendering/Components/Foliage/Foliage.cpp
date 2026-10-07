@@ -155,6 +155,19 @@ namespace p3d {
 		return 1.f - t * t;
 	}
 
+	static bool g_thinning = true;
+	void FoliageComponent::SetThinning(const bool on) { g_thinning = on; }
+	bool FoliageComponent::GetThinning() { return g_thinning; }
+
+	f32 FoliageComponent::ThinningAt(const FoliageLayerSpec &spec, const f32 d)
+	{
+		if (!g_thinning || spec.thinDensity >= 1.f || d <= spec.thinFrom) return 1.f;
+		const f32 least = std::max(0.05f, spec.thinDensity);
+		if (d >= spec.thinTo || spec.thinTo <= spec.thinFrom) return least;
+		const f32 t = (d - spec.thinFrom) / (spec.thinTo - spec.thinFrom);
+		return 1.f + (least - 1.f) * (t * t * (3.f - 2.f * t));
+	}
+
 	void FoliageComponent::BuildBlocks(GameObject* owner, Layer &layer, PreparedFoliageLayer &prepared,
 		std::vector<std::shared_ptr<GameObject> >* created)
 	{
@@ -250,8 +263,15 @@ namespace p3d {
 				// must draw all of it.
 				const f32 half = layer.spec.blockSize * 0.7072f;
 				const f32 d = std::max(0.f, (base + layer.centres[b]).distance(g_viewer) - half);
-				const uint32 n = (uint32)(layer.counts[b] * DensityAt(layer.spec, d));
+				// (thinned by where the block's middle is - its plants are as
+				// many nearer as further than that - and those left grown to
+				// cover what the others did: wider more than taller, so that a
+				// field far off does not stand higher than one near.)
+				const f32 kept = ThinningAt(layer.spec, d + half);
+				const uint32 n = (uint32)(layer.counts[b] * DensityAt(layer.spec, d) * kept);
 				if (rc->NumberOfInstances() != n) rc->SetNumberInstances(n);
+				const f32 area = 1.f / kept;
+				rc->SetInstanceGrowth(powf(area, 0.75f), powf(area, 0.25f));
 				if (layer.spec.castShadows && d <= layer.spec.shadowDistance) rc->EnableCastShadows();
 				else rc->DisableCastShadows();
 			}

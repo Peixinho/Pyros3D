@@ -357,6 +357,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // the shadow pass inherit a caster's wind (see
         // PickShadowMaterial()) so blades and their shadows sway together.
         vec4 uWind;
+        // xy: an instanced draw's instances this much wider and taller than
+        // the mesh (IRenderingInstancedComponent::SetInstanceGrowth).
+        vec4 uInstanceGrowth;
     };
 
     // Instanced
@@ -394,6 +397,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
         #ifdef INSTANCED_RENDERING
             ModelMatrix *= aInstancedTransform;
+            Position *= vec3(uInstanceGrowth.x, uInstanceGrowth.y, uInstanceGrowth.x);
             #ifdef INSTANCED_COLOR
                 vInstanceColor = aInstancedColor;
             #endif

@@ -23,10 +23,17 @@ namespace p3d {
 			virtual void RemoveBuffer(AttributeBuffer* buffer);
 			virtual const uint32 NumberOfInstances() const { return nrInstances; }
 			virtual void SetNumberInstances(const uint32 instances) { nrInstances = instances; }
+			// Every instance drawn this much wider and taller than its mesh,
+			// about the mesh's own origin (1, 1: as it is). What draws fewer
+			// instances of a thing far off - a field of grass - grows the ones
+			// left with it, and the field covers the ground as it did.
+			void SetInstanceGrowth(const f32 width, const f32 height) { instanceGrowth = Vec2(width, height); }
+			const Vec2 &GetInstanceGrowth() const { return instanceGrowth; }
 			virtual uint32 GetComponentType() const { return ComponentType::RenderingInstancedComponent; }
 
 		protected:
 			uint32 nrInstances;
+			Vec2 instanceGrowth = Vec2(1.f, 1.f);
 	};
 
 	class PYROS3D_API RenderingInstancedComponent : public IRenderingInstancedComponent
