@@ -289,6 +289,17 @@ namespace p3d {
 		lodOwnMaterials[LODLVL] = true;
 	}
 
+	void RenderingComponent::AddHiddenLOD()
+	{
+		RenderState::Touch();
+		const uint32 LODLVL = (uint32)Meshes.size();
+		Meshes[LODLVL];         // a level, and no meshes in it
+		LODDistances.push_back(1e9f);
+		LOD = true;
+		lodRenderables.push_back(std::make_shared<Renderable>());
+		lodOwnMaterials.resize(LODLVL + 1, false);
+	}
+
 	bool RenderingComponent::AddSimplifiedLOD(const f32 ratio, const f32 reach)
 	{
 		Model* model = dynamic_cast<Model*>(renderable.get());
@@ -385,6 +396,7 @@ namespace p3d {
 	{
 		if (!Registered)
 		{
+			RenderState::Touch();
 			// Add Self to Components vector
 			Components.push_back(this);
 
@@ -432,6 +444,10 @@ namespace p3d {
 	{
 		if (Registered)
 		{
+			// (always: a component with no mesh in the scene at the moment - one
+			// past its last level of detail - is still in the renderers' kept
+			// lists of components to watch)
+			RenderState::Touch();
 			// Remove from Components vector. This one is a process-wide list,
 			// not the scene's, so it happens whether or not there is a scene
 			// to unregister from - leaving a destroyed component in it is a

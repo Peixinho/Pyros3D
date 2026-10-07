@@ -139,6 +139,25 @@ namespace {
 	}
 }
 
+// A list that lives on the stack until it outgrows eight entries: what a draw
+// call gathers (its vertex buffers, their offsets) and throws away again. Two
+// std::vectors a draw was two trips to the allocator and two back.
+template <typename T> struct PyrosVkSmallList
+{
+	T small[8];
+	std::vector<T> big;
+	uint32_t count = 0;
+	void push_back(const T &v)
+	{
+		if (count < 8) small[count] = v;
+		else { if (count == 8) big.assign(small, small + 8); big.push_back(v); }
+		count++;
+	}
+	void reserve(size_t) {}
+	size_t size() const { return count; }
+	const T* data() const { return count <= 8 ? small : big.data(); }
+};
+
 namespace p3d {
 
 	// See TranslateTextureTarget()'s comment - a cube face's
@@ -3305,8 +3324,8 @@ namespace p3d {
 			std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
 			if (vaoIt != vaos.end() && !vaoIt->second.vertexBuffers.empty())
 			{
-				std::vector<VkBuffer> vbos;
-				std::vector<VkDeviceSize> vboOffsets;
+				PyrosVkSmallList<VkBuffer> vbos;
+				PyrosVkSmallList<VkDeviceSize> vboOffsets;
 				vbos.reserve(vaoIt->second.vertexBuffers.size());
 				vboOffsets.reserve(vaoIt->second.vertexBuffers.size());
 				for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)
@@ -3349,8 +3368,8 @@ namespace p3d {
 		// VkVertexInputBindingDescription array, which it does: both are
 		// built by iterating the same list in the same order
 		// (IRenderer::BindMesh()'s meshAttributes).
-		std::vector<VkBuffer> vbos;
-		std::vector<VkDeviceSize> vboOffsets;
+		PyrosVkSmallList<VkBuffer> vbos;
+		PyrosVkSmallList<VkDeviceSize> vboOffsets;
 		for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)
 		{
 			std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffers[i]);
@@ -3394,8 +3413,8 @@ namespace p3d {
 		// an instanced mesh's per-instance AttributeBuffer (e.g.
 		// ParticlesExample's ParticleEmitter, divisor=1) is always a
 		// *second* buffer alongside the base geometry's own.
-		std::vector<VkBuffer> vbos;
-		std::vector<VkDeviceSize> vboOffsets;
+		PyrosVkSmallList<VkBuffer> vbos;
+		PyrosVkSmallList<VkDeviceSize> vboOffsets;
 		for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)
 		{
 			std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffers[i]);

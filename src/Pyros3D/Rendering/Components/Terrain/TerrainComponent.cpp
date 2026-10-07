@@ -755,6 +755,9 @@ namespace p3d {
 		t.distantShown = show;
 	}
 
+	// How far off, in tiles, a distant tile goes to every second sample and to every fourth.
+	static const f32 kDistantHalfFrom = 5.f, kDistantQuarterFrom = 12.f;
+
 	void TerrainComponent::BuildDistant(const int32 x, const int32 z)
 	{
 		Tile &t = At(x, z);
@@ -808,7 +811,30 @@ namespace p3d {
 		HeightfieldMesh::Build(*d, 1, skirt, mesh);
 		std::shared_ptr<Heightfield> hf = std::make_shared<Heightfield>(std::move(mesh), d, 1);
 		hf->source.skirt = skirt;
-		std::shared_ptr<RenderingComponent> rc = std::make_shared<RenderingComponent>(std::static_pointer_cast<Renderable>(hf), distantMaterial);
+		// Far enough off, a distant tile is drawn from every second sample of
+		// its ground and then every fourth: on a terrain of a thousand tiles
+		// most of what is drawn is these, kilometres away, and each was the
+		// same two thousand triangles as the one next to the loaded ground.
+		// (Their skirts are deeper by as much, to cover the coarser edge.)
+		const bool half = n >= 9 && (n - 1) % 2 == 0, quarter = n >= 17 && (n - 1) % 4 == 0;
+		std::shared_ptr<RenderingComponent> rc = std::make_shared<RenderingComponent>(std::static_pointer_cast<Renderable>(hf), distantMaterial,
+			half ? settings.tileSize * kDistantHalfFrom : 0.f);
+		if (half)
+		{
+			HeightfieldMesh coarse;
+			HeightfieldMesh::Build(*d, 2, skirt * 2.f, coarse);
+			std::shared_ptr<Heightfield> level = std::make_shared<Heightfield>(std::move(coarse), d, 2);
+			level->source.skirt = skirt * 2.f;
+			rc->AddLOD(std::static_pointer_cast<Renderable>(level), quarter ? settings.tileSize * kDistantQuarterFrom : 1e9f, distantMaterial);
+		}
+		if (quarter)
+		{
+			HeightfieldMesh coarse;
+			HeightfieldMesh::Build(*d, 4, skirt * 4.f, coarse);
+			std::shared_ptr<Heightfield> level = std::make_shared<Heightfield>(std::move(coarse), d, 4);
+			level->source.skirt = skirt * 4.f;
+			rc->AddLOD(std::static_pointer_cast<Renderable>(level), 1e9f, distantMaterial);
+		}
 		rc->DisableCastShadows();
 
 		std::shared_ptr<GameObject> go = std::make_shared<GameObject>(true);

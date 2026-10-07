@@ -180,6 +180,10 @@ private:
 	// which is only the intent: a solve can fail (no geometry, no
 	// lights, no compute) and the player falls back to flat ambient.
 	bool ddgiActive = false;
+	// A scene's baked terrain shadow, waiting for the terrain's tiles to exist (see Update)
+	bool terrainBakePending = false;
+	size_t terrainBakeTiles = 0;
+	uint32 terrainBakeStable = 0, terrainBakeWaited = 0;
 	// The scene file with its prefab references resolved, ready for the
 	// engine. Empty when there was nothing to resolve (or nothing to read),
 	// in which case the ordinary file-path load is used.

@@ -300,6 +300,10 @@ namespace p3d {
 		// to `reach` metres. Only where the nearest level is a Model read from
 		// a file; returns whether it took.
 		bool AddSimplifiedLOD(const f32 ratio, const f32 reach = 1e9f);
+		// A last level with nothing in it: beyond the reach of the level
+		// before, the component is not drawn (and casts nothing). For the
+		// many small things of a scene that nobody can see from far off.
+		void AddHiddenLOD();
 		// Whether level `lod` (1 and up) was added that way.
 		bool LODUsesOwnMaterials(const uint32 lod) const { return lod < lodOwnMaterials.size() && lodOwnMaterials[lod]; }
 		// Back to the nearest level alone (an editor rebuilding the list).

@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
+#include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Assets/AssetPreload.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
@@ -699,9 +700,14 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 
 	// The terrain's shadow, where the scene asks for it baked: worked out here,
 	// as part of loading the map (see TerrainHorizon).
-	scene->SetTerrainHorizon(meta.terrainShadowsBaked
-		? TerrainHorizon::Bake(scene, meta.terrainShadowsResolution, meta.terrainShadowsReach)
-		: std::shared_ptr<TerrainHorizon>());
+	scene->SetTerrainHorizon(std::shared_ptr<TerrainHorizon>());
+	// (A terrain grows its tiles on the scene's first updates, not while the
+	// file is read: there is nothing to bake from yet. Update() does it as
+	// soon as the tiles are there - it used to be asked for here, found no
+	// terrain and quietly made nothing, so a built game drew its whole
+	// terrain into the shadow map every frame after all.)
+	terrainBakePending = meta.terrainShadowsBaked;
+	terrainBakeTiles = 0; terrainBakeStable = 0; terrainBakeWaited = 0;
 
 	renderer->SetGlobalLight(Vec4(meta.ambientLight.x * meta.ambientIntensity,
 								  meta.ambientLight.y * meta.ambientIntensity,
@@ -1287,6 +1293,20 @@ void PyrosPlayer::ApplyPendingSceneLoadIfAny()
 void PyrosPlayer::Update()
 {
 	if (!sceneLoaded) return;
+
+	if (terrainBakePending && scene)
+	{
+		// when the terrain's tiles have all arrived (the same number for a few
+		// frames running), or it has been long enough
+		const size_t tiles = TerrainEditor::FindTiles(scene).size();
+		if (tiles > 0 && tiles == terrainBakeTiles) terrainBakeStable++;
+		else { terrainBakeTiles = tiles; terrainBakeStable = 0; }
+		if (tiles > 0 && (terrainBakeStable >= 3 || ++terrainBakeWaited > 240))
+		{
+			scene->SetTerrainHorizon(TerrainHorizon::Bake(scene, meta.terrainShadowsResolution, meta.terrainShadowsReach));
+			terrainBakePending = false;
+		}
+	}
 
 	// Alt+Enter or F11: the whole screen, and back. On the press, not while held.
 	{

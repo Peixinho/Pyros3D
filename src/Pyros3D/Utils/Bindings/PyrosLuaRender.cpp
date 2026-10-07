@@ -652,6 +652,8 @@ namespace p3d {
 				// its own model with a fifth of the triangles, drawn out to 170 m
 				// (to any distance if not said). The component's first level
 				// reaches as far as its constructor's distance.
+				// rc:addHiddenLOD(): beyond the reach of its last level it is not drawn
+				"addHiddenLOD", [](LUA_RenderingComponent &c) { c.AddHiddenLOD(); },
 				"addSimplifiedLOD", sol::overload(
 					[](LUA_RenderingComponent &c, const f32 ratio) { return c.AddSimplifiedLOD(ratio); },
 					[](LUA_RenderingComponent &c, const f32 ratio, const f32 reach) { return c.AddSimplifiedLOD(ratio, reach); }),
