@@ -131,14 +131,28 @@ void main() {
 		vec3 samplePos = P + TBN * dir * (radius * mix(0.1, 1.0, h * h));
 
 		vec2 uv = ClipToUV(uMatProj * vec4(samplePos, 1.0));
-		float raw = texture_2D(tDepth, uv).r;
+		// The depth is read from the one texel the sample falls in, and what is
+		// there is put back where that texel IS - its centre - not where the
+		// sample was aimed; and below it only counts if it stands above this
+		// pixel's own surface. Comparing depths alone took the texel's depth for
+		// the sample's: on ground seen at a shallow angle one texel spans far
+		// more depth than the bias allows (a fifth of a metre a few metres off,
+		// at half resolution), so flat ground occluded itself - and by a
+		// different amount every frame under temporal anti-aliasing, which draws
+		// each frame a different sub-pixel off: open ground darkened and cleared
+		// from one frame to the next. A flat surface is now exactly unoccluded,
+		// wherever in the texel its depth was taken.
+		ivec2 depthSize = textureSize(tDepth, 0);
+		ivec2 texel = clamp(ivec2(uv * vec2(depthSize)), ivec2(0), depthSize - ivec2(1));
+		float raw = texelFetch(tDepth, texel, 0).r;
 		if (raw >= 1.0) continue;
-		float sceneZ = -DecodeNativeDepth(raw, z_info);
+		vec3 S = getPosViewSpace(raw, (vec2(texel) + 0.5) / vec2(depthSize) * uScreenDimensions, z_info);
+		float sceneZ = S.z;
 		// An occluder far in front of this pixel (an object before the
 		// floor behind it) is not occluding it: fade its vote out past
 		// the radius instead of drawing a dark outline round the object.
 		float range = 1.0 - smoothstep(radius, radius + uSSAOFalloff, abs(P.z - sceneZ));
-		occlusion += (sceneZ >= samplePos.z + bias ? 1.0 : 0.0) * range;
+		occlusion += (sceneZ >= samplePos.z + bias && dot(S - P, N) > bias ? 1.0 : 0.0) * range;
 	}
 	float ao = clamp(1.0 - (occlusion / float(samples)) * uSSAOStrength, 0.0, 1.0);
 	ao = mix(1.0, ao, fade);
