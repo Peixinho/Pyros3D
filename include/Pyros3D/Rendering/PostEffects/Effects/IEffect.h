@@ -185,6 +185,15 @@ namespace p3d {
 		// in the chain (see pipelineHandle's comment); ignored for every
 		// other effect, whose own FBO's render pass never needs this.
 		uint32 pipelineBuiltForSwapchainGeneration;
+		// A pipeline is made for the render pass it is first bound in, and an
+		// effect is not always drawn to the same target - into a texture while
+		// something follows it in the chain, to the screen when it is the
+		// last. One pipeline for each target it has been drawn to: before
+		// pipelineHandle is looked at, UsePipelineOfTarget makes it the one of
+		// the target bound now (0 if none has been made yet).
+		void UsePipelineOfTarget(const uint32 target);
+		std::map<uint32, std::pair<uint32, uint32> > pipelineOfTarget;   // target: pipeline, the swapchain generation it was made at
+		uint32 pipelineTarget = 0;
 
 		// Vulkan/SPIR-V rejects non-opaque (non-sampler) uniforms outside
 		// a block outright (see PyrosShader.glsl's header comment on the

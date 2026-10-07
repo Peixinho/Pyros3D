@@ -241,6 +241,7 @@ namespace p3d {
 		CommandBufferHandle cmd = device.BeginCommandBuffer();
 		device.BindVertexArray(cmd, fullscreenVao);
 		device.UseProgram(effect->shader->ShaderProgram());
+		effect->UsePipelineOfTarget(device.GetCurrentRenderTarget());
 		if (effect->pipelineHandle == 0)
 		{
 			IRenderDevice::PipelineDesc pdesc;

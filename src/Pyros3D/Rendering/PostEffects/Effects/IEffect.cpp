@@ -119,8 +119,21 @@ namespace p3d {
 		shader->LinkProgram();
     }
     
+    void IEffect::UsePipelineOfTarget(const uint32 target)
+	{
+		if (target == pipelineTarget) return;
+		pipelineOfTarget[pipelineTarget] = std::make_pair(pipelineHandle, pipelineBuiltForSwapchainGeneration);
+		const std::pair<uint32, uint32> &kept = pipelineOfTarget[target];
+		pipelineHandle = kept.first;
+		pipelineBuiltForSwapchainGeneration = kept.second;
+		pipelineTarget = target;
+	}
+
     IEffect::~IEffect()
 	{
+		pipelineOfTarget.erase(pipelineTarget);
+		for (std::map<uint32, std::pair<uint32, uint32> >::iterator i = pipelineOfTarget.begin(); i != pipelineOfTarget.end(); ++i)
+			if (i->second.first != 0) Device().DestroyPipeline(i->second.first);
 		if (pipelineHandle != 0)
 			Device().DestroyPipeline(pipelineHandle);
 		if (extraUniformsBufferHandle != 0)

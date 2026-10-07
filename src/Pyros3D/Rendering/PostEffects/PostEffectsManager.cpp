@@ -349,6 +349,7 @@ namespace p3d {
 		device->BindVertexArray(cmd, fullscreenVao);
 		device->UseProgram(effect->shader->ShaderProgram());
 
+		effect->UsePipelineOfTarget(device->GetCurrentRenderTarget());
 		if (effect->pipelineHandle == 0)
 		{
 			IRenderDevice::PipelineDesc pdesc;
@@ -656,6 +657,7 @@ namespace p3d {
 			// needs this rebuild (GetSwapchainGeneration() only tracks the
 			// swapchain's own render pass), so the generation check is
 			// gated on being the last effect.
+			effect->UsePipelineOfTarget(device->GetCurrentRenderTarget());
 			bool pipelineStale = isLastEffect && effect->pipelineHandle != 0 &&
 				effect->pipelineBuiltForSwapchainGeneration != device->GetSwapchainGeneration();
 			if (pipelineStale)
