@@ -238,7 +238,27 @@ namespace p3d {
 			std::shared_ptr<GameObject> distant;
 			uint32 distantVersion = 0;	// the overview it was cut from
 			bool distantShown = false;
+			// A far block is drawn in its place (see FarBlock).
+			bool merged = false;
 		};
+
+		// Far off, distant tiles are not drawn one by one: kFarBlockTiles x
+		// kFarBlockTiles of them are one mesh, a block, at a quarter of the
+		// detail. A terrain of a thousand tiles seen from the middle is then
+		// some tens of draws and not several hundred.
+		struct FarBlock
+		{
+			std::shared_ptr<GameObject> object;
+			uint32 version = 0;		// the overview it was cut from
+			bool beyond = false;	// far enough from every focus to be drawn as one
+			bool shown = false;
+			bool leaving = false;	// near again: drawn until its tiles have their own stand-ins
+		};
+		std::vector<FarBlock> farBlocks;
+		int32 farBlocksX = 0, farBlocksZ = 0;
+		FarBlock* BlockOf(const int32 x, const int32 z);
+		void BuildFarBlock(const int32 bx, const int32 bz);
+		void UpdateFarBlocks(const std::vector<Vec3> &foci, const Vec3 &origin);
 
 		Tile &At(const int32 x, const int32 z) { return tiles[(size_t)z * settings.tilesX + x]; }
 		const Tile &At(const int32 x, const int32 z) const { return tiles[(size_t)z * settings.tilesX + x]; }

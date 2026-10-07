@@ -748,7 +748,7 @@ namespace p3d {
 	{
 		if (!t.distant || !Owner) return;
 		// In the scene exactly while the full tile is not.
-		const bool show = !(t.state == Tile::Loaded && t.root);
+		const bool show = !(t.state == Tile::Loaded && t.root) && !t.merged;
 		if (show == t.distantShown) return;
 		if (show) { Owner->Add(t.distant); RefreshSubtree(t.distant.get()); }
 		else Owner->Remove(t.distant);
@@ -847,6 +847,185 @@ namespace p3d {
 		SyncDistant(t);
 	}
 
+	// How many tiles a side a far block is, how far off (in tiles) a block is
+	// drawn as one, and how many are made in one update.
+	static const int32 kFarBlockTiles = 4;
+	static const f32 kFarBlockFrom = 12.f;
+	static const uint32 kFarBlocksPerUpdate = 6;
+
+	TerrainComponent::FarBlock* TerrainComponent::BlockOf(const int32 x, const int32 z)
+	{
+		const int32 bx = x / kFarBlockTiles, bz = z / kFarBlockTiles;
+		if (bx >= farBlocksX || bz >= farBlocksZ) return NULL;
+		return &farBlocks[(size_t)bz * farBlocksX + bx];
+	}
+
+	void TerrainComponent::BuildFarBlock(const int32 bx, const int32 bz)
+	{
+		FarBlock &b = farBlocks[(size_t)bz * farBlocksX + bx];
+		if (b.object)
+		{
+			DistantObjects().erase(b.object.get());
+			if (b.shown && Owner) Owner->Remove(b.object);
+			Grave g;
+			g.object = b.object;
+			g.updatesLeft = kGraveUpdates;
+			graveyard.push_back(g);
+			b.object.reset();
+			b.shown = false;
+		}
+		b.version = overviewVersion;
+		EnsureDistantMaterial();
+		if (!distantMaterial || !Owner) return;
+
+		// As BuildDistant(), of kFarBlockTiles tiles a side and every
+		// kFarBlockTiles-th sample of the overview.
+		const uint32 n = settings.overviewSamples, stride = (uint32)kFarBlockTiles;
+		const uint32 gx0 = (uint32)(bx * kFarBlockTiles) * (n - 1), gz0 = (uint32)(bz * kFarBlockTiles) * (n - 1);
+		const f32 blockSize = settings.tileSize * (f32)kFarBlockTiles;
+		const f32 spacing = settings.tileSize / (f32)(n - 1);
+		const uint32 maxX = (uint32)settings.tilesX * (n - 1), maxZ = (uint32)settings.tilesZ * (n - 1);
+		const std::vector<f32> &H = overviewHeights;
+		const uint32 side = overviewSide;
+
+		std::shared_ptr<HeightfieldData> d = std::make_shared<HeightfieldData>();
+		d->samples = n;
+		d->size = blockSize;
+		d->rangeMin = std::min(heightOffset, heightOffset + heightScale);
+		d->rangeMax = std::max(heightOffset, heightOffset + heightScale);
+		d->heights.resize((size_t)n * n);
+		d->normals.resize((size_t)n * n);
+		d->minHeight = 1e30f;
+		d->maxHeight = -1e30f;
+		for (uint32 r = 0; r < n; r++)
+			for (uint32 c = 0; c < n; c++)
+			{
+				const uint32 gx = gx0 + c * stride, gz = gz0 + r * stride;
+				const f32 h = H[(size_t)gz * side + gx];
+				d->heights[(size_t)r * n + c] = h;
+				d->minHeight = std::min(d->minHeight, h);
+				d->maxHeight = std::max(d->maxHeight, h);
+				const uint32 xa = gx >= stride ? gx - stride : gx, xb = std::min(gx + stride, maxX);
+				const uint32 za = gz >= stride ? gz - stride : gz, zb = std::min(gz + stride, maxZ);
+				const f32 dx = xb > xa ? (H[(size_t)gz * side + xb] - H[(size_t)gz * side + xa]) / (spacing * (f32)(xb - xa)) : 0.f;
+				const f32 dz = zb > za ? (H[(size_t)zb * side + gx] - H[(size_t)za * side + gx]) / (spacing * (f32)(zb - za)) : 0.f;
+				d->normals[(size_t)r * n + c] = Vec3(-dx, 1.f, -dz).normalize();
+			}
+		d->uvScale = Vec2((f32)kFarBlockTiles / settings.tilesX, (f32)kFarBlockTiles / settings.tilesZ);
+		d->uvOffset = Vec2((f32)(bx * kFarBlockTiles) / settings.tilesX, (f32)(bz * kFarBlockTiles) / settings.tilesZ);
+
+		// (a skirt deep enough for the step down to a single tile's coarsest level next door)
+		const f32 skirt = std::max(tileSkirt, settings.tileSize / 16.f) * (f32)kFarBlockTiles;
+		HeightfieldMesh mesh;
+		HeightfieldMesh::Build(*d, 1, skirt, mesh);
+		std::shared_ptr<Heightfield> hf = std::make_shared<Heightfield>(std::move(mesh), d, 1);
+		hf->source.skirt = skirt;
+		std::shared_ptr<RenderingComponent> rc = std::make_shared<RenderingComponent>(std::static_pointer_cast<Renderable>(hf), distantMaterial);
+		rc->DisableCastShadows();
+
+		std::shared_ptr<GameObject> go = std::make_shared<GameObject>(true);
+		go->SetName("Distant_block_" + std::to_string(bx) + "_" + std::to_string(bz));
+		go->SetTransient(true);
+		go->SetPosition(Corner() + Vec3(bx * blockSize, 0.f, bz * blockSize));
+		go->AddComponent(rc);
+		b.object = go;
+		DistantObjects().insert(go.get());
+	}
+
+	void TerrainComponent::UpdateFarBlocks(const std::vector<Vec3> &foci, const Vec3 &origin)
+	{
+		const uint32 n = settings.overviewSamples;
+		// Only where a block is whole (the tiles left over at an edge stay
+		// single), the overview can be read every fourth sample, and the
+		// whole terrain is drawn.
+		const bool can = settings.viewDistance <= 0.f && !foci.empty() && n >= 9 && (n - 1) % (uint32)kFarBlockTiles == 0;
+		const int32 wantX = can ? settings.tilesX / kFarBlockTiles : 0, wantZ = can ? settings.tilesZ / kFarBlockTiles : 0;
+		if (wantX != farBlocksX || wantZ != farBlocksZ)
+		{
+			for (size_t i = 0; i < farBlocks.size(); i++)
+				if (farBlocks[i].object)
+				{
+					DistantObjects().erase(farBlocks[i].object.get());
+					if (farBlocks[i].shown && Owner) Owner->Remove(farBlocks[i].object);
+				}
+			for (size_t i = 0; i < tiles.size(); i++)
+				if (tiles[i].merged) { tiles[i].merged = false; SyncDistant(tiles[i]); }
+			farBlocksX = wantX; farBlocksZ = wantZ;
+			farBlocks.assign((size_t)wantX * wantZ, FarBlock());
+		}
+		const f32 blockSize = settings.tileSize * (f32)kFarBlockTiles;
+		uint32 built = 0;
+		for (int32 bz = 0; bz < farBlocksZ; bz++)
+			for (int32 bx = 0; bx < farBlocksX; bx++)
+			{
+				FarBlock &b = farBlocks[(size_t)bz * farBlocksX + bx];
+				f32 d = 1e30f;
+				for (size_t f = 0; f < foci.size(); f++)
+				{
+					const Vec3 local = foci[f] - origin;
+					const f32 minX = bx * blockSize, minZ = bz * blockSize;
+					const f32 dx = std::max(0.f, std::max(minX - local.x, local.x - (minX + blockSize)));
+					const f32 dz = std::max(0.f, std::max(minZ - local.z, local.z - (minZ + blockSize)));
+					d = std::min(d, std::sqrt(dx * dx + dz * dz));
+				}
+				bool loaded = false, standIns = true;
+				for (int32 z = bz * kFarBlockTiles; z < (bz + 1) * kFarBlockTiles; z++)
+					for (int32 x = bx * kFarBlockTiles; x < (bx + 1) * kFarBlockTiles; x++)
+					{
+						const Tile &t = At(x, z);
+						if (t.state != Tile::Unloaded) loaded = true;
+						else if (!t.distant || t.distantVersion != overviewVersion) standIns = false;
+					}
+				// (a little further to become one than to come apart again)
+				const bool beyond = !loaded && d > settings.tileSize * (b.beyond ? kFarBlockFrom - 1.f : kFarBlockFrom);
+				b.beyond = beyond;
+				if (beyond)
+				{
+					b.leaving = false;
+					if (!b.object || b.version != overviewVersion)
+					{
+						if (built >= kFarBlocksPerUpdate) continue;
+						BuildFarBlock(bx, bz);
+						built++;
+						if (!b.object) continue;
+					}
+					if (!b.shown)
+					{
+						Owner->Add(b.object);
+						RefreshSubtree(b.object.get());
+						b.shown = true;
+						for (int32 z = bz * kFarBlockTiles; z < (bz + 1) * kFarBlockTiles; z++)
+							for (int32 x = bx * kFarBlockTiles; x < (bx + 1) * kFarBlockTiles; x++)
+							{
+								Tile &t = At(x, z);
+								t.merged = true;
+								SyncDistant(t);
+							}
+					}
+				}
+				else if (b.shown)
+				{
+					// Near again. Its tiles get their own stand-ins first
+					// (UpdateDistant makes them, now that it is leaving); only
+					// then does it go, so there is never a hole in the ground.
+					b.leaving = true;
+					if (standIns)
+					{
+						Owner->Remove(b.object);
+						b.shown = false;
+						b.leaving = false;
+						for (int32 z = bz * kFarBlockTiles; z < (bz + 1) * kFarBlockTiles; z++)
+							for (int32 x = bx * kFarBlockTiles; x < (bx + 1) * kFarBlockTiles; x++)
+							{
+								Tile &t = At(x, z);
+								t.merged = false;
+								SyncDistant(t);
+							}
+					}
+				}
+			}
+	}
+
 	void TerrainComponent::UpdateDistant(const std::vector<Vec3> &foci)
 	{
 		// A process that draws nothing has no use for them.
@@ -854,6 +1033,7 @@ namespace p3d {
 		if (!overviewTried) LoadOverview();
 		if (!overviewLoaded) return;
 		const Vec3 origin = Owner->GetWorldPosition() + Corner();
+		UpdateFarBlocks(foci, origin);
 		const size_t count = tiles.size();
 		uint32 built = 0;
 		for (size_t step = 0; step < count && built < kDistantPerUpdate; step++)
@@ -862,6 +1042,8 @@ namespace p3d {
 			Tile &t = tiles[i];
 			const int32 x = (int32)(i % (size_t)settings.tilesX), z = (int32)(i / (size_t)settings.tilesX);
 			bool wanted = true;
+			// (one a far block stands for, or is about to, needs no stand-in of its own)
+			if (const FarBlock* block = BlockOf(x, z)) if (block->beyond && !block->leaving) wanted = false;
 			if (settings.viewDistance > 0.f)
 			{
 				f32 d = foci.empty() ? 0.f : 1e30f;
