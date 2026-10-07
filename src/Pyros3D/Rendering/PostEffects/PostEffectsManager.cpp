@@ -813,6 +813,11 @@ namespace p3d {
 				IEffect *effect = run[idx];
 				if (idx == finalStart)
 					aaStage->SetFinalInput(LastRTT);
+				// (each pass under its own name, by its place in the run, so the
+				// profiler's GPU times say which effect the chain's time goes to)
+				static const char* const kPassNames[] = { "PostFX.Pass0", "PostFX.Pass1", "PostFX.Pass2", "PostFX.Pass3", "PostFX.Pass4", "PostFX.Pass5",
+					"PostFX.Pass6", "PostFX.Pass7", "PostFX.Pass8", "PostFX.Pass9", "PostFX.Pass10", "PostFX.Pass11" };
+				FrameProfiler::Scope passScope(effect == taaPass ? "PostFX.TAA" : kPassNames[idx < 12 ? idx : 11]);
 				// (what TAA settles is what the chain made of the frame - or the
 				// frame itself, with no chain before it)
 				if (effect == taaPass) effect->SetColorOverride(idx > 0 ? LastRTT : NULL);
