@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "Editor.h"
+#include <Pyros3D/Rendering/PostEffects/Upscaling.h>
 #include "editor/UI/TileSetEditor.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
@@ -6350,20 +6351,56 @@ void Editor::DrawProjectDialogs()
 			if (ImGui::SliderInt("Redraw the sun's shadows every (frames)", &every, 1, 4)) q["shadowUpdateInterval"] = every;
 			bool half = q.value("ssaoHalfResolution", false);
 			if (ImGui::Checkbox("Ambient occlusion at half resolution", &half)) q["ssaoHalfResolution"] = half;
+			// What brings a frame rendered below the window's size up to it, and
+			// how far below (Upscaling.h). The game's own options menu offers
+			// the same two lists; these are what it starts with.
 			{
-				int which = q.value("upscaler", std::string("fsr1")) == "sharp" ? 1 : 0;
+				UpscalerMode mode = UpscalerMode::FSR1;
+				Upscaling::FromString(q.value("upscaler", std::string("fsr1")), mode);
+				ImGui::SetNextItemWidth(220.f);
+				if (ImGui::BeginCombo("Upscaler", Upscaling::DisplayName(mode)))
+				{
+					const std::vector<UpscalerMode> &all = Upscaling::All();
+					for (size_t u = 0; u < all.size(); u++)
+					{
+						// (one this machine cannot run may still be the project's
+						// choice: a machine that can will use it, the rest fall back)
+						std::string label = Upscaling::DisplayName(all[u]);
+						if (!Upscaling::IsAvailable(all[u])) label += std::string("  (here: ") + Upscaling::DisplayName(Upscaling::Resolve(all[u])) + ")";
+						if (ImGui::Selectable(label.c_str(), all[u] == mode)) q["upscaler"] = Upscaling::ToString(all[u]);
+					}
+					ImGui::EndCombo();
+				}
+				f32 sharp = q.value("upscaleSharpness", 0.85f);
+				if (sharp < 0.f) sharp = 0.85f;
 				ImGui::SetNextItemWidth(160.f);
-				if (ImGui::Combo("Upscaler (below full render scale)", &which, "AMD FSR 1\0Built-in sharp filter (cheaper)\0")) q["upscaler"] = which == 1 ? "sharp" : "fsr1";
+				if (ImGui::SliderFloat("Upscale sharpness", &sharp, 0.f, 1.f, "%.2f")) q["upscaleSharpness"] = sharp;
+
+				// (a project from before the names: its numbers say which it is)
+				UpscaleQuality quality = q.value("autoRenderScaleFps", 0.f) > 0.f ? UpscaleQuality::Auto
+					: (q.value("renderScale", 1.f) < 0.999f ? UpscaleQuality::Quality : UpscaleQuality::Native);
+				Upscaling::FromString(q.value("upscaleQuality", std::string()), quality);
+				ImGui::SetNextItemWidth(220.f);
+				if (ImGui::BeginCombo("Render quality", Upscaling::DisplayName(quality)))
+				{
+					const std::vector<UpscaleQuality> &all = Upscaling::AllQualities();
+					for (size_t u = 0; u < all.size(); u++)
+						if (ImGui::Selectable(Upscaling::DisplayName(all[u]), all[u] == quality))
+						{
+							q["upscaleQuality"] = Upscaling::ToString(all[u]);
+							if (all[u] == UpscaleQuality::Auto && q.value("autoRenderScaleFps", 0.f) <= 0.f) q["autoRenderScaleFps"] = 60.f;
+						}
+					ImGui::EndCombo();
+				}
+				quality = UpscaleQuality::Native;
+				Upscaling::FromString(q.value("upscaleQuality", std::string()), quality);
 			}
-			f32 sharp = q.value("upscaleSharpness", 0.85f);
-			ImGui::SetNextItemWidth(160.f);
-			if (ImGui::SliderFloat("Upscale sharpness (below full render scale; under 0: plain)", &sharp, -0.1f, 1.f, "%.2f")) q["upscaleSharpness"] = sharp;
-			f32 scale = q.value("renderScale", 1.f);
-			ImGui::SetNextItemWidth(160.f);
-			if (ImGui::SliderFloat("Render scale", &scale, 0.25f, 1.f, "%.2f")) q["renderScale"] = scale;
-			f32 autoFps = q.value("autoRenderScaleFps", 0.f);
-			ImGui::SetNextItemWidth(160.f);
-			if (ImGui::InputFloat("Hold this frame rate by moving the scale (0: off)", &autoFps, 0.f, 0.f, "%.0f")) q["autoRenderScaleFps"] = autoFps < 0.f ? 0.f : autoFps;
+			f32 autoFps = q.value("upscaleQuality", std::string()) == "auto" || !q.contains("upscaleQuality") ? q.value("autoRenderScaleFps", 0.f) : 0.f;
+			if (q.value("upscaleQuality", std::string()) == "auto")
+			{
+				ImGui::SetNextItemWidth(160.f);
+				if (ImGui::InputFloat("Auto: hold this frame rate", &autoFps, 0.f, 0.f, "%.0f")) q["autoRenderScaleFps"] = autoFps < 1.f ? 60.f : autoFps;
+			}
 			if (autoFps > 0.f)
 			{
 				f32 lowest = q.value("autoRenderScaleMin", 0.42f);

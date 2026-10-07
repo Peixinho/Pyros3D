@@ -130,7 +130,10 @@ namespace {
 			// size is brought up to it; negative for a plain stretch
 			m.qUpscaleSharpness = q.value("upscaleSharpness", 0.85f);
 			// "upscaler": "fsr1" (AMD FSR 1) or "sharp" (the built-in filter: one pass, far cheaper)
-			m.qUpscalerFsr = q.value("upscaler", std::string("fsr1")) != "sharp";
+			m.qUpscaler = q.value("upscaler", std::string("fsr1"));
+			// "upscaleQuality": "native" | "quality" | "balanced" | "performance" | "auto".
+			// Left out: renderScale / autoRenderScaleFps below say it, as before.
+			m.qUpscaleQuality = q.value("upscaleQuality", std::string());
 			m.qAutoFps = q.value("autoRenderScaleFps", -1.f);
 			m.qAutoMin = q.value("autoRenderScaleMin", 0.42f);
 			m.qFrameLimit = q.value("frameRateLimit", -2.f);
@@ -431,10 +434,51 @@ end
 	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
 	// setUpscaleSharpness(0.6): how sharp a frame rendered below the window's size is
 	// brought up to it (0..1); negative for a plain stretch
-	// setUpscaler("fsr1" | "sharp"): AMD FSR 1, or the built-in one-pass filter
-	lua.set_function("setUpscaler", [this](const std::string &name) { upscalerFsr = name != "sharp"; if (effectsManager) effectsManager->SetUpscalerFsr(upscalerFsr); });
-	lua.set_function("getUpscaler", [this]() { return std::string(effectsManager && effectsManager->IsUsingFsr() ? "fsr1" : "sharp"); });
-	lua.set_function("setUpscaleSharpness", [this](const f32 s) { upscaleSharpness = s; if (effectsManager) effectsManager->SetSharpUpscale(s >= 0.f, s >= 0.f ? s : 0.85f); });
+	// The upscaler and how far below the window the scene is rendered (see
+	// Upscaling.h) - what a game's options menu is made of:
+	//   getSupportedUpscalers()      names this machine can run, e.g. { "off", "sharp", "fsr1" }
+	//   getUpscalerLabel(name)       what to show for one ("AMD FSR 1")
+	//   setUpscaler(name)            asks for one; returns the name of what runs
+	//   getUpscaler()                what runs;  getRequestedUpscaler()  what was asked for
+	//   getUpscaleQualities(), getUpscaleQualityLabel(name), setUpscaleQuality(name), getUpscaleQuality()
+	lua.set_function("getSupportedUpscalers", [this]() {
+		std::vector<std::string> names;
+		const std::vector<UpscalerMode> modes = Upscaling::Supported();
+		for (size_t i = 0; i < modes.size(); i++) names.push_back(Upscaling::ToString(modes[i]));
+		return sol::as_table(names);
+	});
+	lua.set_function("getUpscalerLabel", [](const std::string &name) {
+		UpscalerMode mode = UpscalerMode::Sharp;
+		return std::string(Upscaling::FromString(name, mode) ? Upscaling::DisplayName(mode) : name.c_str());
+	});
+	lua.set_function("setUpscaler", [this](const std::string &name) {
+		UpscalerMode mode = upscaler;
+		if (!Upscaling::FromString(name, mode)) echo("setUpscaler: no upscaler is called \"" + name + "\"");
+		upscaler = mode;
+		ApplyUpscaler();
+		return Upscaling::ToString(Upscaling::Resolve(upscaler));
+	});
+	lua.set_function("getUpscaler", [this]() { return Upscaling::ToString(effectsManager ? effectsManager->GetEffectiveUpscaler() : Upscaling::Resolve(upscaler)); });
+	lua.set_function("getRequestedUpscaler", [this]() { return Upscaling::ToString(upscaler); });
+	lua.set_function("getUpscaleQualities", []() {
+		std::vector<std::string> names;
+		const std::vector<UpscaleQuality> &all = Upscaling::AllQualities();
+		for (size_t i = 0; i < all.size(); i++) names.push_back(Upscaling::ToString(all[i]));
+		return sol::as_table(names);
+	});
+	lua.set_function("getUpscaleQualityLabel", [](const std::string &name) {
+		UpscaleQuality q = UpscaleQuality::Auto;
+		return std::string(Upscaling::FromString(name, q) ? Upscaling::DisplayName(q) : name.c_str());
+	});
+	lua.set_function("setUpscaleQuality", [this](const std::string &name) {
+		UpscaleQuality q = upscaleQuality;
+		if (!Upscaling::FromString(name, q)) echo("setUpscaleQuality: no quality is called \"" + name + "\"");
+		upscaleQuality = q;
+		ApplyUpscaleQuality();
+	});
+	lua.set_function("getUpscaleQuality", [this]() { return Upscaling::ToString(upscaleQuality); });
+	// setUpscaleSharpness(0.85): how sharp (0..1)
+	lua.set_function("setUpscaleSharpness", [this](const f32 s) { if (s < 0.f) upscaler = UpscalerMode::Off; else upscaleSharpness = s; ApplyUpscaler(); });
 	// setFrameRateLimit(fps): no more frames a second than that (0: as many
 	// as there are). getDisplayRefreshRate(): what the screen the window is on
 	// can show, or 0 when it will not say.
@@ -512,10 +556,25 @@ end
 	if (m.qSmallCull >= 0.f) IRenderer::SetSmallObjectCull(m.qSmallCull);
 	if (m.qShadowEvery >= 1) IRenderer::SetShadowUpdateInterval((uint32)m.qShadowEvery);
 	if (m.qSsaoHalf >= 0) DeferredRenderer::SetSSAOHalfResolution(m.qSsaoHalf == 1);
-	upscaleSharpness = m.qUpscaleSharpness;
-	upscalerFsr = m.qUpscalerFsr;
-	if (m.qRenderScale > 0.f) SetRenderScale(m.qRenderScale);
-	if (m.qAutoFps >= 0.f) SetAutoRenderScale(m.qAutoFps, m.qAutoMin, 1.f);
+	upscaleSharpness = m.qUpscaleSharpness < 0.f ? 0.85f : m.qUpscaleSharpness;
+	if (!Upscaling::FromString(m.qUpscaler, upscaler)) upscaler = UpscalerMode::FSR1;
+	if (m.qUpscaleSharpness < 0.f) upscaler = UpscalerMode::Off;        // (how "a plain stretch" used to be said)
+	{
+		const std::string why = Upscaling::FallbackReason(upscaler);
+		if (!why.empty()) echo(why);
+	}
+	autoFpsWanted = m.qAutoFps > 0.f ? m.qAutoFps : 60.f;
+	autoMinWanted = m.qAutoMin;
+	if (!m.qUpscaleQuality.empty() && Upscaling::FromString(m.qUpscaleQuality, upscaleQuality))
+		ApplyUpscaleQuality();
+	else
+	{
+		// as a project said it before there were names for it
+		if (m.qRenderScale > 0.f) SetRenderScale(m.qRenderScale);
+		if (m.qAutoFps >= 0.f) SetAutoRenderScale(m.qAutoFps, m.qAutoMin, 1.f);
+		upscaleQuality = m.qAutoFps > 0.f ? UpscaleQuality::Auto
+			: (m.qRenderScale > 0.f && m.qRenderScale < 0.999f ? UpscaleQuality::Quality : UpscaleQuality::Native);
+	}
 	if (m.qFrameLimit > -1.5f)
 	{
 		f32 limit = m.qFrameLimit;
@@ -631,9 +690,26 @@ PostEffectsManager* PyrosPlayer::EnsureEffectsManager()
 	// (the chain works at the size the scene is rendered at, and its last pass
 	// fills the window: see SetRenderScale)
 	effectsManager->SetOutputSize(Width, Height);
-	effectsManager->SetSharpUpscale(upscaleSharpness >= 0.f, upscaleSharpness >= 0.f ? upscaleSharpness : 0.85f);
-	effectsManager->SetUpscalerFsr(upscalerFsr);
+	ApplyUpscaler();
 	return effectsManager;
+}
+
+void PyrosPlayer::ApplyUpscaler()
+{
+	if (effectsManager == NULL) return;
+	effectsManager->SetSharpUpscale(Upscaling::Resolve(upscaler) != UpscalerMode::Off, upscaleSharpness);
+	effectsManager->SetUpscaler(upscaler);
+}
+
+void PyrosPlayer::ApplyUpscaleQuality()
+{
+	if (upscaleQuality == UpscaleQuality::Auto)
+		SetAutoRenderScale(autoFpsWanted, autoMinWanted, 1.f);
+	else
+	{
+		SetAutoRenderScale(0.f, autoMinWanted, 1.f);
+		SetRenderScale(Upscaling::Scale(upscaleQuality));
+	}
 }
 
 // Called after every scene load, including a mid-game loadScene(): the chain

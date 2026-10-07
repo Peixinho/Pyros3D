@@ -13,6 +13,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
+#include <Pyros3D/Rendering/PostEffects/Upscaling.h>
 
 #ifndef POSTEFFECTSMANAGER_H
 #define	POSTEFFECTSMANAGER_H
@@ -73,6 +74,11 @@ namespace p3d {
 		// at the size shown - some milliseconds of an integrated GPU at 4K), or
 		// the built-in sharpening resample (one pass, next to nothing).
 		void SetUpscalerFsr(const bool fsr) { preferFsr = fsr; }
+		// The same, by name of mode (Upscaling.h). What is asked for is kept;
+		// what runs is Upscaling::Resolve() of it. Sharpness is SetSharpUpscale's.
+		void SetUpscaler(const UpscalerMode mode);
+		UpscalerMode GetUpscaler() const { return upscalerRequested; }
+		UpscalerMode GetEffectiveUpscaler() const;
 		bool GetUpscalerFsr() const { return preferFsr; }
 		void SetRenderLastToTexture(const bool enabled) { renderLastToTexture = enabled; }
 		bool GetRenderLastToTexture() const { return renderLastToTexture; }
@@ -231,6 +237,7 @@ namespace p3d {
 		IEffect* fsrRcas = NULL;
 		int fsrState = 0;
 		bool preferFsr = true;
+		UpscalerMode upscalerRequested = UpscalerMode::FSR1;
 		// See SetSceneSourceTexture().
 		Texture* sceneSource = NULL;
 		// See SetViewMatrix().

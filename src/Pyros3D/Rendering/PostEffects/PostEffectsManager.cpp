@@ -222,6 +222,21 @@ namespace p3d {
 		aaStage->SetPreserveDepth(preserve);
 	}
 
+	void PostEffectsManager::SetUpscaler(const UpscalerMode mode)
+	{
+		upscalerRequested = mode;
+		const UpscalerMode effective = Upscaling::Resolve(mode);
+		sharpUpscale = effective != UpscalerMode::Off;
+		preferFsr = effective == UpscalerMode::FSR1;
+	}
+
+	UpscalerMode PostEffectsManager::GetEffectiveUpscaler() const
+	{
+		if (!sharpUpscale) return UpscalerMode::Off;
+		// (FSR 1 asked for and its shaders not made here: the built-in one ran)
+		return (preferFsr && fsrState != 2) ? UpscalerMode::FSR1 : UpscalerMode::Sharp;
+	}
+
 	void PostEffectsManager::SetSharpUpscale(const bool on, const f32 sharpness)
 	{
 		if (sharpness != upscaleSharpness && (upscalePass != NULL || fsrRcas != NULL))

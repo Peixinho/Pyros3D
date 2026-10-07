@@ -13,6 +13,7 @@
 
 #if defined(_SDL2VULKAN)
 #include "SDL2Vulkan/SDL2VulkanContext.h"
+#include <Pyros3D/Rendering/PostEffects/Upscaling.h>
 #define ClassName SDL2VulkanContext
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
 #elif defined(_SDL2METAL)
@@ -70,7 +71,7 @@ struct PlayerManifest
 	float renderScale = 1.f;
 	std::vector<std::string> preload;      // game.json "preload": read before the first scene
 	// game.json "quality" (see ProjectSettings::quality): -1 where it says nothing
-	float qSmallCull = -1.f, qRenderScale = -1.f, qAutoFps = -1.f, qAutoMin = 0.42f, qFrameLimit = -2.f; int qShadowEvery = -1, qSsaoHalf = -1; float qUpscaleSharpness = 0.85f; bool qUpscalerFsr = true; // (negative: a plain stretch)
+	float qSmallCull = -1.f, qRenderScale = -1.f, qAutoFps = -1.f, qAutoMin = 0.42f, qFrameLimit = -2.f; int qShadowEvery = -1, qSsaoHalf = -1; float qUpscaleSharpness = 0.85f; std::string qUpscaler = "fsr1", qUpscaleQuality; // (negative: a plain stretch)
 	std::string title = "Pyros3D";
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
 	std::string serverPublicKey;           // pinned when joining with --connect; empty = any server
@@ -180,8 +181,15 @@ private:
 	// which is only the intent: a solve can fail (no geometry, no
 	// lights, no compute) and the player falls back to flat ambient.
 	bool ddgiActive = false;
+	// What brings the frame up to the window's size, and how far below it the
+	// scene is rendered (Upscaling.h): the project's defaults, then whatever a
+	// script - a game's options menu - asks for.
 	float upscaleSharpness = 0.85f;
-	bool upscalerFsr = true;
+	p3d::UpscalerMode upscaler = p3d::UpscalerMode::FSR1;
+	p3d::UpscaleQuality upscaleQuality = p3d::UpscaleQuality::Auto;
+	float autoFpsWanted = 0.f, autoMinWanted = 0.42f;      // what Auto means for this game
+	void ApplyUpscaler();
+	void ApplyUpscaleQuality();
 	// A scene's baked terrain shadow, waiting for the terrain's tiles to exist (see Update)
 	bool terrainBakePending = false;
 	size_t terrainBakeTiles = 0;
