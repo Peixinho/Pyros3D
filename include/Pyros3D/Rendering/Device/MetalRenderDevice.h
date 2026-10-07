@@ -439,6 +439,8 @@ namespace p3d {
 		// Apple GPU this backend runs on supports.
 		virtual bool CanBlitResolveDepth() const { return true; }
 		virtual void CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height);
+		virtual const char* TemporalUpscalerId() const;
+		virtual bool RunTemporalUpscale(const TemporalUpscale &frame);
 
 	private:
 
@@ -911,6 +913,11 @@ namespace p3d {
 		// needed for the same reason: Metal can't retarget an encoder's
 		// attachments mid-pass either, a new target means a new encoder.
 		void EndCurrentRenderEncoderIfOpen();
+		// MetalFX's temporal scaler (id<MTLFXTemporalScaler>), made for one set of
+		// sizes and formats and made again when they change.
+		void* fxScaler = NULL;
+		uint32 fxKey[8] = { 0, 0, 0, 0, 0, 0, 0, 0 };
+		bool fxSaidWhy = false;
 		// Builds a fresh MTLRenderPassDescriptor from `fbo` (or the
 		// drawable, for fbo==0) and begins a new render command encoder
 		// on currentCommandBuffer. No "finalize pending attachments"

@@ -996,6 +996,30 @@ namespace p3d {
 		// needs the depth there resolves it with a shader instead.
 		virtual bool CanBlitResolveDepth() const { return false; }
 
+		// A temporal upscaler the platform provides (Apple's MetalFX on the
+		// Metal device; AMD's FSR 3 where its library is to be had): given
+		// this frame's colour, depth and motion at the size they were
+		// rendered, it writes the frame at the size it is shown, out of this
+		// frame and those before it. The camera has to have been jittered by
+		// the offset given, a different one each frame.
+		struct TemporalUpscale
+		{
+			DeviceHandle color = 0, depth = 0, motion = 0, output = 0;
+			uint32 renderWidth = 0, renderHeight = 0, outputWidth = 0, outputHeight = 0;
+			// The camera's sub-pixel offset this frame, in pixels of the rendered size.
+			f32 jitterX = 0.f, jitterY = 0.f;
+			// What a motion texel times this gives: pixels of the rendered
+			// size, from where the point is now to where it was.
+			f32 motionScaleX = 1.f, motionScaleY = 1.f;
+			// The history is no use (a cut, a new scene, a changed size).
+			bool reset = false;
+			f32 cameraNear = 0.1f, cameraFar = 1000.f, cameraFovY = 1.f, frameMs = 16.f;
+		};
+		// "" where there is none; else the name Upscaling.h knows it by ("metalfx", "fsr3").
+		virtual const char* TemporalUpscalerId() const { return ""; }
+		// Records the upscale into the frame. False: nothing was written (and why is logged once).
+		virtual bool RunTemporalUpscale(const TemporalUpscale &frame) { (void)frame; return false; }
+
 		// Copies a depth texture's contents into another same-size depth
 		// texture. Exists for DeferredRenderer's benefit: its lighting
 		// pass needs to *sample* the G-buffer's depth as a plain texture

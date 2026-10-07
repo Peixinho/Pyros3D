@@ -57,6 +57,8 @@ namespace p3d {
 		void SetHistory(Texture* history);
 		// The scene's depth (after the history: it is the shader's uTex4).
 		void SetSceneDepth(Texture* depth);
+		// Write the motion it works out, and nothing else (see the shader's uParams.y).
+		void SetMotionOnly(const bool only) { motionOnly = only; }
 
 		// reproject maps this frame's clip space to last frame's, for pixels
 		// the velocity pass drew nothing into. historyValid false outputs the
@@ -65,6 +67,7 @@ namespace p3d {
 
 	private:
 		Uniform *reprojectUniform, *paramsUniform;
+		bool motionOnly = false;
 	};
 
 	// Vulkan only: vkCmdResolveImage cannot resolve depth, so the

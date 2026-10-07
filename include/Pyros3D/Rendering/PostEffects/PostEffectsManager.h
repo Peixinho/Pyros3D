@@ -240,6 +240,18 @@ namespace p3d {
 		int fsrState = 0;
 		bool preferFsr = true;
 		UpscalerMode upscalerRequested = UpscalerMode::FSR1;
+		// A temporal upscaler of the platform's (IRenderDevice::RunTemporalUpscale):
+		// the pass that writes the frame's motion for it, the texture it writes
+		// the frame into (an effect kept for its target, never drawn), and what
+		// the motion is worked out from.
+		IEffect* motionPass = NULL;
+		Texture* motionVelocitySource = NULL;
+		IEffect* upscaleTarget = NULL;
+		Matrix temporalPrevViewProjection;
+		bool temporalHavePrev = false, temporalReset = true;
+		AntiAliasingMode aaAskedFor = AntiAliasingMode::Off;
+		bool aaAskedDeferred = false;
+		bool TemporalUpscalerWanted() const;
 		// See SetSceneSourceTexture().
 		Texture* sceneSource = NULL;
 		// See SetViewMatrix().

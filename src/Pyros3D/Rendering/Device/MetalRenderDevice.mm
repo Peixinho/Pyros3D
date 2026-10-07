@@ -24,6 +24,12 @@
 #include "Pyros3D/Rendering/Device/MetalRenderDevice.h"
 
 #ifdef METAL_BACKEND
+#if __has_include(<MetalFX/MetalFX.h>)
+#import <MetalFX/MetalFX.h>
+#define PYROS_HAVE_METALFX 1
+#else
+#define PYROS_HAVE_METALFX 0
+#endif
 
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
@@ -546,7 +552,13 @@ namespace p3d {
 			[cmdBuf presentDrawable:drawable];
 
 			[cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull finishedBuffer) {
-				(void)finishedBuffer;
+				// A frame the GPU refused is a frame of nothing, and it does
+				// not say so unless asked: said once, with Metal's own words.
+				if (finishedBuffer.status == MTLCommandBufferStatusError)
+				{
+					static bool said = false;
+					if (!said) { said = true; fprintf(stderr, "Metal: a frame's command buffer failed: %s\n", finishedBuffer.error ? [[finishedBuffer.error localizedDescription] UTF8String] : "(no reason given)"); }
+				}
 				dispatch_semaphore_signal(sem);
 			}];
 
@@ -694,7 +706,13 @@ namespace p3d {
 
 			dispatch_semaphore_t sem = (__bridge dispatch_semaphore_t)frameBoundarySemaphore;
 			[cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull finishedBuffer) {
-				(void)finishedBuffer;
+				// A frame the GPU refused is a frame of nothing, and it does
+				// not say so unless asked: said once, with Metal's own words.
+				if (finishedBuffer.status == MTLCommandBufferStatusError)
+				{
+					static bool said = false;
+					if (!said) { said = true; fprintf(stderr, "Metal: a frame's command buffer failed: %s\n", finishedBuffer.error ? [[finishedBuffer.error localizedDescription] UTF8String] : "(no reason given)"); }
+				}
 				dispatch_semaphore_signal(sem);
 			}];
 
@@ -3406,6 +3424,115 @@ namespace p3d {
 	// (a transfer can't run inside a render pass there either). Whatever
 	// needs a render encoder next just opens a fresh one with Load
 	// actions - see BindFramebuffer()'s comment on why that's safe.
+	const char* MetalRenderDevice::TemporalUpscalerId() const
+	{
+#if PYROS_HAVE_METALFX
+		if (@available(macOS 13.0, *))
+		{
+			// Not offered yet: it runs, but what it makes of this engine's frames is
+			// softer than the built-in filter (the jitter and motion conventions are
+			// not settled). PYROS_METALFX=1 turns it on to work on it.
+			static const bool on = getenv("PYROS_METALFX") != NULL;
+			if (on && device != NULL && [MTLFXTemporalScalerDescriptor supportsDevice:(__bridge id<MTLDevice>)device]) return "metalfx";
+		}
+#endif
+		return "";
+	}
+
+	bool MetalRenderDevice::RunTemporalUpscale(const TemporalUpscale &frame)
+	{
+#if PYROS_HAVE_METALFX
+		if (@available(macOS 13.0, *))
+		{
+			if (currentCommandBuffer == NULL || device == NULL) return false;
+			std::map<DeviceHandle, TextureRecord>::iterator c = textures.find(frame.color), d = textures.find(frame.depth),
+				m = textures.find(frame.motion), o = textures.find(frame.output);
+			if (c == textures.end() || d == textures.end() || m == textures.end() || o == textures.end()
+				|| c->second.texture == NULL || d->second.texture == NULL || m->second.texture == NULL || o->second.texture == NULL)
+				return false;
+			const bool reopen = currentRenderEncoder != NULL;
+			const DeviceHandle reopenFbo = currentBoundFBO;
+			EndCurrentRenderEncoderIfOpen();
+			@autoreleasepool
+			{
+				id<MTLTexture> colorTex = (__bridge id<MTLTexture>)c->second.texture;
+				id<MTLTexture> depthTex = (__bridge id<MTLTexture>)d->second.texture;
+				id<MTLTexture> motionTex = (__bridge id<MTLTexture>)m->second.texture;
+				id<MTLTexture> outputTex = (__bridge id<MTLTexture>)o->second.texture;
+				const uint32 key[8] = { frame.renderWidth, frame.renderHeight, frame.outputWidth, frame.outputHeight,
+					(uint32)colorTex.pixelFormat, (uint32)depthTex.pixelFormat, (uint32)motionTex.pixelFormat, (uint32)outputTex.pixelFormat };
+				bool fresh = false;
+				if (fxScaler == NULL || memcmp(key, fxKey, sizeof(key)) != 0)
+				{
+					if (fxScaler != NULL) { CFBridgingRelease(fxScaler); fxScaler = NULL; }
+					MTLFXTemporalScalerDescriptor* desc = [[MTLFXTemporalScalerDescriptor alloc] init];
+					desc.inputWidth = frame.renderWidth; desc.inputHeight = frame.renderHeight;
+					desc.outputWidth = frame.outputWidth; desc.outputHeight = frame.outputHeight;
+					desc.colorTextureFormat = colorTex.pixelFormat;
+					desc.depthTextureFormat = depthTex.pixelFormat;
+					desc.motionTextureFormat = motionTex.pixelFormat;
+					desc.outputTextureFormat = outputTex.pixelFormat;
+					// (what it is given has been through the whole post chain:
+					// nothing to expose, nothing brighter than white)
+					desc.autoExposureEnabled = NO;
+					id<MTLFXTemporalScaler> made = [desc newTemporalScalerWithDevice:(__bridge id<MTLDevice>)device];
+					memcpy(fxKey, key, sizeof(key));
+					if (made == nil)
+					{
+						if (!fxSaidWhy) { fxSaidWhy = true; fprintf(stderr, "MetalFX: no temporal scaler for %ux%u -> %ux%u with these texture formats (%u %u %u -> %u)\n", key[0], key[1], key[2], key[3], key[4], key[5], key[6], key[7]); }
+						return false;
+					}
+					if ((outputTex.usage & made.outputTextureUsage) != made.outputTextureUsage)
+					{
+						// The scaler writes its output as a compute pass would, which
+						// a texture made as a render target does not allow. The one
+						// behind this handle is made again, the same but for that -
+						// nothing has been drawn into it that matters (it is the
+						// upscaler's to fill, every frame).
+						MTLTextureDescriptor* td = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:outputTex.pixelFormat
+							width:outputTex.width height:outputTex.height mipmapped:NO];
+						td.usage = outputTex.usage | made.outputTextureUsage;
+						td.storageMode = MTLStorageModePrivate;
+						id<MTLTexture> again = [(__bridge id<MTLDevice>)device newTextureWithDescriptor:td];
+						if (again == nil)
+						{
+							if (!fxSaidWhy) { fxSaidWhy = true; fprintf(stderr, "MetalFX: could not make an output texture the scaler can write\n"); }
+							return false;
+						}
+						CFBridgingRelease(o->second.texture);
+						o->second.texture = (void*)CFBridgingRetain(again);
+						outputTex = again;
+					}
+					fxScaler = (void*)CFBridgingRetain(made);
+					fresh = true;
+				}
+				id<MTLFXTemporalScaler> scaler = (__bridge id<MTLFXTemporalScaler>)fxScaler;
+				scaler.colorTexture = colorTex;
+				scaler.depthTexture = depthTex;
+				scaler.motionTexture = motionTex;
+				scaler.outputTexture = outputTex;
+				scaler.exposureTexture = nil;
+				scaler.preExposure = 1.f;
+				scaler.jitterOffsetX = frame.jitterX;
+				scaler.jitterOffsetY = frame.jitterY;
+				scaler.motionVectorScaleX = frame.motionScaleX;
+				scaler.motionVectorScaleY = frame.motionScaleY;
+				scaler.depthReversed = NO;
+				scaler.reset = (frame.reset || fresh) ? YES : NO;
+				@try { [scaler encodeToCommandBuffer:(__bridge id<MTLCommandBuffer>)currentCommandBuffer]; }
+				@catch (NSException* e) { fprintf(stderr, "MetalFX: encode threw: %s\n", [[e reason] UTF8String]); return false; }
+			}
+			// The pass that was open when this was asked for is open again after
+			// it (an encoder, once ended, is not resumed: whatever is drawn
+			// next would otherwise be drawn into nothing).
+			if (reopen && reopenFbo == 0) BindFramebuffer(FBOAccess::Read_Write, 0, true);
+			return true;
+		}
+#endif
+		(void)frame;
+		return false;
+	}
+
 	void MetalRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)
 	{
 		if (currentCommandBuffer == NULL)

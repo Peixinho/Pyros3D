@@ -322,7 +322,7 @@ namespace p3d {
 			"void main() {\n"
 			"	vec2 uv = vTexcoord;\n"
 			"	vec3 cur = max(texture(uTex0, uv).rgb, vec3(0.0));\n"
-			"	if (uParams.x < 0.5) { FragColor = vec4(cur, 1.0); return; }\n"
+			"	if (uParams.x < 0.5 && uParams.y < 0.5) { FragColor = vec4(cur, 1.0); return; }\n"
 			"	vec2 texel = 1.0 / vec2(textureSize(uTex0, 0));\n"
 			// Neighbourhood statistics for the history clip, and the nearest
 			// depth's texel for the velocity - dilating to the front-most
@@ -359,6 +359,10 @@ namespace p3d {
 			"		velocity.y = -velocity.y;\n"
 			"#endif\n"
 			"	}\n"
+			// (uParams.y: asked only for the motion - for an upscaler that does
+			// its own settling. How far, in texture coordinates, from where the
+			// point was to where it is.)
+			"	if (uParams.y > 0.5) { FragColor = vec4(velocity, 0.0, 1.0); return; }\n"
 			"	vec2 prevUV = uv - velocity;\n"
 			"	if (any(lessThan(prevUV, vec2(0.0))) || any(greaterThan(prevUV, vec2(1.0)))) { FragColor = vec4(cur, 1.0); return; }\n"
 			"	vec3 hist = ToYCoCg(max(History(prevUV), vec3(0.0)));\n"
@@ -399,7 +403,7 @@ namespace p3d {
 	void TAAResolveEffect::SetFrameParams(const Matrix &reproject, const bool historyValid)
 	{
 		reprojectUniform->SetValue((void*)&reproject);
-		Vec4 params(historyValid ? 1.f : 0.f, 0.f, 0.f, 0.f);
+		Vec4 params(historyValid ? 1.f : 0.f, motionOnly ? 1.f : 0.f, 0.f, 0.f);
 		paramsUniform->SetValue(&params);
 	}
 

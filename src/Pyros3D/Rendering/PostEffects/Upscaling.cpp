@@ -5,6 +5,7 @@
 
 #include <Pyros3D/Rendering/PostEffects/Upscaling.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/FsrEffect.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <algorithm>
 #include <cctype>
 
@@ -78,12 +79,10 @@ namespace p3d {
 				return true;
 			case UpscalerMode::FSR1:
 				return FsrEffect::SourcesPresent();
-			// Neither has a backend in this engine yet. They are in the list so
-			// that a project can already name them: it gets the nearest thing
-			// until it can have the thing itself.
+			// The platform's own, where the device in use has one.
 			case UpscalerMode::FSR3:
 			case UpscalerMode::MetalFX:
-				return false;
+				return IsActiveRenderDeviceSet() && ToString(mode) == GetActiveRenderDevice().TemporalUpscalerId();
 			}
 			return false;
 		}

@@ -7,10 +7,14 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
+#include <cstdlib>
+#include <cstdio>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/GammaEncodeEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/SharpUpscaleEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/AntiAliasingEffects.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/FsrEffect.h>
 #include <Pyros3D/Rendering/PostEffects/AntiAliasingStage.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
@@ -181,7 +185,18 @@ namespace p3d {
 
 	void PostEffectsManager::SetAntiAliasing(const AntiAliasingMode mode, const bool deferred)
 	{
-		aaStage->Request(mode, deferred);
+		aaAskedFor = mode;
+		aaAskedDeferred = deferred;
+		// A temporal upscaler settles the picture itself, and needs what TAA
+		// needs to do it: the camera moved a sub-pixel each frame, and the
+		// frame's motion. So TAA's stage is on under it - for the jitter and
+		// the velocity pass - and its own resolve is not run.
+		aaStage->Request(TemporalUpscalerWanted() ? AntiAliasingMode::TAA : mode, deferred);
+	}
+
+	bool PostEffectsManager::TemporalUpscalerWanted() const
+	{
+		return sharpUpscale && WillUpscale() && Upscaling::IsTemporal(Upscaling::Resolve(upscalerRequested));
 	}
 
 	AntiAliasingMode PostEffectsManager::GetAntiAliasing() const
@@ -202,6 +217,8 @@ namespace p3d {
 
 	void PostEffectsManager::ResetTemporalHistory()
 	{
+		temporalReset = true;
+		temporalHavePrev = false;
 		aaStage->ResetHistory();
 	}
 
@@ -230,11 +247,14 @@ namespace p3d {
 		const UpscalerMode effective = Upscaling::Resolve(mode);
 		sharpUpscale = effective != UpscalerMode::Off;
 		preferFsr = effective == UpscalerMode::FSR1;
+		// (the anti-aliasing stage follows: see SetAntiAliasing)
+		aaStage->Request(TemporalUpscalerWanted() ? AntiAliasingMode::TAA : aaAskedFor, aaAskedDeferred);
 	}
 
 	UpscalerMode PostEffectsManager::GetEffectiveUpscaler() const
 	{
 		if (!sharpUpscale) return UpscalerMode::Off;
+		if (TemporalUpscalerWanted()) return Upscaling::Resolve(upscalerRequested);
 		// (FSR 1 asked for and its shaders not made here: the built-in one ran)
 		return (preferFsr && fsrState != 2) ? UpscalerMode::FSR1 : UpscalerMode::Sharp;
 	}
@@ -270,6 +290,8 @@ namespace p3d {
 
 		// Resize External FBO
 		ExternalFBO->Resize(Width, Height);
+		if (motionPass != NULL) motionPass->Resize(Width, Height);
+		temporalReset = true;
 
 		if (viewportGammaEffect != NULL)
 			viewportGammaEffect->Resize(Width, Height);
@@ -460,7 +482,9 @@ namespace p3d {
 		// are of the same frame for everything that reads both, and what TAA
 		// settles is the finished picture.
 		std::vector<IEffect*> run;
-		IEffect* const taaPass = aaStage->PrepareTAA(projection->m * viewMatrix, haveViewMatrix);
+		// (under a temporal upscaler TAA's own resolve is not run: see SetAntiAliasing)
+		const bool temporal = TemporalUpscalerWanted() && haveViewMatrix && velocityRenderer != NULL && Depth != NULL;
+		IEffect* const taaPass = temporal ? NULL : aaStage->PrepareTAA(projection->m * viewMatrix, haveViewMatrix);
 		// (effects with nothing to do this frame are left out - IEffect::IsIdle -
 		// unless that would leave nothing at all to carry the frame to where it
 		// is shown)
@@ -489,6 +513,14 @@ namespace p3d {
 			&& (outputWidth != Width || outputHeight != Height);
 		// (into a texture as well as onto the screen: an editor's viewport shows
 		// the chain's last texture, and that is then the size of the viewport)
+		if (temporal)
+		{
+			// (the upscale is not a pass of the chain - it is done after the
+			// chain's last, below - so all that is left to add is the copy that
+			// puts its result on the screen)
+			if (!renderLastToTexture) run.push_back(aaStage->GetCopyPass());
+		}
+		else
 		if ((scaled || (renderLastToTexture && WillUpscale())) && sharpUpscale)
 		{
 			// (bigger than it was rendered: the last pass is the one that
@@ -870,6 +902,76 @@ namespace p3d {
 		// submit) - a real GPU completion signal that, per MoltenVK's own
 		// behavior on this machine, never arrives without an actual
 		// swapchain present somewhere in the frame to drive it.
+		if (temporal)
+		{
+			PYROS_PROFILE_SCOPE("PostFX.Upscale");
+			// This frame's motion, a texture of it: from the velocity pass
+			// where that drew what is seen, from depth and the two cameras
+			// everywhere else (the TAA resolve's own working, asked for the
+			// motion alone).
+			Texture* const velocity = velocityRenderer->GetTexture();
+			if (motionPass == NULL || motionVelocitySource != velocity)
+			{
+				if (motionPass != NULL) { device->WaitIdle(); delete motionPass; }
+				TAAResolveEffect* made = new TAAResolveEffect(velocity, velocityRenderer->GetDepthTexture(), Width, Height);
+				made->SetHistory(velocity);        // (the shader's fourth texture: not read for this)
+				made->SetSceneDepth(Depth);
+				made->SetMotionOnly(true);
+				motionPass = made;
+				motionVelocitySource = velocity;
+				temporalReset = true;
+			}
+			const Matrix viewProjection = projection->m * viewMatrix;
+			Matrix reproject;
+			if (temporalHavePrev) reproject = temporalPrevViewProjection * viewProjection.Inverse();
+			temporalPrevViewProjection = viewProjection;
+			temporalHavePrev = true;
+			static_cast<TAAResolveEffect*>(motionPass)->SetFrameParams(reproject, true);
+
+			Texture* const colour = LastRTT;
+			activeFBO = motionPass->fbo;
+			device->SetViewport(0, 0, motionPass->Width, motionPass->Height);
+			activeFBO->Bind();
+			drawEffect(motionPass, false);
+			activeFBO->UnBind();
+			Texture* const motion = activeFBO->GetAttachments()[0]->TexturePTR;
+
+			if (upscaleTarget == NULL) { upscaleTarget = new ResizeEffect(RTT::LastRTT, outputWidth, outputHeight); temporalReset = true; }
+			else if (upscaleTarget->GetWidth() != outputWidth || upscaleTarget->GetHeight() != outputHeight)
+			{
+				device->WaitIdle();
+				upscaleTarget->Resize(outputWidth, outputHeight);
+				temporalReset = true;
+			}
+			Texture* const output = upscaleTarget->fbo->GetAttachments()[0]->TexturePTR;
+
+			IRenderDevice::TemporalUpscale frame;
+			frame.color = colour->GetBindID();
+			frame.depth = Depth->GetBindID();
+			frame.motion = motion->GetBindID();
+			frame.output = output->GetBindID();
+			frame.renderWidth = Width; frame.renderHeight = Height;
+			frame.outputWidth = outputWidth; frame.outputHeight = outputHeight;
+			// The stage's jitter is in clip space (a pixel is 2/size); the
+			// motion is in texture coordinates, from where a point was to where
+			// it is. Which way round an upscaler wants each is its own
+			// convention: kept as two signs each, found by trying them.
+			static const Vec4 signs = []() {
+				Vec4 v(-1.f, 1.f, -1.f, -1.f);          // jitter x, jitter y, motion x, motion y
+				if (const char* e = std::getenv("PYROS_UPSCALE_SIGNS")) sscanf(e, "%f,%f,%f,%f", &v.x, &v.y, &v.z, &v.w);
+				return v;
+			}();
+			const Vec2 jitter = aaStage->GetJitter();
+			frame.jitterX = signs.x * jitter.x * 0.5f * (f32)Width;
+			frame.jitterY = signs.y * jitter.y * 0.5f * (f32)Height;
+			frame.motionScaleX = signs.z * (f32)Width;
+			frame.motionScaleY = signs.w * (f32)Height;
+			frame.reset = temporalReset;
+			frame.cameraNear = projection->Near; frame.cameraFar = projection->Far;
+			temporalReset = false;
+			if (device->RunTemporalUpscale(frame)) LastRTT = output;
+		}
+
 		if (renderLastToTexture)
 		{
 			// Nothing left to present: the loop above ended in an FBO, and
@@ -938,6 +1040,8 @@ namespace p3d {
 		}
 
 		// Before the capture and the velocity map: its passes sample both.
+		delete motionPass;
+		delete upscaleTarget;
 		delete upscalePass;
 		delete fsrEasu;
 		delete fsrRcas;

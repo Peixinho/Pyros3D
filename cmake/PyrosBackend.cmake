@@ -257,6 +257,9 @@ if (BUILD_METAL_BACKEND)
 		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK}
 			${FOUNDATION_FRAMEWORK} ${COREGRAPHICS_FRAMEWORK})
 		pyros_frameworks_by_name(METAL_BACKEND_LIBS)
+		# Apple's upscaler, where the system has it (macOS 13 on): linked weakly,
+		# so the engine still loads where it does not.
+		list(APPEND METAL_BACKEND_LIBS "-Wl,-weak_framework,MetalFX")
 
 		# GLSL -> SPIR-V (shaderc, already found above for the Vulkan path)
 		# -> MSL (spirv-cross-msl, the one spirv-cross backend library the
