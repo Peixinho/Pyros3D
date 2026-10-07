@@ -134,7 +134,12 @@ namespace p3d {
 		// filled Scene's sorted list (shadow-less / empty-light paths skip
 		// that, and CubemapRenderer's old "reuse last sort" assumption is
 		// fragile for DemoLauncher).
-		rmesh = GroupAndSortAssets(Scene, Camera);
+		// Drawing only what moved, the order things are drawn in is of no
+		// account and the scene's own list of its meshes will do: sorting all
+		// seven thousand of a game's island to pick out thirty was most of
+		// what this pass cost.
+		if (dynamicOnly) rmesh = Scene->GetRenderingMeshes();
+		else rmesh = GroupAndSortAssets(Scene, Camera);
 
 		// What has been moved since this pass last ran.
 		std::unordered_set<GameObject*> movedNow;
@@ -202,7 +207,10 @@ namespace p3d {
 						// again, object by object - four thousand draws and two
 						// million triangles a frame on a game's island.
 						GameObject* owner = (*k)->renderingComponent->GetOwner();
-						const bool bones = !(*k)->SkinningBones.empty();
+						// (bones alone no longer count: a figure standing and breathing has
+						// not moved, and this pass draws no pose anyway - see the note on it)
+						const bool bones = !dynamicOnly && !(*k)->SkinningBones.empty();
+						if (dynamicOnly && (*k)->Material && (*k)->Material->IsTransparent()) continue;
 						// (moved: its matrix was worked out again since this pass
 						// last looked - RenderState's log - AND came out different.
 						// The matrix kept from "last frame" means nothing on an
