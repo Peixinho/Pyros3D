@@ -2158,6 +2158,8 @@ namespace p3d {
 		lastScissor[0] = (uint32)x; lastScissor[1] = (uint32)y;
 		lastScissor[2] = (uint32)w; lastScissor[3] = (uint32)h;
 		scissorNarrowing = true;
+		// (not into an offscreen buffer already ended: see SetViewport)
+		if (activeCommandBuffer == offscreenCommandBuffer && !offscreenCommandBufferRecording) return;
 		vkCmdSetScissor(activeCommandBuffer, 0, 1, &scissor);
 	}
 
@@ -2168,6 +2170,7 @@ namespace p3d {
 		if (enabled) return;
 		scissorNarrowing = false;
 		if (activeCommandBuffer == VK_NULL_HANDLE) return;
+		if (activeCommandBuffer == offscreenCommandBuffer && !offscreenCommandBufferRecording) return;
 		VkRect2D scissor = { { (int32_t)lastViewport[0], (int32_t)lastViewport[1] },
 			{ lastViewport[2], lastViewport[3] } };
 		vkCmdSetScissor(activeCommandBuffer, 0, 1, &scissor);
@@ -2779,6 +2782,17 @@ namespace p3d {
 		EnsureFrameCommandBufferForSwapchainDraw();
 		if (!(frameInProgress || offscreenPassOpen) || activeCommandBuffer == VK_NULL_HANDLE)
 			return;
+		// Between two offscreen passes the active buffer is still the offscreen
+		// one, and it has been ended and handed to the queue: a command put in
+		// it now is put in a buffer that is not recording. (MoltenVK lets it
+		// go; a driver that does not can fall over when the buffer is next
+		// ended.) The viewport a renderer sets there is of no use anyway: the
+		// next pass to open sets its own.
+		if (activeCommandBuffer == offscreenCommandBuffer && !offscreenCommandBufferRecording)
+		{
+			lastViewport[0] = x; lastViewport[1] = y; lastViewport[2] = width; lastViewport[3] = height;
+			return;
+		}
 		lastViewport[0] = x; lastViewport[1] = y; lastViewport[2] = width; lastViewport[3] = height;
 		VkViewport viewport = { (f32)x, (f32)y, (f32)width, (f32)height, 0.0f, 1.0f };
 		// A viewport change does not touch the scissor box in GL
