@@ -129,6 +129,8 @@ namespace {
 			// "upscaleSharpness": 0..1, how sharp a frame rendered below the window's
 			// size is brought up to it; negative for a plain stretch
 			m.qUpscaleSharpness = q.value("upscaleSharpness", 0.85f);
+			// "upscaler": "fsr1" (AMD FSR 1) or "sharp" (the built-in filter: one pass, far cheaper)
+			m.qUpscalerFsr = q.value("upscaler", std::string("fsr1")) != "sharp";
 			m.qAutoFps = q.value("autoRenderScaleFps", -1.f);
 			m.qAutoMin = q.value("autoRenderScaleMin", 0.42f);
 			m.qFrameLimit = q.value("frameRateLimit", -2.f);
@@ -429,6 +431,9 @@ end
 	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
 	// setUpscaleSharpness(0.6): how sharp a frame rendered below the window's size is
 	// brought up to it (0..1); negative for a plain stretch
+	// setUpscaler("fsr1" | "sharp"): AMD FSR 1, or the built-in one-pass filter
+	lua.set_function("setUpscaler", [this](const std::string &name) { upscalerFsr = name != "sharp"; if (effectsManager) effectsManager->SetUpscalerFsr(upscalerFsr); });
+	lua.set_function("getUpscaler", [this]() { return std::string(effectsManager && effectsManager->IsUsingFsr() ? "fsr1" : "sharp"); });
 	lua.set_function("setUpscaleSharpness", [this](const f32 s) { upscaleSharpness = s; if (effectsManager) effectsManager->SetSharpUpscale(s >= 0.f, s >= 0.f ? s : 0.85f); });
 	// setFrameRateLimit(fps): no more frames a second than that (0: as many
 	// as there are). getDisplayRefreshRate(): what the screen the window is on
@@ -508,6 +513,7 @@ end
 	if (m.qShadowEvery >= 1) IRenderer::SetShadowUpdateInterval((uint32)m.qShadowEvery);
 	if (m.qSsaoHalf >= 0) DeferredRenderer::SetSSAOHalfResolution(m.qSsaoHalf == 1);
 	upscaleSharpness = m.qUpscaleSharpness;
+	upscalerFsr = m.qUpscalerFsr;
 	if (m.qRenderScale > 0.f) SetRenderScale(m.qRenderScale);
 	if (m.qAutoFps >= 0.f) SetAutoRenderScale(m.qAutoFps, m.qAutoMin, 1.f);
 	if (m.qFrameLimit > -1.5f)
@@ -626,6 +632,7 @@ PostEffectsManager* PyrosPlayer::EnsureEffectsManager()
 	// fills the window: see SetRenderScale)
 	effectsManager->SetOutputSize(Width, Height);
 	effectsManager->SetSharpUpscale(upscaleSharpness >= 0.f, upscaleSharpness >= 0.f ? upscaleSharpness : 0.85f);
+	effectsManager->SetUpscalerFsr(upscalerFsr);
 	return effectsManager;
 }
 

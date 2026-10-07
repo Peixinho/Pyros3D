@@ -68,7 +68,12 @@ namespace p3d {
 		// IsUsingFsr(): which of the two it turned out to be.
 		void SetSharpUpscale(const bool on, const f32 sharpness = 0.85f);
 		bool GetSharpUpscale() const { return sharpUpscale; }
-		bool IsUsingFsr() const { return fsrState == 1; }
+		bool IsUsingFsr() const { return fsrState == 1 && preferFsr; }
+		// Which of the two brings the frame up to size: AMD's FSR 1 (two passes
+		// at the size shown - some milliseconds of an integrated GPU at 4K), or
+		// the built-in sharpening resample (one pass, next to nothing).
+		void SetUpscalerFsr(const bool fsr) { preferFsr = fsr; }
+		bool GetUpscalerFsr() const { return preferFsr; }
 		void SetRenderLastToTexture(const bool enabled) { renderLastToTexture = enabled; }
 		bool GetRenderLastToTexture() const { return renderLastToTexture; }
 
@@ -225,6 +230,7 @@ namespace p3d {
 		IEffect* fsrEasu = NULL;
 		IEffect* fsrRcas = NULL;
 		int fsrState = 0;
+		bool preferFsr = true;
 		// See SetSceneSourceTexture().
 		Texture* sceneSource = NULL;
 		// See SetViewMatrix().

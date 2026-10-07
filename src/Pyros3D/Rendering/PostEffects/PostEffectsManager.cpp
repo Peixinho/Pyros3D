@@ -475,7 +475,7 @@ namespace p3d {
 		{
 			// (bigger than it was rendered: the last pass is the one that
 			// makes it so, whatever came before it)
-			if (fsrState == 0)
+			if (fsrState == 0 && preferFsr)
 			{
 				fsrState = 2;
 				if (FsrEffect::SourcesPresent())
@@ -488,7 +488,7 @@ namespace p3d {
 				// (said once, where anybody watching the output can see which it is)
 				fprintf(stderr, "Upscaling: %s\n", fsrState == 1 ? "AMD FidelityFX Super Resolution 1.0 (EASU + RCAS)" : "built-in sharpening filter (FSR 1 could not be used here)");
 			}
-			if (fsrState == 1)
+			if (fsrState == 1 && preferFsr)
 			{
 				// EASU writes a frame the size of where it is shown; RCAS
 				// sharpens that onto it.
