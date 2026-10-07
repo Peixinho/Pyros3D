@@ -128,7 +128,7 @@ namespace {
 			m.qRenderScale = q.value("renderScale", -1.f);
 			// "upscaleSharpness": 0..1, how sharp a frame rendered below the window's
 			// size is brought up to it; negative for a plain stretch
-			m.qUpscaleSharpness = q.value("upscaleSharpness", 0.6f);
+			m.qUpscaleSharpness = q.value("upscaleSharpness", 0.85f);
 			m.qAutoFps = q.value("autoRenderScaleFps", -1.f);
 			m.qAutoMin = q.value("autoRenderScaleMin", 0.42f);
 			m.qFrameLimit = q.value("frameRateLimit", -2.f);
@@ -429,7 +429,7 @@ end
 	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
 	// setUpscaleSharpness(0.6): how sharp a frame rendered below the window's size is
 	// brought up to it (0..1); negative for a plain stretch
-	lua.set_function("setUpscaleSharpness", [this](const f32 s) { upscaleSharpness = s; if (effectsManager) effectsManager->SetSharpUpscale(s >= 0.f, s >= 0.f ? s : 0.6f); });
+	lua.set_function("setUpscaleSharpness", [this](const f32 s) { upscaleSharpness = s; if (effectsManager) effectsManager->SetSharpUpscale(s >= 0.f, s >= 0.f ? s : 0.85f); });
 	// setFrameRateLimit(fps): no more frames a second than that (0: as many
 	// as there are). getDisplayRefreshRate(): what the screen the window is on
 	// can show, or 0 when it will not say.
@@ -625,7 +625,7 @@ PostEffectsManager* PyrosPlayer::EnsureEffectsManager()
 	// (the chain works at the size the scene is rendered at, and its last pass
 	// fills the window: see SetRenderScale)
 	effectsManager->SetOutputSize(Width, Height);
-	effectsManager->SetSharpUpscale(upscaleSharpness >= 0.f, upscaleSharpness >= 0.f ? upscaleSharpness : 0.6f);
+	effectsManager->SetSharpUpscale(upscaleSharpness >= 0.f, upscaleSharpness >= 0.f ? upscaleSharpness : 0.85f);
 	return effectsManager;
 }
 

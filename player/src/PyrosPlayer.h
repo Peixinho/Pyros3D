@@ -70,7 +70,7 @@ struct PlayerManifest
 	float renderScale = 1.f;
 	std::vector<std::string> preload;      // game.json "preload": read before the first scene
 	// game.json "quality" (see ProjectSettings::quality): -1 where it says nothing
-	float qSmallCull = -1.f, qRenderScale = -1.f, qAutoFps = -1.f, qAutoMin = 0.42f, qFrameLimit = -2.f; int qShadowEvery = -1, qSsaoHalf = -1; float qUpscaleSharpness = 0.6f; // (negative: a plain stretch)
+	float qSmallCull = -1.f, qRenderScale = -1.f, qAutoFps = -1.f, qAutoMin = 0.42f, qFrameLimit = -2.f; int qShadowEvery = -1, qSsaoHalf = -1; float qUpscaleSharpness = 0.85f; // (negative: a plain stretch)
 	std::string title = "Pyros3D";
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
 	std::string serverPublicKey;           // pinned when joining with --connect; empty = any server
@@ -180,7 +180,7 @@ private:
 	// which is only the intent: a solve can fail (no geometry, no
 	// lights, no compute) and the player falls back to flat ambient.
 	bool ddgiActive = false;
-	float upscaleSharpness = 0.6f;
+	float upscaleSharpness = 0.85f;
 	// A scene's baked terrain shadow, waiting for the terrain's tiles to exist (see Update)
 	bool terrainBakePending = false;
 	size_t terrainBakeTiles = 0;

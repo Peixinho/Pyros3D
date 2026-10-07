@@ -61,10 +61,14 @@ namespace p3d {
 		// means the chain's own size.
 		void SetOutputSize(const uint32 width, const uint32 height) { outputWidth = width; outputHeight = height; }
 		// A chain that ends somewhere bigger than it works at (SetOutputSize)
-		// gets there through a sharpening resample (SharpUpscaleEffect), not a
-		// plain stretch. On unless said otherwise; sharpness 0..1.
-		void SetSharpUpscale(const bool on, const f32 sharpness = 0.6f);
+		// gets there through AMD's FSR 1 (FsrEffect: EASU, then RCAS) - or,
+		// where that cannot be compiled, a sharpening bicubic
+		// (SharpUpscaleEffect) - not a plain stretch. On unless said
+		// otherwise; sharpness 0..1.
+		// IsUsingFsr(): which of the two it turned out to be.
+		void SetSharpUpscale(const bool on, const f32 sharpness = 0.85f);
 		bool GetSharpUpscale() const { return sharpUpscale; }
+		bool IsUsingFsr() const { return fsrState == 1; }
 		void SetRenderLastToTexture(const bool enabled) { renderLastToTexture = enabled; }
 		bool GetRenderLastToTexture() const { return renderLastToTexture; }
 
@@ -214,8 +218,13 @@ namespace p3d {
 		bool renderLastToTexture = false;
 		uint32 outputWidth = 0, outputHeight = 0;
 		bool sharpUpscale = true;
-		f32 upscaleSharpness = 0.6f;
+		f32 upscaleSharpness = 0.85f;
 		IEffect* upscalePass = NULL;
+		// FSR 1's two passes (FsrEffect), where they can be made; upscalePass
+		// is what is used where they cannot. fsrState: 0 not tried, 1 made, 2 not to be had.
+		IEffect* fsrEasu = NULL;
+		IEffect* fsrRcas = NULL;
+		int fsrState = 0;
 		// See SetSceneSourceTexture().
 		Texture* sceneSource = NULL;
 		// See SetViewMatrix().

@@ -11,6 +11,7 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/GammaEncodeEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/SharpUpscaleEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/FsrEffect.h>
 #include <Pyros3D/Rendering/PostEffects/AntiAliasingStage.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
@@ -223,13 +224,17 @@ namespace p3d {
 
 	void PostEffectsManager::SetSharpUpscale(const bool on, const f32 sharpness)
 	{
-		if (sharpness != upscaleSharpness && upscalePass != NULL)
+		if (sharpness != upscaleSharpness && (upscalePass != NULL || fsrRcas != NULL))
 		{
 			// (the amount is compiled in: a pass made for another is made again.
 			// Not freed under a frame that may still be drawing with it.)
 			GetActiveRenderDevice().WaitIdle();
 			delete upscalePass;
 			upscalePass = NULL;
+			delete fsrEasu;
+			delete fsrRcas;
+			fsrEasu = fsrRcas = NULL;
+			fsrState = 0;
 		}
 		sharpUpscale = on;
 		upscaleSharpness = sharpness;
@@ -463,8 +468,37 @@ namespace p3d {
 		{
 			// (bigger than it was rendered: the last pass is the one that
 			// makes it so, whatever came before it)
-			if (upscalePass == NULL) upscalePass = new SharpUpscaleEffect(RTT::LastRTT, Width, Height, upscaleSharpness);
-			run.push_back(upscalePass);
+			if (fsrState == 0)
+			{
+				fsrState = 2;
+				if (FsrEffect::SourcesPresent())
+				{
+					FsrEffect* easu = new FsrEffect(FsrEffect::EASU, RTT::LastRTT, outputWidth, outputHeight);
+					FsrEffect* rcas = new FsrEffect(FsrEffect::RCAS, RTT::LastRTT, outputWidth, outputHeight, upscaleSharpness);
+					if (easu->IsValid() && rcas->IsValid()) { fsrEasu = easu; fsrRcas = rcas; fsrState = 1; }
+					else { delete easu; delete rcas; }
+				}
+				// (said once, where anybody watching the output can see which it is)
+				fprintf(stderr, "Upscaling: %s\n", fsrState == 1 ? "AMD FidelityFX Super Resolution 1.0 (EASU + RCAS)" : "built-in sharpening filter (FSR 1 could not be used here)");
+			}
+			if (fsrState == 1)
+			{
+				// EASU writes a frame the size of where it is shown; RCAS
+				// sharpens that onto it.
+				if (fsrEasu->GetWidth() != outputWidth || fsrEasu->GetHeight() != outputHeight)
+				{
+					device->WaitIdle();
+					fsrEasu->Resize(outputWidth, outputHeight);
+					fsrRcas->Resize(outputWidth, outputHeight);
+				}
+				run.push_back(fsrEasu);
+				run.push_back(fsrRcas);
+			}
+			else
+			{
+				if (upscalePass == NULL) upscalePass = new SharpUpscaleEffect(RTT::LastRTT, Width, Height, upscaleSharpness);
+				run.push_back(upscalePass);
+			}
 		}
 		else
 		if (!renderLastToTexture && (run.empty() ? (aaStage->IsMSAA() || scaled) : (run.back() == taaPass || (scaled && finalStart == run.size()))))
@@ -867,6 +901,8 @@ namespace p3d {
 
 		// Before the capture and the velocity map: its passes sample both.
 		delete upscalePass;
+		delete fsrEasu;
+		delete fsrRcas;
 		delete aaStage;
 		aaStage = NULL;
 
