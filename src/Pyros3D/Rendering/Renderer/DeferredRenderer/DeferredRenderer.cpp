@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
+#include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
@@ -935,6 +936,14 @@ namespace p3d {
 		visible.reserve(rmesh.size());
 		std::vector<uint32> visibleAt;
 		visibleAt.reserve(rmesh.size());
+		// What the ground hides from the camera is left out of the picture (it
+		// still casts its shadow: the shadow maps have their own lists).
+		bool occluding = false;
+		{
+			PYROS_PROFILE_SCOPE("Occlusion.Update");
+			occluding = terrainOcclusion.Update(Scene, Camera->GetWorldPosition());
+		}
+		uint32 occluded = 0;
 		if (cullFlags.size() != rmesh.size()) BuildCullList();
 		{
 			const uint8 need = CullOwner | CullComponentActive | CullMeshActive;
@@ -942,13 +951,43 @@ namespace p3d {
 			{
 				const uint8 f = cullFlags[k];
 				if ((f & need) != need || (f & CullTransparent)) continue;
-				if (!(f & CullTested) || CullListTest(k)) { visible.push_back(rmesh[k]); visibleAt.push_back((uint32)k); }
+				if (!(f & CullTested) || CullListTest(k))
+				{
+					// (and not what the ground hides: behind a hill from here)
+					if (occluding && cullSphere[k].w > 0.f && terrainOcclusion.Hidden(Vec3(cullSphere[k].x, cullSphere[k].y, cullSphere[k].z), cullSphere[k].w))
+					{
+						// PYROS_VERIFY_OCCLUSION=1: every "hidden" held against the ground
+						// itself - a line from the eye to the sphere's top, and to its top
+						// at either side, has to go into the ground on the way.
+						static const bool verify = std::getenv("PYROS_VERIFY_OCCLUSION") != NULL;
+						if (verify)
+						{
+							static uint64 asked = 0, wrong = 0;
+							const Vec3 eyeNow = Camera->GetWorldPosition();
+							const Vec4 &s = cullSphere[k];
+							const Vec3 c(s.x, s.y, s.z);
+							Vec3 side(-(c.z - eyeNow.z), 0.f, c.x - eyeNow.x);
+							const f32 sl = sqrtf(side.x * side.x + side.z * side.z);
+							if (sl > 1e-3f) side = side * (s.w / sl);
+							const Vec3 tops[3] = { c + Vec3(0.f, s.w, 0.f), c + Vec3(0.f, s.w, 0.f) + side, c + Vec3(0.f, s.w, 0.f) - side };
+							bool seen = false;
+							for (int t = 0; t < 3; t++) if (!TerrainOcclusion::GroundBetween(Scene, eyeNow, tops[t])) seen = true;
+							asked++;
+							if (seen && ++wrong <= 20) fprintf(stderr, "[occlusion] WRONG: %s hidden, but a line to its top is clear (%.0f m off, radius %.1f)\n", rmesh[k]->renderingComponent->GetOwner()->GetName().c_str(), sqrtf(eyeNow.distanceSQR(c)), s.w);
+							if (asked % 200000 == 0) fprintf(stderr, "[occlusion] %llu hidden checked, %llu wrong\n", (unsigned long long)asked, (unsigned long long)wrong);
+						}
+						occluded++; continue;
+					}
+					visible.push_back(rmesh[k]); visibleAt.push_back((uint32)k);
+				}
 			}
 		}
 		// Nearest first. What is drawn first hides what is drawn after it, and
 		// a pixel that is hidden is not shaded: in the order things happened to
 		// be added to the scene, a field of grass seen along the ground was
 		// shaded many times over, far blades first and near ones on top.
+		FrameProfiler::Instance().Counter("Occlusion.Hidden", (f64)occluded);
+		FrameProfiler::Instance().Counter("Occlusion.Drawn", (f64)visible.size());
 		if (g_gbufferNearestFirst && visible.size() > 1)
 		{
 			const Vec3 eye = Camera->GetWorldPosition();

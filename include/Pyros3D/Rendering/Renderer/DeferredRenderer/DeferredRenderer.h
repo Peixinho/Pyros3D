@@ -9,6 +9,7 @@
 #ifndef DEFERREDRENDERER_H
 #define DEFERREDRENDERER_H
 
+#include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
@@ -280,6 +281,7 @@ namespace p3d {
 		// Uniform Handlers
 		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle, *pointShadowBiasHandle;
 		Uniform *dirAmbientTooHandle = NULL;
+		TerrainOcclusion terrainOcclusion;
 		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle, *dirHorizonMapHandle, *dirHorizonRectHandle, *dirHorizonSunHandle;
 		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle, *spotShadowDepthsMVPHandle, *spotShadowPCFTexelHandle, *spotHaveShadowHandle;
 

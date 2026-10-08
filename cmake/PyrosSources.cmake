@@ -21,6 +21,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/WorldStreamer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/AssetPreload.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Terrain/TerrainHorizon.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Terrain/TerrainOcclusion.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetTransport.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetBuffer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/NullRenderDevice.cpp

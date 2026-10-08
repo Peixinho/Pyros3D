@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
+#include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Assets/AssetPreload.h>
@@ -434,6 +435,9 @@ end
 	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
 	// setSunLaysAmbient(false): the ambient light in a lighting pass of its own again (to compare)
 	// setNearestFirst(false): the G-buffer in the scene's own order again (to compare)
+	// setTerrainOcclusion(false): what is behind a hill is drawn again (to compare)
+	lua.set_function("setTerrainOcclusion", [](const bool on) { TerrainOcclusion::SetEnabled(on); });
+	lua.set_function("getTerrainOcclusion", []() { return TerrainOcclusion::GetEnabled(); });
 	lua.set_function("setNearestFirst", [](const bool on) { DeferredRenderer::SetNearestFirst(on); });
 	// setFoliageThinning(false): every plant of a field drawn, however far (see FoliageLayerSpec::thinDensity)
 	lua.set_function("setFoliageThinning", [](const bool on) { FoliageComponent::SetThinning(on); });
