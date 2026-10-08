@@ -152,6 +152,10 @@ namespace p3d {
 
 		// Clickable
 		bool Clickable, Active;
+		// For a mesh of a further level of detail, or of the shadow's own model:
+		// the mesh of the model itself it stands for. It is drawn only while that
+		// one is switched on (a part hidden on the model is hidden at every level).
+		RenderingMesh* standsFor = NULL;
 
 		// Map Bone ID's
 		std::map<int32, int32> MapBoneIDs;
@@ -300,6 +304,26 @@ namespace p3d {
 		// to `reach` metres. Only where the nearest level is a Model read from
 		// a file; returns whether it took.
 		bool AddSimplifiedLOD(const f32 ratio, const f32 reach = 1e9f);
+		// Levels of detail nobody had to ask for. A model of some weight (not
+		// one that is skinned) gets simplified levels by itself, taking over at
+		// distances that go by how big it is in the world: half its triangles
+		// from 12 radii off, a quarter from 28, a tenth from 60 - and its
+		// shadow drawn with a quarter. With levels already given (a tree that
+		// becomes a card far off) one simplified level is put in before them,
+		// where there is room. False if the model is too light, or cannot be.
+		// `worldRadius`: the model's radius as it stands in the scene; `given`:
+		// where the first level it already has takes over (0: it has none).
+		bool AddAutomaticLODs(const f32 worldRadius, const f32 given = 0.f);
+		bool HasAutomaticLODs() const { return autoLevels != 0; }
+		// The same, asked once for a component (by whoever lists what a scene
+		// draws): the radius is the owner's own scale times the model's.
+		void TryAutomaticLODs();
+		// Whether automatic levels are made at all (on unless said: read when a
+		// scene is loaded), and whether those made are used (to compare).
+		static void SetAutoLOD(const bool on);
+		static bool GetAutoLOD();
+		static void SetAutoLODInUse(const bool on);
+		static bool GetAutoLODInUse();
 		// A last level with nothing in it: beyond the reach of the level
 		// before, the component is not drawn (and casts nothing). For the
 		// many small things of a scene that nobody can see from far off.
@@ -611,6 +635,9 @@ namespace p3d {
 		std::shared_ptr<Renderable> renderable;
 		std::vector<std::shared_ptr<Renderable> > lodRenderables;
 		std::vector<bool> lodOwnMaterials;      // by level; level 0 is false
+		uint32 autoLevels = 0;                  // how many levels AddAutomaticLODs made (they are the first after level 0)
+		bool autoLodTried = false;
+		uint32 autoLodSeen = 0;                 // the state of SetAutoLODInUse the level in use was picked under
 		std::shared_ptr<Renderable> shadowRenderable;
 		std::vector<RenderingMesh*> shadowMeshes;
 		f32 shadowDetail = 0.f;

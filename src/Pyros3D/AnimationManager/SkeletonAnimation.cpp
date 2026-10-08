@@ -1191,8 +1191,20 @@ namespace p3d {
 				}
 			}
 		}
-		for (std::vector<RenderingMesh*>::iterator j = rcomp->GetMeshes().begin(); j != rcomp->GetMeshes().end(); j++)
+		// Every mesh the component has: the model's own, those of its further
+		// levels of detail, and those its shadow is drawn with. (Only the model's
+		// own were posed: a simplified level stood in its bind pose.)
+		std::vector<RenderingMesh*> all;
+		for (uint32 l = 0; l < rcomp->GetLODSize(); l++)
 		{
+			std::vector<RenderingMesh*> &level = rcomp->GetMeshes(l);
+			all.insert(all.end(), level.begin(), level.end());
+		}
+		all.insert(all.end(), rcomp->GetShadowMeshes().begin(), rcomp->GetShadowMeshes().end());
+		for (std::vector<RenderingMesh*>::iterator j = all.begin(); j != all.end(); j++)
+		{
+			if ((*j)->MapBoneIDs.empty()) continue;
+			if ((*j)->SkinningBones.size() != (*j)->MapBoneIDs.size()) (*j)->SkinningBones.resize((*j)->MapBoneIDs.size());
 			if (anyViewOnly) (*j)->ShadowSkinningBones.resize((*j)->SkinningBones.size());
 			else if (!(*j)->ShadowSkinningBones.empty()) (*j)->ShadowSkinningBones.clear();
 			for (std::map<int32, int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)

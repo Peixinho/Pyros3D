@@ -3165,6 +3165,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				if (!levelRenderable.empty())
 				{
 					rc->SetFirstLODDistance(levelFrom[0]);
+					// (a simplified level by itself before the ones given, where there is room)
+					{
+						const Vec3 sc = go->GetScale();
+						rc->AddAutomaticLODs(renderable->GetBoundingSphereRadius() * std::max(std::fabs(sc.x), std::max(std::fabs(sc.y), std::fabs(sc.z))), levelFrom[0]);
+					}
 					for (size_t l = 0; l < levelRenderable.size(); l++)
 					{
 						const f32 reach = (l + 1 < levelRenderable.size()) ? levelFrom[l + 1] : 1e9f;
@@ -3177,6 +3182,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (j.value("castingShadows", true)) rc->EnableCastShadows(); else rc->DisableCastShadows();
 			// ("shadowDetail": the share of the model's triangles its shadow is drawn with)
 			if (j.contains("shadowDetail")) rc->SetShadowDetail(j.value("shadowDetail", 0.f));
+			// Levels of detail for a model that was given none ("autoLod": false to
+			// leave this one as it is).
+			if (!isGenerated && !isHeightfield && j.value("autoLod", true) && !j.contains("skeletonAnimation")
+				&& !(j.contains("lods") && j["lods"].is_array() && !j["lods"].empty()))
+			{
+				const Vec3 sc = go->GetScale();
+				rc->AddAutomaticLODs(renderable->GetBoundingSphereRadius() * std::max(std::fabs(sc.x), std::max(std::fabs(sc.y), std::fabs(sc.z))));
+			}
 			go->AddComponent(rc);
 
 			if (j.find("skeletonAnimation") != j.end())

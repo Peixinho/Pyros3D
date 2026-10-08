@@ -189,6 +189,8 @@ void IRenderer::GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const u
 		std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
 		for (std::vector<RenderingComponent*>::iterator i = comps.begin(); i != comps.end(); i++)
 		{
+			// (a model nobody gave levels to gets its own, the first time it is listed)
+			if (!(*i)->HasLOD()) (*i)->TryAutomaticLODs();
 			if (!(*i)->HasLOD()) continue;
 			// Squared distance to the bounding sphere, 0 from inside it. It
 			// was to (centre - radius) on every axis, a point outside the
@@ -979,7 +981,7 @@ void IRenderer::CullEntry(const size_t i, RenderingMesh* m)
 			owner->GetBoundingSphereRadiusWorldSpace());
 	}
 	if (m->Material && m->Material->IsTransparent()) f |= CullTransparent;
-	if (rc->IsActive()) { f |= CullComponentActive; if (m->Active == true) f |= CullMeshActive; }
+	if (rc->IsActive()) { f |= CullComponentActive; if (m->Active == true && (m->standsFor == NULL || m->standsFor->Active)) f |= CullMeshActive; }
 	if (rc->IsCastingShadows()) f |= CullCasts;
 	if (rc->IsCullTesting()) f |= CullTested;
 	if (m->CullingGeometry == CullingGeometry::Box) f |= CullBox;
@@ -1329,6 +1331,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 			{
 				RenderingMesh* proxy = rc->shadowMeshes[sm];
 				if (!proxy->Material || proxy->Material->IsTransparent()) continue;
+				if (proxy->standsFor != NULL && !proxy->standsFor->Active) continue;       // (a part hidden on the model)
 				if (cullTest && !ShadowCasterVisible(proxy)) continue;
 				if (cullTest && g_shadowView.on && !ShadowReachesView(proxy)) { g_shadowCastersLeftOut++; continue; }
 				g_shadowCastersDrawn++;

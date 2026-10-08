@@ -459,6 +459,8 @@ end
 	// setTerrainOcclusion(false): what is behind a hill is drawn again (to compare)
 	lua.set_function("setTerrainOcclusion", [](const bool on) { TerrainOcclusion::SetEnabled(on); });
 	lua.set_function("getTerrainOcclusion", []() { return TerrainOcclusion::GetEnabled(); });
+	// setAutoLOD(false): models are drawn whole however far off (those loaded already included)
+	lua.set_function("setAutoLOD", [](const bool on) { RenderingComponent::SetAutoLODInUse(on); });
 	lua.set_function("setNearestFirst", [](const bool on) { DeferredRenderer::SetNearestFirst(on); });
 	// setFoliageThinning(false): every plant of a field drawn, however far (see FoliageLayerSpec::thinDensity)
 	lua.set_function("setFoliageThinning", [](const bool on) { FoliageComponent::SetThinning(on); });

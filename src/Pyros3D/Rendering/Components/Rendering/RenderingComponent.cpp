@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include <cstdio>
 //============================================================================
 // Name        : RenderingComponent
 // Author      : Duarte Peixinho
@@ -276,7 +278,8 @@ namespace p3d {
 				m->MapBoneIDs = renderable->Geometries[i]->MapBoneIDs;
 				m->BoneOffsetMatrix = renderable->Geometries[i]->BoneOffsetMatrix;
 			}
-			const RenderingMesh* like = own[std::min((size_t)i, own.size() - 1)];
+			RenderingMesh* like = own[std::min((size_t)i, own.size() - 1)];
+			m->standsFor = like;
 			m->Material = like->Material;
 			m->CullingGeometry = like->CullingGeometry;
 			m->renderingComponent = this;
@@ -307,6 +310,59 @@ namespace p3d {
 		std::shared_ptr<SimplifiedModel> simple = SimplifiedModel::LoadShared(model->GetPath(), ratio);
 		if (!simple || simple->Geometries.empty()) return false;
 		AddLODOwnMaterials(simple, reach);
+		return true;
+	}
+
+	namespace { bool g_autoLod = true, g_autoLodInUse = true; uint32 g_autoLodChanges = 0; }
+	void RenderingComponent::SetAutoLOD(const bool on) { g_autoLod = on; }
+	bool RenderingComponent::GetAutoLOD() { return g_autoLod; }
+	void RenderingComponent::SetAutoLODInUse(const bool on) { if (on != g_autoLodInUse) { g_autoLodInUse = on; g_autoLodChanges++; RenderState::Touch(); } }
+	bool RenderingComponent::GetAutoLODInUse() { return g_autoLodInUse; }
+
+	void RenderingComponent::TryAutomaticLODs()
+	{
+		if (autoLodTried) return;
+		autoLodTried = true;
+		if (!g_autoLod || autoLevels != 0 || Meshes.size() != 1 || IsInstanced() || !Owner || !renderable) return;
+		const Vec3 &scale = Owner->GetScale();
+		AddAutomaticLODs(renderable->GetBoundingSphereRadius() * std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z))));
+	}
+
+	bool RenderingComponent::AddAutomaticLODs(const f32 worldRadius, const f32 given)
+	{
+		static const uint32 kLightest = 1500;         // triangles under which a model is left alone
+		static const f32 kFrom[3] = { 12.f, 28.f, 60.f };
+		static const f32 kRatio[3] = { 0.5f, 0.25f, 0.1f };
+		if (!g_autoLod || autoLevels != 0 || worldRadius <= 0.f) return false;
+		Model* model = dynamic_cast<Model*>(renderable.get());
+		if (!model || model->GetPath().empty()) return false;
+		uint32 triangles = 0;
+		for (size_t i = 0; i < model->Geometries.size(); i++)
+			triangles += (uint32)(model->Geometries[i]->GetIndexData().size() / 3);
+		if (triangles < kLightest) return false;
+		const f32 first = worldRadius * kFrom[0];
+		if (given > 0.f)
+		{
+			// one level, between the model itself and the levels it was given -
+			// where they leave room for one
+			if (given < first * 1.4f || Meshes.size() != 1) return false;
+			SetFirstLODDistance(first);
+			if (!AddSimplifiedLOD(0.4f, given)) { SetFirstLODDistance(given); return false; }
+			autoLevels = 1;
+			return true;
+		}
+		if (Meshes.size() != 1) return false;
+		SetFirstLODDistance(first);
+		for (int l = 0; l < 3; l++)
+		{
+			const f32 reach = (l < 2) ? worldRadius * kFrom[l + 1] : 1e9f;
+			if (AddSimplifiedLOD(kRatio[l], reach)) autoLevels++;
+			else break;
+		}
+		if (autoLevels == 0) { SetFirstLODDistance(1e9f); return false; }
+		// (the last level made reaches all the way out)
+		LODDistances.back() = 1e9f;
+		if (shadowDetail <= 0.f && triangles >= 3000) SetShadowDetail(0.25f);
 		return true;
 	}
 
@@ -343,17 +399,19 @@ namespace p3d {
 		if (!renderable || renderable->Geometries.empty()) return;
 		const std::vector<RenderingMesh*> &own = Meshes[0];
 		if (own.empty()) return;
-		for (size_t i = 0; i < renderable->Geometries.size(); i++)
-			if (renderable->Geometries[i]->materialProperties.haveBones)
-			{
-				echo("WARNING: RenderingComponent - a skinned mesh cannot be given a shadow renderable");
-				return;
-			}
 		shadowRenderable = renderable;
 		for (size_t i = 0; i < renderable->Geometries.size(); i++)
 		{
 			RenderingMesh* m = new RenderingMesh(0);
 			m->Geometry = renderable->Geometries[i];
+			// (a skinned one is posed with the model: SkeletonAnimationInstance
+			// fills the matrices of every mesh the component has)
+			if (renderable->Geometries[i]->materialProperties.haveBones)
+			{
+				m->MapBoneIDs = renderable->Geometries[i]->MapBoneIDs;
+				m->BoneOffsetMatrix = renderable->Geometries[i]->BoneOffsetMatrix;
+			}
+			m->standsFor = own[std::min(i, own.size() - 1)];
 			m->Material = own[std::min(i, own.size() - 1)]->Material;
 			m->CullingGeometry = own[std::min(i, own.size() - 1)]->CullingGeometry;
 			m->renderingComponent = this;
@@ -380,12 +438,18 @@ namespace p3d {
 
 	uint32 RenderingComponent::GetLODByDistance(const f32 Distance)
 	{
-		if (Distance != LastLodDistance)
+		if (Distance != LastLodDistance || autoLodSeen != g_autoLodChanges)
 		{
 			LastLodDistance = Distance;
+			autoLodSeen = g_autoLodChanges;
 			for (size_t i = 0; i < LODDistances.size(); i++)
 			{
-				if (Distance < LODDistances[i] * LODDistances[i]) return i;
+				if (Distance < LODDistances[i] * LODDistances[i])
+				{
+					// (automatic levels not in use: the model itself in their place)
+					if (autoLevels != 0 && !g_autoLodInUse && i >= 1 && i <= autoLevels) return 0;
+					return i;
+				}
 			}
 			return LODDistances.size();
 		}
