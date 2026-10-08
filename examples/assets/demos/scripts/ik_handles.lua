@@ -84,18 +84,19 @@ function IKHandles:init(owner)
 	local input = Input.new()
 	self.input = input
 
-	input:onMouseButtonPressed(MouseButton.Left, function()
-		self.grabbed = self:pick()
-		if self.grabbed then
-			setIKConstraintEnabled(self.owner, self.grabbed.chain, true)
-		end
-	end)
+	-- The press is only noted here; the handle is looked for in update(). An
+	-- input callback runs when the event arrives, outside this component's
+	-- tick, and `camera`, `projection` and `scene` are only there during the
+	-- tick: pick() from here found none of them, grabbed nothing, and the
+	-- demo did not answer a click at all.
+	input:onMouseButtonPressed(MouseButton.Left, function() self.wantGrab = true end)
 	input:onMouseButtonReleased(MouseButton.Left, function()
 		-- Released: hand the limb back to the animation.
 		if self.grabbed then
 			setIKConstraintEnabled(self.owner, self.grabbed.chain, false)
 		end
 		self.grabbed = nil
+		self.wantGrab = false
 	end)
 	input:onKeyPressed(Key.Space, function()
 		self.paused = not self.paused
@@ -125,6 +126,12 @@ function IKHandles:pick()
 end
 
 function IKHandles:update(dt)
+	if self.wantGrab then
+		self.wantGrab = false
+		self.grabbed = self:pick()
+		if self.grabbed then setIKConstraintEnabled(self.owner, self.grabbed.chain, true) end
+	end
+
 	-- Dragging first, so the solve later in this same frame already sees the
 	-- new target position.
 	if self.grabbed and camera and projection then
