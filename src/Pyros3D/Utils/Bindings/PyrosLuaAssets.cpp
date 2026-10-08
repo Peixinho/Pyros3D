@@ -274,6 +274,8 @@ namespace p3d {
 				// joint; the pose is untouched. Near zero hides the part.
 				"setBoneScale", &SkeletonAnimationInstance::SetBoneScale,
 				"setBoneScaleInView", &SkeletonAnimationInstance::SetBoneScaleInView,
+				// (for the view only, and this bone's own skin only: what is below it keeps its size)
+				"setBoneSkinScaleInView", &SkeletonAnimationInstance::SetBoneSkinScaleInView,
 				"clearBoneScale", &SkeletonAnimationInstance::ClearBoneScale,
 				"getBoneLocal", &SkeletonAnimationInstance::GetBoneLocalTransform,
 				"resetToBindPose", &SkeletonAnimationInstance::ResetToBindPose,

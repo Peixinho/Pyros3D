@@ -1124,7 +1124,7 @@ namespace p3d {
 		if (boneId < 0 || (size_t)boneId >= skeleton.size()) return;
 		for (size_t i = 0; i < boneScales.size(); i++)
 		{
-			if (boneScales[i].bone == boneId) { boneScales[i].scale = scale; boneScales[i].viewOnly = false; return; }
+			if (boneScales[i].bone == boneId) { boneScales[i].scale = scale; boneScales[i].viewOnly = false; boneScales[i].alone = false; return; }
 		}
 		BoneScale s;
 		s.bone = boneId;
@@ -1137,6 +1137,13 @@ namespace p3d {
 		SetBoneScale(boneId, scale);
 		for (size_t i = 0; i < boneScales.size(); i++)
 			if (boneScales[i].bone == boneId) boneScales[i].viewOnly = true;
+	}
+
+	void SkeletonAnimationInstance::SetBoneSkinScaleInView(const int32 boneId, const Vec3 &scale)
+	{
+		SetBoneScale(boneId, scale);
+		for (size_t i = 0; i < boneScales.size(); i++)
+			if (boneScales[i].bone == boneId) { boneScales[i].viewOnly = true; boneScales[i].alone = true; }
 	}
 
 	void SkeletonAnimationInstance::ClearBoneScale(const int32 boneId)
@@ -1175,7 +1182,8 @@ namespace p3d {
 				{
 					int32 p = (int32)b;
 					int32 guard = 0;
-					while (p >= 0 && p != a && guard++ < 256) p = skeleton[p].parent;
+					if (boneScales[i].alone) { if (p != a) continue; }
+					else while (p >= 0 && p != a && guard++ < 256) p = skeleton[p].parent;
 					if (p != a) continue;
 					pre[b] = about * pre[b];
 					scaled[b] = 1;
