@@ -11,6 +11,8 @@
 #ifndef PYROSPLAYER_H
 #define PYROSPLAYER_H
 
+#include <Pyros3D/Rendering/Device/ThreadedRenderDevice.h>
+
 #if defined(_SDL2VULKAN)
 #include "SDL2Vulkan/SDL2VulkanContext.h"
 #include <Pyros3D/Rendering/PostEffects/Upscaling.h>
@@ -286,6 +288,11 @@ private:
 	bool navActivateWasDown = false;
 
 	IRenderer* renderer;
+	// The device driven from a thread of its own (Vulkan): what the frame asks of it is
+	// queued, and made by that thread. NULL where it is not (see Init).
+	std::shared_ptr<p3d::ThreadedRenderDevice> deviceThread;
+	std::shared_ptr<p3d::IRenderDevice> deviceItself;
+	bool launchNoDeviceThread = false;
 	// Screen-space UI, composited over the finished 3D frame. Independent of
 	// the Forward/Deferred choice above - it draws into whatever target the
 	// frame is already using.

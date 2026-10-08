@@ -338,7 +338,10 @@ namespace p3d {
         // has constructed it (see its own header comment) - every real
         // OnResize() call happens well after that.
         if (vulkanDevice != NULL)
+        {
+            QuiesceRenderDevice();      // (not while a thread of its own is drawing with it)
             vulkanDevice->NotifySurfaceResized(width, height);
+        }
 #if defined(__APPLE__)
         DisableMetalDisplaySync(rview);
 #endif
@@ -613,6 +616,7 @@ namespace p3d {
     {
         if (vulkanDevice == NULL)
             return;
+        QuiesceRenderDevice();
         vulkanDevice->WaitIdle();
         // Nothing may resolve it after this point - GetActiveRenderDevice()
         // would otherwise keep handing out a dangling pointer.

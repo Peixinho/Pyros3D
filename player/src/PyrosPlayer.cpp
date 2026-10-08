@@ -180,6 +180,8 @@ void PyrosPlayer::SetLaunchArgs(int argc, char** argv)
 		else if (a == "--server-key" && hasValue) launchServerKey = argv[++i];
 		else if (a == "--rendezvous" && hasValue) launchRendezvous = argv[++i];
 		else if (a == "--session" && hasValue) launchSession = argv[++i];
+		// (the render device driven from this thread, as it used to be: see Init)
+		else if (a == "--no-device-thread") launchNoDeviceThread = true;
 	}
 }
 
@@ -290,6 +292,25 @@ PyrosPlayer* PyrosPlayer::activePlayer = NULL;
 void PyrosPlayer::Init()
 {
 	ClassName::Init();
+
+	// The render device on a thread of its own: this thread says what is to be drawn and
+	// goes on with the game, and that one makes the graphics API's calls and hands the
+	// frame over. (Vulkan; --no-device-thread, or PYROS_DEVICE_THREAD=0, to draw from this
+	// thread as before.)
+	{
+		const char* asked = std::getenv("PYROS_DEVICE_THREAD");
+		const bool wanted = asked ? (asked[0] != '0') : !launchNoDeviceThread;
+		if (wanted && GetActiveRenderDevice().IsVulkan())
+		{
+			deviceItself = BorrowActiveRenderDevice();
+			if (deviceItself)
+			{
+				deviceThread = std::make_shared<ThreadedRenderDevice>(deviceItself);
+				SetActiveRenderDevice(std::static_pointer_cast<IRenderDevice>(deviceThread));
+				echo("Render device: on a thread of its own");
+			}
+		}
+	}
 
 	// Wheel notches and typed characters both arrive as events rather than
 	// as state that can be polled, so they are collected as they come.
@@ -1669,6 +1690,19 @@ void PyrosPlayer::Update()
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		device.EndFrame();
 		autoScale.presentWaitMs += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
+		// (with the device on its own thread those two calls return at once: what
+		// was waited for the GPU and for the display is what that thread waited,
+		// and what this one waited for it)
+		if (deviceThread)
+		{
+			f64 gpuMs = 0.0, presentMs = 0.0, behindMs = 0.0;
+			deviceThread->TakeWaits(gpuMs, presentMs, behindMs);
+			autoScale.gpuWaitMs += gpuMs + behindMs;
+			autoScale.presentWaitMs += presentMs;
+			FrameProfiler::Instance().Counter("Device.GpuWaitMs", gpuMs);
+			FrameProfiler::Instance().Counter("Device.PresentMs", presentMs);
+			FrameProfiler::Instance().Counter("Device.BehindMs", behindMs);
+		}
 	}
 	// No more frames than asked for (SetFrameRateLimit): what a display cannot
 	// show is heat and nothing else - and a machine that slows itself down when
@@ -2183,5 +2217,12 @@ void PyrosPlayer::Shutdown()
 	delete scene; scene = NULL;
 	delete audio; audio = NULL;
 
+	if (deviceThread)
+	{
+		deviceThread->Finish();
+		SetActiveRenderDevice(deviceItself);
+		deviceThread.reset();
+		deviceItself.reset();
+	}
 	ClassName::Shutdown();
 }

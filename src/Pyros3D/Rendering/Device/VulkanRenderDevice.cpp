@@ -17,6 +17,7 @@
 // VMA_STATIC_VULKAN_FUNCTIONS=1 then "just works" by calling through
 // those same global names.
 #define VMA_IMPLEMENTATION
+#include <Pyros3D/Rendering/Device/ThreadedRenderDevice.h>
 #include <utility>
 #include <chrono>
 #include <atomic>
@@ -6994,7 +6995,7 @@ namespace p3d {
 			attIt->second.layoutInitialized = true;
 		}
 		offscreenGpuTimer = frameInProgress
-			? GpuTimerBegin(offscreenCommandBuffer, FrameProfiler::Instance().CurrentScopeName())
+			? GpuTimerBegin(offscreenCommandBuffer, GpuScopeName())
 			: kNoGpuTimer;
 		PyrosT_CmdBeginRenderPass(offscreenCommandBuffer, &renderPassBegin, VK_SUBPASS_CONTENTS_INLINE);
 

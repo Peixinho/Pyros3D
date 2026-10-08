@@ -25,6 +25,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetTransport.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetBuffer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/NullRenderDevice.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/ThreadedRenderDevice.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetworkIdentity.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetworkSession.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetCrypto.cpp

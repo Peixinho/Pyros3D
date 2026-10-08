@@ -1103,6 +1103,11 @@ namespace p3d {
 	// preserving today's behavior for every example that doesn't opt into
 	// backend injection.
 	PYROS3D_API IRenderDevice& GetActiveRenderDevice();
+	// For whoever calls a device directly, not through GetActiveRenderDevice()
+	// (a window context telling its own device of a resize, or closing it): if
+	// the device is being driven from a thread of its own (ThreadedRenderDevice)
+	// everything asked of it so far is done first, and that thread is idle.
+	PYROS3D_API void QuiesceRenderDevice();
 	// Publishes a device nobody here owns - for a Context that builds the
 	// device itself and destroys it in its own Shutdown()
 	// (SDL2VulkanContext, SDL2MetalContext). Pass NULL to unpublish.
