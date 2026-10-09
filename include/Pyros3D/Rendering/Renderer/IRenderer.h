@@ -319,6 +319,11 @@ namespace p3d {
 		// list last read the log (RenderState::Listed), put into the kept list
 		// in place. False where that cannot be done: the list is made again.
 		bool ApplyListed(FrameList &L, SceneGraph* Scene, const uint32 Tag);
+		// The list some renderer keeps of a scene's world (no tag), if it is
+		// exactly what the scene lists at this moment - for a pass that wants
+		// a few objects' meshes (VelocityRenderer: those that moved) without
+		// walking every mesh of the scene to find them. NULL otherwise.
+		static const FrameList* CurrentWorldList(SceneGraph* Scene);
 		// Fills rmesh, cullSphere and cullFlags for this frame.
 		void UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32 Tag);
 		// (PYROS_FRAME_LISTS=0 makes the list from scratch every frame, as before.)

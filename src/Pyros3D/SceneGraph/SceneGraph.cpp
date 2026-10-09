@@ -377,6 +377,9 @@ namespace p3d {
 
 		minBounds = maxBounds = Vec3();
 
+		// (skeletons, on every core, before the walk: see RenderingComponent::AnimateAhead)
+		RenderingComponent::AnimateAhead(this, timer);
+
 		// Snapshot before iterating: Lua (and other) components may
 		// scene:add / scene:remove during UpdateComponents, which mutates
 		// these vectors and would otherwise invalidate live iterators

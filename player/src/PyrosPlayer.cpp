@@ -464,6 +464,9 @@ end
 	lua.set_function("setAutoLOD", [](const bool on) { RenderingComponent::SetAutoLODInUse(on); });
 	lua.set_function("setSSAOTemporal", [](const bool on) { g_ssaoTemporalWanted = on; });
 	lua.set_function("setListPatching", [](const bool on) { IRenderer::SetListPatching(on); });
+	lua.set_function("setParallelAnimation", [](const bool on) { RenderingComponent::SetParallelAnimation(on); });
+	lua.set_function("setParallelCulling", [](const bool on) { IRenderer::SetParallelCulling(on); });
+	lua.set_function("setShadowUpdateInterval", [](const uint32 frames) { IRenderer::SetShadowUpdateInterval(frames); });
 	lua.set_function("setCullGrid", [](const bool on) { IRenderer::SetCullGrid(on); });
 	lua.set_function("setNearestFirst", [](const bool on) { DeferredRenderer::SetNearestFirst(on); });
 	// setFoliageThinning(false): every plant of a field drawn, however far (see FoliageLayerSpec::thinDensity)
@@ -1336,6 +1339,10 @@ void PyrosPlayer::PushLuaHostGlobals()
 		p3d::FrameProfiler::Instance().Begin(names.insert(name).first->c_str());
 	};
 	lua["profileEnd"] = []() { p3d::FrameProfiler::Instance().End(); };
+	lua["profileCount"] = [](const std::string &name, const f64 value) {
+		static std::set<std::string> names;
+		p3d::FrameProfiler::Instance().Counter(names.insert(name).first->c_str(), value);
+	};
 	lua["editorRendererType"] = PlayerManifestInstance().deferred ? std::string("deferred") : std::string("forward");
 	lua["ASSETS_PATH"] = (fs::path(PlayerManifestInstance().root) / "assets").string() + "/";
 }

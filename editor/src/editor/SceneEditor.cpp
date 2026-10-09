@@ -3316,6 +3316,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			p3d::FrameProfiler::Instance().Begin(names.insert(name).first->c_str());
 		};
 		(*sharedLua)["profileEnd"] = []() { p3d::FrameProfiler::Instance().End(); };
+		(*sharedLua)["profileCount"] = [](const std::string &name, const f64 value) {
+			static std::set<std::string> names;
+			p3d::FrameProfiler::Instance().Counter(names.insert(name).first->c_str(), value);
+		};
 
 		// Expose which renderer the editor viewport is actually using, so
 		// scripts that build their own materials/usage flags based on

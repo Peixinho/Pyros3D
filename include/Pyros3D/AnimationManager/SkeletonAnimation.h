@@ -237,6 +237,7 @@ namespace p3d {
 		// Runs every registered modifier then recomposes. Called by Update();
 		// exposed so a caller posing by hand can get the same treatment.
 		void RunPoseModifiers();
+		bool HasPoseModifiers() const { return !poseModifiers.empty(); }
 		// A rotation laid over one bone AFTER the clips have posed it, about
 		// the bone's own joint and in MODEL space - "turn the head 30 degrees
 		// about the model's up axis", whatever the clip has the neck doing.

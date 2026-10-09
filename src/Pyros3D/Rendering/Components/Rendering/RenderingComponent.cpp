@@ -26,6 +26,8 @@
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 
 namespace p3d {
@@ -653,6 +655,7 @@ namespace p3d {
 	}
 	RenderingComponent::~RenderingComponent()
 	{
+		if (animatedSlot >= 0) SetActiveSkeletonAnimation(NULL);
 		for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
 		{
 			for (std::vector<RenderingMesh*>::iterator k = (*i).second.begin(); k != (*i).second.end(); k++)
@@ -977,6 +980,55 @@ namespace p3d {
 		return true;
 	}
 
+	namespace {
+		std::vector<RenderingComponent*> &Animated() { static std::vector<RenderingComponent*> v; return v; }
+		bool g_parallelAnimation = true;
+	}
+	void RenderingComponent::SetParallelAnimation(const bool on) { g_parallelAnimation = on; }
+	bool RenderingComponent::GetParallelAnimation() { return g_parallelAnimation; }
+	void RenderingComponent::SetActiveSkeletonAnimation(void* instance)
+	{
+		activeSkeletonAnimation = instance;
+		std::vector<RenderingComponent*> &all = Animated();
+		if (instance != NULL && animatedSlot < 0) { animatedSlot = (int32)all.size(); all.push_back(this); }
+		else if (instance == NULL && animatedSlot >= 0)
+		{
+			all[animatedSlot] = all.back(); all[animatedSlot]->animatedSlot = animatedSlot;
+			all.pop_back(); animatedSlot = -1;
+			animatedReached = animatedAhead = false;
+		}
+		WakeOwner();
+	}
+	void RenderingComponent::AnimateAhead(SceneGraph* scene, const f64 time)
+	{
+		std::vector<RenderingComponent*> &all = Animated();
+		std::vector<RenderingComponent*> now;
+		for (size_t i = 0; i < all.size(); i++)
+		{
+			RenderingComponent* c = all[i];
+			if (!c->Registered || c->Scene != scene) continue;
+			// (posed ahead of the last walk and never come to: no longer walked)
+			const bool reached = c->animatedReached && !c->animatedAhead;
+			c->animatedReached = false; c->animatedAhead = false;
+			if (!reached || !g_parallelAnimation) continue;
+			SkeletonAnimationInstance* si = static_cast<SkeletonAnimationInstance*>(c->activeSkeletonAnimation);
+			if (si->GetOwner() == NULL || si->HasPoseModifiers()) continue;
+			if (!(c->animateWhenUnseen || c->WasSeenRecently())) continue;
+			now.push_back(c);
+		}
+		if (now.size() < 2) return;       // (one alone is as well posed by the walk)
+		PYROS_PROFILE_SCOPE("Scene.AnimateAhead");
+		const f32 at = (f32)time;
+		JobSystem::Instance().ParallelFor((uint32)now.size(), 1, [&now, at](uint32 begin, uint32 end) {
+			for (uint32 i = begin; i < end; i++)
+			{
+				SkeletonAnimationInstance* si = static_cast<SkeletonAnimationInstance*>(now[i]->activeSkeletonAnimation);
+				si->GetOwner()->UpdateInstance(si, at);
+			}
+		});
+		for (size_t i = 0; i < now.size(); i++) now[i]->animatedAhead = true;
+	}
+
 	void RenderingComponent::Update(const f64 time)
 	{
 		RefreshSpriteParts2D();
@@ -989,9 +1041,15 @@ namespace p3d {
 		// the editor's posing and the IK solver hold.
 		if (activeSkeletonAnimation != NULL)
 		{
-			SkeletonAnimationInstance* si =
-				static_cast<SkeletonAnimationInstance*>(activeSkeletonAnimation);
-			if (si->GetOwner() && (animateWhenUnseen || WasSeenRecently())) si->GetOwner()->UpdateInstance(si, (f32)time);
+			animatedReached = true;
+			// (posed already, ahead of this walk: AnimateAhead)
+			if (animatedAhead) animatedAhead = false;
+			else
+			{
+				SkeletonAnimationInstance* si =
+					static_cast<SkeletonAnimationInstance*>(activeSkeletonAnimation);
+				if (si->GetOwner() && (animateWhenUnseen || WasSeenRecently())) si->GetOwner()->UpdateInstance(si, (f32)time);
+			}
 		}
 
 		if (activeTextureAnimation == NULL) return;

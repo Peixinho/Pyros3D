@@ -476,8 +476,12 @@ void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint3
 	}
 }
 
+// Which renderer keeps a list of each scene's world: IRenderer::CurrentWorldList.
+namespace { std::map<SceneGraph*, std::pair<IRenderer*, void*> > &WorldLists() { static std::map<SceneGraph*, std::pair<IRenderer*, void*> > m; return m; } }
 IRenderer::~IRenderer()
 {
+	for (std::map<SceneGraph*, std::pair<IRenderer*, void*> >::iterator w = WorldLists().begin(); w != WorldLists().end();)
+		if (w->second.first == this) w = WorldLists().erase(w); else ++w;
 	for (std::map<AutoInstanceKey, std::vector<AutoInstanceBatch*> >::iterator k = autoInstanceBatches.begin(); k != autoInstanceBatches.end(); k++)
 		for (size_t b = 0; b < k->second.size(); b++)
 			delete k->second[b];
@@ -1011,6 +1015,16 @@ void IRenderer::BuildCullList()
 	else build(0, (uint32)n);
 }
 
+const IRenderer::FrameList* IRenderer::CurrentWorldList(SceneGraph* Scene)
+{
+	std::map<SceneGraph*, std::pair<IRenderer*, void*> >::iterator at = WorldLists().find(Scene);
+	if (at == WorldLists().end()) return NULL;
+	const FrameList* L = static_cast<const FrameList*>(at->second.second);
+	// (nothing has come or gone, or been said to have changed, since it was read)
+	if (!L->valid || L->version != RenderState::Version.load(std::memory_order_relaxed) || L->listedSeq != RenderState::ListedCount()) return NULL;
+	return L;
+}
+
 static bool g_patchLists = true;
 void IRenderer::SetListPatching(const bool on) { g_patchLists = on; }
 bool IRenderer::GetListPatching() { return g_patchLists; }
@@ -1444,6 +1458,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		if (grid) cullCellSphere = L.cellSphere; else cullCellSphere.clear();
 		cullCellOut.assign(cullCellSphere.size(), 0);
 	}
+	if (Tag == 0 && renderLayer == RenderLayer::World) WorldLists()[Scene] = std::make_pair(this, (void*)&L);
 	Scene->SetRenderingMeshesSorted(rmesh);
 
 	// PYROS_VERIFY_LISTS=1: the kept list held against one made from scratch.

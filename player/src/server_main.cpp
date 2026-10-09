@@ -271,6 +271,7 @@ int main(int argc, char** argv)
 	lua["echo"] = [](const std::string &msg) { p3d::LOG::_LOG::_echo(msg); };		// as the player and the editor give scripts
 	lua["profileBegin"] = [](const std::string &) {};      // (a server keeps no frame profile)
 	lua["profileEnd"] = []() {};
+	lua["profileCount"] = [](const std::string &, const f64) {};
 	lua.script("function print(...) local t = {} for i = 1, select('#', ...) do t[i] = tostring(select(i, ...)) end __pyros_log(table.concat(t, '\\t')) end");
 	lua["HEADLESS"] = true;
 	lua["scene"] = scene;

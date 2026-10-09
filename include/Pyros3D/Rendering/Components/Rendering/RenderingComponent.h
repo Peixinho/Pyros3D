@@ -600,7 +600,21 @@ namespace p3d {
 		// (SkeletonAnimation.cpp) - real, minimal, automatic association,
 		// not a serializer-side shadow map. NULL if no skeleton animation
 		// has ever been created against this component.
-		void SetActiveSkeletonAnimation(void* instance) { activeSkeletonAnimation = instance; WakeOwner(); }
+		void SetActiveSkeletonAnimation(void* instance);
+
+		// Skeletons posed on every core. A scene, before it walks its objects,
+		// poses at once - one job each - every component of its own that the
+		// last walk reached and found animated; the walk then passes those
+		// over and poses by itself only what is new to it. The poses are the
+		// same ones (a clip is sampled at the scene's time, whoever asks). What
+		// differs: they are made before the walk, where each was made when the
+		// walk came to its object - a script component that starts a clip on
+		// ANOTHER object during the walk sees it take hold a frame later than
+		// it might have. One whose pose is finished by code of its own
+		// (SkeletonAnimationInstance::AddPoseModifier: IK) is left to the walk.
+		static void AnimateAhead(SceneGraph* scene, const f64 time);
+		static void SetParallelAnimation(const bool on);
+		static bool GetParallelAnimation();
 		void* GetActiveSkeletonAnimation() const { return activeSkeletonAnimation; }
 
 		// Opt-in equivalent for texture animation - unlike skeleton
@@ -620,6 +634,9 @@ namespace p3d {
 		// already include this one) - callers cast back to
 		// SkeletonAnimationInstance*/TextureAnimationInstance*.
 		void* activeSkeletonAnimation = NULL;
+		int32 animatedSlot = -1;                 // its place among the components that have a skeleton animation
+		bool animatedReached = false;           // the last walk came to it and posed it (or found it posed)
+		bool animatedAhead = false;             // posed ahead of this walk
 		void* activeTextureAnimation = NULL;
 
 		// Last frame index pushed onto the material, so the colormap is only
