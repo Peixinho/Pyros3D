@@ -43,6 +43,7 @@ namespace p3d {
 		// bug stayed latent until the editor's IRenderer*-polymorphic path
 		// exercised it.
 		virtual void RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene);
+		virtual void MaterialListed(RenderingMesh* mesh, IMaterial* material) override;
 
 		// Kept only for the Lua/Embind "renderSceneOptions" bindings' sake -
 		// BufferOptions was already unused by RenderScene()'s body before

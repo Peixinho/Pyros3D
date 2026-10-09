@@ -757,6 +757,39 @@ namespace p3d {
 		delete pointLight;
 	}
 
+	// The programs the G-buffer pass will draw this material with: its
+	// DEFERRED_GBUFFER sibling (see RenderScene's own swap, which made it the
+	// first time the material was drawn - in the middle of a game, a frame
+	// held up for as long as the program took).
+	void DeferredRenderer::MaterialListed(RenderingMesh* mesh, IMaterial* material)
+	{
+		static const uint32 kLit = ShaderUsage::Diffuse | ShaderUsage::CellShading | ShaderUsage::PBR;
+		if (material == NULL || mesh == NULL || material->IsTransparent()) return;
+		if (GenericShaderMaterial* gsm = dynamic_cast<GenericShaderMaterial*>(material))
+		{
+			const bool sibling = !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLit) != 0;
+			if (sibling)
+			{
+				gsm->UseGBufferProgramForNextDraw();
+				gsm->RestoreOwnProgram();
+			}
+			// (and the one it is drawn with when enough of the same thing are in
+			// view to be drawn as one: that many came into view in the middle
+			// of a game, never while it loaded)
+			if (IsAutoInstancing() && AutoInstanceEligible(mesh))
+			{
+				gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering | (sibling ? ShaderUsage::DeferredRenderer_Gbuffer : 0));
+				gsm->RestoreOwnProgram();
+			}
+			return;
+		}
+		if (typeid(*material) == typeid(CustomShaderMaterial))
+		{
+			CustomShaderMaterial* csm = static_cast<CustomShaderMaterial*>(material);
+			if (csm->UseVariantForNextDraw(true, mesh->SkinningBones.size() > 0 || !mesh->MapBoneIDs.empty())) csm->RestoreOwnProgram();
+		}
+	}
+
 	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
 		PYROS_PROFILE_SCOPE("Deferred.RenderScene");

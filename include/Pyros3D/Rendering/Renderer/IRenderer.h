@@ -327,6 +327,13 @@ namespace p3d {
 		// list last read the log (RenderState::Listed), put into the kept list
 		// in place. False where that cannot be done: the list is made again.
 		bool ApplyListed(FrameList &L, SceneGraph* Scene, const uint32 Tag);
+		// A material this renderer has not had in its list before, and a mesh
+		// that wears it: the moment to make whatever programs the renderer
+		// will draw it with - as the thing comes into the scene, while a
+		// scene loads or a piece of the map arrives, and not the first time
+		// it is in view, which is the middle of the game (a program is tens
+		// of milliseconds to make where shaders are compiled on the spot).
+		virtual void MaterialListed(RenderingMesh* mesh, IMaterial* material) { (void)mesh; (void)material; }
 		struct SunPass;
 		struct Beside;
 		std::unique_ptr<Beside> beside;

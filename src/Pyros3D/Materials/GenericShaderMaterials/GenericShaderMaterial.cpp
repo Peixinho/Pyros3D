@@ -18,8 +18,6 @@ namespace p3d
 	std::map<uint32, Shader* > GenericShaderMaterial::ShadersList;
 
 	static std::string BuildShaderUsageDefines(const uint32 options);
-	namespace { void (*g_programMade)(const uint32) = NULL; bool g_warming = false; }
-	void GenericShaderMaterial::WhenProgramMade(void (*told)(const uint32 options)) { g_programMade = told; }
 	Shader* GenericShaderMaterial::BuildProgram(const uint32 options, bool &ok)
 	{
 		Shader* s = new Shader();
@@ -29,19 +27,7 @@ namespace p3d
 		ok = s->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
 		ok = s->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str()) && ok;
 		ok = s->LinkProgram() && ok;
-		if (!g_warming && g_programMade != NULL) g_programMade(options);
 		return s;
-	}
-	void GenericShaderMaterial::WarmPrograms(const std::vector<uint32> &options)
-	{
-		g_warming = true;
-		for (size_t i = 0; i < options.size(); i++)
-			if (ShadersList.find(options[i]) == ShadersList.end())
-			{
-				bool ok = true;
-				ShadersList[options[i]] = BuildProgram(options[i], ok);
-			}
-		g_warming = false;
 	}
 
 	// Shared by the constructor and GetOrBuildGBufferProgram() - both need

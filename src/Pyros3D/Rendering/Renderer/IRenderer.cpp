@@ -1307,7 +1307,10 @@ bool IRenderer::ApplyListed(FrameList &L, SceneGraph* Scene, const uint32 Tag)
 			L.translucentPlace[idx - nOpaque] = o != NULL ? o->GetWorldPosition() : Vec3();
 		}
 		if (m->Material && nRemoved == 0 && L.materialSeen.insert(m->Material.get()).second)
+		{
 			L.materials.push_back(std::make_pair(m->Material.get(), m->Material->IsTransparent()));
+			MaterialListed(m, m->Material.get());
+		}
 	}
 	cullSphere.swap(L.sphere); cullFlags.swap(L.flags);
 	if (!fits) return false;
@@ -1325,6 +1328,7 @@ bool IRenderer::ApplyListed(FrameList &L, SceneGraph* Scene, const uint32 Tag)
 			if (mat == NULL || !L.materialSeen.insert(mat).second) continue;
 			std::unordered_map<IMaterial*, bool>::iterator w = was.find(mat);
 			L.materials.push_back(std::make_pair(mat, w != was.end() ? w->second : mat->IsTransparent()));
+			if (w == was.end()) MaterialListed(i < L.opaque.size() ? L.opaque[i] : L.translucent[i - L.opaque.size()], mat);
 		}
 	}
 	return true;
@@ -1470,7 +1474,11 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 			RenderingMesh* m = meshAt(i);
 			L.materialOf[i] = m->Material.get();
 			L.activeOf[i] = m->Active == true ? 1 : 0;
-			if (m->Material && seenMaterials.insert(m->Material.get()).second) L.materials.push_back(std::make_pair(m->Material.get(), m->Material->IsTransparent()));
+			if (m->Material && seenMaterials.insert(m->Material.get()).second)
+			{
+				L.materials.push_back(std::make_pair(m->Material.get(), m->Material->IsTransparent()));
+				MaterialListed(m, m->Material.get());
+			}
 			RenderingComponent* rc = m->renderingComponent;
 			if (rc->GetOwner() != NULL) L.where[rc->GetOwner()].push_back((uint32)i);
 			if (i >= nOpaque) L.translucentPlace[i - nOpaque] = placeOf(m);
