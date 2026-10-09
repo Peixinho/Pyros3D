@@ -269,6 +269,8 @@ int main(int argc, char** argv)
 	catch (const std::exception &e) { echo(std::string("ERROR: lua/middleclass.lua - ") + e.what()); }
 	lua.set_function("__pyros_log", [](const std::string &msg) { echo(msg); });
 	lua["echo"] = [](const std::string &msg) { p3d::LOG::_LOG::_echo(msg); };		// as the player and the editor give scripts
+	lua["profileBegin"] = [](const std::string &) {};      // (a server keeps no frame profile)
+	lua["profileEnd"] = []() {};
 	lua.script("function print(...) local t = {} for i = 1, select('#', ...) do t[i] = tostring(select(i, ...)) end __pyros_log(table.concat(t, '\\t')) end");
 	lua["HEADLESS"] = true;
 	lua["scene"] = scene;

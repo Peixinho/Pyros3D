@@ -3310,6 +3310,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		// Expose echo() so Lua scripts can write to the editor log window.
 		(*sharedLua)["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
+		(*sharedLua)["profileBegin"] = [](const std::string &name) {
+			// (the profiler keeps the name's address: one copy of each name, for good)
+			static std::set<std::string> names;
+			p3d::FrameProfiler::Instance().Begin(names.insert(name).first->c_str());
+		};
+		(*sharedLua)["profileEnd"] = []() { p3d::FrameProfiler::Instance().End(); };
 
 		// Expose which renderer the editor viewport is actually using, so
 		// scripts that build their own materials/usage flags based on

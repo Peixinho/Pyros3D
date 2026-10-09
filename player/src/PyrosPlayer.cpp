@@ -1328,6 +1328,14 @@ void PyrosPlayer::PushLuaHostGlobals()
 	lua["overlayScene"] = [this]() { return fs::path(overlaySceneRel).stem().string(); };
 	lua["currentScene"] = [this]() { return fs::path(currentSceneRel).stem().string(); };
 	lua["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
+	// A script's own scopes in the frame profile (perf.log, the editor's Profiler):
+	// profileBegin("Bots") ... profileEnd().
+	lua["profileBegin"] = [](const std::string &name) {
+		// (the profiler keeps the name's address: one copy of each name, for good)
+		static std::set<std::string> names;
+		p3d::FrameProfiler::Instance().Begin(names.insert(name).first->c_str());
+	};
+	lua["profileEnd"] = []() { p3d::FrameProfiler::Instance().End(); };
 	lua["editorRendererType"] = PlayerManifestInstance().deferred ? std::string("deferred") : std::string("forward");
 	lua["ASSETS_PATH"] = (fs::path(PlayerManifestInstance().root) / "assets").string() + "/";
 }
