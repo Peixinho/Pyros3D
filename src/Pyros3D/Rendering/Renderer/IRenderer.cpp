@@ -965,6 +965,11 @@ void IRenderer::SetParallelLists(const bool on) { g_parallelLists = on; }
 // sixteen bytes a mesh in order, where each used to follow the mesh to its
 // component to its object to its matrix - three or four places in memory a
 // mesh, a pass.
+// Whether a view asks the list's grid of cells before the things in them (see cullCell).
+static bool g_cullGrid = true;
+void IRenderer::SetCullGrid(const bool on) { g_cullGrid = on; }
+bool IRenderer::GetCullGrid() { return g_cullGrid; }
+
 void IRenderer::CullEntry(const size_t i, RenderingMesh* m)
 {
 	RenderingComponent* rc = m->renderingComponent;
@@ -991,6 +996,7 @@ void IRenderer::CullEntry(const size_t i, RenderingMesh* m)
 void IRenderer::BuildCullList()
 {
 	const size_t n = rmesh.size();
+	cullCell.clear(); cullCellSphere.clear(); cullCellOut.clear();      // (whoever keeps a list puts its grid back: UseFrameList)
 	cullSphere.resize(n);
 	cullFlags.resize(n);
 	// (SetParallelLists(true) builds it on every core: slower where frames are
@@ -1079,6 +1085,47 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		rmesh.insert(rmesh.end(), L.translucent.begin(), L.translucent.end());
 		BuildCullList();
 		L.sphere = cullSphere; L.flags = cullFlags;
+		// The grid: what is tested for culling by its sphere, and small enough
+		// to belong to one cell of ground. (What moves afterwards leaves its
+		// cell: the moved log, below.)
+		{
+			static const f32 kCell = 48.f;
+			L.cellOf.assign(n, kNoCell);
+			L.cellSphere.clear();
+			std::unordered_map<uint64, uint32> cells;
+			std::vector<Vec3> lo, hi;
+			for (size_t i = 0; i < n; i++)
+			{
+				const uint8 f = cullFlags[i];
+				const Vec4 &sp = cullSphere[i];
+				if (!(f & CullOwner) || !(f & CullTested) || (f & CullBox) || !(sp.w > 0.f) || sp.w > kCell * 0.75f) continue;
+				const int32 cx = (int32)floorf(sp.x / kCell), cz = (int32)floorf(sp.z / kCell);
+				const uint64 key = ((uint64)(uint32)cx << 32) | (uint64)(uint32)cz;
+				std::unordered_map<uint64, uint32>::iterator at = cells.find(key);
+				uint32 c;
+				if (at == cells.end())
+				{
+					c = (uint32)lo.size();
+					cells[key] = c;
+					lo.push_back(Vec3(sp.x - sp.w, sp.y - sp.w, sp.z - sp.w));
+					hi.push_back(Vec3(sp.x + sp.w, sp.y + sp.w, sp.z + sp.w));
+				}
+				else
+				{
+					c = at->second;
+					lo[c].x = std::min(lo[c].x, sp.x - sp.w); lo[c].y = std::min(lo[c].y, sp.y - sp.w); lo[c].z = std::min(lo[c].z, sp.z - sp.w);
+					hi[c].x = std::max(hi[c].x, sp.x + sp.w); hi[c].y = std::max(hi[c].y, sp.y + sp.w); hi[c].z = std::max(hi[c].z, sp.z + sp.w);
+				}
+				L.cellOf[i] = c;
+			}
+			L.cellSphere.resize(lo.size());
+			for (size_t c = 0; c < lo.size(); c++)
+			{
+				const Vec3 mid((lo[c].x + hi[c].x) * 0.5f, (lo[c].y + hi[c].y) * 0.5f, (lo[c].z + hi[c].z) * 0.5f);
+				const Vec3 half(hi[c].x - mid.x, hi[c].y - mid.y, hi[c].z - mid.z);
+				L.cellSphere[c] = Vec4(mid.x, mid.y, mid.z, sqrtf(half.x * half.x + half.y * half.y + half.z * half.z));
+			}
+		}
 		L.translucentPlace.resize(L.translucent.size());
 		L.materials.clear();
 		std::unordered_set<IMaterial*> seenMaterials;
@@ -1123,6 +1170,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 				{
 					const uint32 idx = at->second[e];
 					CullEntry(idx, meshAt(idx));
+					if (idx < L.cellOf.size()) L.cellOf[idx] = kNoCell;       // (it has moved: out of its cell, asked for itself from now on)
 					if (idx >= nOpaque) L.translucentPlace[idx - nOpaque] = placeOf(meshAt(idx));
 				}
 			}
@@ -1131,6 +1179,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		{
 			// more has moved than is remembered: all of them, then
 			L.movedSeq = RenderState::MovedCount();
+			L.cellOf.assign(L.cellOf.size(), kNoCell);
 			for (size_t idx = 0; idx < nOpaque + L.translucent.size(); idx++)
 			{
 				CullEntry(idx, meshAt(idx));
@@ -1158,13 +1207,19 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 			std::memcpy(&cullSphere[0], &L.sphere[0], nOpaque * sizeof(Vec4));
 			std::memcpy(&cullFlags[0], &L.flags[0], nOpaque);
 		}
+		const bool grid = g_cullGrid && L.cellOf.size() == nOpaque + nSeen;
+		cullCell.assign(nOpaque + nSeen, kNoCell);
+		if (grid && nOpaque) std::memcpy(&cullCell[0], &L.cellOf[0], nOpaque * sizeof(uint32));
 		for (size_t k = 0; k < nSeen; k++)
 		{
 			const uint32 from = keyed[nSeen - 1 - k].second;
 			rmesh[nOpaque + k] = L.translucent[from];
 			cullSphere[nOpaque + k] = L.sphere[nOpaque + from];
 			cullFlags[nOpaque + k] = L.flags[nOpaque + from];
+			if (grid) cullCell[nOpaque + k] = L.cellOf[nOpaque + from];
 		}
+		if (grid) cullCellSphere = L.cellSphere; else cullCellSphere.clear();
+		cullCellOut.assign(cullCellSphere.size(), 0);
 	}
 	Scene->SetRenderingMeshesSorted(rmesh);
 
@@ -1213,6 +1268,8 @@ bool IRenderer::CullListTest(const size_t i)
 		const f32 limit = pixels * smallCullFactor / smallCullScale;
 		if (s.w * s.w < limit * limit * smallCullEye.distanceSQR(c)) in = false;
 	}
+	// (its cell wholly outside the view: so is it)
+	if (in && i < cullCell.size() && cullCell[i] != kNoCell && cullCell[i] < cullCellOut.size() && cullCellOut[cullCell[i]]) in = false;
 	if (in) in = culling->SphereInFrustum(c, s.w);
 	// PYROS_VERIFY_CULL=1: every answer held against the one the mesh's own
 	// object gives.
@@ -3107,6 +3164,13 @@ void IRenderer::UpdateCulling(const Matrix& ViewProjectionMatrix)
 {
 	if (!IsCulling || !culling) return;
 	culling->Update(ViewProjectionMatrix);
+	// (the cells of the list's grid, for this view: see cullCell)
+	cullCellOut.resize(cullCellSphere.size());
+	for (size_t c = 0; c < cullCellSphere.size(); c++)
+	{
+		const Vec4 &s = cullCellSphere[c];
+		cullCellOut[c] = culling->SphereInFrustum(Vec3(s.x, s.y, s.z), s.w) ? 0 : 1;
+	}
 }
 
 void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)

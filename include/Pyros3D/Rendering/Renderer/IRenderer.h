@@ -265,6 +265,18 @@ namespace p3d {
 		// and a few bits a mesh, in the list's order.
 		enum { CullOwner = 1, CullTransparent = 2, CullComponentActive = 4, CullMeshActive = 8, CullCasts = 16, CullTested = 32, CullBox = 64 };
 		std::vector<Vec4> cullSphere;
+		// A grid over what the frame's list holds, for culling: every thing
+		// that keeps still is in the cell of ground it stands on, and each cell
+		// has a sphere round all that is in it. A view asks the cells first -
+		// one wholly outside it answers for everything in it, and only what is
+		// in the others is asked one at a time. (cullCell: the cell of each
+		// mesh of the list, kNoCell for what moves or is too big for one.)
+		enum : uint32 { kNoCell = 0xFFFFFFFFu };
+		std::vector<uint32> cullCell;
+		std::vector<Vec4> cullCellSphere;
+		std::vector<uint8> cullCellOut;        // for the view set now: 1 where a cell is wholly outside it
+		static void SetCullGrid(const bool on);
+		static bool GetCullGrid();
 		std::vector<uint8> cullFlags;
 		void BuildCullList();
 		bool CullListTest(const size_t i);
@@ -290,6 +302,8 @@ namespace p3d {
 			std::vector<std::pair<IMaterial*, bool> > materials;        // each material once, and whether it was see-through
 			std::vector<Vec4> sphere;
 			std::vector<uint8> flags;
+			std::vector<uint32> cellOf;             // see cullCell
+			std::vector<Vec4> cellSphere;
 			std::vector<Vec3> translucentPlace;     // where each see-through mesh's object is: what it is sorted by
 			std::vector<RenderingComponent*> lodComponents;
 			std::vector<std::pair<RenderingComponent*, bool> > instanced;      // and whether it had no instances
