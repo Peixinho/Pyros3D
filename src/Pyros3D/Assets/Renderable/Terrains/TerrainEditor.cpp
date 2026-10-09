@@ -155,7 +155,10 @@ namespace p3d {
 
 	bool TerrainEditor::SplatAt(SceneGraph* scene, const f32 x, const f32 z, f32 weights[4])
 	{
-		const std::vector<TerrainTile> tiles = FindTiles(scene);
+		// (the tiles as HeightAt() has them: found once, not by walking the whole scene
+		// for every question - which is what a footstep cost, each one, to learn
+		// whether it fell on grass or on a path)
+		const std::vector<TerrainTile> &tiles = TilesThisFrame(scene);
 		for (size_t i = 0; i < tiles.size(); i++)
 		{
 			if (tiles[i].distant || !tiles[i].Contains(x, z)) continue;

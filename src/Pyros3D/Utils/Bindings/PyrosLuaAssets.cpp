@@ -265,6 +265,8 @@ namespace p3d {
 				// Ragdoll surface: drive bones from world-space transforms
 				// (physics bodies), then upload once.
 				"setBoneWorld", &SkeletonAnimationInstance::SetBoneWorldTransform,
+				"holdPose", &SkeletonAnimationInstance::SetPoseHeld,
+				"isPoseHeld", &SkeletonAnimationInstance::IsPoseHeld,
 				"refreshSkinning", &SkeletonAnimationInstance::RefreshSkinning,
 				// Turn a bone on top of whatever clip is posing it: the head
 				// toward where the player looks. Model space, about the joint.

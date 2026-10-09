@@ -212,6 +212,15 @@ namespace p3d {
 		// Recomposes the hierarchy so a following call reads correct parent
 		// transforms; call RefreshSkinning() once after the batch to upload.
 		// Returns false for an unknown bone or a rig with no owner.
+		// The pose it has, kept: while held, the clips that are playing do not
+		// pose it (they keep their place and take it up again when it is let
+		// go). For whatever poses a skeleton from outside and then stops - a
+		// ragdoll come to rest: without this its bones had to be written again
+		// every frame for ever, or the clip under them stood the body up.
+		void SetPoseHeld(const bool held) { poseHeld = held; }
+		bool IsPoseHeld() const { return poseHeld; }
+		bool poseHeld = false;
+
 		bool SetBoneWorldTransform(const int32 boneId, const Vec3 &worldPosition,
 			const Quaternion &worldRotation);
 

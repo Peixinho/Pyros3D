@@ -606,6 +606,8 @@ namespace p3d {
 
 	void SkeletonAnimation::UpdateInstance(SkeletonAnimationInstance* inst, const f32 time)
 	{
+		// (held as it is: see SetPoseHeld)
+		if (inst->poseHeld) return;
 		// Nothing playing and nothing to modify: leave the pose alone.
 		//
 		// The "Multiply Bones" loop below derives each bone's local
