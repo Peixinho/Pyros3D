@@ -174,6 +174,13 @@ namespace p3d {
 				"setPosition", &LUA_GameObject::SetPosition,
 				"setRotation", &LUA_GameObject::SetRotation,
 				"setScale", &LUA_GameObject::SetScale,
+				// The same in numbers, for what a script sets every frame: no
+				// vector is made for the asking, none read out of the answer.
+				"setPositionXYZ", [](GameObject &g, const f32 x, const f32 y, const f32 z) { g.SetPosition(Vec3(x, y, z)); },
+				"setRotationXYZ", [](GameObject &g, const f32 x, const f32 y, const f32 z) { g.SetRotation(Vec3(x, y, z)); },
+				"setScaleXYZ", [](GameObject &g, const f32 x, const f32 y, const f32 z) { g.SetScale(Vec3(x, y, z)); },
+				"getPositionXYZ", [](GameObject &g) { const Vec3 v = g.GetPosition(); return std::make_tuple(v.x, v.y, v.z); },
+				"getWorldPositionXYZ", [](GameObject &g) { const Vec3 v = g.GetWorldPosition(); return std::make_tuple(v.x, v.y, v.z); },
 				"getName", &LUA_GameObject::GetName,
 				"setName", &LUA_GameObject::SetName,
 				"setTransformationMatrix", &LUA_GameObject::SetTransformationMatrix,
@@ -252,6 +259,13 @@ namespace p3d {
 				"setPosition", &GameObject::SetPosition,
 				"setRotation", &GameObject::SetRotation,
 				"setScale", &GameObject::SetScale,
+				// The same in numbers, for what a script sets every frame: no
+				// vector is made for the asking, none read out of the answer.
+				"setPositionXYZ", [](GameObject &g, const f32 x, const f32 y, const f32 z) { g.SetPosition(Vec3(x, y, z)); },
+				"setRotationXYZ", [](GameObject &g, const f32 x, const f32 y, const f32 z) { g.SetRotation(Vec3(x, y, z)); },
+				"setScaleXYZ", [](GameObject &g, const f32 x, const f32 y, const f32 z) { g.SetScale(Vec3(x, y, z)); },
+				"getPositionXYZ", [](GameObject &g) { const Vec3 v = g.GetPosition(); return std::make_tuple(v.x, v.y, v.z); },
+				"getWorldPositionXYZ", [](GameObject &g) { const Vec3 v = g.GetWorldPosition(); return std::make_tuple(v.x, v.y, v.z); },
 				"getName", &GameObject::GetName,
 				"setName", &GameObject::SetName,
 				"setTransformationMatrix", &GameObject::SetTransformationMatrix,

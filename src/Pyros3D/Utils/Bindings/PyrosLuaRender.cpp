@@ -533,6 +533,7 @@ namespace p3d {
 					[](int options) { return std::make_shared<GenericShaderMaterial>(options); }
 				),
 				"setColor", &GenericShaderMaterial::SetColor,
+				"setColorRGBA", [](GenericShaderMaterial &m, const f32 r, const f32 g, const f32 b, const f32 a) { m.SetColor(Vec4(r, g, b, a)); },
 				"setSpecular", &GenericShaderMaterial::SetSpecular,
 				"setColorMap", &GenericShaderMaterial::SetColorMap,
 				"setSpecularMap", &GenericShaderMaterial::SetSpecularMap,
