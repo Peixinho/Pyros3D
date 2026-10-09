@@ -464,6 +464,7 @@ end
 	lua.set_function("setAutoLOD", [](const bool on) { RenderingComponent::SetAutoLODInUse(on); });
 	lua.set_function("setSSAOTemporal", [](const bool on) { g_ssaoTemporalWanted = on; });
 	lua.set_function("setListPatching", [](const bool on) { IRenderer::SetListPatching(on); });
+	lua.set_function("setParallelShadows", [](const bool on) { IRenderer::SetParallelShadows(on); });
 	lua.set_function("setParallelAnimation", [](const bool on) { RenderingComponent::SetParallelAnimation(on); });
 	lua.set_function("setParallelCulling", [](const bool on) { IRenderer::SetParallelCulling(on); });
 	lua.set_function("setShadowUpdateInterval", [](const uint32 frames) { IRenderer::SetShadowUpdateInterval(frames); });
@@ -1695,6 +1696,9 @@ void PyrosPlayer::Update()
 	// UI last, over the finished frame, and input fed to it right before -
 	// so a click is resolved against the layout the player is looking at,
 	// not the one from the previous frame.
+	// (nothing of the scene is still being recorded on another thread when the
+	// UI's handlers, which may change it, are run)
+	renderer->FinishBeside();
 	if (uiRenderer)
 	{
 		PYROS_PROFILE_SCOPE("Player.UI");

@@ -35,6 +35,15 @@ namespace p3d {
 
 	// 3 types of bound framebuffers (Read, Write and Read_Write)
 	std::vector< std::vector<FrameBuffer*> > FrameBuffer::BoundFBOs(3);
+	namespace { thread_local std::vector< std::vector<FrameBuffer*> >* t_ownBound = NULL; }
+	void FrameBuffer::UseOwnBoundStack(const bool on)
+	{
+		static thread_local std::vector< std::vector<FrameBuffer*> > own(3);
+		for (size_t i = 0; i < own.size(); i++) own[i].clear();
+		t_ownBound = on ? &own : NULL;
+	}
+	// (from here on this name is the thread's own account where it keeps one)
+#define BoundFBOs (t_ownBound ? *t_ownBound : FrameBuffer::BoundFBOs)
 	std::vector<FrameBuffer*> FrameBuffer::LiveFBOs;
 
 	FrameBuffer::FrameBuffer()
@@ -480,4 +489,17 @@ namespace p3d {
 	{
 		return framebufferFormat;
 	}
+
+	void FrameBuffer::RebindBound()
+	{
+		// (as UnBind brings back what was bound before: the last bound, of the levels in turn)
+		for (size_t level = BoundFBOs.size(); level-- > 0;)
+		{
+			if (BoundFBOs[level].empty()) continue;
+			FrameBuffer* f = BoundFBOs[level].back();
+			Device().BindFramebuffer(f->glAccessBinded, f->fbo, true);
+			return;
+		}
+	}
+
 }

@@ -18,6 +18,7 @@ namespace p3d {
 
 	namespace {
 		thread_local const char* g_scopeHint = NULL;
+		thread_local void* t_stream = NULL;          // the stream this thread has entered (a ThreadedRenderDevice::Stream)
 		f64 MsSince(const std::chrono::steady_clock::time_point &t0)
 		{
 			return std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
@@ -29,7 +30,7 @@ namespace p3d {
 	const char* GpuScopeName() { return g_scopeHint ? g_scopeHint : FrameProfiler::Instance().CurrentScopeName(); }
 
 	ThreadedRenderDevice::ThreadedRenderDevice(const std::shared_ptr<IRenderDevice> &realDevice)
-		: keep(realDevice), real(realDevice.get()), filling(new Batch()), framesBehind(0), gpuWaitUs(0), presentWaitUs(0)
+		: keep(realDevice), real(realDevice.get()), filling(new Batch()), framesBehind(0), gpuWaitUs(0), presentWaitUs(0), nextGiven(kFirstGiven)
 	{
 		trace = std::getenv("PYROS_DEVICE_THREAD_TRACE") != NULL;
 		worker = std::thread([this]() { Work(); });
@@ -50,9 +51,84 @@ namespace p3d {
 		for (size_t i = 0; i < spare.size(); i++) delete spare[i];
 	}
 
+	ThreadedRenderDevice::Batch* ThreadedRenderDevice::Filling()
+	{
+		return t_stream ? static_cast<Stream*>(t_stream)->filling : filling;
+	}
+	ThreadedRenderDevice::Said &ThreadedRenderDevice::SaidHere()
+	{
+		return t_stream ? static_cast<Stream*>(t_stream)->said : said;
+	}
+	ThreadedRenderDevice::Batch* ThreadedRenderDevice::TakeSpare()
+	{
+		Batch* b = NULL;
+		{
+			std::lock_guard<std::mutex> g(lock);
+			if (!spare.empty()) { b = spare.back(); spare.pop_back(); }
+		}
+		return b ? b : new Batch();
+	}
+
+	void* ThreadedRenderDevice::BeginParallelStream()
+	{
+		if (t_stream) return NULL;            // (one inside another: recorded in place)
+		Stream* s = new Stream();
+		s->filling = TakeSpare();
+		s->said = said;
+		Push([this, s]() { RunStream(s); });
+		Kick();
+		return s;
+	}
+	void ThreadedRenderDevice::EnterParallelStream(void* stream)
+	{
+		t_stream = stream;
+	}
+	void ThreadedRenderDevice::LeaveParallelStream(void* stream)
+	{
+		Stream* s = static_cast<Stream*>(stream);
+		t_stream = stream;
+		Kick();
+		t_stream = NULL;
+		{
+			std::lock_guard<std::mutex> g(lock);
+			s->closed = true;
+		}
+		wake.notify_all();
+	}
+	// The device thread, at the place marked: what the stream's thread hands
+	// over, as it comes, until the stream is left.
+	void ThreadedRenderDevice::RunStream(Stream* s)
+	{
+		for (;;)
+		{
+			Batch* b = NULL;
+			{
+				std::unique_lock<std::mutex> g(lock);
+				wake.wait(g, [s]() { return !s->ready.empty() || s->closed; });
+				if (s->ready.empty()) break;
+				b = s->ready.front();
+				s->ready.pop_front();
+			}
+			for (size_t i = 0; i < b->entries.size(); i++) b->entries[i].run(b->entries[i].at);
+			b->entries.clear();
+			b->big.clear();
+			if (b->chunks.size() > 8) b->chunks.resize(8);
+			b->chunk = 0; b->used = 0;
+			{
+				std::lock_guard<std::mutex> g(lock);
+				spare.push_back(b);
+				s->ran++;
+			}
+			done.notify_all();
+		}
+		// (nobody else has it any more: it was left before `closed` was set)
+		delete s->filling;
+		delete s;
+	}
+
 	void* ThreadedRenderDevice::Alloc(const size_t bytes)
 	{
-		Batch &b = *filling;
+		Batch &b = *Filling();
 		const size_t need = (bytes + 15) & ~(size_t)15;
 		if (need > kChunk)
 		{
@@ -73,6 +149,21 @@ namespace p3d {
 
 	void ThreadedRenderDevice::Kick()
 	{
+		if (t_stream)
+		{
+			Stream* s = static_cast<Stream*>(t_stream);
+			if (s->filling->entries.empty()) return;
+			Batch* next = NULL;
+			{
+				std::lock_guard<std::mutex> g(lock);
+				s->ready.push_back(s->filling);
+				s->handed++;
+				if (!spare.empty()) { next = spare.back(); spare.pop_back(); }
+			}
+			wake.notify_all();
+			s->filling = next ? next : new Batch();
+			return;
+		}
 		if (filling->entries.empty()) return;
 		Batch* next = NULL;
 		{
@@ -80,17 +171,28 @@ namespace p3d {
 			waiting.push_back(filling);
 			if (!spare.empty()) { next = spare.back(); spare.pop_back(); }
 		}
-		wake.notify_one();
+		wake.notify_all();
 		filling = next ? next : new Batch();
 	}
 
 	void ThreadedRenderDevice::Drain(const char* why)
 	{
 		Kick();
+		if (t_stream)
+		{
+			// A stream's thread: until the device thread has carried out all it
+			// was handed. It then waits for more of this stream and touches
+			// nothing - the caller may ask the device itself.
+			Stream* s = static_cast<Stream*>(t_stream);
+			if (trace) fprintf(stderr, "[device thread] a stream's thread asked the device itself: %s\n", why);
+			std::unique_lock<std::mutex> g(lock);
+			done.wait(g, [s]() { return s->ran == s->handed; });
+			return;
+		}
 		std::unique_lock<std::mutex> g(lock);
 		if (!waiting.empty() || working)
 		{
-			if (trace && saidFrameOpen) { drainsThisFrame++; fprintf(stderr, "[device thread] waited for, inside a frame: %s\n", why); }
+			if (trace && said.frameOpen) { drainsThisFrame++; fprintf(stderr, "[device thread] waited for, inside a frame: %s\n", why); }
 			done.wait(g, [this]() { return waiting.empty() && !working; });
 		}
 	}
@@ -149,7 +251,7 @@ namespace p3d {
 			done.wait(g, [this]() { return framesBehind.load() < 2; });
 			behindWaitMs += MsSince(t0);
 		}
-		saidFrameOpen = true;
+		said.frameOpen = true;
 		drainsThisFrame = 0;
 		Push([this]() {
 			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
@@ -160,7 +262,7 @@ namespace p3d {
 
 	void ThreadedRenderDevice::EndFrame()
 	{
-		saidFrameOpen = false;
+		said.frameOpen = false;
 		framesBehind++;
 		Push([this]() {
 			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
@@ -176,12 +278,13 @@ namespace p3d {
 
 	void ThreadedRenderDevice::BindFramebuffer(const uint32 nativeAccess, const DeviceHandle fbo, const bool finalizePending)
 	{
-		saidTarget = fbo;
+		SaidHere().target = fbo;
 		// The pass this opens is timed on the GPU under the scope the frame is
 		// in NOW, on this thread: by the time the device thread opens it the
 		// frame is somewhere else.
 		struct Name { char text[48]; } name;
-		const char* scope = FrameProfiler::Instance().CurrentScopeName();
+		// (a stream's thread has no scope of its own: the pass is named where it is carried out)
+		const char* scope = t_stream ? "Renderer.ShadowMaps" : FrameProfiler::Instance().CurrentScopeName();
 		std::strncpy(name.text, scope ? scope : "", sizeof(name.text) - 1);
 		name.text[sizeof(name.text) - 1] = 0;
 		Push([r = real, nativeAccess, fbo, finalizePending, name]() {
@@ -197,22 +300,22 @@ namespace p3d {
 		Push([r = real, c = Vec4(color)]() { r->SetClearColor(c); });
 	}
 
-	bool ThreadedRenderDevice::IsFrameInProgress() const { return saidFrameOpen; }
-	DeviceHandle ThreadedRenderDevice::GetCurrentRenderTarget() { return saidTarget; }
-	CommandBufferHandle ThreadedRenderDevice::BeginCommandBuffer() { return (saidFrameOpen || saidTarget != 0) ? 1 : 0; }
+	bool ThreadedRenderDevice::IsFrameInProgress() const { return const_cast<ThreadedRenderDevice*>(this)->SaidHere().frameOpen; }
+	DeviceHandle ThreadedRenderDevice::GetCurrentRenderTarget() { return SaidHere().target; }
+	CommandBufferHandle ThreadedRenderDevice::BeginCommandBuffer() { const Said &h = SaidHere(); return (h.frameOpen || h.target != 0) ? 1 : 0; }
 	void ThreadedRenderDevice::WaitIdle() { Drain("WaitIdle"); real->WaitIdle(); }
 
 	// Made in the queue, in their turn, under a handle given out here at once: nothing waits.
 	DeviceHandle ThreadedRenderDevice::CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
 	{
-		const DeviceHandle given = nextGiven++;
+		const DeviceHandle given = nextGiven.fetch_add(1);
 		const void* kept = data ? Keep(data, (size_t)length) : NULL;
 		Push([this, given, bufferType, bufferDraw, kept, length]() { realOf[given] = real->CreateBuffer(bufferType, bufferDraw, kept, length); });
 		return given;
 	}
 	DeviceHandle ThreadedRenderDevice::CreateVertexArray()
 	{
-		const DeviceHandle given = nextGiven++;
+		const DeviceHandle given = nextGiven.fetch_add(1);
 		Push([this, given]() { realOf[given] = real->CreateVertexArray(); });
 		return given;
 	}
@@ -220,7 +323,7 @@ namespace p3d {
 	{
 		// (a pipeline is made for the target bound when it is asked for: in the
 		// queue that is the target bound at this point of it)
-		const DeviceHandle given = nextGiven++;
+		const DeviceHandle given = nextGiven.fetch_add(1);
 		Push([this, given, d = PipelineDesc(desc)]() { realOf[given] = real->CreatePipeline(d); });
 		return given;
 	}

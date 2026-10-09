@@ -9,6 +9,7 @@
 #ifndef RENDERINGCOMPONENT_H
 #define	RENDERINGCOMPONENT_H
 
+#include <atomic>
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
@@ -389,8 +390,9 @@ namespace p3d {
 		void SetAnimateWhenUnseen(const bool animate) { animateWhenUnseen = animate; }
 		bool IsAnimatingWhenUnseen() const { return animateWhenUnseen; }
 		// Drawn in one of the last few frames (a renderer says so: MarkSeen).
-		bool WasSeenRecently() const { return (uint32)(SeenEpoch - lastSeenEpoch) <= 8u; }
-		void MarkSeen() { lastSeenEpoch = SeenEpoch; }
+		bool WasSeenRecently() const { return (uint32)(SeenEpoch - lastSeenEpoch.load(std::memory_order_relaxed)) <= 8u; }
+		// (said by whoever draws it - which may be two threads at once: a pass recorded beside the frame)
+		void MarkSeen() { lastSeenEpoch.store(SeenEpoch, std::memory_order_relaxed); }
 		// Counted up once for every scene update.
 		static uint32 SeenEpoch;
 
@@ -692,7 +694,7 @@ namespace p3d {
 		// Culling
 		bool cullTest = true;
 		bool animateWhenUnseen = true;
-		uint32 lastSeenEpoch = SeenEpoch;
+		std::atomic<uint32> lastSeenEpoch{ SeenEpoch };
 
 		// INTERNAL - Components of this Type
 		static std::vector<IComponent*> Components;

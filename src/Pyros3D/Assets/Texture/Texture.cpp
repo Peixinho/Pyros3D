@@ -42,6 +42,13 @@ namespace p3d {
 
 	uint32 Texture::LastUnitBinded = 0;
 
+	namespace { thread_local bool t_ownUnits = false; thread_local uint32 t_unit = 0, t_lastUnit = 0; }
+	void Texture::UseOwnUnitCounter(const bool on) { t_ownUnits = on; t_unit = 0; t_lastUnit = 0; }
+	// (from here on these two names are this thread's counters where it has its own)
+#define UnitBinded (t_ownUnits ? t_unit : Texture::UnitBinded)
+#define LastUnitBinded (t_ownUnits ? t_lastUnit : Texture::LastUnitBinded)
+	void Texture::ResetUnitCounter() { UnitBinded = 0; LastUnitBinded = 0; }
+
 	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0), storedSamples(0) {}
 
 	Texture::~Texture()

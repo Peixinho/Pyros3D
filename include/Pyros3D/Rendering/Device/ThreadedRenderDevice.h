@@ -83,9 +83,26 @@ namespace p3d {
 			Entry e;
 			e.at = at;
 			e.run = [](void* p) { Fn* f = static_cast<Fn*>(p); (*f)(); f->~Fn(); };
-			filling->entries.push_back(e);
-			if (filling->entries.size() >= 384) Kick();
+			Batch* into = Filling();
+			into->entries.push_back(e);
+			if (into->entries.size() >= 384) Kick();
 		}
+		// A second producer: see IRenderDevice::BeginParallelStream. The thread
+		// that has entered one fills ITS batches, which the device thread takes
+		// - at the place marked in the frame's own queue - as they are handed
+		// over, until the stream is left.
+		struct Said { bool frameOpen = false; DeviceHandle target = 0; };
+		struct Stream {
+			Batch* filling = NULL;
+			std::deque<Batch*> ready;         // under `lock`
+			bool closed = false;              // under `lock`
+			uint64 handed = 0, ran = 0;       // batches handed over, and carried out: under `lock`
+			Said said;
+		};
+		Batch* Filling();                     // this thread's: its stream's, or the frame's
+		Said &SaidHere();
+		Batch* TakeSpare();
+		void RunStream(Stream* s);            // device thread
 		void Kick();                          // what has been queued so far goes to the device thread
 		void Drain(const char* why);          // ... and is waited for
 		void Work();
@@ -102,13 +119,12 @@ namespace p3d {
 		std::thread worker;
 
 		// what this side has said, for the questions asked of it
-		bool saidFrameOpen = false;
-		DeviceHandle saidTarget = 0;
+		Said said;
 		std::atomic<int> framesBehind;        // frames ended here and not yet presented there
 		std::atomic<uint64> gpuWaitUs, presentWaitUs;
 		f64 behindWaitMs = 0.0;
 		static const DeviceHandle kFirstGiven = 0x40000000u;
-		DeviceHandle nextGiven = kFirstGiven;
+		std::atomic<DeviceHandle> nextGiven;
 		std::unordered_map<DeviceHandle, DeviceHandle> realOf;      // the device thread's (and anybody's, with the queue dry)
 		bool trace = false;
 		uint32 drainsThisFrame = 0;

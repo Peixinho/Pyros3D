@@ -39,7 +39,8 @@ SupportsCompute GetMaxComputeWorkGroupInvocations GetMaxComputeWorkGroupCount Ge
 TemporalUpscalerId GetTextureDataSize BuildShaderSource GetSwapchainGeneration GetUniformLocation GetAttributeLocation""".split())
 # written by hand in the .cpp's fixed part
 SPECIAL = set("""BeginFrame EndFrame BindFramebuffer SetClearColor IsFrameInProgress GetCurrentRenderTarget BeginCommandBuffer WaitIdle
-CreateBuffer CreateVertexArray CreatePipeline DestroyBuffer DeleteVertexArray DestroyPipeline""".split())
+CreateBuffer CreateVertexArray CreatePipeline DestroyBuffer DeleteVertexArray DestroyPipeline
+BeginParallelStream EnterParallelStream LeaveParallelStream""".split())
 # Buffers, vertex arrays and pipelines are made in the queue like everything else (a
 # game's HUD makes new buffers every frame: waiting for each was most of a frame), so the
 # handle given out here is not the device's own: these arguments are turned into it,

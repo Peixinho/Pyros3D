@@ -93,7 +93,7 @@ namespace p3d {
 
 	void FrameProfiler::Begin(const char *name)
 	{
-		if (!enabled_ || !OnFrameThread()) return;
+		if (!OnFrameThread() || !enabled_) return;
 		OpenScope s;
 		CopyName(s.name, name);
 		s.start = Clock::now();
@@ -103,7 +103,7 @@ namespace p3d {
 
 	const char *FrameProfiler::CurrentScopeName() const
 	{
-		if (!enabled_ || stack_.empty() || !OnFrameThread()) return "";
+		if (!OnFrameThread() || !enabled_ || stack_.empty()) return "";
 		return stack_.back().name;
 	}
 
@@ -117,7 +117,7 @@ namespace p3d {
 
 	void FrameProfiler::Counter(const char *name, f64 value)
 	{
-		if (!enabled_ || !OnFrameThread()) return;
+		if (!OnFrameThread() || !enabled_) return;
 		for (uint32 i = 0; i < counterCount_; i++)
 			if (std::strncmp(counters_[i].name, name, kMaxNameLen) == 0) { counters_[i].ms = value; return; }
 		if (counterCount_ < kMaxCounters)
@@ -129,7 +129,7 @@ namespace p3d {
 
 	void FrameProfiler::End()
 	{
-		if (!enabled_ || stack_.empty() || !OnFrameThread()) return;
+		if (!OnFrameThread() || !enabled_ || stack_.empty()) return;
 		OpenScope s = stack_.back();
 		stack_.pop_back();
 		const f64 ms = std::chrono::duration<f64, std::milli>(Clock::now() - s.start).count();

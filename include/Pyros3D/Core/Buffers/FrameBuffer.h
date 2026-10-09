@@ -190,6 +190,17 @@ namespace p3d {
 
 		// Bound FBOs
 		static std::vector<std::vector<FrameBuffer*> > BoundFBOs;
+	public:
+		// A thread that records a pass of its own beside the frame's (see
+		// IRenderDevice::BeginParallelStream) keeps its own account of which
+		// frame buffers it has bound, starting with none: what it unbinds
+		// must not bring back one the frame's thread bound meanwhile.
+		static void UseOwnBoundStack(const bool on);
+		// The frame buffer this thread last bound and has not unbound, bound
+		// again (none: nothing is done). For after another thread's pass has
+		// been put in front of what this one goes on to record.
+		static void RebindBound();
+	private:
 		// See GetLiveFrameBuffers().
 		static std::vector<FrameBuffer*> LiveFBOs;
 

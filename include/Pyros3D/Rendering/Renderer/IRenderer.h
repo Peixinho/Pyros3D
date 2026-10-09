@@ -279,6 +279,14 @@ namespace p3d {
 		// Whether a kept list takes what comes and goes in place (on), or is made again for it.
 		static void SetListPatching(const bool on);
 		static bool GetListPatching();
+		// The sun's shadow maps recorded on another thread while this renderer
+		// records the scene (where the device queues its calls - see
+		// IRenderDevice::BeginParallelStream - and the renderer says it can:
+		// recordsBeside). FinishBeside waits for that recording to be over;
+		// whoever lets the scene be changed again calls it first.
+		static void SetParallelShadows(const bool on);
+		static bool GetParallelShadows();
+		void FinishBeside();
 		static void SetCullGrid(const bool on);
 		static bool GetCullGrid();
 		std::vector<uint8> cullFlags;
@@ -319,6 +327,12 @@ namespace p3d {
 		// list last read the log (RenderState::Listed), put into the kept list
 		// in place. False where that cannot be done: the list is made again.
 		bool ApplyListed(FrameList &L, SceneGraph* Scene, const uint32 Tag);
+		struct SunPass;
+		struct Beside;
+		std::unique_ptr<Beside> beside;
+		bool recordsBeside = false;             // (a renderer that calls FinishBeside before it is done with the scene sets it)
+		void RecordSunPass(const SunPass &pass);
+		bool RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGraph* Scene);
 		// The list some renderer keeps of a scene's world (no tag), if it is
 		// exactly what the scene lists at this moment - for a pass that wants
 		// a few objects' meshes (VelocityRenderer: those that moved) without

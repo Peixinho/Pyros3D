@@ -220,6 +220,18 @@ namespace p3d {
 		// GPU work had actually finished first.
 		virtual void WaitIdle() = 0;
 
+		// A pass recorded by another thread while this one goes on recording.
+		// BeginParallelStream, on the thread that records the frame, marks the
+		// place: everything the other thread records between its
+		// EnterParallelStream and LeaveParallelStream is carried out there, in
+		// the order it was recorded, before anything this thread records
+		// afterwards. NULL where the device carries out each call as it is
+		// made (every device but ThreadedRenderDevice): the caller then
+		// records the pass itself, in place.
+		virtual void* BeginParallelStream() { return NULL; }
+		virtual void EnterParallelStream(void* stream) { (void)stream; }
+		virtual void LeaveParallelStream(void* stream) { (void)stream; }
+
 		// Close the current offscreen recording session and submit it, without
 		// blocking the CPU. Lets a renderer put a hard submission boundary
 		// between a pass that writes an offscreen target and a later pass that

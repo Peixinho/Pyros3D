@@ -1,3 +1,7 @@
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <atomic>
 //============================================================================
 // Name        : IRenderer.cpp
 // Author      : Duarte Peixinho
@@ -146,6 +150,96 @@ Vec4 IRenderer::CachedAmbientEnv[14];
 bool IRenderer::VelocityFrameUniformsUBOValid = false;
 Matrix IRenderer::CachedPrvProjectionMatrix;
 Matrix IRenderer::CachedPrvViewMatrix;
+
+// What each of the shared uniform buffers was last given - which is what the
+// stream of calls being recorded will find in it. One set for the frame's own
+// stream; a thread recording a pass beside it (IRenderDevice::BeginParallelStream)
+// has a set of its own, starting from nothing known.
+namespace {
+	struct StreamCaches
+	{
+		uint32 _viewPortStartX = 0, _viewPortStartY = 0, _viewPortEndX = 0, _viewPortEndY = 0;
+		bool GlobalMatricesUBOValid = false;
+		bool MaterialUniformsNeedsReupload = false;
+		Matrix CachedProjectionMatrix;
+		Matrix CachedViewMatrix;
+		bool CachedRenderingPointShadowFace = false;
+		bool LightsUBOValid = false;
+		std::vector<Matrix> CachedLights;
+		bool Occluders2DUBOValid = false;
+		bool DirectionalShadowUBOValid = false;
+		std::vector<Matrix> CachedDirectionalShadowMatrix;
+		Vec4 CachedDirectionalShadowFar;
+		bool PointShadowUBOValid = false;
+		std::vector<Matrix> CachedPointShadowMatrix;
+		bool SpotShadowUBOValid = false;
+		std::vector<Matrix> CachedSpotShadowMatrix;
+		bool VertexFrameUniformsUBOValid = false;
+		Vec3 CachedCameraPosition;
+		bool CachedClipPlaneEnabled = false;
+		Vec4 CachedClipPlane0;
+		bool AmbientLightUniformsUBOValid = false;
+		Vec4 CachedGlobalLight;
+		Vec4 CachedAmbientEnv[14];
+		bool VelocityFrameUniformsUBOValid = false;
+		Matrix CachedPrvProjectionMatrix;
+		Matrix CachedPrvViewMatrix;
+	};
+	thread_local StreamCaches* t_caches = NULL;
+}
+// A pass recorded beside the frame, by a second renderer on another thread
+// (IRenderer::RecordSunBeside). Set while one is: a mesh's own caches - its
+// vertex arrays, pipelines and uniform places by program - are then reached
+// one thread at a time (MeshCaches). Only the caches: never held over a call
+// that waits for the device.
+namespace {
+	std::atomic<int> g_besideActive(0);          // how many are (each renderer may have one)
+	thread_local bool t_recordingBeside = false;
+	struct SpinLock
+	{
+		std::atomic_flag f = ATOMIC_FLAG_INIT;
+		void lock() { while (f.test_and_set(std::memory_order_acquire)) std::this_thread::yield(); }
+		void unlock() { f.clear(std::memory_order_release); }
+	};
+	// (by address: a few hundred locks for all the meshes there are)
+	SpinLock g_meshLocks[256];
+	struct MeshCaches
+	{
+		SpinLock* l;
+		explicit MeshCaches(const void* mesh) : l(g_besideActive.load(std::memory_order_relaxed) > 0 ? &g_meshLocks[(reinterpret_cast<uintptr_t>(mesh) >> 5) & 255] : NULL) { if (l) l->lock(); }
+		~MeshCaches() { if (l) l->unlock(); }
+	};
+}
+#define _viewPortStartX (*(t_caches ? &t_caches->_viewPortStartX : &IRenderer::_viewPortStartX))
+#define _viewPortStartY (*(t_caches ? &t_caches->_viewPortStartY : &IRenderer::_viewPortStartY))
+#define _viewPortEndX (*(t_caches ? &t_caches->_viewPortEndX : &IRenderer::_viewPortEndX))
+#define _viewPortEndY (*(t_caches ? &t_caches->_viewPortEndY : &IRenderer::_viewPortEndY))
+#define GlobalMatricesUBOValid (*(t_caches ? &t_caches->GlobalMatricesUBOValid : &IRenderer::GlobalMatricesUBOValid))
+#define MaterialUniformsNeedsReupload (*(t_caches ? &t_caches->MaterialUniformsNeedsReupload : &IRenderer::MaterialUniformsNeedsReupload))
+#define CachedProjectionMatrix (*(t_caches ? &t_caches->CachedProjectionMatrix : &IRenderer::CachedProjectionMatrix))
+#define CachedViewMatrix (*(t_caches ? &t_caches->CachedViewMatrix : &IRenderer::CachedViewMatrix))
+#define CachedRenderingPointShadowFace (*(t_caches ? &t_caches->CachedRenderingPointShadowFace : &IRenderer::CachedRenderingPointShadowFace))
+#define LightsUBOValid (*(t_caches ? &t_caches->LightsUBOValid : &IRenderer::LightsUBOValid))
+#define CachedLights (*(t_caches ? &t_caches->CachedLights : &IRenderer::CachedLights))
+#define Occluders2DUBOValid (*(t_caches ? &t_caches->Occluders2DUBOValid : &IRenderer::Occluders2DUBOValid))
+#define DirectionalShadowUBOValid (*(t_caches ? &t_caches->DirectionalShadowUBOValid : &IRenderer::DirectionalShadowUBOValid))
+#define CachedDirectionalShadowMatrix (*(t_caches ? &t_caches->CachedDirectionalShadowMatrix : &IRenderer::CachedDirectionalShadowMatrix))
+#define CachedDirectionalShadowFar (*(t_caches ? &t_caches->CachedDirectionalShadowFar : &IRenderer::CachedDirectionalShadowFar))
+#define PointShadowUBOValid (*(t_caches ? &t_caches->PointShadowUBOValid : &IRenderer::PointShadowUBOValid))
+#define CachedPointShadowMatrix (*(t_caches ? &t_caches->CachedPointShadowMatrix : &IRenderer::CachedPointShadowMatrix))
+#define SpotShadowUBOValid (*(t_caches ? &t_caches->SpotShadowUBOValid : &IRenderer::SpotShadowUBOValid))
+#define CachedSpotShadowMatrix (*(t_caches ? &t_caches->CachedSpotShadowMatrix : &IRenderer::CachedSpotShadowMatrix))
+#define VertexFrameUniformsUBOValid (*(t_caches ? &t_caches->VertexFrameUniformsUBOValid : &IRenderer::VertexFrameUniformsUBOValid))
+#define CachedCameraPosition (*(t_caches ? &t_caches->CachedCameraPosition : &IRenderer::CachedCameraPosition))
+#define CachedClipPlaneEnabled (*(t_caches ? &t_caches->CachedClipPlaneEnabled : &IRenderer::CachedClipPlaneEnabled))
+#define CachedClipPlane0 (*(t_caches ? &t_caches->CachedClipPlane0 : &IRenderer::CachedClipPlane0))
+#define AmbientLightUniformsUBOValid (*(t_caches ? &t_caches->AmbientLightUniformsUBOValid : &IRenderer::AmbientLightUniformsUBOValid))
+#define CachedGlobalLight (*(t_caches ? &t_caches->CachedGlobalLight : &IRenderer::CachedGlobalLight))
+#define CachedAmbientEnv (*(t_caches ? &t_caches->CachedAmbientEnv : &IRenderer::CachedAmbientEnv))
+#define VelocityFrameUniformsUBOValid (*(t_caches ? &t_caches->VelocityFrameUniformsUBOValid : &IRenderer::VelocityFrameUniformsUBOValid))
+#define CachedPrvProjectionMatrix (*(t_caches ? &t_caches->CachedPrvProjectionMatrix : &IRenderer::CachedPrvProjectionMatrix))
+#define CachedPrvViewMatrix (*(t_caches ? &t_caches->CachedPrvViewMatrix : &IRenderer::CachedPrvViewMatrix))
+
 
 namespace Sort {
 
@@ -480,6 +574,8 @@ void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint3
 namespace { std::map<SceneGraph*, std::pair<IRenderer*, void*> > &WorldLists() { static std::map<SceneGraph*, std::pair<IRenderer*, void*> > m; return m; } }
 IRenderer::~IRenderer()
 {
+	FinishBeside();
+	beside.reset();
 	for (std::map<SceneGraph*, std::pair<IRenderer*, void*> >::iterator w = WorldLists().begin(); w != WorldLists().end();)
 		if (w->second.first == this) w = WorldLists().erase(w); else ++w;
 	for (std::map<AutoInstanceKey, std::vector<AutoInstanceBatch*> >::iterator k = autoInstanceBatches.begin(); k != autoInstanceBatches.end(); k++)
@@ -638,6 +734,9 @@ IRenderer::AutoInstanceBatch* IRenderer::AcquireAutoInstanceBatch(RenderingMesh*
 	if (b->failed) return NULL;
 	if (b->capacity < count)
 	{
+		// (objects are made: one thread at a time - a pass may be recorded beside the frame)
+		static std::mutex batchMaking;
+		std::lock_guard<std::mutex> making(batchMaking);
 		uint32 capacity = 64;
 		while (capacity < count) capacity *= 2;
 		RenderingComponent* rc = source->renderingComponent;
@@ -691,7 +790,7 @@ IRenderer::AutoInstanceBatch* IRenderer::AcquireAutoInstanceBatch(RenderingMesh*
 // between one view's PreRender() and the passes that follow it, so within
 // that span each is worked out once.
 namespace {
-	std::map<IMaterial*, uint64> g_fingerprintsThisView;
+	thread_local std::map<IMaterial*, uint64> g_fingerprintsThisView;
 	uint64 FingerprintThisView(GenericShaderMaterial* mat)
 	{
 		std::map<IMaterial*, uint64>::iterator it = g_fingerprintsThisView.find(mat);
@@ -1549,10 +1648,11 @@ namespace {
 		f32 margin = 0.f;
 		Vec3 probe[512];     // PYROS_VERIFY_SHADOW_CULL: points all through the slice itself
 		bool verify = false;
-	} g_shadowView;
+	};
+	thread_local ShadowViewCull g_shadowView;
 	bool g_shadowViewCullWanted = true;
 	bool g_terrainShadowBaked = false;
-	uint32 g_shadowCastersDrawn = 0, g_shadowCastersLeftOut = 0;
+	thread_local uint32 g_shadowCastersDrawn = 0, g_shadowCastersLeftOut = 0;
 
 	bool ShadowReachesView(RenderingMesh* m)
 	{
@@ -1592,6 +1692,180 @@ namespace {
 	}
 }
 void IRenderer::SetShadowCasterViewCull(const bool on) { g_shadowViewCullWanted = on; }
+
+// The sun's shadow pass: see the note where it is put together, in PreRender.
+struct IRenderer::SunPass
+{
+	struct Cascade { Matrix projection; uint32 x = 0, y = 0, w = 0, h = 0; ShadowViewCull cull; };
+	DirectionalLight* light = NULL;
+	Matrix view;
+	f32 biasFactor = 0.f, biasUnits = 0.f;
+	bool cullCasters = true;
+	std::vector<Cascade> cascades;
+};
+// A second renderer, and what it is doing: the sun's pass recorded on another
+// thread into a stream of the device's own (IRenderDevice::BeginParallelStream)
+// while this renderer records the scene.
+struct IRenderer::Beside
+{
+	std::unique_ptr<IRenderer> twin;
+	SunPass pass;
+	void* stream = NULL;
+	JobCounter counter;
+	bool running = false;
+	StreamCaches caches;
+	uint32 drawn = 0, leftOut = 0;
+};
+namespace {
+	bool g_parallelShadows = true;
+	// A material that draws its own shadow is changed for the draw and put
+	// back (RenderShadowCaster): nobody else draws with it meanwhile.
+	bool DrawsOwnShadow(IMaterial* m)
+	{
+		return m != NULL && typeid(*m) == typeid(CustomShaderMaterial) && static_cast<CustomShaderMaterial*>(m)->HasCustomShadow();
+	}
+}
+void IRenderer::SetParallelShadows(const bool on) { g_parallelShadows = on; }
+bool IRenderer::GetParallelShadows() { return g_parallelShadows; }
+
+void IRenderer::RecordSunPass(const SunPass &pass)
+{
+	DirectionalLight* d = pass.light;
+	// Bind FBO
+	d->GetShadowFBO()->Bind();
+
+	ClearBufferBit(Buffer_Bit::Depth);
+	EnableClearDepthBuffer();
+	ClearDepthBuffer();
+	ClearScreen();
+
+	StartClippingPlanes();
+
+	// Enable Depth Bias
+	SetShadowDepthBias(pass.biasFactor, pass.biasUnits); // enable polygon offset fill to combat "z-fighting"
+
+	ViewMatrix = pass.view;
+	for (size_t i = 0; i < pass.cascades.size(); i++)
+	{
+		const SunPass::Cascade &c = pass.cascades[i];
+		ProjectionMatrix = c.projection;
+		// Set Viewport
+		_SetViewPort(c.x, c.y, c.w, c.h);
+		// Update Culling
+		UpdateCulling(ProjectionMatrix*ViewMatrix);
+		g_shadowView = c.cull;
+		if (i == 0) g_shadowCastersDrawn = g_shadowCastersLeftOut = 0;
+		RenderShadowCasters(pass.cullCasters);
+		g_shadowView.on = false;
+		if (!t_recordingBeside)
+		{
+			FrameProfiler::Instance().Counter("Shadow.SunCasters", (f64)g_shadowCastersDrawn);
+			FrameProfiler::Instance().Counter("Shadow.SunLeftOut", (f64)g_shadowCastersLeftOut);
+		}
+	}
+
+	EndClippingPlanes();
+
+	// Disable Depth Bias
+	DisableDepthBias();
+
+	// Unbind FBO
+	d->GetShadowFBO()->UnBind();
+}
+
+// The same pass, recorded by the second renderer on another thread. False where
+// that cannot be (the device carries out calls as they are made, or it is
+// switched off): the caller records it itself.
+bool IRenderer::RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGraph* Scene)
+{
+	if (!g_parallelShadows || !recordsBeside || t_recordingBeside || JobSystem::Instance().WorkerCount() == 0) return false;
+	FinishBeside();
+	// A material that draws its own shadow is changed for that draw and put
+	// back (RenderShadowCaster) - under the scene's own draws of it, were
+	// they recorded at the same time. With one about, the pass is recorded
+	// in place.
+	{
+		const std::map<std::pair<SceneGraph*, uint32>, FrameList>::const_iterator kept = frameLists.find(std::make_pair(Scene, (uint32)0));
+		if (kept == frameLists.end() || !kept->second.valid) return false;
+		for (size_t i = 0; i < kept->second.materials.size(); i++)
+			if (DrawsOwnShadow(kept->second.materials[i].first)) return false;
+	}
+	if (!beside) beside.reset(new Beside());
+	Beside &B = *beside;
+	if (!B.twin)
+	{
+		B.twin.reset(new IRenderer(Width, Height));
+		B.twin->recordsBeside = false;
+	}
+	void* stream = device->BeginParallelStream();
+	if (stream == NULL) return false;
+
+	// What the second renderer draws from: this one's list, as it stands.
+	IRenderer &T = *B.twin;
+	T.rmesh = rmesh; T.cullSphere = cullSphere; T.cullFlags = cullFlags;
+	T.cullCell = cullCell; T.cullCellSphere = cullCellSphere;
+	if (IsCulling && !T.culling) T.ActivateCulling(0);
+	T.IsCulling = IsCulling;
+	T.smallCullEye = smallCullEye; T.smallCullScale = smallCullScale; T.smallCullFactor = smallCullFactor;
+	T.Camera = Camera; T.Scene = Scene; T.Timer = Timer;
+	T.CameraPosition = CameraPosition; T.NearFarPlane = NearFarPlane;
+	T.projection = projection; T.projectionValid = projectionValid;
+	T.ClipPlane = ClipPlane; T.ClipPlaneNumber = ClipPlaneNumber;
+	for (uint32 k = 0; k < 8; k++) T.ClipPlanes[k] = ClipPlanes[k];
+	T.Width = Width; T.Height = Height;
+	T.ResetViewPort();
+	T.BeginAutoInstancingFrame();
+
+	B.pass = pass;
+	B.stream = stream;
+	B.caches = StreamCaches();
+	B.running = true;
+	g_besideActive.fetch_add(1);
+	IRenderDevice* dev = device.get();
+	Beside* b = &B;
+	JobSystem::Instance().Run([b, dev]() {
+		dev->EnterParallelStream(b->stream);
+		t_caches = &b->caches;
+		t_recordingBeside = true;
+		Texture::UseOwnUnitCounter(true);
+		FrameBuffer::UseOwnBoundStack(true);
+		g_fingerprintsThisView.clear();
+		b->twin->InitRender();
+		b->twin->RecordSunPass(b->pass);
+		b->twin->EndRender();
+		b->drawn = g_shadowCastersDrawn; b->leftOut = g_shadowCastersLeftOut;
+		Texture::UseOwnUnitCounter(false);
+		FrameBuffer::UseOwnBoundStack(false);
+		t_recordingBeside = false;
+		t_caches = NULL;
+		dev->LeaveParallelStream(b->stream);
+	}, B.counter);
+
+	// What this renderer goes on recording is carried out AFTER that pass:
+	// the device is then as that pass left it, not as this renderer last
+	// knew it. So: nothing taken as known, and what it holds to be set, set.
+	InvalidateSharedUniformCaches();
+	LastProgramUsed = -1; LastMaterialUsed = -1; LastMeshRendered = -1;
+	LastMaterialPTR = NULL; LastMeshRenderedPTR = NULL;
+	InternalDrawType = -1;
+	cullFace = -1;
+	ResetViewPort();
+	FrameBuffer::RebindBound();
+	DepthWrite();
+	return true;
+}
+
+// Until the pass being recorded beside this renderer has all been recorded.
+// (What it reads - the scene's objects - may be changed again after this.)
+void IRenderer::FinishBeside()
+{
+	if (!beside || !beside->running) return;
+	JobSystem::Instance().Wait(beside->counter);
+	beside->running = false;
+	g_besideActive.fetch_sub(1);
+	FrameProfiler::Instance().Counter("Shadow.SunCasters", (f64)beside->drawn);
+	FrameProfiler::Instance().Counter("Shadow.SunLeftOut", (f64)beside->leftOut);
+}
 
 void IRenderer::RenderShadowCasters(const bool cullTest)
 {
@@ -1800,6 +2074,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	smallCullFactor = 2.f;       // the shadow passes below; RenderScene() puts it back to 1
 	shadowPassCounter++;
 
+	FinishBeside();
 	BeginAutoInstancingFrame();
 
 	// Group and Sort Meshes
@@ -1903,20 +2178,17 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						sunLightSpace[d].clear();
 					}
 
-					// Bind FBO
-					d->GetShadowFBO()->Bind();
-
-					ClearBufferBit(Buffer_Bit::Depth);
-					EnableClearDepthBuffer();
-					ClearDepthBuffer();
-					ClearScreen();
-
-					StartClippingPlanes();
-
-					// Enable Depth Bias
-					SetShadowDepthBias(d->GetShadowBiasFactor(), d->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
+					// What each cascade is drawn with, worked out here; then the drawing -
+					// by this renderer, in place, or by a second one on another thread
+					// while this one goes on to the scene (RecordSunPass, RecordSunBeside).
+					SunPass pass;
+					pass.light = d;
+					pass.biasFactor = d->GetShadowBiasFactor(); pass.biasUnits = d->GetShadowBiasUnits();
+					static const bool cullCasters = std::getenv("PYROS_NO_SHADOW_CULL") == NULL;
+					pass.cullCasters = cullCasters;
 
 					ViewMatrix = DirectionalLight::ShadowViewMatrix(direction);
+					pass.view = ViewMatrix;
 
 					// The camera actually rendering - see FitCascade(). Before
 					// the first RenderScene() there is none yet, so fall back
@@ -1926,34 +2198,20 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						cameraProjection.Perspective(60.f, 16.f / 9.f, 0.1f, 1000.f);
 					const Matrix cameraWorld = Camera->GetWorldTransformation();
 
-					// Get Lights Shadow Map Texture
+
 					for (uint32 i = 0; i < d->GetNumberCascades(); i++)
 					{
 						ProjectionMatrix = (cullSphere.size() == rmesh.size() && cullFlags.size() == rmesh.size() && !rmesh.empty())
 							? d->FitCascade(i, cameraWorld, cameraProjection, ViewMatrix, rmesh, &cullSphere[0], &cullFlags[0], (uint8)(CullOwner | CullCasts))
 							: d->FitCascade(i, cameraWorld, cameraProjection, ViewMatrix, rmesh);
 
-						// Set Viewport
-						_SetViewPort((uint32)((float)(i % 2) * d->GetShadowWidth()), (uint32)((i <= (uint32)1 ? 0.0f : 1.f) * d->GetShadowHeight()), d->GetShadowWidth(), d->GetShadowHeight());
-
-						// Update Culling
-						UpdateCulling(ProjectionMatrix*ViewMatrix);
-
-						// Only what stands in this cascade's box. It was every
-						// caster in the scene, into a map that covers a few
-						// tens of metres round the camera: on a map of two
-						// thousand objects, two thousand draws a frame where a
-						// hundred land in the map - the biggest cost of the
-						// frame on the CPU. The box is exact for this: sideways
-						// it is the cascade, and toward the light FitCascade
-						// has already stretched it to every caster that can
-						// throw a shadow into it.
+						pass.cascades.push_back(SunPass::Cascade());
+						SunPass::Cascade &c = pass.cascades.back();
+						c.projection = ProjectionMatrix;
+						c.x = (uint32)((float)(i % 2) * d->GetShadowWidth()); c.y = (uint32)((i <= (uint32)1 ? 0.0f : 1.f) * d->GetShadowHeight());
+						c.w = d->GetShadowWidth(); c.h = d->GetShadowHeight();
 						{
-							// (PYROS_NO_SHADOW_CULL=1 draws every caster, to compare against)
-							static const bool cullCasters = std::getenv("PYROS_NO_SHADOW_CULL") == NULL;
-							// ...and of those, only what can throw its shadow into
-							// this slice of the view (see ShadowReachesView).
-							g_shadowView.on = false;
+							c.cull.on = false;
 							if (g_shadowViewCullWanted && cameraProjection.m.m[11] != 0.f)
 							{
 								const Cascade slice = d->GetCascade(i);
@@ -1964,18 +2222,18 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 								const f32 open = Min(2.f, 1.25f + 0.35f * (f32)(g_shadowEvery > 1 ? g_shadowEvery - 1 : 0));
 								const f32 tanX = open / cameraProjection.m.m[0];
 								const f32 tanY = open / cameraProjection.m.m[5];
-								g_shadowView.margin = 2.f + sliceFar * 0.03f;
+								c.cull.margin = 2.f + sliceFar * 0.03f;
 								const Vec3 cn[6] = { Vec3(0, 0, -1), Vec3(0, 0, 1), Vec3(1, 0, -tanX), Vec3(-1, 0, -tanX), Vec3(0, 1, -tanY), Vec3(0, -1, -tanY) };
 								const Vec3 cp[6] = { Vec3(0, 0, -sliceNear), Vec3(0, 0, -sliceFar), Vec3(), Vec3(), Vec3(), Vec3() };
 								for (int k = 0; k < 6; k++)
 								{
-									g_shadowView.p[k] = cameraWorld * cp[k];
-									g_shadowView.n[k] = ((cameraWorld * (cp[k] + cn[k])) - g_shadowView.p[k]).normalize();
+									c.cull.p[k] = cameraWorld * cp[k];
+									c.cull.n[k] = ((cameraWorld * (cp[k] + cn[k])) - c.cull.p[k]).normalize();
 								}
 								// the light looks down its own -Z
-								g_shadowView.light = Vec3(-ViewMatrix.m[2], -ViewMatrix.m[6], -ViewMatrix.m[10]).normalize();
+								c.cull.light = Vec3(-ViewMatrix.m[2], -ViewMatrix.m[6], -ViewMatrix.m[10]).normalize();
 								static const bool verify = std::getenv("PYROS_VERIFY_SHADOW_CULL") != NULL;
-								g_shadowView.verify = verify;
+								c.cull.verify = verify;
 								if (verify)
 								{
 									const f32 tx = 1.f / cameraProjection.m.m[0], ty = 1.f / cameraProjection.m.m[5];
@@ -1983,16 +2241,11 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 									{
 										const f32 depth = sliceNear + (sliceFar - sliceNear) * ((f32)(q / 64) / 7.f);
 										const f32 u = (f32)(q % 8) / 3.5f - 1.f, v = (f32)((q / 8) % 8) / 3.5f - 1.f;
-										g_shadowView.probe[q] = cameraWorld * Vec3(u * tx * depth, v * ty * depth, -depth);
+										c.cull.probe[q] = cameraWorld * Vec3(u * tx * depth, v * ty * depth, -depth);
 									}
 								}
-								g_shadowView.on = true;
+								c.cull.on = true;
 							}
-							if (i == 0) g_shadowCastersDrawn = g_shadowCastersLeftOut = 0;
-							RenderShadowCasters(cullCasters);
-							g_shadowView.on = false;
-							FrameProfiler::Instance().Counter("Shadow.SunCasters", (f64)g_shadowCastersDrawn);
-							FrameProfiler::Instance().Counter("Shadow.SunLeftOut", (f64)g_shadowCastersLeftOut);
 						}
 
 						// device->TranslateProjectionMatrix() (identity on
@@ -2008,10 +2261,9 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						// Vulkan.
 						sunLightSpace[d].push_back(device->TranslateShadowBiasMatrix() * (device->TranslateProjectionMatrix(ProjectionMatrix) * ViewMatrix));
 						DirectionalShadowMatrix.push_back((device->TranslateShadowBiasMatrix() * (device->TranslateProjectionMatrix(ProjectionMatrix) * ViewMatrix * cameraWorld)));
-
 					}
 
-					EndClippingPlanes();
+					if (!RecordSunBeside(pass, Camera, Scene)) RecordSunPass(pass);
 
 					// Get Texture (only 1)
 					DirectionalShadowMapsTextures.push_back(d->GetShadowMapTexture());
@@ -2024,12 +2276,6 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// matrix used here matched the backend's clip
 					// convention, which the deferred path's copy never did.
 					DirectionalShadowFar = d->GetCascadeSplits();
-
-					// Disable Depth Bias
-					DisableDepthBias();
-
-					// Unbind FBO
-					d->GetShadowFBO()->UnBind();
 
 				}
 			}
@@ -2046,6 +2292,9 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 				{
 					// Increase Number of Shadows
 					NumberOfPointShadows++;
+					// (this renderer's own shadow draws use the programs the sun's pass is
+					// being recorded with on another thread: that one first)
+					FinishBeside();
 
 					// See IRenderer.h's comment on RenderingPointShadowFace -
 					// SendGlobalUniforms() (called from each face's
@@ -2198,6 +2447,9 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 					// Increase Number of Shadows
 					NumberOfSpotShadows++;
+					// (this renderer's own shadow draws use the programs the sun's pass is
+					// being recorded with on another thread: that one first)
+					FinishBeside();
 
 					// Bind FBO
 					s->GetShadowFBO()->Bind();
@@ -2420,7 +2672,13 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 
 		// The VAO built by BindMesh() already has every attribute pointer
 		// and the index buffer baked in.
-		device->BindVertexArray(cmd, rmesh->VAOCache[Material->GetShader()]);
+		DeviceHandle meshVao = 0, meshPipeline = 0;
+		{
+			MeshCaches held(rmesh);
+			meshVao = rmesh->VAOCache[Material->GetShader()];
+			meshPipeline = rmesh->PipelineCache[PipelineCacheKey(Material->GetShader(), device->GetCurrentRenderTarget(), EffectiveCullFace(rmesh, Material))];
+		}
+		device->BindVertexArray(cmd, meshVao);
 
 		// The pipeline BindMesh() cached alongside the VAO - see the
 		// comment on RenderingMesh::PipelineCache. Called at this same
@@ -2443,7 +2701,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 		// was current *before* this switch (or none at all), silently
 		// leaving the real descriptor unwritten
 		// (VUID-vkCmdDrawIndexed-None-08114 caught this the hard way).
-		device->BindPipeline(cmd, rmesh->PipelineCache[PipelineCacheKey(Material->GetShader(), device->GetCurrentRenderTarget(), EffectiveCullFace(rmesh, Material))]);
+		device->BindPipeline(cmd, meshPipeline);
 
 		// Material Stuff Pre Render
 		Material->PreRender();
@@ -3623,7 +3881,8 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		}
 	}
 
-	std::vector<int32> *_ShadersGlobalCache = &rmesh->ShadersGlobalCache[Material->GetShader()];
+	std::vector<int32>* _ShadersGlobalCache = NULL;
+	{ MeshCaches held(rmesh); _ShadersGlobalCache = &rmesh->ShadersGlobalCache[Material->GetShader()]; }
 
 	// Send Global Uniforms
 	uint32 counter = 0;
@@ -3962,7 +4221,8 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		device->ReplaceUniformBuffer(MaterialUniformsUBO, sizeof(MaterialUniformsData), &data);
 	}
 
-	std::vector<int32>* _ShadersUserCache = &rmesh->ShadersUserCache[Material->GetShader()];
+	std::vector<int32>* _ShadersUserCache = NULL;
+	{ MeshCaches held(rmesh); _ShadersUserCache = &rmesh->ShadersUserCache[Material->GetShader()]; }
 
 	// User Specific Uniforms
 	uint32 counter = 0;
@@ -4085,7 +4345,8 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 
 	uint32 counter = 0;
 
-	std::vector<int32>* _ShadersModelCache = &rmesh->ShadersModelCache[Material->GetShader()];
+	std::vector<int32>* _ShadersModelCache = NULL;
+	{ MeshCaches held(rmesh); _ShadersModelCache = &rmesh->ShadersModelCache[Material->GetShader()]; }
 
 	for (std::list<Uniform>::iterator k = Material->ModelUniforms.begin(); k != Material->ModelUniforms.end(); k++)
 	{
@@ -4446,6 +4707,7 @@ void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
 
 void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 {
+	MeshCaches held(rmesh);         // (nothing in here waits for the device)
 	// Drop every cached VAO if the geometry has been given new GPU buffers
 	// since they were built. A VAO bakes in the buffer handles it was
 	// recorded against, so one built before the rebuild would keep sourcing

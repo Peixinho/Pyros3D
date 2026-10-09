@@ -274,7 +274,11 @@ namespace p3d {
 		// Reset the static Bind()/Unbind() unit counter - call on demo/renderer
 		// teardown so a mismatched Bind/Unbind cannot permanently shift every
 		// subsequent texture unit assignment (black screen / unloadable tex).
-		static void ResetUnitCounter() { UnitBinded = 0; LastUnitBinded = 0; }
+		static void ResetUnitCounter();
+		// A thread that records a pass of its own beside the frame's (see
+		// IRenderDevice::BeginParallelStream) counts its texture units for
+		// itself, from zero: on from true to false.
+		static void UseOwnUnitCounter(const bool on);
 
 		// Destructor
 		virtual ~Texture();

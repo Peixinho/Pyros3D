@@ -48,6 +48,10 @@ namespace p3d {
 
 		echo("TRACE: Deferred Renderer Created");
 
+		// (the sun's shadow maps may be recorded on another thread while this
+		// records the scene: RenderScene waits for that before it returns)
+		recordsBeside = true;
+
 		ActivateCulling(CullingMode::FrustumCulling);
 
 		shadowMaterial = new GenericShaderMaterial(ShaderUsage::CastShadows);
@@ -756,6 +760,8 @@ namespace p3d {
 	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
 		PYROS_PROFILE_SCOPE("Deferred.RenderScene");
+		// (see IRenderer::FinishBeside: on every way out of here)
+		struct Join { IRenderer* r; ~Join() { r->FinishBeside(); } } join = { this };
 
 		// See DeferredRenderer.h's comment on dummyShadowsWarmedUp - a
 		// one-time, contentless render-pass begin/end for each dummy
