@@ -162,6 +162,20 @@ namespace p3d
 		bool UseGBufferProgramForNextDraw() { return UseVariantForNextDraw(true, false); }
 		void RestoreOwnProgram();
 
+		// Drawn many at once. A source with an INSTANCED_RENDERING branch (every
+		// generated shader has one: its model matrix is multiplied by the
+		// instance's, as the engine's own shader does) can be drawn as one batch
+		// by the renderers' automatic instancing - which used to take only the
+		// engine's own material, so a hundred identical things given a shader of
+		// their own were a hundred draws. Same pairing rule as the others:
+		// RestoreOwnProgram() only after true.
+		bool SupportsInstancing() const;
+		bool UseInstancedVariantForNextDraw(bool gbuffer);
+		// A generated shader from before the template had the branch is given it
+		// (the two lines of its vertex stage that place a vertex in the world).
+		// Returns the source as it was when it is not one of those.
+		static std::string WithInstancingBranch(const std::string &source);
+
 		// The uniform set every Material Editor shader (MaterialCodegen)
 		// is written against: matrices, camera, time, lights, the
 		// environment ambient, the forward branch's shadow maps and the
@@ -223,7 +237,7 @@ namespace p3d
 		bool deferredGBufferBranch = false;
 
 		// Lazily-built variants of `shader`, index = (gbuffer ? 1 : 0) |
-		// (skinned ? 2 : 0) | (shadow ? 4 : 0), each with its own
+		// (skinned ? 2 : 0) | (shadow ? 4 : 0) | (instanced ? 8 : 0), each with its own
 		// extraUniforms layout - see UseVariantForNextDraw(). Dropped
 		// whenever SetShader() changes the source they were built from.
 		struct ProgramVariant
@@ -232,7 +246,7 @@ namespace p3d
 			bool failed = false;
 			ExtraUniformsBlock extraUniforms[2];
 		};
-		ProgramVariant variants[8];
+		ProgramVariant variants[16];
 		int activeVariant = -1;
 		// Holds this material's own extraUniforms[] while a variant swap
 		// is in effect, so RestoreOwnProgram() can put it back.

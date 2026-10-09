@@ -788,6 +788,8 @@ namespace p3d {
 		{
 			CustomShaderMaterial* csm = static_cast<CustomShaderMaterial*>(material);
 			if (csm->UseVariantForNextDraw(true, mesh->SkinningBones.size() > 0 || !mesh->MapBoneIDs.empty())) csm->RestoreOwnProgram();
+			// (and the one a batch of them is drawn with)
+			if (IsAutoInstancing() && AutoInstanceEligible(mesh) && csm->UseInstancedVariantForNextDraw(true)) csm->RestoreOwnProgram();
 		}
 	}
 
@@ -1123,7 +1125,17 @@ namespace p3d {
 			{
 				// The instanced sibling of whatever the single draw would
 				// have used: plus DEFERRED_GBUFFER exactly when it swaps.
-				GenericShaderMaterial* gsm = static_cast<GenericShaderMaterial*>(batchMesh->Material.get());
+				IMaterial* bmat = batchMesh->Material.get();
+				// (a shader of somebody's own has its own instanced G-buffer program)
+				if (typeid(*bmat) == typeid(CustomShaderMaterial))
+				{
+					CustomShaderMaterial* bcsm = static_cast<CustomShaderMaterial*>(bmat);
+					const bool swapped = bcsm->UseInstancedVariantForNextDraw(true);
+					RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), bcsm);
+					if (swapped) bcsm->RestoreOwnProgram();
+					return;
+				}
+				GenericShaderMaterial* gsm = static_cast<GenericShaderMaterial*>(bmat);
 				const bool gbuffer = !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLitUsageMask) != 0;
 				gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering | (gbuffer ? ShaderUsage::DeferredRenderer_Gbuffer : 0));
 				RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), gsm);

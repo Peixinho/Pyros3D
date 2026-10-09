@@ -305,6 +305,7 @@ namespace p3d
 			if (gbuffer) defines += "#define DEFERRED_GBUFFER\n";
 			if (skinned) defines += "#define SKINNING\n";
 			if (shadow) defines += "#define SHADOW_DEPTH\n";
+			if ((index & 8) != 0) defines += "#define INSTANCED_RENDERING\n";
 			// The own program's source text first, the file only as a
 			// fallback. It is the same source, with includes already inlined
 			// - and ShaderFilePath is not always openable from here: the
@@ -314,7 +315,7 @@ namespace p3d
 			// came up "COULDN'T OPEN/INCLUDE FILE" and silently fell back.
 			// Shared with every other material of the same source.
 			if (!shader->GetShaderText().empty())
-				v.shader = SharedProgram(shader->GetShaderText(), defines);
+				v.shader = SharedProgram((index & 8) != 0 ? WithInstancingBranch(shader->GetShaderText()) : shader->GetShaderText(), defines);
 			else
 			{
 				v.shader.reset(new Shader());
@@ -343,7 +344,7 @@ namespace p3d
 
 	void CustomShaderMaterial::ResetVariants()
 	{
-		for (int i = 0; i < 8; i++)
+		for (int i = 0; i < 16; i++)
 		{
 			for (int b = 0; b < 2; b++)
 				if (variants[i].extraUniforms[b].bufferHandle != 0 && !IsSharedExtraBuffer(variants[i].extraUniforms[b].bufferHandle))
@@ -371,6 +372,44 @@ namespace p3d
 			return false;
 
 		return SwapToVariant((gbuffer ? 1 : 0) | (skinned ? 2 : 0));
+	}
+
+	std::string CustomShaderMaterial::WithInstancingBranch(const std::string &source)
+	{
+		if (source.find("INSTANCED_RENDERING") != std::string::npos) return source;
+		// The generated template's own lines (MaterialCodegen): where the vertex
+		// stage declares what it is given, and where it places a vertex.
+		static const std::string given = "attribute_in vec2 aTexcoord;\n";
+		static const std::string placed = "\tvec4 p3d_worldPos = uModelMatrix * p3d_localPos;\n\tvec3 p3d_worldNormal = normalize((uModelMatrix * vec4(p3d_localNormal, 0.0)).xyz);\n";
+		const size_t g = source.find(given), w = source.find(placed);
+		if (g == std::string::npos || w == std::string::npos || w < g) return source;
+		std::string out = source;
+		out.replace(w, placed.size(),
+			"\tmat4 p3d_model = uModelMatrix;\n"
+			"#ifdef INSTANCED_RENDERING\n"
+			"\tp3d_model = p3d_model * aInstancedTransform;\n"
+			"#endif\n"
+			"\tvec4 p3d_worldPos = p3d_model * p3d_localPos;\n"
+			"\tvec3 p3d_worldNormal = normalize((p3d_model * vec4(p3d_localNormal, 0.0)).xyz);\n");
+		// (at the place the engine's own shader has it - LOC_aInstancedTransform - and said
+		// so: a matrix is four locations, and left to be numbered after the others it
+		// was given one that ran into them)
+		out.insert(g + given.size(), "#ifdef INSTANCED_RENDERING\nlayout(location = 9) attribute_in mat4 aInstancedTransform;\n#endif\n");
+		return out;
+	}
+
+	bool CustomShaderMaterial::SupportsInstancing() const
+	{
+		if (!shader) return false;
+		const std::string &text = shader->GetShaderText();
+		if (text.empty()) return false;
+		if (text.find("INSTANCED_RENDERING") != std::string::npos) return true;
+		return WithInstancingBranch(text).size() != text.size();
+	}
+
+	bool CustomShaderMaterial::UseInstancedVariantForNextDraw(bool gbuffer)
+	{
+		return SwapToVariant(8 | (gbuffer ? 1 : 0));
 	}
 
 	bool CustomShaderMaterial::SwapToVariant(int index)

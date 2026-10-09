@@ -692,7 +692,18 @@ bool IRenderer::AutoInstanceEligible(RenderingMesh* mesh)
 	if (!mesh->SkinningBones.empty() || mesh->Geometry == NULL)
 		return false;
 	IMaterial* mat = mesh->Material.get();
-	if (mat == NULL || typeid(*mat) != typeid(GenericShaderMaterial))
+	if (mat == NULL) return false;
+	// A shader of somebody's own, when its source can be drawn instanced (every
+	// generated one can) and its shadow is the renderer's: a hundred of the same
+	// thing wearing one such material are one draw too. It was only the engine's
+	// own material that was ever batched.
+	if (typeid(*mat) == typeid(CustomShaderMaterial))
+	{
+		CustomShaderMaterial* csm = static_cast<CustomShaderMaterial*>(mat);
+		if (!csm->SupportsInstancing() || csm->HasCustomShadow()) return false;
+		return !mat->IsTransparent() && mat->IsDepthTesting() && mat->IsDepthWritting();
+	}
+	if (typeid(*mat) != typeid(GenericShaderMaterial))
 		return false;
 	if ((static_cast<GenericShaderMaterial*>(mat)->GetOptions() & ShaderUsage::InstancedRendering) != 0)
 		return false;
@@ -791,11 +802,14 @@ IRenderer::AutoInstanceBatch* IRenderer::AcquireAutoInstanceBatch(RenderingMesh*
 // that span each is worked out once.
 namespace {
 	thread_local std::map<IMaterial*, uint64> g_fingerprintsThisView;
-	uint64 FingerprintThisView(GenericShaderMaterial* mat)
+	uint64 FingerprintThisView(IMaterial* mat)
 	{
+		// (a custom shader's material is told from another by being another: two
+		// objects are batched under one when they wear the very same material)
+		if (typeid(*mat) != typeid(GenericShaderMaterial)) return (uint64)(size_t)mat * 0x9E3779B97F4A7C15ULL | 1ULL;
 		std::map<IMaterial*, uint64>::iterator it = g_fingerprintsThisView.find(mat);
 		if (it != g_fingerprintsThisView.end()) return it->second;
-		const uint64 f = mat->RenderFingerprint();
+		const uint64 f = static_cast<GenericShaderMaterial*>(mat)->RenderFingerprint();
 		g_fingerprintsThisView[mat] = f;
 		return f;
 	}
@@ -835,7 +849,7 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		IMaterial* mat = items[i]->Material.get();
 		std::map<IMaterial*, uint64>::iterator fp = fingerprints.find(mat);
 		if (fp == fingerprints.end())
-			fp = fingerprints.insert(std::make_pair(mat, FingerprintThisView(static_cast<GenericShaderMaterial*>(mat)))).first;
+			fp = fingerprints.insert(std::make_pair(mat, FingerprintThisView(mat))).first;
 		const GroupKey key = { items[i]->Geometry, fp->second, signatures ? (*signatures)[i] : 0 };
 		std::map<GroupKey, uint32>::iterator it = groupIndex.find(key);
 		if (it == groupIndex.end())

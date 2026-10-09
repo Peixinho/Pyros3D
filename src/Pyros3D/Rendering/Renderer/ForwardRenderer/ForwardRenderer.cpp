@@ -389,7 +389,16 @@ namespace p3d {
 				},
 				[&](RenderingMesh* batchMesh, const uint32 firstItem) {
 					setLights(firstItem);
-					GenericShaderMaterial* gsm = static_cast<GenericShaderMaterial*>(batchMesh->Material.get());
+					IMaterial* bmat = batchMesh->Material.get();
+					if (typeid(*bmat) == typeid(CustomShaderMaterial))
+					{
+						CustomShaderMaterial* bcsm = static_cast<CustomShaderMaterial*>(bmat);
+						const bool swapped = bcsm->UseInstancedVariantForNextDraw(false);
+						RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), bcsm);
+						if (swapped) bcsm->RestoreOwnProgram();
+						return;
+					}
+					GenericShaderMaterial* gsm = static_cast<GenericShaderMaterial*>(bmat);
 					gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering);
 					RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), gsm);
 					gsm->RestoreOwnProgram();
