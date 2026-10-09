@@ -47,6 +47,7 @@ namespace p3d {
 		std::map<lua_State*, std::vector<LuaOpen> > g_luaOpen;
 		std::map<std::string, f64> g_luaSelf;
 		std::map<std::string, uint64> g_luaCalls;
+		std::map<std::string, uint64> g_luaEngineCalls;        // an engine function, by the script function that called it
 		uint64 g_luaFrames = 0;
 		void LuaProfileHook(lua_State* L, lua_Debug* ar)
 		{
@@ -72,6 +73,8 @@ namespace p3d {
 			{
 				char key[200];
 				if (ar->what && ar->what[0] == 'C') snprintf(key, sizeof(key), "[engine] %s", ar->name ? ar->name : "?");
+				if (ar->what && ar->what[0] == 'C' && !open.empty() && open.back().key.compare(0, 8, "[engine]") != 0)
+					g_luaEngineCalls[open.back().key + "  ->  " + (ar->name ? ar->name : "?")]++;
 				else
 				{
 					const char* file = ar->short_src;
@@ -102,6 +105,15 @@ namespace p3d {
 			for (size_t i = 0; i < top.size() && i < 36; i++)
 				fprintf(stderr, "[lua profile]   %.4f ms  %5.1f%%  %6.1f calls a frame  %s\n", top[i].first / (f64)g_luaFrames, 100.0 * top[i].first / total,
 					(f64)g_luaCalls[top[i].second] / (f64)g_luaFrames, top[i].second.c_str());
+			{
+				std::vector<std::pair<uint64, std::string> > most;
+				for (std::map<std::string, uint64>::iterator i = g_luaEngineCalls.begin(); i != g_luaEngineCalls.end(); ++i) most.push_back(std::make_pair(i->second, i->first));
+				std::sort(most.rbegin(), most.rend());
+				fprintf(stderr, "[lua profile] calls into the engine, a frame, by who makes them:\n");
+				for (size_t i = 0; i < most.size() && i < 30; i++)
+					fprintf(stderr, "[lua profile]   %7.1f  %s\n", (f64)most[i].first / (f64)g_luaFrames, most[i].second.c_str());
+				g_luaEngineCalls.clear();
+			}
 			g_luaSelf.clear(); g_luaCalls.clear(); g_luaFrames = 0;
 		}
 	}

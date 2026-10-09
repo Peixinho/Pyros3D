@@ -1,3 +1,4 @@
+#include <tuple>
 //============================================================================
 // Name        : PyrosLuaPhysics.cpp
 // Description : Box3DPhysics / IPhysics / RayCastHit / PhysicsVehicle,
@@ -348,6 +349,15 @@ namespace p3d {
 				"SetLinearVelocity", &IPhysics::SetLinearVelocity,
 				"Activate", &IPhysics::Activate,
 				"rayCast", &IPhysics::RayCast,
+				// The same ray, asked and answered in numbers:
+				//   local hit, distance, px, py, pz, nx, ny, nz = physics:rayCastNumbers(x0, y0, z0, x1, y1, z1)
+				// For what is asked many times a frame - a body feeling for the
+				// ground and the walls round it - where two vectors made for the
+				// asking and three objects read for the answer are most of the cost.
+				"rayCastNumbers", [](IPhysics &world, const f32 x0, const f32 y0, const f32 z0, const f32 x1, const f32 y1, const f32 z1) {
+					const RayCastHit h = world.RayCast(Vec3(x0, y0, z0), Vec3(x1, y1, z1));
+					return std::make_tuple(h.hasHit, h.distance, h.point.x, h.point.y, h.point.z, h.normal.x, h.normal.y, h.normal.z);
+				},
 				"createBox", &IPhysics::CreateBox,
 				"createCapsule", &IPhysics::CreateCapsule,
 				"createCone", &IPhysics::CreateCone,
