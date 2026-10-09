@@ -64,6 +64,16 @@ namespace p3d {
 		const uint32 gen = Heightfield::Generation();
 		if (scene != forScene || gen != generation) { ready = false; nextDirection = -1; forScene = scene; generation = gen; }
 
+		// Under the ground - in a cave - there is no horizon to hide behind: the
+		// heights all round are over the eye, every direction reads as a wall of
+		// hill, and everything in the cave with you a few metres off was "behind"
+		// it. (Crates, a table and whatever lay on the floor were not drawn.)
+		{
+			f32 over = 0.f;
+			under = TerrainEditor::HeightAt(scene, at.x, at.z, over) && at.y < over - 0.5f;
+			if (under) return false;
+		}
+
 		if (nextDirection < 0 && (!ready || at.distanceSQR(eye) > kMoved * kMoved))
 		{
 			f32 ground = 0.f;
@@ -107,7 +117,7 @@ namespace p3d {
 
 	bool TerrainOcclusion::Hidden(const Vec3 &c, const f32 radius) const
 	{
-		if (!ready || !g_enabled) return false;
+		if (!ready || !g_enabled || under) return false;
 		const f32 dx = c.x - eye.x, dz = c.z - eye.z;
 		const f32 d = sqrtf(dx * dx + dz * dz);
 		const f32 nearEdge = d - radius;

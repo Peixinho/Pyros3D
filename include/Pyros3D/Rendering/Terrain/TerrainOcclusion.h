@@ -46,6 +46,7 @@ namespace p3d {
 		static const int Directions = 256;
 		static const int Steps = 72;
 		bool ready = false;
+		bool under = false;	// the eye is under the ground (a cave): nothing is hidden by a horizon then
 		SceneGraph* forScene = NULL;
 		Vec3 eye;
 		uint32 generation = 0;

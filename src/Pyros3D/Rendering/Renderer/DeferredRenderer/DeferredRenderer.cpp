@@ -6,6 +6,7 @@
 // Description : Deferred Renderer
 //============================================================================
 
+#include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
 #include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
@@ -790,6 +791,25 @@ namespace p3d {
 		}
 	}
 
+	// What is itself under the ground - in a cave, a cellar dug into a hill - is not
+	// hidden by the ground's horizon: the horizon is made from the heights of the
+	// surface, and says only that there is hill between the eye and that place, which
+	// of a thing inside the hill is always true. (From a cave's mouth, nothing in the
+	// cave was drawn.) Asked only of what the horizon would hide, and kept by its place
+	// in the list until it moves: the height of the ground is not looked up every frame.
+	static bool UnderTheGround(SceneGraph* scene, const size_t k, const Vec4 &sphere, const size_t count)
+	{
+		static thread_local std::vector<Vec4> at;
+		static thread_local std::vector<uint8> known;         // 0 not asked, 1 above, 2 under
+		if (known.size() != count) { known.assign(count, 0); at.assign(count, Vec4()); }
+		if (known[k] != 0 && at[k].x == sphere.x && at[k].y == sphere.y && at[k].z == sphere.z) return known[k] == 2;
+		f32 ground = 0.f;
+		const bool under = TerrainEditor::HeightAt(scene, sphere.x, sphere.z, ground) && sphere.y < ground - 0.3f;
+		at[k] = sphere;
+		known[k] = under ? 2 : 1;
+		return under;
+	}
+
 	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
 		PYROS_PROFILE_SCOPE("Deferred.RenderScene");
@@ -996,7 +1016,8 @@ namespace p3d {
 				if (!(f & CullTested) || CullListTest(k))
 				{
 					// (and not what the ground hides: behind a hill from here)
-					if (occluding && cullSphere[k].w > 0.f && terrainOcclusion.Hidden(Vec3(cullSphere[k].x, cullSphere[k].y, cullSphere[k].z), cullSphere[k].w))
+					if (occluding && cullSphere[k].w > 0.f && terrainOcclusion.Hidden(Vec3(cullSphere[k].x, cullSphere[k].y, cullSphere[k].z), cullSphere[k].w)
+						&& !UnderTheGround(Scene, k, cullSphere[k], rmesh.size()))
 					{
 						// PYROS_VERIFY_OCCLUSION=1: every "hidden" held against the ground
 						// itself - a line from the eye to the sphere's top, and to its top
