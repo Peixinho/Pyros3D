@@ -19,6 +19,16 @@
 
 namespace p3d {
 
+	uint32 IRenderDevice::TextureAnisotropy()
+	{
+		static const uint32 level = []() -> uint32 {
+			const char* e = std::getenv("PYROS_ANISOTROPY");
+			const int v = e ? std::atoi(e) : 8;
+			return (uint32)std::min(16, std::max(1, v));
+		}();
+		return level;
+	}
+
 	// ---- Compute: the base class's "this backend has no compute" path ----
 	//
 	// See the block comment on IRenderDevice::SupportsCompute(). Every

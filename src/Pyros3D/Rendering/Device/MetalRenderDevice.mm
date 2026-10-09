@@ -2890,6 +2890,10 @@ namespace p3d {
 			// LOD selection can sample undefined memory.
 			samplerDesc.lodMinClamp = 0.0f;
 			samplerDesc.lodMaxClamp = (tex.hasMipmap && tex.mipsGenerated) ? FLT_MAX : 0.0f;
+			// Anisotropic filtering - VulkanRenderDevice's identical choice: only
+			// what is mipmapped and read smoothly, never a shadow map.
+			if (tex.hasMipmap && tex.mipsGenerated && minFilter == MTLSamplerMinMagFilterLinear && magFilter == MTLSamplerMinMagFilterLinear && !tex.compareModeEnabled)
+				samplerDesc.maxAnisotropy = (NSUInteger)IRenderDevice::TextureAnisotropy();
 			// LEQUAL matches GL's default GL_TEXTURE_COMPARE_FUNC, same as
 			// VulkanRenderDevice's identical choice - PyrosShader.glsl's PCF
 			// functions were written against that convention.

@@ -1386,6 +1386,21 @@ namespace p3d {
 			if (hasMipmap)
 			{
 				GLCHECKER(glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR));
+#if !defined(GLES3)
+				// Anisotropic filtering, where the driver has it (core in 4.6, an
+				// extension everywhere before): asked once, and the question itself
+				// is an error on a driver without it - which is what says so.
+				static float most = -1.f;
+				if (most < 0.f)
+				{
+					while (glGetError() != GL_NO_ERROR) {}
+					float m = 0.f;
+					glGetFloatv(0x84FF /* GL_MAX_TEXTURE_MAX_ANISOTROPY */, &m);
+					most = (glGetError() == GL_NO_ERROR && m >= 1.f) ? std::min(m, (float)IRenderDevice::TextureAnisotropy()) : 1.f;
+					while (glGetError() != GL_NO_ERROR) {}
+				}
+				if (most > 1.f) glTexParameterf(target, 0x84FE /* GL_TEXTURE_MAX_ANISOTROPY */, most);
+#endif
 			}
 			else {
 				GLCHECKER(glTexParameteri(target, GL_TEXTURE_MIN_FILTER, GL_LINEAR));

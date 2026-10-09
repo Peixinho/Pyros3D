@@ -1118,6 +1118,18 @@ namespace p3d {
 		deviceCreateInfo.pNext = &portabilityFeatures;
 #endif
 
+		// Anisotropic filtering, where the device has it (see RebuildSamplerIfDirty):
+		// a floor or a road seen along its length is otherwise read from mips
+		// chosen for its SHORT side on the screen, and smears a few metres out.
+		VkPhysicalDeviceFeatures supported = {}, wanted = {};
+		vkGetPhysicalDeviceFeatures(physicalDevice, &supported);
+		if (supported.samplerAnisotropy)
+		{
+			wanted.samplerAnisotropy = VK_TRUE;
+			maxSamplerAnisotropy = std::min(deviceProperties.limits.maxSamplerAnisotropy, (float)IRenderDevice::TextureAnisotropy());
+		}
+		deviceCreateInfo.pEnabledFeatures = &wanted;
+
 		if (vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, &device) != VK_SUCCESS)
 			return false;
 		volkLoadDevice(device);
@@ -4849,6 +4861,13 @@ namespace p3d {
 		// to LOD 0, or the driver's own automatic LOD selection can
 		// sample genuinely invalid memory at any time.
 		samplerInfo.maxLod = (tex.hasMipmap && tex.mipsGenerated) ? VK_LOD_CLAMP_NONE : 0.0f;
+		// (only what is mipmapped and read smoothly: a render target, a lookup
+		// table or a pixel-art texture is read as it was asked to be)
+		if (maxSamplerAnisotropy > 1.f && tex.hasMipmap && tex.mipsGenerated && filter == VK_FILTER_LINEAR && magFilter == VK_FILTER_LINEAR && !tex.compareModeEnabled)
+		{
+			samplerInfo.anisotropyEnable = VK_TRUE;
+			samplerInfo.maxAnisotropy = maxSamplerAnisotropy;
+		}
 		// Hardware depth-compare sampling for sampler2DShadow/
 		// samplerCubeShadow (every shadow map - see
 		// Texture::EnableCompareMode(), called by every light's

@@ -3025,7 +3025,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (isGenerated && !mat) mat = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color);
 
 			std::shared_ptr<RenderingComponent> rc;
-			if (isModel)
+			// ...unless the scene gave the model a shader of its own. A package's
+			// materials are textures and numbers; a custom shader is somebody's
+			// decision about how this thing is drawn here (a boulder read from the
+			// world on three sides, with no texture coordinates to its name), and
+			// rebuilding the package's over it threw that away without a word.
+			const bool wearsScenes = isModel && dynamic_cast<CustomShaderMaterial*>(mat.get()) != NULL;
+			if (isModel && !wearsScenes)
 			{
 				// Same flags CreateRenderingModel uses: Diffuse + Skinning +
 				// the three receive-side shadow samplers. Dropping the shadow

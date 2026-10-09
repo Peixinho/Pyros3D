@@ -1426,6 +1426,7 @@ namespace p3d {
 		// Queried once from the physical device - vkCmdBindDescriptorSets'
 		// dynamic offsets must be a multiple of this.
 		VkDeviceSize minUniformBufferOffsetAlignment;
+		float maxSamplerAnisotropy = 1.f;	// 1: the device has none, or none was asked for
 
 		// Queried once from the physical device - the bitmask of sample
 		// counts every color AND depth attachment format can agree on

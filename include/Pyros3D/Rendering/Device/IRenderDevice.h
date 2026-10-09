@@ -172,6 +172,12 @@ namespace p3d {
 
 		virtual ~IRenderDevice() {}
 
+		// How many samples a mipmapped, smoothly-read texture may take along the
+		// long side of what a pixel covers of it (anisotropic filtering): 8, or
+		// what PYROS_ANISOTROPY says (1: none). Every device clamps it to what
+		// the hardware has. Read when a device is made.
+		static uint32 TextureAnisotropy();
+
 		// Command buffer recording - see the comment on CommandBufferHandle
 		// above. Obtained once per frame by IRenderer and threaded through
 		// the draw-related calls below (BindVertexArray/DrawElements/
