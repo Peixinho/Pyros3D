@@ -219,9 +219,16 @@ namespace p3d {
 		return isWireFrame;
 	}
 
+	IMaterial::DrawOverride &IMaterial::Override()
+	{
+		static thread_local DrawOverride mine;
+		return mine;
+	}
+
 	const uint32 &IMaterial::GetShader() const
 	{
-		return shaderProgram;
+		const DrawOverride &o = Override();
+		return o.material == this ? o.program : shaderProgram;
 	}
 
 	uint32 IMaterial::GetInternalID()

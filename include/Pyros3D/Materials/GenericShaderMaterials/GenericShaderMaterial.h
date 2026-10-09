@@ -137,7 +137,7 @@ namespace p3d
 		// draw, then must be restored before this material is used for
 		// anything else (a Forward pass, a shadow pass, another
 		// material's uniforms being resolved against the wrong program).
-		void UseGBufferProgramForNextDraw() { shaderProgram = GetOrBuildGBufferProgram(); }
+		void UseGBufferProgramForNextDraw() { DrawOverride &o = Override(); o.program = GetOrBuildGBufferProgram(); o.extra = NULL; o.variant = -1; o.material = this; }
 		// The general form: this material's options plus `extraOptions`
 		// (ShaderUsage bits - DeferredRenderer_Gbuffer, InstancedRendering),
 		// compiled once and cached like every ShadersList entry. The
@@ -152,8 +152,8 @@ namespace p3d
 		// it: a script that changes one object's colour changes only that
 		// object's fingerprint.
 		uint64 RenderFingerprint() const;
-		void UseVariantProgramForNextDraw(const uint32 extraOptions) { shaderProgram = GetOrBuildVariantProgram(extraOptions); }
-		void RestoreOwnProgram() { shaderProgram = ShadersList[shaderID]->ShaderProgram(); }
+		void UseVariantProgramForNextDraw(const uint32 extraOptions) { DrawOverride &o = Override(); o.program = GetOrBuildVariantProgram(extraOptions); o.extra = NULL; o.variant = -1; o.material = this; }
+		void RestoreOwnProgram() { DrawOverride &o = Override(); if (o.material == this) o = DrawOverride(); }
 		const uint32 &GetOptions() const { return shaderID; }
 		const Vec4 &GetColor() const { return Kd; }
 		const Vec4 &GetSpecular() const { return Ks; }

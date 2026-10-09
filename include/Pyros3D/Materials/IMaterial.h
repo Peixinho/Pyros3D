@@ -240,6 +240,28 @@ namespace p3d {
 		};
 		ExtraUniformsBlock extraUniforms[2];
 
+		// A material drawn with another of its programs for one draw - its
+		// G-buffer sibling, its instanced one, a custom shader's variant - used to
+		// be CHANGED for that draw and put back: its program, and for a custom
+		// shader its uniform blocks, copied in and out. Two threads drawing two
+		// things that wear the same material could not do that at once. So the
+		// change is now this THREAD's, not the material's: "for the next draw here,
+		// this material is drawn with this program (and these blocks)". GetShader()
+		// and ExtraBlock() answer through it; the material itself is not written.
+		struct DrawOverride
+		{
+			const IMaterial* material = NULL;
+			uint32 program = 0;
+			ExtraUniformsBlock* extra = NULL;      // two of them, or NULL: the material's own
+			int variant = -1;                      // a custom shader's variant index, for whoever asks
+		};
+		static DrawOverride &Override();           // this thread's
+		ExtraUniformsBlock &ExtraBlock(const int index)
+		{
+			const DrawOverride &o = Override();
+			return (o.material == this && o.extra != NULL) ? o.extra[index] : extraUniforms[index];
+		}
+
 	private:
 
 		// Internal ID

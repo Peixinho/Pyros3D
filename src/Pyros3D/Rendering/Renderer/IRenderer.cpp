@@ -1,3 +1,4 @@
+#include <unordered_map>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -681,7 +682,7 @@ namespace {
 	} g_trisDump;
 }
 
-bool IRenderer::AutoInstanceEligible(RenderingMesh* mesh)
+bool IRenderer::AutoInstanceMesh(RenderingMesh* mesh)
 {
 	RenderingComponent* rc = mesh->renderingComponent;
 	// (a component with levels of detail too: whichever level it is showing
@@ -689,9 +690,11 @@ bool IRenderer::AutoInstanceEligible(RenderingMesh* mesh)
 	// one draw, where leaving these out made every tree a draw of its own)
 	if (rc == NULL || rc->IsInstanced() || !rc->GetRenderableShared())
 		return false;
-	if (!mesh->SkinningBones.empty() || mesh->Geometry == NULL)
-		return false;
-	IMaterial* mat = mesh->Material.get();
+	return mesh->SkinningBones.empty() && mesh->Geometry != NULL;
+}
+
+bool IRenderer::AutoInstanceMaterial(IMaterial* mat)
+{
 	if (mat == NULL) return false;
 	// A shader of somebody's own, when its source can be drawn instanced (every
 	// generated one can) and its shadow is the renderer's: a hundred of the same
@@ -708,6 +711,11 @@ bool IRenderer::AutoInstanceEligible(RenderingMesh* mesh)
 	if ((static_cast<GenericShaderMaterial*>(mat)->GetOptions() & ShaderUsage::InstancedRendering) != 0)
 		return false;
 	return !mat->IsTransparent() && mat->IsDepthTesting() && mat->IsDepthWritting();
+}
+
+bool IRenderer::AutoInstanceEligible(RenderingMesh* mesh)
+{
+	return AutoInstanceMesh(mesh) && AutoInstanceMaterial(mesh->Material.get());
 }
 
 void IRenderer::BeginAutoInstancingFrame()
@@ -826,41 +834,72 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		return;
 	}
 
-	struct GroupKey
+	// Which of them go together: the same geometry, the same material (by what it
+	// holds), the same lights. Worked out afresh for every pass of every frame -
+	// and it was most of what a pass cost: a tree of keys built and thrown away, a
+	// vector for every group, each material's eligibility read again for every
+	// mesh that wears it, a counter looked up by name for every single draw. Now:
+	// what a material says is asked once a pass, the groups are found through a
+	// table that is kept from one pass to the next, and nothing is allocated once
+	// the tables have grown to the scene.
+	struct Scratch
 	{
-		IGeometry* g; uint64 m; uint64 s;
-		bool operator<(const GroupKey &o) const
-		{
-			if (g != o.g) return g < o.g;
-			if (m != o.m) return m < o.m;
-			return s < o.s;
-		}
+		struct Mat { uint64 fingerprint; bool eligible; };
+		std::unordered_map<IMaterial*, Mat> materials;
+		struct Key { IGeometry* g; uint64 m; uint64 s; bool operator==(const Key &o) const { return g == o.g && m == o.m && s == o.s; } };
+		struct Hash { size_t operator()(const Key &k) const { return (size_t)(((uint64)(size_t)k.g * 0x9E3779B97F4A7C15ULL) ^ (k.m * 0xC2B2AE3D27D4EB4FULL) ^ (k.s + 0x165667B19E3779F9ULL)); } };
+		std::unordered_map<Key, uint32, Hash> index;
+		std::vector<int32> groupOf;
+		std::vector<uint32> count, first, cursor, members;
+		std::vector<uint64> fingerprint;
 	};
-	// One fingerprint per distinct material per pass - cheap even for scenes
-	// that give every object its own material.
-	std::map<IMaterial*, uint64> fingerprints;
-	std::map<GroupKey, uint32> groupIndex;
-	std::vector<std::vector<uint32> > groups;
-	std::vector<uint64> groupFingerprint;
-	std::vector<int32> groupOf(n, -1);
+	static thread_local Scratch S;
+	S.materials.clear(); S.index.clear();
+	S.groupOf.assign(n, -1);
+	S.count.clear(); S.fingerprint.clear();
 	for (uint32 i = 0; i < n; i++)
 	{
-		if (!AutoInstanceEligible(items[i])) continue;
-		IMaterial* mat = items[i]->Material.get();
-		std::map<IMaterial*, uint64>::iterator fp = fingerprints.find(mat);
-		if (fp == fingerprints.end())
-			fp = fingerprints.insert(std::make_pair(mat, FingerprintThisView(mat))).first;
-		const GroupKey key = { items[i]->Geometry, fp->second, signatures ? (*signatures)[i] : 0 };
-		std::map<GroupKey, uint32>::iterator it = groupIndex.find(key);
-		if (it == groupIndex.end())
+		RenderingMesh* mesh = items[i];
+		IMaterial* mat = mesh->Material.get();
+		if (mat == NULL) continue;
+		std::unordered_map<IMaterial*, Scratch::Mat>::iterator known = S.materials.find(mat);
+		if (known == S.materials.end())
 		{
-			it = groupIndex.insert(std::make_pair(key, (uint32)groups.size())).first;
-			groups.push_back(std::vector<uint32>());
-			groupFingerprint.push_back(fp->second);
+			Scratch::Mat m;
+			m.eligible = AutoInstanceMaterial(mat);
+			m.fingerprint = m.eligible ? FingerprintThisView(mat) : 0;
+			known = S.materials.insert(std::make_pair(mat, m)).first;
 		}
-		groups[it->second].push_back(i);
-		groupOf[i] = (int32)it->second;
+		if (!known->second.eligible || !AutoInstanceMesh(mesh)) continue;
+		const Scratch::Key key = { mesh->Geometry, known->second.fingerprint, signatures ? (*signatures)[i] : 0 };
+		std::unordered_map<Scratch::Key, uint32, Scratch::Hash>::iterator it = S.index.find(key);
+		if (it == S.index.end())
+		{
+			it = S.index.insert(std::make_pair(key, (uint32)S.count.size())).first;
+			S.count.push_back(0);
+			S.fingerprint.push_back(known->second.fingerprint);
+		}
+		S.count[it->second]++;
+		S.groupOf[i] = (int32)it->second;
 	}
+	// (each group's members, one after another in one list)
+	const uint32 groupCount = (uint32)S.count.size();
+	S.first.resize(groupCount); S.cursor.resize(groupCount);
+	{
+		uint32 at = 0;
+		for (uint32 g = 0; g < groupCount; g++) { S.first[g] = at; S.cursor[g] = at; at += S.count[g]; }
+		S.members.resize(at);
+		for (uint32 i = 0; i < n; i++) if (S.groupOf[i] >= 0) S.members[S.cursor[S.groupOf[i]]++] = i;
+	}
+	const std::vector<int32> &groupOf = S.groupOf;
+	const std::vector<uint64> &groupFingerprint = S.fingerprint;
+	struct Groups
+	{
+		const Scratch &s;
+		struct Members { const uint32* b; uint32 n; uint32 size() const { return n; } uint32 operator[](const size_t k) const { return b[k]; } };
+		Members operator[](const int32 g) const { Members m = { s.members.data() + s.first[g], s.count[g] }; return m; }
+		size_t size() const { return s.count.size(); }
+	} groups = { S };
 
 	std::vector<bool> fallback(groups.size(), false);
 	for (uint32 i = 0; i < n; i++)
@@ -869,15 +908,13 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		if (g < 0 || fallback[g] || groups[g].size() < kAutoInstanceMinimum)
 		{
 			drawOne(items[i], i);
-			// (what is left drawn one at a time, all passes of the frame: the
-			// number that says whether a frame's cost is its draw calls)
-			FrameProfiler::Instance().Counter("AutoInstance.Singles", (f64)(++autoInstanceSinglesThisFrame));
+			++autoInstanceSinglesThisFrame;
 			continue;
 		}
 		if (groups[g][0] != i)
 			continue; // drawn with its batch
 
-		const std::vector<uint32> &members = groups[g];
+		const Groups::Members members = groups[g];
 		AutoInstanceBatch* b = AcquireAutoInstanceBatch(items[i], groupFingerprint[g], (uint32)members.size());
 		if (b == NULL)
 		{
@@ -895,9 +932,12 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		drawBatch(b->mesh, i);
 		autoInstanceBatchesThisFrame++;
 		autoInstanceObjectsThisFrame += (uint32)members.size();
-		FrameProfiler::Instance().Counter("AutoInstance.Batches", (f64)autoInstanceBatchesThisFrame);
-		FrameProfiler::Instance().Counter("AutoInstance.Objects", (f64)autoInstanceObjectsThisFrame);
 	}
+	// (what is left drawn one at a time, all passes of the frame: the number that
+	// says whether a frame's cost is its draw calls - said once a pass, not once a draw)
+	FrameProfiler::Instance().Counter("AutoInstance.Singles", (f64)autoInstanceSinglesThisFrame);
+	FrameProfiler::Instance().Counter("AutoInstance.Batches", (f64)autoInstanceBatchesThisFrame);
+	FrameProfiler::Instance().Counter("AutoInstance.Objects", (f64)autoInstanceObjectsThisFrame);
 }
 
 void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
@@ -4677,7 +4717,7 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, Rende
 
 	for (int i = 0; i < 2; i++)
 	{
-		IMaterial::ExtraUniformsBlock &block = Material->extraUniforms[i];
+		IMaterial::ExtraUniformsBlock &block = Material->ExtraBlock(i);
 		if (block.binding == 0)
 			continue;
 		std::map<std::string, uint32>::const_iterator offIt = block.offsets.find(u.Name);
@@ -4688,7 +4728,7 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, Rende
 
 void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
 {
-	if (Material->extraUniforms[0].binding == 0 && Material->extraUniforms[1].binding == 0)
+	if (Material->ExtraBlock(0).binding == 0 && Material->ExtraBlock(1).binding == 0)
 		return;
 
 	for (std::list<Uniform>::const_iterator k = Material->GlobalUniforms.begin(); k != Material->GlobalUniforms.end(); k++)
@@ -4700,7 +4740,7 @@ void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
 
 	for (int i = 0; i < 2; i++)
 	{
-		IMaterial::ExtraUniformsBlock &block = Material->extraUniforms[i];
+		IMaterial::ExtraUniformsBlock &block = Material->ExtraBlock(i);
 		if (block.binding == 0)
 			continue;
 		if (block.bufferHandle == 0)

@@ -456,6 +456,8 @@ namespace p3d {
 		uint32 autoInstanceBatchesThisFrame = 0, autoInstanceObjectsThisFrame = 0;
 		uint32 autoInstanceSinglesThisFrame = 0;
 		static bool AutoInstanceEligible(RenderingMesh* mesh);
+		static bool AutoInstanceMesh(RenderingMesh* mesh);
+		static bool AutoInstanceMaterial(IMaterial* material);
 		AutoInstanceBatch* AcquireAutoInstanceBatch(RenderingMesh* source, const uint64 fingerprint, const uint32 count);
 		// Once per RenderScene, before its first pass.
 		void BeginAutoInstancingFrame();

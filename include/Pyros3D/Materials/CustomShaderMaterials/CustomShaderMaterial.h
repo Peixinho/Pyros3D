@@ -156,7 +156,7 @@ namespace p3d
 		// True between a successful UseShadowVariantForNextDraw() and
 		// RestoreOwnProgram() - what makes IRenderer build this draw's
 		// pipeline against the shadow render pass.
-		bool IsDrawingShadowVariant() const { return activeVariant >= 0 && (activeVariant & 4) != 0; }
+		bool IsDrawingShadowVariant() const { const DrawOverride &o = Override(); return o.material == this && o.variant >= 0 && (o.variant & 4) != 0; }
 		// The G-buffer, non-skinned variant - kept for existing callers.
 		uint32 GetOrBuildGBufferProgram();
 		bool UseGBufferProgramForNextDraw() { return UseVariantForNextDraw(true, false); }
@@ -247,10 +247,9 @@ namespace p3d
 			ExtraUniformsBlock extraUniforms[2];
 		};
 		ProgramVariant variants[16];
-		int activeVariant = -1;
-		// Holds this material's own extraUniforms[] while a variant swap
-		// is in effect, so RestoreOwnProgram() can put it back.
-		ExtraUniformsBlock ownExtraUniformsBackup[2];
+		// What the source says of itself, read once (it is thousands of lines, and
+		// these are asked of every object, every pass, every frame): -1 not read.
+		mutable int8 knownInstancing = -1, knownCustomShadow = -1;
 		uint32 GetOrBuildVariant(int index);
 		void ResetVariants();
 		bool SwapToVariant(int index);

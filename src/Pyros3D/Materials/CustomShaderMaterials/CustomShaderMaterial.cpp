@@ -344,6 +344,7 @@ namespace p3d
 
 	void CustomShaderMaterial::ResetVariants()
 	{
+		knownInstancing = -1; knownCustomShadow = -1;
 		for (int i = 0; i < 16; i++)
 		{
 			for (int b = 0; b < 2; b++)
@@ -400,11 +401,16 @@ namespace p3d
 
 	bool CustomShaderMaterial::SupportsInstancing() const
 	{
-		if (!shader) return false;
-		const std::string &text = shader->GetShaderText();
-		if (text.empty()) return false;
-		if (text.find("INSTANCED_RENDERING") != std::string::npos) return true;
-		return WithInstancingBranch(text).size() != text.size();
+		if (knownInstancing >= 0) return knownInstancing != 0;
+		bool can = false;
+		if (shader)
+		{
+			const std::string &text = shader->GetShaderText();
+			if (!text.empty())
+				can = text.find("INSTANCED_RENDERING") != std::string::npos || WithInstancingBranch(text).size() != text.size();
+		}
+		knownInstancing = can ? 1 : 0;
+		return can;
 	}
 
 	bool CustomShaderMaterial::UseInstancedVariantForNextDraw(bool gbuffer)
@@ -417,12 +423,14 @@ namespace p3d
 		const uint32 program = GetOrBuildVariant(index);
 		if (program == 0)
 			return false;
-		ownExtraUniformsBackup[0] = extraUniforms[0];
-		ownExtraUniformsBackup[1] = extraUniforms[1];
-		extraUniforms[0] = variants[index].extraUniforms[0];
-		extraUniforms[1] = variants[index].extraUniforms[1];
-		shaderProgram = program;
-		activeVariant = index;
+		// (this thread's, for its next draw: nothing of the material is written, and
+		// the variant's blocks are used where they are - they were copied in and out
+		// of the material's own for every draw, scratch memory and all)
+		DrawOverride &o = Override();
+		o.program = program;
+		o.extra = variants[index].extraUniforms;
+		o.variant = index;
+		o.material = this;
 		return true;
 	}
 
@@ -430,7 +438,10 @@ namespace p3d
 	{
 		// The marker MaterialCodegen writes into a shader whose graph uses
 		// Vertex Offset or Alpha Clip.
-		return shader && shader->GetShaderText().find("P3D_CUSTOM_SHADOW") != std::string::npos;
+		// (read once: this is asked of every caster in every shadow pass)
+		if (knownCustomShadow < 0)
+			knownCustomShadow = (shader && shader->GetShaderText().find("P3D_CUSTOM_SHADOW") != std::string::npos) ? 1 : 0;
+		return knownCustomShadow != 0;
 	}
 
 	bool CustomShaderMaterial::UseShadowVariantForNextDraw(bool skinned)
@@ -445,15 +456,8 @@ namespace p3d
 		// Persist any bufferHandle SendExtraUniforms lazily allocated
 		// during the variant's draw, so the next one reuses it instead of
 		// leaking/recreating a GPU buffer every frame.
-		if (activeVariant >= 0)
-		{
-			variants[activeVariant].extraUniforms[0] = extraUniforms[0];
-			variants[activeVariant].extraUniforms[1] = extraUniforms[1];
-		}
-		activeVariant = -1;
-		extraUniforms[0] = ownExtraUniformsBackup[0];
-		extraUniforms[1] = ownExtraUniformsBackup[1];
-		shaderProgram = shader->ShaderProgram();
+		DrawOverride &o = Override();
+		if (o.material == this) o = DrawOverride();
 	}
 
 	void CustomShaderMaterial::AddGeneratedShaderUniforms()
