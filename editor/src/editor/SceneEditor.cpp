@@ -10234,7 +10234,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (sceneIsTwoD)
 		{
 			if (e.Input == Event::Input::Keyboard::Numpad0 || e.Input == Event::Input::Keyboard::Numpad1
-				|| e.Input == Event::Input::Keyboard::Numpad2 || e.Input == Event::Input::Keyboard::Numpad3)
+				|| e.Input == Event::Input::Keyboard::Numpad2 || e.Input == Event::Input::Keyboard::Numpad3
+				|| e.Input == Event::Input::Keyboard::Num0 || e.Input == Event::Input::Keyboard::Num1
+				|| e.Input == Event::Input::Keyboard::Num2 || e.Input == Event::Input::Keyboard::Num3)
 			{
 				const Vec3 at = CameraPivot ? CameraPivot->GetPosition() : Vec3();
 				LookAtPlaneXY(at.x, at.y);
@@ -10242,10 +10244,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		else
 		{
-			if (e.Input == Event::Input::Keyboard::Numpad0) UseCamera0();
-			if (e.Input == Event::Input::Keyboard::Numpad1) UseCamera1();
-			if (e.Input == Event::Input::Keyboard::Numpad2) UseCamera2();
-			if (e.Input == Event::Input::Keyboard::Numpad3) UseCamera3();
+			// (the keypad's, and the row of digits too: that row is what reached
+			// these while the two were the wrong way round in the window's key table)
+			if (e.Input == Event::Input::Keyboard::Numpad0 || e.Input == Event::Input::Keyboard::Num0) UseCamera0();
+			if (e.Input == Event::Input::Keyboard::Numpad1 || e.Input == Event::Input::Keyboard::Num1) UseCamera1();
+			if (e.Input == Event::Input::Keyboard::Numpad2 || e.Input == Event::Input::Keyboard::Num2) UseCamera2();
+			if (e.Input == Event::Input::Keyboard::Numpad3 || e.Input == Event::Input::Keyboard::Num3) UseCamera3();
 		}
 	}
 

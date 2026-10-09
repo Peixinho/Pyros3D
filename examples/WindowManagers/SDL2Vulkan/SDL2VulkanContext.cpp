@@ -104,16 +104,19 @@ namespace p3d {
         SDL2VulkanContext::MapSDLKeyboard[SDLK_y] = Event::Input::Keyboard::Y;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_z] = Event::Input::Keyboard::Z;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_p] = Event::Input::Keyboard::P;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_0] = Event::Input::Keyboard::Num0;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_1] = Event::Input::Keyboard::Num1;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_2] = Event::Input::Keyboard::Num2;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_3] = Event::Input::Keyboard::Num3;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_4] = Event::Input::Keyboard::Num4;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_5] = Event::Input::Keyboard::Num5;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_6] = Event::Input::Keyboard::Num6;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_7] = Event::Input::Keyboard::Num7;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_8] = Event::Input::Keyboard::Num8;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_9] = Event::Input::Keyboard::Num9;
+        SDL2VulkanContext::// (the keypad's digits are Numpad0..9 and the row above the letters Num0..9, as
+        SDL2VulkanContext::// InputManager.h names them: the two were the wrong way round here, so a game's
+        SDL2VulkanContext::// "1" was the keypad's and the row of digits did nothing in it)
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_0] = Event::Input::Keyboard::Numpad0;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_1] = Event::Input::Keyboard::Numpad1;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_2] = Event::Input::Keyboard::Numpad2;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_3] = Event::Input::Keyboard::Numpad3;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_4] = Event::Input::Keyboard::Numpad4;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_5] = Event::Input::Keyboard::Numpad5;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_6] = Event::Input::Keyboard::Numpad6;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_7] = Event::Input::Keyboard::Numpad7;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_8] = Event::Input::Keyboard::Numpad8;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_KP_9] = Event::Input::Keyboard::Numpad9;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_ESCAPE] = Event::Input::Keyboard::Escape;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_LCTRL] = Event::Input::Keyboard::LControl;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_LSHIFT] = Event::Input::Keyboard::LShift;
@@ -152,16 +155,16 @@ namespace p3d {
         SDL2VulkanContext::MapSDLKeyboard[SDLK_RIGHT] = Event::Input::Keyboard::Right;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_UP] = Event::Input::Keyboard::Up;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_DOWN] = Event::Input::Keyboard::Down;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_0] = Event::Input::Keyboard::Numpad0;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_1] = Event::Input::Keyboard::Numpad1;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_2] = Event::Input::Keyboard::Numpad2;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_3] = Event::Input::Keyboard::Numpad3;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_4] = Event::Input::Keyboard::Numpad4;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_5] = Event::Input::Keyboard::Numpad5;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_6] = Event::Input::Keyboard::Numpad6;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_7] = Event::Input::Keyboard::Numpad7;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_8] = Event::Input::Keyboard::Numpad8;
-        SDL2VulkanContext::MapSDLKeyboard[SDLK_9] = Event::Input::Keyboard::Numpad9;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_0] = Event::Input::Keyboard::Num0;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_1] = Event::Input::Keyboard::Num1;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_2] = Event::Input::Keyboard::Num2;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_3] = Event::Input::Keyboard::Num3;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_4] = Event::Input::Keyboard::Num4;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_5] = Event::Input::Keyboard::Num5;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_6] = Event::Input::Keyboard::Num6;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_7] = Event::Input::Keyboard::Num7;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_8] = Event::Input::Keyboard::Num8;
+        SDL2VulkanContext::MapSDLKeyboard[SDLK_9] = Event::Input::Keyboard::Num9;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_F1] = Event::Input::Keyboard::F1;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_F12] = Event::Input::Keyboard::F2;
         SDL2VulkanContext::MapSDLKeyboard[SDLK_F13] = Event::Input::Keyboard::F3;
