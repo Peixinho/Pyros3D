@@ -49,6 +49,7 @@
 #endif
 
 using json = nlohmann::json;
+static bool g_ssaoTemporalWanted = true;
 namespace fs = std::filesystem;
 
 // ============================== manifest ===============================
@@ -461,6 +462,7 @@ end
 	lua.set_function("getTerrainOcclusion", []() { return TerrainOcclusion::GetEnabled(); });
 	// setAutoLOD(false): models are drawn whole however far off (those loaded already included)
 	lua.set_function("setAutoLOD", [](const bool on) { RenderingComponent::SetAutoLODInUse(on); });
+	lua.set_function("setSSAOTemporal", [](const bool on) { g_ssaoTemporalWanted = on; });
 	lua.set_function("setNearestFirst", [](const bool on) { DeferredRenderer::SetNearestFirst(on); });
 	// setFoliageThinning(false): every plant of a field drawn, however far (see FoliageLayerSpec::thinDensity)
 	lua.set_function("setFoliageThinning", [](const bool on) { FoliageComponent::SetThinning(on); });
@@ -712,6 +714,9 @@ bool PyrosPlayer::HavePostEffects()
 	if (effectsManager == NULL)
 		return false;
 	effectsManager->SetAntiAliasing(antiAliasingMode, gbufferFBO != NULL);
+	// (ambient occlusion takes half its samples a frame where the frames are added
+	// together afterwards: with temporal anti-aliasing - setSSAOTemporal(false) to compare)
+	DeferredRenderer::SetSSAOTemporal(g_ssaoTemporalWanted && effectsManager->GetEffectiveAntiAliasing() == AntiAliasingMode::TAA);
 	// (rendered smaller than the window, something has to carry the frame to
 	// it: the chain's last pass does, so there is always a chain to run)
 	return effectsManager->NeedsCapture() || renderScale < 0.999f;

@@ -28,6 +28,9 @@ namespace p3d {
 	// renderer's, like the ambient light and the clear colour.
 	static bool g_ssaoHalfResolution = false;
 	void DeferredRenderer::SetSSAOHalfResolution(const bool half) { g_ssaoHalfResolution = half; }
+	static bool g_ssaoTemporal = false;
+	void DeferredRenderer::SetSSAOTemporal(const bool on) { g_ssaoTemporal = on; }
+	bool DeferredRenderer::GetSSAOTemporal() { return g_ssaoTemporal; }
 	bool DeferredRenderer::IsSSAOHalfResolution() { return g_ssaoHalfResolution; }
 
 
@@ -1171,12 +1174,22 @@ namespace p3d {
 		// readable, into the texture the ambient pass below multiplies by.
 		if (ssaoEnabled)
 		{
+			// Half the samples, turned a different way each frame, where the frames
+			// are added together afterwards (temporal anti-aliasing): over a few
+			// frames a pixel has looked along more directions than it did in one.
+			f32 ssaoSamplesSent = ssaoSamples;
+			if (g_ssaoTemporal)
+			{
+				static const f32 kTurn[8] = { 0.f, 0.5f, 0.25f, 0.75f, 0.125f, 0.625f, 0.375f, 0.875f };
+				static uint32 frame = 0;
+				ssaoSamplesSent = std::max(4.f, floorf(ssaoSamples * 0.5f)) + kTurn[(frame++) & 7] * 0.999f;
+			}
 			for (int m = 0; m < 2; m++)
 			{
 				ssaoHandles[m][0]->SetValue(&ssaoRadius);
 				ssaoHandles[m][1]->SetValue(&ssaoStrength);
 				ssaoHandles[m][2]->SetValue(&ssaoFalloff);
-				ssaoHandles[m][3]->SetValue(&ssaoSamples);
+				ssaoHandles[m][3]->SetValue(&ssaoSamplesSent);
 				ssaoHandles[m][4]->SetValue(&ssaoDirect);
 			}
 			GameObject go = GameObject();

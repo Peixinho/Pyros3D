@@ -120,6 +120,11 @@ namespace p3d {
 		// reading the G-buffer - so it is off unless asked for.
 		// The G-buffer drawn nearest object first, so that what is hidden is not
 		// shaded (on unless said).
+		// Ambient occlusion with half its samples, turned a different way each
+		// frame: for when the frames are added together afterwards (temporal
+		// anti-aliasing), which is what makes the half enough.
+		static void SetSSAOTemporal(const bool on);
+		static bool GetSSAOTemporal();
 		static void SetNearestFirst(const bool on);
 		static bool GetNearestFirst();
 		static void SetSunLaysAmbient(const bool on);

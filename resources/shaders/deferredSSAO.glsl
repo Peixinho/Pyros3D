@@ -101,7 +101,11 @@ void main() {
 	vec3 N = normalize(texture_2D(tNormal, Texcoord).xyz);
 
 	ivec2 q = ivec2(mod(gl_FragCoord.xy, 4.0));
-	float ang = (kRotation[q.y * 4 + q.x] + 0.5) * (6.2831853 / 16.0);
+	// (the fraction of uSSAOSamples is this frame's turn of the pattern - 0 when
+	// every frame is on its own. With something downstream that adds frames
+	// together, each frame looks along other directions and takes fewer of
+	// them: DeferredRenderer::SetSSAOTemporal.)
+	float ang = (kRotation[q.y * 4 + q.x] + 0.5 + fract(uSSAOSamples) * 16.0) * (6.2831853 / 16.0);
 	vec3 rvec = vec3(cos(ang), sin(ang), 0.0);
 	vec3 T = rvec - N * dot(rvec, N);
 	// rvec lies in the view plane; a normal facing straight along it
@@ -119,7 +123,7 @@ void main() {
 	float occlusion = 0.0;
 	for (int i = 0; i < 32; i++) {
 		if (i >= samples) break;
-		float fi = float(i) + 0.5;
+		float fi = float(i) + 0.5 + fract(uSSAOSamples) * 0.37;
 		float t = fi / float(samples);
 		// Cosine-weighted hemisphere on a golden-angle spiral, with the
 		// distance on an independent sequence packed towards the centre:
