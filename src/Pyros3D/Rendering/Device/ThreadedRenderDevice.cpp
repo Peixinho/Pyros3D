@@ -192,8 +192,14 @@ namespace p3d {
 		std::unique_lock<std::mutex> g(lock);
 		if (!waiting.empty() || working)
 		{
-			if (trace && said.frameOpen) { drainsThisFrame++; fprintf(stderr, "[device thread] waited for, inside a frame: %s\n", why); }
+			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 			done.wait(g, [this]() { return waiting.empty() && !working; });
+			if (trace && said.frameOpen)
+			{
+				static const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
+				drainsThisFrame++;
+				fprintf(stderr, "[device thread] t=%.1f s: waited %.2f ms for, inside a frame: %s\n", std::chrono::duration<f64>(t0 - began).count(), MsSince(t0), why);
+			}
 		}
 	}
 

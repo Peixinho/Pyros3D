@@ -561,21 +561,42 @@ end
 		{
 			static std::string learned;
 			learned = (pref ? std::string(pref) : std::string("./")) + "shader_programs.txt";
+			// (a line is a generic material's set of options, or "c <source> <variant>" for a custom material's)
 			std::vector<uint32> known;
+			std::vector<std::pair<uint64, uint32> > knownVariants;
 			const std::string lists[2] = { std::string("assets/shader_programs.txt"), learned };
 			for (int l = 0; l < 2; l++)
 			{
 				std::ifstream in(lists[l].c_str());
-				uint32 options = 0;
-				while (in >> options) known.push_back(options);
+				std::string word;
+				while (in >> word)
+				{
+					if (word == "c")
+					{
+						uint64 source = 0; uint32 variant = 0;
+						if (in >> source >> variant) knownVariants.push_back(std::make_pair(source, variant));
+					}
+					else known.push_back((uint32)std::strtoul(word.c_str(), NULL, 10));
+				}
 			}
-			if (std::getenv("PYROS_NO_SHADER_WARMUP") == NULL) GenericShaderMaterial::WarmPrograms(known);
+			if (std::getenv("PYROS_NO_SHADER_WARMUP") == NULL)
+			{
+				GenericShaderMaterial::WarmPrograms(known);
+				CustomShaderMaterial::WarmVariants(knownVariants);
+			}
 			static std::set<uint32> listed;
+			static std::set<std::pair<uint64, uint32> > listedVariants;
 			listed.insert(known.begin(), known.end());
+			listedVariants.insert(knownVariants.begin(), knownVariants.end());
 			GenericShaderMaterial::WhenProgramMade([](const uint32 options) {
 				if (!listed.insert(options).second) return;
 				std::ofstream out(learned.c_str(), std::ios::app);
 				out << options << "\n";
+			});
+			CustomShaderMaterial::WhenVariantMade([](const uint64 source, const uint32 variant) {
+				if (!listedVariants.insert(std::make_pair(source, variant)).second) return;
+				std::ofstream out(learned.c_str(), std::ios::app);
+				out << "c " << source << " " << variant << "\n";
 			});
 		}
 		if (pref) SDL_free(pref);

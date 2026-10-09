@@ -9,6 +9,7 @@
 #ifndef CUSTOMSHADERMATERIAL_H
 #define CUSTOMSHADERMATERIAL_H
 
+#include <utility>
 #include <Pyros3D/Materials/IMaterial.h>
 #include <Pyros3D/Other/Export.h>
 #include <iostream>
@@ -237,6 +238,18 @@ namespace p3d
 		// is in effect, so RestoreOwnProgram() can put it back.
 		ExtraUniformsBlock ownExtraUniformsBackup[2];
 		uint32 GetOrBuildVariant(int index);
+		void BuildWantedVariants();
+	public:
+		// A variant of a material's program (for the G-buffer, for a skinned
+		// mesh, for its shadow) is made the first time it is drawn that way -
+		// a frame held up for as long as that takes, a quarter of a second
+		// for a large material. WarmVariants names those to make as soon as a
+		// material with that source exists (source: a number made from the
+		// shader's text); WhenVariantMade names a function told of every
+		// variant made later, so the list can be kept for next time.
+		static void WarmVariants(const std::vector<std::pair<uint64, uint32> > &wanted);
+		static void WhenVariantMade(void (*told)(const uint64 source, const uint32 variant));
+	protected:
 		void ResetVariants();
 		bool SwapToVariant(int index);
 

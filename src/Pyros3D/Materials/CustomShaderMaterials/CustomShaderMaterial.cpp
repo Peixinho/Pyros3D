@@ -1,3 +1,5 @@
+#include <vector>
+#include <set>
 //============================================================================
 // Name        : CustomShaderMaterials.cpp
 // Author      : Duarte Peixinho
@@ -98,6 +100,33 @@ namespace p3d
 		return false;
 	}
 
+	// Variants made ahead of need: see WarmVariants in the header.
+	namespace {
+		std::set<std::pair<uint64, uint32> > g_wantedVariants;
+		void (*g_variantMade)(const uint64, const uint32) = NULL;
+		bool g_warmingVariants = false;
+		uint64 SourceId(const std::string &text)
+		{
+			uint64 h = 1469598103934665603ull;
+			for (size_t i = 0; i < text.size(); i++) { h ^= (uchar)text[i]; h *= 1099511628211ull; }
+			return h;
+		}
+	}
+	void CustomShaderMaterial::WarmVariants(const std::vector<std::pair<uint64, uint32> > &wanted)
+	{
+		g_wantedVariants.insert(wanted.begin(), wanted.end());
+	}
+	void CustomShaderMaterial::WhenVariantMade(void (*told)(const uint64 source, const uint32 variant)) { g_variantMade = told; }
+	void CustomShaderMaterial::BuildWantedVariants()
+	{
+		if (g_wantedVariants.empty() || shader == NULL || shader->GetShaderText().empty()) return;
+		const uint64 id = SourceId(shader->GetShaderText());
+		g_warmingVariants = true;
+		for (uint32 index = 1; index < 8; index++)
+			if (g_wantedVariants.count(std::make_pair(id, index))) GetOrBuildVariant((int)index);
+		g_warmingVariants = false;
+	}
+
 	CustomShaderMaterial::CustomShaderMaterial(const std::string& ShaderFile) : IMaterial()
 	{
 		LiveMaterials()++;
@@ -154,6 +183,7 @@ namespace p3d
 		shaderProgram = shader->ShaderProgram();
 
 		PopulateAutoExtraUniforms();
+		BuildWantedVariants();
 
 		SetOpacity(1.0);
 	}
@@ -166,6 +196,7 @@ namespace p3d
 		this->shader = shader;
 
 		PopulateAutoExtraUniforms();
+		BuildWantedVariants();
 	}
 
 	void CustomShaderMaterial::SetShader(Shader* shader)
@@ -182,6 +213,7 @@ namespace p3d
 		ResetVariants();
 
 		PopulateAutoExtraUniforms();
+		BuildWantedVariants();
 	}
 
 	void CustomShaderMaterial::AdoptShader(std::unique_ptr<Shader> ownedShader)
@@ -335,6 +367,9 @@ namespace p3d
 			}
 
 			PopulateExtraUniformsFor(v.shader->ShaderProgram(), v.extraUniforms);
+			// (made when first needed, in the middle of things: whoever keeps the list is told)
+			if (!g_warmingVariants && g_variantMade != NULL && !shader->GetShaderText().empty())
+				g_variantMade(SourceId(shader->GetShaderText()), (uint32)index);
 		}
 		return v.shader ? v.shader->ShaderProgram() : 0;
 	}
