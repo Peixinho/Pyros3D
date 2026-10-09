@@ -1705,7 +1705,10 @@ void PyrosPlayer::Update()
 		{
 			f64 gpuMs = 0.0, presentMs = 0.0, behindMs = 0.0;
 			deviceThread->TakeWaits(gpuMs, presentMs, behindMs);
-			autoScale.gpuWaitMs += gpuMs + behindMs;
+			// (what this thread waited for that one is not counted again: it waited
+			// because that one was waiting - for the GPU, counted there, or for the
+			// display, which is time to spare and not a reason to draw smaller)
+			autoScale.gpuWaitMs += gpuMs;
 			autoScale.presentWaitMs += presentMs;
 			FrameProfiler::Instance().Counter("Device.GpuWaitMs", gpuMs);
 			FrameProfiler::Instance().Counter("Device.PresentMs", presentMs);
