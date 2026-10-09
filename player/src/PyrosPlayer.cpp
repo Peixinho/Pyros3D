@@ -463,6 +463,7 @@ end
 	// setAutoLOD(false): models are drawn whole however far off (those loaded already included)
 	lua.set_function("setAutoLOD", [](const bool on) { RenderingComponent::SetAutoLODInUse(on); });
 	lua.set_function("setSSAOTemporal", [](const bool on) { g_ssaoTemporalWanted = on; });
+	lua.set_function("setListPatching", [](const bool on) { IRenderer::SetListPatching(on); });
 	lua.set_function("setCullGrid", [](const bool on) { IRenderer::SetCullGrid(on); });
 	lua.set_function("setNearestFirst", [](const bool on) { DeferredRenderer::SetNearestFirst(on); });
 	// setFoliageThinning(false): every plant of a field drawn, however far (see FoliageLayerSpec::thinDensity)

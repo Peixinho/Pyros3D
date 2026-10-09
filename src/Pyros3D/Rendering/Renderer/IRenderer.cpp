@@ -227,9 +227,11 @@ void IRenderer::GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const u
 		for (size_t k = 0; k < rmeshes.size(); k++)
 		{
 			RenderingComponent* rc = rmeshes[k]->renderingComponent;
-			if (rc->GetRenderLayer() != layer
-				|| (rc->IsInstanced() && static_cast<IRenderingInstancedComponent*>(rc)->NumberOfInstances() == 0))
-				continue;
+			// (an instanced component with no instances at the moment stays in
+			// the list and is passed over when it is drawn - CullEntry,
+			// RenderObject: left out here, every block of grass that came
+			// into reach or went out of it had the whole list made again)
+			if (rc->GetRenderLayer() != layer) continue;
 			if (Tag != 0 && !rc->GetOwner()->HaveTag(Tag)) continue;
 			rmeshes[kept++] = rmeshes[k];
 		}
@@ -986,7 +988,8 @@ void IRenderer::CullEntry(const size_t i, RenderingMesh* m)
 			owner->GetBoundingSphereRadiusWorldSpace());
 	}
 	if (m->Material && m->Material->IsTransparent()) f |= CullTransparent;
-	if (rc->IsActive()) { f |= CullComponentActive; if (m->Active == true && (m->standsFor == NULL || m->standsFor->Active)) f |= CullMeshActive; }
+	// (an instanced one with nothing to draw counts as switched off)
+	if (rc->IsActive() && !(rc->IsInstanced() && static_cast<IRenderingInstancedComponent*>(rc)->NumberOfInstances() == 0)) { f |= CullComponentActive; if (m->Active == true && (m->standsFor == NULL || m->standsFor->Active)) f |= CullMeshActive; }
 	if (rc->IsCastingShadows()) f |= CullCasts;
 	if (rc->IsCullTesting()) f |= CullTested;
 	if (m->CullingGeometry == CullingGeometry::Box) f |= CullBox;
@@ -1008,6 +1011,212 @@ void IRenderer::BuildCullList()
 	else build(0, (uint32)n);
 }
 
+static bool g_patchLists = true;
+void IRenderer::SetListPatching(const bool on) { g_patchLists = on; }
+bool IRenderer::GetListPatching() { return g_patchLists; }
+
+// See the header. Nothing that has gone is followed here: a mesh taken off the
+// list, or a component out of the scene, may no longer exist - they are only
+// names until the end, when what is left is all still there.
+bool IRenderer::ApplyListed(FrameList &L, SceneGraph* Scene, const uint32 Tag)
+{
+	std::vector<RenderState::Listed> log;
+	if (!RenderState::ListedSince(L.listedSeq, log)) return false;
+	if (log.empty()) return true;
+	L.listedSeq += log.size();
+	if (!g_patchLists)
+	{
+		// (to compare: as it was - anything said of this scene, and the list is made again)
+		for (size_t k = 0; k < log.size(); k++) if (log[k].scene == Scene) return false;
+		return true;
+	}
+
+	const size_t nO = L.opaque.size(), nT = L.translucent.size(), n = nO + nT;
+	static const uint32 kGone = 0xFFFFFFFFu;
+
+	// Components: the last thing said of each is what holds.
+	{
+		std::unordered_map<RenderingComponent*, bool> said;
+		for (size_t k = 0; k < log.size(); k++)
+			if (log[k].scene == Scene && (log[k].what == RenderState::Listed::ComponentOn || log[k].what == RenderState::Listed::ComponentOff))
+				said[log[k].component] = log[k].what == RenderState::Listed::ComponentOn;
+		if (!said.empty())
+		{
+			size_t kept = 0;
+			for (size_t i = 0; i < L.lodComponents.size(); i++) if (said.find(L.lodComponents[i]) == said.end()) L.lodComponents[kept++] = L.lodComponents[i];
+			L.lodComponents.resize(kept);
+			kept = 0;
+			for (size_t i = 0; i < L.instanced.size(); i++) if (said.find(L.instanced[i].first) == said.end()) L.instanced[kept++] = L.instanced[i];
+			L.instanced.resize(kept);
+			for (std::unordered_map<RenderingComponent*, bool>::iterator i = said.begin(); i != said.end(); ++i)
+			{
+				if (!i->second) continue;
+				RenderingComponent* c = i->first;
+				if (lod && !c->HasLOD()) c->TryAutomaticLODs();
+				if (c->HasLOD() && c->GetOwner() != NULL) L.lodComponents.push_back(c);
+				if (c->IsInstanced()) L.instanced.push_back(std::make_pair(c, static_cast<IRenderingInstancedComponent*>(c)->NumberOfInstances() == 0));
+			}
+		}
+	}
+
+	// Meshes, in the order it happened.
+	std::vector<uint8> removed;
+	size_t nRemoved = 0;
+	std::vector<uint32> changed;                                   // places whose mesh is another now
+	std::vector<RenderingMesh*> added;                             // put at the end of the scene's list (NULL: and taken off again)
+	std::unordered_map<RenderingMesh*, size_t> addedAt;
+	auto meshAt = [&L, nO](const size_t i) -> RenderingMesh*& { return i < nO ? L.opaque[i] : L.translucent[i - nO]; };
+	auto find = [&](GameObject* owner, RenderingMesh* m) -> uint32 {
+		std::unordered_map<GameObject*, std::vector<uint32> >::iterator at = L.where.find(owner);
+		if (at == L.where.end()) return kGone;
+		for (size_t e = 0; e < at->second.size(); e++)
+		{
+			const uint32 idx = at->second[e];
+			if (meshAt(idx) == m && (removed.empty() || !removed[idx])) return idx;
+		}
+		return kGone;
+	};
+	for (size_t k = 0; k < log.size(); k++)
+	{
+		const RenderState::Listed &e = log[k];
+		if (e.scene != Scene) continue;
+		if (e.what == RenderState::Listed::MeshOn)
+		{
+			addedAt[e.mesh] = added.size();
+			added.push_back(e.mesh);
+		}
+		else if (e.what == RenderState::Listed::MeshOff || e.what == RenderState::Listed::MeshSwap)
+		{
+			const bool swap = e.what == RenderState::Listed::MeshSwap;
+			std::unordered_map<RenderingMesh*, size_t>::iterator a = addedAt.find(e.mesh);
+			if (a != addedAt.end())
+			{
+				const size_t at = a->second;
+				addedAt.erase(a);
+				added[at] = swap ? e.other : NULL;
+				if (swap) addedAt[e.other] = at;
+				continue;
+			}
+			const uint32 idx = find(e.owner, e.mesh);
+			if (idx == kGone) continue;                           // (not one this list holds: another layer's, or tagged otherwise)
+			if (swap) { meshAt(idx) = e.other; changed.push_back(idx); }
+			else
+			{
+				if (removed.empty()) removed.assign(n, 0);
+				removed[idx] = 1; nRemoved++;
+			}
+		}
+	}
+
+	// What was added and is still there: this list's, or not (as GatherFrameMeshes has it).
+	std::vector<RenderingMesh*> moreOpaque, moreSeen;
+	for (size_t k = 0; k < added.size(); k++)
+	{
+		RenderingMesh* m = added[k];
+		if (m == NULL) continue;
+		RenderingComponent* rc = m->renderingComponent;
+		if (rc->GetRenderLayer() != renderLayer) continue;
+		if (Tag != 0 && !rc->GetOwner()->HaveTag(Tag)) continue;
+		if (m->Material->IsTransparent() && sorting) moreSeen.push_back(m); else moreOpaque.push_back(m);
+	}
+
+	// The kept arrays closed up over what went, and opened for what came.
+	if (nRemoved != 0 || !moreOpaque.empty() || !moreSeen.empty())
+	{
+		const size_t nO2 = nO - [&]() { size_t c = 0; if (nRemoved) for (size_t i = 0; i < nO; i++) c += removed[i]; return c; }() + moreOpaque.size();
+		const size_t nT2 = n - nRemoved - (nO2 - moreOpaque.size()) + moreSeen.size();
+		const size_t n2 = nO2 + nT2;
+		std::vector<uint32> remap(n, kGone);
+		std::vector<RenderingMesh*> opaque2(nO2), seen2(nT2);
+		std::vector<IMaterial*> materialOf2(n2, (IMaterial*)NULL);
+		std::vector<uint8> activeOf2(n2, 0), flags2(n2, 0);
+		std::vector<Vec4> sphere2(n2);
+		std::vector<uint32> cellOf2(n2, kNoCell);
+		std::vector<Vec3> place2(nT2);
+		const bool cells = L.cellOf.size() == n;
+		size_t to = 0;
+		for (size_t i = 0; i < n; i++)
+		{
+			if (i == nO)
+			{
+				for (size_t k = 0; k < moreOpaque.size(); k++) { opaque2[to] = moreOpaque[k]; changed.push_back(kGone); to++; }      // (their places: below)
+			}
+			if (nRemoved && removed[i]) continue;
+			if (i < nO) opaque2[to] = L.opaque[i]; else { seen2[to - nO2] = L.translucent[i - nO]; place2[to - nO2] = L.translucentPlace[i - nO]; }
+			materialOf2[to] = L.materialOf[i]; activeOf2[to] = L.activeOf[i]; flags2[to] = L.flags[i]; sphere2[to] = L.sphere[i];
+			if (cells) cellOf2[to] = L.cellOf[i];
+			remap[i] = (uint32)to;
+			to++;
+		}
+		if (nT == 0) for (size_t k = 0; k < moreOpaque.size(); k++) { opaque2[to] = moreOpaque[k]; changed.push_back(kGone); to++; }
+		for (size_t k = 0; k < moreSeen.size(); k++) { seen2[to - nO2] = moreSeen[k]; to++; }
+		// (the places already changed, where they are now; and the new ones)
+		{
+			std::vector<uint32> now;
+			for (size_t k = 0; k < changed.size(); k++) if (changed[k] != kGone && remap[changed[k]] != kGone) now.push_back(remap[changed[k]]);
+			for (size_t k = 0; k < moreOpaque.size(); k++) now.push_back((uint32)(nO2 - moreOpaque.size() + k));
+			for (size_t k = 0; k < moreSeen.size(); k++) now.push_back((uint32)(n2 - moreSeen.size() + k));
+			changed.swap(now);
+		}
+		for (std::unordered_map<GameObject*, std::vector<uint32> >::iterator w = L.where.begin(); w != L.where.end();)
+		{
+			std::vector<uint32> &v = w->second;
+			size_t kept = 0;
+			for (size_t e = 0; e < v.size(); e++) if (remap[v[e]] != kGone) v[kept++] = remap[v[e]];
+			v.resize(kept);
+			if (kept == 0) w = L.where.erase(w); else ++w;
+		}
+		L.opaque.swap(opaque2); L.translucent.swap(seen2); L.materialOf.swap(materialOf2); L.activeOf.swap(activeOf2);
+		L.flags.swap(flags2); L.sphere.swap(sphere2); L.cellOf.swap(cellOf2); L.translucentPlace.swap(place2);
+		for (size_t k = 0; k < moreOpaque.size(); k++)
+			if (GameObject* o = moreOpaque[k]->renderingComponent->GetOwner()) L.where[o].push_back((uint32)(nO2 - moreOpaque.size() + k));
+		for (size_t k = 0; k < moreSeen.size(); k++)
+			if (GameObject* o = moreSeen[k]->renderingComponent->GetOwner()) L.where[o].push_back((uint32)(n2 - moreSeen.size() + k));
+	}
+
+	// What each changed place holds now.
+	const size_t nOpaque = L.opaque.size();
+	bool fits = true;
+	cullSphere.swap(L.sphere); cullFlags.swap(L.flags);
+	for (size_t k = 0; k < changed.size() && fits; k++)
+	{
+		const uint32 idx = changed[k];
+		RenderingMesh* m = idx < nOpaque ? L.opaque[idx] : L.translucent[idx - nOpaque];
+		// (a level that is seen through where the last was not, or the other way: not in its place)
+		if ((m->Material->IsTransparent() && sorting) != (idx >= nOpaque)) { fits = false; break; }
+		CullEntry(idx, m);
+		L.materialOf[idx] = m->Material.get();
+		L.activeOf[idx] = m->Active == true ? 1 : 0;
+		if (idx < L.cellOf.size()) L.cellOf[idx] = kNoCell;
+		if (idx >= nOpaque)
+		{
+			GameObject* o = m->renderingComponent->GetOwner();
+			L.translucentPlace[idx - nOpaque] = o != NULL ? o->GetWorldPosition() : Vec3();
+		}
+		if (m->Material && nRemoved == 0 && L.materialSeen.insert(m->Material.get()).second)
+			L.materials.push_back(std::make_pair(m->Material.get(), m->Material->IsTransparent()));
+	}
+	cullSphere.swap(L.sphere); cullFlags.swap(L.flags);
+	if (!fits) return false;
+
+	// The materials still some mesh's (one whose last mesh went may be gone
+	// with it), each as it was last seen.
+	if (nRemoved != 0)
+	{
+		std::unordered_map<IMaterial*, bool> was;
+		for (size_t i = 0; i < L.materials.size(); i++) was[L.materials[i].first] = L.materials[i].second;
+		L.materials.clear(); L.materialSeen.clear();
+		for (size_t i = 0; i < L.materialOf.size(); i++)
+		{
+			IMaterial* mat = L.materialOf[i];
+			if (mat == NULL || !L.materialSeen.insert(mat).second) continue;
+			std::unordered_map<IMaterial*, bool>::iterator w = was.find(mat);
+			L.materials.push_back(std::make_pair(mat, w != was.end() ? w->second : mat->IsTransparent()));
+		}
+	}
+	return true;
+}
+
 // The frame's list, kept. See FrameList in the header and RenderState.h.
 void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
 {
@@ -1023,10 +1232,12 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 	bool fresh = !L.valid || L.version != RenderState::Version.load(std::memory_order_relaxed)
 		|| L.layer != renderLayer || L.lod != lod || L.sorting != sorting;
 
+	// (what has come and gone since: before anything of the kept list is followed)
+	if (!fresh && !ApplyListed(L, Scene, Tag)) fresh = true;
 	if (!fresh)
 	{
 		// Levels of detail follow the camera every frame (and say so, through
-		// RenderState, when one of them changes what the scene draws).
+		// RenderState's log, when one of them changes what the scene draws).
 		if (lod)
 		{
 			const Vec3 eye = Camera->GetWorldPosition();
@@ -1040,15 +1251,25 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 				c->UpdateLOD(c->GetLODByDistance(d * d));
 			}
 		}
+		if (!fresh && !ApplyListed(L, Scene, Tag)) fresh = true;
+		// (one that has got instances, or has none left: its entries are read
+		// again, as a moved object's are)
 		for (size_t i = 0; i < L.instanced.size() && !fresh; i++)
-			if ((static_cast<IRenderingInstancedComponent*>(L.instanced[i].first)->NumberOfInstances() == 0) != L.instanced[i].second) fresh = true;
+		{
+			const bool none = static_cast<IRenderingInstancedComponent*>(L.instanced[i].first)->NumberOfInstances() == 0;
+			if (none == L.instanced[i].second) continue;
+			L.instanced[i].second = none;
+			if (!g_patchLists) fresh = true;
+			else if (GameObject* o = L.instanced[i].first->GetOwner()) RenderState::NoteMoved(o); else fresh = true;
+		}
 		// (a mesh's material and its own switch are fields anybody writes:
 		// looked at, one place in memory a mesh)
 		const size_t nOpaque = L.opaque.size();
 		for (size_t i = 0; i < nOpaque + L.translucent.size() && !fresh; i++)
 		{
 			RenderingMesh* m = i < nOpaque ? L.opaque[i] : L.translucent[i - nOpaque];
-			if (m->Material.get() != L.materialOf[i] || (m->Active == true ? 1 : 0) != L.activeOf[i]) fresh = true;
+			if (m->Material.get() != L.materialOf[i]) fresh = true;
+			else if ((m->Active == true ? 1 : 0) != L.activeOf[i]) fresh = true;
 		}
 		// (...and whether each material is seen through, which is the
 		// material's to change. Asked of each material once, not of each mesh:
@@ -1073,6 +1294,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 	{
 		GatherFrameMeshes(Scene, Camera, Tag, L.opaque, L.translucent);
 		L.version = RenderState::Version.load(std::memory_order_relaxed);
+		L.listedSeq = RenderState::ListedCount();
 		L.layer = renderLayer; L.lod = lod; L.sorting = sorting;
 		L.movedSeq = RenderState::MovedCount();
 		// (everything has just been read: what moves from here on has to be
@@ -1128,7 +1350,8 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		}
 		L.translucentPlace.resize(L.translucent.size());
 		L.materials.clear();
-		std::unordered_set<IMaterial*> seenMaterials;
+		std::unordered_set<IMaterial*> &seenMaterials = L.materialSeen;
+		seenMaterials.clear();
 		for (size_t i = 0; i < n; i++)
 		{
 			RenderingMesh* m = meshAt(i);
@@ -2130,6 +2353,9 @@ static uint32 EffectiveCullFace(RenderingMesh* rmesh, IMaterial* Material)
 
 void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material)
 {
+	// (an instanced component with no instances at the moment is in the list all the same: nothing to draw)
+	if (rmesh->renderingComponent && rmesh->renderingComponent->IsInstanced()
+		&& static_cast<IRenderingInstancedComponent*>(rmesh->renderingComponent)->NumberOfInstances() == 0) return;
 	// (whoever animates only what is drawn - RenderingComponent::SetAnimateWhenUnseen - is told)
 	if (rmesh->renderingComponent) rmesh->renderingComponent->MarkSeen();
 

@@ -335,6 +335,8 @@ namespace p3d {
 
 		virtual ~RenderingComponent();
 		virtual bool ChangesWhatIsDrawn() const { return true; }
+		virtual void SayDrawnChanged();
+		void SayLevelsChanged();
 
 		// What is drawn into shadow maps in place of this component's own
 		// meshes while its nearest level of detail is the one in use: a
@@ -374,8 +376,8 @@ namespace p3d {
 		uint32 GetRenderLayer() const { return renderLayer; }
 
 		void SetCullingGeometry(const uint32 Geometry);
-		void EnableCullTest() { if (!cullTest) RenderState::Touch(); cullTest = true; }
-		void DisableCullTest() { if (cullTest) RenderState::Touch(); cullTest = false; }
+		void EnableCullTest() { const bool was = cullTest; cullTest = true; if (!was) SayDrawnChanged(); }
+		void DisableCullTest() { const bool was = cullTest; cullTest = false; if (was) SayDrawnChanged(); }
 		bool IsCullTesting() { return cullTest; }
 
 		// A skinned mesh nobody is drawing need not be posed. Off by default

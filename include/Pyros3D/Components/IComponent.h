@@ -147,11 +147,14 @@ namespace p3d {
 		virtual uint32 GetComponentType() const { return ComponentType::Unknown; }
 
 		bool IsActive() { return active; }
-		void Disable() { if (active && ChangesWhatIsDrawn()) RenderState::Touch(); active = false; }
-		void Enable() { if (!active && ChangesWhatIsDrawn()) RenderState::Touch(); active = true; }
+		void Disable() { const bool was = active; active = false; if (was && ChangesWhatIsDrawn()) SayDrawnChanged(); }
+		void Enable() { const bool was = active; active = true; if (!was && ChangesWhatIsDrawn()) SayDrawnChanged(); }
 		// Whether switching it on or off changes what a renderer's kept list of
 		// a scene holds (RenderState): a component that draws meshes, yes.
 		virtual bool ChangesWhatIsDrawn() const { return false; }
+		// How it is said: everything listed again, unless the component knows a
+		// narrower way (RenderingComponent: only its own entries are read again).
+		virtual void SayDrawnChanged() { RenderState::Touch(); }
 
 		virtual const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }
 		virtual const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }

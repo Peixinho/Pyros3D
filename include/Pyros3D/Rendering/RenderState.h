@@ -31,6 +31,9 @@ namespace p3d {
 	//    looked and puts those objects' spheres right; nothing else is read.
 	//
 	// Erring is always toward saying "changed".
+	class RenderingMesh;
+	class RenderingComponent;
+	class SceneGraph;
 	struct PYROS3D_API RenderState
 	{
 		static std::atomic<uint32_t> Version;
@@ -46,6 +49,30 @@ namespace p3d {
 		// into out and returns false if some of them are no longer kept (the
 		// caller then has to assume everything moved).
 		static uint64_t MovedCount();
+
+		// The listed log - a mesh put on a scene's list of what it draws, or
+		// taken off it, and a rendering component joining or leaving a scene.
+		// A renderer puts those into the list it keeps, in place, where it
+		// used to make the whole list again (Touch) for every door a game
+		// built and every level of detail that changed.
+		struct Listed
+		{
+			// MeshOn: put at the end of the scene's list. MeshOff: taken out of
+			// it, what came after closing up. MeshSwap: `other` put in the
+			// place `mesh` had.
+			enum { MeshOn = 1, MeshOff = 2, MeshSwap = 3, ComponentOn = 4, ComponentOff = 5 };
+			RenderingMesh* mesh;
+			RenderingMesh* other;
+			RenderingComponent* component;
+			GameObject* owner;                  // (the component's, as it was then: a name to look things up by, never followed)
+			SceneGraph* scene;
+			uint32_t what;
+		};
+		static void NoteListed(const uint32_t what, SceneGraph* scene, RenderingComponent* component, GameObject* owner, RenderingMesh* mesh = 0, RenderingMesh* other = 0);
+		static uint64_t ListedCount();
+		// Those after `seq` into out; false if some of them are no longer kept
+		// (the caller then makes its list again).
+		static bool ListedSince(const uint64_t seq, std::vector<Listed> &out);
 		static bool MovedSince(const uint64_t seq, std::vector<GameObject*> &out);
 	};
 

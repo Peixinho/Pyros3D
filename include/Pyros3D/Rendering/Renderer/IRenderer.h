@@ -9,6 +9,7 @@
 #ifndef IRENDERER_H
 #define IRENDERER_H
 
+#include <unordered_set>
 #include <unordered_map>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
@@ -275,6 +276,9 @@ namespace p3d {
 		std::vector<uint32> cullCell;
 		std::vector<Vec4> cullCellSphere;
 		std::vector<uint8> cullCellOut;        // for the view set now: 1 where a cell is wholly outside it
+		// Whether a kept list takes what comes and goes in place (on), or is made again for it.
+		static void SetListPatching(const bool on);
+		static bool GetListPatching();
 		static void SetCullGrid(const bool on);
 		static bool GetCullGrid();
 		std::vector<uint8> cullFlags;
@@ -293,13 +297,14 @@ namespace p3d {
 			bool valid = false;
 			uint32 version = 0, layer = 0;
 			bool lod = false, sorting = false;
-			uint64 movedSeq = 0;
+			uint64 movedSeq = 0, listedSeq = 0;
 			std::vector<RenderingMesh*> opaque, translucent;
 			// each mesh's material and whether it is switched on, as they were
 			// when the list was made: both are plain fields anybody may write
 			std::vector<IMaterial*> materialOf;
 			std::vector<uint8> activeOf;
 			std::vector<std::pair<IMaterial*, bool> > materials;        // each material once, and whether it was see-through
+			std::unordered_set<IMaterial*> materialSeen;
 			std::vector<Vec4> sphere;
 			std::vector<uint8> flags;
 			std::vector<uint32> cellOf;             // see cullCell
@@ -310,6 +315,10 @@ namespace p3d {
 			std::unordered_map<GameObject*, std::vector<uint32> > where;        // an owner's places in the kept arrays
 		};
 		std::map<std::pair<SceneGraph*, uint32>, FrameList> frameLists;
+		// What has come onto the scene's list and gone off it since the kept
+		// list last read the log (RenderState::Listed), put into the kept list
+		// in place. False where that cannot be done: the list is made again.
+		bool ApplyListed(FrameList &L, SceneGraph* Scene, const uint32 Tag);
 		// Fills rmesh, cullSphere and cullFlags for this frame.
 		void UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32 Tag);
 		// (PYROS_FRAME_LISTS=0 makes the list from scratch every frame, as before.)

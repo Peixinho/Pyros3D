@@ -203,7 +203,7 @@ namespace p3d {
 	// every instance still in place.
 	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material)
 	{
-		RenderState::Touch();
+		SayLevelsChanged();
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
 		{
@@ -234,7 +234,7 @@ namespace p3d {
 
 	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions)
 	{
-		RenderState::Touch();
+		SayLevelsChanged();
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
 		{
@@ -265,7 +265,7 @@ namespace p3d {
 
 	void RenderingComponent::AddLODOwnMaterials(const std::shared_ptr<Renderable> &renderable, const f32 Distance)
 	{
-		RenderState::Touch();
+		SayLevelsChanged();
 		const std::vector<RenderingMesh*> &own = Meshes[0];
 		if (!renderable || own.empty()) return;
 		const uint32 LODLVL = (uint32)Meshes.size();
@@ -294,7 +294,7 @@ namespace p3d {
 
 	void RenderingComponent::AddHiddenLOD()
 	{
-		RenderState::Touch();
+		SayLevelsChanged();
 		const uint32 LODLVL = (uint32)Meshes.size();
 		Meshes[LODLVL];         // a level, and no meshes in it
 		LODDistances.push_back(1e9f);
@@ -392,7 +392,7 @@ namespace p3d {
 
 	void RenderingComponent::SetShadowRenderable(const std::shared_ptr<Renderable> &renderable)
 	{
-		RenderState::Touch();
+		SayDrawnChanged();        // (a kept list holds nothing of the shadow's mesh: only this component's entries are read again)
 		for (size_t i = 0; i < shadowMeshes.size(); i++) delete shadowMeshes[i];
 		shadowMeshes.clear();
 		shadowRenderable.reset();
@@ -460,15 +460,18 @@ namespace p3d {
 	{
 		if (!Registered)
 		{
-			RenderState::Touch();
 			// Add Self to Components vector
 			Components.push_back(this);
 
-			// Add Meshes to Rendering Meshes
-			for (std::vector<RenderingMesh*>::iterator k = Meshes[0].begin(); k != Meshes[0].end(); k++)
-				// Add Mesh
+			// Add Meshes to Rendering Meshes - and say so, mesh by mesh: whoever
+			// keeps a list of what the scene draws puts them into it (it was
+			// told only that something had changed, and made its list again)
+			RenderState::NoteListed(RenderState::Listed::ComponentOn, Scene, this, Owner);
+			for (std::vector<RenderingMesh*>::iterator k = Meshes[LodInUse].begin(); k != Meshes[LodInUse].end(); k++)
+			{
 				Scene->GetRenderingMeshes().push_back((*k));
-				RenderState::Touch();
+				RenderState::NoteListed(RenderState::Listed::MeshOn, Scene, this, Owner, *k);
+			}
 
 			Registered = true;
 			this->Scene = Scene;
@@ -497,14 +500,13 @@ namespace p3d {
 				for (size_t k = listed.size(); k-- > 0;)
 				{
 					if (listed[k] != was[m]) continue;
-					if (put < now.size()) listed[k] = now[put++];
-					else { listed[k] = listed.back(); listed.pop_back(); }
+					if (put < now.size()) { listed[k] = now[put]; RenderState::NoteListed(RenderState::Listed::MeshSwap, Scene, this, Owner, was[m], now[put]); put++; }
+					else { listed.erase(listed.begin() + k); RenderState::NoteListed(RenderState::Listed::MeshOff, Scene, this, Owner, was[m]); }
 					break;
 				}
 			}
-			for (; put < now.size(); put++) listed.push_back(now[put]);
+			for (; put < now.size(); put++) { listed.push_back(now[put]); RenderState::NoteListed(RenderState::Listed::MeshOn, Scene, this, Owner, now[put]); }
 			LodInUse = lod;
-			RenderState::Touch();
 		}
 	}
 	void RenderingComponent::Unregister(SceneGraph* Scene)
@@ -513,8 +515,10 @@ namespace p3d {
 		{
 			// (always: a component with no mesh in the scene at the moment - one
 			// past its last level of detail - is still in the renderers' kept
-			// lists of components to watch)
-			RenderState::Touch();
+			// lists of components to watch. Said first: whoever reads the log
+			// forgets the component before anything of it.)
+			if (Scene != NULL) RenderState::NoteListed(RenderState::Listed::ComponentOff, Scene, this, Owner);
+			else RenderState::Touch();
 			// Remove from Components vector. This one is a process-wide list,
 			// not the scene's, so it happens whether or not there is a scene
 			// to unregister from - leaving a destroyed component in it is a
@@ -555,7 +559,7 @@ namespace p3d {
 						if ((*k) == (*i1))
 						{
 							Scene->GetRenderingMeshes().erase(k);
-							RenderState::Touch();
+							RenderState::NoteListed(RenderState::Listed::MeshOff, Scene, this, Owner, *i1);
 							break;
 						}
 					}
@@ -616,13 +620,32 @@ namespace p3d {
 
 	void RenderingComponent::EnableCastShadows()
 	{
-		if (!isCastingShadows) RenderState::Touch();
+		const bool was = isCastingShadows;
 		isCastingShadows = true;
+		if (!was) SayDrawnChanged();
 	}
 	void RenderingComponent::DisableCastShadows()
 	{
-		if (isCastingShadows) RenderState::Touch();
+		const bool was = isCastingShadows;
 		isCastingShadows = false;
+		if (was) SayDrawnChanged();
+	}
+	// Switched on or off, casting or not, tested for culling or not: a few
+	// bits of each of its meshes in a renderer's kept list, which are read
+	// again where an object that has moved is (the moved log). One that is in
+	// no scene yet is in no list - a game sets these on everything it makes,
+	// before it is there to be drawn, and each one had every list made again.
+	void RenderingComponent::SayDrawnChanged()
+	{
+		if (!Registered) return;
+		if (Owner != NULL) RenderState::NoteMoved(Owner); else RenderState::Touch();
+	}
+	// Levels given to one already in a scene: said as the component coming
+	// (whoever keeps the components that have levels takes it up).
+	void RenderingComponent::SayLevelsChanged()
+	{
+		if (!Registered) return;
+		if (Scene != NULL) RenderState::NoteListed(RenderState::Listed::ComponentOn, Scene, this, Owner); else RenderState::Touch();
 	}
 	bool RenderingComponent::IsCastingShadows()
 	{
@@ -923,6 +946,34 @@ namespace p3d {
 		if (seq > g_movedCount || g_movedCount - seq > kMovedKept) return false;
 		out.reserve((size_t)(g_movedCount - seq));
 		for (uint64_t k = seq; k < g_movedCount; k++) out.push_back(MovedRing()[k % kMovedKept]);
+		return true;
+	}
+
+	namespace {
+		const uint64_t kListedKept = 16384;
+		std::mutex &ListedMutex() { static std::mutex m; return m; }
+		std::vector<RenderState::Listed> &ListedRing() { static std::vector<RenderState::Listed> r(kListedKept); return r; }
+		uint64_t g_listedCount = 0;
+	}
+	void RenderState::NoteListed(const uint32_t what, SceneGraph* scene, RenderingComponent* component, GameObject* owner, RenderingMesh* mesh, RenderingMesh* other)
+	{
+		std::lock_guard<std::mutex> lock(ListedMutex());
+		Listed &e = ListedRing()[g_listedCount % kListedKept];
+		e.mesh = mesh; e.other = other; e.component = component; e.owner = owner; e.scene = scene; e.what = what;
+		g_listedCount++;
+	}
+	uint64_t RenderState::ListedCount()
+	{
+		std::lock_guard<std::mutex> lock(ListedMutex());
+		return g_listedCount;
+	}
+	bool RenderState::ListedSince(const uint64_t seq, std::vector<Listed> &out)
+	{
+		std::lock_guard<std::mutex> lock(ListedMutex());
+		out.clear();
+		if (seq > g_listedCount || g_listedCount - seq > kListedKept) return false;
+		out.reserve((size_t)(g_listedCount - seq));
+		for (uint64_t k = seq; k < g_listedCount; k++) out.push_back(ListedRing()[k % kListedKept]);
 		return true;
 	}
 
