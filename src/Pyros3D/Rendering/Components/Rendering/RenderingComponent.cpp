@@ -315,7 +315,8 @@ namespace p3d {
 		return true;
 	}
 
-	namespace { bool g_autoLod = true, g_autoLodInUse = true; uint32 g_autoLodChanges = 0; }
+	// PYROS_AUTO_LOD=0: no automatic levels are made - for telling whether something seen is theirs.
+	namespace { bool g_autoLod = !(std::getenv("PYROS_AUTO_LOD") && std::getenv("PYROS_AUTO_LOD")[0] == '0'), g_autoLodInUse = true; uint32 g_autoLodChanges = 0; }
 	void RenderingComponent::SetAutoLOD(const bool on) { g_autoLod = on; }
 	bool RenderingComponent::GetAutoLOD() { return g_autoLod; }
 	void RenderingComponent::SetAutoLODInUse(const bool on) { if (on != g_autoLodInUse) { g_autoLodInUse = on; g_autoLodChanges++; RenderState::Touch(); } }
