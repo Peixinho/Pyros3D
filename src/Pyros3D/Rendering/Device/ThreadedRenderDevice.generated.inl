@@ -136,20 +136,9 @@
 		Push([dev_ = real]() { dev_->DisableCullFace(); });
 	}
 
-	DeviceHandle ThreadedRenderDevice::CreatePipeline(const PipelineDesc & desc)
-	{
-		Drain("CreatePipeline");
-		return real->CreatePipeline(desc);
-	}
-
-	void ThreadedRenderDevice::DestroyPipeline(const DeviceHandle pipeline)
-	{
-		Push([dev_ = real, pipeline]() { dev_->DestroyPipeline(pipeline); });
-	}
-
 	void ThreadedRenderDevice::BindPipeline(const CommandBufferHandle cmd, const DeviceHandle pipeline)
 	{
-		Push([dev_ = real, cmd, pipeline]() { dev_->BindPipeline(cmd, pipeline); });
+		Push([dev_ = real, cmd, pipeline, self = this]() { dev_->BindPipeline(cmd, self->RealOf(pipeline)); });
 	}
 
 	uint32 ThreadedRenderDevice::GetSwapchainGeneration() const
@@ -183,30 +172,19 @@
 		Push([dev_ = real, program]() { dev_->UseProgram(program); });
 	}
 
-	DeviceHandle ThreadedRenderDevice::CreateVertexArray()
-	{
-		Drain("CreateVertexArray");
-		return real->CreateVertexArray();
-	}
-
-	void ThreadedRenderDevice::DeleteVertexArray(const DeviceHandle vao)
-	{
-		Push([dev_ = real, vao]() { dev_->DeleteVertexArray(vao); });
-	}
-
 	void ThreadedRenderDevice::BindVertexArray(const CommandBufferHandle cmd, const DeviceHandle vao)
 	{
-		Push([dev_ = real, cmd, vao]() { dev_->BindVertexArray(cmd, vao); });
+		Push([dev_ = real, cmd, vao, self = this]() { dev_->BindVertexArray(cmd, self->RealOf(vao)); });
 	}
 
 	void ThreadedRenderDevice::BindArrayBuffer(const uint32 buffer)
 	{
-		Push([dev_ = real, buffer]() { dev_->BindArrayBuffer(buffer); });
+		Push([dev_ = real, buffer, self = this]() { dev_->BindArrayBuffer(self->RealOf(buffer)); });
 	}
 
 	void ThreadedRenderDevice::BindElementBuffer(const uint32 buffer)
 	{
-		Push([dev_ = real, buffer]() { dev_->BindElementBuffer(buffer); });
+		Push([dev_ = real, buffer, self = this]() { dev_->BindElementBuffer(self->RealOf(buffer)); });
 	}
 
 	void ThreadedRenderDevice::SetVertexAttribute(const int32 location, const uint32 typeCount, const uint32 nativeType, const uint32 stride, const uint32 offset)
@@ -292,39 +270,28 @@
 		Push([dev_ = real, buffer]() { dev_->DestroyUniformBuffer(buffer); });
 	}
 
-	DeviceHandle ThreadedRenderDevice::CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void * data, const uint32 length)
-	{
-		Drain("CreateBuffer");
-		return real->CreateBuffer(bufferType, bufferDraw, data, length);
-	}
-
 	void ThreadedRenderDevice::ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void * data, const uint32 length)
 	{
 		const void* data_ = data ? Keep(data, (size_t)(length)) : NULL;
-		Push([dev_ = real, buffer, bufferType, bufferDraw, data_, length]() { dev_->ReallocateBuffer(buffer, bufferType, bufferDraw, data_, length); });
+		Push([dev_ = real, buffer, self = this, bufferType, bufferDraw, data_, length]() { dev_->ReallocateBuffer(self->RealOf(buffer), bufferType, bufferDraw, data_, length); });
 	}
 
 	void ThreadedRenderDevice::UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void * data, const uint32 length)
 	{
 		const void* data_ = data ? Keep(data, (size_t)(length)) : NULL;
-		Push([dev_ = real, buffer, bufferType, data_, length]() { dev_->UpdateBufferSubData(buffer, bufferType, data_, length); });
-	}
-
-	void ThreadedRenderDevice::DestroyBuffer(const DeviceHandle buffer)
-	{
-		Push([dev_ = real, buffer]() { dev_->DestroyBuffer(buffer); });
+		Push([dev_ = real, buffer, self = this, bufferType, data_, length]() { dev_->UpdateBufferSubData(self->RealOf(buffer), bufferType, data_, length); });
 	}
 
 	void * ThreadedRenderDevice::MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType)
 	{
 		Drain("MapBuffer");
-		return real->MapBuffer(buffer, bufferType, mappingType);
+		return real->MapBuffer(RealOf(buffer), bufferType, mappingType);
 	}
 
 	void ThreadedRenderDevice::UnmapBuffer(const DeviceHandle buffer, const uint32 bufferType)
 	{
 		Drain("UnmapBuffer");
-		real->UnmapBuffer(buffer, bufferType);
+		real->UnmapBuffer(RealOf(buffer), bufferType);
 	}
 
 	bool ThreadedRenderDevice::SupportsCompute() const

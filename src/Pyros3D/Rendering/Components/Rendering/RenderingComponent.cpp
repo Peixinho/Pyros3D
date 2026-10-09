@@ -480,28 +480,31 @@ namespace p3d {
 		// Check if LOD Level is Different
 		if (LodInUse != lod && lod < GetLODSize())
 		{
-			// Unregister Meshes On Scene
-			for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
-				for (std::vector<RenderingMesh*>::iterator i1 = (*i).second.begin(); i1 != (*i).second.end(); i1++)
-				{
-					for (std::vector<RenderingMesh*>::iterator k = Scene->GetRenderingMeshes().begin(); k != Scene->GetRenderingMeshes().end(); k++)
-					{
-						if ((*k) == (*i1))
-						{
-							Scene->GetRenderingMeshes().erase(k);
-							RenderState::Touch();
-							break;
-						}
-					}
-				}
-
-			LodInUse = lod;
-			// Add to Scene
-			for (std::vector<RenderingMesh*>::iterator i = GetMeshes(lod).begin(); i != GetMeshes(lod).end(); i++)
+			// The scene lists the meshes of the level in use, and only those:
+			// they are taken out and the new level's put in - in the places the
+			// old ones had, as far as there are as many. (Every mesh of EVERY
+			// level was looked for through the scene's whole list, one at a
+			// time, and each one found was closed up behind: with a few hundred
+			// things changing level as the camera ran, that was most of a frame.)
+			std::vector<RenderingMesh*> &listed = Scene->GetRenderingMeshes();
+			const std::vector<RenderingMesh*> &was = Meshes[LodInUse];
+			const std::vector<RenderingMesh*> &now = Meshes[lod];
+			size_t put = 0;
+			for (size_t m = 0; m < was.size(); m++)
 			{
-				Scene->GetRenderingMeshes().push_back((*i));
-				RenderState::Touch();
+				// (looked for from the end: what was listed last is found first,
+				// and a thing that has just come into the scene is at the end)
+				for (size_t k = listed.size(); k-- > 0;)
+				{
+					if (listed[k] != was[m]) continue;
+					if (put < now.size()) listed[k] = now[put++];
+					else { listed[k] = listed.back(); listed.pop_back(); }
+					break;
+				}
 			}
+			for (; put < now.size(); put++) listed.push_back(now[put]);
+			LodInUse = lod;
+			RenderState::Touch();
 		}
 	}
 	void RenderingComponent::Unregister(SceneGraph* Scene)

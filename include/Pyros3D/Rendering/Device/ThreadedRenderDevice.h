@@ -31,6 +31,7 @@
 #include <mutex>
 #include <thread>
 #include <vector>
+#include <unordered_map>
 #include <cstring>
 #include <new>
 
@@ -50,6 +51,15 @@ namespace p3d {
 		void TakeWaits(f64 &gpuMs, f64 &presentMs, f64 &behindMs);
 		// The queue run dry: everything asked for has been done.
 		void Finish() { Drain("Finish"); }
+		// The device's own handle for one given out here (buffers, vertex arrays
+		// and pipelines are made in the queue, so theirs are not the device's).
+		// On the device thread, or with the queue run dry.
+		DeviceHandle RealOf(const DeviceHandle given) const
+		{
+			if (given < kFirstGiven) return given;
+			const std::unordered_map<DeviceHandle, DeviceHandle>::const_iterator it = realOf.find(given);
+			return it != realOf.end() ? it->second : 0;
+		}
 
 #include <Pyros3D/Rendering/Device/ThreadedRenderDevice.generated.h>
 
@@ -97,6 +107,9 @@ namespace p3d {
 		std::atomic<int> framesBehind;        // frames ended here and not yet presented there
 		std::atomic<uint64> gpuWaitUs, presentWaitUs;
 		f64 behindWaitMs = 0.0;
+		static const DeviceHandle kFirstGiven = 0x40000000u;
+		DeviceHandle nextGiven = kFirstGiven;
+		std::unordered_map<DeviceHandle, DeviceHandle> realOf;      // the device thread's (and anybody's, with the queue dry)
 		bool trace = false;
 		uint32 drainsThisFrame = 0;
 	};

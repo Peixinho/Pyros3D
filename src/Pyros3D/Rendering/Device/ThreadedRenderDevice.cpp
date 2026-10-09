@@ -202,6 +202,41 @@ namespace p3d {
 	CommandBufferHandle ThreadedRenderDevice::BeginCommandBuffer() { return (saidFrameOpen || saidTarget != 0) ? 1 : 0; }
 	void ThreadedRenderDevice::WaitIdle() { Drain("WaitIdle"); real->WaitIdle(); }
 
+	// Made in the queue, in their turn, under a handle given out here at once: nothing waits.
+	DeviceHandle ThreadedRenderDevice::CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
+	{
+		const DeviceHandle given = nextGiven++;
+		const void* kept = data ? Keep(data, (size_t)length) : NULL;
+		Push([this, given, bufferType, bufferDraw, kept, length]() { realOf[given] = real->CreateBuffer(bufferType, bufferDraw, kept, length); });
+		return given;
+	}
+	DeviceHandle ThreadedRenderDevice::CreateVertexArray()
+	{
+		const DeviceHandle given = nextGiven++;
+		Push([this, given]() { realOf[given] = real->CreateVertexArray(); });
+		return given;
+	}
+	DeviceHandle ThreadedRenderDevice::CreatePipeline(const PipelineDesc &desc)
+	{
+		// (a pipeline is made for the target bound when it is asked for: in the
+		// queue that is the target bound at this point of it)
+		const DeviceHandle given = nextGiven++;
+		Push([this, given, d = PipelineDesc(desc)]() { realOf[given] = real->CreatePipeline(d); });
+		return given;
+	}
+	void ThreadedRenderDevice::DestroyBuffer(const DeviceHandle buffer)
+	{
+		Push([this, buffer]() { real->DestroyBuffer(RealOf(buffer)); realOf.erase(buffer); });
+	}
+	void ThreadedRenderDevice::DeleteVertexArray(const DeviceHandle vao)
+	{
+		Push([this, vao]() { real->DeleteVertexArray(RealOf(vao)); realOf.erase(vao); });
+	}
+	void ThreadedRenderDevice::DestroyPipeline(const DeviceHandle pipeline)
+	{
+		Push([this, pipeline]() { real->DestroyPipeline(RealOf(pipeline)); realOf.erase(pipeline); });
+	}
+
 	// ---------------------------------------------------------------- written by tools/gen_threaded_device.py
 #include "ThreadedRenderDevice.generated.inl"
 

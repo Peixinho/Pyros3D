@@ -1062,6 +1062,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		return o != NULL ? o->GetWorldPosition() : Vec3();
 	};
 	(void)nOpaque0;
+	FrameProfiler::Instance().Counter("Lists.Fresh", fresh ? 1.0 : 0.0);
 	if (fresh)
 	{
 		GatherFrameMeshes(Scene, Camera, Tag, L.opaque, L.translucent);

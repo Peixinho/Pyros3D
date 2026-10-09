@@ -38,7 +38,15 @@ TranslateShadowBiasMatrix TranslateProjectionMatrix IsVulkan NeedsManualDisplayG
 SupportsCompute GetMaxComputeWorkGroupInvocations GetMaxComputeWorkGroupCount GetMaxSamples CanBlitResolveDepth
 TemporalUpscalerId GetTextureDataSize BuildShaderSource GetSwapchainGeneration GetUniformLocation GetAttributeLocation""".split())
 # written by hand in the .cpp's fixed part
-SPECIAL = set("BeginFrame EndFrame BindFramebuffer SetClearColor IsFrameInProgress GetCurrentRenderTarget BeginCommandBuffer WaitIdle".split())
+SPECIAL = set("""BeginFrame EndFrame BindFramebuffer SetClearColor IsFrameInProgress GetCurrentRenderTarget BeginCommandBuffer WaitIdle
+CreateBuffer CreateVertexArray CreatePipeline DestroyBuffer DeleteVertexArray DestroyPipeline""".split())
+# Buffers, vertex arrays and pipelines are made in the queue like everything else (a
+# game's HUD makes new buffers every frame: waiting for each was most of a frame), so the
+# handle given out here is not the device's own: these arguments are turned into it,
+# on the device thread, when the call is made.
+HANDLES = {"BindArrayBuffer": ["buffer"], "BindElementBuffer": ["buffer"], "UpdateBufferSubData": ["buffer"],
+           "ReallocateBuffer": ["buffer"], "MapBuffer": ["buffer"], "UnmapBuffer": ["buffer"],
+           "BindVertexArray": ["vao"], "BindPipeline": ["pipeline"]}
 # what a queued call points at, and how many bytes of it there are
 COPIES = {"UpdateUniformBuffer": ("data", "sizeBytes"), "ReplaceUniformBuffer": ("data", "sizeBytes"),
           "ReallocateBuffer": ("data", "length"), "UpdateBufferSubData": ("data", "length"),
@@ -97,10 +105,17 @@ def main():
                     pre += "\t\tconst void* %s_ = %s ? Keep(%s, (size_t)(%s)) : NULL;\n" % (n, n, n, copy[1])
                     caps.append("%s_" % n)
                     args.append("(%s)%s_" % (t, n) if "f32" in t or "int32" in t else "%s_" % n)
+                elif n in HANDLES.get(name, []):
+                    caps.append(n)
+                    if "self = this" not in caps: caps.append("self = this")
+                    args.append("self->RealOf(%s)" % n)
                 else:
                     caps.append("%s = %s(%s)" % (n, decayed(t), n) if t.strip().endswith("&") else n)
                     args.append(n)
             body.append(head + pre + "\t\tPush([%s]() { dev_->%s(%s); });\n\t}\n" % (", ".join(caps), name, ", ".join(args)))
+        elif name in HANDLES:
+            call2 = ", ".join(("RealOf(%s)" % n) if n in HANDLES[name] else n for _, n in plist)
+            body.append(head + "\t\tDrain(\"%s\");\n\t\t%sreal->%s(%s);\n\t}\n" % (name, "" if ret == "void" else "return ", name, call2))
         else:
             body.append(head + "\t\t%sDrain(\"%s\");\n\t\t%sreal->%s(%s);\n\t}\n" % ("const_cast<ThreadedRenderDevice*>(this)->" if const else "", name, "" if ret == "void" else "return ", name, call))
     outdir_h = os.path.join(ROOT, "include/Pyros3D/Rendering/Device")
