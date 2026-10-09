@@ -14,6 +14,8 @@
 #include <Pyros3D/Ext/stb/stb_image.h>
 
 #include <algorithm>
+#include <map>
+#include <mutex>
 #include <cmath>
 
 namespace p3d {
@@ -49,6 +51,31 @@ namespace p3d {
 		}
 	}
 
+	namespace {
+		// A patch image is one small picture shared by every tile of every
+		// layer that names it, read from any thread that grows foliage.
+		std::shared_ptr<const PaintableImage> PatchImage(const std::string &path)
+		{
+			static std::mutex guard;
+			static std::map<std::string, std::shared_ptr<const PaintableImage> > loaded;
+			std::lock_guard<std::mutex> lock(guard);
+			std::map<std::string, std::shared_ptr<const PaintableImage> >::iterator it = loaded.find(path);
+			if (it != loaded.end()) return it->second;
+			std::shared_ptr<PaintableImage> image = std::make_shared<PaintableImage>();
+			std::shared_ptr<const PaintableImage> kept;
+			if (image->Load(path, 4)) kept = image;
+			else echo("WARNING: Foliage - could not read the patch map " + path);
+			loaded[path] = kept;
+			return kept;
+		}
+		inline f32 Wrapped(const f32 v) { return v - std::floor(v); }
+		inline f32 Smooth(const f32 a, const f32 b, const f32 x)
+		{
+			const f32 t = std::min(std::max((x - a) / std::max(b - a, 1e-6f), 0.f), 1.f);
+			return t * t * (3.f - 2.f * t);
+		}
+	}
+
 	void PreparedFoliageLayer::Generate(const HeightfieldData &ground, const FoliageLayerSpec &spec,
 		const std::string &densityMapPath, PreparedFoliageLayer &out)
 	{
@@ -64,6 +91,8 @@ namespace p3d {
 		if (ground.samples < 2 || spec.density <= 0.f || spec.blockSize <= 0.f) return;
 
 		const bool haveMap = densityMap && densityMap->width > 0;
+		std::shared_ptr<const PaintableImage> patches;
+		if (spec.patchSize > 0.f && !spec.patchMapPath.empty()) patches = PatchImage(spec.patchMapPath);
 		const f32 cosMaxSlope = std::cos(spec.maxSlopeDegrees * (f32)M_PI / 180.f);
 		const uint32 perSide = (uint32)std::ceil(ground.size / spec.blockSize);
 
@@ -91,6 +120,14 @@ namespace p3d {
 					const f32 z = z0 + Unit(Hash(h0 + 1u)) * d;
 					if (haveMap && Unit(Hash(h0 + 2u)) >= densityMap->Sample(x / ground.size, z / ground.size, 0)) continue;
 					if (ground.IsHoleAt(x, z)) continue;	// nothing grows over a hole
+					f32 patchShade = -1.f;
+					if (patches)
+					{
+						const f32 u = Wrapped((spec.patchOriginX + x) / spec.patchSize), v = Wrapped((spec.patchOriginZ + z) / spec.patchSize);
+						const f32 keep = 1.f - (1.f - spec.patchKeep) * Smooth(spec.patchFrom, spec.patchTo, patches->Sample(u, v, 1));
+						if (keep < 1.f && Unit(Hash(h0 + 5u)) >= keep) continue;
+						patchShade = Smooth(0.25f, 0.75f, patches->Sample(u, v, 0));
+					}
 					const f32 y = ground.HeightAt(x, z);
 					if (y < spec.minHeight || y > spec.maxHeight) continue;
 					const Vec3 n = GroundNormal(ground, x, z);
@@ -100,7 +137,7 @@ namespace p3d {
 					normals.push_back(n);
 					scales.push_back(spec.minScale + r * (spec.maxScale - spec.minScale));
 					yaws.push_back(Unit(Hash(h0 + 4u)) * 2.f * (f32)M_PI);
-					shades.push_back(r);
+					shades.push_back(patchShade < 0.f ? r : r + (patchShade - r) * spec.patchTint);
 					minY = std::min(minY, y);
 					maxY = std::max(maxY, y);
 				}

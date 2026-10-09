@@ -583,6 +583,11 @@ namespace p3d {
 		j["lodDistance"] = s.lodDistance; j["castShadows"] = s.castShadows;
 		if (s.thinDensity < 1.f) { j["thinFrom"] = s.thinFrom; j["thinTo"] = s.thinTo; j["thinDensity"] = s.thinDensity; }
 		if (!s.densityMap.empty()) j["densityMap"] = RelativizeSceneAssetPath(s.densityMap);
+		if (!s.patchMap.empty())
+		{
+			j["patchMap"] = RelativizeSceneAssetPath(s.patchMap); j["patchSize"] = s.patchSize;
+			j["patchFrom"] = s.patchFrom; j["patchTo"] = s.patchTo; j["patchKeep"] = s.patchKeep; j["patchTint"] = s.patchTint;
+		}
 		return j;
 	}
 
@@ -608,6 +613,14 @@ namespace p3d {
 		s.thinDensity = std::min(1.f, std::max(0.05f, j.value("thinDensity", s.thinDensity)));
 		s.castShadows = j.value("castShadows", s.castShadows);
 		s.densityMap = j.value("densityMap", std::string());
+		s.patchMap = j.value("patchMap", std::string());
+		s.patchSize = std::max(0.f, j.value("patchSize", s.patchSize));
+		s.patchFrom = j.value("patchFrom", s.patchFrom);
+		s.patchTo = std::max(s.patchFrom, j.value("patchTo", s.patchTo));
+		s.patchKeep = std::min(1.f, std::max(0.f, j.value("patchKeep", s.patchKeep)));
+		s.patchTint = std::min(1.f, std::max(0.f, j.value("patchTint", s.patchTint)));
+		if (j.contains("patchOrigin") && j["patchOrigin"].is_array() && j["patchOrigin"].size() >= 2)
+		{ s.patchOriginX = j["patchOrigin"][0].get<f32>(); s.patchOriginZ = j["patchOrigin"][1].get<f32>(); }
 		return s;
 	}
 
@@ -3445,6 +3458,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					}
 
 					if (!layer.spec.densityMap.empty()) layer.densityMapPath = ResolveSceneAssetPath(layer.spec.densityMap);
+					if (!layer.spec.patchMap.empty()) layer.spec.patchMapPath = ResolveSceneAssetPath(layer.spec.patchMap);
 					std::shared_ptr<PreparedFoliageLayer> prepared = AssetBundle::TakeFoliage(FoliageKey(tilePath, lj));
 					if (!prepared)
 					{
@@ -4212,7 +4226,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (!ground || !foliage[f].second->contains("layers") || !(*foliage[f].second)["layers"].is_array()) continue;
 			for (const auto &lj : (*foliage[f].second)["layers"])
 			{
-				const FoliageLayerSpec ls = FoliageSpecFromJson(lj);
+				FoliageLayerSpec ls = FoliageSpecFromJson(lj);
+				if (!ls.patchMap.empty()) ls.patchMapPath = ResolveSceneAssetPathIn(assetRoot, ls.patchMap);
 				std::shared_ptr<PreparedFoliageLayer> layer = std::make_shared<PreparedFoliageLayer>();
 				PreparedFoliageLayer::Generate(*ground, ls,
 					ls.densityMap.empty() ? std::string() : ResolveSceneAssetPathIn(assetRoot, ls.densityMap), *layer);

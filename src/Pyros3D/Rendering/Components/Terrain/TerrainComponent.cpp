@@ -321,6 +321,8 @@ namespace p3d {
 				{
 					// The same field on every tile would read as a pattern.
 					layer["seed"] = layer.value("seed", 1u) + (uint32)(z * s.tilesX + x) * 7919u;
+					// Its patches carry on from the next tile's: where this one's corner is.
+					layer["patchOrigin"] = { (x - 0.5f * s.tilesX) * s.tileSize, (z - 0.5f * s.tilesZ) * s.tileSize };
 					// A layer painted on this tile has its map next to the
 					// tile's heightmap; one never painted grows everywhere.
 					const std::string name = layer.value("name", std::string());

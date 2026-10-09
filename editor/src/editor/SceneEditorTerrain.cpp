@@ -47,7 +47,9 @@ namespace {
 		return a.density != b.density || a.blockSize != b.blockSize || a.minScale != b.minScale || a.maxScale != b.maxScale
 			|| a.tintLow != b.tintLow || a.tintHigh != b.tintHigh || a.maxSlopeDegrees != b.maxSlopeDegrees
 			|| a.minHeight != b.minHeight || a.maxHeight != b.maxHeight || a.alignToGround != b.alignToGround
-			|| a.sink != b.sink || a.seed != b.seed || a.densityMap != b.densityMap;
+			|| a.sink != b.sink || a.seed != b.seed || a.densityMap != b.densityMap
+			|| a.patchMap != b.patchMap || a.patchSize != b.patchSize || a.patchFrom != b.patchFrom || a.patchTo != b.patchTo
+			|| a.patchKeep != b.patchKeep || a.patchTint != b.patchTint;
 	}
 
 	json SpecJson(const FoliageLayerSpec &s)
@@ -61,8 +63,13 @@ namespace {
 			{ "alignToGround", s.alignToGround }, { "sink", s.sink }, { "seed", s.seed },
 			{ "fullDistance", s.fullDistance }, { "fadeDistance", s.fadeDistance }, { "shadowDistance", s.shadowDistance },
 			{ "lodDistance", s.lodDistance }, { "castShadows", s.castShadows }, { "densityMap", s.densityMap },
-			{ "thinFrom", s.thinFrom }, { "thinTo", s.thinTo }, { "thinDensity", s.thinDensity } };
+			{ "thinFrom", s.thinFrom }, { "thinTo", s.thinTo }, { "thinDensity", s.thinDensity },
+			{ "patchMap", s.patchMap }, { "patchSize", s.patchSize }, { "patchFrom", s.patchFrom }, { "patchTo", s.patchTo },
+			{ "patchKeep", s.patchKeep }, { "patchTint", s.patchTint } };
 	}
+
+	// The open project's folder: what a layer's patch map is named from.
+	std::string g_specAssetRoot;
 
 	// The keys set_foliage_layer takes - the scene file's own names.
 	void PatchSpec(FoliageLayerSpec &s, const json &j)
@@ -92,6 +99,16 @@ namespace {
 		s.thinFrom = std::max(0.f, j.value("thinFrom", s.thinFrom));
 		s.thinTo = std::max(s.thinFrom, j.value("thinTo", s.thinTo));
 		s.thinDensity = std::min(1.f, std::max(0.05f, j.value("thinDensity", s.thinDensity)));
+		if (j.contains("patchMap") && j["patchMap"].is_string() && j["patchMap"].get<std::string>() != s.patchMap)
+		{
+			s.patchMap = j["patchMap"].get<std::string>();
+			s.patchMapPath = (s.patchMap.empty() || g_specAssetRoot.empty()) ? std::string() : g_specAssetRoot + "/" + s.patchMap;
+		}
+		s.patchSize = std::max(0.f, j.value("patchSize", s.patchSize));
+		s.patchFrom = j.value("patchFrom", s.patchFrom);
+		s.patchTo = std::max(s.patchFrom, j.value("patchTo", s.patchTo));
+		s.patchKeep = std::min(1.f, std::max(0.f, j.value("patchKeep", s.patchKeep)));
+		s.patchTint = std::min(1.f, std::max(0.f, j.value("patchTint", s.patchTint)));
 	}
 
 	// What the foliage and material commands edit inside an object's
@@ -198,7 +215,7 @@ TerrainTools &SceneEditor::Terrain()
 	if (!terrainTools) terrainTools.reset(new TerrainTools());
 	// Where the scene's relative map paths resolve - asked for on every use,
 	// since the project can change under a live SceneEditor.
-	if (project && project->IsOpen()) terrainTools->SetAssetRoot(project->GetProjectPath());
+	if (project && project->IsOpen()) { terrainTools->SetAssetRoot(project->GetProjectPath()); g_specAssetRoot = project->GetProjectPath(); }
 	// Set here for the same reason: ResetScene() starts the brushes over,
 	// and the world they must ask is whichever one is open now.
 	SceneEditor* self = this;
@@ -397,7 +414,7 @@ bool SceneEditor::SaveTerrain()
 				int32 x, z;
 				if (terrains[t]->TileOf(owners[i], x, z)) written[terrains[t]].push_back(std::make_pair(x, z));
 			}
-		if (project && project->IsOpen()) terrainTools->SetAssetRoot(project->GetProjectPath());
+		if (project && project->IsOpen()) { terrainTools->SetAssetRoot(project->GetProjectPath()); g_specAssetRoot = project->GetProjectPath(); }
 		if (!terrainTools->Save())
 		{
 			echo("ERROR: saving terrain - a heightmap, splat or density map could not be written");
@@ -1658,6 +1675,15 @@ void SceneEditor::DrawFoliageProperties(GameObject* go, uint32 goId)
 			if (ImGui::Checkbox("Cast shadows", &shadows)) { s.castShadows = shadows; immediate(true); }
 			s.fadeDistance = std::max(s.fadeDistance, s.fullDistance);
 			ImGui::TextDisabled("Density map: %s", s.densityMap.empty() ? "(none - paint with the Foliage brush)" : s.densityMap.c_str());
+			ImGui::TextDisabled("Patches");
+			ImGui::TextDisabled("Map: %s", s.patchMap.empty() ? "(none - set \"patchMap\" with set_foliage_layer)" : s.patchMap.c_str());
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("An image repeated over the ground: its red says where plants take the\nhigh tint and where the low, its green where they are thinned.\nA ground shader reading the same image has its bare earth under the gaps.");
+			ImGui::DragFloat("Repeats every", &s.patchSize, 1.f, 0.f, 5000.f, "%.0f m"); track();
+			ImGui::SliderFloat("Thin from", &s.patchFrom, 0.f, 1.f, "%.2f"); track();
+			ImGui::SliderFloat("Thinned by##patch", &s.patchTo, 0.f, 1.f, "%.2f"); track();
+			ImGui::SliderFloat("Kept in a patch", &s.patchKeep, 0.f, 1.f, "%.2f"); track();
+			ImGui::SliderFloat("Tint by patch", &s.patchTint, 0.f, 1.f, "%.2f"); track();
+			s.patchTo = std::max(s.patchTo, s.patchFrom);
 			if (ImGui::SmallButton("Remove Layer")) removeLayer = (int)i;
 			if (dynamic_cast<Model*>(layer.mesh.get()))
 			{

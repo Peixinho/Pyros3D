@@ -65,6 +65,24 @@ namespace p3d {
 		bool castShadows = true;
 		// Optional greyscale PNG over the tile (0..1 = keep probability).
 		std::string densityMap;
+		// Patches. An image laid over the ground, repeating every patchSize
+		// metres (0: none), by which a field stops being one even carpet:
+		//   red    which end of the tint a plant takes - patchTint of its
+		//          shade comes from here and the rest stays its own, so
+		//          the field is lighter in places and darker in others;
+		//   green  where plants are thinned: none taken at patchFrom or
+		//          under, patchKeep of them left at patchTo and over.
+		// A ground shader that reads the same image at the same size has
+		// its bare earth where the plants thin and its tone where they turn.
+		// patchOrigin is where this ground's corner is in that pattern, so
+		// it carries across neighbouring tiles - a terrain sets it per tile;
+		// it is not saved. patchMapPath is patchMap resolved, by whoever
+		// builds the layer.
+		std::string patchMap, patchMapPath;
+		f32 patchSize = 0.f;
+		f32 patchFrom = 0.8f, patchTo = 0.9f, patchKeep = 0.15f;
+		f32 patchTint = 0.f;
+		f32 patchOriginX = 0.f, patchOriginZ = 0.f;
 	};
 
 	// One layer's instances, in blocks. Matrices are local to their block's
