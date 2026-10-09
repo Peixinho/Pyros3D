@@ -1,3 +1,6 @@
+#include <cstdlib>
+#include <cstdio>
+#include <chrono>
 //============================================================================
 // Name        : Shader.cpp
 // Author      : Duarte Peixinho
@@ -175,8 +178,24 @@ namespace p3d {
 		shaderString = text;
 	}
 
+	// PYROS_SHADER_TRACE=1: every program made, when, how long it took and what
+	// it was made with - a program made in the middle of a game is a frame held up.
+	namespace {
+		bool ShaderTrace() { static const bool on = std::getenv("PYROS_SHADER_TRACE") != NULL; return on; }
+		std::chrono::steady_clock::time_point g_shaderTraceStart = std::chrono::steady_clock::now();
+		thread_local std::chrono::steady_clock::time_point t_shaderBegan;
+		thread_local std::string t_shaderWith;
+	}
 	bool Shader::CompileShader(const uint32 type, std::string definitions, std::string *output)
 	{
+		if (ShaderTrace() && type == ShaderType::VertexShader)
+		{
+			t_shaderBegan = std::chrono::steady_clock::now();
+			t_shaderWith = definitions;
+			for (size_t i = 0; i < t_shaderWith.size(); i++) if (t_shaderWith[i] == '\n') t_shaderWith[i] = ' ';
+			size_t at;
+			while ((at = t_shaderWith.find("#define ")) != std::string::npos) t_shaderWith.erase(at, 8);
+		}
 		std::string shaderType;
 		uint32 shader;
 		switch (type) {
@@ -234,6 +253,10 @@ namespace p3d {
 	{
 		std::string LOG;
 		bool linked = Device().LinkProgram(shaderProgram, LOG);
+		if (ShaderTrace())
+			fprintf(stderr, "[shader] t=%.1f s: a program in %.1f ms, with: %s\n",
+				std::chrono::duration<f64>(std::chrono::steady_clock::now() - g_shaderTraceStart).count(),
+				std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t_shaderBegan).count(), t_shaderWith.substr(0, 300).c_str());
 		if (!linked)
 		{
 			echo(std::string(std::string("SHADER PROGRAM LINK ERROR: ") + LOG));

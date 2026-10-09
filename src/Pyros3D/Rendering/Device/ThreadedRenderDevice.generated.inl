@@ -209,7 +209,7 @@
 
 	void ThreadedRenderDevice::BindUniformBlockIfPresent(const uint32 program, const std::string & blockName, const uint32 bindingPoint, const DeviceHandle bufferHandle)
 	{
-		Push([dev_ = real, program, blockName = std::string(blockName), bindingPoint, bufferHandle]() { dev_->BindUniformBlockIfPresent(program, blockName, bindingPoint, bufferHandle); });
+		Push([dev_ = real, program, blockName = std::string(blockName), bindingPoint, bufferHandle, self = this]() { dev_->BindUniformBlockIfPresent(program, blockName, bindingPoint, self->RealOf(bufferHandle)); });
 	}
 
 	Matrix ThreadedRenderDevice::TranslateProjectionMatrix(const Matrix & projectionMatrix, const bool skipYFlip)
@@ -247,27 +247,16 @@
 		Push([dev_ = real, cmd, nativeDrawType, indexCount, instanceCount]() { dev_->DrawElementsInstanced(cmd, nativeDrawType, indexCount, instanceCount); });
 	}
 
-	DeviceHandle ThreadedRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
-	{
-		Drain("CreateUniformBuffer");
-		return real->CreateUniformBuffer(sizeBytes, bindingPoint);
-	}
-
 	void ThreadedRenderDevice::UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void * data)
 	{
 		const void* data_ = data ? Keep(data, (size_t)(sizeBytes)) : NULL;
-		Push([dev_ = real, buffer, offset, sizeBytes, data_]() { dev_->UpdateUniformBuffer(buffer, offset, sizeBytes, data_); });
+		Push([dev_ = real, buffer, self = this, offset, sizeBytes, data_]() { dev_->UpdateUniformBuffer(self->RealOf(buffer), offset, sizeBytes, data_); });
 	}
 
 	void ThreadedRenderDevice::ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void * data)
 	{
 		const void* data_ = data ? Keep(data, (size_t)(sizeBytes)) : NULL;
-		Push([dev_ = real, buffer, sizeBytes, data_]() { dev_->ReplaceUniformBuffer(buffer, sizeBytes, data_); });
-	}
-
-	void ThreadedRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)
-	{
-		Push([dev_ = real, buffer]() { dev_->DestroyUniformBuffer(buffer); });
+		Push([dev_ = real, buffer, self = this, sizeBytes, data_]() { dev_->ReplaceUniformBuffer(self->RealOf(buffer), sizeBytes, data_); });
 	}
 
 	void ThreadedRenderDevice::ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void * data, const uint32 length)

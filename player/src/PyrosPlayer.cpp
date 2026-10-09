@@ -1,3 +1,4 @@
+#include <vector>
 //============================================================================
 // Name        : PyrosPlayer.cpp
 // Author      : Duarte Peixinho
@@ -553,6 +554,30 @@ end
 		const std::string title = PlayerManifestInstance().title.empty() ? std::string("Game") : PlayerManifestInstance().title;
 		char* pref = SDL_GetPrefPath("Pyros3D", title.c_str());
 		GenerateStoreBindings(&lua, pref ? std::string(pref) : std::string("."));
+		// The shader programs this game has needed before, made now and not in
+		// the middle of play: the list the game was built with
+		// (assets/shader_programs.txt) and what this machine's own runs have
+		// added to it since (kept in the player's folder).
+		{
+			static std::string learned;
+			learned = (pref ? std::string(pref) : std::string("./")) + "shader_programs.txt";
+			std::vector<uint32> known;
+			const std::string lists[2] = { std::string("assets/shader_programs.txt"), learned };
+			for (int l = 0; l < 2; l++)
+			{
+				std::ifstream in(lists[l].c_str());
+				uint32 options = 0;
+				while (in >> options) known.push_back(options);
+			}
+			if (std::getenv("PYROS_NO_SHADER_WARMUP") == NULL) GenericShaderMaterial::WarmPrograms(known);
+			static std::set<uint32> listed;
+			listed.insert(known.begin(), known.end());
+			GenericShaderMaterial::WhenProgramMade([](const uint32 options) {
+				if (!listed.insert(options).second) return;
+				std::ofstream out(learned.c_str(), std::ios::app);
+				out << options << "\n";
+			});
+		}
 		if (pref) SDL_free(pref);
 	}
 

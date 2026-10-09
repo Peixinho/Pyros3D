@@ -40,14 +40,17 @@ TemporalUpscalerId GetTextureDataSize BuildShaderSource GetSwapchainGeneration G
 # written by hand in the .cpp's fixed part
 SPECIAL = set("""BeginFrame EndFrame BindFramebuffer SetClearColor IsFrameInProgress GetCurrentRenderTarget BeginCommandBuffer WaitIdle
 CreateBuffer CreateVertexArray CreatePipeline DestroyBuffer DeleteVertexArray DestroyPipeline
-BeginParallelStream EnterParallelStream LeaveParallelStream""".split())
+BeginParallelStream EnterParallelStream LeaveParallelStream
+CreateUniformBuffer DestroyUniformBuffer""".split())
 # Buffers, vertex arrays and pipelines are made in the queue like everything else (a
 # game's HUD makes new buffers every frame: waiting for each was most of a frame), so the
 # handle given out here is not the device's own: these arguments are turned into it,
 # on the device thread, when the call is made.
 HANDLES = {"BindArrayBuffer": ["buffer"], "BindElementBuffer": ["buffer"], "UpdateBufferSubData": ["buffer"],
            "ReallocateBuffer": ["buffer"], "MapBuffer": ["buffer"], "UnmapBuffer": ["buffer"],
-           "BindVertexArray": ["vao"], "BindPipeline": ["pipeline"]}
+           "BindVertexArray": ["vao"], "BindPipeline": ["pipeline"],
+           # (uniform buffers too: a material makes its own the first time it is drawn)
+           "UpdateUniformBuffer": ["buffer"], "ReplaceUniformBuffer": ["buffer"], "BindUniformBlockIfPresent": ["bufferHandle"]}
 # what a queued call points at, and how many bytes of it there are
 COPIES = {"UpdateUniformBuffer": ("data", "sizeBytes"), "ReplaceUniformBuffer": ("data", "sizeBytes"),
           "ReallocateBuffer": ("data", "length"), "UpdateBufferSubData": ("data", "length"),

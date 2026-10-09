@@ -11,9 +11,14 @@
 #include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <map>
+#include <cstdlib>
+#include <cstdio>
+#include <vector>
+#include <algorithm>
 #include <string>
 #include <chrono>
 #include <filesystem>
@@ -30,8 +35,80 @@ namespace p3d {
 		if (clear.valid()) clear();
 	}
 
+	// PYROS_LUA_PROFILE=1: where the scripts' time goes. Every call a script
+	// makes and every return is timed, and each function - a script's own, by
+	// file and line, or one of the engine's it calls, by name - is given the
+	// time spent in it and not in what it called. The busiest are printed
+	// every twenty seconds, in milliseconds a frame. (It slows the scripts
+	// down by what timing every call costs: for comparing functions with one
+	// another, not for measuring the frame.)
+	namespace {
+		struct LuaOpen { std::string key; std::chrono::steady_clock::time_point start; f64 inside; };
+		std::map<lua_State*, std::vector<LuaOpen> > g_luaOpen;
+		std::map<std::string, f64> g_luaSelf;
+		std::map<std::string, uint64> g_luaCalls;
+		uint64 g_luaFrames = 0;
+		void LuaProfileHook(lua_State* L, lua_Debug* ar)
+		{
+			std::vector<LuaOpen> &open = g_luaOpen[L];
+			const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+			if (ar->event == LUA_HOOKRET || ar->event == LUA_HOOKTAILCALL)
+			{
+				if (!open.empty())
+				{
+					const LuaOpen o = open.back();
+					open.pop_back();
+					const f64 all = std::chrono::duration<f64, std::milli>(now - o.start).count();
+					g_luaSelf[o.key] += all - o.inside;
+					g_luaCalls[o.key]++;
+					if (!open.empty()) open.back().inside += all;
+				}
+				if (ar->event == LUA_HOOKRET) return;
+			}
+			if (open.size() > 200) return;
+			LuaOpen o;
+			o.start = now; o.inside = 0.0;
+			if (lua_getinfo(L, "Sn", ar))
+			{
+				char key[200];
+				if (ar->what && ar->what[0] == 'C') snprintf(key, sizeof(key), "[engine] %s", ar->name ? ar->name : "?");
+				else
+				{
+					const char* file = ar->short_src;
+					for (const char* c = ar->short_src; *c; c++) if (*c == '/') file = c + 1;
+					snprintf(key, sizeof(key), "%s:%d %s", file, ar->linedefined, ar->name ? ar->name : "");
+				}
+				o.key = key;
+			}
+			open.push_back(o);
+		}
+		void LuaProfileTick(lua_State* L)
+		{
+			static const bool on = std::getenv("PYROS_LUA_PROFILE") != NULL;
+			if (!on) return;
+			static std::map<lua_State*, bool> hooked;
+			if (!hooked[L]) { hooked[L] = true; lua_sethook(L, LuaProfileHook, LUA_MASKCALL | LUA_MASKRET, 0); }
+			// (between frames nothing of a script is running: what an error left open is dropped)
+			for (std::map<lua_State*, std::vector<LuaOpen> >::iterator i = g_luaOpen.begin(); i != g_luaOpen.end(); ++i) i->second.clear();
+			g_luaFrames++;
+			static std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+			if (std::chrono::duration<f64>(std::chrono::steady_clock::now() - last).count() < 20.0) return;
+			last = std::chrono::steady_clock::now();
+			std::vector<std::pair<f64, std::string> > top;
+			f64 total = 0.0;
+			for (std::map<std::string, f64>::iterator i = g_luaSelf.begin(); i != g_luaSelf.end(); ++i) { top.push_back(std::make_pair(i->second, i->first)); total += i->second; }
+			std::sort(top.rbegin(), top.rend());
+			fprintf(stderr, "[lua profile] %.3f ms a frame in scripts, over %llu frames; by function, its own time:\n", total / (f64)g_luaFrames, (unsigned long long)g_luaFrames);
+			for (size_t i = 0; i < top.size() && i < 36; i++)
+				fprintf(stderr, "[lua profile]   %.4f ms  %5.1f%%  %6.1f calls a frame  %s\n", top[i].first / (f64)g_luaFrames, 100.0 * top[i].first / total,
+					(f64)g_luaCalls[top[i].second] / (f64)g_luaFrames, top[i].second.c_str());
+			g_luaSelf.clear(); g_luaCalls.clear(); g_luaFrames = 0;
+		}
+	}
+
 	void LuaCollectWithinBudget(sol::state* lua, const f64 budgetMs)
 	{
+		if (lua != NULL) LuaProfileTick(lua->lua_state());
 		static const bool automatic = []() { const char* v = std::getenv("PYROS_LUA_GC"); return v != NULL && std::string(v) == "auto"; }();
 		if (lua == NULL) return;
 		// (this is the scripts' once-a-frame housekeeping: what they have
@@ -275,6 +352,55 @@ end
 		// between calls, until terrain.finishStroke().
 		{
 			static TerrainEditor editor;
+			// Ways across a grid, found on the job system (PathGrid):
+			//   local grid = pathGrid.new(rows)        rows: one string a row, a character a cell,
+			//                                          '0' cannot be crossed, '1'..'9' what it costs
+			//   local ticket = grid:request(si, sj, ti, tj [, maxCells])     cells count from 0
+			//   grid:poll(ticket)     nil: not yet. false: no way. Otherwise the way, start to
+			//                         goal, each cell as j * width + i
+			//   grid:cancel(ticket)   grid:cost(i, j)   grid:width()   grid:height()
+			lua->new_usertype<PathGrid>("PathGrid", sol::no_constructor,
+				"request", [](PathGrid &g, const int32 si, const int32 sj, const int32 ti, const int32 tj, sol::optional<uint32> maxCells) {
+					return g.Request(si, sj, ti, tj, maxCells.value_or(60000u));
+				},
+				"poll", [](PathGrid &g, const uint32 ticket, sol::this_state L) -> sol::object {
+					std::vector<uint32> cells;
+					const uint32 state = g.Poll(ticket, cells);
+					if (state == PathGrid::Pending) return sol::make_object(L, sol::lua_nil);
+					if (state != PathGrid::Found) return sol::make_object(L, false);
+					sol::state_view lv(L);
+					sol::table out = lv.create_table((int)cells.size(), 0);
+					for (size_t i = 0; i < cells.size(); i++) out[i + 1] = cells[i];
+					return out;
+				},
+				"cancel", &PathGrid::Cancel,
+				"cost", &PathGrid::Cost,
+				"width", &PathGrid::Width,
+				"height", &PathGrid::Height
+			);
+			{
+				sol::table pathGrid = lua->create_named_table("pathGrid");
+				pathGrid.set_function("new", [](sol::table rows) -> std::shared_ptr<PathGrid> {
+					const uint32 h = (uint32)rows.size();
+					uint32 w = 0;
+					std::vector<std::string> text(h);
+					for (uint32 j = 0; j < h; j++)
+					{
+						sol::optional<std::string> row = rows[j + 1];
+						if (row) text[j] = *row;
+						w = std::max(w, (uint32)text[j].size());
+					}
+					std::vector<uint8> cost((size_t)w * h, 0);
+					for (uint32 j = 0; j < h; j++)
+					{
+						const std::string &row = text[j];
+						for (size_t i = 0; i < row.size(); i++)
+							cost[(size_t)j * w + i] = (row[i] >= '0' && row[i] <= '9') ? (uint8)(row[i] - '0') : (uint8)0;
+					}
+					return std::make_shared<PathGrid>(w, h, cost);
+				});
+			}
+
 			sol::table terrain = lua->create_named_table("terrain");
 			// terrain.bakeShadows(scene [, resolution, reach]) works the terrain's
 			// own shadow out now (TerrainHorizon) and has the scene use it - what

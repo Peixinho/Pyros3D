@@ -327,6 +327,16 @@ namespace p3d {
 		Push([this, given, d = PipelineDesc(desc)]() { realOf[given] = real->CreatePipeline(d); });
 		return given;
 	}
+	DeviceHandle ThreadedRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
+	{
+		const DeviceHandle given = nextGiven.fetch_add(1);
+		Push([this, given, sizeBytes, bindingPoint]() { realOf[given] = real->CreateUniformBuffer(sizeBytes, bindingPoint); });
+		return given;
+	}
+	void ThreadedRenderDevice::DestroyUniformBuffer(const DeviceHandle buffer)
+	{
+		Push([this, buffer]() { real->DestroyUniformBuffer(RealOf(buffer)); realOf.erase(buffer); });
+	}
 	void ThreadedRenderDevice::DestroyBuffer(const DeviceHandle buffer)
 	{
 		Push([this, buffer]() { real->DestroyBuffer(RealOf(buffer)); realOf.erase(buffer); });

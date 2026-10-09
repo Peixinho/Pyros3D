@@ -17,6 +17,33 @@ namespace p3d
 	// Shaders List
 	std::map<uint32, Shader* > GenericShaderMaterial::ShadersList;
 
+	static std::string BuildShaderUsageDefines(const uint32 options);
+	namespace { void (*g_programMade)(const uint32) = NULL; bool g_warming = false; }
+	void GenericShaderMaterial::WhenProgramMade(void (*told)(const uint32 options)) { g_programMade = told; }
+	Shader* GenericShaderMaterial::BuildProgram(const uint32 options, bool &ok)
+	{
+		Shader* s = new Shader();
+		s->currentMaterials = 0;
+		s->LoadShaderFile("shaders/PyrosShader.glsl");
+		const std::string define = BuildShaderUsageDefines(options);
+		ok = s->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
+		ok = s->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str()) && ok;
+		ok = s->LinkProgram() && ok;
+		if (!g_warming && g_programMade != NULL) g_programMade(options);
+		return s;
+	}
+	void GenericShaderMaterial::WarmPrograms(const std::vector<uint32> &options)
+	{
+		g_warming = true;
+		for (size_t i = 0; i < options.size(); i++)
+			if (ShadersList.find(options[i]) == ShadersList.end())
+			{
+				bool ok = true;
+				ShadersList[options[i]] = BuildProgram(options[i], ok);
+			}
+		g_warming = false;
+	}
+
 	// Shared by the constructor and GetOrBuildGBufferProgram() - both need
 	// the exact same options-bitmask -> #define text, or the two compiled
 	// variants of "the same options" (with/without DeferredRenderer_Gbuffer
@@ -111,17 +138,8 @@ namespace p3d
 		// Find if Shader exists, if not, creates a new one
 		if (ShadersList.find(options) == ShadersList.end())
 		{
-			ShadersList[options] = new Shader();
-			ShadersList[options]->currentMaterials = 0;
-			//ShaderLib::BuildShader(options, ShadersList[options]);
-
-			ShadersList[options]->LoadShaderFile("shaders/PyrosShader.glsl");
-
-			const std::string define = BuildShaderUsageDefines(options);
-			ShadersList[options]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
-			ShadersList[options]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str());
-
-			ShadersList[options]->LinkProgram();
+			bool ok = true;
+			ShadersList[options] = BuildProgram(options, ok);
 		}
 
 		// Save Shader Location
@@ -385,11 +403,6 @@ namespace p3d
 		const uint32 gbufferOptions = shaderID | extraOptions;
 		if (ShadersList.find(gbufferOptions) == ShadersList.end())
 		{
-			ShadersList[gbufferOptions] = new Shader();
-			ShadersList[gbufferOptions]->currentMaterials = 0;
-			ShadersList[gbufferOptions]->LoadShaderFile("shaders/PyrosShader.glsl");
-
-			const std::string define = BuildShaderUsageDefines(gbufferOptions);
 			// Say so when this fails. The G-buffer sibling is the ONLY way an
 			// ordinary material's geometry reaches the G-buffer, so a failure
 			// here does not degrade - the mesh writes depth (occluding what is
@@ -397,9 +410,8 @@ namespace p3d
 			// the G-buffer for the lighting pass to light. Returning the
 			// handle regardless made that indistinguishable from "the object
 			// is simply unlit", which is a bad hour to spend.
-			bool ok = ShadersList[gbufferOptions]->CompileShader(ShaderType::VertexShader, (std::string("#define VERTEX\n") + define).c_str());
-			ok = ShadersList[gbufferOptions]->CompileShader(ShaderType::FragmentShader, (std::string("#define FRAGMENT\n") + define).c_str()) && ok;
-			ok = ShadersList[gbufferOptions]->LinkProgram() && ok;
+			bool ok = true;
+			ShadersList[gbufferOptions] = BuildProgram(gbufferOptions, ok);
 			if (!ok)
 				echo("ERROR: shader variant for material options " + std::to_string(gbufferOptions)
 					+ " failed to build - a G-buffer variant's meshes occlude but never light, an instanced one's do not draw.");

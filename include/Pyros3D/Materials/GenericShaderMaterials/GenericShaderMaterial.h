@@ -187,6 +187,19 @@ namespace p3d
 	protected:
 		// Shaders List
 		static std::map<uint32, Shader* > ShadersList;
+
+	public:
+		// A program is made the first time something needs one with its set of
+		// options - which, in the middle of a game, holds a frame up for as
+		// long as the device takes to make it (tens of milliseconds where the
+		// shader is compiled on the spot). WarmPrograms makes those given now,
+		// ahead of need; WhenProgramMade names a function told the options of
+		// every program made afterwards (so whoever runs the game can keep
+		// the list for next time).
+		static void WarmPrograms(const std::vector<uint32> &options);
+		static void WhenProgramMade(void (*told)(const uint32 options));
+	private:
+		static Shader* BuildProgram(const uint32 options, bool &ok);
 		// Save Shader Location on Shaders List
 		uint32 shaderID;
 

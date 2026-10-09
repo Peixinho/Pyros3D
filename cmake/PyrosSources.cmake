@@ -15,6 +15,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Console/Console.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Thread/Thread.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Jobs/JobSystem.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Navigation/PathGrid.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/LoadStats.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/AssetBundle.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/AssetStreamer.cpp
