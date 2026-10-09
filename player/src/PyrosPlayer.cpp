@@ -1036,6 +1036,15 @@ void PyrosPlayer::UnloadGameScene()
 	}
 	if (sceneMainScript) sceneMainScript->ResetLifecycle();
 	sceneMainScript.reset();
+	// ...and what they were listening for is theirs no longer. An Input a script
+	// made keeps calling its handlers until Lua collects it - and a handler is
+	// held by the engine, so anything it refers to (the script, and through it
+	// often the Input itself) is never collected at all. The level left for the
+	// menu went on hearing every key and the mouse: in the next match the old
+	// player's handler took the mouse's motion before the new one asked for it,
+	// and the view would not turn; the old guns fired; and a handler could call
+	// into what the scene had already taken apart. (The editor does this on Stop.)
+	LuaInputBridge::ClearAllCallbacks();
 #endif
 	// Its cells are in the scene; they go first, by the streamer's hand.
 	worldStreamer.reset();
