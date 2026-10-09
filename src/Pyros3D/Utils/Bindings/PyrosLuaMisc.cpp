@@ -131,6 +131,46 @@ namespace p3d {
 		}
 		if (automatic) return;
 		lua_State* L = lua->lua_state();
+		// PYROS_LUA_GC=gen: by generations instead of the way below (a whole cycle
+		// spread over frames within a budget). Tried as the rule and not kept:
+		// over two minutes it cost nothing where the cycles cost a quarter of a
+		// millisecond a frame, but over five the heap had grown to 28 MB where
+		// the cycles hold it at 18, the cost had come back (0.22 ms against
+		// 0.34) and one frame took 60 ms. Left to be tried again with a game
+		// whose scripts make less that lives a few frames.
+		{
+			static const bool steps = []() { const char* v = std::getenv("PYROS_LUA_GC"); return !(v != NULL && std::string(v) == "gen"); }();
+			if (!steps)
+			{
+				static std::map<lua_State*, f64> last;
+				std::map<lua_State*, f64>::iterator at = last.find(L);
+				if (at == last.end())
+				{
+#if LUA_VERSION_NUM >= 505
+					lua_gc(L, LUA_GCGEN);
+#else
+					lua_gc(L, LUA_GCGEN, 20, 100);
+#endif
+					lua_gc(L, LUA_GCSTOP);
+					at = last.insert(std::make_pair(L, (f64)lua_gc(L, LUA_GCCOUNT))).first;
+				}
+				const f64 kb = (f64)lua_gc(L, LUA_GCCOUNT);
+				FrameProfiler::Instance().Counter("Lua.HeapMb", kb / 1024.0);
+				uint32 collected = 0;
+				if (kb > at->second + 512.0)
+				{
+#if LUA_VERSION_NUM >= 505
+					lua_gc(L, LUA_GCSTEP, (size_t)0);
+#else
+					lua_gc(L, LUA_GCSTEP, 0);
+#endif
+					at->second = (f64)lua_gc(L, LUA_GCCOUNT);
+					collected = 1;
+				}
+				FrameProfiler::Instance().Counter("Lua.GcSteps", (f64)collected);
+				return;
+			}
+		}
 		// (per state: the one taken over, and how big its heap was when a
 		// cycle last finished)
 		static std::map<lua_State*, f64> afterCycleKb;
