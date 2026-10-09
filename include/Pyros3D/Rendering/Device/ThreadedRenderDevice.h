@@ -127,6 +127,8 @@ namespace p3d {
 		std::atomic<DeviceHandle> nextGiven;
 		std::unordered_map<DeviceHandle, DeviceHandle> realOf;      // the device thread's (and anybody's, with the queue dry)
 		bool trace = false;
+		bool upscaleAsked = false;
+		std::atomic<bool> upscaleWorked{ false };
 		uint32 drainsThisFrame = 0;
 	};
 

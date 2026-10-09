@@ -194,11 +194,14 @@ namespace p3d {
 		{
 			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 			done.wait(g, [this]() { return waiting.empty() && !working; });
-			if (trace && said.frameOpen)
+			// (between frames too: a script's update is not inside one, and what it
+			// asks of the device - a font's picture sent again - waits all the same)
+			if (trace)
 			{
 				static const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
-				drainsThisFrame++;
-				fprintf(stderr, "[device thread] t=%.1f s: waited %.2f ms for, inside a frame: %s\n", std::chrono::duration<f64>(t0 - began).count(), MsSince(t0), why);
+				if (said.frameOpen) drainsThisFrame++;
+				fprintf(stderr, "[device thread] t=%.1f s: waited %.2f ms for, %s: %s\n", std::chrono::duration<f64>(t0 - began).count(), MsSince(t0),
+					said.frameOpen ? "inside a frame" : "between frames", why);
 			}
 		}
 	}
@@ -332,6 +335,44 @@ namespace p3d {
 		const DeviceHandle given = nextGiven.fetch_add(1);
 		Push([this, given, d = PipelineDesc(desc)]() { realOf[given] = real->CreatePipeline(d); });
 		return given;
+	}
+	DeviceHandle ThreadedRenderDevice::CreateTextureObject()
+	{
+		const DeviceHandle given = nextGiven.fetch_add(1);
+		Push([this, given]() { realOf[given] = real->CreateTextureObject(); });
+		return given;
+	}
+	void ThreadedRenderDevice::DestroyTextureObject(const DeviceHandle texture)
+	{
+		Push([this, texture]() { real->DestroyTextureObject(RealOf(texture)); realOf.erase(texture); });
+	}
+	void ThreadedRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap)
+	{
+		// (the picture is kept until the upload is made)
+		const void* kept = data ? Keep(data, (size_t)real->GetTextureUploadSize(internalFormat, format, width, height)) : NULL;
+		Push([r = real, target, level, internalFormat, width, height, format, type, kept, willMipmap]() {
+			r->UploadTexture2D(target, level, internalFormat, width, height, format, type, kept, willMipmap);
+		});
+	}
+	// Every frame, where there is one: asked the first time, and afterwards
+	// queued like a draw - what it answered last is what it is taken to answer.
+	bool ThreadedRenderDevice::RunTemporalUpscale(const TemporalUpscale &frame)
+	{
+		if (!upscaleAsked)
+		{
+			Drain("RunTemporalUpscale");
+			TemporalUpscale f = frame;
+			f.color = RealOf(f.color); f.depth = RealOf(f.depth); f.motion = RealOf(f.motion); f.output = RealOf(f.output);
+			upscaleAsked = true;
+			upscaleWorked.store(real->RunTemporalUpscale(f));
+			return upscaleWorked.load();
+		}
+		if (!upscaleWorked.load()) return false;
+		Push([this, f = TemporalUpscale(frame)]() mutable {
+			f.color = RealOf(f.color); f.depth = RealOf(f.depth); f.motion = RealOf(f.motion); f.output = RealOf(f.output);
+			upscaleWorked.store(real->RunTemporalUpscale(f));
+		});
+		return true;
 	}
 	DeviceHandle ThreadedRenderDevice::CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint)
 	{

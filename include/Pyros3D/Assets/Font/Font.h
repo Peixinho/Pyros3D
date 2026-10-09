@@ -74,6 +74,7 @@ namespace p3d {
 
 		// See GetSpaceAdvance()/GetLineHeight()/GetAscender().
 		bool isSDF;
+		bool commonBaked = false;          // (see CreateText)
 		uint32 sdfSpread;
 		f32 spaceAdvance;
 		f32 lineHeight;

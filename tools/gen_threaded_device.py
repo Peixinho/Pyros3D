@@ -25,7 +25,7 @@ BindArrayBuffer BindElementBuffer SetVertexAttribute SetFloatVertexAttribute Dis
 BindUniformBlockIfPresent SetPointShadowCubeFacePass DrawArrays DrawElements DrawElementsInstanced UpdateUniformBuffer
 ReplaceUniformBuffer DestroyUniformBuffer ReallocateBuffer UpdateBufferSubData DestroyBuffer DestroyComputePipeline
 BindComputePipeline UpdateStorageBuffer BindStorageBuffer DestroyStorageBuffer Dispatch ComputeBarrier SendUniformInt
-SendUniformFloat SendUniformVec2 SendUniformVec3 SendUniformVec4 SendUniformMatrix DestroyTextureObject BindTextureToTarget
+SendUniformFloat SendUniformVec2 SendUniformVec3 SendUniformVec4 SendUniformMatrix BindTextureToTarget
 SetTextureWrapS SetTextureWrapT SetTextureWrapR SetTextureMagFilter SetTextureMinFilter SetTextureBaseMaxLevel
 SetTextureBorderColor SetTextureCompareMode SetPixelUnpackAlignment ActivateTextureUnit GenerateMipmap DestroyFramebuffer
 SetFramebufferPreserveDepth AttachFramebufferTexture2D AttachFramebufferRenderbuffer SetDrawBufferNone SetReadBufferNone
@@ -36,12 +36,13 @@ PURE = set("""TranslateBufferBit TranslateDrawType TranslateAttributeType Transl
 TranslateFramebufferAccess TranslateFramebufferAttachment TranslateFramebufferStatus TranslateRenderbufferFormat
 TranslateShadowBiasMatrix TranslateProjectionMatrix IsVulkan NeedsManualDisplayGamma RenderTargetOriginIsTopLeft
 SupportsCompute GetMaxComputeWorkGroupInvocations GetMaxComputeWorkGroupCount GetMaxSamples CanBlitResolveDepth
-TemporalUpscalerId GetTextureDataSize BuildShaderSource GetSwapchainGeneration GetUniformLocation GetAttributeLocation""".split())
+TemporalUpscalerId GetTextureDataSize GetTextureUploadSize GetAutoUniformBlockLayout IsProgram IsShaderStage BuildShaderSource GetSwapchainGeneration GetUniformLocation GetAttributeLocation""".split())
 # written by hand in the .cpp's fixed part
 SPECIAL = set("""BeginFrame EndFrame BindFramebuffer SetClearColor IsFrameInProgress GetCurrentRenderTarget BeginCommandBuffer WaitIdle
 CreateBuffer CreateVertexArray CreatePipeline DestroyBuffer DeleteVertexArray DestroyPipeline
 BeginParallelStream EnterParallelStream LeaveParallelStream
-CreateUniformBuffer DestroyUniformBuffer""".split())
+CreateUniformBuffer DestroyUniformBuffer
+CreateTextureObject DestroyTextureObject UploadTexture2D RunTemporalUpscale""".split())
 # Buffers, vertex arrays and pipelines are made in the queue like everything else (a
 # game's HUD makes new buffers every frame: waiting for each was most of a frame), so the
 # handle given out here is not the device's own: these arguments are turned into it,
@@ -50,7 +51,10 @@ HANDLES = {"BindArrayBuffer": ["buffer"], "BindElementBuffer": ["buffer"], "Upda
            "ReallocateBuffer": ["buffer"], "MapBuffer": ["buffer"], "UnmapBuffer": ["buffer"],
            "BindVertexArray": ["vao"], "BindPipeline": ["pipeline"],
            # (uniform buffers too: a material makes its own the first time it is drawn)
-           "UpdateUniformBuffer": ["buffer"], "ReplaceUniformBuffer": ["buffer"], "BindUniformBlockIfPresent": ["bufferHandle"]}
+           "UpdateUniformBuffer": ["buffer"], "ReplaceUniformBuffer": ["buffer"], "BindUniformBlockIfPresent": ["bufferHandle"],
+           # (and textures: one that arrives in the middle of a game is made, bound and filled without a wait)
+           "BindTextureToTarget": ["texture"], "AttachFramebufferTexture2D": ["textureId"],
+           "CopyDepthTexture": ["srcTexture", "dstTexture"], "GetImGuiTextureID": ["texture"]}
 # what a queued call points at, and how many bytes of it there are
 COPIES = {"UpdateUniformBuffer": ("data", "sizeBytes"), "ReplaceUniformBuffer": ("data", "sizeBytes"),
           "ReallocateBuffer": ("data", "length"), "UpdateBufferSubData": ("data", "length"),

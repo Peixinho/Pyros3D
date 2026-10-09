@@ -126,6 +126,7 @@
 		virtual void ActivateTextureUnit(const uint32 unit) override;
 		virtual void ReadTexturePixels(const uint32 target, const uint32 level, const uint32 format, const uint32 type, void * outBuffer) override;
 		virtual uint32 GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) override;
+		virtual uint32 GetTextureUploadSize(const uint32 nativeInternalFormat, const uint32 nativeFormat, const uint32 width, const uint32 height) override;
 		virtual DeviceHandle GetCurrentRenderTarget() override;
 		virtual DeviceHandle CreateFramebuffer() override;
 		virtual void DestroyFramebuffer(const DeviceHandle fbo) override;

@@ -1,3 +1,5 @@
+#include <cstdlib>
+#include <chrono>
 //============================================================================
 // Name        : Font.h
 // Author      : Duarte Peixinho
@@ -104,6 +106,19 @@ namespace p3d {
 
 	void Font::CreateText(const std::string& text)
 	{
+		// Every character a game is likely to print, the first time anything is
+		// asked of this font - while a scene loads, that is. A glyph the font
+		// has not drawn yet means its picture is sent to the device again, and
+		// with the device on its own thread that waited a frame out: a HUD's
+		// counter showing a digit for the first time held the game up for 15
+		// to 40 ms, every time a new digit came round.
+		if (!commonBaked)
+		{
+			commonBaked = true;
+			std::string common;
+			for (char c = 33; c < 127; c++) common += c;
+			CreateText(common);
+		}
 		/*
 			Get the bounding box
 			The methods described by the FT tutorials are bad for getting accurate offsets for some reason.

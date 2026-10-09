@@ -878,6 +878,10 @@ namespace p3d {
 		// quirks/rounding, e.g. RGB8 sizing as if 2 bytes/pixel not 3 -
 		// preserved as-is rather than "fixed" during this mechanical move).
 		virtual uint32 GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) = 0;
+		// How many bytes UploadTexture2D reads from `data` for these arguments
+		// (a device that widens three channels to four as it uploads reads
+		// three). For whoever has to keep the data until the upload is made.
+		virtual uint32 GetTextureUploadSize(const uint32 nativeInternalFormat, const uint32 nativeFormat, const uint32 width, const uint32 height) { (void)nativeFormat; return GetTextureDataSize(nativeInternalFormat, width, height); }
 
 		// Framebuffers/renderbuffers - engine enum params are
 		// FrameBuffer.h's FBOAccess::*/FrameBufferAttachmentFormat::*/

@@ -97,6 +97,11 @@ namespace p3d {
 
 	void ILightComponent::ReleaseShadowResources()
 	{
+		// (a light that never cast a shadow has nothing to let go of - and
+		// every light there is comes through here when it goes: a lamp in a
+		// part of the map being left behind, a muzzle flash. Waiting for the
+		// device each time held the game up for a frame's length and more.)
+		if (!shadowsFBO && !ShadowMap) return;
 		// See the header. Nothing is bound at this point, but the GPU may
 		// still be reading these from an earlier submission.
 		if (IsActiveRenderDeviceSet())

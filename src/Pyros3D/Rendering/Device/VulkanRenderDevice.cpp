@@ -6142,6 +6142,12 @@ namespace p3d {
 	// the same per-format table UploadTexture2D() already trusts for
 	// upload sizing, instead of a second, format-blind assumption.
 	uint32 VulkanRenderDevice::GetTextureDataSize(const uint32 nativeInternalFormat, const uint32 width, const uint32 height) { return width * height * BytesPerTexelVk((VkFormat)nativeInternalFormat); }
+	uint32 VulkanRenderDevice::GetTextureUploadSize(const uint32 nativeInternalFormat, const uint32 nativeFormat, const uint32 width, const uint32 height)
+	{
+		// (three channels in the caller's buffer, widened to four here: UploadTexture2D)
+		const uint32 stored = width * height * BytesPerTexelVk((VkFormat)nativeInternalFormat);
+		return nativeFormat == VULKAN_UPLOAD_PAD_RGB_TO_RGBA ? stored / 4 * 3 : stored;
+	}
 
 	// See IRenderDevice.h's comment - this is what
 	// RenderingMesh::PipelineCache keys on, in addition to shader, to

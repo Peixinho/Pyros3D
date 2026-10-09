@@ -399,13 +399,11 @@
 
 	bool ThreadedRenderDevice::IsProgram(const DeviceHandle id)
 	{
-		Drain("IsProgram");
 		return real->IsProgram(id);
 	}
 
 	bool ThreadedRenderDevice::IsShaderStage(const DeviceHandle id)
 	{
-		Drain("IsShaderStage");
 		return real->IsShaderStage(id);
 	}
 
@@ -483,29 +481,12 @@
 	void * ThreadedRenderDevice::GetImGuiTextureID(const DeviceHandle texture, const uint32 engineTextureType)
 	{
 		Drain("GetImGuiTextureID");
-		return real->GetImGuiTextureID(texture, engineTextureType);
-	}
-
-	DeviceHandle ThreadedRenderDevice::CreateTextureObject()
-	{
-		Drain("CreateTextureObject");
-		return real->CreateTextureObject();
-	}
-
-	void ThreadedRenderDevice::DestroyTextureObject(const DeviceHandle texture)
-	{
-		Push([dev_ = real, texture]() { dev_->DestroyTextureObject(texture); });
+		return real->GetImGuiTextureID(RealOf(texture), engineTextureType);
 	}
 
 	void ThreadedRenderDevice::BindTextureToTarget(const uint32 target, const DeviceHandle texture)
 	{
-		Push([dev_ = real, target, texture]() { dev_->BindTextureToTarget(target, texture); });
-	}
-
-	void ThreadedRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void * data, const bool willMipmap)
-	{
-		Drain("UploadTexture2D");
-		real->UploadTexture2D(target, level, internalFormat, width, height, format, type, data, willMipmap);
+		Push([dev_ = real, target, texture, self = this]() { dev_->BindTextureToTarget(target, self->RealOf(texture)); });
 	}
 
 	void ThreadedRenderDevice::UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height)
@@ -580,6 +561,11 @@
 		return real->GetTextureDataSize(nativeInternalFormat, width, height);
 	}
 
+	uint32 ThreadedRenderDevice::GetTextureUploadSize(const uint32 nativeInternalFormat, const uint32 nativeFormat, const uint32 width, const uint32 height)
+	{
+		return real->GetTextureUploadSize(nativeInternalFormat, nativeFormat, width, height);
+	}
+
 	DeviceHandle ThreadedRenderDevice::CreateFramebuffer()
 	{
 		Drain("CreateFramebuffer");
@@ -608,7 +594,7 @@
 
 	void ThreadedRenderDevice::AttachFramebufferTexture2D(const uint32 nativeAttachmentFormat, const uint32 nativeTextureTarget, const uint32 textureId, const bool wasAlreadyBound)
 	{
-		Push([dev_ = real, nativeAttachmentFormat, nativeTextureTarget, textureId, wasAlreadyBound]() { dev_->AttachFramebufferTexture2D(nativeAttachmentFormat, nativeTextureTarget, textureId, wasAlreadyBound); });
+		Push([dev_ = real, nativeAttachmentFormat, nativeTextureTarget, textureId, self = this, wasAlreadyBound]() { dev_->AttachFramebufferTexture2D(nativeAttachmentFormat, nativeTextureTarget, self->RealOf(textureId), wasAlreadyBound); });
 	}
 
 	void ThreadedRenderDevice::AttachFramebufferRenderbuffer(const uint32 nativeAttachmentFormat, const DeviceHandle renderbuffer)
@@ -708,19 +694,12 @@
 		return real->TemporalUpscalerId();
 	}
 
-	bool ThreadedRenderDevice::RunTemporalUpscale(const TemporalUpscale & frame)
-	{
-		Drain("RunTemporalUpscale");
-		return real->RunTemporalUpscale(frame);
-	}
-
 	void ThreadedRenderDevice::CopyDepthTexture(const DeviceHandle srcTexture, const DeviceHandle dstTexture, const uint32 width, const uint32 height)
 	{
-		Push([dev_ = real, srcTexture, dstTexture, width, height]() { dev_->CopyDepthTexture(srcTexture, dstTexture, width, height); });
+		Push([dev_ = real, srcTexture, self = this, dstTexture, width, height]() { dev_->CopyDepthTexture(self->RealOf(srcTexture), self->RealOf(dstTexture), width, height); });
 	}
 
 	bool ThreadedRenderDevice::GetAutoUniformBlockLayout(const uint32 program, const uint32 engineShaderType, uint32 & outBinding, std::string & outBlockName, uint32 & outSize, std::map<std::string, uint32> & outOffsets)
 	{
-		Drain("GetAutoUniformBlockLayout");
 		return real->GetAutoUniformBlockLayout(program, engineShaderType, outBinding, outBlockName, outSize, outOffsets);
 	}
