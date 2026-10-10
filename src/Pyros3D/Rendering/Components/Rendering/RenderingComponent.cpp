@@ -67,7 +67,7 @@ namespace p3d {
 			if (m == NULL) continue;
 			m->DrawSkinningBones = m->SkinningBones;
 			m->DrawShadowSkinningBones = m->ShadowSkinningBones;
-			m->DrawBonesTaken = true;
+			m->DrawBonesTakenAt = GameObject::s_drawEpoch;
 			m->DrawBoneSlot = -1;
 		}
 		g_bonesForDraw.clear();

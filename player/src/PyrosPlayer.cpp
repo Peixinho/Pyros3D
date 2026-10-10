@@ -539,6 +539,10 @@ end
 	lua.set_function("setAutoRenderScale", [this](const f32 fps, sol::optional<f32> lo, sol::optional<f32> hi) {
 		SetAutoRenderScale(fps, lo ? *lo : 0.4f, hi ? *hi : 1.f);
 	});
+	// setFrameSplit(true): a frame's scene is recorded by another thread while this
+	// one runs the next frame's game logic. getFrameSplit(): whether it is asked for.
+	lua.set_function("setFrameSplit", [this](const bool on) { frameSplitWanted = on; });
+	lua.set_function("getFrameSplit", [this]() { return frameSplitWanted; });
 	lua.set_function("getRenderSize", [this]() { return std::make_tuple((int)RenderWidth(), (int)RenderHeight()); });
 	lua.set_function("quitGame", [this]() { Close(); });
 	// The whole screen, or a window: the desktop's own resolution, so nothing about the
@@ -1649,6 +1653,20 @@ void PyrosPlayer::Update()
 	// and presented a second frame holding only the HUD over black - every
 	// game with a HUD flickered.
 	if (frameInFlight) FinishFrameInFlight();
+	{
+		// (no frame is in flight here: the one place the setting may change)
+		static const char* forced = std::getenv("PYROS_FRAME_SPLIT");
+		const bool on = forced != NULL ? forced[0] == '2' : frameSplitWanted;
+		const bool copies = forced != NULL ? (forced[0] == '1' || forced[0] == '2') : frameSplitWanted;
+		// (switched on: the copies first, for one frame - nothing has been noted
+		// for them yet - and only then the other thread)
+		if (copies && !GameObject::DrawCopies()) { GameObject::SetDrawCopies(true); frameSplitOn = false; }
+		else
+		{
+			frameSplitOn = on && copies;
+			if (!copies) GameObject::SetDrawCopies(false);
+		}
+	}
 	IRenderDevice &device = GetActiveRenderDevice();
 	// (what the renderers are given for the whole scene, said at the hand-over: a frame
 	// still being drawn by another thread is not told half-way through)
@@ -1752,8 +1770,7 @@ void PyrosPlayer::Update()
 		// UI's handlers, which may change it, are run)
 		renderer->FinishBeside();
 	};
-	static const bool splitFrames = std::getenv("PYROS_FRAME_SPLIT") != NULL && std::getenv("PYROS_FRAME_SPLIT")[0] == '2';
-	if (splitFrames && ownFrame && deviceThread && JobSystem::Instance().WorkerCount() > 0)
+	if (frameSplitOn && ownFrame && deviceThread && JobSystem::Instance().WorkerCount() > 0)
 	{
 		void* logic = device.NewDetachedStream();
 		if (logic != NULL)

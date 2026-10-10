@@ -161,10 +161,12 @@ namespace p3d {
 		}
 		// (destroyed here, outside the lock: a thing let go of may let go of others)
 	}
-	bool GameObject::DrawCopies()
+	uint32 GameObject::s_drawEpoch = 0;
+	void GameObject::SetDrawCopies(const bool on)
 	{
-		static const bool on = std::getenv("PYROS_FRAME_SPLIT") != NULL;
-		return on;
+		static uint32 turns = 0;
+		if (on == (s_drawEpoch != 0)) return;
+		s_drawEpoch = on ? ++turns : 0;
 	}
 	void GameObject::NoteForDraw(GameObject* go)
 	{
@@ -186,7 +188,7 @@ namespace p3d {
 			go->_DrawPrvWorld = go->_PrvWorldMatrix;
 			go->_DrawScale = go->_Scale;
 			go->_DrawRadius = go->BoundingSphereRadiusWorldSpace;
-			go->_DrawTaken = true;
+			go->_DrawTakenAt = s_drawEpoch;
 			go->_DrawSlot = -1;
 		}
 		g_forDraw.clear();

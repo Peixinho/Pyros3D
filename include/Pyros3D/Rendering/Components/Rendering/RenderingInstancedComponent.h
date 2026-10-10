@@ -26,11 +26,11 @@ namespace p3d {
 			// kept (TakeDrawCount, from the renderer's PreRender when PYROS_FRAME_SPLIT
 			// is on) - the component goes on being updated, by another thread, while
 			// the frame is drawn. Until taken, the number itself.
-			uint32 InstancesToDraw() const { return drawCountTaken ? drawCount : (uint32)NumberOfInstances(); }
-			void TakeDrawCount() { drawCount = (uint32)NumberOfInstances(); drawGrowth = instanceGrowth; drawCountTaken = true; }
-			const Vec2 &GrowthToDraw() const { return drawCountTaken ? drawGrowth : instanceGrowth; }
+			uint32 InstancesToDraw() const { return (drawCountTakenAt == GameObject::s_drawEpoch && GameObject::s_drawEpoch != 0) ? drawCount : (uint32)NumberOfInstances(); }
+			void TakeDrawCount() { drawCount = (uint32)NumberOfInstances(); drawGrowth = instanceGrowth; drawCountTakenAt = GameObject::s_drawEpoch; }
+			const Vec2 &GrowthToDraw() const { return (drawCountTakenAt == GameObject::s_drawEpoch && GameObject::s_drawEpoch != 0) ? drawGrowth : instanceGrowth; }
 			uint32 drawCount = 0;
-			bool drawCountTaken = false;
+			uint32 drawCountTakenAt = 0;
 			Vec2 drawGrowth = Vec2(1.f, 1.f);
 			virtual void SetNumberInstances(const uint32 instances) { nrInstances = instances; }
 			// Every instance drawn this much wider and taller than its mesh,

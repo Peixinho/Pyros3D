@@ -232,6 +232,9 @@ private:
 	struct FlightDone;
 	FlightDone* flightDone = NULL;
 	std::function<void()> flightAfterScene;
+	// (asked for by the game - setFrameSplit - and looked at where no frame is in flight;
+	// PYROS_FRAME_SPLIT=0/1/2 overrides it: never, copies only, on)
+	bool frameSplitWanted = false, frameSplitOn = false;
 	uint32 pendingResizeWidth, pendingResizeHeight;
 	bool resizePending;
 	// The fraction of the window's size the scene is rendered at (SetRenderScale).

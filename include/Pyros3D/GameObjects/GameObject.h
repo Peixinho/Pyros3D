@@ -74,7 +74,7 @@ namespace p3d {
 		// Brings this object's world matrix up to date NOW, for whoever is
 		// about to read it. Its children are not touched here - they are
 		// carried along by SettleTransformation, which is told by the flag.
-		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; Wake(); if (_DrawTaken) { _DrawWorld = _WorldMatrix; _DrawPrvWorld = _PrvWorldMatrix; _DrawScale = _Scale; _DrawRadius = BoundingSphereRadiusWorldSpace; } }
+		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; Wake(); if (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) { _DrawWorld = _WorldMatrix; _DrawPrvWorld = _PrvWorldMatrix; _DrawScale = _Scale; _DrawRadius = BoundingSphereRadiusWorldSpace; } }
 		// The same, for whoever asks every frame (a layout that is solved again
 		// each time it is drawn): the matrix is worked out, but only if it has come
 		// out different is the object woken and what hangs from it told. True if it moved.
@@ -111,12 +111,18 @@ namespace p3d {
 		// step towards a frame's drawing and the next one's game logic running side
 		// by side; on with PYROS_FRAME_SPLIT=1, and until then (and for anything
 		// not yet taken) it is simply where the thing is.
-		const Matrix &GetDrawWorld() const { return _DrawTaken ? _DrawWorld : _WorldMatrix; }
-		const Matrix &GetDrawPrvWorld() const { return _DrawTaken ? _DrawPrvWorld : _PrvWorldMatrix; }
+		const Matrix &GetDrawWorld() const { return (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) ? _DrawWorld : _WorldMatrix; }
+		const Matrix &GetDrawPrvWorld() const { return (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) ? _DrawPrvWorld : _PrvWorldMatrix; }
 		const Vec3 GetDrawWorldPosition() const { return GetDrawWorld().GetTranslation(); }
-		const Vec3 &GetDrawScale() const { return _DrawTaken ? _DrawScale : _Scale; }
-		f32 GetDrawRadiusWorldSpace() const { return _DrawTaken ? _DrawRadius : BoundingSphereRadiusWorldSpace; }
-		static bool DrawCopies();
+		const Vec3 &GetDrawScale() const { return (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) ? _DrawScale : _Scale; }
+		f32 GetDrawRadiusWorldSpace() const { return (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) ? _DrawRadius : BoundingSphereRadiusWorldSpace; }
+		// (Whether copies are in use is a setting that can change while running:
+		// each copy remembers the turn it was taken in, and one from an earlier
+		// turn - the setting was off in between, and the thing may have moved
+		// unseen - is not used. SetDrawCopies at a point where no frame is in flight.)
+		static bool DrawCopies() { return s_drawEpoch != 0; }
+		static void SetDrawCopies(const bool on);
+		static uint32 s_drawEpoch;
 		static void NoteForDraw(GameObject* go);
 		static void TakeDrawTransforms();
 		// What leaves the scene while a frame that may still draw it is being
@@ -311,7 +317,7 @@ namespace p3d {
 		Matrix _DrawWorld, _DrawPrvWorld;
 		Vec3 _DrawScale;
 		f32 _DrawRadius = 0.f;
-		bool _DrawTaken = false;
+		uint32 _DrawTakenAt = 0;
 		int32 _DrawSlot = -1;
 		// The world-space box, from the local one and the world matrix.
 		void UpdateWorldBounds();

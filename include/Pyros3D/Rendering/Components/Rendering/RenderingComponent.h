@@ -173,10 +173,10 @@ namespace p3d {
 		// next update while this frame is still being drawn. Until taken, the
 		// bones themselves.
 		std::vector<Matrix> DrawSkinningBones, DrawShadowSkinningBones;
-		bool DrawBonesTaken = false;
+		uint32 DrawBonesTakenAt = 0;
 		int32 DrawBoneSlot = -1;
-		const std::vector<Matrix> &BonesToDraw() const { return DrawBonesTaken ? DrawSkinningBones : SkinningBones; }
-		const std::vector<Matrix> &ShadowBonesToDraw() const { return DrawBonesTaken ? DrawShadowSkinningBones : ShadowSkinningBones; }
+		const std::vector<Matrix> &BonesToDraw() const { return (DrawBonesTakenAt == GameObject::s_drawEpoch && GameObject::s_drawEpoch != 0) ? DrawSkinningBones : SkinningBones; }
+		const std::vector<Matrix> &ShadowBonesToDraw() const { return (DrawBonesTakenAt == GameObject::s_drawEpoch && GameObject::s_drawEpoch != 0) ? DrawShadowSkinningBones : ShadowSkinningBones; }
 		static void NoteBonesForDraw(RenderingMesh* mesh);
 		static void TakeDrawBones();
 
