@@ -226,15 +226,6 @@ private:
 	// frame's game logic (PYROS_FRAME_SPLIT=2; see GameObject::GetDrawWorld).
 	void CloseFrame(const bool ownFrame, const f64 dt);
 	void FinishFrameInFlight();
-	bool frameInFlight = false, flightOwnFrame = false;
-	f64 flightDt = 0.0;
-	void* flightLogicStream = NULL;
-	struct FlightDone;
-	FlightDone* flightDone = NULL;
-	std::function<void()> flightAfterScene;
-	// (asked for by the game - setFrameSplit - and looked at where no frame is in flight;
-	// PYROS_FRAME_SPLIT=0/1/2 overrides it: never, copies only, on)
-	bool frameSplitWanted = false, frameSplitOn = false;
 	uint32 pendingResizeWidth, pendingResizeHeight;
 	bool resizePending;
 	// The fraction of the window's size the scene is rendered at (SetRenderScale).
@@ -304,8 +295,6 @@ private:
 	IRenderer* renderer;
 	// The device driven from a thread of its own (Vulkan): what the frame asks of it is
 	// queued, and made by that thread. NULL where it is not (see Init).
-	std::shared_ptr<p3d::ThreadedRenderDevice> deviceThread;
-	std::shared_ptr<p3d::IRenderDevice> deviceItself;
 	bool launchNoDeviceThread = false;
 	// Screen-space UI, composited over the finished 3D frame. Independent of
 	// the Forward/Deferred choice above - it draws into whatever target the

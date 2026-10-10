@@ -16,6 +16,7 @@
 #include <Pyros3D/Assets/AssetPreload.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
+#include <Pyros3D/Rendering/Frame/FramePipeline.h>
 #include <functional>
 #include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
@@ -301,18 +302,8 @@ void PyrosPlayer::Init()
 	// frame over. (Vulkan; --no-device-thread, or PYROS_DEVICE_THREAD=0, to draw from this
 	// thread as before.)
 	{
-		const char* asked = std::getenv("PYROS_DEVICE_THREAD");
-		const bool wanted = asked ? (asked[0] != '0') : !launchNoDeviceThread;
-		if (wanted && GetActiveRenderDevice().IsVulkan())
-		{
-			deviceItself = BorrowActiveRenderDevice();
-			if (deviceItself)
-			{
-				deviceThread = std::make_shared<ThreadedRenderDevice>(deviceItself);
-				SetActiveRenderDevice(std::static_pointer_cast<IRenderDevice>(deviceThread));
-				echo("Render device: on a thread of its own");
-			}
-		}
+		// (the engine's: any application has it by asking - FramePipeline)
+		if (!launchNoDeviceThread && FramePipeline::StartDeviceThread()) echo("Render device: on a thread of its own");
 	}
 
 	// Wheel notches and typed characters both arrive as events rather than
@@ -541,8 +532,8 @@ end
 	});
 	// setFrameSplit(true): a frame's scene is recorded by another thread while this
 	// one runs the next frame's game logic. getFrameSplit(): whether it is asked for.
-	lua.set_function("setFrameSplit", [this](const bool on) { frameSplitWanted = on; });
-	lua.set_function("getFrameSplit", [this]() { return frameSplitWanted; });
+	lua.set_function("setFrameSplit", [](const bool on) { FramePipeline::SetSplit(on); });
+	lua.set_function("getFrameSplit", []() { return FramePipeline::GetSplit(); });
 	lua.set_function("getRenderSize", [this]() { return std::make_tuple((int)RenderWidth(), (int)RenderHeight()); });
 	lua.set_function("quitGame", [this]() { Close(); });
 	// The whole screen, or a window: the desktop's own resolution, so nothing about the
@@ -1022,7 +1013,7 @@ void PyrosPlayer::StartSceneMedia(const std::vector<GameObject*> &objects)
 void PyrosPlayer::UnloadGameScene()
 {
 	// (a frame another thread is still recording is finished first)
-	if (frameInFlight) FinishFrameInFlight();
+	if (FramePipeline::InFlight()) FinishFrameInFlight();
 	if (!sceneLoaded) return;
 #ifdef LUA_BINDINGS
 	// The scripts of the scene being left are told first: destroy() is where
@@ -1455,26 +1446,9 @@ void PyrosPlayer::ApplyPendingSceneLoadIfAny()
 }
 #endif
 
-struct PyrosPlayer::FlightDone { JobCounter counter; };
-
-// The frame another thread has been recording: waited for, then closed by this one
-// (its UI, its end) - before anything is taken for the next.
-void PyrosPlayer::FinishFrameInFlight()
-{
-	if (!frameInFlight) return;
-	{
-		PYROS_PROFILE_SCOPE("Player.JoinFrame");
-		JobSystem::Instance().Wait(flightDone->counter);
-	}
-	GetActiveRenderDevice().LeaveParallelStream(flightLogicStream);
-	flightLogicStream = NULL;
-	frameInFlight = false;
-	GameObject::SetKeeping(false);
-	GameObject::ReleaseKept();
-	FrameProfiler::Instance().Counter("Frame.Split", 1.0);
-	if (flightAfterScene) { flightAfterScene(); flightAfterScene = nullptr; }
-	CloseFrame(flightOwnFrame, flightDt);
-}
+// The frame another thread has been recording is finished (FramePipeline): its
+// effects, its UI and its end are done by this thread, before anything else.
+void PyrosPlayer::FinishFrameInFlight() { FramePipeline::Finish(); }
 
 void PyrosPlayer::Update()
 {
@@ -1519,7 +1493,7 @@ void PyrosPlayer::Update()
 	}
 
 	// At the top of the frame, before anything renders - see OnResize().
-	if (frameInFlight && resizePending) FinishFrameInFlight();
+	if (FramePipeline::InFlight() && resizePending) FinishFrameInFlight();
 	{
 		PYROS_PROFILE_SCOPE("Player.Resize");
 		ApplyPendingResizeIfAny();
@@ -1652,21 +1626,7 @@ void PyrosPlayer::Update()
 	// themselves the renderer presented the scene and UIRenderer then opened
 	// and presented a second frame holding only the HUD over black - every
 	// game with a HUD flickered.
-	if (frameInFlight) FinishFrameInFlight();
-	{
-		// (no frame is in flight here: the one place the setting may change)
-		static const char* forced = std::getenv("PYROS_FRAME_SPLIT");
-		const bool on = forced != NULL ? forced[0] == '2' : frameSplitWanted;
-		const bool copies = forced != NULL ? (forced[0] == '1' || forced[0] == '2') : frameSplitWanted;
-		// (switched on: the copies first, for one frame - nothing has been noted
-		// for them yet - and only then the other thread)
-		if (copies && !GameObject::DrawCopies()) { GameObject::SetDrawCopies(true); frameSplitOn = false; }
-		else
-		{
-			frameSplitOn = on && copies;
-			if (!copies) GameObject::SetDrawCopies(false);
-		}
-	}
+	FramePipeline::HandOver();
 	IRenderDevice &device = GetActiveRenderDevice();
 	// (what the renderers are given for the whole scene, said at the hand-over: a frame
 	// still being drawn by another thread is not told half-way through)
@@ -1770,25 +1730,9 @@ void PyrosPlayer::Update()
 		// UI's handlers, which may change it, are run)
 		renderer->FinishBeside();
 	};
-	if (frameSplitOn && ownFrame && deviceThread && JobSystem::Instance().WorkerCount() > 0)
-	{
-		void* logic = device.NewDetachedStream();
-		if (logic != NULL)
-		{
-			if (flightDone == NULL) flightDone = new FlightDone();
-			frameInFlight = true; flightOwnFrame = ownFrame; flightDt = dt; flightLogicStream = logic;
-			IRenderDevice* dev = &device;
-			flightAfterScene = afterScene;
-			TerrainEditor::TakeTilesForDraw(scene);
-			GameObject::SetKeeping(true);
-			JobSystem::Instance().Run([scenePass, dev, logic]() { TerrainEditor::SetDrawSide(true); scenePass(); TerrainEditor::SetDrawSide(false); dev->PlaceStream(logic); }, flightDone->counter);
-			device.EnterParallelStream(logic);
-			return;
-		}
-	}
-	scenePass();
-	afterScene();
-	CloseFrame(ownFrame, dt);
+	// (given to another thread where the frame is split - FramePipeline - and what
+	// follows the scene is then done by this thread at the next hand-over)
+	FramePipeline::Submit(scene, scenePass, [this, afterScene, ownFrame, dt]() { afterScene(); CloseFrame(ownFrame, dt); }, ownFrame);
 }
 
 void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
@@ -1816,7 +1760,7 @@ void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
 		// (with the device on its own thread those two calls return at once: what
 		// was waited for the GPU and for the display is what that thread waited,
 		// and what this one waited for it)
-		if (deviceThread)
+		if (ThreadedRenderDevice* deviceThread = FramePipeline::DeviceThread())
 		{
 			f64 gpuMs = 0.0, presentMs = 0.0, behindMs = 0.0;
 			deviceThread->TakeWaits(gpuMs, presentMs, behindMs);
@@ -2251,7 +2195,7 @@ void PyrosPlayer::OnResize(const uint32 width, const uint32 height)
 	// events are read while it is in flight, and the swapchain is made again in
 	// here - under that frame it was taken away from the device mid-frame (making
 	// the window full screen brought the game down).
-	if (frameInFlight) FinishFrameInFlight();
+	if (FramePipeline::InFlight()) FinishFrameInFlight();
 	ClassName::OnResize(width, height);
 	// Recorded, not applied. This runs from SDL event handling, which is not
 	// a safe place to destroy and recreate GPU images: the previous frame is
@@ -2317,7 +2261,7 @@ void PyrosPlayer::ApplyPendingResizeIfAny()
 void PyrosPlayer::Shutdown()
 {
 	// (a frame another thread is still recording is finished first)
-	if (frameInFlight) FinishFrameInFlight();
+	if (FramePipeline::InFlight()) FinishFrameInFlight();
 	PyrosTextInput::SetHandler(NULL);
 	InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &PyrosPlayer::OnMouseWheel);
 	activePlayer = NULL;
@@ -2358,12 +2302,6 @@ void PyrosPlayer::Shutdown()
 	delete scene; scene = NULL;
 	delete audio; audio = NULL;
 
-	if (deviceThread)
-	{
-		deviceThread->Finish();
-		SetActiveRenderDevice(deviceItself);
-		deviceThread.reset();
-		deviceItself.reset();
-	}
+	FramePipeline::StopDeviceThread();
 	ClassName::Shutdown();
 }

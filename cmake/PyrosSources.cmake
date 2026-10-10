@@ -12,6 +12,7 @@ set(AUDIO_SOURCE
 set(PYROS_ENGINE_SOURCE
 	${AUDIO_SOURCE}
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/CrashHandler/CrashHandler.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Frame/FramePipeline.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Console/Console.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Thread/Thread.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Jobs/JobSystem.cpp
