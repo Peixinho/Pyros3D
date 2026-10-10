@@ -58,7 +58,8 @@ jobs:
             # configures with BUILD_SPIRV_TOOLING=OFF (see the Configure
             # step for why), which means CompileShaderStage cannot
             # produce a module for ANY stage on any backend. Vulkan on
-            # Linux is compile/link coverage, not a working renderer, so
+            # Linux has its shader compiler since 2026-10-11 (built in this
+            # workflow); compute through it is not exercised here, so
             # SupportsCompute() correctly reports false here.
             #
             # Vulkan compute IS covered - on macOS, against MoltenVK,
@@ -157,18 +158,62 @@ jobs:
           echo "VULKAN_SDK=/opt/vulkan" >> "$GITHUB_ENV"
           grep -m1 VK_HEADER_VERSION_COMPLETE /opt/vulkan/include/vulkan/vulkan_core.h
 
+      - name: Cache the shader compiler
+        if: matrix.vulkan == 'ON'
+        id: spirv
+        uses: actions/cache@v4
+        with:
+          path: /opt/spirv
+          key: linux-jammy-shaderc-v2024.4-spirv-cross-1.3.296.0-pic-1
+
+      - name: Build the shader compiler (shaderc + SPIRV-Cross)
+        if: matrix.vulkan == 'ON' && steps.spirv.outputs.cache-hit != 'true'
+        # The Vulkan backend compiles its shaders from GLSL at run time: without
+        # these two the package starts and draws nothing. Built here, static and
+        # position-independent, so they go INTO libPyrosEngine.so - Ubuntu's own
+        # packages are the thin libshaderc_combined.a PyrosBackend.cmake warns
+        # about, and no spirv-cross static libraries at all. About ten minutes
+        # on a cold cache; the cache above makes it once per version.
+        run: |
+          apt-get install -y --no-install-recommends python3
+          git clone --depth 1 --branch v2024.4 https://github.com/google/shaderc.git /tmp/shaderc
+          (cd /tmp/shaderc && python3 utils/git-sync-deps)
+          cmake -S /tmp/shaderc -B /tmp/shaderc/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
+            -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
+            -DSKIP_GLSLANG_INSTALL=ON -DSKIP_SPIRV_TOOLS_INSTALL=ON \
+            -DCMAKE_INSTALL_PREFIX=/opt/spirv >/dev/null
+          cmake --build /tmp/shaderc/build --target install >/dev/null
+          # (the combined archive is the whole compiler in one file; with the
+          # shared one beside it the build would pick that and have to ship it)
+          rm -f /opt/spirv/lib/libshaderc_shared.so* /opt/spirv/lib/libshaderc.a
+          git clone --depth 1 --branch vulkan-sdk-1.3.296.0 https://github.com/KhronosGroup/SPIRV-Cross.git /tmp/spirv-cross
+          cmake -S /tmp/spirv-cross -B /tmp/spirv-cross/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release -DSPIRV_CROSS_FORCE_PIC=ON -DSPIRV_CROSS_SHARED=OFF \
+            -DSPIRV_CROSS_CLI=OFF -DSPIRV_CROSS_ENABLE_TESTS=OFF \
+            -DCMAKE_INSTALL_PREFIX=/opt/spirv >/dev/null
+          cmake --build /tmp/spirv-cross/build --target install >/dev/null
+
+      - name: Show the shader compiler
+        if: matrix.vulkan == 'ON'
+        run: |
+          ls -la /opt/spirv/lib | grep -E "shaderc|spirv-cross"
+          test -f /opt/spirv/lib/libshaderc_combined.a
+          test -f /opt/spirv/lib/libspirv-cross-core.a
+          test -f /opt/spirv/include/shaderc/shaderc.hpp
+
       - name: Configure
         # BUILD_EDITOR and BUILD_CONVERTER are new here. The old Build workflow
         # compiled the library and the demos only, so every editor-only source
         # file - which is most of what changes week to week - was unbuilt on
         # Linux entirely.
         #
-        # BUILD_SPIRV_TOOLING=OFF: Ubuntu's shaderc/spirv-cross packaging is
-        # the one combination PyrosBackend.cmake warns about (a thin
-        # libshaderc_combined.a that still needs glslang at link time), and it
-        # degrades to a warning rather than an error, which would leave a
-        # silently tool-less build here. Windows and macOS both cover it.
+        # BUILD_SPIRV_TOOLING follows the Vulkan leg: that backend cannot draw
+        # without its shader compiler (built above), and the OpenGL legs have
+        # no use for one.
         run: |
+          prefix=""
+          [ -n "${VULKAN_SDK:-}" ] && prefix="-DCMAKE_PREFIX_PATH=$VULKAN_SDK;/opt/spirv"
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DPYROS_GRAPHICS=${{ matrix.graphics }} \
@@ -176,8 +221,8 @@ jobs:
             -DOPENGL_VERSION=${{ matrix.opengl }} \
             -DSTATIC_LIB=OFF \
             -DBUILD_VULKAN_BACKEND=${{ matrix.vulkan }} \
-            ${VULKAN_SDK:+-DCMAKE_PREFIX_PATH=$VULKAN_SDK} \
-            -DBUILD_SPIRV_TOOLING=OFF \
+            ${prefix:+"$prefix"} \
+            -DBUILD_SPIRV_TOOLING=${{ matrix.vulkan }} \
             -DBUILD_DEMOS=ON \
             -DBUILD_EDITOR=ON \
             -DBUILD_CONVERTER=ON \

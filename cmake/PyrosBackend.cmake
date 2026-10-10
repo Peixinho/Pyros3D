@@ -158,6 +158,18 @@ if (BUILD_VULKAN_BACKEND)
 	find_package(Vulkan)
 
 	if (Vulkan_FOUND)
+		# The Vulkan backend compiles every shader it draws with from GLSL, at run
+		# time. Built without shaderc + spirv-cross it links, starts, and draws
+		# nothing - and only said so as a warning far up the configure log. (The
+		# Linux packages were built that way for months: "compile coverage".)
+		if (NOT SPIRV_TOOLING_FOUND AND NOT PYROS_VULKAN_WITHOUT_SHADER_COMPILER)
+			message(FATAL_ERROR
+				"The Vulkan backend needs shaderc + spirv-cross (BUILD_SPIRV_TOOLING=ON and both found) - "
+				"without them it cannot compile a single shader and the result draws nothing. "
+				"Install them (pacman -S shaderc spirv-cross, apt install libshaderc-dev libspirv-cross-c-shared-dev "
+				"or build them, brew install shaderc spirv-cross), or pass -DBUILD_VULKAN_BACKEND=OFF. "
+				"-DPYROS_VULKAN_WITHOUT_SHADER_COMPILER=ON builds it anyway (it will only link).")
+		endif()
 		include(FetchContent)
 		FetchContent_Declare(
 			volk

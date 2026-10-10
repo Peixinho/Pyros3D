@@ -219,7 +219,9 @@ namespace p3d {
 		bool compiled = Device().CompileShaderStage(shader, finalShaderString, LOG);
 		if (!compiled)
 		{
-			echo(std::string(shaderType.c_str() + std::string(" COMPILATION FAILED") + (!LOG.empty() ? (":" + LOG) : "")));
+			// ("ERROR:" - said at every log level: a game that draws nothing has to say why.
+			// A package built with no shader compiler said only that pipelines failed.)
+			echo(std::string("ERROR: ") + shaderType.c_str() + std::string(" COMPILATION FAILED") + (!LOG.empty() ? (": " + LOG) : ""));
 
 			if (output != NULL)
 				*output = LOG;

@@ -2352,9 +2352,15 @@ namespace p3d {
 		// the whole frame whenever a resize briefly cleared renderPass.
 		if (device == VK_NULL_HANDLE || progIt == programs.end() || progIt->second.pipelineLayout == VK_NULL_HANDLE)
 		{
-			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - device=%p programFound=%d pipelineLayout=%p (shaderProgram handle=%u)\n",
-				(void*)device, progIt != programs.end(),
-				progIt != programs.end() ? (void*)progIt->second.pipelineLayout : (void*)0, desc.shaderProgram);
+			// (the first few, then one in ten thousand with the count: every draw of every
+			// frame said this, and a game whose shaders did not build wrote 150 MB a minute)
+			static uint64 failures = 0;
+			failures++;
+			if (failures <= 8 || failures % 10000 == 0)
+				fprintf(stderr, "VulkanRenderDevice::CreatePipeline: FAILED - device=%p programFound=%d pipelineLayout=%p (shaderProgram handle=%u)%s\n",
+					(void*)device, progIt != programs.end(),
+					progIt != programs.end() ? (void*)progIt->second.pipelineLayout : (void*)0, desc.shaderProgram,
+					failures > 8 ? (" - " + std::to_string(failures) + " so far").c_str() : "");
 			return 0;
 		}
 		std::map<DeviceHandle, ShaderStageRecord>::iterator vs = shaderStages.find(progIt->second.vertexShader);

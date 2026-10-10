@@ -26,6 +26,19 @@ set -euo pipefail
 keep_external() {
 	case "$1" in
 		libc.so.*|libm.so.*|libpthread.so.*|libdl.so.*|librt.so.*|ld-linux*|libgcc_s.so.*) return 0 ;;
+		# The C++ runtime too. Ours is the build machine's (an old one, on purpose:
+		# it sets the oldest system the package runs on) and with RUNPATH=$ORIGIN it
+		# was loaded INSTEAD of the system's - by everything in the process, the
+		# machine's own Vulkan driver included. A current Mesa needs a newer
+		# libstdc++ than ours (GLIBCXX_3.4.32 not found), its drivers did not load,
+		# and the game said the machine had no VK_KHR_surface. libstdc++ is
+		# backwards compatible: the system's always serves a binary built against
+		# an older one, never the other way round.
+		libstdc++.so.*) return 0 ;;
+		# And the small libraries those drivers use themselves (Mesa: zlib, zstd,
+		# expat; Wayland: libffi): one copy in a process, and it has to be the one
+		# the drivers were built against. Every Linux has them.
+		libz.so.*|libzstd.so.*|libexpat.so.*|libffi.so.*) return 0 ;;
 		libGL.so.*|libGLX.so.*|libGLdispatch.so.*|libEGL.so.*|libGLESv2.so.*|libOpenGL.so.*) return 0 ;;
 		libX11*|libxcb*|libXext*|libXrandr*|libXi*|libXcursor*|libXfixes*|libXrender*|libXss*|libXxf86vm*) return 0 ;;
 		libwayland*|libdrm*|libgbm*|libxkbcommon*) return 0 ;;
