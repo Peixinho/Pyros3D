@@ -82,6 +82,11 @@ namespace p3d {
 		// Every terrain tile in the scene (at any depth - streamed cells are
 		// children of their cell's root).
 		static std::vector<TerrainTile> FindTiles(SceneGraph* scene);
+		// The tiles as the thread that DRAWS a frame sees them: the list taken at the
+		// frame's hand-over (TakeTilesForDraw), not found again by walking a scene
+		// that game logic is changing meanwhile. SetDrawSide marks such a thread.
+		static void TakeTilesForDraw(SceneGraph* scene);
+		static void SetDrawSide(const bool on);
 
 		// Ground height under a world position, from whichever tile holds
 		// it. False when no tile does.

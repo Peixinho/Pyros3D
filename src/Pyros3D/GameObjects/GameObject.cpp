@@ -11,6 +11,8 @@
 #include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <cstring>
+#include <memory>
+#include <atomic>
 #include <vector>
 #include <cstdlib>
 #include <mutex>
@@ -138,6 +140,27 @@ namespace p3d {
 		}
 	}
 	void IComponent::WakeOwner() { if (Owner != NULL) Owner->Wake(); }
+	namespace {
+		std::mutex g_keptMutex;
+		std::vector<std::shared_ptr<void> > g_kept;
+		std::atomic<bool> g_keeping(false);
+	}
+	void GameObject::SetKeeping(const bool on) { g_keeping.store(on, std::memory_order_release); }
+	void GameObject::KeepUntilDrawn(const std::shared_ptr<void> &what)
+	{
+		if (!what || !g_keeping.load(std::memory_order_acquire)) return;
+		std::lock_guard<std::mutex> lock(g_keptMutex);
+		g_kept.push_back(what);
+	}
+	void GameObject::ReleaseKept()
+	{
+		std::vector<std::shared_ptr<void> > gone;
+		{
+			std::lock_guard<std::mutex> lock(g_keptMutex);
+			gone.swap(g_kept);
+		}
+		// (destroyed here, outside the lock: a thing let go of may let go of others)
+	}
 	bool GameObject::DrawCopies()
 	{
 		static const bool on = std::getenv("PYROS_FRAME_SPLIT") != NULL;
@@ -604,6 +627,7 @@ namespace p3d {
 				Component->Unregister(FindScene());
 
 				// Erase it!
+				KeepUntilDrawn(*i);
 				Components.erase(i);
 				// Change Flag
 				_ComponentsChanged = true;
@@ -741,6 +765,7 @@ namespace p3d {
 			{
 				if ((*i).get() == Child)
 				{
+					KeepUntilDrawn(*i);
 					_Childs.erase(i);
 					found = true;
 					Wake();

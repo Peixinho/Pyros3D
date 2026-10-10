@@ -117,6 +117,13 @@ namespace p3d {
 		static bool DrawCopies();
 		static void NoteForDraw(GameObject* go);
 		static void TakeDrawTransforms();
+		// What leaves the scene while a frame that may still draw it is being
+		// recorded by another thread is kept alive until that frame is done:
+		// KeepUntilDrawn takes a hold on it while keeping is on (the player turns
+		// it on as it hands a frame over, and lets go of everything at the join).
+		static void SetKeeping(const bool on);
+		static void KeepUntilDrawn(const std::shared_ptr<void> &what);
+		static void ReleaseKept();
 		const Vec3 GetWorldPosition() const;
 		const Vec3 GetWorldRotation() const;
 

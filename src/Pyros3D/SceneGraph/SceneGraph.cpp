@@ -109,6 +109,7 @@ namespace p3d {
 				// Unregister Components
 				(*i)->UnregisterComponentsTree(this);
 				// Erase From List
+				GameObject::KeepUntilDrawn(*i);
 				vec->erase(i);
 				// Erase Scene Pointer
 				GO->Scene = NULL;
@@ -127,6 +128,7 @@ namespace p3d {
 					// Unregister Components
 					(*i)->UnregisterComponentsTree(this);
 					// Erase From List
+					GameObject::KeepUntilDrawn(*i);
 					vec->erase(i);
 					// Erase Scene Pointer
 					GO->Scene = NULL;

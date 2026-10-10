@@ -1465,6 +1465,8 @@ void PyrosPlayer::FinishFrameInFlight()
 	GetActiveRenderDevice().LeaveParallelStream(flightLogicStream);
 	flightLogicStream = NULL;
 	frameInFlight = false;
+	GameObject::SetKeeping(false);
+	GameObject::ReleaseKept();
 	FrameProfiler::Instance().Counter("Frame.Split", 1.0);
 	if (flightAfterScene) { flightAfterScene(); flightAfterScene = nullptr; }
 	CloseFrame(flightOwnFrame, flightDt);
@@ -1760,7 +1762,9 @@ void PyrosPlayer::Update()
 			frameInFlight = true; flightOwnFrame = ownFrame; flightDt = dt; flightLogicStream = logic;
 			IRenderDevice* dev = &device;
 			flightAfterScene = afterScene;
-			JobSystem::Instance().Run([scenePass, dev, logic]() { scenePass(); dev->PlaceStream(logic); }, flightDone->counter);
+			TerrainEditor::TakeTilesForDraw(scene);
+			GameObject::SetKeeping(true);
+			JobSystem::Instance().Run([scenePass, dev, logic]() { TerrainEditor::SetDrawSide(true); scenePass(); TerrainEditor::SetDrawSide(false); dev->PlaceStream(logic); }, flightDone->counter);
 			device.EnterParallelStream(logic);
 			return;
 		}

@@ -100,8 +100,12 @@ namespace p3d {
 		// player, as one that listens for the shore does, paid it thirty
 		// times: a 40-60 ms frame twice a second. Tiles come and go in the
 		// scene's Update(), so within a frame the list cannot change.
+		thread_local bool t_drawSide = false;
+		std::vector<TerrainTile> g_drawTiles;
+		bool g_drawTilesTaken = false;
 		const std::vector<TerrainTile> &TilesThisFrame(SceneGraph* scene)
 		{
+			if (t_drawSide && g_drawTilesTaken) return g_drawTiles;
 			// (each thread its own: game logic asks the ground's height while another
 			// thread, drawing the frame before, asks what the ground hides - two of
 			// them made the one list again at the same moment)
@@ -134,6 +138,13 @@ namespace p3d {
 			return tiles;
 		}
 	}
+
+	void TerrainEditor::TakeTilesForDraw(SceneGraph* scene)
+	{
+		g_drawTiles = TilesThisFrame(scene);
+		g_drawTilesTaken = true;
+	}
+	void TerrainEditor::SetDrawSide(const bool on) { t_drawSide = on; }
 
 	bool TerrainEditor::HeightAt(SceneGraph* scene, const f32 x, const f32 z, f32 &height)
 	{
