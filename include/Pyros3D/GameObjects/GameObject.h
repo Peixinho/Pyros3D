@@ -74,7 +74,10 @@ namespace p3d {
 		// Brings this object's world matrix up to date NOW, for whoever is
 		// about to read it. Its children are not touched here - they are
 		// carried along by SettleTransformation, which is told by the flag.
-		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; Wake(); if (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) { _DrawWorld = _WorldMatrix; _DrawPrvWorld = _PrvWorldMatrix; _DrawScale = _Scale; _DrawRadius = BoundingSphereRadiusWorldSpace; } }
+		// (its copy for drawing is NOT written here: whoever calls this may be game logic,
+		// with the frame before still being drawn from the copies by another thread. Every
+		// write of a world matrix is noted - NoteMovedOnce - and the copy is taken at the hand-over.)
+		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; Wake(); NoteForDraw(this); }
 		// The same, for whoever asks every frame (a layout that is solved again
 		// each time it is drawn): the matrix is worked out, but only if it has come
 		// out different is the object woken and what hangs from it told. True if it moved.
@@ -169,6 +172,7 @@ namespace p3d {
 		// (RenderState's moved log) - once between one reading of the log and the next.
 		void NoteMovedOnce()
 		{
+			if (s_drawEpoch != 0 && _DrawSlot < 0) NoteForDraw(this);
 			const uint32_t epoch = RenderState::ReadEpoch.load(std::memory_order_relaxed);
 			if (_MovedNoted == epoch) return;
 			_MovedNoted = epoch;
