@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Audio/AudioManager.h>
+#include "AudioEar.h"
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
@@ -120,6 +121,7 @@ namespace p3d {
 		if (u.magnitude() > 0.0001f) u = u.normalize();
 		else u = Vec3(0.f, 1.f, 0.f);
 		ma_engine_listener_set_world_up(engine, 0, u.x, u.y, u.z);
+		detail::EarListenerSet(position.x, position.y, position.z, f.x, f.y, f.z, u.x, u.y, u.z);
 
 		// Doppler - see the header's comment on `dt`. A non-positive or
 		// suspiciously large step is treated as a cut: velocity 0 rather than

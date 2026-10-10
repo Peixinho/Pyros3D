@@ -72,6 +72,10 @@ namespace p3d { namespace detail {
 
 		void SetDelay(ma_engine* engine, void* soundNode, void* target, const f32 delaySeconds, const f32 decay, const f32 wet, const f32 dry);
 		void ClearDelay(void* soundNode, void* target);
+		// The sound's ears (AudioEar.h): made once, last in the chain; then told
+		// where the sound is each time it is played or moved.
+		void EnsureEar(ma_engine* engine, void* soundNode, void* target);
+		void SetEar(const bool placed, const f32 x, const f32 y, const f32 z);
 
 		// Read-back - miniaudio exposes no config getters for any of these
 		// node types, so every setter above also caches its own arguments
@@ -100,6 +104,7 @@ namespace p3d { namespace detail {
 		void* filterNode;
 		void* eqNode;
 		void* delayNode;
+		void* earNode;
 	};
 
 } }

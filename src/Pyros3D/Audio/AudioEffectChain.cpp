@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "AudioEffectChain.h"
+#include "AudioEar.h"
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
 
 namespace p3d { namespace detail {
@@ -15,7 +16,7 @@ namespace p3d { namespace detail {
 		: filterType(AudioFilterType::None), filterCutoff(0.f), filterOrder(2),
 		eqType(AudioEQType::None), eqFrequency(0.f), eqGainDB(0.f), eqQ(1.f),
 		hasDelay(false), delaySeconds(0.f), delayDecay(0.f), delayWet(1.f), delayDry(1.f),
-		filterNode(NULL), eqNode(NULL), delayNode(NULL)
+		filterNode(NULL), eqNode(NULL), delayNode(NULL), earNode(NULL)
 	{
 	}
 
@@ -24,6 +25,7 @@ namespace p3d { namespace detail {
 		DestroyFilterNodeOnly();
 		DestroyEQNodeOnly();
 		DestroyDelayNodeOnly();
+		if (earNode != NULL) { EarNodeDestroy(earNode); earNode = NULL; }
 	}
 
 	// ****************************** Rewiring ********************************
@@ -49,7 +51,24 @@ namespace p3d { namespace detail {
 			ma_node_attach_output_bus(prev, 0, reinterpret_cast<ma_node*>(delayNode), 0);
 			prev = reinterpret_cast<ma_node*>(delayNode);
 		}
+		if (earNode != NULL)
+		{
+			ma_node_attach_output_bus(prev, 0, reinterpret_cast<ma_node*>(earNode), 0);
+			prev = reinterpret_cast<ma_node*>(earNode);
+		}
 		ma_node_attach_output_bus(prev, 0, target, 0);
+	}
+
+	void AudioEffectChain::EnsureEar(ma_engine* engine, void* soundNode, void* target)
+	{
+		if (earNode != NULL || engine == NULL || soundNode == NULL || target == NULL) return;
+		earNode = EarNodeCreate(engine);
+		if (earNode != NULL) Rewire(soundNode, target);
+	}
+
+	void AudioEffectChain::SetEar(const bool placed, const f32 x, const f32 y, const f32 z)
+	{
+		EarNodeSet(earNode, placed, x, y, z);
 	}
 
 	// ******************************** Filter *********************************

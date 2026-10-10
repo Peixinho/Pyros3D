@@ -2074,8 +2074,18 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 	};
 	// (one for each pass of each renderer: a pass of two hundred panes of glass and one
 	// of two thousand things do not want the same number of runs)
-	static thread_local std::map<std::pair<IRenderer*, uint32>, Tuner> tuners;
-	Tuner &U = tuners[std::make_pair(this, pass)];
+	// (Not each thread's own: a frame's scene may be recorded by a job, on whichever
+	// thread takes it, and every one of them then began again at one run and never
+	// got as far as trying another - the pass was back on one core. One renderer's
+	// pass is recorded by one thread at a time; the table itself is locked.)
+	static std::mutex tunersLock;
+	static std::map<std::pair<IRenderer*, uint32>, Tuner> tuners;
+	Tuner* tuned = NULL;
+	{
+		std::lock_guard<std::mutex> g(tunersLock);
+		tuned = &tuners[std::make_pair(this, pass)];
+	}
+	Tuner &U = *tuned;
 	const uint32 most = std::max((uint32)1, std::min(workers + 1, total / kUnitsARun));
 	if (U.runs > most) U.runs = most;
 	uint32 runs = U.runs;

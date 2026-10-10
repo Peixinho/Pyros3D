@@ -100,6 +100,9 @@ namespace p3d {
 		AudioManager::GetActive()->RegisterVoice(sound);
 
 		ma_sound_set_spatialization_enabled(sound, spatialized ? MA_TRUE : MA_FALSE);
+		// (its ears: AudioEar.h)
+		chain->EnsureEar(AudioManager::GetActive()->GetEngine(), reinterpret_cast<void*>(sound),
+			group ? reinterpret_cast<void*>(group) : reinterpret_cast<void*>(ma_engine_get_endpoint(AudioManager::GetActive()->GetEngine())));
 		ma_sound_set_attenuation_model(sound, TranslateAttenuation(attenuationModel));
 		ma_sound_set_min_distance(sound, minDistance);
 		ma_sound_set_max_distance(sound, maxDistance);
@@ -166,6 +169,7 @@ namespace p3d {
 			{
 				const Vec3 position = owner->GetWorldPosition();
 				ma_sound_set_position(sound, position.x, position.y, position.z);
+				chain->SetEar(spatialized, position.x, position.y, position.z);
 				const Matrix &world = owner->GetWorldTransformation();
 				Vec3 forward = (world * Vec4(0.f, 0.f, -1.f, 0.f)).xyz();
 				if (forward.magnitude() > 0.0001f) forward = forward.normalize();
@@ -244,6 +248,7 @@ namespace p3d {
 		spatialized = enabled;
 		if (!loaded) return;
 		ma_sound_set_spatialization_enabled(sound, enabled ? MA_TRUE : MA_FALSE);
+		if (!enabled) chain->SetEar(false, 0.f, 0.f, 0.f);
 	}
 
 	void AudioSource::SetAttenuation(const uint32 model, const f32 minDistance, const f32 maxDistance)
@@ -419,6 +424,7 @@ namespace p3d {
 
 		const Vec3 position = owner->GetWorldPosition();
 		ma_sound_set_position(sound, position.x, position.y, position.z);
+		chain->SetEar(spatialized, position.x, position.y, position.z);
 
 		// Forward axis out of the world matrix, matching the listener's
 		// convention in AudioManager::SetListenerFromGameObject(). Only

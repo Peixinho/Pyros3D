@@ -107,6 +107,9 @@ namespace p3d {
 			audio->RegisterVoice(voice);
 			this->voices.push_back(voice);
 			chains.push_back(new detail::AudioEffectChain());
+			// (its ears: see AudioEar.h - what lets a placed sound be told from behind and in front)
+			chains.back()->EnsureEar(audio->GetEngine(), reinterpret_cast<void*>(voice),
+				group ? reinterpret_cast<void*>(group) : reinterpret_cast<void*>(ma_engine_get_endpoint(audio->GetEngine())));
 		}
 
 		loaded = true;
@@ -191,6 +194,7 @@ namespace p3d {
 		if (voice == NULL) return;
 
 		ma_sound_set_spatialization_enabled(voice, MA_FALSE);
+		for (size_t v = 0; v < voices.size(); v++) if (voices[v] == voice && v < chains.size()) chains[v]->SetEar(false, 0.f, 0.f, 0.f);
 		ma_sound_set_volume(voice, volume);
 		ma_sound_set_pitch(voice, pitch);
 		ma_sound_set_pan(voice, pan);
@@ -209,6 +213,7 @@ namespace p3d {
 
 		ma_sound_set_spatialization_enabled(voice, MA_TRUE);
 		ma_sound_set_position(voice, position.x, position.y, position.z);
+		for (size_t v = 0; v < voices.size(); v++) if (voices[v] == voice && v < chains.size()) chains[v]->SetEar(true, position.x, position.y, position.z);
 		ma_sound_set_volume(voice, volume);
 		ma_sound_set_pitch(voice, pitch);
 		ma_sound_seek_to_pcm_frame(voice, 0);

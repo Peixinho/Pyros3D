@@ -91,9 +91,17 @@ namespace p3d {
 		frameStart_ = Clock::now();
 	}
 
+	namespace {
+		// Scopes opened by a thread that is not the frame's own (a frame's scene
+		// recorded by another thread): not timed here, but named - the GPU's time
+		// is told apart by the scope that was open when its work was recorded.
+		thread_local const char* t_otherScopes[16];
+		thread_local uint32 t_otherDepth = 0;
+	}
 	void FrameProfiler::Begin(const char *name)
 	{
-		if (!OnFrameThread() || !enabled_) return;
+		if (!OnFrameThread()) { if (t_otherDepth < 16) t_otherScopes[t_otherDepth] = name; t_otherDepth++; return; }
+		if (!enabled_) return;
 		OpenScope s;
 		CopyName(s.name, name);
 		s.start = Clock::now();
@@ -103,7 +111,8 @@ namespace p3d {
 
 	const char *FrameProfiler::CurrentScopeName() const
 	{
-		if (!OnFrameThread() || !enabled_ || stack_.empty()) return "";
+		if (!OnFrameThread()) return (t_otherDepth > 0 && t_otherDepth <= 16) ? t_otherScopes[t_otherDepth - 1] : "";
+		if (!enabled_ || stack_.empty()) return "";
 		return stack_.back().name;
 	}
 
@@ -129,7 +138,8 @@ namespace p3d {
 
 	void FrameProfiler::End()
 	{
-		if (!OnFrameThread() || !enabled_ || stack_.empty()) return;
+		if (!OnFrameThread()) { if (t_otherDepth > 0) t_otherDepth--; return; }
+		if (!enabled_ || stack_.empty()) return;
 		OpenScope s = stack_.back();
 		stack_.pop_back();
 		const f64 ms = std::chrono::duration<f64, std::milli>(Clock::now() - s.start).count();
