@@ -92,6 +92,54 @@ namespace p3d {
 		std::mutex gPreprocessMutex;
 		std::map<std::pair<uint32, std::string>, std::string> gPreprocessCache;
 
+		// A preprocessed text on disk: named by two hashes of the source and its
+		// stage, and headed by the source's length and a third hash of it, so a
+		// file that is not this source's (or is half written) is not used.
+		uint64 HashText(const std::string &t, uint64 h, const uint64 mul)
+		{
+			for (size_t i = 0; i < t.size(); i++) { h ^= (uint8_t)t[i]; h *= mul; h ^= h >> 31; }
+			return h;
+		}
+		std::string PreprocessCachePath(const std::string &source, const uint32 stage)
+		{
+			char name[64];
+			std::snprintf(name, sizeof(name), "%016llx%016llx.pre", (unsigned long long)HashSpirvKey(source, stage),
+				(unsigned long long)HashText(source, 0x9e3779b97f4a7c15ull + stage, 0xff51afd7ed558ccdull));
+			return SpirvCacheDir() + "/" + name;
+		}
+		bool LoadPreprocessedFromDisk(const std::string &path, const std::string &source, std::string &flat)
+		{
+			static const bool off = getenv("PYROS_SHADER_CACHE") && getenv("PYROS_SHADER_CACHE")[0] == '0';
+			if (off) return false;
+			std::ifstream in(path.c_str(), std::ios::binary);
+			if (!in) return false;
+			uint64 head[3] = { 0, 0, 0 };
+			in.read(reinterpret_cast<char*>(head), sizeof(head));
+			if (!in || head[0] != (uint64)source.size() || head[1] != HashText(source, 0x2545f4914f6cdd1dull, 0xc4ceb9fe1a85ec53ull)) return false;
+			if (head[2] == 0 || head[2] > (64u << 20)) return false;
+			flat.resize((size_t)head[2]);
+			in.read(&flat[0], (std::streamsize)head[2]);
+			if (!in) { flat.clear(); return false; }
+			return true;
+		}
+		void StorePreprocessedToDisk(const std::string &path, const std::string &source, const std::string &flat)
+		{
+			if (flat.empty() || !EnsureDir(SpirvCacheDir())) return;
+			// (written beside and moved into place: a game closed half-way leaves no half file under the name)
+			const std::string part = path + ".part";
+			{
+				std::ofstream out(part.c_str(), std::ios::binary | std::ios::trunc);
+				if (!out) return;
+				const uint64 head[3] = { (uint64)source.size(), HashText(source, 0x2545f4914f6cdd1dull, 0xc4ceb9fe1a85ec53ull), (uint64)flat.size() };
+				out.write(reinterpret_cast<const char*>(head), sizeof(head));
+				out.write(flat.data(), (std::streamsize)flat.size());
+				if (!out) { out.close(); std::error_code ec; std::filesystem::remove(part, ec); return; }
+			}
+			std::error_code ec;
+			std::filesystem::rename(part, path, ec);
+			if (ec) std::filesystem::remove(part, ec);
+		}
+
 		bool LoadSpirvFromDisk(uint64 key, std::vector<uint32> &out)
 		{
 			std::ifstream in(SpirvCachePath(key).c_str(), std::ios::binary);
@@ -298,6 +346,17 @@ namespace p3d {
 			std::map<std::pair<uint32, std::string>, std::string>::iterator it = gPreprocessCache.find(preKey);
 			if (it != gPreprocessCache.end()) { flat = it->second; preprocessed = true; }
 		}
+		// (and from disk, for the first time a run meets a text an earlier run
+		// has met: the memory cache above starts every run empty, and each of a
+		// game's own shaders cost a tenth of a second of preprocessing again,
+		// at load or in the middle of play when a variant was first wanted)
+		const std::string prePath = PreprocessCachePath(source, stage);
+		if (!preprocessed && LoadPreprocessedFromDisk(prePath, source, flat))
+		{
+			preprocessed = true;
+			std::lock_guard<std::mutex> lock(gPreprocessMutex);
+			gPreprocessCache[preKey] = flat;
+		}
 		if (!preprocessed)
 		{
 			shaderc_shader_kind kind = ShadercKindForStage(stage);
@@ -314,6 +373,7 @@ namespace p3d {
 			flat.assign(preResult.cbegin(), preResult.cend());
 			std::lock_guard<std::mutex> lock(gPreprocessMutex);
 			gPreprocessCache[preKey] = flat;
+			StorePreprocessedToDisk(prePath, source, flat);
 		}
 
 		std::vector<std::string> lines;
