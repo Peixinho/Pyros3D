@@ -184,6 +184,8 @@ namespace p3d {
 			if (go == NULL) continue;
 			go->_DrawWorld = go->_WorldMatrix;
 			go->_DrawPrvWorld = go->_PrvWorldMatrix;
+			go->_DrawScale = go->_Scale;
+			go->_DrawRadius = go->BoundingSphereRadiusWorldSpace;
 			go->_DrawTaken = true;
 			go->_DrawSlot = -1;
 		}

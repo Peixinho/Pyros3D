@@ -1825,9 +1825,9 @@ namespace {
 		RenderingComponent* rc = m->renderingComponent;
 		if (rc->IsInstanced() || !rc->IsCullTesting()) return true;
 		GameObject* owner = rc->GetOwner();
-		const Vec3 scale = owner->GetScale();
+		const Vec3 scale = owner->GetDrawScale();
 		const f32 r = rc->GetBoundingSphereRadius() * Max(Max(fabs(scale.x), fabs(scale.y)), fabs(scale.z)) + g_shadowView.margin;
-		const Vec3 c = owner->GetWorldTransformation() * rc->GetBoundingSphereCenter();
+		const Vec3 c = owner->GetDrawWorld() * rc->GetBoundingSphereCenter();
 		for (int k = 0; k < 6; k++)
 		{
 			const Vec3 &pn = g_shadowView.n[k];
@@ -2476,6 +2476,8 @@ void IRenderer::PublishLightsToSmoke(const std::vector<IComponent*> &lights)
 
 void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
 {
+	// (the scene's time, read here - at the hand-over - for the passes that follow)
+	if (Scene != NULL) Timer = Scene->GetTime();
 	// (the ambient light asked for since the last frame: see heldAmbient)
 	if (g_ambientScaleHeld) { AmbientScale = g_heldAmbientScale; g_ambientScaleHeld = false; }
 	if (heldAmbient.light) { GlobalLight = heldAmbient.Light; heldAmbient.light = false; }

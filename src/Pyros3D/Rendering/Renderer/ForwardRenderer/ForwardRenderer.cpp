@@ -175,7 +175,7 @@ namespace p3d {
 		}
 
 		// Save Time
-		Timer = Scene->GetTime();
+		if (!GameObject::DrawCopies()) Timer = Scene->GetTime();
 
 		// Save Values for Cache
 		// Saves Scene
@@ -340,7 +340,7 @@ namespace p3d {
 					else if (L.m[13] == 2 || L.m[13] == 3)
 					{
 						Vec3 _lPos = Vec3(L.m[4], L.m[5], L.m[6]);
-						if ((_lPos.distance(objectPosition) - owner->GetBoundingSphereRadiusWorldSpace()) < L.m[10])
+						if ((_lPos.distance(objectPosition) - owner->GetDrawRadiusWorldSpace()) < L.m[10])
 							objectLights.push_back((uint16)l);
 					}
 				}

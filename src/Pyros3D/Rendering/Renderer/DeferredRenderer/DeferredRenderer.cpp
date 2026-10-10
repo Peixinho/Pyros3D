@@ -889,7 +889,7 @@ namespace p3d {
 		PublishLightsToSmoke(lcomps);
 
 		// Save Time
-		Timer = Scene->GetTime();
+		if (!GameObject::DrawCopies()) Timer = Scene->GetTime();
 
 		// First Pass
 
@@ -1900,7 +1900,7 @@ namespace p3d {
 				else if ((*_l).m[13] == 2 || (*_l).m[13] == 3)
 				{
 					Vec3 _lPos = Vec3((*_l).m[4], (*_l).m[5], (*_l).m[6]);
-					if ((_lPos.distance(objectPosition) - owner->GetBoundingSphereRadiusWorldSpace()) < (*_l).m[10])
+					if ((_lPos.distance(objectPosition) - owner->GetDrawRadiusWorldSpace()) < (*_l).m[10])
 						lightsOf.push_back(*_l);
 				}
 			}
