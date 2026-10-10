@@ -40,7 +40,7 @@ TemporalUpscalerId GetTextureDataSize GetTextureUploadSize GetAutoUniformBlockLa
 # written by hand in the .cpp's fixed part
 SPECIAL = set("""BeginFrame EndFrame BindFramebuffer SetClearColor IsFrameInProgress GetCurrentRenderTarget BeginCommandBuffer WaitIdle
 CreateBuffer CreateVertexArray CreatePipeline DestroyBuffer DeleteVertexArray DestroyPipeline
-BeginParallelStream EnterParallelStream LeaveParallelStream
+BeginParallelStream EnterParallelStream LeaveParallelStream NewDetachedStream PlaceStream
 CreateUniformBuffer DestroyUniformBuffer
 CreateTextureObject DestroyTextureObject UploadTexture2D RunTemporalUpscale""".split())
 # Buffers, vertex arrays and pipelines are made in the queue like everything else (a

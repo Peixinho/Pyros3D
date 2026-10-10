@@ -102,10 +102,13 @@ namespace p3d {
 		// scene's Update(), so within a frame the list cannot change.
 		const std::vector<TerrainTile> &TilesThisFrame(SceneGraph* scene)
 		{
-			static SceneGraph* forScene = NULL;
-			static f64 forTime = -1.0;
-			static uint32 forGeneration = 0;
-			static std::vector<TerrainTile> tiles;
+			// (each thread its own: game logic asks the ground's height while another
+			// thread, drawing the frame before, asks what the ground hides - two of
+			// them made the one list again at the same moment)
+			static thread_local SceneGraph* forScene = NULL;
+			static thread_local f64 forTime = -1.0;
+			static thread_local uint32 forGeneration = 0;
+			static thread_local std::vector<TerrainTile> tiles;
 			// ... except when a script swaps the scene for another: the new
 			// scene is the same object at the same time, and its tiles are new
 			// ones - the list held pointers to the old scene's, already

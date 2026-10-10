@@ -221,6 +221,15 @@ private:
 	// of a frame. See OnResize() for why reallocating GPU images from inside
 	// the event callback is not safe.
 	void ApplyPendingResizeIfAny();
+	// A frame's drawing recorded by another thread while this one runs the next
+	// frame's game logic (PYROS_FRAME_SPLIT=2; see GameObject::GetDrawWorld).
+	void CloseFrame(const bool ownFrame, const f64 dt);
+	void FinishFrameInFlight();
+	bool frameInFlight = false, flightOwnFrame = false;
+	f64 flightDt = 0.0;
+	void* flightLogicStream = NULL;
+	struct FlightDone;
+	FlightDone* flightDone = NULL;
 	uint32 pendingResizeWidth, pendingResizeHeight;
 	bool resizePending;
 	// The fraction of the window's size the scene is rendered at (SetRenderScale).

@@ -98,6 +98,7 @@ namespace p3d {
 			bool closed = false;              // under `lock`
 			uint64 handed = 0, ran = 0;       // batches handed over, and carried out: under `lock`
 			Said said;
+			void* outer = NULL;               // the stream the thread was in when it entered this one: gone back to when it leaves
 		};
 		Batch* Filling();                     // this thread's: its stream's, or the frame's
 		Said &SaidHere();

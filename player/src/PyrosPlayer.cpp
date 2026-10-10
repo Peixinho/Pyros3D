@@ -16,6 +16,7 @@
 #include <Pyros3D/Assets/AssetPreload.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
+#include <functional>
 #include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
 #include <cstdio>
@@ -1016,6 +1017,8 @@ void PyrosPlayer::StartSceneMedia(const std::vector<GameObject*> &objects)
 
 void PyrosPlayer::UnloadGameScene()
 {
+	// (a frame another thread is still recording is finished first)
+	if (frameInFlight) FinishFrameInFlight();
 	if (!sceneLoaded) return;
 #ifdef LUA_BINDINGS
 	// The scripts of the scene being left are told first: destroy() is where
@@ -1448,6 +1451,24 @@ void PyrosPlayer::ApplyPendingSceneLoadIfAny()
 }
 #endif
 
+struct PyrosPlayer::FlightDone { JobCounter counter; };
+
+// The frame another thread has been recording: waited for, then closed by this one
+// (its UI, its end) - before anything is taken for the next.
+void PyrosPlayer::FinishFrameInFlight()
+{
+	if (!frameInFlight) return;
+	{
+		PYROS_PROFILE_SCOPE("Player.JoinFrame");
+		JobSystem::Instance().Wait(flightDone->counter);
+	}
+	GetActiveRenderDevice().LeaveParallelStream(flightLogicStream);
+	flightLogicStream = NULL;
+	frameInFlight = false;
+	FrameProfiler::Instance().Counter("Frame.Split", 1.0);
+	CloseFrame(flightOwnFrame, flightDt);
+}
+
 void PyrosPlayer::Update()
 {
 	if (!sceneLoaded) return;
@@ -1491,6 +1512,7 @@ void PyrosPlayer::Update()
 	}
 
 	// At the top of the frame, before anything renders - see OnResize().
+	if (frameInFlight && resizePending) FinishFrameInFlight();
 	{
 		PYROS_PROFILE_SCOPE("Player.Resize");
 		ApplyPendingResizeIfAny();
@@ -1624,6 +1646,7 @@ void PyrosPlayer::Update()
 	// themselves the renderer presented the scene and UIRenderer then opened
 	// and presented a second frame holding only the HUD over black - every
 	// game with a HUD flickered.
+	if (frameInFlight) FinishFrameInFlight();
 	IRenderDevice &device = GetActiveRenderDevice();
 	const bool ownFrame = device.GetCurrentRenderTarget() == 0 && !device.IsFrameInProgress();
 	if (ownFrame)
@@ -1667,52 +1690,79 @@ void PyrosPlayer::Update()
 		renderer->SetProjectionJitter(effectsManager->GetProjectionJitter());
 	}
 
-	renderer->RenderScene(projection, activeCamera, scene);
-	renderer->SetProjectionJitter(Vec2(0.f, 0.f));
-
-	if (postFX)
+	// (the frame's passes: by this thread, or - PYROS_FRAME_SPLIT=2 - handed to another
+	// while this one goes on to the next frame's game logic; whatever that asks of the
+	// device meanwhile is carried out after these draws)
+	const std::function<void()> passes = [this, postFX, dt]()
 	{
-		effectsManager->EndCapture();
-		// Under Deferred the scene's depth is the renderer's, not the capture's:
-		// the capture's own depth was never drawn into and reads "nothing there"
-		// in every pixel. An effect that tests against the scene - smoke that
-		// must stop at a wall or a hill, ambient occlusion - saw straight through
-		// the world in a built game (the editor has always made this copy).
-		if (gbufferFBO != NULL && effectsManager->GetDepth() != NULL)
+		renderer->RenderScene(projection, activeCamera, scene);
+		renderer->SetProjectionJitter(Vec2(0.f, 0.f));
+	
+		if (postFX)
 		{
-			DeferredRenderer* dr = static_cast<DeferredRenderer*>(renderer);
-			if (dr->GetDepthTexture() != NULL)
-				GetActiveRenderDevice().CopyDepthTexture(dr->GetDepthTexture()->GetBindID(),
-					effectsManager->GetDepth()->GetBindID(), RenderWidth(), RenderHeight());
+			effectsManager->EndCapture();
+			// Under Deferred the scene's depth is the renderer's, not the capture's:
+			// the capture's own depth was never drawn into and reads "nothing there"
+			// in every pixel. An effect that tests against the scene - smoke that
+			// must stop at a wall or a hill, ambient occlusion - saw straight through
+			// the world in a built game (the editor has always made this copy).
+			if (gbufferFBO != NULL && effectsManager->GetDepth() != NULL)
+			{
+				DeferredRenderer* dr = static_cast<DeferredRenderer*>(renderer);
+				if (dr->GetDepthTexture() != NULL)
+					GetActiveRenderDevice().CopyDepthTexture(dr->GetDepthTexture()->GetBindID(),
+						effectsManager->GetDepth()->GetBindID(), RenderWidth(), RenderHeight());
+			}
+			// Under Deferred the capture does not hold the scene - the renderer's
+			// final composite targets framebuffer 0 - so the chain is pointed at
+			// its colour output instead. Same reasoning as the editor viewport.
+			// gbufferFBO is the player's own deferred tell: it only exists under
+			// the deferred renderer.
+			effectsManager->SetSceneSourceTexture(gbufferFBO != NULL
+				? static_cast<DeferredRenderer*>(renderer)->GetColorTexture()
+				: NULL);
+			// The last effect draws to the swapchain, which is what a game wants
+			// and - on Vulkan - is also what presents the frame at all. So no
+			// SetRenderLastToTexture() here, unlike the editor.
+			// Per frame, for the same reason as the editor viewport: depth-based
+			// effects need the view the frame was rendered with.
+			if (activeCamera != NULL)
+				effectsManager->SetViewMatrix(activeCamera->GetWorldTransformation().Inverse());
+			// See the editor viewport - no-op unless the chain contains motion
+			// blur, and fed the real frame rate rather than the target one.
+			effectsManager->RenderVelocityPass(projection, activeCamera, scene,
+				dt > 0.0 ? (f32)(1.0 / dt) : 60.f);
+			effectsManager->ProcessPostEffects(&projection);
 		}
-		// Under Deferred the capture does not hold the scene - the renderer's
-		// final composite targets framebuffer 0 - so the chain is pointed at
-		// its colour output instead. Same reasoning as the editor viewport.
-		// gbufferFBO is the player's own deferred tell: it only exists under
-		// the deferred renderer.
-		effectsManager->SetSceneSourceTexture(gbufferFBO != NULL
-			? static_cast<DeferredRenderer*>(renderer)->GetColorTexture()
-			: NULL);
-		// The last effect draws to the swapchain, which is what a game wants
-		// and - on Vulkan - is also what presents the frame at all. So no
-		// SetRenderLastToTexture() here, unlike the editor.
-		// Per frame, for the same reason as the editor viewport: depth-based
-		// effects need the view the frame was rendered with.
-		if (activeCamera != NULL)
-			effectsManager->SetViewMatrix(activeCamera->GetWorldTransformation().Inverse());
-		// See the editor viewport - no-op unless the chain contains motion
-		// blur, and fed the real frame rate rather than the target one.
-		effectsManager->RenderVelocityPass(projection, activeCamera, scene,
-			dt > 0.0 ? (f32)(1.0 / dt) : 60.f);
-		effectsManager->ProcessPostEffects(&projection);
+	
+		// UI last, over the finished frame, and input fed to it right before -
+		// so a click is resolved against the layout the player is looking at,
+		// not the one from the previous frame.
+		// (nothing of the scene is still being recorded on another thread when the
+		// UI's handlers, which may change it, are run)
+		renderer->FinishBeside();
+	};
+	static const bool splitFrames = std::getenv("PYROS_FRAME_SPLIT") != NULL && std::getenv("PYROS_FRAME_SPLIT")[0] == '2';
+	if (splitFrames && ownFrame && deviceThread && JobSystem::Instance().WorkerCount() > 0)
+	{
+		void* logic = device.NewDetachedStream();
+		if (logic != NULL)
+		{
+			if (flightDone == NULL) flightDone = new FlightDone();
+			frameInFlight = true; flightOwnFrame = ownFrame; flightDt = dt; flightLogicStream = logic;
+			IRenderDevice* dev = &device;
+			JobSystem::Instance().Run([passes, dev, logic]() { passes(); dev->PlaceStream(logic); }, flightDone->counter);
+			device.EnterParallelStream(logic);
+			return;
+		}
 	}
+	passes();
+	CloseFrame(ownFrame, dt);
+}
 
-	// UI last, over the finished frame, and input fed to it right before -
-	// so a click is resolved against the layout the player is looking at,
-	// not the one from the previous frame.
-	// (nothing of the scene is still being recorded on another thread when the
-	// UI's handlers, which may change it, are run)
-	renderer->FinishBeside();
+void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
+{
+	IRenderDevice &device = GetActiveRenderDevice();
 	if (uiRenderer)
 	{
 		PYROS_PROFILE_SCOPE("Player.UI");
@@ -2230,6 +2280,8 @@ void PyrosPlayer::ApplyPendingResizeIfAny()
 
 void PyrosPlayer::Shutdown()
 {
+	// (a frame another thread is still recording is finished first)
+	if (frameInFlight) FinishFrameInFlight();
 	PyrosTextInput::SetHandler(NULL);
 	InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &PyrosPlayer::OnMouseWheel);
 	activePlayer = NULL;

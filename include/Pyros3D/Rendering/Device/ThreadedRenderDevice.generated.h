@@ -8,6 +8,8 @@
 		virtual void* BeginParallelStream() override;
 		virtual void EnterParallelStream(void* stream) override;
 		virtual void LeaveParallelStream(void* stream) override;
+		virtual void* NewDetachedStream() override;
+		virtual void PlaceStream(void* stream) override;
 		virtual void FlushOffscreenWork() override;
 		virtual std::string MemoryReport() override;
 		virtual void WaitOffscreenWork() override;

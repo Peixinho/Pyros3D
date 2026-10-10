@@ -245,6 +245,14 @@ namespace p3d {
 		virtual void* BeginParallelStream() { return NULL; }
 		virtual void EnterParallelStream(void* stream) { (void)stream; }
 		virtual void LeaveParallelStream(void* stream) { (void)stream; }
+		// A stream that is not placed yet: a thread enters it and records, and the
+		// thread recording the frame says later where all of it is carried out
+		// (PlaceStream). For game logic that runs while the frame before it is
+		// still being recorded by another thread: what it asks of the device -
+		// a texture made, a buffer filled, something destroyed - is carried out
+		// after that frame's draws, and before the next one's.
+		virtual void* NewDetachedStream() { return NULL; }
+		virtual void PlaceStream(void* stream) { (void)stream; }
 
 		// Close the current offscreen recording session and submit it, without
 		// blocking the CPU. Lets a renderer put a hard submission boundary

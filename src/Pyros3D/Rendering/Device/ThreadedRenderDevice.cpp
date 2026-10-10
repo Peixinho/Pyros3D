@@ -80,16 +80,35 @@ namespace p3d {
 		Kick();
 		return s;
 	}
+	void* ThreadedRenderDevice::NewDetachedStream()
+	{
+		Stream* s = new Stream();
+		s->filling = TakeSpare();
+		s->said = said;
+		return s;
+	}
+	void ThreadedRenderDevice::PlaceStream(void* stream)
+	{
+		Stream* s = static_cast<Stream*>(stream);
+		Push([this, s]() { RunStream(s); });
+		Kick();
+	}
+	// (One inside another: a thread that is in a stream of its own - game logic,
+	// while another thread records the frame - and lends a hand with a pass's
+	// run, which has its own. It goes back to its own when it leaves that one:
+	// it used to come out in none, and went on to write into the frame's.)
 	void ThreadedRenderDevice::EnterParallelStream(void* stream)
 	{
+		static_cast<Stream*>(stream)->outer = t_stream;
 		t_stream = stream;
 	}
 	void ThreadedRenderDevice::LeaveParallelStream(void* stream)
 	{
 		Stream* s = static_cast<Stream*>(stream);
+		void* const outer = s->outer;
 		t_stream = stream;
 		Kick();
-		t_stream = NULL;
+		t_stream = outer;
 		{
 			std::lock_guard<std::mutex> g(lock);
 			s->closed = true;
