@@ -49,6 +49,10 @@ namespace p3d {
 		static bool StartDeviceThread();
 		static void StopDeviceThread();
 		static ThreadedRenderDevice* DeviceThread();
+		// The device itself, for the few things that must be asked of it and not of
+		// whatever stands in front of it (a UI library's own backend, say): the
+		// device thread is brought to rest first, so the caller may use it at once.
+		static class IRenderDevice* DeviceItselfAtRest();
 
 		static void SetSplit(const bool wanted);
 		static bool GetSplit();

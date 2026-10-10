@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "DemoLauncher.h"
+#include <Pyros3D/Rendering/Frame/FramePipeline.h>
 #include "imgui_internal.h"   // DockBuilder* - see Math.h on why order used to matter
 
 #include <Pyros3D/Other/PyrosGL.h>
@@ -79,6 +80,9 @@ void DemoLauncher::OnResize(const uint32 width, const uint32 height)
 void DemoLauncher::Init()
 {
 	ClassName::Init();
+	// (the render device on a thread of its own - the engine's FramePipeline: every
+	// pass of every demo is then recorded on every core. PYROS_DEVICE_THREAD=0 for the old way.)
+	FramePipeline::StartDeviceThread();
 
 	Scene = new SceneGraph();
 
@@ -883,6 +887,7 @@ void DemoLauncher::Shutdown()
 	if (physics) { delete physics; physics = nullptr; }
 	if (Scene) { delete Scene; Scene = nullptr; }
 
+	FramePipeline::StopDeviceThread();
 	ClassName::Shutdown();
 }
 
@@ -949,7 +954,7 @@ void DemoLauncher::InitImGui()
 	ImGui::StyleColorsDark();
 
 	ImGui_ImplSDL2_InitForVulkan(GetSDLWindow());
-	imguiInitialized = static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).InitImGuiVulkanBackend();
+	imguiInitialized = static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).InitImGuiVulkanBackend();
 #endif
 }
 
@@ -958,7 +963,7 @@ void DemoLauncher::ShutdownImGui()
 	if (imguiInitialized)
 	{
 #if defined(_SDL2VULKAN)
-		static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiVulkanBackend();
+		static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).ShutdownImGuiVulkanBackend();
 #elif defined(_SDL2METAL)
 		static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiMetalBackend();
 #else
@@ -979,7 +984,7 @@ void DemoLauncher::BeginImGuiFrame()
 	ImGui_ImplOpenGL3_NewFrame();
 #else
 	// After SDL NewFrame - corrects FramebufferScale to swapchainExtent.
-	static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).NewImGuiVulkanFrame();
+	static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).NewImGuiVulkanFrame();
 #endif
 	ImGui::NewFrame();
 }

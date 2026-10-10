@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "BaseExample.h"
+#include <Pyros3D/Rendering/Frame/FramePipeline.h>
 #include <iostream>
 #include <SDL2/SDL.h>
 #include <cstdio>
@@ -72,6 +73,11 @@ void BaseExample::Init()
 {
 	// Initialization
 	ClassName::Init();
+
+	// The render device on a thread of its own (the engine's FramePipeline): what
+	// lets every pass be recorded on every core, in a demo as in a game.
+	// PYROS_DEVICE_THREAD=0 to draw from this thread as before.
+	FramePipeline::StartDeviceThread();
 
 	// Scene
 	Scene = new SceneGraph();
@@ -161,6 +167,8 @@ void BaseExample::Shutdown()
 		Renderer = nullptr;
 	}
 	
+	FramePipeline::StopDeviceThread();
+
 	// Call parent shutdown
 	ClassName::Shutdown();
 }
@@ -305,7 +313,7 @@ void BaseExample::InitImGui()
 	ImGui::StyleColorsDark();
 
 	ImGui_ImplSDL2_InitForVulkan(GetSDLWindow());
-	imguiInitialized = static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).InitImGuiVulkanBackend();
+	imguiInitialized = static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).InitImGuiVulkanBackend();
 #endif
 }
 
@@ -317,7 +325,7 @@ void BaseExample::ShutdownImGui()
 #elif !defined(_SDL2VULKAN)
 		ImGui_ImplOpenGL3_Shutdown();
 #else
-		static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiVulkanBackend();
+		static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).ShutdownImGuiVulkanBackend();
 #endif
 		ImGui_ImplSDL2_Shutdown();
 		ImGui::DestroyContext();
@@ -335,7 +343,7 @@ void BaseExample::BeginImGuiFrame()
 		ImGui_ImplOpenGL3_NewFrame();
 #else
 		// After SDL NewFrame - corrects FramebufferScale to swapchainExtent.
-		static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).NewImGuiVulkanFrame();
+		static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).NewImGuiVulkanFrame();
 #endif
 		ImGui::NewFrame();
 	}

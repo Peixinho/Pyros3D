@@ -52,6 +52,13 @@ namespace p3d {
 	}
 
 	ThreadedRenderDevice* FramePipeline::DeviceThread() { return g_deviceThread.get(); }
+	IRenderDevice* FramePipeline::DeviceItselfAtRest()
+	{
+		if (!g_deviceThread) return IsActiveRenderDeviceSet() ? &GetActiveRenderDevice() : NULL;
+		Finish();
+		g_deviceThread->WaitIdle();
+		return g_deviceItself.get();
+	}
 
 	void FramePipeline::SetSplit(const bool wanted) { g_splitWanted = wanted; }
 	bool FramePipeline::GetSplit() { return g_splitWanted; }
