@@ -38,6 +38,13 @@ namespace p3d {
 	// says "Segmentation fault" rather than nothing at all.
 	PYROS3D_API void InstallCrashHandler();
 
+	// A frozen application says nothing at all: no crash, no report. With this
+	// on (and FrameHeartbeat called once a frame), a frame that has not come
+	// for `seconds` has every thread's stack written to PyrosHang.txt beside
+	// the executable - on Windows; elsewhere both do nothing.
+	PYROS3D_API void InstallHangWatchdog(const unsigned seconds = 8);
+	PYROS3D_API void FrameHeartbeat();
+
 }
 
 #endif	/* PYROS_CRASHHANDLER_H */

@@ -46,6 +46,7 @@ int main(int argc, char** argv)
 	// the process with no output at all, which from the outside is exactly
 	// what "the game just closes" looks like.
 	InstallCrashHandler();
+	InstallHangWatchdog();
 
 	PyrosPlayer* game = new PyrosPlayer();
 	game->SetLaunchArgs(argc, argv);
@@ -74,6 +75,7 @@ int main(int argc, char** argv)
 		{
 			PYROS_PROFILE_SCOPE("App.Update");
 			game->Update();
+			FrameHeartbeat();
 		}
 		{
 			PYROS_PROFILE_SCOPE("App.Draw");

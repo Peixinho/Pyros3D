@@ -13,6 +13,8 @@
 #include <Pyros3D/Core/Logs/Log.h>
 #include <windows.h>
 #include <dbghelp.h>
+#include <tlhelp32.h>
+#include <atomic>
 #include <cstdio>
 #include <cstring>
 #include <sstream>
@@ -51,7 +53,11 @@ namespace p3d {
 		// Next to the executable, which is where someone looking for it will
 		// look. Falls back to the working directory if that is not writable
 		// (an install under Program Files).
-		void OpenCrashFile()
+		DWORD mainThreadId = 0;
+
+		void OpenReportFile(const char *name, const char *mode);
+		void OpenCrashFile() { OpenReportFile("PyrosCrash.txt", "w"); }
+		void OpenReportFile(const char *name, const char *mode)
 		{
 			char path[MAX_PATH] = {};
 			const DWORD length = GetModuleFileNameA(NULL, path, MAX_PATH);
@@ -61,18 +67,19 @@ namespace p3d {
 				if (slash)
 				{
 					// Room for the name plus its terminator, or leave it.
-					if ((size_t)(slash - path) + sizeof("\\PyrosCrash.txt") < MAX_PATH)
+					if ((size_t)(slash - path) + strlen(name) + 2 < MAX_PATH)
 					{
-						strcpy(slash, "\\PyrosCrash.txt");
-						crashFile = fopen(path, "w");
+						slash[1] = 0;
+						strcat(path, name);
+						crashFile = fopen(path, mode);
 						if (crashFile != NULL) strcpy(crashFilePath, path);
 					}
 				}
 			}
 			if (crashFile == NULL)
 			{
-				crashFile = fopen("PyrosCrash.txt", "w");
-				if (crashFile != NULL) strcpy(crashFilePath, "PyrosCrash.txt");
+				crashFile = fopen(name, mode);
+				if (crashFile != NULL) strcpy(crashFilePath, name);
 			}
 		}
 
@@ -94,6 +101,69 @@ namespace p3d {
 				// names the frames it got to.
 				fflush(crashFile);
 			}
+		}
+
+		// One line of a stack: module+offset always, a name where there is one to
+		// trust. True if the module had real symbols.
+		bool ReportAddress(const HANDLE process, const int depth, const DWORD64 pc)
+		{
+			char symbolBuffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME] = {};
+			SYMBOL_INFO *symbol = (SYMBOL_INFO*)symbolBuffer;
+			symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
+			symbol->MaxNameLen = MAX_SYM_NAME;
+
+			DWORD64 displacement = 0;
+			const bool haveName = SymFromAddr(process, pc, &displacement, symbol) != FALSE;
+
+			// Must come after SymFromAddr: SYMOPT_DEFERRED_LOADS means the
+			// module's symbols are not even looked at until something asks
+			// for them, and SymType reads back as SymDeferred until then.
+			IMAGEHLP_MODULE64 mod = {};
+			mod.SizeOfStruct = sizeof(mod);
+			const bool haveModule = SymGetModuleInfo64(process, pc, &mod) != FALSE;
+			// Only a PDB gives real function boundaries. SymExport means
+			// dbghelp had nothing but the DLL's export table and picked
+			// the nearest preceding exported symbol - which, in a module
+			// that exports a few hundred names across megabytes of code,
+			// is usually a DIFFERENT function that happens to sit earlier
+			// in the image. Those names have sent more than one crash
+			// report off after the wrong subsystem entirely, so they are
+			// labelled as guesses here rather than printed as fact.
+			const bool haveRealSymbols = haveModule && (mod.SymType == SymPdb || mod.SymType == SymDia);
+
+			std::ostringstream s;
+			s << "  [" << depth << "] ";
+			// Module + RVA first, and always. This is the one part of the
+			// line that survives having no symbols at all: it can be
+			// resolved after the fact against a matching PDB, which the
+			// absolute address cannot (ASLR moved the module).
+			if (haveModule)
+				s << mod.ModuleName << "+0x" << std::hex
+				  << (uintptr_t)(pc - mod.BaseOfImage) << std::dec;
+			else
+				s << "0x" << std::hex << (uintptr_t)pc << std::dec;
+
+			if (haveName && haveRealSymbols)
+			{
+				s << "  " << symbol->Name << " + 0x" << std::hex << displacement << std::dec;
+
+				IMAGEHLP_LINE64 line = {};
+				line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
+				DWORD lineDisplacement = 0;
+				if (SymGetLineFromAddr64(process, pc, &lineDisplacement, &line))
+					s << "  (" << line.FileName << ":" << line.LineNumber << ")";
+			}
+			// A nearest-export guess is only worth showing when the hit is
+			// close enough that it is plausibly the same function. Past a
+			// few hundred bytes it is noise dressed up as information.
+			else if (haveName && displacement < 0x200)
+				s << "  (no pdb; near export " << symbol->Name << " + 0x"
+				  << std::hex << displacement << std::dec << ")";
+			else
+				s << "  (no pdb)";
+
+			Report(s.str().c_str());
+			return haveRealSymbols;
 		}
 
 		LONG WINAPI OnUnhandledException(EXCEPTION_POINTERS *info)
@@ -147,11 +217,31 @@ namespace p3d {
 			frame.AddrStack.Offset = ctx.Esp;
 #endif
 
-			// SYMBOL_INFO carries the name inline past the end of the struct.
-			char symbolBuffer[sizeof(SYMBOL_INFO) + MAX_SYM_NAME] = {};
-			SYMBOL_INFO *symbol = (SYMBOL_INFO*)symbolBuffer;
-			symbol->SizeOfStruct = sizeof(SYMBOL_INFO);
-			symbol->MaxNameLen = MAX_SYM_NAME;
+#if defined(_M_X64)
+			// A call through a null (or wild) function pointer faults AT the bad
+			// address: there is no code there to unwind from, the walk stopped at
+			// once and the report was a header with nothing under it. The call has
+			// pushed where it came from, though: that is taken off the stack, and
+			// the walk starts from whoever made the call.
+			if (rec->ExceptionCode == EXCEPTION_ACCESS_VIOLATION && rec->NumberParameters >= 2
+				&& rec->ExceptionInformation[0] == 8 && (DWORD64)rec->ExceptionInformation[1] == ctx.Rip)
+			{
+				DWORD64 from = 0;
+				if (ReadProcessMemory(process, (LPCVOID)ctx.Rsp, &from, sizeof(from), NULL) && from != 0)
+				{
+					Report("  (a call through a bad function pointer: what follows is who made the call)");
+					ctx.Rip = from;
+					ctx.Rsp += 8;
+					frame.AddrPC.Offset = ctx.Rip;
+					frame.AddrStack.Offset = ctx.Rsp;
+				}
+			}
+#endif
+			{
+				std::ostringstream t;
+				t << "  thread " << GetCurrentThreadId() << (GetCurrentThreadId() == mainThreadId ? " (the main thread)" : " (not the main thread)");
+				Report(t.str().c_str());
+			}
 
 			bool anyModuleUnsymbolized = false;
 
@@ -163,59 +253,8 @@ namespace p3d {
 				if (frame.AddrPC.Offset == 0)
 					break;
 
-				DWORD64 displacement = 0;
-				const bool haveName = SymFromAddr(process, frame.AddrPC.Offset, &displacement, symbol) != FALSE;
-
-				// Must come after SymFromAddr: SYMOPT_DEFERRED_LOADS means the
-				// module's symbols are not even looked at until something asks
-				// for them, and SymType reads back as SymDeferred until then.
-				IMAGEHLP_MODULE64 mod = {};
-				mod.SizeOfStruct = sizeof(mod);
-				const bool haveModule = SymGetModuleInfo64(process, frame.AddrPC.Offset, &mod) != FALSE;
-				// Only a PDB gives real function boundaries. SymExport means
-				// dbghelp had nothing but the DLL's export table and picked
-				// the nearest preceding exported symbol - which, in a module
-				// that exports a few hundred names across megabytes of code,
-				// is usually a DIFFERENT function that happens to sit earlier
-				// in the image. Those names have sent more than one crash
-				// report off after the wrong subsystem entirely, so they are
-				// labelled as guesses here rather than printed as fact.
-				const bool haveRealSymbols = haveModule && (mod.SymType == SymPdb || mod.SymType == SymDia);
-				if (!haveRealSymbols)
+				if (!ReportAddress(process, depth, frame.AddrPC.Offset))
 					anyModuleUnsymbolized = true;
-
-				std::ostringstream s;
-				s << "  [" << depth << "] ";
-				// Module + RVA first, and always. This is the one part of the
-				// line that survives having no symbols at all: it can be
-				// resolved after the fact against a matching PDB, which the
-				// absolute address cannot (ASLR moved the module).
-				if (haveModule)
-					s << mod.ModuleName << "+0x" << std::hex
-					  << (uintptr_t)(frame.AddrPC.Offset - mod.BaseOfImage) << std::dec;
-				else
-					s << "0x" << std::hex << (uintptr_t)frame.AddrPC.Offset << std::dec;
-
-				if (haveName && haveRealSymbols)
-				{
-					s << "  " << symbol->Name << " + 0x" << std::hex << displacement << std::dec;
-
-					IMAGEHLP_LINE64 line = {};
-					line.SizeOfStruct = sizeof(IMAGEHLP_LINE64);
-					DWORD lineDisplacement = 0;
-					if (SymGetLineFromAddr64(process, frame.AddrPC.Offset, &lineDisplacement, &line))
-						s << "  (" << line.FileName << ":" << line.LineNumber << ")";
-				}
-				// A nearest-export guess is only worth showing when the hit is
-				// close enough that it is plausibly the same function. Past a
-				// few hundred bytes it is noise dressed up as information.
-				else if (haveName && displacement < 0x200)
-					s << "  (no pdb; near export " << symbol->Name << " + 0x"
-					  << std::hex << displacement << std::dec << ")";
-				else
-					s << "  (no pdb)";
-
-				Report(s.str().c_str());
 			}
 
 			SymCleanup(process);
@@ -246,10 +285,142 @@ namespace p3d {
 		}
 	}
 
+	namespace {
+		std::atomic<unsigned long long> beats(0);
+		unsigned hangSeconds = 8;
+
+		// Where a thread is, without asking it: its registers are read while it is
+		// held still and the stack is unwound from them. Nothing here allocates or
+		// takes the symbol engine's lock - the thread held still may be the one
+		// that has it.
+		int CaptureThread(const HANDLE thread, DWORD64 *pcs, const int most)
+		{
+			int n = 0;
+#if defined(_M_X64)
+			__try
+			{
+				CONTEXT ctx;
+				memset(&ctx, 0, sizeof(ctx));
+				ctx.ContextFlags = CONTEXT_FULL;
+				if (!GetThreadContext(thread, &ctx)) return 0;
+				while (n < most && ctx.Rip != 0)
+				{
+					pcs[n++] = ctx.Rip;
+					DWORD64 base = 0;
+					PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(ctx.Rip, &base, NULL);
+					if (fn == NULL)
+					{
+						// (a leaf: where it returns to is on top of its stack)
+						DWORD64 from = 0;
+						if (!ReadProcessMemory(GetCurrentProcess(), (LPCVOID)ctx.Rsp, &from, sizeof(from), NULL)) break;
+						ctx.Rip = from;
+						ctx.Rsp += 8;
+					}
+					else
+					{
+						PVOID handlerData = NULL;
+						DWORD64 establisher = 0;
+						RtlVirtualUnwind(UNW_FLAG_NHANDLER, base, ctx.Rip, fn, &ctx, &handlerData, &establisher, NULL);
+					}
+				}
+			}
+			__except (EXCEPTION_EXECUTE_HANDLER) {}
+#else
+			(void)thread; (void)pcs; (void)most;
+#endif
+			return n;
+		}
+
+		struct Held { DWORD id; int n; DWORD64 pcs[48]; };
+		Held held[64];
+
+		void ReportHang(const int seconds, const bool first)
+		{
+			int count = 0;
+			const DWORD pid = GetCurrentProcessId(), me = GetCurrentThreadId();
+			const HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPTHREAD, 0);
+			if (snap == INVALID_HANDLE_VALUE) return;
+			THREADENTRY32 te;
+			te.dwSize = sizeof(te);
+			if (Thread32First(snap, &te))
+			{
+				do
+				{
+					if (te.th32OwnerProcessID != pid || te.th32ThreadID == me || count >= 64) continue;
+					const HANDLE t = OpenThread(THREAD_SUSPEND_RESUME | THREAD_GET_CONTEXT | THREAD_QUERY_INFORMATION, FALSE, te.th32ThreadID);
+					if (t == NULL) continue;
+					if (SuspendThread(t) != (DWORD)-1)
+					{
+						held[count].id = te.th32ThreadID;
+						held[count].n = CaptureThread(t, held[count].pcs, 48);
+						count++;
+						ResumeThread(t);
+					}
+					CloseHandle(t);
+				} while (Thread32Next(snap, &te));
+			}
+			CloseHandle(snap);
+
+			// (every thread is running again: names can be looked up now)
+			OpenReportFile("PyrosHang.txt", first ? "w" : "a");
+			{
+				std::ostringstream s;
+				s << "=== Pyros3D: no frame for " << seconds << " s. Where every thread is (a long load reads the same: then the main thread is in the loader) ===";
+				Report(s.str().c_str());
+			}
+			const HANDLE process = GetCurrentProcess();
+			SymSetOptions(SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES | SYMOPT_UNDNAME);
+			SymInitialize(process, NULL, TRUE);
+			for (int i = 0; i < count; i++)
+			{
+				std::ostringstream s;
+				s << "--- thread " << held[i].id << (held[i].id == mainThreadId ? " (the main thread)" : "") << " ---";
+				Report(s.str().c_str());
+				for (int k = 0; k < held[i].n; k++) ReportAddress(process, k, held[i].pcs[k]);
+			}
+			SymCleanup(process);
+			Report("=== end. Lines marked (no pdb) carry only module+offset, which is enough: please send this file. ===");
+			if (crashFile != NULL) { fclose(crashFile); crashFile = NULL; }
+		}
+
+		DWORD WINAPI Watchdog(LPVOID)
+		{
+			unsigned long long seen = 0;
+			unsigned still = 0;
+			int reports = 0;
+			bool told = false;
+			for (;;)
+			{
+				Sleep(1000);
+				const unsigned long long now = beats.load(std::memory_order_relaxed);
+				if (now == 0) continue;
+				if (now != seen) { seen = now; still = 0; told = false; continue; }
+				if (++still < hangSeconds || told || reports >= 4) continue;
+				told = true;
+				reports++;
+				ReportHang((int)still, reports == 1);
+			}
+		}
+	}
+
 	void InstallCrashHandler()
 	{
+		mainThreadId = GetCurrentThreadId();
 		SetUnhandledExceptionFilter(OnUnhandledException);
 	}
+
+	void InstallHangWatchdog(const unsigned seconds)
+	{
+		static bool installed = false;
+		if (installed) return;
+		installed = true;
+		hangSeconds = seconds < 2 ? 2 : seconds;
+		if (mainThreadId == 0) mainThreadId = GetCurrentThreadId();
+		const HANDLE t = CreateThread(NULL, 0, Watchdog, NULL, 0, NULL);
+		if (t != NULL) CloseHandle(t);
+	}
+
+	void FrameHeartbeat() { beats.fetch_add(1, std::memory_order_relaxed); }
 
 }
 
@@ -258,6 +429,8 @@ namespace p3d {
 namespace p3d {
 	// POSIX already prints "Segmentation fault" and can leave a core file.
 	void InstallCrashHandler() {}
+	void InstallHangWatchdog(const unsigned) {}
+	void FrameHeartbeat() {}
 }
 
 #endif
