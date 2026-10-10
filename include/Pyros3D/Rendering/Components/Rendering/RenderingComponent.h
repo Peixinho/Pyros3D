@@ -402,11 +402,11 @@ namespace p3d {
 		void SetAnimateWhenUnseen(const bool animate) { animateWhenUnseen = animate; }
 		bool IsAnimatingWhenUnseen() const { return animateWhenUnseen; }
 		// Drawn in one of the last few frames (a renderer says so: MarkSeen).
-		bool WasSeenRecently() const { return (uint32)(SeenEpoch - lastSeenEpoch.load(std::memory_order_relaxed)) <= 8u; }
+		bool WasSeenRecently() const { return (uint32)(SeenEpoch.load(std::memory_order_relaxed) - lastSeenEpoch.load(std::memory_order_relaxed)) <= 8u; }
 		// (said by whoever draws it - which may be two threads at once: a pass recorded beside the frame)
-		void MarkSeen() { lastSeenEpoch.store(SeenEpoch, std::memory_order_relaxed); }
+		void MarkSeen() { lastSeenEpoch.store(SeenEpoch.load(std::memory_order_relaxed), std::memory_order_relaxed); }
 		// Counted up once for every scene update.
-		static uint32 SeenEpoch;
+		static std::atomic<uint32> SeenEpoch;
 
 		void EnableCastShadows();
 		void DisableCastShadows();
@@ -708,7 +708,7 @@ namespace p3d {
 		// Culling
 		bool cullTest = true;
 		bool animateWhenUnseen = true;
-		std::atomic<uint32> lastSeenEpoch{ SeenEpoch };
+		std::atomic<uint32> lastSeenEpoch{ SeenEpoch.load() };
 
 		// INTERNAL - Components of this Type
 		static std::vector<IComponent*> Components;

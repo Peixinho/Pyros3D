@@ -127,7 +127,7 @@ namespace p3d {
 		// having to know who owns the ambient colours: the editor re-asserts
 		// them every frame and the player sets them once, and neither
 		// disturbs the scale.
-		static void SetAmbientScale(const f32 Scale) { AmbientScale = Scale < 0.f ? 0.f : Scale; }
+		static void SetAmbientScale(const f32 Scale);
 		static f32 GetAmbientScale() { return AmbientScale; }
 		// A background colour set at run time, over whatever each renderer was
 		// given: while set, every renderer in the process that has a background

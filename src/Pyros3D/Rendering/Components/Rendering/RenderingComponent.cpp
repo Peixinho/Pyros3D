@@ -921,7 +921,7 @@ namespace p3d {
 		return any;
 	}
 
-	uint32 RenderingComponent::SeenEpoch = 0;
+	std::atomic<uint32> RenderingComponent::SeenEpoch(0);
 
 	std::atomic<uint32_t> RenderState::Version(1);
 	std::atomic<uint32_t> RenderState::ReadEpoch(1);

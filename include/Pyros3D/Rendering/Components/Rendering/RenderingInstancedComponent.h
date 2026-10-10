@@ -27,9 +27,11 @@ namespace p3d {
 			// is on) - the component goes on being updated, by another thread, while
 			// the frame is drawn. Until taken, the number itself.
 			uint32 InstancesToDraw() const { return drawCountTaken ? drawCount : (uint32)NumberOfInstances(); }
-			void TakeDrawCount() { drawCount = (uint32)NumberOfInstances(); drawCountTaken = true; }
+			void TakeDrawCount() { drawCount = (uint32)NumberOfInstances(); drawGrowth = instanceGrowth; drawCountTaken = true; }
+			const Vec2 &GrowthToDraw() const { return drawCountTaken ? drawGrowth : instanceGrowth; }
 			uint32 drawCount = 0;
 			bool drawCountTaken = false;
+			Vec2 drawGrowth = Vec2(1.f, 1.f);
 			virtual void SetNumberInstances(const uint32 instances) { nrInstances = instances; }
 			// Every instance drawn this much wider and taller than its mesh,
 			// about the mesh's own origin (1, 1: as it is). What draws fewer

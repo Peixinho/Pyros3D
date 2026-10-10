@@ -145,6 +145,14 @@ Vec4 IRenderer::CachedClipPlane0;
 bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
 f32 IRenderer::AmbientScale = 1.f;
+namespace { f32 g_heldAmbientScale = 1.f; bool g_ambientScaleHeld = false; }
+// (set while a frame may be in flight: kept, and made the scale at the next PreRender)
+void IRenderer::SetAmbientScale(const f32 Scale)
+{
+	const f32 v = Scale < 0.f ? 0.f : Scale;
+	if (GameObject::DrawCopies()) { g_heldAmbientScale = v; g_ambientScaleHeld = true; return; }
+	AmbientScale = v;
+}
 Vec4 IRenderer::BackgroundOverride(0.f, 0.f, 0.f, 1.f);
 Vec4 IRenderer::ShaderGlobals[IRenderer::kShaderGlobals];
 bool IRenderer::BackgroundOverrideSet = false;
@@ -2469,6 +2477,7 @@ void IRenderer::PublishLightsToSmoke(const std::vector<IComponent*> &lights)
 void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
 {
 	// (the ambient light asked for since the last frame: see heldAmbient)
+	if (g_ambientScaleHeld) { AmbientScale = g_heldAmbientScale; g_ambientScaleHeld = false; }
 	if (heldAmbient.light) { GlobalLight = heldAmbient.Light; heldAmbient.light = false; }
 	if (heldAmbient.gradient) { AmbientSky = heldAmbient.Sky; AmbientEquator = heldAmbient.Equator; AmbientGround = heldAmbient.Ground; heldAmbient.gradient = false; }
 	if (heldAmbient.mode) { AmbientMode = heldAmbient.Mode; heldAmbient.mode = false; }
@@ -4034,7 +4043,7 @@ bool IRenderer::CullingSphereTest(RenderingMesh* rmesh, GameObject* owner)
 	// (Worked out once for both questions - too small to see, and in the
 	// view: it was a matrix times a point for each, on every mesh, for every
 	// view and cascade.)
-	const Matrix &world = owner->GetWorldTransformation();
+	const Matrix &world = owner->GetDrawWorld();
 	const Vec3 &local = owner->GetBoundingSphereCenter();
 	const Vec3 c(world.m[0] * local.x + world.m[4] * local.y + world.m[8] * local.z + world.m[12],
 		world.m[1] * local.x + world.m[5] * local.y + world.m[9] * local.z + world.m[13],
@@ -4701,7 +4710,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		objectMatrixData.growth = Vec4(1.f, 1.f, 0.f, 0.f);
 		if (rmesh != NULL && rmesh->renderingComponent != NULL && rmesh->renderingComponent->IsInstanced())
 		{
-			const Vec2 &growth = static_cast<IRenderingInstancedComponent*>(rmesh->renderingComponent)->GetInstanceGrowth();
+			const Vec2 &growth = static_cast<IRenderingInstancedComponent*>(rmesh->renderingComponent)->GrowthToDraw();
 			objectMatrixData.growth = Vec4(growth.x, growth.y, 0.f, 0.f);
 		}
 		{

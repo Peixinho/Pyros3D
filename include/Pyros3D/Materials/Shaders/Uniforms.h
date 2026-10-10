@@ -277,10 +277,11 @@ namespace p3d {
 		void SetValue(void* value, const uint32 elementCount = 1)
 		{
 
-			// clear data
-			Value.clear();
-
-			ElementCount = elementCount;
+			// (Not cleared first: it is resized below to what it must hold, which is
+			// what it already holds every time but the first - and whoever draws with
+			// this value, on another thread, is not left reading storage that has just
+			// been given back.)
+			if (ElementCount != elementCount) ElementCount = elementCount;
 			
 			switch (Type)
 			{

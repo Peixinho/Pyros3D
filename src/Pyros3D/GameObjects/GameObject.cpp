@@ -261,7 +261,7 @@ namespace p3d {
 		}
 		_WorldMatrix = _HaveOwner ? (_Owner->_WorldMatrix * _LocalMatrix) : _LocalMatrix;
 		NoteMovedOnce();
-		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
+		{ const f32 worldRadius = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z)); if (worldRadius != BoundingSphereRadiusWorldSpace) BoundingSphereRadiusWorldSpace = worldRadius; }
 		UpdateWorldBounds();
 		return true;
 	}
@@ -296,7 +296,7 @@ namespace p3d {
 		}
 
 		// Set Bounding Sphere Scale
-		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
+		{ const f32 worldRadius = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z)); if (worldRadius != BoundingSphereRadiusWorldSpace) BoundingSphereRadiusWorldSpace = worldRadius; }
 
 		return wasDirty;
 	}
@@ -307,7 +307,7 @@ namespace p3d {
 		UpdateLocalTransformation(0);
 		_WorldMatrix = _HaveOwner ? _Owner->_WorldMatrix * _LocalMatrix : _LocalMatrix;
 		NoteMovedOnce();
-		BoundingSphereRadiusWorldSpace = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z));
+		{ const f32 worldRadius = BoundingSphereRadius * Max(_Scale.x, Max(_Scale.y, _Scale.z)); if (worldRadius != BoundingSphereRadiusWorldSpace) BoundingSphereRadiusWorldSpace = worldRadius; }
 	}
 
 	bool GameObject::UpdateLocalTransformation(const uint32 order)
