@@ -2247,6 +2247,11 @@ void PyrosPlayer::SetRenderScale(f32 scale)
 
 void PyrosPlayer::OnResize(const uint32 width, const uint32 height)
 {
+	// A frame another thread is still recording is finished first: the window's
+	// events are read while it is in flight, and the swapchain is made again in
+	// here - under that frame it was taken away from the device mid-frame (making
+	// the window full screen brought the game down).
+	if (frameInFlight) FinishFrameInFlight();
 	ClassName::OnResize(width, height);
 	// Recorded, not applied. This runs from SDL event handling, which is not
 	// a safe place to destroy and recreate GPU images: the previous frame is

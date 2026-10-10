@@ -119,6 +119,11 @@ namespace p3d {
 	// over, as it comes, until the stream is left.
 	void ThreadedRenderDevice::RunStream(Stream* s)
 	{
+		{
+			std::lock_guard<std::mutex> g(lock);
+			s->reached = true;
+		}
+		done.notify_all();
 		for (;;)
 		{
 			Batch* b = NULL;
@@ -206,7 +211,13 @@ namespace p3d {
 			Stream* s = static_cast<Stream*>(t_stream);
 			if (trace) fprintf(stderr, "[device thread] a stream's thread asked the device itself: %s\n", why);
 			std::unique_lock<std::mutex> g(lock);
-			done.wait(g, [s]() { return s->ran == s->handed; });
+			// (...and until it has COME to this stream's place at all: a stream that
+			// is placed later - game logic running while another thread records the
+			// frame - has handed nothing over yet and was let straight through, to
+			// ask the device itself while the device thread was in the middle of that
+			// frame. A window made full screen in such a moment took the swapchain
+			// away from under it.)
+			done.wait(g, [s]() { return s->reached && s->ran == s->handed; });
 			return;
 		}
 		std::unique_lock<std::mutex> g(lock);
