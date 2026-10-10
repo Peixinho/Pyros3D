@@ -54,6 +54,21 @@ namespace p3d {
 		// fn(begin, end) for each, the caller taking a share. Returns when
 		// every batch has finished.
 		void ParallelFor(uint32 count, uint32 minBatch, const std::function<void(uint32 begin, uint32 end)> &fn);
+		// What the machine's cores are. A processor may have two kinds: fast ones
+		// (performance) and slow ones (efficiency) that take two or three times as
+		// long over the same work - and work a frame waits for is as slow as the
+		// slowest thread it was given to. `performance` and `efficiency` count
+		// whole cores, not the two threads some cores can run; where the machine
+		// has one kind, they are all `performance`. known: the system said which
+		// were which (else it is every core, taken as fast).
+		struct Cores { uint32 performance = 0, efficiency = 0, logical = 0; bool known = false; };
+		static const Cores &GetCores();
+		// The calling thread is kept to the performance cores, at a priority that
+		// work the frame waits for should have: the game's own thread, the render
+		// device's, every worker. (Nothing where the system has one kind of core
+		// and no say in the matter.)
+		static void KeepOnPerformanceCores();
+
 		// Prints what handing work out costs on this machine (PYROS_JOB_BENCH=1
 		// has the player do it at start).
 		void Benchmark();

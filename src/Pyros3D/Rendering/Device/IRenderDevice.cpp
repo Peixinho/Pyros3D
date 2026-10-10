@@ -203,6 +203,9 @@ namespace p3d {
 
 	void SetActiveRenderDevice(const std::shared_ptr<IRenderDevice> &device)
 	{
+		// (the one already published: nothing is written - a renderer made on one
+		// thread while another is drawing publishes the device they both have)
+		if (device && activeDevice.lock() == device) return;
 		// Re-publishing the Context's own device (every IRenderer does this
 		// right after borrowing it) must NOT drop our strong reference to it.
 		// Dropping it left the weak activeDevice hanging off the borrower's

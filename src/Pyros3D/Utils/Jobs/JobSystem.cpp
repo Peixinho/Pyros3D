@@ -22,6 +22,19 @@
 #if defined(__APPLE__)
 #include <sys/sysctl.h>
 #endif
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+#if defined(__linux__) && !defined(__EMSCRIPTEN__)
+#include <sched.h>
+#include <fstream>
+#include <string>
+#include <set>
+#endif
+#include <cstdio>
 
 #if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
 #define PYROS_JOBS_NO_THREADS 1
@@ -68,24 +81,211 @@ namespace p3d {
 #endif
 		}
 
-		// Performance cores only, minus the thread that submits: Box3D's
-		// own advice is that efficiency cores give little and can hurt, and
-		// the submitting thread helps while it waits.
-		uint32 DefaultWorkerCount()
+		// The cores, asked of the system once. (See JobSystem::Cores.)
+		struct CoreMap
 		{
-			uint32 cores = 0;
+			JobSystem::Cores cores;
+#if defined(_WIN32)
+			std::vector<GROUP_AFFINITY> fast;        // the performance cores' logical processors, by group
+#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
+			std::vector<int> fast;                   // ... by number
+#endif
+		};
+		CoreMap FindCores()
+		{
+			CoreMap m;
+			m.cores.logical = std::thread::hardware_concurrency();
 #if defined(__APPLE__)
-			int32_t perf = 0;
+			int32_t perf = 0, eff = 0;
 			size_t len = sizeof(perf);
 			if (sysctlbyname("hw.perflevel0.physicalcpu", &perf, &len, NULL, 0) == 0 && perf > 0)
-				cores = (uint32)perf;
+			{
+				m.cores.performance = (uint32)perf;
+				len = sizeof(eff);
+				if (sysctlbyname("hw.perflevel1.physicalcpu", &eff, &len, NULL, 0) == 0 && eff > 0) m.cores.efficiency = (uint32)eff;
+				m.cores.known = true;
+			}
+#elif defined(_WIN32)
+			// Every core, with the class the system gives it: the highest class is
+			// the performance cores (a processor of one kind has one class).
+			DWORD bytes = 0;
+			GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &bytes);
+			if (bytes > 0)
+			{
+				std::vector<uchar> buffer(bytes);
+				if (GetLogicalProcessorInformationEx(RelationProcessorCore, (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)&buffer[0], &bytes))
+				{
+					BYTE best = 0;
+					for (DWORD at = 0; at < bytes;)
+					{
+						const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX* e = (const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)&buffer[at];
+						if (e->Relationship == RelationProcessorCore && e->Processor.EfficiencyClass > best) best = e->Processor.EfficiencyClass;
+						at += e->Size;
+					}
+					for (DWORD at = 0; at < bytes;)
+					{
+						const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX* e = (const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)&buffer[at];
+						if (e->Relationship == RelationProcessorCore)
+						{
+							if (e->Processor.EfficiencyClass == best)
+							{
+								m.cores.performance++;
+								for (WORD g = 0; g < e->Processor.GroupCount; g++)
+								{
+									const GROUP_AFFINITY &ga = e->Processor.GroupMask[g];
+									bool merged = false;
+									for (size_t k = 0; k < m.fast.size(); k++)
+										if (m.fast[k].Group == ga.Group) { m.fast[k].Mask |= ga.Mask; merged = true; }
+									if (!merged) m.fast.push_back(ga);
+								}
+							}
+							else m.cores.efficiency++;
+						}
+						at += e->Size;
+					}
+					m.cores.known = m.cores.performance > 0;
+				}
+			}
+#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
+			// A processor of two kinds lists its fast cores' numbers here ("0-15"):
+			// a file that is not there on a processor of one kind.
+			auto parse = [](const std::string &text, std::vector<int> &out) {
+				size_t at = 0;
+				while (at < text.size())
+				{
+					size_t end = text.find(',', at);
+					if (end == std::string::npos) end = text.size();
+					const std::string part = text.substr(at, end - at);
+					const size_t dash = part.find('-');
+					if (!part.empty() && part[0] >= '0' && part[0] <= '9')
+					{
+						const int a = std::atoi(part.c_str());
+						const int b = dash == std::string::npos ? a : std::atoi(part.c_str() + dash + 1);
+						for (int c = a; c <= b && c < 4096; c++) out.push_back(c);
+					}
+					at = end + 1;
+				}
+			};
+			std::ifstream fastList("/sys/devices/cpu_core/cpus");
+			std::string line;
+			if (fastList && std::getline(fastList, line)) parse(line, m.fast);
+			if (!m.fast.empty())
+			{
+				// whole cores among them: one for each set of threads that share one
+				std::set<std::string> whole;
+				for (size_t k = 0; k < m.fast.size(); k++)
+				{
+					std::ifstream sib("/sys/devices/system/cpu/cpu" + std::to_string(m.fast[k]) + "/topology/thread_siblings_list");
+					std::string who;
+					if (sib && std::getline(sib, who)) whole.insert(who); else whole.insert(std::to_string(m.fast[k]));
+				}
+				m.cores.performance = (uint32)whole.size();
+				std::vector<int> slow;
+				std::ifstream slowList("/sys/devices/cpu_atom/cpus");
+				if (slowList && std::getline(slowList, line)) parse(line, slow);
+				m.cores.efficiency = (uint32)slow.size();
+				m.cores.known = true;
+			}
 #endif
-			if (cores == 0)
-				cores = std::thread::hardware_concurrency();
-			if (cores <= 1) return 0;
-			const uint32 workers = cores - 1;
-			return workers > 15 ? 15 : workers;
+			if (m.cores.performance == 0)
+			{
+				// One kind, or nobody to ask: every core, and the threads a core can
+				// run two of are not counted twice where that can be told.
+				uint32 whole = m.cores.logical;
+#if defined(_WIN32)
+				DWORD bytes2 = 0;
+				GetLogicalProcessorInformationEx(RelationProcessorCore, NULL, &bytes2);
+				if (bytes2 > 0)
+				{
+					std::vector<uchar> buffer(bytes2);
+					if (GetLogicalProcessorInformationEx(RelationProcessorCore, (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)&buffer[0], &bytes2))
+					{
+						whole = 0;
+						for (DWORD at = 0; at < bytes2;)
+						{
+							const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX* e = (const SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX*)&buffer[at];
+							if (e->Relationship == RelationProcessorCore) whole++;
+							at += e->Size;
+						}
+					}
+				}
+#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
+				std::set<std::string> cores;
+				for (uint32 c = 0; c < m.cores.logical; c++)
+				{
+					std::ifstream sib("/sys/devices/system/cpu/cpu" + std::to_string(c) + "/topology/thread_siblings_list");
+					std::string who;
+					if (sib && std::getline(sib, who)) cores.insert(who);
+				}
+				if (!cores.empty()) whole = (uint32)cores.size();
+#endif
+				m.cores.performance = whole;
+			}
+			return m;
 		}
+		const CoreMap &TheCores()
+		{
+			static const CoreMap map = FindCores();
+			return map;
+		}
+
+		// A worker for every performance core but two: the thread that hands the
+		// work out helps while it waits, and the render device's thread is busy the
+		// whole frame through - a worker put on its core, or on an efficiency core,
+		// makes the frame wait for it. (Box3D's own advice is the same: efficiency
+		// cores give little and can hurt.) Never fewer than one where there are two
+		// cores at all.
+		uint32 DefaultWorkerCount()
+		{
+			const uint32 cores = TheCores().cores.performance;
+			if (cores <= 1) return 0;
+			const uint32 workers = cores > 3 ? cores - 2 : cores - 1;
+			return workers > 30 ? 30 : workers;
+		}
+	}
+
+	const JobSystem::Cores &JobSystem::GetCores() { return TheCores().cores; }
+
+	void JobSystem::KeepOnPerformanceCores()
+	{
+#if defined(__APPLE__)
+		// (the system has no way to name cores: this class of work is what it
+		// keeps on the performance ones)
+		pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
+#elif defined(_WIN32)
+		const CoreMap &m = TheCores();
+		// Only where there are two kinds: on a processor of one kind the system
+		// places threads better than a fixed list would.
+		if (m.cores.known && m.cores.efficiency > 0 && !m.fast.empty())
+		{
+			// (a thread lives in one group of processors: the first that has fast cores)
+			GROUP_AFFINITY want = m.fast[0];
+			GROUP_AFFINITY now;
+			if (GetThreadGroupAffinity(GetCurrentThread(), &now))
+				for (size_t k = 0; k < m.fast.size(); k++) if (m.fast[k].Group == now.Group) want = m.fast[k];
+			want.Reserved[0] = want.Reserved[1] = want.Reserved[2] = 0;
+			SetThreadGroupAffinity(GetCurrentThread(), &want, NULL);
+		}
+		// Not slowed to save power, whatever the system thinks of a window that
+		// is not in front or a machine on a battery plan.
+		{
+			struct Throttling { ULONG Version; ULONG ControlMask; ULONG StateMask; } t = { 1, 0x1 /* execution speed */, 0 };
+			typedef BOOL (WINAPI *SetInfo)(HANDLE, int, LPVOID, DWORD);
+			if (HMODULE k32 = GetModuleHandleA("kernel32.dll"))
+				if (SetInfo set = (SetInfo)GetProcAddress(k32, "SetThreadInformation"))
+					set(GetCurrentThread(), 3 /* ThreadPowerThrottling */, &t, sizeof(t));
+		}
+		SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL);
+#elif defined(__linux__) && !defined(__EMSCRIPTEN__)
+		const CoreMap &m = TheCores();
+		if (m.cores.known && m.cores.efficiency > 0 && !m.fast.empty())
+		{
+			cpu_set_t set;
+			CPU_ZERO(&set);
+			for (size_t k = 0; k < m.fast.size(); k++) if (m.fast[k] < CPU_SETSIZE) CPU_SET(m.fast[k], &set);
+			sched_setaffinity(0, sizeof(set), &set);
+		}
+#endif
 	}
 
 	struct JobSystem::Impl
@@ -124,11 +324,9 @@ namespace p3d {
 		// while a frame is being made, asleep between frames.
 		void WorkerLoop()
 		{
-#if defined(__APPLE__)
 			// Work the frame is waiting for: on the performance cores, not
 			// wherever the scheduler puts a thread nobody has spoken for.
-			pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
-#endif
+			JobSystem::KeepOnPerformanceCores();
 			// (PYROS_JOB_SPIN_US: how long, in microseconds - a quarter of a
 			// millisecond unless said. A game running flat out, frame after
 			// frame, wants its workers up for the whole of each: longer than
@@ -192,6 +390,13 @@ namespace p3d {
 #endif
 		for (uint32 i = 0; i < workers; i++)
 			impl->threads.emplace_back(&Impl::WorkerLoop, impl);
+		// (PYROS_JOB_BENCH or PYROS_LOG_CORES: what was found, said once)
+		if (std::getenv("PYROS_LOG_CORES") || std::getenv("PYROS_JOB_BENCH"))
+		{
+			const Cores &c = GetCores();
+			fprintf(stderr, "[jobs] cores: %u performance, %u efficiency, %u logical (%s); %u workers\n", c.performance, c.efficiency, c.logical,
+				c.known ? "as the system says" : "one kind, or not told", workers);
+		}
 	}
 
 	JobSystem::~JobSystem()

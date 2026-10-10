@@ -337,6 +337,22 @@ namespace p3d {
 		struct SunPass;
 		struct Beside;
 		std::unique_ptr<Beside> beside;
+		// A pass's draws, recorded on every core. The things a pass draws are cut
+		// into runs; each run but the last is recorded by a renderer of its own on
+		// a worker, into a stream of the device's own, while this renderer records
+		// the last - and the device carries them out in the order they were cut.
+		// drawOne and drawBatch are told which renderer to draw with. Where that
+		// cannot be (the device carries out calls as they are made, no workers, a
+		// handful of things) it is DrawWithAutoInstancing, with this renderer.
+		typedef std::function<void(IRenderer&, RenderingMesh*, uint32)> PassDraw;
+		void GroupForInstancing(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures, void* scratch);
+		void DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures,
+			const PassDraw &drawOne, const PassDraw &drawBatch, GameObject* Camera, SceneGraph* Scene);
+		std::vector<std::unique_ptr<Beside> > crew;
+		// (for a renderer's own passes: a thing drawn with the renderer it was handed)
+		static void DrawWith(IRenderer &with, RenderingMesh* mesh, IMaterial* material) { with.RenderObject(mesh, mesh->renderingComponent->GetOwner(), material); }
+		static void SetParallelPasses(const bool on);
+		static bool GetParallelPasses();
 		bool recordsBeside = false;             // (a renderer that calls FinishBeside before it is done with the scene sets it)
 		void RecordSunPass(const SunPass &pass);
 		bool RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGraph* Scene);

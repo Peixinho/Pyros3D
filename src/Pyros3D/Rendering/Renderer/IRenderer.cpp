@@ -1,3 +1,4 @@
+#include <chrono>
 #include <unordered_map>
 #include <memory>
 #include <mutex>
@@ -823,6 +824,72 @@ namespace {
 	}
 }
 
+namespace p3d_instancing {
+struct Scratch
+{
+	struct Mat { uint64 fingerprint; bool eligible; };
+	std::unordered_map<IMaterial*, Mat> materials;
+	struct Key { IGeometry* g; uint64 m; uint64 s; bool operator==(const Key &o) const { return g == o.g && m == o.m && s == o.s; } };
+	struct Hash { size_t operator()(const Key &k) const { return (size_t)(((uint64)(size_t)k.g * 0x9E3779B97F4A7C15ULL) ^ (k.m * 0xC2B2AE3D27D4EB4FULL) ^ (k.s + 0x165667B19E3779F9ULL)); } };
+	std::unordered_map<Key, uint32, Hash> index;
+	std::vector<int32> groupOf;
+	std::vector<uint32> count, first, cursor, members;
+	std::vector<uint64> fingerprint;
+};
+}
+using p3d_instancing::Scratch;
+
+// Which of a pass's things go together: the same geometry, the same material (by
+// what it holds), the same lights. Worked out afresh for every pass of every
+// frame - and it was most of what a pass cost: a tree of keys built and thrown
+// away, a vector for every group, each material's eligibility read again for
+// every mesh that wears it, a counter looked up by name for every single draw.
+// Now: what a material says is asked once a pass, the groups are found through a
+// table that is kept from one pass to the next, and nothing is allocated once
+// the tables have grown to the scene.
+void IRenderer::GroupForInstancing(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures, void* scratch)
+{
+	Scratch &S = *static_cast<Scratch*>(scratch);
+	const uint32 n = (uint32)items.size();
+S.materials.clear(); S.index.clear();
+S.groupOf.assign(n, -1);
+S.count.clear(); S.fingerprint.clear();
+for (uint32 i = 0; i < n; i++)
+{
+	RenderingMesh* mesh = items[i];
+	IMaterial* mat = mesh->Material.get();
+	if (mat == NULL) continue;
+	std::unordered_map<IMaterial*, Scratch::Mat>::iterator known = S.materials.find(mat);
+	if (known == S.materials.end())
+	{
+		Scratch::Mat m;
+		m.eligible = AutoInstanceMaterial(mat);
+		m.fingerprint = m.eligible ? FingerprintThisView(mat) : 0;
+		known = S.materials.insert(std::make_pair(mat, m)).first;
+	}
+	if (!known->second.eligible || !AutoInstanceMesh(mesh)) continue;
+	const Scratch::Key key = { mesh->Geometry, known->second.fingerprint, signatures ? (*signatures)[i] : 0 };
+	std::unordered_map<Scratch::Key, uint32, Scratch::Hash>::iterator it = S.index.find(key);
+	if (it == S.index.end())
+	{
+		it = S.index.insert(std::make_pair(key, (uint32)S.count.size())).first;
+		S.count.push_back(0);
+		S.fingerprint.push_back(known->second.fingerprint);
+	}
+	S.count[it->second]++;
+	S.groupOf[i] = (int32)it->second;
+}
+// (each group's members, one after another in one list)
+const uint32 groupCount = (uint32)S.count.size();
+S.first.resize(groupCount); S.cursor.resize(groupCount);
+{
+	uint32 at = 0;
+	for (uint32 g = 0; g < groupCount; g++) { S.first[g] = at; S.cursor[g] = at; at += S.count[g]; }
+	S.members.resize(at);
+	for (uint32 i = 0; i < n; i++) if (S.groupOf[i] >= 0) S.members[S.cursor[S.groupOf[i]]++] = i;
+}
+}
+
 void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures,
 	const std::function<void(RenderingMesh*, uint32)> &drawOne,
 	const std::function<void(RenderingMesh*, uint32)> &drawBatch)
@@ -834,63 +901,8 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		return;
 	}
 
-	// Which of them go together: the same geometry, the same material (by what it
-	// holds), the same lights. Worked out afresh for every pass of every frame -
-	// and it was most of what a pass cost: a tree of keys built and thrown away, a
-	// vector for every group, each material's eligibility read again for every
-	// mesh that wears it, a counter looked up by name for every single draw. Now:
-	// what a material says is asked once a pass, the groups are found through a
-	// table that is kept from one pass to the next, and nothing is allocated once
-	// the tables have grown to the scene.
-	struct Scratch
-	{
-		struct Mat { uint64 fingerprint; bool eligible; };
-		std::unordered_map<IMaterial*, Mat> materials;
-		struct Key { IGeometry* g; uint64 m; uint64 s; bool operator==(const Key &o) const { return g == o.g && m == o.m && s == o.s; } };
-		struct Hash { size_t operator()(const Key &k) const { return (size_t)(((uint64)(size_t)k.g * 0x9E3779B97F4A7C15ULL) ^ (k.m * 0xC2B2AE3D27D4EB4FULL) ^ (k.s + 0x165667B19E3779F9ULL)); } };
-		std::unordered_map<Key, uint32, Hash> index;
-		std::vector<int32> groupOf;
-		std::vector<uint32> count, first, cursor, members;
-		std::vector<uint64> fingerprint;
-	};
 	static thread_local Scratch S;
-	S.materials.clear(); S.index.clear();
-	S.groupOf.assign(n, -1);
-	S.count.clear(); S.fingerprint.clear();
-	for (uint32 i = 0; i < n; i++)
-	{
-		RenderingMesh* mesh = items[i];
-		IMaterial* mat = mesh->Material.get();
-		if (mat == NULL) continue;
-		std::unordered_map<IMaterial*, Scratch::Mat>::iterator known = S.materials.find(mat);
-		if (known == S.materials.end())
-		{
-			Scratch::Mat m;
-			m.eligible = AutoInstanceMaterial(mat);
-			m.fingerprint = m.eligible ? FingerprintThisView(mat) : 0;
-			known = S.materials.insert(std::make_pair(mat, m)).first;
-		}
-		if (!known->second.eligible || !AutoInstanceMesh(mesh)) continue;
-		const Scratch::Key key = { mesh->Geometry, known->second.fingerprint, signatures ? (*signatures)[i] : 0 };
-		std::unordered_map<Scratch::Key, uint32, Scratch::Hash>::iterator it = S.index.find(key);
-		if (it == S.index.end())
-		{
-			it = S.index.insert(std::make_pair(key, (uint32)S.count.size())).first;
-			S.count.push_back(0);
-			S.fingerprint.push_back(known->second.fingerprint);
-		}
-		S.count[it->second]++;
-		S.groupOf[i] = (int32)it->second;
-	}
-	// (each group's members, one after another in one list)
-	const uint32 groupCount = (uint32)S.count.size();
-	S.first.resize(groupCount); S.cursor.resize(groupCount);
-	{
-		uint32 at = 0;
-		for (uint32 g = 0; g < groupCount; g++) { S.first[g] = at; S.cursor[g] = at; at += S.count[g]; }
-		S.members.resize(at);
-		for (uint32 i = 0; i < n; i++) if (S.groupOf[i] >= 0) S.members[S.cursor[S.groupOf[i]]++] = i;
-	}
+	GroupForInstancing(items, signatures, &S);
 	const std::vector<int32> &groupOf = S.groupOf;
 	const std::vector<uint64> &groupFingerprint = S.fingerprint;
 	struct Groups
@@ -1915,6 +1927,246 @@ bool IRenderer::RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGr
 	FrameBuffer::RebindBound();
 	DepthWrite();
 	return true;
+}
+
+namespace {
+	bool g_parallelPasses = !(std::getenv("PYROS_PARALLEL_PASSES") && std::getenv("PYROS_PARALLEL_PASSES")[0] == '0');
+	// (fewer things than this are not worth handing round)
+	const uint32 kUnitsARun = 40;
+}
+void IRenderer::SetParallelPasses(const bool on) { g_parallelPasses = on; }
+bool IRenderer::GetParallelPasses() { return g_parallelPasses; }
+
+// See the header. What a run draws is the same DrawWithAutoInstancing would have:
+// the groups are found once, here, and each run draws its own share of them.
+void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures,
+	const PassDraw &drawOne, const PassDraw &drawBatch, GameObject* Camera, SceneGraph* Scene)
+{
+	const uint32 n = (uint32)items.size();
+	const uint32 workers = JobSystem::Instance().WorkerCount();
+	// (not with a volume of probes lighting the scene: its textures are this renderer's to bind)
+	const bool can = g_parallelPasses && recordsBeside && !t_recordingBeside && workers > 0 && IsAutoInstancing() && n >= kUnitsARun * 2
+		&& EffectiveAmbientMode() != 3;
+	if (!can)
+	{
+		DrawWithAutoInstancing(items, signatures,
+			[&](RenderingMesh* m, uint32 i) { drawOne(*this, m, i); },
+			[&](RenderingMesh* m, uint32 i) { drawBatch(*this, m, i); });
+		return;
+	}
+
+	static thread_local Scratch S;
+	GroupForInstancing(items, signatures, &S);
+	// What there is to draw, in order: a thing by itself, or the first of a batch.
+	static thread_local std::vector<uint32> units;
+	units.clear();
+	for (uint32 i = 0; i < n; i++)
+	{
+		const int32 g = S.groupOf[i];
+		if (g < 0 || S.count[g] < kAutoInstanceMinimum || S.members[S.first[g]] == i) units.push_back(i);
+	}
+	const uint32 total = (uint32)units.size();
+	// How many runs: as many as this machine draws fastest with - which is found
+	// out, not assumed. Cores are not all alike (a laptop's slow ones take three
+	// times as long over the same run, and the frame waits for the slowest), other
+	// things want them, and a run has a cost of its own to set up. So the pass is
+	// timed; every few seconds one run fewer and one run more are tried for a few
+	// frames each, and what was quickest for each thing drawn is kept - one run,
+	// this renderer by itself, among them.
+	struct Tuner
+	{
+		uint32 runs = 1;                 // what is in use
+		uint32 frame = 0, phase = 0, left = 0, trying = 0;
+		f64 sum[3] = { 0, 0, 0 }; uint32 count[3] = { 0, 0, 0 };
+		std::chrono::steady_clock::time_point began;
+	};
+	static thread_local std::map<IRenderer*, Tuner> tuners;
+	Tuner &U = tuners[this];
+	const uint32 most = std::max((uint32)1, std::min(workers + 1, total / kUnitsARun));
+	if (U.runs > most) U.runs = most;
+	uint32 runs = U.runs;
+	{
+		// (a look every 300 frames - every 60 for the first thousand, while it is
+		// finding its place: 24 frames as it is, 24 with one fewer, 24 with one more)
+		U.frame++;
+		const uint32 every = U.frame < 1000 ? 60 : 300;
+		if (U.phase == 0 && U.frame % every == 0) { U.phase = 1; U.left = 24; U.sum[0] = U.sum[1] = U.sum[2] = 0; U.count[0] = U.count[1] = U.count[2] = 0; }
+		if (U.phase == 1) runs = U.runs;
+		else if (U.phase == 2) runs = U.runs > 1 ? U.runs - 1 : U.runs;
+		else if (U.phase == 3) runs = std::min(most, U.runs + 1);
+		// (PYROS_PASS_RUNS=n: that many, for a test - where there are things enough)
+		static const uint32 forced = std::getenv("PYROS_PASS_RUNS") ? (uint32)std::atoi(std::getenv("PYROS_PASS_RUNS")) : 0;
+		if (forced > 0) { runs = std::max((uint32)1, std::min(most, forced)); U.phase = 0; }
+		U.trying = runs;
+		U.began = std::chrono::steady_clock::now();
+	}
+	struct Timed
+	{
+		Tuner &U; uint32 total; uint32 most;
+		~Timed()
+		{
+			if (U.phase == 0 || total == 0) return;
+			const f64 ns = std::chrono::duration<f64, std::nano>(std::chrono::steady_clock::now() - U.began).count() / (f64)total;
+			const uint32 slot = U.phase - 1;
+			U.sum[slot] += ns; U.count[slot]++;
+			if (--U.left > 0) return;
+			if (U.phase < 3) { U.phase++; U.left = 24; return; }
+			// the three, for each thing drawn: the one in use keeps its place unless
+			// another is clearly quicker (3%)
+			const f64 now = U.sum[0] / std::max<uint32>(1, U.count[0]);
+			const f64 fewer = U.runs > 1 ? U.sum[1] / std::max<uint32>(1, U.count[1]) : 1e30;
+			const f64 more = U.runs < most ? U.sum[2] / std::max<uint32>(1, U.count[2]) : 1e30;
+			if (fewer < now * 0.97 && fewer <= more) U.runs--;
+			else if (more < now * 0.97) U.runs++;
+			U.phase = 0;
+		}
+	} timed = { U, total, most };
+	FrameProfiler::Instance().Counter("Pass.Runs", (f64)runs);
+	if (runs < 2)
+	{
+		DrawWithAutoInstancing(items, signatures,
+			[&](RenderingMesh* m, uint32 i) { drawOne(*this, m, i); },
+			[&](RenderingMesh* m, uint32 i) { drawBatch(*this, m, i); });
+		return;
+	}
+
+	struct Run
+	{
+		static void Draw(IRenderer &R, const std::vector<RenderingMesh*> &items, const Scratch &S, const uint32* unit, const uint32 count,
+			const PassDraw &drawOne, const PassDraw &drawBatch, uint32 &singles, uint32 &batches, uint32 &batched)
+		{
+			for (uint32 u = 0; u < count; u++)
+			{
+				const uint32 i = unit[u];
+				const int32 g = S.groupOf[i];
+				if (g < 0 || S.count[g] < kAutoInstanceMinimum) { drawOne(R, items[i], i); singles++; continue; }
+				const uint32* members = S.members.data() + S.first[g];
+				const uint32 size = S.count[g];
+				AutoInstanceBatch* b = R.AcquireAutoInstanceBatch(items[i], S.fingerprint[g], size);
+				if (b == NULL)
+				{
+					for (uint32 k = 0; k < size; k++) { drawOne(R, items[members[k]], members[k]); singles++; }
+					continue;
+				}
+				for (uint32 k = 0; k < size; k++)
+				{
+					RenderingMesh* m = items[members[k]];
+					b->comp->transform[k] = m->renderingComponent->GetOwner()->GetWorldTransformation() * m->Pivot;
+				}
+				b->comp->SetNumberInstances(size);
+				b->comp->UpdateTransforms();
+				drawBatch(R, b->mesh, i);
+				batches++; batched += size;
+			}
+		}
+	};
+
+	FrameProfiler::Instance().Begin("Pass.HandOut");
+	// The hands: a renderer each, kept from frame to frame.
+	const uint32 hands = runs - 1;
+	while (crew.size() < hands) crew.push_back(std::unique_ptr<Beside>(new Beside()));
+	uint32 begun = 0;
+	IRenderDevice* dev = device.get();
+	const std::vector<RenderingMesh*>* itemsPtr = &items;
+	const Scratch* groups = &S;
+	const uint32* unitList = units.data();
+	const PassDraw* one = &drawOne; const PassDraw* many = &drawBatch;
+	for (uint32 h = 0; h < hands; h++)
+	{
+		Beside &B = *crew[h];
+		if (!B.twin)
+		{
+			B.twin.reset(new IRenderer(Width, Height));
+			B.twin->recordsBeside = false;
+		}
+		void* stream = dev->BeginParallelStream();
+		if (stream == NULL) break;
+		IRenderer &T = *B.twin;
+		T.Camera = Camera; T.Scene = Scene; T.Timer = Timer;
+		T.CameraPosition = CameraPosition; T.NearFarPlane = NearFarPlane;
+		T.ProjectionMatrix = ProjectionMatrix; T.ViewMatrix = ViewMatrix; T.ViewProjectionMatrix = ViewProjectionMatrix;
+		T.ProjectionMatrixInverse = ProjectionMatrixInverse; T.ViewMatrixInverse = ViewMatrixInverse;
+		T.PrvProjectionMatrix = PrvProjectionMatrix; T.PrvViewMatrix = PrvViewMatrix;
+		T.ProjectionMatrixInverseIsDirty = ProjectionMatrixInverseIsDirty; T.ViewMatrixInverseIsDirty = ViewMatrixInverseIsDirty;
+		T.ViewProjectionMatrixIsDirty = ViewProjectionMatrixIsDirty;
+		T.unjitteredProjectionMatrix = unjitteredProjectionMatrix;
+		T.RenderingPointShadowFace = false;
+		// (the light everything stands in: the renderer's own, not the process's)
+		T.GlobalLight = GlobalLight; T.BackgroundColor = BackgroundColor;
+		T.AmbientSky = AmbientSky; T.AmbientEquator = AmbientEquator; T.AmbientGround = AmbientGround;
+		for (int k = 0; k < 9; k++) T.AmbientSH[k] = AmbientSH[k];
+		T.AmbientProbeGrid = AmbientProbeGrid;
+		T.AmbientMode = AmbientMode;
+		T.projection = projection; T.projectionValid = projectionValid;
+		T.ClipPlane = ClipPlane; T.ClipPlaneNumber = ClipPlaneNumber;
+		for (uint32 k = 0; k < 8; k++) T.ClipPlanes[k] = ClipPlanes[k];
+		T.Lights = Lights; T.NumberOfLights = NumberOfLights;
+		T.Width = Width; T.Height = Height;
+		T.viewPortStartX = viewPortStartX; T.viewPortStartY = viewPortStartY; T.viewPortEndX = viewPortEndX; T.viewPortEndY = viewPortEndY;
+		T.BeginAutoInstancingFrame();
+		B.stream = stream;
+		B.caches = StreamCaches();
+		B.running = true;
+		B.drawn = 0; B.leftOut = 0;
+		g_besideActive.fetch_add(1);
+		const uint32 from = (uint32)((uint64)total * h / runs), to = (uint32)((uint64)total * (h + 1) / runs);
+		Beside* b = &B;
+		JobSystem::Instance().Run([b, dev, itemsPtr, groups, unitList, from, to, one, many]() {
+			dev->EnterParallelStream(b->stream);
+			t_caches = &b->caches;
+			t_recordingBeside = true;
+			Texture::UseOwnUnitCounter(true);
+			FrameBuffer::UseOwnBoundStack(true);
+			IRenderer &T = *b->twin;
+			T.InitRender();
+			T._SetViewPort(T.viewPortStartX, T.viewPortStartY, T.viewPortEndX, T.viewPortEndY);
+			uint32 singles = 0, batches = 0, batched = 0;
+			Run::Draw(T, *itemsPtr, *groups, unitList + from, to - from, *one, *many, singles, batches, batched);
+			T.EndRender();
+			b->drawn = singles; b->leftOut = batches;
+			Texture::UseOwnUnitCounter(false);
+			FrameBuffer::UseOwnBoundStack(false);
+			t_recordingBeside = false;
+			t_caches = NULL;
+			dev->LeaveParallelStream(b->stream);
+		}, B.counter);
+		begun++;
+	}
+
+	FrameProfiler::Instance().End();
+	// What this renderer records from here is carried out AFTER those runs: the
+	// device is then as the last of them left it, not as this renderer knew it.
+	if (begun > 0)
+	{
+		InvalidateSharedUniformCaches();
+		LastProgramUsed = -1; LastMaterialUsed = -1; LastMeshRendered = -1;
+		LastMaterialPTR = NULL; LastMeshRenderedPTR = NULL;
+		InternalDrawType = -1;
+		cullFace = -1;
+		_SetViewPort(viewPortStartX, viewPortStartY, viewPortEndX, viewPortEndY);
+		depthWritting = true; DepthWrite();
+	}
+	// The last run - or all that was not handed out - is this renderer's own.
+	{
+		PYROS_PROFILE_SCOPE("Pass.Own");
+		const uint32 from = (uint32)((uint64)total * begun / runs);
+		uint32 singles = 0, batches = 0, batched = 0;
+		Run::Draw(*this, items, S, unitList + from, total - from, drawOne, drawBatch, singles, batches, batched);
+		autoInstanceSinglesThisFrame += singles; autoInstanceBatchesThisFrame += batches; autoInstanceObjectsThisFrame += batched;
+	}
+	FrameProfiler::Instance().Begin("Pass.Wait");
+	for (uint32 h = 0; h < begun; h++)
+	{
+		Beside &B = *crew[h];
+		JobSystem::Instance().Wait(B.counter);
+		B.running = false;
+		g_besideActive.fetch_sub(1);
+		autoInstanceSinglesThisFrame += B.drawn; autoInstanceBatchesThisFrame += B.leftOut;
+	}
+	FrameProfiler::Instance().End();
+	FrameProfiler::Instance().Counter("AutoInstance.Singles", (f64)autoInstanceSinglesThisFrame);
+	FrameProfiler::Instance().Counter("AutoInstance.Batches", (f64)autoInstanceBatchesThisFrame);
+	FrameProfiler::Instance().Counter("AutoInstance.Objects", (f64)autoInstanceObjectsThisFrame);
 }
 
 // Until the pass being recorded beside this renderer has all been recorded.
@@ -4195,13 +4447,6 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 // Uniform::Value bytes, or NULL if the material never registered one (e.g.
 // GenericShaderMaterial only adds uColor/uSpecular lazily, on the first
 // SetColor()/SetSpecular() call - see MaterialUniformsData below).
-static const uchar* FindUserUniformValue(const std::list<Uniform> &uniforms, const std::string &name)
-{
-	for (std::list<Uniform>::const_iterator it = uniforms.begin(); it != uniforms.end(); it++)
-		if (it->Name == name && it->Value.size() > 0)
-			return &it->Value[0];
-	return NULL;
-}
 
 // std140 layout matching MaterialUniforms in PyrosShader.glsl exactly (64
 // bytes: 2 vec4 + 8 float = 32 + 32 = 64, no implicit std140 tail padding
@@ -4264,22 +4509,40 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	{
 		MaterialUniformsNeedsReupload = false;
 		MaterialUniformsData data = MaterialUniformsData();
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uColor")) memcpy(&data.Color, v, sizeof(Vec4));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uSpecular")) memcpy(&data.Specular, v, sizeof(Vec4));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uOpacity")) memcpy(&data.Opacity, v, sizeof(f32));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uShininess")) memcpy(&data.Shininess, v, sizeof(f32));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uUseLights")) memcpy(&data.UseLights, v, sizeof(f32));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uDisplacementHeight")) memcpy(&data.DisplacementHeight, v, sizeof(f32));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uReflectivity")) memcpy(&data.Reflectivity, v, sizeof(f32));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uMetallic")) memcpy(&data.Metallic, v, sizeof(f32));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uRoughness")) memcpy(&data.Roughness, v, sizeof(f32));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uSSRReflective")) memcpy(&data.SSRReflective, v, sizeof(f32));
-		if (const uchar* v = FindUserUniformValue(Material->UserUniforms, "uAlphaCutoff")) memcpy(&data.AlphaCutoff, v, sizeof(f32));
-		// ReplaceUniformBuffer (not UpdateUniformBuffer) - see
-		// IRenderDevice.h's comment on ReplaceUniformBuffer(); still the
-		// right call here even though this now only fires on
-		// mesh/material switch, since a stale in-flight read is possible
-		// any time this buffer is shared across IRenderer instances.
+		// One walk down the material's values, each told by its second letter and
+		// then by its name: this was eleven walks, each making a string of the name
+		// looked for and comparing it with every value's - for every draw that
+		// changed material.
+		{
+			static const std::string kColor("uColor"), kSpecular("uSpecular"), kOpacity("uOpacity"), kShininess("uShininess"),
+				kUseLights("uUseLights"), kDisplacement("uDisplacementHeight"), kReflectivity("uReflectivity"), kMetallic("uMetallic"),
+				kRoughness("uRoughness"), kSSR("uSSRReflective"), kAlphaCutoff("uAlphaCutoff");
+			for (std::list<Uniform>::const_iterator it = Material->UserUniforms.begin(); it != Material->UserUniforms.end(); ++it)
+			{
+				const std::string &n = it->Name;
+				if (n.size() < 6 || it->Value.empty()) continue;
+				const uchar* v = &it->Value[0];
+				switch (n[1])
+				{
+				case 'C': if (n == kColor && it->Value.size() >= sizeof(Vec4)) memcpy(&data.Color, v, sizeof(Vec4)); break;
+				case 'S':
+					if (n == kSpecular) { if (it->Value.size() >= sizeof(Vec4)) memcpy(&data.Specular, v, sizeof(Vec4)); }
+					else if (n == kShininess) memcpy(&data.Shininess, v, sizeof(f32));
+					else if (n == kSSR) memcpy(&data.SSRReflective, v, sizeof(f32));
+					break;
+				case 'O': if (n == kOpacity) memcpy(&data.Opacity, v, sizeof(f32)); break;
+				case 'U': if (n == kUseLights) memcpy(&data.UseLights, v, sizeof(f32)); break;
+				case 'D': if (n == kDisplacement) memcpy(&data.DisplacementHeight, v, sizeof(f32)); break;
+				case 'R':
+					if (n == kReflectivity) memcpy(&data.Reflectivity, v, sizeof(f32));
+					else if (n == kRoughness) memcpy(&data.Roughness, v, sizeof(f32));
+					break;
+				case 'M': if (n == kMetallic) memcpy(&data.Metallic, v, sizeof(f32)); break;
+				case 'A': if (n == kAlphaCutoff) memcpy(&data.AlphaCutoff, v, sizeof(f32)); break;
+				default: break;
+				}
+			}
+		}
 		device->ReplaceUniformBuffer(MaterialUniformsUBO, sizeof(MaterialUniformsData), &data);
 	}
 
@@ -4493,6 +4756,20 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			}
 		}
 		counter++;
+	}
+}
+
+// Where a material's block is filled before it is sent. The block's own memory -
+// except on a thread recording a pass beside the frame: two of those may be
+// drawing two things that wear the same material at the same moment, and each
+// fills a copy of its own (every value the block has is written for every draw).
+namespace {
+	template <class Block> std::vector<uchar> &ExtraScratch(Block &block, const int index)
+	{
+		if (!t_recordingBeside) return block.scratch;
+		static thread_local std::vector<uchar> mine[2];
+		if (mine[index].size() != block.scratch.size()) mine[index].assign(block.scratch.size(), 0);
+		return mine[index];
 	}
 }
 
@@ -4721,8 +4998,9 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, Rende
 		if (block.binding == 0)
 			continue;
 		std::map<std::string, uint32>::const_iterator offIt = block.offsets.find(u.Name);
-		if (offIt != block.offsets.end() && offIt->second + valueSize <= block.scratch.size())
-			memcpy(&block.scratch[offIt->second], valuePtr, valueSize);
+		std::vector<uchar> &scratch = ExtraScratch(block, i);
+		if (offIt != block.offsets.end() && offIt->second + valueSize <= scratch.size())
+			memcpy(&scratch[offIt->second], valuePtr, valueSize);
 	}
 }
 
@@ -4743,6 +5021,10 @@ void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		IMaterial::ExtraUniformsBlock &block = Material->ExtraBlock(i);
 		if (block.binding == 0)
 			continue;
+		// (made once, by whichever thread gets here first)
+		static std::mutex making;
+		std::unique_lock<std::mutex> made(making, std::defer_lock);
+		if (block.bufferHandle == 0) made.lock();
 		if (block.bufferHandle == 0)
 		{
 			// A custom material's ring is its program's (see
@@ -4763,7 +5045,7 @@ void IRenderer::SendExtraUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		// rival's block (which is how a 220x220 preview's uScreenDimensions
 		// ended up driving the full-size viewport's deferred composite).
 		device->BindUniformBlockIfPresent(Material->GetShader(), block.blockName, block.binding, block.bufferHandle);
-		device->ReplaceUniformBuffer(block.bufferHandle, block.size, &block.scratch[0]);
+		device->ReplaceUniformBuffer(block.bufferHandle, block.size, &ExtraScratch(block, i)[0]);
 	}
 }
 

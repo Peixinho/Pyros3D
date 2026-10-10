@@ -1009,6 +1009,7 @@ namespace p3d {
 		}
 		uint32 occluded = 0;
 		if (cullFlags.size() != rmesh.size()) BuildCullList();
+		FrameProfiler::Instance().Begin("GBuffer.Visible");
 		{
 			const uint8 need = CullOwner | CullComponentActive | CullMeshActive;
 			for (size_t k = 0; k < rmesh.size(); k++)
@@ -1069,9 +1070,13 @@ namespace p3d {
 			visible.swap(sorted);
 		}
 
+		FrameProfiler::Instance().End();
 		static const uint32 kLitUsageMask = ShaderUsage::Diffuse | ShaderUsage::CellShading | ShaderUsage::PBR;
-		DrawWithAutoInstancing(visible, NULL,
-			[&](RenderingMesh* mesh, uint32)
+		FrameProfiler::Instance().Begin("GBuffer.Draw");
+		// (on every core: see IRenderer::DrawPassOnEveryCore - `with` is the renderer a
+		// thing is drawn by, this one or one of its hands)
+		DrawPassOnEveryCore(visible, NULL,
+			[&](IRenderer &with, RenderingMesh* mesh, uint32)
 			{
 				// Only materials that actually run PyrosShader.glsl's
 				// lit path (DIFFUSE/CELLSHADING/PBR) need swapping -
@@ -1114,14 +1119,14 @@ namespace p3d {
 				CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
 				const bool usedCustomGBufferSwap = csm && csm->UseVariantForNextDraw(true, mesh->SkinningBones.size() > 0);
 
-				RenderObject(mesh, mesh->renderingComponent->GetOwner(), mesh->Material.get());
+				DrawWith(with, mesh, mesh->Material.get());
 
 				if (needsGBufferSwap)
 					gsm->RestoreOwnProgram();
 				if (usedCustomGBufferSwap)
 					csm->RestoreOwnProgram();
 			},
-			[&](RenderingMesh* batchMesh, uint32)
+			[&](IRenderer &with, RenderingMesh* batchMesh, uint32)
 			{
 				// The instanced sibling of whatever the single draw would
 				// have used: plus DEFERRED_GBUFFER exactly when it swaps.
@@ -1131,16 +1136,17 @@ namespace p3d {
 				{
 					CustomShaderMaterial* bcsm = static_cast<CustomShaderMaterial*>(bmat);
 					const bool swapped = bcsm->UseInstancedVariantForNextDraw(true);
-					RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), bcsm);
+					DrawWith(with, batchMesh, bcsm);
 					if (swapped) bcsm->RestoreOwnProgram();
 					return;
 				}
 				GenericShaderMaterial* gsm = static_cast<GenericShaderMaterial*>(bmat);
 				const bool gbuffer = !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLitUsageMask) != 0;
 				gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering | (gbuffer ? ShaderUsage::DeferredRenderer_Gbuffer : 0));
-				RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), gsm);
+				DrawWith(with, batchMesh, gsm);
 				gsm->RestoreOwnProgram();
-			});
+			}, Camera, Scene);
+		FrameProfiler::Instance().End();
 
 		// End Rendering
 		EndRender();

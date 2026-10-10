@@ -4,6 +4,7 @@
 //               (see the header).
 //============================================================================
 
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Rendering/Device/ThreadedRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <chrono>
@@ -210,8 +211,9 @@ namespace p3d {
 	{
 #if defined(__APPLE__)
 		pthread_setname_np("Pyros render device");
-		pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
 #endif
+		// (the thread every draw goes through: a fast core, and not slowed)
+		JobSystem::KeepOnPerformanceCores();
 		for (;;)
 		{
 			Batch* b = NULL;
