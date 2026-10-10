@@ -102,7 +102,7 @@ namespace p3d {
 		// so reading them made a camera move and an object move disagree,
 		// and the first frame after a resize smeared the whole picture.
 		const Matrix curP = projection.m;
-		const Matrix curV = Camera->GetWorldTransformation().Inverse();
+		const Matrix curV = Camera->GetDrawWorld().Inverse();
 		const Matrix prvP = havePrevious ? previousProjection : curP;
 		const Matrix prvV = havePrevious ? previousView : curV;
 		// Same matrices the velocity shader multiplies, including the
@@ -124,7 +124,7 @@ namespace p3d {
 		// View Matrix and Position
 		PrvViewMatrix = prvV;
 		ViewMatrix = curV;
-		CameraPosition = Camera->GetWorldPosition();
+		CameraPosition = Camera->GetDrawWorldPosition();
 
 		// Flags
 		ViewMatrixInverseIsDirty = true;
@@ -236,7 +236,7 @@ namespace p3d {
 				// The matrix kept from "last frame" means nothing on an
 				// object the scene has stopped updating.)
 				if (dynamicOnly && !bones && ((!everything && movedNow.find(owner) == movedNow.end())
-					|| !MovedVisibly(owner->GetPrvWorldTransformation(), owner->GetWorldTransformation()))) return false;
+					|| !MovedVisibly(owner->GetDrawPrvWorld(), owner->GetDrawWorld()))) return false;
 				// (...and big enough on screen for its own motion to matter:
 				// a bot two hundred metres off is a dozen pixels, and
 				// settled by the camera's motion alone it looks no
@@ -245,7 +245,7 @@ namespace p3d {
 				if (dynamicOnly)
 				{
 					const f32 radius = owner->GetBoundingSphereRadiusWorldSpace();
-					const f32 distance = (owner->GetWorldPosition() - CameraPosition).magnitude();
+					const f32 distance = (owner->GetDrawWorldPosition() - CameraPosition).magnitude();
 					if (distance > radius && radius / distance * pixelsPerUnitAtOne < kSmallestMoverPixels) return false;
 				}
 				return true;
