@@ -9,7 +9,9 @@
 #include <thread>
 #include <atomic>
 #include <cstdlib>
-#if !defined(_WIN32)
+// (a stack to print: where the C library has one - not a browser's, not Windows')
+#if defined(__APPLE__) || defined(__GLIBC__)
+#define PYROS_HAS_BACKTRACE 1
 #include <execinfo.h>
 #endif
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
@@ -79,7 +81,7 @@ namespace p3d {
 			{
 				static std::atomic<uint32> said(0);
 				const uint32 n = said.fetch_add(1);
-#if !defined(_WIN32)
+#if defined(PYROS_HAS_BACKTRACE)
 				if (n < 12)
 				{
 					void* frames[24]; const int count = backtrace(frames, 24);

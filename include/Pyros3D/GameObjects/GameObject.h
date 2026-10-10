@@ -9,6 +9,7 @@
 #ifndef GAMEOBJECT_H
 #define	GAMEOBJECT_H
 
+#include <cmath>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Core/Logs/Log.h>
