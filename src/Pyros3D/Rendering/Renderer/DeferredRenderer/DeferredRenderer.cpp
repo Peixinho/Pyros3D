@@ -9,6 +9,8 @@
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
+#include <unordered_map>
+#include <unordered_set>
 #include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
@@ -1014,6 +1016,34 @@ namespace p3d {
 		}
 		uint32 occluded = 0;
 		if (cullFlags.size() != rmesh.size()) BuildCullList();
+		// PYROS_VERIFY_COPIES=1: every listed thing's draw copy held against the thing itself,
+		// twice a second - the same object differing on two checks in a row is not "moving".
+		{
+			static const bool verifyCopies = std::getenv("PYROS_VERIFY_COPIES") != NULL;
+			static uint64 frame = 0;
+			if (verifyCopies && GameObject::DrawCopies() && (++frame % 30) == 0)
+			{
+				static std::unordered_map<GameObject*, int> before;
+				static uint64 said = 0;
+				std::unordered_map<GameObject*, int> now;
+				for (size_t k = 0; k < rmesh.size(); k++)
+				{
+					GameObject* o = rmesh[k]->renderingComponent ? rmesh[k]->renderingComponent->GetOwner() : NULL;
+					if (o == NULL || now.count(o)) continue;
+					const int d = o->DrawCopyDiffers();
+					if (d == 0) continue;
+					now[o] = d;
+					if (before.count(o) && (before[o] & d) && ++said <= 60)
+					{
+						const Matrix &dw = o->GetDrawWorld(); const Matrix &w = o->GetWorldTransformation();
+						fprintf(stderr, "[copies] STALE: %s (%s%s%s) drawn at (%.2f %.2f %.2f) is at (%.2f %.2f %.2f); radius drawn %.2f is %.2f\n", o->GetName().c_str(),
+							(d & 1) ? "place " : "", (d & 2) ? "scale " : "", (d & 4) ? "radius" : "", dw.m[12], dw.m[13], dw.m[14], w.m[12], w.m[13], w.m[14], o->DrawCopyRadius(), o->GetBoundingSphereRadiusWorldSpace());
+					}
+				}
+				if ((frame % 1800) == 0) fprintf(stderr, "[copies] %zu differ now, %llu stale said\n", now.size(), (unsigned long long)said);
+				before.swap(now);
+			}
+		}
 		FrameProfiler::Instance().Begin("GBuffer.Visible");
 		{
 			const uint8 need = CullOwner | CullComponentActive | CullMeshActive;
@@ -1051,6 +1081,79 @@ namespace p3d {
 					}
 					visible.push_back(rmesh[k]); visibleAt.push_back((uint32)k);
 				}
+			}
+		}
+		// PYROS_TRACE_MESHES=<part of a name>: twice a second, every listed object of that name
+		// within 150 m whose sphere is in view and of which nothing is being drawn - and why.
+		{
+			static const char* traceName = std::getenv("PYROS_TRACE_MESHES");
+			static uint64 traceFrame = 0;
+			if (traceName != NULL && (++traceFrame % 30) == 0)
+			{
+				struct Seen { int listed = 0, flagsOut = 0, culled = 0, hidden = 0, drawn = 0; uint8 flags = 0; Vec4 sphere; int lod = -1; };
+				std::unordered_map<GameObject*, Seen> seen;
+				std::unordered_set<RenderingMesh*> isVisible(visible.begin(), visible.end());
+				const Vec3 eyeNow = Camera->GetDrawWorldPosition();
+				const uint8 need = CullOwner | CullComponentActive | CullMeshActive;
+				for (size_t k = 0; k < rmesh.size(); k++)
+				{
+					GameObject* o = rmesh[k]->renderingComponent ? rmesh[k]->renderingComponent->GetOwner() : NULL;
+					if (o == NULL || o->GetName().find(traceName) == std::string::npos) continue;
+					if (cullFlags[k] & CullTransparent) continue;
+					Seen &e = seen[o];
+					e.listed++; e.sphere = cullSphere[k]; e.lod = (int)rmesh[k]->renderingComponent->GetLODInUse();
+					if ((cullFlags[k] & need) != need) { e.flagsOut++; e.flags = cullFlags[k]; }
+					else if (isVisible.count(rmesh[k])) e.drawn++;
+					else if ((cullFlags[k] & CullTested) && !CullListTest(k)) e.culled++;
+					else e.hidden++;
+				}
+				static uint64 said = 0;
+				for (std::unordered_map<GameObject*, Seen>::iterator i = seen.begin(); i != seen.end(); ++i)
+				{
+					const Seen &e = i->second;
+					const Vec3 c(e.sphere.x, e.sphere.y, e.sphere.z);
+					const f32 d = sqrtf(eyeNow.distanceSQR(c));
+					if (e.drawn != 0 || d > 150.f || e.sphere.w < 3.f || (e.flagsOut == e.listed && !(e.flags & CullComponentActive)) || culling == NULL || !culling->SphereInFrustum(c, e.sphere.w * 0.3f)) continue;
+					if (++said <= 3000) fprintf(stderr, "[meshes] %s not drawn at %.0f m: %d listed, %d flags out (flags %d), %d culled, %d hidden; level %d, sphere (%.1f %.1f %.1f r %.1f), eye (%.1f %.1f %.1f)\n",
+						i->first->GetName().c_str(), d, e.listed, e.flagsOut, (int)e.flags, e.culled, e.hidden, e.lod, e.sphere.x, e.sphere.y, e.sphere.z, e.sphere.w, eyeNow.x, eyeNow.y, eyeNow.z);
+				}
+				// (and what has no mesh listed at all: at a level of detail it should not be at)
+				static uint64 saidLevel = 0;
+				for (std::map<std::pair<SceneGraph*, uint32>, FrameList>::iterator fl = frameLists.begin(); fl != frameLists.end(); ++fl)
+				{
+					if (fl->first.first != Scene) continue;
+					for (size_t i = 0; i < fl->second.lodComponents.size(); i++)
+					{
+						RenderingComponent* c = fl->second.lodComponents[i];
+						GameObject* o = c->GetOwner();
+						if (o == NULL || o->GetName().find(traceName) == std::string::npos) continue;
+						const Vec3 &scale = o->GetScale();
+						const f32 maxScale = std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z)));
+						const Vec3 centre = o->GetWorldPosition() + c->GetBoundingSphereCenter() * scale;
+						const f32 r = c->GetBoundingSphereRadius() * maxScale;
+						const f32 d = std::max(0.f, eyeNow.distance(centre) - r);
+						if (d > 150.f || r < 3.f) continue;
+						const uint32 should = c->LevelAtDistanceSQR(d * d);
+						{
+							// (its meshes of that level: in the list? in what is drawn?)
+							const std::vector<RenderingMesh*>* of = c->MeshesOfLevel(c->GetLODInUse());
+							size_t inList = 0, inDrawn = 0, opaque = 0;
+							static thread_local std::unordered_set<RenderingMesh*> listedNow;
+							if (i == 0) { listedNow.clear(); listedNow.insert(rmesh.begin(), rmesh.end()); }
+							if (of) for (size_t m = 0; m < of->size(); m++)
+							{
+								if ((*of)[m]->Material && (*of)[m]->Material->IsTransparent()) continue;
+								opaque++;
+								if (listedNow.count((*of)[m])) inList++;
+								if (isVisible.count((*of)[m])) inDrawn++;
+							}
+							if (inDrawn < opaque && culling != NULL && culling->SphereInFrustum(centre, r * 0.3f) && ++saidLevel <= 400)
+								fprintf(stderr, "[levels] %s at %.0f m: level %u, %zu opaque meshes, %zu in the list, %zu drawn; active %d\n", o->GetName().c_str(), d, c->GetLODInUse(), opaque, inList, inDrawn, (int)c->IsActive());
+						}
+						if (should != c->GetLODInUse() && ++saidLevel <= 400) fprintf(stderr, "[levels] %s at %.0f m: level %u in use, should be %u\n", o->GetName().c_str(), d, c->GetLODInUse(), should);
+					}
+				}
+				if ((traceFrame % 1800) == 0) fprintf(stderr, "[meshes] %zu of that name listed, %llu times one was not drawn\n", seen.size(), (unsigned long long)said);
 			}
 		}
 		// Nearest first. What is drawn first hides what is drawn after it, and

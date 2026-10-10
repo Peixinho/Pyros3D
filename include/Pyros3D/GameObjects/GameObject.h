@@ -124,6 +124,19 @@ namespace p3d {
 		// turn - the setting was off in between, and the thing may have moved
 		// unseen - is not used. SetDrawCopies at a point where no frame is in flight.)
 		static bool DrawCopies() { return s_drawEpoch != 0; }
+		// PYROS_VERIFY_COPIES=1 (the renderers ask): 0 when the copy this is drawn from is what
+		// it is now, else which part is not - 1 its place, 2 its scale, 4 its radius. An
+		// object that is moving differs by a frame's move; one that stands still must not.
+		int DrawCopyDiffers() const
+		{
+			if (!(_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0)) return 0;
+			int d = 0;
+			for (int i = 0; i < 16; i++) if (fabsf(_DrawWorld.m[i] - _WorldMatrix.m[i]) > 1e-3f) { d |= 1; break; }
+			if (fabsf(_DrawScale.x - _Scale.x) + fabsf(_DrawScale.y - _Scale.y) + fabsf(_DrawScale.z - _Scale.z) > 1e-4f) d |= 2;
+			if (fabsf(_DrawRadius - BoundingSphereRadiusWorldSpace) > 1e-3f * (1.f + BoundingSphereRadiusWorldSpace)) d |= 4;
+			return d;
+		}
+		f32 DrawCopyRadius() const { return _DrawRadius; }
 		static void SetDrawCopies(const bool on);
 		static uint32 s_drawEpoch;
 		static void NoteForDraw(GameObject* go);

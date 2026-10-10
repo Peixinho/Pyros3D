@@ -935,6 +935,36 @@ S.first.resize(groupCount); S.cursor.resize(groupCount);
 }
 }
 
+// PYROS_VERIFY_PASS=1: what a pass was given against what its runs recorded - each thing
+// once, by itself or as a member of a batch.
+namespace {
+	const bool g_verifyPass = std::getenv("PYROS_VERIFY_PASS") != NULL;
+	std::mutex g_passSeenLock;
+	std::vector<RenderingMesh*> g_passSeen;
+	thread_local bool t_passSeeing = false;        // this thread is recording a run of the pass being checked
+	inline void PassSaw(RenderingMesh* m) { if (!g_verifyPass || !t_passSeeing) return; std::lock_guard<std::mutex> g(g_passSeenLock); g_passSeen.push_back(m); }
+	void PassCheck(const std::vector<RenderingMesh*> &items, const uint32 runs, const uint32 pass)
+	{
+		if (!g_verifyPass) return;
+		static uint64 passes = 0, wrong = 0;
+		std::vector<RenderingMesh*> seen;
+		{ std::lock_guard<std::mutex> g(g_passSeenLock); seen.swap(g_passSeen); }
+		std::unordered_map<RenderingMesh*, int> times;
+		for (size_t i = 0; i < seen.size(); i++) times[seen[i]]++;
+		size_t missing = 0, twice = 0; RenderingMesh* first = NULL;
+		for (size_t i = 0; i < items.size(); i++)
+		{
+			std::unordered_map<RenderingMesh*, int>::iterator t = times.find(items[i]);
+			if (t == times.end()) { missing++; if (!first) first = items[i]; }
+			else if (t->second > 1) twice++;
+		}
+		passes++;
+		if (missing && ++wrong <= 60)
+			fprintf(stderr, "[pass] WRONG: pass %u with %u runs: %zu given, %zu recorded, %zu missing, %zu more than once (first missing: %s)\n", pass, runs, items.size(), seen.size(), missing, twice,
+				(first && first->renderingComponent && first->renderingComponent->GetOwner()) ? first->renderingComponent->GetOwner()->GetName().c_str() : "-");
+		if (passes % 3000 == 0) fprintf(stderr, "[pass] %llu passes, %llu wrong\n", (unsigned long long)passes, (unsigned long long)wrong);
+	}
+}
 void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures,
 	const std::function<void(RenderingMesh*, uint32)> &drawOne,
 	const std::function<void(RenderingMesh*, uint32)> &drawBatch)
@@ -942,7 +972,7 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 	const uint32 n = (uint32)items.size();
 	if (!IsAutoInstancing())
 	{
-		for (uint32 i = 0; i < n; i++) drawOne(items[i], i);
+		for (uint32 i = 0; i < n; i++) { PassSaw(items[i]); drawOne(items[i], i); }
 		return;
 	}
 
@@ -964,6 +994,7 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		const int32 g = groupOf[i];
 		if (g < 0 || fallback[g] || groups[g].size() < kAutoInstanceMinimum)
 		{
+			PassSaw(items[i]);
 			drawOne(items[i], i);
 			++autoInstanceSinglesThisFrame;
 			continue;
@@ -976,12 +1007,14 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		if (b == NULL)
 		{
 			fallback[g] = true;
+			PassSaw(items[i]);
 			drawOne(items[i], i);
 			continue;
 		}
 		for (size_t k = 0; k < members.size(); k++)
 		{
 			RenderingMesh* m = items[members[k]];
+			PassSaw(m);
 			b->comp->transform[k] = m->renderingComponent->GetOwner()->GetDrawWorld() * m->Pivot;
 		}
 		b->comp->SetNumberInstances((uint32)members.size());
@@ -1997,6 +2030,7 @@ bool IRenderer::RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGr
 		FrameBuffer::UseOwnBoundStack(true);
 		g_fingerprintsThisView.clear();
 		b->twin->InitRender();
+		b->twin->ForgetDeviceState();
 		b->twin->RecordSunPass(b->pass);
 		b->twin->EndRender();
 		b->drawn = g_shadowCastersDrawn; b->leftOut = g_shadowCastersLeftOut;
@@ -2017,6 +2051,7 @@ bool IRenderer::RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGr
 	cullFace = -1;
 	ResetViewPort();
 	FrameBuffer::RebindBound();
+	ForgetDeviceState();
 	DepthWrite();
 	return true;
 }
@@ -2041,9 +2076,13 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		&& EffectiveAmbientMode() != 3;
 	if (!can)
 	{
+		if (g_verifyPass) { std::lock_guard<std::mutex> g(g_passSeenLock); g_passSeen.clear(); }
+		t_passSeeing = g_verifyPass;
 		DrawWithAutoInstancing(items, signatures,
 			[&](RenderingMesh* m, uint32 i) { drawOne(*this, m, i); },
 			[&](RenderingMesh* m, uint32 i) { drawBatch(*this, m, i); });
+		t_passSeeing = false;
+		PassCheck(items, 1, pass);
 		return;
 	}
 
@@ -2101,6 +2140,9 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		// (PYROS_PASS_RUNS=n: that many, for a test - where there are things enough)
 		static const uint32 forced = std::getenv("PYROS_PASS_RUNS") ? (uint32)std::atoi(std::getenv("PYROS_PASS_RUNS")) : 0;
 		if (forced > 0) { runs = std::max((uint32)1, std::min(most, forced)); U.phase = 0; }
+		// (PYROS_PASS_ALTERNATE=n: one run and n runs by turns, 24 frames each - the change itself, for a test)
+		static const uint32 alternate = std::getenv("PYROS_PASS_ALTERNATE") ? (uint32)std::atoi(std::getenv("PYROS_PASS_ALTERNATE")) : 0;
+		if (alternate > 1) { runs = ((U.frame / 24) & 1) ? std::max((uint32)1, std::min(most, alternate)) : 1; U.phase = 0; }
 		U.trying = runs;
 		U.began = std::chrono::steady_clock::now();
 	}
@@ -2126,11 +2168,15 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		}
 	} timed = { U, total, most };
 	FrameProfiler::Instance().Counter(pass == 0 ? "Pass.Runs" : "Pass.RunsSeeThrough", (f64)runs);
+	if (g_verifyPass) { std::lock_guard<std::mutex> g(g_passSeenLock); g_passSeen.clear(); }
+	t_passSeeing = g_verifyPass;
 	if (runs < 2)
 	{
 		DrawWithAutoInstancing(items, signatures,
 			[&](RenderingMesh* m, uint32 i) { drawOne(*this, m, i); },
 			[&](RenderingMesh* m, uint32 i) { drawBatch(*this, m, i); });
+		t_passSeeing = false;
+		PassCheck(items, 1, pass);
 		return;
 	}
 
@@ -2143,18 +2189,19 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 			{
 				const uint32 i = unit[u];
 				const int32 g = S.groupOf[i];
-				if (g < 0 || S.count[g] < kAutoInstanceMinimum) { drawOne(R, items[i], i); singles++; continue; }
+				if (g < 0 || S.count[g] < kAutoInstanceMinimum) { PassSaw(items[i]); drawOne(R, items[i], i); singles++; continue; }
 				const uint32* members = S.members.data() + S.first[g];
 				const uint32 size = S.count[g];
 				AutoInstanceBatch* b = R.AcquireAutoInstanceBatch(items[i], S.fingerprint[g], size);
 				if (b == NULL)
 				{
-					for (uint32 k = 0; k < size; k++) { drawOne(R, items[members[k]], members[k]); singles++; }
+					for (uint32 k = 0; k < size; k++) { PassSaw(items[members[k]]); drawOne(R, items[members[k]], members[k]); singles++; }
 					continue;
 				}
 				for (uint32 k = 0; k < size; k++)
 				{
 					RenderingMesh* m = items[members[k]];
+					PassSaw(m);
 					b->comp->transform[k] = m->renderingComponent->GetOwner()->GetDrawWorld() * m->Pivot;
 				}
 				b->comp->SetNumberInstances(size);
@@ -2232,9 +2279,12 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 			FrameBuffer::UseOwnBoundStack(true);
 			IRenderer &T = *b->twin;
 			T.InitRender();
+			T.ForgetDeviceState();
 			T._SetViewPort(T.viewPortStartX, T.viewPortStartY, T.viewPortEndX, T.viewPortEndY);
 			uint32 singles = 0, batches = 0, batched = 0;
+			const bool wasSeeing = t_passSeeing; t_passSeeing = g_verifyPass;
 			Run::Draw(T, *itemsPtr, *groups, unitList + from, to - from, *one, *many, singles, batches, batched);
+			t_passSeeing = wasSeeing;
 			T.EndRender();
 			b->drawn = singles; b->leftOut = batches;
 			Texture::UseOwnUnitCounter(false);
@@ -2258,6 +2308,7 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		cullFace = -1;
 		_SetViewPort(viewPortStartX, viewPortStartY, viewPortEndX, viewPortEndY);
 		depthWritting = true; DepthWrite();
+		ForgetDeviceState();
 	}
 	// The last run - or all that was not handed out - is this renderer's own.
 	{
@@ -2267,6 +2318,7 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		Run::Draw(*this, items, S, unitList + from, total - from, drawOne, drawBatch, singles, batches, batched);
 		autoInstanceSinglesThisFrame += singles; autoInstanceBatchesThisFrame += batches; autoInstanceObjectsThisFrame += batched;
 	}
+	t_passSeeing = false;
 	FrameProfiler::Instance().Begin("Pass.Wait");
 	for (uint32 h = 0; h < begun; h++)
 	{
@@ -2277,6 +2329,8 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		autoInstanceSinglesThisFrame += B.drawn; autoInstanceBatchesThisFrame += B.leftOut;
 	}
 	FrameProfiler::Instance().End();
+	t_passSeeing = false;
+	PassCheck(items, runs, pass);
 	FrameProfiler::Instance().Counter("AutoInstance.Singles", (f64)autoInstanceSinglesThisFrame);
 	FrameProfiler::Instance().Counter("AutoInstance.Batches", (f64)autoInstanceBatchesThisFrame);
 	FrameProfiler::Instance().Counter("AutoInstance.Objects", (f64)autoInstanceObjectsThisFrame);
@@ -2980,6 +3034,14 @@ void IRenderer::InitRender()
 	// (mesh, shader) pair on demand. This used to glGenVertexArrays a new
 	// VAO on every InitRender() call (up to 3x per frame in
 	// DeferredRenderer) and never delete it, leaking one every time.
+}
+
+void IRenderer::ForgetDeviceState()
+{
+	device->SetBlendingEnabled(false);
+	blending = false;
+	sfactor = dfactor = mode = -1;
+	depthTestMode = (uint32)-1;           // (no material asks for this one: the next drawn says its own)
 }
 
 void IRenderer::EndRender()

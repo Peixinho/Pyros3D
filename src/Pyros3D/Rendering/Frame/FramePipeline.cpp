@@ -18,6 +18,8 @@
 #include <memory>
 
 namespace p3d {
+	void SetFrameRecorderHere(const bool on);     // ThreadedRenderDevice.cpp (PYROS_VERIFY_STREAMS)
+
 
 	namespace {
 		std::shared_ptr<IRenderDevice> g_deviceItself;
@@ -123,7 +125,9 @@ namespace p3d {
 				GameObject::SetKeeping(true);
 				JobSystem::Instance().Run([scenePass, dev, logic]() {
 					TerrainEditor::SetDrawSide(true);
+					SetFrameRecorderHere(true);
 					scenePass();
+					SetFrameRecorderHere(false);
 					TerrainEditor::SetDrawSide(false);
 					// (what logic asked of the device meanwhile is carried out here: after this frame's scene)
 					dev->PlaceStream(logic);

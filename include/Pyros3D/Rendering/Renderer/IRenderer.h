@@ -512,6 +512,14 @@ namespace p3d {
 
 		// Reset
 		void InitRender();
+		// What this renderer believes of the device's depth test and blending is no longer so:
+		// someone else had the device since (another renderer, or a run of this pass recorded
+		// on another thread and carried out first). Blending is switched off outright and the
+		// depth test is said again by the next thing drawn - a renderer only says these when
+		// they differ from what IT said last, which is the wrong question to ask of a device
+		// it shares. (A hand's share of the G-buffer went in with the interface's blending on
+		// and no depth test: houses, the ground and rocks were recorded and not in the picture.)
+		void ForgetDeviceState();
 
 		// Render Object
 		void RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial* Material);

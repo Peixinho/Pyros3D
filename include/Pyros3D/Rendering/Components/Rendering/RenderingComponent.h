@@ -585,6 +585,11 @@ namespace p3d {
 
 		// Returns LOD level based on distance
 		uint32 GetLODByDistance(const f32 Distance);
+		// The level a distance (squared) asks for, worked out afresh and remembering nothing
+		// (GetLODByDistance keeps the last answer: this is to hold that against).
+		uint32 LevelAtDistanceSQR(const f32 Distance) const;
+		const std::vector<RenderingMesh*>* MeshesOfLevel(const uint32 level) const { std::map<uint32, std::vector<RenderingMesh*> >::const_iterator i = Meshes.find(level); return i != Meshes.end() ? &i->second : NULL; }
+		size_t MeshesAtLevel(const uint32 level) const { std::map<uint32, std::vector<RenderingMesh*> >::const_iterator i = Meshes.find(level); return i != Meshes.end() ? i->second.size() : 0; }
 		// The level whose meshes the scene lists now.
 		uint32 GetLODInUse() const { return LodInUse; }
 

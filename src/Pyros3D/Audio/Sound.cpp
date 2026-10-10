@@ -6,6 +6,11 @@
 // Description : A loaded sound effect with a pool of playback voices
 //============================================================================
 
+#include <string>
+#include <cstdio>
+#include <cstdlib>
+#include <chrono>
+#include <map>
 #include <Pyros3D/Audio/Sound.h>
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Audio/AudioBus.h>
@@ -211,6 +216,26 @@ namespace p3d {
 		ma_sound* voice = AcquireVoice();
 		if (voice == NULL) return;
 
+		// PYROS_SOUND_TRACE=1: which placed sounds are played, and how often - every ten
+		// seconds, the names and counts (to find out what a sound heard in a game is).
+		{
+			static const bool trace = std::getenv("PYROS_SOUND_TRACE") != NULL;
+			if (trace)
+			{
+				static std::map<std::string, uint32> played;
+				static std::chrono::steady_clock::time_point last = std::chrono::steady_clock::now();
+				const size_t slash = file.find_last_of('/');
+				played[slash == std::string::npos ? file : file.substr(slash + 1)]++;
+				if (std::chrono::duration<f64>(std::chrono::steady_clock::now() - last).count() > 10.0)
+				{
+					last = std::chrono::steady_clock::now();
+					std::string line = "[sounds]";
+					for (std::map<std::string, uint32>::iterator i = played.begin(); i != played.end(); ++i) line += " " + i->first + "=" + std::to_string(i->second);
+					fprintf(stderr, "%s\n", line.c_str());
+					played.clear();
+				}
+			}
+		}
 		ma_sound_set_spatialization_enabled(voice, MA_TRUE);
 		ma_sound_set_position(voice, position.x, position.y, position.z);
 		for (size_t v = 0; v < voices.size(); v++) if (voices[v] == voice && v < chains.size()) chains[v]->SetEar(true, position.x, position.y, position.z);

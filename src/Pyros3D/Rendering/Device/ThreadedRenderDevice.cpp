@@ -4,6 +4,14 @@
 //               (see the header).
 //============================================================================
 
+#include <string>
+#include <functional>
+#include <thread>
+#include <atomic>
+#include <cstdlib>
+#if !defined(_WIN32)
+#include <execinfo.h>
+#endif
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Rendering/Device/ThreadedRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
@@ -52,8 +60,40 @@ namespace p3d {
 		for (size_t i = 0; i < spare.size(); i++) delete spare[i];
 	}
 
+	// PYROS_VERIFY_STREAMS=1: the frame's own stream has ONE writer at a time - the thread
+	// recording the frame. Any other thread that writes into it while that one is at work
+	// (a job of the game's logic that asks the device for something, on a worker that is
+	// in no stream) is named, with where it came from.
+	namespace {
+		const bool g_verifyStreams = std::getenv("PYROS_VERIFY_STREAMS") != NULL;
+		std::atomic<size_t> g_frameRecorder(0);       // the thread recording the frame beside the logic (0: none is)
+		inline size_t ThisThread() { return std::hash<std::thread::id>()(std::this_thread::get_id()); }
+	}
+	void SetFrameRecorderHere(const bool on) { g_frameRecorder.store(on ? ThisThread() : 0); }
 	ThreadedRenderDevice::Batch* ThreadedRenderDevice::Filling()
 	{
+		if (g_verifyStreams && !t_stream)
+		{
+			const size_t rec = g_frameRecorder.load();
+			if (rec != 0 && rec != ThisThread())
+			{
+				static std::atomic<uint32> said(0);
+				const uint32 n = said.fetch_add(1);
+#if !defined(_WIN32)
+				if (n < 12)
+				{
+					void* frames[24]; const int count = backtrace(frames, 24);
+					char** names = backtrace_symbols(frames, count);
+					std::string text;
+					for (int i = 1; i < count && i < 16; i++) { std::string l = names[i]; const size_t at = l.find("0x"); text += "    " + (at != std::string::npos ? l.substr(l.find(' ', at) + 1) : l).substr(0, 110) + "\n"; }
+					free(names);
+					fprintf(stderr, "[streams] WRONG: a thread in no stream writes into the frame's while another records it:\n%s", text.c_str());
+				}
+				else
+#endif
+				if (n % 5000 == 0) fprintf(stderr, "[streams] %u such writes so far\n", n);
+			}
+		}
 		return t_stream ? static_cast<Stream*>(t_stream)->filling : filling;
 	}
 	ThreadedRenderDevice::Said &ThreadedRenderDevice::SaidHere()

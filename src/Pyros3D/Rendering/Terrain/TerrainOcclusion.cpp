@@ -4,6 +4,7 @@
 //               (see the header).
 //============================================================================
 
+#include <cstdlib>
 #include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
@@ -14,7 +15,8 @@
 namespace p3d {
 
 	namespace {
-		bool g_enabled = true;
+		// (PYROS_TERRAIN_OCCLUSION=0: off from the start, to compare)
+		bool g_enabled = !(std::getenv("PYROS_TERRAIN_OCCLUSION") != NULL && std::getenv("PYROS_TERRAIN_OCCLUSION")[0] == '0');
 		const f32 kFirst = 6.f;              // metres to the first step
 		const f32 kGrowth = 1.075f;          // each step this much further than the last (72 steps: 1.1 km)
 		const f32 kMoved = 1.0f;             // metres the eye may move before the horizons are made again

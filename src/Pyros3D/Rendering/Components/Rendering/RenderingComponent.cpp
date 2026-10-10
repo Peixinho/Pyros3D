@@ -472,6 +472,13 @@ namespace p3d {
 		return Meshes.size();
 	}
 
+	uint32 RenderingComponent::LevelAtDistanceSQR(const f32 Distance) const
+	{
+		for (size_t i = 0; i < LODDistances.size(); i++)
+			if (Distance < LODDistances[i] * LODDistances[i])
+				return (autoLevels != 0 && !g_autoLodInUse && i >= 1 && i <= autoLevels) ? 0 : (uint32)i;
+		return (uint32)LODDistances.size();
+	}
 	uint32 RenderingComponent::GetLODByDistance(const f32 Distance)
 	{
 		if (Distance != LastLodDistance || autoLodSeen != g_autoLodChanges)
