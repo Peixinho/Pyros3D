@@ -573,6 +573,8 @@ namespace p3d {
 
 		// Returns LOD level based on distance
 		uint32 GetLODByDistance(const f32 Distance);
+		// The level whose meshes the scene lists now.
+		uint32 GetLODInUse() const { return LodInUse; }
 
 		// Update Rendering Meshes Based on LOD
 		void UpdateLOD(const uint32 lod);

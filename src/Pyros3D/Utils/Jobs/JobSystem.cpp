@@ -302,6 +302,27 @@ namespace p3d {
 		// when nobody is asleep).
 		std::atomic<uint32> asleep{ 0 };
 
+		// Only a job that was handed out with this context: what a ParallelFor
+		// waits with. Helping with WHATEVER is queued while waiting for one's own
+		// range ran other threads' work in the middle of this one's - a whole
+		// pass of drawing, begun inside another pass's list-keeping, each writing
+		// to the stream of commands the thread had bound: a crash in the device.
+		bool TryRunWith(void* ctx)
+		{
+			Job job;
+			{
+				std::lock_guard<std::mutex> lock(mutex);
+				std::deque<Job>::iterator at = queue.begin();
+				for (; at != queue.end(); ++at) if (at->ctx == ctx) break;
+				if (at == queue.end()) return false;
+				job = std::move(*at);
+				queue.erase(at);
+				queued.fetch_sub(1, std::memory_order_relaxed);
+			}
+			Execute(job);
+			return true;
+		}
+
 		bool TryRunOne()
 		{
 			Job job;
@@ -476,6 +497,49 @@ namespace p3d {
 		impl->Push(std::move(job));
 	}
 
+	namespace {
+		uint64 NowNs() { return (uint64)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+		int SharedLoopsForced()
+		{
+			static const int v = []() { const char* e = std::getenv("PYROS_SHARED_LOOPS"); return e == NULL ? -1 : (e[0] == '0' ? 0 : 1); }();
+			return v;
+		}
+	}
+	bool JobSystem::SharedLoop::Begin(const uint32 n, const uint32 least)
+	{
+		timing = false;
+		if (n < least || JobSystem::Instance().WorkerCount() == 0) return now = false;
+		const int forced = SharedLoopsForced();
+		if (forced >= 0) return now = (forced == 1);
+		// (a look every 300 runs, every 60 for the first thousand: 16 runs on its
+		// own thread, 16 shared - the first two of each not counted, a way of
+		// running that has just been changed to is not at its pace yet)
+		run++;
+		const uint32 every = run < 1000 ? 60 : 300;
+		if (phase == 0 && run % every == 0) { phase = 1; left = 16; sum[0] = sum[1] = 0; count[0] = count[1] = 0; }
+		if (phase == 0) return now = shared;
+		now = phase == 2;
+		units = n;
+		timing = true;
+		began = NowNs();
+		return now;
+	}
+	void JobSystem::SharedLoop::End()
+	{
+		if (!timing) return;
+		timing = false;
+		const f64 ns = (f64)(NowNs() - began) / (f64)(units > 0 ? units : 1);
+		const uint32 slot = phase - 1;
+		if (left <= 14) { sum[slot] += ns; count[slot]++; }
+		if (--left > 0) return;
+		if (phase == 1) { phase = 2; left = 16; return; }
+		phase = 0;
+		const f64 alone = sum[0] / (f64)(count[0] > 0 ? count[0] : 1), together = sum[1] / (f64)(count[1] > 0 ? count[1] : 1);
+		// (what is in use keeps its place unless the other is clearly quicker: 10%)
+		if (!shared && together < alone * 0.90) shared = true;
+		else if (shared && alone < together * 0.90) shared = false;
+	}
+
 	void JobSystem::Wait(JobCounter &counter)
 	{
 		// Help rather than sleep: the jobs this caller is waiting for may be
@@ -531,7 +595,12 @@ namespace p3d {
 		const uint32 helpers = pieces - 1 < lanes - 1 ? pieces - 1 : lanes - 1;
 		for (uint32 h = 0; h < helpers; h++) Run(&Range::Take, &range, counter);
 		Range::Take(&range);
-		Wait(counter);
+		// (its own helpers only, if any has not been started: see TryRunWith)
+		while (counter.pending.load(std::memory_order_acquire) > 0)
+		{
+			if (!impl->TryRunWith(&range))
+				for (int k = 0; k < 8; k++) CpuRelax();
+		}
 	}
 
 }

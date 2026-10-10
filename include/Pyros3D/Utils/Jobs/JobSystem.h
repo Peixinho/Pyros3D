@@ -54,6 +54,30 @@ namespace p3d {
 		// fn(begin, end) for each, the caller taking a share. Returns when
 		// every batch has finished.
 		void ParallelFor(uint32 count, uint32 minBatch, const std::function<void(uint32 begin, uint32 end)> &fn);
+
+		// Whether a loop is quicker shared between the cores, found out rather than
+		// assumed. Handing a range out costs something - the workers may be asleep,
+		// and waking them is tens of microseconds - so a loop of a few thousand
+		// cheap steps is quicker on its own thread on one machine and three times
+		// quicker shared on another, or on the same machine once frames are short
+		// enough that the workers never sleep. One of these is kept beside a loop
+		// (static thread_local): Begin says which way to run it this time and End
+		// is called when it has run. Every few hundred runs it times a handful
+		// each way and keeps the quicker, with a margin so that it does not flap.
+		//   PYROS_SHARED_LOOPS=0 never, =1 always (a test).
+		struct PYROS3D_API SharedLoop
+		{
+			// units: how many steps the loop has this time; least: below this it is not worth asking
+			bool Begin(const uint32 units, const uint32 least);
+			void End();
+			bool shared = false;
+		private:
+			uint32 run = 0, phase = 0, left = 0, units = 0;
+			f64 sum[2] = { 0, 0 };
+			uint32 count[2] = { 0, 0 };
+			uint64 began = 0;
+			bool timing = false, now = false;
+		};
 		// What the machine's cores are. A processor may have two kinds: fast ones
 		// (performance) and slow ones (efficiency) that take two or three times as
 		// long over the same work - and work a frame waits for is as slow as the

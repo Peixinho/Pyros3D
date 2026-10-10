@@ -1117,21 +1117,28 @@ namespace {
 	// every ten seconds in one run: the view pass took 0.95 ms with it off and
 	// 1.15 ms with it on - all the culling of a frame is a tenth of a millisecond,
 	// and waking the workers costs more. For a scene with far more to cull.
+	// (Neither is assumed any more: each of these loops keeps a JobSystem::SharedLoop,
+	// which times it both ways on the machine it is running on and uses the
+	// quicker. These two say "always", for a test.)
 	bool g_parallelCulling = false;
-	bool g_parallelLists = false;       // (measured slower on a capped frame: the workers are asleep when it starts)
+	bool g_parallelLists = false;
 	template <class Keep>
 	void AnswerInParallel(const size_t count, std::vector<uint8> &answers, const Keep &keep)
 	{
 		answers.resize(count);
-		if (!g_parallelCulling || count < 512 || JobSystem::Instance().WorkerCount() == 0)
+		static thread_local JobSystem::SharedLoop loop;
+		const bool together = loop.Begin((uint32)count, 512) || (g_parallelCulling && count >= 512 && JobSystem::Instance().WorkerCount() > 0);
+		if (!together)
 		{
 			for (size_t i = 0; i < count; i++) answers[i] = keep((uint32)i);
+			loop.End();
 			return;
 		}
 		uint8* out = &answers[0];
 		JobSystem::Instance().ParallelFor((uint32)count, 256, [out, &keep](uint32 begin, uint32 end) {
 			for (uint32 i = begin; i < end; i++) out[i] = keep(i);
 		});
+		loop.End();
 	}
 }
 void IRenderer::SetParallelCulling(const bool on) { g_parallelCulling = on; }
@@ -1183,8 +1190,10 @@ void IRenderer::BuildCullList()
 	const std::function<void(uint32, uint32)> build = [this](uint32 begin, uint32 end) {
 		for (size_t i = begin; i < end; i++) CullEntry(i, rmesh[i]);
 	};
-	if (g_parallelLists && n >= 512 && JobSystem::Instance().WorkerCount() > 0) JobSystem::Instance().ParallelFor((uint32)n, 128, build);
+	static thread_local JobSystem::SharedLoop loop;
+	if (loop.Begin((uint32)n, 512) || (g_parallelLists && n >= 512 && JobSystem::Instance().WorkerCount() > 0)) JobSystem::Instance().ParallelFor((uint32)n, 128, build);
 	else build(0, (uint32)n);
+	loop.End();
 }
 
 const IRenderer::FrameList* IRenderer::CurrentWorldList(SceneGraph* Scene)
@@ -1431,15 +1440,33 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		if (lod)
 		{
 			const Vec3 eye = Camera->GetWorldPosition();
-			for (size_t i = 0; i < L.lodComponents.size(); i++)
-			{
-				RenderingComponent* c = L.lodComponents[i];
-				const Vec3 &scale = c->GetOwner()->GetScale();
-				const f32 maxScale = std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z)));
-				const Vec3 centre = c->GetOwner()->GetWorldPosition() + c->GetBoundingSphereCenter() * scale;
-				const f32 d = std::max(0.f, eye.distance(centre) - c->GetBoundingSphereRadius() * maxScale);
-				c->UpdateLOD(c->GetLODByDistance(d * d));
-			}
+			// Which level each thing wants is worked out on every core - it reads
+			// the thing and writes nothing shared - and only the ones that want a
+			// different level than they have are then changed, here, in order.
+			// (Thousands of things, every frame, were each asked on this thread.)
+			static thread_local std::vector<uint32> want;
+			const size_t nLod = L.lodComponents.size();
+			want.resize(nLod);
+			RenderingComponent** const lodOf = L.lodComponents.data();
+			uint32* const wantOf = want.data();
+			auto pick = [lodOf, wantOf, eye](uint32 begin, uint32 end) {
+				for (uint32 i = begin; i < end; i++)
+				{
+					RenderingComponent* c = lodOf[i];
+					const Vec3 &scale = c->GetOwner()->GetScale();
+					const f32 maxScale = std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z)));
+					const Vec3 centre = c->GetOwner()->GetWorldPosition() + c->GetBoundingSphereCenter() * scale;
+					const f32 d = std::max(0.f, eye.distance(centre) - c->GetBoundingSphereRadius() * maxScale);
+					const uint32 level = c->GetLODByDistance(d * d);
+					wantOf[i] = level != c->GetLODInUse() ? level : 0xFFFFFFFFu;
+				}
+			};
+			static thread_local JobSystem::SharedLoop lodLoop;
+			if (lodLoop.Begin((uint32)nLod, 512)) JobSystem::Instance().ParallelFor((uint32)nLod, 256, pick);
+			else pick(0, (uint32)nLod);
+			lodLoop.End();
+			FrameProfiler::Instance().Counter("Lists.LodShared", lodLoop.shared ? 1.0 : 0.0);
+			for (size_t i = 0; i < nLod; i++) if (wantOf[i] != 0xFFFFFFFFu) lodOf[i]->UpdateLOD(wantOf[i]);
 		}
 		if (!fresh && !ApplyListed(L, Scene, Tag)) fresh = true;
 		// (one that has got instances, or has none left: its entries are read
@@ -1455,11 +1482,26 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		// (a mesh's material and its own switch are fields anybody writes:
 		// looked at, one place in memory a mesh)
 		const size_t nOpaque = L.opaque.size();
-		for (size_t i = 0; i < nOpaque + L.translucent.size() && !fresh; i++)
+		if (!fresh)
 		{
-			RenderingMesh* m = i < nOpaque ? L.opaque[i] : L.translucent[i - nOpaque];
-			if (m->Material.get() != L.materialOf[i]) fresh = true;
-			else if ((m->Active == true ? 1 : 0) != L.activeOf[i]) fresh = true;
+			// (every listed mesh looked at, to see that it still wears what it wore
+			// and is still switched as it was: read only, so on every core)
+			const size_t nAll = nOpaque + L.translucent.size();
+			std::atomic<bool> changed(false);
+			FrameList* const Lp = &L;
+			auto same = [Lp, nOpaque, &changed](uint32 begin, uint32 end) {
+				for (uint32 i = begin; i < end; i++)
+				{
+					RenderingMesh* m = i < nOpaque ? Lp->opaque[i] : Lp->translucent[i - nOpaque];
+					if (m->Material.get() != Lp->materialOf[i] || (m->Active == true ? 1 : 0) != Lp->activeOf[i]) { changed.store(true, std::memory_order_relaxed); return; }
+				}
+			};
+			static thread_local JobSystem::SharedLoop sameLoop;
+			if (sameLoop.Begin((uint32)nAll, 2048)) JobSystem::Instance().ParallelFor((uint32)nAll, 1024, same);
+			else same(0, (uint32)nAll);
+			sameLoop.End();
+			FrameProfiler::Instance().Counter("Lists.SameShared", sameLoop.shared ? 1.0 : 0.0);
+			if (changed.load(std::memory_order_relaxed)) fresh = true;
 		}
 		// (...and whether each material is seen through, which is the
 		// material's to change. Asked of each material once, not of each mesh:
