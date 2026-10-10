@@ -74,7 +74,7 @@ namespace p3d {
 		// Brings this object's world matrix up to date NOW, for whoever is
 		// about to read it. Its children are not touched here - they are
 		// carried along by SettleTransformation, which is told by the flag.
-		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; Wake(); }
+		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; Wake(); if (_DrawTaken) { _DrawWorld = _WorldMatrix; _DrawPrvWorld = _PrvWorldMatrix; } }
 		// The same, for whoever asks every frame (a layout that is solved again
 		// each time it is drawn): the matrix is worked out, but only if it has come
 		// out different is the object woken and what hangs from it told. True if it moved.
@@ -105,6 +105,17 @@ namespace p3d {
 		// World Space
 		const Matrix &GetWorldTransformation() const;
 		const Matrix &GetPrvWorldTransformation() const;
+		// Where it is DRAWN: a copy of where it is, taken at one point of the
+		// frame (TakeDrawTransforms) - so that what draws a frame can go on reading
+		// it while the next frame's update is already moving the thing. The first
+		// step towards a frame's drawing and the next one's game logic running side
+		// by side; on with PYROS_FRAME_SPLIT=1, and until then (and for anything
+		// not yet taken) it is simply where the thing is.
+		const Matrix &GetDrawWorld() const { return _DrawTaken ? _DrawWorld : _WorldMatrix; }
+		const Matrix &GetDrawPrvWorld() const { return _DrawTaken ? _DrawPrvWorld : _PrvWorldMatrix; }
+		static bool DrawCopies();
+		static void NoteForDraw(GameObject* go);
+		static void TakeDrawTransforms();
 		const Vec3 GetWorldPosition() const;
 		const Vec3 GetWorldRotation() const;
 
@@ -287,6 +298,9 @@ namespace p3d {
 		// Refreshed by hand since the traversal: the children still stand
 		// where the old world matrix put them.
 		bool _RefreshedLate = false;
+		Matrix _DrawWorld, _DrawPrvWorld;
+		bool _DrawTaken = false;
+		int32 _DrawSlot = -1;
 		// The world-space box, from the local one and the world matrix.
 		void UpdateWorldBounds();
 		// Brings this object's world matrix up to date with its ancestors'

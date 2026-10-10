@@ -250,6 +250,7 @@ namespace p3d {
 		const bool waiting = budgeted && streamedRegistrationMs >= streamedRegistrationBudgetMs;
 		if (waiting) streamedDeferred++;
 		visitedThisUpdate++;
+		GameObject::NoteForDraw(go);
 		{	// PYROS_WALK_TRACE=1: what the scene walks, and why each is awake - every 300000 walked
 			static const bool trace = std::getenv("PYROS_WALK_TRACE") != NULL;
 			if (trace)

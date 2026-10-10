@@ -3040,8 +3040,9 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	CommandBufferHandle cmd = device->BeginCommandBuffer();
 
 	// model cache
-	PrvModelMatrix = owner->GetPrvWorldTransformation() * rmesh->Pivot;
-	ModelMatrix = owner->GetWorldTransformation() * rmesh->Pivot;
+	// (where it is drawn: see GameObject::GetDrawWorld)
+	PrvModelMatrix = owner->GetDrawPrvWorld() * rmesh->Pivot;
+	ModelMatrix = owner->GetDrawWorld() * rmesh->Pivot;
 
 	NormalMatrixIsDirty = true;
 	ModelViewMatrixIsDirty = true;

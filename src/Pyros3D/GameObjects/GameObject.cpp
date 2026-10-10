@@ -10,6 +10,9 @@
 #include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <cstring>
+#include <vector>
+#include <cstdlib>
+#include <mutex>
 #include <typeinfo>
 
 namespace p3d {
@@ -42,8 +45,19 @@ namespace p3d {
 	}
 
 	// Destructor
+	namespace {
+		std::mutex g_forDrawMutex;
+		std::vector<GameObject*> g_forDraw;
+		void ForgetForDraw(GameObject* go, const int32 slot)
+		{
+			if (slot < 0) return;
+			std::lock_guard<std::mutex> lock(g_forDrawMutex);
+			if ((size_t)slot < g_forDraw.size() && g_forDraw[slot] == go) g_forDraw[slot] = NULL;
+		}
+	}
 	GameObject::~GameObject()
 	{
+		ForgetForDraw(this, _DrawSlot);
 		if (_WatchScene) _WatchScene->_NoteLeft(this);
 		// Orphan the children before they are released.
 		//
@@ -123,6 +137,34 @@ namespace p3d {
 		}
 	}
 	void IComponent::WakeOwner() { if (Owner != NULL) Owner->Wake(); }
+	bool GameObject::DrawCopies()
+	{
+		static const bool on = std::getenv("PYROS_FRAME_SPLIT") != NULL;
+		return on;
+	}
+	void GameObject::NoteForDraw(GameObject* go)
+	{
+		if (!DrawCopies() || go == NULL) return;
+		std::lock_guard<std::mutex> lock(g_forDrawMutex);
+		if (go->_DrawSlot >= 0) return;
+		go->_DrawSlot = (int32)g_forDraw.size();
+		g_forDraw.push_back(go);
+	}
+	void GameObject::TakeDrawTransforms()
+	{
+		if (!DrawCopies()) return;
+		std::lock_guard<std::mutex> lock(g_forDrawMutex);
+		for (size_t i = 0; i < g_forDraw.size(); i++)
+		{
+			GameObject* go = g_forDraw[i];
+			if (go == NULL) continue;
+			go->_DrawWorld = go->_WorldMatrix;
+			go->_DrawPrvWorld = go->_PrvWorldMatrix;
+			go->_DrawTaken = true;
+			go->_DrawSlot = -1;
+		}
+		g_forDraw.clear();
+	}
 	bool GameObject::RefreshTransformationIfChanged()
 	{
 		const Matrix was = _WorldMatrix;

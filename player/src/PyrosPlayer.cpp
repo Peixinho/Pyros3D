@@ -1628,6 +1628,8 @@ void PyrosPlayer::Update()
 	const bool ownFrame = device.GetCurrentRenderTarget() == 0 && !device.IsFrameInProgress();
 	if (ownFrame)
 	{
+		// (the hand-over: what is drawn from here on is drawn where things are now)
+		GameObject::TakeDrawTransforms();
 		PYROS_PROFILE_SCOPE("Player.BeginFrame");
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		device.BeginFrame();
