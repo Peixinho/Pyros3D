@@ -1846,70 +1846,96 @@ namespace p3d {
 		EndClippingPlanes();
 
 		// Render Translucid Meshes
-		for (std::vector<RenderingMesh*>::iterator i = rmesh.begin(); i != rmesh.end(); i++)
+		// What is see-through, and only that: the list says which of its entries are
+		// (and whether each is switched on, and where it is) without one of them
+		// being touched. Every mesh of the scene was asked for its material, and the
+		// material whether it was transparent - ten thousand pointers followed, a
+		// frame, to find a few dozen panes of glass; and each of those was then
+		// tested against the view through its owner. (The light list is only
+		// copied and sorted where there is a point or a spot light to choose.)
+		bool anyLocalLight = false;
+		for (size_t l = 0; l < _Lights.size(); l++) if (_Lights[l].m[13] == 2 || _Lights[l].m[13] == 3) { anyLocalLight = true; break; }
+		// (PYROS_TRANSLUCENT_WALK=1: the old walk over everything, to compare)
+		static const bool walkAll = std::getenv("PYROS_TRANSLUCENT_WALK") != NULL;
+		const bool listed = !walkAll && cullFlags.size() == rmesh.size() && cullSphere.size() == rmesh.size();
+		uint32 translucentDrawn = 0;
+		const uint8 translucentNeed = CullOwner | CullComponentActive | CullMeshActive | CullTransparent;
+		// Which of them are in view, in the list's order (it is the order they must be
+		// drawn in: what is see-through is drawn over what is behind it) - and then
+		// drawn on every core, like the scene before them: each was recorded on this
+		// thread, one after another, two hundred panes of glass in a town.
+		static thread_local std::vector<RenderingMesh*> seeThrough;
+		static thread_local std::vector<uint32> lightFrom;
+		static thread_local std::vector<Matrix> lightsOf;
+		seeThrough.clear(); lightFrom.clear(); lightsOf.clear();
+		for (size_t tk = 0; tk < rmesh.size(); tk++)
 		{
-
-			Lights.clear();
-			if ((*i)->Material->IsTransparent() && (*i)->renderingComponent->GetOwner() != NULL)
+			RenderingMesh* const m = rmesh[tk];
+			GameObject* owner = NULL;
+			if (listed)
 			{
-				// Culling Test
-				bool cullingTest = false;
-				switch ((*i)->CullingGeometry)
+				if ((cullFlags[tk] & translucentNeed) != translucentNeed) continue;
+				if ((cullFlags[tk] & CullTested) && !CullListTest(tk)) continue;
+				owner = m->renderingComponent->GetOwner();
+				if (owner == NULL) continue;
+			}
+			else
+			{
+				if (!m->Material->IsTransparent()) continue;
+				owner = m->renderingComponent->GetOwner();
+				if (owner == NULL) continue;
+				bool cullingTest = m->CullingGeometry == CullingGeometry::Box ? CullingBoxTest(m, owner) : CullingSphereTest(m, owner);
+				if (!m->renderingComponent->IsCullTesting()) cullingTest = true;
+				if (!cullingTest || !m->renderingComponent->IsActive() || m->Active != true) continue;
+			}
+			seeThrough.push_back(m);
+			if (!anyLocalLight) continue;
+			// (the lights that reach it: the sun, and each point or spot light it is within - nearest first)
+			lightFrom.push_back((uint32)lightsOf.size());
+			const size_t from = lightsOf.size();
+			const Vec3 objectPosition = owner->GetWorldTransformation() * owner->GetBoundingSphereCenter();
+			for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
+			{
+				if ((*_l).m[13] == 1) lightsOf.push_back(*_l);
+				else if ((*_l).m[13] == 2 || (*_l).m[13] == 3)
 				{
-				case CullingGeometry::Box:
-					cullingTest = CullingBoxTest((*i), (*i)->renderingComponent->GetOwner());
-					break;
-				case CullingGeometry::Sphere:
-				default:
-					cullingTest = CullingSphereTest((*i), (*i)->renderingComponent->GetOwner());
-					break;
-				}
-				if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
-				if (cullingTest && (*i)->renderingComponent->IsActive() && (*i)->Active == true)
-				{
-					// The bounding sphere's centre - see CullingSphereTest.
-					Vec3 objectPosition = (*i)->renderingComponent->GetOwner()->GetWorldTransformation() * (*i)->renderingComponent->GetOwner()->GetBoundingSphereCenter();
-					for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
-					{
-						if ((*_l).m[13] == 1) Lights.push_back(*_l);
-						else if ((*_l).m[13] == 2 || (*_l).m[13] == 3)
-						{
-							Vec3 _lPos = Vec3((*_l).m[4], (*_l).m[5], (*_l).m[6]);
-							if ((_lPos.distance(objectPosition) - ((*i)->renderingComponent->GetOwner()->GetBoundingSphereRadiusWorldSpace())) < (*_l).m[10])
-								Lights.push_back(*_l);
-						}
-					}
-
-					// Same reasoning as ForwardRenderer::RenderScene(): sort
-					// nearest-first so that if there are more relevant lights
-					// than PyrosShader.glsl's MAX_LIGHTS, it's the farthest
-					// ones that get dropped by the UBO upload's clamp, not an
-					// arbitrary subset in scene-registration order.
-					std::stable_sort(Lights.begin(), Lights.end(), [&objectPosition](const Matrix &a, const Matrix &b) {
-						bool aDirectional = (a.m[13] == 1);
-						bool bDirectional = (b.m[13] == 1);
-						if (aDirectional != bDirectional) return aDirectional;
-						if (aDirectional) return false;
-						f32 aDistSQR = Vec3(a.m[4], a.m[5], a.m[6]).distanceSQR(objectPosition);
-						f32 bDistSQR = Vec3(b.m[4], b.m[5], b.m[6]).distanceSQR(objectPosition);
-						return aDistSQR < bDistSQR;
-					});
-
-					NumberOfLights = Lights.size();
-					// A single-target forward pass: a CustomShaderMaterial
-					// compiled for the G-buffer must draw with its forward
-					// variant here, or its FragData_r write lands unlit as
-					// the object's final colour (and a skinned mesh needs
-					// the skinned one). See UseVariantForNextDraw().
-					IMaterial* mat = (*i)->Material.get();
-					CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
-					const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, (*i)->SkinningBones.size() > 0);
-					RenderObject((*i), (*i)->renderingComponent->GetOwner(), mat);
-					if (usedCustomSwap)
-						csm->RestoreOwnProgram();
+					Vec3 _lPos = Vec3((*_l).m[4], (*_l).m[5], (*_l).m[6]);
+					if ((_lPos.distance(objectPosition) - owner->GetBoundingSphereRadiusWorldSpace()) < (*_l).m[10])
+						lightsOf.push_back(*_l);
 				}
 			}
+			std::stable_sort(lightsOf.begin() + from, lightsOf.end(), [&objectPosition](const Matrix &a, const Matrix &b) {
+				bool aDirectional = (a.m[13] == 1);
+				bool bDirectional = (b.m[13] == 1);
+				if (aDirectional != bDirectional) return aDirectional;
+				if (aDirectional) return false;
+				f32 aDistSQR = Vec3(a.m[4], a.m[5], a.m[6]).distanceSQR(objectPosition);
+				f32 bDistSQR = Vec3(b.m[4], b.m[5], b.m[6]).distanceSQR(objectPosition);
+				return aDistSQR < bDistSQR;
+			});
 		}
+		if (anyLocalLight) lightFrom.push_back((uint32)lightsOf.size());
+		translucentDrawn = (uint32)seeThrough.size();
+		// (no local light: every one of them is lit by the same list, which the hands are given with the rest)
+		if (!anyLocalLight) SetDrawLights(_Lights.data(), (uint32)_Lights.size());
+		{
+			const uint32* const lightFromOf = lightFrom.data();
+			const Matrix* const lightsOfAll = lightsOf.data();
+			const PassDraw drawSeeThrough = [anyLocalLight, lightFromOf, lightsOfAll](IRenderer &with, RenderingMesh* mesh, uint32 item)
+			{
+				if (anyLocalLight) with.SetDrawLights(lightsOfAll + lightFromOf[item], lightFromOf[item + 1] - lightFromOf[item]);
+				IMaterial* mat = mesh->Material.get();
+				CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
+				const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, mesh->SkinningBones.size() > 0);
+				DrawWith(with, mesh, mat);
+				if (usedCustomSwap)
+					csm->RestoreOwnProgram();
+			};
+			static const bool together = !(std::getenv("PYROS_TRANSLUCENT_ALONE") != NULL);
+			if (together) DrawPassOnEveryCore(seeThrough, NULL, drawSeeThrough, drawSeeThrough, Camera, Scene, 1);
+			else for (uint32 k = 0; k < (uint32)seeThrough.size(); k++) drawSeeThrough(*this, seeThrough[k], k);
+		}
+		FrameProfiler::Instance().Counter("Translucent.Drawn", (f64)translucentDrawn);
 
 		// Disable Scissor Test
 		EndScissorTest();

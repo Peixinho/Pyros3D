@@ -347,7 +347,7 @@ namespace p3d {
 		typedef std::function<void(IRenderer&, RenderingMesh*, uint32)> PassDraw;
 		void GroupForInstancing(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures, void* scratch);
 		void DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures,
-			const PassDraw &drawOne, const PassDraw &drawBatch, GameObject* Camera, SceneGraph* Scene);
+			const PassDraw &drawOne, const PassDraw &drawBatch, GameObject* Camera, SceneGraph* Scene, const uint32 pass = 0);
 		std::vector<std::unique_ptr<Beside> > crew;
 		// (for a renderer's own passes: a thing drawn with the renderer it was handed)
 		static void DrawWith(IRenderer &with, RenderingMesh* mesh, IMaterial* material) { with.RenderObject(mesh, mesh->renderingComponent->GetOwner(), material); }
@@ -391,6 +391,9 @@ namespace p3d {
 		// they are fitted to the main view. Its lights light and cast nothing.
 		void SetUnshadowed(const bool on) { unshadowed = on; skipShadowMaps = on; }
 		bool IsUnshadowed() const { return unshadowed; }
+		// The lights the next draws are lit by (a pass that chooses them for each thing
+		// gives them to whichever renderer is recording it: see DrawPassOnEveryCore).
+		void SetDrawLights(const Matrix* lights, const uint32 count) { Lights.assign(lights, lights + count); NumberOfLights = count; }
 
 		// Shared PyrosShader UBO handles (bindings 0/18/22, …). DebugRenderer
 		// must Retain/Release these rather than CreateUniformBuffer() at the

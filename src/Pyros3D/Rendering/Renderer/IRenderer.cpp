@@ -815,13 +815,13 @@ IRenderer::AutoInstanceBatch* IRenderer::AcquireAutoInstanceBatch(RenderingMesh*
 // between one view's PreRender() and the passes that follow it, so within
 // that span each is worked out once.
 namespace {
-	thread_local std::map<IMaterial*, uint64> g_fingerprintsThisView;
+	thread_local std::unordered_map<IMaterial*, uint64> g_fingerprintsThisView;
 	uint64 FingerprintThisView(IMaterial* mat)
 	{
 		// (a custom shader's material is told from another by being another: two
 		// objects are batched under one when they wear the very same material)
 		if (typeid(*mat) != typeid(GenericShaderMaterial)) return (uint64)(size_t)mat * 0x9E3779B97F4A7C15ULL | 1ULL;
-		std::map<IMaterial*, uint64>::iterator it = g_fingerprintsThisView.find(mat);
+		std::unordered_map<IMaterial*, uint64>::iterator it = g_fingerprintsThisView.find(mat);
 		if (it != g_fingerprintsThisView.end()) return it->second;
 		const uint64 f = static_cast<GenericShaderMaterial*>(mat)->RenderFingerprint();
 		g_fingerprintsThisView[mat] = f;
@@ -859,6 +859,38 @@ void IRenderer::GroupForInstancing(const std::vector<RenderingMesh*> &items, con
 S.materials.clear(); S.index.clear();
 S.groupOf.assign(n, -1);
 S.count.clear(); S.fingerprint.clear();
+// The fingerprints this view does not have yet, worked out on every core before
+// the grouping asks for them one at a time: each reads every field and uniform of
+// a material and writes nothing, and a scene that gives each thing a material of
+// its own has a thousand of them - a quarter of this thread's share of the pass.
+{
+	static thread_local std::vector<IMaterial*> want;
+	static thread_local std::vector<uint64> got;
+	static thread_local std::unordered_set<IMaterial*> asked;
+	want.clear(); asked.clear();
+	for (uint32 i = 0; i < n; i++)
+	{
+		IMaterial* mat = items[i]->Material.get();
+		if (mat == NULL || typeid(*mat) != typeid(GenericShaderMaterial)) continue;
+		if (!asked.insert(mat).second) continue;
+		if (g_fingerprintsThisView.find(mat) == g_fingerprintsThisView.end()) want.push_back(mat);
+	}
+	const uint32 w = (uint32)want.size();
+	if (w >= 64)
+	{
+		got.resize(w);
+		IMaterial** const wantOf = want.data();
+		uint64* const gotOf = got.data();
+		auto print = [wantOf, gotOf](uint32 begin, uint32 end) {
+			for (uint32 k = begin; k < end; k++) gotOf[k] = static_cast<GenericShaderMaterial*>(wantOf[k])->RenderFingerprint();
+		};
+		static thread_local JobSystem::SharedLoop loop;
+		if (loop.Begin(w, 64)) JobSystem::Instance().ParallelFor(w, 32, print);
+		else print(0, w);
+		loop.End();
+		for (uint32 k = 0; k < w; k++) g_fingerprintsThisView[want[k]] = got[k];
+	}
+}
 for (uint32 i = 0; i < n; i++)
 {
 	RenderingMesh* mesh = items[i];
@@ -1989,7 +2021,7 @@ bool IRenderer::GetParallelPasses() { return g_parallelPasses; }
 // See the header. What a run draws is the same DrawWithAutoInstancing would have:
 // the groups are found once, here, and each run draws its own share of them.
 void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, const std::vector<uint64> *signatures,
-	const PassDraw &drawOne, const PassDraw &drawBatch, GameObject* Camera, SceneGraph* Scene)
+	const PassDraw &drawOne, const PassDraw &drawBatch, GameObject* Camera, SceneGraph* Scene, const uint32 pass)
 {
 	const uint32 n = (uint32)items.size();
 	const uint32 workers = JobSystem::Instance().WorkerCount();
@@ -2029,8 +2061,10 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		f64 sum[3] = { 0, 0, 0 }; uint32 count[3] = { 0, 0, 0 };
 		std::chrono::steady_clock::time_point began;
 	};
-	static thread_local std::map<IRenderer*, Tuner> tuners;
-	Tuner &U = tuners[this];
+	// (one for each pass of each renderer: a pass of two hundred panes of glass and one
+	// of two thousand things do not want the same number of runs)
+	static thread_local std::map<std::pair<IRenderer*, uint32>, Tuner> tuners;
+	Tuner &U = tuners[std::make_pair(this, pass)];
 	const uint32 most = std::max((uint32)1, std::min(workers + 1, total / kUnitsARun));
 	if (U.runs > most) U.runs = most;
 	uint32 runs = U.runs;
@@ -2070,7 +2104,7 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 			U.phase = 0;
 		}
 	} timed = { U, total, most };
-	FrameProfiler::Instance().Counter("Pass.Runs", (f64)runs);
+	FrameProfiler::Instance().Counter(pass == 0 ? "Pass.Runs" : "Pass.RunsSeeThrough", (f64)runs);
 	if (runs < 2)
 	{
 		DrawWithAutoInstancing(items, signatures,
@@ -2150,6 +2184,15 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		T.ClipPlane = ClipPlane; T.ClipPlaneNumber = ClipPlaneNumber;
 		for (uint32 k = 0; k < 8; k++) T.ClipPlanes[k] = ClipPlanes[k];
 		T.Lights = Lights; T.NumberOfLights = NumberOfLights;
+		// (and the shadow maps, for a pass that draws things lit and shadowed as they
+		// are drawn - what is see-through, a forward view)
+		T.DirectionalShadowMapsTextures = DirectionalShadowMapsTextures; T.PointShadowMapsTextures = PointShadowMapsTextures; T.SpotShadowMapsTextures = SpotShadowMapsTextures;
+		T.DirectionalShadowMapsUnits = DirectionalShadowMapsUnits; T.PointShadowMapsUnits = PointShadowMapsUnits; T.SpotShadowMapsUnits = SpotShadowMapsUnits;
+		T.DirectionalShadowMatrix = DirectionalShadowMatrix; T.PointShadowMatrix = PointShadowMatrix; T.SpotShadowMatrix = SpotShadowMatrix;
+		T.DirectionalShadowFar = DirectionalShadowFar;
+		T.NumberOfDirectionalShadows = NumberOfDirectionalShadows; T.NumberOfPointShadows = NumberOfPointShadows; T.NumberOfSpotShadows = NumberOfSpotShadows;
+		T.ShadowMapsAreArrayIndexed = ShadowMapsAreArrayIndexed;
+		T.unshadowed = unshadowed; T.skipShadowMaps = skipShadowMaps;
 		T.Width = Width; T.Height = Height;
 		T.viewPortStartX = viewPortStartX; T.viewPortStartY = viewPortStartY; T.viewPortEndX = viewPortEndX; T.viewPortEndY = viewPortEndY;
 		T.BeginAutoInstancingFrame();
