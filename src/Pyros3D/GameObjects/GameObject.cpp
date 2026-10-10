@@ -123,6 +123,15 @@ namespace p3d {
 		}
 	}
 	void IComponent::WakeOwner() { if (Owner != NULL) Owner->Wake(); }
+	bool GameObject::RefreshTransformationIfChanged()
+	{
+		const Matrix was = _WorldMatrix;
+		UpdateTransformation();
+		if (std::memcmp(was.m, _WorldMatrix.m, sizeof(was.m)) == 0) return false;
+		_RefreshedLate = true;
+		Wake();
+		return true;
+	}
 	// Virtual Function on Destroy
 	void GameObject::Destroy() {}
 

@@ -79,7 +79,9 @@ namespace p3d {
 		// Safe to do here because UICanvas solves strictly top-down, so this
 		// object's parents are already final when it runs, and
 		// UpdateTransformation() walks up to them anyway.
-		GetOwner()->RefreshTransformation();
+		// (an element that has come out where it was is left asleep: a HUD of two
+		// hundred pieces was otherwise woken, and walked by the scene, every frame)
+		GetOwner()->RefreshTransformationIfChanged();
 	}
 
 	namespace {

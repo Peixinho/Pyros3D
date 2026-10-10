@@ -75,6 +75,10 @@ namespace p3d {
 		// about to read it. Its children are not touched here - they are
 		// carried along by SettleTransformation, which is told by the flag.
 		void RefreshTransformation() { UpdateTransformation(); _RefreshedLate = true; Wake(); }
+		// The same, for whoever asks every frame (a layout that is solved again
+		// each time it is drawn): the matrix is worked out, but only if it has come
+		// out different is the object woken and what hangs from it told. True if it moved.
+		bool RefreshTransformationIfChanged();
 
 		// The transform looked at a second time, late in the frame, for
 		// whatever moved after the scene's traversal had been past it - a
