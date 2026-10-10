@@ -164,7 +164,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: /opt/spirv
-          key: linux-jammy-shaderc-v2024.4-spirv-cross-1.3.296.0-pic-1
+          key: linux-jammy-shaderc-v2024.4-spirv-cross-1.4.357.0-pic-1
 
       - name: Build the shader compiler (shaderc + SPIRV-Cross)
         if: matrix.vulkan == 'ON' && steps.spirv.outputs.cache-hit != 'true'
@@ -187,7 +187,7 @@ jobs:
           # (the combined archive is the whole compiler in one file; with the
           # shared one beside it the build would pick that and have to ship it)
           rm -f /opt/spirv/lib/libshaderc_shared.so* /opt/spirv/lib/libshaderc.a
-          git clone --depth 1 --branch vulkan-sdk-1.3.296.0 https://github.com/KhronosGroup/SPIRV-Cross.git /tmp/spirv-cross
+          git clone --depth 1 --branch vulkan-sdk-1.4.357.0 https://github.com/KhronosGroup/SPIRV-Cross.git /tmp/spirv-cross
           cmake -S /tmp/spirv-cross -B /tmp/spirv-cross/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DSPIRV_CROSS_FORCE_PIC=ON -DSPIRV_CROSS_SHARED=OFF \
             -DSPIRV_CROSS_CLI=OFF -DSPIRV_CROSS_ENABLE_TESTS=OFF \
