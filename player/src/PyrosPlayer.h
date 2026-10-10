@@ -11,6 +11,7 @@
 #ifndef PYROSPLAYER_H
 #define PYROSPLAYER_H
 
+#include <functional>
 #include <Pyros3D/Rendering/Device/ThreadedRenderDevice.h>
 
 #if defined(_SDL2VULKAN)
@@ -230,6 +231,7 @@ private:
 	void* flightLogicStream = NULL;
 	struct FlightDone;
 	FlightDone* flightDone = NULL;
+	std::function<void()> flightAfterScene;
 	uint32 pendingResizeWidth, pendingResizeHeight;
 	bool resizePending;
 	// The fraction of the window's size the scene is rendered at (SetRenderScale).

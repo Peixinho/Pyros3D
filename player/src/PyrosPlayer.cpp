@@ -1466,6 +1466,7 @@ void PyrosPlayer::FinishFrameInFlight()
 	flightLogicStream = NULL;
 	frameInFlight = false;
 	FrameProfiler::Instance().Counter("Frame.Split", 1.0);
+	if (flightAfterScene) { flightAfterScene(); flightAfterScene = nullptr; }
 	CloseFrame(flightOwnFrame, flightDt);
 }
 
@@ -1695,11 +1696,16 @@ void PyrosPlayer::Update()
 	// (the frame's passes: by this thread, or - PYROS_FRAME_SPLIT=2 - handed to another
 	// while this one goes on to the next frame's game logic; whatever that asks of the
 	// device meanwhile is carried out after these draws)
-	const std::function<void()> passes = [this, postFX, dt]()
+	// (in two parts: the scene itself - nearly all of the recording - and what follows
+	// it: the capture's end, the motion vectors, the effects. The second reads lists
+	// and marks that game logic keeps, so it is this thread's, at the join.)
+	const std::function<void()> scenePass = [this]()
 	{
 		renderer->RenderScene(projection, activeCamera, scene);
 		renderer->SetProjectionJitter(Vec2(0.f, 0.f));
-	
+	};
+	const std::function<void()> afterScene = [this, postFX, dt]()
+	{
 		if (postFX)
 		{
 			effectsManager->EndCapture();
@@ -1753,12 +1759,14 @@ void PyrosPlayer::Update()
 			if (flightDone == NULL) flightDone = new FlightDone();
 			frameInFlight = true; flightOwnFrame = ownFrame; flightDt = dt; flightLogicStream = logic;
 			IRenderDevice* dev = &device;
-			JobSystem::Instance().Run([passes, dev, logic]() { passes(); dev->PlaceStream(logic); }, flightDone->counter);
+			flightAfterScene = afterScene;
+			JobSystem::Instance().Run([scenePass, dev, logic]() { scenePass(); dev->PlaceStream(logic); }, flightDone->counter);
 			device.EnterParallelStream(logic);
 			return;
 		}
 	}
-	passes();
+	scenePass();
+	afterScene();
 	CloseFrame(ownFrame, dt);
 }
 
