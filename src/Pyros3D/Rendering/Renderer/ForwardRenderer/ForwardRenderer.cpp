@@ -19,6 +19,9 @@ namespace p3d {
 		// every light in one pass, so it can only reach the shadow maps
 		// PyrosShader.glsl's fixed arrays declare.
 		ShadowMapsAreArrayIndexed = true;
+		// (its pass is recorded on every core where there is enough of it: a second
+		// view of a whole scene - a scope - was drawn by one thread, thing by thing)
+		passesBeside = true;
 		echo("TRACE: Forward Renderer Created");
 
 		ActivateCulling(CullingMode::FrustumCulling);
@@ -292,13 +295,26 @@ namespace p3d {
 			std::vector<uint16> lightIndex;
 			visible.reserve(rmesh.size());
 			std::vector<uint16> objectLights;
-			for (std::vector<RenderingMesh*>::iterator i = rmesh.begin(); i != rmesh.end(); i++)
+			// (the kept list says which entries are switched on and where each is, and
+			// tests them against the view without going through their owners: as the
+			// scene's own pass does. Lights are only sorted where there is a point or
+			// a spot light to choose between.)
+			const bool listed = cullFlags.size() == rmesh.size() && cullSphere.size() == rmesh.size();
+			const uint8 forwardNeed = CullOwner | CullComponentActive | CullMeshActive;
+			bool anyLocalLight = false;
+			for (size_t l = 0; l < _Lights.size(); l++) if (_Lights[l].m[13] == 2 || _Lights[l].m[13] == 3) { anyLocalLight = true; break; }
+			for (size_t fk = 0; fk < rmesh.size(); fk++)
 			{
+				if (listed && (cullFlags[fk] & forwardNeed) != forwardNeed) continue;
+				std::vector<RenderingMesh*>::iterator i = rmesh.begin() + fk;
 				GameObject* owner = (*i)->renderingComponent->GetOwner();
 				if (owner == NULL)
 					continue;
 				// Culling Test
 				bool cullingTest = false;
+				if (listed) cullingTest = !(cullFlags[fk] & CullTested) || CullListTest(fk);
+				else
+				{
 				switch ((*i)->CullingGeometry)
 				{
 				case CullingGeometry::Box:
@@ -310,7 +326,8 @@ namespace p3d {
 					break;
 				}
 				if (!(*i)->renderingComponent->IsCullTesting()) cullingTest = true;
-				if (!cullingTest || !(*i)->renderingComponent->IsActive() || (*i)->Active != true)
+				}
+				if (!cullingTest || (!listed && (!(*i)->renderingComponent->IsActive() || (*i)->Active != true)))
 					continue;
 
 				// The bounding sphere's centre - see CullingSphereTest.
@@ -337,6 +354,7 @@ namespace p3d {
 				// subset in scene-registration order. Directional lights
 				// have no meaningful position/distance and are always
 				// prioritized first.
+				if (anyLocalLight)
 				std::stable_sort(objectLights.begin(), objectLights.end(), [&objectPosition, &_Lights](const uint16 ia, const uint16 ib) {
 					const Matrix &a = _Lights[ia];
 					const Matrix &b = _Lights[ib];
@@ -367,42 +385,46 @@ namespace p3d {
 			}
 			lightStart.push_back((uint32)lightIndex.size());
 
-			const std::function<void(uint32)> setLights = [&](const uint32 item) {
-				Lights.clear();
-				for (uint32 k = lightStart[item]; k < lightStart[item + 1]; k++)
-					Lights.push_back(_Lights[lightIndex[k]]);
-				NumberOfLights = Lights.size();
+			// (the lights that reach a thing, given to whichever renderer is recording it)
+			const uint32* const lightStartOf = lightStart.data();
+			const uint16* const lightIndexOf = lightIndex.data();
+			const Matrix* const allLights = _Lights.data();
+			const auto setLights = [lightStartOf, lightIndexOf, allLights](IRenderer &with, const uint32 item) {
+				Matrix chosen[64];
+				uint32 count = 0;
+				for (uint32 k = lightStartOf[item]; k < lightStartOf[item + 1] && count < 64; k++) chosen[count++] = allLights[lightIndexOf[k]];
+				with.SetDrawLights(chosen, count);
 			};
 
-			DrawWithAutoInstancing(visible, &lightSignature,
-				[&](RenderingMesh* mesh, const uint32 item) {
-					setLights(item);
+			DrawPassOnEveryCore(visible, &lightSignature,
+				[&](IRenderer &with, RenderingMesh* mesh, const uint32 item) {
+					setLights(with, item);
 					// A CustomShaderMaterial draws with its forward, skinned-
 					// or-not variant - see UseVariantForNextDraw(). Exactly
 					// the base class: subclasses hand-assign extraUniforms[].
 					IMaterial* mat = mesh->Material.get();
 					CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
 					const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, mesh->SkinningBones.size() > 0);
-					RenderObject(mesh, mesh->renderingComponent->GetOwner(), mat);
+					DrawWith(with, mesh, mat);
 					if (usedCustomSwap)
 						csm->RestoreOwnProgram();
 				},
-				[&](RenderingMesh* batchMesh, const uint32 firstItem) {
-					setLights(firstItem);
+				[&](IRenderer &with, RenderingMesh* batchMesh, const uint32 firstItem) {
+					setLights(with, firstItem);
 					IMaterial* bmat = batchMesh->Material.get();
 					if (typeid(*bmat) == typeid(CustomShaderMaterial))
 					{
 						CustomShaderMaterial* bcsm = static_cast<CustomShaderMaterial*>(bmat);
 						const bool swapped = bcsm->UseInstancedVariantForNextDraw(false);
-						RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), bcsm);
+						DrawWith(with, batchMesh, bcsm);
 						if (swapped) bcsm->RestoreOwnProgram();
 						return;
 					}
 					GenericShaderMaterial* gsm = static_cast<GenericShaderMaterial*>(bmat);
 					gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering);
-					RenderObject(batchMesh, batchMesh->renderingComponent->GetOwner(), gsm);
+					DrawWith(with, batchMesh, gsm);
 					gsm->RestoreOwnProgram();
-				});
+				}, Camera, Scene, 2);
 		}
 
 		// Disable Scissor Test

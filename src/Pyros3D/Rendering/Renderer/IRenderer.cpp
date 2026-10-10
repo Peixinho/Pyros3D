@@ -2026,7 +2026,7 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 	const uint32 n = (uint32)items.size();
 	const uint32 workers = JobSystem::Instance().WorkerCount();
 	// (not with a volume of probes lighting the scene: its textures are this renderer's to bind)
-	const bool can = g_parallelPasses && recordsBeside && !t_recordingBeside && workers > 0 && IsAutoInstancing() && n >= kUnitsARun * 2
+	const bool can = g_parallelPasses && (recordsBeside || passesBeside) && !t_recordingBeside && workers > 0 && IsAutoInstancing() && n >= kUnitsARun * 2
 		&& EffectiveAmbientMode() != 3;
 	if (!can)
 	{

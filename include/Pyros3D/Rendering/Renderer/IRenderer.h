@@ -353,6 +353,7 @@ namespace p3d {
 		static void DrawWith(IRenderer &with, RenderingMesh* mesh, IMaterial* material) { with.RenderObject(mesh, mesh->renderingComponent->GetOwner(), material); }
 		static void SetParallelPasses(const bool on);
 		static bool GetParallelPasses();
+		bool passesBeside = false;              // (a renderer whose passes may be recorded on every core: DrawPassOnEveryCore)
 		bool recordsBeside = false;             // (a renderer that calls FinishBeside before it is done with the scene sets it)
 		void RecordSunPass(const SunPass &pass);
 		bool RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGraph* Scene);
