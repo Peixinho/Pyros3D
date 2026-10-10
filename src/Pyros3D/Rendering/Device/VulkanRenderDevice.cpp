@@ -4386,65 +4386,6 @@ namespace p3d {
 		return handle;
 	}
 
-#ifdef SPIRV_TOOLING
-	// Compiled once, kept on disk. Turning a shader's text into SPIR-V is the slow
-	// part of making a program - tens of milliseconds, over a hundred for a long
-	// one - and it was done again for every program on every run, and in the
-	// middle of a game whenever a variant was first wanted (a second view of the
-	// scene through a scope: a third of a second, once). What comes out depends on
-	// nothing but the text and the stage, so it is kept under a hash of those, in
-	// the cache directory beside the pipeline cache, and read back the next time
-	// that exact text is compiled. A file that is not SPIR-V is compiled over.
-	// PYROS_SHADER_CACHE=0 turns it off.
-	static bool CompileSpirvCached(const std::string &text, const uint32 stage, std::vector<uint32> &spirv, std::string &errorLog)
-	{
-		static const bool enabled = !(std::getenv("PYROS_SHADER_CACHE") && std::getenv("PYROS_SHADER_CACHE")[0] == '0');
-		static const std::string dir = []() -> std::string {
-			const std::string d = PyrosCacheDir() + "/spirv";
-			return EnsureDirectoryExists(d) ? d : std::string();
-		}();
-		if (!enabled || dir.empty()) return SpirvShaderCompiler::Compile(text, stage, spirv, errorLog);
-
-		// (two hashes of the same bytes, sixteen hex digits each: 128 bits of name)
-		uint64 a = 1469598103934665603ULL, b = 0x9E3779B97F4A7C15ULL ^ (uint64)text.size();
-		const uchar salt[] = { 'p', '3', 'd', 's', 'p', 'v', '2', (uchar)stage };
-		for (size_t i = 0; i < sizeof(salt); i++) { a = (a ^ salt[i]) * 1099511628211ULL; b = (b ^ salt[i]) * 0xFF51AFD7ED558CCDULL; b ^= b >> 29; }
-		for (size_t i = 0; i < text.size(); i++) { const uchar c = (uchar)text[i]; a = (a ^ c) * 1099511628211ULL; b = (b ^ c) * 0xFF51AFD7ED558CCDULL; b ^= b >> 29; }
-		char name[48];
-		snprintf(name, sizeof(name), "/%016llx%016llx.spv", (unsigned long long)a, (unsigned long long)b);
-		const std::string path = dir + name;
-
-		if (FILE* f = fopen(path.c_str(), "rb"))
-		{
-			fseek(f, 0, SEEK_END);
-			const long bytes = ftell(f);
-			fseek(f, 0, SEEK_SET);
-			bool good = false;
-			if (bytes >= 20 && (bytes % 4) == 0)
-			{
-				spirv.resize((size_t)bytes / 4);
-				good = fread(spirv.data(), 1, (size_t)bytes, f) == (size_t)bytes && spirv[0] == 0x07230203u;
-			}
-			fclose(f);
-			if (good) return true;
-			spirv.clear();
-		}
-		if (!SpirvShaderCompiler::Compile(text, stage, spirv, errorLog)) return false;
-		// (written beside and moved into place: a game closed half-way through
-		// leaves no half of a file under the name)
-		const std::string part = path + ".part";
-		if (FILE* f = fopen(part.c_str(), "wb"))
-		{
-			const bool wrote = fwrite(spirv.data(), sizeof(uint32), spirv.size(), f) == spirv.size();
-			fclose(f);
-			std::error_code ec;
-			if (wrote) std::filesystem::rename(part, path, ec);
-			if (!wrote || ec) std::filesystem::remove(part, ec);
-		}
-		return true;
-	}
-#endif
-
 	bool VulkanRenderDevice::CompileShaderStage(const DeviceHandle shader, const std::string &source, std::string &errorLog)
 	{
 		std::map<DeviceHandle, ShaderStageRecord>::iterator it = shaderStages.find(shader);
@@ -4496,7 +4437,7 @@ namespace p3d {
 			}
 		}
 
-		if (!CompileSpirvCached(compileSource, spirvStage, it->second.spirv, errorLog))
+		if (!SpirvShaderCompiler::Compile(compileSource, spirvStage, it->second.spirv, errorLog))
 		{
 			if (usedAutoFix)
 				return false;
@@ -4523,7 +4464,7 @@ namespace p3d {
 				it->second.autoUboOffsets = autoUbo.offsets;
 			}
 			errorLog.clear();
-			if (!CompileSpirvCached(compileSource, spirvStage, it->second.spirv, errorLog))
+			if (!SpirvShaderCompiler::Compile(compileSource, spirvStage, it->second.spirv, errorLog))
 				return false;
 		}
 
