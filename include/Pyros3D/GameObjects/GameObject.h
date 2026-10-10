@@ -113,6 +113,7 @@ namespace p3d {
 		// not yet taken) it is simply where the thing is.
 		const Matrix &GetDrawWorld() const { return _DrawTaken ? _DrawWorld : _WorldMatrix; }
 		const Matrix &GetDrawPrvWorld() const { return _DrawTaken ? _DrawPrvWorld : _PrvWorldMatrix; }
+		const Vec3 GetDrawWorldPosition() const { return GetDrawWorld().GetTranslation(); }
 		static bool DrawCopies();
 		static void NoteForDraw(GameObject* go);
 		static void TakeDrawTransforms();

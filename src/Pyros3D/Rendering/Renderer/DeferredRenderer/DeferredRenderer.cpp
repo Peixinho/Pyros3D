@@ -899,7 +899,7 @@ namespace p3d {
 
 		// Saves Camera
 		this->Camera = Camera;
-		this->CameraPosition = this->Camera->GetWorldPosition();
+		this->CameraPosition = this->Camera->GetDrawWorldPosition();
 
 		// Saves Projection
 		this->projection = projection;
@@ -919,8 +919,8 @@ namespace p3d {
 		NearFarPlane = Vec2(projection.Near, projection.Far);
 
 		// View Matrix and Position
-		ViewMatrix = Camera->GetWorldTransformation().Inverse();
-		CameraPosition = Camera->GetWorldPosition();
+		ViewMatrix = Camera->GetDrawWorld().Inverse();
+		CameraPosition = Camera->GetDrawWorldPosition();
 
 		// Update Culling
 		UpdateCulling(ProjectionMatrix*ViewMatrix);
@@ -1010,7 +1010,7 @@ namespace p3d {
 		bool occluding = false;
 		{
 			PYROS_PROFILE_SCOPE("Occlusion.Update");
-			occluding = terrainOcclusion.Update(Scene, Camera->GetWorldPosition());
+			occluding = terrainOcclusion.Update(Scene, Camera->GetDrawWorldPosition());
 		}
 		uint32 occluded = 0;
 		if (cullFlags.size() != rmesh.size()) BuildCullList();
@@ -1034,7 +1034,7 @@ namespace p3d {
 						if (verify)
 						{
 							static uint64 asked = 0, wrong = 0;
-							const Vec3 eyeNow = Camera->GetWorldPosition();
+							const Vec3 eyeNow = Camera->GetDrawWorldPosition();
 							const Vec4 &s = cullSphere[k];
 							const Vec3 c(s.x, s.y, s.z);
 							Vec3 side(-(c.z - eyeNow.z), 0.f, c.x - eyeNow.x);
@@ -1061,7 +1061,7 @@ namespace p3d {
 		FrameProfiler::Instance().Counter("Occlusion.Drawn", (f64)visible.size());
 		if (g_gbufferNearestFirst && visible.size() > 1)
 		{
-			const Vec3 eye = Camera->GetWorldPosition();
+			const Vec3 eye = Camera->GetDrawWorldPosition();
 			std::vector<std::pair<f32, uint32> > order(visible.size());
 			for (size_t k = 0; k < visible.size(); k++)
 			{
@@ -1383,11 +1383,11 @@ namespace p3d {
 					{
 						// (PYROS_NO_LIGHT_CULL=1 draws them all, to compare against)
 						static const bool cullLights = std::getenv("PYROS_NO_LIGHT_CULL") == NULL;
-						if (cullLights && !p->IsCastingShadows() && !LightAffectsView(p->GetOwner()->GetWorldPosition(), p->GetLightRadius()))
+						if (cullLights && !p->IsCastingShadows() && !LightAffectsView(p->GetOwner()->GetDrawWorldPosition(), p->GetLightRadius()))
 							break;
 					}
 					// Point Lights
-					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetWorldPosition(), 1.f)).xyz();
+					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetDrawWorldPosition(), 1.f)).xyz();
 					pointPosHandle->SetValue(&pos);
 					pointRadiusHandle->SetValue((void*)&p->GetLightRadius());
 					Vec4 pointRadiance = p->GetLightRadiance();
@@ -1458,7 +1458,7 @@ namespace p3d {
 					// coverage compensation, not a clipping-distance
 					// threshold - an earlier version of this check reused
 					// that by mistake instead).
-					bool cameraInsideVolume = CameraPosition.distance(p->GetOwner()->GetWorldPosition()) - p->GetLightRadius() < NearFarPlane.x * 2.0f;
+					bool cameraInsideVolume = CameraPosition.distance(p->GetOwner()->GetDrawWorldPosition()) - p->GetLightRadius() < NearFarPlane.x * 2.0f;
 					float useFullscreenQuad = cameraInsideVolume ? 1.f : 0.f;
 					pointUseFullscreenQuadHandle->SetValue(&useFullscreenQuad);
 					{
@@ -1470,7 +1470,7 @@ namespace p3d {
 								"PointLight '%s' worldDist=%.2f radius=%.2f intensity=%.2f "
 								"viewPos=(%.2f,%.2f,%.2f) near=%.3f quad=%d",
 								p->GetOwner()->GetName().c_str(),
-								CameraPosition.distance(p->GetOwner()->GetWorldPosition()),
+								CameraPosition.distance(p->GetOwner()->GetDrawWorldPosition()),
 								p->GetLightRadius(), p->GetLightIntensity(),
 								pos.x, pos.y, pos.z, NearFarPlane.x, (int)cameraInsideVolume);
 							echo(std::string(lb));
@@ -1532,11 +1532,11 @@ namespace p3d {
 					SpotLight* s = (SpotLight*)(*i);
 					// Same as the point case above. Conservative: the cone is
 					// tested as the sphere that contains it.
-					if (!LightAffectsView(s->GetOwner()->GetWorldPosition(), s->GetLightRadius()))
+					if (!LightAffectsView(s->GetOwner()->GetDrawWorldPosition(), s->GetLightRadius()))
 						break;
 					// Spot Lights
-					Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetWorldPosition(), 1.f)).xyz();
-					Vec3 dir = (ViewMatrix * (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f))).xyz();
+					Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetDrawWorldPosition(), 1.f)).xyz();
+					Vec3 dir = (ViewMatrix * (s->GetOwner()->GetDrawWorld() * Vec4(s->GetLightDirection(), 0.f))).xyz();
 					spotPosHandle->SetValue(&pos);
 					spotDirHandle->SetValue(&dir);
 					spotRadiusHandle->SetValue((void*)&s->GetLightRadius());
@@ -1585,7 +1585,7 @@ namespace p3d {
 					// See deferredMaterialPoint's identical comments above -
 					// same near-plane-clipping fix, same real-radius
 					// threshold (not g(f(radius))), same mechanism.
-					bool cameraInsideVolume = CameraPosition.distance(s->GetOwner()->GetWorldPosition()) - s->GetLightRadius() < NearFarPlane.x * 2.0f;
+					bool cameraInsideVolume = CameraPosition.distance(s->GetOwner()->GetDrawWorldPosition()) - s->GetLightRadius() < NearFarPlane.x * 2.0f;
 					float useFullscreenQuad = cameraInsideVolume ? 1.f : 0.f;
 					spotUseFullscreenQuadHandle->SetValue(&useFullscreenQuad);
 
@@ -1619,7 +1619,7 @@ namespace p3d {
 				{
 					DirectionalLight* d = (DirectionalLight*)(*i);
 					// Directional Lights
-					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f))).xyz().normalize();
+					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f))).xyz().normalize();
 					dirDirHandle->SetValue(&dir);
 					Vec4 dirRadiance = d->GetLightRadiance();
 					dirColorHandle->SetValue(&dirRadiance);
@@ -1682,7 +1682,7 @@ namespace p3d {
 					Vec4 horizonRect, horizonSun;
 					if (horizonTexture != ssaoWhite)
 					{
-						const Vec3 toSun = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize() * -1.f;
+						const Vec3 toSun = (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize() * -1.f;
 						f32 turn = atan2f(toSun.z, toSun.x) / 6.28318531f;
 						if (turn < 0.f) turn += 1.f;
 						horizonRect = horizon->GetRect();
@@ -1740,7 +1740,7 @@ namespace p3d {
 						// Directional Lights
 						Vec4 color = d->GetLightRadiance();
 						Vec3 position;
-						Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
+						Vec3 direction = (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 						f32 attenuation = 1.f;
 						Vec2 cones;
 						int32 type = 1;
@@ -1762,7 +1762,7 @@ namespace p3d {
 
 						// Point Lights
 						Vec4 color = p->GetLightRadiance();
-						Vec3 position = (p->GetOwner()->GetWorldPosition());
+						Vec3 position = (p->GetOwner()->GetDrawWorldPosition());
 						Vec3 direction;
 						f32 attenuation = p->GetLightRadius();
 						Vec2 cones;
@@ -1791,8 +1791,8 @@ namespace p3d {
 
 						// Spot Lights
 						Vec4 color = s->GetLightRadiance();
-						Vec3 position = s->GetOwner()->GetWorldPosition();
-						Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
+						Vec3 position = s->GetOwner()->GetDrawWorldPosition();
+						Vec3 direction = (s->GetOwner()->GetDrawWorld() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
 						f32 attenuation = s->GetLightRadius();
 						Vec2 cones = Vec2(s->GetLightCosInnerCone(), s->GetLightCosOutterCone());
 						int32 type = 3;
@@ -1893,7 +1893,7 @@ namespace p3d {
 			// (the lights that reach it: the sun, and each point or spot light it is within - nearest first)
 			lightFrom.push_back((uint32)lightsOf.size());
 			const size_t from = lightsOf.size();
-			const Vec3 objectPosition = owner->GetWorldTransformation() * owner->GetBoundingSphereCenter();
+			const Vec3 objectPosition = owner->GetDrawWorld() * owner->GetBoundingSphereCenter();
 			for (std::vector<Matrix>::iterator _l = _Lights.begin(); _l != _Lights.end(); _l++)
 			{
 				if ((*_l).m[13] == 1) lightsOf.push_back(*_l);
@@ -2047,7 +2047,7 @@ namespace p3d {
 		// regardless of whether the screen draw above ran - kept outside
 		// the block above (was previously sandwiched inside it, right after
 		// the draw it doesn't actually depend on).
-		ssrPrvViewMatrix = Camera->GetWorldTransformation().Inverse();
+		ssrPrvViewMatrix = Camera->GetDrawWorld().Inverse();
 		ssrPrvProjectionMatrix = projection.m;
 
 		// No "restore the caller's FBO" replay needed here (unlike this

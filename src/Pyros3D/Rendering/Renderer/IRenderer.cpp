@@ -974,7 +974,7 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		for (size_t k = 0; k < members.size(); k++)
 		{
 			RenderingMesh* m = items[members[k]];
-			b->comp->transform[k] = m->renderingComponent->GetOwner()->GetWorldTransformation() * m->Pivot;
+			b->comp->transform[k] = m->renderingComponent->GetOwner()->GetDrawWorld() * m->Pivot;
 		}
 		b->comp->SetNumberInstances((uint32)members.size());
 		b->comp->UpdateTransforms();
@@ -2134,7 +2134,7 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 				for (uint32 k = 0; k < size; k++)
 				{
 					RenderingMesh* m = items[members[k]];
-					b->comp->transform[k] = m->renderingComponent->GetOwner()->GetWorldTransformation() * m->Pivot;
+					b->comp->transform[k] = m->renderingComponent->GetOwner()->GetDrawWorld() * m->Pivot;
 				}
 				b->comp->SetNumberInstances(size);
 				b->comp->UpdateTransforms();
