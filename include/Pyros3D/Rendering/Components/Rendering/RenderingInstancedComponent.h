@@ -22,6 +22,14 @@ namespace p3d {
 			virtual void AddBuffer(AttributeBuffer* buffer);
 			virtual void RemoveBuffer(AttributeBuffer* buffer);
 			virtual const uint32 NumberOfInstances() const { return nrInstances; }
+			// How many are DRAWN: the number as it was when the frame's lists were
+			// kept (TakeDrawCount, from the renderer's PreRender when PYROS_FRAME_SPLIT
+			// is on) - the component goes on being updated, by another thread, while
+			// the frame is drawn. Until taken, the number itself.
+			uint32 InstancesToDraw() const { return drawCountTaken ? drawCount : (uint32)NumberOfInstances(); }
+			void TakeDrawCount() { drawCount = (uint32)NumberOfInstances(); drawCountTaken = true; }
+			uint32 drawCount = 0;
+			bool drawCountTaken = false;
 			virtual void SetNumberInstances(const uint32 instances) { nrInstances = instances; }
 			// Every instance drawn this much wider and taller than its mesh,
 			// about the mesh's own origin (1, 1: as it is). What draws fewer

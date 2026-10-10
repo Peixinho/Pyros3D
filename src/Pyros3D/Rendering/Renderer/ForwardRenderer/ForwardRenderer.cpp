@@ -404,7 +404,7 @@ namespace p3d {
 					// the base class: subclasses hand-assign extraUniforms[].
 					IMaterial* mat = mesh->Material.get();
 					CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
-					const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, mesh->SkinningBones.size() > 0);
+					const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, mesh->BonesToDraw().size() > 0);
 					DrawWith(with, mesh, mat);
 					if (usedCustomSwap)
 						csm->RestoreOwnProgram();

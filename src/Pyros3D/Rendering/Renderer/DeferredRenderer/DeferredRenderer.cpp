@@ -792,7 +792,7 @@ namespace p3d {
 		if (typeid(*material) == typeid(CustomShaderMaterial))
 		{
 			CustomShaderMaterial* csm = static_cast<CustomShaderMaterial*>(material);
-			if (csm->UseVariantForNextDraw(true, mesh->SkinningBones.size() > 0 || !mesh->MapBoneIDs.empty())) csm->RestoreOwnProgram();
+			if (csm->UseVariantForNextDraw(true, mesh->BonesToDraw().size() > 0 || !mesh->MapBoneIDs.empty())) csm->RestoreOwnProgram();
 			// (and the one a batch of them is drawn with)
 			if (IsAutoInstancing() && AutoInstanceEligible(mesh) && csm->UseInstancedVariantForNextDraw(true)) csm->RestoreOwnProgram();
 		}
@@ -1122,7 +1122,7 @@ namespace p3d {
 				// UseGBufferProgramForNextDraw()'s comment for what
 				// this fixes for the base class.
 				CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
-				const bool usedCustomGBufferSwap = csm && csm->UseVariantForNextDraw(true, mesh->SkinningBones.size() > 0);
+				const bool usedCustomGBufferSwap = csm && csm->UseVariantForNextDraw(true, mesh->BonesToDraw().size() > 0);
 
 				DrawWith(with, mesh, mesh->Material.get());
 
@@ -1926,7 +1926,7 @@ namespace p3d {
 				if (anyLocalLight) with.SetDrawLights(lightsOfAll + lightFromOf[item], lightFromOf[item + 1] - lightFromOf[item]);
 				IMaterial* mat = mesh->Material.get();
 				CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
-				const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, mesh->SkinningBones.size() > 0);
+				const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, mesh->BonesToDraw().size() > 0);
 				DrawWith(with, mesh, mat);
 				if (usedCustomSwap)
 					csm->RestoreOwnProgram();

@@ -1537,7 +1537,6 @@ void PyrosPlayer::Update()
 	// After the step, so a frame's shadows match the positions it draws the
 	// casters at. Outside the physics guard on purpose - a scene with no
 	// physics still has occluders.
-	Occluder2D::PublishSceneOccluders(scene);
 
 	// One frame of probe refresh, so indirect light follows a light
 	// that moves. Budget 0 means "all of them", which is right on the
@@ -1648,6 +1647,9 @@ void PyrosPlayer::Update()
 	// game with a HUD flickered.
 	if (frameInFlight) FinishFrameInFlight();
 	IRenderDevice &device = GetActiveRenderDevice();
+	// (what the renderers are given for the whole scene, said at the hand-over: a frame
+	// still being drawn by another thread is not told half-way through)
+	Occluder2D::PublishSceneOccluders(scene);
 	const bool ownFrame = device.GetCurrentRenderTarget() == 0 && !device.IsFrameInProgress();
 	if (ownFrame)
 	{

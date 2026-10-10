@@ -696,7 +696,7 @@ bool IRenderer::AutoInstanceMesh(RenderingMesh* mesh)
 	// one draw, where leaving these out made every tree a draw of its own)
 	if (rc == NULL || rc->IsInstanced() || !rc->GetRenderableShared())
 		return false;
-	return mesh->SkinningBones.empty() && mesh->Geometry != NULL;
+	return mesh->BonesToDraw().empty() && mesh->Geometry != NULL;
 }
 
 bool IRenderer::AutoInstanceMaterial(IMaterial* mat)
@@ -1135,7 +1135,7 @@ GenericShaderMaterial* IRenderer::PickShadowMaterial(RenderingMesh* mesh)
 	// skinned+instanced resolves this way rather than getting its own
 	// variant.
 	if (mesh->renderingComponent->IsInstanced()) return shadowInstancedMaterial;
-	if (mesh->SkinningBones.size() > 0) return shadowSkinnedMaterial;
+	if (mesh->BonesToDraw().size() > 0) return shadowSkinnedMaterial;
 	return shadowMaterial;
 }
 
@@ -1282,6 +1282,7 @@ bool IRenderer::ApplyListed(FrameList &L, SceneGraph* Scene, const uint32 Tag)
 				if (lod && !c->HasLOD()) c->TryAutomaticLODs();
 				if (c->HasLOD() && c->GetOwner() != NULL) L.lodComponents.push_back(c);
 				if (c->IsInstanced()) L.instanced.push_back(std::make_pair(c, static_cast<IRenderingInstancedComponent*>(c)->NumberOfInstances() == 0));
+				if (c->IsInstanced() && GameObject::DrawCopies()) static_cast<IRenderingInstancedComponent*>(c)->TakeDrawCount();
 			}
 		}
 	}
@@ -1503,6 +1504,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		if (!fresh && !ApplyListed(L, Scene, Tag)) fresh = true;
 		// (one that has got instances, or has none left: its entries are read
 		// again, as a moved object's are)
+		if (GameObject::DrawCopies()) for (size_t i = 0; i < L.instanced.size(); i++) static_cast<IRenderingInstancedComponent*>(L.instanced[i].first)->TakeDrawCount();
 		for (size_t i = 0; i < L.instanced.size() && !fresh; i++)
 		{
 			const bool none = static_cast<IRenderingInstancedComponent*>(L.instanced[i].first)->NumberOfInstances() == 0;
@@ -1640,6 +1642,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 				// (one with no instances is left out of the list - and is the
 				// one to watch for getting some)
 				if (comps[i]->IsInstanced()) L.instanced.push_back(std::make_pair(comps[i], static_cast<IRenderingInstancedComponent*>(comps[i])->NumberOfInstances() == 0));
+				if (comps[i]->IsInstanced() && GameObject::DrawCopies()) static_cast<IRenderingInstancedComponent*>(comps[i])->TakeDrawCount();
 			}
 		}
 		L.valid = true;
@@ -2329,7 +2332,7 @@ void IRenderer::RenderShadowCaster(RenderingMesh* mesh)
 	// variant (the template reads no instance transform).
 	CustomShaderMaterial* csm = (mat != NULL && typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : NULL;
 	if (csm && !mesh->renderingComponent->IsInstanced() && csm->HasCustomShadow()
-		&& csm->UseShadowVariantForNextDraw(mesh->SkinningBones.size() > 0))
+		&& csm->UseShadowVariantForNextDraw(mesh->BonesToDraw().size() > 0))
 	{
 		// The receive-side flag gates BindShadowMaps(): off for this draw,
 		// or the maps being rendered into would also be bound for sampling.
@@ -2465,6 +2468,11 @@ void IRenderer::PublishLightsToSmoke(const std::vector<IComponent*> &lights)
 
 void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Tag)
 {
+	// (the ambient light asked for since the last frame: see heldAmbient)
+	if (heldAmbient.light) { GlobalLight = heldAmbient.Light; heldAmbient.light = false; }
+	if (heldAmbient.gradient) { AmbientSky = heldAmbient.Sky; AmbientEquator = heldAmbient.Equator; AmbientGround = heldAmbient.Ground; heldAmbient.gradient = false; }
+	if (heldAmbient.mode) { AmbientMode = heldAmbient.Mode; heldAmbient.mode = false; }
+	if (heldAmbient.sh) { for (int i = 0; i < 9; i++) AmbientSH[i] = heldAmbient.SH[i]; heldAmbient.sh = false; }
 	g_fingerprintsThisView.clear();
 	PYROS_PROFILE_SCOPE("Renderer.PreRender");
 	// What "too small to see" is measured with, for this view: the camera's
@@ -3028,7 +3036,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 {
 	// (an instanced component with no instances at the moment is in the list all the same: nothing to draw)
 	if (rmesh->renderingComponent && rmesh->renderingComponent->IsInstanced()
-		&& static_cast<IRenderingInstancedComponent*>(rmesh->renderingComponent)->NumberOfInstances() == 0) return;
+		&& static_cast<IRenderingInstancedComponent*>(rmesh->renderingComponent)->InstancesToDraw() == 0) return;
 	// (whoever animates only what is drawn - RenderingComponent::SetAnimateWhenUnseen - is told)
 	if (rmesh->renderingComponent) rmesh->renderingComponent->MarkSeen();
 
@@ -3244,7 +3252,7 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	if (g_trisDump.on) g_trisDump.Add(rmesh, owner, IsShadowMaterial(Material));
 	if (rmesh->renderingComponent->IsInstanced())
 	{
-		device->DrawElementsInstanced(cmd, DrawType, rmesh->Geometry->GetIndexData().size(), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->NumberOfInstances());
+		device->DrawElementsInstanced(cmd, DrawType, rmesh->Geometry->GetIndexData().size(), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->InstancesToDraw());
 	}
 	else {
 		device->DrawElements(cmd, DrawType, rmesh->Geometry->GetIndexData().size());
@@ -3384,11 +3392,13 @@ void IRenderer::SetOccluders2D(const std::vector<Vec4>& segments)
 
 void IRenderer::SetGlobalLight(const Vec4& Light)
 {
+	if (GameObject::DrawCopies()) { heldAmbient.Light = Light; heldAmbient.light = true; return; }
 	GlobalLight = Light;
 }
 
 void IRenderer::SetAmbientGradient(const Vec4& Sky, const Vec4& Equator, const Vec4& Ground)
 {
+	if (GameObject::DrawCopies()) { heldAmbient.Sky = Sky; heldAmbient.Equator = Equator; heldAmbient.Ground = Ground; heldAmbient.gradient = true; return; }
 	AmbientSky = Sky;
 	AmbientEquator = Equator;
 	AmbientGround = Ground;
@@ -3396,6 +3406,7 @@ void IRenderer::SetAmbientGradient(const Vec4& Sky, const Vec4& Equator, const V
 
 void IRenderer::SetAmbientMode(const uint32 Mode)
 {
+	if (GameObject::DrawCopies()) { heldAmbient.Mode = Mode; heldAmbient.mode = true; return; }
 	AmbientMode = Mode;
 }
 
@@ -3765,6 +3776,12 @@ void IRenderer::SetAmbientProbeGrid(const IrradianceProbeGrid *Grid)
 
 void IRenderer::SetAmbientSH(const SphericalHarmonicsL2 &SH)
 {
+	if (GameObject::DrawCopies())
+	{
+		for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount && i < 9; i++) { const Vec3 &c = SH.coefficients[i]; heldAmbient.SH[i] = Vec4(c.x, c.y, c.z, 0.f); }
+		heldAmbient.sh = true;
+		return;
+	}
 	for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount; i++)
 	{
 		const Vec3 &c = SH.coefficients[i];
@@ -4731,7 +4748,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// frame rather than skip on a stale comparison.
 			AmbientLightUniformsUBOValid = false;
 		}
-		if (rmesh->SkinningBones.size() > 0)
+		if (rmesh->BonesToDraw().size() > 0)
 		{
 			// Always upload the full UBO size. ReplaceUniformBuffer →
 			// glBufferData with a shorter size orphans storage smaller than
@@ -4835,7 +4852,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				break;
 			case Uniforms::DataUsage::Skinning:
 			{
-				if (rmesh->SkinningBones.size() > 0)
+				if (rmesh->BonesToDraw().size() > 0)
 				{
 					const std::vector<Matrix> &palette = (!rmesh->ShadowBonesToDraw().empty() && IsShadowMaterial(Material)) ? rmesh->ShadowBonesToDraw() : rmesh->BonesToDraw();
 					Shader::SendUniform((*k), (void*)&palette[0], (*_ShadersModelCache)[counter], (uint32)palette.size());
@@ -4974,7 +4991,7 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, Rende
 	// Clamped to the shader's array: the scratch-bounds check below drops
 	// a write that would overrun it entirely rather than truncating it.
 	case Uniforms::DataUsage::Skinning:
-		if (rmesh != NULL && rmesh->SkinningBones.size() > 0)
+		if (rmesh != NULL && rmesh->BonesToDraw().size() > 0)
 		{
 			const std::vector<Matrix> &drawn = rmesh->BonesToDraw();
 			valuePtr = &drawn[0];
