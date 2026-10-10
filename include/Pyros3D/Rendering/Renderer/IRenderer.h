@@ -144,6 +144,15 @@ namespace p3d {
 		// the flat GlobalLight colour.
 		void SetAmbientGradient(const Vec4 &Sky, const Vec4 &Equator, const Vec4 &Ground);
 		void SetAmbientMode(const uint32 Mode);
+		// The view whose ambient light a renderer with none of its own stands in: an
+		// application's main view, told the scene's ambient (flat, gradient, harmonics).
+		// A second view of the same world - a scope's picture, a mirror, a map - made
+		// without being told any ambient light takes that view's, each frame, rather
+		// than the constructor's default: it showed the same ground darker and browner
+		// than the main view beside it. A renderer given ambient light of its own
+		// (any of the Set* calls) keeps it. NULL (the default): nobody follows.
+		static void SetAmbientSource(IRenderer* mainView);
+		static IRenderer* GetAmbientSource();
 		// What the shader is told: AmbientMode, except that DDGI (3) with
 		// no volume published degrades to flat (0).
 		uint32 EffectiveAmbientMode() const;
@@ -362,6 +371,7 @@ namespace p3d {
 			Vec4 Light, Sky, Equator, Ground, SH[9];
 			uint32 Mode = 0;
 		} heldAmbient;
+		bool ambientOwn = false;             // told ambient light of its own (see SetAmbientSource)
 		bool passesBeside = false;              // (a renderer whose passes may be recorded on every core: DrawPassOnEveryCore)
 		bool recordsBeside = false;             // (a renderer that calls FinishBeside before it is done with the scene sets it)
 		void RecordSunPass(const SunPass &pass);

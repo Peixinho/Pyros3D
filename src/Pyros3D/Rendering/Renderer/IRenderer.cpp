@@ -145,6 +145,7 @@ Vec4 IRenderer::CachedClipPlane0;
 bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
 f32 IRenderer::AmbientScale = 1.f;
+namespace { std::atomic<IRenderer*> g_ambientSource(NULL); }
 namespace { f32 g_heldAmbientScale = 1.f; bool g_ambientScaleHeld = false; }
 // (set while a frame may be in flight: kept, and made the scale at the next PreRender)
 void IRenderer::SetAmbientScale(const f32 Scale)
@@ -589,6 +590,7 @@ void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint3
 namespace { std::map<SceneGraph*, std::pair<IRenderer*, void*> > &WorldLists() { static std::map<SceneGraph*, std::pair<IRenderer*, void*> > m; return m; } }
 IRenderer::~IRenderer()
 {
+	{ IRenderer* self = this; g_ambientSource.compare_exchange_strong(self, NULL); }
 	FinishBeside();
 	beside.reset();
 	for (std::map<SceneGraph*, std::pair<IRenderer*, void*> >::iterator w = WorldLists().begin(); w != WorldLists().end();)
@@ -2542,6 +2544,20 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 {
 	// (the scene's time, read here - at the hand-over - for the passes that follow)
 	if (Scene != NULL) Timer = Scene->GetTime();
+	// (a view with no ambient light of its own: the main view's, as that one last drew with it)
+	if (!ambientOwn)
+	{
+		const IRenderer* from = g_ambientSource.load();
+		if (from != NULL && from != this)
+		{
+			GlobalLight = from->GlobalLight;
+			AmbientSky = from->AmbientSky; AmbientEquator = from->AmbientEquator; AmbientGround = from->AmbientGround;
+			for (int i = 0; i < 9; i++) AmbientSH[i] = from->AmbientSH[i];
+			// (a volume of probes is the main view's to bind: flat in its place, as EffectiveAmbientMode falls back)
+			AmbientMode = from->AmbientMode;
+			AmbientProbeGrid = from->AmbientProbeGrid;
+		}
+	}
 	// (the ambient light asked for since the last frame: see heldAmbient)
 	if (g_ambientScaleHeld) { AmbientScale = g_heldAmbientScale; g_ambientScaleHeld = false; }
 	if (heldAmbient.light) { GlobalLight = heldAmbient.Light; heldAmbient.light = false; }
@@ -3475,20 +3491,26 @@ void IRenderer::SetOccluders2D(const std::vector<Vec4>& segments)
 
 void IRenderer::SetGlobalLight(const Vec4& Light)
 {
+	ambientOwn = true;
 	if (GameObject::DrawCopies()) { heldAmbient.Light = Light; heldAmbient.light = true; return; }
 	GlobalLight = Light;
 }
 
 void IRenderer::SetAmbientGradient(const Vec4& Sky, const Vec4& Equator, const Vec4& Ground)
 {
+	ambientOwn = true;
 	if (GameObject::DrawCopies()) { heldAmbient.Sky = Sky; heldAmbient.Equator = Equator; heldAmbient.Ground = Ground; heldAmbient.gradient = true; return; }
 	AmbientSky = Sky;
 	AmbientEquator = Equator;
 	AmbientGround = Ground;
 }
 
+void IRenderer::SetAmbientSource(IRenderer* mainView) { g_ambientSource.store(mainView); }
+IRenderer* IRenderer::GetAmbientSource() { return g_ambientSource.load(); }
+
 void IRenderer::SetAmbientMode(const uint32 Mode)
 {
+	ambientOwn = true;
 	if (GameObject::DrawCopies()) { heldAmbient.Mode = Mode; heldAmbient.mode = true; return; }
 	AmbientMode = Mode;
 }
@@ -3851,6 +3873,7 @@ void IRenderer::BuildBRDFLutIfNeeded()
 
 void IRenderer::SetAmbientProbeGrid(const IrradianceProbeGrid *Grid)
 {
+	ambientOwn = true;
 	// Only accept a grid that can actually be sampled. A half-allocated
 	// one would be rejected per object by Sample() anyway, silently, on
 	// every draw.
@@ -3859,6 +3882,7 @@ void IRenderer::SetAmbientProbeGrid(const IrradianceProbeGrid *Grid)
 
 void IRenderer::SetAmbientSH(const SphericalHarmonicsL2 &SH)
 {
+	ambientOwn = true;
 	if (GameObject::DrawCopies())
 	{
 		for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount && i < 9; i++) { const Vec3 &c = SH.coefficients[i]; heldAmbient.SH[i] = Vec4(c.x, c.y, c.z, 0.f); }

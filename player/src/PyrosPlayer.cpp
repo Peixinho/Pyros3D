@@ -368,6 +368,8 @@ void PyrosPlayer::Init()
 	}
 	else
 		renderer = new ForwardRenderer(RenderWidth(), RenderHeight());
+	// (the view the scene's ambient light is told to: other views of this world stand in it too)
+	IRenderer::SetAmbientSource(renderer);
 
 	// Independent of that choice: it composites over whatever the frame
 	// already drew.
