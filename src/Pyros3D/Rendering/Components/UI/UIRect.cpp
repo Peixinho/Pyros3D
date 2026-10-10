@@ -82,4 +82,20 @@ namespace p3d {
 		GetOwner()->RefreshTransformation();
 	}
 
+	namespace {
+		void WakeBelow(GameObject* go)
+		{
+			if (!go) return;
+			go->Wake();
+			const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
+			for (size_t i = 0; i < kids.size(); i++) WakeBelow(kids[i].get());
+		}
+	}
+	void UIRect::SetVisible(const bool on)
+	{
+		if (visible == on) return;
+		visible = on;
+		if (on) WakeBelow(GetOwner());
+	}
+
 };

@@ -10,7 +10,6 @@
 //============================================================================
 
 #if defined(__APPLE__)
-#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <pthread.h>
 #include <pthread/qos.h>
 #endif
@@ -24,6 +23,9 @@
 #include <Pyros3D/Utils/Console/Console.h>
 
 using namespace p3d;
+
+// (every platform: the game's own thread asks for the performance cores)
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 
 int main(int argc, char** argv)
 {

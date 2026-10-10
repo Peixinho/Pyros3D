@@ -6,6 +6,9 @@
 // Description : SceneGraph
 //============================================================================
 
+#include <cstdio>
+#include <cctype>
+#include <map>
 #include <functional>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
@@ -247,6 +250,33 @@ namespace p3d {
 		const bool waiting = budgeted && streamedRegistrationMs >= streamedRegistrationBudgetMs;
 		if (waiting) streamedDeferred++;
 		visitedThisUpdate++;
+		{	// PYROS_WALK_TRACE=1: what the scene walks, and why each is awake - every 300000 walked
+			static const bool trace = std::getenv("PYROS_WALK_TRACE") != NULL;
+			if (trace)
+			{
+				static std::map<std::string, uint32> seen; static uint32 calls = 0;
+				std::string n = go->GetName(); while (!n.empty() && (isdigit((unsigned char)n.back()) || n.back() == '_' || n.back() == ' ' || n.back() == '(' || n.back() == ')')) n.pop_back();
+				if (n.size() > 22) n.resize(22);
+				std::string why = sweep ? " [sweep]" : (go->_IsDirty ? " [moved]" : "");
+				if (why.empty())
+				{
+					const std::vector<std::shared_ptr<IComponent> > &cs = go->GetComponents();
+					for (size_t c = 0; c < cs.size() && why.empty(); c++) if (cs[c] && cs[c]->NeedsUpdate()) { why = std::string(" [") + typeid(*cs[c]).name() + "]"; }
+					if (why.empty()) why = go->_IdleFrames < 3 ? " [woken]" : " [child awake]";
+				}
+				seen[n + why]++;
+				if (++calls % 300000 == 0)
+				{
+					std::vector<std::pair<uint32, std::string> > top;
+					for (std::map<std::string, uint32>::iterator i = seen.begin(); i != seen.end(); ++i) top.push_back(std::make_pair(i->second, i->first));
+					std::sort(top.rbegin(), top.rend());
+					fprintf(stderr, "[WALK] of 300000 walked:");
+					for (size_t k = 0; k < top.size() && k < 60; k++) fprintf(stderr, "|%s=%u", top[k].second.c_str(), top[k].first);
+					fprintf(stderr, "\n");
+					seen.clear();
+				}
+			}
+		}
 
 		const bool wasDirty = go->_IsDirty;
 		const bool componentsChanged = go->_ComponentsChanged;

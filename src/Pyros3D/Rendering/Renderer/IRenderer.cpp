@@ -150,6 +150,7 @@ Vec4 IRenderer::ShaderGlobals[IRenderer::kShaderGlobals];
 bool IRenderer::BackgroundOverrideSet = false;
 Vec4 IRenderer::CachedAmbientEnv[14];
 bool IRenderer::VelocityFrameUniformsUBOValid = false;
+namespace { bool g_LightCountsUBOValid = false; int32 g_CachedLightCounts[4] = { 0, 0, 0, 0 }; }
 Matrix IRenderer::CachedPrvProjectionMatrix;
 Matrix IRenderer::CachedPrvViewMatrix;
 
@@ -184,6 +185,8 @@ namespace {
 		Vec4 CachedGlobalLight;
 		Vec4 CachedAmbientEnv[14];
 		bool VelocityFrameUniformsUBOValid = false;
+		bool LightCountsUBOValid = false;
+		int32 CachedLightCounts[4] = { 0, 0, 0, 0 };
 		Matrix CachedPrvProjectionMatrix;
 		Matrix CachedPrvViewMatrix;
 	};
@@ -239,6 +242,8 @@ namespace {
 #define CachedGlobalLight (*(t_caches ? &t_caches->CachedGlobalLight : &IRenderer::CachedGlobalLight))
 #define CachedAmbientEnv (*(t_caches ? &t_caches->CachedAmbientEnv : &IRenderer::CachedAmbientEnv))
 #define VelocityFrameUniformsUBOValid (*(t_caches ? &t_caches->VelocityFrameUniformsUBOValid : &IRenderer::VelocityFrameUniformsUBOValid))
+#define LightCountsUBOValid (*(t_caches ? &t_caches->LightCountsUBOValid : &g_LightCountsUBOValid))
+#define CachedLightCounts (*(t_caches ? &t_caches->CachedLightCounts : &g_CachedLightCounts))
 #define CachedPrvProjectionMatrix (*(t_caches ? &t_caches->CachedPrvProjectionMatrix : &IRenderer::CachedPrvProjectionMatrix))
 #define CachedPrvViewMatrix (*(t_caches ? &t_caches->CachedPrvViewMatrix : &IRenderer::CachedPrvViewMatrix))
 
@@ -1025,6 +1030,7 @@ void IRenderer::ReleaseSharedUniformBuffers(IRenderDevice* device)
 	VertexFrameUniformsUBOValid = false;
 	AmbientLightUniformsUBOValid = false;
 	VelocityFrameUniformsUBOValid = false;
+	LightCountsUBOValid = false;
 	MaterialUniformsNeedsReupload = true;
 }
 
@@ -1044,6 +1050,7 @@ void IRenderer::InvalidateSharedUniformCaches()
 	VertexFrameUniformsUBOValid = false;
 	AmbientLightUniformsUBOValid = false;
 	VelocityFrameUniformsUBOValid = false;
+	LightCountsUBOValid = false;
 	MaterialUniformsNeedsReupload = true;
 }
 
@@ -4661,11 +4668,18 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		// light-culling loop (see RenderObject()), so - unlike the rest of
 		// MaterialUniforms - they can't be gated on mesh/material change
 		// without going stale.
-		ObjectLightCountsData lightCounts;
+		ObjectLightCountsData lightCounts = ObjectLightCountsData();
 		lightCounts.NumberOfLights = (int32)NumberOfLights;
 		lightCounts.NumberOfPointShadows = (int32)NumberOfPointShadows;
 		lightCounts.NumberOfSpotShadows = (int32)NumberOfSpotShadows;
-		device->ReplaceUniformBuffer(ObjectLightCountsUBO, sizeof(ObjectLightCountsData), &lightCounts);
+		// (sent when it changes: in most passes it is the same three numbers for
+		// every thing drawn, and it was sent again with each)
+		if (!LightCountsUBOValid || memcmp(&CachedLightCounts, &lightCounts, sizeof(lightCounts)) != 0)
+		{
+			device->ReplaceUniformBuffer(ObjectLightCountsUBO, sizeof(ObjectLightCountsData), &lightCounts);
+			memcpy(&CachedLightCounts, &lightCounts, sizeof(lightCounts));
+			LightCountsUBOValid = true;
+		}
 	}
 
 	uint32 counter = 0;
@@ -5082,7 +5096,9 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 	// - the attribute-location cache, the VAO, and the pipeline's vertex
 	// layout - have to walk the exact same list in the exact same order:
 	// _ShadersAttributesCache is indexed positionally.
-	std::vector<AttributeArray*> meshAttributes = rmesh->Geometry->Attributes;
+	// (this thread's list, kept: a list was made and thrown away for every draw)
+	static thread_local std::vector<AttributeArray*> meshAttributes;
+	meshAttributes.assign(rmesh->Geometry->Attributes.begin(), rmesh->Geometry->Attributes.end());
 	if (rmesh->renderingComponent != NULL)
 	{
 		for (std::vector<AttributeBuffer*>::iterator i = rmesh->renderingComponent->ownAttributeBuffers.begin(); i != rmesh->renderingComponent->ownAttributeBuffers.end(); i++)

@@ -376,6 +376,10 @@ namespace p3d {
 	// Properties Getters and Setters
 	void GameObject::SetPosition(const Vec3 &position)
 	{
+		// (put where it already is: nothing has moved, and nothing is woken or worked
+		// out again - a script that places a thing every frame costs nothing for the
+		// frames it has not moved in)
+		if (!_IsUsingCustomMatrix && position.x == _Position.x && position.y == _Position.y && position.z == _Position.z) return;
 		_IsDirty = true;
 		_Position = position;
 		if (!_SubtreeAwake || _IdleFrames) Wake();
@@ -383,6 +387,7 @@ namespace p3d {
 	// Sets Rotation
 	void GameObject::SetRotation(const Vec3 &rotation)
 	{
+		if (!_IsUsingCustomMatrix && rotation.x == _Rotation.x && rotation.y == _Rotation.y && rotation.z == _Rotation.z) return;
 		_IsDirty = true;
 		_Rotation = rotation;
 		if (!_SubtreeAwake || _IdleFrames) Wake();
@@ -390,6 +395,7 @@ namespace p3d {
 	// Sets Scale
 	void GameObject::SetScale(const Vec3 &scale)
 	{
+		if (!_IsUsingCustomMatrix && scale.x == _Scale.x && scale.y == _Scale.y && scale.z == _Scale.z) return;
 		_IsDirty = true;
 		_Scale = scale;
 		if (!_SubtreeAwake || _IdleFrames) Wake();

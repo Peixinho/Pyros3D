@@ -63,6 +63,10 @@ namespace p3d {
 		virtual void Register(SceneGraph* Scene);
 		virtual void Init() {}
 		virtual void Update(const f64 time = 0);
+		// Not while it cannot be seen: a button of a screen that is not up - every
+		// row of an inventory, every key of an options page - was looked at each
+		// frame of the game played behind it. (UIRect::SetVisible wakes what it shows.)
+		virtual bool NeedsUpdate() const;
 		virtual void Destroy() {}
 		virtual void Unregister(SceneGraph* Scene);
 

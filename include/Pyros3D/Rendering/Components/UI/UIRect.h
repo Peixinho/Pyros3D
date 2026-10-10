@@ -89,7 +89,9 @@ namespace p3d {
 		// "hide this panel" has to mean. The canvas skips the whole subtree
 		// (see UICanvas::SolveNode), so a hidden element costs nothing but
 		// the branch that skipped it.
-		void SetVisible(const bool on) { visible = on; }
+		// (shown: it and everything under it are looked at again from the next
+		// frame - a part of the scene that has nothing to do is left alone)
+		void SetVisible(const bool on);
 		bool IsVisible() const { return visible; }
 
 		// Clips this element's children to its own rect. What makes a

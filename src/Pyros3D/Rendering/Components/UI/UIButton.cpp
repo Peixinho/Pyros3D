@@ -131,6 +131,17 @@ namespace p3d {
 		return c;
 	}
 
+	bool UIButton::NeedsUpdate() const
+	{
+		for (GameObject* g = const_cast<UIButton*>(this)->GetOwner(); g != NULL; g = g->GetParent())
+		{
+			const std::vector<std::shared_ptr<IComponent> > &cs = g->GetComponents();
+			for (size_t i = 0; i < cs.size(); i++)
+				if (cs[i] && cs[i]->GetComponentType() == ComponentType::UIRect && !static_cast<UIRect*>(cs[i].get())->IsVisible()) return false;
+		}
+		return true;
+	}
+
 	void UIButton::Update(const f64 time)
 	{
 		ApplyState(time);
