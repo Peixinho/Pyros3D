@@ -10,6 +10,7 @@
 //               no stubs of its own (see IRenderDevice::SupportsCompute).
 //============================================================================
 
+#include <atomic>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <Pyros3D/Core/Logs/Log.h>
@@ -18,6 +19,26 @@
 #include <set>
 
 namespace p3d {
+
+	namespace {
+		std::atomic<uint32> g_builtCount[2];
+		std::atomic<uint64> g_builtNs[2];
+	}
+	void IRenderDevice::NoteBuilt(const uint32 kind, const f64 ms)
+	{
+		if (kind > 1) return;
+		g_builtCount[kind].fetch_add(1, std::memory_order_relaxed);
+		g_builtNs[kind].fetch_add((uint64)(ms * 1e6), std::memory_order_relaxed);
+	}
+	IRenderDevice::Built IRenderDevice::TakeBuilt()
+	{
+		Built b;
+		b.programs = g_builtCount[0].exchange(0, std::memory_order_relaxed);
+		b.programMs = (f64)g_builtNs[0].exchange(0, std::memory_order_relaxed) / 1e6;
+		b.pipelines = g_builtCount[1].exchange(0, std::memory_order_relaxed);
+		b.pipelineMs = (f64)g_builtNs[1].exchange(0, std::memory_order_relaxed) / 1e6;
+		return b;
+	}
 
 	uint32 IRenderDevice::TextureAnisotropy()
 	{

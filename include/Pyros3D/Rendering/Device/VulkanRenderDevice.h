@@ -1053,6 +1053,9 @@ namespace p3d {
 		void FlushPendingTransfers(const bool wait = true);
 		void CreatePipelineCache();
 		void DestroyPipelineCache();
+		void WritePipelineCacheFile();
+		void SavePipelineCacheIfGrown();
+		uint32 pipelinesCreated = 0;
 		// Sets deviceIdleSinceLastSubmit=false then vkQueueSubmit.
 		VkResult SubmitGraphics(uint32 submitCount, const VkSubmitInfo *infos, VkFence fence);
 		// Begins recording offscreenCommandBuffer if this is the first

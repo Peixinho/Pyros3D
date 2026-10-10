@@ -1744,6 +1744,14 @@ void PyrosPlayer::Update()
 			FrameProfiler::Instance().Counter("Device.PresentMs", presentMs);
 			FrameProfiler::Instance().Counter("Device.BehindMs", behindMs);
 		}
+		{
+			const IRenderDevice::Built b = IRenderDevice::TakeBuilt();
+			// (every frame, none included: a counter keeps what it was last given)
+			FrameProfiler::Instance().Counter("Built.Programs", (f64)b.programs);
+			FrameProfiler::Instance().Counter("Built.ProgramMs", b.programMs);
+			FrameProfiler::Instance().Counter("Built.Pipelines", (f64)b.pipelines);
+			FrameProfiler::Instance().Counter("Built.PipelineMs", b.pipelineMs);
+		}
 	}
 	// No more frames than asked for (SetFrameRateLimit): what a display cannot
 	// show is heat and nothing else - and a machine that slows itself down when

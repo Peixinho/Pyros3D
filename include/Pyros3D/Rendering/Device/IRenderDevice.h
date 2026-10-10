@@ -178,6 +178,14 @@ namespace p3d {
 		// the hardware has. Read when a device is made.
 		static uint32 TextureAnisotropy();
 
+		// What was built since this was last asked: shader programs and pipelines,
+		// how many and how long they took. A frame that stops for half a second is
+		// usually one of the two, and the frame's scopes only say where it stood.
+		// NoteBuilt is for whoever builds (kind 0: a program, 1: a pipeline).
+		struct Built { uint32 programs; f64 programMs; uint32 pipelines; f64 pipelineMs; };
+		static Built TakeBuilt();
+		static void NoteBuilt(const uint32 kind, const f64 ms);
+
 		// Command buffer recording - see the comment on CommandBufferHandle
 		// above. Obtained once per frame by IRenderer and threaded through
 		// the draw-related calls below (BindVertexArray/DrawElements/

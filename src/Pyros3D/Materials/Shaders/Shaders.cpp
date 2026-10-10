@@ -188,9 +188,9 @@ namespace p3d {
 	}
 	bool Shader::CompileShader(const uint32 type, std::string definitions, std::string *output)
 	{
+		if (type == ShaderType::VertexShader) t_shaderBegan = std::chrono::steady_clock::now();
 		if (ShaderTrace() && type == ShaderType::VertexShader)
 		{
-			t_shaderBegan = std::chrono::steady_clock::now();
 			t_shaderWith = definitions;
 			for (size_t i = 0; i < t_shaderWith.size(); i++) if (t_shaderWith[i] == '\n') t_shaderWith[i] = ' ';
 			size_t at;
@@ -253,6 +253,7 @@ namespace p3d {
 	{
 		std::string LOG;
 		bool linked = Device().LinkProgram(shaderProgram, LOG);
+		IRenderDevice::NoteBuilt(0, std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t_shaderBegan).count());
 		if (ShaderTrace())
 			fprintf(stderr, "[shader] t=%.1f s: a program in %.1f ms, with: %s\n",
 				std::chrono::duration<f64>(std::chrono::steady_clock::now() - g_shaderTraceStart).count(),

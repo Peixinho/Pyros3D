@@ -1869,6 +1869,7 @@ namespace p3d {
 	{
 		if (!frameInProgress)
 			return;
+		SavePipelineCacheIfGrown();
 		uniformSetFrame++;
 
 		// Safety: anything still batched offscreen (should already have
@@ -2652,7 +2653,9 @@ namespace p3d {
 		pipelineInfo.renderPass = targetRenderPass;
 		pipelineInfo.subpass = 0;
 
+		pipelinesCreated++;
 		VkPipeline pipeline = VK_NULL_HANDLE;
+		const std::chrono::steady_clock::time_point pipelineBegan = std::chrono::steady_clock::now();
 		VkResult result = PyrosT_CreateGraphicsPipelines(device, pipelineCache != VK_NULL_HANDLE ? pipelineCache : VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
 		// Bad/stale pipeline-cache data can make some drivers fail (or
 		// worse) - drop the cache and retry once with a fresh one.
@@ -2666,6 +2669,7 @@ namespace p3d {
 				pipelineCache = VK_NULL_HANDLE;
 			result = PyrosT_CreateGraphicsPipelines(device, pipelineCache != VK_NULL_HANDLE ? pipelineCache : VK_NULL_HANDLE, 1, &pipelineInfo, NULL, &pipeline);
 		}
+		IRenderDevice::NoteBuilt(1, std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - pipelineBegan).count());
 		if (result != VK_SUCCESS)
 		{
 			fprintf(stderr, "VulkanRenderDevice::CreatePipeline: vkCreateGraphicsPipelines FAILED with VkResult=%d\n", (int)result);
@@ -7590,7 +7594,38 @@ namespace p3d {
 			pipelineCache = VK_NULL_HANDLE;
 	}
 
+	// The pipelines a run has built are worth keeping the moment they exist, not
+	// only if the run ends well. They were written at a clean shutdown and nowhere
+	// else - so a game that crashed, froze and was killed, or was closed from the
+	// task bar kept nothing, and built every pipeline again the next time: on a
+	// driver that compiles at that point, a second at the first frame and half of
+	// one at the first look through a second view, every launch. Now also written
+	// while running: once new ones have been built and none for three seconds.
+	void VulkanRenderDevice::SavePipelineCacheIfGrown()
+	{
+		static uint32 savedAt = 0;
+		static std::chrono::steady_clock::time_point lastGrew;
+		static uint32 seenCount = 0;
+		if (pipelineCache == VK_NULL_HANDLE || device == VK_NULL_HANDLE) return;
+		const uint32 made = pipelinesCreated;
+		if (made == savedAt) return;
+		const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
+		if (made != seenCount) { seenCount = made; lastGrew = now; return; }
+		if (std::chrono::duration<f64>(now - lastGrew).count() < 3.0) return;
+		savedAt = made;
+		WritePipelineCacheFile();
+	}
+
 	void VulkanRenderDevice::DestroyPipelineCache()
+	{
+		if (pipelineCache == VK_NULL_HANDLE || device == VK_NULL_HANDLE)
+			return;
+		WritePipelineCacheFile();
+		vkDestroyPipelineCache(device, pipelineCache, NULL);
+		pipelineCache = VK_NULL_HANDLE;
+	}
+
+	void VulkanRenderDevice::WritePipelineCacheFile()
 	{
 		if (pipelineCache == VK_NULL_HANDLE || device == VK_NULL_HANDLE)
 			return;
@@ -7606,22 +7641,29 @@ namespace p3d {
 				std::string dir = PyrosCacheDir();
 				if (EnsureDirectoryExists(dir))
 				{
+					// (beside, then moved into place: a run killed half-way through
+					// the write leaves the file that was there)
 					std::string cachePath = dir + "/pipeline_cache.bin";
-					std::ofstream out(cachePath.c_str(), std::ios::binary | std::ios::trunc);
-					if (out)
+					const std::string part = cachePath + ".part";
+					bool wrote = false;
 					{
-						out.write(reinterpret_cast<const char*>(&props.vendorID), sizeof(props.vendorID));
-						out.write(reinterpret_cast<const char*>(&props.deviceID), sizeof(props.deviceID));
-						out.write(reinterpret_cast<const char*>(&props.driverVersion), sizeof(props.driverVersion));
-						out.write(reinterpret_cast<const char*>(props.pipelineCacheUUID), VK_UUID_SIZE);
-						out.write(data.data(), (std::streamsize)dataSize);
+						std::ofstream out(part.c_str(), std::ios::binary | std::ios::trunc);
+						if (out)
+						{
+							out.write(reinterpret_cast<const char*>(&props.vendorID), sizeof(props.vendorID));
+							out.write(reinterpret_cast<const char*>(&props.deviceID), sizeof(props.deviceID));
+							out.write(reinterpret_cast<const char*>(&props.driverVersion), sizeof(props.driverVersion));
+							out.write(reinterpret_cast<const char*>(props.pipelineCacheUUID), VK_UUID_SIZE);
+							out.write(data.data(), (std::streamsize)dataSize);
+							wrote = (bool)out;
+						}
 					}
+					std::error_code ec;
+					if (wrote) std::filesystem::rename(part, cachePath, ec);
+					if (!wrote || ec) std::filesystem::remove(part, ec);
 				}
 			}
 		}
-
-		vkDestroyPipelineCache(device, pipelineCache, NULL);
-		pipelineCache = VK_NULL_HANDLE;
 	}
 
 	void VulkanRenderDevice::FlushOffscreenCommandBuffer()
