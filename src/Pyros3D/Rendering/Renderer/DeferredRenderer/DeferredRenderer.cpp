@@ -33,6 +33,11 @@ namespace p3d {
 	void DeferredRenderer::SetSSAOTemporal(const bool on) { g_ssaoTemporal = on; }
 	bool DeferredRenderer::GetSSAOTemporal() { return g_ssaoTemporal; }
 	bool DeferredRenderer::IsSSAOHalfResolution() { return g_ssaoHalfResolution; }
+	uint32 DeferredRenderer::NormalTargetFormat()
+	{
+		static const bool wide = std::getenv("PYROS_GBUFFER_NORMAL32") != NULL && std::getenv("PYROS_GBUFFER_NORMAL32")[0] == '1';
+		return wide ? TextureDataType::RGBA32F : TextureDataType::RGBA16F;
+	}
 
 
 	f32 f(f32 r)

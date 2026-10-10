@@ -371,7 +371,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		gbufferSpecular->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		gbufferNormal = new Texture();
-		gbufferNormal->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, width, height, false);
+		gbufferNormal->CreateEmptyTexture(TextureType::Texture, DeferredRenderer::NormalTargetFormat(), width, height, false);
 		gbufferNormal->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 		gbufferMatRough = new Texture();

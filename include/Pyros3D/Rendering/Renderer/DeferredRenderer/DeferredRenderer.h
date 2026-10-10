@@ -131,6 +131,13 @@ namespace p3d {
 		static void SetSunLaysAmbient(const bool on);
 		static bool GetSunLaysAmbient();
 		static bool IsSSAOHalfResolution();
+		// The format of the G-buffer's normal target, for whoever builds one (an
+		// application, an editor view): half floats. A unit vector that is
+		// normalized again where it is read, and one scalar beside it, were kept
+		// in four 32-bit floats - sixteen bytes a pixel, written by every draw and
+		// read by every light, where eight hold them with nothing to see for it.
+		// PYROS_GBUFFER_NORMAL32=1 gives the old one back, to compare.
+		static uint32 NormalTargetFormat();
 		bool IsSSAOEnabled() const { return ssaoEnabled; }
 		void SetSSAOParams(const f32 radius, const f32 strength, const f32 falloff);
 		// How much of the occlusion direct lights also take, 0-1. Occlusion

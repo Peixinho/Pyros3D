@@ -98,7 +98,7 @@ void MaterialPreview::BuildGBuffer(uint32_t w, uint32_t h) {
 	gbufferSpecular->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	gbufferNormal = new Texture();
-	gbufferNormal->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, w, h, false);
+	gbufferNormal->CreateEmptyTexture(TextureType::Texture, DeferredRenderer::NormalTargetFormat(), w, h, false);
 	gbufferNormal->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 
 	gbufferMatRough = new Texture();
