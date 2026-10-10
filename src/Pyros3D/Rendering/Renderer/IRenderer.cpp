@@ -4739,7 +4739,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// that left the binding unloadable / zeros, so skinned meshes
 			// stayed in bind pose ("no animation").
 			// (into a shadow map: the pose kept for shadows, where there is one)
-			const std::vector<Matrix> &palette = (!rmesh->ShadowSkinningBones.empty() && IsShadowMaterial(Material)) ? rmesh->ShadowSkinningBones : rmesh->SkinningBones;
+			const std::vector<Matrix> &palette = (!rmesh->ShadowBonesToDraw().empty() && IsShadowMaterial(Material)) ? rmesh->ShadowBonesToDraw() : rmesh->BonesToDraw();
 			uint32 bonesToUpload = palette.size() < PYROS_MAX_BONES ? (uint32)palette.size() : PYROS_MAX_BONES;
 			Matrix boneUpload[PYROS_MAX_BONES]; // default-ctor = identity pad past bonesToUpload
 			memcpy(boneUpload, &palette[0], sizeof(Matrix) * bonesToUpload);
@@ -4837,7 +4837,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			{
 				if (rmesh->SkinningBones.size() > 0)
 				{
-					const std::vector<Matrix> &palette = (!rmesh->ShadowSkinningBones.empty() && IsShadowMaterial(Material)) ? rmesh->ShadowSkinningBones : rmesh->SkinningBones;
+					const std::vector<Matrix> &palette = (!rmesh->ShadowBonesToDraw().empty() && IsShadowMaterial(Material)) ? rmesh->ShadowBonesToDraw() : rmesh->BonesToDraw();
 					Shader::SendUniform((*k), (void*)&palette[0], (*_ShadersModelCache)[counter], (uint32)palette.size());
 				}
 			}
@@ -4976,8 +4976,9 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, Rende
 	case Uniforms::DataUsage::Skinning:
 		if (rmesh != NULL && rmesh->SkinningBones.size() > 0)
 		{
-			valuePtr = &rmesh->SkinningBones[0];
-			valueSize = (uint32)sizeof(Matrix) * (rmesh->SkinningBones.size() < PYROS_MAX_BONES ? (uint32)rmesh->SkinningBones.size() : PYROS_MAX_BONES);
+			const std::vector<Matrix> &drawn = rmesh->BonesToDraw();
+			valuePtr = &drawn[0];
+			valueSize = (uint32)sizeof(Matrix) * (drawn.size() < PYROS_MAX_BONES ? (uint32)drawn.size() : PYROS_MAX_BONES);
 		}
 		break;
 	case Uniforms::DataUsage::Lights:

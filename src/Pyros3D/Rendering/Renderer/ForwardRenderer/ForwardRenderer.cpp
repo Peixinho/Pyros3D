@@ -58,7 +58,7 @@ namespace p3d {
 					// Directional Lights
 					Vec4 color = d->GetLightRadiance();
 					Vec3 position;
-					Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
+					Vec3 direction = (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 					f32 attenuation = 1.f;
 					Vec2 cones;
 					int32 type = 1;
@@ -98,7 +98,7 @@ namespace p3d {
 
 					// Point Lights
 					Vec4 color = p->GetLightRadiance();
-					Vec3 position = (p->GetOwner()->GetWorldPosition());
+					Vec3 position = (p->GetOwner()->GetDrawWorldPosition());
 					Vec3 direction;
 					f32 attenuation = p->GetLightRadius();
 					Vec2 cones;
@@ -140,8 +140,8 @@ namespace p3d {
 
 					// Spot Lights
 					Vec4 color = s->GetLightRadiance();
-					Vec3 position = s->GetOwner()->GetWorldPosition();
-					Vec3 direction = (s->GetOwner()->GetWorldTransformation() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
+					Vec3 position = s->GetOwner()->GetDrawWorldPosition();
+					Vec3 direction = (s->GetOwner()->GetDrawWorld() * Vec4(s->GetLightDirection(), 0.f)).xyz().normalize();
 					f32 attenuation = s->GetLightRadius();
 					Vec2 cones = Vec2(s->GetLightCosInnerCone(), s->GetLightCosOutterCone());
 					int32 type = 3;
@@ -198,8 +198,8 @@ namespace p3d {
 		// View Matrix and Position (latch previous view before overwrite -
 		// velocity / motion-blur materials sample PrvViewMatrix)
 		PrvViewMatrix = ViewMatrix;
-		ViewMatrix = Camera->GetWorldTransformation().Inverse();
-		CameraPosition = Camera->GetWorldPosition();
+		ViewMatrix = Camera->GetDrawWorld().Inverse();
+		CameraPosition = Camera->GetDrawWorldPosition();
 
 		// Update Culling
 		UpdateCulling(ProjectionMatrix*ViewMatrix);
@@ -331,7 +331,7 @@ namespace p3d {
 					continue;
 
 				// The bounding sphere's centre - see CullingSphereTest.
-				const Vec3 objectPosition = owner->GetWorldTransformation() * owner->GetBoundingSphereCenter();
+				const Vec3 objectPosition = owner->GetDrawWorld() * owner->GetBoundingSphereCenter();
 				objectLights.clear();
 				for (uint32 l = 0; l < _Lights.size(); l++)
 				{

@@ -1207,6 +1207,7 @@ namespace p3d {
 		{
 			if ((*j)->MapBoneIDs.empty()) continue;
 			if ((*j)->SkinningBones.size() != (*j)->MapBoneIDs.size()) (*j)->SkinningBones.resize((*j)->MapBoneIDs.size());
+			RenderingMesh::NoteBonesForDraw(*j);
 			if (anyViewOnly) (*j)->ShadowSkinningBones.resize((*j)->SkinningBones.size());
 			else if (!(*j)->ShadowSkinningBones.empty()) (*j)->ShadowSkinningBones.clear();
 			for (std::map<int32, int32>::iterator k = (*j)->MapBoneIDs.begin(); k != (*j)->MapBoneIDs.end(); k++)

@@ -45,8 +45,41 @@ namespace p3d {
 	// Initialize Rendering Components vector
 	std::vector<IComponent*> RenderingComponent::Components;
 
+	namespace {
+		std::mutex g_bonesForDrawMutex;
+		std::vector<RenderingMesh*> g_bonesForDraw;
+	}
+	void RenderingMesh::NoteBonesForDraw(RenderingMesh* mesh)
+	{
+		if (!GameObject::DrawCopies() || mesh == NULL) return;
+		std::lock_guard<std::mutex> lock(g_bonesForDrawMutex);
+		if (mesh->DrawBoneSlot >= 0) return;
+		mesh->DrawBoneSlot = (int32)g_bonesForDraw.size();
+		g_bonesForDraw.push_back(mesh);
+	}
+	void RenderingMesh::TakeDrawBones()
+	{
+		if (!GameObject::DrawCopies()) return;
+		std::lock_guard<std::mutex> lock(g_bonesForDrawMutex);
+		for (size_t i = 0; i < g_bonesForDraw.size(); i++)
+		{
+			RenderingMesh* m = g_bonesForDraw[i];
+			if (m == NULL) continue;
+			m->DrawSkinningBones = m->SkinningBones;
+			m->DrawShadowSkinningBones = m->ShadowSkinningBones;
+			m->DrawBonesTaken = true;
+			m->DrawBoneSlot = -1;
+		}
+		g_bonesForDraw.clear();
+	}
+
 	RenderingMesh::~RenderingMesh()
 	{
+		if (DrawBoneSlot >= 0)
+		{
+			std::lock_guard<std::mutex> lock(g_bonesForDrawMutex);
+			if ((size_t)DrawBoneSlot < g_bonesForDraw.size() && g_bonesForDraw[DrawBoneSlot] == this) g_bonesForDraw[DrawBoneSlot] = NULL;
+		}
 		// Nothing to hand back once the device is gone. Its VAOs and pipelines
 		// died with it, and Device() would not reach it anyway:
 		// GetActiveRenderDevice() falls back to a lazily constructed *static*

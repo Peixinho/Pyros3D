@@ -1645,6 +1645,8 @@ void PyrosPlayer::Update()
 		sceneMainScript->PreRender();
 	}
 #endif
+	// (and again for what the scripts' own pre-render placed or posed: hands on a gun, a scope's camera)
+	GameObject::TakeDrawTransforms();
 	renderer->PreRender(activeCamera, scene);
 	renderer->ApplyBackgroundClearColor();
 	// A 2D scene renders through the *normal* pass, not a suppressed one. Its

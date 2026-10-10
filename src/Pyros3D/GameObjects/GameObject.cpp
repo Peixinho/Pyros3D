@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <cstring>
@@ -164,6 +165,7 @@ namespace p3d {
 			go->_DrawSlot = -1;
 		}
 		g_forDraw.clear();
+		RenderingMesh::TakeDrawBones();
 	}
 	bool GameObject::RefreshTransformationIfChanged()
 	{

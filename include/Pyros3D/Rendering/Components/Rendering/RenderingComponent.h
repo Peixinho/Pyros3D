@@ -167,6 +167,18 @@ namespace p3d {
 		// The same for shadow maps, where it differs (a bone scaled for the
 		// view only - SkeletonAnimationInstance::SetBoneScaleInView). Empty: the same.
 		std::vector<Matrix> ShadowSkinningBones;
+		// The pose it is DRAWN in: a copy of the two above, taken at the frame's
+		// hand-over with the transforms (GameObject::TakeDrawTransforms) when
+		// PYROS_FRAME_SPLIT is on - the bones themselves are written again by the
+		// next update while this frame is still being drawn. Until taken, the
+		// bones themselves.
+		std::vector<Matrix> DrawSkinningBones, DrawShadowSkinningBones;
+		bool DrawBonesTaken = false;
+		int32 DrawBoneSlot = -1;
+		const std::vector<Matrix> &BonesToDraw() const { return DrawBonesTaken ? DrawSkinningBones : SkinningBones; }
+		const std::vector<Matrix> &ShadowBonesToDraw() const { return DrawBonesTaken ? DrawShadowSkinningBones : ShadowSkinningBones; }
+		static void NoteBonesForDraw(RenderingMesh* mesh);
+		static void TakeDrawBones();
 
 		// Whether this mesh's geometry actually supplies aTexcoord, cached
 		// because IRenderer::PickShadowMaterial() has to know it per draw.
