@@ -1116,6 +1116,11 @@ namespace p3d {
 					const Seen &e = i->second;
 					const Vec3 c(e.sphere.x, e.sphere.y, e.sphere.z);
 					const f32 d = sqrtf(eyeNow.distanceSQR(c));
+					// PYROS_TRACE_NEAR=<metres>: everything of that name within that far, whatever became of it
+					static const f32 nearAll = std::getenv("PYROS_TRACE_NEAR") ? (f32)std::atof(std::getenv("PYROS_TRACE_NEAR")) : 0.f;
+					if (nearAll > 0.f && sqrtf((eyeNow.x - i->first->GetWorldPosition().x) * (eyeNow.x - i->first->GetWorldPosition().x) + (eyeNow.z - i->first->GetWorldPosition().z) * (eyeNow.z - i->first->GetWorldPosition().z)) < nearAll)
+						fprintf(stderr, "[near] %s at (%.1f %.1f %.1f): %d listed, %d drawn, %d flags out (flags %d), %d culled, %d hidden; level %d, sphere (%.1f %.1f %.1f r %.1f), eye (%.1f %.1f %.1f)\n", i->first->GetName().c_str(),
+							i->first->GetWorldPosition().x, i->first->GetWorldPosition().y, i->first->GetWorldPosition().z, e.listed, e.drawn, e.flagsOut, (int)e.flags, e.culled, e.hidden, e.lod, e.sphere.x, e.sphere.y, e.sphere.z, e.sphere.w, eyeNow.x, eyeNow.y, eyeNow.z);
 					if (e.drawn != 0 || d > 150.f || e.sphere.w < 3.f || (e.flagsOut == e.listed && !(e.flags & CullComponentActive)) || culling == NULL || !culling->SphereInFrustum(c, e.sphere.w * 0.3f)) continue;
 					if (++said <= 3000) fprintf(stderr, "[meshes] %s not drawn at %.0f m: %d listed, %d flags out (flags %d), %d culled, %d hidden; level %d, sphere (%.1f %.1f %.1f r %.1f), eye (%.1f %.1f %.1f)\n",
 						i->first->GetName().c_str(), d, e.listed, e.flagsOut, (int)e.flags, e.culled, e.hidden, e.lod, e.sphere.x, e.sphere.y, e.sphere.z, e.sphere.w, eyeNow.x, eyeNow.y, eyeNow.z);

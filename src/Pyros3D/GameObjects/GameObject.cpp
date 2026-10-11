@@ -20,6 +20,24 @@
 
 namespace p3d {
 
+	// The sphere round two: an object's is the one round all its components'. (It was the
+	// largest component's own, so an object whose parts are in different places - a palm,
+	// its stem below and its fronds above - was culled by the larger part's sphere alone,
+	// and went from the picture when that part left the view with the rest still in it.)
+	static bool MergeBoundingSphere(Vec3 &centre, f32 &radius, const Vec3 &c2, const f32 r2)
+	{
+		if (r2 <= 0.f) return false;
+		if (radius <= 0.f) { centre = c2; radius = r2; return true; }
+		const f32 d = centre.distance(c2);
+		if (d + r2 <= radius) return false;                         // already inside
+		if (d + radius <= r2) { centre = c2; radius = r2; return true; }
+		const f32 merged = (d + radius + r2) * 0.5f;
+		centre = centre + (c2 - centre) * ((merged - radius) / d);
+		radius = merged;
+		return true;
+	}
+
+
 	GameObject::GameObject(bool isStatic)
 	{
 		// Static
@@ -587,12 +605,7 @@ namespace p3d {
 					if (maxBounds.x < Component->maxBounds.x) maxBounds.x = Component->maxBounds.x;
 					if (maxBounds.y < Component->maxBounds.y) maxBounds.y = Component->maxBounds.y;
 					if (maxBounds.z < Component->maxBounds.z) maxBounds.z = Component->maxBounds.z;
-					if (BoundingSphereRadius < Component->BoundingSphereRadius)
-					{
-						BoundingSphereRadius = Component->BoundingSphereRadius;
-						BoundingSphereCenter = Component->BoundingSphereCenter;
-						NoteMovedOnce();
-					}
+					if (MergeBoundingSphere(BoundingSphereCenter, BoundingSphereRadius, Component->BoundingSphereCenter, Component->BoundingSphereRadius)) NoteMovedOnce();
 				}
 				echo("TRACE: Component Added to GameObject");
 			}
@@ -647,12 +660,7 @@ namespace p3d {
 				for (std::vector<std::shared_ptr<IComponent>>::iterator i = Components.begin(); i != Components.end(); i++)
 				{
 					IComponent* Component = (*i).get();
-					if (BoundingSphereRadius < Component->BoundingSphereRadius)
-					{
-						BoundingSphereRadius = Component->BoundingSphereRadius;
-						BoundingSphereCenter = Component->BoundingSphereCenter;
-						NoteMovedOnce();
-					}
+					if (MergeBoundingSphere(BoundingSphereCenter, BoundingSphereRadius, Component->BoundingSphereCenter, Component->BoundingSphereRadius)) NoteMovedOnce();
 					if (minBounds.x > Component->minBounds.x) minBounds.x = Component->minBounds.x;
 					if (minBounds.y > Component->minBounds.y) minBounds.y = Component->minBounds.y;
 					if (minBounds.z > Component->minBounds.z) minBounds.z = Component->minBounds.z;
@@ -808,12 +816,7 @@ namespace p3d {
 			if (maxBounds.x < c->maxBounds.x) maxBounds.x = c->maxBounds.x;
 			if (maxBounds.y < c->maxBounds.y) maxBounds.y = c->maxBounds.y;
 			if (maxBounds.z < c->maxBounds.z) maxBounds.z = c->maxBounds.z;
-			if (BoundingSphereRadius < c->BoundingSphereRadius)
-			{
-				BoundingSphereRadius = c->BoundingSphereRadius;
-				BoundingSphereCenter = c->BoundingSphereCenter;
-				NoteMovedOnce();
-			}
+			if (MergeBoundingSphere(BoundingSphereCenter, BoundingSphereRadius, c->BoundingSphereCenter, c->BoundingSphereRadius)) NoteMovedOnce();
 		}
 		if (first)
 		{
