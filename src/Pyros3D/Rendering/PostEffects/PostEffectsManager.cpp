@@ -508,6 +508,20 @@ namespace p3d {
 					fx->SetParam("uCamPos", pos, 4); fx->SetParam("uCamFwd", fwd, 4);
 					fx->SetParam("uCamRight", right, 4); fx->SetParam("uCamUp", up, 4);
 				}
+				// (the scene's sun as the lighting last saw it: the way to it, and its strength)
+				{
+					Vec3 toSun; f32 strength;
+					IRenderer::GetSunHint(toSun, strength);
+					const f32 sun[4] = { toSun.x, toSun.y, toSun.z, strength };
+					fx->SetParam("uSunTo", sun, 4);
+				}
+				// what it publishes to every shader
+				const std::vector<std::pair<std::string, uint32> > &pub = fx->GetPublished();
+				const std::vector<CustomEffect::Param> &ps = fx->GetParams();
+				for (size_t k = 0; k < pub.size(); k++)
+					for (size_t q = 0; q < ps.size(); q++)
+						if (ps[q].name == pub[k].first && pub[k].second < 16)
+							IRenderer::SetShaderGlobal(pub[k].second, Vec4(ps[q].value[0], ps[q].value[1], ps[q].value[2], ps[q].value[3]));
 			}
 		}
 		ApplyAntiAliasing();

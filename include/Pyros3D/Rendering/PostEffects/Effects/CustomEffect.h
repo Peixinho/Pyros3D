@@ -71,6 +71,8 @@ namespace p3d {
 
 		const std::string &GetEffectName() const { return effectName; }
 		const std::vector<Param> &GetParams() const { return params; }
+		// Parameters the effect publishes to every shader (`//! publish <param> <index>`).
+		const std::vector<std::pair<std::string, uint32> > &GetPublished() const { return published; }
 		// Pushes a new value into the live uniform. Returns false if the
 		// effect has no such param, so a stale saved override says so instead
 		// of vanishing.
@@ -82,6 +84,7 @@ namespace p3d {
 
 		std::string effectName;
 		std::vector<Param> params;
+		std::vector<std::pair<std::string, uint32> > published;
 		// Parallel to params - the Uniform* AddUniform() handed back, so
 		// SetParam does not have to look the uniform up by name every time.
 		std::vector<Uniform*> paramUniforms;

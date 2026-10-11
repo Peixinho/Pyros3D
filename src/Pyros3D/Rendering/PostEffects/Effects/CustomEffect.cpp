@@ -111,6 +111,7 @@ namespace p3d {
 			std::string name;
 			std::vector<uint32> inputs;             // RTT::Color / Depth / LastRTT
 			std::vector<CustomEffect::Param> params;
+			std::vector<std::pair<std::string, uint32> > published;
 			std::string body;
 		};
 
@@ -181,6 +182,12 @@ namespace p3d {
 					if (p.label.empty()) p.label = p.name;
 					out.params.push_back(p);
 				}
+				else if (w[0] == "publish")
+				{
+					// publish <param> <index>: that parameter's value is every shader's uGlobals[index]
+					// (IRenderer::SetShaderGlobal) - how a sky's "snow" slider reaches the ground and the sea
+					if (w.size() >= 3) out.published.push_back(std::make_pair(w[1], (uint32)atoi(w[2].c_str())));
+				}
 				// Anything else is ignored on purpose - an unknown directive
 				// is a comment, not a reason to refuse to load the effect.
 			}
@@ -223,6 +230,7 @@ namespace p3d {
 
 		CustomEffect* effect = new CustomEffect(width, height);
 		effect->effectName = h.name;
+		effect->published = h.published;
 		effect->params = h.params;
 
 		// Inputs first: UseColor()/UseDepth()/UseLastRTT() name their sampler
