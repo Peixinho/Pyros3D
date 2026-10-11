@@ -1372,6 +1372,8 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		if (args.contains("depthTexture"))
 		{
 			nlohmann::json bake = args; bake["texture"] = args["depthTexture"]; bake.erase("points");
+			// (the water's own level, not the bed's: "waterLevel")
+			if (args.contains("waterLevel")) bake["level"] = args["waterLevel"];
 			nlohmann::json baked; std::string berr;
 			if (AgentTerrain("terrain_bake_depth", bake, baked, berr)) out["depthBaked"] = baked.value("textures", 0u);
 			else out["depthError"] = berr;
