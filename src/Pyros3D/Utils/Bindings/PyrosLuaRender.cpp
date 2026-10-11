@@ -659,6 +659,9 @@ namespace p3d {
 					[](LUA_RenderingComponent &c, const f32 ratio) { return c.AddSimplifiedLOD(ratio); },
 					[](LUA_RenderingComponent &c, const f32 ratio, const f32 reach) { return c.AddSimplifiedLOD(ratio, reach); }),
 				"setShadowDetail", [](LUA_RenderingComponent &c, const f32 ratio) { return c.SetShadowDetail(ratio); },
+				// setShadowRenderable(mesh): what its shadow is cast from - a simpler copy, drawn into the
+				// shadow maps in place of the model itself (RenderingComponent::SetShadowRenderable)
+				"setShadowRenderable", [](LUA_RenderingComponent &c, sol::object renderable) { c.SetShadowRenderable(LuaObjectToRenderable(renderable)); },
 				"getShadowDetail", [](LUA_RenderingComponent &c) { return c.GetShadowDetail(); },
 				"setAnimateWhenUnseen", [](LUA_RenderingComponent &c, const bool on) { c.SetAnimateWhenUnseen(on); },
 				"wasSeenRecently", [](LUA_RenderingComponent &c) { return c.WasSeenRecently(); },
