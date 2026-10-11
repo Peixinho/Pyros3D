@@ -55,6 +55,7 @@ namespace p3d {
 
 		TreeMesh(const uint32 species, const uint32 seed, const uint32 part, const uint32 detail = 0);
 
+		virtual uint32 GetPrimitiveType() const { return PrimitiveType::Tree; }
 		uint32 GetSpecies() const { return species; }
 		uint32 GetSeed() const { return seed; }
 		uint32 GetPart() const { return part; }

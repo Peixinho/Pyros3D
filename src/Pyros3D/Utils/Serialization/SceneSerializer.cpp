@@ -6,6 +6,7 @@
 // Description : Scene save/load to JSON
 //============================================================================
 
+#include <Pyros3D/Assets/Renderable/Trees/Tree.h>
 #include <Pyros3D/Assets/Renderable/Plants/GrassTuft.h>
 #include <Pyros3D/Utils/Streaming/LoadStats.h>
 #include <Pyros3D/Utils/Streaming/AssetBundle.h>
@@ -1130,6 +1131,15 @@ namespace p3d {
 				j["radius"] = s->GetRadius(); j["tube"] = s->GetTube();
 				j["segmentsW"] = s->GetSegmentsW(); j["segmentsH"] = s->GetSegmentsH();
 				j["p"] = s->GetP(); j["q"] = s->GetQ(); j["heightScale"] = s->GetHeightScale();
+				return j;
+			}
+			case PrimitiveType::Tree:
+			{
+				// (a grown tree is its species, seed, part and detail: the mesh is made again on load)
+				TreeMesh* s = static_cast<TreeMesh*>(prim);
+				j["shape"] = "Tree";
+				j["species"] = TreeMesh::SpeciesName(s->GetSpecies()); j["seed"] = s->GetSeed();
+				j["part"] = s->GetPart() == TreePart::Leaves ? "leaves" : "wood"; j["detail"] = s->GetDetail();
 				return j;
 			}
 			case PrimitiveType::GrassTuft:
@@ -2917,6 +2927,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			else if (shape == "Capsule") r = std::make_shared<Capsule>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("numRings", 8u), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, flip, tb);
 			else if (shape == "Torus") r = std::make_shared<Torus>(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), smooth, flip, tb);
 			else if (shape == "TorusKnot") r = std::make_shared<TorusKnot>(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), j.value("p", 2.0f), j.value("q", 3.0f), j.value("heightScale", 1u), smooth, flip, tb);
+			else if (shape == "Tree")
+			{
+				const std::string name = j.value("species", "Oak");
+				uint32 species = TreeSpecies::Oak;
+				for (uint32 k = 0; k < TreeSpecies::Count; k++) if (name == TreeMesh::SpeciesName(k)) species = k;
+				r = std::make_shared<TreeMesh>(species, j.value("seed", 1u), j.value("part", "wood") == "leaves" ? (uint32)TreePart::Leaves : (uint32)TreePart::Wood, j.value("detail", 0u));
+			}
 			else if (shape == "GrassTuft")
 			{
 				auto colour = [&j](const char* key, const Vec3 &or_) {

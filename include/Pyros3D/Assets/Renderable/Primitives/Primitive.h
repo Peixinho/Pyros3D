@@ -34,6 +34,7 @@ namespace p3d {
 			Torus,
 			TorusKnot,
 			GrassTuft,
+			Tree,
 			Custom
 		};
 	}
