@@ -391,6 +391,32 @@ namespace p3d {
 			}
 		}
 
+		// What rain cuts too steep to stand, falls: wherever the ground drops to a neighbour
+		// by more than loose rock can hold (about fifty degrees), half the excess slides down
+		// to it. Without this a brush held in one place leaves needles.
+		{
+			const f32 talus = 1.2f * s;
+			for (int pass = 0; pass < 6; pass++)
+				for (int32 gz = 1; gz < Hh - 1; gz++)
+					for (int32 gx = 1; gx < W - 1; gx++)
+					{
+						const size_t k = (size_t)gz * W + gx;
+						if (!have[k] || g[k] < below) continue;
+						const f32 e = std::sqrt(((f32)gx - cx) * ((f32)gx - cx) + ((f32)gz - cz) * ((f32)gz - cz)) / cr;
+						if (e >= 1.f) continue;
+						size_t low = k; f32 most = 0.f;
+						static const int32 ox[4] = { 1, -1, 0, 0 }, oz[4] = { 0, 0, 1, -1 };
+						for (int n = 0; n < 4; n++)
+						{
+							const size_t j = (size_t)(gz + oz[n]) * W + (gx + ox[n]);
+							if (have[j] && g[k] - g[j] > most) { most = g[k] - g[j]; low = j; }
+						}
+						if (most <= talus) continue;
+						const f32 move = (most - talus) * 0.5f * std::min(1.f, (1.f - e) * 4.f);
+						g[k] -= move; g[low] += move;
+					}
+		}
+
 		uint32 changedTiles = 0;
 		for (size_t t = 0; t < touched.size(); t++)
 		{
