@@ -203,7 +203,7 @@ class SceneEditor : public IUInterface {
 	// and get duplicated on every load.
 	void DetachEditorObjects(std::vector<std::shared_ptr<GameObject>> &out);
 	void AttachEditorObjects(std::vector<std::shared_ptr<GameObject>> &saved);
-	void RebuildHelpers();
+	void RebuildHelpers(p3d::GameObject* arrived = NULL);
 
 	// Project-relative form of a path for anything the user reads (labels,
 	// log lines). Falls back to the path as given when there is no project

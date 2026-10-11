@@ -8666,7 +8666,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return project->DisplayPath(path);
 	}
 
-	void SceneEditor::RebuildHelpers()
+	void SceneEditor::RebuildHelpers(GameObject* arrived)
 	{
 		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); i++)
 		{
@@ -8711,7 +8711,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// all be idle until selected.
 		if (!playMode)
 		{
-			ResetParticlePreview();
+			// (a cell that streamed in: its own emitters are stilled - not every emitter of the
+			// scene walked again, a cell at a time, nor the one being previewed stopped)
+			if (arrived != NULL) ForEachParticleSystemOnGameObject(arrived, StopParticleSystemForPlayMode, NULL);
+			else ResetParticlePreview();
 			// Re-decide which sprite sheets animate.
 			texturePreviewSynced = false;
 		}
@@ -8730,7 +8733,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #endif
 		SceneEditor* self = this;
 		editorWorld.reset(new EditorWorld(scene, sceneObjects, scenePath, sceneWorld, physics, lua,
-			[self](GameObject*) { self->RebuildHelpers(); }));
+			[self](GameObject* root) { self->RebuildHelpers(root); }));
 		// Sculpted heights are in files, not in the cell's JSON: a cell with
 		// unsaved brush edits must stay, and one leaving takes its tiles out
 		// of the brushes' bookkeeping.
