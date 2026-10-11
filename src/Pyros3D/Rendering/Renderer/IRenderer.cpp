@@ -2370,7 +2370,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		// Something that casts with a mesh of its own for the purpose
 		// (RenderingComponent::SetShadowRenderable): that, once for the
 		// component, in place of every mesh of its nearest level.
-		if (!rc->shadowMeshes.empty() && rc->LodInUse == 0) return (m == rc->Meshes[0][0]) ? 3 : 0;
+		if (!rc->shadowMeshes.empty() && rc->LodInUse == 0 && !rc->ShadowMeshTooNear()) return (m == rc->Meshes[0][0]) ? 3 : 0;
 		if (cullTest && (f & CullTested) && !CullListTest(i)) return 0;
 		if (g_terrainShadowBaked && dynamic_cast<Heightfield*>(rc->GetRenderable()) != NULL) return 0;
 		if (cullTest && g_shadowView.on && !ShadowReachesView(m)) return 2;

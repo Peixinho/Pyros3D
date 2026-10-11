@@ -362,6 +362,15 @@ namespace p3d {
 		void SetShadowRenderable(const std::shared_ptr<Renderable> &renderable);
 		const std::shared_ptr<Renderable> &GetShadowRenderable() const { return shadowRenderable; }
 		const std::vector<RenderingMesh*> &GetShadowMeshes() const { return shadowMeshes; }
+		// Whether the eye is too near for the shadow's own mesh to stand in:
+		// a model with a quarter of the triangles does not lie where the
+		// model does, and close to, where it lies outside, it throws shadow
+		// onto the model itself - dark triangles beside a nose under a spot
+		// light. Within three times the model's size the model casts its own
+		// shadow. Only where the distance is known (a component with levels
+		// of detail, which is every one the engine gave a shadow mesh to by
+		// itself); one without is as it was.
+		bool ShadowMeshTooNear() const { return LOD && LastLodDistance < shadowMeshFromSQR; }
 		// The usual way to ask for one: the component's own model with this
 		// share of its triangles (SimplifiedModel), 0.25 for a quarter. 0 or 1
 		// goes back to casting itself. Only where the nearest level is a Model
@@ -683,6 +692,7 @@ namespace p3d {
 		std::shared_ptr<Renderable> shadowRenderable;
 		std::vector<RenderingMesh*> shadowMeshes;
 		f32 shadowDetail = 0.f;
+		f32 shadowMeshFromSQR = 0.f;            // see ShadowMeshTooNear(): the square of the distance it stands in from
 
 		// Casting Shadows
 		bool isCastingShadows = true;

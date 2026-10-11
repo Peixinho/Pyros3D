@@ -442,6 +442,11 @@ namespace p3d {
 		const std::vector<RenderingMesh*> &own = Meshes[0];
 		if (own.empty()) return;
 		shadowRenderable = renderable;
+		{
+			f32 size = this->renderable ? this->renderable->GetBoundingSphereRadius() : 0.f;
+			if (Owner) { const Vec3 &sc = Owner->GetScale(); size *= std::max(fabs(sc.x), std::max(fabs(sc.y), fabs(sc.z))); }
+			shadowMeshFromSQR = (3.f * size) * (3.f * size);
+		}
 		for (size_t i = 0; i < renderable->Geometries.size(); i++)
 		{
 			RenderingMesh* m = new RenderingMesh(0);
