@@ -6,6 +6,7 @@
 // Description : Scene save/load to JSON
 //============================================================================
 
+#include <Pyros3D/Assets/Renderable/Plants/GrassTuft.h>
 #include <Pyros3D/Utils/Streaming/LoadStats.h>
 #include <Pyros3D/Utils/Streaming/AssetBundle.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
@@ -1129,6 +1130,17 @@ namespace p3d {
 				j["radius"] = s->GetRadius(); j["tube"] = s->GetTube();
 				j["segmentsW"] = s->GetSegmentsW(); j["segmentsH"] = s->GetSegmentsH();
 				j["p"] = s->GetP(); j["q"] = s->GetQ(); j["heightScale"] = s->GetHeightScale();
+				return j;
+			}
+			case PrimitiveType::GrassTuft:
+			{
+				GrassTuft* s = static_cast<GrassTuft*>(prim);
+				j["shape"] = "GrassTuft";
+				j["blades"] = s->GetBlades(); j["height"] = s->GetHeight(); j["spread"] = s->GetSpread(); j["seed"] = s->GetSeed(); j["bladeWidth"] = s->GetWidth();
+				j["base"] = { s->GetBaseColour().x, s->GetBaseColour().y, s->GetBaseColour().z };
+				j["tip"] = { s->GetTipColour().x, s->GetTipColour().y, s->GetTipColour().z };
+				j["flowers"] = s->GetFlowers();
+				j["flower"] = { s->GetFlowerColour().x, s->GetFlowerColour().y, s->GetFlowerColour().z };
 				return j;
 			}
 			default:
@@ -2905,6 +2917,16 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			else if (shape == "Capsule") r = std::make_shared<Capsule>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("numRings", 8u), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, flip, tb);
 			else if (shape == "Torus") r = std::make_shared<Torus>(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), smooth, flip, tb);
 			else if (shape == "TorusKnot") r = std::make_shared<TorusKnot>(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), j.value("p", 2.0f), j.value("q", 3.0f), j.value("heightScale", 1u), smooth, flip, tb);
+			else if (shape == "GrassTuft")
+			{
+				auto colour = [&j](const char* key, const Vec3 &or_) {
+					if (!j.contains(key) || !j[key].is_array() || j[key].size() < 3) return or_;
+					return Vec3(j[key][0].get<f32>(), j[key][1].get<f32>(), j[key][2].get<f32>());
+				};
+				r = std::make_shared<GrassTuft>(j.value("blades", 9u), j.value("height", 0.4f), j.value("spread", 0.3f), j.value("seed", 1u),
+					colour("base", Vec3(0.20f, 0.27f, 0.08f)), colour("tip", Vec3(0.60f, 0.66f, 0.24f)), j.value("flowers", 0u), colour("flower", Vec3(1.f, 1.f, 1.f)),
+					j.value("bladeWidth", 0.018f));
+			}
 			else echo("WARNING: SceneSerializer - unrecognized primitive shape on load: " + shape);
 		}
 		if (r && outAssets) outAssets->renderables.push_back(r);

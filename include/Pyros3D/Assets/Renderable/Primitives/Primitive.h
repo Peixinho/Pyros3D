@@ -33,6 +33,7 @@ namespace p3d {
 			Capsule,
 			Torus,
 			TorusKnot,
+			GrassTuft,
 			Custom
 		};
 	}
