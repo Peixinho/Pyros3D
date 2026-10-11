@@ -1673,6 +1673,10 @@ void PyrosPlayer::Update()
 	// capturing would render the scene into an FBO that nothing presents,
 	// i.e. a black window for every game that has no post effects.
 	const bool postFX = HavePostEffects();
+	// With a chain the picture on screen is the chain's, made from the renderer's colour texture: the deferred
+	// renderer's own last pass to the screen is drawn over, and its screen-space reflections - which exist only in
+	// that pass - were lost with it. Told to skip the screen, it runs that pass into the texture the chain reads.
+	if (gbufferFBO != NULL) static_cast<DeferredRenderer*>(renderer)->SetSkipRenderToScreen(postFX);
 	if (postFX)
 	{
 		effectsManager->CaptureFrame();

@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdlib>
 //============================================================================
 // Name        : DeferredRenderer.h
 // Author      : Duarte Peixinho
@@ -2206,6 +2208,8 @@ namespace p3d {
 
 	void DeferredRenderer::EnableSSR()
 	{
+		// PYROS_SSR_DEBUG=1|2|3: the reflection pass's own isolation views (see SetSSRDebugMode), with no code.
+		if (const char* dbg = std::getenv("PYROS_SSR_DEBUG")) ssrDebugMode = (f32)std::atoi(dbg);
 		ssrEnabled = 1.0f;
 		lastPassSSREnabledHandle->SetValue(&ssrEnabled);
 	}
