@@ -438,7 +438,10 @@ namespace p3d {
 				const Spray &sp = K.sprays[i];
 				// (the same sprays are kept at every level: the dice are thrown for all of them)
 				const f32 lot = dice.Unit();
-				const Vec4 colour = LeafColour(S, dice, K, sp.at);
+				// (a far crown is fewer, bigger cards with none of the gaps between sprays that darken a
+				// near one: it is given that darkness, or the same wood is paler the further off it is)
+				Vec4 colour = LeafColour(S, dice, K, sp.at);
+				{ const f32 k = d == 0 ? 1.f : (d == 1 ? .80f : .68f); colour = Vec4(colour.x * k, colour.y * k, colour.z * k, 1.f); }
 				const Vec3 normal = LeafNormal(S, K, sp.at);
 				const f32 roll = dice.Unit() * 2.f * kPi;
 				const Vec3 random = dice.OnSphere();
