@@ -4783,6 +4783,36 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// panel of its own.
 	void SceneEditor::DrawPostEffectsInProperties()
 	{
+		// The world, in one place: the sun by the clock here, and below it the scene's effects -
+		// a sky's weather, a water's waves - each with its own sliders.
+		{
+			DirectionalLight* sun = NULL;
+			const std::map<uint32, SceneObject*>& list = sceneObjects->GetList();
+			for (std::map<uint32, SceneObject*>::const_iterator i = list.begin(); i != list.end() && !sun; i++)
+			{
+				if (!i->second || i->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+				GameObject* go = (GameObject*)i->second->GetPTR();
+				if (!go) continue;
+				for (const std::shared_ptr<IComponent>& c : go->GetComponents())
+					if (DirectionalLight* d = dynamic_cast<DirectionalLight*>(c.get())) if (d->IsSun()) { sun = d; break; }
+			}
+			ImGui::Spacing();
+			ImGui::TextUnformatted("World");
+			if (sun)
+			{
+				float hour = sun->GetTimeOfDay();
+				if (ImGui::SliderFloat("Time of day##world", &hour, 0.f, 24.f, "%.2f h")) { sun->SetTimeOfDay(hour); MarkSceneDirty(); }
+				float path[2] = { sun->GetSunAzimuth(), sun->GetSunTilt() };
+				if (ImGui::DragFloat2("Sun path (azimuth, tilt)##world", path, 0.5f, -180.f, 180.f, "%.0f deg"))
+				{
+					const float kept = sun->GetTimeOfDay();
+					sun->SetSunPath(path[0], std::max(0.f, std::min(85.f, path[1])));
+					sun->SetTimeOfDay(kept);
+					MarkSceneDirty();
+				}
+			}
+			else ImGui::TextDisabled("No sun: tick \"Sun\" on a directional light to set the hour here.");
+		}
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Post Effects");
 		ImGui::TextDisabled("Run in order; each reads what the one before produced.");
