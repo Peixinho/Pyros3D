@@ -4801,9 +4801,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (sun)
 			{
 				float hour = sun->GetTimeOfDay();
-				if (ImGui::SliderFloat("Time of day##world", &hour, 0.f, 24.f, "%.2f h")) { sun->SetTimeOfDay(hour); MarkSceneDirty(); }
+				ImGui::TextUnformatted("Time of day");
+				ImGui::SetNextItemWidth(-1.f);
+				if (ImGui::SliderFloat("##world_hour", &hour, 0.f, 24.f, "%.2f h")) { sun->SetTimeOfDay(hour); MarkSceneDirty(); }
 				float path[2] = { sun->GetSunAzimuth(), sun->GetSunTilt() };
-				if (ImGui::DragFloat2("Sun path (azimuth, tilt)##world", path, 0.5f, -180.f, 180.f, "%.0f deg"))
+				ImGui::TextUnformatted("Sun path (azimuth, tilt)");
+				ImGui::SetNextItemWidth(-1.f);
+				if (ImGui::DragFloat2("##world_path", path, 0.5f, -180.f, 180.f, "%.0f deg"))
 				{
 					const float kept = sun->GetTimeOfDay();
 					sun->SetSunPath(path[0], std::max(0.f, std::min(85.f, path[1])));
@@ -4999,6 +5003,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::TextWrapped("File: %s", DisplayPath(scenePath).c_str());
 		else
 			ImGui::TextDisabled("File: (unsaved)");
+
+		// The world first - the hour, then the scene's effects (a sky's weather, a water's
+		// waves) - since that is what a scene's look is set with; its lighting's detail after.
+		DrawPostEffectsInProperties();
+		ImGui::Separator();
 
 		ImGui::Spacing();
 		ImGui::TextUnformatted("Ambient Light");
@@ -5301,7 +5310,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 		}
 #ifdef LUA_BINDINGS
-		DrawPostEffectsInProperties();
 
 		ImGui::Spacing();
 		if (!sceneIsTwoD) DrawWorldSettings();
@@ -10131,6 +10139,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (IsTerrainMode() && !playMode && !sceneIsTwoD)
 		{
 			UpdateTerrainBrush();
+			// (a river being laid out takes the click: a point where it lands)
+			if (TerrainRiverClick()) return;
 			if (BeginTerrainStroke()) return;
 		}
 

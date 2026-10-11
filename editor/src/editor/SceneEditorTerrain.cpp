@@ -903,6 +903,17 @@ void SceneEditor::ToggleComponentTools()
 	else if (!sceneIsTwoD) showNewTerrain = true;	// nothing to edit yet: offer to make one
 }
 
+// The river being laid out: its points, and whether clicks in the view add to them.
+static std::vector<Vec2> gRiverPoints;
+static bool gRiverPick = false;
+
+bool SceneEditor::TerrainRiverClick()
+{
+	if (!gRiverPick || !terrainTools || !terrainTools->HoverValid()) return false;
+	gRiverPoints.push_back(Vec2(terrainTools->HoverPoint().x, terrainTools->HoverPoint().z));
+	return true;
+}
+
 void SceneEditor::DrawTerrainTools()
 {
 	if (sceneIsTwoD) return;
@@ -981,6 +992,22 @@ void SceneEditor::DrawTerrainTools()
 	{
 		static const char* layers[] = { "0  Grass", "1  Dirt", "2  Rock", "3  Sand", "4  None (the shader's own: stones)" };
 		t.layer = std::max(0, std::min(4, t.layer));
+		// (one button a layer, in its own colour: what is being painted shows at a glance)
+		{
+			static const char* names[] = { "Grass", "Dirt", "Rock", "Sand", "None" };
+			static const ImVec4 tint[] = { ImVec4(0.30f, 0.46f, 0.20f, 1.f), ImVec4(0.42f, 0.32f, 0.22f, 1.f), ImVec4(0.45f, 0.45f, 0.47f, 1.f), ImVec4(0.78f, 0.70f, 0.52f, 1.f), ImVec4(0.25f, 0.25f, 0.27f, 1.f) };
+			const float swatch = std::max(30.f, (ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ItemSpacing.x * 4.f) / 5.f);
+			for (int i = 0; i < 5; i++)
+			{
+				if (i) ImGui::SameLine();
+				ImGui::PushStyleColor(ImGuiCol_Button, tint[i]);
+				ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImVec4(tint[i].x + 0.08f, tint[i].y + 0.08f, tint[i].z + 0.08f, 1.f));
+				ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, t.layer == i ? 2.f : 0.f);
+				if (ImGui::Button(names[i], ImVec2(swatch, 34.f))) t.layer = i;
+				ImGui::PopStyleVar();
+				ImGui::PopStyleColor(2);
+			}
+		}
 		ImGui::Combo("Layer", &t.layer, layers, 5);
 		ImGui::TextWrapped("Paints the tile's splat map. Layer textures are the splat material's layer0..layer3 samplers.");
 	}
@@ -1111,7 +1138,7 @@ void SceneEditor::DrawTerrainTools()
 	// Build cuts the bed along them (terrain_river) and makes the water's depth picture again.
 	if (ImGui::CollapsingHeader("River"))
 	{
-		static std::vector<Vec2> riverPoints;
+		std::vector<Vec2> &riverPoints = gRiverPoints;
 		static float riverWidth = 10.f, riverDepth = 2.4f, riverBank = 9.f, riverWater = 0.f, riverStones = 0.f;
 		static bool riverToLevel = false, riverClear = true;
 		static char riverDepthTexture[256] = "";
@@ -1124,6 +1151,8 @@ void SceneEditor::DrawTerrainTools()
 		ImGui::Checkbox("Down to a water level", &riverToLevel);
 		if (riverToLevel) ImGui::InputFloat("Water level", &riverWater);
 		ImGui::InputTextWithHint("Depth texture", "assets/textures/sea_depth.png (optional)", riverDepthTexture, sizeof(riverDepthTexture));
+		ImGui::Checkbox("Click in the view to add points", &gRiverPick);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("From the source to the mouth. While this is on, a click on the ground\nis a point of the river and not a stroke of the brush.");
 		if (ImGui::Button("Add point at cursor") && t.HoverValid()) riverPoints.push_back(Vec2(t.HoverPoint().x, t.HoverPoint().z));
 		ImGui::SameLine();
 		if (ImGui::Button("Remove last") && !riverPoints.empty()) riverPoints.pop_back();
@@ -1139,10 +1168,10 @@ void SceneEditor::DrawTerrainTools()
 			if (riverDepthTexture[0]) a["depthTexture"] = std::string(riverDepthTexture);
 			nlohmann::json out; std::string err;
 			if (!AgentTerrain("terrain_river", a, out, err)) echo("ERROR: River - " + err);
-			else riverPoints.clear();
+			else { riverPoints.clear(); gRiverPick = false; }
 		}
 		ImGui::SameLine();
-		if (ImGui::Button("Cancel")) riverPoints.clear();
+		if (ImGui::Button("Cancel")) { riverPoints.clear(); gRiverPick = false; }
 		// The water's depth picture, made again from the ground as it now is (after sculpting a
 		// shore, say): what a water shader reads for its shallows, its foam and where it ends.
 		ImGui::Separator();
@@ -1409,6 +1438,21 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	// The panel's controls: {"on":true,"tool":"raise","radius":8,...}.
 	if (command == "terrain_brush")
 	{
+		// "edit": true - what a click on the Terrain component in the tree does: it becomes the
+		// selection, and its tools open. (false: the selection is dropped.)
+		if (args.contains("edit") && args["edit"].is_boolean())
+		{
+			if (!args["edit"].get<bool>()) SelectSceneObject(NULL);
+			else
+			{
+				SceneObject* found = NULL;
+				const std::map<uint32, SceneObject*>& list = sceneObjects->GetList();
+				for (std::map<uint32, SceneObject*>::const_iterator i = list.begin(); i != list.end() && !found; i++)
+					if (i->second && i->second->GetType() == SceneObjectTypes::TERRAIN_COMPONENT) found = i->second;
+				if (!found) { errOut = "the scene has no Terrain component"; return false; }
+				SelectSceneObject(found);
+			}
+		}
 		if (args.contains("tool"))
 		{
 			TerrainTools::Tool tool;

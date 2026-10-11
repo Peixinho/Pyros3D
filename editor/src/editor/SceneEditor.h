@@ -1002,6 +1002,8 @@ private:
 	// reorder/enable and a widget per parameter.
 	void DrawPostEffectsInProperties();
 	// Shared by built-in and asset entries - see the definition.
+	// A river's points picked by clicks in the view (the River tools' "Click in the view"): true when it took this one.
+	bool TerrainRiverClick();
 	bool DrawPostEffectParams(const std::vector<CustomEffect::Param> &params, SceneMeta::PostEffectEntry &entry);
 	// Parameter metadata for one effect asset, read from its `//! param`
 	// lines. Cached by project-relative path: the panel needs it every frame
