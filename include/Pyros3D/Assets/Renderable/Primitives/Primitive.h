@@ -42,6 +42,9 @@ namespace p3d {
 	public:
 		std::vector<Vec3> tVertex, tNormal, tTangent, tBitangent;
 		std::vector<Vec2> tTexcoord;
+		// A colour for each vertex (aColor: ShaderUsage::VertexColor). Left empty, the
+		// geometry has no such attribute - every shape but the ones that fill it.
+		std::vector<Vec4> tColor;
 
 		void CreateBuffers(bool calculateTangentBitangent = false);
 

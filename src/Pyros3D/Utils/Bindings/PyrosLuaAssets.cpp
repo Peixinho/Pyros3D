@@ -5,6 +5,7 @@
 
 #ifdef LUA_BINDINGS
 
+#include <Pyros3D/Assets/Renderable/Trees/Tree.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
@@ -76,6 +77,25 @@ namespace p3d {
 				),
 				sol::base_classes, sol::bases<Renderable>()
 				);
+			// TreeMesh.new(species, seed, part[, detail]): one part (TreePart.Wood / Leaves) of
+			// a tree grown from a species (TreeSpecies.*) and a seed - see Tree.h.
+			lua->new_usertype<TreeMesh>("TreeMesh",
+				sol::factories(
+					[](uint32 species, uint32 seed, uint32 part, uint32 detail) { return std::make_shared<TreeMesh>(species, seed, part, detail); },
+					[](uint32 species, uint32 seed, uint32 part) { return std::make_shared<TreeMesh>(species, seed, part, 0); }
+				),
+				sol::base_classes, sol::bases<Renderable>(),
+				"getHeight", &TreeMesh::GetHeight,
+				"getCrownRadius", &TreeMesh::GetCrownRadius,
+				"getTrunkRadius", &TreeMesh::GetTrunkRadius,
+				"barkTexture", [](uint32 species) { return TreeMesh::BarkTexture(species); },
+				"leafTexture", [](uint32 species) { return TreeMesh::LeafTexture(species); },
+				"speciesName", [](uint32 species) { return std::string(TreeMesh::SpeciesName(species)); },
+				"hasLeaves", [](uint32 species) { return TreeMesh::HasLeaves(species); }
+				);
+			(*lua)["TreeSpecies"] = lua->create_table_with("Oak", TreeSpecies::Oak, "Birch", TreeSpecies::Birch, "Spruce", TreeSpecies::Spruce,
+				"ScotsPine", TreeSpecies::ScotsPine, "Palm", TreeSpecies::Palm, "Dead", TreeSpecies::Dead, "Bush", TreeSpecies::Bush, "Count", TreeSpecies::Count);
+			(*lua)["TreePart"] = lua->create_table_with("Wood", TreePart::Wood, "Leaves", TreePart::Leaves);
 			// Plane - shared_ptr via sol::factories
 			lua->new_usertype<Plane>("Plane",
 				sol::factories(

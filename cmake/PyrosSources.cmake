@@ -191,6 +191,8 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Primitives/Shapes/Torus.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Primitives/Shapes/Card.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Trees/TreeMesh.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Trees/TreeTextures.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Primitives/Shapes/Cylinder.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Terrains/Terrain.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Terrains/Heightfield.cpp

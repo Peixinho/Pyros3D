@@ -47,7 +47,8 @@ namespace p3d {
 				"PBRMap", ShaderUsage::PBRMap,
 				"AlphaTest", ShaderUsage::AlphaTest,
             "InstancedColor", ShaderUsage::InstancedColor,
-            "VertexWind", ShaderUsage::VertexWind
+            "VertexWind", ShaderUsage::VertexWind,
+            "VertexColor", ShaderUsage::VertexColor
 			);
 
 			lua->new_enum("TextureTransparency",

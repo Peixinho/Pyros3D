@@ -20,6 +20,8 @@ namespace p3d {
 		Vertex->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3, &tVertex[0], tVertex.size());
 		Vertex->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3, &tNormal[0], tNormal.size());
 		Vertex->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2, &tTexcoord[0], tTexcoord.size());
+		if (!tColor.empty() && tColor.size() == tVertex.size())
+			Vertex->AddAttribute("aColor", Buffer::Attribute::Type::Vec4, &tColor[0], tColor.size());
 
 		if (calculateTangentBitangent)
 		{

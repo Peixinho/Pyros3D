@@ -5,6 +5,7 @@
 
 #ifdef LUA_BINDINGS
 
+#include <Pyros3D/Assets/Renderable/Trees/Tree.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
@@ -777,6 +778,7 @@ namespace p3d {
 		if (o.is<std::shared_ptr<Sphere>>()) return o.as<std::shared_ptr<Sphere>>();
 		if (o.is<std::shared_ptr<Plane>>()) return o.as<std::shared_ptr<Plane>>();
 		if (o.is<std::shared_ptr<Card>>()) return o.as<std::shared_ptr<Card>>();
+		if (o.is<std::shared_ptr<TreeMesh>>()) return o.as<std::shared_ptr<TreeMesh>>();
 		if (o.is<std::shared_ptr<Capsule>>()) return o.as<std::shared_ptr<Capsule>>();
 		if (o.is<std::shared_ptr<Cone>>()) return o.as<std::shared_ptr<Cone>>();
 		if (o.is<std::shared_ptr<Cylinder>>()) return o.as<std::shared_ptr<Cylinder>>();
