@@ -1292,6 +1292,53 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	// maxSlope (degrees), weight, edge}]}: a wood, not a row of trees - `count` tries over the disc,
 	// each planting whichever of the rules fits the ground there (heights are above `sea`), nothing
 	// nearer another than `spacing`. A rule with "edge": true is kept to the rim. One undo step.
+	// terrain_river {points: [[x,z],...], width, depth, bank, level}: a river's bed cut along a line
+	// from its source to its mouth - `width` across at the bottom, `depth` under the ground it runs
+	// through (or, with "level", down to that world height: under a sea's level the sea fills it),
+	// the banks eased out over `bank` metres. One undo step.
+	if (command == "terrain_river")
+	{
+		if (playMode || sceneIsTwoD) { errOut = "a river needs a 3D scene outside play"; return false; }
+		if (!args.contains("points") || !args["points"].is_array() || args["points"].size() < 2) { errOut = "'points' ([[x,z],...], two or more) is required"; return false; }
+		const f32 width = args.value("width", 10.f), depth = args.value("depth", 2.4f), bank = args.value("bank", 9.f);
+		const bool toLevel = args.contains("level");
+		const f32 level = args.value("level", 0.f);
+		const TerrainTools::Tool keptTool = t.tool;
+		const f32 keptRadius = t.radius, keptStrength = t.strength, keptHardness = t.hardness;
+		const bool wasActive = t.active;
+		const nlohmann::json &pts = args["points"];
+		const f32 x0 = pts[0].at(0).get<f32>(), z0 = pts[0].at(1).get<f32>();
+		f32 h0; Vec3 n0;
+		if (!TerrainTools::GroundPoint(scene, x0, z0, h0, n0)) { errOut = "the river's source is off the terrain"; return false; }
+		t.tool = TerrainTools::Flatten; t.radius = width * 0.5f + bank; t.strength = 1.f;
+		t.hardness = std::min(0.95f, (width * 0.5f) / std::max(0.5f, t.radius));
+		t.active = true;
+		t.Update(scene, true, Vec3(x0, h0 + 1000.f, z0), Vec3(0.f, -1.f, 0.f), 0.f);
+		if (!BeginTerrainStroke()) { t.tool = keptTool; t.radius = keptRadius; t.strength = keptStrength; t.hardness = keptHardness; t.active = wasActive; errOut = "could not start a stroke there"; return false; }
+		uint32 dabs = 0;
+		f32 bed = h0 - depth;                 // a river only runs down: its bed never rises along its way
+		for (size_t i = 0; i + 1 < pts.size(); i++)
+		{
+			const Vec2 a(pts[i].at(0).get<f32>(), pts[i].at(1).get<f32>()), b(pts[i + 1].at(0).get<f32>(), pts[i + 1].at(1).get<f32>());
+			const f32 len = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
+			const int steps = std::max(1, (int)(len / std::max(1.f, width * 0.35f)));
+			for (int s = 0; s <= steps; s++)
+			{
+				const f32 k = (f32)s / (f32)steps;
+				const f32 px = a.x + (b.x - a.x) * k, pz = a.y + (b.y - a.y) * k;
+				f32 h; Vec3 n;
+				if (!TerrainTools::GroundPoint(scene, px, pz, h, n)) continue;
+				bed = toLevel ? level : std::min(bed, h - depth);
+				t.SetLevel(bed);
+				for (int pass = 0; pass < 3; pass++) if (t.ApplyAt(scene, px, pz, 1.f)) dabs++;
+			}
+		}
+		EndTerrainStroke();
+		t.tool = keptTool; t.radius = keptRadius; t.strength = keptStrength; t.hardness = keptHardness; t.active = wasActive;
+		out = t.State(scene);
+		out["dabs"] = dabs;
+		return true;
+	}
 	if (command == "terrain_populate")
 	{
 		if (playMode || sceneIsTwoD) { errOut = "populate needs a 3D scene outside play"; return false; }
