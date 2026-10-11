@@ -361,7 +361,7 @@ namespace p3d {
 	void HeightfieldMesh::Pack()
 	{
 		const size_t n = vertex.size();
-		packed.clear();
+		packed.clear(); packedIndex.clear();
 		if (n == 0 || normal.size() != n || texcoord.size() != n || tangent.size() != n || bitangent.size() != n) return;
 		const size_t stride = sizeof(Vec3) * 4 + sizeof(Vec2);
 		packed.resize(n * stride);
@@ -374,11 +374,17 @@ namespace p3d {
 			memcpy(at, &tangent[i], sizeof(Vec3)); at += sizeof(Vec3);
 			memcpy(at, &bitangent[i], sizeof(Vec3)); at += sizeof(Vec3);
 		}
+		if (!index.empty())
+		{
+			const uchar* first = (const uchar*)&index[0];
+			packedIndex.assign(first, first + index.size() * sizeof(uint32));
+		}
 	}
 
 	void Heightfield::Upload(HeightfieldMesh &&mesh)
 	{
 		std::vector<uchar> packed = std::move(mesh.packed);
+		std::vector<uchar> packedIndex = std::move(mesh.packedIndex);
 		geometry->tVertex = std::move(mesh.vertex);
 		geometry->tNormal = std::move(mesh.normal);
 		geometry->tTexcoord = std::move(mesh.texcoord);
@@ -402,7 +408,15 @@ namespace p3d {
 			laid->AddAttribute("aBitangent", Buffer::Attribute::Type::Vec3, NULL, count);
 			laid->SetPacked(std::move(packed), count);
 			geometry->Attributes.push_back(laid);
-			geometry->SendBuffers();
+			if (sizeof(__INDEX_C_TYPE__) == sizeof(uint32) && packedIndex.size() == geometry->index.size() * sizeof(uint32))
+			{
+				// (what IGeometry::SendBuffers does, with the triangles handed over as well)
+				geometry->IndexBuffer = new GeometryBuffer(Buffer::Type::Index, Buffer::Draw::Static);
+				geometry->IndexBuffer->InitOwned(std::move(packedIndex));
+				laid->SendBuffer();
+				geometry->buffersRevision++;
+			}
+			else geometry->SendBuffers();
 			minBounds = Vec3(0.f, data ? data->minHeight : 0.f, 0.f);
 			maxBounds = Vec3(data ? data->size : 0.f, data ? data->maxHeight : 0.f, data ? data->size : 0.f);
 			BoundingSphereCenter = (minBounds + maxBounds) * 0.5f;

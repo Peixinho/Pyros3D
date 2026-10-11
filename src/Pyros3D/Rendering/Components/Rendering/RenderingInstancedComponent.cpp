@@ -90,8 +90,8 @@ namespace p3d {
 		transform = std::move(transforms);
 		nrInstances = (uint32)transform.size();
 		// (one copy, into what the device is handed: the instances themselves are kept here)
-		std::vector<uchar> bytes(transform.size() * sizeof(Matrix));
-		if (!bytes.empty()) memcpy(&bytes[0], &transform[0], bytes.size());
+		const uchar* first = transform.empty() ? NULL : (const uchar*)&transform[0];
+		std::vector<uchar> bytes(first, first + transform.size() * sizeof(Matrix));
 		transform_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
 		transform_buffer->AddAttribute("aInstancedTransform", Buffer::Attribute::Type::Matrix, NULL, (uint32)transform.size(), 1);
 		transform_buffer->SetPacked(std::move(bytes), (uint32)transform.size());
@@ -101,8 +101,8 @@ namespace p3d {
 		if (!tints.empty() && tints.size() == transform.size())
 		{
 			instanceColor = std::move(tints);
-			std::vector<uchar> tintBytes(instanceColor.size() * sizeof(Vec4));
-			memcpy(&tintBytes[0], &instanceColor[0], tintBytes.size());
+			const uchar* firstTint = (const uchar*)&instanceColor[0];
+			std::vector<uchar> tintBytes(firstTint, firstTint + instanceColor.size() * sizeof(Vec4));
 			color_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
 			color_buffer->AddAttribute("aInstancedColor", Buffer::Attribute::Type::Vec4, NULL, (uint32)instanceColor.size(), 1);
 			color_buffer->SetPacked(std::move(tintBytes), (uint32)instanceColor.size());

@@ -13,6 +13,9 @@
 #include <stdlib.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <vector>
+#include <filesystem>
+#include <mutex>
+#include <unordered_map>
 #include <sstream>
 
 namespace p3d {
@@ -109,11 +112,14 @@ namespace p3d {
 
 	Shader::~Shader() {}
 
+	// (the files a text was read from, noted for whoever keeps it: see LoadShaderFile)
+	namespace { thread_local std::vector<std::string>* t_sourceFiles = NULL; }
 	std::string Shader::LoadFileSource(const char *filename)
 	{
 		std::string shaderSource;
 
 		std::ifstream t(filename);
+		if (t_sourceFiles != NULL && !t.fail()) t_sourceFiles->push_back(filename);
 		std::string str;
 
 		if (t.fail()) {
@@ -168,9 +174,52 @@ namespace p3d {
 		return shaderSource;
 	}
 
+	// A shader file's text, read once and kept while the file - and every file it includes -
+	// is as it was (their times of writing): a tile of terrain coming in used to open and
+	// read its material's file again, on the frame's own thread, a tile at a time.
+	namespace {
+		struct KeptSource { std::string text; std::vector<std::pair<std::string, std::filesystem::file_time_type> > files; };
+		std::mutex g_keptSourceLock;
+		std::unordered_map<std::string, KeptSource> g_keptSource;
+		bool WrittenAt(const std::string &path, std::filesystem::file_time_type &at)
+		{
+			std::error_code ec;
+			at = std::filesystem::last_write_time(path, ec);
+			return !ec;
+		}
+	}
 	void Shader::LoadShaderFile(const char* filename)
 	{
+		const std::string name = filename ? filename : "";
+		{
+			std::lock_guard<std::mutex> g(g_keptSourceLock);
+			std::unordered_map<std::string, KeptSource>::const_iterator it = g_keptSource.find(name);
+			if (it != g_keptSource.end())
+			{
+				bool same = !it->second.files.empty();
+				for (size_t i = 0; same && i < it->second.files.size(); i++)
+				{
+					std::filesystem::file_time_type at;
+					same = WrittenAt(it->second.files[i].first, at) && at == it->second.files[i].second;
+				}
+				if (same) { shaderString = it->second.text; return; }
+			}
+		}
+		std::vector<std::string> files;
+		t_sourceFiles = &files;
 		shaderString = LoadFileSource(filename);
+		t_sourceFiles = NULL;
+		KeptSource kept;
+		kept.text = shaderString;
+		bool all = !files.empty();
+		for (size_t i = 0; all && i < files.size(); i++)
+		{
+			std::filesystem::file_time_type at;
+			all = WrittenAt(files[i], at);
+			if (all) kept.files.push_back(std::make_pair(files[i], at));
+		}
+		std::lock_guard<std::mutex> g(g_keptSourceLock);
+		if (all) g_keptSource[name] = kept; else g_keptSource.erase(name);
 	}
 
 	void Shader::LoadShaderText(const std::string &text)

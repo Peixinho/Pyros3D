@@ -95,6 +95,8 @@
 #include <cmath>
 #include <sstream>
 #include <map>
+#include <mutex>
+#include <unordered_set>
 #include <filesystem>
 
 namespace p3d {
@@ -175,8 +177,19 @@ namespace p3d {
 	static bool SceneAssetFileExists(const std::string &path)
 	{
 		if (path.empty()) return false;
+		// (found once, it is there: an asset's file is not opened again to ask - by every tile
+		// and every cell that names it, on the frame's own thread. Not found is asked again.)
+		static std::mutex lock;
+		static std::unordered_set<std::string> found;
+		{
+			std::lock_guard<std::mutex> g(lock);
+			if (found.count(path)) return true;
+		}
 		std::ifstream in(path.c_str());
-		return in.good();
+		if (!in.good()) return false;
+		std::lock_guard<std::mutex> g(lock);
+		found.insert(path);
+		return true;
 	}
 
 	// Animation clip guids are 16 RAW bytes, which are not valid UTF-8 and

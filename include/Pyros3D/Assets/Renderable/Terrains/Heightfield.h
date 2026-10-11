@@ -101,6 +101,7 @@ namespace p3d {
 		// The vertices as the GPU takes them (position, normal, texcoord, tangent, bitangent), laid
 		// out by Build() on whatever thread it runs on: Heightfield::Upload hands this over as it is.
 		std::vector<uchar> packed;
+		std::vector<uchar> packedIndex;
 		void Pack();
 
 		// Every step-th grid point (a power of two that divides samples-1;
