@@ -1029,13 +1029,14 @@ void SceneEditor::DrawTerrainTools()
 	{
 		static std::vector<Vec2> riverPoints;
 		static float riverWidth = 10.f, riverDepth = 2.4f, riverBank = 9.f, riverWater = 0.f, riverStones = 0.f;
-		static bool riverToLevel = false;
+		static bool riverToLevel = false, riverClear = true;
 		static char riverDepthTexture[256] = "";
 		ImGui::SliderFloat("Width (m)", &riverWidth, 1.f, 60.f, "%.1f");
 		ImGui::SliderFloat("Depth (m)", &riverDepth, 0.2f, 12.f, "%.1f");
 		ImGui::SliderFloat("Bank width (m)", &riverBank, 0.f, 40.f, "%.1f");
 		ImGui::SliderFloat("Bare banks (m)", &riverStones, 0.f, 12.f, "%.1f");
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clears the ground's four layers and what grows, this far past the water's edge:\nfor a terrain material that lays stones of its own where no layer is painted.");
+		ImGui::Checkbox("Remove trees and rocks in the channel", &riverClear);
 		ImGui::Checkbox("Down to a water level", &riverToLevel);
 		if (riverToLevel) ImGui::InputFloat("Water level", &riverWater);
 		ImGui::InputTextWithHint("Depth texture", "assets/textures/sea_depth.png (optional)", riverDepthTexture, sizeof(riverDepthTexture));
@@ -1049,7 +1050,7 @@ void SceneEditor::DrawTerrainTools()
 			nlohmann::json a;
 			a["points"] = nlohmann::json::array();
 			for (size_t i = 0; i < riverPoints.size(); i++) a["points"].push_back({ riverPoints[i].x, riverPoints[i].y });
-			a["width"] = riverWidth; a["depth"] = riverDepth; a["bank"] = riverBank; a["stones"] = riverStones;
+			a["width"] = riverWidth; a["depth"] = riverDepth; a["bank"] = riverBank; a["stones"] = riverStones; a["clear"] = riverClear;
 			if (riverToLevel) { a["level"] = riverWater - riverDepth; a["waterLevel"] = riverWater; }
 			if (riverDepthTexture[0]) a["depthTexture"] = std::string(riverDepthTexture);
 			nlohmann::json out; std::string err;
@@ -1450,9 +1451,42 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 			}
 		}
 		t.layer = keptLayer; t.density = keptDensity;
+		// What stood where the water now runs ("clear": true): every top-level object within the channel
+		// that holds nothing but something drawn - a tree, a rock - is deleted (each its own undo step).
+		// Objects with a terrain, a light, a script or anything else under them are left alone.
+		uint32 cleared = 0;
+		if (args.value("clear", false))
+		{
+			std::vector<uint32> gone;
+			const std::map<uint32, SceneObject*> &all = sceneObjects->GetList();
+			for (std::map<uint32, SceneObject*>::const_iterator i = all.begin(); i != all.end(); ++i)
+			{
+				SceneObject* o = i->second;
+				if (!o || o->GetType() != SceneObjectTypes::GAMEOBJECT || o->GetParentID() != 0 || !o->GetPTR()) continue;
+				bool drawn = false, other = false;
+				for (std::map<uint32, SceneObject*>::const_iterator c = all.begin(); c != all.end(); ++c)
+					if (c->second && c->second->GetParentID() == o->GetID())
+					{
+						if (c->second->GetType() == SceneObjectTypes::RENDERING_COMPONENT || c->second->GetType() == SceneObjectTypes::PHYSICS_COMPONENT) drawn = true;
+						else if (c->second->GetType() != SceneObjectTypes::GAMEOBJECT) other = true;
+					}
+				if (!drawn || other) continue;
+				const Vec3 p = ((GameObject*)o->GetPTR())->GetWorldPosition();
+				for (size_t k = 0; k + 1 < pts.size(); k++)
+				{
+					const Vec2 a(pts[k].at(0).get<f32>(), pts[k].at(1).get<f32>()), b(pts[k + 1].at(0).get<f32>(), pts[k + 1].at(1).get<f32>());
+					const f32 abx = b.x - a.x, abz = b.y - a.y, l2 = abx * abx + abz * abz;
+					const f32 tt = l2 > 0.f ? std::min(1.f, std::max(0.f, ((p.x - a.x) * abx + (p.z - a.y) * abz) / l2)) : 0.f;
+					const f32 dx = p.x - (a.x + abx * tt), dz = p.z - (a.y + abz * tt);
+					if (dx * dx + dz * dz < (width * 0.5f + 1.5f) * (width * 0.5f + 1.5f)) { gone.push_back(o->GetID()); break; }
+				}
+			}
+			for (size_t g = 0; g < gone.size(); g++) { std::string derr; if (OpDeleteGameObject(gone[g], derr)) cleared++; }
+		}
 		t.tool = keptTool; t.radius = keptRadius; t.strength = keptStrength; t.hardness = keptHardness; t.active = wasActive;
 		out = t.State(scene);
 		out["dabs"] = dabs;
+		out["cleared"] = cleared;
 		// (the water's picture of the depth, made again: or the new river is drawn as shore)
 		if (args.contains("depthTexture"))
 		{
