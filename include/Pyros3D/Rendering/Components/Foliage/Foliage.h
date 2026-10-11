@@ -171,6 +171,10 @@ namespace p3d {
 		// A process that draws nothing (a dedicated server) grows none: the
 		// plants are only ever looked at.
 		static void SetHeadless(const bool on);
+		// (see Foliage.cpp: the application's quality setting - reach and amount, 1 and 1 as authored)
+		static void SetQuality(const f32 reach, const f32 amount);
+		static f32 GetReach();
+		static f32 GetAmount();
 		static void SetThinning(const bool on);
 		static bool GetThinning();
 

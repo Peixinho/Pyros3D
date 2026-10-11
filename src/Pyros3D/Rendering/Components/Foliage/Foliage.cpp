@@ -182,8 +182,17 @@ namespace p3d {
 	void FoliageComponent::SetViewer(const Vec3 &worldPosition) { g_viewer = worldPosition; }
 	const Vec3 &FoliageComponent::GetViewer() { return g_viewer; }
 
-	f32 FoliageComponent::DensityAt(const FoliageLayerSpec &spec, const f32 d)
+	// Quality, set by the application for the machine it is on (a scene is authored at
+	// its best): how far foliage reaches, as a multiple of each layer's own distances, and
+	// how much of it is kept. 1 and 1: as authored.
+	static f32 g_foliageReach = 1.f, g_foliageAmount = 1.f;
+	void FoliageComponent::SetQuality(const f32 reach, const f32 amount) { g_foliageReach = std::max(0.1f, reach); g_foliageAmount = std::min(1.f, std::max(0.05f, amount)); }
+	f32 FoliageComponent::GetReach() { return g_foliageReach; }
+	f32 FoliageComponent::GetAmount() { return g_foliageAmount; }
+
+	f32 FoliageComponent::DensityAt(const FoliageLayerSpec &spec, const f32 dWorld)
 	{
+		const f32 d = dWorld / g_foliageReach;
 		if (d <= spec.fullDistance) return 1.f;
 		if (d >= spec.fadeDistance || spec.fadeDistance <= spec.fullDistance) return 0.f;
 		// Held near full most of the way, then cut: thinning removes whole
@@ -198,13 +207,14 @@ namespace p3d {
 	void FoliageComponent::SetThinning(const bool on) { g_thinning = on; }
 	bool FoliageComponent::GetThinning() { return g_thinning; }
 
-	f32 FoliageComponent::ThinningAt(const FoliageLayerSpec &spec, const f32 d)
+	f32 FoliageComponent::ThinningAt(const FoliageLayerSpec &spec, const f32 dWorld)
 	{
-		if (!g_thinning || spec.thinDensity >= 1.f || d <= spec.thinFrom) return 1.f;
+		const f32 d = dWorld / g_foliageReach;
+		if (!g_thinning || spec.thinDensity >= 1.f || d <= spec.thinFrom) return g_foliageAmount;
 		const f32 least = std::max(0.05f, spec.thinDensity);
-		if (d >= spec.thinTo || spec.thinTo <= spec.thinFrom) return least;
+		if (d >= spec.thinTo || spec.thinTo <= spec.thinFrom) return least * g_foliageAmount;
 		const f32 t = (d - spec.thinFrom) / (spec.thinTo - spec.thinFrom);
-		return 1.f + (least - 1.f) * (t * t * (3.f - 2.f * t));
+		return (1.f + (least - 1.f) * (t * t * (3.f - 2.f * t))) * g_foliageAmount;
 	}
 
 	void FoliageComponent::BuildBlocks(GameObject* owner, Layer &layer, PreparedFoliageLayer &prepared,

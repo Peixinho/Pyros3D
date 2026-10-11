@@ -336,6 +336,8 @@ namespace p3d {
 		static void SetAutoLOD(const bool on);
 		static bool GetAutoLOD();
 		static void SetAutoLODInUse(const bool on);
+		static void SetLODDistanceScale(const f32 scale);
+		static f32 GetLODDistanceScale();
 		static bool GetAutoLODInUse();
 		// A last level with nothing in it: beyond the reach of the level
 		// before, the component is not drawn (and casts nothing). For the

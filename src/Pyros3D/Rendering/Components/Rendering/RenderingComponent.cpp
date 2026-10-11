@@ -354,6 +354,12 @@ namespace p3d {
 	bool RenderingComponent::GetAutoLOD() { return g_autoLod; }
 	void RenderingComponent::SetAutoLODInUse(const bool on) { if (on != g_autoLodInUse) { g_autoLodInUse = on; g_autoLodChanges++; RenderState::Touch(); } }
 	bool RenderingComponent::GetAutoLODInUse() { return g_autoLodInUse; }
+	// How far each level of detail reaches, as a multiple of what the scene says: the
+	// application's quality setting for the machine it is on (1: as authored; 2: every
+	// level kept to twice the distance; 0.5: half).
+	namespace { f32 g_lodScale = 1.f; }
+	void RenderingComponent::SetLODDistanceScale(const f32 scale) { const f32 s = std::max(0.05f, scale); if (s != g_lodScale) { g_lodScale = s; g_autoLodChanges++; RenderState::Touch(); } }
+	f32 RenderingComponent::GetLODDistanceScale() { return g_lodScale; }
 
 	void RenderingComponent::TryAutomaticLODs()
 	{
@@ -475,7 +481,7 @@ namespace p3d {
 	uint32 RenderingComponent::LevelAtDistanceSQR(const f32 Distance) const
 	{
 		for (size_t i = 0; i < LODDistances.size(); i++)
-			if (Distance < LODDistances[i] * LODDistances[i])
+			if (Distance < LODDistances[i] * LODDistances[i] * g_lodScale * g_lodScale)
 				return (autoLevels != 0 && !g_autoLodInUse && i >= 1 && i <= autoLevels) ? 0 : (uint32)i;
 		return (uint32)LODDistances.size();
 	}
@@ -487,7 +493,7 @@ namespace p3d {
 			autoLodSeen = g_autoLodChanges;
 			for (size_t i = 0; i < LODDistances.size(); i++)
 			{
-				if (Distance < LODDistances[i] * LODDistances[i])
+				if (Distance < LODDistances[i] * LODDistances[i] * g_lodScale * g_lodScale)
 				{
 					// (automatic levels not in use: the model itself in their place)
 					if (autoLevels != 0 && !g_autoLodInUse && i >= 1 && i <= autoLevels) return 0;

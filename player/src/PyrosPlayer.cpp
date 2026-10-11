@@ -467,6 +467,11 @@ end
 	lua.set_function("setNearestFirst", [](const bool on) { DeferredRenderer::SetNearestFirst(on); });
 	// setFoliageThinning(false): every plant of a field drawn, however far (see FoliageLayerSpec::thinDensity)
 	lua.set_function("setFoliageThinning", [](const bool on) { FoliageComponent::SetThinning(on); });
+	// Quality for the machine the game is on - scenes are authored at their best:
+	// setLODScale(k): every level of detail reaches k times as far; setFoliageQuality(reach, amount):
+	// how far grass and the like are drawn (a multiple of each layer's distances) and how much of it.
+	lua.set_function("setLODScale", [](const f32 k) { RenderingComponent::SetLODDistanceScale(k); });
+	lua.set_function("setFoliageQuality", [](const f32 reach, const f32 amount) { FoliageComponent::SetQuality(reach, amount); });
 	lua.set_function("getFoliageThinning", []() { return FoliageComponent::GetThinning(); });
 	lua.set_function("setSunLaysAmbient", [](const bool on) { DeferredRenderer::SetSunLaysAmbient(on); });
 	// setUpscaleSharpness(0.6): how sharp a frame rendered below the window's size is
