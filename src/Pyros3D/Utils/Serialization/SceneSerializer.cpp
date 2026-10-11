@@ -1408,6 +1408,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				j["material"] = GetOrAddMaterial(mat, materialsArray, materialIdMap);
 				j["renderable"] = renderableJson;
 				if (rc->GetShadowDetail() > 0.f) j["shadowDetail"] = rc->GetShadowDetail();
+				// (a shape of its own to cast the shadow from - a far tree for a near one)
+				else if (rc->GetShadowRenderable() && dynamic_cast<Primitive*>(rc->GetShadowRenderable().get()) != NULL)
+				{
+					const json sr = SerializeRenderable(rc->GetShadowRenderable().get());
+					if (!sr.is_null()) j["shadowRenderable"] = sr;
+				}
 				// (the further levels of detail: see the loader)
 				if (rc->HasLOD() && renderableJson.value("kind", std::string()) != "heightfield")
 				{
@@ -2932,7 +2938,16 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				const std::string name = j.value("species", "Oak");
 				uint32 species = TreeSpecies::Oak;
 				for (uint32 k = 0; k < TreeSpecies::Count; k++) if (name == TreeMesh::SpeciesName(k)) species = k;
-				r = std::make_shared<TreeMesh>(species, j.value("seed", 1u), j.value("part", "wood") == "leaves" ? (uint32)TreePart::Leaves : (uint32)TreePart::Wood, j.value("detail", 0u));
+				// One mesh for every object that is the same individual: a wood of a few
+				// individuals is then a few meshes drawn many times each, and is grown once.
+				static std::map<std::string, std::weak_ptr<Renderable> > grown;
+				const std::string key = name + "/" + std::to_string(j.value("seed", 1u)) + "/" + j.value("part", "wood") + "/" + std::to_string(j.value("detail", 0u));
+				r = grown[key].lock();
+				if (!r)
+				{
+					r = std::make_shared<TreeMesh>(species, j.value("seed", 1u), j.value("part", "wood") == "leaves" ? (uint32)TreePart::Leaves : (uint32)TreePart::Wood, j.value("detail", 0u));
+					grown[key] = r;
+				}
 			}
 			else if (shape == "GrassTuft")
 			{
@@ -3240,6 +3255,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (j.value("castingShadows", true)) rc->EnableCastShadows(); else rc->DisableCastShadows();
 			// ("shadowDetail": the share of the model's triangles its shadow is drawn with)
 			if (j.contains("shadowDetail")) rc->SetShadowDetail(j.value("shadowDetail", 0.f));
+			else if (j.contains("shadowRenderable") && j["shadowRenderable"].is_object())
+			{
+				std::shared_ptr<Renderable> sr = DeserializeRenderable(j["shadowRenderable"], outAssets);
+				if (sr) rc->SetShadowRenderable(sr);
+			}
 			// Levels of detail for a model that was given none ("autoLod": false to
 			// leave this one as it is).
 			if (!isGenerated && !isHeightfield && j.value("autoLod", true) && !j.contains("skeletonAnimation")
