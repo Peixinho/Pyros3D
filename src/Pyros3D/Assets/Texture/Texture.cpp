@@ -21,6 +21,9 @@
 
 namespace p3d {
 
+	static thread_local std::vector<uchar>* t_handOver = NULL;
+
+
 	// Every Texture shares whichever backend is currently active (see
 	// GetActiveRenderDevice() in IRenderDevice.h) rather than each Texture
 	// needing an injected IRenderDevice* - avoids plumbing one through
@@ -294,7 +297,24 @@ namespace p3d {
 		}
 
 		LoadStats::Scope t(LoadStats::TextureUpload);
-		return CreateTexture(&image.pixels[0], Mipmapping, level);
+		// (a decoded picture is only ever sent: it is handed to the device, not copied for it)
+		t_handOver = &image.pixels;
+		const bool made = CreateTexture(&image.pixels[0], Mipmapping, level);
+		t_handOver = NULL;
+		return made;
+	}
+
+	// The picture UploadDecoded() is sending, for CreateTexture() to hand over whole.
+	static void SendPixels(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, uchar* data, const bool willMipmap)
+	{
+		if (data != NULL && t_handOver != NULL && !t_handOver->empty() && data == &(*t_handOver)[0])
+		{
+			std::vector<uchar>* owned = t_handOver;
+			t_handOver = NULL;
+			Device().UploadTexture2DOwned(target, level, internalFormat, width, height, format, type, std::move(*owned), willMipmap);
+			return;
+		}
+		Device().UploadTexture2D(target, level, internalFormat, width, height, format, type, data, willMipmap);
 	}
 
 	bool Texture::CreateTexture(uchar* data, bool Mipmapping, const uint32 level, const uint32 msaa)
@@ -312,7 +332,7 @@ namespace p3d {
 
 		if (Mipmapping)
 		{
-			Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), true);
+			SendPixels(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), true);
 #if defined(GLES3)
 			Device().GenerateMipmap(GLMode);
 #else
@@ -347,13 +367,13 @@ namespace p3d {
 
 			if (!isMultisample)
 			{
-				Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
+				SendPixels(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
 			}
 			else {
 				Device().UploadTexture2DMultisample(GLMode, msaa, internalFormat, Width[level], Height[level]);
 			}
 #else
-			Device().UploadTexture2D(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
+			SendPixels(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
 #endif
 			if (level > 0)
 				isMipMapManual = true;

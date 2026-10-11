@@ -882,6 +882,12 @@ namespace p3d {
 		// Vulkan's VkImage mip level count is fixed at creation, so it
 		// has to know up front whether GenerateMipmap() is coming.
 		virtual void UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap) = 0;
+		// The same as UploadTexture2D, with the picture handed over and not copied: a device a
+		// thread away keeps the vector until it has sent it, from its own thread.
+		virtual void UploadTexture2DOwned(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, std::vector<uchar> &&data, const bool willMipmap)
+		{
+			UploadTexture2D(target, level, internalFormat, width, height, format, type, data.empty() ? NULL : &data[0], willMipmap);
+		}
 		virtual void UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height) = 0;
 		virtual void GenerateMipmap(const uint32 target) = 0;
 

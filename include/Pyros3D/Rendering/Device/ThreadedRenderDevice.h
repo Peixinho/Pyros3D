@@ -40,6 +40,7 @@ namespace p3d {
 	class PYROS3D_API ThreadedRenderDevice : public IRenderDevice {
 	public:
 		virtual void WaitForFrameRoom() override;
+		virtual void UploadTexture2DOwned(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, std::vector<uchar> &&data, const bool willMipmap) override;
 		virtual DeviceHandle CreateBufferOwned(const uint32 bufferType, const uint32 bufferDraw, std::vector<uchar> &&data) override;
 		explicit ThreadedRenderDevice(const std::shared_ptr<IRenderDevice> &realDevice);
 		virtual ~ThreadedRenderDevice();

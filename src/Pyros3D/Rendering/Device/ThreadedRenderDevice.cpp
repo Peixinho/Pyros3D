@@ -486,6 +486,19 @@ namespace p3d {
 			r->UploadTexture2D(target, level, internalFormat, width, height, format, type, kept, willMipmap);
 		});
 	}
+	void ThreadedRenderDevice::UploadTexture2DOwned(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, std::vector<uchar> &&data, const bool willMipmap)
+	{
+		// (short of what the device would read - not a picture of this size: sent the copying way)
+		if (data.size() < (size_t)real->GetTextureUploadSize(internalFormat, format, width, height))
+		{
+			UploadTexture2D(target, level, internalFormat, width, height, format, type, data.empty() ? NULL : &data[0], willMipmap);
+			return;
+		}
+		std::shared_ptr<std::vector<uchar> > kept = std::make_shared<std::vector<uchar> >(std::move(data));
+		Push([r = real, target, level, internalFormat, width, height, format, type, kept, willMipmap]() {
+			r->UploadTexture2D(target, level, internalFormat, width, height, format, type, &(*kept)[0], willMipmap);
+		});
+	}
 	// Every frame, where there is one: asked the first time, and afterwards
 	// queued like a draw - what it answered last is what it is taken to answer.
 	bool ThreadedRenderDevice::RunTemporalUpscale(const TemporalUpscale &frame)
