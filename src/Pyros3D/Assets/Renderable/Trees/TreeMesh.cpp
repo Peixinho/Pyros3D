@@ -328,8 +328,13 @@ namespace p3d {
 			const f32 out = std::min(1.f, sqrtf(rel.x * rel.x + rel.z * rel.z) / K.crownRadius);
 			const f32 high = std::min(1.f, std::max(0.f, .5f + rel.y / std::max(.5f, K.crownRadius * 1.6f)));
 			const f32 open = std::min(1.f, .45f + .55f * std::max(out * out, high));
-			const f32 shade = S.shade + (1.f - S.shade) * open;
-			return Vec4(t.x * shade, t.y * shade, t.z * shade, 1.f);
+			// each spray its own light: some catch the sun full and go pale and yellow, some sit in
+			// another's shade - a crown is not one green
+			const f32 lot = dice.Unit();
+			const f32 own = lot > .78f ? 1.28f : (lot < .22f ? .74f : 1.f);
+			const f32 shade = (S.shade + (1.f - S.shade) * open) * own;
+			const f32 gold = lot > .78f ? .16f : 0.f;
+			return Vec4(t.x * shade * (1.f + gold), t.y * shade * (1.f + gold * .5f), t.z * shade * (1.f - gold), 1.f);
 		}
 		Vec3 LeafNormal(const Species &S, const Skeleton &K, const Vec3 &at)
 		{
