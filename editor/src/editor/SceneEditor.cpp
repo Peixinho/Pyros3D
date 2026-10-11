@@ -6,6 +6,7 @@
 // Description : Pyros Scene
 //============================================================================
 
+#include <unordered_set>
 #include <unordered_map>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
@@ -2604,17 +2605,20 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Show a script glyph on the GO while collapsed so attach is obvious.
 		if (obj->GetType() == SceneObjectTypes::GAMEOBJECT && sceneObjects)
 		{
-			const uint32 goId = obj->GetID();
-			for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
-				i != sceneObjects->GetList().end(); ++i)
+			// Which objects carry a script, found once a frame for all of them: asked of the
+			// whole list for every row, a scene of a few thousand objects (a forest) spent
+			// its entire frame here - 5 frames a second.
+			static int forFrame = -1;
+			static const SceneObjects* forObjects = NULL;
+			static std::unordered_set<uint32> scripted;
+			if (forFrame != ImGui::GetFrameCount() || forObjects != sceneObjects)
 			{
-				if (i->second && i->second->GetParentID() == goId
-					&& i->second->GetType() == SceneObjectTypes::LUA_COMPONENT)
-				{
-					label += u8"  \uf121";
-					break;
-				}
+				forFrame = ImGui::GetFrameCount(); forObjects = sceneObjects;
+				scripted.clear();
+				for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); ++i)
+					if (i->second && i->second->GetType() == SceneObjectTypes::LUA_COMPONENT) scripted.insert(i->second->GetParentID());
 			}
+			if (scripted.count(obj->GetID())) label += u8"  \uf121";
 		}
 #endif
 		// Prefab instances are marked in the tree, because "editing this
