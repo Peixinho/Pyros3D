@@ -6,6 +6,7 @@
 
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
 #include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
 #include <atomic>
 #include <chrono>
@@ -262,6 +263,8 @@ namespace p3d {
 	{
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		uint32 ran = 0;
+		// (what streaming costs the frame's own thread: Streamer.Pump, and how many steps it ran)
+		PYROS_PROFILE_SCOPE("Streamer.Pump");
 		for (;;)
 		{
 			RequestPtr r;
@@ -297,6 +300,7 @@ namespace p3d {
 			const f64 spent = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
 			if (spent >= budgetMs) break;
 		}
+		if (ran) FrameProfiler::Instance().Counter("Streamer.Steps", (f64)ran);
 		return ran;
 	}
 

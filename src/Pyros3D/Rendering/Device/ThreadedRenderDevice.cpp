@@ -447,6 +447,13 @@ namespace p3d {
 		Push([this, given, bufferType, bufferDraw, kept, length]() { realOf[given] = real->CreateBuffer(bufferType, bufferDraw, kept, length); });
 		return given;
 	}
+	DeviceHandle ThreadedRenderDevice::CreateBufferOwned(const uint32 bufferType, const uint32 bufferDraw, std::vector<uchar> &&data)
+	{
+		const DeviceHandle given = nextGiven.fetch_add(1);
+		std::shared_ptr<std::vector<uchar> > kept = std::make_shared<std::vector<uchar> >(std::move(data));
+		Push([this, given, bufferType, bufferDraw, kept]() { realOf[given] = real->CreateBuffer(bufferType, bufferDraw, kept->empty() ? NULL : &(*kept)[0], (uint32)kept->size()); });
+		return given;
+	}
 	DeviceHandle ThreadedRenderDevice::CreateVertexArray()
 	{
 		const DeviceHandle given = nextGiven.fetch_add(1);

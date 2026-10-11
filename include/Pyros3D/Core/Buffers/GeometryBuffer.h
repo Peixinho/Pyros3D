@@ -103,6 +103,8 @@ namespace p3d {
 		~GeometryBuffer();
 		// methods
 		void Init(const void *GeometryData, const uint32 length);
+		// (the data handed over, not copied: see IRenderDevice::CreateBufferOwned)
+		void InitOwned(std::vector<uchar> &&GeometryData);
 
 		void *Map(const uint32 MappingType = 1);
 		void Unmap();

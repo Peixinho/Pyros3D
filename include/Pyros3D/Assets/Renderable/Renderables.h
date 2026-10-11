@@ -170,6 +170,12 @@ namespace p3d {
 		// Attributes Size
 		uint32 attributeSize;
 
+		// The vertices already laid out one after another as SendBuffer() would lay them (each
+		// attribute in the order added, `count` of them): SendBuffer() then sends that as it is.
+		// For a mesh made on a loader thread - its attributes are added with no data of their own.
+		uint32 packedCount = 0;
+		void SetPacked(std::vector<uchar> &&packed, const uint32 count) { Data = std::move(packed); packedCount = count; }
+
 		AttributeBuffer() : attributeSize(0), Buffer(NULL) {}
 		AttributeBuffer(const uint32 &type, const uint32 &draw) : attributeSize(0), Buffer(NULL) { bufferDraw = draw; bufferType = type; }
 
@@ -194,22 +200,29 @@ namespace p3d {
 			}
 			BufferOffset = offset;
 
-			// Resize Data
-			Data.resize(BufferOffset*count);
-			// Run through attributes data            
-			for (uint32 l = 0; l < count; l++)
+			// Already laid out (SetPacked: by whoever made the mesh, on its own thread)?
+			if (!(packedCount == count && Data.size() == (size_t)BufferOffset * count))
 			{
-				offset = BufferOffset*l;
-				// Run through all attributes
-				for (std::vector<VertexAttribute*>::iterator k = Attributes.begin(); k != Attributes.end(); k++)
+				// Resize Data
+				Data.resize(BufferOffset*count);
+				// Run through attributes data            
+				for (uint32 l = 0; l < count; l++)
 				{
-					memcpy(&Data[offset + (*k)->Offset], &(*k)->Data[(l*(*k)->byteSize)], (*k)->byteSize);
+					offset = BufferOffset*l;
+					// Run through all attributes
+					for (std::vector<VertexAttribute*>::iterator k = Attributes.begin(); k != Attributes.end(); k++)
+					{
+						memcpy(&Data[offset + (*k)->Offset], &(*k)->Data[(l*(*k)->byteSize)], (*k)->byteSize);
+					}
 				}
 			}
+			packedCount = 0;
 			// Create Buffer
+			delete Buffer;
 			Buffer = new GeometryBuffer(bufferType, bufferDraw);
-			// Send Buffer
-			Buffer->Init((Data.size()>0?&Data[0]:NULL), Data.size());
+			// Send Buffer: handed over, not copied again (and not kept here: it was only ever read to be sent)
+			Buffer->InitOwned(std::move(Data));
+			Data.clear();
 		}
 
 		virtual void Dispose()

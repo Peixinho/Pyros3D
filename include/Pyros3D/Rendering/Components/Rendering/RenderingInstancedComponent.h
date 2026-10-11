@@ -93,6 +93,11 @@ namespace p3d {
 
 			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const uint32 nrInstances, const f32 &boundingSphere);
 			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, const uint32 nrInstances, const f32 &boundingSphere);
+			// With its instances as they are to be (and their tints, or none): made and sent once, with no
+			// buffer of nothing first and no second sending - what a field of grass coming in is made with.
+			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints, const f32 &boundingSphere = 0);
+			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints, const f32 &boundingSphere = 0);
+			void InitFilled(std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints);
 		 	virtual ~RenderingInstancedComponent();
 			void UpdateTransforms();
 	};

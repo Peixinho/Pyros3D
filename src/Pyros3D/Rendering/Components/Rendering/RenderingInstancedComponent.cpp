@@ -77,6 +77,40 @@ namespace p3d {
 		color_buffer = NULL;
 	}
 
+	RenderingInstancedComponent::RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints, const f32 &boundingSphere) : IRenderingInstancedComponent(renderable, Material, (uint32)transforms.size(), boundingSphere)
+	{
+		InitFilled(std::move(transforms), std::move(tints));
+	}
+	RenderingInstancedComponent::RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints, const f32 &boundingSphere) : IRenderingInstancedComponent(renderable, MaterialProperties, (uint32)transforms.size(), boundingSphere)
+	{
+		InitFilled(std::move(transforms), std::move(tints));
+	}
+	void RenderingInstancedComponent::InitFilled(std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints)
+	{
+		transform = std::move(transforms);
+		nrInstances = (uint32)transform.size();
+		// (one copy, into what the device is handed: the instances themselves are kept here)
+		std::vector<uchar> bytes(transform.size() * sizeof(Matrix));
+		if (!bytes.empty()) memcpy(&bytes[0], &transform[0], bytes.size());
+		transform_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+		transform_buffer->AddAttribute("aInstancedTransform", Buffer::Attribute::Type::Matrix, NULL, (uint32)transform.size(), 1);
+		transform_buffer->SetPacked(std::move(bytes), (uint32)transform.size());
+		transform_buffer->SendBuffer();
+		AddBuffer(transform_buffer);
+		color_buffer = NULL;
+		if (!tints.empty() && tints.size() == transform.size())
+		{
+			instanceColor = std::move(tints);
+			std::vector<uchar> tintBytes(instanceColor.size() * sizeof(Vec4));
+			memcpy(&tintBytes[0], &instanceColor[0], tintBytes.size());
+			color_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+			color_buffer->AddAttribute("aInstancedColor", Buffer::Attribute::Type::Vec4, NULL, (uint32)instanceColor.size(), 1);
+			color_buffer->SetPacked(std::move(tintBytes), (uint32)instanceColor.size());
+			color_buffer->SendBuffer();
+			AddBuffer(color_buffer);
+		}
+	}
+
 	// Separate buffer rather than interleaving the tint into
 	// transform_buffer, because that one is sized and uploaded as a plain
 	// array of Matrix (UpdateTransforms writes transform.size()*sizeof(Matrix)

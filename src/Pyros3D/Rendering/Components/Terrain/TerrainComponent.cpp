@@ -4,6 +4,7 @@
 // Description : See TerrainComponent.h.
 //============================================================================
 
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
@@ -356,7 +357,8 @@ namespace p3d {
 					*slot = SceneSerializer::PrepareSubtreeText(tileJson, root, "terrain tile " + TileStem(x, z));
 			},
 			[this, slot, x, z]() -> bool {
-				if (*slot && SceneSerializer::UploadNextPrepared(**slot)) return false;
+				{ PYROS_PROFILE_SCOPE("Streamer.Upload"); if (*slot && SceneSerializer::UploadNextPrepared(**slot)) return false; }
+				PYROS_PROFILE_SCOPE("Streamer.Instantiate");
 				Finish(x, z, std::static_pointer_cast<void>(*slot));
 				return true;
 			},

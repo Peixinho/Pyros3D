@@ -688,6 +688,12 @@ namespace p3d {
 		// Buffer::Draw::Static/Dynamic/Stream, and
 		// Buffer::Mapping::Read/Write/ReadAndWrite values respectively.
 		virtual DeviceHandle CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length) = 0;
+		// The same, with the data handed over and not copied: a device a thread away keeps the
+		// vector and sends it from its own thread - nothing of its size is done on the caller's.
+		virtual DeviceHandle CreateBufferOwned(const uint32 bufferType, const uint32 bufferDraw, std::vector<uchar> &&data)
+		{
+			return CreateBuffer(bufferType, bufferDraw, data.empty() ? NULL : &data[0], (uint32)data.size());
+		}
 		// Full reallocation (glBufferData) - used when new data is a
 		// different size than what's currently allocated.
 		virtual void ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length) = 0;

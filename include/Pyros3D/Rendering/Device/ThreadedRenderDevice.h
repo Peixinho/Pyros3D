@@ -40,6 +40,7 @@ namespace p3d {
 	class PYROS3D_API ThreadedRenderDevice : public IRenderDevice {
 	public:
 		virtual void WaitForFrameRoom() override;
+		virtual DeviceHandle CreateBufferOwned(const uint32 bufferType, const uint32 bufferDraw, std::vector<uchar> &&data) override;
 		explicit ThreadedRenderDevice(const std::shared_ptr<IRenderDevice> &realDevice);
 		virtual ~ThreadedRenderDevice();
 

@@ -51,6 +51,16 @@ namespace p3d {
 		DataLength = length;
 	}
 
+	void GeometryBuffer::InitOwned(std::vector<uchar> &&GeometryData)
+	{
+		if (ID != -1) {
+			Device().DestroyBuffer(ID);
+			ID = -1;
+		}
+		DataLength = (uint32)GeometryData.size();
+		ID = Device().CreateBufferOwned(bufferType, bufferDraw, std::move(GeometryData));
+	}
+
 	// Updates Buffer
 	void GeometryBuffer::Update(const void* GeometryData, const uint32 length)
 	{

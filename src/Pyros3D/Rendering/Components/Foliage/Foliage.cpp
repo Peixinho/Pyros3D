@@ -231,17 +231,13 @@ namespace p3d {
 			child->SetName(layer.spec.name + "_block" + std::to_string(b));
 			child->SetTransient(true);
 			child->SetPosition(block.origin);
+			// (made with its plants as they are: the block's own lists are handed over, sent once)
+			const uint32 plants = (uint32)block.transforms.size();
+			std::vector<Vec4> tints;
+			if (tinted) tints = std::move(block.tints);
 			std::shared_ptr<RenderingInstancedComponent> ic = layer.material
-				? std::make_shared<RenderingInstancedComponent>(layer.mesh, layer.material, (uint32)block.transforms.size(), block.radius + meshRadius)
-				: std::make_shared<RenderingInstancedComponent>(layer.mesh, modelOptions, (uint32)block.transforms.size(), block.radius + meshRadius);
-			ic->transform = block.transforms;
-			ic->UpdateTransforms();
-			if (tinted)
-			{
-				ic->EnableInstanceColors();
-				ic->instanceColor = block.tints;
-				ic->UpdateInstanceColors();
-			}
+				? std::make_shared<RenderingInstancedComponent>(layer.mesh, layer.material, std::move(block.transforms), std::move(tints), block.radius + meshRadius)
+				: std::make_shared<RenderingInstancedComponent>(layer.mesh, modelOptions, std::move(block.transforms), std::move(tints), block.radius + meshRadius);
 			if (layer.lodMesh)
 			{
 				ic->SetFirstLODDistance(layer.spec.lodDistance);
@@ -255,7 +251,7 @@ namespace p3d {
 			layer.blocks.push_back(ic);
 			layer.blockObjects.push_back(child);
 			layer.centres.push_back(block.origin);
-			layer.counts.push_back((uint32)block.transforms.size());
+			layer.counts.push_back(plants);
 		}
 	}
 

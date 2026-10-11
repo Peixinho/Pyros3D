@@ -309,6 +309,8 @@ namespace p3d {
 			out.tangent[i] = t;
 			out.bitangent[i] = nrm.cross(t).normalize() * -1.f;
 		}
+		// (laid out for the GPU here, on this thread: see Pack)
+		out.Pack();
 	}
 
 	bool PreparedHeightfield::Prepare(const std::string &heightmapPath, const f32 size, const f32 heightScale, const f32 heightOffset,
@@ -356,8 +358,27 @@ namespace p3d {
 		Upload(std::move(mesh));
 	}
 
+	void HeightfieldMesh::Pack()
+	{
+		const size_t n = vertex.size();
+		packed.clear();
+		if (n == 0 || normal.size() != n || texcoord.size() != n || tangent.size() != n || bitangent.size() != n) return;
+		const size_t stride = sizeof(Vec3) * 4 + sizeof(Vec2);
+		packed.resize(n * stride);
+		uchar* at = &packed[0];
+		for (size_t i = 0; i < n; i++)
+		{
+			memcpy(at, &vertex[i], sizeof(Vec3)); at += sizeof(Vec3);
+			memcpy(at, &normal[i], sizeof(Vec3)); at += sizeof(Vec3);
+			memcpy(at, &texcoord[i], sizeof(Vec2)); at += sizeof(Vec2);
+			memcpy(at, &tangent[i], sizeof(Vec3)); at += sizeof(Vec3);
+			memcpy(at, &bitangent[i], sizeof(Vec3)); at += sizeof(Vec3);
+		}
+	}
+
 	void Heightfield::Upload(HeightfieldMesh &&mesh)
 	{
+		std::vector<uchar> packed = std::move(mesh.packed);
 		geometry->tVertex = std::move(mesh.vertex);
 		geometry->tNormal = std::move(mesh.normal);
 		geometry->tTexcoord = std::move(mesh.texcoord);
@@ -368,6 +389,26 @@ namespace p3d {
 
 		// Primitive::Build() would recompute tangents from the triangles
 		// and smooth nothing; the grid already has better of both.
+		const uint32 count = (uint32)geometry->tVertex.size();
+		if (packed.size() == (size_t)count * (sizeof(Vec3) * 4 + sizeof(Vec2)))
+		{
+			// Laid out already, on the thread that built the mesh: the attributes are named
+			// here with no data of their own, and the vertices go to the device as they are.
+			AttributeBuffer* laid = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Static);
+			laid->AddAttribute("aPosition", Buffer::Attribute::Type::Vec3, NULL, count);
+			laid->AddAttribute("aNormal", Buffer::Attribute::Type::Vec3, NULL, count);
+			laid->AddAttribute("aTexcoord", Buffer::Attribute::Type::Vec2, NULL, count);
+			laid->AddAttribute("aTangent", Buffer::Attribute::Type::Vec3, NULL, count);
+			laid->AddAttribute("aBitangent", Buffer::Attribute::Type::Vec3, NULL, count);
+			laid->SetPacked(std::move(packed), count);
+			geometry->Attributes.push_back(laid);
+			geometry->SendBuffers();
+			minBounds = Vec3(0.f, data ? data->minHeight : 0.f, 0.f);
+			maxBounds = Vec3(data ? data->size : 0.f, data ? data->maxHeight : 0.f, data ? data->size : 0.f);
+			BoundingSphereCenter = (minBounds + maxBounds) * 0.5f;
+			BoundingSphereRadius = maxBounds.distance(BoundingSphereCenter);
+			return;
+		}
 		geometry->CreateBuffers(false);
 		AttributeBuffer* attributes = static_cast<AttributeBuffer*>(geometry->Attributes.back());
 		// Always present: a normal-mapped Generic material's pipeline reads
