@@ -211,6 +211,12 @@ namespace p3d {
 		// framebuffer/texture support on this backend remains out of scope
 		// (RotatingCube, this backend's only validated target, casts no
 		// shadows).
+		// Waits here - before a frame's input is read - for whatever BeginFrame() would
+		// otherwise wait for (a device a thread away that is behind). What the player
+		// then does is drawn that much sooner: time waited after the input was read is
+		// time added to how late a look or a step is seen. Nothing on a device that
+		// does not make a frame wait.
+		virtual void WaitForFrameRoom() {}
 		virtual void BeginFrame() = 0;
 		virtual void EndFrame() = 0;
 		// Whether BeginFrame() has run and EndFrame() has not. Lets a pass

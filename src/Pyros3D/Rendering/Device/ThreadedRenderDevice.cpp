@@ -321,6 +321,16 @@ namespace p3d {
 	}
 
 	// ---------------------------------------------------------------- by hand
+	void ThreadedRenderDevice::WaitForFrameRoom()
+	{
+		if (framesBehind.load() < 2) return;
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		Kick();
+		std::unique_lock<std::mutex> g(lock);
+		done.wait(g, [this]() { return framesBehind.load() < 2; });
+		behindWaitMs += MsSince(t0);
+	}
+
 	void ThreadedRenderDevice::BeginFrame()
 	{
 		// No more than a frame ahead of the device thread: what is drawn is seen

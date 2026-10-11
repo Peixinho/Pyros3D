@@ -69,6 +69,11 @@ int main(int argc, char** argv)
 		FrameProfiler& prof = FrameProfiler::Instance();
 		prof.BeginFrame();
 		{
+			// (the wait for a slower GPU side, taken before the input is read and not after)
+			PYROS_PROFILE_SCOPE("App.WaitDevice");
+			GetActiveRenderDevice().WaitForFrameRoom();
+		}
+		{
 			PYROS_PROFILE_SCOPE("App.GetEvents");
 			game->GetEvents();
 		}
