@@ -66,7 +66,7 @@ namespace p3d {
 			const f32 low = 1.f - (up < 0.42f ? up / 0.42f : 1.f);
 			f32 lit = (height + 0.06f) / 0.16f; lit = lit < 0.f ? 0.f : (lit > 1.f ? 1.f : lit);
 			const f32 strength = lit * (0.42f + 0.58f * (up * 2.6f > 1.f ? 1.f : up * 2.6f));
-			return Vec3(1.f, 1.f - 0.36f * low, 1.f - 0.62f * low) * strength;
+			return Vec3(1.f, 1.f - 0.42f * low, 1.f - 0.74f * low) * strength;
 		}
 
 		virtual void Start() {};
