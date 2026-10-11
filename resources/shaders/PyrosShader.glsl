@@ -9,7 +9,7 @@
 	precision highp float;
 #endif
 
-#define MAX_BONES 60
+#define MAX_BONES 192
 #define MAX_LIGHTS 4
 
 // Vulkan/SPIR-V requires every attribute/varying to have a static
@@ -910,7 +910,39 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // CreateUniformBuffer() size both move with it; the static_assert
         // there is what catches the two drifting apart.
         float uAlphaCutoff;
+        // GenericShaderMaterial::SetSubsurface(): xyz the colour light takes
+        // under the surface, w how far it goes (0: none). A vec4 starts on a
+        // multiple of 16, so the block is 96 bytes with it.
+        vec4 uSubsurface;
     };
+
+    // Set around a shadow lookup made for light under the surface: how far
+    // (world units) the light may go through whatever is in its way. The
+    // receiver is moved that much toward the light, so the far side of an
+    // ear is lit and the far side of a head is not.
+    float gShadowThrough = 0.0;
+    // Metres of skin at strength 1.
+    #define SUBSURFACE_REACH 0.05
+
+    // What a light adds to a surface with light under it, over and above
+    // what the surface does with it anyway (to be multiplied by the albedo
+    // and the light's colour). `thin`: how much of the light is still there
+    // after going in by gShadowThrough - 0 where nothing can say (a light
+    // with no shadow map), so that the back of everything does not glow.
+    vec3 SubsurfaceLight(vec3 N, vec3 V, vec3 L, vec4 sss, float thin)
+    {
+        float ndl = dot(N, L);
+        // Round the edge of the lit side, each colour as far as it travels:
+        // the same wrap that softens it, further in red than in blue, which
+        // is where the red of the edge comes from. It is the edge's: well
+        // into the light the surface is the colour it was.
+        vec3 w = sss.xyz * (sss.w * 0.6);
+        vec3 wrapped = clamp((vec3(ndl) + w) / (vec3(1.0) + w), 0.0, 1.0);
+        vec3 edge = (wrapped - vec3(max(ndl, 0.0))) * (1.0 - smoothstep(0.0, 0.7, ndl));
+        // And out of the far side, looking toward the light.
+        float back = pow(clamp(dot(V, -normalize(L + N * 0.35)), 0.0, 1.0), 3.0);
+        return edge + sss.xyz * (sss.w * 0.8 * back * thin);
+    }
     // Per-object (not per-material) - see the comment above.
     UBO_BINDING(BIND_ObjectLightCounts) uniform ObjectLightCounts {
         int uNumberOfLights;
@@ -1098,6 +1130,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vec2 size = vec2(textureSize(uDirectionalShadowMaps, 0));
                 float tile = multi ? size.x * 0.5 : size.x;
                 vec4 p = vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(M, pos, tile)), 1.0);
+                // (depth grows away from the light along the matrix's third row)
+                if (gShadowThrough > 0.0) p.xyz -= normalize(vec3(M[0][2], M[1][2], M[2][2])) * gShadowThrough;
                 vec4 coord = M * p;
                 vec4 rect = vec4(0.0, 0.0, 1.0, 1.0);
                 if (multi)
@@ -1157,6 +1191,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 // the light-relative world vector. Its rotation is the
                 // camera's, which is also what carries the view-space normal.
                 vec3 ls = (Matrix2 * pos).xyz;
+                if (gShadowThrough > 0.0) ls *= max(1.0 - gShadowThrough / max(length(ls), 1e-4), 0.0);
                 float size = float(textureSize(shadowMap, 0).x);
                 vec3 a = abs(ls);
                 float ma = max(a.x, max(a.y, a.z));
@@ -1210,6 +1245,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             {
                 vec2 size = vec2(textureSize(shadowMap, 0));
                 vec4 p = vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(sMatrix, pos, size.x)), 1.0);
+                // (w grows away from the light along the matrix's fourth row)
+                if (gShadowThrough > 0.0) p.xyz -= normalize(vec3(sMatrix[0][3], sMatrix[1][3], sMatrix[2][3])) * gShadowThrough;
                 vec4 coord = sMatrix * p;
                 coord.xyz /= coord.w;
                 return ShadowPCF2D(shadowMap, coord.xyz, ShadowFilterRadius(packed), size, vec4(0.0, 0.0, 1.0, 1.0));
@@ -1861,6 +1898,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             #ifdef PBR
                 vec3 _pbrColor = vec3(0.0);
             #endif
+            // Light under the surface (uSubsurface), summed over the lights.
+            vec3 _sss = vec3(0.0);
 
             vec3 Position = vWorldPosition.xyz;
             vec3 EyeVec = normalize(vCameraPos-Position);
@@ -1914,6 +1953,20 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                                 _pbrColor += CalculatePBRLighting(Normal, EyeVec, LightVec, L.Color.rgb, diffuse.rgb, metallic, roughness);
                             #endif
                         #endif
+                        #ifndef LIGHTING2D
+                        if (uSubsurface.w > 0.0)
+                        {
+                            float sssThrough = 1.0, sssThin = 0.0;
+                            #ifdef DIRECTIONALSHADOW
+                                if (L.HaveShadowMap) {
+                                    gShadowThrough = uSubsurface.w * SUBSURFACE_REACH;
+                                    sssThrough = sssThin = DirectionalShadowFactor(L.PCFTexelSize, vWorldPositionShadow, shadowNormal);
+                                    gShadowThrough = 0.0;
+                                }
+                            #endif
+                            _sss += L.Color.xyz * SubsurfaceLight(Normal, EyeVec, LightVec, uSubsurface, sssThin) * sssThrough;
+                        }
+                        #endif
                     }
                     else if (L.Type == 2.0)
                     {
@@ -1955,6 +2008,20 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                             #else
                                 _pbrColor += CalculatePBRLighting(Normal, EyeVec, LightVec, L.Color.rgb, diffuse.rgb, metallic, roughness) * attenuation;
                             #endif
+                        #endif
+                        #ifndef LIGHTING2D
+                        if (uSubsurface.w > 0.0 && attenuation > 0.0)
+                        {
+                            float sssThrough = 1.0, sssThin = 0.0;
+                            #ifdef POINTSHADOW
+                                if (L.HaveShadowMap) {
+                                    gShadowThrough = uSubsurface.w * SUBSURFACE_REACH;
+                                    sssThrough = sssThin = PCFPOINT(uPointShadowMaps[0],uPointDepthsMVP[(L.ShadowMap*2)],uPointDepthsMVP[(L.ShadowMap*2+1)],L.PCFTexelSize,L.ShadowBiasScale,vWorldPositionShadow,shadowNormal);
+                                    gShadowThrough = 0.0;
+                                }
+                            #endif
+                            _sss += L.Color.xyz * SubsurfaceLight(Normal, EyeVec, LightVec, uSubsurface, sssThin) * (sssThrough * attenuation);
+                        }
                         #endif
                     }
                     else if (L.Type == 3.0)
@@ -1999,6 +2066,20 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                                 _pbrColor += CalculatePBRLighting(Normal, EyeVec, LightVec, L.Color.rgb, diffuse.rgb, metallic, roughness) * spotEffect * attenuation;
                             #endif
                         #endif
+                        #ifndef LIGHTING2D
+                        if (uSubsurface.w > 0.0 && spotEffect * attenuation > 0.0)
+                        {
+                            float sssThrough = 1.0, sssThin = 0.0;
+                            #ifdef SPOTSHADOW
+                                if (L.HaveShadowMap) {
+                                    gShadowThrough = uSubsurface.w * SUBSURFACE_REACH;
+                                    sssThrough = sssThin = PCFSPOT(uSpotShadowMaps[0],uSpotDepthsMVP[L.ShadowMap],L.PCFTexelSize,vWorldPositionShadow,shadowNormal);
+                                    gShadowThrough = 0.0;
+                                }
+                            #endif
+                            _sss += L.Color.xyz * SubsurfaceLight(Normal, EyeVec, LightVec, uSubsurface, sssThin) * (sssThrough * spotEffect * attenuation);
+                        }
+                        #endif
                     }
                 }
             }
@@ -2012,7 +2093,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 // whatever opacity the specular term happened to have. The
                 // PBR branch below already does exactly this; this one and
                 // CELLSHADING did not.
-                diffuse = vec4((_diffuse * diffuse + _specular * specular).rgb, diffuse.w);
+                diffuse = vec4((_diffuse * diffuse + _specular * specular).rgb + diffuse.rgb * _sss, diffuse.w);
             #elif defined(CELLSHADING)
                 float factor = 3.0;
                 if (lightIntensityCellShading > 0.95) factor = 3.0;
@@ -2043,7 +2124,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vec3 iblF0 = mix(vec3(0.04), diffuse.rgb, metallic);
                 ambientPBR += DDGISpecular(vWorldPosition.xyz, Normal, EyeVec, iblF0, roughness);
             #endif
-                diffuse = vec4(_pbrColor + ambientPBR, diffuse.w);
+                diffuse = vec4(_pbrColor + ambientPBR + diffuse.rgb * (1.0 - metallic) * _sss, diffuse.w);
             #endif
         #endif
 
@@ -2135,11 +2216,25 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// gets the standard 0.04 dielectric F0. A PBR material's own F0
 		// comes from albedo/metallic instead, so it writes a neutral 1.0
 		// tint here and is left exactly as it was.
+		// Light under the surface (uSubsurface) rides in two places: its
+		// strength in the blue of FragData_pbr, under the 0.5 that means
+		// "reflects the screen" (lastPass.glsl reads anything lower as not
+		// reflective), and its colour here, sharing the three channels with
+		// the tint - which for such a surface is kept as one number. The
+		// colour goes in at full brightness (how bright it was is folded
+		// into the strength, which is all it ever multiplied) and is then
+		// scaled to between a half and one by the tint, so the largest of
+		// the three says what the tint was and their ratio what the colour
+		// is. A surface asking for both this and reflections reflects.
+		float _sssMax = max(max(uSubsurface.x, uSubsurface.y), max(uSubsurface.z, 1e-4));
+		float _sssOut = (uSSRReflective < 0.5) ? clamp(uSubsurface.w * _sssMax, 0.0, 1.0) * 0.45 : uSSRReflective;
 		#ifdef PBR
 			FragData_g=vec4(1.0,1.0,1.0,_indirect.y);
 		#else
 			FragData_g=vec4(specular.xyz,_indirect.y);
 		#endif
+		if (uSubsurface.w > 0.0 && uSSRReflective < 0.5)
+			FragData_g.xyz = clamp(uSubsurface.xyz / _sssMax, 0.0, 1.0) * (0.5 + 0.5 * clamp(dot(FragData_g.xyz, vec3(1.0 / 3.0)), 0.0, 1.0));
 		FragData_b=vec4(gbufferNormal.xyz,_indirect.z);
 		// Uses the already-resolved metallic/roughness locals (folds in
 		// uMetallicRoughnessmap sampling when PBRMAP is set too), not the
@@ -2161,7 +2256,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// env-map material already needed uReflectivity set for its own
 		// reflection to show at all.
 		#ifdef PBR
-			FragData_pbr=vec4(roughness, metallic, uSSRReflective, uReflectivity);
+			FragData_pbr=vec4(roughness, metallic, _sssOut, uReflectivity);
 		#else
 			// Was a hardcoded 0.5 - which is why every non-PBR material
 			// looked flat and highlight-less through DeferredRenderer while
@@ -2172,7 +2267,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 			// pow(NdotH, s) and a GGX lobe of roughness a match when
 			// s = 2/a^2 - 2. uShininess 50 -> ~0.196, i.e. the tight
 			// highlight the forward path draws, not a 0.5 smear.
-			FragData_pbr=vec4(clamp(sqrt(2.0/(max(uShininess,0.0)+2.0)),0.03,1.0), 0.0, uSSRReflective, uReflectivity);
+			FragData_pbr=vec4(clamp(sqrt(2.0/(max(uShininess,0.0)+2.0)),0.03,1.0), 0.0, _sssOut, uReflectivity);
 		#endif
 	#endif
 

@@ -86,7 +86,9 @@ namespace {
 
 // Must match MAX_BONES in resources/shaders/PyrosShader.glsl - sizes the
 // BoneMatricesUBO backing that shader's uBoneMatrix[MAX_BONES] block.
-#define PYROS_MAX_BONES 60
+// 192: a body with three bones a finger and a face is about 160, and
+// 192 mat4 is 12288 bytes, under the 16384 a uniform block is promised.
+#define PYROS_MAX_BONES 192
 
 namespace p3d {
 
@@ -1072,7 +1074,7 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		// and silently drops the draw. When the block grows, this
 		// grows.
 		DDGIUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 5, 25);
-		MaterialUniformsUBO = device->CreateUniformBuffer(80, 22);
+		MaterialUniformsUBO = device->CreateUniformBuffer(96, 22);
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
 	SharedUBORefCount++;
@@ -4698,8 +4700,11 @@ struct MaterialUniformsData
 	// static_assert below measures the real layout rather than relying on
 	// the compiler happening to agree.
 	f32 _pad[3];
+	// See GenericShaderMaterial::SetSubsurface(): xyz the colour, w the
+	// strength. A vec4 starts on 16, so it follows the padding: 96.
+	Vec4 Subsurface;
 };
-static_assert(sizeof(MaterialUniformsData) == 80, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
+static_assert(sizeof(MaterialUniformsData) == 96, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
 
 // std140 layout matching ObjectLightCounts in PyrosShader.glsl exactly (16
 // bytes: 3 int = 12, padded to 16 by std140's vec4-multiple block size rule).
@@ -4739,7 +4744,7 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		{
 			static const std::string kColor("uColor"), kSpecular("uSpecular"), kOpacity("uOpacity"), kShininess("uShininess"),
 				kUseLights("uUseLights"), kDisplacement("uDisplacementHeight"), kReflectivity("uReflectivity"), kMetallic("uMetallic"),
-				kRoughness("uRoughness"), kSSR("uSSRReflective"), kAlphaCutoff("uAlphaCutoff");
+				kRoughness("uRoughness"), kSSR("uSSRReflective"), kAlphaCutoff("uAlphaCutoff"), kSubsurface("uSubsurface");
 			for (std::list<Uniform>::const_iterator it = Material->UserUniforms.begin(); it != Material->UserUniforms.end(); ++it)
 			{
 				const std::string &n = it->Name;
@@ -4752,6 +4757,7 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 					if (n == kSpecular) { if (it->Value.size() >= sizeof(Vec4)) memcpy(&data.Specular, v, sizeof(Vec4)); }
 					else if (n == kShininess) memcpy(&data.Shininess, v, sizeof(f32));
 					else if (n == kSSR) memcpy(&data.SSRReflective, v, sizeof(f32));
+					else if (n == kSubsurface) { if (it->Value.size() >= sizeof(Vec4)) memcpy(&data.Subsurface, v, sizeof(Vec4)); }
 					break;
 				case 'O': if (n == kOpacity) memcpy(&data.Opacity, v, sizeof(f32)); break;
 				case 'U': if (n == kUseLights) memcpy(&data.UseLights, v, sizeof(f32)); break;
@@ -4866,17 +4872,18 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		}
 		if (rmesh->BonesToDraw().size() > 0)
 		{
-			// Always upload the full UBO size. ReplaceUniformBuffer →
-			// glBufferData with a shorter size orphans storage smaller than
-			// the shader's mat4 uBoneMatrix[MAX_BONES] block; on macOS GL
-			// that left the binding unloadable / zeros, so skinned meshes
-			// stayed in bind pose ("no animation").
+			// Only the bones this mesh has: the block is sized for
+			// PYROS_MAX_BONES, and a character with 50 should not pay for
+			// 192 on every draw. The shader never indexes past the bones its
+			// vertices name, and the devices keep the buffer's full size
+			// under a shorter write (GL: see GLRenderDevice's
+			// ReplaceUniformBuffer - a buffer smaller than the block left
+			// skinned meshes in bind pose on macOS GL and drops the draw on
+			// WebGL2).
 			// (into a shadow map: the pose kept for shadows, where there is one)
 			const std::vector<Matrix> &palette = (!rmesh->ShadowBonesToDraw().empty() && IsShadowMaterial(Material)) ? rmesh->ShadowBonesToDraw() : rmesh->BonesToDraw();
 			uint32 bonesToUpload = palette.size() < PYROS_MAX_BONES ? (uint32)palette.size() : PYROS_MAX_BONES;
-			Matrix boneUpload[PYROS_MAX_BONES]; // default-ctor = identity pad past bonesToUpload
-			memcpy(boneUpload, &palette[0], sizeof(Matrix) * bonesToUpload);
-			device->ReplaceUniformBuffer(BoneMatricesUBO, sizeof(Matrix) * PYROS_MAX_BONES, boneUpload);
+			device->ReplaceUniformBuffer(BoneMatricesUBO, sizeof(Matrix) * bonesToUpload, &palette[0]);
 		}
 		device->ReplaceUniformBuffer(VelocityObjectUniformsUBO, sizeof(Matrix), &PrvModelMatrix);
 
@@ -4971,7 +4978,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				if (rmesh->BonesToDraw().size() > 0)
 				{
 					const std::vector<Matrix> &palette = (!rmesh->ShadowBonesToDraw().empty() && IsShadowMaterial(Material)) ? rmesh->ShadowBonesToDraw() : rmesh->BonesToDraw();
-					Shader::SendUniform((*k), (void*)&palette[0], (*_ShadersModelCache)[counter], (uint32)palette.size());
+					Shader::SendUniform((*k), (void*)&palette[0], (*_ShadersModelCache)[counter], palette.size() < PYROS_MAX_BONES ? (uint32)palette.size() : PYROS_MAX_BONES);
 				}
 			}
 			break;

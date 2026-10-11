@@ -82,6 +82,8 @@ DEFAULT_MATERIAL = {
     "metallic": 0.0,
     "roughness": 0.0,
     "ssrEnabled": False,
+    "subsurface": 0.0,
+    "subsurfaceColor": [1.0, 0.35, 0.2],
     "alphaCutoff": 0.5,
     "opacity": 1.0,
     "transparent": False,

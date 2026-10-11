@@ -3766,7 +3766,7 @@ namespace p3d {
 			alignedSlotSize = ((VkDeviceSize)sizeBytes + align - 1) / align * align;
 			// Scale ring depth by slot size so a 20k-object stress test has
 			// enough ModelMatrix slots without allocating hundreds of MB for
-			// BoneMatrices (60*mat4). Cap total ~64MB per dynamic UBO.
+			// BoneMatrices (192*mat4). Cap total ~64MB per dynamic UBO.
 			const VkDeviceSize kMaxDynamicUboBytes = 64ull * 1024ull * 1024ull;
 			slotCount = (uint32)(kMaxDynamicUboBytes / alignedSlotSize);
 			if (slotCount < 4096u) slotCount = 4096u;

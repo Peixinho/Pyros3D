@@ -55,6 +55,26 @@ void main() {
 // for the reasoning) and MaterialCodegen.cpp's; keep all four in step.
 // uPCFTexelSize carries ILightComponent::GetShadowFilterPacked(): filter
 // radius in texels in the integer part, normal bias / 8 in the fraction.
+
+// Light under the surface: GenericShaderMaterial::SetSubsurface(), and the
+// same two functions as PyrosShader.glsl's - change them together. The
+// G-buffer carries the strength in the blue of the roughness/metallic
+// target, below the 0.5 that means "reflects the screen", and the colour
+// in the three channels of the specular tint, scaled to between a half and
+// one by the tint: the largest of the three is the tint, their ratio the colour.
+float gShadowThrough = 0.0;
+#define SUBSURFACE_REACH 0.05
+vec3 SubsurfaceLight(vec3 N, vec3 V, vec3 L, vec4 sss, float thin)
+{
+	float ndl = dot(N, L);
+	vec3 w = sss.xyz * (sss.w * 0.6);
+	vec3 wrapped = clamp((vec3(ndl) + w) / (vec3(1.0) + w), 0.0, 1.0);
+	vec3 edge = (wrapped - vec3(max(ndl, 0.0))) * (1.0 - smoothstep(0.0, 0.7, ndl));
+	float back = pow(clamp(dot(V, -normalize(L + N * 0.35)), 0.0, 1.0), 3.0);
+	return edge + sss.xyz * (sss.w * 0.8 * back * thin);
+}
+float SubsurfaceStrength(float gbufferBlue) { return gbufferBlue < 0.5 ? clamp(gbufferBlue / 0.45, 0.0, 1.0) : 0.0; }
+
 int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }
 float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }
 
@@ -97,6 +117,7 @@ float PCFSPOT(sampler2DShadow shadowMap, mat4 sMatrix, float packed, vec4 pos, v
 {
 	vec2 size = vec2(textureSize(shadowMap, 0));
 	vec4 p = vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(sMatrix, pos, size.x)), 1.0);
+	if (gShadowThrough > 0.0) p.xyz -= normalize(vec3(sMatrix[0][3], sMatrix[1][3], sMatrix[2][3])) * gShadowThrough;
 	vec4 coord = sMatrix * p;
 	coord.xyz /= coord.w;
 	return ShadowPCF2D(shadowMap, coord.xyz, ShadowFilterRadius(packed), size, vec4(0.0, 0.0, 1.0, 1.0));
@@ -333,9 +354,17 @@ void main() {
 	if (uHaveShadowmap>0.0)
 		pcf = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1));
 
-	vec2 mr = texture(tMetallicRoughness, Texcoord).rg;
+	vec3 mr = texture(tMetallicRoughness, Texcoord).rgb;
 	float roughness = mr.x;
 	float metallic = mr.y;
+	float sssStrength = SubsurfaceStrength(mr.b);
+	vec4 sss = vec4(specTint, sssStrength);
+	if (sssStrength > 0.0)
+	{
+		float sssMax = max(max(specTint.x, specTint.y), max(specTint.z, 1e-4));
+		sss.xyz = specTint / sssMax;
+		specTint = vec3(clamp((sssMax - 0.5) * 2.0, 0.0, 1.0));
+	}
 
 	vec3 N = vViewNormal;
 	vec3 V = normalize(-v1);
@@ -348,7 +377,19 @@ void main() {
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
 	// The surface only: the in-scatter below is light in the air.
-	vec3 lit = pbrColor * spotEffect * attenuation * pcf * texture(tAO, Texcoord).g;
+	vec3 lit = pbrColor * pcf;
+	if (sssStrength > 0.0 && spotEffect * attenuation > 0.0)
+	{
+		float sssThrough = 1.0, sssThin = 0.0;
+		if (uHaveShadowmap > 0.0)
+		{
+			gShadowThrough = sssStrength * SUBSURFACE_REACH;
+			sssThrough = sssThin = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1));
+			gShadowThrough = 0.0;
+		}
+		lit += color * (1.0 - metallic) * lightColor.xyz * SubsurfaceLight(N, V, L, sss, sssThin) * sssThrough;
+	}
+	lit *= spotEffect * attenuation * texture(tAO, Texcoord).g;
 
 	// Volumetric in-scattering: what the light does to the medium between
 	// the camera and this pixel, rather than to the surface at it. Marched

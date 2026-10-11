@@ -843,6 +843,13 @@ namespace p3d {
 			m["metallic"] = gm->GetMetallic();
 			m["roughness"] = gm->GetRoughness();
 			m["ssrEnabled"] = gm->IsSSREnabled();
+			// (only where it is on: a scene saved before there was such a thing reads the same)
+			if (gm->GetSubsurfaceStrength() > 0.f)
+			{
+				const Vec3 sc = gm->GetSubsurfaceColor();
+				m["subsurface"] = gm->GetSubsurfaceStrength();
+				m["subsurfaceColor"] = { sc.x, sc.y, sc.z };
+			}
 
 			if (gm->GetColorMap() && gm->GetColorMap()->IsClampedToEdge()) m["clampMaps"] = true;
 			SerializeTextureRef(m, "colorMap", gm->GetColorMap());
@@ -2678,6 +2685,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if ((j.find("metallic") != j.end())) gm->SetMetallic(j["metallic"].get<f32>());
 			if ((j.find("roughness") != j.end())) gm->SetRoughness(j["roughness"].get<f32>());
 			if (j.value("ssrEnabled", false)) gm->SetSSREnabled(true);
+			if (j.find("subsurface") != j.end() && j["subsurface"].is_number())
+			{
+				Vec3 c = gm->GetSubsurfaceColor();
+				if (j.find("subsurfaceColor") != j.end() && j["subsurfaceColor"].is_array() && j["subsurfaceColor"].size() >= 3)
+					c = Vec3(j["subsurfaceColor"][0].get<f32>(), j["subsurfaceColor"][1].get<f32>(), j["subsurfaceColor"][2].get<f32>());
+				gm->SetSubsurface(c, j["subsurface"].get<f32>());
+			}
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "colorMap", textureCache, outAssets, true)) gm->SetColorMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "specularMap", textureCache, outAssets, true)) gm->SetSpecularMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "normalMap", textureCache, outAssets, true)) gm->SetNormalMap(t);

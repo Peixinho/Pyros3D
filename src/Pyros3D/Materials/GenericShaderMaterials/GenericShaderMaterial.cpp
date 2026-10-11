@@ -329,7 +329,7 @@ namespace p3d
 		f.Value(envMapID); f.Value(skyboxMapID); f.Value(refractMapID); f.Value(fontMapID); f.Value(metallicRoughnessMapID);
 		f.Vec(Ke); f.Vec(Ka); f.Vec(Kd); f.Vec(Ks); f.Vec(Wind); f.Vec(Vec4(LightThrough, 0.f, 0.f, 0.f));
 		f.Value(Shininess); f.Value(UseLights); f.Value(displacementHeight); f.Value(Reflectivity);
-		f.Value(Metallic); f.Value(Roughness); f.Value(SSREnabled); f.Value(AlphaCutoff);
+		f.Value(Metallic); f.Value(Roughness); f.Value(SSREnabled); f.Value(AlphaCutoff); f.Vec(Subsurface);
 		// IMaterial's render state.
 		f.Value(isWireFrame); f.Value(forceDepthWrite); f.Value(depthTest); f.Value(depthWrite); f.Value(depthTestMode);
 		f.Value(isCastingShadows); f.Value(cullFace); f.Value(isTransparent); f.Value(opacity);
@@ -459,6 +459,7 @@ namespace p3d
 		m->SetRoughness(Roughness);
 		m->SetSSREnabled(SSREnabled != 0.0f);
 		m->SetAlphaCutoff(AlphaCutoff);
+		if (Subsurface.w > 0.f) m->SetSubsurface(Vec3(Subsurface.x, Subsurface.y, Subsurface.z), Subsurface.w);
 		m->Wind = Wind;
 		m->LightThrough = LightThrough;
 		m->Ke = Ke;
@@ -653,6 +654,15 @@ namespace p3d
 			uSSRReflective = AddUniform(Uniform("uSSRReflective", Uniforms::DataType::Float, &SSREnabled));
 		else
 			uSSRReflective->SetValue(&SSREnabled);
+	}
+
+	void GenericShaderMaterial::SetSubsurface(const Vec3 &color, const f32 strength)
+	{
+		Subsurface = Vec4(color.x, color.y, color.z, strength < 0.f ? 0.f : (strength > 1.f ? 1.f : strength));
+		if (!uSubsurfaceUniform)
+			uSubsurfaceUniform = AddUniform(Uniform("uSubsurface", Uniforms::DataType::Vec4, &Subsurface));
+		else
+			uSubsurfaceUniform->SetValue(&Subsurface);
 	}
 
 	void GenericShaderMaterial::SetAlphaCutoff(const f32 cutoff)

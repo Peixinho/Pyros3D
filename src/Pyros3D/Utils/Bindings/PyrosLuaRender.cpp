@@ -552,6 +552,7 @@ namespace p3d {
 				"setRoughness", &GenericShaderMaterial::SetRoughness,
 				"setMetallicRoughnessMap", &GenericShaderMaterial::SetMetallicRoughnessMap,
 				"setSSREnabled", &GenericShaderMaterial::SetSSREnabled,
+				"setSubsurface", &GenericShaderMaterial::SetSubsurface,
 				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
 				"getAlphaCutoff", &GenericShaderMaterial::GetAlphaCutoff,

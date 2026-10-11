@@ -34,6 +34,26 @@ void main() {
 // for the reasoning) and MaterialCodegen.cpp's; keep all four in step.
 // uPCFTexelSize carries ILightComponent::GetShadowFilterPacked(): filter
 // radius in texels in the integer part, normal bias / 8 in the fraction.
+
+// Light under the surface: GenericShaderMaterial::SetSubsurface(), and the
+// same two functions as PyrosShader.glsl's - change them together. The
+// G-buffer carries the strength in the blue of the roughness/metallic
+// target, below the 0.5 that means "reflects the screen", and the colour
+// in the three channels of the specular tint, scaled to between a half and
+// one by the tint: the largest of the three is the tint, their ratio the colour.
+float gShadowThrough = 0.0;
+#define SUBSURFACE_REACH 0.05
+vec3 SubsurfaceLight(vec3 N, vec3 V, vec3 L, vec4 sss, float thin)
+{
+	float ndl = dot(N, L);
+	vec3 w = sss.xyz * (sss.w * 0.6);
+	vec3 wrapped = clamp((vec3(ndl) + w) / (vec3(1.0) + w), 0.0, 1.0);
+	vec3 edge = (wrapped - vec3(max(ndl, 0.0))) * (1.0 - smoothstep(0.0, 0.7, ndl));
+	float back = pow(clamp(dot(V, -normalize(L + N * 0.35)), 0.0, 1.0), 3.0);
+	return edge + sss.xyz * (sss.w * 0.8 * back * thin);
+}
+float SubsurfaceStrength(float gbufferBlue) { return gbufferBlue < 0.5 ? clamp(gbufferBlue / 0.45, 0.0, 1.0) : 0.0; }
+
 int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }
 float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }
 
@@ -222,6 +242,7 @@ float ShadowDirectionalCascade(int c, bool multi, float packed, vec4 pos, vec3 n
 	vec2 size = vec2(textureSize(uShadowMap, 0));
 	float tile = multi ? size.x * 0.5 : size.x;
 	vec4 p = vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(M, pos, tile)), 1.0);
+	if (gShadowThrough > 0.0) p.xyz -= normalize(vec3(M[0][2], M[1][2], M[2][2])) * gShadowThrough;
 	vec4 coord = M * p;
 	vec4 rect = vec4(0.0, 0.0, 1.0, 1.0);
 	if (multi)
@@ -323,7 +344,8 @@ void main() {
 	vec3 vViewNormal = normalize(normalAndAmbient.xyz);
 	vec4 diffuseAndAmbient = texture(tDiffuse, Texcoord);
 	vec4 specularAndAmbient = texture(tSpecular, Texcoord);
-	vec2 mr = texture(tMetallicRoughness, Texcoord).rg;
+	vec3 mr = texture(tMetallicRoughness, Texcoord).rgb;
+	float sssStrength = SubsurfaceStrength(mr.b);
 	vec2 ao = texture(tAO, Texcoord).rg;        // r: for the ambient light, g: for the direct
 	// The ambient light (it rides in the three alphas), as secondpassAmbient.glsl lays it.
 	vec3 ambient = vec3(0.0);
@@ -333,13 +355,20 @@ void main() {
 	// by max(dot(N, L), 0), so what follows adds exactly nothing - and what
 	// follows is the shadow lookup, 16 to 36 samples of the map. On a low sun
 	// that is every wall, trunk and slope on the far side.
-	if (dot(vViewNormal, normalize(-uLightDirection)) <= 0.0)
+	if (sssStrength <= 0.0 && dot(vViewNormal, normalize(-uLightDirection)) <= 0.0)
 	{
 		FragColor = vec4(ambient, 1.0);
 		return;
 	}
 	vec3 color = diffuseAndAmbient.xyz;
 	vec3 specTint = specularAndAmbient.xyz;
+	vec4 sss = vec4(specTint, sssStrength);
+	if (sssStrength > 0.0)
+	{
+		float sssMax = max(max(specTint.x, specTint.y), max(specTint.z, 1e-4));
+		sss.xyz = specTint / sssMax;
+		specTint = vec3(clamp((sssMax - 0.5) * 2.0, 0.0, 1.0));
+	}
 	vec4 lightColor = uLightColor;
 
 	float pcf = 1.0;
@@ -357,6 +386,19 @@ void main() {
 	vec3 L = normalize(-uLightDirection);
 	vec3 pbrColor = CalculatePBRLighting(N, V, L, lightColor.xyz, color, metallic, roughness, specTint);
 
-	FragColor = vec4(pbrColor * ao.g * pcf * TerrainHorizonShade(v1) + ambient, 1.0);
+	vec3 lit = pbrColor * pcf;
+	if (sssStrength > 0.0)
+	{
+		float sssThrough = 1.0, sssThin = 0.0;
+		if (uHaveShadowmap > 0.0)
+		{
+			gShadowThrough = sssStrength * SUBSURFACE_REACH;
+			sssThrough = sssThin = DirectionalShadowFactor(uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1));
+			gShadowThrough = 0.0;
+		}
+		lit += color * (1.0 - metallic) * lightColor.xyz * SubsurfaceLight(N, V, L, sss, sssThin) * sssThrough;
+	}
+
+	FragColor = vec4(lit * ao.g * TerrainHorizonShade(v1) + ambient, 1.0);
 }
 #endif

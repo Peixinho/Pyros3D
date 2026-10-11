@@ -275,6 +275,7 @@ EMSCRIPTEN_BINDINGS(pyros3d_render)
 		.function("setRoughness", &GenericShaderMaterial::SetRoughness)
 		.function("setMetallicRoughnessMap", &GenericShaderMaterial::SetMetallicRoughnessMap)
 		.function("setSSREnabled", &GenericShaderMaterial::SetSSREnabled)
+		.function("setSubsurface", &GenericShaderMaterial::SetSubsurface)
 		.function("bindTextures", &GenericShaderMaterial::BindTextures)
 		.function("unbindTextures", &GenericShaderMaterial::UnbindTextures);
 

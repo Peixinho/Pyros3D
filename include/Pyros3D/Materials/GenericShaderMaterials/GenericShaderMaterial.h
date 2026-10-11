@@ -69,6 +69,23 @@ namespace p3d
 		// change for anything that doesn't opt in.
 		void SetSSREnabled(const bool enabled);
 
+		// Light that goes into a surface and comes out somewhere near, the
+		// colour of what it went through: skin, wax, a leaf, marble. `color`
+		// is what the light is tinted by under the surface (skin: red, most
+		// of all) and `strength`, 0 to 1, how far it travels - 0 is off and
+		// costs nothing, 1 is about five centimetres.
+		// What it does to each light: the edge of the lit side is wider and
+		// tinted, the far side of something thin (an ear, a hand against the
+		// sun) glows, and a shadow cast from less than that distance away is
+		// partly seen through - which is the same thing, light from the lit
+		// skin beside it.
+		// Forward and deferred both; in the G-buffer it travels in the blue
+		// of the roughness/metallic target, below the half that means
+		// "reflects the screen", and the colour shares the specular tint's
+		// channels (see PyrosShader.glsl) - so a surface cannot be both
+		// this and reflecting, and reflecting wins.
+		void SetSubsurface(const Vec3 &color, const f32 strength);
+
 		// Alpha cutoff for ShaderUsage::AlphaTest - fragments whose alpha
 		// falls below this are discarded outright. Ignored entirely by a
 		// material that doesn't compile the flag, so setting it is
@@ -167,6 +184,8 @@ namespace p3d
 		const f32 &GetMetallic() const { return Metallic; }
 		const f32 &GetRoughness() const { return Roughness; }
 		bool IsSSREnabled() const { return SSREnabled != 0.0f; }
+		Vec3 GetSubsurfaceColor() const { return Vec3(Subsurface.x, Subsurface.y, Subsurface.z); }
+		f32 GetSubsurfaceStrength() const { return Subsurface.w; }
 		// Observing raw pointers - Material owns the shared_ptrs in Textures.
 		Texture* GetColorMap() const { return colorMapID >= 0 ? Textures[colorMapID].get() : NULL; }
 		// Shares ownership rather than observing, for handing one material's
@@ -213,6 +232,8 @@ namespace p3d
 		f32 SSREnabled;
 		// See SetAlphaCutoff().
 		f32 AlphaCutoff;
+		// See SetSubsurface(): xyz the colour, w the strength.
+		Vec4 Subsurface = Vec4(1.f, 0.35f, 0.2f, 0.f);
 		// See SetWind(). Not in the MaterialUniforms mirror - it travels in
 		// ObjectMatrixUniforms because it is needed in the vertex stage.
 		Vec4 Wind;
@@ -229,6 +250,7 @@ namespace p3d
 		Uniform *uSSRReflective = NULL;
 		// See SetAlphaCutoff().
 		Uniform *uAlphaCutoffUniform = NULL;
+		Uniform *uSubsurfaceUniform = NULL;
 	};
 }
 
