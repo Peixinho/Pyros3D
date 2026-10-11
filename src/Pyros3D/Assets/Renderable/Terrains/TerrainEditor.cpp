@@ -700,7 +700,7 @@ namespace p3d {
 	uint32 TerrainEditor::PaintSplat(SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const uint32 layer,
 		const f32 strength, const f32 hardness)
 	{
-		if (radius <= 0.f || layer > 3) return 0;
+		if (radius <= 0.f || layer > 4) return 0;
 		strokeScene = scene;
 		std::vector<TerrainTile> tiles = EditableTiles(scene);
 		uint32 changed = 0;
@@ -712,8 +712,12 @@ namespace p3d {
 			if (!img) continue;
 			Touch(tiles[i]);
 			const f32 size = tiles[i].Size();
-			if (img->Paint((x - tiles[i].origin.x) / size, (z - tiles[i].origin.z) / size, radius / size, radius / size,
-					layer, 1.f, strength, hardness, true))
+			const f32 u = (x - tiles[i].origin.x) / size, v = (z - tiles[i].origin.z) / size, r = radius / size;
+			bool painted = false;
+			// (none of the four: each is taken toward nothing, and they are not made to sum to one again)
+			if (layer == 4) { for (uint32 c = 0; c < 4; c++) painted = img->Paint(u, v, r, r, c, 0.f, strength, hardness, false) || painted; }
+			else painted = img->Paint(u, v, r, r, layer, 1.f, strength, hardness, true);
+			if (painted)
 			{
 				img->Upload();
 				state.splatDirty = true;

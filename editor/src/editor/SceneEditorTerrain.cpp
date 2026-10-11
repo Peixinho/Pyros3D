@@ -978,9 +978,9 @@ void SceneEditor::DrawTerrainTools()
 			"(a door, a shaft, a hand-made tunnel). Only the radius matters.");
 	if (t.tool == TerrainTools::PaintTexture)
 	{
-		static const char* layers[] = { "0  Grass", "1  Dirt", "2  Rock", "3  Sand" };
-		t.layer = std::max(0, std::min(3, t.layer));
-		ImGui::Combo("Layer", &t.layer, layers, 4);
+		static const char* layers[] = { "0  Grass", "1  Dirt", "2  Rock", "3  Sand", "4  None (the shader's own: stones)" };
+		t.layer = std::max(0, std::min(4, t.layer));
+		ImGui::Combo("Layer", &t.layer, layers, 5);
 		ImGui::TextWrapped("Paints the tile's splat map. Layer textures are the splat material's layer0..layer3 samplers.");
 	}
 	if (t.tool == TerrainTools::Place)
@@ -1028,12 +1028,14 @@ void SceneEditor::DrawTerrainTools()
 	if (ImGui::CollapsingHeader("River"))
 	{
 		static std::vector<Vec2> riverPoints;
-		static float riverWidth = 10.f, riverDepth = 2.4f, riverBank = 9.f, riverWater = 0.f;
+		static float riverWidth = 10.f, riverDepth = 2.4f, riverBank = 9.f, riverWater = 0.f, riverStones = 0.f;
 		static bool riverToLevel = false;
 		static char riverDepthTexture[256] = "";
 		ImGui::SliderFloat("Width (m)", &riverWidth, 1.f, 60.f, "%.1f");
 		ImGui::SliderFloat("Depth (m)", &riverDepth, 0.2f, 12.f, "%.1f");
 		ImGui::SliderFloat("Bank width (m)", &riverBank, 0.f, 40.f, "%.1f");
+		ImGui::SliderFloat("Bare banks (m)", &riverStones, 0.f, 12.f, "%.1f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Clears the ground's four layers and what grows, this far past the water's edge:\nfor a terrain material that lays stones of its own where no layer is painted.");
 		ImGui::Checkbox("Down to a water level", &riverToLevel);
 		if (riverToLevel) ImGui::InputFloat("Water level", &riverWater);
 		ImGui::InputTextWithHint("Depth texture", "assets/textures/sea_depth.png (optional)", riverDepthTexture, sizeof(riverDepthTexture));
@@ -1047,7 +1049,7 @@ void SceneEditor::DrawTerrainTools()
 			nlohmann::json a;
 			a["points"] = nlohmann::json::array();
 			for (size_t i = 0; i < riverPoints.size(); i++) a["points"].push_back({ riverPoints[i].x, riverPoints[i].y });
-			a["width"] = riverWidth; a["depth"] = riverDepth; a["bank"] = riverBank;
+			a["width"] = riverWidth; a["depth"] = riverDepth; a["bank"] = riverBank; a["stones"] = riverStones;
 			if (riverToLevel) { a["level"] = riverWater - riverDepth; a["waterLevel"] = riverWater; }
 			if (riverDepthTexture[0]) a["depthTexture"] = std::string(riverDepthTexture);
 			nlohmann::json out; std::string err;
@@ -1421,6 +1423,33 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 			}
 		}
 		EndTerrainStroke();
+		// Its banks: the ground's layers taken away in a band along it ("stones" metres past the water's
+		// edge; 0 for none) - what a terrain shader lays there is its own business - and nothing growing on them.
+		const f32 stones = args.value("stones", 0.f);
+		const int keptLayer = t.layer; const f32 keptDensity = t.density;
+		if (stones > 0.f)
+		{
+			t.radius = width * 0.5f + stones; t.strength = 1.f; t.hardness = 0.86f;
+			for (int what = 0; what < 7; what++)
+			{
+				t.tool = what == 0 ? TerrainTools::PaintTexture : TerrainTools::PaintFoliage;
+				t.layer = what == 0 ? 4 : what - 1; t.density = 0.f;
+				if (!BeginTerrainStroke()) continue;
+				for (size_t i = 0; i + 1 < pts.size(); i++)
+				{
+					const Vec2 a(pts[i].at(0).get<f32>(), pts[i].at(1).get<f32>()), b(pts[i + 1].at(0).get<f32>(), pts[i + 1].at(1).get<f32>());
+					const f32 len = std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y));
+					const int steps = std::max(1, (int)(len / std::max(1.f, t.radius * 0.4f)));
+					for (int s = 0; s <= steps; s++)
+					{
+						const f32 k = (f32)s / (f32)steps;
+						for (int pass = 0; pass < 4; pass++) t.ApplyAt(scene, a.x + (b.x - a.x) * k, a.y + (b.y - a.y) * k, 1.f);
+					}
+				}
+				EndTerrainStroke();
+			}
+		}
+		t.layer = keptLayer; t.density = keptDensity;
 		t.tool = keptTool; t.radius = keptRadius; t.strength = keptStrength; t.hardness = keptHardness; t.active = wasActive;
 		out = t.State(scene);
 		out["dabs"] = dabs;

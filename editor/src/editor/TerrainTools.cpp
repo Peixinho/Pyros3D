@@ -272,7 +272,7 @@ bool TerrainTools::ApplyAt(SceneGraph* scene, const float x, const float z, cons
 	case Flatten: return editor.Sculpt(scene, x, z, radius, blend, hardness, TerrainEditor::Flatten, flattenTarget) > 0;
 	// (rain: so many drops a second for each square metre under the brush, by the strength)
 	case Erode: return editor.Erode(scene, x, z, radius, (uint32)std::max(1.f, s * dt * radius * radius * 3.f), ++erodeSeed) > 0;
-	case PaintTexture: return editor.PaintSplat(scene, x, z, radius, (uint32)std::max(0, std::min(3, layer)), blend, hardness) > 0;
+	case PaintTexture: return editor.PaintSplat(scene, x, z, radius, (uint32)std::max(0, std::min(4, layer)), blend, hardness) > 0;
 	case Place: return false;	// SceneEditor places: it owns the objects
 	case Hole: return editor.CutHoles(scene, x, z, radius, true) > 0;
 	case Fill: return editor.CutHoles(scene, x, z, radius, false) > 0;

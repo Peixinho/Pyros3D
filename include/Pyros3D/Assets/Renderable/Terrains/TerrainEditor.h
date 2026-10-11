@@ -117,7 +117,9 @@ namespace p3d {
 		// Moves splat channel `layer` (0..3) toward full within the brush,
 		// the other three giving way. The splat image is the tile material's
 		// colour map when it is RGBA and clamped - see SplatImage(). Returns
-		// how many tiles changed.
+		// how many tiles changed. `layer` 4 is none of them: all four give way and
+		// the place is left unsaid - which a terrain's shader may read as a fifth
+		// layer of its own making (stones laid along a river, say).
 		uint32 PaintSplat(SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const uint32 layer,
 			const f32 strength, const f32 hardness);
 
