@@ -493,6 +493,11 @@ end
 				else if (mode == "flatten") m = TerrainEditor::Flatten;
 				return editor.Sculpt(scene, x, z, radius, amount, hardness, m, target.value_or(0.f));
 			});
+			// terrain.erode(scene, x, z, radius, drops[, seed[, below]]): rain on the ground there (TerrainEditor::Erode)
+			terrain.set_function("erode", [](SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const uint32 drops,
+				sol::optional<uint32> seed, sol::optional<f32> below) -> uint32 {
+				return editor.Erode(scene, x, z, radius, drops, seed.value_or(1u), below.value_or(-1e9f));
+			});
 			terrain.set_function("paintSplat", [](SceneGraph* scene, const f32 x, const f32 z, const f32 radius,
 				const uint32 layer, const f32 strength, const f32 hardness) -> uint32 {
 				return editor.PaintSplat(scene, x, z, radius, layer, strength, hardness);

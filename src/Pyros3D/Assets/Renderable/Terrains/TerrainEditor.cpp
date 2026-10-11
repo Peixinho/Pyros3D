@@ -297,6 +297,131 @@ namespace p3d {
 		return changedTiles;
 	}
 
+	uint32 TerrainEditor::Erode(SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const uint32 drops, const uint32 seed, const f32 below)
+	{
+		if (radius <= 0.f || drops == 0) return 0;
+		strokeScene = scene;
+		std::vector<TerrainTile> tiles = EditableTiles(scene);
+		std::vector<TerrainTile> touched;
+		for (size_t i = 0; i < tiles.size(); i++)
+			if (Overlaps(tiles[i], x, z, radius)) touched.push_back(tiles[i]);
+		if (touched.empty()) return 0;
+		for (size_t i = 0; i < touched.size(); i++) Touch(touched[i]);
+
+		// One grid over everything the brush reaches, in world heights: the tiles' own
+		// arrays share their border samples, and a drop has to cross a border as if it
+		// were not there.
+		const f32 s = touched[0].Data()->Spacing();
+		const f32 x0 = std::floor((x - radius) / s) * s, z0 = std::floor((z - radius) / s) * s;
+		const int32 W = (int32)std::ceil(radius * 2.f / s) + 2, Hh = W;
+		std::vector<f32> g((size_t)W * Hh, 0.f);
+		std::vector<uint8> have((size_t)W * Hh, 0);
+		for (size_t t = 0; t < touched.size(); t++)
+		{
+			const TerrainTile &tile = touched[t];
+			const HeightfieldData &d = *tile.Data();
+			for (int32 r = 0; r < (int32)d.samples; r++)
+				for (int32 c = 0; c < (int32)d.samples; c++)
+				{
+					const int32 gx = (int32)std::lround((tile.origin.x + c * s - x0) / s), gz = (int32)std::lround((tile.origin.z + r * s - z0) / s);
+					if (gx < 0 || gz < 0 || gx >= W || gz >= Hh) continue;
+					g[(size_t)gz * W + gx] = tile.origin.y + d.heights[(size_t)r * d.samples + c];
+					have[(size_t)gz * W + gx] = 1;
+				}
+		}
+		const std::vector<f32> before = g;
+
+		uint32 dice = seed * 2654435761u + 12345u;
+		auto unit = [&dice]() { dice ^= dice << 13; dice ^= dice >> 17; dice ^= dice << 5; return (f32)(dice & 0xFFFFFF) / (f32)0x1000000; };
+		const f32 inertia = 0.10f, capacity = 2.4f, minSlope = 0.01f, take = 0.13f, leave = 0.30f, dry = 0.016f, gravity = 4.f;
+		const f32 cx = (x - x0) / s, cz = (z - z0) / s, cr = radius / s;
+		for (uint32 n = 0; n < drops; n++)
+		{
+			// (where it lands: evenly over the brush's disc)
+			const f32 a = unit() * 6.2831853f, rr = std::sqrt(unit()) * cr;
+			f32 px = cx + std::cos(a) * rr, pz = cz + std::sin(a) * rr;
+			f32 dx = 0.f, dz = 0.f, speed = 1.f, water = 1.f, soil = 0.f;
+			for (int step = 0; step < 70; step++)
+			{
+				const int32 ix = (int32)px, iz = (int32)pz;
+				if (ix < 1 || iz < 1 || ix >= W - 2 || iz >= Hh - 2) break;
+				const size_t i00 = (size_t)iz * W + ix;
+				if (!have[i00] || !have[i00 + 1] || !have[i00 + W] || !have[i00 + W + 1]) break;
+				const f32 fx = px - ix, fz = pz - iz;
+				const f32 h00 = g[i00], h10 = g[i00 + 1], h01 = g[i00 + W], h11 = g[i00 + W + 1];
+				const f32 gx = (h10 - h00) * (1 - fz) + (h11 - h01) * fz, gz = (h01 - h00) * (1 - fx) + (h11 - h10) * fx;
+				const f32 here = h00 * (1 - fx) * (1 - fz) + h10 * fx * (1 - fz) + h01 * (1 - fx) * fz + h11 * fx * fz;
+				dx = dx * inertia - gx * (1 - inertia); dz = dz * inertia - gz * (1 - inertia);
+				f32 len = std::sqrt(dx * dx + dz * dz);
+				if (len < 1e-6f) { const f32 t = unit() * 6.2831853f; dx = std::cos(t); dz = std::sin(t); len = 1.f; }
+				dx /= len; dz /= len;
+				const f32 nx = px + dx, nz = pz + dz;
+				const int32 jx = (int32)nx, jz = (int32)nz;
+				if (jx < 1 || jz < 1 || jx >= W - 2 || jz >= Hh - 2) break;
+				const size_t j = (size_t)jz * W + jx;
+				const f32 nfx = nx - jx, nfz = nz - jz;
+				const f32 there = g[j] * (1 - nfx) * (1 - nfz) + g[j + 1] * nfx * (1 - nfz) + g[j + W] * (1 - nfx) * nfz + g[j + W + 1] * nfx * nfz;
+				const f32 dh = there - here;
+				const f32 can = std::max(-dh, minSlope) * speed * water * capacity;
+				f32 change;          // what is left here (+) or taken (-)
+				if (dh > 0.f) change = std::min(dh, soil);
+				else if (soil > can) change = (soil - can) * leave;
+				else change = -std::min((can - soil) * take, -dh * 0.45f);
+				if (here < below && change < 0.f) change = 0.f;
+				// (the brush fades at its rim: no wall where the rain stopped)
+				const f32 edge = std::sqrt((px - cx) * (px - cx) + (pz - cz) * (pz - cz)) / cr;
+				if (change < 0.f) change *= std::max(0.f, std::min(1.f, (1.f - edge) * 4.f));
+				soil -= change;
+				g[i00] += change * (1 - fx) * (1 - fz); g[i00 + 1] += change * fx * (1 - fz);
+				g[i00 + W] += change * (1 - fx) * fz; g[i00 + W + 1] += change * fx * fz;
+				speed = std::min(std::sqrt(std::max(speed * speed - dh * gravity, 0.01f)), 8.f);
+				water *= 1.f - dry;
+				px = nx; pz = nz;
+			}
+			// (what it still carries when it stops is left where it stopped: rain moves
+			// ground, it does not take it out of the world - a brush held on a hill dug a pit)
+			{
+				const int32 ix = (int32)px, iz = (int32)pz;
+				if (soil > 0.f && ix >= 1 && iz >= 1 && ix < W - 2 && iz < Hh - 2)
+				{
+					const size_t i = (size_t)iz * W + ix;
+					const f32 q = soil * 0.25f;
+					g[i] += q; g[i + 1] += q; g[i + W] += q; g[i + W + 1] += q;
+				}
+			}
+		}
+
+		uint32 changedTiles = 0;
+		for (size_t t = 0; t < touched.size(); t++)
+		{
+			const TerrainTile &tile = touched[t];
+			HeightfieldData &d = *tile.Data();
+			bool changed = false;
+			for (int32 r = 0; r < (int32)d.samples; r++)
+				for (int32 c = 0; c < (int32)d.samples; c++)
+				{
+					const int32 gx = (int32)std::lround((tile.origin.x + c * s - x0) / s), gz = (int32)std::lround((tile.origin.z + r * s - z0) / s);
+					if (gx < 0 || gz < 0 || gx >= W || gz >= Hh) continue;
+					const size_t k = (size_t)gz * W + gx;
+					if (g[k] == before[k]) continue;
+					f32 &h = d.heights[(size_t)r * d.samples + c];
+					h = std::min(std::max(g[k] - tile.origin.y, d.rangeMin), d.rangeMax);
+					changed = true;
+				}
+			if (!changed) continue;
+			changedTiles++;
+			for (size_t l = 0; l < tile.levels.size(); l++) tile.levels[l]->Rebuild();
+			if (tile.rendering) tile.rendering->RefreshBounds();
+			TileState &state = State(tile);
+			state.heightsDirty = true;
+			state.collisionDirty = true;
+			bool listed = false;
+			for (size_t i = 0; i < strokeTiles.size(); i++) listed = listed || strokeTiles[i].owner == tile.owner;
+			if (!listed) strokeTiles.push_back(tile);
+		}
+		return changedTiles;
+	}
+
 	uint32 TerrainEditor::CutHoles(SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const bool open)
 	{
 		if (radius <= 0.f) return 0;

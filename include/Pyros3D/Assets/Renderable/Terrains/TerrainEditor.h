@@ -104,6 +104,15 @@ namespace p3d {
 		// the touched tiles' meshes. Returns how many tiles changed.
 		uint32 Sculpt(SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const f32 amount,
 			const f32 hardness, const SculptMode mode, const f32 target = 0.f);
+		// Rain on the ground within `radius` of (x, z): `drops` droplets land there, each
+		// runs downhill taking soil where it speeds up and leaving it where it slows -
+		// what turns sculpted or generated hills into ground with gullies, fans and
+		// valleys. A brush when called every frame with a few thousand drops; a whole
+		// terrain's weathering with a radius that covers it and a few hundred thousand.
+		// `below` (a world height): nothing is taken under it (a sea's level - what
+		// rivers bring is left there). Tiles are rebuilt; the count of them is returned.
+		uint32 Erode(SceneGraph* scene, const f32 x, const f32 z, const f32 radius, const uint32 drops,
+			const uint32 seed = 1, const f32 below = -1e9f);
 
 		// Moves splat channel `layer` (0..3) toward full within the brush,
 		// the other three giving way. The splat image is the tile material's
