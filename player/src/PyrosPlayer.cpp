@@ -454,6 +454,9 @@ end
 	// setNearestFirst(false): the G-buffer in the scene's own order again (to compare)
 	// setTerrainOcclusion(false): what is behind a hill is drawn again (to compare)
 	lua.set_function("setTerrainOcclusion", [](const bool on) { TerrainOcclusion::SetEnabled(on); });
+	// setLateFrameStart(true): each frame begun - its input read - as late as the GPU side allows
+	// (ThreadedRenderDevice::SetLateFrameStart): less time from a look to its being seen, where the GPU is the slower side.
+	lua.set_function("setLateFrameStart", [](const bool on) { ThreadedRenderDevice::SetLateFrameStart(on); });
 	lua.set_function("getTerrainOcclusion", []() { return TerrainOcclusion::GetEnabled(); });
 	// setAutoLOD(false): models are drawn whole however far off (those loaded already included)
 	lua.set_function("setAutoLOD", [](const bool on) { RenderingComponent::SetAutoLODInUse(on); });
@@ -1783,6 +1786,7 @@ void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
 			FrameProfiler::Instance().Counter("Device.GpuWaitMs", gpuMs);
 			FrameProfiler::Instance().Counter("Device.PresentMs", presentMs);
 			FrameProfiler::Instance().Counter("Device.BehindMs", behindMs);
+			FrameProfiler::Instance().Counter("Device.InputToShownMs", deviceThread->InputToShownMs());
 		}
 		{
 			const IRenderDevice::Built b = IRenderDevice::TakeBuilt();

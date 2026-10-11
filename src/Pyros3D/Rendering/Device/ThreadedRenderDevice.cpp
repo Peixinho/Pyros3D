@@ -321,14 +321,44 @@ namespace p3d {
 	}
 
 	// ---------------------------------------------------------------- by hand
+	static std::atomic<int> g_lateFrameStart{ -1 };
+	void ThreadedRenderDevice::SetLateFrameStart(const bool on) { g_lateFrameStart = on ? 1 : 0; }
+	bool ThreadedRenderDevice::GetLateFrameStart()
+	{
+		if (g_lateFrameStart.load() < 0) g_lateFrameStart = (std::getenv("PYROS_LATE_INPUT") != NULL && std::getenv("PYROS_LATE_INPUT")[0] == '1') ? 1 : 0;
+		return g_lateFrameStart.load() == 1;
+	}
+
 	void ThreadedRenderDevice::WaitForFrameRoom()
 	{
-		if (framesBehind.load() < 2) return;
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
-		Kick();
-		std::unique_lock<std::mutex> g(lock);
-		done.wait(g, [this]() { return framesBehind.load() < 2; });
-		behindWaitMs += MsSince(t0);
+		if (framesBehind.load() >= 2)
+		{
+			Kick();
+			std::unique_lock<std::mutex> g(lock);
+			done.wait(g, [this]() { return framesBehind.load() < 2; });
+		}
+		// The device thread still has a frame to finish: this one need not be begun until
+		// just long enough before that for it to be ready when the thread is. Begun now,
+		// its input would be that much older when it is seen - a frame of the GPU's, when
+		// the GPU is the slower side. (Asked for: SetLateFrameStart, or PYROS_LATE_INPUT=1.)
+		const bool late = GetLateFrameStart();
+		const uint32_t takes = deviceFrameUs.load();
+		if (late && framesBehind.load() >= 1 && takes > 0)
+		{
+			const int64_t nowUs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+			const int64_t began = deviceInFrame.load() ? deviceFrameStartUs.load() : nowUs;
+			int64_t waitUs = began + (int64_t)takes - (int64_t)(sayingMs * 1250.0) - 300 - nowUs;
+			if (waitUs > 100000) waitUs = 100000;
+			if (waitUs > 200)
+			{
+				std::unique_lock<std::mutex> g(lock);
+				done.wait_for(g, std::chrono::microseconds(waitUs), [this]() { return framesBehind.load() < 1; });
+			}
+		}
+		const f64 waited = MsSince(t0);
+		if (waited > 0.05) behindWaitMs += waited;
+		sayingSince = std::chrono::steady_clock::now();
 	}
 
 	void ThreadedRenderDevice::BeginFrame()
@@ -348,6 +378,8 @@ namespace p3d {
 		drainsThisFrame = 0;
 		Push([this]() {
 			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+			deviceFrameStartUs = std::chrono::duration_cast<std::chrono::microseconds>(t0.time_since_epoch()).count();
+			deviceInFrame = true;
 			real->BeginFrame();
 			gpuWaitUs += (uint64)(MsSince(t0) * 1000.0);
 		});
@@ -356,11 +388,20 @@ namespace p3d {
 	void ThreadedRenderDevice::EndFrame()
 	{
 		said.frameOpen = false;
+		if (sayingSince.time_since_epoch().count() != 0) sayingMs = sayingMs * 0.8 + MsSince(sayingSince) * 0.2;
 		framesBehind++;
-		Push([this]() {
+		const std::chrono::steady_clock::time_point readAt = sayingSince;
+		Push([this, readAt]() {
 			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 			real->EndFrame();
+			if (readAt.time_since_epoch().count() != 0) inputToShownUs = (uint32_t)(MsSince(readAt) * 1000.0);
 			presentWaitUs += (uint64)(MsSince(t0) * 1000.0);
+			{
+				const int64_t endUs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+				const int64_t took = endUs - deviceFrameStartUs.load();
+				if (took > 0 && took < 2000000) deviceFrameUs = (uint32_t)(deviceFrameUs.load() == 0 ? took : (deviceFrameUs.load() * 4 + took) / 5);
+				deviceInFrame = false;
+			}
 			framesBehind--;
 			// (whoever waits in BeginFrame is waiting on this count)
 			{ std::lock_guard<std::mutex> g(lock); }

@@ -50,6 +50,13 @@ namespace p3d {
 		// device thread to catch up. Whoever paces the frames reads these: the
 		// calls themselves return at once now.
 		void TakeWaits(f64 &gpuMs, f64 &presentMs, f64 &behindMs);
+		// From a frame's input being read (WaitForFrameRoom's return) to that frame handed to the display: the last one's, ms.
+		// A frame begun as late as will still keep the device thread fed (see WaitForFrameRoom). Off unless
+		// asked for - here, or PYROS_LATE_INPUT=1: where the display paces the frames and not the GPU it
+		// costs frames and gains nothing (measured), and where it helps is for a game to find out.
+		static void SetLateFrameStart(const bool on);
+		static bool GetLateFrameStart();
+		f64 InputToShownMs() const { return (f64)inputToShownUs.load() / 1000.0; }
 		// The queue run dry: everything asked for has been done.
 		void Finish() { Drain("Finish"); }
 		// The device's own handle for one given out here (buffers, vertex arrays
@@ -126,6 +133,15 @@ namespace p3d {
 		std::atomic<int> framesBehind;        // frames ended here and not yet presented there
 		std::atomic<uint64> gpuWaitUs, presentWaitUs;
 		f64 behindWaitMs = 0.0;
+		// For starting a frame as late as will still keep the device thread fed (WaitForFrameRoom):
+		// when it began the frame it is on and how long its frames take (its side), how long
+		// this side takes to say one (this side).
+		std::atomic<int64_t> deviceFrameStartUs{ 0 };
+		std::atomic<uint32_t> deviceFrameUs{ 0 };
+		std::atomic<bool> deviceInFrame{ false };
+		std::atomic<uint32_t> inputToShownUs{ 0 };
+		std::chrono::steady_clock::time_point sayingSince;
+		f64 sayingMs = 0.0;
 		static const DeviceHandle kFirstGiven = 0x40000000u;
 		std::atomic<DeviceHandle> nextGiven;
 		std::unordered_map<DeviceHandle, DeviceHandle> realOf;      // the device thread's (and anybody's, with the queue dry)
