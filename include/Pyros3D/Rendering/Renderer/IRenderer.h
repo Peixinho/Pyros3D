@@ -154,6 +154,11 @@ namespace p3d {
 		// The scene's sun, as the lighting last saw it: the way to it and how strong (0..1).
 		// For what a material does with the sun outside the lighting pass (light through leaves).
 		static void SetSunHint(const Vec3 &toSun, const f32 strength);
+		static void GetSunHint(Vec3 &toSun, f32 &strength);
+		// Where the scene was last drawn from (the camera's world matrix): for what works on
+		// the finished picture and needs to know which way each pixel looks (a sky, fog).
+		static void SetViewHint(const Matrix &cameraWorld);
+		static bool GetViewHint(Matrix &cameraWorld);
 		static void SetAmbientSource(IRenderer* mainView);
 		static IRenderer* GetAmbientSource();
 		// What the shader is told: AmbientMode, except that DDGI (3) with

@@ -822,6 +822,7 @@ namespace p3d {
 	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
 		PYROS_PROFILE_SCOPE("Deferred.RenderScene");
+		if (Camera != NULL) IRenderer::SetViewHint(Camera->GetDrawWorld());
 		// (see IRenderer::FinishBeside: on every way out of here)
 		struct Join { IRenderer* r; ~Join() { r->FinishBeside(); } } join = { this };
 

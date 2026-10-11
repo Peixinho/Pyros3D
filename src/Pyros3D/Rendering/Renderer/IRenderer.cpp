@@ -146,6 +146,10 @@ bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
 f32 IRenderer::AmbientScale = 1.f;
 namespace { Vec3 g_sunTo(0.f, 1.f, 0.f); f32 g_sunStrength = 0.f; }
+namespace { Matrix g_viewWorld; bool g_viewKnown = false; }
+void IRenderer::SetViewHint(const Matrix &cameraWorld) { g_viewWorld = cameraWorld; g_viewKnown = true; }
+bool IRenderer::GetViewHint(Matrix &cameraWorld) { cameraWorld = g_viewWorld; return g_viewKnown; }
+void IRenderer::GetSunHint(Vec3 &toSun, f32 &strength) { toSun = g_sunTo; strength = g_sunStrength; }
 void IRenderer::SetSunHint(const Vec3 &toSun, const f32 strength) { g_sunTo = toSun; g_sunStrength = std::max(0.f, std::min(1.f, strength)); }
 namespace { std::atomic<IRenderer*> g_ambientSource(NULL); }
 namespace { f32 g_heldAmbientScale = 1.f; bool g_ambientScaleHeld = false; }

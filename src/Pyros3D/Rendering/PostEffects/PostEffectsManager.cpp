@@ -6,6 +6,7 @@
 // Description : Post Effects Manager
 //============================================================================
 
+#include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <cstdlib>
 #include <algorithm>
@@ -476,6 +477,39 @@ namespace p3d {
 
 	void PostEffectsManager::ProcessPostEffects(Projection* projection)
 	{
+		// What an effect that is an asset may ask for by name, and is then told every frame
+		// without a script: where the eye is and the way it looks (uCamPos, uCamFwd, uCamRight,
+		// uCamUp), the lens (uLens: tan of half the field of view, aspect), uNear, uFar, and
+		// uTime in seconds. A sky or a fog is written against these and works in any scene,
+		// in the editor's viewport as in a game.
+		{
+			Matrix view;
+			const bool haveView = IRenderer::GetViewHint(view);
+			static const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
+			const f32 seconds = (f32)std::chrono::duration<f64>(std::chrono::steady_clock::now() - began).count();
+			for (size_t i = 0; i < effects.size(); i++)
+			{
+				CustomEffect* fx = dynamic_cast<CustomEffect*>(effects[i]);
+				if (fx == NULL) continue;
+				fx->SetParam("uTime", &seconds, 1);
+				if (projection != NULL && projection->Fov > 0.f)
+				{
+					const f32 lens[4] = { tanf(projection->Fov * 0.5f * 3.14159265f / 180.f), projection->Aspect, 0.f, 0.f };
+					fx->SetParam("uLens", lens, 4);
+					fx->SetParam("uNear", &projection->Near, 1);
+					fx->SetParam("uFar", &projection->Far, 1);
+				}
+				if (haveView)
+				{
+					const f32 pos[4] = { view.m[12], view.m[13], view.m[14], 0.f };
+					const f32 fwd[4] = { -view.m[8], -view.m[9], -view.m[10], 0.f };
+					const f32 right[4] = { view.m[0], view.m[1], view.m[2], 0.f };
+					const f32 up[4] = { view.m[4], view.m[5], view.m[6], 0.f };
+					fx->SetParam("uCamPos", pos, 4); fx->SetParam("uCamFwd", fwd, 4);
+					fx->SetParam("uCamRight", right, 4); fx->SetParam("uCamUp", up, 4);
+				}
+			}
+		}
 		ApplyAntiAliasing();
 
 		// The chain, then TAA, then FXAA/SMAA. TAA used to come first, and the
