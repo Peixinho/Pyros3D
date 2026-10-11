@@ -914,6 +914,47 @@ bool SceneEditor::TerrainRiverClick()
 	return true;
 }
 
+static bool gOpenRiverSection = false;
+
+void SceneEditor::DrawTerrainRiverOverlay()
+{
+	if (gRiverPoints.empty() || !debugRenderer || !scene) return;
+	const Vec4 blue(0.25f, 0.65f, 1.f, 1.f);
+	Vec3 prev;
+	for (size_t i = 0; i < gRiverPoints.size(); i++)
+	{
+		f32 h = 0.f; Vec3 n;
+		TerrainTools::GroundPoint(scene, gRiverPoints[i].x, gRiverPoints[i].y, h, n);
+		const Vec3 at(gRiverPoints[i].x, h + 0.2f, gRiverPoints[i].y);
+		// a ring on the ground and a post, to be seen from afar
+		Vec3 last;
+		for (int k = 0; k <= 20; k++)
+		{
+			const f32 a = (f32)k / 20.f * 6.2831853f;
+			const Vec3 p(at.x + cosf(a) * 1.6f, at.y, at.z + sinf(a) * 1.6f);
+			if (k > 0) debugRenderer->drawLine(last, p, blue);
+			last = p;
+		}
+		debugRenderer->drawLine(at, at + Vec3(0.f, 5.f, 0.f), blue);
+		if (i > 0)
+		{
+			// the course between two points, laid on the ground
+			Vec3 a = prev;
+			for (int k = 1; k <= 12; k++)
+			{
+				const f32 f = (f32)k / 12.f;
+				Vec3 b(prev.x + (at.x - prev.x) * f, 0.f, prev.z + (at.z - prev.z) * f);
+				f32 bh = 0.f; Vec3 bn;
+				TerrainTools::GroundPoint(scene, b.x, b.z, bh, bn);
+				b.y = bh + 0.2f;
+				debugRenderer->drawLine(a, b, blue);
+				a = b;
+			}
+		}
+		prev = at;
+	}
+}
+
 void SceneEditor::DrawTerrainTools()
 {
 	if (sceneIsTwoD) return;
@@ -1136,6 +1177,7 @@ void SceneEditor::DrawTerrainTools()
 	}
 	// River: points from source to mouth, picked where the cursor last was on the ground;
 	// Build cuts the bed along them (terrain_river) and makes the water's depth picture again.
+	if (gOpenRiverSection) { ImGui::SetNextItemOpen(true); gOpenRiverSection = false; }
 	if (ImGui::CollapsingHeader("River"))
 	{
 		std::vector<Vec2> &riverPoints = gRiverPoints;
@@ -1438,6 +1480,9 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	// The panel's controls: {"on":true,"tool":"raise","radius":8,...}.
 	if (command == "terrain_brush")
 	{
+		// "riverPick": clicks in the view add river points (the River tools' checkbox); "section": "river" opens them.
+		if (args.contains("riverPick") && args["riverPick"].is_boolean()) gRiverPick = args["riverPick"].get<bool>();
+		if (args.value("section", std::string()) == "river") gOpenRiverSection = true;
 		// "edit": true - what a click on the Terrain component in the tree does: it becomes the
 		// selection, and its tools open. (false: the selection is dropped.)
 		if (args.contains("edit") && args["edit"].is_boolean())

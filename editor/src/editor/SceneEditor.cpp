@@ -1645,6 +1645,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					selectedDebugComp, selectedDebugCam);
 
 			if (terrainTools && !playMode) terrainTools->DrawOverlay(debugRenderer, scene);
+			if (terrainTools && !playMode) DrawTerrainRiverOverlay();
 			if (showCellGrid && !playMode) DrawCellGrid(debugRenderer, viewCam);
 			if (debugRenderer)
 				debugRenderer->Render(viewCam->GetWorldTransformation().Inverse(),
@@ -4719,6 +4720,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		for (size_t p = 0; p < params.size(); p++)
 		{
 			const CustomEffect::Param &meta = params[p];
+			// (what the engine fills every frame - the camera, the clock, the sun - is not a setting)
+			if (meta.name == "uCamPos" || meta.name == "uCamFwd" || meta.name == "uCamRight" || meta.name == "uCamUp" || meta.name == "uNear"
+				|| meta.name == "uFar" || meta.name == "uLens" || meta.name == "uSunTo" || meta.name == "uTime") continue;
 			// The saved override if there is one, the effect's own default
 			// otherwise - so a parameter never shows a value the effect is
 			// not actually using.
