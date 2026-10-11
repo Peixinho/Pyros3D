@@ -1141,6 +1141,7 @@ namespace p3d {
 				j["shape"] = "Tree";
 				j["species"] = TreeMesh::SpeciesName(s->GetSpecies()); j["seed"] = s->GetSeed();
 				j["part"] = s->GetPart() == TreePart::Leaves ? "leaves" : "wood"; j["detail"] = s->GetDetail();
+				if (s->GetSprays() > 1) j["sprays"] = s->GetSprays();
 				return j;
 			}
 			case PrimitiveType::GrassTuft:
@@ -2943,11 +2944,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// One mesh for every object that is the same individual: a wood of a few
 				// individuals is then a few meshes drawn many times each, and is grown once.
 				static std::map<std::string, std::weak_ptr<Renderable> > grown;
-				const std::string key = name + "/" + std::to_string(j.value("seed", 1u)) + "/" + j.value("part", "wood") + "/" + std::to_string(j.value("detail", 0u));
+				const std::string key = name + "/" + std::to_string(j.value("seed", 1u)) + "/" + j.value("part", "wood") + "/" + std::to_string(j.value("detail", 0u)) + "/" + std::to_string(j.value("sprays", 1u));
 				r = grown[key].lock();
 				if (!r)
 				{
-					r = std::make_shared<TreeMesh>(species, j.value("seed", 1u), j.value("part", "wood") == "leaves" ? (uint32)TreePart::Leaves : (uint32)TreePart::Wood, j.value("detail", 0u));
+					r = std::make_shared<TreeMesh>(species, j.value("seed", 1u), j.value("part", "wood") == "leaves" ? (uint32)TreePart::Leaves : (uint32)TreePart::Wood, j.value("detail", 0u), j.value("sprays", 1u));
 					grown[key] = r;
 				}
 			}

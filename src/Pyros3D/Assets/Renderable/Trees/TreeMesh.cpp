@@ -349,10 +349,11 @@ namespace p3d {
 		}
 	}
 
-	TreeMesh::TreeMesh(const uint32 species_, const uint32 seed, const uint32 part, const uint32 detail)
+	TreeMesh::TreeMesh(const uint32 species_, const uint32 seed, const uint32 part, const uint32 detail, const uint32 sprays_)
 		: species(species_ < TreeSpecies::Count ? species_ : (uint32)TreeSpecies::Oak), seed(seed), part(part), detail(std::min<uint32>(detail, 2)),
 		height(0.f), crownRadius(0.f), trunkRadius(0.f)
 	{
+		sprays = std::max<uint32>(1, std::min<uint32>(4, sprays_));
 		isFlipped = false;
 		isSmooth = false;
 		calculateTangentBitangent = false;
@@ -453,7 +454,10 @@ namespace p3d {
 				if (lot > keep) continue;
 				const f32 half = sp.size * grow * .5f;
 				const Vec3 ns[4] = { normal, normal, normal, normal };
-				const Vec2 uv[4] = { Vec2(0.f, 1.f), Vec2(1.f, 1.f), Vec2(1.f, 0.f), Vec2(0.f, 0.f) };
+				// (which spray of the sheet this card shows)
+				const f32 cell = 1.f / (f32)sprays;
+				const f32 u0 = (f32)(uint32)(dice.Unit() * (f32)sprays) * cell, v0 = (f32)(uint32)(dice.Unit() * (f32)sprays) * cell;
+				const Vec2 uv[4] = { Vec2(u0, v0 + cell), Vec2(u0 + cell, v0 + cell), Vec2(u0 + cell, v0), Vec2(u0, v0) };
 				if (bough)
 				{
 					// along the branch and a little down, lying flat; and a second, on edge, hanging under it

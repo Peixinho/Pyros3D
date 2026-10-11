@@ -53,13 +53,17 @@ namespace p3d {
 
 	public:
 
-		TreeMesh(const uint32 species, const uint32 seed, const uint32 part, const uint32 detail = 0);
+		// `sprays`: the leaf picture holds that many different sprays a side (1: one spray, the
+		// whole picture; 2: four of them in a 2 x 2 sheet) and each card of leaves takes one at
+		// random - a crown of several kinds of twig, not one stamped a thousand times.
+		TreeMesh(const uint32 species, const uint32 seed, const uint32 part, const uint32 detail = 0, const uint32 sprays = 1);
 
 		virtual uint32 GetPrimitiveType() const { return PrimitiveType::Tree; }
 		uint32 GetSpecies() const { return species; }
 		uint32 GetSeed() const { return seed; }
 		uint32 GetPart() const { return part; }
 		uint32 GetDetail() const { return detail; }
+		uint32 GetSprays() const { return sprays; }
 		// How tall this individual is, and how wide its crown (metres).
 		f32 GetHeight() const { return height; }
 		f32 GetCrownRadius() const { return crownRadius; }
@@ -76,7 +80,7 @@ namespace p3d {
 
 	protected:
 
-		uint32 species, seed, part, detail;
+		uint32 species, seed, part, detail, sprays = 1;
 		f32 height, crownRadius, trunkRadius;
 	};
 };
