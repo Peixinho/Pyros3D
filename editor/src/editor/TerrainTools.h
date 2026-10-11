@@ -32,7 +32,7 @@ namespace p3d { class SceneGraph; class GameObject; class DebugRenderer; }
 class TerrainTools
 {
 public:
-	enum Tool { Raise, Lower, Smooth, Flatten, PaintTexture, PaintFoliage, Place, Hole, Fill, Dig, Pack, CaveSmooth, CaveLevel, ToolCount };
+	enum Tool { Raise, Lower, Smooth, Flatten, PaintTexture, PaintFoliage, Place, Hole, Fill, Dig, Pack, CaveSmooth, CaveLevel, Erode, ToolCount };
 	// The radius the cave tools really work with: a cave is made of voxels,
 	// and a sphere much smaller than one and a half of them is nothing the
 	// voxels can hold - the brush then touched the rock without ever
@@ -183,6 +183,7 @@ private:
 	Vec3 hover;
 	bool stroking = false;
 	float flattenTarget = 0.f;
+	unsigned int erodeSeed = 0;          // (Erode: each step's rain falls somewhere else)
 	// Cave dabs remesh a tile: applied thirty times a second, not every frame.
 	float caveDt = 0.f;
 };

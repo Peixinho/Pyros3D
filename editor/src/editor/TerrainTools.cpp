@@ -27,7 +27,7 @@ using json = nlohmann::json;
 namespace fs = std::filesystem;
 
 namespace {
-	const char* kToolNames[TerrainTools::ToolCount] = { "raise", "lower", "smooth", "flatten", "paint", "foliage", "place", "hole", "fill", "dig", "pack", "cavesmooth", "cavelevel" };
+	const char* kToolNames[TerrainTools::ToolCount] = { "raise", "lower", "smooth", "flatten", "paint", "foliage", "place", "hole", "fill", "dig", "pack", "cavesmooth", "cavelevel", "erode" };
 
 	// Ground height at a world position from a tile list, false off every tile.
 	// `hint` is the tile the last query landed on: a ray march or a brush
@@ -270,6 +270,8 @@ bool TerrainTools::ApplyAt(SceneGraph* scene, const float x, const float z, cons
 	case Lower: return editor.Sculpt(scene, x, z, radius, s * 20.f * dt, hardness, TerrainEditor::Lower) > 0;
 	case Smooth: return editor.Sculpt(scene, x, z, radius, blend, hardness, TerrainEditor::Smooth) > 0;
 	case Flatten: return editor.Sculpt(scene, x, z, radius, blend, hardness, TerrainEditor::Flatten, flattenTarget) > 0;
+	// (rain: so many drops a second for each square metre under the brush, by the strength)
+	case Erode: return editor.Erode(scene, x, z, radius, (uint32)std::max(1.f, s * dt * radius * radius * 3.f), ++erodeSeed) > 0;
 	case PaintTexture: return editor.PaintSplat(scene, x, z, radius, (uint32)std::max(0, std::min(3, layer)), blend, hardness) > 0;
 	case Place: return false;	// SceneEditor places: it owns the objects
 	case Hole: return editor.CutHoles(scene, x, z, radius, true) > 0;
@@ -357,7 +359,7 @@ void TerrainTools::DrawOverlay(DebugRenderer* debug, SceneGraph* scene) const
 		Vec4(0.3f, 1.f, 0.4f, 1.f), Vec4(1.f, 0.45f, 0.3f, 1.f), Vec4(0.4f, 0.8f, 1.f, 1.f),
 		Vec4(1.f, 0.9f, 0.3f, 1.f), Vec4(1.f, 0.4f, 1.f, 1.f), Vec4(0.6f, 1.f, 0.2f, 1.f), Vec4(1.f, 1.f, 1.f, 1.f),
 		Vec4(1.f, 0.2f, 0.2f, 1.f), Vec4(0.2f, 0.9f, 0.9f, 1.f), Vec4(1.f, 0.55f, 0.1f, 1.f), Vec4(0.5f, 0.7f, 1.f, 1.f),
-		Vec4(0.4f, 0.8f, 1.f, 1.f), Vec4(1.f, 0.9f, 0.3f, 1.f) };
+		Vec4(0.4f, 0.8f, 1.f, 1.f), Vec4(1.f, 0.9f, 0.3f, 1.f), Vec4(0.35f, 0.55f, 1.f, 1.f) };
 	// Grey over a far version: the cell is still streaming in.
 	const Vec4 outer = hoverEditable ? colours[tool] : Vec4(0.55f, 0.55f, 0.55f, 1.f);
 	const Vec4 inner(outer.x, outer.y, outer.z, 0.5f);

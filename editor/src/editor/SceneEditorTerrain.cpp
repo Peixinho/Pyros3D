@@ -196,6 +196,7 @@ namespace {
 		case TerrainTools::Lower: return "Lower Terrain";
 		case TerrainTools::Smooth: return "Smooth Terrain";
 		case TerrainTools::Flatten: return "Flatten Terrain";
+		case TerrainTools::Erode: return "Erode Terrain";
 		case TerrainTools::PaintTexture: return "Paint Terrain Texture";
 		case TerrainTools::PaintFoliage: return "Paint Foliage";
 		case TerrainTools::Place: return "Place Objects";
@@ -856,7 +857,7 @@ void SceneEditor::DrawTerrainTools()
 	if (t.HoverValid() && !t.HoverEditable())
 		ImGui::TextColored(ImVec4(1.f, 0.8f, 0.3f, 1.f), "Loading the cell under the brush...");
 
-	static const char* labels[TerrainTools::ToolCount] = { "Raise", "Lower", "Smooth", "Flatten", "Texture", "Foliage", "Place", "Cut Hole", "Fill Hole", "Dig Cave", "Fill Cave", "Smooth Cave", "Level Floor" };
+	static const char* labels[TerrainTools::ToolCount] = { "Raise", "Lower", "Smooth", "Flatten", "Texture", "Foliage", "Place", "Cut Hole", "Fill Hole", "Dig Cave", "Fill Cave", "Smooth Cave", "Level Floor", "Erode (rain)" };
 	ImGui::TextDisabled("Sculpt");
 	for (int i = 0; i < TerrainTools::ToolCount; i++)
 	{
@@ -864,6 +865,7 @@ void SceneEditor::DrawTerrainTools()
 		if (i == TerrainTools::PaintTexture) ImGui::TextDisabled("Paint");
 		else if (i == TerrainTools::Hole) ImGui::TextDisabled("Holes");
 		else if (i == TerrainTools::Dig) ImGui::TextDisabled("Caves");
+		else if (i == TerrainTools::Erode) ImGui::TextDisabled("Weather");
 		else if (i < TerrainTools::PaintTexture && i % 2 == 1) ImGui::SameLine();
 		if (i == TerrainTools::PaintFoliage || i == TerrainTools::Place || i == TerrainTools::Fill || i == TerrainTools::Pack
 			|| i == TerrainTools::CaveLevel) ImGui::SameLine();
