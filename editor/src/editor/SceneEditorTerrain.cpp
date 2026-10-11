@@ -1343,6 +1343,14 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		std::vector<std::shared_ptr<Texture> > live = Texture::FindShared(path);
 		if (live.empty()) { errOut = "no loaded texture ends with '" + path + "'"; return false; }
 		std::vector<uchar> px((size_t)res * res * 4, 255);
+		// Green says "this water is a river" (a water shader draws a creek's banks and bed there):
+		// kept from the picture on disk, and added to along "points" (terrain_river's own).
+		PaintableImage was;
+		const bool hadFile = project && project->IsOpen() && was.Load(project->AbsolutePath(path), 4);
+		std::vector<Vec2> line;
+		if (args.contains("points") && args["points"].is_array())
+			for (const auto &pt : args["points"]) if (pt.is_array() && pt.size() >= 2) line.push_back(Vec2(pt.at(0).get<f32>(), pt.at(pt.size() >= 3 ? 2 : 1).get<f32>()));
+		const f32 reach = args.value("width", 10.f) * 0.5f + args.value("bank", 9.f) + 6.f;
 		for (uint32 r = 0; r < res; r++)
 			for (uint32 c = 0; c < res; c++)
 			{
@@ -1350,7 +1358,21 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 				TerrainEditor::HeightAt(scene, ((f32)c + 0.5f) / (f32)res * size - size * 0.5f, ((f32)r + 0.5f) / (f32)res * size - size * 0.5f, h);
 				const f32 d = std::min(1.f, std::max(0.f, (level - h) / range));
 				uchar* p = &px[((size_t)r * res + c) * 4];
-				p[0] = p[1] = p[2] = (uchar)(d * 255.f + 0.5f);
+				p[0] = p[2] = (uchar)(d * 255.f + 0.5f);
+				f32 river = hadFile ? was.Sample(((f32)c + 0.5f) / (f32)res, ((f32)r + 0.5f) / (f32)res, 1) : 0.f;
+				if (!line.empty())
+				{
+					const f32 wx = ((f32)c + 0.5f) / (f32)res * size - size * 0.5f, wz = ((f32)r + 0.5f) / (f32)res * size - size * 0.5f;
+					for (size_t i = 0; i + 1 < line.size(); i++)
+					{
+						const Vec2 ab(line[i + 1].x - line[i].x, line[i + 1].y - line[i].y);
+						const f32 l2 = ab.x * ab.x + ab.y * ab.y;
+						const f32 tt = l2 > 0.f ? std::min(1.f, std::max(0.f, ((wx - line[i].x) * ab.x + (wz - line[i].y) * ab.y) / l2)) : 0.f;
+						const f32 dx = wx - (line[i].x + ab.x * tt), dz = wz - (line[i].y + ab.y * tt);
+						river = std::max(river, std::min(1.f, std::max(0.f, (reach - std::sqrt(dx * dx + dz * dz)) / 6.f)));
+					}
+				}
+				p[1] = (uchar)(std::min(1.f, river) * 255.f + 0.5f);
 			}
 		for (size_t i = 0; i < live.size(); i++)
 		{
@@ -1405,7 +1427,7 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		// (the water's picture of the depth, made again: or the new river is drawn as shore)
 		if (args.contains("depthTexture"))
 		{
-			nlohmann::json bake = args; bake["texture"] = args["depthTexture"]; bake.erase("points");
+			nlohmann::json bake = args; bake["texture"] = args["depthTexture"];
 			// (the water's own level, not the bed's: "waterLevel")
 			if (args.contains("waterLevel")) bake["level"] = args["waterLevel"];
 			nlohmann::json baked; std::string berr;
