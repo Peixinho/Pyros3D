@@ -69,6 +69,39 @@ namespace p3d {
 			return Vec3(1.f, 1.f - 0.42f * low, 1.f - 0.74f * low) * strength;
 		}
 
+		// The hour of the day, for a sun: where it stands at `hour` (0..24: up at six in the
+		// east, highest at noon, down at eighteen) on a path that rises `azimuth` degrees
+		// round from +x and leans `tilt` degrees from overhead. Sets the light's direction;
+		// the light it gives follows as for any turn of a sun (SunlightAt).
+		void SetTimeOfDay(const f32 hour) { Direction = SunDirectionAt(hour, sunAzimuth, sunTilt); }
+		// (the hour its direction now stands for, on its own path)
+		f32 GetTimeOfDay() const { return SunHourOf(Direction, sunAzimuth, sunTilt); }
+		void SetSunPath(const f32 azimuthDegrees, const f32 tiltDegrees) { sunAzimuth = azimuthDegrees; sunTilt = tiltDegrees; }
+		f32 GetSunAzimuth() const { return sunAzimuth; }
+		f32 GetSunTilt() const { return sunTilt; }
+		static void SunPathAxes(const f32 azimuth, const f32 tilt, Vec3 &east, Vec3 &up)
+		{
+			const f32 az = azimuth * 0.01745329f, t = tilt * 0.01745329f;
+			east = Vec3(cosf(az), 0.f, sinf(az));
+			up = Vec3(-sinf(az) * sinf(t), cosf(t), cosf(az) * sinf(t));
+		}
+		// (the light's Direction - from the sun, down - at that hour)
+		static Vec3 SunDirectionAt(const f32 hour, const f32 azimuth, const f32 tilt)
+		{
+			Vec3 east, up; SunPathAxes(azimuth, tilt, east, up);
+			const f32 a = (hour - 6.f) / 12.f * 3.14159265f;
+			return (east * cosf(a) + up * sinf(a)) * -1.f;
+		}
+		static f32 SunHourOf(const Vec3 &direction, const f32 azimuth, const f32 tilt)
+		{
+			Vec3 east, up; SunPathAxes(azimuth, tilt, east, up);
+			const Vec3 to = direction * -1.f;
+			const f32 x = to.x * east.x + to.y * east.y + to.z * east.z, y = to.x * up.x + to.y * up.y + to.z * up.z;
+			f32 hour = atan2f(y, x) / 3.14159265f * 12.f + 6.f;
+			if (hour < 0.f) hour += 24.f;
+			return hour;
+		}
+
 		virtual void Start() {};
 		virtual void Update(const f64 time = 0) {};
 		virtual void Destroy() {};
@@ -141,6 +174,7 @@ namespace p3d {
 
 	private:
 		bool sun = false;
+		f32 sunAzimuth = 0.f, sunTilt = 30.f;
 
 		// Light Direction
 		Vec3 Direction;

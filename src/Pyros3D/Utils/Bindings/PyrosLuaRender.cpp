@@ -282,6 +282,10 @@ namespace p3d {
 			"setShadowCascades", [](DirectionalLight &l, const uint32 cascades, const f32 reach) { l.SetShadowCascades(cascades, reach); },
 			"getNumberCascades", [](DirectionalLight &l) { return l.GetNumberCascades(); },
 			"setSun", [](DirectionalLight &l, const bool on) { l.SetSun(on); },
+			// (a sun by the clock: 0..24, up at six, down at eighteen - see DirectionalLight::SetTimeOfDay)
+			"setTimeOfDay", [](DirectionalLight &l, const f32 hour) { l.SetTimeOfDay(hour); },
+			"getTimeOfDay", [](DirectionalLight &l) { return l.GetTimeOfDay(); },
+			"setSunPath", [](DirectionalLight &l, const f32 azimuth, const f32 tilt) { l.SetSunPath(azimuth, tilt); },
 			"setLightDirection", &DirectionalLight::SetLightDirection,
 			sol::base_classes, sol::bases<ILightComponent, IComponent>()
 			);

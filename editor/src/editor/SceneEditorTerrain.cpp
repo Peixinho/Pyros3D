@@ -21,6 +21,7 @@
 #include <filesystem>
 #include <functional>
 #include <cmath>
+#include <cctype>
 
 namespace {
 	FoliageComponent* FindFoliage(GameObject* go)
@@ -991,6 +992,89 @@ void SceneEditor::DrawTerrainTools()
 			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL")) t.placeAsset = std::string((const char*)payload->Data);
 			ImGui::EndDragDropTarget();
 		}
+		// The palette: the project's prefabs and models, to pick from. A click takes one; with
+		// Shift it joins (or leaves) the ones already taken - several are mixed by the brush's
+		// Populate. The list is read when the tool is opened and on Refresh.
+		{
+			static std::vector<std::string> palette;
+			static std::string paletteOf;
+			static char paletteFilter[64] = "";
+			const std::string root = project && project->IsOpen() ? project->AbsolutePath("") : std::string();
+			bool refresh = ImGui::SmallButton("Refresh palette");
+			if (refresh || paletteOf != root)
+			{
+				palette.clear(); paletteOf = root;
+				if (!root.empty())
+				{
+					std::vector<ProjectAssetEntry> found;
+					project->ListAssets("assets", found, true);
+					for (size_t i = 0; i < found.size(); i++)
+					{
+						if (found[i].isDirectory) continue;
+						const std::string &rel = found[i].relativePath;
+						const size_t dot = rel.rfind('.');
+						const std::string ext = dot == std::string::npos ? std::string() : rel.substr(dot);
+						if (ext == ".prefab" || ext == ".p3dm") palette.push_back(rel);
+					}
+					std::sort(palette.begin(), palette.end());
+				}
+			}
+			ImGui::SameLine();
+			ImGui::SetNextItemWidth(140.f);
+			ImGui::InputTextWithHint("##palette_filter", "filter (oak, rock...)", paletteFilter, sizeof(paletteFilter));
+			std::set<std::string> taken;
+			{
+				std::string one;
+				for (size_t c = 0; c <= t.placeAsset.size(); c++)
+				{
+					if (c == t.placeAsset.size() || t.placeAsset[c] == ',')
+					{
+						while (!one.empty() && one.front() == ' ') one.erase(one.begin());
+						while (!one.empty() && one.back() == ' ') one.pop_back();
+						if (!one.empty()) taken.insert(one);
+						one.clear();
+					}
+					else one += t.placeAsset[c];
+				}
+			}
+			std::string needle = paletteFilter;
+			std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+			std::vector<const std::string*> shown;
+			for (size_t i = 0; i < palette.size(); i++)
+			{
+				std::string low = palette[i];
+				std::transform(low.begin(), low.end(), low.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+				if (needle.empty() || low.find(needle) != std::string::npos) shown.push_back(&palette[i]);
+			}
+			bool changed = false;
+			ImGui::SameLine();
+			if (ImGui::SmallButton("All shown")) { for (size_t i = 0; i < shown.size(); i++) taken.insert(*shown[i]); changed = true; }
+			ImGui::SameLine();
+			if (ImGui::SmallButton("None")) { taken.clear(); changed = true; }
+			if (ImGui::BeginChild("##place_palette", ImVec2(0.f, 150.f), true))
+			{
+				for (size_t i = 0; i < shown.size(); i++)
+				{
+					const std::string &rel = *shown[i];
+					const bool on = taken.count(rel) != 0;
+					if (ImGui::Selectable(std::filesystem::path(rel).stem().string().c_str(), on))
+					{
+						if (ImGui::GetIO().KeyShift) { if (on) taken.erase(rel); else taken.insert(rel); }
+						else { taken.clear(); taken.insert(rel); }
+						changed = true;
+					}
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", rel.c_str());
+				}
+				if (shown.empty()) ImGui::TextDisabled(palette.empty() ? "No prefabs or models in this project." : "Nothing matches.");
+			}
+			ImGui::EndChild();
+			if (changed)
+			{
+				t.placeAsset.clear();
+				for (std::set<std::string>::const_iterator it = taken.begin(); it != taken.end(); ++it) { if (!t.placeAsset.empty()) t.placeAsset += ", "; t.placeAsset += *it; }
+			}
+			ImGui::TextDisabled("%d taken of %d. Shift-click to take several; the brush picks among them.", (int)taken.size(), (int)palette.size());
+		}
 		ImGui::SliderFloat("Spacing", &t.placeSpacing, 0.5f, 100.f, "%.1f m", ImGuiSliderFlags_Logarithmic);
 		ImGui::DragFloatRange2("Scale", &t.placeScaleMin, &t.placeScaleMax, 0.01f, 0.01f, 20.f, "%.2f", "%.2f");
 		ImGui::Checkbox("Random yaw", &t.placeRandomYaw);
@@ -1059,6 +1143,34 @@ void SceneEditor::DrawTerrainTools()
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("Cancel")) riverPoints.clear();
+		// The water's depth picture, made again from the ground as it now is (after sculpting a
+		// shore, say): what a water shader reads for its shallows, its foam and where it ends.
+		ImGui::Separator();
+		ImGui::TextDisabled("Water depth picture");
+		static float bakeLevel = 0.f, bakeRange = 12.f, bakeAbove = 0.f, bakeSize = 1024.f;
+		static bool bakeSqrt = false, bakeFlow = false;
+		ImGui::InputFloat("Water level##bake", &bakeLevel);
+		ImGui::InputFloat("World size (m)##bake", &bakeSize);
+		ImGui::SliderFloat("Deepest stored (m)", &bakeRange, 1.f, 60.f, "%.1f");
+		ImGui::SliderFloat("Ground above water kept (m)", &bakeAbove, 0.f, 4.f, "%.2f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Stores the ground a little above the water too, so a shader can\nlet the water's edge run up the sand. 0: the picture ends at the waterline.");
+		ImGui::Checkbox("Finer in the shallows (square root)", &bakeSqrt);
+		ImGui::SameLine();
+		ImGui::Checkbox("River flow", &bakeFlow);
+		if (ImGui::Button("Bake depth picture"))
+		{
+			if (!riverDepthTexture[0]) echo("ERROR: Bake depth - name the depth texture above");
+			else
+			{
+				nlohmann::json a;
+				a["texture"] = std::string(riverDepthTexture);
+				a["level"] = bakeLevel; a["range"] = bakeRange; a["size"] = bakeSize; a["above"] = bakeAbove;
+				if (bakeSqrt) a["encoding"] = "sqrt";
+				a["flow"] = bakeFlow;
+				nlohmann::json out; std::string err;
+				if (!AgentTerrain("terrain_bake_depth", a, out, err)) echo("ERROR: Bake depth - " + err);
+			}
+		}
 	}
 	if (t.tool == TerrainTools::PaintFoliage)
 	{

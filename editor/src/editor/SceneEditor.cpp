@@ -11186,6 +11186,36 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							[this, lightId, before]() { ApplyLightDirection(lightId, before); },
 							[this, lightId, after]() { ApplyLightDirection(lightId, after); }, "Set Light Direction"));
 					});
+					// A sun: its light follows its height, and it can be set by the clock.
+					{
+						bool isSun = l->IsSun();
+						if (ImGui::Checkbox("Sun", &isSun)) { l->SetSun(isSun); MarkSceneDirty(); }
+						if (ImGui::IsItemHovered()) ImGui::SetTooltip("Its light is what the air leaves of it by how high it stands:\nwhite overhead, gold then red as it comes down, none under the horizon.");
+						if (isSun)
+						{
+							float hour = l->GetTimeOfDay();
+							if (ImGui::SliderFloat("Time of day", &hour, 0.f, 24.f, "%.2f h"))
+							{
+								l->SetTimeOfDay(hour);
+								PropertiesLightDirection = l->GetLightDirection();
+								MarkSceneDirty();
+							}
+							UndoValueEdit<Vec3>(undoBaselineLightDirection, PropertiesLightDirection, [this, lightId](const Vec3& before, const Vec3& after) {
+								sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+									[this, lightId, before]() { ApplyLightDirection(lightId, before); },
+									[this, lightId, after]() { ApplyLightDirection(lightId, after); }, "Set Time of Day"));
+							});
+							float path[2] = { l->GetSunAzimuth(), l->GetSunTilt() };
+							if (ImGui::DragFloat2("Sun path (azimuth, tilt)", path, 0.5f, -180.f, 180.f, "%.0f deg"))
+							{
+								const float kept = l->GetTimeOfDay();
+								l->SetSunPath(path[0], std::max(0.f, std::min(85.f, path[1])));
+								l->SetTimeOfDay(kept);
+								PropertiesLightDirection = l->GetLightDirection();
+								MarkSceneDirty();
+							}
+						}
+					}
 					if (ImGui::Checkbox("Cast Shadows", &AddForm_cs))
 					{
 						if (AddForm_cs)
@@ -14377,6 +14407,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				(f32)p["direction"][1].get<double>(), (f32)p["direction"][2].get<double>());
 			if (DirectionalLight* dl = dynamic_cast<DirectionalLight*>(raw)) dl->SetLightDirection(d);
 			if (SpotLight* sl = dynamic_cast<SpotLight*>(raw)) sl->SetLightDirection(d);
+		}
+		// A sun and its clock: {"sun": true, "sunAzimuth": 0, "sunTilt": 30, "hour": 17.5}
+		if (DirectionalLight* dl = dynamic_cast<DirectionalLight*>(raw))
+		{
+			if (p.contains("sun") && p["sun"].is_boolean()) dl->SetSun(p["sun"].get<bool>());
+			if (p.contains("sunAzimuth") || p.contains("sunTilt"))
+			{
+				const f32 kept = dl->GetTimeOfDay();
+				dl->SetSunPath(p.value("sunAzimuth", dl->GetSunAzimuth()), p.value("sunTilt", dl->GetSunTilt()));
+				if (!p.contains("hour")) dl->SetTimeOfDay(kept);
+			}
+			if (p.contains("hour") && p["hour"].is_number()) dl->SetTimeOfDay((f32)p["hour"].get<double>());
 		}
 		if (p.contains("radius") && p["radius"].is_number())
 		{
