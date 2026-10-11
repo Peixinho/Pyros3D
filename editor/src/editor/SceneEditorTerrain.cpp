@@ -1436,6 +1436,7 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	if (command == "terrain_state")
 	{
 		out = t.State(scene);
+		out["riverPoints"] = (uint32)gRiverPoints.size(); out["riverPick"] = gRiverPick;
 		// {"grid":{"x0":..,"z0":..,"step":..,"nx":..,"nz":..}}: heights in one
 		// call, row-major over z then x (null where there is no terrain).
 		// One call per sample is ~12 ms over the socket, which makes any
