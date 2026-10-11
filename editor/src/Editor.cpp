@@ -2653,7 +2653,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// strength,hardness,layer,density}, terrain_stroke {points:[[x,z]..],dt},
 	// terrain_create {name,tilesX,tilesZ,tileSize,samples,heightRange,origin}
 	// makes one Terrain object, centred on origin.
-	if (name == "terrain_state" || name == "terrain_brush" || name == "terrain_stroke" || name == "terrain_populate" || name == "terrain_river" || name == "terrain_create"
+	if (name == "terrain_state" || name == "terrain_brush" || name == "terrain_stroke" || name == "terrain_populate" || name == "terrain_river" || name == "terrain_bake_depth" || name == "terrain_create"
 		|| name == "terrain_add_grass" || name == "terrain_layer" || name == "get_foliage" || name == "set_foliage_layer" || name == "remove_foliage_layer" || name == "add_foliage_layer")
 	{
 		nlohmann::json r;

@@ -1296,6 +1296,37 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	// from its source to its mouth - `width` across at the bottom, `depth` under the ground it runs
 	// through (or, with "level", down to that world height: under a sea's level the sea fills it),
 	// the banks eased out over `bank` metres. One undo step.
+	// terrain_bake_depth {texture, level, range, size, resolution}: how far the ground is under a
+	// level (a sea's, a lake's), as a picture - 0 at the level, white `range` metres under it -
+	// written over the live texture a water material samples (by its path), a square `size` metres
+	// across centred on the origin. What a water shader draws its shallows, shore and foam from,
+	// made again after the ground has been cut. (terrain_river does it when given "depthTexture".)
+	if (command == "terrain_bake_depth" || (command == "terrain_river" && args.contains("depthTexture") && args.value("bakeOnly", false)))
+	{
+		const std::string path = args.value("texture", args.value("depthTexture", std::string()));
+		const f32 level = args.value("level", 0.f), range = args.value("range", 12.f), size = args.value("size", 1024.f);
+		const uint32 res = std::min(2048u, std::max(64u, args.value("resolution", 1024u)));
+		std::vector<std::shared_ptr<Texture> > live = Texture::FindShared(path);
+		if (live.empty()) { errOut = "no loaded texture ends with '" + path + "'"; return false; }
+		std::vector<uchar> px((size_t)res * res * 4, 255);
+		for (uint32 r = 0; r < res; r++)
+			for (uint32 c = 0; c < res; c++)
+			{
+				f32 h = level - range;
+				TerrainEditor::HeightAt(scene, ((f32)c + 0.5f) / (f32)res * size - size * 0.5f, ((f32)r + 0.5f) / (f32)res * size - size * 0.5f, h);
+				const f32 d = std::min(1.f, std::max(0.f, (level - h) / range));
+				uchar* p = &px[((size_t)r * res + c) * 4];
+				p[0] = p[1] = p[2] = (uchar)(d * 255.f + 0.5f);
+			}
+		for (size_t i = 0; i < live.size(); i++)
+		{
+			live[i]->Resize(res, res);
+			live[i]->UpdateData(&px[0]);
+			live[i]->UpdateMipmap();
+		}
+		out["textures"] = (uint32)live.size();
+		return true;
+	}
 	if (command == "terrain_river")
 	{
 		if (playMode || sceneIsTwoD) { errOut = "a river needs a 3D scene outside play"; return false; }
@@ -1337,6 +1368,14 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		t.tool = keptTool; t.radius = keptRadius; t.strength = keptStrength; t.hardness = keptHardness; t.active = wasActive;
 		out = t.State(scene);
 		out["dabs"] = dabs;
+		// (the water's picture of the depth, made again: or the new river is drawn as shore)
+		if (args.contains("depthTexture"))
+		{
+			nlohmann::json bake = args; bake["texture"] = args["depthTexture"]; bake.erase("points");
+			nlohmann::json baked; std::string berr;
+			if (AgentTerrain("terrain_bake_depth", bake, baked, berr)) out["depthBaked"] = baked.value("textures", 0u);
+			else out["depthError"] = berr;
+		}
 		return true;
 	}
 	if (command == "terrain_populate")

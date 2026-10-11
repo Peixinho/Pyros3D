@@ -502,6 +502,20 @@ namespace p3d {
 		}
 	}
 
+	std::vector<std::shared_ptr<Texture> > Texture::FindShared(const std::string &suffix)
+	{
+		std::vector<std::shared_ptr<Texture> > found;
+		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
+		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
+		for (std::map<std::string, std::weak_ptr<Texture> >::iterator i = cache.begin(); i != cache.end(); ++i)
+		{
+			const std::string file = i->first.substr(0, i->first.find('|'));
+			if (file.size() < suffix.size() || file.compare(file.size() - suffix.size(), suffix.size(), suffix) != 0) continue;
+			if (std::shared_ptr<Texture> t = i->second.lock()) found.push_back(t);
+		}
+		return found;
+	}
+
 	std::shared_ptr<Texture> Texture::LoadShared(const std::string& Filename,
 		const uint32 Type, bool Mipmapping, bool clampToEdge)
 	{
