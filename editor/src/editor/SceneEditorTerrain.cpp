@@ -310,6 +310,59 @@ void SceneEditor::UpdateTerrainBrush()
 	}
 }
 
+bool SceneEditor::Populate(const f32 cx, const f32 cz, const f32 radius, const uint32 count, const f32 spacing, const uint32 seed,
+	const f32 sea, const nlohmann::json &rules, uint32 &planted, std::string &errOut)
+{
+	TerrainTools &t = Terrain();
+	planted = 0;
+	uint32 dice = seed * 2654435761u + 99u;
+	auto rnd = [&dice]() { dice ^= dice << 13; dice ^= dice >> 17; dice ^= dice << 5; return (f32)(dice & 0xFFFFFF) / 16777216.f; };
+	const std::string keptAsset = t.placeAsset;
+	const f32 keptSpacing = t.placeSpacing;
+	t.placeSpacing = 0.f;
+	sceneUndo.BeginGroup("Populate");
+	std::vector<Vec2> at;
+	bool ok = true;
+	for (uint32 i = 0; i < count && ok; i++)
+	{
+		const f32 a = rnd() * 6.2831853f, r = std::sqrt(rnd()) * radius;
+		const f32 x = cx + std::cos(a) * r, z = cz + std::sin(a) * r;
+		const f32 lot = rnd();
+		f32 h; Vec3 n;
+		if (!TerrainTools::GroundPoint(scene, x, z, h, n)) continue;
+		const f32 slope = std::acos(std::min(1.f, std::max(0.f, n.y))) * 57.29578f;
+		bool clear = true;
+		for (size_t k = 0; k < at.size() && clear; k++) clear = (at[k].x - x) * (at[k].x - x) + (at[k].y - z) * (at[k].y - z) >= spacing * spacing;
+		if (!clear) continue;
+		// which rules fit here, and one of them by its weight
+		f32 total = 0.f;
+		std::vector<std::pair<f32, std::string> > fit;
+		for (const auto &rule : rules)
+		{
+			if (!rule.is_object() || !rule.contains("asset")) continue;
+			const f32 above = h - (sea > -1e8f ? sea : 0.f);
+			if (above < rule.value("minHeight", -1e9f) || above > rule.value("maxHeight", 1e9f) || slope > rule.value("maxSlope", 40.f)) continue;
+			if (rule.value("edge", false) != (r > radius * 0.8f) && rule.value("edge", false)) continue;
+			const f32 w = rule.value("weight", 1.f);
+			if (w <= 0.f) continue;
+			total += w; fit.push_back(std::make_pair(w, rule["asset"].get<std::string>()));
+		}
+		if (fit.empty()) continue;
+		f32 pick = lot * total;
+		size_t which = 0;
+		while (which + 1 < fit.size() && pick > fit[which].first) { pick -= fit[which].first; which++; }
+		t.placeAsset = fit[which].second;
+		placeLastValid = false;
+		const size_t before = sceneObjects->GetList().size();
+		if (!PlaceDab(x, z, errOut)) { ok = false; break; }
+		if (sceneObjects->GetList().size() > before) { planted++; at.push_back(Vec2(x, z)); }
+	}
+	sceneUndo.EndGroup();
+	t.placeAsset = keptAsset; t.placeSpacing = keptSpacing;
+	placeLastValid = false;
+	return ok;
+}
+
 bool SceneEditor::BeginTerrainStroke()
 {
 	if (!terrainTools || !terrainTools->BeginStroke(scene)) return false;
@@ -944,6 +997,31 @@ void SceneEditor::DrawTerrainTools()
 		ImGui::SameLine();
 		ImGui::Checkbox("Align to slope", &t.placeAlign);
 		ImGui::TextWrapped("Click places one; a drag places one per spacing. One undo step per stroke.");
+		// Populate: many at once, over the brush's disc where the cursor last was - the asset
+		// above, or several (separated by commas) mixed.
+		static int populateCount = 60;
+		ImGui::SliderInt("Populate count", &populateCount, 5, 2000, "%d", ImGuiSliderFlags_Logarithmic);
+		if (ImGui::Button("Populate") && t.HoverValid())
+		{
+			nlohmann::json rules = nlohmann::json::array();
+			std::string list = t.placeAsset, one;
+			for (size_t c = 0; c <= list.size(); c++)
+			{
+				if (c == list.size() || list[c] == ',')
+				{
+					while (!one.empty() && one.front() == ' ') one.erase(one.begin());
+					while (!one.empty() && one.back() == ' ') one.pop_back();
+					if (!one.empty()) rules.push_back({ { "asset", one } });
+					one.clear();
+				}
+				else one += list[c];
+			}
+			uint32 planted = 0; std::string err;
+			static uint32 populateSeed = 1;
+			if (!rules.empty() && !Populate(t.HoverPoint().x, t.HoverPoint().z, t.radius, (uint32)populateCount, std::max(0.5f, t.placeSpacing), populateSeed++, -1e9f, rules, planted, err) && !err.empty())
+				echo("ERROR: Populate - " + err);
+		}
+		ImGui::SameLine(); ImGui::TextDisabled("over the brush, where the cursor last was");
 	}
 	if (t.tool == TerrainTools::PaintFoliage)
 	{
@@ -1210,6 +1288,21 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	}
 	// A stroke along world points [[x,z],...], dt seconds of brush at each -
 	// the same begin / dab / finish the mouse runs, and one undo entry.
+	// terrain_populate {x, z, radius, count, spacing, seed, sea, rules: [{asset, minHeight, maxHeight,
+	// maxSlope (degrees), weight, edge}]}: a wood, not a row of trees - `count` tries over the disc,
+	// each planting whichever of the rules fits the ground there (heights are above `sea`), nothing
+	// nearer another than `spacing`. A rule with "edge": true is kept to the rim. One undo step.
+	if (command == "terrain_populate")
+	{
+		if (playMode || sceneIsTwoD) { errOut = "populate needs a 3D scene outside play"; return false; }
+		if (!args.contains("rules") || !args["rules"].is_array() || args["rules"].empty()) { errOut = "'rules' ([{asset, ...}]) is required"; return false; }
+		uint32 planted = 0;
+		if (!Populate(args.value("x", 0.f), args.value("z", 0.f), args.value("radius", 50.f), args.value("count", 100u), args.value("spacing", 3.f),
+			args.value("seed", 1u), args.value("sea", -1e9f), args["rules"], planted, errOut)) return false;
+		out = t.State(scene);
+		out["planted"] = planted;
+		return true;
+	}
 	if (command == "terrain_stroke")
 	{
 		if (playMode || sceneIsTwoD) { errOut = "terrain brushes need a 3D scene outside play"; return false; }

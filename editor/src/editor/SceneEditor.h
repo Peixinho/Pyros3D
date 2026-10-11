@@ -1324,6 +1324,9 @@ public:
 	// The Place tool's dab: one object on the ground at (x, z) if the stroke
 	// has moved placeSpacing since the last one.
 	bool PlaceDab(const f32 x, const f32 z, std::string& errOut);
+	// Many placed at once over a disc, each whichever of `rules` fits the ground there (see terrain_populate).
+	bool Populate(const f32 cx, const f32 cz, const f32 radius, const uint32 count, const f32 spacing, const uint32 seed,
+		const f32 sea, const nlohmann::json &rules, uint32 &planted, std::string &errOut);
 	bool placeGroupOpen = false, placeLastValid = false;
 	// A streamed world opens with the view at the origin, and a terrain's
 	// ground is rarely at height 0 there: under it, every tile is
