@@ -1728,6 +1728,7 @@ namespace p3d {
 					Vec4 dirRadiance = d->GetLightRadiance();
 					{
 						const Vec3 toSun = (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize() * -1.f;
+						if (d->IsSun()) { const Vec3 k = DirectionalLight::SunlightAt(toSun.y); dirRadiance = Vec4(dirRadiance.x * k.x, dirRadiance.y * k.y, dirRadiance.z * k.z, dirRadiance.w); }
 						IRenderer::SetSunHint(toSun, std::max(dirRadiance.x, std::max(dirRadiance.y, dirRadiance.z)) / 3.14159265f);
 					}
 					dirColorHandle->SetValue(&dirRadiance);

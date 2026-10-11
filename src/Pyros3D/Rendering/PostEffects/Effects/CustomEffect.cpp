@@ -186,7 +186,8 @@ namespace p3d {
 				{
 					// publish <param> <index>: that parameter's value is every shader's uGlobals[index]
 					// (IRenderer::SetShaderGlobal) - how a sky's "snow" slider reaches the ground and the sea
-					if (w.size() >= 3) out.published.push_back(std::make_pair(w[1], (uint32)atoi(w[2].c_str())));
+					// (a third number: only that component of the global, 0..3, is the parameter's first)
+					if (w.size() >= 3) out.published.push_back(std::make_pair(w[1], (uint32)atoi(w[2].c_str()) + (w.size() >= 4 ? 100u * (1u + (uint32)atoi(w[3].c_str())) : 0u)));
 				}
 				// Anything else is ignored on purpose - an unknown directive
 				// is a comment, not a reason to refuse to load the effect.

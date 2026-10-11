@@ -54,6 +54,21 @@ namespace p3d {
 		DirectionalLight(const Vec4 &color, const Vec3 &direction) : ILightComponent(LIGHT_TYPE::DIRECTIONAL) { Color = color; Direction = direction; ShadowCascades = 0; }
 		virtual ~DirectionalLight() {}
 
+		// A sun: its light is what the air leaves of it, by how high it stands - white
+		// overhead, gold then red as it comes down, gone a little under the horizon. Turned
+		// in an editor or by a script, the light it gives follows; nothing else has to.
+		void SetSun(const bool on) { sun = on; }
+		bool IsSun() const { return sun; }
+		// (what the air leaves, for a sun `height` up: the y of the way to it, -1..1)
+		static Vec3 SunlightAt(const f32 height)
+		{
+			const f32 up = height < 0.f ? 0.f : (height > 1.f ? 1.f : height);
+			const f32 low = 1.f - (up < 0.42f ? up / 0.42f : 1.f);
+			f32 lit = (height + 0.06f) / 0.16f; lit = lit < 0.f ? 0.f : (lit > 1.f ? 1.f : lit);
+			const f32 strength = lit * (0.42f + 0.58f * (up * 2.6f > 1.f ? 1.f : up * 2.6f));
+			return Vec3(1.f, 1.f - 0.36f * low, 1.f - 0.62f * low) * strength;
+		}
+
 		virtual void Start() {};
 		virtual void Update(const f64 time = 0) {};
 		virtual void Destroy() {};
@@ -125,6 +140,7 @@ namespace p3d {
 		}
 
 	private:
+		bool sun = false;
 
 		// Light Direction
 		Vec3 Direction;

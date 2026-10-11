@@ -1728,6 +1728,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				j["shadowNear"] = l->GetShadowNear();
 				j["shadowFar"] = l->GetShadowFar();
 				j["cascades"] = l->GetNumberCascades();
+				if (l->IsSun()) j["sun"] = true;
 				Cascade c0 = l->GetCascade(0);
 				j["fov"] = c0.Fov - CASCADE_FACTOR;
 				j["aspect"] = c0.Ratio;
@@ -3614,6 +3615,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			Vec3 direction = (j.find("direction") != j.end()) ? Vec3FromJson(j["direction"]) : Vec3(0, -1, 0);
 			auto l = std::make_shared<DirectionalLight>(color, direction);
 			l->SetLightIntensity(j.value("intensity", 1.0f));
+			if (j.value("sun", false)) l->SetSun(true);
 			if (j.value("castingShadows", false))
 			{
 				// The fallbacks only reach a scene written by hand or by a tool

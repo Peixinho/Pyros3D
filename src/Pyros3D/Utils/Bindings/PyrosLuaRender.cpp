@@ -281,6 +281,7 @@ namespace p3d {
 			// hands back - as well as on one a script makes)
 			"setShadowCascades", [](DirectionalLight &l, const uint32 cascades, const f32 reach) { l.SetShadowCascades(cascades, reach); },
 			"getNumberCascades", [](DirectionalLight &l) { return l.GetNumberCascades(); },
+			"setSun", [](DirectionalLight &l, const bool on) { l.SetSun(on); },
 			"setLightDirection", &DirectionalLight::SetLightDirection,
 			sol::base_classes, sol::bases<ILightComponent, IComponent>()
 			);

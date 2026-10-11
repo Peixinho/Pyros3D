@@ -520,8 +520,19 @@ namespace p3d {
 				const std::vector<CustomEffect::Param> &ps = fx->GetParams();
 				for (size_t k = 0; k < pub.size(); k++)
 					for (size_t q = 0; q < ps.size(); q++)
-						if (ps[q].name == pub[k].first && pub[k].second < 16)
-							IRenderer::SetShaderGlobal(pub[k].second, Vec4(ps[q].value[0], ps[q].value[1], ps[q].value[2], ps[q].value[3]));
+						if (ps[q].name == pub[k].first)
+						{
+							const uint32 index = pub[k].second % 100, part = pub[k].second / 100;
+							if (index >= 16) continue;
+							if (part == 0) IRenderer::SetShaderGlobal(index, Vec4(ps[q].value[0], ps[q].value[1], ps[q].value[2], ps[q].value[3]));
+							else
+							{
+								Vec4 g = IRenderer::GetShaderGlobal(index);
+								f32* at = part == 1 ? &g.x : (part == 2 ? &g.y : (part == 3 ? &g.z : &g.w));
+								*at = ps[q].value[0];
+								IRenderer::SetShaderGlobal(index, g);
+							}
+						}
 			}
 		}
 		ApplyAntiAliasing();
