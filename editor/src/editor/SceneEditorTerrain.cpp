@@ -1361,7 +1361,12 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 				TerrainEditor::HeightAt(scene, ((f32)c + 0.5f) / (f32)res * size - size * 0.5f, ((f32)r + 0.5f) / (f32)res * size - size * 0.5f, h);
 				const f32 d = std::min(1.f, std::max(0.f, (level - h) / range));
 				uchar* p = &px[((size_t)r * res + c) * 4];
-				p[0] = p[2] = (uchar)(d * 255.f + 0.5f);
+				// ("encoding": "sqrt" keeps the depth as its square root - fine steps in the shallows, where a
+				// shore's foam is drawn. "flow": true keeps blue and alpha as the way a river runs there, 0.5 = none.)
+				const bool rooted = args.value("encoding", std::string()) == "sqrt", flowing = args.value("flow", false);
+				p[0] = (uchar)((rooted ? std::sqrt(d) : d) * 255.f + 0.5f);
+				p[2] = flowing ? (hadFile ? (uchar)(was.Sample(((f32)c + 0.5f) / (f32)res, ((f32)r + 0.5f) / (f32)res, 2) * 255.f + 0.5f) : 128) : p[0];
+				if (flowing) p[3] = hadFile ? (uchar)(was.Sample(((f32)c + 0.5f) / (f32)res, ((f32)r + 0.5f) / (f32)res, 3) * 255.f + 0.5f) : 128;
 				f32 river = hadFile ? was.Sample(((f32)c + 0.5f) / (f32)res, ((f32)r + 0.5f) / (f32)res, 1) : 0.f;
 				if (!line.empty())
 				{
@@ -1372,7 +1377,14 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 						const f32 l2 = ab.x * ab.x + ab.y * ab.y;
 						const f32 tt = l2 > 0.f ? std::min(1.f, std::max(0.f, ((wx - line[i].x) * ab.x + (wz - line[i].y) * ab.y) / l2)) : 0.f;
 						const f32 dx = wx - (line[i].x + ab.x * tt), dz = wz - (line[i].y + ab.y * tt);
-						river = std::max(river, std::min(1.f, std::max(0.f, (reach - std::sqrt(dx * dx + dz * dz)) / 6.f)));
+						const f32 near_ = std::min(1.f, std::max(0.f, (reach - std::sqrt(dx * dx + dz * dz)) / 6.f));
+						if (flowing && near_ > river && l2 > 0.f)
+						{
+							// (the new river's water runs along the line it was drawn with)
+							const f32 il = 1.f / std::sqrt(l2);
+							p[2] = (uchar)((0.5f + 0.5f * ab.x * il) * 255.f + 0.5f); p[3] = (uchar)((0.5f + 0.5f * ab.y * il) * 255.f + 0.5f);
+						}
+						river = std::max(river, near_);
 					}
 				}
 				p[1] = (uchar)(std::min(1.f, river) * 255.f + 0.5f);
