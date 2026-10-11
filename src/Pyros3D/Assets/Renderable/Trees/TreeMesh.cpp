@@ -327,7 +327,7 @@ namespace p3d {
 			const Vec3 rel = at - K.crownCentre;
 			const f32 out = std::min(1.f, sqrtf(rel.x * rel.x + rel.z * rel.z) / K.crownRadius);
 			const f32 high = std::min(1.f, std::max(0.f, .5f + rel.y / std::max(.5f, K.crownRadius * 1.6f)));
-			const f32 open = std::min(1.f, .25f + .75f * std::max(out * out, high));
+			const f32 open = std::min(1.f, .45f + .55f * std::max(out * out, high));
 			const f32 shade = S.shade + (1.f - S.shade) * open;
 			return Vec4(t.x * shade, t.y * shade, t.z * shade, 1.f);
 		}
@@ -336,7 +336,11 @@ namespace p3d {
 			Vec3 out = at - K.crownCentre;
 			out.y *= .8f;
 			if (out.magnitudeSQR() < 1e-6f) out = Vec3(0.f, 1.f, 0.f);
-			return (out.normalize() * S.round + Vec3(0.f, 1.f, 0.f) * (1.f - S.round * .55f)).normalize();
+			// (never facing down: the underside of a crown is lit through its leaves, and a card
+			// whose normal points at the ground is lit by nothing but what the grass throws back)
+			Vec3 n = (out.normalize() * (S.round * .75f) + Vec3(0.f, 1.f, 0.f) * (1.f - S.round * .40f)).normalize();
+			if (n.y < .25f) n = Vec3(n.x, .25f, n.z).normalize();
+			return n;
 		}
 	}
 
