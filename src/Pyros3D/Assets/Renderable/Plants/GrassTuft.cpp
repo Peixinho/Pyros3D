@@ -69,7 +69,7 @@ namespace p3d {
 			if (stem)
 			{
 				// a head: a ring of petals round a yellow eye, tipped a little toward wherever it leans
-				const f32 s = height * dice.In(.055f, .085f);
+				const f32 s = height * dice.In(.13f, .19f);
 				const Vec3 up(0.f, 1.f, 0.f);
 				const Vec3 fc = flower * dice.In(.88f, 1.08f);
 				const Vec3 face = (up + lean * dice.In(.1f, .5f) + across * dice.In(-.3f, .3f)).normalize();
