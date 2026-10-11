@@ -1023,6 +1023,40 @@ void SceneEditor::DrawTerrainTools()
 		}
 		ImGui::SameLine(); ImGui::TextDisabled("over the brush, where the cursor last was");
 	}
+	// River: points from source to mouth, picked where the cursor last was on the ground;
+	// Build cuts the bed along them (terrain_river) and makes the water's depth picture again.
+	if (ImGui::CollapsingHeader("River"))
+	{
+		static std::vector<Vec2> riverPoints;
+		static float riverWidth = 10.f, riverDepth = 2.4f, riverBank = 9.f, riverWater = 0.f;
+		static bool riverToLevel = false;
+		static char riverDepthTexture[256] = "";
+		ImGui::SliderFloat("Width (m)", &riverWidth, 1.f, 60.f, "%.1f");
+		ImGui::SliderFloat("Depth (m)", &riverDepth, 0.2f, 12.f, "%.1f");
+		ImGui::SliderFloat("Bank width (m)", &riverBank, 0.f, 40.f, "%.1f");
+		ImGui::Checkbox("Down to a water level", &riverToLevel);
+		if (riverToLevel) ImGui::InputFloat("Water level", &riverWater);
+		ImGui::InputTextWithHint("Depth texture", "assets/textures/sea_depth.png (optional)", riverDepthTexture, sizeof(riverDepthTexture));
+		if (ImGui::Button("Add point at cursor") && t.HoverValid()) riverPoints.push_back(Vec2(t.HoverPoint().x, t.HoverPoint().z));
+		ImGui::SameLine();
+		if (ImGui::Button("Remove last") && !riverPoints.empty()) riverPoints.pop_back();
+		ImGui::SameLine();
+		ImGui::Text("%d point(s)", (int)riverPoints.size());
+		if (ImGui::Button("Build river") && riverPoints.size() >= 2)
+		{
+			nlohmann::json a;
+			a["points"] = nlohmann::json::array();
+			for (size_t i = 0; i < riverPoints.size(); i++) a["points"].push_back({ riverPoints[i].x, riverPoints[i].y });
+			a["width"] = riverWidth; a["depth"] = riverDepth; a["bank"] = riverBank;
+			if (riverToLevel) { a["level"] = riverWater - riverDepth; a["waterLevel"] = riverWater; }
+			if (riverDepthTexture[0]) a["depthTexture"] = std::string(riverDepthTexture);
+			nlohmann::json out; std::string err;
+			if (!AgentTerrain("terrain_river", a, out, err)) echo("ERROR: River - " + err);
+			else riverPoints.clear();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel")) riverPoints.clear();
+	}
 	if (t.tool == TerrainTools::PaintFoliage)
 	{
 		ImGui::InputInt("Foliage layer", &t.layer);
