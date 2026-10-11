@@ -92,7 +92,10 @@ namespace p3d {
 		// (one copy, into what the device is handed: the instances themselves are kept here)
 		const uchar* first = transform.empty() ? NULL : (const uchar*)&transform[0];
 		std::vector<uchar> bytes(first, first + transform.size() * sizeof(Matrix));
-		transform_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+		// (Static: made with what it is to hold. A buffer that is rewritten every frame is kept
+		// several times over by a device - one a frame in flight - and filled as many times when
+		// it is made: a field of grass held, and copied, three times for nothing.)
+		transform_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Static);
 		transform_buffer->AddAttribute("aInstancedTransform", Buffer::Attribute::Type::Matrix, NULL, (uint32)transform.size(), 1);
 		transform_buffer->SetPacked(std::move(bytes), (uint32)transform.size());
 		transform_buffer->SendBuffer();
@@ -103,7 +106,7 @@ namespace p3d {
 			instanceColor = std::move(tints);
 			const uchar* firstTint = (const uchar*)&instanceColor[0];
 			std::vector<uchar> tintBytes(firstTint, firstTint + instanceColor.size() * sizeof(Vec4));
-			color_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
+			color_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Static);
 			color_buffer->AddAttribute("aInstancedColor", Buffer::Attribute::Type::Vec4, NULL, (uint32)instanceColor.size(), 1);
 			color_buffer->SetPacked(std::move(tintBytes), (uint32)instanceColor.size());
 			color_buffer->SendBuffer();

@@ -383,6 +383,10 @@ namespace p3d {
 		// for a scene that has never been saved (matches SaveScene's own
 		// behavior in that case).
 		static std::string SerializeSubtree(GameObject* root, const std::string &scenePathForAssetRoot, sol::state* lua = NULL);
+		// A number that is the same for two subtrees exactly when SerializeSubtree() would write
+		// the same for them (but for a chance in 2^64): to tell an edited subtree from an
+		// untouched one without writing it out as text each time it is asked.
+		static uint64 SubtreeFingerprint(GameObject* root, const std::string &scenePathForAssetRoot, sol::state* lua = NULL);
 
 		// Reconstructs a GameObject subtree previously captured by
 		// SerializeSubtree(). Returns the reconstructed root with its

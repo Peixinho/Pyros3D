@@ -289,6 +289,12 @@ namespace p3d {
 		virtual void DestroyUniformBuffer(const DeviceHandle buffer);
 
 		virtual DeviceHandle CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length);
+		// The data handed over: for a buffer or a picture of any size it is copied to where the GPU
+		// takes it from by a job, beside this thread, and waited for where work is sent to the GPU
+		// (and before the buffer is written again or destroyed). For an application that makes its
+		// device calls on its own frame thread - an editor - and streams a world in.
+		virtual DeviceHandle CreateBufferOwned(const uint32 bufferType, const uint32 bufferDraw, std::vector<uchar> &&data) override;
+		virtual void UploadTexture2DOwned(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, std::vector<uchar> &&data, const bool willMipmap) override;
 		virtual void ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length);
 		virtual void UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void *data, const uint32 length);
 		virtual void DestroyBuffer(const DeviceHandle buffer);

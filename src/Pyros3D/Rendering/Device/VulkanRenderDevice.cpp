@@ -22,6 +22,7 @@
 #include <chrono>
 #include <atomic>
 #include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>   // DrawingType
 #include <algorithm>
@@ -157,8 +158,22 @@ namespace {
 		gVkWaits++;
 		return r;
 	}
+	// Copies still being made by jobs into memory the GPU is to read (CreateBufferOwned,
+	// UploadTexture2DOwned): none may be outstanding when work is handed to the GPU.
+	p3d::JobCounter gFills;
+	std::shared_ptr<std::vector<p3d::uchar> > gOwnedPixels;
+	const size_t kFillBesideFrom = 96 * 1024;
+	inline void JoinFills()
+	{
+		if (gFills.pending.load(std::memory_order_acquire) > 0) p3d::JobSystem::Instance().Wait(gFills);
+	}
+	inline void FillBeside(void* to, const std::shared_ptr<std::vector<p3d::uchar> > &from, const size_t bytes)
+	{
+		p3d::JobSystem::Instance().Run([to, from, bytes]() { memcpy(to, &(*from)[0], bytes); }, gFills);
+	}
 	inline VkResult PyrosTimedQueueSubmit(VkQueue q, uint32_t n, const VkSubmitInfo* i, VkFence f)
 	{
+		JoinFills();
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		const VkResult r = vkQueueSubmit(q, n, i, f);
 		gVkSubmitNs += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
@@ -4126,8 +4141,39 @@ namespace p3d {
 		return handle;
 	}
 
+	DeviceHandle VulkanRenderDevice::CreateBufferOwned(const uint32 bufferType, const uint32 bufferDraw, std::vector<uchar> &&data)
+	{
+		const uint32 length = (uint32)data.size();
+		const bool rewritten = (bufferDraw == Buffer::Draw::Stream || bufferDraw == Buffer::Draw::Dynamic);
+		if (rewritten || data.size() < kFillBesideFrom || JobSystem::Instance().WorkerCount() == 0)
+			return CreateBuffer(bufferType, bufferDraw, data.empty() ? NULL : &data[0], length);
+		const DeviceHandle handle = CreateBuffer(bufferType, bufferDraw, NULL, length);
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(handle);
+		if (handle == 0 || it == buffers.end() || it->second.mapped == NULL)
+		{
+			if (handle != 0 && it != buffers.end()) UpdateBufferSubData(handle, bufferType, &data[0], length);
+			return handle;
+		}
+		FillBeside(it->second.mapped, std::make_shared<std::vector<uchar> >(std::move(data)), (size_t)length);
+		return handle;
+	}
+
+	void VulkanRenderDevice::UploadTexture2DOwned(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, std::vector<uchar> &&data, const bool willMipmap)
+	{
+		if (data.size() < kFillBesideFrom || JobSystem::Instance().WorkerCount() == 0)
+		{
+			UploadTexture2D(target, level, internalFormat, width, height, format, type, data.empty() ? NULL : &data[0], willMipmap);
+			return;
+		}
+		// (UploadTexture2D finds the picture here, and has a job copy it where it would have copied it)
+		gOwnedPixels = std::make_shared<std::vector<uchar> >(std::move(data));
+		UploadTexture2D(target, level, internalFormat, width, height, format, type, &(*gOwnedPixels)[0], willMipmap);
+		gOwnedPixels.reset();
+	}
+
 	void VulkanRenderDevice::ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
 	{
+		JoinFills();
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || allocator == VK_NULL_HANDLE)
 			return;
@@ -4176,6 +4222,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void *data, const uint32 length)
 	{
+		JoinFills();
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || data == NULL)
 			return;
@@ -4202,6 +4249,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::DestroyBuffer(const DeviceHandle buffer)
 	{
+		JoinFills();
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end())
 			return;
@@ -4350,6 +4398,7 @@ namespace p3d {
 
 	void *VulkanRenderDevice::MapBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 mappingType)
 	{
+		JoinFills();
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end())
 			return NULL;
@@ -5603,7 +5652,10 @@ namespace p3d {
 		}
 		else
 		{
-			memcpy(stagingAllocationInfo.pMappedData, data, (size_t)uploadSize);
+			if (gOwnedPixels && data == (const void*)&(*gOwnedPixels)[0] && gOwnedPixels->size() >= (size_t)uploadSize)
+				FillBeside(stagingAllocationInfo.pMappedData, gOwnedPixels, (size_t)uploadSize);
+			else
+				memcpy(stagingAllocationInfo.pMappedData, data, (size_t)uploadSize);
 		}
 
 		VkCommandBuffer uploadCmd = BeginOrGetTransferCommandBuffer();

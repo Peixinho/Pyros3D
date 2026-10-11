@@ -2490,6 +2490,20 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		return out.dump();
 	}
 
+	uint64 SceneSerializer::SubtreeFingerprint(GameObject* root, const std::string &scenePathForAssetRoot, sol::state* lua)
+	{
+		if (!root) return 0;
+		g_sceneAssetRoot = InferAssetRootFromScenePath(scenePathForAssetRoot);
+		json materialsArray = json::array();
+		std::map<IMaterial*, uint32> materialIdMap;
+		json out;
+		out["version"] = 1;
+		out["root"] = SerializeGameObject(root, materialsArray, materialIdMap, lua);
+		out["materials"] = materialsArray;
+		g_sceneAssetRoot.clear();
+		return (uint64)std::hash<json>{}(out);
+	}
+
 	// ******************************* load *******************************
 
 	// A "heightfield" renderable's settings. Levels default to one at full

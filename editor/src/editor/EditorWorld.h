@@ -120,7 +120,7 @@ private:
 	std::unique_ptr<p3d::WorldStreamer> streamer;
 	// What each loaded cell looked like on disk (as serialized when it
 	// arrived, or last saved), to tell edits from nothing.
-	std::map<const p3d::GameObject*, std::string> saved;
+	std::map<const p3d::GameObject*, uint64_t> saved;
 	bool playing = false;
 	std::set<const p3d::GameObject*> knownDirty;
 	std::function<bool(const p3d::GameObject*)> extraDirty;

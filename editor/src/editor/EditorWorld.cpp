@@ -31,7 +31,7 @@ EditorWorld::EditorWorld(SceneGraph* scene, SceneObjects* objects, const std::st
 	ApplyFarRadius();
 	streamer->SetOnCellLoaded([this, adopted](const std::shared_ptr<GameObject> &root) {
 		this->objects->Adopt(root.get(), 0, NULL, NULL, true);
-		saved[root.get()] = SceneSerializer::SerializeSubtree(root.get(), this->scenePath, this->lua);
+		saved[root.get()] = SceneSerializer::SubtreeFingerprint(root.get(), this->scenePath, this->lua);
 		if (adopted) adopted(root.get());
 	});
 	streamer->SetOnCellUnloading([this](const std::shared_ptr<GameObject> &root) {
@@ -66,9 +66,9 @@ EditorWorld::~EditorWorld()
 
 bool EditorWorld::IsDirty(const GameObject* root) const
 {
-	std::map<const GameObject*, std::string>::const_iterator it = saved.find(root);
+	std::map<const GameObject*, uint64_t>::const_iterator it = saved.find(root);
 	if (it == saved.end()) return false;
-	return SceneSerializer::SerializeSubtree(const_cast<GameObject*>(root), scenePath, lua) != it->second;
+	return SceneSerializer::SubtreeFingerprint(const_cast<GameObject*>(root), scenePath, lua) != it->second;
 }
 
 void EditorWorld::Update(const std::vector<Vec3> &foci)
@@ -154,13 +154,13 @@ bool EditorWorld::SaveCells(std::string &error)
 	for (size_t i = 0; i < roots.size(); i++)
 	{
 		GameObject* root = roots[i].get();
-		const std::string text = SceneSerializer::SerializeSubtree(root, scenePath, lua);
-		if (text == saved[root]) continue;
+		const uint64_t print = SceneSerializer::SubtreeFingerprint(root, scenePath, lua);
+		if (print == saved[root]) continue;
 		int32 x, z;
 		if (!streamer->FindCell(root, x, z)) continue;
 		std::string err;
 		if (!WriteCell(root, streamer->CellPath(x, z), scenePath, lua, err)) { error = err; ok = false; continue; }
-		saved[root] = text;
+		saved[root] = print;
 		knownDirty.erase(root);
 	}
 	return ok;
