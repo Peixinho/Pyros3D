@@ -61,8 +61,8 @@ namespace p3d {
 
 		const Species kSpecies[TreeSpecies::Count] = {
 			// name        height  var   radius  bare  lean  lv  count           angle              var  length                   up                        gnarl crown           spray var  n  round  tint                       var   shade
-			{ "Oak",        11.f,  .28f, .017f,  .26f, .07f, 3, { 7, 4, 4, 0 }, { 62, 48, 42, 0 }, 14,  { .52f, .56f, .46f, 0 }, { .05f, .16f, .10f, .0f },  .16f, Crown::Round,    1.80f, .25f, 4, .70f, Vec3(1.0f, 1.0f, 1.0f), .18f, .74f },
-			{ "Birch",      12.f,  .25f, .011f,  .30f, .08f, 3, { 9, 4, 4, 0 }, { 42, 44, 50, 0 }, 12, { .34f, .52f, .52f, 0 }, { .16f, .0f, -.50f, .0f },  .10f, Crown::Oval,     1.55f, .25f, 4, .65f, Vec3(1.0f, 1.0f, 1.0f), .18f, .78f },
+			{ "Oak",        11.f,  .28f, .017f,  .26f, .07f, 3, { 7, 4, 4, 0 }, { 62, 48, 42, 0 }, 14,  { .52f, .56f, .46f, 0 }, { .05f, .16f, .10f, .0f },  .16f, Crown::Round,    1.80f, .25f, 4, .70f, Vec3(1.0f, 1.0f, 1.0f), .18f, .86f },
+			{ "Birch",      12.f,  .25f, .011f,  .30f, .08f, 3, { 9, 4, 4, 0 }, { 42, 44, 50, 0 }, 12, { .34f, .52f, .52f, 0 }, { .16f, .0f, -.50f, .0f },  .10f, Crown::Oval,     1.55f, .25f, 4, .65f, Vec3(1.0f, 1.0f, 1.0f), .18f, .88f },
 			{ "Spruce",     19.f,  .22f, .015f,  .06f, .01f, 1, { 64, 0, 0, 0 }, { 98, 0, 0, 0 },   6,  { .30f, .0f, 0, 0 },     { -.06f, .10f, .0f, .0f },  .04f, Crown::Cone,     1.f,   .15f, 5, .45f, Vec3(1.0f, 1.0f, 1.0f), .08f, .60f },
 			{ "Scots pine", 21.f,  .20f, .014f,  .62f, .05f, 3, { 8, 4, 4, 0 }, { 66, 46, 40, 0 }, 14,  { .30f, .58f, .50f, 0 }, { .10f, .14f, .06f, .0f },  .20f, Crown::Umbrella, 1.10f, .30f, 6, .60f, Vec3(1.0f, 1.0f, 1.0f), .10f, .64f },
 			{ "Palm",       11.f,  .25f, .018f,  1.0f, .22f, 0, { 0, 0, 0, 0 }, { 0, 0, 0, 0 },    0,   { 0, 0, 0, 0 },          { .0f, .0f, .0f, .0f },     .04f, Crown::Dome,     0.f,   .0f,  0, .35f, Vec3(1.0f, 1.12f, .74f), .12f, .80f },
@@ -331,7 +331,7 @@ namespace p3d {
 			// each spray its own light: some catch the sun full and go pale and yellow, some sit in
 			// another's shade - a crown is not one green
 			const f32 lot = dice.Unit();
-			const f32 own = lot > .78f ? 1.28f : (lot < .22f ? .74f : 1.f);
+			const f32 own = lot > .78f ? 1.24f : (lot < .22f ? .84f : 1.f);
 			const f32 shade = (S.shade + (1.f - S.shade) * open) * own;
 			const f32 gold = lot > .78f ? .16f : 0.f;
 			return Vec4(t.x * shade * (1.f + gold), t.y * shade * (1.f + gold * .5f), t.z * shade * (1.f - gold), 1.f);
