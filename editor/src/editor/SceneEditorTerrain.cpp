@@ -1359,7 +1359,9 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 			{
 				f32 h = level - range;
 				TerrainEditor::HeightAt(scene, ((f32)c + 0.5f) / (f32)res * size - size * 0.5f, ((f32)r + 0.5f) / (f32)res * size - size * 0.5f, h);
-				const f32 d = std::min(1.f, std::max(0.f, (level - h) / range));
+				// ("above": metres of ground over the water's level kept too - a water that runs up its shore needs them)
+				const f32 above = std::max(0.f, args.value("above", 0.f));
+				const f32 d = std::min(1.f, std::max(0.f, (level - h + above) / (range + above)));
 				uchar* p = &px[((size_t)r * res + c) * 4];
 				// ("encoding": "sqrt" keeps the depth as its square root - fine steps in the shallows, where a
 				// shore's foam is drawn. "flow": true keeps blue and alpha as the way a river runs there, 0.5 = none.)

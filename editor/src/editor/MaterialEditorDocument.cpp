@@ -262,6 +262,13 @@ bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 		if (j.find("metallic") != j.end()) mat->SetMetallic(j["metallic"]);
 		if (j.find("roughness") != j.end()) mat->SetRoughness(j["roughness"]);
 		if (j.value("ssrEnabled", false)) mat->SetSSREnabled(true);
+		if (j.find("subsurface") != j.end() && j["subsurface"].is_number())
+		{
+			Vec3 c = mat->GetSubsurfaceColor();
+			if (j.find("subsurfaceColor") != j.end() && j["subsurfaceColor"].is_array() && j["subsurfaceColor"].size() >= 3)
+				c = Vec3(j["subsurfaceColor"][0].get<f32>(), j["subsurfaceColor"][1].get<f32>(), j["subsurfaceColor"][2].get<f32>());
+			mat->SetSubsurface(c, j["subsurface"].get<f32>());
+		}
 		if (j.find("alphaCutoff") != j.end()) mat->SetAlphaCutoff(j["alphaCutoff"]);
 		if (j.find("shininess") != j.end()) mat->SetShininess(j["shininess"]);
 		if (j.find("reflectivity") != j.end()) mat->SetReflectivity(j["reflectivity"]);
@@ -344,6 +351,11 @@ bool MaterialEditorDocument::SaveToFile(const std::string& path) {
 		j["metallic"] = gm->GetMetallic();
 		j["roughness"] = gm->GetRoughness();
 		j["ssrEnabled"] = gm->IsSSREnabled();
+		{
+			const Vec3 sc = gm->GetSubsurfaceColor();
+			j["subsurface"] = gm->GetSubsurfaceStrength();
+			j["subsurfaceColor"] = { sc.x, sc.y, sc.z };
+		}
 		j["alphaCutoff"] = gm->GetAlphaCutoff();
 		j["shininess"] = gm->GetShininess();
 		j["reflectivity"] = gm->GetReflectivity();

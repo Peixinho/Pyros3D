@@ -15954,6 +15954,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (fields.is_object() && fields.contains("roughness")) gm->SetRoughness((f32)fields["roughness"].get<double>());
 			if (fields.is_object() && fields.contains("ssr") && fields["ssr"].is_boolean()) gm->SetSSREnabled(fields["ssr"].get<bool>());
 			if (fields.is_object() && fields.contains("alphaCutoff")) gm->SetAlphaCutoff((f32)fields["alphaCutoff"].get<double>());
+			if (fields.is_object() && fields.contains("subsurface") && fields["subsurface"].is_number())
+			{
+				Vec3 c = gm->GetSubsurfaceColor();
+				if (fields.contains("subsurfaceColor") && fields["subsurfaceColor"].is_array() && fields["subsurfaceColor"].size() >= 3)
+					c = Vec3((f32)fields["subsurfaceColor"][0].get<double>(), (f32)fields["subsurfaceColor"][1].get<double>(), (f32)fields["subsurfaceColor"][2].get<double>());
+				gm->SetSubsurface(c, (f32)fields["subsurface"].get<double>());
+			}
 		}
 		if (fields.is_object() && fields.contains("opacity")) mat->SetOpacity((f32)fields["opacity"].get<double>());
 		if (fields.is_object() && fields.contains("transparent")) mat->SetTransparencyFlag(fields["transparent"].get<bool>());
@@ -15987,6 +15994,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			j["metallic"] = gm->GetMetallic();
 			j["roughness"] = gm->GetRoughness();
 			j["ssr"] = gm->IsSSREnabled();
+			j["subsurface"] = gm->GetSubsurfaceStrength();
+			j["subsurfaceColor"] = { gm->GetSubsurfaceColor().x, gm->GetSubsurfaceColor().y, gm->GetSubsurfaceColor().z };
 			j["alphaCutoff"] = gm->GetAlphaCutoff();
 		}
 		j["opacity"] = mat->GetOpacity();

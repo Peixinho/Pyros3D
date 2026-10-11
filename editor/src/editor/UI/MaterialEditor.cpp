@@ -1005,6 +1005,7 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 		fresh->SetMetallic(gm->GetMetallic());
 		fresh->SetRoughness(gm->GetRoughness());
 		fresh->SetSSREnabled(gm->IsSSREnabled());
+		fresh->SetSubsurface(gm->GetSubsurfaceColor(), gm->GetSubsurfaceStrength());
 		fresh->SetAlphaCutoff(gm->GetAlphaCutoff());
 		fresh->SetShininess(gm->GetShininess());
 		fresh->SetReflectivity(gm->GetReflectivity());
@@ -1071,6 +1072,22 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 			[docPtr, ssrBefore]() { if (auto* g = dynamic_cast<GenericShaderMaterial*>(docPtr->currentMaterial.get())) { g->SetSSREnabled(ssrBefore); docPtr->dirty = true; } },
 			[docPtr, ssr]() { if (auto* g = dynamic_cast<GenericShaderMaterial*>(docPtr->currentMaterial.get())) { g->SetSSREnabled(ssr); docPtr->dirty = true; } },
 			"Toggle Screen Space Reflections"));
+	}
+
+	// Light under the surface (skin, wax, leaves): see GenericShaderMaterial::SetSubsurface.
+	{
+		Vec4 sss(gm->GetSubsurfaceColor().x, gm->GetSubsurfaceColor().y, gm->GetSubsurfaceColor().z, gm->GetSubsurfaceStrength());
+		bool changed = ImGui::SliderFloat("Subsurface", &sss.w, 0.f, 1.f);
+		{ static Vec4 baseline; UndoMaterialValue<Vec4>(doc, baseline, sss,
+			[](MaterialEditorDocument* d, const Vec4& v) { if (auto* g = dynamic_cast<GenericShaderMaterial*>(d->currentMaterial.get())) { g->SetSubsurface(Vec3(v.x, v.y, v.z), v.w); d->dirty = true; } },
+			"Set Subsurface"); }
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Light that goes into the surface and comes out near by: skin, wax, leaves.\n0 is off; 1 is about five centimetres.");
+		float sc[3] = { sss.x, sss.y, sss.z };
+		if (ImGui::ColorEdit3("Subsurface Color", sc)) { sss.x = sc[0]; sss.y = sc[1]; sss.z = sc[2]; changed = true; }
+		if (changed) { gm->SetSubsurface(Vec3(sss.x, sss.y, sss.z), sss.w); doc.dirty = true; }
+		{ static Vec4 baseline; UndoMaterialValue<Vec4>(doc, baseline, Vec4(gm->GetSubsurfaceColor().x, gm->GetSubsurfaceColor().y, gm->GetSubsurfaceColor().z, gm->GetSubsurfaceStrength()),
+			[](MaterialEditorDocument* d, const Vec4& v) { if (auto* g = dynamic_cast<GenericShaderMaterial*>(d->currentMaterial.get())) { g->SetSubsurface(Vec3(v.x, v.y, v.z), v.w); d->dirty = true; } },
+			"Set Subsurface Color"); }
 	}
 
 	float alphaCutoff = gm->GetAlphaCutoff();

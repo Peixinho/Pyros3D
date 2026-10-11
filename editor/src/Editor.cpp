@@ -2489,7 +2489,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		{
 			// Custom: only the shared settings. Its surface lives in the
 			// graph or the text snippet.
-			static const char* kGenericOnly[] = { "options", "color", "specular", "metallic", "roughness", "ssr",
+			static const char* kGenericOnly[] = { "options", "color", "specular", "metallic", "roughness", "ssr", "subsurface", "subsurfaceColor",
 				"alphaCutoff", "shininess", "reflectivity", "displacementHeight", "textures" };
 			for (const char* k : kGenericOnly)
 				if (a.contains(k))
@@ -2544,6 +2544,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				fresh->SetMetallic(gm->GetMetallic());
 				fresh->SetRoughness(gm->GetRoughness());
 				fresh->SetSSREnabled(gm->IsSSREnabled());
+				fresh->SetSubsurface(gm->GetSubsurfaceColor(), gm->GetSubsurfaceStrength());
 				fresh->SetAlphaCutoff(gm->GetAlphaCutoff());
 				fresh->SetShininess(gm->GetShininess());
 				fresh->SetReflectivity(gm->GetReflectivity());
@@ -2567,6 +2568,13 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		if (a.contains("metallic")) gm->SetMetallic((f32)a["metallic"].get<double>());
 		if (a.contains("roughness")) gm->SetRoughness((f32)a["roughness"].get<double>());
 		if (a.contains("ssr")) gm->SetSSREnabled(a["ssr"].get<bool>());
+		if (a.is_object() && a.contains("subsurface") && a["subsurface"].is_number())
+		{
+			Vec3 c = gm->GetSubsurfaceColor();
+			if (a.contains("subsurfaceColor") && a["subsurfaceColor"].is_array() && a["subsurfaceColor"].size() >= 3)
+				c = Vec3((f32)a["subsurfaceColor"][0].get<double>(), (f32)a["subsurfaceColor"][1].get<double>(), (f32)a["subsurfaceColor"][2].get<double>());
+			gm->SetSubsurface(c, (f32)a["subsurface"].get<double>());
+		}
 		if (a.contains("alphaCutoff")) gm->SetAlphaCutoff((f32)a["alphaCutoff"].get<double>());
 		if (a.contains("shininess")) gm->SetShininess((f32)a["shininess"].get<double>());
 		if (a.contains("reflectivity")) gm->SetReflectivity((f32)a["reflectivity"].get<double>());
