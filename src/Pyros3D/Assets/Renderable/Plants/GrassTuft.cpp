@@ -68,20 +68,37 @@ namespace p3d {
 			g->index.push_back(i + 2); g->index.push_back(i + 3); g->index.push_back(i + 4);
 			if (stem)
 			{
-				// a head: two small diamonds across each other, facing the sky and the eye
-				const f32 s = height * dice.In(.07f, .11f);
+				// a head: a ring of petals round a yellow eye, tipped a little toward wherever it leans
+				const f32 s = height * dice.In(.055f, .085f);
 				const Vec3 up(0.f, 1.f, 0.f);
 				const Vec3 fc = flower * dice.In(.88f, 1.08f);
-				for (int k = 0; k < 2; k++)
+				const Vec3 face = (up + lean * dice.In(.1f, .5f) + across * dice.In(-.3f, .3f)).normalize();
+				Vec3 px = across - face * across.dotProduct(face);
+				if (px.magnitudeSQR() < 1e-6f) px = Vec3(1.f, 0.f, 0.f);
+				px = px.normalize();
+				const Vec3 pz = face.cross(px);
+				const int petals = 5 + (int)(dice.Unit() * 3.f);
+				const f32 turn = dice.In(0.f, 6.2831853f);
+				for (int k = 0; k < petals; k++)
 				{
-					const Vec3 x = k == 0 ? across : lean;
+					const f32 a = turn + 6.2831853f * (f32)k / (f32)petals, h = 3.1415927f / (f32)petals * .82f;
+					const Vec3 d0 = px * cosf(a) + pz * sinf(a), dl = px * cosf(a - h) + pz * sinf(a - h), dr = px * cosf(a + h) + pz * sinf(a + h);
 					const uint32 j = (uint32)g->tVertex.size();
-					vertex(end - x * s, up, fc, 1.f);
-					vertex(end - up * (s * .6f), up, fc * .8f, 1.f);
-					vertex(end + x * s, up, fc, 1.f);
-					vertex(end + up * (s * .9f), up, fc, 1.f);
+					vertex(end + d0 * (s * .16f), up, fc * .82f, 1.f);
+					vertex(end + dl * (s * .72f) + face * (s * .10f), up, fc, 1.f);
+					vertex(end + d0 * s + face * (s * .04f), up, fc, 1.f);
+					vertex(end + dr * (s * .72f) + face * (s * .10f), up, fc, 1.f);
 					g->index.push_back(j); g->index.push_back(j + 1); g->index.push_back(j + 2);
-					g->index.push_back(j + 2); g->index.push_back(j + 3); g->index.push_back(j);
+					g->index.push_back(j); g->index.push_back(j + 2); g->index.push_back(j + 3);
+					g->index.push_back(j); g->index.push_back(j + 2); g->index.push_back(j + 1);
+					g->index.push_back(j); g->index.push_back(j + 3); g->index.push_back(j + 2);
+				}
+				{
+					const Vec3 eye(.95f, .72f, .12f);
+					const uint32 j = (uint32)g->tVertex.size();
+					vertex(end + face * (s * .07f), up, eye, 1.f);
+					for (int k = 0; k < 6; k++) { const f32 a = 1.0471976f * (f32)k; vertex(end + (px * cosf(a) + pz * sinf(a)) * (s * .24f) + face * (s * .05f), up, eye * .85f, 1.f); }
+					for (int k = 0; k < 6; k++) { g->index.push_back(j); g->index.push_back(j + 1 + k); g->index.push_back(j + 1 + (k + 1) % 6); g->index.push_back(j); g->index.push_back(j + 1 + (k + 1) % 6); g->index.push_back(j + 1 + k); }
 				}
 				top = std::max(top, end.y + s);
 			}

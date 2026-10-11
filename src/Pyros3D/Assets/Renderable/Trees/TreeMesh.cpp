@@ -61,13 +61,13 @@ namespace p3d {
 
 		const Species kSpecies[TreeSpecies::Count] = {
 			// name        height  var   radius  bare  lean  lv  count           angle              var  length                   up                        gnarl crown           spray var  n  round  tint                       var   shade
-			{ "Oak",        11.f,  .28f, .017f,  .26f, .07f, 3, { 7, 4, 4, 0 }, { 62, 48, 42, 0 }, 14,  { .52f, .56f, .46f, 0 }, { .05f, .16f, .10f, .0f },  .16f, Crown::Round,    0.92f, .30f, 17, .70f, Vec3(1.0f, 1.0f, 1.0f), .30f, .86f },
-			{ "Birch",      12.f,  .25f, .011f,  .30f, .08f, 3, { 9, 4, 4, 0 }, { 42, 44, 50, 0 }, 12, { .34f, .52f, .52f, 0 }, { .16f, .0f, -.50f, .0f },  .10f, Crown::Oval,     0.80f, .30f, 16, .65f, Vec3(1.0f, 1.0f, 1.0f), .30f, .88f },
+			{ "Oak",        11.f,  .28f, .017f,  .26f, .07f, 3, { 7, 4, 4, 0 }, { 62, 48, 42, 0 }, 14,  { .52f, .56f, .46f, 0 }, { .05f, .16f, .10f, .0f },  .16f, Crown::Round,    0.92f, .30f, 17, .70f, Vec3(1.0f, 1.0f, 1.0f), .30f, .66f },
+			{ "Birch",      12.f,  .25f, .011f,  .30f, .08f, 3, { 9, 4, 4, 0 }, { 42, 44, 50, 0 }, 12, { .34f, .52f, .52f, 0 }, { .16f, .0f, -.50f, .0f },  .10f, Crown::Oval,     0.80f, .30f, 16, .65f, Vec3(1.0f, 1.0f, 1.0f), .30f, .70f },
 			{ "Spruce",     19.f,  .22f, .015f,  .06f, .01f, 1, { 64, 0, 0, 0 }, { 98, 0, 0, 0 },   6,  { .30f, .0f, 0, 0 },     { -.06f, .10f, .0f, .0f },  .04f, Crown::Cone,     1.f,   .15f, 5, .45f, Vec3(1.0f, 1.0f, 1.0f), .08f, .60f },
 			{ "Scots pine", 21.f,  .20f, .014f,  .62f, .05f, 3, { 8, 4, 4, 0 }, { 66, 46, 40, 0 }, 14,  { .30f, .58f, .50f, 0 }, { .10f, .14f, .06f, .0f },  .20f, Crown::Umbrella, 0.85f, .30f, 9, .60f, Vec3(1.0f, 1.0f, 1.0f), .16f, .64f },
 			{ "Palm",       11.f,  .25f, .018f,  1.0f, .22f, 0, { 0, 0, 0, 0 }, { 0, 0, 0, 0 },    0,   { 0, 0, 0, 0 },          { .0f, .0f, .0f, .0f },     .04f, Crown::Dome,     0.f,   .0f,  0, .35f, Vec3(1.0f, 1.12f, .74f), .12f, .80f },
 			{ "Dead tree",  12.f,  .25f, .028f,  .30f, .08f, 3, { 6, 3, 3, 0 }, { 58, 46, 40, 0 }, 18,  { .46f, .52f, .40f, 0 }, { .08f, .10f, .04f, .0f },  .24f, Crown::Round,    0.f,   .0f,  0, .0f,  Vec3(1.f, 1.f, 1.f),    .0f,  1.f },
-			{ "Bush",       1.9f,  .30f, .018f,  .0f,  .30f, 2, { 8, 5, 0, 0 }, { 44, 46, 0, 0 },  16,  { .74f, .56f, 0, 0 },    { .22f, .10f, .0f, .0f },   .16f, Crown::Dome,     0.66f, .25f, 10, .65f, Vec3(1.0f, 1.0f, 1.0f), .26f, .66f },
+			{ "Bush",       1.9f,  .30f, .018f,  .0f,  .30f, 2, { 8, 5, 0, 0 }, { 44, 46, 0, 0 },  16,  { .74f, .56f, 0, 0 },    { .22f, .10f, .0f, .0f },   .16f, Crown::Dome,     0.66f, .25f, 10, .65f, Vec3(1.0f, 1.0f, 1.0f), .26f, .60f },
 		};
 
 		f32 CrownReach(const int shape, const f32 t)
@@ -331,7 +331,7 @@ namespace p3d {
 			// each spray its own light: some catch the sun full and go pale and yellow, some sit in
 			// another's shade - a crown is not one green
 			const f32 lot = dice.Unit();
-			const f32 own = lot > .78f ? 1.24f : (lot < .22f ? .84f : 1.f);
+			const f32 own = lot > .74f ? 1.34f : (lot < .30f ? .62f : 1.f);
 			const f32 shade = (S.shade + (1.f - S.shade) * open) * own;
 			const f32 gold = lot > .70f ? .30f : 0.f;
 			return Vec4(t.x * shade * (1.f + gold), t.y * shade * (1.f + gold * .5f), t.z * shade * (1.f - gold), 1.f);
