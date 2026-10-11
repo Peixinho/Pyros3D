@@ -10,7 +10,7 @@
 
 namespace p3d {
 
-	Plane::Plane(const f32 width, const f32 height, bool smooth, bool flip, bool TangentBitangent)
+	Plane::Plane(const f32 width, const f32 height, bool smooth, bool flip, bool TangentBitangent, const uint32 segments_)
 	{
 		isFlipped = flip;
 		isSmooth = smooth;
@@ -20,19 +20,24 @@ namespace p3d {
 
 		f32 w2 = width; f32 h2 = height;
 
-		Vec3 a = Vec3(-w2, -h2, 0); Vec3 b = Vec3(w2, -h2, 0); Vec3 c = Vec3(w2, h2, 0); Vec3 d = Vec3(-w2, h2, 0);
-		Vec3 normal = ((c - b).cross(a - b)).normalize();
-		geometry->tVertex.push_back(a);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(1, 0));
-		geometry->tVertex.push_back(b);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(0, 0));
-		geometry->tVertex.push_back(c);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(0, 1));
-		geometry->tVertex.push_back(d);   geometry->tNormal.push_back(normal);      geometry->tTexcoord.push_back(Vec2(1, 1));
-
-		geometry->index.push_back(0);
-		geometry->index.push_back(1);
-		geometry->index.push_back(2);
-		geometry->index.push_back(2);
-		geometry->index.push_back(3);
-		geometry->index.push_back(0);
+		segments = segments_ < 1 ? 1 : (segments_ > 1024 ? 1024 : segments_);
+		const Vec3 normal(0.f, 0.f, 1.f);
+		// (the same corners, winding and texture coordinates as the one quad this was: a row of vertices at a time)
+		for (uint32 r = 0; r <= segments; r++)
+			for (uint32 c = 0; c <= segments; c++)
+			{
+				const f32 u = (f32)c / (f32)segments, v = (f32)r / (f32)segments;
+				geometry->tVertex.push_back(Vec3(-w2 + 2.f * w2 * u, -h2 + 2.f * h2 * v, 0.f));
+				geometry->tNormal.push_back(normal);
+				geometry->tTexcoord.push_back(Vec2(1.f - u, v));
+			}
+		for (uint32 r = 0; r < segments; r++)
+			for (uint32 c = 0; c < segments; c++)
+			{
+				const uint32 i0 = r * (segments + 1) + c, i1 = i0 + 1, i2 = i1 + segments + 1, i3 = i0 + segments + 1;
+				geometry->index.push_back(i0); geometry->index.push_back(i1); geometry->index.push_back(i2);
+				geometry->index.push_back(i2); geometry->index.push_back(i3); geometry->index.push_back(i0);
+			}
 
 		for (size_t i = 0; i < geometry->tTexcoord.size(); i++) geometry->tTexcoord[i].y = 1 - geometry->tTexcoord[i].y;
 

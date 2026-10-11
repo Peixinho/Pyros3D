@@ -1107,6 +1107,7 @@ namespace p3d {
 				Plane* s = static_cast<Plane*>(prim);
 				j["shape"] = "Plane";
 				j["width"] = s->GetWidth(); j["height"] = s->GetHeight();
+				if (s->GetSegments() > 1) j["segments"] = s->GetSegments();
 				return j;
 			}
 			case PrimitiveType::Capsule:
@@ -2931,7 +2932,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			else if (shape == "Sphere") r = std::make_shared<Sphere>(j.value("radius", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, j.value("halfSphere", false), flip, tb);
 			else if (shape == "Cone") r = std::make_shared<Cone>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
 			else if (shape == "Cylinder") r = std::make_shared<Cylinder>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
-			else if (shape == "Plane") r = std::make_shared<Plane>(j.value("width", 1.0f), j.value("height", 1.0f), smooth, flip, tb);
+			else if (shape == "Plane") r = std::make_shared<Plane>(j.value("width", 1.0f), j.value("height", 1.0f), smooth, flip, tb, j.value("segments", 1u));
 			// Explicit bounds, not half extents: see Card.h.
 			else if (shape == "Card") r = std::make_shared<Card>(j.value("left", -0.5f), j.value("right", 0.5f), j.value("bottom", 0.f), j.value("top", 1.f), j.value("crossed", true));
 			else if (shape == "Capsule") r = std::make_shared<Capsule>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("numRings", 8u), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, flip, tb);
