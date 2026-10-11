@@ -61,13 +61,13 @@ namespace p3d {
 
 		const Species kSpecies[TreeSpecies::Count] = {
 			// name        height  var   radius  bare  lean  lv  count           angle              var  length                   up                        gnarl crown           spray var  n  round  tint                       var   shade
-			{ "Oak",        15.f,  .22f, .030f,  .24f, .05f, 3, { 9, 5, 4, 0 }, { 62, 48, 42, 0 }, 14,  { .52f, .56f, .46f, 0 }, { .05f, .16f, .10f, .0f },  .16f, Crown::Round,    1.45f, .30f, 4, .70f, Vec3(1.05f, 1.16f, .80f), .16f, .62f },
-			{ "Birch",      16.f,  .20f, .014f,  .30f, .06f, 3, { 12, 5, 4, 0 }, { 42, 44, 50, 0 }, 12, { .34f, .52f, .52f, 0 }, { .16f, .0f, -.50f, .0f },  .10f, Crown::Oval,     1.00f, .30f, 4, .65f, Vec3(1.12f, 1.20f, .78f), .18f, .68f },
-			{ "Spruce",     19.f,  .22f, .015f,  .06f, .01f, 1, { 64, 0, 0, 0 }, { 98, 0, 0, 0 },   6,  { .30f, .0f, 0, 0 },     { -.06f, .10f, .0f, .0f },  .04f, Crown::Cone,     1.f,   .15f, 5, .45f, Vec3(.90f, 1.06f, .88f), .10f, .60f },
-			{ "Scots pine", 21.f,  .20f, .014f,  .62f, .05f, 3, { 8, 4, 4, 0 }, { 66, 46, 40, 0 }, 14,  { .30f, .58f, .50f, 0 }, { .10f, .14f, .06f, .0f },  .20f, Crown::Umbrella, 1.45f, .30f, 4, .60f, Vec3(.95f, 1.10f, .86f), .12f, .64f },
+			{ "Oak",        13.f,  .22f, .026f,  .22f, .05f, 3, { 9, 5, 5, 0 }, { 62, 48, 42, 0 }, 14,  { .52f, .56f, .46f, 0 }, { .05f, .16f, .10f, .0f },  .16f, Crown::Round,    0.95f, .30f, 7, .70f, Vec3(1.0f, 1.0f, 1.0f), .14f, .62f },
+			{ "Birch",      16.f,  .20f, .014f,  .30f, .06f, 3, { 12, 5, 4, 0 }, { 42, 44, 50, 0 }, 12, { .34f, .52f, .52f, 0 }, { .16f, .0f, -.50f, .0f },  .10f, Crown::Oval,     0.70f, .30f, 7, .65f, Vec3(1.0f, 1.0f, 1.0f), .14f, .68f },
+			{ "Spruce",     19.f,  .22f, .015f,  .06f, .01f, 1, { 64, 0, 0, 0 }, { 98, 0, 0, 0 },   6,  { .30f, .0f, 0, 0 },     { -.06f, .10f, .0f, .0f },  .04f, Crown::Cone,     1.f,   .15f, 5, .45f, Vec3(1.0f, 1.0f, 1.0f), .08f, .60f },
+			{ "Scots pine", 21.f,  .20f, .014f,  .62f, .05f, 3, { 8, 4, 4, 0 }, { 66, 46, 40, 0 }, 14,  { .30f, .58f, .50f, 0 }, { .10f, .14f, .06f, .0f },  .20f, Crown::Umbrella, 1.10f, .30f, 6, .60f, Vec3(1.0f, 1.0f, 1.0f), .10f, .64f },
 			{ "Palm",       11.f,  .25f, .018f,  1.0f, .22f, 0, { 0, 0, 0, 0 }, { 0, 0, 0, 0 },    0,   { 0, 0, 0, 0 },          { .0f, .0f, .0f, .0f },     .04f, Crown::Dome,     0.f,   .0f,  0, .35f, Vec3(1.0f, 1.12f, .74f), .12f, .80f },
 			{ "Dead tree",  12.f,  .25f, .028f,  .30f, .08f, 3, { 6, 3, 3, 0 }, { 58, 46, 40, 0 }, 18,  { .46f, .52f, .40f, 0 }, { .08f, .10f, .04f, .0f },  .24f, Crown::Round,    0.f,   .0f,  0, .0f,  Vec3(1.f, 1.f, 1.f),    .0f,  1.f },
-			{ "Bush",       1.9f,  .30f, .018f,  .0f,  .30f, 2, { 8, 5, 0, 0 }, { 44, 46, 0, 0 },  16,  { .74f, .56f, 0, 0 },    { .22f, .10f, .0f, .0f },   .16f, Crown::Dome,     0.80f, .30f, 5, .65f, Vec3(.98f, 1.14f, .74f), .20f, .66f },
+			{ "Bush",       1.9f,  .30f, .018f,  .0f,  .30f, 2, { 8, 5, 0, 0 }, { 44, 46, 0, 0 },  16,  { .74f, .56f, 0, 0 },    { .22f, .10f, .0f, .0f },   .16f, Crown::Dome,     0.55f, .30f, 7, .65f, Vec3(1.0f, 1.0f, 1.0f), .16f, .66f },
 		};
 
 		f32 CrownReach(const int shape, const f32 t)
@@ -430,8 +430,8 @@ namespace p3d {
 		else if (S.sprays > 0)
 		{
 			// fewer sprays further off, each bigger: the crown keeps what it covers
-			const f32 keep = d == 0 ? 1.f : (d == 1 ? .42f : .13f);
-			const f32 grow = d == 0 ? 1.f : (d == 1 ? 1.55f : 2.7f);
+			const f32 keep = d == 0 ? 1.f : (d == 1 ? .55f : .22f);
+			const f32 grow = d == 0 ? 1.f : (d == 1 ? 2.0f : 3.9f);
 			const bool bough = S.crown == Crown::Cone;               // a conifer's spray lies along its branch
 			for (size_t i = 0; i < K.sprays.size(); i++)
 			{
