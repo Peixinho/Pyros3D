@@ -304,7 +304,8 @@ namespace p3d {
 				for (int s = 0; s < sides; s++)
 				{
 					const uint32 a = base + (uint32)(i * (sides + 1) + s), b = a + 1, c = a + (uint32)(sides + 1), d = c + 1;
-					o.Triangle(a, c, b); o.Triangle(b, c, d);
+					// (wound to face out: it faced in, and what was seen of a stem was the far side of it from within)
+					o.Triangle(a, b, c); o.Triangle(b, d, c);
 				}
 		}
 
