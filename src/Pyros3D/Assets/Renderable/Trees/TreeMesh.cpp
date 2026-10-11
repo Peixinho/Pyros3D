@@ -436,8 +436,10 @@ namespace p3d {
 		else if (S.sprays > 0)
 		{
 			// fewer sprays further off, each bigger: the crown keeps what it covers
-			const f32 keep = d == 0 ? 1.f : (d == 1 ? .55f : .22f);
-			const f32 grow = d == 0 ? 1.f : (d == 1 ? 2.0f : 3.9f);
+			// (a crown of many small sprays up close is, far off, a few large ones: the far versions are what a
+			// forest is mostly drawn with, and what its shadows are cast from)
+			const f32 keep = d == 0 ? 1.f : (d == 1 ? .30f : .08f);
+			const f32 grow = d == 0 ? 1.f : (d == 1 ? 2.6f : 5.4f);
 			const bool bough = S.crown == Crown::Cone;               // a conifer's spray lies along its branch
 			for (size_t i = 0; i < K.sprays.size(); i++)
 			{
