@@ -151,6 +151,9 @@ namespace p3d {
 		// than the constructor's default: it showed the same ground darker and browner
 		// than the main view beside it. A renderer given ambient light of its own
 		// (any of the Set* calls) keeps it. NULL (the default): nobody follows.
+		// The scene's sun, as the lighting last saw it: the way to it and how strong (0..1).
+		// For what a material does with the sun outside the lighting pass (light through leaves).
+		static void SetSunHint(const Vec3 &toSun, const f32 strength);
 		static void SetAmbientSource(IRenderer* mainView);
 		static IRenderer* GetAmbientSource();
 		// What the shader is told: AmbientMode, except that DDGI (3) with

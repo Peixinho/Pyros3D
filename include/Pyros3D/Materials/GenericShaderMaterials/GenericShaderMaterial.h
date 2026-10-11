@@ -86,6 +86,10 @@ namespace p3d
 		// skyLean: how far the surface's normal leans to the sky for
 		// lighting (0 as modelled, 1 straight up) - grass and leaves then
 		// take the light the ground takes instead of each card's own.
+		// How much of the sun's light comes through (0: none - anything solid; about 0.5: a leaf).
+		// For materials drawn with ShaderUsage::VertexWind - leaves and grass. Deferred frames.
+		void SetLightThrough(const f32 amount) { LightThrough = amount; }
+		f32 GetLightThrough() const { return LightThrough; }
 		void SetWind(const f32 strength, const f32 rate = 1.6f, const f32 spatialFrequency = 0.12f, const f32 skyLean = 0.f) { Wind = Vec4(strength, rate, spatialFrequency, skyLean); }
 		const Vec4 &GetWind() const { return Wind; }
 
@@ -212,6 +216,8 @@ namespace p3d
 		// See SetWind(). Not in the MaterialUniforms mirror - it travels in
 		// ObjectMatrixUniforms because it is needed in the vertex stage.
 		Vec4 Wind;
+		// See SetLightThrough().
+		f32 LightThrough = 0.f;
 
 		// Texture IDs
 		int32 colorMapID, specularMapID, normalMapID, displacementMapID, envMapID, skyboxMapID, refractMapID, fontMapID;

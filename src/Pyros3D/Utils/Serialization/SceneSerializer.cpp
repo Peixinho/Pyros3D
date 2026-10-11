@@ -852,6 +852,7 @@ namespace p3d {
 			SerializeTextureRef(m, "envMap", gm->GetEnvMap());
 			SerializeTextureRef(m, "refractMap", gm->GetRefractMap());
 			m["alphaCutoff"] = gm->GetAlphaCutoff();
+			if (gm->GetLightThrough() > 0.f) m["lightThrough"] = gm->GetLightThrough();
 			// Sway for VertexWind materials (grass): strength, rate, frequency.
 			if (gm->GetWind().x > 0.f)
 				m["wind"] = gm->GetWind().w != 0.f
@@ -2681,6 +2682,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "envMap", textureCache, outAssets, true)) gm->SetEnvMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets, true)) gm->SetRefractMap(t);
 			if (j.find("alphaCutoff") != j.end()) gm->SetAlphaCutoff(j.value("alphaCutoff", 0.5f));
+			if (j.contains("lightThrough")) gm->SetLightThrough(j.value("lightThrough", 0.f));
 			if (j.contains("wind") && j["wind"].is_array() && j["wind"].size() >= 3)
 				gm->SetWind(j["wind"][0].get<f32>(), j["wind"][1].get<f32>(), j["wind"][2].get<f32>(), j["wind"].size() >= 4 ? j["wind"][3].get<f32>() : 0.f);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);

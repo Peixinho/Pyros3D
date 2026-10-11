@@ -90,6 +90,7 @@
 #define LOC_vScreenSpaceWorldPosition 19
 #define LOC_vPrvScreenSpaceWorldPosition 20
 #define LOC_vClipDist 21
+#define LOC_vLightThrough 23
 #define LOC_vInstanceColor 22
 
 // Existing UBO/sampler bindings - match the fixed runtime binding points
@@ -360,7 +361,15 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // xy: an instanced draw's instances this much wider and taller than
         // the mesh (IRenderingInstancedComponent::SetInstanceGrowth).
         vec4 uInstanceGrowth;
+        // xyz: the way to the sun; w: how much of its light a leaf lets through
+        // (GenericShaderMaterial::SetLightThrough, by the sun's strength). A leaf is
+        // thin: lit from behind it glows, and the side of a crown turned from the sun
+        // is not black but green with the light that has come through it.
+        vec4 uLightThrough;
     };
+    #ifdef VERTEXWIND
+        IO_LOCATION(LOC_vLightThrough) varying_out float vLightThrough;
+    #endif
 
     // Instanced
     #ifdef INSTANCED_RENDERING
@@ -425,6 +434,18 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 float windSway = sin(windPhase) * 0.75 + sin(windPhase * 2.37 + 1.7) * 0.25;
                 Position.x += windSway * windHeight * uWind.x;
                 Position.z += windSway * windHeight * uWind.x * 0.35;
+            }
+            {
+                vLightThrough = 0.0;
+                if (uLightThrough.w > 0.0)
+                {
+                    vec3 ltWorld = (ModelMatrix * vec4(Position, 1.0)).xyz;
+                    vec3 ltNormal = normalize((ModelMatrix * vec4(aNormal, 0.0)).xyz);
+                    vec3 ltEye = normalize(ltWorld - uCameraPos.xyz);                 // from the eye to the leaf
+                    float ltToward = pow(max(dot(ltEye, uLightThrough.xyz), 0.0), 3.0);   // looking into the sun
+                    float ltBehind = 1.0 - max(dot(ltNormal, uLightThrough.xyz), 0.0);    // the side the sun is not on
+                    vLightThrough = uLightThrough.w * (0.30 + 0.70 * ltToward) * ltBehind;
+                }
             }
         #endif
 
@@ -902,6 +923,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     #endif
     #if defined(VERTEXCOLOR) && !defined(DEBUGRENDERING)
         IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
+    #endif
+    #ifdef VERTEXWIND
+        IO_LOCATION(LOC_vLightThrough) varying_in float vLightThrough;
     #endif
 
     #ifdef DEBUGRENDERING
@@ -2067,6 +2091,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// why it is summed here rather than folded into _amb - the
 		// slot carries a finished term, not an ambient colour.
 		vec3 _indirect = diffuse.xyz * _amb;
+	#ifdef VERTEXWIND
+		// (the sun through a leaf: its own colour, yellower - added as it is, not lit again)
+		_indirect += diffuse.xyz * vec3(1.0, 1.0, 0.45) * vLightThrough;
+	#endif
 	#ifdef PBR
 		// Metals have no diffuse response - the (1-metallic) factor
 		// kD carries in CalculatePBRLighting, and the same one the

@@ -327,7 +327,7 @@ namespace p3d
 		for (size_t i = 0; i < textureCount; i++) f.Value(Textures[i].get());
 		f.Value(colorMapID); f.Value(specularMapID); f.Value(normalMapID); f.Value(displacementMapID);
 		f.Value(envMapID); f.Value(skyboxMapID); f.Value(refractMapID); f.Value(fontMapID); f.Value(metallicRoughnessMapID);
-		f.Vec(Ke); f.Vec(Ka); f.Vec(Kd); f.Vec(Ks); f.Vec(Wind);
+		f.Vec(Ke); f.Vec(Ka); f.Vec(Kd); f.Vec(Ks); f.Vec(Wind); f.Vec(Vec4(LightThrough, 0.f, 0.f, 0.f));
 		f.Value(Shininess); f.Value(UseLights); f.Value(displacementHeight); f.Value(Reflectivity);
 		f.Value(Metallic); f.Value(Roughness); f.Value(SSREnabled); f.Value(AlphaCutoff);
 		// IMaterial's render state.
@@ -460,6 +460,7 @@ namespace p3d
 		m->SetSSREnabled(SSREnabled != 0.0f);
 		m->SetAlphaCutoff(AlphaCutoff);
 		m->Wind = Wind;
+		m->LightThrough = LightThrough;
 		m->Ke = Ke;
 		m->Ka = Ka;
 

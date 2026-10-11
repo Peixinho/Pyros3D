@@ -145,6 +145,8 @@ Vec4 IRenderer::CachedClipPlane0;
 bool IRenderer::AmbientLightUniformsUBOValid = false;
 Vec4 IRenderer::CachedGlobalLight;
 f32 IRenderer::AmbientScale = 1.f;
+namespace { Vec3 g_sunTo(0.f, 1.f, 0.f); f32 g_sunStrength = 0.f; }
+void IRenderer::SetSunHint(const Vec3 &toSun, const f32 strength) { g_sunTo = toSun; g_sunStrength = std::max(0.f, std::min(1.f, strength)); }
 namespace { std::atomic<IRenderer*> g_ambientSource(NULL); }
 namespace { f32 g_heldAmbientScale = 1.f; bool g_ambientScaleHeld = false; }
 // (set while a frame may be in flight: kept, and made the scale at the next PreRender)
@@ -1048,7 +1050,7 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		SpotShadowUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_SPOT_SHADOW_MATRICES, 4);
 		VertexFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 3, 16);
 		VelocityFrameUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) * 2, 17);
-		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) + sizeof(Vec4) * 2, 18);
+		ObjectMatrixUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix) + sizeof(Vec4) * 3, 18);
 		BoneMatricesUBO = device->CreateUniformBuffer(sizeof(Matrix) * PYROS_MAX_BONES, 19);
 		VelocityObjectUniformsUBO = device->CreateUniformBuffer(sizeof(Matrix), 20);
 		// 14 vec4s, not 5: the block grew by the nine SH coefficients.
@@ -4800,8 +4802,9 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		// to LightsBlock's existing partial writes.
 		// std140: mat4 uModelMatrix then vec4 uWind - one upload, so the
 		// two can't drift apart the way two separate writes could.
-		struct { Matrix model; Vec4 wind; Vec4 growth; } objectMatrixData;
+		struct { Matrix model; Vec4 wind; Vec4 growth; Vec4 through; } objectMatrixData;
 		objectMatrixData.model = ModelMatrix;
+		objectMatrixData.through = Vec4(0.f, 1.f, 0.f, 0.f);
 		objectMatrixData.wind = Vec4(0.f, 0.f, 0.f, 0.f);
 		// (an instanced component's growth of its instances: see
 		// IRenderingInstancedComponent::SetInstanceGrowth)
@@ -4816,6 +4819,8 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			if (genericMat != NULL && (genericMat->GetOptions() & ShaderUsage::VertexWind))
 			{
 				objectMatrixData.wind = genericMat->GetWind();
+				// (see PyrosShader.glsl's uLightThrough; the sun is whichever the scene's lighting last named)
+				objectMatrixData.through = Vec4(g_sunTo.x, g_sunTo.y, g_sunTo.z, genericMat->GetLightThrough() * g_sunStrength);
 				WindInUseThisFrame = true;
 			}
 		}

@@ -1725,6 +1725,10 @@ namespace p3d {
 					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f))).xyz().normalize();
 					dirDirHandle->SetValue(&dir);
 					Vec4 dirRadiance = d->GetLightRadiance();
+					{
+						const Vec3 toSun = (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize() * -1.f;
+						IRenderer::SetSunHint(toSun, std::max(dirRadiance.x, std::max(dirRadiance.y, dirRadiance.z)) / 3.14159265f);
+					}
 					dirColorHandle->SetValue(&dirRadiance);
 					// See the identical fix in the POINT case above.
 					int shadowUnit = 4;

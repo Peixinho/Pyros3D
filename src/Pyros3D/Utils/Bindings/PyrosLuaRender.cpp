@@ -554,6 +554,7 @@ namespace p3d {
 				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
 				"getAlphaCutoff", &GenericShaderMaterial::GetAlphaCutoff,
+				"setLightThrough", &GenericShaderMaterial::SetLightThrough,
 				"setWind", sol::overload(
 					[](GenericShaderMaterial &m, f32 strength) { m.SetWind(strength); },
 					[](GenericShaderMaterial &m, f32 strength, f32 rate) { m.SetWind(strength, rate); },
