@@ -40,7 +40,10 @@ inline std::string ForSceneObject(SceneObject* obj, bool isCamera)
 	case SceneObjectTypes::SPOTLIGHT_COMPONENT:
 		return u8"\uf0eb ";
 	case SceneObjectTypes::PHYSICS_COMPONENT:
+	case SceneObjectTypes::PHYSICS2D_COMPONENT:
 		return u8"\uf0ad ";
+	case SceneObjectTypes::JOINT2D_COMPONENT:
+		return u8"\uf0c1 ";
 	case SceneObjectTypes::AUDIO_SOURCE_COMPONENT:
 		return u8"\uf028 ";
 	case SceneObjectTypes::LUA_COMPONENT:

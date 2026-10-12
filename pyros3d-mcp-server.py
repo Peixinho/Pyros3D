@@ -1576,29 +1576,510 @@ def add_primitive(project_path: str, scene_name: str, name: str, shape: str = "C
     return f"Added {shape} '{final_name}' to scene {scene_name} (material #{len(data['materials']) - 1})"
 
 
-@mcp.tool()
-def add_sprite(project_path: str, scene_name: str, name: str, texture: str | None = None,
-               parent_name: str | None = None, position: list[float] | None = None,
-               rotation: list[float] | None = None, scale: list[float] | None = None) -> str:
-    """Add a 2D sprite - a textured, alpha-blended quad (editor: Add > Sprite).
+def _sprite_component(source: str | None, opts: dict) -> dict:
+    """A Sprite2D as the scene file stores it: only what differs from a
+    fresh sprite is written, the way the engine writes it."""
+    comp = {"type": "Sprite2D", "source": source or "", "frame": 0}
+    if isinstance(opts.get("frame"), str):
+        comp["frameName"] = opts["frame"]
+    elif opts.get("frame") is not None:
+        comp["frame"] = int(opts["frame"])
+    for key in ("flipX", "flipY"):
+        if opts.get(key):
+            comp[key] = True
+    if opts.get("color") is not None:
+        c = list(opts["color"])
+        comp["color"] = c + [1.0] if len(c) == 3 else c
+    mode = (opts.get("drawMode") or "simple").lower()
+    if mode in ("sliced", "tiled"):
+        comp["drawMode"] = mode
+        comp["size"] = list(opts.get("size") or [1.0, 1.0])
+    if opts.get("pixelsPerUnit"):
+        comp["pixelsPerUnit"] = float(opts["pixelsPerUnit"])
+    if opts.get("pivot") is not None:
+        comp["pivot"] = list(opts["pivot"])
+    lighting = (opts.get("lighting") or "unlit").lower()
+    if lighting == "2d":
+        comp["lit"] = True
+    elif lighting == "3d":
+        comp["lighting"] = "3d"
+    if opts.get("material"):
+        comp["material"] = opts["material"]
+    if (opts.get("maskInteraction") or "none").lower() in ("inside", "outside"):
+        comp["maskInteraction"] = opts["maskInteraction"].lower()
+        if opts.get("mask"):
+            comp["mask"] = opts["mask"]
+    blend = (opts.get("blend") or "alpha").lower()
+    if blend in ("additive", "premultiplied"):
+        comp["blend"] = blend
+    if opts.get("sortOrder"):
+        comp["sortOrder"] = int(opts["sortOrder"])
+    if opts.get("autoPlay"):
+        comp["autoPlay"] = opts["autoPlay"]
+    if opts.get("speed") not in (None, 1.0):
+        comp["speed"] = float(opts["speed"])
+    return comp
 
-    A sprite is a RenderingComponent, not a component type of its own: the
-    shortcut is that it gets its own material with blending on, double-sided
-    culling, and a size taken from the texture's pixel aspect. Omit `texture`
-    for a white placeholder you can texture later.
+
+@mcp.tool()
+def add_sprite(project_path: str, scene_name: str, name: str, source: str | None = None,
+               parent_name: str | None = None, position: list[float] | None = None,
+               rotation: list[float] | None = None, scale: list[float] | None = None,
+               frame: str | int | None = None, flip_x: bool = False, flip_y: bool = False,
+               color: list[float] | None = None, draw_mode: str = "simple",
+               size: list[float] | None = None, pixels_per_unit: float | None = None,
+               pivot: list[float] | None = None, lighting: str = "unlit",
+               blend: str = "alpha", sort_order: int = 0, auto_play: str | None = None,
+               texture: str | None = None, material: str | None = None) -> str:
+    """Add a sprite - a Sprite2D component (editor: Add > Sprite).
+
+    material: a .mat ("assets/materials/Flash.mat") in place of the material
+    the sprite makes for itself - for a dissolve, an outline, a flash. The
+    sprite still supplies its frame's shape, texture coordinates and tint;
+    the material shades it and names its own textures, and lighting and
+    blend are then not used.
+
+    source: an image ("assets/textures/hero.png") or a sprite sheet
+    ("assets/textures/hero.p3ds", see create_spritesheet). A bare image is a
+    sheet of one frame. `texture` is the older name for it and still works.
+
+    The sprite is as big as its pixels say: frame height / pixels_per_unit
+    world units (100 by default, or the sheet's own). It needs no scale to be
+    the right size, and every sprite on a sheet agrees.
+
+    frame: a frame's name or index. draw_mode: simple | sliced (nine-slice,
+    stretched to `size`, borders set in the sheet) | tiled (repeated to fill
+    `size`). pivot: [x, y] normalised, y up - [0.5, 0] is bottom-centre.
+    lighting: unlit | 2d | 3d. blend: alpha | additive | premultiplied.
+    sort_order: drawn over everything with a lower one. auto_play: the clip
+    it starts on. color: [r, g, b, a] multiplied over the art.
+
+    Works with or without the editor running.
     """
     proj, err = _resolve_project(project_path)
     if err:
         return _fail(err)
     scene_file = _scene_file(proj, scene_name)
-    live = _live_or_none("add_sprite", {
-        "name": name, "texture": texture or "", "parent": parent_name or "",
-        "position": position, "rotation": rotation, "scale": scale,
-    }, scene_file)
+    source = source or texture
+    opts = {"frame": frame, "flipX": flip_x, "flipY": flip_y, "color": color,
+            "drawMode": draw_mode, "size": size, "pixelsPerUnit": pixels_per_unit,
+            "pivot": pivot, "lighting": lighting, "blend": blend,
+            "sortOrder": sort_order, "autoPlay": auto_play, "material": material}
+    live_args = {"name": name, "source": source or "", "parent": parent_name or "",
+                 "position": position, "rotation": rotation, "scale": scale}
+    if frame is not None: live_args["frame"] = frame
+    if flip_x: live_args["flipX"] = True
+    if flip_y: live_args["flipY"] = True
+    if color is not None: live_args["color"] = list(color)
+    if draw_mode.lower() != "simple":
+        live_args["drawMode"] = draw_mode.lower()
+        live_args["size"] = list(size or [1.0, 1.0])
+    if pixels_per_unit: live_args["pixelsPerUnit"] = pixels_per_unit
+    if pivot is not None: live_args["pivot"] = list(pivot)
+    if lighting.lower() != "unlit": live_args["lighting"] = lighting.lower()
+    if material: live_args["material"] = material
+    if blend.lower() != "alpha": live_args["blend"] = blend.lower()
+    if sort_order: live_args["sortOrder"] = sort_order
+    if auto_play: live_args["autoPlay"] = auto_play
+    live = _live_or_none("add_sprite", {k: v for k, v in live_args.items() if v is not None}, scene_file)
     if live is not None:
-        return _fail(live) if isinstance(live, str) else f"Added sprite '{name}' (live editor)"
-    return _fail("add_sprite needs the editor open on this scene - it builds a material, "
-                 "which the offline scene-file path does not do.")
+        if isinstance(live, str):
+            return _fail(live)
+        r = live.get("localRect") or [0, 0, 0, 0]
+        return (f"Added sprite '{name}' (live editor): {live.get('frameCount', 0)} frame(s), "
+                f"{r[2] - r[0]:.2f} x {r[3] - r[1]:.2f} units, clips {live.get('clips', [])}")
+
+    # No editor: a sprite is plain data, and the engine builds its mesh when
+    # the scene loads.
+    if source and not (proj / source).exists():
+        return _fail(f"{source} does not exist in the project")
+    data = _load_scene(scene_file)
+    final_name = _unique_scene_name(data, name)
+    obj = _new_game_object(final_name, position, rotation, scale)
+    obj["components"].append(_sprite_component(source, opts))
+    a_err = _add_to_scene(data, obj, parent_name)
+    if a_err:
+        return _fail(a_err)
+    _save_scene(scene_file, data)
+    return f"Added sprite '{final_name}' to scene {scene_name}"
+
+
+@mcp.tool()
+def set_sprite(project_path: str, scene_name: str, name: str, properties: dict) -> str:
+    """Change a sprite (editor: the Sprite section of Properties).
+
+    properties, any of: source, frame (name or index), flipX, flipY,
+    color [r,g,b,a], alpha, drawMode (simple|sliced|tiled), size [w,h],
+    pixelsPerUnit (0 = the sheet's), pivot [x,y] or null for the sheet's own,
+    lighting (unlit|2d|3d), material (a .mat path, "" for the sprite's own),
+    blend (alpha|additive|premultiplied), sortOrder,
+    autoPlay (clip name, "" for none), speed, maskInteraction (none|inside|
+    outside) and mask (a Sprite Mask object's name, "" for the nearest above
+    the sprite). With the editor PLAYING it also
+    takes play (clip), restart, stop and clipTime, and pokes the running
+    sprite without recording anything.
+
+    An unknown key is refused by name rather than ignored.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none("set_sprite", dict({"object": name}, **properties), scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else json.dumps(live, indent=2)
+
+    data = _load_scene(scene_file)
+    obj = _find_object(data, name)
+    if obj is None:
+        return _fail(f"object '{name}' not found in scene {scene_name}")
+    comps = obj.setdefault("components", [])
+    old = next((c for c in comps if c.get("type") == "Sprite2D"), None)
+    if old is None:
+        return _fail(f"'{name}' has no Sprite2D - add_sprite first")
+    known = {"source", "frame", "flipX", "flipY", "color", "alpha", "drawMode", "size",
+             "pixelsPerUnit", "pivot", "lighting", "lit", "material", "blend", "sortOrder", "autoPlay", "speed",
+             "maskInteraction", "mask"}
+    bad = [k for k in properties if k not in known]
+    if bad:
+        return _fail(f"set_sprite: unknown key '{bad[0]}' (play/stop/clipTime need the editor playing)")
+    # Read back what is there in the tool's own terms, lay the changes over
+    # it, and write it out the way the engine does.
+    cur = {"frame": old.get("frameName", old.get("frame", 0)), "flipX": old.get("flipX", False),
+           "flipY": old.get("flipY", False), "color": old.get("color"),
+           "drawMode": old.get("drawMode", "simple"), "size": old.get("size"),
+           "pixelsPerUnit": old.get("pixelsPerUnit"), "pivot": old.get("pivot"),
+           "lighting": "3d" if old.get("lighting") == "3d" else ("2d" if old.get("lit") else "unlit"),
+           "blend": old.get("blend", "alpha"), "sortOrder": old.get("sortOrder", 0),
+           "autoPlay": old.get("autoPlay"), "speed": old.get("speed", 1.0),
+           "material": old.get("material"),
+           "maskInteraction": old.get("maskInteraction"), "mask": old.get("mask")}
+    source = properties.get("source", old.get("source", ""))
+    if "lit" in properties and "lighting" not in properties:
+        properties = dict(properties, lighting="2d" if properties["lit"] else "unlit")
+    cur.update({k: v for k, v in properties.items() if k in cur})
+    if "alpha" in properties:
+        c = list(cur["color"] or [1.0, 1.0, 1.0, 1.0])
+        cur["color"] = c[:3] + [float(properties["alpha"])]
+    comps[comps.index(old)] = _sprite_component(source, cur)
+    _save_scene(scene_file, data)
+    return f"Updated sprite '{name}' in scene {scene_name}"
+
+
+@mcp.tool()
+def add_sprite_batch(project_path: str, scene_name: str, name: str,
+                     lit: bool = True, light_cell: float = 8.0) -> str:
+    """Draw every sprite beneath an object in one call per texture
+    (editor: Add > Sprite Batch).
+
+    Put it on a PARENT of many sprites - a layer of coins, bullets, scenery.
+    A sprite on its own is one draw call; four thousand under a batch are a
+    dozen. Order inside is sort order, then z, then tree order - the same as
+    unbatched. A batch nothing in changed costs nothing; one that changes
+    re-merges that frame.
+
+    Sprites that take lighting are merged too, cut into cells `light_cell`
+    units across so each cell is lit by the lights near it (at most four a
+    cell - keep it no bigger than the gap between lights). lit=False leaves
+    them drawing themselves.
+    """
+    comp = {"type": "SpriteBatch2D"}
+    if not lit:
+        comp["lit"] = False
+    if light_cell != 8.0:
+        comp["lightCell"] = light_cell
+    return _add_simple_component(project_path, scene_name, name, "add_sprite_batch",
+                                 comp, "SpriteBatch2D",
+                                 live_args={"object": name, "lit": lit, "lightCell": light_cell})
+
+
+@mcp.tool()
+def set_sprite_batch(name: str, enabled: bool | None = None, lit: bool | None = None,
+                     light_cell: float | None = None) -> str:
+    """Change a Sprite Batch in the running editor: enabled, whether lit
+    sprites are merged, and the size of the cells they are cut into. Returns
+    the batch as it is afterwards, with its sprite and draw-call counts."""
+    args = {"object": name}
+    if enabled is not None:
+        args["enabled"] = enabled
+    if lit is not None:
+        args["lit"] = lit
+    if light_cell is not None:
+        args["lightCell"] = light_cell
+    ok, res = _editor_call("set_sprite_batch", args)
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
+def convert_sprites(project_path: str, scene_name: str, name: str | None = None) -> str:
+    """Turn old textured-quad sprites into Sprite2D (editor: Properties >
+    Convert to Sprite2D). Needs the editor open on the scene.
+
+    Scenes made before Sprite2D hold each sprite as a Plane with a material of
+    its own, and an animated one as a folder of per-frame PNGs. This makes
+    each a Sprite2D that looks the same - an animated one gets a .p3ds sheet
+    over the ORIGINAL image, so the cut-up copies are no longer used. With
+    `name` it converts that one object (undoable); without, every such sprite
+    in the scene (clears the undo history). Returns what was left and why.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    live = _live_or_none("convert_sprites", {"object": name} if name else {}, scene_file)
+    if live is None:
+        return _fail("convert_sprites needs the editor open on this scene - it reads the live materials.")
+    if isinstance(live, str):
+        return _fail(live)
+    return f"{live.get('converted', 0)} converted. {live.get('report', '')}".strip()
+
+
+def _png_size(path: Path) -> tuple[int, int] | None:
+    """Pixel size of a PNG from its header; None for anything else."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(24)
+        if head[:8] == b"\x89PNG\r\n\x1a\n" and head[12:16] == b"IHDR":
+            return struct.unpack(">II", head[16:24])
+    except OSError:
+        pass
+    return None
+
+
+@mcp.tool()
+def create_spritesheet(project_path: str, image: str,
+                       cell_width: int | None = None, cell_height: int | None = None,
+                       columns: int | None = None, rows: int | None = None,
+                       auto_slice: bool = False, atlas: str | None = None,
+                       margin: int = 0, spacing: int = 0,
+                       pixels_per_unit: float = 100.0, filter: str = "linear",
+                       prefix: str | None = None, pivot: list[float] | None = None,
+                       border: list[float] | None = None,
+                       clips: list[dict] | None = None, overwrite: bool = False,
+                       normal_image: str | None = None) -> str:
+    """Make a sprite sheet (.p3ds) for an image: how it is cut into frames,
+    and which runs of frames are animation clips. Written beside the image.
+
+    The image stays ONE texture and a frame is a rectangle of it, so a
+    character with sixty frames is one texture and one material.
+
+    Cut it one of four ways:
+      cell_width + cell_height (+ margin, spacing)  a grid of that cell size
+      columns + rows                                a grid of that many cells
+      auto_slice=True       round every opaque island (needs the editor)
+      atlas="x.json"        an Aseprite / TexturePacker export (needs the editor)
+    With none of them the sheet is one frame: the whole image - still worth
+    having for its pixels_per_unit, pivot or nine-slice border.
+
+    pixels_per_unit: image pixels per world unit - a 32px frame at 32 is one
+    unit tall. filter: linear | nearest (pixel art). pivot [x, y] and border
+    [left, bottom, right, top] (nine-slice, pixels) apply to every frame.
+    clips: [{"name": "run", "from": 0, "to": 5, "fps": 12, "loop": true,
+             "pingPong": false, "events": [{"at": 2, "name": "step"}]}]
+           or "frames": [0, 1, 2, 1] in place of from/to.
+
+    Frames are named <prefix><index> (prefix defaults to the image's name and
+    an underscore) and numbered row by row from the top-left.
+
+    normal_image: a normal map laid out exactly like the image
+    ("assets/textures/hero_n.png"). Sprites set to 2D or 3D lighting are then
+    shaded by it; a light's z is its height above the plane.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    args: dict = {"image": image, "pixelsPerUnit": pixels_per_unit, "filter": filter.lower()}
+    if normal_image:
+        args["normalImage"] = normal_image
+    if cell_width and cell_height:
+        args["grid"] = {"cellWidth": cell_width, "cellHeight": cell_height, "margin": margin, "spacing": spacing}
+    elif columns and rows:
+        args["count"] = {"columns": columns, "rows": rows}
+    elif auto_slice:
+        args["auto"] = {}
+    elif atlas:
+        args["atlas"] = atlas
+    if prefix is not None: args["prefix"] = prefix
+    if pivot is not None: args["pivot"] = list(pivot)
+    if border is not None: args["border"] = list(border)
+    if clips: args["clips"] = clips
+    if overwrite: args["overwrite"] = True
+
+    if _live_project_matches(proj):
+        ok, res = _editor_call("create_spritesheet", args)
+        if not ok:
+            return _fail(str(res))
+        return (f"Wrote {res.get('path')}: {res.get('frameCount')} frames, clips "
+                f"{[c['name'] for c in res.get('clips', [])]}")
+
+    # No editor. A grid is arithmetic over the image's size, which the PNG
+    # header gives; cutting by content and reading an atlas need the engine.
+    if auto_slice or atlas:
+        return _fail("auto_slice and atlas need the editor running with this project open")
+    img = proj / image
+    size = _png_size(img)
+    if size is None:
+        return _fail(f"could not read {image} as a PNG (other formats need the editor running)")
+    iw, ih = size
+    out = img.with_suffix(".p3ds")
+    if out.exists() and not overwrite:
+        return _fail(f"{_rel(out)} already exists - pass overwrite=True to replace it")
+    stem = img.stem
+    pre = prefix if prefix is not None else stem + "_"
+    frames = []
+    if cell_width and cell_height:
+        cw, ch = cell_width, cell_height
+        cols = (iw - 2 * margin + spacing) // (cw + spacing)
+        rws = (ih - 2 * margin + spacing) // (ch + spacing)
+    elif columns and rows:
+        cw, ch, cols, rws = iw // columns, ih // rows, columns, rows
+        margin = spacing = 0
+    else:
+        cw = ch = cols = rws = 0
+    if cols > 0 and rws > 0:
+        for r in range(rws):
+            for c in range(cols):
+                frames.append({"name": f"{pre}{r * cols + c}",
+                               "rect": [margin + c * (cw + spacing), margin + r * (ch + spacing), cw, ch]})
+    else:
+        frames.append({"name": stem, "rect": [0, 0, iw, ih]})
+    for f in frames:
+        if pivot is not None and list(pivot) != [0.5, 0.5]:
+            f["pivot"] = list(pivot)
+        if border is not None and any(border):
+            f["border"] = list(border)
+    by_name = {f["name"]: i for i, f in enumerate(frames)}
+
+    def frame_index(v):
+        if isinstance(v, str):
+            if v not in by_name:
+                raise ValueError(f"no frame named '{v}'")
+            return by_name[v]
+        if not 0 <= int(v) < len(frames):
+            raise ValueError(f"frame {v} is out of range (the sheet has {len(frames)})")
+        return int(v)
+
+    out_clips = []
+    try:
+        for c in clips or []:
+            if "frames" in c:
+                idx = [frame_index(v) for v in c["frames"]]
+            elif "from" in c and "to" in c:
+                a, b = frame_index(c["from"]), frame_index(c["to"])
+                idx = list(range(a, b + 1)) if b >= a else list(range(a, b - 1, -1))
+            else:
+                return _fail(f"clip '{c.get('name', '?')}' needs 'frames' or 'from' and 'to'")
+            clip = {"name": c.get("name", f"clip{len(out_clips)}"), "frames": idx,
+                    "fps": float(c.get("fps", 12.0)), "loop": bool(c.get("loop", True))}
+            if c.get("pingPong"):
+                clip["pingPong"] = True
+            if c.get("events"):
+                clip["events"] = [{"at": int(e.get("at", 0)), "name": e["name"]} for e in c["events"]]
+            out_clips.append(clip)
+    except ValueError as e:
+        return _fail(str(e))
+    sheet = {"version": 1, "image": image, "pixelsPerUnit": float(pixels_per_unit),
+             "filter": "nearest" if filter.lower() == "nearest" else "linear",
+             "frames": frames, "clips": out_clips}
+    if normal_image:
+        sheet["normalImage"] = normal_image
+    out.write_text(json.dumps(sheet, indent=1))
+    return f"Wrote {_rel(out)}: {len(frames)} frames, clips {[c['name'] for c in out_clips]}"
+
+
+@mcp.tool()
+def pack_sprite_atlas(folder: str | None = None, images: list[str] | None = None,
+                      output: str | None = None, padding: int = 2, extrude: int = 0,
+                      trim: bool = True, power_of_two: bool = True, max_size: int = 4096,
+                      pixels_per_unit: float | None = None, filter: str | None = None,
+                      pivot: list[float] | None = None, clip_fps: float = 12.0,
+                      overwrite: bool = False) -> str:
+    """Pack loose images into ONE picture and a sprite sheet (.p3ds) for it
+    (needs the editor running). Art that arrives as a file per frame is a
+    texture and a draw call per frame; packed it is one texture, one
+    material and one batch.
+
+    folder: every image directly in it ("assets/textures/hero"), in natural
+    name order; the atlas is written beside the folder and named after it.
+    Or images: [project-relative paths] with output: where to write, without
+    an extension ("assets/textures/hero_atlas" -> .png and .p3ds).
+
+    Each file is a frame named after it. trim cuts the transparent margin
+    and the frame remembers it, so it is drawn where the whole image would
+    have been. padding: clear pixels round each; extrude: edge pixels
+    repeated into the padding (for tiles drawn edge to edge). clip_fps:
+    numbered runs (walk_0, walk_1, ...) become clips at this rate; 0 for no
+    clips. overwrite re-packs, keeping pivots, borders and clips by frame
+    name. Returns where each frame landed and how full the picture is.
+    """
+    args: dict = {"padding": padding, "extrude": extrude, "trim": trim, "powerOfTwo": power_of_two,
+                  "maxSize": max_size, "clipFps": clip_fps, "overwrite": overwrite}
+    if folder:
+        args["folder"] = folder
+    if images:
+        args["images"] = images
+    if output:
+        args["output"] = output
+    if pixels_per_unit:
+        args["pixelsPerUnit"] = pixels_per_unit
+    if filter:
+        args["filter"] = filter.lower()
+    if pivot:
+        args["pivot"] = pivot
+    ok, res = _editor_call("pack_sprite_atlas", args)
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
+def edit_spritesheet(project_path: str, path: str, edits: dict, save: bool = True) -> str:
+    """Edit a sprite sheet in the Sprite Sheet editor (needs the editor running).
+
+    edits takes create_spritesheet's keys in the editor's own names (grid
+    {cellWidth, cellHeight, margin, spacing}, count {columns, rows}, auto {},
+    atlas, pixelsPerUnit, filter, normalImage, prefix, pivot, border, clips) and:
+      frame: {"name"|"index": which, "rename", "rect": [x,y,w,h],
+              "pivot": [x,y], "border": [l,b,r,t], "duration": seconds}
+              - or a list of those
+      addFrame: {"name", "rect": [x,y,w,h]}     removeFrames: [name|index...]
+      addClip: {"name", "from","to" | "frames", "fps", "loop", "pingPong", "events"}
+      clip: {"name": which, "fps", "loop", "pingPong", "frames", "events", "rename"}
+      removeClip: "name"
+    Each change is one undo entry in the editor. save=True writes the file,
+    and every sprite in an open scene that draws from it picks the change up.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    if not _live_project_matches(proj):
+        return _fail("edit_spritesheet needs the editor running with this project open")
+    ok, res = _editor_call("edit_spritesheet", dict(edits, path=path))
+    if not ok:
+        return _fail(str(res))
+    if save:
+        ok2, res2 = _editor_call("save_spritesheet", {})
+        if not ok2:
+            return _fail(f"edited, but could not save: {res2}")
+    return json.dumps({k: res.get(k) for k in ("path", "frameCount", "pixelsPerUnit", "filter", "clips")}, indent=2)
+
+
+@mcp.tool()
+def spritesheet_info(project_path: str, path: str) -> str:
+    """What a sprite sheet (.p3ds) holds: its image, scale, every frame's name
+    and rectangle, and its clips. Works with or without the editor."""
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    f = proj / path
+    if not f.exists():
+        return _fail(f"{path} does not exist in the project")
+    try:
+        return json.dumps(json.loads(f.read_text()), indent=1)
+    except (OSError, ValueError) as e:
+        return _fail(f"could not read {path}: {e}")
 
 
 @mcp.tool()
@@ -1643,10 +2124,13 @@ def _live_2d_anim(project_path: str, scene_name: str, cmd: str, args: dict, ok_m
 @mcp.tool()
 def slice_spritesheet(project_path: str, scene_name: str, name: str, sheet: str,
                       cols: int = 1, rows: int = 1, fps: float = 12.0, loop: bool = True) -> str:
-    """Cut a spritesheet into frames and play them on an object's sprite.
+    """Cut a sheet into a grid and play it on an object's sprite.
 
-    Cells are taken row-major and written as real PNGs beside the sheet, so the
-    scene stores frame paths rather than embedding every frame.
+    Writes a sprite sheet (<sheet>.p3ds) beside the image, with one clip called
+    "default", and points the object's Sprite2D at it - the image stays one
+    texture and each frame is a rectangle of it. The sprite keeps the height
+    it had. For several named clips, pivots or an irregular cut use
+    create_spritesheet and then add_sprite / set_sprite.
     """
     return _live_2d_anim(project_path, scene_name, "slice_spritesheet",
                          {"object": name, "sheet": sheet, "cols": cols, "rows": rows,
@@ -1961,46 +2445,182 @@ def set_autoplay2d(project_path: str, scene_name: str, name: str,
                          {"object": name, "clip": clip, "loop": loop},
                          f"'{name}' will start on '{clip or '(the character default)'}'")
 def _add_simple_component(project_path: str, scene_name: str, name: str,
-                          cmd: str, component: dict, what: str) -> str:
+                          cmd: str, component: dict, what: str,
+                          live_args: dict | None = None,
+                          then: tuple[str, dict] | None = None) -> str:
     """Shared body for the 2D components that are pure data: live if the editor
-    has the scene, otherwise appended straight to the scene file."""
+    has the scene, otherwise appended straight to the scene file.
+
+    `live_args` are what the editor's command takes beyond the object's name.
+    Without them the live path added a DEFAULT component and dropped every
+    setting the caller passed - a static floor came out as a falling box, a
+    layer always had parallax 1 - while the file path honoured them. `then`
+    is a second live command (name, args) for an editor whose add command
+    takes no settings and whose set command does.
+    """
     proj, err = _resolve_project(project_path)
     if err:
         return _fail(err)
     scene_file = _scene_file(proj, scene_name)
-    live = _live_or_none(cmd, {"name": name}, scene_file)
+    args = {"name": name}
+    if live_args:
+        args.update({k: v for k, v in live_args.items() if v is not None})
+    live = _live_or_none(cmd, args, scene_file)
     if live is not None:
-        return _fail(live) if isinstance(live, str) else f"Added {what} to '{name}' (live editor)"
+        if isinstance(live, str):
+            return _fail(live)
+        if then:
+            ok, res = _editor_call(then[0], dict({"name": name}, **{k: v for k, v in then[1].items() if v is not None}))
+            if not ok:
+                return _fail(f"added {what} to '{name}', but {then[0]} failed: {res}")
+        return f"Added {what} to '{name}' (live editor)"
 
     data = _load_scene(scene_file)
-    for root in data.get("roots", []):
-        if root.get("name") == name:
-            # One per object: a second Layer2D or Occluder2D is not a richer
-            # setup, it is one of them being silently ignored.
-            existing = root.setdefault("components", [])
-            if any(c.get("type") == component["type"] for c in existing):
-                return _fail(f"'{name}' already has a {component['type']}")
-            existing.append(component)
-            _save_scene(scene_file, data)
-            return f"Added {what} to '{name}' in scene {scene_name}"
-    return _fail(f"object '{name}' not found in scene {scene_name}")
+    # Anywhere in the scene, not only at its top level: a body or a layer
+    # under a parent is the normal case in a layered 2D scene.
+    obj = _find_object(data, name)
+    if obj is None:
+        return _fail(f"object '{name}' not found in scene {scene_name}")
+    # One per object: a second Layer2D or Occluder2D is not a richer
+    # setup, it is one of them being silently ignored.
+    existing = obj.setdefault("components", [])
+    if any(c.get("type") == component["type"] for c in existing):
+        return _fail(f"'{name}' already has a {component['type']}")
+    existing.append(component)
+    _save_scene(scene_file, data)
+    return f"Added {what} to '{name}' in scene {scene_name}"
+
+
+@mcp.tool()
+def add_sprite_mask(project_path: str, scene_name: str, name: str, shape: str = "rect",
+                    size: list[float] | None = None, offset: list[float] | None = None,
+                    polygon: list[list[float]] | None = None, enabled: bool = True) -> str:
+    """Add a Sprite Mask (editor: Add > Sprite Mask): a shape sprites are
+    shown only inside of, or only outside of - a window, a porthole, a bar
+    that empties from one end.
+
+    shape: rect (size [width, height]) | circle (size[0] is the diameter) |
+    polygon ([[x, y], ...] 3 to 16 points, convex, local space). offset moves
+    it from the object's origin. The mask draws nothing itself.
+
+    A sprite is cut by it once told how: set_sprite(name, {"maskInteraction":
+    "inside" | "outside"}). With no "mask" given the sprite uses the nearest
+    mask on itself or above it in the tree, so put the mask on the PARENT of
+    what it cuts; or name any mask object with {"mask": "<object>"}.
+    It is an outline, not an image's alpha, and it works inside sprite
+    batches.
+    """
+    sh = shape.strip().lower()
+    if sh not in ("rect", "circle", "polygon"):
+        return _fail("shape must be rect, circle or polygon")
+    if sh == "polygon" and not (polygon and 3 <= len(polygon) <= 16):
+        return _fail("a polygon mask needs `polygon`: 3 to 16 [x, y] points, convex")
+    comp: dict = {"type": "SpriteMask2D", "shape": sh, "size": list(size or [1.0, 1.0])}
+    live: dict = {"shape": sh, "size": list(size or [1.0, 1.0])}
+    if offset:
+        comp["offset"] = list(offset); live["offset"] = list(offset)
+    if polygon:
+        comp["polygon"] = [v for pt in polygon for v in pt[:2]]; live["polygon"] = [list(pt[:2]) for pt in polygon]
+    if not enabled:
+        comp["enabled"] = False; live["enabled"] = False
+    return _add_simple_component(project_path, scene_name, name, "add_sprite_mask", comp, "SpriteMask2D", live_args=live)
+
+
+@mcp.tool()
+def set_sprite_mask(name: str, properties: dict | None = None) -> str:
+    """Change a Sprite Mask in the running editor, or (with no properties)
+    just read it: shape, size, offset, polygon, enabled - plus its outline in
+    the world and the names of the sprites it is cutting, which is the answer
+    to "why is nothing masked"."""
+    ok, res = _editor_call("set_sprite_mask" if properties else "sprite_mask_info", dict(properties or {}, object=name))
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
+def add_line2d(project_path: str, scene_name: str, name: str,
+               points: list[list[float]] | None = None, closed: bool = False,
+               width: list[float] | None = None, color_start: list[float] | None = None,
+               color_end: list[float] | None = None, additive: bool = False,
+               sort_order: int = 0, trail: bool = False, lifetime: float = 0.5,
+               min_distance: float = 0.1) -> str:
+    """Add a Line 2D (editor: Add > Line 2D): a line with width drawn through
+    points - a rope, a laser, an outline - or a trail.
+
+    points: [[x, y], ...] in the object's local space (two or more).
+    width: [start, end] in world units - it tapers evenly between them.
+    color_start / color_end: [r, g, b, a], blended along the length.
+    additive: drawn as light. closed: joined back to its first point.
+
+    trail=True makes it the path the object has just taken instead: a point
+    laid down each min_distance it travels, each fading and thinning over
+    `lifetime` seconds (width and colour then run from the object - the head
+    - to the oldest point). A trail only runs while the game does.
+    One draw call a line. It cannot share an object with a sprite: put it on
+    a child.
+    """
+    w = list(width) if width else [0.1, 0.1]
+    if len(w) == 1:
+        w = [w[0], w[0]]
+    c0 = list(color_start or [1.0, 1.0, 1.0, 1.0]); c1 = list(color_end or c0)
+    pts = points or ([] if trail else [[-1.0, 0.0], [1.0, 0.0]])
+    comp: dict = {"type": "Line2D", "points": [v for pt in pts for v in pt[:2]], "width": w,
+                  "colorStart": c0, "colorEnd": c1}
+    live: dict = {"points": [list(pt[:2]) for pt in pts], "width": w, "colorStart": c0, "colorEnd": c1}
+    if closed:
+        comp["closed"] = True; live["closed"] = True
+    if additive:
+        comp["additive"] = True; live["additive"] = True
+    if sort_order:
+        comp["sortOrder"] = sort_order; live["sortOrder"] = sort_order
+    if trail:
+        comp.update({"trail": True, "lifetime": lifetime, "minDistance": min_distance})
+        live.update({"trail": True, "lifetime": lifetime, "minDistance": min_distance})
+    return _add_simple_component(project_path, scene_name, name, "add_line2d", comp, "Line2D", live_args=live)
+
+
+@mcp.tool()
+def set_line2d(name: str, properties: dict | None = None) -> str:
+    """Change a Line 2D in the running editor, or (with no properties) read
+    it. properties, any of: points [[x, y], ...], closed, width (a number or
+    [start, end]), color or colorStart + colorEnd, additive, sortOrder, trail,
+    lifetime, minDistance. While the editor is PLAYING it pokes the running
+    line and also takes emitting (false lets a trail fade out without laying
+    more) and clearTrail (true forgets where it has been - after a teleport).
+    Returns the line, with how many points a running trail has laid down."""
+    ok, res = _editor_call("set_line2d" if properties else "line2d_info", dict(properties or {}, object=name))
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
 
 
 @mcp.tool()
 def add_layer2d(project_path: str, scene_name: str, name: str,
-                parallax: list[float] | None = None, visible: bool = True) -> str:
+                parallax: list[float] | None = None, visible: bool = True,
+                automatic: bool = False) -> str:
     """Make an object's subtree a 2D layer (editor: Add > Layer 2D).
 
     Ordering is the object's own z - under the orthographic camera a 2D scene
-    uses, z is draw order. parallax is [x, y]: 1 moves with the camera, 0 is
-    pinned, 0.5 is half speed. The axes are independent, so a sky can scroll
-    sideways and stay put vertically.
+    uses, z is draw order. parallax is [x, y]: 1 moves with the level, 0.5 is
+    half speed (further away), 0 is pinned to the screen. The axes are
+    independent, so a sky can scroll sideways and stay put vertically.
+
+    automatic=True has the ENGINE scroll the layer as the view moves, with no
+    script; it also needs the scene's "Scroll layers automatically" on
+    (set_game_view_2d autoParallax). Leave it False for a layer a script of
+    the game's already moves.
     """
-    return _add_simple_component(project_path, scene_name, name, "add_layer2d", {
+    comp = {
         "type": "Layer2D",
         "parallax": list(parallax) if parallax else [1.0, 1.0],
         "visible": bool(visible),
-    }, "Layer2D")
+    }
+    if automatic:
+        comp["automatic"] = True
+    return _add_simple_component(project_path, scene_name, name, "add_layer2d", comp, "Layer2D",
+                                 then=("set_layer2d", {"parallax": comp["parallax"], "visible": bool(visible),
+                                                       "automatic": bool(automatic)}))
 
 
 # --- tilemaps ---------------------------------------------------------------
@@ -2396,26 +3016,330 @@ def add_physics2d(project_path: str, scene_name: str, name: str,
                   body_type: str = "Dynamic", shape: str = "Box",
                   size: list[float] | None = None, density: float = 1.0,
                   friction: float = 0.3, restitution: float = 0.0,
-                  fixed_rotation: bool = False, casts_shadow: bool = True) -> str:
+                  fixed_rotation: bool | None = None, casts_shadow: bool = True,
+                  offset: list[float] | None = None, polygon: list[list[float]] | None = None,
+                  sensor: bool = False, one_way: bool = False, layer: int = 0,
+                  ignores_layers: list[int] | None = None, gravity_scale: float = 1.0,
+                  linear_damping: float = 0.0, angular_damping: float = 0.0,
+                  bullet: bool = False, fit_to_sprite: bool = False,
+                  chain_loop: bool = False) -> str:
     """Add a Box2D rigid body (editor: Add > Physics 2D).
 
-    body_type: Static (never moves), Kinematic (moved by script, ignores
-    forces), Dynamic (moved by the solver). shape: Box or Circle.
-    size is HALF-extents, matching Box2D - a 1x1 box is [0.5, 0.5]; for a
-    circle only the first value is used, as the radius.
+    body_type: Static (never moves), Kinematic (moved by script, pushes
+    others, ignores forces), Dynamic (moved by the solver).
+    shape: Box | Circle | Capsule | Polygon | Chain. size is HALF-extents - a
+    1x1 box is [0.5, 0.5]; a circle uses the first value as its radius; a
+    capsule is [radius, half-height including the caps] and is what a
+    character wants.
+    polygon: [[x, y], ...] in local space. For Polygon, 3 or more points
+    making a solid outline that does not cross itself - concave is fine, it
+    is cut into convex pieces. For Chain, 2 or more points making a line of
+    edges with no inside (hand-drawn ground, walls); chain_loop closes it.
+    A chain has no mass: use it on a Static or Kinematic body.
+    offset: where the shape sits relative to the object's origin - a sprite
+    pivoted at its feet needs its collider half its height up.
+    fit_to_sprite: size and place the shape over the object's Sprite2D
+    (needs the editor running).
+
+    sensor: a trigger - collides with nothing, reports who is inside it.
+    one_way: a platform solid from above and open from below.
+    layer (0-31) and ignores_layers: which layers it does not collide with.
+    gravity_scale, linear_damping, angular_damping, bullet (continuous
+    collision against moving bodies).
+    fixed_rotation defaults to True for a Dynamic body - a character that can
+    tip over lies on its side at the first bump - and False otherwise.
     """
-    bt = {"static": 0, "kinematic": 1, "dynamic": 2}.get(body_type.strip().lower())
+    bts = body_type.strip().lower()
+    bt = {"static": 0, "kinematic": 1, "dynamic": 2}.get(bts)
     if bt is None:
         return _fail("body_type must be Static, Kinematic or Dynamic")
-    sh = {"box": 0, "circle": 1}.get(shape.strip().lower())
+    shs = shape.strip().lower()
+    sh = {"box": 0, "circle": 1, "capsule": 2, "polygon": 3, "chain": 4}.get(shs)
     if sh is None:
-        return _fail("shape must be Box or Circle")
-    return _add_simple_component(project_path, scene_name, name, "add_physics2d", {
-        "type": "Physics2D", "bodyType": bt, "shape": sh,
-        "size": list(size) if size else [0.5, 0.5],
-        "density": density, "friction": friction, "restitution": restitution,
-        "fixedRotation": bool(fixed_rotation), "castsShadow": bool(casts_shadow),
-    }, "Physics2D")
+        return _fail("shape must be Box, Circle, Capsule, Polygon or Chain")
+    if sh == 3 and not polygon:
+        return _fail("shape Polygon needs `polygon`: 3 or more [x, y] points")
+    if sh == 4 and not polygon:
+        return _fail("shape Chain needs `polygon`: its points, 2 or more [x, y]")
+    if polygon and not (2 if sh == 4 else 3) <= len(polygon) <= 256:
+        return _fail("polygon must have 3 to 256 points (2 or more for a Chain)")
+    if not 0 <= layer <= 31:
+        return _fail("layer must be 0 to 31")
+    fixed = (bt == 2) if fixed_rotation is None else bool(fixed_rotation)
+    half = list(size) if size else [0.5, 0.5]
+    mask = 0xFFFFFFFF
+    for l in ignores_layers or []:
+        if not 0 <= l <= 31:
+            return _fail("ignores_layers holds layers 0 to 31")
+        mask &= ~(1 << l)
+
+    comp = {"type": "Physics2D", "bodyType": bt, "shape": sh, "size": half,
+            "density": density, "friction": friction, "restitution": restitution,
+            "fixedRotation": fixed, "castsShadow": bool(casts_shadow)}
+    live = {"bodyType": bts, "shape": shs, "halfExtents": half, "density": density,
+            "friction": friction, "bounciness": restitution, "fixedRotation": fixed,
+            "castsShadow": bool(casts_shadow)}
+    if offset:
+        comp["offset"] = list(offset); live["offset"] = list(offset)
+    if polygon:
+        comp["polygon"] = [v for p in polygon for v in p[:2]]; live["polygon"] = [list(p[:2]) for p in polygon]
+        if sh == 4 and chain_loop:
+            comp["chainLoop"] = True; live["loop"] = True
+    if sensor:
+        comp["sensor"] = True; live["sensor"] = True
+    if one_way:
+        comp["oneWay"] = True; live["oneWay"] = True
+    if layer:
+        comp["layer"] = layer; live["layer"] = layer
+    if mask != 0xFFFFFFFF:
+        comp["mask"] = mask; live["ignores"] = list(ignores_layers or [])
+    if gravity_scale != 1.0:
+        comp["gravityScale"] = gravity_scale; live["gravityScale"] = gravity_scale
+    if linear_damping:
+        comp["linearDamping"] = linear_damping; live["linearDamping"] = linear_damping
+    if angular_damping:
+        comp["angularDamping"] = angular_damping; live["angularDamping"] = angular_damping
+    if bullet:
+        comp["bullet"] = True; live["bullet"] = True
+    if fit_to_sprite:
+        proj, err = _resolve_project(project_path)
+        if err:
+            return _fail(err)
+        if not _live_scene_matches(_scene_file(proj, scene_name)):
+            return _fail("fit_to_sprite needs the editor open on this scene - it measures the sprite")
+        live["fitToSprite"] = True
+    return _add_simple_component(project_path, scene_name, name, "add_physics2d", comp, "Physics2D",
+                                 live_args=live)
+
+
+@mcp.tool()
+def add_joint2d(project_path: str, scene_name: str, name: str, joint: str = "hinge",
+                connected: str | None = None, anchor: list[float] | None = None,
+                connected_anchor: list[float] | None = None, axis: list[float] | None = None,
+                limits: list[float] | None = None, limits_degrees: list[float] | None = None,
+                motor_speed: float | None = None, motor_speed_degrees: float | None = None,
+                max_motor_force: float = 100.0, spring_hertz: float | None = None,
+                spring_damping: float = 0.7, length: float = 0.0,
+                collide_connected: bool = False, target: list[float] | None = None,
+                ground_anchor: list[float] | None = None,
+                connected_ground_anchor: list[float] | None = None,
+                ratio: float = 1.0, use_parent_body: bool = False) -> str:
+    """Tie an object's 2D body to another object's, or to the world
+    (editor: Add > Joint 2D). Goes on the object that MOVES.
+
+    joint:
+      hinge     turns about a pin - a door, a pendulum, a link of a chain
+      distance  keeps two points apart: a rod, a rope (limits), a spring
+      weld      glued together as they are
+      slider    moves along `axis` and does not turn - a lift, a piston
+      wheel     a slider that also turns - a wheel on suspension
+      target    pulled towards `target` [x, y] in the world (a script moves
+                it: joint:setTarget) - mouse dragging; spring_hertz is how
+                eagerly, max_motor_force the most it may pull with
+      ignore    the two bodies do not collide with each other; nothing else
+      pulley    a rope over two fixed world points: ground_anchor is this
+                object's, connected_ground_anchor the other's; `ratio` 2
+                makes this side move twice as far. Needs `connected`.
+      gear      two turning bodies turn together, opposite ways, `ratio`
+                times as far (negative: the same way). Needs `connected`;
+                give each a hinge to the world as well.
+    connected: the other object's name (it needs a Physics2D); omit to pin
+    to the world. anchor: where on this object, local space. connected_anchor:
+    where on the other (its local space; world space when pinned to the
+    world) - leave out for "the same point", which is right for a hinge.
+    axis: [x, y] in the world, for slider and wheel.
+
+    limits [lower, upper]: radians for a hinge (or limits_degrees), distance
+    along the axis for slider/wheel, min/max length for distance ([0, 3] is a
+    rope of 3). Measured from how the bodies stand when Play starts.
+    motor_speed (rad/s or units/s; or motor_speed_degrees) with
+    max_motor_force drives it. spring_hertz makes it springy.
+
+    The object gets a Physics2D if it has none - unless it sits under an
+    object that has one, in which case the joint ties THAT body. An object
+    holds one joint, so that is how a body gets a second: a wheel that is
+    hinged and geared carries the gear on a child. (Writing straight to a
+    scene file, with no editor running, say so with use_parent_body=True.)
+    Anchors are then in the parent body's space.
+    """
+    kinds = ("hinge", "distance", "weld", "slider", "wheel", "target", "ignore", "pulley", "gear")
+    k = joint.strip().lower()
+    if k not in kinds:
+        return _fail("joint must be " + ", ".join(kinds))
+    if k in ("pulley", "gear", "ignore") and not connected:
+        return _fail(f"a {k} joint needs `connected`: the other object's name")
+    if k == "pulley" and not (ground_anchor and connected_ground_anchor):
+        return _fail("a pulley needs ground_anchor and connected_ground_anchor: the two fixed world points")
+    if abs(ratio) < 1e-4:
+        return _fail("ratio cannot be 0")
+    comp: dict = {"type": "Joint2D", "joint": k}
+    live: dict = {"joint": k}
+    if target:
+        comp["target"] = list(target); live["target"] = list(target)
+    if ground_anchor and connected_ground_anchor:
+        comp["groundAnchor"] = list(ground_anchor); live["groundAnchor"] = list(ground_anchor)
+        comp["connectedGroundAnchor"] = list(connected_ground_anchor); live["connectedGroundAnchor"] = list(connected_ground_anchor)
+    if ratio != 1.0:
+        comp["ratio"] = ratio; live["ratio"] = ratio
+    if connected:
+        comp["connected"] = connected; live["connected"] = connected
+    if anchor:
+        comp["anchor"] = list(anchor); live["anchor"] = list(anchor)
+    if connected_anchor:
+        comp["connectedAnchor"] = list(connected_anchor); live["connectedAnchor"] = list(connected_anchor)
+    if axis:
+        comp["axis"] = list(axis); live["axis"] = list(axis)
+    if collide_connected:
+        comp["collideConnected"] = True; live["collideConnected"] = True
+    lim = None
+    if limits_degrees:
+        lim = [math.radians(limits_degrees[0]), math.radians(limits_degrees[1])]
+    elif limits:
+        lim = list(limits)
+    if lim:
+        comp.update({"limit": True, "lower": min(lim), "upper": max(lim)})
+        live.update({"lower": min(lim), "upper": max(lim)})
+    spd = math.radians(motor_speed_degrees) if motor_speed_degrees is not None else motor_speed
+    if spd is not None:
+        comp.update({"motor": True, "motorSpeed": spd, "maxMotorForce": max_motor_force})
+        live.update({"motorSpeed": spd, "maxMotorForce": max_motor_force})
+    if spring_hertz is not None:
+        comp.update({"spring": True, "hertz": spring_hertz, "damping": spring_damping})
+        live.update({"hertz": spring_hertz, "damping": spring_damping})
+    if length > 0:
+        comp["length"] = length; live["length"] = length
+
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    if not _live_scene_matches(scene_file):
+        # The file path has to do what the editor's command does for itself:
+        # a joint ties a body, so the object gets one.
+        data = _load_scene(scene_file)
+        obj = _find_object(data, name)
+        if obj is None:
+            return _fail(f"object '{name}' not found in scene {scene_name}")
+        if connected and _find_object(data, connected) is None:
+            return _fail(f"connected: no object named '{connected}'")
+        comps = obj.setdefault("components", [])
+        if any(c.get("type") == "Joint2D" for c in comps):
+            return _fail(f"'{name}' already has a Joint2D")
+        if not use_parent_body and not any(c.get("type") == "Physics2D" for c in comps):
+            comps.append({"type": "Physics2D", "bodyType": 2, "shape": 0, "size": [0.5, 0.5],
+                          "density": 1.0, "friction": 0.3, "restitution": 0.0,
+                          "fixedRotation": False, "castsShadow": True})
+        comps.append(comp)
+        _save_scene(scene_file, data)
+        return f"Added a {k} joint to '{name}' in scene {scene_name}"
+    return _add_simple_component(project_path, scene_name, name, "add_joint2d", comp, "Joint2D",
+                                 live_args=live)
+
+
+@mcp.tool()
+def edit_collider2d(name: str, on: bool = True) -> str:
+    """Show (or put away) the Scene View's drag handles on an object's 2D
+    collider - the "Edit Collider" tick in its Physics 2D section. Selects
+    the object. Needs the running editor and a 2D scene."""
+    ok, res = _editor_call("edit_collider2d", {"name": name, "on": on})
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
+def drag_collider2d(name: str, handle: str, to: list, index: int = 0) -> str:
+    """Put one handle of an object's 2D collider at a WORLD point - the same
+    edit as dragging it in the Scene View, and one undo step.
+
+    handle: "right" | "left" | "top" | "bottom" move that side of a box or
+    capsule and leave the opposite side where it is; "center" moves the
+    shape (its offset); "radius" sizes a circle; "point" moves polygon point
+    `index` (refused if the outline would stop being convex).
+    to: [x, y]. Returns the body as it is afterwards."""
+    ok, res = _editor_call("drag_collider2d", {"name": name, "handle": handle, "to": to, "index": index})
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
+def physics2d_info(name: str) -> str:
+    """An object's 2D body and joint as the running editor has them: every
+    setting, and - while the scene is playing - where the body is, how fast
+    it is moving, whether it is grounded and whether its joint was built.
+    The way to check a 2D physics setup without looking at the screen."""
+    ok, res = _editor_call("physics2d_info", {"name": name})
+    if not ok:
+        return _fail(str(res))
+    return json.dumps(res, indent=2)
+
+
+@mcp.tool()
+def set_game_view_2d(project_path: str, scene_name: str,
+                     center: list[float] | None = None, zoom: float | None = None,
+                     follow: str | None = None, lag: float | None = None,
+                     follow_x: bool | None = None, follow_y: bool | None = None,
+                     follow_offset: list[float] | None = None,
+                     bounds: list[float] | None = None,
+                     dead_zone: list[float] | None = None,
+                     look_ahead: list[float] | None = None, look_ahead_lag: float | None = None,
+                     pixel_snap: float | None = None, auto_parallax: bool | None = None,
+                     gravity: list[float] | None = None) -> str:
+    """Frame a 2D scene - what the GAME shows (editor: Properties > Game View
+    with nothing selected). A 2D scene needs no camera object.
+
+    center [x, y] and zoom (world units from the centre to the top edge; the
+    width follows from the window). follow: the NAME of an object to keep in
+    view, anywhere in the scene; lag: seconds to catch up; follow_x/follow_y:
+    which axes move (a side-scroller wants x only); follow_offset.
+    bounds [minX, minY, maxX, maxY]: the LEVEL - the view's edge stops there.
+    dead_zone [halfW, halfH]: a box the followed object can move in without
+    the view moving. look_ahead [x, y] (+ look_ahead_lag): how far the view
+    leads the object in the direction it moves. pixel_snap: pixels of art per
+    unit, to stop pixel art shimmering as the camera drifts. auto_parallax:
+    the engine scrolls every Layer2D marked automatic.
+    gravity [x, y]: the scene's 2D gravity (default [0, -10]; a platformer
+    with a one-unit character usually wants -30 to -60).
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    args = {"center": center, "zoom": zoom, "follow": follow, "lag": lag, "followX": follow_x,
+            "followY": follow_y, "followOffset": follow_offset, "bounds": bounds,
+            "deadZone": dead_zone, "lookAhead": look_ahead, "lookAheadLag": look_ahead_lag,
+            "pixelSnap": pixel_snap, "autoParallax": auto_parallax, "gravity": gravity}
+    args = {k: v for k, v in args.items() if v is not None}
+    live = _live_or_none("set_game_view_2d", args, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else json.dumps(live, indent=2)
+
+    data = _load_scene(scene_file)
+    v = data.setdefault("view2D", {"center": [0.0, 0.0], "halfHeight": 5.0})
+    if center is not None: v["center"] = list(center)
+    if zoom is not None: v["halfHeight"] = float(zoom)
+    if follow is not None:
+        if follow: v["follow"] = follow
+        else: v.pop("follow", None)
+    if lag is not None: v["followLag"] = float(lag)
+    if follow_x is not None: v["followX"] = bool(follow_x)
+    if follow_y is not None: v["followY"] = bool(follow_y)
+    if follow_offset is not None: v["followOffset"] = list(follow_offset)
+    if bounds is not None:
+        if len(bounds) >= 4:
+            v["clampMin"], v["clampMax"] = [bounds[0], bounds[1]], [bounds[2], bounds[3]]
+        else:
+            v.pop("clampMin", None); v.pop("clampMax", None)
+    if dead_zone is not None: v["deadZone"] = list(dead_zone)
+    if look_ahead is not None: v["lookAhead"] = list(look_ahead)
+    if look_ahead_lag is not None: v["lookAheadLag"] = float(look_ahead_lag)
+    if pixel_snap is not None: v["pixelSnap"] = float(pixel_snap)
+    if auto_parallax is not None: v["autoParallax"] = bool(auto_parallax)
+    if gravity is not None: data["gravity2D"] = list(gravity)
+    data["twoD"] = True
+    _save_scene(scene_file, data)
+    return f"Set the game view of scene {scene_name}"
 
 
 @mcp.tool()
@@ -2428,8 +3352,9 @@ def add_occluder2d(project_path: str, scene_name: str, name: str,
     solid to the simulation, and a trigger volume can be solid without casting.
     size is HALF-extents, as with add_physics2d.
 
-    Budget: 32 segments per scene, four to a box and eight to a circle.
-    Occluders past that cast nothing.
+    Budget: 64 segments ON SCREEN, four to a box and eight to a circle. Only
+    shapes that a point or spot light in view can reach spend it, nearest the
+    lights first; a long level can hold any number.
     """
     sh = {"box": 0, "circle": 1}.get(shape.strip().lower())
     if sh is None:
@@ -4504,10 +5429,26 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       set_camera, set_transform, set_tags, rename, reparent, duplicate, delete_object
     Properties panel, 2D
       set_occluder2d (name, shape: box|circle, halfExtents, enabled)
-      set_physics2d (name, bodyType, shape, halfExtents, density, friction,
-        bounciness, fixedRotation)
-      set_layer2d (name, parallax, visible)
-      set_sprite_animation (name, fps, pingPong, paused)
+      set_physics2d (name, bodyType, shape: box|circle|capsule|polygon|chain,
+        halfExtents, offset, polygon [[x,y],...] (a chain's points too), loop, density, friction,
+        bounciness, fixedRotation, sensor, oneWay, layer, collidesWith
+        [layers], ignores [layers], mask, gravityScale, linearDamping,
+        angularDamping, bullet, castsShadow, fitToSprite)
+      add_joint2d / set_joint2d (name, joint: hinge|distance|weld|slider|wheel,
+        connected, anchor, connectedAnchor, axis, collideConnected, limit,
+        lower, upper, lowerDegrees, upperDegrees, motor, motorSpeed,
+        motorSpeedDegrees, maxMotorForce, spring, hertz, damping, length)
+      physics2d_info (name) - body + joint, and the live state while playing
+      set_layer2d (name, parallax, visible, automatic)
+      add_sprite / set_sprite (object, source, frame, flipX, flipY, color,
+        alpha, drawMode, size, pixelsPerUnit, pivot, lighting: unlit|2d|3d,
+        blend, sortOrder, autoPlay, speed; while playing: play, restart,
+        stop, clipTime), sprite_info (object), add_sprite_batch (object),
+        convert_sprites (object?)
+      set_game_view_2d (center, zoom, follow, lag, followX, followY,
+        followOffset, bounds, deadZone, lookAhead, lookAheadLag, pixelSnap,
+        autoParallax, gravity), game_view_2d
+      set_sprite_animation (name, fps, pingPong, paused) - old quad sprites
       set_ui (name, properties), set_pivot, slice_spritesheet, set_autoplay2d
     Scene settings
       set_ambient (mode 0-3, color, intensity, background, sky, equator, ground,
@@ -4569,6 +5510,13 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
     Assets panel
       open_asset (path), place_asset (path), create_tileset (image, tileWidth,
       tileHeight, margin, spacing), new_animation (rig), delete_asset
+    Sprite Sheet editor (.p3ds)
+      create_spritesheet (image, grid {cellWidth, cellHeight, margin, spacing}
+      | count {columns, rows} | auto {alphaThreshold, merge, minSize} | atlas,
+      pixelsPerUnit, filter, prefix, pivot, border, clips [...], overwrite),
+      open_spritesheet (path), edit_spritesheet (path?, ...the same keys, and
+      frame, addFrame, removeFrames, addClip, clip, removeClip),
+      spritesheet_info (path?), save_spritesheet
     Tile Set editor (focused document; open_asset / open_tileset first)
       edit_tileset (grid, tag, animate, animationFps, removeAnimation, terrain,
       removeTerrain, heightProfile), tileset_info, set_tile_solid,

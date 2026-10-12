@@ -21,6 +21,7 @@ namespace p3d {
 	void RegisterLuaRender(sol::state* lua);
 	void RegisterLuaPhysicsEarly(sol::state* lua);
 	void RegisterLuaPhysicsLate(sol::state* lua);
+	void RegisterLua2D(sol::state* lua);
 	void RegisterLuaPhysics(sol::state* lua);
 	void RegisterLuaAssetsEarly(sol::state* lua);
 	void RegisterLuaAssetsMid(sol::state* lua);

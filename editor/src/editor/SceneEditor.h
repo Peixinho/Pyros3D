@@ -63,6 +63,7 @@ using json = nlohmann::json;
 #include "UI/IUInterface.h"
 #include "libgizmo/IGizmo.h"
 #include "SceneObjects.h"
+namespace p3d { class Sprite2D; class SpriteMask2D; class Line2D; class SpriteBatch2D; class Physics2D; class Joint2D; class Layer2D; }
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include "Grid.h"
 #include "AxisHelper.h"
@@ -741,7 +742,12 @@ public:
 	// SceneCommands' Undo()/Redo() implementations - no undo bookkeeping,
 	// callers own that.
 	void RawDeleteSubtree(uint32 objId);
-	SceneObject* RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper, const std::vector<uint32>* preferredIds = NULL);
+	// `childIndex` is where among its parent's children it goes back
+	// (RawChildIndex, asked before it was taken out); -1 for the end.
+	SceneObject* RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper, const std::vector<uint32>* preferredIds = NULL, int childIndex = -1);
+	// An object's place among its parent's children in the scene graph, or
+	// -1 for a root (or for something that is not there).
+	int RawChildIndex(uint32 objId);
 	// The world-space rect the viewport currently shows, in the XY plane a 2D
 	// scene lives in. One implementation, because the grid, the tile cursor
 	// and the brush all have to agree about where the cursor is - three copies
@@ -1229,11 +1235,130 @@ private:
 		const bool fixedRotation = false);
 	// Marks a shape as blocking 2D light, with no physics involved.
 	bool OpAddOccluder2D(uint32 goId, std::string& errOut);
+	// Ties this object's 2D body to another's or to the world. In
+	// SceneEditor2D.cpp with the rest of the 2D physics panels.
+	bool OpAddJoint2D(uint32 goId, const uint32 jointType, std::string& errOut);
+	void DrawPhysics2DProperties(GameObject* go, uint32 goId, p3d::Physics2D* ph);
+	void DrawJoint2DProperties(GameObject* go, uint32 goId, p3d::Joint2D* jt);
+	void DrawLayer2DProperties(uint32 goId, p3d::Layer2D* l);
+	// The keys set_physics2d / add_physics2d and set_joint2d / add_joint2d
+	// take beyond the original handful.
+	bool AgentApplyPhysics2DExtras(p3d::Physics2D* ph, const json& p, std::string& errOut);
+	bool AgentApplyJoint2D(p3d::Joint2D* jt, const json& p, std::string& errOut);
+public:
+	bool AgentAddJoint2D(const std::string& name, const json& p, std::string& errOut);
+	bool AgentAddPhysics2DWith(const std::string& name, const json& p, std::string& errOut);
+	void SetGravity2D(const Vec2& g);
+	const Vec2& GetGravity2D() const { return gravity2D; }
+	// What the Physics 2D / Joint 2D sections of an object show, and the
+	// running body's state when the scene is playing.
+	json AgentPhysics2DInfo(const std::string& name, std::string& errOut);
+
+	// --- Editing a 2D collider in the Scene View -------------------------
+	// A collider is a shape, and a shape typed in as four numbers is one
+	// nobody can see is wrong. "Edit Collider" in the Physics 2D section
+	// puts handles on the selected object's shape: edges resize it from that
+	// side, the centre moves it, a polygon's points move one at a time.
+	// While it is on the transform gizmo is put away - they would be two
+	// sets of handles on the same few pixels.
+	//
+	// A handle is named the same way to the mouse and to the agent, and both
+	// go through ApplyCollider2DHandle, so a drag and a command cannot come
+	// to different shapes.
+	enum Collider2DHandle { C2D_None = -1, C2D_Center = 0, C2D_Right, C2D_Left, C2D_Top, C2D_Bottom, C2D_Radius, C2D_Point };
+	bool AgentEditCollider2D(const std::string& name, const bool on, std::string& errOut);
+	// {handle: center|right|left|top|bottom|radius|point, index, to: [x, y] in WORLD units}
+	bool AgentDragCollider2D(const std::string& name, const json& p, std::string& errOut);
+	bool IsEditingCollider2D() const { return collider2DEdit; }
+private:
+	struct Collider2DGrip { p3d::Vec2 local; int kind; int index; };
+	// The selected object's body while its collider is being edited, or
+	// NULL - and it is this that ends the mode when the selection moves on
+	// or Play starts.
+	p3d::Physics2D* EditingCollider2D(uint32* goIdOut = NULL);
+	static void Collider2DGrips(p3d::Physics2D* ph, std::vector<Collider2DGrip>& out);
+	// `target` is where the handle should be, in the body's own space.
+	static bool ApplyCollider2DHandle(p3d::Physics2D* ph, const int kind, const int index, const p3d::Vec2& target);
+	void DrawCollider2DHandles();
+	// True when the mode is on, whether or not this frame's mouse did
+	// anything: the caller leaves the gizmo's input alone then.
+	bool HandleCollider2DInput();
+	bool collider2DEdit = false;
+	uint32 collider2DEditGo = 0;
+	int collider2DDragKind = C2D_None;
+	int collider2DDragIndex = 0;
+	int collider2DHoverKind = C2D_None;
+	int collider2DHoverIndex = 0;
+	p3d::Vec2 collider2DGrab;        // handle minus cursor at the grab, so it does not jump
+	std::string collider2DBefore;    // the object as it was, for one undo step per drag
+	bool collider2DChanged = false;
+private:
 	// Opt a sprite into 2D lighting (distance falloff, no N.L).
 	bool OpMakeSprite2DLit(uint32 goId, std::string& errOut);
 
-	// Textured quad with alpha blending - an authoring shortcut, not a type.
+	// A Sprite2D drawing from an image or a .p3ds sprite sheet. Everything
+	// below about sprites is in SceneEditorSprites.cpp.
 	bool OpAddSprite(uint32 goId, const std::string& texturePath, std::string& errOut);
+	// Merges the sprites beneath an object into as few draws as possible.
+	bool OpAddSpriteBatch2D(uint32 goId, std::string& errOut);
+	// SceneEditorShapes2D.cpp: masks and lines.
+	bool OpAddSpriteMask2D(uint32 goId, std::string& errOut);
+	bool OpAddLine2D(uint32 goId, std::string& errOut);
+	void DrawSpriteMask2DProperties(uint32 goId, p3d::SpriteMask2D* mk);
+	void DrawLine2DProperties(uint32 goId, p3d::Line2D* ln);
+	void DrawShapes2DOverlay();
+	bool AgentApplySpriteMask(p3d::SpriteMask2D* mk, const json& p, std::string& errOut);
+	bool AgentApplyLine2D(p3d::Line2D* ln, const json& p, std::string& errOut);
+public:
+	// {shape: rect|circle|polygon, size [w, h], diameter, offset [x, y], polygon, enabled}
+	bool AgentAddSpriteMask(const std::string& name, const json& p, std::string& errOut);
+	bool AgentSetSpriteMask(const std::string& name, const json& p, std::string& errOut);
+	json AgentSpriteMaskInfo(const std::string& name, std::string& errOut);
+	// {points, closed, width, color | colorStart + colorEnd, additive, sortOrder,
+	//  trail, lifetime, minDistance, emitting, clearTrail}
+	bool AgentAddLine2D(const std::string& name, const json& p, std::string& errOut);
+	bool AgentSetLine2D(const std::string& name, const json& p, std::string& errOut);
+	json AgentLine2DInfo(const std::string& name, std::string& errOut);
+private:
+	// A Plane-and-material sprite (what Add Sprite used to make) into a
+	// Sprite2D that looks the same. `record` pushes one undo entry.
+	bool OpConvertLegacySprite(uint32 goId, std::string& errOut, const bool record = true);
+	// Loads `path` (project-relative or absolute; image or .p3ds) onto a sprite.
+	bool ApplySpriteSource(p3d::Sprite2D* sp, const std::string& path, std::string& errOut);
+	bool ApplySpriteMaterial(p3d::Sprite2D* sp, const std::string& path, std::string& errOut);
+	void DrawSprite2DProperties(GameObject* go, uint32 goId, p3d::Sprite2D* sp);
+	void DrawSpriteBatch2DProperties(uint32 goId, p3d::SpriteBatch2D* b);
+	// The Properties panel's Source field, and which sprite it is editing.
+	p3d::Sprite2D* spritePropsFor = NULL;
+	std::string spritePropsSource;
+public:
+	// The Sprite2D on an object, or NULL; and whether the object's
+	// RenderingComponent is one a sprite or a sprite batch made for itself.
+	static p3d::Sprite2D* SpriteOf(GameObject* go);
+	static bool OwnerDrawsSprites(GameObject* go);
+	// Every legacy sprite in the scene; returns how many, and says in
+	// `report` which were left and why. Clears the undo history.
+	int ConvertLegacySprites(std::string& report);
+	// Re-reads a sheet or image into every sprite that draws from it - after
+	// the sheet was edited and saved. Returns how many.
+	int ReloadSpritesUsing(const std::string& path);
+	bool AgentSetSprite(const std::string& name, const json& p, std::string& errOut);
+	bool ApplySpriteArgs(p3d::Sprite2D* sp, const json& p, const char* const* allowed, std::string& errOut);
+	json AgentSpriteInfo(const std::string& name, std::string& errOut);
+	bool AgentAddSpriteBatch(const std::string& name, std::string& errOut);
+	// {enabled, lit, lightCell} - the Sprite Batch section, any subset.
+	bool AgentSetSpriteBatch(const std::string& name, const json& p, std::string& errOut);
+	bool AgentConvertSprite(const std::string& name, std::string& errOut);
+	void StopSpritePreview();
+	// Points an object's sprite at another image or sheet, as one undo step.
+	bool SetSpriteSourceById(uint32 goId, const std::string& path, std::string& errOut);
+	void SetHostOpenSpriteSheet(void (*fn)(const std::string&)) { hostOpenSpriteSheet = fn; }
+	void SetHostCreateSpriteSheet(void (*fn)(const std::string&, uint32)) { hostCreateSpriteSheet = fn; }
+private:
+	// Opens a .p3ds in the Sprite Sheet editor; and asks the host to make
+	// one from an image for the object that is using it.
+	void (*hostOpenSpriteSheet)(const std::string&) = NULL;
+	void (*hostCreateSpriteSheet)(const std::string&, uint32) = NULL;
 	// Cuts `sheetPath` into cols x rows cells, writes them as real PNGs
 	// beside the sheet, and drives the object's sprite from them as a
 	// TextureAnimation. Writes files rather than keeping frames in memory
@@ -1832,6 +1957,9 @@ private:
 	// itself from the editor's camera. Restored on stop.
 	bool playViewSynthesised = false;
 	SceneMeta::View2D playView2DBackup;
+	bool playView2DBackedUp = false;
+	// The scene's 2D gravity - SceneMeta::gravity2D.
+	Vec2 gravity2D = Vec2(0.f, -10.f);
 	bool GetSceneContentBounds2D(f32& l, f32& r, f32& b, f32& t) const;
 	std::string tileStrokeSnapshot;
 	bool tileHavePick = false;

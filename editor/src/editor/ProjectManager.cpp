@@ -433,6 +433,11 @@ bool ProjectManager::IsTileSetExtension(const std::string& path)
 	return ExtensionLower(path) == "p3dt";
 }
 
+bool ProjectManager::IsSpriteSheetExtension(const std::string& path)
+{
+	return ExtensionLower(path) == "p3ds";
+}
+
 bool ProjectManager::IsFontExtension(const std::string& path)
 {
 	const std::string ext = ExtensionLower(path);

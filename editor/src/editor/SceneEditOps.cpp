@@ -17,6 +17,9 @@
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Sprite2D.h>
+#include <Pyros3D/Assets/SpriteSheet2D/SpriteSheet2D.h>
+#include <Pyros3D/Assets/TileSet2D/TileSet2D.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 // The editor carries its OWN stb_image implementation rather than borrowing
 // the engine's. Texture.cpp defines STB_IMAGE_IMPLEMENTATION, so with a static
@@ -128,7 +131,19 @@ std::vector<uint32> SceneEditor::RawCollectSubtreeIds(uint32 objId)
 	return ids;
 }
 
-SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper, const std::vector<uint32>* preferredIds)
+int SceneEditor::RawChildIndex(uint32 objId)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(objId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) return -1;
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (!go || !go->HaveParent()) return -1;
+	const std::vector<std::shared_ptr<GameObject>>& kids = go->GetParent()->GetChildren();
+	for (size_t i = 0; i < kids.size(); i++)
+		if (kids[i].get() == go) return (int)i;
+	return -1;
+}
+
+SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint32 parentId, bool wasCamera, const EditorCameraSettings& camSettings, bool hadHelper, const std::vector<uint32>* preferredIds, int childIndex)
 {
 	if (subtreeJson.empty()) return NULL;
 	// &sceneAssets, not NULL: whatever this subtree rebuilds has to be kept
@@ -143,6 +158,23 @@ SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint3
 #endif
 	if (!go) return NULL;
 	scene->Add(go);
+	// Under its parent in the scene, not only in the tree's list. This used
+	// to stop at scene->Add(), which left a child that had been undone (or
+	// redone, or restored from a prefab) as a ROOT of the scene graph with a
+	// row that said otherwise: it no longer moved with its parent, a save
+	// wrote it at top level, and the next Stop - which rebuilds each root
+	// from what it held when Play began - deleted it, because by then no
+	// root held it.
+	if (parentId != 0)
+	{
+		SceneObject* parentRow = sceneObjects->GetSceneObject(parentId);
+		if (parentRow && parentRow->GetType() == SceneObjectTypes::GAMEOBJECT && parentRow->GetPTR() != NULL)
+		{
+			GameObject* parentGo = (GameObject*)parentRow->GetPTR();
+			parentGo->Add(go);
+			if (childIndex >= 0) parentGo->MoveChild(go.get(), (size_t)childIndex);
+		}
+	}
 	size_t idCursor = 0;
 	SceneObject* obj = sceneObjects->Adopt(go.get(), parentId, preferredIds, &idCursor);
 	// An undone delete or a restored prefab rebuilds its materials from
@@ -265,6 +297,27 @@ void SceneEditor::PushReplaceCommand(uint32 ownerId, const std::string& beforeSn
 {
 	SceneObject* owner = sceneObjects->GetSceneObject(ownerId);
 	if (!owner) return;
+	// Every edit that adds or removes a component comes through here, so
+	// this is where the Scene Tree's component rows are brought into step:
+	// one just added gets its row now and not at the next load, and one just
+	// removed loses a row that would otherwise point at freed memory.
+	if (owner->GetType() == SceneObjectTypes::GAMEOBJECT)
+	{
+		const uint32 selectedId = SelectedSceneObject ? SelectedSceneObject->GetID() : 0;
+		std::vector<uint32> removed;
+		sceneObjects->SyncComponentRows(ownerId, &removed);
+		for (size_t i = 0; i < removed.size(); i++)
+		{
+			if (removed[i] != selectedId) continue;
+			// The selected row's component is gone: its object is what is
+			// left to have selected. (The pointer is cleared first - the
+			// row it pointed at has been deleted.)
+			SelectedSceneObject = NULL;
+			selection.clear();
+			SelectSceneObject(owner);
+			node_clicked = (int32)ownerId;
+		}
+	}
 	GameObject* go = (GameObject*)owner->GetPTR();
 	if (!go) return;
 	const bool wasCamera = IsSceneCamera(ownerId);
@@ -1290,84 +1343,7 @@ bool SceneEditor::BakeIrradianceProbes(std::string& errOut)
 	return true;
 }
 
-bool SceneEditor::OpAddSprite(uint32 goId, const std::string& texturePath, std::string& errOut)
-{
-	SceneObject* obj = sceneObjects->GetSceneObject(goId);
-	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
-	{
-		errOut = "not a game object";
-		return false;
-	}
-	GameObject* go = (GameObject*)obj->GetPTR();
-	const std::string before = SnapshotSubtree(goId);
-
-	std::shared_ptr<Texture> tex;
-	f32 aspect = 1.f;
-	if (!texturePath.empty())
-	{
-		tex = std::make_shared<Texture>();
-		if (!tex->LoadTexture(ResolveAssetPath(texturePath), TextureType::Texture))
-		{
-			errOut = "could not load " + texturePath;
-			return false;
-		}
-		tex->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-		tex->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-		// Square by default; a wide texture gets a wide quad, so a sprite is
-		// not stretched the moment it is created.
-		if (tex->GetHeight() > 0)
-			aspect = (f32)tex->GetWidth() / (f32)tex->GetHeight();
-	}
-
-	// Plane takes half-extents (see its constructor), so this is a 2x2 quad
-	// scaled by the texture's aspect - a sensible size to then scale in the
-	// gizmo rather than a pixel-exact one, which would need a
-	// pixels-per-unit convention this engine does not have for world space.
-	std::shared_ptr<Renderable> mesh = std::make_shared<Plane>(aspect, 1.f);
-
-	// Its own material, not the shared GenericMaterial every primitive gets:
-	// a sprite is expected to carry its own texture and tint.
-	//
-	// Ordinary 3D lighting by default: a sprite created in a 3D scene should
-	// behave like everything around it, and 2D lighting is opt-in per sprite
-	// (OpMakeSprite2DLit below) because dropping N.L is only the right answer
-	// when the sprite really is lying in a 2D plane.
-	// ShaderUsage::Texture is what makes the generated shader sample
-	// uColormap at all - SetColorMap() only registers the uniform, it does not
-	// turn the sampling on, so a material given a texture without this flag
-	// renders flat and looks like a texture that failed to load.
-	//
-	// Always set, even for a sprite created without one, and backed by a 1x1
-	// white texture until a real one is assigned. The options are fixed when
-	// the material is constructed, so a sprite built without the flag could
-	// never be given a working texture afterwards - which is exactly what the
-	// Add > Sprite menu item creates.
-	std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(
-		ShaderUsage::Color | ShaderUsage::Diffuse | ShaderUsage::Texture);
-	mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
-	mat->SetColorMap(tex ? tex : UIImage::WhiteTexture());
-	// Cut-out sprites are the normal case and a quad has no meaningful back
-	// face - both of which are wrong defaults for a 3D mesh and right here.
-	mat->EnableBlending();
-	mat->BlendingEquation(BlendEq::Add);
-	mat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
-	// EnableBlending() alone is not enough. It sets the blend state, but the
-	// DeferredRenderer picks its pass off IsTransparent(): a material without
-	// the flag is drawn into the G-buffer, and a G-buffer pass cannot blend -
-	// it writes one albedo/normal/depth per pixel, so a fully transparent
-	// texel is written out at full opacity. The symptom is a hard ring of the
-	// texture's invisible border colour around every sprite, which reads as a
-	// lighting or shadow bug and is not one. With the flag the sprite goes
-	// through the translucent pass, which is forward-lit (lights are gathered
-	// there) so it stays lit and shadowed exactly as before.
-	mat->SetTransparencyFlag(true);
-	mat->SetCullFace(CullFace::DoubleSided);
-
-	go->Add(MakeSceneRenderingComponent(mesh, mat));
-	MarkSceneDirty();
-	PushReplaceCommand(goId, before, "Add Sprite");
-	return true;
-}
+// OpAddSprite lives in SceneEditorSprites.cpp, with the rest of Sprite2D.
 
 RenderingComponent* SceneEditor::FindRenderingComponent(GameObject* go)
 {
@@ -1410,6 +1386,16 @@ bool SceneEditor::GetSpritePivot(RenderingComponent* rc, Vec2 &outNorm)
 // pivot rather than a different one per submesh.
 bool SceneEditor::OpSetSpritePivot(uint32 goId, const Vec2 &norm, std::string& errOut)
 {
+	// A Sprite2D carries its pivot itself - see Sprite2D::SetPivot.
+	if (SceneObject* so = sceneObjects->GetSceneObject(goId))
+		if (so->GetType() == SceneObjectTypes::GAMEOBJECT)
+			if (Sprite2D* sp = SpriteOf((GameObject*)so->GetPTR()))
+			{
+				sp->SetPivot(norm);
+				MarkSceneDirty();
+				return true;
+			}
+
 	SceneObject* obj = sceneObjects->GetSceneObject(goId);
 	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "not a game object"; return false; }
 	GameObject* go = (GameObject*)obj->GetPTR();
@@ -1450,94 +1436,76 @@ bool SceneEditor::OpSetSpritePivot(uint32 goId, const Vec2 &norm, std::string& e
 bool SceneEditor::OpSliceSpritesheet(uint32 goId, const std::string& sheetPath,
 	int cols, int rows, f32 fps, bool loop, std::string& errOut)
 {
+	// Cuts a sheet into a grid and plays it on this object. What that MAKES
+	// is a sprite sheet (.p3ds) beside the image and a Sprite2D drawing from
+	// it - the image stays one texture and a frame is a rectangle of it.
+	// (It used to write every cell out as its own PNG and swap textures.)
 	SceneObject* obj = sceneObjects->GetSceneObject(goId);
 	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "not a game object"; return false; }
 	if (cols < 1 || rows < 1) { errOut = "cols and rows must be at least 1"; return false; }
 	if (fps <= 0.f) { errOut = "fps must be positive"; return false; }
 	GameObject* go = (GameObject*)obj->GetPTR();
 
-	RenderingComponent* rc = NULL;
-	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
-	for (size_t i = 0; i < comps.size(); i++)
-		if (comps[i] && comps[i]->GetComponentType() == ComponentType::RenderingComponent)
-			rc = static_cast<RenderingComponent*>(comps[i].get());
-	if (!rc) { errOut = "object has no RenderingComponent to animate"; return false; }
-
-	const std::string abs = ResolveAssetPath(sheetPath);
-	int w = 0, h = 0, bpp = 0;
-	uchar* img = stbi_load(abs.c_str(), &w, &h, &bpp, 4);
-	if (!img) { errOut = "could not read " + sheetPath; return false; }
-
-	const int cw = w / cols, ch = h / rows;
-	if (cw < 1 || ch < 1) { stbi_image_free(img); errOut = "cols/rows larger than the sheet"; return false; }
-
 	namespace fs = std::filesystem;
-	const fs::path sheetFile(abs);
-	const std::string stem = sheetFile.stem().string();
-	const fs::path outDir = sheetFile.parent_path() / (stem + "_frames");
-	std::error_code ec;
-	fs::create_directories(outDir, ec);
+	const std::string abs = ResolveAssetPath(sheetPath);
+	int32 w = 0, h = 0;
+	if (!TileSet2DReadImageSize(abs, w, h)) { errOut = "could not read " + sheetPath; return false; }
+	if (w / cols < 1 || h / rows < 1) { errOut = "cols/rows larger than the sheet"; return false; }
+
+	const fs::path image(abs);
+	const std::string stem = image.stem().string();
+	const fs::path sheetFile = image.parent_path() / (stem + ".p3ds");
+
+	SpriteSheet2D sheet;
+	// Re-slicing a sheet that exists keeps what is not about the cut: its
+	// scale and its filtering.
+	if (fs::exists(sheetFile)) LoadSpriteSheet2D(sheetFile.string(), sheet);
+	sheet.image = DisplayPath(abs);
+	sheet.SetImageSize(w, h);
+	if (sheet.SliceCount(cols, rows, stem + "_") < 1) { errOut = "the sheet could not be cut"; return false; }
+	sheet.AddClipRange("default", 0, (int32)sheet.frames.size() - 1, fps, loop);
 
 	const std::string before = SnapshotSubtree(goId);
 
-	std::shared_ptr<TextureAnimation> anim = std::make_shared<TextureAnimation>();
-	std::vector<uchar> cell((size_t)cw * ch * 4);
-	bool ok = true;
-	for (int r = 0; r < rows && ok; r++)
+	// How tall the object's sprite is now, so one cell ends up that tall -
+	// the authored height is kept and the width follows from the cell.
+	f32 keepHeight = 0.f;
+	Sprite2D* sp = SpriteOf(go);
+	if (!sp)
 	{
-		for (int c = 0; c < cols && ok; c++)
-		{
-			for (int y = 0; y < ch; y++)
-				memcpy(&cell[(size_t)y * cw * 4],
-					img + (((size_t)(r * ch + y) * w) + (size_t)c * cw) * 4,
-					(size_t)cw * 4);
-
-			char name[64];
-			snprintf(name, sizeof(name), "frame_%02d.png", r * cols + c);
-			const std::string framePath = (outDir / name).string();
-			if (!stbi_write_png(framePath.c_str(), cw, ch, 4, cell.data(), cw * 4))
-			{
-				errOut = "could not write " + framePath; ok = false; break;
-			}
-
-			std::shared_ptr<Texture> t = std::make_shared<Texture>();
-			if (!t->LoadTexture(framePath, TextureType::Texture)) { errOut = "could not load " + framePath; ok = false; break; }
-			t->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-			t->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-			anim->AddFrame(t);
-		}
+		std::string cerr;
+		if (OpConvertLegacySprite(goId, cerr, false)) sp = SpriteOf(go);
 	}
-	stbi_image_free(img);
-	if (!ok) return false;
-
-	// Kept alive here for the same reason the loader needs an out-assets
-	// list: RenderingComponent only holds a raw back-pointer.
-	sceneAssets.textureAnimations.push_back(anim);
-
-	TextureAnimationInstance* inst = anim->CreateInstance(fps);
-	inst->Play(loop ? -1 : 1);
-	rc->SetActiveTextureAnimation(inst);
-
-	// Re-proportion the sprite to ONE FRAME. A sprite created from the sheet
-	// has a quad the shape of the whole sheet - a 6-frame strip is 6:1 - and
-	// swapping in a single 1:1 frame left it stretched six times too wide.
-	// The quad's aspect is baked into its geometry, so this compensates with
-	// scale rather than rebuilding the mesh, keeping the authored height.
+	if (sp)
 	{
-		const f32 sheetAspect = (h > 0) ? (f32)w / (f32)h : 1.f;
-		const f32 cellAspect = (ch > 0) ? (f32)cw / (f32)ch : 1.f;
-		if (sheetAspect > 0.0001f && fabsf(cellAspect - sheetAspect) > 0.0001f)
-		{
-			const Vec3 sc = go->GetScale();
-			// Height is kept and width derived from it, so the frame ends up
-			// with the CELL's aspect on screen. Scaling the existing width by
-			// the aspect ratio instead is wrong: the quad is already the
-			// sheet's shape, so that only narrows a 6:1 quad to 6:1 again at
-			// a smaller size.
-			go->SetScale(Vec3(sc.y * cellAspect / sheetAspect, sc.y, sc.z));
-			go->RefreshTransformation();
-		}
+		const Vec4 r = sp->GetLocalRect();
+		keepHeight = r.w - r.y;
 	}
+	if (keepHeight > 1e-5f && !fs::exists(sheetFile))
+		sheet.pixelsPerUnit = (f32)(h / rows) / keepHeight;
+
+	std::string werr;
+	if (!SaveSpriteSheet2D(sheetFile.string(), sheet, &werr)) { errOut = werr; return false; }
+
+	if (!sp)
+	{
+		std::shared_ptr<Sprite2D> made = std::make_shared<Sprite2D>();
+		go->Add(std::static_pointer_cast<IComponent>(made));
+		sp = made.get();
+	}
+	if (!ApplySpriteSource(sp, sheetFile.string(), errOut)) return false;
+	// The sheet says its own scale now; an override left from before would
+	// be measuring the whole image.
+	sp->SetPixelsPerUnit(0.f);
+	if (keepHeight > 1e-5f)
+	{
+		const Vec4 r = sp->GetLocalRect();
+		if (fabsf((r.w - r.y) - keepHeight) > 1e-3f)
+			sp->SetPixelsPerUnit((f32)(h / rows) / keepHeight);
+	}
+	sp->SetAutoPlay("default");
+	// Anything else already drawing from this sheet sees the new cut.
+	ReloadSpritesUsing(sheetFile.string());
 
 	MarkSceneDirty();
 	PushReplaceCommand(goId, before, "Slice Spritesheet");
@@ -1551,6 +1519,18 @@ bool SceneEditor::OpSliceSpritesheet(uint32 goId, const std::string& sheetPath,
 
 bool SceneEditor::OpMakeSprite2DLit(uint32 goId, std::string& errOut)
 {
+	// On a Sprite2D this is a property, not a material swap.
+	if (SceneObject* so = sceneObjects->GetSceneObject(goId))
+		if (so->GetType() == SceneObjectTypes::GAMEOBJECT)
+			if (Sprite2D* sp = SpriteOf((GameObject*)so->GetPTR()))
+			{
+				const std::string b = SnapshotSubtree(goId);
+				sp->SetLit(true);
+				MarkSceneDirty();
+				PushReplaceCommand(goId, b, "Use 2D Lighting");
+				return true;
+			}
+
 	SceneObject* obj = sceneObjects->GetSceneObject(goId);
 	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT)
 	{

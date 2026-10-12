@@ -6,6 +6,7 @@
 #ifdef LUA_BINDINGS
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+#include <functional>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
@@ -133,6 +134,26 @@ namespace p3d {
 				"removeGameobject", &SceneGraph_RemoveGameObjectObj,
 				"getTime", &SceneGraph::GetTime,
 				"getAllGameObjects", &SceneGraph::GetAllGameObjectList,
+				// scene:find("Hero"): the object of that name, wherever in the
+				// tree it is - getAllGameObjects() lists the roots only, and
+				// in a layered scene nothing a game cares about is a root.
+				// nil when there is none. For a whole family of objects by
+				// name use watch() below, which does not walk the scene.
+				"find", [](SceneGraph &s, const std::string &name) -> std::shared_ptr<GameObject> {
+					std::function<std::shared_ptr<GameObject>(const std::shared_ptr<GameObject>&)> in =
+						[&](const std::shared_ptr<GameObject> &go) -> std::shared_ptr<GameObject> {
+						if (!go) return nullptr;
+						if (go->GetName() == name) return go;
+						const std::vector<std::shared_ptr<GameObject> > &kids = go->GetChildren();
+						for (size_t i = 0; i < kids.size(); i++)
+							if (std::shared_ptr<GameObject> hit = in(kids[i])) return hit;
+						return nullptr;
+					};
+					const std::vector<std::shared_ptr<GameObject> > roots = s.GetAllGameObjectList();
+					for (size_t i = 0; i < roots.size(); i++)
+						if (std::shared_ptr<GameObject> hit = in(roots[i])) return hit;
+					return nullptr;
+				},
 				// scene:watch("Lamp_"): every object whose name starts with that,
 				// kept up to date as cells stream in and out - no walk of the
 				// scene. scene:watchedVersion("Lamp_") goes up when the list

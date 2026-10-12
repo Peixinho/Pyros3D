@@ -331,7 +331,17 @@ namespace p3d {
 					continue;
 
 				// The bounding sphere's centre - see CullingSphereTest.
-				const Vec3 objectPosition = owner->GetDrawWorld() * owner->GetBoundingSphereCenter();
+				Vec3 objectPosition = owner->GetDrawWorld() * owner->GetBoundingSphereCenter();
+				f32 objectRadius = owner->GetDrawRadiusWorldSpace();
+				// (one object in many places - see SetLightsPerGeometry)
+				if ((*i)->renderingComponent->LightsPerGeometry() && (*i)->Geometry != NULL)
+				{
+					const Matrix &w = owner->GetDrawWorld();
+					objectPosition = w * (*i)->Geometry->GetBoundingSphereCenter();
+					const f32 sx = sqrtf(w.m[0] * w.m[0] + w.m[1] * w.m[1] + w.m[2] * w.m[2]);
+					const f32 sy = sqrtf(w.m[4] * w.m[4] + w.m[5] * w.m[5] + w.m[6] * w.m[6]);
+					objectRadius = (*i)->Geometry->GetBoundingSphereRadius() * (sx > sy ? sx : sy);
+				}
 				objectLights.clear();
 				for (uint32 l = 0; l < _Lights.size(); l++)
 				{
@@ -340,7 +350,7 @@ namespace p3d {
 					else if (L.m[13] == 2 || L.m[13] == 3)
 					{
 						Vec3 _lPos = Vec3(L.m[4], L.m[5], L.m[6]);
-						if ((_lPos.distance(objectPosition) - owner->GetDrawRadiusWorldSpace()) < L.m[10])
+						if ((_lPos.distance(objectPosition) - objectRadius) < L.m[10])
 							objectLights.push_back((uint16)l);
 					}
 				}

@@ -30,8 +30,45 @@ namespace p3d {
 	std::map <uint32, std::map<uint32, Gallant::Signal1<Event::Input::Info> > > InputManager::JoyPadReleased;
 	std::map <uint32, std::map<uint32, Gallant::Signal1<Event::Input::Info> > > InputManager::JoyPadMove;
 
+	namespace {
+		// What each pad is doing right now, for whoever asks rather than
+		// listens. The events below have always existed; nothing kept the
+		// state they describe.
+		struct PadState {
+			bool connected = false;
+			std::string name;
+			uint32 buttons = 0;         // a bit a button: 32 are plenty
+			f32 axes[8] = { 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
+		};
+		PadState &Pad(const uint32 id) { static PadState pads[8]; return pads[id < 8 ? id : 7]; }
+		std::unordered_set<uint32> &MouseDown() { static std::unordered_set<uint32> b; return b; }
+		const std::string kNoPadName;
+	}
+
+	bool InputManager::IsMouseButtonDown(const uint32 e) { return MouseDown().count(e) != 0; }
+	bool InputManager::IsJoypadConnected(const uint32 joypadID) { return joypadID < 8 && Pad(joypadID).connected; }
+	const std::string &InputManager::GetJoypadName(const uint32 joypadID) { return joypadID < 8 ? Pad(joypadID).name : kNoPadName; }
+	bool InputManager::IsJoypadButtonDown(const uint32 joypadID, const uint32 button)
+	{
+		return joypadID < 8 && button < 32 && (Pad(joypadID).buttons & (1u << button)) != 0;
+	}
+	f32 InputManager::GetJoypadAxis(const uint32 joypadID, const uint32 axis)
+	{
+		return (joypadID < 8 && axis < 8) ? Pad(joypadID).axes[axis] : 0.f;
+	}
+	void InputManager::SetJoypadConnected(const uint32 joypadID, const bool connected, const std::string &name)
+	{
+		if (joypadID >= 8) return;
+		PadState &p = Pad(joypadID);
+		p.connected = connected;
+		p.name = name;
+		p.buttons = 0;
+		for (int i = 0; i < 8; i++) p.axes[i] = 0.f;
+	}
+
 	void InputManager::JoypadButtonPressed(const uint32 joypadID, const uint32 button)
 	{
+		if (joypadID < 8 && button < 32) Pad(joypadID).buttons |= (1u << button);
 		Event::Input::Info m;
 		m.Type = Event::Type::OnPress;
 		m.Input = button;
@@ -40,6 +77,7 @@ namespace p3d {
 	}
 	void InputManager::JoypadButtonReleased(const uint32 joypadID, const uint32 button)
 	{
+		if (joypadID < 8 && button < 32) Pad(joypadID).buttons &= ~(1u << button);
 		Event::Input::Info m;
 		m.Type = Event::Type::OnRelease;
 		m.Input = button;
@@ -48,6 +86,7 @@ namespace p3d {
 	}
 	void InputManager::JoypadMove(const uint32 joypadID, const uint32 axis, const f32 value)
 	{
+		if (joypadID < 8 && axis < 8) Pad(joypadID).axes[axis] = value;
 		Event::Input::Info m;
 		m.Type = Event::Type::OnMove;
 		m.Input = axis;
@@ -91,6 +130,7 @@ namespace p3d {
 	}
 	void InputManager::MousePressed(const uint32 e)
 	{
+		MouseDown().insert(e);
 		Event::Input::Info m;
 		m.Type = Event::Type::OnPress;
 		m.Input = e;
@@ -99,6 +139,7 @@ namespace p3d {
 	}
 	void InputManager::MouseReleased(const uint32 e)
 	{
+		MouseDown().erase(e);
 		Event::Input::Info m;
 		m.Type = Event::Type::OnRelease;
 		m.Input = e;

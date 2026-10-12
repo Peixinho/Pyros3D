@@ -172,6 +172,12 @@ namespace p3d {
 
 		// Parent / children - same ownership model as components.
 		void Add(const std::shared_ptr<GameObject> &Child);
+		// Puts a child at a place among its siblings (clamped to the end).
+		// The order of children is the order they are saved in, listed in
+		// and - for things drawn at the same depth - drawn in, so something
+		// taken out and put back (an undo) has to be able to go back where
+		// it was and not to the end. False if `Child` is not one of them.
+		bool MoveChild(GameObject* Child, const size_t index);
 		void Remove(const std::shared_ptr<GameObject> &Child);
 		void Remove(GameObject* Child);
 		GameObject* GetParent() { return _Owner; }

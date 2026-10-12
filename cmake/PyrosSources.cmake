@@ -46,6 +46,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaRender.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaAssets.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaPhysics.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLua2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaPostFX.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaAudio.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaMisc.cpp
@@ -65,6 +66,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Rendering/SpriteRig2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Character2D/Character2DAsset.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/TileSet2D/TileSet2D.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/SpriteSheet2D/SpriteSheet2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Character2D/Character2DInstance.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Particles/ParticleSystem.cpp
@@ -101,7 +103,12 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Layer2D/Layer2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Occluder2D/Occluder2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/TileMap2D/TileMap2D.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Sprite2D/Sprite2D.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Sprite2D/Line2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Physics2D.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Joint2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Physics2DWorld.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIRect.cpp

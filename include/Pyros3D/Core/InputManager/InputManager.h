@@ -336,6 +336,21 @@ namespace p3d {
 		// for whatever starts listening after the press - a control handed
 		// back to a character whose key never came up.
 		static bool IsKeyDown(const uint32 e);
+		// The same for a mouse button.
+		static bool IsMouseButtonDown(const uint32 e);
+
+		// --- game controllers, by polling ------------------------------------
+		// A pad is one of eight slots (0 is the first plugged in). Buttons
+		// and axes are numbered the way SDL's GameController layout numbers
+		// them, which is the same for every recognised pad - see
+		// GamepadButton / GamepadAxis in the Lua bindings. An axis is -1..1
+		// (a trigger 0..1), and the sticks read +1 UP.
+		static bool IsJoypadConnected(const uint32 joypadID);
+		static const std::string &GetJoypadName(const uint32 joypadID);
+		static bool IsJoypadButtonDown(const uint32 joypadID, const uint32 button);
+		static f32 GetJoypadAxis(const uint32 joypadID, const uint32 axis);
+		// Told by the window manager when a pad is plugged in or pulled.
+		static void SetJoypadConnected(const uint32 joypadID, const bool connected, const std::string &name);
 		static void AddMouseDelta(const f32 dx, const f32 dy);
 
 		// Add Events

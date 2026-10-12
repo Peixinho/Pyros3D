@@ -163,7 +163,7 @@
 #define BIND_Occluders2D 24
 // DDGI volume description - see ShaderUsage::GlobalIllumination.
 #define BIND_DDGIUniforms 25
-#define MAX_OCCLUDERS_2D 32
+#define MAX_OCCLUDERS_2D 64
 
 vec4 EncodeFloatRGBA( float v ) {
    vec4 enc = vec4(1.0, 255.0, 65025.0, 16581375.0) * v;
@@ -770,7 +770,18 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 // directional becomes the flat wash a 2D "sun" should be.
                 // Specular needs a real surface orientation to mean anything,
                 // so it goes to zero rather than to some arbitrary constant.
-                lightIntensity = 1.0;
+                //
+                // With a normal map there IS a surface orientation, per
+                // texel, and the light's height above the plane (its z) is
+                // what stops it being at grazing incidence: N.L comes back,
+                // against the mapped normal. A light at the sprite's own z
+                // then lights only the edges that face it, which is the
+                // look of a light held low.
+                #if defined(BUMPMAPPING)
+                    lightIntensity = max(dot(LightVec, Normal), 0.0);
+                #else
+                    lightIntensity = 1.0;
+                #endif
                 specularPower = 0.0;
             #else
                 float specularLight = 0.0;
@@ -1795,7 +1806,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
             vec3 Normal;
             #if defined(BUMPMAPPING) || defined(PARALLAXMAPPING)
-                Normal = normalize(transpose3(vTangentMatrix) * (texture_2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0)) * P3D_FACE_SIGN;
+                #ifdef LIGHTING2D
+                    // No face sign: a sprite is mirrored by flipping it, and
+                    // its tangents say which way it was flipped - turning the
+                    // normal over as well would light its back.
+                    Normal = normalize(transpose3(vTangentMatrix) * (texture_2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0));
+                #else
+                    Normal = normalize(transpose3(vTangentMatrix) * (texture_2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0)) * P3D_FACE_SIGN;
+                #endif
                 #if defined(DEFERRED_GBUFFER)
                     gbufferNormal.xyz = (vViewMatrix * vec4(Normal,0)).xyz;
                 #endif

@@ -45,6 +45,7 @@
 	#include "editor/UI/Character2DEditor.h"
 	#include "editor/Character2DDocument.h"
 	#include "editor/TileSetDocument.h"
+	#include "editor/SpriteSheetDocument.h"
 	#include "editor/MaterialPreview.h"
 	#include "editor/SceneEditor.h"
 #include "editor/ProjectManager.h"
@@ -243,6 +244,21 @@ protected:
 	bool OpenTileSetDocument(const std::string& absPath);
 	bool SaveTileSetDocument(TileSetDocument* doc);
 	TileSetDocument* FindTileSetDocumentByPath(const std::string& absPath);
+	// Sprite sheets (.p3ds), the same way - see EditorSpriteSheets.cpp.
+	void DrawSpriteSheetEditorWindows();
+	bool OpenSpriteSheetDocument(const std::string& absPath);
+	bool SaveSpriteSheetDocument(SpriteSheetDocument* doc);
+	SpriteSheetDocument* FindSpriteSheetDocumentByPath(const std::string& absPath);
+	// Makes <image>.p3ds beside an image if there is none yet.
+	bool CreateSpriteSheetFor(const std::string& imageRel, std::string& sheetRelOut, std::string& err);
+	// Packs loose images into one picture and a sheet beside it. `args` is
+	// pack_sprite_atlas's (see HandleSpriteSheetCommand); the folder menu
+	// passes {"folder": ...} and nothing else.
+	bool PackSpriteAtlas(const nlohmann::json& args, std::string& sheetRelOut, nlohmann::json* infoOut, std::string& err);
+	// The sprite sheet agent commands; false when `name` is not one of them.
+	bool HandleSpriteSheetCommand(const std::string& name, const nlohmann::json& a, nlohmann::json& r);
+	static void HostOpenSpriteSheet(const std::string& absPath);
+	static void HostCreateSpriteSheet(const std::string& imageRel, uint32 goId);
 	void RequestCloseCharacter2DDocument(Character2DDocument* doc, std::vector<uint32_t>& closeIds);
 	// Every texture in the project, for the sprite picker.
 	void BuildCharacter2DTextureChoices(std::vector<Character2DEditor::TextureChoice>& out) const;
@@ -309,7 +325,7 @@ private:
 	// own tracking: it only ever gets focus while a scene document is
 	// already the last-focused kind). Defaults to Scene so undo works
 	// immediately in the common case of a single scene document open.
-	enum class FocusedDocKind { Scene, Material, Animation, Character2D, TileSet };
+	enum class FocusedDocKind { Scene, Material, Animation, Character2D, TileSet, SpriteSheet };
 	FocusedDocKind lastFocusedDocKind = FocusedDocKind::Scene;
 	// Project-wide settings (name, renderer type) aren't "a document" the
 	// way a scene/material tab is, so they get their own small stack rather
@@ -410,6 +426,11 @@ private:
 	uint32 pendingSelectTileSetDocId = 0;
 	// The atlas uploaded for ImGui, one per open document, keyed by doc id.
 	std::map<uint32, std::shared_ptr<p3d::Texture> > tileSetAtlasTex;
+	std::vector<SpriteSheetDocument*> spriteSheetDocs;
+	SpriteSheetDocument* activeSpriteSheetDoc = nullptr;
+	uint32 nextSpriteSheetDocId = 1;
+	uint32 pendingSelectSpriteSheetDocId = 0;
+	std::map<uint32, std::shared_ptr<p3d::Texture> > spriteSheetTex;
 	Character2DDocument* activeCharacter2DDoc;
 	uint32 nextCharacter2DDocId;
 	uint32 pendingSelectCharacter2DDocId;

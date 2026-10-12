@@ -21,6 +21,8 @@
 #include <cctype>
 #include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Sprite2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
 #if defined(__EMSCRIPTEN__)
 #include <emscripten/html5.h>
 #endif
@@ -76,7 +78,7 @@ namespace {
 }
 // Kept small on purpose: the 2D shadow test is a loop per fragment per light,
 // so this is the budget that decides whether it is affordable at all.
-#define PYROS_MAX_OCCLUDERS_2D 32
+#define PYROS_MAX_OCCLUDERS_2D 64
 
 // Must match the array sizes declared in PyrosShader.glsl's
 // DirectionalShadowBlock/PointShadowBlock/SpotShadowBlock.
@@ -366,6 +368,55 @@ void IRenderer::GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const u
 	}
 }
 
+// What the see-through meshes are sorted by. Smallest first is NEAREST first,
+// and the list is turned round after, so the largest key is drawn first.
+//
+// Two things decide it. The sort order comes first: a mesh whose component
+// asks for a higher one is drawn over everything with a lower one, wherever
+// it sits - the way to say "this is in front" without spending depth on it.
+// Negated here so that a higher order sorts as nearer.
+//
+// Then how far away it is, and that depends on the camera. Under a
+// perspective camera it is the distance from the eye. Under an ORTHOGRAPHIC
+// one it has to be the depth along the view direction and nothing else:
+// every ray is parallel, so what is in front of what is a question about z
+// alone. Distance from the eye answers a different question there - a sprite
+// in the front layer at the edge of the screen is further from the eye than
+// one in the back layer at its middle, so it was drawn first and the back
+// layer went over it. Any wide 2D scene showed this: a foreground strip
+// drawn behind the level wherever it reached far enough to the side.
+namespace {
+	struct TranslucentSortKey {
+		Vec3 eye, forward;
+		bool viewDepth;
+		TranslucentSortKey(GameObject* Camera, const bool byViewDepth)
+		{
+			eye = Camera->GetWorldPosition();
+			viewDepth = byViewDepth;
+			if (viewDepth)
+			{
+				// The camera looks down its own -z.
+				const Matrix &w = Camera->GetWorldTransformation();
+				forward = Vec3(-w.m[8], -w.m[9], -w.m[10]).normalize();
+			}
+		}
+		std::pair<int32, f32> Of(const Vec3 &place, const int32 order) const
+		{
+			return std::make_pair(-order, viewDepth ? (place - eye).dotProduct(forward) : eye.distanceSQR(place));
+		}
+	};
+}
+
+bool IRenderer::SortsByViewDepth() const
+{
+	if (transparencySort == TransparencySort::ViewDepth) return true;
+	if (transparencySort == TransparencySort::Distance) return false;
+	// From the projection this renderer last drew with - PreRender() is not
+	// told this frame's. A perspective matrix has -1 in m[11]; an orthographic
+	// one has 0 there.
+	return projectionValid && projection.m.m[11] == 0.f;
+}
+
 // Nearest last, for drawing back to front (appended to the opaque list reversed).
 void IRenderer::SortTranslucent(GameObject* Camera, std::vector<RenderingMesh*> &_TranslucidMeshes)
 {
@@ -382,13 +433,16 @@ void IRenderer::SortTranslucent(GameObject* Camera, std::vector<RenderingMesh*> 
 	// every time it was asked: with a thousand panes of glass in a scene,
 	// tens of thousands of times a frame.)
 	{
-		const Vec3 eye = Camera->GetWorldPosition();
-		std::vector<std::pair<f32, RenderingMesh*> > keyed;
+		const TranslucentSortKey key(Camera, SortsByViewDepth());
+		std::vector<std::pair<std::pair<int32, f32>, RenderingMesh*> > keyed;
 		keyed.reserve(_TranslucidMeshes.size());
 		for (size_t k = 0; k < _TranslucidMeshes.size(); k++)
-			keyed.push_back(std::make_pair(eye.distanceSQR(_TranslucidMeshes[k]->renderingComponent->GetOwner()->GetWorldPosition()), _TranslucidMeshes[k]));
+		{
+			RenderingComponent* rc = _TranslucidMeshes[k]->renderingComponent;
+			keyed.push_back(std::make_pair(key.Of(rc->GetOwner()->GetWorldPosition(), rc->GetSortOrder()), _TranslucidMeshes[k]));
+		}
 		std::stable_sort(keyed.begin(), keyed.end(),
-			[](const std::pair<f32, RenderingMesh*> &x, const std::pair<f32, RenderingMesh*> &y) { return x.first < y.first; });
+			[](const std::pair<std::pair<int32, f32>, RenderingMesh*> &x, const std::pair<std::pair<int32, f32>, RenderingMesh*> &y) { return x.first < y.first; });
 		for (size_t k = 0; k < keyed.size(); k++) _TranslucidMeshes[k] = keyed[k].second;
 	}
 }
@@ -1740,10 +1794,10 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 	// round).
 	{
 		const size_t nOpaque = L.opaque.size(), nSeen = L.translucent.size();
-		const Vec3 eye = Camera->GetWorldPosition();
-		std::vector<std::pair<f32, uint32> > keyed(nSeen);
-		for (size_t k = 0; k < nSeen; k++) keyed[k] = std::make_pair(eye.distanceSQR(L.translucentPlace[k]), (uint32)k);
-		std::stable_sort(keyed.begin(), keyed.end(), [](const std::pair<f32, uint32> &x, const std::pair<f32, uint32> &y) { return x.first < y.first; });
+		const TranslucentSortKey key(Camera, SortsByViewDepth());
+		std::vector<std::pair<std::pair<int32, f32>, uint32> > keyed(nSeen);
+		for (size_t k = 0; k < nSeen; k++) keyed[k] = std::make_pair(key.Of(L.translucentPlace[k], L.translucent[k]->renderingComponent->GetSortOrder()), (uint32)k);
+		std::stable_sort(keyed.begin(), keyed.end(), [](const std::pair<std::pair<int32, f32>, uint32> &x, const std::pair<std::pair<int32, f32>, uint32> &y) { return x.first < y.first; });
 		rmesh.resize(nOpaque + nSeen);
 		cullSphere.resize(nOpaque + nSeen); cullFlags.resize(nOpaque + nSeen);
 		if (nOpaque)
@@ -2589,6 +2643,12 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 	FinishBeside();
 	BeginAutoInstancingFrame();
+
+	// Sprites that changed since this scene was last drawn get their quads
+	// now, and its batches re-merge - before the list below is made, since
+	// either can add or replace meshes. Nothing to do in a scene with none.
+	if (Scene != NULL) Sprite2D::FlushScene(Scene);
+	if (Scene != NULL) Line2D::FlushScene(Scene);
 
 	// Group and Sort Meshes
 	{
@@ -3471,6 +3531,8 @@ void IRenderer::ClearScreen()
 {
 	device->Clear(glBufferOptions);
 }
+
+uint32 IRenderer::MaxOccluders2D() { return PYROS_MAX_OCCLUDERS_2D; }
 
 void IRenderer::SetOccluders2D(const std::vector<Vec4>& segments)
 {

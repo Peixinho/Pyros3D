@@ -49,7 +49,12 @@ namespace SceneObjectTypes {
 		// selecting one in the tree is how its tools come up in the Tools
 		// window (terrain brushes, the tile palette).
 		TERRAIN_COMPONENT,
-		TILEMAP_COMPONENT
+		TILEMAP_COMPONENT,
+		// A 2D body and a 2D joint. Selecting the body is how its collider
+		// comes up for editing in the Scene View; either shows its own
+		// section of Properties and nothing else.
+		PHYSICS2D_COMPONENT,
+		JOINT2D_COMPONENT
 	};
 };
 
@@ -220,4 +225,12 @@ class SceneObjects
 		SceneObject* DuplicateGameObjectUnder(const uint32 id, const uint32 newParentId, Physics* physicsEngine);
 		uint32 _ID;
 		uint32 NextId(const std::vector<uint32>* preferred, size_t& cursor);
+	public:
+		// Brings an object's component rows into step with its components:
+		// a row for each that has none (one just added), and none for a row
+		// whose component is gone (one just removed - whose row would
+		// otherwise be a pointer to freed memory waiting to be clicked).
+		// `removedOut` gets the ids of the rows taken away.
+		void SyncComponentRows(const uint32 goId, std::vector<uint32>* removedOut = NULL);
+	private:
 };

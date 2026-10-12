@@ -73,6 +73,12 @@ namespace p3d {
 		// Gathers Occluder2D components and, separately, any Physics2D body
 		// that has not opted out.
 		static void PublishSceneOccluders(SceneGraph* Scene);
+		// The same, knowing what is on screen: (minX, minY, maxX, maxY) of
+		// the world in view. Only shapes that a light reaching that
+		// rectangle can reach are published - the segment budget is per
+		// fragment per light, so it is spent on the shadows that will be
+		// seen rather than on the first few shapes of the level.
+		static void PublishSceneOccluders(SceneGraph* Scene, const Vec4* viewRect);
 
 	private:
 

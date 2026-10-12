@@ -14,6 +14,7 @@
 #include "../FileDropHook.h"
 #include "../TextInputHook.h"
 #include "../CloseHook.h"
+#include "../GamepadHook.h"
 #include <cstdlib>
 #include <sstream>
 
@@ -298,9 +299,20 @@ namespace p3d {
     }
     void SDL2Context::GetEvents()
     {
+        // Brought up here rather than beside SDL_Init: it is its own
+        // subsystem, safe to ask for late, and this is the one place every
+        // path through the window manager reaches.
+        PyrosGamepad::Init();
         SDL_Event sdl_event;
 		while(SDL_PollEvent(&sdl_event) > 0) /* While there are more than 0 events in the queue */
 		{
+            // Game controllers: plugged in, pulled, buttons and sticks.
+            if (PyrosGamepad::HandleEvent(sdl_event,
+                [this](p3d::uint32 pad, p3d::uint32 b) { SetJoypadButtonPressed(pad, b); },
+                [this](p3d::uint32 pad, p3d::uint32 b) { SetJoypadButtonReleased(pad, b); },
+                [this](p3d::uint32 pad, p3d::uint32 axis, p3d::f32 v) { SetJoypadMove(pad, axis, v); }))
+                continue;
+
             // Process ImGui events first - guarded, not every example calls
             // BaseExample::InitImGui() (ParticlesExample didn't - see its
             // own fix), and this runs unconditionally for every example

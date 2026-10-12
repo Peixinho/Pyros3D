@@ -31,6 +31,7 @@ namespace p3d {
 		RegisterLuaRenderLate(lua);
 		RegisterLuaAssetsMid(lua);
 		RegisterLuaPhysicsLate(lua);
+		RegisterLua2D(lua);
 		RegisterLuaPostFX(lua);
 		RegisterLuaAssetsLate(lua);
 		RegisterLuaAudio(lua);

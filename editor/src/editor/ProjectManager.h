@@ -268,6 +268,7 @@ public:
 	static bool IsPrefabExtension(const std::string& path);    // .prefab
 	static bool IsCharacter2DExtension(const std::string& path); // .p3d2d
 	static bool IsTileSetExtension(const std::string& path);   // .p3dt
+	static bool IsSpriteSheetExtension(const std::string& path); // .p3ds
 	static bool IsFontExtension(const std::string& path);      // .ttf .otf .ttc
 	static bool IsUIStyleExtension(const std::string& path);   // .uistyle
 

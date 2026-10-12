@@ -588,6 +588,7 @@ namespace p3d {
 				Component->Owner = this;
 				// Change Flag
 				_ComponentsChanged = true;
+				RenderState::Structure++;
 				Wake();
 
 				if (Components.size() == 1)
@@ -648,6 +649,7 @@ namespace p3d {
 				Components.erase(i);
 				// Change Flag
 				_ComponentsChanged = true;
+				RenderState::Structure++;
 				Wake();
 
 				found = true;
@@ -692,6 +694,22 @@ namespace p3d {
 		}
 	}
 
+	bool GameObject::MoveChild(GameObject* Child, const size_t index)
+	{
+		for (size_t i = 0; i < _Childs.size(); i++)
+		{
+			if (_Childs[i].get() != Child) continue;
+			const size_t to = index < _Childs.size() - 1 ? index : _Childs.size() - 1;
+			if (to == i) return true;
+			std::shared_ptr<GameObject> held = _Childs[i];
+			_Childs.erase(_Childs.begin() + (std::ptrdiff_t)i);
+			_Childs.insert(_Childs.begin() + (std::ptrdiff_t)to, held);
+			RenderState::Structure++;
+			return true;
+		}
+		return false;
+	}
+
 	void GameObject::Add(const std::shared_ptr<GameObject> &Child)
 	{
 		if (!Child)
@@ -733,6 +751,7 @@ namespace p3d {
 			if (found) echo("ERROR: GameObject Already Added");
 			else {
 				_Childs.push_back(Child);
+				RenderState::Structure++;
 				Child->Wake();
 				Wake();
 				// The scene registers components lazily, only when this flag
@@ -780,6 +799,7 @@ namespace p3d {
 					KeepUntilDrawn(*i);
 					_Childs.erase(i);
 					found = true;
+					RenderState::Structure++;
 					Wake();
 					echo("TRACE: GameObject Removed as a Child");
 					break;

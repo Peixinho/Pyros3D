@@ -1,0 +1,534 @@
+//============================================================================
+// Name        : SceneEditorShapes2D.cpp
+// Description : The editor's side of two 2D components that are shapes and
+//               nothing more: SpriteMask2D (what sprites are shown inside
+//               or outside of) and Line2D (a line with width, or a trail).
+//               Their add operations, Properties sections, the outline a
+//               mask is given in the Scene View, and the commands that do
+//               the same from outside.
+//============================================================================
+
+#include "SceneEditor.h"
+#include "SceneCommands.h"
+#include <Pyros3D/Rendering/Components/Sprite2D/Sprite2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
+#include <imgui.h>
+#include <algorithm>
+#include <cmath>
+#include <map>
+
+using namespace p3d;
+
+namespace {
+
+	template <typename T>
+	T* FindComponent(GameObject* go, const uint32 type)
+	{
+		if (!go) return NULL;
+		const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++)
+			if (comps[i] && comps[i]->GetComponentType() == type)
+				return static_cast<T*>(comps[i].get());
+		return NULL;
+	}
+
+	SceneObject* FindObjectByName(SceneObjects* so, const std::string& name)
+	{
+		const std::map<uint32, SceneObject*>& list = so->GetList();
+		for (std::map<uint32, SceneObject*>::const_iterator i = list.begin(); i != list.end(); i++)
+			if (i->second && i->second->GetType() == SceneObjectTypes::GAMEOBJECT && i->second->GetName() == name)
+				return i->second;
+		return NULL;
+	}
+
+	std::string Lower(std::string s)
+	{
+		for (size_t i = 0; i < s.size(); i++) s[i] = (char)tolower((unsigned char)s[i]);
+		return s;
+	}
+
+	const char* const kMaskShapes[] = { "rect", "circle", "polygon" };
+
+	// [[x, y], ...] or a flat [x, y, x, y, ...].
+	bool PointsFrom(const json& a, std::vector<Vec2>& out)
+	{
+		out.clear();
+		if (!a.is_array()) return false;
+		if (!a.empty() && a[0].is_array())
+		{
+			for (size_t i = 0; i < a.size(); i++)
+			{
+				if (!a[i].is_array() || a[i].size() < 2) return false;
+				out.push_back(Vec2(a[i][0].get<f32>(), a[i][1].get<f32>()));
+			}
+		}
+		else
+			for (size_t i = 0; i + 1 < a.size(); i += 2) out.push_back(Vec2(a[i].get<f32>(), a[i + 1].get<f32>()));
+		return true;
+	}
+	bool ColorFrom(const json& a, Vec4& out)
+	{
+		if (!a.is_array() || a.size() < 3) return false;
+		out = Vec4(a[0].get<f32>(), a[1].get<f32>(), a[2].get<f32>(), a.size() >= 4 ? a[3].get<f32>() : 1.f);
+		return true;
+	}
+}
+
+// --- masks -----------------------------------------------------------------
+
+bool SceneEditor::OpAddSpriteMask2D(uint32 goId, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "not a game object"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (FindComponent<SpriteMask2D>(go, ComponentType::SpriteMask2D)) { errOut = "this object already has a sprite mask"; return false; }
+	const std::string before = SnapshotSubtree(goId);
+	std::shared_ptr<SpriteMask2D> mk = std::make_shared<SpriteMask2D>();
+	// On a sprite it starts as that sprite's own rectangle, which is the
+	// shape most often wanted: "show what is behind this panel".
+	if (Sprite2D* sp = FindComponent<Sprite2D>(go, ComponentType::Sprite2D))
+	{
+		const Vec4 r = sp->GetLocalRect();
+		if (r.z - r.x > 1e-4f && r.w - r.y > 1e-4f)
+		{
+			mk->SetSize(Vec2(r.z - r.x, r.w - r.y));
+			mk->SetOffset(Vec2((r.x + r.z) * 0.5f, (r.y + r.w) * 0.5f));
+		}
+	}
+	go->Add(std::static_pointer_cast<IComponent>(mk));
+	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Add Sprite Mask");
+	return true;
+}
+
+void SceneEditor::DrawSpriteMask2DProperties(uint32 goId, SpriteMask2D* mk)
+{
+	ImGui::Text("Sprite Mask");
+	bool en = mk->IsEnabled();
+	{
+		const std::string b = SnapshotSubtree(goId);
+		if (ImGui::Checkbox("Enabled##mask", &en)) { mk->SetEnabled(en); MarkSceneDirty(); PushReplaceCommand(goId, b, "Toggle Sprite Mask"); }
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Off, the sprites that use it are drawn whole.");
+
+	int shape = mk->GetShape();
+	const char* shapes[] = { "Rectangle", "Circle", "Polygon" };
+	{
+		const std::string b = SnapshotSubtree(goId);
+		if (ImGui::Combo("Shape##mask", &shape, shapes, 3))
+		{
+			if (shape == SpriteMaskShape2D::Polygon && mk->GetPolygon().size() < 3)
+			{
+				const f32 hx = std::max(0.05f, mk->GetSize().x * 0.5f), hy = std::max(0.05f, mk->GetSize().y * 0.5f);
+				std::vector<Vec2> pts;
+				pts.push_back(Vec2(-hx, -hy)); pts.push_back(Vec2(hx, -hy)); pts.push_back(Vec2(hx, hy)); pts.push_back(Vec2(-hx, hy));
+				mk->SetPolygon(pts);
+			}
+			mk->SetShape(shape);
+			MarkSceneDirty();
+			PushReplaceCommand(goId, b, "Set Mask Shape");
+		}
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("The mask is an outline, not a picture: sprites are cut to it before\nthey are drawn. Which sprites: those whose Mask is set to Inside or\nOutside, and that are under this object in the tree - or name it.");
+
+	if (mk->GetShape() == SpriteMaskShape2D::Polygon)
+	{
+		std::vector<Vec2> pts = mk->GetPolygon();
+		ImGui::TextDisabled("%d points (local space, convex)", (int)pts.size());
+		bool changed = false, structural = false;
+		for (size_t k = 0; k < pts.size(); k++)
+		{
+			ImGui::PushID((int)(3000 + k));
+			ImGui::SetNextItemWidth(150);
+			BeginComponentUndo(goId);
+			if (ImGui::DragFloat2("##mpt", (float*)&pts[k], 0.01f)) changed = true;
+			EndComponentUndo(goId, "Move Mask Point");
+			ImGui::SameLine();
+			if (pts.size() > 3 && ImGui::SmallButton("x")) { pts.erase(pts.begin() + (std::ptrdiff_t)k); structural = true; ImGui::PopID(); break; }
+			ImGui::PopID();
+		}
+		if (pts.size() < 16 && ImGui::SmallButton("Add Point##mask"))
+		{
+			const Vec2 a = pts.back(), b = pts.front();
+			Vec2 mid((a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f);
+			const Vec2 out(b.y - a.y, -(b.x - a.x));
+			const f32 len = sqrtf(out.x * out.x + out.y * out.y);
+			if (len > 1e-5f) mid = Vec2(mid.x + out.x / len * 0.1f, mid.y + out.y / len * 0.1f);
+			pts.push_back(mid);
+			structural = true;
+		}
+		if (changed || structural)
+		{
+			const std::string b = structural ? SnapshotSubtree(goId) : std::string();
+			if (mk->SetPolygon(pts)) { MarkSceneDirty(); if (structural) PushReplaceCommand(goId, b, "Edit Mask Polygon"); }
+			else ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "That would not be convex - not applied.");
+		}
+	}
+	else
+	{
+		Vec2 sz = mk->GetSize();
+		BeginComponentUndo(goId);
+		if (mk->GetShape() == SpriteMaskShape2D::Circle)
+		{
+			if (ImGui::DragFloat("Diameter", &sz.x, 0.01f, 0.f, 10000.f)) { mk->SetSize(Vec2(sz.x, sz.x)); MarkSceneDirty(); }
+		}
+		else if (ImGui::DragFloat2("Size##mask", (float*)&sz, 0.01f, 0.f, 10000.f)) { mk->SetSize(sz); MarkSceneDirty(); }
+		EndComponentUndo(goId, "Set Mask Size");
+	}
+	Vec2 off = mk->GetOffset();
+	BeginComponentUndo(goId);
+	if (ImGui::DragFloat2("Offset##mask", (float*)&off, 0.01f)) { mk->SetOffset(off); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Mask Offset");
+}
+
+// The outline of every mask on the selected object or above it, and of the
+// mask a selected sprite is cut by: a mask draws nothing, so without this it
+// is a shape nobody can see.
+void SceneEditor::DrawShapes2DOverlay()
+{
+	if (!debugRenderer || playMode || SelectedSceneObject == NULL
+		|| SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+	GameObject* go = (GameObject*)SelectedSceneObject->GetPTR();
+	std::vector<SpriteMask2D*> show;
+	if (SpriteMask2D* own = FindComponent<SpriteMask2D>(go, ComponentType::SpriteMask2D)) show.push_back(own);
+	if (Sprite2D* sp = FindComponent<Sprite2D>(go, ComponentType::Sprite2D))
+		if (sp->GetMaskInteraction() != Sprite2D::MaskNone)
+			if (SpriteMask2D* used = SpriteMask2D::Find(go, sp->GetMaskName()))
+				if (std::find(show.begin(), show.end(), used) == show.end()) show.push_back(used);
+	for (size_t k = 0; k < show.size(); k++)
+	{
+		std::vector<Vec2> o;
+		show[k]->WorldOutline(o);
+		const Vec4 col = show[k]->IsEnabled() ? Vec4(1.f, 0.45f, 0.9f, 1.f) : Vec4(1.f, 0.45f, 0.9f, 0.35f);
+		for (size_t i = 0; i < o.size(); i++)
+			debugRenderer->drawLine(Vec3(o[i].x, o[i].y, 0.f), Vec3(o[(i + 1) % o.size()].x, o[(i + 1) % o.size()].y, 0.f), col);
+	}
+}
+
+bool SceneEditor::AgentApplySpriteMask(SpriteMask2D* mk, const json& p, std::string& errOut)
+{
+	static const char* known[] = { "object", "name", "shape", "size", "diameter", "offset", "polygon", "enabled", NULL };
+	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
+	{
+		bool ok = false;
+		for (int k = 0; known[k] && !ok; k++) ok = (it.key() == known[k]);
+		if (!ok) { errOut = "unknown key '" + it.key() + "'"; return false; }
+	}
+	try {
+		if (p.contains("size"))
+		{
+			if (!p["size"].is_array() || p["size"].size() < 2) { errOut = "size must be [width, height]"; return false; }
+			mk->SetSize(Vec2(p["size"][0].get<f32>(), p["size"][1].get<f32>()));
+		}
+		if (p.contains("diameter")) { const f32 d = p["diameter"].get<f32>(); mk->SetSize(Vec2(d, d)); }
+		if (p.contains("offset"))
+		{
+			if (!p["offset"].is_array() || p["offset"].size() < 2) { errOut = "offset must be [x, y]"; return false; }
+			mk->SetOffset(Vec2(p["offset"][0].get<f32>(), p["offset"][1].get<f32>()));
+		}
+		if (p.contains("polygon"))
+		{
+			std::vector<Vec2> pts;
+			if (!PointsFrom(p["polygon"], pts) || !mk->SetPolygon(pts))
+			{ errOut = "polygon must be 3 to 16 points making a convex outline"; return false; }
+			if (!p.contains("shape")) mk->SetShape(SpriteMaskShape2D::Polygon);
+		}
+		if (p.contains("shape"))
+		{
+			const std::string sh = Lower(p["shape"].get<std::string>());
+			int found = -1;
+			for (int i = 0; i < 3; i++) if (sh == kMaskShapes[i]) found = i;
+			if (found < 0) { errOut = "shape must be rect, circle or polygon"; return false; }
+			if (found == SpriteMaskShape2D::Polygon && mk->GetPolygon().size() < 3) { errOut = "a polygon mask needs `polygon`: its points"; return false; }
+			mk->SetShape(found);
+		}
+		if (p.contains("enabled")) mk->SetEnabled(p["enabled"].get<bool>());
+	}
+	catch (const std::exception& e) { errOut = std::string("bad value: ") + e.what(); return false; }
+	return true;
+}
+
+json SceneEditor::AgentSpriteMaskInfo(const std::string& name, std::string& errOut)
+{
+	json r;
+	SceneObject* obj = FindObjectByName(sceneObjects, name);
+	if (!obj) { errOut = "object '" + name + "' not found"; return r; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	SpriteMask2D* mk = FindComponent<SpriteMask2D>(go, ComponentType::SpriteMask2D);
+	if (!mk) { errOut = "'" + name + "' has no SpriteMask2D"; return r; }
+	r["shape"] = kMaskShapes[mk->GetShape() <= 2 ? mk->GetShape() : 0];
+	r["size"] = { mk->GetSize().x, mk->GetSize().y };
+	r["offset"] = { mk->GetOffset().x, mk->GetOffset().y };
+	r["enabled"] = mk->IsEnabled();
+	json pts = json::array();
+	for (size_t i = 0; i < mk->GetPolygon().size(); i++) pts.push_back({ mk->GetPolygon()[i].x, mk->GetPolygon()[i].y });
+	r["polygon"] = pts;
+	std::vector<Vec2> o;
+	mk->WorldOutline(o);
+	json wo = json::array();
+	for (size_t i = 0; i < o.size() && i < 16; i++) wo.push_back({ o[i].x, o[i].y });
+	r["worldOutline"] = wo;
+	// Which sprites it is cutting, so "why is nothing masked" has an answer.
+	json users = json::array();
+	const std::map<uint32, SceneObject*>& list = sceneObjects->GetList();
+	for (std::map<uint32, SceneObject*>::const_iterator i = list.begin(); i != list.end(); ++i)
+	{
+		if (!i->second || i->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+		GameObject* o2 = (GameObject*)i->second->GetPTR();
+		Sprite2D* sp = FindComponent<Sprite2D>(o2, ComponentType::Sprite2D);
+		if (sp && sp->GetMaskInteraction() != Sprite2D::MaskNone && SpriteMask2D::Find(o2, sp->GetMaskName()) == mk)
+			users.push_back(i->second->GetName());
+	}
+	r["sprites"] = users;
+	return r;
+}
+
+bool SceneEditor::AgentAddSpriteMask(const std::string& name, const json& p, std::string& errOut)
+{
+	if (playMode) { errOut = "editor is in play mode"; return false; }
+	SceneObject* obj = FindObjectByName(sceneObjects, name);
+	if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+	const std::string before = SnapshotSubtree(obj->GetID());
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (FindComponent<SpriteMask2D>(go, ComponentType::SpriteMask2D)) { errOut = "this object already has a sprite mask"; return false; }
+	std::shared_ptr<SpriteMask2D> mk = std::make_shared<SpriteMask2D>();
+	if (!AgentApplySpriteMask(mk.get(), p.is_object() ? p : json::object(), errOut)) return false;
+	go->Add(std::static_pointer_cast<IComponent>(mk));
+	MarkSceneDirty();
+	PushReplaceCommand(obj->GetID(), before, "Add Sprite Mask");
+	return true;
+}
+
+bool SceneEditor::AgentSetSpriteMask(const std::string& name, const json& p, std::string& errOut)
+{
+	if (playMode) { errOut = "editor is in play mode"; return false; }
+	SceneObject* obj = FindObjectByName(sceneObjects, name);
+	if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+	SpriteMask2D* mk = FindComponent<SpriteMask2D>((GameObject*)obj->GetPTR(), ComponentType::SpriteMask2D);
+	if (!mk) { errOut = "'" + name + "' has no SpriteMask2D - add_sprite_mask first"; return false; }
+	const std::string before = SnapshotSubtree(obj->GetID());
+	const uint32 rev = mk->GetRevision();
+	if (!AgentApplySpriteMask(mk, p, errOut)) return false;
+	if (mk->GetRevision() != rev) { MarkSceneDirty(); PushReplaceCommand(obj->GetID(), before, "Set Sprite Mask"); }
+	return true;
+}
+
+// --- lines -----------------------------------------------------------------
+
+bool SceneEditor::OpAddLine2D(uint32 goId, std::string& errOut)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(goId);
+	if (!obj || obj->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "not a game object"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (FindComponent<Line2D>(go, ComponentType::Line2D)) { errOut = "this object already has a line"; return false; }
+	if (FindComponent<Sprite2D>(go, ComponentType::Sprite2D) || FindComponent<SpriteBatch2D>(go, ComponentType::SpriteBatch2D))
+	{
+		// Each draws through the object's one RenderingComponent.
+		errOut = "a line and a sprite cannot share an object - put the line on a child";
+		return false;
+	}
+	const std::string before = SnapshotSubtree(goId);
+	std::shared_ptr<Line2D> ln = std::make_shared<Line2D>();
+	// Something to see and to edit, rather than a component that draws
+	// nothing until its points are typed in.
+	std::vector<Vec2> pts;
+	pts.push_back(Vec2(-1.f, 0.f)); pts.push_back(Vec2(1.f, 0.f));
+	ln->SetPoints(pts);
+	go->Add(std::static_pointer_cast<IComponent>(ln));
+	MarkSceneDirty();
+	PushReplaceCommand(goId, before, "Add Line");
+	return true;
+}
+
+void SceneEditor::DrawLine2DProperties(uint32 goId, Line2D* ln)
+{
+	ImGui::Text("Line 2D");
+	bool trail = ln->IsTrail();
+	{
+		const std::string b = SnapshotSubtree(goId);
+		if (ImGui::Checkbox("Trail", &trail)) { ln->SetTrail(trail); MarkSceneDirty(); PushReplaceCommand(goId, b, "Toggle Trail"); }
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Off, the line is the points below. On, it is the path this object\nhas just taken: laid down behind it as it moves and fading out.\nA trail lays nothing in the editor - press Play.");
+
+	f32 w[2] = { ln->GetStartWidth(), ln->GetEndWidth() };
+	BeginComponentUndo(goId);
+	if (ImGui::DragFloat2(trail ? "Width head / tail" : "Width start / end", w, 0.005f, 0.f, 1000.f)) { ln->SetWidth(w[0], w[1]); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Line Width");
+	Vec4 c0 = ln->GetStartColor(), c1 = ln->GetEndColor();
+	BeginComponentUndo(goId);
+	if (ImGui::ColorEdit4(trail ? "Head colour" : "Start colour", (float*)&c0)) { ln->SetColors(c0, c1); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Line Colour");
+	BeginComponentUndo(goId);
+	if (ImGui::ColorEdit4(trail ? "Tail colour" : "End colour", (float*)&c1)) { ln->SetColors(c0, c1); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Line Colour");
+	bool add = ln->IsAdditive();
+	{
+		const std::string b = SnapshotSubtree(goId);
+		if (ImGui::Checkbox("Additive", &add)) { ln->SetAdditive(add); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Line Blend"); }
+	}
+	if (ImGui::IsItemHovered())
+		ImGui::SetTooltip("Added to what is behind it rather than laid over it: a laser,\na spark, anything that is light.");
+	int order = ln->GetSortOrder();
+	BeginComponentUndo(goId);
+	if (ImGui::DragInt("Sort Order##line", &order, 0.1f)) { ln->SetSortOrder(order); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Line Sort Order");
+
+	if (trail)
+	{
+		f32 life = ln->GetTrailLifetime(), dist = ln->GetTrailMinDistance();
+		BeginComponentUndo(goId);
+		if (ImGui::DragFloat("Lifetime (s)", &life, 0.01f, 0.01f, 60.f)) { ln->SetTrailLifetime(life); MarkSceneDirty(); }
+		EndComponentUndo(goId, "Set Trail Lifetime");
+		BeginComponentUndo(goId);
+		if (ImGui::DragFloat("Point every", &dist, 0.005f, 0.001f, 100.f)) { ln->SetTrailMinDistance(dist); MarkSceneDirty(); }
+		EndComponentUndo(goId, "Set Trail Spacing");
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("How far the object travels between points. Smaller is a smoother\ncurve and more quads.");
+		return;
+	}
+
+	bool closed = ln->IsClosed();
+	{
+		const std::string b = SnapshotSubtree(goId);
+		if (ImGui::Checkbox("Closed", &closed)) { ln->SetClosed(closed); MarkSceneDirty(); PushReplaceCommand(goId, b, "Close Line"); }
+	}
+	std::vector<Vec2> pts = ln->GetPoints();
+	ImGui::TextDisabled("%d points (local space)", (int)pts.size());
+	bool changed = false, structural = false;
+	const size_t shown = pts.size() > 16 ? 16 : pts.size();
+	for (size_t k = 0; k < shown; k++)
+	{
+		ImGui::PushID((int)(4000 + k));
+		ImGui::SetNextItemWidth(150);
+		BeginComponentUndo(goId);
+		if (ImGui::DragFloat2("##lpt", (float*)&pts[k], 0.01f)) changed = true;
+		EndComponentUndo(goId, "Move Line Point");
+		ImGui::SameLine();
+		if (pts.size() > 2 && ImGui::SmallButton("x")) { pts.erase(pts.begin() + (std::ptrdiff_t)k); structural = true; ImGui::PopID(); break; }
+		ImGui::PopID();
+	}
+	if (pts.size() > shown) ImGui::TextDisabled("... and %d more", (int)(pts.size() - shown));
+	if (ImGui::SmallButton("Add Point##line"))
+	{
+		if (pts.size() >= 2)
+		{
+			const Vec2 a = pts[pts.size() - 2], b = pts.back();
+			pts.push_back(Vec2(b.x + (b.x - a.x), b.y + (b.y - a.y)));
+		}
+		else pts.push_back(pts.empty() ? Vec2(0.f, 0.f) : Vec2(pts.back().x + 1.f, pts.back().y));
+		structural = true;
+	}
+	if (changed || structural)
+	{
+		const std::string b = structural ? SnapshotSubtree(goId) : std::string();
+		ln->SetPoints(pts);
+		MarkSceneDirty();
+		if (structural) PushReplaceCommand(goId, b, "Edit Line Points");
+	}
+}
+
+bool SceneEditor::AgentApplyLine2D(Line2D* ln, const json& p, std::string& errOut)
+{
+	static const char* known[] = { "object", "name", "points", "closed", "width", "color", "colorStart", "colorEnd",
+		"additive", "sortOrder", "trail", "lifetime", "minDistance", "emitting", "clearTrail", NULL };
+	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
+	{
+		bool ok = false;
+		for (int k = 0; known[k] && !ok; k++) ok = (it.key() == known[k]);
+		if (!ok) { errOut = "unknown key '" + it.key() + "'"; return false; }
+	}
+	try {
+		if (p.contains("points"))
+		{
+			std::vector<Vec2> pts;
+			if (!PointsFrom(p["points"], pts)) { errOut = "points must be [[x, y], ...]"; return false; }
+			ln->SetPoints(pts);
+		}
+		if (p.contains("closed")) ln->SetClosed(p["closed"].get<bool>());
+		if (p.contains("width"))
+		{
+			// One number for an even line, two for one that tapers.
+			if (p["width"].is_number()) { const f32 w = p["width"].get<f32>(); ln->SetWidth(w, w); }
+			else if (p["width"].is_array() && p["width"].size() >= 2) ln->SetWidth(p["width"][0].get<f32>(), p["width"][1].get<f32>());
+			else { errOut = "width must be a number or [start, end]"; return false; }
+		}
+		Vec4 c0 = ln->GetStartColor(), c1 = ln->GetEndColor();
+		bool colours = false;
+		if (p.contains("color")) { if (!ColorFrom(p["color"], c0)) { errOut = "color must be [r, g, b, a]"; return false; } c1 = c0; colours = true; }
+		if (p.contains("colorStart")) { if (!ColorFrom(p["colorStart"], c0)) { errOut = "colorStart must be [r, g, b, a]"; return false; } colours = true; }
+		if (p.contains("colorEnd")) { if (!ColorFrom(p["colorEnd"], c1)) { errOut = "colorEnd must be [r, g, b, a]"; return false; } colours = true; }
+		if (colours) ln->SetColors(c0, c1);
+		if (p.contains("additive")) ln->SetAdditive(p["additive"].get<bool>());
+		if (p.contains("sortOrder")) ln->SetSortOrder(p["sortOrder"].get<int>());
+		if (p.contains("lifetime")) ln->SetTrailLifetime(p["lifetime"].get<f32>());
+		if (p.contains("minDistance")) ln->SetTrailMinDistance(p["minDistance"].get<f32>());
+		if (p.contains("trail")) ln->SetTrail(p["trail"].get<bool>());
+		if (p.contains("emitting")) ln->SetEmitting(p["emitting"].get<bool>());
+		if (p.value("clearTrail", false)) ln->ClearTrail();
+	}
+	catch (const std::exception& e) { errOut = std::string("bad value: ") + e.what(); return false; }
+	return true;
+}
+
+json SceneEditor::AgentLine2DInfo(const std::string& name, std::string& errOut)
+{
+	json r;
+	SceneObject* obj = FindObjectByName(sceneObjects, name);
+	if (!obj) { errOut = "object '" + name + "' not found"; return r; }
+	Line2D* ln = FindComponent<Line2D>((GameObject*)obj->GetPTR(), ComponentType::Line2D);
+	if (!ln) { errOut = "'" + name + "' has no Line2D"; return r; }
+	json pts = json::array();
+	for (size_t i = 0; i < ln->GetPoints().size(); i++) pts.push_back({ ln->GetPoints()[i].x, ln->GetPoints()[i].y });
+	r["points"] = pts;
+	r["closed"] = ln->IsClosed();
+	r["width"] = { ln->GetStartWidth(), ln->GetEndWidth() };
+	r["colorStart"] = { ln->GetStartColor().x, ln->GetStartColor().y, ln->GetStartColor().z, ln->GetStartColor().w };
+	r["colorEnd"] = { ln->GetEndColor().x, ln->GetEndColor().y, ln->GetEndColor().z, ln->GetEndColor().w };
+	r["additive"] = ln->IsAdditive();
+	r["sortOrder"] = ln->GetSortOrder();
+	r["trail"] = ln->IsTrail();
+	r["lifetime"] = ln->GetTrailLifetime();
+	r["minDistance"] = ln->GetTrailMinDistance();
+	r["emitting"] = ln->IsEmitting();
+	// How many points a running trail has laid down: zero in the editor,
+	// and zero while its object stands still.
+	r["trailPoints"] = ln->TrailPointCount();
+	return r;
+}
+
+bool SceneEditor::AgentAddLine2D(const std::string& name, const json& p, std::string& errOut)
+{
+	if (playMode) { errOut = "editor is in play mode"; return false; }
+	SceneObject* obj = FindObjectByName(sceneObjects, name);
+	if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (FindComponent<Line2D>(go, ComponentType::Line2D)) { errOut = "this object already has a line"; return false; }
+	if (FindComponent<Sprite2D>(go, ComponentType::Sprite2D) || FindComponent<SpriteBatch2D>(go, ComponentType::SpriteBatch2D))
+	{ errOut = "a line and a sprite cannot share an object - put the line on a child"; return false; }
+	const std::string before = SnapshotSubtree(obj->GetID());
+	std::shared_ptr<Line2D> ln = std::make_shared<Line2D>();
+	if (!AgentApplyLine2D(ln.get(), p.is_object() ? p : json::object(), errOut)) return false;
+	go->Add(std::static_pointer_cast<IComponent>(ln));
+	MarkSceneDirty();
+	PushReplaceCommand(obj->GetID(), before, "Add Line");
+	return true;
+}
+
+bool SceneEditor::AgentSetLine2D(const std::string& name, const json& p, std::string& errOut)
+{
+	SceneObject* obj = FindObjectByName(sceneObjects, name);
+	if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+	Line2D* ln = FindComponent<Line2D>((GameObject*)obj->GetPTR(), ComponentType::Line2D);
+	if (!ln) { errOut = "'" + name + "' has no Line2D - add_line2d first"; return false; }
+	// Playing, it pokes the running line and records nothing - the way to
+	// stop a trail emitting or clear one from outside.
+	const std::string before = playMode ? std::string() : SnapshotSubtree(obj->GetID());
+	if (!AgentApplyLine2D(ln, p, errOut)) return false;
+	if (!playMode) { MarkSceneDirty(); PushReplaceCommand(obj->GetID(), before, "Set Line"); }
+	return true;
+}

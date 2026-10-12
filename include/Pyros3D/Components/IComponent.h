@@ -91,7 +91,23 @@ namespace p3d {
 			// A terrain: one object that streams its own tiles in around
 			// the viewers and draws the rest from a baked overview. See
 			// TerrainComponent.h.
-			Terrain
+			Terrain,
+			// A sprite: one frame of a sprite sheet, with a tint, a flip and
+			// clips to play. Holds the description; the quads live on a
+			// sibling RenderingComponent or in a batch. See Sprite2D.h.
+			Sprite2D,
+			// Merges the sprites beneath its object into one draw call per
+			// run of sprites sharing a texture. See SpriteBatch2D.h.
+			SpriteBatch2D,
+			// Ties this object's 2D body to another's, or to the world: a
+			// hinge, a rope, a rail. See Joint2D.h.
+			Joint2D,
+			// A shape that sprites are shown only inside (or only outside)
+			// of: a window, a porthole, a health bar's fill. See SpriteMask2D.h.
+			SpriteMask2D,
+			// A line with width, drawn through a list of points - or laid
+			// down behind a moving object as a trail. See Line2D.h.
+			Line2D
 		};
 	}
 

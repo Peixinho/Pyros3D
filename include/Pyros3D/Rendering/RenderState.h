@@ -37,6 +37,11 @@ namespace p3d {
 	struct PYROS3D_API RenderState
 	{
 		static std::atomic<uint32_t> Version;
+		// Goes up whenever the TREE changes shape: a child added to or taken
+		// from an object, a component added or removed. For anything that
+		// keeps a list of what is beneath an object (a sprite batch) and
+		// wants to know, without walking the tree, that it is still right.
+		static std::atomic<uint64_t> Structure;
 		// (PYROS_TRACE_TOUCH=1 prints who has been calling it, now and then.)
 		static void Touch();
 

@@ -370,6 +370,45 @@ end
 				);
 		}
 
+		// Held state, by asking. The Input object above is event-based - it
+		// says when a key goes down and when it comes up - and every game
+		// with a character in it then keeps its own table of which keys are
+		// held, built from those two events. This is that table.
+		lua->set_function("isKeyDown", [](const uint32 key) { return InputManager::IsKeyDown(key); });
+		lua->set_function("isMouseButtonDown", [](const uint32 button) { return InputManager::IsMouseButtonDown(button); });
+
+		// Game controllers. A pad is 0-7 (0 is the first plugged in); buttons
+		// and axes use one layout for every recognised pad:
+		//
+		//   local x = gamepad.axis(0, GamepadAxis.LeftX)       -- -1..1
+		//   if gamepad.isDown(0, GamepadButton.A) then jump() end
+		//
+		// Sticks read +1 UP and +1 RIGHT; triggers 0..1. A stick at rest is
+		// rarely exactly 0, so axis() takes an optional dead zone (0.15 by
+		// default) below which it reads 0.
+		lua->create_named_table("GamepadButton",
+			"A", 0, "B", 1, "X", 2, "Y", 3, "Back", 4, "Guide", 5, "Start", 6,
+			"LeftStick", 7, "RightStick", 8, "LeftShoulder", 9, "RightShoulder", 10,
+			"DpadUp", 11, "DpadDown", 12, "DpadLeft", 13, "DpadRight", 14);
+		lua->create_named_table("GamepadAxis",
+			"LeftX", 0, "LeftY", 1, "RightX", 2, "RightY", 3, "LeftTrigger", 4, "RightTrigger", 5);
+		{
+			sol::table g = lua->create_named_table("gamepad");
+			g.set_function("isConnected", [](sol::optional<uint32> pad) { return InputManager::IsJoypadConnected(pad ? *pad : 0u); });
+			g.set_function("name", [](sol::optional<uint32> pad) { return InputManager::GetJoypadName(pad ? *pad : 0u); });
+			g.set_function("isDown", [](const uint32 pad, const uint32 button) { return InputManager::IsJoypadButtonDown(pad, button); });
+			g.set_function("axis", [](const uint32 pad, const uint32 axis, sol::optional<f32> deadZone) {
+				const f32 v = InputManager::GetJoypadAxis(pad, axis);
+				const f32 dz = deadZone ? *deadZone : 0.15f;
+				if (fabsf(v) <= dz) return 0.f;
+				// Rescaled, so the value still reaches from 0 at the edge of
+				// the dead zone to 1 at the stop instead of jumping to 0.15.
+				const f32 k = (fabsf(v) - dz) / (1.f - dz);
+				return v < 0.f ? -k : k;
+			});
+			g.set_function("count", []() { uint32 n = 0; for (uint32 i = 0; i < 8; i++) if (InputManager::IsJoypadConnected(i)) n++; return n; });
+		}
+
 		lua->set_function("getMousePosition", []() {
 			Vec2 p = InputManager::GetMousePosition();
 			return std::make_tuple(p.x, p.y);

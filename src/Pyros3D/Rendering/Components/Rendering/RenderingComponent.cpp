@@ -942,6 +942,7 @@ namespace p3d {
 	std::atomic<uint32> RenderingComponent::SeenEpoch(0);
 
 	std::atomic<uint32_t> RenderState::Version(1);
+	std::atomic<uint64_t> RenderState::Structure(1);
 	std::atomic<uint32_t> RenderState::ReadEpoch(1);
 	namespace {
 		// The last so many objects moved, and how many there have ever been.

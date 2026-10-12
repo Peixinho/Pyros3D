@@ -252,9 +252,20 @@ namespace p3d {
 		// set is per scene, not per renderer, and clearing it (an empty
 		// vector) turns 2D shadows off with no other state to unwind.
 		static void SetOccluders2D(const std::vector<Vec4> &segments);
+		// How many segments fit - the size of the array the shader loops over.
+		static uint32 MaxOccluders2D();
 		static const std::vector<Vec4> &GetOccluders2D() { return Occluders2D; }
 		void EnableDepthBias(const Vec2 &Bias);
 		void DisableDepthBias();
+		// How see-through meshes are put in back-to-front order. Auto is
+		// right nearly always: distance from the eye under a perspective
+		// camera, depth along the view under an orthographic one (see
+		// TranslucentSortKey in IRenderer.cpp for why those differ).
+		struct TransparencySort { enum { Auto = 0, Distance = 1, ViewDepth = 2 }; };
+		void SetTransparencySort(const uint32 mode) { transparencySort = mode; }
+		uint32 GetTransparencySort() const { return transparencySort; }
+		bool SortsByViewDepth() const;
+
 		// Which RenderLayer this renderer draws, see RenderLayer in
 		// RenderingComponent.h. World by default, so every existing
 		// renderer keeps seeing exactly the meshes it always did;
@@ -1157,6 +1168,8 @@ namespace p3d {
 			_viewPortEndX;
 		static uint32
 			_viewPortEndY;
+
+		uint32 transparencySort = TransparencySort::Auto;
 
 		// See SetRenderLayer(). Per-renderer, not static: the whole point
 		// is that two renderers alive at the same time draw different

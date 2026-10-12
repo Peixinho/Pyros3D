@@ -47,6 +47,7 @@
 #include <set>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
+#include <Pyros3D/Utils/Bindings/PyrosLuaView2D.h>
 #ifdef LUA_BINDINGS
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #endif
@@ -1200,20 +1201,13 @@ void PyrosPlayer::UpdateView2DCamera(const f32 dt)
 {
 	if (!meta.view2D.enabled || !activeCamera) return;
 
-	// Follow, then clamp, then place. In that order: clamping a position the
-	// follow has not produced yet would fight it every frame.
-	if (!meta.view2D.follow.empty() && scene)
-	{
-		std::vector<std::shared_ptr<GameObject>>& all = scene->GetAllGameObjectList();
-		for (size_t i = 0; i < all.size(); ++i)
-			if (all[i] && all[i]->GetName() == meta.view2D.follow)
-			{
-				meta.view2D.Track(all[i]->GetWorldPosition(), dt);
-				break;
-			}
-	}
+	// Follow, zoom, bounds, shake and the automatic layers: one function,
+	// the same one the editor's play mode calls.
 	const f32 aspect = (Height > 0) ? ((f32)Width / (f32)Height) : 1.f;
-	meta.view2D.ClampCenter(aspect);
+	const f32 zoomBefore = meta.view2D.halfHeight;
+	UpdateSceneView2D(meta.view2D, scene, dt, aspect);
+	// A zoom in progress changes what the projection is built from.
+	if (meta.view2D.halfHeight != zoomBefore) ApplyProjection();
 
 	activeCamera->SetTransformationMatrix(meta.view2D.CameraMatrix());
 	// SetTransformationMatrix only writes the LOCAL matrix; the world matrix
@@ -1294,53 +1288,17 @@ void PyrosPlayer::PushLuaHostGlobals()
 	};
 	lua["loadScene"] = [this](const std::string& name) { pendingLoadSceneName = name; };
 
-	// The scene's own 2D view, as a table of plain functions rather than a
-	// usertype: it is a handful of numbers on the scene, not an object with a
-	// lifetime, and a script wanting "move the camera left" should not have to
-	// find out what owns it.
-	//
-	// Writing any of these turns the view on. A script that positions the view
-	// has said, unambiguously, that the scene is framed by it.
+	// The scene's own 2D view: the `view` table, bound by the engine so the
+	// editor's play mode hands scripts exactly the same one.
 	{
-		sol::table v = lua.create_table();
-		v["setCenter"] = [this](f32 x, f32 y) {
-			meta.view2D.enabled = true;
-			meta.view2D.center = Vec2(x, y);
-		};
-		v["center"] = [this]() {
-			return std::make_tuple(meta.view2D.center.x, meta.view2D.center.y);
-		};
-		v["setZoom"] = [this](f32 halfHeight) {
-			meta.view2D.enabled = true;
-			if (halfHeight > 0.0001f) meta.view2D.halfHeight = halfHeight;
-			// The projection is rebuilt from this, and nothing else will ask
-			// for it until the window resizes.
-			ApplyProjection();
-		};
-		v["zoom"] = [this]() { return meta.view2D.halfHeight; };
-		// By NAME, matching how the editor stores it. An empty name is a
-		// fixed view, which is how you stop following something.
-		v["follow"] = [this](const std::string& name, sol::optional<f32> lag) {
-			meta.view2D.enabled = true;
-			meta.view2D.follow = name;
-			if (lag) meta.view2D.followLag = *lag;
-		};
-		v["setFollowOffset"] = [this](f32 x, f32 y) { meta.view2D.followOffset = Vec2(x, y); };
-		// Which axes the follow moves. followAxes(true, false) is the
-		// side-scroller default: track the character across the level, leave
-		// the horizon where it is.
-		v["followAxes"] = [this](bool x, bool y) {
-			meta.view2D.followX = x;
-			meta.view2D.followY = y;
-		};
-		v["setBounds"] = [this](f32 minX, f32 minY, f32 maxX, f32 maxY) {
-			meta.view2D.enabled = true;
-			meta.view2D.clamp = true;
-			meta.view2D.clampMin = Vec2(minX, minY);
-			meta.view2D.clampMax = Vec2(maxX, maxY);
-		};
-		v["clearBounds"] = [this]() { meta.view2D.clamp = false; };
-		lua["view"] = v;
+		LuaView2DHost host;
+		host.view = [this]() { return &meta.view2D; };
+		// The projection is rebuilt from the view, and nothing else will ask
+		// for it until the window resizes.
+		host.changed = [this]() { ApplyProjection(); };
+		host.viewportSize = [this]() { return Vec2((f32)Width, (f32)Height); };
+		host.mouseInViewport = []() { return InputManager::GetMousePosition(); };
+		LuaBindView2D(lua, host);
 	}
 	// Show a 2D scene over whatever is running, and take it down again. The
 	// scene shown is an ordinary scene file - usually one marked twoD - so a
@@ -1521,6 +1479,14 @@ void PyrosPlayer::Update()
 	// be in place before anything reads them this frame.
 	if (physics2D)
 	{
+		// The scene's own gravity. Compared rather than set every frame, so
+		// a script that changes it (physics2d:setGravity) keeps its change
+		// until the next scene is loaded.
+		if (appliedGravity2D.x != meta.gravity2D.x || appliedGravity2D.y != meta.gravity2D.y)
+		{
+			appliedGravity2D = meta.gravity2D;
+			physics2D->SetGravity(meta.gravity2D);
+		}
 		physics2D->Sync(scene);
 		physics2D->Step(dt, scene);
 
@@ -1640,7 +1606,14 @@ void PyrosPlayer::Update()
 	IRenderDevice &device = GetActiveRenderDevice();
 	// (what the renderers are given for the whole scene, said at the hand-over: a frame
 	// still being drawn by another thread is not told half-way through)
-	Occluder2D::PublishSceneOccluders(scene);
+	// Knowing what is on screen when the scene frames itself, so the shadow
+	// budget goes to the lights in view.
+	if (meta.view2D.enabled)
+	{
+		const Vec4 seen = meta.view2D.VisibleRect((Height > 0) ? ((f32)Width / (f32)Height) : 1.f);
+		Occluder2D::PublishSceneOccluders(scene, &seen);
+	}
+	else Occluder2D::PublishSceneOccluders(scene);
 	const bool ownFrame = device.GetCurrentRenderTarget() == 0 && !device.IsFrameInProgress();
 	if (ownFrame)
 	{

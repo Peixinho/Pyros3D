@@ -203,6 +203,12 @@ namespace p3d {
 		// 3D one (see PyrosPlayer::ShowOverlayScene). Absent from a scene file
 		// means false, so every existing scene keeps loading as a 3D one.
 		bool twoD = false;
+		// Gravity of the scene's 2D physics world, in units per second
+		// squared. The solver's own default of (0, -10) is right for a world
+		// where a unit is a metre and wrong for nearly every 2D game, where
+		// a unit is a tile and a jump is meant to feel snappy - which is why
+		// each of them used to re-integrate gravity in its own script.
+		Math::Vec2 gravity2D = Math::Vec2(0.f, -10.f);
 
 		// ---- a streamed world --------------------------------------------
 		// Objects split into square cells on the XZ plane, each cell one
@@ -283,6 +289,62 @@ namespace p3d {
 			bool clamp = false;
 			Vec2 clampMin = Vec2(0.f, 0.f);
 			Vec2 clampMax = Vec2(0.f, 0.f);
+
+			// A box in the middle of the view, given as half-extents in
+			// world units, that the followed object can move about in
+			// without the view moving at all. A character stepping left and
+			// right while lining up a jump should not drag the whole screen
+			// with it; the view only moves when it reaches the box's edge.
+			Vec2 deadZone = Vec2(0.f, 0.f);
+			// How far the view leads the followed object in the direction it
+			// is moving, in world units, so there is more screen ahead of a
+			// runner than behind. `lookAheadLag` is how long the lead takes
+			// to swing round when the direction changes.
+			Vec2 lookAhead = Vec2(0.f, 0.f);
+			f32 lookAheadLag = 0.35f;
+			// Pixels of the art per world unit. When set, where the view is
+			// DRAWN from is rounded to a whole pixel of that grid: pixel art
+			// scrolled by a fraction of a texel shimmers, every tile edge
+			// crawling as the camera drifts. 0 = off.
+			f32 pixelSnap = 0.f;
+			// Every Layer2D marked automatic is scrolled by its parallax
+			// factor as the view moves, by whoever is showing the scene - no
+			// script. Off in a scene that was made before this and does it
+			// itself.
+			bool autoParallax = false;
+
+			// ---- running state, not saved --------------------------------
+			// A shake: an offset added to where the view is drawn from, which
+			// dies away. It never moves `center`, so nothing that reads the
+			// centre - the follow, the bounds, a script - sees it.
+			f32 shakeAmplitude = 0.f;
+			f32 shakeDuration = 0.f;
+			f32 shakeElapsed = 0.f;
+			f32 shakeFrequency = 28.f;
+			void Shake(const f32 amplitude, const f32 duration, const f32 frequency = 28.f);
+			// A zoom in progress: halfHeight eased to zoomTarget.
+			f32 zoomTarget = 0.f;
+			f32 zoomLag = 0.f;
+			void ZoomTo(const f32 halfHeightTarget, const f32 seconds);
+			// Where the followed object was last frame, and the lead built
+			// up from how it has been moving.
+			Vec2 lastTarget = Vec2(0.f, 0.f);
+			bool haveLastTarget = false;
+			Vec2 lead = Vec2(0.f, 0.f);
+
+			// One frame of everything that moves the view by itself: the
+			// follow (pass NULL when there is nothing to follow or it was not
+			// found), the zoom, the bounds, the shake. The editor's play mode
+			// and the player both call exactly this.
+			void Update(const f32 dt, const f32 aspect, const Vec3* target);
+			// Where the view is drawn from: the centre, shaken and snapped.
+			Vec2 RenderCenter() const;
+			// The world rectangle on screen: (minX, minY, maxX, maxY).
+			Vec4 VisibleRect(const f32 aspect) const;
+			// A point of the viewport, in pixels from its top-left, to the
+			// world; and back.
+			Vec2 ScreenToWorld(const Vec2 &pixel, const Vec2 &viewportSize) const;
+			Vec2 WorldToScreen(const Vec2 &world, const Vec2 &viewportSize) const;
 
 			// ---- one implementation, used by the editor AND the player ----
 			// The camera sits far along +Z looking down -Z. Far enough that
@@ -431,6 +493,14 @@ namespace p3d {
 		// resolved against assetRoot. Main thread. Null if it cannot be
 		// built.
 		static std::shared_ptr<IMaterial> BuildMaterialFromText(const std::string &materialJson, const std::string &assetRoot);
+		// One material from a material FILE (.mat), shared: every caller
+		// that asks for the same file while it is alive gets the same
+		// material, so things drawn with it can be drawn together.
+		// `authoredPath` is the path as it was written
+		// ("assets/materials/Flash.mat"); what `resolvedPath` has in front
+		// of it is taken for the asset root the file's own textures are
+		// found under. Main thread. Null if it cannot be read or built.
+		static std::shared_ptr<IMaterial> LoadMaterialFile(const std::string &resolvedPath, const std::string &authoredPath);
 		static std::shared_ptr<GameObject> InstantiatePrepared(PreparedSubtree &prepared,
 			IPhysics* physics = NULL, sol::state* lua = NULL, LoadedSceneAssets* outAssets = NULL);
 		// Main thread, optional, before InstantiatePrepared: uploads ONE of

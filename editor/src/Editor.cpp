@@ -925,6 +925,13 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return out;
 	};
 
+	// Sprite sheets: create_spritesheet, open_spritesheet, edit_spritesheet,
+	// spritesheet_info, save_spritesheet - see EditorSpriteSheets.cpp.
+	{
+		nlohmann::json sr;
+		if (HandleSpriteSheetCommand(name, a, sr)) return sr;
+	}
+
 	if (name == "ping")
 	{
 		nlohmann::json r;
@@ -2126,6 +2133,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		else if (ProjectManager::IsCharacter2DExtension(rel)) { ok = OpenCharacter2DDocument(abs); kind = "character2d"; }
 		else if (ProjectManager::IsP3dm(rel)) { ok = OpenAnimationDocument(abs); kind = "animation"; }
 		else if (rel.size() > 5 && rel.compare(rel.size() - 5, 5, ".p3dt") == 0) { ok = OpenTileSetDocument(abs); kind = "tileset"; }
+		else if (ProjectManager::IsSpriteSheetExtension(rel)) { ok = OpenSpriteSheetDocument(abs); kind = "spritesheet"; }
 		else if (!ProjectManager::IsSceneSidecarPath(rel) && rel.size() > 5
 			&& rel.compare(rel.size() - 5, 5, ".json") == 0) { ok = OpenSceneDocument(abs); kind = "scene"; }
 		else throw std::runtime_error("no editor opens " + rel);
@@ -3051,12 +3059,28 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			v.clampMax = Vec2(b[2], b[3]);
 		}
 		else if (a.is_object() && a.contains("bounds")) v.clamp = false;
+		// "deadZone":[w,h] "lookAhead":[x,y] "lookAheadLag":0.35
+		// "pixelSnap":16 "autoParallax":true "gravity":[0,-40]
+		std::vector<f32> dz = AV("deadZone");
+		if (dz.size() >= 2) v.deadZone = Vec2(dz[0] > 0.f ? dz[0] : 0.f, dz[1] > 0.f ? dz[1] : 0.f);
+		std::vector<f32> la = AV("lookAhead");
+		if (la.size() >= 2) v.lookAhead = Vec2(la[0], la[1]);
+		if (a.is_object() && a.contains("lookAheadLag")) v.lookAheadLag = a.value("lookAheadLag", 0.35f);
+		if (a.is_object() && a.contains("pixelSnap")) v.pixelSnap = std::max(0.f, a.value("pixelSnap", 0.0f));
+		if (a.is_object() && a.contains("autoParallax")) v.autoParallax = a.value("autoParallax", false);
+		std::vector<f32> g = AV("gravity");
+		if (g.size() >= 2) sceneView->SetGravity2D(Vec2(g[0], g[1]));
 		sceneView->MarkSceneDirty();
 		nlohmann::json r;
 		r["ok"] = true;
 		r["center"] = { v.center.x, v.center.y };
 		r["zoom"] = v.halfHeight;
 		r["follow"] = v.follow;
+		r["deadZone"] = { v.deadZone.x, v.deadZone.y };
+		r["lookAhead"] = { v.lookAhead.x, v.lookAhead.y };
+		r["pixelSnap"] = v.pixelSnap;
+		r["autoParallax"] = v.autoParallax;
+		r["gravity"] = { sceneView->GetGravity2D().x, sceneView->GetGravity2D().y };
 		return r;
 	}
 	// {"cmd":"game_view_2d"} - what the game will show.
@@ -3306,33 +3330,75 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// created fell out of the world.
 	if (name == "add_physics2d")
 	{
-		uint32 bt = Body2DType::Dynamic;
 		std::string bts = A("bodyType");
 		for (size_t i = 0; i < bts.size(); i++) bts[i] = (char)tolower((unsigned char)bts[i]);
-		if (bts == "static") bt = Body2DType::Static;
-		else if (bts == "kinematic") bt = Body2DType::Kinematic;
-		else if (!bts.empty() && bts != "dynamic")
+		if (!bts.empty() && bts != "static" && bts != "kinematic" && bts != "dynamic")
 			throw std::runtime_error("add_physics2d: bodyType must be static, kinematic or dynamic");
-		std::vector<f32> sz = AV("size");
-		const Vec2 size(sz.size() > 0 ? sz[0] : 0.5f, sz.size() > 1 ? sz[1] : 0.5f);
-		// Default true for a DYNAMIC body: a character or a crate that spins
-		// free tips over on the first step it walks into, and "my sprite is
-		// lying on its side" reads as a rendering bug. Anything that really
-		// wants to tumble passes fixedRotation:false explicitly. Static and
-		// kinematic bodies do not rotate from the solver anyway.
-		const bool fixedRot = (a.is_object() && a.contains("fixedRotation"))
-			? a["fixedRotation"].get<bool>() : (bt == Body2DType::Dynamic);
-		if (!sceneView->AgentAddPhysics2D(A("name"), err, bt, size, fixedRot))
+		// One call, one undo step, every setting: the body's type and size as
+		// before, and anything set_physics2d takes - "shape":"capsule",
+		// "offset", "sensor", "oneWay", "layer", "gravityScale",
+		// "fitToSprite":true ...
+		if (!sceneView->AgentAddPhysics2DWith(A("name"), a.is_object() ? a : nlohmann::json::object(), err))
 			throw std::runtime_error(err);
-		nlohmann::json r; r["ok"] = true; r["bodyType"] = bts.empty() ? "dynamic" : bts;
-		r["fixedRotation"] = fixedRot; return r;
+		nlohmann::json r = sceneView->AgentPhysics2DInfo(A("name"), err);
+		r["ok"] = true;
+		return r;
+	}
+	// {"cmd":"add_joint2d","args":{"name":"Door","joint":"hinge","connected":"Frame",
+	//    "anchor":[-1,0],"lowerDegrees":-90,"upperDegrees":0,
+	//    "motorSpeedDegrees":90,"maxMotorForce":200,"hertz":4,"damping":0.7}}
+	// Ties an object's 2D body to another object's (by name), or to the world
+	// when "connected" is left out. Gives the object a Physics2D if it has
+	// none. joint: hinge | distance | weld | slider | wheel.
+	if (name == "add_joint2d")
+	{
+		if (!sceneView->AgentAddJoint2D(A("name"), a.is_object() ? a : nlohmann::json::object(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r = sceneView->AgentPhysics2DInfo(A("name"), err);
+		r["ok"] = true;
+		return r;
+	}
+	// {"cmd":"physics2d_info","args":{"name":"Hero"}} - the Physics 2D and
+	// Joint 2D sections of an object, plus the running body's position,
+	// velocity and whether it is grounded while the scene is playing.
+	// The Scene View's collider handles, by name:
+	//   edit_collider2d {name, on}   - show them on that object (selects it)
+	//   drag_collider2d {name, handle: center|right|left|top|bottom|radius|point,
+	//                    index, to: [x, y]}   - put one handle at a WORLD point;
+	//                    the same edit a drag makes, as one undo step
+	if (name == "edit_collider2d")
+	{
+		if (!sceneView->AgentEditCollider2D(A("name"), a.is_object() ? a.value("on", true) : true, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; r["editing"] = sceneView->IsEditingCollider2D();
+		return r;
+	}
+	if (name == "drag_collider2d")
+	{
+		if (!sceneView->AgentDragCollider2D(A("name"), a, err)) throw std::runtime_error(err);
+		nlohmann::json r = sceneView->AgentPhysics2DInfo(A("name"), err);
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "physics2d_info")
+	{
+		nlohmann::json r = sceneView->AgentPhysics2DInfo(A("name"), err);
+		if (!err.empty()) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
 	}
 	// The 2D sections of the Properties panel, one command each:
 	//   set_occluder2d   {name, shape: box|circle, halfExtents, enabled}
-	//   set_physics2d    {name, bodyType, shape, halfExtents, density, friction, bounciness, fixedRotation}
-	//   set_layer2d      {name, parallax, visible}
+	//   set_physics2d    {name, bodyType, shape: box|circle|capsule|polygon, halfExtents, offset,
+	//                     polygon: [[x,y],...], density, friction, bounciness, fixedRotation,
+	//                     sensor, oneWay, layer, collidesWith: [layers], ignores: [layers], mask,
+	//                     gravityScale, linearDamping, angularDamping, bullet, castsShadow,
+	//                     fitToSprite}
+	//   set_joint2d      {name, ...add_joint2d's keys}
+	//   set_layer2d      {name, parallax, visible, automatic}
 	//   set_sprite_animation {name, fps, pingPong, paused}
-	if (name == "set_occluder2d" || name == "set_physics2d" || name == "set_layer2d" || name == "set_sprite_animation")
+	if (name == "set_occluder2d" || name == "set_physics2d" || name == "set_layer2d" || name == "set_sprite_animation"
+		|| name == "set_joint2d")
 	{
 		if (!sceneView->AgentSetComponent2D(name.substr(4), A("name"), a.is_object() ? a : nlohmann::json::object(), err))
 			throw std::runtime_error(err);
@@ -3350,11 +3416,117 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			throw std::runtime_error(err);
 		nlohmann::json r; r["ok"] = true; return r;
 	}
+	// {"cmd":"add_sprite","args":{"name":"Hero","source":"assets/textures/hero.p3ds",
+	//    "position":[0,1,0],"autoPlay":"idle","flipX":false,"sortOrder":2}}
+	// A Sprite2D. `source` is an image or a .p3ds sprite sheet ("texture" is
+	// the older name for it); every key set_sprite takes works here too.
 	if (name == "add_sprite")
 	{
 		if (!sceneView->AgentAddSprite(A("name"), A("texture"), a.is_object() ? a : nlohmann::json::object(), A("parent"), err))
 			throw std::runtime_error(err);
+		nlohmann::json r = sceneView->AgentSpriteInfo(A("name").empty() ? "Sprite" : A("name"), err);
+		r["ok"] = true;
+		return r;
+	}
+	// {"cmd":"set_sprite","args":{"object":"Hero","frame":"hero_3","flipX":true,
+	//    "color":[1,0.5,0.5,1],"drawMode":"sliced","size":[6,1],"pixelsPerUnit":32,
+	//    "pivot":[0.5,0],"lit":true,"blend":"additive","sortOrder":3,
+	//    "autoPlay":"run","speed":1.5,"play":"jump","restart":true}}
+	// The Sprite section of Properties. Works in play mode too, where it
+	// pokes the live sprite and records nothing.
+	if (name == "set_sprite")
+	{
+		const std::string objName = A("object").empty() ? A("name") : A("object");
+		if (objName.empty()) throw std::runtime_error("set_sprite: 'object' is required");
+		if (!sceneView->AgentSetSprite(objName, a, err))
+			throw std::runtime_error(err);
+		nlohmann::json r = sceneView->AgentSpriteInfo(objName, err);
+		r["ok"] = true;
+		return r;
+	}
+	// {"cmd":"sprite_info","args":{"object":"Hero"}} - what the Sprite (and
+	// Sprite Batch) sections of Properties show.
+	if (name == "sprite_info")
+	{
+		const std::string objName = A("object").empty() ? A("name") : A("object");
+		nlohmann::json r = sceneView->AgentSpriteInfo(objName, err);
+		if (!err.empty()) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
+	// A Sprite Mask: a shape sprites are shown only inside or outside of.
+	//   add_sprite_mask / set_sprite_mask {object, shape: rect|circle|polygon,
+	//       size [w, h] | diameter, offset [x, y], polygon [[x, y], ...], enabled}
+	//   sprite_mask_info {object}    - its settings, its outline in the world,
+	//                                  and which sprites it is cutting
+	// A sprite is cut by one with set_sprite {maskInteraction: inside|outside,
+	// mask: "<mask object>" (or "" for the nearest above it)}.
+	if (name == "add_sprite_mask" || name == "set_sprite_mask" || name == "sprite_mask_info")
+	{
+		const std::string objName = A("object").empty() ? A("name") : A("object");
+		if (objName.empty()) throw std::runtime_error(name + ": 'object' is required");
+		if (name == "add_sprite_mask" && !sceneView->AgentAddSpriteMask(objName, a, err)) throw std::runtime_error(err);
+		if (name == "set_sprite_mask" && !sceneView->AgentSetSpriteMask(objName, a, err)) throw std::runtime_error(err);
+		nlohmann::json r = sceneView->AgentSpriteMaskInfo(objName, err);
+		if (!err.empty()) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
+	// A Line 2D: a line with width through points, or a trail.
+	//   add_line2d / set_line2d {object, points [[x, y], ...], closed,
+	//       width n | [start, end], color | colorStart + colorEnd, additive,
+	//       sortOrder, trail, lifetime, minDistance, emitting, clearTrail}
+	//   line2d_info {object}
+	// set_line2d works while playing, where it pokes the running line.
+	if (name == "add_line2d" || name == "set_line2d" || name == "line2d_info")
+	{
+		const std::string objName = A("object").empty() ? A("name") : A("object");
+		if (objName.empty()) throw std::runtime_error(name + ": 'object' is required");
+		if (name == "add_line2d" && !sceneView->AgentAddLine2D(objName, a, err)) throw std::runtime_error(err);
+		if (name == "set_line2d" && !sceneView->AgentSetLine2D(objName, a, err)) throw std::runtime_error(err);
+		nlohmann::json r = sceneView->AgentLine2DInfo(objName, err);
+		if (!err.empty()) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
+	// {"cmd":"add_sprite_batch","args":{"object":"Coins"}} - merges the unlit
+	// sprites beneath an object into one draw per texture.
+	if (name == "add_sprite_batch")
+	{
+		const std::string objName = A("object").empty() ? A("name") : A("object");
+		if (!sceneView->AgentAddSpriteBatch(objName, err))
+			throw std::runtime_error(err);
+		if (a.is_object() && (a.contains("lit") || a.contains("lightCell") || a.contains("enabled"))
+			&& !sceneView->AgentSetSpriteBatch(objName, a, err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true; return r;
+	}
+	// {"cmd":"set_sprite_batch","args":{"object":"World","enabled":true,"lit":true,"lightCell":8}}
+	// - the Sprite Batch section: lit sprites are merged too unless lit is
+	// false, cut into cells lightCell units across.
+	if (name == "set_sprite_batch")
+	{
+		const std::string objName = A("object").empty() ? A("name") : A("object");
+		if (!sceneView->AgentSetSpriteBatch(objName, a, err)) throw std::runtime_error(err);
+		nlohmann::json r = sceneView->AgentSpriteInfo(objName, err);
+		r["ok"] = true; return r;
+	}
+	// {"cmd":"convert_sprites"} - every textured-quad sprite in the scene
+	// into a Sprite2D that looks the same. {"object":"Torch"} does one.
+	if (name == "convert_sprites")
+	{
 		nlohmann::json r;
+		if (!A("object").empty())
+		{
+			if (!sceneView->AgentConvertSprite(A("object"), err)) throw std::runtime_error(err);
+			r["converted"] = 1;
+		}
+		else
+		{
+			std::string report;
+			r["converted"] = sceneView->ConvertLegacySprites(report);
+			r["report"] = report;
+		}
 		r["ok"] = true;
 		return r;
 	}
@@ -3627,6 +3799,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			activeCharacter2DDoc->undo.Undo();
 		else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc)
 			activeTileSetDoc->undo.Undo();
+		else if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc)
+			activeSpriteSheetDoc->undo.Undo();
 		else if (lastFocusedDocKind == FocusedDocKind::Material && activeMaterialDoc)
 			activeMaterialDoc->undo.Undo();
 		else if (sceneView) sceneView->Undo();
@@ -3642,6 +3816,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		{ activeCharacter2DDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
 		if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc)
 		{ activeTileSetDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
+		if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc)
+		{ activeSpriteSheetDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
 		if (lastFocusedDocKind == FocusedDocKind::Material && activeMaterialDoc)
 		{ activeMaterialDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
 		sceneView->Redo();
@@ -3975,6 +4151,26 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			if (a.value("ctrl", false)) io.KeyCtrl = true;
 			SetMouseWheel(a.value("wheel", 0.f));
 			io.KeyCtrl = hadCtrl;
+		}
+		// {"mods":["shift","alt","ctrl"]}: the modifier keys held from this
+		// call on, until a call says otherwise ({"mods":[]} lets go). A
+		// Shift-click or an Alt-click is a gesture like any other, and the
+		// editor reads its modifiers from ImGui, where `key` does not reach.
+		if (a.is_object() && a.contains("mods") && a["mods"].is_array() && ImGui::GetCurrentContext() != NULL)
+		{
+			bool shift = false, alt = false, ctrl = false;
+			for (size_t i = 0; i < a["mods"].size(); i++)
+			{
+				const std::string m = a["mods"][i].is_string() ? a["mods"][i].get<std::string>() : std::string();
+				if (m == "shift") shift = true;
+				else if (m == "alt") alt = true;
+				else if (m == "ctrl") ctrl = true;
+				else throw std::runtime_error("mouse: mods are shift, alt, ctrl");
+			}
+			ImGuiIO& io = ImGui::GetIO();
+			io.AddKeyEvent(ImGuiMod_Shift, shift);
+			io.AddKeyEvent(ImGuiMod_Alt, alt);
+			io.AddKeyEvent(ImGuiMod_Ctrl, ctrl);
 		}
 		const std::string action = a.is_object() ? a.value("action", "move") : "move";
 		if (action == "press" || action == "release")
@@ -4964,6 +5160,15 @@ void Editor::DrawUI()
 		// menu's enabled-check - so Ctrl+Z did nothing in the Tile Set editor
 		// and the menu item was permanently greyed out. Its own toolbar Undo
 		// button was the only way to reach the stack.
+		else if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc)
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_Z))
+			{
+				if (shift) activeSpriteSheetDoc->undo.Redo(); else activeSpriteSheetDoc->undo.Undo();
+			}
+			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
+				activeSpriteSheetDoc->undo.Redo();
+		}
 		else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc)
 		{
 			if (ImGui::IsKeyPressed(ImGuiKey_Z))
@@ -5101,6 +5306,11 @@ void Editor::DrawUI()
 				canUndo = activeTileSetDoc->undo.CanUndo(); canRedo = activeTileSetDoc->undo.CanRedo();
 				undoDesc = activeTileSetDoc->undo.UndoDescription(); redoDesc = activeTileSetDoc->undo.RedoDescription();
 			}
+			else if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc)
+			{
+				canUndo = activeSpriteSheetDoc->undo.CanUndo(); canRedo = activeSpriteSheetDoc->undo.CanRedo();
+				undoDesc = activeSpriteSheetDoc->undo.UndoDescription(); redoDesc = activeSpriteSheetDoc->undo.RedoDescription();
+			}
 			const std::string undoLabel = canUndo ? ("Undo " + undoDesc) : "Undo";
 			const std::string redoLabel = canRedo ? ("Redo " + redoDesc) : "Redo";
 			if (ImGui::MenuItem(undoLabel.c_str(), (std::string(ShortcutPrefix()) + "Z").c_str(), false, canUndo))
@@ -5109,6 +5319,7 @@ void Editor::DrawUI()
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Undo();
 				else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc) activeCharacter2DDoc->undo.Undo();
 				else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc) activeTileSetDoc->undo.Undo();
+				else if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc) activeSpriteSheetDoc->undo.Undo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Undo();
 			}
 			if (ImGui::MenuItem(redoLabel.c_str(), (std::string(ShortcutPrefix()) + "Shift+Z").c_str(), false, canRedo))
@@ -5117,6 +5328,7 @@ void Editor::DrawUI()
 				else if (lastFocusedDocKind == FocusedDocKind::Animation && activeAnimationDoc) activeAnimationDoc->undo.Redo();
 				else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc) activeCharacter2DDoc->undo.Redo();
 				else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc) activeTileSetDoc->undo.Redo();
+				else if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc) activeSpriteSheetDoc->undo.Redo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Redo();
 			}
 
@@ -5287,6 +5499,7 @@ void Editor::DrawUI()
 	DrawAnimationEditorWindows();
 	DrawCharacter2DEditorWindows();
 	DrawTileSetEditorWindows();
+	DrawSpriteSheetEditorWindows();
 
 	if (showingSceneTree)
 		DrawSceneTreeWindow();
@@ -8482,6 +8695,28 @@ void Editor::DrawAssetsWindow()
 			assetBrowseDir = e.relativePath;
 		if (dhover)
 			ImGui::SetTooltip("%s  (double-click to open)", e.relativePath.c_str());
+		if (ImGui::BeginPopupContextItem("##dirctx"))
+		{
+			// A folder of frames, one file each, into one picture and one
+			// sheet beside the folder - one texture and one batch, where
+			// drawn loose they are a texture and a draw call apiece.
+			if (ImGui::MenuItem("Pack Images into Sprite Atlas"))
+			{
+				nlohmann::json pargs;
+				pargs["folder"] = e.relativePath;
+				pargs["overwrite"] = true;
+				std::string sheetRel, perr;
+				if (PackSpriteAtlas(pargs, sheetRel, NULL, perr))
+				{
+					echo("Packed " + e.relativePath + " into " + sheetRel);
+					OpenSpriteSheetDocument(project.AbsolutePath(sheetRel));
+				}
+				else echo("ERROR: " + perr);
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Every image in this folder, trimmed and laid out in one picture\nnamed after the folder, with a sprite sheet: a frame per file,\nand a clip for every numbered run (walk_0, walk_1, ...).\nRun it again after adding a frame - pivots and clips are kept.");
+			ImGui::EndPopup();
+		}
 
 		{
 			ImFont* font = ImGui::GetFont();
@@ -8538,6 +8773,7 @@ void Editor::DrawAssetsWindow()
 		const bool isTex = ProjectManager::IsTextureExtension(e.relativePath);
 		const bool isTileSet = e.relativePath.size() > 5
 			&& e.relativePath.compare(e.relativePath.size() - 5, 5, ".p3dt") == 0;
+		const bool isSpriteSheet = ProjectManager::IsSpriteSheetExtension(e.relativePath);
 		const bool isMat = ProjectManager::IsMaterialExtension(e.relativePath);
 		const bool isAnim = ProjectManager::IsAnimationExtension(e.relativePath);
 		const bool isChar2D = ProjectManager::IsCharacter2DExtension(e.relativePath);
@@ -8714,6 +8950,13 @@ void Editor::DrawAssetsWindow()
 				OpenAnimationDocument(abs);
 			else if (isChar2D)
 				OpenCharacter2DDocument(abs);
+			// A sheet of tiles or of sprites opens in its editor - the thing
+			// a double-click on an asset means everywhere else. (A tile set
+			// used to fall through to "place in scene", which did nothing.)
+			else if (isTileSet)
+				OpenTileSetDocument(abs);
+			else if (isSpriteSheet)
+				OpenSpriteSheetDocument(abs);
 			else if (isSound)
 			{
 				// Double-click sound also previews (same as play button).
@@ -8766,6 +9009,10 @@ void Editor::DrawAssetsWindow()
 				OpenCharacter2DDocument(abs);
 			if (isTileSet && ImGui::MenuItem("Edit Tile Set"))
 				OpenTileSetDocument(abs);
+			if (isSpriteSheet && ImGui::MenuItem("Edit Sprite Sheet"))
+				OpenSpriteSheetDocument(abs);
+			if (isSpriteSheet && ImGui::MenuItem("Place Sprite in Scene") && sceneView)
+				sceneView->PlaceAssetInScene(abs);
 			if (isChar2D && ImGui::MenuItem("Place in Scene") && sceneView)
 				sceneView->PlaceAssetInScene(abs);
 			// A model is the other way into the Animation Editor: it opens
@@ -8776,6 +9023,15 @@ void Editor::DrawAssetsWindow()
 				sceneView->PlaceAssetInScene(abs);
 			// An image becomes a tileset here. Cutting it is the only step
 			// between a sheet of art and something a tile map can use.
+			// And an image becomes a sprite sheet: frames, pivots and clips
+			// cut from one picture.
+			if (isTex && ImGui::MenuItem("Create Sprite Sheet…"))
+			{
+				std::string sheetRel, serr;
+				if (CreateSpriteSheetFor(e.relativePath, sheetRel, serr))
+					OpenSpriteSheetDocument(project.AbsolutePath(sheetRel));
+				else echo("ERROR: " + serr);
+			}
 			if (isTex && ImGui::MenuItem("Create Tile Set…"))
 			{
 				pendingTileSetImageRel = e.relativePath;
@@ -8786,7 +9042,7 @@ void Editor::DrawAssetsWindow()
 			// nothing in Assets put one there.
 			if (isTileSet && ImGui::MenuItem("Create Tile Map in Scene") && sceneView)
 				sceneView->BeginNewTileMap(e.relativePath);
-			if (isScene || isLua || isMat || isAnim || isChar2D || isModel || isSound || isTex || isTileSet)
+			if (isScene || isLua || isMat || isAnim || isChar2D || isModel || isSound || isTex || isTileSet || isSpriteSheet)
 				ImGui::Separator();
 			ShowAssetCreateMenuItems();
 			ImGui::Separator();
@@ -9067,6 +9323,8 @@ SceneEditor* Editor::CreateSceneDocument()
 	doc->SetHostNewSceneKind(&Editor::HostNewSceneKind);
 	doc->SetDebugPanelToggles(&showingProfiler, &showingRenderTargets);
 	doc->SetHostOpenCharacter2D(&Editor::HostOpenCharacter2D);
+	doc->SetHostOpenSpriteSheet(&Editor::HostOpenSpriteSheet);
+	doc->SetHostCreateSpriteSheet(&Editor::HostCreateSpriteSheet);
 	sceneDocs.push_back(doc);
 	SetActiveSceneDocument(doc);
 	return doc;

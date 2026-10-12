@@ -399,6 +399,27 @@ namespace p3d {
 		void SetRenderLayer(const uint32 layer) { if (renderLayer != layer) RenderState::Touch(); renderLayer = layer; }
 		uint32 GetRenderLayer() const { return renderLayer; }
 
+		// Draw order among see-through meshes: a higher one is drawn over
+		// every lower one, whatever their depths. Zero unless something says
+		// otherwise, and among equals depth decides as it always did. This is
+		// how a 2D scene says "the marker is over the player is over the
+		// level" without parking things at invented z values. Opaque meshes
+		// write depth and do not need it.
+		void SetSortOrder(const int32 order) { sortOrder = order; }
+		int32 GetSortOrder() const { return sortOrder; }
+	protected:
+		bool lightsPerGeometry = false;
+	public:
+
+		// Which lights reach it is asked of each of its geometries, by that
+		// geometry's own bounds, where it is otherwise asked once of the
+		// whole object. For one object that is many places at once - a tile
+		// map's chunks, a batch of sprites cut into cells: a level a hundred
+		// units long, asked as one thing, is lit by the four lights nearest
+		// its middle and by none of the others.
+		void SetLightsPerGeometry(const bool on) { lightsPerGeometry = on; }
+		bool LightsPerGeometry() const { return lightsPerGeometry; }
+
 		void SetCullingGeometry(const uint32 Geometry);
 		void EnableCullTest() { const bool was = cullTest; cullTest = true; if (!was) SayDrawnChanged(); }
 		void DisableCullTest() { const bool was = cullTest; cullTest = false; if (was) SayDrawnChanged(); }
@@ -735,6 +756,8 @@ namespace p3d {
 
 		// Render layer, see RenderLayer above.
 		uint32 renderLayer;
+
+		int32 sortOrder = 0;
 	};
 
 };

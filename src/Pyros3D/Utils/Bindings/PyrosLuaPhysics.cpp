@@ -65,11 +65,21 @@ namespace p3d {
 		// a built game and not in the editor's play mode - and that the
 		// engine and a script would have been writing the same transform.
 		lua->new_usertype<Layer2D>("Layer2D",
+			sol::factories(
+				[]() { return std::make_shared<Layer2D>(); },
+				[](const f32 px, const f32 py) { return std::make_shared<Layer2D>(Vec2(px, py)); }),
 			"getParallax", &Layer2D::GetParallax,
 			"setParallax", &Layer2D::SetParallax,
 			"isVisible", &Layer2D::IsVisible,
 			"setVisible", &Layer2D::SetVisible,
 			"getBasePosition", &Layer2D::GetBasePosition,
+			// Scrolled by the engine as the view moves (view.setAutoParallax
+			// turns that on for the scene) - no script needed.
+			"setAutomatic", &Layer2D::SetAutomatic,
+			"isAutomatic", &Layer2D::IsAutomatic,
+			"scrollWithView", sol::overload(
+				[](Layer2D &l, const Vec2 &c) { l.ScrollWithView(c); },
+				[](Layer2D &l, const f32 x, const f32 y) { l.ScrollWithView(Vec2(x, y)); }),
 			sol::base_classes, sol::bases<IComponent>()
 			);
 
@@ -100,12 +110,14 @@ namespace p3d {
 			// Returns nil on a miss rather than a table with hit=false, so
 			// `if hit then` is the whole test.
 			// The third argument is the body to SKIP - normally your own, since
-			// a sensor ray starts inside the character that casts it.
+			// a sensor ray starts inside the character that casts it. The
+			// fifth is a layer mask (see Physics2D:setLayer), every layer
+			// when left out.
 			"rayCast", [](Physics2DWorld &w, const Vec2 &from, const Vec2 &to,
 				sol::optional<Physics2D*> ignore, sol::optional<Physics2D*> ignore2,
-				sol::this_state ts) -> sol::object {
+				sol::optional<uint32> mask, sol::this_state ts) -> sol::object {
 				const Physics2DWorld::RayHit2D r = w.RayCast(from, to,
-					ignore ? *ignore : NULL, ignore2 ? *ignore2 : NULL);
+					ignore ? *ignore : NULL, ignore2 ? *ignore2 : NULL, mask ? *mask : 0xFFFFFFFFu);
 				sol::state_view lv(ts);
 				if (!r.hit) return sol::object(sol::lua_nil);
 				return sol::object(lv, sol::in_place, lv.create_table_with(
@@ -113,7 +125,71 @@ namespace p3d {
 					"normal", Vec2(r.normal.x, r.normal.y),
 					"fraction", r.fraction,
 					"component", r.component));
-			}
+			},
+			// Every body along the segment, nearest first; an empty table
+			// for none.
+			"rayCastAll", [](Physics2DWorld &w, const Vec2 &from, const Vec2 &to,
+				sol::optional<Physics2D*> ignore, sol::optional<uint32> mask, sol::this_state ts) {
+				sol::state_view lv(ts);
+				sol::table out = lv.create_table();
+				const std::vector<Physics2DWorld::RayHit2D> hits = w.RayCastAll(from, to, ignore ? *ignore : NULL, mask ? *mask : 0xFFFFFFFFu);
+				for (size_t i = 0; i < hits.size(); i++)
+					out[i + 1] = lv.create_table_with("point", hits[i].point, "normal", hits[i].normal,
+						"fraction", hits[i].fraction, "component", hits[i].component);
+				return out;
+			},
+			// A circle or a box swept along the segment: where it first
+			// touches, or nil.
+			"circleCast", [](Physics2DWorld &w, const Vec2 &from, const Vec2 &to, const f32 radius,
+				sol::optional<Physics2D*> ignore, sol::optional<uint32> mask, sol::this_state ts) -> sol::object {
+				const Physics2DWorld::RayHit2D r = w.CircleCast(from, to, radius, ignore ? *ignore : NULL, mask ? *mask : 0xFFFFFFFFu);
+				sol::state_view lv(ts);
+				if (!r.hit) return sol::object(sol::lua_nil);
+				return sol::object(lv, sol::in_place, lv.create_table_with("point", r.point, "normal", r.normal,
+					"fraction", r.fraction, "component", r.component));
+			},
+			"boxCast", [](Physics2DWorld &w, const Vec2 &from, const Vec2 &to, const Vec2 &halfExtents,
+				sol::optional<f32> angle, sol::optional<Physics2D*> ignore, sol::optional<uint32> mask, sol::this_state ts) -> sol::object {
+				const Physics2DWorld::RayHit2D r = w.BoxCast(from, to, halfExtents, angle ? *angle : 0.f,
+					ignore ? *ignore : NULL, mask ? *mask : 0xFFFFFFFFu);
+				sol::state_view lv(ts);
+				if (!r.hit) return sol::object(sol::lua_nil);
+				return sol::object(lv, sol::in_place, lv.create_table_with("point", r.point, "normal", r.normal,
+					"fraction", r.fraction, "component", r.component));
+			},
+			// What is AT a place: a table of the bodies there. The last two
+			// arguments are a layer mask and whether sensors count.
+			"overlapPoint", [](Physics2DWorld &w, const Vec2 &p, sol::optional<uint32> mask, sol::optional<bool> sensors, sol::this_state ts) {
+				sol::state_view lv(ts);
+				sol::table out = lv.create_table();
+				const std::vector<Physics2D*> found = w.OverlapPoint(p, mask ? *mask : 0xFFFFFFFFu, sensors ? *sensors : false);
+				for (size_t i = 0; i < found.size(); i++) out[i + 1] = found[i];
+				return out;
+			},
+			"overlapCircle", [](Physics2DWorld &w, const Vec2 &c, const f32 radius, sol::optional<uint32> mask, sol::optional<bool> sensors, sol::this_state ts) {
+				sol::state_view lv(ts);
+				sol::table out = lv.create_table();
+				const std::vector<Physics2D*> found = w.OverlapCircle(c, radius, mask ? *mask : 0xFFFFFFFFu, sensors ? *sensors : false);
+				for (size_t i = 0; i < found.size(); i++) out[i + 1] = found[i];
+				return out;
+			},
+			"overlapBox", [](Physics2DWorld &w, const Vec2 &c, const Vec2 &halfExtents, sol::optional<f32> angle,
+				sol::optional<uint32> mask, sol::optional<bool> sensors, sol::this_state ts) {
+				sol::state_view lv(ts);
+				sol::table out = lv.create_table();
+				const std::vector<Physics2D*> found = w.OverlapBox(c, halfExtents, angle ? *angle : 0.f, mask ? *mask : 0xFFFFFFFFu, sensors ? *sensors : false);
+				for (size_t i = 0; i < found.size(); i++) out[i + 1] = found[i];
+				return out;
+			},
+			// The scene authors its gravity; a script can still change it -
+			// a low-gravity room, a power-up, a level that turns upside down.
+			"setGravity", sol::overload(
+				[](Physics2DWorld &w, const Vec2 &g) { w.SetGravity(g); },
+				[](Physics2DWorld &w, const f32 x, const f32 y) { w.SetGravity(Vec2(x, y)); }),
+			"getGravity", &Physics2DWorld::GetGravity,
+			"setSubSteps", &Physics2DWorld::SetSubSteps,
+			"bodyCount", &Physics2DWorld::BodyCount,
+			"jointCount", &Physics2DWorld::JointCount
 			);
 
 		lua->new_usertype<TileMap2D>("TileMap2D",
@@ -196,32 +272,134 @@ namespace p3d {
 		// scalar for rotation about z rather than a Vec3 of Euler angles two
 		// thirds of which mean nothing here.
 		lua->new_usertype<Physics2D>("Physics2D",
-			"setLinearVelocity", &Physics2D::SetLinearVelocity,
+			// Physics2D.new(BodyType2D.Dynamic, Shape2D.Capsule, 0.3, 0.9) -
+			// the last two are half-extents. Everything is optional: with no
+			// arguments it is a dynamic 1x1 box.
+			sol::factories(
+				[]() { return std::make_shared<Physics2D>(); },
+				[](const int body) { return std::make_shared<Physics2D>((uint32)body); },
+				[](const int body, const int shape, const f32 hw, const f32 hh) {
+					return std::make_shared<Physics2D>((uint32)body, (uint32)shape, Vec2(hw, hh)); }),
+			"setLinearVelocity", sol::overload(
+				&Physics2D::SetLinearVelocity,
+				[](Physics2D &p, const f32 x, const f32 y) { p.SetLinearVelocity(Vec2(x, y)); }),
 			"getLinearVelocity", &Physics2D::GetLinearVelocity,
-			"applyForce", &Physics2D::ApplyForce,
-			"applyImpulse", &Physics2D::ApplyImpulse,
+			"applyForce", sol::overload(
+				&Physics2D::ApplyForce,
+				[](Physics2D &p, const f32 x, const f32 y) { p.ApplyForce(Vec2(x, y)); }),
+			"applyImpulse", sol::overload(
+				&Physics2D::ApplyImpulse,
+				[](Physics2D &p, const f32 x, const f32 y) { p.ApplyImpulse(Vec2(x, y)); }),
+			"applyForceAt", &Physics2D::ApplyForceAt,
+			"applyImpulseAt", &Physics2D::ApplyImpulseAt,
+			"applyTorque", &Physics2D::ApplyTorque,
+			"applyAngularImpulse", &Physics2D::ApplyAngularImpulse,
 			"setAngularVelocity", &Physics2D::SetAngularVelocity,
 			"getAngularVelocity", &Physics2D::GetAngularVelocity,
 			"setTransform", &Physics2D::SetTransform,
+			"getPosition", &Physics2D::GetPosition,
+			"getAngle", &Physics2D::GetAngle,
+			// A kinematic body driven to a place over dt seconds, carrying
+			// what stands on it: moveTo(Vec2.new(x, y), angle, dt).
+			"moveTo", &Physics2D::MoveTo,
+			"getMass", &Physics2D::GetMass,
 			"wake", &Physics2D::Wake,
+			"isAwake", &Physics2D::IsAwake,
+			// The jump test: isGrounded(), or isGrounded(0.5) to count
+			// steeper ground.
+			"isGrounded", sol::overload(
+				[](Physics2D &p) { return p.IsGrounded(); },
+				[](Physics2D &p, const f32 minNormalY) { return p.IsGrounded(minNormalY); }),
+			"getGroundNormal", &Physics2D::GetGroundNormal,
+			// What it stands on (nil in the air) and how fast that is moving
+			// under its feet - add the second to a character's own velocity
+			// and it rides a moving platform.
+			"getGroundBody", [](Physics2D &p) { return p.GetGroundBody(); },
+			"getGroundVelocity", [](Physics2D &p) { return p.GetGroundVelocity(); },
+			"getContactCount", &Physics2D::GetContactCount,
 			"getBodyType", &Physics2D::GetBodyType,
 			"setBodyType", &Physics2D::SetBodyType,
 			"getDensity", &Physics2D::GetDensity,
+			"setDensity", &Physics2D::SetDensity,
 			"getFriction", &Physics2D::GetFriction,
+			"setFriction", &Physics2D::SetFriction,
 			"getRestitution", &Physics2D::GetRestitution,
+			"setRestitution", &Physics2D::SetRestitution,
 			// Half-extents, the same convention the body was built with.
-			// Everything else about the shape was readable and this was not,
-			// so a script could not do its own overlap test against a
-			// platform it did not author itself.
 			"getSize", &Physics2D::GetSize,
+			"setSize", sol::overload(
+				&Physics2D::SetSize,
+				[](Physics2D &p, const f32 hw, const f32 hh) { p.SetSize(Vec2(hw, hh)); }),
+			"getOffset", &Physics2D::GetOffset,
+			"setOffset", sol::overload(
+				&Physics2D::SetOffset,
+				[](Physics2D &p, const f32 x, const f32 y) { p.SetOffset(Vec2(x, y)); }),
 			"getShapeType", &Physics2D::GetShapeType,
+			"setShapeType", &Physics2D::SetShapeType,
+			// A table of Vec2: a line of edges, closed into a loop or not.
+			// For ground and walls drawn by hand; it has no mass, so it
+			// belongs on a static or kinematic body.
+			"setChain", sol::overload(
+				[](Physics2D &p, sol::table pts) {
+					std::vector<Vec2> v;
+					for (size_t i = 1; i <= pts.size(); i++) v.push_back(pts.get<Vec2>(i));
+					const bool ok = p.SetChain(v, false);
+					if (ok) p.SetShapeType(Shape2DType::Chain);
+					return ok;
+				},
+				[](Physics2D &p, sol::table pts, const bool loop) {
+					std::vector<Vec2> v;
+					for (size_t i = 1; i <= pts.size(); i++) v.push_back(pts.get<Vec2>(i));
+					const bool ok = p.SetChain(v, loop);
+					if (ok) p.SetShapeType(Shape2DType::Chain);
+					return ok;
+				}),
+			"isChainLoop", &Physics2D::IsChainLoop,
+			// A table of Vec2, 3 or more, making an outline that does not
+			// cross itself - convex or not. False if it is not that.
+			"setPolygon", [](Physics2D &p, sol::table pts) {
+				std::vector<Vec2> v;
+				for (size_t i = 1; i <= pts.size(); i++) v.push_back(pts.get<Vec2>(i));
+				const bool ok = p.SetPolygon(v);
+				if (ok) p.SetShapeType(Shape2DType::Polygon);
+				return ok;
+			},
 			"isFixedRotation", &Physics2D::IsFixedRotation,
+			"setFixedRotation", &Physics2D::SetFixedRotation,
+			"isSensor", &Physics2D::IsSensor,
+			"setSensor", &Physics2D::SetSensor,
+			"isOneWay", &Physics2D::IsOneWay,
+			"setOneWay", &Physics2D::SetOneWay,
+			// Layers 0-31. setCollidesWith(3, false) stops this body
+			// colliding with anything on layer 3 - how a player drops through
+			// a one-way platform, or ignores its own bullets.
+			"getLayer", &Physics2D::GetLayer,
+			"setLayer", &Physics2D::SetLayer,
+			"getMask", &Physics2D::GetMask,
+			"setMask", &Physics2D::SetMask,
+			"setCollidesWith", &Physics2D::SetCollidesWith,
+			"collidesWith", &Physics2D::CollidesWith,
+			"getGravityScale", &Physics2D::GetGravityScale,
+			"setGravityScale", &Physics2D::SetGravityScale,
+			"getLinearDamping", &Physics2D::GetLinearDamping,
+			"setLinearDamping", &Physics2D::SetLinearDamping,
+			"getAngularDamping", &Physics2D::GetAngularDamping,
+			"setAngularDamping", &Physics2D::SetAngularDamping,
+			"isBullet", &Physics2D::IsBullet,
+			"setBullet", &Physics2D::SetBullet,
+			"setCastsShadow", &Physics2D::SetCastsShadow,
 			"haveBody", &Physics2D::HaveBody,
 			// Plain fields, like IPhysicsComponent's above - assign a Lua
 			// closure and sol2 converts it. The argument is the other body,
 			// which may be nil if it was destroyed before the end event.
 			"onCollisionEnter", &Physics2D::OnCollisionEnter,
 			"onCollisionExit", &Physics2D::OnCollisionExit,
+			// onContact(other, point, normal, speed): where, which way the
+			// surface faces (towards this body), and how hard.
+			"onContact", &Physics2D::OnContact,
+			// A sensor and whoever enters it both hear these.
+			"onTriggerEnter", &Physics2D::OnTriggerEnter,
+			"onTriggerExit", &Physics2D::OnTriggerExit,
 			sol::base_classes, sol::bases<IComponent>()
 			);
 

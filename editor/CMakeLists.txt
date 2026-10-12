@@ -44,6 +44,7 @@ include(${CMAKE_SOURCE_DIR}/cmake/PyrosWindowContext.cmake)
 set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/main.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/Editor.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/EditorSpriteSheets.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AxisHelper.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditOps.cpp
@@ -54,6 +55,9 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/EditorWorld.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/TerrainTools.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorTerrain.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorSprites.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorShapes2D.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditor2D.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorNetwork.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorWorld.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorNavigate.cpp
@@ -72,6 +76,8 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/AnimationEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Character2DDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/TileSetDocument.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SpriteSheetDocument.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/SpriteSheetEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Character2DPreview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/Character2DEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/TileSetEditor.cpp

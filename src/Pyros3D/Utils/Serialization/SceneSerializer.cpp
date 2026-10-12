@@ -43,6 +43,11 @@
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
 #include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Sprite2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
+#include <Pyros3D/Physics/Physics2D/Joint2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
@@ -332,6 +337,23 @@ namespace p3d {
 		const std::vector<std::shared_ptr<IComponent> > &comps = c->GetOwner()->GetComponents();
 		for (size_t i = 0; i < comps.size(); i++)
 			if (comps[i] && comps[i]->GetComponentType() == ComponentType::TileMap2D)
+				return true;
+		return false;
+	}
+
+	// Whether this component's owner draws through a Sprite2D or a
+	// SpriteBatch2D. Their RenderingComponent is one they make for
+	// themselves and fill every time something changes, so it is not written
+	// at all: a scene that recorded it would be recording a by-product, and
+	// loading it back would hand the sprite a second-hand mesh to replace.
+	static bool OwnerDrawsSprites(IComponent* c)
+	{
+		if (!c || !c->GetOwner()) return false;
+		const std::vector<std::shared_ptr<IComponent> > &comps = c->GetOwner()->GetComponents();
+		for (size_t i = 0; i < comps.size(); i++)
+			if (comps[i] && (comps[i]->GetComponentType() == ComponentType::Sprite2D
+				|| comps[i]->GetComponentType() == ComponentType::SpriteBatch2D
+				|| comps[i]->GetComponentType() == ComponentType::Line2D))
 				return true;
 		return false;
 	}
@@ -1407,6 +1429,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// geometry is generated, not described. See OwnerHasTileMap2D.
 			const bool isTileMap2D = OwnerHasTileMap2D(c);
 			const bool isGenerated = isCharacter2D || isTileMap2D;
+			// A sprite's or a sprite batch's: not written - see
+			// OwnerDrawsSprites.
+			if (!isGenerated && OwnerDrawsSprites(c)) return json();
 
 			json renderableJson;
 			IMaterial* mat = NULL;
@@ -1931,6 +1956,152 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["restitution"] = ph->GetRestitution();
 			j["fixedRotation"] = ph->IsFixedRotation();
 			j["castsShadow"] = ph->CastsShadow();
+			// What follows is written only when it is not the default, so a
+			// scene saved before these existed reads back exactly as it was
+			// and one that does not use them is no longer for having them.
+			if (ph->GetOffset().x != 0.f || ph->GetOffset().y != 0.f) j["offset"] = ToJson(ph->GetOffset());
+			if (ph->GetShapeType() == Shape2DType::Polygon || ph->GetShapeType() == Shape2DType::Chain)
+			{
+				json pts = json::array();
+				for (size_t k = 0; k < ph->GetPolygon().size(); k++)
+				{ pts.push_back(ph->GetPolygon()[k].x); pts.push_back(ph->GetPolygon()[k].y); }
+				// One list for either: the shape says which it is.
+				j["polygon"] = pts;
+				if (ph->GetShapeType() == Shape2DType::Chain && ph->IsChainLoop()) j["chainLoop"] = true;
+			}
+			if (ph->IsSensor()) j["sensor"] = true;
+			if (ph->IsOneWay()) j["oneWay"] = true;
+			if (ph->GetLayer() != 0) j["layer"] = ph->GetLayer();
+			if (ph->GetMask() != 0xFFFFFFFFu) j["mask"] = ph->GetMask();
+			if (ph->GetGravityScale() != 1.f) j["gravityScale"] = ph->GetGravityScale();
+			if (ph->GetLinearDamping() != 0.f) j["linearDamping"] = ph->GetLinearDamping();
+			if (ph->GetAngularDamping() != 0.f) j["angularDamping"] = ph->GetAngularDamping();
+			if (ph->IsBullet()) j["bullet"] = true;
+			return j;
+		}
+		case ComponentType::Joint2D:
+		{
+			Joint2D* jt = dynamic_cast<Joint2D*>(c);
+			static const char* const names[] = { "hinge", "distance", "weld", "slider", "wheel", "target", "ignore", "pulley", "gear" };
+			j["type"] = "Joint2D";
+			j["joint"] = names[jt->GetJointType() <= Joint2DType::Gear ? jt->GetJointType() : 0];
+			if (jt->GetJointType() == Joint2DType::Target && jt->HaveTarget()) j["target"] = ToJson(jt->GetTarget());
+			if (jt->GetJointType() == Joint2DType::Pulley)
+			{
+				j["groundAnchor"] = ToJson(jt->GetGroundAnchor());
+				j["connectedGroundAnchor"] = ToJson(jt->GetConnectedGroundAnchor());
+			}
+			if ((jt->GetJointType() == Joint2DType::Pulley || jt->GetJointType() == Joint2DType::Gear) && jt->GetRatio() != 1.f)
+				j["ratio"] = jt->GetRatio();
+			if (!jt->GetConnected().empty()) j["connected"] = jt->GetConnected();
+			if (jt->GetAnchor().x != 0.f || jt->GetAnchor().y != 0.f) j["anchor"] = ToJson(jt->GetAnchor());
+			if (jt->HasConnectedAnchor()) j["connectedAnchor"] = ToJson(jt->GetConnectedAnchor());
+			if (jt->GetJointType() == Joint2DType::Slider || jt->GetJointType() == Joint2DType::Wheel)
+				j["axis"] = ToJson(jt->GetAxis());
+			if (jt->GetCollideConnected()) j["collideConnected"] = true;
+			if (jt->IsLimitEnabled() || jt->GetLowerLimit() != 0.f || jt->GetUpperLimit() != 0.f)
+			{
+				j["limit"] = jt->IsLimitEnabled();
+				j["lower"] = jt->GetLowerLimit();
+				j["upper"] = jt->GetUpperLimit();
+			}
+			if (jt->IsMotorEnabled() || jt->GetMotorSpeed() != 0.f)
+			{
+				j["motor"] = jt->IsMotorEnabled();
+				j["motorSpeed"] = jt->GetMotorSpeed();
+				j["maxMotorForce"] = jt->GetMaxMotorForce();
+			}
+			if (jt->IsSpringEnabled())
+			{
+				j["spring"] = true;
+				j["hertz"] = jt->GetSpringHertz();
+				j["damping"] = jt->GetSpringDamping();
+			}
+			if (jt->GetLength() > 0.f) j["length"] = jt->GetLength();
+			return j;
+		}
+		case ComponentType::Sprite2D:
+		{
+			Sprite2D* sp = dynamic_cast<Sprite2D*>(c);
+			j["type"] = "Sprite2D";
+			j["source"] = sp->GetSourcePath();
+			// By name as well as by index: re-cutting a sheet renumbers its
+			// frames, and a sprite that said "the frame called door_open"
+			// should still mean that one afterwards.
+			j["frame"] = sp->GetFrame();
+			if (!sp->GetFrameName().empty()) j["frameName"] = sp->GetFrameName();
+			// Only what differs from a fresh sprite is written, so a scene
+			// of four hundred plain ones is four hundred short lines.
+			if (sp->GetFlipX()) j["flipX"] = true;
+			if (sp->GetFlipY()) j["flipY"] = true;
+			const Vec4 &col = sp->GetColor();
+			if (col.x != 1.f || col.y != 1.f || col.z != 1.f || col.w != 1.f) j["color"] = ToJson(col);
+			if (sp->GetDrawMode() != SpriteDraw2D::Simple)
+			{
+				j["drawMode"] = sp->GetDrawMode() == SpriteDraw2D::Sliced ? "sliced" : "tiled";
+				j["size"] = ToJson(sp->GetSize());
+			}
+			if (sp->GetPixelsPerUnit() > 0.f) j["pixelsPerUnit"] = sp->GetPixelsPerUnit();
+			if (sp->HasPivot()) j["pivot"] = ToJson(sp->GetPivot());
+			if (sp->GetLighting() == SpriteLighting2D::Lit2D) j["lit"] = true;
+			else if (sp->GetLighting() == SpriteLighting2D::Lit3D) j["lighting"] = "3d";
+			if (!sp->GetMaterialPath().empty()) j["material"] = sp->GetMaterialPath();
+			if (sp->GetBlend() != SpriteBlend2D::Alpha)
+				j["blend"] = sp->GetBlend() == SpriteBlend2D::Additive ? "additive" : "premultiplied";
+			if (sp->GetSortOrder() != 0) j["sortOrder"] = sp->GetSortOrder();
+			if (sp->GetMaskInteraction() != Sprite2D::MaskNone)
+			{
+				j["maskInteraction"] = sp->GetMaskInteraction() == Sprite2D::MaskOutside ? "outside" : "inside";
+				if (!sp->GetMaskName().empty()) j["mask"] = sp->GetMaskName();
+			}
+			if (!sp->GetAutoPlay().empty()) j["autoPlay"] = sp->GetAutoPlay();
+			if (sp->GetSpeed() != 1.f) j["speed"] = sp->GetSpeed();
+			return j;
+		}
+		case ComponentType::SpriteMask2D:
+		{
+			SpriteMask2D* mk = dynamic_cast<SpriteMask2D*>(c);
+			j["type"] = "SpriteMask2D";
+			j["shape"] = mk->GetShape() == SpriteMaskShape2D::Circle ? "circle" : (mk->GetShape() == SpriteMaskShape2D::Polygon ? "polygon" : "rect");
+			j["size"] = ToJson(mk->GetSize());
+			if (mk->GetOffset().x != 0.f || mk->GetOffset().y != 0.f) j["offset"] = ToJson(mk->GetOffset());
+			if (!mk->GetPolygon().empty())
+			{
+				json pts = json::array();
+				for (size_t k = 0; k < mk->GetPolygon().size(); k++) { pts.push_back(mk->GetPolygon()[k].x); pts.push_back(mk->GetPolygon()[k].y); }
+				j["polygon"] = pts;
+			}
+			if (!mk->IsEnabled()) j["enabled"] = false;
+			return j;
+		}
+		case ComponentType::Line2D:
+		{
+			Line2D* ln = dynamic_cast<Line2D*>(c);
+			j["type"] = "Line2D";
+			json pts = json::array();
+			for (size_t k = 0; k < ln->GetPoints().size(); k++) { pts.push_back(ln->GetPoints()[k].x); pts.push_back(ln->GetPoints()[k].y); }
+			j["points"] = pts;
+			if (ln->IsClosed()) j["closed"] = true;
+			j["width"] = { ln->GetStartWidth(), ln->GetEndWidth() };
+			j["colorStart"] = ToJson(ln->GetStartColor());
+			j["colorEnd"] = ToJson(ln->GetEndColor());
+			if (ln->IsAdditive()) j["additive"] = true;
+			if (ln->GetSortOrder() != 0) j["sortOrder"] = ln->GetSortOrder();
+			if (ln->IsTrail())
+			{
+				j["trail"] = true;
+				j["lifetime"] = ln->GetTrailLifetime();
+				j["minDistance"] = ln->GetTrailMinDistance();
+			}
+			return j;
+		}
+		case ComponentType::SpriteBatch2D:
+		{
+			SpriteBatch2D* b = dynamic_cast<SpriteBatch2D*>(c);
+			j["type"] = "SpriteBatch2D";
+			if (!b->IsEnabled()) j["enabled"] = false;
+			if (!b->BatchesLit()) j["lit"] = false;
+			if (b->GetLightCellSize() != 8.f) j["lightCell"] = b->GetLightCellSize();
 			return j;
 		}
 		case ComponentType::Layer2D:
@@ -1939,6 +2110,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["type"] = "Layer2D";
 			j["parallax"] = ToJson(l->GetParallax());
 			j["visible"] = l->IsVisible();
+			if (l->IsAutomatic()) j["automatic"] = true;
 			return j;
 		}
 		case ComponentType::UIRect:
@@ -2232,6 +2404,142 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		              center.y + (want.y - center.y) * t);
 	}
 
+	void SceneMeta::View2D::Shake(const f32 amplitude, const f32 duration, const f32 frequency)
+	{
+		// A stronger shake replaces a weaker one in progress; a weaker one
+		// does not cut a strong one short.
+		const f32 remaining = (shakeDuration > 0.f && shakeElapsed < shakeDuration)
+			? shakeAmplitude * (1.f - shakeElapsed / shakeDuration) : 0.f;
+		if (amplitude < remaining) return;
+		shakeAmplitude = amplitude > 0.f ? amplitude : 0.f;
+		shakeDuration = duration > 0.f ? duration : 0.f;
+		shakeElapsed = 0.f;
+		shakeFrequency = frequency > 0.f ? frequency : 28.f;
+	}
+
+	void SceneMeta::View2D::ZoomTo(const f32 halfHeightTarget, const f32 seconds)
+	{
+		if (!(halfHeightTarget > 0.0001f)) return;
+		if (seconds <= 0.f) { halfHeight = halfHeightTarget; zoomTarget = 0.f; return; }
+		zoomTarget = halfHeightTarget;
+		zoomLag = seconds;
+	}
+
+	void SceneMeta::View2D::Update(const f32 dt, const f32 aspect, const Vec3* target)
+	{
+		if (target != NULL)
+		{
+			// The lead: built from how the followed object has actually been
+			// moving, so it needs no facing to be told and swings round on
+			// its own when the object turns.
+			Vec3 aim = *target;
+			if (lookAhead.x != 0.f || lookAhead.y != 0.f)
+			{
+				Vec2 want(0.f, 0.f);
+				if (haveLastTarget && dt > 0.f)
+				{
+					const f32 vx = (target->x - lastTarget.x) / dt, vy = (target->y - lastTarget.y) / dt;
+					// A dead band on speed, so standing still (or a body
+					// jittering on a slope) holds the lead it has rather
+					// than dropping it.
+					if (fabsf(vx) > 0.25f) want.x = vx > 0.f ? lookAhead.x : -lookAhead.x; else want.x = lead.x;
+					if (fabsf(vy) > 0.25f) want.y = vy > 0.f ? lookAhead.y : -lookAhead.y; else want.y = lead.y;
+				}
+				f32 t = (lookAheadLag > 0.f && dt > 0.f) ? 1.f - std::pow(0.001f, dt / lookAheadLag) : 1.f;
+				if (t < 0.f) t = 0.f;
+				if (t > 1.f) t = 1.f;
+				lead = Vec2(lead.x + (want.x - lead.x) * t, lead.y + (want.y - lead.y) * t);
+				aim.x += lead.x;
+				aim.y += lead.y;
+			}
+			lastTarget = Vec2(target->x, target->y);
+			haveLastTarget = true;
+
+			// The dead zone: inside the box the view holds; outside, it is
+			// asked to move only far enough to bring the object back to the
+			// box's edge.
+			if (deadZone.x > 0.f || deadZone.y > 0.f)
+			{
+				const f32 cx = center.x - followOffset.x, cy = center.y - followOffset.y;
+				if (deadZone.x > 0.f)
+				{
+					if (aim.x > cx + deadZone.x) aim.x -= deadZone.x;
+					else if (aim.x < cx - deadZone.x) aim.x += deadZone.x;
+					else aim.x = cx;
+				}
+				if (deadZone.y > 0.f)
+				{
+					if (aim.y > cy + deadZone.y) aim.y -= deadZone.y;
+					else if (aim.y < cy - deadZone.y) aim.y += deadZone.y;
+					else aim.y = cy;
+				}
+			}
+			Track(aim, dt);
+		}
+		else haveLastTarget = false;
+
+		if (zoomTarget > 0.f)
+		{
+			f32 t = (zoomLag > 0.f && dt > 0.f) ? 1.f - std::pow(0.001f, dt / zoomLag) : 1.f;
+			if (t < 0.f) t = 0.f;
+			if (t > 1.f) t = 1.f;
+			halfHeight += (zoomTarget - halfHeight) * t;
+			if (fabsf(zoomTarget - halfHeight) < 0.0005f) { halfHeight = zoomTarget; zoomTarget = 0.f; }
+		}
+
+		ClampCenter(aspect);
+
+		if (shakeDuration > 0.f)
+		{
+			shakeElapsed += dt > 0.f ? dt : 0.f;
+			if (shakeElapsed >= shakeDuration) { shakeDuration = 0.f; shakeAmplitude = 0.f; }
+		}
+	}
+
+	Vec2 SceneMeta::View2D::RenderCenter() const
+	{
+		Vec2 c = center;
+		if (shakeDuration > 0.f && shakeAmplitude > 0.f)
+		{
+			// Dies away linearly; two sines a little out of step on each
+			// axis so it reads as a rattle rather than a wobble on a circle.
+			const f32 k = shakeAmplitude * (1.f - shakeElapsed / shakeDuration);
+			const f32 a = shakeElapsed * shakeFrequency * 6.2831853f;
+			c.x += k * (sinf(a) * 0.7f + sinf(a * 1.93f + 1.3f) * 0.3f);
+			c.y += k * (sinf(a * 1.37f + 0.7f) * 0.7f + sinf(a * 2.41f + 2.1f) * 0.3f);
+		}
+		if (pixelSnap > 0.f)
+		{
+			c.x = floorf(c.x * pixelSnap + 0.5f) / pixelSnap;
+			c.y = floorf(c.y * pixelSnap + 0.5f) / pixelSnap;
+		}
+		return c;
+	}
+
+	Vec4 SceneMeta::View2D::VisibleRect(const f32 aspect) const
+	{
+		const Vec2 c = RenderCenter();
+		const f32 halfW = halfHeight * (aspect > 0.f ? aspect : 1.f);
+		return Vec4(c.x - halfW, c.y - halfHeight, c.x + halfW, c.y + halfHeight);
+	}
+
+	Vec2 SceneMeta::View2D::ScreenToWorld(const Vec2 &pixel, const Vec2 &viewportSize) const
+	{
+		if (!(viewportSize.x > 0.f) || !(viewportSize.y > 0.f)) return center;
+		const Vec4 r = VisibleRect(viewportSize.x / viewportSize.y);
+		// Pixels run down from the top; the world runs up.
+		return Vec2(r.x + (pixel.x / viewportSize.x) * (r.z - r.x),
+			r.w - (pixel.y / viewportSize.y) * (r.w - r.y));
+	}
+
+	Vec2 SceneMeta::View2D::WorldToScreen(const Vec2 &world, const Vec2 &viewportSize) const
+	{
+		if (!(viewportSize.x > 0.f) || !(viewportSize.y > 0.f)) return Vec2(0.f, 0.f);
+		const Vec4 r = VisibleRect(viewportSize.x / viewportSize.y);
+		return Vec2((world.x - r.x) / (r.z - r.x) * viewportSize.x,
+			(r.w - world.y) / (r.w - r.y) * viewportSize.y);
+	}
+
 	void SceneMeta::View2D::ClampCenter(const f32 aspect)
 	{
 		if (!clamp) return;
@@ -2275,8 +2583,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	{
 		// Straight down -Z with no rotation. A 2D scene lies in the XY plane
 		// and any tilt at all shows it edge-on.
+		const Vec2 c = RenderCenter();
 		Matrix m;
-		m.Translate(Vec3(center.x, center.y, kCameraZ));
+		m.Translate(Vec3(c.x, c.y, kCameraZ));
 		return m;
 	}
 
@@ -2418,8 +2727,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					vj["clampMin"] = json::array({ (double)v.clampMin.x, (double)v.clampMin.y });
 					vj["clampMax"] = json::array({ (double)v.clampMax.x, (double)v.clampMax.y });
 				}
+				if (v.deadZone.x != 0.f || v.deadZone.y != 0.f)
+					vj["deadZone"] = json::array({ (double)v.deadZone.x, (double)v.deadZone.y });
+				if (v.lookAhead.x != 0.f || v.lookAhead.y != 0.f)
+				{
+					vj["lookAhead"] = json::array({ (double)v.lookAhead.x, (double)v.lookAhead.y });
+					vj["lookAheadLag"] = (double)v.lookAheadLag;
+				}
+				if (v.pixelSnap > 0.f) vj["pixelSnap"] = (double)v.pixelSnap;
+				if (v.autoParallax) vj["autoParallax"] = true;
 				root["view2D"] = vj;
 			}
+			// Only when it is not the default, so a 3D scene's file does not
+			// grow a line about a world it does not have.
+			if (meta->gravity2D.x != 0.f || meta->gravity2D.y != -10.f)
+				root["gravity2D"] = json::array({ (double)meta->gravity2D.x, (double)meta->gravity2D.y });
 			if (meta->world.enabled)
 			{
 				const SceneMeta::World &w = meta->world;
@@ -3805,7 +4127,56 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			ph->SetRestitution(j.value("restitution", 0.f));
 			ph->SetFixedRotation(j.value("fixedRotation", false));
 			ph->SetCastsShadow(j.value("castsShadow", true));
+			if (j.contains("offset") && j["offset"].is_array() && j["offset"].size() >= 2)
+				ph->SetOffset(Vec2FromJson(j["offset"]));
+			if (j.contains("polygon") && j["polygon"].is_array())
+			{
+				std::vector<Vec2> pts;
+				for (size_t k = 0; k + 1 < j["polygon"].size(); k += 2)
+					pts.push_back(Vec2(j["polygon"][k].get<f32>(), j["polygon"][k + 1].get<f32>()));
+				if (ph->GetShapeType() == Shape2DType::Chain)
+				{
+					if (!ph->SetChain(pts, j.value("chainLoop", false)))
+						echo("WARNING: a Physics2D chain in the scene needs 2 or more distinct points; ignored");
+				}
+				else if (!ph->SetPolygon(pts))
+					echo("WARNING: a Physics2D polygon in the scene is not an outline of 3 or more points that does not cross itself; ignored");
+			}
+			ph->SetSensor(j.value("sensor", false));
+			ph->SetOneWay(j.value("oneWay", false));
+			ph->SetLayer(j.value("layer", 0u));
+			ph->SetMask(j.value("mask", 0xFFFFFFFFu));
+			ph->SetGravityScale(j.value("gravityScale", 1.f));
+			ph->SetLinearDamping(j.value("linearDamping", 0.f));
+			ph->SetAngularDamping(j.value("angularDamping", 0.f));
+			ph->SetBullet(j.value("bullet", false));
 			go->Add(ph);
+			return;
+		}
+				else if (type == "Joint2D")
+		{
+			const std::string kind = j.value("joint", std::string("hinge"));
+			const uint32 jt = kind == "distance" ? Joint2DType::Distance : (kind == "weld" ? Joint2DType::Weld
+				: (kind == "slider" ? Joint2DType::Slider : (kind == "wheel" ? Joint2DType::Wheel
+				: (kind == "target" ? Joint2DType::Target : (kind == "ignore" ? Joint2DType::Ignore
+				: (kind == "pulley" ? Joint2DType::Pulley : (kind == "gear" ? Joint2DType::Gear : Joint2DType::Hinge)))))));
+			std::shared_ptr<Joint2D> jn = std::make_shared<Joint2D>(jt);
+			if (j.contains("target") && j["target"].is_array() && j["target"].size() >= 2) jn->SetTarget(Vec2FromJson(j["target"]));
+			if (j.contains("groundAnchor") && j["groundAnchor"].is_array() && j["groundAnchor"].size() >= 2
+				&& j.contains("connectedGroundAnchor") && j["connectedGroundAnchor"].is_array() && j["connectedGroundAnchor"].size() >= 2)
+				jn->SetGroundAnchors(Vec2FromJson(j["groundAnchor"]), Vec2FromJson(j["connectedGroundAnchor"]));
+			jn->SetRatio(j.value("ratio", 1.f));
+			jn->SetConnected(j.value("connected", std::string()));
+			if (j.contains("anchor") && j["anchor"].is_array() && j["anchor"].size() >= 2) jn->SetAnchor(Vec2FromJson(j["anchor"]));
+			if (j.contains("connectedAnchor") && j["connectedAnchor"].is_array() && j["connectedAnchor"].size() >= 2)
+				jn->SetConnectedAnchor(Vec2FromJson(j["connectedAnchor"]));
+			if (j.contains("axis") && j["axis"].is_array() && j["axis"].size() >= 2) jn->SetAxis(Vec2FromJson(j["axis"]));
+			jn->SetCollideConnected(j.value("collideConnected", false));
+			jn->SetLimits(j.value("limit", false), j.value("lower", 0.f), j.value("upper", 0.f));
+			jn->SetMotor(j.value("motor", false), j.value("motorSpeed", 0.f), j.value("maxMotorForce", 100.f));
+			jn->SetSpring(j.value("spring", false), j.value("hertz", 4.f), j.value("damping", 0.7f));
+			jn->SetLength(j.value("length", 0.f));
+			go->Add(jn);
 			return;
 		}
 				else if (type == "TileMap2D")
@@ -3876,11 +4247,125 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			go->Add(m);
 			return;
 		}
+				else if (type == "Sprite2D")
+		{
+			std::shared_ptr<Sprite2D> sp = std::make_shared<Sprite2D>();
+			const std::string src = j.value("source", std::string());
+			sp->SetSourcePath(src);
+			if (!src.empty())
+			{
+				// Resolved NOW, while the scene's asset root is still set -
+				// see the tilemap above for what a resolver captured here
+				// does a frame later.
+				std::string err;
+				const std::string abs = ResolveSceneAssetPath(src);
+				if (abs.empty() || !sp->LoadSource(abs,
+					[](const std::string &p) { return ResolveSceneAssetPath(p); }, &err))
+					echo("WARNING: sprite source could not be loaded: " + src + " (" + err + ")");
+				sp->SetSourcePath(src);
+			}
+			// The name wins when the sheet still has it; the index is the
+			// fallback for a sheet whose frames were never named apart.
+			const std::string fname = j.value("frameName", std::string());
+			if (fname.empty() || !sp->SetFrameByName(fname)) sp->SetFrame(j.value("frame", 0));
+			sp->SetFlipX(j.value("flipX", false));
+			sp->SetFlipY(j.value("flipY", false));
+			if (j.contains("color") && j["color"].is_array() && j["color"].size() >= 4)
+				sp->SetColor(Vec4FromJson(j["color"]));
+			const std::string mode = j.value("drawMode", std::string("simple"));
+			sp->SetDrawMode(mode == "sliced" ? SpriteDraw2D::Sliced
+				: (mode == "tiled" ? SpriteDraw2D::Tiled : SpriteDraw2D::Simple));
+			if (j.contains("size") && j["size"].is_array() && j["size"].size() >= 2)
+				sp->SetSize(Vec2FromJson(j["size"]));
+			sp->SetPixelsPerUnit(j.value("pixelsPerUnit", 0.f));
+			if (j.contains("pivot") && j["pivot"].is_array() && j["pivot"].size() >= 2)
+				sp->SetPivot(Vec2FromJson(j["pivot"]));
+			sp->SetLighting(j.value("lighting", std::string()) == "3d" ? SpriteLighting2D::Lit3D
+				: (j.value("lit", false) ? SpriteLighting2D::Lit2D : SpriteLighting2D::Unlit));
+			const std::string blend = j.value("blend", std::string("alpha"));
+			sp->SetBlend(blend == "additive" ? SpriteBlend2D::Additive
+				: (blend == "premultiplied" ? SpriteBlend2D::Premultiplied : SpriteBlend2D::Alpha));
+			{
+				// A material of its own, in place of the one made for it.
+				const std::string matPath = j.value("material", std::string());
+				if (!matPath.empty())
+				{
+					const std::string abs = ResolveSceneAssetPath(matPath);
+					std::shared_ptr<IMaterial> m = abs.empty() ? std::shared_ptr<IMaterial>() : SceneSerializer::LoadMaterialFile(abs, matPath);
+					if (m) sp->SetCustomMaterial(m, matPath);
+					else echo("WARNING: sprite material could not be loaded: " + matPath);
+				}
+			}
+			sp->SetSortOrder(j.value("sortOrder", 0));
+			{
+				const std::string mi = j.value("maskInteraction", std::string());
+				sp->SetMaskName(j.value("mask", std::string()));
+				sp->SetMaskInteraction(mi == "inside" ? Sprite2D::MaskInside : (mi == "outside" ? Sprite2D::MaskOutside : Sprite2D::MaskNone));
+			}
+			sp->SetSpeed(j.value("speed", 1.f));
+			sp->SetAutoPlay(j.value("autoPlay", std::string()));
+			go->Add(sp);
+			return;
+		}
+				else if (type == "SpriteMask2D")
+		{
+			std::shared_ptr<SpriteMask2D> mk = std::make_shared<SpriteMask2D>();
+			const std::string sh = j.value("shape", std::string("rect"));
+			if (j.contains("size") && j["size"].is_array() && j["size"].size() >= 2) mk->SetSize(Vec2FromJson(j["size"]));
+			if (j.contains("offset") && j["offset"].is_array() && j["offset"].size() >= 2) mk->SetOffset(Vec2FromJson(j["offset"]));
+			if (j.contains("polygon") && j["polygon"].is_array())
+			{
+				std::vector<Vec2> pts;
+				for (size_t k = 0; k + 1 < j["polygon"].size(); k += 2)
+					pts.push_back(Vec2(j["polygon"][k].get<f32>(), j["polygon"][k + 1].get<f32>()));
+				if (!mk->SetPolygon(pts)) echo("WARNING: a sprite mask's polygon is not a convex outline of 3 to 16 points; ignored");
+			}
+			mk->SetShape(sh == "circle" ? SpriteMaskShape2D::Circle : (sh == "polygon" ? SpriteMaskShape2D::Polygon : SpriteMaskShape2D::Rect));
+			mk->SetEnabled(j.value("enabled", true));
+			go->Add(mk);
+			return;
+		}
+				else if (type == "Line2D")
+		{
+			std::shared_ptr<Line2D> ln = std::make_shared<Line2D>();
+			if (j.contains("points") && j["points"].is_array())
+			{
+				std::vector<Vec2> pts;
+				for (size_t k = 0; k + 1 < j["points"].size(); k += 2)
+					pts.push_back(Vec2(j["points"][k].get<f32>(), j["points"][k + 1].get<f32>()));
+				ln->SetPoints(pts);
+			}
+			ln->SetClosed(j.value("closed", false));
+			if (j.contains("width") && j["width"].is_array() && j["width"].size() >= 2)
+				ln->SetWidth(j["width"][0].get<f32>(), j["width"][1].get<f32>());
+			ln->SetColors(j.contains("colorStart") && j["colorStart"].is_array() && j["colorStart"].size() >= 4 ? Vec4FromJson(j["colorStart"]) : Vec4(1.f, 1.f, 1.f, 1.f),
+				j.contains("colorEnd") && j["colorEnd"].is_array() && j["colorEnd"].size() >= 4 ? Vec4FromJson(j["colorEnd"]) : Vec4(1.f, 1.f, 1.f, 1.f));
+			ln->SetAdditive(j.value("additive", false));
+			ln->SetSortOrder(j.value("sortOrder", 0));
+			ln->SetTrailLifetime(j.value("lifetime", 0.5f));
+			ln->SetTrailMinDistance(j.value("minDistance", 0.1f));
+			ln->SetTrail(j.value("trail", false));
+			go->Add(ln);
+			return;
+		}
+				else if (type == "SpriteBatch2D")
+		{
+			std::shared_ptr<SpriteBatch2D> b = std::make_shared<SpriteBatch2D>();
+			b->SetEnabled(j.value("enabled", true));
+			b->SetBatchLit(j.value("lit", true));
+			b->SetLightCellSize(j.value("lightCell", 8.f));
+			go->Add(b);
+			return;
+		}
 				else if (type == "Layer2D")
 		{
 			std::shared_ptr<Layer2D> l = std::make_shared<Layer2D>(
 				j.contains("parallax") ? Vec2FromJson(j["parallax"]) : Vec2(1.f, 1.f));
 			l->SetVisible(j.value("visible", true));
+			// Absent means false: a scene saved before this drives its
+			// layers from its own script, and must not get a second hand on
+			// the same transform.
+			l->SetAutomatic(j.value("automatic", false));
 			go->Add(l);
 			return;
 		}
@@ -4523,8 +5008,18 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					v.clampMin = Vec2(vj["clampMin"][0].get<f32>(), vj["clampMin"][1].get<f32>());
 					v.clampMax = Vec2(vj["clampMax"][0].get<f32>(), vj["clampMax"][1].get<f32>());
 				}
+				if (vj.contains("deadZone") && vj["deadZone"].is_array() && vj["deadZone"].size() >= 2)
+					v.deadZone = Vec2(vj["deadZone"][0].get<f32>(), vj["deadZone"][1].get<f32>());
+				if (vj.contains("lookAhead") && vj["lookAhead"].is_array() && vj["lookAhead"].size() >= 2)
+					v.lookAhead = Vec2(vj["lookAhead"][0].get<f32>(), vj["lookAhead"][1].get<f32>());
+				v.lookAheadLag = (f32)vj.value("lookAheadLag", 0.35);
+				v.pixelSnap = (f32)vj.value("pixelSnap", 0.0);
+				v.autoParallax = vj.value("autoParallax", false);
 				outMeta->view2D = v;
 			}
+			outMeta->gravity2D = Vec2(0.f, -10.f);
+			if (root.contains("gravity2D") && root["gravity2D"].is_array() && root["gravity2D"].size() >= 2)
+				outMeta->gravity2D = Vec2(root["gravity2D"][0].get<f32>(), root["gravity2D"][1].get<f32>());
 						if (root.contains("ambientLight") && root["ambientLight"].is_array() && root["ambientLight"].size() >= 3)
 			{
 				const auto &al = root["ambientLight"];
@@ -4873,6 +5368,41 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		std::map<std::string, std::shared_ptr<Texture>> textureCache;
 		std::shared_ptr<IMaterial> mat = BuildMaterial(j, textureCache, NULL);
 		g_sceneAssetRoot = previousRoot;
+		return mat;
+	}
+
+	std::shared_ptr<IMaterial> SceneSerializer::LoadMaterialFile(const std::string &resolvedPath, const std::string &authoredPath)
+	{
+		static std::map<std::string, std::weak_ptr<IMaterial> > cache;
+		std::map<std::string, std::weak_ptr<IMaterial> >::iterator it = cache.find(resolvedPath);
+		if (it != cache.end())
+		{
+			if (std::shared_ptr<IMaterial> hit = it->second.lock()) return hit;
+			cache.erase(it);
+		}
+		std::ifstream in(resolvedPath.c_str(), std::ios::in | std::ios::binary);
+		if (!in) { echo("ERROR: could not open material " + resolvedPath); return nullptr; }
+		std::stringstream ss;
+		ss << in.rdbuf();
+
+		// The root its textures are found under: the part of the resolved
+		// path the authored one does not account for, or - for a path given
+		// some other way - whatever is in front of its "assets" folder.
+		std::string root;
+		if (!authoredPath.empty() && resolvedPath.size() > authoredPath.size()
+			&& resolvedPath.compare(resolvedPath.size() - authoredPath.size(), authoredPath.size(), authoredPath) == 0)
+			root = resolvedPath.substr(0, resolvedPath.size() - authoredPath.size());
+		else
+		{
+			const size_t at = resolvedPath.rfind("/assets/");
+			root = at != std::string::npos ? resolvedPath.substr(0, at + 1) : g_sceneAssetRoot;
+		}
+		while (root.size() > 1 && (root[root.size() - 1] == '/' || root[root.size() - 1] == '\\')) root.erase(root.size() - 1);
+
+		std::shared_ptr<IMaterial> mat = BuildMaterialFromText(ss.str(), root);
+		if (!mat) { echo("ERROR: could not build material " + resolvedPath); return nullptr; }
+		mat->SetAssetPath(resolvedPath);
+		cache[resolvedPath] = mat;
 		return mat;
 	}
 

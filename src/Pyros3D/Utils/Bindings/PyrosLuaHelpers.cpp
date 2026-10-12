@@ -11,6 +11,12 @@
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Sprite2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
+#include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
+#include <Pyros3D/Physics/Physics2D/Joint2D.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
 
 namespace p3d {
@@ -328,6 +334,26 @@ namespace p3d {
 			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<PhysicsVehicle>>());
 		if (o.is<std::shared_ptr<IPhysicsComponent>>())
 			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<IPhysicsComponent>>());
+		// The 2D components. Each is its own registered usertype, and sol
+		// will not find the IComponent in a shared_ptr to one by itself.
+		if (o.is<std::shared_ptr<Sprite2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<Sprite2D>>());
+		if (o.is<std::shared_ptr<SpriteBatch2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<SpriteBatch2D>>());
+		if (o.is<std::shared_ptr<SpriteMask2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<SpriteMask2D>>());
+		if (o.is<std::shared_ptr<Line2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<Line2D>>());
+		if (o.is<std::shared_ptr<Physics2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<Physics2D>>());
+		if (o.is<std::shared_ptr<Layer2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<Layer2D>>());
+		if (o.is<std::shared_ptr<Occluder2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<Occluder2D>>());
+		if (o.is<std::shared_ptr<Joint2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<Joint2D>>());
+		if (o.is<std::shared_ptr<TileMap2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<TileMap2D>>());
 		if (o.is<std::shared_ptr<IComponent>>())
 			return o.as<std::shared_ptr<IComponent>>();
 		return nullptr;
@@ -486,6 +512,18 @@ namespace p3d {
 				return sol::make_object(lua, std::static_pointer_cast<Physics2D>(c));
 			if (typeName == "TileMap2D" && c->GetComponentType() == ComponentType::TileMap2D)
 				return sol::make_object(lua, std::static_pointer_cast<TileMap2D>(c));
+			if (typeName == "Sprite2D" && c->GetComponentType() == ComponentType::Sprite2D)
+				return sol::make_object(lua, std::static_pointer_cast<Sprite2D>(c));
+			if (typeName == "SpriteBatch2D" && c->GetComponentType() == ComponentType::SpriteBatch2D)
+				return sol::make_object(lua, std::static_pointer_cast<SpriteBatch2D>(c));
+			if (typeName == "SpriteMask2D" && c->GetComponentType() == ComponentType::SpriteMask2D)
+				return sol::make_object(lua, std::static_pointer_cast<SpriteMask2D>(c));
+			if (typeName == "Line2D" && c->GetComponentType() == ComponentType::Line2D)
+				return sol::make_object(lua, std::static_pointer_cast<Line2D>(c));
+			if (typeName == "Occluder2D" && c->GetComponentType() == ComponentType::Occluder2D)
+				return sol::make_object(lua, std::static_pointer_cast<Occluder2D>(c));
+			if (typeName == "Joint2D" && c->GetComponentType() == ComponentType::Joint2D)
+				return sol::make_object(lua, std::static_pointer_cast<Joint2D>(c));
 			// Lights and sounds. Without these a scene's own lighting and
 			// audio were unreachable from script: a game could author a
 			// torch in the editor and had no way to light it, and the only

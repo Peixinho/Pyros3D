@@ -17,6 +17,7 @@ namespace p3d {
 	class SceneGraph;
 	class GameObject;
 	class Physics2D;
+	class Joint2D;
 	class DebugRenderer;
 
 	// The Box2D world for one scene.
@@ -94,8 +95,36 @@ namespace p3d {
 		// runs through. Sonic switched collision layers at the loop mouth for
 		// exactly this reason; with a sensor-driven character, choosing what
 		// the rays may see IS the layer switch.
+		// `mask` is which collision layers the ray can see, a bit a layer -
+		// everything unless told otherwise. Sensors are never hit: a ground
+		// probe that stopped on a coin's trigger would be standing on air.
 		RayHit2D RayCast(const Vec2 &from, const Vec2 &to,
-			const Physics2D* ignore = NULL, const Physics2D* ignore2 = NULL) const;
+			const Physics2D* ignore = NULL, const Physics2D* ignore2 = NULL,
+			const uint32 mask = 0xFFFFFFFFu) const;
+		// Every body along the segment, nearest first: a piercing shot, or
+		// "what is between me and the player".
+		std::vector<RayHit2D> RayCastAll(const Vec2 &from, const Vec2 &to,
+			const Physics2D* ignore = NULL, const uint32 mask = 0xFFFFFFFFu) const;
+
+		// A shape swept along the segment, and where it first touches: a
+		// thrown ball, a dash that must stop at a wall. `fraction` is how
+		// far along it got. A ray is infinitely thin and slips through gaps
+		// the thing it stands for would not.
+		RayHit2D CircleCast(const Vec2 &from, const Vec2 &to, const f32 radius,
+			const Physics2D* ignore = NULL, const uint32 mask = 0xFFFFFFFFu) const;
+		RayHit2D BoxCast(const Vec2 &from, const Vec2 &to, const Vec2 &halfExtents,
+			const f32 angle = 0.f, const Physics2D* ignore = NULL, const uint32 mask = 0xFFFFFFFFu) const;
+
+		// Which bodies are at a place, without anything having to collide
+		// with them first: what an explosion reaches, what the cursor is
+		// over, whether a spawn point is clear. Sensors are left out unless
+		// asked for.
+		std::vector<Physics2D*> OverlapPoint(const Vec2 &p, const uint32 mask = 0xFFFFFFFFu,
+			const bool includeSensors = false) const;
+		std::vector<Physics2D*> OverlapCircle(const Vec2 &center, const f32 radius,
+			const uint32 mask = 0xFFFFFFFFu, const bool includeSensors = false) const;
+		std::vector<Physics2D*> OverlapBox(const Vec2 &center, const Vec2 &halfExtents, const f32 angle = 0.f,
+			const uint32 mask = 0xFFFFFFFFu, const bool includeSensors = false) const;
 
 		// Throws the world away: every body, and every tracked component
 		// pointer. MUST be called when the scene those components belonged to
@@ -108,6 +137,15 @@ namespace p3d {
 		void SetGravity(const Vec2 &g);
 		const Vec2 &GetGravity() const { return gravity; }
 
+		// How many solver passes a step is cut into. More makes stacks and
+		// chains of joints stiffer and costs proportionally; 4 is the
+		// solver's own recommendation.
+		void SetSubSteps(const int n) { subSteps = n < 1 ? 1 : (n > 16 ? 16 : n); }
+		int GetSubSteps() const { return subSteps; }
+
+		uint32 BodyCount() const { return (uint32)tracked.size(); }
+		uint32 JointCount() const;
+
 		// Whether a world was actually created. False until the first Sync()
 		// that finds something to simulate.
 		bool IsLive() const { return live; }
@@ -115,6 +153,17 @@ namespace p3d {
 	private:
 
 		void DestroyBodyFor(Physics2D* p);
+		void BuildBody(Physics2D* p, const void* worldHandle);
+		void BuildJoint(Joint2D* j, const std::vector<Physics2D*> &bodies, const void* worldHandle);
+		void CarryMovedObjects();
+		// The joints the solver has no kind for - a pulley, a gear - held
+		// here: once per fixed step, before the solver runs, each is
+		// brought back to what it allows by pushing its two bodies.
+		void SolveSoftJoints(const void* worldHandle, const f32 dt);
+		RayHit2D ShapeCast(const Vec2* points, const int count, const f32 radius,
+			const Vec2 &from, const Vec2 &to, const Physics2D* ignore, const uint32 mask) const;
+		std::vector<Physics2D*> OverlapShape(const Vec2* points, const int count, const f32 radius,
+			const Vec2 &at, const uint32 mask, const bool includeSensors) const;
 		// void* rather than b2WorldId/b2ShapeId so this header stays
 		// box2d-free, same as the split handles below.
 		void DispatchContacts(const void* worldHandle);
@@ -129,6 +178,27 @@ namespace p3d {
 		Vec2 gravity;
 		f64 accumulator;
 		std::vector<Physics2D*> tracked;
+		int subSteps;
+
+		// Joints, and the solver handle each had when last seen - kept apart
+		// from the component because the component may be freed by the time
+		// its joint has to be destroyed.
+		struct JointHandle { int32 index; uint16 world; uint16 generation; };
+		// The same for bodies, and for the same reason - plus one more. An
+		// undo deletes an object and makes it again, and the new component
+		// is often given the very address the old one had: by its pointer
+		// it is "still here", with no body, so it is given one, and the old
+		// one's is left in the solver for good - a collider with nothing
+		// attached to it, exactly where the object used to be.
+		std::vector<JointHandle> trackedBodyIds;
+		std::vector<Joint2D*> trackedJoints;
+		std::vector<JointHandle> trackedJointIds;
+
+		// The static body joints "to the world" are tied to.
+		bool haveGround;
+		int32 groundIndex;
+		uint16 groundWorld;
+		uint16 groundGeneration;
 	};
 
 };

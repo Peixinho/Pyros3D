@@ -58,6 +58,12 @@
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Sprite2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
+#include <Pyros3D/Utils/Bindings/PyrosLuaView2D.h>
+#include <Pyros3D/Physics/Physics2D/Joint2D.h>
 #include <fstream>
 
 #define STB_IMAGE_WRITE_IMPLEMENTATION
@@ -92,6 +98,10 @@ bool GameObjectHasVisualComponent(GameObject* go)
 		const uint32 t = c->GetComponentType();
 		if (t == ComponentType::RenderingComponent
 			|| t == ComponentType::RenderingInstancedComponent
+			// A sprite draws whether or not it has a mesh of its own yet -
+			// in a batch it never does - and a scene of four hundred of
+			// them does not want four hundred markers over the art.
+			|| t == ComponentType::Sprite2D
 			|| t == ComponentType::ParticleSystem
 			|| t == ComponentType::DirectionalLight
 			|| t == ComponentType::PointLight
@@ -299,6 +309,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		playModeSavedCameraId = 0;
 		viewportOverlayValid = false;
 		playMode = false;
+		// A scene being laid out holds still: sprite clips run in Play, and
+		// outside it only the one the Properties panel is previewing moves.
+		Sprite2D::SetClocksRunning(false);
 		audio = NULL;
 		project = NULL;
 #ifdef LUA_BINDINGS
@@ -1197,7 +1210,6 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			&& scriptRenderCamera == nullptr && !playViewSynthesised)
 		{
 			playViewSynthesised = true;
-			playView2DBackup = view2D;
 			view2D = SceneMeta::View2D();
 			view2D.enabled = true;
 			f32 l, r, b2d, t;
@@ -1308,7 +1320,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (editingCanvas)
 			HandleCanvasInput(editingCanvas);
 		else if (!IsTerrainMode())
-			HandleViewportGizmoInput(viewCam);
+		{
+			// A collider being edited has the viewport's clicks; the gizmo
+			// is not drawn then and must not be grabbed blind.
+			if (!HandleCollider2DInput())
+				HandleViewportGizmoInput(viewCam);
+		}
 
 		// What is rendered is this big; the viewport is dim. They differ only in
 		// Play, with a render quality below Native chosen (ViewportRenderScale):
@@ -1373,7 +1390,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// content, not a debug overlay, so this sits here rather than in the
 		// gizmo/debug block below - that block is skipped entirely in canvas
 		// mode, which would have silently turned shadows off there.
-		Occluder2D::PublishSceneOccluders(scene);
+		{
+			// Knowing what the viewport shows, when it is looking straight
+			// at the plane: the shadow budget then goes to the lights in view.
+			f32 vl, vr, vb, vt;
+			if (sceneIsTwoD && GetView2DExtentPublic(vl, vr, vb, vt))
+			{
+				const Vec4 seen(vl, vb, vr, vt);
+				Occluder2D::PublishSceneOccluders(scene, &seen);
+			}
+			else Occluder2D::PublishSceneOccluders(scene);
+		}
 
 #ifdef LUA_BINDINGS
 		if (playMode && sceneMainScript)
@@ -1551,7 +1578,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		else if (!playMode)
 		{
 			PrepareGizmoForDraw(viewCam);
-			if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT && gizmo != NULL)
+			if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT && gizmo != NULL
+				&& EditingCollider2D() == NULL)
 				gizmo->Draw();
 
 
@@ -2121,6 +2149,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				}
 				case SceneObjectTypes::TERRAIN_COMPONENT:
 				case SceneObjectTypes::TILEMAP_COMPONENT:
+				case SceneObjectTypes::PHYSICS2D_COMPONENT:
+				case SceneObjectTypes::JOINT2D_COMPONENT:
 				case SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT:
 				case SceneObjectTypes::POINTLIGHT_COMPONENT:
 				case SceneObjectTypes::SPOTLIGHT_COMPONENT:
@@ -2210,6 +2240,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						|| nodeType == SceneObjectTypes::LUA_COMPONENT
 						|| nodeType == SceneObjectTypes::TERRAIN_COMPONENT
 						|| nodeType == SceneObjectTypes::TILEMAP_COMPONENT
+						|| nodeType == SceneObjectTypes::PHYSICS2D_COMPONENT
+						|| nodeType == SceneObjectTypes::JOINT2D_COMPONENT
 						|| nodeType == SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT
 						|| nodeType == SceneObjectTypes::POINTLIGHT_COMPONENT
 						|| nodeType == SceneObjectTypes::SPOTLIGHT_COMPONENT;
@@ -3144,6 +3176,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		case SceneObjectTypes::LUA_COMPONENT:
 		case SceneObjectTypes::TERRAIN_COMPONENT:
 		case SceneObjectTypes::TILEMAP_COMPONENT:
+		case SceneObjectTypes::PHYSICS2D_COMPONENT:
+		case SceneObjectTypes::JOINT2D_COMPONENT:
 		{
 			IComponent* c = (IComponent*)SelectedSceneObject->GetPTR();
 			return c ? c->GetOwner() : NULL;
@@ -3268,50 +3302,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// Which scene is running, for a boot script that branches on it.
 		(*sharedLua)["currentScene"] = [self]() { return self->GetSceneDisplayName(); };
 
-		// The scene's own 2D view, the same table the player exposes. Same
-		// names, same meanings, same SceneMeta::View2D underneath - a script
-		// that frames the game must not behave one way in the preview and
-		// another in a build.
+		// The scene's own 2D view, the same table the player exposes - bound
+		// by the engine for both, so a script that frames the game cannot
+		// behave one way in the preview and another in a build.
 		{
-			sol::table v = sharedLua->create_table();
-			v["setCenter"] = [self](f32 x, f32 y) {
-				self->view2D.enabled = true;
-				self->view2D.center = Vec2(x, y);
-				self->MarkSceneDirty();
+			LuaView2DHost host;
+			host.view = [self]() { return &self->view2D; };
+			host.changed = [self]() { self->MarkSceneDirty(); };
+			host.viewportSize = [self]() { return Vec2(self->dim.x > 1.f ? self->dim.x : 1.f, self->dim.y > 1.f ? self->dim.y : 1.f); };
+			// The game's picture is one panel of the editor's window: the
+			// mouse is measured from that panel's corner and scaled to the
+			// picture's own pixels, as UpdateViewportMouse does.
+			host.mouseInViewport = [self]() {
+				const Vec2 m = InputManager::GetMousePosition();
+				if (self->viewportImgSize.x < 1.f || self->viewportImgSize.y < 1.f) return m;
+				return Vec2((m.x - self->viewportImgMin.x) * (self->dim.x / self->viewportImgSize.x),
+					(m.y - self->viewportImgMin.y) * (self->dim.y / self->viewportImgSize.y));
 			};
-			v["center"] = [self]() {
-				return std::make_tuple(self->view2D.center.x, self->view2D.center.y);
-			};
-			v["setZoom"] = [self](f32 halfHeight) {
-				self->view2D.enabled = true;
-				if (halfHeight > 0.0001f) self->view2D.halfHeight = halfHeight;
-				self->MarkSceneDirty();
-			};
-			v["zoom"] = [self]() { return self->view2D.halfHeight; };
-			v["follow"] = [self](const std::string& name, sol::optional<f32> lag) {
-				self->view2D.enabled = true;
-				self->view2D.follow = name;
-				if (lag) self->view2D.followLag = *lag;
-				self->MarkSceneDirty();
-			};
-			v["setFollowOffset"] = [self](f32 x, f32 y) {
-				self->view2D.followOffset = Vec2(x, y);
-				self->MarkSceneDirty();
-			};
-			v["followAxes"] = [self](bool x, bool y) {
-				self->view2D.followX = x;
-				self->view2D.followY = y;
-				self->MarkSceneDirty();
-			};
-			v["setBounds"] = [self](f32 minX, f32 minY, f32 maxX, f32 maxY) {
-				self->view2D.enabled = true;
-				self->view2D.clamp = true;
-				self->view2D.clampMin = Vec2(minX, minY);
-				self->view2D.clampMax = Vec2(maxX, maxY);
-				self->MarkSceneDirty();
-			};
-			v["clearBounds"] = [self]() { self->view2D.clamp = false; self->MarkSceneDirty(); };
-			(*sharedLua)["view"] = v;
+			LuaBindView2D(*sharedLua, host);
 		}
 		// Expose echo() so Lua scripts can write to the editor log window.
 		(*sharedLua)["echo"] = [](const std::string& msg) { p3d::LOG::_LOG::_echo(msg); };
@@ -3574,8 +3582,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				&& type != ComponentType::UIImage && type != ComponentType::UIText
 				&& type != ComponentType::UIButton
 				&& type != ComponentType::Occluder2D && type != ComponentType::Physics2D
-				&& type != ComponentType::Layer2D && type != ComponentType::RenderingComponent)
+				&& type != ComponentType::Layer2D && type != ComponentType::RenderingComponent
+				&& type != ComponentType::Sprite2D && type != ComponentType::SpriteBatch2D
+				&& type != ComponentType::Joint2D
+				&& type != ComponentType::SpriteMask2D && type != ComponentType::Line2D)
 				continue;
+			// The mesh a sprite or a sprite batch made for itself has nothing
+			// of its own to show: everything about it is the sprite's.
+			if (type == ComponentType::RenderingComponent && OwnerDrawsSprites(go)) continue;
 
 			ImGui::PushID((int)i);
 			ImGui::Separator();
@@ -3672,6 +3686,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						}
 					}
 				}
+				// A quad with a see-through textured material is what a sprite
+				// was before Sprite2D. One click makes it one.
+				if (dynamic_cast<Plane*>(rc->GetRenderable()) != NULL && !rc->GetMeshes().empty()
+					&& rc->GetMeshes()[0]->Material && rc->GetMeshes()[0]->Material->IsTransparent())
+				{
+					if (ImGui::Button("Convert to Sprite2D"))
+					{
+						std::string cerr;
+						if (!OpConvertLegacySprite(goId, cerr)) echo("WARNING: " + cerr);
+						// The component list just changed under this loop.
+						ImGui::PopID();
+						return;
+					}
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("Turns this textured quad into a Sprite2D that looks the\nsame: frames from one sheet instead of a texture per frame,\nflip, tint, clips by name, and it can be batched.");
+				}
 				if (ImGui::CollapsingHeader("Sprite Animation"))
 				{
 					TextureAnimationInstance* inst =
@@ -3706,6 +3736,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						ImGui::SetTooltip("Cuts the sheet into cols x rows PNGs beside it and plays\nthem. Written as real files so the scene stores paths\nrather than embedding every frame.");
 				}
 			}
+			else if (type == ComponentType::Sprite2D)
+				DrawSprite2DProperties(go, goId, static_cast<Sprite2D*>(comps[i].get()));
+			else if (type == ComponentType::SpriteBatch2D)
+				DrawSpriteBatch2DProperties(goId, static_cast<SpriteBatch2D*>(comps[i].get()));
+			else if (type == ComponentType::SpriteMask2D)
+				DrawSpriteMask2DProperties(goId, static_cast<SpriteMask2D*>(comps[i].get()));
+			else if (type == ComponentType::Line2D)
+				DrawLine2DProperties(goId, static_cast<Line2D*>(comps[i].get()));
 			else if (type == ComponentType::Occluder2D)
 			{
 				Occluder2D* oc = static_cast<Occluder2D*>(comps[i].get());
@@ -3752,95 +3790,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 				ImGui::TextDisabled("Blocks 2D light. No physics involved.");
 			}
+			// Physics 2D, Joint 2D and Layer 2D are drawn in SceneEditor2D.cpp.
 			else if (type == ComponentType::Physics2D)
-			{
-				Physics2D* ph = static_cast<Physics2D*>(comps[i].get());
-				ImGui::Text("Physics 2D");
-
-				int bt = (int)ph->GetBodyType();
-				const char* bodyTypes[] = { "Static", "Kinematic", "Dynamic" };
-				{
-					const std::string b = SnapshotSubtree(goId);
-					if (ImGui::Combo("Body", &bt, bodyTypes, 3))
-					{ ph->SetBodyType((uint32)bt); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Body Type"); }
-				}
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("Static never moves (the ground). Kinematic is moved by\nscript and pushes others but ignores forces. Dynamic is\nmoved by the solver.");
-
-				int sh = (int)ph->GetShapeType();
-				const char* shapes[] = { "Box", "Circle" };
-				{
-					const std::string b = SnapshotSubtree(goId);
-					if (ImGui::Combo("Shape", &sh, shapes, 2))
-					{ ph->SetShapeType((uint32)sh); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Body Shape"); }
-				}
-
-				Vec2 sz = ph->GetSize();
-				BeginComponentUndo(goId);
-				if (ImGui::DragFloat2("Half Extents", (float*)&sz, 0.01f, 0.001f, 1000.f))
-				{
-					ph->SetSize(sz);
-					MarkSceneDirty();
-				}
-				EndComponentUndo(goId, "Set Body Size");
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("Half-extents, because that is what Box2D takes - a 1x1\nbox is 0.5, 0.5. For a circle only X is used, as the\nradius.");
-
-				f32 d = ph->GetDensity();
-				BeginComponentUndo(goId);
-				if (ImGui::DragFloat("Density", &d, 0.05f, 0.f, 100.f)) { ph->SetDensity(d); MarkSceneDirty(); }
-				EndComponentUndo(goId, "Set Density");
-				f32 fr = ph->GetFriction();
-				BeginComponentUndo(goId);
-				if (ImGui::DragFloat("Friction", &fr, 0.01f, 0.f, 1.f)) { ph->SetFriction(fr); MarkSceneDirty(); }
-				EndComponentUndo(goId, "Set Friction");
-				f32 re = ph->GetRestitution();
-				BeginComponentUndo(goId);
-				if (ImGui::DragFloat("Bounciness", &re, 0.01f, 0.f, 1.f)) { ph->SetRestitution(re); MarkSceneDirty(); }
-				EndComponentUndo(goId, "Set Bounciness");
-
-				bool fx = ph->IsFixedRotation();
-				{
-					const std::string b = SnapshotSubtree(goId);
-					if (ImGui::Checkbox("Fixed Rotation", &fx))
-					{ ph->SetFixedRotation(fx); MarkSceneDirty(); PushReplaceCommand(goId, b, "Toggle Fixed Rotation"); }
-				}
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("Stops the body tipping over - what almost every\nplatformer character wants.");
-
-				ImGui::TextDisabled("Edits apply on the next play; the body is built then.");
-			}
+				DrawPhysics2DProperties(go, goId, static_cast<Physics2D*>(comps[i].get()));
+			else if (type == ComponentType::Joint2D)
+				DrawJoint2DProperties(go, goId, static_cast<Joint2D*>(comps[i].get()));
 			else if (type == ComponentType::Layer2D)
-			{
-				Layer2D* l = static_cast<Layer2D*>(comps[i].get());
-				ImGui::Text("Layer 2D");
-
-				Vec2 par = l->GetParallax();
-				BeginComponentUndo(goId);
-				if (ImGui::DragFloat2("Parallax", (float*)&par, 0.01f, 0.f, 4.f))
-				{
-					l->SetParallax(par);
-					MarkSceneDirty();
-				}
-				EndComponentUndo(goId, "Set Parallax");
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("1 = moves with the camera, 0 = pinned on screen,\n0.5 = half speed (further away). The two axes are\nindependent, so a sky can scroll sideways and stay\nput vertically.");
-
-				bool vis = l->IsVisible();
-				{
-					const std::string b = SnapshotSubtree(goId);
-					if (ImGui::Checkbox("Visible", &vis))
-					{
-						l->SetVisible(vis);
-						MarkSceneDirty();
-						PushReplaceCommand(goId, b, "Toggle Layer Visible");
-					}
-				}
-				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("Hides every mesh under this layer without unparenting\nor deleting anything.");
-
-				ImGui::TextDisabled("Draw order is this object's Z.");
-			}
+				DrawLayer2DProperties(goId, static_cast<Layer2D*>(comps[i].get()));
 			else if (type == ComponentType::UICanvas)
 			{
 				UICanvas* c = static_cast<UICanvas*>(comps[i].get());
@@ -4669,6 +4625,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::InitSceneMainScript()
 	{
+		// A path with no compiled instance behind it - set_scene_main_script
+		// drops the instance so the next run cannot be the previous script,
+		// and nothing built the new one: Play then started with no script
+		// and said nothing about it.
+		if (!sceneMainScript && !sceneMainScriptPath.empty()) RebuildSceneMainScriptInstance();
 		if (!sceneMainScript) return;
 		try { sceneMainScript->Init(); }
 		catch (const std::exception& e) {
@@ -5310,8 +5271,58 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						if (ImGui::DragFloat2("##gv_bmax", mx, 0.1f))
 						{ view2D.clampMax = Vec2(mx[0], mx[1]); sceneDirty = true; }
 					}
+
+					ImGui::TextDisabled("Dead zone (half width / height)");
+					f32 dz[2] = { view2D.deadZone.x, view2D.deadZone.y };
+					ImGui::SetNextItemWidth(-1.f);
+					if (ImGui::DragFloat2("##gv_dead", dz, 0.02f, 0.f, 1000.f))
+					{ view2D.deadZone = Vec2(dz[0] > 0.f ? dz[0] : 0.f, dz[1] > 0.f ? dz[1] : 0.f); sceneDirty = true; }
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("A box in the middle of the view the followed object can\nmove about in without the view moving. 0 turns it off.");
+
+					ImGui::TextDisabled("Look ahead (x / y)");
+					f32 la[2] = { view2D.lookAhead.x, view2D.lookAhead.y };
+					ImGui::SetNextItemWidth(-1.f);
+					if (ImGui::DragFloat2("##gv_ahead", la, 0.02f, 0.f, 1000.f))
+					{ view2D.lookAhead = Vec2(la[0] > 0.f ? la[0] : 0.f, la[1] > 0.f ? la[1] : 0.f); sceneDirty = true; }
+					if (ImGui::IsItemHovered())
+						ImGui::SetTooltip("How far the view leads the followed object in the direction\nit is moving, so there is more screen ahead than behind.");
+					if (view2D.lookAhead.x > 0.f || view2D.lookAhead.y > 0.f)
+					{
+						ImGui::TextDisabled("Look ahead lag (s)");
+						ImGui::SetNextItemWidth(-1.f);
+						if (ImGui::DragFloat("##gv_aheadlag", &view2D.lookAheadLag, 0.01f, 0.f, 5.f, "%.2f"))
+							sceneDirty = true;
+					}
 				}
+
+				ImGui::TextDisabled("Pixel snap (pixels per unit)");
+				ImGui::SetNextItemWidth(-1.f);
+				if (ImGui::DragFloat("##gv_snap", &view2D.pixelSnap, 0.5f, 0.f, 4096.f, view2D.pixelSnap > 0.f ? "%.1f" : "off"))
+				{ if (view2D.pixelSnap < 0.f) view2D.pixelSnap = 0.f; sceneDirty = true; }
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Rounds where the view is drawn from to a whole pixel of art\nat this many pixels per unit. Stops pixel art shimmering\nas the camera drifts. 0 is off.");
+
+				bool ap = view2D.autoParallax;
+				if (ImGui::Checkbox("Scroll layers automatically", &ap))
+				{ view2D.autoParallax = ap; sceneDirty = true; }
+				if (ImGui::IsItemHovered())
+					ImGui::SetTooltip("Every Layer 2D marked Automatic is scrolled by its parallax\nfactor as the view moves - no script. Leave off in a scene\nwhose script moves its layers itself.");
 			}
+
+			ImGui::Spacing();
+			ImGui::TextUnformatted("2D Physics");
+			f32 g[2] = { gravity2D.x, gravity2D.y };
+			ImGui::TextDisabled("Gravity (units / s^2)");
+			ImGui::SetNextItemWidth(-1.f);
+			if (ImGui::DragFloat2("##gv_gravity", g, 0.1f, -1000.f, 1000.f))
+			{
+				gravity2D = Vec2(g[0], g[1]);
+				if (physics2D) physics2D->SetGravity(gravity2D);
+				sceneDirty = true;
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("-10 is right when a unit is a metre. A platformer whose\ncharacter is one unit tall usually wants -30 to -60 for a\njump that feels snappy rather than floaty.");
 		}
 #ifdef LUA_BINDINGS
 
@@ -5432,7 +5443,37 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ImGui::CloseCurrentPopup();
 			}
 			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("A textured, alpha-blended quad. Assign its texture in\nProperties - it starts white and square.");
+				ImGui::SetTooltip("A Sprite2D: draws an image or a frame of a sprite sheet.\nSet its Source in Properties.");
+
+			if (ImGui::MenuItem("Sprite Batch"))
+			{
+				std::string berr;
+				if (!OpAddSpriteBatch2D(goId, berr))
+					echo("WARNING: could not add Sprite Batch: " + berr);
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Put this on a PARENT of many sprites - a layer - and they are\ndrawn in one call per texture instead of one each.");
+
+			if (ImGui::MenuItem("Sprite Mask"))
+			{
+				std::string merr;
+				if (!OpAddSpriteMask2D(goId, merr))
+					echo("WARNING: could not add Sprite Mask: " + merr);
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("A shape sprites are shown only inside (or outside) of: a window,\na porthole, a bar that empties. Put it on the PARENT of the sprites\nit cuts, and set each sprite's Mask to Inside or Outside.");
+
+			if (ImGui::MenuItem("Line 2D"))
+			{
+				std::string lerr;
+				if (!OpAddLine2D(goId, lerr))
+					echo("WARNING: could not add Line 2D: " + lerr);
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("A line with width through a list of points - a rope, a laser -\nor, set to Trail, the path this object leaves behind it.");
 
 			if (ImGui::MenuItem("Occluder 2D"))
 			{
@@ -5460,6 +5501,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("A Box2D rigid body. Its (x, y) and rotation about z\nare driven by the solver; z is left alone because that\nis draw order.");
+
+			if (ImGui::BeginMenu("Joint 2D"))
+			{
+				static const char* const kinds[] = { "Hinge", "Distance (rope / rod / spring)", "Weld", "Slider", "Wheel" };
+				for (int k = 0; k < 5; k++)
+					if (ImGui::MenuItem(kinds[k]))
+					{
+						std::string jerr;
+						if (!OpAddJoint2D(goId, (uint32)k, jerr))
+							echo("WARNING: could not add Joint2D: " + jerr);
+						ImGui::CloseCurrentPopup();
+					}
+				ImGui::EndMenu();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Ties this object's 2D body to another object's, or to the\nworld: a door on a hinge, a lantern on a rope, a lift on a rail.");
 
 			// Unlike the others here, a tile map cannot be added blind: it is
 			// nothing without a tileset, and there is no sensible default for
@@ -7154,6 +7211,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// still (UpdateTextureAnimationPreview), and without this they would
 		// stay stopped in the very mode that is supposed to show the game.
 		StartTextureAnimationsForPlayMode();
+		playView2DBackup = view2D;
+		playView2DBackedUp = true;
+		if (physics2D) physics2D->SetGravity(gravity2D);
+		// Sprite clips run in Play and hold still outside it, where only the
+		// one the Properties panel is previewing moves.
+		StopSpritePreview();
+		Sprite2D::SetClocksRunning(true);
 		lastListenerTime = -1.0;
 		gizmoDragging = false;
 		_leftMouse = false;
@@ -7591,6 +7655,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// is set and the selection has not changed, and the whole scene went
 		// on animating after Stop until something else invalidated it.
 		texturePreviewSynced = false;
+		Sprite2D::SetClocksRunning(false);
 		for (std::map<uint32, PlayModeObjectSnapshot>::iterator i = playModeSnapshots.begin();
 			i != playModeSnapshots.end(); ++i)
 		{
@@ -7628,11 +7693,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// same camera object, so without this a Play session leaves you
 		// wherever the game's camera finished - and the framing you had set up
 		// to work in is gone every time you test.
-		if (playViewSynthesised)
+		// Always, not only when Play had to invent a view: a view that
+		// follows something has its centre moved every frame it plays, and
+		// a script may zoom it or re-aim it. All of that is the session's,
+		// and it was being left in the scene - Stop, then Save, wrote the
+		// place the character happened to finish as the scene's Game View.
+		if (playView2DBackedUp)
 		{
 			view2D = playView2DBackup;
-			playViewSynthesised = false;
+			playView2DBackedUp = false;
 		}
+		playViewSynthesised = false;
+		// Layers the view scrolled go back where they were authored, and
+		// forget that place so the next Play measures it again.
+		p3d::ResetAutomaticLayers(scene);
+		if (physics2D) physics2D->SetGravity(gravity2D);
 		if (savedEditorView.valid)
 		{
 			pos = savedEditorView.pos;
@@ -8310,18 +8385,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::HandleViewportGizmoInput(GameObject* viewCam)
 	{
-		if (playMode || editorDisabled || !viewportMouseValid || !viewCam || !viewportOverlayValid)
+		if (playMode || editorDisabled || !viewCam || !viewportOverlayValid)
 			return;
 
 		const ImVec2 mp = ImGui::GetIO().MousePos;
 		const bool hovered = (mp.x >= viewportImgMin.x && mp.x < viewportImgMin.x + viewportImgSize.x
 			&& mp.y >= viewportImgMin.y && mp.y < viewportImgMin.y + viewportImgSize.y);
-		if (!hovered)
+		// A drag in progress is seen through wherever the pointer goes: one
+		// let go of outside the image used to return here, so the release
+		// was never handled - the move stayed, with no undo step for it, and
+		// the gizmo still thought it was held.
+		if ((!hovered || !viewportMouseValid) && !gizmoDragging)
 			return;
 
 
 		if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT || !gizmo)
 		{
+			gizmoDragging = false;
+			if (!hovered || !viewportMouseValid) return;
 			if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
 				ViewportPickAtMouse(/*selectComponent=*/true);
 			else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
@@ -9107,7 +9188,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.ambientGround = ambientGround;
 			meta.postEffects = postEffects;
 			meta.twoD = sceneIsTwoD;
-			meta.view2D = view2D;
+			// While playing, the view is the session's; what is saved is what
+			// was authored.
+			meta.view2D = (playMode && playView2DBackedUp) ? playView2DBackup : view2D;
+			meta.gravity2D = gravity2D;
 			// Saving dropped this: a streamed world came back from its first
 			// editor save as a plain scene with its cells orphaned on disk.
 			meta.world = sceneWorld;
@@ -9327,6 +9411,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					sceneMainScriptPath = ProjectManager::SceneScriptPathForSceneJson(path);
 				sceneIsTwoD = meta.twoD;
 				view2D = meta.view2D;
+				gravity2D = meta.gravity2D;
+				if (physics2D) physics2D->SetGravity(gravity2D);
 				sceneWorld = meta.world;
 
 				// Re-apply the PROJECT's renderer for the scene just loaded.
@@ -9719,6 +9805,36 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					}
 				}
 			}
+			return true;
+		}
+
+		// A sprite sheet dropped into a scene is a sprite, and so is a plain
+		// image in a 2D scene - where there is nothing else an image could
+		// mean. (In a 3D scene an image is a texture for a material, as
+		// before.)
+		const bool isSpriteSheet = ProjectManager::IsSpriteSheetExtension(absolutePath);
+		if (isSpriteSheet || (isTexture && sceneIsTwoD))
+		{
+			SceneObject* made = sceneObjects->CreateGameObject(name);
+			if (!made) return false;
+			std::string serr;
+			if (!OpAddSprite(made->GetID(), absolutePath, serr))
+			{
+				echo("ERROR: Place sprite - " + serr);
+				sceneObjects->DestroySceneObject(made->GetID());
+				return false;
+			}
+			// Where the view is looking, not the origin: a level is long, and
+			// a sprite that arrives off screen looks like nothing happened.
+			f32 l, r, b, t;
+			if (GetView2DExtentPublic(l, r, b, t))
+			{
+				GameObject* mgo = (GameObject*)made->GetPTR();
+				mgo->SetPosition(Vec3((l + r) * 0.5f, (b + t) * 0.5f, 0.f));
+				mgo->RefreshTransformation();
+			}
+			PushAddCommand(made);
+			SelectSceneObject(made);
 			return true;
 		}
 
@@ -11139,6 +11255,25 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				case SceneObjectTypes::TILEMAP_COMPONENT:
 					ImGui::TextUnformatted("Tile Map 2D");
 					ImGui::TextDisabled("Its palette and brushes are in the Tools window.");
+				break;
+				case SceneObjectTypes::PHYSICS2D_COMPONENT:
+				{
+					// The body by itself: its section, and - this row being
+					// selected - its collider's handles in the Scene View.
+					Physics2D* ph = (Physics2D*)SelectedSceneObject->GetPTR();
+					if (ph && ph->GetOwner())
+					{
+						if (sceneIsTwoD && !playMode)
+							ImGui::TextDisabled("Its collider's handles are in the Scene View.");
+						DrawPhysics2DProperties(ph->GetOwner(), SelectedSceneObject->GetParentID(), ph);
+					}
+				}
+				break;
+				case SceneObjectTypes::JOINT2D_COMPONENT:
+				{
+					Joint2D* jt = (Joint2D*)SelectedSceneObject->GetPTR();
+					if (jt && jt->GetOwner()) DrawJoint2DProperties(jt->GetOwner(), SelectedSceneObject->GetParentID(), jt);
+				}
 				break;
 				case SceneObjectTypes::LUA_COMPONENT:
 				{
@@ -13561,21 +13696,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// SceneMeta::View2D code, that PyrosPlayer::UpdateView2DCamera runs.
 	void SceneEditor::UpdateSceneView2D(const f32 dt, const f32 aspect)
 	{
-		if (!view2D.enabled) return;
-
-		if (!view2D.follow.empty() && sceneObjects)
-		{
-			for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
-				i != sceneObjects->GetList().end(); ++i)
-			{
-				if (!(*i).second || (*i).second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
-				if ((*i).second->GetName() != view2D.follow) continue;
-				GameObject* go = (GameObject*)(*i).second->GetPTR();
-				if (go) view2D.Track(go->GetWorldPosition(), dt);
-				break;
-			}
-		}
-		view2D.ClampCenter(aspect);
+		// Follow, zoom, bounds, shake and the automatic layers: one function,
+		// the same one the player calls, so Play here frames the game the
+		// way a build will.
+		if (!p3d::UpdateSceneView2D(view2D, scene, dt, aspect)) return;
 
 		if (Camera && CameraPivot)
 		{
@@ -13583,8 +13707,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// the pivot's transform is what ShowViewport recomposes the view
 			// from, so a SetPosition() on the camera is overwritten before it
 			// is ever used. Same trap LookAtPlaneXY documents.
+			const Vec2 c = view2D.RenderCenter();
 			Matrix m;
-			m.Translate(Vec3(view2D.center.x, view2D.center.y, 0.f));
+			m.Translate(Vec3(c.x, c.y, 0.f));
 			CameraPivot->SetTransformationMatrix(m);
 			CameraPivot->RefreshTransformation();
 			Camera->SetPosition(Vec3(0.f, 0.f, SceneMeta::View2D::kCameraZ));
@@ -13809,6 +13934,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			debugRenderer->drawLine(Vec3(vr, vt, 0.f), Vec3(vl, vt, 0.f), frameCol);
 			debugRenderer->drawLine(Vec3(vl, vt, 0.f), Vec3(vl, vb, 0.f), frameCol);
 
+			// The box the followed object can move about in before the view
+			// follows. Authored as two numbers; seen as a rectangle is the
+			// only way to tell whether it is the size of the character or
+			// of the screen.
+			if (!view2D.follow.empty() && (view2D.deadZone.x > 0.f || view2D.deadZone.y > 0.f))
+			{
+				const Vec4 deadCol(1.f, 0.85f, 0.35f, 0.35f);
+				const f32 dx = view2D.deadZone.x > 0.f ? view2D.deadZone.x : 0.02f;
+				const f32 dy = view2D.deadZone.y > 0.f ? view2D.deadZone.y : 0.02f;
+				const f32 ox = view2D.center.x - view2D.followOffset.x, oy = view2D.center.y - view2D.followOffset.y;
+				debugRenderer->drawLine(Vec3(ox - dx, oy - dy, 0.f), Vec3(ox + dx, oy - dy, 0.f), deadCol);
+				debugRenderer->drawLine(Vec3(ox + dx, oy - dy, 0.f), Vec3(ox + dx, oy + dy, 0.f), deadCol);
+				debugRenderer->drawLine(Vec3(ox + dx, oy + dy, 0.f), Vec3(ox - dx, oy + dy, 0.f), deadCol);
+				debugRenderer->drawLine(Vec3(ox - dx, oy + dy, 0.f), Vec3(ox - dx, oy - dy, 0.f), deadCol);
+			}
+
 			// Where it ends up if it follows something to the edge of the
 			// level - the bound is what stops that, so it is worth seeing.
 			if (view2D.clamp)
@@ -13822,6 +13963,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				debugRenderer->drawLine(Vec3(bl, bt, 0.f), Vec3(bl, bb, 0.f), boundCol);
 			}
 		}
+
+		DrawCollider2DHandles();
+		DrawShapes2DOverlay();
 
 		// The two world axes, always. They are what tells you where the origin
 		// is and which way is up, and they cost two lines.
@@ -14021,7 +14165,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			for (size_t i = 0; i < v.size(); i++) v[i] = (char)tolower((unsigned char)v[i]);
 			if (v == "box") out = 0;
 			else if (v == "circle") out = 1;
-			else { errOut = "shape must be box or circle"; return false; }
+			else if (v == "capsule") out = 2;
+			else if (v == "polygon") out = 3;
+			else if (v == "chain") out = 4;
+			else { errOut = "shape must be box, circle, capsule, polygon or chain"; return false; }
 			return true;
 		}
 	}
@@ -14069,6 +14216,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (p.contains("friction")) ph->SetFriction((f32)p["friction"].get<double>());
 			if (p.contains("bounciness")) ph->SetRestitution((f32)p["bounciness"].get<double>());
 			if (p.contains("fixedRotation")) ph->SetFixedRotation(p["fixedRotation"].get<bool>());
+			if (!AgentApplyPhysics2DExtras(ph, p, errOut)) return false;
 			label = "Set Physics 2D";
 		}
 		else if (kind == "layer2d")
@@ -14077,7 +14225,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (!l) { errOut = "'" + name + "' has no Layer2D"; return false; }
 			if (AgentVec2(p, "parallax", v2)) l->SetParallax(v2);
 			if (p.contains("visible")) l->SetVisible(p["visible"].get<bool>());
+			if (p.contains("automatic")) l->SetAutomatic(p["automatic"].get<bool>());
 			label = "Set Layer 2D";
+		}
+		else if (kind == "joint2d")
+		{
+			Joint2D* jt = AgentFindComponent<Joint2D>(go);
+			if (!jt) { errOut = "'" + name + "' has no Joint2D - add_joint2d first"; return false; }
+			if (!AgentApplyJoint2D(jt, p, errOut)) return false;
+			label = "Set Joint 2D";
 		}
 		else if (kind == "sprite_animation")
 		{
@@ -14120,27 +14276,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return OpMakeSprite2DLit(obj->GetID(), errOut);
 	}
 
-	bool SceneEditor::AgentAddSprite(const std::string& name, const std::string& texturePath,
-		const json& p, const std::string& parentName, std::string& errOut)
-	{
-		if (playMode) { errOut = "editor is in play mode"; return false; }
-		SceneObject* parent = NULL;
-		if (!parentName.empty())
-		{
-			parent = AgentFindGameObjectByName(sceneObjects, parentName);
-			if (!parent) { errOut = "parent '" + parentName + "' not found"; return false; }
-		}
-		SceneObject* obj = sceneObjects->CreateGameObject(name.empty() ? "Sprite" : name);
-		if (!obj) { errOut = "failed to create game object"; return false; }
-		if (!OpAddSprite(obj->GetID(), texturePath, errOut)) return false;
-		// Same as the other creators - a sprite asked for at a position has
-		// to arrive there rather than at the origin.
-		AgentApplyTransform((GameObject*)obj->GetPTR(), AgentVec3Field(p, "position"),
-			AgentVec3Field(p, "rotation"), AgentVec3Field(p, "scale"));
-		if (parent) sceneObjects->ReparentGameObject(obj->GetID(), parent->GetID());
-		PushAddCommand(obj);
-		return true;
-	}
+	// AgentAddSprite lives in SceneEditorSprites.cpp, with the rest of Sprite2D.
 
 	bool SceneEditor::AgentAddPrimitive(const std::string& name, const std::string& shape, const json& p,
 		const std::string& parentName, const json& color, std::string& errOut)
@@ -15994,6 +16130,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		case SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT: return "ParticleSystem";
 		case SceneObjectTypes::TERRAIN_COMPONENT: return "Terrain";
 		case SceneObjectTypes::TILEMAP_COMPONENT: return "TileMap2D";
+		case SceneObjectTypes::PHYSICS2D_COMPONENT: return "Physics2D";
+		case SceneObjectTypes::JOINT2D_COMPONENT: return "Joint2D";
 #ifdef LUA_BINDINGS
 		case SceneObjectTypes::LUA_COMPONENT: return "LuaComponent";
 #endif

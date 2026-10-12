@@ -806,7 +806,7 @@ namespace p3d {
 			std::vector<Physics2D::Poly2D>());
 
 		// Forced, not left to the author. A map's merged rectangles are four
-		// occluder segments each against a scene-wide budget of 32
+		// occluder segments each against a budget of 64 on screen
 		// (PYROS_MAX_OCCLUDERS_2D), so a map that cast would spend the whole
 		// budget on itself and every prop in the scene would silently stop
 		// casting. A map that wants a shadow gets an explicit Occluder2D.
@@ -972,6 +972,8 @@ namespace p3d {
 		r->Finish();
 
 		rc->AdoptGeneratedRenderable(r, mats);
+		// A chunk at one end of the level is lit by the lights at that end.
+		rc->SetLightsPerGeometry(true);
 
 		dirtyChunks.clear();
 		fullDirty = false;

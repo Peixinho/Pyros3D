@@ -172,26 +172,31 @@ ReplaceGameObjectCommand::ReplaceGameObjectCommand(SceneEditor* editor, uint32 p
 // of the same object silently did nothing at all.
 void ReplaceGameObjectCommand::Undo()
 {
+	int childIndex = -1;
 	if (liveId_ != 0)
 	{
 		subtreeIds_ = editor_->RawCollectSubtreeIds(liveId_);
+		// Back where it was among its siblings, not at the end of them.
+		childIndex = editor_->RawChildIndex(liveId_);
 		editor_->RawDeleteSubtree(liveId_);
 	}
 	SceneObject* obj = editor_->RawInsertSubtree(beforeSnapshot_, parentId_, wasCamera_, camSettings_, hadHelper_,
-		subtreeIds_.empty() ? NULL : &subtreeIds_);
+		subtreeIds_.empty() ? NULL : &subtreeIds_, childIndex);
 	liveId_ = obj ? obj->GetID() : 0;
 	editor_->SelectAndFocusSceneObject(obj);
 }
 
 void ReplaceGameObjectCommand::Redo()
 {
+	int childIndex = -1;
 	if (liveId_ != 0)
 	{
 		subtreeIds_ = editor_->RawCollectSubtreeIds(liveId_);
+		childIndex = editor_->RawChildIndex(liveId_);
 		editor_->RawDeleteSubtree(liveId_);
 	}
 	SceneObject* obj = editor_->RawInsertSubtree(afterSnapshot_, parentId_, wasCamera_, camSettings_, hadHelper_,
-		subtreeIds_.empty() ? NULL : &subtreeIds_);
+		subtreeIds_.empty() ? NULL : &subtreeIds_, childIndex);
 	liveId_ = obj ? obj->GetID() : 0;
 	editor_->SelectAndFocusSceneObject(obj);
 }

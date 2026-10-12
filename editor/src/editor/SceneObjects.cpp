@@ -141,6 +141,18 @@ namespace {
 	bool SceneObjects::RegistryTypeForComponent(IComponent* c, uint32& type, std::string& name)
 	{
 		if (c == NULL) return false;
+		// The RenderingComponent a sprite or a sprite batch makes for itself
+		// is not listed: it is a by-product, it comes and goes with the
+		// sprite, and nothing about it is the user's to edit.
+		if (c->GetComponentType() == ComponentType::RenderingComponent && c->GetOwner() != NULL)
+		{
+			const std::vector<std::shared_ptr<IComponent> > &sibs = c->GetOwner()->GetComponents();
+			for (size_t i = 0; i < sibs.size(); i++)
+				if (sibs[i] && (sibs[i]->GetComponentType() == ComponentType::Sprite2D
+					|| sibs[i]->GetComponentType() == ComponentType::SpriteBatch2D
+					|| sibs[i]->GetComponentType() == ComponentType::Line2D))
+					return false;
+		}
 		switch (c->GetComponentType())
 		{
 		case ComponentType::RenderingComponent:  type = SceneObjectTypes::RENDERING_COMPONENT;        name = "Mesh";              return true;
@@ -152,6 +164,8 @@ namespace {
 		case ComponentType::ParticleSystem:      type = SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT;  name = "Particles";         return true;
 		case ComponentType::Terrain:             type = SceneObjectTypes::TERRAIN_COMPONENT;          name = "Terrain";           return true;
 		case ComponentType::TileMap2D:           type = SceneObjectTypes::TILEMAP_COMPONENT;          name = "Tile Map";          return true;
+		case ComponentType::Physics2D:           type = SceneObjectTypes::PHYSICS2D_COMPONENT;        name = "Body 2D";           return true;
+		case ComponentType::Joint2D:             type = SceneObjectTypes::JOINT2D_COMPONENT;          name = "Joint 2D";          return true;
 #ifdef LUA_BINDINGS
 		case ComponentType::LuaComponent:
 		{
@@ -267,6 +281,53 @@ namespace {
 			if (!(*k)->IsTransient()) Adopt((*k).get(), id, preferredIds, &cursor, keepNames);
 
 		return obj;
+	}
+
+	void SceneObjects::SyncComponentRows(const uint32 goId, std::vector<uint32>* removedOut)
+	{
+		std::map<uint32, SceneObject*>::iterator me = listObjects.find(goId);
+		if (me == listObjects.end() || me->second == NULL || me->second->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+		GameObject* go = (GameObject*)me->second->GetPTR();
+		if (go == NULL) return;
+		const std::vector<std::shared_ptr<IComponent>> &components = go->GetComponents();
+
+		// Rows whose component is no longer this object's (or no longer one
+		// that is listed - a sprite's own mesh, once the sprite is added).
+		std::vector<uint32> gone;
+		for (std::map<uint32, SceneObject*>::iterator i = listObjects.begin(); i != listObjects.end(); i++)
+		{
+			SceneObject* row = i->second;
+			if (row == NULL || row->GetParentID() != goId || row->GetType() == SceneObjectTypes::GAMEOBJECT) continue;
+			bool live = false;
+			for (size_t c = 0; c < components.size() && !live; c++)
+			{
+				if ((void*)components[c].get() != row->GetPTR()) continue;
+				uint32 type; std::string cname;
+				live = RegistryTypeForComponent(components[c].get(), type, cname) && type == row->GetType();
+			}
+			if (!live) gone.push_back(i->first);
+		}
+		for (size_t i = 0; i < gone.size(); i++)
+		{
+			// Only the row: the component is already not there.
+			delete listObjects[gone[i]];
+			listObjects.erase(gone[i]);
+			if (removedOut) removedOut->push_back(gone[i]);
+		}
+
+		// Components with no row yet.
+		for (size_t c = 0; c < components.size(); c++)
+		{
+			uint32 type; std::string cname;
+			if (!RegistryTypeForComponent(components[c].get(), type, cname)) continue;
+			if (GetSceneObjectID(components[c].get()) != 0) continue;
+			size_t cursor = 0;
+			const uint32 cid = NextId(NULL, cursor);
+			SceneObject* cobj = new SceneObject(cname, components[c].get(), cid, type);
+			listObjects[cid] = cobj;
+			cobj->SetParentID(goId);
+			SetName(cid, cname);
+		}
 	}
 
 	void SceneObjects::DestroyAll()

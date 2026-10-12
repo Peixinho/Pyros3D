@@ -168,6 +168,8 @@ private:
 	// Box2D, beside the Box3D world rather than instead of it. Created lazily
 	// by its own Sync(), so a scene with no Physics2D never makes one.
 	Physics2DWorld* physics2D;
+	// The gravity last handed to it from a scene - see Update.
+	Vec2 appliedGravity2D = Vec2(1e9f, 1e9f);
 	SceneGraph* overlayScene;
 	std::string overlaySceneRel;
 	// Deferred to a frame boundary, exactly like pendingLoadSceneName: the
