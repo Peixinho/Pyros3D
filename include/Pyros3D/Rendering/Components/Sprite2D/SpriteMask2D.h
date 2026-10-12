@@ -16,8 +16,9 @@
 //               the renderer: so it is the same on every backend, it works
 //               inside a SpriteBatch2D, and a sprite wholly outside a mask
 //               costs no draw at all. What that means for the shape is that
-//               it is an outline - a rectangle, a circle, a convex polygon -
-//               and not the alpha of an image.
+//               it is hard-edged: a rectangle, a circle, a convex polygon, or
+//               the silhouette of an image (which is cut into rectangles
+//               when it is loaded). There is no soft, part-transparent edge.
 //============================================================================
 
 #ifndef SPRITEMASK2D_H
@@ -40,7 +41,12 @@ namespace p3d {
 			Rect = 0,
 			Circle = 1,
 			// Up to 16 points, convex, in the object's local space.
-			Polygon = 2
+			Polygon = 2,
+			// The opaque part of an image, laid over the rectangle Size
+			// gives: any silhouette, holes and all. Hard-edged - a texel of
+			// the image is in or out - and read at no finer than 128 cells
+			// a side, which is what keeps it a few dozen pieces.
+			Image = 3
 		};
 	}
 
@@ -62,6 +68,18 @@ namespace p3d {
 		// (and the old ones kept) for anything else.
 		bool SetPolygon(const std::vector<Vec2> &points);
 		const std::vector<Vec2> &GetPolygon() const { return polygon; }
+
+		// The image an Image mask takes its shape from: where it is on disk,
+		// and what a scene file stores. False if it cannot be read (the mask
+		// then cuts nothing). Texels with alpha above the threshold are in.
+		bool SetImage(const std::string &resolvedPath, const std::string &authoredPath, const int32 alphaThreshold = 127);
+		const std::string &GetImagePath() const { return imagePath; }
+		int32 GetAlphaThreshold() const { return alphaThreshold; }
+		// How many rectangles the image came to.
+		uint32 ImagePieceCount() const { return (uint32)imageRects.size(); }
+		// The shape as convex pieces in the world that do not overlap: one
+		// for a rectangle, a circle or a polygon, many for an image.
+		void WorldPieces(std::vector<std::vector<Vec2> > &out) const;
 
 		// Off, sprites that name it are drawn whole.
 		void SetEnabled(const bool e);
@@ -94,6 +112,11 @@ namespace p3d {
 		Vec2 size;
 		Vec2 offset;
 		std::vector<Vec2> polygon;
+		std::string imagePath;
+		int32 alphaThreshold = 127;
+		// The image's opaque area, as (x0, y0, x1, y1) in 0..1 across it,
+		// y UP - ready to be laid over Size.
+		std::vector<Vec4> imageRects;
 		bool enabled;
 		uint32 revision;
 	};

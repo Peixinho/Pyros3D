@@ -1000,18 +1000,62 @@ namespace p3d {
 		}
 	}
 
+	namespace {
+		void CCW(std::vector<Vec2> &p)
+		{
+			f32 a = 0.f;
+			for (size_t i = 0; i < p.size(); i++)
+			{ const Vec2 &u = p[i], &v = p[(i + 1) % p.size()]; a += u.x * v.y - v.x * u.y; }
+			if (a < 0.f) std::reverse(p.begin(), p.end());
+		}
+		void BoundsOf(const ClipPoly &p, f32 &x0, f32 &y0, f32 &x1, f32 &y1)
+		{
+			x0 = y0 = 1e30f; x1 = y1 = -1e30f;
+			for (size_t i = 0; i < p.size(); i++)
+			{
+				x0 = std::min(x0, p[i].p.x); x1 = std::max(x1, p[i].p.x);
+				y0 = std::min(y0, p[i].p.y); y1 = std::max(y1, p[i].p.y);
+			}
+		}
+		void BoundsOf(const std::vector<Vec2> &p, f32 &x0, f32 &y0, f32 &x1, f32 &y1)
+		{
+			x0 = y0 = 1e30f; x1 = y1 = -1e30f;
+			for (size_t i = 0; i < p.size(); i++)
+			{
+				x0 = std::min(x0, p[i].x); x1 = std::max(x1, p[i].x);
+				y0 = std::min(y0, p[i].y); y1 = std::max(y1, p[i].y);
+			}
+		}
+	}
+
 	bool ClipSpriteMesh2D(SpriteMesh2D &mesh, const size_t firstVertex,
 		const std::vector<Vec2> &outline, const bool inside)
 	{
-		if (outline.size() < 3 || firstVertex >= mesh.vertex.size()) return mesh.vertex.size() > firstVertex;
-		// Counter-clockwise, whichever way it was handed over.
-		std::vector<Vec2> mask = outline;
+		if (outline.size() < 3) return mesh.vertex.size() > firstVertex;
+		std::vector<std::vector<Vec2> > one;
+		one.push_back(outline);
+		return ClipSpriteMeshPieces2D(mesh, firstVertex, one, inside);
+	}
+
+	bool ClipSpriteMeshPieces2D(SpriteMesh2D &mesh, const size_t firstVertex,
+		const std::vector<std::vector<Vec2> > &piecesIn, const bool inside)
+	{
+		if (firstVertex >= mesh.vertex.size()) return false;
+		// Counter-clockwise, whichever way they were handed over, each with
+		// the box it sits in: most pieces are nowhere near most quads, and
+		// saying so is four comparisons.
+		struct Piece { std::vector<Vec2> pts; f32 x0, y0, x1, y1; };
+		std::vector<Piece> masks;
+		for (size_t k = 0; k < piecesIn.size(); k++)
 		{
-			f32 a = 0.f;
-			for (size_t i = 0; i < mask.size(); i++)
-			{ const Vec2 &u = mask[i], &v = mask[(i + 1) % mask.size()]; a += u.x * v.y - v.x * u.y; }
-			if (a < 0.f) std::reverse(mask.begin(), mask.end());
+			if (piecesIn[k].size() < 3) continue;
+			Piece pc;
+			pc.pts = piecesIn[k];
+			CCW(pc.pts);
+			BoundsOf(pc.pts, pc.x0, pc.y0, pc.x1, pc.y1);
+			masks.push_back(pc);
 		}
+		if (masks.empty()) return mesh.vertex.size() > firstVertex;
 
 		// The quads, taken out; what is left of each goes back in.
 		const size_t quads = (mesh.vertex.size() - firstVertex) / 4;
@@ -1030,31 +1074,60 @@ namespace p3d {
 			const Vec3 T = at < mesh.tangent.size() ? mesh.tangent[at] : Vec3(1.f, 0.f, 0.f);
 			const Vec3 B = at < mesh.bitangent.size() ? mesh.bitangent[at] : Vec3(0.f, 1.f, 0.f);
 			const Vec3 N = at < mesh.normal.size() ? mesh.normal[at] : Vec3(0.f, 0.f, 1.f);
-			ClipPoly work = poly, next;
+			f32 qx0, qy0, qx1, qy1;
+			BoundsOf(poly, qx0, qy0, qx1, qy1);
+
+			ClipPoly next;
 			if (inside)
 			{
-				for (size_t e = 0; e < mask.size() && work.size() >= 3; e++)
+				// What falls in each piece; the pieces do not overlap, so
+				// neither do these.
+				for (size_t m = 0; m < masks.size(); m++)
 				{
-					ClipHalf(work, mask[e], mask[(e + 1) % mask.size()], true, next);
-					work.swap(next);
+					const Piece &mk = masks[m];
+					if (mk.x1 <= qx0 || mk.x0 >= qx1 || mk.y1 <= qy0 || mk.y0 >= qy1) continue;
+					ClipPoly work = poly;
+					for (size_t e = 0; e < mk.pts.size() && work.size() >= 3; e++)
+					{
+						ClipHalf(work, mk.pts[e], mk.pts[(e + 1) % mk.pts.size()], true, next);
+						work.swap(next);
+					}
+					if (work.size() >= 3 && ClipArea(work) > 1e-9f) { kept.push_back(work); keptT.push_back(T); keptB.push_back(B); keptN.push_back(N); }
 				}
-				if (work.size() >= 3 && ClipArea(work) > 1e-9f) { kept.push_back(work); keptT.push_back(T); keptB.push_back(B); keptN.push_back(N); }
 			}
 			else
 			{
 				// Outside a convex shape is not convex, so it is taken a
 				// side at a time: what lies beyond the first edge, then of
-				// what is left what lies beyond the second, and so on. The
-				// pieces do not overlap, and what remains at the end is the
-				// inside, which is thrown away.
-				for (size_t e = 0; e < mask.size() && work.size() >= 3; e++)
+				// what is left what lies beyond the second, and so on - the
+				// remainder at the end is the inside, and is thrown away.
+				// Outside SEVERAL is that again on everything that survived
+				// the one before.
+				std::vector<ClipPoly> left(1, poly);
+				for (size_t m = 0; m < masks.size() && !left.empty(); m++)
 				{
-					ClipPoly beyond;
-					ClipHalf(work, mask[e], mask[(e + 1) % mask.size()], false, beyond);
-					if (beyond.size() >= 3 && ClipArea(beyond) > 1e-9f) { kept.push_back(beyond); keptT.push_back(T); keptB.push_back(B); keptN.push_back(N); }
-					ClipHalf(work, mask[e], mask[(e + 1) % mask.size()], true, next);
-					work.swap(next);
+					const Piece &mk = masks[m];
+					if (mk.x1 <= qx0 || mk.x0 >= qx1 || mk.y1 <= qy0 || mk.y0 >= qy1) continue;
+					std::vector<ClipPoly> after;
+					for (size_t l = 0; l < left.size(); l++)
+					{
+						f32 lx0, ly0, lx1, ly1;
+						BoundsOf(left[l], lx0, ly0, lx1, ly1);
+						if (mk.x1 <= lx0 || mk.x0 >= lx1 || mk.y1 <= ly0 || mk.y0 >= ly1) { after.push_back(left[l]); continue; }
+						ClipPoly work = left[l];
+						for (size_t e = 0; e < mk.pts.size() && work.size() >= 3; e++)
+						{
+							ClipPoly beyond;
+							ClipHalf(work, mk.pts[e], mk.pts[(e + 1) % mk.pts.size()], false, beyond);
+							if (beyond.size() >= 3 && ClipArea(beyond) > 1e-9f) after.push_back(beyond);
+							ClipHalf(work, mk.pts[e], mk.pts[(e + 1) % mk.pts.size()], true, next);
+							work.swap(next);
+						}
+					}
+					left.swap(after);
 				}
+				for (size_t l = 0; l < left.size(); l++)
+					if (left[l].size() >= 3 && ClipArea(left[l]) > 1e-9f) { kept.push_back(left[l]); keptT.push_back(T); keptB.push_back(B); keptN.push_back(N); }
 			}
 		}
 
@@ -1070,15 +1143,19 @@ namespace p3d {
 		mesh.bitangent.resize(firstVertex, Vec3(0.f, 1.f, 0.f));
 
 		// Back as quads, because that is what the geometry is made of: a
-		// polygon is a fan of triangles from its first corner, and a
-		// triangle is a quad with its last two corners in the same place.
+		// four-cornered piece is one as it stands; anything else is a fan of
+		// triangles from its first corner, and a triangle is a quad with its
+		// last two corners in the same place.
 		for (size_t k = 0; k < kept.size(); k++)
 		{
 			const ClipPoly &p = kept[k];
-			for (size_t i = 1; i + 1 < p.size(); i++)
+			const size_t fans = p.size() == 4 ? 1 : p.size() - 2;
+			for (size_t f = 0; f < fans; f++)
 			{
 				const __INDEX_C_TYPE__ base = (__INDEX_C_TYPE__)mesh.vertex.size();
-				const ClipVert* v[4] = { &p[0], &p[i], &p[i + 1], &p[i + 1] };
+				const ClipVert* v[4];
+				if (p.size() == 4) { v[0] = &p[0]; v[1] = &p[1]; v[2] = &p[2]; v[3] = &p[3]; }
+				else { v[0] = &p[0]; v[1] = &p[f + 1]; v[2] = &p[f + 2]; v[3] = &p[f + 2]; }
 				for (int c = 0; c < 4; c++)
 				{
 					mesh.vertex.push_back(v[c]->p);
@@ -1110,6 +1187,54 @@ namespace p3d {
 		}
 		else mesh.minBounds = mesh.maxBounds = Vec3(0.f, 0.f, 0.f);
 		return mesh.vertex.size() > firstVertex;
+	}
+
+	std::vector<SpriteRect2D> SpriteAlphaRects2D(const uchar* rgba, const int32 w, const int32 h,
+		const int32 alphaThreshold, const int32 maxSide, int32 &gridW, int32 &gridH)
+	{
+		std::vector<SpriteRect2D> out;
+		gridW = gridH = 0;
+		if (!rgba || w < 1 || h < 1) return out;
+		// A coarser grid for a big image: each cell is opaque if the middle
+		// of what it covers is.
+		const int32 cap = maxSide > 4 ? maxSide : 4;
+		const int32 step = std::max<int32>(1, (std::max(w, h) + cap - 1) / cap);
+		gridW = (w + step - 1) / step;
+		gridH = (h + step - 1) / step;
+		std::vector<uchar> solid((size_t)gridW * gridH, 0);
+		for (int32 gy = 0; gy < gridH; gy++)
+			for (int32 gx = 0; gx < gridW; gx++)
+			{
+				const int32 px = std::min(w - 1, gx * step + step / 2), py = std::min(h - 1, gy * step + step / 2);
+				solid[(size_t)gy * gridW + gx] = (int32)rgba[((size_t)py * w + px) * 4 + 3] > alphaThreshold ? 1 : 0;
+			}
+		// Runs along each row, grown downward while the rows below hold the
+		// very same run: a filled shape is a few tall rectangles and not a
+		// stack of one-pixel strips.
+		for (int32 y = 0; y < gridH; y++)
+		{
+			int32 x = 0;
+			while (x < gridW)
+			{
+				if (!solid[(size_t)y * gridW + x]) { x++; continue; }
+				int32 x1 = x;
+				while (x1 < gridW && solid[(size_t)y * gridW + x1]) x1++;
+				int32 y1 = y + 1;
+				for (; y1 < gridH; y1++)
+				{
+					bool same = (x == 0 || !solid[(size_t)y1 * gridW + x - 1]) && (x1 == gridW || !solid[(size_t)y1 * gridW + x1]);
+					for (int32 k = x; k < x1 && same; k++) same = solid[(size_t)y1 * gridW + k] != 0;
+					if (!same) break;
+				}
+				for (int32 yy = y; yy < y1; yy++)
+					for (int32 k = x; k < x1; k++) solid[(size_t)yy * gridW + k] = 0;
+				SpriteRect2D r;
+				r.x = x; r.y = y; r.w = x1 - x; r.h = y1 - y;
+				out.push_back(r);
+				x = x1;
+			}
+		}
+		return out;
 	}
 
 	void SpriteMesh2D::Clear()

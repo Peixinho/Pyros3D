@@ -1605,6 +1605,8 @@ def _sprite_component(source: str | None, opts: dict) -> dict:
         comp["lighting"] = "3d"
     if opts.get("material"):
         comp["material"] = opts["material"]
+    if opts.get("visible") is False:
+        comp["visible"] = False
     if (opts.get("maskInteraction") or "none").lower() in ("inside", "outside"):
         comp["maskInteraction"] = opts["maskInteraction"].lower()
         if opts.get("mask"):
@@ -1713,7 +1715,7 @@ def set_sprite(project_path: str, scene_name: str, name: str, properties: dict) 
     pixelsPerUnit (0 = the sheet's), pivot [x,y] or null for the sheet's own,
     lighting (unlit|2d|3d), material (a .mat path, "" for the sprite's own),
     blend (alpha|additive|premultiplied), sortOrder,
-    autoPlay (clip name, "" for none), speed, maskInteraction (none|inside|
+    autoPlay (clip name, "" for none), speed, visible, maskInteraction (none|inside|
     outside) and mask (a Sprite Mask object's name, "" for the nearest above
     the sprite). With the editor PLAYING it also
     takes play (clip), restart, stop and clipTime, and pokes the running
@@ -1739,7 +1741,7 @@ def set_sprite(project_path: str, scene_name: str, name: str, properties: dict) 
         return _fail(f"'{name}' has no Sprite2D - add_sprite first")
     known = {"source", "frame", "flipX", "flipY", "color", "alpha", "drawMode", "size",
              "pixelsPerUnit", "pivot", "lighting", "lit", "material", "blend", "sortOrder", "autoPlay", "speed",
-             "maskInteraction", "mask"}
+             "maskInteraction", "mask", "visible"}
     bad = [k for k in properties if k not in known]
     if bad:
         return _fail(f"set_sprite: unknown key '{bad[0]}' (play/stop/clipTime need the editor playing)")
@@ -1753,7 +1755,8 @@ def set_sprite(project_path: str, scene_name: str, name: str, properties: dict) 
            "blend": old.get("blend", "alpha"), "sortOrder": old.get("sortOrder", 0),
            "autoPlay": old.get("autoPlay"), "speed": old.get("speed", 1.0),
            "material": old.get("material"),
-           "maskInteraction": old.get("maskInteraction"), "mask": old.get("mask")}
+           "maskInteraction": old.get("maskInteraction"), "mask": old.get("mask"),
+           "visible": old.get("visible", True)}
     source = properties.get("source", old.get("source", ""))
     if "lit" in properties and "lighting" not in properties:
         properties = dict(properties, lighting="2d" if properties["lit"] else "unlit")
@@ -2494,14 +2497,16 @@ def _add_simple_component(project_path: str, scene_name: str, name: str,
 @mcp.tool()
 def add_sprite_mask(project_path: str, scene_name: str, name: str, shape: str = "rect",
                     size: list[float] | None = None, offset: list[float] | None = None,
-                    polygon: list[list[float]] | None = None, enabled: bool = True) -> str:
+                    polygon: list[list[float]] | None = None, enabled: bool = True,
+                    image: str | None = None) -> str:
     """Add a Sprite Mask (editor: Add > Sprite Mask): a shape sprites are
     shown only inside of, or only outside of - a window, a porthole, a bar
     that empties from one end.
 
     shape: rect (size [width, height]) | circle (size[0] is the diameter) |
-    polygon ([[x, y], ...] 3 to 16 points, convex, local space). offset moves
-    it from the object's origin. The mask draws nothing itself.
+    polygon ([[x, y], ...] 3 to 16 points, convex, local space) | image (the
+    opaque part of `image`, any silhouette, laid over `size`; hard-edged).
+    offset moves it from the object's origin. The mask draws nothing itself.
 
     A sprite is cut by it once told how: set_sprite(name, {"maskInteraction":
     "inside" | "outside"}). With no "mask" given the sprite uses the nearest
@@ -2511,8 +2516,12 @@ def add_sprite_mask(project_path: str, scene_name: str, name: str, shape: str = 
     batches.
     """
     sh = shape.strip().lower()
-    if sh not in ("rect", "circle", "polygon"):
-        return _fail("shape must be rect, circle or polygon")
+    if image and sh == "rect":
+        sh = "image"
+    if sh not in ("rect", "circle", "polygon", "image"):
+        return _fail("shape must be rect, circle, polygon or image")
+    if sh == "image" and not image:
+        return _fail("an image mask needs `image`: a picture with alpha")
     if sh == "polygon" and not (polygon and 3 <= len(polygon) <= 16):
         return _fail("a polygon mask needs `polygon`: 3 to 16 [x, y] points, convex")
     comp: dict = {"type": "SpriteMask2D", "shape": sh, "size": list(size or [1.0, 1.0])}
@@ -2523,6 +2532,8 @@ def add_sprite_mask(project_path: str, scene_name: str, name: str, shape: str = 
         comp["polygon"] = [v for pt in polygon for v in pt[:2]]; live["polygon"] = [list(pt[:2]) for pt in polygon]
     if not enabled:
         comp["enabled"] = False; live["enabled"] = False
+    if image:
+        comp["image"] = image; live["image"] = image
     return _add_simple_component(project_path, scene_name, name, "add_sprite_mask", comp, "SpriteMask2D", live_args=live)
 
 
@@ -2544,7 +2555,8 @@ def add_line2d(project_path: str, scene_name: str, name: str,
                width: list[float] | None = None, color_start: list[float] | None = None,
                color_end: list[float] | None = None, additive: bool = False,
                sort_order: int = 0, trail: bool = False, lifetime: float = 0.5,
-               min_distance: float = 0.1) -> str:
+               min_distance: float = 0.1, texture: str | None = None,
+               texture_repeat: float = 0.0, texture_nearest: bool = False) -> str:
     """Add a Line 2D (editor: Add > Line 2D): a line with width drawn through
     points - a rope, a laser, an outline - or a trail.
 
@@ -2557,6 +2569,10 @@ def add_line2d(project_path: str, scene_name: str, name: str,
     laid down each min_distance it travels, each fading and thinning over
     `lifetime` seconds (width and colour then run from the object - the head
     - to the oldest point). A trail only runs while the game does.
+    texture: an image run along the line (left to right in the image is
+    start to end along the line; its height is the line's width), tinted by
+    the colours. texture_repeat is how much length one copy covers - a chain
+    link, a dash - or 0 to stretch one copy over the whole line.
     One draw call a line. It cannot share an object with a sprite: put it on
     a child.
     """
@@ -2577,6 +2593,12 @@ def add_line2d(project_path: str, scene_name: str, name: str,
     if trail:
         comp.update({"trail": True, "lifetime": lifetime, "minDistance": min_distance})
         live.update({"trail": True, "lifetime": lifetime, "minDistance": min_distance})
+    if texture:
+        comp["texture"] = texture; live["texture"] = texture
+        if texture_repeat > 0:
+            comp["textureRepeat"] = texture_repeat; live["textureRepeat"] = texture_repeat
+        if texture_nearest:
+            comp["textureNearest"] = True; live["textureNearest"] = True
     return _add_simple_component(project_path, scene_name, name, "add_line2d", comp, "Line2D", live_args=live)
 
 
@@ -2585,7 +2607,8 @@ def set_line2d(name: str, properties: dict | None = None) -> str:
     """Change a Line 2D in the running editor, or (with no properties) read
     it. properties, any of: points [[x, y], ...], closed, width (a number or
     [start, end]), color or colorStart + colorEnd, additive, sortOrder, trail,
-    lifetime, minDistance. While the editor is PLAYING it pokes the running
+    lifetime, minDistance, texture ("" for none), textureRepeat,
+    textureNearest. While the editor is PLAYING it pokes the running
     line and also takes emitting (false lets a trail fade out without laying
     more) and clearTrail (true forgets where it has been - after a teleport).
     Returns the line, with how many points a running trail has laid down."""

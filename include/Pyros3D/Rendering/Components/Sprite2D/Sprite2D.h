@@ -271,6 +271,11 @@ namespace p3d {
 		// before then calls it.
 		bool Rebuild();
 
+		// Shown or not, without removing it. Hidden, it draws nothing - by
+		// itself or in a batch - and its clip does not play.
+		void SetVisible(const bool v);
+		bool IsVisible() const { return visible; }
+
 		// Looks again at whether and how it should be drawn - after something
 		// outside it changed that (a layer shown).
 		void Refresh() { Touch(); }
@@ -338,6 +343,13 @@ namespace p3d {
 		std::string materialFor;
 		std::shared_ptr<IMaterial> customMaterial;
 		std::string customMaterialPath;
+		bool visible = true;
+		// Whether it was this sprite that switched its mesh off. Its mesh is
+		// a RenderingComponent like any other, and a script may switch that
+		// off for itself (it is how things were hidden before there were
+		// sprites): the sprite puts back only what it took away, or a torch
+		// a game had put out would relight at its next frame of animation.
+		bool meshOffByUs = false;
 		int32 maskMode = MaskNone;
 		std::string maskName;
 		// What the mask looked like, from here, when the quads were last

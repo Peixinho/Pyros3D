@@ -10,6 +10,8 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/SpriteSheet2D/SpriteSheet2D.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <map>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include "SpriteGeometry2D.h"
 #include <algorithm>
@@ -41,21 +43,48 @@ namespace p3d {
 			}
 		};
 
-		// Two materials, one for every line of each kind: what makes one
-		// line different from another is all in its vertices.
-		std::shared_ptr<IMaterial> SharedLineMaterial(const bool additive)
+		// One material for every line of a kind - additive or not, and which
+		// image if any: what makes one line different from another is all in
+		// its vertices.
+		std::shared_ptr<IMaterial> SharedLineMaterial(const std::string &key, const bool additive,
+			const std::string &texturePath, const bool nearest)
 		{
-			static std::weak_ptr<IMaterial> cache[2];
-			if (std::shared_ptr<IMaterial> hit = cache[additive ? 1 : 0].lock()) return hit;
-			std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color | ShaderUsage::VertexColor);
+			static std::map<std::string, std::weak_ptr<IMaterial> > cache;
+			std::map<std::string, std::weak_ptr<IMaterial> >::iterator it = cache.find(key);
+			if (it != cache.end())
+			{
+				if (std::shared_ptr<IMaterial> hit = it->second.lock()) return hit;
+				cache.erase(it);
+			}
+			std::shared_ptr<Texture> tex;
+			if (!texturePath.empty())
+			{
+				tex = std::make_shared<Texture>();
+				if (!tex->LoadTexture(texturePath, TextureType::Texture, false))
+				{
+					echo("WARNING: line could not load its image '" + texturePath + "' - drawn plain");
+					tex.reset();
+				}
+				else
+				{
+					if (nearest) tex->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+					else tex->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+					// Repeated along the line; the two edges do not wrap
+					// into each other only because v stays inside 0..1.
+					tex->SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
+				}
+			}
+			std::shared_ptr<GenericShaderMaterial> mat = std::make_shared<GenericShaderMaterial>(
+				ShaderUsage::Color | ShaderUsage::VertexColor | (tex ? ShaderUsage::Texture : 0));
 			mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
+			if (tex) mat->SetColorMap(tex);
 			mat->EnableBlending();
 			mat->BlendingEquation(BlendEq::Add);
 			if (additive) mat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One);
 			else mat->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
 			mat->SetTransparencyFlag(true);
 			mat->SetCullFace(CullFace::DoubleSided);
-			cache[additive ? 1 : 0] = mat;
+			cache[key] = mat;
 			return mat;
 		}
 	}
@@ -94,6 +123,19 @@ namespace p3d {
 	void Line2D::SetColors(const Vec4 &start, const Vec4 &end) { colorStart = start; colorEnd = end; dirty = true; }
 	void Line2D::SetAdditive(const bool a) { if (a != additive) { additive = a; dirty = true; } }
 	void Line2D::SetSortOrder(const int32 order) { if (order != sortOrder) { sortOrder = order; dirty = true; } }
+	void Line2D::SetTexture(const std::string &resolvedPath, const std::string &authoredPath)
+	{
+		if (resolvedPath == textureResolved && authoredPath == texturePath) return;
+		textureResolved = resolvedPath;
+		texturePath = resolvedPath.empty() ? std::string() : authoredPath;
+		dirty = true;
+	}
+	void Line2D::SetTextureRepeat(const f32 repeatEvery)
+	{
+		const f32 v = repeatEvery > 0.f ? repeatEvery : 0.f;
+		if (v != textureRepeat) { textureRepeat = v; dirty = true; }
+	}
+	void Line2D::SetTextureNearest(const bool n) { if (n != textureNearest) { textureNearest = n; dirty = true; } }
 	void Line2D::SetTrail(const bool on) { if (on != trail) { trail = on; trailPoints.clear(); haveLastTime = false; haveLastLaid = false; dirty = true; } }
 	void Line2D::SetTrailLifetime(const f32 seconds) { lifetime = seconds > 0.01f ? seconds : 0.01f; }
 	void Line2D::SetTrailMinDistance(const f32 d) { minDistance = d > 0.001f ? d : 0.001f; }
@@ -141,7 +183,8 @@ namespace p3d {
 	}
 
 	void Line2D::BuildMesh(const std::vector<Vec2> &pts, const bool closed, const f32 widthStart, const f32 widthEnd,
-		const Vec4 &colorStart, const Vec4 &colorEnd, const std::vector<f32>* ages, SpriteMesh2D &out)
+		const Vec4 &colorStart, const Vec4 &colorEnd, const std::vector<f32>* ages, SpriteMesh2D &out,
+		const f32 repeatEvery)
 	{
 		const size_t n = pts.size();
 		if (n < 2) return;
@@ -211,7 +254,10 @@ namespace p3d {
 		for (size_t i = 0; i < segments; i++)
 		{
 			const size_t j = (i + 1) % n;
-			const f32 u0 = along[i] / whole, u1 = (j == 0) ? 1.f : along[j] / whole;
+			// (a repeating image is measured in distance, so its copies are
+			// the same size on a long line as on a short one)
+			const f32 per = repeatEvery > 0.f ? repeatEvery : whole;
+			const f32 u0 = along[i] / per, u1 = ((j == 0) ? whole : along[j]) / per;
 			const __INDEX_C_TYPE__ base = (__INDEX_C_TYPE__)out.vertex.size();
 			out.vertex.push_back(Vec3(right[i].x, right[i].y, 0.f)); out.texcoord.push_back(Vec2(u0, 0.f)); out.color.push_back(col[i]);
 			out.vertex.push_back(Vec3(right[j].x, right[j].y, 0.f)); out.texcoord.push_back(Vec2(u1, 0.f)); out.color.push_back(col[j]);
@@ -252,7 +298,13 @@ namespace p3d {
 
 	std::shared_ptr<IMaterial> Line2D::Material()
 	{
-		if (!material || builtAdditive != additive) { material = SharedLineMaterial(additive); builtAdditive = additive; }
+		const std::string key = std::string(additive ? "add|" : "alpha|") + (textureNearest ? "n|" : "l|") + textureResolved;
+		if (!material || builtKey != key)
+		{
+			material = SharedLineMaterial(key, additive, textureResolved, textureNearest);
+			builtKey = key;
+			builtAdditive = additive;
+		}
 		return material;
 	}
 
@@ -282,17 +334,17 @@ namespace p3d {
 					pts.push_back(Vec2(inv.m[0] * w.x + inv.m[4] * w.y + inv.m[12], inv.m[1] * w.x + inv.m[5] * w.y + inv.m[13]));
 					ages.push_back(trailPoints[i].age / lifetime);
 				}
-				BuildMesh(pts, false, widthStart, widthEnd, colorStart, colorEnd, &ages, mesh);
+				BuildMesh(pts, false, widthStart, widthEnd, colorStart, colorEnd, &ages, mesh, textureRepeat);
 			}
 		}
-		else BuildMesh(points, closed, widthStart, widthEnd, colorStart, colorEnd, NULL, mesh);
+		else BuildMesh(points, closed, widthStart, widthEnd, colorStart, colorEnd, NULL, mesh, textureRepeat);
 
 		RenderingComponent* rc = FindSibling();
 		if (mesh.vertex.empty())
 		{
 			// Nothing to draw: an empty geometry is a crash, not an empty
 			// draw, so the mesh that exists is switched off instead.
-			if (rc && built) rc->Disable();
+			if (rc && built && rc->IsActive()) { rc->Disable(); meshOffByUs = true; }
 			return;
 		}
 		std::shared_ptr<IMaterial> mat = Material();
@@ -320,8 +372,11 @@ namespace p3d {
 		}
 		rc->SetSortOrder(sortOrder);
 		const bool hidden = Layer2D::HiddenAbove(Owner);
-		if (hidden && rc->IsActive()) rc->Disable();
-		else if (!hidden && !rc->IsActive()) rc->Enable();
+		// Only what it switched off itself is switched back on: the mesh is
+		// a RenderingComponent like any other, and a game may have its own
+		// reasons to have turned it off.
+		if (hidden) { if (rc->IsActive()) { rc->Disable(); meshOffByUs = true; } }
+		else if (meshOffByUs) { if (!rc->IsActive()) rc->Enable(); meshOffByUs = false; }
 		built = true;
 	}
 

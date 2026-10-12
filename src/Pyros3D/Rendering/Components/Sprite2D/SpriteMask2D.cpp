@@ -5,6 +5,9 @@
 
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/Assets/SpriteSheet2D/SpriteSheet2D.h>
+#include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Ext/stb/stb_image.h>
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -46,7 +49,7 @@ namespace p3d {
 
 	void SpriteMask2D::SetShape(const int32 s)
 	{
-		const int32 v = (s == SpriteMaskShape2D::Circle || s == SpriteMaskShape2D::Polygon) ? s : SpriteMaskShape2D::Rect;
+		const int32 v = (s == SpriteMaskShape2D::Circle || s == SpriteMaskShape2D::Polygon || s == SpriteMaskShape2D::Image) ? s : SpriteMaskShape2D::Rect;
 		if (v != shape) { shape = v; revision++; }
 	}
 	void SpriteMask2D::SetSize(const Vec2 &s)
@@ -86,6 +89,56 @@ namespace p3d {
 		return true;
 	}
 
+	bool SpriteMask2D::SetImage(const std::string &resolvedPath, const std::string &authoredPath, const int32 threshold)
+	{
+		imagePath = authoredPath;
+		alphaThreshold = threshold < 0 ? 0 : (threshold > 254 ? 254 : threshold);
+		imageRects.clear();
+		revision++;
+		if (resolvedPath.empty()) { imagePath.clear(); return false; }
+		int w = 0, h = 0, comp = 0;
+		uchar* px = stbi_load(resolvedPath.c_str(), &w, &h, &comp, 4);
+		if (!px) { echo("WARNING: sprite mask could not read its image '" + resolvedPath + "'"); return false; }
+		int32 gw = 0, gh = 0;
+		const std::vector<SpriteRect2D> rects = SpriteAlphaRects2D(px, (int32)w, (int32)h, alphaThreshold, 128, gw, gh);
+		stbi_image_free(px);
+		for (size_t i = 0; i < rects.size(); i++)
+		{
+			const SpriteRect2D &r = rects[i];
+			// From pixels with y down to 0..1 with y up.
+			imageRects.push_back(Vec4((f32)r.x / (f32)gw, 1.f - (f32)(r.y + r.h) / (f32)gh,
+				(f32)(r.x + r.w) / (f32)gw, 1.f - (f32)r.y / (f32)gh));
+		}
+		return true;
+	}
+
+	void SpriteMask2D::WorldPieces(std::vector<std::vector<Vec2> > &out) const
+	{
+		out.clear();
+		if (!Owner) return;
+		if (shape != SpriteMaskShape2D::Image)
+		{
+			std::vector<Vec2> one;
+			WorldOutline(one);
+			if (one.size() >= 3) out.push_back(one);
+			return;
+		}
+		if (!(size.x > 0.f) || !(size.y > 0.f)) return;
+		const Matrix &w = Owner->GetWorldTransformation();
+		const f32 x0 = offset.x - size.x * 0.5f, y0 = offset.y - size.y * 0.5f;
+		out.reserve(imageRects.size());
+		for (size_t i = 0; i < imageRects.size(); i++)
+		{
+			const Vec4 &r = imageRects[i];
+			const Vec2 c[4] = { Vec2(x0 + r.x * size.x, y0 + r.y * size.y), Vec2(x0 + r.z * size.x, y0 + r.y * size.y),
+				Vec2(x0 + r.z * size.x, y0 + r.w * size.y), Vec2(x0 + r.x * size.x, y0 + r.w * size.y) };
+			std::vector<Vec2> piece(4);
+			for (int k = 0; k < 4; k++)
+				piece[k] = Vec2(w.m[0] * c[k].x + w.m[4] * c[k].y + w.m[12], w.m[1] * c[k].x + w.m[5] * c[k].y + w.m[13]);
+			out.push_back(piece);
+		}
+	}
+
 	void SpriteMask2D::WorldOutline(std::vector<Vec2> &out) const
 	{
 		out.clear();
@@ -109,6 +162,8 @@ namespace p3d {
 		}
 		else
 		{
+			// A rectangle - and an image's frame: the box its silhouette is
+			// laid over (the editor draws this; WorldPieces is the shape).
 			const f32 hx = size.x * 0.5f, hy = size.y * 0.5f;
 			if (!(hx > 0.f) || !(hy > 0.f)) return;
 			local.push_back(Vec2(offset.x - hx, offset.y - hy)); local.push_back(Vec2(offset.x + hx, offset.y - hy));

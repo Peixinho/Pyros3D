@@ -3,6 +3,7 @@
 // Description : See the header.
 //============================================================================
 
+#include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
@@ -532,6 +533,57 @@ namespace p3d {
 		if (ov == 2) return false;
 		const int32 t = GetTile(x, y);
 		return t >= 0 && tileset.IsSolid(t);
+	}
+
+	bool TileMap2D::BuildPathCosts(std::vector<uint8> &costs, int32 &originX, int32 &originY,
+		uint32 &width, uint32 &height, const int32 margin) const
+	{
+		int32 minX = 0, minY = 0, maxX = 0, maxY = 0;
+		if (!GetTileBounds(minX, minY, maxX, maxY)) return false;
+		const int32 m = margin < 0 ? 0 : margin;
+		originX = minX - m;
+		originY = minY - m;
+		width = (uint32)(maxX - minX + 1 + 2 * m);
+		height = (uint32)(maxY - minY + 1 + 2 * m);
+		// Not a map so big that asking the way across it is a mistake.
+		if ((uint64)width * (uint64)height > 16000000ull) return false;
+		costs.assign((size_t)width * height, 1);
+		for (uint32 j = 0; j < height; j++)
+			for (uint32 i = 0; i < width; i++)
+				if (IsSolidCell(originX + (int32)i, originY + (int32)j)) costs[(size_t)j * width + i] = 0;
+		return true;
+	}
+
+	bool TileMap2D::FindPath(const int32 fromX, const int32 fromY, const int32 toX, const int32 toY,
+		std::vector<std::pair<int32, int32> > &cells, const int32 margin, const uint32 maxCells) const
+	{
+		cells.clear();
+		std::vector<uint8> costs;
+		int32 ox = 0, oy = 0;
+		uint32 w = 0, h = 0;
+		if (!BuildPathCosts(costs, ox, oy, w, h, margin)) return false;
+		const int32 si = fromX - ox, sj = fromY - oy, ti = toX - ox, tj = toY - oy;
+		if (si < 0 || sj < 0 || ti < 0 || tj < 0 || si >= (int32)w || ti >= (int32)w || sj >= (int32)h || tj >= (int32)h) return false;
+		std::vector<uint32> way;
+		if (!PathGrid::Find(costs, w, h, si, sj, ti, tj, maxCells, way)) return false;
+		cells.reserve(way.size());
+		for (size_t k = 0; k < way.size(); k++)
+			cells.push_back(std::make_pair(ox + (int32)(way[k] % w), oy + (int32)(way[k] / w)));
+		return true;
+	}
+
+	bool TileMap2D::FindWalkPath(const int32 fromX, const int32 fromY, const int32 toX, const int32 toY,
+		const WalkPathOptions2D &options, std::vector<WalkStep2D> &steps, const int32 margin) const
+	{
+		steps.clear();
+		int32 minX = 0, minY = 0, maxX = 0, maxY = 0;
+		if (!GetTileBounds(minX, minY, maxX, maxY)) return false;
+		const int32 m = margin < 0 ? 0 : margin;
+		const TileMap2D* self = this;
+		// Headroom above the top row: a walker on the highest ground still
+		// jumps.
+		return FindWalkPath2D([self](const int32 x, const int32 y) { return self->IsSolidCell(x, y); },
+			fromX, fromY, toX, toY, minX - m, minY - m, maxX + m, maxY + m + options.jumpHeight + options.height, options, steps);
 	}
 
 	std::vector<Vec3> TileMap2D::SolidOverrides() const

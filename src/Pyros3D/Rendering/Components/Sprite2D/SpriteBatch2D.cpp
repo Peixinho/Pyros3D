@@ -188,7 +188,7 @@ namespace p3d {
 		if (!enabled)
 		{
 			if (!entries.empty()) Release();
-			if (rc && !runMaterials.empty()) { rc->Disable(); runMaterials.clear(); }
+			if (rc && !runMaterials.empty()) { if (rc->IsActive()) { rc->Disable(); meshOffByUs = true; } runMaterials.clear(); }
 			forceRebuild = true;
 			return;
 		}
@@ -298,7 +298,7 @@ namespace p3d {
 
 		if (runs.empty())
 		{
-			if (rc && !runMaterials.empty()) rc->Disable();
+			if (rc && !runMaterials.empty() && rc->IsActive()) { rc->Disable(); meshOffByUs = true; }
 			runMaterials.clear();
 			return;
 		}
@@ -336,8 +336,11 @@ namespace p3d {
 		// Each run's own bounds are what its lights are chosen by.
 		rc->SetLightsPerGeometry(anyLit);
 		const bool hidden = Layer2D::HiddenAbove(Owner);
-		if (hidden && rc->IsActive()) rc->Disable();
-		else if (!hidden && !rc->IsActive()) rc->Enable();
+		// Only what it switched off itself is switched back on: the mesh is
+		// a RenderingComponent like any other, and a game may have its own
+		// reasons to have turned it off.
+		if (hidden) { if (rc->IsActive()) { rc->Disable(); meshOffByUs = true; } }
+		else if (meshOffByUs) { if (!rc->IsActive()) rc->Enable(); meshOffByUs = false; }
 		runMaterials = mats;
 	}
 

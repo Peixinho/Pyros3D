@@ -216,6 +216,43 @@ namespace p3d {
 				return sol::object(lv, sol::in_place, lv.create_table_with(
 					"minX", a, "minY", b, "maxX", c, "maxY", d));
 			},
+			// The way from one cell to another for something that goes
+			// wherever a cell is open (a top-down game): a list of {x, y}
+			// tile coordinates from start to goal, or nil. tileToWorld turns
+			// each into a point to head for.
+			"findPath", [](TileMap2D &m, const int32 x0, const int32 y0, const int32 x1, const int32 y1, sol::this_state ts) -> sol::object {
+				std::vector<std::pair<int32, int32> > cells;
+				if (!m.FindPath(x0, y0, x1, y1, cells)) return sol::object(sol::lua_nil);
+				sol::state_view lv(ts);
+				sol::table out = lv.create_table((int)cells.size(), 0);
+				for (size_t i = 0; i < cells.size(); i++)
+					out[i + 1] = lv.create_table_with("x", cells[i].first, "y", cells[i].second);
+				return sol::object(lv, sol::in_place, out);
+			},
+			// The same for something that WALKS (a platformer): it stands on
+			// solid cells, steps, jumps and drops. Options, all optional:
+			// { jump = 3, distance = 3, drop = 8, height = 1 } in cells.
+			// Each entry is {x, y, move} with move "start", "walk", "jump"
+			// or "drop" - how that cell is got to from the one before.
+			"findWalkPath", [](TileMap2D &m, const int32 x0, const int32 y0, const int32 x1, const int32 y1,
+				sol::optional<sol::table> opts, sol::this_state ts) -> sol::object {
+				WalkPathOptions2D o;
+				if (opts)
+				{
+					o.jumpHeight = opts->get_or("jump", o.jumpHeight);
+					o.jumpDistance = opts->get_or("distance", o.jumpDistance);
+					o.maxDrop = opts->get_or("drop", o.maxDrop);
+					o.height = opts->get_or("height", o.height);
+				}
+				std::vector<WalkStep2D> steps;
+				if (!m.FindWalkPath(x0, y0, x1, y1, o, steps)) return sol::object(sol::lua_nil);
+				static const char* const names[] = { "start", "walk", "jump", "drop" };
+				sol::state_view lv(ts);
+				sol::table out = lv.create_table((int)steps.size(), 0);
+				for (size_t i = 0; i < steps.size(); i++)
+					out[i + 1] = lv.create_table_with("x", steps[i].x, "y", steps[i].y, "move", names[steps[i].move <= 3 ? steps[i].move : 0]);
+				return sol::object(lv, sol::in_place, out);
+			},
 			// Whether the cell at these tile coordinates collides - the
 			// question a script actually has, rather than "what index is it
 			// and is that index solid".

@@ -334,6 +334,10 @@ bool SceneEditor::OpConvertLegacySprite(uint32 goId, std::string& errOut, const 
 	rc->SetActiveTextureAnimation(NULL);
 	go->Remove(rcHeld);
 	go->Add(std::static_pointer_cast<IComponent>(sp));
+	// The old mesh's row in the tree goes with it - here, and not only in
+	// PushReplaceCommand: converting a whole scene records nothing per
+	// object, and left a row per sprite pointing at a mesh that was freed.
+	SyncComponentRowsOf(goId);
 
 	MarkSceneDirty();
 	if (record) PushReplaceCommand(goId, before, "Convert to Sprite2D");
@@ -373,6 +377,10 @@ int SceneEditor::ConvertLegacySprites(std::string& report)
 		MarkSceneDirty();
 	}
 	report = std::to_string(done) + " converted, " + std::to_string(skipped) + " left as they were\n" + report;
+	// The one thing a conversion cannot carry over: a script that hid these
+	// by switching their mesh off. A sprite's mesh is its own.
+	if (done > 0)
+		report += "Scripts that hid these with getComponent(\"RenderingComponent\"):disable() need getComponent(\"Sprite2D\"):setVisible(false) instead.\n";
 	return done;
 }
 
@@ -614,6 +622,11 @@ void SceneEditor::DrawSprite2DProperties(GameObject* go, uint32 goId, Sprite2D* 
 	}
 
 	{
+		bool vis = sp->IsVisible();
+		const std::string b = SnapshotSubtree(goId);
+		if (ImGui::Checkbox("Visible##sprite", &vis)) { sp->SetVisible(vis); MarkSceneDirty(); PushReplaceCommand(goId, b, "Toggle Sprite"); }
+	}
+	{
 		int mi = sp->GetMaskInteraction();
 		const char* modes[] = { "None", "Visible inside mask", "Visible outside mask" };
 		{
@@ -823,7 +836,7 @@ bool SceneEditor::ApplySpriteArgs(Sprite2D* sp, const json& p, const char* const
 	// {"ok":true} is found ten screenshots later.
 	static const char* known[] = { "source", "frame", "flipX", "flipY", "color", "alpha",
 		"drawMode", "size", "pixelsPerUnit", "pivot", "lit", "lighting", "material", "blend", "sortOrder", "autoPlay", "speed",
-		"maskInteraction", "mask",
+		"maskInteraction", "mask", "visible",
 		"play", "restart", "stop", "clipTime", NULL };
 	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
 	{
@@ -886,6 +899,7 @@ bool SceneEditor::ApplySpriteArgs(Sprite2D* sp, const json& p, const char* const
 			if (!p["material"].is_string()) { errOut = "material is a .mat path, or \"\" for the sprite's own"; return false; }
 			if (!ApplySpriteMaterial(sp, p["material"].get<std::string>(), errOut)) return false;
 		}
+		if (p.contains("visible")) sp->SetVisible(p["visible"].get<bool>());
 		if (p.contains("mask"))
 		{
 			if (!p["mask"].is_string()) { errOut = "mask is the mask object's name, or \"\" for the nearest one above the sprite"; return false; }
@@ -1055,6 +1069,14 @@ json SceneEditor::AgentSpriteInfo(const std::string& name, std::string& errOut)
 	r["ownPivot"] = sp->HasPivot();
 	r["lit"] = sp->IsLit();
 	if (!sp->GetMaterialPath().empty()) r["material"] = sp->GetMaterialPath();
+	r["visible"] = sp->IsVisible();
+	// Whether anything of it is being drawn by its own mesh right now: false
+	// for one in a batch (the batch draws it), for a hidden one, and for one
+	// whose mesh a script switched off - the answer to "where did it go".
+	{
+		RenderingComponent* own = FindComponent<RenderingComponent>(go, ComponentType::RenderingComponent);
+		r["meshActive"] = own != NULL && own->IsActive();
+	}
 	r["maskInteraction"] = sp->GetMaskInteraction() == Sprite2D::MaskInside ? "inside"
 		: (sp->GetMaskInteraction() == Sprite2D::MaskOutside ? "outside" : "none");
 	if (sp->GetMaskInteraction() != Sprite2D::MaskNone)

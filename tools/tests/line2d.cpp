@@ -100,6 +100,15 @@ int main()
 		nearly(t.color[1].w, 0.75f, "blended by length in between");
 		nearly(t.texcoord[1].x, 0.25f, "u runs along the length");
 
+		// An image along it: stretched once, or repeated by distance.
+		SpriteMesh2D once, tiled;
+		Line2D::BuildMesh(three, false, 1.f, 1.f, white, white, NULL, once);
+		Line2D::BuildMesh(three, false, 1.f, 1.f, white, white, NULL, tiled, 0.5f);
+		nearly(once.texcoord[5].x, 1.f, "an image stretched once ends at u = 1");
+		nearly(tiled.texcoord[5].x, 8.f, "repeated every half unit, a line 4 long has eight copies");
+		nearly(tiled.texcoord[1].x, 2.f, "two of them in its first unit");
+		nearly(tiled.texcoord[3].y - tiled.texcoord[0].y, 1.f, "and v still runs once across the width");
+
 		// Ages fade a trail.
 		std::vector<f32> ages;
 		ages.push_back(0.f); ages.push_back(0.5f); ages.push_back(1.f);

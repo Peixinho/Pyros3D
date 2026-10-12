@@ -74,7 +74,8 @@ namespace p3d {
 		lua->create_named_table("SpriteMaskShape",
 			"Rect", (int)SpriteMaskShape2D::Rect,
 			"Circle", (int)SpriteMaskShape2D::Circle,
-			"Polygon", (int)SpriteMaskShape2D::Polygon);
+			"Polygon", (int)SpriteMaskShape2D::Polygon,
+			"Image", (int)SpriteMaskShape2D::Image);
 
 		// A mask: a shape sprites are shown only inside (or outside) of.
 		//   local m = SpriteMask2D.new()
@@ -99,6 +100,14 @@ namespace p3d {
 				for (size_t i = 1; i <= pts.size(); i++) v.push_back(pts.get<Vec2>(i));
 				const bool ok = m.SetPolygon(v);
 				if (ok) m.SetShape(SpriteMaskShape2D::Polygon);
+				return ok;
+			},
+			// The silhouette of an image, laid over the mask's size. False if
+			// the image cannot be read.
+			"setImage", [](SpriteMask2D &m, const std::string &path, sol::this_state ts) {
+				sol::state_view lv(ts);
+				const bool ok = m.SetImage(ResolveForScript(lv, path), path);
+				if (ok) m.SetShape(SpriteMaskShape2D::Image);
 				return ok;
 			},
 			"setEnabled", &SpriteMask2D::SetEnabled,
@@ -141,6 +150,14 @@ namespace p3d {
 				[](Line2D &l, const Vec4 &c) { l.SetColors(c, c); }),
 			"setColors", [](Line2D &l, const Vec4 &a, const Vec4 &b) { l.SetColors(a, b); },
 			"setAdditive", &Line2D::SetAdditive,
+			// An image along the line ("" for none), and how much length one
+			// copy of it covers (0: stretched once, end to end).
+			"setTexture", [](Line2D &l, const std::string &path, sol::this_state ts) {
+				sol::state_view lv(ts);
+				l.SetTexture(path.empty() ? std::string() : ResolveForScript(lv, path), path);
+			},
+			"setTextureRepeat", &Line2D::SetTextureRepeat,
+			"setTextureNearest", &Line2D::SetTextureNearest,
 			"setSortOrder", &Line2D::SetSortOrder,
 			"setTrail", &Line2D::SetTrail,
 			"isTrail", &Line2D::IsTrail,
@@ -249,6 +266,10 @@ namespace p3d {
 			"setBlend", &Sprite2D::SetBlend,
 			"getBlend", &Sprite2D::GetBlend,
 			"setSortOrder", &Sprite2D::SetSortOrder,
+			// Hidden, it draws nothing (alone or in a batch) and its clip
+			// stands still.
+			"setVisible", &Sprite2D::SetVisible,
+			"isVisible", &Sprite2D::IsVisible,
 			// Shown only inside a SpriteMask2D (SpriteMask.Inside) or only
 			// outside one; the name is the mask's object's, or leave it for
 			// the nearest mask above the sprite.

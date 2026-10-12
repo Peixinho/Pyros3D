@@ -517,6 +517,46 @@ int main()
 		ClipSpriteMesh2D(whole, 0, away, false);
 		nearly(A::Area(whole), 4.f, "and outside one nowhere near, everything");
 
+		// Several pieces: a shape cut from an image is many rectangles.
+		std::vector<std::vector<Vec2> > two2;
+		std::vector<Vec2> a1, a2;
+		a1.push_back(Vec2(-1.f, -1.f)); a1.push_back(Vec2(-0.5f, -1.f)); a1.push_back(Vec2(-0.5f, 1.f)); a1.push_back(Vec2(-1.f, 1.f));
+		a2.push_back(Vec2(0.5f, -1.f)); a2.push_back(Vec2(1.f, -1.f)); a2.push_back(Vec2(1.f, 1.f)); a2.push_back(Vec2(0.5f, 1.f));
+		two2.push_back(a1); two2.push_back(a2);
+		SpriteMesh2D bars = m;
+		check(ClipSpriteMeshPieces2D(bars, 0, two2, true), "a shape of two pieces cuts");
+		nearly(A::Area(bars), 2.f, "inside it is both of them");
+		check(bars.QuadCount() == 2, "and a four-cornered piece stays one quad");
+		SpriteMesh2D gap = m;
+		ClipSpriteMeshPieces2D(gap, 0, two2, false);
+		nearly(A::Area(gap), 2.f, "outside it is what is between them");
+		nearly(gap.minBounds.x, -0.5f, "from one's edge");
+		nearly(gap.maxBounds.x, 0.5f, "to the other's");
+
+		// An image's opaque part as rectangles: an L, 4x4 pixels.
+		//   X . . .
+		//   X . . .
+		//   X X X X
+		//   . . . .
+		std::vector<uchar> img(4 * 4 * 4, 0);
+		const int on[][2] = { {0,0}, {0,1}, {0,2}, {1,2}, {2,2}, {3,2} };
+		for (int i = 0; i < 6; i++) img[(on[i][1] * 4 + on[i][0]) * 4 + 3] = 255;
+		int32 gw = 0, gh = 0;
+		std::vector<SpriteRect2D> rects = SpriteAlphaRects2D(&img[0], 4, 4, 127, 128, gw, gh);
+		int covered = 0;
+		bool right = true;
+		for (size_t i = 0; i < rects.size(); i++)
+			for (int y = rects[i].y; y < rects[i].y + rects[i].h; y++)
+				for (int x = rects[i].x; x < rects[i].x + rects[i].w; x++)
+				{ covered++; if (img[(y * 4 + x) * 4 + 3] == 0) right = false; }
+		check(gw == 4 && gh == 4 && covered == 6 && right, "an image's opaque texels are covered exactly, once each");
+		check(rects.size() == 2, "an L is two rectangles, not six");
+		std::vector<uchar> big(300 * 300 * 4, 255);
+		rects = SpriteAlphaRects2D(&big[0], 300, 300, 127, 128, gw, gh);
+		check(rects.size() == 1 && gw <= 128 && rects[0].w == gw && rects[0].h == gh, "a big solid image is read coarser and is one rectangle");
+		std::vector<uchar> clear(8 * 8 * 4, 0);
+		check(SpriteAlphaRects2D(&clear[0], 8, 8, 127, 128, gw, gh).empty(), "a clear image has none");
+
 		// In a batch: only the quads from `firstVertex` on are cut.
 		SpriteMesh2D two = m;
 		Matrix shift;

@@ -594,23 +594,36 @@ namespace p3d {
 	bool Sprite2D::BuildMesh(SpriteMesh2D &out, const Matrix* transform) const
 	{
 		const size_t first = out.vertex.size();
+		// (hidden: nothing of it goes into a batch; its own mesh is switched
+		// off in Rebuild, which still wants the mesh built)
+		if (!visible && transform != NULL) return false;
 		if (!BuildSpriteMesh2D(sheet, MeshParams(), out, transform)) return false;
 		if (maskMode == MaskNone || !Owner) return true;
 		SpriteMask2D* mask = SpriteMask2D::Find(Owner, maskName);
 		if (!mask) return true;
-		std::vector<Vec2> outline;
-		mask->WorldOutline(outline);
-		if (outline.size() < 3) return true;
-		// The outline is in the world; the quads are in this sprite's own
+		std::vector<std::vector<Vec2> > pieces;
+		mask->WorldPieces(pieces);
+		// A mask with no shape (no size yet, an image that did not load)
+		// cuts nothing.
+		if (pieces.empty()) return true;
+		// The pieces are in the world; the quads are in this sprite's own
 		// space, or - appended to a batch - in the batch's.
 		Matrix toMesh = Owner->GetWorldTransformation().Inverse();
 		if (transform) toMesh = (*transform) * toMesh;
-		for (size_t i = 0; i < outline.size(); i++)
-		{
-			const Vec2 w = outline[i];
-			outline[i] = Vec2(toMesh.m[0] * w.x + toMesh.m[4] * w.y + toMesh.m[12], toMesh.m[1] * w.x + toMesh.m[5] * w.y + toMesh.m[13]);
-		}
-		return ClipSpriteMesh2D(out, first, outline, maskMode == MaskInside);
+		for (size_t k = 0; k < pieces.size(); k++)
+			for (size_t i = 0; i < pieces[k].size(); i++)
+			{
+				const Vec2 w = pieces[k][i];
+				pieces[k][i] = Vec2(toMesh.m[0] * w.x + toMesh.m[4] * w.y + toMesh.m[12], toMesh.m[1] * w.x + toMesh.m[5] * w.y + toMesh.m[13]);
+			}
+		return ClipSpriteMeshPieces2D(out, first, pieces, maskMode == MaskInside);
+	}
+
+	void Sprite2D::SetVisible(const bool v)
+	{
+		if (v == visible) return;
+		visible = v;
+		Touch();
 	}
 
 	void Sprite2D::SetMaskInteraction(const int32 mode)
@@ -763,11 +776,10 @@ namespace p3d {
 		batch = b;
 		// In a batch the batch draws it and its own mesh must not; out of
 		// one, its own mesh has to come back.
-		if (RenderingComponent* rc = FindSibling())
-		{
-			if (b) rc->Disable();
-			else rc->Enable();
-		}
+		// (Out of one, Rebuild puts back what was taken away here.)
+		if (b)
+			if (RenderingComponent* rc = FindSibling())
+				if (rc->IsActive()) { rc->Disable(); meshOffByUs = true; }
 		Touch();
 	}
 
@@ -795,7 +807,7 @@ namespace p3d {
 			// Nothing to draw - no image, or no such frame. An empty geometry
 			// is a crash rather than an empty draw (see TileChunkMesh2D), so
 			// the mesh that exists is switched off instead.
-			if (rc && built) rc->Disable();
+			if (rc && built && rc->IsActive()) { rc->Disable(); meshOffByUs = true; }
 			meshDirty = false;
 			materialDirty = false;
 			return false;
@@ -834,9 +846,9 @@ namespace p3d {
 		}
 		rc->SetSortOrder(sortOrder);
 		// Under a hidden layer it has its mesh and keeps it switched off.
-		const bool hidden = Layer2D::HiddenAbove(Owner);
-		if (hidden && rc->IsActive()) rc->Disable();
-		else if (!hidden && !rc->IsActive()) rc->Enable();
+		const bool hidden = !visible || Layer2D::HiddenAbove(Owner);
+		if (hidden) { if (rc->IsActive()) { rc->Disable(); meshOffByUs = true; } }
+		else if (meshOffByUs) { if (!rc->IsActive()) rc->Enable(); meshOffByUs = false; }
 
 		built = true;
 		builtRect = rect;
@@ -870,7 +882,7 @@ namespace p3d {
 		lastTime = time;
 		haveLastTime = true;
 
-		if (gClocksRunning.load()) Advance(dt);
+		if (gClocksRunning.load() && visible) Advance(dt);
 	}
 
 };

@@ -148,6 +148,10 @@ namespace p3d {
 		int32 tileH = 16;
 		int32 margin = 0;
 		int32 spacing = 0;
+		// How far inside a cell its texture coordinates stop, in texels.
+		// Negative (the default) is "the usual": see UVRect.
+		f32 edgeInset = -1.f;
+		f32 EdgeInset() const { return edgeInset >= 0.f ? edgeInset : 0.02f; }
 
 		// Cells per row. 0 means "derive from the image width", which is what
 		// almost every sheet wants; an explicit value exists for a sheet with
@@ -186,9 +190,16 @@ namespace p3d {
 		// its top vertices to v=0) and matching the row-major, top-left-first
 		// order tiles are indexed in.
 		//
-		// Inset by half a texel on all four edges. Without it neighbouring
-		// cells bleed into each other along every seam under any filtering -
-		// the artifact that reads as a rendering bug and is a UV bug.
+		// Inset a little on all four edges (EdgeInset() texels). Without any,
+		// a sample exactly on a cell's edge can land in its neighbour - the
+		// seam that reads as a rendering bug and is a UV bug.
+		//
+		// A little, and not the half texel it used to be. An atlas is always
+		// sampled Nearest (TileMap2D sets it), and nearest sampling never
+		// blends: staying off the exact boundary is all that is needed. The
+		// half texel was also taken off the PICTURE - a cell is drawn as its
+		// full size, so a 16 px tile showed fifteen texels stretched over
+		// sixteen, with every edge texel half its width.
 		//
 		// An index outside [0, TileCount()) returns a zero rect rather than
 		// clamping into a real cell: a caller drawing the wrong tile silently

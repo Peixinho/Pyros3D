@@ -15,6 +15,8 @@
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
 #include <imgui.h>
+#include <misc/cpp/imgui_stdlib.h>
+#include <filesystem>
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -49,7 +51,7 @@ namespace {
 		return s;
 	}
 
-	const char* const kMaskShapes[] = { "rect", "circle", "polygon" };
+	const char* const kMaskShapes[] = { "rect", "circle", "polygon", "image" };
 
 	// [[x, y], ...] or a flat [x, y, x, y, ...].
 	bool PointsFrom(const json& a, std::vector<Vec2>& out)
@@ -115,10 +117,10 @@ void SceneEditor::DrawSpriteMask2DProperties(uint32 goId, SpriteMask2D* mk)
 		ImGui::SetTooltip("Off, the sprites that use it are drawn whole.");
 
 	int shape = mk->GetShape();
-	const char* shapes[] = { "Rectangle", "Circle", "Polygon" };
+	const char* shapes[] = { "Rectangle", "Circle", "Polygon", "Image" };
 	{
 		const std::string b = SnapshotSubtree(goId);
-		if (ImGui::Combo("Shape##mask", &shape, shapes, 3))
+		if (ImGui::Combo("Shape##mask", &shape, shapes, 4))
 		{
 			if (shape == SpriteMaskShape2D::Polygon && mk->GetPolygon().size() < 3)
 			{
@@ -133,7 +135,40 @@ void SceneEditor::DrawSpriteMask2DProperties(uint32 goId, SpriteMask2D* mk)
 		}
 	}
 	if (ImGui::IsItemHovered())
-		ImGui::SetTooltip("The mask is an outline, not a picture: sprites are cut to it before\nthey are drawn. Which sprites: those whose Mask is set to Inside or\nOutside, and that are under this object in the tree - or name it.");
+		ImGui::SetTooltip("Sprites are cut to the mask's shape before they are drawn. Image\ntakes the shape from a picture's opaque part - any silhouette -\nlaid over Size; its edge is hard, a texel is in or out.\nWhich sprites: those whose Mask is set to Inside or Outside, and\nthat are under this object in the tree - or name it.");
+
+	if (mk->GetShape() == SpriteMaskShape2D::Image)
+	{
+		static std::string imgText;
+		static SpriteMask2D* imgTextFor = NULL;
+		if (imgTextFor != mk || (!ImGui::IsAnyItemActive() && imgText != mk->GetImagePath()))
+		{ imgText = mk->GetImagePath(); imgTextFor = mk; }
+		ImGui::SetNextItemWidth(200);
+		std::string want;
+		bool commit = ImGui::InputTextWithHint("Image##mask", "an image with alpha", &imgText, ImGuiInputTextFlags_EnterReturnsTrue)
+			|| ImGui::IsItemDeactivatedAfterEdit();
+		if (commit) want = imgText;
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL"))
+			{
+				const char* rel = (const char*)payload->Data;
+				if (rel && ProjectManager::IsTextureExtension(rel)) { want = rel; commit = true; }
+			}
+			ImGui::EndDragDropTarget();
+		}
+		if (commit && want != mk->GetImagePath())
+		{
+			const std::string b = SnapshotSubtree(goId);
+			json a; a["image"] = want;
+			std::string ierr;
+			if (AgentApplySpriteMask(mk, a, ierr)) { MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Mask Image"); }
+			else echo("ERROR: " + ierr);
+			imgText = mk->GetImagePath();
+		}
+		if (mk->GetImagePath().empty()) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "No image yet: the mask cuts nothing.");
+		else ImGui::TextDisabled("%u pieces", mk->ImagePieceCount());
+	}
 
 	if (mk->GetShape() == SpriteMaskShape2D::Polygon)
 	{
@@ -211,7 +246,8 @@ void SceneEditor::DrawShapes2DOverlay()
 
 bool SceneEditor::AgentApplySpriteMask(SpriteMask2D* mk, const json& p, std::string& errOut)
 {
-	static const char* known[] = { "object", "name", "shape", "size", "diameter", "offset", "polygon", "enabled", NULL };
+	static const char* known[] = { "object", "name", "shape", "size", "diameter", "offset", "polygon", "enabled",
+		"image", "alphaThreshold", NULL };
 	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
 	{
 		bool ok = false;
@@ -237,12 +273,22 @@ bool SceneEditor::AgentApplySpriteMask(SpriteMask2D* mk, const json& p, std::str
 			{ errOut = "polygon must be 3 to 16 points making a convex outline"; return false; }
 			if (!p.contains("shape")) mk->SetShape(SpriteMaskShape2D::Polygon);
 		}
+		if (p.contains("image"))
+		{
+			if (!p["image"].is_string()) { errOut = "image is an image path"; return false; }
+			const std::string img = p["image"].get<std::string>();
+			const std::string abs = img.empty() ? std::string() : ResolveAssetPath(img);
+			if (!img.empty() && (abs.empty() || !std::filesystem::exists(abs))) { errOut = "image '" + img + "' not found"; return false; }
+			if (!mk->SetImage(abs, abs.empty() ? std::string() : DisplayPath(abs), p.value("alphaThreshold", mk->GetAlphaThreshold())) && !img.empty())
+			{ errOut = "image '" + img + "' could not be read"; return false; }
+			if (!p.contains("shape") && !img.empty()) mk->SetShape(SpriteMaskShape2D::Image);
+		}
 		if (p.contains("shape"))
 		{
 			const std::string sh = Lower(p["shape"].get<std::string>());
 			int found = -1;
-			for (int i = 0; i < 3; i++) if (sh == kMaskShapes[i]) found = i;
-			if (found < 0) { errOut = "shape must be rect, circle or polygon"; return false; }
+			for (int i = 0; i < 4; i++) if (sh == kMaskShapes[i]) found = i;
+			if (found < 0) { errOut = "shape must be rect, circle, polygon or image"; return false; }
 			if (found == SpriteMaskShape2D::Polygon && mk->GetPolygon().size() < 3) { errOut = "a polygon mask needs `polygon`: its points"; return false; }
 			mk->SetShape(found);
 		}
@@ -260,7 +306,8 @@ json SceneEditor::AgentSpriteMaskInfo(const std::string& name, std::string& errO
 	GameObject* go = (GameObject*)obj->GetPTR();
 	SpriteMask2D* mk = FindComponent<SpriteMask2D>(go, ComponentType::SpriteMask2D);
 	if (!mk) { errOut = "'" + name + "' has no SpriteMask2D"; return r; }
-	r["shape"] = kMaskShapes[mk->GetShape() <= 2 ? mk->GetShape() : 0];
+	r["shape"] = kMaskShapes[mk->GetShape() <= 3 ? mk->GetShape() : 0];
+	if (!mk->GetImagePath().empty()) { r["image"] = mk->GetImagePath(); r["pieces"] = mk->ImagePieceCount(); }
 	r["size"] = { mk->GetSize().x, mk->GetSize().y };
 	r["offset"] = { mk->GetOffset().x, mk->GetOffset().y };
 	r["enabled"] = mk->IsEnabled();
@@ -378,6 +425,51 @@ void SceneEditor::DrawLine2DProperties(uint32 goId, Line2D* ln)
 	if (ImGui::DragInt("Sort Order##line", &order, 0.1f)) { ln->SetSortOrder(order); MarkSceneDirty(); }
 	EndComponentUndo(goId, "Set Line Sort Order");
 
+	{
+		// Typed, or an image dropped on it from Assets.
+		static std::string texText;
+		static Line2D* texTextFor = NULL;
+		if (texTextFor != ln || (!ImGui::IsAnyItemActive() && texText != ln->GetTexturePath()))
+		{ texText = ln->GetTexturePath(); texTextFor = ln; }
+		ImGui::SetNextItemWidth(200);
+		std::string want;
+		bool commit = ImGui::InputTextWithHint("Image##line", "none (plain colour)", &texText, ImGuiInputTextFlags_EnterReturnsTrue)
+			|| ImGui::IsItemDeactivatedAfterEdit();
+		if (commit) want = texText;
+		if (ImGui::BeginDragDropTarget())
+		{
+			if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL"))
+			{
+				const char* rel = (const char*)payload->Data;
+				if (rel && ProjectManager::IsTextureExtension(rel)) { want = rel; commit = true; }
+			}
+			ImGui::EndDragDropTarget();
+		}
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("An image run along the line: left to right in the image is start to\nend along the line, and its height is the line's width. The colours\nabove tint it. Empty for a plain colour.");
+		if (commit && want != ln->GetTexturePath())
+		{
+			const std::string b = SnapshotSubtree(goId);
+			json a; a["texture"] = want;
+			std::string terr;
+			if (AgentApplyLine2D(ln, a, terr)) { MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Line Image"); }
+			else echo("ERROR: " + terr);
+			texText = ln->GetTexturePath();
+		}
+		if (!ln->GetTexturePath().empty())
+		{
+			f32 rep = ln->GetTextureRepeat();
+			BeginComponentUndo(goId);
+			if (ImGui::DragFloat("Repeat every", &rep, 0.01f, 0.f, 1000.f, rep > 0.f ? "%.2f" : "stretched once")) { ln->SetTextureRepeat(rep); MarkSceneDirty(); }
+			EndComponentUndo(goId, "Set Line Image Repeat");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("How much of the line's length one copy of the image covers, in\nunits: a chain link, a dash. 0 stretches one copy over the whole line.");
+			bool nearest = ln->IsTextureNearest();
+			const std::string b = SnapshotSubtree(goId);
+			if (ImGui::Checkbox("Pixel art (nearest)", &nearest)) { ln->SetTextureNearest(nearest); MarkSceneDirty(); PushReplaceCommand(goId, b, "Set Line Filter"); }
+		}
+	}
+
 	if (trail)
 	{
 		f32 life = ln->GetTrailLifetime(), dist = ln->GetTrailMinDistance();
@@ -435,7 +527,8 @@ void SceneEditor::DrawLine2DProperties(uint32 goId, Line2D* ln)
 bool SceneEditor::AgentApplyLine2D(Line2D* ln, const json& p, std::string& errOut)
 {
 	static const char* known[] = { "object", "name", "points", "closed", "width", "color", "colorStart", "colorEnd",
-		"additive", "sortOrder", "trail", "lifetime", "minDistance", "emitting", "clearTrail", NULL };
+		"additive", "sortOrder", "trail", "lifetime", "minDistance", "emitting", "clearTrail",
+		"texture", "textureRepeat", "textureNearest", NULL };
 	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
 	{
 		bool ok = false;
@@ -465,6 +558,20 @@ bool SceneEditor::AgentApplyLine2D(Line2D* ln, const json& p, std::string& errOu
 		if (colours) ln->SetColors(c0, c1);
 		if (p.contains("additive")) ln->SetAdditive(p["additive"].get<bool>());
 		if (p.contains("sortOrder")) ln->SetSortOrder(p["sortOrder"].get<int>());
+		if (p.contains("texture"))
+		{
+			if (!p["texture"].is_string()) { errOut = "texture is an image path, or \"\" for none"; return false; }
+			const std::string t = p["texture"].get<std::string>();
+			if (t.empty()) ln->SetTexture(std::string(), std::string());
+			else
+			{
+				const std::string abs = ResolveAssetPath(t);
+				if (abs.empty() || !std::filesystem::exists(abs)) { errOut = "texture '" + t + "' not found"; return false; }
+				ln->SetTexture(abs, DisplayPath(abs));
+			}
+		}
+		if (p.contains("textureRepeat")) ln->SetTextureRepeat(p["textureRepeat"].get<f32>());
+		if (p.contains("textureNearest")) ln->SetTextureNearest(p["textureNearest"].get<bool>());
 		if (p.contains("lifetime")) ln->SetTrailLifetime(p["lifetime"].get<f32>());
 		if (p.contains("minDistance")) ln->SetTrailMinDistance(p["minDistance"].get<f32>());
 		if (p.contains("trail")) ln->SetTrail(p["trail"].get<bool>());
@@ -491,6 +598,9 @@ json SceneEditor::AgentLine2DInfo(const std::string& name, std::string& errOut)
 	r["colorEnd"] = { ln->GetEndColor().x, ln->GetEndColor().y, ln->GetEndColor().z, ln->GetEndColor().w };
 	r["additive"] = ln->IsAdditive();
 	r["sortOrder"] = ln->GetSortOrder();
+	r["texture"] = ln->GetTexturePath();
+	r["textureRepeat"] = ln->GetTextureRepeat();
+	r["textureNearest"] = ln->IsTextureNearest();
 	r["trail"] = ln->IsTrail();
 	r["lifetime"] = ln->GetTrailLifetime();
 	r["minDistance"] = ln->GetTrailMinDistance();

@@ -293,31 +293,38 @@ void SceneEditor::PushAddCommand(SceneObject* created)
 		wasCamera, camSettings, hadHelper, created->GetName(), created->GetID()));
 }
 
+// An object's component rows, brought into step with its components: one
+// just added gets its row now and not at the next load, and one just removed
+// loses a row that would otherwise point at freed memory - which is not
+// only a row that crashes when it is clicked: everything that walks the rows
+// (relinking materials after an undo or a Stop, for one) follows it too.
+void SceneEditor::SyncComponentRowsOf(uint32 ownerId)
+{
+	SceneObject* owner = sceneObjects->GetSceneObject(ownerId);
+	if (!owner || owner->GetType() != SceneObjectTypes::GAMEOBJECT) return;
+	const uint32 selectedId = SelectedSceneObject ? SelectedSceneObject->GetID() : 0;
+	std::vector<uint32> removed;
+	sceneObjects->SyncComponentRows(ownerId, &removed);
+	for (size_t i = 0; i < removed.size(); i++)
+	{
+		if (removed[i] != selectedId) continue;
+		// The selected row's component is gone: its object is what is left
+		// to have selected. (The pointer is cleared first - the row it
+		// pointed at has been deleted.)
+		SelectedSceneObject = NULL;
+		selection.clear();
+		SelectSceneObject(owner);
+		node_clicked = (int32)ownerId;
+	}
+}
+
 void SceneEditor::PushReplaceCommand(uint32 ownerId, const std::string& beforeSnapshot, const std::string& description)
 {
 	SceneObject* owner = sceneObjects->GetSceneObject(ownerId);
 	if (!owner) return;
 	// Every edit that adds or removes a component comes through here, so
-	// this is where the Scene Tree's component rows are brought into step:
-	// one just added gets its row now and not at the next load, and one just
-	// removed loses a row that would otherwise point at freed memory.
-	if (owner->GetType() == SceneObjectTypes::GAMEOBJECT)
-	{
-		const uint32 selectedId = SelectedSceneObject ? SelectedSceneObject->GetID() : 0;
-		std::vector<uint32> removed;
-		sceneObjects->SyncComponentRows(ownerId, &removed);
-		for (size_t i = 0; i < removed.size(); i++)
-		{
-			if (removed[i] != selectedId) continue;
-			// The selected row's component is gone: its object is what is
-			// left to have selected. (The pointer is cleared first - the
-			// row it pointed at has been deleted.)
-			SelectedSceneObject = NULL;
-			selection.clear();
-			SelectSceneObject(owner);
-			node_clicked = (int32)ownerId;
-		}
-	}
+	// this is where the Scene Tree's component rows are brought into step.
+	SyncComponentRowsOf(ownerId);
 	GameObject* go = (GameObject*)owner->GetPTR();
 	if (!go) return;
 	const bool wasCamera = IsSceneCamera(ownerId);

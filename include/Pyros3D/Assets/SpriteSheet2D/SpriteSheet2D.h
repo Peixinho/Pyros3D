@@ -353,6 +353,19 @@ namespace p3d {
 	// removed).
 	PYROS3D_API bool ClipSpriteMesh2D(SpriteMesh2D &mesh, const size_t firstVertex,
 		const std::vector<Vec2> &convexOutline, const bool inside);
+	// The same against a shape made of several convex pieces that do not
+	// overlap - a mask cut from an image is a few dozen rectangles. Inside
+	// keeps what falls in any of them; outside, what falls in none.
+	PYROS3D_API bool ClipSpriteMeshPieces2D(SpriteMesh2D &mesh, const size_t firstVertex,
+		const std::vector<std::vector<Vec2> > &convexPieces, const bool inside);
+
+	// The opaque part of an image (alpha above the threshold) as rectangles
+	// that cover it exactly and do not overlap: (x, y, w, h) in pixels, y
+	// down from the top, in a grid of `gridW` x `gridH` cells. An image
+	// bigger than `maxSide` on a side is read at a coarser grid first, so
+	// the count stays in the tens or low hundreds whatever its size.
+	PYROS3D_API std::vector<SpriteRect2D> SpriteAlphaRects2D(const uchar* rgba, const int32 w, const int32 h,
+		const int32 alphaThreshold, const int32 maxSide, int32 &gridW, int32 &gridH);
 
 	// The local-space rectangle a sprite covers: (minX, minY, maxX, maxY).
 	// What a selection outline and a collider fit both want, without building

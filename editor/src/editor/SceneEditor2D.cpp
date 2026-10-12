@@ -874,7 +874,12 @@ bool SceneEditor::AgentAddJoint2D(const std::string& name, const json& p, std::s
 	const std::string before = SnapshotSubtree(goId);
 	std::shared_ptr<Joint2D> jt = std::make_shared<Joint2D>();
 	if (p.is_object() && !AgentApplyJoint2D(jt.get(), p, errOut)) { errOut = "add_joint2d: " + errOut; return false; }
-	if (!FindComponent<Physics2D>(go, ComponentType::Physics2D))
+	// (the same rule as OpAddJoint2D: under something that has a body, the
+	// joint is a second one on THAT body, and the object gets none of its own)
+	bool bodyAbove = false;
+	for (GameObject* at = go->GetParent(); at != NULL && !bodyAbove; at = at->GetParent())
+		if (FindComponent<Physics2D>(at, ComponentType::Physics2D)) bodyAbove = true;
+	if (!FindComponent<Physics2D>(go, ComponentType::Physics2D) && !bodyAbove)
 		go->Add(std::static_pointer_cast<IComponent>(std::make_shared<Physics2D>()));
 	go->Add(std::static_pointer_cast<IComponent>(jt));
 	MarkSceneDirty();

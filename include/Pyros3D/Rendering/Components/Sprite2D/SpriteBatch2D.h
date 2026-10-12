@@ -121,6 +121,7 @@ namespace p3d {
 		void Release();
 		RenderingComponent* FindSibling() const;
 
+		bool meshOffByUs = false;
 		bool enabled;
 		bool batchLit;
 		f32 lightCell;

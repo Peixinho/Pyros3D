@@ -86,12 +86,13 @@ namespace p3d {
 		const f32 w = (f32)imageW;
 		const f32 h = (f32)imageH;
 
-		// Half a texel in from each edge - see the header.
+		// A little in from each edge - see the header.
+		const f32 in = EdgeInset();
 		return Vec4(
-			(px + 0.5f) / w,
-			(py + 0.5f) / h,
-			(px + (f32)tileW - 0.5f) / w,
-			(py + (f32)tileH - 0.5f) / h);
+			(px + in) / w,
+			(py + in) / h,
+			(px + (f32)tileW - in) / w,
+			(py + (f32)tileH - in) / h);
 	}
 
 	const TileInfo2D* TileSet2D::Find(const int32 index) const
@@ -397,6 +398,7 @@ namespace p3d {
 		// zeroes into every file buries the two knobs that do matter.
 		if (set.margin != 0) j["margin"] = set.margin;
 		if (set.spacing != 0) j["spacing"] = set.spacing;
+		if (set.edgeInset >= 0.f) j["edgeInset"] = set.edgeInset;
 		if (set.columns > 0) j["columns"] = set.columns;
 
 		json arr = json::array();
@@ -470,6 +472,7 @@ namespace p3d {
 		s.tileH = j.value("tileH", 16);
 		s.margin = j.value("margin", 0);
 		s.spacing = j.value("spacing", 0);
+		s.edgeInset = j.value("edgeInset", -1.f);
 		s.columns = j.value("columns", 0);
 
 		// Checked rather than clamped. Every one of these silently cuts the

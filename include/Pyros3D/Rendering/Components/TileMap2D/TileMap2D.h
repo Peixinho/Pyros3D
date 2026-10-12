@@ -27,6 +27,7 @@
 #ifndef TILEMAP2D_H
 #define TILEMAP2D_H
 
+#include <Pyros3D/Utils/Navigation/WalkPath2D.h>
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Assets/TileSet2D/TileSet2D.h>
 #include <Pyros3D/Core/Math/Math.h>
@@ -161,6 +162,23 @@ namespace p3d {
 		// The question every collider builder actually asks. Honours the
 		// override, then falls back to the tile's own solid flag.
 		bool IsSolidCell(const int32 x, const int32 y) const;
+		// --- ways across it ---------------------------------------------------
+		// For something that goes anywhere a cell is open - a top-down game:
+		// the cells of the cheapest way from one cell to another, start to
+		// goal, stepping to any of eight neighbours but never across the
+		// corner between two solid cells. False when there is none. The
+		// search covers the painted cells and `margin` open ones round them.
+		bool FindPath(const int32 fromX, const int32 fromY, const int32 toX, const int32 toY,
+			std::vector<std::pair<int32, int32> > &cells, const int32 margin = 2, const uint32 maxCells = 60000) const;
+		// For something that walks - a platformer: see WalkPath2D.h.
+		bool FindWalkPath(const int32 fromX, const int32 fromY, const int32 toX, const int32 toY,
+			const WalkPathOptions2D &options, std::vector<WalkStep2D> &steps, const int32 margin = 2) const;
+		// The map as a PathGrid's costs (0 solid, 1 open), for a game that
+		// wants PathGrid's searches on the job system: `originX/Y` is the
+		// cell that grid cell (0, 0) is.
+		bool BuildPathCosts(std::vector<uint8> &costs, int32 &originX, int32 &originY,
+			uint32 &width, uint32 &height, const int32 margin = 2) const;
+
 		// Every override, as (x, y, mode) - for serialization.
 		std::vector<Math::Vec3> SolidOverrides() const;
 		void ClearSolidOverrides();

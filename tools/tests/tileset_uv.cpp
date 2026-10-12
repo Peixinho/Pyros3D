@@ -47,9 +47,9 @@ int main()
 
 		// Half-texel inset: tile 0 must NOT start at 0.
 		const Vec4 t0 = s.UVRect(0);
-		nearly(t0.x, 0.5f / 64.f, "tile 0 left is inset half a texel");
-		nearly(t0.y, 0.5f / 64.f, "tile 0 top is inset half a texel");
-		nearly(t0.z, 15.5f / 64.f, "tile 0 right is inset half a texel");
+		nearly(t0.x, 0.02f / 64.f, "tile 0 left is just inside its cell");
+		nearly(t0.y, 0.02f / 64.f, "tile 0 top is just inside its cell");
+		nearly(t0.z, 15.98f / 64.f, "tile 0 right keeps its edge texel whole");
 
 		// v runs DOWN: the tile on row 1 sits at a LARGER v than row 0.
 		check(s.UVRect(4).y > s.UVRect(0).y, "v runs down (row 1 below row 0)");
@@ -77,8 +77,8 @@ int main()
 
 		// Last cell starts at 1 + 3*(16+2) = 55 and ends at 71, inside 72.
 		const Vec4 last = s.UVRect(15);
-		nearly(last.x, 55.5f / 72.f, "margin+spacing: last cell left edge");
-		nearly(last.z, 70.5f / 72.f, "margin+spacing: last cell right edge");
+		nearly(last.x, 55.02f / 72.f, "margin+spacing: last cell left edge");
+		nearly(last.z, 70.98f / 72.f, "margin+spacing: last cell right edge");
 		check(last.z < 1.f, "margin+spacing: last cell stays inside [0,1]");
 
 		// One pixel short and the last column must NOT be claimed.
@@ -96,7 +96,7 @@ int main()
 		check(s.Columns() == 3, "explicit columns wins over the derived count");
 		check(s.TileCount() == 12, "explicit columns narrows the tile count");
 		// Index 3 is row 1 col 0 under the override, not row 0 col 3.
-		nearly(s.UVRect(3).x, 0.5f / 64.f, "override re-wraps the row");
+		nearly(s.UVRect(3).x, 0.02f / 64.f, "override re-wraps the row");
 	}
 
 	// --- refusals and empties --------------------------------------------

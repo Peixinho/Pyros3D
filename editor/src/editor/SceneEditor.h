@@ -798,6 +798,7 @@ public:
 	// AttachComponent/DetachComponent flows, which capture `beforeSnapshot`
 	// themselves (via SerializeSubtree) right before making their edit.
 	void PushReplaceCommand(uint32 ownerId, const std::string& beforeSnapshot, const std::string& description);
+	void SyncComponentRowsOf(uint32 ownerId);
 	// --------------------------------------------------------------------
 
 	static std::string ModelThumbnailPath(const std::string& p3dmPath);

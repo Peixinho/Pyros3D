@@ -12,8 +12,11 @@
 //
 //               It holds the description; the ribbon of quads lives on a
 //               sibling RenderingComponent it makes for itself, as a
-//               sprite's does. Unlit and untextured: its colours are its
-//               vertices', so one line is one draw call whatever it does.
+//               sprite's does. Unlit; its colours are its vertices', so one
+//               line is one draw call whatever it does. It can carry an
+//               image along its length - the links of a chain, the strands
+//               of a rope, the core of a beam - stretched once from end to
+//               end or repeated every so far.
 //============================================================================
 
 #ifndef LINE2D_H
@@ -23,6 +26,7 @@
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Global.h>
 #include <memory>
+#include <string>
 #include <vector>
 
 namespace p3d {
@@ -66,6 +70,20 @@ namespace p3d {
 		void SetSortOrder(const int32 order);
 		int32 GetSortOrder() const { return sortOrder; }
 
+		// An image along the line: its u runs along the length, its v across
+		// the width. `resolvedPath` is where it is on disk; `authoredPath`
+		// what a scene file stores. Empty for none (a plain colour).
+		// `repeatEvery` is how much of the line's length one copy of the
+		// image covers, in world units; 0 stretches a single copy from one
+		// end to the other. The vertex colours tint it.
+		void SetTexture(const std::string &resolvedPath, const std::string &authoredPath);
+		const std::string &GetTexturePath() const { return texturePath; }
+		void SetTextureRepeat(const f32 repeatEvery);
+		f32 GetTextureRepeat() const { return textureRepeat; }
+		// Nearest filtering, for pixel art.
+		void SetTextureNearest(const bool n);
+		bool IsTextureNearest() const { return textureNearest; }
+
 		// --- trail ----------------------------------------------------------
 		// On, the line is where the object has been over the last `lifetime`
 		// seconds, a point laid down each `minDistance` it travels. Only
@@ -89,8 +107,11 @@ namespace p3d {
 		// for the tests, and for anything that wants the mesh without the
 		// component. `ages` (0 newest .. 1 gone), when given, fades and
 		// thins each point further - a trail's.
+		// `repeatEvery` > 0 makes u the distance along the line over it
+		// (for a repeating image); otherwise u runs 0 to 1 over the whole.
 		static void BuildMesh(const std::vector<Vec2> &pts, const bool closed, const f32 widthStart, const f32 widthEnd,
-			const Vec4 &colorStart, const Vec4 &colorEnd, const std::vector<f32>* ages, SpriteMesh2D &out);
+			const Vec4 &colorStart, const Vec4 &colorEnd, const std::vector<f32>* ages, SpriteMesh2D &out,
+			const f32 repeatEvery = 0.f);
 
 		// Rebuilds the scene's changed lines. Called just before a scene is drawn.
 		static void FlushScene(SceneGraph* scene);
@@ -116,6 +137,10 @@ namespace p3d {
 		Vec4 colorStart, colorEnd;
 		bool additive;
 		int32 sortOrder;
+		std::string texturePath, textureResolved;
+		f32 textureRepeat = 0.f;
+		bool textureNearest = false;
+		std::string builtKey;
 
 		bool trail;
 		bool emitting;
@@ -129,6 +154,7 @@ namespace p3d {
 		f64 lastTime;
 		bool haveLastTime;
 
+		bool meshOffByUs = false;
 		bool dirty;
 		bool built;
 		bool builtAdditive;

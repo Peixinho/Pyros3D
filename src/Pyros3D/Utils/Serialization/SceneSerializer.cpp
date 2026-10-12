@@ -2049,6 +2049,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (sp->GetBlend() != SpriteBlend2D::Alpha)
 				j["blend"] = sp->GetBlend() == SpriteBlend2D::Additive ? "additive" : "premultiplied";
 			if (sp->GetSortOrder() != 0) j["sortOrder"] = sp->GetSortOrder();
+			if (!sp->IsVisible()) j["visible"] = false;
 			if (sp->GetMaskInteraction() != Sprite2D::MaskNone)
 			{
 				j["maskInteraction"] = sp->GetMaskInteraction() == Sprite2D::MaskOutside ? "outside" : "inside";
@@ -2062,7 +2063,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		{
 			SpriteMask2D* mk = dynamic_cast<SpriteMask2D*>(c);
 			j["type"] = "SpriteMask2D";
-			j["shape"] = mk->GetShape() == SpriteMaskShape2D::Circle ? "circle" : (mk->GetShape() == SpriteMaskShape2D::Polygon ? "polygon" : "rect");
+			j["shape"] = mk->GetShape() == SpriteMaskShape2D::Circle ? "circle" : (mk->GetShape() == SpriteMaskShape2D::Polygon ? "polygon"
+				: (mk->GetShape() == SpriteMaskShape2D::Image ? "image" : "rect"));
+			if (!mk->GetImagePath().empty())
+			{
+				j["image"] = mk->GetImagePath();
+				if (mk->GetAlphaThreshold() != 127) j["alphaThreshold"] = mk->GetAlphaThreshold();
+			}
 			j["size"] = ToJson(mk->GetSize());
 			if (mk->GetOffset().x != 0.f || mk->GetOffset().y != 0.f) j["offset"] = ToJson(mk->GetOffset());
 			if (!mk->GetPolygon().empty())
@@ -2087,6 +2094,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["colorEnd"] = ToJson(ln->GetEndColor());
 			if (ln->IsAdditive()) j["additive"] = true;
 			if (ln->GetSortOrder() != 0) j["sortOrder"] = ln->GetSortOrder();
+			if (!ln->GetTexturePath().empty())
+			{
+				j["texture"] = ln->GetTexturePath();
+				if (ln->GetTextureRepeat() > 0.f) j["textureRepeat"] = ln->GetTextureRepeat();
+				if (ln->IsTextureNearest()) j["textureNearest"] = true;
+			}
 			if (ln->IsTrail())
 			{
 				j["trail"] = true;
@@ -4297,6 +4310,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				}
 			}
 			sp->SetSortOrder(j.value("sortOrder", 0));
+			sp->SetVisible(j.value("visible", true));
 			{
 				const std::string mi = j.value("maskInteraction", std::string());
 				sp->SetMaskName(j.value("mask", std::string()));
@@ -4320,7 +4334,17 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					pts.push_back(Vec2(j["polygon"][k].get<f32>(), j["polygon"][k + 1].get<f32>()));
 				if (!mk->SetPolygon(pts)) echo("WARNING: a sprite mask's polygon is not a convex outline of 3 to 16 points; ignored");
 			}
-			mk->SetShape(sh == "circle" ? SpriteMaskShape2D::Circle : (sh == "polygon" ? SpriteMaskShape2D::Polygon : SpriteMaskShape2D::Rect));
+			{
+				const std::string img = j.value("image", std::string());
+				if (!img.empty())
+				{
+					const std::string abs = ResolveSceneAssetPath(img);
+					if (abs.empty() || !mk->SetImage(abs, img, j.value("alphaThreshold", 127)))
+						echo("WARNING: sprite mask image could not be loaded: " + img);
+				}
+			}
+			mk->SetShape(sh == "circle" ? SpriteMaskShape2D::Circle : (sh == "polygon" ? SpriteMaskShape2D::Polygon
+				: (sh == "image" ? SpriteMaskShape2D::Image : SpriteMaskShape2D::Rect)));
 			mk->SetEnabled(j.value("enabled", true));
 			go->Add(mk);
 			return;
@@ -4342,6 +4366,17 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				j.contains("colorEnd") && j["colorEnd"].is_array() && j["colorEnd"].size() >= 4 ? Vec4FromJson(j["colorEnd"]) : Vec4(1.f, 1.f, 1.f, 1.f));
 			ln->SetAdditive(j.value("additive", false));
 			ln->SetSortOrder(j.value("sortOrder", 0));
+			{
+				const std::string tex = j.value("texture", std::string());
+				if (!tex.empty())
+				{
+					const std::string abs = ResolveSceneAssetPath(tex);
+					if (abs.empty()) echo("WARNING: line texture could not be found: " + tex);
+					else ln->SetTexture(abs, tex);
+				}
+				ln->SetTextureRepeat(j.value("textureRepeat", 0.f));
+				ln->SetTextureNearest(j.value("textureNearest", false));
+			}
 			ln->SetTrailLifetime(j.value("lifetime", 0.5f));
 			ln->SetTrailMinDistance(j.value("minDistance", 0.1f));
 			ln->SetTrail(j.value("trail", false));
