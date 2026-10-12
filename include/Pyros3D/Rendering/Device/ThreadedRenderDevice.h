@@ -142,6 +142,7 @@ namespace p3d {
 		std::atomic<uint32_t> deviceFrameUs{ 0 };
 		std::atomic<bool> deviceInFrame{ false };
 		std::atomic<uint32_t> inputToShownUs{ 0 };
+		std::atomic<uint32_t> presentEmaUs{ 0 };
 		std::chrono::steady_clock::time_point sayingSince;
 		f64 sayingMs = 0.0;
 		static const DeviceHandle kFirstGiven = 0x40000000u;

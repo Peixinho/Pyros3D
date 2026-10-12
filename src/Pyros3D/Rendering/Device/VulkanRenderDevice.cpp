@@ -158,6 +158,7 @@ namespace {
 		gVkWaits++;
 		return r;
 	}
+	std::atomic<bool> gLowLatency{ false };
 	// Copies still being made by jobs into memory the GPU is to read (CreateBufferOwned,
 	// UploadTexture2DOwned): none may be outstanding when work is handed to the GPU.
 	p3d::JobCounter gFills;
@@ -1755,6 +1756,12 @@ namespace p3d {
 				ringStats.skippedFenceWait++;
 				return;
 			}
+			// (low latency: and for the frame before this one - see SetLowLatency. Not waited
+			// for long: a fence that was never handed to the GPU must not hold the frame.)
+			if (gLowLatency.load(std::memory_order_relaxed))
+				for (uint32 s = 0; s < MAX_FRAMES_IN_FLIGHT; s++)
+					if (frameFences[s] != VK_NULL_HANDLE && frameFences[s] != frameFence)
+						PyrosTimedWaitForFences(device, 1, &frameFences[s], VK_TRUE, 100000000ULL);
 		}
 		ringStats.lastResetCall = ringStats.beginFrameCalls;
 		ReleaseRetiredBuffers(currentFrameSlot);
@@ -4140,6 +4147,9 @@ namespace p3d {
 		buffers[handle] = record;
 		return handle;
 	}
+
+	void VulkanRenderDevice::SetLowLatency(const bool on) { gLowLatency.store(on); }
+	bool VulkanRenderDevice::GetLowLatency() { return gLowLatency.load(); }
 
 	DeviceHandle VulkanRenderDevice::CreateBufferOwned(const uint32 bufferType, const uint32 bufferDraw, std::vector<uchar> &&data)
 	{

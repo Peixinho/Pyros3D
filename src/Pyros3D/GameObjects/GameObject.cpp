@@ -555,6 +555,10 @@ namespace p3d {
 	void GameObject::LookAt(const Vec3 &Position)
 	{
 		StopLookingAtGameObject();
+		// (told to look somewhere else, it has something to do: an object standing still is not
+		// looked at by the scene's update - and one that only turned, as a camera does under a
+		// mouse, went on looking where it had looked until something else woke it)
+		if (!_IsLookingAtPosition || !(_IsLookingAtPositionVec == Position)) Wake();
 		_IsLookingAtPosition = true;
 		_IsLookingAtPositionVec = Position;
 	}

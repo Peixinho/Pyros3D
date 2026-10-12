@@ -17,6 +17,9 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
 #include <Pyros3D/Rendering/Frame/FramePipeline.h>
+#ifdef VULKAN_BACKEND
+#include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
+#endif
 #include <functional>
 #include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
@@ -458,6 +461,15 @@ end
 	// setLateFrameStart(true): each frame begun - its input read - as late as the GPU side allows
 	// (ThreadedRenderDevice::SetLateFrameStart): less time from a look to its being seen, where the GPU is the slower side.
 	lua.set_function("setLateFrameStart", [](const bool on) { ThreadedRenderDevice::SetLateFrameStart(on); });
+	// setLowLatency(true): the least time from a look or a step to its being seen, where the GPU is
+	// the slower side - a frame is begun as late as the GPU allows, and the GPU holds no frame
+	// waiting behind the one it is drawing. What a game's "low latency" setting turns on.
+	lua.set_function("setLowLatency", [](const bool on) {
+		ThreadedRenderDevice::SetLateFrameStart(on);
+#ifdef VULKAN_BACKEND
+		VulkanRenderDevice::SetLowLatency(on);
+#endif
+	});
 	lua.set_function("getTerrainOcclusion", []() { return TerrainOcclusion::GetEnabled(); });
 	// setAutoLOD(false): models are drawn whole however far off (those loaded already included)
 	lua.set_function("setAutoLOD", [](const bool on) { RenderingComponent::SetAutoLODInUse(on); });
@@ -1760,6 +1772,7 @@ void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
 			FrameProfiler::Instance().Counter("Device.PresentMs", presentMs);
 			FrameProfiler::Instance().Counter("Device.BehindMs", behindMs);
 			FrameProfiler::Instance().Counter("Device.InputToShownMs", deviceThread->InputToShownMs());
+			FrameProfiler::Instance().Counter("Device.LowLatency", ThreadedRenderDevice::GetLateFrameStart() ? 1.0 : 0.0);
 		}
 		{
 			const IRenderDevice::Built b = IRenderDevice::TakeBuilt();

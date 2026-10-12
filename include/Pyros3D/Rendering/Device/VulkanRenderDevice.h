@@ -54,6 +54,12 @@ namespace p3d {
 	class PYROS3D_API VulkanRenderDevice : public IRenderDevice {
 
 	public:
+		// Low latency: a frame is not begun until the GPU has finished the one before it, so the
+		// GPU never holds a whole frame waiting behind the one it is drawing - where the GPU is the
+		// slower side, what is on screen is a frame less old. (Costs nothing where it is not.)
+		static void SetLowLatency(const bool on);
+		static bool GetLowLatency();
+
 
 		// requiredInstanceExtensions: whatever the windowing layer says it
 		// needs to later create a VkSurfaceKHR against this instance (e.g.

@@ -344,7 +344,9 @@ namespace p3d {
 		// the GPU is the slower side. (Asked for: SetLateFrameStart, or PYROS_LATE_INPUT=1.)
 		const bool late = GetLateFrameStart();
 		const uint32_t takes = deviceFrameUs.load();
-		if (late && framesBehind.load() >= 1 && takes > 0)
+		// (not where the display paces the frames: there the wait is the display's, and a frame
+		// begun later is a frame missed - measured)
+		if (late && framesBehind.load() >= 1 && takes > 0 && presentEmaUs.load() < 1500)
 		{
 			const int64_t nowUs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 			const int64_t began = deviceInFrame.load() ? deviceFrameStartUs.load() : nowUs;
@@ -395,7 +397,11 @@ namespace p3d {
 			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 			real->EndFrame();
 			if (readAt.time_since_epoch().count() != 0) inputToShownUs = (uint32_t)(MsSince(readAt) * 1000.0);
-			presentWaitUs += (uint64)(MsSince(t0) * 1000.0);
+			{
+				const uint32_t waited = (uint32_t)(MsSince(t0) * 1000.0);
+				presentWaitUs += waited;
+				presentEmaUs = (presentEmaUs.load() * 7 + waited) / 8;
+			}
 			{
 				const int64_t endUs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 				const int64_t took = endUs - deviceFrameStartUs.load();
