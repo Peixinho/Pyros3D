@@ -303,7 +303,12 @@ namespace p3d {
 		// as two ints so this header does not drag box2d in - the world casts
 		// it back. Zeroed when no body exists.
 		void SetBodyHandle(const int32 index, const uint16 world, const uint16 generation);
-		bool HaveBody() const { return haveBody; }
+		// True while the body this component was given is still in its
+		// world. Asked of the world, not only remembered: a component can
+		// outlive its body - an object a script removed from the scene and
+		// still holds - and every call here on a body that is gone would
+		// otherwise be a call on freed memory.
+		bool HaveBody() const;
 		int32 GetBodyIndex() const { return bodyIndex; }
 		uint16 GetBodyWorld() const { return bodyWorld; }
 		uint16 GetBodyGeneration() const { return bodyGeneration; }

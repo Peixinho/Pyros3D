@@ -14,6 +14,7 @@
 #include <Pyros3D/Assets/SpriteSheet2D/SpriteSheet2D.h>
 #include <Pyros3D/Assets/TileSet2D/TileSet2D.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Sprite2D.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -670,6 +671,11 @@ bool Editor::PackSpriteAtlas(const nlohmann::json& a, std::string& sheetRelOut, 
 
 		if (!SaveSpriteSheet2D(absSheet, sheet, &err)) return false;
 		sheetRelOut = relSheet;
+		// The picture was just rewritten. Whatever still holds the old one
+		// (another scene tab, the undo history) must not be who the next
+		// sprite gets it from: it would draw the new frames' rectangles out
+		// of the old picture.
+		Sprite2D::ForgetImage(absPng);
 
 		// An open window on the old sheet shows the old frames: reload it.
 		if (SpriteSheetDocument* open = FindSpriteSheetDocumentByPath(absSheet))

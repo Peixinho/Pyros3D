@@ -129,7 +129,7 @@ namespace p3d {
 	{
 		if (t == bodyType) return;
 		bodyType = t;
-		if (haveBody)
+		if (HaveBody())
 			b2Body_SetType(IdOf(this), t == Body2DType::Static ? b2_staticBody
 				: (t == Body2DType::Kinematic ? b2_kinematicBody : b2_dynamicBody));
 	}
@@ -324,7 +324,7 @@ namespace p3d {
 
 	void Physics2D::ApplyMaterial()
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		const f32 d = density, f = friction, r = restitution;
 		ForEachShape(IdOf(this), [d, f, r](const b2ShapeId s) {
 			b2Shape_SetDensity(s, d, false);
@@ -342,7 +342,7 @@ namespace p3d {
 	{
 		if (f == fixedRotation) return;
 		fixedRotation = f;
-		if (haveBody)
+		if (HaveBody())
 		{
 			b2MotionLocks locks = b2Body_GetMotionLocks(IdOf(this));
 			locks.angularZ = f;
@@ -355,7 +355,7 @@ namespace p3d {
 
 	void Physics2D::ApplyFilter()
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		b2Filter filter = b2DefaultFilter();
 		filter.categoryBits = (uint64_t)1 << (layer & 31u);
 		filter.maskBits = (uint64_t)mask;
@@ -391,35 +391,35 @@ namespace p3d {
 		gravityScale = g;
 		// Woken as well: a body floating at rest is asleep, and a sleeping
 		// body is not asked what gravity it feels.
-		if (haveBody) { b2Body_SetGravityScale(IdOf(this), g); b2Body_SetAwake(IdOf(this), true); }
+		if (HaveBody()) { b2Body_SetGravityScale(IdOf(this), g); b2Body_SetAwake(IdOf(this), true); }
 	}
 
 	void Physics2D::SetLinearDamping(const f32 d)
 	{
 		if (d == linearDamping) return;
 		linearDamping = d;
-		if (haveBody) b2Body_SetLinearDamping(IdOf(this), d);
+		if (HaveBody()) b2Body_SetLinearDamping(IdOf(this), d);
 	}
 
 	void Physics2D::SetAngularDamping(const f32 d)
 	{
 		if (d == angularDamping) return;
 		angularDamping = d;
-		if (haveBody) b2Body_SetAngularDamping(IdOf(this), d);
+		if (HaveBody()) b2Body_SetAngularDamping(IdOf(this), d);
 	}
 
 	void Physics2D::SetBullet(const bool b)
 	{
 		if (b == bullet) return;
 		bullet = b;
-		if (haveBody) b2Body_SetBullet(IdOf(this), b);
+		if (HaveBody()) b2Body_SetBullet(IdOf(this), b);
 	}
 
 	// --- runtime ------------------------------------------------------------------
 
 	void Physics2D::ApplyForceAt(const Vec2 &force, const Vec2 &worldPoint)
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		b2Vec2 f; f.x = force.x; f.y = force.y;
 		b2Pos p; p.x = worldPoint.x; p.y = worldPoint.y;
 		b2Body_ApplyForce(IdOf(this), f, p, true);
@@ -427,7 +427,7 @@ namespace p3d {
 
 	void Physics2D::ApplyImpulseAt(const Vec2 &impulse, const Vec2 &worldPoint)
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		b2Vec2 i; i.x = impulse.x; i.y = impulse.y;
 		b2Pos p; p.x = worldPoint.x; p.y = worldPoint.y;
 		b2Body_ApplyLinearImpulse(IdOf(this), i, p, true);
@@ -435,17 +435,17 @@ namespace p3d {
 
 	void Physics2D::ApplyTorque(const f32 torque)
 	{
-		if (haveBody) b2Body_ApplyTorque(IdOf(this), torque, true);
+		if (HaveBody()) b2Body_ApplyTorque(IdOf(this), torque, true);
 	}
 
 	void Physics2D::ApplyAngularImpulse(const f32 impulse)
 	{
-		if (haveBody) b2Body_ApplyAngularImpulse(IdOf(this), impulse, true);
+		if (HaveBody()) b2Body_ApplyAngularImpulse(IdOf(this), impulse, true);
 	}
 
 	Vec2 Physics2D::GetPosition() const
 	{
-		if (haveBody)
+		if (HaveBody())
 		{
 			const b2Pos p = b2Body_GetPosition(IdOf(this));
 			return Vec2((f32)p.x, (f32)p.y);
@@ -460,13 +460,13 @@ namespace p3d {
 
 	f32 Physics2D::GetAngle() const
 	{
-		if (haveBody) return b2Rot_GetAngle(b2Body_GetRotation(IdOf(this)));
+		if (HaveBody()) return b2Rot_GetAngle(b2Body_GetRotation(IdOf(this)));
 		return Owner ? Owner->GetRotation().z : 0.f;
 	}
 
 	void Physics2D::MoveTo(const Vec2 &position, const f32 angle, const f32 dt)
 	{
-		if (!haveBody || !(dt > 0.f)) return;
+		if (!HaveBody() || !(dt > 0.f)) return;
 		b2WorldTransform target;
 		target.p.x = position.x;
 		target.p.y = position.y;
@@ -476,12 +476,12 @@ namespace p3d {
 
 	f32 Physics2D::GetMass() const
 	{
-		return haveBody ? b2Body_GetMass(IdOf(this)) : 0.f;
+		return HaveBody() ? b2Body_GetMass(IdOf(this)) : 0.f;
 	}
 
 	bool Physics2D::IsAwake() const
 	{
-		return haveBody && b2Body_IsAwake(IdOf(this));
+		return HaveBody() && b2Body_IsAwake(IdOf(this));
 	}
 
 	namespace {
@@ -561,21 +561,21 @@ namespace p3d {
 
 	void Physics2D::SetLinearVelocity(const Vec2 &v)
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		b2Vec2 bv; bv.x = v.x; bv.y = v.y;
 		b2Body_SetLinearVelocity(IdOf(this), bv);
 	}
 
 	Vec2 Physics2D::GetLinearVelocity() const
 	{
-		if (!haveBody) return Vec2(0.f, 0.f);
+		if (!HaveBody()) return Vec2(0.f, 0.f);
 		const b2Vec2 v = b2Body_GetLinearVelocity(IdOf(this));
 		return Vec2(v.x, v.y);
 	}
 
 	void Physics2D::ApplyForce(const Vec2 &force)
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		b2Vec2 f; f.x = force.x; f.y = force.y;
 		// wake = true: a force applied to a sleeping body that stays asleep is
 		// a bug report waiting to happen.
@@ -584,34 +584,39 @@ namespace p3d {
 
 	void Physics2D::ApplyImpulse(const Vec2 &impulse)
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		b2Vec2 i; i.x = impulse.x; i.y = impulse.y;
 		b2Body_ApplyLinearImpulseToCenter(IdOf(this), i, true);
 	}
 
 	void Physics2D::SetAngularVelocity(const f32 radiansPerSecond)
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		b2Body_SetAngularVelocity(IdOf(this), radiansPerSecond);
 	}
 
 	f32 Physics2D::GetAngularVelocity() const
 	{
-		if (!haveBody) return 0.f;
+		if (!HaveBody()) return 0.f;
 		return b2Body_GetAngularVelocity(IdOf(this));
 	}
 
 	void Physics2D::SetTransform(const Vec2 &position, const f32 angle)
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		b2Pos p; p.x = position.x; p.y = position.y;
 		b2Body_SetTransform(IdOf(this), p, b2MakeRot(angle));
 	}
 
 	void Physics2D::Wake()
 	{
-		if (!haveBody) return;
+		if (!HaveBody()) return;
 		b2Body_SetAwake(IdOf(this), true);
+	}
+
+	bool Physics2D::HaveBody() const
+	{
+		return haveBody && b2Body_IsValid(IdOf(this));
 	}
 
 	void Physics2D::SetBodyHandle(const int32 index, const uint16 world, const uint16 generation)

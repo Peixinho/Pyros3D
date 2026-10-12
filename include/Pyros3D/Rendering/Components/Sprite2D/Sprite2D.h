@@ -239,6 +239,12 @@ namespace p3d {
 		// Whether Update() advances clips at all. An editor turns this off
 		// while nothing is playing, so a scene being laid out holds still.
 		static void SetClocksRunning(const bool run);
+		// An image a sprite draws from was rewritten on disk (an atlas
+		// packed again, a picture painted over): the next sprite to load
+		// it reads the file, where it would have been handed the picture
+		// some other sprite still holds. Sprites already showing it keep
+		// what they have until their source is applied again.
+		static void ForgetImage(const std::string &imagePath);
 		static bool ClocksRunning();
 
 		// --- geometry -------------------------------------------------------------

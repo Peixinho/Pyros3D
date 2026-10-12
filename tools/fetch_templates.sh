@@ -5,9 +5,10 @@
 # Linux and macOS runs, into ~/.pyros3d/templates/<platform>/.
 #
 #   tools/fetch_templates.sh [--branch master] [--graphics vulkan|opengl|metal]
-#                            [windows] [linux] [macos]
+#                            [windows] [linux] [macos] [web]
 #
-# No platform named: all three. Needs the GitHub CLI (gh), signed in.
+# No platform named: the three desktops. web is the browser's player (a
+# module and its page), for Build Game's Platform: web. Needs the GitHub CLI (gh), signed in.
 # Graphics: the backend the downloaded player renders with; the default is
 # Vulkan on Windows and Linux and Metal on macOS.
 set -euo pipefail
@@ -19,7 +20,7 @@ while [ $# -gt 0 ]; do
 	case "$1" in
 		--branch) branch="$2"; shift 2 ;;
 		--graphics) graphics="$2"; shift 2 ;;
-		windows|linux|macos) platforms+=("$1"); shift ;;
+		windows|linux|macos|web) platforms+=("$1"); shift ;;
 		*) echo "unknown argument: $1" >&2; exit 2 ;;
 	esac
 done
@@ -32,6 +33,7 @@ for platform in "${platforms[@]}"; do
 		windows) workflow=Windows; artifact="Pyros3D-windows-${graphics:-vulkan}-dll" ;;
 		linux)   workflow=Linux;   artifact="Pyros3D-linux-${graphics:-vulkan}" ;;
 		macos)   workflow=macOS;   artifact="Pyros3D-macos-${graphics:-metal}" ;;
+		web)     workflow=Web;     artifact="PyrosPlayer-web" ;;
 	esac
 	run=$(gh run list --workflow "$workflow" --branch "$branch" --status success --limit 1 --json databaseId -q '.[0].databaseId')
 	if [ -z "$run" ]; then echo "$platform: no successful $workflow run on $branch" >&2; continue; fi
@@ -40,6 +42,12 @@ for platform in "${platforms[@]}"; do
 	if ! gh run download "$run" -n "$artifact" -D "$tmp" 2>/dev/null; then
 		echo "$platform: that run has no artifact $artifact (expired, or another --graphics?)" >&2
 		rm -rf "$tmp"; continue
+	fi
+	if [ "$platform" = web ]; then
+		# (that artifact IS the player: no folder inside it)
+		rm -rf "$dest/web"; mkdir -p "$dest/web"; cp -R "$tmp/." "$dest/web/"; rm -rf "$tmp"
+		echo "web: $(ls "$dest/web" | wc -l | tr -d ' ') files in $dest/web"
+		continue
 	fi
 	if [ ! -d "$tmp/player" ]; then
 		echo "$platform: the artifact has no player/ folder - it predates player packaging" >&2

@@ -2220,7 +2220,15 @@ std::string ProjectManager::FindPlayerTemplate(const std::string& platform)
 	if (!home) home = std::getenv("USERPROFILE");
 #endif
 	if (home) candidates.push_back(fs::path(home) / ".pyros3d" / "templates" / platform);
-	const std::string exe = platform == "windows" ? "PyrosPlayer.exe" : "PyrosPlayer";
+	// (the browser's player is a module and a page - player/web - and where
+	// this editor was built from source, the tree that builds it is next to
+	// the editor's own)
+	if (platform == "web")
+	{
+		candidates.push_back(cwd / ".." / ".." / "build_web_player" / "player");
+		candidates.push_back(cwd / ".." / ".." / "build_web_editor" / "player");
+	}
+	const std::string exe = platform == "windows" ? "PyrosPlayer.exe" : (platform == "web" ? "PyrosPlayer.wasm" : "PyrosPlayer");
 	for (size_t i = 0; i < candidates.size(); ++i)
 	{
 		fs::path p = fs::weakly_canonical(candidates[i], ec);
@@ -2328,6 +2336,90 @@ namespace {
 
 } // namespace
 
+// A browser has no folder to read a game from, and a request for every file
+// is slow on the connections phones have. So a web build's files - what a
+// desktop build keeps loose beside the player - are written end to end into
+// ONE file, game.data, with game.files.json saying where each one is in it.
+// The page (player/web/player-shell.js) fetches the two and writes the files
+// into the module's file system before the player starts, which then finds
+// game.json where it always does. The loose copies are removed: served,
+// they would only be a second download nobody makes.
+static bool PackWebGame(const fs::path& out, const nlohmann::json& manifest, std::string& err)
+{
+	std::error_code ec;
+	std::vector<fs::path> files;
+	const char* trees[] = { "shaders", "lua", "scenes", "assets" };
+	for (size_t t = 0; t < 4; ++t)
+	{
+		const fs::path root = out / trees[t];
+		if (!fs::exists(root, ec)) continue;
+		for (fs::recursive_directory_iterator it(root, ec), end; it != end && !ec; it.increment(ec))
+			if (it->is_regular_file(ec) && it->path().filename() != ".DS_Store") files.push_back(it->path());
+	}
+	files.push_back(out / "game.json");
+	std::sort(files.begin(), files.end());
+
+	std::ofstream data((out / "game.data").string().c_str(), std::ios::binary);
+	if (!data) { err = "Could not write game.data"; return false; }
+	nlohmann::json list = nlohmann::json::array();
+	uint64_t offset = 0;
+	std::vector<char> buf;
+	for (size_t i = 0; i < files.size(); ++i)
+	{
+		std::ifstream in(files[i].string().c_str(), std::ios::binary);
+		if (!in) { err = "Could not read " + files[i].string(); return false; }
+		in.seekg(0, std::ios::end);
+		const uint64_t size = (uint64_t)in.tellg();
+		in.seekg(0, std::ios::beg);
+		buf.resize((size_t)size);
+		if (size > 0) in.read(&buf[0], (std::streamsize)size);
+		if (size > 0) data.write(&buf[0], (std::streamsize)size);
+		list.push_back({ { "path", files[i].lexically_relative(out).generic_string() }, { "offset", offset }, { "size", size } });
+		offset += size;
+	}
+	data.close();
+	if (!data) { err = "Could not write game.data"; return false; }
+
+	nlohmann::json index;
+	index["title"] = manifest.value("title", std::string("Pyros3D"));
+	index["width"] = manifest.value("width", 0);
+	index["height"] = manifest.value("height", 0);
+	index["data"] = "game.data";
+	index["size"] = offset;
+	index["files"] = list;
+	std::ofstream idx((out / "game.files.json").string().c_str());
+	if (!idx) { err = "Could not write game.files.json"; return false; }
+	idx << index.dump();
+	idx.close();
+
+	for (size_t t = 0; t < 4; ++t) fs::remove_all(out / trees[t], ec);
+	fs::remove(out / "game.json", ec);
+
+	// The page and the home-screen entry carry the game's name, not the
+	// engine's.
+	const std::string title = index["title"].get<std::string>();
+	const char* named[] = { "index.html", "manifest.webmanifest" };
+	for (size_t n = 0; n < 2; ++n)
+	{
+		const fs::path f = out / named[n];
+		std::ifstream in(f.string().c_str(), std::ios::binary);
+		if (!in) continue;
+		std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+		in.close();
+		const std::string from[] = { "<title>Pyros3D</title>", "\"name\": \"Pyros3D\"", "\"short_name\": \"Pyros3D\"" };
+		const std::string to[] = { "<title>" + title + "</title>", "\"name\": " + nlohmann::json(title).dump(),
+			"\"short_name\": " + nlohmann::json(title).dump() };
+		for (size_t k = 0; k < 3; ++k)
+		{
+			const size_t at = text.find(from[k]);
+			if (at != std::string::npos) text.replace(at, from[k].size(), to[k]);
+		}
+		std::ofstream o(f.string().c_str(), std::ios::binary);
+		o << text;
+	}
+	return true;
+}
+
 ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) const
 {
 	BuildResult r;
@@ -2360,12 +2452,20 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	std::string templateDir;
 	if (foreign)
 	{
-		if (opts.platform != "windows" && opts.platform != "linux" && opts.platform != "macos")
+		if (opts.platform != "windows" && opts.platform != "linux" && opts.platform != "macos" && opts.platform != "web")
 		{
-			r.error = "Unknown platform '" + opts.platform + "' - windows, linux or macos";
+			r.error = "Unknown platform '" + opts.platform + "' - windows, linux, macos or web";
 			return r;
 		}
 		templateDir = FindPlayerTemplate(opts.platform);
+		if (templateDir.empty() && opts.platform == "web")
+		{
+			r.error = "No web player template. Run tools/fetch_templates.sh web (it downloads it from CI), or build it - "
+				"emcmake cmake -S . -B build_web_player -DBUILD_PLAYER=ON -DHAVE_LUA_BINDINGS=ON, then "
+				"cmake --build build_web_player --target PyrosPlayer - and it is found there, or put "
+				"build_web_player/player's PyrosPlayer.js, PyrosPlayer.wasm and pages in ~/.pyros3d/templates/web/";
+			return r;
+		}
 		if (templateDir.empty())
 		{
 			r.error = "No " + opts.platform + " player template. Run tools/fetch_templates.sh (it downloads them from CI) "
@@ -2389,17 +2489,26 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	{
 		// Everything in the template: the player, the server, the engine
 		// library and whatever they load.
+		const bool web = opts.platform == "web";
 		for (fs::recursive_directory_iterator it(templateDir, ec), end; it != end && !ec; it.increment(ec))
 		{
 			if (!it->is_regular_file(ec)) continue;
 			const fs::path rel = it->path().lexically_relative(templateDir);
+			if (web)
+			{
+				// The module and its pages, and nothing else that happens to
+				// be there: the template may be the folder it was built in.
+				const std::string ext = it->path().extension().string();
+				if (rel.has_parent_path() || (ext != ".js" && ext != ".wasm" && ext != ".data" && ext != ".html"
+					&& ext != ".webmanifest" && ext != ".png")) continue;
+			}
 			const fs::path dst = out / rel;
 			fs::create_directories(dst.parent_path(), ec);
 			fs::remove(dst, ec);
 			fs::copy_file(it->path(), dst, fs::copy_options::overwrite_existing, ec);
 			if (ec) { r.error = "Could not copy " + rel.string() + " from the " + opts.platform + " template: " + ec.message(); return r; }
 			// Unix runtimes have no extension to say they are programs.
-			if (opts.platform != "windows" && !it->path().has_extension())
+			if (opts.platform != "windows" && !web && !it->path().has_extension())
 				fs::permissions(dst, fs::perms::owner_exec | fs::perms::group_exec | fs::perms::others_exec, fs::perm_options::add, ec);
 			++r.filesCopied;
 			ec.clear();
@@ -2539,6 +2648,8 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	mf << manifest.dump(4);
 	mf.close();
 	++r.filesCopied;
+
+	if (foreign && opts.platform == "web" && !PackWebGame(out, manifest, r.error)) return r;
 
 	r.ok = true;
 	r.outputDir = out.string();

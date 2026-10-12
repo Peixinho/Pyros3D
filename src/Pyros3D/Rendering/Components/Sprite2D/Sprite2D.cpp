@@ -668,6 +668,23 @@ namespace p3d {
 		return true;
 	}
 
+	void Sprite2D::ForgetImage(const std::string &imagePath)
+	{
+		if (imagePath.empty()) return;
+		// Both caches key on the image's path first: the picture by path
+		// and filter, a material by path and everything else it is made of
+		// (and by a normal map's path, further along the key).
+		std::map<std::string, std::weak_ptr<Texture> > &textures = TextureCache();
+		for (std::map<std::string, std::weak_ptr<Texture> >::iterator it = textures.begin(); it != textures.end();)
+			if (it->first.compare(0, imagePath.size() + 1, imagePath + "|") == 0) textures.erase(it++);
+			else ++it;
+		std::map<std::string, std::weak_ptr<IMaterial> > &materials = MaterialCache();
+		for (std::map<std::string, std::weak_ptr<IMaterial> >::iterator it = materials.begin(); it != materials.end();)
+			if (it->first.compare(0, imagePath.size() + 1, imagePath + "|") == 0
+				|| it->first.find("|nm:" + imagePath) != std::string::npos) materials.erase(it++);
+			else ++it;
+	}
+
 	std::string Sprite2D::MaterialKey() const
 	{
 		std::string k = WantedImage();

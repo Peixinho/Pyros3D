@@ -12772,11 +12772,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// platform's runtime as a template - present or not is said here,
 		// before the Build button is pressed.
 		{
-			static const char* platforms[] = { "This machine", "windows", "linux", "macos" };
+			static const char* platforms[] = { "This machine", "windows", "linux", "macos", "web" };
 			int current = 0;
-			for (int i = 1; i < 4; i++) if (buildDialogPlatform == platforms[i]) current = i;
+			for (int i = 1; i < 5; i++) if (buildDialogPlatform == platforms[i]) current = i;
 			ImGui::SetNextItemWidth(160.f);
-			if (ImGui::Combo("Platform", &current, platforms, 4)) buildDialogPlatform = current == 0 ? std::string() : platforms[current];
+			if (ImGui::Combo("Platform", &current, platforms, 5)) buildDialogPlatform = current == 0 ? std::string() : platforms[current];
 			if (!buildDialogPlatform.empty() && buildDialogPlatform != ProjectManager::HostPlatform())
 			{
 				const std::string tpl = ProjectManager::FindPlayerTemplate(buildDialogPlatform);

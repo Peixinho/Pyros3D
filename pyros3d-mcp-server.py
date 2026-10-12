@@ -5523,7 +5523,7 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         hitHeight)
     Project
       build_game (outputDir, startupScene, title, width, height, fullscreen,
-        platform: windows|linux|macos - another platform needs its template,
+        platform: windows|linux|macos|web - another platform needs its template,
         see tools/fetch_templates.sh;
         server {port, maxClients, tickRate, password, reconnectGrace,
         maxClientSpeed, publicKey} - written to game.json for PyrosServer;

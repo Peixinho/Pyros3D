@@ -27,6 +27,23 @@ using namespace p3d;
 // (every platform: the game's own thread asks for the performance cores)
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 
+#ifdef EMSCRIPTEN
+#include <emscripten.h>
+// A browser calls the game once a frame; it cannot be handed a loop that
+// never returns. The same four steps as the loop in main() below.
+static PyrosPlayer* webGame = NULL;
+static void WebFrame()
+{
+	if (!webGame->IsRunning()) { emscripten_cancel_main_loop(); return; }
+	FrameProfiler& prof = FrameProfiler::Instance();
+	prof.BeginFrame();
+	webGame->GetEvents();
+	webGame->Update();
+	webGame->Draw();
+	prof.EndFrame();
+}
+#endif
+
 int main(int argc, char** argv)
 {
 	// A built game is a GUI application on Windows and starts with stdout
@@ -51,6 +68,14 @@ int main(int argc, char** argv)
 	PyrosPlayer* game = new PyrosPlayer();
 	game->SetLaunchArgs(argc, argv);
 	game->Init();
+
+#ifdef EMSCRIPTEN
+	// (the page has put the game's files in place before main() was run -
+	// player/web/player-shell.js)
+	webGame = game;
+	emscripten_set_main_loop(WebFrame, 0, 0);
+	return 0;
+#endif
 
 	// PYROS_QUIT_AFTER=<seconds>: the game closes itself, the way closing its
 	// window does. For checking from a script that a build starts, runs and

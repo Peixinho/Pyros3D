@@ -6,6 +6,10 @@
 // Description : SDL Context
 //============================================================================
 
+#ifdef EMSCRIPTEN
+#include <emscripten.h>
+#include <emscripten/html5.h>
+#endif
 #include <Pyros3D/Core/InputManager/InputManager.h>
 #include <Pyros3D/Other/PyrosGL.h>
 #include "SDL2Context.h"
@@ -399,6 +403,22 @@ namespace p3d {
         // SDL_WINDOWEVENT_RESIZED, so poll the real drawable size every
         // frame and self-correct if it no longer matches what we last
         // recorded.
+#ifdef EMSCRIPTEN
+        // In a browser the page sizes the canvas - to the window, in device
+        // pixels - and SDL is not told: what it calls the window's size is
+        // what was asked for when the window was made, or the element's
+        // size in CSS pixels after a resize. The canvas is the truth. Making
+        // SDL's window that size is also what puts the pointer in the same
+        // pixels as the picture (SDL scales it by window size over element
+        // size).
+        {
+            int canvasW = 0, canvasH = 0, windowW = 0, windowH = 0;
+            emscripten_get_canvas_element_size("#canvas", &canvasW, &canvasH);
+            SDL_GetWindowSize(rview, &windowW, &windowH);
+            if (canvasW > 0 && canvasH > 0 && (canvasW != windowW || canvasH != windowH))
+                SDL_SetWindowSize(rview, canvasW, canvasH);
+        }
+#endif
         int drawableW = 0, drawableH = 0;
         SDL_GL_GetDrawableSize(rview, &drawableW, &drawableH);
         if (drawableW > 0 && drawableH > 0 && ((uint32)drawableW != Width || (uint32)drawableH != Height))

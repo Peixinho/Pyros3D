@@ -79,6 +79,38 @@ if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 	target_compile_definitions(PyrosPlayer PRIVATE _IMPORT)
 endif()
 
+# The browser build: PyrosPlayer.js + .wasm, and the page that runs a game in
+# them (player/web). Nothing of any one game is linked in. Build Game packs a
+# game's files - its scenes and assets, and the engine's shaders - into one
+# game.data beside the module, and the page writes that into the module's
+# file system before main() runs, so the player finds game.json where it
+# always does. This folder, built, is the "web" player template.
+if (EMSCRIPTEN)
+	pyros_emscripten_apply_compile(PyrosPlayer)
+	pyros_emscripten_apply_link_no_shell(PyrosPlayer)
+	target_link_options(PyrosPlayer PRIVATE
+		# A desktop thread has 8 MB of stack and the engine is written for
+		# it (scene loading recurses); emscripten's default is 64 KB.
+		"SHELL:-sSTACK_SIZE=8MB"
+		"SHELL:-sINITIAL_MEMORY=128MB"
+		# What the page calls: the file system, to write the game into, and
+		# the run dependency that holds main() until it has.
+		"SHELL:-sEXPORTED_RUNTIME_METHODS=['FS','addRunDependency','removeRunDependency','ccall']"
+		# A crash in a browser with neither of these is a list of addresses.
+		# Names cost a little size and no speed; the assertions a little speed.
+		"SHELL:--profiling-funcs"
+		"SHELL:-sASSERTIONS=1"
+	)
+	foreach (page index.html player-shell.js manifest.webmanifest icon.png)
+		add_custom_command(TARGET PyrosPlayer POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_if_different
+				${CMAKE_CURRENT_SOURCE_DIR}/web/${page}
+				$<TARGET_FILE_DIR:PyrosPlayer>/${page})
+	endforeach()
+	# No dedicated server in a browser: it listens on a socket.
+	return()
+endif()
+
 # PyrosServer - the same game, headless: no window, no GPU (NullRenderDevice),
 # for dedicated multiplayer servers. Built alongside the player; Build Game
 # ships it next to PyrosPlayer.

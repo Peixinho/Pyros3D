@@ -59,6 +59,17 @@ namespace p3d {
 			// assumes this exact value.
 			FT_Int spreadProp = (FT_Int)sdfSpread;
 			FT_Property_Set(ft, "sdf", "spread", &spreadProp);
+			// A glyph drawn as shapes laid over each other (many display
+			// fonts are: a letter built of rectangles) has edges INSIDE
+			// its ink, and distances measured to those come out as hollow
+			// letters. This has the module take the outline's union first.
+			// (not in a browser: there the module's allocation for it fails
+			// and takes the page down - measured with FreeType 2.14 under
+			// emscripten - and a hollow letter is the lesser fault)
+#ifndef EMSCRIPTEN
+			FT_Bool overlapsProp = 1;
+			FT_Property_Set(ft, "sdf", "overlaps", &overlapsProp);
+#endif
 		}
 		if (FT_New_Memory_Face(ft, &memory[0], memory.size(), 0, &face)) echo("ERROR: Couldn't Load Font");
 		if (FT_Set_Char_Size(face, 0, (FT_F26Dot6)(fontSize * 64), 300, 300)) echo("ERROR: Couldn't Set Char Size");

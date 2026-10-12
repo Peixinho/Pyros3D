@@ -131,6 +131,12 @@ jobs:
       - name: Build PyrosBuilder
         run: cmake --build build_web_editor --parallel "$(nproc)" --target PyrosBuilder
 
+      - name: Build PyrosPlayer
+        # The browser's player: what Build Game (Platform: web) puts a game
+        # beside. Same tree - BUILD_EDITOR turns the player on - so it costs
+        # one more link, not another build of the engine.
+        run: cmake --build build_web_editor --parallel "$(nproc)" --target PyrosPlayer
+
       - name: Check artifacts
         # index.html and editor-shell.js are staged beside the module by a
         # POST_BUILD step; the page will not load without them.
@@ -163,6 +169,29 @@ jobs:
           path: build_web_editor/editor/
           if-no-files-found: error
 
+      - name: Check the player
+        run: |
+          node --check build_web_editor/player/PyrosPlayer.js
+          ls -lh build_web_editor/player/PyrosPlayer.js \
+                build_web_editor/player/PyrosPlayer.wasm \
+                build_web_editor/player/index.html \
+                build_web_editor/player/player-shell.js
+
+      - name: Upload player artifact
+        # The "web" player template: tools/fetch_templates.sh web takes it
+        # from here.
+        uses: actions/upload-artifact@v4
+        with:
+          name: PyrosPlayer-web
+          path: |
+            build_web_editor/player/PyrosPlayer.js
+            build_web_editor/player/PyrosPlayer.wasm
+            build_web_editor/player/index.html
+            build_web_editor/player/player-shell.js
+            build_web_editor/player/manifest.webmanifest
+            build_web_editor/player/icon.png
+          if-no-files-found: error
+
   publish:
     name: Publish to GitHub Pages
     # Both artifacts, or the site would go up half-built. A failed editor
@@ -191,6 +220,8 @@ jobs:
           mkdir -p site/editor
           cp -r artifacts/Pyros3D-web/. site/
           cp -r artifacts/PyrosBuilder-web/. site/editor/
+          # (the player template is an artifact for Build Game, not a page)
+          rm -rf artifacts/PyrosPlayer-web
           # emscripten also emits its own default shell as PyrosBuilder.html.
           # Ours is index.html; shipping both invites people to open the one
           # with no resize and no fullscreen.

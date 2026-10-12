@@ -1,0 +1,10 @@
+{
+    "name": "Pyros3D",
+    "short_name": "Pyros3D",
+    "display": "fullscreen",
+    "orientation": "any",
+    "background_color": "#000000",
+    "theme_color": "#000000",
+    "start_url": "./",
+    "icons": [ { "src": "icon.png", "sizes": "512x512", "type": "image/png" } ]
+}

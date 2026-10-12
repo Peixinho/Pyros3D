@@ -906,6 +906,11 @@ namespace p3d {
 		{
 			Vec2 refA;
 			if (j->HasConnectedAnchor()) refA = j->GetConnectedAnchor();
+			// A rod or a rope runs BETWEEN two things: with no far end
+			// given it is the other body's own origin. (The pin every
+			// other joint defaults to is this body's anchor, which for a
+			// distance is a rope of no length tied to where it already is.)
+			else if (j->GetJointType() == Joint2DType::Distance && !j->GetConnected().empty()) refA = Vec2(0.f, 0.f);
 			else
 			{
 				const b2Vec2 la = b2Body_GetLocalPoint(bodyA, worldAnchor);
