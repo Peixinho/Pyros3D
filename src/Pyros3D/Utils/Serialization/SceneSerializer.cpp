@@ -1362,6 +1362,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		for (size_t p = 0; p < lc.properties.size(); p++)
 		{
 			const ScriptProperty &sp = lc.properties[p];
+			// (only what was set: what is still the script's own value is the script's to change)
+			if (sp.IsDefault()) continue;
 			switch (sp.kind)
 			{
 			case ScriptProperty::Number: set[sp.name] = sp.v[0]; break;
@@ -1398,7 +1400,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 		}
 	}
-	std::string SceneSerializer::ScriptPropertiesText(const LuaComponent &script) { return script.properties.empty() ? std::string() : ScriptPropertiesJson(script).dump(); }
+	std::string SceneSerializer::ScriptPropertiesText(const LuaComponent &script)
+	{
+		const json set = ScriptPropertiesJson(script);
+		return set.empty() ? std::string() : set.dump();
+	}
 	void SceneSerializer::TakeScriptPropertiesText(LuaComponent &script, const std::string &text)
 	{
 		if (text.empty()) return;
@@ -2413,7 +2419,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// What was set of what its script offers (ScriptProperty), by name.
 				if (!lc->properties.empty())
 				{
-					j["properties"] = ScriptPropertiesJson(*lc);
+					const json set = ScriptPropertiesJson(*lc);
+					if (!set.empty()) j["properties"] = set;
 				}
 				j["data"] = json::object();
 				if (lc->data.valid())

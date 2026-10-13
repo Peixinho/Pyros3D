@@ -42,7 +42,10 @@ The kind of the value is the kind of the control:
 - Saving the script updates the panel within a second: new fields appear with the
   script's value, removed ones go, and a field whose name and kind are unchanged
   keeps what was set.
-- In the scene file they are under the component: `"properties": { "speed": 7.0, ... }`.
+- Only values that were set are kept by the scene, under the component:
+  `"properties": { "speed": 7.0 }`. A variable that was never set follows the script: change
+  its value in the `.lua` file and every object that left it alone changes with it. A set
+  value shows a `*` beside its control; right-click the control to go back to the script's value.
 - Editor commands: `script_properties {name, script}` and
   `set_script_property {name, property, value, script}` (undoable, like the control).
 

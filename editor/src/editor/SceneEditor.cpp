@@ -3511,6 +3511,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				break;
 			}
 			if (!p.tip.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", p.tip.c_str());
+			// (right-click: back to what the script gives it - it follows the script again)
+			if (!p.IsDefault() && ImGui::BeginPopupContextItem("##script_property_menu"))
+			{
+				if (ImGui::MenuItem("Reset to the script's value")) { p.ToDefault(); edited = true; oneClick = true; }
+				ImGui::EndPopup();
+			}
+			if (!p.IsDefault()) { ImGui::SameLine(); ImGui::TextDisabled("*"); if (ImGui::IsItemHovered()) ImGui::SetTooltip("Set here. Right-click the control to go back to the script's value."); }
 			// (a drag or a typed word is one step: from what it was when the control was taken up)
 			if (ImGui::IsItemActivated() && !scriptPropertyEditing) { scriptPropertyBefore = was; scriptPropertyEditing = true; }
 			if (edited)
@@ -3582,6 +3589,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			const ScriptProperty &p = lc->properties[i];
 			json e;
 			e["name"] = p.name; e["label"] = p.label; e["type"] = ScriptPropertyKindName(p.kind); e["value"] = ScriptPropertyValue(p);
+			{ ScriptProperty d = p; d.ToDefault(); e["default"] = ScriptPropertyValue(d); e["set"] = !p.IsDefault(); }
 			if (p.hasRange) { e["min"] = p.min; e["max"] = p.max; }
 			if (!p.options.empty()) e["options"] = p.options;
 			if (!p.tip.empty()) e["tip"] = p.tip;
@@ -3611,7 +3619,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!p) { errOut = "the script has no property '" + property + "'"; return false; }
 		const ScriptProperty before = *p;
 		const std::string wrong = "'" + property + "' is a " + ScriptPropertyKindName(p->kind);
-		switch (p->kind)
+		// (no value: back to what the script gives it)
+		if (value.is_null()) p->ToDefault();
+		else switch (p->kind)
 		{
 		case ScriptProperty::Number: case ScriptProperty::Integer:
 			if (!value.is_number()) { errOut = wrong; return false; }

@@ -436,6 +436,12 @@ namespace p3d {
         p3d::f32 min = 0.f, max = 0.f;
         bool hasRange = false;
         std::vector<std::string> options;
+        // What the script itself gives it. A value that is still this one was never set: it is
+        // not kept by a scene, and follows the script when the script gives it another.
+        p3d::f32 dv[4] = { 0.f, 0.f, 0.f, 0.f };
+        std::string ds;
+        bool IsDefault() const { return s == ds && v[0] == dv[0] && v[1] == dv[1] && v[2] == dv[2] && v[3] == dv[3]; }
+        void ToDefault() { std::memcpy(v, dv, sizeof(v)); s = ds; }
         bool SameValue(const ScriptProperty &o) const
         {
             return kind == o.kind && s == o.s && v[0] == o.v[0] && v[1] == o.v[1] && v[2] == o.v[2] && v[3] == o.v[3];
@@ -663,14 +669,18 @@ namespace p3d {
         void DeclareProperties(const std::vector<ScriptProperty> &declared)
         {
             std::vector<ScriptProperty> next = declared;
+            // (what the script gives each is its default from here on)
+            for (size_t i = 0; i < next.size(); i++) { std::memcpy(next[i].dv, next[i].v, sizeof(next[i].dv)); next[i].ds = next[i].s; }
             for (size_t i = 0; i < next.size(); i++)
                 for (size_t k = 0; k < properties.size(); k++)
                     if (properties[k].name == next[i].name && properties[k].kind == next[i].kind)
                     {
+                        // (never set: it goes on following the script)
+                        if (properties[k].IsDefault()) continue;
                         std::memcpy(next[i].v, properties[k].v, sizeof(next[i].v));
                         next[i].s = properties[k].s;
                         // (one of a list that is no longer in the list: the script's own)
-                        if (next[i].kind == ScriptProperty::Options && std::find(next[i].options.begin(), next[i].options.end(), next[i].s) == next[i].options.end()) next[i].s = declared[i].s;
+                        if (next[i].kind == ScriptProperty::Options && std::find(next[i].options.begin(), next[i].options.end(), next[i].s) == next[i].options.end()) next[i].s = next[i].ds;
                     }
             properties.swap(next);
         }
