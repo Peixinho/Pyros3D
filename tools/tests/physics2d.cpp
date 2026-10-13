@@ -783,6 +783,37 @@ int main()
 			: "a body replaced by a new component leaves no ghost behind");
 	}
 
+	// --- a body made before the scene has walked its object ------------------
+	{
+		// A subtree put into a running scene - a prefab a script spawns -
+		// and the world synced before the scene's next update: the bodies
+		// are made where the objects are, not at the origin.
+		Rig r;
+		r.Body("Floor", Vec2(0.f, -0.5f), Body2DType::Static, Shape2DType::Box, Vec2(20.f, 0.5f));
+		r.Run(2);
+		std::shared_ptr<GameObject> root = std::make_shared<GameObject>();
+		root->SetName("Level");
+		root->SetPosition(Vec3(3.f, 0.f, 0.f));
+		std::shared_ptr<GameObject> a = std::make_shared<GameObject>(), b = std::make_shared<GameObject>();
+		a->SetPosition(Vec3(4.f, 0.5f, 0.f));
+		b->SetPosition(Vec3(8.f, 0.5f, 0.f));
+		std::shared_ptr<Physics2D> pa = std::make_shared<Physics2D>(Body2DType::Dynamic, Shape2DType::Box, Vec2(0.5f, 0.5f));
+		std::shared_ptr<Physics2D> pb = std::make_shared<Physics2D>(Body2DType::Dynamic, Shape2DType::Box, Vec2(0.5f, 0.5f));
+		a->Add(std::static_pointer_cast<IComponent>(pa));
+		b->Add(std::static_pointer_cast<IComponent>(pb));
+		root->Add(a);
+		root->Add(b);
+		r.scene.Add(root);
+		r.objects.push_back(root);
+		r.world.Sync(&r.scene);
+		check(pa->HaveBody() && pb->HaveBody(), "bodies of a subtree just added are made at the next sync");
+		nearly(pa->GetPosition().x, 7.f, 0.01f, "a body made before the scene walked its object is where the object is");
+		nearly(pb->GetPosition().x, 11.f, 0.01f, "and so is the one beside it");
+		r.Run(60);
+		nearly(PosOf(pa).x, 7.f, 0.05f, "the two stay where they were put");
+		nearly(PosOf(pb).x, 11.f, 0.05f, "neither thrown by the other");
+	}
+
 	printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");
 	return failures ? 1 : 0;
 }

@@ -438,6 +438,12 @@ namespace p3d {
 		const b2WorldId world = *(const b2WorldId*)worldHandle;
 		GameObject* owner = p->GetOwner();
 
+		// Where the object IS, worked out now. A body can be made before
+		// the scene has next walked its objects - a prefab a script puts
+		// into the scene as the scene comes in - and an object not walked
+		// yet says it is at the origin: every body of such a level was
+		// made in one place, and the solver threw them apart.
+		owner->RefreshTransformationIfChanged();
 		const Vec3 pos = owner->GetWorldPosition();
 		const f32 angle = WorldAngleOf(owner);
 		b2BodyDef bd = b2DefaultBodyDef();
