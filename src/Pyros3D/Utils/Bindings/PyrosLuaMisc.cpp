@@ -379,6 +379,21 @@ end
 		// held, built from those two events. This is that table.
 		lua->set_function("isKeyDown", [](const uint32 key) { return InputManager::IsKeyDown(key); });
 		lua->set_function("isMouseButtonDown", [](const uint32 button) { return InputManager::IsMouseButtonDown(button); });
+		// Fingers on the screen. touch.count() of them; touch.get(i) is the
+		// i-th (from 1): id, x, y, began, ended - x and y in the pointer's
+		// pixels (view.screenToWorld takes them), began and ended true for
+		// the one frame it came down or was lifted. The first finger also
+		// moves the pointer, so a game written for a mouse needs none of this.
+		{
+			sol::table touch = lua->create_named_table("touch");
+			touch.set_function("count", []() { return (int)InputManager::GetTouches().size(); });
+			touch.set_function("get", [](const int i) {
+				const std::vector<InputManager::Touch> &t = InputManager::GetTouches();
+				if (i < 1 || (size_t)i > t.size()) return std::make_tuple((f64)-1, 0.f, 0.f, false, false);
+				const InputManager::Touch &f = t[(size_t)i - 1];
+				return std::make_tuple((f64)f.id, f.position.x, f.position.y, f.began, f.ended);
+			});
+		}
 
 		// Game controllers. A pad is 0-7 (0 is the first plugged in); buttons
 		// and axes use one layout for every recognised pad:

@@ -116,6 +116,7 @@ namespace p3d {
 	{
 		const f32 sw = viewportWidth > 0 ? (f32)viewportWidth : 1.f;
 		const f32 sh = viewportHeight > 0 ? (f32)viewportHeight : 1.f;
+		solvedScreen = Vec2(sw, sh);
 
 		f32 cw = referenceWidth, ch = referenceHeight;
 		switch (scaleMode)
@@ -257,6 +258,7 @@ namespace p3d {
 		events.clear();
 		pointer = canvasPoint;
 		this->pointerInside = pointerInside;
+		pointerHeld = pointerDown;
 
 		// While a dialog is open, nothing outside it exists as far as the
 		// pointer is concerned. Blocked widgets are told the pointer is

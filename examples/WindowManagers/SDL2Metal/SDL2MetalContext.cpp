@@ -223,6 +223,7 @@ namespace p3d {
         // path through the window manager reaches.
         PyrosGamepad::Init();
         SDL_Event sdl_event;
+        InputManager::BeginTouchFrame();
         while(SDL_PollEvent(&sdl_event) > 0)
         {
             // Game controllers: plugged in, pulled, buttons and sticks.
@@ -275,6 +276,18 @@ namespace p3d {
                 // Before the move is announced, so whoever hears of the move can ask for it.)
                 InputManager::AddMouseDelta((f32)sdl_event.motion.xrel, (f32)sdl_event.motion.yrel);
                 MouseMove(sdl_event.motion.x,sdl_event.motion.y);
+            }
+
+            // Fingers. SDL gives each a place from 0 to 1 across the window; the
+            // engine wants the pointer's pixels. (The first finger also arrives
+            // as the mouse - SDL makes those events itself.)
+            if (sdl_event.type == SDL_FINGERDOWN || sdl_event.type == SDL_FINGERMOTION || sdl_event.type == SDL_FINGERUP)
+            {
+                const f32 tx = sdl_event.tfinger.x * (f32)Width, ty = sdl_event.tfinger.y * (f32)Height;
+                const int64 tid = (int64)sdl_event.tfinger.fingerId;
+                if (sdl_event.type == SDL_FINGERDOWN) InputManager::TouchBegan(tid, tx, ty);
+                else if (sdl_event.type == SDL_FINGERMOTION) InputManager::TouchMoved(tid, tx, ty);
+                else InputManager::TouchEnded(tid, tx, ty);
             }
 
             if (sdl_event.type == SDL_MOUSEWHEEL)

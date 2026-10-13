@@ -386,6 +386,57 @@ namespace p3d {
 		}
 	}
 
+	namespace {
+		// Every place on the canvas that is being pressed now: each finger,
+		// and the pointer while its button is held (a mouse, and in the
+		// editor's viewport the only one there is). id -1 is the pointer.
+		struct Press { int64 id; Vec2 at; bool began; };
+		void Presses(SceneGraph* scene, std::vector<Press> &out)
+		{
+			out.clear();
+			if (!scene) return;
+			std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
+			if (canvases.empty()) return;
+			UICanvas* canvas = canvases.back();
+			const UIRectValue &r = canvas->GetCanvasRect();
+			const Vec2 &screen = canvas->GetSolvedScreenSize();
+			const std::vector<InputManager::Touch> &touches = InputManager::GetTouches();
+			if (screen.x > 0.f && screen.y > 0.f)
+				for (size_t i = 0; i < touches.size(); i++)
+				{
+					if (touches[i].ended) continue;
+					Press p;
+					p.id = touches[i].id;
+					p.at = Vec2(touches[i].position.x / screen.x * r.width, touches[i].position.y / screen.y * r.height);
+					p.began = touches[i].began;
+					out.push_back(p);
+				}
+			// (with a finger down the pointer is that finger again)
+			if (out.empty() && canvas->IsPointerDown() && canvas->IsPointerInside())
+			{
+				Press p;
+				p.id = -1;
+				p.at = canvas->GetPointer();
+				p.began = false;
+				out.push_back(p);
+			}
+		}
+		bool Inside(GameObject* go, const Vec2 &at)
+		{
+			UIRect* r = FindComponent<UIRect>(go, ComponentType::UIRect);
+			if (!r) return false;
+			const UIRectValue &v = r->GetRect();
+			return at.x >= v.x && at.x <= v.x + v.width && at.y >= v.y && at.y <= v.y + v.height;
+		}
+		// Which press each stick is following: the one that came down on it,
+		// for as long as it stays down - wherever it has been dragged to.
+		std::map<GameObject*, int64> &StickOwners()
+		{
+			static std::map<GameObject*, int64> owners;
+			return owners;
+		}
+	}
+
 	void RegisterLuaUI(sol::state* lua)
 	{
 		// The pass itself, so a Lua-driven host (the DemoLauncher's
@@ -442,6 +493,45 @@ namespace p3d {
 		// x, y, inside = ui.pointer(scene): where the pointer is on the canvas,
 		// as the widgets were last told - right in the editor's viewport and
 		// in a built game alike, which getMousePosition() is not.
+		// ui.isHeld(scene, go): something is pressing on the element now - any
+		// finger, or the pointer. What an on-screen button is asked: two
+		// thumbs hold two of them at once, which the pointer alone cannot say.
+		ui.set_function("isHeld", [](SceneGraph* scene, GameObject* go) {
+			if (!go) return false;
+			std::vector<Press> presses;
+			Presses(scene, presses);
+			for (size_t i = 0; i < presses.size(); i++)
+				if (Inside(go, presses[i].at)) return true;
+			return false;
+		});
+		// x, y, held = ui.stick(scene, go): the element as a thumb stick. The
+		// press that came down on it is followed until it lifts; x and y
+		// are how far it is from the element's middle, -1 to 1, up positive.
+		ui.set_function("stick", [](SceneGraph* scene, GameObject* go) {
+			UIRect* rect = FindComponent<UIRect>(go, ComponentType::UIRect);
+			if (!rect) return std::make_tuple(0.f, 0.f, false);
+			std::vector<Press> presses;
+			Presses(scene, presses);
+			std::map<GameObject*, int64> &owners = StickOwners();
+			std::map<GameObject*, int64>::iterator own = owners.find(go);
+			const Press* mine = NULL;
+			if (own != owners.end())
+				for (size_t i = 0; i < presses.size() && !mine; i++)
+					if (presses[i].id == own->second) mine = &presses[i];
+			if (!mine)
+			{
+				if (own != owners.end()) owners.erase(own);
+				for (size_t i = 0; i < presses.size() && !mine; i++)
+					if (Inside(go, presses[i].at)) { mine = &presses[i]; owners[go] = presses[i].id; }
+			}
+			if (!mine) return std::make_tuple(0.f, 0.f, false);
+			const UIRectValue &v = rect->GetRect();
+			f32 x = (mine->at.x - (v.x + v.width * 0.5f)) / (v.width * 0.5f);
+			f32 y = -(mine->at.y - (v.y + v.height * 0.5f)) / (v.height * 0.5f);
+			const f32 len = sqrtf(x * x + y * y);
+			if (len > 1.f) { x /= len; y /= len; }
+			return std::make_tuple(x, y, true);
+		});
 		ui.set_function("pointer", [](SceneGraph* scene) {
 			if (scene)
 			{

@@ -353,6 +353,29 @@ namespace p3d {
 		static void SetJoypadConnected(const uint32 joypadID, const bool connected, const std::string &name);
 		static void AddMouseDelta(const f32 dx, const f32 dy);
 
+		// --- touches -----------------------------------------------------------
+		// Every finger on the screen, each with a number that is its own
+		// from the moment it comes down until it is lifted. A game on a
+		// phone is played with two thumbs at once - one holding a direction,
+		// one tapping jump - and the pointer (which the first finger also
+		// moves, so that anything written for a mouse works untouched) is
+		// one position and can only say one of them.
+		struct Touch {
+			int64 id;
+			Vec2 position;      // window pixels, like the pointer's
+			Vec2 start;         // where it came down
+			bool began;         // came down since the last frame
+			bool ended;         // lifted since the last frame (gone after it)
+		};
+		static const std::vector<Touch> &GetTouches();
+		// Told by the window manager.
+		static void TouchBegan(const int64 id, const f32 x, const f32 y);
+		static void TouchMoved(const int64 id, const f32 x, const f32 y);
+		static void TouchEnded(const int64 id, const f32 x, const f32 y);
+		// Once a frame, before the window's events are read: fingers lifted
+		// last frame are forgotten and "began" is over.
+		static void BeginTouchFrame();
+
 		// Add Events
 		template< class X, class Y >
 		static void AddEvent(const uint32 EventType, const uint32 Event, Y * obj, void (X::*func)(Event::Input::Info p))

@@ -124,6 +124,47 @@ namespace p3d {
 		mouseDX = mouseDY = 0.f;
 		return d;
 	}
+	namespace {
+		std::vector<InputManager::Touch> &Touches()
+		{
+			static std::vector<InputManager::Touch> touches;
+			return touches;
+		}
+	}
+	const std::vector<InputManager::Touch> &InputManager::GetTouches() { return Touches(); }
+	void InputManager::BeginTouchFrame()
+	{
+		std::vector<Touch> &t = Touches();
+		for (size_t i = t.size(); i > 0; i--)
+		{
+			if (t[i - 1].ended) t.erase(t.begin() + (i - 1));
+			else t[i - 1].began = false;
+		}
+	}
+	void InputManager::TouchBegan(const int64 id, const f32 x, const f32 y)
+	{
+		std::vector<Touch> &t = Touches();
+		for (size_t i = 0; i < t.size(); i++)
+			if (t[i].id == id && !t[i].ended) { t[i].position = Vec2(x, y); return; }
+		Touch n;
+		n.id = id;
+		n.position = n.start = Vec2(x, y);
+		n.began = true;
+		n.ended = false;
+		t.push_back(n);
+	}
+	void InputManager::TouchMoved(const int64 id, const f32 x, const f32 y)
+	{
+		std::vector<Touch> &t = Touches();
+		for (size_t i = 0; i < t.size(); i++)
+			if (t[i].id == id && !t[i].ended) { t[i].position = Vec2(x, y); return; }
+	}
+	void InputManager::TouchEnded(const int64 id, const f32 x, const f32 y)
+	{
+		std::vector<Touch> &t = Touches();
+		for (size_t i = 0; i < t.size(); i++)
+			if (t[i].id == id && !t[i].ended) { t[i].position = Vec2(x, y); t[i].ended = true; return; }
+	}
 	Vec2 InputManager::GetMousePosition()
 	{
 		return Vec2((f32)mouseX, (f32)mouseY);

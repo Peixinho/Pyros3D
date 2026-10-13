@@ -140,6 +140,11 @@ namespace p3d {
 		// part of a window, as it is in the editor's viewport.
 		const Vec2 &GetPointer() const { return pointer; }
 		bool IsPointerInside() const { return pointerInside; }
+		// Whether the pointer's button was held when the canvas was last told.
+		bool IsPointerDown() const { return pointerHeld; }
+		// The screen the canvas was last laid out for, in pixels: what turns
+		// a place on the screen (a finger) into a place on the canvas.
+		const Vec2 &GetSolvedScreenSize() const { return solvedScreen; }
 
 		// What every widget reported during the last UpdateInput/UpdateText/
 		// UpdateKey/UpdateScroll call, as (element, UIEventFlag bits). A
@@ -234,6 +239,8 @@ namespace p3d {
 		std::vector<WidgetEvent> events;
 		// Focus follows the press, not the drag - see UpdateInput().
 		bool pointerWasDown;
+		bool pointerHeld = false;
+		Vec2 solvedScreen = Vec2(0.f, 0.f);
 
 		UIWidget* WidgetOn(GameObject* go) const;
 		// The element of the topmost open modal, or NULL. Everything
