@@ -56,6 +56,28 @@
     document.addEventListener(type, function (e) { e.preventDefault(); });
   });
 
+  // Sound. A browser keeps a page silent until it is touched, and the audio
+  // library wakes its output on the first touch only - once, whether or not
+  // that worked, and whether or not there was an output yet (a finger on the
+  // loading screen used the one chance up). So every touch wakes whatever
+  // is still asleep. And on an iPhone a page's sound follows the ring/silent
+  // switch unless the page says it is playing something: a game is.
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+  function wakeAudio() {
+    const m = window.miniaudio;
+    if (!m || !m.devices) return;
+    for (const d of m.devices) {
+      if (d && d.webaudio && d.webaudio.state !== 'running') {
+        const p = d.webaudio.resume();
+        if (p && p.catch) p.catch(function () {});
+      }
+    }
+  }
+  ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'click', 'keydown'].forEach(function (type) {
+    document.addEventListener(type, wakeAudio, true);
+  });
+  document.addEventListener('visibilitychange', function () { if (!document.hidden) wakeAudio(); });
+
   // Full screen. A desktop browser, Android and an iPad can give the page
   // the screen; an iPhone cannot - there, a page is full screen only when
   // opened from the home screen, so that is said once, and not when it

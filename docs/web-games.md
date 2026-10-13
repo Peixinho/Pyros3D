@@ -39,6 +39,9 @@ cmake --build build_web_player --target PyrosPlayer
   left button. Scripts that read `isMouseButtonDown` and `view.mouseWorld()`
   need nothing else.
 - Sound starts with the first touch or click - a browser's rule, not ours.
+  The page wakes the audio output on every touch until it is running, and
+  asks an iPhone to play it whatever the ring/silent switch says (Safari
+  16.4 and later; before that, a silenced phone is a silent game).
 - `store.read(name)` / `store.write(name, text)` - a game's own small files
   on a desktop - keep each name in the browser's local storage, so a best
   score is still there on the next visit (on that device, in that browser).
