@@ -526,7 +526,10 @@ public:
 	std::map<std::string, std::pair<std::shared_ptr<Renderable>, std::shared_ptr<IMaterial> > > impostorLevels;
 	bool AgentRename(const std::string& name, const std::string& newName, std::string& errOut);
 	bool AgentReparent(const std::string& name, const std::string& newParentName, std::string& errOut);
-	bool AgentDuplicate(const std::string& name, std::string& errOut);
+	// `count` copies, each `offset` further on than the last (a row of
+	// crates, a flight of steps); the names of what was made in `made`.
+	bool AgentDuplicate(const std::string& name, std::string& errOut, const Vec3& offset = Vec3(0.f, 0.f, 0.f),
+		int count = 1, std::vector<std::string>* made = NULL);
 	// Prefabs - thin name-resolving wrappers over the Op* methods, so the
 	// MCP bridge and the AI assistant reach exactly what the menus do.
 	bool AgentCreatePrefab(const std::string& name, const std::string& prefabName,
@@ -648,6 +651,23 @@ public:
 	// no longer buried in the scene-tree right-click alone.
 	bool HasSelection() const { return SelectedSceneObject != NULL; }
 	void DuplicateSelection() { DuplicateSelected(); }
+	// The step a moved object keeps to: a position dragged with the move
+	// gizmo lands on a multiple of it, a duplicate is set one step to the
+	// right of what it copies, and a prefab dropped in arrives on it. 0 is
+	// off. A level built of tiles is laid out on the tile's size.
+	// The same for turning (degrees) and for scaling: the rotate gizmo
+	// lands on multiples of an angle, the scale gizmo on multiples of a
+	// size. All three work the same in a 2D scene and a 3D one, are the
+	// editor's (every scene tab shares them) and are kept between sessions.
+	// With a step off, holding Ctrl while dragging snaps for as long as it
+	// is held: to 1 unit, 15 degrees, 0.1 of scale.
+	static f32 GetMoveSnap() { return moveSnap; }
+	static void SetMoveSnap(const f32 step) { moveSnap = step > 0.f ? step : 0.f; }
+	static f32 GetRotateSnap() { return rotateSnap; }
+	static void SetRotateSnap(const f32 degrees) { rotateSnap = degrees > 0.f ? degrees : 0.f; }
+	static f32 GetScaleSnap() { return scaleSnap; }
+	static void SetScaleSnap(const f32 step) { scaleSnap = step > 0.f ? step : 0.f; }
+	Vec3 SnapPosition(const Vec3& p) const;
 	void DeleteSelection() { DeleteSelected(); }
 
 	bool CanUndo() const { return sceneUndo.CanUndo(); }
@@ -678,7 +698,7 @@ public:
 	// and the Agent* methods above route through these so the two front
 	// ends can no longer drift out of sync with each other.
 	bool OpDeleteGameObject(uint32 objId, std::string& errOut);
-	uint32 OpDuplicateGameObject(uint32 objId, std::string& errOut);
+	uint32 OpDuplicateGameObject(uint32 objId, std::string& errOut, const Vec3* offset = NULL);
 	bool OpReparentGameObject(uint32 childId, uint32 newParentId, std::string& errOut);
 	bool OpRenameGameObject(uint32 objId, const std::string& newName, std::string& errOut);
 	bool OpSetTransform(uint32 objId, const Vec3& pos, const Vec3& rot, const Vec3& scale, std::string& errOut);
@@ -1650,6 +1670,7 @@ private:
 	void DeleteComponentById(uint32 objId);
 	void DeleteSelected();
 	uint32 DuplicateSelected();
+	static f32 moveSnap, rotateSnap, scaleSnap;
 	void PrepareGizmoForDraw(GameObject* viewCam);
 	void HandleViewportGizmoInput(GameObject* viewCam);
 	// Canvas mode's equivalent: click to select an element, drag its rect or

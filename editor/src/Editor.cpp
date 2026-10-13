@@ -580,6 +580,7 @@ void Editor::Init()
 			&Editor::HostQuitDiscardingUnsaved);
 	}
 	LoadRecentProjects();
+	LoadSnapSteps();
 	// Rebuild dock layout once so fixed project-shell panel names replace any
 	// leftover per-scene Hierarchy:/Scene: dock entries from older builds.
 	resetLayout = true;
@@ -3758,12 +3759,37 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// duplicate {"name", "offset":[x,y,z], "count":n} - a copy, or a row of
+	// them each `offset` on from the last. Answers with what was made.
 	if (name == "duplicate")
 	{
-		if (!sceneView->AgentDuplicate(A("name"), err))
+		Vec3 offset(0.f, 0.f, 0.f);
+		if (a.contains("offset") && a["offset"].is_array() && a["offset"].size() >= 2)
+			offset = Vec3(a["offset"][0].get<f32>(), a["offset"][1].get<f32>(),
+				a["offset"].size() > 2 ? a["offset"][2].get<f32>() : 0.f);
+		std::vector<std::string> made;
+		if (!sceneView->AgentDuplicate(A("name"), err, offset, a.value("count", 1), &made))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;
+		r["made"] = made;
+		return r;
+	}
+	// set_snap {"move": step, "rotate": degrees, "scale": step} - the steps
+	// the gizmos keep to, in 2D and 3D scenes alike (0 is off). Move is also
+	// how far Duplicate sets its copy aside, and what a prefab dropped into
+	// the view lands on. With no argument it answers with what is set.
+	if (name == "set_snap")
+	{
+		if (a.is_object() && a.contains("move") && a["move"].is_number()) SceneEditor::SetMoveSnap(a["move"].get<f32>());
+		if (a.is_object() && a.contains("rotate") && a["rotate"].is_number()) SceneEditor::SetRotateSnap(a["rotate"].get<f32>());
+		if (a.is_object() && a.contains("scale") && a["scale"].is_number()) SceneEditor::SetScaleSnap(a["scale"].get<f32>());
+		SaveSnapSteps();
+		nlohmann::json r;
+		r["ok"] = true;
+		r["move"] = SceneEditor::GetMoveSnap();
+		r["rotate"] = SceneEditor::GetRotateSnap();
+		r["scale"] = SceneEditor::GetScaleSnap();
 		return r;
 	}
 	if (name == "delete_object")
@@ -5365,6 +5391,39 @@ void Editor::DrawUI()
 				sceneView->DuplicateSelection();
 			if (ImGui::MenuItem("Delete", "Del", false, sceneSel))
 				sceneView->DeleteSelection();
+			// The step a moved object keeps to. Duplicate sets its copy one
+			// step to the right when it is on.
+			if (ImGui::BeginMenu("Snap"))
+			{
+				// One row a gizmo: a step to type or drag, and the usual ones.
+				struct Row { const char* label; f32 (*get)(); void (*set)(f32); f32 speed; f32 presets[3]; const char* format; };
+				const Row rows[3] = {
+					{ "Move", &SceneEditor::GetMoveSnap, &SceneEditor::SetMoveSnap, 0.05f, { 0.25f, 0.5f, 1.f }, "%.3f" },
+					{ "Rotate", &SceneEditor::GetRotateSnap, &SceneEditor::SetRotateSnap, 1.f, { 15.f, 45.f, 90.f }, "%.1f deg" },
+					{ "Scale", &SceneEditor::GetScaleSnap, &SceneEditor::SetScaleSnap, 0.01f, { 0.1f, 0.25f, 0.5f }, "%.3f" } };
+				bool changed = false;
+				for (int i = 0; i < 3; i++)
+				{
+					ImGui::PushID(i);
+					f32 step = rows[i].get();
+					ImGui::SetNextItemWidth(96.f);
+					if (ImGui::DragFloat(rows[i].label, &step, rows[i].speed, 0.f, 1000.f, step > 0.f ? rows[i].format : "off"))
+					{ rows[i].set(step); changed = true; }
+					for (int k = 0; k < 3; k++)
+					{
+						char text[16];
+						snprintf(text, sizeof(text), "%g", rows[i].presets[k]);
+						ImGui::SameLine();
+						if (ImGui::SmallButton(text)) { rows[i].set(rows[i].presets[k]); changed = true; }
+					}
+					ImGui::SameLine();
+					if (ImGui::SmallButton("off")) { rows[i].set(0.f); changed = true; }
+					ImGui::PopID();
+				}
+				ImGui::TextDisabled("Hold Ctrl while dragging to snap with a step off.");
+				if (changed) SaveSnapSteps();
+				ImGui::EndMenu();
+			}
 
 			// Project-wide preferences, next to the other things that edit
 			// state rather than open/save it.
@@ -6128,6 +6187,26 @@ void Editor::LoadRecentProjects()
 		recentProjects.push_back(line);
 		if (recentProjects.size() >= (size_t)kMaxRecentProjects)
 			break;
+	}
+}
+
+// The gizmos' snap steps, kept beside the recent projects: they are the
+// editor's, not a scene's.
+void Editor::SaveSnapSteps()
+{
+	std::ofstream out((RecentProjectsFilePath() + ".snap").c_str(), std::ios::trunc);
+	if (out) out << SceneEditor::GetMoveSnap() << " " << SceneEditor::GetRotateSnap() << " " << SceneEditor::GetScaleSnap() << "\n";
+}
+
+void Editor::LoadSnapSteps()
+{
+	std::ifstream in((RecentProjectsFilePath() + ".snap").c_str());
+	f32 move = 0.f, rotate = 0.f, scale = 0.f;
+	if (in && (in >> move >> rotate >> scale))
+	{
+		SceneEditor::SetMoveSnap(move);
+		SceneEditor::SetRotateSnap(rotate);
+		SceneEditor::SetScaleSnap(scale);
 	}
 }
 

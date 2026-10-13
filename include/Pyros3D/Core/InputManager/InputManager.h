@@ -364,6 +364,7 @@ namespace p3d {
 			int64 id;
 			Vec2 position;      // window pixels, like the pointer's
 			Vec2 start;         // where it came down
+			Vec2 previous;      // where it was a frame ago
 			bool began;         // came down since the last frame
 			bool ended;         // lifted since the last frame (gone after it)
 		};

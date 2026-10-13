@@ -355,7 +355,7 @@ bool SceneEditor::OpDeleteGameObject(uint32 objId, std::string& errOut)
 	return true;
 }
 
-uint32 SceneEditor::OpDuplicateGameObject(uint32 objId, std::string& errOut)
+uint32 SceneEditor::OpDuplicateGameObject(uint32 objId, std::string& errOut, const Vec3* offset)
 {
 	SceneObject* src = sceneObjects->GetSceneObject(objId);
 	if (!src || src->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found"; return 0; }
@@ -370,6 +370,14 @@ uint32 SceneEditor::OpDuplicateGameObject(uint32 objId, std::string& errOut)
 
 	if (wasCamera)
 		RegisterSceneCamera(dup->GetID(), camSettings);
+
+	// Set aside from what it copies, before the undo step records it: one
+	// step, the copy where it was put.
+	if (offset && (offset->x != 0.f || offset->y != 0.f || offset->z != 0.f))
+	{
+		GameObject* made = (GameObject*)dup->GetPTR();
+		ApplyTransform(dup->GetID(), made->GetPosition() + *offset, made->GetRotation(), made->GetScale());
+	}
 
 	SelectAndFocusSceneObject(dup);
 	MarkSceneDirty();

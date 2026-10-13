@@ -7925,6 +7925,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return parentRot.Inverse() * worldDelta * parentRot;
 	}
 
+	f32 SceneEditor::moveSnap = 0.f;
+	f32 SceneEditor::rotateSnap = 0.f;
+	f32 SceneEditor::scaleSnap = 0.f;
+
+	namespace {
+		f32 SnapTo(const f32 v, const f32 step) { return step > 0.f ? floorf(v / step + 0.5f) * step : v; }
+	}
+
 	void SceneEditor::ApplyGizmoTransformToObject()
 	{
 		if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT)
@@ -7947,13 +7955,33 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 
 		Vec3 pos = baked.GetTranslation();
+		// Moved with a snap step set: where it is put is the nearest step.
+		// The gizmo goes on from where the hand is, not from the snapped
+		// place, so a slow drag still crosses from one step to the next.
+		// Ctrl held snaps while it is held, with no step set.
+		const bool held = ImGui::GetCurrentContext() != NULL && ImGui::GetIO().KeyCtrl;
+		const f32 moveStep = moveSnap > 0.f ? moveSnap : (held ? 1.f : 0.f);
+		const f32 turnStep = (rotateSnap > 0.f ? rotateSnap : (held ? 15.f : 0.f)) * 0.01745329252f;
+		const f32 sizeStep = scaleSnap > 0.f ? scaleSnap : (held ? 0.1f : 0.f);
+		if (GizmoInUse == GizmoFunction::TRANSLATION && moveStep > 0.f)
+			pos = Vec3(SnapTo(pos.x, moveStep), SnapTo(pos.y, moveStep), SnapTo(pos.z, moveStep));
 		Vec3 scl = SelectedSceneObject->ScaleTransform.GetScale();
+		if (GizmoInUse == GizmoFunction::SCALE && sizeStep > 0.f)
+		{
+			// (never to nothing: an object scaled to 0 cannot be picked again)
+			scl = Vec3(SnapTo(scl.x, sizeStep), SnapTo(scl.y, sizeStep), SnapTo(scl.z, sizeStep));
+			if (fabsf(scl.x) < sizeStep) scl.x = sizeStep;
+			if (fabsf(scl.y) < sizeStep) scl.y = sizeStep;
+			if (fabsf(scl.z) < sizeStep) scl.z = sizeStep;
+		}
 		// LocalTransform carries no scale (it is T*R; the scale lives in
 		// ScaleTransform), so the 3x3 of baked is a pure rotation and the
 		// Euler angles are read off directly. Dividing by baked.GetScale()
 		// treated the rotation's diagonal as scale and produced garbage
 		// angles for any non-trivial rotation.
 		Vec3 rot = baked.GetEulerFromRotationMatrix();
+		if (GizmoInUse == GizmoFunction::ROTATION && turnStep > 0.f)
+			rot = Vec3(SnapTo(rot.x, turnStep), SnapTo(rot.y, turnStep), SnapTo(rot.z, turnStep));
 
 		SetObjectProperties(pos, rot, scl);
 		GameObject* go = (GameObject*)SelectedSceneObject->GetPTR();
@@ -8539,7 +8567,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		if (!SelectedSceneObject || SelectedSceneObject->GetType() != SceneObjectTypes::GAMEOBJECT) return 0;
 		std::string err;
-		return OpDuplicateGameObject(SelectedSceneObject->GetID(), err);
+		// With a snap step set, the copy is one step to the right: it can be
+		// seen, and it is where the next piece of a row goes.
+		const Vec3 aside(moveSnap, 0.f, 0.f);
+		return OpDuplicateGameObject(SelectedSceneObject->GetID(), err, moveSnap > 0.f ? &aside : NULL);
+	}
+
+	Vec3 SceneEditor::SnapPosition(const Vec3& p) const
+	{
+		if (moveSnap <= 0.f) return p;
+		return Vec3(floorf(p.x / moveSnap + 0.5f) * moveSnap, floorf(p.y / moveSnap + 0.5f) * moveSnap,
+			floorf(p.z / moveSnap + 0.5f) * moveSnap);
 	}
 
     	void SceneEditor::SelectSceneObject(SceneObject* go)
@@ -9757,7 +9795,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// has no viewport hit position to work from (models land the
 			// same way), and the object is selected on arrival so it can be
 			// dragged straight into place.
-			if (!OpInstantiatePrefab(rel, Vec3(0.f, 0.f, 0.f), err))
+			// (In a 2D scene, the middle of what the view shows - the origin
+			// may be a hundred tiles away - and on the snap step.)
+			Vec3 at(0.f, 0.f, 0.f);
+			f32 l = 0.f, r = 0.f, b = 0.f, t = 0.f;
+			if (GetView2DExtent(l, r, b, t)) at = SnapPosition(Vec3((l + r) * 0.5f, (b + t) * 0.5f, 0.f));
+			if (!OpInstantiatePrefab(rel, at, err))
 			{
 				echo("ERROR: Instantiate prefab - " + err);
 				return false;
@@ -16116,12 +16159,26 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return out;
 	}
 
-	bool SceneEditor::AgentDuplicate(const std::string& name, std::string& errOut)
+	bool SceneEditor::AgentDuplicate(const std::string& name, std::string& errOut, const Vec3& offset, int count,
+		std::vector<std::string>* made)
 	{
 		if (playMode) { errOut = "editor is in play mode"; return false; }
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
 		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
-		return OpDuplicateGameObject(obj->GetID(), errOut) != 0;
+		if (count < 1) count = 1;
+		if (count > 1000) { errOut = "count is at most 1000"; return false; }
+		const uint32 from = obj->GetID();
+		for (int i = 0; i < count; i++)
+		{
+			// Each a copy of the original, set one more offset along: a
+			// copy of a copy would be named "Copy Copy Copy" by the third.
+			const Vec3 along = offset * (f32)(i + 1);
+			const uint32 id = OpDuplicateGameObject(from, errOut, &along);
+			if (id == 0) return false;
+			SceneObject* dup = sceneObjects->GetSceneObject(id);
+			if (made && dup) made->push_back(dup->GetName());
+		}
+		return true;
 	}
 
 	bool SceneEditor::AgentDeleteObject(const std::string& name, std::string& errOut)

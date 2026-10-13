@@ -138,7 +138,7 @@ namespace p3d {
 		for (size_t i = t.size(); i > 0; i--)
 		{
 			if (t[i - 1].ended) t.erase(t.begin() + (i - 1));
-			else t[i - 1].began = false;
+			else { t[i - 1].began = false; t[i - 1].previous = t[i - 1].position; }
 		}
 	}
 	void InputManager::TouchBegan(const int64 id, const f32 x, const f32 y)
@@ -148,7 +148,7 @@ namespace p3d {
 			if (t[i].id == id && !t[i].ended) { t[i].position = Vec2(x, y); return; }
 		Touch n;
 		n.id = id;
-		n.position = n.start = Vec2(x, y);
+		n.position = n.start = n.previous = Vec2(x, y);
 		n.began = true;
 		n.ended = false;
 		t.push_back(n);

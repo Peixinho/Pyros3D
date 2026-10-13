@@ -612,6 +612,40 @@ end
 				const InputManager::Touch &f = t[(size_t)i - 1];
 				return std::make_tuple((f64)f.id, f.position.x, f.position.y, f.began, f.ended);
 			});
+			// Two fingers, as the gesture they make this frame:
+			//
+			//   local scale, cx, cy, dx, dy, turn = touch.pinch()
+			//   if scale then view.setZoom(view.getZoom() / scale) end
+			//
+			// scale is how much further apart they are than a frame ago (1 is
+			// no change, above 1 spreading), cx, cy the point midway between
+			// them, dx, dy how far that point moved, and turn the angle, in
+			// radians, the pair turned through. Nothing with fewer than two
+			// fingers down, or in the frame the second one lands.
+			touch.set_function("pinch", [](sol::this_state ts) -> sol::variadic_results {
+				sol::variadic_results out;
+				const std::vector<InputManager::Touch> &t = InputManager::GetTouches();
+				const InputManager::Touch* a = NULL; const InputManager::Touch* b = NULL;
+				for (size_t i = 0; i < t.size(); i++)
+				{
+					if (t[i].ended || t[i].began) continue;
+					if (!a) a = &t[i]; else if (!b) { b = &t[i]; break; }
+				}
+				if (!a || !b) { out.push_back(sol::make_object(ts, sol::lua_nil)); return out; }
+				const Vec2 now = b->position - a->position, was = b->previous - a->previous;
+				const f32 dNow = sqrtf(now.x * now.x + now.y * now.y), dWas = sqrtf(was.x * was.x + was.y * was.y);
+				const Vec2 mid = (a->position + b->position) * 0.5f, midWas = (a->previous + b->previous) * 0.5f;
+				f32 turn = atan2f(now.y, now.x) - atan2f(was.y, was.x);
+				if (turn > 3.14159265f) turn -= 6.2831853f;
+				if (turn < -3.14159265f) turn += 6.2831853f;
+				out.push_back(sol::make_object(ts, (dWas > 1.f && dNow > 1.f) ? dNow / dWas : 1.f));
+				out.push_back(sol::make_object(ts, mid.x));
+				out.push_back(sol::make_object(ts, mid.y));
+				out.push_back(sol::make_object(ts, mid.x - midWas.x));
+				out.push_back(sol::make_object(ts, mid.y - midWas.y));
+				out.push_back(sol::make_object(ts, turn));
+				return out;
+			});
 		}
 
 		// Game controllers. A pad is 0-7 (0 is the first plugged in); buttons

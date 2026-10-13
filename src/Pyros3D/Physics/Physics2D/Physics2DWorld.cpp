@@ -379,6 +379,9 @@ namespace p3d {
 		// inside it, which is where a body rising through from below is at
 		// the moment the normal first turns upward. Without the depth test
 		// the platform grabs it there and pops it up onto the top.
+		// A step and a bit (the world steps at 60 Hz).
+		const float ONE_WAY_FRAME = 1.25f / 60.f;
+
 		void PreSolveOneWay(b2ShapeId shapeIdA, b2ShapeId shapeIdB, b2Manifold* manifold, void*)
 		{
 			const Physics2D* a = OwnerOfShape(shapeIdA);
@@ -388,8 +391,26 @@ namespace p3d {
 			if (!oneA && !oneB) return;
 			const float up = oneA ? manifold->normal.y : -manifold->normal.y;
 			bool solid = up > 0.5f;
+			// How deep is "already inside" depends on which way the other
+			// body is going. Rising, it is passing through, and a hair's
+			// depth is all it is given. Falling or stopped, it has landed:
+			// it is found a frame's fall into the platform (a chain's edge
+			// is not swept for, the way a box is) and takes a few frames to
+			// be pushed back out, and for all of them it has to stay solid -
+			// let go at the second, it fell on through. The price is that
+			// a jump that stalls with the feet a quarter of a unit short of
+			// the top is helped up onto it.
+			float allowed = 0.06f;
+			if (solid)
+			{
+				const b2Vec2 va = b2Body_GetLinearVelocity(b2Shape_GetBody(shapeIdA));
+				const b2Vec2 vb = b2Body_GetLinearVelocity(b2Shape_GetBody(shapeIdB));
+				// the speed of the other body down onto the platform
+				const float closing = oneA ? (va.y - vb.y) : (vb.y - va.y);
+				if (closing > -0.5f) allowed = 0.25f + (closing > 0.f ? closing * ONE_WAY_FRAME : 0.f);
+			}
 			for (int k = 0; solid && k < manifold->pointCount; k++)
-				if (manifold->points[k].separation < -0.06f) solid = false;
+				if (manifold->points[k].separation < -allowed) solid = false;
 			if (!solid) manifold->pointCount = 0;
 		}
 
@@ -401,6 +422,23 @@ namespace p3d {
 			const bool oneB = b && b->IsOneWay();
 			if (!oneA && !oneB) return true;
 			return (oneA ? normal.y : -normal.y) > 0.5f;
+		}
+
+		// A chain, and - for a one-way body - its edges told to ask
+		// PreSolveOneWay. A chain's definition has no such switch (a
+		// shape's has), so a tile map's collider, which is chains, was
+		// solid from every side whatever its body said: a bridge a
+		// character should walk under and jump up through stopped them at
+		// its end like a wall.
+		void CreateChain(const b2BodyId body, const b2ChainDef &cd, const bool oneWay)
+		{
+			const b2ChainId chain = b2CreateChain(body, &cd);
+			if (!oneWay) return;
+			const int count = b2Chain_GetSegmentCount(chain);
+			if (count <= 0) return;
+			std::vector<b2ShapeId> segments((size_t)count);
+			const int got = b2Chain_GetSegments(chain, &segments[0], count);
+			for (int k = 0; k < got; k++) b2Shape_EnablePreSolveEvents(segments[(size_t)k], true);
 		}
 
 		void CollectBodiesAndJoints(GameObject* go, std::vector<Physics2D*> &bodies, std::vector<Joint2D*> &joints)
@@ -563,7 +601,7 @@ namespace p3d {
 				mat.restitution = p->GetRestitution();
 				cd.materials = &mat;
 				cd.materialCount = 1;
-				b2CreateChain(body, &cd);
+				CreateChain(body, cd, p->IsOneWay());
 			}
 		}
 		else if (p->GetShapeType() == Shape2DType::Circle)
@@ -646,7 +684,7 @@ namespace p3d {
 				cd.points = &pts[0];
 				cd.count = (int)pts.size();
 				cd.isLoop = true;
-				b2CreateChain(body, &cd);
+				CreateChain(body, cd, p->IsOneWay());
 			}
 			else if (loop)
 			{
@@ -679,10 +717,10 @@ namespace p3d {
 				cd.isLoop = false;
 				cd.count = (int)padded.size();
 				cd.points = &padded[0];
-				b2CreateChain(body, &cd);
+				CreateChain(body, cd, p->IsOneWay());
 				std::vector<b2Vec2> back(padded.rbegin(), padded.rend());
 				cd.points = &back[0];
-				b2CreateChain(body, &cd);
+				CreateChain(body, cd, p->IsOneWay());
 			}
 		}
 		else

@@ -229,6 +229,36 @@ int main()
 		check(PosOf(runner).x < -3.f, "with one-way off, the same platform is a wall from the side");
 	}
 
+	{
+		// The same of a body whose shape is a chain - which is what a tile
+		// map's collider is, so what a bridge painted in tiles is. A loop
+		// the shape of a slab: walked into from the side at its height it
+		// is not there, jumped at from below it is passed, fallen onto it
+		// is stood on. (It was a wall from every side: a chain was never
+		// told to ask about one-way.)
+		Rig r;
+		r.Body("Floor", Vec2(0, -0.5f), Body2DType::Static, Shape2DType::Box, Vec2(20, 0.5f));
+		std::shared_ptr<Physics2D> slab = r.Body("Bridge", Vec2(0, 0), Body2DType::Static, Shape2DType::Chain, Vec2(1, 1));
+		std::vector<Vec2> outline;
+		outline.push_back(Vec2(-3.f, 1.6f)); outline.push_back(Vec2(3.f, 1.6f));
+		outline.push_back(Vec2(3.f, 2.6f)); outline.push_back(Vec2(-3.f, 2.6f));
+		check(slab->SetChain(outline, true), "a closed chain is accepted");
+		slab->SetOneWay(true);
+		std::shared_ptr<Physics2D> runner = r.Body("Runner", Vec2(-6, 1.0f), Body2DType::Dynamic, Shape2DType::Capsule, Vec2(0.4f, 1.0f));
+		runner->SetFixedRotation(true);
+		runner->SetFriction(0.f);
+		r.Run(30);
+		for (int i = 0; i < 150; i++) { runner->SetLinearVelocity(Vec2(6.f, runner->GetLinearVelocity().y)); r.Run(1); }
+		check(PosOf(runner).x > 3.5f, "a one-way chain is walked under, head in it, from the side");
+		runner->GetOwner()->SetPosition(Vec3(0.f, 1.0f, 0.f));
+		r.Run(2);
+		runner->SetLinearVelocity(Vec2(0.f, 12.f));
+		f32 peak = 0.f;
+		for (int i = 0; i < 240; i++) { r.Run(1); if (PosOf(runner).y > peak) peak = PosOf(runner).y; }
+		check(peak > 4.0f, "and jumped up through from below");
+		nearly(PosOf(runner).y, 3.6f, 0.05f, "and stood on, coming down");
+	}
+
 	// --- a script moving an object moves its body ------------------------------
 	{
 		Rig r;

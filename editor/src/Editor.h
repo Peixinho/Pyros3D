@@ -288,6 +288,8 @@ protected:
 	Texture* GetAssetPreviewTexture(const std::string& absPath);
 	void LoadRecentProjects();
 	void SaveRecentProjects();
+	void SaveSnapSteps();
+	void LoadSnapSteps();
 	void AddRecentProject(const std::string& projectPathOrJson);
 	static std::string RecentProjectsFilePath();
 	bool EditorAllowWindowClose();
