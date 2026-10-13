@@ -128,6 +128,39 @@ int main()
 		check(!body->RigidBodyRegistered(), "removing twice is harmless");
 	}
 
+	// A force asked for every frame pushes the same at any frame rate.
+	{
+		const f64 rates[] = { 60.0, 30.0, 120.0, 240.0, 50.0 };
+		f32 speed[5];
+		for (int k = 0; k < 5; k++)
+		{
+			Box3DPhysics world;
+			world.InitPhysics();
+			SceneGraph scene;
+			std::shared_ptr<GameObject> go = std::make_shared<GameObject>();
+			std::shared_ptr<IPhysicsComponent> body = world.CreateSphere(0.5f, 2.f, false);
+			go->Add(body);
+			scene.Add(go);
+			scene.Update(0.016);
+			body->SetGravityScale(0.f);
+			const f64 dt = 1.0 / rates[k];
+			const int frames = (int)(2.0 * rates[k] + 0.5);
+			for (int i = 0; i < frames; i++)
+			{
+				world.ApplyCentralForce(body.get(), Vec3(6.f, 0.f, 0.f));      // 2 kg: three metres a second, each second
+				world.Update(dt, 3);
+			}
+			speed[k] = world.GetLinearVelocity(body.get()).x;
+			scene.Remove(go);
+		}
+		printf("      speeds: %.3f %.3f %.3f %.3f %.3f\n", speed[0], speed[1], speed[2], speed[3], speed[4]);
+		check(speed[0] > 5.6f && speed[0] < 6.2f, "a force held for two seconds gives the speed it should");
+		check(speed[1] > speed[0] * 0.96f && speed[1] < speed[0] * 1.04f, "at 30 frames a second it is the same");
+		check(speed[2] > speed[0] * 0.96f && speed[2] < speed[0] * 1.04f, "and at 120");
+		check(speed[3] > speed[0] * 0.96f && speed[3] < speed[0] * 1.04f, "and at 240");
+		check(speed[4] > speed[0] * 0.96f && speed[4] < speed[0] * 1.04f, "and at 50");
+	}
+
 	printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
 	return failures ? 1 : 0;
 }

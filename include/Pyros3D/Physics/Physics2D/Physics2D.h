@@ -234,6 +234,9 @@ namespace p3d {
 		// what a script calling one in init() will hit.
 		void SetLinearVelocity(const Vec2 &v);
 		Vec2 GetLinearVelocity() const;
+		// A force (and ApplyForceAt, ApplyTorque) is for the frame it is
+		// asked in: call it every frame for as long as it should act. An
+		// impulse is at once and whole.
 		void ApplyForce(const Vec2 &force);
 		void ApplyImpulse(const Vec2 &impulse);
 		// The same at a world point, which also turns the body.
@@ -327,6 +330,17 @@ namespace p3d {
 		Vec3 syncedPosition;
 		f32 syncedAngle = 0.f;
 		bool haveSynced = false;
+
+		// The force and torque asked for since the world last looked, and
+		// what is still owed from frames in which it took no step. A force
+		// is asked for a frame at a time but the solver steps on its own
+		// clock: the world gives each step its share, so that a body pushed
+		// every frame gains the same speed at 30 frames a second as at 144.
+		// Kept by the world.
+		Vec2 pendingForce = Vec2(0.f, 0.f);
+		f32 pendingTorque = 0.f;
+		Vec2 owedImpulse = Vec2(0.f, 0.f);
+		f32 owedAngularImpulse = 0.f;
 
 	private:
 

@@ -420,9 +420,12 @@ namespace p3d {
 	void Physics2D::ApplyForceAt(const Vec2 &force, const Vec2 &worldPoint)
 	{
 		if (!HaveBody()) return;
-		b2Vec2 f; f.x = force.x; f.y = force.y;
-		b2Pos p; p.x = worldPoint.x; p.y = worldPoint.y;
-		b2Body_ApplyForce(IdOf(this), f, p, true);
+		// (kept for the world to hand to its steps - see pendingForce; off the
+		// centre of mass, it also turns the body)
+		const auto c = b2Body_GetWorldCenter(IdOf(this));
+		const f32 rx = worldPoint.x - (f32)c.x, ry = worldPoint.y - (f32)c.y;
+		pendingForce.x += force.x; pendingForce.y += force.y;
+		pendingTorque += rx * force.y - ry * force.x;
 	}
 
 	void Physics2D::ApplyImpulseAt(const Vec2 &impulse, const Vec2 &worldPoint)
@@ -435,7 +438,7 @@ namespace p3d {
 
 	void Physics2D::ApplyTorque(const f32 torque)
 	{
-		if (HaveBody()) b2Body_ApplyTorque(IdOf(this), torque, true);
+		if (HaveBody()) pendingTorque += torque;
 	}
 
 	void Physics2D::ApplyAngularImpulse(const f32 impulse)
@@ -576,10 +579,8 @@ namespace p3d {
 	void Physics2D::ApplyForce(const Vec2 &force)
 	{
 		if (!HaveBody()) return;
-		b2Vec2 f; f.x = force.x; f.y = force.y;
-		// wake = true: a force applied to a sleeping body that stays asleep is
-		// a bug report waiting to happen.
-		b2Body_ApplyForceToCenter(IdOf(this), f, true);
+		// (kept for the world to hand to its steps - see pendingForce)
+		pendingForce.x += force.x; pendingForce.y += force.y;
 	}
 
 	void Physics2D::ApplyImpulse(const Vec2 &impulse)

@@ -1539,11 +1539,65 @@ namespace p3d {
 		// broken. Capped so a long stall (a breakpoint, a window drag) does
 		// not then run a hundred catch-up steps at once.
 		static const f64 FIXED_STEP = 1.0 / 60.0;
-		accumulator += (dt > 0.25 ? 0.25 : dt);
+		const f64 frameDt = (dt > 0.25 ? 0.25 : dt);
+		accumulator += frameDt;
 		const int maxSteps = (int)MaxPhysicsCatchUpSteps(); // see PhysicsStepping.h
-		int steps = 0;
-		while (accumulator >= FIXED_STEP && steps < maxSteps)
+		int willRun = (int)(accumulator / FIXED_STEP);
+		if (willRun > maxSteps) willRun = maxSteps;
+
+		// Forces asked for this frame. A script asks once a frame; the solver
+		// steps sixty times a second whatever the frame rate is. Handed to
+		// Box2D as asked, a force was summed until the next step: twice the
+		// push at 120 frames a second, half of it at 30 - a vehicle's engine
+		// as strong as the screen was fast. Here a force is taken to act for
+		// the frame it was asked in (force x frame time, an impulse), and
+		// that is shared over the steps this frame runs; a frame with no
+		// step owes it to the next one that has one.
+		struct Push { b2BodyId id; b2Vec2 force; float torque; };
+		std::vector<Push> pushes;
+		for (size_t i = 0; i < tracked.size(); i++)
 		{
+			Physics2D* p = tracked[i];
+			if (!p) continue;
+			const bool asked = p->pendingForce.x != 0.f || p->pendingForce.y != 0.f || p->pendingTorque != 0.f;
+			const bool owed = p->owedImpulse.x != 0.f || p->owedImpulse.y != 0.f || p->owedAngularImpulse != 0.f;
+			if (!asked && !owed) continue;
+			if (p->HaveBody())
+			{
+				// (a frame longer than the steps it gets - a stall - pushes for the time that is simulated, not the time that passed)
+				f64 span = frameDt;
+				if (willRun > 0 && span > (willRun + 1) * FIXED_STEP) span = (willRun + 1) * FIXED_STEP;
+				p->owedImpulse.x += (f32)(p->pendingForce.x * span);
+				p->owedImpulse.y += (f32)(p->pendingForce.y * span);
+				p->owedAngularImpulse += (f32)(p->pendingTorque * span);
+				if (willRun > 0)
+				{
+					const f64 over = 1.0 / (willRun * FIXED_STEP);
+					Push push;
+					push.id = MakeBodyId(p);
+					push.force.x = (float)(p->owedImpulse.x * over);
+					push.force.y = (float)(p->owedImpulse.y * over);
+					push.torque = (float)(p->owedAngularImpulse * over);
+					pushes.push_back(push);
+				}
+			}
+			p->pendingForce = Vec2(0.f, 0.f);
+			p->pendingTorque = 0.f;
+			if (willRun > 0 || !p->HaveBody()) { p->owedImpulse = Vec2(0.f, 0.f); p->owedAngularImpulse = 0.f; }
+		}
+
+		int steps = 0;
+		while (steps < willRun)
+		{
+			// (Box2D forgets a force once it has stepped: each step is given its own)
+			for (size_t i = 0; i < pushes.size(); i++)
+			{
+				if (!b2Body_IsValid(pushes[i].id)) continue;
+				// wake = true: a force applied to a sleeping body that stays asleep is
+				// a bug report waiting to happen.
+				if (pushes[i].force.x != 0.f || pushes[i].force.y != 0.f) b2Body_ApplyForceToCenter(pushes[i].id, pushes[i].force, true);
+				if (pushes[i].torque != 0.f) b2Body_ApplyTorque(pushes[i].id, pushes[i].torque, true);
+			}
 			SolveSoftJoints(&world, (f32)FIXED_STEP);
 			b2World_Step(world, (float)FIXED_STEP, subSteps);
 			accumulator -= FIXED_STEP;

@@ -889,6 +889,41 @@ int main()
 		nearly(PosOf(pb).x, 11.f, 0.05f, "neither thrown by the other");
 	}
 
+	// --- a force asked for every frame pushes the same at any frame rate ----
+	{
+		const f64 rates[] = { 60.0, 30.0, 120.0, 144.0, 50.0, 75.0 };
+		f32 speed[6], spin[6];
+		for (int k = 0; k < 6; k++)
+		{
+			Rig r;
+			std::shared_ptr<Physics2D> p = r.Body("Pushed", Vec2(0.f, 0.f), Body2DType::Dynamic, Shape2DType::Circle, Vec2(0.5f, 0.5f));
+			p->SetGravityScale(0.f);
+			p->SetFixedRotation(false);
+			r.world.Sync(&r.scene);
+			const f64 dt = 1.0 / rates[k];
+			const int frames = (int)(2.0 * rates[k] + 0.5);          // two seconds of it
+			for (int i = 0; i < frames; i++)
+			{
+				r.time += dt;
+				r.scene.Update(r.time);
+				r.world.Sync(&r.scene);
+				p->ApplyForce(Vec2(3.f * p->GetMass(), 0.f));        // three metres a second, each second
+				p->ApplyTorque(1.f);
+				r.world.Step(dt, &r.scene);
+			}
+			speed[k] = p->GetLinearVelocity().x;
+			spin[k] = p->GetAngularVelocity();
+		}
+		nearly(speed[0], 6.f, 0.12f, "a force held for two seconds gives the speed it should");
+		check(fabsf(spin[0]) > 0.1f, "and a torque held turns the body");
+		const char* names[] = { "", "at 30 frames a second it is the same", "and at 120", "and at 144", "and at 50", "and at 75" };
+		for (int k = 1; k < 6; k++)
+		{
+			nearly(speed[k], speed[0], 0.03f * fabsf(speed[0]) + 0.06f, names[k]);
+			nearly(spin[k], spin[0], 0.03f * fabsf(spin[0]) + 0.02f * fabsf(spin[0]), "(its spin too)");
+		}
+	}
+
 	printf("\n%s (%d failure%s)\n", failures ? "FAILED" : "ALL PASSED", failures, failures == 1 ? "" : "s");
 	return failures ? 1 : 0;
 }

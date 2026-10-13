@@ -146,6 +146,16 @@ namespace p3d {
 		std::set<std::pair<IPhysicsComponent*, IPhysicsComponent*> > m_touchingPairs;
 		std::vector<IPhysicsComponent*> m_vehicles;
 
+		// Forces asked for since the last Update, and what is owed from
+		// frames that took no step. A force is asked for a frame at a time
+		// and the solver steps on its own clock: Update gives each step its
+		// share, so a body pushed every frame gains the same speed at any
+		// frame rate (handed straight to Box3D it was summed until the next
+		// step - four times the push at 240 frames a second).
+		struct HeldForce { b3BodyId body; b3Vec3 force, torque, owed, owedAngular; };
+		std::vector<HeldForce> m_held;
+		HeldForce& HeldFor(const b3BodyId body);
+
 		// Shared tail of UpdateRotation/UpdateRotationQuat: set the
 		// orientation, drop the momentum, wake the body, carry any wheels.
 		void SetBodyRotation(IPhysicsComponent *pcomp, const b3Quat &q);

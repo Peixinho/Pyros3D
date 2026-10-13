@@ -828,9 +828,51 @@ namespace p3d {
 		if (maxSteps < 1) maxSteps = 1;
 		if (maxSteps > (int)MaxPhysicsCatchUpSteps()) maxSteps = (int)MaxPhysicsCatchUpSteps(); // see PhysicsStepping.h
 
-		int taken = 0;
-		while (timeInterval >= (f64)fixed && taken < maxSteps)
+		int willRun = (int)(timeInterval / (f64)fixed);
+		if (willRun > maxSteps) willRun = maxSteps;
+
+		// Forces asked for this frame, shared over the steps it runs (see m_held).
 		{
+			f64 span = time;
+			if (span < 0.0) span = 0.0;
+			// (a frame longer than the steps it gets - a stall - pushes for the time that is simulated)
+			if (span > (willRun + 1) * (f64)fixed) span = (willRun + 1) * (f64)fixed;
+			for (size_t i = 0; i < m_held.size();)
+			{
+				HeldForce &h = m_held[i];
+				if (!b3Body_IsValid(h.body)) { m_held.erase(m_held.begin() + (std::ptrdiff_t)i); continue; }
+				h.owed = b3Add(h.owed, b3MulSV((float)span, h.force));
+				h.owedAngular = b3Add(h.owedAngular, b3MulSV((float)span, h.torque));
+				if (willRun > 0)
+				{
+					const float over = 1.f / ((float)willRun * fixed);
+					h.force = b3MulSV(over, h.owed);
+					h.torque = b3MulSV(over, h.owedAngular);
+					h.owed = h.owedAngular = b3Vec3_zero;
+					++i;
+				}
+				else
+				{
+					h.force = h.torque = b3Vec3_zero;
+					const bool nothing = h.owed.x == 0.f && h.owed.y == 0.f && h.owed.z == 0.f
+						&& h.owedAngular.x == 0.f && h.owedAngular.y == 0.f && h.owedAngular.z == 0.f;
+					if (nothing) m_held.erase(m_held.begin() + (std::ptrdiff_t)i); else ++i;
+				}
+			}
+		}
+
+		int taken = 0;
+		while (taken < willRun)
+		{
+			// (Box3D forgets a force once it has stepped: each step is given its own)
+			for (size_t i = 0; i < m_held.size(); i++)
+			{
+				const HeldForce &h = m_held[i];
+				if (!b3Body_IsValid(h.body)) continue;
+				if (h.force.x != 0.f || h.force.y != 0.f || h.force.z != 0.f) b3Body_ApplyForceToCenter(h.body, h.force, true);
+				if (h.torque.x != 0.f || h.torque.y != 0.f || h.torque.z != 0.f) b3Body_ApplyTorque(h.body, h.torque, true);
+			}
+
 			// Motors must be set before the solver step (DemoLauncher steps
 			// physics before Scene/Lua UpdateTransformations).
 			for (size_t i = 0; i < m_vehicles.size(); ++i)
@@ -842,6 +884,8 @@ namespace p3d {
 		}
 		if (timeInterval > (f64)fixed * 2.0)
 			timeInterval = 0.0;
+		// (what the steps were given is done with)
+		if (willRun > 0) m_held.clear();
 
 		FrameProfiler::Instance().Counter("Physics.Bodies", (f64)b3World_GetCounters(m_world).bodyCount);
 		FrameProfiler::Instance().Counter("Physics.Steps", (f64)taken);
@@ -1557,7 +1601,21 @@ namespace p3d {
 	{
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
-		b3Body_ApplyForceToCenter(handles->body, ToB3(force), true);
+		// (kept for Update to hand to its steps - see m_held)
+		HeldForce &h = HeldFor(handles->body);
+		h.force = b3Add(h.force, ToB3(force));
+	}
+
+	Box3DPhysics::HeldForce& Box3DPhysics::HeldFor(const b3BodyId body)
+	{
+		for (size_t i = 0; i < m_held.size(); i++)
+			if (m_held[i].body.index1 == body.index1 && m_held[i].body.world0 == body.world0 && m_held[i].body.generation == body.generation)
+				return m_held[i];
+		HeldForce h;
+		h.body = body;
+		h.force = h.torque = h.owed = h.owedAngular = b3Vec3_zero;
+		m_held.push_back(h);
+		return m_held.back();
 	}
 
 	void Box3DPhysics::ApplyCentralImpulse(IPhysicsComponent *pcomp, const Vec3 &impulse)
@@ -1578,7 +1636,14 @@ namespace p3d {
 	{
 		Box3DBodyHandles* handles = GetHandles(pcomp);
 		if (!handles || handles->body.index1 == 0) return;
-		b3Body_ApplyForce(handles->body, ToB3(force), ToB3Pos(worldPoint), true);
+		// (off the centre of mass, it also turns the body)
+		const b3Pos c = b3Body_GetWorldCenterOfMass(handles->body);
+		const b3Vec3 f = ToB3(force);
+		b3Vec3 r;
+		r.x = (float)(worldPoint.x - c.x); r.y = (float)(worldPoint.y - c.y); r.z = (float)(worldPoint.z - c.z);
+		HeldForce &h = HeldFor(handles->body);
+		h.force = b3Add(h.force, f);
+		h.torque = b3Add(h.torque, b3Cross(r, f));
 	}
 
 	void Box3DPhysics::SetMass(IPhysicsComponent *pcomp, const f32 mass)
