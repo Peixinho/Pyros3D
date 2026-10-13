@@ -36,6 +36,9 @@ namespace p3d {
 		if (lua == NULL) return;
 		sol::protected_function clear = (*lua)["tasks"]["clear"];
 		if (clear.valid()) clear();
+		// (and what was easing or waiting: it was easing things that are gone)
+		sol::protected_function clearTweens = (*lua)["tween"]["clear"];
+		if (clearTweens.valid()) clearTweens();
 	}
 
 	// PYROS_LUA_PROFILE=1: where the scripts' time goes. Every call a script
@@ -131,6 +134,8 @@ namespace p3d {
 		{
 			sol::protected_function pump = (*lua)["tasks"]["_pump"];
 			if (pump.valid()) pump();
+			sol::protected_function ease = (*lua)["tween"]["_pump"];
+			if (ease.valid()) ease();
 		}
 		if (automatic) return;
 		lua_State* L = lua->lua_state();
@@ -298,6 +303,130 @@ function tasks._pump()
 			end
 		end
 		if t.done then table.remove(list, i) else i = i + 1 end
+	end
+end
+)LUA");
+		// tween: a value taken from where it is to somewhere else over a time,
+		// by the engine, a frame at a time - what every script otherwise
+		// writes by hand with a timer and a lerp.
+		//
+		//   tween.to(t, seconds, { x = 4, alpha = 0 }, "out")    numbers in a table
+		//   tween.value(0, 1, seconds, "inout", function(v) ... end)
+		//   tween.move(go, x, y, seconds, "out")                 an object's position (z kept)
+		//   tween.scale(go, s, seconds, "back")                  its scale, the same in x and y
+		//   tween.rotate(go, radians, seconds)                   about z
+		//   tween.alpha(sprite, a, seconds)                      anything with setAlpha / getColor
+		//   tween.tint(element, r, g, b, a, seconds)             a UI element's tint - a fade to black
+		//                                                        is a black image over the canvas, eased
+		//   tween.after(seconds, function() ... end)             just the wait
+		//
+		// Each takes a last argument, a function called when it is done, and
+		// returns a handle: tween.cancel(handle). Eases: "linear", "in",
+		// "out", "inout", "back", "bounce", "elastic". tween.clear() stops
+		// them all (the engine does when a scene goes). Run by the host once
+		// a frame, on the wall clock.
+		lua->script(R"LUA(
+tween = {}
+local list, last = {}, nil
+local ease = {
+	linear = function(t) return t end,
+	["in"] = function(t) return t * t * t end,
+	out = function(t) local u = 1 - t return 1 - u * u * u end,
+	inout = function(t) if t < 0.5 then return 4 * t * t * t end local u = -2 * t + 2 return 1 - u * u * u / 2 end,
+	back = function(t) local c = 1.70158 local u = t - 1 return 1 + (c + 1) * u * u * u + c * u * u end,
+	bounce = function(t)
+		local n, d = 7.5625, 2.75
+		if t < 1 / d then return n * t * t
+		elseif t < 2 / d then t = t - 1.5 / d return n * t * t + 0.75
+		elseif t < 2.5 / d then t = t - 2.25 / d return n * t * t + 0.9375 end
+		t = t - 2.625 / d return n * t * t + 0.984375
+	end,
+	elastic = function(t)
+		if t <= 0 then return 0 elseif t >= 1 then return 1 end
+		return 2 ^ (-10 * t) * math.sin((t * 10 - 0.75) * (2 * math.pi) / 3) + 1
+	end,
+}
+tween.ease = ease
+local function add(seconds, name, step, done)
+	local h = { t = 0, time = math.max(seconds or 0, 0), ease = ease[name or "out"] or ease.out, step = step, onDone = done, done = false }
+	list[#list + 1] = h
+	return h
+end
+-- (the function that ends a call may be given in place of the ease's name)
+local function tail(a, b) if type(a) == "function" then return nil, a end return a, b end
+function tween.value(from, to, seconds, name, fn, done)
+	if type(name) == "function" then name, fn, done = nil, name, fn end
+	return add(seconds, name, function(k) fn(from + (to - from) * k) end, done)
+end
+function tween.to(target, seconds, goal, name, done)
+	name, done = tail(name, done)
+	local from = {}
+	for key, v in pairs(goal) do from[key] = target[key] or 0 end
+	return add(seconds, name, function(k)
+		for key, v in pairs(goal) do target[key] = from[key] + (v - from[key]) * k end
+	end, done)
+end
+function tween.move(go, x, y, seconds, name, done)
+	name, done = tail(name, done)
+	local p = go:getPosition()
+	local x0, y0, z = p.x, p.y, p.z
+	return add(seconds, name, function(k) go:setPosition(Vec3.new(x0 + (x - x0) * k, y0 + (y - y0) * k, z)) end, done)
+end
+function tween.scale(go, to, seconds, name, done)
+	name, done = tail(name, done)
+	local s = go:getScale()
+	local x0, y0, z = s.x, s.y, s.z
+	return add(seconds, name, function(k) go:setScale(Vec3.new(x0 + (to - x0) * k, y0 + (to - y0) * k, z)) end, done)
+end
+function tween.rotate(go, to, seconds, name, done)
+	name, done = tail(name, done)
+	local r = go:getRotation()
+	local x, y, z0 = r.x, r.y, r.z
+	return add(seconds, name, function(k) go:setRotation(Vec3.new(x, y, z0 + (to - z0) * k)) end, done)
+end
+function tween.alpha(thing, to, seconds, name, done)
+	name, done = tail(name, done)
+	local from = thing.getColor and thing:getColor().w or 1
+	return add(seconds, name, function(k) thing:setAlpha(from + (to - from) * k) end, done)
+end
+function tween.tint(element, r, g, b, a, seconds, name, done)
+	name, done = tail(name, done)
+	local from = { 0, 0, 0, 0 }
+	local started = false
+	return add(seconds, name, function(k)
+		if not started then
+			started = true
+			local c = ui.getTint and ui.getTint(element)
+			if c then from = { c.x, c.y, c.z, c.w } else from = { r, g, b, 0 } end
+		end
+		ui.setTint(element, Vec4.new(from[1] + (r - from[1]) * k, from[2] + (g - from[2]) * k, from[3] + (b - from[3]) * k, from[4] + (a - from[4]) * k))
+	end, done)
+end
+function tween.after(seconds, fn) return add(seconds, "linear", function() end, fn) end
+function tween.cancel(h) if h then h.done = true end end
+function tween.clear() for i = #list, 1, -1 do list[i].done = true list[i] = nil end last = nil end
+function tween.count() return #list end
+function tween._pump()
+	local now = getClock()
+	local dt = last and math.min(now - last, 0.1) or 0
+	last = now
+	local i = 1
+	while i <= #list do
+		local h = list[i]
+		if not h.done then
+			h.t = h.t + dt
+			local k = (h.time <= 0) and 1 or math.min(h.t / h.time, 1)
+			local ok, err = pcall(h.step, h.ease(k))
+			if not ok then echo("ERROR: tween - " .. tostring(err)) h.done = true
+			elseif k >= 1 then
+				h.done = true
+				if h.onDone then
+					local ok2, err2 = pcall(h.onDone)
+					if not ok2 then echo("ERROR: tween - " .. tostring(err2)) end
+				end
+			end
+		end
+		if h.done then table.remove(list, i) else i = i + 1 end
 	end
 end
 )LUA");

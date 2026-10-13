@@ -463,6 +463,10 @@ namespace p3d {
 		ui.set_function("getText", &UI_GetText);
 		ui.set_function("setTextColor", &UI_SetTextColor);
 		ui.set_function("setTint", &UI_SetTint);
+		ui.set_function("getTint", [](GameObject* go) {
+			UIImage* im = FindComponent<UIImage>(go, ComponentType::UIImage);
+			return im ? im->GetTint() : Vec4(1.f, 1.f, 1.f, 1.f);
+		});
 		ui.set_function("setVisible", &UI_SetVisible);
 		ui.set_function("setFill", &UI_SetFill);
 		ui.set_function("getOffsets", &UI_GetOffsets);
