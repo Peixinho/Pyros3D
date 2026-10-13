@@ -10,7 +10,7 @@
 #endif
 
 #define MAX_BONES 192
-#define MAX_LIGHTS 4
+#define MAX_LIGHTS 8
 
 // Vulkan/SPIR-V requires every attribute/varying to have a static
 // layout(location=N), and every UBO/sampler a static layout(binding=N).

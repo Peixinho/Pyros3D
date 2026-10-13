@@ -59,7 +59,11 @@ namespace p3d {
 		// plain opaque GenericShaderMaterial draw as one instanced call.
 		// On by default; PYROS_AUTO_INSTANCING=0 turns it off at startup.
 		// Lights one forward draw can use (PyrosShader.glsl's MAX_LIGHTS).
-		static const uint32 MaxShaderLights = 4;
+		// Eight: with four, one 32-tile piece of a lit tile map in a level
+		// with a torch every nine tiles was reached by more than it could
+		// take, and the ones left out were left out of the whole piece - a
+		// lit floor that stopped dead at a straight line.
+		static const uint32 MaxShaderLights = 8;
 
 		static void SetAutoInstancing(const bool enabled);
 		static bool IsAutoInstancing();

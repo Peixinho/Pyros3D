@@ -5448,8 +5448,14 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         cone {inner, outer, outerGain} | false, filter {type, cutoff, order} | "none",
         eq {type, frequency, gain, q} | "none", delay {seconds, decay, wet, dry} | false,
         seek, action: play|pause|stop|fadeIn|fadeOut, fadeMs)
-      set_particles (name, any add_particles key incl. gpuSimulation, restart, clear)
-      set_camera, set_transform, set_tags, rename, reparent, duplicate, delete_object
+      set_particles (name, any add_particles key incl. gpuSimulation, restart, clear;
+        collide2D + bounce: particles stop at the 2D world's bodies)
+      set_camera, set_transform, set_tags, rename, reparent, delete_object
+      duplicate (name, offset [x,y,z], count) - a copy, or a row of them each
+        `offset` on from the last; answers with the names made
+      set_snap (move, rotate (degrees), scale) - the steps the gizmos keep to in
+        2D and 3D scenes, 0 off; with no args answers with what is set. Move is
+        also how far the menu's Duplicate sets its copy aside.
     Properties panel, 2D
       set_occluder2d (name, shape: box|circle, halfExtents, enabled)
       set_physics2d (name, bodyType, shape: box|circle|capsule|polygon|chain,
@@ -5460,9 +5466,26 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       add_joint2d / set_joint2d (name, joint: hinge|distance|weld|slider|wheel,
         connected, anchor, connectedAnchor, axis, collideConnected, limit,
         lower, upper, lowerDegrees, upperDegrees, motor, motorSpeed,
-        motorSpeedDegrees, maxMotorForce, spring, hertz, damping, length)
+        motorSpeedDegrees, maxMotorForce, spring, hertz, damping, length,
+        breakForce - asked to hold more than this the joint is undone; 0 never)
       physics2d_info (name) - body + joint, and the live state while playing
       set_layer2d (name, parallax, visible, automatic)
+      add_text2d / set_text2d (object, font, text, size, color, anchor) - words
+        in the world, in scene units; text2d_info (object). Text authored
+        "@key" is filled from assets/lang/<code>.json by lang.apply(scene).
+      add_sprite_mask / set_sprite_mask (object, shape: rect|circle|polygon|image,
+        size, diameter, offset, polygon, image, alphaThreshold, enabled,
+        feather - the width of a soft edge, 0 hard)
+      Tile maps: create_tileset (image, tileWidth, tileHeight), open_tileset,
+        edit_tileset (terrain {base, name}: 16 tiles from `base` are one
+        terrain, indexed by which neighbours match - bit 0 above, 1 right,
+        2 below, 3 left; tag {tiles, name, on}), set_tile_solid, set_tile_shape
+        (tiles, shape: box|slope_br|slope_bl|slope_tr|slope_tl|...),
+        save_tileset, add_tilemap (object, tileset, tileSize, lit), set_tiles
+        (object, tiles [[x,y,index],...]), fill_tiles, paint_terrain (object,
+        group, cells [[x,y],...]) - the map picks each cell's tile,
+        set_solid_cells, tilemap_path (object, from, to, walk, jump, distance,
+        drop, height) - the way a script's findPath / findWalkPath would give
       add_sprite / set_sprite (object, source, frame, flipX, flipY, color,
         alpha, drawMode, size, pixelsPerUnit, pivot, lighting: unlit|2d|3d,
         blend, sortOrder, autoPlay, speed; while playing: play, restart,

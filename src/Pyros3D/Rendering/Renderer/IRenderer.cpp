@@ -37,7 +37,7 @@
 
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
 // fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
-#define PYROS_MAX_LIGHTS 4
+#define PYROS_MAX_LIGHTS 8
 static_assert(PYROS_MAX_LIGHTS == p3d::IRenderer::MaxShaderLights, "IRenderer::MaxShaderLights must match PYROS_MAX_LIGHTS");
 
 // PyrosShader.glsl declares uPointShadowMaps[4] and uSpotShadowMaps[4].

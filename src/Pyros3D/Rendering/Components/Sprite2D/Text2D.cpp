@@ -34,6 +34,12 @@ namespace p3d {
 		this->size = size;
 		this->anchor = Vec2(0.5f, 0.5f);
 		DisableCullTest();
+		if (color.w < 1.f)
+		{
+			std::vector<RenderingMesh*> &meshes = GetMeshes(0);
+			for (size_t i = 0; i < meshes.size(); i++)
+				if (meshes[i] && meshes[i]->Material) meshes[i]->Material->SetOpacity(color.w);
+		}
 		DisableCastShadows();
 		Realign();
 	}
@@ -52,10 +58,21 @@ namespace p3d {
 
 	void Text2D::SetColor(const Vec4 &color)
 	{
+		const bool tint = color.x != this->color.x || color.y != this->color.y || color.z != this->color.z;
 		this->color = color;
-		// Colour is per vertex in a text's mesh: this rebuilds it.
-		static_cast<Text*>(GetRenderable())->UpdateText(text, color);
-		Realign();
+		// Colour is per vertex in a text's mesh - red, green and blue, and
+		// no more: changing it rebuilds the mesh. How see-through the text
+		// is belongs to its material, so a fade costs nothing (and happens:
+		// the mesh had nowhere to put an alpha, and text told to fade did
+		// not).
+		if (tint)
+		{
+			static_cast<Text*>(GetRenderable())->UpdateText(text, color);
+			Realign();
+		}
+		std::vector<RenderingMesh*> &meshes = GetMeshes(0);
+		for (size_t i = 0; i < meshes.size(); i++)
+			if (meshes[i] && meshes[i]->Material) meshes[i]->Material->SetOpacity(color.w);
 	}
 
 	void Text2D::SetSize(const f32 size)

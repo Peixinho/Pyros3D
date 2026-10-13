@@ -397,7 +397,7 @@ std::string BuildTemplate(const TemplateInputs& in) {
 		"#define attribute_in in\n"
 		"#define texture_2D texture\n"
 		"#define texture_cube texture\n"
-		"#define MAX_LIGHTS 4\n"
+		"#define MAX_LIGHTS 8\n"
 		// Matches PyrosShader.glsl / IRenderer's PYROS_MAX_BONES.
 		"#define MAX_BONES 192\n"
 		// highp, never mediump: this line lands after the device's own

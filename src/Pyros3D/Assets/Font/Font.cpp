@@ -63,13 +63,26 @@ namespace p3d {
 			// fonts are: a letter built of rectangles) has edges INSIDE
 			// its ink, and distances measured to those come out as hollow
 			// letters. This has the module take the outline's union first.
-			// (not in a browser: there the module's allocation for it fails
-			// and takes the page down - measured with FreeType 2.14 under
-			// emscripten - and a hollow letter is the lesser fault)
-#ifndef EMSCRIPTEN
-			FT_Bool overlapsProp = 1;
-			FT_Property_Set(ft, "sdf", "overlaps", &overlapsProp);
+			// Not in a browser: there the module's allocation for it fails
+			// and takes the page down (measured with FreeType 2.14 under
+			// emscripten). There the distances are measured from the
+			// glyph's PICTURE instead - drawn first, as ink, where shapes
+			// laid over each other are simply ink twice - by FreeType's
+			// other distance-field module, which is told the same spread.
+			// PYROS_FONT_FROM_BITMAP=1 takes that road on a desktop, to
+			// look at what a browser will draw.
+#ifdef EMSCRIPTEN
+			sdfFromBitmap = true;
+#else
+			sdfFromBitmap = getenv("PYROS_FONT_FROM_BITMAP") != NULL;
 #endif
+			if (sdfFromBitmap)
+				FT_Property_Set(ft, "bsdf", "spread", &spreadProp);
+			else
+			{
+				FT_Bool overlapsProp = 1;
+				FT_Property_Set(ft, "sdf", "overlaps", &overlapsProp);
+			}
 		}
 		if (FT_New_Memory_Face(ft, &memory[0], memory.size(), 0, &face)) echo("ERROR: Couldn't Load Font");
 		if (FT_Set_Char_Size(face, 0, (FT_F26Dot6)(fontSize * 64), 300, 300)) echo("ERROR: Couldn't Set Char Size");
@@ -198,11 +211,24 @@ namespace p3d {
 					// and an accented letter would be asked for as a negative one)
 					FT_Load_Char(face, (FT_ULong)(unsigned char)text[i], FT_LOAD_DEFAULT);
 
+					// The distance field from the glyph's picture (see the
+					// constructor): drawn as ink in its slot, then that
+					// turned into distances, and only then taken as a glyph.
+					const bool fromBitmap = isSDF && sdfFromBitmap && face->glyph->format == FT_GLYPH_FORMAT_OUTLINE;
+					FT_Error slotErr = 0;
+					if (fromBitmap)
+					{
+						slotErr = FT_Render_Glyph(face->glyph, FT_RENDER_MODE_NORMAL);
+						if (slotErr == 0) slotErr = FT_Render_Glyph(face->glyph, FT_RENDER_MODE_SDF);
+					}
+					const f32 slotLeft = (f32)face->glyph->bitmap_left, slotTop = (f32)face->glyph->bitmap_top;
+
 					FT_Get_Glyph(face->glyph, &glyph);
 
-					if (glyph->format != FT_GLYPH_FORMAT_BITMAP)
+					if (fromBitmap || glyph->format != FT_GLYPH_FORMAT_BITMAP)
 					{
-						const FT_Error rasterErr = FT_Glyph_To_Bitmap(&glyph, isSDF ? FT_RENDER_MODE_SDF : FT_RENDER_MODE_NORMAL, 0, 1);
+						const FT_Error rasterErr = fromBitmap ? slotErr
+							: FT_Glyph_To_Bitmap(&glyph, isSDF ? FT_RENDER_MODE_SDF : FT_RENDER_MODE_NORMAL, 0, 1);
 						if (rasterErr != 0 && isSDF)
 						{
 							static bool warnedSDF = false;
@@ -229,6 +255,9 @@ namespace p3d {
 							// looks like bad kerning rather than like a bug.
 							const f32 pad = isSDF ? (f32)sdfSpread : 0.f;
 							glp.offset = Vec2((f32)BBox.xMin - pad, (f32)-BBox.yMin + pad);
+							// (made from a picture, the picture's own place
+							// already has the spread in it)
+							if (fromBitmap) glp.offset = Vec2(slotLeft, (f32)bitmap.rows - slotTop);
 							glp.size = Vec2((f32)bitmap.width, (f32)bitmap.rows);
 							// See glyph_properties::advance.
 							glp.advance = (f32)(face->glyph->advance.x >> 6);

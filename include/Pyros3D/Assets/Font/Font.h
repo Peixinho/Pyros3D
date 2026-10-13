@@ -74,6 +74,9 @@ namespace p3d {
 
 		// See GetSpaceAdvance()/GetLineHeight()/GetAscender().
 		bool isSDF;
+		// The distance field is made from the glyph drawn as a picture, not
+		// from its outline (see the constructor).
+		bool sdfFromBitmap = false;
 		bool commonBaked = false;          // (see CreateText)
 		uint32 sdfSpread;
 		f32 spaceAdvance;

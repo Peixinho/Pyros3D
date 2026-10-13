@@ -36,7 +36,7 @@
 #define GLSL_LIGHTING
 
     #ifndef MAX_LIGHTS
-        #define MAX_LIGHTS 4
+        #define MAX_LIGHTS 8
     #endif
 
     #ifdef FRAGMENT

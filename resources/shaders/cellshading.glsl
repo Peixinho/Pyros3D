@@ -37,7 +37,7 @@
 #define GLSL_CELLSHADING
 
     #ifndef MAX_LIGHTS
-        #define MAX_LIGHTS 4
+        #define MAX_LIGHTS 8
     #endif
 
     #ifdef FRAGMENT
