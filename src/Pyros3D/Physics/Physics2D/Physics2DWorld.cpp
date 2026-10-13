@@ -517,6 +517,13 @@ namespace p3d {
 		bd.linearDamping = p->GetLinearDamping();
 		bd.angularDamping = p->GetAngularDamping();
 		bd.isBullet = p->IsBullet();
+		// Something round may spin as fast as it is driven. The solver holds
+		// every other body to a quarter turn a step - which is right for a
+		// box, whose corners would otherwise skip through things - and that
+		// is 47 radians a second: a wheel a third of a unit across stopped
+		// gaining speed at 15 units a second however hard it was turned, and
+		// then dragged on the vehicle it was meant to drive.
+		bd.allowFastRotation = (p->GetShapeType() == Shape2DType::Circle);
 		// What lets a contact event find its way back to a component:
 		// events carry shape ids, a shape knows its body, and a body
 		// carries this.

@@ -259,6 +259,20 @@ int main()
 		nearly(PosOf(runner).y, 3.6f, 0.05f, "and stood on, coming down");
 	}
 
+	{
+		// A wheel turned hard keeps gaining speed: round bodies are not held to the solver's
+		// quarter turn a step (47 radians a second), which is what stopped a driven wheel.
+		Rig r;
+		std::shared_ptr<Physics2D> wheel = r.Body("Wheel", Vec2(0, 5), Body2DType::Dynamic, Shape2DType::Circle, Vec2(0.33f, 0.33f));
+		wheel->SetGravityScale(0.f);
+		std::shared_ptr<Physics2D> crate = r.Body("Crate", Vec2(4, 5), Body2DType::Dynamic, Shape2DType::Box, Vec2(0.33f, 0.33f));
+		crate->SetGravityScale(0.f);
+		r.Run(2);
+		for (int i = 0; i < 120; i++) { wheel->ApplyTorque(-40.f); crate->ApplyTorque(-40.f); r.Run(1); }
+		check(fabsf(wheel->GetAngularVelocity()) > 80.f, "a wheel driven hard turns faster than a quarter turn a step");
+		check(fabsf(crate->GetAngularVelocity()) < 48.f, "a box is still held to it");
+	}
+
 	// --- a script moving an object moves its body ------------------------------
 	{
 		Rig r;
