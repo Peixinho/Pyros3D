@@ -18,6 +18,7 @@
 #include <chrono>
 #include <map>
 #include <cstring>
+#include <cctype>
 #include <cmath>
 #include <algorithm>
 #include <set>
@@ -401,24 +402,29 @@ namespace p3d {
     // attached via the already-bound GameObject::AddComponent(), the
     // same way any other component is attached.
     // A variable a script offers to whoever places it - an editor shows a control for each
-    // and a scene keeps what was set. The script declares them on its class:
+    // and a scene keeps what was set. It is a field of the script's class, given a value:
     //
     //   local Door = class('Door')
-    //   Door.properties = {
-    //       { name = "speed",  value = 2.5, min = 0, max = 10 },          -- a number: a slider (no range: a drag)
-    //       { name = "count",  value = 3, type = "int" },                 -- a whole number
-    //       { name = "open",   value = false },                           -- a checkbox
-    //       { name = "label",  value = "Door" },                          -- a line of text
-    //       { name = "offset", value = Vec3.new(0, 1, 0) },               -- Vec2, Vec3, Vec4: that many numbers
-    //       { name = "tint",   value = Vec4.new(1, 1, 1, 1), type = "color" },   -- a colour (Vec3 or Vec4)
-    //       { name = "mode",   value = "auto", options = { "auto", "manual" } }, -- one of a list
-    //       { name = "sound",  value = "", type = "asset" },              -- a file of the project
-    //   }
+    //   Door.speed  = 2.5                    -- @range 0 10  Turns a second
+    //   Door.count  = 3                      -- @int
+    //   Door.open   = false
+    //   Door.label  = "Door"
+    //   Door.offset = Vec3.new(0, 1, 0)
+    //   Door.tint   = Vec4.new(1, 1, 1, 1)   -- @color
+    //   Door.mode   = "auto"                 -- @options auto manual
+    //   Door.sound  = ""                     -- @asset
+    //   Door._timer = 0                      -- (not offered: its name begins with _)
     //
-    // (also `label` - what the control is called - and `tip`). The shorter `speed = 2.5` and
-    // `speed = { value = 2.5, min = 0 }` are taken too; those come in alphabetical order.
-    // Each is a field of the instance - self.speed - set before init() and again whenever it
-    // is changed. The kind of the value is the kind of the control.
+    // The kind of the value is the kind of the control: a number (a slider with @range, a
+    // whole number with @int), true/false, a text (one of a list with @options, a file of the
+    // project with @asset), a Vec2/Vec3/Vec4 (a colour with @color). What else the comment
+    // says is the control's tip; @label "..." names it. They are listed in the order the
+    // script gives them. Functions, tables and names beginning with _ are not offered.
+    // Each is read by the script as its own field - self.speed - set before init() and again
+    // whenever it is changed.
+    //
+    // (A table Door.properties = { { name = "speed", value = 2.5, min = 0, max = 10 }, ... }
+    // says the same, entry by entry, and wins where both name a variable.)
     struct PYROS3D_API ScriptProperty
     {
         enum Kind { Number = 0, Integer, Boolean, String, Vector2, Vector3, Vector4, Color3, Color4, Options, Asset };
@@ -484,8 +490,8 @@ namespace p3d {
         return false;
     }
 
-    // What a script's class declares, in the order it declares it.
-    inline void ReadScriptProperties(const sol::table &cls, std::vector<ScriptProperty> &out)
+    // The properties table of a class (see ScriptProperty), in its own order.
+    inline void ReadScriptPropertiesTable(const sol::table &cls, std::vector<ScriptProperty> &out)
     {
         out.clear();
         if (!cls.valid()) return;
@@ -515,6 +521,134 @@ namespace p3d {
         for (std::map<std::string, ScriptProperty>::const_iterator i = named.begin(); i != named.end(); ++i) out.push_back(i->second);
     }
 
+    // What a script's file says of its class's fields: the order they are given in, and what
+    // the comment on each one's line asks for (see ScriptProperty).
+    struct ScriptFieldNote { size_t order = 0; std::string comment; };
+    inline void ReadScriptFieldNotes(const std::string &scriptFile, std::map<std::string, ScriptFieldNote> &out)
+    {
+        out.clear();
+        FILE* f = scriptFile.empty() ? NULL : std::fopen(scriptFile.c_str(), "rb");
+        if (!f) return;
+        std::string text; char buf[4096]; size_t got;
+        while ((got = std::fread(buf, 1, sizeof(buf), f)) > 0) text.append(buf, got);
+        std::fclose(f);
+        size_t at = 0, n = 0;
+        while (at < text.size())
+        {
+            size_t end = text.find('\n', at);
+            if (end == std::string::npos) end = text.size();
+            const std::string line = text.substr(at, end - at);
+            at = end + 1;
+            // <Class>.<name> = ...   at the start of a line (not inside a function)
+            size_t i = 0;
+            auto word = [&line, &i]() { const size_t from = i; while (i < line.size() && (std::isalnum((unsigned char)line[i]) || line[i] == '_')) i++; return line.substr(from, i - from); };
+            if (line.empty() || !(std::isalpha((unsigned char)line[0]) || line[0] == '_')) continue;
+            const std::string owner = word();
+            if (owner.empty() || owner == "local" || owner == "function" || owner == "return" || i >= line.size() || line[i] != '.') continue;
+            i++;
+            const std::string name = word();
+            while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) i++;
+            if (name.empty() || i >= line.size() || line[i] != '=' || (i + 1 < line.size() && line[i + 1] == '=')) continue;
+            if (out.count(name)) continue;
+            ScriptFieldNote note; note.order = n++;
+            // (the comment: after the last -- that is not inside a string)
+            bool inString = false; char quote = 0;
+            for (size_t k = i; k + 1 < line.size(); k++)
+            {
+                const char ch = line[k];
+                if (inString) { if (ch == '\\') k++; else if (ch == quote) inString = false; }
+                else if (ch == '"' || ch == '\'') { inString = true; quote = ch; }
+                else if (ch == '-' && line[k + 1] == '-') { note.comment = line.substr(k + 2); break; }
+            }
+            out[name] = note;
+        }
+    }
+    // What a comment asks of a variable: @range a b, @int, @color, @asset, @options a b c, @label "..."; the rest is its tip.
+    inline void ApplyScriptFieldNote(const std::string &comment, ScriptProperty &p)
+    {
+        std::string tip;
+        size_t i = 0;
+        auto skip = [&comment, &i]() { while (i < comment.size() && (comment[i] == ' ' || comment[i] == '\t' || comment[i] == ',')) i++; };
+        auto token = [&comment, &i, &skip]() {
+            skip();
+            if (i < comment.size() && comment[i] == '"') { const size_t from = ++i; while (i < comment.size() && comment[i] != '"') i++; const std::string t = comment.substr(from, i - from); if (i < comment.size()) i++; return t; }
+            const size_t from = i; while (i < comment.size() && comment[i] != ' ' && comment[i] != '\t' && comment[i] != ',') i++; return comment.substr(from, i - from);
+        };
+        while (i < comment.size())
+        {
+            skip();
+            if (i >= comment.size()) break;
+            if (comment[i] != '@') { const size_t from = i; while (i < comment.size() && comment[i] != '@') i++; tip += comment.substr(from, i - from); continue; }
+            i++;
+            const std::string what = token();
+            if (what == "range")
+            {
+                const std::string lo = token(), hi = token();
+                char* e1 = NULL; char* e2 = NULL;
+                const double a = std::strtod(lo.c_str(), &e1), b = std::strtod(hi.c_str(), &e2);
+                if (e1 != lo.c_str() && e2 != hi.c_str() && b > a) { p.min = (p3d::f32)a; p.max = (p3d::f32)b; p.hasRange = true; }
+            }
+            else if (what == "int" || what == "integer") { if (p.kind == ScriptProperty::Number) p.kind = ScriptProperty::Integer; }
+            else if (what == "color" || what == "colour") { if (p.kind == ScriptProperty::Vector3) p.kind = ScriptProperty::Color3; else if (p.kind == ScriptProperty::Vector4) p.kind = ScriptProperty::Color4; }
+            else if (what == "asset" || what == "file") { if (p.kind == ScriptProperty::String) p.kind = ScriptProperty::Asset; }
+            else if (what == "label") { const std::string l = token(); if (!l.empty()) p.label = l; }
+            else if (what == "options")
+            {
+                std::vector<std::string> list;
+                for (;;) { skip(); if (i >= comment.size() || comment[i] == '@') break; const std::string o = token(); if (o.empty()) break; list.push_back(o); }
+                if (p.kind == ScriptProperty::String && !list.empty())
+                {
+                    p.kind = ScriptProperty::Options; p.options = list;
+                    if (std::find(list.begin(), list.end(), p.s) == list.end()) p.s = list[0];
+                }
+            }
+        }
+        while (!tip.empty() && (tip.back() == ' ' || tip.back() == '\t' || tip.back() == '\r')) tip.pop_back();
+        while (!tip.empty() && (tip.front() == ' ' || tip.front() == '\t')) tip.erase(tip.begin());
+        if (!tip.empty() && p.tip.empty()) p.tip = tip;
+    }
+
+    // What a script's class offers: its fields that have a value of a kind a control can
+    // show, in the order its file gives them (see ScriptProperty), and its properties table.
+    inline void ReadScriptProperties(const sol::table &cls, std::vector<ScriptProperty> &out, const std::string &scriptFile = std::string())
+    {
+        out.clear();
+        if (!cls.valid()) return;
+        {
+            std::map<std::string, ScriptFieldNote> notes;
+            ReadScriptFieldNotes(scriptFile, notes);
+            // (a middleclass class keeps what was assigned to it in __declaredMethods)
+            sol::object declaredHere = cls["__declaredMethods"];
+            sol::table fields = declaredHere.get_type() == sol::type::table ? declaredHere.as<sol::table>() : cls;
+            std::vector<std::pair<size_t, ScriptProperty> > found;
+            size_t unlisted = 100000;
+            for (auto &kv : fields)
+            {
+                if (kv.first.get_type() != sol::type::string) continue;
+                const std::string name = kv.first.as<std::string>();
+                if (name.empty() || name[0] == '_' || name == "properties" || name == "name" || name == "static" || name == "super" || name == "subclasses") continue;
+                const sol::type kind = kv.second.get_type();
+                if (kind != sol::type::boolean && kind != sol::type::number && kind != sol::type::string && kind != sol::type::userdata) continue;
+                ScriptProperty p;
+                if (!ReadScriptProperty(name, kv.second, p)) continue;
+                std::map<std::string, ScriptFieldNote>::const_iterator note = notes.find(name);
+                if (note != notes.end()) ApplyScriptFieldNote(note->second.comment, p);
+                found.push_back(std::make_pair(note != notes.end() ? note->second.order : unlisted++, p));
+            }
+            std::sort(found.begin(), found.end(), [](const std::pair<size_t, ScriptProperty> &a, const std::pair<size_t, ScriptProperty> &b) { return a.first != b.first ? a.first < b.first : a.second.name < b.second.name; });
+            for (size_t i = 0; i < found.size(); i++) out.push_back(found[i].second);
+        }
+        // (the table says the same entry by entry, and wins where both name one)
+        std::vector<ScriptProperty> fromFields;
+        fromFields.swap(out);
+        ReadScriptPropertiesTable(cls, out);
+        for (size_t i = 0; i < fromFields.size(); i++)
+        {
+            bool named = false;
+            for (size_t k = 0; k < out.size() && !named; k++) named = out[k].name == fromFields[i].name;
+            if (!named) out.push_back(fromFields[i]);
+        }
+    }
     class PYROS3D_API LuaComponent : public p3d::IComponent
     {
     public:
@@ -818,7 +952,7 @@ namespace p3d {
         comp->data = inst.get<sol::table>();
         {
             std::vector<ScriptProperty> declared;
-            ReadScriptProperties(cls, declared);
+            ReadScriptProperties(cls, declared, scriptFile);
             comp->DeclareProperties(declared);
             comp->ApplyProperties();
         }
@@ -844,7 +978,7 @@ namespace p3d {
         comp->ResetLifecycle();
         comp->data = inst.get<sol::table>();
         std::vector<ScriptProperty> declared;
-        ReadScriptProperties(cls, declared);
+        ReadScriptProperties(cls, declared, comp->scriptFile);
         comp->DeclareProperties(declared);
         comp->ApplyProperties();
         comp->on_init = nullptr; comp->on_update = nullptr; comp->on_destroy = nullptr;

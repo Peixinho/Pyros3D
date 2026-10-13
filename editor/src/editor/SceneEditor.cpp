@@ -3412,7 +3412,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	{
 		if (lc->properties.empty())
 		{
-			ImGui::TextDisabled("No properties. A script offers them with\nClass.properties = { { name = \"speed\", value = 2 }, ... }");
+			ImGui::TextDisabled("No properties. A field of the script's class is one:\nDoor.speed = 2.5   -- @range 0 10");
 			return;
 		}
 		ImGui::Spacing();

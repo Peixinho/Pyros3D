@@ -3903,23 +3903,22 @@ def add_physics(project_path: str, scene_name: str, name: str, shape: str = "Box
 # TOOLS — components
 # --------------------------------------------------------------------------
 
-_SCRIPT_PROPERTIES_HELP = """A script offers variables to the editor by declaring them on its class:
+_SCRIPT_PROPERTIES_HELP = """A field of a script's class is a variable the editor can set:
 
     local Door = class('Door')
-    Door.properties = {
-        { name = "speed",  value = 2.5, min = 0, max = 10 },   -- number (a slider with min/max, else a drag)
-        { name = "count",  value = 3, type = "int" },          -- whole number
-        { name = "open",   value = false },                    -- checkbox
-        { name = "label",  value = "Door" },                   -- text
-        { name = "offset", value = Vec3.new(0, 1, 0) },        -- Vec2 / Vec3 / Vec4
-        { name = "tint",   value = Vec4.new(1, 1, 1, 1), type = "color" },
-        { name = "mode",   value = "auto", options = { "auto", "manual" } },
-        { name = "sound",  value = "", type = "asset" },       -- a project file
-    }
+    Door.speed  = 2.5                    -- @range 0 10  (a slider; no range: a drag)
+    Door.count  = 3                      -- @int
+    Door.open   = false                  -- checkbox
+    Door.label  = "Door"                 -- text
+    Door.offset = Vec3.new(0, 1, 0)      -- Vec2 / Vec3 / Vec4
+    Door.tint   = Vec4.new(1, 1, 1, 1)   -- @color
+    Door.mode   = "auto"                 -- @options auto manual
+    Door.sound  = ""                     -- @asset  (a project file)
+    Door._timer = 0                      -- not shown: begins with _
 
-Optional per entry: label, tip. Each is a field of the instance (self.speed),
-set before init(). The scene stores the values under the component's
-"properties" key."""
+Other text in the comment is the tip; @label "Name" renames the control. The
+script reads each as self.<name>, set before init(). The scene stores the
+values under the component's "properties" key."""
 
 
 @mcp.tool()
@@ -5517,7 +5516,8 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
 
     Properties panel, scripts
       script_properties (name, script) - the variables an object's script offers
-        (Class.properties in the .lua file): name, type, value, range, options.
+        (plain fields of its class in the .lua file, e.g. `Door.speed = 2.5`):
+        name, type, value, range, options.
         `script` is part of the script's file name, when the object has several.
       set_script_property (name, property, value, script) - set one: a number,
         true/false, a string, or an array of numbers for a vector or colour.

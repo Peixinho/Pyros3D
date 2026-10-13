@@ -1,22 +1,22 @@
 # Script properties
 
-A Lua script can offer variables to whoever places it. The editor shows a control
-for each one in **Properties > Lua Script > Properties**, the scene keeps what was
-set, and the script reads it as a field of the instance.
+A field of a script's class is a variable the editor can set. The editor shows a
+control for each one in **Properties > Lua Script > Properties**, the scene keeps
+what was set, and the script reads it as its own field.
 
 ```lua
 local Door = class('Door')
 
-Door.properties = {
-    { name = "speed",  value = 2.5, min = 0, max = 10 },             -- number: a slider (no range: a drag)
-    { name = "count",  value = 3, type = "int" },                    -- whole number
-    { name = "open",   value = false },                              -- checkbox
-    { name = "label",  value = "Door" },                             -- text
-    { name = "offset", value = Vec3.new(0, 1, 0) },                  -- Vec2, Vec3, Vec4: that many numbers
-    { name = "tint",   value = Vec4.new(1, 1, 1, 1), type = "color" }, -- colour picker (Vec3 or Vec4)
-    { name = "mode",   value = "auto", options = { "auto", "manual" } }, -- drop-down
-    { name = "sound",  value = "", type = "asset" },                 -- a project file (drop it from Assets)
-}
+Door.speed  = 2.5                    -- @range 0 10  Turns a second
+Door.count  = 3                      -- @int
+Door.open   = false
+Door.label  = "Door"
+Door.offset = Vec3.new(0, 1, 0)
+Door.tint   = Vec4.new(1, 1, 1, 1)   -- @color
+Door.mode   = "auto"                 -- @options auto manual
+Door.sound  = ""                     -- @asset
+
+Door._timer = 0                      -- not shown: the name begins with _
 
 function Door:init(owner)
     print(self.speed, self.open, self.offset.y)   -- what was set in the editor
@@ -25,16 +25,29 @@ end
 return Door
 ```
 
-- The kind of `value` decides the control. `type` narrows it (`"int"`, `"color"`, `"asset"`).
-- Optional per entry: `label` (what the control is called) and `tip` (shown on hover).
-- Short forms `speed = 2.5` and `speed = { value = 2.5, min = 0 }` also work; those are listed alphabetically.
+The kind of the value is the kind of the control:
+
+| Value | Control | Comment on the same line |
+|---|---|---|
+| number | drag | `@range min max` makes it a slider; `@int` a whole number |
+| `true` / `false` | checkbox | |
+| string | text | `@options a b c` makes it a drop-down; `@asset` a project file |
+| `Vec2` / `Vec3` / `Vec4` | that many numbers | `@color` makes a `Vec3`/`Vec4` a colour picker |
+
+- Any other text in the comment is the control's tip; `@label "Shown name"` renames it.
+- Controls are listed in the order the script gives the fields.
+- Functions, tables and names beginning with `_` are never shown.
 - Values are written into the instance before `init()`, and again each time Play starts.
-- Saving the script updates the panel within a second: new properties appear with the
-  script's value, removed ones go, and a property whose name and kind are unchanged
+- Saving the script updates the panel within a second: new fields appear with the
+  script's value, removed ones go, and a field whose name and kind are unchanged
   keeps what was set.
 - In the scene file they are under the component: `"properties": { "speed": 7.0, ... }`.
 - Editor commands: `script_properties {name, script}` and
   `set_script_property {name, property, value, script}` (undoable, like the control).
+
+A table says the same entry by entry, for when a comment is not enough:
+`Door.properties = { { name = "speed", value = 2.5, min = 0, max = 10, tip = "..." }, ... }`.
+Where both name a variable, the table wins.
 
 Not covered yet: properties on a scene's main script, and references to other
 objects in the scene.

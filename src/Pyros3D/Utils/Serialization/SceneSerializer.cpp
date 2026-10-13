@@ -4737,7 +4737,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 						// What the script offers to be set, and what the scene set of it.
 						{
 							std::vector<ScriptProperty> declared;
-							ReadScriptProperties(cls, declared);
+							ReadScriptProperties(cls, declared, scriptFile);
 							comp->DeclareProperties(declared);
 							if (j.contains("properties") && j["properties"].is_object())
 								for (size_t p = 0; p < comp->properties.size(); p++)
