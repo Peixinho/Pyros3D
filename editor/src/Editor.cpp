@@ -3907,7 +3907,9 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	if (name == "load_scene")
 	{
-		if (!sceneView->AgentLoadScene(AgentScenePathArg(A("path")), err))
+		// "discard": true loads over unsaved changes - for a script that made
+		// a scratch scene and is done with it. Without it they are an error.
+		if (!sceneView->AgentLoadScene(AgentScenePathArg(A("path")), err, a.is_object() && a.value("discard", false)))
 			throw std::runtime_error(err);
 		nlohmann::json r;
 		r["ok"] = true;

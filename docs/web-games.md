@@ -39,6 +39,9 @@ cmake --build build_web_player --target PyrosPlayer
   left button. Scripts that read `isMouseButtonDown` and `view.mouseWorld()`
   need nothing else.
 - Sound starts with the first touch or click - a browser's rule, not ours.
+- `store.read(name)` / `store.write(name, text)` - a game's own small files
+  on a desktop - keep each name in the browser's local storage, so a best
+  score is still there on the next visit (on that device, in that browser).
 - No dedicated server and no sockets.
 - Text drawn from a font built of overlapping shapes can show seams (the
   desktop removes them; in a browser that step is off).

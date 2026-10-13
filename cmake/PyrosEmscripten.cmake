@@ -35,6 +35,8 @@ set(PYROS_EMSCRIPTEN_SHELL_FLAGS
 	"SHELL:-sUSE_WEBGL2=1"
 	"SHELL:-sALLOW_MEMORY_GROWTH=1"
 	"SHELL:-sDISABLE_EXCEPTION_CATCHING=0"
+	# (what the script store's EM_ASM calls to hand a string back - PyrosLuaMisc.cpp)
+	"SHELL:-sDEFAULT_LIBRARY_FUNCS_TO_INCLUDE=$stringToNewUTF8"
 )
 
 # Applied to every target that needs the ports' compile-time defines/includes.

@@ -64,6 +64,26 @@ namespace p3d {
 				for (size_t k = 0; k < kids.size(); k++)
 					if (GameObject* found = FindByNameInSubtree(kids[k].get(), name)) return found;
 			}
+			// A canvas is registered with its scene on the scene's next
+			// update, and a script can ask before that: started as a scene
+			// it loaded comes in, it found nothing, kept nil for every
+			// element, and its interface stayed as it was drawn. So the
+			// scene itself is walked for canvases not yet registered.
+			struct Walk {
+				static GameObject* In(GameObject* node, const std::string &name, const bool underCanvas)
+				{
+					if (!node) return NULL;
+					const bool here = underCanvas || FindComponent<UICanvas>(node, ComponentType::UICanvas) != NULL;
+					if (underCanvas && node->GetName() == name) return node;
+					const std::vector<std::shared_ptr<GameObject> > &kids = node->GetChildren();
+					for (size_t i = 0; i < kids.size(); i++)
+						if (GameObject* found = In(kids[i].get(), name, here)) return found;
+					return NULL;
+				}
+			};
+			const std::vector<std::shared_ptr<GameObject> > roots = scene->GetAllGameObjectList();
+			for (size_t i = 0; i < roots.size(); i++)
+				if (GameObject* found = Walk::In(roots[i].get(), name, false)) return found;
 			return NULL;
 		}
 

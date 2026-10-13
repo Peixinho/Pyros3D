@@ -2397,6 +2397,7 @@ json SceneEditor::CaptureUIProperties(GameObject* go)
 			case UIScaleMode::ConstantPixel: out["scaleMode"] = "ConstantPixel"; break;
 			case UIScaleMode::MatchHeight:   out["scaleMode"] = "MatchHeight"; break;
 			case UIScaleMode::Stretch:       out["scaleMode"] = "Stretch"; break;
+			case UIScaleMode::Fit:           out["scaleMode"] = "Fit"; break;
 			default:                         out["scaleMode"] = "MatchWidth"; break;
 			}
 			out["sortOrder"] = c->GetSortOrder();
@@ -2723,7 +2724,8 @@ bool SceneEditor::RawSetUIProperties(uint32 goId, const json& p, std::string& er
 			else if (n == "MatchHeight") canvas->SetScaleMode(UIScaleMode::MatchHeight);
 			else if (n == "Stretch") canvas->SetScaleMode(UIScaleMode::Stretch);
 			else if (n == "MatchWidth") canvas->SetScaleMode(UIScaleMode::MatchWidth);
-			else { errOut = "scaleMode must be ConstantPixel, MatchWidth, MatchHeight or Stretch"; return false; }
+			else if (n == "Fit") canvas->SetScaleMode(UIScaleMode::Fit);
+			else { errOut = "scaleMode must be ConstantPixel, MatchWidth, MatchHeight, Stretch or Fit"; return false; }
 			touched = true;
 		}
 		else if (canvas && k == "sortOrder")

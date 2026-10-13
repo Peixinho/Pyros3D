@@ -25,6 +25,9 @@
 #include <fstream>
 #include <sstream>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
+#ifdef EMSCRIPTEN
+#include <emscripten.h>
+#endif
 
 namespace p3d {
 
@@ -608,6 +611,34 @@ end
 			return true;
 		};
 		sol::table store = lua->create_named_table("store");
+#ifdef EMSCRIPTEN
+		// A page's files are gone when it is closed: in a browser the same
+		// two calls keep each name in localStorage instead, under the
+		// folder the desktop would have used - so one game's are not
+		// another's, and a script is the same on both.
+		const std::string prefix = "pyros:" + directory;
+		store.set_function("read", [prefix, safe](const std::string &name, sol::this_state ts) -> sol::object {
+			sol::state_view L(ts);
+			if (!safe(name)) return sol::make_object(L, sol::lua_nil);
+			char* text = (char*)EM_ASM_PTR({
+				var v = null;
+				try { v = localStorage.getItem(UTF8ToString($0)); } catch (e) {}
+				return v === null ? 0 : stringToNewUTF8(v);
+			}, (prefix + name).c_str());
+			if (!text) return sol::make_object(L, sol::lua_nil);
+			const std::string out(text);
+			free(text);
+			return sol::make_object(L, out);
+		});
+		store.set_function("write", [prefix, safe](const std::string &name, const std::string &text) {
+			if (!safe(name)) return false;
+			// (private browsing, or storage full: it throws, and says so)
+			return EM_ASM_INT({
+				try { localStorage.setItem(UTF8ToString($0), UTF8ToString($1)); return 1; } catch (e) { return 0; }
+			}, (prefix + name).c_str(), text.c_str()) != 0;
+		});
+		return;
+#endif
 		store.set_function("read", [dir, safe](const std::string &name, sol::this_state ts) -> sol::object {
 			sol::state_view L(ts);
 			if (!safe(name)) return sol::make_object(L, sol::lua_nil);

@@ -621,7 +621,7 @@ public:
 		std::string& errOut);
 	bool AgentSave(std::string& errOut);
 	bool AgentSaveAs(const std::string& path, std::string& errOut);
-	bool AgentLoadScene(const std::string& path, std::string& errOut);
+	bool AgentLoadScene(const std::string& path, std::string& errOut, const bool discardChanges = false);
 	bool AgentPlay(std::string& errOut);
 	bool AgentStopPlay(std::string& errOut);
 	// Base64 PNG of the current viewport; empty string on failure.

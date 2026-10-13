@@ -38,7 +38,13 @@ namespace p3d {
 			// Exactly reference x reference, aspect ignored. Nothing can
 			// ever fall outside the canvas, at the cost of distorting when
 			// the window's aspect differs from the reference's.
-			Stretch
+			Stretch,
+			// The whole reference area is always on screen, undistorted:
+			// Match Width on a screen narrower than the reference and
+			// Match Height on a wider one. What a layout made for one
+			// shape of screen wants on all the others - a phone held
+			// sideways is much wider than a monitor, a tablet squarer.
+			Fit
 		};
 	}
 

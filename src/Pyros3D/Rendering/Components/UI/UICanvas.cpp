@@ -88,7 +88,12 @@ namespace p3d {
 		for (size_t i = 0; i < Components.size(); i++)
 		{
 			UICanvas* c = static_cast<UICanvas*>(Components[i]);
-			if (c->registeredScene == Scene && c->IsActive())
+			// ...and still IN it. A canvas whose object has left the scene
+			// while something goes on holding the object (an editor's undo
+			// history, a script) is still registered: found first by name,
+			// it was the one a script's ui.find() handed back, and what the
+			// script then set was never what was on screen.
+			if (c->registeredScene == Scene && c->IsActive() && c->GetOwner() != NULL && c->GetOwner()->GetOwningScene() == Scene)
 				out.push_back(c);
 		}
 		// Ascending sort order, stable so two canvases sharing an order keep
@@ -119,6 +124,10 @@ namespace p3d {
 		case UIScaleMode::MatchWidth:    cw = referenceWidth;  ch = referenceWidth * (sh / sw); break;
 		case UIScaleMode::MatchHeight:   ch = referenceHeight; cw = referenceHeight * (sw / sh); break;
 		case UIScaleMode::Stretch:       cw = referenceWidth;  ch = referenceHeight; break;
+		case UIScaleMode::Fit:
+			if (sw * referenceHeight > sh * referenceWidth) { ch = referenceHeight; cw = referenceHeight * (sw / sh); }
+			else { cw = referenceWidth; ch = referenceWidth * (sh / sw); }
+			break;
 		default: break;
 		}
 

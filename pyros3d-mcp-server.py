@@ -6642,7 +6642,8 @@ def set_ui(project_path: str, scene_name: str, object_name: str, properties: dic
     Rect: anchorMin/anchorMax/offsetMin/offsetMax/pivot ([x,y]).
     Image: tint/border ([r,g,b,a] / [left,top,right,bottom]), texture (path).
     Text: text, size, color, align, verticalAlign, wrap, sdf.
-    Canvas: referenceWidth/referenceHeight, scaleMode, sortOrder.
+    Canvas: referenceWidth/referenceHeight, scaleMode (ConstantPixel, MatchWidth,
+    MatchHeight, Stretch, Fit), sortOrder.
     Button: interactable, transition, onClick, hoverTint/pressedTint/
     disabledTint, hoverTextColor/pressedTextColor/disabledTextColor,
     pressedOffset.

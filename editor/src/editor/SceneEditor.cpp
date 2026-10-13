@@ -3810,8 +3810,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				BeginUIUndo(goId); EndUIUndo(goId, "Set Canvas Reference");
 
 				int mode = (int)c->GetScaleMode();
-				const char* modes[] = { "Constant Pixel", "Match Width", "Match Height", "Stretch" };
-				if (ImGui::Combo("Scale Mode", &mode, modes, 4))
+				const char* modes[] = { "Constant Pixel", "Match Width", "Match Height", "Stretch", "Fit" };
+				if (ImGui::Combo("Scale Mode", &mode, modes, 5))
 				{
 					const json uiBefore = CaptureUIProperties(go);
 					c->SetScaleMode((uint32)mode);
@@ -3819,7 +3819,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					PushUIPropertyUndo(goId, uiBefore, CaptureUIProperties(go), "Set Canvas Scale Mode");
 				}
 				if (ImGui::IsItemHovered())
-					ImGui::SetTooltip("How canvas units map to screen pixels. Match Width keeps the\nauthored width exactly and lets height follow the real aspect.");
+					ImGui::SetTooltip("How canvas units map to screen pixels. Match Width keeps the\nauthored width exactly and lets height follow the real aspect.\nFit keeps the whole reference area on screen whatever its shape.");
 
 				int order = c->GetSortOrder();
 				if (ImGui::DragInt("Sort Order", &order, 1.f, -1000, 1000))
@@ -16717,15 +16717,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
-	bool SceneEditor::AgentLoadScene(const std::string& path, std::string& errOut)
+	bool SceneEditor::AgentLoadScene(const std::string& path, std::string& errOut, const bool discardChanges)
 	{
 		if (path.empty()) { errOut = "path is required"; return false; }
 		std::error_code ec;
 		if (!std::filesystem::exists(path, ec))
 			{ errOut = "scene file not found: " + path; return false; }
-		if (sceneDirty)
+		if (sceneDirty && !discardChanges)
 		{
-			errOut = "current scene has unsaved changes — save before loading";
+			errOut = "current scene has unsaved changes — save before loading (or pass discard: true)";
 			return false;
 		}
 		if (!LoadSceneFromFile(path))

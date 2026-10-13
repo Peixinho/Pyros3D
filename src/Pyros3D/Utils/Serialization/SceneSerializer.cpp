@@ -681,6 +681,7 @@ namespace p3d {
 		case UIScaleMode::ConstantPixel: return "ConstantPixel";
 		case UIScaleMode::MatchHeight:   return "MatchHeight";
 		case UIScaleMode::Stretch:       return "Stretch";
+		case UIScaleMode::Fit:           return "Fit";
 		default:                         return "MatchWidth";
 		}
 	}
@@ -689,6 +690,7 @@ namespace p3d {
 		if (n == "ConstantPixel") return UIScaleMode::ConstantPixel;
 		if (n == "MatchHeight")   return UIScaleMode::MatchHeight;
 		if (n == "Stretch")       return UIScaleMode::Stretch;
+		if (n == "Fit")           return UIScaleMode::Fit;
 		return UIScaleMode::MatchWidth;
 	}
 	static const char* UIStateName(const uint32 st)
