@@ -15,6 +15,7 @@ Door.offset = Vec3.new(0, 1, 0)
 Door.tint   = Vec4.new(1, 1, 1, 1)   -- @color
 Door.mode   = "auto"                 -- @options auto manual
 Door.sound  = ""                     -- @asset
+Door.target = ""                     -- @object
 
 Door._timer = 0                      -- not shown: the name begins with _
 
@@ -31,7 +32,7 @@ The kind of the value is the kind of the control:
 |---|---|---|
 | number | drag | `@range min max` makes it a slider; `@int` a whole number |
 | `true` / `false` | checkbox | |
-| string | text | `@options a b c` makes it a drop-down; `@asset` a project file |
+| string | text | `@options a b c` makes it a drop-down; `@asset` a project file; `@object` an object of the scene (the script gets the object itself, or `nil`) |
 | `Vec2` / `Vec3` / `Vec4` | that many numbers | `@color` makes a `Vec3`/`Vec4` a colour picker |
 
 - Any other text in the comment is the control's tip; `@label "Shown name"` renames it.
@@ -49,5 +50,9 @@ A table says the same entry by entry, for when a comment is not enough:
 `Door.properties = { { name = "speed", value = 2.5, min = 0, max = 10, tip = "..." }, ... }`.
 Where both name a variable, the table wins.
 
-Not covered yet: properties on a scene's main script, and references to other
-objects in the scene.
+A scene's main script offers variables the same way. They are shown at the top of
+the scene's own properties (nothing selected), saved in the scene as
+`"mainScriptProperties"`, and reached by the editor commands with an empty `name`.
+
+An object's own properties list its scripts' variables under each attached script,
+so the script component does not have to be selected to set them.
