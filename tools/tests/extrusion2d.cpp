@@ -78,6 +78,13 @@ int main()
 		f32 uMax = 0.f;
 		for (size_t i = 0; i < skin.texcoord.size(); i++) if (skin.texcoord[i].x > uMax) uMax = skin.texcoord[i].x;
 		nearly(uMax, 5.f, 1e-4f, "the image repeats once every tile along it");
+		f32 vMax = 0.f;
+		for (size_t i = 0; i < skin.texcoord.size(); i++) if (skin.texcoord[i].y > vMax) vMax = skin.texcoord[i].y;
+		nearly(vMax, 2.f, 1e-4f, "and across it");
+		Extrusion2D::BuildMesh(path, false, 4.f, -1.f, 2.f, skin, faces, true);
+		vMax = 0.f;
+		for (size_t i = 0; i < skin.texcoord.size(); i++) if (skin.texcoord[i].y > vMax) vMax = skin.texcoord[i].y;
+		nearly(vMax, 1.f, 1e-4f, "or, asked to, lies once across the whole depth");
 		std::vector<Vec2> rtl(path.rbegin(), path.rend());
 		Extrusion2D::BuildMesh(rtl, false, 4.f, -1.f, 2.f, skin, faces);
 		nearly(AreaOf(skin, Vec3(0, 1, 0)), 40.f, 1e-3f, "drawn right to left, its top still faces up");

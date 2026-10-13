@@ -5570,8 +5570,9 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       set_layer2d (name, parallax, visible, automatic)
       add_extrusion2d / set_extrusion2d (object, points [[x,y],...], closed,
         smooth, depth, floor, tile, skin, face (images), skinColor, faceColor,
-        collider) - an outline given depth: 2.5D ground, a platform, a wall,
-        with a Physics2D chain kept along it. extrusion2d_info (object) reads it
+        collider, skinAcross (the skin image once across the depth)) - an
+        outline given depth: 2.5D ground, a platform, a wall, with a Physics2D
+        chain kept along it (a 3D Mesh Collider on it follows it too). extrusion2d_info (object) reads it
         back with the curve ("path"); edit_extrusion2d (object, on) shows the
         points in the view; drag_extrusion2d (object, index + to | add (+at) |
         remove) is what dragging / Shift-click / Alt-click there do.

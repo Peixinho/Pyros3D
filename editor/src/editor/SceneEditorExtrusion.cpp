@@ -65,7 +65,7 @@ namespace {
 bool SceneEditor::AgentApplyExtrusion2D(Extrusion2D* ex, const json& p, std::string& errOut)
 {
 	static const char* known[] = { "object", "name", "points", "closed", "smooth", "depth", "floor", "tile", "skin", "face",
-		"skinColor", "faceColor", "collider", NULL };
+		"skinColor", "faceColor", "collider", "skinAcross", NULL };
 	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
 	{
 		bool ok = false;
@@ -108,6 +108,7 @@ bool SceneEditor::AgentApplyExtrusion2D(Extrusion2D* ex, const json& p, std::str
 			ex->SetColors(s, f);
 		}
 		if (p.contains("collider")) ex->SetCollider(p["collider"].get<bool>());
+		if (p.contains("skinAcross")) ex->SetSkinAcross(p["skinAcross"].get<bool>());
 	}
 	catch (const std::exception& e) { errOut = std::string("bad value: ") + e.what(); return false; }
 	ex->Apply();
@@ -187,6 +188,7 @@ json SceneEditor::AgentExtrusion2DInfo(const std::string& name, std::string& err
 	r["skin"] = ex->GetSkinTexturePath();
 	r["face"] = ex->GetFaceTexturePath();
 	r["collider"] = ex->HasCollider();
+	r["skinAcross"] = ex->IsSkinAcross();
 	r["editing"] = extrusionEdit;
 	Physics2D* body = ComponentOf<Physics2D>((GameObject*)obj->GetPTR(), ComponentType::Physics2D);
 	r["colliderPoints"] = body ? (int)body->GetPolygon().size() : 0;
@@ -264,6 +266,11 @@ void SceneEditor::DrawExtrusion2DProperties(uint32 goId, Extrusion2D* ex)
 			ImGui::SetTooltip(k == 0 ? "The image on what is walked on, repeated. A path in the project; Enter to set."
 				: "The image on the cut faces, repeated. A path in the project; Enter to set.");
 	}
+	bool across = ex->IsSkinAcross();
+	BeginComponentUndo(goId);
+	if (ImGui::Checkbox("Skin image once across##extr", &across)) { ex->SetSkinAcross(across); ex->Apply(); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Extrusion Skin Across");
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("The skin's image laid once across the whole depth (it still repeats along):\nfor an image with lane lines or a kerb in it.");
 	Vec4 sc = ex->GetSkinColor(), fc = ex->GetFaceColor();
 	BeginComponentUndo(goId);
 	bool changed = ImGui::ColorEdit4("Skin Colour##extr", &sc.x);

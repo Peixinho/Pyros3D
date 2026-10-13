@@ -2255,6 +2255,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["skinColor"] = ToJson(ex->GetSkinColor());
 			j["faceColor"] = ToJson(ex->GetFaceColor());
 			if (!ex->HasCollider()) j["collider"] = false;
+			if (ex->IsSkinAcross()) j["skinAcross"] = true;
 			return j;
 		}
 		case ComponentType::Text2D:
@@ -4582,6 +4583,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			ex->SetColors(j.contains("skinColor") ? Vec4FromJson(j["skinColor"]) : ex->GetSkinColor(),
 				j.contains("faceColor") ? Vec4FromJson(j["faceColor"]) : ex->GetFaceColor());
 			ex->SetCollider(j.value("collider", true));
+			ex->SetSkinAcross(j.value("skinAcross", false));
 			go->Add(std::static_pointer_cast<IComponent>(ex));
 			// (its body, if it has one, was loaded with the points it had when saved: this makes
 			// the two agree again, whichever was listed first)

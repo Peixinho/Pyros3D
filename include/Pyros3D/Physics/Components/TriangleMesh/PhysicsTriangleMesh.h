@@ -28,8 +28,15 @@ namespace p3d {
 		// Built from the RenderingComponent on the same object: a scene
 		// file then stores that fact, not a copy of the model's triangles.
 		bool IsFromRenderable() const { return fromRenderable; }
+		// The triangles taken again from a rendering component - the same one,
+		// reshaped - and the body made again from them. A mesh collider is
+		// fixed once made; this is how one follows a shape that is edited
+		// (an Extrusion2D whose outline is dragged, or changed by a script).
+		void Rebuild(RenderingComponent* rcomp);
 
 	protected:
+
+		void Gather(RenderingComponent* rcomp);
 
 		// Store Triangle Mesh Data
 		std::vector<unsigned> index;

@@ -162,6 +162,7 @@ namespace p3d {
 			"setFloor", &Extrusion2D::SetFloor, "getFloor", &Extrusion2D::GetFloor,
 			"setTile", &Extrusion2D::SetTile,
 			"setCollider", &Extrusion2D::SetCollider,
+			"setSkinAcross", &Extrusion2D::SetSkinAcross,
 			"heightAt", &Extrusion2D::HeightAt,
 			// the curve the points make: a table of {x, y}
 			"getPath", [](Extrusion2D &e, sol::this_state ts) {

@@ -9,6 +9,7 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
+#include <Pyros3D/Physics/Components/TriangleMesh/PhysicsTriangleMesh.h>
 #include <algorithm>
 #include <cmath>
 
@@ -192,7 +193,7 @@ namespace p3d {
 	}
 
 	bool Extrusion2D::BuildMesh(const std::vector<Vec2> &pathIn, const bool closed, const f32 depth, const f32 floorY,
-		const f32 tileIn, ExtrusionMesh2D &skin, ExtrusionMesh2D &faces)
+		const f32 tileIn, ExtrusionMesh2D &skin, ExtrusionMesh2D &faces, const bool skinAcross)
 	{
 		skin.Clear();
 		faces.Clear();
@@ -236,7 +237,7 @@ namespace p3d {
 				const Vec2 &next = spanNormal[(i + 1) % spans];
 				if (next.x * nb.x + next.y * nb.y > 0.77f) { nb = Vec2(next.x + nb.x, next.y + nb.y); const f32 l = sqrtf(nb.x * nb.x + nb.y * nb.y); nb = Vec2(nb.x / l, nb.y / l); }
 			}
-			const f32 u0 = along / tile, u1 = (along + len) / tile, v0 = 0.f, v1 = depth / tile;
+			const f32 u0 = along / tile, u1 = (along + len) / tile, v0 = 0.f, v1 = skinAcross ? 1.f : depth / tile;
 			Quad(skin, Vec3(a.x, a.y, h), Vec3(b.x, b.y, h), Vec3(b.x, b.y, -h), Vec3(a.x, a.y, -h),
 				Vec3(na.x, na.y, 0.f), Vec3(nb.x, nb.y, 0.f), Vec3(nb.x, nb.y, 0.f), Vec3(na.x, na.y, 0.f),
 				Vec2(u0, v0), Vec2(u1, v0), Vec2(u1, v1), Vec2(u0, v1));
@@ -348,6 +349,7 @@ namespace p3d {
 		if (authoredPath != facePath || resolvedPath != faceResolved) { facePath = authoredPath; faceResolved = resolvedPath; dirty = materialsDirty = true; }
 	}
 	void Extrusion2D::SetColors(const Vec4 &skin, const Vec4 &face) { skinColor = skin; faceColor = face; dirty = materialsDirty = true; }
+	void Extrusion2D::SetSkinAcross(const bool once) { if (once != skinAcross) { skinAcross = once; dirty = true; } }
 	void Extrusion2D::SetCollider(const bool on) { if (on != collider) { collider = on; dirty = true; } }
 
 	const std::vector<Vec2> &Extrusion2D::GetPath()
@@ -395,7 +397,7 @@ namespace p3d {
 		dirty = false;
 		const std::vector<Vec2> &p = GetPath();
 		ExtrusionMesh2D skin, faces;
-		BuildMesh(p, closed, depth, floorY, tile, skin, faces);
+		BuildMesh(p, closed, depth, floorY, tile, skin, faces, skinAcross);
 		static_cast<ExtrusionRenderable*>(GetRenderable())->Fill(skin, faces);
 		if (materialsDirty) MakeMaterials();
 		// What is touched is what is seen: the body on the same object, as a chain along the outline.
@@ -411,6 +413,19 @@ namespace p3d {
 						echo("WARNING: Extrusion2D - its outline could not be made a collider (too many points: smooth it less, or use fewer)");
 					break;
 				}
+		}
+		RefreshMeshCollider();
+	}
+
+	// (called at the end of Apply: a 3D mesh collider built from this shape is built again from it)
+	void Extrusion2D::RefreshMeshCollider()
+	{
+		if (!Owner) return;
+		const std::vector<std::shared_ptr<IComponent> > &comps = Owner->GetComponents();
+		for (size_t c = 0; c < comps.size(); c++)
+		{
+			PhysicsTriangleMesh* mesh = dynamic_cast<PhysicsTriangleMesh*>(comps[c].get());
+			if (mesh && mesh->IsFromRenderable()) mesh->Rebuild(this);
 		}
 	}
 

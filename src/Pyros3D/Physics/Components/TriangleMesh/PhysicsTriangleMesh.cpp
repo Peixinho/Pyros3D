@@ -15,6 +15,22 @@ namespace p3d {
 	{
 		// Build the triangle mesh from Rendering Component
 		fromRenderable = true;
+		Gather(rcomp);
+	}
+
+	void PhysicsTriangleMesh::Rebuild(RenderingComponent* rcomp)
+	{
+		if (!rcomp) return;
+		index.clear();
+		vertex.clear();
+		Gather(rcomp);
+		// (the body, if there is one yet: taken down and made again from what is here now)
+		if (PhysicsEngine && RigidBodyRegistered())
+			PhysicsEngine->RebuildPhysicsComponent(this);
+	}
+
+	void PhysicsTriangleMesh::Gather(RenderingComponent* rcomp)
+	{
 		unsigned indexCount = 0;
 		for (unsigned k = 0; k < rcomp->GetMeshes().size(); k++)
 		{

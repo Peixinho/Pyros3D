@@ -60,6 +60,9 @@ namespace p3d {
 		virtual RayCastHit RayCast(const Vec3 &from, const Vec3 &to) = 0;
 
 		virtual void RemovePhysicsComponent(IPhysicsComponent* pcomp) = 0;
+		// A component whose shape has changed: its body taken down and made
+		// again from what the component holds now.
+		void RebuildPhysicsComponent(IPhysicsComponent* pcomp) { RemovePhysicsComponent(pcomp); CreatePhysicsComponent(pcomp); }
 
 		virtual void UpdateTransformations(IPhysicsComponent* pcomp) = 0;
 

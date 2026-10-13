@@ -77,6 +77,12 @@ namespace p3d {
 		const std::string &GetFaceTexturePath() const { return facePath; }
 		void SetTile(const f32 unitsPerRepeat);
 		f32 GetTile() const { return tile; }
+		// The skin's image laid once across the whole depth instead of
+		// repeating across it (it still repeats along): for an image with
+		// something in it that belongs at a place across - lane lines, a
+		// kerb down each side, a path's worn middle.
+		void SetSkinAcross(const bool once);
+		bool IsSkinAcross() const { return skinAcross; }
 		void SetColors(const Vec4 &skin, const Vec4 &face);
 		const Vec4 &GetSkinColor() const { return skinColor; }
 		const Vec4 &GetFaceColor() const { return faceColor; }
@@ -100,7 +106,7 @@ namespace p3d {
 		static void SmoothPath(const std::vector<Vec2> &pts, const bool closed, const uint32 pieces, std::vector<Vec2> &out);
 		// The two surfaces of a path given depth. False when there is no shape to make.
 		static bool BuildMesh(const std::vector<Vec2> &path, const bool closed, const f32 depth, const f32 floorY,
-			const f32 tile, ExtrusionMesh2D &skin, ExtrusionMesh2D &faces);
+			const f32 tile, ExtrusionMesh2D &skin, ExtrusionMesh2D &faces, const bool skinAcross = false);
 		// A simple polygon as triangles (indices into it). False if it has no area.
 		static bool Triangulate(const std::vector<Vec2> &polygon, std::vector<uint32> &triangles);
 
@@ -111,9 +117,10 @@ namespace p3d {
 	private:
 
 		void MakeMaterials();
+		void RefreshMeshCollider();
 
 		std::vector<Vec2> points, path;
-		bool closed, collider;
+		bool closed, collider, skinAcross = false;
 		uint32 smooth;
 		f32 depth, floorY, tile;
 		std::string skinPath, skinResolved, facePath, faceResolved;
