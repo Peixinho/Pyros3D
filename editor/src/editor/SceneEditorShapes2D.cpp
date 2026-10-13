@@ -14,6 +14,7 @@
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Text2D.h>
 #include <imgui.h>
 #include <misc/cpp/imgui_stdlib.h>
 #include <filesystem>
@@ -641,4 +642,96 @@ bool SceneEditor::AgentSetLine2D(const std::string& name, const json& p, std::st
 	if (!AgentApplyLine2D(ln, p, errOut)) return false;
 	if (!playMode) { MarkSceneDirty(); PushReplaceCommand(obj->GetID(), before, "Set Line"); }
 	return true;
+}
+
+
+// --- Text2D: words in the world ------------------------------------------------
+// {"cmd":"add_text2d","args":{"object":"Sign","font":"assets/fonts/x.ttf","text":"GO","size":0.8,
+//   "color":[1,1,1,1],"anchor":[0.5,0.5]}} and set_text2d with any of text / size / color / anchor.
+static bool ApplyText2D(Text2D* t, const json& p, std::string& errOut)
+{
+	if (p.contains("text")) { if (!p["text"].is_string()) { errOut = "text must be a string"; return false; } t->SetText(p["text"].get<std::string>()); }
+	if (p.contains("size")) { const f32 s = p["size"].get<f32>(); if (!(s > 0.f)) { errOut = "size must be greater than 0"; return false; } t->SetSize(s); }
+	if (p.contains("color") && p["color"].is_array() && p["color"].size() >= 3)
+		t->SetColor(Vec4(p["color"][0].get<f32>(), p["color"][1].get<f32>(), p["color"][2].get<f32>(), p["color"].size() > 3 ? p["color"][3].get<f32>() : 1.f));
+	if (p.contains("anchor") && p["anchor"].is_array() && p["anchor"].size() >= 2)
+		t->SetAnchor(Vec2(p["anchor"][0].get<f32>(), p["anchor"][1].get<f32>()));
+	return true;
+}
+
+bool SceneEditor::AgentAddText2D(const std::string& name, const json& p, std::string& errOut)
+{
+	if (playMode) { errOut = "editor is in play mode"; return false; }
+	SceneObject* obj = FindObjectByName(sceneObjects, name);
+	if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+	GameObject* go = (GameObject*)obj->GetPTR();
+	if (FindComponent<Text2D>(go, ComponentType::Text2D)) { errOut = "this object already has a text"; return false; }
+	if (FindComponent<Sprite2D>(go, ComponentType::Sprite2D) || FindComponent<Line2D>(go, ComponentType::Line2D))
+	{ errOut = "a text cannot share an object with a sprite or a line - put it on a child"; return false; }
+	const std::string fontRel = p.value("font", std::string());
+	if (fontRel.empty()) { errOut = "'font' is required (a .ttf in the project)"; return false; }
+	const std::string fontAbs = ResolveAssetPath(fontRel);
+	std::error_code ec;
+	if (!std::filesystem::exists(fontAbs, ec)) { errOut = "font not found: " + fontRel; return false; }
+	const std::string before = SnapshotSubtree(obj->GetID());
+	std::shared_ptr<Font> font = std::make_shared<Font>(fontAbs, p.value("fontSize", 64.f), p.value("sdf", true));
+	std::shared_ptr<Text2D> t = std::make_shared<Text2D>(font, p.value("text", std::string("Text")), p.value("size", 1.f));
+	t->SetFontPath(fontRel);
+	if (!ApplyText2D(t.get(), p, errOut)) return false;
+	go->Add(std::static_pointer_cast<IComponent>(t));
+	MarkSceneDirty();
+	PushReplaceCommand(obj->GetID(), before, "Add Text");
+	return true;
+}
+
+bool SceneEditor::AgentSetText2D(const std::string& name, const json& p, std::string& errOut)
+{
+	SceneObject* obj = FindObjectByName(sceneObjects, name);
+	if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+	Text2D* t = FindComponent<Text2D>((GameObject*)obj->GetPTR(), ComponentType::Text2D);
+	if (!t) { errOut = "'" + name + "' has no Text2D - add_text2d first"; return false; }
+	const std::string before = playMode ? std::string() : SnapshotSubtree(obj->GetID());
+	if (!ApplyText2D(t, p, errOut)) return false;
+	if (!playMode) { MarkSceneDirty(); PushReplaceCommand(obj->GetID(), before, "Set Text"); }
+	return true;
+}
+
+json SceneEditor::AgentText2DInfo(const std::string& name, std::string& errOut)
+{
+	json r;
+	SceneObject* obj = FindObjectByName(sceneObjects, name);
+	if (!obj) { errOut = "object '" + name + "' not found"; return r; }
+	Text2D* t = FindComponent<Text2D>((GameObject*)obj->GetPTR(), ComponentType::Text2D);
+	if (!t) { errOut = "'" + name + "' has no Text2D"; return r; }
+	r["text"] = t->GetText();
+	r["size"] = t->GetSize();
+	r["font"] = t->GetFontPath();
+	r["color"] = { t->GetColor().x, t->GetColor().y, t->GetColor().z, t->GetColor().w };
+	r["anchor"] = { t->GetAnchor().x, t->GetAnchor().y };
+	const Vec2 block = t->GetBlockSize();
+	r["blockSize"] = { block.x, block.y };
+	return r;
+}
+
+void SceneEditor::DrawText2DProperties(uint32 goId, Text2D* t)
+{
+	if (!ImGui::CollapsingHeader("Text 2D", ImGuiTreeNodeFlags_DefaultOpen)) return;
+	ImGui::TextDisabled("%s", t->GetFontPath().c_str());
+	std::string text = t->GetText();
+	BeginComponentUndo(goId);
+	if (ImGui::InputTextMultiline("Text##text2d", &text, ImVec2(0.f, ImGui::GetTextLineHeight() * 3.f))) { t->SetText(text); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Text");
+	f32 size = t->GetSize();
+	BeginComponentUndo(goId);
+	if (ImGui::DragFloat("Size##text2d", &size, 0.01f, 0.01f, 1000.f)) { t->SetSize(std::max(0.01f, size)); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Text Size");
+	Vec4 c = t->GetColor();
+	BeginComponentUndo(goId);
+	if (ImGui::ColorEdit4("Color##text2d", &c.x)) { t->SetColor(c); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Text Color");
+	Vec2 a = t->GetAnchor();
+	BeginComponentUndo(goId);
+	if (ImGui::DragFloat2("Anchor##text2d", &a.x, 0.01f, 0.f, 1.f)) { t->SetAnchor(a); MarkSceneDirty(); }
+	EndComponentUndo(goId, "Set Text Anchor");
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Where in the block of text the object's origin is:\n(0.5, 0.5) its middle, (0, 0) its bottom left.");
 }

@@ -63,7 +63,7 @@ using json = nlohmann::json;
 #include "UI/IUInterface.h"
 #include "libgizmo/IGizmo.h"
 #include "SceneObjects.h"
-namespace p3d { class Sprite2D; class SpriteMask2D; class Line2D; class SpriteBatch2D; class Physics2D; class Joint2D; class Layer2D; }
+namespace p3d { class Sprite2D; class SpriteMask2D; class Line2D; class Text2D; class SpriteBatch2D; class Physics2D; class Joint2D; class Layer2D; }
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include "Grid.h"
 #include "AxisHelper.h"
@@ -1320,6 +1320,10 @@ public:
 	bool AgentAddLine2D(const std::string& name, const json& p, std::string& errOut);
 	bool AgentSetLine2D(const std::string& name, const json& p, std::string& errOut);
 	json AgentLine2DInfo(const std::string& name, std::string& errOut);
+	bool AgentAddText2D(const std::string& name, const json& p, std::string& errOut);
+	bool AgentSetText2D(const std::string& name, const json& p, std::string& errOut);
+	json AgentText2DInfo(const std::string& name, std::string& errOut);
+	void DrawText2DProperties(uint32 goId, p3d::Text2D* t);
 private:
 	// A Plane-and-material sprite (what Add Sprite used to make) into a
 	// Sprite2D that looks the same. `record` pushes one undo entry.

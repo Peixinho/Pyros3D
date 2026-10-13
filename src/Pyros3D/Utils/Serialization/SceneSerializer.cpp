@@ -47,6 +47,7 @@
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Text2D.h>
 #include <Pyros3D/Physics/Physics2D/Joint2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
@@ -2166,6 +2167,20 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// (CreateEmptyTexture + UpdateData leaves no path and no
 			// RawData). Such an image reloads as a flat tinted quad.
 			SerializeTextureRef(j, "texture", img->GetTexture().get());
+			return j;
+		}
+		case ComponentType::Text2D:
+		{
+			Text2D* t = dynamic_cast<Text2D*>(c);
+			if (!t->GetFont() || t->GetFont()->GetPath().empty()) return json();
+			j["type"] = "Text2D";
+			j["font"] = t->GetFontPath().empty() ? RelativizeSceneAssetPath(t->GetFont()->GetPath()) : t->GetFontPath();
+			j["fontSize"] = t->GetFont()->GetFontSize();
+			if (t->GetFont()->IsSDF()) j["fontSDF"] = true;
+			j["size"] = t->GetSize();
+			j["text"] = t->GetText();
+			j["color"] = ToJson(t->GetColor());
+			j["anchor"] = { t->GetAnchor().x, t->GetAnchor().y };
 			return j;
 		}
 		case ComponentType::UIText:
@@ -4443,6 +4458,25 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				img->SetTexture(t);
 			if (j.find("border") != j.end()) img->SetBorder(Vec4FromJson(j["border"]));
 			go->Add(std::static_pointer_cast<IComponent>(img));
+		}
+		else if (type == "Text2D")
+		{
+			const std::string authored = j.value("font", std::string());
+			const std::string fontPath = ResolveSceneAssetPath(authored);
+			if (fontPath.empty()) { echo("WARNING: SceneSerializer - skipping a Text2D with no font path"); return; }
+			const f32 fontSize = j.value("fontSize", 64.0f);
+			const bool wantSDF = j.value("fontSDF", true);
+			char key[64];
+			snprintf(key, sizeof(key), "|%g|%d", fontSize, wantSDF ? 1 : 0);
+			std::shared_ptr<Font> font;
+			std::map<std::string, std::shared_ptr<Font>>::iterator it = fontCache.find(fontPath + key);
+			if (it != fontCache.end()) font = it->second;
+			else { font = std::make_shared<Font>(fontPath, fontSize, wantSDF); fontCache[fontPath + key] = font; }
+			Vec4 color = (j.find("color") != j.end()) ? Vec4FromJson(j["color"]) : Vec4(1, 1, 1, 1);
+			std::shared_ptr<Text2D> t = std::make_shared<Text2D>(font, j.value("text", std::string()), j.value("size", 1.0f), color);
+			t->SetFontPath(authored);
+			if (j.contains("anchor") && j["anchor"].is_array() && j["anchor"].size() >= 2) t->SetAnchor(Vec2FromJson(j["anchor"]));
+			go->Add(std::static_pointer_cast<IComponent>(t));
 		}
 		else if (type == "UIText")
 		{

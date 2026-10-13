@@ -107,7 +107,9 @@ namespace p3d {
 			SpriteMask2D,
 			// A line with width, drawn through a list of points - or laid
 			// down behind a moving object as a trail. See Line2D.h.
-			Line2D
+			Line2D,
+			// Words in the world, an object's own. See Text2D.h.
+			Text2D
 		};
 	}
 

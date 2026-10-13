@@ -62,6 +62,7 @@
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Text2D.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaView2D.h>
 #include <Pyros3D/Physics/Physics2D/Joint2D.h>
 #include <fstream>
@@ -3585,7 +3586,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				&& type != ComponentType::Layer2D && type != ComponentType::RenderingComponent
 				&& type != ComponentType::Sprite2D && type != ComponentType::SpriteBatch2D
 				&& type != ComponentType::Joint2D
-				&& type != ComponentType::SpriteMask2D && type != ComponentType::Line2D)
+				&& type != ComponentType::SpriteMask2D && type != ComponentType::Line2D
+				&& type != ComponentType::Text2D)
 				continue;
 			// The mesh a sprite or a sprite batch made for itself has nothing
 			// of its own to show: everything about it is the sprite's.
@@ -3744,6 +3746,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				DrawSpriteMask2DProperties(goId, static_cast<SpriteMask2D*>(comps[i].get()));
 			else if (type == ComponentType::Line2D)
 				DrawLine2DProperties(goId, static_cast<Line2D*>(comps[i].get()));
+			else if (type == ComponentType::Text2D)
+				DrawText2DProperties(goId, static_cast<Text2D*>(comps[i].get()));
 			else if (type == ComponentType::Occluder2D)
 			{
 				Occluder2D* oc = static_cast<Occluder2D*>(comps[i].get());

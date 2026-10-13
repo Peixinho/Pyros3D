@@ -13,6 +13,7 @@
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Text2D.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
@@ -124,6 +125,35 @@ namespace p3d {
 		//   local t = Line2D.new()               -- behind a moving thing
 		//   t:setTrail(true)  t:setTrailLifetime(0.4)  t:setWidth(0.3, 0)
 		//   bullet:addComponent(t)
+		// Words in the world: Text2D.new("assets/fonts/x.ttf", "+100", 0.6),
+		// added to an object like a sprite. The size is the em's height in
+		// world units; the object's origin is the block's middle unless
+		// setAnchor says otherwise ((0, 0) is its bottom left).
+		lua->new_usertype<Text2D>("Text2D",
+			sol::factories(
+				[](const std::string &fontPath, const std::string &text, const f32 size, sol::this_state ts) {
+					sol::state_view lv(ts);
+					std::shared_ptr<Font> font = std::make_shared<Font>(ResolveForScript(lv, fontPath), 64.f, true);
+					std::shared_ptr<Text2D> t = std::make_shared<Text2D>(font, text, size);
+					t->SetFontPath(fontPath);
+					return t;
+				}),
+			"setText", &Text2D::SetText,
+			"getText", &Text2D::GetText,
+			"setColor", sol::overload(
+				[](Text2D &t, const Vec4 &c) { t.SetColor(c); },
+				[](Text2D &t, const f32 r, const f32 g, const f32 b, const f32 a) { t.SetColor(Vec4(r, g, b, a)); }),
+			"getColor", &Text2D::GetColor,
+			"setAlpha", &Text2D::SetAlpha,
+			"setSize", &Text2D::SetSize,
+			"getSize", &Text2D::GetSize,
+			"setAnchor", sol::overload(
+				[](Text2D &t, const Vec2 &a) { t.SetAnchor(a); },
+				[](Text2D &t, const f32 x, const f32 y) { t.SetAnchor(Vec2(x, y)); }),
+			"getBlockSize", [](Text2D &t) { const Vec2 s = t.GetBlockSize(); return std::make_tuple(s.x, s.y); },
+			sol::base_classes, sol::bases<IComponent>()
+			);
+
 		lua->new_usertype<Line2D>("Line2D",
 			sol::factories([]() { return std::make_shared<Line2D>(); }),
 			"setPoints", [](Line2D &l, sol::table pts) {

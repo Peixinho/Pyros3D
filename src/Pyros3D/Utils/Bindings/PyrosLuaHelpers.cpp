@@ -15,6 +15,7 @@
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
+#include <Pyros3D/Rendering/Components/Sprite2D/Text2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
 #include <Pyros3D/Physics/Physics2D/Joint2D.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
@@ -344,6 +345,8 @@ namespace p3d {
 			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<SpriteMask2D>>());
 		if (o.is<std::shared_ptr<Line2D>>())
 			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<Line2D>>());
+		if (o.is<std::shared_ptr<Text2D>>())
+			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<Text2D>>());
 		if (o.is<std::shared_ptr<Physics2D>>())
 			return std::static_pointer_cast<IComponent>(o.as<std::shared_ptr<Physics2D>>());
 		if (o.is<std::shared_ptr<Layer2D>>())
@@ -520,6 +523,8 @@ namespace p3d {
 				return sol::make_object(lua, std::static_pointer_cast<SpriteMask2D>(c));
 			if (typeName == "Line2D" && c->GetComponentType() == ComponentType::Line2D)
 				return sol::make_object(lua, std::static_pointer_cast<Line2D>(c));
+			if (typeName == "Text2D" && c->GetComponentType() == ComponentType::Text2D)
+				return sol::make_object(lua, std::static_pointer_cast<Text2D>(c));
 			if (typeName == "Occluder2D" && c->GetComponentType() == ComponentType::Occluder2D)
 				return sol::make_object(lua, std::static_pointer_cast<Occluder2D>(c));
 			if (typeName == "Joint2D" && c->GetComponentType() == ComponentType::Joint2D)

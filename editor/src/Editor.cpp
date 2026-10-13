@@ -3478,6 +3478,19 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	//       sortOrder, trail, lifetime, minDistance, emitting, clearTrail}
 	//   line2d_info {object}
 	// set_line2d works while playing, where it pokes the running line.
+	// {"cmd":"add_text2d","args":{"object":"Sign","font":"assets/fonts/x.ttf","text":"GO","size":0.8}} -
+	// words in the world, on an object; set_text2d changes text / size / color / anchor.
+	if (name == "add_text2d" || name == "set_text2d" || name == "text2d_info")
+	{
+		const std::string objName = A("object").empty() ? A("name") : A("object");
+		if (objName.empty()) throw std::runtime_error(name + ": 'object' is required");
+		if (name == "add_text2d" && !sceneView->AgentAddText2D(objName, a, err)) throw std::runtime_error(err);
+		if (name == "set_text2d" && !sceneView->AgentSetText2D(objName, a, err)) throw std::runtime_error(err);
+		nlohmann::json r = sceneView->AgentText2DInfo(objName, err);
+		if (!err.empty()) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "add_line2d" || name == "set_line2d" || name == "line2d_info")
 	{
 		const std::string objName = A("object").empty() ? A("name") : A("object");

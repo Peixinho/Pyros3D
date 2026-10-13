@@ -108,6 +108,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Sprite2D/Line2D.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Sprite2D/Text2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Physics2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Joint2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Physics2DWorld.cpp
