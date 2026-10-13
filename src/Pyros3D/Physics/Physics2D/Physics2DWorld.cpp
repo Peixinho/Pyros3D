@@ -848,7 +848,7 @@ namespace p3d {
 				b2DestroyJoint(MakeJointId(j));
 				j->ClearJointHandle();
 			}
-			if (!j->HaveJoint()) BuildJoint(j, found, &world);
+			if (!j->HaveJoint() && !j->IsBroken()) BuildJoint(j, found, &world);
 			if (j->HaveJoint())
 			{
 				trackedJointIds[i].index = j->GetJointIndex();
@@ -1484,6 +1484,28 @@ namespace p3d {
 			// and left inside the frame would never be heard from.
 			DispatchContacts(&world);
 			if (!live) return;
+			// Joints asked to hold more than they can: undone here, between
+			// steps, and their owners told once everything has been looked
+			// at (what they do about it may add or remove joints).
+			{
+				std::vector<Joint2D*> gone;
+				for (size_t i = 0; i < trackedJoints.size(); i++)
+				{
+					Joint2D* j = trackedJoints[i];
+					if (!j || j->GetBreakForce() <= 0.f || j->IsBroken() || !j->HaveJoint()) continue;
+					const b2JointId id = MakeJointId(j);
+					if (!b2Joint_IsValid(id)) continue;
+					const b2Vec2 f = b2Joint_GetConstraintForce(id);
+					if (f.x * f.x + f.y * f.y <= j->GetBreakForce() * j->GetBreakForce()) continue;
+					b2DestroyJoint(id);
+					j->ClearJointHandle();
+					j->MarkBroken();
+					gone.push_back(j);
+				}
+				for (size_t i = 0; i < gone.size(); i++)
+					if (gone[i]->OnBreak) gone[i]->OnBreak();
+				if (!live) return;
+			}
 		}
 		if (steps == maxSteps) accumulator = 0.0;
 

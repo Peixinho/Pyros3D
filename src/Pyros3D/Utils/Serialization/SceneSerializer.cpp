@@ -2007,6 +2007,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				j["lower"] = jt->GetLowerLimit();
 				j["upper"] = jt->GetUpperLimit();
 			}
+			if (jt->GetBreakForce() > 0.f) j["breakForce"] = jt->GetBreakForce();
 			if (jt->IsMotorEnabled() || jt->GetMotorSpeed() != 0.f)
 			{
 				j["motor"] = jt->IsMotorEnabled();
@@ -4191,6 +4192,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			jn->SetMotor(j.value("motor", false), j.value("motorSpeed", 0.f), j.value("maxMotorForce", 100.f));
 			jn->SetSpring(j.value("spring", false), j.value("hertz", 4.f), j.value("damping", 0.7f));
 			jn->SetLength(j.value("length", 0.f));
+			jn->SetBreakForce(j.value("breakForce", 0.f));
 			go->Add(jn);
 			return;
 		}

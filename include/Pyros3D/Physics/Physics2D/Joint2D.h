@@ -129,6 +129,18 @@ namespace p3d {
 		// what a vehicle's throttle or a conveyor's switch calls every frame.
 		void SetMotorSpeed(const f32 speed);
 
+		// A joint that gives way: asked to hold more than this (a force, in
+		// the units a motor's is - mass x units / s^2) it is undone, and
+		// stays undone: a rope that snaps, a bridge that drops its plank, a
+		// crate torn off its chain. 0, the default, never breaks. OnBreak
+		// is called once when it goes; Mend() makes it again.
+		f32 GetBreakForce() const { return breakForce; }
+		void SetBreakForce(const f32 force) { breakForce = force > 0.f ? force : 0.f; }
+		bool IsBroken() const { return broken; }
+		void Mend() { broken = false; dirty = true; }
+		void MarkBroken() { broken = true; }
+		std::function<void()> OnBreak;
+
 		// A spring pulls the joint towards rest rather than holding it
 		// rigidly: `hertz` is how stiff (oscillations a second), `damping`
 		// how quickly it settles (1 = no bounce).
@@ -227,6 +239,8 @@ namespace p3d {
 		bool spring;
 		f32 hertz, damping;
 		f32 length;
+		f32 breakForce = 0.f;
+		bool broken = false;
 
 		bool haveReference;
 		Vec2 referenceAnchor;

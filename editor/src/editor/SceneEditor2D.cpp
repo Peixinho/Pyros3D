@@ -565,6 +565,15 @@ void SceneEditor::DrawJoint2DProperties(GameObject* go, uint32 goId, Joint2D* jt
 
 	if (plain && t != Joint2DType::Weld)
 	{
+		{
+			f32 breaks = jt->GetBreakForce();
+			BeginComponentUndo(goId);
+			if (ImGui::DragFloat("Breaks At", &breaks, 1.f, 0.f, 1000000.f, breaks > 0.f ? "%.0f" : "never"))
+			{ jt->SetBreakForce(std::max(0.f, breaks)); MarkSceneDirty(); }
+			EndComponentUndo(goId, "Set Joint Break Force");
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Asked to hold more than this force the joint is undone, and stays undone:\na rope that snaps. 0 never breaks.");
+		}
 		bool en = jt->IsMotorEnabled();
 		const std::string b = SnapshotSubtree(goId);
 		if (ImGui::Checkbox("Motor", &en))
@@ -761,7 +770,7 @@ bool SceneEditor::AgentApplyJoint2D(Joint2D* jt, const json& p, std::string& err
 {
 	static const char* known[] = { "object", "name", "joint", "connected", "anchor", "connectedAnchor", "axis",
 		"collideConnected", "limit", "lower", "upper", "lowerDegrees", "upperDegrees", "motor", "motorSpeed",
-		"motorSpeedDegrees", "maxMotorForce", "spring", "hertz", "damping", "length",
+		"motorSpeedDegrees", "maxMotorForce", "spring", "hertz", "damping", "length", "breakForce",
 		"target", "groundAnchor", "connectedGroundAnchor", "ratio", NULL };
 	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
 	{
@@ -833,6 +842,8 @@ bool SceneEditor::AgentApplyJoint2D(Joint2D* jt, const json& p, std::string& err
 		// lower and an upper for limits they want off.
 		if (!p.contains("limit") && anyLimit) limit = true;
 		if (anyLimit) jt->SetLimits(limit, lower, upper);
+
+		if (p.contains("breakForce")) jt->SetBreakForce(p["breakForce"].get<f32>());
 
 		bool motor = jt->IsMotorEnabled();
 		f32 speed = jt->GetMotorSpeed(), force = jt->GetMaxMotorForce();
@@ -1030,6 +1041,8 @@ json SceneEditor::AgentPhysics2DInfo(const std::string& name, std::string& errOu
 		j["motor"] = jt->IsMotorEnabled();
 		j["motorSpeed"] = jt->GetMotorSpeed();
 		j["maxMotorForce"] = jt->GetMaxMotorForce();
+		j["breakForce"] = jt->GetBreakForce();
+		j["broken"] = jt->IsBroken();
 		j["spring"] = jt->IsSpringEnabled();
 		j["hertz"] = jt->GetSpringHertz();
 		j["damping"] = jt->GetSpringDamping();

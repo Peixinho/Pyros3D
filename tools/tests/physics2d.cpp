@@ -783,6 +783,37 @@ int main()
 			: "a body replaced by a new component leaves no ghost behind");
 	}
 
+	// --- a joint that gives way ----------------------------------------------
+	{
+		// Two weights on rods from the ceiling: one rod breaks at less than
+		// its weight pulls, the other at far more.
+		Rig r;
+		std::shared_ptr<Physics2D> beam = r.Body("Beam", Vec2(0.f, 5.f), Body2DType::Static, Shape2DType::Box, Vec2(4.f, 0.2f));
+		std::shared_ptr<Physics2D> weak = r.Body("Weak", Vec2(-2.f, 3.f), Body2DType::Dynamic, Shape2DType::Box, Vec2(0.5f, 0.5f));
+		std::shared_ptr<Physics2D> strong = r.Body("Strong", Vec2(2.f, 3.f), Body2DType::Dynamic, Shape2DType::Box, Vec2(0.5f, 0.5f));
+		(void)beam;
+		int heard = 0;
+		std::shared_ptr<Joint2D> jw = std::make_shared<Joint2D>((uint32)Joint2DType::Weld);
+		jw->SetConnected("Beam");
+		jw->SetBreakForce(weak->GetDensity() * 1.f * 3.f);        // mass 1 x g ~10: far more than this
+		jw->OnBreak = [&heard]() { heard++; };
+		weak->GetOwner()->Add(std::static_pointer_cast<IComponent>(jw));
+		std::shared_ptr<Joint2D> js = std::make_shared<Joint2D>((uint32)Joint2DType::Weld);
+		js->SetConnected("Beam");
+		js->SetBreakForce(100000.f);
+		strong->GetOwner()->Add(std::static_pointer_cast<IComponent>(js));
+		r.Run(90);
+		check(jw->IsBroken() && heard == 1, "a joint asked to hold more than its break force is undone, and says so once");
+		check(PosOf(weak).y < 1.f, "what it held falls");
+		check(!js->IsBroken(), "one that can take the load holds");
+		nearly(PosOf(strong).y, 3.f, 0.05f, "and what it holds stays");
+		jw->Mend();
+		weak->GetOwner()->SetPosition(Vec3(-2.f, 3.f, 0.f));
+		jw->SetBreakForce(0.f);
+		r.Run(60);
+		check(!jw->IsBroken() && jw->HaveJoint(), "mended, it is made again");
+	}
+
 	// --- a body made before the scene has walked its object ------------------
 	{
 		// A subtree put into a running scene - a prefab a script spawns -

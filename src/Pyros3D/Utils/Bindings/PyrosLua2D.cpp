@@ -364,6 +364,13 @@ namespace p3d {
 			"setMotor", &Joint2D::SetMotor,
 			// Every frame if you like: applied to the running joint.
 			"setMotorSpeed", &Joint2D::SetMotorSpeed,
+			// A joint that gives way under more than this; joint.onBreak =
+			// function() ... end hears it go, joint:mend() makes it again.
+			"setBreakForce", &Joint2D::SetBreakForce,
+			"getBreakForce", &Joint2D::GetBreakForce,
+			"isBroken", &Joint2D::IsBroken,
+			"mend", &Joint2D::Mend,
+			"onBreak", &Joint2D::OnBreak,
 			// Target: where it pulls to, in the world. Cheap - set it every
 			// frame (the mouse, a marker).
 			"setTarget", sol::overload(
