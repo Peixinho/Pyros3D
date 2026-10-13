@@ -160,7 +160,13 @@ EMSCRIPTEN_BINDINGS(pyros3d_physics)
 		.function("addWheel", &PhysicsVehicle::AddWheel)
 		.function("getWheelCount", &PhysicsVehicle_GetWheelCount)
 		.function("getWheelTransform", &PhysicsVehicle_GetWheelTransform)
-		.function("isFrontWheel", &PhysicsVehicle_IsFrontWheel);
+		.function("isFrontWheel", &PhysicsVehicle_IsFrontWheel)
+		// Where a wheel is now - what a page needs to draw it: how far up its
+		// suspension, how far turned on its axle and about its steering axis.
+		.function("getWheelTravel", optional_override([](PhysicsVehicle &v, uint32 i) { return i < v.GetWheels().size() ? v.GetWheels()[i].Travel : 0.f; }))
+		.function("getWheelSteer", optional_override([](PhysicsVehicle &v, uint32 i) { return i < v.GetWheels().size() ? v.GetWheels()[i].Steer : 0.f; }))
+		.function("getWheelSpin", optional_override([](PhysicsVehicle &v, uint32 i) { return i < v.GetWheels().size() ? v.GetWheels()[i].Spin : 0.f; }))
+		.function("isWheelInContact", optional_override([](PhysicsVehicle &v, uint32 i) { return i < v.GetWheels().size() ? v.GetWheels()[i].InContact : false; }));
 
 	emscripten::function("asPhysicsVehicle", &AsPhysicsVehicle);
 

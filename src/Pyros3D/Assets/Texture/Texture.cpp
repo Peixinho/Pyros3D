@@ -52,7 +52,7 @@ namespace p3d {
 #define LastUnitBinded (t_ownUnits ? t_lastUnit : Texture::LastUnitBinded)
 	void Texture::ResetUnitCounter() { UnitBinded = 0; LastUnitBinded = 0; }
 
-	Texture::Texture() : GL_ID(-1), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0), storedSamples(0) {}
+	Texture::Texture() : GL_ID(-1), Type(TextureType::Texture), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0), storedSamples(0) {}
 
 	Texture::~Texture()
 	{
@@ -266,6 +266,12 @@ namespace p3d {
 		// this only survives for a Texture built directly via this method
 		// (no path available at all).
 		this->RawData = data;
+		// What kind of texture this is. It was never recorded here - only
+		// LoadTexture and CreateEmptyTexture did - and the member had no
+		// default, so a texture made straight from bytes was whatever kind
+		// the memory under it said: now and then a cube map, which is sent
+		// to the wrong target and draws black.
+		this->Type = Type;
 
 		if (this->GL_ID == -1) {
 			this->GL_ID = Device().CreateTextureObject();
