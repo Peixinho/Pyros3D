@@ -6,6 +6,7 @@
 // Description : Model Geometry
 //============================================================================
 
+#include <cstdio>
 #include <cstdint>
 #include <cmath>
 #include <unordered_map>
@@ -411,7 +412,16 @@ namespace p3d {
 			out->BoneOffsetMatrix = g.BoneOffsetMatrix;
 
 			const uint32 want = std::max(4u, (uint32)((f32)tris * Ratio));
-			if (tris <= 16 || want >= tris || g.tVertex.empty())
+			// A triangle list that names a vertex the geometry does not have
+			// (seen in old .p3dm files) cannot be simplified - and reading
+			// it as if it could took the editor down, from a thumbnail.
+			bool sound = true;
+			for (size_t i = 0; i < g.index.size(); i++)
+				if (g.index[i] >= g.tVertex.size()) { sound = false; break; }
+			if (!sound)
+				fprintf(stderr, "SimplifiedModel: '%s' geometry %d has %d vertices and a triangle list that goes past them - kept as it is\n",
+					Path.c_str(), (int)gi, (int)g.tVertex.size());
+			if (!sound || tris <= 16 || want >= tris || g.tVertex.empty())
 			{
 				// nothing to gain: as it is
 				out->index = g.index;

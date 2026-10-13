@@ -435,6 +435,49 @@ void main() {
 			float segLen = t1 - t0;
 			float stepLen = segLen / float(steps);
 
+			// And of that stretch, only the part inside the cone. The march
+			// used to walk the whole sphere, testing the cone at every step:
+			// with the camera inside a wide light's radius that is every
+			// pixel of the screen, most of it for samples that add nothing.
+			// The ray meets the cone's surface at the roots of a quadratic;
+			// those cut the stretch into at most three, and the ones whose
+			// middle is inside the cone are kept. The spacing between samples
+			// stays what the light's step count asks for over the sphere, so
+			// the picture is the same - there are just fewer of them.
+			float cLo = t0, cHi = t1;
+			if (uOutterCone > 0.0)
+			{
+				float cc = uOutterCone * uOutterCone;
+				float dv = dot(rayDir, spotAxis), cd = dot(oc, spotAxis);
+				float qa = dv * dv - cc;
+				float qb = 2.0 * (dv * cd - dot(rayDir, oc) * cc);
+				float qc = cd * cd - dot(oc, oc) * cc;
+				float r0 = t0, r1 = t0;
+				if (abs(qa) > 1e-6)
+				{
+					float dq = qb * qb - 4.0 * qa * qc;
+					if (dq > 0.0)
+					{
+						float sd = sqrt(dq);
+						float ra = (-qb - sd) / (2.0 * qa), rb = (-qb + sd) / (2.0 * qa);
+						r0 = clamp(min(ra, rb), t0, t1);
+						r1 = clamp(max(ra, rb), t0, t1);
+					}
+				}
+				else if (abs(qb) > 1e-6)
+					r0 = r1 = clamp(-qc / qb, t0, t1);
+				cLo = t1; cHi = t0;
+				vec3 q0 = rayDir * (0.5 * (t0 + r0)) - lightPosition;
+				if (r0 > t0 && dot(q0, spotAxis) > uOutterCone * length(q0)) { cLo = min(cLo, t0); cHi = max(cHi, r0); }
+				vec3 q1 = rayDir * (0.5 * (r0 + r1)) - lightPosition;
+				if (r1 > r0 && dot(q1, spotAxis) > uOutterCone * length(q1)) { cLo = min(cLo, r0); cHi = max(cHi, r1); }
+				vec3 q2 = rayDir * (0.5 * (r1 + t1)) - lightPosition;
+				if (t1 > r1 && dot(q2, spotAxis) > uOutterCone * length(q2)) { cLo = min(cLo, r1); cHi = max(cHi, t1); }
+			}
+			if (cHi > cLo)
+			{
+			int marched = int(clamp(ceil((cHi - cLo) / stepLen), 1.0, float(steps)));
+
 			// Interleaved gradient noise on the ray's start offset. Without
 			// it a fixed step pattern puts every sample of neighbouring
 			// pixels at the same depths and the cone reads as hard banded
@@ -448,9 +491,9 @@ void main() {
 			float gg = g * g;
 
 			float inScatter = 0.0;
-			for (int i = 0; i < steps; i++)
+			for (int i = 0; i < marched; i++)
 			{
-				vec3 p = rayDir * (t0 + (float(i) + dither) * stepLen);
+				vec3 p = rayDir * (cLo + (float(i) + dither) * stepLen);
 
 				float sAtt = Attenuation(p, lightPosition, lightRadius);
 				if (sAtt <= 0.0)
@@ -472,6 +515,7 @@ void main() {
 				inScatter += sAtt * sCone * sShadow * phase;
 			}
 			lit += lightColor.xyz * inScatter * density * stepLen;
+			}
 			}
 			}
 		}
