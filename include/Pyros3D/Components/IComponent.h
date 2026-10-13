@@ -109,7 +109,10 @@ namespace p3d {
 			// down behind a moving object as a trail. See Line2D.h.
 			Line2D,
 			// Words in the world, an object's own. See Text2D.h.
-			Text2D
+			Text2D,
+			// An outline in the plane of the screen given depth: 2.5D ground,
+			// with its collider. See Extrusion2D.h.
+			Extrusion2D
 		};
 	}
 

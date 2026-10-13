@@ -63,6 +63,7 @@ using json = nlohmann::json;
 #include "UI/IUInterface.h"
 #include "libgizmo/IGizmo.h"
 #include "SceneObjects.h"
+namespace p3d { class Extrusion2D; }
 namespace p3d { class Sprite2D; class SpriteMask2D; class Line2D; class Text2D; class SpriteBatch2D; class Physics2D; class Joint2D; class Layer2D; }
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include "Grid.h"
@@ -1349,6 +1350,22 @@ public:
 	bool AgentSetText2D(const std::string& name, const json& p, std::string& errOut);
 	json AgentText2DInfo(const std::string& name, std::string& errOut);
 	void DrawText2DProperties(uint32 goId, p3d::Text2D* t);
+	// Extrusion2D (SceneEditorExtrusion.cpp): an outline given depth, with its collider.
+	bool OpAddExtrusion2D(uint32 goId, std::string& errOut);
+	bool AgentApplyExtrusion2D(p3d::Extrusion2D* ex, const json& p, std::string& errOut);
+	bool AgentAddExtrusion2D(const std::string& name, const json& p, std::string& errOut);
+	bool AgentSetExtrusion2D(const std::string& name, const json& p, std::string& errOut);
+	json AgentExtrusion2DInfo(const std::string& name, std::string& errOut);
+	bool AgentEditExtrusion2D(const std::string& name, const bool on, std::string& errOut);
+	bool AgentDragExtrusion2D(const std::string& name, const json& p, std::string& errOut);
+	void DrawExtrusion2DProperties(uint32 goId, p3d::Extrusion2D* ex);
+	p3d::Extrusion2D* SelectedExtrusion2D(uint32* goIdOut = NULL, p3d::GameObject** goOut = NULL);
+	bool ExtrusionCursor(p3d::GameObject* go, p3d::Vec2& local, p3d::f32& reach) const;
+	void DrawExtrusion2DOverlay();
+	bool HandleExtrusion2DInput();
+	bool extrusionEdit = false;
+	int extrusionHover = -1, extrusionDrag = -1;
+	std::string extrusionBefore;
 private:
 	// A Plane-and-material sprite (what Add Sprite used to make) into a
 	// Sprite2D that looks the same. `record` pushes one undo entry.

@@ -14,6 +14,7 @@
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Text2D.h>
+#include <Pyros3D/Rendering/Components/Extrusion2D/Extrusion2D.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/Occluder2D/Occluder2D.h>
@@ -132,6 +133,47 @@ namespace p3d {
 		// added to an object like a sprite. The size is the em's height in
 		// world units; the object's origin is the block's middle unless
 		// setAnchor says otherwise ((0, 0) is its bottom left).
+		// An outline given depth, with its collider (see Extrusion2D.h):
+		//   local ground = go:getComponent("Extrusion2D")
+		//   local y = ground:heightAt(x)                 -- an open outline's height at x, in its own space
+		//   ground:setPoint(3, x, y) ground:apply()      -- the shape, and the collider with it, changed while playing
+		lua->new_usertype<Extrusion2D>("Extrusion2D",
+			sol::factories([]() { return std::make_shared<Extrusion2D>(); }),
+			"setPoints", [](Extrusion2D &e, sol::table pts) {
+				std::vector<Vec2> v;
+				for (size_t i = 1; i <= pts.size(); i++)
+				{
+					sol::object o = pts[i];
+					if (o.is<Vec2>()) v.push_back(o.as<Vec2>());
+					else if (o.is<sol::table>()) { sol::table t = o; v.push_back(Vec2(t.get_or(1, 0.f), t.get_or(2, 0.f))); }
+				}
+				e.SetPoints(v);
+			},
+			"getPointCount", [](Extrusion2D &e) { return (int)e.GetPoints().size(); },
+			"getPoint", [](Extrusion2D &e, const int i) {
+				if (i < 1 || (size_t)i > e.GetPoints().size()) return std::make_tuple(0.f, 0.f);
+				return std::make_tuple(e.GetPoints()[(size_t)i - 1].x, e.GetPoints()[(size_t)i - 1].y);
+			},
+			"setPoint", [](Extrusion2D &e, const int i, const f32 x, const f32 y) { if (i >= 1) e.SetPoint((uint32)(i - 1), Vec2(x, y)); },
+			"addPoint", [](Extrusion2D &e, const f32 x, const f32 y) { e.AddPoint(Vec2(x, y)); },
+			"setClosed", &Extrusion2D::SetClosed, "isClosed", &Extrusion2D::IsClosed,
+			"setSmooth", &Extrusion2D::SetSmooth, "getSmooth", &Extrusion2D::GetSmooth,
+			"setDepth", &Extrusion2D::SetDepth, "getDepth", &Extrusion2D::GetDepth,
+			"setFloor", &Extrusion2D::SetFloor, "getFloor", &Extrusion2D::GetFloor,
+			"setTile", &Extrusion2D::SetTile,
+			"setCollider", &Extrusion2D::SetCollider,
+			"heightAt", &Extrusion2D::HeightAt,
+			// the curve the points make: a table of {x, y}
+			"getPath", [](Extrusion2D &e, sol::this_state ts) {
+				sol::state_view lv(ts);
+				sol::table out = lv.create_table();
+				const std::vector<Vec2> &p = e.GetPath();
+				for (size_t i = 0; i < p.size(); i++) out[i + 1] = lv.create_table_with(1, p[i].x, 2, p[i].y);
+				return out;
+			},
+			"apply", &Extrusion2D::Apply,
+			sol::base_classes, sol::bases<IComponent>());
+
 		lua->new_usertype<Text2D>("Text2D",
 			sol::factories(
 				[](const std::string &fontPath, const std::string &text, const f32 size, sol::this_state ts) {

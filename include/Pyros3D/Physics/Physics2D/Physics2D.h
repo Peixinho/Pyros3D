@@ -117,7 +117,9 @@ namespace p3d {
 		// `loop` joins the last back to the first.
 		bool SetChain(const std::vector<Vec2> &points, const bool loop);
 		bool IsChainLoop() const { return chainLoop; }
-		enum { MaxOutlinePoints = 256 };
+		// (a chain may be long - the ground of a whole level; a polygon is
+		// still cut into convex pieces of eight, however many points it has)
+		enum { MaxOutlinePoints = 4096 };
 		// A simple polygon as convex pieces of at most 8 points each, which
 		// is what the solver can collide: one piece for an outline already
 		// convex and small enough, triangles joined back together where the

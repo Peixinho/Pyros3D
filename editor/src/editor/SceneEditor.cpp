@@ -63,6 +63,7 @@
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Text2D.h>
+#include <Pyros3D/Rendering/Components/Extrusion2D/Extrusion2D.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaView2D.h>
 #include <Pyros3D/Physics/Physics2D/Joint2D.h>
 #include <fstream>
@@ -1324,7 +1325,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			// A collider being edited has the viewport's clicks; the gizmo
 			// is not drawn then and must not be grabbed blind.
-			if (!HandleCollider2DInput())
+			if (!HandleCollider2DInput() && !HandleExtrusion2DInput())
 				HandleViewportGizmoInput(viewCam);
 		}
 
@@ -1570,6 +1571,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (!playMode)
 		{
 			Draw2DReference();
+			// (in any kind of scene: an extrusion is as much a 3D scene's ground as a 2D one's)
+			DrawExtrusion2DOverlay();
 		}
 
 		if (!playMode && editingCanvas)
@@ -1580,7 +1583,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			PrepareGizmoForDraw(viewCam);
 			if (SelectedSceneObject != NULL && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT && gizmo != NULL
-				&& EditingCollider2D() == NULL)
+				&& EditingCollider2D() == NULL && !(extrusionEdit && SelectedExtrusion2D() != NULL))
 				gizmo->Draw();
 
 
@@ -3900,7 +3903,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				&& type != ComponentType::Sprite2D && type != ComponentType::SpriteBatch2D
 				&& type != ComponentType::Joint2D
 				&& type != ComponentType::SpriteMask2D && type != ComponentType::Line2D
-				&& type != ComponentType::Text2D)
+				&& type != ComponentType::Text2D && type != ComponentType::Extrusion2D)
 				continue;
 			// The mesh a sprite or a sprite batch made for itself has nothing
 			// of its own to show: everything about it is the sprite's.
@@ -4061,6 +4064,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				DrawLine2DProperties(goId, static_cast<Line2D*>(comps[i].get()));
 			else if (type == ComponentType::Text2D)
 				DrawText2DProperties(goId, static_cast<Text2D*>(comps[i].get()));
+			else if (type == ComponentType::Extrusion2D)
+				DrawExtrusion2DProperties(goId, static_cast<Extrusion2D*>(comps[i].get()));
 			else if (type == ComponentType::Occluder2D)
 			{
 				Occluder2D* oc = static_cast<Occluder2D*>(comps[i].get());
@@ -5802,6 +5807,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("A shape sprites are shown only inside (or outside) of: a window,\na porthole, a bar that empties. Put it on the PARENT of the sprites\nit cuts, and set each sprite's Mask to Inside or Outside.");
+
+			if (ImGui::MenuItem("Extrusion 2D"))
+			{
+				std::string xerr;
+				if (!OpAddExtrusion2D(goId, xerr))
+					echo("WARNING: could not add Extrusion 2D: " + xerr);
+				else extrusionEdit = true;
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("An outline given depth: ground to ride over, a platform, a wall -\nthe 3D shape of a 2D level, with the collider that goes with it.\nDrag its points in the view.");
 
 			if (ImGui::MenuItem("Line 2D"))
 			{

@@ -57,6 +57,7 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorTerrain.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorSprites.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorShapes2D.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorExtrusion.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditor2D.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorNetwork.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorWorld.cpp

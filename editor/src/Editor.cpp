@@ -3500,6 +3500,27 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// Extrusion2D: an outline given depth - 2.5D ground, with its collider. See SceneEditorExtrusion.cpp.
+	//   add_extrusion2d / set_extrusion2d {object, points [[x,y],...], closed, smooth, depth, floor, tile,
+	//       skin, face (images), skinColor, faceColor, collider}
+	//   extrusion2d_info {object}; edit_extrusion2d {object, on}; drag_extrusion2d {object, index + to | add (+at) | remove}
+	if (name == "add_extrusion2d" || name == "set_extrusion2d" || name == "extrusion2d_info" || name == "edit_extrusion2d" || name == "drag_extrusion2d")
+	{
+		const std::string objName = A("object").empty() ? A("name") : A("object");
+		if (objName.empty()) throw std::runtime_error(name + ": 'object' is required");
+		if (name == "add_extrusion2d" && !sceneView->AgentAddExtrusion2D(objName, a, err)) throw std::runtime_error(err);
+		if (name == "set_extrusion2d" && !sceneView->AgentSetExtrusion2D(objName, a, err)) throw std::runtime_error(err);
+		if (name == "edit_extrusion2d" && !sceneView->AgentEditExtrusion2D(objName, a.value("on", true), err)) throw std::runtime_error(err);
+		if (name == "drag_extrusion2d")
+		{
+			nlohmann::json p = a; p.erase("object"); p.erase("name");
+			if (!sceneView->AgentDragExtrusion2D(objName, p, err)) throw std::runtime_error(err);
+		}
+		nlohmann::json r = sceneView->AgentExtrusion2DInfo(objName, err);
+		if (!err.empty()) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "add_line2d" || name == "set_line2d" || name == "line2d_info")
 	{
 		const std::string objName = A("object").empty() ? A("name") : A("object");

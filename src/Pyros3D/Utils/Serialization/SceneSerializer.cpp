@@ -48,6 +48,7 @@
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Line2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Text2D.h>
+#include <Pyros3D/Rendering/Components/Extrusion2D/Extrusion2D.h>
 #include <Pyros3D/Physics/Physics2D/Joint2D.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
@@ -2235,6 +2236,25 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// (CreateEmptyTexture + UpdateData leaves no path and no
 			// RawData). Such an image reloads as a flat tinted quad.
 			SerializeTextureRef(j, "texture", img->GetTexture().get());
+			return j;
+		}
+		case ComponentType::Extrusion2D:
+		{
+			Extrusion2D* ex = dynamic_cast<Extrusion2D*>(c);
+			j["type"] = "Extrusion2D";
+			json pts = json::array();
+			for (size_t k = 0; k < ex->GetPoints().size(); k++) { pts.push_back(ex->GetPoints()[k].x); pts.push_back(ex->GetPoints()[k].y); }
+			j["points"] = pts;
+			if (ex->IsClosed()) j["closed"] = true;
+			j["smooth"] = ex->GetSmooth();
+			j["depth"] = ex->GetDepth();
+			j["floor"] = ex->GetFloor();
+			j["tile"] = ex->GetTile();
+			if (!ex->GetSkinTexturePath().empty()) j["skin"] = ex->GetSkinTexturePath();
+			if (!ex->GetFaceTexturePath().empty()) j["face"] = ex->GetFaceTexturePath();
+			j["skinColor"] = ToJson(ex->GetSkinColor());
+			j["faceColor"] = ToJson(ex->GetFaceColor());
+			if (!ex->HasCollider()) j["collider"] = false;
 			return j;
 		}
 		case ComponentType::Text2D:
@@ -4542,6 +4562,30 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				img->SetTexture(t);
 			if (j.find("border") != j.end()) img->SetBorder(Vec4FromJson(j["border"]));
 			go->Add(std::static_pointer_cast<IComponent>(img));
+		}
+		else if (type == "Extrusion2D")
+		{
+			std::shared_ptr<Extrusion2D> ex = std::make_shared<Extrusion2D>();
+			std::vector<Vec2> pts;
+			if (j.contains("points") && j["points"].is_array())
+				for (size_t k = 0; k + 1 < j["points"].size(); k += 2)
+					pts.push_back(Vec2(j["points"][k].get<f32>(), j["points"][k + 1].get<f32>()));
+			ex->SetPoints(pts);
+			ex->SetClosed(j.value("closed", false));
+			ex->SetSmooth(j.value("smooth", 6u));
+			ex->SetDepth(j.value("depth", 4.f));
+			ex->SetFloor(j.value("floor", -3.f));
+			ex->SetTile(j.value("tile", 3.f));
+			const std::string skin = j.value("skin", std::string()), face = j.value("face", std::string());
+			if (!skin.empty()) ex->SetSkinTexture(ResolveSceneAssetPath(skin), skin);
+			if (!face.empty()) ex->SetFaceTexture(ResolveSceneAssetPath(face), face);
+			ex->SetColors(j.contains("skinColor") ? Vec4FromJson(j["skinColor"]) : ex->GetSkinColor(),
+				j.contains("faceColor") ? Vec4FromJson(j["faceColor"]) : ex->GetFaceColor());
+			ex->SetCollider(j.value("collider", true));
+			go->Add(std::static_pointer_cast<IComponent>(ex));
+			// (its body, if it has one, was loaded with the points it had when saved: this makes
+			// the two agree again, whichever was listed first)
+			ex->Apply();
 		}
 		else if (type == "Text2D")
 		{

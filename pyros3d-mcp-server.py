@@ -5568,6 +5568,13 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         breakForce - asked to hold more than this the joint is undone; 0 never)
       physics2d_info (name) - body + joint, and the live state while playing
       set_layer2d (name, parallax, visible, automatic)
+      add_extrusion2d / set_extrusion2d (object, points [[x,y],...], closed,
+        smooth, depth, floor, tile, skin, face (images), skinColor, faceColor,
+        collider) - an outline given depth: 2.5D ground, a platform, a wall,
+        with a Physics2D chain kept along it. extrusion2d_info (object) reads it
+        back with the curve ("path"); edit_extrusion2d (object, on) shows the
+        points in the view; drag_extrusion2d (object, index + to | add (+at) |
+        remove) is what dragging / Shift-click / Alt-click there do.
       add_text2d / set_text2d (object, font, text, size, color, anchor) - words
         in the world, in scene units; text2d_info (object). Text authored
         "@key" is filled from assets/lang/<code>.json by lang.apply(scene).
