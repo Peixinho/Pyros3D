@@ -14092,6 +14092,45 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
+	// {"cmd":"tilemap_path","args":{"object":"Ground","from":[0,0],"to":[12,4]}} - the way across the open
+	// cells; with "walk": true the way something that stands on solid cells would go (and "jump",
+	// "distance", "drop", "height" say what it can do). Cells, as map:findPath / findWalkPath give them.
+	bool SceneEditor::AgentTileMapPath(const std::string& name, const json& p, json& outInfo, std::string& errOut)
+	{
+		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		TileMap2D* map = RawFindTileMap2D(obj->GetID());
+		if (!map) { errOut = "object '" + name + "' has no TileMap2D"; return false; }
+		if (!p.contains("from") || !p["from"].is_array() || p["from"].size() < 2 || !p.contains("to") || !p["to"].is_array() || p["to"].size() < 2)
+		{ errOut = "'from' and 'to' are required: [cellX, cellY]"; return false; }
+		const int32 x0 = p["from"][0].get<int32>(), y0 = p["from"][1].get<int32>();
+		const int32 x1 = p["to"][0].get<int32>(), y1 = p["to"][1].get<int32>();
+		json cells = json::array();
+		bool found = false;
+		if (p.value("walk", false))
+		{
+			WalkPathOptions2D o;
+			o.jumpHeight = p.value("jump", o.jumpHeight);
+			o.jumpDistance = p.value("distance", o.jumpDistance);
+			o.maxDrop = p.value("drop", o.maxDrop);
+			o.height = p.value("height", o.height);
+			std::vector<WalkStep2D> steps;
+			found = map->FindWalkPath(x0, y0, x1, y1, o, steps);
+			static const char* moves[] = { "start", "walk", "jump", "drop" };
+			for (size_t i = 0; i < steps.size(); i++)
+				cells.push_back({ { "x", steps[i].x }, { "y", steps[i].y }, { "move", moves[steps[i].move < 4 ? steps[i].move : 1] } });
+		}
+		else
+		{
+			std::vector<std::pair<int32, int32> > way;
+			found = map->FindPath(x0, y0, x1, y1, way);
+			for (size_t i = 0; i < way.size(); i++) cells.push_back({ { "x", way[i].first }, { "y", way[i].second } });
+		}
+		outInfo["found"] = found;
+		outInfo["cells"] = cells;
+		return true;
+	}
+
 	bool SceneEditor::AgentTileMapInfo(const std::string& name, json& outInfo, std::string& errOut)
 	{
 		SceneObject* obj = AgentFindGameObjectByName(sceneObjects, name);

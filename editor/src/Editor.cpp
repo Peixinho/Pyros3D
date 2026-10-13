@@ -3188,6 +3188,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 	// {"cmd":"tilemap_info","args":{"object":"Ground"}}
+	if (name == "tilemap_path")
+	{
+		nlohmann::json info;
+		if (!sceneView->AgentTileMapPath(A("object"), a, info, err))
+			throw std::runtime_error(err);
+		info["ok"] = true;
+		return info;
+	}
 	if (name == "tilemap_info")
 	{
 		nlohmann::json info;

@@ -353,6 +353,7 @@ public:
 	// the solid cells merge into - the last is the number worth watching, and
 	// nothing else reports it.
 	bool AgentTileMapInfo(const std::string& name, json& outInfo, std::string& errOut);
+	bool AgentTileMapPath(const std::string& name, const json& p, json& outInfo, std::string& errOut);
 
 	// --- tile painting (the editor's own paint mode) ------------------------
 	//
