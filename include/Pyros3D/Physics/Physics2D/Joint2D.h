@@ -18,6 +18,7 @@
 #ifndef JOINT2D_H
 #define JOINT2D_H
 
+#include <functional>
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Core/Math/Math.h>
 #include <string>
