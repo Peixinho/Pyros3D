@@ -495,6 +495,8 @@ namespace p3d {
 				"maxSpeed", &ParticleSystemDesc::maxSpeed,
 				"gravity", &ParticleSystemDesc::gravity,
 				"damping", &ParticleSystemDesc::damping,
+				"collide2D", &ParticleSystemDesc::collide2D,
+				"bounce", &ParticleSystemDesc::bounce,
 				"startSize", &ParticleSystemDesc::startSize,
 				"endSize", &ParticleSystemDesc::endSize,
 				"sizeRandomJitter", &ParticleSystemDesc::sizeRandomJitter,
@@ -526,6 +528,12 @@ namespace p3d {
 				"setSpeed", &ParticleSystem::SetSpeed,
 				"setGravity", &ParticleSystem::SetGravity,
 				"setDamping", &ParticleSystem::SetDamping,
+				// ps:setCollide2D(true, 0.4): stop at the 2D world's bodies,
+				// keeping that much of the speed into a surface.
+				"setCollide2D", sol::overload(
+					[](ParticleSystem &p, const bool on) { p.SetCollide2D(on); },
+					[](ParticleSystem &p, const bool on, const f32 bounce) { p.SetCollide2D(on, bounce); },
+					[](ParticleSystem &p, const bool on, const f32 bounce, const uint32 mask) { p.SetCollide2D(on, bounce, mask); }),
 				"setSizes", &ParticleSystem::SetSizes,
 				"setColors", &ParticleSystem::SetColors,
 				"setFade", &ParticleSystem::SetFade,

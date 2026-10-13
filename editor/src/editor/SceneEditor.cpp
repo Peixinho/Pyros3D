@@ -12022,6 +12022,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						commitParticleEdit("Set Particle Damping");
 					}
 					{
+						// Stopping at the 2D world's bodies: sparks that
+						// bounce, rain that ends at a roof.
+						bool collide = d.collide2D;
+						f32 bounce = d.bounce;
+						bool changed = ImGui::Checkbox("Collide (2D)", &collide);
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Particles stop at the bodies of the 2D world.\nA ray a particle a frame: for tens or hundreds, not thousands.");
+						if (collide) changed |= ImGui::SliderFloat("Bounce", &bounce, 0.f, 1.f);
+						if (changed)
+						{
+							ps->SetCollide2D(collide, bounce, d.collisionMask);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Collision");
+					}
+					{
 						f32 rot[2] = { d.minRotationSpeed, d.maxRotationSpeed };
 						if (ImGui::DragFloat2("Spin rad/s (min/max)", rot, 0.01f, -50.f, 50.f))
 						{
@@ -14863,6 +14879,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		desc.maxSpeed = F("maxSpeed", desc.maxSpeed);
 		desc.gravity = V3("gravity", desc.gravity);
 		desc.damping = F("damping", desc.damping);
+		if (p.is_object() && p.contains("collide2D") && p["collide2D"].is_boolean()) desc.collide2D = p["collide2D"].get<bool>();
+		desc.bounce = F("bounce", desc.bounce);
 		desc.startSize = F("startSize", desc.startSize);
 		desc.endSize = F("endSize", desc.endSize);
 		desc.sizeRandomJitter = F("sizeRandomJitter", desc.sizeRandomJitter);

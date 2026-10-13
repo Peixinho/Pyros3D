@@ -16,9 +16,16 @@
 //               the renderer: so it is the same on every backend, it works
 //               inside a SpriteBatch2D, and a sprite wholly outside a mask
 //               costs no draw at all. What that means for the shape is that
-//               it is hard-edged: a rectangle, a circle, a convex polygon, or
-//               the silhouette of an image (which is cut into rectangles
-//               when it is loaded). There is no soft, part-transparent edge.
+//               it is a rectangle, a circle, a convex polygon, or the
+//               silhouette of an image (which is cut into rectangles when
+//               it is loaded).
+//
+//               The edge is hard unless the mask is given a Feather: a
+//               width, inside the outline, over which what it shows fades
+//               out (or, for sprites shown outside it, in). That is cut
+//               too - a band of pieces round the edge whose corners carry
+//               the fade - so it is as much the same everywhere as the hard
+//               edge is. An image's silhouette has no feather.
 //============================================================================
 
 #ifndef SPRITEMASK2D_H
@@ -64,6 +71,11 @@ namespace p3d {
 		void SetSize(const Vec2 &s);
 		const Vec2 &GetOffset() const { return offset; }
 		void SetOffset(const Vec2 &o);
+		// How wide the soft edge is, in the scene's units, measured in from
+		// the outline. 0 is a hard edge. More than the shape has room for
+		// is as much as it has.
+		f32 GetFeather() const { return feather; }
+		void SetFeather(const f32 width);
 		// 3 to 16 points making a convex outline, either way round. False
 		// (and the old ones kept) for anything else.
 		bool SetPolygon(const std::vector<Vec2> &points);
@@ -111,6 +123,7 @@ namespace p3d {
 		int32 shape;
 		Vec2 size;
 		Vec2 offset;
+		f32 feather = 0.f;
 		std::vector<Vec2> polygon;
 		std::string imagePath;
 		int32 alphaThreshold = 127;

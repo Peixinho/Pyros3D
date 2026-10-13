@@ -41,6 +41,10 @@ namespace p3d {
 		// yet, and drops bodies whose component has gone. Cheap to call every
 		// frame - it does nothing when the set has not changed.
 		void Sync(SceneGraph* Scene);
+		// The world a scene's bodies are in - the one that last synced or
+		// stepped it - or NULL. For a component that wants to ask the 2D
+		// world something (a particle that bounces) without being handed it.
+		static Physics2DWorld* ForScene(const SceneGraph* Scene);
 
 		// Steps the solver, then writes each body's transform back onto its
 		// GameObject. Fixed sub-steps rather than the frame's own dt: a

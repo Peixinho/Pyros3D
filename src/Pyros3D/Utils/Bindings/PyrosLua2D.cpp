@@ -95,6 +95,9 @@ namespace p3d {
 				[](SpriteMask2D &m, const Vec2 &o) { m.SetOffset(o); },
 				[](SpriteMask2D &m, const f32 x, const f32 y) { m.SetOffset(Vec2(x, y)); }),
 			"getOffset", &SpriteMask2D::GetOffset,
+			// The width of the soft edge, in from the outline; 0 is hard.
+			"setFeather", &SpriteMask2D::SetFeather,
+			"getFeather", &SpriteMask2D::GetFeather,
 			// A table of Vec2, 3 to 16, convex. False if it is not.
 			"setPolygon", [](SpriteMask2D &m, sol::table pts) {
 				std::vector<Vec2> v;

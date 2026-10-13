@@ -581,6 +581,7 @@ void SceneEditor::ApplyParticleDesc(uint32 psId, const ParticleSystemDesc& desc)
 	ps->SetSpeed(desc.minSpeed, desc.maxSpeed);
 	ps->SetGravity(desc.gravity);
 	ps->SetDamping(desc.damping);
+	ps->SetCollide2D(desc.collide2D, desc.bounce, desc.collisionMask);
 	ps->SetSizes(desc.startSize, desc.endSize, desc.sizeRandomJitter);
 	ps->SetColors(desc.startColor, desc.endColor);
 	ps->SetFade(desc.fadeInFraction, desc.fadeOutFraction);

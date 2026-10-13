@@ -6,6 +6,8 @@
 // Description : Particle System
 //============================================================================
 
+#include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
+#include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
@@ -29,6 +31,9 @@ namespace p3d {
 		maxSpeed = 2.0f;
 		gravity = Vec3::ZERO;
 		damping = 0.0f;
+		collide2D = false;
+		bounce = 0.3f;
+		collisionMask = 0xFFFFFFFFu;
 		gpuSimulation = false;
 		startSize = 1.0f;
 		endSize = 2.0f;
@@ -433,6 +438,8 @@ namespace p3d {
 		// Integrate + age every live particle; dead ones are removed via
 		// swap-with-last-live (O(1)) instead of an ordered erase (O(n)) -
 		// order among live particles doesn't matter for rendering.
+		// (the 2D world to stop at, if this system was asked to)
+		const Physics2DWorld* world2D = (desc.collide2D && GetOwner()) ? Physics2DWorld::ForScene(GetOwner()->GetScene()) : NULL;
 		for (uint32 i = 0; i < liveCount; )
 		{
 			f32 age = (f32)time - cpuState[i].spawnTime;
@@ -451,6 +458,30 @@ namespace p3d {
 			cpuState[i].rotation += cpuState[i].rotationSpeed * dt;
 
 			Vec3 worldPos = gpuState[i].data0.xyz() + cpuState[i].velocity * dt;
+			if (world2D)
+			{
+				// Along this frame's move as a ray: where it meets a body
+				// the particle stops just short, and what speed it had
+				// into the surface is turned back, as much as it bounces.
+				const Vec3 was = gpuState[i].data0.xyz();
+				const Vec2 from(was.x, was.y), to(worldPos.x, worldPos.y);
+				if (fabsf(to.x - from.x) + fabsf(to.y - from.y) > 1e-6f)
+				{
+					const Physics2DWorld::RayHit2D hit = world2D->RayCast(from, to, NULL, NULL, desc.collisionMask);
+					if (hit.hit)
+					{
+						Vec3 &v = cpuState[i].velocity;
+						const f32 into = v.x * hit.normal.x + v.y * hit.normal.y;
+						if (into < 0.f)
+						{
+							v.x -= (1.f + desc.bounce) * into * hit.normal.x;
+							v.y -= (1.f + desc.bounce) * into * hit.normal.y;
+						}
+						worldPos.x = hit.point.x + hit.normal.x * 0.01f;
+						worldPos.y = hit.point.y + hit.normal.y * 0.01f;
+					}
+				}
+			}
 			f32 normalizedAge = cpuState[i].lifetime > 0.0f ? (age / cpuState[i].lifetime) : 1.0f;
 
 			gpuState[i].data0 = Vec4(worldPos, normalizedAge);

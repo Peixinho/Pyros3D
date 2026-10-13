@@ -616,6 +616,13 @@ namespace p3d {
 				const Vec2 w = pieces[k][i];
 				pieces[k][i] = Vec2(toMesh.m[0] * w.x + toMesh.m[4] * w.y + toMesh.m[12], toMesh.m[1] * w.x + toMesh.m[5] * w.y + toMesh.m[13]);
 			}
+		// A soft edge, for a shape that is one piece. Its width is the
+		// world's; the quads may be scaled.
+		if (mask->GetFeather() > 0.f && pieces.size() == 1)
+		{
+			const f32 scale = sqrtf(toMesh.m[0] * toMesh.m[0] + toMesh.m[1] * toMesh.m[1]);
+			return ClipSpriteMeshFeathered2D(out, first, pieces[0], maskMode == MaskInside, mask->GetFeather() * scale);
+		}
 		return ClipSpriteMeshPieces2D(out, first, pieces, maskMode == MaskInside);
 	}
 

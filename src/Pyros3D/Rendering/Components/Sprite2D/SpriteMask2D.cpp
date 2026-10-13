@@ -61,6 +61,11 @@ namespace p3d {
 	{
 		if (o.x != offset.x || o.y != offset.y) { offset = o; revision++; }
 	}
+	void SpriteMask2D::SetFeather(const f32 width)
+	{
+		const f32 w = width > 0.f ? width : 0.f;
+		if (w != feather) { feather = w; revision++; }
+	}
 	void SpriteMask2D::SetEnabled(const bool e)
 	{
 		if (e != enabled) { enabled = e; revision++; }

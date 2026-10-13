@@ -353,6 +353,13 @@ namespace p3d {
 	// removed).
 	PYROS3D_API bool ClipSpriteMesh2D(SpriteMesh2D &mesh, const size_t firstVertex,
 		const std::vector<Vec2> &convexOutline, const bool inside);
+	// The same with a soft edge: within `feather` of the outline, inside it,
+	// what is kept fades to nothing at the outline (or, kept outside, fades
+	// in from it). The band is cut into a piece an edge, and the fade is
+	// their corners' alpha - exact, since it runs straight across each. A
+	// feather wider than the shape has room for is narrowed to fit.
+	PYROS3D_API bool ClipSpriteMeshFeathered2D(SpriteMesh2D &mesh, const size_t firstVertex,
+		const std::vector<Vec2> &convexOutline, const bool inside, const f32 feather);
 	// The same against a shape made of several convex pieces that do not
 	// overlap - a mask cut from an image is a few dozen rectangles. Inside
 	// keeps what falls in any of them; outside, what falls in none.

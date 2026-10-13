@@ -6,6 +6,7 @@
 // Description : Owns the Box2D world for a scene's Physics2D components
 //============================================================================
 
+#include <map>
 #include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Physics/Physics2D/Joint2D.h>
@@ -115,8 +116,23 @@ namespace p3d {
 		accumulator = 0.0;
 	}
 
+	namespace {
+		std::map<const SceneGraph*, Physics2DWorld*> &WorldOfScene()
+		{
+			static std::map<const SceneGraph*, Physics2DWorld*> worlds;
+			return worlds;
+		}
+	}
+
 	Physics2DWorld::~Physics2DWorld()
 	{
+		{
+			std::map<const SceneGraph*, Physics2DWorld*> &w = WorldOfScene();
+			for (std::map<const SceneGraph*, Physics2DWorld*>::iterator it = w.begin(); it != w.end(); )
+			{
+				if (it->second == this) it = w.erase(it); else ++it;
+			}
+		}
 		if (live)
 		{
 			// Destroying the world destroys every body in it, so the tracked
@@ -736,9 +752,17 @@ namespace p3d {
 		p->haveSynced = true;
 	}
 
+	Physics2DWorld* Physics2DWorld::ForScene(const SceneGraph* Scene)
+	{
+		std::map<const SceneGraph*, Physics2DWorld*> &w = WorldOfScene();
+		std::map<const SceneGraph*, Physics2DWorld*>::iterator it = w.find(Scene);
+		return it != w.end() ? it->second : NULL;
+	}
+
 	void Physics2DWorld::Sync(SceneGraph* Scene)
 	{
 		if (Scene == NULL) return;
+		WorldOfScene()[Scene] = this;
 
 		// Collect this frame's components first, so a scene with none never
 		// creates a world at all.

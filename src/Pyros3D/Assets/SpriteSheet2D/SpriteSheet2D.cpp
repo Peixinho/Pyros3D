@@ -1037,6 +1037,143 @@ namespace p3d {
 		return ClipSpriteMeshPieces2D(mesh, firstVertex, one, inside);
 	}
 
+	namespace {
+		// The quads of `mesh` from `first` on, as a mesh of their own.
+		void TailOf(const SpriteMesh2D &mesh, const size_t first, SpriteMesh2D &out)
+		{
+			out.Clear();
+			const size_t n = mesh.vertex.size() - first;
+			out.vertex.assign(mesh.vertex.begin() + first, mesh.vertex.end());
+			out.texcoord.assign(mesh.texcoord.begin() + first, mesh.texcoord.end());
+			out.color.assign(mesh.color.begin() + first, mesh.color.end());
+			for (size_t i = 0; i < n; i++)
+			{
+				out.normal.push_back(first + i < mesh.normal.size() ? mesh.normal[first + i] : Vec3(0.f, 0.f, 1.f));
+				out.tangent.push_back(first + i < mesh.tangent.size() ? mesh.tangent[first + i] : Vec3(1.f, 0.f, 0.f));
+				out.bitangent.push_back(first + i < mesh.bitangent.size() ? mesh.bitangent[first + i] : Vec3(0.f, 1.f, 0.f));
+			}
+			for (size_t q = 0; q < n / 4; q++)
+			{
+				const __INDEX_C_TYPE__ base = (__INDEX_C_TYPE__)(q * 4);
+				out.index.push_back(base + 0); out.index.push_back(base + 1); out.index.push_back(base + 2);
+				out.index.push_back(base + 2); out.index.push_back(base + 3); out.index.push_back(base + 0);
+			}
+		}
+		void AppendQuads(SpriteMesh2D &to, const SpriteMesh2D &from)
+		{
+			const __INDEX_C_TYPE__ base = (__INDEX_C_TYPE__)to.vertex.size();
+			to.vertex.insert(to.vertex.end(), from.vertex.begin(), from.vertex.end());
+			to.texcoord.insert(to.texcoord.end(), from.texcoord.begin(), from.texcoord.end());
+			to.color.insert(to.color.end(), from.color.begin(), from.color.end());
+			to.normal.insert(to.normal.end(), from.normal.begin(), from.normal.end());
+			to.tangent.insert(to.tangent.end(), from.tangent.begin(), from.tangent.end());
+			to.bitangent.insert(to.bitangent.end(), from.bitangent.begin(), from.bitangent.end());
+			for (size_t i = 0; i < from.index.size(); i++) to.index.push_back(base + from.index[i]);
+		}
+		// A convex, counter-clockwise outline moved in by `by` on every
+		// side. False when there is not that much room: an edge would have
+		// turned round.
+		bool InsetOutline(const std::vector<Vec2> &o, const f32 by, std::vector<Vec2> &out)
+		{
+			const size_t n = o.size();
+			out.resize(n);
+			for (size_t i = 0; i < n; i++)
+			{
+				// the corner between the edge that arrives and the one that leaves
+				const Vec2 &p = o[(i + n - 1) % n], &c = o[i], &q = o[(i + 1) % n];
+				Vec2 d0(c.x - p.x, c.y - p.y), d1(q.x - c.x, q.y - c.y);
+				const f32 l0 = sqrtf(d0.x * d0.x + d0.y * d0.y), l1 = sqrtf(d1.x * d1.x + d1.y * d1.y);
+				if (l0 < 1e-9f || l1 < 1e-9f) return false;
+				d0 = Vec2(d0.x / l0, d0.y / l0); d1 = Vec2(d1.x / l1, d1.y / l1);
+				const Vec2 n0(-d0.y, d0.x), n1(-d1.y, d1.x);         // their insides
+				const Vec2 a(c.x + n0.x * by, c.y + n0.y * by);      // on the first, moved in
+				const Vec2 b(c.x + n1.x * by, c.y + n1.y * by);      // on the second
+				const f32 cross = d0.x * d1.y - d0.y * d1.x;
+				if (fabsf(cross) < 1e-6f) { out[i] = a; continue; }  // in line: no corner
+				const f32 t = ((b.x - a.x) * d1.y - (b.y - a.y) * d1.x) / cross;
+				out[i] = Vec2(a.x + d0.x * t, a.y + d0.y * t);
+			}
+			for (size_t i = 0; i < n; i++)
+			{
+				const Vec2 e(o[(i + 1) % n].x - o[i].x, o[(i + 1) % n].y - o[i].y);
+				const Vec2 f(out[(i + 1) % n].x - out[i].x, out[(i + 1) % n].y - out[i].y);
+				if (e.x * f.x + e.y * f.y <= 1e-9f) return false;
+			}
+			return true;
+		}
+	}
+
+	bool ClipSpriteMeshFeathered2D(SpriteMesh2D &mesh, const size_t firstVertex,
+		const std::vector<Vec2> &outlineIn, const bool inside, const f32 featherIn)
+	{
+		if (featherIn <= 0.f || outlineIn.size() < 3) return ClipSpriteMesh2D(mesh, firstVertex, outlineIn, inside);
+		if (firstVertex >= mesh.vertex.size()) return false;
+		std::vector<Vec2> outer = outlineIn;
+		CCW(outer);
+		// As wide as asked, or as wide as fits.
+		f32 feather = featherIn;
+		std::vector<Vec2> inner;
+		bool fits = false;
+		for (int tries = 0; tries < 16 && !fits; tries++)
+		{
+			fits = InsetOutline(outer, feather, inner);
+			if (!fits) feather *= 0.5f;
+		}
+		if (!fits) return ClipSpriteMesh2D(mesh, firstVertex, outer, inside);
+
+		SpriteMesh2D whole, result;
+		TailOf(mesh, firstVertex, whole);
+		// What is not in the band: inside the inner outline, or outside the outer.
+		{
+			SpriteMesh2D part = whole;
+			if (ClipSpriteMesh2D(part, 0, inside ? inner : outer, inside)) AppendQuads(result, part);
+		}
+		// The band, an edge at a time: the four-sided piece between an edge
+		// and the same edge moved in. Across it the fade runs straight from
+		// the outline to the inner edge, so a corner's alpha is how far in
+		// it is.
+		const size_t n = outer.size();
+		for (size_t i = 0; i < n; i++)
+		{
+			const Vec2 &a = outer[i], &b = outer[(i + 1) % n];
+			std::vector<Vec2> band;
+			band.push_back(a); band.push_back(b); band.push_back(inner[(i + 1) % n]); band.push_back(inner[i]);
+			SpriteMesh2D part = whole;
+			if (!ClipSpriteMesh2D(part, 0, band, true)) continue;
+			Vec2 d(b.x - a.x, b.y - a.y);
+			const f32 len = sqrtf(d.x * d.x + d.y * d.y);
+			if (len < 1e-9f) continue;
+			const Vec2 in(-d.y / len, d.x / len);
+			for (size_t v = 0; v < part.vertex.size(); v++)
+			{
+				f32 t = ((part.vertex[v].x - a.x) * in.x + (part.vertex[v].y - a.y) * in.y) / feather;
+				t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);
+				part.color[v].w *= inside ? t : (1.f - t);
+			}
+			AppendQuads(result, part);
+		}
+
+		mesh.vertex.resize(firstVertex);
+		mesh.texcoord.resize(firstVertex);
+		mesh.color.resize(firstVertex);
+		mesh.normal.resize(firstVertex, Vec3(0.f, 0.f, 1.f));
+		mesh.tangent.resize(firstVertex, Vec3(1.f, 0.f, 0.f));
+		mesh.bitangent.resize(firstVertex, Vec3(0.f, 1.f, 0.f));
+		mesh.index.resize(firstVertex / 4 * 6);
+		AppendQuads(mesh, result);
+		if (!mesh.vertex.empty())
+		{
+			mesh.minBounds = mesh.maxBounds = mesh.vertex[0];
+			for (size_t i = 1; i < mesh.vertex.size(); i++)
+			{
+				const Vec3 &v = mesh.vertex[i];
+				mesh.minBounds = Vec3(std::min(mesh.minBounds.x, v.x), std::min(mesh.minBounds.y, v.y), std::min(mesh.minBounds.z, v.z));
+				mesh.maxBounds = Vec3(std::max(mesh.maxBounds.x, v.x), std::max(mesh.maxBounds.y, v.y), std::max(mesh.maxBounds.z, v.z));
+			}
+		}
+		return !result.vertex.empty();
+	}
+
 	bool ClipSpriteMeshPieces2D(SpriteMesh2D &mesh, const size_t firstVertex,
 		const std::vector<std::vector<Vec2> > &piecesIn, const bool inside)
 	{

@@ -1652,6 +1652,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["maxSpeed"] = d.maxSpeed;
 			j["gravity"] = ToJson(d.gravity);
 			j["damping"] = d.damping;
+			if (d.collide2D)
+			{
+				j["collide2D"] = true;
+				j["bounce"] = d.bounce;
+				if (d.collisionMask != 0xFFFFFFFFu) j["collisionMask"] = d.collisionMask;
+			}
 			j["startSize"] = d.startSize;
 			j["endSize"] = d.endSize;
 			j["sizeRandomJitter"] = d.sizeRandomJitter;
@@ -2076,6 +2082,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 			j["size"] = ToJson(mk->GetSize());
 			if (mk->GetOffset().x != 0.f || mk->GetOffset().y != 0.f) j["offset"] = ToJson(mk->GetOffset());
+			if (mk->GetFeather() > 0.f) j["feather"] = mk->GetFeather();
 			if (!mk->GetPolygon().empty())
 			{
 				json pts = json::array();
@@ -3841,6 +3848,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			d.maxSpeed = j.value("maxSpeed", d.maxSpeed);
 			if ((j.find("gravity") != j.end())) d.gravity = Vec3FromJson(j["gravity"]);
 			d.damping = j.value("damping", d.damping);
+			d.collide2D = j.value("collide2D", false);
+			d.bounce = j.value("bounce", d.bounce);
+			d.collisionMask = j.value("collisionMask", 0xFFFFFFFFu);
 			d.startSize = j.value("startSize", d.startSize);
 			d.endSize = j.value("endSize", d.endSize);
 			d.sizeRandomJitter = j.value("sizeRandomJitter", d.sizeRandomJitter);
@@ -4346,6 +4356,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			const std::string sh = j.value("shape", std::string("rect"));
 			if (j.contains("size") && j["size"].is_array() && j["size"].size() >= 2) mk->SetSize(Vec2FromJson(j["size"]));
 			if (j.contains("offset") && j["offset"].is_array() && j["offset"].size() >= 2) mk->SetOffset(Vec2FromJson(j["offset"]));
+			mk->SetFeather(j.value("feather", 0.f));
 			if (j.contains("polygon") && j["polygon"].is_array())
 			{
 				std::vector<Vec2> pts;

@@ -68,6 +68,18 @@ namespace p3d {
 		Vec3 gravity;        // world-space acceleration, applied every frame
 		f32 damping;         // velocity *= (1 - damping*dt) every frame, 0 = none
 
+		// In a 2D scene: particles stop at the bodies of the 2D world -
+		// sparks that bounce along a floor, rain that ends at a roof, dust
+		// that settles. Each one is a point moved along a ray, so it costs
+		// a ray a particle a frame: for tens or hundreds, not thousands.
+		// `bounce` is how much of its speed into the surface it keeps (0
+		// lands and slides, 1 loses nothing), `collisionMask` which
+		// collision layers it sees. CPU simulation only - a GPU-simulated
+		// system has no world to ask and ignores this.
+		bool collide2D;
+		f32 bounce;
+		uint32 collisionMask;
+
 		// Simulate on the GPU instead of the CPU. Opt-in, and silently
 		// ignored where the backend has no compute (WebGL2, GLES3,
 		// GL41/GL42, and GL on macOS) - IsGPUSimulated() reports what
@@ -193,6 +205,9 @@ namespace p3d {
 		void SetSpeed(const f32 minSpeed, const f32 maxSpeed) { desc.minSpeed = minSpeed; desc.maxSpeed = maxSpeed; }
 		void SetGravity(const Vec3 &gravity) { desc.gravity = gravity; }
 		void SetDamping(const f32 damping) { desc.damping = damping; }
+		void SetCollide2D(const bool on, const f32 bounce = 0.3f, const uint32 mask = 0xFFFFFFFFu)
+		{ desc.collide2D = on; desc.bounce = bounce < 0.f ? 0.f : (bounce > 1.f ? 1.f : bounce); desc.collisionMask = mask; }
+		bool GetCollide2D() const { return desc.collide2D; }
 		void SetSizes(const f32 startSize, const f32 endSize, const f32 sizeRandomJitter);
 		void SetColors(const Vec4 &startColor, const Vec4 &endColor);
 		// Curve each ramp follows across a particle's life. See sizeEase.

@@ -219,6 +219,15 @@ void SceneEditor::DrawSpriteMask2DProperties(uint32 goId, SpriteMask2D* mk)
 	BeginComponentUndo(goId);
 	if (ImGui::DragFloat2("Offset##mask", (float*)&off, 0.01f)) { mk->SetOffset(off); MarkSceneDirty(); }
 	EndComponentUndo(goId, "Set Mask Offset");
+	if (mk->GetShape() != SpriteMaskShape2D::Image)
+	{
+		f32 soft = mk->GetFeather();
+		BeginComponentUndo(goId);
+		if (ImGui::DragFloat("Soft Edge", &soft, 0.01f, 0.f, 1000.f, soft > 0.f ? "%.2f" : "hard")) { mk->SetFeather(soft); MarkSceneDirty(); }
+		EndComponentUndo(goId, "Set Mask Soft Edge");
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("How far in from the outline what the mask shows fades out.\n0 is a hard edge.");
+	}
 }
 
 // The outline of every mask on the selected object or above it, and of the
@@ -248,7 +257,7 @@ void SceneEditor::DrawShapes2DOverlay()
 bool SceneEditor::AgentApplySpriteMask(SpriteMask2D* mk, const json& p, std::string& errOut)
 {
 	static const char* known[] = { "object", "name", "shape", "size", "diameter", "offset", "polygon", "enabled",
-		"image", "alphaThreshold", NULL };
+		"image", "alphaThreshold", "feather", NULL };
 	for (json::const_iterator it = p.begin(); it != p.end(); ++it)
 	{
 		bool ok = false;
@@ -262,6 +271,7 @@ bool SceneEditor::AgentApplySpriteMask(SpriteMask2D* mk, const json& p, std::str
 			mk->SetSize(Vec2(p["size"][0].get<f32>(), p["size"][1].get<f32>()));
 		}
 		if (p.contains("diameter")) { const f32 d = p["diameter"].get<f32>(); mk->SetSize(Vec2(d, d)); }
+		if (p.contains("feather")) mk->SetFeather(p["feather"].get<f32>());
 		if (p.contains("offset"))
 		{
 			if (!p["offset"].is_array() || p["offset"].size() < 2) { errOut = "offset must be [x, y]"; return false; }
@@ -311,6 +321,7 @@ json SceneEditor::AgentSpriteMaskInfo(const std::string& name, std::string& errO
 	if (!mk->GetImagePath().empty()) { r["image"] = mk->GetImagePath(); r["pieces"] = mk->ImagePieceCount(); }
 	r["size"] = { mk->GetSize().x, mk->GetSize().y };
 	r["offset"] = { mk->GetOffset().x, mk->GetOffset().y };
+	r["feather"] = mk->GetFeather();
 	r["enabled"] = mk->IsEnabled();
 	json pts = json::array();
 	for (size_t i = 0; i < mk->GetPolygon().size(); i++) pts.push_back({ mk->GetPolygon()[i].x, mk->GetPolygon()[i].y });

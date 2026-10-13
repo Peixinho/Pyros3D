@@ -494,6 +494,49 @@ int main()
 		ClipSpriteMesh2D(cw, 0, clockwise, true);
 		nearly(A::Area(cw), 2.f, "an outline given the other way round cuts the same");
 
+		// A soft edge: the same cut, with a band inside the outline over
+		// which what is kept fades. Nothing more or less is kept - only how
+		// much of it shows.
+		{
+			struct W {
+				// area weighted by alpha: exact, the fade being straight across each piece
+				static f32 Shown(const SpriteMesh2D &g) {
+					f32 total = 0.f;
+					for (size_t i = 0; i + 2 < g.index.size(); i += 3)
+					{
+						const Vec3 &p0 = g.vertex[g.index[i]], &p1 = g.vertex[g.index[i + 1]], &p2 = g.vertex[g.index[i + 2]];
+						const f32 area = fabsf((p1.x - p0.x) * (p2.y - p0.y) - (p2.x - p0.x) * (p1.y - p0.y)) * 0.5f;
+						total += area * (g.color[g.index[i]].w + g.color[g.index[i + 1]].w + g.color[g.index[i + 2]].w) / 3.f;
+					}
+					return total;
+				}
+			};
+			std::vector<Vec2> square;
+			square.push_back(Vec2(-0.5f, -0.5f)); square.push_back(Vec2(0.5f, -0.5f)); square.push_back(Vec2(0.5f, 0.5f)); square.push_back(Vec2(-0.5f, 0.5f));
+			SpriteMesh2D soft = m;
+			check(ClipSpriteMeshFeathered2D(soft, 0, square, true, 0.25f), "a mask with a soft edge leaves something");
+			nearly(A::Area(soft), 1.f, "as much as the hard one");
+			nearly(W::Shown(soft), 0.25f + 1.f / 3.f, "of which the middle is whole and the band fades");
+			f32 atEdge = 1.f, atInner = 0.f;
+			for (size_t i = 0; i < soft.vertex.size(); i++)
+			{
+				const f32 reach = std::max(fabsf(soft.vertex[i].x), fabsf(soft.vertex[i].y));
+				if (fabsf(reach - 0.5f) < 1e-4f) atEdge = std::min(atEdge, soft.color[i].w), atEdge = std::max(0.f, atEdge);
+				if (reach < 0.25f + 1e-4f) atInner = std::max(atInner, soft.color[i].w);
+			}
+			nearly(atEdge, 0.f, "clear at the outline");
+			nearly(atInner, 1.f, "whole a feather in");
+			check(soft.vertex.size() % 4 == 0 && soft.index.size() == soft.vertex.size() / 4 * 6 && soft.tangent.size() == soft.vertex.size(),
+				"and it is still quads, every attribute with it");
+			SpriteMesh2D softOut = m;
+			check(ClipSpriteMeshFeathered2D(softOut, 0, square, false, 0.25f), "the same mask, outside");
+			nearly(A::Area(softOut), 3.75f, "keeps the band as well as what is outside");
+			nearly(W::Shown(softOut), 3.f + 0.75f - 1.f / 3.f, "fading the other way");
+			SpriteMesh2D wide = m;
+			check(ClipSpriteMeshFeathered2D(wide, 0, square, true, 5.f), "a feather wider than the shape is narrowed to fit");
+			nearly(A::Area(wide), 1.f, "and cuts the same shape");
+		}
+
 		std::vector<Vec2> hole;       // a 1x1 square in the middle
 		hole.push_back(Vec2(-0.5f, -0.5f)); hole.push_back(Vec2(0.5f, -0.5f)); hole.push_back(Vec2(0.5f, 0.5f)); hole.push_back(Vec2(-0.5f, 0.5f));
 		SpriteMesh2D frame = m;
