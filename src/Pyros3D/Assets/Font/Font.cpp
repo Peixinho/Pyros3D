@@ -98,8 +98,35 @@ namespace p3d {
 		lastGlyphWidth = lastGlyphRow = 0;
 	}
 
-	f32 Font::MeasureAdvance(const std::string &text) const
+	std::string Font::ToLatin1(const std::string &utf8)
 	{
+		std::string out;
+		out.reserve(utf8.size());
+		for (size_t i = 0; i < utf8.size(); i++)
+		{
+			const unsigned char c = (unsigned char)utf8[i];
+			if (c < 0x80) { out += (char)c; continue; }
+			const unsigned char n = (i + 1 < utf8.size()) ? (unsigned char)utf8[i + 1] : 0;
+			if ((c == 0xC2 || c == 0xC3) && (n & 0xC0) == 0x80)
+			{
+				out += (char)(((c & 0x03) << 6) | (n & 0x3F));
+				i++;
+				continue;
+			}
+			// A longer sequence: one '?' for the whole character.
+			size_t extra = (c >= 0xF0) ? 3 : ((c >= 0xE0) ? 2 : ((c >= 0xC4) ? 1 : 0));
+			bool valid = extra > 0;
+			for (size_t k = 1; k <= extra && valid; k++)
+				if (i + k >= utf8.size() || ((unsigned char)utf8[i + k] & 0xC0) != 0x80) valid = false;
+			if (valid) { out += '?'; i += extra; }
+			else out += (char)c;       // not UTF-8: a Latin-1 byte as it stands
+		}
+		return out;
+	}
+
+	f32 Font::MeasureAdvance(const std::string &utf8) const
+	{
+		const std::string text = ToLatin1(utf8);
 		f32 width = 0.f;
 		for (size_t i = 0; i < text.size(); i++)
 		{
@@ -115,8 +142,9 @@ namespace p3d {
 		return glyphs;
 	}
 
-	void Font::CreateText(const std::string& text)
+	void Font::CreateText(const std::string& utf8)
 	{
+		const std::string text = ToLatin1(utf8);
 		// Every character a game is likely to print, the first time anything is
 		// asked of this font - while a scene loads, that is. A glyph the font
 		// has not drawn yet means its picture is sent to the device again, and
@@ -127,7 +155,19 @@ namespace p3d {
 		{
 			commonBaked = true;
 			std::string common;
-			for (char c = 33; c < 127; c++) common += c;
+			// ...as many as the atlas has room for. A glyph takes a square
+			// cell of the bake size (and an SDF's spread round it), and the
+			// atlas is MAP_SIZE across: a big font holds few. A font too
+			// big for the whole alphabet draws its glyphs as they are asked
+			// for instead - a title has a handful of letters.
+			const uint32 cellSize = (uint32)fontSize + (isSDF ? sdfSpread * 2 : 0);
+			const uint32 perRow = cellSize > 0 ? MAP_SIZE / cellSize : 0;
+			const uint32 room = perRow * perRow;
+			if (room >= 100)
+				for (char c = 33; c < 127; c++) common += c;
+			// (and the accented letters, U+00A1 to U+00FF, as UTF-8)
+			if (room >= 200)
+				for (int c = 0xA1; c <= 0xFF; c++) { common += (char)(0xC0 | (c >> 6)); common += (char)(0x80 | (c & 0x3F)); }
 			CreateText(common);
 		}
 		/*
@@ -154,7 +194,9 @@ namespace p3d {
 					// Create Glyph
 					FT_Glyph        glyph;
 
-					FT_Load_Char(face, text[i], FT_LOAD_DEFAULT);
+					// (as a character's number, 0-255: a plain char is signed,
+					// and an accented letter would be asked for as a negative one)
+					FT_Load_Char(face, (FT_ULong)(unsigned char)text[i], FT_LOAD_DEFAULT);
 
 					FT_Get_Glyph(face->glyph, &glyph);
 
@@ -196,6 +238,22 @@ namespace p3d {
 							{
 								lastGlyphWidth = 0;
 								lastGlyphRow += cell*MAP_SIZE;
+							}
+							// No room left. This used to write on regardless,
+							// past the end of the atlas and over whatever came
+							// after it in memory: a big font with many
+							// different letters took the program down, or
+							// worse, did not. The glyph is left out and said.
+							if (lastGlyphRow / MAP_SIZE + cell > MAP_SIZE || bitmap.width > cell || bitmap.rows > cell)
+							{
+								static bool warnedFull = false;
+								if (!warnedFull)
+								{
+									warnedFull = true;
+									echo("WARNING: Font - the glyph atlas of " + font + " is full at this size; some characters are not drawn (use a smaller font size and scale the text up)");
+								}
+								FT_Done_Glyph(glyph);
+								break;
 							}
 
 							glp.startingPoint.x = (f32)lastGlyphWidth / MAP_SIZE;

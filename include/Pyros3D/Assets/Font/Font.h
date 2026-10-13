@@ -127,6 +127,12 @@ namespace p3d {
 		f32 GetDescender() const { return descender; }
 
 		std::map<char, glyph_properties> GetGlyphs();
+		// Text arrives as UTF-8 and a glyph here is one byte: this is the
+		// string with every character from U+0080 to U+00FF as its one
+		// Latin-1 byte (the accented letters of Portuguese, Spanish, French,
+		// German...) and anything beyond as '?'. Bytes that are not UTF-8
+		// are taken to be Latin-1 already and left alone.
+		static std::string ToLatin1(const std::string &utf8);
 
 		// How wide `text` is, at the size it was baked at - multiply by
 		// (drawn size / GetFontSize()) for anything else. Uses the same

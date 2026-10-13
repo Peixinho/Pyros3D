@@ -306,6 +306,96 @@ function tasks._pump()
 	end
 end
 )LUA");
+		// lang: a game in more than one language. Its words are in files -
+		// assets/lang/en.json, assets/lang/pt.json - each a flat table of
+		// "key": "words", and everything shown is asked for by key:
+		//
+		//   lang.load("pt")                    false if there is no such file
+		//   lang.loadBest({ "pt", "en" })      the device's language if it is one of these, else the first
+		//   tr("level_clear")                  the words, or the key if there are none
+		//   tr("score", 1200)                  {1}, {2}... in the words are what follows the key
+		//   lang.apply(scene)                  every text in the scene whose words start with "@" is that
+		//                                      key's words: a label authored "@play" reads PLAY, or JOGAR
+		//
+		// lang.apply remembers which key each text had, so calling it again
+		// after another lang.load changes the language where it stands.
+		// Accented letters of the Latin alphabets are drawn; other scripts
+		// are not yet.
+		{
+			sol::table lang = lua->create_named_table("lang");
+			lang.set_function("_readText", [](const std::string &path, sol::this_state ts) -> sol::object {
+				sol::state_view L(ts);
+				std::ifstream in(path.c_str(), std::ios::binary);
+				if (!in.is_open()) return sol::make_object(L, sol::lua_nil);
+				std::stringstream ss;
+				ss << in.rdbuf();
+				return sol::make_object(L, ss.str());
+			});
+			// The device's language as two letters ("pt", "en"), or "".
+			lang.set_function("system", []() -> std::string {
+				std::string code;
+#ifdef EMSCRIPTEN
+				char* text = (char*)EM_ASM_PTR({ return stringToNewUTF8((navigator.language || "").toString()); });
+				if (text) { code = text; free(text); }
+#else
+				const char* names[] = { "LC_ALL", "LC_MESSAGES", "LANG" };
+				for (int i = 0; i < 3 && code.empty(); i++)
+					if (const char* v = std::getenv(names[i])) code = v;
+#endif
+				std::string two;
+				for (size_t i = 0; i < code.size() && two.size() < 2; i++)
+				{
+					const char c = code[i];
+					if (c >= 'A' && c <= 'Z') two += (char)(c - 'A' + 'a');
+					else if (c >= 'a' && c <= 'z') two += c;
+					else break;
+				}
+				return two.size() == 2 ? two : std::string();
+			});
+		}
+		lua->script(R"LUA(
+lang.code, lang.strings = "", {}
+local keys = {}
+function lang.load(code, path)
+	local where = path or (ASSETS_PATH .. "lang/" .. code .. ".json")
+	local text = lang._readText(where)
+	if not text then return false end
+	local t, err = json.decode(text)
+	if type(t) ~= "table" then echo("ERROR: lang - " .. where .. ": " .. tostring(err)) return false end
+	lang.code, lang.strings = code, t
+	return true
+end
+function lang.loadBest(codes)
+	local want = lang.system()
+	for _, c in ipairs(codes) do if c == want and lang.load(c) then return c end end
+	for _, c in ipairs(codes) do if lang.load(c) then return c end end
+	return nil
+end
+function tr(key, ...)
+	local s = lang.strings[key] or key
+	local n = select("#", ...)
+	if n > 0 then
+		local args = { ... }
+		s = s:gsub("{(%d+)}", function(i) local v = args[tonumber(i)] if v == nil then return "{" .. i .. "}" end return tostring(v) end)
+	end
+	return s
+end
+function lang.apply(scene)
+	local function visit(go)
+		local name = go:getName()
+		local world = go:getComponent("Text2D")
+		local text = world and world:getText() or ui.getText(go)
+		local key = (text and text:sub(1, 1) == "@") and text:sub(2) or keys[name]
+		if key and key ~= "" then
+			keys[name] = key
+			if world then world:setText(tr(key)) else ui.setText(go, tr(key)) end
+		end
+		for _, child in ipairs(go:getChildren()) do visit(child) end
+	end
+	for _, go in ipairs(scene:getAllGameObjects()) do visit(go) end
+end
+)LUA");
+
 		// tween: a value taken from where it is to somewhere else over a time,
 		// by the engine, a frame at a time - what every script otherwise
 		// writes by hand with a timer and a lerp.

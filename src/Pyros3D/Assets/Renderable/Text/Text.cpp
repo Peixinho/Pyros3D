@@ -57,9 +57,11 @@ namespace p3d {
 	// needs it: inserting newlines shifts every later position, so indexing
 	// the colour list by the laid-out position would recolour the text from
 	// the first wrap onwards.
-	static std::string WrapToWidth(Font* font, const std::string &text, const f32 scale, const f32 width,
+	static std::string WrapToWidth(Font* font, const std::string &utf8, const f32 scale, const f32 width,
 		std::vector<uint32>* srcIndex = NULL)
 	{
+		// One byte a glyph from here on - see Font::ToLatin1.
+		const std::string text = Font::ToLatin1(utf8);
 		if (!font || width <= 0.f || text.empty())
 		{
 			if (srcIndex)
