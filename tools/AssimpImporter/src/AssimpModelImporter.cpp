@@ -1,3 +1,5 @@
+#include <cstdio>
+#include <cstdint>
 //============================================================================
 // Name        : AssimpModelImporter.h
 // Author      : Duarte Peixinho
@@ -165,21 +167,10 @@ namespace p3d {
 			if (scene == NULL || idx < 0 || (unsigned)idx >= scene->mNumTextures || scene->mTextures[idx] == NULL)
 				return stored;
 
-			for (size_t i = 0; i < pending.size(); ++i)
-			{
-				if (pending[i].relativePath.size() > 0)
-				{
-					// Same index already extracted.
-					const std::string tag = "embedded_" + std::to_string(idx) + ".";
-					if (pending[i].relativePath.find(tag) != std::string::npos)
-						return pending[i].relativePath;
-				}
-			}
-
 			const aiTexture* tex = scene->mTextures[idx];
 			AssimpModelImporter::PendingEmbeddedTexture out;
 			const std::string ext = EmbeddedExtension(tex);
-			out.relativePath = "textures/embedded_" + std::to_string(idx) + "." + ext;
+			out.relativePath = "textures/embedded_" + std::to_string(idx) + "." + ext;    // (renamed below, once its bytes are known)
 
 			if (tex->mHeight == 0)
 			{
@@ -212,6 +203,25 @@ namespace p3d {
 				// Extension was guessed as tga when uncompressed; force it.
 				out.relativePath = "textures/embedded_" + std::to_string(idx) + ".tga";
 			}
+
+			// Named for what is in it, not for its number in the file. A
+			// project keeps its models' textures together, and every model
+			// with pictures inside it has an "embedded 0": the second model
+			// imported wrote its picture over the first one's, and the first
+			// then wore it. By content, two models carrying the same picture
+			// share one file and different pictures never meet.
+			{
+				uint64_t h = 1469598103934665603ull;
+				for (size_t i = 0; i < out.bytes.size(); ++i) h = (h ^ out.bytes[i]) * 1099511628211ull;
+				char name[32];
+				snprintf(name, sizeof(name), "%016llx", (unsigned long long)h);
+				const std::string dot = out.relativePath.substr(out.relativePath.rfind('.'));
+				out.relativePath = std::string("textures/embedded_") + name + dot;
+			}
+			// Asked for again by another material of this model: the same file.
+			for (size_t i = 0; i < pending.size(); ++i)
+				if (pending[i].relativePath == out.relativePath)
+					return pending[i].relativePath;
 
 			if (out.bytes.empty()) return stored;
 			const std::string rel = out.relativePath;
