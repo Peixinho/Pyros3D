@@ -14,5 +14,15 @@
 //   - MP3/FLAC decoding is enabled: the editor Assets panel (and Sound
  //     components) load .mp3/.flac; disabling them made preview/load fail
  //     with "could not load" while the UI still advertised those formats.
+// Ogg Vorbis: miniaudio decodes it through stb_vorbis when that is declared
+// before the implementation and defined after it (its own instructions).
+// Without it an .ogg loaded as nothing and said nothing - and .ogg is what
+// music ships as: a minute of it is a megabyte, where the .wav is ten.
+#define STB_VORBIS_HEADER_ONLY
+#include <Pyros3D/Ext/stb/stb_vorbis.c>
+
 #define MINIAUDIO_IMPLEMENTATION
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
+
+#undef STB_VORBIS_HEADER_ONLY
+#include <Pyros3D/Ext/stb/stb_vorbis.c>

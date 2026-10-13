@@ -17,6 +17,54 @@ namespace p3d {
 
 	AudioManager* AudioManager::activeManager = NULL;
 
+	namespace {
+		// The last thing the mix goes through before the device. Twenty
+		// sounds at once - a tower coming down - add up to more than the
+		// device can say, and what is over is cut off flat: a crackle on
+		// every loud moment. This turns the whole mix down for as long as
+		// it is too loud (at once, so nothing gets through; back up slowly,
+		// so it is not heard pumping) and leaves it alone otherwise.
+		f32 limiterGain = 1.f;
+		f32 limiterPeak = 0.f;      // the loudest the mix has asked for, for whoever wants to know
+
+		void LimitedDataCallback(ma_device* device, void* out, const void* in, ma_uint32 frames)
+		{
+			(void)in;
+			ma_engine* engine = (ma_engine*)device->pUserData;
+			if (engine == NULL) return;
+#if defined(MA_EMSCRIPTEN)
+			// (what miniaudio's own callback does in a browser, where there
+			// is no thread to load sounds on: one piece of that work a call)
+			if (engine->pResourceManager != NULL
+				&& (engine->pResourceManager->config.flags & MA_RESOURCE_MANAGER_FLAG_NO_THREADING) != 0)
+				ma_resource_manager_process_next_job(engine->pResourceManager);
+#endif
+			ma_engine_read_pcm_frames(engine, out, frames, NULL);
+			if (device->playback.format != ma_format_f32) return;
+			const ma_uint32 channels = device->playback.channels;
+			f32* s = (f32*)out;
+			const f32 ceiling = 0.92f;
+			// (about a third of a second to come back up, whatever the rate)
+			const f32 release = 1.f / (0.3f * (f32)device->sampleRate);
+			f32 gain = limiterGain, peak = 0.f;
+			for (ma_uint32 f = 0; f < frames; f++)
+			{
+				f32 loud = 0.f;
+				for (ma_uint32 c = 0; c < channels; c++)
+				{
+					const f32 a = s[f * channels + c] < 0.f ? -s[f * channels + c] : s[f * channels + c];
+					if (a > loud) loud = a;
+				}
+				if (loud > peak) peak = loud;
+				if (loud * gain > ceiling) gain = ceiling / loud;
+				else gain += (1.f - gain) * release;
+				for (ma_uint32 c = 0; c < channels; c++) s[f * channels + c] *= gain;
+			}
+			limiterGain = gain;
+			limiterPeak = peak;
+		}
+	}
+
 	AudioManager::AudioManager() : engine(NULL), initialized(false), masterVolume(1.f),
 		hasLastListenerPosition(false)
 	{
@@ -25,7 +73,9 @@ namespace p3d {
 		// Default config: miniaudio picks the playback device, the sample rate
 		// and the channel count from the OS. Overriding any of those here
 		// would just be guessing on the user's behalf.
-		if (ma_engine_init(NULL, engine) != MA_SUCCESS)
+		ma_engine_config config = ma_engine_config_init();
+		config.dataCallback = LimitedDataCallback;      // the mix, limited - see above
+		if (ma_engine_init(&config, engine) != MA_SUCCESS)
 		{
 			// A machine with no output device is a completely normal thing to
 			// run on (CI, a headless box, a session with audio held
