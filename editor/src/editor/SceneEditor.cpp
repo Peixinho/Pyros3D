@@ -3370,9 +3370,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		const char* ScriptPropertyKindName(const int kind)
 		{
-			static const char* names[] = { "number", "int", "bool", "string", "vec2", "vec3", "vec4", "color", "color", "options", "asset" };
-			return (kind >= 0 && kind <= ScriptProperty::Asset) ? names[kind] : "?";
+			static const char* names[] = { "number", "int", "bool", "string", "vec2", "vec3", "vec4", "color", "color", "options", "asset", "object" };
+			return (kind >= 0 && kind <= ScriptProperty::Object) ? names[kind] : "?";
 		}
+	}
+
+	LuaComponent* SceneEditor::ScriptById(uint32 componentId)
+	{
+		if (componentId == 0) return sceneMainScript.get();
+		SceneObject* so = sceneObjects ? sceneObjects->GetSceneObject(componentId) : NULL;
+		if (!so || so->GetType() != SceneObjectTypes::LUA_COMPONENT) return NULL;
+		return (LuaComponent*)so->GetPTR();
 	}
 
 	void SceneEditor::PollScriptFiles()
@@ -3392,6 +3400,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (known->second == at) continue;
 			known->second = at;
 			changed.insert(lc->scriptFile);
+		}
+		// (the scene's main script: made again from its file, what was set kept)
+		if (!sceneMainScriptPath.empty())
+		{
+			std::error_code ec;
+			const std::filesystem::file_time_type at = std::filesystem::last_write_time(sceneMainScriptPath, ec);
+			if (!ec)
+			{
+				std::map<std::string, std::filesystem::file_time_type>::iterator known = scriptFileTimes.find(sceneMainScriptPath);
+				if (known == scriptFileTimes.end()) scriptFileTimes[sceneMainScriptPath] = at;
+				else if (known->second != at) { known->second = at; RebuildSceneMainScriptInstance(); }
+			}
 		}
 		if (changed.empty()) return;
 		PushLuaHostGlobals();
@@ -3454,6 +3474,30 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					ImGui::EndCombo();
 				}
 				break;
+			case ScriptProperty::Object:
+				// (an object of the scene, by its name: the script is handed the object)
+				if (ImGui::BeginCombo(p.label.c_str(), p.s.empty() ? "(none)" : p.s.c_str()))
+				{
+					static char filter[64] = "";
+					ImGui::SetNextItemWidth(-1.f);
+					ImGui::InputTextWithHint("##object_filter", "filter", filter, sizeof(filter));
+					std::string needle = filter;
+					std::transform(needle.begin(), needle.end(), needle.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+					if (ImGui::Selectable("(none)", p.s.empty()) && !p.s.empty()) { p.s.clear(); edited = true; oneClick = true; }
+					std::set<std::string> listed;
+					for (std::map<uint32, SceneObject*>::const_iterator o = sceneObjects->GetList().begin(); o != sceneObjects->GetList().end(); ++o)
+					{
+						if (!o->second || o->second->GetType() != SceneObjectTypes::GAMEOBJECT) continue;
+						const std::string name = o->second->GetName();
+						if (name.empty() || !listed.insert(name).second) continue;
+						std::string low = name;
+						std::transform(low.begin(), low.end(), low.begin(), [](unsigned char ch) { return (char)std::tolower(ch); });
+						if (!needle.empty() && low.find(needle) == std::string::npos) continue;
+						if (ImGui::Selectable(name.c_str(), name == p.s) && name != p.s) { p.s = name; edited = true; oneClick = true; }
+					}
+					ImGui::EndCombo();
+				}
+				break;
 			case ScriptProperty::Asset:
 				edited = ImGui::InputTextWithHint(p.label.c_str(), "drop a file from Assets", &p.s);
 				if (ImGui::BeginDragDropTarget())
@@ -3473,6 +3517,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			{
 				lc->ApplyProperties();
 				if (!playMode) MarkSceneDirty();
+				if (componentId == 0) sceneMainScriptProperties = SceneSerializer::ScriptPropertiesText(*lc);
 			}
 			const bool done = oneClick ? edited : ImGui::IsItemDeactivatedAfterEdit();
 			if (done)
@@ -3481,10 +3526,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (!playMode && !before.SameValue(after))
 				{
 					auto set = [this, componentId](const ScriptProperty &to) {
-						SceneObject* so = sceneObjects ? sceneObjects->GetSceneObject(componentId) : NULL;
-						if (!so || so->GetType() != SceneObjectTypes::LUA_COMPONENT) return;
-						LuaComponent* c = (LuaComponent*)so->GetPTR();
-						if (ScriptProperty* at = c ? c->FindProperty(to.name) : NULL) { std::memcpy(at->v, to.v, sizeof(at->v)); at->s = to.s; c->ApplyProperties(); MarkSceneDirty(); }
+						LuaComponent* c = ScriptById(componentId);
+						if (ScriptProperty* at = c ? c->FindProperty(to.name) : NULL)
+						{
+							std::memcpy(at->v, to.v, sizeof(at->v)); at->s = to.s; c->ApplyProperties(); MarkSceneDirty();
+							if (componentId == 0) sceneMainScriptProperties = SceneSerializer::ScriptPropertiesText(*c);
+						}
 					};
 					sceneUndo.Push(std::make_unique<ApplyClosureCommand>([set, before]() { set(before); }, [set, after]() { set(after); }, "Set " + p.label));
 				}
@@ -3513,10 +3560,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	bool SceneEditor::AgentScriptProperties(const std::string& name, const std::string& script, json& out, std::string& errOut)
 	{
-		SceneObject* obj = ScriptOwnerByName(sceneObjects, name);
-		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
-		LuaComponent* lc = AgentFindScript(sceneObjects, obj, script);
-		if (!lc) { errOut = "'" + name + "' has no script" + (script.empty() ? std::string() : " matching '" + script + "'"); return false; }
+		// (no object named: the scene's main script)
+		LuaComponent* lc = NULL;
+		if (name.empty())
+		{
+			if (!sceneMainScript && !sceneMainScriptPath.empty()) RebuildSceneMainScriptInstance();
+			lc = sceneMainScript.get();
+			if (!lc) { errOut = "the scene has no main script"; return false; }
+		}
+		else
+		{
+			SceneObject* obj = ScriptOwnerByName(sceneObjects, name);
+			if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+			lc = AgentFindScript(sceneObjects, obj, script);
+			if (!lc) { errOut = "'" + name + "' has no script" + (script.empty() ? std::string() : " matching '" + script + "'"); return false; }
+		}
 		out["scriptFile"] = DisplayPath(lc->scriptFile);
 		out["properties"] = json::array();
 		for (size_t i = 0; i < lc->properties.size(); i++)
@@ -3534,10 +3592,21 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	bool SceneEditor::AgentSetScriptProperty(const std::string& name, const std::string& script, const std::string& property, const json& value, std::string& errOut)
 	{
-		SceneObject* obj = ScriptOwnerByName(sceneObjects, name);
-		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
-		LuaComponent* lc = AgentFindScript(sceneObjects, obj, script);
-		if (!lc) { errOut = "'" + name + "' has no script" + (script.empty() ? std::string() : " matching '" + script + "'"); return false; }
+		// (no object named: the scene's main script)
+		LuaComponent* lc = NULL;
+		if (name.empty())
+		{
+			if (!sceneMainScript && !sceneMainScriptPath.empty()) RebuildSceneMainScriptInstance();
+			lc = sceneMainScript.get();
+			if (!lc) { errOut = "the scene has no main script"; return false; }
+		}
+		else
+		{
+			SceneObject* obj = ScriptOwnerByName(sceneObjects, name);
+			if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+			lc = AgentFindScript(sceneObjects, obj, script);
+			if (!lc) { errOut = "'" + name + "' has no script" + (script.empty() ? std::string() : " matching '" + script + "'"); return false; }
+		}
 		ScriptProperty* p = lc->FindProperty(property);
 		if (!p) { errOut = "the script has no property '" + property + "'"; return false; }
 		const ScriptProperty before = *p;
@@ -3549,7 +3618,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			p->v[0] = p->kind == ScriptProperty::Integer ? (f32)std::llround(value.get<double>()) : value.get<f32>();
 			break;
 		case ScriptProperty::Boolean: if (!value.is_boolean()) { errOut = wrong; return false; } p->v[0] = value.get<bool>() ? 1.f : 0.f; break;
-		case ScriptProperty::String: case ScriptProperty::Asset: if (!value.is_string()) { errOut = wrong; return false; } p->s = value.get<std::string>(); break;
+		case ScriptProperty::String: case ScriptProperty::Asset: case ScriptProperty::Object: if (!value.is_string()) { errOut = wrong; return false; } p->s = value.get<std::string>(); break;
 		case ScriptProperty::Options:
 			if (!value.is_string() || std::find(p->options.begin(), p->options.end(), value.get<std::string>()) == p->options.end()) { errOut = wrong + ": one of its options"; return false; }
 			p->s = value.get<std::string>();
@@ -3567,15 +3636,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		{
 			MarkSceneDirty();
 			// (the same step to undo as the panel's control makes)
-			const uint32 componentId = sceneObjects->GetSceneObjectID(lc);
+			const uint32 componentId = name.empty() ? 0 : sceneObjects->GetSceneObjectID(lc);
 			const ScriptProperty after = *p;
-			if (componentId != 0 && !before.SameValue(after))
+			if (name.empty()) sceneMainScriptProperties = SceneSerializer::ScriptPropertiesText(*lc);
+			if ((name.empty() || componentId != 0) && !before.SameValue(after))
 			{
 				auto set = [this, componentId](const ScriptProperty &to) {
-					SceneObject* so = sceneObjects ? sceneObjects->GetSceneObject(componentId) : NULL;
-					if (!so || so->GetType() != SceneObjectTypes::LUA_COMPONENT) return;
-					LuaComponent* c = (LuaComponent*)so->GetPTR();
-					if (ScriptProperty* at = c ? c->FindProperty(to.name) : NULL) { std::memcpy(at->v, to.v, sizeof(at->v)); at->s = to.s; c->ApplyProperties(); MarkSceneDirty(); }
+					LuaComponent* c = ScriptById(componentId);
+					if (ScriptProperty* at = c ? c->FindProperty(to.name) : NULL)
+					{
+						std::memcpy(at->v, to.v, sizeof(at->v)); at->s = to.s; c->ApplyProperties(); MarkSceneDirty();
+						if (componentId == 0) sceneMainScriptProperties = SceneSerializer::ScriptPropertiesText(*c);
+					}
 				};
 				sceneUndo.Push(std::make_unique<ApplyClosureCommand>([set, before]() { set(before); }, [set, after]() { set(after); }, "Set " + after.label));
 			}
@@ -4711,6 +4783,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ImGui::PopID();
 				return;
 			}
+			if (!lc->properties.empty()) { ImGui::Indent(); DrawScriptProperties(lc, i->first); ImGui::Unindent(); }
 			ImGui::PopID();
 		}
 		if (!anyAttached)
@@ -4846,6 +4919,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		PushLuaHostGlobals();
 		try {
 			sceneMainScript = LuaComponent_FromFile(*sharedLua, sceneMainScriptPath);
+			// (what the scene set of the variables it offers)
+			if (sceneMainScript) SceneSerializer::TakeScriptPropertiesText(*sceneMainScript, sceneMainScriptProperties);
 		}
 		catch (const std::exception& e) {
 			echo(std::string("ERROR: Scene main script load: ") + e.what());
@@ -5204,6 +5279,24 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		else
 			ImGui::TextDisabled("File: (unsaved)");
 
+#ifdef LUA_BINDINGS
+		// The variables the scene's main script offers (ScriptProperty), a control each: at the
+		// top, with the scene's own name - they are what the scene is set up with.
+		if (!sceneMainScriptPath.empty())
+		{
+			if (!sceneMainScript && !playMode) RebuildSceneMainScriptInstance();
+			if (sceneMainScript && !sceneMainScript->properties.empty())
+			{
+				ImGui::Spacing();
+				ImGui::TextUnformatted("Main Script");
+				ImGui::TextDisabled("%s", DisplayPath(sceneMainScriptPath).c_str());
+				ImGui::PushID("main_script_properties");
+				DrawScriptProperties(sceneMainScript.get(), 0);
+				ImGui::PopID();
+				ImGui::Separator();
+			}
+		}
+#endif
 		// The world first - the hour, then the scene's effects (a sky's weather, a water's
 		// waves) - since that is what a scene's look is set with; its lighting's detail after.
 		DrawPostEffectsInProperties();
@@ -9474,6 +9567,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 #ifdef LUA_BINDINGS
 			PushLuaHostGlobals();
 			meta.mainScript = sceneMainScriptPath;
+			if (sceneMainScript) sceneMainScriptProperties = SceneSerializer::ScriptPropertiesText(*sceneMainScript);
+			meta.mainScriptProperties = sceneMainScriptProperties;
 			// Loaded cells live in their own files, never in the scene's.
 			ok = SceneSerializer::SaveScene(scene, path, sharedLua, &meta,
 				editorWorld ? editorWorld->LoadedRoots() : std::set<const GameObject*>());
@@ -9658,6 +9753,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				std::string companion;
 				std::string err;
 				std::string authored;
+				sceneMainScriptProperties = meta.mainScriptProperties;
 				if (!meta.mainScript.empty())
 				{
 					authored = meta.mainScript;

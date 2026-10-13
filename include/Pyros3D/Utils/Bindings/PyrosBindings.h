@@ -413,6 +413,7 @@ namespace p3d {
     //   Door.tint   = Vec4.new(1, 1, 1, 1)   -- @color
     //   Door.mode   = "auto"                 -- @options auto manual
     //   Door.sound  = ""                     -- @asset
+    //   Door.target = ""                     -- @object  (an object of the scene, by name: self.target is the object, or nil)
     //   Door._timer = 0                      -- (not offered: its name begins with _)
     //
     // The kind of the value is the kind of the control: a number (a slider with @range, a
@@ -427,11 +428,11 @@ namespace p3d {
     // says the same, entry by entry, and wins where both name a variable.)
     struct PYROS3D_API ScriptProperty
     {
-        enum Kind { Number = 0, Integer, Boolean, String, Vector2, Vector3, Vector4, Color3, Color4, Options, Asset };
+        enum Kind { Number = 0, Integer, Boolean, String, Vector2, Vector3, Vector4, Color3, Color4, Options, Asset, Object };
         std::string name, label, tip;
         int kind = Number;
         p3d::f32 v[4] = { 0.f, 0.f, 0.f, 0.f };   // numbers, vectors, colours; Boolean: v[0] != 0
-        std::string s;                             // String, Options, Asset
+        std::string s;                             // String, Options, Asset; Object: the object's name
         p3d::f32 min = 0.f, max = 0.f;
         bool hasRange = false;
         std::vector<std::string> options;
@@ -475,7 +476,7 @@ namespace p3d {
         if (value.get_type() == sol::type::string)
         {
             out.s = value.as<std::string>();
-            out.kind = !out.options.empty() ? ScriptProperty::Options : (type == "asset" ? ScriptProperty::Asset : ScriptProperty::String);
+            out.kind = !out.options.empty() ? ScriptProperty::Options : (type == "asset" ? ScriptProperty::Asset : (type == "object" ? ScriptProperty::Object : ScriptProperty::String));
             return true;
         }
         if (value.is<p3d::Vec2>()) { const p3d::Vec2 a = value.as<p3d::Vec2>(); out.kind = ScriptProperty::Vector2; out.v[0] = a.x; out.v[1] = a.y; return true; }
@@ -485,6 +486,7 @@ namespace p3d {
         if (!value.valid() || value.get_type() == sol::type::lua_nil)
         {
             if (type == "asset") { out.kind = ScriptProperty::Asset; return true; }
+            if (type == "object") { out.kind = ScriptProperty::Object; return true; }
             if (!out.options.empty()) { out.kind = ScriptProperty::Options; out.s = out.options[0]; return true; }
         }
         return false;
@@ -591,6 +593,7 @@ namespace p3d {
             else if (what == "int" || what == "integer") { if (p.kind == ScriptProperty::Number) p.kind = ScriptProperty::Integer; }
             else if (what == "color" || what == "colour") { if (p.kind == ScriptProperty::Vector3) p.kind = ScriptProperty::Color3; else if (p.kind == ScriptProperty::Vector4) p.kind = ScriptProperty::Color4; }
             else if (what == "asset" || what == "file") { if (p.kind == ScriptProperty::String) p.kind = ScriptProperty::Asset; }
+            else if (what == "object") { if (p.kind == ScriptProperty::String) p.kind = ScriptProperty::Object; }
             else if (what == "label") { const std::string l = token(); if (!l.empty()) p.label = l; }
             else if (what == "options")
             {
@@ -703,9 +706,32 @@ namespace p3d {
                 case ScriptProperty::Vector2: data[p.name] = MadeInLua("Vec2", p.v, 2); break;
                 case ScriptProperty::Vector3: case ScriptProperty::Color3: data[p.name] = MadeInLua("Vec3", p.v, 3); break;
                 case ScriptProperty::Vector4: case ScriptProperty::Color4: data[p.name] = MadeInLua("Vec4", p.v, 4); break;
+                case ScriptProperty::Object: data[p.name] = FoundInScene(p.s); break;
                 default: data[p.name] = p.s; break;
                 }
             }
+        }
+        // The scene's object of that name, as a script holds one (nil when there is none): the
+        // scene is the one scripts know as `scene`.
+        sol::object FoundInScene(const std::string &name)
+        {
+            sol::state_view lua(data.lua_state());
+            if (name.empty()) return sol::object();
+            sol::optional<p3d::SceneGraph*> known = lua["scene"];
+            if (!known || *known == NULL) return sol::object();
+            const std::vector<std::shared_ptr<p3d::GameObject> > roots = (*known)->GetAllGameObjectList();
+            std::vector<p3d::GameObject*> open;
+            for (size_t i = 0; i < roots.size(); i++) if (roots[i]) open.push_back(roots[i].get());
+            std::set<p3d::GameObject*> seen;
+            while (!open.empty())
+            {
+                p3d::GameObject* g = open.back(); open.pop_back();
+                if (g == NULL || !seen.insert(g).second) continue;
+                if (g->GetName() == name) return sol::make_object(lua, g);
+                const std::vector<std::shared_ptr<p3d::GameObject> > &kids = g->GetChildren();
+                for (size_t k = 0; k < kids.size(); k++) if (kids[k]) open.push_back(kids[k].get());
+            }
+            return sol::object();
         }
 
         LuaComponent() {}

@@ -995,6 +995,8 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		try
 		{
 			sceneMainScript = LuaComponent_FromFile(lua, meta.mainScript);
+			// (what the scene set of the variables it offers)
+			if (sceneMainScript) SceneSerializer::TakeScriptPropertiesText(*sceneMainScript, meta.mainScriptProperties);
 			if (sceneMainScript) sceneMainScript->Init();
 		}
 		catch (const std::exception& e)

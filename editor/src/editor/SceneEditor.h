@@ -1857,6 +1857,10 @@ private:
 	// Script files that changed on disk since they were last read: read again, so what they
 	// declare now is what the properties panel shows. Asked about twice a second.
 	void PollScriptFiles();
+	// The script a properties control belongs to: a component by its scene-object id, or (0) the scene's main script.
+	LuaComponent* ScriptById(uint32 componentId);
+	// What is set of the main script's variables (a JSON object): kept here across the instance being made again.
+	std::string sceneMainScriptProperties;
 	std::map<std::string, std::filesystem::file_time_type> scriptFileTimes;
 	uint32 scriptPollFrame = 0;
 	ScriptProperty scriptPropertyBefore;

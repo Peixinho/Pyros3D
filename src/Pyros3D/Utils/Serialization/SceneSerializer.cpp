@@ -1354,6 +1354,61 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		l->SetVolumetricSteps(j.value("volumetricSteps", 32u));
 }
 
+#ifdef LUA_BINDINGS
+	// What is set of what a script offers (ScriptProperty), by name - as a scene keeps it.
+	static json ScriptPropertiesJson(const LuaComponent &lc)
+	{
+		json set = json::object();
+		for (size_t p = 0; p < lc.properties.size(); p++)
+		{
+			const ScriptProperty &sp = lc.properties[p];
+			switch (sp.kind)
+			{
+			case ScriptProperty::Number: set[sp.name] = sp.v[0]; break;
+			case ScriptProperty::Integer: set[sp.name] = (int64_t)std::llround((double)sp.v[0]); break;
+			case ScriptProperty::Boolean: set[sp.name] = sp.v[0] != 0.f; break;
+			case ScriptProperty::Vector2: set[sp.name] = { sp.v[0], sp.v[1] }; break;
+			case ScriptProperty::Vector3: case ScriptProperty::Color3: set[sp.name] = { sp.v[0], sp.v[1], sp.v[2] }; break;
+			case ScriptProperty::Vector4: case ScriptProperty::Color4: set[sp.name] = { sp.v[0], sp.v[1], sp.v[2], sp.v[3] }; break;
+			default: set[sp.name] = sp.s; break;
+			}
+		}
+		return set;
+	}
+	// ... and taken up again: each value given to the property of that name, where it is of its kind.
+	static void TakeScriptPropertiesJson(LuaComponent &lc, const json &set)
+	{
+		if (!set.is_object()) return;
+		for (size_t p = 0; p < lc.properties.size(); p++)
+		{
+			ScriptProperty &sp = lc.properties[p];
+			json::const_iterator at = set.find(sp.name);
+			if (at == set.end()) continue;
+			const json &val = *at;
+			switch (sp.kind)
+			{
+			case ScriptProperty::Number: case ScriptProperty::Integer: if (val.is_number()) sp.v[0] = val.get<f32>(); break;
+			case ScriptProperty::Boolean: if (val.is_boolean()) sp.v[0] = val.get<bool>() ? 1.f : 0.f; break;
+			case ScriptProperty::String: case ScriptProperty::Asset: case ScriptProperty::Object: if (val.is_string()) sp.s = val.get<std::string>(); break;
+			case ScriptProperty::Options: if (val.is_string() && std::find(sp.options.begin(), sp.options.end(), val.get<std::string>()) != sp.options.end()) sp.s = val.get<std::string>(); break;
+			default:
+				if (val.is_array())
+					for (size_t c = 0; c < val.size() && c < 4; c++) if (val[c].is_number()) sp.v[c] = val[c].get<f32>();
+				break;
+			}
+		}
+	}
+	std::string SceneSerializer::ScriptPropertiesText(const LuaComponent &script) { return script.properties.empty() ? std::string() : ScriptPropertiesJson(script).dump(); }
+	void SceneSerializer::TakeScriptPropertiesText(LuaComponent &script, const std::string &text)
+	{
+		if (text.empty()) return;
+		json set = json::parse(text, NULL, false);
+		if (set.is_discarded()) return;
+		TakeScriptPropertiesJson(script, set);
+		script.ApplyProperties();
+	}
+#endif
+
 	static json SerializeComponent(IComponent* c, json &materialsArray, std::map<IMaterial*, uint32> &materialIdMap, sol::state* lua)
 	{
 		json j;
@@ -2358,22 +2413,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// What was set of what its script offers (ScriptProperty), by name.
 				if (!lc->properties.empty())
 				{
-					json set = json::object();
-					for (size_t p = 0; p < lc->properties.size(); p++)
-					{
-						const ScriptProperty &sp = lc->properties[p];
-						switch (sp.kind)
-						{
-						case ScriptProperty::Number: set[sp.name] = sp.v[0]; break;
-						case ScriptProperty::Integer: set[sp.name] = (int64_t)std::llround((double)sp.v[0]); break;
-						case ScriptProperty::Boolean: set[sp.name] = sp.v[0] != 0.f; break;
-						case ScriptProperty::Vector2: set[sp.name] = { sp.v[0], sp.v[1] }; break;
-						case ScriptProperty::Vector3: case ScriptProperty::Color3: set[sp.name] = { sp.v[0], sp.v[1], sp.v[2] }; break;
-						case ScriptProperty::Vector4: case ScriptProperty::Color4: set[sp.name] = { sp.v[0], sp.v[1], sp.v[2], sp.v[3] }; break;
-						default: set[sp.name] = sp.s; break;
-						}
-					}
-					j["properties"] = set;
+					j["properties"] = ScriptPropertiesJson(*lc);
 				}
 				j["data"] = json::object();
 				if (lc->data.valid())
@@ -2661,6 +2701,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		root["version"] = 1;
 		if (meta && !meta->mainScript.empty())
 			root["mainScript"] = RelativizeSceneAssetPath(meta->mainScript);
+		// (what is set of what the main script offers: ScriptProperty)
+		if (meta && !meta->mainScript.empty() && !meta->mainScriptProperties.empty())
+		{
+			json set = json::parse(meta->mainScriptProperties, NULL, false);
+			if (set.is_object() && !set.empty()) root["mainScriptProperties"] = set;
+		}
 		// One block, braced. The `twoD` test used to sit outside the `if (meta)`
 		// with only its indentation suggesting otherwise, so it dereferenced a
 		// null meta - and meta defaults to NULL, which is exactly how the Lua
@@ -4739,25 +4785,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 							std::vector<ScriptProperty> declared;
 							ReadScriptProperties(cls, declared, scriptFile);
 							comp->DeclareProperties(declared);
-							if (j.contains("properties") && j["properties"].is_object())
-								for (size_t p = 0; p < comp->properties.size(); p++)
-								{
-									ScriptProperty &sp = comp->properties[p];
-									json::const_iterator at = j["properties"].find(sp.name);
-									if (at == j["properties"].end()) continue;
-									const json &val = *at;
-									switch (sp.kind)
-									{
-									case ScriptProperty::Number: case ScriptProperty::Integer: if (val.is_number()) sp.v[0] = val.get<f32>(); break;
-									case ScriptProperty::Boolean: if (val.is_boolean()) sp.v[0] = val.get<bool>() ? 1.f : 0.f; break;
-									case ScriptProperty::String: case ScriptProperty::Asset: if (val.is_string()) sp.s = val.get<std::string>(); break;
-									case ScriptProperty::Options: if (val.is_string() && std::find(sp.options.begin(), sp.options.end(), val.get<std::string>()) != sp.options.end()) sp.s = val.get<std::string>(); break;
-									default:
-										if (val.is_array())
-											for (size_t c = 0; c < val.size() && c < 4; c++) if (val[c].is_number()) sp.v[c] = val[c].get<f32>();
-										break;
-									}
-								}
+							if (j.contains("properties")) TakeScriptPropertiesJson(*comp, j["properties"]);
 							comp->ApplyProperties();
 						}
 						WireLuaComponentLifecycle(comp.get());
@@ -5078,6 +5106,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		if (outMeta)
 		{
 			outMeta->mainScript.clear();
+			outMeta->mainScriptProperties.clear();
+			if (root.contains("mainScriptProperties") && root["mainScriptProperties"].is_object()) outMeta->mainScriptProperties = root["mainScriptProperties"].dump();
 			if (root.contains("mainScript") && root["mainScript"].is_string())
 			{
 				const std::string raw = root["mainScript"].get<std::string>();

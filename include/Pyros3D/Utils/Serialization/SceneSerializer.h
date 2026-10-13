@@ -32,6 +32,7 @@ namespace sol { class state; }
 namespace p3d {
 
 	class IMaterial;
+	class LuaComponent;
 	class Texture;
 	class Renderable;
 	class SkeletonAnimation;
@@ -83,6 +84,8 @@ namespace p3d {
 		// Optional scene-level Lua (middleclass class), relative to project/assets
 		// root when possible (e.g. "assets/lua/main.lua"). Empty = none.
 		std::string mainScript;
+		// What is set of the variables the main script offers (ScriptProperty): a JSON object, by name.
+		std::string mainScriptProperties;
 
 		// Flat ambient colour, fed to IRenderer::SetGlobalLight() - only
 		// .xyz matter (see PyrosShader.glsl's uAmbientLight.rgb / w is
@@ -448,6 +451,12 @@ namespace p3d {
 		// A number that is the same for two subtrees exactly when SerializeSubtree() would write
 		// the same for them (but for a chance in 2^64): to tell an edited subtree from an
 		// untouched one without writing it out as text each time it is asked.
+#ifdef LUA_BINDINGS
+		// What is set of a script's variables as a scene keeps it (a JSON object, by name; empty
+		// when it offers none), and that taken up again by a script - and written into its instance.
+		static std::string ScriptPropertiesText(const LuaComponent &script);
+		static void TakeScriptPropertiesText(LuaComponent &script, const std::string &text);
+#endif
 		static uint64 SubtreeFingerprint(GameObject* root, const std::string &scenePathForAssetRoot, sol::state* lua = NULL);
 
 		// Reconstructs a GameObject subtree previously captured by
