@@ -64,6 +64,8 @@ namespace p3d {
 
 		// Last Glyph Pixel Position
 		uint32 lastGlyphWidth, lastGlyphRow;
+		// The tallest glyph in the atlas row being filled: the next row starts under it.
+		uint32 rowHeight = 0;
 
 		// Free Type Specifics
 		FT_Library ft;

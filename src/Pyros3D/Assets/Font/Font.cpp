@@ -263,17 +263,26 @@ namespace p3d {
 							glp.advance = (f32)(face->glyph->advance.x >> 6);
 
 							const uint32 cell = (uint32)fontSize + (isSDF ? sdfSpread * 2 : 0);
-							if (lastGlyphWidth + cell > MAP_SIZE)
+							// A glyph has the cell, or what it needs if that is
+							// more: a W or an @ in a bold face is wider than
+							// the font is tall, an accented capital taller.
+							// (Left out for not fitting its cell, the editor's
+							// own bold font lost letters.)
+							const uint32 slotW = bitmap.width + 1 > cell ? bitmap.width + 1 : cell;
+							const uint32 slotH = bitmap.rows + 1 > cell ? bitmap.rows + 1 : cell;
+							if (lastGlyphWidth + slotW > MAP_SIZE)
 							{
 								lastGlyphWidth = 0;
-								lastGlyphRow += cell*MAP_SIZE;
+								lastGlyphRow += (rowHeight > cell ? rowHeight : cell) * MAP_SIZE;
+								rowHeight = 0;
 							}
+							if (slotH > rowHeight) rowHeight = slotH;
 							// No room left. This used to write on regardless,
 							// past the end of the atlas and over whatever came
 							// after it in memory: a big font with many
 							// different letters took the program down, or
 							// worse, did not. The glyph is left out and said.
-							if (lastGlyphRow / MAP_SIZE + cell > MAP_SIZE || bitmap.width > cell || bitmap.rows > cell)
+							if (lastGlyphRow / MAP_SIZE + slotH > MAP_SIZE || slotW > MAP_SIZE)
 							{
 								static bool warnedFull = false;
 								if (!warnedFull)
@@ -296,7 +305,7 @@ namespace p3d {
 									glyphMapData[index + w + lastGlyphWidth + lastGlyphRow] = bitmap.buffer[w + bitmap.width * h];
 								}
 
-							lastGlyphWidth += cell;
+							lastGlyphWidth += slotW;
 
 							// Add this properties to each glyph
 							glyphs[text[i]] = glp;
