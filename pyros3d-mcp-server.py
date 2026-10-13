@@ -3903,6 +3903,96 @@ def add_physics(project_path: str, scene_name: str, name: str, shape: str = "Box
 # TOOLS — components
 # --------------------------------------------------------------------------
 
+_SCRIPT_PROPERTIES_HELP = """A script offers variables to the editor by declaring them on its class:
+
+    local Door = class('Door')
+    Door.properties = {
+        { name = "speed",  value = 2.5, min = 0, max = 10 },   -- number (a slider with min/max, else a drag)
+        { name = "count",  value = 3, type = "int" },          -- whole number
+        { name = "open",   value = false },                    -- checkbox
+        { name = "label",  value = "Door" },                   -- text
+        { name = "offset", value = Vec3.new(0, 1, 0) },        -- Vec2 / Vec3 / Vec4
+        { name = "tint",   value = Vec4.new(1, 1, 1, 1), type = "color" },
+        { name = "mode",   value = "auto", options = { "auto", "manual" } },
+        { name = "sound",  value = "", type = "asset" },       -- a project file
+    }
+
+Optional per entry: label, tip. Each is a field of the instance (self.speed),
+set before init(). The scene stores the values under the component's
+"properties" key."""
+
+
+@mcp.tool()
+def set_script_properties(project_path: str, scene_name: str, object_name: str, values: dict, script: str = "") -> str:
+    """Set the variables a Lua script offers on an object (editor: Properties > Lua Script > Properties).
+
+    values: {property name: value}. A number, true/false, a string, or a list of
+    numbers for a vector or a colour. With the editor running the script's own
+    declaration is checked; without it the values are written to the scene file
+    and taken up, where the script declares them, when the scene loads.
+    script: part of the script's file name, when the object has several scripts.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+    if not isinstance(values, dict) or not values:
+        return _fail("values must be a non-empty object. " + _SCRIPT_PROPERTIES_HELP)
+
+    done = []
+    for key, value in values.items():
+        live = _live_or_none("set_script_property", {"name": object_name, "property": key, "value": value, "script": script}, scene_file)
+        if live is None:
+            done = None
+            break
+        if isinstance(live, str):
+            return _fail(live)
+        done.append(key)
+    if done is not None:
+        return f"Set {', '.join(done)} on '{object_name}' (live editor)"
+
+    scene = _load_scene(scene_file)
+    node = _find_object(scene, object_name)
+    if node is None:
+        return _fail(f"Object '{object_name}' not found in scene {scene_name}")
+    for c in node.get("components", []):
+        if isinstance(c, dict) and c.get("type") == "LuaComponent" and (not script or script in c.get("scriptFile", "")):
+            c.setdefault("properties", {}).update(values)
+            _save_scene(scene_file, scene)
+            return f"Set {', '.join(values.keys())} on '{object_name}' in {scene_name} (scene file)"
+    return _fail(f"'{object_name}' has no Lua script" + (f" matching '{script}'" if script else ""))
+
+
+@mcp.tool()
+def get_script_properties(project_path: str, scene_name: str, object_name: str, script: str = "") -> str:
+    """List the variables a Lua script offers on an object, with their current values.
+
+    With the editor running: every declared property with its type, value, range
+    and options. Without it: what the scene file has stored for that script.
+    """
+    proj, err = _resolve_project(project_path)
+    if err:
+        return _fail(err)
+    scene_file = _scene_file(proj, scene_name)
+    s_err = _scene_error(scene_file)
+    if s_err:
+        return _fail(s_err)
+    live = _live_or_none("script_properties", {"name": object_name, "script": script}, scene_file)
+    if live is not None:
+        return _fail(live) if isinstance(live, str) else json.dumps(live, indent=2)
+    scene = _load_scene(scene_file)
+    node = _find_object(scene, object_name)
+    if node is None:
+        return _fail(f"Object '{object_name}' not found in scene {scene_name}")
+    for c in node.get("components", []):
+        if isinstance(c, dict) and c.get("type") == "LuaComponent" and (not script or script in c.get("scriptFile", "")):
+            return json.dumps({"scriptFile": c.get("scriptFile", ""), "stored": c.get("properties", {}), "note": "editor not running: only stored values are known. " + _SCRIPT_PROPERTIES_HELP}, indent=2)
+    return _fail(f"'{object_name}' has no Lua script" + (f" matching '{script}'" if script else ""))
+
+
 @mcp.tool()
 def attach_lua_component(project_path: str, scene_name: str, object_name: str, script_file: str, initial_data: dict | None = None) -> str:
     """Attach a Lua script component to a game object (editor: Properties > Script).
@@ -5424,6 +5514,14 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
     The editor must be running with the project open.
 
     Selected commands (args in parentheses; objects are addressed by name):
+
+    Properties panel, scripts
+      script_properties (name, script) - the variables an object's script offers
+        (Class.properties in the .lua file): name, type, value, range, options.
+        `script` is part of the script's file name, when the object has several.
+      set_script_property (name, property, value, script) - set one: a number,
+        true/false, a string, or an array of numbers for a vector or colour.
+        The scene keeps it; the script reads it as self.<property>.
 
     Properties panel, 3D
       set_light (name, color, intensity, radius, direction, inner, outer,

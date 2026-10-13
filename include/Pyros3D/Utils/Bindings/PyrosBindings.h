@@ -17,6 +17,11 @@
 #include <cstdlib>
 #include <chrono>
 #include <map>
+#include <cstring>
+#include <cmath>
+#include <algorithm>
+#include <set>
+#include <vector>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -395,9 +400,179 @@ namespace p3d {
     // IComponent itself has none - so it works for pure gameplay logic
     // attached via the already-bound GameObject::AddComponent(), the
     // same way any other component is attached.
+    // A variable a script offers to whoever places it - an editor shows a control for each
+    // and a scene keeps what was set. The script declares them on its class:
+    //
+    //   local Door = class('Door')
+    //   Door.properties = {
+    //       { name = "speed",  value = 2.5, min = 0, max = 10 },          -- a number: a slider (no range: a drag)
+    //       { name = "count",  value = 3, type = "int" },                 -- a whole number
+    //       { name = "open",   value = false },                           -- a checkbox
+    //       { name = "label",  value = "Door" },                          -- a line of text
+    //       { name = "offset", value = Vec3.new(0, 1, 0) },               -- Vec2, Vec3, Vec4: that many numbers
+    //       { name = "tint",   value = Vec4.new(1, 1, 1, 1), type = "color" },   -- a colour (Vec3 or Vec4)
+    //       { name = "mode",   value = "auto", options = { "auto", "manual" } }, -- one of a list
+    //       { name = "sound",  value = "", type = "asset" },              -- a file of the project
+    //   }
+    //
+    // (also `label` - what the control is called - and `tip`). The shorter `speed = 2.5` and
+    // `speed = { value = 2.5, min = 0 }` are taken too; those come in alphabetical order.
+    // Each is a field of the instance - self.speed - set before init() and again whenever it
+    // is changed. The kind of the value is the kind of the control.
+    struct PYROS3D_API ScriptProperty
+    {
+        enum Kind { Number = 0, Integer, Boolean, String, Vector2, Vector3, Vector4, Color3, Color4, Options, Asset };
+        std::string name, label, tip;
+        int kind = Number;
+        p3d::f32 v[4] = { 0.f, 0.f, 0.f, 0.f };   // numbers, vectors, colours; Boolean: v[0] != 0
+        std::string s;                             // String, Options, Asset
+        p3d::f32 min = 0.f, max = 0.f;
+        bool hasRange = false;
+        std::vector<std::string> options;
+        bool SameValue(const ScriptProperty &o) const
+        {
+            return kind == o.kind && s == o.s && v[0] == o.v[0] && v[1] == o.v[1] && v[2] == o.v[2] && v[3] == o.v[3];
+        }
+    };
+
+    // One declared entry (see ScriptProperty): false when it is not one.
+    inline bool ReadScriptProperty(const std::string &name, const sol::object &given, ScriptProperty &out)
+    {
+        out = ScriptProperty();
+        out.name = name;
+        sol::object value = given;
+        std::string type;
+        if (given.get_type() == sol::type::table)
+        {
+            sol::table t = given;
+            value = t["value"];
+            out.label = t.get_or("label", std::string());
+            out.tip = t.get_or("tip", std::string());
+            type = t.get_or("type", std::string());
+            sol::object lo = t["min"], hi = t["max"];
+            if (lo.is<double>() && hi.is<double>()) { out.min = (p3d::f32)lo.as<double>(); out.max = (p3d::f32)hi.as<double>(); out.hasRange = out.max > out.min; }
+            sol::object opts = t["options"];
+            if (opts.get_type() == sol::type::table)
+            {
+                sol::table list = opts;
+                for (size_t i = 1; i <= list.size(); i++) { sol::object o = list[i]; if (o.is<std::string>()) out.options.push_back(o.as<std::string>()); }
+            }
+        }
+        if (out.label.empty()) out.label = name;
+        if (value.get_type() == sol::type::boolean) { out.kind = ScriptProperty::Boolean; out.v[0] = value.as<bool>() ? 1.f : 0.f; return true; }
+        if (value.get_type() == sol::type::number)
+        {
+            out.kind = (type == "int" || type == "integer") ? ScriptProperty::Integer : ScriptProperty::Number;
+            out.v[0] = (p3d::f32)value.as<double>();
+            return true;
+        }
+        if (value.get_type() == sol::type::string)
+        {
+            out.s = value.as<std::string>();
+            out.kind = !out.options.empty() ? ScriptProperty::Options : (type == "asset" ? ScriptProperty::Asset : ScriptProperty::String);
+            return true;
+        }
+        if (value.is<p3d::Vec2>()) { const p3d::Vec2 a = value.as<p3d::Vec2>(); out.kind = ScriptProperty::Vector2; out.v[0] = a.x; out.v[1] = a.y; return true; }
+        if (value.is<p3d::Vec3>()) { const p3d::Vec3 a = value.as<p3d::Vec3>(); out.kind = type == "color" ? ScriptProperty::Color3 : ScriptProperty::Vector3; out.v[0] = a.x; out.v[1] = a.y; out.v[2] = a.z; return true; }
+        if (value.is<p3d::Vec4>()) { const p3d::Vec4 a = value.as<p3d::Vec4>(); out.kind = type == "color" ? ScriptProperty::Color4 : ScriptProperty::Vector4; out.v[0] = a.x; out.v[1] = a.y; out.v[2] = a.z; out.v[3] = a.w; return true; }
+        // (no value given, but a kind named: an empty one of that kind)
+        if (!value.valid() || value.get_type() == sol::type::lua_nil)
+        {
+            if (type == "asset") { out.kind = ScriptProperty::Asset; return true; }
+            if (!out.options.empty()) { out.kind = ScriptProperty::Options; out.s = out.options[0]; return true; }
+        }
+        return false;
+    }
+
+    // What a script's class declares, in the order it declares it.
+    inline void ReadScriptProperties(const sol::table &cls, std::vector<ScriptProperty> &out)
+    {
+        out.clear();
+        if (!cls.valid()) return;
+        sol::object declared = cls["properties"];
+        if (declared.get_type() != sol::type::table) return;
+        sol::table list = declared;
+        std::set<std::string> taken;
+        for (size_t i = 1; i <= list.size(); i++)
+        {
+            sol::object entry = list[i];
+            if (entry.get_type() != sol::type::table) continue;
+            sol::table t = entry;
+            const std::string name = t.get_or("name", std::string());
+            ScriptProperty p;
+            if (name.empty() || taken.count(name) || !ReadScriptProperty(name, entry, p)) continue;
+            taken.insert(name); out.push_back(p);
+        }
+        std::map<std::string, ScriptProperty> named;
+        for (auto &kv : list)
+        {
+            if (kv.first.get_type() != sol::type::string) continue;
+            const std::string name = kv.first.as<std::string>();
+            ScriptProperty p;
+            if (taken.count(name) || !ReadScriptProperty(name, kv.second, p)) continue;
+            named[name] = p;
+        }
+        for (std::map<std::string, ScriptProperty>::const_iterator i = named.begin(); i != named.end(); ++i) out.push_back(i->second);
+    }
+
     class PYROS3D_API LuaComponent : public p3d::IComponent
     {
     public:
+
+        // What its script offers to be set (ScriptProperty), with what is set here.
+        std::vector<ScriptProperty> properties;
+        // The script's declaration taken up: what was set is kept where the name and the kind
+        // are still the same, a new one starts at what the script gives it, a gone one goes.
+        void DeclareProperties(const std::vector<ScriptProperty> &declared)
+        {
+            std::vector<ScriptProperty> next = declared;
+            for (size_t i = 0; i < next.size(); i++)
+                for (size_t k = 0; k < properties.size(); k++)
+                    if (properties[k].name == next[i].name && properties[k].kind == next[i].kind)
+                    {
+                        std::memcpy(next[i].v, properties[k].v, sizeof(next[i].v));
+                        next[i].s = properties[k].s;
+                        // (one of a list that is no longer in the list: the script's own)
+                        if (next[i].kind == ScriptProperty::Options && std::find(next[i].options.begin(), next[i].options.end(), next[i].s) == next[i].options.end()) next[i].s = declared[i].s;
+                    }
+            properties.swap(next);
+        }
+        ScriptProperty* FindProperty(const std::string &name)
+        {
+            for (size_t i = 0; i < properties.size(); i++) if (properties[i].name == name) return &properties[i];
+            return NULL;
+        }
+        sol::object MadeInLua(const char* type, const p3d::f32* v, const int n)
+        {
+            sol::state_view lua(data.lua_state());
+            sol::object made = lua[type];
+            if (made.get_type() != sol::type::table && made.get_type() != sol::type::userdata) return sol::object();
+            sol::protected_function ctor = lua[type]["new"];
+            if (!ctor.valid()) return sol::object();
+            sol::protected_function_result r = n == 2 ? ctor(v[0], v[1]) : (n == 3 ? ctor(v[0], v[1], v[2]) : ctor(v[0], v[1], v[2], v[3]));
+            return r.valid() ? r.get<sol::object>() : sol::object();
+        }
+        // Each written into the instance: self.<name>.
+        void ApplyProperties()
+        {
+            if (!data.valid()) return;
+            for (size_t i = 0; i < properties.size(); i++)
+            {
+                const ScriptProperty &p = properties[i];
+                switch (p.kind)
+                {
+                case ScriptProperty::Number: data[p.name] = (double)p.v[0]; break;
+                case ScriptProperty::Integer: data[p.name] = (long long)std::llround((double)p.v[0]); break;
+                case ScriptProperty::Boolean: data[p.name] = p.v[0] != 0.f; break;
+                // (vectors are made as a script makes them - Vec3.new(...): handed over as C++ values they
+                // arrive in the script as functions, these types being callable)
+                case ScriptProperty::Vector2: data[p.name] = MadeInLua("Vec2", p.v, 2); break;
+                case ScriptProperty::Vector3: case ScriptProperty::Color3: data[p.name] = MadeInLua("Vec3", p.v, 3); break;
+                case ScriptProperty::Vector4: case ScriptProperty::Color4: data[p.name] = MadeInLua("Vec4", p.v, 4); break;
+                default: data[p.name] = p.s; break;
+                }
+            }
+        }
 
         LuaComponent() {}
         LuaComponent(sol::state* lua, const std::string name)
@@ -548,6 +723,8 @@ namespace p3d {
         {
             if (initialized || initFailed) return;
             try {
+                // (what was set for it, as it is now: a run may have changed the fields)
+                ApplyProperties();
                 if (on_init) on_init(*this);
                 initialized = true;
             }
@@ -639,8 +816,40 @@ namespace p3d {
         auto comp = std::make_shared<LuaComponent>();
         comp->scriptFile = scriptFile;
         comp->data = inst.get<sol::table>();
+        {
+            std::vector<ScriptProperty> declared;
+            ReadScriptProperties(cls, declared);
+            comp->DeclareProperties(declared);
+            comp->ApplyProperties();
+        }
         WireLuaComponentLifecycle(comp.get());
         return comp;
+    }
+
+    // The script's file read again for a component that has one: what it declares now is taken
+    // up (DeclareProperties) and the instance is made again from the new class. False when the
+    // file does not give a class - the component is left as it was.
+    inline bool LuaComponent_Reload(sol::state_view lua, LuaComponent* comp)
+    {
+        if (comp == NULL || comp->scriptFile.empty()) return false;
+        sol::load_result chunk = lua.load_file(comp->scriptFile);
+        if (!chunk.valid()) return false;
+        sol::protected_function_result loaded = chunk();
+        if (!loaded.valid() || loaded.get_type() != sol::type::table) return false;
+        sol::table cls = loaded;
+        sol::function newFn = cls["new"];
+        if (!newFn.valid()) return false;
+        sol::protected_function_result inst = newFn(cls);
+        if (!inst.valid() || inst.get_type() != sol::type::table) return false;
+        comp->ResetLifecycle();
+        comp->data = inst.get<sol::table>();
+        std::vector<ScriptProperty> declared;
+        ReadScriptProperties(cls, declared);
+        comp->DeclareProperties(declared);
+        comp->ApplyProperties();
+        comp->on_init = nullptr; comp->on_update = nullptr; comp->on_destroy = nullptr;
+        WireLuaComponentLifecycle(comp);
+        return true;
     }
 
 	// Real keyboard/mouse input for Lua - InputManager itself is

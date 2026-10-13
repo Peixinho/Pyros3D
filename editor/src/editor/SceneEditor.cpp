@@ -3353,6 +3353,237 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 	}
 
+#ifdef LUA_BINDINGS
+	namespace {
+		json ScriptPropertyValue(const ScriptProperty &p)
+		{
+			switch (p.kind)
+			{
+			case ScriptProperty::Number: return p.v[0];
+			case ScriptProperty::Integer: return (int64_t)std::llround((double)p.v[0]);
+			case ScriptProperty::Boolean: return p.v[0] != 0.f;
+			case ScriptProperty::Vector2: return json::array({ p.v[0], p.v[1] });
+			case ScriptProperty::Vector3: case ScriptProperty::Color3: return json::array({ p.v[0], p.v[1], p.v[2] });
+			case ScriptProperty::Vector4: case ScriptProperty::Color4: return json::array({ p.v[0], p.v[1], p.v[2], p.v[3] });
+			default: return p.s;
+			}
+		}
+		const char* ScriptPropertyKindName(const int kind)
+		{
+			static const char* names[] = { "number", "int", "bool", "string", "vec2", "vec3", "vec4", "color", "color", "options", "asset" };
+			return (kind >= 0 && kind <= ScriptProperty::Asset) ? names[kind] : "?";
+		}
+	}
+
+	void SceneEditor::PollScriptFiles()
+	{
+		if (!sharedLua || playMode || !sceneObjects) return;
+		std::set<std::string> changed;
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::LUA_COMPONENT) continue;
+			LuaComponent* lc = (LuaComponent*)i->second->GetPTR();
+			if (!lc || lc->scriptFile.empty() || changed.count(lc->scriptFile)) continue;
+			std::error_code ec;
+			const std::filesystem::file_time_type at = std::filesystem::last_write_time(lc->scriptFile, ec);
+			if (ec) continue;
+			std::map<std::string, std::filesystem::file_time_type>::iterator known = scriptFileTimes.find(lc->scriptFile);
+			if (known == scriptFileTimes.end()) { scriptFileTimes[lc->scriptFile] = at; continue; }
+			if (known->second == at) continue;
+			known->second = at;
+			changed.insert(lc->scriptFile);
+		}
+		if (changed.empty()) return;
+		PushLuaHostGlobals();
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::LUA_COMPONENT) continue;
+			LuaComponent* lc = (LuaComponent*)i->second->GetPTR();
+			if (!lc || !changed.count(lc->scriptFile)) continue;
+			const size_t had = lc->properties.size();
+			bool ok = false;
+			try { ok = LuaComponent_Reload(*sharedLua, lc); } catch (...) { ok = false; }
+			if (!ok) echo("WARNING: " + DisplayPath(lc->scriptFile) + " changed but does not load: its properties are left as they were");
+			else if (lc->properties.size() != had) echo("Script " + DisplayPath(lc->scriptFile) + ": " + std::to_string(lc->properties.size()) + " properties");
+		}
+	}
+
+	void SceneEditor::DrawScriptProperties(LuaComponent* lc, uint32 componentId)
+	{
+		if (lc->properties.empty())
+		{
+			ImGui::TextDisabled("No properties. A script offers them with\nClass.properties = { { name = \"speed\", value = 2 }, ... }");
+			return;
+		}
+		ImGui::Spacing();
+		ImGui::TextUnformatted("Properties");
+		for (size_t i = 0; i < lc->properties.size(); i++)
+		{
+			ScriptProperty &p = lc->properties[i];
+			const ScriptProperty was = p;
+			ImGui::PushID((int)i);
+			bool edited = false, oneClick = false;
+			switch (p.kind)
+			{
+			case ScriptProperty::Number:
+				edited = p.hasRange ? ImGui::SliderFloat(p.label.c_str(), &p.v[0], p.min, p.max) : ImGui::DragFloat(p.label.c_str(), &p.v[0], 0.01f);
+				break;
+			case ScriptProperty::Integer:
+			{
+				int whole = (int)std::llround((double)p.v[0]);
+				edited = p.hasRange ? ImGui::SliderInt(p.label.c_str(), &whole, (int)p.min, (int)p.max) : ImGui::DragInt(p.label.c_str(), &whole);
+				if (edited) p.v[0] = (f32)whole;
+				break;
+			}
+			case ScriptProperty::Boolean:
+			{
+				bool on = p.v[0] != 0.f;
+				if (ImGui::Checkbox(p.label.c_str(), &on)) { p.v[0] = on ? 1.f : 0.f; edited = true; oneClick = true; }
+				break;
+			}
+			case ScriptProperty::Vector2: edited = ImGui::DragFloat2(p.label.c_str(), p.v, 0.01f); break;
+			case ScriptProperty::Vector3: edited = ImGui::DragFloat3(p.label.c_str(), p.v, 0.01f); break;
+			case ScriptProperty::Vector4: edited = ImGui::DragFloat4(p.label.c_str(), p.v, 0.01f); break;
+			case ScriptProperty::Color3: edited = ImGui::ColorEdit3(p.label.c_str(), p.v); break;
+			case ScriptProperty::Color4: edited = ImGui::ColorEdit4(p.label.c_str(), p.v); break;
+			case ScriptProperty::Options:
+				if (ImGui::BeginCombo(p.label.c_str(), p.s.c_str()))
+				{
+					for (size_t o = 0; o < p.options.size(); o++)
+						if (ImGui::Selectable(p.options[o].c_str(), p.options[o] == p.s) && p.options[o] != p.s) { p.s = p.options[o]; edited = true; oneClick = true; }
+					ImGui::EndCombo();
+				}
+				break;
+			case ScriptProperty::Asset:
+				edited = ImGui::InputTextWithHint(p.label.c_str(), "drop a file from Assets", &p.s);
+				if (ImGui::BeginDragDropTarget())
+				{
+					if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("ASSET_REL")) { p.s = std::string((const char*)payload->Data); edited = true; oneClick = true; }
+					ImGui::EndDragDropTarget();
+				}
+				break;
+			default:
+				edited = ImGui::InputText(p.label.c_str(), &p.s);
+				break;
+			}
+			if (!p.tip.empty() && ImGui::IsItemHovered()) ImGui::SetTooltip("%s", p.tip.c_str());
+			// (a drag or a typed word is one step: from what it was when the control was taken up)
+			if (ImGui::IsItemActivated() && !scriptPropertyEditing) { scriptPropertyBefore = was; scriptPropertyEditing = true; }
+			if (edited)
+			{
+				lc->ApplyProperties();
+				if (!playMode) MarkSceneDirty();
+			}
+			const bool done = oneClick ? edited : ImGui::IsItemDeactivatedAfterEdit();
+			if (done)
+			{
+				const ScriptProperty before = oneClick ? was : (scriptPropertyEditing ? scriptPropertyBefore : was), after = p;
+				if (!playMode && !before.SameValue(after))
+				{
+					auto set = [this, componentId](const ScriptProperty &to) {
+						SceneObject* so = sceneObjects ? sceneObjects->GetSceneObject(componentId) : NULL;
+						if (!so || so->GetType() != SceneObjectTypes::LUA_COMPONENT) return;
+						LuaComponent* c = (LuaComponent*)so->GetPTR();
+						if (ScriptProperty* at = c ? c->FindProperty(to.name) : NULL) { std::memcpy(at->v, to.v, sizeof(at->v)); at->s = to.s; c->ApplyProperties(); MarkSceneDirty(); }
+					};
+					sceneUndo.Push(std::make_unique<ApplyClosureCommand>([set, before]() { set(before); }, [set, after]() { set(after); }, "Set " + p.label));
+				}
+			}
+			if (ImGui::IsItemDeactivated()) scriptPropertyEditing = false;
+			ImGui::PopID();
+		}
+	}
+
+	static SceneObject* ScriptOwnerByName(SceneObjects* so, const std::string &name)
+	{
+		for (std::map<uint32, SceneObject*>::const_iterator i = so->GetList().begin(); i != so->GetList().end(); ++i)
+			if (i->second && i->second->GetType() == SceneObjectTypes::GAMEOBJECT && i->second->GetName() == name) return i->second;
+		return NULL;
+	}
+	static LuaComponent* AgentFindScript(SceneObjects* so, SceneObject* owner, const std::string &script)
+	{
+		for (std::map<uint32, SceneObject*>::const_iterator i = so->GetList().begin(); i != so->GetList().end(); ++i)
+		{
+			if (!i->second || i->second->GetType() != SceneObjectTypes::LUA_COMPONENT || i->second->GetParentID() != owner->GetID()) continue;
+			LuaComponent* lc = (LuaComponent*)i->second->GetPTR();
+			if (lc && (script.empty() || lc->scriptFile.find(script) != std::string::npos)) return lc;
+		}
+		return NULL;
+	}
+
+	bool SceneEditor::AgentScriptProperties(const std::string& name, const std::string& script, json& out, std::string& errOut)
+	{
+		SceneObject* obj = ScriptOwnerByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		LuaComponent* lc = AgentFindScript(sceneObjects, obj, script);
+		if (!lc) { errOut = "'" + name + "' has no script" + (script.empty() ? std::string() : " matching '" + script + "'"); return false; }
+		out["scriptFile"] = DisplayPath(lc->scriptFile);
+		out["properties"] = json::array();
+		for (size_t i = 0; i < lc->properties.size(); i++)
+		{
+			const ScriptProperty &p = lc->properties[i];
+			json e;
+			e["name"] = p.name; e["label"] = p.label; e["type"] = ScriptPropertyKindName(p.kind); e["value"] = ScriptPropertyValue(p);
+			if (p.hasRange) { e["min"] = p.min; e["max"] = p.max; }
+			if (!p.options.empty()) e["options"] = p.options;
+			if (!p.tip.empty()) e["tip"] = p.tip;
+			out["properties"].push_back(e);
+		}
+		return true;
+	}
+
+	bool SceneEditor::AgentSetScriptProperty(const std::string& name, const std::string& script, const std::string& property, const json& value, std::string& errOut)
+	{
+		SceneObject* obj = ScriptOwnerByName(sceneObjects, name);
+		if (!obj) { errOut = "object '" + name + "' not found"; return false; }
+		LuaComponent* lc = AgentFindScript(sceneObjects, obj, script);
+		if (!lc) { errOut = "'" + name + "' has no script" + (script.empty() ? std::string() : " matching '" + script + "'"); return false; }
+		ScriptProperty* p = lc->FindProperty(property);
+		if (!p) { errOut = "the script has no property '" + property + "'"; return false; }
+		const ScriptProperty before = *p;
+		const std::string wrong = "'" + property + "' is a " + ScriptPropertyKindName(p->kind);
+		switch (p->kind)
+		{
+		case ScriptProperty::Number: case ScriptProperty::Integer:
+			if (!value.is_number()) { errOut = wrong; return false; }
+			p->v[0] = p->kind == ScriptProperty::Integer ? (f32)std::llround(value.get<double>()) : value.get<f32>();
+			break;
+		case ScriptProperty::Boolean: if (!value.is_boolean()) { errOut = wrong; return false; } p->v[0] = value.get<bool>() ? 1.f : 0.f; break;
+		case ScriptProperty::String: case ScriptProperty::Asset: if (!value.is_string()) { errOut = wrong; return false; } p->s = value.get<std::string>(); break;
+		case ScriptProperty::Options:
+			if (!value.is_string() || std::find(p->options.begin(), p->options.end(), value.get<std::string>()) == p->options.end()) { errOut = wrong + ": one of its options"; return false; }
+			p->s = value.get<std::string>();
+			break;
+		default:
+		{
+			const size_t n = p->kind == ScriptProperty::Vector2 ? 2 : ((p->kind == ScriptProperty::Vector3 || p->kind == ScriptProperty::Color3) ? 3 : 4);
+			if (!value.is_array() || value.size() != n) { errOut = wrong + ": " + std::to_string(n) + " numbers"; return false; }
+			for (size_t c = 0; c < n; c++) { if (!value[c].is_number()) { errOut = wrong; return false; } p->v[c] = value[c].get<f32>(); }
+			break;
+		}
+		}
+		lc->ApplyProperties();
+		if (!playMode)
+		{
+			MarkSceneDirty();
+			// (the same step to undo as the panel's control makes)
+			const uint32 componentId = sceneObjects->GetSceneObjectID(lc);
+			const ScriptProperty after = *p;
+			if (componentId != 0 && !before.SameValue(after))
+			{
+				auto set = [this, componentId](const ScriptProperty &to) {
+					SceneObject* so = sceneObjects ? sceneObjects->GetSceneObject(componentId) : NULL;
+					if (!so || so->GetType() != SceneObjectTypes::LUA_COMPONENT) return;
+					LuaComponent* c = (LuaComponent*)so->GetPTR();
+					if (ScriptProperty* at = c ? c->FindProperty(to.name) : NULL) { std::memcpy(at->v, to.v, sizeof(at->v)); at->s = to.s; c->ApplyProperties(); MarkSceneDirty(); }
+				};
+				sceneUndo.Push(std::make_unique<ApplyClosureCommand>([set, before]() { set(before); }, [set, after]() { set(after); }, "Set " + after.label));
+			}
+		}
+		return true;
+	}
+#endif
+
 	void SceneEditor::ResetLuaComponentsLifecycle()
 	{
 		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin();
@@ -6117,6 +6348,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::Update(const f64 time)
 	{
+#ifdef LUA_BINDINGS
+		if ((++scriptPollFrame % 30) == 0) PollScriptFiles();
+#endif
 		if (!deferredEdits.empty())
 		{
 			std::vector<std::function<void()> > run;
@@ -11336,6 +11570,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					if (lc && !lc->scriptFile.empty() && hostOpenLuaScript
 						&& ImGui::Button("Open Script", ImVec2(140, 0)))
 						hostOpenLuaScript(ResolveScriptPath(lc->scriptFile));
+					if (lc) DrawScriptProperties(lc, SelectedSceneObject->GetID());
 				}
 				else
 				{
@@ -11346,6 +11581,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						if (ImGui::Button("Open Script", ImVec2(140, 0)))
 							hostOpenLuaScript(ResolveScriptPath(lc->scriptFile));
 					}
+					if (lc) { DrawScriptProperties(lc, SelectedSceneObject->GetID()); ImGui::Separator(); }
 					if (propertiesScriptAttachPath.empty() && lc && !lc->scriptFile.empty())
 					{
 						if (project && project->IsOpen())

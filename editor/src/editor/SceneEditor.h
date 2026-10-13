@@ -542,6 +542,10 @@ public:
 	json AgentPrefabState();
 	bool AgentDeleteObject(const std::string& name, std::string& errOut);
 	bool AgentAttachScript(const std::string& name, const std::string& scriptFile, const json& data, std::string& errOut);
+	// A script's variables on an object: what they are and what is set ("script": the script's file
+	// name, or part of it, when the object has several), and one of them set.
+	bool AgentScriptProperties(const std::string& name, const std::string& script, json& out, std::string& errOut);
+	bool AgentSetScriptProperty(const std::string& name, const std::string& script, const std::string& property, const json& value, std::string& errOut);
 	// Detaches the first component of `componentType` (matching the "type"
 	// strings AgentComponentToJson/find_game_objects_with_component use:
 	// RenderingComponent, DirectionalLight, PointLight, SpotLight, Physics,
@@ -1846,6 +1850,18 @@ private:
 	void DrawGameObjectScriptProperties(uint32 goId);
 	// Combo of assets/lua scripts only (not scenes/*.lua) + ASSET_REL drag-drop.
 	void DrawScriptAssetPicker(const char* id, std::string& pathBuf);
+#ifdef LUA_BINDINGS
+	// A script component's own variables (ScriptProperty), a control each; what a control changes
+	// is one step to undo. `componentId` is the component's scene-object id.
+	void DrawScriptProperties(LuaComponent* lc, uint32 componentId);
+	// Script files that changed on disk since they were last read: read again, so what they
+	// declare now is what the properties panel shows. Asked about twice a second.
+	void PollScriptFiles();
+	std::map<std::string, std::filesystem::file_time_type> scriptFileTimes;
+	uint32 scriptPollFrame = 0;
+	ScriptProperty scriptPropertyBefore;
+	bool scriptPropertyEditing = false;
+#endif
 	// Screen-space UI, inspected on the GameObject that carries it.
 	void DrawUIComponentProperties(GameObject* go, uint32 goId);
 	// Snapshot-based undo for component property edits, for components whose

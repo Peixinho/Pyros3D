@@ -3909,6 +3909,24 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// {"name": object, "script": part of the script's file name (optional)}: what the script offers to be set, and what is set.
+	if (name == "script_properties")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentScriptProperties(A("name"), A("script"), r, err))
+			throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
+	// {"name": object, "property": its name, "value": a number, true/false, a string or an array of numbers, "script": optional}
+	if (name == "set_script_property")
+	{
+		if (!sceneView->AgentSetScriptProperty(A("name"), A("script"), A("property"), a.contains("value") ? a["value"] : nlohmann::json(), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "detach_component")
 	{
 		if (!sceneView->AgentDetachComponent(A("name"), A("componentType"), err))
