@@ -52,8 +52,37 @@ namespace p3d {
 			"setMass", &IPhysicsComponent::SetMass,
 			"activate", &IPhysicsComponent::Activate,
 			"isGhost", &IPhysicsComponent::IsGhost,
-			"onCollisionEnter", &IPhysicsComponent::OnCollisionEnter,
-			"onCollisionExit", &IPhysicsComponent::OnCollisionExit,
+			// (assigning one asks the body to report its contacts - a solid body does not otherwise)
+			"onCollisionEnter", sol::property(
+				[](IPhysicsComponent &p) { return p.OnCollisionEnter; },
+				[](IPhysicsComponent &p, sol::object f) {
+					if (f.valid() && f.get_type() == sol::type::function)
+					{
+						// (called from inside the physics step: a script error is reported, not thrown through it)
+						sol::protected_function fn = f;
+						p.OnCollisionEnter = [fn](IPhysicsComponent* other) {
+							sol::protected_function_result r = fn(other);
+							if (!r.valid()) { sol::error e = r; echo(std::string("ERROR: onCollisionEnter - ") + e.what()); }
+						};
+						p.ListenForCollisions();
+					}
+					else p.OnCollisionEnter = nullptr;
+				}),
+			"onCollisionExit", sol::property(
+				[](IPhysicsComponent &p) { return p.OnCollisionExit; },
+				[](IPhysicsComponent &p, sol::object f) {
+					if (f.valid() && f.get_type() == sol::type::function)
+					{
+						// (called from inside the physics step: a script error is reported, not thrown through it)
+						sol::protected_function fn = f;
+						p.OnCollisionExit = [fn](IPhysicsComponent* other) {
+							sol::protected_function_result r = fn(other);
+							if (!r.valid()) { sol::error e = r; echo(std::string("ERROR: onCollisionExit - ") + e.what()); }
+						};
+						p.ListenForCollisions();
+					}
+					else p.OnCollisionExit = nullptr;
+				}),
 			sol::base_classes, sol::bases<IComponent>()
 			);
 

@@ -128,6 +128,29 @@ int main()
 		check(!body->RigidBodyRegistered(), "removing twice is harmless");
 	}
 
+	// A solid body with a collision callback hears what it touches.
+	{
+		Box3DPhysics world;
+		world.InitPhysics();
+		SceneGraph scene;
+		std::shared_ptr<GameObject> floorObj = std::make_shared<GameObject>(), boxObj = std::make_shared<GameObject>(), lateObj = std::make_shared<GameObject>();
+		std::shared_ptr<IPhysicsComponent> floorBody = world.CreateBox(10.f, 0.5f, 10.f, 0.f, false);
+		std::shared_ptr<IPhysicsComponent> box = world.CreateBox(0.5f, 0.5f, 0.5f, 5.f, false), late = world.CreateBox(0.5f, 0.5f, 0.5f, 5.f, false);
+		int heard = 0, heardLate = 0;
+		IPhysicsComponent* who = NULL;
+		box->OnCollisionEnter = [&](IPhysicsComponent* other) { heard++; who = other; };      // set before the body is made
+		floorObj->SetPosition(Vec3(0.f, -0.5f, 0.f)); boxObj->SetPosition(Vec3(-3.f, 2.f, 0.f)); lateObj->SetPosition(Vec3(3.f, 2.f, 0.f));
+		floorObj->Add(floorBody); boxObj->Add(box); lateObj->Add(late);
+		scene.Add(floorObj); scene.Add(boxObj); scene.Add(lateObj);
+		scene.Update(0.016);
+		late->OnCollisionEnter = [&](IPhysicsComponent*) { heardLate++; };                    // and after
+		late->ListenForCollisions();
+		for (int i = 0; i < 120; i++) world.Update(1.0 / 60.0, 3);
+		check(heard == 1 && who == floorBody.get(), "a solid body with a callback hears the floor it lands on, once");
+		check(heardLate == 1, "and so does one given its callback after it was made");
+		scene.Remove(floorObj); scene.Remove(boxObj); scene.Remove(lateObj);
+	}
+
 	// A force asked for every frame pushes the same at any frame rate.
 	{
 		const f64 rates[] = { 60.0, 30.0, 120.0, 240.0, 50.0 };

@@ -93,6 +93,30 @@ namespace {
 	{
 		return i < v.GetWheels().size() ? v.GetWheels()[i].IsFrontWheel : false;
 	}
+	// Collisions, told to the page. The other body is handed over as the
+	// shared component it is (found on its owner), so the page can ask it
+	// for getOwner() and keep it if it wants.
+	std::shared_ptr<IPhysicsComponent> SharedOf(IPhysicsComponent* other)
+	{
+		if (!other || !other->GetOwner()) return std::shared_ptr<IPhysicsComponent>();
+		const std::vector<std::shared_ptr<IComponent> > &c = other->GetOwner()->GetComponents();
+		for (size_t i = 0; i < c.size(); i++)
+			if (c[i].get() == other) return std::static_pointer_cast<IPhysicsComponent>(c[i]);
+		return std::shared_ptr<IPhysicsComponent>();
+	}
+	void Physics_OnCollisionEnter(IPhysicsComponent &p, emscripten::val fn)
+	{
+		if (fn.isNull() || fn.isUndefined()) { p.OnCollisionEnter = nullptr; return; }
+		p.OnCollisionEnter = [fn](IPhysicsComponent* other) { fn(SharedOf(other)); };
+		p.ListenForCollisions();
+	}
+	void Physics_OnCollisionExit(IPhysicsComponent &p, emscripten::val fn)
+	{
+		if (fn.isNull() || fn.isUndefined()) { p.OnCollisionExit = nullptr; return; }
+		p.OnCollisionExit = [fn](IPhysicsComponent* other) { fn(SharedOf(other)); };
+		p.ListenForCollisions();
+	}
+
 	std::shared_ptr<PhysicsVehicle> AsPhysicsVehicle(std::shared_ptr<IPhysicsComponent> c)
 	{
 		return std::dynamic_pointer_cast<PhysicsVehicle>(c);
@@ -129,8 +153,10 @@ EMSCRIPTEN_BINDINGS(pyros3d_physics)
 		.function("applyCentralImpulse", &IPhysicsComponent::ApplyCentralImpulse)
 		.function("setMass", &IPhysicsComponent::SetMass)
 		.function("activate", &IPhysicsComponent::Activate)
-		.function("isGhost", &IPhysicsComponent::IsGhost);
-		// onCollisionEnter/Exit — std::function Lua callbacks; bind JS-friendly later
+		.function("isGhost", &IPhysicsComponent::IsGhost)
+		// body.onCollisionEnter((other) => { ... other.getOwner().getName() ... }); null to stop.
+		.function("onCollisionEnter", &Physics_OnCollisionEnter)
+		.function("onCollisionExit", &Physics_OnCollisionExit);
 
 	class_<PhysicsVehicle, base<IPhysicsComponent>>("PhysicsVehicle")
 		.smart_ptr<std::shared_ptr<PhysicsVehicle>>("PhysicsVehiclePtr")

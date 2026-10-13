@@ -11,18 +11,18 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 | Vec2, Vec3, Vec4 | done (`PyrosEmbindMath.cpp`) |
 | Quaternion, Matrix | done |
 | degToRad | done |
-| Scene | done (save/load skipped — need Lua state) |
+| Scene | done; `load` / `loadText` / `unload` / `getMeta` / `find` / `getObjects` read an editor scene without Lua (scripts not run; `P.loadSceneFromUrl` in pyros-assets.js fetches it and its assets); save skipped |
 | GameObject / GameObjectBase | done (JS uses GameObject; Lua hooks skipped) |
 | onUpdate / onInit / onDestroy / attachScript | skipped (Lua-only) |
 | asGameObject | skipped (Lua shared_ptr coercion) |
-| getComponent | skipped (Lua sol::object return) |
+| getComponent | `getPhysicsComponent` / `getRenderingComponent` / `getChildren` on GameObject (no by-type lookup) |
 | Projection | done |
 | ForwardRenderer | done (full IRenderer surface via wrappers) |
 | DeferredRenderer, VelocityRenderer, CubemapRenderer | done |
 | FrameBuffer | done |
 | Renderable, IMaterial, RenderingMesh | done |
 | IComponent, IlightComponent | done |
-| IPhysicsComponent | done (collision callbacks skipped — Lua std::function) |
+| IPhysicsComponent | done, with `onCollisionEnter(fn)` / `onCollisionExit(fn)` |
 | RayCastHit | done |
 | LuaComponent / LuaComponent_fromFile | skipped (Lua-only) |
 | DirectionalLight, PointLight, SpotLight | done (C++ types; no Lua onUpdate hooks) |
@@ -59,3 +59,4 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 - `PyrosEmbindMisc.cpp` — File, getMousePosition
 
 Smoke test: `examples/web` — Neon Pulse (`neonpulse/*.js`).
+| PhysicsVehicle wheel pose | `getWheelTravel` / `getWheelSteer` / `getWheelSpin` / `isWheelInContact` |

@@ -112,6 +112,13 @@ namespace p3d {
 		// use it.
 		std::function<void(IPhysicsComponent*)> OnCollisionEnter;
 		std::function<void(IPhysicsComponent*)> OnCollisionExit;
+		// A solid body reports its contacts only if asked to (reporting every
+		// touch of every body is what a pile of thousands cannot afford), and
+		// until this existed none ever was: the two callbacks above fired for
+		// ghosts alone. Call it when one is set - the Lua and JS bindings do.
+		// Before the body exists it is remembered; after, it takes effect now.
+		void ListenForCollisions() { wantsContactEvents = true; if (PhysicsEngine) PhysicsEngine->EnableContactEvents(this); }
+		bool WantsContactEvents() const { return wantsContactEvents || OnCollisionEnter || OnCollisionExit; }
 
 		virtual ~IPhysicsComponent();
 
@@ -152,6 +159,7 @@ namespace p3d {
 		bool rigidBodyRegistered;
 		bool isGhost;
 		IPhysics* PhysicsEngine;
+		bool wantsContactEvents = false;
 	};
 
 };

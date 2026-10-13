@@ -1022,7 +1022,8 @@ namespace p3d {
 		// thousand bodies and feed the same frame-time spiral. Opt in via
 		// callbacks if a demo needs OnCollisionEnter (main.lua etc. can set
 		// enableContactEvents after creation later if required).
-		def.enableContactEvents = false;
+		// (asked for by a body with a collision callback - see ListenForCollisions)
+		def.enableContactEvents = pcomp->WantsContactEvents();
 		def.baseMaterial.restitution = 0.f;
 		def.baseMaterial.friction = 0.5f;
 		if (pcomp->IsGhost())
@@ -1286,7 +1287,7 @@ namespace p3d {
 
 			b3ShapeDef shapeDef = b3DefaultShapeDef();
 			shapeDef.density = chassis ? ShapeDensity(chassis) : 0.f;
-			shapeDef.enableContactEvents = false;
+			shapeDef.enableContactEvents = pcomp->WantsContactEvents() || (chassis && chassis->WantsContactEvents());
 			shapeDef.baseMaterial.restitution = 0.f;
 			if (pcomp->IsGhost())
 			{
@@ -1423,6 +1424,17 @@ namespace p3d {
 		LocalFromWorld(owner, FromB3Pos(drawnAt), drawnRot, lp, le);
 		owner->SetPosition(lp);
 		owner->SetRotation(le);
+	}
+
+	void Box3DPhysics::EnableContactEvents(IPhysicsComponent* pcomp)
+	{
+		Box3DBodyHandles* handles = pcomp ? GetHandles(pcomp) : NULL;
+		if (!handles || handles->body.index1 == 0 || !b3Body_IsValid(handles->body)) return;      // (not made yet: MakeShapeDef asks)
+		const int count = b3Body_GetShapeCount(handles->body);
+		if (count <= 0) return;
+		std::vector<b3ShapeId> shapes((size_t)count);
+		const int got = b3Body_GetShapes(handles->body, &shapes[0], count);
+		for (int i = 0; i < got; i++) b3Shape_EnableContactEvents(shapes[i], true);
 	}
 
 	void Box3DPhysics::RemovePhysicsComponent(IPhysicsComponent* pcomp)

@@ -59,6 +59,7 @@ namespace p3d {
 		virtual void EndPhysics();
 
 		virtual void RemovePhysicsComponent(IPhysicsComponent* pcomp);
+		virtual void EnableContactEvents(IPhysicsComponent* pcomp);
 
 		virtual RayCastHit RayCast(const Vec3 &from, const Vec3 &to);
 
