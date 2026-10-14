@@ -111,6 +111,13 @@ namespace {
 		return tex.LoadTextureFromMemory(std::move(data), n, type, mipmap, level);
 	}
 
+	// New pixels for a texture made with createEmptyTexture, straight from a JS typed array (a canvas's
+	// getImageData().data for RGBA): the page draws, the engine shows it, no image file in between.
+	void Texture_UpdateData(Texture &t, emscripten::val bytes, uint32 level)
+	{
+		std::vector<uint8> data = emscripten::convertJSArrayToNumberVector<uint8>(bytes);
+		if (!data.empty()) t.UpdateData(data.data(), level);
+	}
 	bool Texture_CreateEmpty(Texture &t, uint32 type, uint32 dataType, int32 w, int32 h)
 	{
 		return t.CreateEmptyTexture(type, dataType, w, h);
@@ -185,6 +192,7 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.function("loadTextureFromMemoryFull", &Texture_LoadFromMemoryFull)
 		.function("createEmptyTexture", &Texture_CreateEmpty)
 		.function("createEmptyTextureFull", &Texture_CreateEmptyFull)
+		.function("updateData", &Texture_UpdateData)
 		.function("setMinMagFilter", &Texture::SetMinMagFilter)
 		.function("setRepeat", &Texture_SetRepeat2)
 		.function("setRepeat3", &Texture_SetRepeat3)
