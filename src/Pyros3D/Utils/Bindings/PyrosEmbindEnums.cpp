@@ -6,6 +6,7 @@
 #if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
 
 #include <emscripten/bind.h>
+#include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
 
 #include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
@@ -163,6 +164,13 @@ EMSCRIPTEN_BINDINGS(pyros3d_enums)
 	constant("BlendFunc_One_Minus_Dst_Alpha", (int)BlendFunc::One_Minus_Dst_Alpha);
 
 	constant("CullFace_BackFace", (int)CullFace::BackFace);
+	constant("AntiAliasing_Off", (int)AntiAliasingMode::Off);
+	constant("AntiAliasing_FXAA", (int)AntiAliasingMode::FXAA);
+	constant("AntiAliasing_SMAA", (int)AntiAliasingMode::SMAA);
+	constant("AntiAliasing_TAA", (int)AntiAliasingMode::TAA);
+	constant("AntiAliasing_MSAA2x", (int)AntiAliasingMode::MSAA2x);
+	constant("AntiAliasing_MSAA4x", (int)AntiAliasingMode::MSAA4x);
+	constant("AntiAliasing_MSAA8x", (int)AntiAliasingMode::MSAA8x);
 	constant("CullFace_FrontFace", (int)CullFace::FrontFace);
 	constant("CullFace_DoubleSided", (int)CullFace::DoubleSided);
 

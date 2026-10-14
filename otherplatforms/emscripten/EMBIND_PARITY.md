@@ -37,6 +37,7 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 | TextureAnimation* | done |
 | IPhysics / Box3DPhysics | done (convex-hull / multi-sphere vector APIs partial) |
 | PostEffectsManager + effect types | done; `CustomEffect.fromSource(text, w, h)` (null + `CustomEffect.lastError()` on failure), `setParam(name, number or [up to 4])` |
+| PostEffectsManager anti-aliasing | `setAntiAliasing(AntiAliasing_*, deferred)`, `getEffectiveAntiAliasing()` |
 | GenericShaderMaterial wind | `setWind(strength, rate, frequency, lean)` with `ShaderUsage_VertexWind` |
 | VignetEffect / MotionBlur | done (Lua typo names) |
 | addPostEffect, clearPostEffectHandles, motionBlur*, ssao*, buildDOF* | done |

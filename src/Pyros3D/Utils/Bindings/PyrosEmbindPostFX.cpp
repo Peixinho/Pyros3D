@@ -185,6 +185,10 @@ namespace {
 	}
 	std::string CustomEffect_GetName(CustomEffect &e) { return e.GetEffectName(); }
 
+	// Anti-aliasing by number (AntiAliasing_* constants): Off, FXAA, SMAA, TAA, MSAA2x/4x/8x.
+	void PostEffects_SetAntiAliasing(PostEffectsManager &m, int mode, bool deferred) { m.SetAntiAliasing((AntiAliasingMode)mode, deferred); }
+	int PostEffects_GetEffectiveAntiAliasing(PostEffectsManager &m) { return (int)m.GetEffectiveAntiAliasing(); }
+
 	void PostEffects_AddEffect(PostEffectsManager &m, IEffect *effect)
 	{
 		m.AddEffect(effect);
@@ -258,6 +262,8 @@ EMSCRIPTEN_BINDINGS(pyros3d_postfx)
 		.function("endCapture", &PostEffectsManager::EndCapture)
 		.function("processPostEffects", &PostEffects_Process)
 		.function("addEffect", &PostEffects_AddEffect, allow_raw_pointers())
+		.function("setAntiAliasing", &PostEffects_SetAntiAliasing)
+		.function("getEffectiveAntiAliasing", &PostEffects_GetEffectiveAntiAliasing)
 		.function("removeEffect", &PostEffectsManager::RemoveEffect, allow_raw_pointers())
 		.function("removeAllEffects", &PostEffectsManager::RemoveAllEffects)
 		.function("getNumberEffects", &PostEffectsManager::GetNumberEffects)
