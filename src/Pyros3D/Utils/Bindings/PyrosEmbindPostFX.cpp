@@ -21,6 +21,8 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/BlurSSAOEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/SSAOCompositeEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/DepthOfFieldEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/CustomEffect.h>
+#include <emscripten/val.h>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Core/Logs/Log.h>
@@ -158,6 +160,31 @@ namespace {
 	}
 
 	// PostEffectsManager takes ownership of raw IEffect*.
+	// A custom effect is built from its shader text; when that fails the reason
+	// is kept, so the page can show why instead of a missing effect.
+	std::string customEffectError;
+	CustomEffect *CustomEffect_FromSource(const std::string &source, int width, int height)
+	{
+		customEffectError.clear();
+		return CustomEffect::CreateFromSource(source, (uint32)width, (uint32)height, customEffectError);
+	}
+	std::string CustomEffect_LastError() { return customEffectError; }
+	// A number or an array of up to four, from JS.
+	bool CustomEffect_SetParam(CustomEffect &e, const std::string &name, emscripten::val value)
+	{
+		f32 v[4] = { 0.f, 0.f, 0.f, 0.f };
+		uint32 count = 1;
+		if (value.isArray())
+		{
+			count = value["length"].as<uint32>();
+			if (count > 4) count = 4;
+			for (uint32 i = 0; i < count; i++) v[i] = value[i].as<f32>();
+		}
+		else v[0] = value.as<f32>();
+		return e.SetParam(name, v, count);
+	}
+	std::string CustomEffect_GetName(CustomEffect &e) { return e.GetEffectName(); }
+
 	void PostEffects_AddEffect(PostEffectsManager &m, IEffect *effect)
 	{
 		m.AddEffect(effect);
@@ -210,6 +237,13 @@ EMSCRIPTEN_BINDINGS(pyros3d_postfx)
 		.constructor<int, int, int, float, float>()
 		.function("setRadius", &VignetteEffect::SetRadius)
 		.function("setSoftness", &VignetteEffect::SetSoftness);
+
+	// A post effect written as one shader (see CustomEffect.h for the //! header).
+	class_<CustomEffect, base<IEffect>>("CustomEffect")
+		.class_function("fromSource", &CustomEffect_FromSource, allow_raw_pointers())
+		.class_function("lastError", &CustomEffect_LastError)
+		.function("setParam", &CustomEffect_SetParam)
+		.function("getEffectName", &CustomEffect_GetName);
 
 	class_<MotionBlurEffect, base<IEffect>>("MotionBlur")
 		.constructor<int, Texture *, Texture *, int, int>(allow_raw_pointers())

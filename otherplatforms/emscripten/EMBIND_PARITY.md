@@ -36,7 +36,8 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 | SekeletonAnimation / SekeletonAnimationInstance | done (Lua typo names kept) |
 | TextureAnimation* | done |
 | IPhysics / Box3DPhysics | done (convex-hull / multi-sphere vector APIs partial) |
-| PostEffectsManager + effect types | done |
+| PostEffectsManager + effect types | done; `CustomEffect.fromSource(text, w, h)` (null + `CustomEffect.lastError()` on failure), `setParam(name, number or [up to 4])` |
+| GenericShaderMaterial wind | `setWind(strength, rate, frequency, lean)` with `ShaderUsage_VertexWind` |
 | VignetEffect / MotionBlur | done (Lua typo names) |
 | addPostEffect, clearPostEffectHandles, motionBlur*, ssao*, buildDOF* | done |
 | AudioManager / AudioBus / Sound / AudioSource | done |

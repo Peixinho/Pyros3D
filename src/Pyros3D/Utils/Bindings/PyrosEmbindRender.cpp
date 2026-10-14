@@ -50,6 +50,8 @@ namespace {
 		return std::make_shared<CustomShaderMaterial>(shader);
 	}
 
+	// Sways the vertices with height: strength, rate, spatial frequency, lean.
+	void GenericShaderMaterial_SetWind(GenericShaderMaterial &m, float strength, float rate, float frequency, float lean) { m.SetWind(strength, rate, frequency, lean); }
 	std::shared_ptr<RenderingComponent> MakeRenderingComponent(
 		std::shared_ptr<Renderable> mesh, std::shared_ptr<IMaterial> material)
 	{
@@ -260,6 +262,7 @@ EMSCRIPTEN_BINDINGS(pyros3d_render)
 		.function("setColor", &GenericShaderMaterial::SetColor)
 		.function("setSpecular", &GenericShaderMaterial::SetSpecular)
 		.function("setColorMap", &GenericShaderMaterial::SetColorMap)
+		.function("setWind", &GenericShaderMaterial_SetWind)
 		.function("setSpecularMap", &GenericShaderMaterial::SetSpecularMap)
 		.function("setNormalMap", &GenericShaderMaterial::SetNormalMap)
 		.function("setDisplacementMap", &GenericShaderMaterial::SetDisplacementMap)
