@@ -55,8 +55,11 @@ namespace p3d {
 				{
 					DirectionalLight* d = ((DirectionalLight*)(*i));
 
-					// Directional Lights
-					Vec4 color = d->GetLightRadiance();
+					// Directional Lights (and a sun's way, for a sky drawn after: see IRenderer::SetSunHint -
+					// a sun only: the editor's axis widget and previews are forward scenes with lights of their own)
+					Vec3 toSun;
+					Vec4 color = d->GetLightRadianceNow(&toSun);
+					if (d->IsSun()) IRenderer::SetSunHint(toSun, std::max(color.x, std::max(color.y, color.z)) / 3.14159265f, true);
 					Vec3 position;
 					Vec3 direction = (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 					f32 attenuation = 1.f;

@@ -153,8 +153,20 @@ namespace { Vec3 g_sunTo(0.f, 1.f, 0.f); f32 g_sunStrength = 0.f; }
 namespace { Matrix g_viewWorld; bool g_viewKnown = false; }
 void IRenderer::SetViewHint(const Matrix &cameraWorld) { g_viewWorld = cameraWorld; g_viewKnown = true; }
 bool IRenderer::GetViewHint(Matrix &cameraWorld) { cameraWorld = g_viewWorld; return g_viewKnown; }
-void IRenderer::GetSunHint(Vec3 &toSun, f32 &strength) { toSun = g_sunTo; strength = g_sunStrength; }
-void IRenderer::SetSunHint(const Vec3 &toSun, const f32 strength) { g_sunTo = toSun; g_sunStrength = std::max(0.f, std::min(1.f, strength)); }
+// A light marked as a sun is the sun for half a second after it last lit anything; until then, or
+// in a scene with none, whatever directional light lit a scene last (the deferred renderer's).
+namespace { Vec3 g_sunMarkedTo(0.f, 1.f, 0.f); f32 g_sunMarkedStrength = 0.f; std::chrono::steady_clock::time_point g_sunMarkedAt; bool g_sunMarked = false; }
+void IRenderer::GetSunHint(Vec3 &toSun, f32 &strength)
+{
+	if (g_sunMarked && std::chrono::steady_clock::now() - g_sunMarkedAt < std::chrono::milliseconds(500)) { toSun = g_sunMarkedTo; strength = g_sunMarkedStrength; return; }
+	toSun = g_sunTo; strength = g_sunStrength;
+}
+void IRenderer::SetSunHint(const Vec3 &toSun, const f32 strength, const bool isSun)
+{
+	const f32 s = std::max(0.f, std::min(1.f, strength));
+	if (isSun) { g_sunMarkedTo = toSun; g_sunMarkedStrength = s; g_sunMarkedAt = std::chrono::steady_clock::now(); g_sunMarked = true; }
+	else { g_sunTo = toSun; g_sunStrength = s; }
+}
 namespace { std::atomic<IRenderer*> g_ambientSource(NULL); }
 namespace { f32 g_heldAmbientScale = 1.f; bool g_ambientScaleHeld = false; }
 // (set while a frame may be in flight: kept, and made the scale at the next PreRender)

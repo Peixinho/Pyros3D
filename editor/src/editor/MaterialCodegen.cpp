@@ -377,7 +377,11 @@ void EmitSharedPrelude(std::ostringstream& out, const TemplateInputs& in) {
 		// fade: cheap, stage-neutral and the same on every backend (no
 		// texture, no bit ops, which GLES3 would allow but WebGL drivers
 		// have been unreliable with). Returns [0,1].
-		"float p3d_hash(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }\n"
+		// (a hash of whole numbers: exact on every card. The float one this replaced leaned on the low bits
+		// of big products, and drew blocks and stray rectangles on some - NVIDIA - where the Mac showed none.
+		// p3d_noise only hashes lattice points, so the quarter steps below are whole numbers too.)
+		"float p3d_ih(ivec3 q) { uint n = uint(q.x) * 1597334673u ^ uint(q.y) * 3812015801u ^ uint(q.z) * 2798796415u; n ^= n >> 15; n *= 2246822519u; n ^= n >> 13; n *= 3266489917u; n ^= n >> 16; return float(n >> 8) * (1.0 / 16777216.0); }\n"
+		"float p3d_hash(vec3 p) { return p3d_ih(ivec3(floor(p * 4.0 + 0.5))); }\n"
 		"float p3d_noise(vec3 x) {\n"
 		"\tvec3 i = floor(x);\n"
 		"\tvec3 f = fract(x);\n"
@@ -563,7 +567,8 @@ std::string BuildTemplate(const TemplateInputs& in) {
 		// the reasoning) and secondpass*.glsl's. L.PCFTexelSize carries
 		// ILightComponent::GetShadowFilterPacked(): filter radius in texels in the
 		// integer part, normal bias / 8 in the fraction.
-		"int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }\n"
+		"int ShadowFilterRadius(float packed) { return int(mod(floor(packed), 4.0)); }\n"
+		"float ShadowPenumbraMetres(float packed) { return floor(floor(packed) / 4.0) * 0.01; }\n"
 		"float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }\n"
 		"float ShadowTexelWorld(mat4 M, vec4 pos, float texels) {\n"
 		"\tvec3 rowX = vec3(M[0][0], M[1][0], M[2][0]);\n"
@@ -598,6 +603,24 @@ std::string BuildTemplate(const TemplateInputs& in) {
 		"\tif (c == 2) return splits.z;\n"
 		"\treturn splits.w;\n"
 		"}\n"
+		// A sun's penumbra (ShadowPenumbraMetres): 32 taps on a golden-angle spiral `radius` texels across, turned
+		// per pixel so the few taps read as fine grain rather than rings; each tap is itself a comparison.
+		"float ShadowDisc(sampler2DShadow map, vec3 uvz, float radius, vec2 size, vec4 rect)\n"
+		"{\n"
+		"\tfloat a = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));\n"
+		"\tfloat sum = 0.0;\n"
+		"\tfor (int i = 0; i < 32; i++)\n"
+		"\t{\n"
+		"\t\tfloat t = a + float(i) * 2.3999632;\n"
+		"\t\tvec2 o = vec2(cos(t), sin(t)) * (sqrt((float(i) + 0.5) / 32.0) * radius);\n"
+		"\t\tvec2 st = uvz.xy * size + o - 0.5;\n"
+		"\t\tvec2 b = floor(st), f = st - b;\n"
+		"\t\tvec2 u0 = clamp((b + 0.5) / size, rect.xy, rect.zw), u1 = clamp((b + 1.5) / size, rect.xy, rect.zw);\n"
+		"\t\tsum += mix(mix(texture(map, vec3(u0, uvz.z)), texture(map, vec3(u1.x, u0.y, uvz.z)), f.x),\n"
+		"\t\t\tmix(texture(map, vec3(u0.x, u1.y, uvz.z)), texture(map, vec3(u1, uvz.z)), f.x), f.y);\n"
+		"\t}\n"
+		"\treturn sum / 32.0;\n"
+		"}\n"
 		"float ShadowDirectionalCascade(int c, bool multi, float packed, vec4 pos, vec3 n) {\n"
 		"\tmat4 M = uDirectionalDepthsMVP[c];\n"
 		"\tvec2 size = vec2(textureSize(uDirectionalShadowMaps, 0));\n"
@@ -608,6 +631,17 @@ std::string BuildTemplate(const TemplateInputs& in) {
 		"\t\tvec2 off = vec2((c == 1 || c == 3) ? 0.5 : 0.0, (c >= 2) ? 0.5 : 0.0);\n"
 		"\t\tcoord.xy = coord.xy * 0.5 + off;\n"
 		"\t\trect = vec4(off + 0.5 / size, off + 0.5 - 0.5 / size);\n"
+		"\t}\n"
+		// (a sun's penumbra in metres, wider here than the filter: the disc - as wide in every cascade)
+		"\t{\n"
+		"\t\tfloat texel = max(ShadowTexelWorld(M, pos, tile), 1e-6), r = ShadowPenumbraMetres(packed) * 0.5 / texel;\n"
+		// (a tap that far off reads the receiver itself where it slopes away from the light: its depth moves on with it)
+		"\t\tif (r > float(ShadowFilterRadius(packed)) + 1.0) {\n"
+		"\t\t\tvec3 dz = vec3(M[0][2], M[1][2], M[2][2]);\n"
+		"\t\t\tfloat ndl = abs(dot(normalize(n), normalize(dz)));\n"
+		"\t\t\tcoord.z -= r * texel * min(sqrt(max(1.0 - ndl * ndl, 0.0)) / max(ndl, 0.05), 4.0) * length(dz);\n"
+		"\t\t\treturn ShadowDisc(uDirectionalShadowMaps, coord.xyz, r, size, rect);\n"
+		"\t\t}\n"
 		"\t}\n"
 		"\treturn ShadowPCF2D(uDirectionalShadowMaps, coord.xyz, ShadowFilterRadius(packed), size, rect);\n"
 		"}\n"

@@ -22,6 +22,8 @@
 #include <functional>
 #include <cmath>
 #include <cctype>
+#include <cstdio>
+#include <iterator>
 
 namespace {
 	FoliageComponent* FindFoliage(GameObject* go)
@@ -454,6 +456,16 @@ void SceneEditor::EndTerrainStroke()
 	MarkSceneDirty();
 }
 
+nlohmann::json SceneEditor::DepthBakeSettings(const std::string &texture) const
+{
+	std::map<std::string, PendingDepthBake>::const_iterator p = pendingDepthBakes.find(texture);
+	if (p != pendingDepthBakes.end()) return p->second.settings;
+	if (!project || !project->IsOpen() || texture.empty()) return nlohmann::json::object();
+	std::ifstream side(project->AbsolutePath(texture) + ".bake.json");
+	nlohmann::json j = nlohmann::json::parse(side, nullptr, false);
+	return j.is_object() ? j : nlohmann::json::object();
+}
+
 bool SceneEditor::SaveTerrain()
 {
 	const std::vector<TerrainComponent*> terrains = SceneTerrains();
@@ -477,6 +489,20 @@ bool SceneEditor::SaveTerrain()
 		}
 	}
 	bool ok = true;
+	for (std::map<std::string, PendingDepthBake>::iterator d = pendingDepthBakes.begin(); d != pendingDepthBakes.end(); ++d)
+	{
+		if (!project || !project->IsOpen()) break;
+		const std::string file = project->AbsolutePath(d->first);
+		if (!PaintableImage::WritePNG(file, (int32)d->second.res, (int32)d->second.res, 4, &d->second.pixels[0]))
+		{
+			echo("ERROR: saving the depth picture " + d->first);
+			ok = false;
+			continue;
+		}
+		std::ofstream side(file + ".bake.json");
+		side << d->second.settings.dump(1, '\t') << "\n";
+	}
+	if (ok) pendingDepthBakes.clear();
 	for (size_t t = 0; t < terrains.size(); t++)
 	{
 		const uint32 id = sceneObjects->GetSceneObjectID(terrains[t]->GetOwner());
@@ -903,6 +929,61 @@ void SceneEditor::ToggleComponentTools()
 	else if (!sceneIsTwoD) showNewTerrain = true;	// nothing to edit yet: offer to make one
 }
 
+namespace {
+	// Small ripples, as a tangent-space normal map that tiles: what the Water template reads as "waves".
+	bool WriteWaterNormals(const std::string &path, const uint32 seed)
+	{
+		const int32 n = 512;
+		auto lattice = [seed](int32 x, int32 y, const int32 period) -> f32 {
+			x = ((x % period) + period) % period;
+			y = ((y % period) + period) % period;
+			uint32 h = (uint32)x * 374761393u + (uint32)y * 668265263u + seed * 2246822519u;
+			h = (h ^ (h >> 13)) * 1274126177u;
+			return (f32)((h ^ (h >> 16)) & 0xffff) / 65535.f;
+		};
+		auto noise = [&](const f32 u, const f32 v, const int32 period) -> f32 {
+			const f32 x = u * period, y = v * period;
+			const int32 x0 = (int32)std::floor(x), y0 = (int32)std::floor(y);
+			f32 fx = x - x0, fy = y - y0;
+			fx = fx * fx * (3.f - 2.f * fx);
+			fy = fy * fy * (3.f - 2.f * fy);
+			const f32 a = lattice(x0, y0, period), b = lattice(x0 + 1, y0, period);
+			const f32 c = lattice(x0, y0 + 1, period), d = lattice(x0 + 1, y0 + 1, period);
+			return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+		};
+		std::vector<f32> h((size_t)n * n);
+		for (int32 y = 0; y < n; y++)
+			for (int32 x = 0; x < n; x++)
+			{
+				const f32 u = (f32)x / n, v = (f32)y / n;
+				h[(size_t)y * n + x] = noise(u, v, 12) * 0.5f + noise(u, v, 24) * 0.28f + noise(u, v, 48) * 0.15f + noise(u, v, 96) * 0.07f;
+			}
+		// (slopes scaled so the ripples lean as far as a photographed water's do: about 0.16 either way)
+		std::vector<f32> gx(h.size()), gy(h.size());
+		f64 sum2 = 0.0;
+		for (int32 y = 0; y < n; y++)
+			for (int32 x = 0; x < n; x++)
+			{
+				const size_t i = (size_t)y * n + x;
+				gx[i] = h[(size_t)y * n + (x + 1) % n] - h[(size_t)y * n + (x + n - 1) % n];
+				gy[i] = h[(size_t)((y + 1) % n) * n + x] - h[(size_t)((y + n - 1) % n) * n + x];
+				sum2 += gx[i] * gx[i] + gy[i] * gy[i];
+			}
+		const f32 k = 0.16f / (f32)std::max(1e-9, std::sqrt(sum2 / (2.0 * h.size())));
+		std::vector<uchar> px((size_t)n * n * 4);
+		for (size_t i = 0; i < h.size(); i++)
+		{
+			Vec3 nn(-gx[i] * k, -gy[i] * k, 1.f);
+			nn = nn.normalize();
+			px[i * 4 + 0] = (uchar)std::lround((nn.x * 0.5f + 0.5f) * 255.f);
+			px[i * 4 + 1] = (uchar)std::lround((nn.y * 0.5f + 0.5f) * 255.f);
+			px[i * 4 + 2] = (uchar)std::lround((nn.z * 0.5f + 0.5f) * 255.f);
+			px[i * 4 + 3] = 255;
+		}
+		return PaintableImage::WritePNG(path, n, n, 4, &px[0]);
+	}
+}
+
 // The river being laid out: its points, and whether clicks in the view add to them.
 static std::vector<Vec2> gRiverPoints;
 static bool gRiverPick = false;
@@ -1220,6 +1301,20 @@ void SceneEditor::DrawTerrainTools()
 		ImGui::TextDisabled("Water depth picture");
 		static float bakeLevel = 0.f, bakeRange = 12.f, bakeAbove = 0.f, bakeSize = 1024.f;
 		static bool bakeSqrt = false, bakeFlow = false;
+		// (a texture baked before brings the settings it was baked with)
+		static std::string bakeSettingsOf;
+		static bool bakeSettingsFound = false;
+		if (bakeSettingsOf != riverDepthTexture)
+		{
+			bakeSettingsOf = riverDepthTexture;
+			const nlohmann::json k = DepthBakeSettings(bakeSettingsOf);
+			bakeSettingsFound = !k.empty();
+			bakeLevel = k.value("level", bakeLevel); bakeRange = k.value("range", bakeRange); bakeAbove = k.value("above", bakeAbove);
+			bakeSize = k.value("size", bakeSize); bakeFlow = k.value("flow", bakeFlow);
+			if (k.contains("encoding")) bakeSqrt = k.value("encoding", std::string()) == "sqrt";
+		}
+		if (!bakeSettingsOf.empty() && !bakeSettingsFound)
+			ImGui::TextDisabled("Not baked before: a river's Build bakes it linear, over 1024 m, at level 0.");
 		ImGui::InputFloat("Water level##bake", &bakeLevel);
 		ImGui::InputFloat("World size (m)##bake", &bakeSize);
 		ImGui::SliderFloat("Deepest stored (m)", &bakeRange, 1.f, 60.f, "%.1f");
@@ -1242,6 +1337,18 @@ void SceneEditor::DrawTerrainTools()
 				if (!AgentTerrain("terrain_bake_depth", a, out, err)) echo("ERROR: Bake depth - " + err);
 			}
 		}
+		// A sea: a water surface at a level, with its own depth picture baked and its Sky's sea level set.
+		ImGui::Separator();
+		static float waterLevel = 0.f;
+		ImGui::InputFloat("Water level##add_water", &waterLevel);
+		if (ImGui::Button("Add water"))
+		{
+			nlohmann::json a, out; std::string err;
+			a["level"] = waterLevel;
+			if (riverDepthTexture[0]) a["texture"] = std::string(riverDepthTexture);
+			if (!AgentTerrain("terrain_add_water", a, out, err)) echo("ERROR: Add water - " + err);
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("A sea at this level: the Water material (written into the project), its depth\npicture baked from the ground (the depth texture above, or assets/textures/water_depth.png)\nand the Sky effect's sea level set to match - add a Sky first to have both.");
 	}
 	if (t.tool == TerrainTools::PaintFoliage)
 	{
@@ -1386,6 +1493,10 @@ void SceneEditor::ShowNewTerrainWindow()
 			ImGui::SliderFloat("Height used", &params.amount, 0.05f, 0.9f, "%.2f");
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How much of the height range the hills span.");
 		}
+		static int surfaceIndex = 0;
+		static const char* surfaceLabels[] = { "Plain (four layers)", "Natural (rock, snow, shore)" };
+		ImGui::Combo("Surface", &surfaceIndex, surfaceLabels, 2);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Natural: rock on what is steep, cobbles where nothing is painted, snow\nabove a line the weather brings down, wet sand at the water. Its sea\nlevel is the Sky post effect's (add one to the scene).");
 		ImGui::TextDisabled("%.0f x %.0f m, centred on the origin.", params.tilesX * params.tileSize, params.tilesZ * params.tileSize);
 		if (ImGui::Button("Create"))
 		{
@@ -1393,6 +1504,7 @@ void SceneEditor::ShowNewTerrainWindow()
 			params.samples = sampleValues[samplesIndex];
 			json args;
 			args["generator"] = generatorNames[generatorIndex];
+			args["ground"] = surfaceIndex == 1 ? "natural" : "plain";
 			args["seed"] = std::max(0, seed);
 			args["featureSize"] = params.featureSize;
 			args["octaves"] = params.octaves;
@@ -1437,6 +1549,8 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	{
 		out = t.State(scene);
 		out["riverPoints"] = (uint32)gRiverPoints.size(); out["riverPick"] = gRiverPick;
+		out["river"] = nlohmann::json::array();
+		for (size_t i = 0; i < gRiverPoints.size(); i++) out["river"].push_back({ gRiverPoints[i].x, gRiverPoints[i].y });
 		// {"grid":{"x0":..,"z0":..,"step":..,"nx":..,"nz":..}}: heights in one
 		// call, row-major over z then x (null where there is no terrain).
 		// One call per sample is ~12 ms over the socket, which makes any
@@ -1483,6 +1597,13 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	{
 		// "riverPick": clicks in the view add river points (the River tools' checkbox); "section": "river" opens them.
 		if (args.contains("riverPick") && args["riverPick"].is_boolean()) gRiverPick = args["riverPick"].get<bool>();
+		// "riverPoints": [[x,z],...] - the river being laid out, replaced ([] clears it, as Cancel does)
+		if (args.contains("riverPoints") && args["riverPoints"].is_array())
+		{
+			gRiverPoints.clear();
+			for (const auto &pt : args["riverPoints"])
+				if (pt.is_array() && pt.size() >= 2) gRiverPoints.push_back(Vec2(pt.at(0).get<f32>(), pt.at(1).get<f32>()));
+		}
 		if (args.value("section", std::string()) == "river") gOpenRiverSection = true;
 		// "edit": true - what a click on the Terrain component in the tree does: it becomes the
 		// selection, and its tools open. (false: the selection is dropped.)
@@ -1534,17 +1655,23 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 	// terrain_river {points: [[x,z],...], width, depth, bank, level}: a river's bed cut along a line
 	// from its source to its mouth - `width` across at the bottom, `depth` under the ground it runs
 	// through (or, with "level", down to that world height: under a sea's level the sea fills it),
-	// the banks eased out over `bank` metres. One undo step.
+	// the banks eased out over `bank` metres. One undo step. Without "points", the river laid out in
+	// the view (terrain_brush riverPick / riverPoints; terrain_state lists it as "river").
 	// terrain_bake_depth {texture, level, range, size, resolution}: how far the ground is under a
 	// level (a sea's, a lake's), as a picture - 0 at the level, white `range` metres under it -
 	// written over the live texture a water material samples (by its path), a square `size` metres
 	// across centred on the origin. What a water shader draws its shallows, shore and foam from,
 	// made again after the ground has been cut. (terrain_river does it when given "depthTexture".)
+	// The settings a picture was baked with are kept beside it (<texture>.bake.json): a later bake that
+	// does not name them - a river's, say - makes the same picture its water shader decodes.
 	if (command == "terrain_bake_depth" || (command == "terrain_river" && args.contains("depthTexture") && args.value("bakeOnly", false)))
 	{
 		const std::string path = args.value("texture", args.value("depthTexture", std::string()));
-		const f32 level = args.value("level", 0.f), range = args.value("range", 12.f), size = args.value("size", 1024.f);
-		const uint32 res = std::min(2048u, std::max(64u, args.value("resolution", 1024u)));
+		nlohmann::json kept = DepthBakeSettings(path);
+		for (const char* key : { "level", "range", "size", "resolution", "above", "encoding", "flow" })
+			if (args.contains(key)) kept[key] = args[key];
+		const f32 level = kept.value("level", 0.f), range = kept.value("range", 12.f), size = kept.value("size", 1024.f);
+		const uint32 res = std::min(2048u, std::max(64u, kept.value("resolution", 1024u)));
 		std::vector<std::shared_ptr<Texture> > live = Texture::FindShared(path);
 		if (live.empty()) { errOut = "no loaded texture ends with '" + path + "'"; return false; }
 		std::vector<uchar> px((size_t)res * res * 4, 255);
@@ -1562,12 +1689,12 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 				f32 h = level - range;
 				TerrainEditor::HeightAt(scene, ((f32)c + 0.5f) / (f32)res * size - size * 0.5f, ((f32)r + 0.5f) / (f32)res * size - size * 0.5f, h);
 				// ("above": metres of ground over the water's level kept too - a water that runs up its shore needs them)
-				const f32 above = std::max(0.f, args.value("above", 0.f));
+				const f32 above = std::max(0.f, kept.value("above", 0.f));
 				const f32 d = std::min(1.f, std::max(0.f, (level - h + above) / (range + above)));
 				uchar* p = &px[((size_t)r * res + c) * 4];
 				// ("encoding": "sqrt" keeps the depth as its square root - fine steps in the shallows, where a
 				// shore's foam is drawn. "flow": true keeps blue and alpha as the way a river runs there, 0.5 = none.)
-				const bool rooted = args.value("encoding", std::string()) == "sqrt", flowing = args.value("flow", false);
+				const bool rooted = kept.value("encoding", std::string()) == "sqrt", flowing = kept.value("flow", false);
 				p[0] = (uchar)((rooted ? std::sqrt(d) : d) * 255.f + 0.5f);
 				p[2] = flowing ? (hadFile ? (uchar)(was.Sample(((f32)c + 0.5f) / (f32)res, ((f32)r + 0.5f) / (f32)res, 2) * 255.f + 0.5f) : 128) : p[0];
 				if (flowing) p[3] = hadFile ? (uchar)(was.Sample(((f32)c + 0.5f) / (f32)res, ((f32)r + 0.5f) / (f32)res, 3) * 255.f + 0.5f) : 128;
@@ -1599,13 +1726,28 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 			live[i]->UpdateData(&px[0]);
 			live[i]->UpdateMipmap();
 		}
+		// (written to the project with the scene's Save, as the ground it was made from is)
+		PendingDepthBake &pending = pendingDepthBakes[path];
+		pending.res = res; pending.pixels.swap(px); pending.settings = kept;
+		MarkSceneDirty();
 		out["textures"] = (uint32)live.size();
+		out["settings"] = kept;
+		return true;
+	}
+	if (command == "terrain_river" && !args.contains("points") && gRiverPoints.size() >= 2)
+	{
+		// (no points given: the river laid out in the view, as the panel's Build does - and done with, as there)
+		nlohmann::json a = args;
+		a["points"] = nlohmann::json::array();
+		for (size_t i = 0; i < gRiverPoints.size(); i++) a["points"].push_back({ gRiverPoints[i].x, gRiverPoints[i].y });
+		if (!AgentTerrain("terrain_river", a, out, errOut)) return false;
+		gRiverPoints.clear(); gRiverPick = false;
 		return true;
 	}
 	if (command == "terrain_river")
 	{
 		if (playMode || sceneIsTwoD) { errOut = "a river needs a 3D scene outside play"; return false; }
-		if (!args.contains("points") || !args["points"].is_array() || args["points"].size() < 2) { errOut = "'points' ([[x,z],...], two or more) is required"; return false; }
+		if (!args.contains("points") || !args["points"].is_array() || args["points"].size() < 2) { errOut = "'points' ([[x,z],...], two or more; or laid out in the view) is required"; return false; }
 		const f32 width = args.value("width", 10.f), depth = args.value("depth", 2.4f), bank = args.value("bank", 9.f);
 		const bool toLevel = args.contains("level");
 		const f32 level = args.value("level", 0.f);
@@ -1707,12 +1849,101 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		if (args.contains("depthTexture"))
 		{
 			nlohmann::json bake = args; bake["texture"] = args["depthTexture"];
-			// (the water's own level, not the bed's: "waterLevel")
+			// (the water's own level, not the bed's: "waterLevel"; without it, the level the picture was baked at)
+			bake.erase("level"); bake.erase("depth");
 			if (args.contains("waterLevel")) bake["level"] = args["waterLevel"];
 			nlohmann::json baked; std::string berr;
 			if (AgentTerrain("terrain_bake_depth", bake, baked, berr)) out["depthBaked"] = baked.value("textures", 0u);
 			else out["depthError"] = berr;
 		}
+		return true;
+	}
+	// terrain_add_water {level, size, texture, name}: a sea (or a lake) - a plane at `level` drawn with the
+	// Water template (written into the project as assets/materials/Water.glsl the first time), its depth
+	// picture (`texture`, default assets/textures/water_depth.png) baked from the ground now, ripples made
+	// for it, and the Sky effect's sea level set to the same height. `size`: metres the depth picture
+	// covers, centred on the origin (default: as far as the terrains reach). One undo step for the object.
+	if (command == "terrain_add_water")
+	{
+		if (playMode || sceneIsTwoD) { errOut = "water needs a 3D scene outside play"; return false; }
+		if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+		// (what it loads is named from the project, which a scene only knows once it has a file)
+		if (scenePath.empty()) { errOut = "save the scene first"; return false; }
+		namespace fs = std::filesystem;
+		const fs::path root(project->GetProjectPath());
+		std::error_code ec;
+		f32 size = args.value("size", 0.f);
+		if (size <= 0.f)
+		{
+			const std::vector<TerrainComponent*> terrains = SceneTerrains();
+			for (size_t i = 0; i < terrains.size(); i++)
+			{
+				const TerrainComponent::Settings &ts = terrains[i]->GetSettings();
+				const Vec3 at = terrains[i]->GetOwner() ? terrains[i]->GetOwner()->GetWorldPosition() : Vec3();
+				size = std::max(size, std::max(ts.tilesX, ts.tilesZ) * ts.tileSize + 2.f * std::max(std::fabs(at.x), std::fabs(at.z)));
+			}
+			if (size <= 0.f) size = 1024.f;
+		}
+		size_t sky = postEffects.size();
+		for (size_t i = 0; i < postEffects.size(); i++) if (postEffects[i].effect == "Sky") { sky = i; break; }
+		f32 level = 0.f;
+		if (sky < postEffects.size() && postEffects[sky].params.count("uSea") && !postEffects[sky].params["uSea"].empty()) level = postEffects[sky].params["uSea"][0];
+		level = args.value("level", level);
+		const std::string depthRel = args.value("texture", std::string("assets/textures/water_depth.png"));
+		const std::string wavesRel = "assets/textures/water_normals.png", shaderRel = "assets/materials/Water.glsl";
+		fs::create_directories((root / depthRel).parent_path(), ec);
+		fs::create_directories((root / shaderRel).parent_path(), ec);
+		// (the shader: the editor's template, laid out for this picture)
+		if (!fs::exists(root / shaderRel, ec))
+		{
+			std::ifstream in("assets/materials/Water.glsl", std::ios::binary);
+			if (!in) { errOut = "the editor's Water template (assets/materials/Water.glsl) is missing"; return false; }
+			std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			const std::string key = "#define WATER_MAP_SIZE 1024.0";
+			const size_t at = text.find(key);
+			if (at != std::string::npos) { char v[64]; snprintf(v, sizeof(v), "#define WATER_MAP_SIZE %.1f", size); text.replace(at, key.size(), v); }
+			std::ofstream out((root / shaderRel).string().c_str(), std::ios::binary | std::ios::trunc);
+			out << text;
+			if (!out) { errOut = "could not write " + shaderRel; return false; }
+		}
+		else echo("Add water: " + shaderRel + " is the project's already - kept as it is (its WATER_MAP_SIZE must match the bake's size)");
+		if (!fs::exists(root / wavesRel, ec) && !WriteWaterNormals((root / wavesRel).string(), 7u)) { errOut = "could not write " + wavesRel; return false; }
+		// (a picture to bake into: the material must hold it before the bake can find it)
+		if (!fs::exists(root / depthRel, ec))
+		{
+			const uchar deep[16] = { 255, 0, 128, 128, 255, 0, 128, 128, 255, 0, 128, 128, 255, 0, 128, 128 };
+			if (!PaintableImage::WritePNG((root / depthRel).string(), 2, 2, 4, deep)) { errOut = "could not write " + depthRel; return false; }
+		}
+		json m = { { "id", 0 }, { "kind", "custom" }, { "shaderFile", shaderRel }, { "castingShadows", false },
+			{ "transparent", false }, { "cullFace", 0 },
+			{ "samplers", json::array({ { { "name", "shore" }, { "texture", depthRel } }, { { "name", "waves" }, { "texture", wavesRel } } }) } };
+		// (a fine grid: the shader moves it with the waves and lays it round the eye, so its own size hardly matters)
+		json rc = { { "type", "RenderingComponent" }, { "castingShadows", false }, { "cullTest", false }, { "material", 0 },
+			{ "renderable", { { "kind", "primitive" }, { "shape", "Plane" }, { "width", 58.0 }, { "height", 58.0 }, { "segments", 384 },
+				{ "smooth", false }, { "flip", false }, { "tangentBitangent", true } } } };
+		json rootObj = { { "name", args.value("name", std::string("Water")) }, { "position", { 0.0, level, 0.0 } },
+			{ "rotation", { -1.5707963705062866, 0.0, 0.0 } }, { "scale", { 120.0, 120.0, 120.0 } }, { "static", false },
+			{ "tags", json::array({ "Water" }) }, { "components", json::array({ rc }) }, { "children", json::array() } };
+		json tree = { { "root", rootObj }, { "materials", json::array({ m }) } };
+		SceneObject* obj = RawInsertSubtree(tree.dump(), 0, false, EditorCameraSettings(), true);
+		if (!obj) { errOut = "the water's files were written, but it could not be built"; return false; }
+		PushAddCommand(obj);
+		SelectSceneObject(obj);
+		MarkSceneDirty();
+		// (the depth picture, from the ground as it is: square-rooted, with half a metre above the water, and the rivers' flow)
+		json bake = { { "texture", depthRel }, { "level", level }, { "range", 12.0 }, { "above", 0.5 }, { "size", size },
+			{ "resolution", (uint32)std::min(2048.f, std::max(256.f, size)) }, { "encoding", "sqrt" }, { "flow", true } };
+		json baked; std::string berr;
+		if (!AgentTerrain("terrain_bake_depth", bake, baked, berr)) echo("ERROR: Add water - baking the depth picture: " + berr);
+		// (the world's sea level: where a Sky's haze starts and a natural ground lays its beach)
+		if (sky < postEffects.size())
+		{
+			std::vector<SceneMeta::PostEffectEntry> next = postEffects;
+			next[sky].params["uSea"] = std::vector<f32>(1, level);
+			SetPostEffectChain(next);
+		}
+		out = { { "name", obj->GetName() }, { "level", level }, { "size", size }, { "texture", depthRel }, { "shader", shaderRel },
+			{ "skySeaLevel", sky < postEffects.size() } };
 		return true;
 	}
 	if (command == "terrain_populate")
@@ -1824,6 +2055,8 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		// "featureSize" (m), "octaves", "roughness" 0..1, "amount" 0..0.9,
 		// "baseHeight"}.
 		p.generator = args.value("generator", p.generator);
+		// ("ground": "plain" | "natural" - the surface's shader; see TerrainTools::CreateParams)
+		p.ground = args.value("ground", p.ground);
 		p.seed = args.value("seed", p.seed);
 		p.featureSize = args.value("featureSize", p.featureSize);
 		p.octaves = args.value("octaves", p.octaves);

@@ -1732,12 +1732,9 @@ namespace p3d {
 					// Directional Lights
 					Vec3 dir = (ViewMatrix * (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f))).xyz().normalize();
 					dirDirHandle->SetValue(&dir);
-					Vec4 dirRadiance = d->GetLightRadiance();
-					{
-						const Vec3 toSun = (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize() * -1.f;
-						if (d->IsSun()) { const Vec3 k = DirectionalLight::SunlightAt(toSun.y); dirRadiance = Vec4(dirRadiance.x * k.x, dirRadiance.y * k.y, dirRadiance.z * k.z, dirRadiance.w); }
-						IRenderer::SetSunHint(toSun, std::max(dirRadiance.x, std::max(dirRadiance.y, dirRadiance.z)) / 3.14159265f);
-					}
+					Vec3 toSun;
+					Vec4 dirRadiance = d->GetLightRadianceNow(&toSun);
+					IRenderer::SetSunHint(toSun, std::max(dirRadiance.x, std::max(dirRadiance.y, dirRadiance.z)) / 3.14159265f, d->IsSun());
 					dirColorHandle->SetValue(&dirRadiance);
 					// See the identical fix in the POINT case above.
 					int shadowUnit = 4;
@@ -1854,7 +1851,7 @@ namespace p3d {
 						DirectionalLight* d = ((DirectionalLight*)(*i));
 
 						// Directional Lights
-						Vec4 color = d->GetLightRadiance();
+						Vec4 color = d->GetLightRadianceNow();
 						Vec3 position;
 						Vec3 direction = (d->GetOwner()->GetDrawWorld() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 						f32 attenuation = 1.f;

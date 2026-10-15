@@ -91,7 +91,9 @@ namespace {
 				p[0] = (uchar)std::min(255.f, std::max(0.f, base.x * k * 255.f));
 				p[1] = (uchar)std::min(255.f, std::max(0.f, base.y * k * 255.f));
 				p[2] = (uchar)std::min(255.f, std::max(0.f, base.z * k * 255.f));
-				p[3] = 255;
+				// (alpha: how high the ground stands there - what the natural ground's relief, snow
+				// and layer edges read; the brighter the higher. The plain splat shader ignores it.)
+				p[3] = (uchar)std::min(255.f, std::max(0.f, v0 * 255.f));
 			}
 		return PaintableImage::WritePNG(path, n, n, 4, &px[0]);
 	}
@@ -107,6 +109,225 @@ namespace {
 		"    + texture_2D(layer2, uv).rgb * w.b + texture_2D(layer3, uv).rgb * w.a) / sum;\n"
 		"float Metallic = 0.0;\n"
 		"float Roughness = 0.9;\n";
+}
+
+namespace {
+	// Large-scale variation for the natural ground: four channels of tileable noise at four
+	// sizes (red the broadest, blue nearly a texel), each spread evenly over 0..1 - lush and dry
+	// land, patches, grain, damp. What "macro" is sampled as by kNaturalGroundBody.
+	bool WriteMacroTexture(const std::string &path, const uint32 seed)
+	{
+		const int32 n = 512;
+		auto lattice = [](int32 x, int32 y, const int32 period, const uint32 s) -> f32 {
+			x = ((x % period) + period) % period;
+			y = ((y % period) + period) % period;
+			uint32 h = (uint32)x * 374761393u + (uint32)y * 668265263u + s * 2246822519u;
+			h = (h ^ (h >> 13)) * 1274126177u;
+			return (f32)((h ^ (h >> 16)) & 0xffff) / 65535.f;
+		};
+		auto noise = [&](const f32 u, const f32 v, const int32 period, const uint32 s) -> f32 {
+			const f32 x = u * period, y = v * period;
+			const int32 x0 = (int32)std::floor(x), y0 = (int32)std::floor(y);
+			f32 fx = x - x0, fy = y - y0;
+			fx = fx * fx * (3.f - 2.f * fx);
+			fy = fy * fy * (3.f - 2.f * fy);
+			const f32 a = lattice(x0, y0, period, s), b = lattice(x0 + 1, y0, period, s);
+			const f32 c = lattice(x0, y0 + 1, period, s), d = lattice(x0 + 1, y0 + 1, period, s);
+			return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+		};
+		const int32 base[4] = { 4, 16, 128, 8 };
+		std::vector<uchar> px((size_t)n * n * 4);
+		std::vector<std::pair<f32, uint32> > order((size_t)n * n);
+		for (int ch = 0; ch < 4; ch++)
+		{
+			for (int32 y = 0; y < n; y++)
+				for (int32 x = 0; x < n; x++)
+				{
+					const f32 u = (f32)x / n, v = (f32)y / n;
+					f32 sum = 0.f, amp = 1.f;
+					for (int32 o = 0, period = base[ch]; o < 4 && period <= n; o++, period *= 2, amp *= 0.5f)
+						sum += noise(u, v, period, seed * 7u + (uint32)ch * 31u + (uint32)o) * amp;
+					order[(size_t)y * n + x] = std::make_pair(sum, (uint32)((size_t)y * n + x));
+				}
+			// (spread evenly: a sum of noises crowds the middle, and the shader's thresholds expect all of 0..1)
+			std::sort(order.begin(), order.end());
+			for (size_t i = 0; i < order.size(); i++)
+				px[(size_t)order[i].second * 4 + ch] = (uchar)((i * 256) / order.size());
+		}
+		return PaintableImage::WritePNG(path, n, n, 4, &px[0]);
+	}
+
+	// The natural ground: the splat map's four layers (grass, earth, rock, sand), and what the
+	// ground does by itself from where it is - drier and lusher land, earth wearing through,
+	// rock on what is steep, cobbles where no layer is painted (a river's banks), snow above a
+	// line that the weather brings down, wet sand and a foam line at the water's level, relief
+	// from each layer's height (its alpha). Reads the weather (uGlobals[14]) and the water level
+	// (uGlobals[12].x) the Sky effect publishes.
+	const char* kNaturalGroundBody =
+R"PYROSGROUND(// ---- The ground. Four layers, painted in the splat map; each layer's picture has
+// its colour in RGB and its HEIGHT in alpha (opaque: all one height). What is
+// painted is only where the meadows, the paths and the beaches are - the rest the ground
+// does itself, from where it is in the world, so that no two places come out alike:
+//   - the land is lusher here and drier there, over hundreds of metres;
+//   - the first layer wears through to the second in patches (earth in a meadow);
+//   - ground too steep to hold soil is the third layer (rock), whatever was painted;
+//   - a path is damp in places and dusty in others;
+//   - where two layers meet, the one that stands higher shows: a path ends in stones
+//     and tufts, not in a smear a metre wide;
+//   - and the height lights it: stones, clods and blades catch the sun.
+// Eleven reads, as many as the plain mix this replaced.
+// The water's level is the world's (the Sky effect's "Haze floor (sea level)", published as
+// uGlobals[12].x): the beach, the wet sand, the shore's foam line and the snow line stand on it.
+float SEA = uGlobals[12].x;
+vec4 w = texture_2D(splatMap, vTexcoord);
+// (what the four layers leave unsaid is a fifth: cobbles, as a river lays along its banks)
+float cobW = smoothstep(0.20, 0.85, 1.0 - (w.r + w.g + w.b + w.a) + (texture_2D(macro, vWorldPos.xz / 6.0).r - 0.5) * 0.5);
+vec3 P = vWorldPos.xyz;
+float dist = length(uCameraPosition - P);
+// The patches: one picture read at two sizes, the second turned, so the pair does not
+// come round again for kilometres. (The grass reads the first, at this size, to thin
+// out over the bare places: PATCH_SIZE is the foliage layer's patchSize.)
+const float PATCH_SIZE = 173.0;
+vec4 mA = texture_2D(macro, P.xz / PATCH_SIZE);
+vec4 mB = texture_2D(macro, vec2(P.x * 0.8 - P.z * 0.6, P.x * 0.6 + P.z * 0.8) / 61.0 + vec2(0.37, 0.11));
+float lush = mA.r * 0.6 + mB.r * 0.4;
+float rag = mB.b - 0.5;
+float damp = mA.a;
+float steep = 1.0 - p3d_N.y;
+// What was painted has an edge a metre wide and as straight as the map's squares:
+// where two layers share the ground, the small patches push the line about.
+float edge = min(w.r, w.g) * 2.0;
+w.rg += vec2(-rag, rag) * 1.4 * edge;
+edge = min(w.r + w.g, max(w.b, w.a)) * 2.0;
+w.rg -= vec2(w.r, w.g) / max(w.r + w.g, 0.001) * rag * 1.4 * edge;
+w = max(w, vec4(0.0));
+// earth through the first layer: about a tenth of level ground, more as it steepens
+float bare = smoothstep(0.80, 0.90, mA.g + rag * 0.16 + steep * 0.35) * 0.9;
+w.g += w.r * bare;
+w.r *= 1.0 - bare;
+// rock where it is steep (from about 38 degrees, all of it by 47)
+// (low on a mountain grass and scrub hold to ground that higher up is bare: rock only where it is nearly a wall)
+float lowAlt = 1.0 - smoothstep(SEA + 70.0, SEA + 280.0, P.y + (mA.r - 0.5) * 80.0);
+float crag = smoothstep(0.26 + 0.20 * lowAlt, 0.60 + 0.22 * lowAlt, steep + rag * 0.10 + (mB.g - 0.5) * 0.08);
+w.b += (w.r + w.g + w.a) * crag;
+w.rga *= 1.0 - crag;
+w /= max(w.r + w.g + w.b + w.a, 0.0001);
+
+// Each layer at two sizes, more of the large with distance: up close four millimetres
+// a texel, far off no pattern of four-metre squares.
+vec2 uv = P.xz / 4.0;
+vec2 uvB = vec2(P.x * 0.8 + P.z * 0.6, P.z * 0.8 - P.x * 0.6) / 23.0 + vec2(0.37, 0.11);
+float big = 0.22 + 0.68 * clamp((dist - 12.0) / 90.0, 0.0, 1.0);
+vec4 t0 = mix(texture_2D(layer0, uv), texture_2D(layer0, uvB), big);
+vec4 t1 = mix(texture_2D(layer1, uv), texture_2D(layer1, uvB), big);
+// The third layer is what cliffs are made of, and a cliff read from above is a smear
+// of streaks: where the ground is steeper than about 53 degrees it is read from the
+// side it faces. (The slopes of the read are worked out by hand, so that the line where
+// one side gives way to the other is not a line.)
+vec3 dPx = dFdx(P), dPy = dFdy(P);
+vec3 an = abs(p3d_N);
+bool cliff = an.y < 0.6;
+bool faceX = an.x > an.z;
+vec2 ruv = cliff ? (faceX ? P.zy : P.xy) : P.xz;
+vec2 rdx = cliff ? (faceX ? dPx.zy : dPx.xy) : dPx.xz;
+vec2 rdy = cliff ? (faceX ? dPy.zy : dPy.xy) : dPy.xz;
+vec4 t2 = mix(textureGrad(layer2, ruv / 4.0, rdx / 4.0, rdy / 4.0), textureGrad(layer2, ruv / 23.0 + vec2(0.37, 0.11), rdx / 23.0, rdy / 23.0), big);
+vec4 t3 = mix(texture_2D(layer3, uv), texture_2D(layer3, uvB), big);
+// (rock a long way off is a pale even grey with its shape in the light, not a pattern of blotches)
+t2.rgb = mix(t2.rgb, vec3(0.42, 0.43, 0.43), 0.30 * smoothstep(40.0, 220.0, dist));
+// (rock is streaked and seamed: darker in its cracks and where water runs down it)
+t2.rgb *= 0.82 + 0.36 * smoothstep(0.25, 0.75, t2.a) ;
+t2.rgb *= 0.80 + 0.40 * texture_2D(macro, vec2(P.x * 0.05 + P.z * 0.04, P.y * 0.012)).b;
+// (and in the large: runnels down the face, dark where water comes, pale ribs between; patches of lichen and scree)
+// (a mountain's rock: dark blue-grey, with pale streaks running down it where it has shed)
+t2.rgb *= vec3(0.40, 0.44, 0.48);
+t2.rgb = mix(t2.rgb, vec3(0.30, 0.34, 0.38), 0.45 * smoothstep(0.55, 0.80, texture_2D(macro, vec2((P.x * 0.8 - P.z * 0.6) * 0.030, P.y * 0.004)).r));
+t2.rgb *= 0.82 + 0.36 * texture_2D(macro, P.xz / 47.0 + P.y * 0.01).g;
+// Tone, and tone only - what colour a layer is, is its picture's business, and this
+// shader is every map's: drier ground is lighter and warmer, lusher darker and cooler.
+vec3 tone = mix(vec3(0.74, 0.84, 0.86), vec3(1.16, 1.08, 0.90), smoothstep(0.25, 0.75, lush));
+t0.rgb *= tone;
+t1.rgb *= mix(vec3(1.0), tone, 0.5);
+// the second layer, damp: darker, and with a little shine
+float wet = smoothstep(0.66, 0.90, damp + rag * 0.12);
+t1.rgb *= mix(1.0, 0.78, wet);
+
+// Who shows: a layer's say is its weight and, where it has any, its height.
+vec4 hgt = vec4(t0.a, t1.a, t2.a, t3.a);
+vec4 say = w + hgt * 0.55 * smoothstep(vec4(0.0), vec4(0.12), w);
+float top = max(max(say.r, say.g), max(say.b, say.a)) - 0.16;
+vec4 b = max(say - top, vec4(0.0));
+b /= (b.r + b.g + b.b + b.a);
+vec3 Albedo = t0.rgb * b.r + t1.rgb * b.g + t2.rgb * b.b + t3.rgb * b.a;
+)PYROSGROUND"
+R"PYROSGROUND(// Snow: above the snow line, where it can lie - flat places first, the line itself ragged,
+// streaks of it reaching down the gullies; steep rock stays bare.
+float winter = uGlobals[14].x;
+float snowLine = SEA + mix(310.0, 14.0, winter) + (texture_2D(macro, P.xz / 190.0).r - 0.5) * 60.0 + (t2.a - 0.5) * 14.0;
+float lie = smoothstep(0.40, 0.72, p3d_N.y);
+float snow = smoothstep(snowLine - 8.0, snowLine + 26.0, P.y) * mix(0.25, 1.0, lie) * step(SEA + 0.3 - winter * 0.2, P.y + winter);
+snow = smoothstep(0.30, 0.62, snow + (t2.a - 0.5) * 0.35);
+// (rock too steep to hold it shows through: the mountain is white with dark faces, not a white lump)
+snow *= smoothstep(mix(0.50, 0.30, winter), mix(0.74, 0.52, winter), p3d_N.y + (t2.a - 0.5) * 0.18);
+Albedo = mix(Albedo, vec3(0.66, 0.69, 0.74) * (0.86 + 0.28 * t2.a), snow);
+// rock is not one grey: beds of warmer and cooler stone, darker where water runs
+Albedo *= mix(vec3(1.0), mix(vec3(0.97, 0.96, 0.95), vec3(1.04, 1.03, 1.0), texture_2D(macro, vec2(P.y * 0.021 + P.x * 0.006, (P.x + P.z) * 0.004)).g), b.b * (1.0 - snow));
+// meadows are not one green: wide drifts of dry straw-coloured grass among the fresh
+float straw = smoothstep(0.42, 0.62, texture_2D(macro, P.xz / 310.0 + vec2(0.21, 0.63)).r);
+Albedo = mix(Albedo, Albedo * vec3(1.10, 1.04, 0.88), straw * b.r * 0.45 * (1.0 - snow) * (1.0 - smoothstep(SEA + 10.0, SEA + 70.0, P.y)));
+// Cobbles: rounded stones of several greys, fitted together, dark between; wet by the water.
+float cobH = 0.0;
+if (cobW > 0.0) {
+	// (a scan of a river's bed of pebbles: real stones, at their own size)
+	// (river gravel: small mixed stones, earth-coloured, read at two sizes so it does not tile; darker where wet)
+	vec3 stone = mix(texture_2D(pebbles, P.xz / 1.4).rgb, texture_2D(pebbles, vec2(P.z, -P.x) / 3.7 + 0.37).rgb, 0.45) * vec3(0.74, 0.72, 0.68);
+	float seen = 1.0 - smoothstep(0.10, 0.45, length(dFdx(P.xz)) + length(dFdy(P.xz)));
+	float joint = smoothstep(0.18, 0.42, dot(stone, vec3(0.33)));
+	float c1 = 0.0;
+	stone *= mix(0.55, 1.0, smoothstep(SEA, SEA + 0.5, P.y));
+	Albedo = mix(Albedo, stone, cobW * (1.0 - snow * 0.9));
+	cobH = cobW * joint * (1.0 - c1 * 0.5) * seen;
+}
+// (winter: the ice comes up onto the beach - a ragged rim of frost and thin ice on the sand at the water's edge)
+float rimN = texture_2D(macro, P.xz / 5.0).r * 0.6 + texture_2D(macro, P.xz / 1.7 + 0.3).g * 0.4;
+float rim = winter * step(P.y, SEA + 0.02 + 0.09 * smoothstep(0.30, 0.75, rimN)) * step(SEA, P.y + 0.5);
+Albedo = mix(Albedo, vec3(0.80, 0.83, 0.87) * (0.9 + 0.2 * rimN), winter * (1.0 - smoothstep(SEA, SEA + 0.05, P.y)) * step(SEA - 0.1, P.y) * 0.85);
+// the beach: warm sand, darker and smoother where the sea has just been
+float wetSand = b.a * (1.0 - smoothstep(SEA + 0.05, SEA + 0.9, P.y)) * (1.0 - snow);
+Albedo = mix(Albedo, Albedo * vec3(1.13, 1.09, 0.99), b.a * (1.0 - snow));
+// (sand close to is grains and small shells, and the wind's ripples across it)
+{
+	float seenS = 1.0 - smoothstep(0.004, 0.05, length(dFdx(P.xz)) + length(dFdy(P.xz)));
+	// (grains and shells with no corners: a value picked square by square showed as little squares)
+	float grain = p3d_noise(vec3(P.xz * 180.0, 3.0));
+	float peb = smoothstep(0.90, 0.95, p3d_noise(vec3(P.xz * 30.0, 5.0)));
+	float ripS = sin((P.x * 0.8 + P.z * 0.6) * 9.0 + texture_2D(macro, P.xz / 13.0).r * 9.0);
+	Albedo *= 1.0 + b.a * (1.0 - snow) * ((grain - 0.5) * 0.30 * seenS - peb * 0.35 * seenS + ripS * 0.018);
+}
+Albedo *= 1.0 - 0.38 * wetSand;
+// The waterline is drawn on the ground too: wet foam where the sea (or a river) meets it, breathing in and
+// out. Where water and ground are a hair apart both are white, and which of them wins a pixel cannot be seen.
+{
+	float br = 0.5 + 0.5 * sin(uTime * 0.78 + texture_2D(macro, P.xz / 80.0).r * 6.0);
+	float lineF = smoothstep(SEA - 0.10, SEA - 0.02, P.y) * (1.0 - smoothstep(SEA + 0.005 + 0.012 * br, SEA + 0.02 + 0.03 * br, P.y));
+	float laceG = texture_2D(macro, P.xz / 3.1 + uTime * 0.01).g;
+	// (and the sand the water has just left is wet: darker for a hand's height above the waterline)
+	Albedo *= 1.0 - 0.22 * (1.0 - smoothstep(SEA, SEA + 0.18 + 0.10 * br, P.y)) * step(SEA - 0.1, P.y);
+}
+float Metallic = 0.0;
+float Roughness = mix(dot(b, vec4(0.92, mix(0.90, 0.55, wet), 0.80, 0.88)), 0.55, snow);
+
+// Relief from the height (metres each layer stands up at most), lit by tilting the
+// normal down the slope of it; gone by seventy metres, where it would only glitter.
+float relief = 1.0 - smoothstep(22.0, 70.0, dist);
+if (relief > 0.0) {
+	float H = (dot(b * hgt, vec4(0.045, 0.030, 0.028, 0.018)) * (1.0 - cobW) + cobH * 0.06) * relief;
+	vec3 r1 = cross(dPy, p3d_N), r2 = cross(p3d_N, dPx);
+	float det = dot(dPx, r1);
+	vec3 grad = sign(det) * (dFdx(H) * r1 + dFdy(H) * r2);
+	Normal = normalize(abs(det) * p3d_N - grad);
+}
+)PYROSGROUND";
 }
 
 const char* TerrainTools::ToolName(const Tool t)
@@ -483,10 +704,20 @@ bool TerrainTools::CreateTerrain(const CreateParams &params, const std::string &
 		if (!fs::exists(p, ec) && !WriteGroundTexture(p.string(), layerColours[i], i == 2 ? 0.5f : 0.3f, (uint32)(i + 1)))
 		{ error = "could not write " + p.string(); return false; }
 	}
-	const std::string shaderRel = "assets/terrain/splat_terrain.glsl";
+	// ("ground": "natural" - snow, rock, cobbles and a shore of its own, from two more pictures)
+	const bool natural = params.ground == "natural";
+	if (!natural && params.ground != "plain") { error = "ground must be plain or natural"; return false; }
+	if (natural)
+	{
+		const fs::path macro = root / "assets/terrain/layers/macro.png";
+		if (!fs::exists(macro, ec) && !WriteMacroTexture(macro.string(), 1u)) { error = "could not write " + macro.string(); return false; }
+	}
+	const std::string shaderRel = natural ? "assets/terrain/natural_ground.glsl" : "assets/terrain/splat_terrain.glsl";
 	if (!fs::exists(root / shaderRel, ec))
 	{
-		const MaterialCodegenResult gen = GenerateGLSLFromSimpleText(kSplatBody, { "splatMap", "layer0", "layer1", "layer2", "layer3" });
+		std::vector<std::string> samplerNames = { "splatMap", "layer0", "layer1", "layer2", "layer3" };
+		if (natural) { samplerNames.push_back("macro"); samplerNames.push_back("pebbles"); }
+		const MaterialCodegenResult gen = GenerateGLSLFromSimpleText(natural ? kNaturalGroundBody : kSplatBody, samplerNames);
 		if (!gen.error.empty()) { error = "splat shader: " + gen.error; return false; }
 		std::ofstream out((root / shaderRel).string().c_str(), std::ios::binary | std::ios::trunc);
 		out << gen.glsl;
@@ -585,6 +816,13 @@ bool TerrainTools::CreateTerrain(const CreateParams &params, const std::string &
 	samplers.push_back({ { "name", "splatMap" }, { "texture", relDir + "/{tile}_splat.png" }, { "clampMaps", true } });
 	for (int i = 0; i < 4; i++)
 		samplers.push_back({ { "name", "layer" + std::to_string(i) }, { "texture", std::string("assets/terrain/layers/") + layerFiles[i] } });
+	if (natural)
+	{
+		// (pebbles: a picture of river stones, if the project has one; the rock layer until then)
+		samplers.push_back({ { "name", "macro" }, { "texture", "assets/terrain/layers/macro.png" } });
+		const bool havePebbles = fs::exists(root / "assets/terrain/layers/pebbles.jpg", ec);
+		samplers.push_back({ { "name", "pebbles" }, { "texture", havePebbles ? "assets/terrain/layers/pebbles.jpg" : "assets/terrain/layers/rock.png" } });
+	}
 	m["samplers"] = samplers;
 	m["castingShadows"] = true;
 

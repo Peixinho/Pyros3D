@@ -26,6 +26,9 @@
 
 namespace p3d {
 
+	const char* SkyEffectSource();    // SkyEffect.cpp
+
+
 	namespace PostEffectChain {
 
 		// The effects a scene can name. Three of them are more than one pass
@@ -77,6 +80,9 @@ namespace p3d {
 				// whatever clouds VolumetricSmoke holds, so it is inert
 				// until something spawns one.
 				names.push_back("VolumetricSmoke");
+				// The sky, the air and the weather - see SkyEffect.cpp. An asset
+				// effect that ships with the engine: its sliders are its header's.
+				names.push_back("Sky");
 			}
 			return names;
 		}
@@ -109,6 +115,11 @@ namespace p3d {
 			static const std::vector<CustomEffect::Param> none;
 			if (table.empty())
 			{
+				{
+					std::string effectName, error;
+					std::vector<CustomEffect::Param> sky;
+					if (CustomEffect::ReadMetadata(SkyEffectSource(), effectName, sky, error)) table["Sky"] = sky;
+				}
 				std::vector<CustomEffect::Param> vignette;
 				vignette.push_back(MakeParam("uRADIUS", "Radius", 0.5f, 0.f, 1.5f));
 				vignette.push_back(MakeParam("uSOFTNESS", "Softness", 0.2f, 0.f, 1.f));
@@ -274,6 +285,16 @@ namespace p3d {
 				manager.AddEffect((previous != NULL)
 					? new VolumetricSmokeCompositeEffect(previous->GetTexture(), width, height)
 					: new VolumetricSmokeCompositeEffect(RTT::Color, width, height));
+				return true;
+			}
+			if (name == "Sky")
+			{
+				std::string error;
+				CustomEffect* fx = CustomEffect::CreateFromSource(SkyEffectSource(), width, height, error);
+				if (fx == NULL) { echo("ERROR: post effect Sky: " + error); return false; }
+				for (std::map<std::string, std::vector<f32> >::const_iterator k = params.begin(); k != params.end(); k++)
+					if (!k->second.empty()) fx->SetParam(k->first, &k->second[0], (uint32)k->second.size());
+				manager.AddEffect(fx);
 				return true;
 			}
 			if (name == "MotionBlur")

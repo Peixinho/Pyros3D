@@ -151,6 +151,10 @@ public:
 		int octaves = 5;
 		float roughness = 0.5f;
 		float amount = 0.6f;
+		// The ground's shader: "plain" (the four layers, mixed by the splat map) or "natural"
+		// (those four, and rock, cobbles, snow, a wet shore and relief of its own - its water
+		// level is the Sky effect's sea level).
+		std::string ground = "plain";
 	};
 	static bool CreateTerrain(const CreateParams &params, const std::string &projectRoot, std::string &subtreeJson, std::string &error);
 

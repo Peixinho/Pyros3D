@@ -358,6 +358,9 @@ namespace p3d {
 				// deprecated spelling of the first.
 				"setShadowSoftness", &LUA_DirectionalLight::SetShadowSoftness,
 				"getShadowSoftness", &LUA_DirectionalLight::GetShadowSoftness,
+				// metres of soft edge, the same in every cascade - see ILightComponent::SetShadowPenumbra()
+				"setShadowPenumbra", &LUA_DirectionalLight::SetShadowPenumbra,
+				"getShadowPenumbra", &LUA_DirectionalLight::GetShadowPenumbra,
 				"setShadowNormalBias", &LUA_DirectionalLight::SetShadowNormalBias,
 				"getShadowNormalBias", &LUA_DirectionalLight::GetShadowNormalBias,
 				// Shadow depth bias. Lights built from Lua defaulted to

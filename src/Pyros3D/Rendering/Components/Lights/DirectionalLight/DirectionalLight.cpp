@@ -299,13 +299,14 @@ namespace p3d {
 		const f32 reach = Far > ShadowNear + 1.f ? Far : ShadowNear + 1.f;
 		if (count == GetNumberCascades() && fabsf(reach - ShadowFar) < 0.01f) return;
 		const f32 biasFactor = GetShadowBiasFactor(), biasUnits = GetShadowBiasUnits();
-		const f32 softness = GetShadowSoftness(), normalBias = GetShadowNormalBias();
+		const f32 softness = GetShadowSoftness(), normalBias = GetShadowNormalBias(), penumbra = GetShadowPenumbra();
 		Projection projection;
 		projection.Perspective(70.f, 1.777f, ShadowNear, reach);
 		EnableCastShadows(ShadowWidth, ShadowHeight, projection, ShadowNear, reach, count);
 		SetShadowBias(biasFactor, biasUnits);
 		SetShadowSoftness(softness);
 		SetShadowNormalBias(normalBias);
+		SetShadowPenumbra(penumbra);
 	}
 
 	Matrix DirectionalLight::FitCascade(const uint32 Cascade, const Matrix &CameraWorld, const Projection &CameraProjection, const Matrix &LightView, const std::vector<RenderingMesh*> &Casters, const Vec4* Spheres, const uint8* Flags, const uint8 CastMask)
@@ -405,4 +406,17 @@ namespace p3d {
 		Cascades[Cascade].CropMatrix = Cascades[Cascade].ortho.GetProjectionMatrix();
 		return Cascades[Cascade].CropMatrix;
 	}
+	Vec4 DirectionalLight::GetLightRadianceNow(Vec3* toLightOut)
+	{
+		Vec4 radiance = GetLightRadiance();
+		const Vec3 toLight = (GetOwner() ? (GetOwner()->GetDrawWorld() * Vec4(Direction, 0.f)).xyz() : Direction).normalize() * -1.f;
+		if (sun)
+		{
+			const Vec3 k = SunlightAt(toLight.y);
+			radiance = Vec4(radiance.x * k.x, radiance.y * k.y, radiance.z * k.z, radiance.w);
+		}
+		if (toLightOut) *toLightOut = toLight;
+		return radiance;
+	}
+
 }

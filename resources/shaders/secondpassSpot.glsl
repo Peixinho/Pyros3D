@@ -75,7 +75,8 @@ vec3 SubsurfaceLight(vec3 N, vec3 V, vec3 L, vec4 sss, float thin)
 }
 float SubsurfaceStrength(float gbufferBlue) { return gbufferBlue < 0.5 ? clamp(gbufferBlue / 0.45, 0.0, 1.0) : 0.0; }
 
-int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }
+int ShadowFilterRadius(float packed) { return int(mod(floor(packed), 4.0)); }
+float ShadowPenumbraMetres(float packed) { return floor(floor(packed) / 4.0) * 0.01; }
 float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }
 
 float ShadowTexelWorld(mat4 M, vec4 pos, float texels)

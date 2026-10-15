@@ -59,6 +59,10 @@ namespace p3d {
 		// in an editor or by a script, the light it gives follows; nothing else has to.
 		void SetSun(const bool on) { sun = on; }
 		bool IsSun() const { return sun; }
+		// What it lights with now - GetLightRadiance(), and for a sun what the air leaves of
+		// it at the height it stands (SunlightAt) - and the way to it in the world. Every
+		// renderer lights a directional light by this, so a sun sets alike in all of them.
+		Vec4 GetLightRadianceNow(Vec3* toLightOut = NULL);
 		// (what the air leaves, for a sun `height` up: the y of the way to it, -1..1)
 		static Vec3 SunlightAt(const f32 height)
 		{

@@ -5527,8 +5527,10 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       set_light (name, color, intensity, radius, direction, inner, outer,
         castingShadows, shadowMapSize, shadowNear, shadowFar, shadowCascades,
         shadowBiasFactor, shadowBiasUnits, shadowSoftness (filter radius in
-        texels, 0-3), shadowNormalBias (texels, 0-7.9), shadowBiasScale (point
-        only)). Shadow keys change a casting light in place and keep the rest;
+        texels, 0-3), shadowNormalBias (texels, 0-7.9), shadowPenumbra
+        (directional: metres of soft edge, 0-2.5, the same in every cascade),
+        shadowBiasScale (point only), hour/sun/sunAzimuth/sunTilt (a sun's
+        clock)). Shadow keys change a casting light in place and keep the rest;
         get_object reports the same keys.
       set_material (name, color, specular, metallic, roughness, shininess,
         reflectivity, alphaCutoff, opacity, transparent, cullFace, blending,

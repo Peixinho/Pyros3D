@@ -1053,7 +1053,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             // light matrix's PCF slot) - see
             // ILightComponent::GetShadowFilterPacked(): the integer part is
             // the filter radius in texels, the fraction normal bias / 8.
-            int ShadowFilterRadius(float packed) { return int(clamp(floor(packed), 0.0, 3.0)); }
+            int ShadowFilterRadius(float packed) { return int(mod(floor(packed), 4.0)); }
+            float ShadowPenumbraMetres(float packed) { return floor(floor(packed) / 4.0) * 0.01; }
             float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }
 
             // World-space size of one shadow-map texel at `pos`, for a
@@ -1135,6 +1136,27 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
             // One cascade of the atlas: cascade c's tile is the (c%2, c/2)
             // quarter of the map when there is more than one.
+            // A sun's penumbra (ShadowPenumbraMetres): taps over a disc `radius` texels across, turned
+            // per pixel so the few taps read as fine grain rather than rings; each tap is itself a comparison.
+            float ShadowDisc(sampler2DShadow map, vec3 uvz, float radius, vec2 size, vec4 rect)
+            {
+            	// (thirty-two taps on a golden-angle spiral - even over the disc, no rings - turned per pixel)
+            	float a = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+            	float sum = 0.0;
+            	for (int i = 0; i < 32; i++)
+            	{
+            		float t = a + float(i) * 2.3999632;
+            		vec2 o = vec2(cos(t), sin(t)) * (sqrt((float(i) + 0.5) / 32.0) * radius);
+            		// (each tap filtered between its four texels, as the tent is: the comparison itself is not)
+            		vec2 st = uvz.xy * size + o - 0.5;
+            		vec2 b = floor(st), f = st - b;
+            		vec2 u0 = clamp((b + 0.5) / size, rect.xy, rect.zw), u1 = clamp((b + 1.5) / size, rect.xy, rect.zw);
+            		sum += mix(mix(texture(map, vec3(u0, uvz.z)), texture(map, vec3(u1.x, u0.y, uvz.z)), f.x),
+            			mix(texture(map, vec3(u0.x, u1.y, uvz.z)), texture(map, vec3(u1, uvz.z)), f.x), f.y);
+            	}
+            	return sum / 32.0;
+            }
+
             float ShadowDirectionalCascade(int c, bool multi, float packed, vec4 pos, vec3 n)
             {
                 mat4 M = uDirectionalDepthsMVP[c];
@@ -1150,6 +1172,18 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                     vec2 off = vec2((c == 1 || c == 3) ? 0.5 : 0.0, (c >= 2) ? 0.5 : 0.0);
                     coord.xy = coord.xy * 0.5 + off;
                     rect = vec4(off + 0.5 / size, off + 0.5 - 0.5 / size);
+                }
+                {
+                	// (a penumbra in metres, wider here than the filter: the disc - as wide in every cascade)
+                	float texel = max(ShadowTexelWorld(M, pos, tile), 1e-6), r = ShadowPenumbraMetres(packed) * 0.5 / texel;
+                	// (a tap that far off reads the receiver itself where it slopes away from the light: its depth moves on with it)
+                	if (r > float(ShadowFilterRadius(packed)) + 1.0)
+                	{
+                		vec3 dz = vec3(M[0][2], M[1][2], M[2][2]);
+                		float ndl = abs(dot(normalize(n), normalize(dz)));
+                		coord.z -= r * texel * min(sqrt(max(1.0 - ndl * ndl, 0.0)) / max(ndl, 0.05), 4.0) * length(dz);
+                		return ShadowDisc(uDirectionalShadowMaps, coord.xyz, r, size, rect);
+                	}
                 }
                 return ShadowPCF2D(uDirectionalShadowMaps, coord.xyz, ShadowFilterRadius(packed), size, rect);
             }

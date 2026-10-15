@@ -101,7 +101,7 @@ namespace p3d {
 						DirectionalLight* d = (DirectionalLight*)(*i);
 
 						// Directional Lights
-						Vec4 color = d->GetLightRadiance();
+						Vec4 color = d->GetLightRadianceNow();
 						Vec3 position;
 						Vec3 direction = (d->GetOwner()->GetWorldTransformation() * Vec4(d->GetLightDirection(), 0.f)).xyz().normalize();
 						f32 attenuation = 1.f;

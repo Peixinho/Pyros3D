@@ -1515,6 +1515,11 @@ public:
 	// Writes the brushes' edits (heights, splat and density maps). Part of
 	// saving the scene, and of entering Play.
 	bool SaveTerrain();
+	// Water depth pictures baked since the last save (terrain_bake_depth), by texture path: written,
+	// with the settings they were baked with (<texture>.bake.json), by SaveTerrain.
+	struct PendingDepthBake { uint32 res = 0; std::vector<uchar> pixels; nlohmann::json settings; };
+	std::map<std::string, PendingDepthBake> pendingDepthBakes;
+	nlohmann::json DepthBakeSettings(const std::string &texture) const;
 
 	// --- terrain objects (TerrainComponent) --------------------------------
 	// Every Terrain in this scene.

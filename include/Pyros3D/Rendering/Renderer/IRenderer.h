@@ -156,8 +156,10 @@ namespace p3d {
 		// than the main view beside it. A renderer given ambient light of its own
 		// (any of the Set* calls) keeps it. NULL (the default): nobody follows.
 		// The scene's sun, as the lighting last saw it: the way to it and how strong (0..1).
-		// For what a material does with the sun outside the lighting pass (light through leaves).
-		static void SetSunHint(const Vec3 &toSun, const f32 strength);
+		// For what a material does with the sun outside the lighting pass (light through leaves),
+		// and a sky (the Sky post effect). A light marked as a sun (isSun) wins over any other
+		// directional light - which the editor's axis widget and previews have of their own.
+		static void SetSunHint(const Vec3 &toSun, const f32 strength, const bool isSun = false);
 		static void GetSunHint(Vec3 &toSun, f32 &strength);
 		// Where the scene was last drawn from (the camera's world matrix): for what works on
 		// the finished picture and needs to know which way each pixel looks (a sky, fog).

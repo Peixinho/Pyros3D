@@ -9201,6 +9201,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		editorWorld.reset();
 		worldViewLiftTries = 240;
 		terrainOverviewStale.clear();
+		pendingDepthBakes.clear();
 		if (!sceneWorld.enabled || scenePath.empty()) return;
 #ifdef LUA_BINDINGS
 		sol::state* lua = sharedLua;
@@ -10971,6 +10972,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("Filter radius in shadow-map texels.\n0 is a hard edge; each step widens the penumbra by a texel either side.");
+		if (directional)
+		{
+			f32 penumbra = light->GetShadowPenumbra();
+			if (ImGui::DragFloat("Penumbra", &penumbra, 0.005f, 0.f, ILightComponent::MaxShadowPenumbra, "%.2f m"))
+			{
+				light->SetShadowPenumbra(penumbra);
+				MarkSceneDirty();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("How wide the soft edge of a shadow is, in metres - the same in every cascade.\n0: Softness alone. A tree's shadow on the ground wants a few centimetres to a quarter of a metre.");
+		}
 
 		f32 normalBias = light->GetShadowNormalBias();
 		if (ImGui::DragFloat("Normal Bias", &normalBias, 0.05f, 0.f, ILightComponent::MaxShadowNormalBias, "%.2f texels"))
@@ -13636,6 +13648,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			j["shadowNormalBias"] = (double)l->GetShadowNormalBias();
 			if (DirectionalLight* d = dynamic_cast<DirectionalLight*>(l))
 			{
+				j["shadowPenumbra"] = (double)d->GetShadowPenumbra();
 				j["shadowFar"] = (double)d->GetShadowFar();
 				j["shadowCascades"] = (int)d->GetNumberCascades();
 			}
@@ -14868,6 +14881,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			il->SetShadowSoftness((f32)p["shadowSoftness"].get<double>());
 		if (p.contains("shadowNormalBias") && p["shadowNormalBias"].is_number())
 			il->SetShadowNormalBias((f32)p["shadowNormalBias"].get<double>());
+		// (metres of soft edge - a sun's shadows; see ILightComponent::SetShadowPenumbra)
+		if (p.contains("shadowPenumbra") && p["shadowPenumbra"].is_number())
+			il->SetShadowPenumbra((f32)p["shadowPenumbra"].get<double>());
 		if (PointLight* pl = dynamic_cast<PointLight*>(light))
 			if (p.contains("shadowBiasScale") && p["shadowBiasScale"].is_number())
 				pl->SetShadowBiasScale((f32)p["shadowBiasScale"].get<double>());

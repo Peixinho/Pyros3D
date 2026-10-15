@@ -1853,6 +1853,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				j["shadowBiasUnits"] = l->GetShadowBiasUnits();
 				j["shadowSoftness"] = l->GetShadowSoftness();
 				j["shadowNormalBias"] = l->GetShadowNormalBias();
+				if (l->GetShadowPenumbra() > 0.f) j["shadowPenumbra"] = l->GetShadowPenumbra();
 			}
 			return j;
 		}
@@ -4131,6 +4132,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// its constructor defaults (see ILightComponent).
 				if (j.find("shadowSoftness") != j.end()) l->SetShadowSoftness(j.value("shadowSoftness", 1.0f));
 				if (j.find("shadowNormalBias") != j.end()) l->SetShadowNormalBias(j.value("shadowNormalBias", 1.5f));
+				l->SetShadowPenumbra(j.value("shadowPenumbra", 0.0f));
 			}
 			go->AddComponent(l);
 		}

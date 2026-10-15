@@ -146,11 +146,24 @@ namespace p3d {
 		// part is the filter radius, the fraction is normal bias / 8.
 		// Decoded by ShadowFilterRadius()/ShadowNormalOffset() in the
 		// shaders (PyrosShader.glsl, secondpass*.glsl, MaterialCodegen).
+		//
+		// And a third, the penumbra (SetShadowPenumbra): its centimetres are four times
+		// the integer part's worth over the radius - integer = radius + 4 x centimetres -
+		// so a light without one packs exactly as it did.
 		f32 GetShadowFilterPacked() const
 		{
 			const f32 radius = floorf(ShadowSoftness + 0.5f);
-			return radius + ShadowNormalBias / 8.f;
+			const f32 centimetres = floorf(ShadowPenumbra * 100.f + 0.5f);
+			return radius + 4.f * centimetres + ShadowNormalBias / 8.f;
 		}
+
+		// How wide a shadow's soft edge is, in metres, wherever it falls: the same in every
+		// cascade and at every distance, where a filter radius in texels is wider the further
+		// a cascade reaches. 0 (the default) leaves the shadow to Softness alone. Directional
+		// lights only - a sun's shadows (point and spot keep their filter). Up to 2.5 m.
+		void SetShadowPenumbra(const f32 metres) { ShadowPenumbra = metres < 0.f ? 0.f : (metres > MaxShadowPenumbra ? MaxShadowPenumbra : metres); }
+		f32 GetShadowPenumbra() const { return ShadowPenumbra; }
+		static constexpr f32 MaxShadowPenumbra = 2.5f;
 
 		uint32 GetShadowWidth()
 		{
@@ -230,7 +243,7 @@ namespace p3d {
 		uint32 LightType;
 
 		// See SetShadowSoftness() / SetShadowNormalBias().
-		f32 ShadowSoftness, ShadowNormalBias;
+		f32 ShadowSoftness, ShadowNormalBias, ShadowPenumbra = 0.f;
 
 		// See SetVolumetricScattering() - density 0 disables the march.
 		f32 volumetricDensity, volumetricAnisotropy, volumetricSteps;
