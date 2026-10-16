@@ -509,6 +509,27 @@ float p3d_sea(vec2 pos, float t, int iters) {
 	}
 	return sumV / max(sumW, 1e-4);
 }
+// The same sea and its slope (d height / d pos) in one pass: each train's own derivative,
+// wave * cos(x) * freq along its direction. Three passes for a finite difference were most of
+// what the water cost - up to 108 trains a pixel where the sea fills the view.
+float p3d_seaG(vec2 pos, float t, int iters, out vec2 grad) {
+	float iter = 0.0, freq = 1.0, tm = 2.0, weight = 1.0, sumV = 0.0, sumW = 0.0;
+	vec2 g = vec2(0.0);
+	for (int i = 0; i < 40; i++) {
+		if (i >= iters) break;
+		vec2 d = vec2(sin(iter), cos(iter));
+		float x = dot(d, pos) * freq + t * tm;
+		float wave = exp(sin(x) - 1.0);
+		float dw = wave * cos(x);
+		g += d * (dw * freq * weight);
+		pos += d * (-dw) * weight * 0.30;
+		sumV += wave * weight; sumW += weight;
+		weight *= 0.85; freq *= 1.18; tm *= 1.07; iter += 1232.399963;
+	}
+	float k = 1.0 / max(sumW, 1e-4);
+	grad = g * k;
+	return sumV * k;
+}
 void main() {
 	vec3 p3d_N = normalize(vNormalWorld);
 	vec3 p3d_V = normalize(uCameraPosition - vWorldPos.xyz);
@@ -545,21 +566,23 @@ void main() {
 	calm *= 0.6 + 0.8 * smoothstep(0.25, 0.75, p3d_noise(vec3(wp * 0.006 + wt * 0.004, 1.0)) * 0.6 + p3d_noise(vec3(wp * 0.021, 5.0)) * 0.4);
 	float e = max(0.03, pxw * 1.0);
 	vec2 sp = wp * SEA_SCALE;
-	float h0 = p3d_sea(sp, wt, iters), hx = p3d_sea(sp + vec2(e * SEA_SCALE, 0.0), wt, iters), hz = p3d_sea(sp + vec2(0.0, e * SEA_SCALE), wt, iters);
+	vec2 seaGrad;
+	float h0 = p3d_seaG(sp, wt, iters, seaGrad);
 	// (looked down on from high up, a sea is a fine even texture with faint lines of swell - not hills: the big
 	// waves' shading is eased as the eye climbs and looks down, or it reads as cloud)
 	float fromSky = smoothstep(0.30, 0.70, p3d_V.y) * smoothstep(8.0, 40.0, uCameraPosition.y - WATER_LEVEL);
 	// (the scene's settings for its water, set in the editor: each 1 as authored; 0 means none were given)
 	vec4 waterSet = vec4(uGlobals[13].x > 0.001 ? uGlobals[13].x : 1.0, 1.0, uGlobals[13].z > 0.001 ? uGlobals[13].z : 1.0, uGlobals[13].w > 0.001 ? uGlobals[13].w : 1.0);
 	float waveH = 7.5 * waterSet.x * calm * mix(1.0, 0.22, fromSky) * WATER_ROUGH;
-	vec2 slope = vec2(hx - h0, hz - h0) / e * waveH;
+	vec2 slope = seaGrad * SEA_SCALE * waveH;
 	// (and the wind's own ripple on top of the waves: a second, much smaller sea, seen only close to)
 	float rippleSeen = 1.0 - smoothstep(0.02, 0.14, pxw);
 	if (rippleSeen > 0.0) {
 		vec2 rp = wp * 1.7 + vec2(31.0, 17.0);          // (the main sea stops at waves a metre long: these go on down to a hand's width)
 		float em = 0.035;
-		float r0 = p3d_sea(rp, wt * 2.2, 9), rx = p3d_sea(rp + vec2(em * 1.7, 0.0), wt * 2.2, 9), rz = p3d_sea(rp + vec2(0.0, em * 1.7), wt * 2.2, 9);
-		slope += vec2(rx - r0, rz - r0) / em * 0.26 * rippleSeen * calm;
+		vec2 rg;
+		p3d_seaG(rp, wt * 2.2, 9, rg);
+		slope += rg * 1.7 * 0.26 * rippleSeen * calm;
 	}
 	// A river runs: its ripples are carried downstream (the depth picture's blue and alpha say which way).
 	// Two copies half a beat apart, each reset as the other is at its clearest, so nothing is ever stretched.
