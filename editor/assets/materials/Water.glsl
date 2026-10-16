@@ -640,8 +640,11 @@ void main() {
 	// (how far out from the sand, in metres: the depth over the bed's slope - a flat beach and a steep one get
 	// the same width of foam)
 	float eS = 1.5 / 1024.0;
-	float gx1 = texture_2D(shore, muv + vec2(eS, 0.0)).r, gx0 = texture_2D(shore, muv - vec2(eS, 0.0)).r, gz1 = texture_2D(shore, muv + vec2(0.0, eS)).r, gz0 = texture_2D(shore, muv - vec2(0.0, eS)).r;
-	vec2 gradD = vec2(gx1 * gx1 - gx0 * gx0, gz1 * gz1 - gz0 * gz0) * ((WATER_DEPTH_RANGE + WATER_DEPTH_ABOVE) / (3.0 * WATER_MAP_SIZE / 1024.0));
+	// (inside the picture only: unclamped, past its edge the picture repeated, and every 512 m of open sea
+	// found the island's coast again - a net of shore foam over the whole ocean, seen from the air)
+	vec2 guv = clamp(muv, vec2(eS + 0.002), vec2(0.998 - eS));
+	float gx1 = texture_2D(shore, guv + vec2(eS, 0.0)).r, gx0 = texture_2D(shore, guv - vec2(eS, 0.0)).r, gz1 = texture_2D(shore, guv + vec2(0.0, eS)).r, gz0 = texture_2D(shore, guv - vec2(0.0, eS)).r;
+	vec2 gradD = vec2(gx1 * gx1 - gx0 * gx0, gz1 * gz1 - gz0 * gz0) * ((WATER_DEPTH_RANGE + WATER_DEPTH_ABOVE) / (3.0 * WATER_MAP_SIZE / 1024.0)) * inside;
 	float away = depth / max(length(gradD), 0.004) / waterSet.z;
 	vec3 plates = p3d_cells(wp * 1.5 + vec2(p3d_noise(vec3(wp * 1.1, 1.0)), p3d_noise(vec3(wp * 1.1, 5.0))) * 2.4 + vec2(p3d_noise(vec3(wp * 4.0, 2.0)), p3d_noise(vec3(wp * 4.0, 7.0))) * 0.5 + Nw.xz * 0.5 + vec2(wt * 0.05, wt * 0.03));
 	float out_ = away + (lace - 0.5) * 1.1 - 0.7 * push;                        // raggedly, breathing with the waves
