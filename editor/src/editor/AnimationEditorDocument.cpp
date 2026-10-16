@@ -892,6 +892,48 @@ void AnimationEditorDocument::PruneEmptyTracks(int clipIndex)
 	t.erase(std::remove_if(t.begin(), t.end(), [](const PropertyTrack& x) { return x.Keys.empty(); }), t.end());
 }
 
+int AnimationEditorDocument::MarkFootsteps(int clipIndex, const std::vector<std::string>& bones, const std::string& name, float band)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return 0;
+	SkeletonAnimationInstance* inst = RigInstance();
+	if (!inst) return -1;
+	// a name the rig does not have marks nothing - and must not clear what is there
+	for (size_t b = 0; b < bones.size(); b++) if (RigFindBone(bones[b]) < 0) return -2;
+	if (bones.empty()) return -2;
+	const std::string ev = name.empty() ? std::string("step") : name;
+	std::vector<AnimationEvent>& events = clips[clipIndex].Events;
+	events.erase(std::remove_if(events.begin(), events.end(), [&](const AnimationEvent& e) { return e.Name == ev; }), events.end());
+	int n = 0;
+	for (size_t b = 0; b < bones.size(); b++)
+	{
+		const std::vector<f32> t = inst->FindContacts(clips[clipIndex], bones[b], band);
+		for (size_t i = 0; i < t.size(); i++) { events.push_back(AnimationEvent(t[i], ev)); n++; }
+	}
+	std::stable_sort(events.begin(), events.end(), [](const AnimationEvent& a, const AnimationEvent& b) { return a.Time < b.Time; });
+	// event selection is by index: the indices moved
+	for (std::set<AnimKeyRef>::iterator it = selectedKeys.begin(); it != selectedKeys.end();)
+		if (it->kind == ANIM_KEY_EVENT) it = selectedKeys.erase(it); else ++it;
+	return n;
+}
+
+std::vector<std::string> AnimationEditorDocument::GuessFootBones() const
+{
+	std::vector<std::string> out;
+	SkeletonAnimationInstance* inst = RigInstance();
+	if (!inst) return out;
+	const std::vector<Bone>& bones = inst->GetSkeletonBones();
+	const auto lower = [](std::string s) { for (char& c : s) c = (char)tolower((unsigned char)c); return s; };
+	for (size_t i = 0; i < bones.size(); i++)
+	{
+		const std::string n = lower(bones[i].name);
+		if (n.find("foot") != std::string::npos && n.find("toe") == std::string::npos) out.push_back(bones[i].name);
+	}
+	if (out.empty())
+		for (size_t i = 0; i < bones.size(); i++)
+			if (lower(bones[i].name).find("ankle") != std::string::npos) out.push_back(bones[i].name);
+	return out;
+}
+
 int AnimationEditorDocument::AddEvent(int clipIndex, float time, const std::string& name)
 {
 	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return -1;

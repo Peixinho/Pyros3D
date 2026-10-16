@@ -778,6 +778,42 @@ void DrawToolbar(AnimationEditorDocument& doc, const std::vector<AnimationMeshCh
 			}
 			ImGui::SetItemTooltip("Removes every key the motion would pass through anyway, within the tolerances.\n"
 				"Stepped and eased keys, and each track's first and last key, always stay.");
+
+			// Footsteps: an event wherever a foot comes down, found in the motion.
+			ImGui::Separator();
+			static char stepBones[160] = "";
+			static char stepName[48] = "step";
+			static const void* stepFor = NULL;          // (guessed again for another document's rig)
+			if (!stepBones[0] || stepFor != &doc)
+			{
+				stepFor = &doc;
+				std::string guess;
+				const std::vector<std::string> g = doc.GuessFootBones();
+				for (size_t i = 0; i < g.size(); i++) guess += (i ? "," : "") + g[i];
+				snprintf(stepBones, sizeof(stepBones), "%s", guess.c_str());
+			}
+			ImGui::SetNextItemWidth(170.f);
+			ImGui::InputText("Feet", stepBones, sizeof(stepBones));
+			ImGui::SetItemTooltip("The bones whose landing is a footstep, by name, separated by commas (the ankles: toes roll).");
+			ImGui::SetNextItemWidth(90.f);
+			ImGui::InputText("Event", stepName, sizeof(stepName));
+			if (ImGui::Button("Mark footsteps"))
+			{
+				std::vector<std::string> bones;
+				std::string cur;
+				for (const char* c = stepBones; ; c++)
+				{
+					if (*c == ',' || *c == 0) { while (!cur.empty() && cur.back() == ' ') cur.pop_back(); if (!cur.empty()) bones.push_back(cur); cur.clear(); if (!*c) break; }
+					else if (!(*c == ' ' && cur.empty())) cur += *c;
+				}
+				int n = 0;
+				doc.PushSnapshotEdit("Mark footsteps", [&]() { n = doc.MarkFootsteps(doc.activeClip, bones, stepName); });
+				echo(n == -1 ? std::string("Animation Editor: no rig to find footsteps through")
+					: n == -2 ? std::string("Animation Editor: a bone in 'Feet' is not in this rig - nothing changed")
+					: "Animation Editor: marked " + std::to_string(n) + " footstep(s)");
+			}
+			ImGui::SetItemTooltip("Puts an event wherever each of these bones comes down in this clip, found in the motion\n"
+				"itself. Events of the same name already in the clip are replaced, so run it again after editing.");
 			ImGui::EndPopup();
 		}
 	}
@@ -2913,6 +2949,11 @@ void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshCho
 		ImGui::Checkbox("Mesh", &pv->showMesh);
 		ImGui::SameLine();
 		ImGui::Checkbox("Grid", &pv->showGrid);
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(70.f);
+		ImGui::SliderFloat("##slope", &pv->slopeDeg, 0.f, 35.f, pv->slopeDeg > 0.01f ? "slope %.0f" : "flat");
+		ImGui::SetItemTooltip("Tilts the floor (rising ahead) and plants the feet on it, as a game does with\n"
+			"setFootGround: how this clip stands on a hillside. Flat = the clip alone.");
 		ImGui::SameLine();
 		ImGui::Checkbox("Onion", &doc.onionSkin);
 		ImGui::SetItemTooltip("Ghost skeletons before (blue) and after (green) the playhead.\nRight-click for how many and how far apart.");

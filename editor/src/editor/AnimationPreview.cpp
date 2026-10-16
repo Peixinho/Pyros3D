@@ -310,6 +310,7 @@ void AnimationPreview::SyncPose(AnimationEditorDocument& doc, float dt)
 			// rewound while playing.
 			doc.blendClock += dt;
 		}
+		PlantOnSlope(false);
 		if (animOwner) animOwner->Update(doc.blendClock);
 		// The events the real playback fired, shown as they happen.
 		instance->DeliverPending();
@@ -323,6 +324,52 @@ void AnimationPreview::SyncPose(AnimationEditorDocument& doc, float dt)
 	// Shared with the 2D animation window, which poses a scene rig through the
 	// same document fields but has no preview viewport of its own.
 	AnimationEditor::ApplyTimelinePose(doc);
+	PlantOnSlope(true);
+}
+
+void AnimationPreview::FloorFrame(Vec3& up, Vec3& side, Vec3& ahead, Vec3& origin) const
+{
+	up = frameUp;
+	const Vec3 seed = (std::fabs(up.y) < 0.9f) ? Vec3(0, 1, 0) : Vec3(0, 0, 1);
+	side = up.cross(seed).normalize();
+	ahead = side.cross(up).normalize();
+	float floorOffset = 0.f;
+	if (haveBounds) floorOffset = (up.x * boundsMin.x) + (up.y * boundsMin.y) + (up.z * boundsMin.z);
+	origin = up * floorOffset;
+}
+
+void AnimationPreview::PlantOnSlope(bool now)
+{
+	if (!instance) return;
+	if (slopeDeg <= 0.01f)
+	{
+		if (instance->HasFootGround()) { instance->ClearFootGround(); if (now) instance->RefreshSkinning(); }
+		return;
+	}
+	Vec3 up, side, ahead, origin;
+	FloorFrame(up, side, ahead, origin);
+	const float t = std::tan(slopeDeg * 3.14159265f / 180.f);
+	const Vec3 normal = (up - ahead * t).normalize();
+	// the legs: a bone named for a foot (not a toe), its parent the shin, that one's the thigh
+	const std::vector<Bone>& bones = instance->GetSkeletonBones();
+	for (size_t i = 0; i < bones.size(); i++)
+	{
+		std::string n = bones[i].name;
+		for (char& c : n) c = (char)tolower((unsigned char)c);
+		if (n.find("foot") == std::string::npos || n.find("toe") != std::string::npos) continue;
+		const int32 foot = bones[i].self;
+		const int32 shin = bones[i].parent;
+		const int32 thigh = shin >= 0 ? bones[shin].parent : -1;
+		if (thigh < 0) continue;
+		// the sloped floor's height there, over the flat one (along up)
+		const Vec3 p = instance->GetBoneGlobalTransform(foot).GetTranslation() - origin;
+		instance->SetFootGroundAlong(thigh, foot, t * p.dotProduct(ahead), normal, up, 1.f);
+	}
+	if (now)
+	{
+		instance->ApplyFootGround();
+		instance->RefreshSkinning();
+	}
 }
 
 void AnimationPreview::StopBlend()
@@ -870,16 +917,10 @@ void AnimationPreview::RenderFrame()
 			// model's lowest point along that axis, so it reads as the floor
 			// the character stands on. A world-XZ grid would cut a Z-up
 			// model off at the waist (see frameUp's comment).
-			const Vec3 up = frameUp;
-			const Vec3 seed = (std::fabs(up.y) < 0.9f) ? Vec3(0, 1, 0) : Vec3(0, 0, 1);
-			const Vec3 ax = up.cross(seed).normalize();
-			const Vec3 az = ax.cross(up).normalize();
-			// Foot of the model along the up axis, or the origin when nothing
-			// is loaded.
-			float floorOffset = 0.f;
-			if (haveBounds)
-				floorOffset = (up.x * boundsMin.x) + (up.y * boundsMin.y) + (up.z * boundsMin.z);
-			const Vec3 origin = up * floorOffset;
+			Vec3 up, ax, az, origin;
+			FloorFrame(up, ax, az, origin);
+			// tilted with the slope: rising ahead
+			if (slopeDeg > 0.01f) az = (az + up * std::tan(slopeDeg * 3.14159265f / 180.f)).normalize();
 
 			const float step = std::max(0.25f, framedDistance * 0.1f);
 			const int lines = 10;

@@ -5747,6 +5747,8 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       animation_view (onion, onionBefore, onionAfter, onionStep, curves, split, unsplit)
       animation_retarget (source .p3da, sourceRig .p3dm, clips, map {target: source}, fps, reduce)
       animation_reduce_keys (clip, posTolerance, rotTolerance degrees, bone)
+      animation_preview_slope (degrees 0..35: the preview floor tilted, feet planted on it; answers feet positions)
+      animation_mark_footsteps (clip, bones [names; default the rig's foot bones], name "step", band 0.2) - an event wherever a foot comes down, found in the motion; replaces earlier events of that name
       animation_key_interp (clip, bone, time, kind: column|position|rotation|scale,
       interp: Linear|Step|...|Bezier, inTangent, outTangent)
       animation_ik action set also takes holdRotation, captureRotation

@@ -148,14 +148,18 @@ namespace p3d {
 		// Where the ground is under a foot, for a body on uneven ground. After
 		// the clips (and the bone aims), the hips come down as far as the
 		// lowest foot needs, each leg reaches its foot as much higher than the
-		// clip put it as the ground there is over the model's own floor (y = 0
-		// in model space), and the foot turns flat to the ground's normal.
+		// clip put it as the ground there is over the model's own floor (0
+		// along GetModelUp() in model space), and the foot turns flat to the
+		// ground's normal.
 		// Model space, like every bone query; `weight` 0 = the clip alone.
 		// `upperBone` is the thigh: thigh -> shin -> foot is a two-bone chain.
 		// Holds until changed or cleared; set it each frame for a body that
 		// moves. The hips that come down are the thigh's parent.
 		void SetFootGround(const int32 upperBone, const int32 footBone, const f32 height,
 			const Vec3 &normal, const f32 weight = 1.f);
+		// With the up axis given (model space) rather than found from the skeleton.
+		void SetFootGroundAlong(const int32 upperBone, const int32 footBone, const f32 height,
+			const Vec3 &normal, const Vec3 &up, const f32 weight);
 		// The same from the world: the ground's height (world y) right under
 		// the foot as the body stands now, and its normal in world space -
 		// what a ray down or a terrain lookup gives. False when the body has no
@@ -168,12 +172,21 @@ namespace p3d {
 		void SetFootGroundMaxDrop(const f32 shareOfLeg) { footMaxDrop = shareOfLeg; }
 		// Called by the update after the clips; public for the editor's preview.
 		void ApplyFootGround();
+		// Which way is up in model space, from the skeleton itself: the axis
+		// it is tallest along in its bind pose, pointing away from `footBone`
+		// when one is given (else from the end with fewer bones). A Y-up
+		// model says +Y, a Z-up one (the stock Bip01 human) +Z. (0, 1, 0) for
+		// no skeleton.
+		Vec3 GetModelUp(const int32 footBone = -1) const;
 		// The moments a bone comes down in a clip - for footsteps: the clip
 		// sampled through THIS skeleton, the bone's height in model space, and
 		// each time it drops into the lowest `band` share of its range (0.2 =
 		// the bottom fifth; a share, so the model's units do not matter).
 		// Seconds, in order. Empty when the clip does not lift the bone.
 		std::vector<f32> FindContacts(const uint32 animation, const std::string &bone, const f32 band = 0.2f) const;
+		// The same for a clip that is not (or not yet) in the owner's list -
+		// the one an editor is changing.
+		std::vector<f32> FindContacts(const Animation &clip, const std::string &bone, const f32 band = 0.2f) const;
 
 		// ---- root motion ---------------------------------------------
 		// Model-space travel of the root bone (ANIM_FLAG_ROOT_MOTION clips)
@@ -519,10 +532,14 @@ namespace p3d {
 		// See SetFootGround.
 		struct FootGround {
 			int32 upper, foot;
-			f32 height;
+			f32 height;          // along `up`
 			Vec3 normal;
+			Vec3 up;             // model space
 			f32 weight;
 		};
+		mutable std::vector<Vec3> bindAt;    // bind pose, model space (GetModelUp)
+		mutable int modelUpAxis = -1;
+		mutable f32 modelUpMean = 0.f, modelUpSign = 1.f;
 		std::vector<FootGround> footGrounds;
 		f32 footMaxDrop = 0.45f;
 		// Bones -> every submesh's skinning matrices, with the scales applied.

@@ -344,3 +344,8 @@ pose tools; link `editor/src/editor/PoseTools.cpp`). Build lines at the top of e
   slope: the clip alone sank the front toe ~5 cm into it and left the back foot hanging; planted, the standing foot
   never went below its flat-ground height and lies along the slope. `IKSolver::Solve` can skip its skinning upload
   (`refreshSkinning` false) for a step that solves several chains in one frame.
+- **Editor:** Clip Settings > **Mark footsteps** (feet guessed from the rig's bone names, event name "step"; replaces
+  earlier events of that name, refuses a bone the rig does not have), socket `animation_mark_footsteps`; the preview's
+  **slope** slider (0-35 deg) tilts the floor and plants the feet on it, socket `animation_preview_slope`.
+  `GetModelUp(foot)`: contacts and planting measure height along the skeleton's own up (the axis it is tallest along,
+  away from the foot), so Z-up rigs work - they were measured along Y before.

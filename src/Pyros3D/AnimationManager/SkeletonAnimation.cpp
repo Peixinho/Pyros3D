@@ -1512,12 +1512,70 @@ namespace p3d {
 		}
 	}
 
+	Vec3 SkeletonAnimationInstance::GetModelUp(const int32 footBone) const
+	{
+		if (modelUpAxis < 0)
+		{
+			modelUpAxis = 1; modelUpSign = 1.f; modelUpMean = 0.f;
+			if (skeleton.empty() || bindPose.size() < skeleton.size()) return Vec3(0.f, 1.f, 0.f);
+			// the bind pose in model space
+			bindAt.assign(skeleton.size(), Vec3(0.f, 0.f, 0.f));
+			std::vector<Matrix> global(skeleton.size());
+			std::vector<bool> done(skeleton.size(), false);
+			std::function<const Matrix&(int32)> g = [&](int32 b) -> const Matrix& {
+				if (!done[b])
+				{
+					done[b] = true;
+					const int32 p = skeleton[b].parent;
+					global[b] = (p >= 0 && (size_t)p < skeleton.size() && p != b) ? g(p) * bindPose[b] : bindPose[b];
+				}
+				return global[b];
+			};
+			Vec3 lo(1e30f, 1e30f, 1e30f), hi(-1e30f, -1e30f, -1e30f), mean(0.f, 0.f, 0.f);
+			for (size_t i = 0; i < skeleton.size(); i++)
+			{
+				const int32 b = skeleton[i].self;
+				if (b < 0 || (size_t)b >= skeleton.size()) continue;
+				const Vec3 p = g(b).GetTranslation();
+				bindAt[b] = p;
+				lo = Vec3(std::min(lo.x, p.x), std::min(lo.y, p.y), std::min(lo.z, p.z));
+				hi = Vec3(std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z));
+				mean = mean + p;
+			}
+			mean = mean * (1.f / (f32)skeleton.size());
+			const Vec3 ext = hi - lo;
+			if (ext.x > ext.y && ext.x > ext.z) modelUpAxis = 0;
+			else if (ext.z > ext.y) modelUpAxis = 2;
+			const auto on = [this](const Vec3 &v) { return modelUpAxis == 0 ? v.x : modelUpAxis == 1 ? v.y : v.z; };
+			modelUpMean = on(mean);
+			// with no foot to go by: the arms, hands and head put more bones
+			// above the hips than the legs below them, so the mean lies high
+			modelUpSign = (modelUpMean - on(lo)) >= (on(hi) - modelUpMean) ? 1.f : -1.f;
+		}
+		f32 sign = modelUpSign;
+		if (footBone >= 0 && (size_t)footBone < bindAt.size())
+		{
+			const Vec3 &p = bindAt[footBone];
+			const f32 c = modelUpAxis == 0 ? p.x : modelUpAxis == 1 ? p.y : p.z;
+			sign = c <= modelUpMean ? 1.f : -1.f;      // the foot is the low end
+		}
+		return Vec3(modelUpAxis == 0 ? sign : 0.f, modelUpAxis == 1 ? sign : 0.f, modelUpAxis == 2 ? sign : 0.f);
+	}
+
 	void SkeletonAnimationInstance::SetFootGround(const int32 upperBone, const int32 footBone, const f32 height,
 		const Vec3 &normal, const f32 weight)
+	{
+		SetFootGroundAlong(upperBone, footBone, height, normal, GetModelUp(footBone), weight);
+	}
+
+	void SkeletonAnimationInstance::SetFootGroundAlong(const int32 upperBone, const int32 footBone, const f32 height,
+		const Vec3 &normal, const Vec3 &up, const f32 weight)
 	{
 		if (upperBone < 0 || footBone < 0 || (size_t)upperBone >= skeleton.size() || (size_t)footBone >= skeleton.size()) return;
 		FootGround g;
 		g.upper = upperBone; g.foot = footBone; g.height = height; g.normal = normal;
+		const f32 lu = up.magnitude();
+		g.up = lu > 1e-6f ? up * (1.f / lu) : Vec3(0.f, 1.f, 0.f);
 		g.weight = std::max(0.f, std::min(1.f, weight));
 		for (size_t i = 0; i < footGrounds.size(); i++)
 			if (footGrounds[i].foot == footBone) { footGrounds[i] = g; return; }
@@ -1533,7 +1591,11 @@ namespace p3d {
 		const Vec3 foot = world * Bones[footBone].GetTranslation();
 		const Vec3 ground = toModel * Vec3(foot.x, groundY, foot.z);
 		const Vec3 n = toModel * (Vec3(foot.x, groundY, foot.z) + normal) - ground;
-		SetFootGround(upperBone, footBone, ground.y, n, weight);
+		// the world's up, in the model: Y for a Y-up model stood upright, Z for a Z-up one
+		Vec3 up = toModel * Vec3(foot.x, groundY + 1.f, foot.z) - ground;
+		const f32 lu = up.magnitude();
+		up = lu > 1e-6f ? up * (1.f / lu) : GetModelUp(footBone);
+		SetFootGroundAlong(upperBone, footBone, ground.dotProduct(up), n, up, weight);
 		return true;
 	}
 
@@ -1563,19 +1625,20 @@ namespace p3d {
 			if (hips < 0) hips = skeleton[g.upper].parent;
 		}
 		drop = std::max(drop, -footMaxDrop * leg);
+		const Vec3 hipsUp = footGrounds[0].up;
 		if (drop < 0.f && hips >= 0)
 		{
 			Matrix down;
-			down.Translate(0.f, drop, 0.f);
+			down.Translate(hipsUp * drop);
 			const int32 parent = skeleton[hips].parent;
 			const Matrix parentGlobal = parent >= 0 ? Bones[parent] : Matrix();
 			boneTransformation[hips] = parentGlobal.Inverse() * (down * Bones[hips]);
 			RefreshHierarchy();
 		}
-		const Vec3 up(0.f, 1.f, 0.f);
 		for (size_t i = 0; i < footGrounds.size(); i++)
 		{
 			const FootGround &g = footGrounds[i];
+			const Vec3 &up = g.up;
 			if (g.weight <= 0.f) continue;
 			const int32 knee = skeleton[g.foot].parent;
 			if (knee < 0 || skeleton[knee].parent != g.upper) continue;
@@ -1767,9 +1830,13 @@ namespace p3d {
 
 	std::vector<f32> SkeletonAnimationInstance::FindContacts(const uint32 animation, const std::string &bone, const f32 band) const
 	{
+		if (!Owner || animation >= Owner->animations.size()) return std::vector<f32>();
+		return FindContacts(Owner->animations[animation], bone, band);
+	}
+
+	std::vector<f32> SkeletonAnimationInstance::FindContacts(const Animation &anim, const std::string &bone, const f32 band) const
+	{
 		std::vector<f32> out;
-		if (!Owner || animation >= Owner->animations.size()) return out;
-		const Animation &anim = Owner->animations[animation];
 		if (anim.Duration <= 0.f) return out;
 		// skeleton entries by their id, and the bone's chain up to the root
 		std::map<int32, size_t> byId;
@@ -1795,6 +1862,7 @@ namespace p3d {
 				if (it != byId.end() && skeleton[it->second].name == anim.Channels[c].NodeName) channelOf[chain[k]] = &anim.Channels[c];
 			}
 		const bool applyScale = anim.HasFlag(ANIM_FLAG_APPLY_SCALE);
+		const Vec3 up = GetModelUp(target);
 		const int n = std::max(32, std::min(4000, (int)(anim.Duration * 120.f)));
 		std::vector<f32> height(n);
 		for (int i = 0; i < n; i++)
@@ -1810,7 +1878,7 @@ namespace p3d {
 					: (bind ? *bind : Matrix());
 				global = global * local;
 			}
-			height[i] = global.GetTranslation().y;
+			height[i] = global.GetTranslation().dotProduct(up);
 		}
 		f32 lo = height[0], hi = height[0];
 		for (int i = 1; i < n; i++) { lo = std::min(lo, height[i]); hi = std::max(hi, height[i]); }

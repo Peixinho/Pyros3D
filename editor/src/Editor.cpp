@@ -1525,6 +1525,52 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			return r;
 		}
 
+		// The preview's floor tilted and the feet planted on it: {"degrees": 0..35} (0 = flat, the clip alone).
+		// Answers the slope, and where each foot is (model space) once the next frame has posed it.
+		if (name == "animation_preview_slope")
+		{
+			if (!pv) throw std::runtime_error("no preview");
+			if (a.is_object() && a.contains("degrees")) pv->slopeDeg = std::max(0.f, std::min(35.f, a.value("degrees", 0.f)));
+			nlohmann::json r; r["degrees"] = pv->slopeDeg;
+			SkeletonAnimationInstance* inst = doc->RigInstance();
+			if (inst)
+			{
+				nlohmann::json feet = nlohmann::json::object();
+				for (const std::string& f : doc->GuessFootBones())
+				{
+					const int b = doc->RigFindBone(f);
+					if (b < 0) continue;
+					const Vec3 p = inst->GetBoneGlobalTransform(b).GetTranslation();
+					feet[f] = { p.x, p.y, p.z };
+				}
+				r["feet"] = feet;
+			}
+			return r;
+		}
+
+		// {"clip"?, "bones"? [names] (default: the rig's foot bones), "name"? ("step"), "band"? (0.2)}
+		if (name == "animation_mark_footsteps")
+		{
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			std::vector<std::string> bones;
+			if (a.is_object() && a.contains("bones") && a["bones"].is_array())
+				for (const auto& b : a["bones"]) if (b.is_string()) bones.push_back(b.get<std::string>());
+			if (bones.empty()) bones = doc->GuessFootBones();
+			if (bones.empty()) throw std::runtime_error("no foot bones: pass \"bones\"");
+			const std::string ev = A("name").empty() ? std::string("step") : A("name");
+			const float band = a.is_object() ? a.value("band", 0.2f) : 0.2f;
+			int n = 0;
+			doc->PushSnapshotEdit("Mark footsteps", [&]() { n = doc->MarkFootsteps(clip, bones, ev, band); });
+			if (n == -1) throw std::runtime_error("no rig to sample the clip through (open it on a model)");
+			if (n == -2) throw std::runtime_error("a bone the rig does not have - nothing changed");
+			nlohmann::json r; r["marked"] = n; r["bones"] = bones;
+			nlohmann::json times = nlohmann::json::array();
+			for (const auto& e : doc->clips[clip].Events) if (e.Name == ev) times.push_back(e.Time);
+			r["times"] = times;
+			return r;
+		}
+
 		// ---- clip events -----------------------------------------------
 		// {"action":"list|add|remove|rename|move", "clip"?, "index", "time", "name"}
 		if (name == "animation_events")

@@ -494,6 +494,17 @@ struct AnimationEditorDocument {
 	int ReduceKeys(int clipIndex, float posTolerance, float rotToleranceDeg,
 		const std::string& boneFilter = std::string());
 
+	// Footsteps: an event named `name` wherever one of `bones` comes down in
+	// the clip (SkeletonAnimationInstance::FindContacts, through the rig this
+	// document poses). The clip's earlier events of that name go first, so it
+	// can be run again after the clip changes. Not undo-wrapped. Returns how
+	// many it marked; -1 when there is no rig to sample through, -2 when one
+	// of the bones is not in it (nothing is changed then).
+	int MarkFootsteps(int clipIndex, const std::vector<std::string>& bones, const std::string& name = "step",
+		float band = 0.2f);
+	// The rig's foot bones by name: those with "foot" in them (not toes), else ankles.
+	std::vector<std::string> GuessFootBones() const;
+
 	// Drops channels with no keys at all. Called after key deletion so an
 	// emptied bone stops occupying a dope-sheet row (and stops being
 	// written to the file as a no-op channel).

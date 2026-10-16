@@ -132,6 +132,10 @@ struct AnimationPreview {
 	bool showBoneNames = false;
 	bool showMesh = true;
 	bool showGrid = true;
+	// The floor tilted this many degrees (rising ahead), and the feet planted
+	// on it (SkeletonAnimationInstance::SetFootGround): how a clip will stand
+	// on a hillside in a game. 0 = the flat floor and the clip alone.
+	float slopeDeg = 0.f;
 
 	// ---- bone posing --------------------------------------------------
 	IGizmo* gizmo = nullptr;
@@ -287,6 +291,11 @@ struct AnimationPreview {
 private:
 	p3d::Math::Vec3 ComputeEye() const;
 	void RenderFrame();
+	// The floor's frame (the grid's): its up, its forward, and a point on it.
+	void FloorFrame(p3d::Math::Vec3& up, p3d::Math::Vec3& side, p3d::Math::Vec3& ahead, p3d::Math::Vec3& origin) const;
+	// Tells the rig where the sloped floor is under each foot; `now` also
+	// plants the pose already made (the timeline's), else the next update does.
+	void PlantOnSlope(bool now);
 	// Submits the skeleton as lines/points into `debug`. Model space ==
 	// world space here (the model GO sits at the origin), so bone globals
 	// go in unmodified.

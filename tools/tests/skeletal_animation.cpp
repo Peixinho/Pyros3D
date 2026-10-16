@@ -665,6 +665,32 @@ int main()
 		rig.inst->SetFootGround(2, 4, 0.3f, n, 0.f);
 		rig.inst->ApplyFootGround();
 		check((pos(4) - l0).magnitude() < 1e-4f && (pos(1) - h0).magnitude() < 1e-4f, "weight 0 leaves the pose alone");
+		const Vec3 upY = rig.inst->GetModelUp(4);
+		check(upY.y > 0.99f, "a Y-up skeleton's up is +Y");
+	}
+	{
+		// The same legs in a Z-up model (the stock Bip01 human is one): up is
+		// +Z, and the ground is measured along it.
+		std::vector<Bone> bones;
+		bones.push_back(makeBone(0, -1, "root", Vec3(0.f, 0.f, 0.f)));
+		bones.push_back(makeBone(1, 0, "hips", Vec3(0.f, 0.f, 1.f)));
+		bones.push_back(makeBone(2, 1, "thighL", Vec3(0.2f, 0.f, 0.f)));
+		bones.push_back(makeBone(3, 2, "kneeL", Vec3(0.f, -0.03f, -0.5f)));
+		bones.push_back(makeBone(4, 3, "footL", Vec3(0.f, 0.03f, -0.45f)));
+		bones.push_back(makeBone(5, 1, "thighR", Vec3(-0.2f, 0.f, 0.f)));
+		bones.push_back(makeBone(6, 5, "kneeR", Vec3(0.f, -0.03f, -0.5f)));
+		bones.push_back(makeBone(7, 6, "footR", Vec3(0.f, 0.03f, -0.45f)));
+		Rig rig(bones);
+		const auto pos = [&](int b) { return rig.inst->GetBoneGlobalTransform(b).GetTranslation(); };
+		rig.reset();
+		const Vec3 up = rig.inst->GetModelUp(4);
+		check(up.z > 0.99f, "a Z-up skeleton's up is +Z");
+		const Vec3 l0 = pos(4), r0 = pos(7), h0 = pos(1);
+		rig.inst->SetFootGround(2, 4, 0.1f, Vec3(0.f, 0.f, 1.f));
+		rig.inst->SetFootGround(5, 7, -0.1f, Vec3(0.f, 0.f, 1.f));
+		rig.inst->ApplyFootGround();
+		check(fabsf(pos(1).z - (h0.z - 0.1f)) < 1e-3f && fabsf(pos(4).z - (l0.z + 0.1f)) < 2e-3f
+			&& fabsf(pos(7).z - (r0.z - 0.1f)) < 2e-3f, "and its feet are planted along Z");
 	}
 
 	printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
