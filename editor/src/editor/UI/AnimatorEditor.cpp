@@ -692,7 +692,7 @@ void DrawWindow(AnimatorDocument& doc, const std::vector<std::pair<std::string, 
 			}
 		}
 		ImGui::SameLine();
-		if (ImGui::SmallButton("+ Layer")) doc.AddLayer("Upper", std::string());
+		if (ImGui::SmallButton("+ Layer")) doc.AddLayer(std::string(), std::string());
 		if (ImGui::IsItemHovered()) ImGui::SetTooltip("A second machine on part of the skeleton - the bones under one root bone -\nover the base: the upper body aims while the legs walk.");
 		if (doc.activeLayer > 0 && doc.activeLayer <= count)
 		{

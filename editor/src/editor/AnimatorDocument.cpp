@@ -237,7 +237,7 @@ std::string AnimatorDocument::AddLayer(const std::string& name, const std::strin
 {
 	const std::string before = Snapshot();
 	AnimatorLayer l;
-	l.name = controller.UniqueLayerName(name.empty() ? std::string("Upper") : name);
+	l.name = controller.UniqueLayerName(name.empty() ? std::string("Layer") : name);
 	l.rootBone = rootBone;
 	// Starts with one empty state: the layer lets the base show until it
 	// is told to do something.
