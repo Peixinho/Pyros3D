@@ -143,6 +143,12 @@ namespace p3d {
 		};
 		std::vector<FiredEvent> TakeEvents();
 		void SetEventCallback(const std::function<void(const FiredEvent&)> &cb) { eventCallback = cb; }
+		// The moments a bone comes down in a clip - for footsteps: the clip
+		// sampled through THIS skeleton, the bone's height in model space, and
+		// each time it drops into the lowest `band` share of its range (0.2 =
+		// the bottom fifth; a share, so the model's units do not matter).
+		// Seconds, in order. Empty when the clip does not lift the bone.
+		std::vector<f32> FindContacts(const uint32 animation, const std::string &bone, const f32 band = 0.2f) const;
 
 		// ---- root motion ---------------------------------------------
 		// Model-space travel of the root bone (ANIM_FLAG_ROOT_MOTION clips)
@@ -566,6 +572,14 @@ namespace p3d {
 
 		// Get Animation ID By Name
 		const int32 GetAnimationIDByName(const std::string &name) const;
+
+		// An event added to a clip at run time, kept in time order (a game
+		// marking its own footsteps, so a rebuilt clip file needs no editing).
+		// False when the clip already has that name at that time - one set of
+		// clips is shared by everybody who loads the file - or there is no
+		// such clip. Add before the clip plays: playback reads the list on the
+		// update's thread.
+		bool AddEvent(const uint32 animation, const f32 time, const std::string &name);
 
 		// Stable identity of a clip, as stored in the .p3da. Empty for clips
 		// that came from a v0 file and have not been re-saved since.

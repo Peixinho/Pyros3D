@@ -182,6 +182,23 @@ namespace {
 		return id >= 0 && a.IsPlaying((uint32)id);
 	}
 	// [{clip, name, time}, ...] passed since the last call.
+	// findContacts(clip, bone, band): seconds at which the bone comes down.
+	emscripten::val SkeletonInst_FindContacts(SkeletonAnimationInstance &a, const std::string &clip, const std::string &bone, float band)
+	{
+		emscripten::val out = emscripten::val::array();
+		SkeletonAnimation* owner = a.GetOwner();
+		const int32 id = owner ? owner->GetAnimationIDByName(clip) : -1;
+		if (id < 0) return out;
+		const std::vector<f32> t = a.FindContacts((uint32)id, bone, band > 0.f ? band : 0.2f);
+		for (size_t i = 0; i < t.size(); i++) out.call<void>("push", t[i]);
+		return out;
+	}
+	bool Skeleton_AddEvent(SkeletonAnimation &s, const std::string &clip, float time, const std::string &name)
+	{
+		const int32 id = s.GetAnimationIDByName(clip);
+		return id >= 0 && s.AddEvent((uint32)id, time, name);
+	}
+
 	emscripten::val SkeletonInst_TakeEvents(SkeletonAnimationInstance &a)
 	{
 		emscripten::val out = emscripten::val::array();
@@ -335,7 +352,8 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.function("update", &SkeletonAnimation::Update)
 		.function("createInstance", &Skeleton_CreateInstance, allow_raw_pointers())
 		.function("destroyInstance", &Skeleton_DestroyInstance, allow_raw_pointers())
-		.function("getAnimationIDByName", &SkeletonAnimation::GetAnimationIDByName);
+		.function("getAnimationIDByName", &SkeletonAnimation::GetAnimationIDByName)
+		.function("addEvent", &Skeleton_AddEvent);
 
 	class_<SkeletonAnimationInstance>("SekeletonAnimationInstance")
 		.constructor<SkeletonAnimation *, RenderingComponent *>(allow_raw_pointers())
@@ -370,6 +388,7 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.function("fadeOut", &SkeletonInst_FadeOut)
 		.function("isPlaying", &SkeletonInst_IsPlaying)
 		.function("takeEvents", &SkeletonInst_TakeEvents)
+		.function("findContacts", &SkeletonInst_FindContacts)
 		.function("consumeRootMotion", &SkeletonAnimationInstance::ConsumeRootMotion)
 		.function("setApplyRootMotion", &SkeletonAnimationInstance::SetApplyRootMotion);
 

@@ -329,3 +329,10 @@ pose tools; link `editor/src/editor/PoseTools.cpp`). Build lines at the top of e
   +-0.15 m/s of it from jog to run. Lua `addAnimator(object, controllerPath)` gives a script-made body an
   Animator. Condition ops may be spelled out (greater, less, ...); an unknown one is warned about - read
   silently as ">", a "less" made two opposite transitions fire every frame.
+- **Footfalls from the clips:** `SkeletonAnimationInstance::FindContacts(clip, bone, band)` samples a clip through the
+  skeleton and returns where the bone comes down (into the lowest share of its height, re-armed half way up: a walk's
+  ankle dips twice per stance); `SkeletonAnimation::AddEvent` adds an event at run time, once. Lua/JS `inst:findContacts`,
+  `anim:addEvent`. Erangel marks its own clips at load (44 footfalls in 22 moving clips), so a rebuilt player.p3da needs
+  nothing. Fixed with it: an event fired when `1 - scale >= 0.5`, ignoring the clips mixed over it - the bottom clip of a
+  blend (always scale 0) fired at any weight, so a walk/jog/run blend at walking pace played the run's footsteps (3.3
+  steps/s at 1 m/s instead of 1.7). A clip's share is now (1 - scale) x the scales of the clips over it; root motion too.

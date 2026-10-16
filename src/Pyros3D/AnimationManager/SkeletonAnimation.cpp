@@ -9,6 +9,7 @@
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <iterator>
 #include <cmath>
+#include <algorithm>
 #include <Pyros3D/GameObjects/GameObject.h>
 
 namespace p3d {
@@ -869,6 +870,17 @@ namespace p3d {
 		return -1;
 	}
 
+	bool SkeletonAnimation::AddEvent(const uint32 animation, const f32 time, const std::string &name)
+	{
+		if (animation >= animations.size()) return false;
+		std::vector<AnimationEvent> &evs = animations[animation].Events;
+		for (size_t i = 0; i < evs.size(); i++) if (evs[i].Name == name && std::fabs(evs[i].Time - time) < 1e-5f) return false;
+		size_t at = 0;
+		while (at < evs.size() && evs[at].Time <= time) at++;
+		evs.insert(evs.begin() + at, AnimationEvent(time, name));
+		return true;
+	}
+
 	const int32 SkeletonAnimation::GetAnimationIDByGuid(const std::string &guid) const
 	{
 		// An empty guid is "no identity recorded", not a clip to match - v0
@@ -977,8 +989,29 @@ namespace p3d {
 		}
 
 		const bool soloClip = inst->AnimationsToPlay.size() == 1;
+		// How much of each clip shows: the pose is mixed from the end of the list
+		// to the front, each clip taking (1 - scale) of what is under it, so a
+		// clip's share is (1 - its scale) times the scales of the clips before it
+		// (over it) - per layer, as they are mixed. "1 - scale" alone called the
+		// bottom clip of a blend (always scale 0) fully on at any weight: a
+		// walk/jog/run blend at walking pace played the run's footsteps too.
+		f32 coverBase = 1.f;
+		std::map<const void*, f32> coverLayer;
 		for (std::vector<_SkeletonAnimation::SkeletonAnimation>::iterator _Anim = inst->AnimationsToPlay.begin(); _Anim != inst->AnimationsToPlay.end(); _Anim++)
 		{
+			f32 shown = 1.f;
+			{
+				f32* cover = &coverBase;
+				if ((*_Anim).HaveLayers)
+				{
+					std::map<const void*, f32>::iterator c = coverLayer.find((const void*)(*_Anim).Layer);
+					if (c == coverLayer.end()) c = coverLayer.insert(std::make_pair((const void*)(*_Anim).Layer, 1.f)).first;
+					cover = &c->second;
+				}
+				const f32 sc = std::max(0.f, std::min(1.f, (*_Anim).scale));
+				shown = (1.f - sc) * (*cover);
+				*cover *= sc;
+			}
 			if ((*_Anim)._isPaused)
 			{
 				if ((*_Anim)._pauseStart == -1)
@@ -1106,10 +1139,11 @@ namespace p3d {
 				}
 
 				// Events passed and root travel, now that this clip's pose for
-				// the frame exists. A clip fading or blended mostly out (scale
-				// above a half) stays quiet, so a crossfade does not play both
-				// clips' footsteps; its share of the root travel is its weight.
-				const f32 vis = soloClip ? 1.f : 1.f - (*_Anim).scale;
+				// the frame exists. A clip showing less than half (faded, blended
+				// mostly out, or covered by the clips over it) stays quiet, so a
+				// crossfade or a blend does not play both clips' footsteps; its
+				// share of the root travel is what of it shows.
+				const f32 vis = soloClip ? 1.f : shown;
 				inst->CollectEventsAndRootMotion(*_Anim, currentTime, vis >= 0.5f, vis);
 			}
 		}
@@ -1625,6 +1659,76 @@ namespace p3d {
 		// Rest is rest for the parts too: no clip is showing.
 		trackValues.clear();
 		RefreshSkinning();
+	}
+
+	std::vector<f32> SkeletonAnimationInstance::FindContacts(const uint32 animation, const std::string &bone, const f32 band) const
+	{
+		std::vector<f32> out;
+		if (!Owner || animation >= Owner->animations.size()) return out;
+		const Animation &anim = Owner->animations[animation];
+		if (anim.Duration <= 0.f) return out;
+		// skeleton entries by their id, and the bone's chain up to the root
+		std::map<int32, size_t> byId;
+		int32 target = -1;
+		for (size_t i = 0; i < skeleton.size(); i++)
+		{
+			byId[skeleton[i].self] = i;
+			if (skeleton[i].name == bone) target = skeleton[i].self;
+		}
+		if (target < 0) return out;
+		std::vector<int32> chain;
+		for (int32 b = target; b >= 0 && chain.size() <= skeleton.size(); )
+		{
+			chain.push_back(b);
+			std::map<int32, size_t>::const_iterator it = byId.find(b);
+			b = it == byId.end() ? -1 : skeleton[it->second].parent;
+		}
+		std::map<int32, const Channel*> channelOf;
+		for (size_t c = 0; c < anim.Channels.size(); c++)
+			for (size_t k = 0; k < chain.size(); k++)
+			{
+				std::map<int32, size_t>::const_iterator it = byId.find(chain[k]);
+				if (it != byId.end() && skeleton[it->second].name == anim.Channels[c].NodeName) channelOf[chain[k]] = &anim.Channels[c];
+			}
+		const bool applyScale = anim.HasFlag(ANIM_FLAG_APPLY_SCALE);
+		const int n = std::max(32, std::min(4000, (int)(anim.Duration * 120.f)));
+		std::vector<f32> height(n);
+		for (int i = 0; i < n; i++)
+		{
+			const f32 t = anim.Duration * (f32)i / (f32)n;
+			Matrix global;
+			for (size_t k = chain.size(); k-- > 0; )
+			{
+				const int32 b = chain[k];
+				const Matrix* bind = (size_t)b < bindPose.size() ? &bindPose[b] : NULL;
+				std::map<int32, const Channel*>::const_iterator ch = channelOf.find(b);
+				const Matrix local = ch != channelOf.end() ? SampleChannel(*ch->second, t, applyScale, bind)
+					: (bind ? *bind : Matrix());
+				global = global * local;
+			}
+			height[i] = global.GetTranslation().y;
+		}
+		f32 lo = height[0], hi = height[0];
+		for (int i = 1; i < n; i++) { lo = std::min(lo, height[i]); hi = std::max(hi, height[i]); }
+		if (hi - lo < 1e-5f) return out;
+		const f32 b = std::max(0.f, std::min(1.f, band));
+		const f32 limit = lo + b * (hi - lo);
+		// A step only counts once the foot has been lifted again - half way up
+		// its range: a walk's ankle dips twice in one stance (heel, then toe).
+		const f32 rearm = lo + std::max(0.5f, b) * (hi - lo);
+		// Round the loop from the highest sample, so a step across the end is
+		// one step.
+		int top = 0;
+		for (int i = 1; i < n; i++) if (height[i] > height[top]) top = i;
+		bool armed = true;
+		for (int k = 1; k <= n; k++)
+		{
+			const int i = (top + k) % n;
+			if (armed && height[i] <= limit) { out.push_back(anim.Duration * (f32)i / (f32)n); armed = false; }
+			else if (!armed && height[i] >= rearm) armed = true;
+		}
+		std::sort(out.begin(), out.end());
+		return out;
 	}
 
 	void SkeletonAnimationInstance::ApplyAnimationAtTime(const Animation &anim, const f32 time)

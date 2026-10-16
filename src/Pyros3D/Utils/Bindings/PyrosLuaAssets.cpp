@@ -259,7 +259,14 @@ namespace p3d {
 				"update", &SkeletonAnimation::Update,
 				"createInstance", &SkeletonAnimation::CreateInstance,
 				"destroyInstance", &SkeletonAnimation::DestroyInstance,
-				"getAnimationIDByName", &SkeletonAnimation::GetAnimationIDByName
+				"getAnimationIDByName", &SkeletonAnimation::GetAnimationIDByName,
+				// addEvent(clip, time, name): an event added at run time (a
+				// footstep a game found with inst:findContacts). False if the
+				// clip already has it or there is no such clip.
+				"addEvent", [](SkeletonAnimation& self, const std::string& clip, const float time, const std::string& name) -> bool {
+					const int32 id = self.GetAnimationIDByName(clip);
+					return id >= 0 && self.AddEvent((uint32)id, time, name);
+				}
 				);
 		}
 
@@ -422,6 +429,19 @@ namespace p3d {
 					SkeletonAnimation* owner = self.GetOwner();
 					const int32 id = owner ? owner->GetAnimationIDByName(name) : -1;
 					return id >= 0 && self.IsPlaying((uint32)id);
+				},
+				// findContacts(clip, bone [, band]): the seconds into the clip at
+				// which the bone comes down (into the lowest `band` share of its
+				// height, 0.2 if not given) - where a footstep goes.
+				"findContacts", [](SkeletonAnimationInstance& self, const std::string& clip, const std::string& bone, sol::optional<float> band, sol::this_state ts) -> sol::table {
+					sol::state_view lua(ts);
+					sol::table out = lua.create_table();
+					SkeletonAnimation* owner = self.GetOwner();
+					const int32 id = owner ? owner->GetAnimationIDByName(clip) : -1;
+					if (id < 0) return out;
+					const std::vector<f32> t = self.FindContacts((uint32)id, bone, band.value_or(0.2f));
+					for (size_t i = 0; i < t.size(); i++) out[i + 1] = t[i];
+					return out;
 				},
 				// Events the clips passed since the last call: { {clip=, name=, time=}, ... }.
 				"takeEvents", [](SkeletonAnimationInstance& self, sol::this_state ts) -> sol::table {

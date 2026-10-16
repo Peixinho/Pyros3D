@@ -566,6 +566,64 @@ int main()
 		check(fabsf(walkSpeed() - 0.5f) < 1e-3f, "paced: no slower than paceMin");
 	}
 
+	// ---- footsteps found in a clip, and events added at run time -------------
+	{
+		// hips(1) -> foot(2); the foot's local height goes 0, 1, 0, 1, 0 over 1 s:
+		// two steps, coming down through 0.2 (the bottom fifth) at 0.45 and 0.95.
+		std::vector<Bone> bones;
+		bones.push_back(makeBone(0, -1, "root", Vec3(0.f, 0.f, 0.f)));
+		bones.push_back(makeBone(1, 0, "hips", Vec3(0.f, 1.f, 0.f)));
+		bones.push_back(makeBone(2, 1, "foot", Vec3(0.f, -1.f, 0.f)));
+		Rig rig(bones);
+		std::vector<Animation> clips(1);
+		clips[0].AnimationName = "walk";
+		clips[0].Duration = 1.f;
+		Channel ch; ch.NodeName = "foot";
+		const f32 ys[5] = { 0.f, 1.f, 0.f, 1.f, 0.f };
+		for (int i = 0; i < 5; i++) ch.positions.push_back(PositionData(0.25f * i, Vec3(0.f, ys[i] - 1.f, 0.f)));
+		clips[0].Channels.push_back(ch);
+		rig.animation.SetAnimations(clips);
+		const std::vector<f32> t = rig.inst->FindContacts(0, "foot");
+		check(t.size() == 2 && fabsf(t[0] - 0.45f) < 0.02f && fabsf(t[1] - 0.95f) < 0.02f, "a foot coming down twice is two contacts, where it lands");
+		check(rig.inst->FindContacts(0, "hips").empty(), "a bone that does not lift has none");
+		check(rig.animation.AddEvent(0, t[1], "foot") && rig.animation.AddEvent(0, t[0], "foot")
+			&& !rig.animation.AddEvent(0, t[0], "foot"), "events are added once");
+		const std::vector<Animation> after = rig.animation.GetAnimations();
+		check(after[0].Events.size() == 2 && after[0].Events[0].Time < after[0].Events[1].Time, "and kept in time order");
+		rig.inst->Play(0, 0.f, -1.f, 1.f, 0.f);
+		f32 clock = 0.f;
+		int heard = 0;
+		for (int i = 0; i < 60; i++)
+		{
+			clock += 1.f / 30.f;
+			rig.animation.Update(clock);
+			rig.inst->DeliverPending();
+			heard += (int)rig.inst->TakeEvents().size();
+		}
+		check(heard == 4, "and fire as the clip plays (two a loop, two loops)");
+
+		// Two clips both at scale 0: the first in the list is mixed last, over
+		// the other, which therefore shows nothing - and must not fire. (Its
+		// own "1 - scale" said fully on: a blend at walking pace played the
+		// run's footsteps.)
+		std::vector<Animation> two(2, clips[0]);
+		two[0].AnimationName = "top"; two[0].Events.assign(1, AnimationEvent(0.5f, "top"));
+		two[1].AnimationName = "under"; two[1].Events.assign(1, AnimationEvent(0.5f, "under"));
+		rig.animation.SetAnimations(two);
+		rig.inst->Play(0, 0.f, -1.f, 1.f, 0.f);
+		rig.inst->Play(1, 0.f, -1.f, 1.f, 0.f);
+		int top = 0, under = 0;
+		for (int i = 0; i < 40; i++)
+		{
+			clock += 1.f / 30.f;
+			rig.animation.Update(clock);
+			rig.inst->DeliverPending();
+			const std::vector<SkeletonAnimationInstance::FiredEvent> evs = rig.inst->TakeEvents();
+			for (size_t k = 0; k < evs.size(); k++) (evs[k].name == "top" ? top : under)++;
+		}
+		check(top > 0 && under == 0, "a clip covered by the one over it fires no events");
+	}
+
 	printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
 	return failures ? 1 : 0;
 }
