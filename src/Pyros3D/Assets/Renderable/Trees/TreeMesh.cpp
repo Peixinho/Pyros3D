@@ -168,10 +168,14 @@ namespace p3d {
 					Grow(K, S, dice, at, childDir, childLength, std::max(childRadius, .006f), level + 1, crownShape);
 				}
 				// (a stem or limb ends in a twig of its own: no bare stick out of the top of a crown)
+				// A conifer's stem ends in a short leader: grown as long as the twig at any other
+				// end, it was a bough of its own, and a bough's cards are as long as their limb -
+				// a flat green blade standing up out of every spruce.
 				if (level > 0 || crownShape != Crown::Umbrella)
 				{
 					const Limb &L = K.limbs[me];
-					Grow(K, S, dice, L.at.back(), dir, length * S.length[level] * .55f, std::max(L.radius.back() * .9f, .006f), level + 1, crownShape);
+					const f32 tip = (level == 0 && crownShape == Crown::Cone) ? .18f : .55f;
+					Grow(K, S, dice, L.at.back(), dir, length * S.length[level] * tip, std::max(L.radius.back() * .9f, .006f), level + 1, crownShape);
 				}
 			}
 			else if (S.sprays > 0)
