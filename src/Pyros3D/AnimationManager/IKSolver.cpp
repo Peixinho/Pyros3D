@@ -506,7 +506,8 @@ namespace p3d {
 	bool IKSolver::Solve(SkeletonAnimationInstance* inst,
 		const int32 rootBone, const int32 effectorBone,
 		const Vec3 &target, const Vec3 &pole,
-		const uint32 iterations, const std::map<int32, JointLimit>* limits)
+		const uint32 iterations, const std::map<int32, JointLimit>* limits,
+		const bool refreshSkinning)
 	{
 		if (!inst) return false;
 
@@ -529,7 +530,8 @@ namespace p3d {
 
 		// RotateBoneGlobal only recomposes the hierarchy; the skinning
 		// matrices are uploaded once here rather than on every joint.
-		inst->RefreshSkinning();
+		if (refreshSkinning) inst->RefreshSkinning();
+		else inst->RefreshHierarchy();
 		return true;
 	}
 

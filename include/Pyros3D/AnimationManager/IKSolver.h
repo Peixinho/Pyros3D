@@ -86,11 +86,14 @@ namespace p3d {
 		// Writes local transforms through SetBoneLocalTransform and leaves the
 		// skinning matrices refreshed. Returns false if the chain could not be
 		// built.
+		// `refreshSkinning` false: leave the upload to the caller (a pose step
+		// solving several chains in one frame uploads once, after them all).
 		static bool Solve(SkeletonAnimationInstance* inst,
 			const int32 rootBone, const int32 effectorBone,
 			const Vec3 &target, const Vec3 &pole,
 			const uint32 iterations = 10,
-			const std::map<int32, JointLimit>* limits = NULL);
+			const std::map<int32, JointLimit>* limits = NULL,
+			const bool refreshSkinning = true);
 
 		// Same, for a chain whose bones are already resolved.
 		static bool Solve(SkeletonAnimationInstance* inst, const IKChain &chain,

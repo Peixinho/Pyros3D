@@ -336,3 +336,11 @@ pose tools; link `editor/src/editor/PoseTools.cpp`). Build lines at the top of e
   nothing. Fixed with it: an event fired when `1 - scale >= 0.5`, ignoring the clips mixed over it - the bottom clip of a
   blend (always scale 0) fired at any weight, so a walk/jog/run blend at walking pace played the run's footsteps (3.3
   steps/s at 1 m/s instead of 1.7). A clip's share is now (1 - scale) x the scales of the clips over it; root motion too.
+- **Feet on uneven ground:** `SkeletonAnimationInstance::SetFootGround(thigh, foot, height, normal, weight)` (model
+  space) / `SetFootGroundWorld` (the world height under the foot and its normal - what a ray down gives); after the clips
+  and bone aims the hips come down for the lower foot (at most `SetFootGroundMaxDrop` of the leg, 0.45; 0 = legs only),
+  each leg reaches its ground with the two-bone solver keeping the knee's bend, and the foot turns flat to the normal.
+  Lua/JS `setFootGround`, `clearFootGround`, `setFootGroundMaxDrop`. Measured with Erangel's player walking up a 20 deg
+  slope: the clip alone sank the front toe ~5 cm into it and left the back foot hanging; planted, the standing foot
+  never went below its flat-ground height and lies along the slope. `IKSolver::Solve` can skip its skinning upload
+  (`refreshSkinning` false) for a step that solves several chains in one frame.

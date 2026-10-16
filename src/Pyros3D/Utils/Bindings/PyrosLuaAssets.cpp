@@ -298,6 +298,17 @@ namespace p3d {
 				// Turn a bone on top of whatever clip is posing it: the head
 				// toward where the player looks. Model space, about the joint.
 				"setBoneAim", &SkeletonAnimationInstance::SetBoneAim,
+				// Feet on uneven ground: setFootGround(thigh, foot, groundY, normal [, weight]) -
+				// the world height of the ground under that foot and its normal (a ray
+				// down, a terrain lookup); the hips come down for the lower foot, the
+				// legs reach, the feet lie flat. Set it each frame; clearFootGround([foot]).
+				"setFootGround", [](SkeletonAnimationInstance& self, int32 upper, int32 foot, float groundY, const Vec3& normal, sol::optional<float> weight) -> bool {
+					return self.SetFootGroundWorld(upper, foot, groundY, normal, weight.value_or(1.f));
+				},
+				"clearFootGround", [](SkeletonAnimationInstance& self, sol::optional<int32> foot) { self.ClearFootGround(foot.value_or(-1)); },
+				// how far the hips may come down, a share of the leg (0.45); 0 = the legs alone
+				// reach, nothing above the hips moves (a first-person body: the gun stays put)
+				"setFootGroundMaxDrop", &SkeletonAnimationInstance::SetFootGroundMaxDrop,
 				"clearBoneAim", &SkeletonAnimationInstance::ClearBoneAim,
 				// Scale the skin of a bone and everything below it about its
 				// joint; the pose is untouched. Near zero hides the part.

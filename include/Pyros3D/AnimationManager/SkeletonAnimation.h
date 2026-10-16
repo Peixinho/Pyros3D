@@ -143,6 +143,31 @@ namespace p3d {
 		};
 		std::vector<FiredEvent> TakeEvents();
 		void SetEventCallback(const std::function<void(const FiredEvent&)> &cb) { eventCallback = cb; }
+
+		// ---- feet on the ground --------------------------------------
+		// Where the ground is under a foot, for a body on uneven ground. After
+		// the clips (and the bone aims), the hips come down as far as the
+		// lowest foot needs, each leg reaches its foot as much higher than the
+		// clip put it as the ground there is over the model's own floor (y = 0
+		// in model space), and the foot turns flat to the ground's normal.
+		// Model space, like every bone query; `weight` 0 = the clip alone.
+		// `upperBone` is the thigh: thigh -> shin -> foot is a two-bone chain.
+		// Holds until changed or cleared; set it each frame for a body that
+		// moves. The hips that come down are the thigh's parent.
+		void SetFootGround(const int32 upperBone, const int32 footBone, const f32 height,
+			const Vec3 &normal, const f32 weight = 1.f);
+		// The same from the world: the ground's height (world y) right under
+		// the foot as the body stands now, and its normal in world space -
+		// what a ray down or a terrain lookup gives. False when the body has no
+		// object to be placed by.
+		bool SetFootGroundWorld(const int32 upperBone, const int32 footBone, const f32 groundY,
+			const Vec3 &normal, const f32 weight = 1.f);
+		void ClearFootGround(const int32 footBone = -1);   // -1: every foot
+		bool HasFootGround() const { return !footGrounds.empty(); }
+		// How far down the hips may go, as a share of the longest leg (0.45).
+		void SetFootGroundMaxDrop(const f32 shareOfLeg) { footMaxDrop = shareOfLeg; }
+		// Called by the update after the clips; public for the editor's preview.
+		void ApplyFootGround();
 		// The moments a bone comes down in a clip - for footsteps: the clip
 		// sampled through THIS skeleton, the bone's height in model space, and
 		// each time it drops into the lowest `band` share of its range (0.2 =
@@ -490,6 +515,16 @@ namespace p3d {
 			bool alone = false;       // this bone's own skin, not that of the bones below it
 		};
 		std::vector<BoneScale> boneScales;
+
+		// See SetFootGround.
+		struct FootGround {
+			int32 upper, foot;
+			f32 height;
+			Vec3 normal;
+			f32 weight;
+		};
+		std::vector<FootGround> footGrounds;
+		f32 footMaxDrop = 0.45f;
 		// Bones -> every submesh's skinning matrices, with the scales applied.
 		void UploadSkinning();
 

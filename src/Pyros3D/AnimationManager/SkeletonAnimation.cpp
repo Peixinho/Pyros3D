@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
+#include <Pyros3D/AnimationManager/IKSolver.h>
 #include <iterator>
 #include <cmath>
 #include <algorithm>
@@ -1201,6 +1202,7 @@ namespace p3d {
 		// uploaded. See AddPoseModifier: doing this from a component tick
 		// instead would be correct only by accident of update order.
 		inst->ApplyBoneAims();
+		inst->ApplyFootGround();
 		inst->RunPoseModifiers();
 
 		inst->SampleTracks();
@@ -1507,6 +1509,108 @@ namespace p3d {
 			const Matrix turned = fromJoint * boneAims[i].rotation.ConvertToMatrix() * toJoint * global;
 			boneTransformation[id] = GetParentMatrix(skeleton[id].parent, boneTransformation).Inverse() * turned;
 			RefreshHierarchy();
+		}
+	}
+
+	void SkeletonAnimationInstance::SetFootGround(const int32 upperBone, const int32 footBone, const f32 height,
+		const Vec3 &normal, const f32 weight)
+	{
+		if (upperBone < 0 || footBone < 0 || (size_t)upperBone >= skeleton.size() || (size_t)footBone >= skeleton.size()) return;
+		FootGround g;
+		g.upper = upperBone; g.foot = footBone; g.height = height; g.normal = normal;
+		g.weight = std::max(0.f, std::min(1.f, weight));
+		for (size_t i = 0; i < footGrounds.size(); i++)
+			if (footGrounds[i].foot == footBone) { footGrounds[i] = g; return; }
+		footGrounds.push_back(g);
+	}
+
+	bool SkeletonAnimationInstance::SetFootGroundWorld(const int32 upperBone, const int32 footBone, const f32 groundY,
+		const Vec3 &normal, const f32 weight)
+	{
+		if (!rcomp || !rcomp->GetOwner() || footBone < 0 || (size_t)footBone >= Bones.size()) return false;
+		const Matrix world = rcomp->GetOwner()->GetWorldTransformation();
+		const Matrix toModel = world.Inverse();
+		const Vec3 foot = world * Bones[footBone].GetTranslation();
+		const Vec3 ground = toModel * Vec3(foot.x, groundY, foot.z);
+		const Vec3 n = toModel * (Vec3(foot.x, groundY, foot.z) + normal) - ground;
+		SetFootGround(upperBone, footBone, ground.y, n, weight);
+		return true;
+	}
+
+	void SkeletonAnimationInstance::ClearFootGround(const int32 footBone)
+	{
+		if (footBone < 0) { footGrounds.clear(); return; }
+		for (size_t i = 0; i < footGrounds.size(); i++)
+			if (footGrounds[i].foot == footBone) { footGrounds.erase(footGrounds.begin() + i); return; }
+	}
+
+	void SkeletonAnimationInstance::ApplyFootGround()
+	{
+		if (footGrounds.empty()) return;
+		RefreshHierarchy();
+		const auto at = [this](const int32 b) { return Bones[b].GetTranslation(); };
+		// The hips come down for the lowest foot (a foot downhill), never up:
+		// lifting them would leave the other foot hanging.
+		f32 drop = 0.f, leg = 0.f;
+		int32 hips = -1;
+		for (size_t i = 0; i < footGrounds.size(); i++)
+		{
+			const FootGround &g = footGrounds[i];
+			const int32 knee = skeleton[g.foot].parent;
+			if (knee < 0 || skeleton[knee].parent != g.upper) continue;
+			drop = std::min(drop, g.height * g.weight);
+			leg = std::max(leg, (at(g.upper) - at(knee)).magnitude() + (at(knee) - at(g.foot)).magnitude());
+			if (hips < 0) hips = skeleton[g.upper].parent;
+		}
+		drop = std::max(drop, -footMaxDrop * leg);
+		if (drop < 0.f && hips >= 0)
+		{
+			Matrix down;
+			down.Translate(0.f, drop, 0.f);
+			const int32 parent = skeleton[hips].parent;
+			const Matrix parentGlobal = parent >= 0 ? Bones[parent] : Matrix();
+			boneTransformation[hips] = parentGlobal.Inverse() * (down * Bones[hips]);
+			RefreshHierarchy();
+		}
+		const Vec3 up(0.f, 1.f, 0.f);
+		for (size_t i = 0; i < footGrounds.size(); i++)
+		{
+			const FootGround &g = footGrounds[i];
+			if (g.weight <= 0.f) continue;
+			const int32 knee = skeleton[g.foot].parent;
+			if (knee < 0 || skeleton[knee].parent != g.upper) continue;
+			// Reach: from where the clip (and the hips) left the foot, by the
+			// ground's height there over the floor, less what the hips gave.
+			const f32 lift = g.height * g.weight - drop;
+			if (std::fabs(lift) > 1e-5f)
+			{
+				const Vec3 hip = at(g.upper), k = at(knee), f = at(g.foot);
+				// the knee keeps bending the way it was
+				Vec3 bend = k - (hip + f) * 0.5f;
+				const Vec3 pole = bend.magnitude() > 1e-4f ? k + bend : Vec3(0.f, 0.f, 0.f);
+				IKSolver::Solve(this, g.upper, g.foot, f + up * lift, pole, 10, NULL, false);
+			}
+			// Flat to the ground: turned about its own joint from up to the normal.
+			const f32 ln = g.normal.magnitude();
+			if (ln > 1e-5f)
+			{
+				const Vec3 n = g.normal * (1.f / ln);
+				const f32 d = std::max(-1.f, std::min(1.f, up.dotProduct(n)));
+				const Vec3 axis = up.cross(n);
+				if (axis.magnitude() > 1e-5f && d > 0.f)
+				{
+					Quaternion q;
+					q.AxisToQuaternion(axis.normalize(), std::acos(d) * g.weight);
+					const Matrix global = Bones[g.foot];
+					const Vec3 j = global.GetTranslation();
+					Matrix toJoint, fromJoint;
+					toJoint.Translate(-j.x, -j.y, -j.z);
+					fromJoint.Translate(j);
+					const Matrix turned = fromJoint * q.ConvertToMatrix() * toJoint * global;
+					boneTransformation[g.foot] = GetParentMatrix(skeleton[g.foot].parent, boneTransformation).Inverse() * turned;
+					RefreshHierarchy();
+				}
+			}
 		}
 	}
 

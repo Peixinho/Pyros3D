@@ -389,6 +389,9 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.function("isPlaying", &SkeletonInst_IsPlaying)
 		.function("takeEvents", &SkeletonInst_TakeEvents)
 		.function("findContacts", &SkeletonInst_FindContacts)
+		.function("setFootGround", &SkeletonAnimationInstance::SetFootGroundWorld)
+		.function("clearFootGround", &SkeletonAnimationInstance::ClearFootGround)
+		.function("setFootGroundMaxDrop", &SkeletonAnimationInstance::SetFootGroundMaxDrop)
 		.function("consumeRootMotion", &SkeletonAnimationInstance::ConsumeRootMotion)
 		.function("setApplyRootMotion", &SkeletonAnimationInstance::SetApplyRootMotion);
 

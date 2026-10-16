@@ -624,6 +624,49 @@ int main()
 		check(top > 0 && under == 0, "a clip covered by the one over it fires no events");
 	}
 
+	// ---- feet on uneven ground ----------------------------------------------
+	{
+		// hips at 1 m; each leg: thigh 0.2 m to the side, knee 0.5 m down (a
+		// little forward, bent), foot 0.45 m further down.
+		std::vector<Bone> bones;
+		bones.push_back(makeBone(0, -1, "root", Vec3(0.f, 0.f, 0.f)));
+		bones.push_back(makeBone(1, 0, "hips", Vec3(0.f, 1.f, 0.f)));
+		bones.push_back(makeBone(2, 1, "thighL", Vec3(0.2f, 0.f, 0.f)));
+		bones.push_back(makeBone(3, 2, "kneeL", Vec3(0.f, -0.5f, 0.03f)));
+		bones.push_back(makeBone(4, 3, "footL", Vec3(0.f, -0.45f, -0.03f)));
+		bones.push_back(makeBone(5, 1, "thighR", Vec3(-0.2f, 0.f, 0.f)));
+		bones.push_back(makeBone(6, 5, "kneeR", Vec3(0.f, -0.5f, 0.03f)));
+		bones.push_back(makeBone(7, 6, "footR", Vec3(0.f, -0.45f, -0.03f)));
+		Rig rig(bones);
+		const auto pos = [&](int b) { return rig.inst->GetBoneGlobalTransform(b).GetTranslation(); };
+		rig.reset();
+		const Vec3 l0 = pos(4), r0 = pos(7), h0 = pos(1);
+		// left over ground 0.1 higher, right over ground 0.1 lower
+		rig.inst->SetFootGround(2, 4, 0.1f, Vec3(0.f, 1.f, 0.f));
+		rig.inst->SetFootGround(5, 7, -0.1f, Vec3(0.f, 1.f, 0.f));
+		rig.inst->ApplyFootGround();
+		check(fabsf(pos(1).y - (h0.y - 0.1f)) < 1e-3f, "the hips come down for the lower foot");
+		check(fabsf(pos(4).y - (l0.y + 0.1f)) < 2e-3f && fabsf(pos(7).y - (r0.y - 0.1f)) < 2e-3f,
+			"each foot meets its own ground");
+		check(fabsf(pos(4).x - l0.x) < 2e-3f && fabsf(pos(4).z - l0.z) < 2e-3f, "and stays where it was over the ground");
+		check(pos(3).z > pos(2).z, "the knee still bends forward");
+		// tilted ground: the foot turns from up to the normal
+		rig.reset();
+		rig.inst->ClearFootGround();
+		const Vec3 n = Vec3(0.3f, 1.f, 0.f).normalize();
+		rig.inst->SetFootGround(2, 4, 0.f, n);
+		rig.inst->ApplyFootGround();
+		const Matrix f = rig.inst->GetBoneGlobalTransform(4);
+		const Vec3 upNow = (f * Vec3(0.f, 1.f, 0.f)) - f.GetTranslation();
+		check(upNow.normalize().dotProduct(n) > 0.999f, "a foot lies flat on a slope");
+		// weight 0: the clip alone
+		rig.reset();
+		rig.inst->ClearFootGround();
+		rig.inst->SetFootGround(2, 4, 0.3f, n, 0.f);
+		rig.inst->ApplyFootGround();
+		check((pos(4) - l0).magnitude() < 1e-4f && (pos(1) - h0).magnitude() < 1e-4f, "weight 0 leaves the pose alone");
+	}
+
 	printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
 	return failures ? 1 : 0;
 }
