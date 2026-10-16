@@ -130,6 +130,17 @@ namespace p3d {
 				dir = (dir + wander + Vec3(0.f, S.up[std::min(level, 3)] * (level == 0 ? 1.f : (.6f + t)), 0.f) * .32f).normalize();
 				if (level == 0) dir = (dir + Vec3(0.f, .35f, 0.f)).normalize();          // a stem finds the sky again
 				p = p + dir * step;
+				// A limb that grew out above the ground does not go into it: a spruce's low
+				// boughs hang, and each bough's own droop took the lowest of them down
+				// through the grass, bare wood out of the ground all round the stem. Met,
+				// it runs along just above it instead.
+				const f32 floor = std::max(.3f, K.height * .025f);
+				if (level > 0 && from.y > floor && p.y < floor)
+				{
+					p.y = floor;
+					dir = Vec3(dir.x, std::max(dir.y, 0.f), dir.z);
+					dir = dir.magnitudeSQR() > 1e-6f ? dir.normalize() : Vec3(0.f, 1.f, 0.f);
+				}
 				limb.at.push_back(p);
 				// (a stem flares at the ground)
 				const f32 flare = level == 0 ? 1.f + .55f * powf(1.f - t, 6.f) : 1.f;
