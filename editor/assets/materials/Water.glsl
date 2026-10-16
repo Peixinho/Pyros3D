@@ -28,6 +28,27 @@
 #define WATER_DEPTH_ABOVE 0.5       // the ground above the water kept in it
 // The water's level is the height of the object it is drawn on.
 #define WATER_LEVEL vWaterLevel        // (the vertex stage hands it over: the fragment stage is not given the model matrix)
+// A sea is drawn round the eye out to the horizon. A lake or a pool is drawn where its plane is, at its
+// own size - put the plane over the basin - and is a fraction as rough: define WATER_BOUNDED for that.
+// WATER_ROUGH scales the waves (a sea 1.0; a bounded water 0.25 unless said otherwise).
+//#define WATER_BOUNDED
+#ifndef WATER_ROUGH
+#ifdef WATER_BOUNDED
+#define WATER_ROUGH 0.25
+#else
+#define WATER_ROUGH 1.0
+#endif
+#endif
+// WATER_DEEPEN: how much deeper than it is the water reads, for its colour and its foam. A lake a few metres
+// deep and never far from a bank is all surf zone to a sea's shading - pale, cracked foam from side to side;
+// read deeper, its middle darkens and the foam keeps to the edge (bounded: 3.5).
+#ifndef WATER_DEEPEN
+#ifdef WATER_BOUNDED
+#define WATER_DEEPEN 3.5
+#else
+#define WATER_DEEPEN 1.0
+#endif
+#endif
 
 
 // (Began as a Material Editor node graph; kept by hand since - nothing regenerates it.)
@@ -108,14 +129,16 @@ void main() {
 	// The sea is a sheet of many vertices drawn round the eye - fine underfoot, coarse at the horizon - and
 	// its swell really lifts it: crests stand against the land and each other, and the shore rises and falls.
 	{
+#ifndef WATER_BOUNDED
 		vec2 gn = p3d_worldPos.xz / 6960.0;
 		p3d_worldPos.xz = floor(uCameraPosition.xz / 4.0) * 4.0 + sign(gn) * pow(abs(gn), vec2(2.6)) * 3600.0;
+#endif
 		vec2 suv = (p3d_worldPos.xz + vec2(WATER_MAP_SIZE * 0.5)) / WATER_MAP_SIZE;
 		float inMap = step(0.0, min(suv.x, suv.y)) * step(max(suv.x, suv.y), 1.0);
 		vec4 shv = textureLod(shore, clamp(suv, vec2(0.002), vec2(0.998)), 0.0);
 		float dep = max(mix(WATER_DEPTH_RANGE, shv.r * shv.r * (WATER_DEPTH_RANGE + WATER_DEPTH_ABOVE) - WATER_DEPTH_ABOVE, inMap), 0.0);
 		float lift = smoothstep(0.4, 4.0, dep) * (1.0 - clamp(shv.g, 0.0, 1.0) * inMap);
-		p3d_worldPos.y += (p3d_seaV(p3d_worldPos.xz * 0.11, uTime * 0.6) - 0.42) * 1.5 * (uGlobals[13].y > 0.001 ? uGlobals[13].y : 1.0) * lift;
+		p3d_worldPos.y += (p3d_seaV(p3d_worldPos.xz * 0.11, uTime * 0.6) - 0.42) * 1.5 * (uGlobals[13].y > 0.001 ? uGlobals[13].y : 1.0) * lift * WATER_ROUGH;
 		// The wash: at the sand the water's edge rises and falls a hand's height, and not all along at once - so
 		// on a sloping beach it runs up in round tongues, here then there, and draws back. Where it meets the
 		// sand is where the two surfaces really cross: a curved line, never a cut.
@@ -503,7 +526,7 @@ void main() {
 	vec4 sh = texture_2D(shore, clamp(muv, vec2(0.002), vec2(0.998)));
 	float inside = step(0.0, min(muv.x, muv.y)) * step(max(muv.x, muv.y), 1.0);
 	float depthRaw = mix(WATER_DEPTH_RANGE, sh.r * sh.r * (WATER_DEPTH_RANGE + WATER_DEPTH_ABOVE) - WATER_DEPTH_ABOVE, inside);
-	float depth = max(depthRaw, 0.0);
+	float depth = max(depthRaw, 0.0) * WATER_DEEPEN;
 	float creek = clamp(sh.g, 0.0, 1.0) * inside;
 	float winterSea = uGlobals[14].x, rainNow = uGlobals[14].y;
 	vec3 sunDir = dot(uGlobals[15].xyz, uGlobals[15].xyz) > 0.5 ? normalize(uGlobals[15].xyz) : normalize(vec3(0.55, 0.58, 0.42));
@@ -528,7 +551,7 @@ void main() {
 	float fromSky = smoothstep(0.30, 0.70, p3d_V.y) * smoothstep(8.0, 40.0, uCameraPosition.y - WATER_LEVEL);
 	// (the scene's settings for its water, set in the editor: each 1 as authored; 0 means none were given)
 	vec4 waterSet = vec4(uGlobals[13].x > 0.001 ? uGlobals[13].x : 1.0, 1.0, uGlobals[13].z > 0.001 ? uGlobals[13].z : 1.0, uGlobals[13].w > 0.001 ? uGlobals[13].w : 1.0);
-	float waveH = 7.5 * waterSet.x * calm * mix(1.0, 0.22, fromSky);
+	float waveH = 7.5 * waterSet.x * calm * mix(1.0, 0.22, fromSky) * WATER_ROUGH;
 	vec2 slope = vec2(hx - h0, hz - h0) / e * waveH;
 	// (and the wind's own ripple on top of the waves: a second, much smaller sea, seen only close to)
 	float rippleSeen = 1.0 - smoothstep(0.02, 0.14, pxw);
