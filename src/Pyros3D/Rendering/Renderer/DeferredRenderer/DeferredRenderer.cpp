@@ -1137,8 +1137,10 @@ namespace p3d {
 						if (o == NULL || o->GetName().find(traceName) == std::string::npos) continue;
 						const Vec3 &scale = o->GetScale();
 						const f32 maxScale = std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z)));
-						const Vec3 centre = o->GetWorldPosition() + c->GetBoundingSphereCenter() * scale;
-						const f32 r = c->GetBoundingSphereRadius() * maxScale;
+						Vec3 sphere; f32 sphereRadius;
+						c->GetLODSphere(sphere, sphereRadius);
+						const Vec3 centre = o->GetWorldPosition() + sphere * scale;
+						const f32 r = sphereRadius * maxScale;
 						const f32 d = std::max(0.f, eyeNow.distance(centre) - r);
 						if (d > 150.f || r < 3.f) continue;
 						const uint32 should = c->LevelAtDistanceSQR(d * d);

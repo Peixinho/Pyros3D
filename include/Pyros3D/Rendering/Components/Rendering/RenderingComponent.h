@@ -616,6 +616,13 @@ namespace p3d {
 			return all;
 		}
 
+		// The sphere (local, unscaled) a level of detail is measured from: this part's own -
+		// or, when its object has other parts with levels, one round all of them, so the
+		// parts change level together. Each measured from its own centre, a tree's wood
+		// (its sphere low on the stem) and its leaves (up in the crown) switched at
+		// different distances, and for a band of them the leaves of one level hung where
+		// the other level's branches were not.
+		void GetLODSphere(Vec3 &centre, f32 &radius);
 		// Returns LOD level based on distance
 		uint32 GetLODByDistance(const f32 Distance);
 		// The level a distance (squared) asks for, worked out afresh and remembering nothing
@@ -747,6 +754,9 @@ namespace p3d {
 		// LOD Rendered
 		uint32 LodInUse;
 		float LastLodDistance;
+		Vec3 lodSphereCentre;
+		f32 lodSphereRadius = -1.f;     // < 0: not worked out
+		size_t lodSphereParts = 0;      // the owner's component count it was worked out for
 
 		//LOD Distance
 		std::vector<f32> LODDistances;

@@ -492,6 +492,41 @@ namespace p3d {
 				return (autoLevels != 0 && !g_autoLodInUse && i >= 1 && i <= autoLevels) ? 0 : (uint32)i;
 		return (uint32)LODDistances.size();
 	}
+	void RenderingComponent::GetLODSphere(Vec3 &centre, f32 &radius)
+	{
+		const size_t parts = GetOwner() ? GetOwner()->GetComponents().size() : 0;
+		if (lodSphereRadius < 0.f || parts != lodSphereParts)
+		{
+			lodSphereParts = parts;
+			lodSphereCentre = BoundingSphereCenter;
+			lodSphereRadius = BoundingSphereRadius;
+			if (GetOwner())
+			{
+				const std::vector<std::shared_ptr<IComponent> > &comps = GetOwner()->GetComponents();
+				for (size_t i = 0; i < comps.size(); i++)
+				{
+					IComponent* c = comps[i].get();
+					if (!c || c == this) continue;
+					const uint32 t = c->GetComponentType();
+					if (t != ComponentType::RenderingComponent && t != ComponentType::RenderingInstancedComponent) continue;
+					RenderingComponent* o = static_cast<RenderingComponent*>(c);
+					if (!o->HasLOD()) continue;
+					// grow the sphere to hold the other part's (Ritter's step)
+					const Vec3 oc = o->GetBoundingSphereCenter();
+					const f32 orad = o->GetBoundingSphereRadius();
+					const f32 d = (oc - lodSphereCentre).magnitude();
+					if (d + orad <= lodSphereRadius) continue;
+					if (d + lodSphereRadius <= orad) { lodSphereCentre = oc; lodSphereRadius = orad; continue; }
+					const f32 r = (lodSphereRadius + d + orad) * 0.5f;
+					lodSphereCentre = lodSphereCentre + (oc - lodSphereCentre) * ((r - lodSphereRadius) / d);
+					lodSphereRadius = r;
+				}
+			}
+		}
+		centre = lodSphereCentre;
+		radius = lodSphereRadius;
+	}
+
 	uint32 RenderingComponent::GetLODByDistance(const f32 Distance)
 	{
 		if (Distance != LastLodDistance || autoLodSeen != g_autoLodChanges)

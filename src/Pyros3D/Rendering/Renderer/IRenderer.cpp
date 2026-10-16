@@ -330,8 +330,10 @@ void IRenderer::GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const u
 			// ~150 m and got a coarse level under its feet.
 			const Vec3 &scale = (*i)->GetOwner()->GetScale();
 			const f32 maxScale = std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z)));
-			const Vec3 centre = (*i)->GetOwner()->GetWorldPosition() + (*i)->GetBoundingSphereCenter() * scale;
-			const f32 d = std::max(0.f, Camera->GetWorldPosition().distance(centre) - (*i)->GetBoundingSphereRadius() * maxScale);
+			Vec3 sphere; f32 sphereRadius;
+			(*i)->GetLODSphere(sphere, sphereRadius);
+			const Vec3 centre = (*i)->GetOwner()->GetWorldPosition() + sphere * scale;
+			const f32 d = std::max(0.f, Camera->GetWorldPosition().distance(centre) - sphereRadius * maxScale);
 			(*i)->UpdateLOD((*i)->GetLODByDistance(d * d));
 		}
 	}
@@ -1605,8 +1607,10 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 					RenderingComponent* c = lodOf[i];
 					const Vec3 &scale = c->GetOwner()->GetScale();
 					const f32 maxScale = std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z)));
-					const Vec3 centre = c->GetOwner()->GetWorldPosition() + c->GetBoundingSphereCenter() * scale;
-					const f32 d = std::max(0.f, eye.distance(centre) - c->GetBoundingSphereRadius() * maxScale);
+					Vec3 sphere; f32 sphereRadius;
+					c->GetLODSphere(sphere, sphereRadius);
+					const Vec3 centre = c->GetOwner()->GetWorldPosition() + sphere * scale;
+					const f32 d = std::max(0.f, eye.distance(centre) - sphereRadius * maxScale);
 					const uint32 level = c->GetLODByDistance(d * d);
 					wantOf[i] = level != c->GetLODInUse() ? level : 0xFFFFFFFFu;
 				}
