@@ -88,6 +88,9 @@ namespace p3d {
 			Vec3 _prevRootPos;
 			int32 _rootBone = -2;      // -2 unresolved, -1 none
 			int32 _rootChannel = -1;
+			// Bone id of each of this clip's channels (-1: not a bone here),
+			// filled on the first update.
+			std::vector<int32> channelBones;
 		};
 	}
 
@@ -458,9 +461,6 @@ namespace p3d {
 
 		// Default Bones Affected
 		std::vector<int32> boneIDs;
-
-		// Cache
-		std::vector<int32> ChannelBoneIDCache;
 
 		// Post-pose modifiers, in registration order.
 		struct PoseModifierEntry {

@@ -58,6 +58,19 @@ struct AnimatorDocument {
 	bool editOpen = false;
 	std::string editBefore;
 
+	// ---- layers -------------------------------------------------------------
+	// Which machine the graph shows and edits: 0 the base, k the k-th layer.
+	int activeLayer = 0;
+	p3d::AnimatorLayer& Machine(int index)
+	{
+		return (index <= 0 || index > (int)controller.layers.size()) ? (p3d::AnimatorLayer&)controller : controller.layers[index - 1];
+	}
+	p3d::AnimatorLayer& L() { return Machine(activeLayer); }
+	// The layer's engine name ("" for the base), for a running Animator.
+	std::string LayerName() const { return activeLayer <= 0 || activeLayer > (int)controller.layers.size() ? std::string() : controller.layers[activeLayer - 1].name; }
+	std::string AddLayer(const std::string& name, const std::string& rootBone);
+	bool RemoveLayer(int index);
+
 	// ---- edits (each pushes its own undo entry) ---------------------------
 	std::string AddState(const std::string& name, const std::string& clip, float x, float y);
 	bool RemoveState(const std::string& name);

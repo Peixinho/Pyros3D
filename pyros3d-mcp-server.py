@@ -5755,13 +5755,16 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       animator_state (path) - the controller JSON plus the live state when playing,
       animator_edit (path, action: add_state|remove_state|set_state|set_default|
       add_transition|remove_transition|set_transition|add_param|remove_param|
-      set_param|clips_from, + name, clip, speed, loop, pos, from ("*" any), to,
-      index, duration, exitTime, conditions [{param, op: > < == != true false,
-      value}], type: float|bool|trigger, default, rename, file)
+      set_param|add_layer|remove_layer|set_layer|clips_from, + layer (which
+      machine; omit for the base), name, clip, speed, loop, pos, from ("*" any),
+      to, index, duration, exitTime, conditions [{param, op: > < == != true
+      false, value}], type: float|bool|trigger, default, rename, file, root
+      (a layer's root bone), blend {param, clips [{clip, at}]} on set_state)
       get_animator / add_animator (name, controller) / set_animator / remove_animator,
       animator_param (name, param, value | true | "trigger") - live in Play
       Lua: setAnimatorFloat(go, p, v), setAnimatorBool, setAnimatorTrigger,
       getAnimatorState(go), playAnimatorState(go, state, fade)
+      animator_state live: state, progress, blendWeights, layers {name: state}
     Runtime IK component (Scene View)
       get_ik / add_ik (name, rig) / set_ik (name, iterations, constraints
       [{chain, target, pole, weight, enabled, matchRotation}] or index + one

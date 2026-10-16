@@ -151,10 +151,20 @@ SceneObject* SceneEditor::RawInsertSubtree(const std::string& subtreeJson, uint3
 	// RenderingComponent points at its TextureAnimation with a raw pointer,
 	// so an undo that restores a sliced sprite used to hand it an animation
 	// that died on the way out of this function.
+	//
+	// A scene never saved has no path, and the asset root comes from the
+	// path - so every project-relative asset in the subtree (a 2D character,
+	// a texture, a controller) failed to resolve and the rebuilt object came
+	// back blank: undo, duplicate or adding a component to a placed character
+	// in a new scene turned it into an empty quad. Stand in a path inside the
+	// project's scenes folder, which is where it will be saved anyway.
+	std::string rootFrom = scenePath;
+	if (rootFrom.empty() && project && project->IsOpen())
+		rootFrom = (std::filesystem::path(project->GetProjectPath()) / "scenes" / "_unsaved.json").string();
 #ifdef LUA_BINDINGS
-	std::shared_ptr<GameObject> go = SceneSerializer::DeserializeSubtree(subtreeJson, scenePath, physics, sharedLua, &sceneAssets);
+	std::shared_ptr<GameObject> go = SceneSerializer::DeserializeSubtree(subtreeJson, rootFrom, physics, sharedLua, &sceneAssets);
 #else
-	std::shared_ptr<GameObject> go = SceneSerializer::DeserializeSubtree(subtreeJson, scenePath, physics, NULL, &sceneAssets);
+	std::shared_ptr<GameObject> go = SceneSerializer::DeserializeSubtree(subtreeJson, rootFrom, physics, NULL, &sceneAssets);
 #endif
 	if (!go) return NULL;
 	scene->Add(go);

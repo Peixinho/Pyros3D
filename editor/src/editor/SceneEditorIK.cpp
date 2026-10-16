@@ -368,6 +368,9 @@ bool SceneEditor::AgentAnimator(const std::string& command, const json& a, json&
 	{
 		if (!comp) { out["animator"] = nullptr; return true; }
 		out["controller"] = comp->GetControllerPath();
+		// Running = the game has started it; bound = it found a skeleton to drive.
+		out["running"] = comp->IsRunning();
+		out["bound"] = comp->GetAnimator().IsBound();
 		out["state"] = comp->GetAnimator().GetState();
 		out["progress"] = comp->GetAnimator().GetStateProgress();
 		json vals = json::object();
@@ -390,7 +393,12 @@ bool SceneEditor::AgentAnimator(const std::string& command, const json& a, json&
 	if (playMode) { errOut = "stop play mode first"; return false; }
 	if (command == "add_animator" || command == "set_animator")
 	{
-		const std::string ctl = args.value("controller", std::string());
+		std::string ctl = args.value("controller", std::string());
+		// Absolute, for now: an unsaved scene has no root to resolve a
+		// project-relative path against, and the controller silently did not
+		// load. Saving writes it back relative.
+		if (!ctl.empty() && project && project->IsOpen() && !std::filesystem::path(ctl).is_absolute())
+			ctl = project->AbsolutePath(ctl);
 		if (command == "add_animator" && comp) { errOut = "it already has an Animator"; return false; }
 		if (command == "set_animator" && !comp) { errOut = "it has no Animator (add_animator)"; return false; }
 		const bool add = command == "add_animator";

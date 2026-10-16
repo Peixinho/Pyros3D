@@ -30,7 +30,6 @@ namespace p3d {
 		Bones.resize(skeleton.size());
 		bindPose.resize(skeleton.size());
 		boneTransformation.resize(skeleton.size());
-		ChannelBoneIDCache = std::vector<int32>(skeleton.size(), -1);
 
 		// Get Skeleton
 		for (std::map<uint32, Bone>::const_iterator a = Component->GetSkeleton().begin(); a != Component->GetSkeleton().end(); a++)
@@ -1071,29 +1070,33 @@ namespace p3d {
 					// The bone this channel drives has to be resolved
 					// BEFORE sampling now, because its bind pose is what
 					// supplies any component the channel does not key.
-					if (inst->ChannelBoneIDCache[a] == -1)
+					// Resolved once per PLAYING CLIP, not per instance: the old
+					// cache was keyed by channel index and shared by every clip,
+					// so a second clip whose channels came in another order (a
+					// hand-keyed aim over an imported walk) wrote its channel 0
+					// to whichever bone the first clip's channel 0 was - and a
+					// clip with more channels than the rig has bones read past
+					// the end of it. -1 = not a bone of this skeleton, found
+					// once rather than searched for every frame.
+					std::vector<int32> &map = (*_Anim).channelBones;
+					if (map.size() != Anim.Channels.size())
 					{
-						for (std::vector<Bone>::iterator b = inst->skeleton.begin(); b != inst->skeleton.end(); b++)
-						{
-							if ((*b).name.compare(Anim.Channels[a].NodeName) == 0)
-							{
-								inst->ChannelBoneIDCache[a] = (*b).self;
-								break;
-							}
-						}
+						map.assign(Anim.Channels.size(), -1);
+						for (size_t c = 0; c < Anim.Channels.size(); c++)
+							for (std::vector<Bone>::iterator b = inst->skeleton.begin(); b != inst->skeleton.end(); b++)
+								if ((*b).name.compare(Anim.Channels[c].NodeName) == 0) { map[c] = (*b).self; break; }
 					}
 
 					// A channel naming a node that is not a bone of this
-					// skeleton leaves the cache at -1, and indexing the
-					// pose vector with that is an out-of-bounds *write*.
-					// Assimp-exported clips routinely carry channels for
-					// armature/helper nodes, and the Animation Editor
-					// makes it easy to point a clip at a mesh it wasn't
-					// authored for, so this has to be survivable rather
-					// than merely unlikely.
-					if (inst->ChannelBoneIDCache[a] >= 0)
+					// skeleton stays -1, and indexing the pose vector with
+					// that is an out-of-bounds *write*. Assimp-exported clips
+					// routinely carry channels for armature/helper nodes, and
+					// the Animation Editor makes it easy to point a clip at a
+					// mesh it wasn't authored for, so this has to be
+					// survivable rather than merely unlikely.
+					if (map[a] >= 0)
 					{
-						const int32 bid = inst->ChannelBoneIDCache[a];
+						const int32 bid = map[a];
 						const Matrix* bind = ((size_t)bid < inst->bindPose.size())
 							? &inst->bindPose[bid] : NULL;
 						(*_Anim).boneTransformationPerAnimation[bid] =

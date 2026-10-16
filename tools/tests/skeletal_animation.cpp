@@ -423,6 +423,113 @@ int main()
 		check(!an.SetFloat("nope", 1.f), "unknown parameters are refused");
 	}
 
+	// ---- two clips whose channels are in different orders --------------------
+	{
+		// The instance used to cache channel -> bone by channel INDEX, shared
+		// by every clip: "b" moved by "first" (channel 0 = a) wrote to a.
+		std::vector<Bone> bones;
+		bones.push_back(makeBone(0, -1, "root", Vec3(0.f, 0.f, 0.f)));
+		bones.push_back(makeBone(1, 0, "a", Vec3(0.f, 1.f, 0.f)));
+		bones.push_back(makeBone(2, 0, "b", Vec3(0.f, 2.f, 0.f)));
+		Rig rig(bones);
+		std::vector<Animation> clips(2);
+		for (int i = 0; i < 2; i++)
+		{
+			clips[i].AnimationName = i ? "second" : "first";
+			clips[i].Duration = 1.f;
+			Channel ca; ca.NodeName = "a"; ca.positions.push_back(PositionData(0.f, Vec3(7.f, 1.f, 0.f)));
+			Channel cb; cb.NodeName = "b"; cb.positions.push_back(PositionData(0.f, Vec3(9.f, 2.f, 0.f)));
+			if (i == 0) { clips[i].Channels.push_back(ca); clips[i].Channels.push_back(cb); }
+			else { clips[i].Channels.push_back(cb); clips[i].Channels.push_back(ca); }
+		}
+		rig.animation.SetAnimations(clips);
+		rig.inst->Play(0, 0.f, -1.f, 1.f, 0.f);
+		rig.animation.Update(0.f);
+		rig.inst->Stop();
+		rig.inst->Play(1, 0.f, -1.f, 1.f, 0.f);
+		rig.animation.Update(0.1f);
+		check(fabsf(rig.inst->GetBoneLocalTransform(1).GetTranslation().x - 7.f) < 1e-3f
+			&& fabsf(rig.inst->GetBoneLocalTransform(2).GetTranslation().x - 9.f) < 1e-3f,
+			"a clip's channels drive their own bones, whatever order another clip used");
+	}
+
+	// ---- state machine: a blend state and a layer ----------------------------
+	{
+		// root(0) -> hips(1) -> spine(2) -> arm(3). Clips move bones along X
+		// so a pose reads as a number: "walk" puts hips at x=1 and lasts 1 s,
+		// "run" puts hips at x=3 and lasts 0.5 s; "aim" puts the arm at x=5.
+		std::vector<Bone> bones;
+		bones.push_back(makeBone(0, -1, "root", Vec3(0.f, 0.f, 0.f)));
+		bones.push_back(makeBone(1, 0, "hips", Vec3(0.f, 1.f, 0.f)));
+		bones.push_back(makeBone(2, 1, "spine", Vec3(0.f, 1.f, 0.f)));
+		bones.push_back(makeBone(3, 2, "arm", Vec3(0.f, 1.f, 0.f)));
+		Rig rig(bones);
+		std::vector<Animation> clips(3);
+		const char* names[3] = { "walk", "run", "aim" };
+		const f32 lens[3] = { 1.f, 0.5f, 1.f };
+		for (int i = 0; i < 3; i++)
+		{
+			clips[i].AnimationName = names[i];
+			clips[i].Duration = lens[i];
+			Channel ch; ch.NodeName = i == 2 ? "arm" : "hips";
+			const Vec3 p = i == 2 ? Vec3(5.f, 1.f, 0.f) : Vec3(i == 0 ? 1.f : 3.f, 1.f, 0.f);
+			ch.positions.push_back(PositionData(0.f, p));
+			ch.positions.push_back(PositionData(lens[i], p));
+			clips[i].Channels.push_back(ch);
+		}
+		rig.animation.SetAnimations(clips);
+
+		AnimatorController c;
+		AnimatorParam speed; speed.name = "speed"; c.params.push_back(speed);
+		AnimatorParam aiming; aiming.name = "aiming"; aiming.type = ANIMATOR_BOOL; c.params.push_back(aiming);
+		AnimatorState loco; loco.name = "Locomotion"; loco.blendParam = "speed";
+		AnimatorBlendClip bw; bw.clip = "walk"; bw.at = 1.f; loco.blend.push_back(bw);
+		AnimatorBlendClip br; br.clip = "run"; br.at = 4.f; loco.blend.push_back(br);
+		c.states.push_back(loco);
+		c.defaultState = "Locomotion";
+		AnimatorLayer upper; upper.name = "upper"; upper.rootBone = "spine";
+		AnimatorState none; none.name = "Relaxed"; upper.states.push_back(none);
+		AnimatorState aim; aim.name = "Aim"; aim.clip = "aim"; upper.states.push_back(aim);
+		upper.defaultState = "Relaxed";
+		AnimatorTransition up; up.from = "Relaxed"; up.to = "Aim"; up.duration = 0.f;
+		AnimatorCondition on; on.param = "aiming"; on.op = ANIMATOR_TRUE; up.conditions.push_back(on);
+		upper.transitions.push_back(up);
+		AnimatorTransition down = up; down.from = "Aim"; down.to = "Relaxed"; down.conditions[0].op = ANIMATOR_FALSE;
+		upper.transitions.push_back(down);
+		c.layers.push_back(upper);
+
+		AnimatorController back;
+		check(AnimatorControllerFromString(AnimatorControllerToString(c), back) && back.layers.size() == 1
+			&& back.states[0].blend.size() == 2 && back.states[0].blendParam == "speed" && back.layers[0].rootBone == "spine",
+			"layers and blend states round-trip");
+
+		Animator an;
+		an.Bind(c, rig.inst);
+		f32 clock = 0.f;
+		const auto tick = [&](f32 dt) { an.Update(dt); clock += dt; rig.animation.Update(clock); };
+		const auto hipsX = [&]() { return rig.inst->GetBoneLocalTransform(1).GetTranslation().x; };
+		tick(0.f);
+		an.SetFloat("speed", 1.f); tick(0.02f); tick(0.02f);
+		check(fabsf(hipsX() - 1.f) < 1e-3f, "blend at the walk's place is the walk");
+		an.SetFloat("speed", 2.5f); tick(0.02f);
+		check(fabsf(hipsX() - 2.f) < 1e-3f, "half way is half of each");
+		an.SetFloat("speed", 9.f); tick(0.02f);
+		check(fabsf(hipsX() - 3.f) < 1e-3f, "past the end is the run");
+		an.SetFloat("speed", 2.5f); tick(0.02f);
+		// In step: both at the blended length (0.75 s), so equal progress.
+		const int32 ow = rig.inst->GetAnimationPositionInVector(0), orun = rig.inst->GetAnimationPositionInVector(1);
+		const f32 sw = rig.inst->GetAnimationSpeed((uint32)ow), sr = rig.inst->GetAnimationSpeed((uint32)orun);
+		check(fabsf(1.f / sw - 0.5f / sr) < 1e-4f && fabsf(1.f / sw - 0.75f) < 1e-3f, "blended clips are kept in step");
+
+		const auto armX = [&]() { return rig.inst->GetBoneLocalTransform(3).GetTranslation().x; };
+		check(fabsf(armX()) < 1e-3f && an.GetState("upper") == "Relaxed", "an empty layer state leaves the arm to the base");
+		an.SetBool("aiming", true); tick(0.02f); tick(0.02f);
+		check(an.GetState("upper") == "Aim" && fabsf(armX() - 5.f) < 1e-3f, "the layer's clip takes the arm");
+		check(fabsf(hipsX() - 2.f) < 1e-3f, "and leaves the legs to the base");
+		an.SetBool("aiming", false); tick(0.02f); tick(0.02f);
+		check(an.GetState("upper") == "Relaxed" && fabsf(armX()) < 1e-3f, "letting go hands the arm back");
+	}
+
 	printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);
 	return failures ? 1 : 0;
 }

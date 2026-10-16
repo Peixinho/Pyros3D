@@ -304,3 +304,10 @@ pose tools; link `editor/src/editor/PoseTools.cpp`). Build lines at the top of e
 - Key reduction (Clip Settings, after retarget and bake by default), events seen firing in the
   preview, Bezier handles in the curve view (one tangent per key, shared by x/y/z), mesh ghosts in
   the 3D onion skin, 2D bends across a chain of up to four bones with a softness setting.
+- **Blend states and layers** (same day): a state can be a 1D blend (`blend: {param, clips: [{clip, at}]}`),
+  weighted along the parameter and kept in step (each clip stretched to the blended length); a controller
+  has `layers`, each a machine on the bones under `root`, sharing the parameters. Old files load as they are.
+- Fixed with them: the per-instance channel->bone cache (shared by every clip, keyed by channel index:
+  two clips with different channel orders wrote each other's bones); subtrees of a never-saved scene
+  rebuilt blank (no asset root); a placed 2D character's picture-swap keys showed the missing texture
+  (its resolver read the loader's global root after it was cleared).

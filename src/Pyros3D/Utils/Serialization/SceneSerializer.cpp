@@ -3890,7 +3890,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					// so what a scene shows and what the character editor
 					// shows cannot disagree (see Character2DInstance.h).
 					Character2DInstance built;
-					ApplyCharacter2D(rc.get(), asset, &ResolveSceneAssetPath, built);
+					// The resolver is kept by the component (a clip's picture
+					// swap loads its texture at run time), so it carries this
+					// load's root with it: the global one is cleared when the
+					// load ends, and a swap then found nothing - the missing-
+					// texture checker where a mouth should be.
+					const std::string root = g_sceneAssetRoot;
+					ApplyCharacter2D(rc.get(), asset,
+						[root](const std::string &p) { return ResolveSceneAssetPathIn(root, p); }, built);
 					if (outAssets && built.animation)
 						outAssets->skeletonAnimations.push_back(built.animation);
 					if (built.instance) built.instance->ResetToBindPose();

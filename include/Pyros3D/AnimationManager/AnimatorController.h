@@ -4,12 +4,17 @@
 //               and when it changes to which other one.
 //
 //               The file (.p3dac, JSON) holds parameters, states and
-//               transitions. A state plays one clip; a transition leaves its
-//               state (or any state) when its conditions on the parameters
-//               hold - and, if it has one, once the clip has reached its exit
-//               time - and crossfades into the next. A game sets parameters
-//               ("speed" 3.2, "grounded" true, "jump" fired) and the machine
-//               picks the clip; nothing in a script names a clip any more.
+//               transitions. A state plays one clip - or a BLEND of several
+//               spread along a parameter (walk at speed 1, run at 4: one
+//               "Locomotion" state that is always the right mix, feet in step)
+//               - and a transition leaves its state (or any state) when its
+//               conditions on the parameters hold, and, if it has one, once the
+//               clip has reached its exit time; it crossfades into the next.
+//
+//               LAYERS are further machines on part of the skeleton - the
+//               bones under one root bone - over the base: the legs walk while
+//               the upper body aims, reloads or throws, each with its own
+//               states and transitions, all reading the same parameters.
 //
 //               The controller is shared data; an Animator is one character
 //               running it, against that character's SkeletonAnimationInstance.
@@ -56,12 +61,29 @@ namespace p3d {
 		f32 value = 0.f;
 	};
 
+	// One clip of a blend state, and where on the blend parameter it is
+	// fully itself.
+	struct PYROS3D_API AnimatorBlendClip {
+		std::string clip;
+		f32 at = 0.f;
+	};
+
 	struct PYROS3D_API AnimatorState {
 		std::string name;
-		// The clip, by name, in the character's own clip list.
+		// The clip, by name, in the character's own clip list. Ignored for a
+		// blend state. Empty on a layer state = the layer shows nothing (the
+		// base underneath plays through).
 		std::string clip;
 		f32 speed = 1.f;
 		bool loop = true;
+		// A 1D blend: the clips below, mixed by `blendParam`. Between two
+		// neighbours the weights go linearly from one to the other; past
+		// the ends the nearest one plays alone. The clips are kept in step -
+		// each runs at the speed that gives them all the blended length - so
+		// a walk and a run of different lengths do not drift apart.
+		std::string blendParam;
+		std::vector<AnimatorBlendClip> blend;
+		bool IsBlend() const { return !blend.empty(); }
 		// Where the editor draws it. Not used at run time.
 		Vec2 position = Vec2(0.f, 0.f);
 	};
@@ -80,16 +102,28 @@ namespace p3d {
 		std::vector<AnimatorCondition> conditions;
 	};
 
-	struct PYROS3D_API AnimatorController {
-		std::vector<AnimatorParam> params;
+	// One machine: states, the transitions between them, where it starts.
+	// The controller itself is the base layer (the whole skeleton); its
+	// `layers` are machines on the bones under `rootBone`.
+	struct PYROS3D_API AnimatorLayer {
+		std::string name;       // layers only - the base is unnamed
+		std::string rootBone;   // layers only: this bone and everything under it
 		std::vector<AnimatorState> states;
 		std::vector<AnimatorTransition> transitions;
 		std::string defaultState;
 
 		int FindState(const std::string &name) const;
-		int FindParam(const std::string &name) const;
 		std::string UniqueStateName(const std::string &wanted) const;
+	};
+
+	struct PYROS3D_API AnimatorController : public AnimatorLayer {
+		std::vector<AnimatorParam> params;
+		std::vector<AnimatorLayer> layers;
+
+		int FindParam(const std::string &name) const;
+		int FindLayer(const std::string &name) const;
 		std::string UniqueParamName(const std::string &wanted) const;
+		std::string UniqueLayerName(const std::string &wanted) const;
 	};
 
 	PYROS3D_API std::string AnimatorControllerToString(const AnimatorController &c);
@@ -105,8 +139,8 @@ namespace p3d {
 	public:
 		Animator();
 
-		// The controller (copied) and the instance it drives. Starts the
-		// default state the next Update. Parameters reset to their defaults.
+		// The controller (copied) and the instance it drives. Starts every
+		// layer's default state the next Update. Parameters reset to defaults.
 		void Bind(const AnimatorController &controller, SkeletonAnimationInstance* instance);
 		void Unbind();
 		bool IsBound() const { return instance != NULL; }
@@ -122,33 +156,47 @@ namespace p3d {
 		bool GetBool(const std::string &name) const;
 
 		// Jump to a state now (a crossfade of `fade` seconds), whatever the
-		// transitions say. False for an unknown state.
-		bool Play(const std::string &state, const f32 fade = 0.f);
+		// transitions say. `layer` "" = the base. False for an unknown one.
+		bool Play(const std::string &state, const f32 fade = 0.f, const std::string &layer = std::string());
 
-		// Advances the machine: checks the current state's transitions (and
-		// the any-state ones) and crossfades when one fires. `dt` seconds.
+		// Advances every layer: checks the current state's transitions (and
+		// the any-state ones), crossfades when one fires, and re-weighs blend
+		// states. `dt` seconds.
 		void Update(const f32 dt);
 
-		const std::string &GetState() const { return current; }
-		// Seconds in the current state, and the clip's normalised time there.
-		f32 GetStateTime() const { return stateTime; }
-		f32 GetStateProgress() const;
-		// The transition taken most recently (-1 none), for the editor's view.
-		int GetLastTransition() const { return lastTransition; }
+		// The base layer's state, or a named layer's.
+		const std::string &GetState(const std::string &layer = std::string()) const;
+		// Seconds in the base layer's current state, and its normalised time.
+		f32 GetStateTime() const { return machines.empty() ? 0.f : machines[0].stateTime; }
+		f32 GetStateProgress(const std::string &layer = std::string()) const;
+		// The transition the base layer (or a named one) took last (-1 none).
+		int GetLastTransition(const std::string &layer = std::string()) const;
+		// Current weights of a blend state's clips, base layer (for the editor).
+		std::vector<f32> GetBlendWeights(const std::string &layer = std::string()) const;
 
 	private:
+		struct Machine {
+			const AnimatorLayer* def = NULL;   // into `controller`
+			std::string layerName;             // "" for the base
+			std::string current;
+			int currentIndex = -1;
+			f32 stateTime = 0.f;
+			f32 clipDuration = 0.f;            // blended, for a blend state
+			bool started = false;
+			int lastTransition = -1;
+			std::vector<f32> weights;
+		};
 		bool Evaluate(const AnimatorTransition &t) const;
-		void Enter(const int stateIndex, const f32 fade, const int viaTransition);
+		void Enter(Machine &m, const int stateIndex, const f32 fade, const int viaTransition);
+		void Reweigh(Machine &m, const f32 fadeIn);
+		f32 Progress(const Machine &m) const;
+		const Machine* FindMachine(const std::string &layer) const;
+		void UpdateMachine(Machine &m, const f32 dt);
 
 		AnimatorController controller;
 		SkeletonAnimationInstance* instance;
 		std::map<std::string, f32> values;
-		std::string current;
-		int currentIndex;
-		f32 stateTime;
-		f32 clipDuration;
-		bool started;
-		int lastTransition;
+		std::vector<Machine> machines;
 	};
 
 }

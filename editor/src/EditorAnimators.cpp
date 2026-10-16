@@ -209,6 +209,11 @@ bool Editor::HandleAnimatorCommand(const std::string& name, const nlohmann::json
 			nlohmann::json l;
 			l["state"] = live->GetState();
 			l["progress"] = live->GetStateProgress();
+			l["blendWeights"] = live->GetBlendWeights();
+			nlohmann::json layers = nlohmann::json::object();
+			for (size_t i = 0; i < doc->controller.layers.size(); i++)
+				layers[doc->controller.layers[i].name] = live->GetState(doc->controller.layers[i].name);
+			l["layers"] = layers;
 			nlohmann::json vals = nlohmann::json::object();
 			for (size_t i = 0; i < doc->controller.params.size(); i++)
 				vals[doc->controller.params[i].name] = live->GetFloat(doc->controller.params[i].name);
@@ -220,7 +225,17 @@ bool Editor::HandleAnimatorCommand(const std::string& name, const nlohmann::json
 
 	// animator_edit
 	const std::string action = S("action");
-	AnimatorController& c = doc->controller;
+	// "layer": which machine ("" or absent = the base).
+	if (a.contains("layer"))
+	{
+		const std::string ln = S("layer");
+		const int li = ln.empty() ? -1 : doc->controller.FindLayer(ln);
+		if (!ln.empty() && li < 0 && action != "add_layer") throw std::runtime_error("no layer '" + ln + "'");
+		doc->activeLayer = li < 0 ? 0 : li + 1;
+	}
+	else doc->activeLayer = 0;
+	AnimatorLayer& c = doc->L();
+	AnimatorController& ctl = doc->controller;
 	if (action == "add_state")
 	{
 		float x = 0.f, y = 0.f;
@@ -238,6 +253,24 @@ bool Editor::HandleAnimatorCommand(const std::string& name, const nlohmann::json
 		if (a.contains("speed")) st.speed = a.value("speed", 1.f);
 		if (a.contains("loop")) st.loop = a.value("loop", true);
 		if (a.contains("pos") && a["pos"].is_array() && a["pos"].size() >= 2) st.position = Vec2(a["pos"][0].get<float>(), a["pos"][1].get<float>());
+		// "blend": {"param", "clips": [{"clip", "at"}]} makes it a blend state; null makes it a plain one.
+		if (a.contains("blend"))
+		{
+			st.blend.clear();
+			st.blendParam.clear();
+			if (a["blend"].is_object())
+			{
+				st.blendParam = a["blend"].value("param", std::string());
+				if (a["blend"].contains("clips") && a["blend"]["clips"].is_array())
+					for (const auto& bc : a["blend"]["clips"])
+					{
+						AnimatorBlendClip b;
+						b.clip = bc.value("clip", std::string());
+						b.at = bc.value("at", 0.f);
+						st.blend.push_back(b);
+					}
+			}
+		}
 		doc->PushEdit(before, "Edit state");
 		if (!S("rename").empty() && !doc->RenameState(S("name"), S("rename"))) throw std::runtime_error("cannot rename to '" + S("rename") + "'");
 	}
@@ -281,7 +314,7 @@ bool Editor::HandleAnimatorCommand(const std::string& name, const nlohmann::json
 		if (a.contains("default"))
 		{
 			const std::string before = doc->Snapshot();
-			c.params[c.FindParam(n)].defaultValue = a["default"].is_boolean() ? (a["default"].get<bool>() ? 1.f : 0.f) : a.value("default", 0.f);
+			ctl.params[ctl.FindParam(n)].defaultValue = a["default"].is_boolean() ? (a["default"].get<bool>() ? 1.f : 0.f) : a.value("default", 0.f);
 			doc->PushEdit(before, "Parameter default");
 		}
 		r["name"] = n;
@@ -289,22 +322,40 @@ bool Editor::HandleAnimatorCommand(const std::string& name, const nlohmann::json
 	else if (action == "remove_param") { if (!doc->RemoveParam(S("name"))) throw std::runtime_error("no parameter '" + S("name") + "'"); }
 	else if (action == "set_param")
 	{
-		const int i = c.FindParam(S("name"));
+		const int i = ctl.FindParam(S("name"));
 		if (i < 0) throw std::runtime_error("no parameter '" + S("name") + "'");
 		if (a.contains("default"))
 		{
 			const std::string before = doc->Snapshot();
-			c.params[i].defaultValue = a["default"].is_boolean() ? (a["default"].get<bool>() ? 1.f : 0.f) : a.value("default", 0.f);
+			ctl.params[i].defaultValue = a["default"].is_boolean() ? (a["default"].get<bool>() ? 1.f : 0.f) : a.value("default", 0.f);
 			doc->PushEdit(before, "Parameter default");
 		}
 		if (!S("rename").empty() && !doc->RenameParam(S("name"), S("rename"))) throw std::runtime_error("cannot rename to '" + S("rename") + "'");
+	}
+	else if (action == "add_layer")
+	{
+		r["layer"] = doc->AddLayer(S("name"), S("root"));
+	}
+	else if (action == "remove_layer")
+	{
+		const int li = ctl.FindLayer(S("name"));
+		if (li < 0 || !doc->RemoveLayer(li + 1)) throw std::runtime_error("no layer '" + S("name") + "'");
+	}
+	else if (action == "set_layer")
+	{
+		const int li = ctl.FindLayer(S("name"));
+		if (li < 0) throw std::runtime_error("no layer '" + S("name") + "'");
+		const std::string before = doc->Snapshot();
+		if (a.contains("root")) ctl.layers[li].rootBone = S("root");
+		if (!S("rename").empty() && ctl.FindLayer(S("rename")) < 0) ctl.layers[li].name = S("rename");
+		doc->PushEdit(before, "Edit layer");
 	}
 	else if (action == "clips_from")
 	{
 		if (!doc->LoadClipNames(project.AbsolutePath(S("file")))) throw std::runtime_error("could not read clips from " + S("file"));
 	}
 	else throw std::runtime_error("animator_edit actions: add_state, remove_state, set_state, set_default, add_transition, "
-		"remove_transition, set_transition, add_param, remove_param, set_param, clips_from");
+		"remove_transition, set_transition, add_param, remove_param, set_param, add_layer, remove_layer, set_layer, clips_from");
 	nlohmann::json d = DescribeController(*doc);
 	for (auto it = d.begin(); it != d.end(); ++it) r[it.key()] = it.value();
 	return true;
