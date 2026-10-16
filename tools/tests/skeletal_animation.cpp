@@ -14,6 +14,7 @@
 
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/AnimationManager/IKSolver.h>
+#include <Pyros3D/AnimationManager/AnimatorController.h>
 #include <Pyros3D/Assets/Character2D/Character2DInstance.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
@@ -357,6 +358,69 @@ int main()
 		check(fabsf(endAngle + 0.7853982f) < 1e-3f, "crossfade ends on the new clip");
 		check(I->GetNumberPlayingAnimations() == 1 && I->IsPlaying(1) && !I->IsPlaying(0),
 			"crossfade stops the outgoing clip");
+	}
+
+	// ---- the state machine ------------------------------------------------
+	{
+		std::vector<Bone> bones;
+		bones.push_back(makeBone(0, -1, "root", Vec3(0.f, 0.f, 0.f)));
+		bones.push_back(makeBone(1, 0, "b", Vec3(0.f, 1.f, 0.f)));
+		Rig rig(bones);
+		std::vector<Animation> clips(3);
+		const char* names[3] = { "idle", "run", "jump" };
+		for (int i = 0; i < 3; i++)
+		{
+			clips[i].AnimationName = names[i];
+			clips[i].Duration = i == 2 ? 0.5f : 1.f;
+			Channel ch; ch.NodeName = "b";
+			ch.positions.push_back(PositionData(0.f, Vec3(0.f, 1.f, (f32)i)));
+			clips[i].Channels.push_back(ch);
+		}
+		rig.animation.SetAnimations(clips);
+
+		AnimatorController c;
+		AnimatorParam speed; speed.name = "speed"; c.params.push_back(speed);
+		AnimatorParam jump; jump.name = "jump"; jump.type = ANIMATOR_TRIGGER; c.params.push_back(jump);
+		AnimatorState si; si.name = "Idle"; si.clip = "idle"; c.states.push_back(si);
+		AnimatorState sr; sr.name = "Run"; sr.clip = "run"; c.states.push_back(sr);
+		AnimatorState sj; sj.name = "Jump"; sj.clip = "jump"; sj.loop = false; c.states.push_back(sj);
+		c.defaultState = "Idle";
+		AnimatorTransition toRun; toRun.from = "Idle"; toRun.to = "Run"; toRun.duration = 0.1f;
+		AnimatorCondition fast; fast.param = "speed"; fast.op = ANIMATOR_GREATER; fast.value = 1.f; toRun.conditions.push_back(fast);
+		c.transitions.push_back(toRun);
+		AnimatorTransition toIdle = toRun; toIdle.from = "Run"; toIdle.to = "Idle"; toIdle.conditions[0].op = ANIMATOR_LESS;
+		c.transitions.push_back(toIdle);
+		AnimatorTransition anyJump; anyJump.from = "*"; anyJump.to = "Jump"; anyJump.duration = 0.f;
+		AnimatorCondition fire; fire.param = "jump"; fire.op = ANIMATOR_TRUE; anyJump.conditions.push_back(fire);
+		c.transitions.push_back(anyJump);
+		AnimatorTransition land; land.from = "Jump"; land.to = "Idle"; land.exitTime = 1.f;
+		c.transitions.push_back(land);
+
+		AnimatorController back;
+		check(AnimatorControllerFromString(AnimatorControllerToString(c), back) && back.transitions.size() == 4
+			&& back.transitions[2].from == "*" && back.params[1].type == ANIMATOR_TRIGGER, "controller JSON round-trips");
+
+		Animator an;
+		an.Bind(c, rig.inst);
+		f32 clock = 0.f;
+		const auto tick = [&](f32 dt) { an.Update(dt); clock += dt; rig.animation.Update(clock); };
+		tick(0.f);
+		check(an.GetState() == "Idle", "starts in the default state");
+		tick(0.1f);
+		an.SetFloat("speed", 3.f);
+		tick(0.05f);
+		check(an.GetState() == "Run", "a condition moves it on");
+		for (int i = 0; i < 6; i++) tick(0.05f);
+		check(fabsf(rig.pos(1).z - 1.f) < 1e-3f && rig.inst->GetNumberPlayingAnimations() == 1, "after the crossfade only the run plays");
+		an.SetTrigger("jump");
+		tick(0.02f);
+		check(an.GetState() == "Jump" && !an.GetBool("jump"), "a trigger fires from any state and is used up");
+		tick(0.02f);
+		check(an.GetState() == "Jump", "and does not fire again");
+		an.SetFloat("speed", 0.f);   // or landing goes straight on into Run
+		for (int i = 0; i < 30; i++) tick(0.02f);
+		check(an.GetState() == "Idle", "a one-shot leaves at its exit time");
+		check(!an.SetFloat("nope", 1.f), "unknown parameters are refused");
 	}
 
 	printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);

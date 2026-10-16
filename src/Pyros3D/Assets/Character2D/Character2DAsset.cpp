@@ -253,6 +253,7 @@ namespace p3d {
 				p.lit = pj.value("lit", false);
 				p.bendBone = pj.value("bend", std::string());
 				p.bendSegments = (int32)pj.value("bendSegments", 8);
+				p.bendBlend = (f32)pj.value("bendBlend", 0.3);
 				a.parts.push_back(p);
 			}
 		}
@@ -417,6 +418,7 @@ namespace p3d {
 			{
 				pj["bend"] = p.bendBone;
 				if (p.bendSegments != 8) pj["bendSegments"] = p.bendSegments;
+				if (p.bendBlend != 0.3f) pj["bendBlend"] = (double)p.bendBlend;
 			}
 			sprites.push_back(pj);
 		}

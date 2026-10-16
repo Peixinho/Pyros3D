@@ -406,6 +406,10 @@ namespace p3d {
 				ev.clip = A.AnimationName;
 				ev.name = A.Events[i].Name;
 				ev.time = t;
+				// Bounded: whoever drives Update() without DeliverPending() (an
+				// editor preview, an app updating the animation itself) must not
+				// grow this for ever.
+				if (pendingEvents.size() >= 256) pendingEvents.erase(pendingEvents.begin());
 				pendingEvents.push_back(ev);
 			}
 		}

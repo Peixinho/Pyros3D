@@ -2619,7 +2619,8 @@ void SceneEditor::DrainPendingOps()
 		const bool terrainObject = cmd == "set_terrain" || cmd == "terrain_bake_overview" || cmd == "terrain_convert"
 			|| cmd == "terrain_generate_caves" || cmd == "terrain_resync_caves";
 		const bool ik = cmd == "add_ik" || cmd == "set_ik" || cmd == "remove_ik";
-		const bool ok = ik ? AgentIK(cmd, op, out, err)
+		const bool animator = cmd == "add_animator" || cmd == "set_animator" || cmd == "remove_animator";
+		const bool ok = animator ? AgentAnimator(cmd, op, out, err) : ik ? AgentIK(cmd, op, out, err)
 			: cmd == "move_to_cell" ? AgentMoveToCell(op, out, err)
 			: (network ? AgentNetwork(cmd, op, out, err)
 				: (terrainObject ? AgentTerrainObject(cmd, op, out, err) : AgentTerrain(cmd, op, out, err)));

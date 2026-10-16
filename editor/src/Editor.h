@@ -46,6 +46,7 @@
 	#include "editor/Character2DDocument.h"
 	#include "editor/TileSetDocument.h"
 	#include "editor/SpriteSheetDocument.h"
+	#include "editor/AnimatorDocument.h"
 	#include "editor/MaterialPreview.h"
 	#include "editor/SceneEditor.h"
 #include "editor/ProjectManager.h"
@@ -246,6 +247,11 @@ protected:
 	TileSetDocument* FindTileSetDocumentByPath(const std::string& absPath);
 	// Sprite sheets (.p3ds), the same way - see EditorSpriteSheets.cpp.
 	void DrawSpriteSheetEditorWindows();
+	bool OpenAnimatorDocument(const std::string& absPath);
+	bool SaveAnimatorDocument(AnimatorDocument* doc);
+	AnimatorDocument* FindAnimatorDocumentByPath(const std::string& absPath);
+	void DrawAnimatorEditorWindows();
+	bool HandleAnimatorCommand(const std::string& name, const nlohmann::json& a, nlohmann::json& r);
 	bool OpenSpriteSheetDocument(const std::string& absPath);
 	bool SaveSpriteSheetDocument(SpriteSheetDocument* doc);
 	SpriteSheetDocument* FindSpriteSheetDocumentByPath(const std::string& absPath);
@@ -327,7 +333,7 @@ private:
 	// own tracking: it only ever gets focus while a scene document is
 	// already the last-focused kind). Defaults to Scene so undo works
 	// immediately in the common case of a single scene document open.
-	enum class FocusedDocKind { Scene, Material, Animation, Character2D, TileSet, SpriteSheet };
+	enum class FocusedDocKind { Scene, Material, Animation, Character2D, TileSet, SpriteSheet, Animator };
 	FocusedDocKind lastFocusedDocKind = FocusedDocKind::Scene;
 	// Project-wide settings (name, renderer type) aren't "a document" the
 	// way a scene/material tab is, so they get their own small stack rather
@@ -430,6 +436,11 @@ private:
 	std::map<uint32, std::shared_ptr<p3d::Texture> > tileSetAtlasTex;
 	std::vector<SpriteSheetDocument*> spriteSheetDocs;
 	SpriteSheetDocument* activeSpriteSheetDoc = nullptr;
+	// Animation state machines (.p3dac) - EditorAnimators.cpp.
+	std::vector<AnimatorDocument*> animatorDocs;
+	AnimatorDocument* activeAnimatorDoc = nullptr;
+	uint32 nextAnimatorDocId = 1;
+	uint32 pendingSelectAnimatorDocId = 0;
 	uint32 nextSpriteSheetDocId = 1;
 	uint32 pendingSelectSpriteSheetDocId = 0;
 	std::map<uint32, std::shared_ptr<p3d::Texture> > spriteSheetTex;

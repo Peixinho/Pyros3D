@@ -112,7 +112,10 @@ namespace p3d {
 			Text2D,
 			// An outline in the plane of the screen given depth: 2.5D ground,
 			// with its collider. See Extrusion2D.h.
-			Extrusion2D
+			Extrusion2D,
+			// An animation state machine on this object's skeleton. See
+			// AnimatorComponent.h.
+			Animator
 		};
 	}
 

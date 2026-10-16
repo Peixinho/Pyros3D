@@ -25,6 +25,7 @@
 // is a void* in the first place.
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
+#include <Pyros3D/AnimationManager/Components/AnimatorComponent.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
@@ -739,6 +740,10 @@ namespace p3d {
 			const std::vector<std::shared_ptr<IComponent> > &comps = all[i]->GetComponents();
 			for (size_t c = 0; c < comps.size(); c++)
 			{
+				// A state machine starts with the game too, not while the scene
+				// is being authored (it would drive the rig being posed).
+				if (comps[c] && comps[c]->GetComponentType() == ComponentType::Animator)
+					static_cast<AnimatorComponent*>(comps[c].get())->SetRunning(true);
 				if (!comps[c] || comps[c]->GetComponentType() != ComponentType::RenderingComponent) continue;
 				RenderingComponent* rc = static_cast<RenderingComponent*>(comps[c].get());
 				if (rc->autoPlayClip.empty()) continue;
@@ -987,6 +992,20 @@ namespace p3d {
 		for (size_t i = 0; i < ms.size() && i < spritePartHalfExtents.size(); i++)
 		{
 			if (!ms[i]) continue;
+			// A bent part is a skinned grid in rest space with an identity
+			// Pivot, so its corners mean nothing here - its geometry's own box
+			// (the rest pose, which is what framing is for) does.
+			if (!spriteParts2D[i].bendBone.empty() && !ms[i]->MapBoneIDs.empty() && ms[i]->Geometry)
+			{
+				const Vec3 mn = ms[i]->Geometry->GetBoundingMinValue(), mx = ms[i]->Geometry->GetBoundingMaxValue();
+				if (!any) { outMin = Vec2(mn.x, mn.y); outMax = Vec2(mx.x, mx.y); any = true; }
+				else
+				{
+					outMin.x = std::min(outMin.x, mn.x); outMin.y = std::min(outMin.y, mn.y);
+					outMax.x = std::max(outMax.x, mx.x); outMax.y = std::max(outMax.y, mx.y);
+				}
+				continue;
+			}
 			const Vec2 &he = spritePartHalfExtents[i];
 			const Vec2 &sc = spriteParts2D[i].scale;
 			// The quad's four corners, each through the part's placement. All

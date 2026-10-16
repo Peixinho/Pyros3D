@@ -61,6 +61,9 @@ struct Character2DPreview {
 
 	// ---- viewport ----------------------------------------------------
 	int width = 640, height = 480;
+	// Where the viewport image was last drawn, in ImGui screen pixels - so an
+	// agent can aim real mouse events at a joint (character2d_state "viewport").
+	float imageX = 0.f, imageY = 0.f;
 	// Orthographic framing, in world units.
 	float centerX = 0.f, centerY = 0.f, halfWidth = 3.f;
 	bool framed = false;

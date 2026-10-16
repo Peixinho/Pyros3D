@@ -14,6 +14,7 @@
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
 
@@ -79,8 +80,24 @@ void AnimationPreview::EnsureInit()
 	scene->Update(0);
 }
 
+void AnimationPreview::HideGhosts()
+{
+	for (size_t i = 0; i < ghosts.size(); i++) if (ghosts[i].rc) ghosts[i].rc->Disable();
+}
+
+void AnimationPreview::ClearGhosts()
+{
+	for (size_t i = 0; i < ghosts.size(); i++)
+	{
+		if (scene && ghosts[i].go) scene->Remove(ghosts[i].go);
+		ghosts[i].inst = nullptr;   // owned by anim, which goes next
+	}
+	ghosts.clear();
+}
+
 void AnimationPreview::ClearMesh()
 {
+	ClearGhosts();
 	if (scene && modelGO) scene->Remove(modelGO);
 	modelGO.reset();
 	modelRC = nullptr;
@@ -294,6 +311,10 @@ void AnimationPreview::SyncPose(AnimationEditorDocument& doc, float dt)
 			doc.blendClock += dt;
 		}
 		if (animOwner) animOwner->Update(doc.blendClock);
+		// The events the real playback fired, shown as they happen.
+		instance->DeliverPending();
+		std::vector<SkeletonAnimationInstance::FiredEvent> fired = instance->TakeEvents();
+		for (size_t i = 0; i < fired.size(); i++) doc.NoteFiredEvent(fired[i].name, fired[i].clip);
 		return;
 	}
 
@@ -629,6 +650,29 @@ void AnimationPreview::DrawOnionSkin(AnimationEditorDocument& doc)
 	const float fps = doc.snapFps > 0.f ? doc.snapFps : 30.f;
 	const int step = std::max(1, doc.onionStep);
 
+	// Mesh ghosts, one per offset: built lazily from the same model, each a
+	// flat tint so the pose reads as an outline rather than a second character.
+	const int wanted = doc.onionMesh && modelRC && modelRC->GetRenderable() ? doc.onionBefore + doc.onionAfter : 0;
+	while ((int)ghosts.size() < wanted)
+	{
+		Ghost g;
+		auto rc = std::make_shared<RenderingComponent>(modelRC->GetRenderableShared(),
+			ShaderUsage::Color | ShaderUsage::Skinning);
+		rc->DisableCastShadows();
+		g.rc = rc.get();
+		g.go = std::make_shared<GameObject>();
+		g.go->Add(rc);
+		scene->Add(g.go);
+		if (rc->HasBones())
+		{
+			g.anim = std::make_shared<SkeletonAnimation>();
+			g.inst = g.anim->CreateInstance(rc.get());
+		}
+		ghosts.push_back(g);
+	}
+	HideGhosts();
+	int ghostIndex = 0;
+
 	for (int k = -doc.onionBefore; k <= doc.onionAfter; k++)
 	{
 		if (k == 0) continue;
@@ -636,6 +680,26 @@ void AnimationPreview::DrawOnionSkin(AnimationEditorDocument& doc)
 		if (doc.looping) { t = std::fmod(t, clip.Duration); if (t < 0.f) t += clip.Duration; }
 		else if (t < 0.f || t > clip.Duration) continue;
 		instance->ApplyAnimationAtTime(clip, t);
+		if (ghostIndex < wanted && ghostIndex < (int)ghosts.size() && ghosts[ghostIndex].inst)
+		{
+			Ghost& g = ghosts[ghostIndex++];
+			g.inst->ApplyAnimationAtTime(clip, t);
+			const int reachM = k < 0 ? doc.onionBefore : doc.onionAfter;
+			const float am = 0.28f * (1.f - (std::abs(k) - 1) / (float)std::max(1, reachM)) + 0.06f;
+			const Vec4 tint = k < 0 ? Vec4(0.35f, 0.6f, 1.f, am) : Vec4(0.4f, 1.f, 0.5f, am);
+			std::vector<RenderingMesh*>& ms = g.rc->GetMeshes();
+			for (size_t m = 0; m < ms.size(); m++)
+			{
+				GenericShaderMaterial* gm = ms[m]->Material ? dynamic_cast<GenericShaderMaterial*>(ms[m]->Material.get()) : NULL;
+				if (!gm) continue;
+				gm->SetColor(tint);
+				gm->EnableBlending();
+				gm->BlendingEquation(BlendEq::Add);
+				gm->BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
+				gm->SetTransparencyFlag(true);
+			}
+			g.rc->Enable();
+		}
 
 		// Fainter the further from now.
 		const int reach = k < 0 ? doc.onionBefore : doc.onionAfter;
@@ -893,6 +957,7 @@ AnimationPreview::Interaction AnimationPreview::DrawAndUpdate(AnimationEditorDoc
 		// Submit the skeleton (with the right selection colouring) and the
 		// gizmo into the debug batch, then render.
 		if (doc.onionSkin && !doc.blendMode) DrawOnionSkin(doc);
+		else HideGhosts();
 		if (showBones) DrawSkeleton(doc.selectedBone);
 		if (ikHandleLive)
 		{

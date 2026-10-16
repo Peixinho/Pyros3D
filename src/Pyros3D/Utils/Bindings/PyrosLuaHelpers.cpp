@@ -8,6 +8,7 @@
 #include <Pyros3D/Assets/Renderable/Trees/Tree.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
+#include <Pyros3D/AnimationManager/Components/AnimatorComponent.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
 #include <Pyros3D/Rendering/Components/Layer2D/Layer2D.h>
 #include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
@@ -1040,6 +1041,44 @@ namespace p3d {
 		if (!c) return false;
 		c->MatchTargetRotation = match;
 		return true;
+	}
+
+	namespace {
+		Animator* FindAnimator(GameObject* go)
+		{
+			if (!go) return NULL;
+			const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+			for (size_t i = 0; i < comps.size(); i++)
+				if (comps[i] && comps[i]->GetComponentType() == ComponentType::Animator)
+					return &static_cast<AnimatorComponent*>(comps[i].get())->GetAnimator();
+			return NULL;
+		}
+	}
+
+	bool SetAnimatorFloat(GameObject* go, const std::string &param, float v)
+	{
+		Animator* a = FindAnimator(go);
+		return a && a->SetFloat(param, v);
+	}
+	bool SetAnimatorBool(GameObject* go, const std::string &param, bool v)
+	{
+		Animator* a = FindAnimator(go);
+		return a && a->SetBool(param, v);
+	}
+	bool SetAnimatorTrigger(GameObject* go, const std::string &param)
+	{
+		Animator* a = FindAnimator(go);
+		return a && a->SetTrigger(param);
+	}
+	std::string GetAnimatorState(GameObject* go)
+	{
+		Animator* a = FindAnimator(go);
+		return a ? a->GetState() : std::string();
+	}
+	bool PlayAnimatorState(GameObject* go, const std::string &state, float fade)
+	{
+		Animator* a = FindAnimator(go);
+		return a && a->Play(state, fade);
 	}
 
 	bool WorldToScreen(float winW, float winH, GameObject* camera, Projection* projection,

@@ -373,6 +373,15 @@ namespace p3d {
 					f32 start = startTime ? *startTime : 0.f;
 					if (start < 0.f) start = 0.f;
 					if (start > 1.f) start = 1.f;
+					// "Play this clip" means instead of the others on the whole
+					// skeleton. Leaving them playing made the OLDER clip the one
+					// on top at full weight, so switching walk -> wave -> walk
+					// showed the wave for ever (Showcase2D's character did).
+					// Clips on a layer (an upper-body aim) are left alone;
+					// crossFade() is the one that blends.
+					for (int32 o = (int32)self.GetNumberPlayingAnimations() - 1; o >= 0; o--)
+						if (self.GetAnimationID((uint32)o) != (uint32)id && self.GetAnimationLayerName((uint32)o).empty())
+							self.StopAnimation((uint32)o);
 					self.Play((uint32)id, start,
 						repetition ? *repetition : -1.f,   // -1 = loop forever
 						speed ? *speed : 1.f,
@@ -380,9 +389,9 @@ namespace p3d {
 					return true;
 				},
 				// Cross-fade to a clip by name: what changing from a walk to a
-				// run should be. playClip() leaves the walk playing, and with
-				// both at full weight the OLDER clip is the one on top, so the
-				// run never shows. opts: { repetition, speed, startTime, layer }.
+				// run should be - playClip() cuts, this blends over `duration`
+				// and stops the outgoing clip when it is gone.
+				// opts: { repetition, speed, startTime, layer }.
 				"crossFade", [](SkeletonAnimationInstance& self, const std::string& name,
 					sol::optional<f32> duration, sol::optional<sol::table> opts) -> bool {
 					SkeletonAnimation* owner = self.GetOwner();

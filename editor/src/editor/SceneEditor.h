@@ -13,6 +13,7 @@
 // which defines a global `isnan` macro that would corrupt json.hpp's own
 // std::isnan() calls if json.hpp were parsed first (see the `#undef isnan`
 // pattern in SceneEditor.cpp).
+#include <Pyros3D/AnimationManager/AnimatorController.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Rendering/PostEffects/Upscaling.h>
 #include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
@@ -1612,6 +1613,15 @@ public:
 	// (get_ik / add_ik / set_ik / remove_ik). SceneEditorIK.cpp.
 	void DrawIKComponentProperties(GameObject* go, uint32 goId);
 	bool AgentIK(const std::string& command, const json& args, json& out, std::string& errOut);
+	// The Animator component (state machine), same file.
+	void DrawAnimatorComponentProperties(GameObject* go, uint32 goId);
+	bool AgentAnimator(const std::string& command, const json& args, json& out, std::string& errOut);
+	// The running Animator using this controller (selected object first), or NULL.
+	p3d::Animator* FindLiveAnimator(const std::string& controllerAbs);
+	// Hands an edited controller to every Animator using the file. Returns how many.
+	int ReloadAnimatorsUsing(const std::string& controllerAbs, const p3d::AnimatorController& controller);
+	// Set by the Animator section's "Edit State Machine"; the host opens it.
+	std::string pendingOpenAnimator;
 	// Rebuilds object `id` from its own saved form after `edit` changes it:
 	// one undo entry. For component adds and removes.
 	bool EditSubtreeJson(uint32 id, const std::function<bool(json&, std::string&)>& edit,

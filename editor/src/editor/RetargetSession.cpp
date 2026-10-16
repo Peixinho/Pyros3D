@@ -56,6 +56,7 @@ std::vector<std::string> RetargetSession::ImportInto(AnimationEditorDocument& do
 		out.AnimationName = doc.MakeUniqueClipName(clips[i].AnimationName);
 		out.Guid = AnimationLoader::GenerateGuid();
 		doc.clips.push_back(out);
+		if (reduce) doc.ReduceKeys((int)doc.clips.size() - 1, 0.0005f, 0.1f);
 		added.push_back(out.AnimationName);
 	}
 	if (!added.empty()) doc.activeClip = (int)doc.clips.size() - 1;

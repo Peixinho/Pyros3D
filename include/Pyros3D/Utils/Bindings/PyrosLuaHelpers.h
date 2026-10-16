@@ -167,6 +167,12 @@ uint32 ClearLuaDecals(SceneGraph* scene);
 bool SetIKConstraintEnabled(GameObject* go, const std::string &chain, bool enabled);
 bool SetIKConstraintWeight(GameObject* go, const std::string &chain, float weight);
 bool SetIKConstraintMatchRotation(GameObject* go, const std::string &chain, bool match);
+// The object's Animator (state machine): parameters, the current state, a jump.
+bool SetAnimatorFloat(GameObject* go, const std::string &param, float v);
+bool SetAnimatorBool(GameObject* go, const std::string &param, bool v);
+bool SetAnimatorTrigger(GameObject* go, const std::string &param);
+std::string GetAnimatorState(GameObject* go);
+bool PlayAnimatorState(GameObject* go, const std::string &state, float fade);
 bool WorldToScreen(float winW, float winH, GameObject* camera, Projection* projection,
 	const Vec3 &worldPos, float* outX, float* outY);
 // Inverse, resolved onto the plane through `refWorldPos` parallel to the

@@ -51,16 +51,18 @@ namespace p3d {
 			}
 		};
 
-		// A bent part: a grid placed in the rig's REST space and skinned to two
-		// bones, its weights crossing from the first to the second around the
-		// joint between them. The renderer composes world * Pivot * skinned
-		// vertex, so the part's Pivot stays identity and the bones do the rest.
+		// A bent part: a grid placed in the rig's REST space and skinned to a
+		// chain of up to four bones, its weights crossing from one bone to the
+		// next around each joint between them. The renderer composes
+		// world * Pivot * skinned vertex, so the part's Pivot stays identity
+		// and the bones do the rest.
 		class BentQuadGeometry : public ModelGeometry {
 		public:
 			BentQuadGeometry(const f32 halfW, const f32 halfH, const SpritePart2D &part,
-				const int32 boneA, const int32 boneB, const Matrix &bindA, const Matrix &bindB)
+				const std::vector<int32> &chain, const std::vector<Matrix> &bind)
 			{
 				const int n = std::max(1, std::min(64, (int)part.bendSegments));
+				const f32 blend = std::max(0.02f, std::min(1.f, part.bendBlend));
 				// The part's own placement in its bone's frame, as a rigid part
 				// gets it through its Pivot (see RefreshSpriteParts2D).
 				const f32 lx = -halfW + part.pivot.x * (halfW * 2.f);
@@ -68,11 +70,13 @@ namespace p3d {
 				Matrix off; off.Translate(Vec3(part.offset.x, part.offset.y, part.z));
 				Matrix sc; sc.Scale(Vec3(part.scale.x, part.scale.y, 1.f));
 				Matrix pv; pv.Translate(Vec3(-lx, -ly, 0.f));
-				const Matrix place = bindA * off * sc * pv;
+				const Matrix place = bind[chain[0]] * off * sc * pv;
 
-				const Vec3 ja = bindA.GetTranslation(), jb = bindB.GetTranslation();
-				const Vec3 axis = jb - ja;
-				const f32 len2 = std::max(1e-8f, axis.dotProduct(axis));
+				// The joints the bend crosses, root first.
+				std::vector<Vec3> joints;
+				for (size_t k = 0; k < chain.size(); k++) joints.push_back(bind[chain[k]].GetTranslation());
+				const size_t segs = joints.size() - 1;   // >= 1
+
 				const Vec3 nrm(0.f, 0.f, 1.f);
 				for (int yi = 0; yi <= n; yi++)
 					for (int xi = 0; xi <= n; xi++)
@@ -83,14 +87,29 @@ namespace p3d {
 						tVertex.push_back(p);
 						tNormal.push_back(nrm);
 						tTexcoord.push_back(Vec2(u, 1.f - v));
-						// Where along bone A this point is: 0 at A's joint, 1 at
-						// B's. The blend is centred on B's joint, a third of A's
-						// length wide each side - wide enough to bend without a
-						// crease, narrow enough that the upper arm stays rigid.
-						const f32 t = (p - ja).dotProduct(axis) / len2;
-						const f32 e = std::min(1.f, std::max(0.f, (t - 0.7f) / 0.6f));
+
+						// Where along the chain this point is: s in [0, segs],
+						// bone k owning [k, k+1] and the last bone everything
+						// past the last joint. The nearest segment decides.
+						f32 bestD = 1e30f, s = 0.f;
+						for (size_t k = 0; k < segs; k++)
+						{
+							const Vec3 ab = joints[k + 1] - joints[k];
+							const f32 l2 = std::max(1e-8f, ab.dotProduct(ab));
+							f32 t = (p - joints[k]).dotProduct(ab) / l2;
+							const f32 tc = std::max(0.f, std::min(1.f, t));
+							const f32 d = (joints[k] + ab * tc - p).magnitudeSQR();
+							// Past the ends the first and last segments extend.
+							if (k > 0 && t < 0.f) t = 0.f;
+							if (k + 1 < segs && t > 1.f) t = 1.f;
+							if (d < bestD) { bestD = d; s = (f32)k + t; }
+						}
+						// The joint nearest s, and how far across its blend this is.
+						int j = (int)std::floor(s + 0.5f);
+						j = std::max(1, std::min((int)segs, j));
+						const f32 e = std::min(1.f, std::max(0.f, (s - (f32)j + blend) / (2.f * blend)));
 						const f32 wb = e * e * (3.f - 2.f * e);
-						tBonesID.push_back(Vec4(0.f, 1.f, 0.f, 0.f));
+						tBonesID.push_back(Vec4((f32)(j - 1), (f32)j, 0.f, 0.f));
 						tBonesWeight.push_back(Vec4(1.f - wb, wb, 0.f, 0.f));
 					}
 				for (int yi = 0; yi < n; yi++)
@@ -100,12 +119,13 @@ namespace p3d {
 						index.push_back(a); index.push_back(b); index.push_back(d);
 						index.push_back(d); index.push_back(c); index.push_back(a);
 					}
-				// Skinning slots 0 and 1 are the two bones; the offsets take a
-				// rest-space vertex into each bone's own frame.
-				MapBoneIDs[boneA] = 0;
-				MapBoneIDs[boneB] = 1;
-				BoneOffsetMatrix[boneA] = bindA.Inverse();
-				BoneOffsetMatrix[boneB] = bindB.Inverse();
+				// Skinning slot k is chain bone k; each offset takes a rest-space
+				// vertex into that bone's own frame.
+				for (size_t k = 0; k < chain.size(); k++)
+				{
+					MapBoneIDs[chain[k]] = (int32)k;
+					BoneOffsetMatrix[chain[k]] = bind[chain[k]].Inverse();
+				}
 
 				CreateBuffers();
 				SendBuffers();
@@ -184,10 +204,24 @@ namespace p3d {
 			// builds, which is what every sprite in an existing scene is. Half
 			// that size and every migrated character came out at half scale
 			// with its pivots in the wrong place.
+			// The chain from the part's bone down to its bend bone, root first,
+			// at most four bones (the skinning attribute's width).
+			std::vector<int32> chain;
 			const int32 ba = parts[i].bendBone.empty() ? -1 : boneId(parts[i].bone);
 			const int32 bb = parts[i].bendBone.empty() ? -1 : boneId(parts[i].bendBone);
-			const bool bent = ba >= 0 && bb >= 0 && ba != bb;
-			if (bent) r->AddBent(new BentQuadGeometry(aspect, 1.f, parts[i], ba, bb, bind[ba], bind[bb]));
+			if (ba >= 0 && bb >= 0 && ba != bb)
+			{
+				for (int32 w = bb, guard = 0; w >= 0 && guard <= (int32)skeleton->size(); guard++)
+				{
+					chain.insert(chain.begin(), w);
+					if (w == ba) break;
+					w = (*skeleton)[w].parent;
+				}
+				if (chain.empty() || chain[0] != ba) chain.clear();                 // not below the part's bone
+				else if (chain.size() > 4) chain.erase(chain.begin() + 1, chain.end() - 3);   // keep the ends
+			}
+			const bool bent = chain.size() >= 2;
+			if (bent) r->AddBent(new BentQuadGeometry(aspect, 1.f, parts[i], chain, bind));
 			else r->AddQuad(aspect, 1.f);
 			out.halfExtents.push_back(Vec2(aspect, 1.f));
 

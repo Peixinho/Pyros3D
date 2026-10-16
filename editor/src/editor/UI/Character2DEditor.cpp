@@ -114,6 +114,8 @@ void DrawViewport(Character2DDocument& doc, float availH)
 	void* tid = tex ? GetActiveRenderDevice().GetImGuiTextureID(tex->GetBindID(), tex->GetTextureType())
 	                : NULL;
 	const ImVec2 imgMin = ImGui::GetCursorScreenPos();
+	pv->imageX = imgMin.x;
+	pv->imageY = imgMin.y;
 
 	// OpenGL's render targets are bottom-up, so the viewport texture has to be
 	// sampled V-flipped to appear the right way up. Not merely cosmetic here:
@@ -851,6 +853,16 @@ void DrawSpritesPanel(Character2DDocument& doc, const std::vector<TextureChoice>
 				}
 				if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
 				if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit(label);
+				float bl = p.bendBlend;
+				ImGui::SetNextItemWidth(-1.f);
+				if (ImGui::SliderFloat("##bendblend", &bl, 0.02f, 1.f, "joint softness %.2f"))
+				{
+					p.bendBlend = bl;
+					doc.TouchRig();
+				}
+				if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+				if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit(label);
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far the bend reaches either side of each joint: low is a sharp elbow, high a soft tail.\nThe picture follows every bone from its own down to the bend bone (up to four).");
 			}
 		}
 
@@ -1076,6 +1088,8 @@ int BakePinsImpl(Character2DDocument& doc, float from, float to)
 			for (size_t i = 0; i < pv->posedBones.size(); i++)
 				if (AnimationEditor::KeyBoneAtTime(doc.anim, pv->posedBones[i], snapped)) keyed++;
 		}
+		// A key a frame is what a bake leaves; keep only the ones that matter.
+		keyed -= doc.anim.ReduceKeys(doc.anim.activeClip, 0.0005f, 0.1f);
 	});
 	pv->posedBones.clear();
 	doc.anim.externalPoseOverrides.clear();

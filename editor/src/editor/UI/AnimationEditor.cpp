@@ -471,6 +471,9 @@ void DrawRetargetPopup(AnimationEditorDocument& doc, const std::vector<Animation
 		}
 		ImGui::SetNextItemWidth(90.f);
 		ImGui::DragFloat("Sample fps", &rs->fps, 1.f, 1.f, 120.f, "%.0f");
+		ImGui::SameLine();
+		ImGui::Checkbox("Reduce keys", &rs->reduce);
+		ImGui::SetItemTooltip("Retargeting keys every frame; this drops the ones the motion passes through anyway.");
 
 		ImGui::Separator();
 		ImGui::Text("Bone map (%d of %u bones)", (int)rs->map.size(), doc.RigBoneCount());
@@ -758,6 +761,23 @@ void DrawToolbar(AnimationEditorDocument& doc, const std::vector<AnimationMeshCh
 				const float t = doc.SnapTime(doc.playhead);
 				doc.PushSnapshotEdit("Add event", [&]() { doc.AddEvent(doc.activeClip, t, "event"); });
 			}
+
+			// Reduce: drop the keys the curve passes through anyway - what makes
+			// a baked or retargeted clip (a key every frame) editable by hand.
+			ImGui::Separator();
+			static float posTol = 0.001f, rotTol = 0.25f;
+			ImGui::SetNextItemWidth(90.f);
+			ImGui::DragFloat("Position tolerance", &posTol, 0.0005f, 0.f, 1.f, "%.4f");
+			ImGui::SetNextItemWidth(90.f);
+			ImGui::DragFloat("Rotation tolerance", &rotTol, 0.05f, 0.f, 10.f, "%.2f deg");
+			if (ImGui::Button("Reduce keys"))
+			{
+				int removed = 0;
+				doc.PushSnapshotEdit("Reduce keys", [&]() { removed = doc.ReduceKeys(doc.activeClip, posTol, rotTol); });
+				echo("Animation Editor: reduced " + std::to_string(removed) + " key(s)");
+			}
+			ImGui::SetItemTooltip("Removes every key the motion would pass through anyway, within the tolerances.\n"
+				"Stepped and eased keys, and each track's first and last key, always stay.");
 			ImGui::EndPopup();
 		}
 	}
@@ -1597,6 +1617,13 @@ void DrawTransport(AnimationEditorDocument& doc, float dt)
 	ImGui::SameLine();
 	ImGui::Text("t = %s / %s", FormatTime(doc.playhead).c_str(), FormatTime(duration).c_str());
 
+	// The event that just fired, for a second.
+	if (!doc.firedEvents.empty() && ImGui::GetTime() - doc.firedEvents.back().at < 1.0)
+	{
+		ImGui::SameLine();
+		ImGui::TextColored(ImVec4(0.55f, 0.9f, 0.45f, 1.f), "  event: %s", doc.firedEvents.back().name.c_str());
+	}
+
 	const std::map<int, Matrix>* pending = doc.RigPoseOverrides();
 	if (pending && !pending->empty())
 	{
@@ -1610,7 +1637,22 @@ void DrawTransport(AnimationEditorDocument& doc, float dt)
 	// back.
 	if (doc.playing && duration > 0.f)
 	{
+		const float before = doc.playhead;
 		float t = doc.playhead + dt * doc.playSpeed;
+		// Events the playhead runs over, wrap included, as the game would fire them.
+		if (const Animation* c = doc.ActiveClip())
+		{
+			const bool fwd = doc.playSpeed >= 0.f;
+			const float raw = t;
+			for (size_t e = 0; e < c->Events.size(); e++)
+			{
+				const float et = c->Events[e].Time;
+				bool hit;
+				if (fwd) hit = raw > duration ? (et > before || et <= raw - duration) : (et > before && et <= raw);
+				else hit = raw < 0.f ? (et < before || et >= raw + duration) : (et < before && et >= raw);
+				if (hit) doc.NoteFiredEvent(c->Events[e].Name, c->AnimationName);
+			}
+		}
 		if (t > duration)
 		{
 			if (doc.looping) t = std::fmod(t, duration);
@@ -1820,6 +1862,10 @@ float SampleCurve(const Channel& ch, int c, float t)
 }
 
 struct CurveDrag {
+	// 0 a key's value, 1 an out-tangent handle, 2 an in-tangent handle.
+	int handle = 0;
+	int listIndex = -1;
+	float spanV0 = 0.f, spanV1 = 1.f;
 	bool active = false;
 	int channel = -1;
 	int component = -1;
@@ -1976,6 +2022,88 @@ void DrawCurves(AnimationEditorDocument& doc)
 	}
 	static std::map<uint32_t, CurveDrag> drags;
 	CurveDrag& drag = drags[doc.id];
+
+	// Bezier handles. A span whose first key is Bezier gets an out handle a
+	// third of the way along and an in handle at the next key; their height
+	// IS the tangent (the slope of the eased parameter, times the span's rise).
+	// One tangent belongs to the whole position (or rotation) key, so the
+	// handle on x reshapes y and z with it.
+	struct Handle { ImVec2 pos; ImVec2 anchor; int component; int listIndex; bool out; float v0, v1; };
+	std::vector<Handle> handles;
+	for (int c = 0; c < 6; c++)
+	{
+		if (!doc.curveShown[c]) continue;
+		const bool isPos = c < 3;
+		const size_t n = isPos ? channel.positions.size() : channel.rotations.size();
+		for (size_t i = 0; i + 1 < n; i++)
+		{
+			const uchar mode = isPos ? channel.positions[i].Mode : channel.rotations[i].Mode;
+			if (mode != p3d::INTERP_BEZIER) continue;
+			const float t0 = isPos ? channel.positions[i].Time : channel.rotations[i].Time;
+			const float t1 = isPos ? channel.positions[i + 1].Time : channel.rotations[i + 1].Time;
+			const float outT = isPos ? channel.positions[i].OutTangent : channel.rotations[i].OutTangent;
+			const float inT = isPos ? channel.positions[i + 1].InTangent : channel.rotations[i + 1].InTangent;
+			const float v0 = SampleCurve(channel, c, t0);
+			float v1 = SampleCurve(channel, c, t1);
+			if (c >= 3) v1 = Unwrap(v1, v0);
+			const float third = (t1 - t0) / 3.f;
+			Handle ho; ho.component = c; ho.listIndex = (int)i; ho.out = true; ho.v0 = v0; ho.v1 = v1;
+			ho.anchor = ImVec2(left + t0 * timeToX, valueToY(v0));
+			ho.pos = ImVec2(left + (t0 + third) * timeToX, valueToY(v0 + outT * (v1 - v0) / 3.f));
+			Handle hi = ho; hi.out = false;
+			hi.anchor = ImVec2(left + t1 * timeToX, valueToY(v1));
+			hi.pos = ImVec2(left + (t1 - third) * timeToX, valueToY(v1 - inT * (v1 - v0) / 3.f));
+			handles.push_back(ho);
+			handles.push_back(hi);
+		}
+	}
+	int hotHandle = -1;
+	for (size_t i = 0; i < handles.size(); i++)
+	{
+		dl->AddLine(handles[i].anchor, handles[i].pos, IM_COL32(200, 200, 210, 160), 1.f);
+		const bool hov = hovered && std::fabs(mouse.x - handles[i].pos.x) + std::fabs(mouse.y - handles[i].pos.y) < 9.f;
+		if (hov && hotHandle < 0) hotHandle = (int)i;
+		dl->AddRectFilled(ImVec2(handles[i].pos.x - 3.f, handles[i].pos.y - 3.f), ImVec2(handles[i].pos.x + 3.f, handles[i].pos.y + 3.f),
+			hov ? IM_COL32(255, 255, 255, 255) : kCurveColors[handles[i].component]);
+	}
+	if (hovered && hotHandle >= 0 && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !drag.active)
+	{
+		const Handle& h = handles[hotHandle];
+		drag.active = true;
+		drag.handle = h.out ? 1 : 2;
+		drag.channel = ch;
+		drag.component = h.component;
+		drag.listIndex = h.listIndex;
+		drag.spanV0 = h.v0;
+		drag.spanV1 = h.v1;
+		doc.BeginInteractiveEdit();
+	}
+	if (drag.active && drag.handle != 0)
+	{
+		if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && drag.channel == ch)
+		{
+			const float rise = drag.spanV1 - drag.spanV0;
+			const float v = yToValue(mouse.y);
+			if (std::fabs(rise) > 1e-6f)
+			{
+				float tan = drag.handle == 1 ? 3.f * (v - drag.spanV0) / rise : 3.f * (drag.spanV1 - v) / rise;
+				tan = std::max(-3.f, std::min(6.f, tan));
+				const int i = drag.listIndex;
+				if (drag.component < 3 && i + 1 < (int)channel.positions.size())
+				{ if (drag.handle == 1) channel.positions[i].OutTangent = tan; else channel.positions[i + 1].InTangent = tan; }
+				if (drag.component >= 3 && i + 1 < (int)channel.rotations.size())
+				{ if (drag.handle == 1) channel.rotations[i].OutTangent = tan; else channel.rotations[i + 1].InTangent = tan; }
+				doc.dirty = true;
+				doc.clipsRevision++;
+			}
+		}
+		else
+		{
+			drag.active = false;
+			drag.handle = 0;
+			doc.EndInteractiveEdit("Shape curve");
+		}
+	}
 	for (size_t i = 0; i < keys.size(); i++)
 	{
 		const bool active = drag.active && drag.component == keys[i].component && std::fabs(drag.keyTime - keys[i].time) <= kAnimKeyEpsilon;
@@ -1991,10 +2119,11 @@ void DrawCurves(AnimationEditorDocument& doc)
 	}
 
 	// ---- interaction ----
-	if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+	if (hovered && ImGui::IsMouseClicked(ImGuiMouseButton_Left) && !(drag.active && drag.handle != 0))
 	{
 		if (hot >= 0)
 		{
+			drag.handle = 0;
 			drag.active = true;
 			drag.channel = ch;
 			drag.component = keys[hot].component;
@@ -2005,7 +2134,7 @@ void DrawCurves(AnimationEditorDocument& doc)
 		}
 		else SetPlayhead(doc, doc.SnapTime((mouse.x - left) / timeToX));
 	}
-	if (drag.active)
+	if (drag.active && drag.handle == 0)
 	{
 		if (ImGui::IsMouseDown(ImGuiMouseButton_Left) && drag.channel == ch)
 		{
@@ -2283,7 +2412,12 @@ void DrawTimeline(AnimationEditorDocument& doc)
 				k.pos = ImVec2(trackX + clip->Events[e].Time * timeToX, cy);
 				k.ref.kind = ANIM_KEY_EVENT; k.ref.channel = (int)e; k.ref.time = clip->Events[e].Time;
 				const bool sel = doc.selectedKeys.count(k.ref) > 0;
-				const ImU32 col = sel ? IM_COL32(255, 200, 60, 255) : IM_COL32(140, 220, 120, 255);
+				// Flashes white for a moment as playback passes it.
+				bool flash = false;
+				for (size_t f = 0; f < doc.firedEvents.size(); f++)
+					if (doc.firedEvents[f].name == clip->Events[e].Name && doc.firedEvents[f].clip == clip->AnimationName
+						&& ImGui::GetTime() - doc.firedEvents[f].at < 0.35) flash = true;
+				const ImU32 col = flash ? IM_COL32(255, 255, 255, 255) : sel ? IM_COL32(255, 200, 60, 255) : IM_COL32(140, 220, 120, 255);
 				dl->AddLine(ImVec2(k.pos.x, rowY + 2.f), ImVec2(k.pos.x, rowY + kRowHeight - 2.f), col, 1.5f);
 				dl->AddTriangleFilled(ImVec2(k.pos.x, rowY + 2.f), ImVec2(k.pos.x + 7.f, rowY + 5.5f), ImVec2(k.pos.x, rowY + 9.f), col);
 				dl->AddText(ImVec2(k.pos.x + 9.f, rowY + 2.f), IM_COL32(190, 225, 180, 255), clip->Events[e].Name.c_str());
@@ -2698,6 +2832,11 @@ void DrawTimeline(AnimationEditorDocument& doc)
 // own copies would be a second implementation of key selection, retiming and
 // interpolation, which is a second set of bugs.
 
+void SetKeyInterpolationRef(AnimationEditorDocument& doc, const AnimKeyRef& ref, int mode, float inTangent, float outTangent)
+{
+	SetRefInterpolation(doc, ref, mode, inTangent, outTangent);
+}
+
 void DrawTimelinePanel(AnimationEditorDocument& doc) { DrawTimeline(doc); }
 void DrawTransportBar(AnimationEditorDocument& doc, float dt) { DrawTransport(doc, dt); }
 void DrawSkeletonPanel(AnimationEditorDocument& doc, const char* emptyHint)
@@ -2785,6 +2924,7 @@ void DrawWindow(AnimationEditorDocument& doc, const std::vector<AnimationMeshCho
 			ImGui::SliderInt("After", &doc.onionAfter, 0, 8);
 			ImGui::SetNextItemWidth(100.f);
 			ImGui::SliderInt("Every n frames", &doc.onionStep, 1, 15);
+			ImGui::Checkbox("Mesh ghosts", &doc.onionMesh);
 			ImGui::EndPopup();
 		}
 		ImGui::SameLine();

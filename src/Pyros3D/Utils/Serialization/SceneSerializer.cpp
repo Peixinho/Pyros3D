@@ -32,6 +32,7 @@
 #include <Pyros3D/Audio/AudioSource.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
+#include <Pyros3D/AnimationManager/Components/AnimatorComponent.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
@@ -1735,6 +1736,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["sizeEase"] = (int)d.sizeEase;
 			j["colorEase"] = (int)d.colorEase;
 			j["boundingSphereRadius"] = d.boundingSphereRadius;
+			return j;
+		}
+		case ComponentType::Animator:
+		{
+			AnimatorComponent* an = dynamic_cast<AnimatorComponent*>(c);
+			j["type"] = "Animator";
+			if (!an->GetControllerPath().empty()) j["controller"] = RelativizeSceneAssetPath(an->GetControllerPath());
 			return j;
 		}
 		case ComponentType::IK:
@@ -4045,6 +4053,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					fc->AddLayer(layer);
 				}
 			go->AddComponent(fc);
+		}
+		else if (type == "Animator")
+		{
+			std::shared_ptr<AnimatorComponent> an = std::make_shared<AnimatorComponent>();
+			const std::string path = j.value("controller", std::string());
+			if (!path.empty()) an->LoadController(ResolveSceneAssetPath(path));
+			go->AddComponent(an);
 		}
 		else if (type == "IK")
 		{

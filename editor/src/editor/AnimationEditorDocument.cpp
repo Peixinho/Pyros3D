@@ -6,6 +6,7 @@
 #include "AnimationEditorDocument.h"
 #include "AnimationPreview.h"
 #include "RetargetSession.h"
+#include <imgui.h>
 
 #include <algorithm>
 #include <cmath>
@@ -1040,6 +1041,97 @@ int AnimationEditorDocument::PasteKeys(const AnimKeyClipboard& cb, float time)
 	for (std::set<AnimKeyRef>::const_iterator it = selectedKeys.begin(); it != selectedKeys.end(); ++it)
 		if (it->time > clip.Duration) clip.Duration = it->time;
 	return written;
+}
+
+namespace {
+
+// Greedy: walk the list, and drop key i when the straight span from the last
+// KEPT key to key i+1 lands on it. Re-checking against the last kept key
+// (not the original neighbour) is what stops a slow drift being removed one
+// harmless-looking step at a time.
+template <typename K, typename Err>
+int ReduceList(std::vector<K>& keys, Err error)
+{
+	if (keys.size() < 3) return 0;
+	std::vector<K> out;
+	out.push_back(keys[0]);
+	int removed = 0;
+	for (size_t i = 1; i + 1 < keys.size(); i++)
+	{
+		const K& a = out.back();
+		const K& b = keys[i + 1];
+		const bool linear = keys[i].Mode == p3d::INTERP_LINEAR && a.Mode == p3d::INTERP_LINEAR;
+		const float span = b.Time - a.Time;
+		bool drop = false;
+		if (linear && span > 1e-6f)
+		{
+			drop = true;
+			// Every key from the last kept one up to here must still be on
+			// the line, not just this one.
+			for (size_t k = i; k > 0 && keys[k].Time > a.Time + 1e-7f; k--)
+			{
+				const float u = (keys[k].Time - a.Time) / span;
+				if (!error(a, b, u, keys[k])) { drop = false; break; }
+			}
+		}
+		if (drop) removed++;
+		else out.push_back(keys[i]);
+	}
+	out.push_back(keys.back());
+	keys.swap(out);
+	return removed;
+}
+
+} // namespace
+
+int AnimationEditorDocument::ReduceKeys(int clipIndex, float posTolerance, float rotToleranceDeg,
+	const std::string& boneFilter)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return 0;
+	const float cosHalf = std::cos((float)DEGTORAD(rotToleranceDeg) * 0.5f);
+	int removed = 0;
+	for (size_t c = 0; c < clips[clipIndex].Channels.size(); c++)
+	{
+		Channel& ch = clips[clipIndex].Channels[c];
+		if (!boneFilter.empty() && ch.NodeName != boneFilter) continue;
+		const auto vecOk = [posTolerance](const Vec3& a, const Vec3& b, float u, const Vec3& v) {
+			const Vec3 p = a.Lerp(b, u);
+			return (p - v).magnitude() <= posTolerance;
+		};
+		removed += ReduceList(ch.positions, [&](const PositionData& a, const PositionData& b, float u, const PositionData& k) {
+			return vecOk(a.Pos, b.Pos, u, k.Pos); });
+		removed += ReduceList(ch.scales, [&](const ScalingData& a, const ScalingData& b, float u, const ScalingData& k) {
+			return vecOk(a.Scale, b.Scale, u, k.Scale); });
+		removed += ReduceList(ch.rotations, [&](const RotationData& a, const RotationData& b, float u, const RotationData& k) {
+			const Quaternion q = a.Rot.Slerp(b.Rot, u);
+			const float d = std::fabs(q.x * k.Rot.x + q.y * k.Rot.y + q.z * k.Rot.z + q.w * k.Rot.w);
+			return d >= cosHalf;   // the angle between them is at most the tolerance
+		});
+	}
+	for (size_t t = 0; t < clips[clipIndex].Tracks.size(); t++)
+	{
+		const float tol = posTolerance;
+		removed += ReduceList(clips[clipIndex].Tracks[t].Keys, [tol](const PropertyKey& a, const PropertyKey& b, float u, const PropertyKey& k) {
+			if (!a.Text.empty() || !k.Text.empty()) return false;   // pictures never interpolate
+			const float dx = a.Value.x + (b.Value.x - a.Value.x) * u - k.Value.x;
+			const float dy = a.Value.y + (b.Value.y - a.Value.y) * u - k.Value.y;
+			const float dz = a.Value.z + (b.Value.z - a.Value.z) * u - k.Value.z;
+			const float dw = a.Value.w + (b.Value.w - a.Value.w) * u - k.Value.w;
+			return std::sqrt(dx * dx + dy * dy + dz * dz + dw * dw) <= tol;
+		});
+	}
+	if (removed) selectedKeys.clear();
+	return removed;
+}
+
+void AnimationEditorDocument::NoteFiredEvent(const std::string& name, const std::string& clip)
+{
+	SeenEvent e;
+	e.name = name;
+	e.clip = clip;
+	e.at = ImGui::GetTime();
+	if (firedEvents.size() >= 16) firedEvents.erase(firedEvents.begin());
+	firedEvents.push_back(e);
 }
 
 float AnimationEditorDocument::SnapTime(float time) const

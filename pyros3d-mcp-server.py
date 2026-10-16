@@ -5745,15 +5745,30 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       events: [index], tracks: [{target, property, time}]; none = the selection)
       animation_paste_keys (time, clip)
       animation_view (onion, onionBefore, onionAfter, onionStep, curves, split, unsplit)
-      animation_retarget (source .p3da, sourceRig .p3dm, clips, map {target: source}, fps)
+      animation_retarget (source .p3da, sourceRig .p3dm, clips, map {target: source}, fps, reduce)
+      animation_reduce_keys (clip, posTolerance, rotTolerance degrees, bone)
+      animation_key_interp (clip, bone, time, kind: column|position|rotation|scale,
+      interp: Linear|Step|...|Bezier, inTangent, outTangent)
       animation_ik action set also takes holdRotation, captureRotation
+    Animation state machine (.p3dac)
+      new_animator_controller (path), open_animator (path), save_animator (path),
+      animator_state (path) - the controller JSON plus the live state when playing,
+      animator_edit (path, action: add_state|remove_state|set_state|set_default|
+      add_transition|remove_transition|set_transition|add_param|remove_param|
+      set_param|clips_from, + name, clip, speed, loop, pos, from ("*" any), to,
+      index, duration, exitTime, conditions [{param, op: > < == != true false,
+      value}], type: float|bool|trigger, default, rename, file)
+      get_animator / add_animator (name, controller) / set_animator / remove_animator,
+      animator_param (name, param, value | true | "trigger") - live in Play
+      Lua: setAnimatorFloat(go, p, v), setAnimatorBool, setAnimatorTrigger,
+      getAnimatorState(go), playAnimatorState(go, state, fade)
     Runtime IK component (Scene View)
       get_ik / add_ik (name, rig) / set_ik (name, iterations, constraints
       [{chain, target, pole, weight, enabled, matchRotation}] or index + one
       constraint's keys) / remove_ik
     2D Character editor
       set_clip2d (clip, duration), new_clip2d, rename_clip2d, set_bone2d, ...
-      set_sprite2d also takes bend (second bone) and bendSegments
+      set_sprite2d also takes bend (end bone of up to 4 it follows), bendSegments, bendBlend
       set_bone_limit2d (bone, min, max degrees, enabled)
       pin_bone2d (bone, pinned, at [x,y]), bake_pins2d (clip, from, to)
       key_part2d (sprite, property: sprite|z|color|visible, value, text, time, clip)

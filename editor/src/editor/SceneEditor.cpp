@@ -5849,6 +5849,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				pendingFoliageOp = { { "cmd", "add_ik" }, { "id", goId } };
 				ImGui::CloseCurrentPopup();
 			}
+			if (ImGui::MenuItem("Animator (state machine)"))
+			{
+				pendingFoliageOp = { { "cmd", "add_animator" }, { "id", goId } };
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Plays this object's clips from a state machine (.p3dac): scripts set\nparameters (speed, grounded, jump) and the machine picks and crossfades the clip.");
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Runtime IK on this object's rig: a chain's end reaches for another\nobject every frame, after the animation (a hand on a prop, a foot on the ground).");
 			if (ImGui::IsItemHovered())
@@ -11222,6 +11229,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					DrawFoliageProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawNetworkIdentityProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawIKComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
+					DrawAnimatorComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawWorldCellProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 #ifdef LUA_BINDINGS
 					DrawGameObjectScriptProperties(SelectedSceneObject->GetID());

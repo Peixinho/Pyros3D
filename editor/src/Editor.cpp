@@ -134,6 +134,17 @@ void Editor::ShowAssetCreateMenuItems()
 	// to decide before you have put a bone in it.
 	if (ImGui::MenuItem("New 2D Character"))
 		NewCharacter2DDocument();
+	// A state machine file under assets/animations, opened at once; it is
+	// named by renaming the file, like a character is named by saving it.
+	if (ImGui::MenuItem("New State Machine") && project.IsOpen())
+	{
+		std::string rel = "assets/animations/NewStateMachine.p3dac";
+		for (int i = 2; std::filesystem::exists(project.AbsolutePath(rel)); i++)
+			rel = "assets/animations/NewStateMachine" + std::to_string(i) + ".p3dac";
+		nlohmann::json r;
+		try { HandleAnimatorCommand("new_animator_controller", nlohmann::json{ { "path", rel } }, r); }
+		catch (const std::exception& e) { echo(std::string("ERROR: ") + e.what()); }
+	}
 	ImGui::Separator();
 	if (ImGui::MenuItem("Import Animation..."))
 	{
@@ -933,6 +944,10 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		nlohmann::json sr;
 		if (HandleSpriteSheetCommand(name, a, sr)) return sr;
 	}
+	{
+		nlohmann::json ar;
+		if (HandleAnimatorCommand(name, a, ar)) return ar;
+	}
 
 	if (name == "ping")
 	{
@@ -1106,7 +1121,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		|| name == "animation_blend" || name == "animation_ik" || name == "animation_joint_limit"
 		|| name == "animation_events" || name == "animation_track_key" || name == "animation_pose_op"
 		|| name == "animation_copy_keys" || name == "animation_paste_keys" || name == "animation_view"
-		|| name == "animation_retarget")
+		|| name == "animation_retarget" || name == "animation_reduce_keys" || name == "animation_key_interp")
 	{
 		if (name == "list_animations")
 		{
@@ -1236,6 +1251,11 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			r["selectedBone"] = doc->selectedBoneName;
 			r["canUndo"] = doc->undo.CanUndo();
 			r["canRedo"] = doc->undo.CanRedo();
+			// Events the preview has passed lately (timeline playback or Blend), oldest first.
+			nlohmann::json fired = nlohmann::json::array();
+			for (size_t f = 0; f < doc->firedEvents.size(); f++)
+				fired.push_back({ { "name", doc->firedEvents[f].name }, { "clip", doc->firedEvents[f].clip } });
+			r["firedEvents"] = fired;
 			nlohmann::json clips = nlohmann::json::array();
 			for (size_t i = 0; i < doc->clips.size(); i++)
 			{
@@ -1465,6 +1485,46 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			return r;
 		}
 
+		// {"clip"?, "bone", "time", "kind":"column|position|rotation|scale",
+		//  "interp":"Linear|Step|...|Bezier", "inTangent"?, "outTangent"?}
+		if (name == "animation_key_interp")
+		{
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			AnimKeyRef ref;
+			ref.channel = doc->FindChannel(clip, A("bone"));
+			if (ref.channel < 0) throw std::runtime_error("bone '" + A("bone") + "' has no keys in this clip");
+			ref.time = a.value("time", 0.f);
+			const std::string kind = A("kind");
+			ref.kind = kind == "position" ? ANIM_KEY_POSITION : kind == "rotation" ? ANIM_KEY_ROTATION
+				: kind == "scale" ? ANIM_KEY_SCALE : ANIM_KEY_COLUMN;
+			int mode = -1;
+			for (unsigned m = 0; m < p3d::kInterpolationModeCount; m++)
+				if (A("interp") == p3d::InterpolationModeName((uchar)m)) mode = (int)m;
+			if (mode < 0) throw std::runtime_error("interp must be one of the InterpolationModeName names (Linear, Step, ..., Bezier)");
+			const int keep = doc->activeClip;
+			doc->activeClip = clip;
+			doc->PushSnapshotEdit("Set interpolation", [&]() {
+				AnimationEditor::SetKeyInterpolationRef(*doc, ref, mode, a.value("inTangent", 1.f), a.value("outTangent", 1.f));
+			});
+			doc->activeClip = keep;
+			nlohmann::json r; r["ok"] = true;
+			return r;
+		}
+
+		// {"clip"?, "posTolerance"?, "rotTolerance"? (degrees), "bone"?}
+		if (name == "animation_reduce_keys")
+		{
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			int removed = 0;
+			const float pt = a.is_object() ? a.value("posTolerance", 0.001f) : 0.001f;
+			const float rt = a.is_object() ? a.value("rotTolerance", 0.25f) : 0.25f;
+			doc->PushSnapshotEdit("Reduce keys", [&]() { removed = doc->ReduceKeys(clip, pt, rt, A("bone")); });
+			nlohmann::json r; r["removed"] = removed;
+			return r;
+		}
+
 		// ---- clip events -----------------------------------------------
 		// {"action":"list|add|remove|rename|move", "clip"?, "index", "time", "name"}
 		if (name == "animation_events")
@@ -1661,6 +1721,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				if (a.contains("onionAfter")) doc->onionAfter = std::max(0, std::min(8, a["onionAfter"].get<int>()));
 				if (a.contains("onionStep")) doc->onionStep = std::max(1, std::min(15, a["onionStep"].get<int>()));
 				if (a.contains("curves")) doc->curveView = a["curves"].get<bool>();
+				if (a.contains("onionMesh")) doc->onionMesh = a["onionMesh"].get<bool>();
 				if (a.contains("split")) for (const auto& b : a["split"]) doc->splitBones.insert(b.get<std::string>());
 				if (a.contains("unsplit")) for (const auto& b : a["unsplit"]) doc->splitBones.erase(b.get<std::string>());
 			}
@@ -1670,6 +1731,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			r["onionAfter"] = doc->onionAfter;
 			r["onionStep"] = doc->onionStep;
 			r["curves"] = doc->curveView;
+			r["onionMesh"] = doc->onionMesh;
 			r["split"] = nlohmann::json(std::vector<std::string>(doc->splitBones.begin(), doc->splitBones.end()));
 			return r;
 		}
@@ -1685,6 +1747,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			if (!rs.Load(project.AbsolutePath(src), project.AbsolutePath(rig), pv->instance) && !rs.source)
 				throw std::runtime_error(rs.error);
 			if (a.contains("fps")) rs.fps = std::max(1.f, a.value("fps", 30.f));
+			if (a.contains("reduce")) rs.reduce = a.value("reduce", true);
 			if (a.contains("clips") && a["clips"].is_array())
 				for (size_t i = 0; i < rs.clips.size(); i++)
 				{
@@ -2409,6 +2472,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		else if (ProjectManager::IsP3dm(rel)) { ok = OpenAnimationDocument(abs); kind = "animation"; }
 		else if (rel.size() > 5 && rel.compare(rel.size() - 5, 5, ".p3dt") == 0) { ok = OpenTileSetDocument(abs); kind = "tileset"; }
 		else if (ProjectManager::IsSpriteSheetExtension(rel)) { ok = OpenSpriteSheetDocument(abs); kind = "spritesheet"; }
+		else if (ProjectManager::IsAnimatorExtension(rel)) { ok = OpenAnimatorDocument(abs); kind = "animator"; }
 		else if (!ProjectManager::IsSceneSidecarPath(rel) && rel.size() > 5
 			&& rel.compare(rel.size() - 5, 5, ".json") == 0) { ok = OpenSceneDocument(abs); kind = "scene"; }
 		else throw std::runtime_error("no editor opens " + rel);
@@ -3003,6 +3067,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	// Runtime IK component: get_ik / add_ik {name|id, rig?} / set_ik {name|id,
 	// iterations?, constraints?, or index + one constraint's keys} / remove_ik.
+	// Animator component: get_animator / add_animator {name, controller} / set_animator
+	// / remove_animator / animator_param {name, param, value | true | "trigger"}.
+	if (name == "get_animator" || name == "add_animator" || name == "set_animator" || name == "remove_animator" || name == "animator_param")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentAnimator(name, a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "get_ik" || name == "add_ik" || name == "set_ik" || name == "remove_ik")
 	{
 		nlohmann::json r;
@@ -4152,6 +4225,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			activeTileSetDoc->undo.Undo();
 		else if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc)
 			activeSpriteSheetDoc->undo.Undo();
+		else if (lastFocusedDocKind == FocusedDocKind::Animator && activeAnimatorDoc)
+			activeAnimatorDoc->undo.Undo();
 		else if (lastFocusedDocKind == FocusedDocKind::Material && activeMaterialDoc)
 			activeMaterialDoc->undo.Undo();
 		else if (sceneView) sceneView->Undo();
@@ -4169,6 +4244,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		{ activeTileSetDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
 		if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc)
 		{ activeSpriteSheetDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
+		if (lastFocusedDocKind == FocusedDocKind::Animator && activeAnimatorDoc)
+		{ activeAnimatorDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
 		if (lastFocusedDocKind == FocusedDocKind::Material && activeMaterialDoc)
 		{ activeMaterialDoc->undo.Redo(); nlohmann::json r; r["ok"] = true; return r; }
 		sceneView->Redo();
@@ -4978,6 +5055,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				sp.bendBone = bn;
 			}
 			if (a.contains("bendSegments")) sp.bendSegments = std::max(1, std::min(64, a.value("bendSegments", 8)));
+			if (a.contains("bendBlend")) sp.bendBlend = std::max(0.02f, std::min(1.f, a.value("bendBlend", 0.3f)));
 		}
 		std::vector<f32> o = AV("offset"); if (o.size() >= 2) sp.offset = Vec2(o[0], o[1]);
 		std::vector<f32> sc = AV("scale");  if (sc.size() >= 2) sp.scale = Vec2(sc[0], sc[1]);
@@ -5326,7 +5404,21 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 					if ((size_t)it->first < doc->asset.bones.size())
 						pins.push_back({ { "bone", doc->asset.bones[it->first].name }, { "at", { it->second.x, it->second.y } } });
 			r["pins"] = pins;
-			if (doc->preview) r["tool"] = doc->preview->tool == Character2DPreview::Tool::Rotate ? "rotate" : "pose";
+			if (doc->preview)
+			{
+				r["tool"] = doc->preview->tool == Character2DPreview::Tool::Rotate ? "rotate" : "pose";
+				// The viewport image on screen, and each joint's pixel in it.
+				r["viewport"] = { { "x", doc->preview->imageX }, { "y", doc->preview->imageY },
+					{ "w", doc->preview->width }, { "h", doc->preview->height } };
+				nlohmann::json px = nlohmann::json::object();
+				for (size_t b = 0; b < doc->asset.bones.size(); b++)
+				{
+					Vec2 p;
+					if (doc->preview->BoneToPixels((int)b, p))
+						px[doc->asset.bones[b].name] = { doc->preview->imageX + p.x, doc->preview->imageY + p.y };
+				}
+				r["jointScreen"] = px;
+			}
 		}
 
 		// `pos` is the bone's REST position in its parent's frame - the
@@ -5660,6 +5752,15 @@ void Editor::DrawUI()
 			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
 				activeTileSetDoc->undo.Redo();
 		}
+		else if (lastFocusedDocKind == FocusedDocKind::Animator && activeAnimatorDoc)
+		{
+			if (ImGui::IsKeyPressed(ImGuiKey_Z))
+			{
+				if (shift) activeAnimatorDoc->undo.Redo(); else activeAnimatorDoc->undo.Undo();
+			}
+			else if (!shift && ImGui::IsKeyPressed(ImGuiKey_Y))
+				activeAnimatorDoc->undo.Redo();
+		}
 	}
 
 	// Menu bar. Each File action is requested here and performed once below,
@@ -5793,6 +5894,11 @@ void Editor::DrawUI()
 				canUndo = activeSpriteSheetDoc->undo.CanUndo(); canRedo = activeSpriteSheetDoc->undo.CanRedo();
 				undoDesc = activeSpriteSheetDoc->undo.UndoDescription(); redoDesc = activeSpriteSheetDoc->undo.RedoDescription();
 			}
+			else if (lastFocusedDocKind == FocusedDocKind::Animator && activeAnimatorDoc)
+			{
+				canUndo = activeAnimatorDoc->undo.CanUndo(); canRedo = activeAnimatorDoc->undo.CanRedo();
+				undoDesc = activeAnimatorDoc->undo.UndoDescription(); redoDesc = activeAnimatorDoc->undo.RedoDescription();
+			}
 			const std::string undoLabel = canUndo ? ("Undo " + undoDesc) : "Undo";
 			const std::string redoLabel = canRedo ? ("Redo " + redoDesc) : "Redo";
 			if (ImGui::MenuItem(undoLabel.c_str(), (std::string(ShortcutPrefix()) + "Z").c_str(), false, canUndo))
@@ -5802,6 +5908,7 @@ void Editor::DrawUI()
 				else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc) activeCharacter2DDoc->undo.Undo();
 				else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc) activeTileSetDoc->undo.Undo();
 				else if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc) activeSpriteSheetDoc->undo.Undo();
+				else if (lastFocusedDocKind == FocusedDocKind::Animator && activeAnimatorDoc) activeAnimatorDoc->undo.Undo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Undo();
 			}
 			if (ImGui::MenuItem(redoLabel.c_str(), (std::string(ShortcutPrefix()) + "Shift+Z").c_str(), false, canRedo))
@@ -5811,6 +5918,7 @@ void Editor::DrawUI()
 				else if (lastFocusedDocKind == FocusedDocKind::Character2D && activeCharacter2DDoc) activeCharacter2DDoc->undo.Redo();
 				else if (lastFocusedDocKind == FocusedDocKind::TileSet && activeTileSetDoc) activeTileSetDoc->undo.Redo();
 				else if (lastFocusedDocKind == FocusedDocKind::SpriteSheet && activeSpriteSheetDoc) activeSpriteSheetDoc->undo.Redo();
+				else if (lastFocusedDocKind == FocusedDocKind::Animator && activeAnimatorDoc) activeAnimatorDoc->undo.Redo();
 				else if (activeMaterialDoc) activeMaterialDoc->undo.Redo();
 			}
 
@@ -6015,6 +6123,7 @@ void Editor::DrawUI()
 	DrawCharacter2DEditorWindows();
 	DrawTileSetEditorWindows();
 	DrawSpriteSheetEditorWindows();
+	DrawAnimatorEditorWindows();
 
 	if (showingSceneTree)
 		DrawSceneTreeWindow();
@@ -9324,6 +9433,7 @@ void Editor::DrawAssetsWindow()
 		const bool isTileSet = e.relativePath.size() > 5
 			&& e.relativePath.compare(e.relativePath.size() - 5, 5, ".p3dt") == 0;
 		const bool isSpriteSheet = ProjectManager::IsSpriteSheetExtension(e.relativePath);
+		const bool isAnimator = ProjectManager::IsAnimatorExtension(e.relativePath);
 		const bool isMat = ProjectManager::IsMaterialExtension(e.relativePath);
 		const bool isAnim = ProjectManager::IsAnimationExtension(e.relativePath);
 		const bool isChar2D = ProjectManager::IsCharacter2DExtension(e.relativePath);
@@ -9507,6 +9617,8 @@ void Editor::DrawAssetsWindow()
 				OpenTileSetDocument(abs);
 			else if (isSpriteSheet)
 				OpenSpriteSheetDocument(abs);
+			else if (isAnimator)
+				OpenAnimatorDocument(abs);
 			else if (isSound)
 			{
 				// Double-click sound also previews (same as play button).
@@ -9561,6 +9673,8 @@ void Editor::DrawAssetsWindow()
 				OpenTileSetDocument(abs);
 			if (isSpriteSheet && ImGui::MenuItem("Edit Sprite Sheet"))
 				OpenSpriteSheetDocument(abs);
+			if (isAnimator && ImGui::MenuItem("Edit State Machine"))
+				OpenAnimatorDocument(abs);
 			if (isSpriteSheet && ImGui::MenuItem("Place Sprite in Scene") && sceneView)
 				sceneView->PlaceAssetInScene(abs);
 			if (isChar2D && ImGui::MenuItem("Place in Scene") && sceneView)

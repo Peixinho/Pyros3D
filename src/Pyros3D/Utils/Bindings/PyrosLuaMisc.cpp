@@ -712,6 +712,13 @@ end
 		lua->set_function("setIKConstraintEnabled", &SetIKConstraintEnabled);
 		lua->set_function("setIKConstraintWeight", &SetIKConstraintWeight);
 		lua->set_function("setIKConstraintMatchRotation", &SetIKConstraintMatchRotation);
+		// The object's animation state machine (an Animator component).
+		lua->set_function("setAnimatorFloat", &SetAnimatorFloat);
+		lua->set_function("setAnimatorBool", &SetAnimatorBool);
+		lua->set_function("setAnimatorTrigger", &SetAnimatorTrigger);
+		lua->set_function("getAnimatorState", &GetAnimatorState);
+		lua->set_function("playAnimatorState", sol::overload(&PlayAnimatorState,
+			[](GameObject* go, const std::string &state) { return PlayAnimatorState(go, state, 0.2f); }));
 
 		// terrain - ground height queries and runtime sculpting/painting
 		// (see TerrainEditor.h). One editor per process: a stroke's state

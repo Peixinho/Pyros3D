@@ -184,6 +184,8 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/PhysicsEngines/IPhysics.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Resources/Resources.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/Components/IKComponent.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/Components/AnimatorComponent.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/AnimatorController.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/IKSolver.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/RigAsset.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/AnimationManager/SkeletonAnimation.cpp

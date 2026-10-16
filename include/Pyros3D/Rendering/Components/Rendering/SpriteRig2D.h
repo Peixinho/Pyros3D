@@ -79,10 +79,15 @@ namespace p3d {
 		// them - an arm drawn as one picture that bends at the elbow instead
 		// of two pictures that split there. Empty: the part is a rigid quad.
 		std::string bendBone;
+		// The bend follows every bone from `bone` down to `bendBone` - up to
+		// four, so a tail or a spine can be one picture.
 		// Grid cells along each side of a bent part. More bends more smoothly.
 		int32 bendSegments;
+		// How far the blend reaches either side of each joint, as a share of
+		// the bone it is on: small is a sharp elbow, large a soft tail.
+		f32 bendBlend;
 
-		SpritePart2D() : offset(0.f, 0.f), scale(1.f, 1.f), z(0.f), pivot(0.5f, 0.5f), lit(false), bendSegments(8) {}
+		SpritePart2D() : offset(0.f, 0.f), scale(1.f, 1.f), z(0.f), pivot(0.5f, 0.5f), lit(false), bendSegments(8), bendBlend(0.3f) {}
 	};
 
 	// Built pieces of a rig: one geometry per part, one material per part.

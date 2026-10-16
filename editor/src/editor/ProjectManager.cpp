@@ -438,6 +438,11 @@ bool ProjectManager::IsSpriteSheetExtension(const std::string& path)
 	return ExtensionLower(path) == "p3ds";
 }
 
+bool ProjectManager::IsAnimatorExtension(const std::string& path)
+{
+	return ExtensionLower(path) == "p3dac";
+}
+
 bool ProjectManager::IsFontExtension(const std::string& path)
 {
 	const std::string ext = ExtensionLower(path);

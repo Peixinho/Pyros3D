@@ -197,6 +197,8 @@ struct AnimationEditorDocument {
 	int onionBefore = 2;
 	int onionAfter = 2;
 	int onionStep = 3;
+	// Draw the ghosts as see-through copies of the mesh, not only bones.
+	bool onionMesh = true;
 	// Key both position and rotation when keying a posed bone. Rotation
 	// alone is the common case for a limb; position matters for the root.
 	bool keyPosition = true;
@@ -472,6 +474,25 @@ struct AnimationEditorDocument {
 	// Pastes at `time` into the active clip and selects what was pasted.
 	// Not undo-wrapped - the caller pushes the edit. Returns keys written.
 	int PasteKeys(const AnimKeyClipboard& clip, float time);
+
+	// ---- events seen firing -------------------------------------------
+	// Events the preview passed (timeline playback, or the Blend tab's real
+	// playback), with the ImGui time they fired at, so the Events row can
+	// flash them and the transport can say which one just went. Newest last.
+	struct SeenEvent { std::string name, clip; double at; };
+	std::vector<SeenEvent> firedEvents;
+	void NoteFiredEvent(const std::string& name, const std::string& clip);
+
+	// ---- key reduction -----------------------------------------------
+	// Drops every key the curve would pass through anyway: a key goes when
+	// the linear span between its kept neighbours reproduces it to within
+	// `posTolerance` (units) / `rotToleranceDeg` (degrees). Keys with a
+	// non-linear interpolation, and each list's first and last key, stay.
+	// What retargeting and baking leave behind is a key per frame; this is
+	// what makes those clips editable by hand. `boneFilter` empty = every
+	// channel. Not undo-wrapped. Returns how many keys went.
+	int ReduceKeys(int clipIndex, float posTolerance, float rotToleranceDeg,
+		const std::string& boneFilter = std::string());
 
 	// Drops channels with no keys at all. Called after key deletion so an
 	// emptied bone stops occupying a dope-sheet row (and stops being

@@ -27,6 +27,8 @@ struct RetargetSession {
 	// target bone name -> source bone name. Seeded by name, editable.
 	std::map<std::string, std::string> map;
 	float fps = 30.f;
+	// Drop the keys the motion passes through anyway after retargeting.
+	bool reduce = true;
 	std::string error;
 
 	// The source rig, alive only while the session is.

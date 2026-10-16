@@ -285,3 +285,212 @@ void SceneEditor::DrawIKComponentProperties(GameObject* go, uint32 goId)
 		pendingFoliageOp = { { "cmd", "remove_ik" }, { "id", goId } };
 	ImGui::PopID();
 }
+
+// ---- the Animator component (state machine) ----------------------------------
+
+#include <Pyros3D/AnimationManager/Components/AnimatorComponent.h>
+#include <filesystem>
+
+namespace {
+
+AnimatorComponent* FindAnimatorComp(GameObject* go)
+{
+	if (!go) return NULL;
+	const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+	for (size_t i = 0; i < comps.size(); i++)
+		if (comps[i] && comps[i]->GetComponentType() == ComponentType::Animator) return static_cast<AnimatorComponent*>(comps[i].get());
+	return NULL;
+}
+
+bool SameFile(const std::string& a, const std::string& b)
+{
+	if (a == b) return true;
+	std::error_code ec;
+	return !a.empty() && !b.empty() && std::filesystem::equivalent(a, b, ec);
+}
+
+json* AnimatorJsonIn(json &tree)
+{
+	json &comps = tree["root"]["components"];
+	if (!comps.is_array()) return NULL;
+	for (size_t i = 0; i < comps.size(); i++)
+		if (comps[i].value("type", std::string()) == "Animator") return &comps[i];
+	return NULL;
+}
+
+} // namespace
+
+Animator* SceneEditor::FindLiveAnimator(const std::string& controllerAbs)
+{
+	if (!scene) return NULL;
+	// The selected object first - the one being looked at - then any.
+	if (SelectedSceneObject && SelectedSceneObject->GetType() == SceneObjectTypes::GAMEOBJECT)
+		if (AnimatorComponent* a = FindAnimatorComp((GameObject*)SelectedSceneObject->GetPTR()))
+			if (a->GetAnimator().IsBound() && SameFile(a->GetControllerPath(), controllerAbs)) return &a->GetAnimator();
+	std::vector<std::shared_ptr<GameObject> > &all = scene->GetAllGameObjectList();
+	for (size_t i = 0; i < all.size(); i++)
+		if (AnimatorComponent* a = FindAnimatorComp(all[i].get()))
+			if (a->GetAnimator().IsBound() && SameFile(a->GetControllerPath(), controllerAbs)) return &a->GetAnimator();
+	return NULL;
+}
+
+int SceneEditor::ReloadAnimatorsUsing(const std::string& controllerAbs, const AnimatorController& controller)
+{
+	if (!scene) return 0;
+	int n = 0;
+	std::vector<std::shared_ptr<GameObject> > &all = scene->GetAllGameObjectList();
+	for (size_t i = 0; i < all.size(); i++)
+		if (AnimatorComponent* a = FindAnimatorComp(all[i].get()))
+			if (SameFile(a->GetControllerPath(), controllerAbs)) { a->SetController(controller); n++; }
+	return n;
+}
+
+// get_animator {name} / add_animator {name, controller} / set_animator {name, controller}
+// / remove_animator {name} / animator_param {name, param, value|true|"trigger"} (live, in Play)
+bool SceneEditor::AgentAnimator(const std::string& command, const json& a, json& out, std::string& errOut)
+{
+	const json args = a.is_object() ? a : json::object();
+	SceneObject* target = NULL;
+	if (args.contains("id")) target = sceneObjects->GetSceneObject(args.value("id", 0u));
+	else if (args.contains("name"))
+	{
+		const std::string name = args.value("name", std::string());
+		for (std::map<uint32, SceneObject*>::const_iterator i = sceneObjects->GetList().begin(); i != sceneObjects->GetList().end() && !target; ++i)
+			if (i->second && i->second->GetType() == SceneObjectTypes::GAMEOBJECT && i->second->GetName() == name) target = i->second;
+	}
+	else target = SelectedSceneObject;
+	if (!target || target->GetType() != SceneObjectTypes::GAMEOBJECT) { errOut = "object not found (name, id, or a selection)"; return false; }
+	GameObject* go = (GameObject*)target->GetPTR();
+	const uint32 id = target->GetID();
+	AnimatorComponent* comp = FindAnimatorComp(go);
+
+	if (command == "get_animator")
+	{
+		if (!comp) { out["animator"] = nullptr; return true; }
+		out["controller"] = comp->GetControllerPath();
+		out["state"] = comp->GetAnimator().GetState();
+		out["progress"] = comp->GetAnimator().GetStateProgress();
+		json vals = json::object();
+		const AnimatorController& c = comp->GetController();
+		for (size_t i = 0; i < c.params.size(); i++) vals[c.params[i].name] = comp->GetAnimator().GetFloat(c.params[i].name);
+		out["params"] = vals;
+		return true;
+	}
+	if (command == "animator_param")
+	{
+		if (!comp) { errOut = "it has no Animator"; return false; }
+		const std::string p = args.value("param", std::string());
+		bool ok = false;
+		if (args.contains("value") && args["value"].is_string() && args["value"].get<std::string>() == "trigger") ok = comp->GetAnimator().SetTrigger(p);
+		else if (args.contains("value") && args["value"].is_boolean()) ok = comp->GetAnimator().SetBool(p, args["value"].get<bool>());
+		else ok = comp->GetAnimator().SetFloat(p, args.value("value", 0.f));
+		if (!ok) { errOut = "no parameter '" + p + "' (or the animator is not running)"; return false; }
+		return AgentAnimator("get_animator", json{ { "id", id } }, out, errOut);
+	}
+	if (playMode) { errOut = "stop play mode first"; return false; }
+	if (command == "add_animator" || command == "set_animator")
+	{
+		const std::string ctl = args.value("controller", std::string());
+		if (command == "add_animator" && comp) { errOut = "it already has an Animator"; return false; }
+		if (command == "set_animator" && !comp) { errOut = "it has no Animator (add_animator)"; return false; }
+		const bool add = command == "add_animator";
+		const bool ok = EditSubtreeJson(id, [ctl, add](json &tree, std::string &err) {
+			json* an = AnimatorJsonIn(tree);
+			if (add)
+			{
+				json c; c["type"] = "Animator";
+				if (!ctl.empty()) c["controller"] = ctl;
+				tree["root"]["components"].push_back(c);
+				return true;
+			}
+			if (!an) { err = "it has no Animator"; return false; }
+			if (ctl.empty()) an->erase("controller"); else (*an)["controller"] = ctl;
+			return true;
+		}, add ? "Add Animator" : "Set Animator controller", errOut);
+		if (!ok) return false;
+		if (SceneObject* now = sceneObjects->GetSceneObject(id)) SelectSceneObject(now);
+		return AgentAnimator("get_animator", json{ { "id", id } }, out, errOut);
+	}
+	if (command == "remove_animator")
+	{
+		const bool ok = EditSubtreeJson(id, [](json &tree, std::string &err) {
+			json &comps = tree["root"]["components"];
+			for (size_t i = 0; comps.is_array() && i < comps.size(); i++)
+				if (comps[i].value("type", std::string()) == "Animator") { comps.erase(comps.begin() + i); return true; }
+			err = "it has no Animator";
+			return false;
+		}, "Remove Animator", errOut);
+		if (!ok) return false;
+		out["ok"] = true;
+		return true;
+	}
+	errOut = "unknown animator command " + command;
+	return false;
+}
+
+void SceneEditor::DrawAnimatorComponentProperties(GameObject* go, uint32 goId)
+{
+	AnimatorComponent* comp = FindAnimatorComp(go);
+	if (!comp) return;
+	if (!ImGui::CollapsingHeader("Animator##props_animator", ImGuiTreeNodeFlags_DefaultOpen)) return;
+	ImGui::PushID("animator_props");
+
+	// The controller: any .p3dac in the project.
+	std::vector<std::string> files;
+	if (project && project->IsOpen())
+	{
+		std::vector<ProjectAssetEntry> entries;
+		project->ListAssets("assets", entries, true);
+		for (size_t e = 0; e < entries.size(); e++)
+			if (!entries[e].isDirectory && ProjectManager::IsAnimatorExtension(entries[e].relativePath)) files.push_back(entries[e].relativePath);
+	}
+	std::string shown = comp->GetControllerPath().empty() ? std::string("(none)") : comp->GetControllerPath();
+	if (project && !comp->GetControllerPath().empty()) shown = project->DisplayPath(comp->GetControllerPath());
+	ImGui::SetNextItemWidth(-1.f);
+	if (!playMode && ImGui::BeginCombo("##controller", shown.c_str()))
+	{
+		for (size_t i = 0; i < files.size(); i++)
+			if (ImGui::Selectable(files[i].c_str()))
+				pendingFoliageOp = { { "cmd", "set_animator" }, { "id", goId }, { "controller", files[i] } };
+		if (files.empty()) ImGui::TextDisabled("No .p3dac in the project - make one in Assets.");
+		ImGui::EndCombo();
+	}
+	else if (playMode) ImGui::TextDisabled("%s", shown.c_str());
+
+	Animator& an = comp->GetAnimator();
+	if (an.IsBound())
+	{
+		ImGui::Text("State: %s", an.GetState().empty() ? "-" : an.GetState().c_str());
+		ImGui::ProgressBar(an.GetStateProgress(), ImVec2(-1.f, 4.f), "");
+		const AnimatorController& c = comp->GetController();
+		for (size_t i = 0; i < c.params.size(); i++)
+		{
+			ImGui::PushID((int)i);
+			const AnimatorParam& p = c.params[i];
+			if (p.type == ANIMATOR_FLOAT)
+			{
+				float v = an.GetFloat(p.name);
+				ImGui::SetNextItemWidth(120.f);
+				if (ImGui::DragFloat(p.name.c_str(), &v, 0.05f)) an.SetFloat(p.name, v);
+			}
+			else if (p.type == ANIMATOR_BOOL)
+			{
+				bool v = an.GetBool(p.name);
+				if (ImGui::Checkbox(p.name.c_str(), &v)) an.SetBool(p.name, v);
+			}
+			else if (ImGui::SmallButton(p.name.c_str())) an.SetTrigger(p.name);
+			ImGui::PopID();
+		}
+		if (!playMode) ImGui::TextDisabled("Parameters drive it live in Play; scripts set them with setAnimatorFloat(...).");
+	}
+	else if (!comp->HasController()) ImGui::TextDisabled("Pick a controller.");
+	else ImGui::TextDisabled("Runs once the object has a skinned model or a 2D character.");
+	if (!comp->GetControllerPath().empty() && ImGui::SmallButton("Edit State Machine"))
+		pendingOpenAnimator = comp->GetControllerPath();
+	if (!playMode)
+	{
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Remove Animator")) pendingFoliageOp = { { "cmd", "remove_animator" }, { "id", goId } };
+	}
+	ImGui::PopID();
+}

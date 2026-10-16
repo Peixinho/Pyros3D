@@ -290,3 +290,17 @@ frame strip.
 
 **Tests:** `tools/tests/skeletal_animation.cpp` (engine) and `tools/tests/pose_tools.cpp` (editor
 pose tools; link `editor/src/editor/PoseTools.cpp`). Build lines at the top of each.
+
+## 2026-10-16 (later): the follow-up list
+
+- **State machine:** `AnimatorController` (`.p3dac` JSON: float/bool/trigger parameters, states
+  playing one clip, transitions from a state or `"*"` with conditions, a crossfade time and an
+  optional exit time) and `Animator`, which runs one against a skeleton through `CrossFade`.
+  `AnimatorComponent` ("Animator" in scenes) starts with the game (`StartAutoPlayInScene`), not while
+  a scene is edited. Lua: `setAnimatorFloat/Bool/Trigger`, `getAnimatorState`, `playAnimatorState`.
+  Editor: a graph window (states, transitions, parameters, live state in Play), a Scene View
+  section, Assets > New State Machine, socket `animator_*` / `*_animator`.
+- `playClip` now stops the other whole-skeleton clips (it left them playing and the older won).
+- Key reduction (Clip Settings, after retarget and bake by default), events seen firing in the
+  preview, Bezier handles in the curve view (one tangent per key, shared by x/y/z), mesh ghosts in
+  the 3D onion skin, 2D bends across a chain of up to four bones with a softness setting.

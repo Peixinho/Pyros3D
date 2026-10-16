@@ -137,6 +137,11 @@ enum PoseOp {
 int ApplyPoseOp(AnimationEditorDocument& doc, PoseOp op);
 bool HasPoseClipboard();
 
+// Interpolation (and Bezier tangents) of whatever `ref` stands for - a key
+// column, one component's key, or a property-track key. Not undo-wrapped.
+void SetKeyInterpolationRef(AnimationEditorDocument& doc, const AnimKeyRef& ref, int mode,
+	float inTangent, float outTangent);
+
 } // namespace AnimationEditor
 
 #endif /* ANIMATIONEDITOR_UI_H */

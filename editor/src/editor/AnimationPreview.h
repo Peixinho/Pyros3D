@@ -295,6 +295,18 @@ private:
 	// (green) the playhead - spacing reads as speed, so an animator can see
 	// where a move eases without scrubbing. Leaves the rig's pose as it was.
 	void DrawOnionSkin(AnimationEditorDocument& doc);
+	// Mesh ghosts for the onion skin: extra copies of the model, each with
+	// its own instance posed at a ghost time and a flat see-through tint.
+	struct Ghost {
+		std::shared_ptr<p3d::GameObject> go;
+		p3d::RenderingComponent* rc = nullptr;
+		std::shared_ptr<p3d::SkeletonAnimation> anim;
+		p3d::SkeletonAnimationInstance* inst = nullptr;
+		bool before = true;
+	};
+	std::vector<Ghost> ghosts;
+	void HideGhosts();
+	void ClearGhosts();
 	// One bone body as a wireframe octahedron from head to tail: a fan to the
 	// head, a square "waist" a short way along, and a fan to the tail. `orient`
 	// supplies the local axes the waist is squared to - that is what makes the
