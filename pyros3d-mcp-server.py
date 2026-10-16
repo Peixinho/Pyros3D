@@ -5759,7 +5759,7 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       machine; omit for the base), name, clip, speed, loop, pos, from ("*" any),
       to, index, duration, exitTime, conditions [{param, op: > < == != true
       false, value}], type: float|bool|trigger, default, rename, file, root
-      (a layer's root bone), blend {param, clips [{clip, at}]} on set_state)
+      (a layer's root bone), blend {param, clips [{clip, at}], pace, paceMin, paceMax} on set_state; pace = the at values are ground speeds and the mix is re-paced to the parameter)
       get_animator / add_animator (name, controller) / set_animator / remove_animator,
       animator_param (name, param, value | true | "trigger") - live in Play
       Lua: setAnimatorFloat(go, p, v), setAnimatorBool, setAnimatorTrigger,

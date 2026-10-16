@@ -298,7 +298,8 @@ bool Editor::HandleAnimatorCommand(const std::string& name, const nlohmann::json
 		if (a.contains("speed")) st.speed = a.value("speed", 1.f);
 		if (a.contains("loop")) st.loop = a.value("loop", true);
 		if (a.contains("pos") && a["pos"].is_array() && a["pos"].size() >= 2) st.position = Vec2(a["pos"][0].get<float>(), a["pos"][1].get<float>());
-		// "blend": {"param", "clips": [{"clip", "at"}]} makes it a blend state; null makes it a plain one.
+		// "blend": {"param", "clips": [{"clip", "at"}], "pace", "paceMin", "paceMax"} makes it a blend
+		// state; null makes it a plain one.
 		if (a.contains("blend"))
 		{
 			st.blend.clear();
@@ -306,6 +307,9 @@ bool Editor::HandleAnimatorCommand(const std::string& name, const nlohmann::json
 			if (a["blend"].is_object())
 			{
 				st.blendParam = a["blend"].value("param", std::string());
+				st.pace = a["blend"].value("pace", false);
+				st.paceMin = a["blend"].value("paceMin", st.paceMin);
+				st.paceMax = a["blend"].value("paceMax", st.paceMax);
 				if (a["blend"].contains("clips") && a["blend"]["clips"].is_array())
 					for (const auto& bc : a["blend"]["clips"])
 					{

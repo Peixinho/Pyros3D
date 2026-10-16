@@ -239,6 +239,26 @@ void DrawInspector(AnimatorDocument& doc, const std::vector<std::pair<std::strin
 				s.blend.erase(s.blend.begin() + removeClip);
 				doc.PushEdit(before, "Blend clip");
 			}
+			bool pace = s.pace;
+			if (ImGui::Checkbox("Pace by the parameter", &pace))
+			{
+				const std::string before = doc.Snapshot();
+				s.pace = pace;
+				doc.PushEdit(before, pace ? "Pace by parameter" : "Fixed pace");
+			}
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The 'at' values are the speeds over the ground each clip's feet cover,\nand the parameter is that speed: the mix plays faster or slower to match,\nso the feet do not slide (within the limits below).");
+			if (s.pace)
+			{
+				ImGui::SetNextItemWidth(90.f);
+				ImGui::DragFloat("##pmin", &s.paceMin, 0.01f, 0.05f, 4.f, "min %.2fx");
+				if (ImGui::IsItemActivated()) doc.BeginEdit();
+				if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndEdit("Pace limits");
+				ImGui::SameLine();
+				ImGui::SetNextItemWidth(90.f);
+				ImGui::DragFloat("##pmax", &s.paceMax, 0.01f, 0.05f, 4.f, "max %.2fx");
+				if (ImGui::IsItemActivated()) doc.BeginEdit();
+				if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndEdit("Pace limits");
+			}
 			if (ImGui::SmallButton("+ Blend clip"))
 			{
 				const std::string before = doc.Snapshot();

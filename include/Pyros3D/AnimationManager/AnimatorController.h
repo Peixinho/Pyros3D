@@ -83,6 +83,13 @@ namespace p3d {
 		// a walk and a run of different lengths do not drift apart.
 		std::string blendParam;
 		std::vector<AnimatorBlendClip> blend;
+		// Pace by the parameter: the clips' `at` are the speeds over the
+		// ground their feet cover (the parameter is that speed), and the mix
+		// plays at parameter / (its blended `at`) - a walk made for 1.6 m/s
+		// played at 1 m/s goes at 0.62x instead of sliding - within
+		// paceMin..paceMax. Off: the mix plays at `speed`.
+		bool pace = false;
+		f32 paceMin = 0.6f, paceMax = 1.35f;
 		bool IsBlend() const { return !blend.empty(); }
 		// Where the editor draws it. Not used at run time.
 		Vec2 position = Vec2(0.f, 0.f);

@@ -173,6 +173,11 @@ bool SetAnimatorBool(GameObject* go, const std::string &param, bool v);
 bool SetAnimatorTrigger(GameObject* go, const std::string &param);
 std::string GetAnimatorState(GameObject* go);
 bool PlayAnimatorState(GameObject* go, const std::string &state, float fade);
+// Gives an object made by a script an Animator running the controller file
+// (.p3dac) - the object's own skeleton, or its first RenderingComponent's.
+// Starts at once (scripts run in a game). An existing one is given the new
+// controller. False when the file does not load.
+bool AddAnimator(GameObject* go, const std::string &controllerPath);
 bool WorldToScreen(float winW, float winH, GameObject* camera, Projection* projection,
 	const Vec3 &worldPos, float* outX, float* outY);
 // Inverse, resolved onto the plane through `refWorldPos` parallel to the

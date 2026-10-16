@@ -26,9 +26,15 @@ namespace p3d {
 			for (int i = 0; i < 3; i++) if (s == kTypeNames[i]) return i;
 			return ANIMATOR_FLOAT;
 		}
+		// A file written by hand may spell them out. Anything else is said, not
+		// guessed silently: read as ">" a "less" made two opposite transitions
+		// both fire, and the state flipped every frame.
 		int OpFromName(const std::string &s)
 		{
 			for (int i = 0; i < 6; i++) if (s == kOpNames[i]) return i;
+			static const char* words[] = { "greater", "less", "equal", "notEqual", "isTrue", "isFalse" };
+			for (int i = 0; i < 6; i++) if (s == words[i]) return i;
+			echo("WARNING: Animator - unknown condition '" + s + "' (use >, <, ==, !=, true or false); read as '>'");
 			return ANIMATOR_GREATER;
 		}
 		std::string Unique(const std::string &wanted, const std::function<bool(const std::string&)> &taken)
@@ -92,6 +98,7 @@ namespace p3d {
 					json clips = json::array();
 					for (size_t k = 0; k < s.blend.size(); k++) clips.push_back({ { "clip", s.blend[k].clip }, { "at", s.blend[k].at } });
 					sj["blend"] = { { "param", s.blendParam }, { "clips", clips } };
+					if (s.pace) { sj["blend"]["pace"] = true; sj["blend"]["paceMin"] = s.paceMin; sj["blend"]["paceMax"] = s.paceMax; }
 				}
 				states.push_back(sj);
 			}
@@ -127,6 +134,9 @@ namespace p3d {
 					if (s.contains("blend") && s["blend"].is_object())
 					{
 						as.blendParam = s["blend"].value("param", std::string());
+						as.pace = s["blend"].value("pace", false);
+						as.paceMin = s["blend"].value("paceMin", as.paceMin);
+						as.paceMax = s["blend"].value("paceMax", as.paceMax);
 						if (s["blend"].contains("clips") && s["blend"]["clips"].is_array())
 							for (const json &bc : s["blend"]["clips"])
 							{
@@ -422,7 +432,18 @@ namespace p3d {
 			len[i] = instance->GetAnimationDuration((uint32)order[i]);
 			blended += w[i] * len[i];
 		}
-		m.clipDuration = blended;
+		// The rate of the whole mix: fixed, or paced by the parameter.
+		f32 rate = s.speed;
+		if (s.pace)
+		{
+			f32 at = 0.f;
+			for (size_t i = 0; i < n; i++) at += w[i] * s.blend[i].at;
+			f32 k = at > 1e-4f ? v / at : 1.f;
+			const f32 lo = std::min(s.paceMin, s.paceMax), hi = std::max(s.paceMin, s.paceMax);
+			k = std::max(lo, std::min(hi, k));
+			rate *= k;
+		}
+		m.clipDuration = std::fabs(rate) > 1e-6f ? blended * std::fabs(s.speed / rate) : blended;
 		// Top of the group (lowest list position) first.
 		std::vector<size_t> byOrder;
 		for (size_t i = 0; i < n; i++) if (order[i] >= 0) byOrder.push_back(i);
@@ -435,7 +456,7 @@ namespace p3d {
 			const f32 below = rest - w[i];
 			const f32 scale = (k + 1 == byOrder.size()) ? 0.f : (rest > 1e-6f ? below / rest : 1.f);
 			instance->SetAnimationScale((uint32)order[i], scale);
-			if (blended > 1e-6f && len[i] > 0.f) instance->SetAnimationSpeed((uint32)order[i], s.speed * len[i] / blended);
+			if (blended > 1e-6f && len[i] > 0.f) instance->SetAnimationSpeed((uint32)order[i], rate * len[i] / blended);
 			rest = below;
 		}
 	}

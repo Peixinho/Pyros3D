@@ -1080,6 +1080,21 @@ namespace p3d {
 		Animator* a = FindAnimator(go);
 		return a && a->Play(state, fade);
 	}
+	bool AddAnimator(GameObject* go, const std::string &controllerPath)
+	{
+		if (!go) return false;
+		AnimatorComponent* ac = NULL;
+		const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+		for (size_t i = 0; i < comps.size() && !ac; i++)
+			if (comps[i] && comps[i]->GetComponentType() == ComponentType::Animator)
+				ac = static_cast<AnimatorComponent*>(comps[i].get());
+		std::shared_ptr<AnimatorComponent> made;
+		if (!ac) { made = std::make_shared<AnimatorComponent>(); ac = made.get(); }
+		if (!ac->LoadController(controllerPath)) return false;
+		ac->SetRunning(true);
+		if (made) go->Add(made);
+		return true;
+	}
 
 	bool WorldToScreen(float winW, float winH, GameObject* camera, Projection* projection,
 		const Vec3 &worldPos, float* outX, float* outY)

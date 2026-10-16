@@ -543,6 +543,27 @@ int main()
 		check(fabsf(hipsX() - 2.f) < 1e-3f, "and leaves the legs to the base");
 		an.SetBool("aiming", false); tick(0.02f); tick(0.02f);
 		check(an.GetState("upper") == "Relaxed" && fabsf(armX()) < 1e-3f, "letting go hands the arm back");
+
+		// Paced: "at" is the ground speed. At 0.7 (below the walk's 1) the walk
+		// plays alone at 0.7x; half way, the mix's 'at' is 2.5 = the speed: 1x;
+		// far below, the pace stops at paceMin.
+		AnimatorController pc = c;
+		pc.states[0].pace = true;
+		pc.states[0].paceMin = 0.5f; pc.states[0].paceMax = 1.5f;
+		AnimatorController pback;
+		check(AnimatorControllerFromString(AnimatorControllerToString(pc), pback) && pback.states[0].pace
+			&& fabsf(pback.states[0].paceMin - 0.5f) < 1e-6f, "pacing round-trips");
+		Animator pa;
+		pa.Bind(pc, rig.inst);
+		const auto ptick = [&](f32 dt) { pa.Update(dt); clock += dt; rig.animation.Update(clock); };
+		const auto walkSpeed = [&]() { return rig.inst->GetAnimationSpeed((uint32)rig.inst->GetAnimationPositionInVector(0)); };
+		ptick(0.f);
+		pa.SetFloat("speed", 0.7f); ptick(0.02f);
+		check(fabsf(walkSpeed() - 0.7f) < 1e-3f, "paced: a walk made for 1 played at 0.7 runs at 0.7x");
+		pa.SetFloat("speed", 2.5f); ptick(0.02f);
+		check(fabsf(walkSpeed() - 1.f / 0.75f) < 1e-3f, "paced: where the mix covers the speed it runs as blended");
+		pa.SetFloat("speed", 0.1f); ptick(0.02f);
+		check(fabsf(walkSpeed() - 0.5f) < 1e-3f, "paced: no slower than paceMin");
 	}
 
 	printf(failures ? "\n%d FAILED\n" : "\nall passed\n", failures);

@@ -322,3 +322,10 @@ pose tools; link `editor/src/editor/PoseTools.cpp`). Build lines at the top of e
   desktop. It found one bug: parameters set from a script's `init` were lost - the Animator bound its
   skeleton on the first update and reset them. The parameters now exist as soon as the controller is set,
   and `Animator::SetInstance` attaches a skeleton keeping them (and any state played meanwhile).
+- Measured against Erangel's own `steer()` (its player, one speed sweep 0 -> 6.9 m/s and back): a blend state
+  played at a fixed rate slid the planted foot 3.5x more at 1 m/s (0.91 vs 0.26 m/s). Blend states can now
+  **pace by the parameter** (`blend.pace`, `paceMin`, `paceMax`: the `at` values are ground speeds, the mix
+  plays at speed / blended `at`); with it the machine matches steer() at walk speeds and is within about
+  +-0.15 m/s of it from jog to run. Lua `addAnimator(object, controllerPath)` gives a script-made body an
+  Animator. Condition ops may be spelled out (greater, less, ...); an unknown one is warned about - read
+  silently as ">", a "less" made two opposite transitions fire every frame.

@@ -717,6 +717,7 @@ end
 		lua->set_function("setAnimatorBool", &SetAnimatorBool);
 		lua->set_function("setAnimatorTrigger", &SetAnimatorTrigger);
 		lua->set_function("getAnimatorState", &GetAnimatorState);
+		lua->set_function("addAnimator", &AddAnimator);
 		lua->set_function("playAnimatorState", sol::overload(&PlayAnimatorState,
 			[](GameObject* go, const std::string &state) { return PlayAnimatorState(go, state, 0.2f); }));
 
