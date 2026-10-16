@@ -37,7 +37,18 @@ namespace p3d {
 		f32 Weight;
 		bool Enabled;
 
-		IKConstraint() : Target(NULL), Pole(NULL), Weight(1.f), Enabled(true) {}
+		// Turn the effector to the target object's rotation too, not only reach
+		// its position: a foot that stays flat on the slope it is planted on,
+		// a hand that holds a grip the way the grip is turned.
+		bool MatchTargetRotation;
+		// Names of the target and pole objects, as the scene stores them. The
+		// component looks a name up itself (IKComponent::Update) whenever its
+		// pointer is unset, so an object rebuilt by undo, duplicated or loaded
+		// as a prefab finds its targets again - and an unresolved name is
+		// saved back rather than lost.
+		std::string TargetName;
+		std::string PoleName;
+		IKConstraint() : Target(NULL), Pole(NULL), Weight(1.f), Enabled(true), MatchTargetRotation(false) {}
 	};
 
 	// Solves IK against a skinned mesh every frame, for targets that are not
@@ -107,6 +118,9 @@ namespace p3d {
 		std::string rigModelPath;
 		bool rigLoaded;
 		std::vector<IKConstraint> constraints;
+		SceneGraph* registeredScene = NULL;
+		uint32 resolveCountdown = 0;
+		void ResolveTargetsByName();
 		uint32 iterations;
 
 		// The instance we registered our modifier with, so it can be

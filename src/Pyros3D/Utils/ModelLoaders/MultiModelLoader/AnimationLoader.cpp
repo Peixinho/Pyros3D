@@ -10,6 +10,7 @@
 #include <cstdlib>
 #include <ctime>
 #include <cstring>
+#include <algorithm>
 
 namespace p3d {
 
@@ -28,6 +29,21 @@ namespace p3d {
 			bin->Write(&m, sizeof(uchar));
 			bin->Write(&i, sizeof(f32));
 			bin->Write(&o, sizeof(f32));
+		}
+
+		void WriteString(BinaryFile* bin, const std::string &v)
+		{
+			int32 len = (int32)v.size();
+			bin->Write(&len, sizeof(int32));
+			if (len > 0) bin->Write((void*)v.c_str(), sizeof(char) * len);
+		}
+
+		void ReadString(BinaryFile* bin, std::string &out)
+		{
+			int32 len = 0;
+			bin->Read(&len, sizeof(int32));
+			out.resize(len > 0 ? len : 0);
+			if (len > 0) bin->Read(&out[0], sizeof(char) * len);
 		}
 
 		// v0 files have no interpolation fields; leaving the defaults alone
@@ -160,6 +176,49 @@ namespace p3d {
 					WriteKeyInterp(bin, ch.scales[l].Mode, ch.scales[l].InTangent, ch.scales[l].OutTangent);
 				}
 			}
+
+			// Events (v2), written in time order so playback can scan them.
+			std::vector<AnimationEvent> events = animation.Events;
+			std::stable_sort(events.begin(), events.end(),
+				[](const AnimationEvent &a, const AnimationEvent &b) { return a.Time < b.Time; });
+			int32 eventCount = (int32)events.size();
+			bin->Write(&eventCount, sizeof(int32));
+			for (int32 e = 0; e < eventCount; e++)
+			{
+				f32 t = events[e].Time;
+				bin->Write(&t, sizeof(f32));
+				int32 len = (int32)events[e].Name.size();
+				bin->Write(&len, sizeof(int32));
+				if (len > 0) bin->Write((void*)events[e].Name.c_str(), sizeof(char) * len);
+			}
+
+			// Root motion bone (v2)
+			int32 rootLen = (int32)animation.RootMotionBone.size();
+			bin->Write(&rootLen, sizeof(int32));
+			if (rootLen > 0) bin->Write((void*)animation.RootMotionBone.c_str(), sizeof(char) * rootLen);
+
+			// Property tracks (v2)
+			int32 trackCount = (int32)animation.Tracks.size();
+			bin->Write(&trackCount, sizeof(int32));
+			for (int32 t = 0; t < trackCount; t++)
+			{
+				const PropertyTrack &track = animation.Tracks[t];
+				WriteString(bin, track.Target);
+				WriteString(bin, track.Property);
+				int32 keyCount = (int32)track.Keys.size();
+				bin->Write(&keyCount, sizeof(int32));
+				for (int32 k = 0; k < keyCount; k++)
+				{
+					const PropertyKey &key = track.Keys[k];
+					f32 time = key.Time;
+					bin->Write(&time, sizeof(f32));
+					f32 v[4] = { key.Value.x, key.Value.y, key.Value.z, key.Value.w };
+					bin->Write(v, sizeof(f32) * 4);
+					WriteString(bin, key.Text);
+					uchar mode = key.Mode;
+					bin->Write(&mode, sizeof(uchar));
+				}
+			}
 		}
 
 		bin->Close();
@@ -285,6 +344,49 @@ namespace p3d {
 
 				animation.Channels.push_back(ch);
 
+			}
+
+			if (version >= 2)
+			{
+				int32 eventCount = 0;
+				bin->Read(&eventCount, sizeof(int32));
+				for (int32 e = 0; e < eventCount; e++)
+				{
+					AnimationEvent ev;
+					bin->Read(&ev.Time, sizeof(f32));
+					int32 len = 0;
+					bin->Read(&len, sizeof(int32));
+					ev.Name.resize(len);
+					if (len > 0) bin->Read(&ev.Name[0], sizeof(char) * len);
+					ev.Time /= animation.TicksPerSecond;
+					animation.Events.push_back(ev);
+				}
+				int32 rootLen = 0;
+				bin->Read(&rootLen, sizeof(int32));
+				animation.RootMotionBone.resize(rootLen);
+				if (rootLen > 0) bin->Read(&animation.RootMotionBone[0], sizeof(char) * rootLen);
+
+				int32 trackCount = 0;
+				bin->Read(&trackCount, sizeof(int32));
+				for (int32 t = 0; t < trackCount; t++)
+				{
+					PropertyTrack track;
+					ReadString(bin, track.Target);
+					ReadString(bin, track.Property);
+					int32 keyCount = 0;
+					bin->Read(&keyCount, sizeof(int32));
+					track.Keys.resize(keyCount > 0 ? keyCount : 0);
+					for (int32 k = 0; k < keyCount; k++)
+					{
+						PropertyKey &key = track.Keys[k];
+						bin->Read(&key.Time, sizeof(f32));
+						bin->Read(&key.Value, sizeof(f32) * 4);
+						ReadString(bin, key.Text);
+						bin->Read(&key.Mode, sizeof(uchar));
+						key.Time /= animation.TicksPerSecond;
+					}
+					animation.Tracks.push_back(track);
+				}
 			}
 
 			animation.Duration /= animation.TicksPerSecond;

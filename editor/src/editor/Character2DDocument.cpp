@@ -485,6 +485,25 @@ bool Character2DDocument::SetBoneRest(const std::string& name, const Vec2& pos, 
 	return true;
 }
 
+bool Character2DDocument::SetBoneLimit(const std::string& name, bool enabled, float minDeg, float maxDeg,
+	std::string& errOut)
+{
+	if (asset.FindBone(name) < 0) { errOut = "bone '" + name + "' not found"; return false; }
+	if (minDeg > maxDeg) std::swap(minDeg, maxDeg);
+	const std::string before = Snapshot();
+	if (!enabled && minDeg <= -180.f && maxDeg >= 180.f) asset.limits.erase(name);
+	else
+	{
+		Character2DAsset::BoneLimit& l = asset.limits[name];
+		l.enabled = enabled;
+		l.minDeg = std::max(-180.f, minDeg);
+		l.maxDeg = std::min(180.f, maxDeg);
+	}
+	PushEdit(before, "Joint Limit '" + name + "'");
+	dirty = true;
+	return true;
+}
+
 // ---- sprites -----------------------------------------------------------------
 
 bool Character2DDocument::AddSprite(const std::string& name, const std::string& texture,

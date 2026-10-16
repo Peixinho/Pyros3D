@@ -1033,6 +1033,15 @@ namespace p3d {
 		return true;
 	}
 
+	// Hold the target's rotation as well as its position (a planted foot).
+	bool SetIKConstraintMatchRotation(GameObject* go, const std::string &chain, bool match)
+	{
+		IKConstraint* c = FindIKConstraint(go, chain);
+		if (!c) return false;
+		c->MatchTargetRotation = match;
+		return true;
+	}
+
 	bool WorldToScreen(float winW, float winH, GameObject* camera, Projection* projection,
 		const Vec3 &worldPos, float* outX, float* outY)
 	{

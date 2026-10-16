@@ -10,6 +10,7 @@
 #define	RENDERINGCOMPONENT_H
 
 #include <atomic>
+#include <functional>
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
@@ -701,6 +702,13 @@ namespace p3d {
 		std::shared_ptr<void> character2DAnimation;
 		std::vector<SpritePart2D> spriteParts2D;
 		std::vector<Vec2> spritePartHalfExtents;
+		// What the parts' materials show now, so a clip's property tracks
+		// ("sprite", "color", "visible" - see Character2DAsset.h) are only
+		// pushed to a material when they change. The resolver turns a stored
+		// texture path into a loadable one, as for the rig's own textures.
+		std::function<std::string(const std::string&)> spriteResolve2D;
+		std::vector<std::string> spritePartShownTexture;
+		std::vector<Vec4> spritePartShownColor;
 		bool autoPlayLoop = true;
 
 		// Save Renderable Pointer

@@ -5844,6 +5844,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				pendingFoliageOp = { { "cmd", "add_network_identity" }, { "id", goId } };
 				ImGui::CloseCurrentPopup();
 			}
+			if (ImGui::MenuItem("Inverse Kinematics"))
+			{
+				pendingFoliageOp = { { "cmd", "add_ik" }, { "id", goId } };
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Runtime IK on this object's rig: a chain's end reaches for another\nobject every frame, after the animation (a hand on a prop, a foot on the ground).");
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Replicates the object: the server streams its transform\nand variables to the clients it is relevant to.");
 			if (ImGui::MenuItem("Physics 2D"))
@@ -11214,6 +11221,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					DrawTerrainProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawFoliageProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawNetworkIdentityProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
+					DrawIKComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawWorldCellProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 #ifdef LUA_BINDINGS
 					DrawGameObjectScriptProperties(SelectedSceneObject->GetID());

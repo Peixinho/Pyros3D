@@ -291,6 +291,10 @@ private:
 	// world space here (the model GO sits at the origin), so bone globals
 	// go in unmodified.
 	void DrawSkeleton(int selectedBone);
+	// Ghost skeletons of the active clip a few frames before (blue) and after
+	// (green) the playhead - spacing reads as speed, so an animator can see
+	// where a move eases without scrubbing. Leaves the rig's pose as it was.
+	void DrawOnionSkin(AnimationEditorDocument& doc);
 	// One bone body as a wireframe octahedron from head to tail: a fan to the
 	// head, a square "waist" a short way along, and a fan to the tail. `orient`
 	// supplies the local axes the waist is squared to - that is what makes the

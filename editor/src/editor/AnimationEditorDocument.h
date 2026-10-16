@@ -32,6 +32,7 @@
 #include <vector>
 
 struct AnimationPreview;
+struct RetargetSession;
 namespace p3d { class SkeletonAnimationInstance; }
 
 // Two keys are "at the same time" within this many seconds. Timeline clicks,
@@ -47,14 +48,39 @@ static const float kAnimKeyEpsilon = 0.001f;
 // per-component rows would quadruple the UI for a distinction the engine's
 // sampler barely honours (scale is sampled but deliberately not applied; see
 // SkeletonAnimationInstance::SampleChannel).
+//
+// `kind` says what the diamond stands for. A whole column (the default, and
+// the only kind there used to be), one component of it when the bone's row
+// is split into position/rotation/scale, a PropertyTrack key (`channel` is
+// then the track index), or a clip event (`channel` is the event index).
+enum AnimKeyKind {
+	ANIM_KEY_COLUMN = 0,
+	ANIM_KEY_POSITION = 1,
+	ANIM_KEY_ROTATION = 2,
+	ANIM_KEY_SCALE = 3,
+	ANIM_KEY_TRACK = 4,
+	ANIM_KEY_EVENT = 5
+};
 struct AnimKeyRef {
 	int channel = -1;
 	float time = 0.f;
+	int kind = ANIM_KEY_COLUMN;
 	bool operator<(const AnimKeyRef& o) const
 	{
+		if (kind != o.kind) return kind < o.kind;
 		if (channel != o.channel) return channel < o.channel;
 		return time < o.time - kAnimKeyEpsilon;
 	}
+};
+
+// What Copy puts on the clipboard: keys by BONE NAME / track identity, with
+// times relative to the earliest copied key, so they paste into any clip -
+// another clip of this file, or another file for the same rig.
+struct AnimKeyClipboard {
+	std::vector<p3d::Channel> channels;
+	std::vector<p3d::PropertyTrack> tracks;
+	std::vector<p3d::AnimationEvent> events;
+	bool Empty() const { return channels.empty() && tracks.empty() && events.empty(); }
 };
 
 // Converts the animator-facing "how much of this clip do I see" weight into
@@ -154,6 +180,23 @@ struct AnimationEditorDocument {
 	// Draw a row per bone that has a channel, or per bone in the skeleton
 	// (so you can key a bone that isn't animated yet).
 	bool showAllBones = false;
+	// Bones whose dope-sheet row is split into position / rotation / scale
+	// rows, so one component can be retimed or deleted on its own. By name,
+	// like the selection, so it survives a rig swap.
+	std::set<std::string> splitBones;
+	// Curve view instead of the dope sheet: the selected bone's position and
+	// rotation (as degrees) plotted against time, keys dragged in value.
+	bool curveView = false;
+	// Which curves are drawn: pos x/y/z, rot x/y/z.
+	bool curveShown[6] = { true, true, true, true, true, true };
+	float curveZoomY = 1.f;
+	float curveCenterY = 0.f;
+	// Onion skin: ghost skeletons this many frames apart before and after
+	// the playhead, in the preview.
+	bool onionSkin = false;
+	int onionBefore = 2;
+	int onionAfter = 2;
+	int onionStep = 3;
 	// Key both position and rotation when keying a posed bone. Rotation
 	// alone is the common case for a limb; position matters for the root.
 	bool keyPosition = true;
@@ -190,6 +233,12 @@ struct AnimationEditorDocument {
 		// editor seeds an unplaced target from the effector's current
 		// position instead; see SeedUnplacedIKTargets.
 		bool targetSet = false;
+		// Hold the effector at `targetRotation` (model space) as well as
+		// reaching the target: a planted foot that stays flat while the hips
+		// move, instead of tilting with the shin. Captured from the effector
+		// whenever the target is snapped to it.
+		bool holdRotation = false;
+		p3d::Math::Quaternion targetRotation;
 	};
 	std::vector<IKHandle> ikHandles;
 	int activeIK = -1;
@@ -272,6 +321,13 @@ struct AnimationEditorDocument {
 	// document is first drawn, so a document opened purely to be read by an
 	// agent command never builds a renderer.
 	std::unique_ptr<AnimationPreview> preview;
+
+	// The Retarget window's state while it is open (RetargetSession.h), and
+	// the project's .p3da files it can pick a source from - the host fills
+	// that list the way it fills the rig picker's.
+	std::unique_ptr<RetargetSession> retarget;
+	std::vector<std::pair<std::string, std::string> > clipFileChoices;
+	bool retargetWindowOpen = false;
 
 	// ---- the rig these clips are edited against ----------------------
 	//
@@ -385,6 +441,37 @@ struct AnimationEditorDocument {
 	bool MoveKeysAtTime(int clipIndex, int channel, float fromTime, float toTime);
 	// True when the channel has any key within epsilon of `time`.
 	bool HasKeyAtTime(int clipIndex, int channel, float time) const;
+
+	// ---- any key kind (see AnimKeyRef) ---------------------------------
+	// Deletes what `ref` stands for. True if anything went.
+	bool DeleteKeyRef(int clipIndex, const AnimKeyRef& ref);
+	// Retimes what `ref` stands for and returns where it ended up (an event
+	// keeps its index; a key keeps its row). `ok` false when nothing moved.
+	AnimKeyRef MoveKeyRef(int clipIndex, const AnimKeyRef& ref, float toTime, bool& ok);
+	// Every key time on a split component row (1/2/3 = pos/rot/scale).
+	void CollectComponentTimes(int clipIndex, int channel, int kind, std::vector<float>& out) const;
+
+	// ---- property tracks -------------------------------------------
+	int FindTrack(int clipIndex, const std::string& target, const std::string& property) const;
+	int FindOrCreateTrack(int clipIndex, const std::string& target, const std::string& property);
+	// Inserts or replaces the key at `time`, keeping the list sorted.
+	void SetTrackKey(int clipIndex, int track, float time, const p3d::Math::Vec4& value,
+		const std::string& text, int mode = p3d::INTERP_LINEAR);
+	void PruneEmptyTracks(int clipIndex);
+
+	// ---- clip events -------------------------------------------------
+	// Events stay in the order they were made while the clip is edited
+	// (a selection refers to them by index); the file is written sorted.
+	int AddEvent(int clipIndex, float time, const std::string& name);
+	bool RemoveEvent(int clipIndex, int eventIndex);
+	bool RenameEvent(int clipIndex, int eventIndex, const std::string& name);
+
+	// ---- clipboard ---------------------------------------------------
+	// Copies every selected key (any kind). False when nothing is selected.
+	bool CopySelectedKeys(AnimKeyClipboard& out) const;
+	// Pastes at `time` into the active clip and selects what was pasted.
+	// Not undo-wrapped - the caller pushes the edit. Returns keys written.
+	int PasteKeys(const AnimKeyClipboard& clip, float time);
 
 	// Drops channels with no keys at all. Called after key deletion so an
 	// emptied bone stops occupying a dope-sheet row (and stops being

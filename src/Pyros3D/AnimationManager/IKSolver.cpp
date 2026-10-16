@@ -8,6 +8,7 @@
 
 #include <Pyros3D/AnimationManager/IKSolver.h>
 #include <cmath>
+#include <algorithm>
 
 namespace p3d {
 
@@ -72,6 +73,59 @@ namespace p3d {
 		Vec3 BonePos(SkeletonAnimationInstance* inst, const int32 id)
 		{
 			return inst->GetBoneGlobalTransform(id).GetTranslation();
+		}
+
+		// A bone's model-space transform in the BIND pose, composed up its
+		// parent chain - independent of whatever is posed right now.
+		Matrix BindGlobal(SkeletonAnimationInstance* inst, const int32 id)
+		{
+			const std::vector<Bone> &bones = inst->GetSkeletonBones();
+			Matrix m = inst->GetBindPoseLocal(id);
+			int32 p = bones[id].parent;
+			for (size_t guard = 0; p >= 0 && guard < bones.size(); guard++)
+			{
+				m = inst->GetBindPoseLocal(p) * m;
+				p = bones[p].parent;
+			}
+			return m;
+		}
+
+		Vec3 BindPos(SkeletonAnimationInstance* inst, const int32 id)
+		{
+			return BindGlobal(inst, id).GetTranslation();
+		}
+
+		// For a straight limb: the model-space axis to fold the middle joint
+		// about, read from that joint's limit. The limit's widest axis is the
+		// hinge, and the side with more room is the way it folds - a knee
+		// limited to 0..150 degrees about X folds the one way that range
+		// allows. SolveTwoBone folds by a NEGATIVE angle about the axis it
+		// is handed (straight is the widest the joint opens), so the axis
+		// points opposite to the allowed side. False without a usable limit.
+		bool StraightLimbHingeAxis(SkeletonAnimationInstance* inst, const int32 lower,
+			const std::map<int32, JointLimit>* limits, Vec3 &outAxis)
+		{
+			if (!limits) return false;
+			std::map<int32, JointLimit>::const_iterator it = limits->find(lower);
+			if (it == limits->end() || !it->second.Enabled) return false;
+			const JointLimit &lim = it->second;
+			const f32 mn[3] = { lim.Min.x, lim.Min.y, lim.Min.z };
+			const f32 mx[3] = { lim.Max.x, lim.Max.y, lim.Max.z };
+			int k = 0;
+			for (int i = 1; i < 3; i++)
+				if (mx[i] - mn[i] > mx[k] - mn[k]) k = i;
+			if (mx[k] - mn[k] < 1e-4f) return false;
+			// The limit is measured from the bind pose in the joint's local
+			// frame, so its axis in model space is the bind local's column
+			// carried through the parent as it is posed now.
+			const std::vector<Bone> &bones = inst->GetSkeletonBones();
+			const int32 parent = bones[lower].parent;
+			Matrix frame = (parent >= 0 ? inst->GetBoneGlobalTransform(parent) : Matrix())
+				* inst->GetBindPoseLocal(lower);
+			Vec3 axis(frame.m[k * 4 + 0], frame.m[k * 4 + 1], frame.m[k * 4 + 2]);
+			if (axis.magnitudeSQR() < kEpsilon) return false;
+			outAxis = (mx[k] > -mn[k]) ? axis * -1.f : axis;
+			return true;
 		}
 
 	}
@@ -228,18 +282,63 @@ namespace p3d {
 		// turn from BA to BC about n is the positive interior angle, so
 		// adding to it opens further.
 		Vec3 bendAxis = (a - b).cross(c - b);
-		if (bendAxis.magnitudeSQR() < kEpsilon)
+		// Straightness is judged by the SINE of the angle, not by the raw
+		// cross product: the same 1e-5 meant "within a hair" for a rig in
+		// centimetres and "within a degree" for one in metres.
+		if (bendAxis.magnitude() < 1e-3f * lenAB * lenBC)
 		{
-			// Chain is dead straight, so it has no plane of its own. The
-			// pole supplies one; failing that pick a perpendicular
-			// deterministically - which one matters far less than picking
-			// the SAME one every time (see the determinism note in the
-			// header).
-			const Vec3 dir = (toTarget.magnitudeSQR() > kEpsilon) ? toTarget.normalize() : Vec3(0.f, 1.f, 0.f);
-			Vec3 hint = (pole.magnitudeSQR() > kEpsilon) ? (pole - a) : Vec3(0.f, 0.f, 0.f);
-			if (hint.cross(dir).magnitudeSQR() < kEpsilon)
-				hint = (std::fabs(dir.x) < 0.9f) ? Vec3(1.f, 0.f, 0.f) : Vec3(0.f, 1.f, 0.f);
-			bendAxis = dir.cross(hint);
+			// Chain is dead straight, so it has no plane of its own, and
+			// which way it folds is exactly the knee-forward-or-backward
+			// question. The old fallback was a WORLD axis - for a leg hanging
+			// down -Y that put the bend about +Z and folded the knee out to
+			// the side. In order of how much each source knows:
+			const Vec3 limb = c - a;
+			const Vec3 dir = (toTarget.magnitudeSQR() > kEpsilon) ? toTarget.normalize() : limb.normalize();
+			if (pole.magnitudeSQR() > kEpsilon && (pole - a).cross(dir).magnitudeSQR() > kEpsilon)
+			{
+				// 1. A pole: bend towards it (the twist step below refines it).
+				bendAxis = dir.cross(pole - a);
+			}
+			else if (StraightLimbHingeAxis(inst, lower, limits, bendAxis))
+			{
+				// 2. The knee's joint limit names its hinge and the side it
+				// may fold to.
+			}
+			else
+			{
+				// 3. The bind pose, if the limb was modelled with any bend.
+				const Vec3 ba = BindPos(inst, upper), bb = BindPos(inst, lower), bc = BindPos(inst, end);
+				const Vec3 bindAxis = (ba - bb).cross(bc - bb);
+				const f32 bl = (bb - ba).magnitude() * (bc - bb).magnitude();
+				if (bl > kEpsilon && bindAxis.magnitude() > 1e-3f * bl)
+				{
+					// Carry the bind plane through whatever has turned the
+					// chain since: express it in the upper bone's frame.
+					Matrix bindUpper = BindGlobal(inst, upper);
+					Matrix nowUpper = inst->GetBoneGlobalTransform(upper);
+					bindUpper.Translate(Vec3(0.f, 0.f, 0.f));
+					nowUpper.Translate(Vec3(0.f, 0.f, 0.f));
+					bendAxis = nowUpper * (bindUpper.Inverse() * bindAxis);
+				}
+				else
+				{
+					// 4. Towards the target's side - in a 2D rig that is the
+					// plane's normal, so a straight arm folds in the plane.
+					const Vec3 side = limb.cross(toTarget);
+					if (limb.magnitude() > kEpsilon && side.magnitude() > 1e-3f * limb.magnitude() * toTarget.magnitude())
+						bendAxis = side;
+					else
+					{
+						// 5. Target dead along the limb (a straight crouch).
+						// The lower bone's local X: the hinge of a humanoid
+						// knee and elbow in Mixamo, Blender and most DCC rigs.
+						Matrix g = inst->GetBoneGlobalTransform(lower);
+						bendAxis = Vec3(g.m[0], g.m[1], g.m[2]);
+						if (bendAxis.cross(limb).magnitudeSQR() < kEpsilon)
+							bendAxis = Vec3(g.m[8], g.m[9], g.m[10]);
+					}
+				}
+			}
 		}
 
 		const f32 wantAtB = acosf(Clamp((lenAB * lenAB + lenBC * lenBC - dist * dist) / (2.f * lenAB * lenBC), -1.f, 1.f));
@@ -284,7 +383,7 @@ namespace p3d {
 	}
 
 	void IKSolver::SolveFABRIK(SkeletonAnimationInstance* inst,
-		const std::vector<int32> &chain, const Vec3 &target,
+		const std::vector<int32> &chain, const Vec3 &target, const Vec3 &pole,
 		const uint32 iterations, const std::map<int32, JointLimit>* limits)
 	{
 		const size_t n = chain.size();
@@ -311,6 +410,39 @@ namespace p3d {
 		}
 		else
 		{
+			// A chain lying straight along the line to its target has no bend
+			// for the passes to work with: every pass keeps it on that line,
+			// and the end folds back on itself instead of reaching (measured:
+			// a 4-segment tail pulled straight down its length ended with its
+			// tip half a segment short). Give it a small bend first - towards
+			// the pole when there is one, else a fixed perpendicular, so the
+			// result is still the same every time it is asked.
+			bool straight = true;
+			const Vec3 line = (target - root).magnitudeSQR() > kEpsilon ? (target - root).normalize()
+				: (pos[n - 1] - root).normalize();
+			for (size_t i = 1; i + 1 < n && straight; i++)
+			{
+				const Vec3 off = pos[i] - root;
+				if ((off - line * off.dotProduct(line)).magnitude() > 1e-3f * total) straight = false;
+			}
+			if (straight && n >= 3)
+			{
+				Vec3 side = pole.magnitudeSQR() > kEpsilon ? (pole - root) : Vec3(0.f, 0.f, 0.f);
+				side = side - line * side.dotProduct(line);
+				if (side.magnitudeSQR() < kEpsilon)
+				{
+					side = line.cross(std::fabs(line.x) < 0.9f ? Vec3(1.f, 0.f, 0.f) : Vec3(0.f, 1.f, 0.f));
+					side = side.cross(line);
+				}
+				side = side.normalize();
+				for (size_t i = 1; i + 1 < n; i++)
+				{
+					// Most in the middle, nothing at the ends: an arc.
+					const f32 u = (f32)i / (f32)(n - 1);
+					pos[i] = pos[i] + side * (total * 0.05f * 4.f * u * (1.f - u));
+				}
+			}
+
 			for (uint32 it = 0; it < iterations; it++)
 			{
 				if ((pos[n - 1] - target).magnitude() < kEpsilon) break;
@@ -340,6 +472,28 @@ namespace p3d {
 		// Convert the solved positions back into bone rotations, root-first
 		// so each bone is rotated in a hierarchy its ancestors have already
 		// settled into.
+		// Pole: turn each inner joint about the line through its neighbours,
+		// towards the pole. Lengths are kept (the turn is about that line),
+		// so the end stays where the reaching put it.
+		if (pole.magnitudeSQR() > kEpsilon && n >= 3)
+		{
+			for (size_t i = 1; i + 1 < n; i++)
+			{
+				const Vec3 a = pos[i - 1], c = pos[i + 1];
+				const Vec3 axis = c - a;
+				if (axis.magnitudeSQR() < kEpsilon) continue;
+				const Vec3 nrm = axis.normalize();
+				const Vec3 j = pos[i] - a, w = pole - a;
+				const Vec3 jf = j - nrm * j.dotProduct(nrm);
+				const Vec3 wf = w - nrm * w.dotProduct(nrm);
+				if (jf.magnitudeSQR() < kEpsilon || wf.magnitudeSQR() < kEpsilon) continue;
+				const Vec3 jn = jf.normalize(), wn = wf.normalize();
+				const f32 ang = atan2f(jn.cross(wn).dotProduct(nrm), jn.dotProduct(wn));
+				const Quaternion q = AxisAngle(nrm, ang);
+				pos[i] = a + q.ConvertToMatrix() * j;
+			}
+		}
+
 		for (size_t i = 0; i + 1 < n; i++)
 		{
 			const Vec3 here = BonePos(inst, chain[i]);
@@ -370,10 +524,68 @@ namespace p3d {
 		if (chain.size() == 3)
 			SolveTwoBone(inst, chain, target, pole, limits);
 		else
-			SolveFABRIK(inst, chain, target, iterations, limits);
+			SolveFABRIK(inst, chain, target, pole, iterations, limits);
+		if (limits && !limits->empty()) RefineWithLimits(inst, chain, target, iterations, limits);
 
 		// RotateBoneGlobal only recomposes the hierarchy; the skinning
 		// matrices are uploaded once here rather than on every joint.
+		inst->RefreshSkinning();
+		return true;
+	}
+
+	void IKSolver::RefineWithLimits(SkeletonAnimationInstance* inst,
+		const std::vector<int32> &chain, const Vec3 &target,
+		const uint32 iterations, const std::map<int32, JointLimit>* limits)
+	{
+		const size_t n = chain.size();
+		if (n < 2) return;
+		bool anyLimited = false;
+		for (size_t i = 0; i + 1 < n; i++)
+		{
+			std::map<int32, JointLimit>::const_iterator it = limits->find(chain[i]);
+			if (it != limits->end() && it->second.Enabled) anyLimited = true;
+		}
+		if (!anyLimited) return;
+
+		// Close enough is a thousandth of the chain's length.
+		f32 total = 0.f;
+		for (size_t i = 0; i + 1 < n; i++) total += (BonePos(inst, chain[i + 1]) - BonePos(inst, chain[i])).magnitude();
+		const f32 tol = std::max(1e-5f, total * 1e-3f);
+		const uint32 passes = std::max<uint32>(iterations, 4) * 2;
+		for (uint32 it = 0; it < passes; it++)
+		{
+			if ((BonePos(inst, chain[n - 1]) - target).magnitude() < tol) break;
+			// End to root: each joint turns the end towards the target as far
+			// as its limit lets it.
+			for (size_t k = n - 1; k > 0; k--)
+			{
+				const int32 j = chain[k - 1];
+				const Vec3 here = BonePos(inst, j);
+				RotateBoneGlobal(inst, j, RotationBetween(BonePos(inst, chain[n - 1]) - here, target - here), here);
+				ApplyLimit(inst, j, limits);
+			}
+		}
+	}
+
+	bool IKSolver::SolveWithEndRotation(SkeletonAnimationInstance* inst,
+		const int32 rootBone, const int32 effectorBone,
+		const Vec3 &target, const Vec3 &pole, const Quaternion* endRotation,
+		const uint32 iterations, const std::map<int32, JointLimit>* limits)
+	{
+		if (!Solve(inst, rootBone, effectorBone, target, pole, iterations, limits)) return false;
+		if (!endRotation) return true;
+
+		// Model-space rotation for the effector, kept at the position the
+		// solve put it: local = parent^-1 * (R at that position), with the
+		// effector's own local translation (its bone length) left alone.
+		const std::vector<Bone> &bones = inst->GetSkeletonBones();
+		const int32 parent = bones[effectorBone].parent;
+		const Matrix parentGlobal = parent >= 0 ? inst->GetBoneGlobalTransform(parent) : Matrix();
+		Matrix want = endRotation->ConvertToMatrix();
+		want.Translate(BonePos(inst, effectorBone));
+		Matrix local = parentGlobal.Inverse() * want;
+		local.Translate(inst->GetBoneLocalTransform(effectorBone).GetTranslation());
+		inst->SetBoneLocalTransform(effectorBone, local);
 		inst->RefreshSkinning();
 		return true;
 	}

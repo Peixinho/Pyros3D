@@ -8,6 +8,9 @@
 
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/AnimationManager/IKSolver.h>
+#include <cmath>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 
 namespace p3d {
@@ -28,7 +31,7 @@ namespace p3d {
 		if (boundInstance) boundInstance->RemovePoseModifier(this);
 	}
 
-	void IKComponent::Register(SceneGraph* Scene) {}
+	void IKComponent::Register(SceneGraph* Scene) { registeredScene = Scene; resolveCountdown = 0; }
 	void IKComponent::Init() {}
 	void IKComponent::Destroy()
 	{
@@ -38,7 +41,33 @@ namespace p3d {
 			boundInstance = NULL;
 		}
 	}
-	void IKComponent::Unregister(SceneGraph* Scene) { Destroy(); }
+	void IKComponent::Unregister(SceneGraph* Scene) { Destroy(); registeredScene = NULL; }
+
+	void IKComponent::ResolveTargetsByName()
+	{
+		bool missing = false;
+		for (size_t i = 0; i < constraints.size(); i++)
+			if ((!constraints[i].Target && !constraints[i].TargetName.empty())
+				|| (!constraints[i].Pole && !constraints[i].PoleName.empty())) missing = true;
+		if (!missing || !registeredScene) return;
+		// A name that is not there yet (streamed in later, spawned by a
+		// script) is looked for again about once a second, not every frame.
+		if (resolveCountdown > 0) { resolveCountdown--; return; }
+		resolveCountdown = 60;
+		std::vector<std::shared_ptr<GameObject> > &all = registeredScene->GetAllGameObjectList();
+		for (size_t i = 0; i < constraints.size(); i++)
+		{
+			IKConstraint &c = constraints[i];
+			for (size_t k = 0; k < all.size() && ((!c.Target && !c.TargetName.empty()) || (!c.Pole && !c.PoleName.empty())); k++)
+			{
+				if (!all[k]) continue;
+				// Only a name that was given: an empty one would match the first
+				// unnamed object in the scene and make it the pole.
+				if (!c.Target && !c.TargetName.empty() && all[k]->GetName() == c.TargetName) c.Target = all[k].get();
+				if (!c.Pole && !c.PoleName.empty() && all[k]->GetName() == c.PoleName) c.Pole = all[k].get();
+			}
+		}
+	}
 
 	bool IKComponent::LoadRigForModel(const std::string &modelPath)
 	{
@@ -82,8 +111,9 @@ namespace p3d {
 	{
 		if (!active) return;
 		// The solve itself does NOT happen here - see the class comment. All
-		// this does is make sure the modifier is attached to whatever
-		// instance the owner currently has.
+		// this does is find targets known only by name, and make sure the
+		// modifier is attached to whatever instance the owner currently has.
+		ResolveTargetsByName();
 		ResolveInstance();
 	}
 
@@ -135,7 +165,24 @@ namespace p3d {
 			const bool blending = (c.Weight < 1.f);
 			if (blending) instance->CapturePose(before);
 
-			IKSolver::Solve(instance, chain.RootBone, chain.EffectorBone, target, pole,
+			// The target's world rotation in the rig's model space, scale
+			// divided out of both frames (a character placed at 0.1).
+			Quaternion endRot;
+			if (c.MatchTargetRotation)
+			{
+				const auto rigid = [](Matrix m) {
+					for (int col = 0; col < 3; col++)
+					{
+						const f32 len = std::sqrt(m.m[col * 4] * m.m[col * 4] + m.m[col * 4 + 1] * m.m[col * 4 + 1] + m.m[col * 4 + 2] * m.m[col * 4 + 2]);
+						if (len > 1e-8f) for (int k = 0; k < 3; k++) m.m[col * 4 + k] /= len;
+					}
+					m.Translate(Vec3(0.f, 0.f, 0.f));
+					return m;
+				};
+				endRot = (rigid(Owner->GetWorldTransformation()).Inverse() * rigid(c.Target->GetWorldTransformation())).ConvertToQuaternion();
+			}
+			IKSolver::SolveWithEndRotation(instance, chain.RootBone, chain.EffectorBone, target, pole,
+				c.MatchTargetRotation ? &endRot : NULL,
 				iterations, resolvedLimits.empty() ? NULL : &resolvedLimits);
 
 			if (blending)

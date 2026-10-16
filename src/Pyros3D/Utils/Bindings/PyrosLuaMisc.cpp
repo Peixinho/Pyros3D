@@ -711,6 +711,7 @@ end
 		lua->set_function("screenToWorldAtDepth", &ScreenToWorldAtDepth);
 		lua->set_function("setIKConstraintEnabled", &SetIKConstraintEnabled);
 		lua->set_function("setIKConstraintWeight", &SetIKConstraintWeight);
+		lua->set_function("setIKConstraintMatchRotation", &SetIKConstraintMatchRotation);
 
 		// terrain - ground height queries and runtime sculpting/painting
 		// (see TerrainEditor.h). One editor per process: a stroke's state

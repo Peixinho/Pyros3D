@@ -48,6 +48,10 @@ struct TextureChoice {
 void DrawWindow(Character2DDocument& doc, const std::vector<TextureChoice>& textures,
 	float dt, FrameRequests& requests);
 
+// Solves every pinned joint back onto its pin at each frame of [from, to] of
+// the active clip and keys the bones that moved. One undo entry. Returns keys.
+int BakePins(Character2DDocument& doc, float from, float to);
+
 } // namespace Character2DEditor
 
 #endif /* CHARACTER2DEDITOR_UI_H */

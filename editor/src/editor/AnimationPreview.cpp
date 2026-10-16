@@ -617,6 +617,41 @@ void AnimationPreview::DrawSkeleton(int selectedBone)
 	}
 }
 
+void AnimationPreview::DrawOnionSkin(AnimationEditorDocument& doc)
+{
+	if (!debug || !instance || !doc.HasActiveClip()) return;
+	const Animation& clip = doc.clips[doc.activeClip];
+	if (clip.Duration <= 0.f) return;
+
+	std::vector<Matrix> held;
+	instance->CapturePose(held);
+	const std::vector<Bone>& bones = instance->GetSkeletonBones();
+	const float fps = doc.snapFps > 0.f ? doc.snapFps : 30.f;
+	const int step = std::max(1, doc.onionStep);
+
+	for (int k = -doc.onionBefore; k <= doc.onionAfter; k++)
+	{
+		if (k == 0) continue;
+		float t = doc.playhead + k * step / fps;
+		if (doc.looping) { t = std::fmod(t, clip.Duration); if (t < 0.f) t += clip.Duration; }
+		else if (t < 0.f || t > clip.Duration) continue;
+		instance->ApplyAnimationAtTime(clip, t);
+
+		// Fainter the further from now.
+		const int reach = k < 0 ? doc.onionBefore : doc.onionAfter;
+		const float a = 0.75f * (1.f - (std::abs(k) - 1) / (float)std::max(1, reach));
+		const Vec4 color = k < 0 ? Vec4(0.35f, 0.6f, 1.f, a) : Vec4(0.4f, 1.f, 0.5f, a);
+		for (size_t i = 0; i < bones.size(); i++)
+		{
+			const int p = bones[i].parent;
+			if (p < 0 || p >= (int)bones.size()) continue;
+			debug->drawLine(instance->GetBoneGlobalTransform(p).GetTranslation(),
+				instance->GetBoneGlobalTransform(bones[i].self).GetTranslation(), color);
+		}
+	}
+	instance->ApplyPose(held);
+}
+
 void AnimationPreview::ProjectBones(const Matrix& view, const Matrix& proj)
 {
 	boneScreenPos.clear();
@@ -857,6 +892,7 @@ AnimationPreview::Interaction AnimationPreview::DrawAndUpdate(AnimationEditorDoc
 	{
 		// Submit the skeleton (with the right selection colouring) and the
 		// gizmo into the debug batch, then render.
+		if (doc.onionSkin && !doc.blendMode) DrawOnionSkin(doc);
 		if (showBones) DrawSkeleton(doc.selectedBone);
 		if (ikHandleLive)
 		{

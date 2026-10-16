@@ -145,6 +145,10 @@ struct Character2DDocument {
 	bool SetBoneRest(const std::string& name, const p3d::Math::Vec2& pos, float rotDegrees,
 		std::string& errOut);
 
+	// How far `name` may turn from its rest angle, in degrees (about Z).
+	// Disabled with the full range removes the limit.
+	bool SetBoneLimit(const std::string& name, bool enabled, float minDeg, float maxDeg,
+		std::string& errOut);
 	bool AddSprite(const std::string& name, const std::string& texture,
 		const std::string& bone, std::string& errOut);
 	bool RemoveSprite(const std::string& name, std::string& errOut);

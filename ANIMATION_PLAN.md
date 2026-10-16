@@ -254,3 +254,39 @@ ImGui's coordinates do not.
   can corrupt geometry.
 - Phase 2: **GUID + name**. Scenes save the guid; `SkeletonAnimation::ResolveAnimationID`
   falls back guid -> name -> index, so scenes written before guids existed still resolve.
+
+---
+
+## 2026-10-16: second pass (review + everything it listed)
+
+**Format:** `.p3da` v2 adds, per clip after the channels: events (time, name), a root-motion bone
+name, and property tracks (target, property, keys of time/vec4/text/mode). `ANIM_FLAG_ROOT_MOTION`
+is bit 2. The Python twin in `pyros3d-mcp-server.py` round-trips an engine-written v2 file
+byte-identically. `.p3d2d` clips carry the same three in JSON; the asset gained `limits` and a
+sprite part's `bend`/`bendSegments`.
+
+**Runtime:** `CrossFade`/`FadeOut`/`IsPlaying` (newest clip = bottom of the blend; the ones above it
+fade to scale 1 and are stopped), clip events collected in the update and delivered on the main
+thread by `DeliverPending()` (worker threads run `UpdateInstance` in AnimateAhead), root motion
+(`ConsumeRootMotion` / `SetApplyRootMotion`), property tracks sampled by both playback and
+`ApplyAnimationAtTime`. Lua: `crossFade`, `fadeOut`, `isPlaying`, `takeEvents`, `onEvent`,
+`consumeRootMotion`, `setApplyRootMotion` - on the type registered as `SekeletonAnimationInstance`
+(sic; renaming it would break scripts).
+
+**Bugs fixed:** a component with no meshes hung `UploadSkinning` for ever (New Character 2D froze
+the editor); scale read from the matrix diagonal; blending dropped scale; a straight limb with no
+pole bent sideways; FABRIK could not reach along a straight chain; undo ignored interpolation and
+tangent edits; IK targets were lost (and pending pointers left dangling) on every subtree rebuild.
+
+**IK:** straight-limb bend order = pole > knee limit's hinge > bind bend > target side > local X;
+`SolveWithEndRotation`; FABRIK pole; limit-aware CCD refinement. Runtime IKComponent: Scene View
+inspector + `get_ik/add_ik/set_ik/remove_ik`, `MatchTargetRotation`, targets resolved by name.
+
+**Editor:** dope sheet box select, summary-row select/drag, events row, track rows, split
+pos/rot/scale rows, copy/paste keys, curve view, onion skin (3D and 2D), pose copy/paste/mirror
+(`PoseTools`, model-space delta from bind), retargeting (`RetargetSession`), 2D rotate tool, 2D joint
+limits, pins + bake, part keys (picture/z/colour/visible), bent (skinned) sprite parts, sprite-sheet
+frame strip.
+
+**Tests:** `tools/tests/skeletal_animation.cpp` (engine) and `tools/tests/pose_tools.cpp` (editor
+pose tools; link `editor/src/editor/PoseTools.cpp`). Build lines at the top of each.

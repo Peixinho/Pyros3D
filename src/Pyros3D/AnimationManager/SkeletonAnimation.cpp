@@ -8,6 +8,8 @@
 
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <iterator>
+#include <cmath>
+#include <Pyros3D/GameObjects/GameObject.h>
 
 namespace p3d {
 
@@ -188,9 +190,339 @@ namespace p3d {
 			cur._resumed = false;
 			cur._pauseStart = -1.f;
 			cur._pauseTime = 0.f;
+			cur.fadeDuration = 0.f;
+			cur.stopAfterFade = false;
+			cur._prevValid = false;
 		}
 		return pos;
 	}
+	namespace {
+		bool SameLayer(const _SkeletonAnimation::SkeletonAnimation &e, const std::string &layer)
+		{
+			if (layer.empty()) return !e.HaveLayers;
+			return e.HaveLayers && e.Layer && e.Layer->Name == layer;
+		}
+	}
+
+	int32 SkeletonAnimationInstance::CrossFade(const uint32 animation, const f32 duration,
+		const f32 repetition, const f32 speed, const f32 startTime, const std::string &LayerName)
+	{
+		if (animation >= Owner->GetNumberAnimations())
+		{
+			echo("ERROR: SkeletonAnimationInstance::CrossFade - animation id out of range");
+			return -1;
+		}
+		_paused = false;
+
+		// Already the only clip on its layer, staying: just make sure it is
+		// fully in and not on its way out.
+		f32 start = startTime;
+		const int32 existing = GetAnimationPositionInVector(animation);
+		if (existing >= 0)
+		{
+			_SkeletonAnimation::SkeletonAnimation &cur = AnimationsToPlay[existing];
+			bool alone = SameLayer(cur, LayerName);
+			for (size_t i = 0; alone && i < AnimationsToPlay.size(); i++)
+				if ((int32)i != existing && SameLayer(AnimationsToPlay[i], LayerName)) alone = false;
+			if (alone)
+			{
+				cur.stopAfterFade = false;
+				if (cur.scale != 0.f)
+				{
+					cur.fadeFrom = cur.scale; cur.fadeTo = 0.f; cur.fadeStart = -1.f;
+					cur.fadeDuration = duration > 0.f ? duration : 0.f;
+					if (duration <= 0.f) cur.scale = 0.f;
+				}
+				cur.speed = speed;
+				return existing;
+			}
+			// Keep its phase: it goes to the bottom of the stack below (it has
+			// to be the newest entry to sit under the ones fading out), and a
+			// walk that restarted from frame 0 there would skip a step.
+			if (start < 0.f && cur.animation && cur.animation->Duration > 0.f)
+			{
+				f32 p = cur._currentTime / cur.animation->Duration;
+				start = p - std::floor(p);
+			}
+			StopAnimation((uint32)existing);
+		}
+		if (start < 0.f) start = 0.f;
+		if (start > 1.f) start = 1.f;
+
+		// Everything else on the layer fades away and is then stopped.
+		bool others = false;
+		for (size_t i = AnimationsToPlay.size(); i > 0; i--)
+		{
+			_SkeletonAnimation::SkeletonAnimation &e = AnimationsToPlay[i - 1];
+			if (!SameLayer(e, LayerName)) continue;
+			if (duration <= 0.f) { StopAnimation((uint32)(i - 1)); continue; }
+			others = true;
+			e.fadeFrom = e.scale; e.fadeTo = 1.f; e.fadeStart = -1.f;
+			e.fadeDuration = duration;
+			e.stopAfterFade = true;
+		}
+
+		// Newest = bottom of the blend (Update() walks the list in reverse and
+		// each earlier clip blends over the result), so at scale 0 it is fully
+		// in under clips that are fading to 1. With nothing to fade from, it
+		// fades itself in from 1.
+		const bool fadeIn = !others && duration > 0.f;
+		const int32 order = Play(animation, start, repetition, speed, fadeIn ? 1.f : 0.f, LayerName);
+		if (order >= 0 && fadeIn)
+		{
+			_SkeletonAnimation::SkeletonAnimation &e = AnimationsToPlay[order];
+			e.fadeFrom = 1.f; e.fadeTo = 0.f; e.fadeStart = -1.f; e.fadeDuration = duration;
+		}
+		return order;
+	}
+
+	void SkeletonAnimationInstance::FadeOut(const uint32 animationOrder, const f32 duration)
+	{
+		if (animationOrder >= AnimationsToPlay.size()) return;
+		if (duration <= 0.f) { StopAnimation(animationOrder); return; }
+		_SkeletonAnimation::SkeletonAnimation &e = AnimationsToPlay[animationOrder];
+		e.fadeFrom = e.scale; e.fadeTo = 1.f; e.fadeStart = -1.f;
+		e.fadeDuration = duration;
+		e.stopAfterFade = true;
+	}
+
+	bool SkeletonAnimationInstance::IsPlaying(const uint32 animation) const
+	{
+		for (size_t i = 0; i < AnimationsToPlay.size(); i++)
+			if (AnimationsToPlay[i].ID == animation && !AnimationsToPlay[i].stopAfterFade) return true;
+		return false;
+	}
+
+	void SkeletonAnimationInstance::AdvanceFades(const f32 time)
+	{
+		for (size_t i = AnimationsToPlay.size(); i > 0; i--)
+		{
+			_SkeletonAnimation::SkeletonAnimation &e = AnimationsToPlay[i - 1];
+			if (e.fadeDuration <= 0.f) continue;
+			if (e.fadeStart < 0.f) e.fadeStart = time;
+			f32 u = (time - e.fadeStart) / e.fadeDuration;
+			if (u < 0.f) u = 0.f;
+			if (u >= 1.f)
+			{
+				e.scale = e.fadeTo;
+				e.fadeDuration = 0.f;
+				if (e.stopAfterFade) StopAnimation((uint32)(i - 1));
+				continue;
+			}
+			// Smoothstep: a linear ramp starts and stops with a visible kink.
+			u = u * u * (3.f - 2.f * u);
+			e.scale = e.fadeFrom + (e.fadeTo - e.fadeFrom) * u;
+		}
+	}
+
+	std::vector<SkeletonAnimationInstance::FiredEvent> SkeletonAnimationInstance::TakeEvents()
+	{
+		std::vector<FiredEvent> out;
+		out.swap(eventQueue);
+		return out;
+	}
+
+	Vec3 SkeletonAnimationInstance::ConsumeRootMotion()
+	{
+		const Vec3 d = rootMotionAccum;
+		rootMotionAccum = Vec3(0.f, 0.f, 0.f);
+		return d;
+	}
+
+	bool SkeletonAnimationInstance::GetTrackValue(const std::string &target, const std::string &property,
+		TrackValue &out) const
+	{
+		std::map<std::string, TrackValue>::const_iterator it = trackValues.find(target + '\n' + property);
+		if (it == trackValues.end()) return false;
+		out = it->second;
+		return true;
+	}
+
+	void SkeletonAnimationInstance::DeliverPending()
+	{
+		if (!pendingEvents.empty())
+		{
+			std::vector<FiredEvent> fired;
+			fired.swap(pendingEvents);
+			for (size_t i = 0; i < fired.size(); i++)
+			{
+				if (eventCallback) eventCallback(fired[i]);
+				// Bounded: an instance nobody polls must not grow for ever.
+				if (eventQueue.size() >= 256) eventQueue.erase(eventQueue.begin());
+				eventQueue.push_back(fired[i]);
+			}
+		}
+
+		if (rootMotionPending.x != 0.f || rootMotionPending.y != 0.f || rootMotionPending.z != 0.f)
+		{
+			const Vec3 d = rootMotionPending;
+			rootMotionPending = Vec3(0.f, 0.f, 0.f);
+			GameObject* go = (applyRootMotion && rcomp) ? rcomp->GetOwner() : NULL;
+			if (go)
+			{
+				// Model -> world through the owner's rotation and scale (not
+				// its translation: this is a displacement), then into the
+				// space its position is written in.
+				Matrix w = go->GetWorldTransformation();
+				w.Translate(Vec3(0.f, 0.f, 0.f));
+				Vec3 worldDelta = w * d;
+				Vec3 localDelta = worldDelta;
+				if (go->GetParent())
+				{
+					Matrix pw = go->GetParent()->GetWorldTransformation();
+					pw.Translate(Vec3(0.f, 0.f, 0.f));
+					localDelta = pw.Inverse() * worldDelta;
+				}
+				go->SetPosition(go->GetPosition() + localDelta);
+			}
+			else rootMotionAccum = rootMotionAccum + d;
+		}
+	}
+
+	void SkeletonAnimationInstance::CollectEventsAndRootMotion(_SkeletonAnimation::SkeletonAnimation &e,
+		const f32 local, const bool visible, const f32 weight)
+	{
+		const Animation &A = *e.animation;
+		const f32 dur = A.Duration;
+		const bool forward = e.speed >= 0.f;
+		const bool first = !e._prevValid;
+		// Unset on the first update: start just before the clip so an event
+		// keyed at its very first frame fires.
+		const f32 prev = first ? (forward ? -1e-6f : dur + 1e-6f) : e._prevLocalTime;
+		// A loop wrapped when time ran backwards against the direction of play.
+		const bool wrapped = !first && (forward ? local < prev - 1e-6f : local > prev + 1e-6f);
+
+		// ---- events ----
+		if (visible && !A.Events.empty())
+		{
+			for (size_t i = 0; i < A.Events.size(); i++)
+			{
+				const f32 t = A.Events[i].Time;
+				bool hit;
+				if (forward) hit = wrapped ? (t > prev || t <= local) : (t > prev && t <= local);
+				else         hit = wrapped ? (t < prev || t >= local) : (t < prev && t >= local);
+				if (!hit) continue;
+				FiredEvent ev;
+				ev.clip = A.AnimationName;
+				ev.name = A.Events[i].Name;
+				ev.time = t;
+				pendingEvents.push_back(ev);
+			}
+		}
+
+		// ---- root motion ----
+		if (A.HasFlag(ANIM_FLAG_ROOT_MOTION))
+		{
+			if (e._rootBone == -2)
+			{
+				e._rootBone = -1;
+				for (size_t b = 0; b < skeleton.size(); b++)
+				{
+					const bool match = A.RootMotionBone.empty() ? skeleton[b].parent < 0
+						: skeleton[b].name == A.RootMotionBone;
+					if (match) { e._rootBone = skeleton[b].self; break; }
+				}
+				for (size_t c = 0; e._rootBone >= 0 && c < A.Channels.size(); c++)
+					if (A.Channels[c].NodeName == skeleton[e._rootBone].name) { e._rootChannel = (int32)c; break; }
+			}
+			if (e._rootBone >= 0 && e._rootChannel >= 0)
+			{
+				const int32 rb = e._rootBone;
+				const Channel &ch = A.Channels[e._rootChannel];
+				const Matrix* bind = ((size_t)rb < bindPose.size()) ? &bindPose[rb] : NULL;
+				// The parent's bind frame turns the bone's local translation
+				// into model space, where "horizontal" means something. Its
+				// rotation only: the parent of a root is an armature node that
+				// does not move.
+				Matrix parentRot;
+				const int32 parent = skeleton[rb].parent;
+				if (parent >= 0)
+				{
+					parentRot = GetParentMatrix(parent, bindPose);
+					parentRot.Translate(Vec3(0.f, 0.f, 0.f));
+				}
+				const Matrix parentInv = parentRot.Inverse();
+
+				Matrix &pose = e.boneTransformationPerAnimation[rb];
+				const Vec3 now = pose.GetTranslation();
+				if (!first)
+				{
+					Vec3 d;
+					if (wrapped)
+					{
+						const Vec3 endP = SampleChannel(ch, forward ? dur : 0.f, false, bind).GetTranslation();
+						const Vec3 startP = SampleChannel(ch, forward ? 0.f : dur, false, bind).GetTranslation();
+						d = (endP - e._prevRootPos) + (now - startP);
+					}
+					else d = now - e._prevRootPos;
+					Vec3 dm = parentRot * d;
+					dm.y = 0.f;
+					rootMotionPending = rootMotionPending + dm * weight;
+				}
+				e._prevRootPos = now;
+
+				// Out of the pose: the root keeps its clip-start position on the
+				// ground plane, so the mesh walks in place and the object moves.
+				const Vec3 origin = parentRot * SampleChannel(ch, forward ? 0.f : dur, false, bind).GetTranslation();
+				Vec3 m = parentRot * now;
+				m.x = origin.x;
+				m.z = origin.z;
+				pose.Translate(parentInv * m);
+			}
+		}
+
+		e._prevLocalTime = local;
+		e._prevValid = true;
+	}
+
+	namespace {
+		// A PropertyTrack at `time`: numbers eased between keys, text held.
+		void SampleTrack(const PropertyTrack &track, const f32 time, Vec4 &value, std::string &text)
+		{
+			const std::vector<PropertyKey> &k = track.Keys;
+			size_t i = 0;
+			while (i + 1 < k.size() && k[i + 1].Time <= time) i++;
+			value = k[i].Value;
+			text = k[i].Text;
+			if (i + 1 < k.size() && time > k[i].Time)
+			{
+				const f32 span = k[i + 1].Time - k[i].Time;
+				f32 u = span > 0.f ? (time - k[i].Time) / span : 0.f;
+				u = Ease(u, k[i].Mode, 1.f, 1.f);
+				const Vec4 &b = k[i + 1].Value;
+				value = Vec4(value.x + (b.x - value.x) * u, value.y + (b.y - value.y) * u,
+					value.z + (b.z - value.z) * u, value.w + (b.w - value.w) * u);
+			}
+		}
+	}
+
+	void SkeletonAnimationInstance::SampleTracks()
+	{
+		trackValues.clear();
+		// Same order and meaning of `scale` as the bone blend: walk the list
+		// backwards, each clip blending over what is below it; a picture is
+		// taken from a clip that is at least half in.
+		for (size_t i = AnimationsToPlay.size(); i > 0; i--)
+		{
+			const _SkeletonAnimation::SkeletonAnimation &e = AnimationsToPlay[i - 1];
+			if (!e.animation || e.animation->Tracks.empty()) continue;
+			const f32 s = AnimationsToPlay.size() > 1 ? e.scale : 0.f;
+			for (size_t t = 0; t < e.animation->Tracks.size(); t++)
+			{
+				const PropertyTrack &track = e.animation->Tracks[t];
+				if (track.Keys.empty()) continue;
+				Vec4 v; std::string text;
+				SampleTrack(track, e._currentTime, v, text);
+				TrackValue &out = trackValues[track.Target + '\n' + track.Property];
+				const bool anyText = !text.empty();
+				if (!out.hasValue) { out.value = v; out.hasValue = true; }
+				else out.value = Vec4(v.x + (out.value.x - v.x) * s, v.y + (out.value.y - v.y) * s,
+					v.z + (out.value.z - v.z) * s, v.w + (out.value.w - v.w) * s);
+				if (anyText && (!out.hasText || s <= 0.5f)) { out.text = text; out.hasText = true; }
+			}
+		}
+	}
+
 	void SkeletonAnimationInstance::ChangeProperties(const uint32 animationOrder, const f32 startTime, const f32 repetition, const f32 speed, const f32 scale)
 	{
 		if (AnimationsToPlay.size() > animationOrder)
@@ -623,8 +955,16 @@ namespace p3d {
 		// Pose modifiers still run with nothing playing, though: a
 		// character standing on uneven ground wants its feet planted
 		// whether or not a clip happens to be driving it.
+		// Fades first: a crossfade that finishes this frame stops its outgoing
+		// clips here, before they are sampled.
+		if (!inst->AnimationsToPlay.empty()) inst->AdvanceFades(time);
+
 		if (inst->AnimationsToPlay.empty())
 		{
+			// Track values are left alone too, like the pose: with nothing
+			// playing they are whatever was last put there - the editor's scrub
+			// (ApplyAnimationAtTime) sets them and the preview's scene update
+			// runs straight after it. Stop() clears them with the pose.
 			if (!inst->poseModifiers.empty())
 			{
 				inst->RunPoseModifiers();
@@ -633,6 +973,7 @@ namespace p3d {
 			return;
 		}
 
+		const bool soloClip = inst->AnimationsToPlay.size() == 1;
 		for (std::vector<_SkeletonAnimation::SkeletonAnimation>::iterator _Anim = inst->AnimationsToPlay.begin(); _Anim != inst->AnimationsToPlay.end(); _Anim++)
 		{
 			if ((*_Anim)._isPaused)
@@ -756,6 +1097,13 @@ namespace p3d {
 								Anim.HasFlag(ANIM_FLAG_APPLY_SCALE), bind);
 					}
 				}
+
+				// Events passed and root travel, now that this clip's pose for
+				// the frame exists. A clip fading or blended mostly out (scale
+				// above a half) stays quiet, so a crossfade does not play both
+				// clips' footsteps; its share of the root travel is its weight.
+				const f32 vis = soloClip ? 1.f : 1.f - (*_Anim).scale;
+				inst->CollectEventsAndRootMotion(*_Anim, currentTime, vis >= 0.5f, vis);
 			}
 		}
 
@@ -814,6 +1162,8 @@ namespace p3d {
 		inst->ApplyBoneAims();
 		inst->RunPoseModifiers();
 
+		inst->SampleTracks();
+
 		// Send SubMesh Bones to Material
 		inst->UploadSkinning();
 	}
@@ -866,6 +1216,47 @@ namespace p3d {
 	// ---- Direct pose access ------------------------------------------------
 
 	namespace {
+		// A local bone matrix taken apart as translation * rotation * scale.
+		//
+		// Matrix::GetScale() returns the DIAGONAL and Matrix::Scale() only
+		// multiplies the diagonal; both are right only for a matrix with no
+		// rotation in it, and a bone almost always has some. A column's
+		// LENGTH is its scale however the frame is turned, and the rotation
+		// has to be read from the columns with that scale divided out, or a
+		// scaled bind pose feeds ConvertToQuaternion a non-orthonormal matrix.
+		void DecomposeTRS(const Matrix &in, Vec3 &t, Quaternion &r, Vec3 &s)
+		{
+			t = in.GetTranslation();
+			s = Vec3(std::sqrt(in.m[0] * in.m[0] + in.m[1] * in.m[1] + in.m[2] * in.m[2]),
+				std::sqrt(in.m[4] * in.m[4] + in.m[5] * in.m[5] + in.m[6] * in.m[6]),
+				std::sqrt(in.m[8] * in.m[8] + in.m[9] * in.m[9] + in.m[10] * in.m[10]));
+			Matrix rot = in;
+			const f32 len[3] = { s.x, s.y, s.z };
+			for (int c = 0; c < 3; c++)
+			{
+				const f32 inv = len[c] > 1e-8f ? 1.f / len[c] : 0.f;
+				for (int k = 0; k < 3; k++) rot.m[c * 4 + k] *= inv;
+			}
+			rot.m[12] = rot.m[13] = rot.m[14] = 0.f;
+			r = rot.ConvertToQuaternion();
+		}
+
+		// translation * rotation * scale. `applyScale` false leaves a pure
+		// rigid transform, which is what every clip without
+		// ANIM_FLAG_APPLY_SCALE has always produced.
+		Matrix ComposeTRS(const Vec3 &t, const Quaternion &r, const Vec3 &s, const bool applyScale)
+		{
+			Matrix out = r.ConvertToMatrix();
+			if (applyScale)
+			{
+				const f32 sc[3] = { s.x, s.y, s.z };
+				for (int c = 0; c < 3; c++)
+					for (int k = 0; k < 3; k++) out.m[c * 4 + k] *= sc[c];
+			}
+			out.Translate(t);
+			return out;
+		}
+
 		// Index of the last key at or before `time`, for a key vector already
 		// sorted by time. Linear scan, matching what this did inline before -
 		// channels carry tens of keys, not thousands.
@@ -904,12 +1295,7 @@ namespace p3d {
 		// identity - see the header. Read up front so each block below only
 		// has to overwrite what it actually has keys for.
 		if (bindLocal)
-		{
-			Matrix b = *bindLocal;         // the accessors are non-const
-			curPosition = b.GetTranslation();
-			curRotation = b.ConvertToQuaternion();
-			curScale = b.GetScale();
-		}
+			DecomposeTRS(*bindLocal, curPosition, curRotation, curScale);
 
 		// Empty key lists were never possible for clips coming out of the
 		// Assimp importer (it writes a key per channel per component), but
@@ -940,21 +1326,12 @@ namespace p3d {
 				curScale = curScale.Lerp(ch.scales[scaleIndex + 1].Scale, SpanDelta(ch.scales, scaleIndex, time));
 		}
 
-		Matrix trafo = curRotation.ConvertToMatrix();
-		// Scale before the translation is written, since Matrix::Scale()
-		// multiplies the diagonal (which would also scale a translation
-		// already sitting in the last column) while Matrix::Translate()
-		// overwrites that column outright.
-		//
-		// Off by default and opted into per clip via ANIM_FLAG_APPLY_SCALE.
+		// Scale is off by default and opted into per clip via ANIM_FLAG_APPLY_SCALE.
 		// Scale keys have always round-tripped through the file while the
 		// sampler dropped them, so any clip authored since then may carry
 		// scale keys nobody ever saw applied; turning this on globally would
 		// change how those clips deform with no way to tell which.
-		if (applyScale)
-			trafo.Scale(curScale);
-		trafo.Translate(curPosition);
-		return trafo;
+		return ComposeTRS(curPosition, curRotation, curScale, applyScale);
 	}
 
 	bool SkeletonAnimationInstance::SetBoneWorldTransform(const int32 boneId,
@@ -1197,7 +1574,10 @@ namespace p3d {
 		// levels of detail, and those its shadow is drawn with. (Only the model's
 		// own were posed: a simplified level stood in its bind pose.)
 		std::vector<RenderingMesh*> all;
-		for (uint32 l = 0; l < rcomp->GetLODSize(); l++)
+		// Counted once: a loop re-reading GetLODSize() while GetMeshes() could
+		// add levels never ended on a component with no meshes.
+		const uint32 levels = rcomp->GetLODSize();
+		for (uint32 l = 0; l < levels; l++)
 		{
 			std::vector<RenderingMesh*> &level = rcomp->GetMeshes(l);
 			all.insert(all.end(), level.begin(), level.end());
@@ -1235,6 +1615,8 @@ namespace p3d {
 	void SkeletonAnimationInstance::ResetToBindPose()
 	{
 		boneTransformation = bindPose;
+		// Rest is rest for the parts too: no clip is showing.
+		trackValues.clear();
 		RefreshSkinning();
 	}
 
@@ -1270,21 +1652,33 @@ namespace p3d {
 				(size_t)boneId < bindPose.size() ? &bindPose[boneId] : NULL);
 		}
 
+		// The clip's property tracks at this time too, so a scrub shows a
+		// part's picture swap or fade exactly as playback would.
+		trackValues.clear();
+		for (size_t t = 0; t < anim.Tracks.size(); t++)
+		{
+			if (anim.Tracks[t].Keys.empty()) continue;
+			TrackValue &out = trackValues[anim.Tracks[t].Target + '\n' + anim.Tracks[t].Property];
+			SampleTrack(anim.Tracks[t], time, out.value, out.text);
+			out.hasValue = true;
+			out.hasText = !out.text.empty();
+		}
+
 		ApplyPose(pose);
 	}
 
 	Matrix SkeletonAnimation::SCALE(const Matrix &in, const Matrix &prev, const f32 s)
 	{
-		Vec3 Translation = in.GetTranslation().Lerp(prev.GetTranslation(), s);
-		Quaternion Rotation = in.ConvertToQuaternion().Slerp(prev.ConvertToQuaternion(), s);
-		Vec3 Scale = in.GetScale().Lerp(prev.GetScale(), s);
-
-		Matrix Out;
-		Out.Translate(Translation);
-		Out *= Rotation.ConvertToMatrix();
-		//Out.Scale(Scale);
-
-		return Out;
+		// Scale is carried through. It used to be computed (from the diagonal,
+		// which is wrong for any turned bone) and then dropped, so a clip with
+		// ANIM_FLAG_APPLY_SCALE lost its scale the moment a second clip played.
+		// A pose with no scale in it decomposes to 1,1,1 and blends to 1,1,1,
+		// so rigid clips are unchanged.
+		Vec3 ta, tb, sa, sb;
+		Quaternion ra, rb;
+		DecomposeTRS(in, ta, ra, sa);
+		DecomposeTRS(prev, tb, rb, sb);
+		return ComposeTRS(ta.Lerp(tb, s), ra.Slerp(rb, s), sa.Lerp(sb, s), true);
 	}
 
 }

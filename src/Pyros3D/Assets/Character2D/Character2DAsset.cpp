@@ -18,6 +18,8 @@
 
 namespace p3d {
 
+	const char* const Character2DAsset::kPartProperties[4] = { "sprite", "z", "color", "visible" };
+
 	namespace {
 
 		using json = nlohmann::json;
@@ -249,6 +251,8 @@ namespace p3d {
 				p.pivot = ReadVec2(pj.value("pivot", json()), Vec2(0.5f, 0.5f));
 				p.z = (f32)pj.value("z", 0.0);
 				p.lit = pj.value("lit", false);
+				p.bendBone = pj.value("bend", std::string());
+				p.bendSegments = (int32)pj.value("bendSegments", 8);
 				a.parts.push_back(p);
 			}
 		}
@@ -316,6 +320,39 @@ namespace p3d {
 						clip.Channels.push_back(ch);
 					}
 				}
+				if (cj.contains("events") && cj["events"].is_array())
+					for (const json &ej : cj["events"])
+						clip.Events.push_back(AnimationEvent((f32)ej.value("t", 0.0), ej.value("name", std::string())));
+				clip.RootMotionBone = cj.value("rootMotionBone", std::string());
+				if (cj.contains("tracks") && cj["tracks"].is_array())
+				{
+					for (const json &tj : cj["tracks"])
+					{
+						PropertyTrack track;
+						track.Target = tj.value("target", std::string());
+						track.Property = tj.value("property", std::string());
+						if (tj.contains("keys") && tj["keys"].is_array())
+						{
+							for (const json &kj : tj["keys"])
+							{
+								PropertyKey k;
+								k.Time = (f32)kj.value("t", 0.0);
+								const json &v = kj.value("v", json());
+								if (v.is_array())
+								{
+									f32 c[4] = { 0.f, 0.f, 0.f, 0.f };
+									for (size_t i = 0; i < v.size() && i < 4; i++) c[i] = v[i].get<f32>();
+									k.Value = Vec4(c[0], c[1], c[2], c[3]);
+								}
+								k.Text = kj.value("text", std::string());
+								f32 inT = 1.f, outT = 1.f;
+								ReadKeyInterp(kj, k.Mode, inT, outT);
+								track.Keys.push_back(k);
+							}
+						}
+						clip.Tracks.push_back(track);
+					}
+				}
 				a.clips.push_back(clip);
 			}
 		}
@@ -323,6 +360,17 @@ namespace p3d {
 		a.defaultClip = j.value("defaultClip", std::string());
 		a.defaultClipLoops = j.value("defaultClipLoops", true);
 		a.authoredHalfHeight = (f32)j.value("authoredHalfHeight", 0.0);
+		if (j.contains("limits") && j["limits"].is_array())
+			for (const json &lj : j["limits"])
+			{
+				const std::string bone = lj.value("bone", std::string());
+				if (bone.empty()) continue;
+				Character2DAsset::BoneLimit l;
+				l.minDeg = (f32)lj.value("min", -180.0);
+				l.maxDeg = (f32)lj.value("max", 180.0);
+				l.enabled = lj.value("enabled", true);
+				a.limits[bone] = l;
+			}
 
 		out = a;
 		return true;
@@ -365,6 +413,11 @@ namespace p3d {
 			pj["pivot"] = WriteVec2(p.pivot);
 			pj["z"] = (double)p.z;
 			if (p.lit) pj["lit"] = true;
+			if (!p.bendBone.empty())
+			{
+				pj["bend"] = p.bendBone;
+				if (p.bendSegments != 8) pj["bendSegments"] = p.bendSegments;
+			}
 			sprites.push_back(pj);
 		}
 		j["sprites"] = sprites;
@@ -432,6 +485,39 @@ namespace p3d {
 				chans.push_back(chj);
 			}
 			cj["channels"] = chans;
+			if (!c.Events.empty())
+			{
+				json evs = json::array();
+				for (size_t e = 0; e < c.Events.size(); e++)
+					evs.push_back({ { "t", (double)c.Events[e].Time }, { "name", c.Events[e].Name } });
+				cj["events"] = evs;
+			}
+			if (!c.RootMotionBone.empty()) cj["rootMotionBone"] = c.RootMotionBone;
+			if (!c.Tracks.empty())
+			{
+				json trs = json::array();
+				for (size_t t = 0; t < c.Tracks.size(); t++)
+				{
+					const PropertyTrack &track = c.Tracks[t];
+					json tj;
+					tj["target"] = track.Target;
+					tj["property"] = track.Property;
+					json keys = json::array();
+					for (size_t k = 0; k < track.Keys.size(); k++)
+					{
+						const PropertyKey &key = track.Keys[k];
+						json kj;
+						kj["t"] = (double)key.Time;
+						kj["v"] = json::array({ key.Value.x, key.Value.y, key.Value.z, key.Value.w });
+						if (!key.Text.empty()) kj["text"] = key.Text;
+						WriteKeyInterp(kj, key.Mode, 1.f, 1.f);
+						keys.push_back(kj);
+					}
+					tj["keys"] = keys;
+					trs.push_back(tj);
+				}
+				cj["tracks"] = trs;
+			}
 			clips.push_back(cj);
 		}
 		j["clips"] = clips;
@@ -442,6 +528,14 @@ namespace p3d {
 			j["defaultClipLoops"] = asset.defaultClipLoops;
 		}
 		if (asset.authoredHalfHeight > 0.f) j["authoredHalfHeight"] = (double)asset.authoredHalfHeight;
+		if (!asset.limits.empty())
+		{
+			json lim = json::array();
+			for (std::map<std::string, Character2DAsset::BoneLimit>::const_iterator it = asset.limits.begin(); it != asset.limits.end(); ++it)
+				lim.push_back({ { "bone", it->first }, { "min", (double)it->second.minDeg },
+					{ "max", (double)it->second.maxDeg }, { "enabled", it->second.enabled } });
+			j["limits"] = lim;
+		}
 
 		return j;
 	}

@@ -122,6 +122,21 @@ int BakeIKOverRange(AnimationEditorDocument& doc, const AnimationEditorDocument:
 // the pose being committed is exactly what the move would discard.
 void SetPlayhead(AnimationEditorDocument& doc, float time, bool keepPendingPose = false);
 
+// ---- pose tools -------------------------------------------------------------
+// Copy / paste / mirror a whole pose. Pasted and mirrored poses land as
+// uncommitted pose overrides (what dragging a bone makes), so Key Pose - or
+// auto-key - commits them. The pose clipboard is by bone name and shared by
+// every animation window. Returns how many bones changed (or were copied).
+enum PoseOp {
+	POSE_COPY,
+	POSE_PASTE,
+	POSE_PASTE_MIRRORED,
+	POSE_MIRROR,                      // the whole pose, left and right swapped
+	POSE_MIRROR_BONE_TO_OTHER_SIDE    // the selected bone's pose onto its counterpart
+};
+int ApplyPoseOp(AnimationEditorDocument& doc, PoseOp op);
+bool HasPoseClipboard();
+
 } // namespace AnimationEditor
 
 #endif /* ANIMATIONEDITOR_UI_H */

@@ -10,6 +10,8 @@
 #define SKELETONANIMATION_H
 
 #include <Pyros3D/Other/Export.h>
+#include <functional>
+#include <map>
 #include <Pyros3D/Ext/Signals/Signal.h>
 #include <Pyros3D/Ext/Signals/Delegate.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
@@ -68,6 +70,24 @@ namespace p3d {
 			bool HaveLayers;
 			uint32 LayerID;
 			AnimationLayer* Layer;
+
+			// Fade of `scale` from fadeFrom to fadeTo over fadeDuration seconds
+			// of the update clock, started on the first update that sees it
+			// (fadeStart -1). Driven by CrossFade/FadeOut; 0 duration = none.
+			f32 fadeFrom = 0.f, fadeTo = 0.f, fadeStart = -1.f, fadeDuration = 0.f;
+			// Stop this clip once its fade has finished (a crossfade's outgoing
+			// clips): it is invisible by then, and leaving it would keep it
+			// sampled - and firing events - for ever.
+			bool stopAfterFade = false;
+			// Clip-local time at the previous update, for firing the events
+			// passed since and for root motion. Unset until the first update.
+			f32 _prevLocalTime = 0.f;
+			bool _prevValid = false;
+			// Root motion: the root bone's sampled (un-stripped) translation at
+			// the previous update, in the bone's parent space.
+			Vec3 _prevRootPos;
+			int32 _rootBone = -2;      // -2 unresolved, -1 none
+			int32 _rootChannel = -1;
 		};
 	}
 
@@ -86,6 +106,71 @@ namespace p3d {
 		int32 Play(const uint32 animation, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f, const std::string &LayerName = "");
 		void ChangeProperties(const uint32 animationOrder, const f32 startTime, const f32 repetition = 1, const f32 speed = 1.f, const f32 scale = 1.f);
 		void Pause();
+
+		// Cross-fade to a clip: it starts (or carries on, keeping its phase)
+		// at full weight UNDER the clips already playing on the same layer
+		// ("" = the base, the whole skeleton), and those fade out over
+		// `duration` seconds and are then stopped. With nothing on that layer
+		// to fade from, the clip fades itself in over what is below it.
+		//
+		// This is what Play() with blend scales cannot do on its own: Play's
+		// scale is the weight of the OTHER clips, ordering decides which clip
+		// is on top, and nothing ever stopped a clip that had faded away.
+		// `startTime` is normalised (0..1); negative keeps the phase of a clip
+		// that is already playing and starts a new one at 0. Returns the new
+		// play order, or -1 for an unknown clip. Orders of other clips shift
+		// when the outgoing ones stop - address clips by name.
+		int32 CrossFade(const uint32 animation, const f32 duration, const f32 repetition = -1.f,
+			const f32 speed = 1.f, const f32 startTime = -1.f, const std::string &LayerName = "");
+		// Fades a playing clip out and stops it.
+		void FadeOut(const uint32 animationOrder, const f32 duration);
+		// True when `animation` (a clip id) is playing and not on its way out.
+		bool IsPlaying(const uint32 animation) const;
+
+		// ---- clip events ---------------------------------------------
+		// An event a clip passed. Collected during the update (which can run
+		// on a worker thread) and handed out on the main thread by
+		// DeliverPending(): to the callback if one is set, and to the queue
+		// TakeEvents() empties. The queue is capped so an instance nobody
+		// polls cannot grow without bound.
+		struct FiredEvent {
+			std::string clip;
+			std::string name;
+			f32 time;
+		};
+		std::vector<FiredEvent> TakeEvents();
+		void SetEventCallback(const std::function<void(const FiredEvent&)> &cb) { eventCallback = cb; }
+
+		// ---- root motion ---------------------------------------------
+		// Model-space travel of the root bone (ANIM_FLAG_ROOT_MOTION clips)
+		// since the last call, already taken out of the pose. Horizontal
+		// (x, z) only: height stays in the pose, so a jump still jumps.
+		Vec3 ConsumeRootMotion();
+		// When on, DeliverPending() moves the owning GameObject by the root
+		// motion itself (through its rotation and scale) instead of leaving
+		// it for ConsumeRootMotion(). Off by default: a physics-driven
+		// character must route it through its body.
+		void SetApplyRootMotion(const bool apply) { applyRootMotion = apply; }
+		bool GetApplyRootMotion() const { return applyRootMotion; }
+
+		// ---- property tracks -----------------------------------------
+		// The value every playing clip's PropertyTrack blends to this frame,
+		// keyed by target + property. False when no playing clip animates it
+		// - the consumer then shows its own rest value.
+		struct TrackValue {
+			Vec4 value;
+			std::string text;
+			bool hasValue = false;
+			bool hasText = false;
+		};
+		bool GetTrackValue(const std::string &target, const std::string &property, TrackValue &out) const;
+		bool HasTrackValues() const { return !trackValues.empty(); }
+
+		// Main thread, after the update: events to their listeners, root
+		// motion to the owner when SetApplyRootMotion is on. RenderingComponent
+		// calls it; anything driving UpdateInstance itself should too.
+		void DeliverPending();
+
 		// One property of a playing clip, without starting it again -
 		// ChangeProperties() sets the start time too, so calling it every
 		// frame to fade a clip holds the clip still. The scale is the blend
@@ -401,6 +486,19 @@ namespace p3d {
 		std::vector<BoneScale> boneScales;
 		// Bones -> every submesh's skinning matrices, with the scales applied.
 		void UploadSkinning();
+
+		// Crossfade/events/root motion/tracks state - see the public API.
+		std::vector<FiredEvent> pendingEvents;     // written by the update
+		std::vector<FiredEvent> eventQueue;        // main thread, TakeEvents
+		std::function<void(const FiredEvent&)> eventCallback;
+		Vec3 rootMotionPending;                    // written by the update
+		Vec3 rootMotionAccum;                      // main thread, Consume
+		bool applyRootMotion = false;
+		std::map<std::string, TrackValue> trackValues;
+		void SampleTracks();
+		void AdvanceFades(const f32 time);
+		void CollectEventsAndRootMotion(_SkeletonAnimation::SkeletonAnimation &entry,
+			const f32 localTime, const bool visible, const f32 weight);
 
 	};
 

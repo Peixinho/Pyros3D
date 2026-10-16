@@ -15,6 +15,7 @@
 #include "imgui.h"
 
 #include <algorithm>
+#include <functional>
 #include <cmath>
 #include <cstring>
 
@@ -69,7 +70,29 @@ void DrawViewport(Character2DDocument& doc, float availH)
 	ImGui::SameLine();
 	if (ImGui::Button("Frame")) { pv->framed = false; pv->userAdjustedView = false; }
 	ImGui::SameLine();
-	ImGui::TextDisabled("(drag a joint to pose, RMB pan, wheel zoom)");
+	ImGui::TextDisabled("|");
+	ImGui::SameLine();
+	if (ImGui::RadioButton("Pose", pv->tool == Character2DPreview::Tool::Pose)) pv->tool = Character2DPreview::Tool::Pose;
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag a joint: the limb above it bends to follow (IK).\nAlt+drag turns one bone instead.");
+	ImGui::SameLine();
+	if (ImGui::RadioButton("Rotate", pv->tool == Character2DPreview::Tool::Rotate)) pv->tool = Character2DPreview::Tool::Rotate;
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Drag a bone (or the stub of a hand or head) to turn just that bone\nabout its joint, children carried along.");
+	if (doc.mode == Character2DDocument::Mode::Animate)
+	{
+		ImGui::SameLine();
+		ImGui::Checkbox("Onion", &doc.anim.onionSkin);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Ghost bones before (blue) and after (green) the playhead.\nRight-click for how many and how far apart.");
+		if (ImGui::BeginPopupContextItem("##onion2d"))
+		{
+			ImGui::SetNextItemWidth(100.f); ImGui::SliderInt("Before", &doc.anim.onionBefore, 0, 8);
+			ImGui::SetNextItemWidth(100.f); ImGui::SliderInt("After", &doc.anim.onionAfter, 0, 8);
+			ImGui::SetNextItemWidth(100.f); ImGui::SliderInt("Every n frames", &doc.anim.onionStep, 1, 15);
+			ImGui::EndPopup();
+		}
+	}
+	ImGui::SameLine();
+	ImGui::TextDisabled(doc.mode == Character2DDocument::Mode::Animate
+		? "(double-click a joint to pin it, RMB pan, wheel zoom)" : "(RMB pan, wheel zoom)");
 
 	const ImVec2 avail = ImGui::GetContentRegionAvail();
 	const int w = std::max(64, (int)avail.x);
@@ -139,6 +162,14 @@ void DrawViewport(Character2DDocument& doc, float availH)
 		}
 
 		pv->hoveredBone = pv->showBones ? pv->PickJoint(pv->mouse) : -1;
+		const bool rotateGesture = pv->tool == Character2DPreview::Tool::Rotate || ImGui::GetIO().KeyAlt;
+		const int hoveredLimb = (pv->showBones && rotateGesture && pv->hoveredBone < 0) ? pv->PickLimb(pv->mouse) : -1;
+		pv->hoveredLimb = hoveredLimb;
+
+		// Double-click a joint: pin it there (or let it go).
+		if (doc.mode == Character2DDocument::Mode::Animate && pv->hoveredBone >= 0
+			&& ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left))
+			pv->TogglePin(pv->hoveredBone);
 
 		if (ImGui::IsMouseClicked(ImGuiMouseButton_Right))
 		{
@@ -148,7 +179,15 @@ void DrawViewport(Character2DDocument& doc, float availH)
 			pv->panCenterY = pv->centerY;
 		}
 
-		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && pv->hoveredBone >= 0)
+		if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && rotateGesture && (pv->hoveredBone >= 0 || hoveredLimb >= 0))
+		{
+			const int b = pv->hoveredBone >= 0 ? pv->hoveredBone : hoveredLimb;
+			Vec3 cursor;
+			if (pv->CursorToWorld(pv->mouse, cursor)) pv->BeginRotate(b, cursor);
+			if ((size_t)b < doc.asset.bones.size()) doc.selectedBone = doc.asset.bones[b].name;
+			doc.anim.BeginInteractiveEdit();
+		}
+		else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && pv->hoveredBone >= 0)
 		{
 			pv->draggingBone = pv->hoveredBone;
 			// Clicking a joint selects its bone - which is what a bone list and
@@ -187,6 +226,20 @@ void DrawViewport(Character2DDocument& doc, float availH)
 		else
 		{
 			pv->draggingBone = -1;
+			pv->dragEnded = true;
+		}
+	}
+
+	if (pv->rotatingBone >= 0)
+	{
+		if (ImGui::IsMouseDown(ImGuiMouseButton_Left))
+		{
+			Vec3 cursor;
+			if (pv->CursorToWorld(pv->mouse, cursor)) pv->RotateTo(cursor);
+		}
+		else
+		{
+			pv->rotatingBone = -1;
 			pv->dragEnded = true;
 		}
 	}
@@ -231,12 +284,64 @@ void DrawViewport(Character2DDocument& doc, float availH)
 		}
 	}
 
+	// Onion skin: the clip a few frames either side, as ghost bones.
+	if (pv->showBones && pv->built.instance && doc.anim.onionSkin
+		&& doc.mode == Character2DDocument::Mode::Animate && doc.anim.HasActiveClip())
+	{
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const Animation& clip = doc.anim.clips[doc.anim.activeClip];
+		const std::vector<Bone>& bones = pv->built.instance->GetSkeletonBones();
+		const float fps = doc.anim.snapFps > 0.f ? doc.anim.snapFps : 30.f;
+		// Held and put back exactly: this runs after this frame's drag, and
+		// re-sampling the clip instead would throw the drag away.
+		std::vector<Matrix> held;
+		pv->built.instance->CapturePose(held);
+		for (int k = -doc.anim.onionBefore; k <= doc.anim.onionAfter && clip.Duration > 0.f; k++)
+		{
+			if (k == 0) continue;
+			float t = doc.anim.playhead + k * std::max(1, doc.anim.onionStep) / fps;
+			if (doc.anim.looping) { t = std::fmod(t, clip.Duration); if (t < 0.f) t += clip.Duration; }
+			else if (t < 0.f || t > clip.Duration) continue;
+			pv->built.instance->ApplyAnimationAtTime(clip, t);
+			const int reach = k < 0 ? doc.anim.onionBefore : doc.anim.onionAfter;
+			const int alpha = (int)(170.f * (1.f - (std::abs(k) - 1) / (float)std::max(1, reach))) + 30;
+			const ImU32 col = k < 0 ? IM_COL32(90, 150, 255, alpha) : IM_COL32(100, 255, 130, alpha);
+			for (size_t b = 0; b < bones.size(); b++)
+			{
+				Vec2 a, c;
+				if (bones[b].parent < 0) continue;
+				if (pv->BoneToPixels(bones[b].parent, a) && pv->BoneToPixels(bones[b].self, c))
+					dl->AddLine(ImVec2(imgMin.x + a.x, imgMin.y + a.y), ImVec2(imgMin.x + c.x, imgMin.y + c.y), col, 2.f);
+			}
+		}
+		pv->built.instance->ApplyPose(held);
+	}
+
 	if (pv->showBones && pv->built.instance)
 	{
 		ImDrawList* dl = ImGui::GetWindowDrawList();
 		const float halfH = pv->halfWidth * (float)h / (float)w;
 		const std::vector<Bone>& bones = pv->built.instance->GetSkeletonBones();
 		const int selected = doc.SelectedBoneId();
+
+		// Leaf stubs: in the rotate tool a hand or a head has something to grab.
+		if (pv->tool == Character2DPreview::Tool::Rotate || ImGui::GetIO().KeyAlt)
+			for (size_t b = 0; b < bones.size(); b++)
+			{
+				bool leaf = true;
+				for (size_t c = 0; c < bones.size() && leaf; c++) if (bones[c].parent == bones[b].self) leaf = false;
+				if (!leaf) continue;
+				Vec2 a;
+				if (!pv->BoneToPixels(bones[b].self, a)) continue;
+				const Matrix g = pv->built.instance->GetBoneGlobalTransform(bones[b].self);
+				Vec2 dir(g.m[0], -g.m[1]);
+				const float len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+				if (len < 1e-6f) continue;
+				const ImVec2 p0(imgMin.x + a.x, imgMin.y + a.y);
+				const ImVec2 p1(p0.x + dir.x / len * Character2DPreview::kLeafStubPixels, p0.y + dir.y / len * Character2DPreview::kLeafStubPixels);
+				const bool hot = pv->hoveredLimb == (int)bones[b].self || pv->rotatingBone == (int)bones[b].self;
+				dl->AddLine(p0, p1, hot ? IM_COL32(255, 230, 120, 255) : IM_COL32(150, 215, 255, 200), hot ? 3.f : 2.f);
+			}
 
 		// The character is alone at the origin of its own scene, so a bone's
 		// model-space transform IS its world transform - no owner matrix to
@@ -276,7 +381,9 @@ void DrawViewport(Character2DDocument& doc, float availH)
 				float wdt = std::min(7.f, std::max(2.f, len * 0.16f));
 
 				const bool sel = (selected == (int)bones[c].self);
-				const ImU32 fill = sel ? IM_COL32(255, 200, 60, 190) : IM_COL32(90, 190, 255, 150);
+				// In the rotate tool a limb is the parent's: it turns about p.
+				const bool hot = (pv->hoveredLimb == (int)id || pv->rotatingBone == (int)id);
+				const ImU32 fill = hot ? IM_COL32(255, 230, 120, 200) : sel ? IM_COL32(255, 200, 60, 190) : IM_COL32(90, 190, 255, 150);
 				const ImU32 edge = sel ? IM_COL32(255, 225, 140, 255) : IM_COL32(150, 215, 255, 220);
 				dl->AddTriangleFilled(ImVec2(p.x + nx * wdt, p.y + ny * wdt),
 					ImVec2(p.x - nx * wdt, p.y - ny * wdt), cp, fill);
@@ -312,6 +419,17 @@ void DrawViewport(Character2DDocument& doc, float availH)
 				dl->AddLine(ImVec2(p.x - x, p.y - x), ImVec2(p.x + x, p.y + x), fill, 1.5f);
 				dl->AddLine(ImVec2(p.x - x, p.y + x), ImVec2(p.x + x, p.y - x), fill, 1.5f);
 			}
+		}
+
+		// Pins: where each pinned joint is held, and a line to where it is.
+		for (std::map<int, Vec3>::const_iterator it = pv->pins.begin(); it != pv->pins.end(); ++it)
+		{
+			const ImVec2 at = toPx(it->second);
+			Vec2 now;
+			if (pv->BoneToPixels(it->first, now))
+				dl->AddLine(at, ImVec2(imgMin.x + now.x, imgMin.y + now.y), IM_COL32(255, 80, 80, 160), 1.f);
+			dl->AddRectFilled(ImVec2(at.x - 4.f, at.y - 4.f), ImVec2(at.x + 4.f, at.y + 4.f), IM_COL32(240, 60, 60, 255));
+			dl->AddLine(ImVec2(at.x, at.y + 4.f), ImVec2(at.x, at.y + 12.f), IM_COL32(240, 60, 60, 255), 2.f);
 		}
 	}
 
@@ -472,6 +590,29 @@ void DrawBonesPanel(Character2DDocument& doc)
 			}
 			if (posReleased || rotReleased)
 				doc.EndInteractiveEdit("Move Bone '" + doc.selectedBone + "'");
+
+			// Joint limit: how far the bone may turn from rest when a limb is
+			// dragged or a bone rotated. Also how a knee is told which way it
+			// folds: 0..150 bends one way, -150..0 the other.
+			ImGui::Separator();
+			std::map<std::string, Character2DAsset::BoneLimit>::const_iterator li = doc.asset.limits.find(doc.selectedBone);
+			bool limited = li != doc.asset.limits.end() && li->second.enabled;
+			float range[2] = { li != doc.asset.limits.end() ? li->second.minDeg : -180.f,
+				li != doc.asset.limits.end() ? li->second.maxDeg : 180.f };
+			std::string err;
+			if (ImGui::Checkbox("Joint limit", &limited))
+				doc.SetBoneLimit(doc.selectedBone, limited, range[0], range[1], err);
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Clamp how far this bone turns from its rest angle when posed.\nA knee limited to 0..150 only ever folds one way.");
+			if (limited)
+			{
+				ImGui::SetNextItemWidth(-1.f);
+				if (ImGui::DragFloat2("##limit", range, 1.f, -180.f, 180.f, "%.0f deg"))
+					doc.SetBoneLimit(doc.selectedBone, true, range[0], range[1], err);
+				if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+				if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit("Joint Limit '" + doc.selectedBone + "'");
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Min and max, in degrees from the rest angle.");
+			}
 		}
 	}
 
@@ -667,6 +808,52 @@ void DrawSpritesPanel(Character2DDocument& doc, const std::vector<TextureChoice>
 			doc.EndInteractiveEdit(label);
 		}
 
+		// Bend: one picture across two bones, bending at the joint between.
+		{
+			ImGui::Separator();
+			const std::string none = "(rigid)";
+			ImGui::SetNextItemWidth(-1.f);
+			if (ImGui::BeginCombo("##bend", p.bendBone.empty() ? none.c_str() : ("bends with " + p.bendBone).c_str()))
+			{
+				std::string pick = p.bendBone;
+				bool picked = false;
+				if (ImGui::Selectable(none.c_str(), p.bendBone.empty())) { pick.clear(); picked = true; }
+				const int own = doc.asset.FindBone(p.bone);
+				for (size_t b = 0; b < doc.asset.bones.size(); b++)
+				{
+					// Bones under the part's own bone - the next one down the limb.
+					bool below = false;
+					for (int q = doc.asset.bones[b].parent; q >= 0 && !below; q = doc.asset.bones[q].parent) if (q == own) below = true;
+					if (!below) continue;
+					if (ImGui::Selectable(doc.asset.bones[b].name.c_str(), p.bendBone == doc.asset.bones[b].name))
+					{ pick = doc.asset.bones[b].name; picked = true; }
+				}
+				if (picked && pick != p.bendBone)
+				{
+					doc.BeginInteractiveEdit();
+					p.bendBone = pick;
+					doc.TouchRig();       // a different mesh, not a re-place
+					doc.EndInteractiveEdit(label);
+				}
+				ImGui::EndCombo();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Bend this picture across a second bone: an arm drawn as one image that\n"
+					"bends at the elbow, instead of two images that split there.");
+			if (!p.bendBone.empty())
+			{
+				int seg = p.bendSegments;
+				ImGui::SetNextItemWidth(-1.f);
+				if (ImGui::SliderInt("##bendseg", &seg, 2, 32, "smoothness %d"))
+				{
+					p.bendSegments = seg;
+					doc.TouchRig();
+				}
+				if (ImGui::IsItemActivated()) doc.BeginInteractiveEdit();
+				if (ImGui::IsItemDeactivatedAfterEdit()) doc.EndInteractiveEdit(label);
+			}
+		}
+
 		// Offset / size / pivot / bone only change where a part is DRAWN.
 		if (changed) doc.TouchParts();
 	}
@@ -763,7 +950,210 @@ void DrawClipBar(Character2DDocument& doc)
 	}
 }
 
+// ---- stage 3: animate - parts and pins ------------------------------------
+
+// A part's property at the playhead: what the clip's track gives, or the
+// part's own rest value.
+SkeletonAnimationInstance::TrackValue PartValue(Character2DDocument& doc, const SpritePart2D& part, const char* prop)
+{
+	SkeletonAnimationInstance::TrackValue v;
+	SkeletonAnimationInstance* inst = doc.preview ? doc.preview->built.instance : NULL;
+	if (inst && inst->GetTrackValue(part.name, prop, v)) return v;
+	const std::string p = prop;
+	if (p == "z") v.value = Vec4(part.z, 0.f, 0.f, 0.f);
+	else if (p == "color") v.value = Vec4(1.f, 1.f, 1.f, 1.f);
+	else if (p == "visible") v.value = Vec4(1.f, 0.f, 0.f, 0.f);
+	else if (p == "sprite") { v.text = part.texture; v.hasText = true; }
+	v.hasValue = true;
+	return v;
+}
+
+// Keys one of a part's properties at the playhead. The interpolation of a
+// picture or a visibility key is a step: there is nothing between them.
+void KeyPart(Character2DDocument& doc, const std::string& part, const char* prop, const Vec4& value,
+	const std::string& text, bool interactive)
+{
+	if (!doc.anim.HasActiveClip()) return;
+	const float t = doc.anim.SnapTime(doc.anim.playhead);
+	const std::string p = prop;
+	const int mode = (p == "sprite" || p == "visible") ? (int)p3d::INTERP_STEP : (int)p3d::INTERP_LINEAR;
+	const auto write = [&]() {
+		const int track = doc.anim.FindOrCreateTrack(doc.anim.activeClip, part, prop);
+		doc.anim.SetTrackKey(doc.anim.activeClip, track, t, value, text, mode);
+	};
+	if (interactive) { write(); doc.anim.dirty = true; doc.anim.clipsRevision++; }
+	else doc.anim.PushSnapshotEdit("Key " + part + " " + p, write);
+}
+
+void DrawPartKeysPanel(Character2DDocument& doc, const std::vector<TextureChoice>& textures)
+{
+	if (doc.asset.parts.empty()) { ImGui::TextDisabled("No sprites yet - add artwork in the Sprites stage."); return; }
+	if (!doc.anim.HasActiveClip()) { ImGui::TextDisabled("Make a clip to key parts in."); return; }
+	ImGui::TextWrapped("Key a part's picture, draw order, colour or visibility at the playhead.");
+	ImGui::Separator();
+	ImGui::BeginChild("##partlist", ImVec2(0, 110.f), true);
+	for (size_t i = 0; i < doc.asset.parts.size(); i++)
+		if (ImGui::Selectable(doc.asset.parts[i].name.c_str(), doc.selectedSprite == doc.asset.parts[i].name))
+			doc.selectedSprite = doc.asset.parts[i].name;
+	ImGui::EndChild();
+	const int pi = doc.FindSprite(doc.selectedSprite);
+	if (pi < 0) { ImGui::TextDisabled("Pick a part."); return; }
+	const SpritePart2D& part = doc.asset.parts[pi];
+	const std::string name = part.name;
+
+	// Picture.
+	{
+		const SkeletonAnimationInstance::TrackValue v = PartValue(doc, part, "sprite");
+		std::string shown = v.text;
+		const size_t slash = shown.find_last_of("/\\");
+		if (slash != std::string::npos) shown = shown.substr(slash + 1);
+		ImGui::SetNextItemWidth(-1.f);
+		if (ImGui::BeginCombo("##picture", shown.empty() ? "(none)" : shown.c_str()))
+		{
+			for (size_t t = 0; t < textures.size(); t++)
+				if (ImGui::Selectable(textures[t].label.c_str(), textures[t].relativePath == v.text))
+					KeyPart(doc, name, "sprite", Vec4(0.f, 0.f, 0.f, 0.f), textures[t].relativePath, false);
+			ImGui::EndCombo();
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Picture - swaps the part's artwork from this key on\n(a hand opening, a mouth shape, a blink).");
+	}
+	// Draw order.
+	{
+		SkeletonAnimationInstance::TrackValue v = PartValue(doc, part, "z");
+		float z = v.value.x;
+		ImGui::SetNextItemWidth(-1.f);
+		if (ImGui::DragFloat("##z", &z, 0.01f, -100.f, 100.f, "draw order %.2f")) KeyPart(doc, name, "z", Vec4(z, 0.f, 0.f, 0.f), "", true);
+		if (ImGui::IsItemActivated()) doc.anim.BeginInteractiveEdit();
+		if (ImGui::IsItemDeactivatedAfterEdit()) doc.anim.EndInteractiveEdit("Key " + name + " z");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Draw order: higher is nearer. An arm swinging behind the body and back.");
+	}
+	// Colour.
+	{
+		SkeletonAnimationInstance::TrackValue v = PartValue(doc, part, "color");
+		float c[4] = { v.value.x, v.value.y, v.value.z, v.value.w };
+		ImGui::SetNextItemWidth(-1.f);
+		if (ImGui::ColorEdit4("##tint", c, ImGuiColorEditFlags_AlphaBar)) KeyPart(doc, name, "color", Vec4(c[0], c[1], c[2], c[3]), "", true);
+		if (ImGui::IsItemActivated()) doc.anim.BeginInteractiveEdit();
+		if (ImGui::IsItemDeactivatedAfterEdit()) doc.anim.EndInteractiveEdit("Key " + name + " colour");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Tint and opacity - a hit flash, a fade out.");
+	}
+	// Visible.
+	{
+		SkeletonAnimationInstance::TrackValue v = PartValue(doc, part, "visible");
+		bool vis = v.value.x > 0.5f;
+		if (ImGui::Checkbox("Visible", &vis)) KeyPart(doc, name, "visible", Vec4(vis ? 1.f : 0.f, 0.f, 0.f, 0.f), "", false);
+	}
+	ImGui::Separator();
+	if (ImGui::SmallButton("Clear this part's keys"))
+	{
+		doc.anim.PushSnapshotEdit("Clear " + name + " keys", [&]() {
+			std::vector<PropertyTrack>& tr = doc.anim.clips[doc.anim.activeClip].Tracks;
+			tr.erase(std::remove_if(tr.begin(), tr.end(), [&](const PropertyTrack& t) { return t.Target == name; }), tr.end());
+		});
+		doc.anim.selectedKeys.clear();
+	}
+	ImGui::TextDisabled("Keys show in the timeline as '%s . <property>'.", name.c_str());
+}
+
+// Solves every pin across a range, keying the bones it moves - the 2D
+// counterpart of the 3D IK bake: a foot that stays put while the clip moves
+// the hips.
+int BakePinsImpl(Character2DDocument& doc, float from, float to)
+{
+	Character2DPreview* pv = doc.preview.get();
+	if (!pv || !pv->built.instance || pv->pins.empty() || !doc.anim.HasActiveClip()) return 0;
+	if (to < from) std::swap(from, to);
+	const float step = 1.f / (doc.anim.snapFps > 0.f ? doc.anim.snapFps : 30.f);
+	const Animation clip = doc.anim.clips[doc.anim.activeClip];
+	int keyed = 0;
+	doc.anim.PushSnapshotEdit("Bake pins", [&]() {
+		for (float t = from; t <= to + step * 0.5f; t += step)
+		{
+			const float snapped = doc.anim.SnapTime(t);
+			pv->built.instance->ApplyAnimationAtTime(clip, snapped);
+			pv->posedBones.clear();
+			pv->ApplyPins(-1);
+			for (size_t i = 0; i < pv->posedBones.size(); i++)
+				if (AnimationEditor::KeyBoneAtTime(doc.anim, pv->posedBones[i], snapped)) keyed++;
+		}
+	});
+	pv->posedBones.clear();
+	doc.anim.externalPoseOverrides.clear();
+	return keyed;
+}
+
+void DrawPinsPanel(Character2DDocument& doc)
+{
+	Character2DPreview* pv = doc.preview.get();
+	if (!pv) return;
+	ImGui::TextWrapped("Pinned joints stay where they are while you pose the rest. Double-click a joint in the viewport to pin it.");
+	ImGui::Separator();
+	int unpin = -1;
+	for (std::map<int, Vec3>::const_iterator it = pv->pins.begin(); it != pv->pins.end(); ++it)
+	{
+		ImGui::PushID(it->first);
+		const std::string bone = (size_t)it->first < doc.asset.bones.size() ? doc.asset.bones[it->first].name : std::string("?");
+		ImGui::Text("%s  (%.2f, %.2f)", bone.c_str(), it->second.x, it->second.y);
+		ImGui::SameLine();
+		if (ImGui::SmallButton("Unpin")) unpin = it->first;
+		ImGui::PopID();
+	}
+	if (unpin >= 0) pv->pins.erase(unpin);
+	if (pv->pins.empty()) ImGui::TextDisabled("No pins.");
+	const int sel = doc.SelectedBoneId();
+	if (sel >= 0 && !pv->pins.count(sel) && ImGui::SmallButton(("Pin " + doc.selectedBone).c_str())) pv->TogglePin(sel);
+	if (!pv->pins.empty() && ImGui::SmallButton("Unpin all")) pv->pins.clear();
+
+	if (!pv->pins.empty() && doc.anim.HasActiveClip())
+	{
+		ImGui::Separator();
+		ImGui::TextDisabled("Bake: key the pinned limbs across a range");
+		static float from = 0.f, to = -1.f;
+		const float dur = doc.anim.clips[doc.anim.activeClip].Duration;
+		if (to < 0.f || to > dur) to = dur;
+		ImGui::SetNextItemWidth(80.f); ImGui::DragFloat("From", &from, 0.02f, 0.f, dur, "%.2fs");
+		ImGui::SameLine();
+		ImGui::SetNextItemWidth(80.f); ImGui::DragFloat("To", &to, 0.02f, 0.f, dur, "%.2fs");
+		if (ImGui::Button("Bake pins"))
+		{
+			const int keyed = BakePinsImpl(doc, from, to);
+			echo("Character 2D: baked " + std::to_string(keyed) + " keys from " + std::to_string(pv->pins.size()) + " pin(s)");
+		}
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Every frame in the range: the clip is sampled, each pin's limb is solved\nback onto its pin, and the result keyed - feet that stay planted.");
+	}
+}
+
+void DrawAnimateSidePanel(Character2DDocument& doc, const std::vector<TextureChoice>& textures)
+{
+	ImGui::BeginChild("##animside", ImVec2(kSidePanelWidth + 10.f, 0), false);
+	if (ImGui::BeginTabBar("##animtabs"))
+	{
+		if (ImGui::BeginTabItem("Bones"))
+		{
+			// The .p3da editor's own bone list, pointed at this character's
+			// rig - bone selection, numeric pose fields, pose copy and mirror.
+			AnimationEditor::DrawSkeletonPanel(doc.anim,
+				"This character has no bones yet.\nBuild the skeleton in the Bones stage first.");
+			ImGui::EndTabItem();
+		}
+		if (ImGui::BeginTabItem("Parts"))
+		{
+			DrawPartKeysPanel(doc, textures);
+			ImGui::EndTabItem();
+		}
+		if (ImGui::BeginTabItem("Pins"))
+		{
+			DrawPinsPanel(doc);
+			ImGui::EndTabItem();
+		}
+		ImGui::EndTabBar();
+	}
+	ImGui::EndChild();
+}
+
 } // namespace
+
+int BakePins(Character2DDocument& doc, float from, float to) { return BakePinsImpl(doc, from, to); }
 
 void DrawWindow(Character2DDocument& doc, const std::vector<TextureChoice>& textures,
 	float dt, FrameRequests& requests)
@@ -812,12 +1202,7 @@ void DrawWindow(Character2DDocument& doc, const std::vector<TextureChoice>& text
 	{
 	case Character2DDocument::Mode::Bones:   DrawBonesPanel(doc); break;
 	case Character2DDocument::Mode::Sprites: DrawSpritesPanel(doc, textures, requests); break;
-	case Character2DDocument::Mode::Animate:
-		// The .p3da editor's own bone list, pointed at this character's rig -
-		// it already does bone selection plus numeric pose fields.
-		AnimationEditor::DrawSkeletonPanel(doc.anim,
-			"This character has no bones yet.\nBuild the skeleton in the Bones stage first.");
-		break;
+	case Character2DDocument::Mode::Animate: DrawAnimateSidePanel(doc, textures); break;
 	}
 	ImGui::SameLine();
 

@@ -28,6 +28,7 @@
 #include <Pyros3D/Utils/ModelLoaders/IModelLoader.h>          // Bone
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h>  // Animation
 #include <Pyros3D/Rendering/Components/Rendering/SpriteRig2D.h>           // SpritePart2D
+#include <map>
 #include <string>
 #include <vector>
 
@@ -61,6 +62,24 @@ namespace p3d {
 		// by the editor to frame its viewport and to size a newly placed
 		// instance. Purely a hint; zero means "work it out from the bones".
 		f32 authoredHalfHeight = 0.f;
+
+		// Per-bone rotation limits, by bone name: how far a bone may turn
+		// (about Z, the only way a 2D bone turns) from its rest angle, in
+		// DEGREES. Dragging a limb in the editor respects them, which is also
+		// how a knee is told which way it folds.
+		struct BoneLimit {
+			f32 minDeg = -180.f;
+			f32 maxDeg = 180.f;
+			bool enabled = true;
+		};
+		std::map<std::string, BoneLimit> limits;
+
+		// The sprite-part properties a clip's PropertyTracks can animate:
+		// Target is a part's name, Property one of these. "sprite" swaps the
+		// part's picture (Text is a project-relative texture path), "z" is
+		// draw order, "color" is an RGBA tint, "visible" shows (x > 0.5) or
+		// hides the part.
+		static const char* const kPartProperties[4];
 
 		int FindBone(const std::string &name) const;
 		int FindClip(const std::string &name) const;

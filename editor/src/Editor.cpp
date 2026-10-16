@@ -16,6 +16,7 @@
 // names, current pose) - AnimationEditorDocument only forward-declares it.
 #include "editor/AnimationPreview.h"
 #include "editor/Character2DPreview.h"
+#include "editor/RetargetSession.h"
 #include "editor/UI/OpenDir.h"
 #include "editor/FileDropQueue.h"
 #include "editor/AssetCommands.h"
@@ -1102,7 +1103,10 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		|| name == "add_animation_clip" || name == "remove_animation_clip"
 		|| name == "rename_animation_clip" || name == "set_animation_clip_duration" || name == "set_animation_clip"
 		|| name == "select_animation_bone" || name == "undo_animation" || name == "redo_animation"
-		|| name == "animation_blend" || name == "animation_ik" || name == "animation_joint_limit")
+		|| name == "animation_blend" || name == "animation_ik" || name == "animation_joint_limit"
+		|| name == "animation_events" || name == "animation_track_key" || name == "animation_pose_op"
+		|| name == "animation_copy_keys" || name == "animation_paste_keys" || name == "animation_view"
+		|| name == "animation_retarget")
 	{
 		if (name == "list_animations")
 		{
@@ -1166,7 +1170,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		// Resolve the target document for everything else.
 		AnimationEditorDocument* doc = NULL;
 		const std::string pathArg = A("path");
-		if (!pathArg.empty())
+		// The open 2D character's clips: the same dope sheet, so the same
+		// commands (events, tracks, pose ops, key copy/paste, view).
+		if (a.is_object() && a.value("character2d", false))
+		{
+			if (!activeCharacter2DDoc) throw std::runtime_error("no 2D character is open");
+			doc = &activeCharacter2DDoc->anim;
+		}
+		else if (!pathArg.empty())
 		{
 			const std::string abs = (pathArg.find('/') == 0 || pathArg.find(':') != std::string::npos)
 				? pathArg : project.AbsolutePath(pathArg);
@@ -1196,7 +1207,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		// Everything below needs the rig loaded for bone lookups, and the
 		// panel only builds the preview when it draws. A background window
 		// would otherwise report "unknown bone" for every bone it has.
-		AnimationEditor::EnsurePreview(*doc);
+		// (A 2D character's rig is its own viewport's, never a preview here.)
+		if (!doc->IsExternallyBacked()) AnimationEditor::EnsurePreview(*doc);
 		AnimationPreview* pv = doc->preview.get();
 
 		auto clipIndexArg = [&](const char* key) -> int {
@@ -1411,8 +1423,10 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			const bool hasLoop = a.is_object() && a.contains("loop") && a["loop"].is_boolean();
 			const bool hasScale = a.is_object() && a.contains("applyScale") && a["applyScale"].is_boolean();
 			const bool hasFps = a.is_object() && a.contains("authoredFps") && a["authoredFps"].is_number();
-			if (!hasDur && !hasLoop && !hasScale && !hasFps)
-				throw std::runtime_error("give duration, loop, applyScale or authoredFps");
+			const bool hasRoot = a.is_object() && a.contains("rootMotion") && a["rootMotion"].is_boolean();
+			const bool hasRootBone = a.is_object() && a.contains("rootMotionBone") && a["rootMotionBone"].is_string();
+			if (!hasDur && !hasLoop && !hasScale && !hasFps && !hasRoot && !hasRootBone)
+				throw std::runtime_error("give duration, loop, applyScale, authoredFps, rootMotion or rootMotionBone");
 			doc->PushSnapshotEdit("Change clip settings", [&]() {
 				Animation& c = doc->clips[clip];
 				if (hasDur) doc->SetClipDuration(clip, (float)a["duration"].get<double>());
@@ -1431,8 +1445,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 					c.AuthoredFps = std::min(240.f, std::max(1.f, (float)a["authoredFps"].get<double>()));
 					doc->snapFps = c.AuthoredFps;
 				}
+				if (hasRoot)
+				{
+					if (a["rootMotion"].get<bool>()) c.Flags |= p3d::ANIM_FLAG_ROOT_MOTION;
+					else c.Flags &= ~(uint32_t)p3d::ANIM_FLAG_ROOT_MOTION;
+				}
+				if (hasRootBone) c.RootMotionBone = a["rootMotionBone"].get<std::string>();
 			});
-			if (hasScale) doc->clipsRevision++;
+			if (hasScale || hasRoot) doc->clipsRevision++;
 			const Animation& c = doc->clips[clip];
 			nlohmann::json r;
 			r["clip"] = clip;
@@ -1440,6 +1460,252 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			r["loop"] = c.HasFlag(p3d::ANIM_FLAG_LOOP);
 			r["applyScale"] = c.HasFlag(p3d::ANIM_FLAG_APPLY_SCALE);
 			r["authoredFps"] = c.AuthoredFps;
+			r["rootMotion"] = c.HasFlag(p3d::ANIM_FLAG_ROOT_MOTION);
+			r["rootMotionBone"] = c.RootMotionBone;
+			return r;
+		}
+
+		// ---- clip events -----------------------------------------------
+		// {"action":"list|add|remove|rename|move", "clip"?, "index", "time", "name"}
+		if (name == "animation_events")
+		{
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			const std::string action = A("action").empty() ? std::string("list") : A("action");
+			const int index = a.is_object() ? a.value("index", -1) : -1;
+			std::vector<p3d::AnimationEvent>& evs = doc->clips[clip].Events;
+			if (action == "add")
+			{
+				const float t = a.is_object() ? a.value("time", doc->playhead) : doc->playhead;
+				doc->PushSnapshotEdit("Add event", [&]() { doc->AddEvent(clip, t, A("name")); });
+			}
+			else if (action == "remove" || action == "rename" || action == "move")
+			{
+				if (index < 0 || index >= (int)evs.size()) throw std::runtime_error("no event at that index");
+				if (action == "remove") doc->PushSnapshotEdit("Delete event", [&]() { doc->RemoveEvent(clip, index); });
+				else if (action == "rename")
+				{
+					if (A("name").empty()) throw std::runtime_error("rename needs \"name\"");
+					doc->PushSnapshotEdit("Rename event", [&]() { doc->RenameEvent(clip, index, A("name")); });
+				}
+				else
+				{
+					const float t = std::max(0.f, a.value("time", 0.f));
+					doc->PushSnapshotEdit("Retime event", [&]() { evs[index].Time = t; if (t > doc->clips[clip].Duration) doc->clips[clip].Duration = t; });
+				}
+			}
+			else if (action != "list") throw std::runtime_error("action must be list, add, remove, rename or move");
+			nlohmann::json r;
+			nlohmann::json arr = nlohmann::json::array();
+			for (size_t e = 0; e < evs.size(); e++) arr.push_back({ { "index", (int)e }, { "time", evs[e].Time }, { "name", evs[e].Name } });
+			r["events"] = arr;
+			return r;
+		}
+
+		// ---- property tracks (2D part keys, or any clip) --------------------
+		// {"action":"set|delete|list", "clip"?, "target", "property", "time",
+		//  "value": n | [x,y,z,w] | bool, "text", "interp": "linear|step|..."}
+		if (name == "animation_track_key")
+		{
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			const std::string action = A("action").empty() ? std::string("set") : A("action");
+			const std::string target = A("target"), property = A("property");
+			if (action != "list" && (target.empty() || property.empty())) throw std::runtime_error("give \"target\" and \"property\"");
+			const float t = a.is_object() ? a.value("time", doc->playhead) : doc->playhead;
+			if (action == "set")
+			{
+				p3d::Vec4 v(0.f, 0.f, 0.f, 0.f);
+				if (a.contains("value"))
+				{
+					const nlohmann::json& jv = a["value"];
+					if (jv.is_number()) v.x = jv.get<float>();
+					else if (jv.is_boolean()) v.x = jv.get<bool>() ? 1.f : 0.f;
+					else if (jv.is_array())
+					{
+						float c[4] = { 0.f, 0.f, 0.f, 1.f };
+						for (size_t i = 0; i < jv.size() && i < 4; i++) c[i] = jv[i].get<float>();
+						v = p3d::Vec4(c[0], c[1], c[2], c[3]);
+					}
+				}
+				const std::string interp = A("interp");
+				int mode = (property == "sprite" || property == "visible") ? (int)p3d::INTERP_STEP : (int)p3d::INTERP_LINEAR;
+				for (unsigned m = 0; m < p3d::kInterpolationModeCount; m++)
+					if (!interp.empty() && interp == p3d::InterpolationModeName((uchar)m)) mode = (int)m;
+				doc->PushSnapshotEdit("Key " + target + " " + property, [&]() {
+					const int tr = doc->FindOrCreateTrack(clip, target, property);
+					doc->SetTrackKey(clip, tr, t, v, A("text"), mode);
+				});
+			}
+			else if (action == "delete")
+			{
+				const int tr = doc->FindTrack(clip, target, property);
+				if (tr < 0) throw std::runtime_error("no such track");
+				AnimKeyRef ref; ref.kind = ANIM_KEY_TRACK; ref.channel = tr; ref.time = t;
+				bool removed = false;
+				doc->PushSnapshotEdit("Delete track key", [&]() { removed = doc->DeleteKeyRef(clip, ref); doc->PruneEmptyTracks(clip); });
+				if (!removed) throw std::runtime_error("no key at that time");
+			}
+			else if (action != "list") throw std::runtime_error("action must be set, delete or list");
+			nlohmann::json r;
+			nlohmann::json arr = nlohmann::json::array();
+			const std::vector<p3d::PropertyTrack>& tracks = doc->clips[clip].Tracks;
+			for (size_t i = 0; i < tracks.size(); i++)
+			{
+				nlohmann::json keys = nlohmann::json::array();
+				for (size_t k = 0; k < tracks[i].Keys.size(); k++)
+				{
+					const p3d::PropertyKey& key = tracks[i].Keys[k];
+					keys.push_back({ { "time", key.Time }, { "value", { key.Value.x, key.Value.y, key.Value.z, key.Value.w } },
+						{ "text", key.Text }, { "interp", p3d::InterpolationModeName(key.Mode) } });
+				}
+				arr.push_back({ { "target", tracks[i].Target }, { "property", tracks[i].Property }, { "keys", keys } });
+			}
+			r["tracks"] = arr;
+			return r;
+		}
+
+		// ---- pose tools ------------------------------------------------
+		// {"op":"copy|paste|paste_mirrored|mirror|mirror_bone", "bone"?}
+		if (name == "animation_pose_op")
+		{
+			const std::string op = A("op");
+			if (!A("bone").empty())
+			{
+				const int b = doc->RigFindBone(A("bone"));
+				if (b < 0) throw std::runtime_error("unknown bone '" + A("bone") + "'");
+				doc->selectedBone = b;
+				doc->selectedBoneName = A("bone");
+			}
+			AnimationEditor::PoseOp pop;
+			if (op == "copy") pop = AnimationEditor::POSE_COPY;
+			else if (op == "paste") pop = AnimationEditor::POSE_PASTE;
+			else if (op == "paste_mirrored") pop = AnimationEditor::POSE_PASTE_MIRRORED;
+			else if (op == "mirror") pop = AnimationEditor::POSE_MIRROR;
+			else if (op == "mirror_bone") pop = AnimationEditor::POSE_MIRROR_BONE_TO_OTHER_SIDE;
+			else throw std::runtime_error("op must be copy, paste, paste_mirrored, mirror or mirror_bone");
+			if (!doc->RigInstance()) throw std::runtime_error("no rig bound");
+			nlohmann::json r;
+			r["bones"] = AnimationEditor::ApplyPoseOp(*doc, pop);
+			r["pending"] = doc->RigPoseOverrides() ? (int)doc->RigPoseOverrides()->size() : 0;
+			return r;
+		}
+
+		// ---- key clipboard -------------------------------------------------
+		// animation_copy_keys {"keys":[{"bone","time","kind":"column|position|rotation|scale"}],
+		//   "events":[index...], "tracks":[{"target","property","time"}]} or nothing = the selection.
+		// animation_paste_keys {"time"?, "clip"?}
+		if (name == "animation_copy_keys" || name == "animation_paste_keys")
+		{
+			static AnimKeyClipboard agentClipboard;
+			if (name == "animation_copy_keys")
+			{
+				if (a.is_object() && (a.contains("keys") || a.contains("events") || a.contains("tracks")))
+				{
+					doc->selectedKeys.clear();
+					const p3d::Animation* clip = doc->ActiveClip();
+					if (!clip) throw std::runtime_error("no clip");
+					if (a.contains("keys"))
+						for (const auto& k : a["keys"])
+						{
+							AnimKeyRef r;
+							r.channel = doc->FindChannel(doc->activeClip, k.value("bone", std::string()));
+							r.time = k.value("time", 0.f);
+							const std::string kind = k.value("kind", std::string("column"));
+							r.kind = kind == "position" ? ANIM_KEY_POSITION : kind == "rotation" ? ANIM_KEY_ROTATION
+								: kind == "scale" ? ANIM_KEY_SCALE : ANIM_KEY_COLUMN;
+							if (r.channel >= 0) doc->selectedKeys.insert(r);
+						}
+					if (a.contains("events"))
+						for (const auto& e : a["events"])
+						{
+							const int i = e.get<int>();
+							if (i < 0 || i >= (int)clip->Events.size()) continue;
+							AnimKeyRef r; r.kind = ANIM_KEY_EVENT; r.channel = i; r.time = clip->Events[i].Time;
+							doc->selectedKeys.insert(r);
+						}
+					if (a.contains("tracks"))
+						for (const auto& t : a["tracks"])
+						{
+							AnimKeyRef r; r.kind = ANIM_KEY_TRACK;
+							r.channel = doc->FindTrack(doc->activeClip, t.value("target", std::string()), t.value("property", std::string()));
+							r.time = t.value("time", 0.f);
+							if (r.channel >= 0) doc->selectedKeys.insert(r);
+						}
+				}
+				if (!doc->CopySelectedKeys(agentClipboard)) throw std::runtime_error("nothing to copy");
+				nlohmann::json r;
+				r["channels"] = (int)agentClipboard.channels.size();
+				r["tracks"] = (int)agentClipboard.tracks.size();
+				r["events"] = (int)agentClipboard.events.size();
+				return r;
+			}
+			const int clip = clipIndexArg("clip");
+			if (clip < 0 || clip >= (int)doc->clips.size()) throw std::runtime_error("clip out of range");
+			doc->activeClip = clip;
+			const float t = doc->SnapTime(a.is_object() ? a.value("time", doc->playhead) : doc->playhead);
+			int written = 0;
+			doc->PushSnapshotEdit("Paste keys", [&]() { written = doc->PasteKeys(agentClipboard, t); });
+			nlohmann::json r; r["written"] = written; r["time"] = t;
+			return r;
+		}
+
+		// ---- view state ------------------------------------------------------
+		// {"onion", "onionBefore", "onionAfter", "onionStep", "curves", "split":[bones], "unsplit":[bones]}
+		if (name == "animation_view")
+		{
+			if (a.is_object())
+			{
+				if (a.contains("onion")) doc->onionSkin = a["onion"].get<bool>();
+				if (a.contains("onionBefore")) doc->onionBefore = std::max(0, std::min(8, a["onionBefore"].get<int>()));
+				if (a.contains("onionAfter")) doc->onionAfter = std::max(0, std::min(8, a["onionAfter"].get<int>()));
+				if (a.contains("onionStep")) doc->onionStep = std::max(1, std::min(15, a["onionStep"].get<int>()));
+				if (a.contains("curves")) doc->curveView = a["curves"].get<bool>();
+				if (a.contains("split")) for (const auto& b : a["split"]) doc->splitBones.insert(b.get<std::string>());
+				if (a.contains("unsplit")) for (const auto& b : a["unsplit"]) doc->splitBones.erase(b.get<std::string>());
+			}
+			nlohmann::json r;
+			r["onion"] = doc->onionSkin;
+			r["onionBefore"] = doc->onionBefore;
+			r["onionAfter"] = doc->onionAfter;
+			r["onionStep"] = doc->onionStep;
+			r["curves"] = doc->curveView;
+			r["split"] = nlohmann::json(std::vector<std::string>(doc->splitBones.begin(), doc->splitBones.end()));
+			return r;
+		}
+
+		// {"source":"assets/animations/x.p3da", "sourceRig":"assets/models/y.p3dm",
+		//  "clips":[names]?, "map":{targetBone: sourceBone}?, "fps"?}
+		if (name == "animation_retarget")
+		{
+			if (!pv || !pv->instance) throw std::runtime_error("no rig bound - pass \"mesh\" to open_animation");
+			const std::string src = A("source"), rig = A("sourceRig");
+			if (src.empty() || rig.empty()) throw std::runtime_error("give \"source\" (.p3da) and \"sourceRig\" (.p3dm)");
+			RetargetSession rs;
+			if (!rs.Load(project.AbsolutePath(src), project.AbsolutePath(rig), pv->instance) && !rs.source)
+				throw std::runtime_error(rs.error);
+			if (a.contains("fps")) rs.fps = std::max(1.f, a.value("fps", 30.f));
+			if (a.contains("clips") && a["clips"].is_array())
+				for (size_t i = 0; i < rs.clips.size(); i++)
+				{
+					bool want = false;
+					for (const auto& n : a["clips"]) if (n.is_string() && n.get<std::string>() == rs.clips[i].AnimationName) want = true;
+					rs.chosen[i] = want;
+				}
+			if (a.contains("map") && a["map"].is_object())
+				for (auto it = a["map"].begin(); it != a["map"].end(); ++it)
+				{
+					if (it.value().is_string() && !it.value().get<std::string>().empty()) rs.map[it.key()] = it.value().get<std::string>();
+					else rs.map.erase(it.key());
+				}
+			std::vector<std::string> added;
+			doc->PushSnapshotEdit("Retarget clips", [&]() { added = rs.ImportInto(*doc); });
+			nlohmann::json r;
+			r["added"] = added;
+			r["mapped"] = (int)rs.map.size();
+			nlohmann::json m = nlohmann::json::object();
+			for (auto it = rs.map.begin(); it != rs.map.end(); ++it) m[it->first] = it->second;
+			r["map"] = m;
 			return r;
 		}
 
@@ -1928,6 +2194,14 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 						h.usePole = true;
 					}
 					if (a.contains("usePole")) h.usePole = a["usePole"].get<bool>();
+					// Hold the effector's rotation (a planted foot stays flat);
+					// "captureRotation" takes it from the effector as posed now.
+					if (a.contains("holdRotation")) h.holdRotation = a["holdRotation"].get<bool>();
+					if (a.value("captureRotation", false) && pv && pv->instance)
+					{
+						const int eff = pv->BoneIdByName(h.effectorBone);
+						if (eff >= 0) h.targetRotation = pv->instance->GetBoneGlobalTransform(eff).ConvertToQuaternion();
+					}
 				});
 				doc->activeIK = idx;
 				return describe();
@@ -2724,6 +2998,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	{
 		nlohmann::json r;
 		if (!sceneView->AgentNetwork(name, a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
+	// Runtime IK component: get_ik / add_ik {name|id, rig?} / set_ik {name|id,
+	// iterations?, constraints?, or index + one constraint's keys} / remove_ik.
+	if (name == "get_ik" || name == "add_ik" || name == "set_ik" || name == "remove_ik")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentIK(name, a, r, err)) throw std::runtime_error(err);
 		r["ok"] = true;
 		return r;
 	}
@@ -4686,6 +4969,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			if (a.contains("texture")) sp.texture = a.value("texture", std::string());
 			if (a.contains("z")) sp.z = a.value("z", 0.0f);
 			if (a.contains("lit")) sp.lit = a.value("lit", false);
+			// "bend": a second bone the picture bends across ("" = rigid).
+			if (a.contains("bend"))
+			{
+				const std::string bn = a.value("bend", std::string());
+				if (!bn.empty() && doc->FindBone(bn) < 0)
+					throw std::runtime_error("bone '" + bn + "' not found");
+				sp.bendBone = bn;
+			}
+			if (a.contains("bendSegments")) sp.bendSegments = std::max(1, std::min(64, a.value("bendSegments", 8)));
 		}
 		std::vector<f32> o = AV("offset"); if (o.size() >= 2) sp.offset = Vec2(o[0], o[1]);
 		std::vector<f32> sc = AV("scale");  if (sc.size() >= 2) sp.scale = Vec2(sc[0], sc[1]);
@@ -4926,6 +5218,95 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		return r;
 	}
 
+	// {"cmd":"set_bone_limit2d","args":{"bone":"Knee","min":0,"max":150,"enabled":true}}
+	// Degrees from the rest angle. Dragging and rotating respect it.
+	if (name == "set_bone_limit2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		std::string err;
+		const bool enabled = a.is_object() ? a.value("enabled", true) : true;
+		if (!doc->SetBoneLimit(A("bone"), enabled, a.value("min", -180.f), a.value("max", 180.f), err))
+			throw std::runtime_error(err);
+		nlohmann::json r; r["ok"] = true;
+		return r;
+	}
+
+	// {"cmd":"pin_bone2d","args":{"bone":"Foot","pinned":true,"at":[x,y]?}}
+	// A pinned joint stays put while other bones are posed (viewport double-click).
+	if (name == "pin_bone2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		Character2DRig(doc);
+		const int id = doc->FindBone(A("bone"));
+		if (id < 0) throw std::runtime_error("bone '" + A("bone") + "' not found");
+		const bool want = a.is_object() ? a.value("pinned", true) : true;
+		Character2DPreview* pv = doc->preview.get();
+		if (!want) pv->pins.erase(id);
+		else
+		{
+			if (!pv->pins.count(id)) pv->TogglePin(id);
+			std::vector<f32> at = AV("at");
+			if (at.size() >= 2) pv->pins[id] = Vec3(at[0], at[1], 0.f);
+		}
+		nlohmann::json r; r["ok"] = true; r["pinned"] = pv->pins.count(id) > 0;
+		return r;
+	}
+
+	// {"cmd":"bake_pins2d","args":{"clip":"Walk","from":0,"to":1}}
+	if (name == "bake_pins2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		Character2DRig(doc);
+		if (!A("clip").empty())
+		{
+			const int ci = doc->asset.FindClip(A("clip"));
+			if (ci < 0) throw std::runtime_error("clip '" + A("clip") + "' not found");
+			doc->anim.activeClip = ci;
+		}
+		if (!doc->anim.HasActiveClip()) throw std::runtime_error("no clip");
+		if (doc->preview->pins.empty()) throw std::runtime_error("no pins - pin_bone2d first");
+		const float dur = doc->anim.clips[doc->anim.activeClip].Duration;
+		const int keyed = Character2DEditor::BakePins(*doc, a.value("from", 0.f), a.value("to", dur));
+		doc->SyncClipsToAsset();
+		nlohmann::json r; r["ok"] = true; r["keyed"] = keyed;
+		return r;
+	}
+
+	// {"cmd":"key_part2d","args":{"sprite":"Mouth","property":"sprite|z|color|visible",
+	//   "value":0.5|[r,g,b,a]|true, "text":"assets/textures/mouth_o.png", "time":0.25, "clip"?}}
+	if (name == "key_part2d")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		Character2DRig(doc);
+		const std::string part = A("sprite"), prop = A("property");
+		if (doc->FindSprite(part) < 0) throw std::runtime_error("sprite '" + part + "' not found");
+		bool known = false;
+		for (int i = 0; i < 4; i++) if (prop == Character2DAsset::kPartProperties[i]) known = true;
+		if (!known) throw std::runtime_error("property must be sprite, z, color or visible");
+		nlohmann::json args = a;
+		args["action"] = "set";
+		args["target"] = part;
+		args["character2d"] = true;
+		return HandleAgentCommand(nlohmann::json{ { "cmd", "animation_track_key" }, { "args", args } });
+	}
+
+	// {"cmd":"character2d_view","args":{"tool":"pose|rotate","onion":true,...}}
+	if (name == "character2d_view")
+	{
+		Character2DDocument* doc = RequireCharacter2D();
+		Character2DRig(doc);
+		Character2DPreview* pv = doc->preview.get();
+		const std::string tool = A("tool");
+		if (tool == "pose") pv->tool = Character2DPreview::Tool::Pose;
+		else if (tool == "rotate") pv->tool = Character2DPreview::Tool::Rotate;
+		else if (!tool.empty()) throw std::runtime_error("tool must be pose or rotate");
+		nlohmann::json view = a;
+		view["character2d"] = true;
+		nlohmann::json r = HandleAgentCommand(nlohmann::json{ { "cmd", "animation_view" }, { "args", view } });
+		r["tool"] = pv->tool == Character2DPreview::Tool::Rotate ? "rotate" : "pose";
+		return r;
+	}
+
 	// {"cmd":"character2d_state"} - everything about the open character.
 	if (name == "character2d_state" || name == "skeleton_state")
 	{
@@ -4934,6 +5315,19 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["name"] = doc->displayName;
 		r["path"] = doc->absolutePath.empty() ? std::string() : project.DisplayPath(doc->absolutePath);
 		r["dirty"] = doc->dirty;
+		{
+			nlohmann::json lim = nlohmann::json::array();
+			for (std::map<std::string, Character2DAsset::BoneLimit>::const_iterator it = doc->asset.limits.begin(); it != doc->asset.limits.end(); ++it)
+				lim.push_back({ { "bone", it->first }, { "min", it->second.minDeg }, { "max", it->second.maxDeg }, { "enabled", it->second.enabled } });
+			r["limits"] = lim;
+			nlohmann::json pins = nlohmann::json::array();
+			if (doc->preview)
+				for (std::map<int, Vec3>::const_iterator it = doc->preview->pins.begin(); it != doc->preview->pins.end(); ++it)
+					if ((size_t)it->first < doc->asset.bones.size())
+						pins.push_back({ { "bone", doc->asset.bones[it->first].name }, { "at", { it->second.x, it->second.y } } });
+			r["pins"] = pins;
+			if (doc->preview) r["tool"] = doc->preview->tool == Character2DPreview::Tool::Rotate ? "rotate" : "pose";
+		}
 
 		// `pos` is the bone's REST position in its parent's frame - the
 		// character's shape. `posed` is where it actually is right now, in
@@ -7989,6 +8383,20 @@ void Editor::DrawAnimationEditorWindows()
 
 	std::vector<AnimationMeshChoice> meshes;
 	BuildAnimationMeshChoices(meshes);
+	// The Retarget window's source list: every clip file in the project. Only
+	// walked while some document has that window open.
+	std::vector<std::pair<std::string, std::string> > clipFiles;
+	bool wantClipFiles = false;
+	for (size_t i = 0; i < animationDocs.size(); ++i)
+		if (animationDocs[i] && animationDocs[i]->retargetWindowOpen) wantClipFiles = true;
+	if (wantClipFiles && project.IsOpen())
+	{
+		std::vector<ProjectAssetEntry> entries;
+		project.ListAssets("assets", entries, true);
+		for (size_t e = 0; e < entries.size(); e++)
+			if (!entries[e].isDirectory && ProjectManager::IsAnimationExtension(entries[e].relativePath))
+				clipFiles.push_back(std::make_pair(entries[e].relativePath, project.AbsolutePath(entries[e].relativePath)));
+	}
 
 	const float dt = ImGui::GetIO().DeltaTime;
 	std::vector<uint32_t> closeIds;
@@ -7997,6 +8405,7 @@ void Editor::DrawAnimationEditorWindows()
 	{
 		AnimationEditorDocument* doc = animationDocs[i];
 		if (!doc) continue;
+		doc->clipFileChoices = clipFiles;
 
 		char title[512];
 		snprintf(title, sizeof(title), u8" %s###animation_win_%u", doc->displayName.c_str(), doc->id);

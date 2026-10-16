@@ -643,6 +643,85 @@ namespace SpriteSheetEditor {
 			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Frame numbers in play order: 0-3, 7, 5-4.\nA range may run backwards; a frame may repeat. Enter applies.");
+
+			// --- the clip as a strip of frames --------------------------------
+			// The same list as the text above, as pictures: drag one to reorder,
+			// click to look at it, right-click to duplicate or remove.
+			{
+				const SpriteClip2D& cl = sheet.clips[(size_t)v.clip];
+				const float thumb = 52.f;
+				ImGui::BeginChild("##framestrip", ImVec2(0, thumb + 26.f), true, ImGuiWindowFlags_HorizontalScrollbar);
+				int moveFrom = -1, moveTo = -1, removeAt = -1, dupAt = -1;
+				float stepStart = 0.f;
+				const float framePeriod = cl.fps > 0.f ? 1.f / cl.fps : 0.1f;
+				const SpriteClipCursor2D now = SpriteClip2DAt(sheet, cl, v.clipTime);
+				for (int i = 0; i < (int)cl.frames.size(); i++)
+				{
+					ImGui::PushID(i);
+					if (i) ImGui::SameLine();
+					const ImVec2 q = ImGui::GetCursorScreenPos();
+					ImGui::InvisibleButton("##f", ImVec2(thumb, thumb));
+					ImDrawList* sdl = ImGui::GetWindowDrawList();
+					sdl->AddRectFilled(q, ImVec2(q.x + thumb, q.y + thumb), IM_COL32(30, 32, 38, 255));
+					const int32 fi = cl.frames[(size_t)i];
+					if (fi >= 0 && fi < (int32)sheet.frames.size())
+						DrawFrameInBox(sdl, sheet, fi, tex, q, ImVec2(thumb, thumb), false);
+					const bool current = (int)now.step == i;
+					sdl->AddRect(q, ImVec2(q.x + thumb, q.y + thumb), current ? IM_COL32(255, 200, 60, 255) : IM_COL32(80, 84, 96, 255), 0.f, 0, current ? 2.f : 1.f);
+					char num[16]; snprintf(num, sizeof(num), "%d", (int)fi);
+					sdl->AddText(ImVec2(q.x + 2.f, q.y + thumb - 14.f), IM_COL32(230, 230, 240, 220), num);
+					if (ImGui::IsItemClicked()) { v.clipTime = stepStart + 1e-4f; v.playing = false; }
+					if (ImGui::IsItemHovered()) ImGui::SetTooltip("Step %d: frame %d\nDrag to reorder, right-click for options", i, (int)fi);
+					if (ImGui::BeginDragDropSource())
+					{
+						ImGui::SetDragDropPayload("SPRITE_CLIP_STEP", &i, sizeof(int));
+						ImGui::Text("Step %d (frame %d)", i, (int)fi);
+						ImGui::EndDragDropSource();
+					}
+					if (ImGui::BeginDragDropTarget())
+					{
+						if (const ImGuiPayload* pl = ImGui::AcceptDragDropPayload("SPRITE_CLIP_STEP"))
+						{ moveFrom = *(const int*)pl->Data; moveTo = i; }
+						ImGui::EndDragDropTarget();
+					}
+					if (ImGui::BeginPopupContextItem("##stepmenu"))
+					{
+						if (ImGui::MenuItem("Duplicate")) dupAt = i;
+						if (ImGui::MenuItem("Remove")) removeAt = i;
+						ImGui::EndPopup();
+					}
+					const int32 held = (fi >= 0 && fi < (int32)sheet.frames.size()) ? fi : 0;
+					stepStart += (sheet.frames.empty() || sheet.frames[(size_t)held].duration <= 0.f)
+						? framePeriod : sheet.frames[(size_t)held].duration;
+					ImGui::PopID();
+				}
+				ImGui::SameLine();
+				ImGui::BeginDisabled(v.selection.empty());
+				if (ImGui::Button("+", ImVec2(28.f, thumb)))
+				{
+					c = sheet.clips[(size_t)v.clip];
+					c.frames.insert(c.frames.end(), v.selection.begin(), v.selection.end());
+					doc.SetClip(v.clip, c);
+					v.framesTextFor = -2;
+				}
+				ImGui::EndDisabled();
+				if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Append the frames selected on the sheet.");
+				ImGui::EndChild();
+				if (moveFrom >= 0 || removeAt >= 0 || dupAt >= 0)
+				{
+					c = sheet.clips[(size_t)v.clip];
+					if (moveFrom >= 0 && moveFrom != moveTo && moveFrom < (int)c.frames.size())
+					{
+						const int32 f = c.frames[(size_t)moveFrom];
+						c.frames.erase(c.frames.begin() + moveFrom);
+						c.frames.insert(c.frames.begin() + std::min(moveTo, (int)c.frames.size()), f);
+					}
+					if (removeAt >= 0 && removeAt < (int)c.frames.size()) c.frames.erase(c.frames.begin() + removeAt);
+					if (dupAt >= 0 && dupAt < (int)c.frames.size()) c.frames.insert(c.frames.begin() + dupAt, c.frames[(size_t)dupAt]);
+					doc.SetClip(v.clip, c);
+					v.framesTextFor = -2;
+				}
+			}
 			ImGui::BeginDisabled(v.selection.empty());
 			if (ImGui::SmallButton("Use Selection"))
 			{

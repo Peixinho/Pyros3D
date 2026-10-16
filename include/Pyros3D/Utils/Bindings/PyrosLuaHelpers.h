@@ -166,6 +166,7 @@ uint32 ClearLuaDecals(SceneGraph* scene);
 // off-screen.
 bool SetIKConstraintEnabled(GameObject* go, const std::string &chain, bool enabled);
 bool SetIKConstraintWeight(GameObject* go, const std::string &chain, float weight);
+bool SetIKConstraintMatchRotation(GameObject* go, const std::string &chain, bool match);
 bool WorldToScreen(float winW, float winH, GameObject* camera, Projection* projection,
 	const Vec3 &worldPos, float* outX, float* outY);
 // Inverse, resolved onto the plane through `refWorldPos` parallel to the

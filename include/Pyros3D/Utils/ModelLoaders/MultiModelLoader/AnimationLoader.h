@@ -93,7 +93,56 @@ namespace p3d {
 		// always round-tripped through the file while SampleChannel() dropped
 		// them on the floor; turning that on globally would silently change how
 		// every existing clip deforms, so it is a per-clip opt-in instead.
-		ANIM_FLAG_APPLY_SCALE = 1 << 1
+		ANIM_FLAG_APPLY_SCALE = 1 << 1,
+		// Root motion: the horizontal travel of Animation::RootMotionBone is
+		// taken OUT of the pose and handed to the game instead
+		// (SkeletonAnimationInstance::ConsumeRootMotion), so a walk clip
+		// authored moving forward walks in place and the script moves the
+		// object by exactly what the feet covered - no sliding.
+		ANIM_FLAG_ROOT_MOTION = 1 << 2
+	};
+
+	// One key of a PropertyTrack. Value carries numbers (z in x, a colour in
+	// xyzw, visible as x > 0.5); Text carries a string (a sprite's texture).
+	// Mode is a p3d::InterpolationMode from this key to the next; a Text value
+	// always steps - there is nothing between two pictures.
+	struct PropertyKey {
+		f32 Time;
+		Vec4 Value;
+		std::string Text;
+		uchar Mode;
+		PropertyKey() : Time(0.f), Value(0.f, 0.f, 0.f, 0.f), Mode(INTERP_LINEAR) {}
+		bool operator==(const PropertyKey &o) const
+		{
+			return Time == o.Time && Value.x == o.Value.x && Value.y == o.Value.y && Value.z == o.Value.z
+				&& Value.w == o.Value.w && Text == o.Text && Mode == o.Mode;
+		}
+	};
+
+	// Something other than a bone that a clip animates: `Property` of the
+	// thing named `Target`. What the names mean belongs to whoever plays the
+	// clip - for a 2D character, Target is a sprite part and Property one of
+	// "sprite", "z", "color", "visible" (Character2DAsset.h). The skeleton
+	// ignores tracks it has no consumer for, so a clip can carry them freely.
+	struct PropertyTrack {
+		std::string Target;
+		std::string Property;
+		std::vector<PropertyKey> Keys;   // sorted by time
+		bool operator==(const PropertyTrack &o) const
+		{
+			return Target == o.Target && Property == o.Property && Keys == o.Keys;
+		}
+	};
+
+	// A named moment in a clip - a footstep, the frame a punch lands. A script
+	// switches on the name, so the animator can move it without touching the
+	// script. Time is in seconds, like every key.
+	struct AnimationEvent {
+		f32 Time;
+		std::string Name;
+		AnimationEvent() : Time(0.f) {}
+		AnimationEvent(const f32 time, const std::string &name) : Time(time), Name(name) {}
+		bool operator==(const AnimationEvent &o) const { return Time == o.Time && Name == o.Name; }
 	};
 
 	// Animation Struct
@@ -119,6 +168,13 @@ namespace p3d {
 		// but had nowhere to record which grid, so reopening a clip lost it.
 		// 0 means unspecified.
 		f32 AuthoredFps;
+		// Sorted by time (v2+). Fired by playback as the clip passes them.
+		std::vector<AnimationEvent> Events;
+		// Bone whose travel is root motion when ANIM_FLAG_ROOT_MOTION is set
+		// (v2+). Empty: the first bone with no parent.
+		std::string RootMotionBone;
+		// Non-bone animation (v2+): see PropertyTrack.
+		std::vector<PropertyTrack> Tracks;
 
 		Animation() : Duration(0.f), TicksPerSecond(1.f), Flags(0), AuthoredFps(0.f) {}
 
@@ -147,11 +203,18 @@ namespace p3d {
 	//       int32 posCount,   x (f32 time, f32 x,y,z,   uchar mode, f32 inTan, f32 outTan)
 	//       int32 rotCount,   x (f32 time, f32 w,x,y,z, uchar mode, f32 inTan, f32 outTan)
 	//       int32 scaleCount, x (f32 time, f32 x,y,z,   uchar mode, f32 inTan, f32 outTan)
+	//     int32 eventCount                   (v2+)
+	//       eventCount x: f32 time, int32 nameLen, char[nameLen] name
+	//     int32 rootMotionBoneLen, char[len] (v2+, empty = first root bone)
+	//     int32 trackCount                   (v2+)
+	//       trackCount x: str target, str property, int32 keyCount,
+	//         keyCount x: f32 time, f32 x,y,z,w, str text, uchar mode
+	//     (str = int32 len, char[len])
 	//
 	// Quaternions are w-FIRST on disk. The per-key mode/tangent triple is
 	// absent in v0 and is read back as LINEAR/1/1, which is exactly the
 	// interpolation v0 files were played with.
-	static const uint32 P3DA_VERSION = 1;
+	static const uint32 P3DA_VERSION = 2;
 
 	class PYROS3D_API AnimationLoader : public IModelLoader {
 	public:

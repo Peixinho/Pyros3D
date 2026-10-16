@@ -379,6 +379,69 @@ namespace p3d {
 						0.f, "");
 					return true;
 				},
+				// Cross-fade to a clip by name: what changing from a walk to a
+				// run should be. playClip() leaves the walk playing, and with
+				// both at full weight the OLDER clip is the one on top, so the
+				// run never shows. opts: { repetition, speed, startTime, layer }.
+				"crossFade", [](SkeletonAnimationInstance& self, const std::string& name,
+					sol::optional<f32> duration, sol::optional<sol::table> opts) -> bool {
+					SkeletonAnimation* owner = self.GetOwner();
+					if (!owner) return false;
+					const int32 id = owner->GetAnimationIDByName(name);
+					if (id < 0) return false;
+					f32 repetition = -1.f, speed = 1.f, start = -1.f;
+					std::string layer;
+					if (opts)
+					{
+						repetition = opts->get_or("repetition", -1.f);
+						speed = opts->get_or("speed", 1.f);
+						start = opts->get_or("startTime", -1.f);
+						layer = opts->get_or("layer", std::string());
+					}
+					return self.CrossFade((uint32)id, duration ? *duration : 0.25f, repetition, speed, start, layer) >= 0;
+				},
+				"fadeOut", [](SkeletonAnimationInstance& self, const std::string& name, sol::optional<f32> duration) -> bool {
+					SkeletonAnimation* owner = self.GetOwner();
+					if (!owner) return false;
+					const int32 id = owner->GetAnimationIDByName(name);
+					const int32 order = id < 0 ? -1 : self.GetAnimationPositionInVector((uint32)id);
+					if (order < 0) return false;
+					self.FadeOut((uint32)order, duration ? *duration : 0.25f);
+					return true;
+				},
+				"isPlaying", [](SkeletonAnimationInstance& self, const std::string& name) -> bool {
+					SkeletonAnimation* owner = self.GetOwner();
+					const int32 id = owner ? owner->GetAnimationIDByName(name) : -1;
+					return id >= 0 && self.IsPlaying((uint32)id);
+				},
+				// Events the clips passed since the last call: { {clip=, name=, time=}, ... }.
+				"takeEvents", [](SkeletonAnimationInstance& self, sol::this_state ts) -> sol::table {
+					sol::state_view lua(ts);
+					sol::table out = lua.create_table();
+					std::vector<SkeletonAnimationInstance::FiredEvent> evs = self.TakeEvents();
+					for (size_t i = 0; i < evs.size(); i++)
+						out[i + 1] = lua.create_table_with("clip", evs[i].clip, "name", evs[i].name, "time", evs[i].time);
+					return out;
+				},
+				// onEvent(function(name, clip, time) ... end), nil to stop. Called
+				// on the main thread, after the frame's animation.
+				"onEvent", [](SkeletonAnimationInstance& self, sol::object f) {
+					if (f.valid() && f.get_type() == sol::type::function)
+					{
+						sol::protected_function fn = f;
+						self.SetEventCallback([fn](const SkeletonAnimationInstance::FiredEvent& ev) {
+							sol::protected_function_result r = fn(ev.name, ev.clip, ev.time);
+							if (!r.valid()) { sol::error e = r; echo(std::string("ERROR: onEvent - ") + e.what()); }
+						});
+					}
+					else self.SetEventCallback(nullptr);
+				},
+				// Root motion (clips flagged for it): the model-space travel since
+				// the last call - or, with setApplyRootMotion(true), the engine
+				// moves the object itself.
+				"consumeRootMotion", &SkeletonAnimationInstance::ConsumeRootMotion,
+				"setApplyRootMotion", &SkeletonAnimationInstance::SetApplyRootMotion,
+				"getApplyRootMotion", &SkeletonAnimationInstance::GetApplyRootMotion,
 				"play", &SkeletonAnimationInstance::Play,
 				"changeProperties", &SkeletonAnimationInstance::ChangeProperties,
 				// Fade or re-pace a playing clip where it is: see the header.

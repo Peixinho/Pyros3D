@@ -158,6 +158,43 @@ namespace {
 	void SkeletonInst_DestroyLayerStr(SkeletonAnimationInstance &a, const std::string &name) { a.DestroyLayer(name); }
 	bool SkeletonInst_IsPaused(SkeletonAnimationInstance &a) { return a.IsPaused(); }
 	bool SkeletonInst_IsPausedID(SkeletonAnimationInstance &a, int id) { return a.IsPaused(id); }
+	// Cross-fade / fade out / is-playing by clip NAME, as in Lua.
+	bool SkeletonInst_CrossFade(SkeletonAnimationInstance &a, const std::string &name, float duration)
+	{
+		SkeletonAnimation* owner = a.GetOwner();
+		const int32 id = owner ? owner->GetAnimationIDByName(name) : -1;
+		return id >= 0 && a.CrossFade((uint32)id, duration) >= 0;
+	}
+	bool SkeletonInst_FadeOut(SkeletonAnimationInstance &a, const std::string &name, float duration)
+	{
+		SkeletonAnimation* owner = a.GetOwner();
+		const int32 id = owner ? owner->GetAnimationIDByName(name) : -1;
+		const int32 order = id < 0 ? -1 : a.GetAnimationPositionInVector((uint32)id);
+		if (order < 0) return false;
+		a.FadeOut((uint32)order, duration);
+		return true;
+	}
+	bool SkeletonInst_IsPlaying(SkeletonAnimationInstance &a, const std::string &name)
+	{
+		SkeletonAnimation* owner = a.GetOwner();
+		const int32 id = owner ? owner->GetAnimationIDByName(name) : -1;
+		return id >= 0 && a.IsPlaying((uint32)id);
+	}
+	// [{clip, name, time}, ...] passed since the last call.
+	emscripten::val SkeletonInst_TakeEvents(SkeletonAnimationInstance &a)
+	{
+		emscripten::val out = emscripten::val::array();
+		std::vector<SkeletonAnimationInstance::FiredEvent> evs = a.TakeEvents();
+		for (size_t i = 0; i < evs.size(); i++)
+		{
+			emscripten::val o = emscripten::val::object();
+			o.set("clip", evs[i].clip);
+			o.set("name", evs[i].name);
+			o.set("time", evs[i].time);
+			out.call<void>("push", o);
+		}
+		return out;
+	}
 
 	TextureAnimationInstance *TextureAnim_CreateInstance(TextureAnimation &a, float speed)
 	{
@@ -312,7 +349,13 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.function("destroyLayer", &SkeletonInst_DestroyLayer)
 		.function("destroyLayerStr", &SkeletonInst_DestroyLayerStr)
 		.function("isPaused", &SkeletonInst_IsPaused)
-		.function("isPausedId", &SkeletonInst_IsPausedID);
+		.function("isPausedId", &SkeletonInst_IsPausedID)
+		.function("crossFade", &SkeletonInst_CrossFade)
+		.function("fadeOut", &SkeletonInst_FadeOut)
+		.function("isPlaying", &SkeletonInst_IsPlaying)
+		.function("takeEvents", &SkeletonInst_TakeEvents)
+		.function("consumeRootMotion", &SkeletonAnimationInstance::ConsumeRootMotion)
+		.function("setApplyRootMotion", &SkeletonAnimationInstance::SetApplyRootMotion);
 
 	class_<TextureAnimation>("TextureAnimation")
 		.constructor<>()

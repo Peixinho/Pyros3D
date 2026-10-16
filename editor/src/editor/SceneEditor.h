@@ -1608,6 +1608,10 @@ public:
 	void StopPlayNetwork();
 	void DrawNetworkPlayControls();
 	void DrawNetworkIdentityProperties(GameObject* go, uint32 goId);
+	// The IK component: its Properties section and agent commands
+	// (get_ik / add_ik / set_ik / remove_ik). SceneEditorIK.cpp.
+	void DrawIKComponentProperties(GameObject* go, uint32 goId);
+	bool AgentIK(const std::string& command, const json& args, json& out, std::string& errOut);
 	// Rebuilds object `id` from its own saved form after `edit` changes it:
 	// one undo entry. For component adds and removes.
 	bool EditSubtreeJson(uint32 id, const std::function<bool(json&, std::string&)>& edit,

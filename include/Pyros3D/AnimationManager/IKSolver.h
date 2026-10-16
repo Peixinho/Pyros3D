@@ -97,6 +97,17 @@ namespace p3d {
 			const Vec3 &target, const uint32 iterations = 10,
 			const std::map<int32, JointLimit>* limits = NULL);
 
+		// Solve, then turn the effector itself to `endRotation` (model space).
+		// Reaching only places the end of the chain: the effector's own
+		// orientation is whatever the bones above left it, so a foot planted
+		// by IK tilts with the shin. A foot or a hand on a prop wants its
+		// rotation held as well. NULL = leave it as the solve left it.
+		static bool SolveWithEndRotation(SkeletonAnimationInstance* inst,
+			const int32 rootBone, const int32 effectorBone,
+			const Vec3 &target, const Vec3 &pole, const Quaternion* endRotation,
+			const uint32 iterations = 10,
+			const std::map<int32, JointLimit>* limits = NULL);
+
 	private:
 
 		// Exact law-of-cosines solution for [upper, lower, end].
@@ -104,8 +115,16 @@ namespace p3d {
 			const std::vector<int32> &chain, const Vec3 &target, const Vec3 &pole,
 			const std::map<int32, JointLimit>* limits);
 
-		// Iterative backward/forward reaching for longer chains.
+		// Iterative backward/forward reaching for longer chains. With a pole,
+		// every inner joint is turned towards it about the line through its
+		// neighbours, so a tail or a spine bends the way it is told.
 		static void SolveFABRIK(SkeletonAnimationInstance* inst,
+			const std::vector<int32> &chain, const Vec3 &target, const Vec3 &pole,
+			const uint32 iterations, const std::map<int32, JointLimit>* limits);
+		// Limited joints clamp after the main solve, which can leave the end
+		// short of a target the limits would still let it reach another way.
+		// Cyclic-coordinate passes, clamped at every step, close that gap.
+		static void RefineWithLimits(SkeletonAnimationInstance* inst,
 			const std::vector<int32> &chain, const Vec3 &target,
 			const uint32 iterations, const std::map<int32, JointLimit>* limits);
 

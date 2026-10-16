@@ -5,6 +5,7 @@
 
 #include "AnimationEditorDocument.h"
 #include "AnimationPreview.h"
+#include "RetargetSession.h"
 
 #include <algorithm>
 #include <cmath>
@@ -121,6 +122,9 @@ size_t AnimationEditorDocument::ClipsSnapshot::ByteSize() const
 				+ channel.rotations.size() * sizeof(RotationData)
 				+ channel.scales.size() * sizeof(ScalingData);
 		}
+		bytes += clips[c].Events.size() * sizeof(AnimationEvent);
+		for (size_t t = 0; t < clips[c].Tracks.size(); t++)
+			bytes += sizeof(PropertyTrack) + clips[c].Tracks[t].Keys.size() * sizeof(PropertyKey);
 	}
 
 	// Rig side. Small next to the clips, but counted so UndoStack's byte cap
@@ -153,6 +157,12 @@ bool SameVec3(const p3d::Math::Vec3& a, const p3d::Math::Vec3& b)
 	return a.x == b.x && a.y == b.y && a.z == b.z;
 }
 
+template<typename K>
+bool SameInterp(const K& a, const K& b)
+{
+	return a.Mode == b.Mode && a.InTangent == b.InTangent && a.OutTangent == b.OutTangent;
+}
+
 bool SameJointLimits(const std::map<std::string, p3d::JointLimit>& A,
 	const std::map<std::string, p3d::JointLimit>& B)
 {
@@ -180,7 +190,13 @@ bool AnimationEditorDocument::ClipsSnapshot::Equals(const ClipsSnapshot& o) cons
 	{
 		const p3d::Animation& A = clips[c];
 		const p3d::Animation& B = o.clips[c];
+		// Every field a clip edit can touch. Interpolation, tangents, flags
+		// and fps used to be left out, so a tangent drag - an interactive
+		// edit - compared equal to its start and was dropped from undo.
 		if (A.AnimationName != B.AnimationName || A.Duration != B.Duration
+			|| A.Flags != B.Flags || A.AuthoredFps != B.AuthoredFps
+			|| A.RootMotionBone != B.RootMotionBone
+			|| !(A.Events == B.Events) || !(A.Tracks == B.Tracks)
 			|| A.Channels.size() != B.Channels.size()) return false;
 		for (size_t ch = 0; ch < A.Channels.size(); ch++)
 		{
@@ -192,15 +208,18 @@ bool AnimationEditorDocument::ClipsSnapshot::Equals(const ClipsSnapshot& o) cons
 				|| CA.scales.size() != CB.scales.size()) return false;
 			for (size_t k = 0; k < CA.positions.size(); k++)
 				if (CA.positions[k].Time != CB.positions[k].Time
+					|| !SameInterp(CA.positions[k], CB.positions[k])
 					|| !SameVec3(CA.positions[k].Pos, CB.positions[k].Pos)) return false;
 			for (size_t k = 0; k < CA.rotations.size(); k++)
 				if (CA.rotations[k].Time != CB.rotations[k].Time
+					|| !SameInterp(CA.rotations[k], CB.rotations[k])
 					|| CA.rotations[k].Rot.x != CB.rotations[k].Rot.x
 					|| CA.rotations[k].Rot.y != CB.rotations[k].Rot.y
 					|| CA.rotations[k].Rot.z != CB.rotations[k].Rot.z
 					|| CA.rotations[k].Rot.w != CB.rotations[k].Rot.w) return false;
 			for (size_t k = 0; k < CA.scales.size(); k++)
 				if (CA.scales[k].Time != CB.scales[k].Time
+					|| !SameInterp(CA.scales[k], CB.scales[k])
 					|| !SameVec3(CA.scales[k].Scale, CB.scales[k].Scale)) return false;
 		}
 	}
@@ -213,7 +232,10 @@ bool AnimationEditorDocument::ClipsSnapshot::Equals(const ClipsSnapshot& o) cons
 		const IKHandle& B = o.ikHandles[i];
 		if (A.name != B.name || A.rootBone != B.rootBone || A.effectorBone != B.effectorBone
 			|| A.usePole != B.usePole || A.enabled != B.enabled || A.targetSet != B.targetSet
-			|| !SameVec3(A.target, B.target) || !SameVec3(A.pole, B.pole)) return false;
+			|| !SameVec3(A.target, B.target) || !SameVec3(A.pole, B.pole)
+			|| A.holdRotation != B.holdRotation
+			|| A.targetRotation.x != B.targetRotation.x || A.targetRotation.y != B.targetRotation.y
+			|| A.targetRotation.z != B.targetRotation.z || A.targetRotation.w != B.targetRotation.w) return false;
 	}
 
 	// ---- rig sidecar ----
@@ -731,6 +753,293 @@ void AnimationEditorDocument::PruneEmptyChannels(int clipIndex)
 		[](const Channel& c) {
 			return c.positions.empty() && c.rotations.empty() && c.scales.empty();
 		}), channels.end());
+}
+
+// ---- any key kind ---------------------------------------------------------
+
+namespace {
+
+// The component list a split row stands for.
+template <typename Fn>
+bool WithComponent(p3d::Channel& ch, int kind, Fn fn)
+{
+	switch (kind)
+	{
+	case ANIM_KEY_POSITION: return fn(ch.positions);
+	case ANIM_KEY_ROTATION: return fn(ch.rotations);
+	case ANIM_KEY_SCALE:    return fn(ch.scales);
+	default: return false;
+	}
+}
+
+} // namespace
+
+bool AnimationEditorDocument::DeleteKeyRef(int clipIndex, const AnimKeyRef& ref)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return false;
+	Animation& clip = clips[clipIndex];
+	switch (ref.kind)
+	{
+	case ANIM_KEY_COLUMN:
+		return DeleteKeysAtTime(clipIndex, ref.channel, ref.time);
+	case ANIM_KEY_POSITION: case ANIM_KEY_ROTATION: case ANIM_KEY_SCALE:
+		if (ref.channel < 0 || ref.channel >= (int)clip.Channels.size()) return false;
+		return WithComponent(clip.Channels[ref.channel], ref.kind,
+			[&](auto& keys) { return EraseAtTime(keys, ref.time); });
+	case ANIM_KEY_TRACK:
+		if (ref.channel < 0 || ref.channel >= (int)clip.Tracks.size()) return false;
+		return EraseAtTime(clip.Tracks[ref.channel].Keys, ref.time);
+	case ANIM_KEY_EVENT:
+		return RemoveEvent(clipIndex, ref.channel);
+	}
+	return false;
+}
+
+AnimKeyRef AnimationEditorDocument::MoveKeyRef(int clipIndex, const AnimKeyRef& ref, float toTime, bool& ok)
+{
+	ok = false;
+	AnimKeyRef out = ref;
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return out;
+	Animation& clip = clips[clipIndex];
+	if (toTime < 0.f) toTime = 0.f;
+	switch (ref.kind)
+	{
+	case ANIM_KEY_COLUMN:
+		ok = MoveKeysAtTime(clipIndex, ref.channel, ref.time, toTime);
+		break;
+	case ANIM_KEY_POSITION: case ANIM_KEY_ROTATION: case ANIM_KEY_SCALE:
+		if (ref.channel >= 0 && ref.channel < (int)clip.Channels.size() && !SameTime(ref.time, toTime))
+			ok = WithComponent(clip.Channels[ref.channel], ref.kind,
+				[&](auto& keys) { return RetimeAtTime(keys, ref.time, toTime); });
+		break;
+	case ANIM_KEY_TRACK:
+		if (ref.channel >= 0 && ref.channel < (int)clip.Tracks.size() && !SameTime(ref.time, toTime))
+			ok = RetimeAtTime(clip.Tracks[ref.channel].Keys, ref.time, toTime);
+		break;
+	case ANIM_KEY_EVENT:
+		if (ref.channel >= 0 && ref.channel < (int)clip.Events.size())
+		{
+			clip.Events[ref.channel].Time = toTime;
+			ok = true;
+		}
+		break;
+	}
+	if (ok)
+	{
+		out.time = toTime;
+		if (toTime > clip.Duration) clip.Duration = toTime;
+	}
+	return out;
+}
+
+void AnimationEditorDocument::CollectComponentTimes(int clipIndex, int channel, int kind, std::vector<float>& out) const
+{
+	out.clear();
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return;
+	const Animation& clip = clips[clipIndex];
+	if (channel < 0 || channel >= (int)clip.Channels.size()) return;
+	const Channel& ch = clip.Channels[channel];
+	if (kind == ANIM_KEY_POSITION) CollectTimes(ch.positions, out);
+	else if (kind == ANIM_KEY_ROTATION) CollectTimes(ch.rotations, out);
+	else if (kind == ANIM_KEY_SCALE) CollectTimes(ch.scales, out);
+	UniqueTimes(out);
+}
+
+int AnimationEditorDocument::FindTrack(int clipIndex, const std::string& target, const std::string& property) const
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return -1;
+	const Animation& clip = clips[clipIndex];
+	for (size_t i = 0; i < clip.Tracks.size(); i++)
+		if (clip.Tracks[i].Target == target && clip.Tracks[i].Property == property) return (int)i;
+	return -1;
+}
+
+int AnimationEditorDocument::FindOrCreateTrack(int clipIndex, const std::string& target, const std::string& property)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return -1;
+	const int existing = FindTrack(clipIndex, target, property);
+	if (existing >= 0) return existing;
+	PropertyTrack t;
+	t.Target = target;
+	t.Property = property;
+	clips[clipIndex].Tracks.push_back(t);
+	return (int)clips[clipIndex].Tracks.size() - 1;
+}
+
+void AnimationEditorDocument::SetTrackKey(int clipIndex, int track, float time, const Vec4& value,
+	const std::string& text, int mode)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return;
+	Animation& clip = clips[clipIndex];
+	if (track < 0 || track >= (int)clip.Tracks.size()) return;
+	std::vector<PropertyKey>& keys = clip.Tracks[track].Keys;
+	EraseAtTime(keys, time);
+	PropertyKey k;
+	k.Time = time;
+	k.Value = value;
+	k.Text = text;
+	k.Mode = (uchar)mode;
+	keys.push_back(k);
+	SortByTime(keys);
+	if (time > clip.Duration) clip.Duration = time;
+}
+
+void AnimationEditorDocument::PruneEmptyTracks(int clipIndex)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return;
+	std::vector<PropertyTrack>& t = clips[clipIndex].Tracks;
+	t.erase(std::remove_if(t.begin(), t.end(), [](const PropertyTrack& x) { return x.Keys.empty(); }), t.end());
+}
+
+int AnimationEditorDocument::AddEvent(int clipIndex, float time, const std::string& name)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return -1;
+	clips[clipIndex].Events.push_back(AnimationEvent(time, name.empty() ? std::string("event") : name));
+	return (int)clips[clipIndex].Events.size() - 1;
+}
+
+bool AnimationEditorDocument::RemoveEvent(int clipIndex, int eventIndex)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return false;
+	std::vector<AnimationEvent>& e = clips[clipIndex].Events;
+	if (eventIndex < 0 || eventIndex >= (int)e.size()) return false;
+	e.erase(e.begin() + eventIndex);
+	// Selection refers to events by index: drop event refs, as the indices
+	// above the removed one have all shifted.
+	for (std::set<AnimKeyRef>::iterator it = selectedKeys.begin(); it != selectedKeys.end();)
+		if (it->kind == ANIM_KEY_EVENT) it = selectedKeys.erase(it); else ++it;
+	return true;
+}
+
+bool AnimationEditorDocument::RenameEvent(int clipIndex, int eventIndex, const std::string& name)
+{
+	if (clipIndex < 0 || clipIndex >= (int)clips.size()) return false;
+	std::vector<AnimationEvent>& e = clips[clipIndex].Events;
+	if (eventIndex < 0 || eventIndex >= (int)e.size() || name.empty()) return false;
+	e[eventIndex].Name = name;
+	return true;
+}
+
+bool AnimationEditorDocument::CopySelectedKeys(AnimKeyClipboard& out) const
+{
+	out = AnimKeyClipboard();
+	const Animation* clip = ActiveClip();
+	if (!clip || selectedKeys.empty()) return false;
+	float t0 = 1e30f;
+	for (std::set<AnimKeyRef>::const_iterator it = selectedKeys.begin(); it != selectedKeys.end(); ++it)
+		t0 = std::min(t0, it->time);
+
+	std::map<std::string, size_t> chanOf;
+	std::map<std::pair<std::string, std::string>, size_t> trackOf;
+	for (std::set<AnimKeyRef>::const_iterator it = selectedKeys.begin(); it != selectedKeys.end(); ++it)
+	{
+		const AnimKeyRef& r = *it;
+		if (r.kind <= ANIM_KEY_SCALE)
+		{
+			if (r.channel < 0 || r.channel >= (int)clip->Channels.size()) continue;
+			const Channel& src = clip->Channels[r.channel];
+			std::map<std::string, size_t>::iterator c = chanOf.find(src.NodeName);
+			if (c == chanOf.end())
+			{
+				Channel ch;
+				ch.NodeName = src.NodeName;
+				out.channels.push_back(ch);
+				c = chanOf.insert(std::make_pair(src.NodeName, out.channels.size() - 1)).first;
+			}
+			Channel& dst = out.channels[c->second];
+			const bool all = r.kind == ANIM_KEY_COLUMN;
+			if (all || r.kind == ANIM_KEY_POSITION)
+				for (size_t k = 0; k < src.positions.size(); k++)
+					if (SameTime(src.positions[k].Time, r.time)) { PositionData d = src.positions[k]; d.Time -= t0; dst.positions.push_back(d); }
+			if (all || r.kind == ANIM_KEY_ROTATION)
+				for (size_t k = 0; k < src.rotations.size(); k++)
+					if (SameTime(src.rotations[k].Time, r.time)) { RotationData d = src.rotations[k]; d.Time -= t0; dst.rotations.push_back(d); }
+			if (all || r.kind == ANIM_KEY_SCALE)
+				for (size_t k = 0; k < src.scales.size(); k++)
+					if (SameTime(src.scales[k].Time, r.time)) { ScalingData d = src.scales[k]; d.Time -= t0; dst.scales.push_back(d); }
+		}
+		else if (r.kind == ANIM_KEY_TRACK)
+		{
+			if (r.channel < 0 || r.channel >= (int)clip->Tracks.size()) continue;
+			const PropertyTrack& src = clip->Tracks[r.channel];
+			const std::pair<std::string, std::string> id(src.Target, src.Property);
+			std::map<std::pair<std::string, std::string>, size_t>::iterator t = trackOf.find(id);
+			if (t == trackOf.end())
+			{
+				PropertyTrack tr;
+				tr.Target = src.Target;
+				tr.Property = src.Property;
+				out.tracks.push_back(tr);
+				t = trackOf.insert(std::make_pair(id, out.tracks.size() - 1)).first;
+			}
+			for (size_t k = 0; k < src.Keys.size(); k++)
+				if (SameTime(src.Keys[k].Time, r.time)) { PropertyKey d = src.Keys[k]; d.Time -= t0; out.tracks[t->second].Keys.push_back(d); }
+		}
+		else if (r.kind == ANIM_KEY_EVENT)
+		{
+			if (r.channel < 0 || r.channel >= (int)clip->Events.size()) continue;
+			AnimationEvent e = clip->Events[r.channel];
+			e.Time -= t0;
+			out.events.push_back(e);
+		}
+	}
+	return !out.Empty();
+}
+
+int AnimationEditorDocument::PasteKeys(const AnimKeyClipboard& cb, float time)
+{
+	if (!HasActiveClip() || cb.Empty()) return 0;
+	const int ci = activeClip;
+	int written = 0;
+	selectedKeys.clear();
+	for (size_t c = 0; c < cb.channels.size(); c++)
+	{
+		const Channel& src = cb.channels[c];
+		const int ch = FindOrCreateChannel(ci, src.NodeName);
+		if (ch < 0) continue;
+		Channel& dst = clips[ci].Channels[ch];
+		for (size_t k = 0; k < src.positions.size(); k++)
+		{
+			PositionData d = src.positions[k]; d.Time += time;
+			EraseAtTime(dst.positions, d.Time); dst.positions.push_back(d); written++;
+			AnimKeyRef r; r.channel = ch; r.time = d.Time; selectedKeys.insert(r);
+		}
+		for (size_t k = 0; k < src.rotations.size(); k++)
+		{
+			RotationData d = src.rotations[k]; d.Time += time;
+			EraseAtTime(dst.rotations, d.Time); dst.rotations.push_back(d); written++;
+			AnimKeyRef r; r.channel = ch; r.time = d.Time; selectedKeys.insert(r);
+		}
+		for (size_t k = 0; k < src.scales.size(); k++)
+		{
+			ScalingData d = src.scales[k]; d.Time += time;
+			EraseAtTime(dst.scales, d.Time); dst.scales.push_back(d); written++;
+			AnimKeyRef r; r.channel = ch; r.time = d.Time; selectedKeys.insert(r);
+		}
+		SortByTime(dst.positions); SortByTime(dst.rotations); SortByTime(dst.scales);
+	}
+	for (size_t t = 0; t < cb.tracks.size(); t++)
+	{
+		const int tr = FindOrCreateTrack(ci, cb.tracks[t].Target, cb.tracks[t].Property);
+		for (size_t k = 0; k < cb.tracks[t].Keys.size(); k++)
+		{
+			const PropertyKey& key = cb.tracks[t].Keys[k];
+			SetTrackKey(ci, tr, key.Time + time, key.Value, key.Text, key.Mode);
+			written++;
+			AnimKeyRef r; r.kind = ANIM_KEY_TRACK; r.channel = tr; r.time = key.Time + time; selectedKeys.insert(r);
+		}
+	}
+	for (size_t e = 0; e < cb.events.size(); e++)
+	{
+		const int idx = AddEvent(ci, cb.events[e].Time + time, cb.events[e].Name);
+		written++;
+		AnimKeyRef r; r.kind = ANIM_KEY_EVENT; r.channel = idx; r.time = cb.events[e].Time + time; selectedKeys.insert(r);
+	}
+	// Keys pasted past the end grow the clip, as keying there does.
+	Animation& clip = clips[ci];
+	for (std::set<AnimKeyRef>::const_iterator it = selectedKeys.begin(); it != selectedKeys.end(); ++it)
+		if (it->time > clip.Duration) clip.Duration = it->time;
+	return written;
 }
 
 float AnimationEditorDocument::SnapTime(float time) const

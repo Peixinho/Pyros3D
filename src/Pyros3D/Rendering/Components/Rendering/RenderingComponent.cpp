@@ -29,6 +29,7 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/Rendering/Components/UI/UIImage.h>
 
 namespace p3d {
 
@@ -656,9 +657,16 @@ namespace p3d {
 
 	std::vector<RenderingMesh*> &RenderingComponent::GetMeshes(const uint32 LODLevel)
 	{
-		if (LODLevel < GetLODSize())
-			return Meshes[LODLevel];
-		else return Meshes[GetLODSize() - 1];
+		// Never index past the levels that exist. With no meshes at all (a 2D
+		// character with bones and no sprites yet), the old fallback indexed
+		// Meshes[GetLODSize() - 1] = Meshes[UINT_MAX], which INSERTED a level;
+		// every later Meshes[l] inserted another, so any loop bounded by
+		// GetLODSize() - UploadSkinning's - never ended. An empty component
+		// gets one empty level 0 instead, and the count stops growing.
+		if (Meshes.empty()) return Meshes[0];
+		std::map<uint32, std::vector<RenderingMesh*> >::iterator it = Meshes.find(LODLevel);
+		if (it != Meshes.end()) return it->second;
+		return Meshes.rbegin()->second;
 	}
 
 	void RenderingComponent::SetCullingGeometry(const uint32 Geometry)
@@ -782,8 +790,20 @@ namespace p3d {
 		const std::function<std::string(const std::string&)> &resolve)
 	{
 		spriteParts2D = parts;
+		spriteResolve2D = resolve;
+		spritePartShownTexture.clear();
+		spritePartShownColor.clear();
+		for (size_t i = 0; i < parts.size(); i++)
+		{
+			spritePartShownTexture.push_back(parts[i].texture);
+			spritePartShownColor.push_back(Vec4(1.f, 1.f, 1.f, 1.f));
+		}
 
-		SpriteRig2DBuild built = BuildSpriteRig2D(parts, resolve);
+		// The skeleton in id order, for parts that bend across two bones.
+		std::vector<Bone> bones(skeleton.size());
+		for (std::map<StringID, Bone>::const_iterator b = skeleton.begin(); b != skeleton.end(); ++b)
+			if (b->second.self >= 0 && (size_t)b->second.self < bones.size()) bones[b->second.self] = b->second;
+		SpriteRig2DBuild built = BuildSpriteRig2D(parts, resolve, bones.empty() ? NULL : &bones);
 		if (!built.renderable) return;
 		spritePartHalfExtents = built.halfExtents;
 
@@ -824,6 +844,13 @@ namespace p3d {
 			m->Geometry = renderable->Geometries[i];
 			m->Material = (i < materials.size()) ? materials[i] : std::shared_ptr<IMaterial>();
 			m->renderingComponent = this;
+			// A skinned piece (a 2D part that bends across two bones) needs
+			// its bone map, as the constructor copies it for a model.
+			if (m->Geometry && m->Geometry->materialProperties.haveBones)
+			{
+				m->MapBoneIDs = m->Geometry->MapBoneIDs;
+				m->BoneOffsetMatrix = m->Geometry->BoneOffsetMatrix;
+			}
 			// Carry the component's choice onto the new meshes. RenderingMesh
 			// constructs with Sphere, so without this a geometry swap silently
 			// reverts a component that had been set to Box - and the caller
@@ -869,6 +896,50 @@ namespace p3d {
 		{
 			const SpritePart2D &part = spriteParts2D[i];
 
+			// A clip's property tracks for this part, else its own rest values.
+			SkeletonAnimationInstance::TrackValue tv;
+			const bool tracks = inst->HasTrackValues();
+			f32 z = part.z;
+			if (tracks && inst->GetTrackValue(part.name, "z", tv) && tv.hasValue) z = tv.value.x;
+			bool visible = true;
+			if (tracks && inst->GetTrackValue(part.name, "visible", tv) && tv.hasValue) visible = tv.value.x > 0.5f;
+			ms[i]->Active = visible;
+			Vec4 color(1.f, 1.f, 1.f, 1.f);
+			if (tracks && inst->GetTrackValue(part.name, "color", tv) && tv.hasValue) color = tv.value;
+			std::string texture = part.texture;
+			if (tracks && inst->GetTrackValue(part.name, "sprite", tv) && tv.hasText) texture = tv.text;
+			GenericShaderMaterial* gm = (i < spritePartShownColor.size() && ms[i]->Material)
+				? dynamic_cast<GenericShaderMaterial*>(ms[i]->Material.get()) : NULL;
+			if (gm)
+			{
+				const Vec4 &was = spritePartShownColor[i];
+				if (was.x != color.x || was.y != color.y || was.z != color.z || was.w != color.w)
+				{
+					gm->SetColor(color);
+					spritePartShownColor[i] = color;
+				}
+				if (texture != spritePartShownTexture[i])
+				{
+					// Shared: a swap cycle (mouth shapes, a hand opening) reuses
+					// the same few textures every time round.
+					const std::string path = spriteResolve2D ? spriteResolve2D(texture) : texture;
+					std::shared_ptr<Texture> t = texture.empty() ? std::shared_ptr<Texture>()
+						: Texture::LoadShared(path, TextureType::Texture, true, true);
+					gm->SetColorMap(t ? t : UIImage::WhiteTexture());
+					spritePartShownTexture[i] = texture;
+				}
+			}
+
+			// A bent part is skinned: its grid is already in rest space and the
+			// bones move it, so its Pivot only carries an animated draw order.
+			if (!part.bendBone.empty() && !ms[i]->MapBoneIDs.empty())
+			{
+				Matrix zOnly;
+				zOnly.Translate(Vec3(0.f, 0.f, z - part.z));
+				ms[i]->Pivot = zOnly;
+				continue;
+			}
+
 			Matrix m;
 			if (!part.bone.empty())
 			{
@@ -882,7 +953,7 @@ namespace p3d {
 			// artwork relative to the joint it turns about, and the scale must
 			// not move it.
 			Matrix off;
-			off.Translate(Vec3(part.offset.x, part.offset.y, part.z));
+			off.Translate(Vec3(part.offset.x, part.offset.y, z));
 			Matrix sc;
 			sc.Scale(Vec3(part.scale.x, part.scale.y, 1.f));
 
@@ -1084,7 +1155,6 @@ namespace p3d {
 
 	void RenderingComponent::Update(const f64 time)
 	{
-		RefreshSpriteParts2D();
 
 		// Skeleton animation. Nothing outside the editor's own animation
 		// preview ever called SkeletonAnimation::Update(), so a clip playing
@@ -1103,7 +1173,14 @@ namespace p3d {
 					static_cast<SkeletonAnimationInstance*>(activeSkeletonAnimation);
 				if (si->GetOwner() && (animateWhenUnseen || WasSeenRecently())) si->GetOwner()->UpdateInstance(si, (f32)time);
 			}
+			// Back on the main thread: events to scripts, root motion to the
+			// owner. The update itself may have run on a worker (AnimateAhead).
+			static_cast<SkeletonAnimationInstance*>(activeSkeletonAnimation)->DeliverPending();
 		}
+
+		// After the pose for this frame, not before it: placing the parts
+		// first drew every 2D character one frame behind its own skeleton.
+		RefreshSpriteParts2D();
 
 		if (activeTextureAnimation == NULL) return;
 

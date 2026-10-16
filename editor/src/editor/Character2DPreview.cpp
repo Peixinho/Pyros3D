@@ -114,6 +114,8 @@ void Character2DPreview::Sync(Character2DDocument& doc)
 		doc.anim.externalRig = built.instance;
 		doc.anim.externalPoseOverrides.clear();
 		posedBones.clear();
+		// Pins are by bone id, and a rebuilt skeleton may number them anew.
+		pins.clear();
 
 		// Deliberately NOT framed here. Framing needs the viewport's real
 		// aspect, and at this point width/height are still whatever the last
@@ -150,6 +152,7 @@ void Character2DPreview::Sync(Character2DDocument& doc)
 			characterRC->RefreshSpriteParts2D();
 		}
 	}
+	RefreshLimits(doc);
 }
 
 void Character2DPreview::FrameCamera(Character2DDocument& doc)
@@ -258,16 +261,8 @@ int Character2DPreview::PickJoint(const Vec2& px) const
 	return best;
 }
 
-void Character2DPreview::DragJoint(int boneId, const Vec3& targetWorld)
+int Character2DPreview::InferChainRoot(int boneId) const
 {
-	if (!built.instance || boneId < 0) return;
-
-	// The character sits at the origin of its own scene, so model space and
-	// world space are the same here - unlike in a level, where the drag had to
-	// come back out through the owner's transform. One of several things this
-	// viewport does not have to get right because the character is alone in it.
-	const Vec3 target(targetWorld.x, targetWorld.y, 0.f);
-
 	// Two bones up where the chain allows it, which is the classic elbow/knee
 	// case and what the closed-form two-bone solve is for; otherwise as far up
 	// as it goes.
@@ -278,6 +273,7 @@ void Character2DPreview::DragJoint(int boneId, const Vec3& targetWorld)
 	// spine, taking the head and the other arm with it. A branch point is
 	// where one limb ends and the body begins, which is exactly where an
 	// inferred chain should stop.
+	if (!built.instance) return boneId;
 	const std::vector<Bone>& bones = built.instance->GetSkeletonBones();
 	int32 rootId = (int32)boneId;
 	for (int step = 0; step < 2; step++)
@@ -291,13 +287,49 @@ void Character2DPreview::DragJoint(int boneId, const Vec3& targetWorld)
 		if (children > 1) break;
 		rootId = p;
 	}
+	return rootId;
+}
 
-	std::vector<int32> moved;
-	if (rootId != (int32)boneId)
-	{
-		IKSolver::Solve(built.instance, rootId, (int32)boneId, target, Vec3(0.f, 0.f, 0.f));
-		moved = IKSolver::BuildChain(built.instance, rootId, (int32)boneId);
-	}
+void Character2DPreview::NotePosed(const std::vector<int32>& moved)
+{
+	for (size_t i = 0; i < moved.size(); i++)
+		if (std::find(posedBones.begin(), posedBones.end(), (int)moved[i]) == posedBones.end())
+			posedBones.push_back((int)moved[i]);
+}
+
+void Character2DPreview::SolveTo(int boneId, const Vec3& target)
+{
+	const int rootId = InferChainRoot(boneId);
+	if (rootId == boneId) return;
+	IKSolver::Solve(built.instance, rootId, (int32)boneId, Vec3(target.x, target.y, 0.f), Vec3(0.f, 0.f, 0.f),
+		30, limits.empty() ? NULL : &limits);
+	NotePosed(IKSolver::BuildChain(built.instance, rootId, (int32)boneId));
+}
+
+void Character2DPreview::ApplyPins(int exceptBone)
+{
+	if (!built.instance || pins.empty()) return;
+	// Pinned joints are held where they were pinned while everything else
+	// moves: the foot stays on the ground as the hips are dragged down. Each
+	// re-solves its own inferred chain, as dragging it would.
+	for (std::map<int, Vec3>::const_iterator it = pins.begin(); it != pins.end(); ++it)
+		if (it->first != exceptBone && (uint32)it->first < built.instance->GetNumberBones())
+			SolveTo(it->first, it->second);
+}
+
+void Character2DPreview::DragJoint(int boneId, const Vec3& targetWorld)
+{
+	if (!built.instance || boneId < 0) return;
+
+	// The character sits at the origin of its own scene, so model space and
+	// world space are the same here - unlike in a level, where the drag had to
+	// come back out through the owner's transform. One of several things this
+	// viewport does not have to get right because the character is alone in it.
+	const Vec3 target(targetWorld.x, targetWorld.y, 0.f);
+	const std::vector<Bone>& bones = built.instance->GetSkeletonBones();
+
+	if (InferChainRoot(boneId) != boneId)
+		SolveTo(boneId, target);
 	else if ((size_t)boneId < bones.size())
 	{
 		// A root joint has no chain above it to solve. Dragging one means
@@ -310,18 +342,127 @@ void Character2DPreview::DragJoint(int boneId, const Vec3& targetWorld)
 		local.SetRotationFromEuler(keepRot);
 		built.instance->SetBoneLocalTransform((int32)boneId, local);
 		built.instance->RefreshSkinning();
-		moved.push_back((int32)boneId);
+		NotePosed(std::vector<int32>(1, (int32)boneId));
 	}
-
-	for (size_t i = 0; i < moved.size(); i++)
-	{
-		if (std::find(posedBones.begin(), posedBones.end(), (int)moved[i]) == posedBones.end())
-			posedBones.push_back((int)moved[i]);
-	}
+	// A dragged pin moves its pin with it.
+	if (pins.count(boneId)) pins[boneId] = target;
+	ApplyPins(boneId);
 
 	// The sprites follow the bones through their meshes' Pivot, and nothing
 	// else will refresh them before this frame is drawn.
 	if (characterRC) characterRC->RefreshSpriteParts2D();
+}
+
+int Character2DPreview::PickLimb(const Vec2& px) const
+{
+	if (!built.instance) return -1;
+	const std::vector<Bone>& bones = built.instance->GetSkeletonBones();
+	f32 best = 7.f;  // pixels
+	int hit = -1;
+	for (size_t b = 0; b < bones.size(); b++)
+	{
+		Vec2 a, c;
+		if (!BoneToPixels(bones[b].self, a)) continue;
+		std::vector<Vec2> tips;
+		for (size_t k = 0; k < bones.size(); k++)
+			if (bones[k].parent == bones[b].self && BoneToPixels(bones[k].self, c)) tips.push_back(c);
+		if (tips.empty())
+		{
+			// A leaf has no child to draw a limb to: it gets a stub along its
+			// own X axis, which is what a hand or a head turns.
+			const Matrix g = built.instance->GetBoneGlobalTransform(bones[b].self);
+			Vec2 dir(g.m[0], -g.m[1]);
+			const f32 len = std::sqrt(dir.x * dir.x + dir.y * dir.y);
+			if (len < 1e-6f) continue;
+			tips.push_back(Vec2(a.x + dir.x / len * kLeafStubPixels, a.y + dir.y / len * kLeafStubPixels));
+		}
+		for (size_t t = 0; t < tips.size(); t++)
+		{
+			const Vec2 ab(tips[t].x - a.x, tips[t].y - a.y);
+			const f32 l2 = ab.x * ab.x + ab.y * ab.y;
+			if (l2 < 1.f) continue;
+			f32 u = ((px.x - a.x) * ab.x + (px.y - a.y) * ab.y) / l2;
+			if (u < 0.15f || u > 1.f) continue;   // near the joint is the joint's
+			const f32 dx = a.x + ab.x * u - px.x, dy = a.y + ab.y * u - px.y;
+			const f32 d = std::sqrt(dx * dx + dy * dy);
+			if (d < best) { best = d; hit = (int)bones[b].self; }
+		}
+	}
+	return hit;
+}
+
+void Character2DPreview::BeginRotate(int boneId, const Vec3& cursorWorld)
+{
+	if (!built.instance || boneId < 0) return;
+	rotatingBone = boneId;
+	const Vec3 j = built.instance->GetBoneGlobalTransform(boneId).GetTranslation();
+	rotateGrabAngle = std::atan2(cursorWorld.y - j.y, cursorWorld.x - j.x);
+	rotateStartLocal = built.instance->GetBoneLocalTransform(boneId);
+}
+
+void Character2DPreview::RotateTo(const Vec3& cursorWorld)
+{
+	if (!built.instance || rotatingBone < 0) return;
+	const Vec3 j = built.instance->GetBoneGlobalTransform(rotatingBone).GetTranslation();
+	const f32 now = std::atan2(cursorWorld.y - j.y, cursorWorld.x - j.x);
+	// FK: the bone turns about its own joint by the angle the cursor swept
+	// round it, children carried along - what IK cannot do for a head or a
+	// hand, which have nothing below them to drag.
+	Matrix spin;
+	spin.RotationZ(now - rotateGrabAngle);
+	Matrix local = rotateStartLocal;
+	const Vec3 keep = local.GetTranslation();
+	local.Translate(Vec3(0.f, 0.f, 0.f));
+	local = local * spin;
+	local.Translate(keep);
+	built.instance->SetBoneLocalTransform(rotatingBone, local);
+	built.instance->RefreshHierarchy();
+	if (!limits.empty())
+	{
+		// The same clamp the solver uses, so a limit means one thing.
+		std::map<int32, JointLimit>::const_iterator it = limits.find(rotatingBone);
+		if (it != limits.end() && it->second.Enabled)
+		{
+			Matrix bind = built.instance->GetBindPoseLocal(rotatingBone);
+			bind.Translate(Vec3(0.f, 0.f, 0.f));
+			Matrix cur = built.instance->GetBoneLocalTransform(rotatingBone);
+			cur.Translate(Vec3(0.f, 0.f, 0.f));
+			const Matrix rel = bind.Inverse() * cur;
+			f32 a = std::atan2(rel.m[1], rel.m[0]);
+			a = std::max(it->second.Min.z, std::min(it->second.Max.z, a));
+			Matrix r; r.RotationZ(a);
+			Matrix clamped = bind * r;
+			clamped.Translate(keep);
+			built.instance->SetBoneLocalTransform(rotatingBone, clamped);
+		}
+	}
+	built.instance->RefreshSkinning();
+	NotePosed(std::vector<int32>(1, (int32)rotatingBone));
+	ApplyPins(rotatingBone);
+	if (characterRC) characterRC->RefreshSpriteParts2D();
+}
+
+bool Character2DPreview::TogglePin(int boneId)
+{
+	if (!built.instance || boneId < 0 || (uint32)boneId >= built.instance->GetNumberBones()) return false;
+	if (pins.count(boneId)) { pins.erase(boneId); return false; }
+	pins[boneId] = built.instance->GetBoneGlobalTransform(boneId).GetTranslation();
+	return true;
+}
+
+void Character2DPreview::RefreshLimits(const Character2DDocument& doc)
+{
+	limits.clear();
+	if (!built.instance) return;
+	for (std::map<std::string, Character2DAsset::BoneLimit>::const_iterator it = doc.asset.limits.begin(); it != doc.asset.limits.end(); ++it)
+	{
+		if (!it->second.enabled) continue;
+		const int id = doc.asset.FindBone(it->first);
+		if (id < 0) continue;
+		// About Z only; the other two axes never turn in the plane.
+		limits[id] = JointLimit(Vec3(0.f, 0.f, (f32)DEGTORAD(it->second.minDeg)),
+			Vec3(0.f, 0.f, (f32)DEGTORAD(it->second.maxDeg)));
+	}
 }
 
 Texture* Character2DPreview::RenderFrame()

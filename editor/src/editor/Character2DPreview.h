@@ -24,6 +24,7 @@
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Assets/Character2D/Character2DInstance.h>
+#include <Pyros3D/AnimationManager/IKSolver.h>
 #include <Pyros3D/Core/Math/Math.h>
 #include <cstdint>
 #include <map>
@@ -84,6 +85,8 @@ struct Character2DPreview {
 	p3d::Math::Vec2 mouse = p3d::Math::Vec2(0.f, 0.f);
 	bool mouseValid = false;
 	int hoveredBone = -1;
+	// The limb under the cursor in the rotate tool, or -1.
+	int hoveredLimb = -1;
 	// Joint being dragged, and the pose at the moment it was grabbed, so the
 	// whole gesture is one undo entry rather than one per frame.
 	int draggingBone = -1;
@@ -125,8 +128,42 @@ struct Character2DPreview {
 	bool BoneToPixels(int boneId, p3d::Math::Vec2& outPx) const;
 
 	// Poses `boneId` to reach `targetWorld` - what a joint drag does. Records
-	// what it moved in `posedBones`.
+	// what it moved in `posedBones`. Respects joint limits and re-solves pins.
 	void DragJoint(int boneId, const p3d::Math::Vec3& targetWorld);
+
+	// ---- rotate tool (FK) ----------------------------------------------
+	// Drag a limb (or a leaf's stub) to turn that one bone about its own
+	// joint. Alt+drag does the same in the pose tool.
+	enum class Tool { Pose, Rotate };
+	Tool tool = Tool::Pose;
+	static constexpr float kLeafStubPixels = 34.f;
+	int rotatingBone = -1;
+	float rotateGrabAngle = 0.f;
+	p3d::Math::Matrix rotateStartLocal;
+	// The bone whose limb (or leaf stub) is under the cursor, or -1.
+	int PickLimb(const p3d::Math::Vec2& px) const;
+	void BeginRotate(int boneId, const p3d::Math::Vec3& cursorWorld);
+	void RotateTo(const p3d::Math::Vec3& cursorWorld);
+
+	// ---- pins -------------------------------------------------------------
+	// Joints held where they were pinned while other bones are dragged or
+	// turned: a foot planted while the hips go down. Bone id -> world point.
+	std::map<int, p3d::Math::Vec3> pins;
+	// Pins or unpins at the joint's current place; returns whether it is now pinned.
+	bool TogglePin(int boneId);
+	void ApplyPins(int exceptBone);
+
+	// ---- joint limits -----------------------------------------------------
+	// The asset's per-bone limits resolved to ids, refreshed every Sync.
+	std::map<p3d::int32, p3d::JointLimit> limits;
+	void RefreshLimits(const Character2DDocument& doc);
+
+	// The chain a drag of `boneId` solves: up to two bones, never through a
+	// branch (see the .cpp). == boneId when there is nothing above to bend.
+	int InferChainRoot(int boneId) const;
+	// Solves the inferred chain of `boneId` onto `target`, noting what moved.
+	void SolveTo(int boneId, const p3d::Math::Vec3& target);
+	void NotePosed(const std::vector<p3d::int32>& moved);
 };
 
 #endif /* CHARACTER2DPREVIEW_H */

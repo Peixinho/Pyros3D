@@ -762,7 +762,7 @@ def _p3da_read_str(buf: bytes, pos: int) -> tuple[str, int]:
 
 
 _P3DA_MAGIC = b"P3DA"
-_P3DA_VERSION = 1
+_P3DA_VERSION = 2
 
 # Per-key interpolation, mirroring p3d::InterpolationMode in
 # include/Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h.
@@ -771,6 +771,7 @@ _P3DA_INTERP = ["linear", "step", "ease_in", "ease_out", "ease_both", "bezier"]
 # Clip flags, mirroring p3d::AnimationFlags in the same header.
 _P3DA_FLAG_LOOP = 1 << 0
 _P3DA_FLAG_APPLY_SCALE = 1 << 1
+_P3DA_FLAG_ROOT_MOTION = 1 << 2
 
 
 def _p3da_read_u32(buf: bytes, pos: int) -> tuple[int, int]:
@@ -875,11 +876,41 @@ def _read_p3da(path: Path) -> list[dict]:
                 "scales": scales,
             })
 
+        # v2: events + root motion bone, after the channels.
+        events = []
+        tracks = []
+        root_motion_bone = ""
+        if version >= 2:
+            n, pos = _p3da_read_i32(buf, pos)
+            for _ in range(n):
+                t, pos = _p3da_read_f32(buf, pos)
+                ev_name, pos = _p3da_read_str(buf, pos)
+                events.append({"time": t / tps, "name": ev_name})
+            root_motion_bone, pos = _p3da_read_str(buf, pos)
+            n, pos = _p3da_read_i32(buf, pos)
+            for _ in range(n):
+                target, pos = _p3da_read_str(buf, pos)
+                prop, pos = _p3da_read_str(buf, pos)
+                kn, pos = _p3da_read_i32(buf, pos)
+                keys = []
+                for _ in range(kn):
+                    t, pos = _p3da_read_f32(buf, pos)
+                    v = list(struct.unpack_from("<4f", buf, pos)); pos += 16
+                    text, pos = _p3da_read_str(buf, pos)
+                    mode = buf[pos]; pos += 1
+                    keys.append({"time": t / tps, "value": v, "text": text,
+                                 "interp": _P3DA_INTERP[mode] if mode < len(_P3DA_INTERP) else "linear"})
+                tracks.append({"target": target, "property": prop, "keys": keys})
+
         clips.append({
             "name": name,
             "guid": guid,
             "loop": bool(flags & _P3DA_FLAG_LOOP),
             "apply_scale": bool(flags & _P3DA_FLAG_APPLY_SCALE),
+            "root_motion": bool(flags & _P3DA_FLAG_ROOT_MOTION),
+            "root_motion_bone": root_motion_bone,
+            "events": events,
+            "tracks": tracks,
             "authored_fps": authored_fps,
             "duration": duration / tps,
             "channels": channels,
@@ -891,7 +922,7 @@ def _write_p3da(path: Path, clips: list[dict]) -> None:
     """Write clips back out in the layout AnimationLoader::Load expects.
 
     Always writes the current version. Round-trips a v0 file that was read by
-    _read_p3da into an equivalent v1 one - clips that had no guid are minted
+    _read_p3da into an equivalent current-version one - clips that had no guid are minted
     one here, which is what gives them a stable identity for scenes to save.
     """
     out = bytearray()
@@ -938,6 +969,8 @@ def _write_p3da(path: Path, clips: list[dict]) -> None:
             flags |= _P3DA_FLAG_LOOP
         if clip.get("apply_scale"):
             flags |= _P3DA_FLAG_APPLY_SCALE
+        if clip.get("root_motion"):
+            flags |= _P3DA_FLAG_ROOT_MOTION
         put_u32(flags)
         put_f32(clip.get("authored_fps", 0.0))
 
@@ -971,6 +1004,28 @@ def _write_p3da(path: Path, clips: list[dict]) -> None:
                 v = k["value"]
                 put_f32(v[0]); put_f32(v[1]); put_f32(v[2])
                 put_key_interp(k)
+
+        events = sorted(clip.get("events", []), key=lambda e: float(e.get("time", 0.0)))
+        put_i32(len(events))
+        for ev in events:
+            put_f32(ev.get("time", 0.0))
+            put_str(str(ev.get("name", "")))
+        put_str(str(clip.get("root_motion_bone", "")))
+        tracks = clip.get("tracks", [])
+        put_i32(len(tracks))
+        for tr in tracks:
+            put_str(str(tr.get("target", "")))
+            put_str(str(tr.get("property", "")))
+            keys = sorted(tr.get("keys", []), key=lambda k: float(k.get("time", 0.0)))
+            put_i32(len(keys))
+            for k in keys:
+                put_f32(k.get("time", 0.0))
+                v = list(k.get("value", [0.0, 0.0, 0.0, 0.0])) + [0.0] * 4
+                for c in v[:4]:
+                    put_f32(c)
+                put_str(str(k.get("text", "")))
+                name = str(k.get("interp", "linear"))
+                out.append(_P3DA_INTERP.index(name) if name in _P3DA_INTERP else 0)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(bytes(out))
@@ -5678,11 +5733,31 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
     Material editor
       edit_material (path, options {PBR, Texture, ...}, colours, scalars, flags,
       textures {color, normal, specular, env, metallicRoughness})
-    Animation editor
-      set_animation_clip (path, clip, duration, loop, applyScale, authoredFps),
+    Animation editor (add "character2d": true to target the open 2D character's clips)
+      set_animation_clip (path, clip, duration, loop, applyScale, authoredFps,
+      rootMotion, rootMotionBone),
       set_animation_pose (path, bone, position, rotation in degrees, bind, key)
+      animation_events (action: list|add|remove|rename|move, clip, index, time, name)
+      animation_track_key (action: set|delete|list, clip, target, property, time,
+      value: n|[x,y,z,w]|bool, text, interp)
+      animation_pose_op (op: copy|paste|paste_mirrored|mirror|mirror_bone, bone)
+      animation_copy_keys (keys: [{bone, time, kind: column|position|rotation|scale}],
+      events: [index], tracks: [{target, property, time}]; none = the selection)
+      animation_paste_keys (time, clip)
+      animation_view (onion, onionBefore, onionAfter, onionStep, curves, split, unsplit)
+      animation_retarget (source .p3da, sourceRig .p3dm, clips, map {target: source}, fps)
+      animation_ik action set also takes holdRotation, captureRotation
+    Runtime IK component (Scene View)
+      get_ik / add_ik (name, rig) / set_ik (name, iterations, constraints
+      [{chain, target, pole, weight, enabled, matchRotation}] or index + one
+      constraint's keys) / remove_ik
     2D Character editor
       set_clip2d (clip, duration), new_clip2d, rename_clip2d, set_bone2d, ...
+      set_sprite2d also takes bend (second bone) and bendSegments
+      set_bone_limit2d (bone, min, max degrees, enabled)
+      pin_bone2d (bone, pinned, at [x,y]), bake_pins2d (clip, from, to)
+      key_part2d (sprite, property: sprite|z|color|visible, value, text, time, clip)
+      character2d_view (tool: pose|rotate, onion, onionBefore, onionAfter, onionStep)
     Reading
       status, scene_state, get_object (name), log (lines)
 

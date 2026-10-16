@@ -74,6 +74,9 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialPreview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimationEditorDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimationPreview.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/PoseTools.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/RetargetSession.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorIK.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/AnimationEditor.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/Character2DDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/TileSetDocument.cpp

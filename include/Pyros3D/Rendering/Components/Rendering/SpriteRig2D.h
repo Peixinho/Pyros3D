@@ -26,6 +26,7 @@
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
 #include <Pyros3D/Materials/IMaterial.h>
+#include <Pyros3D/Utils/ModelLoaders/IModelLoader.h>   // Bone
 #include <functional>
 #include <memory>
 #include <string>
@@ -73,8 +74,15 @@ namespace p3d {
 		// rebuild it, which is the kind of thing that gets forgotten once and
 		// then looks like a renderer bug.
 		bool lit;
+		// Bend: name a second bone (usually a child of `bone`) and the part
+		// becomes a grid that follows BOTH, blended across the joint between
+		// them - an arm drawn as one picture that bends at the elbow instead
+		// of two pictures that split there. Empty: the part is a rigid quad.
+		std::string bendBone;
+		// Grid cells along each side of a bent part. More bends more smoothly.
+		int32 bendSegments;
 
-		SpritePart2D() : offset(0.f, 0.f), scale(1.f, 1.f), z(0.f), pivot(0.5f, 0.5f), lit(false) {}
+		SpritePart2D() : offset(0.f, 0.f), scale(1.f, 1.f), z(0.f), pivot(0.5f, 0.5f), lit(false), bendSegments(8) {}
 	};
 
 	// Built pieces of a rig: one geometry per part, one material per part.
@@ -92,9 +100,14 @@ namespace p3d {
 	//
 	// A part whose texture is missing still gets a quad, drawn white, so a
 	// broken path is visible in the scene rather than silently absent.
+	//
+	// `skeleton` (bones in id order, bindPoseMat set) is needed only for bent
+	// parts, whose grid is built in the rig's rest space and skinned to two
+	// bones; without it a bent part is built as a rigid quad.
 	PYROS3D_API SpriteRig2DBuild BuildSpriteRig2D(
 		const std::vector<SpritePart2D> &parts,
-		const std::function<std::string(const std::string&)> &resolve);
+		const std::function<std::string(const std::string&)> &resolve,
+		const std::vector<Bone>* skeleton = NULL);
 
 }
 

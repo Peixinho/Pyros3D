@@ -1760,11 +1760,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				cj["chain"] = con.ChainName;
 				cj["weight"] = con.Weight;
 				cj["enabled"] = con.Enabled;
+				if (con.MatchTargetRotation) cj["matchRotation"] = true;
 				// Targets are other GameObjects, so they are stored by name
 				// and resolved after every object exists - see
 				// g_pendingIKTargets.
 				if (con.Target) cj["target"] = con.Target->GetName();
+				else if (!con.TargetName.empty()) cj["target"] = con.TargetName;
 				if (con.Pole) cj["pole"] = con.Pole->GetName();
+				else if (!con.PoleName.empty()) cj["pole"] = con.PoleName;
 				cons.push_back(cj);
 			}
 			j["constraints"] = cons;
@@ -4063,6 +4066,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					if (con.ChainName.empty()) continue;
 					con.Weight = cj.value("weight", 1.f);
 					con.Enabled = cj.value("enabled", true);
+					con.MatchTargetRotation = cj.value("matchRotation", false);
+					con.TargetName = cj.value("target", std::string());
+					con.PoleName = cj.value("pole", std::string());
 					ik->AddConstraint(con);
 
 					PendingIKTarget pending;
@@ -5479,8 +5485,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		}
 
 		g_sceneAssetRoot = InferAssetRootFromScenePath(scenePathForAssetRoot);
+		const size_t pendingBefore = g_pendingIKTargets.size();
 		std::shared_ptr<GameObject> result = DeserializeSubtreeJson(subtree, physics, lua, outAssets);
 		g_sceneAssetRoot.clear();
+		// A subtree is not in any scene yet, so its IK targets cannot be
+		// resolved here - the components find them by name once registered
+		// (IKConstraint::TargetName). Left in the list, these entries would
+		// point at components the next full load could find already freed.
+		g_pendingIKTargets.resize(pendingBefore);
 		return result;
 	}
 
@@ -5644,8 +5656,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		AssetBundle::Use use(prepared.bundle);
 		const std::string previousRoot = g_sceneAssetRoot;
 		g_sceneAssetRoot = prepared.assetRoot;
+		const size_t pendingBefore = g_pendingIKTargets.size();
 		std::shared_ptr<GameObject> result = DeserializeSubtreeJson(prepared.subtree, physics, lua, outAssets);
 		g_sceneAssetRoot = previousRoot;
+		// (see DeserializeSubtree: the components resolve these by name)
+		g_pendingIKTargets.resize(pendingBefore);
 		return result;
 	}
 
