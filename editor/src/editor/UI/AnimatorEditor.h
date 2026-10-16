@@ -27,8 +27,11 @@ struct FrameRequests {
 // `clipFiles`: (label, absolute path) of the project's .p3da / .p3d2d files, for
 // the "clips from" picker. `live`: the running Animator using this controller,
 // or NULL when nothing plays it.
+// `meshes`: (label, absolute path) of the project's .p3dm files, for the
+// preview's rig. `dt` advances the preview.
 void DrawWindow(AnimatorDocument& doc, const std::vector<std::pair<std::string, std::string> >& clipFiles,
-	p3d::Animator* live, FrameRequests& requests);
+	const std::vector<std::pair<std::string, std::string> >& meshes, p3d::Animator* live, float dt,
+	FrameRequests& requests);
 
 } // namespace AnimatorEditor
 

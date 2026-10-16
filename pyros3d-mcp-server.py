@@ -5765,6 +5765,8 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       Lua: setAnimatorFloat(go, p, v), setAnimatorBool, setAnimatorTrigger,
       getAnimatorState(go), playAnimatorState(go, state, fade)
       animator_state live: state, progress, blendWeights, layers {name: state}
+      animator_preview (path, show, mesh, clips [.p3da], playing, set {param: value},
+      state, layer, fade) - the window's own preview, no Play needed
     Runtime IK component (Scene View)
       get_ik / add_ik (name, rig) / set_ik (name, iterations, constraints
       [{chain, target, pole, weight, enabled, matchRotation}] or index + one

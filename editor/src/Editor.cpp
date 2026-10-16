@@ -8463,6 +8463,16 @@ void Editor::CloseAllAnimationDocuments()
 	for (size_t i = 0; i < animationDocs.size(); ++i)
 		delete animationDocs[i];
 	animationDocs.clear();
+	// State machines too: their preview viewport must go before the scene
+	// documents take the render device down. A tab closed this way saves,
+	// as closing it by hand does.
+	for (size_t i = 0; i < animatorDocs.size(); ++i)
+	{
+		if (animatorDocs[i] && animatorDocs[i]->dirty) SaveAnimatorDocument(animatorDocs[i]);
+		delete animatorDocs[i];
+	}
+	animatorDocs.clear();
+	activeAnimatorDoc = nullptr;
 	activeAnimationDoc = NULL;
 	pendingSelectAnimationDocId = 0;
 	pendingCloseAnimationId = 0;

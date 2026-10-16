@@ -311,3 +311,14 @@ pose tools; link `editor/src/editor/PoseTools.cpp`). Build lines at the top of e
   two clips with different channel orders wrote each other's bones); subtrees of a never-saved scene
   rebuilt blank (no asset root); a placed 2D character's picture-swap keys showed the missing texture
   (its resolver read the loader's global root after it was cleared).
+
+## 2026-10-16 (evening): preview, JS, WebGL
+
+- The state machine window has its own preview (a model and clip files picked in it, or `animator_preview`):
+  the machine runs there without Play, parameters drive it, and edits to the graph rebind it keeping them.
+- JS library: `AnimatorController.fromString(text)` and `Animator` (bind, setFloat/Bool/Trigger, play,
+  playOnLayer, update, getState, getLayerState, getStateProgress).
+- WebGL: a web export of a blend + layer on the human and of a 2D character with a bent arm runs as on
+  desktop. It found one bug: parameters set from a script's `init` were lost - the Animator bound its
+  skeleton on the first update and reset them. The parameters now exist as soon as the controller is set,
+  and `Animator::SetInstance` attaches a skeleton keeping them (and any state played meanwhile).

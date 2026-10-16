@@ -31,9 +31,10 @@ namespace p3d {
 	{
 		controller = c;
 		loaded = true;
-		// Rebind on the next update, from the default state.
+		// The parameters exist now, so a script can set them before the first
+		// update attaches the skeleton (and starts the default states).
 		bound = NULL;
-		animator.Unbind();
+		animator.Bind(controller, NULL);
 	}
 
 	SkeletonAnimationInstance* AnimatorComponent::ResolveInstance()
@@ -58,8 +59,7 @@ namespace p3d {
 		if (inst != bound)
 		{
 			bound = inst;
-			if (inst) animator.Bind(controller, inst);
-			else animator.Unbind();
+			animator.SetInstance(inst);
 		}
 		// `time` is the scene clock; the machine wants the step.
 		f32 dt = lastTime < 0.0 ? 0.f : (f32)(time - lastTime);

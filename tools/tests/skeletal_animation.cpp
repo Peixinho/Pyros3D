@@ -421,6 +421,21 @@ int main()
 		for (int i = 0; i < 30; i++) tick(0.02f);
 		check(an.GetState() == "Idle", "a one-shot leaves at its exit time");
 		check(!an.SetFloat("nope", 1.f), "unknown parameters are refused");
+
+		// A script's init sets parameters before the first update attaches
+		// the skeleton; the attach used to reset them to their defaults.
+		Animator early;
+		early.Bind(c, NULL);
+		check(early.SetFloat("speed", 3.f), "parameters can be set before there is a skeleton");
+		early.SetInstance(rig.inst);
+		check(early.GetFloat("speed") == 3.f, "and attaching the skeleton keeps them");
+		Animator played;
+		played.Bind(c, NULL);
+		played.SetFloat("speed", 3.f);   // or Run -> Idle fires at once
+		played.Play("Run");
+		played.SetInstance(rig.inst);
+		played.Update(0.f);
+		check(played.GetState() == "Run", "a state played before the attach is the one it starts in");
 	}
 
 	// ---- two clips whose channels are in different orders --------------------

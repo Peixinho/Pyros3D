@@ -29,8 +29,8 @@ namespace p3d {
 		virtual void Register(SceneGraph* Scene) {}
 		virtual void Init() {}
 		virtual void Update(const f64 time = 0);
-		virtual void Destroy() { animator.Unbind(); }
-		virtual void Unregister(SceneGraph* Scene) { animator.Unbind(); }
+		virtual void Destroy() { animator.SetInstance(NULL); bound = NULL; }
+		virtual void Unregister(SceneGraph* Scene) { animator.SetInstance(NULL); bound = NULL; }
 		virtual uint32 GetComponentType() const { return ComponentType::Animator; }
 
 		// Loads the controller file. False (and nothing changes) if it does not read.

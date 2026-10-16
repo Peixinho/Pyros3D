@@ -7,6 +7,8 @@
 
 #include "Editor.h"
 #include "editor/UI/AnimatorEditor.h"
+#include "editor/AnimatorPreview.h"
+#include "editor/AnimationPreview.h"
 #include <Pyros3D/AnimationManager/AnimatorController.h>
 #include <filesystem>
 
@@ -92,6 +94,9 @@ void Editor::DrawAnimatorEditorWindows()
 				clipFiles.push_back(std::make_pair(entries[e].relativePath, project.AbsolutePath(entries[e].relativePath)));
 	}
 
+	std::vector<AnimationMeshChoice> meshes;
+	BuildAnimationMeshChoices(meshes);
+
 	std::vector<uint32> closeIds;
 	for (size_t i = 0; i < animatorDocs.size(); ++i)
 	{
@@ -122,7 +127,7 @@ void Editor::DrawAnimatorEditorWindows()
 
 		Animator* live = sceneView ? sceneView->FindLiveAnimator(doc->absolutePath) : NULL;
 		AnimatorEditor::FrameRequests req;
-		AnimatorEditor::DrawWindow(*doc, clipFiles, live, req);
+		AnimatorEditor::DrawWindow(*doc, clipFiles, meshes, live, ImGui::GetIO().DeltaTime, req);
 		ImGui::End();
 		if (req.save) SaveAnimatorDocument(doc);
 		if (req.close || !open) closeIds.push_back(doc->id);
@@ -161,7 +166,7 @@ namespace {
 bool Editor::HandleAnimatorCommand(const std::string& name, const nlohmann::json& a, nlohmann::json& r)
 {
 	if (name != "new_animator_controller" && name != "open_animator" && name != "save_animator"
-		&& name != "animator_state" && name != "animator_edit") return false;
+		&& name != "animator_state" && name != "animator_edit" && name != "animator_preview") return false;
 	if (!project.IsOpen()) throw std::runtime_error("no project open");
 	const auto S = [&](const char* k) { return a.is_object() ? a.value(k, std::string()) : std::string(); };
 
@@ -199,6 +204,46 @@ bool Editor::HandleAnimatorCommand(const std::string& name, const nlohmann::json
 	{
 		if (!SaveAnimatorDocument(doc)) throw std::runtime_error("could not save");
 		r["ok"] = true;
+		return true;
+	}
+	// {"path", "show", "mesh" (.p3dm), "clips": [.p3da...], "playing", "set": {param: value | true | "trigger"},
+	//  "state": jump to a state, "layer"} - the window's own preview.
+	if (name == "animator_preview")
+	{
+		if (a.contains("show")) doc->showPreview = a.value("show", true);
+		if (!doc->preview) doc->preview.reset(new AnimatorPreview());
+		AnimatorPreview& pv = *doc->preview;
+		bool reload = false;
+		if (a.contains("mesh")) { pv.meshPath = project.AbsolutePath(S("mesh")); reload = true; }
+		if (a.contains("clips") && a["clips"].is_array())
+		{
+			pv.clipFiles.clear();
+			for (const auto& c : a["clips"]) pv.clipFiles.push_back(project.AbsolutePath(c.get<std::string>()));
+			reload = true;
+		}
+		if (reload && !pv.Load()) throw std::runtime_error(pv.error);
+		if (a.contains("playing")) pv.playing = a.value("playing", true);
+		if (pv.view && pv.view->instance && !pv.animator.IsBound()) pv.Step(doc->controller, 0.f);
+		if (a.contains("set") && a["set"].is_object())
+			for (auto it = a["set"].begin(); it != a["set"].end(); ++it)
+			{
+				bool ok;
+				if (it.value().is_string() && it.value().get<std::string>() == "trigger") ok = pv.animator.SetTrigger(it.key());
+				else if (it.value().is_boolean()) ok = pv.animator.SetBool(it.key(), it.value().get<bool>());
+				else ok = pv.animator.SetFloat(it.key(), it.value().get<float>());
+				if (!ok) throw std::runtime_error("no parameter '" + it.key() + "'");
+			}
+		if (!S("state").empty() && !pv.animator.Play(S("state"), a.value("fade", 0.2f), S("layer")))
+			throw std::runtime_error("no state '" + S("state") + "'");
+		r["ready"] = pv.Ready();
+		r["state"] = pv.animator.GetState();
+		r["progress"] = pv.animator.GetStateProgress();
+		r["blendWeights"] = pv.animator.GetBlendWeights();
+		nlohmann::json layers = nlohmann::json::object();
+		for (size_t i = 0; i < doc->controller.layers.size(); i++)
+			layers[doc->controller.layers[i].name] = pv.animator.GetState(doc->controller.layers[i].name);
+		r["layers"] = layers;
+		if (!pv.error.empty()) r["error"] = pv.error;
 		return true;
 	}
 	if (name == "animator_state")

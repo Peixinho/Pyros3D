@@ -4,6 +4,7 @@
 //=============================================================================
 
 #include "AnimatorDocument.h"
+#include "AnimatorPreview.h"
 #include <Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.h>
 #include <Pyros3D/Assets/Character2D/Character2DAsset.h>
 #include <filesystem>
@@ -25,6 +26,9 @@ namespace {
 		std::string before_, after_, what_;
 	};
 }
+
+AnimatorDocument::AnimatorDocument() {}
+AnimatorDocument::~AnimatorDocument() {}
 
 bool AnimatorDocument::LoadFromFile(const std::string& path, std::string& errOut)
 {

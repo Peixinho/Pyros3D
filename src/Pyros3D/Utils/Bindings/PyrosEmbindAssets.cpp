@@ -23,6 +23,7 @@
 #include <Pyros3D/Assets/Renderable/Text/Text.h>
 #include <Pyros3D/Assets/Font/Font.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
+#include <Pyros3D/AnimationManager/AnimatorController.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
@@ -196,6 +197,21 @@ namespace {
 		return out;
 	}
 
+	// A state machine from the text of a .p3dac (a page fetches it with
+	// P.fetchFile); null when it does not parse.
+	AnimatorController* AnimatorController_FromString(const std::string &text)
+	{
+		AnimatorController* c = new AnimatorController();
+		if (!AnimatorControllerFromString(text, *c)) { delete c; return NULL; }
+		return c;
+	}
+	void Animator_Bind(Animator &a, AnimatorController* c, SkeletonAnimationInstance* inst) { if (c) a.Bind(*c, inst); }
+	bool Animator_Play(Animator &a, const std::string &state, float fade) { return a.Play(state, fade); }
+	bool Animator_PlayOnLayer(Animator &a, const std::string &state, float fade, const std::string &layer) { return a.Play(state, fade, layer); }
+	std::string Animator_GetState(Animator &a) { return a.GetState(); }
+	std::string Animator_GetLayerState(Animator &a, const std::string &layer) { return a.GetState(layer); }
+	float Animator_GetProgress(Animator &a) { return a.GetStateProgress(); }
+
 	TextureAnimationInstance *TextureAnim_CreateInstance(TextureAnimation &a, float speed)
 	{
 		return a.CreateInstance(speed);
@@ -356,6 +372,30 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.function("takeEvents", &SkeletonInst_TakeEvents)
 		.function("consumeRootMotion", &SkeletonAnimationInstance::ConsumeRootMotion)
 		.function("setApplyRootMotion", &SkeletonAnimationInstance::SetApplyRootMotion);
+
+	// Animation state machines (AnimatorController.h): load a controller from
+	// its .p3dac text, bind an Animator to a skeleton instance, set
+	// parameters, and call update(dt) each frame before the scene updates.
+	class_<AnimatorController>("AnimatorController")
+		.class_function("fromString", &AnimatorController_FromString, allow_raw_pointers());
+
+	class_<Animator>("Animator")
+		.constructor<>()
+		.function("bind", &Animator_Bind, allow_raw_pointers())
+		.function("unbind", &Animator::Unbind)
+		.function("isBound", &Animator::IsBound)
+		.function("setFloat", &Animator::SetFloat)
+		.function("setBool", &Animator::SetBool)
+		.function("setTrigger", &Animator::SetTrigger)
+		.function("resetTrigger", &Animator::ResetTrigger)
+		.function("getFloat", &Animator::GetFloat)
+		.function("getBool", &Animator::GetBool)
+		.function("play", &Animator_Play)
+		.function("playOnLayer", &Animator_PlayOnLayer)
+		.function("update", &Animator::Update)
+		.function("getState", &Animator_GetState)
+		.function("getLayerState", &Animator_GetLayerState)
+		.function("getStateProgress", &Animator_GetProgress);
 
 	class_<TextureAnimation>("TextureAnimation")
 		.constructor<>()

@@ -13,11 +13,19 @@
 #include "UndoStack.h"
 #include <Pyros3D/AnimationManager/AnimatorController.h>
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <vector>
 
+struct AnimatorPreview;
+
 struct AnimatorDocument {
+	AnimatorDocument();
+	~AnimatorDocument();
 	uint32_t id = 0;
+	// The window's own preview viewport (AnimatorPreview.h); built when shown.
+	std::unique_ptr<AnimatorPreview> preview;
+	bool showPreview = false;
 	std::string absolutePath;
 	std::string displayName = "Animator";
 	bool dirty = false;

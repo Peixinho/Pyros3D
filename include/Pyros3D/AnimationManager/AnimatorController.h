@@ -141,7 +141,13 @@ namespace p3d {
 
 		// The controller (copied) and the instance it drives. Starts every
 		// layer's default state the next Update. Parameters reset to defaults.
+		// The instance may be NULL: the parameters exist (and can be set) before
+		// there is a skeleton to drive.
 		void Bind(const AnimatorController &controller, SkeletonAnimationInstance* instance);
+		// The same controller on another (or the first) instance, keeping the
+		// parameter values and any state Play()ed meanwhile - a script's init
+		// runs before the character's first update attaches its skeleton.
+		void SetInstance(SkeletonAnimationInstance* instance);
 		void Unbind();
 		bool IsBound() const { return instance != NULL; }
 		const AnimatorController &GetController() const { return controller; }

@@ -262,6 +262,23 @@ namespace p3d {
 		}
 	}
 
+	void Animator::SetInstance(SkeletonAnimationInstance* inst)
+	{
+		const std::map<std::string, f32> kept = values;
+		std::vector<std::string> states(machines.size());
+		for (size_t i = 0; i < machines.size(); i++) if (machines[i].started) states[i] = machines[i].current;
+		const AnimatorController c = controller;
+		Bind(c, inst);
+		values = kept;
+		for (size_t i = 0; i < states.size() && i < machines.size(); i++)
+		{
+			const int si = states[i].empty() ? -1 : machines[i].def->FindState(states[i]);
+			if (si < 0) continue;
+			machines[i].started = true;
+			Enter(machines[i], si, 0.f, -1);
+		}
+	}
+
 	void Animator::Unbind()
 	{
 		instance = NULL;

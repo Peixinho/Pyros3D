@@ -5,6 +5,10 @@
 
 #include "AnimatorEditor.h"
 #include "../AnimatorDocument.h"
+#include "../AnimatorPreview.h"
+#include "../AnimationPreview.h"
+#include "../AnimationEditorDocument.h"
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/AnimationManager/AnimatorController.h>
 
 #include <imgui.h>
@@ -565,14 +569,80 @@ void DrawGraph(AnimatorDocument& doc, Animator* live)
 	ImGui::EndChild();
 }
 
+// The preview: rig and clip pickers, transport, and the viewport.
+void DrawPreview(AnimatorDocument& doc, const std::vector<std::pair<std::string, std::string> >& clipFiles,
+	const std::vector<std::pair<std::string, std::string> >& meshes, float dt, float height)
+{
+	if (!doc.preview) doc.preview.reset(new AnimatorPreview());
+	AnimatorPreview& pv = *doc.preview;
+	ImGui::BeginChild("##apreview", ImVec2(0, height), true);
+	std::string rigLabel = pv.meshPath.empty() ? std::string("(rig)") : pv.meshPath;
+	for (size_t i = 0; i < meshes.size(); i++) if (meshes[i].second == pv.meshPath) rigLabel = meshes[i].first;
+	ImGui::SetNextItemWidth(std::max(80.f, ImGui::GetContentRegionAvail().x * 0.5f));
+	bool reload = false;
+	if (ImGui::BeginCombo("##prig", rigLabel.c_str()))
+	{
+		for (size_t i = 0; i < meshes.size(); i++)
+			if (ImGui::Selectable(meshes[i].first.c_str(), meshes[i].second == pv.meshPath)) { pv.meshPath = meshes[i].second; reload = true; }
+		ImGui::EndCombo();
+	}
+	ImGui::SameLine();
+	const std::string clipsLabel = pv.clipFiles.empty() ? std::string("(clips)") : std::to_string(pv.clipFiles.size()) + " clip file(s)";
+	ImGui::SetNextItemWidth(-1.f);
+	if (ImGui::BeginCombo("##pclips", clipsLabel.c_str()))
+	{
+		for (size_t i = 0; i < clipFiles.size(); i++)
+		{
+			if (clipFiles[i].second.size() > 6 && clipFiles[i].second.compare(clipFiles[i].second.size() - 6, 6, ".p3d2d") == 0) continue;
+			std::vector<std::string>::iterator it = std::find(pv.clipFiles.begin(), pv.clipFiles.end(), clipFiles[i].second);
+			bool on = it != pv.clipFiles.end();
+			if (ImGui::Checkbox(clipFiles[i].first.c_str(), &on))
+			{
+				if (on) pv.clipFiles.push_back(clipFiles[i].second); else pv.clipFiles.erase(it);
+				reload = true;
+			}
+		}
+		ImGui::EndCombo();
+	}
+	if (reload) pv.Load();
+	if (ImGui::SmallButton(pv.playing ? "Pause" : "Play")) pv.playing = !pv.playing;
+	ImGui::SameLine();
+	if (ImGui::SmallButton("Restart")) { pv.boundText.clear(); pv.clock = 0.f; }
+	ImGui::SameLine();
+	if (pv.view && ImGui::SmallButton("Frame")) pv.view->FrameCamera();
+	if (pv.view && pv.view->instance) pv.Step(doc.controller, dt);
+	if (!pv.error.empty()) ImGui::TextColored(ImVec4(1.f, 0.6f, 0.4f, 1.f), "%s", pv.error.c_str());
+	if (pv.view && pv.view->instance)
+	{
+		const ImVec2 avail = ImGui::GetContentRegionAvail();
+		pv.view->width = std::max(64, (int)avail.x);
+		pv.view->height = std::max(64, (int)avail.y);
+		// The viewport draws and takes the mouse (orbit, zoom) itself; it is
+		// told nothing is selected, so no gizmo or bone highlight comes up.
+		pv.blank->selectedBone = -1;
+		pv.view->DrawAndUpdate(*pv.blank);
+		pv.blank->selectedBone = -1;
+	}
+	else if (pv.error.empty()) ImGui::TextDisabled("Pick a rig and the clip files its states use.");
+	ImGui::EndChild();
+}
+
 } // namespace
 
 void DrawWindow(AnimatorDocument& doc, const std::vector<std::pair<std::string, std::string> >& clipFiles,
-	Animator* live, FrameRequests& requests)
+	const std::vector<std::pair<std::string, std::string> >& meshes, Animator* gameLive, float dt,
+	FrameRequests& requests)
 {
+	// What the graph lights and the parameters drive: a character playing in
+	// the scene if there is one, else the window's own preview.
+	Animator* live = gameLive;
+	if (!live && doc.showPreview && doc.preview && doc.preview->Ready()) live = &doc.preview->animator;
 	if (ImGui::Button("Save")) requests.save = true;
 	ImGui::SameLine();
 	if (ImGui::Button("Frame")) doc.frameRequested = true;
+	ImGui::SameLine();
+	if (ImGui::Button(doc.showPreview ? "Hide Preview" : "Preview")) doc.showPreview = !doc.showPreview;
+	if (ImGui::IsItemHovered()) ImGui::SetTooltip("Run the machine on a rig here, without playing a scene:\nthe parameters on the left drive it.");
 	ImGui::SameLine();
 	if (ImGui::Button("+ State"))
 	{
@@ -583,7 +653,7 @@ void DrawWindow(AnimatorDocument& doc, const std::vector<std::pair<std::string, 
 	ImGui::TextDisabled("|  %d states, %d transitions, %d parameters", (int)doc.L().states.size(),
 		(int)doc.L().transitions.size(), (int)doc.controller.params.size());
 	ImGui::SameLine();
-	if (live) ImGui::TextColored(ImVec4(0.5f, 1.f, 0.6f, 1.f), "|  live: %s", live->GetState(doc.LayerName()).c_str());
+	if (live) ImGui::TextColored(ImVec4(0.5f, 1.f, 0.6f, 1.f), "|  %s: %s", gameLive ? "live" : "preview", live->GetState(doc.LayerName()).c_str());
 	else ImGui::TextDisabled("|  (press Play to watch a character run it)");
 	ImGui::SameLine();
 	ImGui::TextDisabled("(?)");
@@ -655,9 +725,13 @@ void DrawWindow(AnimatorDocument& doc, const std::vector<std::pair<std::string, 
 	DrawGraph(doc, live);
 	ImGui::EndChild();
 	if (!narrow) ImGui::SameLine();
+	ImGui::BeginGroup();
+	if (doc.showPreview)
+		DrawPreview(doc, clipFiles, meshes, dt, std::max(180.f, ImGui::GetContentRegionAvail().y * 0.5f));
 	ImGui::BeginChild("##ainspect", ImVec2(0, 0), true);
 	DrawInspector(doc, clipFiles);
 	ImGui::EndChild();
+	ImGui::EndGroup();
 }
 
 } // namespace AnimatorEditor
