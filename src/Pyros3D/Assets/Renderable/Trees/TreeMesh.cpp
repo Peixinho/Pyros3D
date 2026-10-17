@@ -91,7 +91,7 @@ namespace p3d {
 			int level;
 			f32 length;
 		};
-		struct Spray { Vec3 at; Vec3 along; f32 size; f32 hang; };       // where a card of leaves goes, and the way its twig runs
+		struct Spray { Vec3 at; Vec3 along; f32 size; f32 hang; bool tip = false; };       // where a card of leaves goes, and the way its twig runs
 
 		struct Skeleton
 		{
@@ -205,6 +205,7 @@ namespace p3d {
 					sp.size = boughs ? std::max(.55f, length * .62f * (1.f - .35f * t)) * dice.Around(1.f, S.sprayVar) : dice.Around(S.spray, S.sprayVar);
 					sp.at = L.at[i0].Lerp(L.at[i0 + 1], f) + dice.OnSphere() * (sp.size * (boughs ? .05f : .22f));
 					sp.hang = S.up[std::min(level, 3)];
+					sp.tip = s == S.sprays - 1;
 					K.sprays.push_back(sp);
 				}
 			}
@@ -495,13 +496,15 @@ namespace p3d {
 					// A shoot leaves its bough at about 45 degrees, to alternate sides (the
 					// branch's own line is what the wood shows; laid along it, the sprays read
 					// as one flat blade per limb).
+					// (but the last one runs straight on: a bough ends in its own leading shoot,
+					// or its tip stands bare past the last of the side shoots)
 					const Vec3 toSide = (i & 1) ? across.negate() : across;
-					const Vec3 out = (along + toSide).normalize();
+					const Vec3 out = sp.tip ? along : (along + toSide).normalize();
 					Vec3 side = out.cross(Vec3(0.f, 1.f, 0.f));
 					if (side.magnitudeSQR() < 1e-5f) side = toSide;
 					side.normalizeSelf();
 					if (side.dotProduct(toSide) < 0.f) side = side.negate();       // (the needles hang away from the branch)
-					const Vec3 start = sp.at - out * (len * .04f);
+					const Vec3 start = sp.at - out * (len * (sp.tip ? .35f : .04f));
 					const Vec3 end = start + out * len;
 					const Vec3 a[4] = { start - side * above, start + side * below, end + side * below, end - side * above };
 					const Vec2 uva[4] = { Vec2(1.f, 0.f), Vec2(1.f, 1.f), Vec2(0.f, 1.f), Vec2(0.f, 0.f) };
