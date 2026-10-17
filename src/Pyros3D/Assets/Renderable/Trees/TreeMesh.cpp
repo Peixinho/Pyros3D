@@ -483,14 +483,34 @@ namespace p3d {
 					Vec3 across = along.cross(Vec3(0.f, 1.f, 0.f));
 					if (across.magnitudeSQR() < 1e-5f) across = Vec3(1.f, 0.f, 0.f);
 					across.normalizeSelf();
-					const Vec3 start = sp.at - along * (half * .5f);
-					const Vec3 a[4] = { start - across * half, start + across * half, start + across * half + along * (half * 2.f), start - across * half + along * (half * 2.f) };
-					const Vec2 uva[4] = { Vec2(0.f, 0.f), Vec2(0.f, 1.f), Vec2(1.f, 1.f), Vec2(1.f, 0.f) };
+					// The picture (bough.png, 2:1) is a twig seen from the side: its base at the
+					// right edge (u = 1), its tip at the left, the twig a third of the way down
+					// (v ~ .35) and the needles hanging under it. So the card is twice as long as
+					// wide, starts where the twig leaves the branch and runs out along it, with the
+					// twig's line ON the branch. (It was square, the picture's base at the branch's
+					// tip and its twig along the card's edge: every spray pointed back at the trunk
+					// and hung half a card off to the side of the wood it was meant to cover.)
+					const f32 len = half * 2.f, wide = len * .5f;
+					const f32 above = wide * .35f, below = wide * .65f;
+					// A shoot leaves its bough at about 45 degrees, to alternate sides (the
+					// branch's own line is what the wood shows; laid along it, the sprays read
+					// as one flat blade per limb).
+					const Vec3 toSide = (i & 1) ? across.negate() : across;
+					const Vec3 out = (along + toSide).normalize();
+					Vec3 side = out.cross(Vec3(0.f, 1.f, 0.f));
+					if (side.magnitudeSQR() < 1e-5f) side = toSide;
+					side.normalizeSelf();
+					if (side.dotProduct(toSide) < 0.f) side = side.negate();       // (the needles hang away from the branch)
+					const Vec3 start = sp.at - out * (len * .04f);
+					const Vec3 end = start + out * len;
+					const Vec3 a[4] = { start - side * above, start + side * below, end + side * below, end - side * above };
+					const Vec2 uva[4] = { Vec2(1.f, 0.f), Vec2(1.f, 1.f), Vec2(0.f, 1.f), Vec2(0.f, 0.f) };
 					Card(o, a, uva, ns, colour);
 					if (d < 2)
 					{
-						const Vec3 down = across.cross(along).y > 0.f ? across.cross(along).negate() : across.cross(along);
-						const Vec3 b[4] = { start + down * (half * .9f), start - down * (half * .15f), start - down * (half * .15f) + along * (half * 2.f), start + down * (half * .9f) + along * (half * 2.f) };
+						// on edge under the branch: the twig on it, the needles hanging down
+						const Vec3 down = side.cross(out).y > 0.f ? side.cross(out).negate() : side.cross(out);
+						const Vec3 b[4] = { start - down * above, start + down * below, end + down * below, end - down * above };
 						Card(o, b, uva, ns, Vec4(colour.x * .86f, colour.y * .86f, colour.z * .86f, 1.f));
 					}
 					continue;

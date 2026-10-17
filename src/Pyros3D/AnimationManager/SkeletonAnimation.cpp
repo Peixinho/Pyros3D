@@ -1644,7 +1644,10 @@ namespace p3d {
 			if (knee < 0 || skeleton[knee].parent != g.upper) continue;
 			// Reach: from where the clip (and the hips) left the foot, by the
 			// ground's height there over the floor, less what the hips gave.
-			const f32 lift = g.height * g.weight - drop;
+			// (Never more than footMaxRaise of a leg: a ground far above the foot - a probe
+			// that found the terrain over a body standing under it - folded the leg double,
+			// the boots up by the head.)
+			const f32 lift = std::min(g.height * g.weight - drop, footMaxRaise * leg);
 			if (std::fabs(lift) > 1e-5f)
 			{
 				const Vec3 hip = at(g.upper), k = at(knee), f = at(g.foot);

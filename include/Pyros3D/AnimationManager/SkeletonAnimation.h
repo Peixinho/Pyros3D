@@ -542,6 +542,9 @@ namespace p3d {
 		mutable f32 modelUpMean = 0.f, modelUpSign = 1.f;
 		std::vector<FootGround> footGrounds;
 		f32 footMaxDrop = 0.45f;
+		// How far a foot may be lifted to its ground, as a share of the leg: higher is a
+		// climb, not a step, and the solver would fold the leg up past the hip to reach it.
+		f32 footMaxRaise = 0.6f;
 		// Bones -> every submesh's skinning matrices, with the scales applied.
 		void UploadSkinning();
 
