@@ -491,30 +491,38 @@ namespace p3d {
 					// twig's line ON the branch. (It was square, the picture's base at the branch's
 					// tip and its twig along the card's edge: every spray pointed back at the trunk
 					// and hung half a card off to the side of the wood it was meant to cover.)
-					const f32 len = half * 2.f, wide = len * .5f;
-					const f32 above = wide * .35f, below = wide * .65f;
-					// A shoot leaves its bough at about 45 degrees, to alternate sides (the
-					// branch's own line is what the wood shows; laid along it, the sprays read
-					// as one flat blade per limb).
-					// (but the last one runs straight on: a bough ends in its own leading shoot,
-					// or its tip stands bare past the last of the side shoots)
+					// bough.png (2:1) is a twig seen from the side: it leaves the picture's right
+					// edge at (u, v) = (.963, .146) and runs left to its tip, the needles hanging
+					// under it. Its base is put ON the branch point, and the picture is used from
+					// the twig down only, twice - one wing to each side, the two meeting along the
+					// twig - with a third, on edge, hanging under it. (One flat card laid the needles
+					// all to one side of the branch, the twig a fifth of a card off it: the sprays
+					// floated beside the wood.)
+					const f32 len = half * 2.f, wing = len * .5f * (1.f - .146f);
+					// A shoot leaves its bough at about 45 degrees, to alternate sides; the last
+					// runs straight on as the bough's own leading shoot.
 					const Vec3 toSide = (i & 1) ? across.negate() : across;
 					const Vec3 out = sp.tip ? along : (along + toSide).normalize();
 					Vec3 side = out.cross(Vec3(0.f, 1.f, 0.f));
 					if (side.magnitudeSQR() < 1e-5f) side = toSide;
 					side.normalizeSelf();
-					if (side.dotProduct(toSide) < 0.f) side = side.negate();       // (the needles hang away from the branch)
-					const Vec3 start = sp.at - out * (len * (sp.tip ? .35f : .04f));
-					const Vec3 end = start + out * len;
-					const Vec3 a[4] = { start - side * above, start + side * below, end + side * below, end - side * above };
-					const Vec2 uva[4] = { Vec2(1.f, 0.f), Vec2(1.f, 1.f), Vec2(0.f, 1.f), Vec2(0.f, 0.f) };
-					Card(o, a, uva, ns, colour);
+					const Vec3 down = side.cross(out).y > 0.f ? side.cross(out).negate() : side.cross(out);
+					// (the base a few centimetres back along the shoot: the picture's twig starts
+					// just inside its edge)
+					const Vec3 base = sp.at - out * (len * .037f), tipEnd = base + out * len;
+					const Vec2 uvw[4] = { Vec2(1.f, .146f), Vec2(1.f, 1.f), Vec2(0.f, 1.f), Vec2(0.f, .146f) };
+					// each wing tipped a little down from flat, as a spruce's shoots hang
+					const Vec3 wings[2] = { (side + down * .35f).normalize(), (side.negate() + down * .35f).normalize() };
+					for (int k = 0; k < 2; k++)
+					{
+						const Vec3 w = wings[k];
+						const Vec3 c[4] = { base, base + w * wing, tipEnd + w * wing, tipEnd };
+						Card(o, c, uvw, ns, colour);
+					}
 					if (d < 2)
 					{
-						// on edge under the branch: the twig on it, the needles hanging down
-						const Vec3 down = side.cross(out).y > 0.f ? side.cross(out).negate() : side.cross(out);
-						const Vec3 b[4] = { start - down * above, start + down * below, end + down * below, end - down * above };
-						Card(o, b, uva, ns, Vec4(colour.x * .86f, colour.y * .86f, colour.z * .86f, 1.f));
+						const Vec3 c[4] = { base, base + down * wing, tipEnd + down * wing, tipEnd };
+						Card(o, c, uvw, ns, Vec4(colour.x * .86f, colour.y * .86f, colour.z * .86f, 1.f));
 					}
 					continue;
 				}
