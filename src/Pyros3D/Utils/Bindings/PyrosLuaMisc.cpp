@@ -14,6 +14,7 @@
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
+#include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <map>
 #include <cstdlib>
 #include <cstdio>
@@ -699,6 +700,10 @@ end
 			return std::make_tuple(ok, p.x, p.y, p.z, n.x, n.y, n.z, name, dist);
 		});
 		lua->set_function("clearDecals", &ClearLuaDecals);
+		// The view's zoom, as a factor on the active camera's field of view (1 = as the camera
+		// is set; 0.8 = a fifth narrower): a soft aim, binoculars. The host applies it.
+		lua->set_function("setViewFovScale", [](f32 k) { SetViewFovScale(k); });
+		lua->set_function("getViewFovScale", []() { return GetViewFovScale(); });
 
 		// Returns x, y, visible - multiple returns rather than a table so the
 		// common "local x, y = worldToScreen(...)" reads naturally.

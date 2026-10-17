@@ -333,6 +333,7 @@ private:
 	std::shared_ptr<GameObject> fallbackCamera;
 	GameObject* activeCamera;
 	f32 cameraFov, cameraNear, cameraFar;
+	f32 appliedFovScale = 1.f;      // the game's zoom the projection was last built with (ViewFovScale.h)
 	// See ApplyProjection(). Half-height of the ortho view volume, matching
 	// the editor's own EditorCameraSettings::orthoSize.
 	bool cameraOrthographic;

@@ -6,6 +6,7 @@
 // Description : Pyros Scene
 //============================================================================
 
+#include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <unordered_set>
 #include <unordered_map>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
@@ -1260,7 +1261,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		else
 		{
-			projection.Perspective(viewFov, (f32)dim.x / (f32)dim.y, viewNear, viewFar);
+			projection.Perspective(viewFov * (playMode ? GetViewFovScale() : 1.f), (f32)dim.x / (f32)dim.y, viewNear, viewFar);   // (a game's zoom, during Play: ViewFovScale.h)
 			viewIsOrtho = false;
 		}
 
@@ -7970,6 +7971,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	void SceneEditor::StopPlayMode()
 	{
+		SetViewFovScale(1.f);           // (a game's zoom ends with the game)
 
 		if (!playMode) return;
 		scriptRenderCamera = nullptr;

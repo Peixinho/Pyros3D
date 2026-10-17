@@ -1,3 +1,4 @@
+#include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <vector>
 //============================================================================
 // Name        : PyrosPlayer.cpp
@@ -1250,7 +1251,10 @@ void PyrosPlayer::ApplyProjection()
 		projection.Ortho(-halfW, halfW, -halfH, halfH, cameraNear, cameraFar);
 	}
 	else
-		projection.Perspective(cameraFov, aspect, cameraNear, cameraFar);
+	{
+		appliedFovScale = GetViewFovScale();
+		projection.Perspective(cameraFov * appliedFovScale, aspect, cameraNear, cameraFar);   // (a game's zoom: ViewFovScale.h)
+	}
 }
 
 #ifdef LUA_BINDINGS
@@ -1435,6 +1439,10 @@ void PyrosPlayer::FinishFrameInFlight() { FramePipeline::Finish(); }
 void PyrosPlayer::Update()
 {
 	if (!sceneLoaded) return;
+
+	// The game's zoom (setViewFovScale): the projection is otherwise only built on a load or a
+	// resize, so a soft aim's narrower view was set and never shown.
+	if (GetViewFovScale() != appliedFovScale) ApplyProjection();
 
 	if (terrainBakePending && scene)
 	{

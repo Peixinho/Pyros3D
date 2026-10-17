@@ -134,7 +134,8 @@ namespace p3d {
 				// boughs hang, and each bough's own droop took the lowest of them down
 				// through the grass, bare wood out of the ground all round the stem. Met,
 				// it runs along just above it instead.
-				const f32 floor = std::max(.3f, K.height * .025f);
+				// (a conifer's boughs hang: from 2.8 m they would still have reached the grass)
+				const f32 floor = crownShape == Crown::Cone ? 1.8f : std::max(.3f, K.height * .025f);
 				if (level > 0 && from.y > floor && p.y < floor)
 				{
 					p.y = floor;
@@ -153,7 +154,10 @@ namespace p3d {
 			if (level < S.levels)
 			{
 				const int n = std::max(1, (int)(S.count[level] * dice.In(.85f, 1.15f) + .5f));
-				const f32 first = level == 0 ? S.bare : .22f;
+				// (no limb off the stem lower than 2.8 m over the ground: the stem starts 0.6 m under it.
+				// A spruce's bare part was a metre - its boughs swept the grass, and nobody could walk
+				// under a pine)
+				const f32 first = level == 0 ? std::max(S.bare, 3.4f / std::max(length, 0.01f)) : .22f;
 				f32 turn = dice.Unit() * 2.f * kPi;
 				for (int c = 0; c < n; c++)
 				{
