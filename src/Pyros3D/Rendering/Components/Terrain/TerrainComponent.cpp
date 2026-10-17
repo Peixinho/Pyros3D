@@ -681,7 +681,11 @@ namespace p3d {
 			{
 				std::shared_ptr<CaveMesh> walls = std::make_shared<CaveMesh>(std::move(mesh));
 				std::shared_ptr<RenderingComponent> rc = std::make_shared<RenderingComponent>(std::static_pointer_cast<Renderable>(walls), caveMaterial);
-				rc->DisableCastShadows();
+				// The rock over a cave keeps the sun out only if it is in the sun's shadow map: the
+				// ground above casts none, so with no walls in it either the cave floor was sunlit,
+				// with the shadows of the trees over the hill laid across it. The cave material
+				// says (its castingShadows; off by default, as before).
+				if (!caveMaterial->IsCastingShadows()) rc->DisableCastShadows();
 				go->AddComponent(rc);
 			}
 		}
