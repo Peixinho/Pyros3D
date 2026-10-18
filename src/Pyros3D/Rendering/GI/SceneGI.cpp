@@ -128,6 +128,18 @@ namespace p3d {
 			return false;
 		}
 		rays.Build(4);
+		return BakeSceneGI(scene, settings, outVolume, rays, true);
+	}
+
+	bool BakeSceneGI(SceneGraph *scene, const SceneGISettings &settings, DDGIVolume &outVolume, const RayScene &rays, const bool trace)
+	{
+		if (scene == NULL || !settings.enabled)
+			return false;
+		if (rays.triangles.empty())
+		{
+			echo("BakeSceneGI: the scene has no renderable geometry.");
+			return false;
+		}
 
 		// Volume bounds from the geometry that was just extracted, which
 		// is the same set the rays will hit - deriving them from
@@ -167,6 +179,7 @@ namespace p3d {
 		CollectRayLights(scene, lights);
 		if (lights.empty())
 			echo("BakeSceneGI: the scene has no lights - indirect light will be sky only.");
+		if (!trace) return true;
 
 		// hysteresis 0 on the first pass so the volume starts from the
 		// traced values rather than blending up from its initial state,

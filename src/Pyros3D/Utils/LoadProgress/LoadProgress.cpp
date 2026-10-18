@@ -5,6 +5,9 @@
 //============================================================================
 
 #include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
+#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 
 namespace p3d {
 
@@ -23,6 +26,13 @@ namespace p3d {
 
 		void Phase(const float a, const float b, const std::string &name)
 		{
+			// PYROS_LOAD_TRACE=1: when each phase starts, to stderr - where a load's time goes
+			static const bool trace = std::getenv("PYROS_LOAD_TRACE") != NULL;
+			if (trace)
+			{
+				static const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+				fprintf(stderr, "load %8.2f s  %-10s %3.0f%%\n", std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count(), name.c_str(), a * 100.f);
+			}
 			from = a; to = b < a ? a : b; stage = name;
 			Report(0.f);
 		}

@@ -73,6 +73,12 @@ namespace p3d {
 	// Returns false when the scene has no renderable geometry, or when
 	// settings.enabled is false.
 	PYROS3D_API bool BakeSceneGI(SceneGraph *scene, const SceneGISettings &settings, DDGIVolume &outVolume);
+	// The same on a ray scene the caller has built (BuildFromScene + Build) - a renderer keeps one
+	// for its refreshes, and building it twice was seconds of a big scene's load. With `trace` false
+	// the volume is sized and given its sky and left untraced, for a caller that traces it itself
+	// (IRenderer: on the GPU, where the passes take seconds instead of a minute).
+	PYROS3D_API bool BakeSceneGI(SceneGraph *scene, const SceneGISettings &settings, DDGIVolume &outVolume,
+		const RayScene &rays, const bool trace);
 
 	// One frame's worth of refresh on an already-allocated volume.
 	//

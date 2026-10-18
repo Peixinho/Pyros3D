@@ -1,3 +1,5 @@
+#include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
+#include <chrono>
 #include <Pyros3D/Rendering/GI/EnvironmentMap.h>
 #include <chrono>
 #include <unordered_map>
@@ -3622,19 +3624,31 @@ bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings 
 {
 	if (OwnedDDGI == NULL)
 		OwnedDDGI = new DDGIVolume();
-	if (!BakeSceneGI(scene, settings, *OwnedDDGI))
+	// The geometry and its tree, built once: the bake traces against it and the per-frame
+	// refresh keeps it (UpdateGlobalIllumination).
+	if (OwnedRayScene == NULL)
+		OwnedRayScene = new RayScene();
+	const std::chrono::steady_clock::time_point tr = std::chrono::steady_clock::now();
+	if (!OwnedRayScene->BuildFromScene(scene))
+	{
+		echo("BakeSceneGI: the scene has no renderable geometry.");
+		ClearGlobalIllumination(AmbientMode == 3 ? 0 : AmbientMode);
+		return false;
+	}
+	const std::chrono::steady_clock::time_point tb = std::chrono::steady_clock::now();
+	OwnedRayScene->Build(4);
+	if (std::getenv("PYROS_LOAD_TRACE"))
+		fprintf(stderr, "BakeSceneGI: ray scene - triangles gathered in %d ms, tree built in %d ms\n",
+			(int)std::chrono::duration<f64, std::milli>(tb - tr).count(), (int)std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - tb).count());
+	// The bake's passes on the GPU where there is compute: the same kernels the refresh runs, a
+	// minute of CPU tracing on a big scene (6144 probes x 128 rays x 6 passes, 2.4M triangles) in
+	// seconds. The volume is sized here, traced below. PYROS_GI_CPU_BAKE=1 traces on the CPU, as before.
+	const bool gpuBake = std::getenv("PYROS_GI_CPU_BAKE") == NULL;
+	if (!BakeSceneGI(scene, settings, *OwnedDDGI, *OwnedRayScene, !gpuBake))
 	{
 		ClearGlobalIllumination(AmbientMode == 3 ? 0 : AmbientMode);
 		return false;
 	}
-	// Keep the geometry and its tree for per-frame refresh - see
-	// UpdateGlobalIllumination. Rebuilt here rather than handed back by
-	// BakeSceneGI so that function stays a single self-contained call
-	// for anyone who only wants one.
-	if (OwnedRayScene == NULL)
-		OwnedRayScene = new RayScene();
-	if (OwnedRayScene->BuildFromScene(scene))
-		OwnedRayScene->Build(4);
 	DDGIRaysPerProbe = settings.raysPerProbe;
 	DDGIShaderRoot = settings.shaderRoot;
 	DDGIFrame = settings.passes;
@@ -3657,6 +3671,34 @@ bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings 
 	else
 	{
 		echo("BakeSceneGI: probe tracing running in compute.");
+	}
+	if (gpuBake)
+	{
+		// The passes, as BakeSceneGI runs them (hysteresis 0 first: the volume starts from what is
+		// traced, then rotated ray sets blended in), a batch of probes at a time: one dispatch over
+		// every probe of a big volume ran longer than a driver lets the GPU go without a frame,
+		// and the device was lost (a black screen).
+		std::vector<RayLight> lights;
+		CollectRayLights(scene, lights);
+		const uint32 passes = std::max(1u, settings.passes);
+		const uint32 probes = OwnedDDGI->ProbeCount();
+		const uint32 batch = 512;
+		const uint32 steps = (probes + batch - 1) / batch;
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		for (uint32 p = 0; p < passes; p++)
+			for (uint32 b = 0; b < steps; b++)
+			{
+				LoadProgress::Report((float)(p * steps + b) / (float)(passes * steps));
+				if (GPUCompute != NULL)
+					GPUCompute->Update(*OwnedDDGI, lights, settings.raysPerProbe, p, p == 0 ? 0.f : 0.5f, batch);
+				else
+					OwnedDDGI->Update(*OwnedRayScene, lights, settings.raysPerProbe, p, p == 0 ? 0.f : 0.5f, batch);
+			}
+		LoadProgress::Report(1.f);
+		echo("BakeSceneGI: " + std::to_string(probes) + " probes, " + std::to_string(OwnedRayScene->TriangleCount()) + " triangles, "
+			+ std::to_string(settings.raysPerProbe) + " rays x " + std::to_string(passes) + " passes, "
+			+ (GPUCompute != NULL ? "on the GPU" : "on the CPU") + " in "
+			+ std::to_string((int)std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count()) + " ms.");
 	}
 	// Bump the revision so the atlases actually re-upload - the upload
 	// is keyed on it, and a second bake with the same number would
