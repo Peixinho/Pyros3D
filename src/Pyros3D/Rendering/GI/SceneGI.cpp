@@ -6,6 +6,7 @@
 // Description : See SceneGI.h.
 //============================================================================
 
+#include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
@@ -172,7 +173,11 @@ namespace p3d {
 		// then a partial blend afterwards to average successive rotated
 		// ray sets together instead of replacing them.
 		for (uint32 p = 0; p < std::max(1u, settings.passes); p++)
+		{
+			LoadProgress::Report((float)p / (float)std::max(1u, settings.passes));
 			outVolume.Update(rays, lights, settings.raysPerProbe, p, p == 0 ? 0.f : 0.5f);
+		}
+		LoadProgress::Report(1.f);
 
 		echo("BakeSceneGI: " + std::to_string(outVolume.ProbeCount()) + " probes, "
 			+ std::to_string(rays.TriangleCount()) + " triangles, "

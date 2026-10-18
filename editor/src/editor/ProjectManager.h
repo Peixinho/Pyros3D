@@ -42,6 +42,10 @@ struct ProjectSettings {
 	// Whatever is missing keeps the engine's default. A script can still
 	// change any of them.
 	nlohmann::json quality;
+	// What a build shows while a scene loads - game.json's "loadingScreen" as it is (see the
+	// player's PlayerManifest): false, or { "title", "image", "background", "accent", "text",
+	// "percent", "scene" }. Null: the engine's default screen.
+	nlohmann::json loadingScreen;
 	ProjectRendererType rendererType = ProjectRendererType::Forward;
 	// The game's starting anti-aliasing mode, exported to game.json; a
 	// script can change it at run time. What is stored is what was asked

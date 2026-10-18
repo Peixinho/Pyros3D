@@ -12,6 +12,10 @@
 #include <Pyros3D/Assets/Font/Font.h>
 #include <Pyros3D/Core/File/File.h>
 #include <cstring>
+
+namespace {
+#include "DefaultFont.inc"
+}
 #include <cstdio>
 
 namespace p3d {
@@ -41,14 +45,25 @@ namespace p3d {
 		glyphMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
 		glyphMap->SetTextureByteAlignment(1);
 
-		File* file = new File();
-		file->Open(font.c_str());
+		// "builtin:default" (anywhere in the path: a scene's loader may have put its assets folder
+		// in front of it) is the engine's own font - see DefaultFont.inc - so a UI needs no file
+		// to have one. Anything else is a file.
+		if (font.find(BuiltinDefault()) != std::string::npos)
+		{
+			this->font = BuiltinDefault();
+			memory.assign(kDefaultFontData, kDefaultFontData + sizeof(kDefaultFontData));
+		}
+		else
+		{
+			File* file = new File();
+			file->Open(font.c_str());
 
-		memory.resize(file->Size());
-		memcpy(&memory[0], &file->GetData()[0], sizeof(uchar)*file->Size());
+			memory.resize(file->Size());
+			memcpy(&memory[0], &file->GetData()[0], sizeof(uchar)*file->Size());
 
-		file->Close();
-		delete file;
+			file->Close();
+			delete file;
+		}
 
 		// Free Type Initialization
 		if (FT_Init_FreeType(&ft)) echo("ERROR: Couldn't Start Freetype Lib");

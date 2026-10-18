@@ -46,6 +46,8 @@
 #include "UIStyleResolver.h"
 
 #include <SDL2/SDL.h>
+#include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
+#include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -157,6 +159,27 @@ namespace {
 		if (j.contains("background") && j["background"].is_array() && j["background"].size() >= 3)
 			m.background = Vec4(j["background"][0].get<f32>(), j["background"][1].get<f32>(),
 				j["background"][2].get<f32>(), j["background"].size() > 3 ? j["background"][3].get<f32>() : 1.f);
+		m.loadingLook.title = m.title;
+		if (j.contains("loadingScreen"))
+		{
+			const json &ls = j["loadingScreen"];
+			if (ls.is_boolean()) m.loadingScreen = ls.get<bool>();
+			else if (ls.is_object())
+			{
+				const auto colour = [&ls](const char* key, Vec4 &out) {
+					if (ls.contains(key) && ls[key].is_array() && ls[key].size() >= 3)
+						out = Vec4(ls[key][0].get<f32>(), ls[key][1].get<f32>(), ls[key][2].get<f32>(), ls[key].size() > 3 ? ls[key][3].get<f32>() : 1.f);
+				};
+				m.loadingScreen = ls.value("enabled", true);
+				m.loadingScene = ls.value("scene", std::string());
+				m.loadingLook.title = ls.value("title", m.loadingLook.title);
+				m.loadingLook.image = ls.value("image", std::string());
+				m.loadingLook.showPercent = ls.value("percent", true);
+				colour("background", m.loadingLook.background);
+				colour("accent", m.loadingLook.accent);
+				colour("text", m.loadingLook.text);
+			}
+		}
 
 		if (m.startupScene.empty())
 		{
@@ -803,8 +826,60 @@ void PyrosPlayer::BuildPostEffectChain()
 		&PyrosPlayer::ReadPostEffectAsset, this, dynamic_cast<DeferredRenderer*>(renderer));
 }
 
+namespace {
+	// PYROS_LOADING_SCREEN=0: loads as before, black - to tell what the screen itself costs
+	bool LoadingScreenOff() { const char* e = std::getenv("PYROS_LOADING_SCREEN"); return e && e[0] == '0'; }
+	// whether a scene's light is solved at load (ambient mode 3): it then takes its own share of the bar
+	bool SceneSolvesLight(const std::string &text)
+	{
+		const size_t k = text.find("\"ambientMode\"");
+		if (k == std::string::npos) return false;
+		size_t i = text.find(':', k);
+		if (i == std::string::npos) return false;
+		while (++i < text.size() && (text[i] == ' ' || text[i] == '\t' || text[i] == '\n' || text[i] == '\r')) {}
+		return i < text.size() && text[i] == '3';
+	}
+}
+
+void PyrosPlayer::OpenLoadingScreen()
+{
+	const PlayerManifest &m = PlayerManifestInstance();
+	if (!m.loadingScreen || LoadingScreenOff()) return;
+#ifdef EMSCRIPTEN
+	// (a page shows nothing until the code running returns to the browser, which a load does not
+	// do before it ends: frames drawn in it would only be load time. The page has its own bar.)
+	return;
+#endif
+	std::string text, at;
+	if (!m.loadingScene.empty())
+	{
+		at = ResolvePath(m.loadingScene);
+		std::ifstream f(at, std::ios::binary);
+		if (f) { std::stringstream ss; ss << f.rdbuf(); text = ss.str(); }
+		else echo("WARNING: game.json's loading screen " + m.loadingScene + " is not there - showing the default");
+	}
+	if (text.empty())
+	{
+		text = LoadingScreen::DefaultSceneJson(m.loadingLook);
+		at = ResolvePath("scenes/_loading.json");      // (where its picture's path is read from: the game's folder)
+	}
+	// Between its frames: the window's events kept moving (not handled - nothing of the game's runs
+	// in the middle of a load) and the hang watchdog told the program is alive: a long load is not a hang.
+	loadingScreen.Open(text, at, m.loadingLook, (uint32)Width, (uint32)Height, []() { SDL_PumpEvents(); FrameHeartbeat(); });
+	if (loadingScreen.IsOpen()) loadingScreen.Listen();
+}
+
 bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 {
+	// What the player sees while this runs: a screen with the load's progress on it, closed at
+	// every way out of here (the GPU idle first: its frames may still be drawing its text).
+	struct ScreenUp {
+		LoadingScreen &s;
+		~ScreenUp() { if (s.IsOpen()) { LoadProgress::Phase(1.f, 1.f, ""); s.Draw(); GetActiveRenderDevice().WaitIdle(); s.Close(); } }
+	} screenUp{ loadingScreen };
+	OpenLoadingScreen();
+	LoadProgress::Phase(0.f, 0.02f, "Loading");
+
 	UnloadGameScene();
 
 	const std::string abs = ResolvePath(sceneRel);
@@ -823,6 +898,15 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	// scenes that still reference their prefabs, so a prefab edit reaches
 	// every instance in the build exactly as it does in the editor.
 	const std::string expanded = ExpandSceneFile(abs);
+	// The bar's shares: reading the scene (its objects, their models and pictures) and, for a scene
+	// whose light is solved here, the solve - which on a big scene is the longer of the two.
+	bool solves = false;
+	if (loadingScreen.IsOpen())
+	{
+		if (!expanded.empty()) solves = SceneSolvesLight(expanded);
+		else { std::ifstream f(abs, std::ios::binary); std::stringstream ss; ss << f.rdbuf(); solves = SceneSolvesLight(ss.str()); }
+	}
+	LoadProgress::Phase(0.02f, solves ? 0.55f : 0.95f, "Loading");
 	const bool loaded = expanded.empty()
 		? SceneSerializer::LoadScene(scene, abs, physics, luaPtr, &sceneAssets, &meta)
 		: SceneSerializer::LoadSceneFromText(scene, expanded, abs, physics, luaPtr, &sceneAssets, &meta);
@@ -933,6 +1017,7 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		// shaders next to the binary - the same place the player's own
 		// materials come from.
 		gi.shaderRoot = "shaders";
+		LoadProgress::Phase(0.55f, 0.97f, "Lighting");
 		if (renderer->BakeGlobalIllumination(scene, gi))
 		{
 			ddgiActive = true;
@@ -953,6 +1038,7 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		}
 	}
 
+	LoadProgress::Phase(0.97f, 1.f, "Starting");
 	ResolveCamera(abs);
 	ApplyProjection();
 

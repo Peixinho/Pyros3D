@@ -38,6 +38,7 @@
 #include <Pyros3D/Rendering/PostEffects/PostEffectChain.h>
 #include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/LoadingScreen.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
 #include <Pyros3D/Rendering/Components/UI/UIToggle.h>
@@ -90,6 +91,13 @@ struct PlayerManifest
 	// editor viewport's own grey is editor chrome, not scene content, so a
 	// build deliberately does not inherit it.
 	Vec4 background = Vec4(0.f, 0.f, 0.f, 1.f);
+	// game.json "loadingScreen": what is shown while a scene loads (LoadingScreen). false for none;
+	// an object to change it: "title", "image" (a picture behind it), "background" / "accent" / "text"
+	// (colours), "percent" (false: no number), or "scene" - a UI scene of the game's own, which the
+	// engine keeps up to date by its elements' names (see LoadingScreen.h). Left out: the default.
+	bool loadingScreen = true;
+	std::string loadingScene;
+	LoadingScreen::Look loadingLook;
 	// Directory game.json was found in - everything else resolves against
 	// it, so the game folder can be moved or renamed freely.
 	std::string root;
@@ -302,6 +310,9 @@ private:
 	// the Forward/Deferred choice above - it draws into whatever target the
 	// frame is already using.
 	UIRenderer* uiRenderer;
+	// shown while LoadGameScene runs (game.json "loadingScreen")
+	void OpenLoadingScreen();
+	LoadingScreen loadingScreen;
 	AudioManager* audio;
 	Projection projection;
 

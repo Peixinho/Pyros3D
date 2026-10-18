@@ -94,6 +94,9 @@ namespace p3d {
 		// (the field needs room to spread past the ink) and a shader that
 		// knows to threshold it - see ShaderUsage::TextSDF.
 		Font(const std::string &font, const f32 size, bool sdf = false);
+		// The path that names the engine's built-in font (Barlow SemiBold, embedded): a UIText or
+		// a Font given it needs no font file - the default loading screen's text is set in it.
+		static const char* BuiltinDefault() { return "builtin:default"; }
 		bool IsSDF() const { return isSDF; }
 		// Pixels the field extends beyond the glyph's ink on every side.
 		f32 GetSDFSpread() const { return (f32)sdfSpread; }

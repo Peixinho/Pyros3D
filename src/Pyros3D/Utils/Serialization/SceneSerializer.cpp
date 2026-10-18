@@ -23,6 +23,7 @@
 #include <chrono>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Json/json.hpp>
+#include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
@@ -5450,9 +5451,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 
 
+		const size_t rootCount = root.contains("roots") && root["roots"].is_array() ? root["roots"].size() : 0;
+		size_t rootsRead = 0;
 		if ((root.find("roots") != root.end()))
 			for (auto &rj : root["roots"])
 			{
+				// (how far through: for a loading screen - nothing when nobody shows one)
+				LoadProgress::Report((float)(rootsRead++) / (float)(rootCount ? rootCount : 1));
 				// A root may carry "instances": [[x,y,z], ...], in which case it
 				// is a *template* and one GameObject is built per entry, with
 				// that entry as its position and everything else (components,
