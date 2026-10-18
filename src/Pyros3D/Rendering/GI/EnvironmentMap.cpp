@@ -10,6 +10,7 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/stb/stb_image.h>
+#include <algorithm>
 #include <cmath>
 #include <memory>
 #include <vector>
@@ -17,21 +18,132 @@
 namespace p3d {
 
 	namespace {
-		std::shared_ptr<Texture> g_texture;
+		std::shared_ptr<Texture> g_texture, g_radiance;
+		f32 g_intensity = 1.f;
 		std::string g_path;
 		f32 g_yaw = 0.f;
 		bool g_loaded = false;
 		SphericalHarmonicsL2 g_sh;
 		Vec3 g_sun(0.f, 1.f, 0.f);
 
-		void MakeBlack()
+		void MakeBlack(Texture *t)
 		{
 			const f32 black[4] = { 0.f, 0.f, 0.f, 1.f };
-			g_texture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, 1, 1, false);
-			g_texture->UpdateData((void*)black);
-			g_texture->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+			t->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, 1, 1, false);
+			t->UpdateData((void*)black);
+			t->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+		}
+		void MakeBlack() { MakeBlack(g_texture.get()); }
+
+		// ---------------------------------------------------------------- reflections
+		// The sky blurred for six roughnesses (0, .2, ... 1), each an equirect of its own size -
+		// 512x256 down to 32x16 - stacked top to bottom in one 512x512 RGBA32F. A rougher surface
+		// reflects a wider cone of the sky; the blur is a gaussian of that cone's width, along the
+		// image's two axes (wider across where the panorama is stretched, toward the poles). Not
+		// the GGX integral, but its width and its weight, and cheap enough to make at load.
+		// PyrosShader.glsl's EnvSpecular reads the same layout.
+		const uint32 kAtlasW = 512, kLevels = 6;
+		uint32 LevelW(uint32 k) { return std::max<uint32>(kAtlasW >> k, 32u); }
+
+		void Downsample(const f32 *src, uint32 sw, uint32 sh, uint32 sstride, std::vector<f32> &dst, uint32 dw, uint32 dh)
+		{
+			dst.assign((size_t)dw * dh * 3, 0.f);
+			for (uint32 y = 0; y < dh; y++)
+			{
+				const uint32 y0 = y * sh / dh, y1 = std::max(y0 + 1, (y + 1) * sh / dh);
+				for (uint32 x = 0; x < dw; x++)
+				{
+					const uint32 x0 = x * sw / dw, x1 = std::max(x0 + 1, (x + 1) * sw / dw);
+					f32 r = 0.f, g = 0.f, b = 0.f; uint32 n = 0;
+					for (uint32 yy = y0; yy < y1 && yy < sh; yy++)
+						for (uint32 xx = x0; xx < x1 && xx < sw; xx++)
+						{
+							const f32 *p = src + ((size_t)yy * sw + xx) * sstride;
+							r += p[0]; g += p[1]; b += p[2]; n++;
+						}
+					f32 *d = &dst[((size_t)y * dw + x) * 3];
+					if (n) { d[0] = r / n; d[1] = g / n; d[2] = b / n; }
+				}
+			}
+		}
+
+		void Blur(std::vector<f32> &img, uint32 w, uint32 h, f32 sigma)
+		{
+			if (sigma <= 0.f) return;
+			const f32 kPI = 3.14159265358979f;
+			std::vector<f32> tmp(img.size());
+			const f32 dPhi = 2.f * kPI / w, dTheta = kPI / h;
+			for (uint32 y = 0; y < h; y++)                    // across: wraps round
+			{
+				const f32 st = std::max(sinf(((f32)y + 0.5f) / h * kPI), 0.02f);
+				const f32 s = std::min(sigma / (dPhi * st), (f32)w * 0.5f);
+				const int r = std::min((int)ceilf(s * 2.5f), (int)w / 2);
+				for (uint32 x = 0; x < w; x++)
+				{
+					f32 acc[3] = { 0, 0, 0 }, ws = 0.f;
+					for (int i = -r; i <= r; i++)
+					{
+						const f32 k = s > 0.f ? expf(-0.5f * (i * i) / (s * s)) : 1.f;
+						const uint32 xx = (uint32)(((int)x + i) % (int)w + (int)w) % w;
+						const f32 *p = &img[((size_t)y * w + xx) * 3];
+						acc[0] += p[0] * k; acc[1] += p[1] * k; acc[2] += p[2] * k; ws += k;
+					}
+					f32 *d = &tmp[((size_t)y * w + x) * 3];
+					d[0] = acc[0] / ws; d[1] = acc[1] / ws; d[2] = acc[2] / ws;
+				}
+			}
+			const f32 s = sigma / dTheta;
+			const int r = std::min((int)ceilf(s * 2.5f), (int)h);
+			for (uint32 y = 0; y < h; y++)                    // down: stops at the poles
+				for (uint32 x = 0; x < w; x++)
+				{
+					f32 acc[3] = { 0, 0, 0 }, ws = 0.f;
+					for (int i = -r; i <= r; i++)
+					{
+						const int yy = (int)y + i;
+						if (yy < 0 || yy >= (int)h) continue;
+						const f32 k = expf(-0.5f * (i * i) / (s * s));
+						const f32 *p = &tmp[((size_t)yy * w + x) * 3];
+						acc[0] += p[0] * k; acc[1] += p[1] * k; acc[2] += p[2] * k; ws += k;
+					}
+					f32 *d = &img[((size_t)y * w + x) * 3];
+					d[0] = acc[0] / ws; d[1] = acc[1] / ws; d[2] = acc[2] / ws;
+				}
+		}
+
+		void BuildRadiance(const f32 *px, uint32 w, uint32 h)
+		{
+			std::vector<f32> atlas((size_t)kAtlasW * kAtlasW * 4, 0.f);
+			uint32 oy = 0;
+			for (uint32 k = 0; k < kLevels; k++)
+			{
+				const uint32 lw = LevelW(k), lh = lw / 2;
+				std::vector<f32> lvl;
+				Downsample(px, w, h, 4, lvl, lw, lh);
+				const f32 rough = (f32)k / (f32)(kLevels - 1);
+				Blur(lvl, lw, lh, rough * rough * 1.2f);
+				for (uint32 y = 0; y < lh; y++)
+					for (uint32 x = 0; x < lw; x++)
+					{
+						const f32 *s = &lvl[((size_t)y * lw + x) * 3];
+						f32 *d = &atlas[((size_t)(oy + y) * kAtlasW + x) * 4];
+						d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 1.f;
+					}
+				oy += lh;
+			}
+			g_radiance->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, kAtlasW, kAtlasW, false);
+			g_radiance->UpdateData(atlas.data());
+			g_radiance->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
 		}
 	}
+
+	Texture* EnvironmentMap::GetRadianceTexture()
+	{
+		if (!g_radiance) { g_radiance = std::make_shared<Texture>(); MakeBlack(g_radiance.get()); }
+		return g_radiance.get();
+	}
+	void EnvironmentMap::SetIntensity(const f32 intensity) { g_intensity = intensity; }
+	f32 EnvironmentMap::GetIntensity() { return g_loaded ? g_intensity : 0.f; }
 
 	Texture* EnvironmentMap::GetTexture()
 	{
@@ -56,7 +168,29 @@ namespace p3d {
 		g_texture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, w, h, false);
 		g_texture->UpdateData(px);
 		g_texture->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-		ProjectEquirectToSH(px, (uint32)w, (uint32)h, 4, yawDegrees, g_sh, &g_sun);
+		// Lighting and reflections from it without its sun. A daylight sky's sun is a few pixels
+		// thousands of times brighter than the rest (a clear one, 55 000 against a mean of 1.5): kept
+		// in, it outweighs the whole sky in nine SH numbers and burns a white disc into every
+		// reflection, when the scene's sun - the directional light, with its shadows - is what
+		// should carry it. So the light is worked out from a copy capped at 64x the image's mean;
+		// the picture drawn as the sky keeps its sun.
+		std::vector<f32> lit(px, px + (size_t)w * h * 4);
+		{
+			f64 sum = 0.0;
+			for (size_t i = 0; i < (size_t)w * h; i++) sum += lit[i * 4] * 0.2126 + lit[i * 4 + 1] * 0.7152 + lit[i * 4 + 2] * 0.0722;
+			const f32 cap = std::max(1.f, (f32)(sum / ((f64)w * h)) * 64.f);
+			for (size_t i = 0; i < (size_t)w * h; i++)
+			{
+				f32 *q = &lit[i * 4];
+				const f32 l = q[0] * 0.2126f + q[1] * 0.7152f + q[2] * 0.0722f;
+				if (l > cap) { const f32 k = cap / l; q[0] *= k; q[1] *= k; q[2] *= k; }
+			}
+		}
+		// (the sun's direction from the image as it is)
+		{ SphericalHarmonicsL2 unused; ProjectEquirectToSH(px, (uint32)w, (uint32)h, 4, yawDegrees, unused, &g_sun); }
+		ProjectEquirectToSH(lit.data(), (uint32)w, (uint32)h, 4, yawDegrees, g_sh, NULL);
+		GetRadianceTexture();
+		BuildRadiance(lit.data(), (uint32)w, (uint32)h);
 		stbi_image_free(px);
 		g_path = path; g_yaw = yawDegrees; g_loaded = true;
 		return true;
@@ -67,6 +201,7 @@ namespace p3d {
 		if (!g_loaded) return;
 		g_loaded = false; g_path.clear(); g_yaw = 0.f; g_sh.Clear(); g_sun = Vec3(0.f, 1.f, 0.f);
 		if (g_texture) MakeBlack();
+		if (g_radiance) MakeBlack(g_radiance.get());
 	}
 
 	bool EnvironmentMap::IsLoaded() { return g_loaded; }

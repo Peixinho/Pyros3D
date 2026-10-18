@@ -139,6 +139,8 @@
 // available on every target, and is read with texelFetch - no
 // filtering, no mip, exactly the texel asked for.
 #define BIND_uDDGIProbeData 21
+// The scene's HDR environment, blurred for six roughnesses - see EnvironmentMap.cpp.
+#define BIND_uEnvRadiance 22
 
 // Loose-uniform-turned-UBO bindings. Each block is declared in exactly one
 // stage (checked against actual usage: e.g. uCameraPos is only ever read
@@ -1410,14 +1412,56 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
        // reaches the lighting pass without that pass knowing anything about
        // it. Materials with no normal (an unlit Color-only G-buffer variant)
        // fall through to the flat colour.
-   #ifdef GLOBALILLUMINATION
-       SAMPLER_BINDING(BIND_uDDGIIrradiance) uniform sampler2D uDDGIIrradiance;
-       SAMPLER_BINDING(BIND_uDDGIVisibility) uniform sampler2D uDDGIVisibility;
-       SAMPLER_BINDING(BIND_uDDGIRadiance) uniform sampler2D uDDGIRadiance;
+   #if defined(GLOBALILLUMINATION) || defined(PBR)
        // (N.V, roughness) -> scale, bias on F0. Scene-independent, so
        // one table serves every volume and every material - see
        // BRDFLut.h for why it is generated rather than shipped.
        SAMPLER_BINDING(BIND_uBRDFLut) uniform sampler2D uBRDFLut;
+   #endif
+   #ifdef PBR
+       // The scene's HDR environment as reflections (EnvironmentMap): six equirects stacked top to
+       // bottom - 512x256 for a mirror, halving to 32x16, the last two 32 wide - for roughness 0,
+       // .2 ... 1. RGBA32F, not filtered by every card, so read four texels at a time here. A 1x1
+       // black texture while the scene has no environment, and then this adds nothing.
+       SAMPLER_BINDING(BIND_uEnvRadiance) uniform sampler2D uEnvRadiance;
+       vec3 p3d_EnvLevel(vec3 d, int k)
+       {
+           int aw = textureSize(uEnvRadiance, 0).x;
+           int lw = max(aw >> k, 32), lh = lw / 2;
+           int oy = 0;
+           for (int i = 0; i < 6; i++) { if (i < k) oy += max(aw >> i, 32) / 2; }
+           vec2 uv = vec2(0.5 + atan(d.x, -d.z) * 0.15915494, acos(clamp(d.y, -1.0, 1.0)) * 0.31830989);
+           vec2 p = uv * vec2(float(lw), float(lh)) - 0.5;
+           ivec2 a = ivec2(floor(p)); vec2 f = p - vec2(a);
+           int x0 = (a.x % lw + lw) % lw, x1 = (x0 + 1) % lw;
+           int y0 = clamp(a.y, 0, lh - 1), y1 = clamp(a.y + 1, 0, lh - 1);
+           vec3 t = mix(texelFetch(uEnvRadiance, ivec2(x0, oy + y0), 0).rgb, texelFetch(uEnvRadiance, ivec2(x1, oy + y0), 0).rgb, f.x);
+           vec3 b = mix(texelFetch(uEnvRadiance, ivec2(x0, oy + y1), 0).rgb, texelFetch(uEnvRadiance, ivec2(x1, oy + y1), 0).rgb, f.x);
+           return mix(t, b, f.y);
+       }
+       // Prefiltered sky in the mirror direction times the environment BRDF: the reflection of the
+       // sky on a surface of this roughness. Only in environment (SH) mode - DDGI has its own - and
+       // scaled as the ambient is (uAmbientParams.y, 0 with no environment). uAmbientParams.z is
+       // the environment's turn about y, in radians.
+       vec3 EnvSpecular(vec3 normal, vec3 viewDir, vec3 F0, float roughness)
+       {
+           if (uAmbientParams.x < 1.5 || uAmbientParams.x >= 2.5 || uAmbientParams.y <= 0.0) return vec3(0.0);
+           if (textureSize(uEnvRadiance, 0).x < 64) return vec3(0.0);
+           float nDotV = clamp(dot(normal, viewDir), 0.0, 1.0);
+           vec3 r = reflect(-viewDir, normal);
+           float cy = cos(uAmbientParams.z), sy = sin(uAmbientParams.z);
+           r = vec3(r.x * cy - r.z * sy, r.y, r.x * sy + r.z * cy);
+           float lv = clamp(roughness, 0.0, 1.0) * 5.0;
+           int k = int(floor(lv));
+           vec3 pre = mix(p3d_EnvLevel(r, k), p3d_EnvLevel(r, min(k + 1, 5)), lv - float(k));
+           vec2 ab = texture(uBRDFLut, vec2(nDotV, roughness)).rg;
+           return pre * (F0 * ab.x + vec3(ab.y)) * uAmbientParams.y;
+       }
+   #endif
+   #ifdef GLOBALILLUMINATION
+       SAMPLER_BINDING(BIND_uDDGIIrradiance) uniform sampler2D uDDGIIrradiance;
+       SAMPLER_BINDING(BIND_uDDGIVisibility) uniform sampler2D uDDGIVisibility;
+       SAMPLER_BINDING(BIND_uDDGIRadiance) uniform sampler2D uDDGIRadiance;
        SAMPLER_BINDING(BIND_uDDGIProbeData) uniform sampler2D uDDGIProbeData;
 
        // Grid description. xyz = origin, w = probes per atlas row;
@@ -2176,6 +2220,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vec3 iblF0 = mix(vec3(0.04), diffuse.rgb, metallic);
                 ambientPBR += DDGISpecular(vWorldPosition.xyz, Normal, EyeVec, iblF0, roughness);
             #endif
+                // the sky's reflection, in environment mode (nothing without one)
+                ambientPBR += EnvSpecular(Normal, EyeVec, mix(vec3(0.04), diffuse.rgb, metallic), roughness);
                 diffuse = vec4(_pbrColor + ambientPBR + diffuse.rgb * (1.0 - metallic) * _sss, diffuse.w);
             #endif
         #endif
@@ -2243,6 +2289,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		vec3 iblF0 = mix(vec3(0.04), diffuse.xyz, metallic);
 		_indirect += DDGISpecular(vWorldPosition.xyz, normalize(gbufferNormal.xyz),
 			normalize(vCameraPos - vWorldPosition.xyz), iblF0, roughness);
+	#endif
+	#ifdef PBR
+		_indirect += EnvSpecular(normalize(gbufferNormal.xyz), normalize(vCameraPos - vWorldPosition.xyz),
+			mix(vec3(0.04), diffuse.xyz, metallic), roughness);
 	#endif
 	#ifdef PBR
 		// secondpassAmbient.glsl multiplies these alphas by

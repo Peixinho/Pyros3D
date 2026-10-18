@@ -74,7 +74,7 @@ struct PlayerManifest
 	float renderScale = 1.f;
 	std::vector<std::string> preload;      // game.json "preload": read before the first scene
 	// game.json "quality" (see ProjectSettings::quality): -1 where it says nothing
-	float qSmallCull = -1.f, qRenderScale = -1.f, qAutoFps = -1.f, qAutoMin = 0.42f, qFrameLimit = -2.f; int qShadowEvery = -1, qSsaoHalf = -1; float qUpscaleSharpness = 0.85f; std::string qUpscaler = "fsr1", qUpscaleQuality; // (negative: a plain stretch)
+	float qSmallCull = -1.f, qRenderScale = -1.f, qAutoFps = -1.f, qAutoMin = 0.42f, qFrameLimit = -2.f; int qShadowEvery = -1, qSsaoHalf = -1, qSsaoTemporal = -1; float qUpscaleSharpness = 0.85f; std::string qUpscaler = "fsr1", qUpscaleQuality; // (negative: a plain stretch)
 	std::string title = "Pyros3D";
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
 	std::string serverPublicKey;           // pinned when joining with --connect; empty = any server

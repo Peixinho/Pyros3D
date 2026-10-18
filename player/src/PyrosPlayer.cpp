@@ -136,6 +136,9 @@ namespace {
 			m.qSmallCull = q.value("smallObjectCull", -1.f);
 			m.qShadowEvery = q.value("shadowUpdateInterval", -1);
 			if (q.contains("ssaoHalfResolution")) m.qSsaoHalf = q.value("ssaoHalfResolution", false) ? 1 : 0;
+			// "ssaoTemporal": false - every sample every frame, rather than half, turned each frame for
+			// TAA to add up: cheaper, but on fine detail (window frames) and under a moving camera it flickers
+			if (q.contains("ssaoTemporal")) m.qSsaoTemporal = q.value("ssaoTemporal", true) ? 1 : 0;
 			m.qRenderScale = q.value("renderScale", -1.f);
 			// "upscaleSharpness": 0..1, how sharp a frame rendered below the window's
 			// size is brought up to it; negative for a plain stretch
@@ -620,6 +623,7 @@ end
 	if (m.qSmallCull >= 0.f) IRenderer::SetSmallObjectCull(m.qSmallCull);
 	if (m.qShadowEvery >= 1) IRenderer::SetShadowUpdateInterval((uint32)m.qShadowEvery);
 	if (m.qSsaoHalf >= 0) DeferredRenderer::SetSSAOHalfResolution(m.qSsaoHalf == 1);
+	if (m.qSsaoTemporal >= 0) g_ssaoTemporalWanted = m.qSsaoTemporal == 1;
 	upscaleSharpness = m.qUpscaleSharpness < 0.f ? 0.85f : m.qUpscaleSharpness;
 	if (!Upscaling::FromString(m.qUpscaler, upscaler)) upscaler = UpscalerMode::FSR1;
 	if (m.qUpscaleSharpness < 0.f) upscaler = UpscalerMode::Off;        // (how "a plain stretch" used to be said)
@@ -897,6 +901,7 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		// (EnvironmentMap), and the Sky effect draws it. One without has none left over from the last.
 		if (!meta.environment.empty() && EnvironmentMap::Load(meta.environment, meta.environmentYaw))
 		{
+			EnvironmentMap::SetIntensity(k);
 			sh = EnvironmentMap::GetSH();
 			sh.Scale(k);
 		}

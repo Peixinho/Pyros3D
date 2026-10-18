@@ -1,3 +1,4 @@
+#include <Pyros3D/Rendering/GI/EnvironmentMap.h>
 #include <chrono>
 #include <unordered_map>
 #include <memory>
@@ -4459,7 +4460,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			env[1] = ScaleAmbient(AmbientSky);
 			env[2] = ScaleAmbient(AmbientEquator);
 			env[3] = ScaleAmbient(AmbientGround);
-			env[4] = Vec4((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
+			env[4] = Vec4((f32)EffectiveAmbientMode(), EnvironmentMap::GetIntensity() * AmbientScale, EnvironmentMap::GetYaw() * 3.14159265f / 180.f, 0.f);
 			// Always uploaded, not just in mode 2. The block is one
 			// contiguous std140 allocation and ReplaceUniformBuffer
 			// re-specifies the whole thing (see its comment on
@@ -4573,7 +4574,7 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				break;
 			case Uniforms::DataUsage::AmbientParams:
 			{
-				Vec4 params((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
+				Vec4 params((f32)EffectiveAmbientMode(), EnvironmentMap::GetIntensity() * AmbientScale, EnvironmentMap::GetYaw() * 3.14159265f / 180.f, 0.f);
 				Shader::SendUniform((*k), &params, (*_ShadersGlobalCache)[counter]);
 			}
 			break;
@@ -4621,6 +4622,15 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// eight of them (colormap/fontmap/normalmap/displacement/env/
 			// refract/skybox/specular), while GL 4.1 guarantees at least 16
 			// per-stage texture image units.
+			case Uniforms::DataUsage::EnvironmentRadianceMap:
+			{
+				Texture *tex = EnvironmentMap::GetRadianceTexture();
+				tex->Bind();
+				int32 unit = (int32)Texture::GetLastBindedUnit();
+				BoundGITextures.push_back(tex);
+				Shader::SendUniform((*k), &unit, (*_ShadersGlobalCache)[counter], 1);
+				break;
+			}
 			case Uniforms::DataUsage::BRDFLutMap:
 			{
 				// Scene-independent: the same table for every volume,
@@ -4936,7 +4946,7 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			env[1] = ScaleAmbient(AmbientSky);
 			env[2] = ScaleAmbient(AmbientEquator);
 			env[3] = ScaleAmbient(AmbientGround);
-			env[4] = Vec4((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
+			env[4] = Vec4((f32)EffectiveAmbientMode(), EnvironmentMap::GetIntensity() * AmbientScale, EnvironmentMap::GetYaw() * 3.14159265f / 180.f, 0.f);
 			for (uint32 i = 0; i < 9; i++)
 			{
 				const Vec3 &c = sampled.coefficients[i];
@@ -5175,7 +5185,7 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, Rende
 		scaledAmbient = ScaleAmbient(AmbientGround); valuePtr = &scaledAmbient; valueSize = sizeof(Vec4);
 		break;
 	case Uniforms::DataUsage::AmbientParams:
-		ambientParams = Vec4((f32)EffectiveAmbientMode(), 0.f, 0.f, 0.f);
+		ambientParams = Vec4((f32)EffectiveAmbientMode(), EnvironmentMap::GetIntensity() * AmbientScale, EnvironmentMap::GetYaw() * 3.14159265f / 180.f, 0.f);
 		valuePtr = &ambientParams; valueSize = sizeof(Vec4);
 		break;
 	case Uniforms::DataUsage::AmbientSH:

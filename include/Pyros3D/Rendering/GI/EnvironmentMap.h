@@ -33,6 +33,13 @@ namespace p3d {
 		// Never NULL: a 1x1 black texture until something is loaded, so an effect can take it as
 		// an input when it is built, and the same object is filled when a scene names a sky.
 		static Texture* GetTexture();
+		// Its reflections: the sky blurred for six roughnesses, stacked in one RGBA32F (see
+		// EnvironmentMap.cpp). 1x1 black until something is loaded, so PBR shaders can always bind it.
+		static Texture* GetRadianceTexture();
+		// How strong its light is - the scene's ambient intensity - for the reflections, which the
+		// shader is told with the ambient mode (the SH carries its own scale).
+		static void SetIntensity(const f32 intensity);
+		static f32 GetIntensity();
 		static bool Load(const std::string &path, const f32 yawDegrees = 0.f);
 		static void Clear();
 		static bool IsLoaded();

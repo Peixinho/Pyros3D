@@ -83,6 +83,8 @@ namespace p3d {
 				// knows and a material has to draw - where things touched
 				// the water, where the wind is from.
 				ShaderGlobals = 36,
+				// The scene's HDR environment as reflections, for PBR (EnvironmentMap).
+				EnvironmentRadianceMap = 37,
 
 				// User Uniforms
 				Other = 200,

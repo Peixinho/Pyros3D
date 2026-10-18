@@ -179,6 +179,11 @@ namespace p3d
 			Roughness = 0.5f;
 			uMetallic = AddUniform(Uniform("uMetallic", Uniforms::DataType::Float, &Metallic));
 			uRoughness = AddUniform(Uniform("uRoughness", Uniforms::DataType::Float, &Roughness));
+			// the sky's reflections (EnvironmentMap: black and unused without an environment) and
+			// the BRDF table they are weighed by - which a GI material declares below already
+			AddUniform(Uniform("uEnvRadiance", Uniforms::DataUsage::EnvironmentRadianceMap));
+			if (!(options & ShaderUsage::GlobalIllumination))
+				AddUniform(Uniform("uBRDFLut", Uniforms::DataUsage::BRDFLutMap));
 		}
 
 		if (options & ShaderUsage::GlobalIllumination)
