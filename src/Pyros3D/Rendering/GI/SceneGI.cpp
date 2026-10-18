@@ -86,6 +86,22 @@ namespace p3d {
 			}
 			outLights.push_back(rl);
 		}
+		// Every sun, but only the strongest few lamps: each light is a shadow ray at every hit, and
+		// a street of shop lamps (74) made the bake longer than the GPU would run it - a black
+		// frame. A small lamp's bounce is next to nothing; it still lights the scene directly.
+		const size_t kMostLamps = 8;
+		std::vector<RayLight> suns, lamps;
+		for (size_t i = 0; i < outLights.size(); i++) (outLights[i].isPoint > 0.5f ? lamps : suns).push_back(outLights[i]);
+		if (lamps.size() > kMostLamps)
+		{
+			std::sort(lamps.begin(), lamps.end(), [](const RayLight &a, const RayLight &b) {
+				const f32 wa = (a.color.x + a.color.y + a.color.z) * std::max(a.range, 1.f) * std::max(a.range, 1.f);
+				const f32 wb = (b.color.x + b.color.y + b.color.z) * std::max(b.range, 1.f) * std::max(b.range, 1.f);
+				return wa > wb; });
+			lamps.resize(kMostLamps);
+		}
+		outLights = suns;
+		outLights.insert(outLights.end(), lamps.begin(), lamps.end());
 	}
 
 	void UpdateSceneGI(SceneGraph *scene, const RayScene &rays, DDGIVolume &volume,
