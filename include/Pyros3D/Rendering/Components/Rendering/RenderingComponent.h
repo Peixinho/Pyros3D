@@ -206,6 +206,8 @@ namespace p3d {
 			if (Geometry->materialProperties.haveColorMap) options = options | ShaderUsage::Texture;
 			if (Geometry->materialProperties.haveSpecularMap) options = options | ShaderUsage::SpecularMap;
 			if (Geometry->materialProperties.haveNormalMap) options = options | ShaderUsage::BumpMapping;
+			if (Geometry->materialProperties.havePBR) options = options | ShaderUsage::PBR;
+			if (Geometry->materialProperties.havePBR && Geometry->materialProperties.haveMetallicRoughnessMap) options = options | ShaderUsage::PBRMap;
 
 			// Callers can pass ShaderUsage::Skinning explicitly (e.g. one
 			// material applied uniformly across every submesh of an
@@ -283,6 +285,20 @@ namespace p3d {
 				{
 					normalMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 					genMat->SetNormalMap(normalMap);
+				}
+			}
+			if (Geometry->materialProperties.havePBR)
+			{
+				genMat->SetMetallic(Geometry->materialProperties.Metallic);
+				genMat->SetRoughness(Geometry->materialProperties.Roughness);
+				if (Geometry->materialProperties.haveMetallicRoughnessMap)
+				{
+					std::shared_ptr<Texture> mr = Texture::LoadShared(Geometry->materialProperties.metallicRoughnessMap, TextureType::Texture);
+					if (mr)
+					{
+						mr->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+						genMat->SetMetallicRoughnessMap(mr);
+					}
 				}
 			}
 			Material.reset(genMat);

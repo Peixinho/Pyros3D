@@ -17,6 +17,7 @@ namespace p3d {
 R"PYROSSKY(//! effect Sky
 //! input LastRTT
 //! input Depth
+//! input Environment
 //! param float uNear 0.2 Camera near
 //! param float uFar 4000.0 Camera far
 //! param vec4 uCamPos 0,50,0,0 Camera position
@@ -50,6 +51,8 @@ R"PYROSSKY(//! effect Sky
 //! param float uExposure 1.16 0.2 2.0 Exposure
 //! param float uSaturation 0.70 0.0 1.5 Saturation
 //! param float uContrast 0.98 0.5 1.5 Contrast
+//! param vec4 uEnv 0,0,0,0 Environment: loaded, turn (set by the engine)
+//! param float uEnvIntensity 1.0 0.0 8.0 Environment brightness
 
 // The sky, the air and the grade, in one pass over the frame. Built in (post effect "Sky");
 // the sun is the scene's - the directional light marked as one, its hour and all - unless a
@@ -67,6 +70,22 @@ R"PYROSSKY(//! effect Sky
 
 // (exact on every graphics card: a hash of whole numbers. The usual fract(sin(x) * 43758.5) and fract(x * 123.34)
 // are only as good as the card's arithmetic on big numbers, and gave blocks and stray rectangles on some)
+// The scene's HDR environment (EnvironmentMap), when it has one: the panorama in the direction
+// d. RGBA32F, which not every card filters, so the four texels are blended here.
+vec3 envAt(vec3 d) {
+	float cy = cos(uEnv.y), sy = sin(uEnv.y);
+	vec3 i = vec3(d.x * cy - d.z * sy, d.y, d.x * sy + d.z * cy);     // back into the image's own frame
+	ivec2 size = textureSize(uTex2, 0);
+	vec2 uv = vec2(0.5 + atan(i.x, -i.z) * 0.15915494, acos(clamp(i.y, -1.0, 1.0)) * 0.31830989);
+	vec2 p = uv * vec2(size) - 0.5;
+	ivec2 a = ivec2(floor(p)); vec2 f = p - vec2(a);
+	int x0 = (a.x % size.x + size.x) % size.x, x1 = (x0 + 1) % size.x;
+	int y0 = clamp(a.y, 0, size.y - 1), y1 = clamp(a.y + 1, 0, size.y - 1);
+	vec3 t = mix(texelFetch(uTex2, ivec2(x0, y0), 0).rgb, texelFetch(uTex2, ivec2(x1, y0), 0).rgb, f.x);
+	vec3 b = mix(texelFetch(uTex2, ivec2(x0, y1), 0).rgb, texelFetch(uTex2, ivec2(x1, y1), 0).rgb, f.x);
+	return mix(t, b, f.y) * uEnvIntensity;
+}
+
 float p3d_ih(ivec3 q) { uint n = uint(q.x) * 1597334673u ^ uint(q.y) * 3812015801u ^ uint(q.z) * 2798796415u; n ^= n >> 15; n *= 2246822519u; n ^= n >> 13; n *= 3266489917u; n ^= n >> 16; return float(n >> 8) * (1.0 / 16777216.0); }
 float hash(vec2 p) { return p3d_ih(ivec3(ivec2(floor(p * 16.0 + 0.5)), 7)); }
 float vnoise(vec2 p) {
@@ -143,7 +162,11 @@ void main() {
 	float low = (1.0 - smoothstep(0.0, 0.42, abs(sun.y))) * smoothstep(-0.18, 0.05, sun.y);
 	vec3 hazeColour = mix(horizonColour(sun, uRain), vec3(1.0, 0.62, 0.34) * (0.4 + 0.6 * day + low), (0.30 + 0.5 * low) * pow(max(dot(dir, sun), 0.0), 3.0) * (1.0 - uRain));
 
-	if (d >= 1.0) {
+	// (with an environment, the air takes the colour of its horizon that way)
+	if (uEnv.x > 0.5) hazeColour = envAt(normalize(vec3(dir.x, 0.03, dir.z)));
+	if (d >= 1.0 && uEnv.x > 0.5) {
+		c = envAt(dir);
+	} else if (d >= 1.0) {
 		c = skyColour(dir, sun, uRain);
 		// clouds: where this ray meets a level 1100 m over the sea
 		if (dir.y > 0.012) {

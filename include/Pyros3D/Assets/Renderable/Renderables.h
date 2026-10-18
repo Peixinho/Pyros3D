@@ -23,6 +23,11 @@
 namespace p3d {
 
 	// Store Each Submesh Material Properties
+	// .p3dm: a version 2 file and later begins with this mark and then its version (a version 1
+	// file begins with its material count, which is never negative). See ModelLoader.
+	static const int32 kP3DMMark = -0x50334D;       // "P3M"
+	static const int32 kP3DMVersion = 2;
+
 	struct PYROS3D_API MaterialProperties
 	{
 		// Material ID
@@ -43,6 +48,14 @@ namespace p3d {
 		std::string colorMap;
 		std::string specularMap;
 		std::string normalMap;
+		// PBR (glTF's metallic/roughness): .p3dm version 2 and later. A material without it keeps
+		// the old diffuse/specular look; with it, it is drawn as PBR, its metal in the map's blue
+		// and its roughness in the green (glTF's packing, which the shader reads as is).
+		std::string metallicRoughnessMap;
+		f32 Metallic = 0.f;
+		f32 Roughness = 1.f;
+		bool havePBR = false;
+		bool haveMetallicRoughnessMap = false;
 		// flags
 		bool haveColor;
 		bool haveSpecular;

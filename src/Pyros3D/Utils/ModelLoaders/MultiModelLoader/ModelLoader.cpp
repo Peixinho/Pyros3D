@@ -62,8 +62,23 @@ namespace p3d {
 			return false;
 		}
 
-		int32 materialsSize = 0;
+		// A version 2 file and later begins with a mark and its version (the mark is negative, where
+		// the first thing in a version 1 file is how many materials it has); older ones begin with
+		// the count, and are read as they always were.
+		int32 materialsSize = 0, version = 1;
 		bin->Read(&materialsSize, sizeof(int32));
+		if (materialsSize == kP3DMMark)
+		{
+			bin->Read(&version, sizeof(int32));
+			bin->Read(&materialsSize, sizeof(int32));
+			if (version < 2 || version > kP3DMVersion)
+			{
+				echo(std::string("ERROR: ModelLoader - ") + Filename + " is .p3dm version " + std::to_string(version) + ": this engine reads up to " + std::to_string(kP3DMVersion));
+				bin->Close();
+				delete bin;
+				return false;
+			}
+		}
 		if (materialsSize < 0 || materialsSize > 100000)
 		{
 			echo(std::string("ERROR: ModelLoader - corrupt materials header in ") + Filename);
@@ -162,6 +177,23 @@ namespace p3d {
 
 			bin->Read(&In, sizeof(uchar));
 			mat.haveBones = !!In;
+
+			if (version >= 2)
+			{
+				bin->Read(&In, sizeof(uchar));
+				mat.havePBR = !!In;
+				bin->Read(&mat.Metallic, sizeof(f32));
+				bin->Read(&mat.Roughness, sizeof(f32));
+				bin->Read(&In, sizeof(uchar));
+				mat.haveMetallicRoughnessMap = !!In;
+				bin->Read(&nameSize, sizeof(int32));
+				if (nameSize > 0)
+				{
+					std::string c; c.resize(nameSize);
+					bin->Read(&c[0], nameSize);
+					mat.metallicRoughnessMap = ResolveModelTexturePath(Filename, c);
+				}
+			}
 
 			materials.push_back(mat);
 

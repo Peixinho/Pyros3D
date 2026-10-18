@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Rendering/PostEffects/Effects/CustomEffect.h>
 #include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Rendering/GI/EnvironmentMap.h>
 #include <cstdlib>
 #include <sstream>
 
@@ -57,6 +58,8 @@ namespace p3d {
 		// only ever has to be right for the draw in front of it. 44 is past
 		// everything the engine itself uses.
 		const uint32 kParamsBinding = 44;
+		// An `//! input Environment`: not one of the frame's own pictures (RTT::*), so marked apart
+		const uint32 kEnvironmentInput = 1u << 30;
 		const char* const kParamsBlockName = "PyrosEffectParams";
 
 		uint32 Std140Alignment(const uint32 type)
@@ -153,7 +156,9 @@ namespace p3d {
 					if (w[1] == "Color")        out.inputs.push_back(RTT::Color);
 					else if (w[1] == "Depth")   out.inputs.push_back(RTT::Depth);
 					else if (w[1] == "LastRTT") out.inputs.push_back(RTT::LastRTT);
-					else { errorOut = "line " + std::to_string(lineNo) + ": unknown input '" + w[1] + "' (Color, Depth or LastRTT)"; return false; }
+					// the scene's HDR environment panorama (EnvironmentMap), RGBA32F and unfiltered
+					else if (w[1] == "Environment") out.inputs.push_back(kEnvironmentInput);
+					else { errorOut = "line " + std::to_string(lineNo) + ": unknown input '" + w[1] + "' (Color, Depth, LastRTT or Environment)"; return false; }
 				}
 				else if (w[0] == "param")
 				{
@@ -238,7 +243,10 @@ namespace p3d {
 		// uTex<n> from a counter, so declaring them in header order is what
 		// makes uTex0 mean the first `//! input`.
 		for (size_t i = 0; i < h.inputs.size(); i++)
-			effect->UseRTT(h.inputs[i]);
+		{
+			if (h.inputs[i] == kEnvironmentInput) effect->UseCustomTexture(EnvironmentMap::GetTexture());
+			else effect->UseRTT(h.inputs[i]);
+		}
 
 		// The preamble is what an author would otherwise have to retype, and
 		// what they would get wrong: Vulkan and Metal reject a sampler with no

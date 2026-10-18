@@ -139,6 +139,11 @@ namespace p3d {
 		// images is a second or two of CPU work nobody should pay for at
 		// scene load, and the result is nine numbers.
 		Vec4 ambientSH[9];
+		// An HDR panorama the scene is lit by and seen against (EnvironmentMap): a Radiance .hdr,
+		// and how far it is turned about the vertical, in degrees. With one, ambient mode 2 takes
+		// its SH from the image (ambientSH is not used) and the Sky effect draws it as the sky.
+		std::string environment;
+		f32 environmentYaw = 0.f;
 		// ambientMode 2 with a grid: indirect light that varies with
 		// position. Empty until probes are baked; the single ambientSH
 		// above is what gets used then.

@@ -521,6 +521,24 @@ namespace p3d {
 					memcpy(&material.specularMap[0], &path.data, path.length);
 					std::replace(material.specularMap.begin(), material.specularMap.end(), '\\', '/');
 				}
+				// PBR: glTF's metallic/roughness factors and its packed texture (G roughness, B metal)
+				{
+					f32 metallic = 0.f, roughness = 1.f;
+					const bool hasM = pMaterial->Get(AI_MATKEY_METALLIC_FACTOR, metallic) == AI_SUCCESS;
+					const bool hasR = pMaterial->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) == AI_SUCCESS;
+					texFound = pMaterial->GetTexture(aiTextureType_GLTF_METALLIC_ROUGHNESS, 0, &path);
+					if (texFound != AI_SUCCESS) texFound = pMaterial->GetTexture(aiTextureType_METALNESS, 0, &path);
+					if (texFound != AI_SUCCESS) texFound = pMaterial->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &path);
+					if (texFound == AI_SUCCESS)
+					{
+						material.haveMetallicRoughnessMap = true;
+						material.metallicRoughnessMap.assign(path.data, path.length);
+						std::replace(material.metallicRoughnessMap.begin(), material.metallicRoughnessMap.end(), '\\', '/');
+					}
+					material.havePBR = hasM || hasR || material.haveMetallicRoughnessMap;
+					material.Metallic = metallic;
+					material.Roughness = roughness;
+				}
 				// Add Material to List
 				materials.push_back(material);
 			}
@@ -533,6 +551,8 @@ namespace p3d {
 					materials[m].normalMap = MaterializeEmbedded(assimp_model, materials[m].normalMap, pendingEmbedded);
 				if (materials[m].haveSpecularMap)
 					materials[m].specularMap = MaterializeEmbedded(assimp_model, materials[m].specularMap, pendingEmbedded);
+				if (materials[m].haveMetallicRoughnessMap)
+					materials[m].metallicRoughnessMap = MaterializeEmbedded(assimp_model, materials[m].metallicRoughnessMap, pendingEmbedded);
 			}
 
 			if (!skinned)
@@ -598,7 +618,10 @@ namespace p3d {
 
 		if (bin->Open(Filename.c_str(), 'w'))
 		{
-			// Save Materials
+			// Save Materials (version 2: a mark and the version first - see ModelLoader)
+			int32 mark = kP3DMMark, version = kP3DMVersion;
+			bin->Write(&mark, sizeof(int32));
+			bin->Write(&version, sizeof(int32));
 			int32 materialsSize = materials.size();
 			bin->Write(&materialsSize, sizeof(int32));
 			for (std::vector<MaterialProperties>::iterator i = materials.begin(); i != materials.end(); i++)
@@ -684,6 +707,18 @@ namespace p3d {
 				// Have Bones
 				Out = (uchar)(*i).haveBones;
 				bin->Write(&Out, sizeof(uchar));
+
+				// PBR (version 2)
+				Out = (uchar)(*i).havePBR;
+				bin->Write(&Out, sizeof(uchar));
+				bin->Write(&(*i).Metallic, sizeof(f32));
+				bin->Write(&(*i).Roughness, sizeof(f32));
+				Out = (uchar)(*i).haveMetallicRoughnessMap;
+				bin->Write(&Out, sizeof(uchar));
+				int32 mrSize = (*i).haveMetallicRoughnessMap ? (int32)(*i).metallicRoughnessMap.size() : 0;
+				bin->Write(&mrSize, sizeof(int32));
+				if (mrSize > 0)
+					bin->Write((*i).metallicRoughnessMap.c_str(), sizeof(char)*mrSize);
 			}
 
 			// Skeleton

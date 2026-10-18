@@ -1,3 +1,4 @@
+#include <Pyros3D/Rendering/GI/EnvironmentMap.h>
 #include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <vector>
 //============================================================================
@@ -892,6 +893,14 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount; i++)
 			sh.coefficients[i] = Vec3(meta.ambientSH[i].x * k, meta.ambientSH[i].y * k,
 									  meta.ambientSH[i].z * k);
+		// A scene with an HDR environment is lit by the image itself: its SH comes from the pixels
+		// (EnvironmentMap), and the Sky effect draws it. One without has none left over from the last.
+		if (!meta.environment.empty() && EnvironmentMap::Load(meta.environment, meta.environmentYaw))
+		{
+			sh = EnvironmentMap::GetSH();
+			sh.Scale(k);
+		}
+		else if (meta.environment.empty()) EnvironmentMap::Clear();
 		renderer->SetAmbientSH(sh);
 		renderer->SetAmbientProbeGrid(meta.ambientProbes.IsValid() ? &meta.ambientProbes : NULL);
 	}

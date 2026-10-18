@@ -2776,6 +2776,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					root["ambientSH"] = sh;
 				}
 			}
+			if (!meta->environment.empty())
+				root["environment"] = { { "path", meta->environment }, { "yaw", meta->environmentYaw } };
 			if (meta->ambientProbes.IsValid())
 			{
 				const IrradianceProbeGrid &g = meta->ambientProbes;
@@ -5390,6 +5392,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 			readBand("ambientEquator", outMeta->ambientEquator);
 			readBand("ambientGround", outMeta->ambientGround);
+			if (root.contains("environment") && root["environment"].is_object())
+			{
+				outMeta->environment = root["environment"].value("path", std::string());
+				outMeta->environmentYaw = root["environment"].value("yaw", 0.f);
+			}
 			}
 		}
 

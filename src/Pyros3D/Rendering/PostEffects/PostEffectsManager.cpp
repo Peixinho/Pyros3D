@@ -6,6 +6,7 @@
 // Description : Post Effects Manager
 //============================================================================
 
+#include <Pyros3D/Rendering/GI/EnvironmentMap.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <cstdlib>
@@ -507,6 +508,11 @@ namespace p3d {
 					const f32 up[4] = { view.m[4], view.m[5], view.m[6], 0.f };
 					fx->SetParam("uCamPos", pos, 4); fx->SetParam("uCamFwd", fwd, 4);
 					fx->SetParam("uCamRight", right, 4); fx->SetParam("uCamUp", up, 4);
+				}
+				// the scene's HDR environment, if it has one (EnvironmentMap): loaded, and its turn in radians
+				{
+					const f32 env[4] = { EnvironmentMap::IsLoaded() ? 1.f : 0.f, EnvironmentMap::GetYaw() * 3.14159265f / 180.f, 0.f, 0.f };
+					fx->SetParam("uEnv", env, 4);
 				}
 				// (the scene's sun as the lighting last saw it: the way to it, and its strength)
 				{

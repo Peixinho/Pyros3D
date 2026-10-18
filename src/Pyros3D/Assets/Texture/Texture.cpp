@@ -87,6 +87,29 @@ namespace p3d {
 
 		this->Type = Type;
 
+		// A Radiance .hdr (an HDR sky, a light probe): linear float RGB, kept as floats. The mips are
+		// skipped, as a sky or a probe is looked up, not minified across a surface.
+		if (Filename.size() > 4 && (Filename.compare(Filename.size() - 4, 4, ".hdr") == 0 || Filename.compare(Filename.size() - 4, 4, ".HDR") == 0))
+		{
+			int w = 0, h = 0, n = 0;
+			float *px = stbi_loadf(Filename.c_str(), &w, &h, &n, 4);
+			if (px && w > 0 && h > 0)
+			{
+				// RGBA32F: the one float layout every backend uploads the same way (a 16F texture is
+				// sent as 32-bit floats on GL and as halves on Vulkan). Not filtered: 32-bit float
+				// textures are not filterable on every GPU, and one sampled with a filter it cannot
+				// do comes back as nothing or NaN, which the effects after it spread over the frame.
+				CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, w, h, false);
+				UpdateData(px);
+				SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+				stbi_image_free(px);
+				this->Filename = Filename;
+				return true;
+			}
+			if (px) stbi_image_free(px);
+			echo("ERROR: could not read the HDR image " + Filename);
+		}
+
 		DecodedImage image;
 		bool status = AssetBundle::TakeImage(Filename, image) || DecodeFile(Filename, image);
 		if (status)
