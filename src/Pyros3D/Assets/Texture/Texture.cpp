@@ -15,7 +15,8 @@
 #include <Pyros3D/Resources/Resources.h>
 #define STB_IMAGE_IMPLEMENTATION
 #include <Pyros3D/Ext/stb/stb_image.h>
-#include <cstdint>   // INT64_MAX, used by BleedTransparentEdges below
+#include <cstdint>
+#include <filesystem>   // INT64_MAX, used by BleedTransparentEdges below
 #include <map>
 #include <mutex>
 
@@ -565,11 +566,21 @@ namespace p3d {
 		return found;
 	}
 
+	// The file a path names, links followed: two paths to one picture (a model's textures folder
+	// linked to another's - recoloured copies of a kit sharing all but one map) are one texture,
+	// not one copy each in memory.
+	static std::string SharedTextureKey(const std::string &Filename)
+	{
+		std::error_code ec;
+		const std::filesystem::path c = std::filesystem::weakly_canonical(std::filesystem::path(Filename), ec);
+		return ec ? Filename : c.generic_string();
+	}
+
 	std::shared_ptr<Texture> Texture::LoadShared(const std::string& Filename,
 		const uint32 Type, bool Mipmapping, bool clampToEdge)
 	{
 		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
-		const std::string key = Filename + "|" + std::to_string(Type) + (Mipmapping ? "|m" : "|n") + (clampToEdge ? "|c" : "");
+		const std::string key = SharedTextureKey(Filename) + "|" + std::to_string(Type) + (Mipmapping ? "|m" : "|n") + (clampToEdge ? "|c" : "");
 		{
 			std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
 			std::map<std::string, std::weak_ptr<Texture> >::iterator it = cache.find(key);
@@ -593,7 +604,7 @@ namespace p3d {
 	{
 		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
 		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
-		const std::string prefix = Filename + "|";
+		const std::string prefix = SharedTextureKey(Filename) + "|";
 		std::map<std::string, std::weak_ptr<Texture> >::iterator it = cache.lower_bound(prefix);
 		while (it != cache.end() && it->first.compare(0, prefix.size(), prefix) == 0) it = cache.erase(it);
 	}
@@ -602,7 +613,7 @@ namespace p3d {
 	{
 		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
 		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
-		const std::string prefix = Filename + "|";
+		const std::string prefix = SharedTextureKey(Filename) + "|";
 		for (std::map<std::string, std::weak_ptr<Texture> >::const_iterator it = cache.lower_bound(prefix);
 			it != cache.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it)
 			if (!it->second.expired()) return true;
@@ -613,7 +624,7 @@ namespace p3d {
 	{
 		std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
 		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
-		const std::string prefix = Filename + "|";
+		const std::string prefix = SharedTextureKey(Filename) + "|";
 		for (std::map<std::string, std::weak_ptr<Texture> >::const_iterator it = cache.lower_bound(prefix);
 			it != cache.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it)
 		{
