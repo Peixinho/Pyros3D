@@ -352,7 +352,7 @@ namespace p3d {
 				{
 					subMesh.hasVertexColor = true;
 					subMesh.tVertexColor.resize(mesh->mNumVertices);
-					memcpy(&subMesh.tVertexColor[0], &mesh->mColors[0], mesh->mNumVertices*sizeof(Vec4));
+					memcpy(&subMesh.tVertexColor[0], mesh->mColors[0], mesh->mNumVertices*sizeof(Vec4));      // (the colours of channel 0 - it was the address of the array of channels)
 				}
 				else subMesh.hasVertexColor = false;
 

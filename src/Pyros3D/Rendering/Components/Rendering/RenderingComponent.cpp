@@ -406,7 +406,9 @@ namespace p3d {
 		if (autoLevels == 0) { SetFirstLODDistance(1e9f); return false; }
 		// (the last level made reaches all the way out)
 		LODDistances.back() = 1e9f;
-		if (shadowDetail <= 0.f && triangles >= 3000) SetShadowDetail(0.25f);
+		// (a quarter of the model for its shadow - unless it was given a shadow mesh of its own, which
+		// this used to throw away: a scene's "shadowRenderable" never cast on any model with levels)
+		if (shadowDetail <= 0.f && !shadowRenderable && triangles >= 3000) SetShadowDetail(0.25f);
 		return true;
 	}
 
@@ -462,6 +464,12 @@ namespace p3d {
 			}
 			m->standsFor = own[std::min(i, own.size() - 1)];
 			m->Material = own[std::min(i, own.size() - 1)]->Material;
+			// (a stand-in with fewer parts than the model borrows the material of a part that casts:
+			// the Polo's first is its glass, and a see-through caster casts nothing)
+			if (renderable->Geometries.size() < own.size() && m->Material && m->Material->IsTransparent())
+				for (size_t k = 0; k < own.size(); k++)
+					if (own[k]->Material && !own[k]->Material->IsTransparent() && own[k]->Material->IsCastingShadows())
+					{ m->standsFor = NULL; m->Material = own[k]->Material; break; }
 			m->CullingGeometry = own[std::min(i, own.size() - 1)]->CullingGeometry;
 			m->renderingComponent = this;
 			shadowMeshes.push_back(m);
