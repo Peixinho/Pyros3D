@@ -526,7 +526,9 @@ namespace p3d {
 					f32 metallic = 0.f, roughness = 1.f;
 					const bool hasM = pMaterial->Get(AI_MATKEY_METALLIC_FACTOR, metallic) == AI_SUCCESS;
 					const bool hasR = pMaterial->Get(AI_MATKEY_ROUGHNESS_FACTOR, roughness) == AI_SUCCESS;
-					texFound = pMaterial->GetTexture(aiTextureType_GLTF_METALLIC_ROUGHNESS, 0, &path);
+					// (the packed glTF texture's slot is aiTextureType_GLTF_METALLIC_ROUGHNESS from Assimp 6,
+					// aiTextureType_UNKNOWN before: the glTF header's macro names whichever this one uses)
+					texFound = pMaterial->GetTexture(AI_MATKEY_GLTF_PBRMETALLICROUGHNESS_METALLICROUGHNESS_TEXTURE, &path);
 					if (texFound != AI_SUCCESS) texFound = pMaterial->GetTexture(aiTextureType_METALNESS, 0, &path);
 					if (texFound != AI_SUCCESS) texFound = pMaterial->GetTexture(aiTextureType_DIFFUSE_ROUGHNESS, 0, &path);
 					if (texFound == AI_SUCCESS)

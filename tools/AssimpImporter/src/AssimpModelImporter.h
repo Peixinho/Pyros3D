@@ -21,6 +21,11 @@
 #include <assimp/postprocess.h>
 #include <assimp/scene.h>
 #include <assimp/material.h>
+#if __has_include(<assimp/GltfMaterial.h>)
+#include <assimp/GltfMaterial.h>
+#else
+#include <assimp/pbrmaterial.h>
+#endif
 #include <assimp/Importer.hpp>
 #include <vector>
 
