@@ -27,6 +27,7 @@
 namespace p3d {
 
 	const char* SkyEffectSource();    // SkyEffect.cpp
+	const char* GradeEffectSource();  // GradeEffect.cpp
 
 
 	namespace PostEffectChain {
@@ -83,6 +84,8 @@ namespace p3d {
 				// The sky, the air and the weather - see SkyEffect.cpp. An asset
 				// effect that ships with the engine: its sliders are its header's.
 				names.push_back("Sky");
+				// A colourist's grade, last in the chain - see GradeEffect.cpp.
+				names.push_back("Grade");
 			}
 			return names;
 		}
@@ -119,6 +122,11 @@ namespace p3d {
 					std::string effectName, error;
 					std::vector<CustomEffect::Param> sky;
 					if (CustomEffect::ReadMetadata(SkyEffectSource(), effectName, sky, error)) table["Sky"] = sky;
+				}
+				{
+					std::string effectName, error;
+					std::vector<CustomEffect::Param> grade;
+					if (CustomEffect::ReadMetadata(GradeEffectSource(), effectName, grade, error)) table["Grade"] = grade;
 				}
 				std::vector<CustomEffect::Param> vignette;
 				vignette.push_back(MakeParam("uRADIUS", "Radius", 0.5f, 0.f, 1.5f));
@@ -285,6 +293,16 @@ namespace p3d {
 				manager.AddEffect((previous != NULL)
 					? new VolumetricSmokeCompositeEffect(previous->GetTexture(), width, height)
 					: new VolumetricSmokeCompositeEffect(RTT::Color, width, height));
+				return true;
+			}
+			if (name == "Grade")
+			{
+				std::string error;
+				CustomEffect* fx = CustomEffect::CreateFromSource(GradeEffectSource(), width, height, error);
+				if (fx == NULL) { echo("ERROR: post effect Grade: " + error); return false; }
+				for (std::map<std::string, std::vector<f32> >::const_iterator k = params.begin(); k != params.end(); k++)
+					if (!k->second.empty()) fx->SetParam(k->first, &k->second[0], (uint32)k->second.size());
+				manager.AddEffect(fx);
 				return true;
 			}
 			if (name == "Sky")
