@@ -9,6 +9,7 @@
 #ifndef SCENEGI_H
 #define SCENEGI_H
 
+#include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
 #include <Pyros3D/Other/Export.h>
 #include <string>
@@ -30,6 +31,14 @@ namespace p3d {
 		// this is the knob that trades bake time for noise.
 		uint32 passes;
 		Vec3 skyColor;
+		// Or the sky as an environment's SH (radiance projections): an escaping ray is then lit by
+		// the sky in its own direction - the HDR environment's (EnvironmentMap) - not one colour.
+		bool skyFromSH = false;
+		// Where the probes go, when given (else the scene's whole extent, padded): the air the light
+		// travels through. A street's probes belong in the street, not inside its buildings.
+		bool hasBounds = false;
+		Vec3 boundsMin, boundsMax;
+		SphericalHarmonicsL2 skySH;
 		// Fraction of the scene's own size to pad the volume by, so
 		// surfaces at the boundary sit inside it rather than exactly on
 		// its clamped face.

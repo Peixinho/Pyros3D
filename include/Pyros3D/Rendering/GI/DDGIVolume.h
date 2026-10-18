@@ -10,6 +10,8 @@
 #ifndef DDGIVOLUME_H
 #define DDGIVOLUME_H
 
+#include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
+#include <algorithm>
 #include <Pyros3D/Rendering/GI/Octahedral.h>
 #include <Pyros3D/Rendering/GI/RayScene.h>
 #include <Pyros3D/Other/Export.h>
@@ -260,6 +262,15 @@ namespace p3d {
 		void FillAtlasBorders() { irradiance.FillBorders(); visibility.FillBorders(); radiance.FillBorders(); }
 		f32 GetMaxRayDistance() const { return maxRayDistance; }
 		const Vec3 &GetSkyColor() const { return skyColor; }
+		// What a ray that escapes sees: the sky's SH in its direction when set, else the colour.
+		Vec3 SkyRadiance(const Vec3 &dir) const
+		{
+			if (!skyFromSH) return skyColor;
+			const Vec3 r = skySH.EvaluateRadiance(dir);
+			return Vec3(std::max(r.x, 0.f), std::max(r.y, 0.f), std::max(r.z, 0.f));
+		}
+		bool HasSkySH() const { return skyFromSH; }
+		const SphericalHarmonicsL2 &GetSkySH() const { return skySH; }
 
 		// How much of the light already in the volume a probe ray adds
 		// back when it hits a surface. 0 is one bounce; 1 is the real
@@ -337,6 +348,8 @@ namespace p3d {
 		// Sky colour for rays that hit nothing. Without one an enclosed
 		// scene is correct and an open one is black.
 		void SetSkyColor(const Vec3 &c) { skyColor = c; }
+		void SetSkySH(const SphericalHarmonicsL2 &sh) { skySH = sh; skyFromSH = true; }
+		void ClearSkySH() { skyFromSH = false; }
 
 		// Rays that hit nothing travel this far before being treated as
 		// sky, which is also what gets written into the visibility
@@ -377,6 +390,8 @@ namespace p3d {
 		uint32 radianceLevels;
 		f32 multiBounce;
 		Vec3 skyColor;
+		SphericalHarmonicsL2 skySH;
+		bool skyFromSH = false;
 		f32 maxRayDistance;
 		// Where the next budgeted Update() resumes.
 		uint32 updateCursor;

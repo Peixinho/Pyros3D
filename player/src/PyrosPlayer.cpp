@@ -921,6 +921,14 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		gi.raysPerProbe = meta.ddgiRaysPerProbe;
 		gi.passes = meta.ddgiPasses;
 		gi.skyColor = Vec3(meta.ddgiSky.x, meta.ddgiSky.y, meta.ddgiSky.z);
+		if (meta.ddgiHasBounds) { gi.hasBounds = true; gi.boundsMin = meta.ddgiMin; gi.boundsMax = meta.ddgiMax; }
+		// a scene with an HDR environment: its rays see that sky, as bright as the scene's ambient
+		if (EnvironmentMap::IsLoaded())
+		{
+			gi.skyFromSH = true;
+			gi.skySH = EnvironmentMap::GetSH();
+			gi.skySH.Scale(meta.ambientIntensity);
+		}
 		// Relative to the game directory, where build_game puts the
 		// shaders next to the binary - the same place the player's own
 		// materials come from.

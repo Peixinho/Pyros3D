@@ -2812,6 +2812,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				gi["multiBounce"] = meta->ddgiMultiBounce;
 				gi["dynamic"] = meta->ddgiDynamic;
 				gi["probeBudget"] = meta->ddgiProbeBudget;
+				if (meta->ddgiHasBounds)
+				{
+					gi["min"] = json::array({ meta->ddgiMin.x, meta->ddgiMin.y, meta->ddgiMin.z });
+					gi["max"] = json::array({ meta->ddgiMax.x, meta->ddgiMax.y, meta->ddgiMax.z });
+				}
 				gi["hysteresis"] = meta->ddgiHysteresis;
 				root["ddgi"] = gi;
 			}
@@ -3158,6 +3163,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 	static std::shared_ptr<IMaterial> BuildMaterialBody(const json &j, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets);
 
 	// See the "asset" key in GetOrAddMaterial.
+	// While a scene lit by a DDGI volume (ambient mode 3) is being read: every lit material it
+	// builds - its own, and the ones a model brings from its file - is built to read the volume.
+	// Only materials compiled with ShaderUsage::GlobalIllumination sample the probes, and nothing
+	// gave that to a model's materials or to a material written by a tool: they took the plain
+	// sky light, and a solved volume lit nothing.
+	static bool g_loadingGI = false;
+
 	static std::shared_ptr<IMaterial> BuildMaterial(const json &j, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets)
 	{
 		std::shared_ptr<IMaterial> mat = BuildMaterialBody(j, textureCache, outAssets);
@@ -3171,7 +3183,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		std::string kind = j.value("kind", "unsupported");
 		if (kind == "generic")
 		{
-			std::shared_ptr<GenericShaderMaterial> gm = std::make_shared<GenericShaderMaterial>(j.value("options", 0u));
+			uint32 options = j.value("options", 0u);
+			if (g_loadingGI && (options & (ShaderUsage::Diffuse | ShaderUsage::PBR))) options |= ShaderUsage::GlobalIllumination;
+			std::shared_ptr<GenericShaderMaterial> gm = std::make_shared<GenericShaderMaterial>(options);
 			if ((j.find("color") != j.end())) gm->SetColor(Vec4FromJson(j["color"]));
 			if ((j.find("specular") != j.end())) gm->SetSpecular(Vec4FromJson(j["specular"]));
 			if ((j.find("displacementHeight") != j.end())) gm->SetDisplacementHeight(j["displacementHeight"].get<f32>());
@@ -3623,6 +3637,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// submesh whose geometry has no bone data.
 				uint32 opts = ShaderUsage::Diffuse | ShaderUsage::Skinning
 					| ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow | ShaderUsage::SpotShadow;
+				if (g_loadingGI) opts |= ShaderUsage::GlobalIllumination;
 				// Cutout is the scene's to say as well: a package does not
 				// record that its leaves, fences or hair are cards with holes
 				// in them. A model whose saved material has Alpha Cutout on is
@@ -5380,6 +5395,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				outMeta->ddgiProbeBudget = gi.value("probeBudget", outMeta->ddgiProbeBudget);
 				outMeta->ddgiHysteresis = std::min(0.999f, std::max(0.f,
 					gi.value("hysteresis", outMeta->ddgiHysteresis)));
+				if (gi.contains("min") && gi.contains("max") && gi["min"].is_array() && gi["max"].is_array() && gi["min"].size() == 3 && gi["max"].size() == 3)
+				{
+					outMeta->ddgiHasBounds = true;
+					outMeta->ddgiMin = Vec3(gi["min"][0].get<f32>(), gi["min"][1].get<f32>(), gi["min"][2].get<f32>());
+					outMeta->ddgiMax = Vec3(gi["max"][0].get<f32>(), gi["max"][1].get<f32>(), gi["max"][2].get<f32>());
+				}
 			}
 			if (root.contains("ambientSH") && root["ambientSH"].is_array() && root["ambientSH"].size() == 9)
 			{
@@ -5415,6 +5436,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		// raw `new Font` per Text.
 		std::map<std::string, std::shared_ptr<Font>> fontCache;
 		std::vector<std::shared_ptr<IMaterial>> materialsById;
+		// (g_loadingGI: for this load, and reset at its end - see its comment)
+		struct GILoad { GILoad(bool on) { g_loadingGI = on; } ~GILoad() { g_loadingGI = false; } } giLoad(
+			root.contains("ambientMode") && root["ambientMode"].is_number() && root["ambientMode"].get<uint32>() == 3);
 		if ((root.find("materials") != root.end()))
 			for (auto &mj : root["materials"])
 			{

@@ -47,8 +47,9 @@ layout(std430, binding = 10) buffer StatsOut { vec4 stats[]; };
 // params[4] = irrRes, visRes, irrProbesPerRow, visProbesPerRow
 // params[5] = rotation, lightCount, probeOffset, probesThisDispatch
 // params[6] = radRes, radProbesPerRow, radLevels, minRoughness
-// params[7] = multiBounce, feedbackNormalBias, irrTexels, unused
-// params[8 + probe] = that probe's relocation offset (xyz) and active
+// params[7] = multiBounce, feedbackNormalBias, irrTexels, sky is SH (1) or skyColor (0)
+// params[8..16] = the sky's SH (radiance projections, rgb), when params[7].w says so
+// params[17 + probe] = that probe's relocation offset (xyz) and active
 //   flag (w). CPU-owned - the decision is made there - so it rides the
 //   params upload rather than needing a buffer of its own.
 
@@ -75,7 +76,18 @@ layout(std430, binding = 10) buffer StatsOut { vec4 stats[]; };
 #define P_MULTIBOUNCE params[7].x
 #define P_NORMALBIAS  params[7].y
 #define P_IRRTEXELS   params[7].z
-#define P_PROBEDATA(i) params[8u + (i)]
+#define P_PROBEDATA(i) params[17u + (i)]
+// What a ray that escapes sees: the sky's SH in its direction (an HDR environment), or one colour.
+vec3 p3d_Sky(vec3 d)
+{
+    if (params[7].w < 0.5) return P_SKY;
+    vec3 r = params[8].rgb * 0.282095
+           + params[9].rgb * (0.488603 * d.y) + params[10].rgb * (0.488603 * d.z) + params[11].rgb * (0.488603 * d.x)
+           + params[12].rgb * (1.092548 * d.x * d.y) + params[13].rgb * (1.092548 * d.y * d.z)
+           + params[14].rgb * (0.315392 * (3.0 * d.z * d.z - 1.0)) + params[15].rgb * (1.092548 * d.x * d.z)
+           + params[16].rgb * (0.546274 * (d.x * d.x - d.y * d.y));
+    return max(r, vec3(0.0));
+}
 
 // Matches DDGIVolume::LevelRoughness. Level 0 is not roughness zero -
 // see the comment there; a lobe narrower than the angle between
@@ -335,7 +347,7 @@ void main()
 
     uint tri; float u, v;
     float t = p3d_TraceClosest(p, dir, P_MAXDIST, tri, u, v);
-    vec3 radiance = (t < 0.0) ? P_SKY : p3d_ShadeHit(tri, t, p, dir, u, v);
+    vec3 radiance = (t < 0.0) ? p3d_Sky(dir) : p3d_ShadeHit(tri, t, p, dir, u, v);
     // A miss records "nothing out to here", not zero - zero would claim
     // a wall at the probe itself and fail every Chebyshev test.
     float distance = (t < 0.0) ? P_MAXDIST : t;

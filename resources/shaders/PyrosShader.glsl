@@ -1445,7 +1445,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
        // the environment's turn about y, in radians.
        vec3 EnvSpecular(vec3 normal, vec3 viewDir, vec3 F0, float roughness)
        {
-           if (uAmbientParams.x < 1.5 || uAmbientParams.x >= 2.5 || uAmbientParams.y <= 0.0) return vec3(0.0);
+           // (also with DDGI: the probes' own reflections are of a few texels of sky, the
+           // environment's are sharp - DDGISpecular steps aside for these when there is one)
+           if (uAmbientParams.x < 1.5 || uAmbientParams.y <= 0.0) return vec3(0.0);
            if (textureSize(uEnvRadiance, 0).x < 64) return vec3(0.0);
            float nDotV = clamp(dot(normal, viewDir), 0.0, 1.0);
            vec3 r = reflect(-viewDir, normal);
@@ -1678,7 +1680,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            // Without this a scene that switched back to flat ambient
            // while a volume was still bound would keep its reflections
            // and lose its bounce light.
-           if (uAmbientParams.x < 2.5 || uDDGIRadianceParams.z < 0.5) return vec3(0.0);
+           if (uAmbientParams.x < 2.5 || uDDGIRadianceParams.z < 0.5 || uAmbientParams.y > 0.0) return vec3(0.0);
            float nDotV = clamp(dot(normal, viewDir), 0.0, 1.0);
            vec3 refl = reflect(-viewDir, normal);
            vec3 pre = SampleDDGIRadiance(p3d_DDGIShadingPos(worldPos, normal), normal, refl, roughness);

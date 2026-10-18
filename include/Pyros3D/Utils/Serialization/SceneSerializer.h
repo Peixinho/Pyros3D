@@ -144,6 +144,9 @@ namespace p3d {
 		// its SH from the image (ambientSH is not used) and the Sky effect draws it as the sky.
 		std::string environment;
 		f32 environmentYaw = 0.f;
+		// The DDGI volume's bounds, when the scene gives them ("ddgi": {"min", "max"}).
+		bool ddgiHasBounds = false;
+		Vec3 ddgiMin, ddgiMax;
 		// ambientMode 2 with a grid: indirect light that varies with
 		// position. Empty until probes are baked; the single ambientSH
 		// above is what gets used then.

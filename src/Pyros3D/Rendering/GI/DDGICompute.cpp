@@ -16,6 +16,11 @@
 
 namespace p3d {
 
+	// The fixed vec4s at the head of the params buffer, before one per probe: ddgi_update.glsl's
+	// P_PROBEDATA starts at the same index. (8 + the sky's nine SH coefficients.)
+	static const uint32 kParamFixed = 17;
+
+
 	namespace {
 		std::string ReadFile(const std::string &path)
 		{
@@ -185,7 +190,7 @@ namespace p3d {
 		// buffer the CPU already rewrites each batch rather than in a
 		// storage binding of their own.
 		paramProbes = volume.ProbeCount();
-		bParams = dev.CreateStorageBuffer((8 + paramProbes) * 4 * (uint32)sizeof(f32), 8, NULL);
+		bParams = dev.CreateStorageBuffer((kParamFixed + paramProbes) * 4 * (uint32)sizeof(f32), 8, NULL);
 		// Sized for every probe, not for a batch: that is what lets the
 		// stats be collected in ONE readback at the end of the update
 		// instead of one per batch.
@@ -311,7 +316,7 @@ namespace p3d {
 
 			// Fixed block plus the probe offsets. Heap rather than a
 			// stack array now that it scales with the probe count.
-			std::vector<f32> paramBuf((size_t)(8 + paramProbes) * 4, 0.f);
+			std::vector<f32> paramBuf((size_t)(kParamFixed + paramProbes) * 4, 0.f);
 			f32 *params = paramBuf.data();
 			params[0]=volume.origin.x; params[1]=volume.origin.y; params[2]=volume.origin.z; params[3]=(f32)total;
 			params[4]=volume.spacing.x; params[5]=volume.spacing.y; params[6]=volume.spacing.z; params[7]=(f32)rays;
@@ -326,14 +331,21 @@ namespace p3d {
 			params[26]=(f32)radianceLevels; params[27]=DDGIVolume::MinRoughness();
 			params[28]=volume.GetMultiBounce(); params[29]=volume.GetFeedbackNormalBias();
 			params[30]=(f32)irrTexels;
+			// the sky as SH (ddgi_update.glsl's p3d_Sky): a flag, then nine vec4s from params[8]
+			params[31] = volume.HasSkySH() ? 1.f : 0.f;
+			for (uint32 c = 0; c < 9; c++)
+			{
+				const Vec3 &k = volume.GetSkySH().coefficients[c];
+				params[32 + c*4 + 0] = k.x; params[32 + c*4 + 1] = k.y; params[32 + c*4 + 2] = k.z;
+			}
 			{
 				const std::vector<Vec4> &pd = volume.GetProbeData();
 				for (uint32 i = 0; i < paramProbes && i < pd.size(); i++)
 				{
-					params[32 + i*4 + 0] = pd[i].x;
-					params[32 + i*4 + 1] = pd[i].y;
-					params[32 + i*4 + 2] = pd[i].z;
-					params[32 + i*4 + 3] = pd[i].w;
+					params[kParamFixed*4 + i*4 + 0] = pd[i].x;
+					params[kParamFixed*4 + i*4 + 1] = pd[i].y;
+					params[kParamFixed*4 + i*4 + 2] = pd[i].z;
+					params[kParamFixed*4 + i*4 + 3] = pd[i].w;
 				}
 			}
 			dev.UpdateStorageBuffer(bParams, 0, (uint32)(paramBuf.size()*sizeof(f32)), params);

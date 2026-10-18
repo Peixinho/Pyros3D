@@ -418,7 +418,7 @@ namespace p3d {
 				}
 				else
 				{
-					rayRadiance[r] = skyColor;
+					rayRadiance[r] = SkyRadiance(d);
 					rayBackface[r] = 0;
 					// A miss is "nothing out to here", which is what the
 					// visibility moments should record - not zero, which

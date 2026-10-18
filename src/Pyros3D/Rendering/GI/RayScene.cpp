@@ -6,6 +6,9 @@
 // Description : See RayScene.h.
 //============================================================================
 
+#include <map>
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <Pyros3D/Ext/stb/stb_image.h>
 #include <Pyros3D/Rendering/GI/RayScene.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
@@ -230,6 +233,31 @@ namespace p3d {
 		localTriangles.clear();
 	}
 
+	// The average colour of an image file (linear), decoded once a path; white when it cannot be read.
+	static Vec3 AverageColour(const std::string &path)
+	{
+		static std::map<std::string, Vec3> known;
+		if (path.empty()) return Vec3(1.f, 1.f, 1.f);
+		std::map<std::string, Vec3>::iterator it = known.find(path);
+		if (it != known.end()) return it->second;
+		Vec3 avg(1.f, 1.f, 1.f);
+		int w = 0, h = 0, n = 0;
+		if (uchar *px = stbi_load(path.c_str(), &w, &h, &n, 3))
+		{
+			f64 r = 0, g = 0, b = 0; size_t count = 0;
+			const size_t step = std::max<size_t>(1, (size_t)w * h / 65536);
+			for (size_t i = 0; i < (size_t)w * h; i += step)
+			{
+				// sRGB to linear, roughly: what the shader's albedo is
+				r += pow(px[i * 3] / 255.0, 2.2); g += pow(px[i * 3 + 1] / 255.0, 2.2); b += pow(px[i * 3 + 2] / 255.0, 2.2); count++;
+			}
+			stbi_image_free(px);
+			if (count) avg = Vec3((f32)(r / count), (f32)(g / count), (f32)(b / count));
+		}
+		known[path] = avg;
+		return avg;
+	}
+
 	bool RayScene::BuildFromScene(SceneGraph *scene)
 	{
 		Clear();
@@ -269,8 +297,14 @@ namespace p3d {
 				if (rc == NULL || !rc->IsActive())
 					continue;
 
-				// LOD 0 - the real surface. Lower LODs exist for distance.
-				std::vector<RenderingMesh*> &meshes = rc->GetMeshes(0);
+				// The lightest level it has: light bounced off a facade does not need the mouldings
+				// round its windows, and a street of full-detail kit pieces and tree leaves was
+				// millions of triangles - more than the GPU tracer could take, and the frame went
+				// black. (A component with no levels has only LOD 0, the real surface.)
+				const uint32 levels = rc->GetLODSize();
+				std::vector<RenderingMesh*> *pick = &rc->GetMeshes(levels > 1 ? levels - 1 : 0);
+				if (pick->empty()) pick = &rc->GetMeshes(0);
+				std::vector<RenderingMesh*> &meshes = *pick;
 				for (size_t m = 0; m < meshes.size(); m++)
 				{
 					RenderingMesh *rm = meshes[m];
@@ -287,10 +321,18 @@ namespace p3d {
 
 					RayMaterial mat;
 					GenericShaderMaterial *gm = dynamic_cast<GenericShaderMaterial*>(rm->Material.get());
+					// Cut-out cards - leaves, grass, fences - are mostly holes, and traced as solid
+					// a street's canopy roofed every probe under it over and hid the sky: the shade
+					// went black. Light goes through them here (their own shadow maps still cut it).
+					if (gm != NULL && (gm->GetOptions() & ShaderUsage::AlphaTest))
+						continue;
 					if (gm != NULL)
 					{
 						const Vec4 c = gm->GetColor();
 						mat.albedo = Vec3(c.x, c.y, c.z);
+						// times its picture's average: a textured material's colour is mostly white,
+						// and a white road bounced every bit of the sun back up
+						if (Texture *cm = gm->GetColorMap()) mat.albedo = mat.albedo * AverageColour(cm->GetFilename());
 					}
 					const uint32 materialIndex = (uint32)materials.size();
 					materials.push_back(mat);

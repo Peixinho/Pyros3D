@@ -25,7 +25,23 @@ namespace p3d {
 		if (scene == NULL)
 			return;
 
-		std::vector<IComponent*> &lights = ILightComponent::GetLightsOnScene(scene);
+		std::vector<IComponent*> lights = ILightComponent::GetLightsOnScene(scene);
+		// A scene's registries fill on its first update, and a bake made at load comes before that:
+		// with nothing registered yet, the lights are found among the objects themselves (or the
+		// sun bounced nowhere - "the scene has no lights", sky only).
+		if (lights.empty())
+		{
+			std::vector<GameObject*> todo;
+			for (size_t i = 0; i < scene->GetAllGameObjectList().size(); i++) todo.push_back(scene->GetAllGameObjectList()[i].get());
+			while (!todo.empty())
+			{
+				GameObject *go = todo.back(); todo.pop_back();
+				if (go == NULL) continue;
+				for (size_t c = 0; c < go->GetComponents().size(); c++)
+					if (dynamic_cast<ILightComponent*>(go->GetComponents()[c].get()) != NULL) lights.push_back(go->GetComponents()[c].get());
+				for (size_t k = 0; k < go->GetChildren().size(); k++) todo.push_back(go->GetChildren()[k].get());
+			}
+		}
 		for (size_t i = 0; i < lights.size(); i++)
 		{
 			ILightComponent *lc = dynamic_cast<ILightComponent*>(lights[i]);
@@ -114,6 +130,7 @@ namespace p3d {
 		const Vec3 pad = (mx - mn) * settings.padding;
 		mn = mn - pad;
 		mx = mx + pad;
+		if (settings.hasBounds) { mn = settings.boundsMin; mx = settings.boundsMax; }
 
 		const uint32 nx = std::max(2u, settings.counts[0]);
 		const uint32 ny = std::max(2u, settings.counts[1]);
@@ -127,6 +144,7 @@ namespace p3d {
 			return false;
 		}
 		outVolume.SetSkyColor(settings.skyColor);
+		if (settings.skyFromSH) outVolume.SetSkySH(settings.skySH); else outVolume.ClearSkySH();
 
 		std::vector<RayLight> lights;
 		CollectRayLights(scene, lights);
