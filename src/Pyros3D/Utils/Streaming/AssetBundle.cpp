@@ -77,16 +77,22 @@ namespace p3d {
 
 	bool AssetBundle::AddImage(const std::string &path)
 	{
+		// (by the file, not the path: a kit's pieces each name the kit's textures through their own
+		// textures/ folder - a link, or "../textures" - and every such path was decoded again, more
+		// than half of a big scene's decoding thrown away when the texture cache, keyed by the file,
+		// uploaded the first)
+		const std::string key = Texture::FileKey(path);
 		{
 			std::lock_guard<std::mutex> lock(mutex);
-			if (images.count(path)) return true;
+			if (images.count(key) || claimed.count(key)) return true;
+			claimed.insert(key);
 		}
 		Texture::DecodedImage image;
 		if (!Texture::DecodeFile(path, image)) return false;
 		std::lock_guard<std::mutex> lock(mutex);
-		if (images.count(path)) return true;
+		if (images.count(key)) return true;
 		bytes += image.pixels.size();
-		images[path] = std::move(image);
+		images[key] = std::move(image);
 		return true;
 	}
 
@@ -231,8 +237,9 @@ namespace p3d {
 	{
 		AssetBundle* b = g_current;
 		if (!b) return false;
+		const std::string key = Texture::FileKey(path);
 		std::lock_guard<std::mutex> lock(b->mutex);
-		std::map<std::string, Texture::DecodedImage>::iterator it = b->images.find(path);
+		std::map<std::string, Texture::DecodedImage>::iterator it = b->images.find(key);
 		if (it == b->images.end()) return false;
 		b->bytes -= it->second.pixels.size();
 		out = std::move(it->second);

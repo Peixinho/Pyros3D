@@ -113,6 +113,21 @@ namespace p3d {
 
 		DecodedImage image;
 		bool status = AssetBundle::TakeImage(Filename, image) || DecodeFile(Filename, image);
+		if (status && level == 0)
+		{
+			// Its average colour, linear, while the pixels are here (GetAverageColour): the light
+			// bounced off a surface wants it, and reading the file again for it was a decode of
+			// every picture in the scene, one after another, at the end of a load.
+			const size_t count = (size_t)image.width * image.height;
+			const size_t step = std::max<size_t>(1, count / 65536);
+			f64 r = 0, g = 0, b = 0; size_t n = 0;
+			for (size_t i = 0; i < count; i += step, n++)
+			{
+				const uchar* p = &image.pixels[i * 4];
+				r += std::pow(p[0] / 255.0, 2.2); g += std::pow(p[1] / 255.0, 2.2); b += std::pow(p[2] / 255.0, 2.2);
+			}
+			if (n) { averageColour = Vec3((f32)(r / n), (f32)(g / n), (f32)(b / n)); haveAverageColour = true; }
+		}
 		if (status)
 			status = UploadDecoded(image, Mipmapping, level);
 		// Only record a real, successfully-loaded file's path - a failed
@@ -569,6 +584,8 @@ namespace p3d {
 	// The file a path names, links followed: two paths to one picture (a model's textures folder
 	// linked to another's - recoloured copies of a kit sharing all but one map) are one texture,
 	// not one copy each in memory.
+	static std::string SharedTextureKey(const std::string &Filename);
+	std::string Texture::FileKey(const std::string &Filename) { return SharedTextureKey(Filename); }
 	static std::string SharedTextureKey(const std::string &Filename)
 	{
 		std::error_code ec;

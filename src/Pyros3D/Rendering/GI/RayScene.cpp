@@ -332,7 +332,12 @@ namespace p3d {
 						mat.albedo = Vec3(c.x, c.y, c.z);
 						// times its picture's average: a textured material's colour is mostly white,
 						// and a white road bounced every bit of the sun back up
-						if (Texture *cm = gm->GetColorMap()) mat.albedo = mat.albedo * AverageColour(cm->GetFilename());
+						if (Texture *cm = gm->GetColorMap())
+						{
+							// (kept by the texture when it was loaded; else read from its file, once)
+							Vec3 avg;
+							mat.albedo = mat.albedo * (cm->GetAverageColour(avg) ? avg : AverageColour(cm->GetFilename()));
+						}
 					}
 					const uint32 materialIndex = (uint32)materials.size();
 					materials.push_back(mat);
@@ -447,30 +452,49 @@ namespace p3d {
 			if (hi - lo < 1e-9f)
 				continue;
 
-			for (uint32 b = 1; b < kBins; b++)
+			// One pass: every triangle into the bin its centroid falls in, the bins keeping a count
+			// and the bounds of what is in them; then each plane between bins costed from the bins
+			// either side. (It was a pass over every triangle for each of the eleven planes, the
+			// triangles' bounds worked out again each time - 33 passes a node, most of a big scene's
+			// load before its light was solved.)
+			Vec3 bmin[kBins], bmax[kBins];
+			uint32 bcount[kBins];
+			for (uint32 b = 0; b < kBins; b++) { bmin[b] = Vec3(FLT_MAX,FLT_MAX,FLT_MAX); bmax[b] = Vec3(-FLT_MAX,-FLT_MAX,-FLT_MAX); bcount[b] = 0; }
+			const f32 scale = (f32)kBins / (hi - lo);
+			for (uint32 i = 0; i < node.count; i++)
 			{
-				const f32 plane = lo + (hi - lo) * ((f32)b / (f32)kBins);
-				Vec3 lmin(FLT_MAX,FLT_MAX,FLT_MAX), lmax(-FLT_MAX,-FLT_MAX,-FLT_MAX);
-				Vec3 rmin(FLT_MAX,FLT_MAX,FLT_MAX), rmax(-FLT_MAX,-FLT_MAX,-FLT_MAX);
-				uint32 lcount = 0, rcount = 0;
-				for (uint32 i = 0; i < node.count; i++)
+				const uint32 ti = triangleIndices[node.firstOrLeft + i];
+				const Vec3 &c = centroids[ti];
+				const f32 v = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
+				const uint32 b = std::min(kBins - 1, (uint32)std::max(0.f, (v - lo) * scale));
+				const RayTriangle &t = triangles[ti];
+				bmin[b] = MinV(bmin[b], MinV(t.v0, MinV(t.v1, t.v2)));
+				bmax[b] = MaxV(bmax[b], MaxV(t.v0, MaxV(t.v1, t.v2)));
+				bcount[b]++;
+			}
+			// the left side of each plane, swept from the left
+			f32 larea[kBins]; uint32 lcountAt[kBins];
+			{
+				Vec3 mn(FLT_MAX,FLT_MAX,FLT_MAX), mx(-FLT_MAX,-FLT_MAX,-FLT_MAX); uint32 n = 0;
+				for (uint32 b = 1; b < kBins; b++)
 				{
-					const uint32 ti = triangleIndices[node.firstOrLeft + i];
-					const Vec3 &c = centroids[ti];
-					const f32 v = (axis == 0) ? c.x : (axis == 1) ? c.y : c.z;
-					const RayTriangle &t = triangles[ti];
-					const Vec3 tmin = MinV(t.v0, MinV(t.v1, t.v2));
-					const Vec3 tmax = MaxV(t.v0, MaxV(t.v1, t.v2));
-					if (v < plane) { lmin = MinV(lmin, tmin); lmax = MaxV(lmax, tmax); lcount++; }
-					else           { rmin = MinV(rmin, tmin); rmax = MaxV(rmax, tmax); rcount++; }
+					mn = MinV(mn, bmin[b - 1]); mx = MaxV(mx, bmax[b - 1]); n += bcount[b - 1];
+					const Vec3 e = mx - mn;
+					larea[b] = n ? 2.f * (e.x*e.y + e.y*e.z + e.z*e.x) : 0.f; lcountAt[b] = n;
 				}
-				if (lcount == 0 || rcount == 0)
-					continue;
-				const Vec3 le = lmax - lmin, re = rmax - rmin;
-				const f32 la = 2.f * (le.x*le.y + le.y*le.z + le.z*le.x);
-				const f32 ra = 2.f * (re.x*re.y + re.y*re.z + re.z*re.x);
-				const f32 cost = la * (f32)lcount + ra * (f32)rcount;
-				if (cost < bestCost) { bestCost = cost; bestAxis = axis; bestSplit = plane; }
+			}
+			{
+				Vec3 mn(FLT_MAX,FLT_MAX,FLT_MAX), mx(-FLT_MAX,-FLT_MAX,-FLT_MAX); uint32 n = 0;
+				for (uint32 b = kBins - 1; b >= 1; b--)
+				{
+					mn = MinV(mn, bmin[b]); mx = MaxV(mx, bmax[b]); n += bcount[b];
+					const uint32 lcount = lcountAt[b], rcount = n;
+					if (lcount == 0 || rcount == 0) continue;
+					const Vec3 re = mx - mn;
+					const f32 ra = 2.f * (re.x*re.y + re.y*re.z + re.z*re.x);
+					const f32 cost = larea[b] * (f32)lcount + ra * (f32)rcount;
+					if (cost < bestCost) { bestCost = cost; bestAxis = axis; bestSplit = lo + (hi - lo) * ((f32)b / (f32)kBins); }
+				}
 			}
 		}
 

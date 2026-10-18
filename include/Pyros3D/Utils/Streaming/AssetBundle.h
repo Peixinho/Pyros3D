@@ -26,6 +26,7 @@
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <map>
+#include <set>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -94,7 +95,8 @@ namespace p3d {
 
 	private:
 		mutable std::mutex mutex;
-		std::map<std::string, Texture::DecodedImage> images;
+		std::map<std::string, Texture::DecodedImage> images;     // (by Texture::FileKey)
+		std::set<std::string> claimed;                            // files a thread has started decoding
 		std::map<std::string, std::unique_ptr<ModelLoader> > models;
 		std::map<std::string, std::shared_ptr<PreparedHeightfield> > heightfields;
 		std::map<std::string, std::shared_ptr<PreparedFoliageLayer> > foliage;

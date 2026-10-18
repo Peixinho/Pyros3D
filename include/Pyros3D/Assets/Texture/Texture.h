@@ -147,6 +147,7 @@ namespace p3d {
 		// when built via CreateEmptyTexture()/LoadTextureFromMemory()
 		// instead - those have no file source to record.
 		std::string Filename;
+		Vec3 averageColour; bool haveAverageColour = false;
 
 		// Fallback for when there's no Filename (built via
 		// LoadTextureFromMemory() directly, not through LoadTexture()) -
@@ -203,6 +204,9 @@ namespace p3d {
 		// map must not wrap (bilinear filtering at its edge would blend in
 		// the opposite edge, a visible seam between tiles) while a tiling
 		// texture must, so the same file can exist once per mode.
+		// The file a path names, links and ".." followed - what LoadShared and AssetBundle key a
+		// picture by, so two paths to one file are one decode and one texture.
+		static std::string FileKey(const std::string &Filename);
 		static std::shared_ptr<Texture> LoadShared(const std::string& Filename,
 			const uint32 Type = TextureType::Texture, bool Mipmapping = true, bool clampToEdge = false);
 		bool IsClampedToEdge() const { return SRepeat == TextureRepeat::ClampToEdge; }
@@ -253,6 +257,9 @@ namespace p3d {
 		const uint32 GetWidth(const uint32 level = 0) const;
 		const uint32 GetHeight(const uint32 level = 0) const;
 		const std::string &GetFilename() const { return Filename; }
+		// The picture's average colour, linear (as a shader's albedo is), taken when it was
+		// decoded from a file; false when it was not (made, or filled from memory).
+		bool GetAverageColour(Vec3 &out) const { if (haveAverageColour) out = averageColour; return haveAverageColour; }
 		// Fallback raw file bytes - see RawData's declaration comment.
 		// Empty whenever GetFilename() is non-empty (redundant then).
 		const std::vector<uchar> &GetRawData() const { return RawData; }
