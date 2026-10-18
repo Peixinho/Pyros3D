@@ -3601,7 +3601,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// Models: rebuild per-submesh materials from the .p3dm (texture
 			// paths resolve next to the package). Applying one serialized
 			// material to every mesh dropped package textures on reload.
-			const bool isModel = (dynamic_cast<Model*>(renderable.get()) != NULL);
+			// (a Decal is a Model by inheritance, but has no package of its own: it is drawn with the
+			// material the scene gave it. Rebuilt "from its package" it came out black.)
+			const bool isModel = (dynamic_cast<Model*>(renderable.get()) != NULL) && (dynamic_cast<Decal*>(renderable.get()) == NULL);
 			if (!isGenerated && !isModel && !mat)
 			{ echo("WARNING: SceneSerializer - skipping RenderingComponent, its material couldn't be rebuilt"); return; }
 			if (isGenerated && !mat) mat = std::make_shared<GenericShaderMaterial>(ShaderUsage::Color);
