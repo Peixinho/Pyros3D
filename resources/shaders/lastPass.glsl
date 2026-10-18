@@ -343,6 +343,8 @@ void main() {
 	// fall back to the SSR gate so a surface that opted in still gets a
 	// dielectric F0 instead of a silent zero-strength reflection.
 	float materialReflectivity = max(mr.a, ssrReflective);
+	// how strongly, above the gate (GenericShaderMaterial::SetSSRStrength): 0.5 + half of it
+	float ssrStrength = clamp((ssrReflective - 0.5) * 2.0, 0.0, 1.0);
 
 	// Debug 1: visualize per-material SSR gate (should be white on the floor).
 	if (uSSRDebug > 0.5 && uSSRDebug < 1.5) {
@@ -437,8 +439,10 @@ void main() {
 	// Facing-angle dielectric mirrors need a boost past bare Schlick F0~0.04
 	// so SSRTest's floor reads as a mirror; confidence fades fragile hits
 	// instead of leaving stippled holes.
-	float mirrorFloor = 0.55 * (1.0 - metallic) * materialReflectivity;
-	vec3 reflectStrength = clamp(max(F, vec3(mirrorFloor)) * edgeFade * roughnessFade * distanceFade * hitConfidence, 0.0, 0.95);
+	// (the strength scales Fresnel's share and, squared, the mirror floor: a surface asking for a
+	// little gets a sheen that grows toward grazing, not a flat mirror at any angle)
+	float mirrorFloor = 0.55 * (1.0 - metallic) * materialReflectivity * ssrStrength * ssrStrength;
+	vec3 reflectStrength = clamp(max(F * ssrStrength, vec3(mirrorFloor)) * edgeFade * roughnessFade * distanceFade * hitConfidence, 0.0, 0.95);
 	FragColor = vec4(baseColor * (1.0 - reflectStrength) + reflectionColor * reflectStrength, 1.0);
 }
 #endif

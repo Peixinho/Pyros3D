@@ -884,6 +884,7 @@ namespace p3d {
 			m["metallic"] = gm->GetMetallic();
 			m["roughness"] = gm->GetRoughness();
 			m["ssrEnabled"] = gm->IsSSREnabled();
+			if (gm->IsSSREnabled() && gm->GetSSRStrength() < 0.999f) m["ssrStrength"] = gm->GetSSRStrength();
 			// (only where it is on: a scene saved before there was such a thing reads the same)
 			if (gm->GetSubsurfaceStrength() > 0.f)
 			{
@@ -1518,6 +1519,20 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["type"] = "RenderingComponent";
 			j["cullTest"] = rc->IsCullTesting();
 			j["castingShadows"] = rc->IsCastingShadows();
+			// (a model drawn with its package's materials says "reflections" if they were all given them)
+			if (dynamic_cast<Model*>(rc->GetRenderable()) != NULL && !rc->GetMeshes(0).empty())
+			{
+				bool all = true;
+				f32 strength = 1.f;
+				const std::vector<RenderingMesh*> &ms = rc->GetMeshes(0);
+				for (size_t m = 0; m < ms.size() && all; m++)
+				{
+					GenericShaderMaterial* g = ms[m] ? dynamic_cast<GenericShaderMaterial*>(ms[m]->Material.get()) : NULL;
+					all = g && g->IsSSREnabled();
+					if (all) strength = g->GetSSRStrength();
+				}
+				if (all) j["reflections"] = strength < 0.999f ? json(strength) : json(true);
+			}
 			if (!isGenerated)
 			{
 				j["material"] = GetOrAddMaterial(mat, materialsArray, materialIdMap);
@@ -3194,7 +3209,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if ((j.find("shininess") != j.end())) gm->SetShininess(j["shininess"].get<f32>());
 			if ((j.find("metallic") != j.end())) gm->SetMetallic(j["metallic"].get<f32>());
 			if ((j.find("roughness") != j.end())) gm->SetRoughness(j["roughness"].get<f32>());
-			if (j.value("ssrEnabled", false)) gm->SetSSREnabled(true);
+			if (j.value("ssrEnabled", false)) gm->SetSSRStrength(j.value("ssrStrength", 1.f));
 			if (j.find("subsurface") != j.end() && j["subsurface"].is_number())
 			{
 				Vec3 c = gm->GetSubsurfaceColor();
@@ -3800,6 +3815,22 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				const Vec3 sc = go->GetScale();
 				rc->AddAutomaticLODs(renderable->GetBoundingSphereRadius() * std::max(std::fabs(sc.x), std::max(std::fabs(sc.y), std::fabs(sc.z))));
 			}
+			// "reflections": true - screen-space reflections on every material the thing is drawn with,
+			// at every level of detail. A model's materials are its package's, and a package does not say
+			// a surface is one that reflects: a car's paint and glass were as dull as its tyres. How much
+			// each surface reflects stays its own (the SSR pass weighs by Fresnel and roughness: glossy
+			// paint and glass do, rubber and rough plastic hardly).
+			// (a number is how strongly: SetSSRStrength)
+			const f32 reflections = j.contains("reflections") ? (j["reflections"].is_number() ? j["reflections"].get<f32>()
+				: (j["reflections"].is_boolean() && j["reflections"].get<bool>() ? 1.f : 0.f)) : 0.f;
+			if (reflections > 0.f)
+				for (uint32 l = 0; l < rc->GetLODSize(); l++)
+				{
+					std::vector<RenderingMesh*> &ms = rc->GetMeshes(l);
+					for (size_t m = 0; m < ms.size(); m++)
+						if (GenericShaderMaterial* g = ms[m] ? dynamic_cast<GenericShaderMaterial*>(ms[m]->Material.get()) : NULL)
+							g->SetSSRStrength(reflections);
+				}
 			go->AddComponent(rc);
 
 			if (j.find("skeletonAnimation") != j.end())

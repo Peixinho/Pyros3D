@@ -462,7 +462,7 @@ namespace p3d
 		m->SetReflectivity(Reflectivity);
 		m->SetMetallic(Metallic);
 		m->SetRoughness(Roughness);
-		m->SetSSREnabled(SSREnabled != 0.0f);
+		m->SetSSRStrength(GetSSRStrength());
 		m->SetAlphaCutoff(AlphaCutoff);
 		if (Subsurface.w > 0.f) m->SetSubsurface(Vec3(Subsurface.x, Subsurface.y, Subsurface.z), Subsurface.w);
 		m->Wind = Wind;
@@ -652,9 +652,13 @@ namespace p3d
 		else
 			uRoughness->SetValue(&Roughness);
 	}
-	void GenericShaderMaterial::SetSSREnabled(const bool enabled)
+	void GenericShaderMaterial::SetSSREnabled(const bool enabled) { SetSSRStrength(enabled ? 1.f : 0.f); }
+	void GenericShaderMaterial::SetSSRStrength(const f32 strength)
 	{
-		SSREnabled = enabled ? 1.0f : 0.0f;
+		// (0 off; else 0.5 + half the strength: the pass reads at or above a half as "reflects",
+		// and the rest as how much - so 1, all there was before, is full strength)
+		const f32 s = strength < 0.f ? 0.f : (strength > 1.f ? 1.f : strength);
+		SSREnabled = s > 0.f ? 0.5f + 0.5f * s : 0.0f;
 		if (!uSSRReflective)
 			uSSRReflective = AddUniform(Uniform("uSSRReflective", Uniforms::DataType::Float, &SSREnabled));
 		else

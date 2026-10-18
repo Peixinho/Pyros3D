@@ -68,6 +68,11 @@ namespace p3d
 		// reflective" there, so this is purely additive, no behavior
 		// change for anything that doesn't opt in.
 		void SetSSREnabled(const bool enabled);
+		// How much it reflects, 0..1 (0 is off): the reflection's weight - Fresnel's and the
+		// mirror floor's - scaled by it. SetSSREnabled(true) is 1. Lacquer, glass, a wet road want
+		// it whole; a car's dusty paint or a dull metal much less, or they read as mirrors.
+		void SetSSRStrength(const f32 strength);
+		f32 GetSSRStrength() const { return SSREnabled > 0.f ? (SSREnabled - 0.5f) * 2.f : 0.f; }
 
 		// Light that goes into a surface and comes out somewhere near, the
 		// colour of what it went through: skin, wax, a leaf, marble. `color`
@@ -227,8 +232,8 @@ namespace p3d
 
 		// PBR (metallic/roughness workflow)
 		f32 Metallic, Roughness;
-		// See SetSSREnabled()'s comment - stored as 0.0/1.0, same
-		// float-as-bool convention as everything else in this UBO.
+		// See SetSSREnabled()'s comment - stored as 0.0 (off) or 0.5..1.0 (on, and how strongly:
+		// SetSSRStrength), same float-in-the-UBO convention as everything else in it.
 		f32 SSREnabled;
 		// See SetAlphaCutoff().
 		f32 AlphaCutoff;
