@@ -18,6 +18,7 @@ R"PYROSGRADE(//! effect Grade
 //! param vec4 uLens 0.52,1.7778,0,0 tan(half fov), aspect (filled by the engine)
 //! param float uTime 0.0 Seconds (filled by the engine)
 //! param float uExposure 0.0 -3.0 3.0 Exposure (stops)
+//! param float uShoulder 0.0 0.0 0.95 Highlight shoulder (0 off; else where the roll-off to white starts)
 //! param float uTemperature 0.0 -1.0 1.0 Temperature (cool - warm)
 //! param float uTint 0.0 -1.0 1.0 Tint (green - magenta)
 //! param vec4 uLift 0,0,0,0 Lift (rgb, and w for all)
@@ -36,6 +37,8 @@ R"PYROSGRADE(//! effect Grade
 // before it left it - linear light, 0 to 1 once the Sky effect's shoulder has had it - grades in
 // a perceptual space (gamma 2.2, where "half" looks like half), and gives it back linear.
 //
+//   shoulder       exposure raised on a picture that already reaches white would clip a sunlit
+//                  street to a flat white: above this the rest of the way is taken slowly
 //   white balance  a warm/cool and a green/magenta shift, before anything else
 //   lift/gamma/gain  the three wheels: the blacks, the middle, the whites (rgb each, w all)
 //   contrast       an S about the pivot that never clips: a toe for the shadows, a shoulder
@@ -49,6 +52,11 @@ float hashG(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 
 
 void main() {
 	vec3 c = max(texture_2D(uTex0, vTexcoord).rgb, vec3(0.0)) * exp2(uExposure);
+	if (uShoulder > 0.0)
+	{
+		vec3 over = max(c - uShoulder, 0.0);
+		c = min(c, vec3(uShoulder)) + (1.0 - uShoulder) * (1.0 - exp(-over / (1.0 - uShoulder)));
+	}
 	// white balance (a von Kries-ish scale: warm lifts red and lowers blue, tint trades green)
 	c *= vec3(1.0 + 0.12 * uTemperature - 0.04 * uTint, 1.0 + 0.08 * uTint, 1.0 - 0.12 * uTemperature - 0.04 * uTint);
 
