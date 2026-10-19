@@ -65,7 +65,7 @@ namespace p3d {
 		// Fragment: VULKAN (shaderc) uses a UBO; GL uses loose uniforms.
 		// PYROS_MB_DEBUG=1: red where the velocity pass drew something, green the streak length (40 px full)
 		FragmentShaderString = std::string(std::getenv("PYROS_MB_DEBUG") ? "#define MB_DEBUG\n" : "") +
-									"#define MAX_SAMPLES 32\n"
+									"#define MAX_SAMPLES 48\n"
 									"#define varying_in in\n"
 									"#define varying_out out\n"
 									"#define attribute_in in\n"
@@ -176,7 +176,7 @@ namespace p3d {
 								// cover. Averaging everything along the streak alike drew a fast edge as a row of
 								// copies, and a sharp foreground haloed with the background's smear.
 								// The taps are offset per pixel by interleaved gradient noise - even, not grain.
-								"int nSamples = int(clamp(speed * 0.5, 4.0, float(MAX_SAMPLES)));\n"
+								"int nSamples = int(clamp(speed * 0.75, 4.0, float(MAX_SAMPLES)));\n"
 								"float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));\n"
 								"float zc = EyeDepth(centreDepth);\n"
 								"float rc = 0.5 * speed;\n"
