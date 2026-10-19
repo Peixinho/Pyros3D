@@ -350,6 +350,7 @@ namespace p3d {
 		void SetSkyColor(const Vec3 &c) { skyColor = c; }
 		void SetSkySH(const SphericalHarmonicsL2 &sh) { skySH = sh; skyFromSH = true; }
 		void ClearSkySH() { skyFromSH = false; }
+		bool IsSkyFromSH() const { return skyFromSH; }
 
 		// Rays that hit nothing travel this far before being treated as
 		// sky, which is also what gets written into the visibility

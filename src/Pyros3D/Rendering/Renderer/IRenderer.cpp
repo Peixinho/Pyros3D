@@ -1,3 +1,4 @@
+#include <fstream>
 #include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
 #include <chrono>
 #include <Pyros3D/Rendering/GI/EnvironmentMap.h>
@@ -3625,10 +3626,88 @@ uint32 IRenderer::EffectiveAmbientMode() const
 	return AmbientMode;
 }
 
+namespace {
+	// The GI cache file (see SceneGISettings::cachePath): a header, the grid, the sky, then each
+	// atlas's shape and floats, then the probes' offsets. Read back only if every shape matches
+	// what the volume allocates for the same grid - else it is someone else's, and re-solved.
+	// (the atlases as half floats: light needs nothing finer, and a long street's volume was 383 MB
+	// in floats - most of it reflections, which are left out when the sky gives them: n 0)
+	const char kGICacheMagic[8] = { 'P', '3', 'D', 'G', 'I', 'C', '0', '2' };
+	template <class T> void Put(std::ofstream &o, const T &v) { o.write((const char*)&v, sizeof(T)); }
+	template <class T> bool Take(std::ifstream &i, T &v) { return (bool)i.read((char*)&v, sizeof(T)); }
+	uint16 ToHalf(const f32 f)
+	{
+		uint32 x; std::memcpy(&x, &f, 4);
+		const uint32 sign = (x >> 16) & 0x8000u; int32 e = (int32)((x >> 23) & 0xff) - 127 + 15; uint32 m = x & 0x7fffffu;
+		if (e <= 0) return (uint16)sign;                                   // (too small: zero)
+		if (e >= 31) return (uint16)(sign | 0x7bffu);                      // (too large: the largest half)
+		return (uint16)(sign | ((uint32)e << 10) | ((m + 0x1000u) >> 13 > 0x3ffu ? 0x3ffu : (m + 0x1000u) >> 13));
+	}
+	f32 FromHalf(const uint16 h)
+	{
+		const uint32 sign = (uint32)(h & 0x8000u) << 16; const uint32 e = (h >> 10) & 0x1fu, m = h & 0x3ffu;
+		uint32 x = (e == 0) ? sign : (sign | ((e - 15 + 127) << 23) | (m << 13));
+		f32 f; std::memcpy(&f, &x, 4); return f;
+	}
+	void PutAtlas(std::ofstream &o, const ProbeAtlas &a, const bool keep = true)
+	{
+		Put(o, a.GetResolution()); Put(o, a.GetChannels());
+		const uint64 n = keep ? a.GetData().size() : 0; Put(o, n);
+		std::vector<uint16> h((size_t)n);
+		for (size_t k = 0; k < (size_t)n; k++) h[k] = ToHalf(a.GetData()[k]);
+		if (n) o.write((const char*)&h[0], (std::streamsize)(n * sizeof(uint16)));
+	}
+	bool TakeAtlas(std::ifstream &i, ProbeAtlas &a)
+	{
+		uint32 res = 0, ch = 0; uint64 n = 0;
+		if (!Take(i, res) || !Take(i, ch) || !Take(i, n)) return false;
+		if (res != a.GetResolution() || ch != a.GetChannels() || (n != a.GetData().size() && n != 0)) return false;
+		if (n == 0) return true;
+		std::vector<uint16> h((size_t)n);
+		if (!i.read((char*)&h[0], (std::streamsize)(n * sizeof(uint16)))) return false;
+		for (size_t k = 0; k < (size_t)n; k++) a.GetData()[k] = FromHalf(h[k]);
+		return true;
+	}
+}
+
 bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings &settings)
 {
 	if (OwnedDDGI == NULL)
 		OwnedDDGI = new DDGIVolume();
+	// A solve kept from an earlier load of the same scene with the same settings: read, not traced.
+	if (!settings.cachePath.empty())
+	{
+		std::ifstream in(settings.cachePath, std::ios::binary);
+		char magic[8] = { 0 }; uint64 key = 0;
+		Vec3 origin, spacing; uint32 counts[3] = { 0, 0, 0 };
+		bool ok = in && in.read(magic, 8) && std::memcmp(magic, kGICacheMagic, 8) == 0 && Take(in, key) && key == settings.cacheKey
+			&& Take(in, origin) && Take(in, spacing) && Take(in, counts[0]) && Take(in, counts[1]) && Take(in, counts[2]);
+		if (ok && OwnedDDGI->Allocate(origin, spacing, counts[0], counts[1], counts[2]))
+		{
+			Vec3 sky; f32 maxRay = 0.f, bounce = 0.f; uint8 fromSH = 0; SphericalHarmonicsL2 sh;
+			ok = Take(in, sky) && Take(in, maxRay) && Take(in, bounce) && Take(in, fromSH);
+			for (uint32 c = 0; ok && c < SphericalHarmonicsL2::kCoefficientCount; c++) ok = Take(in, sh.coefficients[c]);
+			ok = ok && TakeAtlas(in, OwnedDDGI->GetIrradianceAtlasMutable()) && TakeAtlas(in, OwnedDDGI->GetVisibilityAtlasMutable())
+				&& TakeAtlas(in, OwnedDDGI->GetRadianceAtlasMutable());
+			uint64 np = 0;
+			ok = ok && Take(in, np) && np == OwnedDDGI->GetProbeData().size()
+				&& (np == 0 || (bool)in.read((char*)&OwnedDDGI->GetProbeDataMutable()[0], (std::streamsize)(np * sizeof(Vec4))));
+			if (ok)
+			{
+				OwnedDDGI->SetSkyColor(sky); OwnedDDGI->SetMaxRayDistance(maxRay); OwnedDDGI->SetMultiBounce(bounce);
+				if (fromSH) OwnedDDGI->SetSkySH(sh); else OwnedDDGI->ClearSkySH();
+				DDGIRaysPerProbe = settings.raysPerProbe;
+				DDGIShaderRoot = settings.shaderRoot;
+				DDGIFrame = settings.passes;
+				SetDDGIVolume(OwnedDDGI, DDGIRevision + 1);
+				SetAmbientMode(3);
+				LoadProgress::Report(1.f);
+				echo("BakeSceneGI: " + std::to_string(OwnedDDGI->ProbeCount()) + " probes read from " + settings.cachePath + " - nothing traced.");
+				return true;
+			}
+		}
+		if (in) echo("BakeSceneGI: " + settings.cachePath + " is for another scene or settings - solving again.");
+	}
 	// The geometry and its tree, built once: the bake traces against it and the per-frame
 	// refresh keeps it (UpdateGlobalIllumination).
 	if (OwnedRayScene == NULL)
@@ -3700,6 +3779,25 @@ bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings 
 					OwnedDDGI->Update(*OwnedRayScene, lights, settings.raysPerProbe, p, p == 0 ? 0.f : 0.5f, batch);
 			}
 		LoadProgress::Report(1.f);
+		if (!settings.cachePath.empty())
+		{
+			std::ofstream o(settings.cachePath, std::ios::binary | std::ios::trunc);
+			if (o)
+			{
+				o.write(kGICacheMagic, 8); Put(o, settings.cacheKey);
+				Put(o, OwnedDDGI->origin); Put(o, OwnedDDGI->spacing);
+				Put(o, OwnedDDGI->counts[0]); Put(o, OwnedDDGI->counts[1]); Put(o, OwnedDDGI->counts[2]);
+				Put(o, OwnedDDGI->GetSkyColor()); Put(o, OwnedDDGI->GetMaxRayDistance()); Put(o, OwnedDDGI->GetMultiBounce());
+				const uint8 fromSH = OwnedDDGI->IsSkyFromSH() ? 1 : 0; Put(o, fromSH);
+				for (uint32 c = 0; c < SphericalHarmonicsL2::kCoefficientCount; c++) Put(o, OwnedDDGI->GetSkySH().coefficients[c]);
+				// (its reflections only when nothing else gives them: with an HDR sky they come from the sky's map)
+				PutAtlas(o, OwnedDDGI->GetIrradianceAtlas()); PutAtlas(o, OwnedDDGI->GetVisibilityAtlas());
+				PutAtlas(o, OwnedDDGI->GetRadianceAtlas(), !EnvironmentMap::IsLoaded());
+				const uint64 np = OwnedDDGI->GetProbeData().size(); Put(o, np);
+				if (np) o.write((const char*)&OwnedDDGI->GetProbeData()[0], (std::streamsize)(np * sizeof(Vec4)));
+				echo("BakeSceneGI: the solve kept in " + settings.cachePath);
+			}
+		}
 		echo("BakeSceneGI: " + std::to_string(probes) + " probes, " + std::to_string(OwnedRayScene->TriangleCount()) + " triangles, "
 			+ std::to_string(settings.raysPerProbe) + " rays x " + std::to_string(passes) + " passes, "
 			+ (GPUCompute != NULL ? "on the GPU" : "on the CPU") + " in "

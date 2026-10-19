@@ -1017,6 +1017,25 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		// shaders next to the binary - the same place the player's own
 		// materials come from.
 		gi.shaderRoot = "shaders";
+		// Light that does not change once solved is kept in <scene>.gi, keyed by the scene's text and
+		// these settings: the next load reads it instead of tracing (a long street: a minute saved).
+		// A package ships the file, so the first load on another machine reads it too.
+		if (!meta.ddgiDynamic && std::getenv("PYROS_GI_NO_CACHE") == NULL)
+		{
+			std::ifstream f(abs, std::ios::binary);
+			std::stringstream ss; ss << f.rdbuf();
+			uint64 h = 1469598103934665603ull;
+			auto mix = [&h](const void* p, size_t n) { const uint8* b = (const uint8*)p; for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 1099511628211ull; } };
+			const std::string text = ss.str();
+			mix(text.data(), text.size());
+			mix(gi.counts, sizeof(gi.counts)); mix(&gi.raysPerProbe, sizeof(gi.raysPerProbe)); mix(&gi.passes, sizeof(gi.passes));
+			mix(&gi.boundsMin, sizeof(Vec3)); mix(&gi.boundsMax, sizeof(Vec3));
+			for (uint32 c = 0; c < SphericalHarmonicsL2::kCoefficientCount; c++) mix(&gi.skySH.coefficients[c], sizeof(Vec3));
+			const char version[] = "gi-cache-1";
+			mix(version, sizeof(version));
+			gi.cachePath = abs + ".gi";
+			gi.cacheKey = h;
+		}
 		LoadProgress::Phase(0.55f, 0.97f, "Lighting");
 		if (renderer->BakeGlobalIllumination(scene, gi))
 		{

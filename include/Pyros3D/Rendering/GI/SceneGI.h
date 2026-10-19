@@ -48,6 +48,13 @@ namespace p3d {
 		// traversal cannot silently drift from the CPU one that is
 		// tested against it - the cost is that the path has to be known.
 		std::string shaderRoot;
+		// A solve kept between loads (IRenderer::BakeGlobalIllumination): when cachePath names a file
+		// written for this cacheKey - the caller's hash of the scene and these settings - the volume is
+		// read from it and nothing is traced; else it is solved and written there. For light that does
+		// not change once solved (a scene's "dynamic": false): a long street was a minute of tracing
+		// every load. Empty: no cache.
+		std::string cachePath;
+		uint64 cacheKey = 0;
 
 		SceneGISettings()
 			: enabled(false), raysPerProbe(128), passes(6),

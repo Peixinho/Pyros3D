@@ -32,6 +32,7 @@ R"PYROSGRADE(//! effect Grade
 //! param float uVibrance 0.0 -1.0 1.0 Vibrance (muted colours more than vivid ones)
 //! param float uVignette 0.0 0.0 1.0 Vignette
 //! param float uGrain 0.0 0.0 0.2 Film grain
+//! param float uChromatic 0.0 0.0 0.02 Chromatic aberration (red and blue apart, toward the corners)
 
 // The look, last: what a colourist does to a finished picture. It takes the frame as the effects
 // before it left it - linear light, 0 to 1 once the Sky effect's shoulder has had it - grades in
@@ -51,7 +52,15 @@ float lumaOf(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 float hashG(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
 
 void main() {
-	vec3 c = max(texture_2D(uTex0, vTexcoord).rgb, vec3(0.0)) * exp2(uExposure);
+	vec3 c = max(texture_2D(uTex0, vTexcoord).rgb, vec3(0.0));
+	if (uChromatic > 0.0)
+	{
+		// a cheap lens's fringes: red pushed out, blue pulled in, by how far from the middle
+		vec2 off = (vTexcoord - 0.5) * uChromatic * dot(vTexcoord - 0.5, vTexcoord - 0.5) * 4.0;
+		c.r = max(texture_2D(uTex0, vTexcoord + off).r, 0.0);
+		c.b = max(texture_2D(uTex0, vTexcoord - off).b, 0.0);
+	}
+	c *= exp2(uExposure);
 	if (uShoulder > 0.0)
 	{
 		vec3 over = max(c - uShoulder, 0.0);
