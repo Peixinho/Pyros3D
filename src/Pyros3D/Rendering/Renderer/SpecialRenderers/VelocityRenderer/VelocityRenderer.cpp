@@ -1,4 +1,3 @@
-#include <cstdlib>
 //============================================================================
 // Name        : VelocityRenderer.h
 // Author      : Duarte Peixinho
@@ -11,6 +10,8 @@
 #include <unordered_set>
 #include <Pyros3D/Rendering/RenderState.h>
 #include <cstring>
+#include <cstdlib>
+#include <cstdio>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
 #include <Pyros3D/Other/PyrosGL.h>
 
@@ -54,6 +55,8 @@ namespace p3d {
 		fbo->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, depthMap);
 		fbo->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, velocityMap);
 		velocityMaterial = new GenericShaderMaterial(ShaderUsage::VelocityRendering);
+		// (posed: see the shader's note)
+		velocitySkinnedMaterial = new GenericShaderMaterial(ShaderUsage::VelocityRendering | ShaderUsage::Skinning);
 
 		// Default View Port Init Values
 		viewPortStartX = viewPortStartY = 0;
@@ -77,6 +80,7 @@ namespace p3d {
 		delete depthMap;
 		delete fbo;
 		delete velocityMaterial;
+		delete velocitySkinnedMaterial;
 	}
 
 	// Whether an object's matrix changed by more than a body at rest under
@@ -228,7 +232,7 @@ namespace p3d {
 				// again, object by object - four thousand draws and two
 				// million triangles a frame on a game's island.
 				// (bones alone no longer count: a figure standing and breathing has
-				// not moved, and this pass draws no pose anyway - see the note on it)
+				// not moved)
 				const bool bones = !dynamicOnly && !mesh->SkinningBones.empty();
 				if (dynamicOnly && mesh->Material && mesh->Material->IsTransparent()) return false;
 				// (moved: its matrix was worked out again since this pass
@@ -254,7 +258,7 @@ namespace p3d {
 			for (std::vector<RenderingMesh*>::iterator k = rmesh.begin(); k != rmesh.end(); k++)
 			{
 				if (!wanted(*k)) continue;
-				RenderObject((*k), (*k)->renderingComponent->GetOwner(), velocityMaterial);
+				RenderObject((*k), (*k)->renderingComponent->GetOwner(), (*k)->BonesToDraw().empty() ? velocityMaterial : velocitySkinnedMaterial);
 				drawn++;
 			}
 			// PYROS_VERIFY_VELOCITY=1: what was drawn held against what going

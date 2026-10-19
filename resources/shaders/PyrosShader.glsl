@@ -482,8 +482,17 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         #endif
 
         #ifdef VELOCITY_RENDERING
+            // (posed with this frame's bones at both ends: the motion is the
+            // object's and the camera's, not the limbs'. Unposed, a figure
+            // modelled in centimetres was drawn here a hundred times life
+            // size, and hid the real movers behind it.)
+            #ifndef SKINNING
                 vScreenSpaceWorldPosition=uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(Position,1.0);
                 vPrvScreenSpaceWorldPosition=uPrvProjectionMatrix * uPrvViewMatrix * uPrvModelMatrix * vec4(Position,1.0);
+            #else
+                vScreenSpaceWorldPosition=uProjectionMatrix * uViewMatrix * uModelMatrix * (matAnimation * vec4(Position,1.0));
+                vPrvScreenSpaceWorldPosition=uPrvProjectionMatrix * uPrvViewMatrix * uPrvModelMatrix * (matAnimation * vec4(Position,1.0));
+            #endif
         #endif
 
 

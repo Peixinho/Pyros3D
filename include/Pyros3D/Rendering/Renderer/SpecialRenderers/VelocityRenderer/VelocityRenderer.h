@@ -51,6 +51,7 @@ namespace p3d {
 		Texture* depthMap;
 		FrameBuffer* fbo;
 		GenericShaderMaterial* velocityMaterial;
+		GenericShaderMaterial* velocitySkinnedMaterial;
 		// This renderer's own matrices, not IRenderer's shared ones: the UI
 		// pass and the other renderer both overwrite those before we draw.
 		bool havePrevious = false;
