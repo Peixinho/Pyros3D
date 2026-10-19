@@ -121,7 +121,12 @@ namespace p3d {
 				{
 					std::string effectName, error;
 					std::vector<CustomEffect::Param> sky;
-					if (CustomEffect::ReadMetadata(SkyEffectSource(), effectName, sky, error)) table["Sky"] = sky;
+					if (CustomEffect::ReadMetadata(SkyEffectSource(), effectName, sky, error))
+					{
+						// (uCloudPass is the chain's, set on the half-resolution clouds: not a thing to author)
+						for (size_t i = 0; i < sky.size(); i++) if (sky[i].name == "uCloudPass") { sky.erase(sky.begin() + i); break; }
+						table["Sky"] = sky;
+					}
 				}
 				{
 					std::string effectName, error;
