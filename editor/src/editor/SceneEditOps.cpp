@@ -3325,3 +3325,28 @@ bool SceneEditor::OpClearUIStyle(uint32 goId, std::string& errOut)
 	MarkSceneDirty();
 	return true;
 }
+
+
+// ---- the sun's shafts and ray tracing (the panel's "Sun shafts and ray tracing", set_light) ----
+SceneEditor::SunEffects SceneEditor::GetSunEffects(DirectionalLight* l)
+{
+	SunEffects fx;
+	fx.volumetric = l->GetVolumetric(); fx.volumetricTint = l->GetVolumetricTint();
+	fx.rayShadows = l->GetRayTracedShadows(); fx.rayShadowDistance = l->GetRayTracedShadowDistance(); fx.raySoftness = l->GetRayTracedShadowSoftness();
+	fx.rayReflections = l->GetRayTracedReflections(); fx.rayReflectionDistance = l->GetRayTracedReflectionDistance();
+	return fx;
+}
+
+void SceneEditor::SetSunEffects(DirectionalLight* l, const SunEffects& fx)
+{
+	l->SetVolumetric(fx.volumetric, fx.volumetricTint);
+	l->SetRayTracedShadows(fx.rayShadows, fx.rayShadowDistance, fx.raySoftness);
+	l->SetRayTracedReflections(fx.rayReflections, fx.rayReflectionDistance);
+}
+
+void SceneEditor::ApplySunEffects(uint32 lightId, const SunEffects& fx)
+{
+	SceneObject* obj = sceneObjects->GetSceneObject(lightId);
+	if (!obj) return;
+	if (DirectionalLight* l = dynamic_cast<DirectionalLight*>((IComponent*)obj->GetPTR())) { SetSunEffects(l, fx); MarkSceneDirty(); }
+}

@@ -11833,6 +11833,50 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							}
 						}
 					}
+					// What the sun does past lighting surfaces: shafts through the air, and - where the GPU
+					// traces rays - shadows and reflections traced against the scene. Each edit one undo step.
+					if (ImGui::TreeNode("Sun shafts and ray tracing"))
+					{
+						const SunEffects before = GetSunEffects(l);
+						SunEffects fx = before;
+						bool changed = false;
+						bool shafts = fx.volumetric.x > 0.f;
+						if (ImGui::Checkbox("Sun shafts", &shafts)) { fx.volumetric.x = shafts ? 0.035f : 0.f; changed = true; }
+						if (ImGui::IsItemHovered()) ImGui::SetTooltip("Light scattered toward the eye by the air, broken into shafts by\nwhat stands in the sun's way (marched through the shadow map). Deferred only.");
+						if (shafts)
+						{
+							changed |= ImGui::SliderFloat("Density", &fx.volumetric.x, 0.001f, 0.2f, "%.3f /m", ImGuiSliderFlags_Logarithmic);
+							changed |= ImGui::SliderFloat("Forward scattering", &fx.volumetric.y, 0.f, 0.95f, "%.2f");
+							changed |= ImGui::SliderFloat("Thinning with height", &fx.volumetric.z, 0.f, 0.5f, "%.3f /m");
+							changed |= ImGui::SliderFloat("Reach", &fx.volumetric.w, 10.f, 400.f, "%.0f m");
+							changed |= ImGui::ColorEdit3("Tint", &fx.volumetricTint.x);
+							int steps = (int)fx.volumetricTint.w;
+							if (ImGui::SliderInt("Steps", &steps, 4, 48)) { fx.volumetricTint.w = (f32)steps; changed = true; }
+						}
+						const bool rt = IsActiveRenderDeviceSet() && GetActiveRenderDevice().SupportsRayQuery();
+						if (!rt) ImGui::TextDisabled("This GPU/backend traces no rays: the two below are kept\nin the scene and used where one does.");
+						if (ImGui::Checkbox("Ray-traced shadows", &fx.rayShadows)) changed = true;
+						if (fx.rayShadows)
+						{
+							changed |= ImGui::SliderFloat("Shadow ray reach", &fx.rayShadowDistance, 10.f, 500.f, "%.0f m");
+							float deg = fx.raySoftness * 57.2957795f;
+							if (ImGui::SliderFloat("Sun radius", &deg, 0.f, 3.f, "%.2f deg")) { fx.raySoftness = deg / 57.2957795f; changed = true; }
+						}
+						if (ImGui::Checkbox("Ray-traced reflections", &fx.rayReflections)) changed = true;
+						if (ImGui::IsItemHovered()) ImGui::SetTooltip("In place of the screen-space march, for materials with reflections on:\nwhat is off the screen or behind something reflects too.");
+						if (fx.rayReflections)
+							changed |= ImGui::SliderFloat("Reflection reach", &fx.rayReflectionDistance, 5.f, 300.f, "%.0f m");
+						if (changed) { ApplySunEffects(lightId, fx); if (!sunFxEditing) { sunFxEditing = true; sunFxBaseline = before; } }
+						if (sunFxEditing && !ImGui::IsAnyItemActive())
+						{
+							sunFxEditing = false;
+							const SunEffects b = sunFxBaseline, a = GetSunEffects(l);
+							sceneUndo.Push(std::make_unique<ApplyClosureCommand>(
+								[this, lightId, b]() { ApplySunEffects(lightId, b); },
+								[this, lightId, a]() { ApplySunEffects(lightId, a); }, "Set Sun Effects"));
+						}
+						ImGui::TreePop();
+					}
 					if (ImGui::Checkbox("Cast Shadows", &AddForm_cs))
 					{
 						if (AddForm_cs)
@@ -13666,6 +13710,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			j["shadowNormalBias"] = (double)l->GetShadowNormalBias();
 			if (DirectionalLight* d = dynamic_cast<DirectionalLight*>(l))
 			{
+				const Vec4 v = d->GetVolumetric(), t = d->GetVolumetricTint();
+				j["volumetric"] = { v.x, v.y, v.z, v.w };
+				j["volumetricTint"] = { t.x, t.y, t.z, t.w };
+				j["rayTracedShadows"] = d->GetRayTracedShadows() ? json((double)d->GetRayTracedShadowDistance()) : json(false);
+				j["rayShadowSoftness"] = (double)d->GetRayTracedShadowSoftness();
+				j["rayTracedReflections"] = d->GetRayTracedReflections() ? json((double)d->GetRayTracedReflectionDistance()) : json(false);
 				j["shadowPenumbra"] = (double)d->GetShadowPenumbra();
 				j["shadowFar"] = (double)d->GetShadowFar();
 				j["shadowCascades"] = (int)d->GetNumberCascades();
@@ -15096,6 +15146,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (!p.contains("hour")) dl->SetTimeOfDay(kept);
 			}
 			if (p.contains("hour") && p["hour"].is_number()) dl->SetTimeOfDay((f32)p["hour"].get<double>());
+			// Sun shafts and ray tracing, the scene file's keys: {"volumetric": [density, g, falloff, reach],
+			// "volumetricTint": [r, g, b, steps], "rayTracedShadows": true|metres, "rayShadowSoftness": radians,
+			// "rayTracedReflections": true|metres}
+			SunEffects fx = GetSunEffects(dl);
+			auto v4 = [&](const char* k, Vec4& out) { if (p.contains(k) && p[k].is_array() && p[k].size() == 4) out = Vec4((f32)p[k][0].get<double>(), (f32)p[k][1].get<double>(), (f32)p[k][2].get<double>(), (f32)p[k][3].get<double>()); };
+			v4("volumetric", fx.volumetric); v4("volumetricTint", fx.volumetricTint);
+			if (p.contains("rayTracedShadows")) { const json& r = p["rayTracedShadows"]; fx.rayShadows = r.is_boolean() ? r.get<bool>() : (r.is_number() && r.get<double>() > 0); if (r.is_number()) fx.rayShadowDistance = (f32)r.get<double>(); }
+			if (p.contains("rayShadowSoftness") && p["rayShadowSoftness"].is_number()) fx.raySoftness = (f32)p["rayShadowSoftness"].get<double>();
+			if (p.contains("rayTracedReflections")) { const json& r = p["rayTracedReflections"]; fx.rayReflections = r.is_boolean() ? r.get<bool>() : (r.is_number() && r.get<double>() > 0); if (r.is_number()) fx.rayReflectionDistance = (f32)r.get<double>(); }
+			SetSunEffects(dl, fx);
 		}
 		if (p.contains("radius") && p["radius"].is_number())
 		{

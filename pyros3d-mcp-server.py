@@ -5584,6 +5584,11 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         shadowBiasFactor, shadowBiasUnits, shadowSoftness (filter radius in
         texels, 0-3), shadowNormalBias (texels, 0-7.9), shadowPenumbra
         (directional: metres of soft edge, 0-2.5, the same in every cascade),
+        directional also: volumetric [density, forward g, height falloff,
+        reach m] (sun shafts; density 0 off), volumetricTint [r, g, b, steps],
+        rayTracedShadows (true or reach in m), rayShadowSoftness (sun radius,
+        radians), rayTracedReflections (true or reach in m; ray-traced kinds
+        work where the GPU traces rays, else kept and ignored),
         shadowBiasScale (point only), hour/sun/sunAzimuth/sunTilt (a sun's
         clock)). Shadow keys change a casting light in place and keep the rest;
         get_object reports the same keys.

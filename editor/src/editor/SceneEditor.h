@@ -802,6 +802,17 @@ public:
 	void ApplyCameraFar(uint32 goId, f32 farPlane);
 	void ApplyLightColor(uint32 lightId, const Vec4& color);
 	void ApplyLightDirection(uint32 lightId, const Vec3& direction);
+	struct SunEffects
+	{
+		Vec4 volumetric, volumetricTint;
+		bool rayShadows = false, rayReflections = false;
+		f32 rayShadowDistance = 150.f, raySoftness = 0.0093f, rayReflectionDistance = 80.f;
+	};
+	SunEffects GetSunEffects(DirectionalLight* l);
+	void SetSunEffects(DirectionalLight* l, const SunEffects& fx);
+	void ApplySunEffects(uint32 lightId, const SunEffects& fx);
+	bool sunFxEditing = false;
+	SunEffects sunFxBaseline;
 	void ApplyLightRadius(uint32 lightId, f32 radius);
 	void ApplyLightInnerCone(uint32 lightId, f32 innerCone);
 	void ApplyLightOuterCone(uint32 lightId, f32 outerCone);
