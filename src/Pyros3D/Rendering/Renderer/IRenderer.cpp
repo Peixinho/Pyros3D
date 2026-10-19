@@ -2442,6 +2442,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		if ((f & (CullOwner | CullCasts | CullComponentActive)) != (CullOwner | CullCasts | CullComponentActive) || (f & CullTransparent)) return 0;
 		RenderingMesh* m = rmesh[i];
 		RenderingComponent* rc = m->renderingComponent;
+		if (rc->ShadowTooFar()) return 2;           // (too far off to cast: SetShadowDistance)
 		// Something that casts with a mesh of its own for the purpose
 		// (RenderingComponent::SetShadowRenderable): that, once for the
 		// component, in place of every mesh of whichever level it is showing.

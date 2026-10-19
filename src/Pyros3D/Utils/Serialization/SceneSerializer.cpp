@@ -1519,6 +1519,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["type"] = "RenderingComponent";
 			j["cullTest"] = rc->IsCullTesting();
 			j["castingShadows"] = rc->IsCastingShadows();
+			if (rc->GetShadowDistance() > 0.f) j["shadowDistance"] = rc->GetShadowDistance();
 			// (a model drawn with its package's materials says "reflections" if they were all given them)
 			if (dynamic_cast<Model*>(rc->GetRenderable()) != NULL && !rc->GetMeshes(0).empty())
 			{
@@ -3801,6 +3802,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (j.value("cullTest", true)) rc->EnableCullTest(); else rc->DisableCullTest();
 			if (j.value("castingShadows", true)) rc->EnableCastShadows(); else rc->DisableCastShadows();
 			// ("shadowDetail": the share of the model's triangles its shadow is drawn with)
+			if (j.contains("shadowDistance")) rc->SetShadowDistance(j.value("shadowDistance", 0.f));
 			if (j.contains("shadowDetail")) rc->SetShadowDetail(j.value("shadowDetail", 0.f));
 			else if (j.contains("shadowRenderable") && j["shadowRenderable"].is_object())
 			{

@@ -9,6 +9,7 @@
 #ifndef RENDERINGCOMPONENT_H
 #define	RENDERINGCOMPONENT_H
 
+#include <cmath>
 #include <atomic>
 #include <functional>
 #include <Pyros3D/Components/IComponent.h>
@@ -388,6 +389,13 @@ namespace p3d {
 		// of detail, which is every one the engine gave a shadow mesh to by
 		// itself); one without is as it was.
 		bool ShadowMeshTooNear() const { return LOD && LastLodDistance < shadowMeshFromSQR; }
+		// Past this many metres from the camera it casts no shadow (0: always casts). For small
+		// things in their dozens - people, props - whose shadows nobody sees from down the street
+		// and whose casting is most of the shadow pass. Known where the distance is: a component
+		// with levels of detail (the engine gives every model those); one without always casts.
+		void SetShadowDistance(const f32 metres) { shadowDistanceSQR = metres > 0.f ? metres * metres : 0.f; }
+		f32 GetShadowDistance() const { return shadowDistanceSQR > 0.f ? std::sqrt(shadowDistanceSQR) : 0.f; }
+		bool ShadowTooFar() const { return shadowDistanceSQR > 0.f && LOD && LastLodDistance > shadowDistanceSQR; }
 		// The usual way to ask for one: the component's own model with this
 		// share of its triangles (SimplifiedModel), 0.25 for a quarter. 0 or 1
 		// goes back to casting itself. Only where the nearest level is a Model
@@ -744,7 +752,8 @@ namespace p3d {
 		std::shared_ptr<Renderable> shadowRenderable;
 		std::vector<RenderingMesh*> shadowMeshes;
 		f32 shadowDetail = 0.f;
-		f32 shadowMeshFromSQR = 0.f;            // see ShadowMeshTooNear(): the square of the distance it stands in from
+		f32 shadowMeshFromSQR = 0.f;
+		f32 shadowDistanceSQR = 0.f;            // see SetShadowDistance()            // see ShadowMeshTooNear(): the square of the distance it stands in from
 
 		// Casting Shadows
 		bool isCastingShadows = true;
