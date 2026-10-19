@@ -170,11 +170,12 @@ namespace p3d {
 		FBO = fbo;
 
 		// Create Second Pass Specifics
-		deferredLastPass= new CustomShaderMaterial("shaders/lastPass.glsl");
-		deferredMaterialAmbient= new CustomShaderMaterial("shaders/secondpassAmbient.glsl");
 		// (with RAY_SHADOWS where the device traces rays: the pass reads the frame's ray scene, and
-		// a light asks for it or not through uRayShadow - see DirectionalLight::SetRayTracedShadows)
+		// a light asks for it or not through uRayShadow - see DirectionalLight::SetRayTracedShadows;
+		// the last pass likewise with RAY_REFLECT, for SetRayTracedReflections)
 		rayShadowsCompiled = IsActiveRenderDeviceSet() && GetActiveRenderDevice().SupportsRayQuery() && std::getenv("PYROS_NO_RAY_SHADOWS") == NULL;
+		deferredLastPass= new CustomShaderMaterial("shaders/lastPass.glsl", rayShadowsCompiled ? "#define RAY_REFLECT\n" : "");
+		deferredMaterialAmbient= new CustomShaderMaterial("shaders/secondpassAmbient.glsl");
 		deferredMaterialDirectional = new CustomShaderMaterial("shaders/secondpassDirectional.glsl", rayShadowsCompiled ? "#define RAY_SHADOWS\n" : "");
 		if (rayShadowsCompiled) fprintf(stderr, "DeferredRenderer: ray-traced sun shadows available\n");
 		deferredMaterialPoint = new CustomShaderMaterial("shaders/secondpassPoint.glsl");
@@ -266,7 +267,7 @@ namespace p3d {
 		// mat4 rounds up to the next 16-byte boundary).
 		deferredLastPass->extraUniforms[0].binding = 37;
 		deferredLastPass->extraUniforms[0].blockName = "LastPassFragParams";
-		deferredLastPass->extraUniforms[0].size = 304;
+		deferredLastPass->extraUniforms[0].size = 352;
 		deferredLastPass->extraUniforms[0].scratch.resize(deferredLastPass->extraUniforms[0].size, 0);
 		deferredLastPass->extraUniforms[0].offsets["uScreenDimensions"] = 0;
 		deferredLastPass->extraUniforms[0].offsets["uNearFar"] = 8;
@@ -279,6 +280,19 @@ namespace p3d {
 		deferredLastPass->extraUniforms[0].offsets["uSSRMaxDistance"] = 280;
 		deferredLastPass->extraUniforms[0].offsets["uSSREnabled"] = 284;
 		deferredLastPass->extraUniforms[0].offsets["uSSRDebug"] = 288;
+		// ray-traced reflections (see lastPass.glsl's RAY_REFLECT): what they are told, the sun at a
+		// hit off the screen, and its texture of the instances' colours on unit 6
+		lastPassRayReflectHandle = deferredLastPass->AddUniform(Uniform("uRayReflect", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		lastPassRaySunHandle = deferredLastPass->AddUniform(Uniform("uRaySun", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		lastPassRaySunColorHandle = deferredLastPass->AddUniform(Uniform("uRaySunColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		deferredLastPass->extraUniforms[0].offsets["uRayReflect"] = 304;
+		deferredLastPass->extraUniforms[0].offsets["uRaySun"] = 320;
+		deferredLastPass->extraUniforms[0].offsets["uRaySunColor"] = 336;
+		if (rayShadowsCompiled)
+		{
+			uint32 albedoUnit = 6;
+			deferredLastPass->AddUniform(Uniform("tRayAlbedo", Uniforms::DataType::Int, &albedoUnit));
+		}
 		// PopulateAutoExtraUniforms() stashes the fragment UBO on slot [1]
 		// (vertex has none). Hand-written offsets above go on [0]. Leaving
 		// both at binding 37 made SendExtraUniforms upload two buffers to
@@ -769,6 +783,7 @@ namespace p3d {
 			for (std::unordered_map<IGeometry*, uint32>::iterator g = rayGeometryOf.begin(); g != rayGeometryOf.end(); ++g)
 				if (g->second != 0) GetActiveRenderDevice().DestroyRayGeometry(g->second);
 		rayGeometryOf.clear();
+		delete rayAlbedoTexture; rayAlbedoTexture = NULL;
 		delete deferredMaterialPoint;
 		delete deferredMaterialSpot;
 		delete deferredSSAO;
@@ -1828,10 +1843,12 @@ namespace p3d {
 					// (ray-traced shadows: the frame's ray scene built, and the pass told to trace it -
 					// x on, y the sun's angular radius, z how far the scene reaches, w the frame)
 					Vec4 rayShadow(0.f, 0.f, 0.f, 0.f);
-					if (rayShadowsCompiled && d->GetRayTracedShadows() && d->IsCastingShadows())
+					if (rayShadowsCompiled && (d->GetRayTracedShadows() || d->GetRayTracedReflections()) && d->IsCastingShadows())
 					{
 						UpdateRayScene(d);
-						rayShadow = Vec4(std::getenv("PYROS_RAY_SHADOW_ONLY") ? 2.f : 1.f, d->GetRayTracedShadowSoftness(), d->GetRayTracedShadowDistance(), (f32)(rayFrame % 1024));
+						if (d->GetRayTracedShadows())
+							rayShadow = Vec4(std::getenv("PYROS_RAY_SHADOW_ONLY") ? 2.f : 1.f, d->GetRayTracedShadowSoftness(), d->GetRayTracedShadowDistance(), (f32)(rayFrame % 1024));
+						else IRenderer::SetSunCastersLeaveRayTraced(false);
 					}
 					else IRenderer::SetSunCastersLeaveRayTraced(false);
 					dirRayShadowHandle->SetValue(&rayShadow);
@@ -2171,11 +2188,20 @@ namespace p3d {
 			lastPassSSRStepDistanceHandle->SetValue(&ssrStepDistance);
 			lastPassSSRMaxDistanceHandle->SetValue(&ssrMaxDistance);
 			lastPassSSRDebugHandle->SetValue(&ssrDebugMode);
+			// (ray-traced reflections, where this frame built the ray scene with them on - else the
+			// screen-space march, as before; and a texture on unit 6 whichever, for the sampler)
+			Vec4 rayReflectNow = (rayShadowsCompiled && rayBuiltFrame == frameCounter && ssrEnabled > 0.5f) ? rayReflect : Vec4(0.f, 0.f, 0.f, 0.f);
+			lastPassRayReflectHandle->SetValue(&rayReflectNow);
+			lastPassRaySunHandle->SetValue(&raySun);
+			lastPassRaySunColorHandle->SetValue(&raySunColor);
+			Texture* albedoNow = (rayShadowsCompiled && rayAlbedoTexture != NULL) ? rayAlbedoTexture : ssaoWhite;
+			if (rayShadowsCompiled) albedoNow->Bind();
 			// Render to Screen
 			{
 				GameObject go = GameObject();
 				RenderObject(directionalLight->GetMeshes()[0], &go, deferredLastPass);
 			}
+			if (rayShadowsCompiled) albedoNow->Unbind();
 			GetGBufferAttachment(FrameBufferAttachmentFormat::Color_Attachment0)->Unbind();
 			previousFrameColorTexture->Unbind();
 			colorTexture->Unbind();
@@ -2194,6 +2220,7 @@ namespace p3d {
 		// the draw it doesn't actually depend on).
 		ssrPrvViewMatrix = Camera->GetDrawWorld().Inverse();
 		ssrPrvProjectionMatrix = projection.m;
+		frameCounter++;
 
 		// No "restore the caller's FBO" replay needed here (unlike this
 		// block's old position before the lastPass draw, which genuinely
@@ -2342,6 +2369,7 @@ namespace p3d {
 		const f32 reach = light->GetRayTracedShadowDistance();
 		const Vec3 eye = CameraPosition;
 		std::vector<IRenderDevice::RayInstance> instances;
+		rayAlbedo.clear();
 		const std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
 		for (size_t c = 0; c < comps.size(); c++)
 		{
@@ -2374,11 +2402,40 @@ namespace p3d {
 				inst.geometry = geo;
 				inst.world = owner->GetDrawWorld() * m->Pivot;
 				instances.push_back(inst);
+				// (its colour, for a reflection that lands where the screen cannot say: the material's
+				// times its picture's average, as the GI's ray scene has it)
+				Vec3 albedo(gm->GetColor().x, gm->GetColor().y, gm->GetColor().z);
+				Vec3 avg;
+				if (Texture* cm = gm->GetColorMap()) albedo = cm->GetAverageColour(avg) ? albedo * avg : albedo * 0.5f;
+				rayAlbedo.push_back(albedo.x); rayAlbedo.push_back(albedo.y); rayAlbedo.push_back(albedo.z); rayAlbedo.push_back(1.f);
 			}
 			rc->inRayScene = all;
 		}
 		dev.SetRayScene(instances);
-		IRenderer::SetSunCastersLeaveRayTraced(light->GetVolumetric().x <= 0.f);
+		IRenderer::SetSunCastersLeaveRayTraced(light->GetRayTracedShadows() && light->GetVolumetric().x <= 0.f);
+		// The colours, one texel an instance, rows of 1024 (sized up, never down)
+		if (light->GetRayTracedReflections())
+		{
+			const uint32 n = (uint32)(rayAlbedo.size() / 4);
+			const uint32 w = 1024, h = std::max<uint32>(1, (n + w - 1) / w);
+			if (rayAlbedoTexture == NULL || rayAlbedoH < h)
+			{
+				delete rayAlbedoTexture;
+				rayAlbedoTexture = new Texture();
+				rayAlbedoTexture->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, w, h, false);
+				rayAlbedoTexture->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+				rayAlbedoTexture->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+				rayAlbedoW = w; rayAlbedoH = h;
+			}
+			rayAlbedo.resize((size_t)rayAlbedoW * rayAlbedoH * 4, 0.f);
+			rayAlbedoTexture->UpdateData(rayAlbedo.data());
+			Vec3 toSun;
+			const Vec4 radiance = light->GetLightRadianceNow(&toSun);
+			rayReflect = Vec4(1.f, light->GetRayTracedReflectionDistance(), (f32)(rayFrame % 1024), (f32)rayAlbedoW);
+			raySun = Vec4(toSun.x, toSun.y, toSun.z, 0.f);
+			raySunColor = Vec4(radiance.x, radiance.y, radiance.z, 0.f);
+			rayBuiltFrame = frameCounter;
+		}
 		static uint32 said = 0;
 		if (said++ == 0 || std::getenv("PYROS_RAY_TRACE")) fprintf(stderr, "DeferredRenderer: ray scene of %u instances, %u geometries\n", (uint32)instances.size(), (uint32)rayGeometryOf.size());
 	}

@@ -306,6 +306,16 @@ namespace p3d {
 		uint32 rayFrame = 0;
 		// The frame's ray scene: what is solid, still and casts, within `distance` of the eye.
 		void UpdateRayScene(DirectionalLight* light);
+		// Ray-traced reflections (DirectionalLight::SetRayTracedReflections): each instance's
+		// colour (its material's, times its picture's average), one texel each, for a
+		// reflection that lands off the screen; the sun the light gives; the frame the scene
+		// was built in, and what the last pass is told.
+		Texture* rayAlbedoTexture = NULL;
+		uint32 rayAlbedoW = 0, rayAlbedoH = 0;
+		std::vector<f32> rayAlbedo;
+		uint32 rayBuiltFrame = 0xFFFFFFFFu, frameCounter = 0;
+		Vec4 rayReflect, raySun, raySunColor;
+		Uniform *lastPassRayReflectHandle = NULL, *lastPassRaySunHandle = NULL, *lastPassRaySunColorHandle = NULL;
 		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle, *spotShadowDepthsMVPHandle, *spotShadowPCFTexelHandle, *spotHaveShadowHandle;
 
 		// See RenderScene()'s comment where these are set - real fix for

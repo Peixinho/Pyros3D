@@ -74,6 +74,13 @@ namespace p3d {
 		// camera. People (skinned) and cut-out or see-through things keep the shadow map.
 		void SetRayTracedShadows(const bool on, const f32 distance = 150.f, const f32 softness = 0.0093f) { rayShadows = on; rayShadowDistance = distance; raySoftness = softness; }
 		bool GetRayTracedShadows() const { return rayShadows; }
+		// Ray-traced reflections (the deferred renderer, where the device traces rays): a
+		// reflective surface traces its reflection against the same ray scene, out to
+		// `distance` metres, in place of the screen-space march - what is off the screen or
+		// behind something reflects too. Off: screen-space reflections, as before.
+		void SetRayTracedReflections(const bool on, const f32 distance = 80.f) { rayReflections = on; rayReflectionDistance = distance; }
+		bool GetRayTracedReflections() const { return rayReflections; }
+		f32 GetRayTracedReflectionDistance() const { return rayReflectionDistance; }
 		f32 GetRayTracedShadowDistance() const { return rayShadowDistance; }
 		f32 GetRayTracedShadowSoftness() const { return raySoftness; }
 		// What it lights with now - GetLightRadiance(), and for a sun what the air leaves of
@@ -205,6 +212,8 @@ namespace p3d {
 		Vec4 volumetric = Vec4(0.f, 0.6f, 0.08f, 120.f);
 		Vec4 volumetricTint = Vec4(1.f, 1.f, 1.f, 20.f);
 		bool rayShadows = false;
+		bool rayReflections = false;
+		f32 rayReflectionDistance = 80.f;
 		f32 rayShadowDistance = 150.f, raySoftness = 0.0093f;
 		Matrix ShadowProjection;
 		Cascade Cascades[4];

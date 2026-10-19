@@ -1,3 +1,7 @@
+// (ray-traced reflections - DeferredRenderer compiles this with RAY_REFLECT where the device traces rays)
+#ifdef RAY_REFLECT
+#extension GL_EXT_ray_query : require
+#endif
 #define varying_in in
 #define varying_out out
 #define attribute_in in
@@ -82,7 +86,20 @@ UBO_BINDING(37) uniform LastPassFragParams {
 	// Isolation modes for SSRTest (DeferredRenderer::SetSSRDebugMode):
 	// 0 normal, 1 show mr.b gate, 2 paint march hits, 3 full hit color.
 	float uSSRDebug;
+	// Ray-traced reflections (DirectionalLight::SetRayTracedReflections): x on, y how far a
+	// reflection is traced (metres), z the frame, w the width of tRayAlbedo. Off (x 0): the
+	// screen-space march below, as ever.
+	vec4 uRayReflect;
+	vec4 uRaySun;		// xyz: toward the sun (world)
+	vec4 uRaySunColor;	// rgb: its radiance (irradiance / PI)
 };
+
+#ifdef RAY_REFLECT
+layout(set = 2, binding = 0) uniform accelerationStructureEXT uRayScene;
+// Each instance's colour, one texel each in rows of uRayReflect.w (DeferredRenderer::UpdateRayScene)
+SAMPLER_BINDING(6) uniform sampler2D tRayAlbedo;
+float RayNoise(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+#endif
 
 float DecodeNativeDepth(float native_z, vec4 z_info_local)
 {
@@ -375,6 +392,75 @@ void main() {
 		return;
 	}
 
+#ifdef RAY_REFLECT
+	if (uRayReflect.x > 0.5)
+	{
+		// Traced against the scene itself: the first thing the reflected ray meets, wherever it is.
+		// On the screen and seen there, it is shaded as the frame shows it; off the screen or
+		// behind something, by its own colour - lit where the sun reaches it (a second ray), by the
+		// sky's share where it does not. A rough surface's ray is turned within its lobe, a little
+		// differently each pixel and frame, for the antialiasing's history to blur.
+		mat3 toWorld = mat3(uViewMatrixInverse);
+		vec3 wpos = (uViewMatrixInverse * vec4(v1, 1.0)).xyz;
+		vec3 wn = normalize(toWorld * N);
+		vec3 rdir = reflectDir;
+		if (roughness > 0.02)
+		{
+			float f = uRayReflect.z;
+			float u1 = RayNoise(gl_FragCoord.xy + vec2(f * 5.588238, f * 3.193425));
+			float u2 = RayNoise(gl_FragCoord.yx + vec2(f * 7.391734, f * 2.817361) + 13.0);
+			vec3 T = normalize(cross(abs(rdir.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), rdir));
+			vec3 B = cross(rdir, T);
+			float r = roughness * roughness * sqrt(u1);
+			float a = 6.2831853 * u2;
+			rdir = normalize(rdir + (T * cos(a) + B * sin(a)) * r);
+			if (dot(rdir, N) < 0.02) rdir = reflectDir;
+		}
+		vec3 wdir = normalize(toWorld * rdir);
+		float dist = length(v1);
+		vec3 origin = wpos + wn * (0.03 + 0.002 * dist);
+		rayQueryEXT q;
+		rayQueryInitializeEXT(q, uRayScene, gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, wdir, uRayReflect.y);
+		while (rayQueryProceedEXT(q)) {}
+		if (rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT)
+		{
+			// (PYROS_SSR_DEBUG=4: what each traced reflection did - red nothing, green a hit the
+			// screen shows, blue one it cannot)
+			if (uSSRDebug > 3.5) { FragColor = vec4(0.8, 0.1, 0.1, 1.0); return; }
+			FragColor = vec4(baseColor, 1.0);     // (the sky: what the lighting already reflects)
+			return;
+		}
+		float t = rayQueryGetIntersectionTEXT(q, true);
+		vec3 hv = v1 + rdir * t;
+		vec3 rc;
+		vec4 hc = uMatProj * vec4(hv, 1.0);
+		vec2 huv = hc.w > 0.0 ? ClipToUV(hc) : vec2(-1.0);
+		bool onScreen = huv.x > 0.001 && huv.x < 0.999 && huv.y > 0.001 && huv.y < 0.999
+			&& abs(SceneZAt(huv, z_info) - hv.z) < 0.04 * abs(hv.z) + 0.15;
+		if (onScreen) rc = texture(tColor, huv).rgb;
+		else
+		{
+			int inst = rayQueryGetIntersectionInstanceIdEXT(q, true);
+			int w = max(int(uRayReflect.w), 1);
+			vec3 albedo = texelFetch(tRayAlbedo, ivec2(inst % w, inst / w), 0).rgb;
+			vec3 hw = origin + wdir * t - wdir * 0.04;
+			rayQueryEXT sq;
+			rayQueryInitializeEXT(sq, uRayScene, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFF, hw, 0.0, normalize(uRaySun.xyz), 500.0);
+			while (rayQueryProceedEXT(sq)) {}
+			float lit = rayQueryGetIntersectionTypeEXT(sq, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+			// (no normal at the hit: the sun at a typical slant, the sky a quarter of it)
+			rc = albedo * uRaySunColor.rgb * 3.14159 * (0.55 * lit + 0.25);
+		}
+		float fade = 1.0 - smoothstep(0.75, 1.0, t / uRayReflect.y);
+		float roughFade = 1.0 - smoothstep(SSR_ROUGHNESS_CUTOFF * 0.7, SSR_ROUGHNESS_CUTOFF, roughness);
+		float floorR = 0.55 * (1.0 - metallic) * materialReflectivity * ssrStrength * ssrStrength;
+		vec3 k = clamp(max(F * ssrStrength, vec3(floorR)) * fade * roughFade, 0.0, 0.95);
+		if (uSSRDebug > 3.5) { FragColor = onScreen ? vec4(0.1, 0.8, 0.1, 1.0) : vec4(0.1, 0.2, 0.9, 1.0); return; }
+		if (uSSRDebug > 2.5) { FragColor = vec4(rc, 1.0); return; }
+		FragColor = vec4(baseColor * (1.0 - k) + rc * k, 1.0);
+		return;
+	}
+#endif
 	// Nudge off the reflector so the first DDA sample isn't the surface itself.
 	vec3 rayOrigin = v1 + reflectDir * 0.08;
 	float hitConfidence = 0.0;
