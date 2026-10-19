@@ -794,6 +794,35 @@ namespace p3d {
 		// notice. Always false on GL, which defers nothing.
 		virtual bool HasPendingComputeWork() const { return false; }
 
+		// ---- Ray queries -------------------------------------------------
+		//
+		// Rays traced from a shader against the scene's own triangles, by
+		// the GPU's ray tracing hardware (Metal's acceleration structures,
+		// Vulkan's VK_KHR_ray_query). Capability-gated like compute: ask
+		// SupportsRayQuery() first; everything below is a no-op returning
+		// 0 where it is false.
+		//
+		// A geometry is built once, in its own space. Each frame the caller
+		// hands over the instances to trace against - a geometry and the
+		// matrix that puts it in the world - and a program whose shader
+		// declares `uniform accelerationStructureEXT` (GL_EXT_ray_query)
+		// reads that frame's scene, wherever the shader put the binding.
+		struct RayInstance
+		{
+			DeviceHandle geometry;
+			Matrix world;
+		};
+		virtual bool SupportsRayQuery() const { return false; }
+		// Positions: vertexCount xyz floats, `strideFloats` apart. Indices:
+		// triangles, three 32-bit indices each.
+		virtual DeviceHandle CreateRayGeometry(const f32 *positions, const uint32 vertexCount, const uint32 strideFloats,
+			const uint32 *indices, const uint32 indexCount) { (void)positions; (void)vertexCount; (void)strideFloats; (void)indices; (void)indexCount; return 0; }
+		virtual void DestroyRayGeometry(const DeviceHandle geometry) { (void)geometry; }
+		// The scene this frame's rays are traced in. Called once a frame,
+		// before the draws that read it; an empty list clears it (rays then
+		// hit nothing).
+		virtual void SetRayScene(const std::vector<RayInstance> &instances) { (void)instances; }
+
 	protected:
 		// Shared loud refusal for every unimplemented compute entry point
 		// above. Logs `what` (the method name) once per distinct name, so

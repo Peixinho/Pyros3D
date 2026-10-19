@@ -1499,6 +1499,7 @@ namespace p3d {
 			}
 
 			BindProgramUniformBuffers(pipeIt->second.programHandle);
+			BindRaySceneIfRead(pipeIt->second.programHandle);
 			FillUnboundSamplers(pipeIt->second.programHandle);
 			[encoder drawPrimitives:(MTLPrimitiveType)nativeDrawType vertexStart:first vertexCount:count];
 		}
@@ -1531,6 +1532,7 @@ namespace p3d {
 			}
 
 			BindProgramUniformBuffers(pipeIt->second.programHandle);
+			BindRaySceneIfRead(pipeIt->second.programHandle);
 
 			// __INDEX_C_TYPE__ (Global.h) is uint32 - matches
 			// MTLIndexTypeUInt32, same as VulkanRenderDevice's identical
@@ -1576,6 +1578,7 @@ namespace p3d {
 			}
 
 			BindProgramUniformBuffers(pipeIt->second.programHandle);
+			BindRaySceneIfRead(pipeIt->second.programHandle);
 
 			FillUnboundSamplers(pipeIt->second.programHandle);
 			id<MTLBuffer> ibo = (__bridge id<MTLBuffer>)iboIt->second.buffer;
@@ -2140,6 +2143,39 @@ namespace p3d {
 					mslCompiler.add_msl_resource_binding(binding);
 				}
 
+				// The ray scene (GL_EXT_ray_query's accelerationStructureEXT): Metal reads it
+				// from a [[buffer(N)]] like any other buffer, so it takes the lowest index no
+				// uniform or storage buffer of this stage holds - and MSL 3.0, the first whose
+				// raytracing header SPIRV-Cross's output compiles against (2.3 and 2.4 reject
+				// its intersection_params). One per stage: a second is refused.
+				it->second.raySceneMslIndex = -1;
+				if (!resources.acceleration_structures.empty())
+				{
+					if (resources.acceleration_structures.size() > 1)
+					{
+						errorLog = "Metal: more than one acceleration structure in a shader stage - the engine binds one ray scene.";
+						return false;
+					}
+					mslOptions.set_msl_version(3, 0);
+					mslCompiler.set_msl_options(mslOptions);
+					uint32 free = 0;
+					while (free < kFirstVertexBufferIndex && usedMslBufferIndices.find(free) != usedMslBufferIndices.end()) free++;
+					if (free >= kFirstVertexBufferIndex)
+					{
+						errorLog = "Metal: no free MSL buffer index for the ray scene.";
+						return false;
+					}
+					const spirv_cross::Resource &res = resources.acceleration_structures[0];
+					spirv_cross::MSLResourceBinding binding;
+					binding.stage = mslCompiler.get_execution_model();
+					binding.desc_set = mslCompiler.get_decoration(res.id, spv::DecorationDescriptorSet);
+					binding.binding = mslCompiler.get_decoration(res.id, spv::DecorationBinding);
+					binding.msl_buffer = free;
+					usedMslBufferIndices.insert(free);
+					mslCompiler.add_msl_resource_binding(binding);
+					it->second.raySceneMslIndex = (int32)free;
+				}
+
 				// Compact both [[texture(N)]] and [[sampler(N)]] into
 				// contiguous ranges, advancing by each resource's array
 				// size. Texture passthrough used to work for single
@@ -2332,6 +2368,7 @@ namespace p3d {
 		it->second.highBindingMslIndex.clear();
 		it->second.highBindingMslIndex.insert(vs->second.highBindingRemap.begin(), vs->second.highBindingRemap.end());
 		it->second.highBindingMslIndex.insert(fs->second.highBindingRemap.begin(), fs->second.highBindingRemap.end());
+		it->second.raySceneFragmentIndex = fs->second.raySceneMslIndex;
 		// Kept per-stage rather than merged - see ProgramRecord::samplerMslIndex.
 		it->second.samplerMslIndex[0] = vs->second.samplerIndexRemap;
 		it->second.samplerMslIndex[1] = fs->second.samplerIndexRemap;
@@ -4222,6 +4259,206 @@ namespace p3d {
 				scope = MTLBarrierScopeBuffers | MTLBarrierScopeTextures;
 			if (scope != 0)
 				[encoder memoryBarrierWithScope:scope];
+		}
+	}
+
+
+	// ---- Ray queries -----------------------------------------------------
+	// See IRenderDevice::SupportsRayQuery(). Metal's acceleration structures:
+	// a primitive one per geometry, built once; an instance one per frame
+	// over them. PYROS_NO_RAYTRACING=1 reports none, for A/B tests.
+	bool MetalRenderDevice::SupportsRayQuery() const
+	{
+		if (device == NULL || std::getenv("PYROS_NO_RAYTRACING") != NULL) return false;
+		if (@available(macOS 13.0, *))
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			return [mtlDevice supportsRaytracing];
+		}
+		return false;
+	}
+
+	DeviceHandle MetalRenderDevice::CreateRayGeometry(const f32 *positions, const uint32 vertexCount, const uint32 strideFloats,
+		const uint32 *indices, const uint32 indexCount)
+	{
+		if (!SupportsRayQuery() || positions == NULL || indices == NULL || vertexCount == 0 || indexCount < 3) return 0;
+		if (@available(macOS 13.0, *))
+		{
+			@autoreleasepool
+			{
+				id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+				// (packed tight: three floats a vertex, whatever the caller's stride)
+				std::vector<f32> packed((size_t)vertexCount * 3);
+				for (uint32 v = 0; v < vertexCount; v++)
+					for (uint32 k = 0; k < 3; k++) packed[(size_t)v * 3 + k] = positions[(size_t)v * strideFloats + k];
+				id<MTLBuffer> vb = [mtlDevice newBufferWithBytes:packed.data() length:packed.size() * sizeof(f32) options:MTLResourceStorageModeShared];
+				id<MTLBuffer> ib = [mtlDevice newBufferWithBytes:indices length:(NSUInteger)(indexCount / 3) * 3 * sizeof(uint32) options:MTLResourceStorageModeShared];
+				MTLAccelerationStructureTriangleGeometryDescriptor* tri = [MTLAccelerationStructureTriangleGeometryDescriptor descriptor];
+				tri.vertexBuffer = vb;
+				tri.vertexStride = 3 * sizeof(f32);
+				tri.vertexFormat = MTLAttributeFormatFloat3;
+				tri.indexBuffer = ib;
+				tri.indexType = MTLIndexTypeUInt32;
+				tri.triangleCount = indexCount / 3;
+				tri.opaque = YES;
+				MTLPrimitiveAccelerationStructureDescriptor* desc = [MTLPrimitiveAccelerationStructureDescriptor descriptor];
+				desc.geometryDescriptors = @[ tri ];
+				MTLAccelerationStructureSizes sizes = [mtlDevice accelerationStructureSizesWithDescriptor:desc];
+				id<MTLAccelerationStructure> accel = [mtlDevice newAccelerationStructureWithSize:sizes.accelerationStructureSize];
+				id<MTLBuffer> scratch = [mtlDevice newBufferWithLength:std::max<NSUInteger>(sizes.buildScratchBufferSize, 16) options:MTLResourceStorageModePrivate];
+				if (accel == nil || scratch == nil) return 0;
+				id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
+				id<MTLCommandBuffer> cb = [queue commandBuffer];
+				id<MTLAccelerationStructureCommandEncoder> enc = [cb accelerationStructureCommandEncoder];
+				[enc buildAccelerationStructure:accel descriptor:desc scratchBuffer:scratch scratchBufferOffset:0];
+				[enc endEncoding];
+				// (committed now: queued ahead of any frame that will trace against it, and Metal
+				// runs one queue's command buffers in the order they were committed)
+				[cb commit];
+				const DeviceHandle h = nextRayGeometryHandle++;
+				rayGeometries[h] = (void*)CFBridgingRetain(accel);
+				return h;
+			}
+		}
+		return 0;
+	}
+
+	void MetalRenderDevice::DestroyRayGeometry(const DeviceHandle geometry)
+	{
+		std::map<DeviceHandle, void*>::iterator it = rayGeometries.find(geometry);
+		if (it == rayGeometries.end()) return;
+		// (a scene built over it still holds it, through raySceneUsed, until it is rebuilt)
+		CFBridgingRelease(it->second);
+		rayGeometries.erase(it);
+	}
+
+	void MetalRenderDevice::SetRayScene(const std::vector<RayInstance> &instances)
+	{
+		if (!SupportsRayQuery()) return;
+		if (@available(macOS 13.0, *))
+		{
+			@autoreleasepool
+			{
+				id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+				// The geometries it reaches, each once, and every instance pointing at its own.
+				NSMutableArray<id<MTLAccelerationStructure>>* used = [NSMutableArray array];
+				std::map<DeviceHandle, uint32> indexOf;
+				std::vector<MTLAccelerationStructureInstanceDescriptor> descs;
+				descs.reserve(instances.size());
+				for (size_t i = 0; i < instances.size(); i++)
+				{
+					std::map<DeviceHandle, void*>::iterator g = rayGeometries.find(instances[i].geometry);
+					if (g == rayGeometries.end()) continue;
+					std::map<DeviceHandle, uint32>::iterator at = indexOf.find(instances[i].geometry);
+					uint32 index;
+					if (at == indexOf.end())
+					{
+						index = (uint32)used.count;
+						indexOf[instances[i].geometry] = index;
+						[used addObject:(__bridge id<MTLAccelerationStructure>)g->second];
+					}
+					else index = at->second;
+					MTLAccelerationStructureInstanceDescriptor d;
+					memset(&d, 0, sizeof(d));
+					const f32 *m = instances[i].world.m;     // (column-major: column c is m[4c..4c+2], the translation m[12..14])
+					for (uint32 c = 0; c < 4; c++)
+					{
+						d.transformationMatrix.columns[c].x = m[c * 4 + 0];
+						d.transformationMatrix.columns[c].y = m[c * 4 + 1];
+						d.transformationMatrix.columns[c].z = m[c * 4 + 2];
+					}
+					d.options = MTLAccelerationStructureInstanceOptionOpaque | MTLAccelerationStructureInstanceOptionDisableTriangleCulling;
+					d.mask = 0xFF;
+					d.intersectionFunctionTableOffset = 0;
+					d.accelerationStructureIndex = index;
+					descs.push_back(d);
+				}
+				// (no instances: one triangle far below everything, so a scene to bind always exists)
+				if (descs.empty())
+				{
+					static DeviceHandle nothing = 0;
+					if (nothing == 0)
+					{
+						const f32 p[9] = { 0.f, -1e6f, 0.f, 1.f, -1e6f, 0.f, 0.f, -1e6f, 1.f };
+						const uint32 ix[3] = { 0, 1, 2 };
+						nothing = CreateRayGeometry(p, 3, 3, ix, 3);
+					}
+					std::map<DeviceHandle, void*>::iterator g = rayGeometries.find(nothing);
+					if (g == rayGeometries.end()) return;
+					[used addObject:(__bridge id<MTLAccelerationStructure>)g->second];
+					MTLAccelerationStructureInstanceDescriptor d;
+					memset(&d, 0, sizeof(d));
+					d.transformationMatrix.columns[0].x = 1.f; d.transformationMatrix.columns[1].y = 1.f; d.transformationMatrix.columns[2].z = 1.f;
+					d.options = MTLAccelerationStructureInstanceOptionOpaque;
+					d.mask = 0xFF;
+					descs.push_back(d);
+				}
+
+				const uint32 slot = (raySceneSlot + 1) % kRaySceneRing;
+				const uint32 n = (uint32)descs.size();
+				if (raySceneInstanceCapacity[slot] < n)
+				{
+					if (raySceneInstances[slot] != NULL) CFBridgingRelease(raySceneInstances[slot]);
+					const uint32 cap = n + n / 4 + 16;
+					id<MTLBuffer> buf = [mtlDevice newBufferWithLength:(NSUInteger)cap * sizeof(MTLAccelerationStructureInstanceDescriptor) options:MTLResourceStorageModeShared];
+					raySceneInstances[slot] = (void*)CFBridgingRetain(buf);
+					raySceneInstanceCapacity[slot] = cap;
+				}
+				id<MTLBuffer> instBuf = (__bridge id<MTLBuffer>)raySceneInstances[slot];
+				memcpy([instBuf contents], descs.data(), (size_t)n * sizeof(MTLAccelerationStructureInstanceDescriptor));
+
+				MTLInstanceAccelerationStructureDescriptor* desc = [MTLInstanceAccelerationStructureDescriptor descriptor];
+				desc.instancedAccelerationStructures = used;
+				desc.instanceCount = n;
+				desc.instanceDescriptorBuffer = instBuf;
+				desc.instanceDescriptorType = MTLAccelerationStructureInstanceDescriptorTypeDefault;
+				MTLAccelerationStructureSizes sizes = [mtlDevice accelerationStructureSizesWithDescriptor:desc];
+				id<MTLAccelerationStructure> accel = nil;
+				if (raySceneAccel[slot] != NULL)
+				{
+					id<MTLAccelerationStructure> old = (__bridge id<MTLAccelerationStructure>)raySceneAccel[slot];
+					if (old.size >= sizes.accelerationStructureSize) accel = old;
+					else { CFBridgingRelease(raySceneAccel[slot]); raySceneAccel[slot] = NULL; }
+				}
+				if (accel == nil)
+				{
+					accel = [mtlDevice newAccelerationStructureWithSize:sizes.accelerationStructureSize + sizes.accelerationStructureSize / 4];
+					if (accel == nil) return;
+					raySceneAccel[slot] = (void*)CFBridgingRetain(accel);
+				}
+				id<MTLBuffer> scratch = [mtlDevice newBufferWithLength:std::max<NSUInteger>(sizes.buildScratchBufferSize, 16) options:MTLResourceStorageModePrivate];
+				id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
+				id<MTLCommandBuffer> cb = [queue commandBuffer];
+				id<MTLAccelerationStructureCommandEncoder> enc = [cb accelerationStructureCommandEncoder];
+				[enc buildAccelerationStructure:accel descriptor:desc scratchBuffer:scratch scratchBufferOffset:0];
+				[enc endEncoding];
+				[cb commit];
+
+				raySceneSlot = slot;
+				raySceneReady = true;
+				for (size_t i = 0; i < raySceneUsed.size(); i++) CFBridgingRelease(raySceneUsed[i]);
+				raySceneUsed.clear();
+				for (id<MTLAccelerationStructure> a in used) raySceneUsed.push_back((void*)CFBridgingRetain(a));
+			}
+		}
+	}
+
+	void MetalRenderDevice::BindRaySceneIfRead(const DeviceHandle programHandle)
+	{
+		std::map<DeviceHandle, ProgramRecord>::iterator progIt = programs.find(programHandle);
+		if (progIt == programs.end() || progIt->second.raySceneFragmentIndex < 0 || currentRenderEncoder == NULL) return;
+		if (@available(macOS 13.0, *))
+		{
+			// (nothing built yet: an empty scene, so the shader never reads an unbound buffer)
+			if (!raySceneReady) SetRayScene(std::vector<RayInstance>());
+			if (!raySceneReady || raySceneAccel[raySceneSlot] == NULL) return;
+			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
+			[encoder setFragmentAccelerationStructure:(__bridge id<MTLAccelerationStructure>)raySceneAccel[raySceneSlot]
+				atBufferIndex:(NSUInteger)progIt->second.raySceneFragmentIndex];
+			// (an instance structure only points at the geometries' own: they must be resident in the pass too)
+			if (!raySceneUsed.empty())
+				[encoder useResources:(const id<MTLResource> __unsafe_unretained *)(void*)raySceneUsed.data()
+					count:raySceneUsed.size() usage:MTLResourceUsageRead stages:MTLRenderStageFragment];
 		}
 	}
 

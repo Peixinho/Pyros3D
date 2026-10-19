@@ -67,6 +67,15 @@ namespace p3d {
 		void SetVolumetric(const Vec4 &params, const Vec4 &tint = Vec4(1, 1, 1, 20)) { volumetric = params; volumetricTint = tint; }
 		const Vec4 &GetVolumetric() const { return volumetric; }
 		const Vec4 &GetVolumetricTint() const { return volumetricTint; }
+		// Ray-traced shadows (the deferred renderer, where the device can trace rays -
+		// IRenderDevice::SupportsRayQuery()): what is solid and still casts by rays traced
+		// toward the sun from every pixel, exact at contact and softening with distance
+		// (`softness`: the sun's angular radius, radians); out to `distance` metres from the
+		// camera. People (skinned) and cut-out or see-through things keep the shadow map.
+		void SetRayTracedShadows(const bool on, const f32 distance = 150.f, const f32 softness = 0.0093f) { rayShadows = on; rayShadowDistance = distance; raySoftness = softness; }
+		bool GetRayTracedShadows() const { return rayShadows; }
+		f32 GetRayTracedShadowDistance() const { return rayShadowDistance; }
+		f32 GetRayTracedShadowSoftness() const { return raySoftness; }
 		// What it lights with now - GetLightRadiance(), and for a sun what the air leaves of
 		// it at the height it stands (SunlightAt) - and the way to it in the world. Every
 		// renderer lights a directional light by this, so a sun sets alike in all of them.
@@ -195,6 +204,8 @@ namespace p3d {
 		uint32 ShadowCascades;
 		Vec4 volumetric = Vec4(0.f, 0.6f, 0.08f, 120.f);
 		Vec4 volumetricTint = Vec4(1.f, 1.f, 1.f, 20.f);
+		bool rayShadows = false;
+		f32 rayShadowDistance = 150.f, raySoftness = 0.0093f;
 		Matrix ShadowProjection;
 		Cascade Cascades[4];
 

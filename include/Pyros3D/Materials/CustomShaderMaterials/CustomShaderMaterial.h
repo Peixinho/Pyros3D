@@ -26,7 +26,7 @@ namespace p3d
 
 	public:
 
-		CustomShaderMaterial(const std::string &ShaderFile);
+		CustomShaderMaterial(const std::string& ShaderFile, const std::string& ExtraDefines = std::string());
 		CustomShaderMaterial(Shader* shader);
 		void SetShader(Shader* shader);
 		// Transfers ownership of a Shader previously wired in via SetShader()

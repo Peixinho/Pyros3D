@@ -16,6 +16,7 @@
 #include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
 
 namespace p3d {
 
@@ -171,7 +172,11 @@ namespace p3d {
 		// Create Second Pass Specifics
 		deferredLastPass= new CustomShaderMaterial("shaders/lastPass.glsl");
 		deferredMaterialAmbient= new CustomShaderMaterial("shaders/secondpassAmbient.glsl");
-		deferredMaterialDirectional = new CustomShaderMaterial("shaders/secondpassDirectional.glsl");
+		// (with RAY_SHADOWS where the device traces rays: the pass reads the frame's ray scene, and
+		// a light asks for it or not through uRayShadow - see DirectionalLight::SetRayTracedShadows)
+		rayShadowsCompiled = IsActiveRenderDeviceSet() && GetActiveRenderDevice().SupportsRayQuery() && std::getenv("PYROS_NO_RAY_SHADOWS") == NULL;
+		deferredMaterialDirectional = new CustomShaderMaterial("shaders/secondpassDirectional.glsl", rayShadowsCompiled ? "#define RAY_SHADOWS\n" : "");
+		if (rayShadowsCompiled) fprintf(stderr, "DeferredRenderer: ray-traced sun shadows available\n");
 		deferredMaterialPoint = new CustomShaderMaterial("shaders/secondpassPoint.glsl");
 		deferredMaterialSpot = new CustomShaderMaterial("shaders/secondpassSpot.glsl");
 		deferredSSAO = new CustomShaderMaterial("shaders/deferredSSAO.glsl");
@@ -431,6 +436,7 @@ namespace p3d {
 		dirHorizonSunHandle = deferredMaterialDirectional->AddUniform(Uniform("uHorizonSun", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		dirVolumetricHandle = deferredMaterialDirectional->AddUniform(Uniform("uVolumetric", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		dirVolumetricTintHandle = deferredMaterialDirectional->AddUniform(Uniform("uVolumetricTint", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		dirRayShadowHandle = deferredMaterialDirectional->AddUniform(Uniform("uRayShadow", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		deferredMaterialDirectional->AddUniform(Uniform("uViewInverse", Uniforms::DataUsage::ViewMatrixInverse));
 		deferredMaterialDirectional->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialDirectional->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
@@ -442,7 +448,7 @@ namespace p3d {
 		// alignment, each mat4 rounds up to the next 16-byte boundary).
 		deferredMaterialDirectional->extraUniforms[0].binding = 32;
 		deferredMaterialDirectional->extraUniforms[0].blockName = "DirectionalFragParams";
-		deferredMaterialDirectional->extraUniforms[0].size = 560;
+		deferredMaterialDirectional->extraUniforms[0].size = 576;
 		deferredMaterialDirectional->extraUniforms[0].scratch.resize(deferredMaterialDirectional->extraUniforms[0].size, 0);
 		deferredMaterialDirectional->extraUniforms[0].offsets["uScreenDimensions"] = 0;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uLightDirection"] = 16;
@@ -460,6 +466,7 @@ namespace p3d {
 		deferredMaterialDirectional->extraUniforms[0].offsets["uHorizonSun"] = 512;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uVolumetric"] = 528;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uVolumetricTint"] = 544;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uRayShadow"] = 560;
 
 		deferredMaterialDirectional->DisableDepthTest();
 		deferredMaterialDirectional->DisableDepthWrite();
@@ -758,6 +765,10 @@ namespace p3d {
 		delete deferredLastPass;
 		delete deferredMaterialAmbient;
 		delete deferredMaterialDirectional;
+		if (IsActiveRenderDeviceSet())
+			for (std::unordered_map<IGeometry*, uint32>::iterator g = rayGeometryOf.begin(); g != rayGeometryOf.end(); ++g)
+				if (g->second != 0) GetActiveRenderDevice().DestroyRayGeometry(g->second);
+		rayGeometryOf.clear();
 		delete deferredMaterialPoint;
 		delete deferredMaterialSpot;
 		delete deferredSSAO;
@@ -1814,6 +1825,16 @@ namespace p3d {
 					if (!d->IsCastingShadows()) volumetric.x = 0.f;
 					dirVolumetricHandle->SetValue(&volumetric);
 					dirVolumetricTintHandle->SetValue(&volumetricTint);
+					// (ray-traced shadows: the frame's ray scene built, and the pass told to trace it -
+					// x on, y the sun's angular radius, z how far the scene reaches, w the frame)
+					Vec4 rayShadow(0.f, 0.f, 0.f, 0.f);
+					if (rayShadowsCompiled && d->GetRayTracedShadows() && d->IsCastingShadows())
+					{
+						UpdateRayScene(d);
+						rayShadow = Vec4(std::getenv("PYROS_RAY_SHADOW_ONLY") ? 2.f : 1.f, d->GetRayTracedShadowSoftness(), d->GetRayTracedShadowDistance(), (f32)(rayFrame % 1024));
+					}
+					else IRenderer::SetSunCastersLeaveRayTraced(false);
+					dirRayShadowHandle->SetValue(&rayShadow);
 
 					RenderObject(directionalLight->GetMeshes()[0], d->GetOwner(), deferredMaterialDirectional);
 					horizonTexture->Unbind();
@@ -2300,6 +2321,66 @@ namespace p3d {
 		ssaoRadius = radius;
 		ssaoStrength = strength;
 		ssaoFalloff = falloff;
+	}
+
+
+	// The frame's ray scene for ray-traced sun shadows: every mesh that is solid (not see-through,
+	// not cut out), still (no skeleton) and casts, of everything whose bounds come within the
+	// light's ray distance of the eye - each geometry's acceleration structure made the first time
+	// it is needed, every instance with the matrix it is drawn with. What it leaves out keeps the
+	// shadow map, and the map leaves out what it takes (IRenderer::SetSunCastersLeaveRayTraced) -
+	// unless the light also lights the air (sun shafts are marched through the map, and need all
+	// of it).
+	void DeferredRenderer::UpdateRayScene(DirectionalLight* light)
+	{
+		if (Scene == NULL || !IsActiveRenderDeviceSet()) return;
+		// (not while a scene is still loading - the loading screen listens then: its meshes are
+		// still being filled in, and reading their vertices for an acceleration structure crashed)
+		if (LoadProgress::HasHandler()) return;
+		IRenderDevice &dev = GetActiveRenderDevice();
+		rayFrame++;
+		const f32 reach = light->GetRayTracedShadowDistance();
+		const Vec3 eye = CameraPosition;
+		std::vector<IRenderDevice::RayInstance> instances;
+		const std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
+		for (size_t c = 0; c < comps.size(); c++)
+		{
+			RenderingComponent* rc = comps[c];
+			rc->inRayScene = false;
+			GameObject* owner = rc->GetOwner();
+			if (owner == NULL || !rc->IsActive() || !rc->IsCastingShadows() || rc->IsInstanced()) continue;
+			if (owner->GetDrawWorldPosition().distance(eye) - owner->GetBoundingSphereRadiusWorldSpace() > reach) continue;
+			const std::vector<RenderingMesh*> &meshes = !rc->GetShadowMeshes().empty() ? rc->GetShadowMeshes() : rc->GetMeshes(rc->GetLODInUse());
+			if (meshes.empty()) continue;
+			bool all = true;
+			for (size_t i = 0; i < meshes.size(); i++)
+			{
+				RenderingMesh* m = meshes[i];
+				IMaterial* mat = m->Material.get();
+				if (!m->Active || m->Geometry == NULL || mat == NULL || mat->IsTransparent() || !m->SkinningBones.empty() || !m->BonesToDraw().empty()) { all = false; continue; }
+				// (cut out: the shadow map, which tests the alpha, casts it)
+				GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(mat);
+				if (gm == NULL || (gm->GetOptions() & ShaderUsage::AlphaTest)) { all = false; continue; }
+				uint32 &geo = rayGeometryOf[m->Geometry];
+				if (geo == 0)
+				{
+					const std::vector<Vec3> &pos = m->Geometry->GetVertexData();
+					const std::vector<uint32> &idx = m->Geometry->GetIndexData();
+					if (pos.empty() || idx.size() < 3) { all = false; continue; }
+					geo = dev.CreateRayGeometry(&pos[0].x, (uint32)pos.size(), 3, idx.data(), (uint32)idx.size());
+					if (geo == 0) { all = false; continue; }
+				}
+				IRenderDevice::RayInstance inst;
+				inst.geometry = geo;
+				inst.world = owner->GetDrawWorld() * m->Pivot;
+				instances.push_back(inst);
+			}
+			rc->inRayScene = all;
+		}
+		dev.SetRayScene(instances);
+		IRenderer::SetSunCastersLeaveRayTraced(light->GetVolumetric().x <= 0.f);
+		static uint32 said = 0;
+		if (said++ == 0 || std::getenv("PYROS_RAY_TRACE")) fprintf(stderr, "DeferredRenderer: ray scene of %u instances, %u geometries\n", (uint32)instances.size(), (uint32)rayGeometryOf.size());
 	}
 
 };

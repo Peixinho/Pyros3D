@@ -319,6 +319,12 @@ namespace p3d {
 		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ);
 		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits);
 		virtual bool HasPendingComputeWork() const;
+		// Ray queries - see the block comment on IRenderDevice::SupportsRayQuery().
+		virtual bool SupportsRayQuery() const;
+		virtual DeviceHandle CreateRayGeometry(const f32 *positions, const uint32 vertexCount, const uint32 strideFloats,
+			const uint32 *indices, const uint32 indexCount);
+		virtual void DestroyRayGeometry(const DeviceHandle geometry);
+		virtual void SetRayScene(const std::vector<RayInstance> &instances);
 
 		virtual std::string BuildShaderSource(const std::string &definitions, const std::string &shaderBody);
 		virtual DeviceHandle CreateShaderStage(const uint32 engineShaderType);
@@ -581,6 +587,8 @@ namespace p3d {
 			std::string autoUboBlockName;
 			uint32 autoUboSize;
 			std::map<std::string, uint32> autoUboOffsets;
+			// The MSL buffer index given to the stage's ray scene, -1 when it has none.
+			int32 raySceneMslIndex = -1;
 			ShaderStageRecord() : engineShaderType(0), function(NULL), autoUboHasBlock(false), autoUboBinding(0), autoUboSize(0)
 			{
 				// Not a default member initializer, because this struct
@@ -655,6 +663,9 @@ namespace p3d {
 			// Engine binding -> kFallbackCube | kFallbackDepth, from SPIR-V
 			// reflection: which placeholder FillUnboundSamplers() may use.
 			std::map<uint32, uint32> samplerKinds;
+			// The fragment stage's MSL buffer index for the ray scene (an
+			// accelerationStructureEXT the shader declares), or -1 when it reads none.
+			int32 raySceneFragmentIndex = -1;
 			ProgramRecord() : vertexShader(0), fragmentShader(0), computeShader(0), isCompute(false) {}
 		};
 		std::map<DeviceHandle, ProgramRecord> programs;
@@ -1015,6 +1026,26 @@ namespace p3d {
 		bool scissorEnabled = false;
 		uint32 lastScissor[4] = { 0, 0, 0, 0 };
 		bool frameInProgress;
+
+		// ---- Ray queries ------------------------------------------------
+		// One primitive acceleration structure per geometry (id<MTLAccelerationStructure>),
+		// built once; and the frame's instance acceleration structure, built each
+		// SetRayScene() into the next of kRaySceneRing slots - a frame still on the GPU
+		// reads its own while the next is written.
+		std::map<DeviceHandle, void*> rayGeometries;
+		DeviceHandle nextRayGeometryHandle = 1;
+		static const uint32 kRaySceneRing = 3;
+		void* raySceneAccel[kRaySceneRing] = { NULL, NULL, NULL };    // id<MTLAccelerationStructure>
+		void* raySceneInstances[kRaySceneRing] = { NULL, NULL, NULL }; // id<MTLBuffer> of instance descriptors
+		uint32 raySceneInstanceCapacity[kRaySceneRing] = { 0, 0, 0 };
+		uint32 raySceneSlot = 0;
+		bool raySceneReady = false;
+		// The geometries the current scene reaches, made resident (useResources:) in
+		// any pass that reads it.
+		std::vector<void*> raySceneUsed;
+		// Binds the frame's scene to a program that reads one (its fragment MSL buffer
+		// index from CompileShaderStage()), and makes every geometry in it resident.
+		void BindRaySceneIfRead(const DeviceHandle programHandle);
 
 	};
 

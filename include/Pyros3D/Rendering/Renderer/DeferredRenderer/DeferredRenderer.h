@@ -9,6 +9,8 @@
 #ifndef DEFERREDRENDERER_H
 #define DEFERREDRENDERER_H
 
+#include <unordered_map>
+
 #include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
@@ -295,7 +297,15 @@ namespace p3d {
 		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle, *pointShadowBiasHandle;
 		Uniform *dirAmbientTooHandle = NULL;
 		TerrainOcclusion terrainOcclusion;
-		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle, *dirHorizonMapHandle, *dirHorizonRectHandle, *dirHorizonSunHandle, *dirVolumetricHandle, *dirVolumetricTintHandle;
+		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle, *dirHorizonMapHandle, *dirHorizonRectHandle, *dirHorizonSunHandle, *dirVolumetricHandle, *dirVolumetricTintHandle, *dirRayShadowHandle;
+		// Ray-traced sun shadows (DirectionalLight::SetRayTracedShadows): the sun pass was
+		// compiled with RAY_SHADOWS (the device traces rays); each geometry's acceleration
+		// structure, made the first time it is in range; the frame the scene was last built.
+		bool rayShadowsCompiled = false;
+		std::unordered_map<IGeometry*, uint32> rayGeometryOf;
+		uint32 rayFrame = 0;
+		// The frame's ray scene: what is solid, still and casts, within `distance` of the eye.
+		void UpdateRayScene(DirectionalLight* light);
 		Uniform *spotPosHandle, *spotDirHandle, *spotRadiusHandle, *spotOutterHandle, *spotInnerHandle, *spotColorHandle, *spotShadowHandle, *spotShadowDepthsMVPHandle, *spotShadowPCFTexelHandle, *spotHaveShadowHandle;
 
 		// See RenderScene()'s comment where these are set - real fix for

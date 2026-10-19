@@ -1,3 +1,7 @@
+// (ray-traced sun shadows - DeferredRenderer compiles this with RAY_SHADOWS where the device traces rays)
+#ifdef RAY_SHADOWS
+#extension GL_EXT_ray_query : require
+#endif
 #define varying_in in
 #define varying_out out
 #define attribute_in in
@@ -203,6 +207,9 @@ UBO_BINDING(32) uniform DirectionalFragParams {
 	// metre), w: how far out it is marched (metres).
 	vec4 uVolumetric;
 	vec4 uVolumetricTint;	// rgb: the scattered light's colour, w: steps along the ray
+	// Ray-traced shadows (DirectionalLight::SetRayTracedShadows): x on, y the sun's angular
+	// radius (radians), z how far from the eye the ray scene reaches (metres), w the frame.
+	vec4 uRayShadow;
 };
 
 SAMPLER_BINDING(4) uniform sampler2DShadow uShadowMap;
@@ -377,6 +384,39 @@ vec3 SunShafts(vec3 end, vec3 toSun, vec3 sunIrradiance)
 	return sunIrradiance * uVolumetricTint.rgb * phase * sum;
 }
 
+#ifdef RAY_SHADOWS
+// The frame's ray scene: what is solid and still and casts, near the eye (DeferredRenderer::UpdateRayScene)
+SAMPLER_BINDING(8) uniform accelerationStructureEXT uRayScene;
+float RayNoise(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
+// One ray from the surface toward a point of the sun's disc - a different point each pixel and each
+// frame, so where the sun is half hidden (the edge of a shadow, sharp at the foot of what casts it
+// and softer the further off that is) the antialiasing's history averages it out. Exact: no texels,
+// no bias against acne, no light leaking in at the corner of a wall and the ground.
+float RayShadow(vec3 viewPos, vec3 viewNormal)
+{
+	float dist = length(viewPos);
+	if (dist > uRayShadow.z) return 1.0;
+	vec3 wp = (uViewInverse * vec4(viewPos, 1.0)).xyz;
+	vec3 wn = normalize(mat3(uViewInverse) * viewNormal);
+	vec3 L = normalize(mat3(uViewInverse) * -uLightDirection);
+	vec3 T = normalize(cross(abs(L.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0), L));
+	vec3 B = cross(L, T);
+	float f = uRayShadow.w;
+	float u1 = RayNoise(gl_FragCoord.xy + vec2(f * 5.588238, f * 3.193425));
+	float u2 = RayNoise(gl_FragCoord.yx + vec2(f * 7.391734, f * 2.817361) + 13.0);
+	float r = tan(uRayShadow.y) * sqrt(u1), t = 6.2831853 * u2;
+	vec3 dir = normalize(L + (T * cos(t) + B * sin(t)) * r);
+	// (off the surface along its normal - more at a distance, where a depth's precision is less)
+	vec3 origin = wp + (dot(wn, L) < 0.0 ? -wn : wn) * (0.03 + 0.002 * dist);
+	rayQueryEXT q;
+	rayQueryInitializeEXT(q, uRayScene, gl_RayFlagsTerminateOnFirstHitEXT | gl_RayFlagsOpaqueEXT, 0xFF, origin, 0.0, dir, 2.0 * uRayShadow.z);
+	while (rayQueryProceedEXT(q)) {}
+	float lit = rayQueryGetIntersectionTypeEXT(q, true) == gl_RayQueryCommittedIntersectionNoneEXT ? 1.0 : 0.0;
+	// (toward the edge of its reach, given back to the shadow map alone)
+	return mix(lit, 1.0, smoothstep(uRayShadow.z * 0.85, uRayShadow.z, dist));
+}
+#endif
+
 // Fragment Color
 IO_LOCATION(0) out vec4 FragColor;
 
@@ -451,6 +491,10 @@ void main() {
 	// by max(dot(N, L), 0), so what follows adds exactly nothing - and what
 	// follows is the shadow lookup, 16 to 36 samples of the map. On a low sun
 	// that is every wall, trunk and slope on the far side.
+#ifdef RAY_SHADOWS
+	// (PYROS_RAY_SHADOW_ONLY=1: what the rays alone say - white lit, black shadowed)
+	if (uRayShadow.x > 1.5) { FragColor = vec4(vec3(RayShadow(v1, vViewNormal)), 1.0); return; }
+#endif
 	// (the air in front of this surface, lit by the sun where it is not in shadow - see SunShafts)
 	vec3 shafts = SunShafts(v1, normalize(-uLightDirection), uLightColor.xyz * PBR_PI);
 	if (sssStrength <= 0.0 && dot(vViewNormal, normalize(-uLightDirection)) <= 0.0)
@@ -476,6 +520,9 @@ void main() {
 	{
 		pcf = DirectionalShadowFactor(uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1));
 	}
+#ifdef RAY_SHADOWS
+	if (uRayShadow.x > 0.5) pcf *= RayShadow(v1, vViewNormal);
+#endif
 	float roughness = mr.x;
 	float metallic = mr.y;
 

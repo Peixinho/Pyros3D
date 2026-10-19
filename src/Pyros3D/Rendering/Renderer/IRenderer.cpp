@@ -1975,6 +1975,8 @@ namespace {
 	}
 }
 void IRenderer::SetShadowCasterViewCull(const bool on) { g_shadowViewCullWanted = on; }
+namespace { bool g_sunLeaveRayTraced = false; thread_local bool t_inSunPass = false; }
+void IRenderer::SetSunCastersLeaveRayTraced(const bool on) { g_sunLeaveRayTraced = on; }
 
 // The sun's shadow pass: see the note where it is put together, in PreRender.
 struct IRenderer::SunPass
@@ -2038,7 +2040,9 @@ void IRenderer::RecordSunPass(const SunPass &pass)
 		UpdateCulling(ProjectionMatrix*ViewMatrix);
 		g_shadowView = c.cull;
 		if (i == 0) g_shadowCastersDrawn = g_shadowCastersLeftOut = 0;
+		t_inSunPass = true;
 		RenderShadowCasters(pass.cullCasters);
+		t_inSunPass = false;
 		g_shadowView.on = false;
 		if (!t_recordingBeside)
 		{
@@ -2438,11 +2442,14 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	// here, 1 drawn, 2 left out as unable to throw a shadow into the view,
 	// 3 the first mesh of a component that casts from a mesh of its own.
 	std::vector<uint8> answers;
+	// (read here, on the thread recording the pass: the answers below are worked out on others)
+	const bool leaveRayTraced = t_inSunPass && g_sunLeaveRayTraced;
 	AnswerInParallel(rmesh.size(), answers, [&](const uint32 i) -> uint8 {
 		const uint8 f = cullFlags[i];
 		if ((f & (CullOwner | CullCasts | CullComponentActive)) != (CullOwner | CullCasts | CullComponentActive) || (f & CullTransparent)) return 0;
 		RenderingMesh* m = rmesh[i];
 		RenderingComponent* rc = m->renderingComponent;
+		if (leaveRayTraced && rc->inRayScene) return 0;     // (its rays cast it: SetSunCastersLeaveRayTraced)
 		if (rc->ShadowTooFar()) return 2;           // (too far off to cast: SetShadowDistance)
 		// Something that casts with a mesh of its own for the purpose
 		// (RenderingComponent::SetShadowRenderable): that, once for the

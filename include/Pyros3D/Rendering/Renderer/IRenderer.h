@@ -288,6 +288,9 @@ namespace p3d {
 		// The sun's casters that cannot throw a shadow into the view are left
 		// out of its map (off by default: it lost on a scene of four thousand meshes; off to compare against).
 		static void SetShadowCasterViewCull(const bool on);
+		// The sun's shadow map leaves out what is in the frame's ray scene (RenderingComponent::
+		// inRayScene) - its rays cast that; the map keeps people and cut-out or see-through things.
+		static void SetSunCastersLeaveRayTraced(const bool on);
 		// Culling shared out among the job system's workers (off by default: it lost on a scene of four thousand meshes;
 		// on to try it). CullInParallel keeps the meshes `keep`
 		// says yes to, in their order; `keep` is called from several threads

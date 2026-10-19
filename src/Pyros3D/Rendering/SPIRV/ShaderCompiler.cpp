@@ -190,9 +190,32 @@ namespace p3d {
 		}
 	}
 
-	bool SpirvShaderCompiler::Compile(const std::string &source, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog)
+	bool SpirvShaderCompiler::Compile(const std::string &sourceIn, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog)
 	{
 		outSpirv.clear();
+		// (GL_EXT_ray_query is GLSL 4.60's: a shader that uses it is raised from the 4.50 every
+		// backend stamps on, and nothing else is touched - its text, so its caches, stay as they were)
+		// (only where the extension survives the preprocessor: a shader that names it inside an
+		// #ifdef not taken - the sun pass on a device without ray tracing - is left exactly as it was;
+		// raised regardless, it came out as SPIR-V 1.5, which a Vulkan 1.0 device refuses: black)
+		std::string raised;
+		bool rayQuery = false;
+		if (sourceIn.find("GL_EXT_ray_query") != std::string::npos)
+		{
+			shaderc::Compiler pre;
+			shaderc::CompileOptions preOptions;
+			preOptions.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_2);
+			std::string probe = sourceIn;
+			const size_t v = probe.find("#version 450");
+			if (v != std::string::npos) probe.replace(v, 12, "#version 460");
+			shaderc::PreprocessedSourceCompilationResult r = pre.PreprocessGlsl(probe, ShadercKindForStage(stage), "shader", preOptions);
+			if (r.GetCompilationStatus() == shaderc_compilation_status_success && std::string(r.cbegin(), r.cend()).find("GL_EXT_ray_query") != std::string::npos)
+			{
+				rayQuery = true;
+				raised = probe;
+			}
+		}
+		const std::string &source = raised.empty() ? sourceIn : raised;
 
 		const uint64 key = HashSpirvKey(source, stage);
 		{
@@ -214,7 +237,8 @@ namespace p3d {
 
 		shaderc::Compiler compiler;
 		shaderc::CompileOptions options;
-		options.SetTargetEnvironment(shaderc_target_env_vulkan, shaderc_env_version_vulkan_1_0);
+		// (ray queries need SPIR-V 1.4 - Vulkan 1.2's; everything else keeps 1.0, its caches untouched)
+		options.SetTargetEnvironment(shaderc_target_env_vulkan, rayQuery ? shaderc_env_version_vulkan_1_2 : shaderc_env_version_vulkan_1_0);
 		options.SetOptimizationLevel(shaderc_optimization_level_zero);
 
 		shaderc::SpvCompilationResult result = compiler.CompileGlslToSpv(source, kind, "shader", options);

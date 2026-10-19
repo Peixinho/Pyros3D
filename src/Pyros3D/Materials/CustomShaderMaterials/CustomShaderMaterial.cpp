@@ -100,7 +100,7 @@ namespace p3d
 		return false;
 	}
 
-	CustomShaderMaterial::CustomShaderMaterial(const std::string& ShaderFile) : IMaterial()
+	CustomShaderMaterial::CustomShaderMaterial(const std::string& ShaderFile, const std::string& ExtraDefines) : IMaterial()
 	{
 		LiveMaterials()++;
 		ShaderFilePath = ShaderFile;
@@ -125,6 +125,8 @@ namespace p3d
 #if defined(EMSCRIPTEN)
 			define += std::string("#define EMSCRIPTEN\n");
 #endif
+			// (a variant of the file: "#define X\n" lines of the caller's - one program per set)
+			define += ExtraDefines;
 
 			// Not Found, Then Load Shader
 			InternalShader.reset(new Shader());
