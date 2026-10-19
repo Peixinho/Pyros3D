@@ -451,8 +451,11 @@ namespace p3d {
 		// chain, the same way it pushes a view matrix nothing may read.
 		if (velocityRenderer == NULL || camera == NULL || scene == NULL)
 			return;
-		// (TAA alone reading it: only what moves by itself need be drawn)
-		velocityRenderer->SetDynamicOnly(!ChainUsesVelocity());
+		// Only what moves by itself: every reader (TAA, the upscaler's motion, motion blur) places
+		// what stood still from the scene's depth and the two cameras. (Motion blur used to take the
+		// whole scene drawn here - and static meshes' own velocities did not agree with each other:
+		// a road streaked twice as far as the pavement beside it.)
+		velocityRenderer->SetDynamicOnly(true);
 		velocityRenderer->RenderVelocityMap(projection, camera, scene);
 		for (std::vector<IEffect*>::iterator i = effects.begin(); i != effects.end(); i++)
 		{

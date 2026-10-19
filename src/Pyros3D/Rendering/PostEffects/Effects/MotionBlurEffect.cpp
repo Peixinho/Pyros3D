@@ -1,3 +1,4 @@
+#include <cstdlib>
 //============================================================================
 // Name        : MotionBlur.h
 // Author      : Duarte Peixinho
@@ -17,6 +18,8 @@ namespace p3d {
 		UseRTT(Tex1);
 		UseCustomTexture(VelocityMap);
 		UseCustomTexture(VelocityDepth);
+		// the scene's own depth (uTex3): what stood still is placed by it and the two cameras
+		UseRTT(RTT::Depth);
 
 		cfps = 60.0f;
 		tfps = 60.0f;
@@ -60,7 +63,8 @@ namespace p3d {
 #endif
 
 		// Fragment: VULKAN (shaderc) uses a UBO; GL uses loose uniforms.
-		FragmentShaderString =
+		// PYROS_MB_DEBUG=1: red where the velocity pass drew something, green the streak length (40 px full)
+		FragmentShaderString = std::string(std::getenv("PYROS_MB_DEBUG") ? "#define MB_DEBUG\n" : "") +
 									"#define MAX_SAMPLES 32\n"
 									"#define varying_in in\n"
 									"#define varying_out out\n"
@@ -84,6 +88,7 @@ namespace p3d {
 								"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
 								"SAMPLER_BINDING(1) uniform sampler2D uTex1;\n"
 								"SAMPLER_BINDING(2) uniform sampler2D uTex2;\n"
+								"SAMPLER_BINDING(3) uniform sampler2D uTex3;\n"
 								"#if defined(VULKAN)\n"
 								"UBO_BINDING(26) uniform MotionBlurParams {\n"
 								"	mat4 uReproject;\n"
@@ -126,31 +131,24 @@ namespace p3d {
 									// no foreground - otherwise the smear stops dead
 									// on the silhouette and the background stays sharp
 									// while the world moves.
+									// As the TAA resolve works it out: where the velocity
+									// pass drew the surface that is seen here (its depth and
+									// the scene's agree), that is the motion; everywhere else
+									// the point stood still in the world, and where it was
+									// last frame follows from the SCENE's depth and the two
+									// cameras. (It took everything the pass had not drawn for
+									// sky at infinity: a mesh drawn there with its own
+									// velocity beside one taken as sky split the picture in
+									// two along their edge - one half streaking, one sharp.)
 									"float centerDepth = texture(uTex2, uv).r;\n"
+									"float sceneDepth = texture(uTex3, uv).r;\n"
 									"vec2 velocity;\n"
-									"if (centerDepth < 0.99999) {\n"
+									"if (centerDepth < 0.99999 && abs(centerDepth - sceneDepth) <= 0.002) {\n"
 									"	velocity = MeshVelocity(texture(uTex1, uv).rg);\n"
 									"} else {\n"
-									"	float bestDepth = 2.0;\n"
-									"	vec2 best = vec2(0.0);\n"
-									"	bool found = false;\n"
-									"	for (int y = -1; y <= 1; y++) {\n"
-									"		for (int x = -1; x <= 1; x++) {\n"
-									"			vec2 s = uv + vec2(float(x), float(y)) * texelSize;\n"
-									"			float d = texture(uTex2, s).r;\n"
-									"			if (d >= 0.99999 || d >= bestDepth) continue;\n"
-									"			bestDepth = d;\n"
-									"			best = texture(uTex1, s).rg;\n"
-									"			found = true;\n"
-									"		}\n"
-									"	}\n"
-									"	if (found) {\n"
-									"		velocity = MeshVelocity(best);\n"
-									"	} else {\n"
-									"		vec4 prev = uReproject * vec4(UVToNDC(uv), 1.0, 1.0);\n"
-									"		vec2 prevUV = (prev.w > 0.0) ? NDCToUV(prev.xy / prev.w) : uv;\n"
-									"		velocity = uv - prevUV;\n"
-									"	}\n"
+									"	vec4 prev = uReproject * vec4(UVToNDC(uv), min(sceneDepth, 1.0) * 2.0 - 1.0, 1.0);\n"
+									"	vec2 prevUV = (prev.w > 0.0) ? NDCToUV(prev.xy / prev.w) : uv;\n"
+									"	velocity = uv - prevUV;\n"
 									"}\n"
 									"#if defined(VULKAN)\n"
 									"velocity *= uVelocityScale.x;\n"
@@ -161,6 +159,9 @@ namespace p3d {
 									// matrix) so it cannot paint the whole picture.
 									// The cap is in pixels of this frame, so a fast
 									// editor and a 60fps one keep the same shutter.
+									"#ifdef MB_DEBUG\n"
+									"FragColor = vec4(centerDepth < 0.99999 ? 1.0 : 0.0, clamp(length(velocity / texelSize) / 40.0, 0.0, 1.0), 0.0, 1.0); return;\n"
+									"#endif\n"
 									"float maxPixels = 0.12 * float(max(textureSize(uTex0, 0).x, textureSize(uTex0, 0).y));\n"
 									"float speed = length(velocity / texelSize);\n"
 									"if (speed > maxPixels) {\n"
