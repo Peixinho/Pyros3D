@@ -1,0 +1,641 @@
+{
+ "version": 1,
+ "materials": [
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.42,
+    0.42,
+    0.45,
+    1.0
+   ],
+   "cullFace": 0,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 0,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 4210689,
+   "reflectivity": 0.0,
+   "roughness": 0.6,
+   "shininess": 0.0,
+   "specular": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "ssrEnabled": false,
+   "transparent": false,
+   "wireframe": false
+  },
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.55,
+    0.36,
+    0.2,
+    1.0
+   ],
+   "cullFace": 0,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 1,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 4210689,
+   "reflectivity": 0.0,
+   "roughness": 0.7,
+   "shininess": 0.0,
+   "specular": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "ssrEnabled": false,
+   "transparent": false,
+   "wireframe": false
+  },
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.7,
+    0.68,
+    0.64,
+    1.0
+   ],
+   "cullFace": 0,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 2,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 4210689,
+   "reflectivity": 0.0,
+   "roughness": 0.85,
+   "shininess": 0.0,
+   "specular": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "ssrEnabled": false,
+   "transparent": false,
+   "wireframe": false
+  },
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.85,
+    0.82,
+    0.76,
+    1.0
+   ],
+   "cullFace": 0,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 3,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 4210689,
+   "reflectivity": 0.0,
+   "roughness": 0.5,
+   "shininess": 0.0,
+   "specular": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "ssrEnabled": false,
+   "transparent": false,
+   "wireframe": false
+  }
+ ],
+ "roots": [
+  {
+   "name": "Camera",
+   "tags": [
+    "Camera"
+   ],
+   "position": [
+    0,
+    4.0,
+    16
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "children": [],
+   "components": [
+    {
+     "type": "LuaComponent",
+     "scriptFile": "demos/scripts/camera_fly.lua",
+     "data": {
+      "yaw": 0,
+      "pitch": -12
+     }
+    }
+   ]
+  },
+  {
+   "name": "Floor",
+   "tags": [],
+   "position": [
+    0,
+    -0.5,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 0,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 30,
+      "height": 0.5,
+      "depth": 30,
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false
+     }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 30,
+     "height": 0.5,
+     "depth": 30,
+     "mass": 0.0,
+     "ghost": false
+    }
+   ]
+  },
+  {
+   "name": "Crate_0",
+   "tags": [],
+   "position": [
+    -5.0,
+    0.8,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 0.8,
+      "height": 0.8,
+      "depth": 0.8,
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "Crate_1",
+   "tags": [],
+   "position": [
+    -2.5,
+    0.8,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 0.8,
+      "height": 0.8,
+      "depth": 0.8,
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "Crate_2",
+   "tags": [],
+   "position": [
+    0.0,
+    0.8,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 0.8,
+      "height": 0.8,
+      "depth": 0.8,
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "Crate_3",
+   "tags": [],
+   "position": [
+    2.5,
+    0.8,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 0.8,
+      "height": 0.8,
+      "depth": 0.8,
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "Crate_4",
+   "tags": [],
+   "position": [
+    5.0,
+    0.8,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 0.8,
+      "height": 0.8,
+      "depth": 0.8,
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "Crate_Top",
+   "tags": [],
+   "position": [
+    0,
+    2.4,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 0.8,
+      "height": 0.8,
+      "depth": 0.8,
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "Wall",
+   "tags": [],
+   "position": [
+    0,
+    2.0,
+    -5
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 2,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "width": 5.0,
+      "height": 2.0,
+      "depth": 0.3,
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "Column",
+   "tags": [],
+   "position": [
+    6,
+    2.5,
+    -3
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 3,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cylinder",
+      "radius": 0.6,
+      "height": 5.0,
+      "segmentsW": 24,
+      "segmentsH": 1,
+      "smooth": true,
+      "flip": false,
+      "tangentBitangent": false
+     }
+    }
+   ]
+  },
+  {
+   "name": "Director",
+   "tags": [],
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "children": [],
+   "components": [
+    {
+     "type": "LuaComponent",
+     "scriptFile": "demos/scripts/destruction.lua",
+     "data": {
+      "targets": [
+       "Crate_0",
+       "Crate_1",
+       "Crate_Top",
+       "Crate_2",
+       "Crate_3",
+       "Crate_4",
+       "Wall",
+       "Column"
+      ],
+      "pieces": 14,
+      "mass": 60,
+      "blast": 6.0,
+      "every": 2.2
+     }
+    }
+   ]
+  },
+  {
+   "name": "Sun",
+   "tags": [],
+   "position": [
+    0,
+    30,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "children": [],
+   "components": [
+    {
+     "type": "DirectionalLight",
+     "sun": false,
+     "castingShadows": true,
+     "cascades": 3,
+     "color": [
+      1.0,
+      0.93,
+      0.82,
+      1.0
+     ],
+     "intensity": 2.2,
+     "direction": [
+      -0.20092639706304893,
+      -0.42194543383240274,
+      0.8840761470774153
+     ],
+     "shadowWidth": 2048,
+     "shadowHeight": 2048,
+     "shadowNear": 0.1,
+     "shadowFar": 90.0,
+     "shadowBiasFactor": 2.0,
+     "shadowBiasUnits": 1.0,
+     "shadowNormalBias": 1.5,
+     "shadowSoftness": 1.0
+    }
+   ]
+  }
+ ]
+}

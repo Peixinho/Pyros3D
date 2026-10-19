@@ -8,6 +8,7 @@
 #ifdef LUA_BINDINGS
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+#include <Pyros3D/Utils/Fracture/Fracture.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <Pyros3D/Rendering/Components/TileMap2D/TileMap2D.h>
 #include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
@@ -613,6 +614,50 @@ namespace p3d {
 					for (size_t i = 1; i <= points.size(); i++)
 						list.push_back(points.get<Vec3>(i));
 					return p.CreateConvexHull(list, mass, ghost);
+				},
+				// Breaking a thing apart (Fracture::Split): its mesh into `pieces` Voronoi pieces packed
+				// round `impact` (world), each a new GameObject with its own mesh (the thing's materials,
+				// its first over the cut) and a convex body sharing `mass` by volume. The thing's own mesh
+				// is hidden; the pieces are returned for the script to add to the scene (and kick, the
+				// frame after - a velocity before then is lost):
+				//   local parts = physics:fracture(crate, 12, hitPoint, 40)
+				//   for _, p in ipairs(parts) do scene:add(p.go) end
+				"fracture", [](IPhysics &p, GameObject* go, const int pieces, const Vec3 &impact, const f32 mass, sol::optional<int> seed, sol::this_state ts) {
+					sol::state_view lua(ts);
+					sol::table result = lua.create_table();
+					if (go == NULL) return result;
+					RenderingComponent* rc = NULL;
+					for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+						if (c && c->GetComponentType() == ComponentType::RenderingComponent) { rc = static_cast<RenderingComponent*>(c.get()); break; }
+					if (rc == NULL || rc->GetRenderable() == NULL) return result;
+					const std::vector<Fracture::Piece> parts = Fracture::Split(*rc->GetRenderable(), go->GetWorldTransformation(), (uint32)std::max(2, pieces), impact, (uint32)seed.value_or(1));
+					f32 total = 0.f;
+					for (size_t i = 0; i < parts.size(); i++) total += parts[i].volume;
+					// the thing's materials, by the geometry each mesh draws
+					std::vector<std::shared_ptr<IMaterial> > mats(rc->GetRenderable()->Geometries.size());
+					for (RenderingMesh* m : rc->GetMeshes(0))
+						for (size_t gi = 0; gi < mats.size(); gi++)
+							if (m->Geometry == rc->GetRenderable()->Geometries[gi]) mats[gi] = m->Material;
+					for (size_t i = 0; i < parts.size(); i++)
+					{
+						std::shared_ptr<GameObject> piece = std::make_shared<GameObject>();
+						piece->SetName(go->GetName() + "_piece" + std::to_string(i));
+						piece->SetPosition(parts[i].centre);
+						std::shared_ptr<RenderingComponent> prc = std::make_shared<RenderingComponent>(parts[i].mesh, ShaderUsage::Diffuse | ShaderUsage::DirectionalShadow);
+						const std::vector<RenderingMesh*> &meshes = prc->GetMeshes(0);
+						for (size_t k = 0; k < meshes.size() && k < parts[i].mesh->SourceGeometry.size(); k++)
+							if (mats[parts[i].mesh->SourceGeometry[k]]) meshes[k]->Material = mats[parts[i].mesh->SourceGeometry[k]];
+						piece->AddComponent(prc);
+						std::shared_ptr<IPhysicsComponent> body = p.CreateConvexHull(parts[i].hull, total > 0.f ? mass * parts[i].volume / total : mass / (f32)parts.size(), false);
+						if (body) piece->AddComponent(body);
+						sol::table entry = lua.create_table();
+						entry["go"] = piece;
+						entry["body"] = body;
+						entry["centre"] = parts[i].centre;
+						result[i + 1] = entry;
+					}
+					rc->Disable();
+					return result;
 				},
 				"createCylinder", &IPhysics::CreateCylinder,
 				"createMultiplerSphere", &IPhysics::CreateMultipleSphere,

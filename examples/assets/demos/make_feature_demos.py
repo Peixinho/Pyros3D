@@ -80,6 +80,32 @@ VARIANTS = [
      {"effects": [{"name": "Sky", "params": {"uCloudVolume": 1.0, "uCloudCover": 0.55, "uCloudSteps": 32.0}}], "background": None}, 18),
 ]
 
+def destruction():
+    """Crates, a wall and a column on a floor, broken one after another (scripts/destruction.lua)."""
+    roots.clear()
+    mats = [mat(0, (0.42, 0.42, 0.45), 0.6), mat(1, (0.55, 0.36, 0.2), 0.7), mat(2, (0.7, 0.68, 0.64), 0.85), mat(3, (0.85, 0.82, 0.76), 0.5)]
+    roots.append({"name": "Camera", "tags": ["Camera"], "position": [0, 4.0, 16], "rotation": [0, 0, 0], "scale": [1, 1, 1],
+                  "static": False, "children": [], "components": [{"type": "LuaComponent", "scriptFile": "demos/scripts/camera_fly.lua",
+                                                                    "data": {"yaw": 0, "pitch": -12}}]})
+    obj("Floor", (0, -0.5, 0), [{"type": "RenderingComponent", "castingShadows": True, "cullTest": True, "material": 0,
+         "renderable": {"kind": "primitive", "shape": "Cube", "width": 30, "height": 0.5, "depth": 30, "smooth": False, "flip": False, "tangentBitangent": False}},
+        {"type": "Physics", "shape": "Box", "width": 30, "height": 0.5, "depth": 30, "mass": 0.0, "ghost": False}])
+    names = []
+    for i, x in enumerate((-5.0, -2.5, 0.0, 2.5, 5.0)):
+        cube("Crate_%d" % i, (x, 0.8, 0), (0.8, 0.8, 0.8), 1); names.append("Crate_%d" % i)
+    cube("Crate_Top", (0, 2.4, 0), (0.8, 0.8, 0.8), 1); names.insert(2, "Crate_Top")
+    cube("Wall", (0, 2.0, -5), (5.0, 2.0, 0.3), 2); names.append("Wall")
+    obj("Column", (6, 2.5, -3), [{"type": "RenderingComponent", "castingShadows": True, "cullTest": True, "material": 3,
+         "renderable": {"kind": "primitive", "shape": "Cylinder", "radius": 0.6, "height": 5.0, "segmentsW": 24, "segmentsH": 1,
+                        "smooth": True, "flip": False, "tangentBitangent": False}}]); names.append("Column")
+    obj("Director", (0, 0, 0), [{"type": "LuaComponent", "scriptFile": "demos/scripts/destruction.lua",
+         "data": {"targets": names, "pieces": 14, "mass": 60, "blast": 6.0, "every": 2.2}}])
+    roots.append(sun())
+    json.dump({"version": 1, "materials": mats, "roots": roots}, open(os.path.join(HERE, "Destruction.json"), "w"), indent=1)
+    return {"name": "Destruction", "description": "Run-time fracture (physics:fracture): a crate, then the stack, the wall and the column break one after another into Voronoi pieces packed round where they are hit - each piece keeps its faces and gets a cap over the cut, and a convex body of its own; a click breaks what is under the cursor.",
+            "scene": "Destruction.json", "render": {"type": "deferred", "globalLight": [0.2, 0.21, 0.24, 1], "background": [0.42, 0.58, 0.82, 1],
+                                                   "projection": {"fov": 70, "near": 0.1, "far": 400}, "effects": ["tonemap"]}}
+
 def main():
     entries = []
     for v in VARIANTS:
@@ -96,8 +122,9 @@ def main():
         for k, val in override.items():
             if val is None: entries[-1]["render"].pop(k, None)
             else: entries[-1]["render"][k] = val
+    entries.append(destruction())
     mp = os.path.join(HERE, "manifest.json")
-    man = [e for e in json.load(open(mp)) if not e.get("scene", "").startswith("Courtyard_")]
+    man = [e for e in json.load(open(mp)) if not e.get("scene", "").startswith("Courtyard_") and e.get("scene") != "Destruction.json"]
     json.dump(man + entries, open(mp, "w"), indent=1)
     print("wrote", [e["scene"] for e in entries], "manifest:", len(man + entries))
 

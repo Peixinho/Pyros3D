@@ -862,5 +862,33 @@
     }
    ]
   }
+ },
+ {
+  "name": "Destruction",
+  "description": "Run-time fracture (physics:fracture): a crate, then the stack, the wall and the column break one after another into Voronoi pieces packed round where they are hit - each piece keeps its faces and gets a cap over the cut, and a convex body of its own; a click breaks what is under the cursor.",
+  "scene": "Destruction.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.2,
+    0.21,
+    0.24,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 400
+   },
+   "effects": [
+    "tonemap"
+   ]
+  }
  }
 ]
