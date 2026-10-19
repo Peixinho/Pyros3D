@@ -119,68 +119,86 @@ namespace p3d {
 								"#endif\n"
 								"	return v;\n"
 								"}\n"
+								// Where a pixel moved over the shutter, in UV: its own velocity where the velocity
+								// pass drew the surface that is seen there (its depth and the scene's agree), else
+								// the point stood still in the world and the scene's depth and the two cameras say
+								// where it was. (Taking everything the pass had not drawn for sky at infinity split
+								// the picture in two along an edge - one half streaking, one sharp.) Bounded by a
+								// share of the frame, so a hitch or a teleported matrix cannot paint the whole
+								// picture; the cap is in pixels of this frame, so the shutter is the same at any rate.
+								"vec2 texelSize;\n"
+								"float maxPixels;\n"
+								"vec2 VelocityAt(vec2 uv, out float sceneDepth) {\n"
+								"	float drawnDepth = texture(uTex2, uv).r;\n"
+								"	sceneDepth = texture(uTex3, uv).r;\n"
+								"	vec2 velocity;\n"
+								"	if (drawnDepth < 0.99999 && abs(drawnDepth - sceneDepth) <= 0.002) {\n"
+								"		velocity = MeshVelocity(texture(uTex1, uv).rg);\n"
+								"	} else {\n"
+								"		vec4 prev = uReproject * vec4(UVToNDC(uv), min(sceneDepth, 1.0) * 2.0 - 1.0, 1.0);\n"
+								"		vec2 prevUV = (prev.w > 0.0) ? NDCToUV(prev.xy / prev.w) : uv;\n"
+								"		velocity = uv - prevUV;\n"
+								"	}\n"
+								"#if defined(VULKAN)\n"
+								"	velocity *= uVelocityScale.x;\n"
+								"#else\n"
+								"	velocity *= uVelocityScale;\n"
+								"#endif\n"
+								"	float px = length(velocity / texelSize);\n"
+								"	if (px > maxPixels) velocity *= maxPixels / px;\n"
+								"	return velocity;\n"
+								"}\n"
+								// Distance from the eye, near enough, from a [0,1] depth: (1 - d) goes as near/z.
+								"float EyeDepth(float d) { return 1.0 / max(1.0 - min(d, 0.999999), 1e-6); }\n"
+								// How much of a pixel at distance x a streak of half-length r covers: a cone (thinner
+								// toward its ends) and a cylinder (all of it, out to its end).
+								"float Cone(float x, float r) { return clamp(1.0 - x / max(r, 1e-4), 0.0, 1.0); }\n"
+								"float Cylinder(float x, float r) { return 1.0 - smoothstep(0.95 * r, 1.05 * r, x); }\n"
+								// 1 where a is in front of b, by more than a few percent of their distance.
+								"float Nearer(float a, float b) { return clamp((b - a) / (0.03 * b) , 0.0, 1.0); }\n"
 								"void main() {\n"
-									"vec2 texelSize = 1.0 / vec2(textureSize(uTex0, 0));\n"
-									"vec2 uv = vTexcoord;\n"
-									// This pixel's own velocity when something was
-									// drawn here. Taking the fastest neighbour instead
-									// paints a rotating surface with its rim's
-									// direction, so the whole object streaks one way.
-									// Sky keeps the closest foreground velocity in the
-									// 3x3, or the camera reprojection when there is
-									// no foreground - otherwise the smear stops dead
-									// on the silhouette and the background stays sharp
-									// while the world moves.
-									// As the TAA resolve works it out: where the velocity
-									// pass drew the surface that is seen here (its depth and
-									// the scene's agree), that is the motion; everywhere else
-									// the point stood still in the world, and where it was
-									// last frame follows from the SCENE's depth and the two
-									// cameras. (It took everything the pass had not drawn for
-									// sky at infinity: a mesh drawn there with its own
-									// velocity beside one taken as sky split the picture in
-									// two along their edge - one half streaking, one sharp.)
-									"float centerDepth = texture(uTex2, uv).r;\n"
-									"float sceneDepth = texture(uTex3, uv).r;\n"
-									"vec2 velocity;\n"
-									"if (centerDepth < 0.99999 && abs(centerDepth - sceneDepth) <= 0.002) {\n"
-									"	velocity = MeshVelocity(texture(uTex1, uv).rg);\n"
-									"} else {\n"
-									"	vec4 prev = uReproject * vec4(UVToNDC(uv), min(sceneDepth, 1.0) * 2.0 - 1.0, 1.0);\n"
-									"	vec2 prevUV = (prev.w > 0.0) ? NDCToUV(prev.xy / prev.w) : uv;\n"
-									"	velocity = uv - prevUV;\n"
-									"}\n"
-									"#if defined(VULKAN)\n"
-									"velocity *= uVelocityScale.x;\n"
-									"#else\n"
-									"velocity *= uVelocityScale;\n"
-									"#endif\n"
-									// Bound a bad frame (a hitch, a teleported
-									// matrix) so it cannot paint the whole picture.
-									// The cap is in pixels of this frame, so a fast
-									// editor and a 60fps one keep the same shutter.
-									"#ifdef MB_DEBUG\n"
-									"FragColor = vec4(centerDepth < 0.99999 ? 1.0 : 0.0, clamp(length(velocity / texelSize) / 40.0, 0.0, 1.0), 0.0, 1.0); return;\n"
-									"#endif\n"
-									"float maxPixels = 0.12 * float(max(textureSize(uTex0, 0).x, textureSize(uTex0, 0).y));\n"
-									"float speed = length(velocity / texelSize);\n"
-									"if (speed > maxPixels) {\n"
-									"	velocity *= maxPixels / speed;\n"
-									"	speed = maxPixels;\n"
-									"}\n"
-									"int nSamples = int(clamp(speed, 1.0, float(MAX_SAMPLES)));\n"
-									// Along the whole segment, centred. A fixed
-									// grid of taps on a long streak shows up as
-									// copies of the edge, so each pixel shifts
-									// the grid by a fraction of one tap.
-									"float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);\n"
-									"vec4 acc = vec4(0.0);\n"
-									"for (int i = 0; i < MAX_SAMPLES; ++i) {\n"
-									"	if (i >= nSamples) break;\n"
-									"	float t = (nSamples <= 1) ? 0.0 : ((float(i) + jitter) / float(nSamples) - 0.5);\n"
-									"	acc += texture(uTex0, uv + velocity * t);\n"
-									"}\n"
-									"FragColor = acc / float(nSamples);\n"
+								"texelSize = 1.0 / vec2(textureSize(uTex0, 0));\n"
+								"maxPixels = 0.12 * float(max(textureSize(uTex0, 0).x, textureSize(uTex0, 0).y));\n"
+								"vec2 uv = vTexcoord;\n"
+								"float centreDepth;\n"
+								"vec2 velocity = VelocityAt(uv, centreDepth);\n"
+								"#ifdef MB_DEBUG\n"
+								"FragColor = vec4(texture(uTex2, uv).r < 0.99999 ? 1.0 : 0.0, clamp(length(velocity / texelSize) / 40.0, 0.0, 1.0), 0.0, 1.0); return;\n"
+								"#endif\n"
+								"float speed = length(velocity / texelSize);\n"
+								"vec4 centre = texture(uTex0, uv);\n"
+								"if (speed < 0.5) { FragColor = centre; return; }\n"
+								// Gathered along this pixel's streak, each sample weighed as a reconstruction filter
+								// does (McGuire et al., 2012): a sample in front counts as far as its OWN streak
+								// reaches this pixel - a gun or a car riding with the camera does not bleed into the
+								// street streaking behind it; one behind counts as far as THIS pixel's streak reaches
+								// - the street does not smear over the gun; two blurring together count where both
+								// cover. Averaging everything along the streak alike drew a fast edge as a row of
+								// copies, and a sharp foreground haloed with the background's smear.
+								// The taps are offset per pixel by interleaved gradient noise - even, not grain.
+								"int nSamples = int(clamp(speed * 0.5, 4.0, float(MAX_SAMPLES)));\n"
+								"float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));\n"
+								"float zc = EyeDepth(centreDepth);\n"
+								"float rc = 0.5 * speed;\n"
+								"float total = 1.0 / max(rc, 1.0);\n"
+								"vec4 acc = centre * total;\n"
+								"for (int i = 0; i < MAX_SAMPLES; ++i) {\n"
+								"	if (i >= nSamples) break;\n"
+								"	float t = ((float(i) + jitter) / float(nSamples)) * 2.0 - 1.0;\n"
+								"	if (abs(t) < 1e-3) continue;\n"
+								"	vec2 suv = uv + velocity * (0.5 * t);\n"
+								"	float sd;\n"
+								"	vec2 sv = VelocityAt(suv, sd);\n"
+								"	float zs = EyeDepth(sd);\n"
+								"	float x = abs(t) * rc;\n"
+								"	float rs = 0.5 * length(sv / texelSize);\n"
+								"	float f = Nearer(zs, zc);\n"
+								"	float b = Nearer(zc, zs);\n"
+								"	float w = f * Cone(x, rs) + b * Cone(x, rc) + Cylinder(x, rs) * Cylinder(x, rc) * 2.0;\n"
+								"	acc += texture(uTex0, suv) * w;\n"
+								"	total += w;\n"
+								"}\n"
+								"FragColor = acc / total;\n"
 								"}";
 
 		CompileShaders();
