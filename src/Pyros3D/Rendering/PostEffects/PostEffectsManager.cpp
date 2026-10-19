@@ -1062,7 +1062,12 @@ namespace p3d {
 				last = now;
 			}
 			temporalReset = false;
-			if (device->RunTemporalUpscale(frame)) LastRTT = output;
+			if (device->RunTemporalUpscale(frame))
+			{
+				LastRTT = output;
+				static bool said = false;
+				if (!said) { said = true; fprintf(stderr, "Upscaling: %s, temporal, from %ux%u\n", device->TemporalUpscalerId(), (unsigned)frame.renderWidth, (unsigned)frame.renderHeight); }
+			}
 			if (renderLastToTexture)
 			{
 				// (into a texture: the sharpening is drawn here, there being no

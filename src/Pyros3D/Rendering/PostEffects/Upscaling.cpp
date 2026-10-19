@@ -90,6 +90,13 @@ namespace p3d {
 		UpscalerMode Resolve(const UpscalerMode requested)
 		{
 			if (IsAvailable(requested)) return requested;
+			// (a temporal one asked for: the device's own temporal one first - FSR 3 asked for on a Mac
+			// is MetalFX, MetalFX on a PC is FSR 3 - and only then FSR 1)
+			if (IsTemporal(requested))
+			{
+				if (IsAvailable(UpscalerMode::MetalFX)) return UpscalerMode::MetalFX;
+				if (IsAvailable(UpscalerMode::FSR3)) return UpscalerMode::FSR3;
+			}
 			if (IsTemporal(requested) && IsAvailable(UpscalerMode::FSR1)) return UpscalerMode::FSR1;
 			return UpscalerMode::Sharp;
 		}
