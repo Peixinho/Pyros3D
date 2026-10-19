@@ -622,7 +622,11 @@ namespace p3d {
 				id<MTLTexture> depthTex = (__bridge id<MTLTexture>)depthTexture;
 				rpd.depthAttachment.texture = depthTex;
 				rpd.depthAttachment.loadAction = MTLLoadActionClear;
-				rpd.depthAttachment.storeAction = MTLStoreActionDontCare;
+				// Stored, not DontCare: an offscreen pass in the middle of the frame (a forward
+				// renderer's shadow maps) ends this encoder, and the one that resumes the swapchain
+				// LOADS the depth - left undefined, every fragment of the main pass failed its depth
+				// test and the forward demos with shadows drew nothing on Metal.
+				rpd.depthAttachment.storeAction = MTLStoreActionStore;
 				rpd.depthAttachment.clearDepth = 1.0;
 			}
 

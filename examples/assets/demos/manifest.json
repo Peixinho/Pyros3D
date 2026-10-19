@@ -663,5 +663,170 @@
     "tonemap"
    ]
   }
+ },
+ {
+  "name": "Courtyard (baseline)",
+  "description": "The courtyard every feature demo below is built on: shadow maps and screen-space reflections only.",
+  "scene": "Courtyard_Base.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 400
+   },
+   "effects": [
+    "tonemap"
+   ]
+  }
+ },
+ {
+  "name": "Sun Shafts",
+  "description": "Light scattered by the air, broken into shafts by the colonnade - the sun pass marching each view ray through the shadow map (DirectionalLight::SetVolumetric). Deferred.",
+  "scene": "Courtyard_Shafts.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 400
+   },
+   "effects": [
+    "tonemap"
+   ]
+  }
+ },
+ {
+  "name": "Ray-Traced Shadows",
+  "description": "Every pixel traces a ray toward a point of the sun's disc against the scene's acceleration structure: exact contact shadows (the slab, the ball's foot), softening with distance, no shadow-map texels or acne. Needs a GPU that traces rays (Metal on Apple silicon, Vulkan RTX/RDNA2+); elsewhere this is the baseline. Compare with 'Courtyard (baseline)'.",
+  "scene": "Courtyard_RTShadows.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 400
+   },
+   "effects": [
+    "tonemap"
+   ]
+  }
+ },
+ {
+  "name": "Ray-Traced Reflections",
+  "description": "The glossy floor and metals trace their reflections against the scene: the tower and pillar beside the camera and the arch behind it reflect, which screen-space reflections cannot see. SSR (baseline) is still there and cheaper. Needs a GPU that traces rays.",
+  "scene": "Courtyard_RTReflections.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 400
+   },
+   "effects": [
+    "tonemap"
+   ]
+  }
+ },
+ {
+  "name": "Courtyard (everything)",
+  "description": "Sun shafts, ray-traced shadows and ray-traced reflections together.",
+  "scene": "Courtyard_All.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 400
+   },
+   "effects": [
+    "tonemap"
+   ]
+  }
  }
 ]

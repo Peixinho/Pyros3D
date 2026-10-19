@@ -54,7 +54,9 @@ HANDLES = {"BindArrayBuffer": ["buffer"], "BindElementBuffer": ["buffer"], "Upda
            "UpdateUniformBuffer": ["buffer"], "ReplaceUniformBuffer": ["buffer"], "BindUniformBlockIfPresent": ["bufferHandle"],
            # (and textures: one that arrives in the middle of a game is made, bound and filled without a wait)
            "BindTextureToTarget": ["texture"], "AttachFramebufferTexture2D": ["textureId"],
-           "CopyDepthTexture": ["srcTexture", "dstTexture"], "GetImGuiTextureID": ["texture"]}
+           "CopyDepthTexture": ["srcTexture", "dstTexture"], "GetImGuiTextureID": ["texture"],
+           # (a vertex buffer a compute kernel fills in place - GPU particles - is bound as a storage buffer)
+           "BindStorageBuffer": ["buffer"]}
 # what a queued call points at, and how many bytes of it there are
 COPIES = {"UpdateUniformBuffer": ("data", "sizeBytes"), "ReplaceUniformBuffer": ("data", "sizeBytes"),
           "ReallocateBuffer": ("data", "length"), "UpdateBufferSubData": ("data", "length"),

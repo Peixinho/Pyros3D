@@ -308,6 +308,15 @@ namespace p3d {
                 OnResize((uint32)actualWidth, (uint32)actualHeight);
             }
         }
+        // The window's real size, every frame, as SDL2VulkanContext does: a tiling window manager
+        // (yabai) resizes a window without SDL_WINDOWEVENT_RESIZED reaching here, and the frame kept
+        // its old size - stretched by the compositor, a sphere drawn as an ellipse.
+        {
+            int realW = 0, realH = 0;
+            SDL_Metal_GetDrawableSize(rview, &realW, &realH);
+            if (realW > 0 && realH > 0 && ((uint32)realW != Width || (uint32)realH != Height))
+                OnResize((uint32)realW, (uint32)realH);
+        }
 
         frameClock.Tick((f64)SDL_GetPerformanceCounter() / (f64)SDL_GetPerformanceFrequency());
         SetTime(frameClock.Seconds() * 1000.0);

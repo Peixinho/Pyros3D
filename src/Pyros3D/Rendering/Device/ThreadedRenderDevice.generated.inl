@@ -334,7 +334,7 @@
 
 	void ThreadedRenderDevice::BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint)
 	{
-		Push([dev_ = real, cmd, buffer, bindingPoint]() { dev_->BindStorageBuffer(cmd, buffer, bindingPoint); });
+		Push([dev_ = real, cmd, buffer, self = this, bindingPoint]() { dev_->BindStorageBuffer(cmd, self->RealOf(buffer), bindingPoint); });
 	}
 
 	void ThreadedRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)
