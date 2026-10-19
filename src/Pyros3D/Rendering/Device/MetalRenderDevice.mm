@@ -2191,6 +2191,47 @@ namespace p3d {
 				// Remember both remaps for SendUniformInt().
 				uint32 nextSamplerIndex = 0;
 				uint32 nextTextureIndex = 0;
+				// Metal has 16 sampler states a stage (and 128 textures). A material that
+				// lights by GI with shadows of every kind wants more - the point and spot
+				// shadow arrays alone take eight. Over the limit, the textures always read
+				// the same way give up their sampler state for one written into the
+				// shader (a constexpr sampler): the shadow arrays first (compare
+				// less-or-equal, linear, clamped - what SetTextureCompareMode makes),
+				// then the GI's own pictures (linear, clamped). Their slot in the table
+				// is kConstexprSamplerSlot: nothing is bound there.
+				std::set<uint32> constexprSamplers;
+				{
+					uint32 wanted = 0;
+					for (size_t i = 0; i < resources.sampled_images.size(); i++)
+					{
+						const spirv_cross::SPIRType &t = mslCompiler.get_type(resources.sampled_images[i].type_id);
+						wanted += t.array.empty() ? 1 : (t.array[0] > 0 ? t.array[0] : 1);
+					}
+					for (int pass = 0; pass < 2 && wanted > kMaxMslSamplersPerStage; pass++)
+						for (size_t i = 0; i < resources.sampled_images.size() && wanted > kMaxMslSamplersPerStage; i++)
+						{
+							const spirv_cross::Resource &res = resources.sampled_images[i];
+							const spirv_cross::SPIRType &t = mslCompiler.get_type(res.type_id);
+							const uint32 n = t.array.empty() ? 1 : (t.array[0] > 0 ? t.array[0] : 1);
+							const std::string name = mslCompiler.get_name(res.id);
+							const bool pick = (pass == 0) ? n > 1 : (name.compare(0, 5, "uDDGI") == 0 || name == "uBRDFLut");
+							const uint32 b = mslCompiler.get_decoration(res.id, spv::DecorationBinding);
+							if (!pick || constexprSamplers.count(b)) continue;
+							spirv_cross::MSLConstexprSampler cs;
+							cs.min_filter = spirv_cross::MSL_SAMPLER_FILTER_LINEAR;
+							cs.mag_filter = spirv_cross::MSL_SAMPLER_FILTER_LINEAR;
+							cs.mip_filter = spirv_cross::MSL_SAMPLER_MIP_FILTER_NONE;
+							cs.s_address = cs.t_address = cs.r_address = spirv_cross::MSL_SAMPLER_ADDRESS_CLAMP_TO_EDGE;
+							if (t.image.depth)
+							{
+								cs.compare_enable = true;
+								cs.compare_func = spirv_cross::MSL_SAMPLER_COMPARE_FUNC_LESS_EQUAL;
+							}
+							mslCompiler.remap_constexpr_sampler_by_binding(mslCompiler.get_decoration(res.id, spv::DecorationDescriptorSet), b, cs);
+							constexprSamplers.insert(b);
+							wanted -= n;
+						}
+				}
 				for (size_t i = 0; i < resources.sampled_images.size(); i++)
 				{
 					const spirv_cross::Resource &res = resources.sampled_images[i];
@@ -2200,6 +2241,7 @@ namespace p3d {
 					binding.stage = mslCompiler.get_execution_model();
 					binding.desc_set = mslCompiler.get_decoration(res.id, spv::DecorationDescriptorSet);
 					binding.binding = mslCompiler.get_decoration(res.id, spv::DecorationBinding);
+					const bool fixedSampler = constexprSamplers.count(binding.binding) != 0;
 					if (nextTextureIndex + arraySize > kMaxMslTexturesPerStage)
 					{
 						errorLog = "Metal: more than " + std::to_string(kMaxMslTexturesPerStage) +
@@ -2207,7 +2249,7 @@ namespace p3d {
 							std::to_string(binding.binding);
 						return false;
 					}
-					if (nextSamplerIndex + arraySize > kMaxMslSamplersPerStage)
+					if (!fixedSampler && nextSamplerIndex + arraySize > kMaxMslSamplersPerStage)
 					{
 						errorLog = "Metal: more than " + std::to_string(kMaxMslSamplersPerStage) +
 							" samplers in one shader stage - no free MSL sampler index for binding " +
@@ -2215,11 +2257,11 @@ namespace p3d {
 						return false;
 					}
 					binding.msl_texture = nextTextureIndex;
-					binding.msl_sampler = nextSamplerIndex;
+					binding.msl_sampler = fixedSampler ? 0 : nextSamplerIndex;
 					it->second.textureIndexRemap[binding.binding] = nextTextureIndex;
-					it->second.samplerIndexRemap[binding.binding] = nextSamplerIndex;
+					it->second.samplerIndexRemap[binding.binding] = fixedSampler ? kConstexprSamplerSlot : nextSamplerIndex;
 					nextTextureIndex += arraySize;
-					nextSamplerIndex += arraySize;
+					if (!fixedSampler) nextSamplerIndex += arraySize;
 					mslCompiler.add_msl_resource_binding(binding);
 				}
 
@@ -2534,16 +2576,19 @@ namespace p3d {
 					std::map<uint32, uint32>::iterator tIt = progIt->second.textureMslIndex[stage].find((uint32)handle);
 					std::map<uint32, uint32>::iterator sIt = progIt->second.samplerMslIndex[stage].find((uint32)handle);
 					NSUInteger textureIndex = ((tIt != progIt->second.textureMslIndex[stage].end()) ? (NSUInteger)tIt->second : (NSUInteger)handle) + elem;
+					const bool fixedSampler = sIt != progIt->second.samplerMslIndex[stage].end() && sIt->second == kConstexprSamplerSlot;
 					NSUInteger samplerIndex = ((sIt != progIt->second.samplerMslIndex[stage].end()) ? (NSUInteger)sIt->second : (NSUInteger)handle) + elem;
+					// (a sampler written into the shader takes no slot: see CompileShaderStage)
+					id<MTLSamplerState> stageSampler = fixedSampler ? nil : sampler;
 					if (stage == 0)
 					{
 						[encoder setVertexTexture:tex atIndex:textureIndex];
-						if (sampler != nil) [encoder setVertexSamplerState:sampler atIndex:samplerIndex];
+						if (stageSampler != nil) [encoder setVertexSamplerState:stageSampler atIndex:samplerIndex];
 					}
 					else
 					{
 						[encoder setFragmentTexture:tex atIndex:textureIndex];
-						if (sampler != nil) [encoder setFragmentSamplerState:sampler atIndex:samplerIndex];
+						if (stageSampler != nil) [encoder setFragmentSamplerState:stageSampler atIndex:samplerIndex];
 					}
 					encoderBoundTextures.insert(((uint64)stage << 32) | (uint64)textureIndex);
 				}
@@ -3685,6 +3730,7 @@ namespace p3d {
 					std::map<uint32, uint32>::iterator sIt = prog.samplerMslIndex[stage].find(binding);
 					const NSUInteger textureBase = (tIt != prog.textureMslIndex[stage].end()) ? (NSUInteger)tIt->second : (NSUInteger)binding;
 					const NSUInteger samplerBase = (sIt != prog.samplerMslIndex[stage].end()) ? (NSUInteger)sIt->second : (NSUInteger)binding;
+					const bool fixedSampler = sIt != prog.samplerMslIndex[stage].end() && sIt->second == kConstexprSamplerSlot;
 					for (uint32 elem = 0; elem < arraySize; elem++)
 					{
 						const uint64 key = ((uint64)stage << 32) | (uint64)(textureBase + elem);
@@ -3697,12 +3743,12 @@ namespace p3d {
 						if (stage == 0)
 						{
 							[encoder setVertexTexture:tex atIndex:textureBase + elem];
-							[encoder setVertexSamplerState:sampler atIndex:samplerBase + elem];
+							if (!fixedSampler) [encoder setVertexSamplerState:sampler atIndex:samplerBase + elem];
 						}
 						else
 						{
 							[encoder setFragmentTexture:tex atIndex:textureBase + elem];
-							[encoder setFragmentSamplerState:sampler atIndex:samplerBase + elem];
+							if (!fixedSampler) [encoder setFragmentSamplerState:sampler atIndex:samplerBase + elem];
 						}
 						encoderBoundTextures.insert(key);
 					}

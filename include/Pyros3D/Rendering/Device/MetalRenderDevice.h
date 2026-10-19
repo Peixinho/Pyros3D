@@ -811,6 +811,8 @@ namespace p3d {
 		// See CompileShaderStage()'s resource remap (both advance by array
 		// size so shadow-map arrays don't overlap).
 		static const uint32 kMaxMslSamplersPerStage = 16;
+		// samplerIndexRemap's value for a texture whose sampler is written into the shader.
+		static const uint32 kConstexprSamplerSlot = 0xFFFFFFFFu;
 		static const uint32 kMaxMslTexturesPerStage = 128;
 
 		// One MTLTexture per handle, plus the small dirty-tracked sampler
