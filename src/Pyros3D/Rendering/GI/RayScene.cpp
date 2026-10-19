@@ -310,6 +310,13 @@ namespace p3d {
 					RenderingMesh *rm = meshes[m];
 					if (rm == NULL || rm->Geometry == NULL)
 						continue;
+					// A skinned mesh stays out: its triangles are where it was modelled (arms out, or
+					// in whatever units its skeleton then scales down - a person made in centimetres
+					// was traced fifty times life size, across the street), not where the animation
+					// puts it, and it moves every frame. A few people's bounce is nothing beside the
+					// street's; ten of them in the volume took the bake from 3 s to 78.
+					if (rm->Geometry->materialProperties.haveBones || !rm->MapBoneIDs.empty())
+						continue;
 
 					const std::vector<uint32> &idx = rm->Geometry->GetIndexData();
 					const std::vector<Vec3> &pos = rm->Geometry->GetVertexData();
