@@ -13,6 +13,7 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <map>
@@ -239,6 +240,13 @@ namespace p3d {
 		// 1 by default; 0 draws everything. See IRenderer::TooSmallToSee.
 		lua->set_function("setSmallObjectCull", [](const f32 pixels) { IRenderer::SetSmallObjectCull(pixels); });
 		lua->set_function("getSmallObjectCull", []() { return IRenderer::GetSmallObjectCull(); });
+		// setLODDistanceScale(k): every level of detail is kept k times further out (2: the finer
+		// models twice as far). For a magnified view - a scope at 4x sees a thing four times nearer
+		// than it is, and with the distances as they were it saw the coarse model of something that
+		// filled the lens. One scale for every view, so two views do not fight over which level a
+		// thing is drawn at (each change rebuilds what the scene draws). 1 by default.
+		lua->set_function("setLODDistanceScale", [](const f32 k) { RenderingComponent::SetLODDistanceScale(k); });
+		lua->set_function("getLODDistanceScale", []() { return RenderingComponent::GetLODDistanceScale(); });
 		// setShadowUpdateInterval(2): the sun's shadow map every other frame.
 		lua->set_function("setShadowUpdateInterval", [](const uint32 frames) { IRenderer::SetShadowUpdateInterval(frames); });
 		// setShadowCasterViewCull(false): the sun's map takes every caster in
