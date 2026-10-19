@@ -687,6 +687,17 @@ namespace p3d {
 		}
 	}
 
+	bool SpirvShaderCompiler::UsesAccelerationStructure(const std::vector<uint32> &spirv)
+	{
+		if (spirv.empty()) return false;
+		try
+		{
+			spirv_cross::Compiler compiler(spirv);
+			return !compiler.get_shader_resources().acceleration_structures.empty();
+		}
+		catch (const std::exception &) { return false; }
+	}
+
 	std::vector<SpirvResourceBinding> SpirvShaderCompiler::Reflect(const std::vector<uint32> &spirv)
 	{
 		std::vector<SpirvResourceBinding> out;

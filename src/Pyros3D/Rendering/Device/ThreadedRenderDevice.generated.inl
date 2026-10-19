@@ -358,6 +358,27 @@
 		return real->HasPendingComputeWork();
 	}
 
+	bool ThreadedRenderDevice::SupportsRayQuery() const
+	{
+		return real->SupportsRayQuery();
+	}
+
+	DeviceHandle ThreadedRenderDevice::CreateRayGeometry(const f32 * positions, const uint32 vertexCount, const uint32 strideFloats, const uint32 * indices, const uint32 indexCount)
+	{
+		Drain("CreateRayGeometry");
+		return real->CreateRayGeometry(positions, vertexCount, strideFloats, indices, indexCount);
+	}
+
+	void ThreadedRenderDevice::DestroyRayGeometry(const DeviceHandle geometry)
+	{
+		Push([dev_ = real, geometry]() { dev_->DestroyRayGeometry(geometry); });
+	}
+
+	void ThreadedRenderDevice::SetRayScene(const std::vector<RayInstance> & instances)
+	{
+		Push([dev_ = real, instances = std::vector<RayInstance>(instances)]() { dev_->SetRayScene(instances); });
+	}
+
 	uint32 ThreadedRenderDevice::TranslateAttributeType(const uint32 engineType)
 	{
 		return real->TranslateAttributeType(engineType);

@@ -1,6 +1,7 @@
 // Written by tools/gen_threaded_device.py from IRenderDevice.h - not by hand.
 		virtual CommandBufferHandle BeginCommandBuffer() override;
 		virtual void EndCommandBuffer(const CommandBufferHandle cmd) override;
+		virtual void WaitForFrameRoom() override;
 		virtual void BeginFrame() override;
 		virtual void EndFrame() override;
 		virtual bool IsFrameInProgress() const override;
@@ -68,6 +69,7 @@
 		virtual void ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void * data) override;
 		virtual void DestroyUniformBuffer(const DeviceHandle buffer) override;
 		virtual DeviceHandle CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void * data, const uint32 length) override;
+		virtual DeviceHandle CreateBufferOwned(const uint32 bufferType, const uint32 bufferDraw, std::vector<uchar> && data) override;
 		virtual void ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void * data, const uint32 length) override;
 		virtual void UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void * data, const uint32 length) override;
 		virtual void DestroyBuffer(const DeviceHandle buffer) override;
@@ -87,6 +89,10 @@
 		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ) override;
 		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits) override;
 		virtual bool HasPendingComputeWork() const override;
+		virtual bool SupportsRayQuery() const override;
+		virtual DeviceHandle CreateRayGeometry(const f32 * positions, const uint32 vertexCount, const uint32 strideFloats, const uint32 * indices, const uint32 indexCount) override;
+		virtual void DestroyRayGeometry(const DeviceHandle geometry) override;
+		virtual void SetRayScene(const std::vector<RayInstance> & instances) override;
 		virtual uint32 TranslateAttributeType(const uint32 engineType) override;
 		virtual std::string BuildShaderSource(const std::string & definitions, const std::string & shaderBody) override;
 		virtual DeviceHandle CreateShaderStage(const uint32 engineShaderType) override;
@@ -114,6 +120,7 @@
 		virtual void DestroyTextureObject(const DeviceHandle texture) override;
 		virtual void BindTextureToTarget(const uint32 target, const DeviceHandle texture) override;
 		virtual void UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void * data, const bool willMipmap) override;
+		virtual void UploadTexture2DOwned(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, std::vector<uchar> && data, const bool willMipmap) override;
 		virtual void UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height) override;
 		virtual void GenerateMipmap(const uint32 target) override;
 		virtual void SetTextureWrapS(const uint32 target, const uint32 engineRepeat) override;

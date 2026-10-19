@@ -309,6 +309,18 @@ namespace p3d {
 		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
 		appInfo.pApplicationName = "Pyros3D";
 		appInfo.apiVersion = VK_API_VERSION_1_0;
+#if !defined(__APPLE__)
+		// Ray queries (VK_KHR_ray_query) need a Vulkan 1.2 device, and a device
+		// is used at no more than the instance's version: 1.2 where the loader
+		// has it. Nothing else here asks for anything past 1.0. (MoltenVK has no
+		// ray queries, so the Mac stays as it was.)
+		{
+			uint32_t loaderVersion = VK_API_VERSION_1_0;
+			if (vkEnumerateInstanceVersion != NULL && vkEnumerateInstanceVersion(&loaderVersion) == VK_SUCCESS && loaderVersion >= VK_API_VERSION_1_2
+				&& std::getenv("PYROS_NO_RAYTRACING") == NULL)
+				appInfo.apiVersion = VK_API_VERSION_1_2;
+		}
+#endif
 
 		std::vector<const char*> extensions = requiredInstanceExtensions;
 		VkInstanceCreateFlags flags = 0;
@@ -541,6 +553,7 @@ namespace p3d {
 			for (int i = 0; i < kTransferSlots; i++)
 				if (transferSlotFences[i] != VK_NULL_HANDLE) vkDestroyFence(device, transferSlotFences[i], NULL);
 			transferFence = VK_NULL_HANDLE;
+			DestroyRayTracing();
 			// Compute pipelines own a VkPipeline, a pipeline layout and a
 			// descriptor set layout each; the descriptor sets themselves
 			// go back with the pool (destroyed below).
@@ -1146,9 +1159,63 @@ namespace p3d {
 		}
 		deviceCreateInfo.pEnabledFeatures = &wanted;
 
+		// Ray queries, where the device has them (see SupportsRayQuery): its
+		// three extensions and the features they need, chained in front of
+		// whatever pNext already holds. Asked for nothing otherwise.
+		VkPhysicalDeviceAccelerationStructureFeaturesKHR rtAccelWanted = {};
+		VkPhysicalDeviceRayQueryFeaturesKHR rtQueryWanted = {};
+		VkPhysicalDeviceBufferDeviceAddressFeatures rtAddressWanted = {};
+		rtSupported = false;
+#if !defined(__APPLE__)
+		if (deviceProperties.apiVersion >= VK_API_VERSION_1_2 && vkGetPhysicalDeviceFeatures2 != NULL && std::getenv("PYROS_NO_RAYTRACING") == NULL)
+		{
+			uint32_t extCount = 0;
+			vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &extCount, NULL);
+			std::vector<VkExtensionProperties> exts(extCount);
+			vkEnumerateDeviceExtensionProperties(physicalDevice, NULL, &extCount, exts.data());
+			auto has = [&](const char *name) { for (size_t e = 0; e < exts.size(); e++) if (strcmp(exts[e].extensionName, name) == 0) return true; return false; };
+			if (has(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME) && has(VK_KHR_RAY_QUERY_EXTENSION_NAME) && has(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME))
+			{
+				VkPhysicalDeviceAccelerationStructureFeaturesKHR accel = {};
+				accel.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+				VkPhysicalDeviceRayQueryFeaturesKHR query = {};
+				query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+				query.pNext = &accel;
+				VkPhysicalDeviceBufferDeviceAddressFeatures address = {};
+				address.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+				address.pNext = &query;
+				VkPhysicalDeviceFeatures2 f2 = {};
+				f2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+				f2.pNext = &address;
+				vkGetPhysicalDeviceFeatures2(physicalDevice, &f2);
+				if (accel.accelerationStructure && query.rayQuery && address.bufferDeviceAddress)
+				{
+					rtAccelWanted.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_FEATURES_KHR;
+					rtAccelWanted.accelerationStructure = VK_TRUE;
+					rtQueryWanted.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+					rtQueryWanted.rayQuery = VK_TRUE;
+					rtQueryWanted.pNext = &rtAccelWanted;
+					rtAddressWanted.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+					rtAddressWanted.bufferDeviceAddress = VK_TRUE;
+					rtAddressWanted.pNext = &rtQueryWanted;
+					rtAccelWanted.pNext = const_cast<void*>(deviceCreateInfo.pNext);
+					deviceCreateInfo.pNext = &rtAddressWanted;
+					deviceExtensions.push_back(VK_KHR_ACCELERATION_STRUCTURE_EXTENSION_NAME);
+					deviceExtensions.push_back(VK_KHR_RAY_QUERY_EXTENSION_NAME);
+					deviceExtensions.push_back(VK_KHR_DEFERRED_HOST_OPERATIONS_EXTENSION_NAME);
+					deviceCreateInfo.enabledExtensionCount = (uint32_t)deviceExtensions.size();
+					deviceCreateInfo.ppEnabledExtensionNames = deviceExtensions.data();
+					rtSupported = true;
+				}
+			}
+		}
+#endif
+
 		if (vkCreateDevice(physicalDevice, &deviceCreateInfo, NULL, &device) != VK_SUCCESS)
 			return false;
 		volkLoadDevice(device);
+		if (rtSupported && !InitRayTracing()) { DestroyRayTracing(); rtSupported = false; }
+		echo(rtSupported ? "VulkanRenderDevice: ray queries available" : "VulkanRenderDevice: no ray queries on this device");
 
 		vkGetDeviceQueue(device, graphicsQueueFamily, 0, &graphicsQueue);
 		presentQueue = graphicsQueue;
@@ -1978,9 +2045,10 @@ namespace p3d {
 		// Capture/shadow offscreen submit may still be on the queue - wait
 		// on its semaphore so tonemap/main-pass sampling sees finished
 		// images without a mid-frame CPU fence (GL pipelines the same way).
-		VkSemaphore waitSems[3];
-		VkPipelineStageFlags waitStages[3];
+		VkSemaphore waitSems[4];
+		VkPipelineStageFlags waitStages[4];
 		uint32 waitCount = 0;
+		TakeRayWait(waitSems, waitStages, waitCount, 4);
 		waitSems[waitCount] = imageAvailableSemaphores[currentFrameAcquireSemaphoreIndex];
 		waitStages[waitCount] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		waitCount++;
@@ -3615,6 +3683,7 @@ namespace p3d {
 			if (samplerSet == VK_NULL_HANDLE)
 				return false;
 			PyrosT_CmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, progIt->second.pipelineLayout, 1, 1, &samplerSet, 0, NULL);
+			if (progIt->second.usesRayScene) BindRaySceneIfRead(progIt->second);
 		}
 		return true;
 	}
@@ -4741,10 +4810,12 @@ namespace p3d {
 			return false;
 		}
 
-		VkDescriptorSetLayout setLayouts[2] = { it->second.descriptorSetLayout, it->second.samplerSetLayout };
+		// (set 2: the frame's ray scene, for a fragment stage that declares one)
+		it->second.usesRayScene = rtSupported && SpirvShaderCompiler::UsesAccelerationStructure(fs->second.spirv);
+		VkDescriptorSetLayout setLayouts[3] = { it->second.descriptorSetLayout, it->second.samplerSetLayout, rtSetLayout };
 		VkPipelineLayoutCreateInfo pipelineLayoutInfo = {};
 		pipelineLayoutInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-		pipelineLayoutInfo.setLayoutCount = 2;
+		pipelineLayoutInfo.setLayoutCount = it->second.usesRayScene ? 3 : 2;
 		pipelineLayoutInfo.pSetLayouts = setLayouts;
 		if (vkCreatePipelineLayout(device, &pipelineLayoutInfo, NULL, &it->second.pipelineLayout) != VK_SUCCESS)
 		{
@@ -7757,9 +7828,10 @@ namespace p3d {
 		// recorded even though the CPU no longer blocks between them - a
 		// G-buffer written by one session and sampled by the next used to
 		// be ordered by that CPU fence wait, and this is what replaces it.
-		VkPipelineStageFlags chainStages[3] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
-		VkSemaphore waitSems[3];
+		VkPipelineStageFlags chainStages[4] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
+		VkSemaphore waitSems[4];
 		uint32 chainWaits = 0;
+		TakeRayWait(waitSems, chainStages, chainWaits, 4);
 		if (offscreenPrevSemaphore != VK_NULL_HANDLE) waitSems[chainWaits++] = offscreenPrevSemaphore;
 		if (offscreenChainSemaphore != VK_NULL_HANDLE) waitSems[chainWaits++] = offscreenChainSemaphore;
 		// The last frame's submit: its passes sampled targets this submit
@@ -9032,6 +9104,421 @@ namespace p3d {
 		vkCmdPipelineBarrier(computeCommandBuffer,
 			VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, dstStage, 0,
 			1, &barrier, 0, NULL, 0, NULL);
+	}
+
+
+	// ---- Ray queries -----------------------------------------------------
+	// See IRenderDevice::SupportsRayQuery() and the header's notes on RtScene.
+	bool VulkanRenderDevice::SupportsRayQuery() const { return rtSupported; }
+
+	bool VulkanRenderDevice::CreateRtBuffer(RtBuffer &out, const VkDeviceSize size, const VkBufferUsageFlags usage, const bool hostVisible)
+	{
+		out = RtBuffer();
+		VkBufferCreateInfo bi = {};
+		bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		bi.size = size > 0 ? size : 16;
+		bi.usage = usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+		bi.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		if (vkCreateBuffer(device, &bi, NULL, &out.buffer) != VK_SUCCESS) { out.buffer = VK_NULL_HANDLE; return false; }
+		VkMemoryRequirements req;
+		vkGetBufferMemoryRequirements(device, out.buffer, &req);
+		VkPhysicalDeviceMemoryProperties props;
+		vkGetPhysicalDeviceMemoryProperties(physicalDevice, &props);
+		const VkMemoryPropertyFlags want = hostVisible ? (VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) : VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT;
+		uint32 type = UINT32_MAX;
+		for (uint32 t = 0; t < props.memoryTypeCount && type == UINT32_MAX; t++)
+			if ((req.memoryTypeBits & (1u << t)) && (props.memoryTypes[t].propertyFlags & want) == want) type = t;
+		if (type == UINT32_MAX) { DestroyRtBuffer(out); return false; }
+		VkMemoryAllocateFlagsInfo flags = {};
+		flags.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_FLAGS_INFO;
+		flags.flags = VK_MEMORY_ALLOCATE_DEVICE_ADDRESS_BIT;
+		VkMemoryAllocateInfo ai = {};
+		ai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+		ai.pNext = &flags;
+		ai.allocationSize = req.size;
+		ai.memoryTypeIndex = type;
+		if (vkAllocateMemory(device, &ai, NULL, &out.memory) != VK_SUCCESS) { out.memory = VK_NULL_HANDLE; DestroyRtBuffer(out); return false; }
+		vkBindBufferMemory(device, out.buffer, out.memory, 0);
+		if (hostVisible) vkMapMemory(device, out.memory, 0, VK_WHOLE_SIZE, 0, &out.mapped);
+		VkBufferDeviceAddressInfo addr = {};
+		addr.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
+		addr.buffer = out.buffer;
+		out.address = vkGetBufferDeviceAddress(device, &addr);
+		out.size = bi.size;
+		return true;
+	}
+
+	void VulkanRenderDevice::DestroyRtBuffer(RtBuffer &b)
+	{
+		if (b.mapped != NULL && b.memory != VK_NULL_HANDLE) vkUnmapMemory(device, b.memory);
+		if (b.buffer != VK_NULL_HANDLE) vkDestroyBuffer(device, b.buffer, NULL);
+		if (b.memory != VK_NULL_HANDLE) vkFreeMemory(device, b.memory, NULL);
+		b = RtBuffer();
+	}
+
+	bool VulkanRenderDevice::InitRayTracing()
+	{
+		VkPhysicalDeviceAccelerationStructurePropertiesKHR asProps = {};
+		asProps.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR;
+		VkPhysicalDeviceProperties2 p2 = {};
+		p2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+		p2.pNext = &asProps;
+		vkGetPhysicalDeviceProperties2(physicalDevice, &p2);
+		rtScratchAlignment = asProps.minAccelerationStructureScratchOffsetAlignment > 0 ? asProps.minAccelerationStructureScratchOffsetAlignment : 256;
+		if (vkCreateAccelerationStructureKHR == NULL || vkCmdBuildAccelerationStructuresKHR == NULL || vkGetAccelerationStructureBuildSizesKHR == NULL)
+			return false;
+
+		VkDescriptorSetLayoutBinding b = {};
+		b.binding = 0;
+		b.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+		b.descriptorCount = 1;
+		b.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		VkDescriptorSetLayoutCreateInfo li = {};
+		li.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+		li.bindingCount = 1;
+		li.pBindings = &b;
+		if (vkCreateDescriptorSetLayout(device, &li, NULL, &rtSetLayout) != VK_SUCCESS) return false;
+		VkDescriptorPoolSize ps = { VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR, kRtSlots };
+		VkDescriptorPoolCreateInfo pi = {};
+		pi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+		pi.maxSets = kRtSlots;
+		pi.poolSizeCount = 1;
+		pi.pPoolSizes = &ps;
+		if (vkCreateDescriptorPool(device, &pi, NULL, &rtPool) != VK_SUCCESS) return false;
+		VkCommandPoolCreateInfo ci = {};
+		ci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+		ci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+		ci.queueFamilyIndex = graphicsQueueFamily;
+		if (vkCreateCommandPool(device, &ci, NULL, &rtCommandPool) != VK_SUCCESS) return false;
+		for (uint32 i = 0; i < kRtSlots; i++)
+		{
+			RtScene &sc = rtScenes[i];
+			VkDescriptorSetAllocateInfo da = {};
+			da.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			da.descriptorPool = rtPool;
+			da.descriptorSetCount = 1;
+			da.pSetLayouts = &rtSetLayout;
+			if (vkAllocateDescriptorSets(device, &da, &sc.set) != VK_SUCCESS) return false;
+			VkCommandBufferAllocateInfo ca = {};
+			ca.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			ca.commandPool = rtCommandPool;
+			ca.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			ca.commandBufferCount = 1;
+			if (vkAllocateCommandBuffers(device, &ca, &sc.cmd) != VK_SUCCESS) return false;
+			VkFenceCreateInfo fi = {};
+			fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+			if (vkCreateFence(device, &fi, NULL, &sc.fence) != VK_SUCCESS) return false;
+			VkSemaphoreCreateInfo si = {};
+			si.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+			if (vkCreateSemaphore(device, &si, NULL, &sc.built) != VK_SUCCESS) return false;
+		}
+		return true;
+	}
+
+	void VulkanRenderDevice::DestroyRayTracing()
+	{
+		if (device == VK_NULL_HANDLE) return;
+		if (rtSetLayout != VK_NULL_HANDLE || rtCommandPool != VK_NULL_HANDLE) vkDeviceWaitIdle(device);
+		for (std::map<DeviceHandle, RtGeometry>::iterator g = rtGeometries.begin(); g != rtGeometries.end(); ++g)
+		{
+			if (g->second.as != VK_NULL_HANDLE) vkDestroyAccelerationStructureKHR(device, g->second.as, NULL);
+			DestroyRtBuffer(g->second.storage);
+		}
+		rtGeometries.clear();
+		for (uint32 i = 0; i < kRtSlots; i++)
+		{
+			RtScene &sc = rtScenes[i];
+			if (sc.as != VK_NULL_HANDLE) vkDestroyAccelerationStructureKHR(device, sc.as, NULL);
+			DestroyRtBuffer(sc.storage);
+			DestroyRtBuffer(sc.instances);
+			if (sc.fence != VK_NULL_HANDLE) vkDestroyFence(device, sc.fence, NULL);
+			if (sc.built != VK_NULL_HANDLE) vkDestroySemaphore(device, sc.built, NULL);
+			sc = RtScene();
+		}
+		DestroyRtBuffer(rtScratch);
+		if (rtCommandPool != VK_NULL_HANDLE) vkDestroyCommandPool(device, rtCommandPool, NULL);
+		if (rtPool != VK_NULL_HANDLE) vkDestroyDescriptorPool(device, rtPool, NULL);
+		if (rtSetLayout != VK_NULL_HANDLE) vkDestroyDescriptorSetLayout(device, rtSetLayout, NULL);
+		rtCommandPool = VK_NULL_HANDLE; rtPool = VK_NULL_HANDLE; rtSetLayout = VK_NULL_HANDLE;
+		pendingRayWait = VK_NULL_HANDLE;
+		rtReady = false;
+	}
+
+	bool VulkanRenderDevice::RtSubmitAndWait(VkCommandBuffer cmd)
+	{
+		VkFenceCreateInfo fi = {};
+		fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+		VkFence fence = VK_NULL_HANDLE;
+		if (vkCreateFence(device, &fi, NULL, &fence) != VK_SUCCESS) return false;
+		VkSubmitInfo si = {};
+		si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		si.commandBufferCount = 1;
+		si.pCommandBuffers = &cmd;
+		const bool ok = SubmitGraphics(1, &si, fence) == VK_SUCCESS && vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX) == VK_SUCCESS;
+		vkDestroyFence(device, fence, NULL);
+		return ok;
+	}
+
+	DeviceHandle VulkanRenderDevice::CreateRayGeometry(const f32 *positions, const uint32 vertexCount, const uint32 strideFloats,
+		const uint32 *indices, const uint32 indexCount)
+	{
+		if (!rtSupported || positions == NULL || indices == NULL || vertexCount == 0 || indexCount < 3) return 0;
+		const uint32 triangles = indexCount / 3;
+		RtBuffer vb, ib;
+		const VkBufferUsageFlags input = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+		if (!CreateRtBuffer(vb, (VkDeviceSize)vertexCount * 3 * sizeof(f32), input, true)) return 0;
+		if (!CreateRtBuffer(ib, (VkDeviceSize)triangles * 3 * sizeof(uint32), input, true)) { DestroyRtBuffer(vb); return 0; }
+		f32 *vp = (f32*)vb.mapped;
+		for (uint32 v = 0; v < vertexCount; v++)
+			for (uint32 k = 0; k < 3; k++) vp[(size_t)v * 3 + k] = positions[(size_t)v * strideFloats + k];
+		// (an index past the vertices would be read by the GPU: clamped)
+		uint32 *ip = (uint32*)ib.mapped;
+		for (uint32 i = 0; i < triangles * 3; i++) ip[i] = indices[i] < vertexCount ? indices[i] : 0;
+
+		VkAccelerationStructureGeometryKHR geo = {};
+		geo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+		geo.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
+		geo.flags = VK_GEOMETRY_OPAQUE_BIT_KHR;
+		geo.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+		geo.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+		geo.geometry.triangles.vertexData.deviceAddress = vb.address;
+		geo.geometry.triangles.vertexStride = 3 * sizeof(f32);
+		geo.geometry.triangles.maxVertex = vertexCount - 1;
+		geo.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
+		geo.geometry.triangles.indexData.deviceAddress = ib.address;
+		VkAccelerationStructureBuildGeometryInfoKHR info = {};
+		info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+		info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+		info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR;
+		info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		info.geometryCount = 1;
+		info.pGeometries = &geo;
+		VkAccelerationStructureBuildSizesInfoKHR sizes = {};
+		sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+		vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &triangles, &sizes);
+
+		RtGeometry g;
+		RtBuffer scratch;
+		bool ok = CreateRtBuffer(g.storage, sizes.accelerationStructureSize, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, false)
+			&& CreateRtBuffer(scratch, sizes.buildScratchSize + rtScratchAlignment, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false);
+		if (ok)
+		{
+			VkAccelerationStructureCreateInfoKHR ac = {};
+			ac.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+			ac.buffer = g.storage.buffer;
+			ac.size = sizes.accelerationStructureSize;
+			ac.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+			ok = vkCreateAccelerationStructureKHR(device, &ac, NULL, &g.as) == VK_SUCCESS;
+		}
+		if (ok)
+		{
+			info.dstAccelerationStructure = g.as;
+			info.scratchData.deviceAddress = (scratch.address + rtScratchAlignment - 1) & ~(VkDeviceAddress)(rtScratchAlignment - 1);
+			VkAccelerationStructureBuildRangeInfoKHR range = {};
+			range.primitiveCount = triangles;
+			const VkAccelerationStructureBuildRangeInfoKHR *ranges = &range;
+			VkCommandBufferAllocateInfo ca = {};
+			ca.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			ca.commandPool = rtCommandPool;
+			ca.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			ca.commandBufferCount = 1;
+			VkCommandBuffer cmd = VK_NULL_HANDLE;
+			ok = vkAllocateCommandBuffers(device, &ca, &cmd) == VK_SUCCESS;
+			if (ok)
+			{
+				VkCommandBufferBeginInfo bi = {};
+				bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+				bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+				vkBeginCommandBuffer(cmd, &bi);
+				vkCmdBuildAccelerationStructuresKHR(cmd, 1, &info, &ranges);
+				vkEndCommandBuffer(cmd);
+				ok = RtSubmitAndWait(cmd);
+				vkFreeCommandBuffers(device, rtCommandPool, 1, &cmd);
+			}
+		}
+		DestroyRtBuffer(scratch);
+		DestroyRtBuffer(vb);
+		DestroyRtBuffer(ib);
+		if (!ok)
+		{
+			if (g.as != VK_NULL_HANDLE) vkDestroyAccelerationStructureKHR(device, g.as, NULL);
+			DestroyRtBuffer(g.storage);
+			return 0;
+		}
+		VkAccelerationStructureDeviceAddressInfoKHR ai = {};
+		ai.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+		ai.accelerationStructure = g.as;
+		g.asAddress = vkGetAccelerationStructureDeviceAddressKHR(device, &ai);
+		const DeviceHandle h = nextRtGeometryHandle++;
+		rtGeometries[h] = g;
+		return h;
+	}
+
+	void VulkanRenderDevice::DestroyRayGeometry(const DeviceHandle geometry)
+	{
+		std::map<DeviceHandle, RtGeometry>::iterator g = rtGeometries.find(geometry);
+		if (g == rtGeometries.end()) return;
+		// (a scene still in flight may point at it)
+		vkDeviceWaitIdle(device);
+		if (g->second.as != VK_NULL_HANDLE) vkDestroyAccelerationStructureKHR(device, g->second.as, NULL);
+		DestroyRtBuffer(g->second.storage);
+		rtGeometries.erase(g);
+	}
+
+	void VulkanRenderDevice::SetRayScene(const std::vector<RayInstance> &instancesIn)
+	{
+		if (!rtSupported) return;
+		std::vector<VkAccelerationStructureInstanceKHR> inst;
+		inst.reserve(instancesIn.size());
+		for (size_t i = 0; i < instancesIn.size(); i++)
+		{
+			std::map<DeviceHandle, RtGeometry>::iterator g = rtGeometries.find(instancesIn[i].geometry);
+			if (g == rtGeometries.end()) continue;
+			VkAccelerationStructureInstanceKHR d = {};
+			const f32 *m = instancesIn[i].world.m;     // (column-major: row r, column c is m[c*4+r]; the instance takes 3 rows)
+			for (uint32 r = 0; r < 3; r++)
+				for (uint32 c = 0; c < 4; c++) d.transform.matrix[r][c] = m[c * 4 + r];
+			d.mask = 0xFF;
+			d.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR | VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+			d.accelerationStructureReference = g->second.asAddress;
+			inst.push_back(d);
+		}
+		// (nothing: one triangle far below everything, so there is always a scene to bind)
+		if (inst.empty())
+		{
+			if (rtNothing == 0)
+			{
+				const f32 p[9] = { 0.f, -1e6f, 0.f, 1.f, -1e6f, 0.f, 0.f, -1e6f, 1.f };
+				const uint32 ix[3] = { 0, 1, 2 };
+				rtNothing = CreateRayGeometry(p, 3, 3, ix, 3);
+			}
+			std::map<DeviceHandle, RtGeometry>::iterator g = rtGeometries.find(rtNothing);
+			if (g == rtGeometries.end()) return;
+			VkAccelerationStructureInstanceKHR d = {};
+			d.transform.matrix[0][0] = d.transform.matrix[1][1] = d.transform.matrix[2][2] = 1.f;
+			d.mask = 0xFF;
+			d.flags = VK_GEOMETRY_INSTANCE_FORCE_OPAQUE_BIT_KHR;
+			d.accelerationStructureReference = g->second.asAddress;
+			inst.push_back(d);
+		}
+
+		const uint32 slot = (rtSlot + 1) % kRtSlots;
+		RtScene &sc = rtScenes[slot];
+		if (sc.fenceInFlight) { vkWaitForFences(device, 1, &sc.fence, VK_TRUE, UINT64_MAX); sc.fenceInFlight = false; }
+		vkResetFences(device, 1, &sc.fence);
+		const uint32 n = (uint32)inst.size();
+		if (sc.instanceCapacity < n)
+		{
+			DestroyRtBuffer(sc.instances);
+			const uint32 cap = n + n / 4 + 16;
+			if (!CreateRtBuffer(sc.instances, (VkDeviceSize)cap * sizeof(VkAccelerationStructureInstanceKHR), VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR, true)) { sc.instanceCapacity = 0; return; }
+			sc.instanceCapacity = cap;
+		}
+		memcpy(sc.instances.mapped, inst.data(), (size_t)n * sizeof(VkAccelerationStructureInstanceKHR));
+
+		VkAccelerationStructureGeometryKHR geo = {};
+		geo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+		geo.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
+		geo.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+		geo.geometry.instances.data.deviceAddress = sc.instances.address;
+		VkAccelerationStructureBuildGeometryInfoKHR info = {};
+		info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+		info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+		info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
+		info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+		info.geometryCount = 1;
+		info.pGeometries = &geo;
+		VkAccelerationStructureBuildSizesInfoKHR sizes = {};
+		sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+		vkGetAccelerationStructureBuildSizesKHR(device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &n, &sizes);
+		if (sc.as == VK_NULL_HANDLE || sc.storage.size < sizes.accelerationStructureSize)
+		{
+			if (sc.as != VK_NULL_HANDLE) vkDestroyAccelerationStructureKHR(device, sc.as, NULL);
+			sc.as = VK_NULL_HANDLE;
+			DestroyRtBuffer(sc.storage);
+			if (!CreateRtBuffer(sc.storage, sizes.accelerationStructureSize + sizes.accelerationStructureSize / 4, VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR, false)) return;
+			VkAccelerationStructureCreateInfoKHR ac = {};
+			ac.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+			ac.buffer = sc.storage.buffer;
+			ac.size = sc.storage.size;
+			ac.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
+			if (vkCreateAccelerationStructureKHR(device, &ac, NULL, &sc.as) != VK_SUCCESS) { sc.as = VK_NULL_HANDLE; return; }
+			// (its descriptor names the structure: written again whenever it is new)
+			VkWriteDescriptorSetAccelerationStructureKHR asw = {};
+			asw.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET_ACCELERATION_STRUCTURE_KHR;
+			asw.accelerationStructureCount = 1;
+			asw.pAccelerationStructures = &sc.as;
+			VkWriteDescriptorSet w = {};
+			w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+			w.pNext = &asw;
+			w.dstSet = sc.set;
+			w.dstBinding = 0;
+			w.descriptorCount = 1;
+			w.descriptorType = VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+			vkUpdateDescriptorSets(device, 1, &w, 0, NULL);
+		}
+		// one scratch for every scene build: grown when one needs more (after the builds using it are done)
+		if (rtScratch.size < sizes.buildScratchSize + rtScratchAlignment)
+		{
+			for (uint32 i = 0; i < kRtSlots; i++)
+				if (rtScenes[i].fenceInFlight) { vkWaitForFences(device, 1, &rtScenes[i].fence, VK_TRUE, UINT64_MAX); rtScenes[i].fenceInFlight = false; }
+			DestroyRtBuffer(rtScratch);
+			if (!CreateRtBuffer(rtScratch, (sizes.buildScratchSize + rtScratchAlignment) * 5 / 4, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, false)) return;
+		}
+		info.dstAccelerationStructure = sc.as;
+		info.scratchData.deviceAddress = (rtScratch.address + rtScratchAlignment - 1) & ~(VkDeviceAddress)(rtScratchAlignment - 1);
+		VkAccelerationStructureBuildRangeInfoKHR range = {};
+		range.primitiveCount = n;
+		const VkAccelerationStructureBuildRangeInfoKHR *ranges = &range;
+
+		vkResetCommandBuffer(sc.cmd, 0);
+		VkCommandBufferBeginInfo bi = {};
+		bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+		vkBeginCommandBuffer(sc.cmd, &bi);
+		// (the shared scratch: the last build's use of it done before this one writes it)
+		VkMemoryBarrier mb = {};
+		mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER;
+		mb.srcAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+		mb.dstAccessMask = VK_ACCESS_ACCELERATION_STRUCTURE_WRITE_BIT_KHR | VK_ACCESS_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+		vkCmdPipelineBarrier(sc.cmd, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR, 0, 1, &mb, 0, NULL, 0, NULL);
+		vkCmdBuildAccelerationStructuresKHR(sc.cmd, 1, &info, &ranges);
+		vkEndCommandBuffer(sc.cmd);
+
+		// (a build nobody has waited on yet - two scenes set in one frame - is waited on by this one)
+		VkSemaphore wait = pendingRayWait;
+		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+		VkSubmitInfo si = {};
+		si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		si.waitSemaphoreCount = wait != VK_NULL_HANDLE ? 1 : 0;
+		si.pWaitSemaphores = wait != VK_NULL_HANDLE ? &wait : NULL;
+		si.pWaitDstStageMask = wait != VK_NULL_HANDLE ? &waitStage : NULL;
+		si.commandBufferCount = 1;
+		si.pCommandBuffers = &sc.cmd;
+		si.signalSemaphoreCount = 1;
+		si.pSignalSemaphores = &sc.built;
+		if (SubmitGraphics(1, &si, sc.fence) != VK_SUCCESS) return;
+		sc.fenceInFlight = true;
+		pendingRayWait = sc.built;
+		rtSlot = slot;
+		rtReady = true;
+	}
+
+	void VulkanRenderDevice::TakeRayWait(VkSemaphore *waits, VkPipelineStageFlags *stages, uint32 &count, const uint32 capacity)
+	{
+		if (pendingRayWait == VK_NULL_HANDLE || count >= capacity) return;
+		waits[count] = pendingRayWait;
+		stages[count] = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		count++;
+		pendingRayWait = VK_NULL_HANDLE;
+	}
+
+	void VulkanRenderDevice::BindRaySceneIfRead(ProgramRecord &program)
+	{
+		if (!program.usesRayScene || !rtSupported) return;
+		if (!rtReady) SetRayScene(std::vector<RayInstance>());
+		if (!rtReady || rtScenes[rtSlot].as == VK_NULL_HANDLE) return;
+		PyrosT_CmdBindDescriptorSets(activeCommandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, program.pipelineLayout, 2, 1, &rtScenes[rtSlot].set, 0, NULL);
 	}
 
 };

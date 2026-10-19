@@ -31,18 +31,18 @@ SetTextureBorderColor SetTextureCompareMode SetPixelUnpackAlignment ActivateText
 SetFramebufferPreserveDepth AttachFramebufferTexture2D AttachFramebufferRenderbuffer SetDrawBufferNone SetReadBufferNone
 SetDrawBufferBack SetReadBufferBack SetDrawBuffers DestroyRenderbuffer BindRenderbuffer RenderbufferStorage
 RenderbufferStorageMultisample SetMultisampleEnabled BlitFramebuffer CopyDepthTexture FlushOffscreenWork DeleteShaderStage
-DeleteProgram DetachShaderStage AttachShaderStage""".split())
+DeleteProgram DetachShaderStage AttachShaderStage SetRayScene DestroyRayGeometry""".split())
 PURE = set("""TranslateBufferBit TranslateDrawType TranslateAttributeType TranslateTextureFormat TranslateTextureTarget
 TranslateFramebufferAccess TranslateFramebufferAttachment TranslateFramebufferStatus TranslateRenderbufferFormat
 TranslateShadowBiasMatrix TranslateProjectionMatrix IsVulkan NeedsManualDisplayGamma RenderTargetOriginIsTopLeft
 SupportsCompute GetMaxComputeWorkGroupInvocations GetMaxComputeWorkGroupCount GetMaxSamples CanBlitResolveDepth
-TemporalUpscalerId GetTextureDataSize GetTextureUploadSize GetAutoUniformBlockLayout IsProgram IsShaderStage BuildShaderSource GetSwapchainGeneration GetUniformLocation GetAttributeLocation""".split())
+TemporalUpscalerId GetTextureDataSize GetTextureUploadSize GetAutoUniformBlockLayout IsProgram IsShaderStage BuildShaderSource GetSwapchainGeneration GetUniformLocation GetAttributeLocation SupportsRayQuery""".split())
 # written by hand in the .cpp's fixed part
 SPECIAL = set("""BeginFrame EndFrame BindFramebuffer SetClearColor IsFrameInProgress GetCurrentRenderTarget BeginCommandBuffer WaitIdle
 CreateBuffer CreateVertexArray CreatePipeline DestroyBuffer DeleteVertexArray DestroyPipeline
 BeginParallelStream EnterParallelStream LeaveParallelStream NewDetachedStream PlaceStream
 CreateUniformBuffer DestroyUniformBuffer
-CreateTextureObject DestroyTextureObject UploadTexture2D RunTemporalUpscale""".split())
+CreateTextureObject DestroyTextureObject UploadTexture2D RunTemporalUpscale CreateBufferOwned WaitForFrameRoom UploadTexture2DOwned""".split())
 # Buffers, vertex arrays and pipelines are made in the queue like everything else (a
 # game's HUD makes new buffers every frame: waiting for each was most of a frame), so the
 # handle given out here is not the device's own: these arguments are turned into it,
@@ -74,9 +74,19 @@ def split_args(a):
 
 def parse():
     methods = []
+    # (a declaration may run over lines: joined until it ends in ';' or opens its body)
+    lines, pending = [], None
     for line in open(SRC):
-        s = line.strip()
+        t = line.strip()
+        if pending is not None:
+            pending += " " + t
+            if pending.rstrip().endswith(";") or "{" in t: lines.append(pending); pending = None
+            continue
+        if t.startswith("virtual ") and not (t.endswith(";") or "{" in t): pending = t; continue
+        lines.append(t)
+    for s in lines:
         if not s.startswith("virtual ") or "~" in s: continue
+        s = re.sub(r"\{.*$", "{}", s)
         m = re.match(r"virtual\s+(.*?)(\w+)\((.*)\)\s*(const)?\s*(=\s*0\s*;|\{.*|;)\s*$", s)
         if not m: raise SystemExit("cannot read: " + s)
         ret, name, args, const = m.group(1).strip(), m.group(2), m.group(3), m.group(4) or ""

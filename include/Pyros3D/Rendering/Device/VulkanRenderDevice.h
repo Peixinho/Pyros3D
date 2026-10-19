@@ -311,6 +311,14 @@ namespace p3d {
 
 		// Compute - see the block comment on IRenderDevice::SupportsCompute().
 		virtual bool SupportsCompute() const;
+		// Ray queries - see the block comment on IRenderDevice::SupportsRayQuery().
+		// VK_KHR_acceleration_structure + VK_KHR_ray_query, on a Vulkan 1.2
+		// device that has both (never MoltenVK, which has neither).
+		virtual bool SupportsRayQuery() const;
+		virtual DeviceHandle CreateRayGeometry(const f32 *positions, const uint32 vertexCount, const uint32 strideFloats,
+			const uint32 *indices, const uint32 indexCount);
+		virtual void DestroyRayGeometry(const DeviceHandle geometry);
+		virtual void SetRayScene(const std::vector<RayInstance> &instances);
 		virtual uint32 GetMaxComputeWorkGroupInvocations() const;
 		virtual uint32 GetMaxComputeWorkGroupCount(const uint32 dimension) const;
 		virtual DeviceHandle CreateComputePipeline(const DeviceHandle program);
@@ -1555,6 +1563,8 @@ namespace p3d {
 			// A compute program has this and neither of the two above.
 			DeviceHandle computeShader;
 			bool isCompute;
+			// The fragment stage reads the frame's ray scene (set 2 - rtSetLayout).
+			bool usesRayScene = false;
 			VkDescriptorSetLayout descriptorSetLayout;
 			VkPipelineLayout pipelineLayout;
 			// Allocated lazily by the first BindUniformBlockIfPresent()
@@ -2099,6 +2109,66 @@ namespace p3d {
 		// resolve which real texture a descriptor write should point at -
 		// see the comment on ProgramRecord::samplerBindings.
 		std::map<uint32, DeviceHandle> textureUnitBindings;
+
+		// ---- Ray queries ------------------------------------------------
+		// Buffers with device addresses (acceleration structures need them),
+		// allocated directly - not through VMA, whose allocator was made
+		// without VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT.
+		struct RtBuffer
+		{
+			VkBuffer buffer = VK_NULL_HANDLE;
+			VkDeviceMemory memory = VK_NULL_HANDLE;
+			VkDeviceAddress address = 0;
+			VkDeviceSize size = 0;
+			void* mapped = NULL;
+		};
+		struct RtGeometry
+		{
+			RtBuffer storage;
+			VkAccelerationStructureKHR as = VK_NULL_HANDLE;
+			VkDeviceAddress asAddress = 0;
+		};
+		// The frame's scene, built into the next of kRtSlots each SetRayScene():
+		// its own command buffer, submitted at once, signalling `built` - which
+		// the next submission of the queue waits on (pendingRayWait) before its
+		// fragment shaders read it. A build cannot go in the frame's command
+		// buffer: that is inside a render pass when the scene is set.
+		static const uint32 kRtSlots = 4;
+		struct RtScene
+		{
+			RtBuffer storage, instances;
+			uint32 instanceCapacity = 0;
+			VkAccelerationStructureKHR as = VK_NULL_HANDLE;
+			VkCommandBuffer cmd = VK_NULL_HANDLE;
+			VkFence fence = VK_NULL_HANDLE;
+			bool fenceInFlight = false;
+			VkSemaphore built = VK_NULL_HANDLE;
+			VkDescriptorSet set = VK_NULL_HANDLE;
+		};
+		bool rtSupported = false;
+		VkDeviceSize rtScratchAlignment = 256;
+		std::map<DeviceHandle, RtGeometry> rtGeometries;
+		DeviceHandle nextRtGeometryHandle = 1;
+		RtScene rtScenes[kRtSlots];
+		uint32 rtSlot = 0;
+		bool rtReady = false;
+		RtBuffer rtScratch;
+		VkDescriptorSetLayout rtSetLayout = VK_NULL_HANDLE;
+		VkDescriptorPool rtPool = VK_NULL_HANDLE;
+		VkCommandPool rtCommandPool = VK_NULL_HANDLE;
+		VkSemaphore pendingRayWait = VK_NULL_HANDLE;
+		DeviceHandle rtNothing = 0;
+		bool CreateRtBuffer(RtBuffer &out, const VkDeviceSize size, const VkBufferUsageFlags usage, const bool hostVisible);
+		void DestroyRtBuffer(RtBuffer &b);
+		bool InitRayTracing();
+		void DestroyRayTracing();
+		// Submits `cmd` on the graphics queue and waits for it (geometry builds: once each).
+		bool RtSubmitAndWait(VkCommandBuffer cmd);
+		// Binds the frame's scene as set 2 when the bound program reads one.
+		void BindRaySceneIfRead(ProgramRecord &program);
+		// The submission about to be made waits on the scene's build: adds it to
+		// `waits`/`stages` (capacity permitting) and clears it.
+		void TakeRayWait(VkSemaphore *waits, VkPipelineStageFlags *stages, uint32 &count, const uint32 capacity);
 
 	};
 

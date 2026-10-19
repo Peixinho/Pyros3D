@@ -208,6 +208,9 @@ namespace p3d {
 		// across recompiles unless the source pins it explicitly - see the
 		// comment on SpirvResourceBinding.
 		static std::vector<SpirvResourceBinding> Reflect(const std::vector<uint32> &spirv);
+		// Whether the module declares an acceleration structure (GL_EXT_ray_query's
+		// accelerationStructureEXT) - Reflect() leaves those out.
+		static bool UsesAccelerationStructure(const std::vector<uint32> &spirv);
 
 		// Enumerates a compiled SPIR-V module's stage inputs (vertex
 		// attributes, when called on a compiled vertex shader) and the

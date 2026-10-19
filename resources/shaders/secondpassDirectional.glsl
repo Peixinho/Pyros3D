@@ -386,7 +386,8 @@ vec3 SunShafts(vec3 end, vec3 toSun, vec3 sunIrradiance)
 
 #ifdef RAY_SHADOWS
 // The frame's ray scene: what is solid and still and casts, near the eye (DeferredRenderer::UpdateRayScene)
-SAMPLER_BINDING(8) uniform accelerationStructureEXT uRayScene;
+// (a set of its own on Vulkan - VulkanRenderDevice binds the frame's scene there; Metal takes any)
+layout(set = 2, binding = 0) uniform accelerationStructureEXT uRayScene;
 float RayNoise(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715)))); }
 // One ray from the surface toward a point of the sun's disc - a different point each pixel and each
 // frame, so where the sun is half hidden (the edge of a shadow, sharp at the foot of what casts it
