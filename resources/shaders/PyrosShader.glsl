@@ -1984,7 +1984,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             float roughness = uRoughness;
             #ifdef PBRMAP
                 vec4 _pbrTex = texture_2D(uMetallicRoughnessmap, Texcoord);
-                roughness = _pbrTex.g;
+                // (times the material's factor, as glTF has it: a road
+                // made glossier by its roughnessFactor came out as dry as
+                // its map. The factor is 1 wherever a file sets none.
+                // Metal stays the map's: other formats leave its factor 0.)
+                roughness = _pbrTex.g * uRoughness;
                 metallic = _pbrTex.b;
             #endif
         #endif
