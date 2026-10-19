@@ -3204,6 +3204,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		if (kind == "generic")
 		{
 			uint32 options = j.value("options", 0u);
+			// (CastShadows is the shadow pass's own material - it writes depth as its colour - not "this
+			// casts shadows", which is "castingShadows"; left in a scene's material it drew every object
+			// red with its depth)
+			options &= ~(uint32)ShaderUsage::CastShadows;
 			if (g_loadingGI && (options & (ShaderUsage::Diffuse | ShaderUsage::PBR))) options |= ShaderUsage::GlobalIllumination;
 			std::shared_ptr<GenericShaderMaterial> gm = std::make_shared<GenericShaderMaterial>(options);
 			if ((j.find("color") != j.end())) gm->SetColor(Vec4FromJson(j["color"]));
