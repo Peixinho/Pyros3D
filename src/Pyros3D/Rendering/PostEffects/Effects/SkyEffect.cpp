@@ -47,6 +47,8 @@ R"PYROSSKY(//! effect Sky
 //! param float uCloudCover 0.52 0.0 1.0 Cloud cover
 //! param float uRain 0.0 0.0 1.0 Rain
 //! param float uCloudShadow 0.45 0.0 1.0 Cloud shadows
+//! param float uCloudVolume 0.0 0.0 1.0 Volumetric clouds (1: marched through a slab of 3D noise, lit by the sun through themselves; 0: the flat layer)
+//! param float uCloudSteps 32.0 8.0 96.0 Volumetric clouds: steps along a ray
 //! param float uSnow 0.0 0.0 1.0 Snow
 //! param float uExposure 1.16 0.2 2.0 Exposure
 //! param float uSaturation 0.70 0.0 1.5 Saturation
@@ -97,6 +99,84 @@ float fbm(vec2 p) {
 	float a = 0.5, s = 0.0;
 	for (int i = 0; i < 5; i++) { s += a * vnoise(p); p = p * 2.03 + vec2(17.1, 9.3); a *= 0.5; }
 	return s;
+}
+
+// Volumetric clouds: a slab of air 1200-2800 m over the sea holding 3D noise - big shapes,
+// eaten at their edges by finer noise, rounded at the bottom and wisped at the top - marched
+// along the view ray. At each step the light that reaches it is what a few steps toward the sun
+// let through (Beer's law, with the "powder" darkening of a cloud's edge seen against the
+// light), scattered toward the eye forward more than back; under that the sky's light from
+// above. Exact integer hashing, as the rest of this sky.
+float vnoise3(vec3 p) {
+	vec3 i = floor(p), f = fract(p);
+	f = f * f * (3.0 - 2.0 * f);
+	ivec3 q = ivec3(i);
+	float a = p3d_ih(q), b = p3d_ih(q + ivec3(1, 0, 0)), c = p3d_ih(q + ivec3(0, 1, 0)), d = p3d_ih(q + ivec3(1, 1, 0));
+	float e = p3d_ih(q + ivec3(0, 0, 1)), g = p3d_ih(q + ivec3(1, 0, 1)), h = p3d_ih(q + ivec3(0, 1, 1)), k = p3d_ih(q + ivec3(1, 1, 1));
+	return mix(mix(mix(a, b, f.x), mix(c, d, f.x), f.y), mix(mix(e, g, f.x), mix(h, k, f.x), f.y), f.z);
+}
+const float CLOUD_BOTTOM = 1200.0, CLOUD_TOP = 2800.0;
+float cloudDensity(vec3 wp, bool fine) {
+	float h = (wp.y - uSea - CLOUD_BOTTOM) / (CLOUD_TOP - CLOUD_BOTTOM);
+	if (h < 0.0 || h > 1.0) return 0.0;
+	vec3 wind = vec3(uTime * 6.0, 0.0, uTime * 2.5);
+	vec3 p = (wp + wind) * 0.00038;
+	// (the light's own march asks only for the big shape: a third of the cost, and the edges it misses do not shade much)
+	float shape = fine ? vnoise3(p) * 0.6 + vnoise3(p * 2.1 + 5.3) * 0.3 + vnoise3(p * 4.3 + 1.7) * 0.1
+	                   : vnoise3(p) * 0.6 + vnoise3(p * 2.1 + 5.3) * 0.3 + 0.05;
+	float cc = mix(uCloudCover, 0.98, uRain);
+	float cover = clamp((shape - (1.0 - cc)) / max(cc, 0.05), 0.0, 1.0);
+	// (round underneath, thinning to wisps at the top)
+	cover *= smoothstep(0.0, 0.12, h) * (1.0 - smoothstep(0.55, 1.0, h));
+	if (fine && cover > 0.0) {
+		float detail = vnoise3((wp + wind * 1.6) * 0.0031) * 0.65 + vnoise3((wp + wind * 1.6) * 0.0072) * 0.35;
+		cover = clamp(cover - detail * 0.32 * (1.0 - cover), 0.0, 1.0);
+	}
+	return cover * 0.012;
+}
+float hg(float c, float g) { return (1.0 - g * g) / (12.5663706 * pow(max(1.0 + g * g - 2.0 * g * c, 1e-4), 1.5)); }
+// over `background` (the sky behind): returns the colour, and how much of the background shows
+vec3 marchClouds(vec3 dir, vec3 sun, float day, float low, vec3 hazeColour, vec3 background) {
+	if (dir.y < 0.01) return background;
+	float b = CLOUD_BOTTOM + uSea - uCamPos.y, t = CLOUD_TOP + uSea - uCamPos.y;
+	float t0 = max(b / dir.y, 0.0), t1 = t / dir.y;
+	if (t1 <= 0.0) return background;
+	t1 = min(t1, t0 + 24000.0);
+	int steps = int(clamp(uCloudSteps, 8.0, 96.0));
+	float dt = (t1 - t0) / float(steps);
+	float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + uTime * 0.618);
+	float cosT = dot(dir, sun);
+	float phase = mix(hg(cosT, 0.65), hg(cosT, -0.2), 0.3);
+	vec3 sunLight = mix(vec3(1.0, 0.62, 0.36), vec3(1.0, 0.97, 0.92), day) * (0.15 + 0.85 * day) * 14.0;
+	vec3 ambient = mix(vec3(0.34, 0.42, 0.56), vec3(0.62, 0.70, 0.84), day) * (0.08 + 0.92 * day) * 0.9;
+	float T = 1.0; vec3 lit = vec3(0.0); float tFirst = -1.0;
+	// (through empty air two steps at a time, on the big shape alone; inside a cloud, one, in detail)
+	float tt = t0 + jitter * dt;
+	for (int i = 0; i < 96; i++) {
+		if (tt >= t1 || T < 0.02) break;
+		vec3 wp = uCamPos.xyz + dir * tt;
+		if (cloudDensity(wp, false) <= 0.0) { tt += dt * 2.0; continue; }
+		float sigma = cloudDensity(wp, true);
+		tt += dt;
+		if (sigma <= 0.0) continue;
+		if (tFirst < 0.0) tFirst = tt - dt;
+		// the light toward the sun, through the cloud itself: four steps, longer as they go
+		float od = 0.0, ls = 60.0;
+		vec3 lp = wp;
+		for (int j = 0; j < 4; j++) { lp += sun * ls; od += cloudDensity(lp, false) * ls; ls *= 2.0; }
+		float sunT = exp(-od) * (1.0 - exp(-od * 2.0) * 0.5 + 0.5 * exp(-od * 2.0));
+		float powder = 1.0 - exp(-sigma * dt * 2.0);
+		vec3 S = (sunLight * sunT * phase * mix(1.0, powder * 2.0, 0.35) + ambient) * sigma;
+		float stepT = exp(-sigma * dt);
+		lit += T * S * (1.0 - stepT) / max(sigma, 1e-6);
+		T *= stepT;
+	}
+	// a low sun lights their undersides gold and rose; far off they go into the haze
+	lit = mix(lit, lit * vec3(1.0, 0.72, 0.55), low * 0.6);
+	lit = mix(lit, vec3(0.36, 0.38, 0.41) * (0.25 + 0.75 * day) * (1.0 - T), uRain * 0.8);
+	vec3 col = background * T + lit;
+	if (tFirst > 0.0) col = mix(col, background * T + hazeColour * (1.0 - T), 1.0 - exp(-tFirst * 0.00006));
+	return col;
 }
 
 // The sky by where the sun is: blue at noon, gold and rose as it comes down, dark after.
@@ -168,8 +248,9 @@ void main() {
 		c = envAt(dir);
 	} else if (d >= 1.0) {
 		c = skyColour(dir, sun, uRain);
+		if (uCloudVolume > 0.5) c = marchClouds(dir, sun, day, low, hazeColour, c);
 		// clouds: where this ray meets a level 1100 m over the sea
-		if (dir.y > 0.012) {
+		else if (dir.y > 0.012) {
 			float t = (1100.0 + uSea - uCamPos.y) / dir.y;
 			vec2 p = (uCamPos.xz + dir.xz * t) * 0.00042 + vec2(uTime * 0.004, uTime * 0.0015);
 			float shape = fbm(p) * 0.70 + fbm(p * 3.1 + 11.0) * 0.30;

@@ -138,7 +138,10 @@ function RenderHost.setup(cfg, width, height)
 	-- light only, where the post-effect version can only darken the frame.
 	local effects = {}
 	for _, name in ipairs(cfg.effects or {}) do
-		if name == "ssao" and renderer.enableSSAO then
+		-- (an entry may be { name = "Sky", params = { uCloudVolume = 1 } }: a built-in with its parameters)
+		if type(name) == "table" then
+			effects[#effects + 1] = name
+		elseif name == "ssao" and renderer.enableSSAO then
 			renderer:enableSSAO()
 		else
 			effects[#effects + 1] = name
@@ -149,7 +152,9 @@ function RenderHost.setup(cfg, width, height)
 	if #effects > 0 then
 		local em = PostEffectsManager.new(width, height)
 		for _, name in ipairs(effects) do
-			if name == "ssao" then
+			if type(name) == "table" then
+				addPostEffect(em, name.name, width, height, name.params)
+			elseif name == "ssao" then
 				buildSSAOPostChain(em, width, height)
 			elseif name == "dof" then
 				buildDOFPostChain(em, width, height)

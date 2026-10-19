@@ -57,11 +57,24 @@ namespace p3d {
 			// Named post-effect factory - AddEffect takes ownership (see
 			// PostEffectsManager::RemoveAllEffects), so Lua must not also
 			// own a TonemapEffect userdata that would double-delete on GC.
-			lua->set_function("addPostEffect", [](PostEffectsManager &m, const std::string &name, int width, int height) {
+			// addPostEffect(manager, name, width, height [, params]): params a table of a parameter's
+			// name to a number or a list of up to four ({ uCloudVolume = 1, uSunDir = { 0.5, 0.6, 0.4, 1 } })
+			lua->set_function("addPostEffect", [](PostEffectsManager &m, const std::string &name, int width, int height, sol::optional<sol::table> params) {
+				std::map<std::string, std::vector<f32> > p;
+				if (params)
+					for (auto &kv : *params)
+					{
+						if (!kv.first.is<std::string>()) continue;
+						std::vector<f32> v;
+						if (kv.second.is<f32>()) v.push_back(kv.second.as<f32>());
+						else if (kv.second.is<sol::table>()) { sol::table t = kv.second.as<sol::table>(); for (size_t i = 1; i <= t.size() && i <= 4; i++) v.push_back(t[i].get_or(0.f)); }
+						while (!v.empty() && v.size() < 4) v.push_back(0.f);
+						if (!v.empty()) p[kv.first.as<std::string>()] = v;
+					}
 				if (name == "tonemap")
 					m.AddEffect(new TonemapEffect(RTT::Color, width, height));
-				// any effect a scene can name ("SSAO", "Bloom", "VolumetricSmoke" ...), with its defaults
-				else if (!PostEffectChain::AppendBuiltIn(m, name, (uint32)width, (uint32)height))
+				// any effect a scene can name ("SSAO", "Bloom", "VolumetricSmoke" ...), with its defaults or the params
+				else if (!PostEffectChain::AppendBuiltIn(m, name, (uint32)width, (uint32)height, p))
 					echo("ERROR: addPostEffect - unknown effect '" + name + "'");
 			});
 

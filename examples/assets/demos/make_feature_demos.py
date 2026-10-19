@@ -76,17 +76,26 @@ VARIANTS = [
     ("Courtyard_RTShadows", "Ray-Traced Shadows", "Every pixel traces a ray toward a point of the sun's disc against the scene's acceleration structure: exact contact shadows (the slab, the ball's foot), softening with distance, no shadow-map texels or acne. Needs a GPU that traces rays (Metal on Apple silicon, Vulkan RTX/RDNA2+); elsewhere this is the baseline. Compare with 'Courtyard (baseline)'.", {"rayTracedShadows": 120.0, "rayShadowSoftness": 0.003}),
     ("Courtyard_RTReflections", "Ray-Traced Reflections", "The glossy floor and metals trace their reflections against the scene: the tower and pillar beside the camera and the arch behind it reflect, which screen-space reflections cannot see. SSR (baseline) is still there and cheaper. Needs a GPU that traces rays.", {"rayTracedReflections": 80.0}),
     ("Courtyard_All", "Courtyard (everything)", "Sun shafts, ray-traced shadows and ray-traced reflections together.", dict(SHAFTS, rayTracedShadows=120.0, rayShadowSoftness=0.003, rayTracedReflections=80.0)),
+    ("Courtyard_Clouds", "Volumetric Clouds", "The Sky effect's clouds marched through a slab of 3D noise 1.2-2.8 km up, each step lit by the sun through the cloud itself (Beer's law, powder, a forward-scattering phase) - against its flat cloud layer (uCloudVolume 0). Look up: they drift.", {},
+     {"effects": [{"name": "Sky", "params": {"uCloudVolume": 1.0, "uCloudCover": 0.55, "uCloudSteps": 32.0}}], "background": None}, 18),
 ]
 
 def main():
     entries = []
-    for fname, title, desc, extra in VARIANTS:
+    for v in VARIANTS:
+        fname, title, desc, extra = v[:4]
+        override = v[4] if len(v) > 4 else {}
+        pitch = v[5] if len(v) > 5 else -8
         build()
+        roots[0]["components"][0]["data"]["pitch"] = pitch
         roots.append(sun(**extra))
         json.dump({"version": 1, "materials": MATS, "roots": roots}, open(os.path.join(HERE, fname + ".json"), "w"), indent=1)
         entries.append({"name": title, "description": desc, "scene": fname + ".json",
                         "render": {"type": "deferred", "globalLight": [0.16, 0.17, 0.2, 1], "background": [0.42, 0.58, 0.82, 1], "ssr": True, "ssrDistances": [0.5, 60.0],
-                                   "projection": {"fov": 70, "near": 0.1, "far": 400}, "effects": ["tonemap"]}})
+                                   "projection": {"fov": 70, "near": 0.1, "far": 4000}, "effects": ["tonemap"]}})
+        for k, val in override.items():
+            if val is None: entries[-1]["render"].pop(k, None)
+            else: entries[-1]["render"][k] = val
     mp = os.path.join(HERE, "manifest.json")
     man = [e for e in json.load(open(mp)) if not e.get("scene", "").startswith("Courtyard_")]
     json.dump(man + entries, open(mp, "w"), indent=1)

@@ -690,7 +690,7 @@
    "projection": {
     "fov": 70,
     "near": 0.1,
-    "far": 400
+    "far": 4000
    },
    "effects": [
     "tonemap"
@@ -723,7 +723,7 @@
    "projection": {
     "fov": 70,
     "near": 0.1,
-    "far": 400
+    "far": 4000
    },
    "effects": [
     "tonemap"
@@ -756,7 +756,7 @@
    "projection": {
     "fov": 70,
     "near": 0.1,
-    "far": 400
+    "far": 4000
    },
    "effects": [
     "tonemap"
@@ -789,7 +789,7 @@
    "projection": {
     "fov": 70,
     "near": 0.1,
-    "far": 400
+    "far": 4000
    },
    "effects": [
     "tonemap"
@@ -822,10 +822,44 @@
    "projection": {
     "fov": 70,
     "near": 0.1,
-    "far": 400
+    "far": 4000
    },
    "effects": [
     "tonemap"
+   ]
+  }
+ },
+ {
+  "name": "Volumetric Clouds",
+  "description": "The Sky effect's clouds marched through a slab of 3D noise 1.2-2.8 km up, each step lit by the sun through the cloud itself (Beer's law, powder, a forward-scattering phase) - against its flat cloud layer (uCloudVolume 0). Look up: they drift.",
+  "scene": "Courtyard_Clouds.json",
+  "render": {
+   "type": "deferred",
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 4000
+   },
+   "effects": [
+    {
+     "name": "Sky",
+     "params": {
+      "uCloudVolume": 1.0,
+      "uCloudCover": 0.55,
+      "uCloudSteps": 32.0
+     }
+    }
    ]
   }
  }
