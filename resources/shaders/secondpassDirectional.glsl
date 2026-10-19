@@ -197,6 +197,12 @@ UBO_BINDING(32) uniform DirectionalFragParams {
 	mat4 uViewInverse;
 	vec4 uHorizonRect;		// world x,z of its corner; 1 / its size in x and z
 	vec4 uHorizonSun;		// which of 16 directions the sun lies in (0-16), the sine of its height, on/off, softness
+	// Light scattered toward the eye by the air the view ray crosses, shadowed - sun shafts
+	// (DirectionalLight::SetVolumetric). x: density at the ground (per metre; 0 off), y: how far
+	// forward the air scatters (Henyey-Greenstein g), z: how fast it thins with height (per
+	// metre), w: how far out it is marched (metres).
+	vec4 uVolumetric;
+	vec4 uVolumetricTint;	// rgb: the scattered light's colour, w: steps along the ray
 };
 
 SAMPLER_BINDING(4) uniform sampler2DShadow uShadowMap;
@@ -315,6 +321,62 @@ float DirectionalShadowFactor(float packed, vec4 pos, vec3 n)
 	return s;
 }
 
+// How much of the sun reaches a point of the air: one comparison in the cascade it falls in
+// (hardware-filtered between four texels). Past the last cascade the air is taken as lit.
+float SunVisibility(vec4 pos)
+{
+	if (uHaveShadowmap <= 0.0) return 1.0;
+	vec4 splits = uDirectionalShadowFar;
+	bool multi = splits.y > 0.0;
+	int count = !multi ? 1 : (splits.w > 0.0 ? 4 : (splits.z > 0.0 ? 3 : 2));
+	float depth = -pos.z;
+	int c = count;
+	for (int i = 3; i >= 0; i--)
+		if (i < count && depth < ShadowCascadeFar(splits, i)) c = i;
+	if (c >= count) return 1.0;
+	vec4 coord = uDirectionalDepthsMVP[c] * pos;
+	if (multi)
+	{
+		vec2 off = vec2((c == 1 || c == 3) ? 0.5 : 0.0, (c >= 2) ? 0.5 : 0.0);
+		coord.xy = coord.xy * 0.5 + off;
+	}
+	return texture(uShadowMap, coord.xyz);
+}
+
+// The sunlight the air between the eye and `end` (view space) scatters toward the eye:
+// marched in steps, each lit as far as the shadow map says, its density thinning with height,
+// what lies behind dimmed by what lies in front, and weighed by a forward-scattering phase -
+// so it is strongest looking toward the sun, and broken into shafts by what stands in its way.
+// (The start is offset per pixel by interleaved gradient noise: the antialiasing evens it out.)
+vec3 SunShafts(vec3 end, vec3 toSun, vec3 sunIrradiance)
+{
+	float density = uVolumetric.x;
+	if (density <= 0.0) return vec3(0.0);
+	float len = min(length(end), uVolumetric.w);
+	if (len <= 0.0) return vec3(0.0);
+	vec3 dir = end / max(length(end), 1e-4);
+	int steps = int(clamp(uVolumetricTint.w, 4.0, 48.0));
+	float dt = len / float(steps);
+	float jitter = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+	float g = clamp(uVolumetric.y, -0.95, 0.95);
+	float cosT = dot(dir, toSun);
+	float phase = (1.0 - g * g) / (12.5663706 * pow(max(1.0 + g * g - 2.0 * g * cosT, 1e-4), 1.5));
+	vec3 eyeWorld = uViewInverse[3].xyz;
+	vec3 dirWorld = (uViewInverse * vec4(dir, 0.0)).xyz;
+	float sum = 0.0, optical = 0.0;
+	for (int i = 0; i < 48; i++)
+	{
+		if (i >= steps) break;
+		float t = (float(i) + jitter) * dt;
+		float h = eyeWorld.y + dirWorld.y * t;
+		float sigma = density * exp(-max(h, 0.0) * uVolumetric.z);
+		float T = exp(-optical);
+		sum += sigma * SunVisibility(vec4(dir * t, 1.0)) * T * dt;
+		optical += sigma * dt;
+	}
+	return sunIrradiance * uVolumetricTint.rgb * phase * sum;
+}
+
 // Fragment Color
 IO_LOCATION(0) out vec4 FragColor;
 
@@ -389,9 +451,11 @@ void main() {
 	// by max(dot(N, L), 0), so what follows adds exactly nothing - and what
 	// follows is the shadow lookup, 16 to 36 samples of the map. On a low sun
 	// that is every wall, trunk and slope on the far side.
+	// (the air in front of this surface, lit by the sun where it is not in shadow - see SunShafts)
+	vec3 shafts = SunShafts(v1, normalize(-uLightDirection), uLightColor.xyz * PBR_PI);
 	if (sssStrength <= 0.0 && dot(vViewNormal, normalize(-uLightDirection)) <= 0.0)
 	{
-		FragColor = vec4(ambient, 1.0);
+		FragColor = vec4(ambient + shafts, 1.0);
 		return;
 	}
 	vec3 color = diffuseAndAmbient.xyz;
@@ -433,6 +497,6 @@ void main() {
 		lit += color * (1.0 - metallic) * lightColor.xyz * SubsurfaceLight(N, V, L, sss, sssThin) * sssThrough;
 	}
 
-	FragColor = vec4(lit * ao.g * TerrainHorizonShade(v1) + ambient, 1.0);
+	FragColor = vec4(lit * ao.g * TerrainHorizonShade(v1) + ambient + shafts, 1.0);
 }
 #endif

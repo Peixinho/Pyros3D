@@ -59,6 +59,14 @@ namespace p3d {
 		// in an editor or by a script, the light it gives follows; nothing else has to.
 		void SetSun(const bool on) { sun = on; }
 		bool IsSun() const { return sun; }
+		// Sun shafts: the light the air scatters toward the eye, broken by shadows (the deferred
+		// renderer's sun pass marches the view ray through the shadow map). x: density at the
+		// ground per metre (0: off), y: forward scattering (Henyey-Greenstein g, 0..0.95), z: how fast
+		// it thins with height per metre, w: how far out it is marched in metres.
+		// tint: the scattered light's colour (times the sun's), w: steps along the ray.
+		void SetVolumetric(const Vec4 &params, const Vec4 &tint = Vec4(1, 1, 1, 20)) { volumetric = params; volumetricTint = tint; }
+		const Vec4 &GetVolumetric() const { return volumetric; }
+		const Vec4 &GetVolumetricTint() const { return volumetricTint; }
 		// What it lights with now - GetLightRadiance(), and for a sun what the air leaves of
 		// it at the height it stands (SunlightAt) - and the way to it in the world. Every
 		// renderer lights a directional light by this, so a sun sets alike in all of them.
@@ -185,6 +193,8 @@ namespace p3d {
 
 		// Shadow Cast
 		uint32 ShadowCascades;
+		Vec4 volumetric = Vec4(0.f, 0.6f, 0.08f, 120.f);
+		Vec4 volumetricTint = Vec4(1.f, 1.f, 1.f, 20.f);
 		Matrix ShadowProjection;
 		Cascade Cascades[4];
 

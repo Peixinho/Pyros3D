@@ -429,6 +429,8 @@ namespace p3d {
 		dirHorizonMapHandle = deferredMaterialDirectional->AddUniform(Uniform("uHorizonMap", Uniforms::DataUsage::Other, Uniforms::DataType::Int));
 		dirHorizonRectHandle = deferredMaterialDirectional->AddUniform(Uniform("uHorizonRect", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		dirHorizonSunHandle = deferredMaterialDirectional->AddUniform(Uniform("uHorizonSun", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		dirVolumetricHandle = deferredMaterialDirectional->AddUniform(Uniform("uVolumetric", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		dirVolumetricTintHandle = deferredMaterialDirectional->AddUniform(Uniform("uVolumetricTint", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		deferredMaterialDirectional->AddUniform(Uniform("uViewInverse", Uniforms::DataUsage::ViewMatrixInverse));
 		deferredMaterialDirectional->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialDirectional->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
@@ -440,7 +442,7 @@ namespace p3d {
 		// alignment, each mat4 rounds up to the next 16-byte boundary).
 		deferredMaterialDirectional->extraUniforms[0].binding = 32;
 		deferredMaterialDirectional->extraUniforms[0].blockName = "DirectionalFragParams";
-		deferredMaterialDirectional->extraUniforms[0].size = 528;
+		deferredMaterialDirectional->extraUniforms[0].size = 560;
 		deferredMaterialDirectional->extraUniforms[0].scratch.resize(deferredMaterialDirectional->extraUniforms[0].size, 0);
 		deferredMaterialDirectional->extraUniforms[0].offsets["uScreenDimensions"] = 0;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uLightDirection"] = 16;
@@ -456,6 +458,8 @@ namespace p3d {
 		deferredMaterialDirectional->extraUniforms[0].offsets["uViewInverse"] = 432;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uHorizonRect"] = 496;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uHorizonSun"] = 512;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uVolumetric"] = 528;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uVolumetricTint"] = 544;
 
 		deferredMaterialDirectional->DisableDepthTest();
 		deferredMaterialDirectional->DisableDepthWrite();
@@ -1805,6 +1809,11 @@ namespace p3d {
 					}
 					dirHorizonRectHandle->SetValue(&horizonRect);
 					dirHorizonSunHandle->SetValue(&horizonSun);
+					// (sun shafts: marched through this light's own shadow map, so only where it has one)
+					Vec4 volumetric = d->GetVolumetric(), volumetricTint = d->GetVolumetricTint();
+					if (!d->IsCastingShadows()) volumetric.x = 0.f;
+					dirVolumetricHandle->SetValue(&volumetric);
+					dirVolumetricTintHandle->SetValue(&volumetricTint);
 
 					RenderObject(directionalLight->GetMeshes()[0], d->GetOwner(), deferredMaterialDirectional);
 					horizonTexture->Unbind();
