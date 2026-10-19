@@ -126,6 +126,10 @@ namespace p3d {
 		void SetColorOverride(Texture* texture) { colorOverride = texture; }
 		Texture* GetColorOverride() const { return colorOverride; }
 		f32 GetResizeScale() const { return resizeScale; }
+		// A side pass: drawn into its own picture for a later effect to read (one it is handed,
+		// see CustomEffect::SetExtraInput), and not what the next effect gets as LastRTT.
+		void SetSidePass(const bool on) { sidePass = on; }
+		bool IsSidePass() const { return sidePass; }
 
 	protected:
 
@@ -245,6 +249,7 @@ namespace p3d {
 		f32 resizeScale = 1.f;
 		// See SetColorOverride().
 		Texture* colorOverride = NULL;
+		bool sidePass = false;
 		FrameBuffer* fbo;
 		Texture* attachment;
 

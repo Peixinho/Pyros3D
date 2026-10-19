@@ -77,6 +77,16 @@ namespace p3d {
 		// effect has no such param, so a stale saved override says so instead
 		// of vanishing.
 		bool SetParam(const std::string &name, const f32 *values, const uint32 count);
+		// The texture an `//! input Extra` reads (white until given): another effect's picture, a
+		// side pass the chain set up for this one (the Sky's half-resolution clouds).
+		void SetExtraInput(Texture* texture);
+		// ...or the picture of another effect, read every frame (its picture is remade on a resize)
+		void SetExtraInputFrom(IEffect* source) { extraSource = source; }
+	protected:
+		virtual void PreDraw() { if (extraSource != NULL) SetExtraInput(extraSource->GetTexture()); }
+	public:
+		// Its picture in half floats, for a pass whose values run past 1 (a side pass's light).
+		void MakeHDR() { UseHDRAttachment(); }
 
 	private:
 
@@ -88,6 +98,8 @@ namespace p3d {
 		// Parallel to params - the Uniform* AddUniform() handed back, so
 		// SetParam does not have to look the uniform up by name every time.
 		std::vector<Uniform*> paramUniforms;
+		int32 extraInputSlot = -1;
+		IEffect* extraSource = NULL;
 	};
 
 }

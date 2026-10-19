@@ -312,6 +312,27 @@ namespace p3d {
 				if (fx == NULL) { echo("ERROR: post effect Sky: " + error); return false; }
 				for (std::map<std::string, std::vector<f32> >::const_iterator k = params.begin(); k != params.end(); k++)
 					if (!k->second.empty()) fx->SetParam(k->first, &k->second[0], (uint32)k->second.size());
+				// Volumetric clouds: marched at half resolution by a side pass of the same shader
+				// (uCloudPass 1, in half floats) and laid over the sky by this one (uCloudPass 0) - a
+				// quarter of the cost of marching every pixel of the frame.
+				if (ParamOr(params, "uCloudVolume", 0.f) > 0.5f)
+				{
+					const uint32 hw = width / 2 > 0 ? width / 2 : 1, hh = height / 2 > 0 ? height / 2 : 1;
+					CustomEffect* march = CustomEffect::CreateFromSource(SkyEffectSource(), hw, hh, error);
+					if (march != NULL)
+					{
+						for (std::map<std::string, std::vector<f32> >::const_iterator k = params.begin(); k != params.end(); k++)
+							if (!k->second.empty()) march->SetParam(k->first, &k->second[0], (uint32)k->second.size());
+						const f32 one = 1.f, zero = 0.f;
+						march->SetParam("uCloudPass", &one, 1);
+						march->MakeHDR();
+						march->SetResizeScale(0.5f);
+						march->SetSidePass(true);
+						manager.AddEffect(march);
+						fx->SetParam("uCloudPass", &zero, 1);
+						fx->SetExtraInputFrom(march);
+					}
+				}
 				manager.AddEffect(fx);
 				return true;
 			}

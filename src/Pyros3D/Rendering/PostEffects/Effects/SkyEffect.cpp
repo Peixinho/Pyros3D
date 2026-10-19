@@ -18,6 +18,7 @@ R"PYROSSKY(//! effect Sky
 //! input LastRTT
 //! input Depth
 //! input Environment
+//! input Extra
 //! param float uNear 0.2 Camera near
 //! param float uFar 4000.0 Camera far
 //! param vec4 uCamPos 0,50,0,0 Camera position
@@ -48,6 +49,7 @@ R"PYROSSKY(//! effect Sky
 //! param float uRain 0.0 0.0 1.0 Rain
 //! param float uCloudShadow 0.45 0.0 1.0 Cloud shadows
 //! param float uCloudVolume 0.0 0.0 1.0 Volumetric clouds (1: marched through a slab of 3D noise, lit by the sun through themselves; 0: the flat layer)
+//! param float uCloudPass -1.0 Volumetric clouds: 1 in the half-resolution pass that marches them (set by the chain)
 //! param float uCloudSteps 32.0 8.0 96.0 Volumetric clouds: steps along a ray
 //! param float uSnow 0.0 0.0 1.0 Snow
 //! param float uExposure 1.16 0.2 2.0 Exposure
@@ -136,11 +138,11 @@ float cloudDensity(vec3 wp, bool fine) {
 }
 float hg(float c, float g) { return (1.0 - g * g) / (12.5663706 * pow(max(1.0 + g * g - 2.0 * g * c, 1e-4), 1.5)); }
 // over `background` (the sky behind): returns the colour, and how much of the background shows
-vec3 marchClouds(vec3 dir, vec3 sun, float day, float low, vec3 hazeColour, vec3 background) {
-	if (dir.y < 0.01) return background;
+vec4 marchClouds(vec3 dir, vec3 sun, float day, float low, vec3 hazeColour) {
+	if (dir.y < 0.01) return vec4(0.0, 0.0, 0.0, 1.0);
 	float b = CLOUD_BOTTOM + uSea - uCamPos.y, t = CLOUD_TOP + uSea - uCamPos.y;
 	float t0 = max(b / dir.y, 0.0), t1 = t / dir.y;
-	if (t1 <= 0.0) return background;
+	if (t1 <= 0.0) return vec4(0.0, 0.0, 0.0, 1.0);
 	t1 = min(t1, t0 + 24000.0);
 	int steps = int(clamp(uCloudSteps, 8.0, 96.0));
 	float dt = (t1 - t0) / float(steps);
@@ -174,9 +176,8 @@ vec3 marchClouds(vec3 dir, vec3 sun, float day, float low, vec3 hazeColour, vec3
 	// a low sun lights their undersides gold and rose; far off they go into the haze
 	lit = mix(lit, lit * vec3(1.0, 0.72, 0.55), low * 0.6);
 	lit = mix(lit, vec3(0.36, 0.38, 0.41) * (0.25 + 0.75 * day) * (1.0 - T), uRain * 0.8);
-	vec3 col = background * T + lit;
-	if (tFirst > 0.0) col = mix(col, background * T + hazeColour * (1.0 - T), 1.0 - exp(-tFirst * 0.00006));
-	return col;
+	if (tFirst > 0.0) lit = mix(lit, hazeColour * (1.0 - T), 1.0 - exp(-tFirst * 0.00006));
+	return vec4(lit, T);
 }
 
 // The sky by where the sun is: blue at noon, gold and rose as it comes down, dark after.
@@ -244,11 +245,23 @@ void main() {
 
 	// (with an environment, the air takes the colour of its horizon that way)
 	if (uEnv.x > 0.5) hazeColour = envAt(normalize(vec3(dir.x, 0.03, dir.z)));
+	if (uCloudPass > 0.5)
+	{
+		// the half-resolution pass: only the clouds' light and the sky's share through them, where sky shows
+		FragColor = (d >= 1.0) ? marchClouds(dir, sun, day, low, hazeColour) : vec4(0.0, 0.0, 0.0, 1.0);
+		return;
+	}
 	if (d >= 1.0 && uEnv.x > 0.5) {
 		c = envAt(dir);
 	} else if (d >= 1.0) {
 		c = skyColour(dir, sun, uRain);
-		if (uCloudVolume > 0.5) c = marchClouds(dir, sun, day, low, hazeColour, c);
+		if (uCloudVolume > 0.5)
+		{
+			// (marched at half resolution by the pass before - its light and how much of the sky
+			// shows through - and laid over the sky here; marched here, where nothing did)
+			vec4 cl = uCloudPass < -0.5 ? marchClouds(dir, sun, day, low, hazeColour) : texture_2D(uTex3, vTexcoord);
+			c = c * cl.a + cl.rgb;
+		}
 		// clouds: where this ray meets a level 1100 m over the sea
 		else if (dir.y > 0.012) {
 			float t = (1100.0 + uSea - uCamPos.y) / dir.y;

@@ -963,7 +963,7 @@ namespace p3d {
 				activeFBO->Bind();
 				drawEffect(effect, false);
 				activeFBO->UnBind();
-				LastRTT = activeFBO->GetAttachments()[0]->TexturePTR;
+				if (!effect->IsSidePass()) LastRTT = activeFBO->GetAttachments()[0]->TexturePTR;
 				if (effect == taaPass)
 					sceneFrame = LastRTT;
 			}

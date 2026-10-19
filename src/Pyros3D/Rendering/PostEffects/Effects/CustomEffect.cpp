@@ -1,3 +1,4 @@
+#include <iterator>
 //============================================================================
 // Name        : CustomEffect.cpp
 // Author      : Duarte Peixinho
@@ -60,6 +61,7 @@ namespace p3d {
 		const uint32 kParamsBinding = 44;
 		// An `//! input Environment`: not one of the frame's own pictures (RTT::*), so marked apart
 		const uint32 kEnvironmentInput = 1u << 30;
+		const uint32 kExtraInput = 1u << 29;
 		const char* const kParamsBlockName = "PyrosEffectParams";
 
 		uint32 Std140Alignment(const uint32 type)
@@ -158,6 +160,8 @@ namespace p3d {
 					else if (w[1] == "LastRTT") out.inputs.push_back(RTT::LastRTT);
 					// the scene's HDR environment panorama (EnvironmentMap), RGBA32F and unfiltered
 					else if (w[1] == "Environment") out.inputs.push_back(kEnvironmentInput);
+					// a texture handed over after it is made (SetExtraInput): another pass's picture
+					else if (w[1] == "Extra") out.inputs.push_back(kExtraInput);
 					else { errorOut = "line " + std::to_string(lineNo) + ": unknown input '" + w[1] + "' (Color, Depth, LastRTT or Environment)"; return false; }
 				}
 				else if (w[0] == "param")
@@ -216,6 +220,16 @@ namespace p3d {
 	CustomEffect::CustomEffect(const uint32 width, const uint32 height) : IEffect(width, height) {}
 	CustomEffect::~CustomEffect() {}
 
+	void CustomEffect::SetExtraInput(Texture* texture)
+	{
+		if (extraInputSlot >= 0 && extraInputSlot < (int32)RTTOrder.size() && texture != NULL)
+		{
+			std::vector<RTT::Info>::iterator it = RTTOrder.begin();
+			std::advance(it, extraInputSlot);
+			it->texture = texture;
+		}
+	}
+
 	bool CustomEffect::ReadMetadata(const std::string &source, std::string &nameOut,
 		std::vector<Param> &paramsOut, std::string &errorOut)
 	{
@@ -244,7 +258,20 @@ namespace p3d {
 		// makes uTex0 mean the first `//! input`.
 		for (size_t i = 0; i < h.inputs.size(); i++)
 		{
-			if (h.inputs[i] == kEnvironmentInput) effect->UseCustomTexture(EnvironmentMap::GetTexture());
+			if (h.inputs[i] == kExtraInput)
+			{
+				static Texture* white = NULL;
+				if (white == NULL)
+				{
+					white = new Texture();
+					white->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, 1, 1, false);
+					uchar px[4] = { 255, 255, 255, 255 };
+					white->UpdateData(px);
+				}
+				effect->extraInputSlot = (int32)effect->RTTOrder.size();
+				effect->UseCustomTexture(white);
+			}
+			else if (h.inputs[i] == kEnvironmentInput) effect->UseCustomTexture(EnvironmentMap::GetTexture());
 			else effect->UseRTT(h.inputs[i]);
 		}
 
