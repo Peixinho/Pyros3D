@@ -74,6 +74,11 @@ namespace p3d {
 		// camera. People (skinned) and cut-out or see-through things keep the shadow map.
 		void SetRayTracedShadows(const bool on, const f32 distance = 150.f, const f32 softness = 0.0093f) { rayShadows = on; rayShadowDistance = distance; raySoftness = softness; }
 		bool GetRayTracedShadows() const { return rayShadows; }
+		// Contact shadows (the deferred renderer): a short march through the depth buffer toward the
+		// light from every lit pixel, for what is too small or too close for the shadow map - a tyre
+		// on the road, a foot on the kerb, a crease in a facade. `length` metres of march (0 off).
+		void SetContactShadows(const f32 length) { contactShadow = length; }
+		f32 GetContactShadows() const { return contactShadow; }
 		// Ray-traced reflections (the deferred renderer, where the device traces rays): a
 		// reflective surface traces its reflection against the same ray scene, out to
 		// `distance` metres, in place of the screen-space march - what is off the screen or
@@ -212,6 +217,7 @@ namespace p3d {
 		Vec4 volumetric = Vec4(0.f, 0.6f, 0.08f, 120.f);
 		Vec4 volumetricTint = Vec4(1.f, 1.f, 1.f, 20.f);
 		bool rayShadows = false;
+		f32 contactShadow = 0.f;
 		bool rayReflections = false;
 		f32 rayReflectionDistance = 80.f;
 		f32 rayShadowDistance = 150.f, raySoftness = 0.0093f;

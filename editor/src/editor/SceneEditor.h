@@ -811,6 +811,7 @@ public:
 		Vec4 volumetric, volumetricTint;
 		bool rayShadows = false, rayReflections = false;
 		f32 rayShadowDistance = 150.f, raySoftness = 0.0093f, rayReflectionDistance = 80.f;
+		f32 contactShadows = 0.f;
 	};
 	SunEffects GetSunEffects(DirectionalLight* l);
 	void SetSunEffects(DirectionalLight* l, const SunEffects& fx);

@@ -11915,6 +11915,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							int steps = (int)fx.volumetricTint.w;
 							if (ImGui::SliderInt("Steps", &steps, 4, 48)) { fx.volumetricTint.w = (f32)steps; changed = true; }
 						}
+						{
+							bool contact = fx.contactShadows > 0.f;
+							if (ImGui::Checkbox("Contact shadows", &contact)) { fx.contactShadows = contact ? 0.6f : 0.f; changed = true; }
+							if (ImGui::IsItemHovered()) ImGui::SetTooltip("A short march through the depth buffer toward the sun from every lit pixel:\nthe small, close shadows the shadow map is too coarse for - a tyre on the\nroad, a foot on the kerb. Deferred only.");
+							if (contact) changed |= ImGui::SliderFloat("Contact length", &fx.contactShadows, 0.05f, 3.f, "%.2f m");
+						}
 						const bool rt = IsActiveRenderDeviceSet() && GetActiveRenderDevice().SupportsRayQuery();
 						if (!rt) ImGui::TextDisabled("This GPU/backend traces no rays: the two below are kept\nin the scene and used where one does.");
 						if (ImGui::Checkbox("Ray-traced shadows", &fx.rayShadows)) changed = true;
@@ -13783,6 +13789,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				j["volumetric"] = { v.x, v.y, v.z, v.w };
 				j["volumetricTint"] = { t.x, t.y, t.z, t.w };
 				j["rayTracedShadows"] = d->GetRayTracedShadows() ? json((double)d->GetRayTracedShadowDistance()) : json(false);
+				j["contactShadows"] = (double)d->GetContactShadows();
 				j["rayShadowSoftness"] = (double)d->GetRayTracedShadowSoftness();
 				j["rayTracedReflections"] = d->GetRayTracedReflections() ? json((double)d->GetRayTracedReflectionDistance()) : json(false);
 				j["shadowPenumbra"] = (double)d->GetShadowPenumbra();
@@ -15222,6 +15229,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			SunEffects fx = GetSunEffects(dl);
 			auto v4 = [&](const char* k, Vec4& out) { if (p.contains(k) && p[k].is_array() && p[k].size() == 4) out = Vec4((f32)p[k][0].get<double>(), (f32)p[k][1].get<double>(), (f32)p[k][2].get<double>(), (f32)p[k][3].get<double>()); };
 			v4("volumetric", fx.volumetric); v4("volumetricTint", fx.volumetricTint);
+			if (p.contains("contactShadows") && p["contactShadows"].is_number()) fx.contactShadows = std::max(0.f, (f32)p["contactShadows"].get<double>());
 			if (p.contains("rayTracedShadows")) { const json& r = p["rayTracedShadows"]; fx.rayShadows = r.is_boolean() ? r.get<bool>() : (r.is_number() && r.get<double>() > 0); if (r.is_number()) fx.rayShadowDistance = (f32)r.get<double>(); }
 			if (p.contains("rayShadowSoftness") && p["rayShadowSoftness"].is_number()) fx.raySoftness = (f32)p["rayShadowSoftness"].get<double>();
 			if (p.contains("rayTracedReflections")) { const json& r = p["rayTracedReflections"]; fx.rayReflections = r.is_boolean() ? r.get<bool>() : (r.is_number() && r.get<double>() > 0); if (r.is_number()) fx.rayReflectionDistance = (f32)r.get<double>(); }

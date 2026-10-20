@@ -451,6 +451,7 @@ namespace p3d {
 		dirVolumetricHandle = deferredMaterialDirectional->AddUniform(Uniform("uVolumetric", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		dirVolumetricTintHandle = deferredMaterialDirectional->AddUniform(Uniform("uVolumetricTint", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		dirRayShadowHandle = deferredMaterialDirectional->AddUniform(Uniform("uRayShadow", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
+		dirContactHandle = deferredMaterialDirectional->AddUniform(Uniform("uContactShadow", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
 		deferredMaterialDirectional->AddUniform(Uniform("uViewInverse", Uniforms::DataUsage::ViewMatrixInverse));
 		deferredMaterialDirectional->AddUniform(Uniform("uMatProj", Uniforms::DataUsage::ProjectionMatrix));
 		deferredMaterialDirectional->AddUniform(Uniform("uNearFar", Uniforms::DataUsage::NearFarPlane));
@@ -462,7 +463,7 @@ namespace p3d {
 		// alignment, each mat4 rounds up to the next 16-byte boundary).
 		deferredMaterialDirectional->extraUniforms[0].binding = 32;
 		deferredMaterialDirectional->extraUniforms[0].blockName = "DirectionalFragParams";
-		deferredMaterialDirectional->extraUniforms[0].size = 576;
+		deferredMaterialDirectional->extraUniforms[0].size = 592;
 		deferredMaterialDirectional->extraUniforms[0].scratch.resize(deferredMaterialDirectional->extraUniforms[0].size, 0);
 		deferredMaterialDirectional->extraUniforms[0].offsets["uScreenDimensions"] = 0;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uLightDirection"] = 16;
@@ -481,6 +482,7 @@ namespace p3d {
 		deferredMaterialDirectional->extraUniforms[0].offsets["uVolumetric"] = 528;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uVolumetricTint"] = 544;
 		deferredMaterialDirectional->extraUniforms[0].offsets["uRayShadow"] = 560;
+		deferredMaterialDirectional->extraUniforms[0].offsets["uContactShadow"] = 576;
 
 		deferredMaterialDirectional->DisableDepthTest();
 		deferredMaterialDirectional->DisableDepthWrite();
@@ -1852,6 +1854,10 @@ namespace p3d {
 					}
 					else IRenderer::SetSunCastersLeaveRayTraced(false);
 					dirRayShadowHandle->SetValue(&rayShadow);
+					// (contact shadows: x the march's length in metres, 0 off; y its steps)
+					static const bool contactDebug = std::getenv("PYROS_CONTACT_DEBUG") != NULL;
+					Vec4 contact(d->GetContactShadows(), 16.f, contactDebug ? 1.f : 0.f, 0.f);
+					dirContactHandle->SetValue(&contact);
 
 					RenderObject(directionalLight->GetMeshes()[0], d->GetOwner(), deferredMaterialDirectional);
 					horizonTexture->Unbind();

@@ -3334,6 +3334,7 @@ SceneEditor::SunEffects SceneEditor::GetSunEffects(DirectionalLight* l)
 	fx.volumetric = l->GetVolumetric(); fx.volumetricTint = l->GetVolumetricTint();
 	fx.rayShadows = l->GetRayTracedShadows(); fx.rayShadowDistance = l->GetRayTracedShadowDistance(); fx.raySoftness = l->GetRayTracedShadowSoftness();
 	fx.rayReflections = l->GetRayTracedReflections(); fx.rayReflectionDistance = l->GetRayTracedReflectionDistance();
+	fx.contactShadows = l->GetContactShadows();
 	return fx;
 }
 
@@ -3342,6 +3343,7 @@ void SceneEditor::SetSunEffects(DirectionalLight* l, const SunEffects& fx)
 	l->SetVolumetric(fx.volumetric, fx.volumetricTint);
 	l->SetRayTracedShadows(fx.rayShadows, fx.rayShadowDistance, fx.raySoftness);
 	l->SetRayTracedReflections(fx.rayReflections, fx.rayReflectionDistance);
+	l->SetContactShadows(fx.contactShadows);
 }
 
 void SceneEditor::ApplySunEffects(uint32 lightId, const SunEffects& fx)

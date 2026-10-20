@@ -1880,6 +1880,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				if (l->IsSun()) { j["sun"] = true; j["sunAzimuth"] = l->GetSunAzimuth(); j["sunTilt"] = l->GetSunTilt(); }
 				if (l->GetVolumetric().x > 0.f) { j["volumetric"] = ToJson(l->GetVolumetric()); j["volumetricTint"] = ToJson(l->GetVolumetricTint()); }
 				if (l->GetRayTracedReflections()) j["rayTracedReflections"] = l->GetRayTracedReflectionDistance();
+				if (l->GetContactShadows() > 0.f) j["contactShadows"] = l->GetContactShadows();
 				if (l->GetRayTracedShadows()) { j["rayTracedShadows"] = l->GetRayTracedShadowDistance(); if (l->GetRayTracedShadowSoftness() != 0.0093f) j["rayShadowSoftness"] = l->GetRayTracedShadowSoftness(); }
 				Cascade c0 = l->GetCascade(0);
 				j["fov"] = c0.Fov - CASCADE_FACTOR;
@@ -4225,6 +4226,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				const json &r = j["rayTracedReflections"];
 				l->SetRayTracedReflections(r.is_boolean() ? r.get<bool>() : (r.is_number() && r.get<f32>() > 0.f), r.is_number() ? r.get<f32>() : 80.f);
 			}
+			l->SetContactShadows(j.value("contactShadows", 0.f));
 			if (j.find("rayTracedShadows") != j.end())
 			{
 				const json &r = j["rayTracedShadows"];

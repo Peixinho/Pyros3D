@@ -276,6 +276,8 @@ namespace p3d {
 			sol::base_classes, sol::bases<ILightComponent, IComponent>()
 			);
 		lua->new_usertype<DirectionalLight>("DirectionalLightBase",
+			"setContactShadows", &DirectionalLight::SetContactShadows,
+			"getContactShadows", &DirectionalLight::GetContactShadows,
 			"getLightDirection", &DirectionalLight::GetLightDirection,
 			// (on a light a scene already has - what getComponent("DirectionalLight")
 			// hands back - as well as on one a script makes)

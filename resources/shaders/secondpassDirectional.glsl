@@ -210,6 +210,8 @@ UBO_BINDING(32) uniform DirectionalFragParams {
 	// Ray-traced shadows (DirectionalLight::SetRayTracedShadows): x on, y the sun's angular
 	// radius (radians), z how far from the eye the ray scene reaches (metres), w the frame.
 	vec4 uRayShadow;
+	// Contact shadows (DirectionalLight::SetContactShadows): x the march toward the light in metres (0 off), y its steps.
+	vec4 uContactShadow;
 };
 
 SAMPLER_BINDING(4) uniform sampler2DShadow uShadowMap;
@@ -461,6 +463,38 @@ vec3 getPosViewSpace(float depth_sampled, vec2 uv, vec4 z_info_local, out vec3 v
 	return vec3(screenSpaceRay, -1);
 }
 
+// Contact shadow: from the surface (view space) toward the light, a short march; a step whose point
+// lies behind what the depth buffer holds there - by less than a thickness, so a thing far in front
+// does not shadow what is behind it - is in shadow. Jittered per pixel, faded toward the march's end.
+float ContactShadow(vec3 P, vec3 L, vec3 N)
+{
+	float len = uContactShadow.x;
+	if (len <= 0.0) return 1.0;
+	int steps = int(uContactShadow.y);
+	float jitter = fract(sin(dot(gl_FragCoord.xy, vec2(12.9898, 78.233))) * 43758.5453);
+	vec3 start = P + N * (0.02 + 0.002 * abs(P.z));
+	float thick = 0.12 + 0.01 * abs(P.z);
+	for (int i = 1; i <= 32; i++)
+	{
+		if (i > steps) break;
+		float t = (float(i) - jitter) / float(steps);
+		vec3 q = start + L * (len * t);
+		if (q.z > -uNearFar.x) break;
+		vec4 c = uMatProj * vec4(q, 1.0);
+		vec2 uv = c.xy / c.w * 0.5 + 0.5;
+#if defined(METAL)
+		uv.y = 1.0 - uv.y;      // (as lastPass.glsl's ClipToUV: the frame's origin is its top there)
+#endif
+		if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) break;
+		float d = texture(tDepth, uv).r;
+		if (d >= 1.0) continue;
+		vec3 s; getPosViewSpace(d, uv * uScreenDimensions, vec4(uNearFar.x, uNearFar.y, uNearFar.x * uNearFar.y, uNearFar.x - uNearFar.y), s, uMatProj, vec4(1.0, 1.0, 2.0 / uScreenDimensions.x, 2.0 / uScreenDimensions.y));
+		float behind = s.z - q.z;
+		if (behind > 0.01 && behind < thick) return mix(0.0, 1.0, smoothstep(0.6, 1.0, t));
+	}
+	return 1.0;
+}
+
 void main() {
 	vec2 Texcoord = vec2(gl_FragCoord.x/uScreenDimensions.x, gl_FragCoord.y/uScreenDimensions.y);
 	// See secondpassAmbient.glsl's identical comment - depth clears to
@@ -524,6 +558,9 @@ void main() {
 #ifdef RAY_SHADOWS
 	if (uRayShadow.x > 0.5) pcf *= RayShadow(v1, vViewNormal);
 #endif
+	// (PYROS_CONTACT_DEBUG=1: the contact shadow alone - white lit, black in contact)
+	if (uContactShadow.z > 0.5) { FragColor = vec4(vec3(ContactShadow(v1, normalize(-uLightDirection), vViewNormal)), 1.0); return; }
+	if (uContactShadow.x > 0.0 && pcf > 0.01) pcf *= ContactShadow(v1, normalize(-uLightDirection), vViewNormal);
 	float roughness = mr.x;
 	float metallic = mr.y;
 

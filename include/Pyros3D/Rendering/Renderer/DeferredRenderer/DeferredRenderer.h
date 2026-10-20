@@ -297,7 +297,7 @@ namespace p3d {
 		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle, *pointShadowBiasHandle;
 		Uniform *dirAmbientTooHandle = NULL;
 		TerrainOcclusion terrainOcclusion;
-		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle, *dirHorizonMapHandle, *dirHorizonRectHandle, *dirHorizonSunHandle, *dirVolumetricHandle, *dirVolumetricTintHandle, *dirRayShadowHandle;
+		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle, *dirHorizonMapHandle, *dirHorizonRectHandle, *dirHorizonSunHandle, *dirVolumetricHandle, *dirVolumetricTintHandle, *dirRayShadowHandle, *dirContactHandle = NULL;
 		// Ray-traced sun shadows (DirectionalLight::SetRayTracedShadows): the sun pass was
 		// compiled with RAY_SHADOWS (the device traces rays); each geometry's acceleration
 		// structure, made the first time it is in range; the frame the scene was last built.
