@@ -3229,6 +3229,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		if (!luaCamera) luaCamera = Camera.get();
 		(*sharedLua)["camera"] = luaCamera;
+		// (the viewport's projection, as the player and the DemoLauncher give it: placeDecalAtCursor and friends)
+		(*sharedLua)["projection"] = &projection;
 
 		// Expose setRenderCamera() so scripts can override which camera renders the viewport.
 		SceneEditor* self = this;

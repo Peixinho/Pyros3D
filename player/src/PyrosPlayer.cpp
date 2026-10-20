@@ -1403,6 +1403,8 @@ void PyrosPlayer::PushLuaHostGlobals()
 	lua["physics2d"] = physics2D;
 	lua["scene"] = scene;
 	lua["camera"] = activeCamera;
+	// (the view's projection, as the DemoLauncher gives it: placeDecalAtCursor and friends turn a pixel into a ray with it)
+	lua["projection"] = &projection;
 	// Accepted and ignored: in the editor this redirects the *viewport* to a
 	// different camera, and a script written against play mode will call it.
 	// Here the render camera is whatever the scene says, so honouring it is
