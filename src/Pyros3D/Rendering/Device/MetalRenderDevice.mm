@@ -510,6 +510,7 @@ namespace p3d {
 
 	void MetalRenderDevice::WaitIdle()
 	{
+		WaitSubmittedCompute();
 		if (lastSubmittedCommandBuffer == NULL)
 			return;
 		@autoreleasepool
@@ -4042,6 +4043,18 @@ namespace p3d {
 		return true;
 	}
 
+	void MetalRenderDevice::WaitSubmittedCompute()
+	{
+		if (submittedComputeCommandBuffer == NULL) return;
+		@autoreleasepool
+		{
+			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)submittedComputeCommandBuffer;
+			[cmdBuf waitUntilCompleted];
+			CFBridgingRelease(submittedComputeCommandBuffer);
+			submittedComputeCommandBuffer = NULL;
+		}
+	}
+
 	void MetalRenderDevice::FlushComputeEncoding(const bool wait)
 	{
 		if (currentComputeEncoder == NULL && computeCommandBuffer == NULL)
@@ -4066,8 +4079,16 @@ namespace p3d {
 				// Reading without this returns pre-dispatch data, which
 				// looks exactly like a broken shader.
 				if (wait)
+				{
 					[cmdBuf waitUntilCompleted];
-				CFBridgingRelease(computeCommandBuffer);
+					CFBridgingRelease(computeCommandBuffer);
+				}
+				else
+				{
+					// (kept, to wait on before the CPU touches what it uses: ComputeBarrierBit::Submit)
+					WaitSubmittedCompute();
+					submittedComputeCommandBuffer = computeCommandBuffer;
+				}
 				computeCommandBuffer = NULL;
 			}
 		}
@@ -4199,6 +4220,8 @@ namespace p3d {
 		@autoreleasepool
 		{
 			id<MTLBuffer> buf = (__bridge id<MTLBuffer>)it->second.buffer;
+			// (submitted work may still be reading it: ComputeBarrierBit::Submit)
+			WaitSubmittedCompute();
 			memcpy((uint8*)[buf contents] + offset, data, sizeBytes);
 		}
 	}
@@ -4218,6 +4241,7 @@ namespace p3d {
 		// correct by construction - the barrier remains the documented
 		// way to say it explicitly, and is a no-op if already flushed.
 		FlushComputeEncoding(true);
+		WaitSubmittedCompute();
 
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || it->second.buffer == NULL)
@@ -4257,6 +4281,7 @@ namespace p3d {
 
 	void MetalRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)
 	{
+		WaitSubmittedCompute();
 		storageBufferSizes.erase(buffer);
 		// The MTLBuffer was allocated by CreateBuffer, so it is freed by
 		// the matching DestroyBuffer rather than by hand here.
@@ -4338,6 +4363,13 @@ namespace p3d {
 		if (barrierBits & (ComputeBarrierBit::HostRead | ComputeBarrierBit::VertexBuffer))
 		{
 			FlushComputeEncoding(true);
+			return;
+		}
+		// Submit: committed now and not waited for - the CPU reads it a frame later, and the
+		// storage-buffer calls wait on it first (WaitSubmittedCompute)
+		if (barrierBits & ComputeBarrierBit::Submit)
+		{
+			FlushComputeEncoding(false);
 			return;
 		}
 		if (currentComputeEncoder == NULL)

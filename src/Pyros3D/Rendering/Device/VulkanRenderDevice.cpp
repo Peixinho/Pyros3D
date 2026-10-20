@@ -9037,6 +9037,8 @@ namespace p3d {
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || it->second.mapped == NULL)
 			return;
+		// (work submitted without a wait may still be reading this: see ComputeBarrierBit::Submit)
+		PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
 		memcpy((uint8*)it->second.mapped + offset, data, sizeBytes);
 	}
 
@@ -9055,6 +9057,8 @@ namespace p3d {
 		// correct by construction; the barrier stays the documented way
 		// to say it explicitly, and is a no-op once already flushed.
 		FlushComputeCommands(true);
+		// (and what was submitted earlier without a wait: ComputeBarrierBit::Submit)
+		PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
 
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || it->second.mapped == NULL)
@@ -9204,6 +9208,13 @@ namespace p3d {
 		if (barrierBits & (ComputeBarrierBit::HostRead | ComputeBarrierBit::VertexBuffer))
 		{
 			FlushComputeCommands(true);
+			return;
+		}
+		// Submit: started now, not waited for - the storage-buffer reads and writes, and the next
+		// recording, wait on the fence themselves
+		if (barrierBits & ComputeBarrierBit::Submit)
+		{
+			FlushComputeCommands(false);
 			return;
 		}
 		if (!computeCommandBufferRecording)

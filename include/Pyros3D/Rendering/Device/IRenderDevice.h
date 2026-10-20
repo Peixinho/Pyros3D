@@ -56,6 +56,11 @@ namespace p3d {
 			VertexBuffer = 0x4,
 			// The CPU is about to read this back (ReadStorageBuffer).
 			HostRead = 0x8,
+			// Start this work now; the CPU reads it back LATER (a frame on), and does not wait for it
+			// here. A backend whose HostRead waits (Metal: commit + waitUntilCompleted) only commits;
+			// its ReadStorageBuffer/UpdateStorageBuffer wait for the submitted work themselves.
+			// Elsewhere it is HostRead.
+			Submit = 0x10,
 			// Always correct, never precise. Fine for a smoke test or a
 			// once-a-frame transition; wasteful inside a hot loop.
 			All = 0x7FFFFFFF

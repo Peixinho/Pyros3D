@@ -3679,6 +3679,8 @@ namespace {
 
 bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings &settings)
 {
+	// (an update still in flight lands now, not over the solve or the cache read below)
+	if (GPUCompute != NULL) GPUCompute->Flush();
 	if (OwnedDDGI == NULL)
 		OwnedDDGI = new DDGIVolume();
 	// A solve kept from an earlier load of the same scene with the same settings: read, not traced.
@@ -3898,7 +3900,9 @@ bool IRenderer::UpdateGlobalIllumination(SceneGraph *scene, const uint32 probeBu
 		OwnedDDGI->SetUpdateTimeBudget(0.f);
 		std::vector<RayLight> lights;
 		CollectRayLights(scene, lights);
-		GPUCompute->Update(*OwnedDDGI, lights, DDGIRaysPerProbe, DDGIFrame++, hysteresis, probeBudget);
+		// (deferred: last frame's results arrive now, this frame's next frame - the CPU never waits
+		// for the GPU on the GI's account; see DDGICompute::Update)
+		GPUCompute->Update(*OwnedDDGI, lights, DDGIRaysPerProbe, DDGIFrame++, hysteresis, probeBudget, true);
 	}
 	else
 	{

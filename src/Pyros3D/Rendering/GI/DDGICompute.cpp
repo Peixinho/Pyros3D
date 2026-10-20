@@ -33,7 +33,10 @@ namespace p3d {
 		// modest allocation instead of scaling with the whole volume -
 		// a 32x32x32 grid at 256 rays would otherwise need a 1GB
 		// scratch buffer for data that is consumed immediately.
-		const uint32 kMaxBatchProbes = 128;
+		// (a volume up to this traces in one batch, and an update never waits on the GPU: between
+		// batches it must - Vulkan rewrites a pipeline's bindings in place, so batches recorded
+		// together all read the last one's parameters. 1024 x 256 rays of scratch is 8 MB.)
+		const uint32 kMaxBatchProbes = 1024;
 	}
 
 	DDGICompute::DDGICompute()
@@ -191,6 +194,7 @@ namespace p3d {
 		// storage binding of their own.
 		paramProbes = volume.ProbeCount();
 		bParams = dev.CreateStorageBuffer((kParamFixed + paramProbes) * 4 * (uint32)sizeof(f32), 8, NULL);
+
 		// Sized for every probe, not for a batch: that is what lets the
 		// stats be collected in ONE readback at the end of the update
 		// instead of one per batch.
@@ -245,12 +249,29 @@ namespace p3d {
 		return true;
 	}
 
+	void DDGICompute::Flush()
+	{
+		if (pendingVolume == NULL) return;
+		DDGIVolume* v = pendingVolume; pendingVolume = NULL;
+		f64 statsMs = 0.0;
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		Collect(*v, pendingRelocation, pendingFirst, pendingLast, statsMs);
+		if (getenv("PYROS_GI_TIMING") != NULL)
+		{
+			fprintf(stderr, "GI timing: collected the last update in %.2f ms\n", std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count());
+			fflush(stderr);
+		}
+	}
+
 	bool DDGICompute::Update(DDGIVolume &volume, const std::vector<RayLight> &lights,
 		const uint32 raysPerProbe, const uint32 frame, const f32 hysteresis,
-		const uint32 probeBudget)
+		const uint32 probeBudget, const bool deferReadback)
 	{
 		if (!initialized || !volume.IsValid())
 			return false;
+		// (the last update's results first: what follows uploads from the volume - the feedback
+		// snapshot - and rewrites the buffers that work was reading)
+		Flush();
 		const std::chrono::steady_clock::time_point tStart = std::chrono::steady_clock::now();
 		f64 statsMs = 0.0;
 		// The span of probes this update traced, so the single stats
@@ -424,6 +445,39 @@ namespace p3d {
 				dev.ComputeBarrier(0, ComputeBarrierBit::HostRead);
 		}
 
+		if (deferReadback)
+		{
+			// (submitted now, so the GPU starts on it; read next time)
+			dev.ComputeBarrier(0, ComputeBarrierBit::Submit);
+			pendingVolume = &volume; pendingRelocation = relocation; pendingFirst = tracedFirst; pendingLast = tracedLast;
+			if (getenv("PYROS_GI_TIMING") != NULL)
+			{
+				const f64 ms = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - tStart).count();
+				fprintf(stderr, "GI timing: dispatch %.2f ms (deferred)\n", ms);
+				fflush(stderr);
+			}
+			return true;
+		}
+		const std::chrono::steady_clock::time_point tReadStart = std::chrono::steady_clock::now();
+		Collect(volume, relocation, tracedFirst, tracedLast, statsMs);
+		if (getenv("PYROS_GI_TIMING") != NULL)
+		{
+			const std::chrono::steady_clock::time_point tEnd = std::chrono::steady_clock::now();
+			const f64 dispatchMs = std::chrono::duration<f64, std::milli>(tReadStart - tStart).count();
+			const f64 readMs = std::chrono::duration<f64, std::milli>(tEnd - tReadStart).count();
+			fprintf(stderr, "GI timing: trace %.2f ms, relocation stats %.2f ms, atlas readback %.2f ms\n",
+				dispatchMs, statsMs, readMs - statsMs);
+			fflush(stderr);
+		}
+		return true;
+	}
+
+	void DDGICompute::Collect(DDGIVolume &volume, const bool relocation, const uint32 tracedFirst, const uint32 tracedLast, f64 &statsMs)
+	{
+		IRenderDevice &dev = GetActiveRenderDevice();
+		const ProbeAtlas &irr = volume.GetIrradianceAtlas();
+		const ProbeAtlas &vis = volume.GetVisibilityAtlas();
+		const ProbeAtlas &rad = volume.GetRadianceAtlas();
 		// One sync for the whole update. The atlas readback below needs
 		// the GPU to have finished anyway, so the relocation stats ride
 		// along at no extra cost.
@@ -455,7 +509,6 @@ namespace p3d {
 				std::chrono::steady_clock::now() - tStatsRead).count();
 		}
 
-		const std::chrono::steady_clock::time_point tReadStart = std::chrono::steady_clock::now();
 		// Read the atlases back into the volume so the existing texture
 		// upload path is unchanged. See the header on why this round
 		// trip is the weak point rather than the design.
@@ -497,22 +550,13 @@ namespace p3d {
 			volume.ValidateClassification();
 		}
 		volume.FillAtlasBorders();
-		if (getenv("PYROS_GI_TIMING") != NULL)
-		{
-			const std::chrono::steady_clock::time_point tEnd = std::chrono::steady_clock::now();
-			const f64 dispatchMs = std::chrono::duration<f64, std::milli>(tReadStart - tStart).count();
-			const f64 readMs = std::chrono::duration<f64, std::milli>(tEnd - tReadStart).count();
-			fprintf(stderr, "GI timing: trace %.2f ms, relocation stats %.2f ms, atlas readback %.2f ms\n",
-				dispatchMs - statsMs, statsMs, readMs);
-			fflush(stderr);
-		}
-		return true;
 	}
 
 	bool DDGICompute::UpdateGeometry(const RayScene &scene)
 	{
 		if (!initialized)
 			return false;
+		Flush();          // (the work in flight reads these buffers)
 		std::vector<f32> triData, nodeData;
 		std::vector<uint32> idxData;
 		scene.PackForGPU(triData, nodeData, idxData);
@@ -532,6 +576,7 @@ namespace p3d {
 
 	void DDGICompute::Shutdown()
 	{
+		pendingVolume = NULL;          // (an update in flight is dropped with the buffers)
 		if (!initialized && tracePipeline == 0)
 			return;
 		IRenderDevice &dev = GetActiveRenderDevice();

@@ -73,9 +73,18 @@ namespace p3d {
 		//
 		// `PYROS_GI_TIMING=1` prints the breakdown, which is how those
 		// numbers were arrived at rather than guessed.
+		//
+		// deferReadback: the work is submitted and the call returns without waiting for it; its
+		// results reach the volume at the start of the next Update() (or Flush()), a frame later -
+		// by then the GPU has done it, and nobody waits. Without it the CPU sat waiting for the GPU
+		// to finish what it had been handed microseconds before, every frame: 85% of the Cornell
+		// demo's main thread, and frame times anywhere from 16 to 100 ms by how far behind the GPU
+		// was. A one-off solve (a bake, feeding back pass to pass) leaves it off.
 		bool Update(DDGIVolume &volume, const std::vector<RayLight> &lights,
 			const uint32 raysPerProbe, const uint32 frame, const f32 hysteresis,
-			const uint32 probeBudget);
+			const uint32 probeBudget, const bool deferReadback = false);
+		// A deferred update's results, into its volume now (nothing if none is waiting).
+		void Flush();
 
 		// Re-uploads the triangles and the BVH after the scene has
 		// moved. Indices are untouched - a refit changes bounds and
@@ -93,6 +102,12 @@ namespace p3d {
 		uint32 GetProbeCursor() const { return cursor; }
 
 	private:
+
+		// the readback half of Update(): the atlases (and the relocation statistics) into the volume
+		void Collect(DDGIVolume &volume, const bool relocation, const uint32 tracedFirst, const uint32 tracedLast, f64 &statsMs);
+		DDGIVolume* pendingVolume = NULL;
+		bool pendingRelocation = false;
+		uint32 pendingFirst = 0, pendingLast = 0;
 
 		bool CompileStage(const std::string &source, const std::string &stageDefine,
 			DeviceHandle &outStage, DeviceHandle &outProgram, DeviceHandle &outPipeline);

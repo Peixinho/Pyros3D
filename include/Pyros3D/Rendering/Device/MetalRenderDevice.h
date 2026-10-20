@@ -702,6 +702,9 @@ namespace p3d {
 		// has an open MTLRenderCommandEncoder for essentially all of its
 		// life. See BeginComputeEncoding().
 		void* computeCommandBuffer;   // id<MTLCommandBuffer>, nullable
+		// committed without a wait (ComputeBarrierBit::Submit), retained until waited on
+		void* submittedComputeCommandBuffer = NULL;
+		void WaitSubmittedCompute();
 		void* currentComputeEncoder;  // id<MTLComputeCommandEncoder>, nullable
 		DeviceHandle boundComputePipeline;
 

@@ -2082,7 +2082,7 @@ namespace p3d {
 		// only orders shader-side access. Reading back without this is the
 		// classic "my compute shader produced the old values" bug, and it
 		// reproduces intermittently, which is worse.
-		if (barrierBits & ComputeBarrierBit::HostRead)      mask |= GL_BUFFER_UPDATE_BARRIER_BIT;
+		if (barrierBits & (ComputeBarrierBit::HostRead | ComputeBarrierBit::Submit)) mask |= GL_BUFFER_UPDATE_BARRIER_BIT;
 		if (barrierBits == ComputeBarrierBit::All)          mask = GL_ALL_BARRIER_BITS;
 		if (mask == 0)
 			return;
