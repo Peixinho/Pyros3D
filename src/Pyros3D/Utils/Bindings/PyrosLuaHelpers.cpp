@@ -956,8 +956,9 @@ namespace p3d {
 		for (size_t k = 0; k < rcomp->GetMeshes().size(); k++)
 		{
 			RenderingMesh* mesh = rcomp->GetMeshes()[k];
-			if (!mesh || !mesh->Geometry) continue;
-				const std::vector<Vec3> &verts = mesh->Geometry->GetVertexData();
+			// (a part hidden - a pane shot out - is not there for a ray either)
+			if (!mesh || !mesh->Geometry || mesh->Active != true) continue;
+			const std::vector<Vec3> &verts = mesh->Geometry->GetVertexData();
 			const std::vector<Vec3> &norms = mesh->Geometry->GetNormalData();
 			const std::vector<__INDEX_C_TYPE__> &idx = mesh->Geometry->GetIndexData();
 			for (size_t i = 0; i + 2 < idx.size(); i += 3)
@@ -1157,7 +1158,7 @@ namespace p3d {
 	// to spawn an impact effect, gate on range, or react to the surface.
 	bool ScreenPick(float winW, float winH, float mouseX, float mouseY,
 		GameObject* camera, Projection* projection, SceneGraph* scene,
-		Vec3* outPoint, Vec3* outNormal, std::string* outName, f32* outDistance)
+		Vec3* outPoint, Vec3* outNormal, std::string* outName, f32* outDistance, int32* outMesh, bool* outTransparent)
 	{
 		if (!camera || !projection || !scene) return false;
 
@@ -1166,6 +1167,8 @@ namespace p3d {
 		bool found = false;
 		Vec3 hitPoint, hitNormal;
 		std::string hitName;
+		int32 hitMesh = -1;
+		bool hitTransparent = false;
 
 		const Matrix viewInv = camera->GetWorldTransformation().Inverse();
 		const Matrix &proj = projection->GetProjectionMatrix();
@@ -1214,7 +1217,8 @@ namespace p3d {
 			++nBox;
 
 			Vec3 intersection, normal;
-			const bool triOk = LuaGetIntersectedTriangle(rcomp, mouse, camera, &intersection, &normal);
+			size_t meshIndex = 0;
+			const bool triOk = LuaGetIntersectedTriangle(rcomp, mouse, camera, &intersection, &normal, &meshIndex);
 			if (trace)
 			{
 				size_t nv = 0, ni = 0;
@@ -1254,6 +1258,10 @@ namespace p3d {
 				hitPoint = worldHit;
 				hitNormal = worldNormal;
 				hitName = go->GetName();
+				hitMesh = (int32)meshIndex;
+				// (the submesh's material: glass, a sign's cut-out - what a shooter tells a window by)
+				RenderingMesh* hm = meshIndex < rcomp->GetMeshes().size() ? rcomp->GetMeshes()[meshIndex] : NULL;
+				hitTransparent = hm && hm->Material && hm->Material->IsTransparent();
 				found = true;
 			}
 		}
@@ -1270,6 +1278,8 @@ namespace p3d {
 		if (outNormal) *outNormal = hitNormal;
 		if (outName) *outName = hitName;
 		if (outDistance) *outDistance = sqrtf(bestDist);
+		if (outMesh) *outMesh = hitMesh;
+		if (outTransparent) *outTransparent = hitTransparent;
 		return true;
 	}
 
@@ -1316,7 +1326,8 @@ namespace p3d {
 
 	bool PlaceDecalAt(float winW, float winH, float mouseX, float mouseY,
 		GameObject* camera, Projection* projection, SceneGraph* scene,
-		const std::shared_ptr<IMaterial> &material, const Vec3 &dimensions)
+		const std::shared_ptr<IMaterial> &material, const Vec3 &dimensions,
+		std::shared_ptr<IComponent>* outComponent, int32* outMesh)
 	{
 		if (!camera || !projection || !scene) return false;
 		if (!material) return false;
@@ -1426,6 +1437,20 @@ namespace p3d {
 		auto rc = std::make_shared<LUA_RenderingComponent>(renderable, material);
 		bestGo->AddComponent(rc);
 		LuaDecalGeometries().push_back(std::move(geom));
+		if (outComponent) *outComponent = rc;
+		if (outMesh) *outMesh = (int32)bestMesh;
+		return true;
+	}
+
+	bool RemoveLuaDecal(GameObject* owner, const std::shared_ptr<IComponent> &decal)
+	{
+		if (!owner || !decal || decal->GetComponentType() != ComponentType::RenderingComponent) return false;
+		Renderable* r = static_cast<RenderingComponent*>(decal.get())->GetRenderable();
+		if (!r || !dynamic_cast<Decal*>(r)) return false;
+		owner->RemoveComponent(decal);
+		std::vector<std::unique_ptr<DecalGeometry> > &all = LuaDecalGeometries();
+		for (size_t i = 0; i < all.size(); i++)
+			if (all[i] && all[i]->GetDecal() == r) { all.erase(all.begin() + i); break; }
 		return true;
 	}
 	// ******************************* OVERLOADS *******************************

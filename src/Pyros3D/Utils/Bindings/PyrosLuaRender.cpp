@@ -228,7 +228,12 @@ namespace p3d {
 				"renderingComponent", &RenderingMesh::renderingComponent,
 				"cullingGeometry", &RenderingMesh::CullingGeometry,
 				"active", &RenderingMesh::Active,
-				"clickable", &RenderingMesh::Clickable
+				"clickable", &RenderingMesh::Clickable,
+				// (glass, a cut-out: what screenPick's last value says of the submesh hit)
+				"isTransparent", [](RenderingMesh &m) { return m.Material && m.Material->IsTransparent(); },
+				// (the model file's name for the submesh's material: how a script finds a part - a pane,
+				// a light - on a model whose submeshes are merged by material)
+				"getMaterialName", [](RenderingMesh &m) { return m.Geometry ? m.Geometry->materialProperties.Name : std::string(); }
 				);
 		}
 

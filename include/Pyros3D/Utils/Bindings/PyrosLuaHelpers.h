@@ -149,12 +149,17 @@ std::shared_ptr<LUA_RenderingComponent> LuaNewRenderingComponentDist(sol::object
 bool PlaceDecalAtCursor(float winW, float winH, float mouseX, float mouseY, GameObject* camera, Projection* projection, SceneGraph* scene, sol::object materialObj, const Vec3 &dimensions);
 // The same with the material in hand (the editor's decal tool, C++): the decal is a RenderingComponent on
 // what was hit, so it is saved with the scene.
-PYROS3D_API bool PlaceDecalAt(float winW, float winH, float mouseX, float mouseY, GameObject* camera, Projection* projection, SceneGraph* scene, const std::shared_ptr<IMaterial> &material, const Vec3 &dimensions);
+// outComponent / outMesh (optional): the decal's component and the index of the submesh it went on -
+// a script that wants to take one decal off again (a pane of glass knocked out) keeps the first.
+PYROS3D_API bool PlaceDecalAt(float winW, float winH, float mouseX, float mouseY, GameObject* camera, Projection* projection, SceneGraph* scene, const std::shared_ptr<IMaterial> &material, const Vec3 &dimensions,
+	std::shared_ptr<IComponent>* outComponent = NULL, int32* outMesh = NULL);
+// One decal off its object, and its mesh freed (true if it was one of ours).
+bool RemoveLuaDecal(GameObject* owner, const std::shared_ptr<IComponent> &decal);
 // Mesh-accurate pick along a screen ray. See the implementation comment: this
 // is the information PlaceDecalAtCursor computes and throws away.
 bool ScreenPick(float winW, float winH, float mouseX, float mouseY, GameObject* camera,
 	Projection* projection, SceneGraph* scene, Vec3* outPoint, Vec3* outNormal,
-	std::string* outName, f32* outDistance);
+	std::string* outName, f32* outDistance, int32* outMesh = NULL, bool* outTransparent = NULL);
 // Drops every decal placed through PlaceDecalAtCursor. Returns how many
 // components were removed.
 uint32 ClearLuaDecals(SceneGraph* scene);

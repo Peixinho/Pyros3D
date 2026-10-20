@@ -703,10 +703,25 @@ end
 			Vec3 p, n;
 			std::string name;
 			f32 dist = 0.f;
+			int32 mesh = -1;
+			bool transparent = false;
 			const bool ok = ScreenPick(winW, winH, mx, my, camera, projection, scene,
-				&p, &n, &name, &dist);
-			return std::make_tuple(ok, p.x, p.y, p.z, n.x, n.y, n.z, name, dist);
+				&p, &n, &name, &dist, &mesh, &transparent);
+			// (then the submesh hit - its place in rc:getMeshes(), from 1 - and whether its material
+			// is a transparent one: a window)
+			return std::make_tuple(ok, p.x, p.y, p.z, n.x, n.y, n.z, name, dist, mesh + 1, transparent);
 		});
+		// placeDecal(w, h, x, y, camera, projection, scene, material, size): placeDecalAtCursor that
+		// says what it made - the decal's component (nil if nothing was hit) and the submesh it is on
+		// (from 1). removeDecal(object, component) takes that one off again.
+		lua->set_function("placeDecal", [](float winW, float winH, float mx, float my, GameObject* camera,
+			Projection* projection, SceneGraph* scene, sol::object materialObj, const Vec3 &dimensions) {
+			std::shared_ptr<IComponent> comp;
+			int32 mesh = -1;
+			const bool ok = PlaceDecalAt(winW, winH, mx, my, camera, projection, scene, LuaObjectToMaterial(materialObj), dimensions, &comp, &mesh);
+			return std::make_tuple(ok ? comp : std::shared_ptr<IComponent>(), mesh + 1);
+		});
+		lua->set_function("removeDecal", &RemoveLuaDecal);
 		lua->set_function("clearDecals", &ClearLuaDecals);
 		// The view's zoom, as a factor on the active camera's field of view (1 = as the camera
 		// is set; 0.8 = a fifth narrower): a soft aim, binoculars. The host applies it.
