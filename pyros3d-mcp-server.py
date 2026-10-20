@@ -5670,6 +5670,9 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         ddgi {counts, rays, passes, sky, multiBounce, dynamic, probeBudget,
         hysteresis}, solve, clear)
       scene_state -> "environment" reads all of it back
+      set_scene_audio (reverb bool, room 0-1, damping 0-1, wet 0-1, preDelay ms,
+        early 0-1.5): the scene's space - reverb on every placed sound (the
+        world bus); no args reports it. Saved as "audio": {"reverb": {...}}
       set_view_options (lightGizmos, cameraFrustums = show ALL; otherwise only
         the selected light component / camera is drawn; gizmoLines = master
         switch for both; physicsDebug, grid, chrome)

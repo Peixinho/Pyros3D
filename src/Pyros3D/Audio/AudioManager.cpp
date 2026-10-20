@@ -7,6 +7,8 @@
 //============================================================================
 
 #include <Pyros3D/Audio/AudioManager.h>
+#include <Pyros3D/Audio/AudioBus.h>
+#include "AudioReverb.h"
 #include <cstdio>
 #include <cstdlib>
 #include "AudioEar.h"
@@ -111,6 +113,23 @@ namespace p3d {
 		activeManager = this;
 	}
 
+	std::shared_ptr<AudioBus> AudioManager::GetWorldBus()
+	{
+		if (!worldBus && initialized) worldBus = std::make_shared<AudioBus>();
+		return worldBus;
+	}
+
+	void AudioManager::SetWorldReverb(const f32 room, const f32 damping, const f32 wet, const f32 preDelayMs, const f32 early)
+	{
+		std::shared_ptr<AudioBus> bus = GetWorldBus();
+		if (bus) bus->SetReverb(room, damping, wet, preDelayMs, early);
+	}
+
+	void AudioManager::ClearWorldReverb()
+	{
+		if (worldBus) worldBus->ClearReverb();
+	}
+
 	void AudioManager::RegisterVoice(ma_sound* voice)
 	{
 		if (voice == NULL) return;
@@ -131,6 +150,8 @@ namespace p3d {
 
 	AudioManager::~AudioManager()
 	{
+		// (the world bus, if nobody else holds it, goes while the engine is still up)
+		worldBus.reset();
 		if (initialized)
 		{
 			// Anything still registered belongs to a Sound/AudioSource that
@@ -151,6 +172,9 @@ namespace p3d {
 
 		if (engine != NULL)
 		{
+			// reverb nodes still in the graph (a bus that outlives this manager) leave it now
+			if (initialized)
+				detail::ReverbNodesShutdown();
 			if (initialized)
 				ma_engine_uninit(engine);
 			delete engine;

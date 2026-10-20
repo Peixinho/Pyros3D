@@ -230,6 +230,7 @@ namespace p3d {
 			if (!Geometry->materialProperties.haveBones) requestedOptions &= ~ShaderUsage::Skinning;
 
 			GenericShaderMaterial* genMat = new GenericShaderMaterial(options | requestedOptions);
+			Texture::CompressedLoads compressMaps;       // (a model's own maps: as blocks - Texture.h)
 
 			// Material Properties
 			if (Geometry->materialProperties.Twosided) genMat->SetCullFace(CullFace::DoubleSided);

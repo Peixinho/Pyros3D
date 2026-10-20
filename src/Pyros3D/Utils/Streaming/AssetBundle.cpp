@@ -87,6 +87,8 @@ namespace p3d {
 			if (images.count(key) || claimed.count(key)) return true;
 			claimed.insert(key);
 		}
+		// (its blocks are cached: they are read when it loads, the image is not wanted)
+		if (Texture::HasCompressedCache(path)) return true;
 		Texture::DecodedImage image;
 		if (!Texture::DecodeFile(path, image)) return false;
 		std::lock_guard<std::mutex> lock(mutex);

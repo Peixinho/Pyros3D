@@ -1157,6 +1157,9 @@ namespace p3d {
 			wanted.samplerAnisotropy = VK_TRUE;
 			maxSamplerAnisotropy = std::min(deviceProperties.limits.maxSamplerAnisotropy, (float)IRenderDevice::TextureAnisotropy());
 		}
+		// Block-compressed textures (SupportsCompressedFormat), where the device samples them
+		bcSupported = supported.textureCompressionBC == VK_TRUE;
+		if (bcSupported) wanted.textureCompressionBC = VK_TRUE;
 		deviceCreateInfo.pEnabledFeatures = &wanted;
 
 		// Ray queries, where the device has them (see SupportsRayQuery): its
@@ -5469,6 +5472,140 @@ namespace p3d {
 		uint32 levels = 1;
 		while (dim > 1) { dim >>= 1; levels++; }
 		return levels;
+	}
+
+	bool VulkanRenderDevice::SupportsCompressedFormat(const uint32 format) const
+	{
+		return bcSupported && (format == 1 || format == 2);
+	}
+
+	void VulkanRenderDevice::UploadCompressedTexture2D(const uint32 format, const uint32 width, const uint32 height, const std::vector<std::vector<uchar> > &levels)
+	{
+		if (currentlyConfiguringTexture == 0 || device == VK_NULL_HANDLE || allocator == VK_NULL_HANDLE || width == 0 || height == 0 || levels.empty() || !bcSupported)
+			return;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end())
+			return;
+		TextureRecord &tex = it->second;
+		const VkFormat wantedFormat = format == 1 ? VK_FORMAT_BC1_RGBA_UNORM_BLOCK : VK_FORMAT_BC3_UNORM_BLOCK;
+		const uint32 mipLevels = (uint32)levels.size();
+		const uint32 blockBytes = format == 1 ? 8u : 16u;
+
+		// (a fresh image every time: a texture is compressed once, when it is loaded)
+		if (tex.image != VK_NULL_HANDLE)
+		{
+			FlushPendingTransfers();
+			vkDeviceWaitIdle(device);
+			ForgetSamplerDescriptorsForView(tex.view);
+			if (tex.view != VK_NULL_HANDLE) { vkDestroyImageView(device, tex.view, NULL); tex.view = VK_NULL_HANDLE; }
+			vmaDestroyImage(allocator, tex.image, tex.allocation); tex.image = VK_NULL_HANDLE;
+		}
+		VkImageCreateInfo imageInfo = {};
+		imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+		imageInfo.imageType = VK_IMAGE_TYPE_2D;
+		imageInfo.format = wantedFormat;
+		imageInfo.extent = { width, height, 1 };
+		imageInfo.mipLevels = mipLevels;
+		imageInfo.arrayLayers = 1;
+		imageInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+		imageInfo.tiling = VK_IMAGE_TILING_OPTIMAL;
+		// (sampled and copied into only: a block format cannot be a colour attachment)
+		imageInfo.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+		imageInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		imageInfo.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		VmaAllocationCreateInfo allocInfo = {};
+		allocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		if (vmaCreateImage(allocator, &imageInfo, &allocInfo, &tex.image, &tex.allocation, NULL) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::UploadCompressedTexture2D: vmaCreateImage failed (%ux%u)\n", width, height);
+			tex.image = VK_NULL_HANDLE;
+			return;
+		}
+		VkImageViewCreateInfo viewInfo = {};
+		viewInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		viewInfo.image = tex.image;
+		viewInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		viewInfo.format = wantedFormat;
+		viewInfo.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, 1 };
+		if (vkCreateImageView(device, &viewInfo, NULL, &tex.view) != VK_SUCCESS)
+		{
+			vmaDestroyImage(allocator, tex.image, tex.allocation);
+			tex.image = VK_NULL_HANDLE;
+			return;
+		}
+
+		// every level in one staging buffer, one copy each
+		VkDeviceSize total = 0;
+		for (size_t l = 0; l < levels.size(); l++) total += (VkDeviceSize)((levels[l].size() + 15) & ~(size_t)15);
+		if (pendingStagingBytes + total > (VkDeviceSize)256 * 1024 * 1024)
+			FlushPendingTransfers();
+		VkBufferCreateInfo stagingInfo = {};
+		stagingInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+		stagingInfo.size = total;
+		stagingInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
+		stagingInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+		VmaAllocationCreateInfo stagingAllocInfo = {};
+		stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+		stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		VkBuffer stagingBuffer = VK_NULL_HANDLE;
+		VmaAllocation stagingAllocation = VK_NULL_HANDLE;
+		VmaAllocationInfo stagingAllocationInfo;
+		if (vmaCreateBuffer(allocator, &stagingInfo, &stagingAllocInfo, &stagingBuffer, &stagingAllocation, &stagingAllocationInfo) != VK_SUCCESS)
+		{
+			fprintf(stderr, "VulkanRenderDevice::UploadCompressedTexture2D: staging vmaCreateBuffer failed\n");
+			return;
+		}
+		std::vector<VkBufferImageCopy> copies;
+		VkDeviceSize offset = 0;
+		uint32 w = width, h = height;
+		for (uint32 l = 0; l < mipLevels; l++)
+		{
+			memcpy((uchar*)stagingAllocationInfo.pMappedData + offset, levels[l].data(), levels[l].size());
+			VkBufferImageCopy c = {};
+			c.bufferOffset = offset;
+			c.imageSubresource = { VK_IMAGE_ASPECT_COLOR_BIT, l, 0, 1 };
+			c.imageExtent = { w, h, 1 };
+			copies.push_back(c);
+			offset += (VkDeviceSize)((levels[l].size() + 15) & ~(size_t)15);
+			w = std::max(1u, w / 2); h = std::max(1u, h / 2);
+		}
+		(void)blockBytes;
+		VkCommandBuffer uploadCmd = BeginOrGetTransferCommandBuffer();
+		if (uploadCmd == VK_NULL_HANDLE) { vmaDestroyBuffer(allocator, stagingBuffer, stagingAllocation); return; }
+		VkImageMemoryBarrier toDst = {};
+		toDst.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+		toDst.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+		toDst.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		toDst.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toDst.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+		toDst.image = tex.image;
+		toDst.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, mipLevels, 0, 1 };
+		toDst.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		vkCmdPipelineBarrier(uploadCmd, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, NULL, 0, NULL, 1, &toDst);
+		vkCmdCopyBufferToImage(uploadCmd, stagingBuffer, tex.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, (uint32)copies.size(), copies.data());
+		VkImageMemoryBarrier toShaderRead = toDst;
+		toShaderRead.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		toShaderRead.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		toShaderRead.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		toShaderRead.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+		vkCmdPipelineBarrier(uploadCmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0, 0, NULL, 0, NULL, 1, &toShaderRead);
+
+		tex.width = width;
+		tex.height = height;
+		tex.mipLevels = mipLevels;
+		tex.format = wantedFormat;
+		tex.isCubemap = false;
+		tex.isDepthTexture = false;
+		tex.baseLevelHasRealData = true;
+		tex.mipsGenerated = true;
+		tex.layoutInitialized = true;
+		tex.pendingUpload = true;
+		PendingStagingBuffer pending;
+		pending.buffer = stagingBuffer;
+		pending.allocation = stagingAllocation;
+		pendingStagingBuffers.push_back(pending);
+		pendingStagingBytes += total;
+		FlushPendingTransfers(false);
 	}
 
 	void VulkanRenderDevice::UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap)

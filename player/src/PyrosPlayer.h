@@ -178,6 +178,8 @@ private:
 	Physics2DWorld* physics2D;
 	// The gravity last handed to it from a scene - see Update.
 	Vec2 appliedGravity2D = Vec2(1e9f, 1e9f);
+	// the scene's reverb as last given to the world bus: on, room, damping, wet, pre-delay, early
+	f32 appliedReverb[6] = { -1.f, 0.f, 0.f, 0.f, 0.f, 0.f };
 	SceneGraph* overlayScene;
 	std::string overlaySceneRel;
 	// Deferred to a frame boundary, exactly like pendingLoadSceneName: the

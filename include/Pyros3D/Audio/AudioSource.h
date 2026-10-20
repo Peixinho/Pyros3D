@@ -147,6 +147,9 @@ namespace p3d {
 		// Update() re-baseline instead of computing a velocity from it.
 		void ResetVelocityTracking() { hasLastUpdate = false; }
 
+		// The bus this source plays through (NULL: straight to the device).
+		const std::shared_ptr<AudioBus> &GetBus() const { return bus; }
+
 		// Manual stereo balance, -1 (full left) to 1 (full right). Mainly
 		// useful on a non-spatialized source (spatialization already computes
 		// its own pan from 3D position, so the two fight each other if both

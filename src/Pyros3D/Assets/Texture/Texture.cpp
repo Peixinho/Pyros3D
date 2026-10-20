@@ -9,6 +9,10 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Utils/Streaming/LoadStats.h>
 #include <Pyros3D/Utils/Streaming/AssetBundle.h>
+#include "BlockCompress.h"
+#include <atomic>
+#include <cstdio>
+#include <cstdlib>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <string.h>
@@ -109,6 +113,13 @@ namespace p3d {
 			}
 			if (px) stbi_image_free(px);
 			echo("ERROR: could not read the HDR image " + Filename);
+		}
+
+		// a material's map: as blocks, where the device takes them (see Texture.h)
+		if (Mipmapping && level == 0 && Type == TextureType::Texture && InCompressedLoads() && LoadCompressed(Filename))
+		{
+			this->Filename = Filename;
+			return true;
 		}
 
 		DecodedImage image;
@@ -254,6 +265,181 @@ namespace p3d {
 			const uchar* q = &pixels[(size_t)s * 4];
 			p[0] = q[0]; p[1] = q[1]; p[2] = q[2];
 		}
+	}
+
+	// ---- block compression and its cache (see Texture.h)
+	namespace {
+		std::atomic<int> g_compression(-1);     // -1: not decided yet (the environment says)
+
+		uint64 Fnv64(const std::string &s)
+		{
+			uint64 h = 1469598103934665603ULL;
+			for (size_t i = 0; i < s.size(); i++) { h ^= (uchar)s[i]; h *= 1099511628211ULL; }
+			return h;
+		}
+		std::filesystem::path CompressionCacheDir()
+		{
+			static std::filesystem::path dir;
+			static std::once_flag once;
+			std::call_once(once, []() {
+				if (const char* e = getenv("PYROS_TEXTURE_CACHE")) { dir = e; return; }
+#if defined(_WIN32)
+				if (const char* l = getenv("LOCALAPPDATA")) { dir = std::filesystem::path(l) / "Pyros3D" / "TextureCache"; return; }
+#elif defined(__APPLE__)
+				if (const char* h = getenv("HOME")) { dir = std::filesystem::path(h) / "Library" / "Caches" / "Pyros3D" / "textures"; return; }
+#else
+				if (const char* x = getenv("XDG_CACHE_HOME")) { dir = std::filesystem::path(x) / "pyros3d" / "textures"; return; }
+				if (const char* h = getenv("HOME")) { dir = std::filesystem::path(h) / ".cache" / "pyros3d" / "textures"; return; }
+#endif
+				dir = std::filesystem::temp_directory_path() / "pyros3d-textures";
+			});
+			return dir;
+		}
+		const char kTexCacheMagic[8] = { 'P', '3', 'D', 'T', 'C', '0', '0', '1' };
+		struct TexCacheHeader
+		{
+			char magic[8]; uint64 sourceSize; int64 sourceTime; uint32 format, width, height, levels; f32 average[3]; uint32 haveAverage;
+		};
+	}
+
+	namespace { thread_local int t_compressedLoads = 0; }
+	Texture::CompressedLoads::CompressedLoads() { t_compressedLoads++; }
+	Texture::CompressedLoads::~CompressedLoads() { t_compressedLoads--; }
+	bool Texture::InCompressedLoads() { return t_compressedLoads > 0 && GetCompression(); }
+	void Texture::SetCompression(const bool on) { g_compression.store(on ? 1 : 0); }
+	bool Texture::GetCompression()
+	{
+		int c = g_compression.load();
+		if (c < 0)
+		{
+			const char* e = getenv("PYROS_TEXTURE_COMPRESSION");
+			c = (e != NULL && e[0] == '0') ? 0 : 1;
+			g_compression.store(c);
+		}
+		return c == 1;
+	}
+
+	namespace {
+		bool CacheFileFor(const std::string& Filename, std::filesystem::path &cacheFile, uint64 &srcSize, int64 &srcTime)
+		{
+			std::error_code ec;
+			const std::filesystem::path src = std::filesystem::absolute(std::filesystem::path(Filename), ec);
+			srcSize = ec ? 0 : (uint64)std::filesystem::file_size(src, ec);
+			if (ec || srcSize == 0) return false;
+			srcTime = (int64)std::filesystem::last_write_time(src, ec).time_since_epoch().count();
+			if (ec) return false;
+			cacheFile = CompressionCacheDir() / (std::to_string(Fnv64(src.lexically_normal().string())) + ".p3dtc");
+			return true;
+		}
+	}
+
+	bool Texture::HasCompressedCache(const std::string& Filename)
+	{
+		if (!GetCompression() || !Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3)) return false;
+		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0;
+		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime)) return false;
+		TexCacheHeader hd;
+		bool ok = false;
+		if (FILE* f = fopen(cacheFile.string().c_str(), "rb"))
+		{
+			ok = fread(&hd, sizeof(hd), 1, f) == 1 && memcmp(hd.magic, kTexCacheMagic, 8) == 0 && hd.sourceSize == srcSize && hd.sourceTime == srcTime;
+			fclose(f);
+		}
+		return ok;
+	}
+
+	bool Texture::LoadCompressed(const std::string& Filename)
+	{
+		if (!Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3))
+			return false;
+		std::error_code ec;
+		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0;
+		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime)) return false;
+
+		TexCacheHeader hd;
+		std::vector<std::vector<uchar> > levels;
+		bool have = false;
+		{
+			// the blocks made before, while the image has not changed since
+			LoadStats::Scope t(LoadStats::FileRead);
+			if (FILE* f = fopen(cacheFile.string().c_str(), "rb"))
+			{
+				if (fread(&hd, sizeof(hd), 1, f) == 1 && memcmp(hd.magic, kTexCacheMagic, 8) == 0 && hd.sourceSize == srcSize && hd.sourceTime == srcTime
+					&& (hd.format == BlockCompress::BC1 || hd.format == BlockCompress::BC3) && hd.levels > 0 && hd.levels <= 16 && hd.width > 0 && hd.height > 0)
+				{
+					have = true;
+					levels.resize(hd.levels);
+					uint32 w = hd.width, h = hd.height;
+					for (uint32 l = 0; l < hd.levels && have; l++)
+					{
+						levels[l].resize(BlockCompress::LevelBytes(hd.format, w, h));
+						have = fread(levels[l].data(), 1, levels[l].size(), f) == levels[l].size();
+						w = std::max(1u, w / 2); h = std::max(1u, h / 2);
+					}
+				}
+				fclose(f);
+			}
+		}
+		if (have)
+		{
+			// (an image the bundle decoded ahead is not wanted now)
+			DecodedImage unused;
+			AssetBundle::TakeImage(Filename, unused);
+		}
+		else
+		{
+			DecodedImage image;
+			if (!(AssetBundle::TakeImage(Filename, image) || DecodeFile(Filename, image)) || image.width < 4 || image.height < 4)
+				return false;
+			LoadStats::Scope t(LoadStats::TextureDecode);
+			memcpy(hd.magic, kTexCacheMagic, 8);
+			hd.sourceSize = srcSize; hd.sourceTime = srcTime;
+			hd.width = (uint32)image.width; hd.height = (uint32)image.height;
+			hd.format = BlockCompress::ChooseFormat(image.pixels);
+			{
+				const size_t count = (size_t)image.width * image.height;
+				const size_t step = std::max<size_t>(1, count / 65536);
+				f64 r = 0, g = 0, b = 0; size_t n = 0;
+				for (size_t i = 0; i < count; i += step, n++)
+				{
+					const uchar* q = &image.pixels[i * 4];
+					r += std::pow(q[0] / 255.0, 2.2); g += std::pow(q[1] / 255.0, 2.2); b += std::pow(q[2] / 255.0, 2.2);
+				}
+				hd.average[0] = n ? (f32)(r / n) : 0.f; hd.average[1] = n ? (f32)(g / n) : 0.f; hd.average[2] = n ? (f32)(b / n) : 0.f;
+				hd.haveAverage = n ? 1 : 0;
+			}
+			BlockCompress::EncodeMipChain(hd.format, image.pixels, hd.width, hd.height, levels);
+			hd.levels = (uint32)levels.size();
+			// kept for next time (written aside and moved in: a half-written file is never read)
+			std::filesystem::create_directories(CompressionCacheDir(), ec);
+			const std::string tmp = cacheFile.string() + ".tmp" + std::to_string((uintptr_t)this);
+			if (FILE* f = fopen(tmp.c_str(), "wb"))
+			{
+				bool ok = fwrite(&hd, sizeof(hd), 1, f) == 1;
+				for (size_t l = 0; l < levels.size() && ok; l++) ok = fwrite(levels[l].data(), 1, levels[l].size(), f) == levels[l].size();
+				fclose(f);
+				if (ok) std::filesystem::rename(tmp, cacheFile, ec);
+				if (!ok || ec) std::filesystem::remove(tmp, ec);
+			}
+		}
+
+		if (hd.haveAverage) { averageColour = Vec3(hd.average[0], hd.average[1], hd.average[2]); haveAverageColour = true; }
+		if (this->Width.size() < 1) { this->Width.resize(1); this->Height.resize(1); }
+		this->Width[0] = hd.width; this->Height[0] = hd.height;
+		this->haveImage = true;
+		this->Transparency = TextureTransparency::Opaque;
+		this->DataType = TextureDataType::RGBA;
+		this->compressedFormat = hd.format;
+		this->isMipMap = hd.levels > 1;
+		LoadStats::Scope t(LoadStats::TextureUpload);
+		GetGLModes();
+		GetInternalFormat();
+		Device().BindTextureToTarget(GLSubMode, GL_ID);
+		Device().UploadCompressedTexture2D(hd.format, hd.width, hd.height, levels);
+		Device().BindTextureToTarget(GLSubMode, 0);
+		SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
+		SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+		return true;
 	}
 
 	bool Texture::DecodeFile(const std::string& Filename, DecodedImage& out)
@@ -597,7 +783,8 @@ namespace p3d {
 		const uint32 Type, bool Mipmapping, bool clampToEdge)
 	{
 		std::map<std::string, std::weak_ptr<Texture> > &cache = SharedTextureCache();
-		const std::string key = SharedTextureKey(Filename) + "|" + std::to_string(Type) + (Mipmapping ? "|m" : "|n") + (clampToEdge ? "|c" : "");
+		const std::string key = SharedTextureKey(Filename) + "|" + std::to_string(Type) + (Mipmapping ? "|m" : "|n") + (clampToEdge ? "|c" : "")
+			+ (InCompressedLoads() ? "|bc" : "");     // (a material's blocks are not what a raw reader wants)
 		{
 			std::lock_guard<std::mutex> lock(SharedTextureCacheMutex());
 			std::map<std::string, std::weak_ptr<Texture> >::iterator it = cache.find(key);
@@ -645,7 +832,9 @@ namespace p3d {
 		for (std::map<std::string, std::weak_ptr<Texture> >::const_iterator it = cache.lower_bound(prefix);
 			it != cache.end() && it->first.compare(0, prefix.size(), prefix) == 0; ++it)
 		{
-			const bool clamped = it->first.size() >= 2 && it->first.compare(it->first.size() - 2, 2, "|c") == 0;
+			// ("|c" a part of the key's tail: "...|c" or "...|c|bc")
+			const std::string &k = it->first;
+			const bool clamped = (k.size() >= 2 && k.compare(k.size() - 2, 2, "|c") == 0) || k.find("|c|") != std::string::npos;
 			if (clamped == clampToEdge && !it->second.expired()) return true;
 		}
 		return false;
@@ -797,6 +986,13 @@ namespace p3d {
 	std::vector<uchar> Texture::GetTextureData(const uint32 level, const int32 faceType)
 	{
 		std::vector<uchar> pixels;
+		// blocks are no use to whoever reads the pixels: the image they were made from, decoded again
+		if (compressedFormat != 0)
+		{
+			DecodedImage image;
+			if (level == 0 && !Filename.empty() && DecodeFile(Filename, image)) pixels.swap(image.pixels);
+			return pixels;
+		}
 #if !defined(GLES3)
 		pixels.resize(Device().GetTextureDataSize(internalFormat, Width[level], Height[level]));
 

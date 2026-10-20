@@ -43,6 +43,13 @@ namespace p3d {
 			lua->new_usertype<AudioManager>("AudioManager",
 				audioCon,
 				"isInitialized", &AudioManager::IsInitialized,
+				// AudioManager.getActive(): the one the game runs (nil without an audio device)
+				"getActive", []() -> AudioManager* { AudioManager* m = AudioManager::IsActiveSet() ? AudioManager::GetActive() : NULL; return (m && m->IsInitialized()) ? m : NULL; },
+				// audio:getWorldBus() - the bus the scene's placed sounds go through (its reverb,
+				// authored with the scene): route a script's world sounds there too
+				"getWorldBus", &AudioManager::GetWorldBus,
+				"setWorldReverb", &AudioManager::SetWorldReverb,
+				"clearWorldReverb", &AudioManager::ClearWorldReverb,
 				"setMasterVolume", &AudioManager::SetMasterVolume,
 				"getMasterVolume", &AudioManager::GetMasterVolume,
 				// `dt` overloads spelled out: sol binds a function's full

@@ -4092,6 +4092,30 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["reach"] = sceneView->terrainShadowsReach;
 		return r;
 	}
+	// set_scene_audio {reverb?, room?, damping?, wet?, preDelay?, early?}: the scene's space - the
+	// Environment panel's "Sound of the space" (SceneMeta reverb, saved as "audio": {"reverb"}).
+	// Called with nothing, it reports the current values.
+	if (name == "set_scene_audio")
+	{
+		if (a.is_object())
+		{
+			if (a.contains("reverb")) sceneView->reverbOn = a.value("reverb", false);
+			auto num = [&a](const char* k, f32 &out, const f32 lo, const f32 hi) {
+				if (a.contains(k) && a[k].is_number()) out = std::max(lo, std::min(hi, (f32)a[k].get<double>())); };
+			num("room", sceneView->reverbRoom, 0.f, 1.f);
+			num("damping", sceneView->reverbDamping, 0.f, 1.f);
+			num("wet", sceneView->reverbWet, 0.f, 1.f);
+			num("preDelay", sceneView->reverbPreDelay, 0.f, 120.f);
+			num("early", sceneView->reverbEarly, 0.f, 1.5f);
+			if (!a.empty()) sceneView->MarkSceneDirty();
+		}
+		nlohmann::json r;
+		r["ok"] = true;
+		r["reverb"] = sceneView->reverbOn;
+		r["room"] = sceneView->reverbRoom; r["damping"] = sceneView->reverbDamping; r["wet"] = sceneView->reverbWet;
+		r["preDelay"] = sceneView->reverbPreDelay; r["early"] = sceneView->reverbEarly;
+		return r;
+	}
 	if (name == "set_view_options")
 	{
 		if (!sceneView->AgentSetViewOptions(a.is_object() ? a : nlohmann::json::object(), err))

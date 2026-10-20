@@ -148,6 +148,8 @@ namespace p3d {
 		// instead - those have no file source to record.
 		std::string Filename;
 		Vec3 averageColour; bool haveAverageColour = false;
+		uint32 compressedFormat = 0;
+		bool LoadCompressed(const std::string& Filename);
 
 		// Fallback for when there's no Filename (built via
 		// LoadTextureFromMemory() directly, not through LoadTexture()) -
@@ -227,6 +229,25 @@ namespace p3d {
 
 		// Read and decode with no device call, so any thread may run them.
 		static bool DecodeFile(const std::string& Filename, DecodedImage& out);
+
+		// Block compression (BlockCompress.h) of the textures loaded from images with mipmaps - a
+		// material's maps: BC1 (an eighth of RGBA8) or BC3 (a quarter, with alpha), where the device
+		// samples them; RGBA8 elsewhere. On by default; PYROS_TEXTURE_COMPRESSION=0 or a project's
+		// "quality": {"textureCompression": false} turns it off. Encoded once per image and kept in
+		// a cache outside the project (the user's cache folder; PYROS_TEXTURE_CACHE=<dir> moves it),
+		// keyed by the image's path, size and time - a later load reads the blocks, not the image.
+		// Compression is asked for by who loads a material's maps (the scene's materials, a
+		// model's own): textures loaded while one of these lives on this thread are compressed;
+		// a sprite, a UI image, a heightmap or an icon - loaded outside one - never are.
+		struct PYROS3D_API CompressedLoads { CompressedLoads(); ~CompressedLoads(); };
+		static bool InCompressedLoads();
+		// Whether `Filename` has blocks in the compression cache that are still its own (an image
+		// loader ahead of time need not decode it - the blocks will be read instead).
+		static bool HasCompressedCache(const std::string& Filename);
+		static void SetCompression(const bool on);
+		static bool GetCompression();
+		// 0 for RGBA8, else the format its blocks are in (BlockCompress::Format).
+		uint32 GetCompressedFormat() const { return compressedFormat; }
 		static bool DecodeMemory(const uchar* data, const size_t length, DecodedImage& out);
 		bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
 		bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0); // msaa if using multisample only

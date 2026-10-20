@@ -919,6 +919,18 @@ namespace p3d {
 		}
 		virtual void UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height) = 0;
 		virtual void GenerateMipmap(const uint32 target) = 0;
+		// Block-compressed textures (BlockCompress.h): format 1 = BC1 (colour, 4 bits a texel),
+		// 2 = BC3 (colour and alpha, 8). Whether this device samples `format` directly - Metal on
+		// Apple silicon, Vulkan with textureCompressionBC, GL with S3TC. When it does not, the
+		// texture is sent as RGBA8 as before.
+		virtual bool SupportsCompressedFormat(const uint32 format) const { (void)format; return false; }
+		// The bound texture (BindTextureToTarget, as UploadTexture2D) as `format`, its whole mip
+		// chain at once: levels[i] is mip i's blocks, from width x height halving down to 1x1. No
+		// GenerateMipmap after it: the chain is the caller's (blocks cannot be filtered by a blit).
+		virtual void UploadCompressedTexture2D(const uint32 format, const uint32 width, const uint32 height, const std::vector<std::vector<uchar> > &levels)
+		{
+			(void)format; (void)width; (void)height; (void)levels;
+		}
 
 		// Texture parameters - engineRepeat/engineFilter are Texture.h's
 		// TextureRepeat::*/TextureFilter::* values. SetTextureWrapR is a

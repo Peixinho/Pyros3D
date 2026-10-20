@@ -7,6 +7,7 @@
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
 #include <atomic>
 #include <mutex>
+#include <set>
 
 namespace p3d { namespace detail {
 
@@ -20,7 +21,10 @@ namespace p3d { namespace detail {
 			std::mutex guard;
 			ReverbSettings pending;
 			std::atomic<bool> changed;
+			bool inGraph = true;
 		};
+		std::mutex g_nodesGuard;
+		std::set<void*> g_nodes;
 
 		void ReverbProcess(ma_node* node, const float** in, ma_uint32* inCount, float** out, ma_uint32* outCount)
 		{
@@ -50,6 +54,8 @@ namespace p3d { namespace detail {
 		config.pInputChannels = channels;
 		config.pOutputChannels = channels;
 		if (ma_node_init(ma_engine_get_node_graph(engine), &config, NULL, &n->base) != MA_SUCCESS) { delete n; return NULL; }
+		std::lock_guard<std::mutex> lock(g_nodesGuard);
+		g_nodes.insert(n);
 		return n;
 	}
 
@@ -57,8 +63,22 @@ namespace p3d { namespace detail {
 	{
 		if (node == NULL) return;
 		ReverbNode* n = reinterpret_cast<ReverbNode*>(node);
-		ma_node_uninit(&n->base, NULL);
+		{
+			std::lock_guard<std::mutex> lock(g_nodesGuard);
+			g_nodes.erase(node);
+		}
+		if (n->inGraph) ma_node_uninit(&n->base, NULL);
 		delete n;
+	}
+
+	void ReverbNodesShutdown()
+	{
+		std::lock_guard<std::mutex> lock(g_nodesGuard);
+		for (std::set<void*>::iterator i = g_nodes.begin(); i != g_nodes.end(); ++i)
+		{
+			ReverbNode* n = reinterpret_cast<ReverbNode*>(*i);
+			if (n->inGraph) { ma_node_uninit(&n->base, NULL); n->inGraph = false; }
+		}
 	}
 
 	void ReverbNodeSet(void* node, const ReverbSettings &settings)

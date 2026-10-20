@@ -114,6 +114,11 @@ namespace p3d {
 		bool terrainShadowsBaked = false;
 		uint32 terrainShadowsResolution = 512;
 		f32 terrainShadowsReach = 800.f;
+		// The space the scene's sounds are heard in - AudioManager::SetWorldReverb on its
+		// world bus, which the scene's placed AudioSources go through. "audio": {"reverb":
+		// {room, damping, wet, preDelay, early}}; absent, the scene is dry.
+		bool reverb = false;
+		f32 reverbRoom = 0.45f, reverbDamping = 0.35f, reverbWet = 0.22f, reverbPreDelay = 9.f, reverbEarly = 0.8f;
 
 		// What the frame clears to, and deliberately NOT the ambient colour.
 		// Both used to be 0.2 grey - the editor hardcoded the viewport clear and

@@ -370,6 +370,8 @@ namespace p3d {
 		virtual void UploadTexture2D(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, const void *data, const bool willMipmap);
 		virtual void UploadTexture2DMultisample(const uint32 target, const uint32 samples, const uint32 internalFormat, const uint32 width, const uint32 height);
 		virtual void GenerateMipmap(const uint32 target);
+		virtual bool SupportsCompressedFormat(const uint32 format) const;
+		virtual void UploadCompressedTexture2D(const uint32 format, const uint32 width, const uint32 height, const std::vector<std::vector<uchar> > &levels);
 
 		virtual void SetTextureWrapS(const uint32 target, const uint32 engineRepeat);
 		virtual void SetTextureWrapT(const uint32 target, const uint32 engineRepeat);
@@ -445,6 +447,7 @@ namespace p3d {
 		void ShutdownImGuiVulkanBackend();
 
 	private:
+		bool bcSupported = false;      // textureCompressionBC, enabled at device creation when there
 
 		VkInstance instance;
 

@@ -167,6 +167,9 @@ namespace p3d { namespace detail {
 	void* ReverbNodeCreate(::ma_engine* engine);
 	void ReverbNodeDestroy(void* node);
 	void ReverbNodeSet(void* node, const ReverbSettings &settings);
+	// Before the engine goes: every node still alive is taken out of its graph (a bus can
+	// outlive the AudioManager - a scene's sources hold it); destroying one afterwards frees it.
+	void ReverbNodesShutdown();
 
 } }
 

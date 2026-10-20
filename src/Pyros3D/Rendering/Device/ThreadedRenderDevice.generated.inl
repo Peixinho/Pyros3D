@@ -521,6 +521,16 @@
 		Push([dev_ = real, target]() { dev_->GenerateMipmap(target); });
 	}
 
+	bool ThreadedRenderDevice::SupportsCompressedFormat(const uint32 format) const
+	{
+		return real->SupportsCompressedFormat(format);
+	}
+
+	void ThreadedRenderDevice::UploadCompressedTexture2D(const uint32 format, const uint32 width, const uint32 height, const std::vector<std::vector<uchar> > & levels)
+	{
+		Push([dev_ = real, format, width, height, levels = std::vector<std::vector<uchar> >(levels)]() { dev_->UploadCompressedTexture2D(format, width, height, levels); });
+	}
+
 	void ThreadedRenderDevice::SetTextureWrapS(const uint32 target, const uint32 engineRepeat)
 	{
 		Push([dev_ = real, target, engineRepeat]() { dev_->SetTextureWrapS(target, engineRepeat); });

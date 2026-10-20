@@ -508,6 +508,10 @@ public:
 	bool AgentSetTransform(const std::string& name, const json& t, std::string& errOut);
 	// SceneMeta's terrain shadow settings: baked when Play is pressed, live while editing.
 	bool terrainShadowsBaked = false;
+	// The scene's space (SceneMeta::reverb): heard on the world bus while this document's
+	// view is the one listening; the Environment panel's "Sound of the space".
+	bool reverbOn = false;
+	f32 reverbRoom = 0.45f, reverbDamping = 0.35f, reverbWet = 0.22f, reverbPreDelay = 9.f, reverbEarly = 0.8f;
 	uint32 terrainShadowsResolution = 512;
 	f32 terrainShadowsReach = 800.f;
 	bool AgentSetTags(const std::string& name, const json& addTags, const json& removeTags, std::string& errOut);

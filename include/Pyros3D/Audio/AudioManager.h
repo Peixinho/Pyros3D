@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Export.h>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,8 @@ struct ma_engine;
 struct ma_sound;
 
 namespace p3d {
+
+	class AudioBus;
 
 	class GameObject;
 
@@ -159,7 +162,17 @@ namespace p3d {
 		void RegisterVoice(ma_sound* voice);
 		void UnregisterVoice(ma_sound* voice);
 
+		// The world's bus: what a scene's placed sounds go through (a scene's spatialized
+		// AudioSources, and whatever a script routes there), so the scene's space - its reverb,
+		// authored with the scene ("audio": {"reverb": ...}) - is heard on them and not on
+		// music or the UI. Made the first time it is asked for; passes sound through unchanged
+		// until a reverb is set.
+		std::shared_ptr<AudioBus> GetWorldBus();
+		void SetWorldReverb(const f32 room, const f32 damping, const f32 wet, const f32 preDelayMs, const f32 early);
+		void ClearWorldReverb();
+
 	private:
+		std::shared_ptr<AudioBus> worldBus;
 
 		ma_engine* engine;
 		bool initialized;

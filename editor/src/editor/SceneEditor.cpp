@@ -5352,6 +5352,31 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			ImGui::SetNextItemWidth(120.f);
 			if (ImGui::DragFloat("Reach (m)##terrain_shadow_reach", &terrainShadowsReach, 5.f, 50.f, 4000.f, "%.0f")) sceneDirty = true;
 		}
+		// The space the scene's sounds are heard in: reverb on the world bus, which the scene's
+		// placed sounds go through (AudioSource "worldBus"); heard here as it is edited.
+		if (ImGui::Checkbox("Sound of the space (reverb)", &reverbOn)) sceneDirty = true;
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("What comes back off the walls: early reflections, then a tail.\n"
+				"On every placed sound in the scene; music and UI sounds stay dry.\n"
+				"A street of facades: room 0.45, damping 0.35, wet 0.22, pre-delay 9, early 0.8.");
+		if (reverbOn)
+		{
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::SliderFloat("Room##reverb", &reverbRoom, 0.f, 1.f, "%.2f")) sceneDirty = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How long the tail rings: 0 a small dead room, 1 a hall.");
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::SliderFloat("Damping##reverb", &reverbDamping, 0.f, 1.f, "%.2f")) sceneDirty = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 bright walls (stone, glass) .. 1 soft (curtains, people).");
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::SliderFloat("Wet##reverb", &reverbWet, 0.f, 1.f, "%.2f")) sceneDirty = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How loud the space is against the sounds themselves.");
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::SliderFloat("Pre-delay (ms)##reverb", &reverbPreDelay, 0.f, 120.f, "%.0f")) sceneDirty = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far off the nearest wall is: sound covers 34 cm a millisecond.");
+			ImGui::SetNextItemWidth(160.f);
+			if (ImGui::SliderFloat("Early##reverb", &reverbEarly, 0.f, 1.5f, "%.2f")) sceneDirty = true;
+			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The first distinct reflections (the slap off a facade) against the tail.");
+		}
 		// Separate from the ambient on purpose: when the two matched (both
 		// were 0.2 grey) every unlit surface came out exactly the background
 		// value and became invisible - which in Deferred reads as the
@@ -6670,6 +6695,17 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				listenerDt = (f32)(time - lastListenerTime);
 			lastListenerTime = time;
 			audio->SetListenerFromGameObject(viewCam, listenerDt);
+			{
+				// the scene's space, as the panel has it (compared: the bus is shared by every document)
+				static f32 applied[6] = { -1.f, 0.f, 0.f, 0.f, 0.f, 0.f };
+				const f32 rv[6] = { reverbOn ? 1.f : 0.f, reverbRoom, reverbDamping, reverbWet, reverbPreDelay, reverbEarly };
+				if (memcmp(rv, applied, sizeof(rv)) != 0)
+				{
+					memcpy(applied, rv, sizeof(rv));
+					if (reverbOn) audio->SetWorldReverb(reverbRoom, reverbDamping, reverbWet, reverbPreDelay, reverbEarly);
+					else audio->ClearWorldReverb();
+				}
+			}
 		}
 
 		// Send Mouse Coordinates in viewport space
@@ -9583,6 +9619,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.terrainShadowsBaked = terrainShadowsBaked;
 			meta.terrainShadowsResolution = terrainShadowsResolution;
 			meta.terrainShadowsReach = terrainShadowsReach;
+			meta.reverb = reverbOn; meta.reverbRoom = reverbRoom; meta.reverbDamping = reverbDamping;
+			meta.reverbWet = reverbWet; meta.reverbPreDelay = reverbPreDelay; meta.reverbEarly = reverbEarly;
 			meta.background = backgroundColor;
 			meta.ambientMode = (uint32)ambientMode;
 			for (uint32 i = 0; i < 3; i++) meta.ddgiCounts[i] = (uint32)Max(2, ddgiCounts[i]);
@@ -9859,6 +9897,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			terrainShadowsBaked = meta.terrainShadowsBaked;
 			terrainShadowsResolution = meta.terrainShadowsResolution;
 			terrainShadowsReach = meta.terrainShadowsReach;
+			reverbOn = meta.reverb; reverbRoom = meta.reverbRoom; reverbDamping = meta.reverbDamping;
+			reverbWet = meta.reverbWet; reverbPreDelay = meta.reverbPreDelay; reverbEarly = meta.reverbEarly;
 			backgroundColor = meta.background;
 			ambientMode = (int)meta.ambientMode;
 			for (uint32 i = 0; i < 3; i++) ddgiCounts[i] = (int)meta.ddgiCounts[i];

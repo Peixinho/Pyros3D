@@ -31,6 +31,7 @@
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Audio/AudioSource.h>
+#include <Pyros3D/Audio/AudioBus.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/AnimationManager/Components/AnimatorComponent.h>
@@ -1820,6 +1821,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["directionalAttenuation"] = a->GetDirectionalAttenuation();
 			j["dopplerFactor"] = a->GetDopplerFactor();
 			j["pan"] = a->GetPan();
+			// (through the scene's world bus - its reverb - or straight out: music, a UI sound)
+			j["worldBus"] = a->GetBus() && AudioManager::IsActiveSet() && a->GetBus() == AudioManager::GetActive()->GetWorldBus();
 			// Only written when actually set, so a plain omnidirectional
 			// source doesn't carry meaningless cone angles around.
 			if (a->HasCone())
@@ -2778,6 +2781,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			root["ambientIntensity"] = meta->ambientIntensity;
 			if (meta->terrainShadowsBaked)
 				root["terrainShadows"] = { { "baked", true }, { "resolution", meta->terrainShadowsResolution }, { "reach", meta->terrainShadowsReach } };
+			if (meta->reverb)
+				root["audio"] = { { "reverb", { { "room", meta->reverbRoom }, { "damping", meta->reverbDamping }, { "wet", meta->reverbWet },
+					{ "preDelay", meta->reverbPreDelay }, { "early", meta->reverbEarly } } } };
 			root["background"] = json::array({ meta->background.x, meta->background.y, meta->background.z });
 			root["ambientMode"] = meta->ambientMode;
 			root["ambientSky"] = json::array({ meta->ambientSky.x, meta->ambientSky.y, meta->ambientSky.z });
@@ -3048,7 +3054,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		std::map<std::string, std::shared_ptr<Texture>>::iterator it = cache.find(key);
 		if (it != cache.end()) return it->second;
 		std::shared_ptr<Texture> tex;
-		if (shared) tex = Texture::LoadShared(resolved, TextureType::Texture, true, clamp);
+		if (shared) { Texture::CompressedLoads compressMaps; tex = Texture::LoadShared(resolved, TextureType::Texture, true, clamp); }
 		if (!tex)
 		{
 			tex = std::make_shared<Texture>();
@@ -4172,7 +4178,12 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			const std::string file = ResolveSceneAssetPath(j.value("file", std::string()));
 			if (!file.empty())
 			{
-				auto a = std::make_shared<AudioSource>(file, j.value("stream", false));
+				// A placed sound goes through the scene's world bus (where its reverb is) unless the
+				// scene says not; an unplaced one (music, UI) straight out.
+				std::shared_ptr<AudioBus> bus;
+				if (j.value("worldBus", j.value("spatialized", true)) && AudioManager::IsActiveSet())
+					bus = AudioManager::GetActive()->GetWorldBus();
+				auto a = std::make_shared<AudioSource>(file, j.value("stream", false), bus);
 				a->SetSpatialization(j.value("spatialized", true));
 				a->SetLooping(j.value("looping", false));
 				a->SetVolume(j.value("volume", 1.0f));
@@ -5343,6 +5354,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				outMeta->ambientLight = Vec4(al[0].get<f32>(), al[1].get<f32>(), al[2].get<f32>(), al[0].get<f32>());
 			if (root.contains("ambientIntensity") && root["ambientIntensity"].is_number())
 				outMeta->ambientIntensity = root["ambientIntensity"].get<f32>();
+			if (root.contains("audio") && root["audio"].is_object() && root["audio"].contains("reverb") && root["audio"]["reverb"].is_object())
+			{
+				const json &rv = root["audio"]["reverb"];
+				outMeta->reverb = true;
+				outMeta->reverbRoom = rv.value("room", 0.45f); outMeta->reverbDamping = rv.value("damping", 0.35f);
+				outMeta->reverbWet = rv.value("wet", 0.22f); outMeta->reverbPreDelay = rv.value("preDelay", 9.f); outMeta->reverbEarly = rv.value("early", 0.8f);
+			}
 			if (root.contains("terrainShadows") && root["terrainShadows"].is_object())
 			{
 				const json &ts = root["terrainShadows"];
@@ -5758,6 +5776,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (clamp) path = path.substr(6);
 			// Already up (another cell, the scene): nothing to spend.
 			if (path.empty() || path[0] == '*' || Texture::IsSharedLoaded(path, clamp)) continue;
+			Texture::CompressedLoads compressMaps;       // (a cell's material maps)
 			if (std::shared_ptr<Texture> t = Texture::LoadShared(path, TextureType::Texture, true, clamp))
 				prepared.uploaded.push_back(t);
 			return true;

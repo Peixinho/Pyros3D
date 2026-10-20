@@ -1281,6 +1281,36 @@ namespace p3d {
 		GLCHECKER(glGenerateMipmap(target));
 	}
 
+	bool GLRenderDevice::SupportsCompressedFormat(const uint32 format) const
+	{
+#if defined(GLES3)
+		// (WebGL and ES: S3TC is an extension there - not asked for yet, so RGBA8 as before)
+		(void)format;
+		return false;
+#else
+		// S3TC: on every desktop GL driver there is (macOS's 4.1 included)
+		return format == 1 || format == 2;
+#endif
+	}
+
+	void GLRenderDevice::UploadCompressedTexture2D(const uint32 format, const uint32 width, const uint32 height, const std::vector<std::vector<uchar> > &levels)
+	{
+#if !defined(GLES3)
+		// GL_COMPRESSED_RGBA_S3TC_DXT1_EXT / DXT5_EXT
+		const GLenum internal = format == 1 ? 0x83F1 : 0x83F3;
+		uint32 w = width, h = height;
+		for (size_t l = 0; l < levels.size(); l++)
+		{
+			GLCHECKER(glCompressedTexImage2D(GL_TEXTURE_2D, (GLint)l, internal, (GLsizei)w, (GLsizei)h, 0, (GLsizei)levels[l].size(), levels[l].data()));
+			w = std::max(1u, w / 2); h = std::max(1u, h / 2);
+		}
+		GLCHECKER(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0));
+		GLCHECKER(glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, (GLint)levels.size() - 1));
+#else
+		(void)format; (void)width; (void)height; (void)levels;
+#endif
+	}
+
 	void GLRenderDevice::SetTextureWrapS(const uint32 target, const uint32 engineRepeat)
 	{
 		switch (engineRepeat)

@@ -1,3 +1,4 @@
+#include <cstring>
 #include <Pyros3D/Rendering/GI/EnvironmentMap.h>
 #include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <vector>
@@ -1745,7 +1746,19 @@ void PyrosPlayer::Update()
 	UpdateView2DCamera((f32)dt);
 
 	if (AudioManager* audio = AudioManager::GetActive())
+	{
 		if (activeCamera) audio->SetListenerFromGameObject(activeCamera, dt);
+		{
+			// the scene's space, on its world bus - compared, so a scene loaded brings its own
+			const f32 rv[6] = { meta.reverb ? 1.f : 0.f, meta.reverbRoom, meta.reverbDamping, meta.reverbWet, meta.reverbPreDelay, meta.reverbEarly };
+			if (memcmp(rv, appliedReverb, sizeof(rv)) != 0)
+			{
+				memcpy(appliedReverb, rv, sizeof(rv));
+				if (meta.reverb) audio->SetWorldReverb(meta.reverbRoom, meta.reverbDamping, meta.reverbWet, meta.reverbPreDelay, meta.reverbEarly);
+				else audio->ClearWorldReverb();
+			}
+		}
+	}
 
 	// One frame for the scene, the post chain and the UI below. Left to
 	// themselves the renderer presented the scene and UIRenderer then opened

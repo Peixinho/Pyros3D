@@ -2845,6 +2845,57 @@ namespace p3d {
 		}
 	}
 
+	bool MetalRenderDevice::SupportsCompressedFormat(const uint32 format) const
+	{
+		if (device == NULL || (format != 1 && format != 2)) return false;
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			if (@available(macOS 11.0, *)) return [mtlDevice supportsBCTextureCompression];
+		}
+		return false;
+	}
+
+	void MetalRenderDevice::UploadCompressedTexture2D(const uint32 format, const uint32 width, const uint32 height, const std::vector<std::vector<uchar> > &levels)
+	{
+		if (currentlyConfiguringTexture == 0 || device == NULL || width == 0 || height == 0 || levels.empty()) return;
+		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
+		if (it == textures.end()) return;
+		TextureRecord &tex = it->second;
+		const MTLPixelFormat pf = format == 1 ? MTLPixelFormatBC1_RGBA : MTLPixelFormatBC3_RGBA;
+		const uint32 blockBytes = format == 1 ? 8u : 16u;
+		@autoreleasepool
+		{
+			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+			if (tex.texture != NULL) { CFBridgingRelease(tex.texture); tex.texture = NULL; }
+			MTLTextureDescriptor* texDesc = [[MTLTextureDescriptor alloc] init];
+			texDesc.textureType = MTLTextureType2D;
+			texDesc.pixelFormat = pf;
+			texDesc.width = width;
+			texDesc.height = height;
+			texDesc.mipmapLevelCount = levels.size();
+			// (sampled only: blocks are not something to draw into)
+			texDesc.usage = MTLTextureUsageShaderRead;
+			texDesc.storageMode = MTLStorageModeShared;
+			id<MTLTexture> newTex = [mtlDevice newTextureWithDescriptor:texDesc];
+			if (newTex == nil) { fprintf(stderr, "MetalRenderDevice::UploadCompressedTexture2D: newTextureWithDescriptor failed\n"); return; }
+			uint32 w = width, h = height;
+			for (size_t l = 0; l < levels.size(); l++)
+			{
+				const uint32 bw = (w + 3) / 4, bh = (h + 3) / 4;
+				if (levels[l].size() >= (size_t)bw * bh * blockBytes)
+					[newTex replaceRegion:MTLRegionMake2D(0, 0, w, h) mipmapLevel:l slice:0 withBytes:levels[l].data() bytesPerRow:(NSUInteger)bw * blockBytes bytesPerImage:0];
+				w = std::max(1u, w / 2); h = std::max(1u, h / 2);
+			}
+			tex.texture = (void*)CFBridgingRetain(newTex);
+			tex.width = width;
+			tex.height = height;
+			tex.isCubemap = false;
+			tex.hasMipmap = levels.size() > 1;
+			tex.mipsGenerated = true;
+		}
+	}
+
 	uint32 MetalRenderDevice::GetMaxSamples() const
 	{
 		if (device == NULL)
