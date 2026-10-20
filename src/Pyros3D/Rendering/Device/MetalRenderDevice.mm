@@ -4199,13 +4199,49 @@ namespace p3d {
 
 	void MetalRenderDevice::WaitSubmittedCompute()
 	{
-		if (submittedComputeCommandBuffer == NULL) return;
+		if (submittedCompute.empty()) return;
+		PYROS_PROFILE_SCOPE("Metal.ComputeWait");
 		@autoreleasepool
 		{
-			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)submittedComputeCommandBuffer;
-			[cmdBuf waitUntilCompleted];
-			CFBridgingRelease(submittedComputeCommandBuffer);
-			submittedComputeCommandBuffer = NULL;
+			for (size_t k = 0; k < submittedCompute.size(); k++)
+			{
+				[(__bridge id<MTLCommandBuffer>)submittedCompute[k].commandBuffer waitUntilCompleted];
+				CFBridgingRelease(submittedCompute[k].commandBuffer);
+			}
+		}
+		submittedCompute.clear();
+	}
+
+	void MetalRenderDevice::WaitSubmittedComputeFor(const DeviceHandle buffer)
+	{
+		if (submittedCompute.empty()) return;
+		// (in submission order: the last that uses it is the one that matters, the ones before it
+		// finish first anyway - one queue)
+		int last = -1;
+		for (size_t k = 0; k < submittedCompute.size(); k++) if (submittedCompute[k].buffers.count(buffer)) last = (int)k;
+		if (last < 0) return;
+		PYROS_PROFILE_SCOPE("Metal.ComputeWait");
+		@autoreleasepool
+		{
+			[(__bridge id<MTLCommandBuffer>)submittedCompute[last].commandBuffer waitUntilCompleted];
+			for (int k = 0; k <= last; k++) CFBridgingRelease(submittedCompute[k].commandBuffer);
+		}
+		submittedCompute.erase(submittedCompute.begin(), submittedCompute.begin() + last + 1);
+	}
+
+	void MetalRenderDevice::PruneSubmittedCompute()
+	{
+		@autoreleasepool
+		{
+			size_t done = 0;
+			while (done < submittedCompute.size())
+			{
+				const MTLCommandBufferStatus st = [(__bridge id<MTLCommandBuffer>)submittedCompute[done].commandBuffer status];
+				if (st != MTLCommandBufferStatusCompleted && st != MTLCommandBufferStatusError) break;
+				CFBridgingRelease(submittedCompute[done].commandBuffer);
+				done++;
+			}
+			if (done) submittedCompute.erase(submittedCompute.begin(), submittedCompute.begin() + done);
 		}
 	}
 
@@ -4236,12 +4272,15 @@ namespace p3d {
 				{
 					[cmdBuf waitUntilCompleted];
 					CFBridgingRelease(computeCommandBuffer);
+					computeEncodingBuffers.clear();
 				}
 				else
 				{
 					// (kept, to wait on before the CPU touches what it uses: ComputeBarrierBit::Submit)
-					WaitSubmittedCompute();
-					submittedComputeCommandBuffer = computeCommandBuffer;
+					PruneSubmittedCompute();
+					SubmittedCompute sc; sc.commandBuffer = computeCommandBuffer; sc.buffers.swap(computeEncodingBuffers);
+					submittedCompute.push_back(sc);
+					computeEncodingBuffers.clear();
 				}
 				computeCommandBuffer = NULL;
 			}
@@ -4375,7 +4414,7 @@ namespace p3d {
 		{
 			id<MTLBuffer> buf = (__bridge id<MTLBuffer>)it->second.buffer;
 			// (submitted work may still be reading it: ComputeBarrierBit::Submit)
-			WaitSubmittedCompute();
+			WaitSubmittedComputeFor(buffer);
 			memcpy((uint8*)[buf contents] + offset, data, sizeBytes);
 		}
 	}
@@ -4395,7 +4434,7 @@ namespace p3d {
 		// correct by construction - the barrier remains the documented
 		// way to say it explicitly, and is a no-op if already flushed.
 		FlushComputeEncoding(true);
-		WaitSubmittedCompute();
+		WaitSubmittedComputeFor(buffer);
 
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || it->second.buffer == NULL)
@@ -4430,12 +4469,13 @@ namespace p3d {
 			// long comment there on msl_options and why the default
 			// declaration-order numbering is wrong for this engine).
 			[encoder setBuffer:buf offset:0 atIndex:bindingPoint];
+			computeEncodingBuffers.insert(buffer);
 		}
 	}
 
 	void MetalRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)
 	{
-		WaitSubmittedCompute();
+		WaitSubmittedComputeFor(buffer);
 		storageBufferSizes.erase(buffer);
 		// The MTLBuffer was allocated by CreateBuffer, so it is freed by
 		// the matching DestroyBuffer rather than by hand here.
@@ -4514,9 +4554,18 @@ namespace p3d {
 		// ordered without a semaphore, and one behaviour across backends
 		// is worth more here than one frame of latency. Revisit with a
 		// real semaphore chain if this shows up in a profile.
-		if (barrierBits & (ComputeBarrierBit::HostRead | ComputeBarrierBit::VertexBuffer))
+		if (barrierBits & ComputeBarrierBit::HostRead)
 		{
 			FlushComputeEncoding(true);
+			return;
+		}
+		// VertexBuffer: committed, not waited for. The draw that reads it is in the frame's command
+		// buffer, on the same queue and committed after this - Metal runs a queue's command buffers in
+		// the order they are committed, and tracks the buffer across them. The wait cost the frame the
+		// GPU's whole particle simulation every frame (GPU particles).
+		if (barrierBits & ComputeBarrierBit::VertexBuffer)
+		{
+			FlushComputeEncoding(false);
 			return;
 		}
 		// Submit: committed now and not waited for - the CPU reads it a frame later, and the

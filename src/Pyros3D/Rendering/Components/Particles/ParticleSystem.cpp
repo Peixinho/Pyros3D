@@ -6,6 +6,7 @@
 // Description : Particle System
 //============================================================================
 
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
@@ -415,6 +416,7 @@ namespace p3d {
 
 		if (playing && desc.looping && desc.emissionRate > 0.0f)
 		{
+			PYROS_PROFILE_SCOPE("Particles.Emit");
 			emissionAccumulator += dt;
 			f32 interval = 1.0f / desc.emissionRate;
 			while (emissionAccumulator >= interval)
@@ -524,6 +526,7 @@ namespace p3d {
 		"layout(std430, binding = 0) buffer StateBuf { vec4 state[]; };\n"
 		"layout(std430, binding = 1) buffer OutBuf { vec4 outData[]; };\n"
 		"layout(std430, binding = 2) buffer ParamBuf { vec4 params[]; };\n"
+		"layout(std430, binding = 3) buffer SpawnBuf { vec4 spawn[]; };\n"
 		"void main() {\n"
 		"    uint i = gl_GlobalInvocationID.x;\n"
 		"    float dt      = params[0].x;\n"
@@ -536,6 +539,10 @@ namespace p3d {
 		"    vec4 s0 = state[b + 0u];\n"   // xyz position, w lifetime
 		"    vec4 s1 = state[b + 1u];\n"   // xyz velocity, w spawnTime
 		"    vec4 s2 = state[b + 2u];\n"   // x rotation, y rotationSpeed, z seed, w alive
+		// this frame's new particles: slots cursor .. cursor+n (wrapping), from the spawn buffer
+		"    uint cursor = uint(params[2].x), born = uint(params[2].y), pool = uint(count);\n"
+		"    uint r = (i + pool - cursor) % pool;\n"
+		"    if (r < born) { uint q = r * 3u; s0 = spawn[q + 0u]; s1 = spawn[q + 1u]; s2 = spawn[q + 2u]; }\n"
 		"    float lifetime = s0.w;\n"
 		"    float age = now - s1.w;\n"
 		"    if (s2.w < 0.5 || lifetime <= 0.0 || age >= lifetime) {\n"
@@ -722,7 +729,14 @@ namespace p3d {
 		gpuStateBuffer = dev.CreateStorageBuffer(stateBytes, 0, NULL);
 		ZeroGPUState();
 		gpuParamsBuffer = dev.CreateStorageBuffer(2 * (uint32)sizeof(Vec4), 2, NULL);
-		if (gpuStateBuffer == 0 || gpuParamsBuffer == 0)
+		bool rings = true;
+		for (uint32 k = 0; k < kGPURing; k++)
+		{
+			gpuParamsRing[k] = dev.CreateStorageBuffer(3 * (uint32)sizeof(Vec4), 2, NULL);
+			gpuSpawnRing[k] = dev.CreateStorageBuffer(desc.maxParticles * kGPUStateVec4s * (uint32)sizeof(Vec4), 3, NULL);
+			rings = rings && gpuParamsRing[k] != 0 && gpuSpawnRing[k] != 0;
+		}
+		if (gpuStateBuffer == 0 || gpuParamsBuffer == 0 || !rings)
 		{
 			ShutdownGPUSimulation();
 			return false;
@@ -743,6 +757,11 @@ namespace p3d {
 		IRenderDevice &dev = GetActiveRenderDevice();
 		if (gpuStateBuffer != 0) { dev.DestroyStorageBuffer(gpuStateBuffer); gpuStateBuffer = 0; }
 		if (gpuParamsBuffer != 0) { dev.DestroyStorageBuffer(gpuParamsBuffer); gpuParamsBuffer = 0; }
+		for (uint32 k = 0; k < kGPURing; k++)
+		{
+			if (gpuParamsRing[k] != 0) { dev.DestroyStorageBuffer(gpuParamsRing[k]); gpuParamsRing[k] = 0; }
+			if (gpuSpawnRing[k] != 0) { dev.DestroyStorageBuffer(gpuSpawnRing[k]); gpuSpawnRing[k] = 0; }
+		}
 		if (gpuPipeline != 0) { dev.DestroyComputePipeline(gpuPipeline); gpuPipeline = 0; }
 		if (gpuProgram != 0) { dev.DeleteProgram(gpuProgram); gpuProgram = 0; }
 		if (gpuStage != 0) { dev.DeleteShaderStage(gpuStage); gpuStage = 0; }
@@ -792,43 +811,32 @@ namespace p3d {
 
 	void ParticleSystem::FlushGPUSpawns()
 	{
+		// (into this frame's spawn buffer, as one run: the kernel puts it at the cursor)
+		gpuSpawnBorn = 0;
 		if (gpuSpawnStaging.empty())
 			return;
 		IRenderDevice &dev = GetActiveRenderDevice();
-
-		const uint32 vec4Count = (uint32)gpuSpawnStaging.size();
-		const uint32 newParticles = vec4Count / kGPUStateVec4s;
-		const uint32 slotBytes = kGPUStateVec4s * (uint32)sizeof(Vec4);
-
-		// One upload, or two when the run wraps past the end of the pool.
-		// The cursor makes the slots contiguous; the wrap is the only
-		// reason this is not a single memcpy.
-		const uint32 firstRun = (gpuSpawnCursor + newParticles <= desc.maxParticles)
-			? newParticles : (desc.maxParticles - gpuSpawnCursor);
-
-		dev.UpdateStorageBuffer(gpuStateBuffer, gpuSpawnCursor * slotBytes,
-			firstRun * slotBytes, gpuSpawnStaging.data());
-
-		if (firstRun < newParticles)
-		{
-			dev.UpdateStorageBuffer(gpuStateBuffer, 0,
-				(newParticles - firstRun) * slotBytes,
-				gpuSpawnStaging.data() + (size_t)firstRun * kGPUStateVec4s);
-		}
-
-		gpuSpawnCursor = (gpuSpawnCursor + newParticles) % desc.maxParticles;
+		uint32 newParticles = (uint32)(gpuSpawnStaging.size() / kGPUStateVec4s);
+		if (newParticles > desc.maxParticles) newParticles = desc.maxParticles;
+		dev.UpdateStorageBuffer(gpuSpawnRing[gpuRingSlot], 0, newParticles * kGPUStateVec4s * (uint32)sizeof(Vec4), gpuSpawnStaging.data());
+		gpuSpawnBorn = newParticles;
 		gpuSpawnStaging.clear();
 	}
 
 	void ParticleSystem::UpdateGPU(const f64 time, const f32 dt)
 	{
+		PYROS_PROFILE_SCOPE("Particles.GPUUpdate");
 		IRenderDevice &dev = GetActiveRenderDevice();
+		gpuRingSlot = (gpuRingSlot + 1) % kGPURing;
+		const uint32 cursor = gpuSpawnCursor;
 		FlushGPUSpawns();
+		gpuSpawnCursor = desc.maxParticles > 0 ? (gpuSpawnCursor + gpuSpawnBorn) % desc.maxParticles : 0;
 
-		Vec4 params[2];
+		Vec4 params[3];
 		params[0] = Vec4(dt, (f32)time, (f32)desc.maxParticles, desc.damping);
 		params[1] = Vec4(desc.gravity, 0.f);
-		dev.UpdateStorageBuffer(gpuParamsBuffer, 0, 2 * (uint32)sizeof(Vec4), params);
+		params[2] = Vec4((f32)cursor, (f32)gpuSpawnBorn, 0.f, 0.f);
+		dev.UpdateStorageBuffer(gpuParamsRing[gpuRingSlot], 0, 3 * (uint32)sizeof(Vec4), params);
 
 		dev.BindComputePipeline(0, gpuPipeline);
 		dev.BindStorageBuffer(0, gpuStateBuffer, 0);
@@ -837,7 +845,8 @@ namespace p3d {
 		// no type at creation; Vulkan's do, which is why
 		// AllocHostVisibleVertexBuffer asks for STORAGE_BUFFER usage.
 		dev.BindStorageBuffer(0, (DeviceHandle)particleBuffer->Buffer->ID, 1);
-		dev.BindStorageBuffer(0, gpuParamsBuffer, 2);
+		dev.BindStorageBuffer(0, gpuParamsRing[gpuRingSlot], 2);
+		dev.BindStorageBuffer(0, gpuSpawnRing[gpuRingSlot], 3);
 
 		const uint32 groups = (desc.maxParticles + 63u) / 64u;
 		dev.Dispatch(0, groups, 1, 1);

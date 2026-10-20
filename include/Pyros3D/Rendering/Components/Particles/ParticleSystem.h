@@ -304,6 +304,15 @@ namespace p3d {
 		DeviceHandle gpuStateBuffer;
 		// dt, time, gravity, damping, count - rewritten every step.
 		DeviceHandle gpuParamsBuffer;
+		// The frame's new particles and parameters, in rings of three: written by the CPU into a
+		// buffer the GPU is not reading (the frame two before is done), and read by the simulation
+		// itself, which takes slot i's new state from the spawn buffer when i falls in this frame's
+		// run - the CPU never writes the state the GPU is simulating, and never waits for it.
+		static const uint32 kGPURing = 3;
+		DeviceHandle gpuSpawnRing[kGPURing] = { 0, 0, 0 };
+		DeviceHandle gpuParamsRing[kGPURing] = { 0, 0, 0 };
+		uint32 gpuRingSlot = 0;
+		uint32 gpuSpawnBorn = 0;      // how many this frame's dispatch takes from the spawn buffer
 
 		// Where the next spawn goes. A rotating cursor, not a search.
 		//

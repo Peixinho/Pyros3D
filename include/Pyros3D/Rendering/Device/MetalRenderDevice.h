@@ -719,8 +719,15 @@ namespace p3d {
 		// life. See BeginComputeEncoding().
 		void* computeCommandBuffer;   // id<MTLCommandBuffer>, nullable
 		// committed without a wait (ComputeBarrierBit::Submit), retained until waited on
-		void* submittedComputeCommandBuffer = NULL;
-		void WaitSubmittedCompute();
+		// Every one in flight, with the storage buffers it binds: a CPU write or read of a buffer
+		// waits only for the work that uses it (a frame of several emitters each submitting had
+		// waited, each, for the one before - microseconds old - when one slot was kept).
+		struct SubmittedCompute { void* commandBuffer; std::set<DeviceHandle> buffers; };
+		std::vector<SubmittedCompute> submittedCompute;
+		std::set<DeviceHandle> computeEncodingBuffers;
+		void WaitSubmittedCompute();                                  // all of them
+		void WaitSubmittedComputeFor(const DeviceHandle buffer);     // those that use this buffer
+		void PruneSubmittedCompute();                                 // let go of the finished ones
 		void* currentComputeEncoder;  // id<MTLComputeCommandEncoder>, nullable
 		DeviceHandle boundComputePipeline;
 
