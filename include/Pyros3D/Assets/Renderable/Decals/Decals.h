@@ -89,6 +89,11 @@ namespace p3d {
 		void ComputeDecal();
 
 	public:
+		// How far the next decal made on this thread stands off its surface (target units): a
+		// fixed 4 mm lost the depth test to the surface itself beyond a few metres - whoever
+		// places one knows how far off the eye is (placeDecalAtCursor: half a millimetre a metre).
+		static void SetNextSurfaceOffset(const f32 offset);
+
 
 		DecalGeometry(RenderingMesh* mesh, Matrix targetTransformation, Vec3 position, Vec3 rotation, Vec3 dimensions, Vec3 check = Vec3(1, 1, 1));
 		DecalGeometry(RenderingMesh* mesh, Matrix targetTransformation, Matrix transform, Vec3 dimensions, Vec3 check = Vec3(1, 1, 1));

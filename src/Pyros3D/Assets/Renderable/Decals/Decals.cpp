@@ -16,6 +16,9 @@ namespace p3d {
 	// Small enough not to peel visibly at a grazing angle on a wall, large
 	// enough to beat depth precision at the ranges a level is built at.
 	static const f32 kSurfaceOffset = 0.004f;
+	// (what the next decal is lifted by, in the target's own units: see DecalGeometry::SetNextSurfaceOffset)
+	static thread_local f32 t_nextOffset = 0.f;
+	void DecalGeometry::SetNextSurfaceOffset(const f32 offset) { t_nextOffset = offset; }
 
 	Decal::Decal(std::vector<DecalVertex> vertices, bool haveBones)
 	{
@@ -306,7 +309,7 @@ namespace p3d {
 				// target's own local space (which is the space `vertex` is in
 				// after CubeMatrix, and the space `normal` was captured in),
 				// so it stays a constant distance whatever the decal's size.
-				v->vertex = v->vertex + v->normal * kSurfaceOffset;
+				v->vertex = v->vertex + v->normal * (t_nextOffset > kSurfaceOffset ? t_nextOffset : kSurfaceOffset);
 			}
 
 			if (vertices.size() == 0) continue;

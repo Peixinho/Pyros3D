@@ -966,8 +966,13 @@ namespace p3d {
 					continue;
 
 				Vec3 forward = camera->GetDirection().negate();
-				if (forward.dotProduct(rcomp->GetOwner()->GetWorldTransformation() * _intersection - camera->GetWorldPosition()) < 0)
+				const Vec3 toHit = rcomp->GetOwner()->GetWorldTransformation() * _intersection - camera->GetWorldPosition();
+				if (forward.dotProduct(toHit) < 0)
 					continue;
+				// (the nearest to the eye - not the smallest ray parameter, which on the 0..1-depth
+				// backends was measured from a point the unprojection put beyond the far side: every
+				// decal went on the back of what was hit, out of sight)
+				t = toHit.magnitude();
 
 				if (!init)
 				{
@@ -1384,11 +1389,33 @@ namespace p3d {
 		// exposes aPosition/aColor and no aNormal at all, and every decal was
 		// rejected with "target mesh exposes no aPosition/aNormal".
 		if (bestMesh >= bestRc->GetMeshes().size()) return false;
+		{
+			// (lifted off the surface by half a millimetre for every metre to the eye, in the target's units)
+			const Vec3 &sc = bestGo->GetScale();
+			const f32 scale = std::max(1e-4f, std::max(fabs(sc.x), std::max(fabs(sc.y), fabs(sc.z))));
+			DecalGeometry::SetNextSurfaceOffset(sqrtf(bestDist) * 0.0005f / scale);
+		}
 		auto geom = std::unique_ptr<DecalGeometry>(new DecalGeometry(bestRc->GetMeshes()[bestMesh], bestGo->GetWorldTransformation(), m, dimensions));
 		Renderable* decalMesh = geom->GetDecal();
 		if (!decalMesh) return false;
 
 		// DecalGeometry owns the mesh; RC holds a non-owning shared_ptr view.
+		// PYROS_DECAL_TRACE=1: where each one went - the object, the point (its own space), how big
+		static const bool trace = std::getenv("PYROS_DECAL_TRACE") != NULL;
+		if (trace)
+		{
+			size_t verts = 0;
+			Vec3 lo(1e9f, 1e9f, 1e9f), hi(-1e9f, -1e9f, -1e9f);
+			for (size_t g = 0; g < decalMesh->Geometries.size(); g++)
+			{
+				const std::vector<Vec3> &vd = decalMesh->Geometries[g]->GetVertexData();
+				verts += vd.size();
+				for (size_t k = 0; k < vd.size(); k++) { lo = Vec3(std::min(lo.x, vd[k].x), std::min(lo.y, vd[k].y), std::min(lo.z, vd[k].z)); hi = Vec3(std::max(hi.x, vd[k].x), std::max(hi.y, vd[k].y), std::max(hi.z, vd[k].z)); }
+			}
+			fprintf(stderr, "[decal]   its vertices from (%.2f %.2f %.2f) to (%.2f %.2f %.2f); the box %.2f across\n", lo.x, lo.y, lo.z, hi.x, hi.y, hi.z, dimensions.x);
+			fprintf(stderr, "[decal] on %s at (%.2f %.2f %.2f) normal (%.2f %.2f %.2f): %zu vertices\n", bestGo->GetName().c_str(),
+				FinalIntersection.x, FinalIntersection.y, FinalIntersection.z, FinalNormal.x, FinalNormal.y, FinalNormal.z, verts);
+		}
 		std::shared_ptr<Renderable> renderable(decalMesh, [](Renderable*) {});
 		auto rc = std::make_shared<LUA_RenderingComponent>(renderable, material);
 		bestGo->AddComponent(rc);
