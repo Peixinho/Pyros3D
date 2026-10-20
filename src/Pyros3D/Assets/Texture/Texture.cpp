@@ -283,6 +283,9 @@ namespace p3d {
 			static std::once_flag once;
 			std::call_once(once, []() {
 				if (const char* e = getenv("PYROS_TEXTURE_CACHE")) { dir = e; return; }
+				// a game that ships its blocks: texcache/ beside it (what a packager put there)
+				std::error_code ec;
+				if (std::filesystem::is_directory("texcache", ec)) { dir = std::filesystem::absolute("texcache", ec); return; }
 #if defined(_WIN32)
 				if (const char* l = getenv("LOCALAPPDATA")) { dir = std::filesystem::path(l) / "Pyros3D" / "TextureCache"; return; }
 #elif defined(__APPLE__)
@@ -295,7 +298,7 @@ namespace p3d {
 			});
 			return dir;
 		}
-		const char kTexCacheMagic[8] = { 'P', '3', 'D', 'T', 'C', '0', '0', '1' };
+		const char kTexCacheMagic[8] = { 'P', '3', 'D', 'T', 'C', '0', '0', '2' };
 		struct TexCacheHeader
 		{
 			char magic[8]; uint64 sourceSize; int64 sourceTime; uint32 format, width, height, levels; f32 average[3]; uint32 haveAverage;
@@ -320,15 +323,34 @@ namespace p3d {
 	}
 
 	namespace {
-		bool CacheFileFor(const std::string& Filename, std::filesystem::path &cacheFile, uint64 &srcSize, int64 &srcTime)
+		// The cache's key for an image: its path as the game sees it (from its working folder, when it
+		// is under it - so a game moved, or unpacked somewhere else, still finds its blocks: no links
+		// resolved, the dev folder's assets/ link included), its size, and a sample of its bytes - not
+		// its time, which a zip keeps only to two seconds and a copy may not keep at all.
+		bool CacheFileFor(const std::string& Filename, std::filesystem::path &cacheFile, uint64 &srcSize, int64 &srcStamp)
 		{
 			std::error_code ec;
-			const std::filesystem::path src = std::filesystem::absolute(std::filesystem::path(Filename), ec);
+			const std::filesystem::path src = std::filesystem::absolute(std::filesystem::path(Filename), ec).lexically_normal();
 			srcSize = ec ? 0 : (uint64)std::filesystem::file_size(src, ec);
 			if (ec || srcSize == 0) return false;
-			srcTime = (int64)std::filesystem::last_write_time(src, ec).time_since_epoch().count();
-			if (ec) return false;
-			cacheFile = CompressionCacheDir() / (std::to_string(Fnv64(src.lexically_normal().string())) + ".p3dtc");
+			std::string where = src.generic_string();
+			const std::filesystem::path rel = src.lexically_relative(std::filesystem::current_path(ec).lexically_normal());
+			if (!ec && !rel.empty() && rel.native()[0] != '.') where = rel.generic_string();
+			uint64 h = 1469598103934665603ULL;
+			if (FILE* f = fopen(src.string().c_str(), "rb"))
+			{
+				uchar buf[65536];
+				size_t n = fread(buf, 1, sizeof(buf), f);
+				for (size_t i = 0; i < n; i++) { h ^= buf[i]; h *= 1099511628211ULL; }
+				if (srcSize > sizeof(buf) * 2 && fseek(f, -(long)sizeof(buf), SEEK_END) == 0)
+				{
+					n = fread(buf, 1, sizeof(buf), f);
+					for (size_t i = 0; i < n; i++) { h ^= buf[i]; h *= 1099511628211ULL; }
+				}
+				fclose(f);
+			}
+			srcStamp = (int64)h;
+			cacheFile = CompressionCacheDir() / (std::to_string(Fnv64(where)) + ".p3dtc");
 			return true;
 		}
 	}
