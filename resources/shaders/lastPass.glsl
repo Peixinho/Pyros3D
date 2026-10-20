@@ -369,7 +369,8 @@ void main() {
 		return;
 	}
 
-	if (uSSREnabled < 0.5 || ssrReflective < 0.5 || roughness > SSR_ROUGHNESS_CUTOFF) {
+	// (PYROS_SSR_DEBUG=6: the lit frame with no reflection laid over it - which part of a surface is its reflection)
+	if (uSSRDebug > 5.5 || uSSREnabled < 0.5 || ssrReflective < 0.5 || roughness > SSR_ROUGHNESS_CUTOFF) {
 		FragColor = vec4(baseColor, 1.0);
 		return;
 	}
@@ -385,7 +386,14 @@ void main() {
 	vec3 V = normalize(-v1);
 	vec3 albedo = texture(tDiffuse, Texcoord).rgb;
 	vec3 F0 = mix(vec3(0.04) * materialReflectivity, albedo, metallic);
-	vec3 F = FresnelSchlick(max(dot(N, V), 0.0), F0);
+	// (roughness-aware, Lagarde's: a rough surface's grazing Fresnel tops out at 1 - roughness, not 1 -
+	// the lobe's spread averages it down. Bare Schlick on a damp road painted it with the sky.)
+	float NdV = max(dot(N, V), 0.0);
+	vec3 F = F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - NdV, 0.0, 1.0), 5.0);
+	// The mirror floor below is for a mirror: gone by roughness 0.4, so a glossy surface keeps
+	// Fresnel's grazing sheen and not a flat share of the scene at every angle.
+	float floorRough = 1.0 - clamp(roughness / 0.4, 0.0, 1.0);
+	floorRough *= floorRough;
 	vec3 reflectDir = reflect(-V, N);
 	if (dot(reflectDir, N) < 0.05) {
 		FragColor = vec4(baseColor, 1.0);
@@ -453,7 +461,7 @@ void main() {
 		}
 		float fade = 1.0 - smoothstep(0.75, 1.0, t / uRayReflect.y);
 		float roughFade = 1.0 - smoothstep(SSR_ROUGHNESS_CUTOFF * 0.7, SSR_ROUGHNESS_CUTOFF, roughness);
-		float floorR = 0.55 * (1.0 - metallic) * materialReflectivity * ssrStrength * ssrStrength;
+		float floorR = 0.55 * (1.0 - metallic) * materialReflectivity * ssrStrength * ssrStrength * floorRough;
 		vec3 k = clamp(max(F * ssrStrength, vec3(floorR)) * fade * roughFade, 0.0, 0.95);
 		if (uSSRDebug > 3.5) { FragColor = onScreen ? vec4(0.1, 0.8, 0.1, 1.0) : vec4(0.1, 0.2, 0.9, 1.0); return; }
 		if (uSSRDebug > 2.5) { FragColor = vec4(rc, 1.0); return; }
@@ -527,7 +535,7 @@ void main() {
 	// instead of leaving stippled holes.
 	// (the strength scales Fresnel's share and, squared, the mirror floor: a surface asking for a
 	// little gets a sheen that grows toward grazing, not a flat mirror at any angle)
-	float mirrorFloor = 0.55 * (1.0 - metallic) * materialReflectivity * ssrStrength * ssrStrength;
+	float mirrorFloor = 0.55 * (1.0 - metallic) * materialReflectivity * ssrStrength * ssrStrength * floorRough;
 	vec3 reflectStrength = clamp(max(F * ssrStrength, vec3(mirrorFloor)) * edgeFade * roughnessFade * distanceFade * hitConfidence, 0.0, 0.95);
 	FragColor = vec4(baseColor * (1.0 - reflectStrength) + reflectionColor * reflectStrength, 1.0);
 }

@@ -247,7 +247,7 @@ namespace p3d {
 		// the CPU. Worth asking before choosing a probe budget: the two
 		// differ by orders of magnitude, so a budget tuned for one is
 		// either wasteful or crippling on the other.
-		bool IsGlobalIlluminationOnGPU() const { return GPUCompute != NULL; }
+		bool IsGlobalIlluminationOnGPU() const { return GPUCompute != NULL || GPUComputeOnDemand; }
 		// Drops the baked volume and returns ambient to `fallbackMode`.
 		void ClearGlobalIllumination(const uint32 fallbackMode = 0);
 		const IrradianceProbeGrid *GetAmbientProbeGrid() const { return AmbientProbeGrid; }
@@ -671,6 +671,11 @@ namespace p3d {
 		// path is doing the work - which is correct, just orders of
 		// magnitude slower, and is what WebGL2 always gets.
 		DDGICompute *GPUCompute = NULL;
+		// The GPU tracer is let go once a solve is done - it holds the whole scene's triangles and
+		// their hierarchy, and a street's worth beside the renderer's own acceleration structures left
+		// Metal unable to make the next frame resident: committed, never scheduled, the game frozen on
+		// its loading screen. A refresh (a dynamic volume) makes it again when it first needs it.
+		bool GPUComputeOnDemand = false;
 		uint32 DDGIFrame = 0;
 		// Kept from the bake so the compute backend can be rebuilt
 		// without the caller's settings, which is what a refresh has to

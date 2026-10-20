@@ -3810,6 +3810,8 @@ bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings 
 			+ (GPUCompute != NULL ? "on the GPU" : "on the CPU") + " in "
 			+ std::to_string((int)std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count()) + " ms.");
 	}
+	// (the tracer's buffers, until a refresh asks for them: see GPUComputeOnDemand)
+	if (GPUCompute != NULL) { delete GPUCompute; GPUCompute = NULL; GPUComputeOnDemand = true; }
 	// Bump the revision so the atlases actually re-upload - the upload
 	// is keyed on it, and a second bake with the same number would
 	// silently keep showing the first one.
@@ -3838,6 +3840,12 @@ bool IRenderer::UpdateGlobalIllumination(SceneGraph *scene, const uint32 probeBu
 	// for the bounds - what it loses is split-plane quality, which
 	// matters only once things have moved far from where the tree was
 	// built for.
+	if (GPUCompute == NULL && GPUComputeOnDemand)
+	{
+		GPUComputeOnDemand = false;
+		GPUCompute = new DDGICompute();
+		if (!GPUCompute->Initialize(*OwnedRayScene, *OwnedDDGI, DDGIShaderRoot)) { delete GPUCompute; GPUCompute = NULL; }
+	}
 	{
 		const RaySceneChange::Enum change = OwnedRayScene->RefreshTransforms();
 		if (change == RaySceneChange::NeedsRebuild)
@@ -3912,6 +3920,7 @@ void IRenderer::ClearGlobalIllumination(const uint32 fallbackMode)
 	SetDDGIVolume(NULL, DDGIRevision + 1);
 	if (OwnedDDGI != NULL) { delete OwnedDDGI; OwnedDDGI = NULL; }
 	if (GPUCompute != NULL) { delete GPUCompute; GPUCompute = NULL; }
+	GPUComputeOnDemand = false;
 	if (OwnedRayScene != NULL) { delete OwnedRayScene; OwnedRayScene = NULL; }
 	SetAmbientMode(fallbackMode);
 }
