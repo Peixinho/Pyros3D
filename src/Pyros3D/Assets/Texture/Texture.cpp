@@ -21,6 +21,7 @@
 #include <Pyros3D/Ext/stb/stb_image.h>
 #include <cstdint>
 #include <filesystem>   // INT64_MAX, used by BleedTransparentEdges below
+#include <fstream>
 #include <map>
 #include <mutex>
 
@@ -327,15 +328,59 @@ namespace p3d {
 		// is under it - so a game moved, or unpacked somewhere else, still finds its blocks: no links
 		// resolved, the dev folder's assets/ link included), its size, and a sample of its bytes - not
 		// its time, which a zip keeps only to two seconds and a copy may not keep at all.
-		bool CacheFileFor(const std::string& Filename, std::filesystem::path &cacheFile, uint64 &srcSize, int64 &srcStamp)
+		// What the cache holds, by file: its source's size and stamp - written beside the blocks
+		// (manifest.txt: name, size, stamp, the source's path), so a game shipped without the
+		// source images, only their blocks, still finds them.
+		struct ManifestEntry { uint64 size; int64 stamp; };
+		std::mutex g_manifestGuard;
+		std::map<std::string, ManifestEntry> &Manifest()
+		{
+			static std::map<std::string, ManifestEntry> m;
+			static bool read = false;
+			if (!read)
+			{
+				read = true;
+				std::ifstream in((CompressionCacheDir() / "manifest.txt").string());
+				std::string name; ManifestEntry e;
+				while (in >> name >> e.size >> e.stamp) { m[name] = e; std::string rest; std::getline(in, rest); }
+			}
+			return m;
+		}
+		void ManifestAdd(const std::filesystem::path &cacheFile, const uint64 size, const int64 stamp, const std::string &where)
+		{
+			std::lock_guard<std::mutex> lock(g_manifestGuard);
+			const std::string name = cacheFile.filename().string();
+			std::map<std::string, ManifestEntry> &m = Manifest();
+			std::map<std::string, ManifestEntry>::iterator it = m.find(name);
+			if (it != m.end() && it->second.size == size && it->second.stamp == stamp) return;
+			m[name] = { size, stamp };
+			std::ofstream out((CompressionCacheDir() / "manifest.txt").string(), std::ios::app);
+			out << name << " " << size << " " << stamp << " " << where << "\n";
+		}
+
+		bool CacheFileFor(const std::string& Filename, std::filesystem::path &cacheFile, uint64 &srcSize, int64 &srcStamp, std::string *whereOut = NULL)
 		{
 			std::error_code ec;
 			const std::filesystem::path src = std::filesystem::absolute(std::filesystem::path(Filename), ec).lexically_normal();
-			srcSize = ec ? 0 : (uint64)std::filesystem::file_size(src, ec);
-			if (ec || srcSize == 0) return false;
 			std::string where = src.generic_string();
-			const std::filesystem::path rel = src.lexically_relative(std::filesystem::current_path(ec).lexically_normal());
-			if (!ec && !rel.empty() && rel.native()[0] != '.') where = rel.generic_string();
+			{
+				std::error_code ec2;
+				const std::filesystem::path rel = src.lexically_relative(std::filesystem::current_path(ec2).lexically_normal());
+				if (!ec2 && !rel.empty() && rel.native()[0] != '.') where = rel.generic_string();
+			}
+			if (whereOut) *whereOut = where;
+			if (!std::filesystem::exists(src, ec))
+			{
+				// shipped without it: the manifest says what the blocks were made from
+				cacheFile = CompressionCacheDir() / (std::to_string(Fnv64(where)) + ".p3dtc");
+				std::lock_guard<std::mutex> lock(g_manifestGuard);
+				std::map<std::string, ManifestEntry>::iterator it = Manifest().find(cacheFile.filename().string());
+				if (it == Manifest().end()) return false;
+				srcSize = it->second.size; srcStamp = it->second.stamp;
+				return true;
+			}
+			srcSize = (uint64)std::filesystem::file_size(src, ec);
+			if (ec || srcSize == 0) return false;
 			uint64 h = 1469598103934665603ULL;
 			if (FILE* f = fopen(src.string().c_str(), "rb"))
 			{
@@ -374,7 +419,7 @@ namespace p3d {
 		// An image's blocks made and kept in the cache (written aside and moved in: a half-written
 		// file is never read); hd/levels hold them after.
 		void EncodeAndStore(Texture::DecodedImage &image, const std::filesystem::path &cacheFile, const uint64 srcSize, const int64 srcTime,
-			TexCacheHeader &hd, std::vector<std::vector<uchar> > &levels)
+			TexCacheHeader &hd, std::vector<std::vector<uchar> > &levels, const std::string &where)
 		{
 			std::error_code ec;
 			LoadStats::Scope t(LoadStats::TextureDecode);
@@ -413,14 +458,16 @@ namespace p3d {
 	bool Texture::MakeCompressedCache(const std::string& Filename)
 	{
 		if (!GetCompression() || !Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3)) return false;
+		// (a float image - an HDR sky - is read by its own loader, never as blocks)
+		if (Filename.size() > 4 && (Filename.compare(Filename.size() - 4, 4, ".hdr") == 0 || Filename.compare(Filename.size() - 4, 4, ".HDR") == 0)) return false;
 		if (HasCompressedCache(Filename)) return true;
-		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0;
-		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime)) return false;
+		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0; std::string where;
+		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime, &where)) return false;
 		DecodedImage image;
 		if (!DecodeFile(Filename, image) || image.width < 4 || image.height < 4) return false;
 		TexCacheHeader hd;
 		std::vector<std::vector<uchar> > levels;
-		EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels);
+		EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels, where);
 		return true;
 	}
 
@@ -429,8 +476,8 @@ namespace p3d {
 		if (!Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3))
 			return false;
 		std::error_code ec;
-		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0;
-		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime)) return false;
+		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0; std::string where;
+		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime, &where)) return false;
 
 		TexCacheHeader hd;
 		std::vector<std::vector<uchar> > levels;
@@ -467,7 +514,7 @@ namespace p3d {
 			DecodedImage image;
 			if (!(AssetBundle::TakeImage(Filename, image) || DecodeFile(Filename, image)) || image.width < 4 || image.height < 4)
 				return false;
-			EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels);
+			EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels, where);
 		}
 
 		if (hd.haveAverage) { averageColour = Vec3(hd.average[0], hd.average[1], hd.average[2]); haveAverageColour = true; }
@@ -483,6 +530,8 @@ namespace p3d {
 		GetInternalFormat();
 		Device().BindTextureToTarget(GLSubMode, GL_ID);
 		Device().UploadCompressedTexture2D(hd.format, hd.width, hd.height, levels);
+		// (in the manifest: what is uploaded as blocks - and only that - may ship without its image)
+		if (std::filesystem::exists(Filename, ec)) ManifestAdd(cacheFile, srcSize, srcTime, where);
 		Device().BindTextureToTarget(GLSubMode, 0);
 		SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
 		SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
