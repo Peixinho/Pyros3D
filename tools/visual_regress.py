@@ -64,6 +64,7 @@ def main():
     ap.add_argument("--wait", type=float, default=7.0)
     ap.add_argument("--tolerance", type=float, default=14.0)
     a = ap.parse_args()
+    a.build = os.path.abspath(a.build)          # (the demos run from resources/: a relative path is the caller's)
     exe = os.path.join(a.build, "examples", "DemoLauncher")
     backend = "metal" if "mtl" in os.path.basename(a.build) else ("vulkan" if "vk" in os.path.basename(a.build) else "gl")
     demos = json.load(open(os.path.join(REPO, "examples", "assets", "demos", "manifest.json")))
