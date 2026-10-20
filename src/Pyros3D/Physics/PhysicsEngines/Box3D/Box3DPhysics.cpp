@@ -896,6 +896,18 @@ namespace p3d {
 	void Box3DPhysics::ProcessCollisionEvents()
 	{
 		b3ContactEvents contacts = b3World_GetContactEvents(m_world);
+		// PYROS_CONTACT_TRACE=1: the contacts begun each step, and whose
+		static const bool contactTrace = getenv("PYROS_CONTACT_TRACE") != NULL;
+		if (contactTrace && (contacts.beginCount > 0 || contacts.endCount > 0))
+		{
+			fprintf(stderr, "[contact] %d begun, %d ended\n", contacts.beginCount, contacts.endCount);
+			for (int i = 0; i < contacts.beginCount && i < 4; ++i)
+			{
+				IPhysicsComponent* a = ComponentFromShape(contacts.beginEvents[i].shapeIdA);
+				IPhysicsComponent* b = ComponentFromShape(contacts.beginEvents[i].shapeIdB);
+				fprintf(stderr, "[contact]   %s / %s\n", a && a->GetOwner() ? a->GetOwner()->GetName().c_str() : "?", b && b->GetOwner() ? b->GetOwner()->GetName().c_str() : "?");
+			}
+		}
 		for (int i = 0; i < contacts.beginCount; ++i)
 		{
 			IPhysicsComponent* a = ComponentFromShape(contacts.beginEvents[i].shapeIdA);
@@ -1429,6 +1441,7 @@ namespace p3d {
 	void Box3DPhysics::EnableContactEvents(IPhysicsComponent* pcomp)
 	{
 		Box3DBodyHandles* handles = pcomp ? GetHandles(pcomp) : NULL;
+		if (getenv("PYROS_CONTACT_TRACE")) fprintf(stderr, "[contact] events asked for by %s (body %s)\n", pcomp && pcomp->GetOwner() ? pcomp->GetOwner()->GetName().c_str() : "?", handles && handles->body.index1 != 0 ? "made" : "not made yet");
 		if (!handles || handles->body.index1 == 0 || !b3Body_IsValid(handles->body)) return;      // (not made yet: MakeShapeDef asks)
 		const int count = b3Body_GetShapeCount(handles->body);
 		if (count <= 0) return;

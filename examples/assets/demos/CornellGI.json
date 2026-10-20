@@ -23,7 +23,7 @@
    "kind": "generic",
    "metallic": 0.0,
    "opacity": 1.0,
-   "options": 1073758209,
+   "options": 1073765377,
    "reflectivity": 0.0,
    "roughness": 0.5,
    "shininess": 0.0,
@@ -57,7 +57,7 @@
    "kind": "generic",
    "metallic": 0.0,
    "opacity": 1.0,
-   "options": 1073758209,
+   "options": 1073765377,
    "reflectivity": 0.0,
    "roughness": 0.5,
    "shininess": 0.0,
@@ -91,7 +91,7 @@
    "kind": "generic",
    "metallic": 0.0,
    "opacity": 1.0,
-   "options": 1073758209,
+   "options": 1073765377,
    "reflectivity": 0.0,
    "roughness": 0.5,
    "shininess": 0.0,
@@ -125,7 +125,7 @@
    "kind": "generic",
    "metallic": 1.0,
    "opacity": 1.0,
-   "options": 1077936129,
+   "options": 1077943297,
    "reflectivity": 0.0,
    "roughness": 0.1,
    "shininess": 0.0,
@@ -159,7 +159,7 @@
    "kind": "generic",
    "metallic": 1.0,
    "opacity": 1.0,
-   "options": 1077936129,
+   "options": 1077943297,
    "reflectivity": 0.0,
    "roughness": 0.35,
    "shininess": 0.0,
@@ -445,7 +445,7 @@
    "children": [],
    "components": [
     {
-     "castingShadows": false,
+     "castingShadows": true,
      "color": [
       2.2,
       2.1,
@@ -453,7 +453,12 @@
       1.0
      ],
      "radius": 26.0,
-     "type": "PointLight"
+     "type": "PointLight",
+     "shadowWidth": 1024,
+     "shadowHeight": 1024,
+     "shadowNear": 0.1,
+     "shadowBiasFactor": 2.0,
+     "shadowBiasUnits": 1.0
     },
     {
      "data": {},
@@ -544,6 +549,45 @@
     2.6,
     -3.9,
     1.6
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": []
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 0,
+     "renderable": {
+      "depth": 0.2,
+      "flip": false,
+      "height": 5.2,
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "tangentBitangent": false,
+      "width": 5.2
+     },
+     "type": "RenderingComponent"
+    }
+   ],
+   "name": "FrontWall",
+   "position": [
+    0.0,
+    0.0,
+    16.0
    ],
    "rotation": [
     0.0,

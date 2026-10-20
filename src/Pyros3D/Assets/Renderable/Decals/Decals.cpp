@@ -243,6 +243,9 @@ namespace p3d {
 
 		for (uint32 i = 0; i < rc->Geometry->GetIndexData().size(); i += 3)
 		{
+			// (one triangle at a time: kept from the last one, its pieces - already carried into the
+			// target's space and lifted off it - were clipped again against the box and added again)
+			vertices.clear();
 			Vec3 v0 = iCubeMatrix * *(Vec3*)(&rc->Geometry->Attributes[bPosition]->Attributes[aPosition]->Data[rc->Geometry->GetIndexData()[i] * sizeof(Vec3)]);
 			Vec3 n0 = *(Vec3*)(&rc->Geometry->Attributes[bNormal]->Attributes[aNormal]->Data[rc->Geometry->GetIndexData()[i] * sizeof(Vec3)]);
 			Vec2 uv0 = Vec2(0, 0);
@@ -254,6 +257,15 @@ namespace p3d {
 			Vec3 v2 = iCubeMatrix * *(Vec3*)(&rc->Geometry->Attributes[bPosition]->Attributes[aPosition]->Data[rc->Geometry->GetIndexData()[i + 2] * sizeof(Vec3)]);
 			Vec3 n2 = *(Vec3*)(&rc->Geometry->Attributes[bNormal]->Attributes[aNormal]->Data[rc->Geometry->GetIndexData()[i + 2] * sizeof(Vec3)]);
 			Vec2 uv2 = Vec2(0, 0);
+
+			// A face seen edge-on by the decal's box (its own normal more than ~70 degrees off the
+			// box's axis) would take the picture stretched along it: a crack on a car window came out
+			// as streaks down the slope of the glass. Those are left bare.
+			{
+				Vec3 fn = (v1 - v0).cross(v2 - v0);
+				const f32 l = fn.magnitude();
+				if (l < 1e-12f || fabs(fn.z) / l < 0.34f) continue;
+			}
 
 			if (haveBones)
 			{
