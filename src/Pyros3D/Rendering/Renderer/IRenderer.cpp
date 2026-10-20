@@ -5876,6 +5876,10 @@ void IRenderer::BindShadowMaps(IMaterial* material)
 
 void IRenderer::BindShadowPlaceholders()
 {
+	// (Metal and Vulkan only: they bind by the shader's slot, and a slot must hold its own type.
+	// GL samples a spare unit with nothing on it as zero, legally - and given these, Metro's
+	// near pillar came out lit through its shadow there.)
+	if (!device->IsVulkan() && !device->RenderTargetOriginIsTopLeft()) return;
 #if !defined(GLLEGACY)
 	if (DirectionalShadowMapsUnits.empty() || SpotShadowMapsUnits.empty())
 	{

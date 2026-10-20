@@ -1677,8 +1677,14 @@ namespace p3d {
 					SpotLight* s = (SpotLight*)(*i);
 					// Same as the point case above. Conservative: the cone is
 					// tested as the sphere that contains it.
-					if (!LightAffectsView(s->GetOwner()->GetDrawWorldPosition(), s->GetLightRadius()))
-						break;
+					// (as the point lights: not one that casts - its shadow matrix is found by count, and a
+					// shadowed spot out of view skipped here gave every one after it the one before's
+					// matrix: Metro's east lamp lit nothing, its whole cone "in shadow")
+					{
+						static const bool cullLights = std::getenv("PYROS_NO_LIGHT_CULL") == NULL;
+						if (cullLights && !s->IsCastingShadows() && !LightAffectsView(s->GetOwner()->GetDrawWorldPosition(), s->GetLightRadius()))
+							break;
+					}
 					// Spot Lights
 					Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetDrawWorldPosition(), 1.f)).xyz();
 					Vec3 dir = (ViewMatrix * (s->GetOwner()->GetDrawWorld() * Vec4(s->GetLightDirection(), 0.f))).xyz();
