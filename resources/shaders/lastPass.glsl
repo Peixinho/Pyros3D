@@ -369,6 +369,8 @@ void main() {
 		return;
 	}
 
+	// (PYROS_SSR_DEBUG=5: the surface as the reflections see it - red roughness, green the reflective flag, blue metallic)
+	if (uSSRDebug > 4.5 && uSSRDebug < 5.5) { FragColor = vec4(roughness, ssrReflective, metallic, 1.0); return; }
 	// (PYROS_SSR_DEBUG=6: the lit frame with no reflection laid over it - which part of a surface is its reflection)
 	if (uSSRDebug > 5.5 || uSSREnabled < 0.5 || ssrReflective < 0.5 || roughness > SSR_ROUGHNESS_CUTOFF) {
 		FragColor = vec4(baseColor, 1.0);
