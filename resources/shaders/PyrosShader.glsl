@@ -936,6 +936,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // under the surface, w how far it goes (0: none). A vec4 starts on a
         // multiple of 16, so the block is 96 bytes with it.
         vec4 uSubsurface;
+        // GenericShaderMaterial::SetWetness(): x how wet (0 dry, 1 soaked), y how much of the
+        // ground lies under puddles (0..1), z the size of a puddle in metres. 112 bytes.
+        vec4 uWetness;
     };
 
     // Set around a shadow lookup made for light under the surface: how far
@@ -951,6 +954,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     // and the light's colour). `thin`: how much of the light is still there
     // after going in by gShadowThrough - 0 where nothing can say (a light
     // with no shadow map), so that the back of everything does not glow.
+    // Value noise for the puddle mask (uWetness): an integer hash, exact on every GPU.
+    float p3d_WetHash(vec2 c) { uvec2 u = uvec2(ivec2(floor(c)) + ivec2(32768)); uint n = u.x * 1597334673u ^ u.y * 3812015801u; n ^= n >> 15; n *= 2246822519u; n ^= n >> 13; return float(n >> 8) * (1.0 / 16777216.0); }
+    float p3d_WetNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(p3d_WetHash(i), p3d_WetHash(i + vec2(1.0, 0.0)), f.x), mix(p3d_WetHash(i + vec2(0.0, 1.0)), p3d_WetHash(i + vec2(1.0, 1.0)), f.x), f.y); }
+
     vec3 SubsurfaceLight(vec3 N, vec3 V, vec3 L, vec4 sss, float thin)
     {
         float ndl = dot(N, L);
@@ -2003,6 +2011,31 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 roughness = _pbrTex.g * uRoughness;
                 metallic = _pbrTex.b;
             #endif
+            // Wet (uWetness): a damp surface darker and glossier where water fills its pores; on
+            // ground facing up, puddles - a mask fixed in the world - where it is still water:
+            // near-mirror, no metal, its bumps gone under the surface, a little deeper in colour.
+            if (uWetness.x > 0.0)
+            {
+                vec3 gN = normalize(vNormal);
+                float up = smoothstep(0.55, 0.9, gN.y);
+                vec2 q = vWorldPosition.xz / max(uWetness.z, 0.05);
+                float pn = p3d_WetNoise(q) * 0.65 + p3d_WetNoise(q * 2.7 + 13.1) * 0.35;
+                float cover = clamp(uWetness.y, 0.0, 1.0);
+                float puddle = (cover > 0.001) ? smoothstep(1.0 - cover, 1.0 - cover + 0.06, pn) * up : 0.0;
+                float wet = clamp(uWetness.x, 0.0, 1.0) * mix(0.55, 1.0, up);
+                // (damp: much darker, a little glossier - glossier still and every grain of the asphalt
+                // caught the sky, a road of frost; the mirror is the puddles' alone)
+                diffuse.rgb *= mix(1.0, 0.5, wet) * mix(1.0, 0.75, puddle);
+                roughness = mix(roughness, roughness * 0.8, wet);
+                roughness = mix(roughness, 0.04, puddle);
+                metallic = mix(metallic, 0.0, puddle);
+                #if defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(ENVMAP) || defined(REFRACTION) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR)
+                    Normal = normalize(mix(Normal, gN * P3D_FACE_SIGN, puddle));
+                #endif
+                #if defined(DEFERRED_GBUFFER)
+                    gbufferNormal.xyz = normalize(mix(gbufferNormal.xyz, gbuffer_normals.xyz * P3D_FACE_SIGN, puddle));
+                #endif
+            }
         #endif
 
         // !defined(DEFERRED_GBUFFER): a G-buffer-writing material must write

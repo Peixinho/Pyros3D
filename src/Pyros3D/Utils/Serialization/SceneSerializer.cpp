@@ -887,6 +887,10 @@ namespace p3d {
 			m["ssrEnabled"] = gm->IsSSREnabled();
 			if (gm->IsSSREnabled() && gm->GetSSRStrength() < 0.999f) m["ssrStrength"] = gm->GetSSRStrength();
 			// (only where it is on: a scene saved before there was such a thing reads the same)
+			if (gm->GetWetness() > 0.f || gm->GetPuddles() > 0.f)
+			{
+				m["wetness"] = gm->GetWetness(); m["puddles"] = gm->GetPuddles(); m["puddleSize"] = gm->GetPuddleSize();
+			}
 			if (gm->GetSubsurfaceStrength() > 0.f)
 			{
 				const Vec3 sc = gm->GetSubsurfaceColor();
@@ -1535,6 +1539,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					if (all) strength = g->GetSSRStrength();
 				}
 				if (all) j["reflections"] = strength < 0.999f ? json(strength) : json(true);
+				GenericShaderMaterial* g0 = dynamic_cast<GenericShaderMaterial*>(ms[0] ? ms[0]->Material.get() : NULL);
+				if (g0 && (g0->GetWetness() > 0.f || g0->GetPuddles() > 0.f))
+				{
+					j["wetness"] = g0->GetWetness(); j["puddles"] = g0->GetPuddles(); j["puddleSize"] = g0->GetPuddleSize();
+				}
 			}
 			if (!isGenerated)
 			{
@@ -3227,6 +3236,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if ((j.find("metallic") != j.end())) gm->SetMetallic(j["metallic"].get<f32>());
 			if ((j.find("roughness") != j.end())) gm->SetRoughness(j["roughness"].get<f32>());
 			if (j.value("ssrEnabled", false)) gm->SetSSRStrength(j.value("ssrStrength", 1.f));
+			if (j.value("wetness", 0.f) > 0.f || j.value("puddles", 0.f) > 0.f)
+				gm->SetWetness(j.value("wetness", 0.f), j.value("puddles", 0.f), j.value("puddleSize", 3.f));
 			if (j.find("subsurface") != j.end() && j["subsurface"].is_number())
 			{
 				Vec3 c = gm->GetSubsurfaceColor();
@@ -3850,6 +3861,16 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					for (size_t m = 0; m < ms.size(); m++)
 						if (GenericShaderMaterial* g = ms[m] ? dynamic_cast<GenericShaderMaterial*>(ms[m]->Material.get()) : NULL)
 							g->SetSSRStrength(reflections);
+				}
+			// "wetness" / "puddles" / "puddleSize": the same, for a wet surface (GenericShaderMaterial::
+			// SetWetness) - a model's road is drawn with its package's materials, never the scene's
+			if (j.value("wetness", 0.f) > 0.f || j.value("puddles", 0.f) > 0.f)
+				for (uint32 l = 0; l < rc->GetLODSize(); l++)
+				{
+					std::vector<RenderingMesh*> &ms = rc->GetMeshes(l);
+					for (size_t m = 0; m < ms.size(); m++)
+						if (GenericShaderMaterial* g = ms[m] ? dynamic_cast<GenericShaderMaterial*>(ms[m]->Material.get()) : NULL)
+							g->SetWetness(j.value("wetness", 0.f), j.value("puddles", 0.f), j.value("puddleSize", 3.f));
 				}
 			go->AddComponent(rc);
 

@@ -90,6 +90,13 @@ namespace p3d
 		// channels (see PyrosShader.glsl) - so a surface cannot be both
 		// this and reflecting, and reflecting wins.
 		void SetSubsurface(const Vec3 &color, const f32 strength);
+		// A wet surface (PBR materials): `amount` 0 dry .. 1 soaked - darker and glossier;
+		// `puddles` 0..1 how much of the ground facing up lies under still water (a mirror there, its
+		// bumps gone), `size` a puddle's size in metres. Fixed in the world, not the texture.
+		void SetWetness(const f32 amount, const f32 puddles = 0.f, const f32 size = 3.f);
+		f32 GetWetness() const { return Wetness.x; }
+		f32 GetPuddles() const { return Wetness.y; }
+		f32 GetPuddleSize() const { return Wetness.z; }
 
 		// Alpha cutoff for ShaderUsage::AlphaTest - fragments whose alpha
 		// falls below this are discarded outright. Ignored entirely by a
@@ -239,6 +246,7 @@ namespace p3d
 		f32 AlphaCutoff;
 		// See SetSubsurface(): xyz the colour, w the strength.
 		Vec4 Subsurface = Vec4(1.f, 0.35f, 0.2f, 0.f);
+		Vec4 Wetness = Vec4(0.f, 0.f, 3.f, 0.f);
 		// See SetWind(). Not in the MaterialUniforms mirror - it travels in
 		// ObjectMatrixUniforms because it is needed in the vertex stage.
 		Vec4 Wind;
@@ -256,6 +264,7 @@ namespace p3d
 		// See SetAlphaCutoff().
 		Uniform *uAlphaCutoffUniform = NULL;
 		Uniform *uSubsurfaceUniform = NULL;
+		Uniform *uWetnessUniform = NULL;
 	};
 }
 

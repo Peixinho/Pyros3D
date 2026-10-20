@@ -567,6 +567,7 @@ namespace p3d {
 				"setMetallicRoughnessMap", &GenericShaderMaterial::SetMetallicRoughnessMap,
 				"setSSREnabled", &GenericShaderMaterial::SetSSREnabled,
 				"setSubsurface", &GenericShaderMaterial::SetSubsurface,
+				"setWetness", [](GenericShaderMaterial &m, f32 amount, sol::optional<f32> puddles, sol::optional<f32> size) { m.SetWetness(amount, puddles.value_or(0.f), size.value_or(3.f)); },
 				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
 				"getAlphaCutoff", &GenericShaderMaterial::GetAlphaCutoff,

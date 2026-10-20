@@ -334,7 +334,7 @@ namespace p3d
 		f.Value(envMapID); f.Value(skyboxMapID); f.Value(refractMapID); f.Value(fontMapID); f.Value(metallicRoughnessMapID);
 		f.Vec(Ke); f.Vec(Ka); f.Vec(Kd); f.Vec(Ks); f.Vec(Wind); f.Vec(Vec4(LightThrough, 0.f, 0.f, 0.f));
 		f.Value(Shininess); f.Value(UseLights); f.Value(displacementHeight); f.Value(Reflectivity);
-		f.Value(Metallic); f.Value(Roughness); f.Value(SSREnabled); f.Value(AlphaCutoff); f.Vec(Subsurface);
+		f.Value(Metallic); f.Value(Roughness); f.Value(SSREnabled); f.Value(AlphaCutoff); f.Vec(Subsurface); f.Vec(Wetness);
 		// IMaterial's render state.
 		f.Value(isWireFrame); f.Value(forceDepthWrite); f.Value(depthTest); f.Value(depthWrite); f.Value(depthTestMode);
 		f.Value(isCastingShadows); f.Value(cullFace); f.Value(isTransparent); f.Value(opacity);
@@ -465,6 +465,7 @@ namespace p3d
 		m->SetSSRStrength(GetSSRStrength());
 		m->SetAlphaCutoff(AlphaCutoff);
 		if (Subsurface.w > 0.f) m->SetSubsurface(Vec3(Subsurface.x, Subsurface.y, Subsurface.z), Subsurface.w);
+		if (Wetness.x > 0.f || Wetness.y > 0.f) m->SetWetness(Wetness.x, Wetness.y, Wetness.z);
 		m->Wind = Wind;
 		m->LightThrough = LightThrough;
 		m->Ke = Ke;
@@ -663,6 +664,15 @@ namespace p3d
 			uSSRReflective = AddUniform(Uniform("uSSRReflective", Uniforms::DataType::Float, &SSREnabled));
 		else
 			uSSRReflective->SetValue(&SSREnabled);
+	}
+
+	void GenericShaderMaterial::SetWetness(const f32 amount, const f32 puddles, const f32 size)
+	{
+		Wetness = Vec4(amount < 0.f ? 0.f : (amount > 1.f ? 1.f : amount), puddles < 0.f ? 0.f : (puddles > 1.f ? 1.f : puddles), size > 0.05f ? size : 0.05f, 0.f);
+		if (!uWetnessUniform)
+			uWetnessUniform = AddUniform(Uniform("uWetness", Uniforms::DataType::Vec4, &Wetness));
+		else
+			uWetnessUniform->SetValue(&Wetness);
 	}
 
 	void GenericShaderMaterial::SetSubsurface(const Vec3 &color, const f32 strength)

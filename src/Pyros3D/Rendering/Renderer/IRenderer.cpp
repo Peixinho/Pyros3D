@@ -1146,7 +1146,7 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		// and silently drops the draw. When the block grows, this
 		// grows.
 		DDGIUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 5, 25);
-		MaterialUniformsUBO = device->CreateUniformBuffer(96, 22);
+		MaterialUniformsUBO = device->CreateUniformBuffer(112, 22);      // (sizeof(MaterialUniformsData): its static_assert below)
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
 	SharedUBORefCount++;
@@ -4971,8 +4971,10 @@ struct MaterialUniformsData
 	// See GenericShaderMaterial::SetSubsurface(): xyz the colour, w the
 	// strength. A vec4 starts on 16, so it follows the padding: 96.
 	Vec4 Subsurface;
+	// See GenericShaderMaterial::SetWetness(): how wet, puddle cover, puddle size. 112.
+	Vec4 Wetness;
 };
-static_assert(sizeof(MaterialUniformsData) == 96, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
+static_assert(sizeof(MaterialUniformsData) == 112, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
 
 // std140 layout matching ObjectLightCounts in PyrosShader.glsl exactly (16
 // bytes: 3 int = 12, padded to 16 by std140's vec4-multiple block size rule).
@@ -5012,7 +5014,7 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		{
 			static const std::string kColor("uColor"), kSpecular("uSpecular"), kOpacity("uOpacity"), kShininess("uShininess"),
 				kUseLights("uUseLights"), kDisplacement("uDisplacementHeight"), kReflectivity("uReflectivity"), kMetallic("uMetallic"),
-				kRoughness("uRoughness"), kSSR("uSSRReflective"), kAlphaCutoff("uAlphaCutoff"), kSubsurface("uSubsurface");
+				kRoughness("uRoughness"), kSSR("uSSRReflective"), kAlphaCutoff("uAlphaCutoff"), kSubsurface("uSubsurface"), kWetness("uWetness");
 			for (std::list<Uniform>::const_iterator it = Material->UserUniforms.begin(); it != Material->UserUniforms.end(); ++it)
 			{
 				const std::string &n = it->Name;
@@ -5028,6 +5030,7 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 					else if (n == kSubsurface) { if (it->Value.size() >= sizeof(Vec4)) memcpy(&data.Subsurface, v, sizeof(Vec4)); }
 					break;
 				case 'O': if (n == kOpacity) memcpy(&data.Opacity, v, sizeof(f32)); break;
+				case 'W': if (n == kWetness && it->Value.size() >= sizeof(Vec4)) memcpy(&data.Wetness, v, sizeof(Vec4)); break;
 				case 'U': if (n == kUseLights) memcpy(&data.UseLights, v, sizeof(f32)); break;
 				case 'D': if (n == kDisplacement) memcpy(&data.DisplacementHeight, v, sizeof(f32)); break;
 				case 'R':
