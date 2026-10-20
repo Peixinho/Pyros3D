@@ -11,6 +11,7 @@
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <Pyros3D/Ext/miniaudio/miniaudio.h>
+#include "AudioReverb.h"
 
 namespace p3d {
 
@@ -58,6 +59,7 @@ namespace p3d {
 		{
 			if (EngineAlive())
 			{
+				ClearReverb();
 				AudioManager::GetActive()->UnregisterVoice(reinterpret_cast<ma_sound*>(group));
 				ma_sound_group_uninit(group);
 			}
@@ -67,6 +69,37 @@ namespace p3d {
 		// `parent` releases its reference here, after `group` (which may have
 		// been attached as a child of the parent's own group) no longer
 		// needs it.
+	}
+
+	void AudioBus::SetReverb(const f32 room, const f32 damping, const f32 wet, const f32 preDelayMs, const f32 early)
+	{
+		if (group == NULL || !EngineAlive()) return;
+		ma_engine* engine = AudioManager::GetActive()->GetEngine();
+		if (reverbNode == NULL)
+		{
+			reverbNode = detail::ReverbNodeCreate(engine);
+			if (reverbNode == NULL) { echo("WARNING: AudioBus - reverb needs a stereo device"); return; }
+			// the bus -> the space -> wherever the bus went (its parent, or the device)
+			ma_node* next = parent && parent->GetGroup() ? (ma_node*)parent->GetGroup() : (ma_node*)ma_engine_get_endpoint(engine);
+			ma_node_attach_output_bus((ma_node*)reverbNode, 0, next, 0);
+			ma_node_attach_output_bus((ma_node*)group, 0, (ma_node*)reverbNode, 0);
+		}
+		detail::ReverbSettings s;
+		s.room = room; s.damping = damping; s.wet = wet; s.preDelayMs = preDelayMs; s.early = early;
+		detail::ReverbNodeSet(reverbNode, s);
+	}
+
+	void AudioBus::ClearReverb()
+	{
+		if (reverbNode == NULL) return;
+		if (group != NULL && EngineAlive())
+		{
+			ma_engine* engine = AudioManager::GetActive()->GetEngine();
+			ma_node* next = parent && parent->GetGroup() ? (ma_node*)parent->GetGroup() : (ma_node*)ma_engine_get_endpoint(engine);
+			ma_node_attach_output_bus((ma_node*)group, 0, next, 0);
+		}
+		detail::ReverbNodeDestroy(reverbNode);
+		reverbNode = NULL;
 	}
 
 	void AudioBus::SetVolume(const f32 volume)

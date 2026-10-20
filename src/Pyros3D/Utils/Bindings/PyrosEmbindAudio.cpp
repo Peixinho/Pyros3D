@@ -95,7 +95,10 @@ EMSCRIPTEN_BINDINGS(pyros3d_audio)
 		.function("pause", &AudioBus::Pause)
 		.function("resume", &AudioBus::Resume)
 		.function("fadeIn", &AudioBus::FadeIn)
-		.function("fadeOut", &AudioBus::FadeOut);
+		.function("fadeOut", &AudioBus::FadeOut)
+		.function("setReverb", &AudioBus::SetReverb)
+		.function("clearReverb", &AudioBus::ClearReverb)
+		.function("hasReverb", &AudioBus::HasReverb);
 
 	class_<Sound>("Sound")
 		.constructor<std::string>()

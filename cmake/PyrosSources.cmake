@@ -6,6 +6,7 @@ set(AUDIO_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Audio/AudioBus.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Audio/AudioEffectChain.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Audio/AudioEar.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Audio/AudioReverb.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Audio/Sound.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Audio/AudioSource.cpp
 )

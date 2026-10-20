@@ -80,6 +80,13 @@ namespace p3d {
 					[](std::shared_ptr<AudioBus> parent) { return std::make_shared<AudioBus>(parent); }
 				),
 				"isValid", &AudioBus::IsValid,
+				// bus:setReverb(room, damping, wet [, preDelayMs [, early]]) - see AudioBus.h
+				"setReverb", sol::overload(
+					[](AudioBus &b, const f32 room, const f32 damping, const f32 wet) { b.SetReverb(room, damping, wet); },
+					[](AudioBus &b, const f32 room, const f32 damping, const f32 wet, const f32 pre) { b.SetReverb(room, damping, wet, pre); },
+					[](AudioBus &b, const f32 room, const f32 damping, const f32 wet, const f32 pre, const f32 early) { b.SetReverb(room, damping, wet, pre, early); }),
+				"clearReverb", &AudioBus::ClearReverb,
+				"hasReverb", &AudioBus::HasReverb,
 				"setVolume", &AudioBus::SetVolume,
 				"getVolume", &AudioBus::GetVolume,
 				"setPitch", &AudioBus::SetPitch,

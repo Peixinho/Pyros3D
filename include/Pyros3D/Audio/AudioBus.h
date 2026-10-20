@@ -75,6 +75,15 @@ namespace p3d {
 
 		// For Sound/AudioSource only - the raw miniaudio group, passed as
 		// ma_sound_init_from_file()'s routing target.
+		// The space the bus's sounds are heard in (AudioReverb.h): early reflections off
+		// walls `preDelayMs` away, then a tail that rings for longer the bigger `room` (0..1)
+		// is and duller the more `damping` (0 stone and glass .. 1 soft furnishing); `wet` is
+		// how loud the space is against the sounds, `early` its first reflections against its
+		// tail. A street of facades: room 0.45, damping 0.35, wet 0.22, preDelay 9, early 0.8.
+		// Put the world's sounds on a bus with one and music/UI on one without.
+		void SetReverb(const f32 room, const f32 damping, const f32 wet, const f32 preDelayMs = 12.f, const f32 early = 0.6f);
+		void ClearReverb();
+		bool HasReverb() const { return reverbNode != NULL; }
 		ma_sound* GetGroup() { return group; }
 
 	private:
@@ -84,6 +93,7 @@ namespace p3d {
 		std::shared_ptr<AudioBus> parent;
 
 		ma_sound* group;
+		void* reverbNode = NULL;
 		f32 volume;
 		f32 pitch;
 	};

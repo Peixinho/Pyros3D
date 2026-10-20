@@ -7,6 +7,8 @@
 //============================================================================
 
 #include <Pyros3D/Audio/AudioManager.h>
+#include <cstdio>
+#include <cstdlib>
 #include "AudioEar.h"
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Core/Logs/Log.h>
@@ -62,6 +64,19 @@ namespace p3d {
 			}
 			limiterGain = gain;
 			limiterPeak = peak;
+			// PYROS_AUDIO_CAPTURE=<file>: the mix as it leaves for the device, raw float32
+			// interleaved (rate and channels said once on stderr) - to measure what a game
+			// sounds like without listening to it
+			static FILE* capture = NULL;
+			static bool asked = false;
+			if (!asked)
+			{
+				asked = true;
+				const char* path = getenv("PYROS_AUDIO_CAPTURE");
+				if (path != NULL && path[0] != 0 && (capture = fopen(path, "wb")) != NULL)
+					fprintf(stderr, "AudioManager: capturing the mix to %s - float32, %u channels, %u Hz\n", path, channels, device->sampleRate);
+			}
+			if (capture != NULL) { fwrite(s, sizeof(f32), (size_t)frames * channels, capture); fflush(capture); }
 		}
 	}
 
