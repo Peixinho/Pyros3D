@@ -244,6 +244,9 @@ namespace p3d {
 		// Whether `Filename` has blocks in the compression cache that are still its own (an image
 		// loader ahead of time need not decode it - the blocks will be read instead).
 		static bool HasCompressedCache(const std::string& Filename);
+		// ...and makes them when not (decode, encode, store - no device call: a loader's worker can).
+		// False when compression is off or the device does not take blocks.
+		static bool MakeCompressedCache(const std::string& Filename);
 		static void SetCompression(const bool on);
 		static bool GetCompression();
 		// 0 for RGBA8, else the format its blocks are in (BlockCompress::Format).

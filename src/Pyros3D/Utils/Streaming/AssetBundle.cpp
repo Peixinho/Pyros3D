@@ -87,8 +87,9 @@ namespace p3d {
 			if (images.count(key) || claimed.count(key)) return true;
 			claimed.insert(key);
 		}
-		// (its blocks are cached: they are read when it loads, the image is not wanted)
-		if (Texture::HasCompressedCache(path)) return true;
+		// A material's map is loaded as blocks (Texture.h): made here, on the loader's worker, if
+		// they are not cached yet, so the load only reads them - the image itself is not wanted.
+		if (Texture::MakeCompressedCache(path)) return true;
 		Texture::DecodedImage image;
 		if (!Texture::DecodeFile(path, image)) return false;
 		std::lock_guard<std::mutex> lock(mutex);

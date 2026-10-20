@@ -370,6 +370,60 @@ namespace p3d {
 		return ok;
 	}
 
+	namespace {
+		// An image's blocks made and kept in the cache (written aside and moved in: a half-written
+		// file is never read); hd/levels hold them after.
+		void EncodeAndStore(Texture::DecodedImage &image, const std::filesystem::path &cacheFile, const uint64 srcSize, const int64 srcTime,
+			TexCacheHeader &hd, std::vector<std::vector<uchar> > &levels)
+		{
+			std::error_code ec;
+			LoadStats::Scope t(LoadStats::TextureDecode);
+			memcpy(hd.magic, kTexCacheMagic, 8);
+			hd.sourceSize = srcSize; hd.sourceTime = srcTime;
+			hd.width = (uint32)image.width; hd.height = (uint32)image.height;
+			hd.format = BlockCompress::ChooseFormat(image.pixels);
+			{
+				const size_t count = (size_t)image.width * image.height;
+				const size_t step = std::max<size_t>(1, count / 65536);
+				f64 r = 0, g = 0, b = 0; size_t n = 0;
+				for (size_t i = 0; i < count; i += step, n++)
+				{
+					const uchar* q = &image.pixels[i * 4];
+					r += std::pow(q[0] / 255.0, 2.2); g += std::pow(q[1] / 255.0, 2.2); b += std::pow(q[2] / 255.0, 2.2);
+				}
+				hd.average[0] = n ? (f32)(r / n) : 0.f; hd.average[1] = n ? (f32)(g / n) : 0.f; hd.average[2] = n ? (f32)(b / n) : 0.f;
+				hd.haveAverage = n ? 1 : 0;
+			}
+			BlockCompress::EncodeMipChain(hd.format, image.pixels, hd.width, hd.height, levels);
+			hd.levels = (uint32)levels.size();
+			// kept for next time (written aside and moved in: a half-written file is never read)
+			std::filesystem::create_directories(CompressionCacheDir(), ec);
+			const std::string tmp = cacheFile.string() + ".tmp" + std::to_string((uintptr_t)&hd);
+			if (FILE* f = fopen(tmp.c_str(), "wb"))
+			{
+				bool ok = fwrite(&hd, sizeof(hd), 1, f) == 1;
+				for (size_t l = 0; l < levels.size() && ok; l++) ok = fwrite(levels[l].data(), 1, levels[l].size(), f) == levels[l].size();
+				fclose(f);
+				if (ok) std::filesystem::rename(tmp, cacheFile, ec);
+				if (!ok || ec) std::filesystem::remove(tmp, ec);
+			}
+		}
+	}
+
+	bool Texture::MakeCompressedCache(const std::string& Filename)
+	{
+		if (!GetCompression() || !Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3)) return false;
+		if (HasCompressedCache(Filename)) return true;
+		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0;
+		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime)) return false;
+		DecodedImage image;
+		if (!DecodeFile(Filename, image) || image.width < 4 || image.height < 4) return false;
+		TexCacheHeader hd;
+		std::vector<std::vector<uchar> > levels;
+		EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels);
+		return true;
+	}
+
 	bool Texture::LoadCompressed(const std::string& Filename)
 	{
 		if (!Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3))
@@ -413,36 +467,7 @@ namespace p3d {
 			DecodedImage image;
 			if (!(AssetBundle::TakeImage(Filename, image) || DecodeFile(Filename, image)) || image.width < 4 || image.height < 4)
 				return false;
-			LoadStats::Scope t(LoadStats::TextureDecode);
-			memcpy(hd.magic, kTexCacheMagic, 8);
-			hd.sourceSize = srcSize; hd.sourceTime = srcTime;
-			hd.width = (uint32)image.width; hd.height = (uint32)image.height;
-			hd.format = BlockCompress::ChooseFormat(image.pixels);
-			{
-				const size_t count = (size_t)image.width * image.height;
-				const size_t step = std::max<size_t>(1, count / 65536);
-				f64 r = 0, g = 0, b = 0; size_t n = 0;
-				for (size_t i = 0; i < count; i += step, n++)
-				{
-					const uchar* q = &image.pixels[i * 4];
-					r += std::pow(q[0] / 255.0, 2.2); g += std::pow(q[1] / 255.0, 2.2); b += std::pow(q[2] / 255.0, 2.2);
-				}
-				hd.average[0] = n ? (f32)(r / n) : 0.f; hd.average[1] = n ? (f32)(g / n) : 0.f; hd.average[2] = n ? (f32)(b / n) : 0.f;
-				hd.haveAverage = n ? 1 : 0;
-			}
-			BlockCompress::EncodeMipChain(hd.format, image.pixels, hd.width, hd.height, levels);
-			hd.levels = (uint32)levels.size();
-			// kept for next time (written aside and moved in: a half-written file is never read)
-			std::filesystem::create_directories(CompressionCacheDir(), ec);
-			const std::string tmp = cacheFile.string() + ".tmp" + std::to_string((uintptr_t)this);
-			if (FILE* f = fopen(tmp.c_str(), "wb"))
-			{
-				bool ok = fwrite(&hd, sizeof(hd), 1, f) == 1;
-				for (size_t l = 0; l < levels.size() && ok; l++) ok = fwrite(levels[l].data(), 1, levels[l].size(), f) == levels[l].size();
-				fclose(f);
-				if (ok) std::filesystem::rename(tmp, cacheFile, ec);
-				if (!ok || ec) std::filesystem::remove(tmp, ec);
-			}
+			EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels);
 		}
 
 		if (hd.haveAverage) { averageColour = Vec3(hd.average[0], hd.average[1], hd.average[2]); haveAverageColour = true; }
