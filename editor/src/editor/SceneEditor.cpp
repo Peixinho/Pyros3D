@@ -78,6 +78,9 @@
 #define MAX_F32 3.40282e+38
 
 using namespace p3d;
+
+// the document whose physics answers the shared AudioManager's occlusion test (see Update)
+static SceneEditor* g_occlusionDoc = NULL;
 using json = nlohmann::json;
 
 namespace {
@@ -6695,6 +6698,18 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				listenerDt = (f32)(time - lastListenerTime);
 			lastListenerTime = time;
 			audio->SetListenerFromGameObject(viewCam, listenerDt);
+			if (g_occlusionDoc != this)
+			{
+				// (what stands between a sound and the ears: this document's physics, while it listens)
+				g_occlusionDoc = this;
+				audio->SetOcclusionTest([this](const Vec3 &from, const Vec3 &to) -> f32 {
+					if (physics == NULL) return 0.f;
+					const f32 length = (to - from).magnitude();
+					if (length < 3.f) return 0.f;
+					const RayCastHit h = physics->RayCast(from, to);
+					return (h.hasHit && h.distance < length - 2.5f) ? 1.f : 0.f;
+				});
+			}
 			{
 				// the scene's space, as the panel has it (compared: the bus is shared by every document)
 				static f32 applied[6] = { -1.f, 0.f, 0.f, 0.f, 0.f, 0.f };
@@ -10547,6 +10562,11 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 
 	SceneEditor::~SceneEditor()
 	{
+		if (g_occlusionDoc == this)
+		{
+			g_occlusionDoc = NULL;
+			if (AudioManager::IsActiveSet()) AudioManager::GetActive()->SetOcclusionTest(nullptr);
+		}
 		Shutdown();
 	}
 
@@ -12192,6 +12212,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							f32 doppler = asrc->GetDopplerFactor();
 							if (ImGui::DragFloat("Doppler Factor", &doppler, 0.01f, 0.0f, 2.0f))
 								asrc->SetDopplerFactor(doppler);
+						}
+						{
+							bool occ = asrc->GetOcclusion();
+							if (ImGui::Checkbox("Occlusion", &occ)) { asrc->SetOcclusion(occ); sceneDirty = true; }
+							if (ImGui::IsItemHovered())
+								ImGui::SetTooltip("Heard duller and quieter with something in the way:\n"
+												  "a ray from the listener to the source, a few times a second.");
 						}
 
 						ImGui::Separator();
@@ -14087,6 +14114,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				j["maxDistance"] = (double)a->GetMaxDistance();
 				j["directionalAttenuation"] = (double)a->GetDirectionalAttenuation();
 				j["dopplerFactor"] = (double)a->GetDopplerFactor();
+				j["occlusion"] = a->GetOcclusion();
 				if (a->HasCone())
 					j["cone"] = { { "inner", (double)RADTODEG(a->GetConeInnerAngle()) },
 						{ "outer", (double)RADTODEG(a->GetConeOuterAngle()) },
@@ -15593,6 +15621,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		if (has("pan")) { a->SetPan(F("pan", 0.f)); changed = true; }
 		if (has("directionalAttenuation")) { a->SetDirectionalAttenuation(F("directionalAttenuation", 0.f)); changed = true; }
 		if (has("dopplerFactor")) { a->SetDopplerFactor(F("dopplerFactor", 1.f)); changed = true; }
+		if (has("occlusion")) { a->SetOcclusion(p["occlusion"].get<bool>()); changed = true; }
 
 		if (has("attenuation") || has("minDistance") || has("maxDistance"))
 		{

@@ -66,6 +66,8 @@ namespace p3d { namespace detail {
 		if (earNode != NULL) Rewire(soundNode, target);
 	}
 
+	void AudioEffectChain::SetEarOcclusion(const f32 amount) { EarNodeSetOcclusion(earNode, amount); }
+
 	void AudioEffectChain::SetEar(const bool placed, const f32 x, const f32 y, const f32 z)
 	{
 		EarNodeSet(earNode, placed, x, y, z);

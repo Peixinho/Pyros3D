@@ -5603,7 +5603,7 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         shared generic material. New primitives already get their own;
         materials loaded from a scene file stay shared until this.
       set_physics (name, mass, linearVelocity, angularVelocity, impulse, cleanForces)
-      set_audio (name, volume, pitch, pan, looping, spatialized, attenuation,
+      set_audio (name, volume, pitch, pan, looping, spatialized, occlusion, attenuation,
         minDistance, maxDistance, directionalAttenuation, dopplerFactor,
         cone {inner, outer, outerGain} | false, filter {type, cutoff, order} | "none",
         eq {type, frequency, gain, q} | "none", delay {seconds, decay, wet, dry} | false,

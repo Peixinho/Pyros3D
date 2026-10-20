@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Export.h>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -168,11 +169,19 @@ namespace p3d {
 		// music or the UI. Made the first time it is asked for; passes sound through unchanged
 		// until a reverb is set.
 		std::shared_ptr<AudioBus> GetWorldBus();
+		// Occlusion: what stands between a placed sound and the listener - 0 a clear line, 1 a
+		// building in the way. The game hands this over (a physics ray, in the player and the
+		// editor); sounds with occlusion on (AudioSource/Sound::SetOcclusion) ask it a few times a
+		// second and are heard duller and quieter behind walls. With none set, nothing is occluded.
+		void SetOcclusionTest(const std::function<f32(const Vec3 &from, const Vec3 &to)> &test) { occlusionTest = test; }
+		f32 Occlusion(const Vec3 &soundPosition) const { return occlusionTest ? occlusionTest(listenerPosition, soundPosition) : 0.f; }
+		bool HasOcclusionTest() const { return (bool)occlusionTest; }
 		void SetWorldReverb(const f32 room, const f32 damping, const f32 wet, const f32 preDelayMs, const f32 early);
 		void ClearWorldReverb();
 
 	private:
 		std::shared_ptr<AudioBus> worldBus;
+		std::function<f32(const Vec3 &, const Vec3 &)> occlusionTest;
 
 		ma_engine* engine;
 		bool initialized;

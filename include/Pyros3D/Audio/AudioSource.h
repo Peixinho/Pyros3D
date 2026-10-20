@@ -147,6 +147,10 @@ namespace p3d {
 		// Update() re-baseline instead of computing a velocity from it.
 		void ResetVelocityTracking() { hasLastUpdate = false; }
 
+		// Heard duller and quieter with something in the way (AudioManager::SetOcclusionTest),
+		// tested about six times a second. Placed sources only. Off by default.
+		void SetOcclusion(const bool on) { occlusion = on; if (!on) occlusionNow = -1.f; }
+		bool GetOcclusion() const { return occlusion; }
 		// The bus this source plays through (NULL: straight to the device).
 		const std::shared_ptr<AudioBus> &GetBus() const { return bus; }
 
@@ -252,6 +256,9 @@ namespace p3d {
 
 		bool looping;
 		bool spatialized;
+		bool occlusion = false;
+		f32 occlusionNow = -1.f;
+		f64 nextOcclusionTest = 0.0;
 		f32 volume;
 		f32 pitch;
 		f32 pan;

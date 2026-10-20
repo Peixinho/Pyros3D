@@ -76,6 +76,8 @@ namespace p3d { namespace detail {
 		// where the sound is each time it is played or moved.
 		void EnsureEar(ma_engine* engine, void* soundNode, void* target);
 		void SetEar(const bool placed, const f32 x, const f32 y, const f32 z);
+		void SetEarOcclusion(const f32 amount);
+		bool HasEar() const { return earNode != NULL; }
 
 		// Read-back - miniaudio exposes no config getters for any of these
 		// node types, so every setter above also caches its own arguments

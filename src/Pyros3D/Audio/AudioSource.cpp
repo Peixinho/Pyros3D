@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Audio/AudioSource.h>
+#include <chrono>
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Audio/AudioBus.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -425,6 +426,17 @@ namespace p3d {
 		const Vec3 position = owner->GetWorldPosition();
 		ma_sound_set_position(sound, position.x, position.y, position.z);
 		chain->SetEar(spatialized, position.x, position.y, position.z);
+		if (occlusion && AudioManager::IsActiveSet() && AudioManager::GetActive()->HasOcclusionTest())
+		{
+			// (a ray every ~0.16 s, not every frame: a wall does not come and go that fast)
+			const f64 now = std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
+			if (now >= nextOcclusionTest)
+			{
+				nextOcclusionTest = now + 0.16;
+				occlusionNow = AudioManager::GetActive()->Occlusion(position);
+				chain->SetEarOcclusion(occlusionNow);
+			}
+		}
 
 		// Forward axis out of the world matrix, matching the listener's
 		// convention in AudioManager::SetListenerFromGameObject(). Only

@@ -24,6 +24,7 @@ namespace p3d { namespace detail {
 			std::atomic<bool> placed;
 			std::atomic<float> x, y, z;
 			std::atomic<uint32_t> turn;      // each time it is placed anew: the ears begin again
+			std::atomic<float> occlusion;
 			uint32_t turnSeen;
 			float sampleRate;
 		};
@@ -54,7 +55,7 @@ namespace p3d { namespace detail {
 			// (on top of the head, or at it: neither side)
 			float sinA = 0.f, cosA = 1.f;
 			if (flat > 0.15f) { sinA = side / flat; cosA = front / flat; }
-			n->ears.Process(src, dst, frames, sinA, cosA, n->sampleRate);
+			n->ears.Process(src, dst, frames, sinA, cosA, n->sampleRate, n->occlusion.load(std::memory_order_relaxed));
 		}
 
 		ma_node_vtable g_earVtable = { EarProcess, NULL, 1, 1, 0 };
@@ -73,7 +74,7 @@ namespace p3d { namespace detail {
 		static const bool off = std::getenv("PYROS_AUDIO_EARS") != NULL && std::getenv("PYROS_AUDIO_EARS")[0] == '0';
 		if (off || engine == NULL || ma_engine_get_channels(engine) != 2) return NULL;
 		EarNode* n = new EarNode();
-		n->placed.store(false); n->x.store(0.f); n->y.store(0.f); n->z.store(0.f); n->turn.store(0); n->turnSeen = 0;
+		n->placed.store(false); n->x.store(0.f); n->y.store(0.f); n->z.store(0.f); n->turn.store(0); n->turnSeen = 0; n->occlusion.store(0.f);
 		n->sampleRate = (float)ma_engine_get_sample_rate(engine);
 		ma_node_config config = ma_node_config_init();
 		const ma_uint32 channels[1] = { 2 };
@@ -99,6 +100,12 @@ namespace p3d { namespace detail {
 		n->x.store(x, std::memory_order_relaxed); n->y.store(y, std::memory_order_relaxed); n->z.store(z, std::memory_order_relaxed);
 		if (placed != n->placed.load(std::memory_order_relaxed)) n->turn.fetch_add(1, std::memory_order_relaxed);
 		n->placed.store(placed, std::memory_order_relaxed);
+	}
+
+	void EarNodeSetOcclusion(void* node, const float amount)
+	{
+		if (node == NULL) return;
+		reinterpret_cast<EarNode*>(node)->occlusion.store(amount, std::memory_order_relaxed);
 	}
 
 } }

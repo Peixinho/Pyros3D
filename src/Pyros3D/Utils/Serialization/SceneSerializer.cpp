@@ -1820,6 +1820,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["maxDistance"] = a->GetMaxDistance();
 			j["directionalAttenuation"] = a->GetDirectionalAttenuation();
 			j["dopplerFactor"] = a->GetDopplerFactor();
+			if (a->GetOcclusion()) j["occlusion"] = true;
 			j["pan"] = a->GetPan();
 			// (through the scene's world bus - its reverb - or straight out: music, a UI sound)
 			j["worldBus"] = a->GetBus() && AudioManager::IsActiveSet() && a->GetBus() == AudioManager::GetActive()->GetWorldBus();
@@ -4192,6 +4193,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					j.value("minDistance", 1.0f), j.value("maxDistance", 100.0f));
 				a->SetDirectionalAttenuation(j.value("directionalAttenuation", 1.0f));
 				a->SetDopplerFactor(j.value("dopplerFactor", 1.0f));
+				a->SetOcclusion(j.value("occlusion", false));
 				a->SetPan(j.value("pan", 0.0f));
 				if (j.find("coneInnerAngle") != j.end())
 					a->SetCone(j.value("coneInnerAngle", 6.283185f), j.value("coneOuterAngle", 6.283185f), j.value("coneOuterGain", 1.0f));

@@ -370,6 +370,15 @@ void PyrosPlayer::Init()
 		AudioManager::MakeActive(audio);
 	else
 		echo("WARNING: no audio device - the game will run silent");
+	// What stands between a sound and the ears (for sounds with occlusion on): a ray through the
+	// world, a hit near the sound itself not counted - a car's own body around its engine.
+	audio->SetOcclusionTest([this](const Vec3 &from, const Vec3 &to) -> f32 {
+		if (physics == NULL) return 0.f;
+		const f32 length = (to - from).magnitude();
+		if (length < 3.f) return 0.f;
+		const RayCastHit h = physics->RayCast(from, to);
+		return (h.hasHit && h.distance < length - 2.5f) ? 1.f : 0.f;
+	});
 
 	// A 2D scene is always forward, whatever the manifest asked for.
 	//

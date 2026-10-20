@@ -238,7 +238,11 @@ namespace p3d {
 		}
 		ma_sound_set_spatialization_enabled(voice, MA_TRUE);
 		ma_sound_set_position(voice, position.x, position.y, position.z);
-		for (size_t v = 0; v < voices.size(); v++) if (voices[v] == voice && v < chains.size()) chains[v]->SetEar(true, position.x, position.y, position.z);
+		{
+			const f32 occ = (occlusion && AudioManager::IsActiveSet()) ? AudioManager::GetActive()->Occlusion(position) : 0.f;
+			for (size_t v = 0; v < voices.size(); v++)
+				if (voices[v] == voice && v < chains.size()) { chains[v]->SetEar(true, position.x, position.y, position.z); chains[v]->SetEarOcclusion(occ); }
+		}
 		ma_sound_set_volume(voice, volume);
 		ma_sound_set_pitch(voice, pitch);
 		ma_sound_seek_to_pcm_frame(voice, 0);

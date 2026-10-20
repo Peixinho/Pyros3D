@@ -132,6 +132,8 @@ namespace p3d {
 				"stop", &Sound::Stop,
 				"getPlayingCount", &Sound::GetPlayingCount,
 				"setAttenuation", &Sound::SetAttenuation,
+				"setOcclusion", &Sound::SetOcclusion,
+				"getOcclusion", &Sound::GetOcclusion,
 				"setFilter", sol::overload(
 					[](Sound &s, const uint32 type, const f32 cutoffHz) { s.SetFilter(type, cutoffHz); },
 					[](Sound &s, const uint32 type, const f32 cutoffHz, const uint32 order) { s.SetFilter(type, cutoffHz, order); }
@@ -193,6 +195,9 @@ namespace p3d {
 				"clearCone", &AudioSource::ClearCone,
 				"setDirectionalAttenuation", &AudioSource::SetDirectionalAttenuation,
 				"setDopplerFactor", &AudioSource::SetDopplerFactor,
+				// heard duller and quieter behind walls (AudioManager's occlusion test)
+				"setOcclusion", &AudioSource::SetOcclusion,
+				"getOcclusion", &AudioSource::GetOcclusion,
 				"resetVelocityTracking", &AudioSource::ResetVelocityTracking,
 				"setFilter", sol::overload(
 					[](AudioSource &a, const uint32 type, const f32 cutoffHz) { a.SetFilter(type, cutoffHz); },

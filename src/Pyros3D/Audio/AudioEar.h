@@ -9,6 +9,7 @@
 #ifndef PYROS3D_AUDIO_EAR_H
 #define	PYROS3D_AUDIO_EAR_H
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -36,9 +37,13 @@ namespace p3d { namespace detail {
 		unsigned at;
 		float delay[2], gain[2], coeff[2], low[2];      // [0] left ear, [1] right: as they are now
 		bool primed;
+		// Occlusion: what stands between the sound and the listener (0 a clear line .. 1 a building
+		// in the way) - a wall lets the low end through and takes the rest: the cutoff falls from
+		// 20 kHz to 700 Hz along a log scale, and it is quieter. Moved towards over ~80 ms.
+		float occ, occLow[2];
 
 		EarModel() { Reset(); }
-		void Reset() { std::memset(line, 0, sizeof(line)); at = 0; delay[0] = delay[1] = 0.f; gain[0] = gain[1] = 1.f; coeff[0] = coeff[1] = 1.f; low[0] = low[1] = 0.f; primed = false; }
+		void Reset() { std::memset(line, 0, sizeof(line)); at = 0; delay[0] = delay[1] = 0.f; gain[0] = gain[1] = 1.f; coeff[0] = coeff[1] = 1.f; low[0] = low[1] = 0.f; primed = false; occ = -1.f; occLow[0] = occLow[1] = 0.f; }
 
 		// sinA: how far to the right the sound is (-1 left .. 1 right); cosA: how far in
 		// front (1) or behind (-1). What each ear is to be given.
@@ -62,7 +67,7 @@ namespace p3d { namespace detail {
 
 		// in/out: interleaved left, right. The sound as it comes is taken as one
 		// (its own left/right share is the angle said again, more weakly).
-		void Process(const float* in, float* out, const unsigned frames, const float sinA, const float cosA, const float sampleRate)
+		void Process(const float* in, float* out, const unsigned frames, const float sinA, const float cosA, const float sampleRate, const float occlusion = 0.f)
 		{
 			float td[2], tg[2], tc[2];
 			Targets(sinA, cosA, sampleRate, td, tg, tc);
@@ -90,6 +95,23 @@ namespace p3d { namespace detail {
 				}
 				at++;
 			}
+			// what is in the way (per block: it changes slowly)
+			const float target = occlusion < 0.f ? 0.f : (occlusion > 1.f ? 1.f : occlusion);
+			if (occ < 0.f) occ = target;
+			occ += (target - occ) * std::min(1.f, (float)frames / (0.08f * sampleRate));
+			if (occ > 0.002f)
+			{
+				const float cutoff = 20000.f * std::pow(700.f / 20000.f, occ);
+				const float c = 1.f - std::exp(-6.2831853f * cutoff / sampleRate);
+				const float g = 1.f - 0.45f * occ;
+				for (unsigned i = 0; i < frames; i++)
+					for (int e = 0; e < 2; e++)
+					{
+						occLow[e] += c * (out[i * 2 + e] - occLow[e]);
+						out[i * 2 + e] = occLow[e] * g;
+					}
+			}
+			else { occLow[0] = out[frames ? (frames - 1) * 2 : 0]; occLow[1] = out[frames ? (frames - 1) * 2 + 1 : 0]; }
 		}
 	};
 
@@ -102,6 +124,8 @@ namespace p3d { namespace detail {
 	void EarNodeDestroy(void* node);
 	// Placed in the world at x, y, z - or not placed at all (played as it is).
 	void EarNodeSet(void* node, const bool placed, const float x, const float y, const float z);
+	// how much stands between the sound and the listener, 0..1 (EarModel's occlusion)
+	void EarNodeSetOcclusion(void* node, const float amount);
 
 } }
 

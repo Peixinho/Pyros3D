@@ -129,6 +129,12 @@ namespace p3d {
 		f32 GetDelayWet() const;
 		f32 GetDelayDry() const;
 
+	public:
+		// A sound played somewhere (PlayAt) with something in the way is heard duller and quieter
+		// (AudioManager::SetOcclusionTest) - tested once, as it starts. Off by default.
+		void SetOcclusion(const bool on) { occlusion = on; }
+		bool GetOcclusion() const { return occlusion; }
+
 	private:
 
 		// Returns a voice that is free, or steals the one used longest ago.
@@ -160,6 +166,7 @@ namespace p3d {
 		// chains[0] back (they are always kept in sync with each other, so
 		// any one voice's state represents the whole pool's).
 		std::vector<detail::AudioEffectChain*> chains;
+		bool occlusion = false;
 	};
 
 }
