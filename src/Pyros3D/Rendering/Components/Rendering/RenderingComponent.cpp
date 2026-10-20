@@ -716,6 +716,30 @@ namespace p3d {
 		{
 			ModelGeometry* g = m ? dynamic_cast<ModelGeometry*>(m->Geometry) : NULL;
 			if (!g || !g->tBonesID.empty() || g->tVertex.empty()) continue;
+			// (nothing of it near: left as it is, shared)
+			{
+				bool near = false;
+				for (size_t v = 0; v < g->tVertex.size() && !near; v++) near = g->tVertex[v].distance(c) < r;
+				if (!near) continue;
+			}
+			// (its own copy, the first time: the model file's geometry is every user's)
+			bool own = false;
+			for (size_t k = 0; k < ownGeometries.size(); k++) if (ownGeometries[k].get() == g) { own = true; break; }
+			if (!own)
+			{
+				std::unique_ptr<ModelGeometry> copy(new ModelGeometry());
+				copy->tVertex = g->tVertex; copy->tNormal = g->tNormal; copy->tTexcoord = g->tTexcoord;
+				copy->tTangent = g->tTangent; copy->tBitangent = g->tBitangent;
+				copy->index = g->index; copy->materialProperties = g->materialProperties;
+				copy->CreateBuffers();
+				copy->SendBuffers();
+				if (getenv("PYROS_DENT_TRACE")) fprintf(stderr, "[dent] %s: own copy of geometry %p -> %p\n", GetOwner() ? GetOwner()->GetName().c_str() : "?", (void*)g, (void*)copy.get());
+				g = copy.get();
+				m->Geometry = g;
+				ownGeometries.push_back(std::move(copy));
+				ownBuffersRevision++;              // (cached bindings were of the shared buffers)
+				RenderState::Touch();              // (the kept draw list batched it with the others)
+			}
 			std::vector<uint8> touched(g->tVertex.size(), 0);
 			bool any = false;
 			for (size_t v = 0; v < g->tVertex.size(); v++)

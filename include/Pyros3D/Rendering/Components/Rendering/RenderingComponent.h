@@ -500,6 +500,9 @@ namespace p3d {
 		// drawing from the attribute buffer it had just deleted - live
 		// particles, and nothing on screen.
 		uint32 ownBuffersRevision = 0;
+		// Geometries this component was given copies of, its own (Dent(): a dent is this object's, not
+		// every one drawn from the same model file)
+		std::vector<std::unique_ptr<ModelGeometry> > ownGeometries;
 
 		// Get Model Skeleton
 		const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
@@ -616,7 +619,8 @@ namespace p3d {
 		// `worldPush` (all of it at the point, nothing at the edge, smoothly between), its normals
 		// made again from the triangles round it and its vertices sent again. Model meshes only, not
 		// skinned ones. The geometry is the model's: everything drawn from the same model file takes
-		// the dent too - a thing to be dented wants a model of its own. Returns the vertices moved.
+		// The first dent on a mesh gives this component its own copy of it: other objects drawn from
+		// the same model file are untouched. Returns the vertices moved.
 		uint32 Dent(const Vec3 &worldPoint, const f32 radius, const Vec3 &worldPush);
 
 		// Get LOD Number
