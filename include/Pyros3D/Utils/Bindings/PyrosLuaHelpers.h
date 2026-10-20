@@ -147,6 +147,9 @@ void RenderingComponent_ADDLOD_DistOnly(RenderingComponent* rcomp, sol::object r
 std::shared_ptr<LUA_RenderingComponent> LuaNewRenderingComponent(sol::object renderableObj, sol::object materialOrOptions);
 std::shared_ptr<LUA_RenderingComponent> LuaNewRenderingComponentDist(sol::object renderableObj, sol::object materialOrOptions, float distance);
 bool PlaceDecalAtCursor(float winW, float winH, float mouseX, float mouseY, GameObject* camera, Projection* projection, SceneGraph* scene, sol::object materialObj, const Vec3 &dimensions);
+// The same with the material in hand (the editor's decal tool, C++): the decal is a RenderingComponent on
+// what was hit, so it is saved with the scene.
+PYROS3D_API bool PlaceDecalAt(float winW, float winH, float mouseX, float mouseY, GameObject* camera, Projection* projection, SceneGraph* scene, const std::shared_ptr<IMaterial> &material, const Vec3 &dimensions);
 // Mesh-accurate pick along a screen ray. See the implementation comment: this
 // is the information PlaceDecalAtCursor computes and throws away.
 bool ScreenPick(float winW, float winH, float mouseX, float mouseY, GameObject* camera,

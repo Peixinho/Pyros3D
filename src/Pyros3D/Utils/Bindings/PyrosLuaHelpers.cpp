@@ -1311,8 +1311,14 @@ namespace p3d {
 		GameObject* camera, Projection* projection, SceneGraph* scene,
 		sol::object materialObj, const Vec3 &dimensions)
 	{
+		return PlaceDecalAt(winW, winH, mouseX, mouseY, camera, projection, scene, LuaObjectToMaterial(materialObj), dimensions);
+	}
+
+	bool PlaceDecalAt(float winW, float winH, float mouseX, float mouseY,
+		GameObject* camera, Projection* projection, SceneGraph* scene,
+		const std::shared_ptr<IMaterial> &material, const Vec3 &dimensions)
+	{
 		if (!camera || !projection || !scene) return false;
-		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialObj);
 		if (!material) return false;
 
 		Mouse3D mouse;

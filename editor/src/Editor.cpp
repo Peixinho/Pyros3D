@@ -4095,6 +4095,18 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// set_scene_audio {reverb?, room?, damping?, wet?, preDelay?, early?}: the scene's space - the
 	// Environment panel's "Sound of the space" (SceneMeta reverb, saved as "audio": {"reverb"}).
 	// Called with nothing, it reports the current values.
+	// place_decal {texture, size?, vx, vy}: the decal tool - a texture projected onto what is under that
+	// viewport pixel (render-target pixels, as `mouse` takes them); saved with the scene.
+	if (name == "place_decal")
+	{
+		if (a.is_object() && a.contains("texture")) sceneView->decalTexture = a.value("texture", std::string());
+		if (a.is_object() && a.contains("size")) sceneView->decalSize = a.value("size", 0.5f);
+		if (!sceneView->PlaceDecalInView(a.value("vx", 0.f), a.value("vy", 0.f), err))
+			throw std::runtime_error(err);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "set_scene_audio")
 	{
 		if (a.is_object())

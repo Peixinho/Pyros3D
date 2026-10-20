@@ -49,6 +49,7 @@
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Assets/Renderable/Decals/Decals.h>
+#include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <cmath>
 #ifdef isnan
 #undef isnan
@@ -5359,6 +5360,14 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		}
 		// The space the scene's sounds are heard in: reverb on the world bus, which the scene's
 		// placed sounds go through (AudioSource "worldBus"); heard here as it is edited.
+		// Decals: a texture (a bullet hole, a stain, a sign) projected onto whatever a click in the view lands on.
+		ImGui::TextUnformatted("Decals");
+		ImGui::SetNextItemWidth(220.f);
+		ImGui::InputText("Texture##decal", &decalTexture);
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Project-relative image (with alpha), e.g. assets/textures/fx/bullethole.png");
+		ImGui::SetNextItemWidth(160.f);
+		ImGui::SliderFloat("Size##decal", &decalSize, 0.02f, 10.f, "%.2f m", ImGuiSliderFlags_Logarithmic);
+		if (ImGui::Checkbox("Click in the view to place##decal", &decalPlacing) && decalPlacing && decalTexture.empty()) decalPlacing = false;
 		if (ImGui::Checkbox("Sound of the space (reverb)", &reverbOn)) sceneDirty = true;
 		if (ImGui::IsItemHovered())
 			ImGui::SetTooltip("What comes back off the walls: early reflections, then a tail.\n"
@@ -10739,6 +10748,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 		}
 
+		// The decal tool takes the click while it is on: a decal where it lands.
+		if (decalPlacing && !playMode && !sceneIsTwoD)
+		{
+			UpdateViewportMouse();
+			std::string err;
+			if (viewportMouseValid && !PlaceDecalInView(mousePosition.x, mousePosition.y, err)) echo("Decal: " + err);
+			return;
+		}
+
 		// The terrain brush claims the click the same way, when it lands on
 		// terrain; off it, the click is the viewport's as usual.
 		if (IsTerrainMode() && !playMode && !sceneIsTwoD)
@@ -15081,6 +15099,26 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 	// Scene Properties, so a scene built through the socket was stuck on the
 	// default 0.2 grey - which is the difference between a lit interior and a
 	// flat one, and there was no way to say so.
+	bool SceneEditor::PlaceDecalInView(const f32 viewX, const f32 viewY, std::string &errOut)
+	{
+		if (decalTexture.empty()) { errOut = "no texture"; return false; }
+		if (!scene || !Camera) { errOut = "no scene"; return false; }
+		std::shared_ptr<Texture> tex = Texture::LoadShared(ResolveAssetPath(decalTexture), TextureType::Texture, true, true);
+		if (!tex) { errOut = "could not load " + decalTexture; return false; }
+		std::shared_ptr<GenericShaderMaterial> m = std::make_shared<GenericShaderMaterial>((uint32)ShaderUsage::Texture);
+		m->SetColorMap(tex);
+		m->SetTransparencyFlag(true);
+		m->EnableDethBias(-4.f, -4.f);
+		m->DisableDepthWrite();
+		if (!PlaceDecalAt(dim.x, dim.y, viewX, viewY, Camera.get(), &projection, scene, m, Vec3(decalSize, decalSize, decalSize)))     // (the viewport's render target, not the window)
+		{
+			errOut = "nothing under that point";
+			return false;
+		}
+		sceneDirty = true;
+		return true;
+	}
+
 	bool SceneEditor::AgentSetAmbient(const json& p, std::string& errOut)
 	{
 		if (!p.is_object()) { errOut = "expected an object"; return false; }

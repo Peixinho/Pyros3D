@@ -511,6 +511,12 @@ public:
 	// The scene's space (SceneMeta::reverb): heard on the world bus while this document's
 	// view is the one listening; the Environment panel's "Sound of the space".
 	bool reverbOn = false;
+	// The decal tool (the Environment panel's "Decals", place_decal): a texture projected onto what a click
+	// in the view lands on - a RenderingComponent on the object hit, saved with the scene.
+	std::string decalTexture;
+	f32 decalSize = 0.5f;
+	bool decalPlacing = false;
+	bool PlaceDecalInView(const f32 viewX, const f32 viewY, std::string &errOut);
 	f32 reverbRoom = 0.45f, reverbDamping = 0.35f, reverbWet = 0.22f, reverbPreDelay = 9.f, reverbEarly = 0.8f;
 	uint32 terrainShadowsResolution = 512;
 	f32 terrainShadowsReach = 800.f;
