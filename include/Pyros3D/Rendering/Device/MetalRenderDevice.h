@@ -524,6 +524,22 @@ namespace p3d {
 		// draining/restoring frameBoundarySemaphore by MAX_FRAMES_IN_FLIGHT
 		// to get the same "block until GPU is idle" guarantee.
 		void* lastSubmittedCommandBuffer; // id<MTLCommandBuffer>, nullable
+		// GPU time per render pass, as VulkanRenderDevice's timestamp queries: a counter sample
+		// buffer sampled at the start of each pass's vertex stage and the end of its fragment
+		// stage, labelled with the open FrameProfiler scope, read back once that frame is known
+		// done (the slot comes round again past the frame semaphore) - see GpuTimerAttach.
+		static const uint32 kGpuTimerSlots = MAX_FRAMES_IN_FLIGHT + 1;
+		static const uint32 kGpuTimerPairs = 64;
+		void* gpuTimerBuffer = NULL;            // id<MTLCounterSampleBuffer>
+		uint32 gpuTimerSlot = 0;
+		uint32 gpuTimerCount[kGpuTimerSlots] = {};
+		char gpuTimerLabel[kGpuTimerSlots][kGpuTimerPairs][48];
+		f64 gpuTicksToNs = 1.0;
+		uint64 gpuCalibCpu = 0, gpuCalibGpu = 0;
+		uint64 gpuTimerSlotStart[kGpuTimerSlots] = {};      // the GPU clock as the slot's frame began encoding
+		void GpuTimerInit();
+		void GpuTimerAttach(void* renderPassDescriptor);
+		void GpuTimerCollect(const uint32 slot);
 
 		// Same fake-VAO shim as VulkanRenderDevice::VaoRecord - copied,
 		// not redesigned (see BindVertexArray()'s comment above).

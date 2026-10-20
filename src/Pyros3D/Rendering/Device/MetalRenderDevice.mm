@@ -36,6 +36,8 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #include <dispatch/dispatch.h>
+#include <mach/mach_time.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <cstdio>
 #include <cstring>
 #include <cfloat>
@@ -316,6 +318,105 @@ namespace p3d {
 			// single semaphore replaces that backend's whole fence array.
 			dispatch_semaphore_t sem = dispatch_semaphore_create(MAX_FRAMES_IN_FLIGHT);
 			frameBoundarySemaphore = (void*)CFBridgingRetain(sem);
+			GpuTimerInit();
+		}
+	}
+
+	void MetalRenderDevice::GpuTimerInit()
+	{
+		@autoreleasepool
+		{
+			id<MTLDevice> dev = (__bridge id<MTLDevice>)device;
+			if (![dev supportsCounterSampling:MTLCounterSamplingPointAtStageBoundary]) { fprintf(stderr, "MetalRenderDevice: no stage-boundary counter sampling - no GPU pass timings\n"); return; }
+			id<MTLCounterSet> ts = nil;
+			for (id<MTLCounterSet> cs in dev.counterSets) if ([cs.name isEqualToString:MTLCommonCounterSetTimestamp]) ts = cs;
+			if (ts == nil) return;
+			MTLCounterSampleBufferDescriptor* d = [MTLCounterSampleBufferDescriptor new];
+			d.counterSet = ts;
+			d.storageMode = MTLStorageModeShared;
+			d.sampleCount = kGpuTimerSlots * kGpuTimerPairs * 2;
+			NSError* err = nil;
+			id<MTLCounterSampleBuffer> buf = [dev newCounterSampleBufferWithDescriptor:d error:&err];
+			if (buf == nil) { fprintf(stderr, "MetalRenderDevice: no counter sample buffer (%s)\n", err ? [[err localizedDescription] UTF8String] : "?"); return; }
+			gpuTimerBuffer = (void*)CFBridgingRetain(buf);
+			MTLTimestamp c = 0, g = 0;
+			[dev sampleTimestamps:&c gpuTimestamp:&g];
+			gpuCalibCpu = c; gpuCalibGpu = g;
+		}
+	}
+
+	void MetalRenderDevice::GpuTimerAttach(void* renderPassDescriptor)
+	{
+		if (gpuTimerBuffer == NULL || renderPassDescriptor == NULL) return;
+		const uint32 slot = gpuTimerSlot;
+		const uint32 i = gpuTimerCount[slot];
+		if (i >= kGpuTimerPairs) return;
+		MTLRenderPassDescriptor* rpd = (__bridge MTLRenderPassDescriptor*)renderPassDescriptor;
+		MTLRenderPassSampleBufferAttachmentDescriptor* a = rpd.sampleBufferAttachments[0];
+		a.sampleBuffer = (__bridge id<MTLCounterSampleBuffer>)gpuTimerBuffer;
+		const NSUInteger base = (slot * kGpuTimerPairs + i) * 2;
+		a.startOfVertexSampleIndex = base;
+		a.endOfVertexSampleIndex = MTLCounterDontSample;
+		a.startOfFragmentSampleIndex = MTLCounterDontSample;
+		a.endOfFragmentSampleIndex = base + 1;
+		const char* label = FrameProfiler::Instance().CurrentScopeName();
+		std::snprintf(gpuTimerLabel[slot][i], sizeof(gpuTimerLabel[slot][i]), "%s", (label && label[0]) ? label : "(no scope)");
+		gpuTimerCount[slot] = i + 1;
+	}
+
+	// The slot's frame is done (called once the frame semaphore has let the slot come round).
+	void MetalRenderDevice::GpuTimerCollect(const uint32 slot)
+	{
+		const uint32 count = gpuTimerCount[slot];
+		gpuTimerCount[slot] = 0;
+		if (gpuTimerBuffer == NULL || count == 0) return;
+		@autoreleasepool
+		{
+			id<MTLCounterSampleBuffer> buf = (__bridge id<MTLCounterSampleBuffer>)gpuTimerBuffer;
+			NSData* data = [buf resolveCounterRange:NSMakeRange(slot * kGpuTimerPairs * 2, count * 2)];
+			if (data == nil) return;
+			const MTLCounterResultTimestamp* t = (const MTLCounterResultTimestamp*)data.bytes;
+			// (GPU ticks to nanoseconds: the CPU's clock against the GPU's, measured over the run so far)
+			{
+				id<MTLDevice> dev = (__bridge id<MTLDevice>)device;
+				MTLTimestamp c = 0, g = 0;
+				[dev sampleTimestamps:&c gpuTimestamp:&g];
+				// (both clocks are in nanoseconds on Apple GPUs - the ratio comes out 1; measured rather
+				// than assumed for a GPU whose ticks are something else)
+				if (g > gpuCalibGpu + 1000000 && c > gpuCalibCpu)
+					gpuTicksToNs = (f64)(c - gpuCalibCpu) / (f64)(g - gpuCalibGpu);
+			}
+			FrameProfiler::ScopeRecord records[FrameProfiler::kMaxScopes];
+			uint32 recordCount = 0;
+			f64 total = 0.0;
+			uint64 first = ~0ull, last = 0;
+			for (uint32 i = 0; i < count; i++)
+			{
+				const uint64 a = t[i * 2].timestamp, b = t[i * 2 + 1].timestamp;
+				if (a == MTLCounterErrorValue || b == MTLCounterErrorValue || a == 0 || b <= a) continue;
+				// (a sample a pass did not write - no vertex stage ran - still holds its value from the
+				// last frame this slot timed: older than this frame, and three frames long)
+				if (a < gpuTimerSlotStart[slot] || b < gpuTimerSlotStart[slot]) continue;
+				first = std::min(first, a); last = std::max(last, b);
+				const f64 ms = (f64)(b - a) * gpuTicksToNs * 1e-6;
+				total += ms;
+				uint32 r = 0;
+				while (r < recordCount && std::strncmp(records[r].name, gpuTimerLabel[slot][i], FrameProfiler::kMaxNameLen) != 0) r++;
+				if (r == recordCount)
+				{
+					if (recordCount == FrameProfiler::kMaxScopes - 1) continue;
+					std::snprintf(records[r].name, FrameProfiler::kMaxNameLen, "%s", gpuTimerLabel[slot][i]);
+					records[r].ms = 0.0; records[r].depth = 0;
+					recordCount++;
+				}
+				records[r].ms += ms;
+			}
+			// (Apple's GPU runs passes alongside each other, so their sum overcounts: the total is the
+			// span from the frame's first pass starting to its last one ending)
+			(void)total;
+			std::snprintf(records[recordCount].name, FrameProfiler::kMaxNameLen, "Total (sum of passes)");
+			records[recordCount].ms = last > first ? (f64)(last - first) * gpuTicksToNs * 1e-6 : 0.0; records[recordCount].depth = 0;
+			FrameProfiler::Instance().SetGpuTimings(records, recordCount + 1);
 		}
 	}
 
@@ -379,6 +480,7 @@ namespace p3d {
 			if (currentDrawable != NULL) { CFBridgingRelease(currentDrawable); currentDrawable = NULL; }
 			if (lastSubmittedCommandBuffer != NULL) { CFBridgingRelease(lastSubmittedCommandBuffer); lastSubmittedCommandBuffer = NULL; }
 			if (frameBoundarySemaphore != NULL) { CFBridgingRelease(frameBoundarySemaphore); frameBoundarySemaphore = NULL; }
+			if (gpuTimerBuffer != NULL) { CFBridgingRelease(gpuTimerBuffer); gpuTimerBuffer = NULL; }
 			if (commandQueue != NULL) { CFBridgingRelease(commandQueue); commandQueue = NULL; }
 			if (device != NULL) { CFBridgingRelease(device); device = NULL; }
 			// metalLayer is a borrowed pointer (SDL/its NSView owns the real
@@ -527,6 +629,19 @@ namespace p3d {
 
 		dispatch_semaphore_t sem = (__bridge dispatch_semaphore_t)frameBoundarySemaphore;
 		dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+		// (past the semaphore, at most MAX_FRAMES_IN_FLIGHT - 1 frames are on the GPU: the frame that
+		// last used the next slot, kGpuTimerSlots ago, is done)
+		gpuTimerSlot = (gpuTimerSlot + 1) % kGpuTimerSlots;
+		GpuTimerCollect(gpuTimerSlot);
+		if (gpuTimerBuffer != NULL)
+		{
+			@autoreleasepool
+			{
+				MTLTimestamp c = 0, g = 0;
+				[(__bridge id<MTLDevice>)device sampleTimestamps:&c gpuTimestamp:&g];
+				gpuTimerSlotStart[gpuTimerSlot] = g;
+			}
+		}
 
 		@autoreleasepool
 		{
@@ -596,6 +711,19 @@ namespace p3d {
 		// frameBoundarySemaphore.
 		dispatch_semaphore_t sem = (__bridge dispatch_semaphore_t)frameBoundarySemaphore;
 		dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+		// (past the semaphore, at most MAX_FRAMES_IN_FLIGHT - 1 frames are on the GPU: the frame that
+		// last used the next slot, kGpuTimerSlots ago, is done)
+		gpuTimerSlot = (gpuTimerSlot + 1) % kGpuTimerSlots;
+		GpuTimerCollect(gpuTimerSlot);
+		if (gpuTimerBuffer != NULL)
+		{
+			@autoreleasepool
+			{
+				MTLTimestamp c = 0, g = 0;
+				[(__bridge id<MTLDevice>)device sampleTimestamps:&c gpuTimestamp:&g];
+				gpuTimerSlotStart[gpuTimerSlot] = g;
+			}
+		}
 
 		@autoreleasepool
 		{
@@ -631,6 +759,7 @@ namespace p3d {
 				rpd.depthAttachment.clearDepth = 1.0;
 			}
 
+			GpuTimerAttach((__bridge void*)rpd);
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
 			encoderBoundTextures.clear();
@@ -3918,6 +4047,7 @@ namespace p3d {
 				return;
 
 			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
+			GpuTimerAttach((__bridge void*)rpd);
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
 			encoderBoundTextures.clear();
