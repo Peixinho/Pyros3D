@@ -881,7 +881,13 @@ void PyrosPlayer::OpenLoadingScreen()
 	loadingScreen.Open(text, at, m.loadingLook, (uint32)Width, (uint32)Height, [this]() {
 		SDL_PumpEvents(); FrameHeartbeat();
 		int w = 0, h = 0;
+		// (in pixels where SDL can say - 2.26 and later; the Linux CI's is older, and its windows are
+		// not scaled: there points are pixels)
+#if SDL_VERSION_ATLEAST(2, 26, 0)
 		if (GetSDLWindow() != NULL) SDL_GetWindowSizeInPixels(GetSDLWindow(), &w, &h);
+#else
+		if (GetSDLWindow() != NULL) SDL_GetWindowSize(GetSDLWindow(), &w, &h);
+#endif
 		if (w > 0 && h > 0 && ((uint32)w != Width || (uint32)h != Height))
 		{
 			OnResize((uint32)w, (uint32)h);
