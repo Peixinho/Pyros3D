@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <string>
 
 namespace p3d { namespace BlockCompress {
 
@@ -90,10 +91,10 @@ namespace p3d { namespace BlockCompress {
 			errOut = err;
 		}
 
-		void EncodeAlphaBlock(const uint8_t rgba[64], uint8_t out[8])
+		void EncodeChannelBlock(const uint8_t rgba[64], const int ch, uint8_t out[8])
 		{
 			int lo = 255, hi = 0;
-			for (int i = 0; i < 16; i++) { lo = std::min(lo, (int)rgba[i * 4 + 3]); hi = std::max(hi, (int)rgba[i * 4 + 3]); }
+			for (int i = 0; i < 16; i++) { lo = std::min(lo, (int)rgba[i * 4 + ch]); hi = std::max(hi, (int)rgba[i * 4 + ch]); }
 			out[0] = (uint8_t)hi; out[1] = (uint8_t)lo;              // a0 > a1: eight values between them
 			int pal[8];
 			pal[0] = hi; pal[1] = lo;
@@ -101,7 +102,7 @@ namespace p3d { namespace BlockCompress {
 			uint64_t bits = 0;
 			for (int i = 0; i < 16; i++)
 			{
-				const int a = rgba[i * 4 + 3];
+				const int a = rgba[i * 4 + ch];
 				int best = 0, bestD = 1 << 30;
 				for (int p = 0; p < 8; p++) { const int d = std::abs(a - pal[p]); if (d < bestD) { bestD = d; best = p; } }
 				if (hi == lo) best = 0;
@@ -178,10 +179,32 @@ namespace p3d { namespace BlockCompress {
 
 	void EncodeBlockBC3(const uint8_t rgba[64], uint8_t out[16])
 	{
-		EncodeAlphaBlock(rgba, out);
+		EncodeChannelBlock(rgba, 3, out);
 		EncodeBlockBC1(rgba, out + 8);
 		// (BC3's colour block is always read as four colours: keep c0 > c1 - Pack did - and
 		// a block of one colour, with its equal endpoints, reads every index as c0 still)
+	}
+
+	void EncodeBlockBC5(const uint8_t rgba[64], uint8_t out[16])
+	{
+		EncodeChannelBlock(rgba, 0, out);
+		EncodeChannelBlock(rgba, 1, out + 8);
+	}
+
+	void DecodeBlockBC5(const uint8_t in[16], uint8_t rgba[64])
+	{
+		for (int c = 0; c < 2; c++)
+		{
+			const uint8_t* b = in + c * 8;
+			const int a0 = b[0], a1 = b[1];
+			int ap[8]; ap[0] = a0; ap[1] = a1;
+			if (a0 > a1) for (int k = 1; k < 7; k++) ap[k + 1] = ((7 - k) * a0 + k * a1) / 7;
+			else { for (int k = 1; k < 5; k++) ap[k + 1] = ((5 - k) * a0 + k * a1) / 5; ap[6] = 0; ap[7] = 255; }
+			uint64_t bits = 0;
+			for (int k = 0; k < 6; k++) bits |= (uint64_t)b[2 + k] << (k * 8);
+			for (int i = 0; i < 16; i++) rgba[i * 4 + c] = (uint8_t)ap[(bits >> (i * 3)) & 7];
+		}
+		for (int i = 0; i < 16; i++) { rgba[i * 4 + 2] = 0; rgba[i * 4 + 3] = 255; }
 	}
 
 	void DecodeBlockBC1(const uint8_t in[8], uint8_t rgba[64])
@@ -235,7 +258,7 @@ namespace p3d { namespace BlockCompress {
 							std::memcpy(&block[(y * 4 + x) * 4], &rgba[((size_t)sy * w + sx) * 4], 4);
 						}
 					uint8_t* o = dst + ((size_t)by * bw + bx) * bytes;
-					if (format == BC1) EncodeBlockBC1(block, o); else EncodeBlockBC3(block, o);
+					if (format == BC1) EncodeBlockBC1(block, o); else if (format == BC5) EncodeBlockBC5(block, o); else EncodeBlockBC3(block, o);
 				}
 		});
 	}
@@ -267,9 +290,32 @@ namespace p3d { namespace BlockCompress {
 		}
 	}
 
-	uint32_t ChooseFormat(const std::vector<uint8_t> &rgba)
+	uint32_t ChooseFormat(const std::vector<uint8_t> &rgba, const char* name)
 	{
-		for (size_t i = 3; i < rgba.size(); i += 4) if (rgba[i] != 255) return BC3;
+		bool opaque = true;
+		for (size_t i = 3; i < rgba.size(); i += 4) if (rgba[i] != 255) { opaque = false; break; }
+		if (!opaque) return BC3;
+		// a normal map?
+		const size_t texels = rgba.size() / 4;
+		const size_t step = std::max<size_t>(1, texels / 8192);
+		size_t looked = 0, unit = 0;
+		for (size_t t = 0; t < texels; t += step, looked++)
+		{
+			const float x = rgba[t * 4] / 127.5f - 1.f, y = rgba[t * 4 + 1] / 127.5f - 1.f, z = rgba[t * 4 + 2] / 127.5f - 1.f;
+			const float l = std::sqrt(x * x + y * y + z * z);
+			if (z > 0.f && l > 0.88f && l < 1.12f) unit++;
+		}
+		bool named = false;
+		if (name)
+		{
+			std::string n(name);
+			std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+			const size_t slash = n.find_last_of("/\\");
+			if (slash != std::string::npos) n = n.substr(slash + 1);
+			named = n.find("nor") != std::string::npos || n.find("nrm") != std::string::npos;
+		}
+		const float share = looked ? (float)unit / (float)looked : 0.f;
+		if (share >= 0.995f || (named && share >= 0.97f)) return BC5;
 		return BC1;
 	}
 

@@ -299,7 +299,7 @@ namespace p3d {
 			});
 			return dir;
 		}
-		const char kTexCacheMagic[8] = { 'P', '3', 'D', 'T', 'C', '0', '0', '2' };
+		const char kTexCacheMagic[8] = { 'P', '3', 'D', 'T', 'C', '0', '0', '3' };
 		struct TexCacheHeader
 		{
 			char magic[8]; uint64 sourceSize; int64 sourceTime; uint32 format, width, height, levels; f32 average[3]; uint32 haveAverage;
@@ -402,7 +402,7 @@ namespace p3d {
 
 	bool Texture::HasCompressedCache(const std::string& Filename)
 	{
-		if (!GetCompression() || !Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3)) return false;
+		if (!GetCompression() || !Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3) || !Device().SupportsCompressedFormat(BlockCompress::BC5)) return false;
 		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0;
 		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime)) return false;
 		TexCacheHeader hd;
@@ -426,7 +426,7 @@ namespace p3d {
 			memcpy(hd.magic, kTexCacheMagic, 8);
 			hd.sourceSize = srcSize; hd.sourceTime = srcTime;
 			hd.width = (uint32)image.width; hd.height = (uint32)image.height;
-			hd.format = BlockCompress::ChooseFormat(image.pixels);
+			hd.format = BlockCompress::ChooseFormat(image.pixels, where.c_str());
 			{
 				const size_t count = (size_t)image.width * image.height;
 				const size_t step = std::max<size_t>(1, count / 65536);
@@ -457,7 +457,7 @@ namespace p3d {
 
 	bool Texture::MakeCompressedCache(const std::string& Filename)
 	{
-		if (!GetCompression() || !Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3)) return false;
+		if (!GetCompression() || !Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3) || !Device().SupportsCompressedFormat(BlockCompress::BC5)) return false;
 		// (a float image - an HDR sky - is read by its own loader, never as blocks)
 		if (Filename.size() > 4 && (Filename.compare(Filename.size() - 4, 4, ".hdr") == 0 || Filename.compare(Filename.size() - 4, 4, ".HDR") == 0)) return false;
 		if (HasCompressedCache(Filename)) return true;
@@ -473,7 +473,7 @@ namespace p3d {
 
 	bool Texture::LoadCompressed(const std::string& Filename)
 	{
-		if (!Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3))
+		if (!Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3) || !Device().SupportsCompressedFormat(BlockCompress::BC5))
 			return false;
 		std::error_code ec;
 		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0; std::string where;
@@ -488,7 +488,7 @@ namespace p3d {
 			if (FILE* f = fopen(cacheFile.string().c_str(), "rb"))
 			{
 				if (fread(&hd, sizeof(hd), 1, f) == 1 && memcmp(hd.magic, kTexCacheMagic, 8) == 0 && hd.sourceSize == srcSize && hd.sourceTime == srcTime
-					&& (hd.format == BlockCompress::BC1 || hd.format == BlockCompress::BC3) && hd.levels > 0 && hd.levels <= 16 && hd.width > 0 && hd.height > 0)
+					&& (hd.format == BlockCompress::BC1 || hd.format == BlockCompress::BC3 || hd.format == BlockCompress::BC5) && hd.levels > 0 && hd.levels <= 16 && hd.width > 0 && hd.height > 0)
 				{
 					have = true;
 					levels.resize(hd.levels);

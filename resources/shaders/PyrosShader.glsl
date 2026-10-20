@@ -1017,6 +1017,18 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vTangentMatrix) varying_in mat3 vTangentMatrix;
         #if defined(BUMPMAPPING)
             SAMPLER_BINDING(BIND_uNormalmap) uniform sampler2D uNormalmap;
+            // A normal map's texel as a tangent-space normal. Compressed as BC5 it holds x and y
+            // only (blue reads 0, which a real normal map never has - z is never below 0): z is
+            // made from them.
+            vec3 p3d_NormalTexel(vec4 t)
+            {
+                if (t.b < 0.004)
+                {
+                    vec2 xy = t.rg * 2.0 - 1.0;
+                    return vec3(xy, sqrt(max(0.0, 1.0 - dot(xy, xy))));
+                }
+                return t.rgb * 2.0 - 1.0;
+            }
         #endif
         #if defined(PARALLAXMAPPING)
             SAMPLER_BINDING(BIND_uDisplacementmap) uniform sampler2D uDisplacementmap;
@@ -1899,9 +1911,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                     // No face sign: a sprite is mirrored by flipping it, and
                     // its tangents say which way it was flipped - turning the
                     // normal over as well would light its back.
-                    Normal = normalize(transpose3(vTangentMatrix) * (texture_2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0));
+                    Normal = normalize(transpose3(vTangentMatrix) * (p3d_NormalTexel(texture_2D(uNormalmap, Texcoord))));
                 #else
-                    Normal = normalize(transpose3(vTangentMatrix) * (texture_2D(uNormalmap, Texcoord).rgb * 2.0 - 1.0)) * P3D_FACE_SIGN;
+                    Normal = normalize(transpose3(vTangentMatrix) * (p3d_NormalTexel(texture_2D(uNormalmap, Texcoord)))) * P3D_FACE_SIGN;
                 #endif
                 #if defined(DEFERRED_GBUFFER)
                     gbufferNormal.xyz = (vViewMatrix * vec4(Normal,0)).xyz;

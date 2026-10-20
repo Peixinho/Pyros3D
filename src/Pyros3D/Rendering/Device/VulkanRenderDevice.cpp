@@ -5476,7 +5476,7 @@ namespace p3d {
 
 	bool VulkanRenderDevice::SupportsCompressedFormat(const uint32 format) const
 	{
-		return bcSupported && (format == 1 || format == 2);
+		return bcSupported && format >= 1 && format <= 3;
 	}
 
 	void VulkanRenderDevice::UploadCompressedTexture2D(const uint32 format, const uint32 width, const uint32 height, const std::vector<std::vector<uchar> > &levels)
@@ -5487,7 +5487,7 @@ namespace p3d {
 		if (it == textures.end())
 			return;
 		TextureRecord &tex = it->second;
-		const VkFormat wantedFormat = format == 1 ? VK_FORMAT_BC1_RGBA_UNORM_BLOCK : VK_FORMAT_BC3_UNORM_BLOCK;
+		const VkFormat wantedFormat = format == 1 ? VK_FORMAT_BC1_RGBA_UNORM_BLOCK : (format == 3 ? VK_FORMAT_BC5_UNORM_BLOCK : VK_FORMAT_BC3_UNORM_BLOCK);
 		const uint32 mipLevels = (uint32)levels.size();
 		const uint32 blockBytes = format == 1 ? 8u : 16u;
 

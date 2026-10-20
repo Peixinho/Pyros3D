@@ -2847,7 +2847,7 @@ namespace p3d {
 
 	bool MetalRenderDevice::SupportsCompressedFormat(const uint32 format) const
 	{
-		if (device == NULL || (format != 1 && format != 2)) return false;
+		if (device == NULL || format < 1 || format > 3) return false;
 		@autoreleasepool
 		{
 			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
@@ -2862,7 +2862,7 @@ namespace p3d {
 		std::map<DeviceHandle, TextureRecord>::iterator it = textures.find(currentlyConfiguringTexture);
 		if (it == textures.end()) return;
 		TextureRecord &tex = it->second;
-		const MTLPixelFormat pf = format == 1 ? MTLPixelFormatBC1_RGBA : MTLPixelFormatBC3_RGBA;
+		const MTLPixelFormat pf = format == 1 ? MTLPixelFormatBC1_RGBA : (format == 3 ? MTLPixelFormatBC5_RGUnorm : MTLPixelFormatBC3_RGBA);
 		const uint32 blockBytes = format == 1 ? 8u : 16u;
 		@autoreleasepool
 		{

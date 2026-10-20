@@ -1289,7 +1289,7 @@ namespace p3d {
 		return false;
 #else
 		// S3TC: on every desktop GL driver there is (macOS's 4.1 included)
-		return format == 1 || format == 2;
+		return format >= 1 && format <= 3;     // (S3TC, and RGTC - core since GL 3.0)
 #endif
 	}
 
@@ -1297,7 +1297,7 @@ namespace p3d {
 	{
 #if !defined(GLES3)
 		// GL_COMPRESSED_RGBA_S3TC_DXT1_EXT / DXT5_EXT
-		const GLenum internal = format == 1 ? 0x83F1 : 0x83F3;
+		const GLenum internal = format == 1 ? 0x83F1 : (format == 3 ? 0x8DBD : 0x83F3);    // (0x8DBD: GL_COMPRESSED_RG_RGTC2)
 		uint32 w = width, h = height;
 		for (size_t l = 0; l < levels.size(); l++)
 		{

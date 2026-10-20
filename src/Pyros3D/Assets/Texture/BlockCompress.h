@@ -28,7 +28,9 @@ namespace p3d {
 	namespace BlockCompress {
 
 		// The formats (IRenderDevice::SupportsCompressedFormat / UploadCompressedTexture2D).
-		enum Format { None = 0, BC1 = 1, BC3 = 2 };
+		// BC5: two channels, 8 bits a texel - a normal map's x and y, each as finely as BC3's alpha
+		// (the shader makes z from them); BC1's shared colour endpoints smeared a normal map.
+		enum Format { None = 0, BC1 = 1, BC3 = 2, BC5 = 3 };
 
 		inline uint32_t BlockBytes(const uint32_t format) { return format == BC1 ? 8u : 16u; }
 		inline uint32_t LevelBytes(const uint32_t format, const uint32_t w, const uint32_t h)
@@ -42,6 +44,8 @@ namespace p3d {
 		// (and back, for tests: 16 texels of RGBA8)
 		PYROS3D_API void DecodeBlockBC1(const uint8_t in[8], uint8_t rgba[64]);
 		PYROS3D_API void DecodeBlockBC3(const uint8_t in[16], uint8_t rgba[64]);
+		PYROS3D_API void EncodeBlockBC5(const uint8_t rgba[64], uint8_t out[16]);
+		PYROS3D_API void DecodeBlockBC5(const uint8_t in[16], uint8_t rgba[64]);
 
 		// Whole image (RGBA8, w x h) -> blocks. Edge blocks repeat the last row/column.
 		// Spread over the job system's workers.
@@ -52,8 +56,11 @@ namespace p3d {
 		PYROS3D_API void EncodeMipChain(const uint32_t format, const std::vector<uint8_t> &rgba, const uint32_t w, const uint32_t h,
 			std::vector<std::vector<uint8_t> > &levels);
 
-		// BC3 when any texel is not fully opaque, else BC1.
-		PYROS3D_API uint32_t ChooseFormat(const std::vector<uint8_t> &rgba);
+		// BC5 for a normal map, BC3 when any texel is not fully opaque, else BC1. A normal map is
+		// told by what it holds: unit vectors pointing out of the surface (blue above half), for
+		// 97% of a sample of its texels with a name that says so ("nor", "normal", "nrm"), or
+		// 99.5% with any name.
+		PYROS3D_API uint32_t ChooseFormat(const std::vector<uint8_t> &rgba, const char* name = 0);
 	}
 }
 
