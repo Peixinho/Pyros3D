@@ -236,7 +236,13 @@ void main() {
 			c = sum / n;
 		}
 	}
-	vec2 ndc = vec2(vTexcoord.x * 2.0 - 1.0, 1.0 - vTexcoord.y * 2.0);
+	// (the picture's v counts down from the top on Metal and Vulkan, up from the bottom on GL)
+#if defined(METAL) || defined(VULKAN)
+	vec2 uvTop = vTexcoord;
+#else
+	vec2 uvTop = vec2(vTexcoord.x, 1.0 - vTexcoord.y);
+#endif
+	vec2 ndc = vec2(uvTop.x * 2.0 - 1.0, 1.0 - uvTop.y * 2.0);
 	vec3 dir = normalize(uCamFwd.xyz + uCamRight.xyz * (ndc.x * uLens.x * uLens.y) + uCamUp.xyz * (ndc.y * uLens.x));
 	vec3 sun = normalize(uSunDir.w > 0.5 ? uSunDir.xyz : uSunTo.xyz);
 	float day = smoothstep(-0.10, 0.28, sun.y);
@@ -315,7 +321,7 @@ void main() {
 		float streak = 0.0;
 		for (int i = 0; i < 3; i++) {
 			float sc = 70.0 + float(i) * 60.0;
-			vec2 q = vec2(vTexcoord.x * uLens.y * sc + vTexcoord.y * sc * 0.12, vTexcoord.y * sc * 0.03 - uTime * (2.4 + float(i) * 0.9));
+			vec2 q = vec2(uvTop.x * uLens.y * sc + uvTop.y * sc * 0.12, uvTop.y * sc * 0.03 - uTime * (2.4 + float(i) * 0.9));
 			float col = floor(q.x);
 			float y = fract(q.y + hash(vec2(col, float(i))) * 7.0);
 			streak += step(0.86, hash(vec2(col, 3.0 + float(i)))) * smoothstep(0.0, 0.05, y) * smoothstep(0.34, 0.05, y) * (1.0 - abs(fract(q.x) - 0.5) * 2.0) * (0.55 - float(i) * 0.14);
