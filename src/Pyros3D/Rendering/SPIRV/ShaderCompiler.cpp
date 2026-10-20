@@ -44,6 +44,15 @@ namespace p3d {
 
 		std::string SpirvCacheDir()
 		{
+			// a game's own, shipped with it (./spirvcache beside it, as ./texcache): its first start
+			// does not compile every shader - 4.5 s of the Cornell demo's 5.7 on Vulkan here
+			const char *own = getenv("PYROS_SPIRV_CACHE");
+			if (own && own[0]) return std::string(own);
+			{
+				static int here = -1;
+				if (here < 0) { std::error_code ec; here = std::filesystem::is_directory("spirvcache", ec) ? 1 : 0; }
+				if (here == 1) return std::string("spirvcache");
+			}
 			const char *xdg = getenv("XDG_CACHE_HOME");
 			if (xdg && xdg[0])
 				return std::string(xdg) + "/pyros3d/spirv";
