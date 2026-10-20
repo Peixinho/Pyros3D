@@ -3777,14 +3777,24 @@ bool IRenderer::BakeGlobalIllumination(SceneGraph *scene, const SceneGISettings 
 		const uint32 steps = (probes + batch - 1) / batch;
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		for (uint32 p = 0; p < passes; p++)
+		{
+			if (GPUCompute != NULL)
+			{
+				// A pass is one update over every probe: the tracer submits it 128 probes at a
+				// time (no submission long enough to lose the device) and reads the atlases back
+				// once at its end. Handed a batch at a time instead, every batch read back the
+				// whole volume - 180 readbacks of ~30 MB for a street, most of its solve (14 s on
+				// an M3, ~60 s under MoltenVK).
+				LoadProgress::Report((float)p / (float)passes);
+				GPUCompute->Update(*OwnedDDGI, lights, settings.raysPerProbe, p, p == 0 ? 0.f : 0.5f, 0);
+				continue;
+			}
 			for (uint32 b = 0; b < steps; b++)
 			{
 				LoadProgress::Report((float)(p * steps + b) / (float)(passes * steps));
-				if (GPUCompute != NULL)
-					GPUCompute->Update(*OwnedDDGI, lights, settings.raysPerProbe, p, p == 0 ? 0.f : 0.5f, batch);
-				else
-					OwnedDDGI->Update(*OwnedRayScene, lights, settings.raysPerProbe, p, p == 0 ? 0.f : 0.5f, batch);
+				OwnedDDGI->Update(*OwnedRayScene, lights, settings.raysPerProbe, p, p == 0 ? 0.f : 0.5f, batch);
 			}
+		}
 		LoadProgress::Report(1.f);
 		if (!settings.cachePath.empty())
 		{
@@ -4050,8 +4060,13 @@ void IRenderer::UploadDDGIIfDirty()
 	// volume has no radiance atlas, which is also the state a device
 	// that could not allocate one ends up in - so the shader must treat
 	// it as "no specular", never as "sample anyway".
+	// With an HDR sky the reflections are the sky map's (EnvSpecular), not the probes': the GI
+	// cache leaves the radiance out then (zeros), and a solve made in this process says the same
+	// here, so a scene just solved and the same scene loaded from its cache draw alike - and the
+	// shader skips the probe lookups it would only have thrown away.
+	const bool probeReflections = !EnvironmentMap::IsLoaded();
 	ddgi[4] = Vec4((f32)rad.GetResolution(), (f32)rad.GetProbesPerRow(),
-		(f32)DDGIVol->GetRadianceLevels(), DDGIVolume::MinRoughness());
+		probeReflections ? (f32)DDGIVol->GetRadianceLevels() : 0.f, DDGIVolume::MinRoughness());
 	// Relocation offsets, and the flag (counts.w) that tells the shader
 	// whether to believe them.
 	//
