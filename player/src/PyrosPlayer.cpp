@@ -875,7 +875,19 @@ void PyrosPlayer::OpenLoadingScreen()
 	}
 	// Between its frames: the window's events kept moving (not handled - nothing of the game's runs
 	// in the middle of a load) and the hang watchdog told the program is alive: a long load is not a hang.
-	loadingScreen.Open(text, at, m.loadingLook, (uint32)Width, (uint32)Height, []() { SDL_PumpEvents(); FrameHeartbeat(); });
+	// And the window's size followed: one resized during the load (a tiling window manager places a new
+	// window seconds after it opens) kept the old swapchain - the screen drawn small in a corner and the
+	// rest of the window magenta. The swapchain is remade now; the game's own targets after the load.
+	loadingScreen.Open(text, at, m.loadingLook, (uint32)Width, (uint32)Height, [this]() {
+		SDL_PumpEvents(); FrameHeartbeat();
+		int w = 0, h = 0;
+		if (GetSDLWindow() != NULL) SDL_GetWindowSizeInPixels(GetSDLWindow(), &w, &h);
+		if (w > 0 && h > 0 && ((uint32)w != Width || (uint32)h != Height))
+		{
+			OnResize((uint32)w, (uint32)h);
+			loadingScreen.Resize((uint32)w, (uint32)h);
+		}
+	});
 	if (loadingScreen.IsOpen()) loadingScreen.Listen();
 }
 
