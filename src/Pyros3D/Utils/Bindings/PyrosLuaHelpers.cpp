@@ -1,3 +1,4 @@
+#include <deque>
 //============================================================================
 // Name        : PyrosLuaHelpers.cpp
 // Description : Shared free functions used by split Lua binding modules.
@@ -1444,13 +1445,28 @@ namespace p3d {
 
 	bool RemoveLuaDecal(GameObject* owner, const std::shared_ptr<IComponent> &decal)
 	{
-		if (!owner || !decal || decal->GetComponentType() != ComponentType::RenderingComponent) return false;
+		if (!decal || decal->GetComponentType() != ComponentType::RenderingComponent) return false;
 		Renderable* r = static_cast<RenderingComponent*>(decal.get())->GetRenderable();
 		if (!r || !dynamic_cast<Decal*>(r)) return false;
-		owner->RemoveComponent(decal);
+		// (from what it is on, not from what the caller thinks: a decal goes on whatever the ray met
+		// first - a crack meant for a pane can lie on the man behind it. Its mesh was freed while that
+		// one still drew it, and the game went down.)
+		GameObject* on = decal->GetOwner();
+		if (!on) on = owner;
+		bool held = false;
+		if (on) for (const std::shared_ptr<IComponent> &c : on->GetComponents()) if (c == decal) { held = true; break; }
+		if (!held) return false;
+		on->RemoveComponent(decal);
+		// Its mesh is not freed now but retired, and freed once 32 more have been: the renderer's
+		// kept draw list may still hold the decal's arrival from this very frame (the round that
+		// starred a pane is the one that knocks it out), and read a freed mesh (crash in
+		// TryAutomaticLODs from ApplyListed).
+		// (allocated and never freed, as LuaDecalGeometries(): a static would be destroyed after the device)
+		static std::deque<std::unique_ptr<DecalGeometry> > &retired = *new std::deque<std::unique_ptr<DecalGeometry> >();
 		std::vector<std::unique_ptr<DecalGeometry> > &all = LuaDecalGeometries();
 		for (size_t i = 0; i < all.size(); i++)
-			if (all[i] && all[i]->GetDecal() == r) { all.erase(all.begin() + i); break; }
+			if (all[i] && all[i]->GetDecal() == r) { retired.push_back(std::move(all[i])); all.erase(all.begin() + i); break; }
+		while (retired.size() > 32) retired.pop_front();
 		return true;
 	}
 	// ******************************* OVERLOADS *******************************
