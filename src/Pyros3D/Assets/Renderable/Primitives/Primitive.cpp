@@ -56,6 +56,27 @@ namespace p3d {
 		calculateTangentBitangent = false; 
 	}
 
+	void Primitive::TileTexcoords(const f32 metres)
+	{
+		if (metres <= 0.f || geometry == NULL || geometry->tVertex.size() != geometry->tNormal.size()) return;
+		tileMetres = metres;
+		std::vector<Vec2> &uv = geometry->tTexcoord;
+		uv.resize(geometry->tVertex.size());
+		for (size_t i = 0; i < geometry->tVertex.size(); i++)
+		{
+			const Vec3 &p = geometry->tVertex[i], &n = geometry->tNormal[i];
+			const f32 ax = fabs(n.x), ay = fabs(n.y), az = fabs(n.z);
+			// (u along the face, the way the default mapping runs it; v up on a wall, along z on a floor)
+			if (ax >= ay && ax >= az) uv[i] = Vec2((n.x > 0.f ? -p.z : p.z) / metres, -p.y / metres);
+			else if (ay >= az)        uv[i] = Vec2(p.x / metres, (n.y > 0.f ? p.z : -p.z) / metres);
+			else                      uv[i] = Vec2((n.z > 0.f ? p.x : -p.x) / metres, -p.y / metres);
+		}
+		// (sent again with them: tangents follow the new coordinates)
+		geometry->Dispose();
+		geometry->CreateBuffers(calculateTangentBitangent);
+		geometry->SendBuffers();
+	}
+
 	void Primitive::Build()
 	{
 		// Flip Normals

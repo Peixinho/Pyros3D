@@ -1109,6 +1109,7 @@ namespace p3d {
 			j["smooth"] = prim->IsSmooth();
 			j["flip"] = prim->IsFlipped();
 			j["tangentBitangent"] = prim->HasTangentBitangent();
+			if (prim->GetTileMetres() > 0.f) j["uvMetres"] = prim->GetTileMetres();
 			if (Card* card = dynamic_cast<Card*>(prim))
 			{
 				j["shape"] = "Card";
@@ -3521,6 +3522,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			}
 			else echo("WARNING: SceneSerializer - unrecognized primitive shape on load: " + shape);
 		}
+		// (uvMetres: the picture repeated every so many metres - see Primitive::TileTexcoords)
+		if (Primitive* pr = dynamic_cast<Primitive*>(r.get())) { const f32 um = j.value("uvMetres", 0.f); if (um > 0.f) pr->TileTexcoords(um); }
 		if (r && outAssets) outAssets->renderables.push_back(r);
 		return r;
 	}

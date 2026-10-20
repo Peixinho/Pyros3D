@@ -83,7 +83,15 @@ namespace p3d {
 		bool IsFlipped() const { return isFlipped; }
 		bool HasTangentBitangent() const { return calculateTangentBitangent; }
 
+		// The picture repeated every `metres` along the surface (0: once a face, as made) - a wall
+		// of tiles, a floor of planks, at their real size whatever the primitive's: texture
+		// coordinates projected from each vertex's place, on the plane its normal faces most.
+		void TileTexcoords(const f32 metres);
+		f32 GetTileMetres() const { return tileMetres; }
+
 	protected:
+
+		f32 tileMetres = 0.f;
 
 		bool isSmooth;
 		bool isFlipped;
