@@ -30,6 +30,12 @@ namespace p3d {
 		std::vector<Vec4> tBonesID, tBonesWeight;
 
 		void CreateBuffers();
+		// tVertex / tNormal changed after the buffers were sent (a dent): the vertices laid out
+		// again from these arrays into a new buffer - the old one is freed by the device once the
+		// GPU is done with it, never written under a frame in flight - and buffersRevision bumped
+		// so the renderer takes the new one. False if a vertex attribute has no array here to come from.
+		bool ResendVertices();
+		void RecalculateBounding() { CalculateBounding(); }
 
 		virtual const std::vector<__INDEX_C_TYPE__> &GetIndexData() const { return index; }
 		virtual const std::vector<Vec3> &GetVertexData() const { return tVertex; }

@@ -36,6 +36,41 @@ namespace p3d {
 		Attributes.push_back(Vertex);
 	}
 
+	bool ModelGeometry::ResendVertices()
+	{
+		if (Attributes.empty()) return false;
+		AttributeBuffer* ab = dynamic_cast<AttributeBuffer*>(Attributes[0]);
+		if (!ab || !ab->Buffer || tVertex.empty()) return false;
+		const size_t n = tVertex.size();
+		uint32 stride = 0;
+		std::vector<std::pair<const uchar*, uint32> > from;
+		for (VertexAttribute* a : ab->Attributes)
+		{
+			const uchar* src = NULL; size_t have = 0;
+			if (a->Name == "aPosition") { src = (const uchar*)tVertex.data(); have = tVertex.size(); }
+			else if (a->Name == "aNormal") { src = (const uchar*)tNormal.data(); have = tNormal.size(); }
+			else if (a->Name == "aTexcoord") { src = (const uchar*)tTexcoord.data(); have = tTexcoord.size(); }
+			else if (a->Name == "aTangent") { src = (const uchar*)tTangent.data(); have = tTangent.size(); }
+			else if (a->Name == "aBitangent") { src = (const uchar*)tBitangent.data(); have = tBitangent.size(); }
+			else if (a->Name == "aBonesID") { src = (const uchar*)tBonesID.data(); have = tBonesID.size(); }
+			else if (a->Name == "aBonesWeight") { src = (const uchar*)tBonesWeight.data(); have = tBonesWeight.size(); }
+			if (!src || have != n) return false;
+			from.push_back(std::make_pair(src, a->byteSize));
+			stride += a->byteSize;
+		}
+		std::vector<uchar> packed(n * stride);
+		for (size_t v = 0; v < n; v++)
+		{
+			uchar* o = &packed[v * stride];
+			for (size_t k = 0; k < from.size(); k++) { memcpy(o, from[k].first + v * from[k].second, from[k].second); o += from[k].second; }
+		}
+		delete ab->Buffer;
+		ab->Buffer = new GeometryBuffer(ab->bufferType, ab->bufferDraw);
+		ab->Buffer->InitOwned(std::move(packed));
+		buffersRevision++;
+		return true;
+	}
+
 	void ModelGeometry::CalculateBounding()
 	{
 		// Bounding Box

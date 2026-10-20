@@ -612,6 +612,12 @@ namespace p3d {
 
 		// Get Model's Meshes
 		std::vector<RenderingMesh*> &GetMeshes(const uint32 LODLevel = 0);
+		// A dent: every vertex of the nearest level within `radius` of `worldPoint` pushed by
+		// `worldPush` (all of it at the point, nothing at the edge, smoothly between), its normals
+		// made again from the triangles round it and its vertices sent again. Model meshes only, not
+		// skinned ones. The geometry is the model's: everything drawn from the same model file takes
+		// the dent too - a thing to be dented wants a model of its own. Returns the vertices moved.
+		uint32 Dent(const Vec3 &worldPoint, const f32 radius, const Vec3 &worldPush);
 
 		// Get LOD Number
 		const uint32 GetLODSize() const;

@@ -695,6 +695,8 @@ namespace p3d {
 					return rc.GetMeshes(0);
 				},
 				"getMeshesLOD", &RenderingComponent::GetMeshes,
+				// rc:dent(worldPoint, radius, worldPush): see RenderingComponent::Dent
+				"dent", &RenderingComponent::Dent,
 				"getLODSize", &LUA_RenderingComponent::GetLODSize,
 				"getLODByDistance", &LUA_RenderingComponent::GetLODByDistance,
 				"updateLOD", &LUA_RenderingComponent::UpdateLOD,

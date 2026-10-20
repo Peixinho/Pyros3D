@@ -699,6 +699,57 @@ namespace p3d {
 		return scene->GetRenderingMeshesSorted().size()>0 ? scene->GetRenderingMeshesSorted() : scene->GetRenderingMeshes();
 	}
 
+	uint32 RenderingComponent::Dent(const Vec3 &worldPoint, const f32 radius, const Vec3 &worldPush)
+	{
+		if (!GetOwner() || radius <= 0.f) return 0;
+		const Matrix world = GetOwner()->GetWorldTransformation();
+		const Matrix inv = world.Inverse();
+		const Vec3 c = inv * worldPoint;
+		// (the push in the object's own space: through the inverse without its translation)
+		const Vec3 push = inv * (worldPoint + worldPush) - c;
+		// (the radius in its own units: an object scaled 0.01 has a centimetre model)
+		const Vec3 r1 = inv * (worldPoint + Vec3(radius, 0.f, 0.f)) - c;
+		const f32 r = std::max(1e-5f, r1.magnitude());
+		uint32 moved = 0;
+		std::vector<RenderingMesh*> &meshes = GetMeshes(0);
+		for (RenderingMesh* m : meshes)
+		{
+			ModelGeometry* g = m ? dynamic_cast<ModelGeometry*>(m->Geometry) : NULL;
+			if (!g || !g->tBonesID.empty() || g->tVertex.empty()) continue;
+			std::vector<uint8> touched(g->tVertex.size(), 0);
+			bool any = false;
+			for (size_t v = 0; v < g->tVertex.size(); v++)
+			{
+				const f32 d = g->tVertex[v].distance(c);
+				if (d >= r) continue;
+				f32 w = 1.f - d / r; w = w * w * (3.f - 2.f * w);
+				g->tVertex[v] = g->tVertex[v] + push * w;
+				touched[v] = 1; any = true; moved++;
+			}
+			if (!any) continue;
+			// the normals of what moved, from the triangles that hold it (area-weighted)
+			if (g->tNormal.size() == g->tVertex.size())
+			{
+				for (size_t v = 0; v < touched.size(); v++) if (touched[v]) g->tNormal[v] = Vec3(0.f, 0.f, 0.f);
+				const std::vector<__INDEX_C_TYPE__> &ix = g->index;
+				for (size_t t = 0; t + 2 < ix.size(); t += 3)
+				{
+					const uint32 a = ix[t], b = ix[t + 1], cc = ix[t + 2];
+					if (!(touched[a] || touched[b] || touched[cc])) continue;
+					const Vec3 fn = (g->tVertex[b] - g->tVertex[a]).cross(g->tVertex[cc] - g->tVertex[a]);
+					if (touched[a]) g->tNormal[a] = g->tNormal[a] + fn;
+					if (touched[b]) g->tNormal[b] = g->tNormal[b] + fn;
+					if (touched[cc]) g->tNormal[cc] = g->tNormal[cc] + fn;
+				}
+				for (size_t v = 0; v < touched.size(); v++)
+					if (touched[v]) { const f32 l = g->tNormal[v].magnitude(); g->tNormal[v] = l > 1e-12f ? g->tNormal[v] / l : Vec3(0.f, 1.f, 0.f); }
+			}
+			g->RecalculateBounding();
+			g->ResendVertices();
+		}
+		return moved;
+	}
+
 	std::vector<RenderingMesh*> &RenderingComponent::GetMeshes(const uint32 LODLevel)
 	{
 		// Never index past the levels that exist. With no meshes at all (a 2D
