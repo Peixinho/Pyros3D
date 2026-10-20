@@ -5870,46 +5870,7 @@ void IRenderer::BindShadowMaps(IMaterial* material)
 			(*i)->Bind();
 			SpotShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
 		}
-		BindShadowPlaceholders();
 	}
-}
-
-void IRenderer::BindShadowPlaceholders()
-{
-	// (Metal and Vulkan only: they bind by the shader's slot, and a slot must hold its own type.
-	// GL samples a spare unit with nothing on it as zero, legally - and given these, Metro's
-	// near pillar came out lit through its shadow there.)
-	if (!device->IsVulkan() && !device->RenderTargetOriginIsTopLeft()) return;
-#if !defined(GLLEGACY)
-	if (DirectionalShadowMapsUnits.empty() || SpotShadowMapsUnits.empty())
-	{
-		if (!placeholderShadow2D)
-		{
-			// (as a spot light's map: depth, compared, nearest, clamped)
-			placeholderShadow2D.reset(new Texture());
-			placeholderShadow2D->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, 1, 1, false);
-			placeholderShadow2D->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-			placeholderShadow2D->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-			placeholderShadow2D->EnableCompareMode();
-		}
-		if (DirectionalShadowMapsUnits.empty()) { placeholderShadow2D->Bind(); DirectionalShadowMapsUnits.push_back(Texture::GetLastBindedUnit()); }
-		if (SpotShadowMapsUnits.empty()) { placeholderShadow2D->Bind(); SpotShadowMapsUnits.push_back(Texture::GetLastBindedUnit()); }
-	}
-	if (PointShadowMapsUnits.empty())
-	{
-		if (!placeholderShadowCube)
-		{
-			// (as a point light's: an R32F colour cube map)
-			placeholderShadowCube.reset(new Texture());
-			const uint32 faces[6] = { TextureType::CubemapNegative_X, TextureType::CubemapNegative_Y, TextureType::CubemapNegative_Z,
-				TextureType::CubemapPositive_X, TextureType::CubemapPositive_Y, TextureType::CubemapPositive_Z };
-			for (uint32 f = 0; f < 6; f++) placeholderShadowCube->CreateEmptyTexture(faces[f], TextureDataType::R32F, 1, 1, false);
-			placeholderShadowCube->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-			placeholderShadowCube->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-		}
-		placeholderShadowCube->Bind(); PointShadowMapsUnits.push_back(Texture::GetLastBindedUnit());
-	}
-#endif
 }
 
 void IRenderer::UnbindGITextures()

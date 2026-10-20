@@ -762,7 +762,7 @@ namespace p3d {
 			GpuTimerAttach((__bridge void*)rpd);
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
-			encoderBoundTextures.clear();
+			encoderBoundTextures.clear(); encoderBoundCubes.clear();
 
 			// PyrosShader.glsl's geometry is authored CCW-front (OpenGL's
 			// convention). TranslateProjectionMatrix() no longer negates Y
@@ -2703,6 +2703,27 @@ namespace p3d {
 				id<MTLTexture> tex = (__bridge id<MTLTexture>)texIt->second.texture;
 				RebuildSamplerIfDirty(texIt->second);
 				id<MTLSamplerState> sampler = (__bridge id<MTLSamplerState>)texIt->second.samplerState;
+				// A texture of another kind than the slot is declared (a unit left holding a point
+				// light's cube map, read through a spot light's 2D shadow slot - IRenderer pads unused
+				// shadow slots with a spare unit, whatever it holds): Metal draws it undefined, and its
+				// validation stops the frame. The slot's own blank instead - it is never read there.
+				{
+					std::map<uint32, uint32>::iterator kIt = progIt->second.samplerKinds.find((uint32)handle);
+					if (kIt != progIt->second.samplerKinds.end())
+					{
+						const bool wantCube = (kIt->second & kFallbackCube) != 0;
+						const bool isCube = tex.textureType == MTLTextureTypeCube;
+						if (wantCube != isCube)
+						{
+							id<MTLTexture> fb = (__bridge id<MTLTexture>)GetFallbackTexture(kIt->second);
+							if (fb != nil)
+							{
+								tex = fb;
+								sampler = (__bridge id<MTLSamplerState>)((kIt->second & kFallbackDepth) ? fallbackCompareSampler : fallbackSampler);
+							}
+						}
+					}
+				}
 				for (int stage = 0; stage < 2; stage++)
 				{
 					if (!(stageMask & (1u << stage)))
@@ -2725,6 +2746,8 @@ namespace p3d {
 						if (stageSampler != nil) [encoder setFragmentSamplerState:stageSampler atIndex:samplerIndex];
 					}
 					encoderBoundTextures.insert(((uint64)stage << 32) | (uint64)textureIndex);
+					if (tex.textureType == MTLTextureTypeCube) encoderBoundCubes.insert(((uint64)stage << 32) | (uint64)textureIndex);
+					else encoderBoundCubes.erase(((uint64)stage << 32) | (uint64)textureIndex);
 				}
 			}
 		}
@@ -3391,7 +3414,7 @@ namespace p3d {
 					id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
 					id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 					currentRenderEncoder = (void*)CFBridgingRetain(encoder);
-			encoderBoundTextures.clear();
+			encoderBoundTextures.clear(); encoderBoundCubes.clear();
 					[encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 					MTLViewport viewport = { 0.0, 0.0, (double)drawableWidth, (double)drawableHeight, 0.0, 1.0 };
 					[encoder setViewport:viewport];
@@ -3919,7 +3942,7 @@ namespace p3d {
 					for (uint32 elem = 0; elem < arraySize; elem++)
 					{
 						const uint64 key = ((uint64)stage << 32) | (uint64)(textureBase + elem);
-						if (encoderBoundTextures.count(key))
+						if (encoderBoundTextures.count(key) && (encoderBoundCubes.count(key) != 0) == ((kind & kFallbackCube) != 0))
 							continue;
 						id<MTLTexture> tex = (__bridge id<MTLTexture>)GetFallbackTexture(kind);
 						if (tex == nil)
@@ -3936,6 +3959,7 @@ namespace p3d {
 							if (!fixedSampler) [encoder setFragmentSamplerState:sampler atIndex:samplerBase + elem];
 						}
 						encoderBoundTextures.insert(key);
+						if (kind & kFallbackCube) encoderBoundCubes.insert(key); else encoderBoundCubes.erase(key);
 					}
 				}
 			}
@@ -4050,7 +4074,7 @@ namespace p3d {
 			GpuTimerAttach((__bridge void*)rpd);
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
-			encoderBoundTextures.clear();
+			encoderBoundTextures.clear(); encoderBoundCubes.clear();
 			[encoder setFrontFacingWinding:MTLWindingCounterClockwise];
 
 			if (targetWidth > 0 && targetHeight > 0)

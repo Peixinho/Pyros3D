@@ -2019,7 +2019,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 vec3 gN = normalize(vNormal);
                 float up = smoothstep(0.55, 0.9, gN.y);
                 vec2 q = vWorldPosition.xz / max(uWetness.z, 0.05);
-                float pn = p3d_WetNoise(q) * 0.65 + p3d_WetNoise(q * 2.7 + 13.1) * 0.35;
+                // (two octaves bunch round 0.5: spread to 0..1, or a cover of a fifth was hardly any puddle)
+                float pn = smoothstep(0.28, 0.72, p3d_WetNoise(q) * 0.65 + p3d_WetNoise(q * 2.7 + 13.1) * 0.35);
                 float cover = clamp(uWetness.y, 0.0, 1.0);
                 float puddle = (cover > 0.001) ? smoothstep(1.0 - cover, 1.0 - cover + 0.06, pn) * up : 0.0;
                 float wet = clamp(uWetness.x, 0.0, 1.0) * mix(0.55, 1.0, up);

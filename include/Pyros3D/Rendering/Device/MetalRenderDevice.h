@@ -1024,6 +1024,9 @@ namespace p3d {
 		void* fallbackCompareSampler = NULL;
 		// (stage << 32 | MSL texture index) bound on the current encoder.
 		std::set<uint64> encoderBoundTextures;
+		// (and which of them hold a cube map: a slot a draw before filled is only good enough for
+		// this draw if it is the kind this draw's shader declares there)
+		std::set<uint64> encoderBoundCubes;
 		void* GetFallbackTexture(const uint32 kind);
 		void FillUnboundSamplers(const DeviceHandle program);
 		// Pipelines are shared by description, as on Vulkan: the renderer

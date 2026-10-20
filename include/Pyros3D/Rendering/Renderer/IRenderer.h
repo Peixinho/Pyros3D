@@ -1037,12 +1037,6 @@ namespace p3d {
 			DirectionalShadowMapsUnits, 
 			PointShadowMapsUnits, 
 			SpotShadowMapsUnits;
-		// 1x1 stand-ins bound in a kind's place when a shadow-receiving material is drawn and the
-		// scene has no caster of that kind: its sampler slots otherwise pointed at a spare unit
-		// holding whatever was last there - a point light's cube map in the spot slots, which
-		// Metal's validation stops (Cornell demo) and every backend may sample as anything.
-		std::unique_ptr<Texture> placeholderShadow2D, placeholderShadowCube;
-		void BindShadowPlaceholders();
 		std::vector<Matrix>
 			DirectionalShadowMatrix, 
 			PointShadowMatrix, 
