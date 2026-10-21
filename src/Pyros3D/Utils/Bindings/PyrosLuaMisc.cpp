@@ -1136,25 +1136,92 @@ end
 				try { localStorage.setItem(UTF8ToString($0), UTF8ToString($1)); return 1; } catch (e) { return 0; }
 			}, (prefix + name).c_str(), text.c_str()) != 0;
 		});
+		store.set_function("exists", [prefix, safe](const std::string &name) {
+			if (!safe(name)) return false;
+			return EM_ASM_INT({ try { return localStorage.getItem(UTF8ToString($0)) === null ? 0 : 1; } catch (e) { return 0; } }, (prefix + name).c_str()) != 0;
+		});
+		store.set_function("remove", [prefix, safe](const std::string &name) {
+			if (!safe(name)) return false;
+			return EM_ASM_INT({ try { localStorage.removeItem(UTF8ToString($0)); return 1; } catch (e) { return 0; } }, (prefix + name).c_str()) != 0;
+		});
+		store.set_function("list", [prefix](sol::this_state ts) {
+			sol::state_view L(ts);
+			sol::table t = L.create_table();
+			char* names = (char*)EM_ASM_PTR({
+				// (no bare commas in here: EM_ASM is a macro, and they split its arguments)
+				var p = UTF8ToString($0);
+				var out = [];
+				try { for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k.indexOf(p) === 0) out.push(k.substring(p.length)); } } catch (e) {}
+				return stringToNewUTF8(out.sort().join("\n"));
+			}, prefix.c_str());
+			if (names)
+			{
+				std::stringstream ss(names); std::string n; int i = 1;
+				while (std::getline(ss, n)) if (!n.empty()) t[i++] = n;
+				free(names);
+			}
+			return t;
+		});
 		return;
 #endif
 		store.set_function("read", [dir, safe](const std::string &name, sol::this_state ts) -> sol::object {
 			sol::state_view L(ts);
 			if (!safe(name)) return sol::make_object(L, sol::lua_nil);
 			std::ifstream in((dir / name).string().c_str(), std::ios::binary);
+			// (the one before, if a write was cut off between the two renames)
+			if (!in.is_open()) in.open((dir / (name + ".bak")).string().c_str(), std::ios::binary);
 			if (!in.is_open()) return sol::make_object(L, sol::lua_nil);
 			std::stringstream ss;
 			ss << in.rdbuf();
 			return sol::make_object(L, ss.str());
 		});
+		// Written whole or not at all: to a ".tmp" beside it, flushed, then put in its place - a
+		// crash or a power cut mid-save left half a file, and the game's save was gone. The one
+		// it replaces is kept as ".bak", and read() falls back to it if the file is missing.
 		store.set_function("write", [dir, safe](const std::string &name, const std::string &text) {
 			if (!safe(name)) return false;
 			std::error_code ec;
 			std::filesystem::create_directories(dir, ec);
-			std::ofstream out((dir / name).string().c_str(), std::ios::binary | std::ios::trunc);
-			if (!out.is_open()) return false;
-			out << text;
+			const std::filesystem::path target = dir / name, tmp = dir / (name + ".tmp"), bak = dir / (name + ".bak");
+			{
+				std::ofstream out(tmp.string().c_str(), std::ios::binary | std::ios::trunc);
+				if (!out.is_open()) return false;
+				out << text;
+				out.flush();
+				if (!out.good()) { out.close(); std::filesystem::remove(tmp, ec); return false; }
+			}
+			if (std::filesystem::exists(target, ec)) { std::filesystem::remove(bak, ec); std::filesystem::rename(target, bak, ec); }
+			std::filesystem::rename(tmp, target, ec);
+			if (ec) { std::filesystem::remove(tmp, ec); return false; }
 			return true;
+		});
+		store.set_function("exists", [dir, safe](const std::string &name) {
+			std::error_code ec;
+			return safe(name) && std::filesystem::exists(dir / name, ec);
+		});
+		store.set_function("remove", [dir, safe](const std::string &name) {
+			if (!safe(name)) return false;
+			std::error_code ec;
+			const bool had = std::filesystem::remove(dir / name, ec);
+			std::filesystem::remove(dir / (name + ".bak"), ec);
+			return had;
+		});
+		// Every name written, sorted (not the .tmp/.bak beside them).
+		store.set_function("list", [dir](sol::this_state ts) {
+			sol::state_view L(ts);
+			sol::table t = L.create_table();
+			std::vector<std::string> names;
+			std::error_code ec;
+			for (std::filesystem::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
+			{
+				const std::string n = it->path().filename().string();
+				if (!it->is_regular_file(ec)) continue;
+				if (n.size() > 4 && (n.compare(n.size() - 4, 4, ".tmp") == 0 || n.compare(n.size() - 4, 4, ".bak") == 0)) continue;
+				names.push_back(n);
+			}
+			std::sort(names.begin(), names.end());
+			for (size_t i = 0; i < names.size(); i++) t[i + 1] = names[i];
+			return t;
 		});
 	}
 
