@@ -123,7 +123,10 @@ namespace p3d {
 		};
 	}
 
-	class IComponent {
+	// Exported like the components made from it: MSVC wants every base of an exported class
+	// exported too (C4275), and without it the DLL came to export three of these inline members
+	// that the editor also compiled itself - LNK2005 on Windows only, from the Cloth commit on.
+	class PYROS3D_API IComponent {
 
 		friend class GameObject;
 
