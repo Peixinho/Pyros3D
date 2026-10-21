@@ -77,6 +77,7 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/PoseTools.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/RetargetSession.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorIK.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/SceneEditorCloth.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimatorDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimatorPreview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/UI/AnimatorEditor.cpp

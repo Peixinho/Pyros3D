@@ -510,13 +510,13 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		return obj;
 	}
-	SceneObject* SceneObjects::CreateRenderingPlane(GameObject *go, const f32 width, const f32 height, bool smoothnormals, bool flipnormals)
+	SceneObject* SceneObjects::CreateRenderingPlane(GameObject *go, const f32 width, const f32 height, bool smoothnormals, bool flipnormals, const uint32 segments)
 	{
 		uint32 id = ++_ID;
 		std::shared_ptr<RenderingComponent> rPlane;
 		// Mesh
 		std::shared_ptr<Renderable> planeMesh;
-		planeMesh = std::make_shared<Plane>(width, height, smoothnormals, flipnormals, kPrimitiveTangents);
+		planeMesh = std::make_shared<Plane>(width, height, smoothnormals, flipnormals, kPrimitiveTangents, segments < 1 ? 1 : segments);
 		rPlane = MakeSceneRenderingComponent(planeMesh, NewPrivateMaterial());
 		go->Add(rPlane);
 

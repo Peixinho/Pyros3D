@@ -173,7 +173,8 @@ class SceneObjects
 		SceneObject* CreateRenderingCapsule(GameObject *go, const f32 radius, const f32 height, const f32 nrings, const f32 segmentsw, const f32 segmentsh, bool smoothnormals, bool flipnormals);
 		SceneObject* CreateRenderingCone(GameObject *go, const f32 radius, const f32 height, const f32 segmentsw, const f32 segmentsh, bool openended, bool smoothnormals, bool flipnormals);
 		SceneObject* CreateRenderingCylinder(GameObject *go, const f32 radius, const f32 height, const f32 segmentsw, const f32 segmentsh, bool openended, bool smoothnormals, bool flipnormals);
-		SceneObject* CreateRenderingPlane(GameObject *go, const f32 width, const f32 height, bool smoothnormals, bool flipnormals);
+		// segments: quads a side (more for cloth or water, which move its vertices)
+		SceneObject* CreateRenderingPlane(GameObject *go, const f32 width, const f32 height, bool smoothnormals, bool flipnormals, const uint32 segments = 1);
 		SceneObject* CreateRenderingTorus(GameObject *go, const f32 radius, const f32 tube, const f32 segmentsw, const f32 segmentsh, bool smoothnormals, bool flipnormals);
 		SceneObject* CreateRenderingTorusKnot(GameObject *go, const f32 radius, const f32 tube, const f32 segmentsw, const f32 segmentsh, const f32 p, const f32 q, bool smoothnormals, bool flipnormals);
 		SceneObject* CreateRenderingModel(GameObject *go, const std::string &path);

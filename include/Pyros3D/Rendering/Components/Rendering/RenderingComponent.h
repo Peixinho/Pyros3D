@@ -503,7 +503,8 @@ namespace p3d {
 		// Geometries this component was given copies of, its own (Dent(): a dent is this object's, not
 		// every one drawn from the same model file)
 		std::vector<std::unique_ptr<ModelGeometry> > ownGeometries;
-		ModelGeometry* OwnGeometry(RenderingMesh* m);
+		std::vector<std::pair<RenderingMesh*, IGeometry*> > ownOriginals;   // (each mesh given its own, and what it had)
+		std::vector<std::unique_ptr<ModelGeometry> > retiredGeometries;
 		std::map<std::string, f32> morphWeights;
 		void ApplyMorphs(RenderingMesh* m);
 
@@ -633,6 +634,21 @@ namespace p3d {
 		std::vector<std::string> GetMorphTargetNames();
 		void SetMorphWeight(const std::string &name, const f32 weight);
 		f32 GetMorphWeight(const std::string &name) const;
+
+		// This object's own copy of a mesh's geometry (made the first time; after that the same one),
+		// for whatever changes its vertices for this object alone - a dent, morph weights, cloth.
+		// A model's mesh or a primitive's (not one with vertex colours); NULL for anything else.
+		ModelGeometry* OwnGeometry(RenderingMesh* m);
+		// Every mesh back on the geometry it was made with - a dent, morph weights, cloth, all
+		// undone (the editor's Stop: what Play did to a mesh is not the scene's).
+		void RestoreOwnGeometry();
+		// What it covers, in its own space, when something has moved its vertices (cloth).
+		void SetBounds(const Vec3 &lo, const Vec3 &hi)
+		{
+			minBounds = lo; maxBounds = hi;
+			BoundingSphereCenter = (lo + hi) * 0.5f;
+			BoundingSphereRadius = (hi - lo).magnitude() * 0.5f;
+		}
 
 		// Get LOD Number
 		const uint32 GetLODSize() const;

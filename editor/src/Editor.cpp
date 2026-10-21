@@ -3122,6 +3122,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// Cloth component: get_cloth / add_cloth / set_cloth {name|id, settings} / remove_cloth
+	// (set_cloth in Play changes the running cloth; see SceneEditorCloth.cpp).
+	if (name == "get_cloth" || name == "add_cloth" || name == "set_cloth" || name == "remove_cloth")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentCloth(name, a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "get_ik" || name == "add_ik" || name == "set_ik" || name == "remove_ik")
 	{
 		nlohmann::json r;

@@ -1572,7 +1572,8 @@ def add_primitive(project_path: str, scene_name: str, name: str, shape: str = "C
 
     shapes: Cube, Sphere, Cone, Cylinder, Plane, Capsule, Torus, TorusKnot
     shape params (kwargs): width, height, depth, radius, tube, segmentsW, segmentsH,
-                 numRings, openEnded, halfSphere, p, q, heightScale
+                 numRings, openEnded, halfSphere, p, q, heightScale,
+                 segments (Plane: quads a side - 20-40 for cloth or water)
     color: [r, g, b, a] (0..1). rotation: euler radians [x, y, z].
     """
     proj, err = _resolve_project(project_path)
@@ -1601,6 +1602,9 @@ def add_primitive(project_path: str, scene_name: str, name: str, shape: str = "C
                      "openEnded": bool(params.get("openEnded", False))})
     elif shape == "Plane":
         base.update({"width": P("width", 1.0), "height": P("height", 1.0)})
+        # quads a side: 1 for a floor, 20-40 for cloth or water (they move its vertices)
+        if int(P("segments", 1)) > 1:
+            base["segments"] = int(P("segments", 1))
     elif shape == "Capsule":
         base.update({"radius": P("radius", 1.0), "height": P("height", 1.0),
                      "numRings": int(P("numRings", 8)), "segmentsW": int(P("segmentsW", 8)),
@@ -5779,6 +5783,16 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       animator_state live: state, progress, blendWeights, layers {name: state}
       animator_preview (path, show, mesh, clips [.p3da], playing, set {param: value},
       state, layer, fade) - the window's own preview, no Play needed
+    Cloth component (Scene View; SceneEditorCloth.cpp)
+      get_cloth / add_cloth / set_cloth / remove_cloth (name|id, + any of: pins
+      [{side: +y|-y|+x|-x|+z|-z, band}], stretch, bend, density (kg/m2), damping,
+      thickness, friction, drag, substeps, turbulence, gravity [x,y,z], wind
+      [x,y,z], ground, groundY, colliders [{a, b? (capsule), radius, space:
+      world|object|parent}]). The mesh is the object's own (a Plane with
+      segments, a model's - not a skinned one); it simulates in Play, and
+      set_cloth in Play tunes the running cloth without touching the scene.
+      get_cloth also gives running, particles, pinned, constraints.
+      Lua: Cloth.attach(go), obj:getComponent("Cloth"), :setWind, :addSphere...
     Runtime IK component (Scene View)
       get_ik / add_ik (name, rig) / set_ik (name, iterations, constraints
       [{chain, target, pole, weight, enabled, matchRotation}] or index + one

@@ -14,6 +14,8 @@
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Utils/Navigation/Crowd.h>
 #include <Pyros3D/Core/InputManager/InputActions.h>
+#include <Pyros3D/Physics/Cloth/ClothComponent.h>
+#include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
@@ -689,6 +691,55 @@ end
 				return v < 0.f ? -k : k;
 			});
 			g.set_function("count", []() { uint32 n = 0; for (uint32 i = 0; i < 8; i++) if (InputManager::IsJoypadConnected(i)) n++; return n; });
+		}
+
+		// Cloth: the mesh an object renders, simulated (ClothComponent). From a scene it is a
+		// "Cloth" component (obj:getComponent("Cloth")); from a script:
+		//
+		//   local flag = Cloth.attach(obj)             -- obj renders a subdivided Plane, say
+		//   flag:pinSide("-x")                         -- held along the pole side
+		//   flag:setWind(6, 0, 1)
+		//   local s = flag:addSphere(x, y, z, 0.5)     -- and flag:setSphere(s, ...) to move it
+		{
+			lua->new_usertype<ClothComponent>("ClothComponent", sol::no_constructor,
+				sol::base_classes, sol::bases<IComponent>(),
+				"pinSide", [](ClothComponent &c, const std::string &side, sol::optional<f32> band) { c.PinSide(side, band ? *band : 0.01f); },
+				"pinVertex", &ClothComponent::PinVertex,
+				"clearPins", &ClothComponent::ClearPins,
+				"setStretch", &ClothComponent::SetStretch, "setBend", &ClothComponent::SetBend,
+				"setDamping", &ClothComponent::SetDamping, "setThickness", &ClothComponent::SetThickness, "setDensity", &ClothComponent::SetDensity,
+				"setFriction", &ClothComponent::SetFriction, "setDrag", &ClothComponent::SetDrag,
+				"setSubsteps", &ClothComponent::SetSubsteps, "setTurbulence", &ClothComponent::SetTurbulence,
+				"setGravity", [](ClothComponent &c, f32 x, f32 y, f32 z) { c.SetGravity(Vec3(x, y, z)); },
+				"setWind", [](ClothComponent &c, f32 x, f32 y, f32 z) { c.SetWind(Vec3(x, y, z)); },
+				"getWind", [](ClothComponent &c) { const Vec3 &w = c.GetWind(); return std::make_tuple(w.x, w.y, w.z); },
+				"setGround", [](ClothComponent &c, bool on, sol::optional<f32> y) { c.SetGround(on, y ? *y : 0.f); },
+				// space: "world" (default), "object" or "parent"
+				"addSphere", [](ClothComponent &c, f32 x, f32 y, f32 z, f32 r, sol::optional<std::string> sp) {
+					const uint32 s = !sp ? ClothComponent::World : (*sp == "object" ? ClothComponent::Owner : (*sp == "parent" ? ClothComponent::Parent : ClothComponent::World));
+					return c.AddSphere(Vec3(x, y, z), r, s); },
+				"addCapsule", [](ClothComponent &c, f32 ax, f32 ay, f32 az, f32 bx, f32 by, f32 bz, f32 r, sol::optional<std::string> sp) {
+					const uint32 s = !sp ? ClothComponent::World : (*sp == "object" ? ClothComponent::Owner : (*sp == "parent" ? ClothComponent::Parent : ClothComponent::World));
+					return c.AddCapsule(Vec3(ax, ay, az), Vec3(bx, by, bz), r, s); },
+				"setSphere", [](ClothComponent &c, uint32 i, f32 x, f32 y, f32 z, f32 r) { c.SetSphere(i, Vec3(x, y, z), r); },
+				"setCapsule", [](ClothComponent &c, uint32 i, f32 ax, f32 ay, f32 az, f32 bx, f32 by, f32 bz, f32 r) { c.SetCapsule(i, Vec3(ax, ay, az), Vec3(bx, by, bz), r); },
+				"clearColliders", &ClothComponent::ClearColliders,
+				"reset", &ClothComponent::Reset,
+				"setRunning", &ClothComponent::SetRunning, "isRunning", &ClothComponent::IsRunning,
+				"getParticleCount", &ClothComponent::GetParticleCount,
+				"getPinnedCount", &ClothComponent::GetPinnedCount,
+				"getConstraintCount", &ClothComponent::GetConstraintCount,
+				"getParticlePosition", [](ClothComponent &c, uint32 i) { const Vec3 p = c.GetParticlePosition(i); return std::make_tuple(p.x, p.y, p.z); });
+			sol::table cl = lua->create_named_table("Cloth");
+			cl.set_function("attach", [](GameObject* go) -> std::shared_ptr<ClothComponent> {
+				if (!go) return nullptr;
+				const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+				for (size_t i = 0; i < comps.size(); i++)
+					if (comps[i] && comps[i]->GetComponentType() == ComponentType::Cloth) return std::static_pointer_cast<ClothComponent>(comps[i]);
+				std::shared_ptr<ClothComponent> c = std::make_shared<ClothComponent>();
+				c->SetRunning(true);
+				go->Add(c);
+				return c; });
 		}
 
 		// What the player means, bound to what they press (InputActions):

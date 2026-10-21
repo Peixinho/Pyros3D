@@ -6,6 +6,7 @@
 // Description : Pyros Scene
 //============================================================================
 
+#include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <unordered_set>
 #include <unordered_map>
@@ -5879,16 +5880,22 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Blocks 2D light. No physics needed - a painted wall\ncan cast without being solid to the simulation.");
 
+			// (each tooltip right after its own item: stacked after the last one, they all asked
+			// whether that one was hovered, and it showed the Network Identity's text)
 			if (ImGui::MenuItem("Network Identity"))
 			{
 				pendingFoliageOp = { { "cmd", "add_network_identity" }, { "id", goId } };
 				ImGui::CloseCurrentPopup();
 			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Replicates the object: the server streams its transform\nand variables to the clients it is relevant to.");
 			if (ImGui::MenuItem("Inverse Kinematics"))
 			{
 				pendingFoliageOp = { { "cmd", "add_ik" }, { "id", goId } };
 				ImGui::CloseCurrentPopup();
 			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Runtime IK on this object's rig: a chain's end reaches for another\nobject every frame, after the animation (a hand on a prop, a foot on the ground).");
 			if (ImGui::MenuItem("Animator (state machine)"))
 			{
 				pendingFoliageOp = { { "cmd", "add_animator" }, { "id", goId } };
@@ -5896,10 +5903,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Plays this object's clips from a state machine (.p3dac): scripts set\nparameters (speed, grounded, jump) and the machine picks and crossfades the clip.");
+			if (ImGui::MenuItem("Cloth"))
+			{
+				pendingFoliageOp = { { "cmd", "add_cloth" }, { "id", goId } };
+				ImGui::CloseCurrentPopup();
+			}
 			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Runtime IK on this object's rig: a chain's end reaches for another\nobject every frame, after the animation (a hand on a prop, a foot on the ground).");
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("Replicates the object: the server streams its transform\nand variables to the clients it is relevant to.");
+				ImGui::SetTooltip("Makes this object's mesh cloth in Play (a Plane with segments, a model's\ncape or curtain): pinned along a side, blown by wind, draped over colliders.");
 			if (ImGui::MenuItem("Physics 2D"))
 			{
 				std::string perr;
@@ -8116,6 +8126,15 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				if (i->second.componentsActive[c]) cs[c]->Enable();
 				else cs[c]->Disable();
 			}
+			// What Play did to its meshes goes too - cloth that blew, dents, morph weights -
+			// or it stayed in the scene and Save wrote... nothing, but the scene on screen
+			// was not the one in the file. Cloth lets go first; then the meshes go back.
+			for (size_t c = 0; c < cs.size(); ++c)
+				if (cs[c] && cs[c]->GetComponentType() == ComponentType::Cloth)
+					static_cast<ClothComponent*>(cs[c].get())->Stop();
+			for (size_t c = 0; c < cs.size(); ++c)
+				if (cs[c] && cs[c]->GetComponentType() == ComponentType::RenderingComponent)
+					static_cast<RenderingComponent*>(cs[c].get())->RestoreOwnGeometry();
 		}
 		// SyncPhysicsForGameObject skips while playMode is true — clear it
 		// before pushing restored transforms back into the physics world.
@@ -11312,6 +11331,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					DrawNetworkIdentityProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawIKComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawAnimatorComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
+					DrawClothComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawWorldCellProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 #ifdef LUA_BINDINGS
 					DrawGameObjectScriptProperties(SelectedSceneObject->GetID());
@@ -12788,6 +12808,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				ImGui::Text("Plane");
 				ImGui::DragFloat("Width", &AddForm_w, 0.01f, 0.001f, MAX_F32);
 				ImGui::DragFloat("Height", &AddForm_h, 0.01f, 0.001f, MAX_F32);
+				ImGui::DragInt("Segments", &AddForm_planeSeg, 1, 1, 256);
+				if (ImGui::IsItemHovered()) ImGui::SetTooltip("Quads a side. 1 for a floor; 20-40 for cloth or water,\nwhich need vertices to move.");
 				break;
 			case 5:
 				// Cone
@@ -13032,7 +13054,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			break;
 		case 4:
 			// Plane
-			sceneObjects->CreateRenderingPlane(ownerGO, AddForm_w, AddForm_h, AddForm_sn, AddForm_fn);
+			sceneObjects->CreateRenderingPlane(ownerGO, AddForm_w, AddForm_h, AddForm_sn, AddForm_fn, (uint32)(AddForm_planeSeg < 1 ? 1 : AddForm_planeSeg));
 			break;
 		case 5:
 			// Cone
@@ -14942,7 +14964,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		else if (shape == "Cylinder")
 			created = sceneObjects->CreateRenderingCylinder(go, F("radius", 1), F("height", 1), (uint32)F("segmentsW", 8), (uint32)F("segmentsH", 6), B("openEnded", false), false, false) != NULL;
 		else if (shape == "Plane")
-			created = sceneObjects->CreateRenderingPlane(go, F("width", 1), F("height", 1), false, false) != NULL;
+			created = sceneObjects->CreateRenderingPlane(go, F("width", 1), F("height", 1), false, false, (uint32)F("segments", 1)) != NULL;
 		else if (shape == "Capsule")
 			created = sceneObjects->CreateRenderingCapsule(go, F("radius", 1), F("height", 1), (uint32)F("numRings", 8), (uint32)F("segmentsW", 8), (uint32)F("segmentsH", 6), false, false) != NULL;
 		else if (shape == "Torus")

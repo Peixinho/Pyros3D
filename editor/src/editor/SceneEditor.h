@@ -1638,6 +1638,8 @@ public:
 	// The Animator component (state machine), same file.
 	void DrawAnimatorComponentProperties(GameObject* go, uint32 goId);
 	bool AgentAnimator(const std::string& command, const json& args, json& out, std::string& errOut);
+	void DrawClothComponentProperties(GameObject* go, uint32 goId);
+	bool AgentCloth(const std::string& command, const json& args, json& out, std::string& errOut);
 	// The running Animator using this controller (selected object first), or NULL.
 	p3d::Animator* FindLiveAnimator(const std::string& controllerAbs);
 	// Hands an edited controller to every Animator using the file. Returns how many.
@@ -2245,6 +2247,7 @@ private:
 	f32 AddForm_w, AddForm_h, AddForm_d, AddForm_p, AddForm_q, AddForm_oc, AddForm_ic;
 	f32 AddForm_mass;
 	int32 AddForm_sw, AddForm_sh, AddForm_r, AddForm_hscale;
+	int32 AddForm_planeSeg = 1;   // (its own: AddForm_sw is whatever the last shape left)
 	bool AddForm_sn, AddForm_fn, AddForm_cgo, AddForm_hs, AddForm_oe, AddForm_cs;
 	bool AddForm_ghost;
 	bool AddForm_stream;

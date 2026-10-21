@@ -115,7 +115,9 @@ namespace p3d {
 			Extrusion2D,
 			// An animation state machine on this object's skeleton. See
 			// AnimatorComponent.h.
-			Animator
+			Animator,
+			// The mesh this object renders, simulated as cloth. See ClothComponent.h.
+			Cloth
 		};
 	}
 

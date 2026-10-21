@@ -1,3 +1,4 @@
+#include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <deque>
 //============================================================================
 // Name        : PyrosLuaHelpers.cpp
@@ -559,6 +560,8 @@ namespace p3d {
 			}
 			if (typeName == "AudioSource" && c->GetComponentType() == ComponentType::AudioSource)
 				return sol::make_object(lua, std::static_pointer_cast<AudioSource>(c));
+			if (typeName == "Cloth" && c->GetComponentType() == ComponentType::Cloth)
+				return sol::make_object(lua, std::static_pointer_cast<ClothComponent>(c));
 		}
 		return sol::lua_nil;
 	}

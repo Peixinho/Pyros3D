@@ -35,6 +35,7 @@
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/AnimationManager/Components/AnimatorComponent.h>
+#include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
@@ -1771,6 +1772,31 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			AnimatorComponent* an = dynamic_cast<AnimatorComponent*>(c);
 			j["type"] = "Animator";
 			if (!an->GetControllerPath().empty()) j["controller"] = RelativizeSceneAssetPath(an->GetControllerPath());
+			return j;
+		}
+		case ComponentType::Cloth:
+		{
+			ClothComponent* cl = dynamic_cast<ClothComponent*>(c);
+			j["type"] = "Cloth";
+			nlohmann::json pins = nlohmann::json::array();
+			for (const std::pair<std::string, f32> &ps : cl->GetPinSides()) pins.push_back({ {"side", ps.first}, {"band", ps.second} });
+			j["pins"] = pins;
+			j["stretch"] = cl->GetStretch(); j["bend"] = cl->GetBend(); j["damping"] = cl->GetDamping(); j["density"] = cl->GetDensity();
+			j["thickness"] = cl->GetThickness(); j["friction"] = cl->GetFriction(); j["drag"] = cl->GetDrag();
+			j["substeps"] = cl->GetSubsteps(); j["turbulence"] = cl->GetTurbulence();
+			j["gravity"] = { cl->GetGravity().x, cl->GetGravity().y, cl->GetGravity().z };
+			j["wind"] = { cl->GetWind().x, cl->GetWind().y, cl->GetWind().z };
+			j["ground"] = cl->HasGround(); j["groundY"] = cl->GetGroundY();
+			nlohmann::json cols = nlohmann::json::array();
+			static const char* kSpaces[] = { "world", "object", "parent" };
+			for (const ClothComponent::Collider &co : cl->GetColliders())
+			{
+				nlohmann::json cj = { {"radius", co.radius}, {"space", kSpaces[co.space < 3 ? co.space : 0]} };
+				cj["a"] = { co.a.x, co.a.y, co.a.z };
+				if (co.capsule) cj["b"] = { co.b.x, co.b.y, co.b.z };
+				cols.push_back(cj);
+			}
+			j["colliders"] = cols;
 			return j;
 		}
 		case ComponentType::IK:
@@ -4159,6 +4185,30 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			const std::string path = j.value("controller", std::string());
 			if (!path.empty()) an->LoadController(ResolveSceneAssetPath(path));
 			go->AddComponent(an);
+		}
+		else if (type == "Cloth")
+		{
+			std::shared_ptr<ClothComponent> cl = std::make_shared<ClothComponent>();
+			auto v3 = [](const nlohmann::json &a, const Vec3 &d) { return a.is_array() && a.size() >= 3 ? Vec3(a[0].get<f32>(), a[1].get<f32>(), a[2].get<f32>()) : d; };
+			if (j.contains("pins") && j["pins"].is_array())
+				for (const auto &pj : j["pins"]) cl->PinSide(pj.value("side", std::string("+y")), pj.value("band", 0.01f));
+			cl->SetStretch(j.value("stretch", cl->GetStretch())); cl->SetBend(j.value("bend", cl->GetBend())); cl->SetDensity(j.value("density", cl->GetDensity()));
+			cl->SetDamping(j.value("damping", cl->GetDamping())); cl->SetThickness(j.value("thickness", cl->GetThickness()));
+			cl->SetFriction(j.value("friction", cl->GetFriction())); cl->SetDrag(j.value("drag", cl->GetDrag()));
+			cl->SetSubsteps(j.value("substeps", cl->GetSubsteps())); cl->SetTurbulence(j.value("turbulence", cl->GetTurbulence()));
+			if (j.contains("gravity")) cl->SetGravity(v3(j["gravity"], cl->GetGravity()));
+			if (j.contains("wind")) cl->SetWind(v3(j["wind"], cl->GetWind()));
+			cl->SetGround(j.value("ground", cl->HasGround()), j.value("groundY", cl->GetGroundY()));
+			if (j.contains("colliders") && j["colliders"].is_array())
+				for (const auto &cj : j["colliders"])
+				{
+					const std::string sp = cj.value("space", std::string("world"));
+					const uint32 space = sp == "object" ? ClothComponent::Owner : (sp == "parent" ? ClothComponent::Parent : ClothComponent::World);
+					const Vec3 a = cj.contains("a") ? v3(cj["a"], Vec3()) : Vec3();
+					if (cj.contains("b")) cl->AddCapsule(a, v3(cj["b"], a), cj.value("radius", 0.1f), space);
+					else cl->AddSphere(a, cj.value("radius", 0.1f), space);
+				}
+			go->AddComponent(cl);
 		}
 		else if (type == "IK")
 		{

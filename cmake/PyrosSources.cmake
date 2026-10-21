@@ -158,6 +158,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Buffers/GeometryBuffer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/InputManager/InputManager.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/InputManager/InputActions.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Cloth/ClothComponent.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Matrix.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Math.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Easing.cpp

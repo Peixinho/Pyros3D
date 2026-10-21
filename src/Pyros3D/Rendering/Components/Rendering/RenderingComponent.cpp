@@ -16,6 +16,7 @@
 #include <map>
 #include <string>
 #include <algorithm>
+#include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <mutex>
 #include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
@@ -701,10 +702,29 @@ namespace p3d {
 
 	ModelGeometry* RenderingComponent::OwnGeometry(RenderingMesh* m)
 	{
-		ModelGeometry* g = m ? dynamic_cast<ModelGeometry*>(m->Geometry) : NULL;
-		if (!g) return NULL;
-		for (size_t k = 0; k < ownGeometries.size(); k++) if (ownGeometries[k].get() == g) return g;
+		if (!m || !m->Geometry) return NULL;
+		for (size_t k = 0; k < ownGeometries.size(); k++) if (ownGeometries[k].get() == m->Geometry) return ownGeometries[k].get();
+		ModelGeometry* g = dynamic_cast<ModelGeometry*>(m->Geometry);
 		std::unique_ptr<ModelGeometry> copy(new ModelGeometry());
+		if (!g)
+		{
+			// (a primitive's: the same attributes under the same names, but for vertex colours,
+			// which a model's geometry has no place for)
+			PrimitiveGeometry* pg = dynamic_cast<PrimitiveGeometry*>(m->Geometry);
+			if (!pg || !pg->tColor.empty() || pg->tVertex.empty()) return NULL;
+			copy->tVertex = pg->tVertex; copy->tNormal = pg->tNormal; copy->tTexcoord = pg->tTexcoord;
+			copy->tTangent = pg->tTangent; copy->tBitangent = pg->tBitangent;
+			copy->index = pg->index;
+			copy->CreateBuffers();
+			copy->SendBuffers();
+			ModelGeometry* own = copy.get();
+			ownOriginals.push_back(std::make_pair(m, m->Geometry));
+			m->Geometry = own;
+			ownGeometries.push_back(std::move(copy));
+			ownBuffersRevision++;
+			RenderState::Touch();
+			return own;
+		}
 		copy->tVertex = g->tVertex; copy->tNormal = g->tNormal; copy->tTexcoord = g->tTexcoord;
 		copy->tTangent = g->tTangent; copy->tBitangent = g->tBitangent;
 		copy->tBonesID = g->tBonesID; copy->tBonesWeight = g->tBonesWeight;
@@ -715,11 +735,36 @@ namespace p3d {
 		copy->SendBuffers();
 		if (getenv("PYROS_DENT_TRACE")) fprintf(stderr, "[dent] %s: own copy of geometry %p -> %p\n", GetOwner() ? GetOwner()->GetName().c_str() : "?", (void*)g, (void*)copy.get());
 		ModelGeometry* own = copy.get();
+		ownOriginals.push_back(std::make_pair(m, m->Geometry));
 		m->Geometry = own;
 		ownGeometries.push_back(std::move(copy));
 		ownBuffersRevision++;              // (cached bindings were of the shared buffers)
 		RenderState::Touch();              // (the kept draw list batched it with the others)
 		return own;
+	}
+
+	void RenderingComponent::RestoreOwnGeometry()
+	{
+		// (the last generation goes now: by the next Stop its frames are long done)
+		retiredGeometries.clear();
+		if (ownOriginals.empty() && ownGeometries.empty() && morphWeights.empty()) return;
+		for (size_t k = 0; k < ownOriginals.size(); k++)
+			if (ownOriginals[k].first) ownOriginals[k].first->Geometry = ownOriginals[k].second;
+		ownOriginals.clear();
+		// (kept a generation, not freed: a Stop clicked in the editor runs while a frame that
+		// draws them is being recorded)
+		for (size_t k = 0; k < ownGeometries.size(); k++) retiredGeometries.push_back(std::move(ownGeometries[k]));
+		ownGeometries.clear();
+		morphWeights.clear();
+		if (renderable)
+		{
+			minBounds = renderable->GetBoundingMinValue(); maxBounds = renderable->GetBoundingMaxValue();
+			BoundingSphereRadius = renderable->GetBoundingSphereRadius();
+			BoundingSphereCenter = renderable->GetBoundingSphereCenter();
+			if (Owner) Owner->RefreshComponentBounds();
+		}
+		ownBuffersRevision++;
+		RenderState::Touch();
 	}
 
 	std::vector<std::string> RenderingComponent::GetMorphTargetNames()
@@ -809,6 +854,8 @@ namespace p3d {
 				if (d >= r) continue;
 				f32 w = 1.f - d / r; w = w * w * (3.f - 2.f * w);
 				g->tVertex[v] = g->tVertex[v] + push * w;
+				// (and the shape morph weights are applied over, or the next weight set undid the dent)
+				if (g->morphBaseVertex.size() == g->tVertex.size()) g->morphBaseVertex[v] = g->morphBaseVertex[v] + push * w;
 				touched[v] = 1; any = true; moved++;
 			}
 			if (!any) continue;
@@ -828,6 +875,9 @@ namespace p3d {
 				}
 				for (size_t v = 0; v < touched.size(); v++)
 					if (touched[v]) { const f32 l = g->tNormal[v].magnitude(); g->tNormal[v] = l > 1e-12f ? g->tNormal[v] / l : Vec3(0.f, 1.f, 0.f); }
+				// (the base's normals take the dent's: exact with no weight on, close with one)
+				if (g->morphBaseNormal.size() == g->tNormal.size())
+					for (size_t v = 0; v < touched.size(); v++) if (touched[v]) g->morphBaseNormal[v] = g->tNormal[v];
 			}
 			g->RecalculateBounding();
 			g->ResendVertices();
@@ -904,6 +954,7 @@ namespace p3d {
 		}
 		// Clear Meshes List
 		Meshes.clear();
+		ownOriginals.clear();              // (the meshes those were of are gone)
 		for (size_t i = 0; i < shadowMeshes.size(); i++) delete shadowMeshes[i];
 		shadowMeshes.clear();
 	}
@@ -923,6 +974,9 @@ namespace p3d {
 				// is being authored (it would drive the rig being posed).
 				if (comps[c] && comps[c]->GetComponentType() == ComponentType::Animator)
 					static_cast<AnimatorComponent*>(comps[c].get())->SetRunning(true);
+				// (cloth too: in the editor the mesh stays as made)
+				if (comps[c] && comps[c]->GetComponentType() == ComponentType::Cloth)
+					static_cast<ClothComponent*>(comps[c].get())->SetRunning(true);
 				if (!comps[c] || comps[c]->GetComponentType() != ComponentType::RenderingComponent) continue;
 				RenderingComponent* rc = static_cast<RenderingComponent*>(comps[c].get());
 				if (rc->autoPlayClip.empty()) continue;
