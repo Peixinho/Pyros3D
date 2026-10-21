@@ -1328,6 +1328,56 @@ void IRenderer::DrawWithAutoInstancing(const std::vector<RenderingMesh*> &items,
 		size_t size() const { return s.count.size(); }
 	} groups = { S };
 
+	// PYROS_BATCH_REPORT=1 (debugging): why what is drawn alone is - not batchable at all, the only
+	// one of its geometry, or a geometry drawn more than once but with materials that differ
+	{
+		static const bool report = std::getenv("PYROS_BATCH_REPORT") != NULL;
+		if (report && n > 200)
+		{
+			std::unordered_map<const void*, std::unordered_set<uint64> > prints;
+			std::unordered_map<const void*, uint32> uses;
+			for (uint32 i = 0; i < n; i++)
+				if (groupOf[i] >= 0) { prints[items[i]->Geometry].insert(groupFingerprint[groupOf[i]]); uses[items[i]->Geometry]++; }
+			uint32 ineligible = 0, unique = 0, materialSplit = 0, small = 0;
+			std::map<std::string, uint32> splitNames;
+			for (uint32 i = 0; i < n; i++)
+			{
+				const int32 g = groupOf[i];
+				if (g < 0)
+				{
+					ineligible++;
+					RenderingMesh* m = items[i];
+					RenderingComponent* rc = m->renderingComponent;
+					IMaterial* mat = m->Material.get();
+					const char* why = rc == NULL ? "no component" : rc->IsInstanced() ? "instanced already" : !rc->GetRenderableShared() ? "no shared renderable"
+						: !m->BonesToDraw().empty() ? "skinned" : m->LodFade != 0.f ? "crossfading" : mat == NULL ? "no material"
+						: mat->IsTransparent() ? "transparent" : (typeid(*mat) == typeid(CustomShaderMaterial)) ? "custom shader"
+						: (typeid(*mat) != typeid(GenericShaderMaterial)) ? "other material"
+						: (static_cast<GenericShaderMaterial*>(mat)->GetOptions() & ShaderUsage::InstancedRendering) ? "instanced material"
+						: !mat->IsDepthWritting() ? "no depth write" : "other";
+					splitNames[std::string("(not batchable) ") + why]++;
+					continue;
+				}
+				if (groups[g].size() >= kAutoInstanceMinimum) continue;
+				const void* geo = items[i]->Geometry;
+				if (uses[geo] <= 1) unique++;
+				else if (prints[geo].size() > 1) { materialSplit++; if (items[i]->Geometry) splitNames[items[i]->Geometry->materialProperties.Name]++; }
+				else small++;
+			}
+			static f64 last = 0.0;
+			const f64 now = (f64)std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() * 1e-3;
+			if (now - last > 5.0)
+			{
+				last = now;
+				fprintf(stderr, "[batch] %u drawn: %u not batchable, %u the only one of their geometry, %u split by material, %u in groups under %u\n",
+					n, ineligible, unique, materialSplit, small, (unsigned)kAutoInstanceMinimum);
+				std::vector<std::pair<uint32, std::string> > top;
+				for (std::map<std::string, uint32>::iterator it = splitNames.begin(); it != splitNames.end(); ++it) top.push_back({ it->second, it->first });
+				std::sort(top.rbegin(), top.rend());
+				for (size_t t = 0; t < top.size() && t < 8; t++) fprintf(stderr, "[batch]   %s x%u\n", top[t].second.c_str(), top[t].first);
+			}
+		}
+	}
 	std::vector<bool> fallback(groups.size(), false);
 	for (uint32 i = 0; i < n; i++)
 	{

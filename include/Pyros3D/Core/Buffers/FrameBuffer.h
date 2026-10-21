@@ -206,6 +206,8 @@ namespace p3d {
 
 		// Binded
 		bool isBinded;
+		// what the attachments were when their completeness was last asked (see AddAttach)
+		uint64 checkedLayout = 0;
 		uint32 glAccessBinded;
 		uint32 accessBinded;
 

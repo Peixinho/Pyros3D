@@ -257,7 +257,22 @@ namespace p3d {
 			Device().SetDrawBuffers(ColorAttachmentIndices);
 		}
 
-		CheckFBOStatus();
+		// Asked again only when what is attached is not what it was: the same textures at the same
+		// points, a cube map's face being the only change, are complete for one face if for all.
+		// The question waits for the device to be done - on the threaded device the whole frame in
+		// flight - and a point light's shadow asked it for each of six faces: a street of lamps was
+		// 27 ms of the frame's 37 waiting on it.
+		{
+			uint64 h = 1469598103934665603ull;
+			auto mix = [&h](const uint64 v) { h ^= v; h *= 1099511628211ull; };
+			for (std::vector<FBOAttachment*>::iterator i = attachments.begin(); i != attachments.end(); i++)
+			{
+				mix((*i)->EngineAttachmentFormat); mix((uint64)(uintptr_t)(*i)->TexturePTR); mix((*i)->AttachmentType);
+			}
+			const bool faceOnly = TextureType >= p3d::TextureType::CubemapPositive_X && TextureType <= p3d::TextureType::CubemapNegative_Z;
+			mix(faceOnly ? 0xC0BEull : (uint64)TextureType);
+			if (h != checkedLayout) { CheckFBOStatus(); checkedLayout = h; }
+		}
 
 		if (!isBinded)
 			Device().BindFramebuffer(Device().TranslateFramebufferAccess(FBOAccess::Read_Write), 0, false);
