@@ -86,6 +86,20 @@ namespace p3d {
 		uint32 ScopeCount() const { return displayScopeCount_; }
 		const ScopeRecord &ScopeAt(const uint32 i) const { return displayScopes_[i]; }
 
+		// Time a frame spent waiting for the display (vsync: the swapchain's next image, the
+		// frames still in flight) - told by the render device, from any thread. Taken out of the
+		// frame to give its work: a frame that waited a refresh is not a slow frame, and the graph
+		// showed every such wait as a spike.
+		static void NoteDisplayWait(const f64 ms);
+		// Where the render device has a thread of its own (ThreadedRenderDevice): the time its frame
+		// took there, start to end - less its own waits for the display (NoteDisplayWait from that
+		// thread), the device thread's work. A frame is slow if either thread's work was.
+		static void NoteDeviceFrame(const f64 ms);
+		f64 LastDeviceWorkMs() const { return displayDeviceWorkMs_; }
+		// When the device knows when frames really reached the screen (Metal): the gap since the last.
+		static void NotePresented(const f64 intervalMs);
+		f64 LastWorkMs() const { return displayWorkMs_; }
+
 		f64 LastFrameMs() const { return displayFrameMs_; }
 		f64 AverageFrameMs() const { return avgFrameMs_; }
 		f32 AverageFps() const { return avgFrameMs_ > 0.0 ? (f32)(1000.0 / avgFrameMs_) : 0.f; }
@@ -122,6 +136,8 @@ namespace p3d {
 		f64 displayFrameMs_;
 
 		f64 historyMs_[kHistorySize];
+		f64 workHistoryMs_[kHistorySize];
+		f64 displayWorkMs_ = 0.0, avgWorkMs_ = 0.0, maxWorkMs_ = 0.0, displayDeviceWorkMs_ = 0.0;
 		uint32 historyWrite_;
 		uint32 historyCount_;
 		f64 avgFrameMs_;

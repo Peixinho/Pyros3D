@@ -984,7 +984,7 @@ void DemoLauncher::BeginImGuiFrame()
 	ImGui_ImplOpenGL3_NewFrame();
 #else
 	// After SDL NewFrame - corrects FramebufferScale to swapchainExtent.
-	static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).NewImGuiVulkanFrame();
+	static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItself()).NewImGuiVulkanFrame();
 #endif
 	ImGui::NewFrame();
 }

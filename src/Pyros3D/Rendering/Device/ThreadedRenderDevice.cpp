@@ -360,6 +360,8 @@ namespace p3d {
 		}
 		const f64 waited = MsSince(t0);
 		if (waited > 0.05) behindWaitMs += waited;
+		// (the device thread's frame keeps this one waiting: its work is counted there, by NoteDeviceFrame)
+		FrameProfiler::NoteDisplayWait(waited);
 		sayingSince = std::chrono::steady_clock::now();
 	}
 
@@ -375,6 +377,7 @@ namespace p3d {
 			std::unique_lock<std::mutex> g(lock);
 			done.wait(g, [this]() { return framesBehind.load() < 2; });
 			behindWaitMs += MsSince(t0);
+			FrameProfiler::NoteDisplayWait(MsSince(t0));
 		}
 		said.frameOpen = true;
 		drainsThisFrame = 0;
@@ -406,6 +409,7 @@ namespace p3d {
 				const int64_t endUs = std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
 				const int64_t took = endUs - deviceFrameStartUs.load();
 				if (took > 0 && took < 2000000) deviceFrameUs = (uint32_t)(deviceFrameUs.load() == 0 ? took : (deviceFrameUs.load() * 4 + took) / 5);
+				if (took > 0) FrameProfiler::NoteDeviceFrame((f64)took / 1000.0);
 				deviceInFrame = false;
 			}
 			framesBehind--;

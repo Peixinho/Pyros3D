@@ -148,12 +148,16 @@ namespace {
 namespace {
 	std::atomic<uint64_t> gVkWaitNs(0), gVkSubmitNs(0);
 	std::atomic<uint32_t> gVkWaits(0), gVkSubmits(0);
-	inline VkResult PyrosTimedWaitForFences(VkDevice d, uint32_t n, const VkFence* f, VkBool32 all, uint64_t timeout)
+	// frameWait: a frame's own fence, waited for to begin the next - held back by the GPU or the
+	// display, not the frame's work (FrameProfiler::NoteDisplayWait). Any other wait (a readback,
+	// a one-off upload) is the frame's, and is left in it: it is a stall that is felt.
+	inline VkResult PyrosTimedWaitForFences(VkDevice d, uint32_t n, const VkFence* f, VkBool32 all, uint64_t timeout, const bool frameWait = false)
 	{
 		// (a fence already signalled is not a wait)
 		if (n == 1 && vkGetFenceStatus(d, f[0]) == VK_SUCCESS) return VK_SUCCESS;
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		const VkResult r = vkWaitForFences(d, n, f, all, timeout);
+		if (frameWait) p3d::FrameProfiler::NoteDisplayWait(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count());
 		gVkWaitNs += (uint64_t)std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
 		gVkWaits++;
 		return r;
@@ -1378,7 +1382,7 @@ namespace p3d {
 		// FRAME_WAIT_TIMEOUT_NS for why UINT64_MAX here can hang the
 		// process during a window resize.
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
-		if (PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
+		if (PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS, true) != VK_SUCCESS)
 			return false;
 		ReleaseRetiredBuffers(currentFrameSlot);
 
@@ -1391,7 +1395,9 @@ namespace p3d {
 		// attempt, success or failure, not just successful ones.
 		uint32 acquireSemIndex = nextAcquireSemaphoreIndex;
 		nextAcquireSemaphoreIndex = (nextAcquireSemaphoreIndex + 1) % (uint32)imageAvailableSemaphores.size();
+		const std::chrono::steady_clock::time_point acq0 = std::chrono::steady_clock::now();
 		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
+		FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - acq0).count());
 		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 		{
 			ResetAcquireSemaphore(acquireSemIndex);
@@ -1460,7 +1466,9 @@ namespace p3d {
 		presentInfo.swapchainCount = 1;
 		presentInfo.pSwapchains = &swapchain;
 		presentInfo.pImageIndices = &imageIndex;
+		const std::chrono::steady_clock::time_point present0 = std::chrono::steady_clock::now();
 		VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+		FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - present0).count());
 		currentFrameSlot = (currentFrameSlot + 1) % MAX_FRAMES_IN_FLIGHT;
 		frameCommandBuffer = frameCommandBuffers[currentFrameSlot];
 		frameFence = frameFences[currentFrameSlot];
@@ -1642,7 +1650,7 @@ namespace p3d {
 		// FRAME_WAIT_TIMEOUT_NS for why UINT64_MAX here can hang the
 		// process during a window resize.
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
-		if (PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
+		if (PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS, true) != VK_SUCCESS)
 			return false;
 		ReleaseRetiredBuffers(currentFrameSlot);
 
@@ -1655,7 +1663,9 @@ namespace p3d {
 		// attempt, success or failure, not just successful ones.
 		uint32 acquireSemIndex = nextAcquireSemaphoreIndex;
 		nextAcquireSemaphoreIndex = (nextAcquireSemaphoreIndex + 1) % (uint32)imageAvailableSemaphores.size();
+		const std::chrono::steady_clock::time_point acq0 = std::chrono::steady_clock::now();
 		VkResult acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
+		FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - acq0).count());
 		if (acquireResult == VK_ERROR_OUT_OF_DATE_KHR)
 		{
 			ResetAcquireSemaphore(acquireSemIndex);
@@ -1743,7 +1753,9 @@ namespace p3d {
 		presentInfo.swapchainCount = 1;
 		presentInfo.pSwapchains = &swapchain;
 		presentInfo.pImageIndices = &imageIndex;
+		const std::chrono::steady_clock::time_point present0 = std::chrono::steady_clock::now();
 		VkResult presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+		FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - present0).count());
 		currentFrameSlot = (currentFrameSlot + 1) % MAX_FRAMES_IN_FLIGHT;
 		frameCommandBuffer = frameCommandBuffers[currentFrameSlot];
 		frameFence = frameFences[currentFrameSlot];
@@ -1821,7 +1833,7 @@ namespace p3d {
 		static const uint64_t FRAME_WAIT_TIMEOUT_NS = 2000000000ULL;
 		{
 			PYROS_PROFILE_SCOPE("VK.WaitFence");
-			if (PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS) != VK_SUCCESS)
+			if (PyrosTimedWaitForFences(device, 1, &frameFence, VK_TRUE, FRAME_WAIT_TIMEOUT_NS, true) != VK_SUCCESS)
 			{
 				ringStats.skippedFenceWait++;
 				return;
@@ -1831,7 +1843,7 @@ namespace p3d {
 			if (gLowLatency.load(std::memory_order_relaxed))
 				for (uint32 s = 0; s < MAX_FRAMES_IN_FLIGHT; s++)
 					if (frameFences[s] != VK_NULL_HANDLE && frameFences[s] != frameFence)
-						PyrosTimedWaitForFences(device, 1, &frameFences[s], VK_TRUE, 100000000ULL);
+						PyrosTimedWaitForFences(device, 1, &frameFences[s], VK_TRUE, 100000000ULL, true);
 		}
 		ringStats.lastResetCall = ringStats.beginFrameCalls;
 		ReleaseRetiredBuffers(currentFrameSlot);
@@ -1897,7 +1909,10 @@ namespace p3d {
 		VkResult acquireResult;
 		{
 			PYROS_PROFILE_SCOPE("VK.Acquire");
+			const std::chrono::steady_clock::time_point a0 = std::chrono::steady_clock::now();
 			acquireResult = vkAcquireNextImageKHR(device, swapchain, FRAME_WAIT_TIMEOUT_NS, imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE, &imageIndex);
+			// (waiting for the display: not the frame's work - FrameProfiler::NoteDisplayWait)
+			FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - a0).count());
 		}
 		// OUT_OF_DATE: surface really changed - rebuild and skip this frame.
 		// SUBOPTIMAL: image is still usable. MoltenVK on macOS often returns
@@ -2088,6 +2103,14 @@ namespace p3d {
 		submitInfo.pSignalSemaphores = signalSems;
 		{
 			PYROS_PROFILE_SCOPE("VK.Submit");
+#ifdef __APPLE__
+			// MoltenVK waits for the display here, not in the acquire: the frame's submit is where
+			// it takes the CAMetalLayer's next drawable (sampled: ~all of a capped frame's device
+			// time inside [CAMetalLayer nextDrawable] under vkQueueSubmit). Counted as the wait it
+			// is - this hides the submit's own encoding cost on the Mac too, the price of knowing.
+			const std::chrono::steady_clock::time_point sub0 = std::chrono::steady_clock::now();
+			struct NoteSubmit { std::chrono::steady_clock::time_point t; ~NoteSubmit() { FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t).count()); } } noteSubmit{ sub0 };
+#endif
 			if (SubmitGraphics(1, &submitInfo, frameFence) != VK_SUCCESS)
 			{
 				if (captureStagingBuffer != VK_NULL_HANDLE)
@@ -2133,7 +2156,9 @@ namespace p3d {
 			FrameProfiler::Instance().Counter("VK.SubmitUs", (f64)gVkSubmitNs.exchange(0) / 1000.0);
 			PyrosPublishVkTimers();
 			PYROS_PROFILE_SCOPE("VK.Present");
+			const std::chrono::steady_clock::time_point present0 = std::chrono::steady_clock::now();
 			presentResult = vkQueuePresentKHR(presentQueue, &presentInfo);
+			FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - present0).count());
 		}
 		// Only OUT_OF_DATE forces a rebuild. Persistent SUBOPTIMAL on
 		// MoltenVK must not recreate every frame (see BeginFrame acquire).

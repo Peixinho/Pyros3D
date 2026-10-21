@@ -2058,8 +2058,14 @@ void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
 	{
 		const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 		const std::chrono::duration<f64> period(1.0 / (f64)frameRateLimit);
-		if (nextFrameAt.time_since_epoch().count() == 0 || now > nextFrameAt + period * 4) nextFrameAt = now;
+		if (nextFrameAt.time_since_epoch().count() == 0) nextFrameAt = now;
 		nextFrameAt += std::chrono::duration_cast<std::chrono::steady_clock::duration>(period);
+		// Behind by more than a period (a frame that ran long, a scene slower than the limit): the
+		// schedule starts again from now, and this frame does not wait. (It was put back to now and
+		// then a period added - once 4 periods behind, which a scene drawn at 21 fps is every other
+		// frame - so the frame that had just run late slept a whole period more: a 17 ms sleep in
+		// 331 of ChaseLab's 851 slow frames.) Behind by less, the next frame has that much less.
+		if (nextFrameAt + period < now) nextFrameAt = now;
 		if (nextFrameAt > now)
 		{
 			PYROS_PROFILE_SCOPE("Player.FrameLimit");
@@ -2081,6 +2087,8 @@ void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
 #endif
 			while (std::chrono::steady_clock::now() < nextFrameAt) {}
 			autoScale.presentWaitMs += waitMs;
+			// (idle, not the frame's work: FrameProfiler's slow frames and work graph leave it out)
+			FrameProfiler::NoteDisplayWait(waitMs);
 		}
 	}
 	StepAutoRenderScale(dt);

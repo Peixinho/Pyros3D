@@ -37,6 +37,7 @@
 #import <Foundation/Foundation.h>
 #include <dispatch/dispatch.h>
 #include <execinfo.h>
+#include <chrono>
 #include <mach/mach_time.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <cstdio>
@@ -639,8 +640,13 @@ namespace p3d {
 		if (device == NULL || commandQueue == NULL || metalLayer == NULL)
 			return false;
 
+		// PYROS_FRAME_WAIT_TRACE=1: how long a frame waited here, and on what (a frame of the GPU's
+		// still in flight, or the display not yet handing back a drawable), when it was over 4 ms.
+		static const bool waitTrace = getenv("PYROS_FRAME_WAIT_TRACE") != NULL;
+		const std::chrono::steady_clock::time_point w0 = std::chrono::steady_clock::now();
 		dispatch_semaphore_t sem = (__bridge dispatch_semaphore_t)frameBoundarySemaphore;
 		dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+		const std::chrono::steady_clock::time_point w1 = std::chrono::steady_clock::now();
 		// (past the semaphore, at most MAX_FRAMES_IN_FLIGHT - 1 frames are on the GPU: the frame that
 		// last used the next slot, kGpuTimerSlots ago, is done)
 		deviceFrameNumber++;
@@ -660,6 +666,15 @@ namespace p3d {
 		{
 			CAMetalLayer* layer = (__bridge CAMetalLayer*)metalLayer;
 			id<CAMetalDrawable> drawable = [layer nextDrawable];
+			FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - w0).count());
+			if (waitTrace)
+			{
+				const std::chrono::steady_clock::time_point w2 = std::chrono::steady_clock::now();
+				const f64 inFlight = std::chrono::duration<f64, std::milli>(w1 - w0).count(), display = std::chrono::duration<f64, std::milli>(w2 - w1).count();
+				if (inFlight + display > 4.0)
+					fprintf(stderr, "[frame-wait] frame %llu: %.1f ms for the GPU's frame in flight, %.1f ms for a drawable (layer: %lu drawables, sync %d)\n",
+						(unsigned long long)deviceFrameNumber, inFlight, display, (unsigned long)layer.maximumDrawableCount, (int)layer.displaySyncEnabled);
+			}
 			if (drawable == nil)
 			{
 				dispatch_semaphore_signal(sem);
@@ -678,7 +693,24 @@ namespace p3d {
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			[encoder endEncoding];
 
-			[cmdBuf presentDrawable:drawable];
+			{
+				// When each frame really reached the screen: the profiler shows the gaps between them,
+				// which are what is seen (a frame that waited a second refresh for a drawable, with
+				// frames already queued, may show as nothing at all). PYROS_PRESENT_TRACE=1 prints each.
+				static const bool presentTrace = getenv("PYROS_PRESENT_TRACE") != NULL;
+				[drawable addPresentedHandler:^(id<MTLDrawable> d) {
+					static CFTimeInterval lastShown = 0.0;
+					const CFTimeInterval at = d.presentedTime;
+					if (at > 0.0 && lastShown > 0.0)
+					{
+						FrameProfiler::NotePresented((at - lastShown) * 1000.0);
+						if (presentTrace) fprintf(stderr, "[present] %.2f ms\n", (at - lastShown) * 1000.0);
+					}
+					else if (at <= 0.0 && presentTrace) fprintf(stderr, "[present] dropped (never shown)\n");
+					if (at > 0.0) lastShown = at;
+				}];
+				[cmdBuf presentDrawable:drawable];
+			}
 
 			[cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull finishedBuffer) {
 				// A frame the GPU refused is a frame of nothing, and it does
@@ -722,8 +754,13 @@ namespace p3d {
 
 		// Frame throttling - see the header comment on
 		// frameBoundarySemaphore.
+		// PYROS_FRAME_WAIT_TRACE=1: how long a frame waited here, and on what (a frame of the GPU's
+		// still in flight, or the display not yet handing back a drawable), when it was over 4 ms.
+		static const bool waitTrace = getenv("PYROS_FRAME_WAIT_TRACE") != NULL;
+		const std::chrono::steady_clock::time_point w0 = std::chrono::steady_clock::now();
 		dispatch_semaphore_t sem = (__bridge dispatch_semaphore_t)frameBoundarySemaphore;
 		dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
+		const std::chrono::steady_clock::time_point w1 = std::chrono::steady_clock::now();
 		// (past the semaphore, at most MAX_FRAMES_IN_FLIGHT - 1 frames are on the GPU: the frame that
 		// last used the next slot, kGpuTimerSlots ago, is done)
 		deviceFrameNumber++;
@@ -743,6 +780,15 @@ namespace p3d {
 		{
 			CAMetalLayer* layer = (__bridge CAMetalLayer*)metalLayer;
 			id<CAMetalDrawable> drawable = [layer nextDrawable];
+			FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - w0).count());
+			if (waitTrace)
+			{
+				const std::chrono::steady_clock::time_point w2 = std::chrono::steady_clock::now();
+				const f64 inFlight = std::chrono::duration<f64, std::milli>(w1 - w0).count(), display = std::chrono::duration<f64, std::milli>(w2 - w1).count();
+				if (inFlight + display > 4.0)
+					fprintf(stderr, "[frame-wait] frame %llu: %.1f ms for the GPU's frame in flight, %.1f ms for a drawable (layer: %lu drawables, sync %d)\n",
+						(unsigned long long)deviceFrameNumber, inFlight, display, (unsigned long)layer.maximumDrawableCount, (int)layer.displaySyncEnabled);
+			}
 			if (drawable == nil)
 			{
 				dispatch_semaphore_signal(sem);
@@ -850,7 +896,24 @@ namespace p3d {
 
 			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
 			id<CAMetalDrawable> drawable = (__bridge id<CAMetalDrawable>)currentDrawable;
-			[cmdBuf presentDrawable:drawable];
+			{
+				// When each frame really reached the screen: the profiler shows the gaps between them,
+				// which are what is seen (a frame that waited a second refresh for a drawable, with
+				// frames already queued, may show as nothing at all). PYROS_PRESENT_TRACE=1 prints each.
+				static const bool presentTrace = getenv("PYROS_PRESENT_TRACE") != NULL;
+				[drawable addPresentedHandler:^(id<MTLDrawable> d) {
+					static CFTimeInterval lastShown = 0.0;
+					const CFTimeInterval at = d.presentedTime;
+					if (at > 0.0 && lastShown > 0.0)
+					{
+						FrameProfiler::NotePresented((at - lastShown) * 1000.0);
+						if (presentTrace) fprintf(stderr, "[present] %.2f ms\n", (at - lastShown) * 1000.0);
+					}
+					else if (at <= 0.0 && presentTrace) fprintf(stderr, "[present] dropped (never shown)\n");
+					if (at > 0.0) lastShown = at;
+				}];
+				[cmdBuf presentDrawable:drawable];
+			}
 
 			dispatch_semaphore_t sem = (__bridge dispatch_semaphore_t)frameBoundarySemaphore;
 			[cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull finishedBuffer) {

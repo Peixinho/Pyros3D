@@ -6,6 +6,7 @@
 // Description : SDL Context
 //============================================================================
 
+#include <chrono>
 #ifdef EMSCRIPTEN
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -448,7 +449,10 @@ namespace p3d {
     void SDL2Context::Draw()
     {
         PYROS_PROFILE_SCOPE("GL.SwapWindow");
+        // (the swap waits for the display with vsync on: not the frame's work)
+        const std::chrono::steady_clock::time_point s0 = std::chrono::steady_clock::now();
         SDL_GL_SwapWindow(rview);
+        FrameProfiler::NoteDisplayWait(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count());
     }
 
     void SDL2Context::HideMouse()
