@@ -97,6 +97,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/GradeEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/VolumetricSmokeEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/VolumetricLightEffect.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/AutoExposureEffect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/VolumetricSmoke.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/RTTDebug.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.cpp

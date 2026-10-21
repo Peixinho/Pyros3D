@@ -5801,6 +5801,11 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       Lua: getNavMesh(scene) (the baked one), NavMesh.new() + addScene/
       addObject/addLink/build, :findPath(x0,y0,z0, x1,y1,z1) -> reached,
       {x,y,z,link}, :nearest, :raycast, :randomPoint, :save/:load.
+    Post effects added this session (add_post_effect by name, before Tonemap/Bloom):
+      "VolumetricLight" - height fog lit by the sun through its shadow map
+      (shafts): uDensity, uFalloff, uBaseHeight, uScattering, uAnisotropy,
+      uAmbient, uMaxDistance, uSteps. "AutoExposure" - eye adaptation: uKey
+      (0.18), uCompensation (EV), uMinEV, uMaxEV, uSpeedUp, uSpeedDown.
     Localization (string tables assets/strings/<code>.json, nested keys = dotted)
       get_language -> language, fallback, languages; set_language (code) - the
       editor shows every "@key" UI/2D text in it; get_strings (code) -> strings;

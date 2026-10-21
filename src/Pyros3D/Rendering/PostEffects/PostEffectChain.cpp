@@ -22,6 +22,7 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/VolumetricSmokeEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/VolumetricLightEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/AutoExposureEffect.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Core/Logs/Log.h>
 
@@ -85,6 +86,9 @@ namespace p3d {
 				// Height fog lit by the sun through its shadow map (shafts) - see
 				// VolumetricLightEffect.h. Two passes, before tonemapping.
 				names.push_back("VolumetricLight");
+				// The eye adjusting to the light - see AutoExposureEffect.h. Three passes,
+				// before Bloom and the tonemap.
+				names.push_back("AutoExposure");
 				// The sky, the air and the weather - see SkyEffect.cpp. An asset
 				// effect that ships with the engine: its sliders are its header's.
 				names.push_back("Sky");
@@ -204,6 +208,17 @@ namespace p3d {
 				air.push_back(MakeParam("uMaxDistance", "Distance (m)", 200.f, 10.f, 4000.f));
 				air.push_back(MakeParam("uSteps", "Steps", 32.f, 8.f, 128.f));
 				table["VolumetricLight"] = air;
+
+				std::vector<CustomEffect::Param> eye;
+				// The luminance shown as middle grey: higher keeps the picture brighter overall.
+				eye.push_back(MakeParam("uKey", "Key", 0.18f, 0.02f, 2.f));
+				eye.push_back(MakeParam("uCompensation", "Compensation (EV)", 0.f, -4.f, 4.f));
+				// How far it may go from the scene as lit: -2 is a quarter as bright, 2 four times.
+				eye.push_back(MakeParam("uMinEV", "Darkest (EV)", -2.f, -10.f, 0.f));
+				eye.push_back(MakeParam("uMaxEV", "Brightest (EV)", 2.f, 0.f, 10.f));
+				eye.push_back(MakeParam("uSpeedUp", "Into the light", 3.f, 0.1f, 20.f));
+				eye.push_back(MakeParam("uSpeedDown", "Into the dark", 1.2f, 0.1f, 20.f));
+				table["AutoExposure"] = eye;
 			}
 			std::map<std::string, std::vector<CustomEffect::Param> >::const_iterator it = table.find(name);
 			return (it != table.end()) ? it->second : none;
@@ -316,6 +331,23 @@ namespace p3d {
 				manager.AddEffect((previous != NULL)
 					? new VolumetricSmokeCompositeEffect(previous->GetTexture(), width, height)
 					: new VolumetricSmokeCompositeEffect(RTT::Color, width, height));
+				return true;
+			}
+			if (name == "AutoExposure")
+			{
+				IEffect* previous = manager.GetLastEffect();
+				ExposureMeterEffect* meter = new ExposureMeterEffect();
+				ExposureAdaptEffect* adapt = new ExposureAdaptEffect();
+				adapt->SetSpeed(ParamOr(params, "uSpeedUp", 3.f), ParamOr(params, "uSpeedDown", 1.2f));
+				ExposureApplyEffect* apply = (previous != NULL)
+					? new ExposureApplyEffect(previous->GetTexture(), width, height)
+					: new ExposureApplyEffect(RTT::Color, width, height);
+				apply->SetKey(ParamOr(params, "uKey", 0.18f));
+				apply->SetCompensation(ParamOr(params, "uCompensation", 0.f));
+				apply->SetLimits(ParamOr(params, "uMinEV", -2.f), ParamOr(params, "uMaxEV", 2.f));
+				manager.AddEffect(meter);
+				manager.AddEffect(adapt);
+				manager.AddEffect(apply);
 				return true;
 			}
 			if (name == "VolumetricLight")
