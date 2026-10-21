@@ -27,6 +27,15 @@ def capture(pid, out):
     Quartz.CGImageDestinationAddImage(d, img, None); Quartz.CGImageDestinationFinalize(d)
     return True
 
+def window_size(pid):
+    """The demo's window's size in points, or None."""
+    import Quartz
+    for w in Quartz.CGWindowListCopyWindowInfo(Quartz.kCGWindowListOptionAll, Quartz.kCGNullWindowID):
+        if w.get("kCGWindowOwnerPID") != pid or w.get("kCGWindowLayer", 1) != 0: continue
+        b = w["kCGWindowBounds"]
+        if b["Height"] > 200: return (int(b["Width"]), int(b["Height"]))
+    return None
+
 def fix_size(pid, w=1280, h=760):
     """The demo's window floated and sized (yabai, where it tiles windows; System Events otherwise)."""
     import shutil
@@ -81,8 +90,17 @@ def main():
         # (one size every time: a tiling window manager hands a new window a different tile each
         # launch, and the picture is framed by the window)
         time.sleep(2.0)
-        fix_size(p.pid)
-        time.sleep(max(1.0, a.wait - 2.0))
+        # (until it takes: a demo that bakes on the CPU at start - the Cornell Box's GI on GL - has
+        # no window yet at 2 s, the resize found nothing, and its picture came out at whatever
+        # size the tiling manager chose: a different framing, and a "difference" every few runs)
+        sized_at = time.time()
+        for attempt in range(12):
+            fix_size(p.pid)
+            ws = window_size(p.pid)
+            # (the bounds come back a title bar's worth either way of what was asked)
+            if (ws and ws[0] == 1280 and abs(ws[1] - 760) <= 16) or p.poll() is not None: break
+            time.sleep(0.5)
+        time.sleep(max(1.0, a.wait - 2.0 - (time.time() - sized_at)))
         ok = capture(p.pid, shot)
         alive = p.poll() is None
         p.kill(); p.wait()
