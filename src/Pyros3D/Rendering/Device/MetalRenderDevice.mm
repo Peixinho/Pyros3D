@@ -54,6 +54,10 @@
 #ifdef METAL_SHADER_TOOLING
 #include <Pyros3D/Rendering/SPIRV/ShaderCompiler.h>
 #include <spirv_cross/spirv_msl.hpp>
+#include <iterator>
+#include <mutex>
+#include <filesystem>
+#include <fstream>
 #endif
 
 namespace {
@@ -2121,6 +2125,110 @@ namespace p3d {
 		return handle;
 	}
 
+#ifdef METAL_SHADER_TOOLING
+	// What SPIRV-Cross makes of a stage's SPIR-V - the MSL text and the index remaps it decided
+	// on - kept by the SPIR-V and the stage's kind, in memory and beside the SPIR-V cache on disk.
+	// It depends on nothing else, and it was most of a cached shader's cost: 158 ms of the 246 a
+	// scene's programs took on Metal, every run (and a material first seen in play paid it then).
+	namespace {
+		const uint32 kMslCacheVersion = 1;    // (raised whenever the translation changes)
+		struct MslTranslation
+		{
+			std::string msl;
+			std::map<uint32, uint32> highBindingRemap, samplerIndexRemap, textureIndexRemap;
+			int32 raySceneMslIndex = -1;
+			uint32 workgroupSize[3] = { 1, 1, 1 };
+		};
+		uint64 MslKey(const std::vector<uint32> &spirv, const uint32 kind)
+		{
+			uint64 h = 14695981039346656037ull;
+			const unsigned char* p = reinterpret_cast<const unsigned char*>(spirv.data());
+			for (size_t i = 0; i < spirv.size() * 4; i++) { h ^= p[i]; h *= 1099511628211ull; }
+			h ^= ((uint64)kind << 32) ^ kMslCacheVersion; h *= 1099511628211ull;
+			return h;
+		}
+		std::mutex g_mslLock;
+		std::map<uint64, MslTranslation> g_msl;
+		std::string MslPath(const uint64 key)
+		{
+			char name[64];
+			std::snprintf(name, sizeof(name), "%016llx.msl", (unsigned long long)key);
+			return SpirvShaderCompiler::CacheDirectory() + "/" + name;
+		}
+		void PutMap(std::string &out, const std::map<uint32, uint32> &m)
+		{
+			const uint32 n = (uint32)m.size(); out.append((const char*)&n, 4);
+			for (std::map<uint32, uint32>::const_iterator i = m.begin(); i != m.end(); ++i) { out.append((const char*)&i->first, 4); out.append((const char*)&i->second, 4); }
+		}
+		bool GetMap(const std::string &in, size_t &at, std::map<uint32, uint32> &m)
+		{
+			uint32 n = 0;
+			if (at + 4 > in.size()) return false;
+			memcpy(&n, in.data() + at, 4); at += 4;
+			if (n > 4096 || at + (size_t)n * 8 > in.size()) return false;
+			for (uint32 k = 0; k < n; k++) { uint32 a, b; memcpy(&a, in.data() + at, 4); memcpy(&b, in.data() + at + 4, 4); at += 8; m[a] = b; }
+			return true;
+		}
+		// (headed by the SPIR-V's length and the whole SPIR-V, compared: a file that is not this
+		// stage's - a hash that collides, a half-written one - is not used)
+		bool LoadMsl(const uint64 key, const std::vector<uint32> &spirv, MslTranslation &t)
+		{
+			{
+				std::lock_guard<std::mutex> g(g_mslLock);
+				std::map<uint64, MslTranslation>::iterator it = g_msl.find(key);
+				if (it != g_msl.end()) { t = it->second; return true; }
+			}
+			static const bool off = getenv("PYROS_SHADER_CACHE") && getenv("PYROS_SHADER_CACHE")[0] == '0';
+			if (off) return false;
+			std::ifstream f(MslPath(key).c_str(), std::ios::binary);
+			if (!f) return false;
+			std::string in((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+			size_t at = 0;
+			uint32 words = 0;
+			if (in.size() < 4) return false;
+			memcpy(&words, in.data(), 4); at = 4;
+			if (words != spirv.size() || at + (size_t)words * 4 > in.size() || memcmp(in.data() + at, spirv.data(), (size_t)words * 4) != 0) return false;
+			at += (size_t)words * 4;
+			MslTranslation r;
+			if (!GetMap(in, at, r.highBindingRemap) || !GetMap(in, at, r.samplerIndexRemap) || !GetMap(in, at, r.textureIndexRemap)) return false;
+			if (at + 16 + 4 > in.size()) return false;
+			memcpy(&r.raySceneMslIndex, in.data() + at, 4); memcpy(r.workgroupSize, in.data() + at + 4, 12); at += 16;
+			uint32 len = 0; memcpy(&len, in.data() + at, 4); at += 4;
+			if (len == 0 || at + len != in.size()) return false;
+			r.msl.assign(in.data() + at, len);
+			t = r;
+			std::lock_guard<std::mutex> g(g_mslLock);
+			g_msl[key] = r;
+			return true;
+		}
+		void StoreMsl(const uint64 key, const std::vector<uint32> &spirv, const MslTranslation &t)
+		{
+			{
+				std::lock_guard<std::mutex> g(g_mslLock);
+				g_msl[key] = t;
+			}
+			std::string out;
+			const uint32 words = (uint32)spirv.size();
+			out.append((const char*)&words, 4);
+			out.append((const char*)spirv.data(), (size_t)words * 4);
+			PutMap(out, t.highBindingRemap); PutMap(out, t.samplerIndexRemap); PutMap(out, t.textureIndexRemap);
+			out.append((const char*)&t.raySceneMslIndex, 4); out.append((const char*)t.workgroupSize, 12);
+			const uint32 len = (uint32)t.msl.size(); out.append((const char*)&len, 4); out.append(t.msl);
+			std::error_code ec;
+			std::filesystem::create_directories(SpirvShaderCompiler::CacheDirectory(), ec);
+			const std::string path = MslPath(key), part = path + ".part";
+			{
+				std::ofstream f(part.c_str(), std::ios::binary | std::ios::trunc);
+				if (!f) return;
+				f.write(out.data(), (std::streamsize)out.size());
+				if (!f) { f.close(); std::filesystem::remove(part, ec); return; }
+			}
+			std::filesystem::rename(part, path, ec);
+			if (ec) std::filesystem::remove(part, ec);
+		}
+	}
+#endif
+
 	bool MetalRenderDevice::CompileShaderStage(const DeviceHandle shader, const std::string &source, std::string &errorLog)
 	{
 		std::map<DeviceHandle, ShaderStageRecord>::iterator it = shaderStages.find(shader);
@@ -2210,7 +2318,19 @@ namespace p3d {
 		@autoreleasepool
 		{
 			std::string mslSource;
-			try
+			const uint64 mslKey = MslKey(it->second.spirv, it->second.engineShaderType);
+			MslTranslation cached;
+			const bool mslCached = LoadMsl(mslKey, it->second.spirv, cached);
+			if (mslCached)
+			{
+				mslSource = cached.msl;
+				it->second.highBindingRemap = cached.highBindingRemap;
+				it->second.samplerIndexRemap = cached.samplerIndexRemap;
+				it->second.textureIndexRemap = cached.textureIndexRemap;
+				it->second.raySceneMslIndex = cached.raySceneMslIndex;
+				for (int k = 0; k < 3; k++) it->second.workgroupSize[k] = cached.workgroupSize[k];
+			}
+			else try
 			{
 				spirv_cross::CompilerMSL mslCompiler(it->second.spirv);
 				spirv_cross::CompilerMSL::Options mslOptions;
@@ -2522,6 +2642,17 @@ namespace p3d {
 				errorLog = std::string("SPIRV-Cross MSL compile failed: ") + e.what();
 				return false;
 			}
+			if (!mslCached)
+			{
+				MslTranslation made;
+				made.msl = mslSource;
+				made.highBindingRemap = it->second.highBindingRemap;
+				made.samplerIndexRemap = it->second.samplerIndexRemap;
+				made.textureIndexRemap = it->second.textureIndexRemap;
+				made.raySceneMslIndex = it->second.raySceneMslIndex;
+				for (int k = 0; k < 3; k++) made.workgroupSize[k] = it->second.workgroupSize[k];
+				StoreMsl(mslKey, it->second.spirv, made);
+			}
 			NSString* mslNSString = [NSString stringWithUTF8String:mslSource.c_str()];
 			NSError* nsError = nil;
 			id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
@@ -2775,7 +2906,10 @@ namespace p3d {
 		// no shadow casters) - pad the remaining slots with the last valid
 		// texture so Metal/Vulkan both see a complete array, matching
 		// VulkanRenderDevice::SendUniformInt()'s fill behaviour.
-		uint32 bindCount = arraySize > count ? arraySize : count;
+		// The program's own array, no more and no less: fewer units than it declares repeat the last
+		// (below); more are ignored, as GL ignores them. (More were bound past the array's end - into
+		// the texture slots of whatever the program declares next.)
+		uint32 bindCount = arraySize;
 		if (bindCount == 0)
 			return;
 

@@ -213,6 +213,23 @@ namespace p3d {
 	// TextureType::CubemapPositive_X..CubemapNegative_Z's enum order).
 	static const uint32 CUBEMAP_FACE_TARGET_BASE = 100;
 
+	// Whether the pipeline cache is read from and written to disk: not on Apple, where Vulkan is
+	// MoltenVK (see CreatePipelineCache). PYROS_VK_PIPELINE_CACHE=1 / 0 says otherwise.
+	static bool PipelineCacheOnDisk()
+	{
+		static int on = -1;
+		if (on < 0)
+		{
+			const char* e = getenv("PYROS_VK_PIPELINE_CACHE");
+#ifdef __APPLE__
+			on = (e && e[0] == '1') ? 1 : 0;
+#else
+			on = (e && e[0] == '0') ? 0 : 1;
+#endif
+		}
+		return on == 1;
+	}
+
 	static std::string PyrosCacheDir()
 	{
 		const char *xdg = getenv("XDG_CACHE_HOME");
@@ -4830,6 +4847,26 @@ namespace p3d {
 		// set layout - keeps CreatePipeline()/BindPipeline() uniform
 		// across textured and non-textured programs alike, rather than
 		// special-casing "this program has no samplers".
+		// More textures in one stage than the device allows (16 on MoltenVK, as on Metal): said
+		// once per kind of program, with what it samples - validation only says "18 > 16".
+		{
+			static uint32 limit = 0;
+			if (limit == 0) { VkPhysicalDeviceProperties pr = {}; vkGetPhysicalDeviceProperties(physicalDevice, &pr); limit = pr.limits.maxPerStageDescriptorSamplers; }
+			const VkShaderStageFlags stages[2] = { VK_SHADER_STAGE_VERTEX_BIT, VK_SHADER_STAGE_FRAGMENT_BIT };
+			for (int k = 0; k < 2; k++)
+			{
+				uint32 used = 0;
+				for (size_t b = 0; b < samplerLayoutBindings.size(); b++)
+					if (samplerLayoutBindings[b].stageFlags & stages[k]) used += samplerLayoutBindings[b].descriptorCount;
+				if (used <= limit) continue;
+				std::string names;
+				for (std::map<std::string, uint32>::const_iterator n = it->second.samplerBindings.begin(); n != it->second.samplerBindings.end(); ++n)
+					names += " " + n->first + (it->second.samplerArraySizes[n->second] > 1 ? "[" + std::to_string(it->second.samplerArraySizes[n->second]) + "]" : std::string());
+				static std::set<std::string> said;
+				if (said.insert(names).second)
+					fprintf(stderr, "WARNING: a %s stage samples %u textures, more than this device's %u:%s\n", k == 0 ? "vertex" : "fragment", used, limit, names.c_str());
+			}
+		}
 		VkDescriptorSetLayoutCreateInfo samplerSetLayoutInfo = {};
 		samplerSetLayoutInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
 		samplerSetLayoutInfo.bindingCount = (uint32_t)samplerLayoutBindings.size();
@@ -7873,6 +7910,13 @@ namespace p3d {
 
 		std::string cachePath = PyrosCacheDir() + "/pipeline_cache.bin";
 		std::vector<char> initialData;
+		// Not on the Mac (MoltenVK): its cache holds MSL, and creating one from the file compiles
+		// every shader in it before anything is drawn - whatever the game will use, all of what it
+		// ever used. With Metal's own shader cache warm that costs nothing; cold (a shader changed,
+		// a new machine, an OS update) ChaseLab stood on a black window for over a minute. And it
+		// bought nothing: no cache started in 6.2 s, its 28 MB one in 6.5. (Metal keeps compiled
+		// shaders itself.) Elsewhere the driver's cache is compiled code, and is kept.
+		if (!PipelineCacheOnDisk()) { VkPipelineCacheCreateInfo empty = {}; empty.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO; if (vkCreatePipelineCache(device, &empty, NULL, &pipelineCache) != VK_SUCCESS) pipelineCache = VK_NULL_HANDLE; return; }
 		{
 			std::ifstream in(cachePath.c_str(), std::ios::binary);
 			if (in)
@@ -7924,7 +7968,7 @@ namespace p3d {
 		static uint32 savedAt = 0;
 		static std::chrono::steady_clock::time_point lastGrew;
 		static uint32 seenCount = 0;
-		if (pipelineCache == VK_NULL_HANDLE || device == VK_NULL_HANDLE) return;
+		if (pipelineCache == VK_NULL_HANDLE || device == VK_NULL_HANDLE || !PipelineCacheOnDisk()) return;
 		const uint32 made = pipelinesCreated;
 		if (made == savedAt) return;
 		const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
@@ -7953,7 +7997,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::WritePipelineCacheFile()
 	{
-		if (pipelineCache == VK_NULL_HANDLE || device == VK_NULL_HANDLE)
+		if (pipelineCache == VK_NULL_HANDLE || device == VK_NULL_HANDLE || !PipelineCacheOnDisk())
 			return;
 
 		size_t dataSize = 0;

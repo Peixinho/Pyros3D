@@ -1310,7 +1310,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             UBO_BINDING(BIND_PointShadowBlock) uniform PointShadowBlock {
                 mat4 uPointDepthsMVP[8];
             };
-            SAMPLER_BINDING(BIND_uPointShadowMaps) uniform samplerCube uPointShadowMaps[4];
+            // One: only [0] is ever read (a forward draw is shadowed by one light of each kind). Four
+            // were declared, three never read - 18 textures in the PBR stage, over the 16 a stage may
+            // have on MoltenVK (and Metal).
+            SAMPLER_BINDING(BIND_uPointShadowMaps) uniform samplerCube uPointShadowMaps[1];
         #endif
 
         #ifdef SPOTSHADOW
@@ -1328,7 +1331,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 return ShadowPCF2D(shadowMap, coord.xyz, ShadowFilterRadius(packed), size, vec4(0.0, 0.0, 1.0, 1.0));
             }
 
-            SAMPLER_BINDING(BIND_uSpotShadowMaps) uniform sampler2DShadow uSpotShadowMaps[4];
+            SAMPLER_BINDING(BIND_uSpotShadowMaps) uniform sampler2DShadow uSpotShadowMaps[1];   // (one - see uPointShadowMaps)
             UBO_BINDING(BIND_SpotShadowBlock) uniform SpotShadowBlock {
                 mat4 uSpotDepthsMVP[4];
             };

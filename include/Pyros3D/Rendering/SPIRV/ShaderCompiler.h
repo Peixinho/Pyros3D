@@ -151,6 +151,8 @@ namespace p3d {
 		// outSpirv is left empty in that case. Results are cached in
 		// memory and under ~/.cache/pyros3d/spirv/ keyed by source hash.
 		static bool Compile(const std::string &source, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog);
+		// Where compiled shaders are kept between runs (the SPIR-V, and what a backend makes of it).
+		static std::string CacheDirectory();
 
 		// True when `source` still has loose in/out/uniform declarations
 		// that need AutoFixForVulkan() (no `layout(...)` prefix). Engine

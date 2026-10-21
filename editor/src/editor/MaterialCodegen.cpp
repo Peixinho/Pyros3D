@@ -523,10 +523,10 @@ std::string BuildTemplate(const TemplateInputs& in) {
 		"uniform mat4 uDirectionalDepthsMVP[4];\n"
 		"uniform vec4 uDirectionalShadowFar[4];\n"
 		"uniform int uNumberOfDirectionalShadows;\n"
-		"uniform samplerCube uPointShadowMaps[4];\n"
+		"uniform samplerCube uPointShadowMaps[1];\n"   // (one: only [0] is read - PyrosShader.glsl's note)
 		"uniform mat4 uPointDepthsMVP[8];\n"
 		"uniform int uNumberOfPointShadows;\n"
-		"uniform sampler2DShadow uSpotShadowMaps[4];\n"
+		"uniform sampler2DShadow uSpotShadowMaps[1];\n"
 		"uniform mat4 uSpotDepthsMVP[4];\n"
 		"uniform int uNumberOfSpotShadows;\n"
 		"varying_in vec4 vWorldPositionShadow;\n"

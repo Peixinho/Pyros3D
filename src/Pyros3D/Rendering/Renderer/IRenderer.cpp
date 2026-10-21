@@ -44,8 +44,13 @@
 #define PYROS_MAX_LIGHTS 8
 static_assert(PYROS_MAX_LIGHTS == p3d::IRenderer::MaxShaderLights, "IRenderer::MaxShaderLights must match PYROS_MAX_LIGHTS");
 
-// PyrosShader.glsl declares uPointShadowMaps[4] and uSpotShadowMaps[4].
+// PyrosShader.glsl declares uPointShadowMaps[1] and uSpotShadowMaps[1] (it reads only [0]; four
+// of each put the PBR stage at 18 textures, more than MoltenVK's 16). Four units are still sent:
+// a material's own shader may declare four (Erangel's saved ones do), and every backend takes what
+// its program declares and no more - GL ignores the rest, Vulkan reads the first, Metal clamps.
 #define PYROS_SHADOW_SAMPLER_SLOTS 4
+// The shadow matrices are per light, four of each kind (uPointDepthsMVP[8], uSpotDepthsMVP[4]).
+#define PYROS_SHADOW_MATRIX_SLOTS 4
 
 namespace {
 	// Fills EVERY element of a sampler array with a texture unit, not just
@@ -5478,14 +5483,14 @@ void IRenderer::CaptureExtraUniform(IMaterial* Material, const Uniform &u, Rende
 		if (!PointShadowMatrix.empty())
 		{
 			valuePtr = &PointShadowMatrix[0];
-			valueSize = (uint32)sizeof(Matrix) * (uint32)std::min<size_t>(PointShadowMatrix.size(), 2 * PYROS_SHADOW_SAMPLER_SLOTS);
+			valueSize = (uint32)sizeof(Matrix) * (uint32)std::min<size_t>(PointShadowMatrix.size(), 2 * PYROS_SHADOW_MATRIX_SLOTS);
 		}
 		break;
 	case Uniforms::DataUsage::SpotShadowMatrix:
 		if (!SpotShadowMatrix.empty())
 		{
 			valuePtr = &SpotShadowMatrix[0];
-			valueSize = (uint32)sizeof(Matrix) * (uint32)std::min<size_t>(SpotShadowMatrix.size(), PYROS_SHADOW_SAMPLER_SLOTS);
+			valueSize = (uint32)sizeof(Matrix) * (uint32)std::min<size_t>(SpotShadowMatrix.size(), PYROS_SHADOW_MATRIX_SLOTS);
 		}
 		break;
 	case Uniforms::DataUsage::DirectionalShadowFar:

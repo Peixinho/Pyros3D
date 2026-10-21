@@ -199,11 +199,33 @@ namespace p3d {
 		}
 	}
 
+	std::string SpirvShaderCompiler::CacheDirectory() { return SpirvCacheDir(); }
+
 	bool SpirvShaderCompiler::Compile(const std::string &sourceIn, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog)
 	{
 		outSpirv.clear();
+		// Looked up first, by the text as given: what comes out depends on nothing else. (It was
+		// looked up after the ray-query probe below - shaderc's preprocessor over the whole text,
+		// 125 KB for the deferred renderer's, every time: 1.5 ms of each cached compile, 259 ms of
+		// a scene's 175, and the shaders of a material first seen in play cost a frame for it.)
+		const uint64 key = HashSpirvKey(sourceIn, stage);
+		{
+			std::lock_guard<std::mutex> lock(gSpirvCacheMutex);
+			std::map<uint64, std::vector<uint32> >::iterator it = gSpirvMemCache.find(key);
+			if (it != gSpirvMemCache.end())
+			{
+				outSpirv = it->second;
+				return true;
+			}
+			if (LoadSpirvFromDisk(key, outSpirv))
+			{
+				gSpirvMemCache[key] = outSpirv;
+				return true;
+			}
+		}
+
 		// (GL_EXT_ray_query is GLSL 4.60's: a shader that uses it is raised from the 4.50 every
-		// backend stamps on, and nothing else is touched - its text, so its caches, stay as they were)
+		// backend stamps on, and nothing else is touched)
 		// (only where the extension survives the preprocessor: a shader that names it inside an
 		// #ifdef not taken - the sun pass on a device without ray tracing - is left exactly as it was;
 		// raised regardless, it came out as SPIR-V 1.5, which a Vulkan 1.0 device refuses: black)
@@ -225,22 +247,6 @@ namespace p3d {
 			}
 		}
 		const std::string &source = raised.empty() ? sourceIn : raised;
-
-		const uint64 key = HashSpirvKey(source, stage);
-		{
-			std::lock_guard<std::mutex> lock(gSpirvCacheMutex);
-			std::map<uint64, std::vector<uint32> >::iterator it = gSpirvMemCache.find(key);
-			if (it != gSpirvMemCache.end())
-			{
-				outSpirv = it->second;
-				return true;
-			}
-			if (LoadSpirvFromDisk(key, outSpirv))
-			{
-				gSpirvMemCache[key] = outSpirv;
-				return true;
-			}
-		}
 
 		shaderc_shader_kind kind = ShadercKindForStage(stage);
 
