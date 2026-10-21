@@ -678,12 +678,13 @@ void Editor::Update()
 	}
 
 	// Drain agent commands first so the result is visible in this frame's draw.
-	agentServer.Process();
+	{ PYROS_PROFILE_SCOPE("Editor.Agent"); agentServer.Process(); }
 	// Executes the AI Assistant's queued tool calls on this (main) thread -
 	// HandleAgentCommand touches the SceneGraph, so it must not run on the
 	// client's worker thread.
 	if (tabAI)
 	{
+		PYROS_PROFILE_SCOPE("Editor.AITab");
 		tabAI->Update(GetTime());
 		// AI Assistant settings (provider/model/key/...) are per-project -
 		// persist them into project.json when the user changes them.
@@ -695,8 +696,8 @@ void Editor::Update()
 			project.Save();
 		}
 	}
-	ProcessPendingFileDrops();
-	FlushPendingSceneDocumentCloses();
+	{ PYROS_PROFILE_SCOPE("Editor.FileDrops"); ProcessPendingFileDrops(); }
+	{ PYROS_PROFILE_SCOPE("Editor.DocCloses"); FlushPendingSceneDocumentCloses(); }
 	{
 		PYROS_PROFILE_SCOPE("Editor.SceneDocs");
 		for (size_t i = 0; i < sceneDocs.size(); ++i)
