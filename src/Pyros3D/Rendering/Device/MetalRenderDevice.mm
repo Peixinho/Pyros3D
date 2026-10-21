@@ -36,6 +36,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #include <dispatch/dispatch.h>
+#include <execinfo.h>
 #include <mach/mach_time.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <cstdio>
@@ -1655,6 +1656,13 @@ namespace p3d {
 	void MetalRenderDevice::DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount)
 	{
 		(void)cmd;
+		// (no triangles draws nothing - GL and Vulkan take it as a no-op; Metal's validation stops the
+		// program. A mesh left empty - an emptied decal, a LOD with no faces - asks it.)
+		if (indexCount == 0)
+		{
+			if (std::getenv("PYROS_EMPTY_DRAW_TRACE")) { static int n = 0; if (n++ < 3) { void* bt[24]; const int k = backtrace(bt, 24); fprintf(stderr, "[emptydraw]\n"); backtrace_symbols_fd(bt, k, 2); } }
+			return;
+		}
 		if (currentRenderEncoder == NULL || currentVao == 0 || currentPipeline == 0)
 			return;
 		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
