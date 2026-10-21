@@ -54,11 +54,6 @@ namespace p3d {
 	}
 
 	ThreadedRenderDevice* FramePipeline::DeviceThread() { return g_deviceThread.get(); }
-	IRenderDevice* FramePipeline::DeviceItself()
-	{
-		if (!g_deviceThread) return IsActiveRenderDeviceSet() ? &GetActiveRenderDevice() : NULL;
-		return g_deviceItself.get();
-	}
 	IRenderDevice* FramePipeline::DeviceItselfAtRest()
 	{
 		if (!g_deviceThread) return IsActiveRenderDeviceSet() ? &GetActiveRenderDevice() : NULL;

@@ -343,7 +343,10 @@ void BaseExample::BeginImGuiFrame()
 		ImGui_ImplOpenGL3_NewFrame();
 #else
 		// After SDL NewFrame - corrects FramebufferScale to swapchainExtent.
-		static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItself()).NewImGuiVulkanFrame();
+		// At rest, every frame: ImGui's draw data for this frame is about to be built over the last
+		// frame's, which the device thread may still be drawing (MoltenVK encodes it at submit) - not
+		// waiting crashed the Skybox demo in its index buffer about one run in two.
+		static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).NewImGuiVulkanFrame();
 #endif
 		ImGui::NewFrame();
 	}

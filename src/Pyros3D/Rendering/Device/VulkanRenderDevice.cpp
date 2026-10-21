@@ -434,6 +434,8 @@ namespace p3d {
 
 	VulkanRenderDevice::~VulkanRenderDevice()
 	{
+		// (whatever else happens below: a writer still running would end the program as it is destroyed)
+		if (pipelineCacheWriter.joinable()) pipelineCacheWriter.join();
 		if (device != VK_NULL_HANDLE)
 		{
 			FlushPendingTransfers();
@@ -5374,9 +5376,27 @@ namespace p3d {
 	void VulkanRenderDevice::DestroyRetiredImage(RetiredImage &r)
 	{
 		if (r.sampler != VK_NULL_HANDLE) vkDestroySampler(device, r.sampler, NULL);
+		for (size_t i = 0; i < r.framebuffers.size(); i++) vkDestroyFramebuffer(device, r.framebuffers[i], NULL);
 		for (size_t i = 0; i < r.views.size(); i++) vkDestroyImageView(device, r.views[i], NULL);
 		if (r.image != VK_NULL_HANDLE && allocator != VK_NULL_HANDLE) vmaDestroyImage(allocator, r.image, r.allocation);
 		r = RetiredImage();
+	}
+
+	void VulkanRenderDevice::RetireImage(RetiredImage &r)
+	{
+		if (frameInProgress)
+			retiredImages[currentFrameSlot].push_back(r);
+		else if (swapchain != VK_NULL_HANDLE && retiredImagesBeforeNextFrame.size() < 4096)
+			retiredImagesBeforeNextFrame.push_back(r);
+		else
+		{
+			// (no frame will come round to do it: waited for, and done now)
+			WaitIdle();
+			EnsureHostMappedBufferWritable();
+			for (size_t n = 0; n < retiredImagesBeforeNextFrame.size(); n++) DestroyRetiredImage(retiredImagesBeforeNextFrame[n]);
+			retiredImagesBeforeNextFrame.clear();
+			DestroyRetiredImage(r);
+		}
 	}
 
 	void VulkanRenderDevice::DestroyTextureObject(const DeviceHandle texture)
@@ -5425,17 +5445,7 @@ namespace p3d {
 				r.image = it->second.image;
 				r.allocation = it->second.allocation;
 			}
-			if (frameInProgress)
-				retiredImages[currentFrameSlot].push_back(r);
-			else if (swapchain != VK_NULL_HANDLE && retiredImagesBeforeNextFrame.size() < 4096)
-				retiredImagesBeforeNextFrame.push_back(r);
-			else
-			{
-				EnsureHostMappedBufferWritable();
-				for (size_t n = 0; n < retiredImagesBeforeNextFrame.size(); n++) DestroyRetiredImage(retiredImagesBeforeNextFrame[n]);
-				retiredImagesBeforeNextFrame.clear();
-				DestroyRetiredImage(r);
-			}
+			RetireImage(r);
 		}
 		textures.erase(it);
 		if (currentlyConfiguringTexture == texture)
@@ -5699,11 +5709,11 @@ namespace p3d {
 			// way; this path never had the equivalent. First-time creation
 			// (tex.image == NULL) never had anything submitted against it,
 			// so skip the stall there.
+			// Not waited for any more: the old image and its views are retired with the frames that
+			// may still use them (RetireImage), as a destroyed texture's are. Its queued uploads
+			// still go first.
 			if (tex.image != VK_NULL_HANDLE)
-			{
 				FlushPendingTransfers();
-				vkDeviceWaitIdle(device);
-			}
 			// Any FBO this texture is already attached to (e.g. an
 			// IEffect's own render target, resized to match the window
 			// right after creation) has a VkFramebuffer baked against the
@@ -5734,14 +5744,18 @@ namespace p3d {
 			// is the exact path a window resize takes for every render
 			// target.
 			ForgetSamplerDescriptorsForView(tex.view);
-			if (tex.view != VK_NULL_HANDLE) { vkDestroyImageView(device, tex.view, NULL); tex.view = VK_NULL_HANDLE; }
-			for (std::map<uint32, VkImageView>::iterator rtIt = tex.renderTargetViewsByTarget.begin(); rtIt != tex.renderTargetViewsByTarget.end(); rtIt++)
 			{
-				ForgetSamplerDescriptorsForView(rtIt->second);
-				vkDestroyImageView(device, rtIt->second, NULL);
+				RetiredImage old;
+				if (tex.view != VK_NULL_HANDLE) { old.views.push_back(tex.view); tex.view = VK_NULL_HANDLE; }
+				for (std::map<uint32, VkImageView>::iterator rtIt = tex.renderTargetViewsByTarget.begin(); rtIt != tex.renderTargetViewsByTarget.end(); rtIt++)
+				{
+					ForgetSamplerDescriptorsForView(rtIt->second);
+					old.views.push_back(rtIt->second);
+				}
+				tex.renderTargetViewsByTarget.clear();
+				if (tex.image != VK_NULL_HANDLE) { old.image = tex.image; old.allocation = tex.allocation; tex.image = VK_NULL_HANDLE; tex.allocation = VK_NULL_HANDLE; }
+				if (old.image != VK_NULL_HANDLE || !old.views.empty()) RetireImage(old);
 			}
-			tex.renderTargetViewsByTarget.clear();
-			if (tex.image != VK_NULL_HANDLE) { vmaDestroyImage(allocator, tex.image, tex.allocation); tex.image = VK_NULL_HANDLE; }
 
 			VkImageCreateInfo imageInfo = {};
 			imageInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
@@ -6823,11 +6837,14 @@ namespace p3d {
 			// Same in-use rule as DestroyFramebuffer() above - this drops
 			// framebuffers because a texture they reference was recreated
 			// (a resize), which happens between frames whose work may still
-			// be in flight.
-			WaitIdle();
+			// be in flight. Retired with those frames rather than waited for:
+			// a render scale change resizes every target, and waiting here
+			// and in the image's own resize was half of its 100 ms hitch.
+			RetiredImage r;
 			for (std::map<uint32, VkFramebuffer>::iterator fIt = fboIt->second.framebuffersByTarget.begin(); fIt != fboIt->second.framebuffersByTarget.end(); fIt++)
-				vkDestroyFramebuffer(device, fIt->second, NULL);
+				r.framebuffers.push_back(fIt->second);
 			fboIt->second.framebuffersByTarget.clear();
+			if (!r.framebuffers.empty()) RetireImage(r);
 		}
 	}
 
@@ -7913,12 +7930,20 @@ namespace p3d {
 		const std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
 		if (made != seenCount) { seenCount = made; lastGrew = now; return; }
 		if (std::chrono::duration<f64>(now - lastGrew).count() < 3.0) return;
+		// On a thread of its own, not in the frame: reading the cache out (MoltenVK turns every
+		// pipeline in it back into data) and writing the file took 76 ms, a hitch each time new
+		// pipelines had been made - a resize, a material first seen. vkGetPipelineCacheData asks no
+		// synchronisation of the cache, so pipelines go on being made with it meanwhile.
+		if (pipelineCacheWriting.load()) return;          // (the next frame asks again)
 		savedAt = made;
-		WritePipelineCacheFile();
+		if (pipelineCacheWriter.joinable()) pipelineCacheWriter.join();
+		pipelineCacheWriting = true;
+		pipelineCacheWriter = std::thread([this]() { WritePipelineCacheFile(); pipelineCacheWriting = false; });
 	}
 
 	void VulkanRenderDevice::DestroyPipelineCache()
 	{
+		if (pipelineCacheWriter.joinable()) pipelineCacheWriter.join();
 		if (pipelineCache == VK_NULL_HANDLE || device == VK_NULL_HANDLE)
 			return;
 		WritePipelineCacheFile();

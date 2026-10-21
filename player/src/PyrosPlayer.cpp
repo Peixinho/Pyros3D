@@ -2507,14 +2507,12 @@ void PyrosPlayer::ApplyPendingResizeIfAny()
 	// the extent is unchanged.
 	if (gbufferFBO && (w != gbufferAlbedo->GetWidth() || h != gbufferAlbedo->GetHeight()))
 	{
-		// The one piece of synchronisation that makes the rest safe. Same
-		// reason DeferredRenderer::Resize() and SceneSerializer::
-		// UnloadScene() open with one: nothing else here waits, and the
-		// resources about to be reallocated may still be referenced by an
-		// in-flight command buffer.
-		if (IsActiveRenderDeviceSet())
-			GetActiveRenderDevice().WaitIdle();
-
+		// Not waited for: what is reallocated may still be used by a frame on the GPU, and every
+		// backend keeps the old image until that frame is done (Vulkan retires it with the frame,
+		// Metal's command buffers hold on to it, GL's driver does). The render scale changes
+		// this size while the game plays, and the wait - here and in DeferredRenderer::Resize, the
+		// texture resize and the framebuffers on Vulkan - was half of a 70-100 ms hitch, each time.
+		PYROS_PROFILE_SCOPE("Resize.GBuffer");
 		gbufferDepth->Resize(w, h);
 		gbufferAlbedo->Resize(w, h);
 		gbufferSpecular->Resize(w, h);
@@ -2523,14 +2521,18 @@ void PyrosPlayer::ApplyPendingResizeIfAny()
 		gbufferFBO->Resize(w, h);
 	}
 
-	if (renderer) renderer->Resize(w, h);
+	if (renderer) { PYROS_PROFILE_SCOPE("Resize.Renderer"); renderer->Resize(w, h); }
 	// The chain's own targets are window-sized too, and an effect reading a
-	// stale-sized capture samples the wrong part of it.
+	// stale-sized capture samples the wrong part of it. Resized, not built again: every effect
+	// resizes its own targets (PostEffectsManager::Resize), the temporal upscaler remakes itself
+	// for new sizes and FSR 1 is given them every frame. (It was built again, every effect and its
+	// programs made anew - the other half of the render scale's hitch, 31-37 ms and 22-46 ms of
+	// programs after.)
 	if (effectsManager)
 	{
+		PYROS_PROFILE_SCOPE("Resize.Effects");
 		effectsManager->Resize(w, h);
 		effectsManager->SetOutputSize(fullW, fullH);
-		BuildPostEffectChain();
 	}
 	ApplyProjection();
 }

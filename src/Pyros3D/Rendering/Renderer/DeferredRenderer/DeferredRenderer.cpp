@@ -727,7 +727,10 @@ namespace p3d {
 		// VUID-vkDestroySampler-sampler-01082 firing on SSRTest resize
 		// under validation layers, from destroying resources the previous
 		// frame's still-in-flight command buffer was using.
-		device->WaitIdle();
+		// No longer waited for: those are retired with the frames that may use them now (Vulkan:
+		// retiredPipelines/retiredSamplers/RetireImage; Metal's command buffers keep what they use;
+		// GL's driver does), and a render scale change resizes this while the game plays - the
+		// wait was a GPU frame or two of hitch each time. Validation layers clean on resizes.
 		IRenderer::Resize(Width, Height);
 		lastPassFBO->Resize(Width, Height);
 		{
@@ -740,20 +743,13 @@ namespace p3d {
 		// other Vulkan texture - see Texture::Resize()), which puts it
 		// right back in an undefined-content state - the one-time
 		// dummyShadowsWarmedUp-gated clear in RenderScene() only ever
-		// fires once and won't catch this. Re-clear unconditionally here
-		// instead of trying to track a second warm-up flag.
+		// fires once and won't catch this - previousFrameNeedsClear does.
 		if (ssrOutFBO) ssrOutFBO->Resize(Width, Height);
 		previousFrameFBO->Resize(Width, Height);
-		previousFrameFBO->Bind();
-		device->SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
-		device->Clear(device->TranslateBufferBit(Buffer_Bit::Color));
-		previousFrameFBO->UnBind();
-		// Resize() also reallocates the mip chain at the new size (empty/
-		// undefined beyond level 0's clear above) - regenerate now so a
-		// blurred (rough-surface) SSR sample taken before the next real
-		// per-frame UpdateMipmap() (end of RenderScene()) doesn't read
-		// garbage from an unpopulated higher mip.
-		previousFrameColorTexture->UpdateMipmap();
+		// Cleared (and its mips made) at the top of the next frame, inside it - see
+		// previousFrameNeedsClear. Here, between frames, the clear was a pass of its own: 22-46 ms
+		// on Metal, each time the render scale changed.
+		previousFrameNeedsClear = true;
 	}
 
 	DeferredRenderer::~DeferredRenderer()
@@ -916,6 +912,21 @@ namespace p3d {
 			previousFrameColorTexture->UpdateMipmap();
 
 			dummyShadowsWarmedUp = true;
+			previousFrameNeedsClear = false;
+		}
+		if (previousFrameNeedsClear)
+		{
+			// (made again by Resize: undefined until cleared - same reasoning as the warm-up's above.
+			// The clear colour is everyone's: put back, or the caller's background clears to black -
+			// SSR Test went dark after its window was resized.)
+			const Vec4 callerClear = device->GetClearColor();
+			previousFrameFBO->Bind();
+			device->SetClearColor(Vec4(0.f, 0.f, 0.f, 0.f));
+			device->Clear(device->TranslateBufferBit(Buffer_Bit::Color));
+			previousFrameFBO->UnBind();
+			device->SetClearColor(callerClear);
+			previousFrameColorTexture->UpdateMipmap();
+			previousFrameNeedsClear = false;
 		}
 
 		// Initialize Renderer

@@ -45,6 +45,8 @@
 #include <volk.h>
 #include <vk_mem_alloc.h>
 #include <vector>
+#include <thread>
+#include <atomic>
 #include <map>
 #include <set>
 #include <functional>
@@ -1077,6 +1079,10 @@ namespace p3d {
 		void CreatePipelineCache();
 		void DestroyPipelineCache();
 		void WritePipelineCacheFile();
+		// The cache written while the game goes on (SavePipelineCacheIfGrown): reading it out and
+		// writing it took a frame 76 ms on MoltenVK whenever pipelines had been made.
+		std::thread pipelineCacheWriter;
+		std::atomic<bool> pipelineCacheWriting{ false };
 		void SavePipelineCacheIfGrown();
 		uint32 pipelinesCreated = 0;
 		// Sets deviceIdleSinceLastSubmit=false then vkQueueSubmit.
@@ -1795,12 +1801,15 @@ namespace p3d {
 			VkImage image;
 			VmaAllocation allocation;
 			std::vector<VkImageView> views;
+			std::vector<VkFramebuffer> framebuffers;   // (built against those views)
 			VkSampler sampler;
 			RetiredImage() : image(VK_NULL_HANDLE), allocation(VK_NULL_HANDLE), sampler(VK_NULL_HANDLE) {}
 		};
 		std::vector<RetiredImage> retiredImages[MAX_FRAMES_IN_FLIGHT];
 		std::vector<RetiredImage> retiredImagesBeforeNextFrame;
 		void DestroyRetiredImage(RetiredImage &r);
+		// Destroyed once no frame that may use it is still on the GPU - no wait for the device.
+		void RetireImage(RetiredImage &r);
 		bool AllocateSamplerSet(const VkDescriptorSetLayout layout, CachedSamplerSet &out);
 		void RetireSamplerSetsNaming(const uint64 handle);
 		void ReleaseRetiredSamplerSets(const uint32 slot);

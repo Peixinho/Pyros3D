@@ -53,10 +53,6 @@ namespace p3d {
 		// whatever stands in front of it (a UI library's own backend, say): the
 		// device thread is brought to rest first, so the caller may use it at once.
 		static class IRenderDevice* DeviceItselfAtRest();
-		// The device itself, NOT at rest: for what reads it and touches no GPU state (ImGui's Vulkan
-		// NewFrame reads the swapchain's size). Asking for it at rest every frame drained the device
-		// thread every frame - the main thread then sat through each present's wait for the display.
-		static class IRenderDevice* DeviceItself();
 
 		static void SetSplit(const bool wanted);
 		static bool GetSplit();

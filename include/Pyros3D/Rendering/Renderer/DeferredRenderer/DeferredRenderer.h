@@ -268,6 +268,9 @@ namespace p3d {
 		// validation-layer run (both dummies still VK_IMAGE_LAYOUT_UNDEFINED
 		// the first time a light needed one).
 		bool dummyShadowsWarmedUp;
+		// previousFrameColorTexture was made again (Resize): cleared at the top of the next frame,
+		// inside it - cleared in Resize, between frames, it was a pass of its own: 22-46 ms on Metal.
+		bool previousFrameNeedsClear = false;
 
 		// Deferred Materials
 		CustomShaderMaterial *deferredLastPass;
