@@ -135,6 +135,7 @@ namespace {
 		m.fullscreen = j.value("fullscreen", false);
 		m.renderScale = j.value("renderScale", 1.f);
 		m.language = j.value("language", std::string("auto"));
+		m.devConsole = j.value("devConsole", false) || getenv("PYROS_CONSOLE") != NULL;
 		m.fallbackLanguage = j.value("fallbackLanguage", std::string("en"));
 		if (j.contains("quality") && j["quality"].is_object())
 		{
@@ -609,6 +610,34 @@ end
 	lua.set_function("isFullscreen", [this]() {
 		return (SDL_GetWindowFlags(GetSDLWindow()) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) != 0;
 	});
+	// The developer console runs what it does not know as Lua, in the game's own state: an
+	// expression's value is shown (2 + 2 -> 4), a statement is run.
+	console.SetExecutor([this](const std::string &text) -> std::string {
+		sol::protected_function_result r = lua.safe_script("return " + text, sol::script_pass_on_error);
+		if (!r.valid()) r = lua.safe_script(text, sol::script_pass_on_error);
+		if (!r.valid()) { sol::error e = r; return std::string("ERROR: ") + e.what(); }
+		std::string out;
+		sol::protected_function tostr = lua["tostring"];
+		for (int i = 0; i < r.return_count(); i++)
+		{
+			sol::object o = r.get<sol::object>(i);
+			std::string piece = "nil";
+			if (tostr.valid()) { sol::protected_function_result t = tostr(o); if (t.valid()) piece = t.get<std::string>(); }
+			out += (i ? "\t" : "") + piece;
+		}
+		return out;
+	});
+	// Scripts can drive it too (a test, an automated check): devconsole.open() / run(line) / close().
+	{
+		sol::table dc = lua.create_named_table("devconsole");
+		dc.set_function("open", [this]() { console.Open((uint32)Width, (uint32)Height); });
+		dc.set_function("close", [this]() { console.Close(); });
+		dc.set_function("isOpen", [this]() { return console.IsOpen(); });
+		dc.set_function("run", [this](const std::string &text) { if (!console.IsOpen()) return; console.Type(text); console.Press(DevConsole::Enter); });
+	}
+	console.AddCommand("quit", "close the game", [this](const std::string &) { Close(); return std::string("bye"); });
+	console.AddCommand("fps", "frames a second, now", [this](const std::string &) {
+		char b[64]; snprintf(b, sizeof(b), "%.1f fps", GetTimeInterval() > 0.0 ? 1.0 / GetTimeInterval() : 0.0); return std::string(b); });
 	// The player's language, before anything says anything (Localization; the tables are
 	// assets/strings/<code>.json beside the game).
 	{
@@ -1619,8 +1648,39 @@ void PyrosPlayer::ApplyPendingSceneLoadIfAny()
 // effects, its UI and its end are done by this thread, before anything else.
 void PyrosPlayer::FinishFrameInFlight() { FramePipeline::Finish(); }
 
+void PyrosPlayer::UpdateConsole()
+{
+	if (!PlayerManifestInstance().devConsole) return;
+	// (on the press of the key, not while it is held; the physical key left of 1, on any layout)
+	static bool wasDown[8] = { false, false, false, false, false, false, false, false };
+	const Uint8* k = SDL_GetKeyboardState(NULL);
+	const int scan[8] = { SDL_SCANCODE_GRAVE, SDL_SCANCODE_RETURN, SDL_SCANCODE_BACKSPACE, SDL_SCANCODE_UP, SDL_SCANCODE_DOWN,
+		SDL_SCANCODE_PAGEUP, SDL_SCANCODE_PAGEDOWN, SDL_SCANCODE_ESCAPE };
+	bool pressed[8];
+	for (int i = 0; i < 8; i++) { const bool d = k[scan[i]] != 0 || (i == 1 && k[SDL_SCANCODE_KP_ENTER]); pressed[i] = d && !wasDown[i]; wasDown[i] = d; }
+	if (pressed[0])
+	{
+		if (console.IsOpen()) console.Close();
+		else
+		{
+			console.Open((uint32)Width, (uint32)Height);
+			SDL_StartTextInput();
+		}
+		return;
+	}
+	if (!console.IsOpen()) return;
+	if (pressed[1]) console.Press(DevConsole::Enter);
+	if (pressed[2]) console.Press(DevConsole::Backspace);
+	if (pressed[3]) console.Press(DevConsole::Up);
+	if (pressed[4]) console.Press(DevConsole::Down);
+	if (pressed[5]) console.Press(DevConsole::PageUp);
+	if (pressed[6]) console.Press(DevConsole::PageDown);
+	if (pressed[7]) console.Press(DevConsole::Escape);
+}
+
 void PyrosPlayer::Update()
 {
+	UpdateConsole();
 	if (!sceneLoaded) return;
 
 	// The game's zoom (setViewFovScale): the projection is otherwise only built on a load or a
@@ -1952,7 +2012,9 @@ void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
 		// so it belongs on top of the HUD, not under it.
 		if (overlayScene)
 			uiRenderer->RenderUI(overlayScene);
-		DispatchUIInput();
+		// (the console over everything; while it is open the keys are its, not the game's UI's)
+		if (console.IsOpen()) console.Draw(uiRenderer, GetTime());
+		else DispatchUIInput();
 	}
 
 	if (ownFrame)
@@ -2056,6 +2118,7 @@ void PyrosPlayer::DispatchUIEvents(UICanvas* canvas)
 // TextInputHook.h.
 void PyrosPlayer::OnTextTyped(const char* utf8)
 {
+	if (activePlayer && utf8 && activePlayer->console.IsOpen()) { activePlayer->console.Type(utf8); return; }
 	if (!activePlayer || !activePlayer->scene || !utf8) return;
 	std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(activePlayer->scene);
 	for (size_t i = canvases.size(); i > 0; i--)

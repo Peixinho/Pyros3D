@@ -45,16 +45,20 @@ namespace p3d {
 		const std::string kNoPadName;
 	}
 
-	bool InputManager::IsMouseButtonDown(const uint32 e) { return MouseDown().count(e) != 0; }
+	namespace { bool g_gameInputWithheld = false; }
+	void InputManager::SetGameInputWithheld(const bool withheld) { g_gameInputWithheld = withheld; }
+	bool InputManager::IsGameInputWithheld() { return g_gameInputWithheld; }
+
+	bool InputManager::IsMouseButtonDown(const uint32 e) { return !g_gameInputWithheld && MouseDown().count(e) != 0; }
 	bool InputManager::IsJoypadConnected(const uint32 joypadID) { return joypadID < 8 && Pad(joypadID).connected; }
 	const std::string &InputManager::GetJoypadName(const uint32 joypadID) { return joypadID < 8 ? Pad(joypadID).name : kNoPadName; }
 	bool InputManager::IsJoypadButtonDown(const uint32 joypadID, const uint32 button)
 	{
-		return joypadID < 8 && button < 32 && (Pad(joypadID).buttons & (1u << button)) != 0;
+		return !g_gameInputWithheld && joypadID < 8 && button < 32 && (Pad(joypadID).buttons & (1u << button)) != 0;
 	}
 	f32 InputManager::GetJoypadAxis(const uint32 joypadID, const uint32 axis)
 	{
-		return (joypadID < 8 && axis < 8) ? Pad(joypadID).axes[axis] : 0.f;
+		return (!g_gameInputWithheld && joypadID < 8 && axis < 8) ? Pad(joypadID).axes[axis] : 0.f;
 	}
 	void InputManager::SetJoypadConnected(const uint32 joypadID, const bool connected, const std::string &name)
 	{
@@ -122,7 +126,7 @@ namespace p3d {
 	{
 		const Vec2 d(mouseDX, mouseDY);
 		mouseDX = mouseDY = 0.f;
-		return d;
+		return g_gameInputWithheld ? Vec2(0.f, 0.f) : d;
 	}
 	namespace {
 		std::vector<InputManager::Touch> &Touches()
@@ -172,6 +176,7 @@ namespace p3d {
 	void InputManager::MousePressed(const uint32 e)
 	{
 		MouseDown().insert(e);
+		if (g_gameInputWithheld) return;
 		Event::Input::Info m;
 		m.Type = Event::Type::OnPress;
 		m.Input = e;
@@ -181,6 +186,7 @@ namespace p3d {
 	void InputManager::MouseReleased(const uint32 e)
 	{
 		MouseDown().erase(e);
+		if (g_gameInputWithheld) return;
 		Event::Input::Info m;
 		m.Type = Event::Type::OnRelease;
 		m.Input = e;
@@ -189,11 +195,12 @@ namespace p3d {
 	}
 
 	static std::unordered_set<uint32> &KeysDown() { static std::unordered_set<uint32> keys; return keys; }
-	bool InputManager::IsKeyDown(const uint32 e) { return KeysDown().count(e) != 0; }
+	bool InputManager::IsKeyDown(const uint32 e) { return !g_gameInputWithheld && KeysDown().count(e) != 0; }
 
 	void InputManager::KeyPressed(const uint32 e)
 	{
 		KeysDown().insert(e);
+		if (g_gameInputWithheld) return;
 
 		Event::Input::Info k;
 		k.Type = Event::Type::OnPress;
@@ -205,6 +212,7 @@ namespace p3d {
 	void InputManager::KeyReleased(const uint32 e)
 	{
 		KeysDown().erase(e);
+		if (g_gameInputWithheld) return;
 
 		Event::Input::Info k;
 		k.Type = Event::Type::OnRelease;
@@ -215,6 +223,7 @@ namespace p3d {
 
 	void InputManager::CharEntered(const uint32 e)
 	{
+		if (g_gameInputWithheld) return;
 		// Could be on Pressed or Released, there is nothing different from them
 		Code = e;
 		Event::Input::Info kPress;

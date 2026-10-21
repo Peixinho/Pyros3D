@@ -336,6 +336,11 @@ namespace p3d {
 		// for whatever starts listening after the press - a control handed
 		// back to a character whose key never came up.
 		static bool IsKeyDown(const uint32 e);
+		// While true the game hears no input: keys, buttons, pads and mouse movement read as idle and
+		// no events go out (the developer console has the keyboard). What is held is still tracked,
+		// so nothing reads wrong once it is given back.
+		static void SetGameInputWithheld(const bool withheld);
+		static bool IsGameInputWithheld();
 		// The same for a mouse button.
 		static bool IsMouseButtonDown(const uint32 e);
 

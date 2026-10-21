@@ -39,6 +39,7 @@
 #include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/LoadingScreen.h>
+#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/DevConsole.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
 #include <Pyros3D/Rendering/Components/UI/UIToggle.h>
@@ -99,6 +100,10 @@ struct PlayerManifest
 	// (colours), "percent" (false: no number), or "scene" - a UI scene of the game's own, which the
 	// engine keeps up to date by its elements' names (see LoadingScreen.h). Left out: the default.
 	bool loadingScreen = true;
+	// "devConsole": the key left of 1 opens the developer console (the log, and Lua typed into the
+	// game). Off unless asked for - a shipped game should not hand its players a script prompt;
+	// PYROS_CONSOLE=1 turns it on in any build.
+	bool devConsole = false;
 	std::string loadingScene;
 	LoadingScreen::Look loadingLook;
 	// Directory game.json was found in - everything else resolves against
@@ -318,6 +323,8 @@ private:
 	// shown while LoadGameScene runs (game.json "loadingScreen")
 	void OpenLoadingScreen();
 	LoadingScreen loadingScreen;
+	DevConsole console;
+	void UpdateConsole();
 	AudioManager* audio;
 	Projection projection;
 

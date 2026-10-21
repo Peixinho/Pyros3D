@@ -128,6 +128,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Physics2DWorld.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/LoadingScreen.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/DevConsole.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIRect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UICanvas.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIImage.cpp

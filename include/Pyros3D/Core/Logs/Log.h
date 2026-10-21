@@ -80,6 +80,14 @@ namespace p3d {
 			// that a concurrent write cannot pull out from under the reader.
 			static std::vector<Entry> _entries;
 			static unsigned int _entriesStart;
+			// Every line ever recorded, counted (the ring forgets; this does not): a viewer that has
+			// shown up to N shows what is new from the difference.
+			static unsigned long long _recorded;
+			static unsigned long long RecordedCount()
+			{
+				std::lock_guard<std::recursive_mutex> lock(_mutex());
+				return _recorded;
+			}
 			static const unsigned int _entriesMax = 1024;
 			static std::recursive_mutex &_mutex();
 
@@ -132,6 +140,7 @@ namespace p3d {
 				e.text = Message;
 				e.level = _classify(Message);
 				e.error = (e.level == Level::Error);
+				_recorded++;
 				if (_entries.size() < _entriesMax)
 				{
 					_entries.push_back(e);

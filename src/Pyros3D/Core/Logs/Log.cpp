@@ -17,6 +17,7 @@ namespace p3d {
 		bool _LOG::_initiated = false;
 		std::vector<Entry> _LOG::_entries;
 		unsigned int _LOG::_entriesStart = 0;
+		unsigned long long _LOG::_recorded = 0;
 		int _LOG::_threshold = Level::Warning;
 		bool _LOG::_mirrorStdout = true;
 
