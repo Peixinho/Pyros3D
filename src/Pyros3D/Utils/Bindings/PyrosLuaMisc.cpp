@@ -12,6 +12,7 @@
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
+#include <Pyros3D/Utils/Navigation/Crowd.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
@@ -755,6 +756,26 @@ end
 		// between calls, until terrain.finishStroke().
 		{
 			static TerrainEditor editor;
+			// People steering round each other (Crowd - local avoidance on the ground plane):
+			//   local crowd = Crowd.new([neighbourRadius])
+			//   local id = crowd:add(x, z [, radius, maxSpeed])      crowd:remove(id)
+			//   crowd:setPreferredVelocity(id, vx, vz)   where it wants to go, per second
+			//   crowd:setPosition(id, x, z)   crowd:setMaxSpeed(id, s)   crowd:setFixed(id, true)
+			//   crowd:update(dt)   then   local x, z = crowd:getPosition(id)   crowd:getVelocity(id)
+			lua->new_usertype<Crowd>("Crowd",
+				sol::constructors<Crowd(), Crowd(f32)>(),
+				"add", [](Crowd &c, f32 x, f32 z, sol::optional<f32> r, sol::optional<f32> s) { return c.Add(Vec2(x, z), r.value_or(0.3f), s.value_or(1.5f)); },
+				"remove", &Crowd::Remove,
+				"has", &Crowd::Has,
+				"count", &Crowd::Count,
+				"setPreferredVelocity", [](Crowd &c, uint32 id, f32 vx, f32 vz) { c.SetPreferredVelocity(id, Vec2(vx, vz)); },
+				"setPosition", [](Crowd &c, uint32 id, f32 x, f32 z) { c.SetPosition(id, Vec2(x, z)); },
+				"setMaxSpeed", &Crowd::SetMaxSpeed,
+				"setFixed", &Crowd::SetFixed,
+				"setTimeHorizon", &Crowd::SetTimeHorizon,
+				"update", &Crowd::Update,
+				"getPosition", [](Crowd &c, uint32 id) { const Vec2 p = c.GetPosition(id); return std::make_tuple(p.x, p.y); },
+				"getVelocity", [](Crowd &c, uint32 id) { const Vec2 v = c.GetVelocity(id); return std::make_tuple(v.x, v.y); });
 			// Ways across a grid, found on the job system (PathGrid):
 			//   local grid = pathGrid.new(rows)        rows: one string a row, a character a cell,
 			//                                          '0' cannot be crossed, '1'..'9' what it costs
