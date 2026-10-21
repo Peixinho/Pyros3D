@@ -373,6 +373,23 @@ namespace p3d {
 
 			bin->Read(&c_submesh.materialID, sizeof(int32));
 
+			if (version >= 3)
+			{
+				int32 morphCount = 0;
+				bin->Read(&morphCount, sizeof(int32));
+				for (int32 k = 0; k < morphCount && morphCount < 4096; k++)
+				{
+					MorphTarget mt;
+					int32 nl = 0; bin->Read(&nl, sizeof(int32));
+					if (nl > 0 && nl < 4096) { mt.name.resize(nl); bin->Read(&mt.name[0], nl); }
+					int32 np = 0; bin->Read(&np, sizeof(int32));
+					if (np > 0) { mt.dPos.resize(np); bin->Read(&mt.dPos[0], sizeof(Vec3) * np); }
+					int32 nn = 0; bin->Read(&nn, sizeof(int32));
+					if (nn > 0) { mt.dNrm.resize(nn); bin->Read(&mt.dNrm[0], sizeof(Vec3) * nn); }
+					c_submesh.morphTargets.push_back(std::move(mt));
+				}
+			}
+
 			subMeshes.push_back(std::move(c_submesh));
 
 		}

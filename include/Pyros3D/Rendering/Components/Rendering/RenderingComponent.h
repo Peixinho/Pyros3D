@@ -503,6 +503,9 @@ namespace p3d {
 		// Geometries this component was given copies of, its own (Dent(): a dent is this object's, not
 		// every one drawn from the same model file)
 		std::vector<std::unique_ptr<ModelGeometry> > ownGeometries;
+		ModelGeometry* OwnGeometry(RenderingMesh* m);
+		std::map<std::string, f32> morphWeights;
+		void ApplyMorphs(RenderingMesh* m);
 
 		// Get Model Skeleton
 		const std::map<StringID, Bone> &GetSkeleton() const { return skeleton; }
@@ -622,6 +625,14 @@ namespace p3d {
 		// The first dent on a mesh gives this component its own copy of it: other objects drawn from
 		// the same model file are untouched. Returns the vertices moved.
 		uint32 Dent(const Vec3 &worldPoint, const f32 radius, const Vec3 &worldPush);
+
+		// Morph targets (blend shapes): the names of every one the nearest level's meshes have, and
+		// a weight for one by name (0 as made, 1 the full shape; any number blends) - on every mesh
+		// that has a target of that name. Applied on the CPU into this object's own copy of each mesh
+		// (as Dent), so it is this object's alone, and before skinning (a face that smiles and turns).
+		std::vector<std::string> GetMorphTargetNames();
+		void SetMorphWeight(const std::string &name, const f32 weight);
+		f32 GetMorphWeight(const std::string &name) const;
 
 		// Get LOD Number
 		const uint32 GetLODSize() const;

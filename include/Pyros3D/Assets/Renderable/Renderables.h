@@ -26,7 +26,8 @@ namespace p3d {
 	// .p3dm: a version 2 file and later begins with this mark and then its version (a version 1
 	// file begins with its material count, which is never negative). See ModelLoader.
 	static const int32 kP3DMMark = -0x50334D;       // "P3M"
-	static const int32 kP3DMVersion = 2;
+	// (3: each submesh ends with its morph targets - see SubMesh::morphTargets)
+	static const int32 kP3DMVersion = 3;
 
 	struct PYROS3D_API MaterialProperties
 	{

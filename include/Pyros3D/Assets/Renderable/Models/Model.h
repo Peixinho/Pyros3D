@@ -29,6 +29,11 @@ namespace p3d {
 		// Bones
 		std::vector<Vec4> tBonesID, tBonesWeight;
 
+		// Shapes it can take (see MorphTarget), and - once weights have been applied - the vertices
+		// and normals as made, which the weights are applied over
+		std::vector<MorphTarget> morphTargets;
+		std::vector<Vec3> morphBaseVertex, morphBaseNormal;
+
 		void CreateBuffers();
 		// tVertex / tNormal changed after the buffers were sent (a dent): the vertices laid out
 		// again from these arrays into a new buffer - the old one is freed by the device once the

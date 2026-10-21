@@ -1,3 +1,4 @@
+#include <functional>
 #include <cstdio>
 #include <cstdint>
 //============================================================================
@@ -267,7 +268,38 @@ namespace p3d {
 		// Static props: bake the node chain (axis, scale, map placement)
 		// into the vertices. Skinned meshes keep the node graph so the
 		// skeleton stays valid.
-		if (!skinned)
+		// PreTransformVertices drops morph targets (assimp keeps no anim meshes through it), so a static
+		// model with them keeps its node graph and has the nodes' transforms baked in here instead.
+		bool morphs = false;
+		for (uint32 i = 0; i < assimp_model->mNumMeshes; i++) if (assimp_model->mMeshes[i]->mNumAnimMeshes > 0) morphs = true;
+		if (!skinned && morphs)
+		{
+			std::function<void(const aiNode*, const aiMatrix4x4&)> bake = [&](const aiNode* node, const aiMatrix4x4 &parent) {
+				const aiMatrix4x4 world = parent * node->mTransformation;
+				aiMatrix3x3 rot(world); rot.Inverse().Transpose();         // (normals: the inverse transpose)
+				for (uint32 k = 0; k < node->mNumMeshes; k++)
+				{
+					aiMesh* m = assimp_model->mMeshes[node->mMeshes[k]];
+					for (uint32 v = 0; v < m->mNumVertices; v++)
+					{
+						m->mVertices[v] = world * m->mVertices[v];
+						if (m->HasNormals()) { m->mNormals[v] = rot * m->mNormals[v]; m->mNormals[v].Normalize(); }
+					}
+					for (uint32 a = 0; a < m->mNumAnimMeshes; a++)
+					{
+						aiAnimMesh* am = m->mAnimMeshes[a];
+						for (uint32 v = 0; v < am->mNumVertices; v++)
+						{
+							if (am->HasPositions()) am->mVertices[v] = world * am->mVertices[v];
+							if (am->HasNormals()) { am->mNormals[v] = rot * am->mNormals[v]; am->mNormals[v].Normalize(); }
+						}
+					}
+				}
+				for (uint32 c = 0; c < node->mNumChildren; c++) bake(node->mChildren[c], world);
+			};
+			bake(assimp_model->mRootNode, aiMatrix4x4());
+		}
+		else if (!skinned)
 		{
 			assimp_model = Importer.ReadFile(Filename.c_str(), flags | aiProcess_PreTransformVertices);
 			if (!assimp_model)
@@ -324,6 +356,27 @@ namespace p3d {
 					memcpy(&subMesh.tNormal[0], &mesh->mNormals[0], mesh->mNumVertices*sizeof(Vec3));
 				}
 				else subMesh.hasNormal = false;
+
+				// morph targets: assimp gives each target's positions as they are at full weight;
+				// kept as offsets from the mesh
+				for (uint32 k = 0; k < mesh->mNumAnimMeshes; k++)
+				{
+					const aiAnimMesh* am = mesh->mAnimMeshes[k];
+					if (am == NULL || !am->HasPositions() || am->mNumVertices != mesh->mNumVertices) continue;
+					MorphTarget mt;
+					mt.name = am->mName.length > 0 ? std::string(am->mName.data) : ("target" + std::to_string(k));
+					mt.dPos.resize(mesh->mNumVertices);
+					for (uint32 v = 0; v < mesh->mNumVertices; v++)
+						mt.dPos[v] = Vec3(am->mVertices[v].x - mesh->mVertices[v].x, am->mVertices[v].y - mesh->mVertices[v].y, am->mVertices[v].z - mesh->mVertices[v].z);
+					if (am->HasNormals() && mesh->HasNormals())
+					{
+						mt.dNrm.resize(mesh->mNumVertices);
+						for (uint32 v = 0; v < mesh->mNumVertices; v++)
+							mt.dNrm[v] = Vec3(am->mNormals[v].x - mesh->mNormals[v].x, am->mNormals[v].y - mesh->mNormals[v].y, am->mNormals[v].z - mesh->mNormals[v].z);
+					}
+					subMesh.morphTargets.push_back(mt);
+				}
+				if (!subMesh.morphTargets.empty()) printf("  %s: %u morph targets\n", subMesh.Name.c_str(), (unsigned)subMesh.morphTargets.size());
 
 				// get texcoords
 				if (mesh->HasTextureCoords(0))
@@ -850,6 +903,22 @@ namespace p3d {
 
 				// Material ID
 				bin->Write(&(*i).materialID, sizeof(int32));
+
+				// Morph targets (version 3): a count, then each one's name and offsets
+				int32 morphCount = (int32)(*i).morphTargets.size();
+				bin->Write(&morphCount, sizeof(int32));
+				for (const MorphTarget &mt : (*i).morphTargets)
+				{
+					int32 nl = (int32)mt.name.size();
+					bin->Write(&nl, sizeof(int32));
+					if (nl > 0) bin->Write(mt.name.c_str(), nl);
+					int32 np = (int32)mt.dPos.size();
+					bin->Write(&np, sizeof(int32));
+					if (np > 0) bin->Write(&mt.dPos[0], sizeof(Vec3) * np);
+					int32 nn = (int32)mt.dNrm.size();
+					bin->Write(&nn, sizeof(int32));
+					if (nn > 0) bin->Write(&mt.dNrm[0], sizeof(Vec3) * nn);
+				}
 			}
 
 			bin->Close();

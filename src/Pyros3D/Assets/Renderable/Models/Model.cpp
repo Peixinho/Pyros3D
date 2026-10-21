@@ -181,7 +181,10 @@ namespace p3d {
 		{
 			if (mesh->subMeshes[i].tIndex.size()>0)
 			{
-				if (mergeMeshes)
+				// (a submesh with morph targets is kept to itself: joined to another, its targets' offsets
+				// would no longer line up with its vertices)
+				const bool morphs = !mesh->subMeshes[i].morphTargets.empty();
+				if (mergeMeshes && !morphs)
 				{
 					if (meshes.find(mesh->subMeshes[i].materialID) == meshes.end())
 					{
@@ -258,11 +261,15 @@ namespace p3d {
 						}
 						if (mesh->subMeshes[i].hasBones == true)
 						{
-							c_submesh->tBonesID.resize(mesh->subMeshes[i].tVertex.size());
-							memcpy(&c_submesh->tBonesID[0], &mesh->subMeshes[i].tBonesID[0], mesh->subMeshes[i].tVertex.size()*sizeof(Vec4));
+							// (after what is already there: at [0] this wrote the second submesh's weights over
+							// the first's, sized to the second - a merged skinned model skinned its first part
+							// with another part's bones)
+							const size_t nv = mesh->subMeshes[i].tVertex.size();
+							c_submesh->tBonesID.resize(offset + nv);
+							memcpy(&c_submesh->tBonesID[offset], &mesh->subMeshes[i].tBonesID[0], nv*sizeof(Vec4));
 
-							c_submesh->tBonesWeight.resize(mesh->subMeshes[i].tVertex.size());
-							memcpy(&c_submesh->tBonesWeight[0], &mesh->subMeshes[i].tBonesWeight[0], mesh->subMeshes[i].tVertex.size()*sizeof(Vec4));
+							c_submesh->tBonesWeight.resize(offset + nv);
+							memcpy(&c_submesh->tBonesWeight[offset], &mesh->subMeshes[i].tBonesWeight[0], nv*sizeof(Vec4));
 
 							// Save SubMesh Map
 							c_submesh->MapBoneIDs = mesh->subMeshes[i].MapBoneIDs;
@@ -277,6 +284,7 @@ namespace p3d {
 
 					// Not Merging
 					ModelGeometry* c_submesh = new ModelGeometry();
+					c_submesh->morphTargets = mesh->subMeshes[i].morphTargets;
 
 					// Set Material From ID
 					c_submesh->materialProperties = materialProperties[mesh->subMeshes[i].materialID];

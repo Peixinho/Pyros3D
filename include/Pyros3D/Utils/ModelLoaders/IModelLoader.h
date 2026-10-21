@@ -32,6 +32,14 @@ namespace p3d {
 	};
 
 	// Sub Mesh Structure
+	// A shape the mesh can take, in part or whole (a smile, a blink, a bulge): how far each vertex
+	// and its normal move from the mesh as made, at full weight. RenderingComponent::SetMorphWeight
+	// blends them.
+	struct MorphTarget {
+		std::string name;
+		std::vector<Vec3> dPos, dNrm;
+	};
+
 	struct SubMesh {
 
 		// submesh ID
@@ -62,6 +70,9 @@ namespace p3d {
 
 		// Materials
 		uint32 materialID;
+
+		// Morph targets (.p3dm version 3)
+		std::vector<MorphTarget> morphTargets;
 
 	};
 

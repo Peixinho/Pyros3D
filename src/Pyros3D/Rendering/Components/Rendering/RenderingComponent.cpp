@@ -699,6 +699,83 @@ namespace p3d {
 		return scene->GetRenderingMeshesSorted().size()>0 ? scene->GetRenderingMeshesSorted() : scene->GetRenderingMeshes();
 	}
 
+	ModelGeometry* RenderingComponent::OwnGeometry(RenderingMesh* m)
+	{
+		ModelGeometry* g = m ? dynamic_cast<ModelGeometry*>(m->Geometry) : NULL;
+		if (!g) return NULL;
+		for (size_t k = 0; k < ownGeometries.size(); k++) if (ownGeometries[k].get() == g) return g;
+		std::unique_ptr<ModelGeometry> copy(new ModelGeometry());
+		copy->tVertex = g->tVertex; copy->tNormal = g->tNormal; copy->tTexcoord = g->tTexcoord;
+		copy->tTangent = g->tTangent; copy->tBitangent = g->tBitangent;
+		copy->tBonesID = g->tBonesID; copy->tBonesWeight = g->tBonesWeight;
+		copy->MapBoneIDs = g->MapBoneIDs; copy->BoneOffsetMatrix = g->BoneOffsetMatrix;
+		copy->morphTargets = g->morphTargets; copy->morphBaseVertex = g->morphBaseVertex; copy->morphBaseNormal = g->morphBaseNormal;
+		copy->index = g->index; copy->materialProperties = g->materialProperties;
+		copy->CreateBuffers();
+		copy->SendBuffers();
+		if (getenv("PYROS_DENT_TRACE")) fprintf(stderr, "[dent] %s: own copy of geometry %p -> %p\n", GetOwner() ? GetOwner()->GetName().c_str() : "?", (void*)g, (void*)copy.get());
+		ModelGeometry* own = copy.get();
+		m->Geometry = own;
+		ownGeometries.push_back(std::move(copy));
+		ownBuffersRevision++;              // (cached bindings were of the shared buffers)
+		RenderState::Touch();              // (the kept draw list batched it with the others)
+		return own;
+	}
+
+	std::vector<std::string> RenderingComponent::GetMorphTargetNames()
+	{
+		std::vector<std::string> names;
+		for (RenderingMesh* m : GetMeshes(0))
+		{
+			ModelGeometry* g = m ? dynamic_cast<ModelGeometry*>(m->Geometry) : NULL;
+			if (!g) continue;
+			for (const MorphTarget &t : g->morphTargets)
+				if (std::find(names.begin(), names.end(), t.name) == names.end()) names.push_back(t.name);
+		}
+		return names;
+	}
+
+	f32 RenderingComponent::GetMorphWeight(const std::string &name) const
+	{
+		std::map<std::string, f32>::const_iterator it = morphWeights.find(name);
+		return it == morphWeights.end() ? 0.f : it->second;
+	}
+
+	void RenderingComponent::SetMorphWeight(const std::string &name, const f32 weight)
+	{
+		if (GetMorphWeight(name) == weight && morphWeights.count(name)) return;
+		morphWeights[name] = weight;
+		for (RenderingMesh* m : GetMeshes(0))
+		{
+			ModelGeometry* g = m ? dynamic_cast<ModelGeometry*>(m->Geometry) : NULL;
+			if (!g || g->morphTargets.empty()) continue;
+			bool has = false;
+			for (const MorphTarget &t : g->morphTargets) if (t.name == name) { has = true; break; }
+			if (has) ApplyMorphs(m);
+		}
+	}
+
+	void RenderingComponent::ApplyMorphs(RenderingMesh* m)
+	{
+		ModelGeometry* g = OwnGeometry(m);
+		if (!g) return;
+		if (g->morphBaseVertex.size() != g->tVertex.size()) { g->morphBaseVertex = g->tVertex; g->morphBaseNormal = g->tNormal; }
+		const size_t n = g->tVertex.size();
+		g->tVertex = g->morphBaseVertex;
+		std::vector<Vec3> nrm = g->morphBaseNormal;
+		bool normals = nrm.size() == n;
+		for (const MorphTarget &t : g->morphTargets)
+		{
+			const f32 w = GetMorphWeight(t.name);
+			if (w == 0.f || t.dPos.size() != n) continue;
+			for (size_t v = 0; v < n; v++) g->tVertex[v] = g->tVertex[v] + t.dPos[v] * w;
+			if (normals && t.dNrm.size() == n) for (size_t v = 0; v < n; v++) nrm[v] = nrm[v] + t.dNrm[v] * w;
+		}
+		if (normals) { for (size_t v = 0; v < n; v++) { const f32 l = nrm[v].magnitude(); if (l > 1e-8f) nrm[v] = nrm[v] / l; } g->tNormal = nrm; }
+		g->RecalculateBounding();
+		g->ResendVertices();
+	}
+
 	uint32 RenderingComponent::Dent(const Vec3 &worldPoint, const f32 radius, const Vec3 &worldPush)
 	{
 		if (!GetOwner() || radius <= 0.f) return 0;
@@ -723,23 +800,7 @@ namespace p3d {
 				if (!near) continue;
 			}
 			// (its own copy, the first time: the model file's geometry is every user's)
-			bool own = false;
-			for (size_t k = 0; k < ownGeometries.size(); k++) if (ownGeometries[k].get() == g) { own = true; break; }
-			if (!own)
-			{
-				std::unique_ptr<ModelGeometry> copy(new ModelGeometry());
-				copy->tVertex = g->tVertex; copy->tNormal = g->tNormal; copy->tTexcoord = g->tTexcoord;
-				copy->tTangent = g->tTangent; copy->tBitangent = g->tBitangent;
-				copy->index = g->index; copy->materialProperties = g->materialProperties;
-				copy->CreateBuffers();
-				copy->SendBuffers();
-				if (getenv("PYROS_DENT_TRACE")) fprintf(stderr, "[dent] %s: own copy of geometry %p -> %p\n", GetOwner() ? GetOwner()->GetName().c_str() : "?", (void*)g, (void*)copy.get());
-				g = copy.get();
-				m->Geometry = g;
-				ownGeometries.push_back(std::move(copy));
-				ownBuffersRevision++;              // (cached bindings were of the shared buffers)
-				RenderState::Touch();              // (the kept draw list batched it with the others)
-			}
+			g = OwnGeometry(m);
 			std::vector<uint8> touched(g->tVertex.size(), 0);
 			bool any = false;
 			for (size_t v = 0; v < g->tVertex.size(); v++)

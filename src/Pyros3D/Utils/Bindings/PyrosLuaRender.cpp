@@ -698,6 +698,10 @@ namespace p3d {
 				"getMeshesLOD", &RenderingComponent::GetMeshes,
 				// rc:dent(worldPoint, radius, worldPush): see RenderingComponent::Dent
 				"dent", &RenderingComponent::Dent,
+				// rc:getMorphTargets() -> { names }   rc:setMorphWeight(name, w)   rc:getMorphWeight(name)
+				"getMorphTargets", [](RenderingComponent &rc, sol::this_state L) { sol::state_view lua(L); sol::table t = lua.create_table(); std::vector<std::string> n = rc.GetMorphTargetNames(); for (size_t i = 0; i < n.size(); i++) t[i + 1] = n[i]; return t; },
+				"setMorphWeight", &RenderingComponent::SetMorphWeight,
+				"getMorphWeight", &RenderingComponent::GetMorphWeight,
 				"getLODSize", &LUA_RenderingComponent::GetLODSize,
 				"getLODByDistance", &LUA_RenderingComponent::GetLODByDistance,
 				"updateLOD", &LUA_RenderingComponent::UpdateLOD,
