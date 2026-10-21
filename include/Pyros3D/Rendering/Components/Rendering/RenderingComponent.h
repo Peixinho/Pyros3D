@@ -353,6 +353,10 @@ namespace p3d {
 		// `worldRadius`: the model's radius as it stands in the scene; `given`:
 		// where the first level it already has takes over (0: it has none).
 		bool AddAutomaticLODs(const f32 worldRadius, const f32 given = 0.f);
+		// The automatic levels' distances made again for this size (world units) - for a skinned
+		// model, whose size is only known once it is posed: they were made from its unskinned
+		// vertices', a hundred times too big for a rig in centimetres, and never switched.
+		void RescaleAutomaticLODs(const f32 worldRadius);
 		bool HasAutomaticLODs() const { return autoLevels != 0; }
 		// The same, asked once for a component (by whoever lists what a scene
 		// draws): the radius is the owner's own scale times the model's.
@@ -802,6 +806,7 @@ namespace p3d {
 		std::vector<std::shared_ptr<Renderable> > lodRenderables;
 		std::vector<bool> lodOwnMaterials;      // by level; level 0 is false
 		uint32 autoLevels = 0;                  // how many levels AddAutomaticLODs made (they are the first after level 0)
+		f32 autoLodRadius = 0.f;                // the size (world) those levels' distances were made for
 		bool autoLodTried = false;
 		uint32 autoLodSeen = 0;                 // the state of SetAutoLODInUse the level in use was picked under
 		std::shared_ptr<Renderable> shadowRenderable;

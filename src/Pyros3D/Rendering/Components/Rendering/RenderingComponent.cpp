@@ -416,10 +416,23 @@ namespace p3d {
 		if (autoLevels == 0) { SetFirstLODDistance(1e9f); return false; }
 		// (the last level made reaches all the way out)
 		LODDistances.back() = 1e9f;
+		autoLodRadius = worldRadius;
 		// (a quarter of the model for its shadow - unless it was given a shadow mesh of its own, which
 		// this used to throw away: a scene's "shadowRenderable" never cast on any model with levels)
 		if (shadowDetail <= 0.f && !shadowRenderable && triangles >= 3000) SetShadowDetail(0.25f);
 		return true;
+	}
+
+	void RenderingComponent::RescaleAutomaticLODs(const f32 worldRadius)
+	{
+		if (autoLevels == 0 || autoLodRadius <= 0.f || worldRadius <= 0.f) return;
+		const f32 k = worldRadius / autoLodRadius;
+		if (k > 0.8f && k < 1.25f) return;           // (not for an arm's swing: for a size that was wrong)
+		for (size_t i = 0; i < LODDistances.size(); i++)
+			if (LODDistances[i] < 1e8f) LODDistances[i] *= k;
+		autoLodRadius = worldRadius;
+		LastLodDistance = -1.f;                         // (asked again next time, at this size)
+		RenderState::Touch();
 	}
 
 	void RenderingComponent::ClearLODs()

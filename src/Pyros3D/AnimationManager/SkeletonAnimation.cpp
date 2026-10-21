@@ -1847,7 +1847,13 @@ namespace p3d {
 				if ((mn - omn).magnitude() > size * 0.05f || (mx - omx).magnitude() > size * 0.05f)
 				{
 					rcomp->SetBounds(mn, mx);
-					if (rcomp->GetOwner() != NULL) rcomp->GetOwner()->RefreshComponentBounds();
+					if (rcomp->GetOwner() != NULL)
+					{
+						rcomp->GetOwner()->RefreshComponentBounds();
+						// (and its levels of detail made for that size, not for the unskinned one's)
+						const Vec3 &sc = rcomp->GetOwner()->GetScale();
+						rcomp->RescaleAutomaticLODs(rcomp->GetBoundingSphereRadius() * std::max(std::fabs(sc.x), std::max(std::fabs(sc.y), std::fabs(sc.z))));
+					}
 				}
 			}
 		}
