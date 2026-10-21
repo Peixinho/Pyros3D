@@ -6,6 +6,7 @@
 // Description : How a frame is spread over threads, for any application
 //============================================================================
 
+#include <chrono>
 #include <Pyros3D/Rendering/Frame/FramePipeline.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Rendering/Device/ThreadedRenderDevice.h>
@@ -58,7 +59,12 @@ namespace p3d {
 	{
 		if (!g_deviceThread) return IsActiveRenderDeviceSet() ? &GetActiveRenderDevice() : NULL;
 		Finish();
+		// (the wait is for the device thread's frame, whose own work it counts - NoteDeviceFrame -
+		// and that frame's wait for the display: not this thread's work. The Vulkan demos ask for
+		// this every frame, and their profiler showed every present as work.)
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		g_deviceThread->WaitIdle();
+		FrameProfiler::NoteDisplayWait(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count());
 		return g_deviceItself.get();
 	}
 
