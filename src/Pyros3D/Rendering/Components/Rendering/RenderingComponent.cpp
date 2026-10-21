@@ -793,11 +793,11 @@ namespace p3d {
 		{
 			ModelGeometry* g = m ? dynamic_cast<ModelGeometry*>(m->Geometry) : NULL;
 			if (!g || !g->tBonesID.empty() || g->tVertex.empty()) continue;
-			// (nothing of it near: left as it is, shared)
+			// (nothing of it touched: left as it is, shared)
 			{
-				bool near = false;
-				for (size_t v = 0; v < g->tVertex.size() && !near; v++) near = g->tVertex[v].distance(c) < r;
-				if (!near) continue;
+				bool touched = false;
+				for (size_t v = 0; v < g->tVertex.size() && !touched; v++) touched = g->tVertex[v].distance(c) < r;
+				if (!touched) continue;
 			}
 			// (its own copy, the first time: the model file's geometry is every user's)
 			g = OwnGeometry(m);

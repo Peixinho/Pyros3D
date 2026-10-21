@@ -84,12 +84,12 @@ namespace p3d {
 		const std::vector<Agent> &A = agents;                  // (read-only below: every agent reads the step's start)
 		const f32 hz = horizon, nr2 = neighbourRadius * neighbourRadius;
 		JobSystem::Instance().ParallelFor(n, 16, [&](const uint32 begin, const uint32 end) {
-			std::vector<uint32> near;
+			std::vector<uint32> nearby;
 			for (uint32 i = begin; i < end; i++)
 			{
 				const Agent &me = A[i];
 				if (me.fixed || me.maxSpeed <= 0.f) { chosen[i] = me.fixed ? me.preferred : Vec2(0.f, 0.f); continue; }
-				near.clear();
+				nearby.clear();
 				const int32 cx = (int32)floorf(me.position.x / cell), cz = (int32)floorf(me.position.y / cell);
 				for (int32 dz = -1; dz <= 1; dz++)
 					for (int32 dx = -1; dx <= 1; dx++)
@@ -100,27 +100,27 @@ namespace p3d {
 						{
 							if (k == i) continue;
 							const Vec2 d = A[k].position - me.position;
-							if (d.x * d.x + d.y * d.y < nr2) near.push_back(k);
+							if (d.x * d.x + d.y * d.y < nr2) nearby.push_back(k);
 						}
 					}
 				Vec2 pref = me.preferred;
 				const f32 pl = sqrtf(pref.x * pref.x + pref.y * pref.y);
 				if (pl > me.maxSpeed && pl > 0.f) pref = pref * (me.maxSpeed / pl);
-				if (near.empty()) { chosen[i] = pref; continue; }
-				// (the nearest ten: further ones are dodged when they are near - a packed crowd had
+				if (nearby.empty()) { chosen[i] = pref; continue; }
+				// (the nearest ten: further ones are dodged when they are nearby - a packed crowd had
 				// thirty-odd each, and every one of sixty-five candidates was tried against them all)
 				const uint32 kMaxNeighbours = 10;
-				if (near.size() > kMaxNeighbours)
+				if (nearby.size() > kMaxNeighbours)
 				{
-					std::nth_element(near.begin(), near.begin() + kMaxNeighbours, near.end(), [&](const uint32 a, const uint32 b) {
+					std::nth_element(nearby.begin(), nearby.begin() + kMaxNeighbours, nearby.end(), [&](const uint32 a, const uint32 b) {
 						const Vec2 da = A[a].position - me.position, db = A[b].position - me.position;
 						return da.x * da.x + da.y * da.y < db.x * db.x + db.y * db.y; });
-					near.resize(kMaxNeighbours);
+					nearby.resize(kMaxNeighbours);
 				}
 				// (the way it wants, if nothing is in it: most of a crowd most of the time)
 				{
 					f32 tPref = 1e30f;
-					for (uint32 k : near)
+					for (uint32 k : nearby)
 					{
 						const Agent &o = A[k];
 						const Vec2 mine = o.fixed ? pref : (pref * 2.f - me.velocity);
@@ -144,7 +144,7 @@ namespace p3d {
 						if (ring == 0) cand = pref;
 						else { const f32 a = 6.2831853f * (f32)d / (f32)dirs; cand = Vec2(cosf(a) * speed, sinf(a) * speed); }
 						f32 tMin = 1e30f;
-						for (uint32 k : near)
+						for (uint32 k : nearby)
 						{
 							const Agent &o = A[k];
 							// The gap closes at (other's velocity - mine). Against a steered agent this one

@@ -11,6 +11,7 @@
 #include <emscripten/html5.h>
 #endif
 #include <Pyros3D/Core/InputManager/InputManager.h>
+#include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Other/PyrosGL.h>
 #include "SDL2Context.h"
 #include "imgui_impl_sdl2.h"
@@ -409,6 +410,8 @@ namespace p3d {
                 OnResize(sdl_event.window.data1, sdl_event.window.data2);
             }
 		}
+		// (actions read the keys and pads as this frame left them)
+		InputActions::NewFrame();
 
         // See SDL2VulkanContext::GetEvents()'s identical fix/comment - a
         // tiling window manager can resize the window via the

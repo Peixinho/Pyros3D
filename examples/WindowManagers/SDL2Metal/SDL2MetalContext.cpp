@@ -7,6 +7,7 @@
 //               comment for scope.
 //============================================================================
 
+#include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Core/InputManager/InputManager.h>
 #include "SDL2MetalContext.h"
 #include "imgui.h"
@@ -308,6 +309,8 @@ namespace p3d {
                 OnResize((uint32)actualWidth, (uint32)actualHeight);
             }
         }
+        // (actions read the keys and pads as this frame left them)
+        InputActions::NewFrame();
         // The window's real size, every frame, as SDL2VulkanContext does: a tiling window manager
         // (yabai) resizes a window without SDL_WINDOWEVENT_RESIZED reaching here, and the frame kept
         // its old size - stretched by the compositor, a sphere drawn as an ellipse.

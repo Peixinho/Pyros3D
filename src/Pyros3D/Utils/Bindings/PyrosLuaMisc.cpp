@@ -13,6 +13,7 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Utils/Navigation/Crowd.h>
+#include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
@@ -688,6 +689,42 @@ end
 				return v < 0.f ? -k : k;
 			});
 			g.set_function("count", []() { uint32 n = 0; for (uint32 i = 0; i < 8; i++) if (InputManager::IsJoypadConnected(i)) n++; return n; });
+		}
+
+		// What the player means, bound to what they press (InputActions):
+		//
+		//   controls.bind("jump", "key:Space"); controls.bind("jump", "pad:A")
+		//   controls.bind("moveRight", "key:D"); controls.bind("moveRight", "padaxis:LeftX+")
+		//   if controls.pressed("jump") then ... end
+		//   local x = controls.axis("moveLeft", "moveRight")          -- -1..1, keys or stick
+		//
+		// A remap screen: controls.beginCapture(), then each frame controls.capture() until it gives
+		// the binding pressed ("" until then). controls.save() is every binding as one string, and
+		// controls.load(text) puts them back (keep it in the game's settings file).
+		{
+			sol::table c = lua->create_named_table("controls");
+			c.set_function("bind", [](const std::string &a, const std::string &b) { InputActions::Bind(a, b); });
+			c.set_function("unbind", [](const std::string &a, sol::optional<std::string> b) { InputActions::Unbind(a, b ? *b : std::string()); });
+			c.set_function("bindings", [](const std::string &a, sol::this_state L) {
+				sol::state_view lv(L); sol::table t = lv.create_table();
+				std::vector<std::string> b = InputActions::GetBindings(a);
+				for (size_t i = 0; i < b.size(); i++) t[i + 1] = b[i];
+				return t; });
+			c.set_function("actions", [](sol::this_state L) {
+				sol::state_view lv(L); sol::table t = lv.create_table();
+				std::vector<std::string> b = InputActions::GetActions();
+				for (size_t i = 0; i < b.size(); i++) t[i + 1] = b[i];
+				return t; });
+			c.set_function("value", [](const std::string &a) { return InputActions::Value(a); });
+			c.set_function("down", [](const std::string &a) { return InputActions::Down(a); });
+			c.set_function("pressed", [](const std::string &a) { return InputActions::Pressed(a); });
+			c.set_function("released", [](const std::string &a) { return InputActions::Released(a); });
+			c.set_function("axis", [](const std::string &n, const std::string &p) { return InputActions::Axis(n, p); });
+			c.set_function("beginCapture", []() { InputActions::BeginCapture(); });
+			c.set_function("capture", []() { return InputActions::Capture(); });
+			c.set_function("save", []() { return InputActions::Serialize(); });
+			c.set_function("load", [](const std::string &t) { return InputActions::Deserialize(t); });
+			c.set_function("setDeadZone", [](const f32 d) { InputActions::SetDeadZone(d); });
 		}
 
 		lua->set_function("getMousePosition", []() {

@@ -7,6 +7,7 @@
 //               comment for scope (Vulkan roadmap Phase 5 Step C).
 //============================================================================
 
+#include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Core/InputManager/InputManager.h>
 #include "SDL2VulkanContext.h"
 #include "imgui.h"
@@ -496,6 +497,8 @@ namespace p3d {
                 OnResize((uint32)actualWidth, (uint32)actualHeight);
             }
         }
+        // (actions read the keys and pads as this frame left them)
+        InputActions::NewFrame();
 
         // Fallback for window managers that resize the window without
         // ever delivering SDL_WINDOWEVENT_RESIZED - tiling window
