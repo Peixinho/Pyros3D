@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
+#include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
 #include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <unordered_set>
 #include <unordered_map>
@@ -5912,6 +5913,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Makes this object's mesh cloth in Play (a Plane with segments, a model's\ncape or curtain): pinned along a side, blown by wind, draped over colliders.");
+			if (ImGui::MenuItem("Nav Agent"))
+			{
+				pendingFoliageOp = { { "cmd", "add_nav_agent" }, { "id", goId } };
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("Walks this object where a script sends it (setDestination), on the scene's\nnavigation mesh, round walls and the other agents.");
 			if (ImGui::MenuItem("Physics 2D"))
 			{
 				std::string perr;
@@ -8134,6 +8142,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			for (size_t c = 0; c < cs.size(); ++c)
 				if (cs[c] && cs[c]->GetComponentType() == ComponentType::Cloth)
 					static_cast<ClothComponent*>(cs[c].get())->Stop();
+			// (an agent stops walking too, and leaves the crowd: the next Play starts it where it was put)
+			for (size_t c = 0; c < cs.size(); ++c)
+				if (cs[c] && cs[c]->GetComponentType() == ComponentType::NavAgent)
+					static_cast<NavAgentComponent*>(cs[c].get())->SetRunning(false);
 			for (size_t c = 0; c < cs.size(); ++c)
 				if (cs[c] && cs[c]->GetComponentType() == ComponentType::RenderingComponent)
 					static_cast<RenderingComponent*>(cs[c].get())->RestoreOwnGeometry();
@@ -9668,7 +9680,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.terrainShadowsReach = terrainShadowsReach;
 			meta.reverb = reverbOn; meta.reverbRoom = reverbRoom; meta.reverbDamping = reverbDamping;
 			meta.reverbWet = reverbWet; meta.reverbPreDelay = reverbPreDelay; meta.reverbEarly = reverbEarly;
-			meta.navigation = navOn; meta.navSettings = navSettings; meta.navBaked = navBaked;
+			meta.navigation = navOn || !navLinks.empty(); meta.navSettings = navSettings; meta.navBaked = navBaked; meta.navLinks = navLinks;
 			meta.background = backgroundColor;
 			meta.ambientMode = (uint32)ambientMode;
 			for (uint32 i = 0; i < 3; i++) meta.ddgiCounts[i] = (uint32)Max(2, ddgiCounts[i]);
@@ -9947,7 +9959,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			terrainShadowsReach = meta.terrainShadowsReach;
 			reverbOn = meta.reverb; reverbRoom = meta.reverbRoom; reverbDamping = meta.reverbDamping;
 			reverbWet = meta.reverbWet; reverbPreDelay = meta.reverbPreDelay; reverbEarly = meta.reverbEarly;
-			navOn = meta.navigation; navSettings = meta.navSettings; navBaked = meta.navBaked;
+			navOn = meta.navigation; navSettings = meta.navSettings; navBaked = meta.navBaked; navLinks = meta.navLinks;
 			navOverlayOf = NULL; navOverlayTris.clear(); navOverlayPath.clear();
 			backgroundColor = meta.background;
 			ambientMode = (int)meta.ambientMode;
@@ -11337,6 +11349,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					DrawIKComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawAnimatorComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawClothComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
+					DrawNavAgentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawWorldCellProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 #ifdef LUA_BINDINGS
 					DrawGameObjectScriptProperties(SelectedSceneObject->GetID());

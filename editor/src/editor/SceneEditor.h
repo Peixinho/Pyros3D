@@ -516,6 +516,7 @@ public:
 	bool navOn = false;
 	NavMeshSettings navSettings;
 	std::string navBaked;
+	std::vector<NavLink> navLinks;
 	bool showNavMesh = false;
 	const NavMesh* navOverlayOf = NULL;
 	std::vector<Vec3> navOverlayTris, navOverlayPath;
@@ -1651,6 +1652,8 @@ public:
 	bool AgentNavigation(const std::string& command, const json& args, json& out, std::string& errOut);
 	void DrawNavigationSettings();
 	void DrawNavMeshOverlay();
+	bool AgentNavAgent(const std::string& command, const json& args, json& out, std::string& errOut);
+	void DrawNavAgentProperties(GameObject* go, uint32 goId);
 	// The running Animator using this controller (selected object first), or NULL.
 	p3d::Animator* FindLiveAnimator(const std::string& controllerAbs);
 	// Hands an edited controller to every Animator using the file. Returns how many.

@@ -36,6 +36,7 @@
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
 #include <Pyros3D/AnimationManager/Components/AnimatorComponent.h>
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
+#include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
@@ -1774,6 +1775,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (!an->GetControllerPath().empty()) j["controller"] = RelativizeSceneAssetPath(an->GetControllerPath());
 			return j;
 		}
+		case ComponentType::NavAgent:
+		{
+			NavAgentComponent* na = dynamic_cast<NavAgentComponent*>(c);
+			j["type"] = "NavAgent";
+			j["speed"] = na->GetMaxSpeed(); j["radius"] = na->GetRadius(); j["acceleration"] = na->GetAcceleration();
+			j["stoppingDistance"] = na->GetStoppingDistance(); j["faceMovement"] = na->GetFaceMovement();
+			j["yawOffset"] = na->GetYawOffset(); j["turnSpeed"] = na->GetTurnSpeed();
+			return j;
+		}
 		case ComponentType::Cloth:
 		{
 			ClothComponent* cl = dynamic_cast<ClothComponent*>(c);
@@ -2826,6 +2836,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					{ "agentMaxSlope", ns.agentMaxSlope }, { "cellSize", ns.cellSize }, { "cellHeight", ns.cellHeight }, { "tileSize", ns.tileSize },
 					{ "regionMinSize", ns.regionMinSize } };
 				if (!meta->navBaked.empty()) nj["baked"] = meta->navBaked;
+				if (!meta->navLinks.empty())
+				{
+					json lj = json::array();
+					for (const NavLink &l : meta->navLinks)
+						lj.push_back({ { "a", json::array({ l.a.x, l.a.y, l.a.z }) }, { "b", json::array({ l.b.x, l.b.y, l.b.z }) },
+							{ "radius", l.radius }, { "bidirectional", l.bidirectional } });
+					nj["links"] = lj;
+				}
 				root["navigation"] = nj;
 			}
 			if (meta->reverb)
@@ -4195,6 +4213,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (!path.empty()) an->LoadController(ResolveSceneAssetPath(path));
 			go->AddComponent(an);
 		}
+		else if (type == "NavAgent")
+		{
+			std::shared_ptr<NavAgentComponent> na = std::make_shared<NavAgentComponent>();
+			na->SetMaxSpeed(j.value("speed", na->GetMaxSpeed())); na->SetRadius(j.value("radius", na->GetRadius()));
+			na->SetAcceleration(j.value("acceleration", na->GetAcceleration())); na->SetStoppingDistance(j.value("stoppingDistance", na->GetStoppingDistance()));
+			na->SetFaceMovement(j.value("faceMovement", na->GetFaceMovement()), j.value("yawOffset", na->GetYawOffset()));
+			na->SetTurnSpeed(j.value("turnSpeed", na->GetTurnSpeed()));
+			go->AddComponent(na);
+		}
 		else if (type == "Cloth")
 		{
 			std::shared_ptr<ClothComponent> cl = std::make_shared<ClothComponent>();
@@ -5451,6 +5478,16 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				ns.cellSize = nj.value("cellSize", ns.cellSize); ns.cellHeight = nj.value("cellHeight", ns.cellHeight);
 				ns.tileSize = nj.value("tileSize", ns.tileSize); ns.regionMinSize = nj.value("regionMinSize", ns.regionMinSize);
 				outMeta->navBaked = nj.value("baked", std::string());
+				outMeta->navLinks.clear();
+				if (nj.contains("links") && nj["links"].is_array())
+					for (const auto &lj : nj["links"])
+					{
+						NavLink l;
+						if (lj.contains("a") && lj["a"].is_array() && lj["a"].size() >= 3) l.a = Vec3(lj["a"][0].get<f32>(), lj["a"][1].get<f32>(), lj["a"][2].get<f32>());
+						if (lj.contains("b") && lj["b"].is_array() && lj["b"].size() >= 3) l.b = Vec3(lj["b"][0].get<f32>(), lj["b"][1].get<f32>(), lj["b"][2].get<f32>());
+						l.radius = lj.value("radius", 0.5f); l.bidirectional = lj.value("bidirectional", false);
+						outMeta->navLinks.push_back(l);
+					}
 			}
 			if (root.contains("audio") && root["audio"].is_object() && root["audio"].contains("reverb") && root["audio"]["reverb"].is_object())
 			{

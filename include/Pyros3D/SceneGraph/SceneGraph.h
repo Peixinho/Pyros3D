@@ -32,7 +32,6 @@ namespace p3d {
 	class PYROS3D_API RenderingComponent;
 
 	class NavMesh;
-	class Crowd;
 
 	class PYROS3D_API SceneGraph
 	{
@@ -188,14 +187,12 @@ Vec3 lastViewPosition; bool viewed = false;
 		// built and handed over). NULL when it has none.
 		NavMesh* GetNavMesh() const { return navMesh.get(); }
 		void SetNavMesh(const std::shared_ptr<NavMesh> &n) { navMesh = n; }
-		// The crowd its NavAgents steer round each other in (made when the first asks).
-		Crowd* GetCrowd();
-		// True once a frame (for the frame's clock reading `time`): whoever gets it steps the crowd.
+		// True once a frame (for the frame's clock reading `time`): whichever NavAgent gets it steps
+		// the navigation mesh's crowd.
 		bool TakeCrowdStep(const f64 time) { if (time == crowdSteppedAt) return false; crowdSteppedAt = time; return true; }
 
 	private:
 		std::shared_ptr<NavMesh> navMesh;
-		std::shared_ptr<Crowd> crowd;
 		f64 crowdSteppedAt = -1.0;
 
 		// GameObject Dynamic List

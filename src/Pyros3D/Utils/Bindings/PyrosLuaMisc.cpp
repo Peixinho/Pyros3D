@@ -14,6 +14,7 @@
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Utils/Navigation/Crowd.h>
 #include <Pyros3D/Utils/Navigation/NavMesh.h>
+#include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
@@ -902,6 +903,36 @@ end
 				"buildMs", &NavMesh::GetBuildMilliseconds);
 			// The scene's own, baked in the editor and loaded with it (nil: it has none).
 			//   local nav = getNavMesh(scene)
+			// An agent that walks its object on the scene's navigation mesh (NavAgentComponent):
+			//   local a = NavAgent.attach(obj)   (or obj:getComponent("NavAgent") from a scene)
+			//   a:setDestination(x, y, z)        a:isMoving()   a:getSpeed() -> the walk blend
+			lua->new_usertype<NavAgentComponent>("NavAgentComponent", sol::no_constructor,
+				sol::base_classes, sol::bases<IComponent>(),
+				"setDestination", [](NavAgentComponent &a, f32 x, f32 y, f32 z) { return a.SetDestination(Vec3(x, y, z)); },
+				"stop", &NavAgentComponent::Stop,
+				"isMoving", &NavAgentComponent::IsMoving,
+				"isReachable", &NavAgentComponent::IsReachable,
+				"isOnLink", &NavAgentComponent::IsOnLink,
+				"getSpeed", &NavAgentComponent::GetSpeed,
+				"getRemainingDistance", &NavAgentComponent::GetRemainingDistance,
+				"getDestination", [](NavAgentComponent &a) { const Vec3 &d = a.GetDestination(); return std::make_tuple(d.x, d.y, d.z); },
+				"setMaxSpeed", &NavAgentComponent::SetMaxSpeed, "getMaxSpeed", &NavAgentComponent::GetMaxSpeed,
+				"setRadius", &NavAgentComponent::SetRadius,
+				"setAcceleration", &NavAgentComponent::SetAcceleration,
+				"setStoppingDistance", &NavAgentComponent::SetStoppingDistance,
+				"setFaceMovement", [](NavAgentComponent &a, bool on, sol::optional<f32> off) { a.SetFaceMovement(on, off.value_or(0.f)); },
+				"setTurnSpeed", &NavAgentComponent::SetTurnSpeed,
+				"setRunning", &NavAgentComponent::SetRunning, "isRunning", &NavAgentComponent::IsRunning);
+			sol::table nat = lua->create_named_table("NavAgent");
+			nat.set_function("attach", [](GameObject* go) -> std::shared_ptr<NavAgentComponent> {
+				if (!go) return nullptr;
+				const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+				for (size_t i = 0; i < comps.size(); i++)
+					if (comps[i] && comps[i]->GetComponentType() == ComponentType::NavAgent) return std::static_pointer_cast<NavAgentComponent>(comps[i]);
+				std::shared_ptr<NavAgentComponent> a = std::make_shared<NavAgentComponent>();
+				a->SetRunning(true);
+				go->Add(a);
+				return a; });
 			lua->set_function("getNavMesh", [](SceneGraph* sc) -> NavMesh* { return sc ? sc->GetNavMesh() : nullptr; });
 
 			lua->new_usertype<Crowd>("Crowd",

@@ -14,6 +14,7 @@
 #include <DetourNavMeshBuilder.h>
 #include <DetourNavMeshQuery.h>
 #include <DetourCommon.h>
+#include <DetourCrowd.h>
 #include <chrono>
 #include <cfloat>
 #include <cmath>
@@ -42,8 +43,8 @@ namespace p3d {
 		};
 	}
 
-	NavMesh::NavMesh() : navMesh(NULL), query(NULL), buildMs(0.0) {}
-	NavMesh::~NavMesh() { dtFreeNavMeshQuery(query); dtFreeNavMesh(navMesh); }
+	NavMesh::NavMesh() : navMesh(NULL), query(NULL), crowd(NULL), buildMs(0.0) {}
+	NavMesh::~NavMesh() { dtFreeCrowd(crowd); dtFreeNavMeshQuery(query); dtFreeNavMesh(navMesh); }
 
 	void NavMesh::ClearGeometry() { verts.clear(); indices.clear(); }
 	void NavMesh::ClearLinks() { links.clear(); }
@@ -93,7 +94,7 @@ namespace p3d {
 
 	void NavMesh::AddLink(const Vec3 &a, const Vec3 &b, const f32 radius, const bool bidirectional)
 	{
-		Link l; l.a = a; l.b = b; l.radius = radius > 0.05f ? radius : 0.05f; l.both = bidirectional;
+		NavLink l; l.a = a; l.b = b; l.radius = radius > 0.05f ? radius : 0.05f; l.bidirectional = bidirectional;
 		links.push_back(l);
 	}
 
@@ -119,6 +120,7 @@ namespace p3d {
 	{
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		settings = s;
+		dtFreeCrowd(crowd); crowd = NULL;                  // (its agents were on the old mesh)
 		dtFreeNavMeshQuery(query); query = NULL;
 		dtFreeNavMesh(navMesh); navMesh = NULL;
 		const int nverts = (int)(verts.size() / 3), ntris = (int)(indices.size() / 3);
@@ -169,7 +171,7 @@ namespace p3d {
 		}
 
 		std::vector<std::pair<unsigned char*, int> > tileData((size_t)tw * th, std::make_pair((unsigned char*)NULL, 0));
-		std::vector<Link> lk(links);
+		std::vector<NavLink> lk(links);
 		JobSystem::Instance().ParallelFor((uint32)(tw * th), 1, [&](const uint32 begin, const uint32 end) {
 			rcContext ctx(false);                              // (one each: a context is not shared)
 			std::vector<int> tris; std::vector<unsigned char> areas;
@@ -219,7 +221,7 @@ namespace p3d {
 					lv.push_back(a.x); lv.push_back(a.y); lv.push_back(a.z);
 					lv.push_back(lk[l].b.x); lv.push_back(lk[l].b.y); lv.push_back(lk[l].b.z);
 					lr.push_back(lk[l].radius); lf.push_back(kWalk); la.push_back(RC_WALKABLE_AREA);
-					ld.push_back(lk[l].both ? DT_OFFMESH_CON_BIDIR : 0); lid.push_back((unsigned int)(1000 + l));
+					ld.push_back(lk[l].bidirectional ? DT_OFFMESH_CON_BIDIR : 0); lid.push_back((unsigned int)(1000 + l));
 				}
 
 				dtNavMeshCreateParams params;
@@ -441,9 +443,97 @@ namespace p3d {
 		}
 		fclose(f);
 		if (!ok) { dtFreeNavMesh(nm); return false; }
+		dtFreeCrowd(crowd); crowd = NULL;
 		dtFreeNavMeshQuery(query); query = NULL;
 		dtFreeNavMesh(navMesh);
 		navMesh = nm; settings = s;
 		return InitQuery();
+	}
+
+	// ---------------------------------------------------------------- agents
+
+	bool NavMesh::InitCrowd()
+	{
+		if (crowd) return true;
+		if (!navMesh) return false;
+		crowd = dtAllocCrowd();
+		if (!crowd || !crowd->init(1024, 2.5f, navMesh)) { dtFreeCrowd(crowd); crowd = NULL; return false; }
+		crowd->getEditableFilter(0)->setIncludeFlags(kWalk);
+		// Velocity sampling round the way it wants (Detour's "good" preset: 7 directions, 2 rings,
+		// 3 refinements) - the walls near it in the sampling as well as the others.
+		dtObstacleAvoidanceParams p;
+		memcpy(&p, crowd->getObstacleAvoidanceParams(0), sizeof(p));
+		p.velBias = 0.5f; p.adaptiveDivs = 7; p.adaptiveRings = 2; p.adaptiveDepth = 3;
+		crowd->setObstacleAvoidanceParams(0, &p);
+		return true;
+	}
+
+	int32 NavMesh::AddAgent(const Vec3 &pos, const f32 radius, const f32 height, const f32 maxSpeed, const f32 maxAcceleration)
+	{
+		if (!InitCrowd()) return -1;
+		dtCrowdAgentParams ap;
+		memset(&ap, 0, sizeof(ap));
+		ap.radius = radius < 2.5f ? radius : 2.5f; ap.height = height;
+		ap.maxAcceleration = maxAcceleration; ap.maxSpeed = maxSpeed;
+		ap.collisionQueryRange = ap.radius * 12.f;
+		ap.pathOptimizationRange = ap.radius * 30.f;
+		ap.updateFlags = DT_CROWD_ANTICIPATE_TURNS | DT_CROWD_OPTIMIZE_VIS | DT_CROWD_OPTIMIZE_TOPO | DT_CROWD_OBSTACLE_AVOIDANCE | DT_CROWD_SEPARATION;
+		ap.separationWeight = 2.f;
+		ap.obstacleAvoidanceType = 0; ap.queryFilterType = 0;
+		const f32 p[3] = { pos.x, pos.y, pos.z };
+		return crowd->addAgent(p, &ap);
+	}
+
+	void NavMesh::RemoveAgent(const int32 id) { if (crowd && id >= 0) crowd->removeAgent(id); }
+
+	void NavMesh::SetAgentLimits(const int32 id, const f32 radius, const f32 maxSpeed, const f32 maxAcceleration)
+	{
+		if (!crowd || id < 0) return;
+		const dtCrowdAgent* ag = crowd->getAgent(id);
+		if (!ag || !ag->active) return;
+		dtCrowdAgentParams ap = ag->params;
+		ap.radius = radius < 2.5f ? radius : 2.5f; ap.maxSpeed = maxSpeed; ap.maxAcceleration = maxAcceleration;
+		ap.collisionQueryRange = ap.radius * 12.f; ap.pathOptimizationRange = ap.radius * 30.f;
+		crowd->updateAgentParameters(id, &ap);
+	}
+
+	bool NavMesh::SetAgentTarget(const int32 id, const Vec3 &target)
+	{
+		if (!crowd || id < 0) return false;
+		const f32 t[3] = { target.x, target.y, target.z };
+		dtPolyRef ref = 0; f32 nearest[3];
+		const f32 ext[3] = { 2.f, 4.f, 2.f };
+		crowd->getNavMeshQuery()->findNearestPoly(t, ext, crowd->getFilter(0), &ref, nearest);
+		if (!ref) return false;
+		return crowd->requestMoveTarget(id, ref, nearest);
+	}
+
+	void NavMesh::StopAgent(const int32 id) { if (crowd && id >= 0) crowd->resetMoveTarget(id); }
+
+	bool NavMesh::GetAgent(const int32 id, Vec3 &position, Vec3 &velocity, bool &onLink, f32 &remaining, bool &planned) const
+	{
+		if (!crowd || id < 0) return false;
+		const dtCrowdAgent* ag = crowd->getAgent(id);
+		if (!ag || !ag->active) return false;
+		position = Vec3(ag->npos[0], ag->npos[1], ag->npos[2]);
+		velocity = Vec3(ag->vel[0], ag->vel[1], ag->vel[2]);
+		onLink = ag->state == DT_CROWDAGENT_STATE_OFFMESH;
+		planned = ag->targetState == DT_CROWDAGENT_TARGET_VALID && ag->ncorners > 0;
+		// (through the corners it can see, then on to the target: the rest of the way, near enough)
+		remaining = 0.f;
+		const f32* at = ag->npos;
+		for (int i = 0; i < ag->ncorners; i++) { remaining += dtVdist(at, &ag->cornerVerts[i * 3]); at = &ag->cornerVerts[i * 3]; }
+		if (ag->targetState == DT_CROWDAGENT_TARGET_VALID) remaining += dtVdist(at, ag->targetPos);
+		return true;
+	}
+
+	void NavMesh::UpdateAgents(const f32 dt) { if (crowd && dt > 0.f) crowd->update(dt, NULL); }
+
+	uint32 NavMesh::GetAgentCount() const
+	{
+		if (!crowd) return 0;
+		uint32 n = 0;
+		for (int i = 0; i < crowd->getAgentCount(); i++) if (crowd->getAgent(i)->active) n++;
+		return n;
 	}
 }

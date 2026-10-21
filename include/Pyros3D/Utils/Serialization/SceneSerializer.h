@@ -123,6 +123,7 @@ namespace p3d {
 		bool navigation = false;
 		NavMeshSettings navSettings;
 		std::string navBaked;
+		std::vector<NavLink> navLinks;
 		bool reverb = false;
 		f32 reverbRoom = 0.45f, reverbDamping = 0.35f, reverbWet = 0.22f, reverbPreDelay = 9.f, reverbEarly = 0.8f;
 

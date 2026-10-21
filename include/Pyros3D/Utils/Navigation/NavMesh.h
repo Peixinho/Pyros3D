@@ -12,6 +12,7 @@
 
 class dtNavMesh;
 class dtNavMeshQuery;
+class dtCrowd;
 
 namespace p3d {
 
@@ -35,6 +36,13 @@ namespace p3d {
 		f32 edgeMaxError = 1.3f;
 		f32 detailSampleDistance = 6.f;   // (cells) how closely the polygons follow the ground's height
 		f32 detailSampleMaxError = 1.f;
+	};
+
+	// A place walking does not join (a drop, a ladder, a gap to jump): from a to b, or both ways.
+	struct PYROS3D_API NavLink {
+		Vec3 a, b;
+		f32 radius = 0.5f;
+		bool bidirectional = false;
 	};
 
 	// A navigation mesh: the walkable surface of a level for a character of one size, as convex
@@ -65,6 +73,7 @@ namespace p3d {
 		// A link from a to b (bidirectional: both ways, else a to b only - a drop).
 		void AddLink(const Vec3 &a, const Vec3 &b, const f32 radius = 0.5f, const bool bidirectional = false);
 		void ClearLinks();
+		const std::vector<NavLink> &GetLinks() const { return links; }
 
 		// --- Making it ---
 		bool Build(const NavMeshSettings &settings = NavMeshSettings());
@@ -94,15 +103,32 @@ namespace p3d {
 		// The mesh as triangles (each polygon's detail), for drawing it.
 		void GetDebugTriangles(std::vector<Vec3> &out) const;
 
+		// --- Agents walking on it (Detour's crowd: NavAgentComponent is the usual way in) ---
+		// Each follows its path round walls and the other agents (the walls near it are obstacles
+		// too, so a crowd gets through a door both ways instead of jamming in it), takes the
+		// links on its way, and is kept on the mesh. -1: the mesh is full, or `p` is off it.
+		int32 AddAgent(const Vec3 &p, const f32 radius, const f32 height, const f32 maxSpeed, const f32 maxAcceleration);
+		void RemoveAgent(const int32 id);
+		void SetAgentLimits(const int32 id, const f32 radius, const f32 maxSpeed, const f32 maxAcceleration);
+		bool SetAgentTarget(const int32 id, const Vec3 &target);
+		void StopAgent(const int32 id);
+		// Where it is, how fast it moves, whether it is crossing a link, and the walk left to its
+		// target - which means something only once `planned` (the crowd has its way there: until
+		// then the walk left reads 0, and an agent that took that for arrival never set off).
+		bool GetAgent(const int32 id, Vec3 &position, Vec3 &velocity, bool &onLink, f32 &remaining, bool &planned) const;
+		void UpdateAgents(const f32 dt);
+		uint32 GetAgentCount() const;
+
 	private:
 		bool InitQuery();
 		NavMeshSettings settings;
 		std::vector<f32> verts;          // xyz
 		std::vector<int32> indices;
-		struct Link { Vec3 a, b; f32 radius; bool both; };
-		std::vector<Link> links;
+		std::vector<NavLink> links;
 		dtNavMesh* navMesh;
 		dtNavMeshQuery* query;
+		dtCrowd* crowd;
+		bool InitCrowd();
 		f64 buildMs;
 		mutable std::vector<uint8> lastLinkFlags;
 	};

@@ -117,7 +117,9 @@ namespace p3d {
 			// AnimatorComponent.h.
 			Animator,
 			// The mesh this object renders, simulated as cloth. See ClothComponent.h.
-			Cloth
+			Cloth,
+			// Walks its object to a destination on the scene's navigation mesh. See NavAgentComponent.h.
+			NavAgent
 		};
 	}
 

@@ -147,7 +147,7 @@ message(STATUS "Monocypher: submodule ${MONOCYPHER_DIR}")
 # Recast & Detour (submodule: src/Pyros3D/Ext/recastnavigation @ v1.6.0)
 #
 # Navigation meshes: Recast builds one from a level's triangles, Detour finds
-# paths on it (see src/Pyros3D/Utils/Navigation/NavMesh.h). Only the two
+# paths on it and DetourCrowd walks agents along them (see src/Pyros3D/Utils/Navigation/NavMesh.h). Only the two
 # libraries' sources - its own CMake also builds an SDL demo. zlib licence;
 # private to the engine.
 # ---------------------------------------------------------------------------
@@ -157,9 +157,9 @@ if (NOT EXISTS "${RECAST_DIR}/Recast/Source/Recast.cpp")
 		"recastnavigation submodule missing at ${RECAST_DIR}. "
 		"Run: git submodule update --init --recursive")
 endif()
-file(GLOB RECAST_SOURCES ${RECAST_DIR}/Recast/Source/*.cpp ${RECAST_DIR}/Detour/Source/*.cpp)
+file(GLOB RECAST_SOURCES ${RECAST_DIR}/Recast/Source/*.cpp ${RECAST_DIR}/Detour/Source/*.cpp ${RECAST_DIR}/DetourCrowd/Source/*.cpp)
 add_library(recastdetour STATIC ${RECAST_SOURCES})
-target_include_directories(recastdetour PUBLIC ${RECAST_DIR}/Recast/Include ${RECAST_DIR}/Detour/Include)
+target_include_directories(recastdetour PUBLIC ${RECAST_DIR}/Recast/Include ${RECAST_DIR}/Detour/Include ${RECAST_DIR}/DetourCrowd/Include)
 set_target_properties(recastdetour PROPERTIES POSITION_INDEPENDENT_CODE ON)
 set(RECAST_LIBRARIES recastdetour)
 message(STATUS "Recast/Detour: submodule ${RECAST_DIR}")

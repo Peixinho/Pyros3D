@@ -5789,7 +5789,15 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       from the scene's STATIC objects into assets/nav/<scene>.p3dnav and names
       it in the scene (save_scene to keep that); get_navmesh; show_navmesh
       (on) - the mesh over the view; nav_path (from [x,y,z], to [x,y,z]) ->
-      reached, points, length (drawn too); clear_navmesh.
+      reached, points, length (drawn too); clear_navmesh; set_navigation
+      (settings, links [{a, b, radius, bidirectional}]) - what the next bake
+      uses (links: drops, ladders, jumps; drawn in the overlay).
+      NavAgent component: get_nav_agent / add_nav_agent / set_nav_agent /
+      remove_nav_agent (name|id, speed, radius, acceleration, stoppingDistance,
+      faceMovement, yawOffset, turnSpeed); nav_agent_goto (name|id, to [x,y,z])
+      in Play. It walks the object on the scene's mesh in Detour's crowd (round
+      walls and the others, links taken); Lua NavAgent.attach(go) or
+      getComponent("NavAgent"):setDestination(x,y,z), :isMoving, :getSpeed.
       Lua: getNavMesh(scene) (the baked one), NavMesh.new() + addScene/
       addObject/addLink/build, :findPath(x0,y0,z0, x1,y1,z1) -> reached,
       {x,y,z,link}, :nearest, :raycast, :randomPoint, :save/:load.
