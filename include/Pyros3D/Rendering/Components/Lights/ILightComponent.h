@@ -86,6 +86,16 @@ namespace p3d {
 
 		Texture* GetShadowMapTexture() { return ShadowMap.get(); }
 
+		// The shadow of what does not move, kept apart from the map read by the lighting: six plain
+		// R32F pictures (a point light's faces) and a framebuffer to draw them, made on first use.
+		// Each frame a face that changed is put back from here and only what moves is drawn over it
+		// (IRenderer's point shadow pass) - a pedestrian under a lamp no longer redraws the street.
+		bool EnsureStaticShadowFaces();
+		Texture* GetStaticShadowFace(const int face) { return (face >= 0 && face < 6) ? staticShadowFaces[face].get() : NULL; }
+		// (one framebuffer for each face, the face attached once: under Vulkan another picture attached to
+		// the same framebuffer was drawn into the first one)
+		FrameBuffer* GetStaticShadowFBO(const int face) { return (face >= 0 && face < 6) ? staticShadowFBO[face].get() : NULL; }
+
 		// Volumetric in-scattering - how much light this one scatters back
 		// to the eye out of the medium it passes through, on top of what it
 		// does to surfaces. Consumed by DeferredRenderer's point and spot
@@ -222,6 +232,8 @@ namespace p3d {
 		// new one via .reset() always releases whichever was previously owned,
 		// so re-enabling shadows can't leak the prior FBO/texture.
 		std::unique_ptr<FrameBuffer> shadowsFBO;
+		std::unique_ptr<FrameBuffer> staticShadowFBO[6];
+		std::unique_ptr<Texture> staticShadowFaces[6];
 		// Dimensions
 		uint32 ShadowWidth, ShadowHeight;
 		// Shadow Map Texture

@@ -37,6 +37,8 @@
 
 namespace p3d {
 
+	class CustomShaderMaterial;
+
 	class PYROS3D_API IRenderer {
 
 	public:
@@ -813,7 +815,7 @@ namespace p3d {
 		// chosen: in the budget. draw: its map is drawn this frame - chosen, and the map it has is
 		// not still right (the shadow cache: a light's map is kept while neither it nor anything
 		// that moves within its reach has moved, and the still things are the same).
-		struct ShadowPick { f32 weight = 0.f; bool chosen = false; bool draw = false; bool seen = false; uint8 validFaces = 0; Vec3 at; Matrix world; f32 reach = 0.f; };
+		struct ShadowPick { f32 weight = 0.f; bool chosen = false; bool draw = false; bool seen = false; uint8 validFaces = 0; uint8 stillFaces = 0; uint64 stillPrint = 0; Vec3 at; Matrix world; f32 reach = 0.f; };
 		std::unordered_map<ILightComponent*, ShadowPick> shadowPicks;
 		// the shadow cache's view of the casters that can move: each one's world transform last frame
 		struct ShadowMover { Matrix world; Vec3 centre; f32 radius = 0.f; bool casts = true; };
@@ -821,8 +823,16 @@ namespace p3d {
 		// When set, RenderShadowCasters walks only these of rmesh: a light's casters, gathered once
 		// for its six faces (each face walked the whole list again)
 		const std::vector<uint32>* shadowCasterSubset = NULL;
-		std::vector<uint32> lightCasterScratch;
-		void GatherLightCasters(const Vec3 &at, const f32 reach);
+		std::vector<uint32> lightCasterScratch, lightStillScratch, lightMovingScratch;
+		// every caster in reach into lightCasterScratch; and split, the still ones (their owner is
+		// static) into lightStillScratch and the rest into lightMovingScratch
+		// Returns a fingerprint of the still ones: which they are and where (a kept face drawn from others is not right).
+		uint64 GatherLightCasters(const Vec3 &at, const f32 reach);
+		// the full-screen pass that puts a point light's face back from its still casters' picture
+		CustomShaderMaterial* shadowRestoreMaterial = NULL;
+		RenderingComponent* shadowRestoreQuad = NULL;
+		Uniform* shadowRestoreFace = NULL;
+		void RestoreShadowFace(Texture* still);
 		uint32 shadowStillCasters = 0;
 		void NoteShadowMapDrawn(ILightComponent* light) { std::unordered_map<ILightComponent*, ShadowPick>::iterator it = shadowPicks.find(light); if (it != shadowPicks.end()) it->second.validFaces = 0x3F; }
 		// a point light's cube face (0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z) still right from an earlier frame: not drawn again

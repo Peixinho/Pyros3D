@@ -38,6 +38,7 @@
 #include <algorithm>
 #include <typeinfo>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <atomic>
 
@@ -492,7 +493,7 @@ void IRenderer::ChooseShadowCasters(GameObject* Camera)
 					l->GetOwner()->GetName().c_str(), p.validFaces, (int)stillChanged, memcmp(&world, &p.world, sizeof(Matrix)) != 0, reach != p.reach,
 					movers.size(), movers.empty() ? 0.f : movers[0].r, movers.empty() ? 0.f : movers[0].to.x, movers.empty() ? 0.f : movers[0].to.y, movers.empty() ? 0.f : movers[0].to.z);
 			if (!cacheOn || stillChanged || memcmp(&world, &p.world, sizeof(Matrix)) != 0 || reach != p.reach)
-				p.validFaces = 0;
+				p.validFaces = p.stillFaces = 0;
 			p.at = at; p.world = world; p.reach = reach;
 			// (a point light's map is six: only the faces a mover's sphere is in, where it was or is)
 			const bool point = l->GetLightType() == LIGHT_TYPE::POINT;
@@ -942,6 +943,8 @@ IRenderer::~IRenderer()
 		ReleaseSharedUniformBuffers(device.get());
 	delete shadowAlphaTestMaterial;
 	delete shadowInstancedAlphaTestMaterial;
+	delete shadowRestoreQuad;
+	delete shadowRestoreMaterial;
 	delete shadowMaterial;
 	delete shadowSkinnedMaterial;
 	delete shadowInstancedMaterial;
@@ -2835,9 +2838,11 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 }
 
 // The meshes whose owner's box comes within a light's reach (for its shadow faces to choose from).
-void IRenderer::GatherLightCasters(const Vec3 &at, const f32 reach)
+uint64 IRenderer::GatherLightCasters(const Vec3 &at, const f32 reach)
 {
-	lightCasterScratch.clear();
+	uint64 print = 1469598103934665603ull;
+	auto mix = [&print](const void* p, const size_t n) { const uint8* b = (const uint8*)p; for (size_t k = 0; k < n; k++) { print ^= b[k]; print *= 1099511628211ull; } };
+	lightCasterScratch.clear(); lightStillScratch.clear(); lightMovingScratch.clear();
 	const f32 r2 = reach * reach;
 	for (uint32 i = 0; i < (uint32)rmesh.size(); i++)
 	{
@@ -2849,8 +2854,48 @@ void IRenderer::GatherLightCasters(const Vec3 &at, const f32 reach)
 		const f32 dx = std::max(std::max(mn.x - at.x, 0.f), at.x - mx.x);
 		const f32 dy = std::max(std::max(mn.y - at.y, 0.f), at.y - mx.y);
 		const f32 dz = std::max(std::max(mn.z - at.z, 0.f), at.z - mx.z);
-		if (dx * dx + dy * dy + dz * dz <= r2) lightCasterScratch.push_back(i);
+		if (dx * dx + dy * dy + dz * dz <= r2)
+		{
+			lightCasterScratch.push_back(i);
+			(owner->IsStatic() ? lightStillScratch : lightMovingScratch).push_back(i);
+			if (owner->IsStatic())
+			{
+				const Matrix &w = owner->GetWorldTransformation();
+				mix(&owner, sizeof(owner)); mix(w.m, sizeof(w.m));
+			}
+		}
 	}
+	return print;
+}
+
+void IRenderer::RestoreShadowFace(Texture* still)
+{
+	if (shadowRestoreMaterial == NULL)
+	{
+		shadowRestoreMaterial = new CustomShaderMaterial("shaders/shadowRestore.glsl");
+		int32 unit = 0;
+		shadowRestoreFace = shadowRestoreMaterial->AddUniform(Uniform("uStillFace", Uniforms::DataType::Int, &unit));
+		shadowRestoreMaterial->SetCullFace(CullFace::DoubleSided);
+		shadowRestoreMaterial->EnableDepthTest(DepthTest::Always);
+		shadowRestoreMaterial->EnableDepthWrite();
+		shadowRestoreMaterial->DisableCastingShadows();
+		shadowRestoreQuad = new RenderingComponent(std::make_shared<Plane>(1, 1));
+	}
+	// (each face is a render pass of its own: what the last one had bound is not bound in this one, so
+	// nothing of it is taken as still there - the quad, drawn first in every face, was the last thing
+	// drawn in the face before and its buffers were not bound again: one face of six was put back)
+	LastProgramUsed = -1; LastMaterialUsed = -1; LastMeshRendered = -1;
+	LastMaterialPTR = NULL; LastMeshRenderedPTR = NULL;
+	// (and on unit 0, which is where the shader's one sampler is read from on Vulkan: bound on the next
+	// unit each face, only the first face's was found - the other five read nothing, all in shadow)
+	Texture::ResetUnitCounter();
+	still->Bind();
+	int32 unit = Texture::GetLastBindedUnit();
+	shadowRestoreFace->SetValue(&unit);
+	GameObject go;
+	RenderObject(shadowRestoreQuad->GetMeshes()[0], &go, shadowRestoreMaterial);
+	still->Unbind();
+	LastMaterialPTR = NULL; LastMeshRenderedPTR = NULL; LastProgramUsed = -1;
 }
 
 void IRenderer::RenderShadowCaster(RenderingMesh* mesh)
@@ -3288,8 +3333,6 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					device->SetPointShadowCubeFacePass(true);
 
 					// Bind FBO
-					if (redraw) p->GetShadowFBO()->Bind();
-
 					// Create Projection Matrix
 					// Get Light Projection
 					Projection ShadowProjection;
@@ -3297,7 +3340,53 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					ProjectionMatrix = ShadowProjection.m;
 
 					// Get Lights Shadow Map Texture
-					if (redraw) { GatherLightCasters(p->GetOwner()->GetWorldPosition(), p->GetShadowFar()); shadowCasterSubset = &lightCasterScratch; }
+					// What moves and what does not, apart (PYROS_SHADOW_SPLIT=0: together, every face drawn whole).
+					// The still casters' shadow is drawn into the light's kept faces when it is not there yet
+					// or no longer right; a face of the map the lighting reads is then put back from it and
+					// only what moves is drawn over it - a pedestrian under a lamp redraws one face's few
+					// moving things, not the street.
+					static const bool splitOn = !(std::getenv("PYROS_SHADOW_SPLIT") && std::getenv("PYROS_SHADOW_SPLIT")[0] == '0');
+					ShadowPick* pick = NULL;
+					{ std::unordered_map<ILightComponent*, ShadowPick>::iterator pi = shadowPicks.find(p); if (pi != shadowPicks.end()) pick = &pi->second; }
+					const bool split = splitOn && redraw && pick != NULL && p->EnsureStaticShadowFaces();
+					const uint64 stillPrint = redraw ? GatherLightCasters(p->GetOwner()->GetWorldPosition(), p->GetShadowFar()) : 0;
+					// (what stands still in reach is not what the kept faces were drawn from - the first frames
+					// after a load placed things after the faces were drawn, and a wall's shadow was kept where
+					// the wall had not yet gone: the kept faces and every face made from them, again)
+					if (split && pick->stillPrint != stillPrint) { pick->stillPrint = stillPrint; pick->stillFaces = 0; pick->validFaces = 0; }
+					if (split)
+					{
+						const Vec3 at = p->GetOwner()->GetWorldPosition();
+						for (int32 f = 0; f < 6; f++)
+						{
+							if (ShadowFaceKept(p, f) || (pick->stillFaces & (1 << f))) continue;
+							p->GetStaticShadowFBO(f)->Bind();
+							ViewMatrix.identity();
+							if (f == 0) ViewMatrix.LookAt(at, at + Vec3(1.0f, 0.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f));   // +X
+							if (f == 1) ViewMatrix.LookAt(at, at + Vec3(-1.0f, 0.0f, 0.0f), Vec3(0.0f, -1.0f, 0.0f));  // -X
+							if (f == 2) ViewMatrix.LookAt(at, at + Vec3(0.0f, 1.0f, 0.0f), Vec3(0.0f, 0.0f, 1.0f));    // +Y
+							if (f == 3) ViewMatrix.LookAt(at, at + Vec3(0.0f, -1.0f, 0.0f), Vec3(0.0f, 0.0f, -1.0f));  // -Y
+							if (f == 4) ViewMatrix.LookAt(at, at + Vec3(0.0f, 0.0f, 1.0f), Vec3(0.0f, -1.0f, 0.0f));   // +Z
+							if (f == 5) ViewMatrix.LookAt(at, at + Vec3(0.0f, 0.0f, -1.0f), Vec3(0.0f, -1.0f, 0.0f));  // -Z
+							UpdateCulling(ShadowProjection.m * ViewMatrix);
+							device->SetClearColor(Vec4(1.f, 1.f, 1.f, 1.f));
+							ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
+							EnableClearDepthBuffer();
+							ClearDepthBuffer();
+							ClearScreen();
+							StartClippingPlanes();
+							SetShadowDepthBias(p->GetShadowBiasFactor(), p->GetShadowBiasUnits());
+							_SetViewPort(0, 0, p->GetShadowWidth(), p->GetShadowHeight());
+							shadowCasterSubset = &lightStillScratch;
+							RenderShadowCasters(true);
+							EndClippingPlanes();
+							DisableDepthBias();
+							p->GetStaticShadowFBO(f)->UnBind();
+							pick->stillFaces |= (uint8)(1 << f);
+						}
+					}
+					if (redraw) p->GetShadowFBO()->Bind();
+					shadowCasterSubset = split ? &lightMovingScratch : &lightCasterScratch;
 					for (int32 i = 0; i < 6 && redraw; i++)
 					{
 						if (ShadowFaceKept(p, i)) continue;       // (still right: the shadow cache)
@@ -3352,11 +3441,15 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 						StartClippingPlanes();
 
-						// Enable Depth Bias
-						SetShadowDepthBias(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
-
 						// Set Viewport
 						_SetViewPort(0, 0, p->GetShadowWidth(), p->GetShadowHeight());
+						// (the still casters' shadow put back, then only what moves drawn over it)
+						if (split) RestoreShadowFace(p->GetStaticShadowFace(i));
+						if (std::getenv("PYROS_SHADOW_CACHE_TRACE")) fprintf(stderr, "[shadow face] frame %u light %s face %d split %d still %02x moving %zu\n",
+							shadowPassCounter, p->GetOwner()->GetName().c_str(), i, (int)split, pick ? pick->stillFaces : 0, lightMovingScratch.size());
+
+						// Enable Depth Bias
+						SetShadowDepthBias(p->GetShadowBiasFactor(), p->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
 						// Render Scene with Objects Material
 						RenderShadowCasters(true);

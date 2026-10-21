@@ -101,13 +101,35 @@ namespace p3d {
 		// every light there is comes through here when it goes: a lamp in a
 		// part of the map being left behind, a muzzle flash. Waiting for the
 		// device each time held the game up for a frame's length and more.)
-		if (!shadowsFBO && !ShadowMap) return;
+		if (!shadowsFBO && !ShadowMap && !staticShadowFBO[0]) return;
 		// See the header. Nothing is bound at this point, but the GPU may
 		// still be reading these from an earlier submission.
 		if (IsActiveRenderDeviceSet())
 			GetActiveRenderDevice().WaitIdle();
 		shadowsFBO.reset();
 		ShadowMap.reset();
+		for (int f = 0; f < 6; f++) { staticShadowFBO[f].reset(); staticShadowFaces[f].reset(); }
+	}
+
+	bool ILightComponent::EnsureStaticShadowFaces()
+	{
+		if (staticShadowFBO[0]) return true;
+		if (!isCastingShadows || ShadowWidth == 0 || ShadowHeight == 0) return false;
+		for (int f = 0; f < 6; f++)
+		{
+			staticShadowFaces[f].reset(new Texture());
+			staticShadowFaces[f]->CreateEmptyTexture(TextureType::Texture, TextureDataType::R32F, ShadowWidth, ShadowHeight, false);
+			staticShadowFaces[f]->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+			staticShadowFaces[f]->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+		}
+		for (int f = 0; f < 6; f++)
+		{
+			staticShadowFBO[f].reset(new FrameBuffer());
+			staticShadowFBO[f]->SetDebugName("Shadow map (point, still casters)");
+			staticShadowFBO[f]->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, staticShadowFaces[f].get());
+			staticShadowFBO[f]->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
+		}
+		return true;
 	}
 
 	void ILightComponent::DisableCastShadows()
