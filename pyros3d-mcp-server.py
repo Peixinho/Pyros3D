@@ -5801,6 +5801,15 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       Lua: getNavMesh(scene) (the baked one), NavMesh.new() + addScene/
       addObject/addLink/build, :findPath(x0,y0,z0, x1,y1,z1) -> reached,
       {x,y,z,link}, :nearest, :raycast, :randomPoint, :save/:load.
+    Localization (string tables assets/strings/<code>.json, nested keys = dotted)
+      get_language -> language, fallback, languages; set_language (code) - the
+      editor shows every "@key" UI/2D text in it; get_strings (code) -> strings;
+      set_string (code, key, text | null to remove) writes the table.
+      A UIText/Text2D whose text is "@menu.play" shows that key in the current
+      language and follows changes ("@@" for a literal @). Lua: tr(key [, {name
+      = value}]) for "{name}" placeholders, localization.setLanguage/getLanguage/
+      languages. game.json "language": "auto" (system's, default) or a code;
+      "fallbackLanguage" (en).
     Cloth component (Scene View; SceneEditorCloth.cpp)
       get_cloth / add_cloth / set_cloth / remove_cloth (name|id, + any of: pins
       [{side: +y|-y|+x|-x|+z|-z, band}], stretch, bend, density (kg/m2), damping,

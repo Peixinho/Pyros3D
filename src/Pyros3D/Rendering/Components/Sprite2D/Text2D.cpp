@@ -3,6 +3,7 @@
 // Description : See Text2D.h.
 //============================================================================
 
+#include <Pyros3D/Utils/Localization/Localization.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Text2D.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 
@@ -26,7 +27,7 @@ namespace p3d {
 	}
 
 	Text2D::Text2D(const std::shared_ptr<Font> &font, const std::string &text, const f32 size, const Vec4 &color)
-		: RenderingComponent(std::make_shared<Text>(font.get(), text, size, size, color), MakeText2DMaterial(font.get()))
+		: RenderingComponent(std::make_shared<Text>(font.get(), Localization::Resolve(text), size, size, color), MakeText2DMaterial(font.get()))
 	{
 		this->font = font;
 		this->text = text;
@@ -42,17 +43,32 @@ namespace p3d {
 		}
 		DisableCastShadows();
 		Realign();
+		Listen();
 	}
 
-	Text2D::~Text2D() {}
+	Text2D::~Text2D() { Localization::RemoveListener(this); }
+
+	// "@key" text in the current language, redrawn when it changes - as UIText.
+	void Text2D::Listen()
+	{
+		if (Localization::IsKey(text)) Localization::AddListener(this, [this]() {
+			const std::string shown = Localization::Resolve(this->text);
+			font->CreateText(shown);
+			static_cast<Text*>(GetRenderable())->UpdateText(shown, color);
+			Realign();
+		});
+		else Localization::RemoveListener(this);
+	}
 
 	void Text2D::SetText(const std::string &text)
 	{
 		if (this->text == text) return;
 		this->text = text;
+		Listen();
 		// (the glyphs first: a character the font has not drawn yet has no size)
-		font->CreateText(text);
-		static_cast<Text*>(GetRenderable())->UpdateText(text, color);
+		const std::string shown = Localization::Resolve(text);
+		font->CreateText(shown);
+		static_cast<Text*>(GetRenderable())->UpdateText(shown, color);
 		Realign();
 	}
 
@@ -67,7 +83,7 @@ namespace p3d {
 		// not).
 		if (tint)
 		{
-			static_cast<Text*>(GetRenderable())->UpdateText(text, color);
+			static_cast<Text*>(GetRenderable())->UpdateText(Localization::Resolve(text), color);
 			Realign();
 		}
 		std::vector<RenderingMesh*> &meshes = GetMeshes(0);

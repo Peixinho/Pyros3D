@@ -6,6 +6,7 @@
 // Description : Editor project create / open / paths / asset listing
 //============================================================================
 
+#include <Pyros3D/Utils/Localization/Localization.h>
 #include "ProjectManager.h"
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Core/Logs/Log.h>
@@ -225,6 +226,8 @@ bool ProjectManager::Open(const std::string& projectJsonOrFolder, std::string* e
 	}
 
 	EnsureDirectories(NULL);
+	// (the project's string tables: "@key" texts in its scenes show in the language being previewed)
+	p3d::Localization::SetDirectory((fs::path(projectPath) / "assets" / "strings").string());
 	projectDirty = false;
 	return true;
 }

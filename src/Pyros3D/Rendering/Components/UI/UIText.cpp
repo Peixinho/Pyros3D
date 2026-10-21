@@ -6,6 +6,7 @@
 // Description : A line of text aligned inside a canvas rect
 //============================================================================
 
+#include <Pyros3D/Utils/Localization/Localization.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
@@ -39,7 +40,7 @@ namespace p3d {
 
 	UIText::UIText(const std::shared_ptr<Font> &font, const std::string &text,
 		const f32 size, const Vec4 &color)
-		: RenderingComponent(std::make_shared<Text>(font.get(), text, size, size, color),
+		: RenderingComponent(std::make_shared<Text>(font.get(), Localization::Resolve(text), size, size, color),
 		                     MakeUITextMaterial(font.get()))
 	{
 		this->font = font;
@@ -56,19 +57,37 @@ namespace p3d {
 		SetRenderLayer(RenderLayer::UI);
 		DisableCullTest();
 		DisableCastShadows();
+		Listen();
 	}
 
-	UIText::~UIText() {}
+	UIText::~UIText() { Localization::RemoveListener(this); }
+
+	// "@key" text is shown in the current language, and redrawn when it changes (Localization).
+	void UIText::Listen()
+	{
+		if (Localization::IsKey(text)) Localization::AddListener(this, [this]() { Relocalize(); });
+		else Localization::RemoveListener(this);
+	}
+
+	void UIText::Relocalize()
+	{
+		const std::string shown = Localization::Resolve(text);
+		font->CreateText(shown);
+		static_cast<Text*>(GetRenderable())->UpdateText(shown, displayColor);
+		Realign();
+	}
 
 	void UIText::SetText(const std::string &text)
 	{
 		if (this->text == text) return;
 		this->text = text;
+		Listen();
 		// CreateText() first: UpdateText() reads glyph metrics straight out
 		// of the atlas, so any character this Font has never baked would
 		// otherwise come back as a zero-size glyph.
-		font->CreateText(text);
-		static_cast<Text*>(GetRenderable())->UpdateText(text, color);
+		const std::string shown = Localization::Resolve(text);
+		font->CreateText(shown);
+		static_cast<Text*>(GetRenderable())->UpdateText(shown, color);
 		Realign();
 	}
 
@@ -83,7 +102,7 @@ namespace p3d {
 		displayColor = color;
 		// Text carries colour per vertex, so this rebuilds the mesh; the
 		// early-out in UpdateText tests the colour as well as the string.
-		static_cast<Text*>(GetRenderable())->UpdateText(text, color);
+		static_cast<Text*>(GetRenderable())->UpdateText(Localization::Resolve(text), color);
 		Realign();
 	}
 
@@ -101,7 +120,7 @@ namespace p3d {
 		// A new Font, because the atlas is baked once at construction. The
 		// old one dies with the last reference, which is this.
 		std::shared_ptr<Font> rebuilt = std::make_shared<Font>(font->GetPath(), font->GetFontSize(), on);
-		rebuilt->CreateText(text);
+		rebuilt->CreateText(Localization::Resolve(text));
 		font = rebuilt;
 		static_cast<Text*>(GetRenderable())->SetFont(font.get());
 

@@ -1,3 +1,4 @@
+#include <Pyros3D/Utils/Localization/Localization.h>
 #include <cstring>
 #include <Pyros3D/Rendering/GI/EnvironmentMap.h>
 #include <Pyros3D/Utils/View/ViewFovScale.h>
@@ -133,6 +134,8 @@ namespace {
 		m.height = j.value("height", m.height);
 		m.fullscreen = j.value("fullscreen", false);
 		m.renderScale = j.value("renderScale", 1.f);
+		m.language = j.value("language", std::string("auto"));
+		m.fallbackLanguage = j.value("fallbackLanguage", std::string("en"));
 		if (j.contains("quality") && j["quality"].is_object())
 		{
 			const json &q = j["quality"];
@@ -606,6 +609,29 @@ end
 	lua.set_function("isFullscreen", [this]() {
 		return (SDL_GetWindowFlags(GetSDLWindow()) & (SDL_WINDOW_FULLSCREEN | SDL_WINDOW_FULLSCREEN_DESKTOP)) != 0;
 	});
+	// The player's language, before anything says anything (Localization; the tables are
+	// assets/strings/<code>.json beside the game).
+	{
+		const PlayerManifest &pm = PlayerManifestInstance();
+		Localization::SetDirectory("assets/strings");
+		Localization::SetFallback(pm.fallbackLanguage);
+		std::string want = pm.language;
+		if (want.empty() || want == "auto")
+		{
+			std::vector<std::string> preferred;
+#if SDL_VERSION_ATLEAST(2, 0, 14)
+			if (SDL_Locale* locales = SDL_GetPreferredLocales())
+			{
+				for (SDL_Locale* l = locales; l->language != NULL; l++)
+					preferred.push_back(l->country ? std::string(l->language) + "-" + l->country : std::string(l->language));
+				SDL_free(locales);
+			}
+#endif
+			want = Localization::PickLanguage(preferred);
+		}
+		if (!Localization::SetLanguage(want) && !Localization::GetLanguages().empty())
+			echo("WARNING: no strings for language '" + want + "' - using " + Localization::GetFallback());
+	}
 	// Settings that outlive the game: a folder of this player's own, per game.
 	{
 		const std::string title = PlayerManifestInstance().title.empty() ? std::string("Game") : PlayerManifestInstance().title;

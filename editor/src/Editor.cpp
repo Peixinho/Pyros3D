@@ -6,6 +6,7 @@
 // Description : ImGui Example
 //============================================================================
 
+#include <Pyros3D/Utils/Localization/Localization.h>
 #include "Editor.h"
 #include <Pyros3D/Rendering/PostEffects/Upscaling.h>
 #include "editor/UI/TileSetEditor.h"
@@ -3133,6 +3134,60 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// String tables (assets/strings/<code>.json): get_language -> {language, fallback, languages};
+	// set_language {code} previews a language (every "@key" text redraws); get_strings {code}
+	// -> {strings: {key: text}}; set_string {code, key, text} writes one (text null removes it).
+	if (name == "get_language" || name == "set_language" || name == "get_strings" || name == "set_string")
+	{
+		nlohmann::json r;
+		if (name == "set_language")
+		{
+			const std::string code = a.value("code", std::string());
+			if (!Localization::SetLanguage(code)) throw std::runtime_error("no strings for '" + code + "' in " + Localization::GetDirectory());
+		}
+		if (name == "get_strings" || name == "set_string")
+		{
+			const std::string code = a.value("code", Localization::GetLanguage());
+			if (code.empty() || code.find_first_of("/\\.") != std::string::npos) throw std::runtime_error("bad language code");
+			const std::string path = Localization::GetDirectory() + "/" + code + ".json";
+			nlohmann::json table = nlohmann::json::object();
+			{
+				std::ifstream in(path.c_str(), std::ios::binary);
+				if (in.is_open()) { try { in >> table; } catch (...) { throw std::runtime_error(path + " does not read as JSON"); } }
+			}
+			if (name == "set_string")
+			{
+				const std::string key = a.value("key", std::string());
+				if (key.empty()) throw std::runtime_error("set_string needs a key");
+				// (dotted keys are nested objects, as the tables are written by hand)
+				nlohmann::json* node = &table;
+				size_t start = 0;
+				for (size_t dot = key.find('.'); dot != std::string::npos; start = dot + 1, dot = key.find('.', start))
+				{
+					nlohmann::json &next = (*node)[key.substr(start, dot - start)];
+					if (!next.is_object()) next = nlohmann::json::object();
+					node = &next;
+				}
+				const std::string leaf = key.substr(start);
+				if (a.contains("text") && a["text"].is_null()) node->erase(leaf);
+				else (*node)[leaf] = a.value("text", std::string());
+				std::error_code ec;
+				std::filesystem::create_directories(Localization::GetDirectory(), ec);
+				std::ofstream out(path.c_str(), std::ios::binary | std::ios::trunc);
+				if (!out.is_open()) throw std::runtime_error("cannot write " + path);
+				out << table.dump(2) << "\n";
+				out.close();
+				Localization::Reload();
+			}
+			r["strings"] = table;
+			r["code"] = code;
+		}
+		r["language"] = Localization::GetLanguage();
+		r["fallback"] = Localization::GetFallback();
+		r["languages"] = Localization::GetLanguages();
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "get_nav_agent" || name == "add_nav_agent" || name == "set_nav_agent" || name == "remove_nav_agent" || name == "nav_agent_goto")
 	{
 		nlohmann::json r;
@@ -6113,6 +6168,19 @@ void Editor::DrawUI()
                 if (ImGui::MenuItem("Render Targets", "", &showingRenderTargets)) {}
                 ImGui::EndMenu();
             }
+			// The project's string tables: every "@key" text shown in the one picked (the game
+			// picks the player's own; this is for seeing how each reads and fits).
+			if (ImGui::BeginMenu("Language", ""))
+			{
+				const std::vector<std::string> langs = Localization::GetLanguages();
+				if (langs.empty()) ImGui::TextDisabled("No string tables (assets/strings/<code>.json)");
+				for (size_t i = 0; i < langs.size(); i++)
+					if (ImGui::MenuItem(langs[i].c_str(), langs[i] == Localization::GetFallback() ? "fallback" : "", langs[i] == Localization::GetLanguage()))
+						Localization::SetLanguage(langs[i]);
+				ImGui::Separator();
+				if (ImGui::MenuItem("Reload tables")) Localization::Reload();
+				ImGui::EndMenu();
+			}
 			// Viewport overlays: their own group. They used to trail off the
 			// end of the menu directly under "Default Layout", which reads
 			// like part of the layout controls.

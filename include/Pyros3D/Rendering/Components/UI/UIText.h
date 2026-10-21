@@ -95,7 +95,9 @@ namespace p3d {
 		void Realign();
 
 		std::shared_ptr<Font> font;
-		std::string text;
+		std::string text;            // (as written: "@key" for a localized one - see Localization)
+		void Listen();
+		void Relocalize();
 		Vec4 color;
 		Vec4 displayColor;
 		f32 size;

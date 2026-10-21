@@ -71,6 +71,9 @@ using namespace p3d;
 // file is a clear error rather than a silent black window.
 struct PlayerManifest
 {
+	// "language": a code with a table in assets/strings ("pt"), or "auto" (the default): the
+	// system's preferred language that has one, else "fallbackLanguage" (en).
+	std::string language = "auto", fallbackLanguage = "en";
 	// the fraction of the window's size the scene is rendered at (PyrosPlayer::SetRenderScale)
 	float renderScale = 1.f;
 	std::vector<std::string> preload;      // game.json "preload": read before the first scene

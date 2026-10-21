@@ -14,6 +14,7 @@
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Utils/Navigation/Crowd.h>
 #include <Pyros3D/Utils/Navigation/NavMesh.h>
+#include <Pyros3D/Utils/Localization/Localization.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Core/InputManager/InputActions.h>
@@ -743,6 +744,43 @@ end
 				c->SetRunning(true);
 				go->Add(c);
 				return c; });
+		}
+
+		// What the game says, in the player's language (Localization: assets/strings/<code>.json).
+		//   label:setText(tr("menu.play"))           or give a UI text "@menu.play" and it follows
+		//   tr("hud.ammo", { count = 30 })           -- "{count} rounds" -> "30 rounds"
+		//   localization.setLanguage("pt")           -- every "@key" text redraws itself
+		lua->set_function("tr", [](const std::string &key, sol::optional<sol::table> args) {
+			if (!args) return Localization::Get(key);
+			std::map<std::string, std::string> a;
+			for (std::pair<sol::object, sol::object> kv : *args)
+			{
+				if (!kv.first.is<std::string>()) continue;
+				const std::string k = kv.first.as<std::string>();
+				if (kv.second.is<std::string>()) a[k] = kv.second.as<std::string>();
+				else if (kv.second.get_type() == sol::type::number)
+				{
+					const f64 v = kv.second.as<f64>();
+					char buf[64];
+					if (v == (f64)(int64)v) snprintf(buf, sizeof(buf), "%lld", (long long)v); else snprintf(buf, sizeof(buf), "%g", v);
+					a[k] = buf;
+				}
+				else if (kv.second.is<bool>()) a[k] = kv.second.as<bool>() ? "true" : "false";
+			}
+			return Localization::Format(key, a);
+		});
+		{
+			sol::table l = lua->create_named_table("localization");
+			l.set_function("setLanguage", [](const std::string &code) { return Localization::SetLanguage(code); });
+			l.set_function("getLanguage", []() { return Localization::GetLanguage(); });
+			l.set_function("setFallback", [](const std::string &code) { Localization::SetFallback(code); });
+			l.set_function("languages", [](sol::this_state ts) {
+				sol::state_view L(ts); sol::table t = L.create_table();
+				std::vector<std::string> v = Localization::GetLanguages();
+				for (size_t i = 0; i < v.size(); i++) t[i + 1] = v[i];
+				return t; });
+			l.set_function("has", [](const std::string &key) { return Localization::Has(key); });
+			l.set_function("reload", []() { Localization::Reload(); });
 		}
 
 		// What the player means, bound to what they press (InputActions):

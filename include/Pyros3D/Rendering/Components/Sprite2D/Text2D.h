@@ -54,7 +54,8 @@ namespace p3d {
 
 		std::shared_ptr<Font> font;
 		std::string fontPath;
-		std::string text;
+		std::string text;            // (as written: "@key" for a localized one)
+		void Listen();
 		Vec4 color;
 		f32 size;
 		Vec2 anchor;
