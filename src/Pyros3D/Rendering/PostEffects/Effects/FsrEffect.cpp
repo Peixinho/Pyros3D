@@ -60,6 +60,20 @@ namespace p3d {
 			"IO_LOCATION(0) out vec4 FragColor;\n"
 			"SAMPLER_BINDING(0) uniform sampler2D uTex0;\n"
 			"IO_LOCATION(0) varying_in vec2 vTexcoord;\n"
+			// GLSL 4.10 (macOS's OpenGL) has no packHalf2x16 / unpackHalf2x16, which ffx_a.h uses even
+			// outside its half-precision path - the shader did not compile and the frame came out
+			// unscaled. These do the same bit for bit (rounding towards zero, as a cast would).
+			"#if __VERSION__ < 420\n"
+			"uint pyrosF32ToF16(float f) { uint x = floatBitsToUint(f); uint s = (x >> 16) & 0x8000u;\n"
+			"  int e = int((x >> 23) & 0xffu) - 112; uint m = x & 0x7fffffu;\n"
+			"  if (((x >> 23) & 0xffu) == 0xffu) return s | 0x7c00u | (m != 0u ? 0x200u : 0u);\n"
+			"  if (e <= 0) return s; if (e >= 31) return s | 0x7c00u; return s | (uint(e) << 10) | (m >> 13); }\n"
+			"float pyrosF16ToF32(uint h) { uint s = (h & 0x8000u) << 16; uint e = (h >> 10) & 0x1fu; uint m = h & 0x3ffu;\n"
+			"  if (e == 0u) return uintBitsToFloat(s); if (e == 31u) return uintBitsToFloat(s | 0x7f800000u | (m << 13));\n"
+			"  return uintBitsToFloat(s | ((e + 112u) << 23) | (m << 13)); }\n"
+			"uint packHalf2x16(vec2 v) { return pyrosF32ToF16(v.x) | (pyrosF32ToF16(v.y) << 16); }\n"
+			"vec2 unpackHalf2x16(uint u) { return vec2(pyrosF16ToF32(u & 0xffffu), pyrosF16ToF32(u >> 16)); }\n"
+			"#endif\n"
 			"#define A_GPU 1\n"
 			"#define A_GLSL 1\n"
 			"#define A_SKIP_EXT 1\n";
