@@ -159,6 +159,7 @@ namespace {
 			m.qAutoFps = q.value("autoRenderScaleFps", -1.f);
 			m.qAutoMin = q.value("autoRenderScaleMin", 0.42f);
 			m.qFrameLimit = q.value("frameRateLimit", -2.f);
+			m.qLodCrossfade = q.value("lodCrossfade", -1.f);
 		}
 		if (j.contains("preload") && j["preload"].is_array())
 			for (const auto &e : j["preload"]) if (e.is_string()) m.preload.push_back(e.get<std::string>());
@@ -732,6 +733,8 @@ end
 		upscaleQuality = m.qAutoFps > 0.f ? UpscaleQuality::Auto
 			: (m.qRenderScale > 0.f && m.qRenderScale < 0.999f ? UpscaleQuality::Quality : UpscaleQuality::Native);
 	}
+	// (seconds a change of level of detail dissolves over; 0 switches at once)
+	if (m.qLodCrossfade >= 0.f) RenderingComponent::SetLODCrossfade(m.qLodCrossfade);
 	if (m.qFrameLimit > -1.5f)
 	{
 		f32 limit = m.qFrameLimit;

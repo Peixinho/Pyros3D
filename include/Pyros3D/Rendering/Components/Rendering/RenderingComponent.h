@@ -195,6 +195,10 @@ namespace p3d {
 
 		// LOD
 		uint32 LodLevel;
+		// Changing level, a level crossfades (RenderingComponent::SetLODCrossfade): (0, 1] the level
+		// coming in, how far; [-1, 0) the one going, -1 + how far; 0 neither. A dither in the shader
+		// shows the one where the other is not - see PyrosShader.glsl's p3d_LodFade.
+		f32 LodFade = 0.f;
 
 		void BuildMaterials(const uint32 &MaterialOptions)
 		{
@@ -356,6 +360,13 @@ namespace p3d {
 		static bool GetAutoLOD();
 		static void SetAutoLODInUse(const bool on);
 		static void SetLODDistanceScale(const f32 scale);
+		// Seconds a change of level takes: both levels drawn meanwhile, the one dissolving into the
+		// other (0: they switch at once, as before). 0.25 s by default.
+		static void SetLODCrossfade(const f32 seconds);
+		static f32 GetLODCrossfade();
+		// Whether a change of level is being drawn, and moving it on (by the renderer, every frame).
+		bool IsLODFading() const { return lodFadeFrom >= 0; }
+		void StepLODFade();
 		static f32 GetLODDistanceScale();
 		static bool GetAutoLODInUse();
 		// A last level with nothing in it: beyond the reach of the level
@@ -699,7 +710,7 @@ namespace p3d {
 		uint32 GetLODInUse() const { return LodInUse; }
 
 		// Update Rendering Meshes Based on LOD
-		void UpdateLOD(const uint32 lod);
+		void UpdateLOD(const uint32 lod, const bool instant = false);
 
 		// Get Rendering Components
 		static std::vector<IComponent*> &GetComponents();
@@ -819,6 +830,9 @@ namespace p3d {
 
 		// LOD Rendered
 		uint32 LodInUse;
+		int32 lodFadeFrom = -1;              // the level going, while it does
+		f64 lodFadeStart = 0.0;
+		void FinishLODFade();
 		float LastLodDistance;
 		Vec3 lodSphereCentre;
 		f32 lodSphereRadius = -1.f;     // < 0: not worked out

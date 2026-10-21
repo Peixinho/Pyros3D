@@ -2364,6 +2364,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // forward path, the deferred path and (for any shadow material
         // that samples a colormap) the shadow pass, rather than needing a
         // copy in each.
+        // A change of level crossfading (RenderingMesh::LodFade, in uWetness.w): the level coming in
+        // draws where a fixed dither is under how far it has come, the one going where it is not -
+        // between them every pixel is drawn once, and TAA smooths the dither into a dissolve. Before
+        // the cutout for the same reason it is before everything: forward, deferred and the shadow
+        // pass alike (a level's shadow crossfades with it).
+        if (uWetness.w != 0.0)
+        {
+            float _ld = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+            if (uWetness.w > 0.0 ? _ld >= uWetness.w : _ld < uWetness.w + 1.0) discard;
+        }
         #ifdef ALPHATEST
             if (diffuse.w < uAlphaCutoff)
                 discard;

@@ -366,6 +366,7 @@ void IRenderer::GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const u
 			const Vec3 centre = (*i)->GetOwner()->GetWorldPosition() + sphere * scale;
 			const f32 d = std::max(0.f, Camera->GetWorldPosition().distance(centre) - sphereRadius * maxScale);
 			(*i)->UpdateLOD((*i)->GetLODByDistance(d * d));
+			(*i)->StepLODFade();
 		}
 	}
 	// Get Meshes
@@ -822,7 +823,8 @@ bool IRenderer::AutoInstanceMesh(RenderingMesh* mesh)
 	// one draw, where leaving these out made every tree a draw of its own)
 	if (rc == NULL || rc->IsInstanced() || !rc->GetRenderableShared())
 		return false;
-	return mesh->BonesToDraw().empty() && mesh->Geometry != NULL;
+	// (a level crossfading is drawn on its own: its dissolve is its own, not its batch's)
+	return mesh->BonesToDraw().empty() && mesh->Geometry != NULL && mesh->LodFade == 0.f;
 }
 
 bool IRenderer::AutoInstanceMaterial(IMaterial* mat)
@@ -1664,7 +1666,12 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 			else pick(0, (uint32)nLod);
 			lodLoop.End();
 			FrameProfiler::Instance().Counter("Lists.LodShared", lodLoop.shared ? 1.0 : 0.0);
-			for (size_t i = 0; i < nLod; i++) if (wantOf[i] != 0xFFFFFFFFu) lodOf[i]->UpdateLOD(wantOf[i]);
+			for (size_t i = 0; i < nLod; i++)
+			{
+				if (wantOf[i] != 0xFFFFFFFFu) lodOf[i]->UpdateLOD(wantOf[i]);
+				// (a change of level being drawn, moved on: both levels, until one has gone)
+				if (lodOf[i]->IsLODFading()) lodOf[i]->StepLODFade();
+			}
 		}
 		if (!fresh && !ApplyListed(L, Scene, Tag)) fresh = true;
 		// (one that has got instances, or has none left: its entries are read
@@ -5082,9 +5089,13 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	// runs before RenderObject() updates LastMeshRenderedPTR/LastMaterialPTR
 	// (see the end of RenderObject()), so they still hold the *previous*
 	// object's pointers here.
-	if (Material->SupportsUniformBlocks() && (MaterialUniformsNeedsReupload || LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material))
+	// (a mesh crossfading changes its own value every frame - and the draw after it, its back)
+	static thread_local bool lastHadLodFade = false;
+	const bool lodFading = rmesh != NULL && rmesh->LodFade != 0.f;
+	if (Material->SupportsUniformBlocks() && (MaterialUniformsNeedsReupload || LastMeshRenderedPTR != rmesh || LastMaterialPTR != Material || lodFading || lastHadLodFade))
 	{
 		MaterialUniformsNeedsReupload = false;
+		lastHadLodFade = lodFading;
 		MaterialUniformsData data = MaterialUniformsData();
 		// One walk down the material's values, each told by its second letter and
 		// then by its name: this was eleven walks, each making a string of the name
@@ -5122,6 +5133,8 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				}
 			}
 		}
+		// uWetness.w: this mesh's level crossfade (RenderingMesh::LodFade) - see PyrosShader.glsl's p3d_LodFade
+		data.Wetness.w = lodFading ? rmesh->LodFade : 0.f;
 		device->ReplaceUniformBuffer(MaterialUniformsUBO, sizeof(MaterialUniformsData), &data);
 	}
 

@@ -1,3 +1,4 @@
+#include <chrono>
 #include <cstdlib>
 #include <cstdio>
 //============================================================================
@@ -362,7 +363,13 @@ namespace p3d {
 	// How far each level of detail reaches, as a multiple of what the scene says: the
 	// application's quality setting for the machine it is on (1: as authored; 2: every
 	// level kept to twice the distance; 0.5: half).
-	namespace { f32 g_lodScale = 1.f; }
+	namespace {
+		f32 g_lodScale = 1.f;
+		f32 g_lodFade = 0.25f;
+		f64 LodClock() { return std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count(); }
+	}
+	void RenderingComponent::SetLODCrossfade(const f32 seconds) { g_lodFade = seconds > 0.f ? seconds : 0.f; }
+	f32 RenderingComponent::GetLODCrossfade() { return g_lodFade; }
 	void RenderingComponent::SetLODDistanceScale(const f32 scale) { const f32 s = std::max(0.05f, scale); if (s != g_lodScale) { g_lodScale = s; g_autoLodChanges++; RenderState::Touch(); } }
 	f32 RenderingComponent::GetLODDistanceScale() { return g_lodScale; }
 
@@ -418,12 +425,13 @@ namespace p3d {
 	void RenderingComponent::ClearLODs()
 	{
 		RenderState::Touch();
+		FinishLODFade();
 		if (Meshes.size() <= 1) { LOD = false; if (LODDistances.size() > 1) LODDistances.resize(1); return; }
 		// the scene is drawing one level's meshes: make that the nearest
 		// before the others go
 		if (LodInUse != 0)
 		{
-			if (Registered && Scene) UpdateLOD(0);
+			if (Registered && Scene) UpdateLOD(0, true);
 			else LodInUse = 0;
 		}
 		for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end();)
@@ -580,20 +588,34 @@ namespace p3d {
 			Scene->GetRenderingComponents().push_back(this);
 		}
 	}
-	void RenderingComponent::UpdateLOD(const uint32 lod)
+	void RenderingComponent::UpdateLOD(const uint32 lod, const bool instant)
 	{
 		// Check if LOD Level is Different
 		if (LodInUse != lod && lod < GetLODSize())
 		{
+			// (one change at a time: a level still going goes now)
+			if (lodFadeFrom >= 0) FinishLODFade();
+			std::vector<RenderingMesh*> &listed = Scene->GetRenderingMeshes();
+			const std::vector<RenderingMesh*> &was = Meshes[LodInUse];
+			const std::vector<RenderingMesh*> &now = Meshes[lod];
+			// Crossfading: the new level's meshes are listed beside the old one's, which stay until it
+			// has dissolved into them (FinishLODFade). A level's pop, as the camera came closer, was
+			// the most visible thing about a big world.
+			if (!instant && g_lodFade > 0.f)
+			{
+				for (size_t m = 0; m < now.size(); m++) { listed.push_back(now[m]); RenderState::NoteListed(RenderState::Listed::MeshOn, Scene, this, Owner, now[m]); now[m]->LodFade = 1e-3f; }
+				for (size_t m = 0; m < was.size(); m++) was[m]->LodFade = -1.f + 1e-3f;
+				lodFadeFrom = (int32)LodInUse;
+				lodFadeStart = LodClock();
+				LodInUse = lod;
+				return;
+			}
 			// The scene lists the meshes of the level in use, and only those:
 			// they are taken out and the new level's put in - in the places the
 			// old ones had, as far as there are as many. (Every mesh of EVERY
 			// level was looked for through the scene's whole list, one at a
 			// time, and each one found was closed up behind: with a few hundred
 			// things changing level as the camera ran, that was most of a frame.)
-			std::vector<RenderingMesh*> &listed = Scene->GetRenderingMeshes();
-			const std::vector<RenderingMesh*> &was = Meshes[LodInUse];
-			const std::vector<RenderingMesh*> &now = Meshes[lod];
 			size_t put = 0;
 			for (size_t m = 0; m < was.size(); m++)
 			{
@@ -610,6 +632,32 @@ namespace p3d {
 			for (; put < now.size(); put++) { listed.push_back(now[put]); RenderState::NoteListed(RenderState::Listed::MeshOn, Scene, this, Owner, now[put]); }
 			LodInUse = lod;
 		}
+	}
+	void RenderingComponent::StepLODFade()
+	{
+		if (lodFadeFrom < 0) return;
+		const f32 p = g_lodFade > 0.f ? (f32)((LodClock() - lodFadeStart) / (f64)g_lodFade) : 1.f;
+		if (p >= 1.f) { FinishLODFade(); return; }
+		const f32 in = std::max(p, 1e-3f), out = -1.f + std::max(p, 1e-3f);
+		std::vector<RenderingMesh*> &now = Meshes[LodInUse], &was = Meshes[(uint32)lodFadeFrom];
+		for (size_t m = 0; m < now.size(); m++) now[m]->LodFade = in;
+		for (size_t m = 0; m < was.size(); m++) was[m]->LodFade = out;
+	}
+	void RenderingComponent::FinishLODFade()
+	{
+		if (lodFadeFrom < 0) return;
+		const std::vector<RenderingMesh*> &was = Meshes[(uint32)lodFadeFrom];
+		const std::vector<RenderingMesh*> &now = Meshes[LodInUse];
+		if (Scene != NULL)
+		{
+			std::vector<RenderingMesh*> &listed = Scene->GetRenderingMeshes();
+			for (size_t m = 0; m < was.size(); m++)
+				for (size_t k = listed.size(); k-- > 0;)
+					if (listed[k] == was[m]) { listed.erase(listed.begin() + k); RenderState::NoteListed(RenderState::Listed::MeshOff, Scene, this, Owner, was[m]); break; }
+		}
+		for (size_t m = 0; m < was.size(); m++) was[m]->LodFade = 0.f;
+		for (size_t m = 0; m < now.size(); m++) now[m]->LodFade = 0.f;
+		lodFadeFrom = -1;
 	}
 	void RenderingComponent::Unregister(SceneGraph* Scene)
 	{
@@ -652,6 +700,13 @@ namespace p3d {
 				return;
 			}
 
+			// (a level that was going: its meshes are listed too, and go with the rest below)
+			if (lodFadeFrom >= 0)
+			{
+				for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
+					for (size_t m = 0; m < i->second.size(); m++) i->second[m]->LodFade = 0.f;
+				lodFadeFrom = -1;
+			}
 			// Remove from Meshes vector
 			for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
 				for (std::vector<RenderingMesh*>::iterator i1 = (*i).second.begin(); i1 != (*i).second.end(); i1++)

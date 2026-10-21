@@ -256,6 +256,9 @@ namespace p3d {
 		// filled the lens. One scale for every view, so two views do not fight over which level a
 		// thing is drawn at (each change rebuilds what the scene draws). 1 by default.
 		lua->set_function("setLODDistanceScale", [](const f32 k) { RenderingComponent::SetLODDistanceScale(k); });
+		// Seconds a change of level of detail takes to dissolve one level into the other (0: at once).
+		lua->set_function("setLODCrossfade", [](const f32 s) { RenderingComponent::SetLODCrossfade(s); });
+		lua->set_function("getLODCrossfade", []() { return RenderingComponent::GetLODCrossfade(); });
 		lua->set_function("getLODDistanceScale", []() { return RenderingComponent::GetLODDistanceScale(); });
 		// setShadowUpdateInterval(2): the sun's shadow map every other frame.
 		lua->set_function("setShadowUpdateInterval", [](const uint32 frames) { IRenderer::SetShadowUpdateInterval(frames); });
