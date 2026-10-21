@@ -961,6 +961,9 @@ namespace p3d {
 		// needed for the same reason: Metal can't retarget an encoder's
 		// attachments mid-pass either, a new target means a new encoder.
 		void EndCurrentRenderEncoderIfOpen();
+		// Back into the swapchain's pass (its contents kept) after a transfer had to end it - only
+		// while the swapchain is the target and a frame is open.
+		void ResumeSwapchainPass();
 		// MetalFX's temporal scaler (id<MTLFXTemporalScaler>), made for one set of
 		// sizes and formats and made again when they change.
 		void* fxScaler = NULL;

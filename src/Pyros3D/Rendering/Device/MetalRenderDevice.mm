@@ -1617,11 +1617,20 @@ namespace p3d {
 
 	void MetalRenderDevice::DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count)
 	{
+		// PYROS_DRAW_SKIP_TRACE=1: say when a draw is dropped here, and why (it is silent otherwise).
+		static const bool skipTrace = getenv("PYROS_DRAW_SKIP_TRACE") != NULL;
 		if (currentRenderEncoder == NULL || currentPipeline == 0)
+		{
+			if (skipTrace) fprintf(stderr, "[draw-skip] DrawArrays(%u): %s (frame %llu)\n", count,
+				currentRenderEncoder == NULL ? "no render encoder" : "no pipeline", (unsigned long long)deviceFrameNumber);
 			return;
+		}
 		std::map<DeviceHandle, PipelineRecord>::iterator pipeIt = pipelines.find(currentPipeline);
 		if (pipeIt == pipelines.end())
+		{
+			if (skipTrace) fprintf(stderr, "[draw-skip] DrawArrays(%u): pipeline %u not found\n", count, (unsigned)currentPipeline);
 			return;
+		}
 
 		@autoreleasepool
 		{
@@ -3709,6 +3718,8 @@ namespace p3d {
 				currentCommandBuffer = NULL;
 			}
 		}
+		// (back into the swapchain's pass if that is what the blit ended - see CopyDepthTexture)
+		ResumeSwapchainPass();
 	}
 	// See IRenderDevice.h's comment on CopyDepthTexture for why this
 	// exists - DeferredRenderer needs forwardDepthTexture (lastPassFBO's
@@ -3868,6 +3879,10 @@ namespace p3d {
 				destinationOrigin:MTLOriginMake(0, 0, 0)];
 			[blit endEncoding];
 		}
+		// The copy had to end the pass it found open. When that was the swapchain's, the next draw
+		// to the screen found no encoder and was dropped: a chain of one post effect, after the
+		// capture's depth copy, drew nothing at all and the frame was the clear colour.
+		ResumeSwapchainPass();
 	}
 
 	void* MetalRenderDevice::GetFallbackTexture(const uint32 kind)
@@ -3984,6 +3999,36 @@ namespace p3d {
 					}
 				}
 			}
+		}
+	}
+
+	// (as BindFramebuffer(0) does when an offscreen detour ends: a new encoder on the same drawable,
+	// with Load actions, since a Metal encoder once ended cannot be resumed)
+	void MetalRenderDevice::ResumeSwapchainPass()
+	{
+		if (!frameInProgress || currentBoundFBO != 0 || currentRenderEncoder != NULL || currentDrawable == NULL || currentCommandBuffer == NULL)
+			return;
+		@autoreleasepool
+		{
+			id<CAMetalDrawable> drawable = (__bridge id<CAMetalDrawable>)currentDrawable;
+			MTLRenderPassDescriptor* rpd = [MTLRenderPassDescriptor renderPassDescriptor];
+			rpd.colorAttachments[0].texture = drawable.texture;
+			rpd.colorAttachments[0].loadAction = MTLLoadActionLoad;
+			rpd.colorAttachments[0].storeAction = MTLStoreActionStore;
+			if (depthTexture != NULL)
+			{
+				id<MTLTexture> depthTex = (__bridge id<MTLTexture>)depthTexture;
+				rpd.depthAttachment.texture = depthTex;
+				rpd.depthAttachment.loadAction = MTLLoadActionLoad;
+				rpd.depthAttachment.storeAction = MTLStoreActionStore;
+			}
+			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
+			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
+			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
+			encoderBoundTextures.clear(); encoderBoundCubes.clear();
+			[encoder setFrontFacingWinding:MTLWindingCounterClockwise];
+			MTLViewport viewport = { 0.0, 0.0, (double)drawableWidth, (double)drawableHeight, 0.0, 1.0 };
+			[encoder setViewport:viewport];
 		}
 	}
 
