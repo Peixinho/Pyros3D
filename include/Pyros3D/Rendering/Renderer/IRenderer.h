@@ -161,6 +161,18 @@ namespace p3d {
 		// directional light - which the editor's axis widget and previews have of their own.
 		static void SetSunHint(const Vec3 &toSun, const f32 strength, const bool isSun = false);
 		static void GetSunHint(Vec3 &toSun, f32 &strength);
+		// The sun's shadow as the main view (GetAmbientSource, or any renderer when none is set)
+		// last drew it: the map, each cascade's world-to-map matrix (several cascades share the
+		// map 2x2), the way to the sun and its light. For what lights the air with it (the
+		// VolumetricLight post effect). valid is false when no sun casts a shadow this frame.
+		struct SunShadow {
+			bool valid = false;
+			Texture* map = NULL;
+			uint32 cascades = 0;
+			Matrix worldToMap[4];
+			Vec3 toSun = Vec3(0.f, 1.f, 0.f), radiance;
+		};
+		static const SunShadow &GetSunShadow();
 		// Where the scene was last drawn from (the camera's world matrix): for what works on
 		// the finished picture and needs to know which way each pixel looks (a sky, fog).
 		static void SetViewHint(const Matrix &cameraWorld);
@@ -778,6 +790,7 @@ namespace p3d {
 		f32 smallCullScale = 0.f, smallCullFactor = 1.f;
 		// (SetShadowUpdateInterval: each sun's light-space matrices as last drawn, and this renderer's count of passes)
 		std::map<ILightComponent*, std::vector<Matrix> > sunLightSpace;
+		void PublishSunShadow(DirectionalLight* d);
 		uint32 shadowPassCounter = 0;
 		bool CullingPointTest(RenderingMesh* rmesh, GameObject* owner);
 

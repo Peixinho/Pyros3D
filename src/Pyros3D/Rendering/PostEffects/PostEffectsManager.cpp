@@ -747,7 +747,8 @@ namespace p3d {
 			}
 			device->BindPipeline(cmd, effect->pipelineHandle);
 
-			// Bind MRT
+			// Bind MRT (the effect's say first: an input that changes each frame)
+			effect->PreBind();
 			for (std::vector<RTT::Info>::iterator i = effect->RTTOrder.begin(); i != effect->RTTOrder.end(); i++)
 			{
 				switch ((*i).Type)

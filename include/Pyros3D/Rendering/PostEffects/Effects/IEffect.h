@@ -138,6 +138,10 @@ namespace p3d {
 		// not a handful of values someone sets, but state it has to go and
 		// read - VolumetricSmokeEffect packs the live clouds here.
 		virtual void PreDraw() {}
+		// Before its textures are bound (PreDraw comes after): for an effect whose inputs change
+		// from frame to frame - put this frame's in RTTOrder here, or the last frame's (by then
+		// perhaps freed) is what gets bound.
+		virtual void PreBind() {}
 
 		Uniform* AddUniform(const Uniform &Data);
 

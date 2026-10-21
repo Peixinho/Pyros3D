@@ -171,7 +171,25 @@ void IRenderer::SetSunHint(const Vec3 &toSun, const f32 strength, const bool isS
 	if (isSun) { g_sunMarkedTo = toSun; g_sunMarkedStrength = s; g_sunMarkedAt = std::chrono::steady_clock::now(); g_sunMarked = true; }
 	else { g_sunTo = toSun; g_sunStrength = s; }
 }
-namespace { std::atomic<IRenderer*> g_ambientSource(NULL); }
+namespace { std::atomic<IRenderer*> g_ambientSource(NULL); IRenderer::SunShadow g_sunShadow; }
+const IRenderer::SunShadow &IRenderer::GetSunShadow() { return g_sunShadow; }
+void IRenderer::PublishSunShadow(DirectionalLight* d)
+{
+	// (only the main view's: a preview's light, or the axis widget's, is not the scene's sun)
+	IRenderer* main = g_ambientSource.load();
+	if (main && main != this) return;
+	std::map<ILightComponent*, std::vector<Matrix> >::const_iterator it = sunLightSpace.find(d);
+	if (!d || !d->GetShadowMapTexture() || it == sunLightSpace.end() || it->second.empty()) return;
+	SunShadow s;
+	s.valid = true;
+	s.map = d->GetShadowMapTexture();
+	s.cascades = (uint32)std::min<size_t>(it->second.size(), 4);
+	for (uint32 c = 0; c < s.cascades; c++) s.worldToMap[c] = it->second[c];
+	Vec3 toSun;
+	const Vec4 r = d->GetLightRadianceNow(&toSun);
+	s.toSun = toSun; s.radiance = Vec3(r.x, r.y, r.z);
+	g_sunShadow = s;
+}
 namespace { f32 g_heldAmbientScale = 1.f; bool g_ambientScaleHeld = false; }
 // (set while a frame may be in flight: kept, and made the scale at the next PreRender)
 void IRenderer::SetAmbientScale(const f32 Scale)
@@ -2702,6 +2720,9 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	DirectionalShadowMapsTextures.clear();
 	DirectionalShadowMatrix.clear();
 	NumberOfDirectionalShadows = 0;
+	// (the main view's sun shadow is published afresh below, or not at all: a sun that stopped
+	// casting is not read through last frame's matrices)
+	if (!g_ambientSource.load() || g_ambientSource.load() == this) g_sunShadow.valid = false;
 
 	PointShadowMapsTextures.clear();
 	PointShadowMatrix.clear();
@@ -2779,6 +2800,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 								DirectionalShadowMatrix.push_back(kept->second[c] * cameraNow);
 							DirectionalShadowMapsTextures.push_back(d->GetShadowMapTexture());
 							DirectionalShadowFar = d->GetCascadeSplits();
+							PublishSunShadow(d);
 							break;
 						}
 						sunLightSpace[d].clear();
@@ -2882,6 +2904,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					// matrix used here matched the backend's clip
 					// convention, which the deferred path's copy never did.
 					DirectionalShadowFar = d->GetCascadeSplits();
+					PublishSunShadow(d);
 
 				}
 			}

@@ -21,6 +21,7 @@
 #include <Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/VolumetricSmokeEffect.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/VolumetricLightEffect.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Core/Logs/Log.h>
 
@@ -81,6 +82,9 @@ namespace p3d {
 				// whatever clouds VolumetricSmoke holds, so it is inert
 				// until something spawns one.
 				names.push_back("VolumetricSmoke");
+				// Height fog lit by the sun through its shadow map (shafts) - see
+				// VolumetricLightEffect.h. Two passes, before tonemapping.
+				names.push_back("VolumetricLight");
 				// The sky, the air and the weather - see SkyEffect.cpp. An asset
 				// effect that ships with the engine: its sliders are its header's.
 				names.push_back("Sky");
@@ -186,6 +190,20 @@ namespace p3d {
 				smoke.push_back(MakeParam("uStep", "Step (metres)", 0.35f, 0.1f, 1.f));
 				smoke.push_back(MakeParam("uMaxSteps", "Max steps", 56.f, 8.f, 96.f));
 				table["VolumetricSmoke"] = smoke;
+
+				std::vector<CustomEffect::Param> air;
+				// 1/m at the base height: 0.012 a hazy city (half the light gone in 58 m), 0.1 a fog.
+				air.push_back(MakeParam("uDensity", "Density", 0.012f, 0.f, 0.3f));
+				// 1/m: how fast it thins going up (0 the same at any height).
+				air.push_back(MakeParam("uFalloff", "Thins with height", 0.08f, 0.f, 1.f));
+				air.push_back(MakeParam("uBaseHeight", "Base height", 0.f, -500.f, 2000.f));
+				air.push_back(MakeParam("uScattering", "Sun in the air", 1.f, 0.f, 8.f));
+				// Towards 1: bright looking into the sun (shafts seen against it), 0: even.
+				air.push_back(MakeParam("uAnisotropy", "Forward glow", 0.6f, -0.9f, 0.95f));
+				air.push_back(MakeParam("uAmbient", "Sky in the air", 0.25f, 0.f, 4.f));
+				air.push_back(MakeParam("uMaxDistance", "Distance (m)", 200.f, 10.f, 4000.f));
+				air.push_back(MakeParam("uSteps", "Steps", 32.f, 8.f, 128.f));
+				table["VolumetricLight"] = air;
 			}
 			std::map<std::string, std::vector<CustomEffect::Param> >::const_iterator it = table.find(name);
 			return (it != table.end()) ? it->second : none;
@@ -298,6 +316,28 @@ namespace p3d {
 				manager.AddEffect((previous != NULL)
 					? new VolumetricSmokeCompositeEffect(previous->GetTexture(), width, height)
 					: new VolumetricSmokeCompositeEffect(RTT::Color, width, height));
+				return true;
+			}
+			if (name == "VolumetricLight")
+			{
+				// As VolumetricSmoke: the march at half resolution, then the frame with it laid over.
+				IEffect* previous = manager.GetLastEffect();
+				const uint32 hw = width / 2 > 0 ? width / 2 : 1;
+				const uint32 hh = height / 2 > 0 ? height / 2 : 1;
+				VolumetricLightEffect* march = new VolumetricLightEffect(hw, hh);
+				march->SetResizeScale(0.5f);
+				march->SetDensity(ParamOr(params, "uDensity", 0.012f));
+				march->SetHeightFalloff(ParamOr(params, "uFalloff", 0.08f));
+				march->SetBaseHeight(ParamOr(params, "uBaseHeight", 0.f));
+				march->SetScattering(ParamOr(params, "uScattering", 1.f));
+				march->SetAnisotropy(ParamOr(params, "uAnisotropy", 0.6f));
+				march->SetAmbient(Vec3(0.55f, 0.65f, 0.8f), ParamOr(params, "uAmbient", 0.25f));
+				march->SetMaxDistance(ParamOr(params, "uMaxDistance", 200.f));
+				march->SetSteps(ParamOr(params, "uSteps", 32.f));
+				manager.AddEffect(march);
+				manager.AddEffect((previous != NULL)
+					? new VolumetricLightCompositeEffect(previous->GetTexture(), width, height)
+					: new VolumetricLightCompositeEffect(RTT::Color, width, height));
 				return true;
 			}
 			if (name == "Grade")
