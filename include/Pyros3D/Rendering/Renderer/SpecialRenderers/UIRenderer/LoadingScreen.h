@@ -67,6 +67,10 @@ namespace p3d {
 		// Draws now (Open and SetProgress draw by themselves, when it is time).
 		void Draw();
 		void Resize(const uint32 width, const uint32 height);
+		// Called after each frame it draws, to put it on the screen where the device does not: on
+		// GL the frame is the window's to present (SDL_GL_SwapWindow), and the device's EndFrame is
+		// nothing - without this the screen was drawn and never shown, a black window for the load.
+		void SetPresent(const std::function<void()> &present) { this->present = present; }
 		void Close();
 		bool IsOpen() const { return scene != NULL; }
 
@@ -78,7 +82,7 @@ namespace p3d {
 		UIRenderer* ui;
 		LoadedSceneAssets assets;
 		uint32 width, height;
-		std::function<void()> pump;
+		std::function<void()> pump, present;
 		Vec4 background;
 		f32 fraction;
 		std::string stage;

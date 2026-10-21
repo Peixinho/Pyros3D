@@ -47,6 +47,7 @@
 // UI style/palette files, resolved by the same header the editor uses
 // (shared/UIStyleResolver.h) so a themed UI looks identical in both.
 #include "UIStyleResolver.h"
+#include "QualitySettings.h"
 
 #include <SDL2/SDL.h>
 #include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
@@ -141,9 +142,7 @@ namespace {
 		if (j.contains("quality") && j["quality"].is_object())
 		{
 			const json &q = j["quality"];
-			m.qSmallCull = q.value("smallObjectCull", -1.f);
-			m.qShadowEvery = q.value("shadowUpdateInterval", -1);
-			if (q.contains("ssaoHalfResolution")) m.qSsaoHalf = q.value("ssaoHalfResolution", false) ? 1 : 0;
+			m.quality = q;
 			// "ssaoTemporal": false - every sample every frame, rather than half, turned each frame for
 			// TAA to add up: cheaper, but on fine detail (window frames) and under a moving camera it flickers
 			if (q.contains("ssaoTemporal")) m.qSsaoTemporal = q.value("ssaoTemporal", true) ? 1 : 0;
@@ -159,10 +158,6 @@ namespace {
 			m.qAutoFps = q.value("autoRenderScaleFps", -1.f);
 			m.qAutoMin = q.value("autoRenderScaleMin", 0.42f);
 			m.qFrameLimit = q.value("frameRateLimit", -2.f);
-			m.qLodCrossfade = q.value("lodCrossfade", -1.f);
-			// how many point / spot lights may cast shadows in a frame (IRenderer::SetShadowBudget; 0 no limit)
-			m.qPointShadowBudget = q.value("pointShadowBudget", -1);
-			m.qSpotShadowBudget = q.value("spotShadowBudget", -1);
 		}
 		if (j.contains("preload") && j["preload"].is_array())
 			for (const auto &e : j["preload"]) if (e.is_string()) m.preload.push_back(e.get<std::string>());
@@ -714,9 +709,8 @@ end
 
 	// The project's quality settings (game.json "quality"), before any script
 	// runs: a script may still change them.
-	if (m.qSmallCull >= 0.f) IRenderer::SetSmallObjectCull(m.qSmallCull);
-	if (m.qShadowEvery >= 1) IRenderer::SetShadowUpdateInterval((uint32)m.qShadowEvery);
-	if (m.qSsaoHalf >= 0) DeferredRenderer::SetSSAOHalfResolution(m.qSsaoHalf == 1);
+	// (what is the engine's: the same function the editor's Play applies the project's with)
+	quality::ApplyToEngine(m.quality);
 	if (m.qSsaoTemporal >= 0) g_ssaoTemporalWanted = m.qSsaoTemporal == 1;
 	upscaleSharpness = m.qUpscaleSharpness < 0.f ? 0.85f : m.qUpscaleSharpness;
 	if (!Upscaling::FromString(m.qUpscaler, upscaler)) upscaler = UpscalerMode::FSR1;
@@ -737,11 +731,6 @@ end
 		upscaleQuality = m.qAutoFps > 0.f ? UpscaleQuality::Auto
 			: (m.qRenderScale > 0.f && m.qRenderScale < 0.999f ? UpscaleQuality::Quality : UpscaleQuality::Native);
 	}
-	// (seconds a change of level of detail dissolves over; 0 switches at once)
-	if (m.qLodCrossfade >= 0.f) RenderingComponent::SetLODCrossfade(m.qLodCrossfade);
-	if (m.qPointShadowBudget >= 0 || m.qSpotShadowBudget >= 0)
-		IRenderer::SetShadowBudget(m.qPointShadowBudget >= 0 ? (uint32)m.qPointShadowBudget : IRenderer::GetPointShadowBudget(),
-			m.qSpotShadowBudget >= 0 ? (uint32)m.qSpotShadowBudget : IRenderer::GetSpotShadowBudget());
 	if (m.qFrameLimit > -1.5f)
 	{
 		f32 limit = m.qFrameLimit;
@@ -960,6 +949,8 @@ void PyrosPlayer::OpenLoadingScreen()
 			loadingScreen.Resize((uint32)w, (uint32)h);
 		}
 	});
+	// (the window's own present after each of its frames: the swap on GL, nothing where the device presents)
+	if (loadingScreen.IsOpen()) loadingScreen.SetPresent([this]() { Draw(); });
 	if (loadingScreen.IsOpen()) loadingScreen.Listen();
 }
 

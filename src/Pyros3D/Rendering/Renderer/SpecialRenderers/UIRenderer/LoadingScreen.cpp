@@ -180,6 +180,7 @@ namespace p3d {
 		ui->ClearBufferBit(Buffer_Bit::Color | Buffer_Bit::Depth);
 		ui->RenderUI(scene);
 		dev.SetClearColor(was);
+		if (present) present();
 		lastDraw = std::chrono::steady_clock::now();
 	}
 
@@ -195,6 +196,7 @@ namespace p3d {
 		}
 		delete ui; ui = NULL;
 		pump = std::function<void()>();
+		present = std::function<void()>();
 	}
 
 }

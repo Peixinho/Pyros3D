@@ -6,6 +6,7 @@
 // Description : Pyros Scene
 //============================================================================
 
+#include "QualitySettings.h"
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
@@ -7568,13 +7569,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		// noted - "Fill from last Play" in the project settings uses it.)
 		// (and its quality settings, those that are the renderer's: a built
 		// game starts with them - see ProjectSettings::quality)
-		if (project && project->GetSettings().quality.is_object())
-		{
-			const nlohmann::json &q = project->GetSettings().quality;
-			if (q.contains("smallObjectCull")) IRenderer::SetSmallObjectCull(q.value("smallObjectCull", 1.f));
-			if (q.contains("shadowUpdateInterval")) IRenderer::SetShadowUpdateInterval((uint32)std::max(1, q.value("shadowUpdateInterval", 1)));
-			if (q.contains("ssaoHalfResolution")) DeferredRenderer::SetSSAOHalfResolution(q.value("ssaoHalfResolution", false));
-		}
+		// (the project's quality, as the built game applies it - the same function: shared/QualitySettings.h)
+		if (project) quality::ApplyToEngine(project->GetSettings().quality);
 		// The terrain's shadow is baked for play, as a built game bakes it
 		// while its map loads; Stop goes back to the terrain casting live.
 		if (terrainShadowsBaked && scene)
