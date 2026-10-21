@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
+#include <Pyros3D/Physics/CharacterController.h>
 #include <mutex>
 #include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
@@ -980,6 +981,8 @@ namespace p3d {
 					static_cast<ClothComponent*>(comps[c].get())->SetRunning(true);
 				if (comps[c] && comps[c]->GetComponentType() == ComponentType::NavAgent)
 					static_cast<NavAgentComponent*>(comps[c].get())->SetRunning(true);
+				if (comps[c] && comps[c]->GetComponentType() == ComponentType::CharacterController)
+					static_cast<CharacterController*>(comps[c].get())->SetRunning(true);
 				if (!comps[c] || comps[c]->GetComponentType() != ComponentType::RenderingComponent) continue;
 				RenderingComponent* rc = static_cast<RenderingComponent*>(comps[c].get());
 				if (rc->autoPlayClip.empty()) continue;

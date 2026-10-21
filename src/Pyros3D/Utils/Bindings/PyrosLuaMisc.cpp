@@ -16,6 +16,7 @@
 #include <Pyros3D/Utils/Navigation/NavMesh.h>
 #include <Pyros3D/Utils/Localization/Localization.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
+#include <Pyros3D/Physics/CharacterController.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
@@ -971,6 +972,33 @@ end
 				a->SetRunning(true);
 				go->Add(a);
 				return a; });
+			// A kinematic character (CharacterController): walks where it is told, stopped and slid by
+			// what is solid, up steps and slopes, gravity and jumps.
+			//   local cc = CharacterController.attach(obj, physics)   (or obj:getComponent("CharacterController"))
+			//   cc:setMoveVelocity(vx, vz)   cc:jump(5)   cc:isGrounded()   cc:getVelocity() -> x, y, z
+			lua->new_usertype<CharacterController>("CharacterControllerComponent", sol::no_constructor,
+				sol::base_classes, sol::bases<IComponent>(),
+				"setMoveVelocity", [](CharacterController &c, f32 x, f32 z) { c.SetMoveVelocity(Vec3(x, 0.f, z)); },
+				"jump", &CharacterController::Jump,
+				"teleport", [](CharacterController &c, f32 x, f32 y, f32 z) { c.Teleport(Vec3(x, y, z)); },
+				"isGrounded", &CharacterController::IsGrounded,
+				"getVelocity", [](CharacterController &c) { const Vec3 &v = c.GetVelocity(); return std::make_tuple(v.x, v.y, v.z); },
+				"getGroundNormal", [](CharacterController &c) { const Vec3 &v = c.GetGroundNormal(); return std::make_tuple(v.x, v.y, v.z); },
+				"setShape", &CharacterController::SetShape,
+				"setStepHeight", &CharacterController::SetStepHeight,
+				"setMaxSlope", &CharacterController::SetMaxSlope,
+				"setGravity", &CharacterController::SetGravity,
+				"setRunning", &CharacterController::SetRunning, "isRunning", &CharacterController::IsRunning);
+			sol::table cct = lua->create_named_table("CharacterController");
+			cct.set_function("attach", [](GameObject* go, IPhysics* phys) -> std::shared_ptr<CharacterController> {
+				if (!go) return nullptr;
+				const std::vector<std::shared_ptr<IComponent> > &comps = go->GetComponents();
+				for (size_t i = 0; i < comps.size(); i++)
+					if (comps[i] && comps[i]->GetComponentType() == ComponentType::CharacterController) return std::static_pointer_cast<CharacterController>(comps[i]);
+				std::shared_ptr<CharacterController> c = std::make_shared<CharacterController>(phys);
+				c->SetRunning(true);
+				go->Add(c);
+				return c; });
 			lua->set_function("getNavMesh", [](SceneGraph* sc) -> NavMesh* { return sc ? sc->GetNavMesh() : nullptr; });
 
 			lua->new_usertype<Crowd>("Crowd",

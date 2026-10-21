@@ -1,3 +1,4 @@
+#include <Pyros3D/Physics/CharacterController.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <deque>
@@ -561,6 +562,8 @@ namespace p3d {
 			}
 			if (typeName == "AudioSource" && c->GetComponentType() == ComponentType::AudioSource)
 				return sol::make_object(lua, std::static_pointer_cast<AudioSource>(c));
+			if (typeName == "CharacterController" && c->GetComponentType() == ComponentType::CharacterController)
+				return sol::make_object(lua, std::static_pointer_cast<CharacterController>(c));
 			if (typeName == "NavAgent" && c->GetComponentType() == ComponentType::NavAgent)
 				return sol::make_object(lua, std::static_pointer_cast<NavAgentComponent>(c));
 			if (typeName == "Cloth" && c->GetComponentType() == ComponentType::Cloth)

@@ -37,6 +37,7 @@
 #include <Pyros3D/AnimationManager/Components/AnimatorComponent.h>
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
+#include <Pyros3D/Physics/CharacterController.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
@@ -1757,6 +1758,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["startColor"] = ToJson(d.startColor);
 			j["endColor"] = ToJson(d.endColor);
 			j["fadeInFraction"] = d.fadeInFraction;
+			j["softness"] = d.softness;
 			j["fadeOutFraction"] = d.fadeOutFraction;
 			j["minRotationSpeed"] = d.minRotationSpeed;
 			j["maxRotationSpeed"] = d.maxRotationSpeed;
@@ -1773,6 +1775,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			AnimatorComponent* an = dynamic_cast<AnimatorComponent*>(c);
 			j["type"] = "Animator";
 			if (!an->GetControllerPath().empty()) j["controller"] = RelativizeSceneAssetPath(an->GetControllerPath());
+			return j;
+		}
+		case ComponentType::CharacterController:
+		{
+			CharacterController* cc = dynamic_cast<CharacterController*>(c);
+			j["type"] = "CharacterController";
+			j["radius"] = cc->GetRadius(); j["height"] = cc->GetHeight(); j["stepHeight"] = cc->GetStepHeight();
+			j["maxSlope"] = cc->GetMaxSlope(); j["gravity"] = cc->GetGravity();
 			return j;
 		}
 		case ComponentType::NavAgent:
@@ -4115,6 +4125,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if ((j.find("startColor") != j.end())) d.startColor = Vec4FromJson(j["startColor"]);
 			if ((j.find("endColor") != j.end())) d.endColor = Vec4FromJson(j["endColor"]);
 			d.fadeInFraction = j.value("fadeInFraction", d.fadeInFraction);
+			d.softness = j.value("softness", d.softness);
 			d.fadeOutFraction = j.value("fadeOutFraction", d.fadeOutFraction);
 			d.minRotationSpeed = j.value("minRotationSpeed", d.minRotationSpeed);
 			d.maxRotationSpeed = j.value("maxRotationSpeed", d.maxRotationSpeed);
@@ -4212,6 +4223,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			const std::string path = j.value("controller", std::string());
 			if (!path.empty()) an->LoadController(ResolveSceneAssetPath(path));
 			go->AddComponent(an);
+		}
+		else if (type == "CharacterController")
+		{
+			std::shared_ptr<CharacterController> cc = std::make_shared<CharacterController>(physics);
+			cc->SetShape(j.value("radius", cc->GetRadius()), j.value("height", cc->GetHeight()));
+			cc->SetStepHeight(j.value("stepHeight", cc->GetStepHeight()));
+			cc->SetMaxSlope(j.value("maxSlope", cc->GetMaxSlope()));
+			cc->SetGravity(j.value("gravity", cc->GetGravity()));
+			go->AddComponent(cc);
 		}
 		else if (type == "NavAgent")
 		{

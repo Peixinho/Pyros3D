@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
+#include <Pyros3D/Physics/CharacterController.h>
 #include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <unordered_set>
 #include <unordered_map>
@@ -8146,6 +8147,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			for (size_t c = 0; c < cs.size(); ++c)
 				if (cs[c] && cs[c]->GetComponentType() == ComponentType::NavAgent)
 					static_cast<NavAgentComponent*>(cs[c].get())->SetRunning(false);
+				else if (cs[c] && cs[c]->GetComponentType() == ComponentType::CharacterController)
+					static_cast<CharacterController*>(cs[c].get())->SetRunning(false);
 			for (size_t c = 0; c < cs.size(); ++c)
 				if (cs[c] && cs[c]->GetComponentType() == ComponentType::RenderingComponent)
 					static_cast<RenderingComponent*>(cs[c].get())->RestoreOwnGeometry();
