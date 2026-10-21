@@ -2662,6 +2662,27 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 
 	if (foreign && opts.platform == "web" && !PackWebGame(out, manifest, r.error)) return r;
 
+	// The shaders the game's scenes use, compiled now rather than on its first launch: the player
+	// opens every scene once (--fill-shader-cache, see PyrosPlayer::StepFillShaderCache) and keeps
+	// what it built in spirvcache/, which a game reads before compiling anything (read-only - the
+	// player's own cache stays the per-user one). Only for this machine's platform, which is the
+	// only one whose player can run here; another platform's game compiles on its first launch.
+	if (!foreign && opts.fillShaderCache)
+	{
+		const fs::path exe = out / fs::path(player).filename();
+		const fs::path cache = out / "spirvcache";
+		fs::remove_all(cache, ec);
+		std::ostringstream cmd;
+#ifdef _WIN32
+		cmd << "cd /d " << ShellQuote(out.string()) << " && " << ShellQuote(exe.string()) << " --fill-shader-cache " << ShellQuote(cache.string());
+#else
+		cmd << "cd " << ShellQuote(out.string()) << " && " << ShellQuote(exe.string()) << " --fill-shader-cache " << ShellQuote(cache.string());
+#endif
+		std::string err;
+		if (!RunProcess(cmd.str(), &err))
+			r.warnings.push_back("The shader cache was not filled (" + err + ") - the game compiles its shaders on its first launch instead.");
+	}
+
 	r.ok = true;
 	r.outputDir = out.string();
 	return r;

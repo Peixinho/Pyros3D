@@ -265,6 +265,11 @@ private:
 	// scene graph the switch tears down. Applied between frames, exactly as
 	// the editor does it.
 	void ApplyPendingSceneLoadIfAny();
+	// --fill-shader-cache <folder>: every scene of the game loaded in turn and drawn for a while, so
+	// every shader it makes is compiled and kept in that folder (shipped beside a built game as
+	// spirvcache/, so its first start does not make them) - then the player closes.
+	std::string fillShaderCacheDir;
+	void StepFillShaderCache();
 
 #ifdef LUA_BINDINGS
 	// The globals a scene script expects to find. Deliberately the same set,

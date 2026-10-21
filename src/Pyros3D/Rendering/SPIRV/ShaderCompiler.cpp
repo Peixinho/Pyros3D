@@ -48,11 +48,8 @@ namespace p3d {
 			// does not compile every shader - 4.5 s of the Cornell demo's 5.7 on Vulkan here
 			const char *own = getenv("PYROS_SPIRV_CACHE");
 			if (own && own[0]) return std::string(own);
-			{
-				static int here = -1;
-				if (here < 0) { std::error_code ec; here = std::filesystem::is_directory("spirvcache", ec) ? 1 : 0; }
-				if (here == 1) return std::string("spirvcache");
-			}
+			// (a game's own, shipped beside it, is read - ShippedCacheDir - but never written: its
+			// folder may not be the player's to write, and what it lacks is kept below, per machine)
 			const char *xdg = getenv("XDG_CACHE_HOME");
 			if (xdg && xdg[0])
 				return std::string(xdg) + "/pyros3d/spirv";
@@ -84,11 +81,25 @@ namespace p3d {
 			return std::filesystem::is_directory(path, ec);
 		}
 
-		std::string SpirvCachePath(uint64 key)
+		// A game's own cache, shipped beside it (./spirvcache - filled by the player's
+		// --fill-shader-cache at build time): read when this machine's has nothing, never written.
+		// Not when a cache is named outright (PYROS_SPIRV_CACHE: the one being filled).
+		std::string ShippedCacheDir()
+		{
+			static int here = -1;
+			if (here < 0)
+			{
+				std::error_code ec;
+				const char *own = getenv("PYROS_SPIRV_CACHE");
+				here = (!(own && own[0]) && std::filesystem::is_directory("spirvcache", ec)) ? 1 : 0;
+			}
+			return here == 1 ? std::string("spirvcache") : std::string();
+		}
+		std::string SpirvCachePath(uint64 key, const bool shipped = false)
 		{
 			char name[64];
 			std::snprintf(name, sizeof(name), "%016llx.spv", (unsigned long long)key);
-			return SpirvCacheDir() + "/" + name;
+			return (shipped ? ShippedCacheDir() : SpirvCacheDir()) + "/" + name;
 		}
 
 		std::mutex gSpirvCacheMutex;
@@ -109,12 +120,12 @@ namespace p3d {
 			for (size_t i = 0; i < t.size(); i++) { h ^= (uint8_t)t[i]; h *= mul; h ^= h >> 31; }
 			return h;
 		}
-		std::string PreprocessCachePath(const std::string &source, const uint32 stage)
+		std::string PreprocessCachePath(const std::string &source, const uint32 stage, const bool shipped = false)
 		{
 			char name[64];
 			std::snprintf(name, sizeof(name), "%016llx%016llx.pre", (unsigned long long)HashSpirvKey(source, stage),
 				(unsigned long long)HashText(source, 0x9e3779b97f4a7c15ull + stage, 0xff51afd7ed558ccdull));
-			return SpirvCacheDir() + "/" + name;
+			return (shipped ? ShippedCacheDir() : SpirvCacheDir()) + "/" + name;
 		}
 		bool LoadPreprocessedFromDisk(const std::string &path, const std::string &source, std::string &flat)
 		{
@@ -152,6 +163,7 @@ namespace p3d {
 		bool LoadSpirvFromDisk(uint64 key, std::vector<uint32> &out)
 		{
 			std::ifstream in(SpirvCachePath(key).c_str(), std::ios::binary);
+			if (!in && !ShippedCacheDir().empty()) in.open(SpirvCachePath(key, true).c_str(), std::ios::binary);
 			if (!in)
 				return false;
 			in.seekg(0, std::ios::end);
@@ -200,6 +212,7 @@ namespace p3d {
 	}
 
 	std::string SpirvShaderCompiler::CacheDirectory() { return SpirvCacheDir(); }
+	std::string SpirvShaderCompiler::ShippedCacheDirectory() { return ShippedCacheDir(); }
 
 	bool SpirvShaderCompiler::Compile(const std::string &sourceIn, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog)
 	{
@@ -390,7 +403,8 @@ namespace p3d {
 		// game's own shaders cost a tenth of a second of preprocessing again,
 		// at load or in the middle of play when a variant was first wanted)
 		const std::string prePath = PreprocessCachePath(source, stage);
-		if (!preprocessed && LoadPreprocessedFromDisk(prePath, source, flat))
+		if (!preprocessed && (LoadPreprocessedFromDisk(prePath, source, flat)
+			|| (!ShippedCacheDir().empty() && LoadPreprocessedFromDisk(PreprocessCachePath(source, stage, true), source, flat))))
 		{
 			preprocessed = true;
 			std::lock_guard<std::mutex> lock(gPreprocessMutex);

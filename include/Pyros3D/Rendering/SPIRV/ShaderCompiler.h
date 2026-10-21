@@ -153,6 +153,8 @@ namespace p3d {
 		static bool Compile(const std::string &source, const uint32 stage, std::vector<uint32> &outSpirv, std::string &errorLog);
 		// Where compiled shaders are kept between runs (the SPIR-V, and what a backend makes of it).
 		static std::string CacheDirectory();
+		// A game's own cache shipped beside it (./spirvcache), read when CacheDirectory has nothing; "" when none.
+		static std::string ShippedCacheDirectory();
 
 		// True when `source` still has loose in/out/uniform declarations
 		// that need AutoFixForVulkan() (no `layout(...)` prefix). Engine

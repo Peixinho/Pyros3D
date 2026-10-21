@@ -188,6 +188,11 @@ namespace p3d {
 		}
 	}
 
+	void ParticleSystem::BuildShaders()
+	{
+		ParticleSystemMaterial m(std::shared_ptr<Texture>());
+	}
+
 	ParticleSystem::ParticleSystem(const ParticleSystemDesc &d)
 		: IRenderingInstancedComponent(std::make_shared<Plane>(0.5f, 0.5f), BuildParticleMaterial(d), 0, EstimateBoundingSphereRadius(d))
 		, desc(d)

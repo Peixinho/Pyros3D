@@ -852,6 +852,30 @@ namespace p3d {
 	void DeferredRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{
 		PYROS_PROFILE_SCOPE("Deferred.RenderScene");
+		// PYROS_FRAME_LUMA=1 (debugging only - a read back every frame): how bright the lower half of
+		// the last frame this renderer lit was, as the counter Debug.PrevLuma (x1000). For finding
+		// single dark frames, beside everything else the slow-frame log says of them.
+		{
+			static const bool luma = std::getenv("PYROS_FRAME_LUMA") != NULL;
+			if (luma && colorTexture != NULL)
+			{
+				const std::vector<uchar> px = colorTexture->GetTextureData(0);
+				const uint32 w = colorTexture->GetWidth(), h = colorTexture->GetHeight();
+				if (w > 0 && h > 0 && px.size() >= (size_t)w * h * 8)
+				{
+					auto half = [](uint16 v) -> f32 {
+						const uint32 sign = (v >> 15) & 1, e = (v >> 10) & 31, m = v & 1023;
+						f32 f = e == 0 ? (f32)m / 1024.f * 6.103515625e-05f : (e == 31 ? 65504.f : ldexpf(1.f + (f32)m / 1024.f, (int)e - 15));
+						return sign ? -f : f;
+					};
+					const uint16* d = reinterpret_cast<const uint16*>(px.data());
+					f64 sum = 0.0; uint32 n = 0;
+					for (uint32 y = h / 2; y < h; y += 8)
+						for (uint32 x = 0; x < w; x += 8) { const uint16* q = d + ((size_t)y * w + x) * 4; sum += half(q[0]) * 0.2126f + half(q[1]) * 0.7152f + half(q[2]) * 0.0722f; n++; }
+					FrameProfiler::Instance().Counter("Debug.PrevLuma", n ? sum / n * 1000.0 : 0.0);
+				}
+			}
+		}
 		if (Camera != NULL) IRenderer::SetViewHint(Camera->GetDrawWorld());
 		// (see IRenderer::FinishBeside: on every way out of here)
 		struct Join { IRenderer* r; ~Join() { r->FinishBeside(); } } join = { this };
@@ -1570,6 +1594,7 @@ namespace p3d {
 		// End Ambient
 
 		uint32 numberDir = 0, numberPoint = 0, numberSpot = 0;
+		uint32 lightsPointDrawn = 0, lightsSpotDrawn = 0, lightsCulled = 0;
 
 		// Render Lights
 		for (std::vector<IComponent*>::iterator i = lcomps.begin(); i != lcomps.end(); i++)
@@ -1593,8 +1618,9 @@ namespace p3d {
 						// (PYROS_NO_LIGHT_CULL=1 draws them all, to compare against)
 						static const bool cullLights = std::getenv("PYROS_NO_LIGHT_CULL") == NULL;
 						if (cullLights && !p->IsCastingShadows() && !LightAffectsView(p->GetOwner()->GetDrawWorldPosition(), p->GetLightRadius()))
-							break;
+						{ lightsCulled++; break; }
 					}
+					lightsPointDrawn++;
 					// Point Lights
 					Vec3 pos = (ViewMatrix * Vec4(p->GetOwner()->GetDrawWorldPosition(), 1.f)).xyz();
 					pointPosHandle->SetValue(&pos);
@@ -1747,8 +1773,9 @@ namespace p3d {
 					{
 						static const bool cullLights = std::getenv("PYROS_NO_LIGHT_CULL") == NULL;
 						if (cullLights && !s->IsCastingShadows() && !LightAffectsView(s->GetOwner()->GetDrawWorldPosition(), s->GetLightRadius()))
-							break;
+						{ lightsCulled++; break; }
 					}
+					lightsSpotDrawn++;
 					// Spot Lights
 					Vec3 pos = (ViewMatrix * Vec4(s->GetOwner()->GetDrawWorldPosition(), 1.f)).xyz();
 					Vec3 dir = (ViewMatrix * (s->GetOwner()->GetDrawWorld() * Vec4(s->GetLightDirection(), 0.f))).xyz();
@@ -2193,6 +2220,11 @@ namespace p3d {
 		// translucent pass - see the comment there.)
 
 		lastPassFBO->UnBind();
+		FrameProfiler::Instance().Counter("Lights.Point", (f64)lightsPointDrawn);
+		FrameProfiler::Instance().Counter("Lights.Spot", (f64)lightsSpotDrawn);
+		FrameProfiler::Instance().Counter("Lights.Culled", (f64)lightsCulled);
+		FrameProfiler::Instance().Counter("Lights.PointShadowed", (f64)(numberPoint / 2));
+		FrameProfiler::Instance().Counter("Lights.SpotShadowed", (f64)numberSpot);
 		FrameProfiler::Instance().End();
 
 		// See SetSkipRenderToScreen()'s comment: this whole block re-draws

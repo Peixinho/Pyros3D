@@ -225,6 +225,7 @@ void PyrosPlayer::SetLaunchArgs(int argc, char** argv)
 		else if (a == "--session" && hasValue) launchSession = argv[++i];
 		// (the render device driven from this thread, as it used to be: see Init)
 		else if (a == "--no-device-thread") launchNoDeviceThread = true;
+		else if (a == "--fill-shader-cache" && hasValue) fillShaderCacheDir = argv[++i];
 	}
 }
 
@@ -2111,6 +2112,45 @@ void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
 	ApplyPendingOverlayIfAny();
 	ApplyPendingSceneLoadIfAny();
 #endif
+	if (!fillShaderCacheDir.empty()) StepFillShaderCache();
+}
+
+void PyrosPlayer::StepFillShaderCache()
+{
+	// (between frames, where a script's loadScene is carried out too)
+	static std::vector<std::string> scenes;
+	static bool listed = false;
+	static size_t next = 0;
+	static uint32 frames = 0;
+	if (!listed)
+	{
+		listed = true;
+		std::error_code ec;
+		for (fs::directory_iterator it(fs::path(PlayerManifestInstance().root) / "scenes", ec), end; it != end && !ec; it.increment(ec))
+		{
+			const std::string name = it->path().filename().string();
+			if (it->path().extension() != ".json" || name.find(".editor.json") != std::string::npos || name[0] == '_') continue;
+			scenes.push_back("scenes/" + name);
+		}
+		std::sort(scenes.begin(), scenes.end());
+		fprintf(stderr, "[shader cache] %zu scenes, into %s\n", scenes.size(), fillShaderCacheDir.c_str());
+	}
+	// (a scene drawn for 90 frames: what it lists is made at load, what its shadows, batches and
+	// probes draw with in its first frames)
+	if (++frames < 90) return;
+	frames = 0;
+	if (next < scenes.size())
+	{
+		fprintf(stderr, "[shader cache] %s\n", scenes[next].c_str());
+		if (!LoadGameScene(scenes[next])) fprintf(stderr, "[shader cache] %s could not be loaded - left out\n", scenes[next].c_str());
+		next++;
+		return;
+	}
+	// (what the engine makes for a script at any time rather than for a scene - a script's smoke and
+	// fire come in play, long after it loads)
+	p3d::ParticleSystem::BuildShaders();
+	fprintf(stderr, "[shader cache] done\n");
+	Close();
 }
 
 // Feeds the pointer to every canvas and routes a completed click to the Lua

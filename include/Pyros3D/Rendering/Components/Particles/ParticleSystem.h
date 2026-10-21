@@ -166,6 +166,10 @@ namespace p3d {
 	class PYROS3D_API ParticleSystem : public IRenderingInstancedComponent
 	{
 	public:
+		// Builds the shader every particle system draws with, and lets it go: for filling a game's
+		// shader cache (the player's --fill-shader-cache), where a script's particles - made in play,
+		// long after a scene loads - would otherwise leave it to be compiled in the game's first frames.
+		static void BuildShaders();
 
 		ParticleSystem(const ParticleSystemDesc &desc);
 		virtual ~ParticleSystem();

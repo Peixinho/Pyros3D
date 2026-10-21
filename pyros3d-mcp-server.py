@@ -4591,8 +4591,12 @@ def list_prefabs(project_path: str) -> str:
 @mcp.tool()
 def build_game(project_path: str, output_dir: str, startup_scene: str | None = None,
                title: str | None = None, width: int = 1280, height: int = 720,
-               fullscreen: bool = False) -> str:
+               fullscreen: bool = False, fill_shader_cache: bool = True) -> str:
     """Export a runnable game folder: the player binary, engine shaders, and the project's scenes and assets.
+
+    fill_shader_cache: run the built game once over every scene and ship the
+    shaders it compiled (spirvcache/), so its first launch compiles none. Only
+    for the editor's own platform; the game's window opens while it runs.
 
     Needs a running editor with this project open - the build locates the
     player binary and the staged shaders relative to the running editor.
@@ -4605,7 +4609,8 @@ def build_game(project_path: str, output_dir: str, startup_scene: str | None = N
     if not _live_project_matches(proj):
         return _fail("build_game needs the editor open on this project")
 
-    args = {"outputDir": output_dir, "width": width, "height": height, "fullscreen": fullscreen}
+    args = {"outputDir": output_dir, "width": width, "height": height, "fullscreen": fullscreen,
+            "fillShaderCache": fill_shader_cache}
     if startup_scene:
         stem = startup_scene.strip()
         if stem.endswith(".json"):
@@ -5722,7 +5727,7 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
         prefab, relevance, priority, syncTransform, predicted, hitRadius,
         hitHeight)
     Project
-      build_game (outputDir, startupScene, title, width, height, fullscreen,
+      build_game (outputDir, startupScene, title, width, height, fullscreen, fillShaderCache,
         platform: windows|linux|macos|web - another platform needs its template,
         see tools/fetch_templates.sh;
         server {port, maxClients, tickRate, password, reconnectGrace,

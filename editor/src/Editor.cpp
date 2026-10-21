@@ -4603,6 +4603,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		opts.width = a.value("width", 1280);
 		opts.height = a.value("height", 720);
 		opts.fullscreen = a.value("fullscreen", false);
+		opts.fillShaderCache = a.value("fillShaderCache", true);	// run the built player over every scene to ship its shaders
 		opts.platform = a.value("platform", std::string());	// windows|linux|macos|web; empty = this machine
 		// "server": {port, maxClients, tickRate, password, reconnectGrace,
 		// maxClientSpeed} - game.json's defaults for PyrosServer.

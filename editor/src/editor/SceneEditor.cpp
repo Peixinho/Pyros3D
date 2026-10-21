@@ -13410,6 +13410,10 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		ImGui::SetNextItemWidth(120.f);
 		ImGui::InputInt("Height", &buildDialogHeight);
 		ImGui::Checkbox("Fullscreen", &buildDialogFullscreen);
+		ImGui::Checkbox("Ship compiled shaders", &buildDialogFillShaderCache);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Runs the built game once over every scene and ships the shaders it compiled (spirvcache/),\n"
+				"so its first launch does not compile them. This machine's platform only; the game's window opens while it runs.");
 
 		// The platform to build for. Other than this machine's needs that
 		// platform's runtime as a template - present or not is said here,
@@ -13484,6 +13488,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			opts.width = buildDialogWidth;
 			opts.height = buildDialogHeight;
 			opts.fullscreen = buildDialogFullscreen;
+			opts.fillShaderCache = buildDialogFillShaderCache;
 			opts.deferred = (project->GetSettings().rendererType == ProjectRendererType::Deferred);
 			opts.server = buildDialogServer;
 			opts.platform = buildDialogPlatform;

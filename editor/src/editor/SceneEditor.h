@@ -1739,6 +1739,7 @@ private:
 	int32 buildDialogWidth = 1280;
 	int32 buildDialogHeight = 720;
 	bool buildDialogFullscreen = false;
+	bool buildDialogFillShaderCache = true;
 	ProjectManager::BuildOptions::Server buildDialogServer;
 	std::string buildDialogPlatform;	// empty = this machine
 	bool openCreatePrefabModal = false;

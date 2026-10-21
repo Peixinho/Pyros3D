@@ -296,6 +296,9 @@ public:
 		// FindPlayerTemplate - since this machine cannot compile it; the
 		// project's scenes, assets and scripts are the same everywhere.
 		std::string platform;
+		// Run the built player once over every scene to ship its compiled shaders (spirvcache/),
+		// so the game's first launch does not compile them. This machine's platform only.
+		bool fillShaderCache = true;
 		// What the dedicated server (PyrosServer, shipped beside the game)
 		// starts with - written to game.json's "server" block; its
 		// command-line flags still override.

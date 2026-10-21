@@ -2181,6 +2181,13 @@ namespace p3d {
 			static const bool off = getenv("PYROS_SHADER_CACHE") && getenv("PYROS_SHADER_CACHE")[0] == '0';
 			if (off) return false;
 			std::ifstream f(MslPath(key).c_str(), std::ios::binary);
+			// (and the game's own, shipped beside it: read, never written)
+			if (!f && !SpirvShaderCompiler::ShippedCacheDirectory().empty())
+			{
+				char name[64];
+				std::snprintf(name, sizeof(name), "%016llx.msl", (unsigned long long)key);
+				f.open((SpirvShaderCompiler::ShippedCacheDirectory() + "/" + name).c_str(), std::ios::binary);
+			}
 			if (!f) return false;
 			std::string in((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
 			size_t at = 0;

@@ -10,6 +10,7 @@
 //============================================================================
 
 #if defined(__APPLE__)
+#include <string>
 #include <pthread.h>
 #include <pthread/qos.h>
 #endif
@@ -64,6 +65,18 @@ int main(int argc, char** argv)
 	// what "the game just closes" looks like.
 	InstallCrashHandler();
 	InstallHangWatchdog();
+
+	// --fill-shader-cache <folder>: the shaders made from here on are kept there (see
+	// PyrosPlayer::StepFillShaderCache) - said before anything is made, the window's own included.
+	for (int i = 1; i + 1 < argc; i++)
+		if (std::string(argv[i]) == "--fill-shader-cache")
+		{
+#ifdef _WIN32
+			_putenv_s("PYROS_SPIRV_CACHE", argv[i + 1]);
+#else
+			setenv("PYROS_SPIRV_CACHE", argv[i + 1], 1);
+#endif
+		}
 
 	PyrosPlayer* game = new PyrosPlayer();
 	game->SetLaunchArgs(argc, argv);
