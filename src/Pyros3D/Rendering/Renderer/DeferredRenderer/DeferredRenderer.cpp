@@ -2014,6 +2014,10 @@ namespace p3d {
 		for (int i = FBO->GetAttachments().size() - 1; i >= 0; i--)
 			FBO->GetAttachments()[i]->TexturePTR->Unbind();
 
+		// (the G-buffer's depth for what is drawn over it now: soft particles fade where they meet
+		// it. Not the copy the translucent pass depth-tests against - that one is attached.)
+		SetMaterialSceneDepth(FBO->GetAttachments()[0]->TexturePTR);
+
 		// Scissor Test
 		StartScissorTest();
 
@@ -2110,6 +2114,7 @@ namespace p3d {
 			else for (uint32 k = 0; k < (uint32)seeThrough.size(); k++) drawSeeThrough(*this, seeThrough[k], k);
 		}
 		FrameProfiler::Instance().Counter("Translucent.Drawn", (f64)translucentDrawn);
+		SetMaterialSceneDepth(NULL);
 
 		// Disable Scissor Test
 		EndScissorTest();

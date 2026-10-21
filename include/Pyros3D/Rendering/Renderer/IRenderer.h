@@ -173,6 +173,11 @@ namespace p3d {
 			Vec3 toSun = Vec3(0.f, 1.f, 0.f), radiance;
 		};
 		static const SunShadow &GetSunShadow();
+		// The depth of the scene already drawn, for materials drawn over it that read
+		// "uSceneDepth" (soft particles): the deferred renderer's G-buffer depth during its
+		// translucent pass, NULL otherwise - when such a material is given a 1x1 that reads as
+		// far away, and fades nothing.
+		static void SetMaterialSceneDepth(Texture* depth);
 		// Where the scene was last drawn from (the camera's world matrix): for what works on
 		// the finished picture and needs to know which way each pixel looks (a sky, fog).
 		static void SetViewHint(const Matrix &cameraWorld);

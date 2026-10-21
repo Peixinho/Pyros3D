@@ -85,6 +85,8 @@ namespace p3d {
 				ShaderGlobals = 36,
 				// The scene's HDR environment as reflections, for PBR (EnvironmentMap).
 				EnvironmentRadianceMap = 37,
+				// The scene's depth, for what is drawn after it (soft particles) - IRenderer::SetMaterialSceneDepth.
+				SceneDepthMap = 38,
 
 				// User Uniforms
 				Other = 200,

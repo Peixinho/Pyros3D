@@ -487,6 +487,7 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.function("setSizes", &ParticleSystem::SetSizes)
 		.function("setColors", &ParticleSystem::SetColors)
 		.function("setFade", &ParticleSystem::SetFade)
+		.function("setSoftness", &ParticleSystem::SetSoftness)
 		.function("setRotationSpeed", &ParticleSystem::SetRotationSpeed)
 		.function("setBlendMode", &ParticleSystem::SetBlendMode);
 }

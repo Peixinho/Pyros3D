@@ -171,7 +171,8 @@ void IRenderer::SetSunHint(const Vec3 &toSun, const f32 strength, const bool isS
 	if (isSun) { g_sunMarkedTo = toSun; g_sunMarkedStrength = s; g_sunMarkedAt = std::chrono::steady_clock::now(); g_sunMarked = true; }
 	else { g_sunTo = toSun; g_sunStrength = s; }
 }
-namespace { std::atomic<IRenderer*> g_ambientSource(NULL); IRenderer::SunShadow g_sunShadow; }
+namespace { std::atomic<IRenderer*> g_ambientSource(NULL); IRenderer::SunShadow g_sunShadow; Texture* g_materialSceneDepth = NULL; Texture* g_farDepth = NULL; }
+void IRenderer::SetMaterialSceneDepth(Texture* depth) { g_materialSceneDepth = depth; }
 const IRenderer::SunShadow &IRenderer::GetSunShadow() { return g_sunShadow; }
 void IRenderer::PublishSunShadow(DirectionalLight* d)
 {
@@ -566,6 +567,15 @@ IRenderer::IRenderer(const uint32 Width, const uint32 Height, IRenderDevice* ext
 	// call sites) shares whichever backend THIS instance ends up using -
 	// see GetActiveRenderDevice()/SetActiveRenderDevice() in IRenderDevice.h.
 	SetActiveRenderDevice(device);
+
+	// (made once, here on the thread that makes renderers: a draw recorded on a worker must not)
+	if (g_farDepth == NULL)
+	{
+		g_farDepth = new Texture();
+		g_farDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, 1, 1, false);
+		const uchar white[4] = { 255, 255, 255, 255 };
+		g_farDepth->UpdateData((void*)white);
+	}
 
 	// Background Unset by Default
 	BackgroundColorSet = false;
@@ -4826,6 +4836,19 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 			// eight of them (colormap/fontmap/normalmap/displacement/env/
 			// refract/skybox/specular), while GL 4.1 guarantees at least 16
 			// per-stage texture image units.
+			case Uniforms::DataUsage::SceneDepthMap:
+			{
+				Texture* tex = g_materialSceneDepth != NULL ? g_materialSceneDepth : g_farDepth;
+				int32 unit = 0;
+				if (tex != NULL)
+				{
+					tex->Bind();
+					unit = (int32)Texture::GetLastBindedUnit();
+					BoundGITextures.push_back(tex);
+				}
+				Shader::SendUniform((*k), &unit, (*_ShadersGlobalCache)[counter], 1);
+				break;
+			}
 			case Uniforms::DataUsage::EnvironmentRadianceMap:
 			{
 				Texture *tex = EnvironmentMap::GetRadianceTexture();

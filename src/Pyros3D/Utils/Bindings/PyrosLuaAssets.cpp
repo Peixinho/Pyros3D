@@ -640,6 +640,7 @@ namespace p3d {
 				"setSizes", &ParticleSystem::SetSizes,
 				"setColors", &ParticleSystem::SetColors,
 				"setFade", &ParticleSystem::SetFade,
+				"setSoftness", &ParticleSystem::SetSoftness,
 				"setRotationSpeed", &ParticleSystem::SetRotationSpeed,
 				"setBlendMode", &ParticleSystem::SetBlendMode,
 				sol::base_classes, sol::bases<IComponent>()

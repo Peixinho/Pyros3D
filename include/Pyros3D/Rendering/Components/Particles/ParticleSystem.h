@@ -117,6 +117,10 @@ namespace p3d {
 
 		uint32 blendMode;    // ParticleBlendMode::*
 
+		// Metres over which a particle fades where it meets what is behind it (the deferred
+		// renderer's depth): smoke on the ground without a hard line along it. 0: off.
+		f32 softness;
+
 		// 0 = auto-estimate from motion parameters (see ParticleSystem.cpp).
 		// Note: cull-testing is disabled by default regardless (see the
 		// class comment) - this only matters if a caller re-enables it, or
@@ -215,6 +219,7 @@ namespace p3d {
 		void SetFade(const f32 fadeInFraction, const f32 fadeOutFraction);
 		void SetRotationSpeed(const f32 minRotationSpeed, const f32 maxRotationSpeed) { desc.minRotationSpeed = minRotationSpeed; desc.maxRotationSpeed = maxRotationSpeed; }
 		void SetBlendMode(const uint32 blendMode);
+		void SetSoftness(const f32 metres);
 		// Switching to a one-shot burst stops the continuous emission
 		// immediately; switching back to looping resumes it. Neither
 		// touches particles already alive.

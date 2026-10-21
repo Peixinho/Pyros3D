@@ -93,6 +93,11 @@ void main()
 
 #ifdef FRAGMENT
 uniform sampler2D uTex0;
+// The scene's depth (the deferred G-buffer's), or a 1x1 reading 1.0 (far) where there is none:
+// a particle fades out where it would cut into what is behind it instead of ending in a hard line.
+uniform sampler2D uSceneDepth;
+uniform float uSoftness;      // metres over which it fades (0: off)
+uniform mat4 uProjectionMatrix;
 uniform vec4 uStartColor;
 uniform vec4 uEndColor;
 uniform float uFadeInFraction;
@@ -129,5 +134,26 @@ void main()
 
 	FragColor = tex * color;
 	FragColor.a *= fadeIn * fadeOut;
+
+	if (uSoftness > 0.0)
+	{
+		// Both depths to metres from the eye through the same projection (so whatever its depth
+		// convention): window depth -> NDC -> view distance.
+		vec2 uv = gl_FragCoord.xy / vec2(textureSize(uSceneDepth, 0));
+		float sd = texture(uSceneDepth, uv).r;
+		if (sd < 0.99999)
+		{
+			mat4 P = uProjectionMatrix;
+#if defined(VULKAN)
+			float sn = sd, pn = gl_FragCoord.z;
+#else
+			float sn = sd * 2.0 - 1.0, pn = gl_FragCoord.z * 2.0 - 1.0;
+#endif
+			bool persp = abs(P[2][3]) > 0.5;
+			float sceneZ = persp ? P[3][2] / (sn + P[2][2]) : (P[3][2] - sn) / P[2][2];
+			float partZ = persp ? P[3][2] / (pn + P[2][2]) : (P[3][2] - pn) / P[2][2];
+			FragColor.a *= clamp((sceneZ - partZ) / uSoftness, 0.0, 1.0);
+		}
+	}
 }
 #endif

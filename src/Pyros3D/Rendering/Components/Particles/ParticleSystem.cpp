@@ -48,6 +48,7 @@ namespace p3d {
 		sizeEase = INTERP_LINEAR;
 		colorEase = INTERP_LINEAR;
 		blendMode = ParticleBlendMode::AlphaBlend;
+		softness = getenv("PYROS_HARD_PARTICLES") ? 0.f : 0.4f;   // (PYROS_HARD_PARTICLES=1: the hard edges, to compare)
 		boundingSphereRadius = 0.0f;
 	}
 
@@ -81,6 +82,11 @@ namespace p3d {
 			// integer-uniform support from either backend's auto-fix path.
 			sizeEaseHandle = AddUniform(Uniform("uSizeEase", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
 			colorEaseHandle = AddUniform(Uniform("uColorEase", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+			// Soft: fades where it meets the scene behind it (IRenderer::SetMaterialSceneDepth).
+			AddUniform(Uniform("uSceneDepth", Uniforms::DataUsage::SceneDepthMap));
+			softnessHandle = AddUniform(Uniform("uSoftness", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
+			const f32 soft = 0.f;
+			softnessHandle->SetValue((void*)&soft);
 
 			SetTransparencyFlag(true);
 			// A spherical billboard's winding isn't guaranteed consistent
@@ -126,6 +132,10 @@ namespace p3d {
 		Uniform *startColorHandle, *endColorHandle;
 		Uniform *startSizeHandle, *endSizeHandle, *sizeJitterHandle;
 		Uniform *fadeInHandle, *fadeOutHandle;
+		Uniform *softnessHandle;
+	public:
+		// Metres over which it fades where it meets what is behind it (0: a hard edge, as before).
+		void SetSoftness(const f32 metres) { const f32 v = metres > 0.f ? metres : 0.f; softnessHandle->SetValue((void*)&v); }
 	};
 
 	namespace {
@@ -155,6 +165,7 @@ namespace p3d {
 			mat->SetFade(desc.fadeInFraction, desc.fadeOutFraction);
 			mat->SetEasing(desc.sizeEase, desc.colorEase);
 			mat->SetBlendMode(desc.blendMode);
+			mat->SetSoftness(desc.softness);
 			g_pendingParticleMaterial = mat.get();
 			return mat;
 		}
@@ -284,6 +295,12 @@ namespace p3d {
 		desc.fadeInFraction = fadeInFraction;
 		desc.fadeOutFraction = fadeOutFraction;
 		material->SetFade(fadeInFraction, fadeOutFraction);
+	}
+
+	void ParticleSystem::SetSoftness(const f32 metres)
+	{
+		desc.softness = metres > 0.f ? metres : 0.f;
+		material->SetSoftness(desc.softness);
 	}
 
 	void ParticleSystem::SetEasing(const uchar sizeEase, const uchar colorEase)
