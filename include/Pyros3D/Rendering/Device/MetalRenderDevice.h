@@ -1074,11 +1074,17 @@ namespace p3d {
 		// reads its own while the next is written.
 		std::map<DeviceHandle, void*> rayGeometries;
 		DeviceHandle nextRayGeometryHandle = 1;
-		static const uint32 kRaySceneRing = 3;
-		void* raySceneAccel[kRaySceneRing] = { NULL, NULL, NULL };    // id<MTLAccelerationStructure>
-		void* raySceneInstances[kRaySceneRing] = { NULL, NULL, NULL }; // id<MTLBuffer> of instance descriptors
-		uint32 raySceneInstanceCapacity[kRaySceneRing] = { 0, 0, 0 };
+		// (sixteen, each stamped with the frame it was built in, and one reused only once its frame is
+		// off the GPU: three assumed one scene a frame, and the editor - its view, a material preview,
+		// thumbnails - set several a frame; the view's scene was rebuilt as a thumbnail's while its
+		// frame still traced it, and its shadows came out as blotches)
+		static const uint32 kRaySceneRing = 16;
+		void* raySceneAccel[kRaySceneRing] = {};       // id<MTLAccelerationStructure>
+		void* raySceneInstances[kRaySceneRing] = {};   // id<MTLBuffer> of instance descriptors
+		uint32 raySceneInstanceCapacity[kRaySceneRing] = {};
+		uint64 raySceneBuiltFrame[kRaySceneRing] = {};
 		uint32 raySceneSlot = 0;
+		uint64 deviceFrameNumber = 1000;
 		bool raySceneReady = false;
 		// The geometries the current scene reaches, made resident (useResources:) in
 		// any pass that reads it.

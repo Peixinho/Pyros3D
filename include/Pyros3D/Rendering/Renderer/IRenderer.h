@@ -290,7 +290,11 @@ namespace p3d {
 		static void SetShadowCasterViewCull(const bool on);
 		// The sun's shadow map leaves out what is in the frame's ray scene (RenderingComponent::
 		// inRayScene) - its rays cast that; the map keeps people and cut-out or see-through things.
-		static void SetSunCastersLeaveRayTraced(const bool on);
+		// This renderer's own, not process-wide: the editor's material preview (deferred, its sun not
+		// ray-traced) turned it off every frame, and the scene view's shadow map then cast what its
+		// rays also cast - everything shadowed twice.
+		void SetSunCastersLeaveRayTraced(const bool on) { sunLeaveRayTraced = on; }
+		bool sunLeaveRayTraced = false;
 		// Culling shared out among the job system's workers (off by default: it lost on a scene of four thousand meshes;
 		// on to try it). CullInParallel keeps the meshes `keep`
 		// says yes to, in their order; `keep` is called from several threads

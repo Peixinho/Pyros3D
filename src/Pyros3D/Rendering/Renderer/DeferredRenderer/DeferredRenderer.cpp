@@ -1856,9 +1856,9 @@ namespace p3d {
 						UpdateRayScene(d);
 						if (d->GetRayTracedShadows())
 							rayShadow = Vec4(std::getenv("PYROS_RAY_SHADOW_ONLY") ? 2.f : 1.f, d->GetRayTracedShadowSoftness(), d->GetRayTracedShadowDistance(), (f32)(rayFrame % 1024));
-						else IRenderer::SetSunCastersLeaveRayTraced(false);
+						else SetSunCastersLeaveRayTraced(false);
 					}
-					else IRenderer::SetSunCastersLeaveRayTraced(false);
+					else SetSunCastersLeaveRayTraced(false);
 					dirRayShadowHandle->SetValue(&rayShadow);
 					// (contact shadows: x the march's length in metres, 0 off; y its steps)
 					static const bool contactDebug = std::getenv("PYROS_CONTACT_DEBUG") != NULL;
@@ -2424,7 +2424,7 @@ namespace p3d {
 			rc->inRayScene = all;
 		}
 		dev.SetRayScene(instances);
-		IRenderer::SetSunCastersLeaveRayTraced(light->GetRayTracedShadows() && light->GetVolumetric().x <= 0.f);
+		SetSunCastersLeaveRayTraced(light->GetRayTracedShadows() && light->GetVolumetric().x <= 0.f);
 		// The colours, one texel an instance, rows of 1024 (sized up, never down)
 		if (light->GetRayTracedReflections())
 		{

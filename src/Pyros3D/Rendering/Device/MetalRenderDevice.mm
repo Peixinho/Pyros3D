@@ -642,6 +642,7 @@ namespace p3d {
 		dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
 		// (past the semaphore, at most MAX_FRAMES_IN_FLIGHT - 1 frames are on the GPU: the frame that
 		// last used the next slot, kGpuTimerSlots ago, is done)
+		deviceFrameNumber++;
 		gpuTimerSlot = (gpuTimerSlot + 1) % kGpuTimerSlots;
 		GpuTimerCollect(gpuTimerSlot);
 		if (gpuTimerBuffer != NULL)
@@ -724,6 +725,7 @@ namespace p3d {
 		dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
 		// (past the semaphore, at most MAX_FRAMES_IN_FLIGHT - 1 frames are on the GPU: the frame that
 		// last used the next slot, kGpuTimerSlots ago, is done)
+		deviceFrameNumber++;
 		gpuTimerSlot = (gpuTimerSlot + 1) % kGpuTimerSlots;
 		GpuTimerCollect(gpuTimerSlot);
 		if (gpuTimerBuffer != NULL)
@@ -4752,7 +4754,24 @@ namespace p3d {
 					descs.push_back(d);
 				}
 
-				const uint32 slot = (raySceneSlot + 1) % kRaySceneRing;
+				// (the oldest slot whose frame is done; failing that the oldest, said once)
+				uint32 slot = (raySceneSlot + 1) % kRaySceneRing;
+				{
+					uint32 oldest = slot; bool found = false;
+					for (uint32 k = 1; k <= kRaySceneRing; k++)
+					{
+						const uint32 c = (raySceneSlot + k) % kRaySceneRing;
+						if (raySceneBuiltFrame[c] < raySceneBuiltFrame[oldest]) oldest = c;
+						if (raySceneBuiltFrame[c] + MAX_FRAMES_IN_FLIGHT + 1 <= deviceFrameNumber) { slot = c; found = true; break; }
+					}
+					if (!found)
+					{
+						slot = oldest;
+						static bool said = false;
+						if (!said) { said = true; fprintf(stderr, "MetalRenderDevice: more ray scenes in flight than %u slots - one is rebuilt while still traced\n", kRaySceneRing); }
+					}
+				}
+				raySceneBuiltFrame[slot] = deviceFrameNumber;
 				const uint32 n = (uint32)descs.size();
 				if (raySceneInstanceCapacity[slot] < n)
 				{

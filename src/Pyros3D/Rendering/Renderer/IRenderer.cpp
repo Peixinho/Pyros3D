@@ -1975,8 +1975,7 @@ namespace {
 	}
 }
 void IRenderer::SetShadowCasterViewCull(const bool on) { g_shadowViewCullWanted = on; }
-namespace { bool g_sunLeaveRayTraced = false; thread_local bool t_inSunPass = false; }
-void IRenderer::SetSunCastersLeaveRayTraced(const bool on) { g_sunLeaveRayTraced = on; }
+namespace { thread_local bool t_inSunPass = false; }
 
 // The sun's shadow pass: see the note where it is put together, in PreRender.
 struct IRenderer::SunPass
@@ -2096,6 +2095,7 @@ bool IRenderer::RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGr
 	T.smallCullEye = smallCullEye; T.smallCullScale = smallCullScale; T.smallCullFactor = smallCullFactor;
 	T.Camera = Camera; T.Scene = Scene; T.Timer = Timer;
 	T.CameraPosition = CameraPosition; T.NearFarPlane = NearFarPlane;
+	T.sunLeaveRayTraced = sunLeaveRayTraced;
 	T.projection = projection; T.projectionValid = projectionValid;
 	T.ClipPlane = ClipPlane; T.ClipPlaneNumber = ClipPlaneNumber;
 	for (uint32 k = 0; k < 8; k++) T.ClipPlanes[k] = ClipPlanes[k];
@@ -2323,6 +2323,7 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		IRenderer &T = *B.twin;
 		T.Camera = Camera; T.Scene = Scene; T.Timer = Timer;
 		T.CameraPosition = CameraPosition; T.NearFarPlane = NearFarPlane;
+		T.sunLeaveRayTraced = sunLeaveRayTraced;
 		T.ProjectionMatrix = ProjectionMatrix; T.ViewMatrix = ViewMatrix; T.ViewProjectionMatrix = ViewProjectionMatrix;
 		T.ProjectionMatrixInverse = ProjectionMatrixInverse; T.ViewMatrixInverse = ViewMatrixInverse;
 		T.PrvProjectionMatrix = PrvProjectionMatrix; T.PrvViewMatrix = PrvViewMatrix;
@@ -2443,7 +2444,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	// 3 the first mesh of a component that casts from a mesh of its own.
 	std::vector<uint8> answers;
 	// (read here, on the thread recording the pass: the answers below are worked out on others)
-	const bool leaveRayTraced = t_inSunPass && g_sunLeaveRayTraced;
+	const bool leaveRayTraced = t_inSunPass && sunLeaveRayTraced;
 	AnswerInParallel(rmesh.size(), answers, [&](const uint32 i) -> uint8 {
 		const uint8 f = cullFlags[i];
 		if ((f & (CullOwner | CullCasts | CullComponentActive)) != (CullOwner | CullCasts | CullComponentActive) || (f & CullTransparent)) return 0;
