@@ -160,6 +160,9 @@ namespace {
 			m.qAutoMin = q.value("autoRenderScaleMin", 0.42f);
 			m.qFrameLimit = q.value("frameRateLimit", -2.f);
 			m.qLodCrossfade = q.value("lodCrossfade", -1.f);
+			// how many point / spot lights may cast shadows in a frame (IRenderer::SetShadowBudget; 0 no limit)
+			m.qPointShadowBudget = q.value("pointShadowBudget", -1);
+			m.qSpotShadowBudget = q.value("spotShadowBudget", -1);
 		}
 		if (j.contains("preload") && j["preload"].is_array())
 			for (const auto &e : j["preload"]) if (e.is_string()) m.preload.push_back(e.get<std::string>());
@@ -736,6 +739,9 @@ end
 	}
 	// (seconds a change of level of detail dissolves over; 0 switches at once)
 	if (m.qLodCrossfade >= 0.f) RenderingComponent::SetLODCrossfade(m.qLodCrossfade);
+	if (m.qPointShadowBudget >= 0 || m.qSpotShadowBudget >= 0)
+		IRenderer::SetShadowBudget(m.qPointShadowBudget >= 0 ? (uint32)m.qPointShadowBudget : IRenderer::GetPointShadowBudget(),
+			m.qSpotShadowBudget >= 0 ? (uint32)m.qSpotShadowBudget : IRenderer::GetSpotShadowBudget());
 	if (m.qFrameLimit > -1.5f)
 	{
 		f32 limit = m.qFrameLimit;

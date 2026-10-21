@@ -249,8 +249,26 @@ void main() {
 	float low = (1.0 - smoothstep(0.0, 0.42, abs(sun.y))) * smoothstep(-0.18, 0.05, sun.y);
 	vec3 hazeColour = mix(horizonColour(sun, uRain), vec3(1.0, 0.62, 0.34) * (0.4 + 0.6 * day + low), (0.30 + 0.5 * low) * pow(max(dot(dir, sun), 0.0), 3.0) * (1.0 - uRain));
 
-	// (with an environment, the air takes the colour of its horizon that way)
-	if (uEnv.x > 0.5) hazeColour = envAt(normalize(vec3(dir.x, 0.03, dir.z)));
+	// (with an environment, the air takes the colour of its horizon that way - the sky's broad colour
+	// there, not one texel of it: a picture's sun is twenty-five times its sky, and read straight it
+	// stood as a column of fire over everything in its direction, whatever the height looked at.
+	// Spread over a fan of the horizon, and never brighter than a few times the sky's own.)
+	if (uEnv.x > 0.5)
+	{
+		vec2 h = normalize(vec2(dir.x, dir.z) + vec2(1e-5, 0.0));
+		vec3 sum = vec3(0.0);
+		for (int i = 0; i < 9; i++)
+		{
+			float a = (float(i) - 4.0) * 0.11;                     // some twenty-five degrees either side
+			vec2 r = vec2(h.x * cos(a) - h.y * sin(a), h.x * sin(a) + h.y * cos(a));
+			float up = 0.02 + 0.05 * float(i % 3);
+			sum += envAt(normalize(vec3(r.x, up, r.y)));
+		}
+		hazeColour = sum / 9.0;
+		float lum = dot(hazeColour, vec3(0.2126, 0.7152, 0.0722));
+		float cap = 3.0 * max(dot(envAt(vec3(0.0, 1.0, 0.0)), vec3(0.2126, 0.7152, 0.0722)), 0.05);
+		if (lum > cap) hazeColour *= cap / lum;
+	}
 	if (uCloudPass > 0.5)
 	{
 		// the half-resolution pass: only the clouds' light and the sky's share through them, where sky shows

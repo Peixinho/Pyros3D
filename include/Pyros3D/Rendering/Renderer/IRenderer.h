@@ -302,6 +302,19 @@ namespace p3d {
 		// the frame before used in between. 1 by default.
 		static void SetShadowUpdateInterval(const uint32 frames);
 		static uint32 GetShadowUpdateInterval();
+		// The shadow budget: of the point lights that cast shadows, at most `pointLights` have a
+		// shadow map drawn in a frame, and of the spot lights `spotLights` - those that light the
+		// view, nearest first (a street of shadowed lamps draws six faces of the scene for each).
+		// The rest light without one; a light that comes into the budget fades its shadow in over
+		// a third of a second, one that leaves it fades out on the map it had. 0: no limit.
+		// 8 and 8 by default (PYROS_SHADOW_BUDGET=<point>[,<spot>] overrides).
+		static void SetShadowBudget(const uint32 pointLights, const uint32 spotLights);
+		static uint32 GetPointShadowBudget();
+		static uint32 GetSpotShadowBudget();
+		// How much of a light's shadow this view draws now: 0 none (not a caster, or out of the
+		// budget), 1 all, between while it fades. Its map is read whenever this is above 0.
+		f32 ShadowWeight(ILightComponent* light) const;
+		bool ShadowMapThisFrame(ILightComponent* light) const { return ShadowWeight(light) > 0.f; }
 		// The sun's casters that cannot throw a shadow into the view are left
 		// out of its map (off by default: it lost on a scene of four thousand meshes; off to compare against).
 		static void SetShadowCasterViewCull(const bool on);
@@ -796,6 +809,27 @@ namespace p3d {
 		f32 smallCullScale = 0.f, smallCullFactor = 1.f;
 		// (SetShadowUpdateInterval: each sun's light-space matrices as last drawn, and this renderer's count of passes)
 		std::map<ILightComponent*, std::vector<Matrix> > sunLightSpace;
+		// See SetShadowBudget(): each caster's shadow weight, and whether its map is drawn this frame
+		// chosen: in the budget. draw: its map is drawn this frame - chosen, and the map it has is
+		// not still right (the shadow cache: a light's map is kept while neither it nor anything
+		// that moves within its reach has moved, and the still things are the same).
+		struct ShadowPick { f32 weight = 0.f; bool chosen = false; bool draw = false; bool seen = false; uint8 validFaces = 0; Vec3 at; Matrix world; f32 reach = 0.f; };
+		std::unordered_map<ILightComponent*, ShadowPick> shadowPicks;
+		// the shadow cache's view of the casters that can move: each one's world transform last frame
+		struct ShadowMover { Matrix world; Vec3 centre; f32 radius = 0.f; bool casts = true; };
+		std::unordered_map<GameObject*, ShadowMover> shadowMovers;
+		// When set, RenderShadowCasters walks only these of rmesh: a light's casters, gathered once
+		// for its six faces (each face walked the whole list again)
+		const std::vector<uint32>* shadowCasterSubset = NULL;
+		std::vector<uint32> lightCasterScratch;
+		void GatherLightCasters(const Vec3 &at, const f32 reach);
+		uint32 shadowStillCasters = 0;
+		void NoteShadowMapDrawn(ILightComponent* light) { std::unordered_map<ILightComponent*, ShadowPick>::iterator it = shadowPicks.find(light); if (it != shadowPicks.end()) it->second.validFaces = 0x3F; }
+		// a point light's cube face (0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z) still right from an earlier frame: not drawn again
+		bool ShadowFaceKept(ILightComponent* light, const int face) const { std::unordered_map<ILightComponent*, ShadowPick>::const_iterator it = shadowPicks.find(light); return it != shadowPicks.end() && (it->second.validFaces & (1 << face)) != 0; }
+		f64 shadowPickClock = -1.0;
+		void ChooseShadowCasters(GameObject* Camera);
+		bool ShadowRedrawThisFrame(ILightComponent* light) const;
 		void PublishSunShadow(DirectionalLight* d);
 		uint32 shadowPassCounter = 0;
 		bool CullingPointTest(RenderingMesh* rmesh, GameObject* owner);

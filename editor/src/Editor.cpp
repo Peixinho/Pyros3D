@@ -2885,6 +2885,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			// Custom: only the shared settings. Its surface lives in the
 			// graph or the text snippet.
 			static const char* kGenericOnly[] = { "options", "color", "specular", "metallic", "roughness", "ssr", "subsurface", "subsurfaceColor",
+				"emission", "emissionColor", "emissionUsesColorMap",
 				"alphaCutoff", "shininess", "reflectivity", "displacementHeight", "textures" };
 			for (const char* k : kGenericOnly)
 				if (a.contains(k))
@@ -2940,6 +2941,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				fresh->SetRoughness(gm->GetRoughness());
 				fresh->SetSSREnabled(gm->IsSSREnabled());
 				fresh->SetSubsurface(gm->GetSubsurfaceColor(), gm->GetSubsurfaceStrength());
+				fresh->SetEmission(gm->GetEmissionColor(), gm->GetEmissionStrength(), gm->GetEmissionUsesColorMap());
 				fresh->SetAlphaCutoff(gm->GetAlphaCutoff());
 				fresh->SetShininess(gm->GetShininess());
 				fresh->SetReflectivity(gm->GetReflectivity());
@@ -2969,6 +2971,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			if (a.contains("subsurfaceColor") && a["subsurfaceColor"].is_array() && a["subsurfaceColor"].size() >= 3)
 				c = Vec3((f32)a["subsurfaceColor"][0].get<double>(), (f32)a["subsurfaceColor"][1].get<double>(), (f32)a["subsurfaceColor"][2].get<double>());
 			gm->SetSubsurface(c, (f32)a["subsurface"].get<double>());
+		}
+		if (a.is_object() && (a.contains("emission") || a.contains("emissionColor") || a.contains("emissionUsesColorMap")))
+		{
+			Vec3 c = gm->GetEmissionColor();
+			if (a.contains("emissionColor") && a["emissionColor"].is_array() && a["emissionColor"].size() >= 3)
+				c = Vec3((f32)a["emissionColor"][0].get<double>(), (f32)a["emissionColor"][1].get<double>(), (f32)a["emissionColor"][2].get<double>());
+			const f32 strength = a.contains("emission") && a["emission"].is_number() ? (f32)a["emission"].get<double>() : gm->GetEmissionStrength();
+			const bool usesMap = a.contains("emissionUsesColorMap") && a["emissionUsesColorMap"].is_boolean() ? a["emissionUsesColorMap"].get<bool>() : gm->GetEmissionUsesColorMap();
+			gm->SetEmission(c, strength, usesMap);
 		}
 		if (a.contains("alphaCutoff")) gm->SetAlphaCutoff((f32)a["alphaCutoff"].get<double>());
 		if (a.contains("shininess")) gm->SetShininess((f32)a["shininess"].get<double>());

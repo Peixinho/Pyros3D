@@ -1617,7 +1617,7 @@ namespace p3d {
 					{
 						// (PYROS_NO_LIGHT_CULL=1 draws them all, to compare against)
 						static const bool cullLights = std::getenv("PYROS_NO_LIGHT_CULL") == NULL;
-						if (cullLights && !p->IsCastingShadows() && !LightAffectsView(p->GetOwner()->GetDrawWorldPosition(), p->GetLightRadius()))
+						if (cullLights && !ShadowMapThisFrame(p) && !LightAffectsView(p->GetOwner()->GetDrawWorldPosition(), p->GetLightRadius()))
 						{ lightsCulled++; break; }
 					}
 					lightsPointDrawn++;
@@ -1647,7 +1647,7 @@ namespace p3d {
 					// 0.0`.
 					int shadowUnit = 4;
 					float haveShadow = 0.f;
-					if (p->IsCastingShadows())
+					if (ShadowMapThisFrame(p))
 					{
 						f32 txl = p->GetShadowFilterPacked();
 						f32 bias = p->GetShadowBiasScale();
@@ -1659,7 +1659,7 @@ namespace p3d {
 						pointShadowDepthsMVPHandle->SetValue(&mvp, 2);
 						p->GetShadowMapTexture()->Bind();
 						shadowUnit = Texture::GetLastBindedUnit();
-						haveShadow = 1.f;
+						haveShadow = ShadowWeight(p);   // (0..1: fading in or out of the shadow budget)
 					}
 					else
 					{
@@ -1739,7 +1739,7 @@ namespace p3d {
 						pointLight->GetMeshes()[0]->Pivot = m;
 						RenderObject(pointLight->GetMeshes()[0], p->GetOwner(), deferredMaterialPoint);
 					}
-					if (p->IsCastingShadows())
+					if (ShadowMapThisFrame(p))
 					{
 						p->GetShadowMapTexture()->Unbind();
 						// Two matrices per light, not one: IRenderer.cpp's
@@ -1772,7 +1772,7 @@ namespace p3d {
 					// matrix: Metro's east lamp lit nothing, its whole cone "in shadow")
 					{
 						static const bool cullLights = std::getenv("PYROS_NO_LIGHT_CULL") == NULL;
-						if (cullLights && !s->IsCastingShadows() && !LightAffectsView(s->GetOwner()->GetDrawWorldPosition(), s->GetLightRadius()))
+						if (cullLights && !ShadowMapThisFrame(s) && !LightAffectsView(s->GetOwner()->GetDrawWorldPosition(), s->GetLightRadius()))
 						{ lightsCulled++; break; }
 					}
 					lightsSpotDrawn++;
@@ -1793,7 +1793,7 @@ namespace p3d {
 					// See the identical fix in the POINT case above.
 					int shadowUnit = 4;
 					float haveShadow = 0.f;
-					if (s->IsCastingShadows())
+					if (ShadowMapThisFrame(s))
 					{
 						f32 txl = s->GetShadowFilterPacked();
 						// numberSpot, not numberDir. This indexed the spot
@@ -1813,7 +1813,7 @@ namespace p3d {
 						spotShadowDepthsMVPHandle->SetValue(&mvp);
 						s->GetShadowMapTexture()->Bind();
 						shadowUnit = Texture::GetLastBindedUnit();
-						haveShadow = 1.f;
+						haveShadow = ShadowWeight(s);
 					}
 					else
 					{
@@ -1846,7 +1846,7 @@ namespace p3d {
 						RenderObject(pointLight->GetMeshes()[0], s->GetOwner(), deferredMaterialSpot);
 					}
 
-					if (s->IsCastingShadows())
+					if (ShadowMapThisFrame(s))
 					{
 						s->GetShadowMapTexture()->Unbind();
 						numberSpot++;
@@ -2040,7 +2040,7 @@ namespace p3d {
 						pointLight.m[10] = attenuation;  pointLight.m[11] = 0.f;				  pointLight.m[12] = 0.f;
 						pointLight.m[13] = (f32)type;	 pointLight.m[14] = p->GetShadowFilterPacked();
 
-						if (p->IsCastingShadows())
+						if (ShadowMapThisFrame(p))
 						{
 							pointLight.m[14] = p->GetShadowFilterPacked();
 							pointLight.m[15] = (f32)pointCounter++;
@@ -2069,7 +2069,7 @@ namespace p3d {
 						spotLight.m[10] = attenuation;	 spotLight.m[11] = cones.x;			  spotLight.m[12] = cones.y;
 						spotLight.m[13] = (f32)type;
 
-						if (s->IsCastingShadows())
+						if (ShadowMapThisFrame(s))
 						{
 							spotLight.m[14] = s->GetShadowFilterPacked();
 							spotLight.m[15] = (f32)spotCounter++;

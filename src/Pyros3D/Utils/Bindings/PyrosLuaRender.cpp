@@ -568,6 +568,10 @@ namespace p3d {
 				"setSSREnabled", &GenericShaderMaterial::SetSSREnabled,
 				"setSubsurface", &GenericShaderMaterial::SetSubsurface,
 				"setWetness", [](GenericShaderMaterial &m, f32 amount, sol::optional<f32> puddles, sol::optional<f32> size) { m.SetWetness(amount, puddles.value_or(0.f), size.value_or(3.f)); },
+				// mat:setEmission(Vec3 colour, strength [, usesColorMap]) - light the surface gives off itself
+				"setEmission", [](GenericShaderMaterial &m, const Vec3 &color, f32 strength, sol::optional<bool> usesMap) { m.SetEmission(color, strength, usesMap.value_or(false)); },
+				"getEmissionStrength", &GenericShaderMaterial::GetEmissionStrength,
+				"getEmissionColor", [](GenericShaderMaterial &m) { return m.GetEmissionColor(); },
 				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
 				"getAlphaCutoff", &GenericShaderMaterial::GetAlphaCutoff,

@@ -307,6 +307,9 @@ namespace p3d {
 					}
 				}
 			}
+			// (Not the model's own emissive colour: a .p3dm keeps the colour but not glTF's emissive
+			// map it multiplies, and a van whose body's colour is white glowed white all over. A scene
+			// says which of a model's surfaces give off light - its "emission" list.)
 			Material.reset(genMat);
 		}
 	};

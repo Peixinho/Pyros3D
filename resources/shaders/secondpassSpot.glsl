@@ -353,7 +353,7 @@ void main() {
 	vec4 worldPos = vec4(v1, 1.0);
 
 	if (uHaveShadowmap>0.0)
-		pcf = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1));
+		pcf = mix(1.0, PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1)), clamp(uHaveShadowmap, 0.0, 1.0));
 
 	vec3 mr = texture(tMetallicRoughness, Texcoord).rgb;
 	float roughness = mr.x;
@@ -385,7 +385,7 @@ void main() {
 		if (uHaveShadowmap > 0.0)
 		{
 			gShadowThrough = sssStrength * SUBSURFACE_REACH;
-			sssThrough = sssThin = PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1));
+			sssThrough = sssThin = mix(1.0, PCFSPOT(uShadowMap, uSpotDepthsMVP, uPCFTexelSize, worldPos, ShadowReceiverNormal(vViewNormal, v1)), clamp(uHaveShadowmap, 0.0, 1.0));
 			gShadowThrough = 0.0;
 		}
 		lit += color * (1.0 - metallic) * lightColor.xyz * SubsurfaceLight(N, V, L, sss, sssThin) * sssThrough;
@@ -505,7 +505,7 @@ void main() {
 
 				float sShadow = 1.0;
 				if (uHaveShadowmap > 0.0)
-					sShadow = ShadowSpotSingle(uShadowMap, uSpotDepthsMVP, vec4(p, 1.0));
+					sShadow = mix(1.0, ShadowSpotSingle(uShadowMap, uSpotDepthsMVP, vec4(p, 1.0)), clamp(uHaveShadowmap, 0.0, 1.0));
 
 				// Angle between the view ray and the light arriving at this
 				// sample - the phase function's argument.

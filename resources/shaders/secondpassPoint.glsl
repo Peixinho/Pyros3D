@@ -367,8 +367,8 @@ void main() {
 	vec3 vViewNormal = normalize(texture(tNormal, Texcoord).xyz);
 
 	if (uHaveShadowmap>0.0)
-		pcf = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, uShadowBias, worldPos,
-			dot(vViewNormal, v1) > 0.0 ? -vViewNormal : vViewNormal);
+		pcf = mix(1.0, PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, uShadowBias, worldPos,
+			dot(vViewNormal, v1) > 0.0 ? -vViewNormal : vViewNormal), clamp(uHaveShadowmap, 0.0, 1.0));
 	vec3 color = texture(tDiffuse, vec2(Texcoord.x,Texcoord.y)).xyz;
 	vec3 specTint = texture(tSpecular, vec2(Texcoord.x,Texcoord.y)).xyz;
 	float lightRadius = uLightRadius;
@@ -437,8 +437,8 @@ void main() {
 		if (uHaveShadowmap > 0.0)
 		{
 			gShadowThrough = sssStrength * SUBSURFACE_REACH;
-			sssThrough = sssThin = PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, uShadowBias, worldPos,
-				dot(vViewNormal, v1) > 0.0 ? -vViewNormal : vViewNormal);
+			sssThrough = sssThin = mix(1.0, PCFPOINT(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uPCFTexelSize, uShadowBias, worldPos,
+				dot(vViewNormal, v1) > 0.0 ? -vViewNormal : vViewNormal), clamp(uHaveShadowmap, 0.0, 1.0));
 			gShadowThrough = 0.0;
 		}
 		lit += color * (1.0 - metallic) * lightColor.xyz * SubsurfaceLight(N, V, L, sss, sssThin) * sssThrough;
@@ -497,7 +497,7 @@ void main() {
 
 				float sShadow = 1.0;
 				if (uHaveShadowmap > 0.0)
-					sShadow = ShadowPointSingle(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uShadowBias, vec4(p, 1.0));
+					sShadow = mix(1.0, ShadowPointSingle(uShadowMap, uPointDepthsMVP[0], uPointDepthsMVP[1], uShadowBias, vec4(p, 1.0)), clamp(uHaveShadowmap, 0.0, 1.0));
 
 				vec3 toLight = normalize(lightPosition - p);
 				float cosTheta = dot(rayDir, -toLight);

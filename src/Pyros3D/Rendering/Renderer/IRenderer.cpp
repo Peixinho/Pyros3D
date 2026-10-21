@@ -333,8 +333,228 @@ namespace Sort {
 // How often the sun's shadow map is redrawn: every frame (1), every other (2)...
 // One number for every renderer, like the ambient light.
 namespace { uint32 g_shadowEvery = 1; }
+// (PYROS_LOCAL_SHADOW_LOD=0: point and spot lights' casters at the level they are drawn with)
+namespace { const bool g_localShadowCoarser = !(std::getenv("PYROS_LOCAL_SHADOW_LOD") && std::getenv("PYROS_LOCAL_SHADOW_LOD")[0] == '0'); }
 void IRenderer::SetShadowUpdateInterval(const uint32 frames) { g_shadowEvery = frames < 1 ? 1 : (frames > 8 ? 8 : frames); }
 uint32 IRenderer::GetShadowUpdateInterval() { return g_shadowEvery; }
+
+namespace {
+	uint32 g_pointShadowBudget = 8, g_spotShadowBudget = 8;
+	struct ShadowBudgetFromEnv
+	{
+		ShadowBudgetFromEnv()
+		{
+			if (const char* e = std::getenv("PYROS_SHADOW_BUDGET"))
+			{
+				unsigned p = 0, s = 0;
+				const int n = sscanf(e, "%u,%u", &p, &s);
+				if (n >= 1) { g_pointShadowBudget = p; g_spotShadowBudget = n >= 2 ? s : p; }
+			}
+		}
+	} g_shadowBudgetFromEnv;
+	const bool g_shadowBudgetFixedByEnv = std::getenv("PYROS_SHADOW_BUDGET") != NULL;
+}
+void IRenderer::SetShadowBudget(const uint32 pointLights, const uint32 spotLights)
+{
+	if (g_shadowBudgetFixedByEnv) return;      // (the environment's, to compare with)
+	g_pointShadowBudget = pointLights; g_spotShadowBudget = spotLights;
+}
+uint32 IRenderer::GetPointShadowBudget() { return g_pointShadowBudget; }
+uint32 IRenderer::GetSpotShadowBudget() { return g_spotShadowBudget; }
+
+f32 IRenderer::ShadowWeight(ILightComponent* light) const
+{
+	if (light == NULL || !light->IsCastingShadows()) return 0.f;
+	std::unordered_map<ILightComponent*, ShadowPick>::const_iterator it = shadowPicks.find(light);
+	return it == shadowPicks.end() ? 0.f : it->second.weight;
+}
+bool IRenderer::ShadowRedrawThisFrame(ILightComponent* light) const
+{
+	std::unordered_map<ILightComponent*, ShadowPick>::const_iterator it = shadowPicks.find(light);
+	return it != shadowPicks.end() && it->second.draw;
+}
+
+// Which point and spot lights cast this frame (SetShadowBudget): of those that light what this view
+// sees, the nearest (one that had a shadow last frame counted a quarter nearer, so two lamps the
+// same way off do not trade it every frame). The sphere test is this view's own frustum, from the
+// last projection drawn with and the camera - `culling` still holds a shadow face's from last frame.
+void IRenderer::ChooseShadowCasters(GameObject* Camera)
+{
+	const f64 now = (f64)std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::steady_clock::now().time_since_epoch()).count() * 1e-6;
+	const f32 dt = shadowPickClock < 0.0 ? 1.f : (f32)std::min(0.25, std::max(0.0, now - shadowPickClock));
+	shadowPickClock = now;
+	const f32 step = dt / 0.3f;
+
+	// the view's frustum planes (Gribb-Hartmann), from projection * view
+	Vec4 planes[6];
+	bool haveFrustum = Camera != NULL && projectionValid;
+	Vec3 eye = Camera != NULL ? Camera->GetWorldPosition() : Vec3();
+	if (haveFrustum)
+	{
+		const Matrix vp = projection.m * Camera->GetWorldTransformation().Inverse();
+		const f32* m = vp.m;     // column-major: m[col*4+row]
+		auto row = [&](int r) { return Vec4(m[0 * 4 + r], m[1 * 4 + r], m[2 * 4 + r], m[3 * 4 + r]); };
+		const Vec4 r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
+		planes[0] = r3 + r0; planes[1] = r3 - r0; planes[2] = r3 + r1; planes[3] = r3 - r1; planes[4] = r3 + r2; planes[5] = r3 - r2;
+		for (int i = 0; i < 6; i++)
+		{
+			const f32 l = Vec3(planes[i].x, planes[i].y, planes[i].z).magnitude();
+			if (l > 0.f) planes[i] = planes[i] / l;
+		}
+	}
+	auto inView = [&](const Vec3 &c, const f32 r) {
+		if (!haveFrustum || r <= 0.f) return true;
+		for (int i = 0; i < 6; i++) if (planes[i].x * c.x + planes[i].y * c.y + planes[i].z * c.z + planes[i].w < -r) return false;
+		return true;
+	};
+
+	for (std::unordered_map<ILightComponent*, ShadowPick>::iterator it = shadowPicks.begin(); it != shadowPicks.end(); ++it) it->second.seen = false;
+	struct Candidate { ILightComponent* light; f32 score; };
+	std::vector<Candidate> points, spots;
+	for (size_t i = 0; i < lcomps.size(); i++)
+	{
+		ILightComponent* l = (ILightComponent*)lcomps[i];
+		if (l == NULL || l->GetOwner() == NULL || !l->IsCastingShadows()) continue;
+		const uint32 type = (uint32)l->GetLightType();
+		if (type != LIGHT_TYPE::POINT && type != LIGHT_TYPE::SPOT) continue;
+		ShadowPick &pick = shadowPicks[l];
+		pick.seen = true;
+		const Vec3 at = l->GetOwner()->GetWorldPosition();
+		const f32 radius = type == LIGHT_TYPE::POINT ? ((PointLight*)l)->GetLightRadius() : ((SpotLight*)l)->GetLightRadius();
+		if (!inView(at, radius)) continue;
+		f32 score = std::max(0.f, eye.distance(at) - radius * 0.25f);
+		if (pick.chosen) score *= 0.75f;
+		(type == LIGHT_TYPE::POINT ? points : spots).push_back({ l, score });
+	}
+	auto choose = [&](std::vector<Candidate> &c, const uint32 budget) {
+		std::sort(c.begin(), c.end(), [](const Candidate &a, const Candidate &b) { return a.score < b.score; });
+		std::unordered_set<ILightComponent*> chosen;
+		for (size_t i = 0; i < c.size() && (budget == 0 || i < budget); i++) chosen.insert(c[i].light);
+		return chosen;
+	};
+	const std::unordered_set<ILightComponent*> chosenPoints = choose(points, g_pointShadowBudget);
+	const std::unordered_set<ILightComponent*> chosenSpots = choose(spots, g_spotShadowBudget);
+
+	// The shadow cache: which maps are no longer right. The casters that can move (an object not
+	// marked still) are compared with where they were last frame; one that moved - or went - takes
+	// with it the map of every caster light it was, or is, within reach of. If the still casters are
+	// not the same in number (a cell streamed in, a wall knocked down), no map is right any more.
+	static const bool cacheOn = !(std::getenv("PYROS_SHADOW_CACHE") && std::getenv("PYROS_SHADOW_CACHE")[0] == '0');
+	{
+		struct Mover { Vec3 from, to; f32 r; };
+		std::vector<Mover> movers;
+		std::unordered_map<GameObject*, ShadowMover> now;
+		std::unordered_set<RenderingComponent*> seen;
+		uint32 still = 0;
+		for (size_t i = 0; i < rmesh.size(); i++)
+		{
+			RenderingComponent* rc = rmesh[i] != NULL ? rmesh[i]->renderingComponent : NULL;
+			if (rc == NULL || !seen.insert(rc).second || !rc->IsCastingShadows()) continue;
+			GameObject* owner = rc->GetOwner();
+			if (owner == NULL) continue;
+			if (owner->IsStatic()) { still++; continue; }
+			if (now.count(owner)) continue;
+			// (where it is and how big, as culling has it: the world box - a skinned body's own
+			// bounds and its object's matrix do not say)
+			ShadowMover &mv = now[owner];
+			mv.world = owner->GetWorldTransformation();
+			const Vec3 mn = owner->GetBoundingMinValueWorldSpace(), mx = owner->GetBoundingMaxValueWorldSpace();
+			mv.centre = (mn + mx) * 0.5f;
+			mv.radius = (mx - mn).magnitude() * 0.5f;
+			// (one too far off to cast - SetShadowDistance - is in no map: its moving changes none, unless
+			// it has just come near enough or gone too far, which changes the maps it is in or was)
+			mv.casts = !rc->ShadowTooFar();
+			std::unordered_map<GameObject*, ShadowMover>::iterator was = shadowMovers.find(owner);
+			const bool wasCasting = was != shadowMovers.end() && was->second.casts;
+			if (!mv.casts && !wasCasting) continue;
+			if (was != shadowMovers.end() && mv.casts == wasCasting && memcmp(&was->second.world, &mv.world, sizeof(Matrix)) == 0) continue;
+			movers.push_back({ was != shadowMovers.end() ? was->second.centre : mv.centre, mv.centre,
+				std::max(mv.radius, was != shadowMovers.end() ? was->second.radius : 0.f) });
+		}
+		for (std::unordered_map<GameObject*, ShadowMover>::iterator it = shadowMovers.begin(); it != shadowMovers.end(); ++it)
+			if (!now.count(it->first) && it->second.casts) movers.push_back({ it->second.centre, it->second.centre, it->second.radius });   // (gone: where it was)
+		shadowMovers.swap(now);
+		const bool stillChanged = still != shadowStillCasters;
+		FrameProfiler::Instance().Counter("Shadow.Movers", (f64)movers.size());
+		FrameProfiler::Instance().Counter("Shadow.StillCasters", (f64)still);
+		shadowStillCasters = still;
+		for (std::unordered_map<ILightComponent*, ShadowPick>::iterator it = shadowPicks.begin(); it != shadowPicks.end(); ++it)
+		{
+			ShadowPick &p = it->second;
+			if (!p.seen) continue;
+			ILightComponent* l = it->first;
+			const Matrix &world = l->GetOwner()->GetWorldTransformation();    // (where it is and, for a spot, which way it faces)
+			const Vec3 at = world.GetTranslation();
+			const f32 reach = l->GetLightType() == LIGHT_TYPE::POINT ? ((PointLight*)l)->GetLightRadius() : ((SpotLight*)l)->GetLightRadius();
+			static const bool trace = std::getenv("PYROS_SHADOW_CACHE_TRACE") != NULL;
+			if (trace && p.chosen)
+				fprintf(stderr, "[shadow cache] %s faces %02x still %d world %d reach %d movers %zu (first r %.2f at %.1f,%.1f,%.1f)\n",
+					l->GetOwner()->GetName().c_str(), p.validFaces, (int)stillChanged, memcmp(&world, &p.world, sizeof(Matrix)) != 0, reach != p.reach,
+					movers.size(), movers.empty() ? 0.f : movers[0].r, movers.empty() ? 0.f : movers[0].to.x, movers.empty() ? 0.f : movers[0].to.y, movers.empty() ? 0.f : movers[0].to.z);
+			if (!cacheOn || stillChanged || memcmp(&world, &p.world, sizeof(Matrix)) != 0 || reach != p.reach)
+				p.validFaces = 0;
+			p.at = at; p.world = world; p.reach = reach;
+			// (a point light's map is six: only the faces a mover's sphere is in, where it was or is)
+			const bool point = l->GetLightType() == LIGHT_TYPE::POINT;
+			for (size_t m = 0; m < movers.size() && p.validFaces != 0; m++)
+				for (int e = 0; e < 2; e++)
+				{
+					const Vec3 d = (e == 0 ? movers[m].from : movers[m].to) - at;
+					const f32 r = movers[m].r;
+					if (d.magnitude() >= reach + r) continue;
+					if (!point) { p.validFaces = 0; break; }
+					// in the face looking along +axis when it is on that side of both diagonal planes (grown by r)
+					const f32 v[3] = { d.x, d.y, d.z };
+					for (int axis = 0; axis < 3; axis++)
+						for (int sign = 0; sign < 2; sign++)
+						{
+							const f32 along = sign == 0 ? v[axis] : -v[axis];
+							const f32 a1 = std::fabs(v[(axis + 1) % 3]), a2 = std::fabs(v[(axis + 2) % 3]);
+							const f32 grow = r * 1.4143f;
+							if (along + grow > 0.f && a1 <= along + grow && a2 <= along + grow)
+								p.validFaces &= (uint8)~(1 << (axis * 2 + sign));
+						}
+				}
+		}
+	}
+	for (std::unordered_map<ILightComponent*, ShadowPick>::iterator it = shadowPicks.begin(); it != shadowPicks.end(); )
+	{
+		if (!it->second.seen) { it = shadowPicks.erase(it); continue; }
+		const bool chosen = chosenPoints.count(it->first) > 0 || chosenSpots.count(it->first) > 0;
+		ShadowPick &p = it->second;
+		if (chosen)
+		{
+			// (a light with no shadow before starts faded out; a budget of none has no fade at all)
+			const bool unlimited = (it->first->GetLightType() == LIGHT_TYPE::POINT ? g_pointShadowBudget : g_spotShadowBudget) == 0;
+			p.weight = unlimited ? 1.f : std::min(1.f, p.weight + step);
+			p.chosen = true;
+			p.draw = p.validFaces != 0x3F;
+		}
+		else
+		{
+			// fading out on the map it had (not drawn again); gone when it is out
+			p.weight = std::max(0.f, p.weight - step);
+			p.chosen = false;
+			p.draw = false;
+		}
+		++it;
+	}
+	// (a light that was never drawn has no map to fade on: it starts at the first step, not at nothing)
+	for (std::unordered_map<ILightComponent*, ShadowPick>::iterator it = shadowPicks.begin(); it != shadowPicks.end(); ++it)
+		if (it->second.chosen && it->second.weight <= 0.f) it->second.weight = std::min(1.f, step);
+	uint32 nPoint = 0, nSpot = 0, nKept = 0, nFaces = 0;
+	for (std::unordered_map<ILightComponent*, ShadowPick>::iterator it = shadowPicks.begin(); it != shadowPicks.end(); ++it)
+	{
+		if (it->second.draw) (it->first->GetLightType() == LIGHT_TYPE::POINT ? nPoint : nSpot)++;
+		else if (it->second.chosen) nKept++;
+		if (it->second.draw && it->first->GetLightType() == LIGHT_TYPE::POINT)
+			for (int f = 0; f < 6; f++) if (!(it->second.validFaces & (1 << f))) nFaces++;
+	}
+	FrameProfiler::Instance().Counter("Shadow.PointFaces", (f64)nFaces);
+	FrameProfiler::Instance().Counter("Shadow.PointDrawn", (f64)nPoint);
+	FrameProfiler::Instance().Counter("Shadow.SpotDrawn", (f64)nSpot);
+	FrameProfiler::Instance().Counter("Shadow.Kept", (f64)nKept);
+}
 
 // What a scene draws for this renderer, as the scene has it: the opaque
 // meshes, and those that are seen through (in the order they were gathered -
@@ -1186,7 +1406,7 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		DDGIUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 5, 25);
 		// PyrosShader.glsl's ReflectionProbeBlock, exactly (ReflectionProbes::FillBlock).
 		ReflectionProbesUBO = device->CreateUniformBuffer(sizeof(Vec4) * ReflectionProbes::kBlockVec4s, 26);
-		MaterialUniformsUBO = device->CreateUniformBuffer(112, 22);      // (sizeof(MaterialUniformsData): its static_assert below)
+		MaterialUniformsUBO = device->CreateUniformBuffer(128, 22);      // (sizeof(MaterialUniformsData): its static_assert below)
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
 	SharedUBORefCount++;
@@ -2492,7 +2712,10 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	std::vector<uint8> answers;
 	// (read here, on the thread recording the pass: the answers below are worked out on others)
 	const bool leaveRayTraced = t_inSunPass && sunLeaveRayTraced;
-	AnswerInParallel(rmesh.size(), answers, [&](const uint32 i) -> uint8 {
+	const std::vector<uint32>* subset = shadowCasterSubset;
+	const size_t count = subset != NULL ? subset->size() : rmesh.size();
+	AnswerInParallel(count, answers, [&](const uint32 n) -> uint8 {
+		const uint32 i = subset != NULL ? (*subset)[n] : n;
 		const uint8 f = cullFlags[i];
 		if ((f & (CullOwner | CullCasts | CullComponentActive)) != (CullOwner | CullCasts | CullComponentActive) || (f & CullTransparent)) return 0;
 		RenderingMesh* m = rmesh[i];
@@ -2513,10 +2736,32 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		return 1;
 	});
 	std::vector<RenderingMesh*> casters;
-	casters.reserve(rmesh.size());
-	for (size_t i = 0; i < rmesh.size(); i++)
+	casters.reserve(count);
+	for (size_t n = 0; n < count; n++)
 	{
-		const uint8 a = answers[i];
+		const size_t i = subset != NULL ? (*subset)[n] : n;
+		const uint8 a = answers[n];
+		// A light's own map (the subset is a point or spot light's casters): 512 texels a face, read
+		// softly - what casts there is drawn at its next coarser level of detail, once for the
+		// component in place of its level's meshes. Every lamp of a street stands under a tree.
+		if (a == 1 && subset != NULL && g_localShadowCoarser)
+		{
+			RenderingComponent* rc = rmesh[i]->renderingComponent;
+			std::map<uint32, std::vector<RenderingMesh*> >::iterator coarser = rc->Meshes.find(rc->LodInUse + 1);
+			if (!rc->IsInstanced() && rmesh[i]->LodFade == 0.f && coarser != rc->Meshes.end() && !coarser->second.empty())
+			{
+				std::map<uint32, std::vector<RenderingMesh*> >::iterator here = rc->Meshes.find(rc->LodInUse);
+				if (here != rc->Meshes.end() && !here->second.empty() && here->second[0] != rmesh[i]) continue;     // (the component's first mesh speaks for it)
+				for (size_t c = 0; c < coarser->second.size(); c++)
+				{
+					RenderingMesh* cm = coarser->second[c];
+					if (cm == NULL || !cm->Material || cm->Material->IsTransparent() || !cm->Material->IsCastingShadows()) continue;
+					g_shadowCastersDrawn++;
+					casters.push_back(cm);
+				}
+				continue;
+			}
+		}
 		if (a == 1) { g_shadowCastersDrawn++; casters.push_back(rmesh[i]); }
 		else if (a == 2) g_shadowCastersLeftOut++;
 		else if (a == 3)
@@ -2537,6 +2782,25 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	DrawWithAutoInstancing(casters, NULL,
 		[this](RenderingMesh* m, uint32) { RenderShadowCaster(m); },
 		[this](RenderingMesh* m, uint32) { RenderShadowCaster(m); });
+}
+
+// The meshes whose owner's box comes within a light's reach (for its shadow faces to choose from).
+void IRenderer::GatherLightCasters(const Vec3 &at, const f32 reach)
+{
+	lightCasterScratch.clear();
+	const f32 r2 = reach * reach;
+	for (uint32 i = 0; i < (uint32)rmesh.size(); i++)
+	{
+		const uint8 f = cullFlags[i];
+		if ((f & (CullOwner | CullCasts | CullComponentActive)) != (CullOwner | CullCasts | CullComponentActive) || (f & CullTransparent)) continue;
+		GameObject* owner = rmesh[i]->renderingComponent != NULL ? rmesh[i]->renderingComponent->GetOwner() : NULL;
+		if (owner == NULL) continue;
+		const Vec3 mn = owner->GetBoundingMinValueWorldSpace(), mx = owner->GetBoundingMaxValueWorldSpace();
+		const f32 dx = std::max(std::max(mn.x - at.x, 0.f), at.x - mx.x);
+		const f32 dy = std::max(std::max(mn.y - at.y, 0.f), at.y - mx.y);
+		const f32 dz = std::max(std::max(mn.z - at.z, 0.f), at.z - mx.z);
+		if (dx * dx + dy * dy + dz * dz <= r2) lightCasterScratch.push_back(i);
+	}
 }
 
 void IRenderer::RenderShadowCaster(RenderingMesh* mesh)
@@ -2739,6 +3003,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	// Get Lights List
 	lcomps = ILightComponent::GetLightsOnScene(Scene);
 	PublishLightsToSmoke(lcomps);
+	ChooseShadowCasters(Camera);
 
 	// Every frame, not only when there is something to render. These hold
 	// raw pointers to the lights' shadow maps and were cleared inside the
@@ -2945,11 +3210,13 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 				// Shadows. See the directional block's comment on the cap -
 				// same reason, same forward-only condition; uPointShadowMaps
 				// is a samplerCube[4].
-				if (!skipShadowMaps && p->IsCastingShadows()
+				if (!skipShadowMaps && ShadowMapThisFrame(p)
 					&& (!ShadowMapsAreArrayIndexed || NumberOfPointShadows < MaxPointShadowLights))
 				{
 					// Increase Number of Shadows
 					NumberOfPointShadows++;
+					// (in the budget: its map drawn now; fading out of it: read as it was - SetShadowBudget)
+					const bool redraw = ShadowRedrawThisFrame(p);
 					// (this renderer's own shadow draws use the programs the sun's pass is
 					// being recorded with on another thread: that one first)
 					FinishBeside();
@@ -2971,7 +3238,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					device->SetPointShadowCubeFacePass(true);
 
 					// Bind FBO
-					p->GetShadowFBO()->Bind();
+					if (redraw) p->GetShadowFBO()->Bind();
 
 					// Create Projection Matrix
 					// Get Light Projection
@@ -2980,8 +3247,10 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					ProjectionMatrix = ShadowProjection.m;
 
 					// Get Lights Shadow Map Texture
-					for (int32 i = 0; i < 6; i++)
+					if (redraw) { GatherLightCasters(p->GetOwner()->GetWorldPosition(), p->GetShadowFar()); shadowCasterSubset = &lightCasterScratch; }
+					for (int32 i = 0; i < 6 && redraw; i++)
 					{
+						if (ShadowFaceKept(p, i)) continue;       // (still right: the shadow cache)
 						// Clean View Matrix
 						ViewMatrix.identity();
 
@@ -3086,7 +3355,8 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					DisableDepthBias();
 
 					// Unbind FBO
-					p->GetShadowFBO()->UnBind();
+					shadowCasterSubset = NULL;
+					if (redraw) { p->GetShadowFBO()->UnBind(); NoteShadowMapDrawn(p); }
 
 				}
 			}
@@ -3097,7 +3367,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 				// Shadows. See the directional block's comment on the cap -
 				// uSpotShadowMaps is a sampler2DShadow[4].
-				if (!skipShadowMaps && s->IsCastingShadows()
+				if (!skipShadowMaps && ShadowMapThisFrame(s)
 					&& (!ShadowMapsAreArrayIndexed || NumberOfSpotShadows < MaxSpotShadowLights))
 				{
 
@@ -3105,12 +3375,14 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 					// Increase Number of Shadows
 					NumberOfSpotShadows++;
+					// (in the budget: its map drawn now; fading out of it: read as it was - SetShadowBudget)
+					const bool redraw = ShadowRedrawThisFrame(s);
 					// (this renderer's own shadow draws use the programs the sun's pass is
 					// being recorded with on another thread: that one first)
 					FinishBeside();
 
 					// Bind FBO
-					s->GetShadowFBO()->Bind();
+					if (redraw) s->GetShadowFBO()->Bind();
 
 					// Get Light Projection
 					Projection ShadowProjection;
@@ -3134,31 +3406,35 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					ViewMatrix.LookAt(s->GetOwner()->GetWorldPosition(), (s->GetOwner()->GetWorldPosition() + direction));
 
 					// Update Culling
-					UpdateCulling(ShadowProjection.m*ViewMatrix);
+					if (redraw)
+					{
+						UpdateCulling(ShadowProjection.m*ViewMatrix);
 
-					ClearBufferBit(Buffer_Bit::Depth);
-					EnableClearDepthBuffer();
-					ClearDepthBuffer();
-					ClearScreen();
+						ClearBufferBit(Buffer_Bit::Depth);
+						EnableClearDepthBuffer();
+						ClearDepthBuffer();
+						ClearScreen();
 
-					StartClippingPlanes();
+						StartClippingPlanes();
 
-					// Enable Depth Bias
-					SetShadowDepthBias(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
+						// Enable Depth Bias
+						SetShadowDepthBias(s->GetShadowBiasFactor(), s->GetShadowBiasUnits()); // enable polygon offset fill to combat "z-fighting"
 
-					// Set Viewport
-					_SetViewPort(0, 0, s->GetShadowWidth(), s->GetShadowHeight());
+						// Set Viewport
+						_SetViewPort(0, 0, s->GetShadowWidth(), s->GetShadowHeight());
 
-					// Render Scene with Objects Material
-					RenderShadowCasters(true);
+						// Render Scene with Objects Material
+						RenderShadowCasters(true);
 
-					EndClippingPlanes();
+						EndClippingPlanes();
 
-					// Disable Depth Bias
-					DisableDepthBias();
+						// Disable Depth Bias
+						DisableDepthBias();
 
-					// Unbind FBO
-					s->GetShadowFBO()->UnBind();
+						// Unbind FBO
+						s->GetShadowFBO()->UnBind();
+						NoteShadowMapDrawn(s);
+					}
 
 					// Set Light Matrix
 					// See the comment on the equivalent DirectionalShadowMatrix
@@ -5065,8 +5341,10 @@ struct MaterialUniformsData
 	Vec4 Subsurface;
 	// See GenericShaderMaterial::SetWetness(): how wet, puddle cover, puddle size. 112.
 	Vec4 Wetness;
+	// See GenericShaderMaterial::SetEmission(): the light given off, and whether the colour map shapes it. 128.
+	Vec4 Emission;
 };
-static_assert(sizeof(MaterialUniformsData) == 112, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
+static_assert(sizeof(MaterialUniformsData) == 128, "MaterialUniformsData must byte-match PyrosShader.glsl's MaterialUniforms std140 layout exactly");
 
 // std140 layout matching ObjectLightCounts in PyrosShader.glsl exactly (16
 // bytes: 3 int = 12, padded to 16 by std140's vec4-multiple block size rule).
@@ -5110,7 +5388,7 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 		{
 			static const std::string kColor("uColor"), kSpecular("uSpecular"), kOpacity("uOpacity"), kShininess("uShininess"),
 				kUseLights("uUseLights"), kDisplacement("uDisplacementHeight"), kReflectivity("uReflectivity"), kMetallic("uMetallic"),
-				kRoughness("uRoughness"), kSSR("uSSRReflective"), kAlphaCutoff("uAlphaCutoff"), kSubsurface("uSubsurface"), kWetness("uWetness");
+				kRoughness("uRoughness"), kSSR("uSSRReflective"), kAlphaCutoff("uAlphaCutoff"), kSubsurface("uSubsurface"), kWetness("uWetness"), kEmission("uEmission");
 			for (std::list<Uniform>::const_iterator it = Material->UserUniforms.begin(); it != Material->UserUniforms.end(); ++it)
 			{
 				const std::string &n = it->Name;
@@ -5126,6 +5404,7 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 					else if (n == kSubsurface) { if (it->Value.size() >= sizeof(Vec4)) memcpy(&data.Subsurface, v, sizeof(Vec4)); }
 					break;
 				case 'O': if (n == kOpacity) memcpy(&data.Opacity, v, sizeof(f32)); break;
+				case 'E': if (n == kEmission && it->Value.size() >= sizeof(Vec4)) memcpy(&data.Emission, v, sizeof(Vec4)); break;
 				case 'W': if (n == kWetness && it->Value.size() >= sizeof(Vec4)) memcpy(&data.Wetness, v, sizeof(Vec4)); break;
 				case 'U': if (n == kUseLights) memcpy(&data.UseLights, v, sizeof(f32)); break;
 				case 'D': if (n == kDisplacement) memcpy(&data.DisplacementHeight, v, sizeof(f32)); break;

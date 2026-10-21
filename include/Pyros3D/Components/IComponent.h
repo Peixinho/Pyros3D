@@ -195,6 +195,14 @@ namespace p3d {
 		virtual const Vec3 &GetBoundingSphereCenter() const { return BoundingSphereCenter; }
 		virtual const Vec3 &GetBoundingMinValue() const { return minBounds; }
 		virtual const Vec3 &GetBoundingMaxValue() const { return maxBounds; }
+		// The box it takes up in its owner's space, set from outside - an animated body's posed
+		// box (SkeletonAnimationInstance): the sphere follows. Its owner's box is not refreshed here.
+		void SetBounds(const Vec3 &min, const Vec3 &max)
+		{
+			minBounds = min; maxBounds = max;
+			BoundingSphereCenter = (min + max) * 0.5f;
+			BoundingSphereRadius = max.distance(BoundingSphereCenter);
+		}
 
 	protected:
 

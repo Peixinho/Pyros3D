@@ -269,6 +269,9 @@ bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 				c = Vec3(j["subsurfaceColor"][0].get<f32>(), j["subsurfaceColor"][1].get<f32>(), j["subsurfaceColor"][2].get<f32>());
 			mat->SetSubsurface(c, j["subsurface"].get<f32>());
 		}
+		if (j.find("emission") != j.end() && j["emission"].is_array() && j["emission"].size() >= 3)
+			mat->SetEmission(Vec3(j["emission"][0].get<f32>(), j["emission"][1].get<f32>(), j["emission"][2].get<f32>()),
+				j.value("emissionStrength", 0.f), j.value("emissionUsesColorMap", false));
 		if (j.find("alphaCutoff") != j.end()) mat->SetAlphaCutoff(j["alphaCutoff"]);
 		if (j.find("shininess") != j.end()) mat->SetShininess(j["shininess"]);
 		if (j.find("reflectivity") != j.end()) mat->SetReflectivity(j["reflectivity"]);
@@ -355,6 +358,13 @@ bool MaterialEditorDocument::SaveToFile(const std::string& path) {
 			const Vec3 sc = gm->GetSubsurfaceColor();
 			j["subsurface"] = gm->GetSubsurfaceStrength();
 			j["subsurfaceColor"] = { sc.x, sc.y, sc.z };
+		}
+		if (gm->GetEmissionStrength() > 0.f)
+		{
+			const Vec3 ec = gm->GetEmissionColor();
+			j["emission"] = { ec.x, ec.y, ec.z };
+			j["emissionStrength"] = gm->GetEmissionStrength();
+			if (gm->GetEmissionUsesColorMap()) j["emissionUsesColorMap"] = true;
 		}
 		j["alphaCutoff"] = gm->GetAlphaCutoff();
 		j["shininess"] = gm->GetShininess();

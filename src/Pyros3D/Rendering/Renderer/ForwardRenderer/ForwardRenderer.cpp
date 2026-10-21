@@ -127,7 +127,7 @@ namespace p3d {
 					// uPointDepthsMVP[ShadowMap*2] out of a mat4[8] - one past
 					// the end. Past the limit the light still lights, it just
 					// casts no shadow.
-					if (!unshadowed && p->IsCastingShadows() && pointCounter < IRenderer::MaxPointShadowLights)
+					if (!unshadowed && ShadowMapThisFrame(p) && pointCounter < IRenderer::MaxPointShadowLights)
 					{
 						pointLight.m[14] = p->GetShadowFilterPacked();
 						pointLight.m[15] = (f32)pointCounter++;
@@ -158,7 +158,7 @@ namespace p3d {
 
 					// Clamped for the same reason as the point counter above -
 					// uSpotDepthsMVP is a mat4[4].
-					if (!unshadowed && s->IsCastingShadows() && spotCounter < IRenderer::MaxSpotShadowLights)
+					if (!unshadowed && ShadowMapThisFrame(s) && spotCounter < IRenderer::MaxSpotShadowLights)
 					{
 						spotLight.m[14] = s->GetShadowFilterPacked();
 						spotLight.m[15] = (f32)spotCounter++;

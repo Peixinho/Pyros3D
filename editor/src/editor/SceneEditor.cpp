@@ -16935,6 +16935,16 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					c = Vec3((f32)fields["subsurfaceColor"][0].get<double>(), (f32)fields["subsurfaceColor"][1].get<double>(), (f32)fields["subsurfaceColor"][2].get<double>());
 				gm->SetSubsurface(c, (f32)fields["subsurface"].get<double>());
 			}
+			// "emission" strength, "emissionColor" [r,g,b], "emissionUsesColorMap"
+			if (fields.is_object() && (fields.contains("emission") || fields.contains("emissionColor") || fields.contains("emissionUsesColorMap")))
+			{
+				Vec3 c = gm->GetEmissionColor();
+				if (fields.contains("emissionColor") && fields["emissionColor"].is_array() && fields["emissionColor"].size() >= 3)
+					c = Vec3((f32)fields["emissionColor"][0].get<double>(), (f32)fields["emissionColor"][1].get<double>(), (f32)fields["emissionColor"][2].get<double>());
+				const f32 strength = fields.contains("emission") && fields["emission"].is_number() ? (f32)fields["emission"].get<double>() : gm->GetEmissionStrength();
+				const bool usesMap = fields.contains("emissionUsesColorMap") && fields["emissionUsesColorMap"].is_boolean() ? fields["emissionUsesColorMap"].get<bool>() : gm->GetEmissionUsesColorMap();
+				gm->SetEmission(c, strength, usesMap);
+			}
 		}
 		if (fields.is_object() && fields.contains("opacity")) mat->SetOpacity((f32)fields["opacity"].get<double>());
 		if (fields.is_object() && fields.contains("transparent")) mat->SetTransparencyFlag(fields["transparent"].get<bool>());
@@ -16970,6 +16980,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			j["ssr"] = gm->IsSSREnabled();
 			j["subsurface"] = gm->GetSubsurfaceStrength();
 			j["subsurfaceColor"] = { gm->GetSubsurfaceColor().x, gm->GetSubsurfaceColor().y, gm->GetSubsurfaceColor().z };
+			j["emission"] = gm->GetEmissionStrength();
+			j["emissionColor"] = { gm->GetEmissionColor().x, gm->GetEmissionColor().y, gm->GetEmissionColor().z };
+			j["emissionUsesColorMap"] = gm->GetEmissionUsesColorMap();
 			j["alphaCutoff"] = gm->GetAlphaCutoff();
 		}
 		j["opacity"] = mat->GetOpacity();

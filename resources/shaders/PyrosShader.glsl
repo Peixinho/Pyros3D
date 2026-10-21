@@ -941,6 +941,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // GenericShaderMaterial::SetWetness(): x how wet (0 dry, 1 soaked), y how much of the
         // ground lies under puddles (0..1), z the size of a puddle in metres. 112 bytes.
         vec4 uWetness;
+        // GenericShaderMaterial::SetEmission(): xyz the light the surface gives off itself (colour
+        // times strength, in the same units as a light's radiance), w 1 when that is multiplied by
+        // the colour map's texel (a lit sign, a window at night). 128 bytes.
+        vec4 uEmission;
     };
 
     // Set around a shadow lookup made for light under the surface: how far
@@ -1960,12 +1964,17 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             #endif
         #endif
 
+        // The light the surface gives off itself (GenericShaderMaterial::SetEmission): added after
+        // all lighting - in forward to the colour drawn, in deferred to the G-buffer's additive term.
+        vec3 p3d_Emission = uEmission.xyz;
         #ifdef TEXTURE
+            vec4 _colorTexel = texture_2D(uColormap,Texcoord);
             if (!diffuseIsSet)
             {
-                diffuse=texture_2D(uColormap,Texcoord);
+                diffuse=_colorTexel;
                 diffuseIsSet=true;
-            } else diffuse *= texture_2D(uColormap,Texcoord);
+            } else diffuse *= _colorTexel;
+            if (uEmission.w > 0.5) p3d_Emission *= _colorTexel.rgb;
         #endif
 
         #if defined(VERTEXCOLOR) && !defined(DEBUGRENDERING)
@@ -2451,8 +2460,11 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// or a metal's specular is scaled to nothing. Metallic is
 		// quantised the way the RGBA8 target will store it, so the
 		// divide and the multiply are the same number.
+		_indirect += p3d_Emission;
 		float _mq = floor(clamp(metallic, 0.0, 1.0) * 255.0 + 0.5) / 255.0;
 		_indirect /= max(1.0 - _mq, 1.0 / 64.0);
+	#else
+		_indirect += p3d_Emission;
 	#endif
 		FragData_r=vec4(diffuse.xyz,_indirect.x);
 		// RGB is the second pass's F0 *tint*, not a Blinn-Phong specular
@@ -2530,6 +2542,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// a no-op write on some macOS GL drivers while Vulkan was fine.
 		FragColor = vec4(a - b, 0.0, 1.0);
 	#elif !defined(DEFERRED_GBUFFER)
+		#ifndef CASTSHADOWS
+		// (divided by the alpha it is blended with: glass that glows gives its light whatever it lets through)
+		diffuse.xyz += p3d_Emission / max(diffuse.w * uOpacity, 1.0 / 64.0);
+		#endif
 		FragColor = vec4(diffuse.xyz,diffuse.w*uOpacity);
 	#endif
 	// !defined(VELOCITY_RENDERING) && defined(DEFERRED_GBUFFER): no write

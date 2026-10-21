@@ -97,6 +97,17 @@ namespace p3d
 		f32 GetWetness() const { return Wetness.x; }
 		f32 GetPuddles() const { return Wetness.y; }
 		f32 GetPuddleSize() const { return Wetness.z; }
+		// Light the surface gives off itself - a lamp's glass, a lit window, a sign: `color` times
+		// `strength`, in a light's units (1 is as bright as a white surface lit by a light of
+		// intensity 1), added after all lighting. With `usesColorMap` the colour map's texel shapes
+		// it (a sign glows in its own letters). Seen by DDGI as light, so it lights what is round it.
+		// Strength 0: none.
+		void SetEmission(const Vec3 &color, const f32 strength, const bool usesColorMap = false);
+		const Vec3 &GetEmissionColor() const { return EmissionColor; }
+		f32 GetEmissionStrength() const { return EmissionStrength; }
+		bool GetEmissionUsesColorMap() const { return EmissionUsesColorMap; }
+		// colour times strength: what the surface gives off where its colour map is white
+		Vec3 GetEmission() const { return EmissionColor * EmissionStrength; }
 
 		// Alpha cutoff for ShaderUsage::AlphaTest - fragments whose alpha
 		// falls below this are discarded outright. Ignored entirely by a
@@ -247,6 +258,11 @@ namespace p3d
 		// See SetSubsurface(): xyz the colour, w the strength.
 		Vec4 Subsurface = Vec4(1.f, 0.35f, 0.2f, 0.f);
 		Vec4 Wetness = Vec4(0.f, 0.f, 3.f, 0.f);
+		// See SetEmission(). Emission is the uniform: xyz colour times strength, w uses the colour map.
+		Vec3 EmissionColor = Vec3(1.f, 1.f, 1.f);
+		f32 EmissionStrength = 0.f;
+		bool EmissionUsesColorMap = false;
+		Vec4 Emission = Vec4(0.f, 0.f, 0.f, 0.f);
 		// See SetWind(). Not in the MaterialUniforms mirror - it travels in
 		// ObjectMatrixUniforms because it is needed in the vertex stage.
 		Vec4 Wind;
@@ -265,6 +281,7 @@ namespace p3d
 		Uniform *uAlphaCutoffUniform = NULL;
 		Uniform *uSubsurfaceUniform = NULL;
 		Uniform *uWetnessUniform = NULL;
+		Uniform *uEmissionUniform = NULL;
 	};
 }
 

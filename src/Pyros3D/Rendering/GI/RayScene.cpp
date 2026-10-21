@@ -339,12 +339,17 @@ namespace p3d {
 						mat.albedo = Vec3(c.x, c.y, c.z);
 						// times its picture's average: a textured material's colour is mostly white,
 						// and a white road bounced every bit of the sun back up
+						Vec3 mapAverage(1.f, 1.f, 1.f);
 						if (Texture *cm = gm->GetColorMap())
 						{
 							// (kept by the texture when it was loaded; else read from its file, once)
 							Vec3 avg;
-							mat.albedo = mat.albedo * (cm->GetAverageColour(avg) ? avg : AverageColour(cm->GetFilename()));
+							mapAverage = cm->GetAverageColour(avg) ? avg : AverageColour(cm->GetFilename());
+							mat.albedo = mat.albedo * mapAverage;
 						}
+						// what it gives off itself (SetEmission): a lit window lights the room it is in
+						mat.emissive = gm->GetEmission();
+						if (gm->GetEmissionUsesColorMap()) mat.emissive = mat.emissive * mapAverage;
 					}
 					const uint32 materialIndex = (uint32)materials.size();
 					materials.push_back(mat);

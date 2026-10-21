@@ -10,6 +10,7 @@
 #include <Pyros3D/Assets/Font/Font.h>
 #include <Pyros3D/Resources/Resources.h>
 #include <cstring>
+#include <algorithm>
 
 namespace p3d
 {
@@ -335,7 +336,7 @@ namespace p3d
 		f.Value(envMapID); f.Value(skyboxMapID); f.Value(refractMapID); f.Value(fontMapID); f.Value(metallicRoughnessMapID);
 		f.Vec(Ke); f.Vec(Ka); f.Vec(Kd); f.Vec(Ks); f.Vec(Wind); f.Vec(Vec4(LightThrough, 0.f, 0.f, 0.f));
 		f.Value(Shininess); f.Value(UseLights); f.Value(displacementHeight); f.Value(Reflectivity);
-		f.Value(Metallic); f.Value(Roughness); f.Value(SSREnabled); f.Value(AlphaCutoff); f.Vec(Subsurface); f.Vec(Wetness);
+		f.Value(Metallic); f.Value(Roughness); f.Value(SSREnabled); f.Value(AlphaCutoff); f.Vec(Subsurface); f.Vec(Wetness); f.Vec(Emission);
 		// IMaterial's render state.
 		f.Value(isWireFrame); f.Value(forceDepthWrite); f.Value(depthTest); f.Value(depthWrite); f.Value(depthTestMode);
 		f.Value(isCastingShadows); f.Value(cullFace); f.Value(isTransparent); f.Value(opacity);
@@ -467,6 +468,7 @@ namespace p3d
 		m->SetAlphaCutoff(AlphaCutoff);
 		if (Subsurface.w > 0.f) m->SetSubsurface(Vec3(Subsurface.x, Subsurface.y, Subsurface.z), Subsurface.w);
 		if (Wetness.x > 0.f || Wetness.y > 0.f) m->SetWetness(Wetness.x, Wetness.y, Wetness.z);
+		if (EmissionStrength > 0.f) m->SetEmission(EmissionColor, EmissionStrength, EmissionUsesColorMap);
 		m->Wind = Wind;
 		m->LightThrough = LightThrough;
 		m->Ke = Ke;
@@ -674,6 +676,19 @@ namespace p3d
 			uWetnessUniform = AddUniform(Uniform("uWetness", Uniforms::DataType::Vec4, &Wetness));
 		else
 			uWetnessUniform->SetValue(&Wetness);
+	}
+
+	void GenericShaderMaterial::SetEmission(const Vec3 &color, const f32 strength, const bool usesColorMap)
+	{
+		EmissionColor = Vec3(std::max(color.x, 0.f), std::max(color.y, 0.f), std::max(color.z, 0.f));
+		EmissionStrength = std::max(strength, 0.f);
+		EmissionUsesColorMap = usesColorMap;
+		const Vec3 e = EmissionColor * EmissionStrength;
+		Emission = Vec4(e.x, e.y, e.z, usesColorMap ? 1.f : 0.f);
+		if (!uEmissionUniform)
+			uEmissionUniform = AddUniform(Uniform("uEmission", Uniforms::DataType::Vec4, &Emission));
+		else
+			uEmissionUniform->SetValue(&Emission);
 	}
 
 	void GenericShaderMaterial::SetSubsurface(const Vec3 &color, const f32 strength)

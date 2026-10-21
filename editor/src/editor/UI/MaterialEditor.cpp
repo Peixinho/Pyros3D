@@ -1006,6 +1006,7 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 		fresh->SetRoughness(gm->GetRoughness());
 		fresh->SetSSREnabled(gm->IsSSREnabled());
 		fresh->SetSubsurface(gm->GetSubsurfaceColor(), gm->GetSubsurfaceStrength());
+		fresh->SetEmission(gm->GetEmissionColor(), gm->GetEmissionStrength(), gm->GetEmissionUsesColorMap());
 		fresh->SetAlphaCutoff(gm->GetAlphaCutoff());
 		fresh->SetShininess(gm->GetShininess());
 		fresh->SetReflectivity(gm->GetReflectivity());
@@ -1088,6 +1089,23 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 		{ static Vec4 baseline; UndoMaterialValue<Vec4>(doc, baseline, Vec4(gm->GetSubsurfaceColor().x, gm->GetSubsurfaceColor().y, gm->GetSubsurfaceColor().z, gm->GetSubsurfaceStrength()),
 			[](MaterialEditorDocument* d, const Vec4& v) { if (auto* g = dynamic_cast<GenericShaderMaterial*>(d->currentMaterial.get())) { g->SetSubsurface(Vec3(v.x, v.y, v.z), v.w); d->dirty = true; } },
 			"Set Subsurface Color"); }
+	}
+
+	// Light the surface gives off itself (lamp glass, lit windows, signs): see GenericShaderMaterial::SetEmission.
+	{
+		Vec4 em(gm->GetEmissionColor().x, gm->GetEmissionColor().y, gm->GetEmissionColor().z, gm->GetEmissionStrength());
+		bool changed = ImGui::DragFloat("Emission", &em.w, 0.05f, 0.f, 200.f, "%.2f");
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("Light the surface gives off itself, added after lighting - a lamp's glass, a lit window.\n"
+			"1 is as bright as a white surface under a light of intensity 1; 0 is off. DDGI sees it as light.");
+		float ec[3] = { em.x, em.y, em.z };
+		if (ImGui::ColorEdit3("Emission Color", ec)) { em.x = ec[0]; em.y = ec[1]; em.z = ec[2]; changed = true; }
+		bool usesMap = gm->GetEmissionUsesColorMap();
+		if (ImGui::Checkbox("Emission From Color Map", &usesMap)) changed = true;
+		if (ImGui::IsItemHovered()) ImGui::SetTooltip("The colour map's picture shapes the light: a sign glows in its own letters.");
+		if (changed) { gm->SetEmission(Vec3(em.x, em.y, em.z), em.w, usesMap); doc.dirty = true; }
+		{ static Vec4 baseline; UndoMaterialValue<Vec4>(doc, baseline, Vec4(gm->GetEmissionColor().x, gm->GetEmissionColor().y, gm->GetEmissionColor().z, gm->GetEmissionStrength()),
+			[](MaterialEditorDocument* d, const Vec4& v) { if (auto* g = dynamic_cast<GenericShaderMaterial*>(d->currentMaterial.get())) { g->SetEmission(Vec3(v.x, v.y, v.z), v.w, g->GetEmissionUsesColorMap()); d->dirty = true; } },
+			"Set Emission"); }
 	}
 
 	float alphaCutoff = gm->GetAlphaCutoff();

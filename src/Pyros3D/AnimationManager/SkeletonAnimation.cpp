@@ -1810,6 +1810,47 @@ namespace p3d {
 					(*j)->ShadowSkinningBones[(*k).second] = ((size_t)b < scaledShadow.size() && scaledShadow[b]) ? preShadow[b] * skin : skin;
 			}
 		}
+
+		// The box the posed body takes up. The model's own bounds are its unskinned vertices',
+		// which a rig scales (an armature made in centimetres, its clips scaling it to metres): a
+		// person scaled 0.555 had a box 98 m high - never culled, never small, and in the reach of
+		// every light's shadow. Every skinned vertex is a weighted mix of its bones' transforms of
+		// itself, so it lies in the union of each bone's transform of the mesh's box: that union,
+		// over the level drawn nearest. Given to the component, and to the owner when it differs
+		// by more than a twentieth (not every frame's swing of an arm).
+		{
+			bool any = false;
+			Vec3 mn, mx;
+			const std::vector<RenderingMesh*> &level0 = rcomp->GetMeshes(0);
+			for (size_t m = 0; m < level0.size(); m++)
+			{
+				RenderingMesh* rm = level0[m];
+				if (rm == NULL || rm->Geometry == NULL || rm->SkinningBones.empty()) continue;
+				const Vec3 a = rm->Geometry->GetBoundingMinValue(), c = rm->Geometry->GetBoundingMaxValue();
+				for (size_t bi = 0; bi < rm->SkinningBones.size(); bi++)
+					for (int corner = 0; corner < 8; corner++)
+					{
+						const Vec3 p((corner & 1) ? c.x : a.x, (corner & 2) ? c.y : a.y, (corner & 4) ? c.z : a.z);
+						const Vec3 q = rm->SkinningBones[bi] * p;
+						if (!any) { mn = mx = q; any = true; }
+						else
+						{
+							mn.x = std::min(mn.x, q.x); mn.y = std::min(mn.y, q.y); mn.z = std::min(mn.z, q.z);
+							mx.x = std::max(mx.x, q.x); mx.y = std::max(mx.y, q.y); mx.z = std::max(mx.z, q.z);
+						}
+					}
+			}
+			if (any)
+			{
+				const Vec3 omn = rcomp->GetBoundingMinValue(), omx = rcomp->GetBoundingMaxValue();
+				const f32 size = std::max((mx - mn).magnitude(), 1e-4f);
+				if ((mn - omn).magnitude() > size * 0.05f || (mx - omx).magnitude() > size * 0.05f)
+				{
+					rcomp->SetBounds(mn, mx);
+					if (rcomp->GetOwner() != NULL) rcomp->GetOwner()->RefreshComponentBounds();
+				}
+			}
+		}
 	}
 
 	void SkeletonAnimationInstance::ApplyPose(const std::vector<Matrix> &localTransforms)

@@ -262,6 +262,8 @@ namespace p3d {
 		lua->set_function("getLODCrossfade", []() { return RenderingComponent::GetLODCrossfade(); });
 		// What the big still things in view hide is not drawn (OcclusionBuffer); on unless said.
 		lua->set_function("setOcclusionCulling", [](const bool on) { OcclusionBuffer::SetEnabled(on); });
+		// setShadowBudget(pointLights [, spotLights]) - how many of each may cast shadows in a frame (0: no limit)
+		lua->set_function("setShadowBudget", [](const uint32 point, sol::optional<uint32> spot) { IRenderer::SetShadowBudget(point, spot.value_or(point)); });
 		lua->set_function("getOcclusionCulling", []() { return OcclusionBuffer::GetEnabled(); });
 		lua->set_function("getLODDistanceScale", []() { return RenderingComponent::GetLODDistanceScale(); });
 		// setShadowUpdateInterval(2): the sun's shadow map every other frame.

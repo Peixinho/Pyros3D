@@ -895,6 +895,12 @@ namespace p3d {
 			{
 				m["wetness"] = gm->GetWetness(); m["puddles"] = gm->GetPuddles(); m["puddleSize"] = gm->GetPuddleSize();
 			}
+			if (gm->GetEmissionStrength() > 0.f)
+			{
+				const Vec3 e = gm->GetEmissionColor();
+				m["emission"] = { e.x, e.y, e.z }; m["emissionStrength"] = gm->GetEmissionStrength();
+				if (gm->GetEmissionUsesColorMap()) m["emissionUsesColorMap"] = true;
+			}
 			if (gm->GetSubsurfaceStrength() > 0.f)
 			{
 				const Vec3 sc = gm->GetSubsurfaceColor();
@@ -1548,6 +1554,21 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				{
 					j["wetness"] = g0->GetWetness(); j["puddles"] = g0->GetPuddles(); j["puddleSize"] = g0->GetPuddleSize();
 				}
+				// (each of its surfaces that gives off light, by the model's own name for it - once each)
+				json emission = json::array();
+				std::set<std::string> named;
+				for (size_t m = 0; m < ms.size(); m++)
+				{
+					GenericShaderMaterial* g = ms[m] ? dynamic_cast<GenericShaderMaterial*>(ms[m]->Material.get()) : NULL;
+					if (!g || g->GetEmissionStrength() <= 0.f || !ms[m]->Geometry) continue;
+					const std::string &name = ms[m]->Geometry->materialProperties.Name;
+					if (!named.insert(name).second) continue;
+					const Vec3 c = g->GetEmissionColor();
+					json e = { { "material", name }, { "color", { c.x, c.y, c.z } }, { "strength", g->GetEmissionStrength() } };
+					if (g->GetEmissionUsesColorMap()) e["usesColorMap"] = true;
+					emission.push_back(e);
+				}
+				if (!emission.empty()) j["emission"] = emission;
 			}
 			if (!isGenerated)
 			{
@@ -3311,6 +3332,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (j.value("ssrEnabled", false)) gm->SetSSRStrength(j.value("ssrStrength", 1.f));
 			if (j.value("wetness", 0.f) > 0.f || j.value("puddles", 0.f) > 0.f)
 				gm->SetWetness(j.value("wetness", 0.f), j.value("puddles", 0.f), j.value("puddleSize", 3.f));
+			// "emission": [r, g, b], "emissionStrength", "emissionUsesColorMap" - GenericShaderMaterial::SetEmission
+			if (j.find("emission") != j.end() && j["emission"].is_array() && j["emission"].size() >= 3 && j.value("emissionStrength", 0.f) > 0.f)
+				gm->SetEmission(Vec3(j["emission"][0].get<f32>(), j["emission"][1].get<f32>(), j["emission"][2].get<f32>()),
+					j.value("emissionStrength", 0.f), j.value("emissionUsesColorMap", false));
 			if (j.find("subsurface") != j.end() && j["subsurface"].is_number())
 			{
 				Vec3 c = gm->GetSubsurfaceColor();
@@ -3944,6 +3969,31 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					for (size_t m = 0; m < ms.size(); m++)
 						if (GenericShaderMaterial* g = ms[m] ? dynamic_cast<GenericShaderMaterial*>(ms[m]->Material.get()) : NULL)
 							g->SetWetness(j.value("wetness", 0.f), j.value("puddles", 0.f), j.value("puddleSize", 3.f));
+				}
+			// "emission": [{ "material": <the model's own material name>, "color": [r, g, b], "strength",
+			// "usesColorMap" }] - which of a model's surfaces give off light (a lamp's glass and bulb, not
+			// its post): its package says nothing of it. The name is the one the model was made with
+			// (RenderingMesh's Geometry materialProperties.Name); "*" is all of them.
+			if (j.find("emission") != j.end() && j["emission"].is_array())
+				for (const json &e : j["emission"])
+				{
+					if (!e.is_object()) continue;
+					const std::string name = e.value("material", std::string("*"));
+					Vec3 c(1.f, 1.f, 1.f);
+					if (e.find("color") != e.end() && e["color"].is_array() && e["color"].size() >= 3)
+						c = Vec3(e["color"][0].get<f32>(), e["color"][1].get<f32>(), e["color"][2].get<f32>());
+					const f32 strength = e.value("strength", 1.f);
+					const bool usesMap = e.value("usesColorMap", false);
+					for (uint32 l = 0; l < rc->GetLODSize(); l++)
+					{
+						std::vector<RenderingMesh*> &ms = rc->GetMeshes(l);
+						for (size_t m = 0; m < ms.size(); m++)
+						{
+							if (!ms[m] || !ms[m]->Geometry || (name != "*" && ms[m]->Geometry->materialProperties.Name != name)) continue;
+							if (GenericShaderMaterial* g = dynamic_cast<GenericShaderMaterial*>(ms[m]->Material.get()))
+								g->SetEmission(c, strength, usesMap);
+						}
+					}
 				}
 			go->AddComponent(rc);
 
