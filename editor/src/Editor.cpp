@@ -3124,6 +3124,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	}
 	// Cloth component: get_cloth / add_cloth / set_cloth {name|id, settings} / remove_cloth
 	// (set_cloth in Play changes the running cloth; see SceneEditorCloth.cpp).
+	// Navigation mesh: get_navmesh / bake_navmesh {settings} / show_navmesh {on} /
+	// nav_path {from, to} / clear_navmesh (see SceneEditorNav.cpp).
+	if (name == "get_navmesh" || name == "bake_navmesh" || name == "show_navmesh" || name == "nav_path" || name == "clear_navmesh")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentNavigation(name, a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "get_cloth" || name == "add_cloth" || name == "set_cloth" || name == "remove_cloth")
 	{
 		nlohmann::json r;

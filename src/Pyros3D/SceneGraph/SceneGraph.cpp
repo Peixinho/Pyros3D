@@ -6,6 +6,8 @@
 // Description : SceneGraph
 //============================================================================
 
+#include <Pyros3D/Utils/Navigation/Crowd.h>
+#include <Pyros3D/Utils/Navigation/NavMesh.h>
 #include <cstdio>
 #include <cctype>
 #include <map>
@@ -680,4 +682,10 @@ namespace p3d {
 			CollectSubtree(_GameObjectListALL[i].get(), out, seen);
 	}
 
+
+	Crowd* SceneGraph::GetCrowd()
+	{
+		if (!crowd) crowd = std::make_shared<Crowd>();
+		return crowd.get();
+	}
 };

@@ -1685,6 +1685,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (terrainTools && !playMode) terrainTools->DrawOverlay(debugRenderer, scene);
 			if (terrainTools && !playMode) DrawTerrainRiverOverlay();
 			if (showCellGrid && !playMode) DrawCellGrid(debugRenderer, viewCam);
+			DrawNavMeshOverlay();
 			if (debugRenderer)
 				debugRenderer->Render(viewCam->GetWorldTransformation().Inverse(),
 					(isPerspective ? projection : projectionOrtho).GetProjectionMatrix());
@@ -5392,6 +5393,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			if (ImGui::SliderFloat("Early##reverb", &reverbEarly, 0.f, 1.5f, "%.2f")) sceneDirty = true;
 			if (ImGui::IsItemHovered()) ImGui::SetTooltip("The first distinct reflections (the slap off a facade) against the tail.");
 		}
+		DrawNavigationSettings();
 		// Separate from the ambient on purpose: when the two matched (both
 		// were 0.2 grey) every unlit surface came out exactly the background
 		// value and became invisible - which in Deferred reads as the
@@ -9666,6 +9668,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			meta.terrainShadowsReach = terrainShadowsReach;
 			meta.reverb = reverbOn; meta.reverbRoom = reverbRoom; meta.reverbDamping = reverbDamping;
 			meta.reverbWet = reverbWet; meta.reverbPreDelay = reverbPreDelay; meta.reverbEarly = reverbEarly;
+			meta.navigation = navOn; meta.navSettings = navSettings; meta.navBaked = navBaked;
 			meta.background = backgroundColor;
 			meta.ambientMode = (uint32)ambientMode;
 			for (uint32 i = 0; i < 3; i++) meta.ddgiCounts[i] = (uint32)Max(2, ddgiCounts[i]);
@@ -9944,6 +9947,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			terrainShadowsReach = meta.terrainShadowsReach;
 			reverbOn = meta.reverb; reverbRoom = meta.reverbRoom; reverbDamping = meta.reverbDamping;
 			reverbWet = meta.reverbWet; reverbPreDelay = meta.reverbPreDelay; reverbEarly = meta.reverbEarly;
+			navOn = meta.navigation; navSettings = meta.navSettings; navBaked = meta.navBaked;
+			navOverlayOf = NULL; navOverlayTris.clear(); navOverlayPath.clear();
 			backgroundColor = meta.background;
 			ambientMode = (int)meta.ambientMode;
 			for (uint32 i = 0; i < 3; i++) ddgiCounts[i] = (int)meta.ddgiCounts[i];

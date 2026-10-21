@@ -2819,6 +2819,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			root["ambientIntensity"] = meta->ambientIntensity;
 			if (meta->terrainShadowsBaked)
 				root["terrainShadows"] = { { "baked", true }, { "resolution", meta->terrainShadowsResolution }, { "reach", meta->terrainShadowsReach } };
+			if (meta->navigation)
+			{
+				const NavMeshSettings &ns = meta->navSettings;
+				json nj = { { "agentRadius", ns.agentRadius }, { "agentHeight", ns.agentHeight }, { "agentMaxClimb", ns.agentMaxClimb },
+					{ "agentMaxSlope", ns.agentMaxSlope }, { "cellSize", ns.cellSize }, { "cellHeight", ns.cellHeight }, { "tileSize", ns.tileSize },
+					{ "regionMinSize", ns.regionMinSize } };
+				if (!meta->navBaked.empty()) nj["baked"] = meta->navBaked;
+				root["navigation"] = nj;
+			}
 			if (meta->reverb)
 				root["audio"] = { { "reverb", { { "room", meta->reverbRoom }, { "damping", meta->reverbDamping }, { "wet", meta->reverbWet },
 					{ "preDelay", meta->reverbPreDelay }, { "early", meta->reverbEarly } } } };
@@ -5432,6 +5441,17 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				outMeta->ambientLight = Vec4(al[0].get<f32>(), al[1].get<f32>(), al[2].get<f32>(), al[0].get<f32>());
 			if (root.contains("ambientIntensity") && root["ambientIntensity"].is_number())
 				outMeta->ambientIntensity = root["ambientIntensity"].get<f32>();
+			if (root.contains("navigation") && root["navigation"].is_object())
+			{
+				const json &nj = root["navigation"];
+				NavMeshSettings &ns = outMeta->navSettings;
+				outMeta->navigation = true;
+				ns.agentRadius = nj.value("agentRadius", ns.agentRadius); ns.agentHeight = nj.value("agentHeight", ns.agentHeight);
+				ns.agentMaxClimb = nj.value("agentMaxClimb", ns.agentMaxClimb); ns.agentMaxSlope = nj.value("agentMaxSlope", ns.agentMaxSlope);
+				ns.cellSize = nj.value("cellSize", ns.cellSize); ns.cellHeight = nj.value("cellHeight", ns.cellHeight);
+				ns.tileSize = nj.value("tileSize", ns.tileSize); ns.regionMinSize = nj.value("regionMinSize", ns.regionMinSize);
+				outMeta->navBaked = nj.value("baked", std::string());
+			}
 			if (root.contains("audio") && root["audio"].is_object() && root["audio"].contains("reverb") && root["audio"]["reverb"].is_object())
 			{
 				const json &rv = root["audio"]["reverb"];
@@ -5640,6 +5660,18 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 
 		// Every object exists now, so IK targets can finally be bound.
 		ResolvePendingIKTargets(scene);
+
+		// The navigation mesh the editor baked, onto the scene (scripts: getNavMesh(scene)).
+		if (root.contains("navigation") && root["navigation"].is_object())
+		{
+			const std::string baked = root["navigation"].value("baked", std::string());
+			if (!baked.empty())
+			{
+				std::shared_ptr<NavMesh> nm = std::make_shared<NavMesh>();
+				if (nm->Load(ResolveSceneAssetPath(baked))) scene->SetNavMesh(nm);
+				else echo("WARNING: the navigation mesh " + baked + " did not load - bake it again (Scene > Navigation)");
+			}
+		}
 
 		g_sceneAssetRoot.clear();
 		if (LoadStats::TraceEnabled())

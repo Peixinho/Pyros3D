@@ -14,3 +14,6 @@
 [submodule "src/Pyros3D/Ext/monocypher"]
 	path = src/Pyros3D/Ext/monocypher
 	url = https://github.com/LoupVaillant/Monocypher.git
+[submodule "src/Pyros3D/Ext/recastnavigation"]
+	path = src/Pyros3D/Ext/recastnavigation
+	url = https://github.com/recastnavigation/recastnavigation.git

@@ -13,6 +13,8 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Utils/Navigation/Crowd.h>
+#include <Pyros3D/Utils/Navigation/NavMesh.h>
+#include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -850,6 +852,58 @@ end
 			//   crowd:setPreferredVelocity(id, vx, vz)   where it wants to go, per second
 			//   crowd:setPosition(id, x, z)   crowd:setMaxSpeed(id, s)   crowd:setFixed(id, true)
 			//   crowd:update(dt)   then   local x, z = crowd:getPosition(id)   crowd:getVelocity(id)
+			// A navigation mesh (NavMesh.h): built from the level, asked the way.
+			//
+			//   local nav = NavMesh.new()
+			//   nav:addScene(scene)                       -- the static objects' meshes
+			//   nav:build({ agentRadius = 0.4, agentMaxClimb = 0.4 })
+			//   local reached, pts = nav:findPath(x0, y0, z0, x1, y1, z1)
+			//   for i, p in ipairs(pts) do ... p.x, p.y, p.z, p.link (a jump starts here) end
+			lua->new_usertype<NavMesh>("NavMesh",
+				sol::constructors<NavMesh()>(),
+				"addScene", [](NavMesh &n, SceneGraph* sc, sol::optional<bool> staticOnly) { n.AddScene(sc, staticOnly.value_or(true)); },
+				"addObject", [](NavMesh &n, GameObject* go, sol::optional<bool> kids) { n.AddObject(go, kids.value_or(true)); },
+				"clearGeometry", &NavMesh::ClearGeometry,
+				"addLink", [](NavMesh &n, f32 ax, f32 ay, f32 az, f32 bx, f32 by, f32 bz, sol::optional<f32> r, sol::optional<bool> both) {
+					n.AddLink(Vec3(ax, ay, az), Vec3(bx, by, bz), r.value_or(0.5f), both.value_or(false)); },
+				"clearLinks", &NavMesh::ClearLinks,
+				"build", [](NavMesh &n, sol::optional<sol::table> t) {
+					NavMeshSettings st;
+					if (t)
+					{
+						sol::table o = *t;
+						st.agentRadius = o.get_or("agentRadius", st.agentRadius); st.agentHeight = o.get_or("agentHeight", st.agentHeight);
+						st.agentMaxClimb = o.get_or("agentMaxClimb", st.agentMaxClimb); st.agentMaxSlope = o.get_or("agentMaxSlope", st.agentMaxSlope);
+						st.cellSize = o.get_or("cellSize", st.cellSize); st.cellHeight = o.get_or("cellHeight", st.cellHeight);
+						st.tileSize = o.get_or("tileSize", st.tileSize); st.regionMinSize = o.get_or("regionMinSize", st.regionMinSize);
+					}
+					return n.Build(st); },
+				"findPath", [](NavMesh &n, f32 fx, f32 fy, f32 fz, f32 tx, f32 ty, f32 tz, sol::this_state L) {
+					std::vector<Vec3> pts;
+					const bool reached = n.FindPath(Vec3(fx, fy, fz), Vec3(tx, ty, tz), pts);
+					sol::state_view lv(L); sol::table t = lv.create_table();
+					for (size_t i = 0; i < pts.size(); i++)
+					{
+						sol::table p = lv.create_table();
+						p["x"] = pts[i].x; p["y"] = pts[i].y; p["z"] = pts[i].z; p["link"] = n.IsLinkPoint((uint32)i);
+						t[i + 1] = p;
+					}
+					return std::make_tuple(reached, t); },
+				"nearest", [](NavMesh &n, f32 x, f32 y, f32 z) { Vec3 o; const bool ok = n.NearestPoint(Vec3(x, y, z), o); return std::make_tuple(ok, o.x, o.y, o.z); },
+				"raycast", [](NavMesh &n, f32 fx, f32 fy, f32 fz, f32 tx, f32 ty, f32 tz) { Vec3 h; const bool clear = n.Raycast(Vec3(fx, fy, fz), Vec3(tx, ty, tz), h); return std::make_tuple(clear, h.x, h.y, h.z); },
+				"randomPoint", [](NavMesh &n, sol::optional<f32> x, sol::optional<f32> y, sol::optional<f32> z, sol::optional<f32> r) {
+					Vec3 o; const bool ok = n.RandomPoint(o, Vec3(x.value_or(0.f), y.value_or(0.f), z.value_or(0.f)), r.value_or(0.f)); return std::make_tuple(ok, o.x, o.y, o.z); },
+				"save", &NavMesh::Save,
+				"load", &NavMesh::Load,
+				"isBuilt", &NavMesh::IsBuilt,
+				"triangles", &NavMesh::GetTriangleCount,
+				"polygons", &NavMesh::GetPolygonCount,
+				"tiles", &NavMesh::GetTileCount,
+				"buildMs", &NavMesh::GetBuildMilliseconds);
+			// The scene's own, baked in the editor and loaded with it (nil: it has none).
+			//   local nav = getNavMesh(scene)
+			lua->set_function("getNavMesh", [](SceneGraph* sc) -> NavMesh* { return sc ? sc->GetNavMesh() : nullptr; });
+
 			lua->new_usertype<Crowd>("Crowd",
 				sol::constructors<Crowd(), Crowd(f32)>(),
 				"add", [](Crowd &c, f32 x, f32 z, sol::optional<f32> r, sol::optional<f32> s) { return c.Add(Vec2(x, z), r.value_or(0.3f), s.value_or(1.5f)); },

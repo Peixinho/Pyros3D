@@ -511,6 +511,14 @@ public:
 	// The scene's space (SceneMeta::reverb): heard on the world bus while this document's
 	// view is the one listening; the Environment panel's "Sound of the space".
 	bool reverbOn = false;
+	// The scene's navigation (SceneEditorNav.cpp): the settings it bakes with, the file it baked,
+	// and the overlay (the mesh's triangles, read once a mesh, and the last nav_path asked).
+	bool navOn = false;
+	NavMeshSettings navSettings;
+	std::string navBaked;
+	bool showNavMesh = false;
+	const NavMesh* navOverlayOf = NULL;
+	std::vector<Vec3> navOverlayTris, navOverlayPath;
 	// The decal tool (the Environment panel's "Decals", place_decal): a texture projected onto what a click
 	// in the view lands on - a RenderingComponent on the object hit, saved with the scene.
 	std::string decalTexture;
@@ -1640,6 +1648,9 @@ public:
 	bool AgentAnimator(const std::string& command, const json& args, json& out, std::string& errOut);
 	void DrawClothComponentProperties(GameObject* go, uint32 goId);
 	bool AgentCloth(const std::string& command, const json& args, json& out, std::string& errOut);
+	bool AgentNavigation(const std::string& command, const json& args, json& out, std::string& errOut);
+	void DrawNavigationSettings();
+	void DrawNavMeshOverlay();
 	// The running Animator using this controller (selected object first), or NULL.
 	p3d::Animator* FindLiveAnimator(const std::string& controllerAbs);
 	// Hands an edited controller to every Animator using the file. Returns how many.

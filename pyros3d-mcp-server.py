@@ -5783,6 +5783,16 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       animator_state live: state, progress, blendWeights, layers {name: state}
       animator_preview (path, show, mesh, clips [.p3da], playing, set {param: value},
       state, layer, fade) - the window's own preview, no Play needed
+    Navigation mesh (Scene View; SceneEditorNav.cpp)
+      bake_navmesh (+ any of agentRadius, agentHeight, agentMaxClimb,
+      agentMaxSlope, cellSize, cellHeight, tileSize, regionMinSize) - builds it
+      from the scene's STATIC objects into assets/nav/<scene>.p3dnav and names
+      it in the scene (save_scene to keep that); get_navmesh; show_navmesh
+      (on) - the mesh over the view; nav_path (from [x,y,z], to [x,y,z]) ->
+      reached, points, length (drawn too); clear_navmesh.
+      Lua: getNavMesh(scene) (the baked one), NavMesh.new() + addScene/
+      addObject/addLink/build, :findPath(x0,y0,z0, x1,y1,z1) -> reached,
+      {x,y,z,link}, :nearest, :raycast, :randomPoint, :save/:load.
     Cloth component (Scene View; SceneEditorCloth.cpp)
       get_cloth / add_cloth / set_cloth / remove_cloth (name|id, + any of: pins
       [{side: +y|-y|+x|-x|+z|-z, band}], stretch, bend, density (kg/m2), damping,

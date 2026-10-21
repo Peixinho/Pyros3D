@@ -2621,7 +2621,8 @@ void SceneEditor::DrainPendingOps()
 		const bool ik = cmd == "add_ik" || cmd == "set_ik" || cmd == "remove_ik";
 		const bool animator = cmd == "add_animator" || cmd == "set_animator" || cmd == "remove_animator";
 		const bool cloth = cmd == "add_cloth" || cmd == "set_cloth" || cmd == "remove_cloth";
-		const bool ok = cloth ? AgentCloth(cmd, op, out, err) : animator ? AgentAnimator(cmd, op, out, err) : ik ? AgentIK(cmd, op, out, err)
+		const bool nav = cmd == "bake_navmesh" || cmd == "clear_navmesh";
+		const bool ok = nav ? AgentNavigation(cmd, op, out, err) : cloth ? AgentCloth(cmd, op, out, err) : animator ? AgentAnimator(cmd, op, out, err) : ik ? AgentIK(cmd, op, out, err)
 			: cmd == "move_to_cell" ? AgentMoveToCell(op, out, err)
 			: (network ? AgentNetwork(cmd, op, out, err)
 				: (terrainObject ? AgentTerrainObject(cmd, op, out, err) : AgentTerrain(cmd, op, out, err)));

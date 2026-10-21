@@ -9,6 +9,7 @@
 #ifndef SCENESERIALIZER_H
 #define SCENESERIALIZER_H
 
+#include <Pyros3D/Utils/Navigation/NavMesh.h>
 #include <functional>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
@@ -117,6 +118,11 @@ namespace p3d {
 		// The space the scene's sounds are heard in - AudioManager::SetWorldReverb on its
 		// world bus, which the scene's placed AudioSources go through. "audio": {"reverb":
 		// {room, damping, wet, preDelay, early}}; absent, the scene is dry.
+		// "navigation": {agent settings, baked} - the mesh the editor baked (a .p3dnav, loaded with
+		// the scene onto SceneGraph::GetNavMesh) and the settings it was baked with.
+		bool navigation = false;
+		NavMeshSettings navSettings;
+		std::string navBaked;
 		bool reverb = false;
 		f32 reverbRoom = 0.45f, reverbDamping = 0.35f, reverbWet = 0.22f, reverbPreDelay = 9.f, reverbEarly = 0.8f;
 

@@ -22,6 +22,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Jobs/JobSystem.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Navigation/PathGrid.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Navigation/Crowd.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Navigation/NavMesh.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Navigation/WalkPath2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/LoadStats.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Streaming/AssetBundle.cpp
