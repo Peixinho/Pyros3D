@@ -2383,10 +2383,10 @@ namespace p3d {
 		std::vector<IRenderDevice::RayInstance> instances;
 		rayAlbedo.clear();
 		const std::vector<RenderingComponent*> comps(RenderingComponent::GetRenderingComponents(Scene));
+		rayTracedCasters.clear();
 		for (size_t c = 0; c < comps.size(); c++)
 		{
 			RenderingComponent* rc = comps[c];
-			rc->inRayScene = false;
 			GameObject* owner = rc->GetOwner();
 			if (owner == NULL || !rc->IsActive() || !rc->IsCastingShadows() || rc->IsInstanced()) continue;
 			if (owner->GetDrawWorldPosition().distance(eye) - owner->GetBoundingSphereRadiusWorldSpace() > reach) continue;
@@ -2422,6 +2422,7 @@ namespace p3d {
 				rayAlbedo.push_back(albedo.x); rayAlbedo.push_back(albedo.y); rayAlbedo.push_back(albedo.z); rayAlbedo.push_back(1.f);
 			}
 			rc->inRayScene = all;
+			if (all) rayTracedCasters.insert(rc);
 		}
 		dev.SetRayScene(instances);
 		SetSunCastersLeaveRayTraced(light->GetRayTracedShadows() && light->GetVolumetric().x <= 0.f);

@@ -295,6 +295,9 @@ namespace p3d {
 		// rays also cast - everything shadowed twice.
 		void SetSunCastersLeaveRayTraced(const bool on) { sunLeaveRayTraced = on; }
 		bool sunLeaveRayTraced = false;
+		// What this renderer's ray scene holds (DeferredRenderer::UpdateRayScene): its sun's shadow
+		// map leaves these out. Not a flag on the component - two views of one scene each have their own.
+		std::unordered_set<const RenderingComponent*> rayTracedCasters;
 		// Culling shared out among the job system's workers (off by default: it lost on a scene of four thousand meshes;
 		// on to try it). CullInParallel keeps the meshes `keep`
 		// says yes to, in their order; `keep` is called from several threads

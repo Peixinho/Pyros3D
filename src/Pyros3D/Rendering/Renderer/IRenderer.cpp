@@ -2095,7 +2095,7 @@ bool IRenderer::RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGr
 	T.smallCullEye = smallCullEye; T.smallCullScale = smallCullScale; T.smallCullFactor = smallCullFactor;
 	T.Camera = Camera; T.Scene = Scene; T.Timer = Timer;
 	T.CameraPosition = CameraPosition; T.NearFarPlane = NearFarPlane;
-	T.sunLeaveRayTraced = sunLeaveRayTraced;
+	T.sunLeaveRayTraced = sunLeaveRayTraced; T.rayTracedCasters = rayTracedCasters;
 	T.projection = projection; T.projectionValid = projectionValid;
 	T.ClipPlane = ClipPlane; T.ClipPlaneNumber = ClipPlaneNumber;
 	for (uint32 k = 0; k < 8; k++) T.ClipPlanes[k] = ClipPlanes[k];
@@ -2323,7 +2323,7 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 		IRenderer &T = *B.twin;
 		T.Camera = Camera; T.Scene = Scene; T.Timer = Timer;
 		T.CameraPosition = CameraPosition; T.NearFarPlane = NearFarPlane;
-		T.sunLeaveRayTraced = sunLeaveRayTraced;
+		T.sunLeaveRayTraced = sunLeaveRayTraced; T.rayTracedCasters = rayTracedCasters;
 		T.ProjectionMatrix = ProjectionMatrix; T.ViewMatrix = ViewMatrix; T.ViewProjectionMatrix = ViewProjectionMatrix;
 		T.ProjectionMatrixInverse = ProjectionMatrixInverse; T.ViewMatrixInverse = ViewMatrixInverse;
 		T.PrvProjectionMatrix = PrvProjectionMatrix; T.PrvViewMatrix = PrvViewMatrix;
@@ -2450,7 +2450,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		if ((f & (CullOwner | CullCasts | CullComponentActive)) != (CullOwner | CullCasts | CullComponentActive) || (f & CullTransparent)) return 0;
 		RenderingMesh* m = rmesh[i];
 		RenderingComponent* rc = m->renderingComponent;
-		if (leaveRayTraced && rc->inRayScene) return 0;     // (its rays cast it: SetSunCastersLeaveRayTraced)
+		if (leaveRayTraced && rayTracedCasters.count(rc)) return 0;     // (its rays cast it: SetSunCastersLeaveRayTraced)
 		if (rc->ShadowTooFar()) return 2;           // (too far off to cast: SetShadowDistance)
 		// Something that casts with a mesh of its own for the purpose
 		// (RenderingComponent::SetShadowRenderable): that, once for the
