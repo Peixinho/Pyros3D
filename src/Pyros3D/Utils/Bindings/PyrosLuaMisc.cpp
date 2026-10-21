@@ -18,6 +18,7 @@
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
 #include <Pyros3D/Physics/CharacterController.h>
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
+#include <Pyros3D/Rendering/Culling/OcclusionBuffer.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
@@ -259,6 +260,9 @@ namespace p3d {
 		// Seconds a change of level of detail takes to dissolve one level into the other (0: at once).
 		lua->set_function("setLODCrossfade", [](const f32 s) { RenderingComponent::SetLODCrossfade(s); });
 		lua->set_function("getLODCrossfade", []() { return RenderingComponent::GetLODCrossfade(); });
+		// What the big still things in view hide is not drawn (OcclusionBuffer); on unless said.
+		lua->set_function("setOcclusionCulling", [](const bool on) { OcclusionBuffer::SetEnabled(on); });
+		lua->set_function("getOcclusionCulling", []() { return OcclusionBuffer::GetEnabled(); });
 		lua->set_function("getLODDistanceScale", []() { return RenderingComponent::GetLODDistanceScale(); });
 		// setShadowUpdateInterval(2): the sun's shadow map every other frame.
 		lua->set_function("setShadowUpdateInterval", [](const uint32 frames) { IRenderer::SetShadowUpdateInterval(frames); });

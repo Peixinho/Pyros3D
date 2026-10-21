@@ -9,6 +9,7 @@
 #ifndef DEFERREDRENDERER_H
 #define DEFERREDRENDERER_H
 
+#include <Pyros3D/Rendering/Culling/OcclusionBuffer.h>
 #include <unordered_map>
 
 #include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
@@ -300,6 +301,8 @@ namespace p3d {
 		Uniform *pointPosHandle, *pointRadiusHandle, *pointColorHandle, *pointShadowHandle, *pointShadowDepthsMVPHandle, *pointShadowPCFTexelHandle, *pointHaveShadowHandle, *pointShadowBiasHandle;
 		Uniform *dirAmbientTooHandle = NULL;
 		TerrainOcclusion terrainOcclusion;
+		// What the big still things in view hide (OcclusionBuffer): made again every frame.
+		OcclusionBuffer occlusionBuffer;
 		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle, *dirHorizonMapHandle, *dirHorizonRectHandle, *dirHorizonSunHandle, *dirVolumetricHandle, *dirVolumetricTintHandle, *dirRayShadowHandle, *dirContactHandle = NULL;
 		// Ray-traced sun shadows (DirectionalLight::SetRayTracedShadows): the sun pass was
 		// compiled with RAY_SHADOWS (the device traces rays); each geometry's acceleration

@@ -1093,12 +1093,62 @@ namespace p3d {
 		FrameProfiler::Instance().Begin("GBuffer.Visible");
 		{
 			const uint8 need = CullOwner | CullComponentActive | CullMeshActive;
+			// What is in view, first: the occluders are picked from it.
+			static thread_local std::vector<uint32> inView;
+			inView.clear();
 			for (size_t k = 0; k < rmesh.size(); k++)
 			{
 				const uint8 f = cullFlags[k];
 				if ((f & need) != need || (f & CullTransparent)) continue;
-				if (!(f & CullTested) || CullListTest(k))
+				if (!(f & CullTested) || CullListTest(k)) inView.push_back((uint32)k);
+			}
+			// What the big still things in view hide (OcclusionBuffer): the largest on screen drawn
+			// into a small depth picture, the rest asked against it. Perspective views only.
+			bool byOccluders = false;
+			if (OcclusionBuffer::GetEnabled() && projection.m.m[15] == 0.f)
+			{
+				PYROS_PROFILE_SCOPE("Occlusion.Occluders");
+				const Vec3 eyeAt = Camera->GetDrawWorldPosition();
+				occlusionBuffer.Begin(Camera->GetDrawWorld().Inverse(), projection.m, eyeAt, projection.Near);
+				// (one entry a thing, its size on screen: radius over distance)
+				static thread_local std::vector<std::pair<f32, RenderingComponent*> > picks;
+				picks.clear();
+				RenderingComponent* last = NULL;
+				for (size_t i = 0; i < inView.size(); i++)
 				{
+					const uint32 k = inView[i];
+					RenderingComponent* rc = rmesh[k]->renderingComponent;
+					if (rc == last || cullSphere[k].w <= 0.f) continue;
+					last = rc;
+					const Vec3 c(cullSphere[k].x, cullSphere[k].y, cullSphere[k].z);
+					const f32 r = std::max(cullSphere[k].w, rc->GetOwner() ? rc->GetOwner()->GetBoundingSphereRadiusWorldSpace() : 0.f);
+					if (!occlusionBuffer.CanOcclude(rc, r)) continue;
+					const f32 dist = std::max(0.5f, sqrtf(eyeAt.distanceSQR(c)) - r * 0.5f);
+					picks.push_back(std::make_pair(r / dist, rc));
+				}
+				FrameProfiler::Instance().Begin("Occlusion.Raster");
+				std::sort(picks.begin(), picks.end(), [](const std::pair<f32, RenderingComponent*> &a, const std::pair<f32, RenderingComponent*> &b) { return a.first > b.first; });
+				picks.erase(std::unique(picks.begin(), picks.end(), [](const std::pair<f32, RenderingComponent*> &a, const std::pair<f32, RenderingComponent*> &b) { return a.second == b.second; }), picks.end());
+				for (size_t i = 0; i < picks.size() && i < OcclusionBuffer::kMaxOccluders; i++) occlusionBuffer.Draw(picks[i].second);
+				occlusionBuffer.Finish();
+				FrameProfiler::Instance().End();
+				byOccluders = occlusionBuffer.Ready();
+				FrameProfiler::Instance().Counter("Occlusion.Occluders", (f64)occlusionBuffer.OccludersDrawn());
+				FrameProfiler::Instance().Counter("Occlusion.OccluderTris", (f64)occlusionBuffer.TrianglesDrawn());
+			}
+			uint32 hiddenByOccluders = 0, hiddenTriangles = 0;
+			FrameProfiler::Instance().Begin("Occlusion.Test");
+			for (size_t i = 0; i < inView.size(); i++)
+			{
+				const size_t k = inView[i];
+				{
+					if (byOccluders && cullSphere[k].w > 0.f && occlusionBuffer.Hidden(Vec3(cullSphere[k].x, cullSphere[k].y, cullSphere[k].z), cullSphere[k].w))
+					{
+						hiddenByOccluders++;
+						if (rmesh[k]->Geometry) hiddenTriangles += (uint32)(rmesh[k]->Geometry->GetIndexData().size() / 3);
+						occluded++;
+						continue;
+					}
 					// (and not what the ground hides: behind a hill from here)
 					if (occluding && cullSphere[k].w > 0.f && terrainOcclusion.Hidden(Vec3(cullSphere[k].x, cullSphere[k].y, cullSphere[k].z), cullSphere[k].w)
 						&& !UnderTheGround(Scene, k, cullSphere[k], rmesh.size()))
@@ -1128,6 +1178,9 @@ namespace p3d {
 					visible.push_back(rmesh[k]); visibleAt.push_back((uint32)k);
 				}
 			}
+			FrameProfiler::Instance().End();
+			FrameProfiler::Instance().Counter("Occlusion.ByOccluders", (f64)hiddenByOccluders);
+			FrameProfiler::Instance().Counter("Occlusion.HiddenTris", (f64)hiddenTriangles);
 		}
 		// PYROS_TRACE_MESHES=<part of a name>: twice a second, every listed object of that name
 		// within 150 m whose sphere is in view and of which nothing is being drawn - and why.

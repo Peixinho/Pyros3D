@@ -4733,7 +4733,13 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	}
 
 	std::vector<int32>* _ShadersGlobalCache = NULL;
-	{ MeshCaches held(rmesh); _ShadersGlobalCache = &rmesh->ShadersGlobalCache[Material->GetShader()]; }
+	{
+		MeshCaches held(rmesh);
+		_ShadersGlobalCache = &rmesh->ShadersGlobalCache[Material->GetShader()];
+		// (as long as the material's list: one it gained after this cache was made - or a mesh and
+		// shader BindMesh never saw - was read past its end, and a garbage location sent: a crash)
+		if (_ShadersGlobalCache->size() < Material->GlobalUniforms.size()) _ShadersGlobalCache->resize(Material->GlobalUniforms.size(), -2);
+	}
 
 	// Send Global Uniforms
 	uint32 counter = 0;
@@ -5139,7 +5145,12 @@ void IRenderer::SendUserUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	}
 
 	std::vector<int32>* _ShadersUserCache = NULL;
-	{ MeshCaches held(rmesh); _ShadersUserCache = &rmesh->ShadersUserCache[Material->GetShader()]; }
+	{
+		MeshCaches held(rmesh);
+		_ShadersUserCache = &rmesh->ShadersUserCache[Material->GetShader()];
+		// (as long as the material's list - see SendGlobalUniforms)
+		if (_ShadersUserCache->size() < Material->UserUniforms.size()) _ShadersUserCache->resize(Material->UserUniforms.size(), -2);
+	}
 
 	// User Specific Uniforms
 	uint32 counter = 0;
@@ -5274,7 +5285,12 @@ void IRenderer::SendModelUniforms(RenderingMesh* rmesh, IMaterial* Material)
 	uint32 counter = 0;
 
 	std::vector<int32>* _ShadersModelCache = NULL;
-	{ MeshCaches held(rmesh); _ShadersModelCache = &rmesh->ShadersModelCache[Material->GetShader()]; }
+	{
+		MeshCaches held(rmesh);
+		_ShadersModelCache = &rmesh->ShadersModelCache[Material->GetShader()];
+		// (as long as the material's list - see SendGlobalUniforms)
+		if (_ShadersModelCache->size() < Material->ModelUniforms.size()) _ShadersModelCache->resize(Material->ModelUniforms.size(), -2);
+	}
 
 	for (std::list<Uniform>::iterator k = Material->ModelUniforms.begin(); k != Material->ModelUniforms.end(); k++)
 	{
