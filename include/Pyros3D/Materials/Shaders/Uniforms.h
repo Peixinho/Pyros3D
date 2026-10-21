@@ -87,6 +87,8 @@ namespace p3d {
 				EnvironmentRadianceMap = 37,
 				// The scene's depth, for what is drawn after it (soft particles) - IRenderer::SetMaterialSceneDepth.
 				SceneDepthMap = 38,
+				// Every reflection probe's picture, one atlas (ReflectionProbes).
+				ReflectionProbeAtlas = 39,
 
 				// User Uniforms
 				Other = 200,

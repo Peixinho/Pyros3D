@@ -13,6 +13,7 @@
 #include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
 #include <Pyros3D/Other/Export.h>
 #include <string>
+#include <vector>
 
 namespace p3d {
 
@@ -49,7 +50,19 @@ namespace p3d {
 		static const SphericalHarmonicsL2 &GetSH();
 		// The direction toward the brightest patch above the horizon - the sun of a daylight sky.
 		static Vec3 GetSunDirection();
+		// Its sharpest reflection level in direction d (world, turned by the yaw as the shaders turn
+		// it), on the CPU - what a reflection probe's capture shows where it drew nothing. Without
+		// intensity. False while nothing is loaded.
+		static bool SampleRadiance(const Vec3 &d, Vec3 &out);
 	};
+
+	// The reflections layout EnvSpecular reads, for any panorama: the image blurred for six
+	// roughnesses (0, .2 ... 1), each an equirect of its own size - atlasW wide, halving to 32 -
+	// stacked top to bottom, RGBA floats. `pixels` is an equirect, rows from the top, `stride`
+	// floats a pixel (RGB first).
+	PYROS3D_API uint32 RadianceStackHeight(const uint32 atlasW);
+	PYROS3D_API void BuildRadianceStack(const f32 *pixels, const uint32 width, const uint32 height, const uint32 stride,
+		const uint32 atlasW, std::vector<f32> &outRGBA);
 
 	// Projects an equirectangular panorama (rows from the top, `width` x `height` RGB floats with
 	// `stride` floats per pixel) into SH, every pixel weighted by the solid angle it covers.

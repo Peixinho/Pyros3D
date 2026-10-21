@@ -1649,6 +1649,8 @@ public:
 	bool AgentAnimator(const std::string& command, const json& args, json& out, std::string& errOut);
 	void DrawClothComponentProperties(GameObject* go, uint32 goId);
 	bool AgentCloth(const std::string& command, const json& args, json& out, std::string& errOut);
+	void DrawReflectionProbeProperties(GameObject* go, uint32 goId);
+	bool AgentReflectionProbe(const std::string& command, const json& args, json& out, std::string& errOut);
 	bool AgentNavigation(const std::string& command, const json& args, json& out, std::string& errOut);
 	void DrawNavigationSettings();
 	void DrawNavMeshOverlay();

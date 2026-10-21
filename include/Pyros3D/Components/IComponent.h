@@ -121,7 +121,9 @@ namespace p3d {
 			// Walks its object to a destination on the scene's navigation mesh. See NavAgentComponent.h.
 			NavAgent,
 			// A kinematic capsule walking through the physics world. See CharacterController.h.
-			CharacterController
+			CharacterController,
+			// What its box looks like from inside, for what shines there. See ReflectionProbes.h.
+			ReflectionProbe
 		};
 	}
 

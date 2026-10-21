@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
+#include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
 #include <Pyros3D/Physics/CharacterController.h>
 #include <Pyros3D/Utils/View/ViewFovScale.h>
@@ -1412,6 +1413,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			else Occluder2D::PublishSceneOccluders(scene);
 		}
 
+		// Reflection probes waiting to be seen (one a frame, drawn by a renderer of their own) -
+		// and, while editing, one dragged somewhere new.
+		ReflectionProbes::Update(scene, !playMode);
 #ifdef LUA_BINDINGS
 		if (playMode && sceneMainScript)
 			sceneMainScript->PreRender();
@@ -5914,6 +5918,13 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			}
 			if (ImGui::IsItemHovered())
 				ImGui::SetTooltip("Makes this object's mesh cloth in Play (a Plane with segments, a model's\ncape or curtain): pinned along a side, blown by wind, draped over colliders.");
+			if (ImGui::MenuItem("Reflection Probe"))
+			{
+				pendingFoliageOp = { { "cmd", "add_reflection_probe" }, { "id", goId } };
+				ImGui::CloseCurrentPopup();
+			}
+			if (ImGui::IsItemHovered())
+				ImGui::SetTooltip("What this room looks like from here, for what shines in it: metals and\npolished floors inside its box reflect the room, not the sky.");
 			if (ImGui::MenuItem("Nav Agent"))
 			{
 				pendingFoliageOp = { { "cmd", "add_nav_agent" }, { "id", goId } };
@@ -11352,6 +11363,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 					DrawIKComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawAnimatorComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawClothComponentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
+					DrawReflectionProbeProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawNavAgentProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 					DrawWorldCellProperties((GameObject*)SelectedSceneObject->GetPTR(), SelectedSceneObject->GetID());
 #ifdef LUA_BINDINGS

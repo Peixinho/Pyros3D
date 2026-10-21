@@ -17,6 +17,7 @@
 #include <Pyros3D/Utils/Localization/Localization.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
 #include <Pyros3D/Physics/CharacterController.h>
+#include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
@@ -989,6 +990,23 @@ end
 				"setMaxSlope", &CharacterController::SetMaxSlope,
 				"setGravity", &CharacterController::SetGravity,
 				"setRunning", &CharacterController::SetRunning, "isRunning", &CharacterController::IsRunning);
+			// A reflection probe (ReflectionProbe): what its box looks like from inside, for what shines
+			// there. Captured when the scene loads; capture() sees it again (a door opened, a light switched).
+			//   local p = obj:getComponent("ReflectionProbe")   p:capture()   p:setExtents(5, 3, 5)
+			//   reflectionProbes.captureAll()
+			lua->new_usertype<ReflectionProbe>("ReflectionProbeComponent", sol::no_constructor,
+				sol::base_classes, sol::bases<IComponent>(),
+				"capture", &ReflectionProbe::Capture,
+				"isCaptured", &ReflectionProbe::IsCaptured,
+				"setExtents", [](ReflectionProbe &p, f32 x, f32 y, f32 z) { p.SetExtents(Vec3(x, y, z)); },
+				"getExtents", [](ReflectionProbe &p) { const Vec3 &e = p.GetExtents(); return std::make_tuple(e.x, e.y, e.z); },
+				"setBlend", &ReflectionProbe::SetBlend, "getBlend", &ReflectionProbe::GetBlend);
+			{
+				sol::table rpt = lua->create_named_table("reflectionProbes");
+				rpt.set_function("captureAll", []() { ReflectionProbes::CaptureAll(NULL); });
+				rpt.set_function("count", []() { return ReflectionProbes::Count(); });
+				rpt.set_function("pending", []() { return ReflectionProbes::Pending(); });
+			}
 			sol::table cct = lua->create_named_table("CharacterController");
 			cct.set_function("attach", [](GameObject* go, IPhysics* phys) -> std::shared_ptr<CharacterController> {
 				if (!go) return nullptr;

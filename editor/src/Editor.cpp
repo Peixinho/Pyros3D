@@ -3196,6 +3196,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
+	// Reflection probes: get/add/set/remove_reflection_probe {name|id, extents?, blend?} and
+	// capture_reflection_probes {} (see SceneEditorReflectionProbe.cpp).
+	if (name == "get_reflection_probe" || name == "add_reflection_probe" || name == "set_reflection_probe" || name == "remove_reflection_probe" || name == "capture_reflection_probes")
+	{
+		nlohmann::json r;
+		if (!sceneView->AgentReflectionProbe(name, a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "get_cloth" || name == "add_cloth" || name == "set_cloth" || name == "remove_cloth")
 	{
 		nlohmann::json r;

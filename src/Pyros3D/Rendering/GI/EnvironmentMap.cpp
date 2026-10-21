@@ -43,7 +43,10 @@ namespace p3d {
 		// the GGX integral, but its width and its weight, and cheap enough to make at load.
 		// PyrosShader.glsl's EnvSpecular reads the same layout.
 		const uint32 kAtlasW = 512, kLevels = 6;
-		uint32 LevelW(uint32 k) { return std::max<uint32>(kAtlasW >> k, 32u); }
+		uint32 LevelW(uint32 atlasW, uint32 k) { return std::max<uint32>(atlasW >> k, 32u); }
+		// (the sharpest level, kept on the CPU for SampleRadiance)
+		std::vector<f32> g_level0;
+		uint32 g_level0W = 0, g_level0H = 0;
 
 		void Downsample(const f32 *src, uint32 sw, uint32 sh, uint32 sstride, std::vector<f32> &dst, uint32 dw, uint32 dh)
 		{
@@ -113,30 +116,56 @@ namespace p3d {
 
 		void BuildRadiance(const f32 *px, uint32 w, uint32 h)
 		{
-			std::vector<f32> atlas((size_t)kAtlasW * kAtlasW * 4, 0.f);
-			uint32 oy = 0;
-			for (uint32 k = 0; k < kLevels; k++)
-			{
-				const uint32 lw = LevelW(k), lh = lw / 2;
-				std::vector<f32> lvl;
-				Downsample(px, w, h, 4, lvl, lw, lh);
-				const f32 rough = (f32)k / (f32)(kLevels - 1);
-				Blur(lvl, lw, lh, rough * rough * 1.2f);
-				for (uint32 y = 0; y < lh; y++)
-					for (uint32 x = 0; x < lw; x++)
-					{
-						const f32 *s = &lvl[((size_t)y * lw + x) * 3];
-						f32 *d = &atlas[((size_t)(oy + y) * kAtlasW + x) * 4];
-						d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 1.f;
-					}
-				oy += lh;
-			}
-			g_radiance->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, kAtlasW, kAtlasW, false);
+			std::vector<f32> atlas;
+			BuildRadianceStack(px, w, h, 4, kAtlasW, atlas);
+			g_radiance->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA32F, kAtlasW, RadianceStackHeight(kAtlasW), false);
 			g_radiance->UpdateData(atlas.data());
 			g_radiance->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+			g_level0W = kAtlasW; g_level0H = kAtlasW / 2;
+			g_level0.assign(atlas.begin(), atlas.begin() + (size_t)g_level0W * g_level0H * 4);
 		}
 	}
-
+	uint32 RadianceStackHeight(const uint32 atlasW)
+	{
+		uint32 h = 0;
+		for (uint32 k = 0; k < kLevels; k++) h += LevelW(atlasW, k) / 2;
+		return h;
+	}
+	void BuildRadianceStack(const f32 *px, const uint32 w, const uint32 h, const uint32 stride, const uint32 atlasW, std::vector<f32> &atlas)
+	{
+		atlas.assign((size_t)atlasW * RadianceStackHeight(atlasW) * 4, 0.f);
+		uint32 oy = 0;
+		for (uint32 k = 0; k < kLevels; k++)
+		{
+			const uint32 lw = LevelW(atlasW, k), lh = lw / 2;
+			std::vector<f32> lvl;
+			Downsample(px, w, h, stride, lvl, lw, lh);
+			const f32 rough = (f32)k / (f32)(kLevels - 1);
+			Blur(lvl, lw, lh, rough * rough * 1.2f);
+			for (uint32 y = 0; y < lh; y++)
+				for (uint32 x = 0; x < lw; x++)
+				{
+					const f32 *s = &lvl[((size_t)y * lw + x) * 3];
+					f32 *d = &atlas[((size_t)(oy + y) * atlasW + x) * 4];
+					d[0] = s[0]; d[1] = s[1]; d[2] = s[2]; d[3] = 1.f;
+				}
+			oy += lh;
+		}
+	}
+	bool EnvironmentMap::SampleRadiance(const Vec3 &dIn, Vec3 &out)
+	{
+		if (!g_loaded || g_level0.empty()) return false;
+		// (turned as EnvSpecular turns it: uAmbientParams.z is this yaw in radians)
+		const f32 a = g_yaw * 3.14159265f / 180.f, cy = cosf(a), sy = sinf(a);
+		const Vec3 d(dIn.x * cy - dIn.z * sy, dIn.y, dIn.x * sy + dIn.z * cy);
+		const f32 l = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+		if (l <= 0.f) return false;
+		const f32 u = 0.5f + atan2f(d.x / l, -d.z / l) * 0.15915494f, v = acosf(std::max(-1.f, std::min(1.f, d.y / l))) * 0.31830989f;
+		const uint32 x = std::min<uint32>((uint32)(u * g_level0W), g_level0W - 1), y = std::min<uint32>((uint32)(v * g_level0H), g_level0H - 1);
+		const f32 *p = &g_level0[((size_t)y * g_level0W + x) * 4];
+		out = Vec3(p[0], p[1], p[2]);
+		return true;
+	}
 	Texture* EnvironmentMap::GetRadianceTexture()
 	{
 		if (!g_radiance) { g_radiance = std::make_shared<Texture>(); MakeBlack(g_radiance.get()); }
@@ -200,6 +229,7 @@ namespace p3d {
 	{
 		if (!g_loaded) return;
 		g_loaded = false; g_path.clear(); g_yaw = 0.f; g_sh.Clear(); g_sun = Vec3(0.f, 1.f, 0.f);
+		g_level0.clear(); g_level0W = g_level0H = 0;
 		if (g_texture) MakeBlack();
 		if (g_radiance) MakeBlack(g_radiance.get());
 	}

@@ -725,6 +725,7 @@ namespace p3d {
 		Texture *DDGIProbeDataTex = NULL;
 		void BuildBRDFLutIfNeeded();
 		static uint32 DDGIUniformsUBO;
+		static uint32 ReflectionProbesUBO;
 		void UploadDDGIIfDirty();
 		uint32
 			AmbientMode = 0;

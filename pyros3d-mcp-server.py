@@ -5825,6 +5825,16 @@ def editor_command(cmd: str, args: dict | None = None, timeout: float = 120.0) -
       set_cloth in Play tunes the running cloth without touching the scene.
       get_cloth also gives running, particles, pinned, constraints.
       Lua: Cloth.attach(go), obj:getComponent("Cloth"), :setWind, :addSphere...
+    Reflection probe component (Scene View; SceneEditorReflectionProbe.cpp)
+      get_reflection_probe / add_reflection_probe / set_reflection_probe /
+      remove_reflection_probe (name|id, + extents [x,y,z] half-size metres,
+      world-aligned around the object; blend metres of fade inside its faces);
+      capture_reflection_probes {} sees every probe again. What its box looks
+      like from inside, for metals and polished floors in it (they reflect the
+      room, box-projected, not the sky). Captured at load and after an edit or a
+      move (outside Play), twice for one bounce; needs PBR materials. Up to 16.
+      Lua: obj:getComponent("ReflectionProbe"):capture() / setExtents(x,y,z) /
+      setBlend, reflectionProbes.captureAll() / count() / pending().
     Runtime IK component (Scene View)
       get_ik / add_ik (name, rig) / set_ik (name, iterations, constraints
       [{chain, target, pole, weight, enabled, matchRotation}] or index + one

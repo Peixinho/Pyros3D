@@ -141,6 +141,7 @@
 #define BIND_uDDGIProbeData 21
 // The scene's HDR environment, blurred for six roughnesses - see EnvironmentMap.cpp.
 #define BIND_uEnvRadiance 22
+#define BIND_uReflectionProbes 23
 
 // Loose-uniform-turned-UBO bindings. Each block is declared in exactly one
 // stage (checked against actual usage: e.g. uCameraPos is only ever read
@@ -165,6 +166,7 @@
 #define BIND_Occluders2D 24
 // DDGI volume description - see ShaderUsage::GlobalIllumination.
 #define BIND_DDGIUniforms 25
+#define BIND_ReflectionProbeBlock 26
 #define MAX_OCCLUDERS_2D 64
 
 vec4 EncodeFloatRGBA( float v ) {
@@ -1491,6 +1493,65 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
            vec2 ab = texture(uBRDFLut, vec2(nDotV, roughness)).rg;
            return pre * (F0 * ab.x + vec3(ab.y)) * uAmbientParams.y;
        }
+       // Reflection probes (ReflectionProbes): every probe's picture in one atlas - each a block laid
+       // out as uEnvRadiance is, 256 wide halving to 32, six roughnesses - and their boxes. A surface
+       // inside a box reflects what the probe saw where the reflected ray leaves the box (so a wall
+       // is reflected where the wall is); the first box it is inside wins (smallest first), faded
+       // out over its blend distance at the faces. Where a probe covers, it replaces the sky's and
+       // DDGI's reflection.
+       SAMPLER_BINDING(BIND_uReflectionProbes) uniform sampler2D uReflectionProbes;
+       UBO_BINDING(BIND_ReflectionProbeBlock) uniform ReflectionProbeBlock {
+           vec4 uProbeInfo;       // x how many, y the atlas's width, z a block's height, w 1 once one is captured
+           vec4 uProbeData[48];   // per probe: box min (w blend), box max (w its block), where it was seen from
+       };
+       vec3 p3d_ProbeLevel(vec3 d, int k, ivec2 origin)
+       {
+           int lw = max(256 >> k, 32), lh = lw / 2;
+           int oy = 0;
+           for (int i = 0; i < 6; i++) { if (i < k) oy += max(256 >> i, 32) / 2; }
+           vec2 uv = vec2(0.5 + atan(d.x, -d.z) * 0.15915494, acos(clamp(d.y, -1.0, 1.0)) * 0.31830989);
+           vec2 p = uv * vec2(float(lw), float(lh)) - 0.5;
+           ivec2 a = ivec2(floor(p)); vec2 f = p - vec2(a);
+           int x0 = (a.x % lw + lw) % lw, x1 = (x0 + 1) % lw;
+           int y0 = clamp(a.y, 0, lh - 1), y1 = clamp(a.y + 1, 0, lh - 1);
+           ivec2 o = origin + ivec2(0, oy);
+           vec3 t = mix(texelFetch(uReflectionProbes, o + ivec2(x0, y0), 0).rgb, texelFetch(uReflectionProbes, o + ivec2(x1, y0), 0).rgb, f.x);
+           vec3 b = mix(texelFetch(uReflectionProbes, o + ivec2(x0, y1), 0).rgb, texelFetch(uReflectionProbes, o + ivec2(x1, y1), 0).rgb, f.x);
+           return mix(t, b, f.y);
+       }
+       // The probe's reflection here, and how much of this pixel it covers (0: none).
+       vec3 ProbeSpecular(vec3 worldPos, vec3 normal, vec3 viewDir, vec3 F0, float roughness, out float cover)
+       {
+           cover = 0.0;
+           if (uProbeInfo.w < 0.5) return vec3(0.0);
+           int n = int(uProbeInfo.x);
+           vec3 r = reflect(-viewDir, normal);
+           for (int i = 0; i < 16; i++)
+           {
+               if (i >= n) break;
+               vec4 bmin = uProbeData[i * 3], bmax = uProbeData[i * 3 + 1], seen = uProbeData[i * 3 + 2];
+               if (any(lessThan(worldPos, bmin.xyz)) || any(greaterThan(worldPos, bmax.xyz))) continue;
+               vec3 inside = min(worldPos - bmin.xyz, bmax.xyz - worldPos);
+               float edge = min(min(inside.x, inside.y), inside.z);
+               float w = bmin.w > 0.0 ? clamp(edge / bmin.w, 0.0, 1.0) : 1.0;
+               // (where the ray leaves the box: the nearest of the three far planes along it)
+               vec3 safeR = vec3(abs(r.x) > 1e-5 ? r.x : 1e-5, abs(r.y) > 1e-5 ? r.y : 1e-5, abs(r.z) > 1e-5 ? r.z : 1e-5);
+               vec3 tf = max((bmax.xyz - worldPos) / safeR, (bmin.xyz - worldPos) / safeR);
+               float t = min(min(tf.x, tf.y), tf.z);
+               vec3 d = normalize(worldPos + r * t - seen.xyz);
+               int block = int(bmax.w + 0.5);
+               int cols = max(int(uProbeInfo.y + 0.5) / 256, 1);
+               ivec2 origin = ivec2((block - (block / cols) * cols) * 256, (block / cols) * int(uProbeInfo.z + 0.5));
+               float lv = clamp(roughness, 0.0, 1.0) * 5.0;
+               int k = int(floor(lv));
+               vec3 pre = mix(p3d_ProbeLevel(d, k, origin), p3d_ProbeLevel(d, min(k + 1, 5), origin), lv - float(k));
+               float nDotV = clamp(dot(normal, viewDir), 0.0, 1.0);
+               vec2 ab = texture(uBRDFLut, vec2(nDotV, roughness)).rg;
+               cover = w;
+               return pre * (F0 * ab.x + vec3(ab.y));
+           }
+           return vec3(0.0);
+       }
    #endif
    #ifdef GLOBALILLUMINATION
        SAMPLER_BINDING(BIND_uDDGIIrradiance) uniform sampler2D uDDGIIrradiance;
@@ -2271,6 +2332,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 // uses. Metals get none, matching kD's (1-metallic)
                 // scaling in CalculatePBRLighting above.
                 vec3 ambientPBR = diffuse.rgb * (1.0 - metallic) * AmbientAt();
+                vec3 _ambNoReflection = ambientPBR;
             #ifdef GLOBALILLUMINATION
                 // And the half metals DO get. This is the reason a
                 // metal lit only by indirect light used to come out
@@ -2286,6 +2348,12 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             #endif
                 // the sky's reflection, in environment mode (nothing without one)
                 ambientPBR += EnvSpecular(Normal, EyeVec, mix(vec3(0.04), diffuse.rgb, metallic), roughness);
+                // (and a reflection probe's, where one covers: in place of those two)
+                {
+                    float _pc;
+                    vec3 _ps = ProbeSpecular(vWorldPosition.xyz, Normal, EyeVec, mix(vec3(0.04), diffuse.rgb, metallic), roughness, _pc);
+                    ambientPBR = mix(ambientPBR, _ambNoReflection + _ps, _pc);
+                }
                 diffuse = vec4(_pbrColor + ambientPBR + diffuse.rgb * (1.0 - metallic) * _sss, diffuse.w);
             #endif
         #endif
@@ -2349,6 +2417,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 		// repurposed; only the albedo half was ever true.
 		_indirect *= (1.0 - metallic);
 	#endif
+	vec3 _indirectNoReflection = _indirect;
 	#if defined(GLOBALILLUMINATION) && defined(PBR)
 		vec3 iblF0 = mix(vec3(0.04), diffuse.xyz, metallic);
 		_indirect += DDGISpecular(vWorldPosition.xyz, normalize(gbufferNormal.xyz),
@@ -2357,6 +2426,13 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 	#ifdef PBR
 		_indirect += EnvSpecular(normalize(gbufferNormal.xyz), normalize(vCameraPos - vWorldPosition.xyz),
 			mix(vec3(0.04), diffuse.xyz, metallic), roughness);
+		// (and a reflection probe's, where one covers: in place of those two)
+		{
+			float _pc;
+			vec3 _ps = ProbeSpecular(vWorldPosition.xyz, normalize(gbufferNormal.xyz), normalize(vCameraPos - vWorldPosition.xyz),
+				mix(vec3(0.04), diffuse.xyz, metallic), roughness, _pc);
+			_indirect = mix(_indirect, _indirectNoReflection + _ps, _pc);
+		}
 	#endif
 	#ifdef PBR
 		// secondpassAmbient.glsl multiplies these alphas by

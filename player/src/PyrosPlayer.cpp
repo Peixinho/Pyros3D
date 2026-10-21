@@ -1,3 +1,4 @@
+#include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <Pyros3D/Utils/Localization/Localization.h>
 #include <cstring>
 #include <Pyros3D/Rendering/GI/EnvironmentMap.h>
@@ -1902,6 +1903,12 @@ void PyrosPlayer::Update()
 		autoScale.gpuWaitMs += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
 	}
 
+	// Reflection probes waiting to be seen: one a frame, before the scene is drawn (it draws them
+	// with a renderer of its own, inside this frame).
+	{
+		PYROS_PROFILE_SCOPE("Player.ReflectionProbes");
+		ReflectionProbes::Update(scene);
+	}
 	renderer->ResetViewPort();
 	renderer->SetViewPort(0, 0, RenderWidth(), RenderHeight());
 #ifdef LUA_BINDINGS

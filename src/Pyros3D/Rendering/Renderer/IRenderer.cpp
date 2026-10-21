@@ -38,6 +38,8 @@
 #include <algorithm>
 #include <typeinfo>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Rendering/GI/ReflectionProbes.h>
+#include <atomic>
 
 // Must match MAX_LIGHTS in resources/shaders/PyrosShader.glsl - sizes and
 // fills the LightsUBO backing that shader's uLights[MAX_LIGHTS] block.
@@ -149,6 +151,7 @@ uint32 IRenderer::BoneMatricesUBO = 0;
 uint32 IRenderer::VelocityObjectUniformsUBO = 0;
 uint32 IRenderer::AmbientLightUniformsUBO = 0;
 uint32 IRenderer::DDGIUniformsUBO = 0;
+uint32 IRenderer::ReflectionProbesUBO = 0;
 uint32 IRenderer::MaterialUniformsUBO = 0;
 uint32 IRenderer::ObjectLightCountsUBO = 0;
 bool IRenderer::VertexFrameUniformsUBOValid = false;
@@ -1179,6 +1182,8 @@ void IRenderer::RetainSharedUniformBuffers(IRenderDevice* device)
 		// and silently drops the draw. When the block grows, this
 		// grows.
 		DDGIUniformsUBO = device->CreateUniformBuffer(sizeof(Vec4) * 5, 25);
+		// PyrosShader.glsl's ReflectionProbeBlock, exactly (ReflectionProbes::FillBlock).
+		ReflectionProbesUBO = device->CreateUniformBuffer(sizeof(Vec4) * ReflectionProbes::kBlockVec4s, 26);
 		MaterialUniformsUBO = device->CreateUniformBuffer(112, 22);      // (sizeof(MaterialUniformsData): its static_assert below)
 		ObjectLightCountsUBO = device->CreateUniformBuffer(16, 23);
 	}
@@ -1207,6 +1212,8 @@ void IRenderer::ReleaseSharedUniformBuffers(IRenderDevice* device)
 	device->DestroyUniformBuffer(AmbientLightUniformsUBO);
 	device->DestroyUniformBuffer(MaterialUniformsUBO);
 	device->DestroyUniformBuffer(ObjectLightCountsUBO);
+	if (ReflectionProbesUBO) device->DestroyUniformBuffer(ReflectionProbesUBO);
+	ReflectionProbesUBO = 0;
 	GlobalMatricesUBO = LightsUBO = DirectionalShadowUBO = PointShadowUBO = SpotShadowUBO = 0;
 	VertexFrameUniformsUBO = VelocityFrameUniformsUBO = ObjectMatrixUniformsUBO = BoneMatricesUBO = 0;
 	VelocityObjectUniformsUBO = AmbientLightUniformsUBO = MaterialUniformsUBO = ObjectLightCountsUBO = 0;
@@ -4854,6 +4861,26 @@ void IRenderer::SendGlobalUniforms(RenderingMesh* rmesh, IMaterial* Material)
 				Shader::SendUniform((*k), &unit, (*_ShadersGlobalCache)[counter], 1);
 				break;
 			}
+			case Uniforms::DataUsage::ReflectionProbeAtlas:
+			{
+				// (the boxes with it, when they have changed: ReflectionProbeBlock)
+				{
+					static std::atomic<uint32> uploaded(0);
+					const uint32 rev = ReflectionProbes::Revision();
+					if (ReflectionProbesUBO != 0 && uploaded.exchange(rev) != rev)
+					{
+						Vec4 block[ReflectionProbes::kBlockVec4s];
+						ReflectionProbes::FillBlock(block);
+						device->ReplaceUniformBuffer(ReflectionProbesUBO, sizeof(block), block);
+					}
+				}
+				Texture *tex = ReflectionProbes::GetAtlas();
+				tex->Bind();
+				int32 unit = (int32)Texture::GetLastBindedUnit();
+				BoundGITextures.push_back(tex);
+				Shader::SendUniform((*k), &unit, (*_ShadersGlobalCache)[counter], 1);
+				break;
+			}
 			case Uniforms::DataUsage::EnvironmentRadianceMap:
 			{
 				Texture *tex = EnvironmentMap::GetRadianceTexture();
@@ -5791,6 +5818,7 @@ void IRenderer::BindMesh(RenderingMesh* rmesh, IMaterial* material)
 		// looks exactly like "the volume did not bake", which is where
 		// the first hour of looking went.
 		device->BindUniformBlockIfPresent(material->GetShader(), "DDGIUniforms", 25);
+		device->BindUniformBlockIfPresent(material->GetShader(), "ReflectionProbeBlock", 26);
 		device->BindUniformBlockIfPresent(material->GetShader(), "MaterialUniforms", 22);
 		device->BindUniformBlockIfPresent(material->GetShader(), "ObjectLightCounts", 23);
 	}

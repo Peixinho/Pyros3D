@@ -38,6 +38,7 @@
 #include <Pyros3D/Physics/Cloth/ClothComponent.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
 #include <Pyros3D/Physics/CharacterController.h>
+#include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <Pyros3D/AnimationManager/TextureAnimation.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
@@ -1783,6 +1784,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["type"] = "CharacterController";
 			j["radius"] = cc->GetRadius(); j["height"] = cc->GetHeight(); j["stepHeight"] = cc->GetStepHeight();
 			j["maxSlope"] = cc->GetMaxSlope(); j["gravity"] = cc->GetGravity();
+			return j;
+		}
+		case ComponentType::ReflectionProbe:
+		{
+			ReflectionProbe* rp = dynamic_cast<ReflectionProbe*>(c);
+			j["type"] = "ReflectionProbe";
+			const Vec3 e = rp->GetExtents();
+			j["extents"] = { e.x, e.y, e.z };
+			j["blend"] = rp->GetBlend();
 			return j;
 		}
 		case ComponentType::NavAgent:
@@ -4232,6 +4242,14 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			cc->SetMaxSlope(j.value("maxSlope", cc->GetMaxSlope()));
 			cc->SetGravity(j.value("gravity", cc->GetGravity()));
 			go->AddComponent(cc);
+		}
+		else if (type == "ReflectionProbe")
+		{
+			std::shared_ptr<ReflectionProbe> rp = std::make_shared<ReflectionProbe>();
+			if (j.contains("extents") && j["extents"].is_array() && j["extents"].size() == 3)
+				rp->SetExtents(Vec3(j["extents"][0].get<f32>(), j["extents"][1].get<f32>(), j["extents"][2].get<f32>()));
+			rp->SetBlend(j.value("blend", rp->GetBlend()));
+			go->AddComponent(rp);
 		}
 		else if (type == "NavAgent")
 		{

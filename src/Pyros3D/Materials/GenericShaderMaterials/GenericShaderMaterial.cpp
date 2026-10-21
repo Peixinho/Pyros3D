@@ -182,6 +182,7 @@ namespace p3d
 			// the sky's reflections (EnvironmentMap: black and unused without an environment) and
 			// the BRDF table they are weighed by - which a GI material declares below already
 			AddUniform(Uniform("uEnvRadiance", Uniforms::DataUsage::EnvironmentRadianceMap));
+			AddUniform(Uniform("uReflectionProbes", Uniforms::DataUsage::ReflectionProbeAtlas));
 			if (!(options & ShaderUsage::GlobalIllumination))
 				AddUniform(Uniform("uBRDFLut", Uniforms::DataUsage::BRDFLutMap));
 		}
