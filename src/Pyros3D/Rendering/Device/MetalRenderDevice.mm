@@ -414,6 +414,17 @@ namespace p3d {
 			// (Apple's GPU runs passes alongside each other, so their sum overcounts: the total is the
 			// span from the frame's first pass starting to its last one ending)
 			(void)total;
+			// (the compute done since the last publish: its own command buffers, not in the span)
+			{
+				std::lock_guard<std::mutex> g(computeTimesMutex);
+				for (std::map<std::string, f64>::iterator ct = computeTimesMs.begin(); ct != computeTimesMs.end() && recordCount < FrameProfiler::kMaxScopes - 1; ++ct)
+				{
+					std::snprintf(records[recordCount].name, FrameProfiler::kMaxNameLen, "%s", ct->first.c_str());
+					records[recordCount].ms = ct->second; records[recordCount].depth = 0;
+					recordCount++;
+				}
+				computeTimesMs.clear();
+			}
 			std::snprintf(records[recordCount].name, FrameProfiler::kMaxNameLen, "Total (sum of passes)");
 			records[recordCount].ms = last > first ? (f64)(last - first) * gpuTicksToNs * 1e-6 : 0.0; records[recordCount].depth = 0;
 			FrameProfiler::Instance().SetGpuTimings(records, recordCount + 1);
@@ -4186,6 +4197,17 @@ namespace p3d {
 			}
 			id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
 			id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
+			{
+				const char* lab = FrameProfiler::Instance().CurrentScopeName();
+				computeLabel = std::string("compute:") + ((lab && lab[0]) ? lab : "(no scope)");
+				const std::string label = computeLabel;
+				std::mutex* m = &computeTimesMutex;
+				std::map<std::string, f64>* times = &computeTimesMs;
+				[cmdBuf addCompletedHandler:^(id<MTLCommandBuffer> _Nonnull done) {
+					const f64 ms = (done.GPUEndTime - done.GPUStartTime) * 1000.0;
+					if (ms > 0.0 && ms < 1000.0) { std::lock_guard<std::mutex> g(*m); (*times)[label] += ms; }
+				}];
+			}
 			if (cmdBuf == nil || encoder == nil)
 			{
 				echo(std::string("ERROR: ") + what + " could not open a Metal compute encoder.");

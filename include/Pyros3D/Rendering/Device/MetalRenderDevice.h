@@ -51,6 +51,7 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <mutex>
 #include <string>
 #include <functional>
 
@@ -540,6 +541,12 @@ namespace p3d {
 		void GpuTimerInit();
 		void GpuTimerAttach(void* renderPassDescriptor);
 		void GpuTimerCollect(const uint32 slot);
+		// Compute command buffers' GPU time (their own start and end, from the completion handler,
+		// on Metal's thread), by the profiler scope open when each began: added to the frame's GPU
+		// timings as "compute:<scope>" when they are next published.
+		std::string computeLabel;
+		std::mutex computeTimesMutex;
+		std::map<std::string, f64> computeTimesMs;
 
 		// Same fake-VAO shim as VulkanRenderDevice::VaoRecord - copied,
 		// not redesigned (see BindVertexArray()'s comment above).
