@@ -3845,16 +3845,20 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	const uint32 effectiveCullFace = EffectiveCullFace(rmesh, Material);
 	if (effectiveCullFace != Material->GetCullFace())
 		cullFaceChanged = true;
+	// Whenever it differs from what the device has, not only when the material changes: one material
+	// may change its own cull face between two draws - the deferred point pass draws a light inside
+	// its range as a DoubleSided quad and the next one as a FrontFace sphere with the same material,
+	// and a quad after a sphere kept the sphere's culling and drew nothing (a frame without the
+	// tunnel lamps on Metal and GL each time the camera passed one; Vulkan keys its pipelines by
+	// cull face and never showed it).
+	if (effectiveCullFace != cullFace)
+	{
+		device->SetCullFaceMode(effectiveCullFace);
+		cullFace = effectiveCullFace;
+		cullFaceChanged = false;
+	}
 	if (LastMaterialPTR != Material || cullFaceChanged)
 	{
-		// Check if Material is DoubleSided
-		if (effectiveCullFace != cullFace)
-		{
-			device->SetCullFaceMode(effectiveCullFace);
-			cullFace = effectiveCullFace;
-			cullFaceChanged = false;
-		}
-
 		// Check if Material is WireFrame
 		(Material->IsWireFrame() ? EnableWireFrame() : DisableWireFrame());
 

@@ -872,7 +872,31 @@ namespace p3d {
 					f64 sum = 0.0; uint32 n = 0;
 					for (uint32 y = h / 2; y < h; y += 8)
 						for (uint32 x = 0; x < w; x += 8) { const uint16* q = d + ((size_t)y * w + x) * 4; sum += half(q[0]) * 0.2126f + half(q[1]) * 0.7152f + half(q[2]) * 0.0722f; n++; }
-					FrameProfiler::Instance().Counter("Debug.PrevLuma", n ? sum / n * 1000.0 : 0.0);
+					const f64 lumaNow = n ? sum / n * 1000.0 : 0.0;
+					FrameProfiler::Instance().Counter("Debug.PrevLuma", lumaNow);
+					// PYROS_FRAME_LUMA_DUMP=<dir>: the frame (a quarter size, tone-unmapped, clamped) written as
+					// a .ppm whenever it is under 60% of the frame before - what a single dark frame showed
+					static const char* dumpDir = std::getenv("PYROS_FRAME_LUMA_DUMP");
+					static f64 lumaBefore = 0.0; static int dumps = 0; static std::vector<uchar> lastPx; static uint32 lastW = 0, lastH = 0;
+					auto writePpm = [&](const std::vector<uchar> &pxs, const char* tag) {
+						char path[512]; snprintf(path, sizeof(path), "%s/dark_%02d_%s.ppm", dumpDir, dumps, tag);
+						FILE* fp = fopen(path, "wb"); if (!fp) return;
+						const uint32 ow = w / 4, oh = h / 4;
+						fprintf(fp, "P6 %u %u 255\n", ow, oh);
+						const uint16* dd = reinterpret_cast<const uint16*>(pxs.data());
+						for (uint32 y = 0; y < oh; y++) for (uint32 x = 0; x < ow; x++)
+						{
+							const uint16* q = dd + ((size_t)(y * 4) * w + x * 4) * 4;
+							for (int ch = 0; ch < 3; ch++) { f32 v = half(q[ch]); v = v / (1.f + v); fputc((int)(std::min(1.f, std::max(0.f, v)) * 255.f), fp); }
+						}
+						fclose(fp);
+					};
+					if (dumpDir && dumps < 12 && lumaBefore > 20.0 && lumaNow < 0.6 * lumaBefore && lastW == w && lastH == h)
+					{
+						writePpm(lastPx, "before"); writePpm(px, "dark"); dumps++;
+					}
+					lumaBefore = lumaNow;
+					if (dumpDir) { lastPx = px; lastW = w; lastH = h; }
 				}
 			}
 		}
