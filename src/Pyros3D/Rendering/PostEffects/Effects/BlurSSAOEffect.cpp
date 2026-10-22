@@ -23,7 +23,7 @@ namespace p3d {
 		texRes.Usage = Uniforms::PostEffects::Other;
 		Vec2 res = Vec2(Width, Height);
 		texRes.SetValue(&res);
-		AddUniform(texRes);
+		uTexResolutionHandle = AddUniform(texRes);
 		
 		// Initialize intensity
 		intensity = 1.0f;
@@ -125,6 +125,14 @@ namespace p3d {
 	}
 
 	BlurSSAOEffect::~BlurSSAOEffect() {
+	}
+
+	// (the taps are a texel apart: the size it was built with stayed after the frame was resized)
+	void BlurSSAOEffect::Resize(const uint32 width, const uint32 height)
+	{
+		IEffect::Resize(width, height);
+		Vec2 res((f32)width, (f32)height);
+		if (uTexResolutionHandle != NULL) uTexResolutionHandle->SetValue(&res);
 	}
 
 	void BlurSSAOEffect::SetIntensity(const f32 intensity) {

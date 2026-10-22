@@ -19,10 +19,12 @@ namespace p3d {
 		virtual ~BlurSSAOEffect();
 		
 		void SetIntensity(const f32 intensity);
+		virtual void Resize(const uint32 width, const uint32 height);
 		
 	private:
 		Uniform texRes;
 		Uniform* uIntensityHandle;
+		Uniform* uTexResolutionHandle = NULL;
 		f32 intensity;
 	};
 

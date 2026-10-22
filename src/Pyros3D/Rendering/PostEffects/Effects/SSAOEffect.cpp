@@ -28,10 +28,12 @@ namespace p3d {
 		// Evenly spaced angles, shuffled, rather than rand(): sixteen
 		// random directions clump, and the clumps show up as blotches.
 		std::vector<uchar> noise(noiseSize * 3);
-		srand(time(NULL));
+		// (a shuffle of its own, the same every run: srand(time) here gave every launch another noise
+		// pattern, and reseeded everyone else's rand() with the clock on the way)
 		std::vector<int> order(noiseSize);
 		for (uint32 i = 0; i < noiseSize; ++i) order[i] = i;
-		for (uint32 i = noiseSize - 1; i > 0; --i) std::swap(order[i], order[rand() % (i + 1)]);
+		uint32 lcg = 0x9E3779B9u;
+		for (uint32 i = noiseSize - 1; i > 0; --i) { lcg = lcg * 1664525u + 1013904223u; std::swap(order[i], order[(lcg >> 8) % (i + 1)]); }
 		for (uint32 i = 0; i < noiseSize; ++i) {
 			const f32 a = (order[i] + 0.5f) / noiseSize * 2.0f * PI;
 			noise[i * 3 + 0] = (uchar)((cosf(a) * 0.5f + 0.5f) * 255.0f + 0.5f);

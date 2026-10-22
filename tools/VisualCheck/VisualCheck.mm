@@ -8,11 +8,14 @@
 //
 //   VisualCheck check  [--build build_ed_mtl] [--only 3,7] [--wait 7]
 //   VisualCheck accept [--build ...] [--only ...]     (the frames now become the baselines)
+//   What each demo printed is kept in $TMPDIR/pyros-visual/NN.log
 //
 // Baselines: tests/visual/<backend>/<index>_<name>.png, 320x180. A demo fails
 // when its picture differs on the whole (mean per-channel difference over
 // the frame, --tolerance) or in any one place (the mean over a block of
-// 10x10, --block-tolerance): the whole-frame mean alone let one side of a
+// 10x10, --block-tolerance). The demo runs on a fixed clock that stops at
+// 4 s (PYROS_DEMO_FIXED_CLOCK) and with fixed seeds, so a run is the same
+// moment every time. The whole-frame mean alone let one side of a
 // lamp's shadow map gone black, or a floor banded with acne, pass - a few
 // percent of the frame. A demo that failed leaves its frame and a map of
 // where it differs in $TMPDIR/pyros-visual.
@@ -47,11 +50,13 @@ extern char** environ;
 namespace {
 
 	const int kW = 320, kH = 180, kBlock = 10;
+	const int kWindowW = 1280, kWindowH = 748;
+	const double kFreezeSeconds = 4.0;
 
 	struct Options
 	{
 		std::string mode, build, only;
-		double wait = 7.0, tolerance = 4.0, blockTolerance = 36.0;
+		double wait = 7.0, tolerance = 3.0, blockTolerance = 30.0;
 	};
 
 	std::string Run(const std::string &cmd)
@@ -222,7 +227,7 @@ int main(int argc, char** argv)
 		Options o;
 		if (!ParseArgs(argc, argv, o))
 		{
-			fprintf(stderr, "VisualCheck check|accept [--build build_ed_mtl] [--only 3,7] [--wait 7] [--tolerance 4] [--block-tolerance 36]\n");
+			fprintf(stderr, "VisualCheck check|accept [--build build_ed_mtl] [--only 3,7] [--wait 7] [--tolerance 3] [--block-tolerance 30]\n");
 			return 2;
 		}
 		const std::string repo = PYROS_REPO_DIR;
@@ -262,11 +267,15 @@ int main(int argc, char** argv)
 			for (char** e = environ; *e; e++) env.push_back(*e);
 			env.push_back("PYROS_DEMO_INDEX=" + std::to_string(i));
 			env.push_back("PYROS_DEMO_NO_UI=1");
+			// (one moment of the demo, the same every run: its clock moves a fixed step a frame and stops)
+			env.push_back("PYROS_DEMO_FIXED_CLOCK=" + std::to_string(kFreezeSeconds));
 			std::vector<char*> envp; for (std::string &s : env) envp.push_back(&s[0]); envp.push_back(NULL);
 			posix_spawn_file_actions_t fa;
 			posix_spawn_file_actions_init(&fa);
-			posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
-			posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
+			// (what the demo printed, beside its frames: the clock's "frozen", a crash, a shader error)
+			const std::string logPath = tmp + "/" + idx + ".log";
+			posix_spawn_file_actions_addopen(&fa, 1, logPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+			posix_spawn_file_actions_adddup2(&fa, 1, 2);
 			const std::string cwd = repo + "/resources";
 			// (the _np name: its successor is only in the macOS 26 SDK, and CI builds with older ones)
 #pragma clang diagnostic push
@@ -287,15 +296,29 @@ int main(int argc, char** argv)
 			// (until it takes: a demo that bakes on the CPU at start has no window yet at 2 s)
 			const double sizedAt = Now();
 			CGWindowID wid = 0; CGRect bounds = CGRectZero;
+			// (exactly the launcher's own window: 1280x720 of picture under a 28 point title bar. A height
+			// allowed to vary by a few points let a tiled-then-resized window render 728 rows and an
+			// untouched one 720 - the same demo framed two ways, and SSAO's teapots "differed" half the runs)
 			for (int attempt = 0; attempt < 12; attempt++)
 			{
-				FixSize(pid, 1280, 760);
-				if (FindWindow(pid, wid, bounds) && (int)bounds.size.width == 1280 && std::fabs(bounds.size.height - 760.0) <= 16.0) break;
+				if (FindWindow(pid, wid, bounds) && (int)bounds.size.width == kWindowW && (int)bounds.size.height == kWindowH) break;
+				FixSize(pid, kWindowW, kWindowH);
 				if (!alive()) break;
 				usleep(500000);
 			}
-			const double left = std::max(1.0, o.wait - 2.0 - (Now() - sizedAt));
-			usleep((useconds_t)(left * 1e6));
+			// Until the demo's clock has stopped (it says so), then a little more for what accumulates over
+			// frames (temporal antialiasing) to settle. --wait is the most to wait for it.
+			(void)sizedAt;
+			bool frozen = false;
+			for (const double until = Now() + std::max(o.wait, 5.0) + 25.0; Now() < until && alive(); usleep(100000))
+			{
+				std::ifstream lf(logPath);
+				std::string line;
+				while (std::getline(lf, line)) if (line.find("[check] frozen") != std::string::npos) { frozen = true; break; }
+				if (frozen) break;
+			}
+			usleep(1500000);
+			if (!frozen && alive()) printf("%2d %-34s (its clock never stopped - captured anyway)\n", i, title.c_str());
 
 			std::vector<unsigned char> rgb;
 			CGImageRef full = NULL;

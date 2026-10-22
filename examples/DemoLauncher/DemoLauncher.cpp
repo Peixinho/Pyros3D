@@ -297,6 +297,9 @@ void DemoLauncher::SwitchDemo(int index)
 			echo("ERROR: DemoLauncher - RenderHost.setup missing");
 	}
 
+	// (under the fixed clock, chance is fixed too: Lua seeds its generator differently every run, and a
+	// demo whose lamps flicker at random - Metro - showed another moment of the flicker each time)
+	if (std::getenv("PYROS_DEMO_FIXED_CLOCK") != NULL) { lua.script("math.randomseed(1)"); srand(1); }
 	SceneSerializer::LoadScene(Scene, STR(EXAMPLES_PATH) + std::string("/assets/demos/") + entry.scene, physics, &lua, &currentAssets);
 
 	// Camera scripts (and other scene Lua) register globals like `camera`
@@ -390,6 +393,24 @@ void DemoLauncher::Update()
 
 	f64 time = GetTime();
 	f64 dt = GetTimeInterval();
+	// PYROS_DEMO_FIXED_CLOCK=<seconds> (what tools/VisualCheck sets): the scene's clock moves 1/60 s a
+	// frame, whatever the frame took, and stops at that many seconds - every run of a demo shows the
+	// same moment of it, an orbiting camera or a spinning cube included. "[check] frozen" on stdout
+	// says the moment has come.
+	{
+		static const char* fixedEnv = std::getenv("PYROS_DEMO_FIXED_CLOCK");
+		static const f64 freezeAfter = fixedEnv ? std::atof(fixedEnv) : 0.0;
+		if (freezeAfter > 0.0)
+		{
+			static f64 start = -1.0, sim = 0.0;
+			static bool said = false;
+			if (start < 0.0) { start = time; sim = time; }
+			dt = (sim - start) < freezeAfter ? 1.0 / 60.0 : 0.0;
+			sim += dt;
+			time = sim;
+			if (dt == 0.0 && !said) { said = true; fprintf(stdout, "[check] frozen\n"); fflush(stdout); }
+		}
+	}
 
 	if (activeDemoHasPhysics)
 		physics->Update(dt, 10);
