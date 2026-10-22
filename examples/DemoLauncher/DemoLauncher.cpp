@@ -1012,7 +1012,7 @@ void DemoLauncher::PrepareImGuiFrame()
 {
 	if (!imguiInitialized) return;
 	BeginImGuiFrame();
-	// (PYROS_DEMO_NO_UI=1: the scene alone - what tools/visual_regress.py compares. The panels are
+	// (PYROS_DEMO_NO_UI=1: the scene alone - what tools/VisualCheck compares. The panels are
 	// where imgui.ini last put them: docked, they were captured over the scene and failed the check)
 	static const bool noUI = std::getenv("PYROS_DEMO_NO_UI") != NULL;
 	if (!noUI) DrawUI();

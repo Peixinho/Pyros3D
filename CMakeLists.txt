@@ -138,6 +138,10 @@ endif()
 
 if (BUILD_DEMOS)
 	add_subdirectory(${CMAKE_SOURCE_DIR}/examples)
+	# (the visual regression check over the demos - macOS: it captures windows with CoreGraphics)
+	if (APPLE AND NOT EMSCRIPTEN)
+		add_subdirectory(${CMAKE_SOURCE_DIR}/tools/VisualCheck)
+	endif()
 endif()
 
 if (BUILD_EDITOR)

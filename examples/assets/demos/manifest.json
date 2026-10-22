@@ -28,6 +28,10 @@
    "effects": [
     "tonemap"
    ]
+  },
+  "check": {
+   "tolerance": 4,
+   "blockTolerance": 75
   }
  },
  {
@@ -45,6 +49,10 @@
    "effects": [
     "tonemap"
    ]
+  },
+  "check": {
+   "tolerance": 5,
+   "blockTolerance": 50
   }
  },
  {
@@ -62,6 +70,10 @@
    "effects": [
     "tonemap"
    ]
+  },
+  "check": {
+   "tolerance": 8,
+   "blockTolerance": 255
   }
  },
  {
@@ -113,6 +125,10 @@
    "effects": [
     "tonemap"
    ]
+  },
+  "check": {
+   "tolerance": 4,
+   "blockTolerance": 80
   }
  },
  {
@@ -161,6 +177,10 @@
     0.14,
     1
    ]
+  },
+  "check": {
+   "tolerance": 4,
+   "blockTolerance": 80
   }
  },
  {
@@ -175,6 +195,10 @@
     0.14,
     1
    ]
+  },
+  "check": {
+   "tolerance": 12,
+   "blockTolerance": 130
   }
  },
  {
@@ -192,6 +216,10 @@
    "effects": [
     "tonemap"
    ]
+  },
+  "check": {
+   "tolerance": 8,
+   "blockTolerance": 120
   }
  },
  {
@@ -294,6 +322,10 @@
    "effects": [
     "ssao"
    ]
+  },
+  "check": {
+   "tolerance": 10,
+   "blockTolerance": 60
   }
  },
  {
@@ -322,6 +354,10 @@
    "effects": [
     "motionblur"
    ]
+  },
+  "check": {
+   "tolerance": 20,
+   "blockTolerance": 255
   }
  },
  {
@@ -390,6 +426,10 @@
     "near": 1,
     "far": 600
    }
+  },
+  "check": {
+   "tolerance": 4,
+   "blockTolerance": 48
   }
  },
  {
@@ -561,6 +601,10 @@
     "near": 0.08,
     "far": 260
    }
+  },
+  "check": {
+   "tolerance": 30,
+   "blockTolerance": 110
   }
  },
  {
@@ -761,6 +805,10 @@
    "effects": [
     "tonemap"
    ]
+  },
+  "check": {
+   "tolerance": 4,
+   "blockTolerance": 50
   }
  },
  {
@@ -794,6 +842,10 @@
    "effects": [
     "tonemap"
    ]
+  },
+  "check": {
+   "tolerance": 4,
+   "blockTolerance": 50
   }
  },
  {
@@ -889,6 +941,10 @@
    "effects": [
     "tonemap"
    ]
+  },
+  "check": {
+   "tolerance": 14,
+   "blockTolerance": 200
   }
  }
 ]
