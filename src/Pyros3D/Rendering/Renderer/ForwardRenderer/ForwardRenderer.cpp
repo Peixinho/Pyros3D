@@ -306,16 +306,44 @@ namespace p3d {
 			const uint8 forwardNeed = CullOwner | CullComponentActive | CullMeshActive;
 			bool anyLocalLight = false;
 			for (size_t l = 0; l < _Lights.size(); l++) if (_Lights[l].m[13] == 2 || _Lights[l].m[13] == 3) { anyLocalLight = true; break; }
-			for (size_t fk = 0; fk < rmesh.size(); fk++)
+			// From the kept list: what is in view first, and of its opaque part what something big and
+			// still in front, or the ground, hides is left out (IRenderer::HideOccluded - as the deferred
+			// renderer does). Not in a clipped view (water's reflection and refraction): what the plane
+			// clips away would still hide what is behind it.
+			static thread_local std::vector<uint32> inView, shown;
+			inView.clear(); shown.clear();
+			uint32 occluded = 0;
+			if (listed)
 			{
-				if (listed && (cullFlags[fk] & forwardNeed) != forwardNeed) continue;
+				size_t k = 0;
+				for (; k < rmesh.size(); k++)
+				{
+					const uint8 f = cullFlags[k];
+					if (f & CullTransparent) break;
+					if ((f & forwardNeed) != forwardNeed) continue;
+					if (!(f & CullTested) || CullListTest(k)) inView.push_back((uint32)k);
+				}
+				if (!ClipPlane) HideOccluded(inView, projection, Camera, Scene, shown, occluded);
+				else shown = inView;
+				for (; k < rmesh.size(); k++)
+				{
+					const uint8 f = cullFlags[k];
+					if ((f & forwardNeed) != forwardNeed) continue;
+					if (!(f & CullTested) || CullListTest(k)) shown.push_back((uint32)k);
+				}
+				FrameProfiler::Instance().Counter("Occlusion.Hidden", (f64)occluded);
+			}
+			const size_t candidates = listed ? shown.size() : rmesh.size();
+			for (size_t c = 0; c < candidates; c++)
+			{
+				const size_t fk = listed ? shown[c] : c;
 				std::vector<RenderingMesh*>::iterator i = rmesh.begin() + fk;
 				GameObject* owner = (*i)->renderingComponent->GetOwner();
 				if (owner == NULL)
 					continue;
-				// Culling Test
+				// Culling Test (the kept list's was made above)
 				bool cullingTest = false;
-				if (listed) cullingTest = !(cullFlags[fk] & CullTested) || CullListTest(fk);
+				if (listed) cullingTest = true;
 				else
 				{
 				switch ((*i)->CullingGeometry)

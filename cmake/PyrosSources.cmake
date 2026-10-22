@@ -150,6 +150,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/EnvironmentMap.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/ReflectionProbes.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Culling/OcclusionBuffer.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/OcclusionCulling.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/IrradianceProbeGrid.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/IrradianceProbeBaker.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/RayScene.cpp

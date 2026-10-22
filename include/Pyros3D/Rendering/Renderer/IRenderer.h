@@ -22,6 +22,8 @@
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include <Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.h>
+#include <Pyros3D/Rendering/Culling/OcclusionBuffer.h>
+#include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
 #include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
@@ -368,6 +370,15 @@ namespace p3d {
 		std::vector<uint8> cullFlags;
 		void BuildCullList();
 		bool CullListTest(const size_t i);
+		// What is in view (inView: opaque entries of the frame's list) less what the big still things
+		// in front and the ground hide, into shown - see OcclusionCulling.cpp. Perspective views only;
+		// it rests, drawing everything, where it has been hiding too little to pay for itself.
+		void HideOccluded(const std::vector<uint32> &inView, const Projection &projection, GameObject* Camera, SceneGraph* Scene, std::vector<uint32> &shown, uint32 &occluded);
+		TerrainOcclusion terrainOcclusion;
+		// (made again every frame)
+		OcclusionBuffer occlusionBuffer;
+		// (frames in a row it hid little, and the frame count it rests by)
+		uint32 occlusionQuiet = 0, occlusionTick = 0;
 		void CullEntry(const size_t i, RenderingMesh* m);
 		void GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const uint32 Tag, std::vector<RenderingMesh*> &opaque, std::vector<RenderingMesh*> &translucent);
 		void SortTranslucent(GameObject* Camera, std::vector<RenderingMesh*> &translucent);

@@ -77,9 +77,25 @@ void DemoLauncher::OnResize(const uint32 width, const uint32 height)
 	}
 }
 
+// (PYROS_DEMO_NO_UI: no keyboard, mouse or text input reaches the demo either. The window the check
+// opens takes the focus, and what was being typed elsewhere then flew the camera off - the capture
+// was of another view, and the demo failed.)
+static int SDLCALL DropInputEvents(void*, SDL_Event* e)
+{
+	switch (e->type)
+	{
+	case SDL_KEYDOWN: case SDL_KEYUP: case SDL_TEXTINPUT: case SDL_TEXTEDITING:
+	case SDL_MOUSEMOTION: case SDL_MOUSEBUTTONDOWN: case SDL_MOUSEBUTTONUP: case SDL_MOUSEWHEEL:
+		return 0;
+	default:
+		return 1;
+	}
+}
+
 void DemoLauncher::Init()
 {
 	ClassName::Init();
+	if (std::getenv("PYROS_DEMO_NO_UI") != NULL) SDL_SetEventFilter(DropInputEvents, NULL);
 	// (the render device on a thread of its own - the engine's FramePipeline: every
 	// pass of every demo is then recorded on every core. PYROS_DEVICE_THREAD=0 for the old way.)
 	FramePipeline::StartDeviceThread();
