@@ -11,7 +11,7 @@ Baselines: tests/visual/<backend>/<index>_<name>.png (small: 96x54). Exit status
 differs by more than --tolerance (mean per-channel difference, 0-255) or fails to show a window."""
 import argparse, json, os, re, subprocess, sys, time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VOLATILE = {"Motion Blur", "SSR Test"}   # (SSR Test: its camera orbits - the frame depends on when it is caught)
+VOLATILE = {"Motion Blur", "SSR Test", "Parallax Mapping"}   # (SSR Test's camera orbits, Parallax's cube turns: the frame depends on when it is caught)
 
 def capture(pid, out):
     import Quartz, CoreFoundation
