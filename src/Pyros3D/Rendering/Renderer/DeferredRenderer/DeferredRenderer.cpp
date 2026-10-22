@@ -1129,7 +1129,16 @@ namespace p3d {
 			// What the big still things in view hide (OcclusionBuffer): the largest on screen drawn
 			// into a small depth picture, the rest asked against it. Perspective views only.
 			bool byOccluders = false;
-			if (OcclusionBuffer::GetEnabled() && projection.m.m[15] == 0.f)
+			// It pays its way: drawing the occluders costs a few milliseconds of the main thread, and
+			// over open ground (Erangel's title: 64 occluders, 3.7 ms, 16 000 triangles hidden) it hides
+			// less than it costs. Thirty frames in a row hiding under kWorth triangles and it rests - made
+			// only every fifteenth frame, to see whether the view has come where it pays (then every frame
+			// again). Resting, everything is drawn: nothing can come out wrong, only slower or faster.
+			static const uint32 kWorth = 50000, kQuietFrames = 30, kRestEvery = 15;
+			occlusionTick++;
+			const bool resting = occlusionQuiet >= kQuietFrames && (occlusionTick % kRestEvery) != 0;
+			FrameProfiler::Instance().Counter("Occlusion.Resting", resting ? 1.0 : 0.0);
+			if (OcclusionBuffer::GetEnabled() && projection.m.m[15] == 0.f && !resting)
 			{
 				PYROS_PROFILE_SCOPE("Occlusion.Occluders");
 				const Vec3 eyeAt = Camera->GetDrawWorldPosition();
@@ -1205,6 +1214,7 @@ namespace p3d {
 			FrameProfiler::Instance().End();
 			FrameProfiler::Instance().Counter("Occlusion.ByOccluders", (f64)hiddenByOccluders);
 			FrameProfiler::Instance().Counter("Occlusion.HiddenTris", (f64)hiddenTriangles);
+			if (byOccluders) occlusionQuiet = hiddenTriangles >= kWorth ? 0 : occlusionQuiet + 1;
 		}
 		// PYROS_TRACE_MESHES=<part of a name>: twice a second, every listed object of that name
 		// within 150 m whose sphere is in view and of which nothing is being drawn - and why.

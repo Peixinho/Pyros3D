@@ -2857,8 +2857,10 @@ uint64 IRenderer::GatherLightCasters(const Vec3 &at, const f32 reach)
 		if (dx * dx + dy * dy + dz * dz <= r2)
 		{
 			lightCasterScratch.push_back(i);
-			(owner->IsStatic() ? lightStillScratch : lightMovingScratch).push_back(i);
-			if (owner->IsStatic())
+			// (still: static, or asleep - not moved of late; one that wakes and moves changes the fingerprint)
+			const bool still = owner->IsStatic() || !owner->IsAwake();
+			(still ? lightStillScratch : lightMovingScratch).push_back(i);
+			if (still)
 			{
 				const Matrix &w = owner->GetWorldTransformation();
 				mix(&owner, sizeof(owner)); mix(w.m, sizeof(w.m));

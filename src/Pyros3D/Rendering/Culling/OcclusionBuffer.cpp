@@ -3,6 +3,7 @@
 // Description : What the big things in view hide. See OcclusionBuffer.h.
 //============================================================================
 
+#include <set>
 #include <Pyros3D/Rendering/Culling/OcclusionBuffer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -62,30 +63,64 @@ namespace p3d {
 		if ((frame & 4095) == 0) canOcclude.clear();
 	}
 
+	// PYROS_OCCLUSION_TRACE=1: why each candidate (static, big enough) does or does not occlude -
+	// once each, the first sixty, and how many were not static or too small
+	namespace {
+		const bool g_occlusionTrace = std::getenv("PYROS_OCCLUSION_TRACE") != NULL;
+		void Why(RenderingComponent* rc, const char* why, const size_t tris)
+		{
+			static int lines = 0;
+			if (!g_occlusionTrace || lines >= 60) return;
+			lines++;
+			fprintf(stderr, "[occluder] %s: %s (%zu triangles)\n", rc && rc->GetOwner() ? rc->GetOwner()->GetName().c_str() : "?", why, tris);
+		}
+	}
+
 	bool OcclusionBuffer::CanOcclude(RenderingComponent* rc, const f32 sphereRadius)
 	{
-		if (rc == NULL || rc->GetOwner() == NULL || !rc->GetOwner()->IsStatic()) return false;
-		if (sphereRadius < 1.5f) return false;                         // (a thing smaller than a door hides little)
+		if (rc == NULL || rc->GetOwner() == NULL) return false;
+		// Still: marked static, or not moved of late (asleep in the scene's walk) - the triangles kept
+		// are made again whenever its place changes, so what matters is that it is not moving now. Only
+		// the static flag was asked: in Erangel nothing but the terrain carries it, and nothing occluded.
+		const bool still = rc->GetOwner()->IsStatic() || !rc->GetOwner()->IsAwake();
+		if (!still || sphereRadius < 1.5f)
+		{
+			if (g_occlusionTrace)
+			{
+				static std::set<RenderingComponent*> seen;
+				static uint32 notStatic = 0, small = 0;
+				if (seen.insert(rc).second)
+				{
+					(!still ? notStatic : small)++;
+					if ((notStatic + small) % 500 == 0)
+						fprintf(stderr, "[occluder] so far %u not static, %u under 1.5 m\n", notStatic, small);
+					if (!still && sphereRadius >= 1.5f && notStatic <= 20)
+						fprintf(stderr, "[occluder] %s: moving (radius %.1f)\n", rc->GetOwner()->GetName().c_str(), sphereRadius);
+				}
+			}
+			return false;                                                // (a thing smaller than a door hides little)
+		}
 		std::map<RenderingComponent*, bool>::iterator known = canOcclude.find(rc);
 		if (known != canOcclude.end()) return known->second;
 		bool &answer = canOcclude[rc];
 		answer = false;
-		if (rc->IsInstanced()) return false;
+		if (rc->IsInstanced()) { Why(rc, "instanced", 0); return false; }
 		const std::vector<RenderingMesh*> &meshes = rc->GetMeshes(CoarsestLevel(rc));
 		size_t tris = 0;
 		for (size_t m = 0; m < meshes.size(); m++)
 		{
 			RenderingMesh* rm = meshes[m];
-			if (rm == NULL || rm->Geometry == NULL || !rm->Material) return false;
+			if (rm == NULL || rm->Geometry == NULL || !rm->Material) { Why(rc, "no geometry or material", 0); return false; }
 			// (see through it, or cut out: what it covers may show)
-			if (rm->Material->IsTransparent() || rm->Geometry->materialProperties.haveBones || !rm->MapBoneIDs.empty()) return false;
+			if (rm->Material->IsTransparent() || rm->Geometry->materialProperties.haveBones || !rm->MapBoneIDs.empty()) { Why(rc, rm->Material->IsTransparent() ? "a material seen through" : "skinned", 0); return false; }
 			// (only a plain material: cut-out leaves, a fence, a tree's card - holes to see through; and
 			// a material of its own shader may move its vertices)
 			GenericShaderMaterial* g = dynamic_cast<GenericShaderMaterial*>(rm->Material.get());
-			if (g == NULL || (g->GetOptions() & (ShaderUsage::AlphaTest | ShaderUsage::VertexWind))) return false;
+			if (g == NULL || (g->GetOptions() & (ShaderUsage::AlphaTest | ShaderUsage::VertexWind))) { Why(rc, g == NULL ? "a material of its own shader" : "cut out or in the wind", 0); return false; }
 			tris += rm->Geometry->GetIndexData().size() / 3;
 		}
 		answer = tris > 0 && tris <= kMaxOccluderTriangles;
+		Why(rc, answer ? "occludes" : "too many triangles at its coarsest level", tris);
 		return answer;
 	}
 

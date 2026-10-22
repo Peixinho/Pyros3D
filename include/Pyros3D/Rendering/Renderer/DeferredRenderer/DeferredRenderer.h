@@ -303,6 +303,8 @@ namespace p3d {
 		TerrainOcclusion terrainOcclusion;
 		// What the big still things in view hide (OcclusionBuffer): made again every frame.
 		OcclusionBuffer occlusionBuffer;
+		// (frames in a row it hid little, and the frame count it rests by - see the occlusion block in RenderScene)
+		uint32 occlusionQuiet = 0, occlusionTick = 0;
 		Uniform *dirDirHandle, *dirColorHandle, *dirShadowHandle, *dirShadowPCFTexelHandle, *dirShadowDepthsMVPHandle, *dirShadowFarHandle, *dirHaveShadowHandle, *dirHorizonMapHandle, *dirHorizonRectHandle, *dirHorizonSunHandle, *dirVolumetricHandle, *dirVolumetricTintHandle, *dirRayShadowHandle, *dirContactHandle = NULL;
 		// Ray-traced sun shadows (DirectionalLight::SetRayTracedShadows): the sun pass was
 		// compiled with RAY_SHADOWS (the device traces rays); each geometry's acceleration
