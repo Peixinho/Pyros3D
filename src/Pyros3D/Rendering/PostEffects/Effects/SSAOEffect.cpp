@@ -111,7 +111,7 @@ namespace p3d {
 								"\n"
 								"vec2 getPosViewSpace(vec2 uv, vec4 z_info_local, mat4 matProj_local, vec4 viewport_transform_local)\n"
 								"{\n"
-								"	vec2 screenPos = (uv + .5) * viewport_transform_local.zw - viewport_transform_local.xy;\n"
+								"	vec2 screenPos = uv * viewport_transform_local.zw - viewport_transform_local.xy;\n"   // (uv is a pixel centre already - see secondpassSpot.glsl)
 								// Same NDC-vs-texture-origin mismatch secondpass*.glsl's
 								// identical getPosViewSpace() already compensates for, reached
 								// from the other direction: there `uv` comes from

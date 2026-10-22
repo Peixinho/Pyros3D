@@ -436,7 +436,8 @@ float DecodeNativeDepth(float native_z, vec4 z_info_local)
 
 vec2 getPosViewSpace(vec2 uv, vec4 z_info_local, mat4 uMatProj_local, vec4 viewport_transform_local)
 {
-	vec2 screenPos = (uv + .5) * viewport_transform_local.zw - viewport_transform_local.xy;
+	// (uv is a pixel's centre already - gl_FragCoord, or a texel's centre scaled to the screen. Half a pixel more put every rebuilt position half a pixel off: on Metal, where the Y is turned, beneath a floor seen at a slant, so lights shadowed it in bands - the deferred spot of Shadow Matrix.)
+	vec2 screenPos = uv * viewport_transform_local.zw - viewport_transform_local.xy;
 	// uv is gl_FragCoord-derived, so its Y origin follows the backend:
 	// bottom-left on GL (matching NDC Y up) and top-left on Vulkan
 	// (matching NDC Y down) - either way the line above lands on the

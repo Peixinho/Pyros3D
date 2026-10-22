@@ -95,6 +95,10 @@ namespace p3d {
 		// (one framebuffer for each face, the face attached once: under Vulkan another picture attached to
 		// the same framebuffer was drawn into the first one)
 		FrameBuffer* GetStaticShadowFBO(const int face) { return (face >= 0 && face < 6) ? staticShadowFBO[face].get() : NULL; }
+		// A point light's map, one face at a time: a framebuffer a face, each always on its own face
+		// (and one depth between them). Made the first time it is asked for, NULL for a light that is
+		// not a point light casting shadows.
+		FrameBuffer* GetShadowFaceFBO(const int face);
 
 		// Volumetric in-scattering - how much light this one scatters back
 		// to the eye out of the medium it passes through, on top of what it
@@ -233,6 +237,12 @@ namespace p3d {
 		// so re-enabling shadows can't leak the prior FBO/texture.
 		std::unique_ptr<FrameBuffer> shadowsFBO;
 		std::unique_ptr<FrameBuffer> staticShadowFBO[6];
+		// (see GetShadowFaceFBO: one framebuffer re-aimed at each face in turn began every pass on the
+		// face it was left on, and Metal and Vulkan clear what a pass begins on - the face drawn last the
+		// frame before was wiped, and with the shadow cache it was not drawn again)
+		std::unique_ptr<FrameBuffer> shadowFaceFBO[6];
+		std::unique_ptr<Texture> shadowFaceDepth;
+		Texture* shadowFaceFBOFor = NULL;
 		std::unique_ptr<Texture> staticShadowFaces[6];
 		// Dimensions
 		uint32 ShadowWidth, ShadowHeight;

@@ -721,9 +721,27 @@ namespace p3d {
 		}
 	}
 
+	// An index buffer's binding point belongs to the vertex array bound at the time: binding one to
+	// upload it, and then 0, took the index buffer away from whatever mesh's vertex array the renderer
+	// had left bound - and every draw of that mesh from then on failed (GL_INVALID_OPERATION, no
+	// indices) and drew nothing. A ceiling drawn first in the sun's pass was missing from its map:
+	// no shadow from it on GL only. Uploads of indices are made outside any vertex array.
+	struct OutsideVertexArray
+	{
+		GLint was = 0;
+		explicit OutsideVertexArray(const uint32 nativeType)
+		{
+			if (nativeType != GL_ELEMENT_ARRAY_BUFFER) return;
+			glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &was);
+			if (was != 0) glBindVertexArray(0);
+		}
+		~OutsideVertexArray() { if (was != 0) glBindVertexArray((GLuint)was); }
+	};
+
 	DeviceHandle GLRenderDevice::CreateBuffer(const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
 	{
 		uint32 nativeType = TranslateBufferType(bufferType);
+		OutsideVertexArray outside(nativeType);
 		GLuint id = 0;
 		GLCHECKER(glGenBuffers(1, &id));
 		GLCHECKER(glBindBuffer(nativeType, id));
@@ -735,6 +753,7 @@ namespace p3d {
 	void GLRenderDevice::ReallocateBuffer(const DeviceHandle buffer, const uint32 bufferType, const uint32 bufferDraw, const void *data, const uint32 length)
 	{
 		uint32 nativeType = TranslateBufferType(bufferType);
+		OutsideVertexArray outside(nativeType);
 		GLCHECKER(glBindBuffer(nativeType, buffer));
 #if !defined(GLES3) && !defined(GLLEGACY) && !defined(GL42) && !defined(GL41)
 		GLCHECKER(glInvalidateBufferData(buffer));
@@ -746,6 +765,7 @@ namespace p3d {
 	void GLRenderDevice::UpdateBufferSubData(const DeviceHandle buffer, const uint32 bufferType, const void *data, const uint32 length)
 	{
 		uint32 nativeType = TranslateBufferType(bufferType);
+		OutsideVertexArray outside(nativeType);
 		GLCHECKER(glBindBuffer(nativeType, buffer));
 #if !defined(GLES3) && !defined(GLLEGACY) && !defined(GL42) && !defined(GL41)
 		GLCHECKER(glInvalidateBufferData(buffer));
@@ -764,6 +784,7 @@ namespace p3d {
 	{
 #if !defined(GLES3)
 		uint32 nativeType = TranslateBufferType(bufferType);
+		OutsideVertexArray outside(nativeType);
 		GLCHECKER(glBindBuffer(nativeType, buffer));
 		uint32 MP;
 		switch (mappingType)
@@ -798,6 +819,7 @@ namespace p3d {
 	void GLRenderDevice::UnmapBuffer(const DeviceHandle buffer, const uint32 bufferType)
 	{
 		uint32 nativeType = TranslateBufferType(bufferType);
+		OutsideVertexArray outside(nativeType);
 		GLCHECKER(glBindBuffer(nativeType, buffer));
 		GLCHECKER(glUnmapBuffer(nativeType));
 		GLCHECKER(glBindBuffer(nativeType, 0));

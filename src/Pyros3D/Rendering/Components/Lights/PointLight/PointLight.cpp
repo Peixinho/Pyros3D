@@ -39,7 +39,10 @@ namespace p3d {
 		// Set Flag
 		isCastingShadows = true;
 
-		// Initiate FBO (releases any previously owned FBO/texture first)
+		// Initiate FBO (releases any previously owned FBO/texture first - and the faces' own, made on
+		// the old map: GetShadowFaceFBO makes them again)
+		for (int f = 0; f < 6; f++) shadowFaceFBO[f].reset();
+		shadowFaceDepth.reset(); shadowFaceFBOFor = NULL;
 		shadowsFBO.reset(new FrameBuffer());
 		shadowsFBO->SetDebugName("Shadow map (point)");
 

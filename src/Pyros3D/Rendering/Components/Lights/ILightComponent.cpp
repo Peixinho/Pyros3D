@@ -107,6 +107,8 @@ namespace p3d {
 		if (IsActiveRenderDeviceSet())
 			GetActiveRenderDevice().WaitIdle();
 		shadowsFBO.reset();
+		for (int f = 0; f < 6; f++) shadowFaceFBO[f].reset();
+		shadowFaceDepth.reset(); shadowFaceFBOFor = NULL;
 		ShadowMap.reset();
 		for (int f = 0; f < 6; f++) { staticShadowFBO[f].reset(); staticShadowFaces[f].reset(); }
 	}
@@ -130,6 +132,28 @@ namespace p3d {
 			staticShadowFBO[f]->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
 		}
 		return true;
+	}
+
+	FrameBuffer* ILightComponent::GetShadowFaceFBO(const int face)
+	{
+		if (face < 0 || face >= 6 || !isCastingShadows || !ShadowMap || GetLightType() != LIGHT_TYPE::POINT) return NULL;
+		// (made again for a new map: EnableCastShadows makes one when the size changes)
+		if (shadowFaceFBOFor != ShadowMap.get())
+		{
+			for (int f = 0; f < 6; f++) shadowFaceFBO[f].reset();
+			shadowFaceDepth.reset(new Texture());
+			shadowFaceDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
+			shadowFaceDepth->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+			for (int f = 0; f < 6; f++)
+			{
+				shadowFaceFBO[f].reset(new FrameBuffer());
+				shadowFaceFBO[f]->SetDebugName("Shadow map (point, a face)");
+				shadowFaceFBO[f]->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + f, ShadowMap.get());
+				shadowFaceFBO[f]->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, shadowFaceDepth.get());
+			}
+			shadowFaceFBOFor = ShadowMap.get();
+		}
+		return shadowFaceFBO[face].get();
 	}
 
 	void ILightComponent::DisableCastShadows()

@@ -367,6 +367,17 @@ namespace p3d {
 		// View space looks down -Z, so toward the light is +Z.
 		f32 minZ = lc.z - radius;
 		f32 maxZ = lc.z + radius;
+		// What is in the scene at all, in the light's space: the map need not reach past it. A slice
+		// of the view is far larger than a small scene (the first 300 m of a 70 degree view is a
+		// sphere 880 m across, round a courtyard of 200): every texel was most of a metre, and the
+		// filter and the normal bias, both counted in texels, blurred and moved every edge by metres.
+		const f32 inf = 3.0e38f;
+		f32 sMinX = inf, sMaxX = -inf, sMinY = inf, sMaxY = -inf, sMinZ = inf;
+		auto inScene = [&](const f32 px, const f32 py, const f32 pz, const f32 r) {
+			sMinX = Min(sMinX, px - r); sMaxX = Max(sMaxX, px + r);
+			sMinY = Min(sMinY, py - r); sMaxY = Max(sMaxY, py + r);
+			sMinZ = Min(sMinZ, pz - r);
+		};
 		if (Spheres != NULL && Flags != NULL)
 		{
 			// The casters' bounds as the renderer already keeps them (a sphere
@@ -377,8 +388,11 @@ namespace p3d {
 			const size_t n = Casters.size();
 			for (size_t i = 0; i < n; i++)
 			{
-				if ((Flags[i] & CastMask) != CastMask) continue;
 				const Vec4 &sp = Spheres[i];
+				// (every listed thing receives: the scene's extent, casting or not - bit 1 is "has an owner")
+				if ((Flags[i] & 1) && sp.w > 0.f)
+					inScene(L[0] * sp.x + L[4] * sp.y + L[8] * sp.z + L[12], L[1] * sp.x + L[5] * sp.y + L[9] * sp.z + L[13], L[2] * sp.x + L[6] * sp.y + L[10] * sp.z + L[14], sp.w);
+				if ((Flags[i] & CastMask) != CastMask) continue;
 				const f32 px = L[0] * sp.x + L[4] * sp.y + L[8] * sp.z + L[12];
 				if (fabs(px - lc.x) > radius + sp.w) continue;
 				const f32 py = L[1] * sp.x + L[5] * sp.y + L[9] * sp.z + L[13];
@@ -398,11 +412,25 @@ namespace p3d {
 			const f32 r = rc->GetBoundingSphereRadius() * Max(Max(fabs(scale.x), fabs(scale.y)), fabs(scale.z));
 			const Vec3 pos = owner->GetWorldTransformation() * rc->GetBoundingSphereCenter();
 			const Vec4 p = LightView * Vec4(pos.x, pos.y, pos.z, 1.f);
+			inScene(p.x, p.y, p.z, r);
 			if (fabs(p.x - lc.x) > radius + r || fabs(p.y - lc.y) > radius + r) continue;
 			maxZ = Max(maxZ, p.z + r);
 		}
 
-		Cascades[Cascade].ortho.Ortho(lc.x - radius, lc.x + radius, lc.y - radius, lc.y + radius, -maxZ, -minZ);
+		// The slice's square, cut to the scene's extent where that is smaller. Its edges are kept on a
+		// grid of a 64th of the square, so the map holds still while the view moves inside the scene
+		// (a texel changes only when an edge crosses a grid line).
+		f32 left = lc.x - radius, right = lc.x + radius, bottom = lc.y - radius, top = lc.y + radius;
+		if (sMaxX > sMinX && sMaxY > sMinY)
+		{
+			const f32 step = (2.f * radius) / 64.f;
+			const f32 l = Max(left, floorf(sMinX / step) * step), r = Min(right, ceilf(sMaxX / step) * step);
+			const f32 b = Max(bottom, floorf(sMinY / step) * step), t = Min(top, ceilf(sMaxY / step) * step);
+			if (r - l >= step && t - b >= step) { left = l; right = r; bottom = b; top = t; }
+			// (and no deeper than the scene goes, away from the light: depth precision)
+			if (sMinZ > minZ && sMinZ < maxZ) minZ = sMinZ - 1.f;
+		}
+		Cascades[Cascade].ortho.Ortho(left, right, bottom, top, -maxZ, -minZ);
 		Cascades[Cascade].CropMatrix = Cascades[Cascade].ortho.GetProjectionMatrix();
 		return Cascades[Cascade].CropMatrix;
 	}

@@ -3387,7 +3387,11 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 							pick->stillFaces |= (uint8)(1 << f);
 						}
 					}
-					if (redraw) p->GetShadowFBO()->Bind();
+					// (nothing bound here: binding the map's framebuffer as it was left would begin a pass on the
+					// face the last frame drew last, and Metal and Vulkan clear what a pass begins on - to the
+					// scene's colour, black, an occluder at nought. With the cache that face was not drawn again:
+					// one side of every lamp in shadow for good, the side that face looks down.)
+					bool faceBound = false;
 					shadowCasterSubset = split ? &lightMovingScratch : &lightCasterScratch;
 					for (int32 i = 0; i < 6 && redraw; i++)
 					{
@@ -3427,7 +3431,15 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 						// Colour slot - see PointLight::EnableCastShadows for why
 						// the cube map is R32F colour rather than a depth format.
-						p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
+						// (each face its own framebuffer, always on that face - see ILightComponent::GetShadowFaceFBO;
+						// the one framebuffer re-aimed at each face is what is left where a light has none)
+						FrameBuffer* faceFBO = p->GetShadowFaceFBO(i);
+						if (faceFBO != NULL) faceFBO->Bind();
+						else
+						{
+							p->GetShadowFBO()->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + i, p->GetShadowMapTexture());
+							if (!faceBound) { p->GetShadowFBO()->Bind(); faceBound = true; }
+						}
 
 						// Colour too, not just depth: the cube face is an R32F
 						// colour attachment now (see
@@ -3457,6 +3469,13 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						RenderShadowCasters(true);
 
 						EndClippingPlanes();
+						if (faceFBO != NULL)
+						{
+							// (the scene's clear colour back first: unbinding binds again what was bound before, and
+							// Metal begins a pass on it - cleared to the colour set now; white grayed the Cornell box)
+							device->SetClearColor(BackgroundOverrideSet ? BackgroundOverride : (BackgroundColorSet ? BackgroundColor : Vec4(0.f, 0.f, 0.f, 1.f)));
+							faceFBO->UnBind();
+						}
 
 					}
 
@@ -3501,7 +3520,8 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 
 					// Unbind FBO
 					shadowCasterSubset = NULL;
-					if (redraw) { p->GetShadowFBO()->UnBind(); NoteShadowMapDrawn(p); }
+					if (faceBound) p->GetShadowFBO()->UnBind();
+					if (redraw) NoteShadowMapDrawn(p);
 
 				}
 			}
