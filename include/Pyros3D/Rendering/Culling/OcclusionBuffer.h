@@ -29,7 +29,8 @@ namespace p3d {
 	// while they stay where they are.
 	class PYROS3D_API OcclusionBuffer {
 	public:
-		static const uint32 kWidth = 256, kHeight = 128;
+		static const uint32 kWidth = 256;
+		static const uint32 kHeight = 128;          // (one to a line: MSVC refuses the second of two declared together in an exported class - C2487)
 		static const uint32 kMaxOccluders = 64;
 		static const uint32 kTriangleBudget = 80000;
 		static const uint32 kMaxOccluderTriangles = 20000;  // (a thing of more is not an occluder)
