@@ -6,6 +6,9 @@
 // Description : See DDGIVolume.h.
 //============================================================================
 
+#include <atomic>
+#include <thread>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
 #include <chrono>
 #include <algorithm>
@@ -373,22 +376,11 @@ namespace p3d {
 			std::chrono::steady_clock::now();
 		lastUpdatedProbes = 0;
 
-		for (uint32 n = 0; n < wanted; n++)
+		// One probe traced and its atlas texels written - its own texels only, the multi-bounce read from
+		// the snapshot: probes of one pass do not touch each other's, so a bake traces them on every core.
+		auto traceOne = [&](const uint32 probe, std::vector<Vec3> &rayDir, std::vector<Vec3> &rayRadiance,
+			std::vector<f32> &rayDistance, std::vector<uint8> &rayBackface)
 		{
-			// Checked before each probe rather than after, and never
-			// before the first: a budget too small for even one probe
-			// would otherwise make no progress at all and the volume
-			// would stay black forever rather than converge slowly.
-			if (n > 0 && updateTimeBudgetMs > 0.f)
-			{
-				const f32 spent = (f32)std::chrono::duration<f64, std::milli>(
-					std::chrono::steady_clock::now() - updateStart).count();
-				if (spent >= updateTimeBudgetMs)
-					break;
-			}
-			if (updateCursor >= total)
-				updateCursor = 0;
-			const uint32 probe = updateCursor++;
 			// Inverse of Index(), which is row-major with X fastest. The
 			// two must agree or probes are written into the wrong cells,
 			// which looks like plausible lighting shifted by an axis.
@@ -558,7 +550,6 @@ namespace p3d {
 			// Last, so this probe's atlases were written from the
 			// position it actually traced from. The new offset takes
 			// effect on its next update.
-			lastUpdatedProbes++;
 
 			if (relocationEnabled)
 			{
@@ -581,6 +572,55 @@ namespace p3d {
 					stats.openDir = open * (1.f / stats.openLength);
 				ApplyRelocation(probe, stats);
 			}
+		};
+
+		if (updateTimeBudgetMs <= 0.f && wanted > 1)
+		{
+			// (a bake, or a refresh with no time limit: every core - a CPU trace of a street was a minute on
+			// one; the result is the same, each probe's being its own)
+			if (relocationEnabled && pendingProbeData.size() != probeData.size()) pendingProbeData = probeData;
+			std::vector<uint32> probes(wanted);
+			for (uint32 n = 0; n < wanted; n++)
+			{
+				if (updateCursor >= total) updateCursor = 0;
+				probes[n] = updateCursor++;
+			}
+			// (threads of its own, one for every core, efficiency ones too: a bake has the machine to itself,
+			// where the job system keeps to the performance cores but two for the frames - three threads
+			// on a Mac with eight cores)
+			std::atomic<uint32> next(0);
+			auto work = [&]() {
+				std::vector<Vec3> d(raysPerProbe), rr(raysPerProbe);
+				std::vector<f32> dist(raysPerProbe);
+				std::vector<uint8> bf(raysPerProbe, 0);
+				for (uint32 i = next.fetch_add(1); i < wanted; i = next.fetch_add(1)) traceOne(probes[i], d, rr, dist, bf);
+			};
+			const uint32 cores = std::max(1u, std::min(64u, (uint32)std::thread::hardware_concurrency()));
+			std::vector<std::thread> crew;
+			for (uint32 t = 1; t < cores && t < wanted; t++) crew.emplace_back(work);
+			work();
+			for (size_t t = 0; t < crew.size(); t++) crew[t].join();
+			lastUpdatedProbes = wanted;
+		}
+		else
+		for (uint32 n = 0; n < wanted; n++)
+		{
+			// Checked before each probe rather than after, and never
+			// before the first: a budget too small for even one probe
+			// would otherwise make no progress at all and the volume
+			// would stay black forever rather than converge slowly.
+			if (n > 0 && updateTimeBudgetMs > 0.f)
+			{
+				const f32 spent = (f32)std::chrono::duration<f64, std::milli>(
+					std::chrono::steady_clock::now() - updateStart).count();
+				if (spent >= updateTimeBudgetMs)
+					break;
+			}
+			if (updateCursor >= total)
+				updateCursor = 0;
+			const uint32 probe = updateCursor++;
+			traceOne(probe, rayDir, rayRadiance, rayDistance, rayBackface);
+			lastUpdatedProbes++;
 		}
 
 		if (updateCursor >= total)
