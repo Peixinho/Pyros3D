@@ -278,7 +278,7 @@ namespace p3d {
 	public:
 
 		LUA_RenderingComponent(const std::shared_ptr<p3d::Renderable>& renderable, const std::shared_ptr<p3d::IMaterial>& Material, const p3d::f32 Distance = 0.f) : p3d::RenderingComponent(renderable, Material, Distance) {}
-		LUA_RenderingComponent(const std::shared_ptr<p3d::Renderable>& renderable, const uint32 MaterialOptions, const p3d::f32 Distance = 0.f) : p3d::RenderingComponent(renderable, MaterialOptions, Distance) {}
+		LUA_RenderingComponent(const std::shared_ptr<p3d::Renderable>& renderable, const p3d::ShaderOptions MaterialOptions, const p3d::f32 Distance = 0.f) : p3d::RenderingComponent(renderable, MaterialOptions, Distance) {}
 
 		// Lua Instantiation
 		LUA_RenderingComponent(sol::state* lua, const std::string name, const std::shared_ptr<p3d::Renderable>& renderable, const std::shared_ptr<p3d::IMaterial>& Material, const f32 Distance = 0.f) : p3d::RenderingComponent(renderable, Material, Distance)

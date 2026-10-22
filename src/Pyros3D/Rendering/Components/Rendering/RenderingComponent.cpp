@@ -172,7 +172,7 @@ namespace p3d {
 
 	}
 
-	RenderingComponent::RenderingComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialOptions, const f32 Distance) : IComponent()
+	RenderingComponent::RenderingComponent(const std::shared_ptr<Renderable> &renderable, const ShaderOptions MaterialOptions, const f32 Distance) : IComponent()
 	{
 
 		isInstanced = false;
@@ -273,7 +273,7 @@ namespace p3d {
 		lodRenderables.push_back(renderable);
 	}
 
-	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions)
+	void RenderingComponent::AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const ShaderOptions MaterialOptions)
 	{
 		SayLevelsChanged();
 		uint32 LODLVL = Meshes.size();

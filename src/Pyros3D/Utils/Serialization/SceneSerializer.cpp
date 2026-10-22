@@ -924,6 +924,7 @@ namespace p3d {
 					: json::array({ gm->GetWind().x, gm->GetWind().y, gm->GetWind().z });
 			SerializeTextureRef(m, "skyboxMap", gm->GetSkyboxMap());
 			SerializeTextureRef(m, "metallicRoughnessMap", gm->GetMetallicRoughnessMap());
+			SerializeTextureRef(m, "emissionMap", gm->GetEmissionMap());
 		}
 		else if (CustomShaderMaterial* cm = dynamic_cast<CustomShaderMaterial*>(mat))
 		{
@@ -3315,7 +3316,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		std::string kind = j.value("kind", "unsupported");
 		if (kind == "generic")
 		{
-			uint32 options = j.value("options", 0u);
+			ShaderOptions options = j.value("options", (ShaderOptions)0);
 			// (CastShadows is the shadow pass's own material - it writes depth as its colour - not "this
 			// casts shadows", which is "castingShadows"; left in a scene's material it drew every object
 			// red with its depth)
@@ -3355,6 +3356,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				gm->SetWind(j["wind"][0].get<f32>(), j["wind"][1].get<f32>(), j["wind"][2].get<f32>(), j["wind"].size() >= 4 ? j["wind"][3].get<f32>() : 0.f);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "metallicRoughnessMap", textureCache, outAssets, true)) gm->SetMetallicRoughnessMap(t);
+			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "emissionMap", textureCache, outAssets, true)) gm->SetEmissionMap(t);
 			ApplyCommonMaterialFields(gm.get(), j);
 			return gm;
 		}
@@ -3781,7 +3783,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// ignored them: the mesh stood in bind pose for ever.
 				// BuildMaterials() masks Skinning straight back off for any
 				// submesh whose geometry has no bone data.
-				uint32 opts = ShaderUsage::Diffuse | ShaderUsage::Skinning
+				ShaderOptions opts = ShaderUsage::Diffuse | ShaderUsage::Skinning
 					| ShaderUsage::DirectionalShadow | ShaderUsage::PointShadow | ShaderUsage::SpotShadow;
 				if (g_loadingGI) opts |= ShaderUsage::GlobalIllumination;
 				// Cutout is the scene's to say as well: a package does not
@@ -5363,7 +5365,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 
 	// The material keys GetOrLoadTexture loads shared - see BuildMaterialBody.
 	static const char* const kSharedMaterialMaps[] = { "colorMap", "specularMap", "normalMap",
-		"displacementMap", "envMap", "refractMap", "metallicRoughnessMap" };
+		"displacementMap", "envMap", "refractMap", "metallicRoughnessMap", "emissionMap" };
 
 	// sharedTexturesOut, when given, receives every path that will load
 	// through Texture::LoadShared: material maps and model textures.

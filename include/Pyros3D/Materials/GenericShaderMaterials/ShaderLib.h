@@ -18,9 +18,14 @@
 
 namespace p3d
 {
+	// A material's shader options: which of ShaderUsage's flags its program is made with. 64 bits - the
+	// first 32 ran out with GlobalIllumination; everything that keeps or passes options keeps them whole
+	// (a uint32 on the way would drop every flag past bit 31 without a word).
+	typedef uint64 ShaderOptions;
+
 	namespace ShaderUsage
 	{
-		enum {
+		enum : uint64 {
 			Color = 0x1,
 			Texture = 0x2,
 			EnvMap = 0x4,
@@ -107,13 +112,12 @@ namespace p3d
 			// neither. A Diffuse|GlobalIllumination material still gets
 			// the bounce light, just no reflections.
 			//
-			// This spends one of the two bits this enum had left. The
-			// other is 0x40000000's sibling 0x80000000, which would make
-			// the underlying type unsigned - so treat the budget as
-			// exhausted and fold anything further into an existing
-			// mode selector, the way SH irradiance rides
-			// uAmbientParams.x.
-			GlobalIllumination = 0x40000000
+			// (the last of the first 32 bits but one; the enum is 64 bits wide now - see ShaderOptions)
+			GlobalIllumination = 0x40000000,
+			// The light a surface gives off read from a picture of its own (glTF's emissive map), times
+			// its emission colour and strength: GenericShaderMaterial::SetEmissionMap. Past bit 31 on
+			// purpose - it only works if options are carried whole.
+			EmissionMap = 0x100000000ull
 		};
 	};
 }

@@ -350,6 +350,12 @@ namespace p3d {
 						// what it gives off itself (SetEmission): a lit window lights the room it is in
 						mat.emissive = gm->GetEmission();
 						if (gm->GetEmissionUsesColorMap()) mat.emissive = mat.emissive * mapAverage;
+						// (and the picture it comes from, where it has one: its average)
+						if (Texture *em = gm->GetEmissionMap())
+						{
+							Vec3 avg;
+							mat.emissive = mat.emissive * (em->GetAverageColour(avg) ? avg : AverageColour(em->GetFilename()));
+						}
 					}
 					const uint32 materialIndex = (uint32)materials.size();
 					materials.push_back(mat);

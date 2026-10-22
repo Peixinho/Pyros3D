@@ -27,7 +27,7 @@ namespace p3d {
 	// file begins with its material count, which is never negative). See ModelLoader.
 	static const int32 kP3DMMark = -0x50334D;       // "P3M"
 	// (3: each submesh ends with its morph targets - see SubMesh::morphTargets)
-	static const int32 kP3DMVersion = 3;
+	static const int32 kP3DMVersion = 4;           // (4: a material's emissive map, and so its emissive colour is to be trusted)
 
 	struct PYROS3D_API MaterialProperties
 	{
@@ -57,6 +57,12 @@ namespace p3d {
 		f32 Roughness = 1.f;
 		bool havePBR = false;
 		bool haveMetallicRoughnessMap = false;
+		// glTF's emissive map (version 4 and later). emissiveKept: the file is of a version that keeps it,
+		// so its emissive colour means what it says - an older one's colour came without its map, and a
+		// van whose white colour stood for a mostly black picture glowed white all over.
+		std::string emissiveMap;
+		bool haveEmissiveMap = false;
+		bool emissiveKept = false;
 		// flags
 		bool haveColor;
 		bool haveSpecular;

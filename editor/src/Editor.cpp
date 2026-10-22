@@ -2907,16 +2907,16 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		// Shader options, by the checkbox labels (spaces and case ignored).
 		if (a.contains("options") && a["options"].is_object())
 		{
-			struct Opt { const char* name; uint32 flag; };
+			struct Opt { const char* name; ShaderOptions flag; };
 			static const Opt kOpts[] = {
 				{ "color", ShaderUsage::Color }, { "texture", ShaderUsage::Texture },
-				{ "pbr", ShaderUsage::PBR }, { "pbrmap", ShaderUsage::PBRMap },
+				{ "pbr", ShaderUsage::PBR }, { "pbrmap", ShaderUsage::PBRMap }, { "emissionmap", ShaderUsage::EmissionMap },
 				{ "normalmap", ShaderUsage::BumpMapping }, { "specularmap", ShaderUsage::SpecularMap },
 				{ "envmap", ShaderUsage::EnvMap }, { "refract", ShaderUsage::Refraction },
 				{ "dirshadow", ShaderUsage::DirectionalShadow }, { "pointshadow", ShaderUsage::PointShadow },
 				{ "spotshadow", ShaderUsage::SpotShadow }, { "alphacutout", ShaderUsage::AlphaTest },
 				{ "vertexwind", ShaderUsage::VertexWind } };
-			uint32 opts = gm->GetOptions();
+			ShaderOptions opts = gm->GetOptions();
 			for (nlohmann::json::const_iterator it = a["options"].begin(); it != a["options"].end(); ++it)
 			{
 				std::string k;
@@ -3006,7 +3006,8 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				else if (slot == "specular") gm->SetSpecularMap(tex);
 				else if (slot == "env") gm->SetEnvMap(tex);
 				else if (slot == "metallicRoughness") gm->SetMetallicRoughnessMap(tex);
-				else throw std::runtime_error("unknown texture slot '" + slot + "' (color, normal, specular, env, metallicRoughness)");
+				else if (slot == "emission") gm->SetEmissionMap(tex);     // (with options.emissionMap on)
+				else throw std::runtime_error("unknown texture slot '" + slot + "' (color, normal, specular, env, metallicRoughness, emission)");
 			}
 		}
 		doc->dirty = true;

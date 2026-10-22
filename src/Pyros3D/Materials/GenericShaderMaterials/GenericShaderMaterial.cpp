@@ -16,10 +16,10 @@ namespace p3d
 {
 
 	// Shaders List
-	std::map<uint32, Shader* > GenericShaderMaterial::ShadersList;
+	std::map<ShaderOptions, Shader* > GenericShaderMaterial::ShadersList;
 
-	static std::string BuildShaderUsageDefines(const uint32 options);
-	Shader* GenericShaderMaterial::BuildProgram(const uint32 options, bool &ok)
+	static std::string BuildShaderUsageDefines(const ShaderOptions options);
+	Shader* GenericShaderMaterial::BuildProgram(const ShaderOptions options, bool &ok)
 	{
 		Shader* s = new Shader();
 		s->currentMaterials = 0;
@@ -35,7 +35,7 @@ namespace p3d
 	// the exact same options-bitmask -> #define text, or the two compiled
 	// variants of "the same options" (with/without DeferredRenderer_Gbuffer
 	// OR'd in) would drift out of sync with each other.
-	static std::string BuildShaderUsageDefines(const uint32 options)
+	static std::string BuildShaderUsageDefines(const ShaderOptions options)
 	{
 		std::string define;
 		if (options & ShaderUsage::Color)
@@ -94,6 +94,8 @@ namespace p3d
 			define += std::string("#define PBR\n");
 		if (options & ShaderUsage::PBRMap)
 			define += std::string("#define PBRMAP\n");
+		if (options & ShaderUsage::EmissionMap)
+			define += std::string("#define EMISSIONMAP\n");
 		if (options & ShaderUsage::AlphaTest)
 			define += std::string("#define ALPHATEST\n");
 		if (options & ShaderUsage::InstancedColor)
@@ -103,10 +105,10 @@ namespace p3d
 		return define;
 	}
 
-	GenericShaderMaterial::GenericShaderMaterial(const uint32 options) : IMaterial()
+	GenericShaderMaterial::GenericShaderMaterial(const ShaderOptions options) : IMaterial()
 	{
 		// Default
-		colorMapID = specularMapID = normalMapID = displacementMapID = envMapID = skyboxMapID = refractMapID = fontMapID = -1;
+		colorMapID = specularMapID = normalMapID = displacementMapID = envMapID = skyboxMapID = refractMapID = fontMapID = emissionMapID = -1;
 		metallicRoughnessMapID = -1;
 
 		displacementHeight = 0.05f;
@@ -333,7 +335,7 @@ namespace p3d
 		f.Value(textureCount);
 		for (size_t i = 0; i < textureCount; i++) f.Value(Textures[i].get());
 		f.Value(colorMapID); f.Value(specularMapID); f.Value(normalMapID); f.Value(displacementMapID);
-		f.Value(envMapID); f.Value(skyboxMapID); f.Value(refractMapID); f.Value(fontMapID); f.Value(metallicRoughnessMapID);
+		f.Value(envMapID); f.Value(skyboxMapID); f.Value(refractMapID); f.Value(fontMapID); f.Value(metallicRoughnessMapID); f.Value(emissionMapID);
 		f.Vec(Ke); f.Vec(Ka); f.Vec(Kd); f.Vec(Ks); f.Vec(Wind); f.Vec(Vec4(LightThrough, 0.f, 0.f, 0.f));
 		f.Value(Shininess); f.Value(UseLights); f.Value(displacementHeight); f.Value(Reflectivity);
 		f.Value(Metallic); f.Value(Roughness); f.Value(SSREnabled); f.Value(AlphaCutoff); f.Vec(Subsurface); f.Vec(Wetness); f.Vec(Emission);
@@ -353,7 +355,7 @@ namespace p3d
 		return GetOrBuildVariantProgram(ShaderUsage::DeferredRenderer_Gbuffer);
 	}
 
-	uint32 GenericShaderMaterial::GetOrBuildVariantProgram(const uint32 extraOptions)
+	uint32 GenericShaderMaterial::GetOrBuildVariantProgram(const ShaderOptions extraOptions)
 	{
 		// shaderID (this material's own options, chosen once at
 		// construction - by SceneObjects::GenericMaterial for editor-added
@@ -393,7 +395,7 @@ namespace p3d
 		// style branch selection already uses elsewhere in the engine), and
 		// have the G-buffer pass bind *that* instead of this material's own
 		// program - see DeferredRenderer::RenderScene()'s G-buffer loop.
-		const uint32 gbufferOptions = shaderID | extraOptions;
+		const ShaderOptions gbufferOptions = shaderID | extraOptions;
 		if (ShadersList.find(gbufferOptions) == ShadersList.end())
 		{
 			// Say so when this fails. The G-buffer sibling is the ONLY way an
@@ -477,6 +479,7 @@ namespace p3d
 		auto tex = [this](int32 id) { return id >= 0 && id < (int32)Textures.size() ? Textures[id] : std::shared_ptr<Texture>(); };
 		if (std::shared_ptr<Texture> t = tex(colorMapID)) m->SetColorMap(t);
 		if (std::shared_ptr<Texture> t = tex(specularMapID)) m->SetSpecularMap(t);
+		if (std::shared_ptr<Texture> t = tex(emissionMapID)) m->SetEmissionMap(t);
 		if (std::shared_ptr<Texture> t = tex(normalMapID)) m->SetNormalMap(t);
 		if (std::shared_ptr<Texture> t = tex(displacementMapID)) m->SetDisplacementMap(t);
 		if (std::shared_ptr<Texture> t = tex(envMapID)) m->SetEnvMap(t);
@@ -579,6 +582,21 @@ namespace p3d
 		Textures.push_back(specular);
 		// Set Uniform
 		AddUniform(Uniform("uSpecularmap", Uniforms::DataType::Int, &specularMapID));
+	}
+	void GenericShaderMaterial::SetEmissionMap(const std::shared_ptr<Texture> &emission)
+	{
+		if (emissionMapID == -1)
+			emissionMapID = Textures.size();
+		else {
+			Textures[emissionMapID] = emission;
+			return;
+		}
+		Textures.push_back(emission);
+		AddUniform(Uniform("uEmissionmap", Uniforms::DataType::Int, &emissionMapID));
+	}
+	Texture* GenericShaderMaterial::GetEmissionMap() const
+	{
+		return (emissionMapID >= 0 && (size_t)emissionMapID < Textures.size()) ? Textures[emissionMapID].get() : NULL;
 	}
 	void GenericShaderMaterial::SetMetallicRoughnessMap(const std::shared_ptr<Texture> &metallicRoughnessMap)
 	{

@@ -400,7 +400,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 	const std::shared_ptr<p3d::Renderable> &renderable,
-	const p3d::uint32 materialOptions, const p3d::f32 distance)
+	const p3d::ShaderOptions materialOptions, const p3d::f32 distance)
 {
 #ifdef LUA_BINDINGS
 	return std::static_pointer_cast<p3d::RenderingComponent>(

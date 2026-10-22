@@ -48,7 +48,10 @@ namespace p3d {
 				"AlphaTest", ShaderUsage::AlphaTest,
             "InstancedColor", ShaderUsage::InstancedColor,
             "VertexWind", ShaderUsage::VertexWind,
-            "VertexColor", ShaderUsage::VertexColor
+            "VertexColor", ShaderUsage::VertexColor,
+            // (past bit 31: Lua integers are 64-bit, and LuaObjectToMaterialOptions reads them whole)
+            "GlobalIllumination", ShaderUsage::GlobalIllumination,
+            "EmissionMap", ShaderUsage::EmissionMap
 			);
 
 			lua->new_enum("TextureTransparency",

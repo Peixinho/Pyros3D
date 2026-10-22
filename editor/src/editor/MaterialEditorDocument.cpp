@@ -216,6 +216,7 @@ namespace {
 		{ "specularMap", &GenericShaderMaterial::GetSpecularMap, &GenericShaderMaterial::SetSpecularMap },
 		{ "envMap", &GenericShaderMaterial::GetEnvMap, &GenericShaderMaterial::SetEnvMap },
 		{ "metallicRoughnessMap", &GenericShaderMaterial::GetMetallicRoughnessMap, &GenericShaderMaterial::SetMetallicRoughnessMap },
+		{ "emissionMap", &GenericShaderMaterial::GetEmissionMap, &GenericShaderMaterial::SetEmissionMap },
 	};
 }
 
@@ -254,7 +255,7 @@ bool MaterialEditorDocument::LoadFromFile(const std::string& path) {
 
 	if (kind == "generic") {
 		editKind = MaterialEditKind::Generic;
-		auto mat = std::make_shared<GenericShaderMaterial>(j.value("options", 0u));
+		auto mat = std::make_shared<GenericShaderMaterial>(j.value("options", (ShaderOptions)0));
 		if (j.find("color") != j.end() && j["color"].size() >= 4)
 			mat->SetColor(Vec4(j["color"][0], j["color"][1], j["color"][2], j["color"][3]));
 		if (j.find("specular") != j.end() && j["specular"].size() >= 4)

@@ -870,12 +870,12 @@ namespace p3d {
 	// "expected number, received GenericShaderMaterial" - that left LOD
 	// teapots, Neon arena, and Island water uncreated (lights-only / blue /
 	// no water). Only accept real Lua numbers as material-options ints.
-	bool LuaObjectToMaterialOptions(const sol::object &o, uint32 &out)
+	bool LuaObjectToMaterialOptions(const sol::object &o, ShaderOptions &out)
 	{
 		if (!o.valid()) return false;
 		if (o.get_type() != sol::type::number)
 			return false;
-		out = o.as<uint32>();
+		out = (ShaderOptions)o.as<int64>();          // (whole: flags past bit 31 - Lua numbers are 64-bit integers)
 		return true;
 	}
 
@@ -890,7 +890,7 @@ namespace p3d {
 			rcomp->AddLOD(renderable, Distance, material);
 			return;
 		}
-		uint32 options = 0;
+		ShaderOptions options = 0;
 		if (LuaObjectToMaterialOptions(materialOrOptions, options))
 		{
 			rcomp->AddLOD(renderable, Distance, options);
@@ -917,7 +917,7 @@ namespace p3d {
 		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
 		if (material)
 			return std::make_shared<LUA_RenderingComponent>(renderable, material);
-		uint32 options = 0;
+		ShaderOptions options = 0;
 		if (LuaObjectToMaterialOptions(materialOrOptions, options))
 			return std::make_shared<LUA_RenderingComponent>(renderable, (int)options);
 		throw std::runtime_error("RenderingComponent.new: second argument is not an IMaterial or material options int");
@@ -931,7 +931,7 @@ namespace p3d {
 		std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
 		if (material)
 			return std::make_shared<LUA_RenderingComponent>(renderable, material, distance);
-		uint32 options = 0;
+		ShaderOptions options = 0;
 		if (LuaObjectToMaterialOptions(materialOrOptions, options))
 			return std::make_shared<LUA_RenderingComponent>(renderable, (int)options, distance);
 		throw std::runtime_error("RenderingComponent.new: second argument is not an IMaterial or material options int");

@@ -572,6 +572,7 @@ namespace p3d {
 				"setEmission", [](GenericShaderMaterial &m, const Vec3 &color, f32 strength, sol::optional<bool> usesMap) { m.SetEmission(color, strength, usesMap.value_or(false)); },
 				"getEmissionStrength", &GenericShaderMaterial::GetEmissionStrength,
 				"getEmissionColor", [](GenericShaderMaterial &m) { return m.GetEmissionColor(); },
+				"setEmissionMap", &GenericShaderMaterial::SetEmissionMap,
 				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
 				"getAlphaCutoff", &GenericShaderMaterial::GetAlphaCutoff,
@@ -753,7 +754,7 @@ namespace p3d {
                         std::shared_ptr<IMaterial> material = LuaObjectToMaterial(materialOrOptions);
                         if (material)
                             return std::make_shared<LUA_RenderingInstancedComponent>(renderable, material, (uint32)nrInstances, (f32)boundingSphere);
-                        uint32 options = 0;
+                        ShaderOptions options = 0;
                         if (LuaObjectToMaterialOptions(materialOrOptions, options))
                             return std::make_shared<LUA_RenderingInstancedComponent>(renderable, options, (uint32)nrInstances, (f32)boundingSphere);
                         throw std::runtime_error("RenderingInstancedComponent.new: second argument is not a Material or ShaderUsage options");

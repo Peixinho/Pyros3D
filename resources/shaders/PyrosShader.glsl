@@ -142,6 +142,8 @@
 // The scene's HDR environment, blurred for six roughnesses - see EnvironmentMap.cpp.
 #define BIND_uEnvRadiance 22
 #define BIND_uReflectionProbes 23
+// The light a surface gives off, from a picture of its own (ShaderUsage::EmissionMap).
+#define BIND_uEmissionmap 24
 
 // Loose-uniform-turned-UBO bindings. Each block is declared in exactly one
 // stage (checked against actual usage: e.g. uCameraPos is only ever read
@@ -250,7 +252,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vColor) varying_out vec4 vColor;
     #endif
 
-    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP)
+    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP) || defined(EMISSIONMAP)
         IO_LOCATION(LOC_vTexcoord) varying_out vec2 vTexcoord;
     #endif
 
@@ -338,7 +340,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
     // using a Color-only material with no texture-related flag) has no
     // "aTexcoord" entry in its vertex layout to satisfy that requirement
     // when this was unconditional.
-    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP)
+    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP) || defined(EMISSIONMAP)
         IO_LOCATION(LOC_aTexcoord) attribute_in vec2 aTexcoord;
     #endif
     // uProjectionMatrix/uViewMatrix change once per (frame or shadow pass),
@@ -461,7 +463,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             vColor = aColor;
         #endif
 
-        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP)
+        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP) || defined(EMISSIONMAP)
             vTexcoord = aTexcoord;
         #endif
 
@@ -1000,12 +1002,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
     #endif
 
-    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(SPECULARMAP) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(PBRMAP)
+    #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(SPECULARMAP) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(PBRMAP) || defined(EMISSIONMAP)
         IO_LOCATION(LOC_vTexcoord) varying_in vec2 vTexcoord;
     #endif
 
     #ifdef TEXTURE
         SAMPLER_BINDING(BIND_uColormap) uniform sampler2D uColormap;
+    #endif
+
+    #ifdef EMISSIONMAP
+        SAMPLER_BINDING(BIND_uEmissionmap) uniform sampler2D uEmissionmap;
     #endif
 
     #ifdef TEXTRENDERING
@@ -1954,7 +1960,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             } else diffuse *= vInstanceColor;
         #endif
 
-        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP)
+        #if defined(TEXTURE) || defined(TEXTRENDERING) || defined(BUMPMAPPING) || defined(PARALLAXMAPPING) || defined(SPECULARMAP) || defined(PBRMAP) || defined(EMISSIONMAP)
             vec2 Texcoord = vTexcoord;
             #if defined(PARALLAXMAPPING)
                 vec3 viewDir = normalize(vTangentMatrix * (vCameraPos-vWorldPosition.xyz));
@@ -1975,6 +1981,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
                 diffuseIsSet=true;
             } else diffuse *= _colorTexel;
             if (uEmission.w > 0.5) p3d_Emission *= _colorTexel.rgb;
+        #endif
+        #ifdef EMISSIONMAP
+            p3d_Emission *= texture_2D(uEmissionmap, Texcoord).rgb;
         #endif
 
         #if defined(VERTEXCOLOR) && !defined(DEBUGRENDERING)

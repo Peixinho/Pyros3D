@@ -200,11 +200,11 @@ namespace p3d {
 		// shows the one where the other is not - see PyrosShader.glsl's p3d_LodFade.
 		f32 LodFade = 0.f;
 
-		void BuildMaterials(const uint32 &MaterialOptions)
+		void BuildMaterials(const ShaderOptions &MaterialOptions)
 		{
 			
 			// From Properties
-			uint32 options = 0;
+			ShaderOptions options = 0;
 			// Get Material Options
 			if (Geometry->materialProperties.haveColor) options = options | ShaderUsage::Color;
 			if (Geometry->materialProperties.haveSpecular) options = options | ShaderUsage::SpecularColor;
@@ -213,6 +213,11 @@ namespace p3d {
 			if (Geometry->materialProperties.haveNormalMap) options = options | ShaderUsage::BumpMapping;
 			if (Geometry->materialProperties.havePBR) options = options | ShaderUsage::PBR;
 			if (Geometry->materialProperties.havePBR && Geometry->materialProperties.haveMetallicRoughnessMap) options = options | ShaderUsage::PBRMap;
+			// what the model says the surface gives off itself - where its file kept the map the colour multiplies
+			const Vec4 &emissive = Geometry->materialProperties.Emissive;
+			const bool emits = Geometry->materialProperties.emissiveKept && Geometry->materialProperties.haveEmissive
+				&& (emissive.x > 0.f || emissive.y > 0.f || emissive.z > 0.f);
+			if (emits && Geometry->materialProperties.haveEmissiveMap) options = options | ShaderUsage::EmissionMap;
 
 			// Callers can pass ShaderUsage::Skinning explicitly (e.g. one
 			// material applied uniformly across every submesh of an
@@ -307,9 +312,16 @@ namespace p3d {
 					}
 				}
 			}
-			// (Not the model's own emissive colour: a .p3dm keeps the colour but not glTF's emissive
-			// map it multiplies, and a van whose body's colour is white glowed white all over. A scene
-			// says which of a model's surfaces give off light - its "emission" list.)
+			// (only from a file that keeps the emissive map with it - see MaterialProperties::emissiveKept)
+			if (emits)
+			{
+				genMat->SetEmission(Vec3(emissive.x, emissive.y, emissive.z), 1.f);
+				if (Geometry->materialProperties.haveEmissiveMap)
+				{
+					std::shared_ptr<Texture> em = Texture::LoadShared(Geometry->materialProperties.emissiveMap, TextureType::Texture);
+					if (em) { em->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear); genMat->SetEmissionMap(em); }
+				}
+			}
 			Material.reset(genMat);
 		}
 	};
@@ -321,7 +333,7 @@ namespace p3d {
 	public:
 
 		RenderingComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const f32 Distance = 0.0f);
-		RenderingComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialOptions = 0, const f32 Distance = 0.0f);
+		RenderingComponent(const std::shared_ptr<Renderable> &renderable, const ShaderOptions MaterialOptions = 0, const f32 Distance = 0.0f);
 		// How far level 0 reaches. AddLOD() appends the NEXT level's
 		// distance and assumes this one is already there - which only the
 		// constructors' Distance argument set, and the instanced
@@ -333,7 +345,7 @@ namespace p3d {
 			LOD = true;
 		}
 		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const std::shared_ptr<IMaterial> &Material);
-		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const uint32 MaterialOptions = 0);
+		void AddLOD(const std::shared_ptr<Renderable> &renderable, const f32 Distance, const ShaderOptions MaterialOptions = 0);
 		// A further level drawn with the materials of the nearest one, sub-mesh
 		// for sub-mesh: for a level made from the same model (SimplifiedModel),
 		// whose sub-meshes are the model's in the same order.

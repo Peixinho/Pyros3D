@@ -2556,7 +2556,7 @@ bool SceneEditor::BakeFoliageImpostor(const json& a, json& out, std::string& err
 	// when the layer has them.
 	const FoliageLayerSpec spec = [&]() { FoliageLayerSpec s; PatchSpec(s, *layer); return s; }();
 	const bool tinted = !(spec.tintLow == Vec4(1.f, 1.f, 1.f, 1.f) && spec.tintHigh == Vec4(1.f, 1.f, 1.f, 1.f));
-	uint32 options = ShaderUsage::Texture | ShaderUsage::Diffuse | ShaderUsage::InstancedRendering | ShaderUsage::PBR | ShaderUsage::AlphaTest;
+	ShaderOptions options = ShaderUsage::Texture | ShaderUsage::Diffuse | ShaderUsage::InstancedRendering | ShaderUsage::PBR | ShaderUsage::AlphaTest;
 	if (tinted) options |= (1u << 25);
 
 	json &pool = TileSubtree(tree);

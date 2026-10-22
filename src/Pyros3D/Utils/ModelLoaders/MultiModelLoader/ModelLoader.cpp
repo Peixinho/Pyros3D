@@ -194,6 +194,20 @@ namespace p3d {
 					mat.metallicRoughnessMap = ResolveModelTexturePath(Filename, c);
 				}
 			}
+			if (version >= 4)
+			{
+				// (the emissive map - see MaterialProperties::emissiveKept)
+				bin->Read(&In, sizeof(uchar));
+				mat.haveEmissiveMap = !!In;
+				bin->Read(&nameSize, sizeof(int32));
+				if (nameSize > 0)
+				{
+					std::string c; c.resize(nameSize);
+					bin->Read(&c[0], nameSize);
+					mat.emissiveMap = ResolveModelTexturePath(Filename, c);
+				}
+				mat.emissiveKept = true;
+			}
 
 			materials.push_back(mat);
 

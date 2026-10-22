@@ -141,7 +141,7 @@ std::shared_ptr<GenericShaderMaterial> RenderingMesh_GetGenericMaterial(Renderin
 std::shared_ptr<CustomShaderMaterial> RenderingMesh_GetCustomMaterial(RenderingMesh &m);
 std::shared_ptr<Renderable> LuaObjectToRenderable(const sol::object &o);
 std::shared_ptr<IMaterial> LuaObjectToMaterial(const sol::object &o);
-bool LuaObjectToMaterialOptions(const sol::object &o, uint32 &out);
+bool LuaObjectToMaterialOptions(const sol::object &o, p3d::ShaderOptions &out);
 void RenderingComponent_ADDLOD(RenderingComponent* rcomp, sol::object renderableObj, const f32 Distance, sol::object materialOrOptions);
 void RenderingComponent_ADDLOD_DistOnly(RenderingComponent* rcomp, sol::object renderableObj, const f32 Distance);
 std::shared_ptr<LUA_RenderingComponent> LuaNewRenderingComponent(sol::object renderableObj, sol::object materialOrOptions);

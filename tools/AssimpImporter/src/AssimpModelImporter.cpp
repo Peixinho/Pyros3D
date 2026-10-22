@@ -594,6 +594,22 @@ namespace p3d {
 					material.Metallic = metallic;
 					material.Roughness = roughness;
 				}
+				// Emissive map: glTF's emissive texture, which its emissive factor multiplies. (Still the colour
+				// map too where there is no other - as before - but kept as itself now.)
+				if (pMaterial->GetTexture(aiTextureType_EMISSIVE, 0, &path) == AI_SUCCESS)
+				{
+					material.haveEmissiveMap = true;
+					material.emissiveMap.assign(path.data, path.length);
+					std::replace(material.emissiveMap.begin(), material.emissiveMap.end(), '\\', '/');
+				}
+#ifdef AI_MATKEY_EMISSIVE_INTENSITY
+				// (KHR_materials_emissive_strength: how much brighter than 1 the factor is)
+				{
+					f32 intensity = 1.f;
+					if (material.haveEmissive && pMaterial->Get(AI_MATKEY_EMISSIVE_INTENSITY, intensity) == AI_SUCCESS && intensity > 0.f)
+						material.Emissive = Vec4(material.Emissive.x * intensity, material.Emissive.y * intensity, material.Emissive.z * intensity, 1.f);
+				}
+#endif
 				// Add Material to List
 				materials.push_back(material);
 			}
@@ -608,6 +624,8 @@ namespace p3d {
 					materials[m].specularMap = MaterializeEmbedded(assimp_model, materials[m].specularMap, pendingEmbedded);
 				if (materials[m].haveMetallicRoughnessMap)
 					materials[m].metallicRoughnessMap = MaterializeEmbedded(assimp_model, materials[m].metallicRoughnessMap, pendingEmbedded);
+				if (materials[m].haveEmissiveMap)
+					materials[m].emissiveMap = MaterializeEmbedded(assimp_model, materials[m].emissiveMap, pendingEmbedded);
 			}
 
 			if (!skinned)
@@ -774,6 +792,14 @@ namespace p3d {
 				bin->Write(&mrSize, sizeof(int32));
 				if (mrSize > 0)
 					bin->Write((*i).metallicRoughnessMap.c_str(), sizeof(char)*mrSize);
+
+				// Emissive map (version 4)
+				Out = (uchar)(*i).haveEmissiveMap;
+				bin->Write(&Out, sizeof(uchar));
+				int32 emSize = (*i).haveEmissiveMap ? (int32)(*i).emissiveMap.size() : 0;
+				bin->Write(&emSize, sizeof(int32));
+				if (emSize > 0)
+					bin->Write((*i).emissiveMap.c_str(), sizeof(char)*emSize);
 			}
 
 			// Skeleton

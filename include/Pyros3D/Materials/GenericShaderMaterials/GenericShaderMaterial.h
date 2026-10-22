@@ -24,7 +24,7 @@ namespace p3d
 	public:
 
 		GenericShaderMaterial() {}
-		GenericShaderMaterial(const uint32 options);
+		GenericShaderMaterial(const ShaderOptions options);
 		virtual ~GenericShaderMaterial();
 
 		// PyrosShader.glsl is guaranteed to declare the fixed-binding UBOs
@@ -108,6 +108,10 @@ namespace p3d
 		bool GetEmissionUsesColorMap() const { return EmissionUsesColorMap; }
 		// colour times strength: what the surface gives off where its colour map is white
 		Vec3 GetEmission() const { return EmissionColor * EmissionStrength; }
+		// The picture the light comes from (glTF's emissive map): its texel times the emission colour and
+		// strength. The material must have been made with ShaderUsage::EmissionMap.
+		void SetEmissionMap(const std::shared_ptr<Texture> &emission);
+		Texture* GetEmissionMap() const;
 
 		// Alpha cutoff for ShaderUsage::AlphaTest - fragments whose alpha
 		// falls below this are discarded outright. Ignored entirely by a
@@ -186,7 +190,7 @@ namespace p3d
 		// (ShaderUsage bits - DeferredRenderer_Gbuffer, InstancedRendering),
 		// compiled once and cached like every ShadersList entry. The
 		// renderer's automatic instancing draws with shaderID|InstancedRendering.
-		uint32 GetOrBuildVariantProgram(const uint32 extraOptions);
+		uint32 GetOrBuildVariantProgram(const ShaderOptions extraOptions);
 		// Hash of everything that decides how this material renders: shader
 		// options, parameters, textures, uniform values and render state.
 		// Two materials with the same fingerprint draw identically, so the
@@ -196,9 +200,9 @@ namespace p3d
 		// it: a script that changes one object's colour changes only that
 		// object's fingerprint.
 		uint64 RenderFingerprint() const;
-		void UseVariantProgramForNextDraw(const uint32 extraOptions) { DrawOverride &o = Override(); o.program = GetOrBuildVariantProgram(extraOptions); o.extra = NULL; o.variant = -1; o.material = this; }
+		void UseVariantProgramForNextDraw(const ShaderOptions extraOptions) { DrawOverride &o = Override(); o.program = GetOrBuildVariantProgram(extraOptions); o.extra = NULL; o.variant = -1; o.material = this; }
 		void RestoreOwnProgram() { DrawOverride &o = Override(); if (o.material == this) o = DrawOverride(); }
-		const uint32 &GetOptions() const { return shaderID; }
+		const ShaderOptions &GetOptions() const { return shaderID; }
 		const Vec4 &GetColor() const { return Kd; }
 		const Vec4 &GetSpecular() const { return Ks; }
 		const f32 &GetDisplacementHeight() const { return displacementHeight; }
@@ -232,11 +236,11 @@ namespace p3d
 
 	protected:
 		// Shaders List
-		static std::map<uint32, Shader* > ShadersList;
+		static std::map<ShaderOptions, Shader* > ShadersList;
 
-		static Shader* BuildProgram(const uint32 options, bool &ok);
+		static Shader* BuildProgram(const ShaderOptions options, bool &ok);
 		// Save Shader Location on Shaders List
-		uint32 shaderID;
+		ShaderOptions shaderID;
 
 		// Lighting Properties
 		Vec4 Ke;
@@ -272,6 +276,7 @@ namespace p3d
 		// Texture IDs
 		int32 colorMapID, specularMapID, normalMapID, displacementMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
 		int32 metallicRoughnessMapID;
+		int32 emissionMapID;
 
 		// Uniforms Handles
 		Uniform *uColor = NULL, *uSpecular = NULL, *uReflectivity = NULL, *uShininess = NULL, *uUseLights = NULL, *uDisplacementHeight = NULL;

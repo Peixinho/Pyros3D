@@ -97,7 +97,7 @@ namespace p3d {
 		// Decal) never touch it, so it must start NULL rather than
 		// uninitialized.
 		Model() : mesh(NULL), MergeMeshes(true) {}
-		uint32 MaterialOptions;
+		ShaderOptions MaterialOptions;
 
 		std::string Path;
 		bool MergeMeshes;

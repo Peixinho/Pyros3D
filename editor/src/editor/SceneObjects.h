@@ -108,7 +108,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 	const std::shared_ptr<p3d::IMaterial> &material, const p3d::f32 distance = 0.f);
 std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 	const std::shared_ptr<p3d::Renderable> &renderable,
-	const p3d::uint32 materialOptions, const p3d::f32 distance = 0.f);
+	const p3d::ShaderOptions materialOptions, const p3d::f32 distance = 0.f);
 
 class SceneObjects
 {

@@ -935,6 +935,8 @@ static void DrawTextureSlots(MaterialEditorDocument& doc, GenericShaderMaterial*
 	DrawTextureSlot("Specular Map", gm->GetSpecularMap(), textureRoot, [&doc, gm](std::shared_ptr<Texture> t) { gm->SetSpecularMap(t); doc.dirty = true; });
 	DrawTextureSlot("Env Map", gm->GetEnvMap(), textureRoot, [&doc, gm](std::shared_ptr<Texture> t) { gm->SetEnvMap(t); doc.dirty = true; });
 	DrawTextureSlot("Metallic/Roughness Map", gm->GetMetallicRoughnessMap(), textureRoot, [&doc, gm](std::shared_ptr<Texture> t) { gm->SetMetallicRoughnessMap(t); doc.dirty = true; });
+	// (read only with the Emission Map option on - see ShaderUsage::EmissionMap)
+	DrawTextureSlot("Emission Map", gm->GetEmissionMap(), textureRoot, [&doc, gm](std::shared_ptr<Texture> t) { gm->SetEmissionMap(t); doc.dirty = true; });
 }
 
 static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std::string& projectRoot) {
@@ -959,8 +961,8 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 	}
 
 	ImGui::Text("Shader Options (changing these recreates the shader)");
-	const uint32 opts = gm->GetOptions();
-	uint32 newOpts = opts;
+	const ShaderOptions opts = gm->GetOptions();
+	ShaderOptions newOpts = opts;
 
 	#define CHK(flag, label) do { bool v = (newOpts & ShaderUsage::flag) != 0; \
 		if (ImGui::Checkbox(label, &v)) { \
@@ -971,6 +973,7 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 	CHK(Texture, "Texture");
 	CHK(PBR, "PBR");
 	CHK(PBRMap, "PBR Map");
+	CHK(EmissionMap, "Emission Map");
 	ImGui::Separator();
 	CHK(BumpMapping, "Normal Map");
 	CHK(SpecularMap, "Specular Map");
