@@ -492,6 +492,8 @@ namespace p3d {
 		Matrix GetBoneMatrix(const int32 id);
 
 		bool _paused;
+		// the posed body's size measured from its vertices, once (its levels of detail are made for it)
+		bool posedSizeMeasured = false;
 
 		// Layers
 		std::map<uint32, _SkeletonAnimation::AnimationLayer*> Layers;

@@ -12,6 +12,7 @@
 #include <cmath>
 #include <algorithm>
 #include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
 
 namespace p3d {
 
@@ -1847,13 +1848,57 @@ namespace p3d {
 				if ((mn - omn).magnitude() > size * 0.05f || (mx - omx).magnitude() > size * 0.05f)
 				{
 					rcomp->SetBounds(mn, mx);
-					if (rcomp->GetOwner() != NULL)
+					if (rcomp->GetOwner() != NULL) rcomp->GetOwner()->RefreshComponentBounds();
+				}
+			}
+		}
+
+		// Its levels of detail, made for the size the posed body really is - measured once, from its
+		// vertices skinned here as the shader skins them (every fourth: plenty for a size). The box
+		// above is a union over bones, twice a person's size and more, kept for culling, where too
+		// big is safe; for the levels it put a pedestrian's first simpler one twice as far off.
+		// (Not in the bind pose: there the rig's own scale is not applied yet.)
+		if (!posedSizeMeasured && rcomp->GetOwner() != NULL)
+		{
+			const std::vector<RenderingMesh*> &level0 = rcomp->GetMeshes(0);
+			bool posed = false;
+			for (size_t m = 0; m < level0.size() && !posed; m++)
+				if (level0[m] && !level0[m]->SkinningBones.empty())
+				{
+					const Matrix &b = level0[m]->SkinningBones[0];
+					for (int k = 0; k < 16 && !posed; k++) posed = std::fabs(b.m[k] - ((k % 5 == 0) ? 1.f : 0.f)) > 1e-4f;
+				}
+			if (posed)
+			{
+				bool any = false; Vec3 mn, mx;
+				for (size_t m = 0; m < level0.size(); m++)
+				{
+					RenderingMesh* rm = level0[m];
+					ModelGeometry* g = rm ? dynamic_cast<ModelGeometry*>(rm->Geometry) : NULL;
+					if (g == NULL || rm->SkinningBones.empty() || g->tBonesID.size() != g->tVertex.size() || g->tBonesWeight.size() != g->tVertex.size()) continue;
+					const size_t nb = rm->SkinningBones.size();
+					for (size_t v = 0; v < g->tVertex.size(); v += 4)
 					{
-						rcomp->GetOwner()->RefreshComponentBounds();
-						// (and its levels of detail made for that size, not for the unskinned one's)
-						const Vec3 &sc = rcomp->GetOwner()->GetScale();
-						rcomp->RescaleAutomaticLODs(rcomp->GetBoundingSphereRadius() * std::max(std::fabs(sc.x), std::max(std::fabs(sc.y), std::fabs(sc.z))));
+						const Vec4 &id = g->tBonesID[v], &w = g->tBonesWeight[v];
+						const f32 ids[4] = { id.x, id.y, id.z, id.w }, ws[4] = { w.x, w.y, w.z, w.w };
+						Vec3 q; f32 total = 0.f;
+						for (int k = 0; k < 4; k++)
+						{
+							const int bi = (int)ids[k];
+							if (ws[k] <= 0.f || bi < 0 || (size_t)bi >= nb) continue;
+							q = q + (rm->SkinningBones[bi] * g->tVertex[v]) * ws[k]; total += ws[k];
+						}
+						if (total <= 0.f) continue;
+						q = q / total;
+						if (!any) { mn = mx = q; any = true; }
+						else { mn.x = std::min(mn.x, q.x); mn.y = std::min(mn.y, q.y); mn.z = std::min(mn.z, q.z); mx.x = std::max(mx.x, q.x); mx.y = std::max(mx.y, q.y); mx.z = std::max(mx.z, q.z); }
 					}
+				}
+				if (any)
+				{
+					posedSizeMeasured = true;
+					const Vec3 &sc = rcomp->GetOwner()->GetScale();
+					rcomp->RescaleAutomaticLODs((mx - mn).magnitude() * 0.5f * std::max(std::fabs(sc.x), std::max(std::fabs(sc.y), std::fabs(sc.z))));
 				}
 			}
 		}
