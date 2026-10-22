@@ -11,7 +11,7 @@ Baselines: tests/visual/<backend>/<index>_<name>.png (small: 96x54). Exit status
 differs by more than --tolerance (mean per-channel difference, 0-255) or fails to show a window."""
 import argparse, json, os, re, subprocess, sys, time
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-VOLATILE = {"Motion Blur"}
+VOLATILE = {"Motion Blur", "SSR Test"}   # (SSR Test: its camera orbits - the frame depends on when it is caught)
 
 def capture(pid, out):
     import Quartz, CoreFoundation
@@ -85,7 +85,7 @@ def main():
         if only and i not in only: continue
         name = re.sub(r"[^A-Za-z0-9]+", "_", d.get("name", str(i))).strip("_")
         shot = os.path.join(tmp, "%02d.png" % i)
-        p = subprocess.Popen([exe], cwd=os.path.join(REPO, "resources"), env=dict(os.environ, PYROS_DEMO_INDEX=str(i)),
+        p = subprocess.Popen([exe], cwd=os.path.join(REPO, "resources"), env=dict(os.environ, PYROS_DEMO_INDEX=str(i), PYROS_DEMO_NO_UI="1"),
                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         # (one size every time: a tiling window manager hands a new window a different tile each
         # launch, and the picture is framed by the window)
