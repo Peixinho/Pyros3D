@@ -158,6 +158,9 @@ namespace {
 			m.qAutoFps = q.value("autoRenderScaleFps", -1.f);
 			m.qAutoMin = q.value("autoRenderScaleMin", 0.42f);
 			m.qFrameLimit = q.value("frameRateLimit", -2.f);
+			// "hdrOutput": true - the window shown past SDR white where the display has the range (EDR on a
+			// Mac); the tonemap's highlights then reach the display's peak. SDR where it cannot.
+			m.qHdrOutput = q.value("hdrOutput", false);
 		}
 		if (j.contains("preload") && j["preload"].is_array())
 			for (const auto &e : j["preload"]) if (e.is_string()) m.preload.push_back(e.get<std::string>());
@@ -712,6 +715,9 @@ end
 	// (what is the engine's: the same function the editor's Play applies the project's with)
 	quality::ApplyToEngine(m.quality);
 	if (m.qSsaoTemporal >= 0) g_ssaoTemporalWanted = m.qSsaoTemporal == 1;
+	// (the window's, not the engine's - so here, not in ApplyToEngine; PYROS_HDR=1 forces it, to try)
+	if (m.qHdrOutput || (std::getenv("PYROS_HDR") && std::getenv("PYROS_HDR")[0] == '1'))
+		if (!GetActiveRenderDevice().SetHDROutput(true)) echo("HDR output: not on this backend - the window stays SDR");
 	upscaleSharpness = m.qUpscaleSharpness < 0.f ? 0.85f : m.qUpscaleSharpness;
 	if (!Upscaling::FromString(m.qUpscaler, upscaler)) upscaler = UpscalerMode::FSR1;
 	if (m.qUpscaleSharpness < 0.f) upscaler = UpscalerMode::Off;        // (how "a plain stretch" used to be said)

@@ -26,6 +26,7 @@
 #ifdef METAL_BACKEND
 #if __has_include(<MetalFX/MetalFX.h>)
 #import <MetalFX/MetalFX.h>
+#import <AppKit/AppKit.h>
 #define PYROS_HAVE_METALFX 1
 #else
 #define PYROS_HAVE_METALFX 0
@@ -587,8 +588,70 @@ namespace p3d {
 		metalLayer = layerPtr;
 		drawableWidth = width;
 		drawableHeight = height;
+		if (hdrWanted) ApplyLayerOutput();
 		RebuildDepthTexture();
 		return true;
+	}
+
+	// The layer's format and colour space: 8-bit sRGB, or - HDR output - half floats in extended sRGB
+	// with EDR, where 1.0 is SDR white and the display's headroom is above it. Encoded the same either
+	// way, so the UI (sRGB colours, at most 1.0) needs nothing; only the tonemap goes past 1.
+	void MetalRenderDevice::ApplyLayerOutput()
+	{
+		if (metalLayer == NULL) return;
+		@autoreleasepool
+		{
+			CAMetalLayer* layer = (__bridge CAMetalLayer*)metalLayer;
+			const bool on = hdrWanted;
+			layer.wantsExtendedDynamicRangeContent = on ? YES : NO;
+			layer.pixelFormat = on ? MTLPixelFormatRGBA16Float : MTLPixelFormatBGRA8Unorm;
+			swapchainPixelFormat = (uint32)layer.pixelFormat;
+			CGColorSpaceRef cs = CGColorSpaceCreateWithName(on ? kCGColorSpaceExtendedSRGB : (presentAsLinear ? kCGColorSpaceLinearSRGB : kCGColorSpaceSRGB));
+			layer.colorspace = cs;
+			if (cs != NULL) CGColorSpaceRelease(cs);
+			hdrOn = on;
+		}
+	}
+
+	bool MetalRenderDevice::SetHDROutput(const bool on)
+	{
+		hdrWanted = on;
+		// (the frame being drawn is in the old format: a pass on the window is ended first)
+		if (metalLayer != NULL && hdrOn != on)
+		{
+			if (frameInProgress) EndCurrentRenderEncoderIfOpen();
+			ApplyLayerOutput();
+			// (ImGui's pipeline is keyed off a texture of the window's format)
+			if (imguiDummyColorTexture != NULL)
+			{
+				@autoreleasepool
+				{
+					id<MTLDevice> mtlDevice = (__bridge id<MTLDevice>)device;
+					MTLTextureDescriptor* d = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:(MTLPixelFormat)swapchainPixelFormat width:1 height:1 mipmapped:NO];
+					d.usage = MTLTextureUsageRenderTarget; d.storageMode = MTLStorageModePrivate;
+					id<MTLTexture> t = [mtlDevice newTextureWithDescriptor:d];
+					if (t != nil) { CFBridgingRelease(imguiDummyColorTexture); imguiDummyColorTexture = (void*)CFBridgingRetain(t); }
+				}
+			}
+		}
+		return on ? hdrOn : true;
+	}
+
+	// The window's display, as it is now: how many times SDR white it can show (its brightness setting
+	// moves it). 1 when HDR output is off or the display has none.
+	f32 MetalRenderDevice::GetHDRHeadroom() const
+	{
+		if (!hdrOn || metalLayer == NULL) return 1.f;
+		@autoreleasepool
+		{
+			CAMetalLayer* layer = (__bridge CAMetalLayer*)metalLayer;
+			NSScreen* screen = nil;
+			id delegate = layer.delegate;
+			if ([delegate isKindOfClass:[NSView class]]) screen = ((NSView*)delegate).window.screen;
+			if (screen == nil) screen = [NSScreen mainScreen];
+			const CGFloat h = screen != nil ? screen.maximumExtendedDynamicRangeColorComponentValue : 1.0;
+			return (f32)(h > 1.0 ? h : 1.0);
+		}
 	}
 
 	void MetalRenderDevice::SetPresentAsLinear(const bool enabled)
@@ -1388,6 +1451,9 @@ namespace p3d {
 			record.depthStencilState = (void*)CFBridgingRetain(depthState);
 			record.programHandle = desc.shaderProgram;
 			record.vertexBufferCount = (uint32)desc.vertexLayout.size();
+			record.desc = desc;
+			record.forSwapchain = currentBoundFBO == 0 && !desc.isShadowPass;
+			record.swapchainFormat = swapchainPixelFormat;
 
 			DeviceHandle handle = nextPipelineHandle++;
 			pipelines[handle] = record;
@@ -1435,6 +1501,23 @@ namespace p3d {
 			fprintf(stderr, "MetalRenderDevice::BindPipeline: pipeline handle %u not found (CreatePipeline likely failed earlier) - draw calls will be skipped this bind\n", pipeline);
 			currentPipeline = 0;
 			return;
+		}
+		// (made for the window before its format changed - HDR output turned on or off: made again)
+		if (it->second.forSwapchain && it->second.swapchainFormat != swapchainPixelFormat && currentBoundFBO == 0)
+		{
+			const PipelineDesc desc = it->second.desc;
+			const DeviceHandle fresh = CreatePipeline(desc);
+			std::map<DeviceHandle, PipelineRecord>::iterator f = pipelines.find(fresh);
+			it = pipelines.find(pipeline);
+			if (f != pipelines.end() && it != pipelines.end() && fresh != pipeline)
+			{
+				if (it->second.pipelineState != NULL) CFBridgingRelease(it->second.pipelineState);
+				it->second.pipelineState = (void*)CFBridgingRetain((__bridge id<MTLRenderPipelineState>)f->second.pipelineState);
+				it->second.swapchainFormat = swapchainPixelFormat;
+				DestroyPipeline(fresh);
+				it = pipelines.find(pipeline);
+			}
+			if (it == pipelines.end()) { currentPipeline = 0; return; }
 		}
 		@autoreleasepool
 		{

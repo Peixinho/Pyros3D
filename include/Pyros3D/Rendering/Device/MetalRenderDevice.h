@@ -90,6 +90,9 @@ namespace p3d {
 		// Pair with converting ImGui style colours sRGB→linear (see
 		// Editor.cpp) so UI chrome stays the same brightness.
 		void SetPresentAsLinear(const bool enabled);
+		virtual bool SetHDROutput(const bool on);
+		virtual bool IsHDROutput() const { return hdrOn; }
+		virtual f32 GetHDRHeadroom() const;
 		bool IsPresentLinear() const { return presentAsLinear; }
 
 		void WaitIdle();
@@ -466,6 +469,9 @@ namespace p3d {
 		uint32 swapchainPixelFormat;
 		// See SetPresentAsLinear() - default false (CAMetalLayer sRGB).
 		bool presentAsLinear;
+		// HDR output (SetHDROutput): wanted, and in effect on the layer.
+		bool hdrWanted = false, hdrOn = false;
+		void ApplyLayerOutput();
 		// One shared depth buffer sized to match the drawable - mirrors
 		// VulkanRenderDevice's single swapchain-wide depthImage (see its
 		// comment: only one frame's worth of swapchain rendering is ever
@@ -1028,6 +1034,10 @@ namespace p3d {
 			// a different assignment without changing DrawElements()'s
 			// contract.
 			uint32 vertexBufferCount;
+			// (drawn to the window: built for the format it had then, and built again when that changes)
+			PipelineDesc desc;
+			bool forSwapchain = false;
+			uint32 swapchainFormat = 0;
 			PipelineRecord() : pipelineState(NULL), depthStencilState(NULL), programHandle(0), vertexBufferCount(0) {}
 		};
 		std::map<DeviceHandle, PipelineRecord> pipelines;

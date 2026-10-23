@@ -22,7 +22,8 @@ namespace p3d {
 	// gamma-encode must therefore happen here for scene content (and via
 	// PostEffectsManager::GetViewportColor() when the editor shows the
 	// HDR capture through ImGui::Image).
-	// Exposure is a fixed 1.0, not a runtime uniform - see
+	// One uniform now, for HDR output (uHDR, a vec4 at binding 49 - see PreDraw); the history below is why
+	// it is a vec4 block of its own and was checked on Vulkan. Exposure is a fixed 1.0, not a runtime uniform - see
 	// TonemapEffect.cpp's constructor comment for why: a real, reproduced
 	// Vulkan-only bug where a single-scalar fragment-stage UBO on a
 	// binding no other IEffect had ever used before corrupted this same
@@ -35,6 +36,12 @@ namespace p3d {
 	public:
 		TonemapEffect(const uint32 Tex1, const uint32 Width, const uint32 Height);
 		virtual ~TonemapEffect();
+
+	protected:
+		// HDR output (IRenderDevice::SetHDROutput): the display's headroom and the curve fitted to it
+		virtual void PreDraw();
+		Vec4 hdr;
+		Uniform* hdrHandle = NULL;
 
 	};
 

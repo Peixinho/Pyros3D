@@ -40,7 +40,7 @@ namespace p3d {
 			// Must match MetalRenderDevice::swapchainPixelFormat /
 			// CAMetalLayer.pixelFormat (BGRA8Unorm): ImGui_ImplMetal_
 			// NewFrame() keys its pipeline cache off this dummy's format.
-			MTLTextureDescriptor* dummyDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:MTLPixelFormatBGRA8Unorm
+			MTLTextureDescriptor* dummyDesc = [MTLTextureDescriptor texture2DDescriptorWithPixelFormat:(MTLPixelFormat)swapchainPixelFormat
 				width:1 height:1 mipmapped:NO];
 			dummyDesc.usage = MTLTextureUsageRenderTarget;
 			dummyDesc.storageMode = MTLStorageModePrivate;

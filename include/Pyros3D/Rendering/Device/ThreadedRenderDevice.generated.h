@@ -90,6 +90,9 @@
 		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits) override;
 		virtual bool HasPendingComputeWork() const override;
 		virtual bool SupportsRayQuery() const override;
+		virtual bool SetHDROutput(const bool on) override;
+		virtual bool IsHDROutput() const override;
+		virtual f32 GetHDRHeadroom() const override;
 		virtual DeviceHandle CreateRayGeometry(const f32 * positions, const uint32 vertexCount, const uint32 strideFloats, const uint32 * indices, const uint32 indexCount) override;
 		virtual void DestroyRayGeometry(const DeviceHandle geometry) override;
 		virtual void SetRayScene(const std::vector<RayInstance> & instances) override;

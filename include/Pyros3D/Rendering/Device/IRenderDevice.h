@@ -818,6 +818,14 @@ namespace p3d {
 			Matrix world;
 		};
 		virtual bool SupportsRayQuery() const { return false; }
+		// HDR output: the window shown in a range past SDR white, where the display has one. On, the
+		// presented values are sRGB-encoded as before, with 1.0 the SDR white and up to the headroom
+		// above it (Metal: a float layer in extended sRGB with EDR). False where the backend or the
+		// window cannot - stays SDR. The headroom is the display's now (it moves with its brightness),
+		// 1.0 when off.
+		virtual bool SetHDROutput(const bool on) { (void)on; return false; }
+		virtual bool IsHDROutput() const { return false; }
+		virtual f32 GetHDRHeadroom() const { return 1.f; }
 		// Positions: vertexCount xyz floats, `strideFloats` apart. Indices:
 		// triangles, three 32-bit indices each.
 		virtual DeviceHandle CreateRayGeometry(const f32 *positions, const uint32 vertexCount, const uint32 strideFloats,

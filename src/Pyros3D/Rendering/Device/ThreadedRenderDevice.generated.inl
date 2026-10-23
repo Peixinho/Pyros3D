@@ -363,6 +363,22 @@
 		return real->SupportsRayQuery();
 	}
 
+	bool ThreadedRenderDevice::SetHDROutput(const bool on)
+	{
+		Drain("SetHDROutput");
+		return real->SetHDROutput(on);
+	}
+
+	bool ThreadedRenderDevice::IsHDROutput() const
+	{
+		return real->IsHDROutput();
+	}
+
+	f32 ThreadedRenderDevice::GetHDRHeadroom() const
+	{
+		return real->GetHDRHeadroom();
+	}
+
 	DeviceHandle ThreadedRenderDevice::CreateRayGeometry(const f32 * positions, const uint32 vertexCount, const uint32 strideFloats, const uint32 * indices, const uint32 indexCount)
 	{
 		Drain("CreateRayGeometry");

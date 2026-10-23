@@ -99,6 +99,9 @@ void DemoLauncher::Init()
 {
 	ClassName::Init();
 	if (std::getenv("PYROS_DEMO_NO_UI") != NULL) SDL_SetEventFilter(DropInputEvents, NULL);
+	// (PYROS_HDR=1: the window past SDR white, where the display can - see IRenderDevice::SetHDROutput)
+	if (std::getenv("PYROS_HDR") && std::getenv("PYROS_HDR")[0] == '1' && !GetActiveRenderDevice().SetHDROutput(true))
+		echo("HDR output: not on this backend - the window stays SDR");
 	// (the render device on a thread of its own - the engine's FramePipeline: every
 	// pass of every demo is then recorded on every core. PYROS_DEVICE_THREAD=0 for the old way.)
 	FramePipeline::StartDeviceThread();

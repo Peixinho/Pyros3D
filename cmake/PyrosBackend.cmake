@@ -272,6 +272,8 @@ if (BUILD_METAL_BACKEND)
 		# Apple's upscaler, where the system has it (macOS 13 on): linked weakly,
 		# so the engine still loads where it does not.
 		list(APPEND METAL_BACKEND_LIBS "-Wl,-weak_framework,MetalFX")
+		# (AppKit: the window's screen, for how far past SDR white it can show - HDR output)
+		list(APPEND METAL_BACKEND_LIBS "-framework AppKit")
 
 		# GLSL -> SPIR-V (shaderc, already found above for the Vulkan path)
 		# -> MSL (spirv-cross-msl, the one spirv-cross backend library the
