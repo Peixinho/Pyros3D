@@ -420,6 +420,16 @@ namespace p3d {
 			}
 		}
 
+		// The swapchain colour spaces past sRGB (HDR output - SetHDROutput), where the loader has them.
+		{
+			uint32_t n = 0;
+			vkEnumerateInstanceExtensionProperties(NULL, &n, NULL);
+			std::vector<VkExtensionProperties> have(n);
+			if (n > 0) vkEnumerateInstanceExtensionProperties(NULL, &n, have.data());
+			for (uint32_t i = 0; i < n; i++)
+				if (strcmp(have[i].extensionName, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME) == 0) { extensions.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME); break; }
+		}
+
 		VkInstanceCreateInfo createInfo = {};
 		createInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
 		createInfo.pApplicationInfo = &appInfo;
@@ -651,6 +661,18 @@ namespace p3d {
 				chosenFormat = formats[i];
 				break;
 			}
+		// HDR output: half floats in extended sRGB, encoded like the 8-bit one - 1.0 is SDR white, the
+		// display's headroom above it (MoltenVK turns on EDR for it). Where it is not offered, SDR.
+		hdrOn = false;
+		if (hdrWanted)
+			for (size_t i = 0; i < formats.size(); i++)
+				if (formats[i].format == VK_FORMAT_R16G16B16A16_SFLOAT && formats[i].colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT)
+				{
+					chosenFormat = formats[i];
+					hdrOn = true;
+					break;
+				}
+		if (hdrWanted) fprintf(stderr, "VulkanRenderDevice: HDR output %s\n", hdrOn ? "on (half floats, extended sRGB)" : "not offered by this surface - SDR");
 
 		VkExtent2D extent;
 		if (capabilities.currentExtent.width != 0xFFFFFFFF)
@@ -904,6 +926,38 @@ namespace p3d {
 		vkCreateSemaphore(device, &semInfo, NULL, &imageAvailableSemaphores[index]);
 	}
 
+#if defined(__APPLE__)
+	extern "C" float PyrosAppleDisplayHeadroom(void);
+#endif
+
+	bool VulkanRenderDevice::SetHDROutput(const bool on)
+	{
+		if (hdrWanted == on) return on ? hdrOn : true;
+		hdrWanted = on;
+		// (a new swapchain in the other format; pipelines and ImGui follow it - see RecreateSwapchain)
+		if (swapchain != VK_NULL_HANDLE)
+		{
+			WaitIdle();
+			swapchainFormatChanged = true;
+			RecreateSwapchain(swapchainExtent.width, swapchainExtent.height);
+		}
+		return on ? hdrOn : true;
+	}
+
+	// How far past SDR white the display can show now: the Mac says (EDR); elsewhere Vulkan does not
+	// tell, and PYROS_HDR_HEADROOM (default 4) stands for it.
+	f32 VulkanRenderDevice::GetHDRHeadroom() const
+	{
+		if (!hdrOn) return 1.f;
+#if defined(__APPLE__)
+		return PyrosAppleDisplayHeadroom();
+#else
+		const char* e = getenv("PYROS_HDR_HEADROOM");
+		const f32 h = e ? (f32)atof(e) : 4.f;
+		return h > 1.f ? h : 1.f;
+#endif
+	}
+
 	bool VulkanRenderDevice::RecreateSwapchain(const uint32 width, const uint32 height)
 	{
 		if (device == VK_NULL_HANDLE || surface == VK_NULL_HANDLE)
@@ -930,8 +984,9 @@ namespace p3d {
 
 		const uint32 targetW = (capabilities.currentExtent.width != 0xFFFFFFFFu) ? capabilities.currentExtent.width : width;
 		const uint32 targetH = (capabilities.currentExtent.height != 0xFFFFFFFFu) ? capabilities.currentExtent.height : height;
-		if (swapchain != VK_NULL_HANDLE && targetW == swapchainExtent.width && targetH == swapchainExtent.height)
+		if (swapchain != VK_NULL_HANDLE && targetW == swapchainExtent.width && targetH == swapchainExtent.height && !swapchainFormatChanged)
 			return true;
+		swapchainFormatChanged = false;
 
 		vkDeviceWaitIdle(device);
 

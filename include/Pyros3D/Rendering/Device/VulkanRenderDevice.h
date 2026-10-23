@@ -1103,6 +1103,15 @@ namespace p3d {
 		// later frame, when no attach call happens again - see
 		// FBORecord::lastTarget's comment for why that path exists).
 		void BuildLoadVariant(FBORecord &fbo, const VkRenderPassCreateInfo &info);
+		// HDR output (SetHDROutput): wanted, and in effect on the swapchain - a float swapchain in extended
+		// sRGB, encoded as the SDR one is (the UI needs nothing), where the surface offers it.
+		bool hdrWanted = false, hdrOn = false;
+		bool swapchainFormatChanged = false;   // (a rebuild at the same size: SetHDROutput)
+	public:
+		virtual bool SetHDROutput(const bool on);
+		virtual bool IsHDROutput() const { return hdrOn; }
+		virtual f32 GetHDRHeadroom() const;
+	private:
 		uint64 passFrame = 1;            // (counts BeginFrame calls: a resume is within one)
 		void BeginOffscreenRenderPassForTarget(FBORecord &fbo, const VkFramebuffer targetFramebuffer);
 

@@ -67,6 +67,12 @@ target_link_libraries(PyrosEngine
 # Networking: ENet stays private - nothing in include/Pyros3D names it - and
 # PYROS_NETWORKING tells the engine and its users the transport is there.
 target_link_libraries(PyrosEngine PRIVATE ${MONOCYPHER_LIBRARIES})
+# (the Mac's displays: how far past SDR white they can show, for HDR output on any backend)
+if (APPLE AND NOT EMSCRIPTEN)
+	target_sources(PyrosEngine PRIVATE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/AppleDisplay.mm)
+	set_source_files_properties(${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/AppleDisplay.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+	target_link_libraries(PyrosEngine PRIVATE "-framework AppKit")
+endif()
 target_link_libraries(PyrosEngine PRIVATE ${RECAST_LIBRARIES})
 if (ENET_LIBRARIES)
 	target_link_libraries(PyrosEngine PRIVATE ${ENET_LIBRARIES})
