@@ -81,7 +81,7 @@ struct PlayerManifest
 	// game.json "quality" (see ProjectSettings::quality): -1 where it says nothing
 	nlohmann::json quality;   // (the engine's part applied by shared/QualitySettings.h - the editor's Play calls the same)
 	float qRenderScale = -1.f, qAutoFps = -1.f, qAutoMin = 0.42f, qFrameLimit = -2.f; int qSsaoTemporal = -1; float qUpscaleSharpness = 0.85f; std::string qUpscaler = "fsr1", qUpscaleQuality; // (negative: a plain stretch)
-	bool qHdrOutput = false;   // ("hdrOutput": the window past SDR white, where the display can)
+	bool qHdrOutput = false; float qHdrPaperWhite = 0.f, qHdrPeak = 0.f;   // ("hdrOutput": the window past SDR white, where the display can)
 	std::string title = "Pyros3D";
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
 	std::string serverPublicKey;           // pinned when joining with --connect; empty = any server

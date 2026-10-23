@@ -649,7 +649,9 @@ namespace p3d {
 			id delegate = layer.delegate;
 			if ([delegate isKindOfClass:[NSView class]]) screen = ((NSView*)delegate).window.screen;
 			if (screen == nil) screen = [NSScreen mainScreen];
-			const CGFloat h = screen != nil ? screen.maximumExtendedDynamicRangeColorComponentValue : 1.0;
+			CGFloat h = screen != nil ? screen.maximumExtendedDynamicRangeColorComponentValue : 1.0;
+			// (EDR is relative to SDR white, so the paper white only weighs as the game's peak over it: a cap)
+			if (hdrPeak > 0.f) { const CGFloat cap = hdrPeak / (hdrPaperWhite > 0.f ? hdrPaperWhite : 100.f); if (cap < h) h = cap; }
 			return (f32)(h > 1.0 ? h : 1.0);
 		}
 	}

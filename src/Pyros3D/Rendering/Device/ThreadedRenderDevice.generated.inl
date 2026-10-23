@@ -379,6 +379,12 @@
 		return real->GetHDRHeadroom();
 	}
 
+	void ThreadedRenderDevice::SetHDRLevels(const f32 paperWhiteNits, const f32 peakNits)
+	{
+		Drain("SetHDRLevels");
+		real->SetHDRLevels(paperWhiteNits, peakNits);
+	}
+
 	DeviceHandle ThreadedRenderDevice::CreateRayGeometry(const f32 * positions, const uint32 vertexCount, const uint32 strideFloats, const uint32 * indices, const uint32 indexCount)
 	{
 		Drain("CreateRayGeometry");

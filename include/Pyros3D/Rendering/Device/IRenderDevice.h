@@ -826,6 +826,10 @@ namespace p3d {
 		virtual bool SetHDROutput(const bool on) { (void)on; return false; }
 		virtual bool IsHDROutput() const { return false; }
 		virtual f32 GetHDRHeadroom() const { return 1.f; }
+		// HDR output's levels: SDR white in nits where the output is absolute (HDR10, scRGB - the
+		// player's "hdrPaperWhite"), and the peak in nits it may reach ("hdrPeak"): the headroom is at
+		// most peak / paper white, and is that where the display cannot say. 0 keeps the default.
+		virtual void SetHDRLevels(const f32 paperWhiteNits, const f32 peakNits) { (void)paperWhiteNits; (void)peakNits; }
 		// Positions: vertexCount xyz floats, `strideFloats` apart. Indices:
 		// triangles, three 32-bit indices each.
 		virtual DeviceHandle CreateRayGeometry(const f32 *positions, const uint32 vertexCount, const uint32 strideFloats,

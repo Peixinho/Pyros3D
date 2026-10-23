@@ -1126,14 +1126,7 @@ namespace p3d {
 		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, presentLayout, 0, 1, &presentSets[image], 0, NULL);
 		// (SDR white: at the paper-white nits - PYROS_HDR_PAPER_WHITE; scRGB counts 80 nits a unit on
 		// Windows, while a Mac's extended linear sRGB has SDR white at 1)
-		// (a Mac shows PQ with SDR white at about 100 nits - measured: 100 matches the encoded path, 200 is
-		// twice as bright; on Windows it is the user's SDR-content brightness, 200 a usual one)
-		const char* pw = getenv("PYROS_HDR_PAPER_WHITE");
-#if defined(__APPLE__)
-		const float paper = pw ? (float)atof(pw) : 100.f;
-#else
-		const float paper = pw ? (float)atof(pw) : 200.f;
-#endif
+		const float paper = HDRPaperWhite();   // (see there)
 #if defined(__APPLE__)
 		const float scrgbScale = 1.f;
 #else
@@ -1162,16 +1155,35 @@ namespace p3d {
 
 	// How far past SDR white the display can show now: the Mac says (EDR); elsewhere Vulkan does not
 	// tell, and PYROS_HDR_HEADROOM (default 4) stands for it.
+	// SDR white in nits where the output is absolute: PYROS_HDR_PAPER_WHITE, else the game's ("hdrPaperWhite"),
+	// else 100 on a Mac (measured: its PQ has SDR white there) and 200 elsewhere (a usual SDR-content
+	// brightness on Windows).
+	f32 VulkanRenderDevice::HDRPaperWhite() const
+	{
+		const char* pw = getenv("PYROS_HDR_PAPER_WHITE");
+		if (pw) return (f32)atof(pw);
+		if (hdrPaperWhite > 0.f) return hdrPaperWhite;
+#if defined(__APPLE__)
+		return 100.f;
+#else
+		return 200.f;
+#endif
+	}
+
 	f32 VulkanRenderDevice::GetHDRHeadroom() const
 	{
 		if (!hdrOn) return 1.f;
-#if defined(__APPLE__)
-		return PyrosAppleDisplayHeadroom();
-#else
 		const char* e = getenv("PYROS_HDR_HEADROOM");
-		const f32 h = e ? (f32)atof(e) : 4.f;
-		return h > 1.f ? h : 1.f;
+		if (e) { const f32 h = (f32)atof(e); return h > 1.f ? h : 1.f; }
+		// (the game's peak over its paper white, as the most: and all there is where the display cannot say)
+		const f32 cap = hdrPeak > 0.f ? hdrPeak / HDRPaperWhite() : 0.f;
+#if defined(__APPLE__)
+		f32 h = PyrosAppleDisplayHeadroom();
+		if (cap > 0.f && cap < h) h = cap;
+#else
+		f32 h = cap > 0.f ? cap : 4.f;
 #endif
+		return h > 1.f ? h : 1.f;
 	}
 
 	bool VulkanRenderDevice::RecreateSwapchain(const uint32 width, const uint32 height)

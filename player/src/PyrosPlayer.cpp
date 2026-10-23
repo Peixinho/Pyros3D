@@ -161,6 +161,10 @@ namespace {
 			// "hdrOutput": true - the window shown past SDR white where the display has the range (EDR on a
 			// Mac); the tonemap's highlights then reach the display's peak. SDR where it cannot.
 			m.qHdrOutput = q.value("hdrOutput", false);
+			// "hdrPaperWhite": nits SDR white is shown at, where the output is absolute (HDR10, scRGB on Windows -
+			// match the system's SDR-content brightness); "hdrPeak": the most the highlights may reach, in nits
+			m.qHdrPaperWhite = q.value("hdrPaperWhite", 0.f);
+			m.qHdrPeak = q.value("hdrPeak", 0.f);
 		}
 		if (j.contains("preload") && j["preload"].is_array())
 			for (const auto &e : j["preload"]) if (e.is_string()) m.preload.push_back(e.get<std::string>());
@@ -716,6 +720,7 @@ end
 	quality::ApplyToEngine(m.quality);
 	if (m.qSsaoTemporal >= 0) g_ssaoTemporalWanted = m.qSsaoTemporal == 1;
 	// (the window's, not the engine's - so here, not in ApplyToEngine; PYROS_HDR=1 forces it, to try)
+	GetActiveRenderDevice().SetHDRLevels(m.qHdrPaperWhite, m.qHdrPeak);
 	if (m.qHdrOutput || (std::getenv("PYROS_HDR") && std::getenv("PYROS_HDR")[0] == '1'))
 		if (!GetActiveRenderDevice().SetHDROutput(true)) echo("HDR output: not on this backend - the window stays SDR");
 	upscaleSharpness = m.qUpscaleSharpness < 0.f ? 0.85f : m.qUpscaleSharpness;

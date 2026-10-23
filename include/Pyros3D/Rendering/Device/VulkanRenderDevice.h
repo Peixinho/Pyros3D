@@ -1129,7 +1129,10 @@ namespace p3d {
 		virtual bool SetHDROutput(const bool on);
 		virtual bool IsHDROutput() const { return hdrOn; }
 		virtual f32 GetHDRHeadroom() const;
+		virtual void SetHDRLevels(const f32 paperWhiteNits, const f32 peakNits) { hdrPaperWhite = paperWhiteNits; hdrPeak = peakNits; }
 	private:
+		f32 hdrPaperWhite = 0.f, hdrPeak = 0.f;   // (SetHDRLevels: 0 the default)
+		f32 HDRPaperWhite() const;
 		uint64 passFrame = 1;            // (counts BeginFrame calls: a resume is within one)
 		void BeginOffscreenRenderPassForTarget(FBORecord &fbo, const VkFramebuffer targetFramebuffer);
 

@@ -93,6 +93,8 @@ namespace p3d {
 		virtual bool SetHDROutput(const bool on);
 		virtual bool IsHDROutput() const { return hdrOn; }
 		virtual f32 GetHDRHeadroom() const;
+		virtual void SetHDRLevels(const f32 paperWhiteNits, const f32 peakNits) { hdrPaperWhite = paperWhiteNits; hdrPeak = peakNits; }
+		f32 hdrPaperWhite = 0.f, hdrPeak = 0.f;
 		bool IsPresentLinear() const { return presentAsLinear; }
 
 		void WaitIdle();
