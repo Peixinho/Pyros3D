@@ -518,6 +518,7 @@ namespace p3d {
 				for (std::map<uint32, VkFramebuffer>::iterator fIt = it->second.framebuffersByTarget.begin(); fIt != it->second.framebuffersByTarget.end(); fIt++)
 					vkDestroyFramebuffer(device, fIt->second, NULL);
 				if (it->second.renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, it->second.renderPass, NULL);
+				if (it->second.renderPassLoad != VK_NULL_HANDLE) vkDestroyRenderPass(device, it->second.renderPassLoad, NULL);
 			}
 			fboRecords.clear();
 			for (std::map<DeviceHandle, TextureRecord>::iterator it = textures.begin(); it != textures.end(); it++)
@@ -1800,6 +1801,7 @@ namespace p3d {
 
 	void VulkanRenderDevice::BeginFrame()
 	{
+		passFrame++;
 		ringStats.beginFrameCalls++;
 		if (swapchain == VK_NULL_HANDLE || frameInProgress)
 		{
@@ -6586,10 +6588,23 @@ namespace p3d {
 				ForgetPipelinesForRenderPass(it->second.renderPass);
 				vkDestroyRenderPass(device, it->second.renderPass, NULL);
 			}
+			if (it->second.renderPassLoad != VK_NULL_HANDLE) vkDestroyRenderPass(device, it->second.renderPassLoad, NULL);
 		}
 		fboRecords.erase(it);
 		if (currentBoundFBO == fbo)
 			currentBoundFBO = 0;
+	}
+
+	void VulkanRenderDevice::BuildLoadVariant(FBORecord &fbo, const VkRenderPassCreateInfo &info)
+	{
+		// (compatible with the clearing pass - load operations and layouts do not count - so the same
+		// framebuffer and the same pipelines serve both)
+		std::vector<VkAttachmentDescription> descs(info.pAttachments, info.pAttachments + info.attachmentCount);
+		for (size_t i = 0; i < descs.size(); i++) { descs[i].loadOp = VK_ATTACHMENT_LOAD_OP_LOAD; descs[i].initialLayout = descs[i].finalLayout; }
+		VkRenderPassCreateInfo loadInfo = info;
+		loadInfo.pAttachments = descs.data();
+		if (fbo.renderPassLoad != VK_NULL_HANDLE) { vkDestroyRenderPass(device, fbo.renderPassLoad, NULL); fbo.renderPassLoad = VK_NULL_HANDLE; }
+		if (vkCreateRenderPass(device, &loadInfo, NULL, &fbo.renderPassLoad) != VK_SUCCESS) fbo.renderPassLoad = VK_NULL_HANDLE;
 	}
 
 	bool VulkanRenderDevice::BuildDepthOnlyRenderPass(FBORecord &fbo, const VkFormat depthFormat)
@@ -6649,6 +6664,7 @@ namespace p3d {
 			fprintf(stderr, "VulkanRenderDevice::BuildDepthOnlyRenderPass: vkCreateRenderPass failed\n");
 			return false;
 		}
+		BuildLoadVariant(fbo, renderPassInfo);
 		// See BuildMultiAttachmentRenderPass()'s identical fields -
 		// BeginOffscreenRenderPassForTarget()'s clear-value count and
 		// CreatePipeline()'s color-blend-state sizing both read these
@@ -6796,6 +6812,7 @@ namespace p3d {
 			fprintf(stderr, "VulkanRenderDevice::BuildMultiAttachmentRenderPass: vkCreateRenderPass failed\n");
 			return false;
 		}
+		BuildLoadVariant(fbo, renderPassInfo);
 		fbo.colorAttachmentCount = (uint32_t)colorRefs.size();
 		fbo.hasDepthAttachment = hasDepth;
 		return true;
@@ -7339,7 +7356,10 @@ namespace p3d {
 
 		VkRenderPassBeginInfo renderPassBegin = {};
 		renderPassBegin.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-		renderPassBegin.renderPass = fbo.renderPass;
+		// (bound again in the frame it was drawn in, on the same target: resumed - see renderPassLoad)
+		const bool resume = fbo.renderPassLoad != VK_NULL_HANDLE && fbo.contentFrame == passFrame && fbo.contentFramebuffer == targetFramebuffer;
+		fbo.contentFrame = passFrame; fbo.contentFramebuffer = targetFramebuffer;
+		renderPassBegin.renderPass = resume ? fbo.renderPassLoad : fbo.renderPass;
 		renderPassBegin.framebuffer = targetFramebuffer;
 		renderPassBegin.renderArea.extent = { fbo.width, fbo.height };
 		renderPassBegin.clearValueCount = (uint32_t)clearValues.size();

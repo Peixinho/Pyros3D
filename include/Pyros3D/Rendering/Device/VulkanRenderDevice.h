@@ -887,6 +887,12 @@ namespace p3d {
 			// bind once enough PendingAttachment entries have accumulated
 			// (the multi-attachment G-buffer/color-render-target case).
 			VkRenderPass renderPass;
+			// The same pass but loading what is there (from the layout the pass leaves): a framebuffer
+			// bound again in the frame it was drawn in, on the same target, is resumed with it - as on GL,
+			// where binding never clears. The frame and target its last pass began on.
+			VkRenderPass renderPassLoad = VK_NULL_HANDLE;
+			uint64 contentFrame = 0;
+			VkFramebuffer contentFramebuffer = VK_NULL_HANDLE;
 			uint32 width, height;
 			// Slots accumulated so far, used to build renderPass the first
 			// time (see PendingAttachment's comment) - deliberately *not*
@@ -1096,6 +1102,8 @@ namespace p3d {
 		// BindFramebuffer() (re-entering an already-built target on a
 		// later frame, when no attach call happens again - see
 		// FBORecord::lastTarget's comment for why that path exists).
+		void BuildLoadVariant(FBORecord &fbo, const VkRenderPassCreateInfo &info);
+		uint64 passFrame = 1;            // (counts BeginFrame calls: a resume is within one)
 		void BeginOffscreenRenderPassForTarget(FBORecord &fbo, const VkFramebuffer targetFramebuffer);
 
 		// Vertex buffer(s) / index buffer for a "VAO" handle - see the
