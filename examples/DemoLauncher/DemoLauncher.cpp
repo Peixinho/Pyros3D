@@ -7,6 +7,7 @@
 //============================================================================
 
 #include "DemoLauncher.h"
+#include <Pyros3D/Core/Math/Random.h>
 #include <Pyros3D/Rendering/Frame/FramePipeline.h>
 #include "imgui_internal.h"   // DockBuilder* - see Math.h on why order used to matter
 
@@ -68,6 +69,8 @@ DemoLauncher::~DemoLauncher() {}
 void DemoLauncher::OnResize(const uint32 width, const uint32 height)
 {
 	ClassName::OnResize(width, height);
+	// (in the check's log: a demo framed differently from its baseline was often a window resized under it)
+	if (std::getenv("PYROS_DEMO_FIXED_CLOCK") != NULL) { fprintf(stdout, "[check] resized to %ux%u\n", width, height); fflush(stdout); }
 
 	sol::table host = lua["RenderHost"];
 	if (host.valid())
@@ -299,7 +302,7 @@ void DemoLauncher::SwitchDemo(int index)
 
 	// (under the fixed clock, chance is fixed too: Lua seeds its generator differently every run, and a
 	// demo whose lamps flicker at random - Metro - showed another moment of the flicker each time)
-	if (std::getenv("PYROS_DEMO_FIXED_CLOCK") != NULL) { lua.script("math.randomseed(1)"); srand(1); }
+	if (std::getenv("PYROS_DEMO_FIXED_CLOCK") != NULL) { lua.script("math.randomseed(1)"); srand(1); Math::Random::SetDefaultSeed(1); }
 	SceneSerializer::LoadScene(Scene, STR(EXAMPLES_PATH) + std::string("/assets/demos/") + entry.scene, physics, &lua, &currentAssets);
 
 	// Camera scripts (and other scene Lua) register globals like `camera`

@@ -6,6 +6,7 @@
 // Description : Random
 //============================================================================
 
+#include <atomic>
 #include <Pyros3D/Core/Math/Random.h>
 #include <ctime>
 
@@ -13,9 +14,14 @@ namespace p3d {
 
 	namespace Math {
 
+		namespace { std::atomic<uint32> g_defaultSeed(0), g_made(0); }
+
+		void Random::SetDefaultSeed(const uint32 seed) { g_defaultSeed = seed; g_made = 0; }
+
 		Random::Random() : state(0)
 		{
-			Seed((uint32)time(NULL));
+			const uint32 fixed = g_defaultSeed.load();
+			Seed(fixed != 0 ? fixed + g_made.fetch_add(1) * 2654435761u : (uint32)time(NULL));
 		}
 
 		Random::Random(const uint32 seed) : state(0)

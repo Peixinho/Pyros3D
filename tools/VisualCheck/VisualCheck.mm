@@ -50,7 +50,7 @@ extern char** environ;
 namespace {
 
 	const int kW = 320, kH = 180, kBlock = 10;
-	const int kWindowW = 1280, kWindowH = 748;
+	const int kWindowW = 1280, kWindowH = 748, kPictureW = 1280, kPictureH = 720;
 	const double kFreezeSeconds = 4.0;
 
 	struct Options
@@ -296,15 +296,34 @@ int main(int argc, char** argv)
 			// (until it takes: a demo that bakes on the CPU at start has no window yet at 2 s)
 			const double sizedAt = Now();
 			CGWindowID wid = 0; CGRect bounds = CGRectZero;
-			// (exactly the launcher's own window: 1280x720 of picture under a 28 point title bar. A height
-			// allowed to vary by a few points let a tiled-then-resized window render 728 rows and an
-			// untouched one 720 - the same demo framed two ways, and SSAO's teapots "differed" half the runs)
-			for (int attempt = 0; attempt < 12; attempt++)
+			// Exactly the picture the launcher opens with: 1280x720. Asked of the window manager in window
+			// points, that came out 716 or 728 rows for a window it had tiled first (its frame is not the
+			// window's bounds) - the same demo framed two ways, and SSAO's teapots "differed" one run in
+			// three. So the demo's own word is taken: the launcher prints "[check] resized to WxH" (none
+			// while it keeps the size it opened with), and the window is nudged until that reads 1280x720.
+			auto renderSize = [&](int &w, int &h) {
+				std::ifstream lf(logPath);
+				std::string line; bool any = false;
+				while (std::getline(lf, line))
+					if (sscanf(line.c_str(), "[check] resized to %dx%d", &w, &h) == 2) any = true;
+				return any;
+			};
+			// (a correction only once the window has the size asked for: the last size the demo reported
+			// is the tile it was given before, until then - correcting from that walked it to 655x421)
+			int askW = kWindowW, askH = kWindowH;
+			for (int attempt = 0; attempt < 16 && alive(); attempt++)
 			{
-				if (FindWindow(pid, wid, bounds) && (int)bounds.size.width == kWindowW && (int)bounds.size.height == kWindowH) break;
-				FixSize(pid, kWindowW, kWindowH);
-				if (!alive()) break;
-				usleep(500000);
+				FixSize(pid, askW, askH);
+				usleep(400000);
+				if (!FindWindow(pid, wid, bounds) || (int)bounds.size.width != askW || (int)bounds.size.height != askH) continue;
+				usleep(300000);                                     // (the demo's next frames see it)
+				int rw = 0, rh = 0;
+				if (!renderSize(rw, rh)) break;                     // (it kept the size it opened with)
+				// (the launcher speaks in pixels: twice the points on a Retina screen)
+				const int scale = (rw >= kPictureW * 2 - 8) ? 2 : 1;
+				if (rw == kPictureW * scale && rh == kPictureH * scale) break;
+				askW += (kPictureW * scale - rw) / scale;
+				askH += (kPictureH * scale - rh) / scale;
 			}
 			// Until the demo's clock has stopped (it says so), then a little more for what accumulates over
 			// frames (temporal antialiasing) to settle. --wait is the most to wait for it.

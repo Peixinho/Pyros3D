@@ -154,7 +154,9 @@ end
 
 function InstancedShadowsSetup:update(time)
 	if not self.sweep or not self.sun then return end
-	self.sunAngle = self.sunAngle + 0.0045
+	-- (time is the frame's delta: a step a frame swept faster on a faster machine, and on after the
+	-- clock had stopped - the check caught the sun at a different place every run)
+	self.sunAngle = self.sunAngle + 0.27 * time
 	-- Kept low (Y = -0.55) so the shadows stay long and clearly separated
 	-- from the blocks casting them.
 	self.sun:setLightDirection(Vec3.new(

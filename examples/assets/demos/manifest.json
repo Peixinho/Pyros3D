@@ -161,10 +161,6 @@
     0.14,
     1
    ]
-  },
-  "check": {
-   "tolerance": 3,
-   "blockTolerance": 80
   }
  },
  {
@@ -276,10 +272,6 @@
    "effects": [
     "ssao"
    ]
-  },
-  "check": {
-   "tolerance": 5,
-   "blockTolerance": 30
   }
  },
  {
@@ -398,10 +390,6 @@
     "near": 1,
     "far": 600
    }
-  },
-  "check": {
-   "tolerance": 4,
-   "blockTolerance": 100
   }
  },
  {

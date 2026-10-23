@@ -24,9 +24,12 @@ namespace p3d {
 		class PYROS3D_API Random {
 		public:
 
-			// Seeds from the current time.
+			// Seeds from the current time - or, after SetDefaultSeed, from that seed and how many have
+			// been made since: the same sequence every run (a visual check, a replay), each generator
+			// still its own.
 			Random();
 			explicit Random(const uint32 seed);
+			static void SetDefaultSeed(const uint32 seed);
 
 			void Seed(const uint32 seed);
 
