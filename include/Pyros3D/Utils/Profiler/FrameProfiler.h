@@ -47,6 +47,8 @@ namespace p3d {
 		void SetEnabled(const bool enabled) { enabled_ = enabled; }
 		bool IsEnabled() const { return enabled_; }
 		void Toggle() { enabled_ = !enabled_; }
+		// Whether its ImGui window is shown (DrawImGui with no p_open of its own)
+		bool &WindowOpen() { return windowOpen_; }
 
 		// Call once at the start / end of each frame (outside nested scopes).
 		void BeginFrame();

@@ -6,6 +6,12 @@
 // Description : See DemoLauncher.h.
 //============================================================================
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+#if defined(_SDL2METAL)
+#include <SDL_metal.h>
+#endif
 #include "DemoLauncher.h"
 #include <Pyros3D/Core/Math/Random.h>
 #include <Pyros3D/Rendering/Frame/FramePipeline.h>
@@ -799,7 +805,12 @@ void DemoLauncher::DrawUI()
 		// we go and whatever remains is the passthru region the scene shows
 		// through.
 		ImGuiID centre = dockspaceId;
+#if TARGET_OS_IPHONE
+		// (a phone's screen is narrow: the list wide enough for its names)
+		const ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.30f, NULL, &centre);
+#else
 		const ImGuiID left = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Left, 0.22f, NULL, &centre);
+#endif
 		const ImGuiID bottom = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Down, 0.30f, NULL, &centre);
 		const ImGuiID right = ImGui::DockBuilderSplitNode(centre, ImGuiDir_Right, 0.26f, NULL, &centre);
 
@@ -821,7 +832,11 @@ void DemoLauncher::DrawUI()
 	ImGui::Text("Backend: %s", GetActiveRenderDevice().IsVulkan() ? "Vulkan" : "OpenGL");
 #endif
 	ImGui::Text("Mouse: %s (TAB to toggle)", SDL_GetRelativeMouseMode() ? "Captured" : "Free");
+#if TARGET_OS_IPHONE
+	ImGui::Checkbox("Profiler", &FrameProfiler::Instance().WindowOpen());
+#else
 	ImGui::Text("Profiler: F3");
+#endif
 	{
 		const unsigned int total = p3d::LOG::_LOG::MessageCount();
 		unsigned int errors = 0;
@@ -837,7 +852,11 @@ void DemoLauncher::DrawUI()
 	}
 	ImGui::Separator();
 
+#if TARGET_OS_IPHONE
+	FrameProfiler::Instance().DrawImGui(&FrameProfiler::Instance().WindowOpen());   // (shut until its box is ticked)
+#else
 	FrameProfiler::Instance().DrawImGui();
+#endif
 	DrawLogWindow();
 	DrawRenderTargetViewer();
 
@@ -955,6 +974,13 @@ void DemoLauncher::InitImGui()
 	// bespoke non-GL/Vulkan renderer would use (ImGui_ImplSDL2.h's own
 	// comment); it only wires up platform (mouse/keyboard/clipboard), no
 	// GL context or Vulkan instance/device required.
+#if TARGET_OS_IPHONE
+	// A phone: no layout saved from a desktop (the bundle holds one, and cannot be written to), and
+	// the profiler shut until asked for - its F3 is a key a phone has not got.
+	io.IniFilename = NULL;
+	buildDefaultDockLayout = true;
+	FrameProfiler::Instance().WindowOpen() = false;
+#endif
 	ImGui_ImplSDL2_InitForMetal(GetSDLWindow());
 	imguiInitialized = static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).InitImGuiMetalBackend();
 #elif !defined(_SDL2VULKAN)
@@ -1022,6 +1048,15 @@ void DemoLauncher::BeginImGuiFrame()
 {
 	ImGui_ImplSDL2_NewFrame();
 #if defined(_SDL2METAL)
+	{
+		// ImGui's SDL2 backend asks GL for the drawable size, which a Metal window has none of: it got the
+		// window's own (points) and a framebuffer scale of 1 - on a 3x iPhone the UI a third of its size.
+		// The Metal view's drawable size, then.
+		int w = 0, h = 0, dw = 0, dh = 0;
+		SDL_GetWindowSize(GetSDLWindow(), &w, &h);
+		SDL_Metal_GetDrawableSize(GetSDLWindow(), &dw, &dh);
+		if (w > 0 && h > 0 && dw > 0 && dh > 0) ImGui::GetIO().DisplayFramebufferScale = ImVec2((float)dw / (float)w, (float)dh / (float)h);
+	}
 	static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).NewImGuiMetalFrame();
 #elif !defined(_SDL2VULKAN)
 	ImGui_ImplOpenGL3_NewFrame();

@@ -16,6 +16,8 @@
 	<!-- (a launch screen, even an empty one: without it iOS runs the app letterboxed at an old phone's size) -->
 	<key>UILaunchScreen</key><dict/>
 	<key>UIRequiresFullScreen</key><true/>
+	<!-- (a mouse or trackpad on an iPad reaches SDL as one) -->
+	<key>UIApplicationSupportsIndirectInputEvents</key><true/>
 	<key>UIStatusBarHidden</key><true/>
 	<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 	<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>

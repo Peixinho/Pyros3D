@@ -42,6 +42,19 @@
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #include <dispatch/dispatch.h>
+static inline bool PyrosIsDepthOrStencilFormat(const MTLPixelFormat pf)
+{
+	switch (pf)
+	{
+	case MTLPixelFormatDepth16Unorm: case MTLPixelFormatDepth32Float: case MTLPixelFormatStencil8:
+	case MTLPixelFormatDepth32Float_Stencil8: case MTLPixelFormatX32_Stencil8:
+#if TARGET_OS_OSX
+	case MTLPixelFormatDepth24Unorm_Stencil8: case MTLPixelFormatX24_Stencil8:
+#endif
+		return true;
+	default: return false;
+	}
+}
 // (a Mac's layer can be told not to wait for the display; an iPhone's always does)
 #if TARGET_OS_OSX
 #define PYROS_LAYER_SYNC(l) ((int)(l).displaySyncEnabled)
@@ -3310,6 +3323,10 @@ namespace p3d {
 				// through from the caller.
 				texDesc.usage = MTLTextureUsageShaderRead | MTLTextureUsageRenderTarget;
 				texDesc.storageMode = MTLStorageModeShared;
+#if TARGET_OS_IPHONE
+				// (an iPhone's GPU will not have depth or stencil in memory the CPU shares: Metal stops the app)
+				if (PyrosIsDepthOrStencilFormat(wantedFormat)) texDesc.storageMode = MTLStorageModePrivate;
+#endif
 				id<MTLTexture> newTex = [mtlDevice newTextureWithDescriptor:texDesc];
 				if (newTex == nil)
 				{
@@ -3324,7 +3341,8 @@ namespace p3d {
 				tex.mipsGenerated = false;
 			}
 
-			if (data != NULL)
+			// (a texture the CPU cannot write - depth on an iPhone, Private - takes no pixels from it)
+			if (data != NULL && ((__bridge id<MTLTexture>)tex.texture).storageMode != MTLStorageModePrivate)
 			{
 				id<MTLTexture> mtlTex = (__bridge id<MTLTexture>)tex.texture;
 				uint32 bytesPerTexel = BytesPerTexelMSL(wantedFormat);
