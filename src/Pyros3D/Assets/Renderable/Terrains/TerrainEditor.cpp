@@ -128,7 +128,25 @@ namespace p3d {
 			// destroyed make it stale at once; a tile that was made before it was
 			// added to the scene is picked up by the look every half second.
 			const f64 now = scene ? scene->GetUpdateTime() : -1.0;
-			if (scene != forScene || generation != forGeneration || now < forTime || now - forTime > 0.5)
+			// The half-second look is a count, not the walk: the scene's terrain pieces as its own
+			// list of what it draws has them (RenderingComponent::IsHeightfield) - the same number as
+			// the tiles kept, and nothing has come or gone. The walk (every object of the scene, every
+			// component asked what it is) cost 3-4 ms on Erangel's Island: a bot's parachute step that
+			// asked for the ground at that moment was a frame's hitch, twice a second.
+			const bool fresh = scene != forScene || generation != forGeneration || now < forTime;
+			bool look = fresh;
+			if (!fresh && now - forTime > 0.5)
+			{
+				forTime = now;
+				size_t pieces = 0;
+				if (scene)
+				{
+					const std::vector<RenderingComponent*> &drawn = RenderingComponent::GetRenderingComponents(scene);
+					for (size_t i = 0; i < drawn.size(); i++) if (drawn[i] && drawn[i]->IsHeightfield() && drawn[i]->GetOwner()) pieces++;
+				}
+				look = pieces != tiles.size();
+			}
+			if (look)
 			{
 				tiles = TerrainEditor::FindTiles(scene);
 				forScene = scene;

@@ -1231,6 +1231,15 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	}
 #endif
 
+	// The terrain's shadows of itself, baked while loading: the tiles around the camera are in by now
+	// (LoadAround waits for them). It was baked in the frame - half a second held, as the match began.
+	// (Only a terrain whose tiles are not in yet is left to the frame, once they have come.)
+	if (terrainBakePending && scene && !TerrainEditor::FindTiles(scene).empty())
+	{
+		scene->SetTerrainHorizon(TerrainHorizon::Bake(scene, meta.terrainShadowsResolution, meta.terrainShadowsReach));
+		terrainBakePending = false;
+	}
+
 	// Every model's levels of detail made before the game starts - the scene's, and those its script
 	// made in its init (the guns of an armory): not in the frame one is first seen.
 	{
@@ -1719,6 +1728,7 @@ void PyrosPlayer::Update()
 		else { terrainBakeTiles = tiles; terrainBakeStable = 0; }
 		if (tiles > 0 && (terrainBakeStable >= 3 || ++terrainBakeWaited > 240))
 		{
+			PYROS_PROFILE_SCOPE("Player.TerrainBake");
 			scene->SetTerrainHorizon(TerrainHorizon::Bake(scene, meta.terrainShadowsResolution, meta.terrainShadowsReach));
 			terrainBakePending = false;
 		}
@@ -1793,6 +1803,7 @@ void PyrosPlayer::Update()
 		// on the CPU whatever the renderer's millisecond ceiling
 		// allows. A fixed count cannot be right for both a desktop and
 		// a phone, and this build runs on both.
+		PYROS_PROFILE_SCOPE("Player.GI");
 		renderer->UpdateGlobalIllumination(scene, meta.ddgiProbeBudget, meta.ddgiHysteresis);
 	}
 	// Layer parallax is deliberately NOT applied here. It is three lines of
@@ -1802,12 +1813,18 @@ void PyrosPlayer::Update()
 	// transform. The engine's job is the layer; what it does is the game's.
 	// Cells in and out around the camera, before the scene solves this
 	// frame's transforms so an arriving cell is drawn where it belongs.
-	if (worldStreamer && activeCamera)
-		worldStreamer->Update(activeCamera->GetWorldPosition());
+	{
+		PYROS_PROFILE_SCOPE("Player.Stream");
+		if (worldStreamer && activeCamera)
+			worldStreamer->Update(activeCamera->GetWorldPosition());
+	}
 	// Terrains follow the same camera. The world's streamer pumps the
 	// loader they share; without one it is pumped here.
-	if (activeCamera) TerrainComponent::SetViewers(scene, std::vector<Vec3>(1, activeCamera->GetWorldPosition()));
-	if (!worldStreamer) AssetStreamer::Instance().Pump(4.0);
+	{
+		PYROS_PROFILE_SCOPE("Player.Terrain");
+		if (activeCamera) TerrainComponent::SetViewers(scene, std::vector<Vec3>(1, activeCamera->GetWorldPosition()));
+		if (!worldStreamer) AssetStreamer::Instance().Pump(4.0);
+	}
 	// Foliage thins and fades against the camera the game is seen through.
 	if (activeCamera) FoliageComponent::SetViewer(activeCamera->GetWorldPosition());
 	// The network before the scene: snapshots pose replicas, and the scene
@@ -1851,9 +1868,13 @@ void PyrosPlayer::Update()
 	if (network)
 	{
 		if (activeCamera) network->SetViewer(activeCamera->GetWorldPosition());
+		PYROS_PROFILE_SCOPE("Player.Network");
 		network->Update(dt);
 	}
-	scene->Update(time);
+	{
+		PYROS_PROFILE_SCOPE("Player.SceneUpdate");
+		scene->Update(time);
+	}
 	// The overlay is a real SceneGraph and needs solving every frame like any
 	// other - its UI layout, animations and component registration all happen
 	// in Update(). Rendering it without this draws nothing at all:
@@ -1876,7 +1897,10 @@ void PyrosPlayer::Update()
 	}
 #endif
 	// what the script has just moved is drawn where it put it
-	scene->SettleTransforms();
+	{
+		PYROS_PROFILE_SCOPE("Player.Settle");
+		scene->SettleTransforms();
+	}
 
 	// The scene's own 2D view, after the script has had its say. A script
 	// that moves the followed object, or writes view.center itself, has run by
@@ -1902,7 +1926,10 @@ void PyrosPlayer::Update()
 	// themselves the renderer presented the scene and UIRenderer then opened
 	// and presented a second frame holding only the HUD over black - every
 	// game with a HUD flickered.
-	FramePipeline::HandOver();
+	{
+		PYROS_PROFILE_SCOPE("Player.HandOver");
+		FramePipeline::HandOver();
+	}
 	IRenderDevice &device = GetActiveRenderDevice();
 	// (what the renderers are given for the whole scene, said at the hand-over: a frame
 	// still being drawn by another thread is not told half-way through)
@@ -2025,7 +2052,10 @@ void PyrosPlayer::Update()
 	};
 	// (given to another thread where the frame is split - FramePipeline - and what
 	// follows the scene is then done by this thread at the next hand-over)
-	FramePipeline::Submit(scene, scenePass, [this, afterScene, ownFrame, dt]() { afterScene(); CloseFrame(ownFrame, dt); }, ownFrame);
+	{
+		PYROS_PROFILE_SCOPE("Player.Submit");
+		FramePipeline::Submit(scene, scenePass, [this, afterScene, ownFrame, dt]() { afterScene(); CloseFrame(ownFrame, dt); }, ownFrame);
+	}
 }
 
 void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
