@@ -376,6 +376,18 @@ namespace p3d {
 		// Every component whose automatic levels were still being made: given them where they are done
 		// now (a renderer calls it once a frame - a kept draw list asks a component only as it comes).
 		static void PollAutomaticLODs();
+		// The level of detail for a view that wants `level`, with the frame's other views in mind: the
+		// finest any view has asked for this frame or the last. A level is one for every view - a second
+		// view (an inventory's picture of the player, from under the world) chose the coarse level for
+		// everything round the player, and the main view put it back: the world drawn wrong behind the
+		// inventory, and every thing's meshes swapped twice a frame. `frame` tells one frame from the next
+		// (the scene's update time).
+		uint32 LevelForViews(const uint32 level, const f64 frame)
+		{
+			if (frame != lodViewsFrame) { lodWantBefore = lodWantNow; lodWantNow = level; lodViewsFrame = frame; }
+			else if (level < lodWantNow) lodWantNow = level;
+			return lodWantNow < lodWantBefore ? lodWantNow : lodWantBefore;
+		}
 		// Whether automatic levels are made at all (on unless said: read when a
 		// scene is loaded), and whether those made are used (to compare).
 		static void SetAutoLOD(const bool on);
@@ -827,6 +839,8 @@ namespace p3d {
 		uint32 autoLevels = 0;                  // how many levels AddAutomaticLODs made (they are the first after level 0)
 		f32 autoLodRadius = 0.f;                // the size (world) those levels' distances were made for
 		bool autoLodTried = false;
+		f64 lodViewsFrame = -1.0;
+		uint32 lodWantNow = 0xFFFFFFFFu, lodWantBefore = 0xFFFFFFFFu;
 		bool autoLodWaiting = false;            // (its levels being made: asked again each frame - PollAutomaticLODs)
 		uint32 autoLodSeen = 0;                 // the state of SetAutoLODInUse the level in use was picked under
 		std::shared_ptr<Renderable> shadowRenderable;

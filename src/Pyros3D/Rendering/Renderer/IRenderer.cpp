@@ -605,7 +605,7 @@ void IRenderer::GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const u
 			(*i)->GetLODSphere(sphere, sphereRadius);
 			const Vec3 centre = (*i)->GetOwner()->GetWorldPosition() + sphere * scale;
 			const f32 d = std::max(0.f, Camera->GetWorldPosition().distance(centre) - sphereRadius * maxScale);
-			(*i)->UpdateLOD((*i)->GetLODByDistance(d * d));
+			(*i)->UpdateLOD((*i)->LevelForViews((*i)->GetLODByDistance(d * d), Scene->GetUpdateTime()));
 			(*i)->StepLODFade();
 		}
 	}
@@ -1939,7 +1939,8 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 			want.resize(nLod);
 			RenderingComponent** const lodOf = L.lodComponents.data();
 			uint32* const wantOf = want.data();
-			auto pick = [lodOf, wantOf, eye](uint32 begin, uint32 end) {
+			const f64 frame = Scene->GetUpdateTime();
+			auto pick = [lodOf, wantOf, eye, frame](uint32 begin, uint32 end) {
 				for (uint32 i = begin; i < end; i++)
 				{
 					RenderingComponent* c = lodOf[i];
@@ -1949,7 +1950,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 					c->GetLODSphere(sphere, sphereRadius);
 					const Vec3 centre = c->GetOwner()->GetWorldPosition() + sphere * scale;
 					const f32 d = std::max(0.f, eye.distance(centre) - sphereRadius * maxScale);
-					const uint32 level = c->GetLODByDistance(d * d);
+					const uint32 level = c->LevelForViews(c->GetLODByDistance(d * d), frame);
 					wantOf[i] = level != c->GetLODInUse() ? level : 0xFFFFFFFFu;
 				}
 			};
