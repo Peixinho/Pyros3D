@@ -2769,7 +2769,10 @@ void IRenderer::DrawPassOnEveryCore(const std::vector<RenderingMesh*> &items, co
 void IRenderer::FinishBeside()
 {
 	if (!beside || !beside->running) return;
-	JobSystem::Instance().Wait(beside->counter);
+	{
+		PYROS_PROFILE_SCOPE("Shadow.WaitBeside");     // (the view done, the sun's pass not yet)
+		JobSystem::Instance().Wait(beside->counter);
+	}
 	beside->running = false;
 	g_besideActive.fetch_sub(1);
 	FrameProfiler::Instance().Counter("Shadow.SunCasters", (f64)beside->drawn);
@@ -2786,6 +2789,23 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	const bool leaveRayTraced = t_inSunPass && sunLeaveRayTraced;
 	const std::vector<uint32>* subset = shadowCasterSubset;
 	const size_t count = subset != NULL ? subset->size() : rmesh.size();
+	// A component casting with meshes of its own (answer 3): which of them are drawn and which left out
+	// as unable to reach the view, a bit each - asked with the rest, in parallel. (They were asked after,
+	// one by one on the thread recording the pass: a tree's impostor proxy, a house's, in every cascade -
+	// the longest part of the sun's pass, which the frame waits for.) Past the 32nd, asked there still.
+	// (scratch kept per recording thread: only the entries answered 3 are read, and those are written)
+	static thread_local std::vector<uint32> proxyDrawn, proxyLeftOut;
+	if (proxyDrawn.size() < count) { proxyDrawn.resize(count); proxyLeftOut.resize(count); }
+	// (the workers answering see their own thread_locals, not these: what they write to goes by pointer)
+	uint32* const drawnBits = proxyDrawn.data();
+	uint32* const leftOutBits = proxyLeftOut.data();
+	auto askProxy = [&](RenderingMesh* proxy) -> int {      // 0 not drawn, 1 drawn, 2 left out
+		if (!proxy->Material || proxy->Material->IsTransparent()) return 0;
+		if (proxy->standsFor != NULL && !proxy->standsFor->Active) return 0;       // (a part hidden on the model)
+		if (cullTest && !ShadowCasterVisible(proxy)) return 0;
+		if (cullTest && g_shadowView.on && !ShadowReachesView(proxy)) return 2;
+		return 1;
+	};
 	AnswerInParallel(count, answers, [&](const uint32 n) -> uint8 {
 		const uint32 i = subset != NULL ? (*subset)[n] : n;
 		const uint8 f = cullFlags[i];
@@ -2801,7 +2821,17 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		// its own, cast with that level's meshes - one draw per material in
 		// every cascade - and a street of parked cars was most of the frame.)
 		if (!rc->shadowMeshes.empty() && !rc->ShadowMeshTooNear() && rc->LodInUse < rc->Meshes.size() && !rc->Meshes[rc->LodInUse].empty())
-			return (m == rc->Meshes[rc->LodInUse][0]) ? 3 : 0;
+		{
+			if (m != rc->Meshes[rc->LodInUse][0]) return 0;
+			uint32 drawn = 0, out = 0;
+			for (size_t sm = 0; sm < rc->shadowMeshes.size() && sm < 32; sm++)
+			{
+				const int a = askProxy(rc->shadowMeshes[sm]);
+				if (a == 1) drawn |= 1u << sm; else if (a == 2) out |= 1u << sm;
+			}
+			drawnBits[n] = drawn; leftOutBits[n] = out;
+			return 3;
+		}
 		if (cullTest && (f & CullTested) && !CullListTest(i)) return 0;
 		if (g_terrainShadowBaked && rc->IsHeightfield()) return 0;
 		if (cullTest && g_shadowView.on && !ShadowReachesView(m)) return 2;
@@ -2841,13 +2871,11 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 			RenderingComponent* rc = rmesh[i]->renderingComponent;
 			for (size_t sm = 0; sm < rc->shadowMeshes.size(); sm++)
 			{
-				RenderingMesh* proxy = rc->shadowMeshes[sm];
-				if (!proxy->Material || proxy->Material->IsTransparent()) continue;
-				if (proxy->standsFor != NULL && !proxy->standsFor->Active) continue;       // (a part hidden on the model)
-				if (cullTest && !ShadowCasterVisible(proxy)) continue;
-				if (cullTest && g_shadowView.on && !ShadowReachesView(proxy)) { g_shadowCastersLeftOut++; continue; }
+				const int got = sm < 32 ? (((drawnBits[n] >> sm) & 1u) ? 1 : (((leftOutBits[n] >> sm) & 1u) ? 2 : 0)) : askProxy(rc->shadowMeshes[sm]);
+				if (got == 2) g_shadowCastersLeftOut++;
+				if (got != 1) continue;
 				g_shadowCastersDrawn++;
-				casters.push_back(proxy);
+				casters.push_back(rc->shadowMeshes[sm]);
 			}
 		}
 	}
