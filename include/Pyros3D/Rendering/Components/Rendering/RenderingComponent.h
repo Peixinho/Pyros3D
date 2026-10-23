@@ -373,6 +373,9 @@ namespace p3d {
 		// The same, asked once for a component (by whoever lists what a scene
 		// draws): the radius is the owner's own scale times the model's.
 		void TryAutomaticLODs();
+		// Every component whose automatic levels were still being made: given them where they are done
+		// now (a renderer calls it once a frame - a kept draw list asks a component only as it comes).
+		static void PollAutomaticLODs();
 		// Whether automatic levels are made at all (on unless said: read when a
 		// scene is loaded), and whether those made are used (to compare).
 		static void SetAutoLOD(const bool on);
@@ -824,6 +827,7 @@ namespace p3d {
 		uint32 autoLevels = 0;                  // how many levels AddAutomaticLODs made (they are the first after level 0)
 		f32 autoLodRadius = 0.f;                // the size (world) those levels' distances were made for
 		bool autoLodTried = false;
+		bool autoLodWaiting = false;            // (its levels being made: asked again each frame - PollAutomaticLODs)
 		uint32 autoLodSeen = 0;                 // the state of SetAutoLODInUse the level in use was picked under
 		std::shared_ptr<Renderable> shadowRenderable;
 		std::vector<RenderingMesh*> shadowMeshes;

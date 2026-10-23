@@ -10,6 +10,6 @@
 
 namespace p3d {
 
-	uint32 IGeometry::_InternalID = 0;
+	std::atomic<uint32> IGeometry::_InternalID(0);
 
 };

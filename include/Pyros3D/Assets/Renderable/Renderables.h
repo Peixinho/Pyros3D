@@ -9,6 +9,7 @@
 #ifndef RENDERABLES_H
 #define RENDERABLES_H
 
+#include <atomic>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
@@ -359,7 +360,7 @@ namespace p3d {
 		Vec3 minBounds;
 
 		// Internal ID
-		static uint32 _InternalID;
+		static std::atomic<uint32> _InternalID;   // (atomic: geometry is made on other threads too - automatic levels of detail)
 		uint32 ID;
 	};
 

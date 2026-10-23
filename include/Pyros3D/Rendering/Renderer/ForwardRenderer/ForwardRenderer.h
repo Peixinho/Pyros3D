@@ -24,6 +24,8 @@ namespace p3d {
 		~ForwardRenderer();
 		
 		virtual void RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene);
+		// The programs a material is drawn with here, built as it comes into the list (see IRenderer::MaterialListed)
+		virtual void MaterialListed(RenderingMesh* mesh, IMaterial* material) override;
 
 	};
 

@@ -8,6 +8,7 @@
 
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
+#include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <typeinfo>
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
@@ -32,6 +33,30 @@ namespace p3d {
 	}
 
 	ForwardRenderer::~ForwardRenderer() = default;
+
+	// What DeferredRenderer::MaterialListed does, for this renderer's draws: the program a batch of a
+	// material is drawn with (auto-instancing), and a custom material's skinned/plain variant - built as
+	// the material comes into the list, not at its first draw. A second view (a scope's) built them all in
+	// the frame it was first looked through: 113 ms for one bump-mapped material on a Mac.
+	void ForwardRenderer::MaterialListed(RenderingMesh* mesh, IMaterial* material)
+	{
+		if (material == NULL || mesh == NULL) return;
+		if (GenericShaderMaterial* gsm = dynamic_cast<GenericShaderMaterial*>(material))
+		{
+			if (!material->IsTransparent() && IsAutoInstancing() && AutoInstanceEligible(mesh))
+			{
+				gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering);
+				gsm->RestoreOwnProgram();
+			}
+			return;
+		}
+		if (typeid(*material) == typeid(CustomShaderMaterial))
+		{
+			CustomShaderMaterial* csm = static_cast<CustomShaderMaterial*>(material);
+			if (csm->UseVariantForNextDraw(false, mesh->BonesToDraw().size() > 0)) csm->RestoreOwnProgram();
+			if (!material->IsTransparent() && IsAutoInstancing() && AutoInstanceEligible(mesh) && csm->UseInstancedVariantForNextDraw(false)) csm->RestoreOwnProgram();
+		}
+	}
 
 	void ForwardRenderer::RenderScene(const p3d::Projection& projection, GameObject* Camera, SceneGraph* Scene)
 	{

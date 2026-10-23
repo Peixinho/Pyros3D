@@ -1,3 +1,4 @@
+#include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <Pyros3D/Utils/Localization/Localization.h>
 #include <cstring>
@@ -1229,6 +1230,15 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 		}
 	}
 #endif
+
+	// Every model's levels of detail made before the game starts - the scene's, and those its script
+	// made in its init (the guns of an armory): not in the frame one is first seen.
+	{
+		const auto t0 = std::chrono::steady_clock::now();
+		SimplifiedModel::FinishPreparing();
+		const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+		if (ms > 50.0) fprintf(stderr, "Levels of detail: waited %.0f ms for the last of them\n", ms);
+	}
 
 	echo("SUCCESS: loaded " + sceneRel);
 	return true;

@@ -14,7 +14,12 @@
 #include <algorithm>
 #include <map>
 #include <mutex>
+#include <thread>
+#include <deque>
+#include <condition_variable>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <chrono>
 #include <Pyros3D/Utils/Streaming/LoadStats.h>
 #include <Pyros3D/Utils/Streaming/AssetBundle.h>
 
@@ -438,7 +443,7 @@ namespace p3d {
 		}
 	}
 
-	SimplifiedModel::SimplifiedModel(const std::shared_ptr<Model> &source, const f32 ratio)
+	SimplifiedModel::SimplifiedModel(const std::shared_ptr<Model> &source, const f32 ratio, const bool upload)
 		: Ratio(std::max(0.01f, std::min(1.f, ratio))), Triangles(0), SourceTriangles(0)
 	{
 		if (!source) return;
@@ -541,32 +546,160 @@ namespace p3d {
 				}
 			}
 			Triangles += (uint32)(out->index.size() / 3);
-			out->CreateBuffers();
-			out->SendBuffers();
+			if (upload) { out->CreateBuffers(); out->SendBuffers(); }
 			Geometries.push_back(out);
 		}
 		CalculateBounding();
 	}
 
+	void SimplifiedModel::Upload()
+	{
+		for (size_t i = 0; i < Geometries.size(); i++) { ModelGeometry* g = static_cast<ModelGeometry*>(Geometries[i]); g->CreateBuffers(); g->SendBuffers(); }
+	}
+
+	namespace
+	{
+		std::map<std::string, std::weak_ptr<SimplifiedModel> > &SimplifiedCache() { static std::map<std::string, std::weak_ptr<SimplifiedModel> > cache; return cache; }
+		std::mutex &SimplifiedGuard() { static std::mutex guard; return guard; }
+		std::string SimplifiedKey(const std::string &ModelPath, const f32 ratio)
+		{
+			std::error_code ec;
+			std::string full = std::filesystem::absolute(std::filesystem::path(ModelPath), ec).lexically_normal().string();
+			if (ec || full.empty()) full = ModelPath;
+			return full + "|" + std::to_string((int)(std::max(0.01f, std::min(1.f, ratio)) * 1000.f + 0.5f));
+		}
+	}
+
+	std::shared_ptr<SimplifiedModel> SimplifiedModel::FindShared(const std::string &ModelPath, const f32 ratio)
+	{
+		const std::string key = SimplifiedKey(ModelPath, ratio);
+		std::lock_guard<std::mutex> lock(SimplifiedGuard());
+		std::map<std::string, std::weak_ptr<SimplifiedModel> >::iterator it = SimplifiedCache().find(key);
+		if (it == SimplifiedCache().end()) return std::shared_ptr<SimplifiedModel>();
+		std::shared_ptr<SimplifiedModel> hit = it->second.lock();
+		if (!hit) SimplifiedCache().erase(it);
+		return hit;
+	}
+
+	std::shared_ptr<SimplifiedModel> SimplifiedModel::Share(const std::string &ModelPath, const f32 ratio, const std::shared_ptr<SimplifiedModel> &made)
+	{
+		const std::string key = SimplifiedKey(ModelPath, ratio);
+		std::lock_guard<std::mutex> lock(SimplifiedGuard());
+		std::weak_ptr<SimplifiedModel> &slot = SimplifiedCache()[key];
+		if (std::shared_ptr<SimplifiedModel> there = slot.lock()) return there;
+		slot = made;
+		return made;
+	}
+
+	const f32 SimplifiedModel::AutoRatios[3] = { 0.5f, 0.25f, 0.1f };
+
+	namespace
+	{
+		// One worker, oldest first: a model's levels are a burst of a few hundred milliseconds - not a
+		// thing for the frame's job workers, and not a thread each for the hundreds a scene loads.
+		struct Prepared
+		{
+			std::shared_ptr<Model> source;
+			std::string path;
+			std::shared_ptr<SimplifiedModel> made[3];      // (held: the shared cache only keeps them weakly)
+			bool done = false, sent = false;
+		};
+		std::mutex g_prepLock;
+		std::condition_variable g_prepChanged;
+		std::deque<std::shared_ptr<Prepared> > g_prepQueue;
+		std::map<std::string, std::shared_ptr<Prepared> > g_prepared;
+		bool g_prepWorker = false;
+		uint32 g_prepBusy = 0;
+		std::string PrepKey(const std::string &path)
+		{
+			std::error_code ec;
+			std::string full = std::filesystem::absolute(std::filesystem::path(path), ec).lexically_normal().string();
+			return (ec || full.empty()) ? path : full;
+		}
+		void PrepWorker()
+		{
+			std::unique_lock<std::mutex> lock(g_prepLock);
+			for (;;)
+			{
+				g_prepChanged.wait(lock, [] { return !g_prepQueue.empty(); });
+				std::shared_ptr<Prepared> p = g_prepQueue.front();
+				g_prepQueue.pop_front();
+				g_prepBusy++;
+				lock.unlock();
+				std::shared_ptr<SimplifiedModel> made[3];
+				for (int l = 0; l < 3; l++) made[l] = std::make_shared<SimplifiedModel>(p->source, SimplifiedModel::AutoRatios[l], false);
+				lock.lock();
+				for (int l = 0; l < 3; l++) p->made[l] = made[l];
+				p->done = true;
+				p->source.reset();
+				g_prepBusy--;
+				g_prepChanged.notify_all();
+			}
+		}
+		// (on the drawing thread, the lock held: sent to the GPU and shared)
+		void SendPrepared(Prepared &p)
+		{
+			if (p.sent || !p.done) return;
+			p.sent = true;
+			for (int l = 0; l < 3; l++)
+			{
+				if (!p.made[l] || p.made[l]->Geometries.empty()) continue;
+				if (std::shared_ptr<SimplifiedModel> there = SimplifiedModel::FindShared(p.path, SimplifiedModel::AutoRatios[l])) { p.made[l] = there; continue; }
+				p.made[l]->Upload();
+				p.made[l] = SimplifiedModel::Share(p.path, SimplifiedModel::AutoRatios[l], p.made[l]);
+			}
+		}
+	}
+
+	void SimplifiedModel::PrepareAutomatic(const std::shared_ptr<Model> &model)
+	{
+		if (!model || model->GetPath().empty() || dynamic_cast<SimplifiedModel*>(model.get()) != NULL) return;
+		uint32 triangles = 0;
+		for (size_t i = 0; i < model->Geometries.size(); i++) triangles += (uint32)(model->Geometries[i]->GetIndexData().size() / 3);
+		if (triangles < AutoLightest) return;
+		const std::string key = PrepKey(model->GetPath());
+		std::lock_guard<std::mutex> lock(g_prepLock);
+		if (g_prepared.count(key)) return;
+		std::shared_ptr<Prepared> p = std::make_shared<Prepared>();
+		p->source = model; p->path = model->GetPath();
+		g_prepared[key] = p;
+		g_prepQueue.push_back(p);
+		if (!g_prepWorker) { g_prepWorker = true; std::thread(PrepWorker).detach(); }
+		g_prepChanged.notify_all();
+	}
+
+	bool SimplifiedModel::AutomaticReady(const std::string &ModelPath, const bool wait)
+	{
+		std::unique_lock<std::mutex> lock(g_prepLock);
+		std::map<std::string, std::shared_ptr<Prepared> >::iterator it = g_prepared.find(PrepKey(ModelPath));
+		if (it == g_prepared.end()) return true;
+		std::shared_ptr<Prepared> p = it->second;
+		if (!p->done)
+		{
+			if (!wait) return false;
+			g_prepChanged.wait(lock, [&p] { return p->done; });
+		}
+		SendPrepared(*p);
+		return true;
+	}
+
+	void SimplifiedModel::FinishPreparing()
+	{
+		std::unique_lock<std::mutex> lock(g_prepLock);
+		g_prepChanged.wait(lock, [] { return g_prepQueue.empty() && g_prepBusy == 0; });
+		for (std::map<std::string, std::shared_ptr<Prepared> >::iterator it = g_prepared.begin(); it != g_prepared.end(); ++it) SendPrepared(*it->second);
+	}
+
 	std::shared_ptr<SimplifiedModel> SimplifiedModel::LoadShared(const std::string &ModelPath, const f32 ratio)
 	{
-		static std::map<std::string, std::weak_ptr<SimplifiedModel> > cache;
-		static std::mutex guard;
-		std::error_code ec;
-		std::string full = std::filesystem::absolute(std::filesystem::path(ModelPath), ec).lexically_normal().string();
-		if (ec || full.empty()) full = ModelPath;
-		const std::string key = full + "|" + std::to_string((int)(std::max(0.01f, std::min(1.f, ratio)) * 1000.f + 0.5f));
-		{
-			std::lock_guard<std::mutex> lock(guard);
-			std::map<std::string, std::weak_ptr<SimplifiedModel> >::iterator it = cache.find(key);
-			if (it != cache.end()) { if (std::shared_ptr<SimplifiedModel> hit = it->second.lock()) return hit; cache.erase(it); }
-		}
+		if (std::shared_ptr<SimplifiedModel> hit = FindShared(ModelPath, ratio)) return hit;
 		std::shared_ptr<Model> source = Model::LoadShared(ModelPath, true);
 		if (!source || source->Geometries.empty()) return std::shared_ptr<SimplifiedModel>();
+		// (made here, on the spot: Lod.MadeHereMs - in a frame, it is a hitch; ahead of time it is PrepareAutomatic)
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		std::shared_ptr<SimplifiedModel> made = std::make_shared<SimplifiedModel>(source, ratio);
-		std::lock_guard<std::mutex> lock(guard);
-		cache[key] = made;
-		return made;
+		FrameProfiler::Instance().Counter("Lod.MadeHereMs", std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count());
+		return Share(ModelPath, ratio, made);
 	}
 
 	// Debug Skeleton

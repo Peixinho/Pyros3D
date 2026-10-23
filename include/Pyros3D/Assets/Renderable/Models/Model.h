@@ -113,7 +113,10 @@ namespace p3d {
 	// materials the model is drawn with fit this too.
 	class PYROS3D_API SimplifiedModel : public Renderable {
 	public:
-		SimplifiedModel(const std::shared_ptr<Model> &source, const f32 ratio);
+		// upload false: the geometry is made but not sent to the GPU - for making it on another thread;
+		// Upload() then sends it, on the thread that draws
+		SimplifiedModel(const std::shared_ptr<Model> &source, const f32 ratio, const bool upload = true);
+		void Upload();
 		virtual ~SimplifiedModel() {}
 
 		const std::string &GetPath() const { return Path; }
@@ -123,6 +126,25 @@ namespace p3d {
 
 		// One for a file and a ratio, while anybody holds it.
 		static std::shared_ptr<SimplifiedModel> LoadShared(const std::string &ModelPath, const f32 ratio);
+		// The one LoadShared would give, if it is made already (NULL if not: nothing is made here)
+		static std::shared_ptr<SimplifiedModel> FindShared(const std::string &ModelPath, const f32 ratio);
+		// Made elsewhere (uploaded): kept as LoadShared's for that model and ratio - unless one is already
+		// there, which is returned in its place.
+		static std::shared_ptr<SimplifiedModel> Share(const std::string &ModelPath, const f32 ratio, const std::shared_ptr<SimplifiedModel> &made);
+
+		// The automatic levels of detail (RenderingComponent::AddAutomaticLODs): of the model's triangles,
+		// for models of at least AutoLightest.
+		static const f32 AutoRatios[3];
+		static const uint32 AutoLightest = 1500;
+		// Made ahead of being drawn: the levels of a model, made on a worker thread of their own from the
+		// moment something is going to draw it (a RenderingComponent made for it) - not in the frame it is
+		// first seen, where a gun's 47 000 triangles held the frame a third of a second.
+		static void PrepareAutomatic(const std::shared_ptr<Model> &model);
+		// Its levels made (and sent to the GPU, here: call on the drawing thread)? With wait, until they
+		// are. True too for a model nothing was prepared for.
+		static bool AutomaticReady(const std::string &ModelPath, const bool wait);
+		// Everything asked for, made and sent: the end of loading (a scene, and its scripts' first models).
+		static void FinishPreparing();
 
 	protected:
 		std::string Path;

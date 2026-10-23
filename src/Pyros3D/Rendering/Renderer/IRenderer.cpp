@@ -3141,6 +3141,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	// Group and Sort Meshes
 	{
 		PYROS_PROFILE_SCOPE("Renderer.GroupAndSort");
+		RenderingComponent::PollAutomaticLODs();      // (levels made since: given now)
 		UseFrameList(Scene, Camera, Tag);
 	}
 

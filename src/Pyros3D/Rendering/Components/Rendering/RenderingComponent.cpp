@@ -112,10 +112,19 @@ namespace p3d {
 		}
 	}
 
+	namespace { bool g_autoLod = !(std::getenv("PYROS_AUTO_LOD") && std::getenv("PYROS_AUTO_LOD")[0] == '0'), g_autoLodInUse = true; uint32 g_autoLodChanges = 0; }
+	namespace {
+		// PYROS_AUTO_LOD_AHEAD=0: levels made on the spot, the first time a model is listed, as they were (to compare)
+		const bool g_autoLodAhead = !(std::getenv("PYROS_AUTO_LOD_AHEAD") && std::getenv("PYROS_AUTO_LOD_AHEAD")[0] == '0');
+		std::vector<RenderingComponent*> g_autoLodWaiting;     // (drawing thread only)
+	}
+
 	RenderingComponent::RenderingComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const f32 Distance) : IComponent()
 	{
 		// Keep renderable pointer
 		this->renderable = renderable;
+		// (its levels of detail begun now, on their own thread: ready by the time it is drawn)
+		if (g_autoLod && g_autoLodAhead) SimplifiedModel::PrepareAutomatic(std::dynamic_pointer_cast<Model>(renderable));
 		isHeightfield = dynamic_cast<Heightfield*>(this->renderable.get()) != NULL;
 
 		isInstanced = false;
@@ -358,7 +367,6 @@ namespace p3d {
 	}
 
 	// PYROS_AUTO_LOD=0: no automatic levels are made - for telling whether something seen is theirs.
-	namespace { bool g_autoLod = !(std::getenv("PYROS_AUTO_LOD") && std::getenv("PYROS_AUTO_LOD")[0] == '0'), g_autoLodInUse = true; uint32 g_autoLodChanges = 0; }
 	void RenderingComponent::SetAutoLOD(const bool on) { g_autoLod = on; }
 	bool RenderingComponent::GetAutoLOD() { return g_autoLod; }
 	void RenderingComponent::SetAutoLODInUse(const bool on) { if (on != g_autoLodInUse) { g_autoLodInUse = on; g_autoLodChanges++; RenderState::Touch(); } }
@@ -376,20 +384,41 @@ namespace p3d {
 	void RenderingComponent::SetLODDistanceScale(const f32 scale) { const f32 s = std::max(0.05f, scale); if (s != g_lodScale) { g_lodScale = s; g_autoLodChanges++; RenderState::Touch(); } }
 	f32 RenderingComponent::GetLODDistanceScale() { return g_lodScale; }
 
+	// The first time it is listed, a model of no levels gets its own - made ahead (SimplifiedModel::
+	// PrepareAutomatic, from the moment the component was made: at load, mostly), so here they are only
+	// taken. One still being made is drawn as it is meanwhile and asked again every frame.
 	void RenderingComponent::TryAutomaticLODs()
 	{
-		if (autoLodTried) return;
+		if (autoLodTried && !autoLodWaiting) return;
 		autoLodTried = true;
-		if (!g_autoLod || autoLevels != 0 || Meshes.size() != 1 || IsInstanced() || !Owner || !renderable) return;
+		if (!g_autoLod || autoLevels != 0 || Meshes.size() != 1 || IsInstanced() || !Owner || !renderable) { autoLodWaiting = false; return; }
+		std::shared_ptr<Model> model = std::dynamic_pointer_cast<Model>(renderable);
+		if (g_autoLodAhead && model && !model->GetPath().empty())
+		{
+			SimplifiedModel::PrepareAutomatic(model);        // (one made since loading: begun now)
+			if (!SimplifiedModel::AutomaticReady(model->GetPath(), false))
+			{
+				if (!autoLodWaiting) { autoLodWaiting = true; g_autoLodWaiting.push_back(this); }
+				return;
+			}
+		}
+		if (autoLodWaiting) { autoLodWaiting = false; g_autoLodWaiting.erase(std::remove(g_autoLodWaiting.begin(), g_autoLodWaiting.end(), this), g_autoLodWaiting.end()); }
 		const Vec3 &scale = Owner->GetScale();
 		AddAutomaticLODs(renderable->GetBoundingSphereRadius() * std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z))));
 	}
 
+	void RenderingComponent::PollAutomaticLODs()
+	{
+		if (g_autoLodWaiting.empty()) return;
+		const std::vector<RenderingComponent*> waiting = g_autoLodWaiting;
+		for (size_t i = 0; i < waiting.size(); i++) waiting[i]->TryAutomaticLODs();
+	}
+
 	bool RenderingComponent::AddAutomaticLODs(const f32 worldRadius, const f32 given)
 	{
-		static const uint32 kLightest = 1500;         // triangles under which a model is left alone
+		const uint32 kLightest = SimplifiedModel::AutoLightest;
 		static const f32 kFrom[3] = { 12.f, 28.f, 60.f };
-		static const f32 kRatio[3] = { 0.5f, 0.25f, 0.1f };
+		const f32* kRatio = SimplifiedModel::AutoRatios;
 		if (!g_autoLod || autoLevels != 0 || worldRadius <= 0.f) return false;
 		Model* model = dynamic_cast<Model*>(renderable.get());
 		if (!model || model->GetPath().empty()) return false;
@@ -1018,6 +1047,7 @@ namespace p3d {
 	}
 	RenderingComponent::~RenderingComponent()
 	{
+		if (autoLodWaiting) g_autoLodWaiting.erase(std::remove(g_autoLodWaiting.begin(), g_autoLodWaiting.end(), this), g_autoLodWaiting.end());
 		if (animatedSlot >= 0) SetActiveSkeletonAnimation(NULL);
 		for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
 		{
