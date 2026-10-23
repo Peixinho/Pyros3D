@@ -352,7 +352,13 @@ void main() {
 	// 1.0 (far) at background/sky pixels, which this shader would
 	// otherwise light using whatever garbage sits in the cleared G-buffer
 	// there.
-	if (texture(tDepth, Texcoord).r >= 1.0) discard;
+	// (nothing behind this pixel - the sky, empty space: no surface to light, but the air in front of
+	// it can still scatter this light toward the eye, so a pixel is dropped only where the light has no
+	// volumetric scattering. A beam seen against the sky was never drawn - only the air in front of a
+	// surface was marched.)
+	float rawDepth = texture(tDepth, Texcoord).r;
+	bool noSurface = rawDepth >= 1.0;
+	if (noSurface && uVolumetricParams.x <= 0.0) discard;
 	vec4 z_info = vec4(uNearFar.x, uNearFar.y, uNearFar.x*uNearFar.y, uNearFar.x - uNearFar.y);
 	vec2 Out = vec2(uScreenDimensions.x, uScreenDimensions.y);
 	vec4 vp = vec4(1.0, 1.0, 2.0/Out.x, 2.0/Out.y);
@@ -360,7 +366,8 @@ void main() {
 	vec4 out_dim = vec4(uScreenDimensions.x, uScreenDimensions.y, 1.0/uScreenDimensions.x, 1.0/uScreenDimensions.y);
 	vec2 screenCoord = vec2(uScreenDimensions.x*Texcoord.x, uScreenDimensions.y*Texcoord.y);
 
-	getPosViewSpace(texture(tDepth, Texcoord).r, screenCoord, z_info, v1, vProjectionMatrix, vp);
+	// (the far plane where there is no surface: the march clips the ray to the light's reach)
+	getPosViewSpace(noSurface ? 0.999999 : rawDepth, screenCoord, z_info, v1, vProjectionMatrix, vp);
 
 	float pcf = 1.0;
 	vec4 worldPos = vec4(v1, 1.0);
@@ -445,6 +452,7 @@ void main() {
 		lit += color * (1.0 - metallic) * lightColor.xyz * SubsurfaceLight(N, V, L, sss, sssThin) * sssThrough;
 	}
 	lit *= attenuation * texture(tAO, Texcoord).g;
+	if (noSurface) lit = vec3(0.0);   // (only the air's share below)
 
 	// Volumetric in-scattering - see secondpassSpot.glsl for the full
 	// reasoning. Same march, minus the cone test: a point light scatters in
