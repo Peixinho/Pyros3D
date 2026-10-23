@@ -445,12 +445,18 @@ void IRenderer::ChooseShadowCasters(GameObject* Camera)
 		struct Mover { Vec3 from, to; f32 r; };
 		std::vector<Mover> movers;
 		std::unordered_map<GameObject*, ShadowMover> now;
-		std::unordered_set<RenderingComponent*> seen;
+		// (each component once: stamped with this pass - a set of thousands built every frame was a
+		// third of the function)
+		// (one count for every renderer: two views' passes never share a number)
+		static std::atomic<uint32> passes(0);
+		const uint32 stamp = ++passes;
 		uint32 still = 0;
 		for (size_t i = 0; i < rmesh.size(); i++)
 		{
 			RenderingComponent* rc = rmesh[i] != NULL ? rmesh[i]->renderingComponent : NULL;
-			if (rc == NULL || !seen.insert(rc).second || !rc->IsCastingShadows()) continue;
+			if (rc == NULL || rc->shadowPickSeen == stamp) continue;
+			rc->shadowPickSeen = stamp;
+			if (!rc->IsCastingShadows()) continue;
 			GameObject* owner = rc->GetOwner();
 			if (owner == NULL) continue;
 			if (owner->IsStatic()) { still++; continue; }
@@ -2784,7 +2790,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		if (!rc->shadowMeshes.empty() && !rc->ShadowMeshTooNear() && rc->LodInUse < rc->Meshes.size() && !rc->Meshes[rc->LodInUse].empty())
 			return (m == rc->Meshes[rc->LodInUse][0]) ? 3 : 0;
 		if (cullTest && (f & CullTested) && !CullListTest(i)) return 0;
-		if (g_terrainShadowBaked && dynamic_cast<Heightfield*>(rc->GetRenderable()) != NULL) return 0;
+		if (g_terrainShadowBaked && rc->IsHeightfield()) return 0;
 		if (cullTest && g_shadowView.on && !ShadowReachesView(m)) return 2;
 		return 1;
 	});

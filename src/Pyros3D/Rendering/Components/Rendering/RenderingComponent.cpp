@@ -10,6 +10,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 #include <execinfo.h>
 #include <dlfcn.h>
@@ -115,6 +116,7 @@ namespace p3d {
 	{
 		// Keep renderable pointer
 		this->renderable = renderable;
+		isHeightfield = dynamic_cast<Heightfield*>(this->renderable.get()) != NULL;
 
 		isInstanced = false;
 
@@ -180,6 +182,7 @@ namespace p3d {
 		renderLayer = RenderLayer::World;
 
 		this->renderable = renderable;
+		isHeightfield = dynamic_cast<Heightfield*>(this->renderable.get()) != NULL;
 
 		uint32 LODLVL = Meshes.size();
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
@@ -1149,6 +1152,7 @@ namespace p3d {
 		Meshes.clear();
 
 		renderable = built;
+		isHeightfield = dynamic_cast<Heightfield*>(this->renderable.get()) != NULL;
 
 		for (uint32 i = 0; i < renderable->Geometries.size(); i++)
 		{

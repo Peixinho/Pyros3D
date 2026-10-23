@@ -504,6 +504,9 @@ namespace p3d {
 		bool IsCastingShadows();
 
 		Renderable* GetRenderable() { return renderable.get(); }
+		// (whether that is terrain: asked of every mesh in every shadow pass, so known once, where it is set)
+		bool IsHeightfield() const { return isHeightfield; }
+		uint32 shadowPickSeen = 0;      // (IRenderer::ChooseShadowCasters' pass it was last counted in)
 		// The owning handle, for callers that need to build another
 		// component over the same geometry (the editor's selection
 		// highlight draws a second RenderingComponent on the same
@@ -815,6 +818,7 @@ namespace p3d {
 
 		// Save Renderable Pointer
 		std::shared_ptr<Renderable> renderable;
+		bool isHeightfield = false;
 		std::vector<std::shared_ptr<Renderable> > lodRenderables;
 		std::vector<bool> lodOwnMaterials;      // by level; level 0 is false
 		uint32 autoLevels = 0;                  // how many levels AddAutomaticLODs made (they are the first after level 0)

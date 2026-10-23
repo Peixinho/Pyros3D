@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
+#include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <cmath>
 
 namespace p3d {
@@ -14,6 +15,7 @@ namespace p3d {
 	{
 		this->nrInstances = nrInstances;
 		this->renderable = renderable;
+		isHeightfield = dynamic_cast<Heightfield*>(this->renderable.get()) != NULL;
 
 		BoundingSphereRadius = boundingSphere;
 		isInstanced = true;
@@ -23,6 +25,7 @@ namespace p3d {
 	{
 		this->nrInstances = nrInstances;
 		this->renderable = renderable;
+		isHeightfield = dynamic_cast<Heightfield*>(this->renderable.get()) != NULL;
 		
 		BoundingSphereRadius = boundingSphere;
 		isInstanced = true;
