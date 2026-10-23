@@ -555,6 +555,7 @@ namespace p3d {
 					vkDestroyShaderModule(device, it->second.module, NULL);
 			shaderStages.clear();
 
+			DestroyPresentConversion();
 			for (size_t i = 0; i < framebuffers.size(); i++)
 				vkDestroyFramebuffer(device, framebuffers[i], NULL);
 			if (renderPass != VK_NULL_HANDLE) vkDestroyRenderPass(device, renderPass, NULL);
@@ -663,16 +664,31 @@ namespace p3d {
 			}
 		// HDR output: half floats in extended sRGB, encoded like the 8-bit one - 1.0 is SDR white, the
 		// display's headroom above it (MoltenVK turns on EDR for it). Where it is not offered, SDR.
-		hdrOn = false;
+		// Else scRGB (linear half floats) or HDR10 (PQ, 10 bits) - drawn into half floats as ever and
+		// converted by a last pass (BuildPresentConversion). PYROS_HDR_MODE=scrgb|hdr10 skips the first,
+		// to try those where it is offered too.
+		hdrOn = false; hdrConvert = 0;
 		if (hdrWanted)
-			for (size_t i = 0; i < formats.size(); i++)
-				if (formats[i].format == VK_FORMAT_R16G16B16A16_SFLOAT && formats[i].colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT)
-				{
-					chosenFormat = formats[i];
-					hdrOn = true;
-					break;
-				}
-		if (hdrWanted) fprintf(stderr, "VulkanRenderDevice: HDR output %s\n", hdrOn ? "on (half floats, extended sRGB)" : "not offered by this surface - SDR");
+		{
+			const char* force = getenv("PYROS_HDR_MODE");
+			auto find = [&](const VkFormat f, const VkColorSpaceKHR c) {
+				for (size_t i = 0; i < formats.size(); i++) if (formats[i].format == f && formats[i].colorSpace == c) return (int)i;
+				return -1;
+			};
+			int k = -1;
+			if (force == NULL) k = find(VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_EXTENDED_SRGB_NONLINEAR_EXT);
+			if (k < 0 && (force == NULL || strcmp(force, "scrgb") == 0))
+			{ k = find(VK_FORMAT_R16G16B16A16_SFLOAT, VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT); if (k >= 0) hdrConvert = 1; }
+			if (k < 0 && (force == NULL || strcmp(force, "hdr10") == 0))
+			{
+				k = find(VK_FORMAT_A2B10G10R10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT);
+				if (k < 0) k = find(VK_FORMAT_A2R10G10B10_UNORM_PACK32, VK_COLOR_SPACE_HDR10_ST2084_EXT);
+				if (k >= 0) hdrConvert = 2;
+			}
+			if (k >= 0) { chosenFormat = formats[k]; hdrOn = true; }
+			fprintf(stderr, "VulkanRenderDevice: HDR output %s\n", !hdrOn ? "not offered by this surface - SDR"
+				: hdrConvert == 1 ? "on (scRGB, converted at present)" : hdrConvert == 2 ? "on (HDR10, converted at present)" : "on (half floats, extended sRGB)");
+		}
 
 		VkExtent2D extent;
 		if (capabilities.currentExtent.width != 0xFFFFFFFF)
@@ -820,15 +836,17 @@ namespace p3d {
 		// does once real rendering replaces ClearAndPresent()'s manual
 		// barriers) plus one depth attachment (cleared, not stored - no
 		// caller needs the depth buffer's contents after the pass).
+		// (converted at present: the frame is drawn into half floats, left ready to sample)
+		if (hdrConvert != 0 && !BuildPresentConversion(actualImageCount)) { hdrConvert = 0; hdrOn = false; }
 		VkAttachmentDescription colorAttachment = {};
-		colorAttachment.format = swapchainFormat;
+		colorAttachment.format = hdrConvert != 0 ? VK_FORMAT_R16G16B16A16_SFLOAT : swapchainFormat;
 		colorAttachment.samples = VK_SAMPLE_COUNT_1_BIT;
 		colorAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR;
 		colorAttachment.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 		colorAttachment.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 		colorAttachment.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
 		colorAttachment.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-		colorAttachment.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		colorAttachment.finalLayout = hdrConvert != 0 ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
 
 		VkAttachmentDescription depthAttachment = {};
 		depthAttachment.format = depthFormat;
@@ -859,14 +877,23 @@ namespace p3d {
 		dependency.srcAccessMask = 0;
 		dependency.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
 
+		// (and, converted at present, the conversion's read waits for this pass's writes)
+		VkSubpassDependency dependencies[2] = { dependency, {} };
+		dependencies[1].srcSubpass = 0;
+		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
+		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dependencies[1].dstStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
+		dependencies[1].srcAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		dependencies[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
 		VkRenderPassCreateInfo renderPassInfo = {};
 		renderPassInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO;
 		renderPassInfo.attachmentCount = 2;
 		renderPassInfo.pAttachments = attachments;
 		renderPassInfo.subpassCount = 1;
 		renderPassInfo.pSubpasses = &subpass;
-		renderPassInfo.dependencyCount = 1;
-		renderPassInfo.pDependencies = &dependency;
+		renderPassInfo.dependencyCount = hdrConvert != 0 ? 2 : 1;
+		renderPassInfo.pDependencies = dependencies;
 		if (vkCreateRenderPass(device, &renderPassInfo, NULL, &renderPass) != VK_SUCCESS)
 			return false;
 		// See GetSwapchainGeneration()'s comment - a caller that cached a
@@ -883,7 +910,7 @@ namespace p3d {
 		framebuffers.resize(actualImageCount);
 		for (uint32 i = 0; i < actualImageCount; i++)
 		{
-			VkImageView fbAttachments[2] = { swapchainImageViews[i], depthImageView };
+			VkImageView fbAttachments[2] = { hdrConvert != 0 ? compositeViews[i] : swapchainImageViews[i], depthImageView };
 			VkFramebufferCreateInfo fbInfo = {};
 			fbInfo.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
 			fbInfo.renderPass = renderPass;
@@ -929,6 +956,195 @@ namespace p3d {
 #if defined(__APPLE__)
 	extern "C" float PyrosAppleDisplayHeadroom(void);
 #endif
+
+	void VulkanRenderDevice::DestroyPresentConversion()
+	{
+		if (device == VK_NULL_HANDLE) return;
+		if (presentPipeline != VK_NULL_HANDLE || !compositeImages.empty()) vkDeviceWaitIdle(device);
+		if (presentPipeline != VK_NULL_HANDLE) { vkDestroyPipeline(device, presentPipeline, NULL); presentPipeline = VK_NULL_HANDLE; }
+		if (presentLayout != VK_NULL_HANDLE) { vkDestroyPipelineLayout(device, presentLayout, NULL); presentLayout = VK_NULL_HANDLE; }
+		if (presentPool != VK_NULL_HANDLE) { vkDestroyDescriptorPool(device, presentPool, NULL); presentPool = VK_NULL_HANDLE; }
+		presentSets.clear();
+		if (presentSetLayout != VK_NULL_HANDLE) { vkDestroyDescriptorSetLayout(device, presentSetLayout, NULL); presentSetLayout = VK_NULL_HANDLE; }
+		if (presentSampler != VK_NULL_HANDLE) { vkDestroySampler(device, presentSampler, NULL); presentSampler = VK_NULL_HANDLE; }
+		for (size_t i = 0; i < presentFramebuffers.size(); i++) vkDestroyFramebuffer(device, presentFramebuffers[i], NULL);
+		presentFramebuffers.clear();
+		if (presentPass != VK_NULL_HANDLE) { vkDestroyRenderPass(device, presentPass, NULL); presentPass = VK_NULL_HANDLE; }
+		for (size_t i = 0; i < compositeViews.size(); i++) vkDestroyImageView(device, compositeViews[i], NULL);
+		for (size_t i = 0; i < compositeImages.size(); i++) vmaDestroyImage(allocator, compositeImages[i], compositeAllocs[i]);
+		compositeViews.clear(); compositeImages.clear(); compositeAllocs.clear();
+	}
+
+	// The frame's half-float images (one a swapchain image), the pass that writes the swapchain image
+	// from them, and its pipeline: a full-screen triangle that undoes the sRGB-like encode the scene and
+	// the UI were written with, then gives scRGB (linear: 1.0 is 80 nits on Windows, SDR white on a Mac)
+	// or HDR10 (BT.2020, PQ, SDR white at the paper-white nits).
+	bool VulkanRenderDevice::BuildPresentConversion(const uint32 count)
+	{
+		DestroyPresentConversion();
+#ifdef SPIRV_TOOLING
+		compositeImages.resize(count); compositeAllocs.resize(count); compositeViews.resize(count);
+		for (uint32 i = 0; i < count; i++)
+		{
+			VkImageCreateInfo ii = {};
+			ii.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO; ii.imageType = VK_IMAGE_TYPE_2D; ii.format = VK_FORMAT_R16G16B16A16_SFLOAT;
+			ii.extent = { swapchainExtent.width, swapchainExtent.height, 1 }; ii.mipLevels = 1; ii.arrayLayers = 1;
+			ii.samples = VK_SAMPLE_COUNT_1_BIT; ii.tiling = VK_IMAGE_TILING_OPTIMAL;
+			ii.usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT; ii.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+			VmaAllocationCreateInfo ai = {}; ai.usage = VMA_MEMORY_USAGE_GPU_ONLY;
+			if (vmaCreateImage(allocator, &ii, &ai, &compositeImages[i], &compositeAllocs[i], NULL) != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+			VkImageViewCreateInfo vi = {};
+			vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO; vi.image = compositeImages[i]; vi.viewType = VK_IMAGE_VIEW_TYPE_2D;
+			vi.format = VK_FORMAT_R16G16B16A16_SFLOAT; vi.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
+			if (vkCreateImageView(device, &vi, NULL, &compositeViews[i]) != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+		}
+
+		VkAttachmentDescription att = {};
+		att.format = swapchainFormat; att.samples = VK_SAMPLE_COUNT_1_BIT;
+		att.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; att.storeOp = VK_ATTACHMENT_STORE_OP_STORE;
+		att.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE; att.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
+		att.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED; att.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR;
+		VkAttachmentReference ref = { 0, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL };
+		VkSubpassDescription sub = {}; sub.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS; sub.colorAttachmentCount = 1; sub.pColorAttachments = &ref;
+		VkSubpassDependency dep = {};
+		dep.srcSubpass = VK_SUBPASS_EXTERNAL; dep.dstSubpass = 0;
+		dep.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT; dep.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		dep.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		VkRenderPassCreateInfo rp = {};
+		rp.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO; rp.attachmentCount = 1; rp.pAttachments = &att;
+		rp.subpassCount = 1; rp.pSubpasses = &sub; rp.dependencyCount = 1; rp.pDependencies = &dep;
+		if (vkCreateRenderPass(device, &rp, NULL, &presentPass) != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+		presentFramebuffers.resize(count);
+		for (uint32 i = 0; i < count; i++)
+		{
+			VkFramebufferCreateInfo fb = {};
+			fb.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO; fb.renderPass = presentPass; fb.attachmentCount = 1;
+			fb.pAttachments = &swapchainImageViews[i]; fb.width = swapchainExtent.width; fb.height = swapchainExtent.height; fb.layers = 1;
+			if (vkCreateFramebuffer(device, &fb, NULL, &presentFramebuffers[i]) != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+		}
+
+		VkSamplerCreateInfo si = {};
+		si.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO; si.magFilter = VK_FILTER_NEAREST; si.minFilter = VK_FILTER_NEAREST;
+		si.addressModeU = si.addressModeV = si.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+		if (vkCreateSampler(device, &si, NULL, &presentSampler) != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+		VkDescriptorSetLayoutBinding b = {};
+		b.binding = 0; b.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; b.descriptorCount = 1; b.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+		VkDescriptorSetLayoutCreateInfo li = {}; li.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO; li.bindingCount = 1; li.pBindings = &b;
+		if (vkCreateDescriptorSetLayout(device, &li, NULL, &presentSetLayout) != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+		VkDescriptorPoolSize ps = { VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, count };
+		VkDescriptorPoolCreateInfo pi = {}; pi.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO; pi.maxSets = count; pi.poolSizeCount = 1; pi.pPoolSizes = &ps;
+		if (vkCreateDescriptorPool(device, &pi, NULL, &presentPool) != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+		std::vector<VkDescriptorSetLayout> layouts(count, presentSetLayout);
+		VkDescriptorSetAllocateInfo da = {}; da.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO; da.descriptorPool = presentPool;
+		da.descriptorSetCount = count; da.pSetLayouts = layouts.data();
+		presentSets.resize(count);
+		if (vkAllocateDescriptorSets(device, &da, presentSets.data()) != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+		for (uint32 i = 0; i < count; i++)
+		{
+			VkDescriptorImageInfo img = { presentSampler, compositeViews[i], VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL };
+			VkWriteDescriptorSet w = {}; w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET; w.dstSet = presentSets[i]; w.dstBinding = 0;
+			w.descriptorCount = 1; w.descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER; w.pImageInfo = &img;
+			vkUpdateDescriptorSets(device, 1, &w, 0, NULL);
+		}
+		VkPushConstantRange pr = { VK_SHADER_STAGE_FRAGMENT_BIT, 0, 16 };
+		VkPipelineLayoutCreateInfo pl = {}; pl.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+		pl.setLayoutCount = 1; pl.pSetLayouts = &presentSetLayout; pl.pushConstantRangeCount = 1; pl.pPushConstantRanges = &pr;
+		if (vkCreatePipelineLayout(device, &pl, NULL, &presentLayout) != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+
+		const std::string vs =
+			"#version 450\n"
+			"layout(location = 0) out vec2 uv;\n"
+			"void main() { vec2 p = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2); uv = p; gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0); }\n";
+		const std::string fs =
+			"#version 450\n"
+			"layout(location = 0) in vec2 uv;\n"
+			"layout(location = 0) out vec4 outColor;\n"
+			"layout(set = 0, binding = 0) uniform sampler2D frameImage;\n"
+			"layout(push_constant) uniform Params { vec4 p; } pc;\n"   // x: 1 scRGB, 2 HDR10; y: the scale (scRGB) or the paper white in nits (HDR10)
+			"void main() {\n"
+			"	vec3 e = texture(frameImage, uv).rgb;\n"
+			"	vec3 lin = sign(e) * pow(abs(e), vec3(2.2));\n"   // (the encode the scene and the UI were written with)
+			"	if (pc.p.x < 1.5) { outColor = vec4(lin * pc.p.y, 1.0); return; }\n"
+			"	const mat3 toBT2020 = mat3(0.6274, 0.0691, 0.0164, 0.3293, 0.9195, 0.0880, 0.0433, 0.0113, 0.8956);\n"
+			"	vec3 y = pow(clamp(max(toBT2020 * lin, vec3(0.0)) * pc.p.y / 10000.0, 0.0, 1.0), vec3(0.1593017578125));\n"
+			"	outColor = vec4(pow((0.8359375 + 18.8515625 * y) / (1.0 + 18.6875 * y), vec3(78.84375)), 1.0);\n"
+			"}\n";
+		std::vector<uint32> vsSpirv, fsSpirv;
+		std::string err;
+		if (!SpirvShaderCompiler::Compile(vs, SpirvShaderStage::Vertex, vsSpirv, err) || !SpirvShaderCompiler::Compile(fs, SpirvShaderStage::Fragment, fsSpirv, err))
+		{
+			fprintf(stderr, "VulkanRenderDevice: HDR present conversion did not compile: %s\n", err.c_str());
+			DestroyPresentConversion(); return false;
+		}
+		VkShaderModule mods[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+		const std::vector<uint32>* code[2] = { &vsSpirv, &fsSpirv };
+		for (int k = 0; k < 2; k++)
+		{
+			VkShaderModuleCreateInfo mi = {}; mi.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO;
+			mi.codeSize = code[k]->size() * sizeof(uint32); mi.pCode = code[k]->data();
+			vkCreateShaderModule(device, &mi, NULL, &mods[k]);
+		}
+		VkPipelineShaderStageCreateInfo st[2] = {};
+		st[0].sType = st[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
+		st[0].stage = VK_SHADER_STAGE_VERTEX_BIT; st[0].module = mods[0]; st[0].pName = "main";
+		st[1].stage = VK_SHADER_STAGE_FRAGMENT_BIT; st[1].module = mods[1]; st[1].pName = "main";
+		VkPipelineVertexInputStateCreateInfo vin = {}; vin.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
+		VkPipelineInputAssemblyStateCreateInfo ia = {}; ia.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO; ia.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST;
+		VkPipelineViewportStateCreateInfo vp = {}; vp.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO; vp.viewportCount = 1; vp.scissorCount = 1;
+		VkPipelineRasterizationStateCreateInfo rs = {}; rs.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
+		rs.polygonMode = VK_POLYGON_MODE_FILL; rs.cullMode = VK_CULL_MODE_NONE; rs.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE; rs.lineWidth = 1.f;
+		VkPipelineMultisampleStateCreateInfo ms = {}; ms.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO; ms.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+		VkPipelineColorBlendAttachmentState cba = {}; cba.colorWriteMask = 0xF;
+		VkPipelineColorBlendStateCreateInfo cb = {}; cb.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO; cb.attachmentCount = 1; cb.pAttachments = &cba;
+		VkDynamicState dyn[2] = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
+		VkPipelineDynamicStateCreateInfo ds = {}; ds.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO; ds.dynamicStateCount = 2; ds.pDynamicStates = dyn;
+		VkGraphicsPipelineCreateInfo gp = {};
+		gp.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO; gp.stageCount = 2; gp.pStages = st;
+		gp.pVertexInputState = &vin; gp.pInputAssemblyState = &ia; gp.pViewportState = &vp; gp.pRasterizationState = &rs;
+		gp.pMultisampleState = &ms; gp.pColorBlendState = &cb; gp.pDynamicState = &ds; gp.layout = presentLayout; gp.renderPass = presentPass;
+		const VkResult r = vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &gp, NULL, &presentPipeline);
+		for (int k = 0; k < 2; k++) if (mods[k] != VK_NULL_HANDLE) vkDestroyShaderModule(device, mods[k], NULL);
+		if (r != VK_SUCCESS) { DestroyPresentConversion(); return false; }
+		return true;
+#else
+		(void)count;
+		return false;
+#endif
+	}
+
+	void VulkanRenderDevice::RecordPresentConversion(VkCommandBuffer cmd, const uint32 image)
+	{
+		if (presentPipeline == VK_NULL_HANDLE || image >= presentFramebuffers.size()) return;
+		VkRenderPassBeginInfo bi = {};
+		bi.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO; bi.renderPass = presentPass; bi.framebuffer = presentFramebuffers[image];
+		bi.renderArea.extent = swapchainExtent;
+		vkCmdBeginRenderPass(cmd, &bi, VK_SUBPASS_CONTENTS_INLINE);
+		vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, presentPipeline);
+		VkViewport v = { 0.f, 0.f, (float)swapchainExtent.width, (float)swapchainExtent.height, 0.f, 1.f };
+		VkRect2D sc = { { 0, 0 }, swapchainExtent };
+		vkCmdSetViewport(cmd, 0, 1, &v); vkCmdSetScissor(cmd, 0, 1, &sc);
+		vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, presentLayout, 0, 1, &presentSets[image], 0, NULL);
+		// (SDR white: at the paper-white nits - PYROS_HDR_PAPER_WHITE; scRGB counts 80 nits a unit on
+		// Windows, while a Mac's extended linear sRGB has SDR white at 1)
+		// (a Mac shows PQ with SDR white at about 100 nits - measured: 100 matches the encoded path, 200 is
+		// twice as bright; on Windows it is the user's SDR-content brightness, 200 a usual one)
+		const char* pw = getenv("PYROS_HDR_PAPER_WHITE");
+#if defined(__APPLE__)
+		const float paper = pw ? (float)atof(pw) : 100.f;
+#else
+		const float paper = pw ? (float)atof(pw) : 200.f;
+#endif
+#if defined(__APPLE__)
+		const float scrgbScale = 1.f;
+#else
+		const float scrgbScale = paper / 80.f;
+#endif
+		const float p[4] = { (float)hdrConvert, hdrConvert == 1 ? scrgbScale : paper, 0.f, 0.f };
+		vkCmdPushConstants(cmd, presentLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(p), p);
+		vkCmdDraw(cmd, 3, 1, 0, 0);
+		vkCmdEndRenderPass(cmd);
+	}
+
 
 	bool VulkanRenderDevice::SetHDROutput(const bool on)
 	{
@@ -2070,6 +2286,8 @@ namespace p3d {
 		if (UIRenderHook) UIRenderHook(frameCommandBuffer);
 
 		PyrosT_CmdEndRenderPass(frameCommandBuffer);
+		// (scRGB / HDR10: the frame converted into the swapchain image - see BuildPresentConversion)
+		if (hdrConvert != 0) RecordPresentConversion(frameCommandBuffer, currentImageIndex);
 		GpuTimerEnd(frameCommandBuffer, frameGpuTimer);
 
 		// Capture happens *before* vkEndCommandBuffer/present - see the

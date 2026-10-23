@@ -1107,6 +1107,24 @@ namespace p3d {
 		// sRGB, encoded as the SDR one is (the UI needs nothing), where the surface offers it.
 		bool hdrWanted = false, hdrOn = false;
 		bool swapchainFormatChanged = false;   // (a rebuild at the same size: SetHDROutput)
+		// HDR output where the swapchain is scRGB (1) or HDR10 (2) - what Windows drivers offer: the frame
+		// is drawn, as ever, into half-float images encoded like sRGB, and a last pass converts each into
+		// the swapchain image (linear, or PQ). 0: drawn straight into the swapchain.
+		int hdrConvert = 0;
+		std::vector<VkImage> compositeImages;
+		std::vector<VmaAllocation> compositeAllocs;
+		std::vector<VkImageView> compositeViews;
+		VkRenderPass presentPass = VK_NULL_HANDLE;
+		std::vector<VkFramebuffer> presentFramebuffers;
+		VkSampler presentSampler = VK_NULL_HANDLE;
+		VkDescriptorSetLayout presentSetLayout = VK_NULL_HANDLE;
+		VkDescriptorPool presentPool = VK_NULL_HANDLE;
+		std::vector<VkDescriptorSet> presentSets;
+		VkPipelineLayout presentLayout = VK_NULL_HANDLE;
+		VkPipeline presentPipeline = VK_NULL_HANDLE;
+		bool BuildPresentConversion(const uint32 count);
+		void DestroyPresentConversion();
+		void RecordPresentConversion(VkCommandBuffer cmd, const uint32 image);
 	public:
 		virtual bool SetHDROutput(const bool on);
 		virtual bool IsHDROutput() const { return hdrOn; }
