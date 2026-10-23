@@ -43,6 +43,7 @@ endfunction()
 # Emscripten (emcmake) and Android NDK force GLES3 / SDL2 / no Vulkan first.
 include(${CMAKE_CURRENT_LIST_DIR}/PyrosEmscripten.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/PyrosAndroid.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/PyrosIOS.cmake)
 
 # ---------------------------------------------------------------------------
 # Logging

@@ -33,6 +33,9 @@ elseif (OPENGL_VERSION STREQUAL "GLES3")
 	if (EMSCRIPTEN)
 		# Browser / emscripten GL; do not link system GLESv2.
 		set(OPENGL_LIBS "")
+	elseif (IOS)
+		# The loader is never pointed at a context (Metal draws): nothing of the system's to link.
+		set(OPENGL_LIBS "")
 	elseif (ANDROID)
 		# NDK: GLESv3 is preferred; GLESv2 + EGL still required for loader symbols.
 		find_library(PYROS_GLESV3_LIBRARY GLESv3)
@@ -73,7 +76,15 @@ set(SPIRV_TOOLING_SOURCE "")
 set(SPIRV_TOOLING_INCLUDE_DIRS "")
 set(SPIRV_TOOLING_LIBS "")
 
-if (BUILD_SPIRV_TOOLING)
+if (BUILD_SPIRV_TOOLING AND PYROS_IOS_SPIRV_TOOLING)
+	# (built from source for the device: PyrosIOS.cmake)
+	set(SPIRV_TOOLING_FOUND ON)
+	add_compile_definitions(SPIRV_TOOLING)
+	set(SPIRV_TOOLING_SOURCE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/SPIRV/ShaderCompiler.cpp)
+	set(SPIRV_TOOLING_INCLUDE_DIRS ${PYROS_IOS_SPIRV_INCLUDE_DIRS})
+	set(SPIRV_TOOLING_LIBS ${PYROS_IOS_SPIRV_LIBS})
+	message(STATUS "SPIR-V tooling: from source (iOS)")
+elseif (BUILD_SPIRV_TOOLING)
 	if (APPLE)
 		execute_process(COMMAND brew --prefix shaderc
 			OUTPUT_VARIABLE HOMEBREW_SHADERC_PREFIX
@@ -271,7 +282,10 @@ if (BUILD_METAL_BACKEND)
 		pyros_frameworks_by_name(METAL_BACKEND_LIBS)
 		# Apple's upscaler, where the system has it (macOS 13 on): linked weakly,
 		# so the engine still loads where it does not.
-		list(APPEND METAL_BACKEND_LIBS "-Wl,-weak_framework,MetalFX")
+		# (not in the iOS Simulator's SDK, where the code builds without it too - see PYROS_HAVE_METALFX)
+		if (NOT (IOS AND CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator"))
+			list(APPEND METAL_BACKEND_LIBS "-Wl,-weak_framework,MetalFX")
+		endif()
 
 		# GLSL -> SPIR-V (shaderc, already found above for the Vulkan path)
 		# -> MSL (spirv-cross-msl, the one spirv-cross backend library the

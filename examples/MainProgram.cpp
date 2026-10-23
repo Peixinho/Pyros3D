@@ -14,6 +14,16 @@
 #include <emscripten.h>
 #define PYROS_EMSCRIPTEN 1
 #endif
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+// (iOS: SDL owns the process's main - this one becomes SDL_main - and the app runs from its bundle)
+#include <SDL.h>
+#include <SDL_main.h>
+#include <unistd.h>
+#define PYROS_IOS 1
+#endif
+#endif
 using namespace std;
 using namespace p3d;
 using namespace p3d::Math;
@@ -67,6 +77,10 @@ int main(int argc, char** argv) {
 	// process with no output at all, which is what "it just opens and closes"
 	// looks like from the outside.
 	InstallCrashHandler();
+#ifdef PYROS_IOS
+	// the shaders and assets are in the bundle: lookups are relative to where it runs
+	if (char* base = SDL_GetBasePath()) { chdir(base); SDL_free(base); }
+#endif
 
 	initialized = false;
 

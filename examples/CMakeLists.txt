@@ -58,6 +58,21 @@ function(pyros_add_example target_name)
 	if (IS_DESKTOP)
 		target_compile_definitions(${target_name} PRIVATE DESKTOP)
 	endif()
+	# iOS: an app - SDL owns main (SDL2main starts UIKit and calls ours), and the
+	# shaders and the demos' assets go inside the bundle, where it runs from.
+	if (IOS)
+		set_target_properties(${target_name} PROPERTIES
+			MACOSX_BUNDLE TRUE
+			MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/cmake/ios/Info.plist.in
+			MACOSX_BUNDLE_GUI_IDENTIFIER com.pyros3d.${target_name}
+			MACOSX_BUNDLE_BUNDLE_NAME ${target_name}
+			MACOSX_BUNDLE_EXECUTABLE_NAME ${target_name})
+		target_link_libraries(${target_name} PRIVATE SDL2main)
+		add_custom_command(TARGET ${target_name} POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/resources $<TARGET_BUNDLE_DIR:${target_name}>
+			COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_BUNDLE_DIR:${target_name}>/assets
+			COMMENT "${target_name}: shaders and assets into the app")
+	endif()
 	if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 		target_compile_definitions(${target_name} PRIVATE _IMPORT)
 	endif()
@@ -143,7 +158,9 @@ if (METAL_BACKEND_FOUND)
 		${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
 		${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
 	)
-	find_package(SDL2 REQUIRED)
+	if (NOT TARGET SDL2::SDL2)
+		find_package(SDL2 REQUIRED)
+	endif()
 	target_include_directories(MetalHelloWindow PRIVATE
 		${CMAKE_SOURCE_DIR}/include
 		${CMAKE_CURRENT_SOURCE_DIR}

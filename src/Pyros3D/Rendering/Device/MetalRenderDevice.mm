@@ -26,17 +26,28 @@
 #ifdef METAL_BACKEND
 #if __has_include(<MetalFX/MetalFX.h>)
 #import <MetalFX/MetalFX.h>
-#import <AppKit/AppKit.h>
 #define PYROS_HAVE_METALFX 1
 #else
 #define PYROS_HAVE_METALFX 0
 #endif
 
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#import <UIKit/UIKit.h>
+#else
+#import <AppKit/AppKit.h>
+#endif
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #include <dispatch/dispatch.h>
+// (a Mac's layer can be told not to wait for the display; an iPhone's always does)
+#if TARGET_OS_OSX
+#define PYROS_LAYER_SYNC(l) ((int)(l).displaySyncEnabled)
+#else
+#define PYROS_LAYER_SYNC(l) 1
+#endif
 #include <execinfo.h>
 #include <chrono>
 #include <mach/mach_time.h>
@@ -561,8 +572,10 @@ namespace p3d {
 			layer.framebufferOnly = YES;
 			// PYROS_METAL_DISPLAY_SYNC=0|1 (see the note below; the default is
 			// decided where it is measured)
+#if TARGET_OS_OSX
 			if (const char* sync = getenv("PYROS_METAL_DISPLAY_SYNC"))
 				if (@available(macOS 10.13, *)) layer.displaySyncEnabled = (sync[0] != '0') ? YES : NO;
+#endif
 			// Deliberately not setting displaySyncEnabled = NO here, having
 			// measured it. The backend is capped at exactly 60fps and that
 			// property looks like the cause (it defaults to YES, and
@@ -644,12 +657,18 @@ namespace p3d {
 		if (!hdrOn || metalLayer == NULL) return 1.f;
 		@autoreleasepool
 		{
+#if TARGET_OS_IPHONE
+			// (an iPhone's one screen: what it can show now, iOS 16 on)
+			CGFloat h = 1.0;
+			if (@available(iOS 16.0, *)) h = [UIScreen mainScreen].currentEDRHeadroom;
+#else
 			CAMetalLayer* layer = (__bridge CAMetalLayer*)metalLayer;
 			NSScreen* screen = nil;
 			id delegate = layer.delegate;
 			if ([delegate isKindOfClass:[NSView class]]) screen = ((NSView*)delegate).window.screen;
 			if (screen == nil) screen = [NSScreen mainScreen];
 			CGFloat h = screen != nil ? screen.maximumExtendedDynamicRangeColorComponentValue : 1.0;
+#endif
 			// (EDR is relative to SDR white, so the paper white only weighs as the game's peak over it: a cap)
 			if (hdrPeak > 0.f) { const CGFloat cap = hdrPeak / (hdrPaperWhite > 0.f ? hdrPaperWhite : 100.f); if (cap < h) h = cap; }
 			return (f32)(h > 1.0 ? h : 1.0);
@@ -742,7 +761,7 @@ namespace p3d {
 				const f64 inFlight = std::chrono::duration<f64, std::milli>(w1 - w0).count(), display = std::chrono::duration<f64, std::milli>(w2 - w1).count();
 				if (inFlight + display > 4.0)
 					fprintf(stderr, "[frame-wait] frame %llu: %.1f ms for the GPU's frame in flight, %.1f ms for a drawable (layer: %lu drawables, sync %d)\n",
-						(unsigned long long)deviceFrameNumber, inFlight, display, (unsigned long)layer.maximumDrawableCount, (int)layer.displaySyncEnabled);
+						(unsigned long long)deviceFrameNumber, inFlight, display, (unsigned long)layer.maximumDrawableCount, PYROS_LAYER_SYNC(layer));
 			}
 			if (drawable == nil)
 			{
@@ -766,6 +785,8 @@ namespace p3d {
 				// When each frame really reached the screen: the profiler shows the gaps between them,
 				// which are what is seen (a frame that waited a second refresh for a drawable, with
 				// frames already queued, may show as nothing at all). PYROS_PRESENT_TRACE=1 prints each.
+				// (the iOS Simulator's Metal has no presented handlers: the device's does)
+#if !TARGET_OS_SIMULATOR
 				static const bool presentTrace = getenv("PYROS_PRESENT_TRACE") != NULL;
 				[drawable addPresentedHandler:^(id<MTLDrawable> d) {
 					static CFTimeInterval lastShown = 0.0;
@@ -778,6 +799,7 @@ namespace p3d {
 					else if (at <= 0.0 && presentTrace) fprintf(stderr, "[present] dropped (never shown)\n");
 					if (at > 0.0) lastShown = at;
 				}];
+#endif
 				[cmdBuf presentDrawable:drawable];
 			}
 
@@ -856,7 +878,7 @@ namespace p3d {
 				const f64 inFlight = std::chrono::duration<f64, std::milli>(w1 - w0).count(), display = std::chrono::duration<f64, std::milli>(w2 - w1).count();
 				if (inFlight + display > 4.0)
 					fprintf(stderr, "[frame-wait] frame %llu: %.1f ms for the GPU's frame in flight, %.1f ms for a drawable (layer: %lu drawables, sync %d)\n",
-						(unsigned long long)deviceFrameNumber, inFlight, display, (unsigned long)layer.maximumDrawableCount, (int)layer.displaySyncEnabled);
+						(unsigned long long)deviceFrameNumber, inFlight, display, (unsigned long)layer.maximumDrawableCount, PYROS_LAYER_SYNC(layer));
 			}
 			if (drawable == nil)
 			{
@@ -969,6 +991,8 @@ namespace p3d {
 				// When each frame really reached the screen: the profiler shows the gaps between them,
 				// which are what is seen (a frame that waited a second refresh for a drawable, with
 				// frames already queued, may show as nothing at all). PYROS_PRESENT_TRACE=1 prints each.
+				// (the iOS Simulator's Metal has no presented handlers: the device's does)
+#if !TARGET_OS_SIMULATOR
 				static const bool presentTrace = getenv("PYROS_PRESENT_TRACE") != NULL;
 				[drawable addPresentedHandler:^(id<MTLDrawable> d) {
 					static CFTimeInterval lastShown = 0.0;
@@ -981,6 +1005,7 @@ namespace p3d {
 					else if (at <= 0.0 && presentTrace) fprintf(stderr, "[present] dropped (never shown)\n");
 					if (at > 0.0) lastShown = at;
 				}];
+#endif
 				[cmdBuf presentDrawable:drawable];
 			}
 

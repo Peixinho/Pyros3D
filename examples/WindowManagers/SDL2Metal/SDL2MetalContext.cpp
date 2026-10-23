@@ -7,6 +7,9 @@
 //               comment for scope.
 //============================================================================
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Core/InputManager/InputManager.h>
 #include "SDL2MetalContext.h"
@@ -150,6 +153,11 @@ namespace p3d {
         // SDL_WINDOW_VULKAN (Vulkan) - this window's only job is to host a
         // CAMetalLayer, attached below via SDL_Metal_CreateView().
         type = type | SDL_WINDOW_METAL;
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+        // An iPhone's screen is 3 pixels to the point: without HIGHDPI SDL leaves the layer at 1x and the
+        // frame is a third of the screen's resolution, stretched. And an app there is the whole screen.
+        type = type | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_FULLSCREEN;
+#endif
 
         rview = SDL_CreateWindow(
             title.c_str(),
@@ -178,6 +186,16 @@ namespace p3d {
         // same as SDL2VulkanContext::vulkanDevice - this class never
         // deletes metalDevice itself past that point.
         metalView = SDL_Metal_CreateView(rview);
+#if defined(__APPLE__) && TARGET_OS_IPHONE
+        // (the drawable's size is the view's: asked before there was one, it was the window's in points -
+        // a third of an iPhone's pixels each way)
+        if (metalView != NULL)
+        {
+            SDL_Metal_GetDrawableSize(rview, &actualWidth, &actualHeight);
+            Width = (uint32)actualWidth;
+            Height = (uint32)actualHeight;
+        }
+#endif
         metalDevice = new MetalRenderDevice();
         if (metalView == NULL || !metalDevice->BindToLayer(SDL_Metal_GetLayer(metalView), Width, Height))
         {
