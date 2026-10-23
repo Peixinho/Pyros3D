@@ -22,10 +22,14 @@ namespace p3d {
 		const f32 kFar = std::numeric_limits<f32>::infinity();
 
 		// The level an occluder is drawn with: its coarsest.
-		uint32 CoarsestLevel(RenderingComponent* rc)
+		// The level an occluder is drawn from: its own, finest one. (It was the coarsest, to be cheap: but
+		// a simplified level closes what is seen through - a house's windows and doorways, a car's far
+		// block - and what was behind them, seen in the picture, went missing. An occluder may only ever
+		// cover what is drawn; a thing too fine to draw at its finest does not occlude.)
+		uint32 OccluderLevel(RenderingComponent* rc)
 		{
 			const uint32 n = rc->GetLODSize();
-			for (uint32 l = n; l-- > 0;) if (!rc->GetMeshes(l).empty()) return l;
+			for (uint32 l = 0; l < n; l++) if (!rc->GetMeshes(l).empty()) return l;
 			return 0;
 		}
 	}
@@ -105,7 +109,7 @@ namespace p3d {
 		bool &answer = canOcclude[rc];
 		answer = false;
 		if (rc->IsInstanced()) { Why(rc, "instanced", 0); return false; }
-		const std::vector<RenderingMesh*> &meshes = rc->GetMeshes(CoarsestLevel(rc));
+		const std::vector<RenderingMesh*> &meshes = rc->GetMeshes(OccluderLevel(rc));
 		size_t tris = 0;
 		for (size_t m = 0; m < meshes.size(); m++)
 		{
@@ -120,7 +124,7 @@ namespace p3d {
 			tris += rm->Geometry->GetIndexData().size() / 3;
 		}
 		answer = tris > 0 && tris <= kMaxOccluderTriangles;
-		Why(rc, answer ? "occludes" : "too many triangles at its coarsest level", tris);
+		Why(rc, answer ? "occludes" : "too many triangles", tris);
 		return answer;
 	}
 
@@ -134,7 +138,7 @@ namespace p3d {
 		{
 			k.world = world;
 			k.triangles.clear();
-			const std::vector<RenderingMesh*> &meshes = rc->GetMeshes(CoarsestLevel(rc));
+			const std::vector<RenderingMesh*> &meshes = rc->GetMeshes(OccluderLevel(rc));
 			for (size_t m = 0; m < meshes.size(); m++)
 			{
 				const std::vector<__INDEX_C_TYPE__> &idx = meshes[m]->Geometry->GetIndexData();
