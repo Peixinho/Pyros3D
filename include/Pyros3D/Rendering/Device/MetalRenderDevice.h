@@ -949,8 +949,15 @@ namespace p3d {
 			std::map<uint32, FBOAttachmentRef> colorAttachments; // slot -> attachment
 			FBOAttachmentRef depthAttachment; // depthAttachment.texture == 0 means "none"
 			bool preserveDepth;
+			// The frame a pass on it last began in, and what it was attached to then: bound again in the
+			// same frame on the same attachments it is resumed (Load), as on GL - not cleared.
+			uint64 contentFrame = 0, contentLayout = 0;
 			FBORecord() : preserveDepth(false) {}
 		};
+		// Whether the open encoder has drawn yet, and what it cleared when it began: a Clear() right
+		// after a bind that already cleared those buffers has nothing to do.
+		bool encoderDrew = false;
+		uint32 encoderClearedBits = 0;
 		std::map<DeviceHandle, FBORecord> fboRecords;
 		DeviceHandle nextFBOHandle;
 		DeviceHandle currentBoundFBO;
@@ -979,7 +986,9 @@ namespace p3d {
 		// clearDepthOnly: reopen on the same target keeping every colour
 		// attachment's contents and clearing depth - Clear()'s mid-pass
 		// depth clear, which Metal can only express as a load action.
-		void BeginRenderEncoderForTarget(const DeviceHandle fbo, const bool clearDepthOnly = false);
+		// clearBits < 0: a bind - cleared the first time in a frame, resumed after. Otherwise exactly
+		// those Buffer_Bit buffers cleared and the rest kept (an explicit Clear()).
+		void BeginRenderEncoderForTarget(const DeviceHandle fbo, const int clearBits = -1);
 		// (Re)allocates depthTexture at drawableWidth x drawableHeight -
 		// called by BindToLayer()/NotifySurfaceResized() (both know the
 		// new size already). Depth32Float, private storage (never sampled

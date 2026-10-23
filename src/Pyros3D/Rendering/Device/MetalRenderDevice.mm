@@ -962,14 +962,23 @@ namespace p3d {
 	// encoder is reopened with a depth Clear and every colour Load. Not for
 	// a scissored clear (AxisHelper's corner): a load action covers the
 	// whole target, and wiping all of it is what that scissor prevents.
+	// A clear is the start of a pass on Metal (its load action). Right after a bind that cleared the same
+	// buffers there is nothing to do; otherwise the pass begins again, clearing what is named and keeping
+	// the rest - a resumed framebuffer, or depth cleared between two layers of drawing.
 	void MetalRenderDevice::Clear(const uint32 nativeBufferBits)
 	{
-		if (!(nativeBufferBits & Buffer_Bit::Depth) || currentRenderEncoder == NULL || currentBoundFBO == 0)
+		const uint32 want = nativeBufferBits & (Buffer_Bit::Color | Buffer_Bit::Depth);
+		if (want == 0 || currentRenderEncoder == NULL || currentBoundFBO == 0)
+			return;
+		if (!encoderDrew && (encoderClearedBits & want) == want)
 			return;
 		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(currentBoundFBO);
-		if (it == fboRecords.end() || !it->second.preserveDepth || it->second.depthAttachment.texture == 0)
+		if (it == fboRecords.end())
 			return;
-		std::map<DeviceHandle, TextureRecord>::iterator depthIt = textures.find(it->second.depthAttachment.texture);
+		// (a scissor narrower than the target: a pass clears all of it - not done)
+		const DeviceHandle sized = it->second.depthAttachment.texture != 0 ? it->second.depthAttachment.texture
+			: (it->second.colorAttachments.empty() ? 0 : it->second.colorAttachments.begin()->second.texture);
+		std::map<DeviceHandle, TextureRecord>::iterator depthIt = textures.find(sized);
 		if (depthIt == textures.end())
 			return;
 		if (scissorEnabled && (lastScissor[0] > 0 || lastScissor[1] > 0
@@ -978,7 +987,7 @@ namespace p3d {
 		const uint32 viewport[4] = { lastViewport[0], lastViewport[1], lastViewport[2], lastViewport[3] };
 		const bool restoreScissor = scissorEnabled;
 		const uint32 scissor[4] = { lastScissor[0], lastScissor[1], lastScissor[2], lastScissor[3] };
-		BeginRenderEncoderForTarget(currentBoundFBO, true);
+		BeginRenderEncoderForTarget(currentBoundFBO, (int)want);
 		if (viewport[2] > 0 && viewport[3] > 0)
 			SetViewport(viewport[0], viewport[1], viewport[2], viewport[3]);
 		if (restoreScissor)
@@ -1726,6 +1735,7 @@ namespace p3d {
 			BindRaySceneIfRead(pipeIt->second.programHandle);
 			FillUnboundSamplers(pipeIt->second.programHandle);
 			[encoder drawPrimitives:(MTLPrimitiveType)nativeDrawType vertexStart:first vertexCount:count];
+			encoderDrew = true;
 		}
 	}
 
@@ -1775,6 +1785,7 @@ namespace p3d {
 				indexType:MTLIndexTypeUInt32
 				indexBuffer:ibo
 				indexBufferOffset:0];
+			encoderDrew = true;
 		}
 	}
 
@@ -1819,6 +1830,7 @@ namespace p3d {
 				indexBuffer:ibo
 				indexBufferOffset:0
 				instanceCount:instanceCount];
+			encoderDrew = true;
 		}
 	}
 
@@ -4260,7 +4272,7 @@ namespace p3d {
 	// which happens to need no reordering since TextureType::CubemapPositive_X
 	// .. CubemapNegative_Z (0..5) is already Metal's own +X,-X,+Y,-Y,+Z,-Z
 	// cube-slice order.
-	void MetalRenderDevice::BeginRenderEncoderForTarget(const DeviceHandle fbo, const bool clearDepthOnly)
+	void MetalRenderDevice::BeginRenderEncoderForTarget(const DeviceHandle fbo, const int clearBits)
 	{
 		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(fbo);
 		if (it == fboRecords.end())
@@ -4268,6 +4280,21 @@ namespace p3d {
 		FBORecord &record = it->second;
 
 		EndCurrentRenderEncoderIfOpen();
+
+		// Bound again in this frame on the same attachments: what was drawn into it stays (a framebuffer
+		// unbound to draw elsewhere - a light's shadow face - and bound again had been cleared under the
+		// renderer, which GL never does). The first bind of a frame clears as ever; an explicit Clear()
+		// clears exactly what it names.
+		uint64 layout = 1469598103934665603ull;
+		for (std::map<uint32, FBOAttachmentRef>::iterator c = record.colorAttachments.begin(); c != record.colorAttachments.end(); ++c)
+			layout = (layout ^ ((uint64)c->first * 1000003ull + (uint64)c->second.texture * 31ull + c->second.target)) * 1099511628211ull;
+		layout = (layout ^ ((uint64)record.depthAttachment.texture * 31ull + record.depthAttachment.target)) * 1099511628211ull;
+		const bool resume = clearBits < 0 && record.contentFrame == deviceFrameNumber && record.contentLayout == layout;
+		const bool clearColor = clearBits < 0 ? !resume : (clearBits & Buffer_Bit::Color) != 0;
+		const bool clearDepth = clearBits < 0 ? (!resume && !record.preserveDepth) : (clearBits & Buffer_Bit::Depth) != 0;
+		record.contentFrame = deviceFrameNumber; record.contentLayout = layout;
+		encoderDrew = false;
+		encoderClearedBits = (clearColor ? Buffer_Bit::Color : 0) | (clearDepth ? Buffer_Bit::Depth : 0);
 
 		@autoreleasepool
 		{
@@ -4297,7 +4324,7 @@ namespace p3d {
 				uint32 slot = cIt->first;
 				rpd.colorAttachments[slot].texture = tex;
 				anyAttachment = true;
-				rpd.colorAttachments[slot].loadAction = clearDepthOnly ? MTLLoadActionLoad : MTLLoadActionClear;
+				rpd.colorAttachments[slot].loadAction = clearColor ? MTLLoadActionClear : MTLLoadActionLoad;
 				rpd.colorAttachments[slot].storeAction = MTLStoreActionStore;
 				rpd.colorAttachments[slot].clearColor = MTLClearColorMake(pendingClearColor.x, pendingClearColor.y, pendingClearColor.z, pendingClearColor.w);
 				if (cIt->second.target >= kCubemapFaceTargetBase)
@@ -4320,7 +4347,7 @@ namespace p3d {
 					// buffer the main pass just wrote - so Load instead of
 					// Clear, matching VulkanRenderDevice's identical use of
 					// this flag.
-					rpd.depthAttachment.loadAction = (record.preserveDepth && !clearDepthOnly) ? MTLLoadActionLoad : MTLLoadActionClear;
+					rpd.depthAttachment.loadAction = clearDepth ? MTLLoadActionClear : MTLLoadActionLoad;
 					rpd.depthAttachment.storeAction = MTLStoreActionStore;
 					rpd.depthAttachment.clearDepth = 1.0;
 					if (record.depthAttachment.target >= kCubemapFaceTargetBase)
