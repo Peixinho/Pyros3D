@@ -128,7 +128,8 @@ namespace {
 		const size_t bar = (size_t)std::lround(28.0 * (double)H / std::max(1.0, (double)bounds.size.height));
 		CGImageRef body = CGImageCreateWithImageInRect(img, CGRectMake(0, bar, W, H > bar ? H - bar : H));
 		std::vector<unsigned char> rgba((size_t)kW * kH * 4);
-		CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+		// (into sRGB: the capture comes in the display's colour space - with HDR on, a red came back orange)
+		CGColorSpaceRef cs = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
 		CGContextRef ctx = CGBitmapContextCreate(rgba.data(), kW, kH, 8, kW * 4, cs, (CGBitmapInfo)kCGImageAlphaNoneSkipLast);
 		CGContextSetInterpolationQuality(ctx, kCGInterpolationHigh);
 		CGContextDrawImage(ctx, CGRectMake(0, 0, kW, kH), body);

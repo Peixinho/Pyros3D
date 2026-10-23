@@ -160,6 +160,9 @@ namespace p3d {
 				auto *resize = new ResizeEffect(RTT::Color, lw, lh);
 				auto *blurXlow = new BlurXEffect(RTT::LastRTT, lw, lh);
 				auto *blurYlow = new BlurYEffect(RTT::LastRTT, lw, lh);
+				// (a quarter of the frame through a resize too - see PostEffectChain's DoF: without it the low
+				// stages were made full size and the far blur was no blur)
+				resize->SetResizeScale(0.25f); blurXlow->SetResizeScale(0.25f); blurYlow->SetResizeScale(0.25f);
 				Texture *lowRes = blurYlow->GetTexture();
 				m.AddEffect(blurX);
 				m.AddEffect(blurY);
