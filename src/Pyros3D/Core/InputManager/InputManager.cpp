@@ -148,8 +148,10 @@ namespace p3d {
 	void InputManager::TouchBegan(const int64 id, const f32 x, const f32 y)
 	{
 		std::vector<Touch> &t = Touches();
+		// (a finger that comes down while its number is still held here: the lift before it never came -
+		// iOS cancels touches, and reuses their numbers. It is a new touch, not the old one moving.)
 		for (size_t i = 0; i < t.size(); i++)
-			if (t[i].id == id && !t[i].ended) { t[i].position = Vec2(x, y); return; }
+			if (t[i].id == id && !t[i].ended) { t[i].position = t[i].start = t[i].previous = Vec2(x, y); t[i].began = true; return; }
 		Touch n;
 		n.id = id;
 		n.position = n.start = n.previous = Vec2(x, y);

@@ -1,3 +1,4 @@
+#include <Pyros3D/Core/InputManager/TouchControls.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <Pyros3D/Utils/Localization/Localization.h>
@@ -129,6 +130,7 @@ namespace {
 
 		m.title = j.value("title", m.title);
 		m.startupScene = j.value("startupScene", std::string());
+		m.touchControls = j.value("touchControls", std::string());
 		m.serverPublicKey = j.value("serverPublicKey", std::string());
 		m.deferred = (j.value("renderer", std::string("forward")) == "deferred");
 		if (j.contains("antiAliasing") && !AntiAliasing::FromString(j.value("antiAliasing", std::string()), m.antiAliasing))
@@ -215,6 +217,25 @@ const PlayerManifest& PlayerManifestInstance()
 }
 
 // ================================ player ================================
+
+void PyrosPlayer::SetPointerCaptured(const bool captured)
+{
+	mouseCaptured = captured;
+	if (captured)
+	{
+		SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
+		SDL_SetRelativeMouseMode(SDL_TRUE);
+		SDL_ShowCursor(SDL_DISABLE);
+	}
+	else
+	{
+		SDL_SetRelativeMouseMode(SDL_FALSE);
+		SDL_ShowCursor(SDL_ENABLE);
+	}
+	// (with the on-screen controls live, a finger is theirs - not also the pointer, which SDL would
+	// otherwise move with the first finger down; in a menu it is the pointer again, a tap a click)
+	SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, (captured && TouchControls::Instance().IsEnabled()) ? "0" : "1");
+}
 
 void PyrosPlayer::SetLaunchArgs(int argc, char** argv)
 {
@@ -476,20 +497,25 @@ end
 	// The mouse-capture trio every first-person scene script expects. Same
 	// names and behaviour as DemoLauncher's, minus the ImGui bookkeeping -
 	// there is no ImGui in a player build to keep in sync.
-	lua.set_function("setMouseCaptured", [this](bool captured) {
-		if (captured)
-		{
-			SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
-			SDL_SetRelativeMouseMode(SDL_TRUE);
-			SDL_ShowCursor(SDL_DISABLE);
-		}
-		else
-		{
-			SDL_SetRelativeMouseMode(SDL_FALSE);
-			SDL_ShowCursor(SDL_ENABLE);
-		}
-	});
-	lua.set_function("isMouseCaptured", []() { return SDL_GetRelativeMouseMode() == SDL_TRUE; });
+	lua.set_function("setMouseCaptured", [this](bool captured) { SetPointerCaptured(captured); });
+	lua.set_function("isMouseCaptured", [this]() { return mouseCaptured; });
+	// The on-screen controls of a touch screen (TouchControls): a game's options can offer to move them.
+	//   touchControls.edit(true)    drag them about, pinch to size; Done keeps it
+	//   touchControls.reset()       the game's layout again
+	//   touchControls.setEnabled(b) / isEnabled() / isEditing()
+	//   touchControls.load(path)    a layout of the game's (project-relative), in place of the one shown
+	//   touchControls.layout()      the layout shown, as JSON text; setLayout(text) another
+	{
+		sol::table touch = lua.create_named_table("touchControls");
+		touch.set_function("edit", [](const bool on) { TouchControls::Instance().SetEditing(on); });
+		touch.set_function("isEditing", []() { return TouchControls::Instance().IsEditing(); });
+		touch.set_function("reset", []() { TouchControls::Instance().ResetLayout(); });
+		touch.set_function("setEnabled", [](const bool on) { TouchControls::Instance().SetEnabled(on); });
+		touch.set_function("isEnabled", []() { return TouchControls::Instance().IsEnabled(); });
+		touch.set_function("load", [](const std::string &path) { return TouchControls::Instance().LoadLayoutFile(path); });
+		touch.set_function("layout", []() { return TouchControls::Instance().LayoutText(); });
+		touch.set_function("setLayout", [](const std::string &text) { return TouchControls::Instance().LoadLayoutText(text); });
+	}
 	// How far the mouse moved since this was last asked (x, y in device counts), for a
 	// camera that holds the pointer: ask once a frame. Asked just after capturing, the
 	// first answer holds the jump to the middle - throw it away.
@@ -675,7 +701,24 @@ end
 		const std::string title = PlayerManifestInstance().title.empty() ? std::string("Game") : PlayerManifestInstance().title;
 		char* pref = SDL_GetPrefPath("Pyros3D", title.c_str());
 		GenerateStoreBindings(&lua, pref ? std::string(pref) : std::string("."));
+		// The on-screen controls' layout: the player's own (kept beside the settings) over the game's.
+		TouchControls &touch = TouchControls::Instance();
+		touch.SetUserLayoutFile((pref ? std::string(pref) : std::string("./")) + "touch_layout.json");
 		if (pref) SDL_free(pref);
+		if (!PlayerManifestInstance().touchControls.empty()) touch.SetGameLayoutFile((fs::path(PlayerManifestInstance().root) / PlayerManifestInstance().touchControls).string());
+		touch.LoadPreferredLayout();
+		TouchControls::Emitter e;
+		e.keyDown = [this](const uint32 k) { SetKeyPressed(k); };
+		e.keyUp = [this](const uint32 k) { SetKeyReleased(k); };
+		e.mouseDown = [this](const uint32 b) { SetMouseButtonPressed(b); };
+		e.mouseUp = [this](const uint32 b) { SetMouseButtonReleased(b); };
+		// (a look drag as a captured mouse moves: the raw amount, and the pointer that far from the
+		// middle - where a game that warps it back each move expects it)
+		e.look = [this](const f32 dx, const f32 dy) {
+			InputManager::AddMouseDelta(dx, dy);
+			SetMouseMove((f32)(Width / 2) + dx, (f32)(Height / 2) + dy);
+		};
+		touch.SetEmitter(e);
 	}
 
 	// Runtime spawning. Registered here rather than in the engine's
@@ -1767,6 +1810,9 @@ void PyrosPlayer::Update()
 
 	const f64 time = GetTime();
 	const f64 dt = GetTimeInterval();
+	// The on-screen controls: live while the game holds the pointer; fingers into keys and movement
+	TouchControls::Instance().SetLive(mouseCaptured && sceneLoaded);
+	TouchControls::Instance().Update(Width, Height);
 
 	{
 		PYROS_PROFILE_SCOPE("Player.Physics");
@@ -2072,6 +2118,7 @@ void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
 		if (overlayScene)
 			uiRenderer->RenderUI(overlayScene);
 		// (the console over everything; while it is open the keys are its, not the game's UI's)
+		TouchControls::Instance().Draw(uiRenderer, Width, Height, GetTime());
 		if (console.IsOpen()) console.Draw(uiRenderer, GetTime());
 		else DispatchUIInput();
 	}

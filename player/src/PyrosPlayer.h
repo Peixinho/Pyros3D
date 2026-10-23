@@ -84,6 +84,7 @@ struct PlayerManifest
 	bool qHdrOutput = false; float qHdrPaperWhite = 0.f, qHdrPeak = 0.f;   // ("hdrOutput": the window past SDR white, where the display can)
 	std::string title = "Pyros3D";
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
+	std::string touchControls;             // ("touchControls": the game's layout of on-screen controls, project-relative - TouchControls)
 	std::string serverPublicKey;           // pinned when joining with --connect; empty = any server
 	bool deferred = false;                 // matches ProjectSettings::rendererType
 	// The starting mode, as the project asked for it; scripts change it
@@ -388,6 +389,10 @@ private:
 	// Sounds, emitters and autoplay clips start when their objects arrive:
 	// with the scene, or with the streamed cell that carries them.
 	void StartSceneMedia(const std::vector<GameObject*> &objects);
+	// The game holds the pointer (setMouseCaptured): kept here, not asked of SDL - a phone has no
+	// relative mouse mode to ask. It is also when the on-screen controls are live (TouchControls).
+	bool mouseCaptured = false;
+	void SetPointerCaptured(const bool captured);
 };
 
 #endif /* PYROSPLAYER_H */

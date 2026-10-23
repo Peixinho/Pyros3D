@@ -15,6 +15,13 @@
 #include <pthread/qos.h>
 #endif
 #include "PyrosPlayer.h"
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+// (iOS: SDL owns the process's main - this one becomes SDL_main - and starts UIKit for it)
+#include <SDL_main.h>
+#endif
+#endif
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>

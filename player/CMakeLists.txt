@@ -135,3 +135,31 @@ endif()
 if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 	target_compile_definitions(PyrosServer PRIVATE _IMPORT)
 endif()
+
+# iOS: an app. SDL owns main (SDL2main starts UIKit and calls ours); the engine's shaders and the game -
+# a built game's folder, -DPYROS_IOS_GAME=<folder with game.json> - go inside the bundle, which is
+# where FindManifestDir looks (SDL_GetBasePath). Saves and the touch layout go to the app's own
+# writable folder (SDL_GetPrefPath).
+if (IOS)
+	set(PYROS_IOS_GAME "" CACHE PATH "The built game (a folder with game.json) the iOS player app carries")
+	set(PYROS_IOS_GAME_NAME "Game" CACHE STRING "The iOS app's name")
+	set(PYROS_IOS_BUNDLE_ID "com.pyros3d.game" CACHE STRING "The iOS app's bundle identifier")
+	set_target_properties(PyrosPlayer PROPERTIES
+		MACOSX_BUNDLE TRUE
+		MACOSX_BUNDLE_INFO_PLIST ${CMAKE_SOURCE_DIR}/cmake/ios/Info.plist.in
+		MACOSX_BUNDLE_GUI_IDENTIFIER ${PYROS_IOS_BUNDLE_ID}
+		MACOSX_BUNDLE_BUNDLE_NAME ${PYROS_IOS_GAME_NAME}
+		MACOSX_BUNDLE_EXECUTABLE_NAME PyrosPlayer)
+	target_link_libraries(PyrosPlayer PRIVATE SDL2main)
+	add_custom_command(TARGET PyrosPlayer POST_BUILD
+		COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/resources/shaders $<TARGET_BUNDLE_DIR:PyrosPlayer>/shaders
+		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/examples/assets/middleclass.lua $<TARGET_BUNDLE_DIR:PyrosPlayer>/lua/middleclass.lua
+		COMMENT "PyrosPlayer: the engine's shaders and its script runtime (lua/middleclass.lua) into the app")
+	if (PYROS_IOS_GAME)
+		add_custom_command(TARGET PyrosPlayer POST_BUILD
+			COMMAND ${CMAKE_COMMAND} -E copy_directory ${PYROS_IOS_GAME} $<TARGET_BUNDLE_DIR:PyrosPlayer>
+			COMMENT "PyrosPlayer: the game (${PYROS_IOS_GAME}) into the app")
+	else()
+		message(STATUS "iOS player: no PYROS_IOS_GAME - the app will carry no game")
+	endif()
+endif()
