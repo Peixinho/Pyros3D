@@ -829,7 +829,7 @@ namespace p3d {
 		struct ShadowPick { f32 weight = 0.f; bool chosen = false; bool draw = false; bool seen = false; uint8 validFaces = 0; uint8 stillFaces = 0; uint64 stillPrint = 0; Vec3 at; Matrix world; f32 reach = 0.f; };
 		std::unordered_map<ILightComponent*, ShadowPick> shadowPicks;
 		// the shadow cache's view of the casters that can move: each one's world transform last frame
-		struct ShadowMover { Matrix world; Vec3 centre; f32 radius = 0.f; bool casts = true; };
+		struct ShadowMover { Matrix world; Vec3 centre; f32 radius = 0.f; bool casts = true; uint32 pass = 0; };   // (pass: the ChooseShadowCasters pass that saw it last)
 		std::unordered_map<GameObject*, ShadowMover> shadowMovers;
 		// When set, RenderShadowCasters walks only these of rmesh: a light's casters, gathered once
 		// for its six faces (each face walked the whole list again)

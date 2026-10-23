@@ -412,6 +412,7 @@ void IRenderer::ChooseShadowCasters(GameObject* Camera)
 	for (std::unordered_map<ILightComponent*, ShadowPick>::iterator it = shadowPicks.begin(); it != shadowPicks.end(); ++it) it->second.seen = false;
 	struct Candidate { ILightComponent* light; f32 score; };
 	std::vector<Candidate> points, spots;
+	bool anyCaster = false;
 	for (size_t i = 0; i < lcomps.size(); i++)
 	{
 		ILightComponent* l = (ILightComponent*)lcomps[i];
@@ -420,6 +421,7 @@ void IRenderer::ChooseShadowCasters(GameObject* Camera)
 		if (type != LIGHT_TYPE::POINT && type != LIGHT_TYPE::SPOT) continue;
 		ShadowPick &pick = shadowPicks[l];
 		pick.seen = true;
+		anyCaster = true;
 		const Vec3 at = l->GetOwner()->GetWorldPosition();
 		const f32 radius = type == LIGHT_TYPE::POINT ? ((PointLight*)l)->GetLightRadius() : ((SpotLight*)l)->GetLightRadius();
 		if (!inView(at, radius)) continue;
@@ -441,10 +443,14 @@ void IRenderer::ChooseShadowCasters(GameObject* Camera)
 	// with it the map of every caster light it was, or is, within reach of. If the still casters are
 	// not the same in number (a cell streamed in, a wall knocked down), no map is right any more.
 	static const bool cacheOn = !(std::getenv("PYROS_SHADOW_CACHE") && std::getenv("PYROS_SHADOW_CACHE")[0] == '0');
+	// (none of it with no point or spot light casting: there is no map to keep. Every mesh of the scene
+	// was walked for it every frame all the same - an island of loot and street lamps, a seventh of the
+	// main thread. A light that comes later starts with no face kept, so what was not watched meanwhile
+	// is nothing it could have trusted; and what is left from before can only take more maps, not fewer.)
+	if (anyCaster)
 	{
 		struct Mover { Vec3 from, to; f32 r; };
 		std::vector<Mover> movers;
-		std::unordered_map<GameObject*, ShadowMover> now;
 		// (each component once: stamped with this pass - a set of thousands built every frame was a
 		// third of the function)
 		// (one count for every renderer: two views' passes never share a number)
@@ -460,10 +466,16 @@ void IRenderer::ChooseShadowCasters(GameObject* Camera)
 			GameObject* owner = rc->GetOwner();
 			if (owner == NULL) continue;
 			if (owner->IsStatic()) { still++; continue; }
-			if (now.count(owner)) continue;
+			// (kept from frame to frame and changed in place: made anew each frame it was a node
+			// allocated for every object that is not static - thousands, asleep or not)
+			std::pair<std::unordered_map<GameObject*, ShadowMover>::iterator, bool> at = shadowMovers.emplace(owner, ShadowMover());
+			ShadowMover &mv = at.first->second;
+			if (!at.second && mv.pass == stamp) continue;      // (its object was counted already, by another component)
+			const bool known = !at.second && mv.pass != 0;
+			const ShadowMover was = mv;
+			mv.pass = stamp;
 			// (where it is and how big, as culling has it: the world box - a skinned body's own
 			// bounds and its object's matrix do not say)
-			ShadowMover &mv = now[owner];
 			mv.world = owner->GetWorldTransformation();
 			const Vec3 mn = owner->GetBoundingMinValueWorldSpace(), mx = owner->GetBoundingMaxValueWorldSpace();
 			mv.centre = (mn + mx) * 0.5f;
@@ -471,16 +483,17 @@ void IRenderer::ChooseShadowCasters(GameObject* Camera)
 			// (one too far off to cast - SetShadowDistance - is in no map: its moving changes none, unless
 			// it has just come near enough or gone too far, which changes the maps it is in or was)
 			mv.casts = !rc->ShadowTooFar();
-			std::unordered_map<GameObject*, ShadowMover>::iterator was = shadowMovers.find(owner);
-			const bool wasCasting = was != shadowMovers.end() && was->second.casts;
+			const bool wasCasting = known && was.casts;
 			if (!mv.casts && !wasCasting) continue;
-			if (was != shadowMovers.end() && mv.casts == wasCasting && memcmp(&was->second.world, &mv.world, sizeof(Matrix)) == 0) continue;
-			movers.push_back({ was != shadowMovers.end() ? was->second.centre : mv.centre, mv.centre,
-				std::max(mv.radius, was != shadowMovers.end() ? was->second.radius : 0.f) });
+			if (known && mv.casts == wasCasting && memcmp(&was.world, &mv.world, sizeof(Matrix)) == 0) continue;
+			movers.push_back({ known ? was.centre : mv.centre, mv.centre, std::max(mv.radius, known ? was.radius : 0.f) });
 		}
-		for (std::unordered_map<GameObject*, ShadowMover>::iterator it = shadowMovers.begin(); it != shadowMovers.end(); ++it)
-			if (!now.count(it->first) && it->second.casts) movers.push_back({ it->second.centre, it->second.centre, it->second.radius });   // (gone: where it was)
-		shadowMovers.swap(now);
+		for (std::unordered_map<GameObject*, ShadowMover>::iterator it = shadowMovers.begin(); it != shadowMovers.end(); )
+		{
+			if (it->second.pass == stamp) { ++it; continue; }
+			if (it->second.casts) movers.push_back({ it->second.centre, it->second.centre, it->second.radius });   // (gone: where it was)
+			it = shadowMovers.erase(it);
+		}
 		const bool stillChanged = still != shadowStillCasters;
 		FrameProfiler::Instance().Counter("Shadow.Movers", (f64)movers.size());
 		FrameProfiler::Instance().Counter("Shadow.StillCasters", (f64)still);
