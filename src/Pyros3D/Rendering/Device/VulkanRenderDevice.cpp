@@ -956,6 +956,9 @@ namespace p3d {
 #if defined(__APPLE__)
 	extern "C" float PyrosAppleDisplayHeadroom(void);
 #endif
+#if defined(_WIN32)
+	extern "C" bool PyrosWindowsDisplayHDR(float* peakNits, float* sdrWhiteNits);
+#endif
 
 	void VulkanRenderDevice::DestroyPresentConversion()
 	{
@@ -1166,6 +1169,11 @@ namespace p3d {
 #if defined(__APPLE__)
 		return 100.f;
 #else
+#if defined(_WIN32)
+		// (Windows' own: the Display settings' SDR-content brightness)
+		float peak = 0.f, white = 0.f;
+		if (PyrosWindowsDisplayHDR(&peak, &white) && white > 0.f) return white;
+#endif
 		return 200.f;
 #endif
 	}
@@ -1182,6 +1190,11 @@ namespace p3d {
 		if (cap > 0.f && cap < h) h = cap;
 #else
 		f32 h = cap > 0.f ? cap : 4.f;
+#if defined(_WIN32)
+		// (Windows says the monitor's peak: over the paper white, the headroom - the game's peak still caps it)
+		float peak = 0.f, white = 0.f;
+		if (PyrosWindowsDisplayHDR(&peak, &white) && peak > 0.f) { const f32 d = peak / HDRPaperWhite(); h = (cap > 0.f && cap < d) ? cap : d; }
+#endif
 #endif
 		return h > 1.f ? h : 1.f;
 	}

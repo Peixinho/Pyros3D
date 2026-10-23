@@ -67,6 +67,11 @@ target_link_libraries(PyrosEngine
 # Networking: ENet stays private - nothing in include/Pyros3D names it - and
 # PYROS_NETWORKING tells the engine and its users the transport is there.
 target_link_libraries(PyrosEngine PRIVATE ${MONOCYPHER_LIBRARIES})
+# (Windows: the monitor's peak and SDR-content brightness, for HDR output - Vulkan says neither)
+if (WIN32)
+	target_sources(PyrosEngine PRIVATE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/WindowsDisplay.cpp)
+	target_link_libraries(PyrosEngine PRIVATE dxgi)
+endif()
 # (the Mac's displays: how far past SDR white they can show, for HDR output on any backend)
 if (APPLE AND NOT EMSCRIPTEN)
 	target_sources(PyrosEngine PRIVATE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/AppleDisplay.mm)
