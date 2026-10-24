@@ -121,6 +121,9 @@ namespace p3d {
 			// Made here, not the scene's (never saved): a grass tuft's simple self past kAutoFarFrom,
 			// where the layer names no far mesh of its own (SetAutoFarMesh)
 			std::shared_ptr<Renderable> autoFar;
+			// Its blocks culled on the GPU, plant by plant, where the device can (InstanceCullGroup):
+			// made with the blocks, for a layer that casts no shadows
+			std::shared_ptr<class InstanceCullGroup> cullGroup;
 			std::vector<std::shared_ptr<RenderingInstancedComponent> > blocks;
 			std::vector<std::shared_ptr<GameObject> > blockObjects;	// parallel to blocks
 			std::vector<Vec3> centres;	// tile-local, parallel to blocks

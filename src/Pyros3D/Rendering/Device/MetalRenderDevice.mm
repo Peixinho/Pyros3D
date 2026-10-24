@@ -2016,6 +2016,50 @@ namespace p3d {
 		}
 	}
 
+	// (every Apple GPU Metal runs on draws from an indirect buffer, with a base instance)
+	bool MetalRenderDevice::SupportsDrawIndirect() const { return SupportsCompute(); }
+
+	void MetalRenderDevice::DrawElementsInstancedIndirect(const CommandBufferHandle cmd, const uint32 nativeDrawType, const DeviceHandle argsBuffer, const uint32 argsOffset)
+	{
+		(void)cmd;
+		if (currentRenderEncoder == NULL || currentVao == 0 || currentPipeline == 0)
+			return;
+		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
+		std::map<DeviceHandle, PipelineRecord>::iterator pipeIt = pipelines.find(currentPipeline);
+		std::map<DeviceHandle, BufferRecord>::iterator argsIt = buffers.find(argsBuffer);
+		if (vaoIt == vaos.end() || pipeIt == pipelines.end() || vaoIt->second.vertexBuffers.empty() || argsIt == buffers.end() || argsIt->second.buffer == NULL)
+			return;
+		std::map<DeviceHandle, BufferRecord>::iterator iboIt = buffers.find(vaoIt->second.indexBuffer);
+		if (iboIt == buffers.end() || iboIt->second.buffer == NULL)
+			return;
+
+		@autoreleasepool
+		{
+			id<MTLRenderCommandEncoder> encoder = (__bridge id<MTLRenderCommandEncoder>)currentRenderEncoder;
+			for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)
+			{
+				std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffers[i]);
+				if (vboIt == buffers.end() || vboIt->second.buffer == NULL)
+					return;
+				id<MTLBuffer> vbo = (__bridge id<MTLBuffer>)vboIt->second.buffer;
+				[encoder setVertexBuffer:vbo offset:0 atIndex:(NSUInteger)(kFirstVertexBufferIndex + i)];
+			}
+			BindProgramUniformBuffers(pipeIt->second.programHandle);
+			BindRaySceneIfRead(pipeIt->second.programHandle);
+			FillUnboundSamplers(pipeIt->second.programHandle);
+			id<MTLBuffer> ibo = (__bridge id<MTLBuffer>)iboIt->second.buffer;
+			id<MTLBuffer> args = (__bridge id<MTLBuffer>)argsIt->second.buffer;
+			// (an instance count of none draws nothing - unlike a direct draw, the encoder cannot be asked first)
+			[encoder drawIndexedPrimitives:(MTLPrimitiveType)nativeDrawType
+				indexType:MTLIndexTypeUInt32
+				indexBuffer:ibo
+				indexBufferOffset:0
+				indirectBuffer:args
+				indirectBufferOffset:(NSUInteger)argsOffset];
+			encoderDrew = true;
+		}
+	}
+
 	// =====================================================================
 	// Uniform buffers / buffers - plain MTLBuffer throughout, shared
 	// storage mode (unified memory - see the header comment on
@@ -4588,14 +4632,12 @@ namespace p3d {
 	//
 	// What that buys: dispatching outside a frame - a bake, a smoke test,
 	// any offline GPU work - is fully supported and needs no cooperation
-	// from the renderer. What it costs: dispatching *during* a frame, with
-	// the render encoder open, is refused rather than silently corrupting
-	// the frame. Suspending and resuming a render pass correctly means
-	// rebuilding the pass descriptor with Load actions and re-applying
-	// viewport, winding, pipeline and every bound resource, and there is
-	// no caller that needs it yet. When GPU particles arrive, that is the
-	// work to do here - and doing it speculatively now would be untested
-	// code on the frame path.
+	// from the renderer. Dispatching *during* a frame, with the render
+	// encoder open, is fine too: the dispatch is in its own command buffer,
+	// committed - and run - before the frame's. It does not see what the
+	// open pass has drawn so far; a kernel that reads the frame's own
+	// drawing needs that pass ended first (none does yet: GPU particles and
+	// the instance cull read buffers, not pixels).
 	// =====================================================================
 
 	bool MetalRenderDevice::SupportsCompute() const
@@ -4650,16 +4692,10 @@ namespace p3d {
 		if (currentComputeEncoder != NULL)
 			return true;
 
-		// The refusal described in the block comment above. Checked here
-		// rather than in each entry point so there is exactly one place
-		// that knows the rule.
-		if (currentRenderEncoder != NULL)
-		{
-			echo(std::string("ERROR: ") + what + " called while a render pass is open. "
-				"Metal cannot encode a dispatch inside a render pass - the render encoder must end first. "
-				"Dispatch outside BeginFrame()/EndFrame(), or extend MetalRenderDevice to suspend and resume the pass.");
-			return false;
-		}
+		// (a render pass open on the frame's command buffer is no matter: the dispatch is encoded into
+		// a command buffer of its own, committed - and so run - before the frame's. What the open pass
+		// has drawn so far is not seen by it: a kernel that reads a frame's own drawing needs that pass
+		// ended first. A GPU cull reads instances, not pixels.)
 
 		@autoreleasepool
 		{
@@ -4670,7 +4706,11 @@ namespace p3d {
 				return false;
 			}
 			id<MTLCommandBuffer> cmdBuf = [queue commandBuffer];
-			id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoder];
+			// Concurrent: dispatches overlap unless a ComputeBarrier says one reads what another wrote -
+			// the contract GL and Vulkan keep anyway. Serial (Metal's default), every dispatch waited for
+			// the one before whenever both touched a buffer: a GPU cull's fifty small dispatches, each
+			// adding to the same draw counts, ran one after another for 5.6 ms.
+			id<MTLComputeCommandEncoder> encoder = [cmdBuf computeCommandEncoderWithDispatchType:MTLDispatchTypeConcurrent];
 			{
 				const char* lab = FrameProfiler::Instance().CurrentScopeName();
 				computeLabel = std::string("compute:") + ((lab && lab[0]) ? lab : "(no scope)");
@@ -4969,6 +5009,25 @@ namespace p3d {
 		}
 	}
 
+	void MetalRenderDevice::BindStorageBufferRange(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint, const uint32 offset, const uint32 sizeBytes)
+	{
+		(void)cmd; (void)sizeBytes;
+		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
+		if (it == buffers.end() || it->second.buffer == NULL)
+		{
+			echo("ERROR: BindStorageBufferRange called with an unknown buffer handle.");
+			return;
+		}
+		if (!BeginComputeEncoding("BindStorageBufferRange"))
+			return;
+		@autoreleasepool
+		{
+			id<MTLComputeCommandEncoder> encoder = (__bridge id<MTLComputeCommandEncoder>)currentComputeEncoder;
+			[encoder setBuffer:(__bridge id<MTLBuffer>)it->second.buffer offset:offset atIndex:bindingPoint];
+			computeEncodingBuffers.insert(buffer);
+		}
+	}
+
 	void MetalRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)
 	{
 		WaitSubmittedComputeFor(buffer);
@@ -5059,7 +5118,7 @@ namespace p3d {
 		// buffer, on the same queue and committed after this - Metal runs a queue's command buffers in
 		// the order they are committed, and tracks the buffer across them. The wait cost the frame the
 		// GPU's whole particle simulation every frame (GPU particles).
-		if (barrierBits & ComputeBarrierBit::VertexBuffer)
+		if (barrierBits & (ComputeBarrierBit::VertexBuffer | ComputeBarrierBit::DrawIndirect))
 		{
 			FlushComputeEncoding(false);
 			return;

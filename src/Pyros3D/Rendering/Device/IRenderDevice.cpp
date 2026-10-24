@@ -159,6 +159,18 @@ namespace p3d {
 			memset(outData, 0, sizeBytes);
 	}
 
+	void IRenderDevice::DrawElementsInstancedIndirect(const CommandBufferHandle cmd, const uint32 nativeDrawType, const DeviceHandle argsBuffer, const uint32 argsOffset)
+	{
+		(void)cmd; (void)nativeDrawType; (void)argsBuffer; (void)argsOffset;
+		ComputeUnsupported("DrawElementsInstancedIndirect");
+	}
+
+	void IRenderDevice::BindStorageBufferRange(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint, const uint32 offset, const uint32 sizeBytes)
+	{
+		(void)cmd; (void)buffer; (void)bindingPoint; (void)offset; (void)sizeBytes;
+		ComputeUnsupported("BindStorageBufferRange");
+	}
+
 	void IRenderDevice::BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint)
 	{
 		(void)cmd; (void)buffer; (void)bindingPoint;

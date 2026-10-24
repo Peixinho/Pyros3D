@@ -41,6 +41,14 @@ namespace p3d {
 			const Vec2 &GetInstanceGrowth() const { return instanceGrowth; }
 			virtual uint32 GetComponentType() const { return ComponentType::RenderingInstancedComponent; }
 
+			// Culled on the GPU (InstanceCullGroup): a source - in a view that can, its instances are
+			// culled there into its group's drawers, and the drawers drawn in its place - or a drawer,
+			// drawn from the indirect arguments the cull wrote for the view (indirectArgs/indirectOffset,
+			// set by the group before the view's draws; 0: not this view).
+			class InstanceCullGroup* cullGroup = NULL;
+			DeviceHandle indirectArgs = 0;
+			uint32 indirectOffset = 0;
+
 		protected:
 			uint32 nrInstances;
 			Vec2 instanceGrowth = Vec2(1.f, 1.f);
@@ -98,6 +106,13 @@ namespace p3d {
 			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints, const f32 &boundingSphere = 0);
 			RenderingInstancedComponent(const std::shared_ptr<Renderable> &renderable, const uint32 MaterialProperties, std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints, const f32 &boundingSphere = 0);
 			void InitFilled(std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints);
+			// Its instance buffers made again, room for `capacity` instances (and their tints, or none),
+			// of nothing: what the GPU writes into (a cull's drawer). No copy is kept here.
+			void ResizeForGpu(const uint32 capacity, const bool tinted);
+			uint32 GpuCapacity() const { return gpuCapacity; }
+		private:
+			uint32 gpuCapacity = 0;
+		public:
 		 	virtual ~RenderingInstancedComponent();
 			void UpdateTransforms();
 	};

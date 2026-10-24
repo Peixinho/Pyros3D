@@ -390,7 +390,10 @@ namespace p3d
 		out.replace(w, placed.size(),
 			"\tmat4 p3d_model = uModelMatrix;\n"
 			"#ifdef INSTANCED_RENDERING\n"
-			"\tp3d_model = p3d_model * aInstancedTransform;\n"
+			// (a GPU-culled instance's growth rides in its last row - InstanceCullGroup: not this shader's)
+			"\tmat4 p3d_instance = aInstancedTransform;\n"
+			"\tp3d_instance[0][3] = 0.0; p3d_instance[1][3] = 0.0;\n"
+			"\tp3d_model = p3d_model * p3d_instance;\n"
 			"#endif\n"
 			"\tvec4 p3d_worldPos = p3d_model * p3d_localPos;\n"
 			"\tvec3 p3d_worldNormal = normalize((p3d_model * vec4(p3d_localNormal, 0.0)).xyz);\n");

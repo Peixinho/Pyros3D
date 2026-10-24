@@ -290,6 +290,8 @@ namespace p3d {
 		virtual void DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count);
 		virtual void DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount);
 		virtual void DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount);
+		virtual bool SupportsDrawIndirect() const;
+		virtual void DrawElementsInstancedIndirect(const CommandBufferHandle cmd, const uint32 nativeDrawType, const DeviceHandle argsBuffer, const uint32 argsOffset);
 
 		virtual DeviceHandle CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint);
 		virtual void UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data);
@@ -330,6 +332,7 @@ namespace p3d {
 		virtual void UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data);
 		virtual void ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData);
 		virtual void BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint);
+		virtual void BindStorageBufferRange(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint, const uint32 offset, const uint32 sizeBytes);
 		virtual void DestroyStorageBuffer(const DeviceHandle buffer);
 		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ);
 		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits);
@@ -626,6 +629,37 @@ namespace p3d {
 		VkCommandBuffer computeCommandBuffer;
 		VkFence computeFence;
 		bool computeCommandBufferRecording;
+		// A ring of them (computeCommandBuffer/computeFence: the one recording, or last submitted):
+		// with one, every dispatch and every storage-buffer write waited for the GPU to finish the last
+		// submission - the previous frame's, for something dispatched every frame. Each has its own
+		// descriptor pools, a set per dispatch (one set a pipeline, rewritten for each, gave every
+		// dispatch recorded before a submit the bindings of the last), and knows the storage buffers
+		// it used, so a write waits only for work that reads what it writes.
+		struct ComputeSlot
+		{
+			VkCommandBuffer cmd = VK_NULL_HANDLE;
+			VkFence fence = VK_NULL_HANDLE;
+			std::vector<VkDescriptorPool> pools;
+			size_t poolsUsed = 0;
+			std::set<DeviceHandle> buffers;
+			bool inFlight = false;
+		};
+		static const uint32 kComputeSlots = 3;
+		ComputeSlot computeSlots[kComputeSlots];
+		uint32 computeSlotIndex = 0;
+		// Draws read what a dispatch wrote (ComputeBarrierBit::VertexBuffer/DrawIndirect): the
+		// compute submission signals one of these and the next graphics submission waits on it - the
+		// GPU orders them, the CPU does not wait. (A compute submission takes one still pending: chained.)
+		VkSemaphore computeDone[2] = { VK_NULL_HANDLE, VK_NULL_HANDLE };
+		uint32 computeDoneNext = 0;
+		VkSemaphore pendingComputeWait = VK_NULL_HANDLE;
+		void TakeComputeWait(VkSemaphore *waits, VkPipelineStageFlags *stages, uint32 &count, const uint32 capacity);
+		void WaitComputeFor(const DeviceHandle buffer);
+		void WaitAllCompute();
+		VkDescriptorSet AllocateComputeSet(const VkDescriptorSetLayout layout);
+		// (BindStorageBufferRange: binding -> offset, size; absent = the whole buffer)
+		std::map<uint32, std::pair<uint32, uint32> > pendingStorageRanges;
+		bool drawIndirectFirstInstance = false;
 
 		struct ComputePipelineRecord
 		{

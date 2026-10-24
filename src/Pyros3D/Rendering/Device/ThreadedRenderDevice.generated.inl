@@ -247,6 +247,16 @@
 		Push([dev_ = real, cmd, nativeDrawType, indexCount, instanceCount]() { dev_->DrawElementsInstanced(cmd, nativeDrawType, indexCount, instanceCount); });
 	}
 
+	bool ThreadedRenderDevice::SupportsDrawIndirect() const
+	{
+		return real->SupportsDrawIndirect();
+	}
+
+	void ThreadedRenderDevice::DrawElementsInstancedIndirect(const CommandBufferHandle cmd, const uint32 nativeDrawType, const DeviceHandle argsBuffer, const uint32 argsOffset)
+	{
+		Push([dev_ = real, cmd, nativeDrawType, argsBuffer, self = this, argsOffset]() { dev_->DrawElementsInstancedIndirect(cmd, nativeDrawType, self->RealOf(argsBuffer), argsOffset); });
+	}
+
 	void ThreadedRenderDevice::UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void * data)
 	{
 		const void* data_ = data ? Keep(data, (size_t)(sizeBytes)) : NULL;
@@ -335,6 +345,11 @@
 	void ThreadedRenderDevice::BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint)
 	{
 		Push([dev_ = real, cmd, buffer, self = this, bindingPoint]() { dev_->BindStorageBuffer(cmd, self->RealOf(buffer), bindingPoint); });
+	}
+
+	void ThreadedRenderDevice::BindStorageBufferRange(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint, const uint32 offset, const uint32 sizeBytes)
+	{
+		Push([dev_ = real, cmd, buffer, self = this, bindingPoint, offset, sizeBytes]() { dev_->BindStorageBufferRange(cmd, self->RealOf(buffer), bindingPoint, offset, sizeBytes); });
 	}
 
 	void ThreadedRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)

@@ -569,6 +569,31 @@ namespace p3d {
 		GLCHECKER(glDrawElementsInstanced(nativeDrawType, indexCount, __INDEX_TYPE__, BUFFER_OFFSET(0), instanceCount));
 	}
 
+	// GL 4.2 on (the first instance in the arguments offsets the instanced attributes from then):
+	// wherever compute is, 4.3.
+	bool GLRenderDevice::SupportsDrawIndirect() const
+	{
+#if defined(GL_DRAW_INDIRECT_BUFFER)
+		return SupportsCompute() && glDrawElementsIndirect != NULL;
+#else
+		return false;
+#endif
+	}
+
+	void GLRenderDevice::DrawElementsInstancedIndirect(const CommandBufferHandle cmd, const uint32 nativeDrawType, const DeviceHandle argsBuffer, const uint32 argsOffset)
+	{
+		(void)cmd;
+#if defined(GL_DRAW_INDIRECT_BUFFER)
+		if (!SupportsDrawIndirect()) { ComputeUnsupported("DrawElementsInstancedIndirect"); return; }
+		GLCHECKER(glBindBuffer(GL_DRAW_INDIRECT_BUFFER, (GLuint)argsBuffer));
+		GLCHECKER(glDrawElementsIndirect(nativeDrawType, __INDEX_TYPE__, BUFFER_OFFSET(argsOffset)));
+		GLCHECKER(glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0));
+#else
+		(void)nativeDrawType; (void)argsBuffer; (void)argsOffset;
+		ComputeUnsupported("DrawElementsInstancedIndirect");
+#endif
+	}
+
 	std::map<uint32, uint32> GLRenderDevice::uniformBindingRemap;
 
 	// See GLRenderDevice.h. Anything the driver accepts passes through
@@ -2065,6 +2090,17 @@ namespace p3d {
 		GLCHECKER(glBindBufferBase(GL_SHADER_STORAGE_BUFFER, (GLuint)bindingPoint, (GLuint)buffer));
 	}
 
+	void GLRenderDevice::BindStorageBufferRange(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint, const uint32 offset, const uint32 sizeBytes)
+	{
+		(void)cmd;
+		if (!SupportsCompute())
+		{
+			ComputeUnsupported("BindStorageBufferRange");
+			return;
+		}
+		GLCHECKER(glBindBufferRange(GL_SHADER_STORAGE_BUFFER, (GLuint)bindingPoint, (GLuint)buffer, (GLintptr)offset, (GLsizeiptr)sizeBytes));
+	}
+
 	void GLRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)
 	{
 		if (buffer == 0)
@@ -2108,6 +2144,9 @@ namespace p3d {
 		if (barrierBits & ComputeBarrierBit::StorageBuffer) mask |= GL_SHADER_STORAGE_BARRIER_BIT;
 		if (barrierBits & ComputeBarrierBit::ImageAccess)   mask |= GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_TEXTURE_FETCH_BARRIER_BIT;
 		if (barrierBits & ComputeBarrierBit::VertexBuffer)  mask |= GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT | GL_ELEMENT_ARRAY_BARRIER_BIT;
+#if defined(GL_COMMAND_BARRIER_BIT)
+		if (barrierBits & ComputeBarrierBit::DrawIndirect)  mask |= GL_COMMAND_BARRIER_BIT;
+#endif
 		// GL_BUFFER_UPDATE_BARRIER_BIT is the one that covers a subsequent
 		// glGetBufferSubData - NOT GL_SHADER_STORAGE_BARRIER_BIT, which
 		// only orders shader-side access. Reading back without this is the

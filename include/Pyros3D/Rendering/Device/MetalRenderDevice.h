@@ -274,6 +274,8 @@ namespace p3d {
 		virtual void DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count);
 		virtual void DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount);
 		virtual void DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount);
+		virtual bool SupportsDrawIndirect() const;
+		virtual void DrawElementsInstancedIndirect(const CommandBufferHandle cmd, const uint32 nativeDrawType, const DeviceHandle argsBuffer, const uint32 argsOffset);
 
 		// Buffers/uniform buffers: plain MTLBuffer throughout, no VMA
 		// equivalent needed - Metal's own resource-options model
@@ -321,6 +323,7 @@ namespace p3d {
 		virtual void UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void *data);
 		virtual void ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData);
 		virtual void BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint);
+		virtual void BindStorageBufferRange(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint, const uint32 offset, const uint32 sizeBytes);
 		virtual void DestroyStorageBuffer(const DeviceHandle buffer);
 		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ);
 		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits);

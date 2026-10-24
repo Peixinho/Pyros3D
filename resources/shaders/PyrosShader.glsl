@@ -411,8 +411,19 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         mat4 ModelMatrix = uModelMatrix;
 
         #ifdef INSTANCED_RENDERING
-            ModelMatrix *= aInstancedTransform;
-            Position *= vec3(uInstanceGrowth.x, uInstanceGrowth.y, uInstanceGrowth.x);
+            // An instance culled on the GPU carries its own growth in its matrix's last row (an
+            // instance matrix's is 0 0 0 1 otherwise): a draw of many blocks has no one growth.
+            // See InstanceCullGroup.
+            mat4 instanceMatrix = aInstancedTransform;
+            vec2 instanceGrowth = uInstanceGrowth.xy;
+            if (instanceMatrix[0][3] > 0.0)
+            {
+                instanceGrowth = vec2(instanceMatrix[0][3], instanceMatrix[1][3]);
+                instanceMatrix[0][3] = 0.0;
+                instanceMatrix[1][3] = 0.0;
+            }
+            ModelMatrix *= instanceMatrix;
+            Position *= vec3(instanceGrowth.x, instanceGrowth.y, instanceGrowth.x);
             #ifdef INSTANCED_COLOR
                 vInstanceColor = aInstancedColor;
             #endif

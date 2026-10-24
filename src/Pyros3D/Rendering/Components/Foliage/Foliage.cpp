@@ -7,6 +7,7 @@
 #include <Pyros3D/Assets/Renderable/Plants/GrassTuft.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
+#include <Pyros3D/Rendering/Renderer/InstanceCullGroup.h>
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -237,6 +238,19 @@ namespace p3d {
 				if (!t->IsSimple())
 					layer.autoFar = std::make_shared<GrassTuft>(t->GetBlades(), t->GetHeight(), t->GetSpread(), t->GetSeed(), t->GetBaseColour(),
 						t->GetTipColour(), t->GetFlowers(), t->GetFlowerColour(), t->GetWidth(), true);
+		// Culled on the GPU, plant by plant (InstanceCullGroup): a layer that casts no shadows (a shadow
+		// map draws the blocks, at their own level - the group is for the views), with a material of its
+		// own its far mesh shares. Its far mesh is then each plant's past the distance, not each block's.
+		if (!layer.cullGroup && owner && InstanceCullGroup::Available() && !layer.spec.castShadows && layer.material && layer.mesh
+			&& (!layer.lodMesh || !layer.lodMaterial || layer.lodMaterial == layer.material))
+		{
+			const std::shared_ptr<Renderable> far = layer.lodMesh ? layer.lodMesh : layer.autoFar;
+			const f32 farFrom = layer.lodMesh ? layer.spec.lodDistance : kAutoFarFrom;
+			// (about the plant's root - its matrix's place - not the mesh's own centre)
+			const Vec3 centre = layer.mesh->GetBoundingSphereCenter();
+			const f32 radius = layer.mesh->GetBoundingSphereRadius() + sqrtf(centre.x * centre.x + centre.y * centre.y + centre.z * centre.z);
+			layer.cullGroup = std::make_shared<InstanceCullGroup>(owner, layer.mesh, layer.material, far, farFrom, tinted, radius);
+		}
 		for (size_t b = 0; b < prepared.blocks.size(); b++)
 		{
 			FoliageBlock &block = prepared.blocks[b];
@@ -265,6 +279,7 @@ namespace p3d {
 			}
 			if (layer.spec.castShadows) ic->EnableCastShadows(); else ic->DisableCastShadows();
 			child->AddComponent(ic);
+			if (layer.cullGroup) layer.cullGroup->Add(ic.get());
 			if (owner) owner->Add(child);
 			if (created) created->push_back(child);
 			layer.blocks.push_back(ic);
@@ -293,6 +308,8 @@ namespace p3d {
 			layer.blockObjects.clear();
 			layer.centres.clear();
 			layer.counts.clear();
+			if (layer.cullGroup) layer.cullGroup->Detach();
+			layer.cullGroup.reset();
 			if (!layer.mesh) continue;
 			PreparedFoliageLayer prepared;
 			// The map being painted, else the saved one - growing at full

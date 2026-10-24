@@ -3778,7 +3778,9 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 {
 	// (an instanced component with no instances at the moment is in the list all the same: nothing to draw)
 	if (rmesh->renderingComponent && rmesh->renderingComponent->IsInstanced()
-		&& static_cast<IRenderingInstancedComponent*>(rmesh->renderingComponent)->InstancesToDraw() == 0) return;
+		&& static_cast<IRenderingInstancedComponent*>(rmesh->renderingComponent)->InstancesToDraw() == 0
+		// (a GPU cull's drawer has none of its own: the GPU says how many - InstanceCullGroup)
+		&& static_cast<IRenderingInstancedComponent*>(rmesh->renderingComponent)->indirectArgs == 0) return;
 	// (whoever animates only what is drawn - RenderingComponent::SetAnimateWhenUnseen - is told)
 	if (rmesh->renderingComponent) rmesh->renderingComponent->MarkSeen();
 
@@ -3998,7 +4000,10 @@ void IRenderer::RenderObject(RenderingMesh* rmesh, GameObject* owner, IMaterial*
 	if (g_trisDump.on) g_trisDump.Add(rmesh, owner, IsShadowMaterial(Material));
 	if (rmesh->renderingComponent->IsInstanced())
 	{
-		device->DrawElementsInstanced(cmd, DrawType, rmesh->Geometry->GetIndexData().size(), ((IRenderingInstancedComponent*)rmesh->renderingComponent)->InstancesToDraw());
+		IRenderingInstancedComponent* irc = (IRenderingInstancedComponent*)rmesh->renderingComponent;
+		// (a GPU cull's drawer: how many, and from where, as the cull counted them - InstanceCullGroup)
+		if (irc->indirectArgs != 0) device->DrawElementsInstancedIndirect(cmd, DrawType, irc->indirectArgs, irc->indirectOffset);
+		else device->DrawElementsInstanced(cmd, DrawType, rmesh->Geometry->GetIndexData().size(), irc->InstancesToDraw());
 	}
 	else {
 		device->DrawElements(cmd, DrawType, rmesh->Geometry->GetIndexData().size());

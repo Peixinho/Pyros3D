@@ -64,6 +64,32 @@
 #include <Pyros3D/Utils/Bindings/PyrosLuaView2D.h>
 #ifdef LUA_BINDINGS
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+
+// PYROS_BENCH_CAMERA=x,z,yaw,pitch (metres, degrees): the active camera held there, 1.7 m over the ground,
+// looking that way, every frame - and the world streamed, the terrain and the foliage thinned, round it.
+// A benchmark's view the same from run to run (a match is not: where its player lands is not).
+static void HoldBenchCamera(p3d::GameObject* camera, p3d::SceneGraph* scene)
+{
+	using namespace p3d;
+	static const char* spec = std::getenv("PYROS_BENCH_CAMERA");
+	if (spec == NULL || camera == NULL) return;
+	f32 x = 0.f, z = 0.f, yaw = 0.f, pitch = 0.f;
+	if (std::sscanf(spec, "%f,%f,%f,%f", &x, &z, &yaw, &pitch) < 2) return;
+	f32 ground = 0.f;
+	TerrainEditor::HeightAt(scene, x, z, ground);
+	const f32 cy = cosf(yaw * (f32)M_PI / 180.f), sy = sinf(yaw * (f32)M_PI / 180.f);
+	const f32 cp = cosf(pitch * (f32)M_PI / 180.f), sp = sinf(pitch * (f32)M_PI / 180.f);
+	Matrix world;
+	world.identity();
+	// (yaw about y, then pitch about x: columns of Ry * Rx)
+	world.m[0] = cy;      world.m[1] = 0.f; world.m[2] = -sy;
+	world.m[4] = sy * sp; world.m[5] = cp;  world.m[6] = cy * sp;
+	world.m[8] = sy * cp; world.m[9] = -sp; world.m[10] = cy * cp;
+	world.m[12] = x; world.m[13] = ground + 1.7f; world.m[14] = z;
+	GameObject* parent = camera->GetParent();
+	camera->SetTransformationMatrix(parent ? parent->GetWorldTransformation().Inverse() * world : world);
+	camera->RefreshTransformation();
+}
 #endif
 
 using json = nlohmann::json;
@@ -1869,6 +1895,7 @@ void PyrosPlayer::Update()
 	// frame's transforms so an arriving cell is drawn where it belongs.
 	{
 		PYROS_PROFILE_SCOPE("Player.Stream");
+		HoldBenchCamera(activeCamera, scene);
 		if (worldStreamer && activeCamera)
 			worldStreamer->Update(activeCamera->GetWorldPosition());
 	}
@@ -2022,6 +2049,7 @@ void PyrosPlayer::Update()
 	}
 #endif
 	// (and again for what the scripts' own pre-render placed or posed: hands on a gun, a scope's camera)
+	HoldBenchCamera(activeCamera, scene);
 	GameObject::TakeDrawTransforms();
 	renderer->PreRender(activeCamera, scene);
 	renderer->ApplyBackgroundClearColor();

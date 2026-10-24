@@ -64,6 +64,8 @@
 		virtual void DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count) override;
 		virtual void DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount) override;
 		virtual void DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount) override;
+		virtual bool SupportsDrawIndirect() const override;
+		virtual void DrawElementsInstancedIndirect(const CommandBufferHandle cmd, const uint32 nativeDrawType, const DeviceHandle argsBuffer, const uint32 argsOffset) override;
 		virtual DeviceHandle CreateUniformBuffer(const uint32 sizeBytes, const uint32 bindingPoint) override;
 		virtual void UpdateUniformBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void * data) override;
 		virtual void ReplaceUniformBuffer(const DeviceHandle buffer, const uint32 sizeBytes, const void * data) override;
@@ -85,6 +87,7 @@
 		virtual void UpdateStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, const void * data) override;
 		virtual void ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void * outData) override;
 		virtual void BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint) override;
+		virtual void BindStorageBufferRange(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint, const uint32 offset, const uint32 sizeBytes) override;
 		virtual void DestroyStorageBuffer(const DeviceHandle buffer) override;
 		virtual void Dispatch(const CommandBufferHandle cmd, const uint32 groupsX, const uint32 groupsY, const uint32 groupsZ) override;
 		virtual void ComputeBarrier(const CommandBufferHandle cmd, const uint32 barrierBits) override;

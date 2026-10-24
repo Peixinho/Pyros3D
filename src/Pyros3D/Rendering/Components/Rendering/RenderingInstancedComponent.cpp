@@ -121,6 +121,35 @@ namespace p3d {
 	// transform_buffer, because that one is sized and uploaded as a plain
 	// array of Matrix (UpdateTransforms writes transform.size()*sizeof(Matrix)
 	// straight from the vector) and every existing caller depends on that.
+	void RenderingInstancedComponent::ResizeForGpu(const uint32 capacity, const bool tinted)
+	{
+		const uint32 n = capacity > 0 ? capacity : 1;
+		RemoveBuffer(transform_buffer);
+		delete transform_buffer;
+		transform.clear();
+		transform_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Static);
+		transform_buffer->AddAttribute("aInstancedTransform", Buffer::Attribute::Type::Matrix, NULL, n, 1);
+		transform_buffer->SetPacked(std::vector<uchar>((size_t)n * sizeof(Matrix), 0), n);
+		transform_buffer->SendBuffer();
+		AddBuffer(transform_buffer);
+		if (color_buffer != NULL)
+		{
+			RemoveBuffer(color_buffer);
+			delete color_buffer;
+			color_buffer = NULL;
+		}
+		instanceColor.clear();
+		if (tinted)
+		{
+			color_buffer = new AttributeBuffer(Buffer::Type::Attribute, Buffer::Draw::Static);
+			color_buffer->AddAttribute("aInstancedColor", Buffer::Attribute::Type::Vec4, NULL, n, 1);
+			color_buffer->SetPacked(std::vector<uchar>((size_t)n * sizeof(Vec4), 0), n);
+			color_buffer->SendBuffer();
+			AddBuffer(color_buffer);
+		}
+		gpuCapacity = n;
+	}
+
 	void RenderingInstancedComponent::EnableInstanceColors()
 	{
 		if (color_buffer != NULL)

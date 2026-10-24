@@ -22,9 +22,9 @@ SetClearStencilValue SetStencilFunction SetStencilOperation SetScissorRect SetSc
 SetPolygonOffsetEnabled SetPolygonOffset SetBlendingEnabled SetBlendFunction SetBlendEquation SetCullFaceMode DisableCullFace
 BindPipeline DestroyPipeline EnableClipDistance DisableClipDistance SetViewport UseProgram DeleteVertexArray BindVertexArray
 BindArrayBuffer BindElementBuffer SetVertexAttribute SetFloatVertexAttribute DisableVertexAttribute SetVertexAttributeDivisor
-BindUniformBlockIfPresent SetPointShadowCubeFacePass DrawArrays DrawElements DrawElementsInstanced UpdateUniformBuffer
+BindUniformBlockIfPresent SetPointShadowCubeFacePass DrawArrays DrawElements DrawElementsInstanced DrawElementsInstancedIndirect UpdateUniformBuffer
 ReplaceUniformBuffer DestroyUniformBuffer ReallocateBuffer UpdateBufferSubData DestroyBuffer DestroyComputePipeline
-BindComputePipeline UpdateStorageBuffer BindStorageBuffer DestroyStorageBuffer Dispatch ComputeBarrier SendUniformInt
+BindComputePipeline UpdateStorageBuffer BindStorageBuffer BindStorageBufferRange DestroyStorageBuffer Dispatch ComputeBarrier SendUniformInt
 SendUniformFloat SendUniformVec2 SendUniformVec3 SendUniformVec4 SendUniformMatrix BindTextureToTarget
 SetTextureWrapS SetTextureWrapT SetTextureWrapR SetTextureMagFilter SetTextureMinFilter SetTextureBaseMaxLevel
 SetTextureBorderColor SetTextureCompareMode SetPixelUnpackAlignment ActivateTextureUnit GenerateMipmap DestroyFramebuffer
@@ -35,7 +35,7 @@ DeleteProgram DetachShaderStage AttachShaderStage SetRayScene DestroyRayGeometry
 PURE = set("""TranslateBufferBit TranslateDrawType TranslateAttributeType TranslateTextureFormat TranslateTextureTarget
 TranslateFramebufferAccess TranslateFramebufferAttachment TranslateFramebufferStatus TranslateRenderbufferFormat
 TranslateShadowBiasMatrix TranslateProjectionMatrix IsVulkan NeedsManualDisplayGamma RenderTargetOriginIsTopLeft
-SupportsCompute GetMaxComputeWorkGroupInvocations GetMaxComputeWorkGroupCount GetMaxSamples CanBlitResolveDepth
+SupportsCompute SupportsDrawIndirect GetMaxComputeWorkGroupInvocations GetMaxComputeWorkGroupCount GetMaxSamples CanBlitResolveDepth
 TemporalUpscalerId GetTextureDataSize GetTextureUploadSize GetAutoUniformBlockLayout IsProgram IsShaderStage BuildShaderSource GetSwapchainGeneration GetUniformLocation GetAttributeLocation SupportsRayQuery SupportsCompressedFormat IsHDROutput GetHDRHeadroom""".split())
 # written by hand in the .cpp's fixed part
 SPECIAL = set("""BeginFrame EndFrame BindFramebuffer SetClearColor IsFrameInProgress GetCurrentRenderTarget BeginCommandBuffer WaitIdle
@@ -56,7 +56,9 @@ HANDLES = {"BindArrayBuffer": ["buffer"], "BindElementBuffer": ["buffer"], "Upda
            "BindTextureToTarget": ["texture"], "AttachFramebufferTexture2D": ["textureId"],
            "CopyDepthTexture": ["srcTexture", "dstTexture"], "GetImGuiTextureID": ["texture"],
            # (a vertex buffer a compute kernel fills in place - GPU particles - is bound as a storage buffer)
-           "BindStorageBuffer": ["buffer"]}
+           "BindStorageBuffer": ["buffer"], "BindStorageBufferRange": ["buffer"],
+           # (a GPU cull's draw arguments: a storage buffer - its handle is the device's already)
+           "DrawElementsInstancedIndirect": ["argsBuffer"]}
 # what a queued call points at, and how many bytes of it there are
 COPIES = {"UpdateUniformBuffer": ("data", "sizeBytes"), "ReplaceUniformBuffer": ("data", "sizeBytes"),
           "ReallocateBuffer": ("data", "length"), "UpdateBufferSubData": ("data", "length"),

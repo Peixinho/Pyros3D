@@ -61,6 +61,10 @@ namespace p3d {
 			// its ReadStorageBuffer/UpdateStorageBuffer wait for the submitted work themselves.
 			// Elsewhere it is HostRead.
 			Submit = 0x10,
+			// A draw is about to take its arguments from this buffer (DrawElementsInstancedIndirect):
+			// what a GPU cull wrote - how many instances, from where. Given with VertexBuffer when the
+			// same dispatch also wrote the instances.
+			DrawIndirect = 0x20,
 			// Always correct, never precise. Fine for a smoke test or a
 			// once-a-frame transition; wasteful inside a hot loop.
 			All = 0x7FFFFFFF
@@ -655,6 +659,12 @@ namespace p3d {
 		virtual void DrawArrays(const uint32 nativeDrawType, const uint32 first, const uint32 count) = 0;
 		virtual void DrawElements(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount) = 0;
 		virtual void DrawElementsInstanced(const CommandBufferHandle cmd, const uint32 nativeDrawType, const uint32 indexCount, const uint32 instanceCount) = 0;
+		// The same, the counts read by the GPU from a storage buffer at argsOffset: five uint32s - index
+		// count, instance count, first index, base vertex, first instance (Vulkan's, Metal's and GL's
+		// layout alike) - as a compute dispatch wrote them (a GPU cull: ComputeBarrierBit::DrawIndirect).
+		// The first instance offsets the per-instance attributes. Where SupportsDrawIndirect().
+		virtual bool SupportsDrawIndirect() const { return false; }
+		virtual void DrawElementsInstancedIndirect(const CommandBufferHandle cmd, const uint32 nativeDrawType, const DeviceHandle argsBuffer, const uint32 argsOffset);
 
 		// Uniform buffers - CreateUniformBuffer mirrors what IRenderer's
 		// constructor used to do inline for each shared UBO (gen, bind,
@@ -772,6 +782,10 @@ namespace p3d {
 		// no error reported anywhere.
 		virtual void ReadStorageBuffer(const DeviceHandle buffer, const uint32 offset, const uint32 sizeBytes, void *outData);
 		virtual void BindStorageBuffer(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint);
+		// Part of one: from offset (a multiple of kStorageRangeAlignment), sizeBytes long - each dispatch
+		// its own piece of one buffer written once a frame, where a buffer apiece would be thousands.
+		static const uint32 kStorageRangeAlignment = 256;
+		virtual void BindStorageBufferRange(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint, const uint32 offset, const uint32 sizeBytes);
 		virtual void DestroyStorageBuffer(const DeviceHandle buffer);
 
 		// Work GROUP counts, not thread counts - the total threads is this

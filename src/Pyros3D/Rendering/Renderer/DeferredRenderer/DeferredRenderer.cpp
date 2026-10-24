@@ -10,6 +10,7 @@
 
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
+#include <Pyros3D/Rendering/Renderer/InstanceCullGroup.h>
 #include <Pyros3D/Rendering/Terrain/TerrainHorizon.h>
 #include <unordered_map>
 #include <unordered_set>
@@ -1232,6 +1233,12 @@ namespace p3d {
 		}
 
 		FrameProfiler::Instance().End();
+		// What is culled on the GPU (foliage: InstanceCullGroup) - its blocks out of the list, its
+		// drawers in, each drawing what the GPU found in this view
+		{
+			PYROS_PROFILE_SCOPE("GBuffer.GpuCull");
+			InstanceCullGroup::CullView(visible, Camera, projection.m, Scene ? Scene->GetUpdateTime() : 0.0);
+		}
 		static const uint32 kLitUsageMask = ShaderUsage::Diffuse | ShaderUsage::CellShading | ShaderUsage::PBR;
 		FrameProfiler::Instance().Begin("GBuffer.Draw");
 		// (on every core: see IRenderer::DrawPassOnEveryCore - `with` is the renderer a

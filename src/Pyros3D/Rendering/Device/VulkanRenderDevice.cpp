@@ -601,7 +601,15 @@ namespace p3d {
 			}
 			computePipelines.clear();
 			storageBufferSizes.clear();
-			if (computeFence != VK_NULL_HANDLE) vkDestroyFence(device, computeFence, NULL);
+			for (uint32 i = 0; i < kComputeSlots; i++)
+			{
+				if (computeSlots[i].fence != VK_NULL_HANDLE) vkDestroyFence(device, computeSlots[i].fence, NULL);
+				for (size_t p = 0; p < computeSlots[i].pools.size(); p++) vkDestroyDescriptorPool(device, computeSlots[i].pools[p], NULL);
+				computeSlots[i] = ComputeSlot();
+			}
+			computeFence = VK_NULL_HANDLE;
+			for (int i = 0; i < 2; i++) if (computeDone[i] != VK_NULL_HANDLE) { vkDestroySemaphore(device, computeDone[i], NULL); computeDone[i] = VK_NULL_HANDLE; }
+			pendingComputeWait = VK_NULL_HANDLE;
 			for (size_t i = 0; i < imageAvailableSemaphores.size(); i++)
 				vkDestroySemaphore(device, imageAvailableSemaphores[i], NULL);
 			for (size_t i = 0; i < renderFinishedSemaphores.size(); i++)
@@ -1489,6 +1497,9 @@ namespace p3d {
 		// Block-compressed textures (SupportsCompressedFormat), where the device samples them
 		bcSupported = supported.textureCompressionBC == VK_TRUE;
 		if (bcSupported) wanted.textureCompressionBC = VK_TRUE;
+		// (indirect draws whose arguments start at an instance other than the first: a GPU cull's)
+		drawIndirectFirstInstance = supported.drawIndirectFirstInstance == VK_TRUE;
+		if (drawIndirectFirstInstance) wanted.drawIndirectFirstInstance = VK_TRUE;
 		deviceCreateInfo.pEnabledFeatures = &wanted;
 
 		// Ray queries, where the device has them (see SupportsRayQuery): its
@@ -1687,10 +1698,23 @@ namespace p3d {
 		// CREATE_SIGNALED from the transfer fence, which is what the first
 		// FlushComputeCommands()'s vkResetFences needs too.
 		cmdAllocInfo.commandBufferCount = 1;
-		if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &computeCommandBuffer) != VK_SUCCESS)
-			return false;
-		if (vkCreateFence(device, &fenceInfo, NULL, &computeFence) != VK_SUCCESS)
-			return false;
+		for (uint32 i = 0; i < kComputeSlots; i++)
+		{
+			if (vkAllocateCommandBuffers(device, &cmdAllocInfo, &computeSlots[i].cmd) != VK_SUCCESS)
+				return false;
+			if (vkCreateFence(device, &fenceInfo, NULL, &computeSlots[i].fence) != VK_SUCCESS)
+				return false;
+		}
+		{
+			VkSemaphoreCreateInfo semInfo = {};
+			semInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+			for (int i = 0; i < 2; i++)
+				if (vkCreateSemaphore(device, &semInfo, NULL, &computeDone[i]) != VK_SUCCESS)
+					return false;
+		}
+		computeSlotIndex = 0;
+		computeCommandBuffer = computeSlots[0].cmd;
+		computeFence = computeSlots[0].fence;
 		computeCommandBufferRecording = false;
 
 		CreatePipelineCache();
@@ -1773,11 +1797,15 @@ namespace p3d {
 		vkEndCommandBuffer(frameCommandBuffer);
 
 		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TRANSFER_BIT;
+		VkSemaphore simpleWaits[2] = { imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE };
+		VkPipelineStageFlags simpleStages[2] = { waitStage, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
+		uint32 simpleWaitCount = 1;
+		TakeComputeWait(simpleWaits, simpleStages, simpleWaitCount, 2);
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.waitSemaphoreCount = 1;
-		submitInfo.pWaitSemaphores = &imageAvailableSemaphores[acquireSemIndex];
-		submitInfo.pWaitDstStageMask = &waitStage;
+		submitInfo.waitSemaphoreCount = simpleWaitCount;
+		submitInfo.pWaitSemaphores = simpleWaits;
+		submitInfo.pWaitDstStageMask = simpleStages;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
 		submitInfo.signalSemaphoreCount = 1;
@@ -2060,11 +2088,15 @@ namespace p3d {
 		vkEndCommandBuffer(frameCommandBuffer);
 
 		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		VkSemaphore simpleWaits[2] = { imageAvailableSemaphores[acquireSemIndex], VK_NULL_HANDLE };
+		VkPipelineStageFlags simpleStages[2] = { waitStage, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
+		uint32 simpleWaitCount = 1;
+		TakeComputeWait(simpleWaits, simpleStages, simpleWaitCount, 2);
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-		submitInfo.waitSemaphoreCount = 1;
-		submitInfo.pWaitSemaphores = &imageAvailableSemaphores[acquireSemIndex];
-		submitInfo.pWaitDstStageMask = &waitStage;
+		submitInfo.waitSemaphoreCount = simpleWaitCount;
+		submitInfo.pWaitSemaphores = simpleWaits;
+		submitInfo.pWaitDstStageMask = simpleStages;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &frameCommandBuffer;
 		submitInfo.signalSemaphoreCount = 1;
@@ -2398,10 +2430,11 @@ namespace p3d {
 		// Capture/shadow offscreen submit may still be on the queue - wait
 		// on its semaphore so tonemap/main-pass sampling sees finished
 		// images without a mid-frame CPU fence (GL pipelines the same way).
-		VkSemaphore waitSems[4];
-		VkPipelineStageFlags waitStages[4];
+		VkSemaphore waitSems[6];
+		VkPipelineStageFlags waitStages[6];
 		uint32 waitCount = 0;
-		TakeRayWait(waitSems, waitStages, waitCount, 4);
+		TakeRayWait(waitSems, waitStages, waitCount, 6);
+		TakeComputeWait(waitSems, waitStages, waitCount, 6);
 		waitSems[waitCount] = imageAvailableSemaphores[currentFrameAcquireSemaphoreIndex];
 		waitStages[waitCount] = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
 		waitCount++;
@@ -3948,6 +3981,41 @@ namespace p3d {
 		PyrosT_CmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
 		gVkTriangles += (uint64_t)(indexCount) / 3 * (uint64_t)(instanceCount);
 		PyrosT_CmdDrawIndexed(activeCommandBuffer, indexCount, instanceCount, 0, 0, 0);
+	}
+
+	bool VulkanRenderDevice::SupportsDrawIndirect() const
+	{
+		return SupportsCompute() && drawIndirectFirstInstance;
+	}
+
+	void VulkanRenderDevice::DrawElementsInstancedIndirect(const CommandBufferHandle cmd, const uint32 nativeDrawType, const DeviceHandle argsBuffer, const uint32 argsOffset)
+	{
+		(void)nativeDrawType;
+		EnsureFrameCommandBufferForSwapchainDraw();
+		if (!(frameInProgress || offscreenPassOpen) || cmd == 0 || currentVao == 0 || currentPipeline == 0 || !SupportsDrawIndirect())
+			return;
+		std::map<DeviceHandle, VaoRecord>::iterator vaoIt = vaos.find(currentVao);
+		if (vaoIt == vaos.end())
+			return;
+		std::map<DeviceHandle, BufferRecord>::iterator iboIt = buffers.find(vaoIt->second.indexBuffer);
+		std::map<DeviceHandle, BufferRecord>::iterator argsIt = buffers.find(argsBuffer);
+		if (iboIt == buffers.end() || argsIt == buffers.end() || vaoIt->second.vertexBuffers.empty())
+			return;
+		PyrosVkSmallList<VkBuffer> vbos;
+		PyrosVkSmallList<VkDeviceSize> vboOffsets;
+		for (size_t i = 0; i < vaoIt->second.vertexBuffers.size(); i++)
+		{
+			std::map<DeviceHandle, BufferRecord>::iterator vboIt = buffers.find(vaoIt->second.vertexBuffers[i]);
+			if (vboIt == buffers.end())
+				return;
+			vbos.push_back(vboIt->second.buffer);
+			vboOffsets.push_back(0);
+		}
+		if (!BindCurrentPipelineDescriptorSets())
+			return;
+		PyrosT_CmdBindVertexBuffers(activeCommandBuffer, 0, (uint32_t)vbos.size(), vbos.data(), vboOffsets.data());
+		PyrosT_CmdBindIndexBuffer(activeCommandBuffer, iboIt->second.buffer, 0, VK_INDEX_TYPE_UINT32);
+		vkCmdDrawIndexedIndirect(activeCommandBuffer, argsIt->second.buffer, (VkDeviceSize)argsOffset, 1, 20);
 	}
 
 	bool VulkanRenderDevice::BindCurrentPipelineDescriptorSets()
@@ -8393,10 +8461,11 @@ namespace p3d {
 		// recorded even though the CPU no longer blocks between them - a
 		// G-buffer written by one session and sampled by the next used to
 		// be ordered by that CPU fence wait, and this is what replaces it.
-		VkPipelineStageFlags chainStages[4] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
-		VkSemaphore waitSems[4];
+		VkPipelineStageFlags chainStages[6] = { VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT };
+		VkSemaphore waitSems[6];
 		uint32 chainWaits = 0;
-		TakeRayWait(waitSems, chainStages, chainWaits, 4);
+		TakeRayWait(waitSems, chainStages, chainWaits, 6);
+		TakeComputeWait(waitSems, chainStages, chainWaits, 6);
 		if (offscreenPrevSemaphore != VK_NULL_HANDLE) waitSems[chainWaits++] = offscreenPrevSemaphore;
 		if (offscreenChainSemaphore != VK_NULL_HANDLE) waitSems[chainWaits++] = offscreenChainSemaphore;
 		// The last frame's submit: its passes sampled targets this submit
@@ -9213,12 +9282,19 @@ namespace p3d {
 		}
 		if (!computeCommandBufferRecording)
 		{
-			// Wait for the previous dispatch before reusing the buffer -
-			// resetting a command buffer still executing on the GPU is
-			// VUID-vkResetCommandBuffer-commandBuffer-00045, and the
-			// fence starts signalled so the first call through here does
-			// not block.
-			PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+			// The next of the ring: waited for (submitted kComputeSlots submissions ago - long done,
+			// as a rule) before it is reused - resetting a command buffer still executing on the GPU
+			// is VUID-vkResetCommandBuffer-commandBuffer-00045, and the fence starts signalled so the
+			// first call through here does not block. Its descriptor sets go with it.
+			computeSlotIndex = (computeSlotIndex + 1) % kComputeSlots;
+			ComputeSlot &slot = computeSlots[computeSlotIndex];
+			PyrosTimedWaitForFences(device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
+			slot.inFlight = false;
+			slot.buffers.clear();
+			for (size_t p = 0; p < slot.poolsUsed && p < slot.pools.size(); p++) vkResetDescriptorPool(device, slot.pools[p], 0);
+			slot.poolsUsed = slot.pools.empty() ? 0 : 1;
+			computeCommandBuffer = slot.cmd;
+			computeFence = slot.fence;
 			vkResetCommandBuffer(computeCommandBuffer, 0);
 			VkCommandBufferBeginInfo beginInfo = {};
 			beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
@@ -9238,17 +9314,98 @@ namespace p3d {
 		computeCommandBufferRecording = false;
 
 		vkResetFences(device, 1, &computeFence);
+		// What the next graphics submission waits on (TakeComputeWait), and - still pending, unused -
+		// the one before it, taken here: the two are used in turn, and a binary semaphore is signalled
+		// again only once something has waited on it.
+		VkSemaphore waitSem = pendingComputeWait;
+		VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		VkSemaphore signalSem = computeDone[computeDoneNext];
 		VkSubmitInfo submitInfo = {};
 		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.waitSemaphoreCount = waitSem != VK_NULL_HANDLE ? 1 : 0;
+		submitInfo.pWaitSemaphores = waitSem != VK_NULL_HANDLE ? &waitSem : NULL;
+		submitInfo.pWaitDstStageMask = waitSem != VK_NULL_HANDLE ? &waitStage : NULL;
 		submitInfo.commandBufferCount = 1;
 		submitInfo.pCommandBuffers = &computeCommandBuffer;
+		submitInfo.signalSemaphoreCount = signalSem != VK_NULL_HANDLE ? 1 : 0;
+		submitInfo.pSignalSemaphores = signalSem != VK_NULL_HANDLE ? &signalSem : NULL;
 		if (SubmitGraphics(1, &submitInfo, computeFence) != VK_SUCCESS)
 		{
 			vkQueueWaitIdle(graphicsQueue);
+			pendingComputeWait = VK_NULL_HANDLE;
 			return;
 		}
+		computeSlots[computeSlotIndex].inFlight = true;
+		if (signalSem != VK_NULL_HANDLE) { pendingComputeWait = signalSem; computeDoneNext ^= 1u; }
 		if (wait)
 			PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+	}
+
+	void VulkanRenderDevice::TakeComputeWait(VkSemaphore *waits, VkPipelineStageFlags *stages, uint32 &count, const uint32 capacity)
+	{
+		if (pendingComputeWait == VK_NULL_HANDLE || count >= capacity) return;
+		waits[count] = pendingComputeWait;
+		// (vertex input, indirect arguments, and whatever shader reads a storage buffer)
+		stages[count] = VK_PIPELINE_STAGE_ALL_COMMANDS_BIT;
+		count++;
+		pendingComputeWait = VK_NULL_HANDLE;
+	}
+
+	void VulkanRenderDevice::WaitComputeFor(const DeviceHandle buffer)
+	{
+		for (uint32 i = 0; i < kComputeSlots; i++)
+		{
+			ComputeSlot &slot = computeSlots[i];
+			if (!slot.inFlight || slot.buffers.find(buffer) == slot.buffers.end()) continue;
+			PyrosTimedWaitForFences(device, 1, &slot.fence, VK_TRUE, UINT64_MAX);
+			slot.inFlight = false;
+		}
+	}
+
+	void VulkanRenderDevice::WaitAllCompute()
+	{
+		for (uint32 i = 0; i < kComputeSlots; i++)
+			if (computeSlots[i].fence != VK_NULL_HANDLE && computeSlots[i].inFlight)
+			{
+				PyrosTimedWaitForFences(device, 1, &computeSlots[i].fence, VK_TRUE, UINT64_MAX);
+				computeSlots[i].inFlight = false;
+			}
+	}
+
+	VkDescriptorSet VulkanRenderDevice::AllocateComputeSet(const VkDescriptorSetLayout layout)
+	{
+		// From the recording slot's pools, in turn: the first that has room (a slot's pools were all
+		// reset when it was begun again), a new one when they are full.
+		ComputeSlot &slot = computeSlots[computeSlotIndex];
+		if (slot.poolsUsed == 0) slot.poolsUsed = 1;
+		for (;;)
+		{
+			while (slot.pools.size() < slot.poolsUsed)
+			{
+				// (a pool: 256 sets of up to 8 storage buffers)
+				VkDescriptorPoolSize size = {};
+				size.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+				size.descriptorCount = 256 * 8;
+				VkDescriptorPoolCreateInfo info = {};
+				info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+				info.maxSets = 256;
+				info.poolSizeCount = 1;
+				info.pPoolSizes = &size;
+				VkDescriptorPool pool = VK_NULL_HANDLE;
+				if (vkCreateDescriptorPool(device, &info, NULL, &pool) != VK_SUCCESS) return VK_NULL_HANDLE;
+				slot.pools.push_back(pool);
+			}
+			VkDescriptorSetAllocateInfo alloc = {};
+			alloc.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			alloc.descriptorPool = slot.pools[slot.poolsUsed - 1];
+			alloc.descriptorSetCount = 1;
+			alloc.pSetLayouts = &layout;
+			VkDescriptorSet set = VK_NULL_HANDLE;
+			const VkResult r = vkAllocateDescriptorSets(device, &alloc, &set);
+			if (r == VK_SUCCESS) return set;
+			if ((r != VK_ERROR_OUT_OF_POOL_MEMORY && r != VK_ERROR_FRAGMENTED_POOL) || slot.poolsUsed >= 64) return VK_NULL_HANDLE;
+			slot.poolsUsed++;
+		}
 	}
 
 	DeviceHandle VulkanRenderDevice::CreateComputePipeline(const DeviceHandle program)
@@ -9379,7 +9536,7 @@ namespace p3d {
 			return;
 		// Nothing may be destroyed while the GPU could still be reading
 		// it - the same ordering rule the destructor follows.
-		PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+		WaitAllCompute();
 		if (it->second.descriptorSet != VK_NULL_HANDLE && descriptorPool != VK_NULL_HANDLE)
 			vkFreeDescriptorSets(device, descriptorPool, 1, &it->second.descriptorSet);
 		if (it->second.pipeline != VK_NULL_HANDLE) vkDestroyPipeline(device, it->second.pipeline, NULL);
@@ -9426,7 +9583,8 @@ namespace p3d {
 		VkBufferCreateInfo bufferInfo = {};
 		bufferInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 		bufferInfo.size = allocLength;
-		bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT
+		// (and indirect: a GPU cull's draw arguments are a storage buffer the dispatch writes)
+		bufferInfo.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT
 			| VK_BUFFER_USAGE_TRANSFER_SRC_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 		bufferInfo.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
@@ -9465,8 +9623,8 @@ namespace p3d {
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || it->second.mapped == NULL)
 			return;
-		// (work submitted without a wait may still be reading this: see ComputeBarrierBit::Submit)
-		PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+		// (work submitted without a wait may still be reading this - only that is waited for)
+		WaitComputeFor(buffer);
 		memcpy((uint8*)it->second.mapped + offset, data, sizeBytes);
 	}
 
@@ -9486,7 +9644,7 @@ namespace p3d {
 		// to say it explicitly, and is a no-op once already flushed.
 		FlushComputeCommands(true);
 		// (and what was submitted earlier without a wait: ComputeBarrierBit::Submit)
-		PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
+		WaitComputeFor(buffer);
 
 		std::map<DeviceHandle, BufferRecord>::iterator it = buffers.find(buffer);
 		if (it == buffers.end() || it->second.mapped == NULL)
@@ -9514,10 +9672,24 @@ namespace p3d {
 		// place, so writing one buffer at a time would rewrite the whole
 		// set once per bind; Dispatch() writes them all in a single call.
 		pendingStorageBindings[bindingPoint] = buffer;
+		pendingStorageRanges.erase(bindingPoint);
+	}
+
+	void VulkanRenderDevice::BindStorageBufferRange(const CommandBufferHandle cmd, const DeviceHandle buffer, const uint32 bindingPoint, const uint32 offset, const uint32 sizeBytes)
+	{
+		(void)cmd;
+		if (buffers.find(buffer) == buffers.end())
+		{
+			echo("ERROR: BindStorageBufferRange called with an unknown buffer handle.");
+			return;
+		}
+		pendingStorageBindings[bindingPoint] = buffer;
+		pendingStorageRanges[bindingPoint] = std::make_pair(offset, sizeBytes);
 	}
 
 	void VulkanRenderDevice::DestroyStorageBuffer(const DeviceHandle buffer)
 	{
+		WaitComputeFor(buffer);
 		storageBufferSizes.erase(buffer);
 		// Allocated through vmaCreateBuffer into `buffers`, so the normal
 		// buffer teardown frees it.
@@ -9574,7 +9746,19 @@ namespace p3d {
 			info.buffer = bufIt->second.buffer;
 			info.offset = 0;
 			info.range = VK_WHOLE_SIZE;
+			std::map<uint32, std::pair<uint32, uint32> >::const_iterator range = pendingStorageRanges.find(binding);
+			if (range != pendingStorageRanges.end()) { info.offset = range->second.first; info.range = range->second.second; }
 			bufferInfos.push_back(info);
+		}
+		// (a set of its own, from the slot this is recorded into: see ComputeSlot)
+		VkCommandBuffer computeCmd = BeginOrGetComputeCommandBuffer("Dispatch");
+		if (computeCmd == VK_NULL_HANDLE)
+			return;
+		VkDescriptorSet dispatchSet = it->second.storageBindings.empty() ? it->second.descriptorSet : AllocateComputeSet(it->second.setLayout);
+		if (dispatchSet == VK_NULL_HANDLE)
+		{
+			echo("ERROR: Dispatch: no descriptor set could be had for it.");
+			return;
 		}
 		// Second pass so bufferInfos has stopped reallocating - a
 		// VkWriteDescriptorSet holds a POINTER into it, and a vector that
@@ -9583,7 +9767,7 @@ namespace p3d {
 		{
 			VkWriteDescriptorSet w = {};
 			w.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			w.dstSet = it->second.descriptorSet;
+			w.dstSet = dispatchSet;
 			w.dstBinding = it->second.storageBindings[i];
 			w.dstArrayElement = 0;
 			w.descriptorCount = 1;
@@ -9592,20 +9776,15 @@ namespace p3d {
 			writes.push_back(w);
 		}
 
-		// The set must not be rewritten while a previous dispatch using it
-		// is still running - vkUpdateDescriptorSets mutates in place.
+		// (a fresh set: written once, read by this dispatch only)
 		if (!writes.empty())
-		{
-			PyrosTimedWaitForFences(device, 1, &computeFence, VK_TRUE, UINT64_MAX);
 			PyrosT_UpdateDescriptorSets(device, (uint32)writes.size(), writes.data(), 0, NULL);
-		}
+		for (size_t i = 0; i < it->second.storageBindings.size(); i++)
+			computeSlots[computeSlotIndex].buffers.insert(pendingStorageBindings[it->second.storageBindings[i]]);
 
-		VkCommandBuffer computeCmd = BeginOrGetComputeCommandBuffer("Dispatch");
-		if (computeCmd == VK_NULL_HANDLE)
-			return;
 		PyrosT_CmdBindPipeline(computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE, it->second.pipeline);
 		PyrosT_CmdBindDescriptorSets(computeCmd, VK_PIPELINE_BIND_POINT_COMPUTE,
-			it->second.pipelineLayout, 0, 1, &it->second.descriptorSet, 0, NULL);
+			it->second.pipelineLayout, 0, 1, &dispatchSet, 0, NULL);
 		vkCmdDispatch(computeCmd, groupsX, groupsY, groupsZ);
 	}
 
@@ -9633,9 +9812,18 @@ namespace p3d {
 		//     means the dispatch never runs at all - the draw then reads
 		//     the buffer's previous contents with no error reported
 		//     anywhere. See MetalRenderDevice's matching comment.
-		if (barrierBits & (ComputeBarrierBit::HostRead | ComputeBarrierBit::VertexBuffer))
+		if (barrierBits & ComputeBarrierBit::HostRead)
 		{
 			FlushComputeCommands(true);
+			return;
+		}
+		// The draws that read it are in a graphics submission yet to be made: submitted now, and that
+		// one waits on its semaphore (TakeComputeWait) - ordered on the GPU, not waited for here. (It
+		// was a wait: the frame's CPU stood still until the GPU had run the dispatch, and everything
+		// queued before it.)
+		if (barrierBits & (ComputeBarrierBit::VertexBuffer | ComputeBarrierBit::DrawIndirect))
+		{
+			FlushComputeCommands(false);
 			return;
 		}
 		// Submit: started now, not waited for - the storage-buffer reads and writes, and the next
