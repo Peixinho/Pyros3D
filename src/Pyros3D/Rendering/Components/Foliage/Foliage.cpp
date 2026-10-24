@@ -4,6 +4,7 @@
 // Description : See Foliage.h.
 //============================================================================
 
+#include <Pyros3D/Assets/Renderable/Plants/GrassTuft.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
@@ -203,6 +204,12 @@ namespace p3d {
 
 	static bool g_foliageHeadless = false;
 	void FoliageComponent::SetHeadless(const bool on) { g_foliageHeadless = on; }
+	// A tuft's bend - its blades' middles off the line from root to tip by a few centimetres - is under a
+	// pixel or two from about here at a usual field of view: past it the simple tuft looks the same.
+	static const f32 kAutoFarFrom = 15.f;
+	static bool g_autoFar = !(std::getenv("PYROS_FOLIAGE_AUTO_FAR") && std::getenv("PYROS_FOLIAGE_AUTO_FAR")[0] == '0');
+	void FoliageComponent::SetAutoFarMesh(const bool on) { g_autoFar = on; }
+	bool FoliageComponent::GetAutoFarMesh() { return g_autoFar; }
 	static bool g_thinning = true;
 	void FoliageComponent::SetThinning(const bool on) { g_thinning = on; }
 	bool FoliageComponent::GetThinning() { return g_thinning; }
@@ -224,6 +231,12 @@ namespace p3d {
 		const f32 meshRadius = layer.mesh ? layer.mesh->GetBoundingSphereRadius() * std::max(layer.spec.maxScale, layer.spec.minScale) : 0.f;
 		const bool tinted = !(layer.spec.tintLow == Vec4(1.f, 1.f, 1.f, 1.f) && layer.spec.tintHigh == Vec4(1.f, 1.f, 1.f, 1.f));
 		const uint32 modelOptions = ShaderUsage::Diffuse | ShaderUsage::InstancedRendering;
+		// (a grass tuft with no far mesh named: its simple self, made once for the layer)
+		if (!layer.lodMesh && !layer.autoFar && g_autoFar)
+			if (GrassTuft* t = dynamic_cast<GrassTuft*>(layer.mesh.get()))
+				if (!t->IsSimple())
+					layer.autoFar = std::make_shared<GrassTuft>(t->GetBlades(), t->GetHeight(), t->GetSpread(), t->GetSeed(), t->GetBaseColour(),
+						t->GetTipColour(), t->GetFlowers(), t->GetFlowerColour(), t->GetWidth(), true);
 		for (size_t b = 0; b < prepared.blocks.size(); b++)
 		{
 			FoliageBlock &block = prepared.blocks[b];
@@ -243,6 +256,12 @@ namespace p3d {
 				ic->SetFirstLODDistance(layer.spec.lodDistance);
 				if (layer.lodMaterial) ic->AddLOD(layer.lodMesh, 1e9f, layer.lodMaterial);
 				else ic->AddLOD(layer.lodMesh, 1e9f, modelOptions);
+			}
+			else if (layer.autoFar && layer.material)
+			{
+				// (the tuft's simple self past where its bend shows: see SetAutoFarMesh)
+				ic->SetFirstLODDistance(kAutoFarFrom);
+				ic->AddLOD(layer.autoFar, 1e9f, layer.material);
 			}
 			if (layer.spec.castShadows) ic->EnableCastShadows(); else ic->DisableCastShadows();
 			child->AddComponent(ic);

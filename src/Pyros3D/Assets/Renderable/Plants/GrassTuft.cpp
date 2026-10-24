@@ -21,9 +21,9 @@ namespace p3d {
 	}
 
 	GrassTuft::GrassTuft(const uint32 blades_, const f32 height_, const f32 spread_, const uint32 seed_, const Vec3 &base_, const Vec3 &tip_,
-		const uint32 flowers_, const Vec3 &flower_, const f32 width_)
+		const uint32 flowers_, const Vec3 &flower_, const f32 width_, const bool simple_)
 		: blades(std::max<uint32>(1, blades_)), seed(seed_), flowers(std::min(flowers_, std::max<uint32>(1, blades_))), height(height_), spread(spread_), width(width_),
-		base(base_), tip(tip_), flower(flower_)
+		simple(simple_), base(base_), tip(tip_), flower(flower_)
 	{
 		isFlipped = false;
 		isSmooth = false;
@@ -58,14 +58,27 @@ namespace p3d {
 			const Vec3 end = root + Vec3(0.f, h, 0.f) + lean * (h * bend);
 			top = std::max(top, end.y);
 			const uint32 i = (uint32)g->tVertex.size();
-			vertex(root - across * w, n, c0, 0.f);
-			vertex(root + across * w, n, c0, 0.f);
-			vertex(mid - across * (w * .74f), n, c1, .5f);
-			vertex(mid + across * (w * .74f), n, c1, .5f);
-			vertex(end, n, c2, 1.f);
-			g->index.push_back(i); g->index.push_back(i + 1); g->index.push_back(i + 3);
-			g->index.push_back(i); g->index.push_back(i + 3); g->index.push_back(i + 2);
-			g->index.push_back(i + 2); g->index.push_back(i + 3); g->index.push_back(i + 4);
+			if (simple)
+			{
+				// (one triangle, root to tip - the same random numbers drawn, so every blade is where
+				// the full tuft has it)
+				(void)mid; (void)c1;
+				vertex(root - across * w, n, c0, 0.f);
+				vertex(root + across * w, n, c0, 0.f);
+				vertex(end, n, c2, 1.f);
+				g->index.push_back(i); g->index.push_back(i + 1); g->index.push_back(i + 2);
+			}
+			else
+			{
+				vertex(root - across * w, n, c0, 0.f);
+				vertex(root + across * w, n, c0, 0.f);
+				vertex(mid - across * (w * .74f), n, c1, .5f);
+				vertex(mid + across * (w * .74f), n, c1, .5f);
+				vertex(end, n, c2, 1.f);
+				g->index.push_back(i); g->index.push_back(i + 1); g->index.push_back(i + 3);
+				g->index.push_back(i); g->index.push_back(i + 3); g->index.push_back(i + 2);
+				g->index.push_back(i + 2); g->index.push_back(i + 3); g->index.push_back(i + 4);
+			}
 			if (stem)
 			{
 				// a head: a ring of petals round a yellow eye, tipped a little toward wherever it leans

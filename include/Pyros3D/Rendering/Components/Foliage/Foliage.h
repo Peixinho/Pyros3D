@@ -118,6 +118,9 @@ namespace p3d {
 			// What every block draws, kept for saving the layer back.
 			std::shared_ptr<Renderable> mesh, lodMesh;
 			std::shared_ptr<IMaterial> material, lodMaterial;
+			// Made here, not the scene's (never saved): a grass tuft's simple self past kAutoFarFrom,
+			// where the layer names no far mesh of its own (SetAutoFarMesh)
+			std::shared_ptr<Renderable> autoFar;
 			std::vector<std::shared_ptr<RenderingInstancedComponent> > blocks;
 			std::vector<std::shared_ptr<GameObject> > blockObjects;	// parallel to blocks
 			std::vector<Vec3> centres;	// tile-local, parallel to blocks
@@ -129,6 +132,11 @@ namespace p3d {
 			std::string densityMapPath;
 		};
 
+		// A grass tuft layer with no far mesh of its own gets one: the same tuft simple (GrassTuft's
+		// simple: every blade where it was, one triangle each) past 15 m. On unless said
+		// (PYROS_FOLIAGE_AUTO_FAR=0 to compare); taken up by blocks made after it changes.
+		static void SetAutoFarMesh(const bool on);
+		static bool GetAutoFarMesh();
 		FoliageComponent() {}
 		virtual ~FoliageComponent() {}
 
