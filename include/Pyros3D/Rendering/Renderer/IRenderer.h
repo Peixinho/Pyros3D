@@ -379,6 +379,9 @@ namespace p3d {
 		OcclusionBuffer occlusionBuffer;
 		// (frames in a row it hid little, and the frame count it rests by)
 		uint32 occlusionQuiet = 0, occlusionTick = 0;
+		// (where the view was when resting occlusion last looked whether it pays: see HideOccluded)
+		Vec3 occlusionLookedFrom, occlusionLookedAlong;
+		size_t occlusionLookedAt = 0;
 		void CullEntry(const size_t i, RenderingMesh* m);
 		void GatherFrameMeshes(SceneGraph* Scene, GameObject* Camera, const uint32 Tag, std::vector<RenderingMesh*> &opaque, std::vector<RenderingMesh*> &translucent);
 		void SortTranslucent(GameObject* Camera, std::vector<RenderingMesh*> &translucent);

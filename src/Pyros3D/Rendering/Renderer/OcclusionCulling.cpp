@@ -56,9 +56,23 @@ namespace p3d {
 		// less than it costs. Thirty frames in a row hiding under kWorth triangles and it rests - made
 		// only every fifteenth frame, to see whether the view has come where it pays (then every frame
 		// again). Resting, everything is drawn: nothing can come out wrong, only slower or faster.
+		// And looked again only if the view is not where it was when it last looked: what it would
+		// hide is the camera's and what is in view's (the occluders are still things), so in a view
+		// that has not changed the answer is the same - and the look was a spike in a still scene's
+		// frame times every quarter second (2.3 ms of drawing occluders, the lists remade with it).
 		static const uint32 kWorth = 50000, kQuietFrames = 30, kRestEvery = 15;
 		occlusionTick++;
-		const bool resting = occlusionQuiet >= kQuietFrames && (occlusionTick % kRestEvery) != 0;
+		bool resting = occlusionQuiet >= kQuietFrames && (occlusionTick % kRestEvery) != 0;
+		if (occlusionQuiet >= kQuietFrames && !resting)
+		{
+			const Matrix &eye = Camera->GetDrawWorld();
+			const Vec3 from = Camera->GetDrawWorldPosition(), along(-eye.m[8], -eye.m[9], -eye.m[10]);
+			const bool same = inView.size() == occlusionLookedAt && from.distanceSQR(occlusionLookedFrom) < 0.25f * 0.25f
+				&& along.dotProduct(occlusionLookedAlong) > 0.9995f;
+			if (same) resting = true;
+			else { occlusionLookedFrom = from; occlusionLookedAlong = along; occlusionLookedAt = inView.size(); }
+		}
+		else if (occlusionQuiet < kQuietFrames) occlusionLookedAt = (size_t)-1;
 		FrameProfiler::Instance().Counter("Occlusion.Resting", resting ? 1.0 : 0.0);
 		if (OcclusionBuffer::GetEnabled() && projection.m.m[15] == 0.f && !resting)
 		{

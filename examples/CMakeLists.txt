@@ -151,7 +151,8 @@ pyros_add_example(WidgetGallery
 # bring-up can be verified without disturbing whatever the rest of this
 # configure already builds (GL/Vulkan examples keep working unchanged) -
 # only needs BUILD_METAL_BACKEND=ON, independent of PYROS_GRAPHICS/CONTEXT.
-if (METAL_BACKEND_FOUND)
+# (A desktop window's test: not on iOS, where an app is a bundle with SDL's main.)
+if (METAL_BACKEND_FOUND AND NOT IOS)
 	add_executable(MetalHelloWindow
 		${CMAKE_CURRENT_SOURCE_DIR}/MetalHelloWindow/MetalHelloWindow.cpp
 		${CMAKE_CURRENT_SOURCE_DIR}/WindowManagers/SDL2Metal/SDL2MetalContext.cpp

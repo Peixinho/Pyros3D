@@ -14,6 +14,7 @@
 #endif
 #include "DemoLauncher.h"
 #include <Pyros3D/Core/Math/Random.h>
+#include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/Rendering/Frame/FramePipeline.h>
 #include "imgui_internal.h"   // DockBuilder* - see Math.h on why order used to matter
 
@@ -428,6 +429,13 @@ void DemoLauncher::Update()
 		physics->Update(dt, 10);
 
 	Scene->Update(time);
+	// The scripts' garbage, within a budget, as the player and the editor collect it. Left to Lua's
+	// own collector a demo whose script makes a Vec3 a frame for each water tile (Island, SSR) had
+	// a 4 ms frame every 0.6 s - the collector's whole cycle at once.
+	{
+		PYROS_PROFILE_SCOPE("Demo.LuaGC");
+		p3d::LuaCollectWithinBudget(&lua, 1.0);
+	}
 
 	if (imguiInitialized)
 	{

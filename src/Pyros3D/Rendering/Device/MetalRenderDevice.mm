@@ -38,10 +38,25 @@
 #import <AppKit/AppKit.h>
 #endif
 #import <Metal/Metal.h>
+#if TARGET_OS_OSX
+#include <CoreVideo/CoreVideo.h>
+#endif
 #import <QuartzCore/CAMetalLayer.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #include <dispatch/dispatch.h>
+#if TARGET_OS_OSX
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+// (each refresh of the display: a count on the device's semaphore - see WaitForRefresh)
+static CVReturn PyrosRefreshTick(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeStamp*, CVOptionFlags, CVOptionFlags*, void* ticks)
+{
+	dispatch_semaphore_signal((__bridge dispatch_semaphore_t)ticks);
+	return kCVReturnSuccess;
+}
+#pragma clang diagnostic pop
+#endif
+
 static inline bool PyrosIsDepthOrStencilFormat(const MTLPixelFormat pf)
 {
 	switch (pf)
@@ -377,6 +392,50 @@ namespace p3d {
 		}
 	}
 
+	// Frames begun on the display's refresh. Begun when the window server hands a drawable back,
+	// they came unevenly - two drawables at once now and then - so a still scene's frames went
+	// 33 ms, then 0.8, then 16.7 apart though the display showed one every 16.7: a zig-zag in the
+	// profiler's graph, and each frame's time step with it. A refresh since the last frame began:
+	// go at once (a frame that ran long loses nothing more). None yet: wait for the next.
+	// PYROS_METAL_PACE=0: begun on the drawable, as it was (to compare).
+	void MetalRenderDevice::WaitForRefresh()
+	{
+#if TARGET_OS_OSX
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+		static const bool paced = !(getenv("PYROS_METAL_PACE") && getenv("PYROS_METAL_PACE")[0] == '0');
+		if (!paced || metalLayer == NULL) return;
+		if (refreshTicks == NULL)
+		{
+			dispatch_semaphore_t ticks = dispatch_semaphore_create(0);
+			CVDisplayLinkRef link = NULL;
+			if (CVDisplayLinkCreateWithActiveCGDisplays(&link) != kCVReturnSuccess || link == NULL) return;
+			refreshTicks = (void*)CFBridgingRetain(ticks);
+			CVDisplayLinkSetOutputCallback(link, PyrosRefreshTick, refreshTicks);
+			CVDisplayLinkStart(link);
+			refreshLink = (void*)link;
+		}
+		// The display the window is on (the refreshes are that display's), looked at now and then
+		if (refreshCheck-- == 0)
+		{
+			refreshCheck = 30;
+			id delegate = ((__bridge CAMetalLayer*)metalLayer).delegate;
+			NSScreen* screen = [delegate isKindOfClass:[NSView class]] ? ((NSView*)delegate).window.screen : nil;
+			const uint32 display = screen != nil ? [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue] : 0;
+			if (display != 0 && display != refreshDisplay)
+			{
+				CVDisplayLinkSetCurrentCGDisplay((CVDisplayLinkRef)refreshLink, display);
+				refreshDisplay = display;
+			}
+		}
+		dispatch_semaphore_t ticks = (__bridge dispatch_semaphore_t)refreshTicks;
+		// (not forever, should the display stop ticking - asleep, unplugged)
+		dispatch_semaphore_wait(ticks, dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC));
+		while (dispatch_semaphore_wait(ticks, DISPATCH_TIME_NOW) == 0) {}
+#pragma clang diagnostic pop
+#endif
+	}
+
 	void MetalRenderDevice::GpuSplitAccount(void* commandBuffer)
 	{
 		id<MTLCommandBuffer> cmd = (__bridge id<MTLCommandBuffer>)commandBuffer;
@@ -513,6 +572,13 @@ namespace p3d {
 
 	MetalRenderDevice::~MetalRenderDevice()
 	{
+#if TARGET_OS_OSX
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+		if (refreshLink != NULL) { CVDisplayLinkStop((CVDisplayLinkRef)refreshLink); CVDisplayLinkRelease((CVDisplayLinkRef)refreshLink); refreshLink = NULL; }
+#pragma clang diagnostic pop
+#endif
+		if (refreshTicks != NULL) { CFBridgingRelease(refreshTicks); refreshTicks = NULL; }
 		// Same ordering requirement as VulkanRenderDevice's destructor
 		// (see WaitIdle()'s comment there) - nothing below may run while
 		// the GPU could still be reading a resource this destructor is
@@ -632,28 +698,21 @@ namespace p3d {
 			// framebufferOnly's perf benefit (lets the driver skip a
 			// present-compatible memory layout) is free to take.
 			layer.framebufferOnly = YES;
-			// PYROS_METAL_DISPLAY_SYNC=0|1 (see the note below; the default is
-			// decided where it is measured)
+			// Display sync off, as MoltenVK sets the Vulkan backend's layer (its swapchain is
+			// IMMEDIATE): a drawable is shown at the first composite after it is done. With it on,
+			// presents queue for the refreshes, and the window server skipped refreshes with frames
+			// waiting - in the LOD demo (still, 6 ms of CPU, 1-8 of GPU) one in four frames stayed
+			// up for two refreshes, every frame in a run, the same under any pacing; with it off,
+			// none did. The frame rate is still the display's: the window server hands back one
+			// drawable a refresh, and the frames begin on the refresh (WaitForRefresh).
+			// PYROS_METAL_DISPLAY_SYNC=1: queued to the refreshes, as it was (to compare).
 #if TARGET_OS_OSX
-			if (const char* sync = getenv("PYROS_METAL_DISPLAY_SYNC"))
-				if (@available(macOS 10.13, *)) layer.displaySyncEnabled = (sync[0] != '0') ? YES : NO;
+			if (@available(macOS 10.13, *))
+			{
+				const char* sync = getenv("PYROS_METAL_DISPLAY_SYNC");
+				layer.displaySyncEnabled = (sync != NULL && sync[0] != '0') ? YES : NO;
+			}
 #endif
-			// Deliberately not setting displaySyncEnabled = NO here, having
-			// measured it. The backend is capped at exactly 60fps and that
-			// property looks like the cause (it defaults to YES, and
-			// MoltenVK sets it to NO for VK_PRESENT_MODE_IMMEDIATE_KHR),
-			// but it is not: with it set to NO and reading back 0, timing
-			// BeginFrame showed [layer nextDrawable] blocking 16.1ms per
-			// frame while the frame-boundary semaphore cost 0.03ms. The
-			// pacing is WindowServer recycling one drawable per refresh for
-			// a composited window, which that property does not control -
-			// it only changed frame times from a steady 16.67ms to a
-			// jittery 16.7-18.5ms. GL is uncapped here only because its
-			// presentation path does not go through a CAMetalLayer at all.
-			//
-			// This caps throughput measurement, not real work: per-scope
-			// CPU timings are unaffected by present pacing, which is how
-			// the Vulkan offscreen-stall fix was measured.
 			//
 			// colorspace left at the system sRGB default unless the editor
 			// calls SetPresentAsLinear(true) - see that method's comment.
@@ -790,10 +849,12 @@ namespace p3d {
 		if (device == NULL || commandQueue == NULL || metalLayer == NULL)
 			return false;
 
-		// PYROS_FRAME_WAIT_TRACE=1: how long a frame waited here, and on what (a frame of the GPU's
-		// still in flight, or the display not yet handing back a drawable), when it was over 4 ms.
+		// PYROS_FRAME_WAIT_TRACE=1: how long a frame waited here, and on what (the display's refresh, a frame
+		// of the GPU's still in flight, or the display not yet handing back a drawable), when the last two were over 4 ms.
 		static const bool waitTrace = getenv("PYROS_FRAME_WAIT_TRACE") != NULL;
 		const std::chrono::steady_clock::time_point w0 = std::chrono::steady_clock::now();
+		WaitForRefresh();
+		const std::chrono::steady_clock::time_point wRefresh = std::chrono::steady_clock::now();
 		dispatch_semaphore_t sem = (__bridge dispatch_semaphore_t)frameBoundarySemaphore;
 		dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
 		const std::chrono::steady_clock::time_point w1 = std::chrono::steady_clock::now();
@@ -820,10 +881,10 @@ namespace p3d {
 			if (waitTrace)
 			{
 				const std::chrono::steady_clock::time_point w2 = std::chrono::steady_clock::now();
-				const f64 inFlight = std::chrono::duration<f64, std::milli>(w1 - w0).count(), display = std::chrono::duration<f64, std::milli>(w2 - w1).count();
+				const f64 refresh = std::chrono::duration<f64, std::milli>(wRefresh - w0).count(), inFlight = std::chrono::duration<f64, std::milli>(w1 - wRefresh).count(), display = std::chrono::duration<f64, std::milli>(w2 - w1).count();
 				if (inFlight + display > 4.0)
-					fprintf(stderr, "[frame-wait] frame %llu: %.1f ms for the GPU's frame in flight, %.1f ms for a drawable (layer: %lu drawables, sync %d)\n",
-						(unsigned long long)deviceFrameNumber, inFlight, display, (unsigned long)layer.maximumDrawableCount, PYROS_LAYER_SYNC(layer));
+					fprintf(stderr, "[frame-wait] frame %llu: %.1f ms for the refresh, %.1f ms for the GPU's frame in flight, %.1f ms for a drawable (layer: %lu drawables, sync %d)\n",
+						(unsigned long long)deviceFrameNumber, refresh, inFlight, display, (unsigned long)layer.maximumDrawableCount, PYROS_LAYER_SYNC(layer));
 			}
 			if (drawable == nil)
 			{
@@ -910,10 +971,12 @@ namespace p3d {
 
 		// Frame throttling - see the header comment on
 		// frameBoundarySemaphore.
-		// PYROS_FRAME_WAIT_TRACE=1: how long a frame waited here, and on what (a frame of the GPU's
-		// still in flight, or the display not yet handing back a drawable), when it was over 4 ms.
+		// PYROS_FRAME_WAIT_TRACE=1: how long a frame waited here, and on what (the display's refresh, a frame
+		// of the GPU's still in flight, or the display not yet handing back a drawable), when the last two were over 4 ms.
 		static const bool waitTrace = getenv("PYROS_FRAME_WAIT_TRACE") != NULL;
 		const std::chrono::steady_clock::time_point w0 = std::chrono::steady_clock::now();
+		WaitForRefresh();
+		const std::chrono::steady_clock::time_point wRefresh = std::chrono::steady_clock::now();
 		dispatch_semaphore_t sem = (__bridge dispatch_semaphore_t)frameBoundarySemaphore;
 		dispatch_semaphore_wait(sem, DISPATCH_TIME_FOREVER);
 		const std::chrono::steady_clock::time_point w1 = std::chrono::steady_clock::now();
@@ -940,10 +1003,10 @@ namespace p3d {
 			if (waitTrace)
 			{
 				const std::chrono::steady_clock::time_point w2 = std::chrono::steady_clock::now();
-				const f64 inFlight = std::chrono::duration<f64, std::milli>(w1 - w0).count(), display = std::chrono::duration<f64, std::milli>(w2 - w1).count();
+				const f64 refresh = std::chrono::duration<f64, std::milli>(wRefresh - w0).count(), inFlight = std::chrono::duration<f64, std::milli>(w1 - wRefresh).count(), display = std::chrono::duration<f64, std::milli>(w2 - w1).count();
 				if (inFlight + display > 4.0)
-					fprintf(stderr, "[frame-wait] frame %llu: %.1f ms for the GPU's frame in flight, %.1f ms for a drawable (layer: %lu drawables, sync %d)\n",
-						(unsigned long long)deviceFrameNumber, inFlight, display, (unsigned long)layer.maximumDrawableCount, PYROS_LAYER_SYNC(layer));
+					fprintf(stderr, "[frame-wait] frame %llu: %.1f ms for the refresh, %.1f ms for the GPU's frame in flight, %.1f ms for a drawable (layer: %lu drawables, sync %d)\n",
+						(unsigned long long)deviceFrameNumber, refresh, inFlight, display, (unsigned long)layer.maximumDrawableCount, PYROS_LAYER_SYNC(layer));
 			}
 			if (drawable == nil)
 			{
