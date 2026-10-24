@@ -309,6 +309,10 @@ namespace p3d {
 		// teardown so a mismatched Bind/Unbind cannot permanently shift every
 		// subsequent texture unit assignment (black screen / unloadable tex).
 		static void ResetUnitCounter();
+		// The counter as it stands, and put back: a pass drawn in the middle of another that needs its
+		// sampler on unit 0 (IRenderer::SunCacheCopy) leaves the units as it found them.
+		static void GetUnitCounter(uint32 &unit, uint32 &last);
+		static void SetUnitCounter(const uint32 unit, const uint32 last);
 		// A thread that records a pass of its own beside the frame's (see
 		// IRenderDevice::BeginParallelStream) counts its texture units for
 		// itself, from zero: on from true to false.

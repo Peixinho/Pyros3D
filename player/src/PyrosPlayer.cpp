@@ -1127,6 +1127,7 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	// terrain and quietly made nothing, so a built game drew its whole
 	// terrain into the shadow map every frame after all.)
 	terrainBakePending = meta.terrainShadowsBaked;
+	fprintf(stderr, "[terrain] scene %s: its shadow of itself %s\n", sceneRel.c_str(), meta.terrainShadowsBaked ? "to be baked" : "not baked");
 	terrainBakeTiles = 0; terrainBakeStable = 0; terrainBakeWaited = 0;
 
 	renderer->SetGlobalLight(Vec4(meta.ambientLight.x * meta.ambientIntensity,
@@ -1315,6 +1316,7 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	{
 		scene->SetTerrainHorizon(TerrainHorizon::Bake(scene, meta.terrainShadowsResolution, meta.terrainShadowsReach));
 		terrainBakePending = false;
+		fprintf(stderr, "[terrain] shadow of itself baked while loading: %s\n", scene->GetTerrainHorizon() ? "made" : "NOT made");
 	}
 
 	// Every model's levels of detail made before the game starts - the scene's, and those its script
@@ -1808,6 +1810,7 @@ void PyrosPlayer::Update()
 			PYROS_PROFILE_SCOPE("Player.TerrainBake");
 			scene->SetTerrainHorizon(TerrainHorizon::Bake(scene, meta.terrainShadowsResolution, meta.terrainShadowsReach));
 			terrainBakePending = false;
+			fprintf(stderr, "[terrain] shadow of itself baked over %zu tiles: %s\n", tiles, scene->GetTerrainHorizon() ? "made" : "NOT made");
 		}
 	}
 

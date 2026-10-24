@@ -906,6 +906,9 @@ namespace p3d {
 
 	void MetalRenderDevice::BeginFrame()
 	{
+		// (render passes begun, the frame before: each one a load and a store of what it draws into)
+		FrameProfiler::Instance().Counter("Metal.Passes", (f64)passesThisFrame);
+		passesThisFrame = 0;
 		gpuSplit = FrameProfiler::Instance().IsGpuExact();      // (for the whole frame: not changed in the middle of one)
 		gpuSplitHasWork = false;
 		if (frameInProgress || device == NULL || commandQueue == NULL || metalLayer == NULL)
@@ -4508,6 +4511,10 @@ namespace p3d {
 		std::map<DeviceHandle, FBORecord>::iterator it = fboRecords.find(fbo);
 		if (it == fboRecords.end())
 			return;
+		passesThisFrame++;
+		// (PYROS_PASS_TRACE=1: the passes of one frame in thirty, with the profiler scope each began in)
+		static const bool passTrace = getenv("PYROS_PASS_TRACE") != NULL;
+		if (passTrace && (deviceFrameNumber % 300) == 0) { const char* sc = FrameProfiler::Instance().CurrentScopeName(); fprintf(stderr, "[pass] frame %llu fbo %llu in %s\n", (unsigned long long)deviceFrameNumber, (unsigned long long)fbo, sc ? sc : "-"); }
 		FBORecord &record = it->second;
 
 		EndCurrentRenderEncoderIfOpen();

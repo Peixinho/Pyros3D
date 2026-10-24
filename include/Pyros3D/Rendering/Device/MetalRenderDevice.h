@@ -1093,6 +1093,7 @@ namespace p3d {
 		bool scissorEnabled = false;
 		uint32 lastScissor[4] = { 0, 0, 0, 0 };
 		bool frameInProgress;
+		uint32 passesThisFrame = 0;
 		// Frames begin on the display's refresh: see RefreshPacer.
 		void WaitForRefresh();
 		// PYROS_GPU_SPLIT=1 (measuring only - slow): every pass its own command buffer, committed and

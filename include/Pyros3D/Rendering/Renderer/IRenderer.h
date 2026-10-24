@@ -847,6 +847,17 @@ namespace p3d {
 		RenderingComponent* shadowRestoreQuad = NULL;
 		Uniform* shadowRestoreFace = NULL;
 		void RestoreShadowFace(Texture* still);
+		// The sun's shadow cache (DirectionalLight::SetShadowCache): what stands still kept in a map of its
+		// own per cascade, and the quad that copies it - into the cascade, or into itself moved along
+		CustomShaderMaterial* sunCacheCopyMaterial = NULL;
+		Uniform* sunCacheCopySource = NULL;
+		Uniform* sunCacheCopyParams = NULL;
+		RenderingComponent* sunCacheQuad = NULL;
+		bool sunCacheBorrowed = false;      // (the second renderer's: this one's, lent)
+		void PrepareSunCache(SunShadowCache &cache);
+		void PrepareShadowCopy();
+		void SunCacheCopy(Texture* source, const int32 offsetX, const int32 offsetY, const bool far);
+		void RecordSunCache(const SunPass &pass);
 		uint32 shadowStillCasters = 0;
 		void NoteShadowMapDrawn(ILightComponent* light) { std::unordered_map<ILightComponent*, ShadowPick>::iterator it = shadowPicks.find(light); if (it != shadowPicks.end()) it->second.validFaces = 0x3F; }
 		// a point light's cube face (0 +X, 1 -X, 2 +Y, 3 -Y, 4 +Z, 5 -Z) still right from an earlier frame: not drawn again

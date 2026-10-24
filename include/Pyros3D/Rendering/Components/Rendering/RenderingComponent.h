@@ -522,6 +522,10 @@ namespace p3d {
 		// (whether that is terrain: asked of every mesh in every shadow pass, so known once, where it is set)
 		bool IsHeightfield() const { return isHeightfield; }
 		uint32 shadowPickSeen = 0;      // (IRenderer::ChooseShadowCasters' pass it was last counted in)
+		// How long it has stood still, for the sun's shadow cache (IRenderer): its owner's world matrix as
+		// last seen, the frames since it changed, and the frame that was looked at last
+		Matrix shadowStillWorld;
+		uint32 shadowStillFrames = 0, shadowStillStamp = 0;
 		// The owning handle, for callers that need to build another
 		// component over the same geometry (the editor's selection
 		// highlight draws a second RenderingComponent on the same

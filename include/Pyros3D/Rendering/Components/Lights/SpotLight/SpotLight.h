@@ -13,9 +13,18 @@
 
 namespace p3d {
 
+	struct SunShadowCache;
 	class PYROS3D_API SpotLight : public ILightComponent {
 
 	public:
+
+		// The shadow cache (IRenderer's spot pass): what stands still in the cone drawn into a map of its
+		// own once - again only when something of it arrives, leaves or moves, or the light does - and each
+		// frame that map put in place and only what moves drawn over it. On unless turned off.
+		void SetShadowCache(const bool on) { shadowCacheOn = on; }
+		bool GetShadowCache() const { return shadowCacheOn; }
+		bool shadowCacheOn = true;
+		std::shared_ptr<SunShadowCache> shadowCache;      // (the renderer's)
 
 		SpotLight() : ILightComponent(LIGHT_TYPE::SPOT) { Color = Vec4(1, 1, 1, 1); Radius = 1.f; }
 

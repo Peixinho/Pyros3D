@@ -288,6 +288,13 @@ namespace p3d {
 			// hands back - as well as on one a script makes)
 			"setShadowCascades", [](DirectionalLight &l, const uint32 cascades, const f32 reach) { l.SetShadowCascades(cascades, reach); },
 			"getNumberCascades", [](DirectionalLight &l) { return l.GetNumberCascades(); },
+			// The shadow cache (DirectionalLight::SetShadowCache): what stands still drawn once and kept.
+			// setShadowCacheWindFrom(1): what sways in the wind kept too from the second cascade on (its
+			// shadow still there); -1, the default, never. setShadowCacheTurn(radians): how far the sun turns
+			// before a kept cascade is drawn again.
+			"setShadowCache", [](DirectionalLight &l, const bool on) { l.SetShadowCache(on); },
+			"setShadowCacheWindFrom", [](DirectionalLight &l, const int32 cascade) { l.SetShadowCacheWindFrom(cascade); },
+			"setShadowCacheTurn", [](DirectionalLight &l, const f32 radians) { l.SetShadowCacheTurn(radians); },
 			"setSun", [](DirectionalLight &l, const bool on) { l.SetSun(on); },
 			// (a sun by the clock: 0..24, up at six, down at eighteen - see DirectionalLight::SetTimeOfDay)
 			"setTimeOfDay", [](DirectionalLight &l, const f32 hour) { l.SetTimeOfDay(hour); },
@@ -345,6 +352,9 @@ namespace p3d {
 				// light:setShadowCascades(2, 60): how many cascades and how far the
 				// shadow reaches, on a light already casting.
 				"setShadowCascades", [](LUA_DirectionalLight &l, const uint32 cascades, const f32 reach) { l.SetShadowCascades(cascades, reach); },
+				"setShadowCache", [](LUA_DirectionalLight &l, const bool on) { l.SetShadowCache(on); },
+				"setShadowCacheWindFrom", [](LUA_DirectionalLight &l, const int32 cascade) { l.SetShadowCacheWindFrom(cascade); },
+				"setShadowCacheTurn", [](LUA_DirectionalLight &l, const f32 radians) { l.SetShadowCacheTurn(radians); },
 				"getLightProjection", &LUA_DirectionalLight::GetLightProjection,
 				"updateCascadeFrustumPoints", &LUA_DirectionalLight::UpdateCascadeFrustumPoints,
 				"getNumberCascades", &LUA_DirectionalLight::GetNumberCascades,

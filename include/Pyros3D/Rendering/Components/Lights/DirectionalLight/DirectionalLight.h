@@ -45,6 +45,7 @@ namespace p3d {
 		Matrix GetCropMatrix();
 	};
 
+	struct SunShadowCache;
 	class PYROS3D_API DirectionalLight : public ILightComponent {
 
 	public:
@@ -73,6 +74,25 @@ namespace p3d {
 		// (`softness`: the sun's angular radius, radians); out to `distance` metres from the
 		// camera. People (skinned) and cut-out or see-through things keep the shadow map.
 		void SetRayTracedShadows(const bool on, const f32 distance = 150.f, const f32 softness = 0.0093f) { rayShadows = on; rayShadowDistance = distance; raySoftness = softness; }
+		// The shadow cache (IRenderer's sun pass): what stands still is drawn into a cascade's map once
+		// and kept - scrolled as the view moves, its parts redrawn where something arrives, leaves or
+		// moves, the whole when the sun has turned more than a texel can hide - and only what moves is
+		// drawn every frame, over it. On unless turned off (or PYROS_SUN_CACHE=0).
+		void SetShadowCache(const bool on) { shadowCacheOn = on; }
+		bool GetShadowCache() const { return shadowCacheOn; }
+		// What sways in the wind (a material with wind: trees, bushes) sways in its shadow too, and a kept
+		// shadow cannot: from which cascade on such casters are kept all the same, standing still
+		// (0 every cascade; -1, the default, none - drawn every frame, swaying). A game's choice.
+		void SetShadowCacheWindFrom(const int32 cascade) { shadowCacheWindFrom = cascade; }
+		int32 GetShadowCacheWindFrom() const { return shadowCacheWindFrom; }
+		// How far the light may turn (radians) before a kept map is drawn again: until then its cascade
+		// is drawn the way the light was, movers too, so the two agree. A cascade a frame is drawn again
+		// past it, so a sun that keeps moving (a day going by) costs one cascade's still things a frame
+		// at most. 0.25 degrees by default - a 10 m wall's shadow 4 cm off.
+		void SetShadowCacheTurn(const f32 radians) { shadowCacheTurn = radians; }
+		f32 GetShadowCacheTurn() const { return shadowCacheTurn; }
+		// (the renderer's: the kept maps and what they hold)
+		std::shared_ptr<SunShadowCache> shadowCache;
 		bool GetRayTracedShadows() const { return rayShadows; }
 		// Contact shadows (the deferred renderer): a short march through the depth buffer toward the
 		// light from every lit pixel, for what is too small or too close for the shadow map - a tyre
@@ -206,6 +226,9 @@ namespace p3d {
 		}
 
 	private:
+		bool shadowCacheOn = true;
+		int32 shadowCacheWindFrom = -1;
+		f32 shadowCacheTurn = 0.0043633f;
 		bool sun = false;
 		f32 sunAzimuth = 0.f, sunTilt = 30.f;
 

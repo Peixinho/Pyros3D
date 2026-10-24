@@ -57,6 +57,8 @@ namespace p3d {
 #define UnitBinded (t_ownUnits ? t_unit : Texture::UnitBinded)
 #define LastUnitBinded (t_ownUnits ? t_lastUnit : Texture::LastUnitBinded)
 	void Texture::ResetUnitCounter() { UnitBinded = 0; LastUnitBinded = 0; }
+	void Texture::GetUnitCounter(uint32 &unit, uint32 &last) { unit = UnitBinded; last = LastUnitBinded; }
+	void Texture::SetUnitCounter(const uint32 unit, const uint32 last) { UnitBinded = unit; LastUnitBinded = last; }
 
 	Texture::Texture() : GL_ID(-1), Type(TextureType::Texture), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0), storedSamples(0) {}
 
