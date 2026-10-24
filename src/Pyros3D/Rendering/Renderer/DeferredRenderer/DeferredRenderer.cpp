@@ -1236,7 +1236,7 @@ namespace p3d {
 		FrameProfiler::Instance().Begin("GBuffer.Draw");
 		// (on every core: see IRenderer::DrawPassOnEveryCore - `with` is the renderer a
 		// thing is drawn by, this one or one of its hands)
-		DrawPassOnEveryCore(visible, NULL,
+		auto drawOne =
 			[&](IRenderer &with, RenderingMesh* mesh, uint32)
 			{
 				// Only materials that actually run PyrosShader.glsl's
@@ -1286,7 +1286,8 @@ namespace p3d {
 					gsm->RestoreOwnProgram();
 				if (usedCustomGBufferSwap)
 					csm->RestoreOwnProgram();
-			},
+			};
+		auto drawBatch =
 			[&](IRenderer &with, RenderingMesh* batchMesh, uint32)
 			{
 				// The instanced sibling of whatever the single draw would
@@ -1306,7 +1307,54 @@ namespace p3d {
 				gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering | (gbuffer ? ShaderUsage::DeferredRenderer_Gbuffer : 0));
 				DrawWith(with, batchMesh, gsm);
 				gsm->RestoreOwnProgram();
-			}, Camera, Scene);
+			};
+		if (!FrameProfiler::Instance().IsGpuExact())
+			DrawPassOnEveryCore(visible, NULL, drawOne, drawBatch, Camera, Scene);
+		else
+		{
+			// Exact GPU times (FrameProfiler::SetGpuExact): the G-buffer drawn kind by kind, each kind
+			// in a pass of its own (the target bound again: resumed, not cleared), so the profiler says
+			// what of it costs - GBuffer.Terrain, .Instanced (foliage, batches), .Skinned, .CutOut
+			// (leaves, cards), .Opaque. (Kind by kind is not the order it is drawn in otherwise: a
+			// measure of each, not of the frame as it is.)
+			auto kindOf = [](RenderingMesh* m) -> int {
+				RenderingComponent* rc = m->renderingComponent;
+				if (rc && rc->IsHeightfield()) return 0;
+				if (rc && rc->IsInstanced()) return 1;
+				if (!m->BonesToDraw().empty() || !m->MapBoneIDs.empty()) return 2;
+				GenericShaderMaterial* g = dynamic_cast<GenericShaderMaterial*>(m->Material.get());
+				if (g && (g->GetOptions() & ShaderUsage::AlphaTest)) return 3;
+				return 4;
+			};
+			static const char* kKinds[5] = { "GBuffer.Terrain", "GBuffer.Instanced", "GBuffer.Skinned", "GBuffer.CutOut", "GBuffer.Opaque" };
+			std::vector<RenderingMesh*> group;
+			for (int k = 0; k < 5; k++)
+			{
+				group.clear();
+				for (size_t i = 0; i < visible.size(); i++) if (kindOf(visible[i]) == k) group.push_back(visible[i]);
+				if (group.empty()) continue;
+				// (and how much of it: triangles, and for the instanced the plants and copies drawn)
+				{
+					f64 tris = 0.0, instances = 0.0;
+					for (size_t i = 0; i < group.size(); i++)
+					{
+						RenderingMesh* m = group[i];
+						const f64 t = m->Geometry ? (f64)(m->Geometry->GetIndexData().size() / 3) : 0.0;
+						RenderingComponent* rc = m->renderingComponent;
+						const f64 copies = (rc && rc->IsInstanced()) ? (f64)static_cast<IRenderingInstancedComponent*>(rc)->NumberOfInstances() : 1.0;
+						tris += t * copies; if (rc && rc->IsInstanced()) instances += copies;
+					}
+					FrameProfiler::Instance().Counter((std::string(kKinds[k]) + ".Tris").c_str(), tris);
+					if (k == 1) FrameProfiler::Instance().Counter("GBuffer.Instanced.Instances", instances);
+				}
+				FrameProfiler::Instance().Begin(kKinds[k]);
+				FBO->UnBind();
+				FBO->Bind();
+				_SetViewPort(viewPortStartX, viewPortStartY, viewPortEndX, viewPortEndY);
+				DrawPassOnEveryCore(group, NULL, drawOne, drawBatch, Camera, Scene);
+				FrameProfiler::Instance().End();
+			}
+		}
 		FrameProfiler::Instance().End();
 
 		// End Rendering
