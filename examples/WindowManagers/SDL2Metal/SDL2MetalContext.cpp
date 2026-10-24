@@ -293,8 +293,14 @@ namespace p3d {
             {
                 // (the motion itself, for a captured pointer: see InputManager::ConsumeMouseDelta.
                 // Before the move is announced, so whoever hears of the move can ask for it.)
-                InputManager::AddMouseDelta((f32)sdl_event.motion.xrel, (f32)sdl_event.motion.yrel);
-                MouseMove(sdl_event.motion.x,sdl_event.motion.y);
+                // (SDL's mouse is in the window's points; the engine - its UI, the touches, getWindowSize - in
+                // the drawable's pixels. The same on a Mac's 1x window; three to one on an iPhone, where a tap on
+                // a menu landed a third of the way to it.)
+                int pw = 0, ph = 0;
+                SDL_GetWindowSize(rview, &pw, &ph);
+                const f32 kx = pw > 0 ? (f32)Width / (f32)pw : 1.f, ky = ph > 0 ? (f32)Height / (f32)ph : 1.f;
+                InputManager::AddMouseDelta((f32)sdl_event.motion.xrel * kx, (f32)sdl_event.motion.yrel * ky);
+                MouseMove((f32)sdl_event.motion.x * kx, (f32)sdl_event.motion.y * ky);
             }
 
             // Fingers. SDL gives each a place from 0 to 1 across the window; the

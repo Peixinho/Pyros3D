@@ -2446,6 +2446,13 @@ void PyrosPlayer::DispatchUIInput()
 
 	int mx = 0, my = 0;
 	const Uint32 buttons = SDL_GetMouseState(&mx, &my);
+	// (SDL's pointer is in the window's points, Width/Height the drawable's pixels: one to one on a
+	// Mac's 1x window, three to one on an iPhone - where a tap on a menu landed a third of the way to it)
+	{
+		int pw = 0, ph = 0;
+		SDL_GetWindowSize(GetSDLWindow(), &pw, &ph);
+		if (pw > 0 && ph > 0) { mx = (int)((f32)mx * (f32)Width / (f32)pw); my = (int)((f32)my * (f32)Height / (f32)ph); }
+	}
 	const bool down = (buttons & SDL_BUTTON(SDL_BUTTON_LEFT)) != 0;
 	const bool insideWindow = (mx >= 0 && my >= 0 && (uint32)mx < Width && (uint32)my < Height);
 
