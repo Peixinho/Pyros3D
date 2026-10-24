@@ -1090,6 +1090,17 @@ namespace p3d {
 		bool scissorEnabled = false;
 		uint32 lastScissor[4] = { 0, 0, 0, 0 };
 		bool frameInProgress;
+		// PYROS_GPU_SPLIT=1 (measuring only - slow): every pass its own command buffer, committed and
+		// waited for before the next begins, so the GPU runs them one after another and each buffer's
+		// GPUStart/EndTime is that pass's own cost. (The stage-boundary timers overlap on a tile-based
+		// GPU - the next pass's vertices run under the last one's fragments - and add up to more than
+		// the frame.) Published as the profiler's GPU timings each frame (FrameProfiler::SetGpuExact turns it on).
+		bool gpuSplit = false, gpuSplitHasWork = false;
+		std::string gpuSplitLabel;
+		std::map<std::string, f64> gpuSplitMs;
+		void GpuSplit(const char* nextLabel);
+		void GpuSplitAccount(void* commandBuffer);
+		void GpuSplitFrameDone();
 
 		// ---- Ray queries ------------------------------------------------
 		// One primitive acceleration structure per geometry (id<MTLAccelerationStructure>),

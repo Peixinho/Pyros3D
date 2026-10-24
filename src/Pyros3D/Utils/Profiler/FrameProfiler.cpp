@@ -330,6 +330,8 @@ namespace p3d {
 
 		ImGui::Checkbox("Enabled", &enabled_);
 		ImGui::SameLine();
+		ImGui::Checkbox("Exact GPU times (slow)", &gpuExact_);
+		ImGui::SameLine();
 		if (ImGui::Button("Clear history"))
 		{
 			historyCount_ = 0;

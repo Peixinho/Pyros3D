@@ -350,6 +350,7 @@ namespace p3d {
 			dispatch_semaphore_t sem = dispatch_semaphore_create(MAX_FRAMES_IN_FLIGHT);
 			frameBoundarySemaphore = (void*)CFBridgingRetain(sem);
 			GpuTimerInit();
+			if (getenv("PYROS_GPU_SPLIT") && getenv("PYROS_GPU_SPLIT")[0] == '1') FrameProfiler::Instance().SetGpuExact(true);
 		}
 	}
 
@@ -374,6 +375,54 @@ namespace p3d {
 			[dev sampleTimestamps:&c gpuTimestamp:&g];
 			gpuCalibCpu = c; gpuCalibGpu = g;
 		}
+	}
+
+	void MetalRenderDevice::GpuSplitAccount(void* commandBuffer)
+	{
+		id<MTLCommandBuffer> cmd = (__bridge id<MTLCommandBuffer>)commandBuffer;
+		if (cmd.status != MTLCommandBufferStatusCompleted) return;
+		const f64 ms = (cmd.GPUEndTime - cmd.GPUStartTime) * 1000.0;
+		if (ms > 0.0) gpuSplitMs[gpuSplitLabel.empty() ? std::string("(frame start)") : gpuSplitLabel] += ms;
+	}
+
+	void MetalRenderDevice::GpuSplit(const char* nextLabel)
+	{
+		if (!gpuSplit || !frameInProgress || currentCommandBuffer == NULL) return;
+		if (gpuSplitHasWork)
+		{
+			@autoreleasepool
+			{
+				id<MTLCommandBuffer> cmd = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
+				[cmd commit];
+				[cmd waitUntilCompleted];
+				GpuSplitAccount(currentCommandBuffer);
+				CFBridgingRelease(currentCommandBuffer);
+				id<MTLCommandQueue> queue = (__bridge id<MTLCommandQueue>)commandQueue;
+				currentCommandBuffer = (void*)CFBridgingRetain([queue commandBuffer]);
+			}
+		}
+		gpuSplitLabel = (nextLabel && nextLabel[0]) ? nextLabel : "(no scope)";
+		gpuSplitHasWork = true;
+	}
+
+	void MetalRenderDevice::GpuSplitFrameDone()
+	{
+		// (this frame's exact times, as the profiler's GPU timings - its window, the profile log,
+		// perf.log - in place of the overlapping stage timers)
+		gpuSplitHasWork = false;
+		FrameProfiler::ScopeRecord records[FrameProfiler::kMaxScopes];
+		uint32 n = 0;
+		f64 total = 0.0;
+		for (std::map<std::string, f64>::const_iterator i = gpuSplitMs.begin(); i != gpuSplitMs.end() && n < FrameProfiler::kMaxScopes - 1; ++i)
+		{
+			std::snprintf(records[n].name, FrameProfiler::kMaxNameLen, "%s", i->first.c_str());
+			records[n].ms = i->second; records[n].depth = 0;
+			total += i->second; n++;
+		}
+		std::snprintf(records[n].name, FrameProfiler::kMaxNameLen, "Total (exact)");
+		records[n].ms = total; records[n].depth = 0;
+		FrameProfiler::Instance().SetGpuTimings(records, n + 1);
+		gpuSplitMs.clear();
 	}
 
 	void MetalRenderDevice::GpuTimerAttach(void* renderPassDescriptor)
@@ -458,7 +507,7 @@ namespace p3d {
 			}
 			std::snprintf(records[recordCount].name, FrameProfiler::kMaxNameLen, "Total (sum of passes)");
 			records[recordCount].ms = last > first ? (f64)(last - first) * gpuTicksToNs * 1e-6 : 0.0; records[recordCount].depth = 0;
-			FrameProfiler::Instance().SetGpuTimings(records, recordCount + 1);
+			if (!gpuSplit) FrameProfiler::Instance().SetGpuTimings(records, recordCount + 1);
 		}
 	}
 
@@ -835,6 +884,7 @@ namespace p3d {
 			lastSubmittedCommandBuffer = (void*)CFBridgingRetain(cmdBuf);
 
 			[cmdBuf commit];
+			if (gpuSplit) { [cmdBuf waitUntilCompleted]; GpuSplitAccount((__bridge void*)cmdBuf); GpuSplitFrameDone(); }
 		}
 		return true;
 	}
@@ -853,6 +903,8 @@ namespace p3d {
 
 	void MetalRenderDevice::BeginFrame()
 	{
+		gpuSplit = FrameProfiler::Instance().IsGpuExact();      // (for the whole frame: not changed in the middle of one)
+		gpuSplitHasWork = false;
 		if (frameInProgress || device == NULL || commandQueue == NULL || metalLayer == NULL)
 			return;
 
@@ -923,6 +975,7 @@ namespace p3d {
 				rpd.depthAttachment.clearDepth = 1.0;
 			}
 
+			if (gpuSplit) { GpuSplit(FrameProfiler::Instance().CurrentScopeName()); cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer; }
 			GpuTimerAttach((__bridge void*)rpd);
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);
@@ -1042,6 +1095,7 @@ namespace p3d {
 			lastSubmittedCommandBuffer = (void*)CFBridgingRetain(cmdBuf);
 
 			[cmdBuf commit];
+			if (gpuSplit) { [cmdBuf waitUntilCompleted]; GpuSplitAccount((__bridge void*)cmdBuf); GpuSplitFrameDone(); }
 
 			CFBridgingRelease(currentCommandBuffer);
 			currentCommandBuffer = NULL;
@@ -4496,6 +4550,7 @@ namespace p3d {
 				return;
 
 			id<MTLCommandBuffer> cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer;
+			if (gpuSplit) { GpuSplit(FrameProfiler::Instance().CurrentScopeName()); cmdBuf = (__bridge id<MTLCommandBuffer>)currentCommandBuffer; }
 			GpuTimerAttach((__bridge void*)rpd);
 			id<MTLRenderCommandEncoder> encoder = [cmdBuf renderCommandEncoderWithDescriptor:rpd];
 			currentRenderEncoder = (void*)CFBridgingRetain(encoder);

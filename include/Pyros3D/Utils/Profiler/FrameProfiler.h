@@ -64,6 +64,12 @@ namespace p3d {
 		// GPU time per pass label, from a frame that has finished on the GPU
 		// (a couple of frames behind the CPU scopes). The device publishes it.
 		void SetGpuTimings(const ScopeRecord *records, uint32 count);
+		// Exact GPU times: each pass run alone, waited for before the next - the GPU's own time for
+		// it, not the overlapping stage timers a tile-based GPU gives. Slow: for measuring. The
+		// profiler window has a box for it; PYROS_GPU_SPLIT=1 starts with it on; Lua setGpuExactTimings.
+		// (Metal reads it at the start of each frame.)
+		void SetGpuExact(const bool on) { gpuExact_ = on; }
+		bool IsGpuExact() const { return gpuExact_; }
 		uint32 GpuCount() const { return gpuCount_; }
 		const ScopeRecord &GpuAt(const uint32 i) const { return gpu_[i]; }
 
@@ -124,6 +130,7 @@ namespace p3d {
 		};
 
 		bool enabled_;
+		bool gpuExact_ = false;
 		bool windowOpen_;
 		TimePoint frameStart_;
 		std::vector<OpenScope> stack_;

@@ -10,6 +10,7 @@
 #include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
 namespace p3d {
 
@@ -109,6 +110,8 @@ namespace p3d {
 			return PostEffectsManager::SetEffectParam(effect, param, v, n);
 		});
 		// setPostEffectEnabled("SSAO", false): a post effect that is an asset switched off (or on), by name
+		// setGpuExactTimings(true): the profiler's GPU times exact, each pass run alone (slow: for measuring; Metal)
+		lua->set_function("setGpuExactTimings", [](const bool on) { FrameProfiler::Instance().SetGpuExact(on); });
 		lua->set_function("setPostEffectEnabled", [](const std::string &effect, const bool on) { return PostEffectsManager::SetEffectEnabled(effect, on); });
 		// setShaderGlobal(index, x, y, z, w): one of the sixteen vec4 every shader may read as
 		// uGlobals[index] (index 0..15; see IRenderer::SetShaderGlobal).
