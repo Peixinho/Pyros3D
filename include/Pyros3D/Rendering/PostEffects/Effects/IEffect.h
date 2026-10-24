@@ -90,6 +90,11 @@ namespace p3d {
 		// there is smoke - and otherwise costs its full-screen passes for
 		// nothing.
 		virtual bool IsIdle() const { return false; }
+		// Switched off - a game's graphics setting, or to see what an effect costs: passed over like an
+		// idle one (PostEffectsManager::SetEffectEnabled, Lua setPostEffectEnabled).
+		void SetEnabled(const bool on) { enabledByUser = on; }
+		bool IsEnabled() const { return enabledByUser; }
+		bool enabledByUser = true;
 
 		// Compile Shader
 		void CompileShaders();

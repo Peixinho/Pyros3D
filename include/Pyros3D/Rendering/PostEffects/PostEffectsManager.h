@@ -129,6 +129,8 @@ namespace p3d {
 		// script does not know which view's chain it is talking to. Returns how
 		// many effects took it.
 		static uint32 SetEffectParam(const std::string &effectName, const std::string &paramName, const f32 *values, const uint32 count);
+		// Every effect of that name (an asset's) switched on or off, in every chain; how many there were.
+		static uint32 SetEffectEnabled(const std::string &effectName, const bool on);
 
 		const uint32 GetNumberEffects() const;
 

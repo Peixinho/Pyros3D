@@ -67,6 +67,22 @@ namespace p3d {
 		return taken;
 	}
 
+	uint32 PostEffectsManager::SetEffectEnabled(const std::string &effectName, const bool on)
+	{
+		uint32 taken = 0;
+		std::set<PostEffectsManager*> &live = LiveManagers();
+		for (std::set<PostEffectsManager*>::iterator m = live.begin(); m != live.end(); ++m)
+		{
+			std::vector<IEffect*> &list = (*m)->effects;
+			for (size_t i = 0; i < list.size(); i++)
+			{
+				CustomEffect* fx = dynamic_cast<CustomEffect*>(list[i]);
+				if (fx != NULL && fx->GetEffectName() == effectName) { fx->SetEnabled(on); taken++; }
+			}
+		}
+		return taken;
+	}
+
 	PostEffectsManager::PostEffectsManager(const uint32 width, const uint32 height) : device(ResolvePostEffectsDevice()), fullscreenVao(0), viewportGammaEffect(NULL)
 	{
 		LiveManagers().insert(this);
@@ -564,10 +580,12 @@ namespace p3d {
 			std::vector<IEffect*> finals;
 			aaStage->AppendFinalPasses(finals);
 			size_t busy = 0;
-			for (size_t e = 0; e < effects.size(); e++) if (!effects[e]->IsIdle()) busy++;
+			// (an effect switched off - IEffect::SetEnabled - goes the same way)
+			auto idle = [](IEffect* fx) { return fx->IsIdle() || !fx->IsEnabled(); };
+			for (size_t e = 0; e < effects.size(); e++) if (!idle(effects[e])) busy++;
 			const bool mayDrop = busy > 0 || !finals.empty() || taaPass != NULL;
 			for (size_t e = 0; e < effects.size(); e++)
-				if (!mayDrop || !effects[e]->IsIdle()) run.push_back(effects[e]);
+				if (!mayDrop || !idle(effects[e])) run.push_back(effects[e]);
 		}
 		if (taaPass != NULL)
 			run.push_back(taaPass);

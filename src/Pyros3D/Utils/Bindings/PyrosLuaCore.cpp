@@ -108,6 +108,8 @@ namespace p3d {
 			for (auto a : va) { if (n >= 4) break; v[n++] = a.get<f32>(); }
 			return PostEffectsManager::SetEffectParam(effect, param, v, n);
 		});
+		// setPostEffectEnabled("SSAO", false): a post effect that is an asset switched off (or on), by name
+		lua->set_function("setPostEffectEnabled", [](const std::string &effect, const bool on) { return PostEffectsManager::SetEffectEnabled(effect, on); });
 		// setShaderGlobal(index, x, y, z, w): one of the sixteen vec4 every shader may read as
 		// uGlobals[index] (index 0..15; see IRenderer::SetShaderGlobal).
 		lua->set_function("setShaderGlobal", [](const uint32 index, sol::variadic_args va) {
