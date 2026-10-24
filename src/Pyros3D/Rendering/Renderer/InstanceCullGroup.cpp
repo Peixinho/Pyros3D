@@ -142,6 +142,17 @@ namespace p3d {
 		const bool gl = !dev.IsVulkan() && !dev.RenderTargetOriginIsTopLeft();
 		return dev.SupportsCompute() && dev.SupportsDrawIndirect() && (!gl || g_onGLAsked);
 	}
+	bool InstanceCullGroup::DrawerSphere(RenderingComponent* rc, Vec3 &centre, f32 &radius)
+	{
+		if (rc == NULL || !rc->IsInstanced()) return false;
+		IRenderingInstancedComponent* irc = static_cast<IRenderingInstancedComponent*>(rc);
+		InstanceCullGroup* g = irc->cullGroup;
+		if (g == NULL || irc->indirectArgs == 0 || (irc != g->nearDrawer.get() && irc != g->farDrawer.get())) return false;
+		centre = g->viewCentre;
+		radius = g->viewRadius;
+		return true;
+	}
+
 	void InstanceCullGroup::SetEnabled(const bool on) { g_enabled = on; }
 	bool InstanceCullGroup::GetEnabled() { return g_enabled; }
 
@@ -221,6 +232,19 @@ namespace p3d {
 
 		uint32 total = 0;
 		for (size_t b = 0; b < visibleBlocks.size(); b++) total += visibleBlocks[b]->InstancesToDraw();
+		// (the blocks' bounds, together: DrawerSphere)
+		{
+			Vec3 lo(1e30f, 1e30f, 1e30f), hi(-1e30f, -1e30f, -1e30f);
+			for (size_t b = 0; b < visibleBlocks.size(); b++)
+			{
+				const Vec3 c = visibleBlocks[b]->GetOwner()->GetDrawWorld() * visibleBlocks[b]->GetBoundingSphereCenter();
+				const f32 r = visibleBlocks[b]->GetBoundingSphereRadius();
+				lo = Vec3(std::min(lo.x, c.x - r), std::min(lo.y, c.y - r), std::min(lo.z, c.z - r));
+				hi = Vec3(std::max(hi.x, c.x + r), std::max(hi.y, c.y + r), std::max(hi.z, c.z + r));
+			}
+			viewCentre = (lo + hi) * 0.5f;
+			viewRadius = visibleBlocks.empty() ? 0.f : (hi - lo).magnitude() * 0.5f;
+		}
 		EnsureCapacity(std::max<uint32>(total, 1));
 
 		// This view's buffers: room for every block of the group
@@ -325,6 +349,10 @@ namespace p3d {
 		static thread_local std::unordered_map<InstanceCullGroup*, std::vector<RenderingInstancedComponent*> > found;
 		for (std::unordered_map<InstanceCullGroup*, std::vector<RenderingInstancedComponent*> >::iterator it = found.begin(); it != found.end(); ++it) it->second.clear();
 		bool any = false;
+		// (a block once, however many of its meshes the view lists - both its levels while it fades from
+		// one to the other: counted twice it was culled twice, and its group's parameters overran)
+		static thread_local std::unordered_map<const RenderingInstancedComponent*, bool> seen;
+		seen.clear();
 		for (size_t i = 0; i < visible.size(); i++)
 		{
 			RenderingComponent* rc = visible[i]->renderingComponent;
@@ -334,7 +362,7 @@ namespace p3d {
 			if (irc->cullGroup == NULL || irc == irc->cullGroup->nearDrawer.get() || irc == irc->cullGroup->farDrawer.get()) continue;
 			std::vector<RenderingInstancedComponent*> &list = found[irc->cullGroup];
 			RenderingInstancedComponent* blk = static_cast<RenderingInstancedComponent*>(irc);
-			if (list.empty() || list.back() != blk) list.push_back(blk);
+			if (seen.insert(std::make_pair(blk, true)).second) list.push_back(blk);
 			any = true;
 		}
 		if (!any) return;

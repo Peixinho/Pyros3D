@@ -73,6 +73,9 @@ namespace p3d {
 		// take (more views this frame than they have room for): left as it is. frameKey tells one frame
 		// from the next (the scene's update time).
 		static void CullView(std::vector<RenderingMesh*> &visible, GameObject* camera, const Matrix &projection, const f64 frameKey);
+		// A drawer's bounds in the view just culled - the blocks it draws there - for whatever chooses
+		// what reaches it by where it is (the forward renderer's lights). False: not a drawer.
+		static bool DrawerSphere(class RenderingComponent* rc, Vec3 &centre, f32 &radius);
 
 	private:
 		bool Cull(const uint32 region, std::vector<RenderingInstancedComponent*> &blocks, const Vec4 worldPlanes[6], const Vec3 &eyeWorld);
@@ -85,6 +88,8 @@ namespace p3d {
 		f32 farFrom, meshRadius;
 		bool tinted;
 		uint32 capacity = 0;
+		Vec3 viewCentre;
+		f32 viewRadius = 0.f;
 		// Per region (a view of a frame in flight): the dispatches' parameters, the draws' arguments. A
 		// buffer each, not a part of one: writing the second view's would wait for the first's cull.
 		static const uint32 kMaxRegions = 4;

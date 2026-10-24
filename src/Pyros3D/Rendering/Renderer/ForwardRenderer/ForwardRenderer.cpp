@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
+#include <Pyros3D/Rendering/Renderer/InstanceCullGroup.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <typeinfo>
@@ -358,6 +359,9 @@ namespace p3d {
 				}
 				FrameProfiler::Instance().Counter("Occlusion.Hidden", (f64)occluded);
 			}
+			// What is drawn: in view (the kept list's test, or each one's own)...
+			static thread_local std::vector<RenderingMesh*> drawList;
+			drawList.clear();
 			const size_t candidates = listed ? shown.size() : rmesh.size();
 			for (size_t c = 0; c < candidates; c++)
 			{
@@ -385,19 +389,36 @@ namespace p3d {
 				}
 				if (!cullingTest || (!listed && (!(*i)->renderingComponent->IsActive() || (*i)->Active != true)))
 					continue;
+				drawList.push_back(*i);
+			}
+			// ...what is culled on the GPU handed to it, its drawers in its place (InstanceCullGroup - not a
+			// clipped view, a water's reflection: those take the blocks, and leave the views the GPU has
+			// room for to the eye's)...
+			if (!ClipPlane)
+			{
+				PYROS_PROFILE_SCOPE("Forward.GpuCull");
+				InstanceCullGroup::CullView(drawList, Camera, projection.m, Scene ? Scene->GetUpdateTime() : 0.0);
+			}
+			// ...and the lights that reach each
+			for (size_t d = 0; d < drawList.size(); d++)
+			{
+				RenderingMesh* const mesh = drawList[d];
+				GameObject* owner = mesh->renderingComponent->GetOwner();
 
 				// The bounding sphere's centre - see CullingSphereTest.
 				Vec3 objectPosition = owner->GetDrawWorld() * owner->GetBoundingSphereCenter();
 				f32 objectRadius = owner->GetDrawRadiusWorldSpace();
 				// (one object in many places - see SetLightsPerGeometry)
-				if ((*i)->renderingComponent->LightsPerGeometry() && (*i)->Geometry != NULL)
+				if (mesh->renderingComponent->LightsPerGeometry() && mesh->Geometry != NULL)
 				{
 					const Matrix &w = owner->GetDrawWorld();
-					objectPosition = w * (*i)->Geometry->GetBoundingSphereCenter();
+					objectPosition = w * mesh->Geometry->GetBoundingSphereCenter();
 					const f32 sx = sqrtf(w.m[0] * w.m[0] + w.m[1] * w.m[1] + w.m[2] * w.m[2]);
 					const f32 sy = sqrtf(w.m[4] * w.m[4] + w.m[5] * w.m[5] + w.m[6] * w.m[6]);
-					objectRadius = (*i)->Geometry->GetBoundingSphereRadius() * (sx > sy ? sx : sy);
+					objectRadius = mesh->Geometry->GetBoundingSphereRadius() * (sx > sy ? sx : sy);
 				}
+				// (a GPU cull's drawer: lit as the blocks it draws in this view are)
+				InstanceCullGroup::DrawerSphere(mesh->renderingComponent, objectPosition, objectRadius);
 				objectLights.clear();
 				for (uint32 l = 0; l < _Lights.size(); l++)
 				{
@@ -444,7 +465,7 @@ namespace p3d {
 				for (uint32 u = 0; u < usedCount; u++)
 					signature = (signature ^ used[u]) * 1099511628211ull;
 
-				visible.push_back(*i);
+				visible.push_back(mesh);
 				lightSignature.push_back(signature);
 				lightStart.push_back((uint32)lightIndex.size());
 				lightIndex.insert(lightIndex.end(), objectLights.begin(), objectLights.end());

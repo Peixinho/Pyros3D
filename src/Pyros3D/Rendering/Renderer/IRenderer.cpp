@@ -2277,30 +2277,33 @@ namespace {
 	bool g_terrainShadowBaked = false;
 	thread_local uint32 g_shadowCastersDrawn = 0, g_shadowCastersLeftOut = 0;
 
-	bool ShadowReachesView(RenderingMesh* m)
+	// `view`: the recording thread's (g_shadowView is a thread's own - asked on a worker, it was that
+	// worker's: off, or the slice of a sun pass it had recorded itself, and casters fell in and out of
+	// the map from one frame to the next as the answers went to one worker or another)
+	bool ShadowReachesView(RenderingMesh* m, const ShadowViewCull &view)
 	{
 		RenderingComponent* rc = m->renderingComponent;
 		if (rc->IsInstanced() || !rc->IsCullTesting()) return true;
 		GameObject* owner = rc->GetOwner();
 		const Vec3 scale = owner->GetDrawScale();
-		const f32 r = rc->GetBoundingSphereRadius() * Max(Max(fabs(scale.x), fabs(scale.y)), fabs(scale.z)) + g_shadowView.margin;
+		const f32 r = rc->GetBoundingSphereRadius() * Max(Max(fabs(scale.x), fabs(scale.y)), fabs(scale.z)) + view.margin;
 		const Vec3 c = owner->GetDrawWorld() * rc->GetBoundingSphereCenter();
 		for (int k = 0; k < 6; k++)
 		{
-			const Vec3 &pn = g_shadowView.n[k];
-			if (pn.dotProduct(c - g_shadowView.p[k]) < -r && pn.dotProduct(g_shadowView.light) <= 0.f)
+			const Vec3 &pn = view.n[k];
+			if (pn.dotProduct(c - view.p[k]) < -r && pn.dotProduct(view.light) <= 0.f)
 			{
 				// PYROS_VERIFY_SHADOW_CULL=1: the answer checked the slow way -
 				// no point of the slice may lie in this caster's shadow.
-				if (g_shadowView.verify)
+				if (view.verify)
 				{
-					const f32 real = r - g_shadowView.margin;
+					const f32 real = r - view.margin;
 					for (int q = 0; q < 512; q++)
 					{
-						const Vec3 to = g_shadowView.probe[q] - c;
-						const f32 along = to.dotProduct(g_shadowView.light);
+						const Vec3 to = view.probe[q] - c;
+						const f32 along = to.dotProduct(view.light);
 						if (along < 0.f) continue;
-						const Vec3 off = to - g_shadowView.light * along;
+						const Vec3 off = to - view.light * along;
 						if (off.dotProduct(off) < real * real)
 						{
 							fprintf(stderr, "[shadow-cull] WRONG: %s was left out and shadows a point of the view\n", owner->GetName().c_str());
@@ -2800,11 +2803,13 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	// (the workers answering see their own thread_locals, not these: what they write to goes by pointer)
 	uint32* const drawnBits = proxyDrawn.data();
 	uint32* const leftOutBits = proxyLeftOut.data();
+	// (the view this thread is recording: the workers below are handed it - see ShadowReachesView)
+	const ShadowViewCull &view = g_shadowView;
 	auto askProxy = [&](RenderingMesh* proxy) -> int {      // 0 not drawn, 1 drawn, 2 left out
 		if (!proxy->Material || proxy->Material->IsTransparent()) return 0;
 		if (proxy->standsFor != NULL && !proxy->standsFor->Active) return 0;       // (a part hidden on the model)
 		if (cullTest && !ShadowCasterVisible(proxy)) return 0;
-		if (cullTest && g_shadowView.on && !ShadowReachesView(proxy)) return 2;
+		if (cullTest && view.on && !ShadowReachesView(proxy, view)) return 2;
 		return 1;
 	};
 	AnswerInParallel(count, answers, [&](const uint32 n) -> uint8 {
@@ -2835,7 +2840,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		}
 		if (cullTest && (f & CullTested) && !CullListTest(i)) return 0;
 		if (g_terrainShadowBaked && rc->IsHeightfield()) return 0;
-		if (cullTest && g_shadowView.on && !ShadowReachesView(m)) return 2;
+		if (cullTest && view.on && !ShadowReachesView(m, view)) return 2;
 		return 1;
 	});
 	std::vector<RenderingMesh*> casters;
