@@ -1090,11 +1090,7 @@ namespace p3d {
 		bool scissorEnabled = false;
 		uint32 lastScissor[4] = { 0, 0, 0, 0 };
 		bool frameInProgress;
-		// A Mac's frames begin on the display's refresh (a display link ticking a semaphore, on the
-		// display the window is on): see WaitForRefresh.
-		void* refreshLink = NULL;
-		void* refreshTicks = NULL;
-		uint32 refreshDisplay = 0, refreshCheck = 0;
+		// Frames begin on the display's refresh: see RefreshPacer.
 		void WaitForRefresh();
 		// PYROS_GPU_SPLIT=1 (measuring only - slow): every pass its own command buffer, committed and
 		// waited for before the next begins, so the GPU runs them one after another and each buffer's

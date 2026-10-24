@@ -12,6 +12,7 @@
 #include <emscripten/html5.h>
 #endif
 #include <Pyros3D/Core/InputManager/InputManager.h>
+#include <Pyros3D/Rendering/Device/RefreshPacer.h>
 #include <Pyros3D/Core/InputManager/InputActions.h>
 #include <Pyros3D/Other/PyrosGL.h>
 #include "SDL2Context.h"
@@ -305,6 +306,19 @@ namespace p3d {
     }
     void SDL2Context::GetEvents()
     {
+        // (the display's refresh rate, for frames begun on the refresh where the system has no refresh to
+        // wait on - RefreshPacer; looked at about once a second, as the window may move to another display)
+        {
+            static int refreshLook = 0;
+            if (refreshLook-- <= 0 && rview != NULL)
+            {
+                refreshLook = 60;
+                SDL_DisplayMode mode;
+                const int display = SDL_GetWindowDisplayIndex(rview);
+                if (SDL_GetCurrentDisplayMode(display < 0 ? 0 : display, &mode) == 0 && mode.refresh_rate > 0)
+                    p3d::RefreshPacer::SetRefreshRate((double)mode.refresh_rate);
+            }
+        }
         // Brought up here rather than beside SDL_Init: it is its own
         // subsystem, safe to ask for late, and this is the one place every
         // path through the window manager reaches.

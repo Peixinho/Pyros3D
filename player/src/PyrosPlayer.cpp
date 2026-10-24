@@ -1,3 +1,4 @@
+#include <Pyros3D/Rendering/Device/RefreshPacer.h>
 #include <Pyros3D/Core/InputManager/TouchControls.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
@@ -615,9 +616,15 @@ end
 	// setUpscaleSharpness(0.85): how sharp (0..1)
 	lua.set_function("setUpscaleSharpness", [this](const f32 s) { if (s < 0.f) upscaler = UpscalerMode::Off; else upscaleSharpness = s; ApplyUpscaler(); });
 	// setFrameRateLimit(fps): no more frames a second than that (0: as many
-	// as there are). getDisplayRefreshRate(): what the screen the window is on
-	// can show, or 0 when it will not say.
-	lua.set_function("setFrameRateLimit", [this](const f32 fps) { frameRateLimit = fps < 0.f ? 0.f : fps; });
+	// as there are - a benchmark's). -1: as the display refreshes, each frame
+	// begun on a refresh (RefreshPacer), which is how a game starts. An asked-for
+	// rate is the limit's own: the frames are then no longer begun on the refresh.
+	// getDisplayRefreshRate(): what the screen the window is on can show, or 0
+	// when it will not say.
+	lua.set_function("setFrameRateLimit", [this](const f32 fps) {
+		frameRateLimit = fps < 0.f ? 0.f : fps;
+		RefreshPacer::SetEnabled(fps < 0.f);
+	});
 	lua.set_function("getDisplayRefreshRate", [this]() {
 		SDL_DisplayMode mode;
 		const int display = GetSDLWindow() ? SDL_GetWindowDisplayIndex(GetSDLWindow()) : 0;
@@ -786,17 +793,18 @@ end
 		upscaleQuality = m.qAutoFps > 0.f ? UpscaleQuality::Auto
 			: (m.qRenderScale > 0.f && m.qRenderScale < 0.999f ? UpscaleQuality::Quality : UpscaleQuality::Native);
 	}
-	if (m.qFrameLimit > -1.5f)
+	// "frameRateLimit": left out or -1, the display's rate - each frame begun on a refresh
+	// (RefreshPacer); a number, that many frames a second at most, and 0 as many as there are -
+	// the frames then no longer begun on the refresh.
+	if (m.qFrameLimit >= 0.f)
 	{
-		f32 limit = m.qFrameLimit;
-		if (limit < 0.f)
-		{
-			// the display's own rate, where that is an ordinary one
-			SDL_DisplayMode mode;
-			const int display = GetSDLWindow() ? SDL_GetWindowDisplayIndex(GetSDLWindow()) : 0;
-			limit = (SDL_GetCurrentDisplayMode(display < 0 ? 0 : display, &mode) == 0 && mode.refresh_rate >= 50 && mode.refresh_rate <= 75) ? (f32)mode.refresh_rate : 0.f;
-		}
-		frameRateLimit = limit;
+		frameRateLimit = m.qFrameLimit;
+		RefreshPacer::SetEnabled(false);
+	}
+	else
+	{
+		frameRateLimit = 0.f;
+		RefreshPacer::SetEnabled(true);
 	}
 
 	// What the project asked to have ready before anything is played (its

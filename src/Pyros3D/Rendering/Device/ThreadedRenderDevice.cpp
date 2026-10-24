@@ -4,6 +4,7 @@
 //               (see the header).
 //============================================================================
 
+#include <Pyros3D/Rendering/Device/RefreshPacer.h>
 #include <string>
 #include <functional>
 #include <thread>
@@ -44,7 +45,7 @@ namespace p3d {
 		: keep(realDevice), real(realDevice.get()), filling(new Batch()), framesBehind(0), gpuWaitUs(0), presentWaitUs(0), nextGiven(kFirstGiven)
 	{
 		trace = std::getenv("PYROS_DEVICE_THREAD_TRACE") != NULL;
-		worker = std::thread([this]() { Work(); });
+		worker = std::thread([this]() { RefreshPacer::NotOnThisThread(); Work(); });
 		g_threaded = this;
 	}
 
@@ -367,6 +368,11 @@ namespace p3d {
 
 	void ThreadedRenderDevice::BeginFrame()
 	{
+		// Begun on the display's refresh here, on the thread whose frame this is (see RefreshPacer.h;
+		// the device thread does not wait for it again) - once a frame: a BeginFrame with the frame
+		// already open (the post chain's, inside the application's) waited for a second refresh, and
+		// every deferred demo ran at half the rate. Waiting for the display: not the frame's work.
+		if (!said.frameOpen) FrameProfiler::NoteDisplayWait(RefreshPacer::Wait());
 		// No more than a frame ahead of the device thread: what is drawn is seen
 		// soon, and the queue stays short. (Time waited here is time the GPU
 		// side is the slower one.)

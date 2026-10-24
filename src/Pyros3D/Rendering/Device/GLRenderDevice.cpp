@@ -7,6 +7,8 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
+#include <Pyros3D/Rendering/Device/RefreshPacer.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
 #include <Pyros3D/Materials/IMaterial.h>
@@ -34,13 +36,20 @@ namespace p3d {
 
 	// No GL equivalent - see the comment on IRenderDevice::BeginFrame()/
 	// EndFrame(). SDL2Context::Draw()'s SDL_GL_SwapWindow() is GL's actual
-	// frame-boundary/present step, untouched by this.
+	// frame-boundary/present step, untouched by this - but the frame is begun on the display's
+	// refresh here (see RefreshPacer.h: with no swap interval, GL's frames came as fast as they
+	// could, never two the same). Once a frame: the first BeginFrame since the last EndFrame.
+	static bool g_glFrameBegun = false;
 	void GLRenderDevice::BeginFrame()
 	{
+		if (g_glFrameBegun) return;
+		g_glFrameBegun = true;
+		FrameProfiler::NoteDisplayWait(RefreshPacer::Wait());
 	}
 
 	void GLRenderDevice::EndFrame()
 	{
+		g_glFrameBegun = false;
 	}
 
 	// Genuine no-op, not a stub - GL's context model has no equivalent

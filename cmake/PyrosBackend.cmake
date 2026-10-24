@@ -279,13 +279,6 @@ if (BUILD_METAL_BACKEND)
 		# link line drags every other framework into the same SDK.
 		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK}
 			${FOUNDATION_FRAMEWORK} ${COREGRAPHICS_FRAMEWORK})
-		# (a Mac's display link: frames begun on the refresh - MetalRenderDevice::WaitForRefresh)
-		if (NOT IOS)
-			find_library(COREVIDEO_FRAMEWORK CoreVideo)
-			if (COREVIDEO_FRAMEWORK)
-				list(APPEND METAL_BACKEND_LIBS ${COREVIDEO_FRAMEWORK})
-			endif()
-		endif()
 		pyros_frameworks_by_name(METAL_BACKEND_LIBS)
 		# Apple's upscaler, where the system has it (macOS 13 on): linked weakly,
 		# so the engine still loads where it does not.

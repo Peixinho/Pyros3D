@@ -22,6 +22,7 @@
 //============================================================================
 
 #include "Pyros3D/Rendering/Device/MetalRenderDevice.h"
+#include "Pyros3D/Rendering/Device/RefreshPacer.h"
 
 #ifdef METAL_BACKEND
 #if __has_include(<MetalFX/MetalFX.h>)
@@ -38,25 +39,10 @@
 #import <AppKit/AppKit.h>
 #endif
 #import <Metal/Metal.h>
-#if TARGET_OS_OSX
-#include <CoreVideo/CoreVideo.h>
-#endif
 #import <QuartzCore/CAMetalLayer.h>
 #import <CoreGraphics/CoreGraphics.h>
 #import <Foundation/Foundation.h>
 #include <dispatch/dispatch.h>
-#if TARGET_OS_OSX
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-// (each refresh of the display: a count on the device's semaphore - see WaitForRefresh)
-static CVReturn PyrosRefreshTick(CVDisplayLinkRef, const CVTimeStamp*, const CVTimeStamp*, CVOptionFlags, CVOptionFlags*, void* ticks)
-{
-	dispatch_semaphore_signal((__bridge dispatch_semaphore_t)ticks);
-	return kCVReturnSuccess;
-}
-#pragma clang diagnostic pop
-#endif
-
 static inline bool PyrosIsDepthOrStencilFormat(const MTLPixelFormat pf)
 {
 	switch (pf)
@@ -392,48 +378,11 @@ namespace p3d {
 		}
 	}
 
-	// Frames begun on the display's refresh. Begun when the window server hands a drawable back,
-	// they came unevenly - two drawables at once now and then - so a still scene's frames went
-	// 33 ms, then 0.8, then 16.7 apart though the display showed one every 16.7: a zig-zag in the
-	// profiler's graph, and each frame's time step with it. A refresh since the last frame began:
-	// go at once (a frame that ran long loses nothing more). None yet: wait for the next.
-	// PYROS_METAL_PACE=0: begun on the drawable, as it was (to compare).
+	// Frames begun on the display's refresh, not when a drawable comes back - see RefreshPacer.h.
+	// (Display sync off as well: see BindToLayer.)
 	void MetalRenderDevice::WaitForRefresh()
 	{
-#if TARGET_OS_OSX
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-		static const bool paced = !(getenv("PYROS_METAL_PACE") && getenv("PYROS_METAL_PACE")[0] == '0');
-		if (!paced || metalLayer == NULL) return;
-		if (refreshTicks == NULL)
-		{
-			dispatch_semaphore_t ticks = dispatch_semaphore_create(0);
-			CVDisplayLinkRef link = NULL;
-			if (CVDisplayLinkCreateWithActiveCGDisplays(&link) != kCVReturnSuccess || link == NULL) return;
-			refreshTicks = (void*)CFBridgingRetain(ticks);
-			CVDisplayLinkSetOutputCallback(link, PyrosRefreshTick, refreshTicks);
-			CVDisplayLinkStart(link);
-			refreshLink = (void*)link;
-		}
-		// The display the window is on (the refreshes are that display's), looked at now and then
-		if (refreshCheck-- == 0)
-		{
-			refreshCheck = 30;
-			id delegate = ((__bridge CAMetalLayer*)metalLayer).delegate;
-			NSScreen* screen = [delegate isKindOfClass:[NSView class]] ? ((NSView*)delegate).window.screen : nil;
-			const uint32 display = screen != nil ? [screen.deviceDescription[@"NSScreenNumber"] unsignedIntValue] : 0;
-			if (display != 0 && display != refreshDisplay)
-			{
-				CVDisplayLinkSetCurrentCGDisplay((CVDisplayLinkRef)refreshLink, display);
-				refreshDisplay = display;
-			}
-		}
-		dispatch_semaphore_t ticks = (__bridge dispatch_semaphore_t)refreshTicks;
-		// (not forever, should the display stop ticking - asleep, unplugged)
-		dispatch_semaphore_wait(ticks, dispatch_time(DISPATCH_TIME_NOW, 50 * NSEC_PER_MSEC));
-		while (dispatch_semaphore_wait(ticks, DISPATCH_TIME_NOW) == 0) {}
-#pragma clang diagnostic pop
-#endif
+		if (metalLayer != NULL) RefreshPacer::Wait(metalLayer);
 	}
 
 	void MetalRenderDevice::GpuSplitAccount(void* commandBuffer)
@@ -572,13 +521,6 @@ namespace p3d {
 
 	MetalRenderDevice::~MetalRenderDevice()
 	{
-#if TARGET_OS_OSX
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
-		if (refreshLink != NULL) { CVDisplayLinkStop((CVDisplayLinkRef)refreshLink); CVDisplayLinkRelease((CVDisplayLinkRef)refreshLink); refreshLink = NULL; }
-#pragma clang diagnostic pop
-#endif
-		if (refreshTicks != NULL) { CFBridgingRelease(refreshTicks); refreshTicks = NULL; }
 		// Same ordering requirement as VulkanRenderDevice's destructor
 		// (see WaitIdle()'s comment there) - nothing below may run while
 		// the GPU could still be reading a resource this destructor is

@@ -18,6 +18,7 @@
 // those same global names.
 #define VMA_IMPLEMENTATION
 #include <Pyros3D/Rendering/Device/ThreadedRenderDevice.h>
+#include <Pyros3D/Rendering/Device/RefreshPacer.h>
 #include <utility>
 #include <chrono>
 #include <atomic>
@@ -700,6 +701,14 @@ namespace p3d {
 		}
 
 		uint32 imageCount = capabilities.minImageCount + 1;
+#if defined(__APPLE__)
+		// One more on a Mac: MoltenVK's acquire waits for macOS to hand a drawable back, which it
+		// does once a refresh while it throttles the window and as fast as asked while it does not -
+		// the frames went from a steady 60 to 70 uncapped as the window was covered. Begun on the
+		// refresh instead (RefreshPacer), the spare image keeps that acquire from holding the device
+		// thread a refresh more: with three, a deferred demo had 103-108 frames off in 12 s, 32-47 with four.
+		imageCount += 1;
+#endif
 		if (capabilities.maxImageCount > 0 && imageCount > capabilities.maxImageCount)
 			imageCount = capabilities.maxImageCount;
 
@@ -1693,6 +1702,8 @@ namespace p3d {
 	{
 		if (swapchain == VK_NULL_HANDLE)
 			return false;
+		// (frames begun on the display's refresh, not on the swapchain's image - see RefreshPacer.h)
+		FrameProfiler::NoteDisplayWait(RefreshPacer::Wait());
 
 		// Bounded timeout - see BeginFrame()'s comment on
 		// FRAME_WAIT_TIMEOUT_NS for why UINT64_MAX here can hang the
@@ -2107,6 +2118,11 @@ namespace p3d {
 		}
 
 		hostMappedBuffersSafeThisFrame = false;
+		// Frames begun on the display's refresh, not when the swapchain hands an image back (unevenly
+		// - two at once now and then - on a Mac; as fast as they come where the present mode is
+		// IMMEDIATE): the device thread passed it on to the main thread as frames 14-21 ms apart in a
+		// still scene. See RefreshPacer.h. (Waiting for the display: not the frame's work.)
+		FrameProfiler::NoteDisplayWait(RefreshPacer::Wait());
 
 		// Shadow / pre-frame offscreen work (PreRender) may still be
 		// recording after UnBind deferred its flush - submit before we
