@@ -1975,13 +1975,15 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		|| L.layer != renderLayer || L.lod != lod || L.sorting != sorting;
 
 	// (what has come and gone since: before anything of the kept list is followed)
-	if (!fresh && !ApplyListed(L, Scene, Tag)) fresh = true;
+	// (each part of this in a scope of its own: a slow frame in a perf.log says which)
+	if (!fresh) { PYROS_PROFILE_SCOPE("Lists.Apply"); if (!ApplyListed(L, Scene, Tag)) fresh = true; }
 	if (!fresh)
 	{
 		// Levels of detail follow the camera every frame (and say so, through
 		// RenderState's log, when one of them changes what the scene draws).
 		if (lod)
 		{
+			PYROS_PROFILE_SCOPE("Lists.Lod");
 			const Vec3 eye = Camera->GetWorldPosition();
 			// Which level each thing wants is worked out on every core - it reads
 			// the thing and writes nothing shared - and only the ones that want a
@@ -2025,7 +2027,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 				if (lodOf[i]->IsLODFading()) lodOf[i]->StepLODFade();
 			}
 		}
-		if (!fresh && !ApplyListed(L, Scene, Tag)) fresh = true;
+		if (!fresh) { PYROS_PROFILE_SCOPE("Lists.Apply"); if (!ApplyListed(L, Scene, Tag)) fresh = true; }
 		// (one that has got instances, or has none left: its entries are read
 		// again, as a moved object's are)
 		if (GameObject::DrawCopies()) for (size_t i = 0; i < L.instanced.size(); i++) static_cast<IRenderingInstancedComponent*>(L.instanced[i].first)->TakeDrawCount();
@@ -2042,6 +2044,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		const size_t nOpaque = L.opaque.size();
 		if (!fresh)
 		{
+			PYROS_PROFILE_SCOPE("Lists.Same");
 			// (every listed mesh looked at, to see that it still wears what it wore
 			// and is still switched as it was: read only, so on every core)
 			const size_t nAll = nOpaque + L.translucent.size();
@@ -2082,6 +2085,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 	FrameProfiler::Instance().Counter("Lists.Fresh", fresh ? 1.0 : 0.0);
 	if (fresh)
 	{
+		PYROS_PROFILE_SCOPE("Lists.Build");
 		GatherFrameMeshes(Scene, Camera, Tag, L.opaque, L.translucent);
 		L.version = RenderState::Version.load(std::memory_order_relaxed);
 		L.listedSeq = RenderState::ListedCount();
@@ -3995,7 +3999,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 	// Group and Sort Meshes
 	{
 		PYROS_PROFILE_SCOPE("Renderer.GroupAndSort");
-		RenderingComponent::PollAutomaticLODs();      // (levels made since: given now)
+		{ PYROS_PROFILE_SCOPE("Lists.PollLods"); RenderingComponent::PollAutomaticLODs(); }      // (levels made since: given now)
 		UseFrameList(Scene, Camera, Tag);
 	}
 
