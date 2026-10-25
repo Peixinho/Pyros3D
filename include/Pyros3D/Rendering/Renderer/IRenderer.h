@@ -407,6 +407,7 @@ namespace p3d {
 			std::vector<uint8> flags;
 			std::vector<uint32> cellOf;             // see cullCell
 			std::vector<Vec4> cellSphere;
+			uint32 cellsLost = 0, cellsBuiltAt = 0, cellsMade = 0;     // (entries taken out of their cells since the grid was made; the frame it was; how many it put in one)
 			std::vector<Vec3> translucentPlace;     // where each see-through mesh's object is: what it is sorted by
 			std::vector<uint32> seenOrder;          // last frame's order of them, nearest first: this frame's sort starts from it
 			std::vector<std::pair<std::pair<int32, f32>, uint32> > seenKeyed;   // (its scratch)
@@ -414,6 +415,8 @@ namespace p3d {
 			std::vector<std::pair<RenderingComponent*, bool> > instanced;      // and whether it had no instances
 			std::unordered_map<GameObject*, std::vector<uint32> > where;        // an owner's places in the kept arrays
 		};
+		// The kept list's grid of cells (cullCell), made from where its entries are now.
+		static void BuildCullGrid(FrameList &L, const Vec4* sphere, const uint8* flags, const size_t n);
 		std::map<std::pair<SceneGraph*, uint32>, FrameList> frameLists;
 		// What has come onto the scene's list and gone off it since the kept
 		// list last read the log (RenderState::Listed), put into the kept list

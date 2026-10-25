@@ -1912,6 +1912,54 @@ bool IRenderer::ApplyListed(FrameList &L, SceneGraph* Scene, const uint32 Tag)
 }
 
 // The frame's list, kept. See FrameList in the header and RenderState.h.
+// The grid: what is tested for culling by its sphere and small enough to belong to one 48 m cell of ground,
+// in that cell; each cell's sphere holds all of its entries'. (What moves afterwards leaves its cell - the
+// moved log, UseFrameList - and once an eighth of the list has, the grid is made again from where things
+// are: it was made only with the list, and everything that settled or streamed in after was in no cell,
+// every view and cascade asking each mesh for itself.)
+void IRenderer::BuildCullGrid(FrameList &L, const Vec4* cullSphere, const uint8* cullFlags, const size_t n)
+{
+	static const f32 kCell = 48.f;
+	L.cellOf.assign(n, kNoCell);
+	L.cellsMade = 0;
+	L.cellSphere.clear();
+	std::unordered_map<uint64, uint32> cells;
+	std::vector<Vec3> lo, hi;
+	for (size_t i = 0; i < n; i++)
+	{
+		const uint8 f = cullFlags[i];
+		const Vec4 &sp = cullSphere[i];
+		if (!(f & CullOwner) || !(f & CullTested) || (f & CullBox) || !(sp.w > 0.f) || sp.w > kCell * 0.75f) continue;
+		const int32 cx = (int32)floorf(sp.x / kCell), cz = (int32)floorf(sp.z / kCell);
+		const uint64 key = ((uint64)(uint32)cx << 32) | (uint64)(uint32)cz;
+		std::unordered_map<uint64, uint32>::iterator at = cells.find(key);
+		uint32 c;
+		if (at == cells.end())
+		{
+			c = (uint32)lo.size();
+			cells[key] = c;
+			lo.push_back(Vec3(sp.x - sp.w, sp.y - sp.w, sp.z - sp.w));
+			hi.push_back(Vec3(sp.x + sp.w, sp.y + sp.w, sp.z + sp.w));
+		}
+		else
+		{
+			c = at->second;
+			lo[c].x = std::min(lo[c].x, sp.x - sp.w); lo[c].y = std::min(lo[c].y, sp.y - sp.w); lo[c].z = std::min(lo[c].z, sp.z - sp.w);
+			hi[c].x = std::max(hi[c].x, sp.x + sp.w); hi[c].y = std::max(hi[c].y, sp.y + sp.w); hi[c].z = std::max(hi[c].z, sp.z + sp.w);
+		}
+		L.cellOf[i] = c;
+		L.cellsMade++;
+	}
+	L.cellSphere.resize(lo.size());
+	for (size_t c = 0; c < lo.size(); c++)
+	{
+		const Vec3 mid((lo[c].x + hi[c].x) * 0.5f, (lo[c].y + hi[c].y) * 0.5f, (lo[c].z + hi[c].z) * 0.5f);
+		const Vec3 half(hi[c].x - mid.x, hi[c].y - mid.y, hi[c].z - mid.z);
+		L.cellSphere[c] = Vec4(mid.x, mid.y, mid.z, sqrtf(half.x * half.x + half.y * half.y + half.z * half.z));
+	}
+	L.cellsLost = 0;
+}
+
 void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32 Tag)
 {
 	static const bool keep = []() { const char* v = std::getenv("PYROS_FRAME_LISTS"); return !(v && v[0] == '0'); }();
@@ -2052,44 +2100,8 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		// The grid: what is tested for culling by its sphere, and small enough
 		// to belong to one cell of ground. (What moves afterwards leaves its
 		// cell: the moved log, below.)
-		{
-			static const f32 kCell = 48.f;
-			L.cellOf.assign(n, kNoCell);
-			L.cellSphere.clear();
-			std::unordered_map<uint64, uint32> cells;
-			std::vector<Vec3> lo, hi;
-			for (size_t i = 0; i < n; i++)
-			{
-				const uint8 f = cullFlags[i];
-				const Vec4 &sp = cullSphere[i];
-				if (!(f & CullOwner) || !(f & CullTested) || (f & CullBox) || !(sp.w > 0.f) || sp.w > kCell * 0.75f) continue;
-				const int32 cx = (int32)floorf(sp.x / kCell), cz = (int32)floorf(sp.z / kCell);
-				const uint64 key = ((uint64)(uint32)cx << 32) | (uint64)(uint32)cz;
-				std::unordered_map<uint64, uint32>::iterator at = cells.find(key);
-				uint32 c;
-				if (at == cells.end())
-				{
-					c = (uint32)lo.size();
-					cells[key] = c;
-					lo.push_back(Vec3(sp.x - sp.w, sp.y - sp.w, sp.z - sp.w));
-					hi.push_back(Vec3(sp.x + sp.w, sp.y + sp.w, sp.z + sp.w));
-				}
-				else
-				{
-					c = at->second;
-					lo[c].x = std::min(lo[c].x, sp.x - sp.w); lo[c].y = std::min(lo[c].y, sp.y - sp.w); lo[c].z = std::min(lo[c].z, sp.z - sp.w);
-					hi[c].x = std::max(hi[c].x, sp.x + sp.w); hi[c].y = std::max(hi[c].y, sp.y + sp.w); hi[c].z = std::max(hi[c].z, sp.z + sp.w);
-				}
-				L.cellOf[i] = c;
-			}
-			L.cellSphere.resize(lo.size());
-			for (size_t c = 0; c < lo.size(); c++)
-			{
-				const Vec3 mid((lo[c].x + hi[c].x) * 0.5f, (lo[c].y + hi[c].y) * 0.5f, (lo[c].z + hi[c].z) * 0.5f);
-				const Vec3 half(hi[c].x - mid.x, hi[c].y - mid.y, hi[c].z - mid.z);
-				L.cellSphere[c] = Vec4(mid.x, mid.y, mid.z, sqrtf(half.x * half.x + half.y * half.y + half.z * half.z));
-			}
-		}
+		BuildCullGrid(L, cullSphere.data(), cullFlags.data(), n);
+		L.cellsBuiltAt = shadowPassCounter;
 		L.translucentPlace.resize(L.translucent.size());
 		L.materials.clear();
 		std::unordered_set<IMaterial*> &seenMaterials = L.materialSeen;
@@ -2128,10 +2140,12 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 		// Where things are: only what has been moved since this was last here.
 		const size_t nOpaque = L.opaque.size();
 		std::vector<GameObject*> moved;
+		bool regridNow = false;
 		cullSphere.swap(L.sphere); cullFlags.swap(L.flags);
 		if (RenderState::MovedSince(L.movedSeq, moved))
 		{
 			L.movedSeq += moved.size();
+			if (Tag == 0) FrameProfiler::Instance().Counter("Lists.Moved", (f64)moved.size());
 			for (size_t k = 0; k < moved.size(); k++)
 			{
 				std::unordered_map<GameObject*, std::vector<uint32> >::iterator at = L.where.find(moved[k]);
@@ -2139,8 +2153,20 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 				for (size_t e = 0; e < at->second.size(); e++)
 				{
 					const uint32 idx = at->second[e];
+					const Vec4 was = cullSphere[idx];
 					CullEntry(idx, meshAt(idx));
-					if (idx < L.cellOf.size()) L.cellOf[idx] = kNoCell;       // (it has moved: out of its cell, asked for itself from now on)
+					// (it has moved: out of its cell, asked for itself - until the grid is made again. Noted as
+					// moved is not always somewhere else: every awake object is noted each frame it is worked
+					// out, and was taken out of its cell for it - the grid emptied within a second of a game.)
+					// Still wholly inside its cell's sphere, it stays in the cell: what settles or sways a little
+					// keeps it, what travels leaves.
+					const Vec4 &now = cullSphere[idx];
+					if (idx < L.cellOf.size() && L.cellOf[idx] != kNoCell && (now.x != was.x || now.y != was.y || now.z != was.z || now.w != was.w))
+					{
+						const Vec4 &cell = L.cellSphere[L.cellOf[idx]];
+						const f32 dx = now.x - cell.x, dy = now.y - cell.y, dz = now.z - cell.z;
+						if (!(now.w <= cell.w && sqrtf(dx * dx + dy * dy + dz * dz) + now.w <= cell.w)) { L.cellOf[idx] = kNoCell; L.cellsLost++; }
+					}
 					if (idx >= nOpaque) L.translucentPlace[idx - nOpaque] = placeOf(meshAt(idx));
 				}
 			}
@@ -2150,6 +2176,8 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 			// more has moved than is remembered: all of them, then
 			L.movedSeq = RenderState::MovedCount();
 			L.cellOf.assign(L.cellOf.size(), kNoCell);
+			L.cellsLost = (uint32)L.cellOf.size();
+			regridNow = true;       // (the grid is made again, below, whenever it was last)
 			for (size_t idx = 0; idx < nOpaque + L.translucent.size(); idx++)
 			{
 				CullEntry(idx, meshAt(idx));
@@ -2157,6 +2185,19 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 			}
 		}
 		cullSphere.swap(L.sphere); cullFlags.swap(L.flags);
+		// (an eighth of the list out of its cells - what streamed in or travelled since the list was made: the
+		// grid made again from where things are, at most every 300th frame - Cull.GridUs, what that took)
+		const size_t nAll = nOpaque + L.translucent.size();
+		static const bool regrid = !(std::getenv("PYROS_CULL_REGRID") && std::getenv("PYROS_CULL_REGRID")[0] == '0');
+		if (regrid && L.cellsLost > 0 && L.cellsLost * 8 >= nAll && (regridNow || shadowPassCounter - L.cellsBuiltAt >= 300)
+			&& L.sphere.size() == nAll && L.flags.size() == nAll)
+		{
+			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+			BuildCullGrid(L, L.sphere.data(), L.flags.data(), nAll);
+			L.cellsBuiltAt = shadowPassCounter;
+			if (Tag == 0) FrameProfiler::Instance().Counter("Cull.GridUs", std::chrono::duration<f64, std::micro>(std::chrono::steady_clock::now() - t0).count());
+		}
+		if (Tag == 0) FrameProfiler::Instance().Counter("Cull.InCells", (f64)(L.cellsMade > L.cellsLost ? L.cellsMade - L.cellsLost : 0));
 	}
 
 	// This frame's: the opaque as kept, then what is seen through, furthest
@@ -2368,7 +2409,7 @@ namespace {
 	}
 }
 void IRenderer::SetShadowCasterViewCull(const bool on) { g_shadowViewCullWanted = on; }
-namespace { thread_local bool t_inSunPass = false; thread_local bool t_sunAsBefore = false; }   // (t_sunAsBefore: PYROS_SUN_CACHE_WALKS - the frustum asked last, as it was)
+namespace { thread_local bool t_inSunPass = false; thread_local bool t_sunAsBefore = false; thread_local bool t_sunCells = true; thread_local uint64 t_sunAsked = 0, t_sunListed = 0; }   // (t_sunAsBefore: PYROS_SUN_CACHE_WALKS - the frustum asked last, as it was)
 
 // The sun's shadow pass: see the note where it is put together, in PreRender.
 struct IRenderer::SunPass
@@ -2398,6 +2439,7 @@ struct IRenderer::SunPass
 	int32 windFrom = -1;
 	uint32 frame = 0;
 	bool walkEach = false;      // (PYROS_SUN_CACHE_WALKS: strips and patches each chosen by walking the scene)
+	bool cells = true;          // (PYROS_SHADOW_CELLS: casters asked only in the list's cells in the cascade - RenderShadowCasters)
 };
 // The sun's shadow cache (DirectionalLight::SetShadowCache): per cascade, a map of what stands still in its
 // box, kept from frame to frame, and what is in it - each thing's footprint in the light's space, so that a
@@ -2842,6 +2884,8 @@ void IRenderer::RecordSunPass(const SunPass &pass)
 	static const char* kCascadeCutTris[8] = { "Shadow.C0.CutTris", "Shadow.C1.CutTris", "Shadow.C2.CutTris", "Shadow.C3.CutTris", "Shadow.C4.CutTris", "Shadow.C5.CutTris", "Shadow.C6.CutTris", "Shadow.C7.CutTris" };
 	// (the kept maps first, each a target of its own: then the cascades, each the kept map and what moves)
 	t_sunAsBefore = pass.walkEach;
+	t_sunCells = pass.cells;
+	t_sunAsked = t_sunListed = 0;
 	if (pass.cache)
 	{
 		if (exact) FrameProfiler::Instance().Begin("Shadow.Cache");
@@ -2972,6 +3016,9 @@ void IRenderer::RecordSunPass(const SunPass &pass)
 	}
 
 	if (exact) FrameProfiler::Instance().End();
+	// (how many meshes the sun's pass asked about, of how many its walks had: the list's cells at work)
+	FrameProfiler::Instance().Counter("Shadow.Asked", (f64)t_sunAsked);
+	FrameProfiler::Instance().Counter("Shadow.Listed", (f64)t_sunListed);
 	EndClippingPlanes();
 
 	// Disable Depth Bias
@@ -3414,9 +3461,30 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	std::vector<uint8> answers;
 	// (read here, on the thread recording the pass: the answers below are worked out on others)
 	const bool leaveRayTraced = t_inSunPass && sunLeaveRayTraced;
-	const bool frustumFirst = !(t_inSunPass && t_sunAsBefore);
 	const std::vector<uint32>* subset = shadowCasterSubset;
-	const size_t count = subset != NULL ? subset->size() : rmesh.size();
+	const bool frustumFirst = !(t_inSunPass && t_sunAsBefore);
+	// A sun's cascade: only the meshes of the list's cells that are in its frustum, and those in no cell -
+	// a pass over one array, not every mesh asked (most of a cascade's meshes are in cells wholly outside
+	// it, and CullListTest would turn each of them away for that alone; a component's own shadow meshes
+	// are asked about its object's sphere, so they go with it). PYROS_SHADOW_CELLS=0: every mesh asked.
+	static thread_local std::vector<uint32> inCells;
+	const bool byCells = t_sunCells && subset == NULL && cullTest && t_inSunPass && frustumFirst && IsCulling && culling
+		&& cullCell.size() == rmesh.size() && !cullCellOut.empty();
+	if (byCells)
+	{
+		inCells.clear();
+		const uint32* cellOf = cullCell.data();
+		const uint8* out = cullCellOut.data();
+		const uint32 cells = (uint32)cullCellOut.size();
+		for (uint32 i = 0; i < (uint32)rmesh.size(); i++)
+		{
+			const uint32 cell = cellOf[i];
+			if (cell == kNoCell || cell >= cells || !out[cell]) inCells.push_back(i);
+		}
+	}
+	const std::vector<uint32>* walk = byCells ? &inCells : subset;      // (which of the list are asked: subset still says whose map it is)
+	const size_t count = walk != NULL ? walk->size() : rmesh.size();
+	if (t_inSunPass) { t_sunAsked += count; t_sunListed += rmesh.size(); }
 	// A component casting with meshes of its own (answer 3): which of them are drawn and which left out
 	// as unable to reach the view, a bit each - asked with the rest, in parallel. (They were asked after,
 	// one by one on the thread recording the pass: a tree's impostor proxy, a house's, in every cascade -
@@ -3437,7 +3505,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		return 1;
 	};
 	AnswerInParallel(count, answers, [&](const uint32 n) -> uint8 {
-		const uint32 i = subset != NULL ? (*subset)[n] : n;
+		const uint32 i = walk != NULL ? (*walk)[n] : n;
 		const uint8 f = cullFlags[i];
 		if ((f & (CullOwner | CullCasts | CullComponentActive)) != (CullOwner | CullCasts | CullComponentActive) || (f & CullTransparent)) return 0;
 		// (outside the pass's frustum first, from the list's own arrays - most of a cascade's meshes are, and
@@ -3494,7 +3562,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	from.clear();
 	for (size_t n = 0; n < count; n++)
 	{
-		const size_t i = subset != NULL ? (*subset)[n] : n;
+		const size_t i = walk != NULL ? (*walk)[n] : n;
 		const uint8 a = answers[n];
 		// A light's own map (the subset is a point or spot light's casters): 512 texels a face, read
 		// softly - what casts there is drawn at its next coarser level of detail, once for the
@@ -4102,6 +4170,15 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 						}
 						else pass.walkEach = walks != NULL && walks[0] == '1';
 						if (walks != NULL) FrameProfiler::Instance().Counter("SunCache.Walks", pass.walkEach ? 1.0 : 0.0);
+						// (PYROS_SHADOW_CELLS=0: every mesh of the list asked in each cascade; =t<seconds>, in turn with the cells)
+						static const char* cells = std::getenv("PYROS_SHADOW_CELLS");
+						if (cells != NULL && cells[0] == 't')
+						{
+							const f64 every = Max(1.0, atof(cells + 1));
+							pass.cells = ((int64)(std::chrono::duration<f64>(std::chrono::steady_clock::now() - began).count() / every)) % 2 == 0;
+						}
+						else pass.cells = !(cells != NULL && cells[0] == '0');
+						if (cells != NULL) FrameProfiler::Instance().Counter("Shadow.Cells", pass.cells ? 1.0 : 0.0);
 					}
 					bool turnedOne = false;
 					const Matrix trueView = ViewMatrix;
