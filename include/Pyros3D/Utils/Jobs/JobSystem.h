@@ -47,8 +47,12 @@ namespace p3d {
 
 		void Run(JobFn fn, void* ctx, JobCounter &counter);
 		void Run(const std::function<void()> &fn, JobCounter &counter);
-		// Returns once counter reaches zero, running queued jobs meanwhile.
+		// Returns once counter reaches zero, running queued jobs of that counter meanwhile.
 		void Wait(JobCounter &counter);
+		// Returns once counter reaches zero, running nothing: for jobs that must not
+		// run on the waiting thread (a frame recorded beside the game's logic, whose
+		// thread is writing another stream of commands meanwhile). Workers take them.
+		void WaitWithoutHelping(JobCounter &counter);
 
 		// Splits [0, count) into batches of at least minBatch and calls
 		// fn(begin, end) for each, the caller taking a share. Returns when

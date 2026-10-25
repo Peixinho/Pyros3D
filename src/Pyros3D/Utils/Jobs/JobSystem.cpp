@@ -323,6 +323,28 @@ namespace p3d {
 			return true;
 		}
 
+		// Only a job counted on this counter: what Wait helps with, for the same
+		// reason. Helping with anything, the game's thread - waiting on physics in
+		// the middle of the next frame's logic - took the frame being recorded
+		// beside it and recorded it into the logic's own stream of commands, which
+		// is placed only once that frame is done: the first device call that waits
+		// for the device waited for itself, and the game froze.
+		bool TryRunFor(const JobCounter* counter)
+		{
+			Job job;
+			{
+				std::lock_guard<std::mutex> lock(mutex);
+				std::deque<Job>::iterator at = queue.begin();
+				for (; at != queue.end(); ++at) if (at->counter == counter) break;
+				if (at == queue.end()) return false;
+				job = std::move(*at);
+				queue.erase(at);
+				queued.fetch_sub(1, std::memory_order_relaxed);
+			}
+			Execute(job);
+			return true;
+		}
+
 		bool TryRunOne()
 		{
 			Job job;
@@ -544,11 +566,22 @@ namespace p3d {
 	{
 		// Help rather than sleep: the jobs this caller is waiting for may be
 		// sitting in the queue behind others, and a job waiting on its own
-		// sub-jobs would otherwise hold a worker hostage.
+		// sub-jobs would otherwise hold a worker hostage. Its own jobs only
+		// (TryRunFor): not another thread's work run in the middle of this one's.
 		while (counter.pending.load(std::memory_order_acquire) > 0)
 		{
-			if (!impl->TryRunOne())
+			if (!impl->TryRunFor(&counter))
 				for (int k = 0; k < 8; k++) CpuRelax();
+		}
+	}
+
+	void JobSystem::WaitWithoutHelping(JobCounter &counter)
+	{
+		uint32 spins = 0;
+		while (counter.pending.load(std::memory_order_acquire) > 0)
+		{
+			if (++spins < 4096) { for (int k = 0; k < 8; k++) CpuRelax(); }
+			else std::this_thread::yield();
 		}
 	}
 

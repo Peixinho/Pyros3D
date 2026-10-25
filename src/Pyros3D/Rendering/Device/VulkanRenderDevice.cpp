@@ -7003,6 +7003,15 @@ namespace p3d {
 		// render pass ends - no separate transition needed before the
 		// main pass reads it.
 		depthAttachment.finalLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		// ...and one whose contents must outlive the pass (SetFramebufferPreserveDepth - the shadow
+		// cache's kept maps) is loaded, entered in the layout every pass leaves it in, as
+		// BuildMultiAttachmentRenderPass() does. This builder cleared it regardless: each frame a
+		// kept map was only patched, all of the map was wiped first and only the patch drawn back.
+		if (fbo.preserveDepth)
+		{
+			depthAttachment.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD;
+			depthAttachment.initialLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		}
 
 		VkAttachmentReference depthRef = {};
 		depthRef.attachment = 0;
@@ -7024,7 +7033,8 @@ namespace p3d {
 		dependencies[0].srcStageMask = VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT;
 		dependencies[0].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
 		dependencies[0].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-		dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		dependencies[0].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+			| (fbo.preserveDepth ? VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT : 0);       // (loaded: read too)
 		dependencies[1].srcSubpass = 0;
 		dependencies[1].dstSubpass = VK_SUBPASS_EXTERNAL;
 		dependencies[1].srcStageMask = VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;

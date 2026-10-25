@@ -12,6 +12,8 @@
 #include <cstdio>
 #include <cstdlib>
 #include <thread>
+#include <mutex>
+#include <vector>
 
 namespace p3d {
 
@@ -24,6 +26,14 @@ namespace p3d {
 	{
 		return std::this_thread::get_id() == gFrameThread.load(std::memory_order_relaxed);
 	}
+
+	// Counters set on another thread - the frame recorded beside the game's logic (FramePipeline), the
+	// sun's pass beside the scene: kept here, and taken into the frame's at its end (EndFrame). They
+	// were dropped, and every counter of a frame recorded on another thread kept whatever value the
+	// game's thread had last given it - in a log, a figure that never moved.
+	struct OtherCounter { char name[64]; f64 value; };
+	static std::mutex gOtherMutex;
+	static std::vector<OtherCounter> gOtherCounters;
 
 	// PYROS_PROFILE_LOG=<path> appends the frame breakdown every 30 frames,
 	// for apps with no UI or socket to read it from (DemoLauncher, a built
@@ -169,7 +179,21 @@ namespace p3d {
 
 	void FrameProfiler::Counter(const char *name, f64 value)
 	{
-		if (!OnFrameThread() || !enabled_) return;
+		if (!enabled_) return;
+		if (!OnFrameThread())
+		{
+			std::lock_guard<std::mutex> lock(gOtherMutex);
+			for (size_t i = 0; i < gOtherCounters.size(); i++)
+				if (std::strncmp(gOtherCounters[i].name, name, sizeof(gOtherCounters[i].name)) == 0) { gOtherCounters[i].value = value; return; }
+			if (gOtherCounters.size() < kMaxCounters)
+			{
+				OtherCounter c;
+				std::strncpy(c.name, name, sizeof(c.name) - 1); c.name[sizeof(c.name) - 1] = 0;
+				c.value = value;
+				gOtherCounters.push_back(c);
+			}
+			return;
+		}
 		for (uint32 i = 0; i < counterCount_; i++)
 			if (std::strncmp(counters_[i].name, name, kMaxNameLen) == 0) { counters_[i].ms = value; return; }
 		if (counterCount_ < kMaxCounters)
@@ -200,6 +224,14 @@ namespace p3d {
 		if (!enabled_) return;
 		while (!stack_.empty())
 			End();
+		{
+			std::vector<OtherCounter> other;
+			{
+				std::lock_guard<std::mutex> lock(gOtherMutex);
+				other.swap(gOtherCounters);
+			}
+			for (size_t i = 0; i < other.size(); i++) Counter(other[i].name, other[i].value);
+		}
 
 		recordingFrameMs_ = std::chrono::duration<f64, std::milli>(Clock::now() - frameStart_).count();
 

@@ -68,13 +68,32 @@
 // PYROS_BENCH_CAMERA=x,z,yaw,pitch (metres, degrees): the active camera held there, 1.7 m over the ground,
 // looking that way, every frame - and the world streamed, the terrain and the foliage thinned, round it.
 // A benchmark's view the same from run to run (a match is not: where its player lands is not).
+// x,z,yaw,pitch,speed,turn: walked along its heading at speed m/s, turning turn degrees a second, from
+// the scene time it started at - a moving benchmark (streaming, levels of detail, lists rebuilt), the
+// same path every run.
 static void HoldBenchCamera(p3d::GameObject* camera, p3d::SceneGraph* scene)
 {
 	using namespace p3d;
 	static const char* spec = std::getenv("PYROS_BENCH_CAMERA");
 	if (spec == NULL || camera == NULL) return;
-	f32 x = 0.f, z = 0.f, yaw = 0.f, pitch = 0.f;
-	if (std::sscanf(spec, "%f,%f,%f,%f", &x, &z, &yaw, &pitch) < 2) return;
+	f32 x = 0.f, z = 0.f, yaw = 0.f, pitch = 0.f, speed = 0.f, turn = 0.f;
+	if (std::sscanf(spec, "%f,%f,%f,%f,%f,%f", &x, &z, &yaw, &pitch, &speed, &turn) < 2) return;
+	if (speed != 0.f || turn != 0.f)
+	{
+		static f64 start = -1.0;
+		const f64 now = scene->GetUpdateTime();
+		if (start < 0.0) start = now;
+		const f32 t = (f32)(now - start);
+		// the way it looks is -(sin yaw, cos yaw); turning r radians a second at v, an arc of radius v / r
+		const f32 r = turn * (f32)M_PI / 180.f, y0 = yaw * (f32)M_PI / 180.f;
+		if (fabsf(r) < 1e-5f) { x -= sinf(y0) * speed * t; z -= cosf(y0) * speed * t; }
+		else
+		{
+			x -= speed / r * (cosf(y0) - cosf(y0 + r * t));
+			z -= speed / r * (sinf(y0 + r * t) - sinf(y0));
+		}
+		yaw += turn * t;
+	}
 	f32 ground = 0.f;
 	TerrainEditor::HeightAt(scene, x, z, ground);
 	const f32 cy = cosf(yaw * (f32)M_PI / 180.f), sy = sinf(yaw * (f32)M_PI / 180.f);

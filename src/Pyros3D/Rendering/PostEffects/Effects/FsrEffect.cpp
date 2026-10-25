@@ -34,9 +34,15 @@ namespace p3d {
 		return false;
 #else
 		// (PYROS_NO_FSR=1: the built-in filter, to compare the two)
-		if (getenv("PYROS_NO_FSR") != NULL) return false;
-		std::ifstream a(kPortability), b(kFsr);
-		return (bool)a && (bool)b;
+		// Asked once: the headers ship with the engine's shaders. It is asked several times a frame (which
+		// upscaler the one asked for comes to), and opening the two files each time was 4% of a game's
+		// main thread.
+		static const bool present = []() {
+			if (getenv("PYROS_NO_FSR") != NULL) return false;
+			std::ifstream a(kPortability), b(kFsr);
+			return (bool)a && (bool)b;
+		}();
+		return present;
 #endif
 	}
 

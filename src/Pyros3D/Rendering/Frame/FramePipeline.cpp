@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <chrono>
+#include <atomic>
 #include <Pyros3D/Rendering/Frame/FramePipeline.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Rendering/Device/ThreadedRenderDevice.h>
@@ -28,6 +29,7 @@ namespace p3d {
 		bool g_splitWanted = false, g_splitOn = false, g_inFlight = false;
 		void* g_logicStream = NULL;
 		JobCounter* g_done = NULL;
+		std::atomic<f64> g_recordMs{ 0.0 };     // (how long the scene took to record on the other thread: Frame.RecordUs, in microseconds)
 		std::function<void()> g_after;
 	}
 
@@ -80,7 +82,9 @@ namespace p3d {
 		if (!g_inFlight) return;
 		{
 			PYROS_PROFILE_SCOPE("Frame.Join");
-			JobSystem::Instance().Wait(*g_done);
+			// (not Wait: a frame not yet taken by a worker would be recorded here,
+			// into the logic's stream - placed only when that frame is done)
+			JobSystem::Instance().WaitWithoutHelping(*g_done);
 		}
 		GetActiveRenderDevice().LeaveParallelStream(g_logicStream);
 		g_logicStream = NULL;
@@ -88,6 +92,8 @@ namespace p3d {
 		GameObject::SetKeeping(false);
 		GameObject::ReleaseKept();
 		FrameProfiler::Instance().Counter("Frame.Split", 1.0);
+		// (scopes timed on a worker are not the frame's: how long the scene took there, said here)
+		FrameProfiler::Instance().Counter("Frame.RecordUs", g_recordMs.load() * 1000.0);
 		if (g_after)
 		{
 			const std::function<void()> after = g_after;
@@ -130,9 +136,11 @@ namespace p3d {
 				if (scene != NULL) TerrainEditor::TakeTilesForDraw(scene);
 				GameObject::SetKeeping(true);
 				JobSystem::Instance().Run([scenePass, dev, logic]() {
+					const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 					TerrainEditor::SetDrawSide(true);
 					SetFrameRecorderHere(true);
 					scenePass();
+					g_recordMs.store(std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count());
 					SetFrameRecorderHere(false);
 					TerrainEditor::SetDrawSide(false);
 					// (what logic asked of the device meanwhile is carried out here: after this frame's scene)

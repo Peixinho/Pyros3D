@@ -931,6 +931,8 @@ void IRenderer::SetViewPort(const uint32 initX, const uint32 initY, const uint32
 	customViewPort = true;
 }
 
+void IRenderer::ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; }
+
 void IRenderer::_SetViewPort(const uint32 initX, const uint32 initY, const uint32 endX, const uint32 endY)
 {
 	if (initX != _viewPortStartX || initY != _viewPortStartY || endX != _viewPortEndX || endY != _viewPortEndY)
@@ -1938,6 +1940,7 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 			// different level than they have are then changed, here, in order.
 			// (Thousands of things, every frame, were each asked on this thread.)
 			static thread_local std::vector<uint32> want;
+			static const uint32 kLodSame = 0x7FFFFFFFu, kLodFading = 0x80000000u;
 			const size_t nLod = L.lodComponents.size();
 			want.resize(nLod);
 			RenderingComponent** const lodOf = L.lodComponents.data();
@@ -1954,7 +1957,8 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 					const Vec3 centre = c->GetOwner()->GetWorldPosition() + sphere * scale;
 					const f32 d = std::max(0.f, eye.distance(centre) - sphereRadius * maxScale);
 					const uint32 level = c->LevelForViews(c->GetLODByDistance(d * d), frame);
-					wantOf[i] = level != c->GetLODInUse() ? level : 0xFFFFFFFFu;
+					// (and whether it is between two levels: then it is stepped, below)
+					wantOf[i] = (level != c->GetLODInUse() ? level : kLodSame) | (c->IsLODFading() ? kLodFading : 0u);
 				}
 			};
 			static thread_local JobSystem::SharedLoop lodLoop;
@@ -1962,9 +1966,13 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 			else pick(0, (uint32)nLod);
 			lodLoop.End();
 			FrameProfiler::Instance().Counter("Lists.LodShared", lodLoop.shared ? 1.0 : 0.0);
+			// (only those changing level or between two are visited here: going to each of thousands
+			// of components on this thread to ask whether it was fading was 7% of a game's main thread)
 			for (size_t i = 0; i < nLod; i++)
 			{
-				if (wantOf[i] != 0xFFFFFFFFu) lodOf[i]->UpdateLOD(wantOf[i]);
+				const uint32 w = wantOf[i];
+				if (w == kLodSame) continue;
+				if ((w & ~kLodFading) != kLodSame) lodOf[i]->UpdateLOD(w & ~kLodFading);
 				// (a change of level being drawn, moved on: both levels, until one has gone)
 				if (lodOf[i]->IsLODFading()) lodOf[i]->StepLODFade();
 			}
@@ -2158,9 +2166,43 @@ void IRenderer::UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32
 	{
 		const size_t nOpaque = L.opaque.size(), nSeen = L.translucent.size();
 		const TranslucentSortKey key(Camera, SortsByViewDepth());
-		std::vector<std::pair<std::pair<int32, f32>, uint32> > keyed(nSeen);
-		for (size_t k = 0; k < nSeen; k++) keyed[k] = std::make_pair(key.Of(L.translucentPlace[k], L.translucent[k]->renderingComponent->GetSortOrder()), (uint32)k);
-		std::stable_sort(keyed.begin(), keyed.end(), [](const std::pair<std::pair<int32, f32>, uint32> &x, const std::pair<std::pair<int32, f32>, uint32> &y) { return x.first < y.first; });
+		// (ordered by key and, between equal keys, by the order gathered: one order whatever sorts it. The
+		// view moves a little from frame to frame, so last frame's order is this one's nearly: put in that
+		// order and finished by insertion, which is about one pass over them - all of a town's windows were
+		// sorted from scratch every frame. Past a few moves each, sorted from scratch after all.)
+		std::vector<std::pair<std::pair<int32, f32>, uint32> > &keyed = L.seenKeyed;
+		keyed.resize(nSeen);
+		const bool reuse = L.seenOrder.size() == nSeen;
+		for (size_t k = 0; k < nSeen; k++)
+		{
+			const uint32 at = reuse ? L.seenOrder[k] : (uint32)k;
+			keyed[k] = std::make_pair(key.Of(L.translucentPlace[at], L.translucent[at]->renderingComponent->GetSortOrder()), at);
+		}
+		auto before = [](const std::pair<std::pair<int32, f32>, uint32> &x, const std::pair<std::pair<int32, f32>, uint32> &y) { return x.first < y.first || (!(y.first < x.first) && x.second < y.second); };
+		bool sorted = false;
+		static const bool fromScratch = std::getenv("PYROS_SEEN_SORT_OLD") != NULL;      // (each frame from scratch, as it was: for A/B)
+		if (fromScratch)
+		{
+			for (size_t k = 0; k < nSeen; k++) keyed[k] = std::make_pair(key.Of(L.translucentPlace[k], L.translucent[k]->renderingComponent->GetSortOrder()), (uint32)k);
+			std::stable_sort(keyed.begin(), keyed.end(), [](const std::pair<std::pair<int32, f32>, uint32> &x, const std::pair<std::pair<int32, f32>, uint32> &y) { return x.first < y.first; });
+			sorted = true;
+		}
+		else if (reuse)
+		{
+			const size_t budget = nSeen * 8 + 64;
+			size_t moves = 0;
+			sorted = true;
+			for (size_t k = 1; k < nSeen && sorted; k++)
+			{
+				const std::pair<std::pair<int32, f32>, uint32> v = keyed[k];
+				size_t j = k;
+				while (j > 0 && before(v, keyed[j - 1])) { keyed[j] = keyed[j - 1]; j--; if (++moves > budget) { sorted = false; break; } }
+				keyed[j] = v;
+			}
+		}
+		if (!sorted) std::sort(keyed.begin(), keyed.end(), before);
+		L.seenOrder.resize(nSeen);
+		for (size_t k = 0; k < nSeen; k++) L.seenOrder[k] = keyed[k].second;
 		rmesh.resize(nOpaque + nSeen);
 		cullSphere.resize(nOpaque + nSeen); cullFlags.resize(nOpaque + nSeen);
 		if (nOpaque)
@@ -2326,7 +2368,7 @@ namespace {
 	}
 }
 void IRenderer::SetShadowCasterViewCull(const bool on) { g_shadowViewCullWanted = on; }
-namespace { thread_local bool t_inSunPass = false; }
+namespace { thread_local bool t_inSunPass = false; thread_local bool t_sunAsBefore = false; }   // (t_sunAsBefore: PYROS_SUN_CACHE_WALKS - the frustum asked last, as it was)
 
 // The sun's shadow pass: see the note where it is put together, in PreRender.
 struct IRenderer::SunPass
@@ -2355,6 +2397,7 @@ struct IRenderer::SunPass
 	std::shared_ptr<SunShadowCache> cache;
 	int32 windFrom = -1;
 	uint32 frame = 0;
+	bool walkEach = false;      // (PYROS_SUN_CACHE_WALKS: strips and patches each chosen by walking the scene)
 };
 // The sun's shadow cache (DirectionalLight::SetShadowCache): per cascade, a map of what stands still in its
 // box, kept from frame to frame, and what is in it - each thing's footprint in the light's space, so that a
@@ -2384,6 +2427,17 @@ namespace {
 	// 2 what moves; what stands still listed too where asked, and not drawn where it is only to be listed.
 	thread_local int t_sunCacheMode = 0;
 	thread_local std::vector<RenderingMesh*>* t_sunCollect = NULL;
+	// (and what moves, where asked: a cascade's movers, chosen with what stands still in one walk of the
+	// scene - RecordSunCache - and drawn over the kept map by RecordSunPass)
+	thread_local std::vector<RenderingMesh*>* t_sunMoversCollect = NULL;
+	thread_local std::vector<uint32>* t_sunMoversFrom = NULL;      // (and each one's place in the list)
+	thread_local std::vector<std::vector<RenderingMesh*> > t_sunMovers;
+	thread_local std::vector<std::vector<uint32> > t_sunMoversAt;
+	const uint32 kProxy = 0x80000000u;
+	thread_local std::vector<uint8> t_sunMoversListed;
+	// PYROS_SUN_CACHE_VERIFY=1: what is drawn from those lists checked against walking the scene again
+	const bool g_sunCacheVerify = std::getenv("PYROS_SUN_CACHE_VERIFY") && std::getenv("PYROS_SUN_CACHE_VERIFY")[0] == '1';
+	std::atomic<uint64> g_sunCacheVerifyChecked{ 0 }, g_sunCacheVerifyMissing{ 0 }, g_sunCacheVerifyPasses{ 0 }, g_sunCacheVerifyLooser{ 0 };
 	thread_local bool t_sunCacheNoDraw = false;
 	thread_local int32 t_sunCacheCascade = 0, t_sunCacheWindFrom = -1;
 	thread_local uint32 t_sunCacheFrame = 0;
@@ -2422,6 +2476,7 @@ struct IRenderer::Beside
 	bool running = false;
 	StreamCaches caches;
 	uint32 drawn = 0, leftOut = 0;
+	f64 ms = 0.0;       // (how long the pass took to record, on its thread: published at the join, Shadow.BesideUs)
 };
 namespace {
 	bool g_parallelShadows = true;
@@ -2514,7 +2569,8 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 	const f32 savedSmall = smallCullScale;
 	// What stands still drawn (or only listed) in a rectangle of a cascade's box: a box of its own, the
 	// rectangle's, so a texel of it is the very texel of the whole map, and what is outside is left out.
-	auto still = [&](const SunPass::Cascade &c, const int32 u0, const int32 v0, const int32 u1, const int32 v1, std::vector<RenderingMesh*>* list, const bool draw) {
+	// (movers: where to list what moves in the box too - for RecordSunPass to draw over the kept map)
+	auto still = [&](const SunPass::Cascade &c, const int32 u0, const int32 v0, const int32 u1, const int32 v1, std::vector<RenderingMesh*>* list, const bool draw, std::vector<RenderingMesh*>* movers) {
 		if (u1 <= u0 || v1 <= v0) return;
 		Projection p;
 		p.Ortho(c.left + (f32)u0 * c.texelX, c.left + (f32)u1 * c.texelX, c.bottom + (f32)v0 * c.texelY, c.bottom + (f32)v1 * c.texelY, -c.maxZ, -c.minZ);
@@ -2526,22 +2582,25 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 		g_shadowView.on = false;
 		smallCullScale = 0.f;
 		t_sunTexel = c.texel; t_sunPixelAngle = pass.pixelAngle;
-		t_sunCacheMode = 1; t_sunCollect = list; t_sunCacheNoDraw = !draw;
+		t_sunCacheMode = 1; t_sunCollect = list; t_sunMoversCollect = movers; t_sunCacheNoDraw = !draw;
+		t_sunMoversFrom = movers != NULL ? &t_sunMoversAt[t_sunCacheCascade] : NULL;
 		t_inSunPass = true;
 		RenderShadowCasters(pass.cullCasters);
 		t_inSunPass = false;
-		t_sunCacheMode = 0; t_sunCollect = NULL; t_sunCacheNoDraw = false;
+		t_sunCacheMode = 0; t_sunCollect = NULL; t_sunMoversCollect = NULL; t_sunMoversFrom = NULL; t_sunCacheNoDraw = false;
 		smallCullScale = savedSmall;
 	};
 	// A caster's footprint in the light's space: where its sphere falls on the map
+	// (the object's sphere in the world, as the scene's culling asks it: the component's, scaled by the
+	// object's own scale only, left out what a scaled parent adds - a tree under a scaled group fell
+	// partly outside its footprint, and the strips and patches it reached were drawn without it)
 	auto footprint = [&](const SunPass::Cascade &c, RenderingMesh* m, SunShadowCache::Item &it) {
 		RenderingComponent* rc = m->renderingComponent;
 		GameObject* owner = rc->GetOwner();
 		it.material = m->Material.get();
 		it.world = owner->GetWorldTransformation();
-		const Vec3 s = owner->GetScale();
-		const f32 r = rc->GetBoundingSphereRadius() * Max(Max(fabsf(s.x), fabsf(s.y)), fabsf(s.z));
-		const Vec3 at = it.world * rc->GetBoundingSphereCenter();
+		const f32 r = owner->GetBoundingSphereRadiusWorldSpace();
+		const Vec3 at = it.world * owner->GetBoundingSphereCenter();
 		const Vec4 l = c.view * Vec4(at.x, at.y, at.z, 1.f);
 		it.x0 = l.x - r; it.x1 = l.x + r; it.y0 = l.y - r; it.y1 = l.y + r;
 	};
@@ -2553,10 +2612,68 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 		r.v0 = Max(0, (int32)floorf((it.y0 - c.bottom) / c.texelY) - 2); r.v1 = Min(H, (int32)ceilf((it.y1 - c.bottom) / c.texelY) + 2);
 		return r;
 	};
+	// What stands still in a rectangle of the box, drawn from the cascade's list (its footprints in `at`):
+	// the scene is walked once a cascade (the listing below), not again for each strip and patch.
+	auto drawListed = [&](const SunPass::Cascade &c, const Rect &r, const std::vector<RenderingMesh*> &list, const std::unordered_map<RenderingMesh*, SunShadowCache::Item> &at) {
+		if (r.u1 <= r.u0 || r.v1 <= r.v0) return;
+		static thread_local std::vector<RenderingMesh*> some;
+		some.clear();
+		for (size_t k = 0; k < list.size(); k++)
+		{
+			std::unordered_map<RenderingMesh*, SunShadowCache::Item>::const_iterator f = at.find(list[k]);
+			if (f == at.end()) continue;
+			const Rect t = texels(c, f->second);
+			if (t.u0 < r.u1 && r.u0 < t.u1 && t.v0 < r.v1 && r.v0 < t.v1) some.push_back(list[k]);
+		}
+		// PYROS_SUN_CACHE_VERIFY=1: what walking the scene for this rectangle would draw, each of it here too
+		if (g_sunCacheVerify)
+		{
+			std::vector<RenderingMesh*> walked;
+			still(c, r.u0, r.v0, r.u1, r.v1, &walked, false, NULL);
+			std::unordered_set<RenderingMesh*> have(some.begin(), some.end());
+			for (size_t k = 0; k < walked.size(); k++)
+				if (!have.count(walked[k]))
+				{
+					RenderingMesh* wm = walked[k];
+					GameObject* o = wm->renderingComponent ? wm->renderingComponent->GetOwner() : NULL;
+					// (whether any of its vertices falls in the patch at all: if none does, the walk only
+					// asked a looser sphere, and drew nothing there)
+					int reaches = -1;
+					if (o != NULL && wm->Geometry && !wm->Geometry->GetVertexData().empty())
+					{
+						const Matrix toLight = c.view * o->GetWorldTransformation() * wm->Pivot;
+						const std::vector<Vec3> &vs = wm->Geometry->GetVertexData();
+						const f32 x0 = c.left + (f32)(r.u0 - 1) * c.texelX, x1 = c.left + (f32)(r.u1 + 1) * c.texelX;
+						const f32 y0 = c.bottom + (f32)(r.v0 - 1) * c.texelY, y1 = c.bottom + (f32)(r.v1 + 1) * c.texelY;
+						reaches = 0;
+						for (size_t v = 0; v < vs.size() && !reaches; v++)
+						{
+							const Vec3 p = toLight * vs[v];
+							if (p.x >= x0 && p.x <= x1 && p.y >= y0 && p.y <= y1) reaches = 1;
+						}
+					}
+					if (reaches == 0) { g_sunCacheVerifyLooser++; continue; }
+					if (++g_sunCacheVerifyMissing <= 20) fprintf(stderr, "[sun-cache verify] MISSING still caster %s in a %dx%d patch (%s)\n", o ? o->GetName().c_str() : "?", r.u1 - r.u0, r.v1 - r.v0, reaches == 1 ? "a vertex in it" : "no vertices kept to tell");
+				}
+			g_sunCacheVerifyChecked += walked.size();
+		}
+		Projection p;
+		p.Ortho(c.left + (f32)r.u0 * c.texelX, c.left + (f32)r.u1 * c.texelX, c.bottom + (f32)r.v0 * c.texelY, c.bottom + (f32)r.v1 * c.texelY, -c.maxZ, -c.minZ);
+		ProjectionMatrix = p.m;
+		ViewMatrix = c.view;
+		viewport(r.u0, r.v0, r.u1, r.v1);
+		t_sunTexel = c.texel; t_sunPixelAngle = pass.pixelAngle;
+		t_inSunPass = true;
+		DrawShadowCasterList(some);
+		t_inSunPass = false;
+	};
+	const bool walkEach = pass.walkEach;
 	static const bool trace = std::getenv("PYROS_SUN_CACHE_TRACE") != NULL;
 	uint32 redrawn = 0, moved = 0, dirtyRects = 0;
 	uint64 dirtyTexels = 0;
 
+	if (t_sunMovers.size() < pass.cascades.size()) { t_sunMovers.resize(pass.cascades.size()); t_sunMoversAt.resize(pass.cascades.size()); t_sunMoversListed.resize(pass.cascades.size()); }
+	for (size_t i = 0; i < t_sunMoversListed.size(); i++) { t_sunMoversListed[i] = 0; t_sunMovers[i].clear(); t_sunMoversAt[i].clear(); }
 	SetShadowDepthBias(pass.biasFactor, pass.biasUnits);
 	for (size_t i = 0; i < pass.cascades.size() && i < sc.entries.size(); i++)
 	{
@@ -2565,6 +2682,7 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 		SunShadowCache::Entry &e = sc.entries[i];
 		if (!e.map) continue;
 		t_sunCacheCascade = (int32)i; t_sunCacheWindFrom = pass.windFrom; t_sunCacheFrame = pass.frame;
+		std::vector<RenderingMesh*>* movers = walkEach ? NULL : &t_sunMovers[i];
 		if (c.cache == 2)
 		{
 			// drawn again, all of it
@@ -2574,13 +2692,22 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 			SunCacheCopy(sc.spare.get(), 0, 0, true);
 			SetShadowDepthBias(pass.biasFactor, pass.biasUnits);
 			std::vector<RenderingMesh*> list;
-			still(c, 0, 0, W, H, &list, true);
+			still(c, 0, 0, W, H, &list, true, movers);
+			t_sunMoversListed[i] = movers != NULL;
 			e.content.clear();
 			for (size_t k = 0; k < list.size(); k++) footprint(c, list[k], e.content[list[k]]);
 			e.fbo->UnBind();
 			redrawn++;
 			continue;
 		}
+		// What stands still in the box now (and what moves in it), where each falls: the one walk of the
+		// scene this cascade has.
+		std::vector<RenderingMesh*> list;
+		still(c, 0, 0, W, H, &list, false, movers);
+		t_sunMoversListed[i] = movers != NULL;
+		std::unordered_map<RenderingMesh*, SunShadowCache::Item> now;
+		now.reserve(list.size());
+		for (size_t k = 0; k < list.size(); k++) footprint(c, list[k], now[list[k]]);
 		// Moved along with the cascade: into the spare map, shifted, the strips it moved into drawn - and the
 		// spare is the kept map from now on.
 		Rect strips[2]; int nStrips = 0;
@@ -2595,17 +2722,17 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 			else if (c.shiftX < 0) strips[nStrips++] = { 0, 0, -c.shiftX, H };
 			if (c.shiftY > 0) strips[nStrips++] = { 0, H - c.shiftY, W, H };
 			else if (c.shiftY < 0) strips[nStrips++] = { 0, 0, W, -c.shiftY };
-			for (int s = 0; s < nStrips; s++) still(c, strips[s].u0, strips[s].v0, strips[s].u1, strips[s].v1, NULL, true);
+			for (int s = 0; s < nStrips; s++)
+			{
+				if (walkEach) still(c, strips[s].u0, strips[s].v0, strips[s].u1, strips[s].v1, NULL, true, NULL);
+				else drawListed(c, strips[s], list, now);
+			}
 			sc.spareFbo->UnBind();
 			std::swap(e.map, sc.spare);
 			std::swap(e.fbo, sc.spareFbo);
 			moved++;
 		}
 		// What the map should hold now, against what it holds: where a thing arrived, left or moved, drawn again.
-		std::vector<RenderingMesh*> list;
-		still(c, 0, 0, W, H, &list, false);
-		std::unordered_map<RenderingMesh*, SunShadowCache::Item> now;
-		now.reserve(list.size());
 		std::vector<Rect> dirty;
 		auto inStrips = [&](const Rect &r) {
 			for (int s = 0; s < nStrips; s++)
@@ -2615,8 +2742,7 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 		auto add = [&](const Rect &r) { if (r.u1 > r.u0 && r.v1 > r.v0) dirty.push_back(r); };
 		for (size_t k = 0; k < list.size(); k++)
 		{
-			SunShadowCache::Item &it = now[list[k]];
-			footprint(c, list[k], it);
+			const SunShadowCache::Item &it = now[list[k]];
 			std::unordered_map<RenderingMesh*, SunShadowCache::Item>::iterator was = e.content.find(list[k]);
 			if (was == e.content.end())
 			{
@@ -2632,6 +2758,26 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 		}
 		for (std::unordered_map<RenderingMesh*, SunShadowCache::Item>::iterator was = e.content.begin(); was != e.content.end(); was++)
 			if (now.find(was->first) == now.end()) add(texels(c, was->second));
+		// PYROS_SUN_CACHE_WHO=<part of a name>: what the cache does with that object, cascade by cascade
+		static const char* who = std::getenv("PYROS_SUN_CACHE_WHO");
+		if (who != NULL)
+		{
+			for (std::unordered_map<RenderingMesh*, SunShadowCache::Item>::iterator q = now.begin(); q != now.end(); q++)
+			{
+				GameObject* o = q->first->renderingComponent ? q->first->renderingComponent->GetOwner() : NULL;
+				if (o == NULL || o->GetName().find(who) == std::string::npos) continue;
+				const Rect t = texels(c, q->second);
+				const bool had = e.content.count(q->first) != 0;
+				fprintf(stderr, "[sun-cache who] frame %u cascade %d: %s listed (%s), texels %d..%d x %d..%d\n", pass.frame, (int)i, o->GetName().c_str(), had ? "kept" : "NEW", t.u0, t.u1, t.v0, t.v1);
+			}
+			for (std::unordered_map<RenderingMesh*, SunShadowCache::Item>::iterator q = e.content.begin(); q != e.content.end(); q++)
+			{
+				GameObject* o = q->first->renderingComponent ? q->first->renderingComponent->GetOwner() : NULL;
+				if (o != NULL && o->GetName().find(who) != std::string::npos && !now.count(q->first))
+					fprintf(stderr, "[sun-cache who] frame %u cascade %d: %s LEFT the list\n", pass.frame, (int)i, o->GetName().c_str());
+			}
+			for (size_t k = 0; k < dirty.size(); k++) fprintf(stderr, "[sun-cache who] frame %u cascade %d: patch %d..%d x %d..%d\n", pass.frame, (int)i, dirty[k].u0, dirty[k].u1, dirty[k].v0, dirty[k].v1);
+		}
 		e.content.swap(now);
 		if (!dirty.empty())
 		{
@@ -2662,7 +2808,8 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 				DisableDepthBias();
 				SunCacheCopy(sc.spare.get(), 0, 0, true);
 				SetShadowDepthBias(pass.biasFactor, pass.biasUnits);
-				still(c, r.u0, r.v0, r.u1, r.v1, NULL, true);
+				if (walkEach) still(c, r.u0, r.v0, r.u1, r.v1, NULL, true, NULL);
+				else drawListed(c, r, list, e.content);
 				dirtyTexels += (uint64)(r.u1 - r.u0) * (uint64)(r.v1 - r.v0);
 			}
 			dirtyRects += (uint32)dirty.size();
@@ -2694,6 +2841,7 @@ void IRenderer::RecordSunPass(const SunPass &pass)
 	static const char* kCascadeTris[8] = { "Shadow.C0.Tris", "Shadow.C1.Tris", "Shadow.C2.Tris", "Shadow.C3.Tris", "Shadow.C4.Tris", "Shadow.C5.Tris", "Shadow.C6.Tris", "Shadow.C7.Tris" };
 	static const char* kCascadeCutTris[8] = { "Shadow.C0.CutTris", "Shadow.C1.CutTris", "Shadow.C2.CutTris", "Shadow.C3.CutTris", "Shadow.C4.CutTris", "Shadow.C5.CutTris", "Shadow.C6.CutTris", "Shadow.C7.CutTris" };
 	// (the kept maps first, each a target of its own: then the cascades, each the kept map and what moves)
+	t_sunAsBefore = pass.walkEach;
 	if (pass.cache)
 	{
 		if (exact) FrameProfiler::Instance().Begin("Shadow.Cache");
@@ -2749,7 +2897,61 @@ void IRenderer::RecordSunPass(const SunPass &pass)
 			t_sunCacheCascade = (int32)i; t_sunCacheWindFrom = pass.windFrom; t_sunCacheFrame = pass.frame;
 		}
 		t_inSunPass = true;
-		RenderShadowCasters(pass.cullCasters);
+		if (kept && i < t_sunMoversListed.size() && t_sunMoversListed[i])
+		{
+			// What moves in the box, listed with what stands still (RecordSunCache's one walk of the scene):
+			// asked here only what that walk did not ask, as RenderShadowCasters asks it - in this cascade's
+			// frustum and not too small to see (the list's own test, which knows a posed body's bounds; a
+			// component's own shadow mesh, its object's), and able to throw a shadow into the view.
+			static thread_local std::vector<RenderingMesh*> movers;
+			movers.clear();
+			const std::vector<RenderingMesh*> &listed = t_sunMovers[i];
+			const std::vector<uint32> &at = t_sunMoversAt[i];
+			for (size_t k = 0; k < listed.size() && k < at.size(); k++)
+			{
+				RenderingMesh* m = listed[k];
+				if (pass.cullCasters)
+				{
+					const uint32 idx = at[k] & ~kProxy;
+					if (at[k] & kProxy) { if (!ShadowCasterVisible(m)) continue; }
+					else if (idx < cullFlags.size() && (cullFlags[idx] & CullTested) && !CullListTest(idx)) continue;
+					if (g_shadowView.on && !ShadowReachesView(m, g_shadowView)) { g_shadowCastersLeftOut++; continue; }
+				}
+				g_shadowCastersDrawn++;
+				movers.push_back(m);
+			}
+			// PYROS_SUN_CACHE_VERIFY=1: what walking the scene for the movers would draw, each of it here too
+			if (g_sunCacheVerify)
+			{
+				std::vector<RenderingMesh*> walked;
+				const uint32 drawnWas = g_shadowCastersDrawn, outWas = g_shadowCastersLeftOut;
+				t_sunMoversCollect = &walked; t_sunCacheNoDraw = true;
+				RenderShadowCasters(pass.cullCasters);
+				t_sunMoversCollect = NULL; t_sunCacheNoDraw = false;
+				g_shadowCastersDrawn = drawnWas; g_shadowCastersLeftOut = outWas;
+				std::unordered_set<RenderingMesh*> have(movers.begin(), movers.end());
+				for (size_t k = 0; k < walked.size(); k++)
+					if (!have.count(walked[k]))
+					{
+						GameObject* o = walked[k]->renderingComponent ? walked[k]->renderingComponent->GetOwner() : NULL;
+						int why = 0;       // 0 not listed, 1 listed but out of the cascade, 2 listed but not reaching the view
+						for (size_t q = 0; q < listed.size(); q++)
+							if (listed[q] == walked[k])
+							{
+								const uint32 idx = at[q] & ~kProxy;
+								why = (at[q] & kProxy) ? (ShadowCasterVisible(walked[k]) ? 2 : 1) : ((idx < cullFlags.size() && (cullFlags[idx] & CullTested) && !CullListTest(idx)) ? 1 : 2);
+								break;
+							}
+						if (++g_sunCacheVerifyMissing <= 20) fprintf(stderr, "[sun-cache verify] MISSING mover %s in cascade %d (%s)\n", o ? o->GetName().c_str() : "?", (int)i,
+							why == 0 ? "not in the box's list" : (why == 1 ? "listed, outside the cascade" : "listed, not reaching the view"));
+					}
+				g_sunCacheVerifyChecked += walked.size();
+				if (++g_sunCacheVerifyPasses % 600 == 0)
+					fprintf(stderr, "[sun-cache verify] %llu casters checked, %llu missing, %llu asked only by the walk's looser sphere\n", (unsigned long long)g_sunCacheVerifyChecked, (unsigned long long)g_sunCacheVerifyMissing, (unsigned long long)g_sunCacheVerifyLooser);
+			}
+			DrawShadowCasterList(movers);
+		}
+		else RenderShadowCasters(pass.cullCasters);
 		t_inSunPass = false;
 		t_sunCacheMode = 0;
 		g_shadowView.on = false;
@@ -2877,10 +3079,12 @@ bool IRenderer::RecordSunBeside(const SunPass &pass, GameObject* Camera, SceneGr
 		Texture::UseOwnUnitCounter(true);
 		FrameBuffer::UseOwnBoundStack(true);
 		g_fingerprintsThisView.clear();
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		b->twin->InitRender();
 		b->twin->ForgetDeviceState();
 		b->twin->RecordSunPass(b->pass);
 		b->twin->EndRender();
+		b->ms = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
 		b->drawn = g_shadowCastersDrawn; b->leftOut = g_shadowCastersLeftOut;
 		Texture::UseOwnUnitCounter(false);
 		FrameBuffer::UseOwnBoundStack(false);
@@ -3198,6 +3402,8 @@ void IRenderer::FinishBeside()
 	g_besideActive.fetch_sub(1);
 	FrameProfiler::Instance().Counter("Shadow.SunCasters", (f64)beside->drawn);
 	FrameProfiler::Instance().Counter("Shadow.SunLeftOut", (f64)beside->leftOut);
+	// (scopes timed on a worker are not the frame's: the time the sun's pass took there, said here)
+	FrameProfiler::Instance().Counter("Shadow.BesideUs", beside->ms * 1000.0);
 }
 
 void IRenderer::RenderShadowCasters(const bool cullTest)
@@ -3208,6 +3414,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	std::vector<uint8> answers;
 	// (read here, on the thread recording the pass: the answers below are worked out on others)
 	const bool leaveRayTraced = t_inSunPass && sunLeaveRayTraced;
+	const bool frustumFirst = !(t_inSunPass && t_sunAsBefore);
 	const std::vector<uint32>* subset = shadowCasterSubset;
 	const size_t count = subset != NULL ? subset->size() : rmesh.size();
 	// A component casting with meshes of its own (answer 3): which of them are drawn and which left out
@@ -3233,6 +3440,22 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		const uint32 i = subset != NULL ? (*subset)[n] : n;
 		const uint8 f = cullFlags[i];
 		if ((f & (CullOwner | CullCasts | CullComponentActive)) != (CullOwner | CullCasts | CullComponentActive) || (f & CullTransparent)) return 0;
+		// (outside the pass's frustum first, from the list's own arrays - most of a cascade's meshes are, and
+		// the questions below each follow the mesh to its component. A component's own shadow meshes are
+		// asked about its object's sphere too, so one outside here has none in it either.)
+		if (frustumFirst && cullTest && (f & CullTested) && !CullListTest(i))
+		{
+			// PYROS_SUN_CACHE_VERIFY=1: none of its own shadow meshes would have been drawn either
+			if (g_sunCacheVerify)
+			{
+				RenderingComponent* vrc = rmesh[i]->renderingComponent;
+				if (!vrc->shadowMeshes.empty() && !vrc->ShadowMeshTooNear() && vrc->LodInUse < vrc->Meshes.size() && !vrc->Meshes[vrc->LodInUse].empty() && rmesh[i] == vrc->Meshes[vrc->LodInUse][0])
+					for (size_t sm = 0; sm < vrc->shadowMeshes.size(); sm++)
+						if (askProxy(vrc->shadowMeshes[sm]) == 1 && ++g_sunCacheVerifyMissing <= 40)
+							fprintf(stderr, "[sun-cache verify] MISSING shadow mesh of %s: its object outside, the mesh itself in\n", vrc->GetOwner()->GetName().c_str());
+			}
+			return 0;
+		}
 		RenderingMesh* m = rmesh[i];
 		RenderingComponent* rc = m->renderingComponent;
 		if (leaveRayTraced && rayTracedCasters.count(rc)) return 0;     // (its rays cast it: SetSunCastersLeaveRayTraced)
@@ -3265,6 +3488,10 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 	});
 	std::vector<RenderingMesh*> casters;
 	casters.reserve(count);
+	// (where each came from: its place in the list - with kProxy, one of a component's own shadow meshes -
+	// for the shadow cache's movers, asked again later exactly as here)
+	static thread_local std::vector<uint32> from;
+	from.clear();
 	for (size_t n = 0; n < count; n++)
 	{
 		const size_t i = subset != NULL ? (*subset)[n] : n;
@@ -3285,7 +3512,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 					RenderingMesh* cm = coarser->second[c];
 					if (cm == NULL || !cm->Material || cm->Material->IsTransparent() || !cm->Material->IsCastingShadows()) continue;
 					g_shadowCastersDrawn++;
-					casters.push_back(cm);
+					casters.push_back(cm); from.push_back((uint32)i);
 				}
 				continue;
 			}
@@ -3323,13 +3550,13 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 						if (cm == NULL || !cm->Material || cm->Material->IsTransparent() || !cm->Material->IsCastingShadows()) continue;
 						if (cm->standsFor != NULL && !cm->standsFor->Active) continue;
 						g_shadowCastersDrawn++;
-						casters.push_back(cm);
+						casters.push_back(cm); from.push_back((uint32)i);
 					}
 					continue;
 				}
 			}
 		}
-		if (a == 1) { g_shadowCastersDrawn++; casters.push_back(rmesh[i]); }
+		if (a == 1) { g_shadowCastersDrawn++; casters.push_back(rmesh[i]); from.push_back((uint32)i); }
 		else if (a == 2) g_shadowCastersLeftOut++;
 		else if (a == 3)
 		{
@@ -3340,7 +3567,7 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 				if (got == 2) g_shadowCastersLeftOut++;
 				if (got != 1) continue;
 				g_shadowCastersDrawn++;
-				casters.push_back(rc->shadowMeshes[sm]);
+				casters.push_back(rc->shadowMeshes[sm]); from.push_back((uint32)i | kProxy);
 			}
 		}
 	}
@@ -3353,11 +3580,18 @@ void IRenderer::RenderShadowCasters(const bool cullTest)
 		{
 			const bool still = SunCacheStill(casters[k]);
 			if (still && t_sunCollect != NULL) t_sunCollect->push_back(casters[k]);
+			else if (!still && t_sunMoversCollect != NULL) { t_sunMoversCollect->push_back(casters[k]); if (t_sunMoversFrom != NULL) t_sunMoversFrom->push_back(from[k]); }
 			if (still == (t_sunCacheMode == 1)) casters[kept++] = casters[k];
 		}
 		casters.resize(kept);
 		if (t_sunCacheNoDraw) return;
 	}
+	DrawShadowCasterList(casters);
+}
+
+// Casters chosen for the pass set up (RenderShadowCasters, or a list the shadow cache kept): drawn.
+void IRenderer::DrawShadowCasterList(std::vector<RenderingMesh*> &casters)
+{
 	// PYROS_SHADOW_CASTER_DUMP=<cascades>: the first that many sun cascades' casters, once, to stderr - what each draws
 	{
 		static int dumpLeft = std::getenv("PYROS_SHADOW_CASTER_DUMP") ? std::atoi(std::getenv("PYROS_SHADOW_CASTER_DUMP")) : 0;
@@ -3855,6 +4089,20 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 					if (sc != NULL) PrepareSunCache(*sc);
 					static uint32 sunCacheFrame = 0;
 					pass.frame = ++sunCacheFrame;
+					// PYROS_SUN_CACHE_WALKS=1: strips and patches chosen by walking the scene again, each, and what moves
+					// by a walk of its own (as they were) - =t<seconds>, that and the one walk in turn (counter
+					// SunCache.Walks), for A/B in one run
+					{
+						static const char* walks = std::getenv("PYROS_SUN_CACHE_WALKS");
+						static const std::chrono::steady_clock::time_point began = std::chrono::steady_clock::now();
+						if (walks != NULL && walks[0] == 't')
+						{
+							const f64 every = Max(1.0, atof(walks + 1));
+							pass.walkEach = ((int64)(std::chrono::duration<f64>(std::chrono::steady_clock::now() - began).count() / every)) % 2 == 1;
+						}
+						else pass.walkEach = walks != NULL && walks[0] == '1';
+						if (walks != NULL) FrameProfiler::Instance().Counter("SunCache.Walks", pass.walkEach ? 1.0 : 0.0);
+					}
 					bool turnedOne = false;
 					const Matrix trueView = ViewMatrix;
 					const f32 cosTurn = cosf(d->GetShadowCacheTurn());

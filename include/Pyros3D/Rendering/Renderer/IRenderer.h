@@ -408,6 +408,8 @@ namespace p3d {
 			std::vector<uint32> cellOf;             // see cullCell
 			std::vector<Vec4> cellSphere;
 			std::vector<Vec3> translucentPlace;     // where each see-through mesh's object is: what it is sorted by
+			std::vector<uint32> seenOrder;          // last frame's order of them, nearest first: this frame's sort starts from it
+			std::vector<std::pair<std::pair<int32, f32>, uint32> > seenKeyed;   // (its scratch)
 			std::vector<RenderingComponent*> lodComponents;
 			std::vector<std::pair<RenderingComponent*, bool> > instanced;      // and whether it had no instances
 			std::unordered_map<GameObject*, std::vector<uint32> > where;        // an owner's places in the kept arrays
@@ -466,7 +468,11 @@ namespace p3d {
 		void UseFrameList(SceneGraph* Scene, GameObject* Camera, const uint32 Tag);
 		// (PYROS_FRAME_LISTS=0 makes the list from scratch every frame, as before.)
 		static f32 GetSmallObjectCull();
-		void ResetViewPort() { _viewPortStartX = _viewPortStartY = _viewPortEndX = _viewPortEndY = 0; } // Usefull for some shady stuff like rendering from different libs
+		// The viewport is set again on the next _SetViewPort, whatever it was (rendering from different libs,
+		// or the device's viewport set directly). Defined beside _SetViewPort: a pass recorded beside another
+		// keeps its own record of the viewport (StreamCaches), and this inline in the header forgot the
+		// renderer's instead - the next cascade's viewport was taken as set, and drawn into a corner of it.
+		void ResetViewPort();
 
 		// Resize
 		virtual void Resize(const uint32 &Width, const uint32 &Height);
@@ -1237,6 +1243,8 @@ namespace p3d {
 		// DrawWithAutoInstancing. cullTest: point/spot faces cull against
 		// the light's frustum; directional cascades have always drawn all.
 		void RenderShadowCasters(const bool cullTest);
+		// Casters already chosen, drawn as RenderShadowCasters draws its own.
+		void DrawShadowCasterList(std::vector<RenderingMesh*> &casters);
 
 		// True for exactly the materials PickShadowMaterial() can return.
 		// Single source of truth for "is this draw part of a shadow pass",
