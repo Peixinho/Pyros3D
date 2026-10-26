@@ -2450,7 +2450,10 @@ struct IRenderer::SunPass
 // thing arriving, leaving or moving has its part of the map drawn again and nothing else.
 struct SunShadowCache
 {
-	struct Item { IMaterial* material = NULL; Matrix world; f32 x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f; };
+	// (level, lodScale: the level of detail it was drawn at, and the scale that decides its shadow's level -
+	// a still tree changes level as the view walks towards it or away: kept as drawn, the map went on
+	// showing the old level beside parts drawn afresh with the new one)
+	struct Item { IMaterial* material = NULL; Matrix world; f32 x0 = 0.f, y0 = 0.f, x1 = 0.f, y1 = 0.f; uint32 level = 0; f32 lodScale = 1.f; };
 	struct Entry
 	{
 		std::unique_ptr<Texture> map;
@@ -2525,7 +2528,7 @@ struct IRenderer::Beside
 	f64 ms = 0.0;       // (how long the pass took to record, on its thread: published at the join, Shadow.BesideUs)
 };
 namespace {
-	bool g_parallelShadows = true;
+	bool g_parallelShadows = !(std::getenv("PYROS_PARALLEL_SHADOWS") && std::getenv("PYROS_PARALLEL_SHADOWS")[0] == '0');   // (PYROS_PARALLEL_SHADOWS=0: recorded in place)
 	const bool g_sunShadowLevels = !(std::getenv("PYROS_SHADOW_LOD") && std::getenv("PYROS_SHADOW_LOD")[0] == '0');
 	// A material that draws its own shadow is changed for the draw and put
 	// back (RenderShadowCaster): nobody else draws with it meanwhile.
@@ -2645,6 +2648,8 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 		GameObject* owner = rc->GetOwner();
 		it.material = m->Material.get();
 		it.world = owner->GetWorldTransformation();
+		it.level = rc->LodInUse;
+		it.lodScale = RenderingComponent::GetLODDistanceScale();
 		const f32 r = owner->GetBoundingSphereRadiusWorldSpace();
 		const Vec3 at = it.world * owner->GetBoundingSphereCenter();
 		const Vec4 l = c.view * Vec4(at.x, at.y, at.z, 1.f);
@@ -2796,7 +2801,8 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 				const Rect r = texels(c, it);
 				if (!inStrips(r)) add(r);
 			}
-			else if (was->second.material != it.material || memcmp(was->second.world.m, it.world.m, sizeof(it.world.m)) != 0)
+			else if (was->second.material != it.material || was->second.level != it.level || was->second.lodScale != it.lodScale
+				|| memcmp(was->second.world.m, it.world.m, sizeof(it.world.m)) != 0)
 			{
 				add(texels(c, was->second));
 				add(texels(c, it));
@@ -2862,6 +2868,53 @@ void IRenderer::RecordSunCache(const SunPass &pass)
 			e.fbo->UnBind();
 		}
 	}
+	// (PYROS_SUN_CACHE_DIFF=<n>: every n-th frame each kept map is held against the same map drawn whole,
+	// afresh, into the spare - how many texels differ, to stderr; PYROS_SUN_CACHE_DIFF_DUMP=<dir>: the two
+	// and where they differ as PGM pictures. A kept map is right when it is what drawing it all again gives.
+	// Needs PYROS_PARALLEL_SHADOWS=0: a pass recorded beside is not read back.)
+	static const uint32 diffEvery = std::getenv("PYROS_SUN_CACHE_DIFF") ? (uint32)std::atoi(std::getenv("PYROS_SUN_CACHE_DIFF")) : 0;
+	if (diffEvery != 0 && pass.frame % diffEvery == 0 && !t_recordingBeside)
+		for (size_t i = 0; i < pass.cascades.size() && i < sc.entries.size(); i++)
+		{
+			const SunPass::Cascade &c = pass.cascades[i];
+			SunShadowCache::Entry &e = sc.entries[i];
+			if (c.cache == 0 || !e.map) continue;
+			t_sunCacheCascade = (int32)i; t_sunCacheWindFrom = pass.windFrom; t_sunCacheFrame = pass.frame;
+			const std::vector<uchar> kept = e.map->GetTextureData();
+			sc.spareFbo->Bind();
+			viewport(0, 0, W, H);
+			DisableDepthBias();
+			SunCacheCopy(e.map.get(), 0, 0, true);
+			SetShadowDepthBias(pass.biasFactor, pass.biasUnits);
+			std::vector<RenderingMesh*> list;
+			still(c, 0, 0, W, H, &list, true, NULL);
+			sc.spareFbo->UnBind();
+			const std::vector<uchar> fresh = sc.spare->GetTextureData();
+			const size_t n = std::min(kept.size(), fresh.size()) / 4;
+			const f32* a = (const f32*)kept.data();
+			const f32* b = (const f32*)fresh.data();
+			size_t differ = 0; f32 most = 0.f;
+			for (size_t k = 0; k < n; k++) { const f32 d = fabsf(a[k] - b[k]); if (d > 1e-4f) { differ++; most = Max(most, d); } }
+			if (const char* dir = std::getenv("PYROS_SUN_CACHE_DIFF_DUMP"))
+			{
+				auto dump = [&](const char* what, auto value) {
+					char path[512]; snprintf(path, sizeof(path), "%s/f%u_c%zu_%s.pgm", dir, pass.frame, i, what);
+					if (FILE* f = fopen(path, "wb"))
+					{
+						fprintf(f, "P5 %d %d 255\n", W, H);
+						std::vector<uchar> row((size_t)W * H);
+						for (size_t k = 0; k < row.size() && k < n; k++) row[k] = value(k);
+						fwrite(row.data(), 1, row.size(), f);
+						fclose(f);
+					}
+				};
+				dump("kept", [&](size_t k) { return (uchar)Min(255.f, a[k] * 255.f); });
+				dump("fresh", [&](size_t k) { return (uchar)Min(255.f, b[k] * 255.f); });
+				dump("diff", [&](size_t k) { return (uchar)(fabsf(a[k] - b[k]) > 1e-4f ? (a[k] < b[k] ? 255 : 128) : 0); });
+			}
+			fprintf(stderr, "[sun-cache diff] frame %u cascade %zu (cache %d): %zu of %zu texels differ (%.3f%%), most %.4f\n",
+				pass.frame, i, c.cache, differ, n, n ? 100.0 * differ / n : 0.0, most);
+		}
 	DisableDepthBias();
 	ResetViewPort();
 	if (!t_recordingBeside)
@@ -4156,7 +4209,7 @@ void IRenderer::PreRender(GameObject* Camera, SceneGraph* Scene, const uint32 Ta
 							sc->entries.resize(d->GetNumberCascades());
 						}
 						pass.cache = d->shadowCache;
-						pass.windFrom = d->GetShadowCacheWindFrom();
+						pass.windFrom = d->GetShadowCacheWindFrom(); { static const char* wf = std::getenv("PYROS_SUN_CACHE_WIND_FROM"); if (wf != NULL) pass.windFrom = std::atoi(wf); }      // (PYROS_SUN_CACHE_WIND_FROM: the game's SetShadowCacheWindFrom overridden, -1 none)
 					}
 					if (sc != NULL) PrepareSunCache(*sc);
 					static uint32 sunCacheFrame = 0;
