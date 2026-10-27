@@ -10,6 +10,7 @@
 #define	RENDERINGINSTANCEDCOMPONENT_H
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <algorithm>
 
 namespace p3d {
 	
@@ -32,7 +33,10 @@ namespace p3d {
 			uint32 drawCount = 0;
 			uint32 drawCountTakenAt = 0;
 			Vec2 drawGrowth = Vec2(1.f, 1.f);
-			virtual void SetNumberInstances(const uint32 instances) { nrInstances = instances; }
+			virtual void SetNumberInstances(const uint32 instances) { mostInstances = std::max(mostInstances, std::max(nrInstances, instances)); nrInstances = instances; }
+			// The most it has drawn: what a thinned block (fewer drawn far off) has in all
+			uint32 MostInstances() const { return std::max(mostInstances, nrInstances); }
+			uint32 mostInstances = 0;
 			// Every instance drawn this much wider and taller than its mesh,
 			// about the mesh's own origin (1, 1: as it is). What draws fewer
 			// instances of a thing far off - a field of grass - grows the ones

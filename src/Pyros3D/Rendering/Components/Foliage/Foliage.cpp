@@ -212,6 +212,9 @@ namespace p3d {
 	void FoliageComponent::SetAutoFarMesh(const bool on) { g_autoFar = on; }
 	bool FoliageComponent::GetAutoFarMesh() { return g_autoFar; }
 	static bool g_thinning = true;
+	// Thinned plant by plant on the GPU where a layer is culled there (PYROS_FOLIAGE_PER_PLANT=0: by the
+	// block's middle, as it was - to compare)
+	static const bool g_perPlant = !(std::getenv("PYROS_FOLIAGE_PER_PLANT") && std::getenv("PYROS_FOLIAGE_PER_PLANT")[0] == '0');
 	void FoliageComponent::SetThinning(const bool on) { g_thinning = on; }
 	bool FoliageComponent::GetThinning() { return g_thinning; }
 
@@ -241,7 +244,11 @@ namespace p3d {
 		// Culled on the GPU, plant by plant (InstanceCullGroup): a layer that casts no shadows (a shadow
 		// map draws the blocks, at their own level - the group is for the views), with a material of its
 		// own its far mesh shares. Its far mesh is then each plant's past the distance, not each block's.
-		if (!layer.cullGroup && owner && InstanceCullGroup::Available() && !layer.spec.castShadows && layer.material && layer.mesh
+		// A layer that casts its shadows from its far mesh (shadowFromFar) too: the maps draw its blocks
+		// with that, whatever level they are at, and the views have the group - a forest's nearest block
+		// was a hundred metres of trees all at the near level; through the group only those near are.
+		const bool shadowsFromBlocks = !layer.spec.castShadows || (layer.spec.shadowFromFar && layer.lodMesh);
+		if (!layer.cullGroup && owner && InstanceCullGroup::Available() && shadowsFromBlocks && layer.material && layer.mesh
 			&& (!layer.lodMesh || !layer.lodMaterial || layer.lodMaterial == layer.material))
 		{
 			const std::shared_ptr<Renderable> far = layer.lodMesh ? layer.lodMesh : layer.autoFar;
@@ -250,6 +257,7 @@ namespace p3d {
 			const Vec3 centre = layer.mesh->GetBoundingSphereCenter();
 			const f32 radius = layer.mesh->GetBoundingSphereRadius() + sqrtf(centre.x * centre.x + centre.y * centre.y + centre.z * centre.z);
 			layer.cullGroup = std::make_shared<InstanceCullGroup>(owner, layer.mesh, layer.material, far, farFrom, tinted, radius);
+			if (g_perPlant) layer.cullGroup->SetThinning(layer.spec.thinFrom, layer.spec.thinTo, layer.spec.thinDensity, layer.spec.fullDistance, layer.spec.fadeDistance);
 		}
 		for (size_t b = 0; b < prepared.blocks.size(); b++)
 		{
@@ -279,6 +287,7 @@ namespace p3d {
 			}
 			if (layer.spec.castShadows) ic->EnableCastShadows(); else ic->DisableCastShadows();
 			child->AddComponent(ic);
+			if (layer.spec.castShadows && layer.spec.shadowFromFar && layer.lodMesh) ic->SetShadowRenderable(layer.lodMesh, 0.f);
 			if (layer.cullGroup) layer.cullGroup->Add(ic.get());
 			if (owner) owner->Add(child);
 			if (created) created->push_back(child);
@@ -349,7 +358,9 @@ namespace p3d {
 				// many nearer as further than that - and those left grown to
 				// cover what the others did: wider more than taller, so that a
 				// field far off does not stand higher than one near.)
-				const f32 kept = ThinningAt(layer.spec, d + half);
+				// (a layer culled on the GPU is thinned there, each plant at its own distance - the block
+				// keeps what its nearest point does, all any of its plants can; see InstanceCullGroup)
+				const f32 kept = ThinningAt(layer.spec, layer.cullGroup && g_perPlant ? d : d + half);
 				const uint32 n = (uint32)(layer.counts[b] * DensityAt(layer.spec, d) * kept);
 				if (rc->NumberOfInstances() != n) rc->SetNumberInstances(n);
 				const f32 area = 1.f / kept;

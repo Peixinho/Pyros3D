@@ -82,6 +82,13 @@ namespace p3d {
 		void SetExtraInput(Texture* texture);
 		// ...or the picture of another effect, read every frame (its picture is remade on a resize)
 		void SetExtraInputFrom(IEffect* source) { extraSource = source; }
+		// What an `//! input Shelter` reads: what is over the ground round the eye, kShelterSide cells a
+		// side, each the height of the cover there in its red (high byte) and green (low byte) - 0 none,
+		// else -100 + v / 65535 * 2100 metres. One for every effect; whoever knows the world fills it
+		// (the Lua weather.shelter does, from rays) and tells the effect where it lies.
+		static const uint32 kShelterSide = 64;
+		static void SetShelter(const uchar* rgba);
+		static Texture* ShelterTexture();
 	protected:
 		virtual void PreDraw() { if (extraSource != NULL) SetExtraInput(extraSource->GetTexture()); }
 	public:

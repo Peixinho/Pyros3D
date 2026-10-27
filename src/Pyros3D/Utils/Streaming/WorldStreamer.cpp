@@ -5,6 +5,7 @@
 //============================================================================
 
 #include <Pyros3D/Utils/Streaming/WorldStreamer.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Device/IRenderDevice.h>
@@ -308,6 +309,24 @@ namespace p3d {
 		}
 
 		AssetStreamer::Instance().Pump(pumpBudgetMs);
+		// (what the world has in, and what it waits for: the profiler's counters, for a game that
+		// wants to know how its streaming keeps up - World.* and the loader's queue)
+		{
+			uint32 loaded = 0, loading = 0, farShown = 0, farLoading = 0;
+			for (std::map<CellKey, Cell>::const_iterator it = cells.begin(); it != cells.end(); ++it)
+			{
+				const Cell &c = it->second;
+				if (c.state == Cell::Loaded && c.root) loaded++;
+				else if (c.state == Cell::Loading) loading++;
+				if (c.farShown) farShown++;
+				else if (c.farState == Cell::Loading) farLoading++;
+			}
+			FrameProfiler::Instance().Counter("World.Cells", (f64)loaded);
+			FrameProfiler::Instance().Counter("World.CellsLoading", (f64)loading);
+			FrameProfiler::Instance().Counter("World.FarShown", (f64)farShown);
+			FrameProfiler::Instance().Counter("World.FarLoading", (f64)farLoading);
+			FrameProfiler::Instance().Counter("Streamer.Pending", (f64)AssetStreamer::Instance().PendingCount());
+		}
 	}
 
 	void WorldStreamer::LoadAround(const Vec3 &focus)

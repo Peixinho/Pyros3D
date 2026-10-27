@@ -9,9 +9,11 @@
 
 #include <Pyros3D/Rendering/PostEffects/Effects/CustomEffect.h>
 #include <Pyros3D/Core/Logs/Log.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Rendering/GI/EnvironmentMap.h>
 #include <cstdlib>
 #include <sstream>
+#include <vector>
 
 namespace p3d {
 
@@ -62,6 +64,7 @@ namespace p3d {
 		// An `//! input Environment`: not one of the frame's own pictures (RTT::*), so marked apart
 		const uint32 kEnvironmentInput = 1u << 30;
 		const uint32 kExtraInput = 1u << 29;
+		const uint32 kShelterInput = 1u << 28;
 		const char* const kParamsBlockName = "PyrosEffectParams";
 
 		uint32 Std140Alignment(const uint32 type)
@@ -162,6 +165,8 @@ namespace p3d {
 					else if (w[1] == "Environment") out.inputs.push_back(kEnvironmentInput);
 					// a texture handed over after it is made (SetExtraInput): another pass's picture
 					else if (w[1] == "Extra") out.inputs.push_back(kExtraInput);
+					// what is over the ground round the eye: CustomEffect::SetShelter
+					else if (w[1] == "Shelter") out.inputs.push_back(kShelterInput);
 					else { errorOut = "line " + std::to_string(lineNo) + ": unknown input '" + w[1] + "' (Color, Depth, LastRTT or Environment)"; return false; }
 				}
 				else if (w[0] == "param")
@@ -218,6 +223,28 @@ namespace p3d {
 	}
 
 	CustomEffect::CustomEffect(const uint32 width, const uint32 height) : IEffect(width, height) {}
+
+	// One for the process, the size it is made: every effect that reads it reads the same texture,
+	// which SetShelter fills again. Nothing over anywhere until it does.
+	Texture* CustomEffect::ShelterTexture()
+	{
+		static Texture* t = NULL;
+		if (t == NULL)
+		{
+			t = new Texture();
+			t->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, kShelterSide, kShelterSide, false);
+			std::vector<uchar> none((size_t)kShelterSide * kShelterSide * 4, 0);
+			t->UpdateData(&none[0]);
+			t->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+			t->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
+		}
+		return t;
+	}
+
+	void CustomEffect::SetShelter(const uchar* rgba)
+	{
+		if (rgba != NULL) ShelterTexture()->UpdateData((void*)rgba);
+	}
 	CustomEffect::~CustomEffect() {}
 
 	void CustomEffect::SetExtraInput(Texture* texture)
@@ -272,6 +299,7 @@ namespace p3d {
 				effect->UseCustomTexture(white);
 			}
 			else if (h.inputs[i] == kEnvironmentInput) effect->UseCustomTexture(EnvironmentMap::GetTexture());
+			else if (h.inputs[i] == kShelterInput) effect->UseCustomTexture(ShelterTexture());
 			else effect->UseRTT(h.inputs[i]);
 		}
 

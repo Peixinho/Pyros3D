@@ -19,6 +19,7 @@ R"PYROSSKY(//! effect Sky
 //! input Depth
 //! input Environment
 //! input Extra
+//! input Shelter
 //! param float uNear 0.2 Camera near
 //! param float uFar 4000.0 Camera far
 //! param vec4 uCamPos 0,50,0,0 Camera position
@@ -47,6 +48,8 @@ R"PYROSSKY(//! effect Sky
 //! publish uSea 12 0
 //! param float uCloudCover 0.52 0.0 1.0 Cloud cover
 //! param float uRain 0.0 0.0 1.0 Rain
+//! param vec4 uShelter 0,0,1,0 Rain shelter: the grid's corner x, z, its cell, its side (filled by weather.shelter; side 0: none)
+//! param vec4 uRainWind 0.16,0.07,0,0 Rain: how far the wind leans it (x, z per metre fallen)
 //! param float uCloudShadow 0.45 0.0 1.0 Cloud shadows
 //! param float uCloudVolume 0.0 0.0 1.0 Volumetric clouds (1: marched through a slab of 3D noise, lit by the sun through themselves; 0: the flat layer)
 //! param float uCloudPass -1.0 Volumetric clouds: 1 in the half-resolution pass that marches them (set by the chain)
@@ -334,17 +337,53 @@ void main() {
 		float green = smoothstep(0.0, 0.10, c.g - max(c.r, c.b) * 0.92);
 		c = mix(c, vec3(dot(c, vec3(0.3, 0.5, 0.2))) * vec3(0.62, 0.64, 0.58), green * uSnow * 0.75);
 	}
-	if (uRain > 0.01) {
-		// rain: slanted streaks at three depths, falling fast
-		float streak = 0.0;
-		for (int i = 0; i < 3; i++) {
-			float sc = 70.0 + float(i) * 60.0;
-			vec2 q = vec2(uvTop.x * uLens.y * sc + uvTop.y * sc * 0.12, uvTop.y * sc * 0.03 - uTime * (2.4 + float(i) * 0.9));
-			float col = floor(q.x);
-			float y = fract(q.y + hash(vec2(col, float(i))) * 7.0);
-			streak += step(0.86, hash(vec2(col, 3.0 + float(i)))) * smoothstep(0.0, 0.05, y) * smoothstep(0.34, 0.05, y) * (1.0 - abs(fract(q.x) - 0.5) * 2.0) * (0.55 - float(i) * 0.14);
+	if (uRain > 0.01 && uSnow < 0.99) {
+		// Rain: drops that are somewhere - each falls through a place in the air round the eye, a
+		// streak as long as it falls in the blink a picture is (the wind leaning it), thin as a pixel
+		// far off and thicker passing the eye, behind whatever is nearer, and none under a roof (the
+		// shelter grid: what is over each metre of ground round the eye). Looking down, they come
+		// at you end on - dots.
+		float reachTo = d < 1.0 ? ((uNear * uFar) / (d * (uNear - uFar) + uFar)) / max(dot(dir, normalize(uCamFwd.xyz)), 0.05) : 1.0e6;
+		vec3 fall = normalize(vec3(uRainWind.x, -1.0, uRainWind.y));
+		vec3 fp = fall - dir * dot(fall, dir);
+		float flen = length(fp);
+		vec3 fn = fp / max(flen, 1.0e-4);
+		float pix = 2.0 * uLens.x / float(textureSize(uTex0, 0).y);       // a pixel, as an angle
+		float rn = 0.0;
+		for (int i = 0; i < 9; i++) {
+			float t = 0.9 * pow(1.45, float(i));                 // shells from a metre to twenty-five
+			if (t > reachTo) break;
+			float s = t * 0.20;
+			vec3 q = (uCamPos.xyz + dir * t - fall * (uTime * 9.0)) / s;      // (falling at 9 m/s)
+			vec3 cell = floor(q);
+			float h1 = hash(cell.xz + cell.y * 17.0 + float(i) * 3.1), h2 = hash(cell.xz * 1.7 + cell.y * 5.0 + 11.0 + float(i)), h3 = hash(cell.zx + cell.y * 29.0 + 23.0);
+			if (h3 > 0.25 + 0.55 * uRain) continue;
+			vec3 at = cell + 0.2 + 0.6 * vec3(h1, h2, fract(h1 * 7.31 + h2 * 3.7));
+			vec3 v = (at - q) * s;                               // metres from this pixel's point to the drop
+			float along = dot(v, dir);
+			if (abs(along) > s * 0.5) continue;
+			vec3 vp = v - dir * along;
+			float u = dot(vp, fn);
+			float across = length(vp - fn * u);
+			float halfLen = (0.13 + 0.09 * h2) * flen;            // half the streak, as it is seen
+			float w = max(pix * (t + along) * 0.75, 0.0016);
+			float a = (1.0 - smoothstep(w * 0.45, w, across)) * (1.0 - smoothstep(halfLen * 0.55, halfLen + w, abs(u)));
+			if (a <= 0.0) continue;
+			// under something: none
+			if (uShelter.w > 0.5) {
+				vec3 wp = uCamPos.xyz + dir * (t + along) + fn * u;
+				vec2 g = (wp.xz - uShelter.xy) / uShelter.z;
+				if (g.x >= 0.0 && g.y >= 0.0 && g.x < uShelter.w && g.y < uShelter.w) {
+					vec4 sh = texture_2D(uTex4, (floor(g) + 0.5) / uShelter.w);
+					float sv = floor(sh.r * 255.0 + 0.5) * 256.0 + floor(sh.g * 255.0 + 0.5);
+					if (sv > 0.5 && wp.y < -100.0 + sv / 65535.0 * 2100.0) continue;
+				}
+			}
+			rn = max(rn, a * mix(0.45, 0.26, float(i) / 8.0) * (0.6 + 0.4 * h1));
 		}
-		c = mix(c, vec3(0.80, 0.84, 0.88) * (0.25 + 0.75 * day), clamp(streak, 0.0, 1.0) * uRain * 0.55 * (1.0 - uSnow));
+		// (a drop is the sky bent through it: lighter than what is behind, by day; a glint by night)
+		vec3 rainCol = mix(horizonColour(sun, 1.0) * 1.35, vec3(0.86, 0.89, 0.93), 0.35) * (0.18 + 0.82 * day);
+		c = mix(c, max(c * 1.08, rainCol), clamp(rn, 0.0, 1.0) * clamp(uRain * 1.6, 0.0, 1.0) * (1.0 - uSnow));
 	}
 	if (uSnow > 0.01) {
 		// Snow: flakes that are somewhere - each has a place in the air, falls and drifts there,

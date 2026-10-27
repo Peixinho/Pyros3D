@@ -64,6 +64,13 @@ namespace p3d {
 
 		// A block of the group (on a child of the owner).
 		void Add(RenderingInstancedComponent* block);
+		// Thinned plant by plant, at each one's own distance (metres, before the foliage's reach): from
+		// thinFrom to thinTo those drawn fall to `least` of them and the ones left grow, and from
+		// fullDistance to fadeDistance they go. A plant near its turn dissolves (the dither the shader
+		// has for it) rather than going from one frame to the next. Its blocks are trimmed on the CPU
+		// to what their nearest point keeps - each plant's own say is the kernel's.
+		void SetThinning(const f32 thinFrom, const f32 thinTo, const f32 least, const f32 fullDistance, const f32 fadeDistance)
+		{ thinning = true; thin[0] = thinFrom; thin[1] = thinTo; thin[2] = least; thin[3] = fullDistance; thin[4] = fadeDistance; }
 		// The drawers out of the owner (before the group goes, while the owner is alive: the group's
 		// destructor does not touch it - at a scene's end the owner is the one being taken apart).
 		void Detach();
@@ -87,6 +94,8 @@ namespace p3d {
 		std::vector<RenderingInstancedComponent*> blocks;
 		f32 farFrom, meshRadius;
 		bool tinted;
+		bool thinning = false;
+		f32 thin[5] = { 0.f, 0.f, 1.f, 0.f, 0.f };
 		uint32 capacity = 0;
 		Vec3 viewCentre;
 		f32 viewRadius = 0.f;

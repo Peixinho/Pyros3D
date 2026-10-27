@@ -492,7 +492,7 @@ namespace p3d {
 		LOD = false;
 	}
 
-	void RenderingComponent::SetShadowRenderable(const std::shared_ptr<Renderable> &renderable)
+	void RenderingComponent::SetShadowRenderable(const std::shared_ptr<Renderable> &renderable, const f32 from)
 	{
 		SayDrawnChanged();        // (a kept list holds nothing of the shadow's mesh: only this component's entries are read again)
 		for (size_t i = 0; i < shadowMeshes.size(); i++) delete shadowMeshes[i];
@@ -506,6 +506,7 @@ namespace p3d {
 			f32 size = this->renderable ? this->renderable->GetBoundingSphereRadius() : 0.f;
 			if (Owner) { const Vec3 &sc = Owner->GetScale(); size *= std::max(fabs(sc.x), std::max(fabs(sc.y), fabs(sc.z))); }
 			shadowMeshFromSQR = (3.f * size) * (3.f * size);
+			if (from >= 0.f) shadowMeshFromSQR = from * from;
 		}
 		for (size_t i = 0; i < renderable->Geometries.size(); i++)
 		{

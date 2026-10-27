@@ -92,6 +92,7 @@
 #define LOC_vClipDist 21
 #define LOC_vLightThrough 23
 #define LOC_vInstanceColor 22
+#define LOC_vInstanceFade 24
 
 // Existing UBO/sampler bindings - match the fixed runtime binding points
 // IRenderer.cpp already uses via glUniformBlockBinding (see
@@ -389,6 +390,8 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             IO_LOCATION(LOC_aInstancedColor) attribute_in vec4 aInstancedColor;
             IO_LOCATION(LOC_vInstanceColor) varying_out vec4 vInstanceColor;
         #endif
+        // A plant changing level in a crossfade, its share (InstanceCullGroup): 0 none
+        IO_LOCATION(LOC_vInstanceFade) varying_out float vInstanceFade;
     #endif
 
     #ifdef VELOCITY_RENDERING
@@ -416,11 +419,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             // See InstanceCullGroup.
             mat4 instanceMatrix = aInstancedTransform;
             vec2 instanceGrowth = uInstanceGrowth.xy;
+            vInstanceFade = 0.0;
             if (instanceMatrix[0][3] > 0.0)
             {
                 instanceGrowth = vec2(instanceMatrix[0][3], instanceMatrix[1][3]);
+                vInstanceFade = instanceMatrix[2][3];
                 instanceMatrix[0][3] = 0.0;
                 instanceMatrix[1][3] = 0.0;
+                instanceMatrix[2][3] = 0.0;
             }
             ModelMatrix *= instanceMatrix;
             Position *= vec3(instanceGrowth.x, instanceGrowth.y, instanceGrowth.x);
@@ -1001,6 +1007,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
 
     #if defined(INSTANCED_RENDERING) && defined(INSTANCED_COLOR)
         IO_LOCATION(LOC_vInstanceColor) varying_in vec4 vInstanceColor;
+    #endif
+    #if defined(INSTANCED_RENDERING)
+        IO_LOCATION(LOC_vInstanceFade) varying_in float vInstanceFade;
     #endif
     #if defined(VERTEXCOLOR) && !defined(DEBUGRENDERING)
         IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
@@ -2403,6 +2412,16 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             float _ld = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
             if (uWetness.w > 0.0 ? _ld >= uWetness.w : _ld < uWetness.w + 1.0) discard;
         }
+        // (the same for one plant of a GPU-culled draw changing level: InstanceCullGroup - a cut-out's
+        // only: a discard anywhere in a solid material's shader costs it the GPU's early depth, a
+        // trunk's two levels are near enough alike, and leaves and blades are where it shows)
+        #if defined(INSTANCED_RENDERING) && defined(ALPHATEST)
+            if (vInstanceFade != 0.0)
+            {
+                float _lf = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+                if (vInstanceFade > 0.0 ? _lf >= vInstanceFade : _lf < vInstanceFade + 1.0) discard;
+            }
+        #endif
         #ifdef ALPHATEST
             if (diffuse.w < uAlphaCutoff)
                 discard;

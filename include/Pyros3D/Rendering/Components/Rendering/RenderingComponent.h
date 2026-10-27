@@ -423,7 +423,11 @@ namespace p3d {
 		// thousand triangles. Its sub-meshes are drawn with the materials of
 		// the component's own, in order (so a cut-out still cuts out). Not for
 		// skinned meshes. An empty pointer goes back to casting itself.
-		void SetShadowRenderable(const std::shared_ptr<Renderable> &renderable);
+		// Within three times the component's size it casts itself after all
+		// (up close the outline shows); `from` (metres, >= 0) says from where
+		// instead - 0 for a component whose size is not one thing's, like a
+		// block of instanced plants tens of metres across.
+		void SetShadowRenderable(const std::shared_ptr<Renderable> &renderable, const f32 from = -1.f);
 		const std::shared_ptr<Renderable> &GetShadowRenderable() const { return shadowRenderable; }
 		const std::vector<RenderingMesh*> &GetShadowMeshes() const { return shadowMeshes; }
 		// Every mesh it shows is in this frame's ray scene (DeferredRenderer's ray-traced

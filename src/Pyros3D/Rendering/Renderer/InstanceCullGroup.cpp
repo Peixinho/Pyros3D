@@ -7,6 +7,7 @@
 #include <Pyros3D/Rendering/Renderer/InstanceCullGroup.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
 #include <Pyros3D/GameObjects/GameObject.h>
+#include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <algorithm>
@@ -51,22 +52,53 @@ namespace p3d {
 			"    if (li == 0u) { groupCount[0] = 0u; groupCount[1] = 0u; }\n"
 			"    barrier();\n"
 			"    uvec4 u = floatBitsToUint(p[12]);\n"      // kept, near count at, far count at, flags (1 tinted, 2 has far)
-			"    uvec4 v = floatBitsToUint(p[13]);\n"      // near base, far base, capacity
+			"    uvec4 v = floatBitsToUint(p[13]);\n"      // near base, far base, capacity, the block's whole count
 			"    int which = -1;\n"
-			"    uint local = 0u;\n"
+			"    uint localN = 0u, localF = 0u;\n"
+			"    float fade = 0.0, thin = 1.0;\n"
+			"    vec2 grow = vec2(1.0);\n"
 			"    mat4 m = mat4(1.0);\n"
 			"    if (i < u.x) {\n"
 			"        mat4 block = mat4(p[0], p[1], p[2], p[3]);\n"
 			"        m = block * mat4(srcM[i * 4u], srcM[i * 4u + 1u], srcM[i * 4u + 2u], srcM[i * 4u + 3u]);\n"
 			"        vec3 c = m[3].xyz;\n"
 			"        float s = max(length(m[0].xyz), max(length(m[1].xyz), length(m[2].xyz)));\n"
-			"        float r = p[11].z * s * max(p[11].x, p[11].y);\n"
+			"        grow = p[11].xy;\n"
 			"        bool inside = true;\n"
-			"        for (int k = 0; k < 6; k++) if (dot(p[4 + k].xyz, c) + p[4 + k].w < -r) inside = false;\n"
+			// (thinned at its own distance, flags 4: p[14] thin from, to, least, amount; p[15] full, fade -
+			// metres; its rank among its block's is its place in it, the plants being made in no order)
+			"        if ((u.w & 4u) != 0u) {\n"
+			"            float pd = length(c - p[10].xyz);\n"
+			"            float tk = p[14].w;\n"
+			"            if (pd > p[14].x) tk *= (pd >= p[14].y || p[14].y <= p[14].x) ? p[14].z : 1.0 + (p[14].z - 1.0) * smoothstep(p[14].x, p[14].y, pd);\n"
+			"            float dk = pd <= p[15].x ? 1.0 : (pd >= p[15].y ? 0.0 : 1.0 - pow((pd - p[15].x) / max(0.001, p[15].y - p[15].x), 2.0));\n"
+			"            float keep = tk * dk;\n"
+			"            float rank = (float(i) + 0.5) / float(max(v.w, 1u));\n"
+			"            if (rank >= keep) inside = false;\n"
+			"            else {\n"
+			"                float q = (keep - rank) / max(0.0001, keep * 0.12);\n"
+			"                if (q < 1.0) thin = max(q, 0.002);\n"
+			"                float area = 1.0 / max(tk, 0.05);\n"
+			"                grow = vec2(pow(area, 0.75), pow(area, 0.25));\n"
+			"            }\n"
+			"        }\n"
+			"        float r = p[11].z * s * max(grow.x, grow.y);\n"
+			"        if (inside) for (int k = 0; k < 6; k++) if (dot(p[4 + k].xyz, c) + p[4 + k].w < -r) inside = false;\n"
 			"        if (inside) {\n"
 			"            vec3 d = c - p[10].xyz;\n"
-			"            which = ((u.w & 2u) == 0u || dot(d, d) < p[10].w) ? 0 : 1;\n"
-			"            local = atomicAdd(groupCount[which], 1u);\n"
+			"            float dist = length(d);\n"
+			// (p[11].w: half the band round the far distance over which a plant's two levels crossfade -
+			// in it the plant is in both lists, each with how far it has come, and the shader dithers them)
+			"            if ((u.w & 2u) == 0u) which = 0;\n"
+			"            else if (dist < p[10].w - p[11].w) which = 0;\n"
+			"            else if (dist >= p[10].w + p[11].w) which = 1;\n"
+			"            else { which = 2; fade = clamp((dist - (p[10].w - p[11].w)) / (2.0 * p[11].w), 0.002, 0.998); }\n"
+			// (a block thinned - fewer of its plants kept with distance - has its last ones kept fade
+			// out by the same dither as the count comes down over them, not go from one frame to the next:
+			// v.w its whole count)
+
+			"            if (which != 1) localN = atomicAdd(groupCount[0], 1u);\n"
+			"            if (which != 0) localF = atomicAdd(groupCount[1], 1u);\n"
 			"        }\n"
 			"    }\n"
 			"    barrier();\n"
@@ -76,16 +108,35 @@ namespace p3d {
 			"    }\n"
 			"    barrier();\n"
 			"    if (which < 0) return;\n"
-			"    uint at = groupBase[which] + local;\n"
-			"    if (at >= v.z) return;\n"
-			// (its growth, carried in the matrix's last row - see PyrosShader.glsl)
-			"    m[0][3] = p[11].x; m[1][3] = p[11].y;\n"
-			"    uint o = (which == 0 ? v.x : v.y) + at;\n"
-			"    if (which == 0) { nearM[o * 4u] = m[0]; nearM[o * 4u + 1u] = m[1]; nearM[o * 4u + 2u] = m[2]; nearM[o * 4u + 3u] = m[3]; if ((u.w & 1u) != 0u) nearC[o] = srcC[i]; }\n"
-			"    else { farM[o * 4u] = m[0]; farM[o * 4u + 1u] = m[1]; farM[o * 4u + 2u] = m[2]; farM[o * 4u + 3u] = m[3]; if ((u.w & 1u) != 0u) farC[o] = srcC[i]; }\n"
+			// (its growth, carried in the matrix's last row - see PyrosShader.glsl - and in a crossfade
+			// its share: the near level draws where the dither is under 1 - fade, the far where it is not)
+			"    m[0][3] = grow.x; m[1][3] = grow.y;\n"
+			"    if (which != 1) {\n"
+			"        uint at = groupBase[0] + localN;\n"
+			"        if (at < v.z) {\n"
+			"            uint o = v.x + at;\n"
+			"            m[2][3] = which == 2 ? 1.0 - fade : (thin < 1.0 ? thin : 0.0);\n"
+			"            nearM[o * 4u] = m[0]; nearM[o * 4u + 1u] = m[1]; nearM[o * 4u + 2u] = m[2]; nearM[o * 4u + 3u] = m[3]; if ((u.w & 1u) != 0u) nearC[o] = srcC[i];\n"
+			"        }\n"
+			"    }\n"
+			"    if (which != 0) {\n"
+			"        uint at = groupBase[1] + localF;\n"
+			"        if (at < v.z) {\n"
+			"            uint o = v.y + at;\n"
+			// (the far level comes in quicker than the near goes - whole a third of the way in - on the pixels
+			// the near is leaving, and every one the near has left besides: the two shapes are not the same,
+			// and where only one of them is, an even split left the ground showing through)
+			"            float farShare = min(1.0, fade / 0.3);\n"
+			"            m[2][3] = which == 2 ? (farShare >= 0.998 ? 0.0 : -farShare) : (thin < 1.0 ? thin : 0.0);\n"
+			"            farM[o * 4u] = m[0]; farM[o * 4u + 1u] = m[1]; farM[o * 4u + 2u] = m[2]; farM[o * 4u + 3u] = m[3]; if ((u.w & 1u) != 0u) farC[o] = srcC[i];\n"
+			"        }\n"
+			"    }\n"
 			"}\n";
 
 		bool g_enabled = !(std::getenv("PYROS_GPU_CULL") && std::getenv("PYROS_GPU_CULL")[0] == '0');
+		// Half the band a plant's near and far levels crossfade over, as a share of the far distance:
+		// a tree that changed level from one frame to the next was seen to. 0: the change as it was.
+		f32 g_crossfade = []() { const char* v = std::getenv("PYROS_FOLIAGE_CROSSFADE"); return v ? (f32)atof(v) : 0.15f; }();
 		// (GL 4.3 has all it needs and is written for, but it has not been run there yet: on GL only when
 		// asked - PYROS_GPU_CULL=1)
 		const bool g_onGLAsked = std::getenv("PYROS_GPU_CULL") && std::getenv("PYROS_GPU_CULL")[0] == '1';
@@ -286,7 +337,9 @@ namespace p3d {
 
 		static thread_local std::vector<Vec4> p;
 		p.assign(visibleBlocks.size() * (kParamBytes / 16), Vec4());
-		const f32 farSQ = farDrawer ? farFrom * farFrom : 3.0e38f;
+		// (the far distance itself now, not its square: the kernel measures each plant's for the crossfade)
+		const f32 farAt = farDrawer ? farFrom : 3.0e38f;
+		const f32 band = farDrawer ? std::max(0.f, farFrom * g_crossfade) : 0.f;
 		for (size_t b = 0; b < visibleBlocks.size(); b++)
 		{
 			RenderingInstancedComponent* blk = visibleBlocks[b];
@@ -294,12 +347,19 @@ namespace p3d {
 			const Matrix rel = ownerInverse * blk->GetOwner()->GetDrawWorld();
 			for (int c = 0; c < 4; c++) q[c] = Vec4(rel.m[c * 4], rel.m[c * 4 + 1], rel.m[c * 4 + 2], rel.m[c * 4 + 3]);
 			for (int k = 0; k < 6; k++) q[4 + k] = planes[k];
-			q[10] = Vec4(eye.x, eye.y, eye.z, farSQ);
+			q[10] = Vec4(eye.x, eye.y, eye.z, farAt);
 			const Vec2 &growth = blk->GrowthToDraw();
-			q[11] = Vec4(growth.x, growth.y, meshRadius, 0.f);
-			const uint32 flags = (tinted && blk->color_buffer != NULL ? 1u : 0u) | (farDrawer ? 2u : 0u);
+			q[11] = Vec4(growth.x, growth.y, meshRadius, band);
+			const uint32 flags = (tinted && blk->color_buffer != NULL ? 1u : 0u) | (farDrawer ? 2u : 0u) | (thinning ? 4u : 0u);
+			if (thinning)
+			{
+				const f32 reach = FoliageComponent::GetReach();
+				const bool thins = FoliageComponent::GetThinning() && thin[2] < 1.f;
+				q[14] = Vec4(thin[0] * reach, thins ? thin[1] * reach : 0.f, thins ? std::max(0.05f, thin[2]) : 1.f, FoliageComponent::GetAmount());
+				q[15] = Vec4(thin[3] * reach, thin[4] * reach, 0.f, 0.f);
+			}
 			q[12] = Vec4(FromBits(blk->InstancesToDraw()), FromBits(nearCountAt), FromBits(farCountAt), FromBits(flags));
-			q[13] = Vec4(FromBits(base), FromBits(base), FromBits(capacity), 0.f);
+			q[13] = Vec4(FromBits(base), FromBits(base), FromBits(capacity), FromBits(blk->MostInstances()));
 		}
 		if (!p.empty()) dev.UpdateStorageBuffer(params[region], 0, (uint32)(p.size() * sizeof(Vec4)), &p[0]);
 

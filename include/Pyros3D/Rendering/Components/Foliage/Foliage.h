@@ -63,6 +63,12 @@ namespace p3d {
 		f32 thinFrom = 0.f, thinTo = 0.f, thinDensity = 1.f;
 		f32 lodDistance = 0.f;		// 0: no far mesh
 		bool castShadows = true;
+		// Shadows cast from the far mesh at every distance. A block is tens of
+		// metres across, so the near mesh of the plants round the viewer goes
+		// into every cascade of the sun's maps; a tree whose near mesh is
+		// thousands of triangles makes a forest's shadows cost more than the
+		// forest. Off: each block casts with the mesh it is drawn with.
+		bool shadowFromFar = false;
 		// Optional greyscale PNG over the tile (0..1 = keep probability).
 		std::string densityMap;
 		// Patches. An image laid over the ground, repeating every patchSize

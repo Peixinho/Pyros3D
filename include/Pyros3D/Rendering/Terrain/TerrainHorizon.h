@@ -41,6 +41,24 @@ namespace p3d {
 		// hill is looked for, in metres. Empty where the scene has no terrain.
 		static std::shared_ptr<TerrainHorizon> Bake(SceneGraph* scene, const uint32 resolution = 512, const f32 reach = 800.f);
 
+		// The same bake, its slow part in the background - for a streamed world, whose terrain's
+		// shadow is worked out again as the player travels (a whole bake on the game's thread
+		// was a hitch of a third of a second every few hundred metres). BakeLater reads the
+		// ground now, on this thread, and returns at once; Ready() says when the horizons are
+		// worked out, and Finish() - on the thread that draws: it makes the picture - hands the
+		// horizon over. NULL when there is no terrain to bake. Dropping a Later waits for it.
+		class PYROS3D_API Later {
+		public:
+			~Later();
+			bool Ready() const;
+			std::shared_ptr<TerrainHorizon> Finish();
+		private:
+			friend class TerrainHorizon;
+			struct State;
+			std::shared_ptr<State> state;
+		};
+		static std::shared_ptr<Later> BakeLater(SceneGraph* scene, const uint32 resolution = 512, const f32 reach = 800.f);
+
 		Texture* GetTexture() const { return texture; }
 		// (min x, min z, 1 / size x, 1 / size z): world x,z to 0-1 over the picture
 		const Vec4 &GetRect() const { return rect; }
@@ -58,6 +76,11 @@ namespace p3d {
 
 	private:
 		TerrainHorizon() {}
+		struct Ground;
+		static bool ReadGround(SceneGraph* scene, const uint32 wanted, const f32 reach, Ground &g);
+		static std::shared_ptr<TerrainHorizon> Start(const Ground &g);
+		static void WorkOut(const Ground &g, TerrainHorizon &out, const int j0, const int j1);
+		void MakePicture();
 		Texture* texture = NULL;
 		Vec4 rect;
 		uint32 resolution = 0;

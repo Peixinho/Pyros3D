@@ -10,6 +10,7 @@
 #include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
+#include <Pyros3D/Rendering/PostEffects/Effects/CustomEffect.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Utils/Navigation/Crowd.h>
@@ -28,6 +29,7 @@
 #include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Utils/View/ViewFovScale.h>
 #include <map>
+#include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <cstdlib>
 #include <cstdio>
 #include <vector>
@@ -1091,6 +1093,112 @@ end
 				});
 			}
 
+			// What is over the ground round the eye, for the rain to stop under (CustomEffect::SetShelter,
+			// the Sky's `input Shelter`): a grid of cells a metre across, kShelterSide a side, centred on
+			// (x, z) - each the height of the first thing a ray straight down meets, where that is well
+			// above the ground (a roof, a bridge, an arch), else nothing. `rays` cells a call: those not
+			// yet known first, nearest first, then the rest again in turn. Gives back where the grid lies
+			// (its corner x, z, the cell's size and its side) for the effect's uShelter, and how many of
+			// its cells have something over them.
+			{
+				sol::table weather = (*lua)["weather"].valid() ? (*lua)["weather"] : lua->create_named_table("weather");
+				weather.set_function("shelter", [](SceneGraph* scene, IPhysics* physics, const f32 x, const f32 y, const f32 z, sol::optional<int> raysIn) {
+					const int N = (int)CustomEffect::kShelterSide;
+					const f32 cell = 1.f;
+					struct Grid
+					{
+						bool made = false;
+						int ox = 0, oz = 0;
+						std::vector<uint16> height;       // 0: nothing over
+						std::vector<uchar> known;
+						std::vector<int> order;           // cells nearest the middle first
+						size_t refresh = 0;
+						std::vector<uchar> rgba;
+					};
+					static Grid g;
+					if (!g.made)
+					{
+						g.made = true;
+						g.height.assign((size_t)N * N, 0); g.known.assign((size_t)N * N, 0); g.rgba.assign((size_t)N * N * 4, 0);
+						for (int k = 0; k < N * N; k++) g.order.push_back(k);
+						std::sort(g.order.begin(), g.order.end(), [N](const int a, const int b) {
+							const f32 ax = (f32)(a % N) - N * 0.5f + 0.5f, az = (f32)(a / N) - N * 0.5f + 0.5f;
+							const f32 bx = (f32)(b % N) - N * 0.5f + 0.5f, bz = (f32)(b / N) - N * 0.5f + 0.5f;
+							return ax * ax + az * az < bx * bx + bz * bz; });
+						g.ox = (int)std::floor(x / cell) - N / 2; g.oz = (int)std::floor(z / cell) - N / 2;
+					}
+					// moved a cell or more: what is known is kept where it still lies
+					const int nx = (int)std::floor(x / cell) - N / 2, nz = (int)std::floor(z / cell) - N / 2;
+					bool changed = false;
+					if (nx != g.ox || nz != g.oz)
+					{
+						std::vector<uint16> h((size_t)N * N, 0);
+						std::vector<uchar> k((size_t)N * N, 0);
+						for (int j = 0; j < N; j++)
+							for (int i = 0; i < N; i++)
+							{
+								const int si = i + nx - g.ox, sj = j + nz - g.oz;
+								if (si < 0 || sj < 0 || si >= N || sj >= N) continue;
+								h[(size_t)j * N + i] = g.height[(size_t)sj * N + si];
+								k[(size_t)j * N + i] = g.known[(size_t)sj * N + si];
+							}
+						g.height.swap(h); g.known.swap(k);
+						g.ox = nx; g.oz = nz;
+						changed = true;
+					}
+					int rays = std::max(0, raysIn.value_or(192));
+					auto cast = [&](const int c) {
+						const int i = c % N, j = c / N;
+						const f32 wx = ((f32)(g.ox + i) + 0.5f) * cell, wz = ((f32)(g.oz + j) + 0.5f) * cell;
+						uint16 v = 0;
+						if (physics)
+						{
+							const RayCastHit hit = physics->RayCast(Vec3(wx, y + 80.f, wz), Vec3(wx, y - 60.f, wz));
+							f32 ground = -1e30f;
+							bool cover = false;
+							if (hit.hasHit)
+							{
+								// over a terrain: cover is what stands well above its ground. Where there is none
+								// to ask (a floor of meshes), what has something else under it, a storey down
+								// or more - a roof over a floor, a bridge over the ground - and not the ground.
+								if (scene && TerrainEditor::HeightAt(scene, wx, wz, ground)) cover = hit.point.y > ground + 1.5f;
+								else
+								{
+									// (past the slab itself first: a ray from just under a roof's top meets its own
+									// underside, a hand's breadth down - stepped through, a few times at most)
+									f32 from = hit.point.y - 0.05f;
+									for (int step = 0; step < 6 && !cover; step++)
+									{
+										const RayCastHit under = physics->RayCast(Vec3(wx, from, wz), Vec3(wx, hit.point.y - 80.f, wz));
+										if (!under.hasHit) break;
+										if (under.point.y < hit.point.y - 2.f) cover = true;
+										else from = under.point.y - 0.05f;
+									}
+								}
+							}
+							if (cover)
+								v = (uint16)std::max(1.f, std::min(65535.f, (hit.point.y + 100.f) / 2100.f * 65535.f + 0.5f));
+						}
+						if (g.height[c] != v || !g.known[c]) changed = true;
+						g.height[c] = v; g.known[c] = 1;
+					};
+					for (size_t o = 0; o < g.order.size() && rays > 0; o++)
+						if (!g.known[g.order[o]]) { cast(g.order[o]); rays--; }
+					for (; rays > 0; rays--) { cast(g.order[g.refresh % g.order.size()]); g.refresh++; }
+					if (changed)
+					{
+						for (size_t c = 0; c < g.height.size(); c++)
+						{
+							g.rgba[c * 4] = (uchar)(g.height[c] >> 8); g.rgba[c * 4 + 1] = (uchar)(g.height[c] & 255);
+							g.rgba[c * 4 + 2] = 0; g.rgba[c * 4 + 3] = 255;
+						}
+						CustomEffect::SetShelter(&g.rgba[0]);
+					}
+					int covered = 0;
+					for (size_t c = 0; c < g.height.size(); c++) if (g.height[c]) covered++;
+					return std::make_tuple((f32)g.ox * cell, (f32)g.oz * cell, cell, (f32)N, covered);
+				});
+			}
 			sol::table terrain = lua->create_named_table("terrain");
 			// terrain.bakeShadows(scene [, resolution, reach]) works the terrain's
 			// own shadow out now (TerrainHorizon) and has the scene use it - what
@@ -1106,6 +1214,66 @@ end
 				return (scene && scene->GetTerrainHorizon()) ? scene->GetTerrainHorizon()->ShadeAt(x, z, toSun) : 1.f;
 			});
 			terrain.set_function("clearShadows", [](SceneGraph* scene) { if (scene) scene->SetTerrainHorizon(std::shared_ptr<TerrainHorizon>()); });
+			// terrain.bakeShadowsLater(scene[, resolution, reach]) starts the same bake with its slow
+			// part in the background (TerrainHorizon::BakeLater) - false if one is already going;
+			// terrain.shadowsReady(scene) puts it in place once it is done (true then), for a
+			// streamed world baking again round the player as they go without a hitch each time.
+			{
+				// (kept for the life of the process, never torn down at exit: a bake still running
+				// then would wait on a job system that is already gone)
+				static std::map<SceneGraph*, std::shared_ptr<TerrainHorizon::Later> >* later = new std::map<SceneGraph*, std::shared_ptr<TerrainHorizon::Later> >();
+				terrain.set_function("bakeShadowsLater", sol::overload(
+					[](SceneGraph* scene) -> bool {
+						if (!scene || later->count(scene)) return false;
+						std::shared_ptr<TerrainHorizon::Later> l = TerrainHorizon::BakeLater(scene);
+						if (l) (*later)[scene] = l;
+						return (bool)l;
+					},
+					[](SceneGraph* scene, const uint32 resolution, const f32 reach) -> bool {
+						if (!scene || later->count(scene)) return false;
+						std::shared_ptr<TerrainHorizon::Later> l = TerrainHorizon::BakeLater(scene, resolution, reach);
+						if (l) (*later)[scene] = l;
+						return (bool)l;
+					}));
+				terrain.set_function("shadowsReady", [](SceneGraph* scene) -> bool {
+					std::map<SceneGraph*, std::shared_ptr<TerrainHorizon::Later> >::iterator it = later->find(scene);
+					if (!scene || it == later->end() || !it->second->Ready()) return false;
+					std::shared_ptr<TerrainHorizon> h = it->second->Finish();
+					later->erase(it);
+					if (h) scene->SetTerrainHorizon(h);
+					return (bool)h;
+				});
+			}
+			// Whether the ground round a place is in: every full tile of every terrain of the scene
+			// within `radius` of (x, z) (each terrain's own load radius at most) - what a game holds
+			// its loading screen on after a jump.
+			terrain.set_function("readyAround", [](SceneGraph* scene, const f32 x, const f32 z, sol::optional<f32> radius) -> bool {
+				const f32 want = radius.value_or(256.f);
+				const std::vector<TerrainComponent*> &all = TerrainComponent::Instances();
+				for (size_t t = 0; t < all.size(); t++)
+				{
+					TerrainComponent* tc = all[t];
+					if (!tc->GetOwner() || (scene && tc->GetOwner()->GetScene() != scene)) continue;
+					const TerrainComponent::Settings &st = tc->GetSettings();
+					const f32 r = std::min(want, st.loadRadius - st.tileSize * 0.5f);
+					if (r <= 0.f) continue;
+					int32 x0, z0, x1, z1;
+					tc->TileAt(Vec3(x - r, 0.f, z - r), x0, z0);
+					tc->TileAt(Vec3(x + r, 0.f, z + r), x1, z1);
+					x0 = std::max(0, x0); z0 = std::max(0, z0);
+					x1 = std::min(st.tilesX - 1, x1); z1 = std::min(st.tilesZ - 1, z1);
+					for (int32 j = z0; j <= z1; j++)
+						for (int32 i = x0; i <= x1; i++)
+						{
+							// (the tile's nearest point inside the circle: wanted)
+							const Vec3 o = tc->TileOrigin(i, j);
+							const f32 nx = std::max(o.x, std::min(x, o.x + st.tileSize)) - x, nz = std::max(o.z, std::min(z, o.z + st.tileSize)) - z;
+							if (nx * nx + nz * nz > r * r) continue;
+							if (!tc->GetTile(i, j)) return false;
+						}
+				}
+				return true;
+			});
 			terrain.set_function("heightAt", [](SceneGraph* scene, const f32 x, const f32 z) -> sol::optional<f32> {
 				f32 h = 0.f;
 				if (TerrainEditor::HeightAt(scene, x, z, h)) return h;
