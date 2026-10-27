@@ -2504,6 +2504,50 @@ bool SceneEditor::BakeModelImpostor(const json& a, json& out, std::string& errOu
 	return true;
 }
 
+bool SceneEditor::BakeSubtreeImpostor(const json& a, json& out, std::string& errOut)
+{
+	const json args = a.is_object() ? a : json::object();
+	if (playMode) { errOut = "stop play mode first"; return false; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+	if (!args.contains("subtree") || !args["subtree"].is_object()) { errOut = "bake_subtree_impostor needs {\"subtree\": {materials, root}}"; return false; }
+	const std::string outRel = args.value("out", std::string());
+	if (outRel.empty()) { errOut = "bake_subtree_impostor needs \"out\""; return false; }
+	std::vector<f32> angles;
+	if (args.contains("angles") && args["angles"].is_array()) for (const json &v : args["angles"]) angles.push_back(v.get<f32>());
+	if (angles.empty()) angles.push_back(0.f);
+	const bool top = args.value("top", false);
+	const std::string text = args["subtree"].dump();
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	fs::create_directories(fs::path(project->AbsolutePath(outRel)).parent_path(), ec);
+	json views = json::array();
+	for (size_t v = 0; v < angles.size() + (top ? 1u : 0u); v++)
+	{
+		const bool above = v == angles.size();
+		// (a fresh object for each picture: the bake gives it a scene of its own)
+		std::shared_ptr<GameObject> subject = SceneSerializer::DeserializeSubtree(text, scenePath);
+		if (!subject) { errOut = "the subtree made nothing"; return false; }
+		// turned so that the camera (looking down -z) sees it from this side; from above, its top towards the camera
+		subject->SetRotation(above ? Vec3(1.5707963f, 0.f, 0.f) : Vec3(0.f, angles[v] * 0.017453293f, 0.f));
+		std::vector<unsigned char> rgba;
+		uint32 w = 0, h = 0;
+		f32 left, right, bottom, top_;
+		if (!RenderImpostorRGBA8(std::string(), rgba, w, h, left, right, bottom, top_, subject))
+		{ errOut = "could not render view " + std::to_string(v); return false; }
+		const std::string rel = outRel + "_" + std::to_string(v) + ".png";
+		if (!PaintableImage::WritePNG(project->AbsolutePath(rel), (int32)w, (int32)h, 4, rgba.data()))
+		{ errOut = "could not write " + rel; return false; }
+		Texture::ForgetShared(project->AbsolutePath(rel));
+		json j;
+		j["texture"] = rel; j["width"] = w; j["height"] = h;
+		j["left"] = left; j["right"] = right; j["bottom"] = bottom; j["top"] = top_;
+		j["angle"] = above ? 0.f : angles[v]; j["above"] = above;
+		views.push_back(j);
+	}
+	out["views"] = views;
+	return true;
+}
+
 bool SceneEditor::BakeFoliageImpostor(const json& a, json& out, std::string& errOut)
 {
 	const json args = a.is_object() ? a : json::object();

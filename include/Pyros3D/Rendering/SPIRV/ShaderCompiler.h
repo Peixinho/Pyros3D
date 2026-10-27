@@ -163,6 +163,17 @@ namespace p3d {
 		// runs; CustomShaderMaterial's plain GL GLSL returns true.
 		static bool NeedsAutoFixForVulkan(const std::string &source);
 
+		// The binding and block name AutoFixForVulkan's synthesized UBO takes for a stage: the same for
+		// every shader (the vertex stage's 43, the fragment's 44 - one past the engine's reserved bindings,
+		// and a program has one of each), so the fixed text - the SPIR-V cache's key - is the same for the
+		// same shader whenever and wherever it is compiled. (A running count made every compile's text
+		// its own: nothing compiled ahead of a draw could be found by it.)
+		static void AutoUboSlot(const uint32 stage, uint32 &binding, std::string &blockName);
+		// What the Vulkan backend's CompileShaderStage does to a stage's source - fix it up where it needs
+		// it, compile it - for the cache only: any thread, ahead of the program being made, so that making
+		// it in the middle of a game finds its SPIR-V. False when it did not compile.
+		static bool WarmForVulkan(const std::string &source, const uint32 stage);
+
 		// Generic Vulkan-portability auto-fix for arbitrary, plain
 		// GL-style GLSL (CustomShaderMaterial's user-authored shaders,
 		// which - unlike PyrosShader.glsl/the engine's own effect shaders -

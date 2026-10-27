@@ -1474,6 +1474,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				try { j["caveMaterial"] = json::parse(s.caveMaterial); }
 				catch (const std::exception&) {}
 			}
+			if (!s.distantMaterial.empty())
+			{
+				try { j["distantMaterial"] = json::parse(s.distantMaterial); }
+				catch (const std::exception&) {}
+			}
 			try { j[kTerrainTemplateKey] = json::parse(s.tileTemplate); }
 			catch (const std::exception&) { j[kTerrainTemplateKey] = json::object(); }
 			return j;
@@ -4224,6 +4229,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			s.overviewSamples = j.value("overviewSamples", s.overviewSamples);
 			s.caveVoxel = j.value("caveVoxel", s.caveVoxel);
 			if (j.contains("caveMaterial") && j["caveMaterial"].is_object()) s.caveMaterial = j["caveMaterial"].dump();
+			if (j.contains("distantMaterial") && j["distantMaterial"].is_object()) s.distantMaterial = j["distantMaterial"].dump();
 			s.tileTemplate = j.contains(kTerrainTemplateKey) ? j[kTerrainTemplateKey].dump() : std::string("{}");
 			go->AddComponent(std::make_shared<TerrainComponent>(s, g_sceneAssetRoot, physics, lua));
 		}

@@ -55,7 +55,7 @@ namespace p3d {
 			"    uvec4 v = floatBitsToUint(p[13]);\n"      // near base, far base, capacity, the block's whole count
 			"    int which = -1;\n"
 			"    uint localN = 0u, localF = 0u;\n"
-			"    float fade = 0.0, thin = 1.0;\n"
+			"    float fade = 0.0, thin = 1.0, dith = 0.0;\n"
 			"    vec2 grow = vec2(1.0);\n"
 			"    mat4 m = mat4(1.0);\n"
 			"    if (i < u.x) {\n"
@@ -71,11 +71,20 @@ namespace p3d {
 			"            float pd = length(c - p[10].xyz);\n"
 			"            float tk = p[14].w;\n"
 			"            if (pd > p[14].x) tk *= (pd >= p[14].y || p[14].y <= p[14].x) ? p[14].z : 1.0 + (p[14].z - 1.0) * smoothstep(p[14].x, p[14].y, pd);\n"
-			"            float dk = pd <= p[15].x ? 1.0 : (pd >= p[15].y ? 0.0 : 1.0 - pow((pd - p[15].x) / max(0.001, p[15].y - p[15].x), 2.0));\n"
-			"            float keep = tk * dk;\n"
+			// (going with distance, and coming in where another group lets the same plants go - FarForest:
+			// by the dither alone, the one going where it is under 1 - t, the one coming where it is not, so
+			// that each pixel of a plant is drawn by one of the two. By its rank among its block's, the two
+			// groups' blocks and ranks being others, a plant was in both or in neither, and popped)
+			"            if (pd >= p[15].y && p[15].y > p[15].x) inside = false;\n"
+			"            else if (pd > p[15].x && p[15].y > p[15].x) dith = max(0.002, 1.0 - (pd - p[15].x) / (p[15].y - p[15].x));\n"
+			"            if (p[15].w > p[15].z) {\n"
+			"                if (pd <= p[15].z) inside = false;\n"
+			"                else if (pd < p[15].w) dith = -max(0.002, (pd - p[15].z) / (p[15].w - p[15].z));\n"
+			"            }\n"
+			"            float keep = tk;\n"
 			"            float rank = (float(i) + 0.5) / float(max(v.w, 1u));\n"
 			"            if (rank >= keep) inside = false;\n"
-			"            else {\n"
+			"            else if (inside) {\n"
 			"                float q = (keep - rank) / max(0.0001, keep * 0.12);\n"
 			"                if (q < 1.0) thin = max(q, 0.002);\n"
 			"                float area = 1.0 / max(tk, 0.05);\n"
@@ -115,7 +124,7 @@ namespace p3d {
 			"        uint at = groupBase[0] + localN;\n"
 			"        if (at < v.z) {\n"
 			"            uint o = v.x + at;\n"
-			"            m[2][3] = which == 2 ? 1.0 - fade : (thin < 1.0 ? thin : 0.0);\n"
+			"            m[2][3] = which == 2 ? 1.0 - fade : (dith != 0.0 ? dith : (thin < 1.0 ? thin : 0.0));\n"
 			"            nearM[o * 4u] = m[0]; nearM[o * 4u + 1u] = m[1]; nearM[o * 4u + 2u] = m[2]; nearM[o * 4u + 3u] = m[3]; if ((u.w & 1u) != 0u) nearC[o] = srcC[i];\n"
 			"        }\n"
 			"    }\n"
@@ -127,7 +136,7 @@ namespace p3d {
 			// the near is leaving, and every one the near has left besides: the two shapes are not the same,
 			// and where only one of them is, an even split left the ground showing through)
 			"            float farShare = min(1.0, fade / 0.3);\n"
-			"            m[2][3] = which == 2 ? (farShare >= 0.998 ? 0.0 : -farShare) : (thin < 1.0 ? thin : 0.0);\n"
+			"            m[2][3] = which == 2 ? (farShare >= 0.998 ? 0.0 : -farShare) : (dith != 0.0 ? dith : (thin < 1.0 ? thin : 0.0));\n"
 			"            farM[o * 4u] = m[0]; farM[o * 4u + 1u] = m[1]; farM[o * 4u + 2u] = m[2]; farM[o * 4u + 3u] = m[3]; if ((u.w & 1u) != 0u) farC[o] = srcC[i];\n"
 			"        }\n"
 			"    }\n"
@@ -356,7 +365,7 @@ namespace p3d {
 				const f32 reach = FoliageComponent::GetReach();
 				const bool thins = FoliageComponent::GetThinning() && thin[2] < 1.f;
 				q[14] = Vec4(thin[0] * reach, thins ? thin[1] * reach : 0.f, thins ? std::max(0.05f, thin[2]) : 1.f, FoliageComponent::GetAmount());
-				q[15] = Vec4(thin[3] * reach, thin[4] * reach, 0.f, 0.f);
+				q[15] = Vec4(thin[3] * reach, thin[4] * reach, thin[5] * reach, thin[6] * reach);
 			}
 			q[12] = Vec4(FromBits(blk->InstancesToDraw()), FromBits(nearCountAt), FromBits(farCountAt), FromBits(flags));
 			q[13] = Vec4(FromBits(base), FromBits(base), FromBits(capacity), FromBits(blk->MostInstances()));

@@ -3100,6 +3100,13 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	// object's far level of detail is made from ("lods" on a
 	// RenderingComponent: a Card with those bounds and a cutout material on
 	// the picture).
+	if (name == "bake_subtree_impostor")
+	{
+		nlohmann::json r;
+		if (!sceneView->BakeSubtreeImpostor(a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "bake_model_impostor")
 	{
 		nlohmann::json r;

@@ -13,6 +13,9 @@
 #include <mutex>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Rendering/Device/GLRenderDevice.h>
+#include <Pyros3D/Rendering/SPIRV/ShaderCompiler.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
+#include <atomic>
 #include <cassert>
 
 namespace p3d
@@ -58,6 +61,54 @@ namespace p3d
 				ProgramCache()[key] = s;
 			}
 			return s;
+		}
+	}
+
+	namespace {
+		// SPIR-V compiled ahead, on a worker, by (defines, source) as SharedProgram keys a program: 1 being
+		// compiled, 2 done (or failed - the program is then made, and fails, as before).
+		struct Warm { std::atomic<int> state{ 0 }; JobCounter counter; };
+		std::mutex &WarmMutex() { static std::mutex m; return m; }
+		std::map<std::string, std::shared_ptr<Warm> > &Warms() { static std::map<std::string, std::shared_ptr<Warm> > w; return w; }
+		bool ProgramMade(const std::string &key)
+		{
+			std::lock_guard<std::mutex> lock(ProgramCacheMutex());
+			std::map<std::string, std::weak_ptr<Shader> >::iterator it = ProgramCache().find(key);
+			return it != ProgramCache().end() && !it->second.expired();
+		}
+		// True when the program for (source, defines) can be made now without compiling for seconds
+		bool WarmProgram(const std::string &sourceText, const std::string &defines)
+		{
+#ifdef SPIRV_TOOLING
+			if (!IsActiveRenderDeviceSet() || !GetActiveRenderDevice().IsVulkan()) return true;
+			const std::string key = defines + '\x1f' + sourceText;
+			if (ProgramMade(key)) return true;
+			std::shared_ptr<Warm> w;
+			{
+				std::lock_guard<std::mutex> lock(WarmMutex());
+				std::shared_ptr<Warm> &slot = Warms()[key];
+				if (!slot) slot = std::make_shared<Warm>();
+				w = slot;
+			}
+			int expected = 0;
+			if (w->state.compare_exchange_strong(expected, 1))
+			{
+				// (the text each stage is compiled from, as Shader::CompileShader assembles it)
+				const std::string vs = GetActiveRenderDevice().BuildShaderSource(std::string("#define VERTEX\n") + defines, sourceText);
+				const std::string fs = GetActiveRenderDevice().BuildShaderSource(std::string("#define FRAGMENT\n") + defines, sourceText);
+				std::shared_ptr<Warm> keep = w;
+				JobSystem::Instance().Run([keep, vs, fs]() {
+					SpirvShaderCompiler::WarmForVulkan(vs, SpirvShaderStage::Vertex);
+					SpirvShaderCompiler::WarmForVulkan(fs, SpirvShaderStage::Fragment);
+					keep->state.store(2);
+				}, w->counter);
+				return false;
+			}
+			return w->state.load() == 2;
+#else
+			(void)sourceText; (void)defines;
+			return true;
+#endif
 		}
 	}
 
@@ -358,6 +409,32 @@ namespace p3d
 				variants[i].extraUniforms[b] = ExtraUniformsBlock();
 		}
 	}
+
+	int CustomShaderMaterial::VariantIndexFor(bool gbuffer, bool skinned) const
+	{
+		const bool ownGBuffer = hasKnownShaderBranch && deferredGBufferBranch;
+		if (skinned && (!shader || shader->GetShaderText().find("SKINNING") == std::string::npos))
+			skinned = false;
+		if (gbuffer == ownGBuffer && !skinned)
+			return -1;
+		return (gbuffer ? 1 : 0) | (skinned ? 2 : 0);
+	}
+
+	bool CustomShaderMaterial::VariantReady(int index)
+	{
+		if (index < 0 || index >= 16) return true;
+		const ProgramVariant &v = variants[index];
+		if (v.shader || v.failed || !shader || shader->GetShaderText().empty()) return true;
+		std::string defines = PlatformDefines();
+		if ((index & 1) != 0) defines += "#define DEFERRED_GBUFFER\n";
+		if ((index & 2) != 0) defines += "#define SKINNING\n";
+		if ((index & 4) != 0) defines += "#define SHADOW_DEPTH\n";
+		if ((index & 8) != 0) defines += "#define INSTANCED_RENDERING\n";
+		return WarmProgram((index & 8) != 0 ? WithInstancingBranch(shader->GetShaderText()) : shader->GetShaderText(), defines);
+	}
+
+	bool CustomShaderMaterial::VariantReadyFor(bool gbuffer, bool skinned) { return VariantReady(VariantIndexFor(gbuffer, skinned)); }
+	bool CustomShaderMaterial::InstancedVariantReady(bool gbuffer) { return VariantReady(8 | (gbuffer ? 1 : 0)); }
 
 	bool CustomShaderMaterial::UseVariantForNextDraw(bool gbuffer, bool skinned)
 	{

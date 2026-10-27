@@ -71,6 +71,9 @@ namespace p3d {
 		// to what their nearest point keeps - each plant's own say is the kernel's.
 		void SetThinning(const f32 thinFrom, const f32 thinTo, const f32 least, const f32 fullDistance, const f32 fadeDistance)
 		{ thinning = true; thin[0] = thinFrom; thin[1] = thinTo; thin[2] = least; thin[3] = fullDistance; thin[4] = fadeDistance; }
+		// ...and coming in, from nothing at `from` to all at `to` (metres): where another draws the
+		// same plants nearer to, and lets them go over the same distance (FarForest)
+		void SetFadeIn(const f32 from, const f32 to) { thin[5] = from; thin[6] = to; }
 		// The drawers out of the owner (before the group goes, while the owner is alive: the group's
 		// destructor does not touch it - at a scene's end the owner is the one being taken apart).
 		void Detach();
@@ -95,7 +98,7 @@ namespace p3d {
 		f32 farFrom, meshRadius;
 		bool tinted;
 		bool thinning = false;
-		f32 thin[5] = { 0.f, 0.f, 1.f, 0.f, 0.f };
+		f32 thin[7] = { 0.f, 0.f, 1.f, 0.f, 0.f, 0.f, 0.f };
 		uint32 capacity = 0;
 		Vec3 viewCentre;
 		f32 viewRadius = 0.f;

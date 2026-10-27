@@ -8,6 +8,8 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
+#include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
+#include <Pyros3D/GameObjects/GameObject.h>
 #include <algorithm>
 #include <cmath>
 
@@ -45,6 +47,22 @@ namespace p3d {
 		f32 minX = 0.f, minZ = 0.f, sizeX = 0.f, sizeZ = 0.f, stepX = 0.f, stepZ = 0.f, reach = 0.f;
 		std::vector<f32> height;
 	};
+
+	// The square the loaded tiles cover - the quick half of reading the ground, on the calling thread
+	static bool LoadedRect(SceneGraph* scene, f32 &minX, f32 &minZ, f32 &maxX, f32 &maxZ)
+	{
+		const std::vector<TerrainTile> tiles = TerrainEditor::FindTiles(scene);
+		bool any = false;
+		for (size_t i = 0; i < tiles.size(); i++)
+		{
+			const f32 size = tiles[i].Size();
+			if (size <= 0.f) continue;
+			const Vec3 &o = tiles[i].origin;
+			if (!any) { minX = o.x; minZ = o.z; maxX = o.x + size; maxZ = o.z + size; any = true; }
+			else { minX = std::min(minX, o.x); minZ = std::min(minZ, o.z); maxX = std::max(maxX, o.x + size); maxZ = std::max(maxZ, o.z + size); }
+		}
+		return any && maxX - minX >= 1.f && maxZ - minZ >= 1.f;
+	}
 
 	bool TerrainHorizon::ReadGround(SceneGraph* scene, const uint32 wanted, const f32 reach, Ground &g)
 	{
@@ -202,6 +220,42 @@ namespace p3d {
 	{
 		std::shared_ptr<Later> later(new Later());
 		std::shared_ptr<Later::State> st(new Later::State());
+		// Where every terrain of the scene has its overview - the whole terrain's ground, fixed once it is
+		// loaded - the ground is read from that, on the worker too: a million heights read here from the
+		// loaded tiles were a sixth of a second on the game's thread every few hundred metres of flight.
+		std::vector<const TerrainComponent*> terrains;
+		bool overviews = scene != NULL;
+		for (TerrainComponent* t : TerrainComponent::Instances())
+			if (t->GetOwner() && t->GetOwner()->GetScene() == scene) { terrains.push_back(t); if (!t->HasOverview()) overviews = false; }
+		f32 minX = 0.f, minZ = 0.f, maxX = 0.f, maxZ = 0.f;
+		if (overviews && !terrains.empty() && LoadedRect(scene, minX, minZ, maxX, maxZ))
+		{
+			Ground &g = st->ground;
+			const int N = (int)std::max(64u, std::min(2048u, wanted));
+			g.N = N; g.minX = minX; g.minZ = minZ; g.sizeX = maxX - minX; g.sizeZ = maxZ - minZ;
+			g.stepX = g.sizeX / (f32)N; g.stepZ = g.sizeZ / (f32)N; g.reach = reach;
+			st->out = Start(g);
+			later->state = st;
+			Later::State* raw = st.get();
+			JobSystem::Instance().Run([raw, terrains]() {
+				Ground &g = raw->ground;
+				const int N = g.N;
+				g.height.assign((size_t)N * N, 0.f);
+				f32 lowest = 1e30f;
+				for (int j = 0; j < N; j++)
+					for (int i = 0; i < N; i++)
+					{
+						f32 h = -1e30f, v = 0.f;
+						for (size_t t = 0; t < terrains.size(); t++)
+							if (terrains[t]->OverviewHeightAt(g.minX + ((f32)i + 0.5f) * g.stepX, g.minZ + ((f32)j + 0.5f) * g.stepZ, v)) h = std::max(h, v);
+						g.height[(size_t)j * N + i] = h;
+						if (h > -1e29f) lowest = std::min(lowest, h);
+					}
+				for (size_t k = 0; k < g.height.size(); k++) if (g.height[k] < -1e29f) g.height[k] = lowest < 1e29f ? lowest : 0.f;
+				WorkOut(g, *raw->out, 0, N);
+			}, st->counter);
+			return later;
+		}
 		if (!ReadGround(scene, wanted, reach, st->ground)) return std::shared_ptr<Later>();
 		st->out = Start(st->ground);
 		later->state = st;

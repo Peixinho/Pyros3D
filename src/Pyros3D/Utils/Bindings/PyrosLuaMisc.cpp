@@ -11,6 +11,7 @@
 #include <Pyros3D/Rendering/PostEffects/VolumetricSmoke.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Rendering/PostEffects/Effects/CustomEffect.h>
+#include <Pyros3D/Rendering/Components/Foliage/FarForest.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/Navigation/PathGrid.h>
 #include <Pyros3D/Utils/Navigation/Crowd.h>
@@ -1274,6 +1275,20 @@ end
 				}
 				return true;
 			});
+			// The forest out to the horizon (FarForest): built from a config (JSON) for the scene's
+			// terrain, kept until asked for again or dropped. Gives back how many trees, or nil and why.
+			{
+				static std::map<SceneGraph*, std::shared_ptr<FarForest> > forests;
+				terrain.set_function("farForest", [](SceneGraph* scene, const std::string &config, const std::string &root) -> std::tuple<sol::optional<int>, std::string> {
+					forests.erase(scene);
+					std::string error;
+					std::shared_ptr<FarForest> f = FarForest::Build(scene, config, root, error);
+					if (!f) return std::make_tuple(sol::optional<int>(), error);
+					forests[scene] = f;
+					return std::make_tuple(sol::optional<int>((int)f->Trees()), std::string());
+				});
+				terrain.set_function("dropFarForest", [](SceneGraph* scene) { forests.erase(scene); });
+			}
 			terrain.set_function("heightAt", [](SceneGraph* scene, const f32 x, const f32 z) -> sol::optional<f32> {
 				f32 h = 0.f;
 				if (TerrainEditor::HeightAt(scene, x, z, h)) return h;

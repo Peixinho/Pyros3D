@@ -56,6 +56,8 @@ R"PYROSSKY(//! effect Sky
 //! param float uCloudSteps 32.0 8.0 96.0 Volumetric clouds: steps along a ray
 //! param float uSnow 0.0 0.0 1.0 Snow
 //! param float uExposure 1.16 0.2 2.0 Exposure
+//! param float uSkyBright 1.0 0.3 3.0 Sky brightness (the dome by day; the land stays as it is)
+//! param float uSkyPale 0.0 0.0 1.0 Sky paleness (the dome by day toward the horizon's white)
 //! param float uSaturation 0.70 0.0 1.5 Saturation
 //! param float uContrast 0.98 0.5 1.5 Contrast
 //! param vec4 uEnv 0,0,0,0 Environment: loaded, turn (set by the engine)
@@ -202,6 +204,9 @@ vec3 skyColour(vec3 dir, vec3 sun, float rain) {
 	float s = max(dot(dir, sun), 0.0);
 	// (the glow of a low sun spreads along the horizon, not up the dome)
 	horizon = mix(horizon, vec3(1.0, 0.50, 0.20), low * pow(s, 3.0) * 0.8);
+	// (a dome made brighter, or paler, by day: a real sky through a day's air is a pale bright blue)
+	zenith = mix(zenith, horizon, uSkyPale * day) * mix(1.0, uSkyBright, day);
+	horizon *= mix(1.0, uSkyBright, day * 0.5);
 	vec3 c = mix(horizon, zenith, pow(up, mix(0.52, 0.36, low)));
 	c += vec3(1.0, 0.86, 0.62) * (0.10 * pow(s, 6.0) + 0.30 * pow(s, 64.0)) * (0.3 + 0.7 * day + low);
 	c += mix(vec3(1.0, 0.55, 0.25), vec3(1.0, 0.96, 0.88), day) * smoothstep(0.9993, 0.9997, s) * 6.0;

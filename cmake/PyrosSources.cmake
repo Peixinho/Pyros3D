@@ -237,6 +237,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Terrains/TerrainEditor.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Terrains/CaveVolume.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Foliage/Foliage.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Foliage/FarForest.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Terrain/TerrainComponent.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Components/HeightField/PhysicsHeightField.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Texture/Texture.cpp

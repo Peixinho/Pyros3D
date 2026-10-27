@@ -88,6 +88,11 @@ namespace p3d {
 			// one (JSON text; empty = plain rock grey).
 			f32 caveVoxel = 2.f;
 			std::string caveMaterial;
+			// What its distant tiles are drawn with, as a scene file writes a material (JSON text;
+			// empty = the overview's colour, plain). "{overview}" in it stands for the overview's
+			// colour picture - a shader of the project's own can read it and add what the overview
+			// is too coarse to hold (the rock of a mountain's face).
+			std::string distantMaterial;
 			// One tile as a subtree, JSON text: {"materials": [...],
 			// "root": {...}}, "{tile}" standing for "<x>_<z>" in paths.
 			std::string tileTemplate;

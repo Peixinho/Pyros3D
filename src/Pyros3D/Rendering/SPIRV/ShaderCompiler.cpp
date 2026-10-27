@@ -796,6 +796,36 @@ namespace p3d {
 		return out;
 	}
 
+
+	void SpirvShaderCompiler::AutoUboSlot(const uint32 stage, uint32 &binding, std::string &blockName)
+	{
+		binding = 43u + (stage == SpirvShaderStage::Fragment ? 1u : (stage == SpirvShaderStage::Compute ? 2u : 0u));
+		blockName = std::string("AutoUBO_") + std::to_string(stage);
+	}
+
+	bool SpirvShaderCompiler::WarmForVulkan(const std::string &source, const uint32 stage)
+	{
+		std::vector<uint32> spirv;
+		std::string log;
+		uint32 binding; std::string name;
+		AutoUboSlot(stage, binding, name);
+		std::string text = source;
+		bool fixed = false;
+		if (NeedsAutoFixForVulkan(source))
+		{
+			SpirvAutoUboResult ubo;
+			if (!AutoFixForVulkan(text, stage, binding, name, ubo, log)) return false;
+			fixed = true;
+		}
+		if (Compile(text, stage, spirv, log)) return true;
+		if (fixed) return false;
+		// (as CompileShaderStage: a direct compile that fails is tried again through the fix-up)
+		text = source;
+		SpirvAutoUboResult ubo;
+		if (!AutoFixForVulkan(text, stage, binding, name, ubo, log)) return false;
+		log.clear();
+		return Compile(text, stage, spirv, log);
+	}
 };
 
 #endif /* SPIRV_TOOLING */

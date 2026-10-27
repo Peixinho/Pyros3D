@@ -391,7 +391,9 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             IO_LOCATION(LOC_vInstanceColor) varying_out vec4 vInstanceColor;
         #endif
         // A plant changing level in a crossfade, its share (InstanceCullGroup): 0 none
-        IO_LOCATION(LOC_vInstanceFade) varying_out float vInstanceFade;
+        // (and the frame's turn of the dither: the pattern moves every frame, and the anti-aliasing's
+        // history makes the two levels a dissolve - a fixed one showed as a screen door)
+        IO_LOCATION(LOC_vInstanceFade) varying_out vec2 vInstanceFade;
     #endif
 
     #ifdef VELOCITY_RENDERING
@@ -419,11 +421,14 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
             // See InstanceCullGroup.
             mat4 instanceMatrix = aInstancedTransform;
             vec2 instanceGrowth = uInstanceGrowth.xy;
-            vInstanceFade = 0.0;
+            vInstanceFade = vec2(0.0);
             if (instanceMatrix[0][3] > 0.0)
             {
                 instanceGrowth = vec2(instanceMatrix[0][3], instanceMatrix[1][3]);
-                vInstanceFade = instanceMatrix[2][3];
+                vInstanceFade.x = instanceMatrix[2][3];
+                #if defined(ENVMAP) || defined(REFRACTION) || defined(PARALLAXMAPPING) || defined(DIFFUSE) || defined(CELLSHADING) || defined(PBR) || defined(CLIPSPACE) || defined(VERTEXWIND)
+                    vInstanceFade.y = fract(floor(uTimeParams.x * 60.0) * 0.61803399);
+                #endif
                 instanceMatrix[0][3] = 0.0;
                 instanceMatrix[1][3] = 0.0;
                 instanceMatrix[2][3] = 0.0;
@@ -1009,7 +1014,7 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         IO_LOCATION(LOC_vInstanceColor) varying_in vec4 vInstanceColor;
     #endif
     #if defined(INSTANCED_RENDERING)
-        IO_LOCATION(LOC_vInstanceFade) varying_in float vInstanceFade;
+        IO_LOCATION(LOC_vInstanceFade) varying_in vec2 vInstanceFade;
     #endif
     #if defined(VERTEXCOLOR) && !defined(DEBUGRENDERING)
         IO_LOCATION(LOC_vColor) varying_in vec4 vColor;
@@ -2416,10 +2421,10 @@ _highpMat4 _transpose4(in _highpMat4 inMatrix) {
         // only: a discard anywhere in a solid material's shader costs it the GPU's early depth, a
         // trunk's two levels are near enough alike, and leaves and blades are where it shows)
         #if defined(INSTANCED_RENDERING) && defined(ALPHATEST)
-            if (vInstanceFade != 0.0)
+            if (vInstanceFade.x != 0.0)
             {
-                float _lf = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-                if (vInstanceFade > 0.0 ? _lf >= vInstanceFade : _lf < vInstanceFade + 1.0) discard;
+                float _lf = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))) + vInstanceFade.y);
+                if (vInstanceFade.x > 0.0 ? _lf >= vInstanceFade.x : _lf < vInstanceFade.x + 1.0) discard;
             }
         #endif
         #ifdef ALPHATEST

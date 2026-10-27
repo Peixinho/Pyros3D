@@ -807,7 +807,7 @@ namespace p3d {
 		if (GenericShaderMaterial* gsm = dynamic_cast<GenericShaderMaterial*>(material))
 		{
 			const bool sibling = !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLit) != 0;
-			if (sibling)
+			if (sibling && gsm->VariantReady(ShaderUsage::DeferredRenderer_Gbuffer))
 			{
 				gsm->UseGBufferProgramForNextDraw();
 				gsm->RestoreOwnProgram();
@@ -815,9 +815,10 @@ namespace p3d {
 			// (and the one it is drawn with when enough of the same thing are in
 			// view to be drawn as one: that many came into view in the middle
 			// of a game, never while it loaded)
-			if (IsAutoInstancing() && AutoInstanceEligible(mesh))
+			const ShaderOptions inst = ShaderUsage::InstancedRendering | (sibling ? ShaderUsage::DeferredRenderer_Gbuffer : 0);
+			if (IsAutoInstancing() && AutoInstanceEligible(mesh) && gsm->VariantReady(inst))
 			{
-				gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering | (sibling ? ShaderUsage::DeferredRenderer_Gbuffer : 0));
+				gsm->UseVariantProgramForNextDraw(inst);
 				gsm->RestoreOwnProgram();
 			}
 			return;
@@ -825,9 +826,13 @@ namespace p3d {
 		if (typeid(*material) == typeid(CustomShaderMaterial))
 		{
 			CustomShaderMaterial* csm = static_cast<CustomShaderMaterial*>(material);
-			if (csm->UseVariantForNextDraw(true, mesh->BonesToDraw().size() > 0 || !mesh->MapBoneIDs.empty())) csm->RestoreOwnProgram();
+			// (compiled ahead on a worker where the backend can - Vulkan: made here, when it is ready, it
+			// is made from SPIR-V already compiled; until then the draws leave it out. A shader compiled
+			// here, all of it, was seconds of a frame on a machine meeting it for the first time)
+			const bool skinned = mesh->BonesToDraw().size() > 0 || !mesh->MapBoneIDs.empty();
+			if (csm->VariantReadyFor(true, skinned) && csm->UseVariantForNextDraw(true, skinned)) csm->RestoreOwnProgram();
 			// (and the one a batch of them is drawn with)
-			if (IsAutoInstancing() && AutoInstanceEligible(mesh) && csm->UseInstancedVariantForNextDraw(true)) csm->RestoreOwnProgram();
+			if (IsAutoInstancing() && AutoInstanceEligible(mesh) && csm->InstancedVariantReady(true) && csm->UseInstancedVariantForNextDraw(true)) csm->RestoreOwnProgram();
 		}
 	}
 
@@ -1271,6 +1276,8 @@ namespace p3d {
 				IMaterial* mat = mesh->Material.get();
 				GenericShaderMaterial* gsm = dynamic_cast<GenericShaderMaterial*>(mat);
 				const bool needsGBufferSwap = gsm && !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLitUsageMask) != 0;
+				// (its G-buffer program still compiling ahead: left out of this frame - see MaterialListed)
+				if (needsGBufferSwap && !gsm->VariantReady(ShaderUsage::DeferredRenderer_Gbuffer)) return;
 				if (needsGBufferSwap)
 					gsm->UseGBufferProgramForNextDraw();
 
@@ -1285,6 +1292,9 @@ namespace p3d {
 				// UseGBufferProgramForNextDraw()'s comment for what
 				// this fixes for the base class.
 				CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
+				// (its program still being compiled, ahead, on a worker: left out of this frame rather than
+				// the frame held up for the seconds a compile takes - see MaterialListed)
+				if (csm && !csm->VariantReadyFor(true, mesh->BonesToDraw().size() > 0)) return;
 				const bool usedCustomGBufferSwap = csm && csm->UseVariantForNextDraw(true, mesh->BonesToDraw().size() > 0);
 
 				DrawWith(with, mesh, mesh->Material.get());
@@ -1304,6 +1314,7 @@ namespace p3d {
 				if (typeid(*bmat) == typeid(CustomShaderMaterial))
 				{
 					CustomShaderMaterial* bcsm = static_cast<CustomShaderMaterial*>(bmat);
+					if (!bcsm->InstancedVariantReady(true)) return;
 					const bool swapped = bcsm->UseInstancedVariantForNextDraw(true);
 					DrawWith(with, batchMesh, bcsm);
 					if (swapped) bcsm->RestoreOwnProgram();
@@ -1311,6 +1322,7 @@ namespace p3d {
 				}
 				GenericShaderMaterial* gsm = static_cast<GenericShaderMaterial*>(bmat);
 				const bool gbuffer = !gsm->IsCompiledForGBuffer() && (gsm->GetOptions() & kLitUsageMask) != 0;
+				if (!gsm->VariantReady(ShaderUsage::InstancedRendering | (gbuffer ? ShaderUsage::DeferredRenderer_Gbuffer : 0))) return;
 				gsm->UseVariantProgramForNextDraw(ShaderUsage::InstancedRendering | (gbuffer ? ShaderUsage::DeferredRenderer_Gbuffer : 0));
 				DrawWith(with, batchMesh, gsm);
 				gsm->RestoreOwnProgram();
@@ -2173,6 +2185,7 @@ namespace p3d {
 				if (anyLocalLight) with.SetDrawLights(lightsOfAll + lightFromOf[item], lightFromOf[item + 1] - lightFromOf[item]);
 				IMaterial* mat = mesh->Material.get();
 				CustomShaderMaterial* csm = (typeid(*mat) == typeid(CustomShaderMaterial)) ? static_cast<CustomShaderMaterial*>(mat) : nullptr;
+				if (csm && !csm->VariantReadyFor(false, mesh->BonesToDraw().size() > 0)) return;
 				const bool usedCustomSwap = csm && csm->UseVariantForNextDraw(false, mesh->BonesToDraw().size() > 0);
 				DrawWith(with, mesh, mat);
 				if (usedCustomSwap)

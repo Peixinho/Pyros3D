@@ -4987,8 +4987,9 @@ namespace p3d {
 		{
 			SpirvAutoUboResult autoUbo;
 			std::string autoFixErr;
-			uint32 candidateBinding = nextAutoUboBinding;
-			std::string autoBlockName = std::string("AutoUBO_") + std::to_string(shader) + "_" + std::to_string(spirvStage);
+			// (the same slot for every shader of a stage: SpirvShaderCompiler::AutoUboSlot)
+			uint32 candidateBinding; std::string autoBlockName;
+			SpirvShaderCompiler::AutoUboSlot(spirvStage, candidateBinding, autoBlockName);
 			if (!SpirvShaderCompiler::AutoFixForVulkan(compileSource, spirvStage, candidateBinding, autoBlockName, autoUbo, autoFixErr))
 			{
 				errorLog = autoFixErr;
@@ -5015,8 +5016,9 @@ namespace p3d {
 			// scan missed).
 			SpirvAutoUboResult autoUbo;
 			std::string autoFixErr;
-			uint32 candidateBinding = nextAutoUboBinding;
-			std::string autoBlockName = std::string("AutoUBO_") + std::to_string(shader) + "_" + std::to_string(spirvStage);
+			// (the same slot for every shader of a stage: SpirvShaderCompiler::AutoUboSlot)
+			uint32 candidateBinding; std::string autoBlockName;
+			SpirvShaderCompiler::AutoUboSlot(spirvStage, candidateBinding, autoBlockName);
 			compileSource = source;
 			if (!SpirvShaderCompiler::AutoFixForVulkan(compileSource, spirvStage, candidateBinding, autoBlockName, autoUbo, autoFixErr))
 			{

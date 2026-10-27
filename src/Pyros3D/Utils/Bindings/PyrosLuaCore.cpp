@@ -163,7 +163,10 @@ namespace p3d {
 				// kept up to date as cells stream in and out - no walk of the
 				// scene. scene:watchedVersion("Lamp_") goes up when the list
 				// changes: deal with the list again only then.
-				"watch", [](SceneGraph &s, const std::string &prefix) { return s.Watch(prefix); },
+				// (a table of its own - each object in it held by it: as the list was given, a copy of it
+				// that Lua could let go of while a script still held what it had taken out of it, an
+				// object of a cell gone since read freed memory, and the game went down in getName)
+				"watch", [](SceneGraph &s, const std::string &prefix) { return sol::as_table(std::vector<std::shared_ptr<GameObject> >(s.Watch(prefix))); },
 				"watchedVersion", [](SceneGraph &s, const std::string &prefix) { return s.WatchedVersion(prefix); },
 				"save", [lua](SceneGraph &scene, const std::string &path) {
 					return SceneSerializer::SaveScene(&scene, path, lua);

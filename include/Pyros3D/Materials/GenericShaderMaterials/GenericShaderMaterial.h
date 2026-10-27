@@ -191,6 +191,10 @@ namespace p3d
 		// compiled once and cached like every ShadersList entry. The
 		// renderer's automatic instancing draws with shaderID|InstancedRendering.
 		uint32 GetOrBuildVariantProgram(const ShaderOptions extraOptions);
+		// Whether the variant GetOrBuildVariantProgram(extraOptions) gives can be made without holding the
+		// frame up: made already, or its SPIR-V compiled ahead (Vulkan: on a worker, started by the first
+		// ask; other backends: always). The renderer leaves a mesh undrawn until it is.
+		bool VariantReady(const ShaderOptions extraOptions);
 		// Hash of everything that decides how this material renders: shader
 		// options, parameters, textures, uniform values and render state.
 		// Two materials with the same fingerprint draw identically, so the

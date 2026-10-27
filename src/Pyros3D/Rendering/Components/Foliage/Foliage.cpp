@@ -361,7 +361,10 @@ namespace p3d {
 				// (a layer culled on the GPU is thinned there, each plant at its own distance - the block
 				// keeps what its nearest point does, all any of its plants can; see InstanceCullGroup)
 				const f32 kept = ThinningAt(layer.spec, layer.cullGroup && g_perPlant ? d : d + half);
-				const uint32 n = (uint32)(layer.counts[b] * DensityAt(layer.spec, d) * kept);
+				// (a layer culled on the GPU goes with distance plant by plant there, dithered: its block keeps all
+				// of them until its nearest point is past the fade - see InstanceCullGroup)
+				const f32 dens = layer.cullGroup && g_perPlant ? (d / g_foliageReach >= layer.spec.fadeDistance ? 0.f : 1.f) : DensityAt(layer.spec, d);
+				const uint32 n = (uint32)(layer.counts[b] * dens * kept);
 				if (rc->NumberOfInstances() != n) rc->SetNumberInstances(n);
 				const f32 area = 1.f / kept;
 				rc->SetInstanceGrowth(powf(area, 0.75f), powf(area, 0.25f));

@@ -10,6 +10,13 @@
 #include <Pyros3D/Assets/Font/Font.h>
 #include <Pyros3D/Resources/Resources.h>
 #include <cstring>
+#include <atomic>
+#include <map>
+#include <memory>
+#include <mutex>
+#include <Pyros3D/Rendering/SPIRV/ShaderCompiler.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
+#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <algorithm>
 
 namespace p3d
@@ -348,6 +355,48 @@ namespace p3d
 		// material sends, by name.
 		f.Uniforms(GlobalUniforms); f.Uniforms(ModelUniforms); f.Uniforms(UserUniforms);
 		return f.h;
+	}
+
+	namespace {
+		// SPIR-V of the engine's shader compiled ahead, on a worker, by options: 1 being compiled, 2 done.
+		struct GenericWarm { std::atomic<int> state{ 0 }; JobCounter counter; };
+		std::mutex &GenericWarmMutex() { static std::mutex m; return m; }
+		std::map<ShaderOptions, std::shared_ptr<GenericWarm> > &GenericWarms() { static std::map<ShaderOptions, std::shared_ptr<GenericWarm> > w; return w; }
+	}
+
+	bool GenericShaderMaterial::VariantReady(const ShaderOptions extraOptions)
+	{
+		const ShaderOptions options = shaderID | extraOptions;
+		if (ShadersList.find(options) != ShadersList.end()) return true;
+#ifdef SPIRV_TOOLING
+		if (!IsActiveRenderDeviceSet() || !GetActiveRenderDevice().IsVulkan()) return true;
+		std::shared_ptr<GenericWarm> w;
+		{
+			std::lock_guard<std::mutex> lock(GenericWarmMutex());
+			std::shared_ptr<GenericWarm> &slot = GenericWarms()[options];
+			if (!slot) slot = std::make_shared<GenericWarm>();
+			w = slot;
+		}
+		int expected = 0;
+		if (w->state.compare_exchange_strong(expected, 1))
+		{
+			// (the engine's shader as BuildProgram reads it, once)
+			static const std::string text = []() { Shader s; s.LoadShaderFile("shaders/PyrosShader.glsl"); return s.GetShaderText(); }();
+			const std::string define = BuildShaderUsageDefines(options);
+			const std::string vs = GetActiveRenderDevice().BuildShaderSource(std::string("#define VERTEX\n") + define, text);
+			const std::string fs = GetActiveRenderDevice().BuildShaderSource(std::string("#define FRAGMENT\n") + define, text);
+			std::shared_ptr<GenericWarm> keep = w;
+			JobSystem::Instance().Run([keep, vs, fs]() {
+				SpirvShaderCompiler::WarmForVulkan(vs, SpirvShaderStage::Vertex);
+				SpirvShaderCompiler::WarmForVulkan(fs, SpirvShaderStage::Fragment);
+				keep->state.store(2);
+			}, w->counter);
+			return false;
+		}
+		return w->state.load() == 2;
+#else
+		return true;
+#endif
 	}
 
 	uint32 GenericShaderMaterial::GetOrBuildGBufferProgram()

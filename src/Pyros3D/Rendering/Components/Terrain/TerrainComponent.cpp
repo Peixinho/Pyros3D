@@ -743,6 +743,13 @@ namespace p3d {
 	void TerrainComponent::EnsureDistantMaterial()
 	{
 		if (distantMaterial) return;
+		// (the terrain's own, where its settings name one: "{overview}" its overview's colour picture)
+		if (!settings.distantMaterial.empty())
+		{
+			distantMaterial = SceneSerializer::BuildMaterialFromText(ReplaceAll(settings.distantMaterial, "{overview}", settings.directory + "/overview_color.png"), assetRoot);
+			if (distantMaterial) return;
+			echo("WARNING: TerrainComponent - its distantMaterial could not be made; the overview's colour, plain");
+		}
 		json m;
 		m["id"] = 0;
 		m["kind"] = "generic";

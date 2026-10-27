@@ -1204,6 +1204,11 @@ public:
 	// queued from the panel into ProcessPendingModelThumbnails).
 	bool BakeFoliageImpostor(const json& args, json& out, std::string& errOut);
 	bool BakeModelImpostor(const json& args, json& out, std::string& errOut);
+	// bake_subtree_impostor {subtree: {materials, root}, angles: [degrees], top: bool, out: "assets/.../name"}:
+	// the object a subtree makes (a tree's wood and leaves as the scene draws them) pictured from each
+	// angle round its upright axis - and, with top, from above - one PNG each (out_<i>.png), with
+	// alpha, and where each picture's edges are in the object's own metres
+	bool BakeSubtreeImpostor(const json& args, json& out, std::string& errOut);
 	json pendingImpostorBake;
 private:
 

@@ -145,6 +145,12 @@ namespace p3d
 		// Scoped to exactly CustomShaderMaterial by the renderers (typeid):
 		// subclasses hand-assign extraUniforms[] and are left alone.
 		bool UseVariantForNextDraw(bool gbuffer, bool skinned);
+		// Whether the variant UseVariantForNextDraw / UseInstancedVariantForNextDraw would use is ready to
+		// be made without holding the frame up: made already, or its SPIR-V compiled ahead (on Vulkan, on a
+		// worker - started by the first ask; other backends: always). A renderer leaves a mesh undrawn
+		// while it is not - it shows a few frames late, the game does not stop for seconds.
+		bool VariantReadyFor(bool gbuffer, bool skinned);
+		bool InstancedVariantReady(bool gbuffer);
 		// The shadow pass's variant (SHADOW_DEPTH): only the vertex offset
 		// and the alpha cutout, writing depth. Worth using only when
 		// HasCustomShadow() - a generated shader that moves vertices or cuts
@@ -247,6 +253,8 @@ namespace p3d
 			ExtraUniformsBlock extraUniforms[2];
 		};
 		ProgramVariant variants[16];
+		int VariantIndexFor(bool gbuffer, bool skinned) const;      // -1: the own program
+		bool VariantReady(int index);
 		// What the source says of itself, read once (it is thousands of lines, and
 		// these are asked of every object, every pass, every frame): -1 not read.
 		mutable int8 knownInstancing = -1, knownCustomShadow = -1;
