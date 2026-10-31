@@ -1,7 +1,7 @@
 /** Neon Pulse arena — port of assets/neonpulse/arena.lua */
 
 export function createArena(P, G, C) {
-  const A = { keep: [], mat: {}, deferred: false, lightGain: 1, rims: [] };
+  const A = { keep: [], mat: {}, lightGain: 1, rims: [] };
 
   function keep(obj) {
     A.keep.push(obj);
@@ -9,9 +9,7 @@ export function createArena(P, G, C) {
   }
 
   function lit(color, shininess = 26) {
-    let usage = P.ShaderUsage_Color | P.ShaderUsage_Diffuse;
-    if (A.deferred) usage |= P.ShaderUsage_DeferredRenderer_Gbuffer;
-    const m = new P.GenericShaderMaterial(usage);
+    const m = new P.GenericShaderMaterial(P.ShaderUsage_Color | P.ShaderUsage_Diffuse);
     m.setColor(color);
     m.setSpecular(new P.Vec4(0.55, 0.75, 0.95, 1));
     m.setShininess(shininess);
@@ -21,10 +19,6 @@ export function createArena(P, G, C) {
   function unlit(color) {
     const m = new P.GenericShaderMaterial(P.ShaderUsage_Color);
     m.setColor(color);
-    if (A.deferred) {
-      m.setTransparencyFlag(true);
-      m.enableDepthTest(0);
-    }
     return keep(m);
   }
 
@@ -49,8 +43,7 @@ export function createArena(P, G, C) {
     const a = C.arena;
     const col = C.color;
 
-    A.deferred = C.renderer === "deferred";
-    A.lightGain = A.deferred ? C.deferredLightGain : 1.0;
+    A.lightGain = 1.0;
     A.lit = lit;
     A.unlit = unlit;
     A.cube = cube;

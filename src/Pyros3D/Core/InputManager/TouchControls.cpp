@@ -6,7 +6,6 @@
 
 #include <Pyros3D/Core/InputManager/TouchControls.h>
 #include <Pyros3D/Core/InputManager/InputManager.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
@@ -589,15 +588,15 @@ namespace p3d {
 		}
 	}
 
-	void TouchControls::Draw(UIRenderer* ui, const uint32 width, const uint32 height, const f64 time)
+	SceneGraph* TouchControls::Prepare(const uint32 width, const uint32 height, const f64 time)
 	{
-		if (!ui || !enabled || controls.empty()) return;
-		if (!live && !editing) return;
+		if (!enabled || controls.empty()) return NULL;
+		if (!live && !editing) return NULL;
 		if (!built) Build();
-		if (!scene) return;
+		if (!scene) return NULL;
 		Place(lastW = width, lastH = height);
 		scene->Update(time);
-		ui->RenderUI(scene);
+		return scene;
 	}
 
 }

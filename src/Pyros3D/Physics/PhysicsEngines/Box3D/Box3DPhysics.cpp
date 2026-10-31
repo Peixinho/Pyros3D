@@ -990,21 +990,16 @@ namespace p3d {
 		m_draw.drawingBounds.lowerBound = { camPos.x - extent, camPos.y - extent, camPos.z - extent };
 		m_draw.drawingBounds.upperBound = { camPos.x + extent, camPos.y + extent, camPos.z + extent };
 
-		// Owned renderer: full clear / draw / flush (examples, lua).
-		// Shared renderer (SceneEditor): only append into the caller's
-		// DebugRenderer - ClearBuffers/Render would wipe gizmos/bounds and
-		// flush mid-pass (Metal/Vulkan are intolerant of that).
-		if (m_debugDraw->OwnsDebugRenderer())
-		{
-			m_debugDraw->ClearBuffers();
-			b3World_Draw(m_world, &m_draw, B3_DEFAULT_MASK_BITS);
-			m_debugDraw->Render(Camera->GetWorldTransformation().Inverse(), projection.m);
-		}
-		else
-		{
-			b3World_Draw(m_world, &m_draw, B3_DEFAULT_MASK_BITS);
-			(void)projection;
-		}
+		// Owned renderer (a game, a demo): this frame's shapes alone, for the host to take. Shared (SceneEditor): only
+		// appended - a clear would wipe the gizmos and bounds already in it.
+		if (m_debugDraw->OwnsDebugRenderer()) m_debugDraw->ClearBuffers();
+		b3World_Draw(m_world, &m_draw, B3_DEFAULT_MASK_BITS);
+		(void)projection;
+	}
+
+	DebugRenderer* Box3DPhysics::GetDebugRenderer()
+	{
+		return m_debugDraw ? m_debugDraw->GetDebugRenderer() : nullptr;
 	}
 
 	void Box3DPhysics::DisableDebugDraw()

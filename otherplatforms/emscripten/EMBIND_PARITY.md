@@ -17,17 +17,15 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 | asGameObject | skipped (Lua shared_ptr coercion) |
 | getComponent | `getPhysicsComponent` / `getRenderingComponent` / `getChildren` on GameObject (no by-type lookup) |
 | Projection | done |
-| ForwardRenderer | done (full IRenderer surface via wrappers) |
-| DeferredRenderer, VelocityRenderer, CubemapRenderer | done |
-| FrameBuffer | done |
+| Renderer (`app.createRenderer()`) | the engine's renderer on the canvas: `renderScene(projection, camera, scene)`, `resize`, `useSceneSettings(scene)`, `setBackground` / `setGlobalLight` (sRGB), `setSky` / `setHaze` / `setClouds` / `setReflections`, `setAutoExposure(on, ev)` / `setExposure`, `setTemporalAA`, `setToneCurve`, `setFrustumCulling`, LOD |
 | Renderable, IMaterial, RenderingMesh | done |
 | IComponent, IlightComponent | done |
 | IPhysicsComponent | done, with `onCollisionEnter(fn)` / `onCollisionExit(fn)` |
 | RayCastHit | done |
 | LuaComponent / LuaComponent_fromFile | skipped (Lua-only) |
 | DirectionalLight, PointLight, SpotLight | done (C++ types; no Lua onUpdate hooks) |
-| Uniform, Texture, Shader | done (Uniform::SetValue void* skipped; +loadTextureFromMemory / JS loadFromUrl; `updateData(typedArray, level)` refills a createEmptyTexture, e.g. from a canvas) |
-| GenericShaderMaterial, CustomShaderMaterial | done (`fromShader` factory — Embind arity-only overloads) |
+| Texture | done (+loadTextureFromMemory / JS loadFromUrl; `updateData(typedArray, level)` refills a createEmptyTexture, e.g. from a canvas) |
+| GenericShaderMaterial, CustomShaderMaterial | done (custom: a `.surface` file, or `""` and `setSurface(text)`) |
 | setMaterialExtraUniformBlock | skipped (sol::table) |
 | Cube…TorusKnot, Model, Font, Text | done |
 | Decal | skipped (DecalVertex vector from JS) |
@@ -36,11 +34,7 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 | SekeletonAnimation / SekeletonAnimationInstance | done (Lua typo names kept) |
 | TextureAnimation* | done |
 | IPhysics / Box3DPhysics | done (convex-hull / multi-sphere vector APIs partial) |
-| PostEffectsManager + effect types | done; `CustomEffect.fromSource(text, w, h)` (null + `CustomEffect.lastError()` on failure), `setParam(name, number or [up to 4])` |
-| PostEffectsManager anti-aliasing | `setAntiAliasing(AntiAliasing_*, deferred)`, `getEffectiveAntiAliasing()` |
 | GenericShaderMaterial wind | `setWind(strength, rate, frequency, lean)` with `ShaderUsage_VertexWind` |
-| VignetEffect / MotionBlur | done (Lua typo names) |
-| addPostEffect, clearPostEffectHandles, motionBlur*, ssao*, buildDOF* | done |
 | AudioManager / AudioBus / Sound / AudioSource | done |
 | Key_* / MouseButton_* | done (enums) |
 | Input (LuaInputBridge) | skipped (Lua callbacks; use DOM/canvas) |
@@ -50,13 +44,13 @@ JS clients load `createPyros3D` (MODULARIZE) and construct `Application` + engin
 | ShaderUsage_* and other enum constants | done (`PyrosEmbindEnums.cpp`; Clamp + Clapm alias) |
 
 ## Files
-- `PyrosEmbind.cpp` — Scene, GameObject, Projection, ForwardRenderer, IComponent
+- `PyrosEmbind.cpp` — Scene, GameObject, Projection, Renderer, IComponent
 - `PyrosEmbindEnums.cpp` — constants
 - `PyrosEmbindMath.cpp` — Vec/Quat/Matrix
-- `PyrosEmbindRender.cpp` — Deferred/Velocity/Cubemap, FBO, materials, lights, RC
+- `PyrosEmbindRender.cpp` — materials, lights, RC
 - `PyrosEmbindAssets.cpp` — Texture, shapes, Model, Font, Text, anim, particles
 - `PyrosEmbindPhysics.cpp` — Box3D / raycast
-- `PyrosEmbindPostFX.cpp` — post FX + helpers
+- `PyrosEmbindUI.cpp` — ui* functions (the renderer draws a scene's UI canvases)
 - `PyrosEmbindAudio.cpp` — audio
 - `PyrosEmbindMisc.cpp` — File, getMousePosition
 

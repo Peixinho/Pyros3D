@@ -13,7 +13,6 @@
 #include <Pyros3D/Core/Logs/Log.h>
 #include <algorithm>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>
-#include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <cmath>
@@ -239,7 +238,7 @@ namespace p3d {
 			// with a slot in it.
 			std::stable_sort(casters.begin(), casters.end(),
 				[](const Caster &x, const Caster &y) { return x.score > y.score; });
-			const size_t budget = IRenderer::MaxOccluders2D();
+			const size_t budget = MaxSegments();
 			size_t dropped = 0;
 			for (size_t i = 0; i < casters.size(); i++)
 			{
@@ -259,7 +258,11 @@ namespace p3d {
 				}
 			}
 		}
-		IRenderer::SetOccluders2D(segments);
+		Published() = segments;
+		if (Published().size() > MaxSegments()) Published().resize(MaxSegments());
 	}
+
+	std::vector<Vec4>& Occluder2D::Published() { static std::vector<Vec4> segments; return segments; }
+	const std::vector<Vec4>& Occluder2D::PublishedSegments() { return Published(); }
 
 };

@@ -23,7 +23,7 @@
 namespace p3d {
 
 	class SceneGraph;
-	class UIRenderer;
+	class SceneGraph;
 	class UIRect;
 	class UIImage;
 	class UIText;
@@ -86,8 +86,9 @@ namespace p3d {
 
 		// Once a frame, after the window's events: the fingers into keys, buttons and movement.
 		void Update(const uint32 width, const uint32 height);
-		// Over everything else, with the UI renderer.
-		void Draw(UIRenderer* ui, const uint32 width, const uint32 height, const f64 time);
+		// Its UI scene, placed for the window and brought up to date, for the host's renderer to draw over everything
+		// else (NULL while there is nothing to show)
+		SceneGraph* Prepare(const uint32 width, const uint32 height, const f64 time);
 		// Whether a finger is one of the controls' (not the pointer's)
 		bool HoldsAnyTouch() const { return !held.empty(); }
 

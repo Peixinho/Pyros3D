@@ -1,150 +1,6 @@
-# OpenGL glad + Vulkan backend + SPIR-V tooling. Expects options + deps loaded.
+# The devices' dependencies (the renderer's own setup: PyrosRenderer.cmake) and ImGui. Expects options + deps loaded.
 
 set(PYROS_EXT_DIR ${CMAKE_SOURCE_DIR}/src/Pyros3D/Ext)
-
-# ---------------------------------------------------------------------------
-# OpenGL / GLES (glad)
-# ---------------------------------------------------------------------------
-if (OPENGL_VERSION STREQUAL "GL45")
-	add_compile_definitions(GL45)
-	set(GL_INCLUDE ${PYROS_EXT_DIR}/gl45/glad.c)
-	set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include/Pyros3D/Ext/gl45)
-	find_package(OpenGL REQUIRED)
-	set(OPENGL_LIBS ${OPENGL_LIBRARIES})
-elseif (OPENGL_VERSION STREQUAL "GL42")
-	add_compile_definitions(GL42)
-	set(GL_INCLUDE ${PYROS_EXT_DIR}/gl42/glad.c)
-	set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include/Pyros3D/Ext/gl42)
-	find_package(OpenGL REQUIRED)
-	set(OPENGL_LIBS ${OPENGL_LIBRARIES})
-elseif (OPENGL_VERSION STREQUAL "GL41")
-	add_compile_definitions(GL41)
-	set(GL_INCLUDE ${PYROS_EXT_DIR}/gl41/glad.c)
-	set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include/Pyros3D/Ext/gl41)
-	find_package(OpenGL REQUIRED)
-	set(OPENGL_LIBS ${OPENGL_LIBRARIES})
-elseif (OPENGL_VERSION STREQUAL "GLES3")
-	add_compile_definitions(GLES3)
-	# ImGui OpenGL3 backend must use ES shaders on GLES / WebGL2.
-	add_compile_definitions(IMGUI_IMPL_OPENGL_ES3)
-	# Always use glad GLES3 (desktop ES, Emscripten/WebGL2, Raspberry Pi / embedded).
-	set(GL_INCLUDE ${PYROS_EXT_DIR}/gles3/glad.c)
-	set(GLAD_INCLUDE_DIR ${CMAKE_SOURCE_DIR}/include/Pyros3D/Ext/gles3)
-	if (EMSCRIPTEN)
-		# Browser / emscripten GL; do not link system GLESv2.
-		set(OPENGL_LIBS "")
-	elseif (IOS)
-		# The loader is never pointed at a context (Metal draws): nothing of the system's to link.
-		set(OPENGL_LIBS "")
-	elseif (ANDROID)
-		# NDK: GLESv3 is preferred; GLESv2 + EGL still required for loader symbols.
-		find_library(PYROS_GLESV3_LIBRARY GLESv3)
-		find_library(PYROS_GLESV2_LIBRARY GLESv2 REQUIRED)
-		find_library(PYROS_EGL_LIBRARY EGL REQUIRED)
-		find_library(PYROS_ANDROID_LIBRARY android REQUIRED)
-		find_library(PYROS_LOG_LIBRARY log REQUIRED)
-		set(OPENGL_LIBS ${PYROS_GLESV2_LIBRARY} ${PYROS_EGL_LIBRARY} ${PYROS_ANDROID_LIBRARY} ${PYROS_LOG_LIBRARY})
-		if (PYROS_GLESV3_LIBRARY)
-			list(APPEND OPENGL_LIBS ${PYROS_GLESV3_LIBRARY})
-		endif()
-		message(STATUS "GLES3 Android libs: ${OPENGL_LIBS}")
-	else()
-		# Mesa / Pi OS: libGLESv2.so + libEGL.so (not the legacy Broadcom /opt/vc stack).
-		find_library(PYROS_GLESV2_LIBRARY NAMES GLESv2 libGLESv2 REQUIRED)
-		find_library(PYROS_EGL_LIBRARY NAMES EGL libEGL REQUIRED)
-		set(OPENGL_LIBS ${PYROS_GLESV2_LIBRARY} ${PYROS_EGL_LIBRARY})
-		message(STATUS "GLES3 libs: GLESv2=${PYROS_GLESV2_LIBRARY} EGL=${PYROS_EGL_LIBRARY}")
-	endif()
-else()
-	message(FATAL_ERROR "Unknown OPENGL_VERSION='${OPENGL_VERSION}' (expected GL45, GL42, GL41, or GLES3)")
-endif()
-
-if (EMSCRIPTEN AND NOT OPENGL_VERSION STREQUAL "GLES3")
-	message(FATAL_ERROR "Emscripten builds require OPENGL_VERSION=GLES3 (WebGL2)")
-endif()
-
-# macOS: link Apple frameworks by NAME, never by the absolute path
-# find_package returns - see pyros_frameworks_by_name() in PyrosOptions.cmake
-# for what goes wrong otherwise.
-pyros_frameworks_by_name(OPENGL_LIBS)
-
-# ---------------------------------------------------------------------------
-# SPIR-V tooling (shaderc + spirv-cross) — used by Vulkan GLSL→SPIR-V path
-# ---------------------------------------------------------------------------
-set(SPIRV_TOOLING_FOUND OFF)
-set(SPIRV_TOOLING_SOURCE "")
-set(SPIRV_TOOLING_INCLUDE_DIRS "")
-set(SPIRV_TOOLING_LIBS "")
-
-if (BUILD_SPIRV_TOOLING AND PYROS_IOS_SPIRV_TOOLING)
-	# (built from source for the device: PyrosIOS.cmake)
-	set(SPIRV_TOOLING_FOUND ON)
-	add_compile_definitions(SPIRV_TOOLING)
-	set(SPIRV_TOOLING_SOURCE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/SPIRV/ShaderCompiler.cpp)
-	set(SPIRV_TOOLING_INCLUDE_DIRS ${PYROS_IOS_SPIRV_INCLUDE_DIRS})
-	set(SPIRV_TOOLING_LIBS ${PYROS_IOS_SPIRV_LIBS})
-	message(STATUS "SPIR-V tooling: from source (iOS)")
-elseif (BUILD_SPIRV_TOOLING)
-	if (APPLE)
-		execute_process(COMMAND brew --prefix shaderc
-			OUTPUT_VARIABLE HOMEBREW_SHADERC_PREFIX
-			OUTPUT_STRIP_TRAILING_WHITESPACE
-			ERROR_QUIET)
-		execute_process(COMMAND brew --prefix spirv-cross
-			OUTPUT_VARIABLE HOMEBREW_SPIRV_CROSS_PREFIX
-			OUTPUT_STRIP_TRAILING_WHITESPACE
-			ERROR_QUIET)
-	endif()
-
-	find_path(SHADERC_INCLUDE_DIR shaderc/shaderc.hpp PATHS ${HOMEBREW_SHADERC_PREFIX}/include)
-	# Prefer the shared lib: Arch's libshaderc_combined.a is a thin archive that
-	# still needs glslang + SPIRV-Tools at link time (Homebrew's combined is fat).
-	find_library(SHADERC_LIBRARY NAMES shaderc_shared shaderc shaderc_combined
-		PATHS ${HOMEBREW_SHADERC_PREFIX}/lib)
-	find_path(SPIRV_CROSS_INCLUDE_DIR spirv_cross/spirv_cross.hpp PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/include)
-	find_library(SPIRV_CROSS_CORE_LIBRARY NAMES spirv-cross-core PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
-	find_library(SPIRV_CROSS_GLSL_LIBRARY NAMES spirv-cross-glsl PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
-	find_library(SPIRV_CROSS_CPP_LIBRARY NAMES spirv-cross-cpp PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
-
-	if (SHADERC_INCLUDE_DIR AND SHADERC_LIBRARY AND SPIRV_CROSS_INCLUDE_DIR
-		AND SPIRV_CROSS_CORE_LIBRARY AND SPIRV_CROSS_GLSL_LIBRARY AND SPIRV_CROSS_CPP_LIBRARY)
-		set(SPIRV_TOOLING_FOUND ON)
-		add_compile_definitions(SPIRV_TOOLING)
-		set(SPIRV_TOOLING_SOURCE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/SPIRV/ShaderCompiler.cpp)
-		set(SPIRV_TOOLING_INCLUDE_DIRS ${SHADERC_INCLUDE_DIR} ${SPIRV_CROSS_INCLUDE_DIR})
-		set(SPIRV_TOOLING_LIBS
-			${SHADERC_LIBRARY}
-			${SPIRV_CROSS_CPP_LIBRARY}
-			${SPIRV_CROSS_GLSL_LIBRARY}
-			${SPIRV_CROSS_CORE_LIBRARY}
-		)
-		# Thin shaderc_combined.a (e.g. Arch) leaves glslang/SPIRV-Tools unresolved.
-		if (SHADERC_LIBRARY MATCHES "combined" OR SHADERC_LIBRARY MATCHES "\\.(a|lib)$")
-			find_library(GLSLANG_LIBRARY NAMES glslang)
-			find_library(GLSLANG_SPIRV_LIBRARY NAMES SPIRV)
-			find_library(SPIRV_TOOLS_OPT_LIBRARY NAMES SPIRV-Tools-opt)
-			find_library(SPIRV_TOOLS_LIBRARY NAMES SPIRV-Tools-shared SPIRV-Tools)
-			if (GLSLANG_LIBRARY)
-				list(APPEND SPIRV_TOOLING_LIBS ${GLSLANG_LIBRARY})
-			endif()
-			if (GLSLANG_SPIRV_LIBRARY)
-				list(APPEND SPIRV_TOOLING_LIBS ${GLSLANG_SPIRV_LIBRARY})
-			endif()
-			if (SPIRV_TOOLS_OPT_LIBRARY)
-				list(APPEND SPIRV_TOOLING_LIBS ${SPIRV_TOOLS_OPT_LIBRARY})
-			endif()
-			if (SPIRV_TOOLS_LIBRARY)
-				list(APPEND SPIRV_TOOLING_LIBS ${SPIRV_TOOLS_LIBRARY})
-			endif()
-		endif()
-		message(STATUS "SPIR-V tooling: shaderc=${SHADERC_LIBRARY}")
-	else()
-		message(WARNING
-			"shaderc/spirv-cross not found — SPIR-V tooling disabled. "
-			"Install shaderc + spirv-cross (e.g. pacman -S shaderc spirv-cross, "
-			"apt install libshaderc-dev spirv-cross, brew install shaderc spirv-cross).")
-	endif()
-endif()
 
 # ---------------------------------------------------------------------------
 # ImGui core (single copy in the engine)
@@ -159,28 +15,15 @@ set(IMGUI_CORE_SOURCE
 set(IMGUI_INCLUDE_DIRS ${IMGUI_DIR} ${IMGUI_DIR}/backends)
 
 # ---------------------------------------------------------------------------
-# Vulkan backend (optional)
+# Vulkan (Linux, Windows; MoltenVK on a Mac): volk loads it, VMA allocates
 # ---------------------------------------------------------------------------
 set(VULKAN_BACKEND_FOUND OFF)
-set(VULKAN_BACKEND_SOURCE "")
 set(VULKAN_BACKEND_LIBS "")
 
 if (BUILD_VULKAN_BACKEND)
 	find_package(Vulkan)
 
 	if (Vulkan_FOUND)
-		# The Vulkan backend compiles every shader it draws with from GLSL, at run
-		# time. Built without shaderc + spirv-cross it links, starts, and draws
-		# nothing - and only said so as a warning far up the configure log. (The
-		# Linux packages were built that way for months: "compile coverage".)
-		if (NOT SPIRV_TOOLING_FOUND AND NOT PYROS_VULKAN_WITHOUT_SHADER_COMPILER)
-			message(FATAL_ERROR
-				"The Vulkan backend needs shaderc + spirv-cross (BUILD_SPIRV_TOOLING=ON and both found) - "
-				"without them it cannot compile a single shader and the result draws nothing. "
-				"Install them (pacman -S shaderc spirv-cross, apt install libshaderc-dev libspirv-cross-c-shared-dev "
-				"or build them, brew install shaderc spirv-cross), or pass -DBUILD_VULKAN_BACKEND=OFF. "
-				"-DPYROS_VULKAN_WITHOUT_SHADER_COMPILER=ON builds it anyway (it will only link).")
-		endif()
 		include(FetchContent)
 		FetchContent_Declare(
 			volk
@@ -200,13 +43,6 @@ if (BUILD_VULKAN_BACKEND)
 		FetchContent_MakeAvailable(VulkanMemoryAllocator)
 
 		set(VULKAN_BACKEND_FOUND ON)
-		add_compile_definitions(VULKAN_BACKEND)
-		add_compile_definitions(IMGUI_IMPL_VULKAN_USE_VOLK)
-		set(VULKAN_BACKEND_SOURCE
-			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/VulkanRenderDevice.cpp
-			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/VulkanImGuiBackend.cpp
-			${IMGUI_DIR}/backends/imgui_impl_vulkan.cpp
-		)
 		# Vulkan::Headers, NOT Vulkan::Vulkan. volk dlopen's the loader
 		# itself and owns the vk* symbols as writable globals; linking
 		# vulkan-1 alongside it puts the loader's import thunks in the
@@ -222,96 +58,50 @@ if (BUILD_VULKAN_BACKEND)
 			# CMake < 3.21 has no Headers target; use the include dir alone
 			# and still keep the loader off the link line.
 			set(VULKAN_BACKEND_LIBS volk::volk GPUOpen::VulkanMemoryAllocator)
-			set(SPIRV_TOOLING_INCLUDE_DIRS ${SPIRV_TOOLING_INCLUDE_DIRS} ${Vulkan_INCLUDE_DIRS})
+			set(PYROS_DEVICE_INCLUDE_DIRS ${PYROS_DEVICE_INCLUDE_DIRS} ${Vulkan_INCLUDE_DIRS})
 		endif()
-		message(STATUS "Vulkan backend: Vulkan=${Vulkan_LIBRARY}, volk+VMA via FetchContent")
+		message(STATUS "Vulkan: Vulkan=${Vulkan_LIBRARY}, volk+VMA via FetchContent")
 	else()
-		message(WARNING "Vulkan SDK not found — Vulkan backend disabled. Install LunarG SDK or: brew install vulkan-headers vulkan-loader")
-		if (PYROS_CONTEXT STREQUAL "SDL2Vulkan")
-			message(FATAL_ERROR "SDL2Vulkan context was selected but Vulkan SDK is missing")
-		endif()
+		message(WARNING "Vulkan SDK not found - the Vulkan device is off. Install the LunarG SDK or: brew install vulkan-headers vulkan-loader")
 	endif()
 endif()
 
 # ---------------------------------------------------------------------------
-# Metal backend (optional, Apple only)
+# Metal (Apple): its shaders are the engine's SPIR-V, turned into MSL by
+# spirv-cross when a pipeline is made
 # ---------------------------------------------------------------------------
 set(METAL_BACKEND_FOUND OFF)
-set(METAL_BACKEND_SOURCE "")
 set(METAL_BACKEND_LIBS "")
 
-if (BUILD_METAL_BACKEND)
+if (BUILD_METAL_BACKEND AND APPLE)
 	find_library(METAL_FRAMEWORK Metal)
 	find_library(QUARTZCORE_FRAMEWORK QuartzCore)
 	find_library(FOUNDATION_FRAMEWORK Foundation)
 	find_library(COREGRAPHICS_FRAMEWORK CoreGraphics)
+	if (NOT IOS)
+		execute_process(COMMAND brew --prefix spirv-cross
+			OUTPUT_VARIABLE HOMEBREW_SPIRV_CROSS_PREFIX
+			OUTPUT_STRIP_TRAILING_WHITESPACE
+			ERROR_QUIET)
+	endif()
+	find_path(SPIRV_CROSS_INCLUDE_DIR spirv_cross/spirv_cross.hpp HINTS ${PYROS_IOS_SPIRV_INCLUDE_DIRS} ${HOMEBREW_SPIRV_CROSS_PREFIX}/include)
+	find_library(SPIRV_CROSS_MSL_LIBRARY NAMES spirv-cross-msl HINTS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
+	find_library(SPIRV_CROSS_GLSL_LIBRARY NAMES spirv-cross-glsl HINTS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
+	find_library(SPIRV_CROSS_CORE_LIBRARY NAMES spirv-cross-core HINTS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
 
-	if (METAL_FRAMEWORK AND QUARTZCORE_FRAMEWORK AND FOUNDATION_FRAMEWORK)
-		# MetalRenderDevice.mm is Objective-C++ (talks to real id<MTLXxx>
-		# types, unlike everything else in this engine) - CMake only knows
-		# to compile a .mm source with the Objective-C++ frontend once this
-		# language is enabled at least once per configure. Harmless to call
-		# more than once/redundantly with other CMake files that might also
-		# need it later (e.g. a real ImGui-on-Metal backend).
+	if (METAL_FRAMEWORK AND QUARTZCORE_FRAMEWORK AND FOUNDATION_FRAMEWORK AND SPIRV_CROSS_INCLUDE_DIR AND SPIRV_CROSS_MSL_LIBRARY)
 		enable_language(OBJCXX)
 		set(METAL_BACKEND_FOUND ON)
-		add_compile_definitions(METAL_BACKEND)
-		set(METAL_BACKEND_SOURCE
-			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalRenderDevice.mm
-			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalImGuiBackend.mm
-			${IMGUI_DIR}/backends/imgui_impl_metal.mm
-		)
-		# ARC for MetalRenderDevice.mm/MetalImGuiBackend.mm - both store
-		# id<MTLXxx> objects across calls (as CFBridgingRetain()'d void*
-		# members, see MetalRenderDevice.h's header comment); everywhere
-		# else in this engine is plain C++ with no Objective-C object
-		# lifetimes to manage. imgui_impl_metal.mm is vendored upstream code
-		# written for manual retain/release (see its own ARC-feature
-		# comments) - deliberately left at this file's own default (no ARC),
-		# same as imgui_impl_vulkan.cpp needs no such override.
-		set_source_files_properties(
-			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalRenderDevice.mm
-			${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalImGuiBackend.mm
-			PROPERTIES COMPILE_FLAGS "-fobjc-arc"
-		)
 		# By name, not by the absolute paths found above - see
 		# pyros_frameworks_by_name() on why an absolute .framework on the
 		# link line drags every other framework into the same SDK.
 		set(METAL_BACKEND_LIBS ${METAL_FRAMEWORK} ${QUARTZCORE_FRAMEWORK}
 			${FOUNDATION_FRAMEWORK} ${COREGRAPHICS_FRAMEWORK})
 		pyros_frameworks_by_name(METAL_BACKEND_LIBS)
-		# Apple's upscaler, where the system has it (macOS 13 on): linked weakly,
-		# so the engine still loads where it does not.
-		# (not in the iOS Simulator's SDK, where the code builds without it too - see PYROS_HAVE_METALFX)
-		if (NOT (IOS AND CMAKE_OSX_SYSROOT MATCHES "[Ss]imulator"))
-			list(APPEND METAL_BACKEND_LIBS "-Wl,-weak_framework,MetalFX")
-		endif()
-
-		# GLSL -> SPIR-V (shaderc, already found above for the Vulkan path)
-		# -> MSL (spirv-cross-msl, the one spirv-cross backend library the
-		# Vulkan path never needed - it only ever reflects SPIR-V, never
-		# regenerates shader *source* from it). Real shader compilation is
-		# unavailable without both; MetalRenderDevice::CompileShaderStage()
-		# checks METAL_SHADER_TOOLING itself and fails loudly rather than
-		# silently, same pattern as VulkanRenderDevice's SPIRV_TOOLING check.
-		if (SPIRV_TOOLING_FOUND)
-			find_library(SPIRV_CROSS_MSL_LIBRARY NAMES spirv-cross-msl PATHS ${HOMEBREW_SPIRV_CROSS_PREFIX}/lib)
-			if (SPIRV_CROSS_MSL_LIBRARY)
-				add_compile_definitions(METAL_SHADER_TOOLING)
-				list(APPEND METAL_BACKEND_LIBS ${SPIRV_CROSS_MSL_LIBRARY})
-				message(STATUS "Metal shader tooling: spirv-cross-msl=${SPIRV_CROSS_MSL_LIBRARY}")
-			else()
-				message(WARNING "spirv-cross-msl not found — MetalRenderDevice will fail to compile any shader (brew install spirv-cross should already provide it alongside the glsl/core backends BUILD_SPIRV_TOOLING found)")
-			endif()
-		else()
-			message(WARNING "BUILD_SPIRV_TOOLING is OFF or shaderc/spirv-cross weren't found — MetalRenderDevice will fail to compile any shader")
-		endif()
-
-		message(STATUS "Metal backend: Metal=${METAL_FRAMEWORK}")
+		list(APPEND METAL_BACKEND_LIBS ${SPIRV_CROSS_MSL_LIBRARY} ${SPIRV_CROSS_GLSL_LIBRARY} ${SPIRV_CROSS_CORE_LIBRARY})
+		set(PYROS_DEVICE_INCLUDE_DIRS ${PYROS_DEVICE_INCLUDE_DIRS} ${SPIRV_CROSS_INCLUDE_DIR})
+		message(STATUS "Metal: Metal=${METAL_FRAMEWORK}, spirv-cross-msl=${SPIRV_CROSS_MSL_LIBRARY}")
 	else()
-		message(WARNING "Metal/QuartzCore/Foundation frameworks not found — Metal backend disabled.")
-		if (PYROS_CONTEXT STREQUAL "SDL2Metal")
-			message(FATAL_ERROR "SDL2Metal context was selected but the required frameworks are missing")
-		endif()
+		message(WARNING "Metal frameworks or spirv-cross (brew install spirv-cross) not found - the Metal device is off.")
 	endif()
 endif()

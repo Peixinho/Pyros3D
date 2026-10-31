@@ -19,19 +19,17 @@
 
 struct CodeEditorDocument;
 struct MaterialPreview;
-namespace p3d { class IMaterial; class Shader; class CustomShaderMaterial; }
+namespace p3d { class IMaterial; class CustomShaderMaterial; }
 
 struct MaterialEditorDocument {
 	uint32_t id = 0;
 	std::string absolutePath;      // empty => inline/unsaved (Properties-panel "Edit Material" case)
 	std::string displayName = "NewMaterial";
 	bool dirty = false;
-	// True for a doc loaded purely to get a compiled IMaterial to assign
-	// onto a scene object (Editor::AssignMaterialAsset picking an existing
-	// asset from the Properties panel's list) - kept in Editor::materialDocs
-	// so it stays alive for as long as something references its compiled
-	// shader (see CustomShaderMaterial::SetShader's non-owning contract),
-	// but Editor::DrawMaterialEditorWindows skips it, so assigning a
+	// True for a doc loaded purely to get a live IMaterial to assign onto a
+	// scene object (Editor::AssignMaterialAsset picking an existing asset
+	// from the Properties panel's list) - kept in Editor::materialDocs, but
+	// Editor::DrawMaterialEditorWindows skips it, so assigning a
 	// material never pops open a Material Editor tab as a side effect.
 	// Cleared back to false the moment the user actually asks to edit it
 	// (Editor::OpenMaterialDocument / EditMaterialInline).
@@ -46,7 +44,7 @@ struct MaterialEditorDocument {
 	// buffer holds a short user snippet (just the Albedo/Normal/Metallic/
 	// Roughness/Emissive/Occlusion assignments) - NOT the full boilerplate/
 	// dual-branch GLSL file, which stays generated (see MaterialCodegen::
-	// GenerateGLSLFromSimpleText) and written to generatedGlslPath, never
+	// GenerateSurfaceFromSimpleText) and written to generatedGlslPath, never
 	// shown to the user. simpleShaderText mirrors codeDoc's text so it
 	// round-trips through the .mat JSON the same way nodes/connections do,
 	// without needing codeDoc constructed just to reload a saved file.
@@ -60,7 +58,7 @@ struct MaterialEditorDocument {
 	// independent of nodes/connections, since Text mode has no node to hang
 	// a texturePath off of. Declared as `uniform sampler2D <name>;` and
 	// sampled directly by name in the user's snippet (see
-	// MaterialCodegen::GenerateGLSLFromSimpleText).
+	// MaterialCodegen::GenerateSurfaceFromSimpleText).
 	uint32_t nextTextureInputId = 1;
 	std::vector<MaterialTextureInput> textTextures;
 	// Frees textTextures' previewTex pointers before clearing - mirrors
@@ -126,12 +124,7 @@ struct MaterialEditorDocument {
 	void BeginGraphEdit();
 	void CommitGraphEdit(const std::string& description);
 
-	// Runtime-compiled shader (Custom kind only). SetShader() on
-	// CustomShaderMaterial does NOT take ownership of what's handed to it -
-	// this is what keeps the previously-swapped-in Shader alive/owned between
-	// Applies. See MaterialEditor::ApplyGraphOrTextToLiveMaterial for the
-	// swap ordering that makes this safe (reset() only AFTER SetShader()).
-	std::unique_ptr<p3d::Shader> compiledShader;
+	// The material's file key, as scenes name it (its surface is <this>.surface)
 	std::string generatedGlslPath; // assets/materials/<Name>.generated.glsl
 	std::string lastApplyError;    // transient UI feedback, not serialized
 
@@ -158,16 +151,9 @@ struct MaterialEditorDocument {
 	// whatever the current gating rule would otherwise say.
 	bool applyRequested = false;
 
-	// Which branch compiledShader (if any) was last compiled with - set on
-	// every successful ApplyGraphOrTextToLiveMaterial. Lets a live
-	// Forward/Deferred renderer switch recompile only the docs whose
-	// material is running the other branch (see
-	// Editor::RecompileCustomMaterialsForRenderer).
-	bool hasCompiledShader = false;
-	bool compiledForDeferredGBuffer = false;
 	// Bumped on every successful ApplyGraphOrTextToLiveMaterial.
-	// MaterialPreview polls it to lazily recompile its own Forward-only
-	// copy of the shader (no callback/hook needed at the Apply call sites).
+	// MaterialPreview polls it to take the new surface for its own
+	// copy of the material (no callback/hook needed at the Apply call sites).
 	uint32_t applyGeneration = 0;
 	// Last applyGeneration already pushed out to the objects in the open
 	// scene that use this material - see Editor::DrawMaterialEditorWindows.

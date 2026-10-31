@@ -7,7 +7,6 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 namespace p3d {
 
@@ -95,80 +94,9 @@ namespace p3d {
 		return Color;
 	}
 
-	void ILightComponent::ReleaseShadowResources()
-	{
-		// (a light that never cast a shadow has nothing to let go of - and
-		// every light there is comes through here when it goes: a lamp in a
-		// part of the map being left behind, a muzzle flash. Waiting for the
-		// device each time held the game up for a frame's length and more.)
-		if (!shadowsFBO && !ShadowMap && !staticShadowFBO[0]) return;
-		// See the header. Nothing is bound at this point, but the GPU may
-		// still be reading these from an earlier submission.
-		if (IsActiveRenderDeviceSet())
-			GetActiveRenderDevice().WaitIdle();
-		shadowsFBO.reset();
-		for (int f = 0; f < 6; f++) shadowFaceFBO[f].reset();
-		shadowFaceDepth.reset(); shadowFaceFBOFor = NULL;
-		ShadowMap.reset();
-		for (int f = 0; f < 6; f++) { staticShadowFBO[f].reset(); staticShadowFaces[f].reset(); }
-	}
-
-	bool ILightComponent::EnsureStaticShadowFaces()
-	{
-		if (staticShadowFBO[0]) return true;
-		if (!isCastingShadows || ShadowWidth == 0 || ShadowHeight == 0) return false;
-		for (int f = 0; f < 6; f++)
-		{
-			staticShadowFaces[f].reset(new Texture());
-			staticShadowFaces[f]->CreateEmptyTexture(TextureType::Texture, TextureDataType::R32F, ShadowWidth, ShadowHeight, false);
-			staticShadowFaces[f]->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-			staticShadowFaces[f]->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-		}
-		for (int f = 0; f < 6; f++)
-		{
-			staticShadowFBO[f].reset(new FrameBuffer());
-			staticShadowFBO[f]->SetDebugName("Shadow map (point, still casters)");
-			staticShadowFBO[f]->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, staticShadowFaces[f].get());
-			staticShadowFBO[f]->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
-		}
-		return true;
-	}
-
-	FrameBuffer* ILightComponent::GetShadowFaceFBO(const int face)
-	{
-		if (face < 0 || face >= 6 || !isCastingShadows || !ShadowMap || GetLightType() != LIGHT_TYPE::POINT) return NULL;
-		// (made again for a new map: EnableCastShadows makes one when the size changes)
-		if (shadowFaceFBOFor != ShadowMap.get())
-		{
-			for (int f = 0; f < 6; f++) shadowFaceFBO[f].reset();
-			shadowFaceDepth.reset(new Texture());
-			shadowFaceDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
-			shadowFaceDepth->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-			for (int f = 0; f < 6; f++)
-			{
-				shadowFaceFBO[f].reset(new FrameBuffer());
-				shadowFaceFBO[f]->SetDebugName("Shadow map (point, a face)");
-				shadowFaceFBO[f]->Init(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::CubemapPositive_X + f, ShadowMap.get());
-				shadowFaceFBO[f]->AddAttach(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, shadowFaceDepth.get());
-			}
-			shadowFaceFBOFor = ShadowMap.get();
-		}
-		return shadowFaceFBO[face].get();
-	}
-
 	void ILightComponent::DisableCastShadows()
 	{
 		isCastingShadows = false;
-		ReleaseShadowResources();
 	}
 
-	FrameBuffer* ILightComponent::GetShadowFBO()
-	{
-		if (isCastingShadows)
-		{
-			return shadowsFBO.get();
-		}
-		else echo("ERROR: Frame Buffer Is Not Created");
-		return NULL;
-	}
 };

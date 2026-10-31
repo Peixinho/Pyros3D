@@ -8,7 +8,6 @@
 #include "../AnimatorPreview.h"
 #include "../AnimationPreview.h"
 #include "../AnimationEditorDocument.h"
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/AnimationManager/AnimatorController.h>
 
 #include <imgui.h>

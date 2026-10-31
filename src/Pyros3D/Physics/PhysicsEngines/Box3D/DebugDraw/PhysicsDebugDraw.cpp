@@ -148,12 +148,6 @@ namespace p3d {
 		debugRenderer->ClearBuffers();
 	}
 
-	void PhysicsDebugDraw::Render(const Matrix &camera, const Matrix &projection)
-	{
-		EnsureDebugRenderer();
-		debugRenderer->Render(camera, projection);
-	}
-
 	bool PhysicsDebugDraw::DrawShape(void* userShape, b3WorldTransform transform, b3HexColor color, void* context)
 	{
 		PhysicsDebugDraw* self = static_cast<PhysicsDebugDraw*>(context);

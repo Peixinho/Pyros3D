@@ -20,9 +20,7 @@
 #define CHARACTER2DPREVIEW_H
 
 #include <Pyros3D/SceneGraph/SceneGraph.h>
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
-#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Assets/Character2D/Character2DInstance.h>
 #include <Pyros3D/AnimationManager/IKSolver.h>
 #include <Pyros3D/Core/Math/Math.h>
@@ -31,13 +29,16 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include "RendererView.h"
 
 struct Character2DDocument;
 
 struct Character2DPreview {
 	// ---- owned engine objects (built lazily by EnsureInit) -----------
-	p3d::ForwardRenderer* renderer = nullptr;
-	p3d::PostEffectsManager* effects = nullptr;
+	// (drawn by a renderer of its own - RendererView.h; viewImage its image this frame)
+	RendererView rendererView;
+	p3d::SceneGraph* emptyScene = nullptr;
+	void* viewImage = nullptr;
 	p3d::SceneGraph* scene = nullptr;
 
 	std::shared_ptr<p3d::GameObject> characterGO;
@@ -115,9 +116,8 @@ struct Character2DPreview {
 	// otherwise (a skeleton with no sprites yet is still worth looking at).
 	void FrameCamera(Character2DDocument& doc);
 
-	// Renders into the offscreen target and returns its colour texture, or
-	// NULL if it could not.
-	p3d::Texture* RenderFrame();
+	// Renders into its texture (viewImage), or leaves viewImage NULL if it could not.
+	void RenderFrame();
 
 	// ---- coordinates ---------------------------------------------------
 	// World units per viewport pixel, so handles can be sized in pixels and

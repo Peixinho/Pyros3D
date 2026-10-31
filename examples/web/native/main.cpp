@@ -37,7 +37,7 @@ EMSCRIPTEN_BINDINGS(pyros_js_application)
 	constant("WindowType_Titlebar", (int)WindowType::Titlebar);
 
 	class_<JsApplication>("Application")
-		.smart_ptr_constructor("Application", &MakeApplication)
+		.smart_ptr_constructor("ApplicationPtr", &MakeApplication)
 		.function("init", &JsApplication::Init)
 		.function("pollEvents", &JsApplication::PollEvents)
 		.function("draw", &JsApplication::Present)
@@ -46,7 +46,8 @@ EMSCRIPTEN_BINDINGS(pyros_js_application)
 		.function("getHeight", &JsApplication::GetHeight)
 		.function("isRunning", &JsApplication::Running)
 		.function("close", &JsApplication::Quit)
-		.function("onResize", &JsApplication::ResizeWindow);
+		.function("onResize", &JsApplication::ResizeWindow)
+		.function("createRenderer", &JsApplication::CreateRenderer);
 }
 
 #endif

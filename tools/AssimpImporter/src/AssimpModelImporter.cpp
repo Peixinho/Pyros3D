@@ -1,4 +1,7 @@
 #include <functional>
+#include <map>
+#include <tuple>
+#include <cmath>
 #include <cstdio>
 #include <cstdint>
 //============================================================================
@@ -75,6 +78,12 @@ namespace p3d {
 		{
 			if (!sm.hasNormal || sm.tNormal.size() != sm.tVertex.size() || sm.tIndex.size() < 3)
 				return;
+			// PYROS_IMPORT_AS_AUTHORED=1: the normals and the winding kept as they were written - for a
+			// mesh made by a tool that means them. Cards (leaves, grass) have normals that lean to the sky
+			// whichever way they face, and every card is there twice, once each way: the test below
+			// read that as inside out and turned every normal to the ground, and the foliage was black.
+			static const bool asAuthored = getenv("PYROS_IMPORT_AS_AUTHORED") && getenv("PYROS_IMPORT_AS_AUTHORED")[0] == '1';
+			if (asAuthored) return;
 
 			Vec3 mn, mx;
 			mn = mx = sm.tVertex[0];
@@ -99,7 +108,38 @@ namespace p3d {
 				outward += (double)sm.tNormal[i].dotProduct(d);
 				++outwardN;
 			}
-			if (outwardN > 0 && outward < 0.0)
+			// (only a closed mesh has an inside to point at: an open one - a floor, a shed, a terrain tile, a
+			// card - has its normals pointing at its box's middle as often as not, and turned "outward" a floor
+			// faced the ground and was culled from above. Open: an edge of its triangles that only one of them
+			// has, its corners welded by place first - more than one edge in a hundred.)
+			bool closed = true;
+			{
+				std::map<std::tuple<int64_t, int64_t, int64_t>, uint32> weld;
+				std::vector<uint32> id(sm.tVertex.size());
+				for (size_t i = 0; i < sm.tVertex.size(); ++i)
+				{
+					const Vec3& v = sm.tVertex[i];
+					const std::tuple<int64_t, int64_t, int64_t> key((int64_t)llround(v.x * 1000.0), (int64_t)llround(v.y * 1000.0), (int64_t)llround(v.z * 1000.0));
+					std::map<std::tuple<int64_t, int64_t, int64_t>, uint32>::iterator at = weld.find(key);
+					if (at == weld.end()) { id[i] = (uint32)weld.size(); weld[key] = id[i]; }
+					else id[i] = at->second;
+				}
+				std::map<std::pair<uint32, uint32>, uint32> edges;
+				for (size_t t = 0; t + 2 < sm.tIndex.size(); t += 3)
+					for (int e = 0; e < 3; ++e)
+					{
+						const uint32 a = sm.tIndex[t + e], b = sm.tIndex[t + (e + 1) % 3];
+						if (a >= id.size() || b >= id.size()) continue;
+						const uint32 ia = id[a], ib = id[b];
+						if (ia == ib) continue;
+						edges[std::make_pair(std::min(ia, ib), std::max(ia, ib))]++;
+					}
+				size_t open = 0;
+				for (std::map<std::pair<uint32, uint32>, uint32>::const_iterator e = edges.begin(); e != edges.end(); ++e)
+					if (e->second == 1) ++open;
+				closed = edges.empty() || open * 100 <= edges.size();
+			}
+			if (closed && outwardN > 0 && outward < 0.0)
 			{
 				for (size_t i = 0; i < sm.tNormal.size(); ++i)
 					sm.tNormal[i].negateSelf();

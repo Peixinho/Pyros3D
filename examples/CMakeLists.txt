@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 3.11)
 if (NOT DEFINED PYROS_CONTEXT)
 	message(FATAL_ERROR
 		"examples/ must be built via the root CMakeLists with -DBUILD_DEMOS=ON "
-		"(it inherits PYROS_GRAPHICS / CONTEXT / OPENGL_VERSION from the parent).")
+		"(it inherits PYROS_GRAPHICS from the parent).")
 endif()
 
 include(${CMAKE_SOURCE_DIR}/cmake/PyrosWindowContext.cmake)
@@ -44,7 +44,6 @@ function(pyros_add_example target_name)
 	target_link_libraries(${target_name} PRIVATE
 		PyrosEngine
 		${PYROS_CONTEXT_LIB}
-		${OPENGL_LIBS}
 		${BOX3D_LIBRARIES}
 		${FREETYPE_LIBRARIES}
 		${LUA_LIBRARIES}
@@ -69,9 +68,8 @@ function(pyros_add_example target_name)
 			MACOSX_BUNDLE_EXECUTABLE_NAME ${target_name})
 		target_link_libraries(${target_name} PRIVATE SDL2main)
 		add_custom_command(TARGET ${target_name} POST_BUILD
-			COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/resources $<TARGET_BUNDLE_DIR:${target_name}>
 			COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/assets $<TARGET_BUNDLE_DIR:${target_name}>/assets
-			COMMENT "${target_name}: shaders and assets into the app")
+			COMMENT "${target_name}: its assets into the app")
 	endif()
 	if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 		target_compile_definitions(${target_name} PRIVATE _IMPORT)
@@ -79,109 +77,15 @@ function(pyros_add_example target_name)
 	if (EMSCRIPTEN)
 		pyros_emscripten_apply_compile(${target_name})
 		pyros_emscripten_apply_link(${target_name})
-		if (ARG_SHADERS_ONLY)
-			# A demo that builds its own geometry and needs no textures.
-			# examples/assets is 32MB packed, which is most of what a
-			# browser would be made to download for nothing.
-			#
-			# EMBED, not preload: --preload-file emits a separate .data
-			# package the page fetches at runtime, which means the demo
-			# is three files that must stay together and be served with
-			# the right types. Embedding puts the shaders inside the
-			# wasm, so the deliverable is the page, the glue and one
-			# binary - which is what makes it droppable anywhere. Only
-			# reasonable because this set is ~200KB; the asset-packing
-			# path above stays as it is for demos with real content.
-			target_link_options(${target_name} PRIVATE
-				"SHELL:--embed-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
-			)
-		else()
-			# Pack common assets + engine shaders into the virtual FS.
+		# The common assets in the virtual FS (a demo that builds its own geometry - SHADERS_ONLY - needs none: the
+		# renderer's shaders are in the engine)
+		if (NOT ARG_SHADERS_ONLY)
 			target_link_options(${target_name} PRIVATE
 				"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets@assets"
-				"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
 			)
 		endif()
 	endif()
 endfunction()
-
-# Global illumination, built entirely in code so the whole web payload
-# is the module plus the engine's shaders - see GIDemo.h.
-pyros_add_example(GIDemo
-	SHADERS_ONLY
-	DEMO_DEFINE _GIDemo
-	SOURCES
-		${CMAKE_CURRENT_SOURCE_DIR}/GIDemo/GIDemo.cpp
-		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-)
-
-# Minimal C++ API demo (ForwardRenderer + cube + light).
-pyros_add_example(CppApiDemo
-	DEMO_DEFINE _CppApiDemo
-	SOURCES
-		${CMAKE_CURRENT_SOURCE_DIR}/CppApiDemo/CppApiDemo.cpp
-		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-)
-
-# Screen-space UI: UICanvas / UIRect / UIImage / UIText + UIRenderer over a
-# normal 3D scene. Doubles as the system's acceptance test - see UIExample.h.
-pyros_add_example(UIExample
-	DEMO_DEFINE _UIExample
-	SOURCES
-		${CMAKE_CURRENT_SOURCE_DIR}/UIExample/UIExample.cpp
-		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-)
-
-# Every widget the UI has, under three interchangeable skins loaded from
-# files - see WidgetGallery.h. Doubles as the acceptance test for styles.
-pyros_add_example(WidgetGallery
-	DEMO_DEFINE _WidgetGallery
-	SOURCES
-		${CMAKE_CURRENT_SOURCE_DIR}/WidgetGallery/WidgetGallery.cpp
-		${CMAKE_CURRENT_SOURCE_DIR}/BaseExample/BaseExample.cpp
-)
-
-# Metal backend's first-light smoke test (see MetalHelloWindow.h) - a
-# bespoke target, not pyros_add_example(): that helper always links the
-# *build-wide* ${PYROS_WINDOW_MANAGER} (one window context per configure,
-# chosen via PYROS_CONTEXT), so a normal -DPYROS_GRAPHICS=OpenGL/Vulkan
-# configure would link the wrong window manager into anything using
-# SDL2MetalContext directly. Building this explicitly against
-# SDL2MetalContext.cpp regardless of the primary PYROS_CONTEXT means Metal
-# bring-up can be verified without disturbing whatever the rest of this
-# configure already builds (GL/Vulkan examples keep working unchanged) -
-# only needs BUILD_METAL_BACKEND=ON, independent of PYROS_GRAPHICS/CONTEXT.
-# (A desktop window's test: not on iOS, where an app is a bundle with SDL's main.)
-if (METAL_BACKEND_FOUND AND NOT IOS)
-	add_executable(MetalHelloWindow
-		${CMAKE_CURRENT_SOURCE_DIR}/MetalHelloWindow/MetalHelloWindow.cpp
-		${CMAKE_CURRENT_SOURCE_DIR}/WindowManagers/SDL2Metal/SDL2MetalContext.cpp
-		${CMAKE_CURRENT_SOURCE_DIR}/MainProgram.cpp
-		${IMGUI_DIR}/backends/imgui_impl_sdl2.cpp
-	)
-	if (NOT TARGET SDL2::SDL2)
-		find_package(SDL2 REQUIRED)
-	endif()
-	target_include_directories(MetalHelloWindow PRIVATE
-		${CMAKE_SOURCE_DIR}/include
-		${CMAKE_CURRENT_SOURCE_DIR}
-		${SDL2_INCLUDE_DIRS}
-		${IMGUI_INCLUDE_DIRS}
-	)
-	target_link_libraries(MetalHelloWindow PRIVATE
-		PyrosEngine
-		$<IF:$<TARGET_EXISTS:SDL2::SDL2>,SDL2::SDL2,${SDL2_LIBRARIES}>
-		${METAL_BACKEND_LIBS}
-	)
-	target_compile_definitions(MetalHelloWindow PRIVATE
-		DEMO_NAME=MetalHelloWindow
-		_MetalHelloWindow
-		EXAMPLES_PATH=${EXAMPLES_PATH}
-	)
-	if (IS_DESKTOP)
-		target_compile_definitions(MetalHelloWindow PRIVATE DESKTOP)
-	endif()
-endif()
 
 # JS-first Embind library: import createPyros3D and drive the engine from JS.
 # (Replaces the old C++-host JsApiDemo + pyrosInit pattern.)
@@ -202,7 +106,6 @@ if (EMSCRIPTEN)
 	target_link_libraries(Pyros3D PRIVATE
 		PyrosEngine
 		${PYROS_CONTEXT_LIB}
-		${OPENGL_LIBS}
 		${BOX3D_LIBRARIES}
 		${FREETYPE_LIBRARIES}
 	)
@@ -215,9 +118,8 @@ if (EMSCRIPTEN)
 	endif()
 	pyros_emscripten_apply_compile(Pyros3D)
 	pyros_emscripten_apply_library_link(Pyros3D)
-	# Keep .data small: shaders + font + sfx still in VFS; game textures fetch over HTTP.
+	# Keep .data small: font + sfx in the VFS; game textures fetch over HTTP.
 	target_link_options(Pyros3D PRIVATE
-		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
 		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets/verdana.ttf@assets/verdana.ttf"
 		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/examples/assets/neonpulse/sfx@assets/neonpulse/sfx"
 	)
@@ -259,9 +161,3 @@ else()
 	message(STATUS "DemoLauncher skipped (HAVE_LUA_BINDINGS=OFF)")
 endif()
 
-# Stage resources/shaders into the examples build dir (a symlink, so edits
-# are live; a copy on Windows - see pyros_stage_dir).
-# Skip under Emscripten — shaders are --preload-file'd into the VFS instead.
-if (NOT EMSCRIPTEN)
-	pyros_stage_dir(${CMAKE_SOURCE_DIR}/resources/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders)
-endif()

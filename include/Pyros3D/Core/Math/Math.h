@@ -96,6 +96,8 @@ namespace p3d {
 }
 
 using namespace p3d::Math;
+// (and within p3d: p3d::Vec3 and the rest, as code spelling the namespace out has them)
+namespace p3d { using namespace Math; }
 
 namespace p3d {
 

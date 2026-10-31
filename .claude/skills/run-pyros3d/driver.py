@@ -3,8 +3,8 @@
 
 The editor opens a loopback JSON-line command server and advertises it in
 $TMPDIR/pyros3d-editor.json as {pid, port, token}. Every name in
-Editor::HandleAgentCommand works (open_project, add_ui, set_renderer,
-screenshot, play, save_scene, ...). This wraps that, plus the two things that
+Editor::HandleAgentCommand works (open_project, add_ui, screenshot, play,
+save_scene, ...). This wraps that, plus the two things that
 are otherwise painful: launching without racing the discovery file, and telling
 whether the frame that came back is actually a render or a blank rectangle.
 
@@ -32,7 +32,7 @@ import zlib
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(
     os.path.abspath(__file__)))))
-DEFAULT_BUILD = os.path.join(REPO, "build_ed_vk")
+DEFAULT_BUILD = os.path.join(REPO, "build_ed_mtl")
 # Our own copy of the handshake. The editor rewrites the shared one on every
 # launch, so a second editor starting up would otherwise steal our port.
 MINE = os.path.join(os.environ.get("TMPDIR", "/tmp"), "pyros3d-driver.json")
@@ -164,8 +164,8 @@ def read_png(path):
 
 def stats(path):
     """Top colours by share. A viewport that failed shows up here as one
-    colour at ~100% - blank grey, or pure white when deferred lighting blows
-    out. Assert on this rather than trusting that a PNG was produced."""
+    colour at ~100% - blank grey, or pure white. Assert on this rather than
+    trusting that a PNG was produced."""
     w, h, n, px = read_png(path)
     hist = collections.Counter()
     for y in range(0, h, 2):
@@ -177,13 +177,20 @@ def stats(path):
     return w, h, top
 
 
+def shot_settled(out, offscreen=False, tries=8):
+    """shot(), again every 2s while it comes back flat: a freshly loaded scene draws nothing until its pipelines are
+    compiled (a few seconds, cold)."""
+    for i in range(tries):
+        if shot(out, offscreen):
+            return True
+        time.sleep(2)
+    return False
+
+
 def shot(out, offscreen=False):
-    # live=True reads the texture the Scene View is really showing this frame:
-    # DeferredRenderer::GetColorTexture() when the project is deferred,
-    # EffectsManager->GetViewportColor() when it is forward. Without it,
-    # AgentScreenshot re-renders through previewRenderer, which Init()
-    # hardcodes as a ForwardRenderer - so a deferred project silently hands
-    # back a *forward* image and any Forward-vs-Deferred comparison is void.
+    # live=True reads the texture the Scene View is showing this frame (its
+    # overlay, grid and gizmos in it); without it, the selected camera's
+    # preview where there is one, else the same Scene View.
     r = call("screenshot", {} if offscreen else {"live": True})
     open(out, "wb").write(base64.b64decode(r["pngBase64"]))
     w, h, top = stats(out)
@@ -197,7 +204,7 @@ def shot(out, offscreen=False):
 # ----------------------------------------------------------------- smoke ----
 
 def smoke(project, build=DEFAULT_BUILD):
-    """Launch, open a project, render in both renderers, drive the 2D UI, stop.
+    """Launch, open a project, render it, drive the 2D UI, stop.
     Exits non-zero if any viewport came back flat."""
     ok = True
     d = launch(build)
@@ -217,10 +224,7 @@ def smoke(project, build=DEFAULT_BUILD):
             print("loaded scene %s" % scenes[0])
         time.sleep(3)
 
-        for kind in ("deferred", "forward"):
-            call("set_renderer", {"type": kind})
-            time.sleep(2)
-            ok &= shot(os.path.join(build, "editor", "smoke-%s.png" % kind))
+        ok &= shot_settled(os.path.join(build, "editor", "smoke-viewport.png"))
 
         # 2D UI: the Canvas (2D) Mode item in the View menu stays disabled
         # until the scene actually has a UICanvas, so make one.
@@ -229,11 +233,7 @@ def smoke(project, build=DEFAULT_BUILD):
         call("add_ui", {"object": "DriverUI", "kind": "Menu"})
         call("canvas_mode", {"on": True})
         time.sleep(2)
-        # Stay in forward here: in canvas mode the scene UI is drawn into
-        # EffectsManager's capture for forward but into its *transparent
-        # overlay* for deferred, and `screenshot live` reads the deferred
-        # colour target - so a deferred canvas screenshot is blank by design.
-        ok &= shot(os.path.join(build, "editor", "smoke-canvas.png"))
+        ok &= shot_settled(os.path.join(build, "editor", "smoke-canvas.png"))
         call("canvas_mode", {"on": False})
 
         print("log tail:", call("log", {"lines": 3})["log"].strip().splitlines()[-1:])

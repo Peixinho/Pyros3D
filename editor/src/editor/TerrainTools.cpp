@@ -107,6 +107,7 @@ namespace {
 		"vec2 uv = vWorldPos.xz / 6.0;\n"
 		"vec3 Albedo = (texture_2D(layer0, uv).rgb * w.r + texture_2D(layer1, uv).rgb * w.g\n"
 		"    + texture_2D(layer2, uv).rgb * w.b + texture_2D(layer3, uv).rgb * w.a) / sum;\n"
+		"Albedo = p3d_ToLinear(vec4(Albedo, 1.0)).rgb;\n"      // (the pictures are sRGB; lit in linear light)
 		"float Metallic = 0.0;\n"
 		"float Roughness = 0.9;\n";
 }
@@ -221,27 +222,37 @@ float big = 0.22 + 0.68 * clamp((dist - 12.0) / 90.0, 0.0, 1.0);
 vec4 t0 = mix(texture_2D(layer0, uv), texture_2D(layer0, uvB), big);
 vec4 t1 = mix(texture_2D(layer1, uv), texture_2D(layer1, uvB), big);
 // The third layer is what cliffs are made of, and a cliff read from above is a smear
-// of streaks: where the ground is steeper than about 53 degrees it is read from the
-// side it faces. (The slopes of the read are worked out by hand, so that the line where
-// one side gives way to the other is not a line.)
+// of streaks: it is read from the sides as well (triplanar, below).
 vec3 dPx = dFdx(P), dPy = dFdy(P);
 vec3 an = abs(p3d_N);
-bool cliff = an.y < 0.6;
-bool faceX = an.x > an.z;
-vec2 ruv = cliff ? (faceX ? P.zy : P.xy) : P.xz;
-vec2 rdx = cliff ? (faceX ? dPx.zy : dPx.xy) : dPx.xz;
-vec2 rdy = cliff ? (faceX ? dPy.zy : dPy.xy) : dPy.xz;
-vec4 t2 = mix(textureGrad(layer2, ruv / 4.0, rdx / 4.0, rdy / 4.0), textureGrad(layer2, ruv / 23.0 + vec2(0.37, 0.11), rdx / 23.0, rdy / 23.0), big);
+// Read from all three sides and blended by how much the ground faces each (the normal to the fourth: a
+// face is almost only its own side, an edge between two a soft mix) - no seam where one side gave way to
+// the other, as the switch at 53 degrees left. Each read with the slopes of its own two axes.
+vec3 tw = an * an; tw *= tw; tw /= max(tw.x + tw.y + tw.z, 1e-5);
+vec4 t2 = vec4(0.42, 0.43, 0.43, 0.5);
+// (only where there is rock to show: its six reads, on ground of grass, cost the most of the shader; the
+// gradients above, taken by every pixel, keep this branch's reads exact)
+if (w.b > 0.0005) {
+t2 = vec4(0.0);
+if (tw.x > 0.01) t2 += tw.x * mix(textureGrad(layer2, P.zy / 4.0, dPx.zy / 4.0, dPy.zy / 4.0), textureGrad(layer2, P.zy / 23.0 + vec2(0.37, 0.11), dPx.zy / 23.0, dPy.zy / 23.0), big);
+if (tw.y > 0.01) t2 += tw.y * mix(textureGrad(layer2, P.xz / 4.0, dPx.xz / 4.0, dPy.xz / 4.0), textureGrad(layer2, P.xz / 23.0 + vec2(0.37, 0.11), dPx.xz / 23.0, dPy.xz / 23.0), big);
+if (tw.z > 0.01) t2 += tw.z * mix(textureGrad(layer2, P.xy / 4.0, dPx.xy / 4.0, dPy.xy / 4.0), textureGrad(layer2, P.xy / 23.0 + vec2(0.37, 0.11), dPx.xy / 23.0, dPy.xy / 23.0), big);
+t2 /= max(tw.x * step(0.01, tw.x) + tw.y * step(0.01, tw.y) + tw.z * step(0.01, tw.z), 1e-5);
+}
 vec4 t3 = mix(texture_2D(layer3, uv), texture_2D(layer3, uvB), big);
 // (rock a long way off is a pale even grey with its shape in the light, not a pattern of blotches)
 t2.rgb = mix(t2.rgb, vec3(0.42, 0.43, 0.43), 0.30 * smoothstep(40.0, 220.0, dist));
 // (rock is streaked and seamed: darker in its cracks and where water runs down it)
 t2.rgb *= 0.82 + 0.36 * smoothstep(0.25, 0.75, t2.a) ;
-t2.rgb *= 0.80 + 0.40 * texture_2D(macro, vec2(P.x * 0.05 + P.z * 0.04, P.y * 0.012)).b;
+// (across a face, measured along the face itself - its horizontal direction from its normal: along a fixed
+// world axis, a face running that way had the pattern stretched across it in wide pale bands)
+vec2 faceH = normalize(vec2(-p3d_N.z, p3d_N.x) + vec2(1e-4, 0.0));
+float across = dot(P.xz, faceH);
+t2.rgb *= 0.92 + 0.16 * smoothstep(0.2, 0.8, texture_2D(macro, vec2(across * 0.045, P.y * 0.012)).b);
 // (and in the large: runnels down the face, dark where water comes, pale ribs between; patches of lichen and scree)
 // (a mountain's rock: dark blue-grey, with pale streaks running down it where it has shed)
 t2.rgb *= vec3(0.40, 0.44, 0.48);
-t2.rgb = mix(t2.rgb, vec3(0.30, 0.34, 0.38), 0.45 * smoothstep(0.55, 0.80, texture_2D(macro, vec2((P.x * 0.8 - P.z * 0.6) * 0.030, P.y * 0.004)).r));
+t2.rgb = mix(t2.rgb, vec3(0.30, 0.34, 0.38), 0.25 * smoothstep(0.40, 0.90, texture_2D(macro, vec2(across * 0.030, P.y * 0.004)).r));
 t2.rgb *= 0.82 + 0.36 * texture_2D(macro, P.xz / 47.0 + P.y * 0.01).g;
 // Tone, and tone only - what colour a layer is, is its picture's business, and this
 // shader is every map's: drier ground is lighter and warmer, lusher darker and cooler.
@@ -314,6 +325,9 @@ Albedo *= 1.0 - 0.38 * wetSand;
 	// (and the sand the water has just left is wet: darker for a hand's height above the waterline)
 	Albedo *= 1.0 - 0.22 * (1.0 - smoothstep(SEA, SEA + 0.18 + 0.10 * br, P.y)) * step(SEA - 0.1, P.y);
 }
+// The ground was put together from sRGB pictures and colours chosen to look right encoded; decoded
+// here, once, as a whole - the renderer lights in linear light (ColourSpace.h)
+Albedo = p3d_ToLinear(vec4(Albedo, 1.0)).rgb;
 float Metallic = 0.0;
 float Roughness = mix(dot(b, vec4(0.92, mix(0.90, 0.55, wet), 0.80, 0.88)), 0.55, snow);
 
@@ -713,15 +727,18 @@ bool TerrainTools::CreateTerrain(const CreateParams &params, const std::string &
 		if (!fs::exists(macro, ec) && !WriteMacroTexture(macro.string(), 1u)) { error = "could not write " + macro.string(); return false; }
 	}
 	const std::string shaderRel = natural ? "assets/terrain/natural_ground.glsl" : "assets/terrain/splat_terrain.glsl";
-	if (!fs::exists(root / shaderRel, ec))
+	// (the material names the shader; its surface, beside it, is what is drawn - written where it is missing)
+	const fs::path surfacePath = fs::path((root / shaderRel).string() + ".surface");
+	if (!fs::exists(surfacePath, ec))
 	{
 		std::vector<std::string> samplerNames = { "splatMap", "layer0", "layer1", "layer2", "layer3" };
 		if (natural) { samplerNames.push_back("macro"); samplerNames.push_back("pebbles"); }
-		const MaterialCodegenResult gen = GenerateGLSLFromSimpleText(natural ? kNaturalGroundBody : kSplatBody, samplerNames);
+		const MaterialCodegenResult gen = GenerateSurfaceFromSimpleText(natural ? kNaturalGroundBody : kSplatBody, samplerNames);
 		if (!gen.error.empty()) { error = "splat shader: " + gen.error; return false; }
-		std::ofstream out((root / shaderRel).string().c_str(), std::ios::binary | std::ios::trunc);
-		out << gen.glsl;
-		if (!out) { error = "could not write " + (root / shaderRel).string(); return false; }
+		fs::create_directories(surfacePath.parent_path(), ec);
+		std::ofstream out(surfacePath.string().c_str(), std::ios::binary | std::ios::trunc);
+		out << gen.surface;
+		if (!out) { error = "could not write " + surfacePath.string(); return false; }
 	}
 
 	// Heights: 0 m is a quarter of the way up the range, so there is room

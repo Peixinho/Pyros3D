@@ -6,19 +6,125 @@
 // Description : See SceneGI.h.
 //============================================================================
 
+#include <Pyros3D/Rendering/ColourSpace.h>
 #include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Rendering/Components/Lights/ILightComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
+#include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <algorithm>
+#include <cstring>
+#include <fstream>
 #include <cfloat>
 
 namespace p3d {
+namespace {
+	// The GI cache file (see SceneGISettings::cachePath): a header, the grid, the sky, then each
+	// atlas's shape and floats, then the probes' offsets. Read back only if every shape matches
+	// what the volume allocates for the same grid - else it is someone else's, and re-solved.
+	// (the atlases as half floats: light needs nothing finer, and a long street's volume was 383 MB
+	// in floats - most of it reflections, which are left out when the sky gives them: n 0)
+	const char kGICacheMagic[8] = { 'P', '3', 'D', 'G', 'I', 'C', '0', '2' };
+	template <class T> void Put(std::ofstream &o, const T &v) { o.write((const char*)&v, sizeof(T)); }
+	template <class T> bool Take(std::ifstream &i, T &v) { return (bool)i.read((char*)&v, sizeof(T)); }
+	uint16 ToHalf(const f32 f)
+	{
+		uint32 x; std::memcpy(&x, &f, 4);
+		const uint32 sign = (x >> 16) & 0x8000u; int32 e = (int32)((x >> 23) & 0xff) - 127 + 15; uint32 m = x & 0x7fffffu;
+		if (e <= 0) return (uint16)sign;                                   // (too small: zero)
+		if (e >= 31) return (uint16)(sign | 0x7bffu);                      // (too large: the largest half)
+		return (uint16)(sign | ((uint32)e << 10) | ((m + 0x1000u) >> 13 > 0x3ffu ? 0x3ffu : (m + 0x1000u) >> 13));
+	}
+	f32 FromHalf(const uint16 h)
+	{
+		const uint32 sign = (uint32)(h & 0x8000u) << 16; const uint32 e = (h >> 10) & 0x1fu, m = h & 0x3ffu;
+		uint32 x = (e == 0) ? sign : (sign | ((e - 15 + 127) << 23) | (m << 13));
+		f32 f; std::memcpy(&f, &x, 4); return f;
+	}
+	void PutAtlas(std::ofstream &o, const ProbeAtlas &a, const bool keep = true)
+	{
+		Put(o, a.GetResolution()); Put(o, a.GetChannels());
+		const uint64 n = keep ? a.GetData().size() : 0; Put(o, n);
+		std::vector<uint16> h((size_t)n);
+		for (size_t k = 0; k < (size_t)n; k++) h[k] = ToHalf(a.GetData()[k]);
+		if (n) o.write((const char*)&h[0], (std::streamsize)(n * sizeof(uint16)));
+	}
+	bool TakeAtlas(std::ifstream &i, ProbeAtlas &a)
+	{
+		uint32 res = 0, ch = 0; uint64 n = 0;
+		if (!Take(i, res) || !Take(i, ch) || !Take(i, n)) return false;
+		if (res != a.GetResolution() || ch != a.GetChannels() || (n != a.GetData().size() && n != 0)) return false;
+		if (n == 0) return true;
+		std::vector<uint16> h((size_t)n);
+		if (!i.read((char*)&h[0], (std::streamsize)(n * sizeof(uint16)))) return false;
+		for (size_t k = 0; k < (size_t)n; k++) a.GetData()[k] = FromHalf(h[k]);
+		return true;
+	}
+}
+
+
+	bool ReadSceneGICache(const SceneGISettings &settings, DDGIVolume &volume)
+	{
+		if (settings.cachePath.empty()) return false;
+		std::ifstream in(settings.cachePath, std::ios::binary);
+		char magic[8] = { 0 }; uint64 key = 0;
+		Vec3 origin, spacing; uint32 counts[3] = { 0, 0, 0 };
+		bool ok = in && in.read(magic, 8) && std::memcmp(magic, kGICacheMagic, 8) == 0 && Take(in, key) && key == settings.cacheKey
+			&& Take(in, origin) && Take(in, spacing) && Take(in, counts[0]) && Take(in, counts[1]) && Take(in, counts[2]);
+		if (ok && volume.Allocate(origin, spacing, counts[0], counts[1], counts[2]))
+		{
+			Vec3 sky; f32 maxRay = 0.f, bounce = 0.f; uint8 fromSH = 0; SphericalHarmonicsL2 sh;
+			ok = Take(in, sky) && Take(in, maxRay) && Take(in, bounce) && Take(in, fromSH);
+			for (uint32 c = 0; ok && c < SphericalHarmonicsL2::kCoefficientCount; c++) ok = Take(in, sh.coefficients[c]);
+			ok = ok && TakeAtlas(in, volume.GetIrradianceAtlasMutable()) && TakeAtlas(in, volume.GetVisibilityAtlasMutable())
+				&& TakeAtlas(in, volume.GetRadianceAtlasMutable());
+			uint64 np = 0;
+			ok = ok && Take(in, np) && np == volume.GetProbeData().size()
+				&& (np == 0 || (bool)in.read((char*)&volume.GetProbeDataMutable()[0], (std::streamsize)(np * sizeof(Vec4))));
+			if (ok)
+			{
+				volume.SetSkyColor(sky); volume.SetMaxRayDistance(maxRay); volume.SetMultiBounce(bounce);
+				if (fromSH) volume.SetSkySH(sh); else volume.ClearSkySH();
+				echo("BakeSceneGI: " + std::to_string(volume.ProbeCount()) + " probes read from " + settings.cachePath + " - nothing traced.");
+				return true;
+			}
+		}
+		if (in) echo("BakeSceneGI: " + settings.cachePath + " is for another scene or settings - solving again.");
+		return false;
+	}
+
+	bool WriteSceneGICache(const SceneGISettings &settings, const DDGIVolume &volume, const bool keepRadiance)
+	{
+		if (settings.cachePath.empty()) return false;
+		std::ofstream o(settings.cachePath, std::ios::binary | std::ios::trunc);
+		if (!o) return false;
+		o.write(kGICacheMagic, 8); Put(o, settings.cacheKey);
+		Put(o, volume.origin); Put(o, volume.spacing);
+		Put(o, volume.counts[0]); Put(o, volume.counts[1]); Put(o, volume.counts[2]);
+		Put(o, volume.GetSkyColor()); Put(o, volume.GetMaxRayDistance()); Put(o, volume.GetMultiBounce());
+		const uint8 fromSH = volume.IsSkyFromSH() ? 1 : 0; Put(o, fromSH);
+		for (uint32 c = 0; c < SphericalHarmonicsL2::kCoefficientCount; c++) Put(o, volume.GetSkySH().coefficients[c]);
+		PutAtlas(o, volume.GetIrradianceAtlas()); PutAtlas(o, volume.GetVisibilityAtlas());
+		PutAtlas(o, volume.GetRadianceAtlas(), keepRadiance);
+		const uint64 np = volume.GetProbeData().size(); Put(o, np);
+		if (np) o.write((const char*)&volume.GetProbeData()[0], (std::streamsize)(np * sizeof(Vec4)));
+		echo("BakeSceneGI: the solve kept in " + settings.cachePath);
+		return (bool)o;
+	}
+
+	bool SolveSceneGI(SceneGraph *scene, const SceneGISettings &settings, DDGIVolume &volume)
+	{
+		if (ReadSceneGICache(settings, volume)) return true;
+		if (!BakeSceneGI(scene, settings, volume)) return false;
+		WriteSceneGICache(settings, volume, true);
+		return true;
+	}
+
 
 	void CollectRayLights(SceneGraph *scene, std::vector<RayLight> &outLights)
 	{
@@ -50,7 +156,11 @@ namespace p3d {
 				continue;
 
 			RayLight rl;
-			const Vec4 c = lc->GetLightColor();
+			// (the light it gives, as the direct light's: the colour decoded times the intensity - and a
+			// sun's tint by the hour. The colour alone was taken: the bounce never followed the intensity,
+			// and a lamp turned down or off went on lighting the room by its bounce)
+			DirectionalLight *sunLight = lc->GetLightType() == LIGHT_TYPE::DIRECTIONAL ? dynamic_cast<DirectionalLight*>(lc) : NULL;
+			const Vec4 c = sunLight != NULL ? sunLight->GetLightRadianceNow() : lc->GetLightRadiance();
 			rl.color = Vec3(c.x, c.y, c.z);
 
 			switch (lc->GetLightType())
@@ -82,7 +192,8 @@ namespace p3d {
 				// Worth revisiting; not worth blocking on.
 				rl.isPoint = 1.f;
 				rl.positionOrDirection = lc->GetOwner()->GetWorldPosition();
-				rl.range = 0.f;
+				// (its reach, for the falloff: with none, its bounce was as strong at any distance)
+				{ SpotLight *sl = dynamic_cast<SpotLight*>(lc); rl.range = sl != NULL ? sl->GetLightRadius() : 0.f; }
 				break;
 			}
 			outLights.push_back(rl);

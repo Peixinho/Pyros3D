@@ -586,10 +586,6 @@ namespace p3d {
 				"looping", &ParticleSystemDesc::looping,
 				"emissionRate", &ParticleSystemDesc::emissionRate,
 				"burstCount", &ParticleSystemDesc::burstCount,
-				// Opt-in GPU simulation. Ignored where the backend has no
-				// compute, so a script can ask for it unconditionally and
-				// still run on web - check IsGPUSimulated() for the truth.
-				"gpuSimulation", &ParticleSystemDesc::gpuSimulation,
 				"minLifetime", &ParticleSystemDesc::minLifetime,
 				"maxLifetime", &ParticleSystemDesc::maxLifetime,
 				"direction", &ParticleSystemDesc::direction,
@@ -641,6 +637,12 @@ namespace p3d {
 				"setColors", &ParticleSystem::SetColors,
 				"setFade", &ParticleSystem::SetFade,
 				"setSoftness", &ParticleSystem::SetSoftness,
+				"setGPUSimulation", &ParticleSystem::SetGPUSimulation,
+				"isSimulatedOnGPU", &ParticleSystem::SimulatedOnGPU,
+				// ps:setLit(true[, g]): the scene's sun and sky on it, scattered forward (g, default 0.6)
+				"setLit", sol::overload(
+					[](ParticleSystem &p, const bool on) { p.SetLit(on); },
+					[](ParticleSystem &p, const bool on, const f32 g) { p.SetLit(on, g); }),
 				"setRotationSpeed", &ParticleSystem::SetRotationSpeed,
 				"setBlendMode", &ParticleSystem::SetBlendMode,
 				sol::base_classes, sol::bases<IComponent>()

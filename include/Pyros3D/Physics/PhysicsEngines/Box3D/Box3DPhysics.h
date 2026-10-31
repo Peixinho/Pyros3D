@@ -55,6 +55,7 @@ namespace p3d {
 		virtual void EnableDebugDraw();
 		void SetDebugRenderer(DebugRenderer* renderer);
 		virtual void RenderDebugDraw(Projection projection, GameObject* Camera);
+		virtual DebugRenderer* GetDebugRenderer();
 		virtual void DisableDebugDraw();
 		virtual void EndPhysics();
 

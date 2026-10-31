@@ -82,7 +82,11 @@ namespace p3d {
 		bool GetShadowCache() const { return shadowCacheOn; }
 		// What sways in the wind (a material with wind: trees, bushes) sways in its shadow too, and a kept
 		// shadow cannot: from which cascade on such casters are kept all the same, standing still
-		// (0 every cascade; -1, the default, none - drawn every frame, swaying). A game's choice.
+		// (0 every cascade; -1 none - drawn every frame, swaying; kWindFromAuto, the default, the cascades
+		// whose texel is at least kSwayTexel: far enough off that a tree's shadow is small on screen, its sway
+		// a pixel or two - what engines give up on distant foliage shadows. -1 keeps every shadow swaying.)
+		static const int32 kWindFromAuto = -2;
+		static constexpr f32 kSwayTexel = 0.05f;
 		void SetShadowCacheWindFrom(const int32 cascade) { shadowCacheWindFrom = cascade; }
 		int32 GetShadowCacheWindFrom() const { return shadowCacheWindFrom; }
 		// How far the light may turn (radians) before a kept map is drawn again: until then its cascade
@@ -112,15 +116,10 @@ namespace p3d {
 		// it at the height it stands (SunlightAt) - and the way to it in the world. Every
 		// renderer lights a directional light by this, so a sun sets alike in all of them.
 		Vec4 GetLightRadianceNow(Vec3* toLightOut = NULL);
-		// (what the air leaves, for a sun `height` up: the y of the way to it, -1..1)
-		static Vec3 SunlightAt(const f32 height)
-		{
-			const f32 up = height < 0.f ? 0.f : (height > 1.f ? 1.f : height);
-			const f32 low = 1.f - (up < 0.42f ? up / 0.42f : 1.f);
-			f32 lit = (height + 0.06f) / 0.16f; lit = lit < 0.f ? 0.f : (lit > 1.f ? 1.f : lit);
-			const f32 strength = lit * (0.42f + 0.58f * (up * 2.6f > 1.f ? 1.f : up * 2.6f));
-			return Vec3(1.f, 1.f - 0.42f * low, 1.f - 0.74f * low) * strength;
-		}
+		// (what the air leaves, for a sun `height` up: the y of the way to it, -1..1 - the Sky effect's own
+		// air (PhysicalSunTransmittance, at the sky's haze), as a share of what it leaves of a sun overhead:
+		// a noon sun as the light's colour says, a low one as golden as the sky round it)
+		static Vec3 SunlightAt(const f32 height);
 
 		// The hour of the day, for a sun: where it stands at `hour` (0..24: up at six in the
 		// east, highest at noon, down at eighteen) on a path that rises `azimuth` degrees
@@ -177,6 +176,10 @@ namespace p3d {
 		// direction. The up vector switches away from -Z when the light
 		// itself runs along Z, where LookAt would otherwise degenerate.
 		static Matrix ShadowViewMatrix(const Vec3 &worldDirection);
+		// How far the sun's shadows reach (its last cascade's far distance), for what decides by itself
+		// whether to cast - foliage blocks (FoliageComponent: a layer's shadowDistance 0, its default,
+		// casts as far as this). The last light to set up its cascades says.
+		static f32 SunShadowReach();
 
 		// Fits cascade `Cascade` to the camera that is actually rendering
 		// this frame and returns its orthographic projection for the given
@@ -227,7 +230,7 @@ namespace p3d {
 
 	private:
 		bool shadowCacheOn = true;
-		int32 shadowCacheWindFrom = -1;
+		int32 shadowCacheWindFrom = kWindFromAuto;
 		f32 shadowCacheTurn = 0.0043633f;
 		bool sun = false;
 		f32 sunAzimuth = 0.f, sunTilt = 30.f;

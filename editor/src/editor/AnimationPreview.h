@@ -25,15 +25,14 @@
 #define ANIMATIONPREVIEW_H
 
 #include <Pyros3D/SceneGraph/SceneGraph.h>
-#include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
-#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/Core/Math/Math.h>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
+#include "RendererView.h"
 
 class IGizmo;
 struct AnimationEditorDocument;
@@ -45,10 +44,12 @@ enum class BonePoseMode { Rotate, Translate };
 
 struct AnimationPreview {
 	// ---- owned engine objects (built lazily by EnsureInit) -----------
-	p3d::IRenderer* renderer = nullptr;
-	p3d::PostEffectsManager* effects = nullptr;
 	p3d::SceneGraph* scene = nullptr;
 	p3d::DebugRenderer* debug = nullptr;
+	// (drawn by a renderer of its own - RendererView.h)
+	RendererView rendererView;
+	p3d::SceneGraph* emptyScene = nullptr;     // (what is drawn with the mesh hidden: the overlay alone)
+	void* viewImage = nullptr;
 
 	std::shared_ptr<p3d::GameObject> modelGO;
 	std::shared_ptr<p3d::GameObject> cameraGO;

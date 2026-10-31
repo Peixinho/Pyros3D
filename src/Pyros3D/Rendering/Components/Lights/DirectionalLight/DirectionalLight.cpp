@@ -7,8 +7,14 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
+#include <Pyros3D/Rendering/GI/PhysicalSky.h>
 
 namespace p3d {
+
+	// See SunShadowReach().
+	static f32 g_sunShadowReach = 150.f;
+	f32 DirectionalLight::SunShadowReach() { return g_sunShadowReach; }
+
 
 	void Cascade::UpdateFrustumPoints(const Vec3& position, const Vec3& direction)
 	{
@@ -157,66 +163,23 @@ namespace p3d {
 
 	void DirectionalLight::EnableCastShadows(const uint32 Width, const uint32 Height, const Projection &projection, const f32 Near, const f32 Far, const uint32 Cascades)
 	{
-		// Was wrapped in if (!isCastingShadows), which made this a silent
-		// no-op when called on a light that was already casting - so nothing
-		// could change a live shadow map's resolution, range or cascade
-		// count without disabling it first. Reconfiguration is now the
-		// supported path; release the old FBO/map (waiting for the GPU, see
-		// ReleaseShadowResources) before building the replacements.
-		if (isCastingShadows) ReleaseShadowResources();
-
-		// Save Dimensions
-		uint32 ShadowWidthFBO = Width;
-		uint32 ShadowHeightFBO = Height;
+		// (what the renderer's shadow map of it is: its size, reach and cascades - a light already casting is
+		// set again)
 		ShadowWidth = Width;
 		ShadowHeight = Height;
 
 		// Set Flag
 		isCastingShadows = true;
 
-		// Initiate FBO (releases any previously owned FBO/texture first)
-		shadowsFBO.reset(new FrameBuffer());
-		shadowsFBO->SetDebugName("Shadow map (directional)");
-
 		// Minimum 1 and Maximum is 4 Cascades
 		if (Cascades <= 0) ShadowCascades = 1;
 		else if (Cascades >= 4) ShadowCascades = 4;
 		else ShadowCascades = Cascades;
 
-		// Set FBO Dimensions
-		if (ShadowCascades > 1)
-		{
-			ShadowWidthFBO = Width * 2;
-			ShadowHeightFBO = Height * 2;
-		}
-
-		ShadowMap.reset(new Texture());
-
-#if defined(GLLEGACY)
-
-		// Create Texture, Frame Buffer and Set the Texture as Attachment
-		ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, ShadowWidthFBO, ShadowHeightFBO, false);
-		ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
-
-		// Initialize Frame Buffer
-		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
-		shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap.get());
-#else
-		// GPU Shadow Maps
-		// Create Texture, Frame Buffer and Set the Texture as Attachment
-		ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, ShadowWidthFBO, ShadowHeightFBO, false);
-		ShadowMap->SetRepeat(TextureRepeat::Clamp, TextureRepeat::Clamp);
-		// CreateEmptyTexture defaults to Linear; depth+compare samplers with
-		// Linear are "unloadable" on Apple GL (and then sampler2DShadow
-		// falls back to zero → shadows disappear / scene looks brighter).
-		// PCF is done in the shader with multiple taps, so Nearest is correct.
-		ShadowMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-		ShadowMap->EnableCompareMode();
-		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, ShadowMap.get());
-#endif
 		// Near and Far Clip Planes
 		ShadowNear = Near;
 		ShadowFar = Far;
+		g_sunShadowReach = Far;
 
 		// View Projection Matrix
 		ShadowProjection = projection.m;
@@ -275,10 +238,24 @@ namespace p3d {
 
 	Matrix DirectionalLight::ShadowViewMatrix(const Vec3 &worldDirection)
 	{
-		Vec3 up = fabs(worldDirection.z) > 0.99f ? Vec3(0.f, 1.f, 0.f) : Vec3(0.f, 0.f, -1.f);
+		// The direction in steps of a twentieth of a degree. The cascades are moved in whole texels so that
+		// their edges hold still as the view moves - but a sun going round with the hour turned the light's
+		// own axes a little every frame, and every edge in every map crawled. In steps, the shadows move
+		// on by a step every few seconds, too small to see, and stand still between.
+		const f32 kStep = 0.05f * 3.14159265f / 180.f;
+		Vec3 d = worldDirection;
+		const f32 len = sqrtf(d.x * d.x + d.y * d.y + d.z * d.z);
+		if (len > 1e-6f)
+		{
+			d = d / len;
+			const f32 theta = roundf(acosf(Max(-1.f, Min(1.f, d.y))) / kStep) * kStep;
+			const f32 phi = roundf(atan2f(d.z, d.x) / kStep) * kStep;
+			d = Vec3(sinf(theta) * cosf(phi), cosf(theta), sinf(theta) * sinf(phi));
+		}
+		Vec3 up = fabs(d.z) > 0.99f ? Vec3(0.f, 1.f, 0.f) : Vec3(0.f, 0.f, -1.f);
 		Matrix view;
 		view.identity();
-		view.LookAt(Vec3::ZERO, worldDirection, up);
+		view.LookAt(Vec3::ZERO, d, up);
 		return view;
 	}
 
@@ -433,6 +410,14 @@ namespace p3d {
 		Cascades[Cascade].ortho.Ortho(left, right, bottom, top, -maxZ, -minZ);
 		Cascades[Cascade].CropMatrix = Cascades[Cascade].ortho.GetProjectionMatrix();
 		return Cascades[Cascade].CropMatrix;
+	}
+	Vec3 DirectionalLight::SunlightAt(const f32 height)
+	{
+		const f32 haze = GetSunAirHaze();
+		const Vec3 here = PhysicalSunTransmittance(height < 0.f ? 0.f : height, haze), noon = PhysicalSunTransmittance(1.f, haze);
+		// (and gone as it sinks under the horizon: its disc's last light, then none)
+		f32 lit = (height + 0.06f) / 0.16f; lit = lit < 0.f ? 0.f : (lit > 1.f ? 1.f : lit);
+		return Vec3(here.x / noon.x, here.y / noon.y, here.z / noon.z) * lit;
 	}
 	Vec4 DirectionalLight::GetLightRadianceNow(Vec3* toLightOut)
 	{

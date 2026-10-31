@@ -10,7 +10,6 @@
 
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 #include "imgui.h"
 
@@ -110,9 +109,8 @@ void DrawViewport(Character2DDocument& doc, float availH)
 	if (!pv->framed || (sizeChanged && !pv->userAdjustedView))
 		pv->FrameCamera(doc);
 
-	Texture* tex = pv->RenderFrame();
-	void* tid = tex ? GetActiveRenderDevice().GetImGuiTextureID(tex->GetBindID(), tex->GetTextureType())
-	                : NULL;
+	pv->RenderFrame();
+	void* tid = pv->viewImage;     // (Character2DPreview::RenderFrame's texture)
 	const ImVec2 imgMin = ImGui::GetCursorScreenPos();
 	pv->imageX = imgMin.x;
 	pv->imageY = imgMin.y;
@@ -121,11 +119,7 @@ void DrawViewport(Character2DDocument& doc, float availH)
 	// sampled V-flipped to appear the right way up. Not merely cosmetic here:
 	// every mouse mapping below - joint picking and joint dragging alike -
 	// measures against this image, so a flipped one poses the wrong bone.
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 	const ImVec2 uv0(0, 0), uv1(1, 1);
-#else
-	const ImVec2 uv0(0, 1), uv1(1, 0);
-#endif
 	if (tid)
 		ImGui::Image((ImTextureID)tid, ImVec2((float)w, (float)h), uv0, uv1);
 	else

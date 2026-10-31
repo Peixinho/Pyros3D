@@ -7,8 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Materials/IMaterial.h>
-#include <Pyros3D/Rendering/RenderState.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
+#include <Pyros3D/Materials/BlendState.h>
 
 namespace p3d {
 
@@ -43,9 +42,6 @@ namespace p3d {
 		dfactor = BlendFunc::One_Minus_Src_Alpha;
 		mode = BlendEq::Add;
 
-		// Add Opacity Uniform
-		opacityHandle = AddUniform(Uniform("uOpacity", Uniforms::DataType::Float, &this->opacity));
-
 		// Set Internal ID
 		materialID = _InternalID;
 
@@ -56,18 +52,12 @@ namespace p3d {
 	void IMaterial::SetOpacity(const f32 &opacity)
 	{
 		this->opacity = opacity;
-		opacityHandle->SetValue(&this->opacity);
 	}
 	void IMaterial::SetCullFace(const uint32 &face)
 	{
 		this->cullFace = face;
 	}
-	IMaterial::~IMaterial()
-	{
-		for (int i = 0; i < 2; i++)
-			if (extraUniforms[i].bufferHandle != 0)
-				GetActiveRenderDevice().DestroyUniformBuffer(extraUniforms[i].bufferHandle);
-	}
+	IMaterial::~IMaterial() {}
 
 	void IMaterial::SetTransparencyFlag(bool transparency)
 	{
@@ -110,102 +100,6 @@ namespace p3d {
 		depthBias = false;
 	}
 
-	Uniform* IMaterial::AddUniform(const Uniform Data)
-	{
-		// Global Uniforms
-		if ((int)Data.Usage<Uniforms::DataUsage::Other)
-		{
-			for (std::list<Uniform>::iterator i = GlobalUniforms.begin(); i != GlobalUniforms.end(); i++)
-			{
-				if ((*i).NameID == Data.NameID)
-				{
-					GlobalUniforms.erase(i);
-					break;
-				}
-			}
-			GlobalUniforms.push_back(Data);
-			return &(GlobalUniforms.back());
-		}
-		// Game Object Uniforms
-		else if ((int)Data.Usage>Uniforms::DataUsage::Other)
-		{
-			for (std::list<Uniform>::iterator i = ModelUniforms.begin(); i != ModelUniforms.end(); i++)
-			{
-				if ((*i).NameID == Data.NameID)
-				{
-					ModelUniforms.erase(i);
-					break;
-				}
-			}
-			ModelUniforms.push_back(Data);
-			return &(ModelUniforms.back());
-		}
-		else // User Specific
-		{
-			for (std::list<Uniform>::iterator i = UserUniforms.begin(); i != UserUniforms.end(); i++)
-			{
-				if ((*i).NameID == Data.NameID)
-				{
-					UserUniforms.erase(i);
-					break;
-				}
-			}
-			UserUniforms.push_back(Data);
-			return &(UserUniforms.back());
-		}
-	}
-
-	void IMaterial::SetExtraUniformBlock(int index, uint32 binding, const std::string &blockName,
-		uint32 size, const std::map<std::string, uint32> &offsets)
-	{
-		if (index < 0 || index > 1) return;
-		ExtraUniformsBlock &b = extraUniforms[index];
-		b.binding = binding;
-		b.blockName = blockName;
-		b.size = size;
-		b.scratch.assign(size, 0);
-		b.offsets = offsets;
-	}
-	
-	void IMaterial::RemoveUniform(Uniform* handle)
-	{
-		// Global Uniforms
-		if ((int)handle->Usage<Uniforms::DataUsage::Other)
-		{
-			for (std::list<Uniform>::iterator i = GlobalUniforms.begin(); i != GlobalUniforms.end(); i++)
-			{
-				if (&(*i) == handle)
-				{
-					GlobalUniforms.erase(i);
-					break;
-				}
-			}
-		}
-		// Game Object Uniforms
-		else if ((int)handle->Usage>Uniforms::DataUsage::Other)
-		{
-			for (std::list<Uniform>::iterator i = ModelUniforms.begin(); i != ModelUniforms.end(); i++)
-			{
-				if (&(*i) == handle)
-				{
-					ModelUniforms.erase(i);
-					break;
-				}
-			}
-		}
-		else // User Specific
-		{
-			for (std::list<Uniform>::iterator i = UserUniforms.begin(); i != UserUniforms.end(); i++)
-			{
-				if (&(*i) == handle)
-				{
-					UserUniforms.erase(i);
-					break;
-				}
-			}
-		}
-	}
-
 	void IMaterial::StartRenderWireFrame()
 	{
 		isWireFrame = true;
@@ -217,18 +111,6 @@ namespace p3d {
 	bool IMaterial::IsWireFrame() const
 	{
 		return isWireFrame;
-	}
-
-	IMaterial::DrawOverride &IMaterial::Override()
-	{
-		static thread_local DrawOverride mine;
-		return mine;
-	}
-
-	const uint32 &IMaterial::GetShader() const
-	{
-		const DrawOverride &o = Override();
-		return o.material == this ? o.program : shaderProgram;
 	}
 
 	uint32 IMaterial::GetInternalID()

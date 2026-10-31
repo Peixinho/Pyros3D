@@ -3,8 +3,8 @@
 // Author      : Duarte Peixinho
 // Description : PyrosServer - a built game run as a headless dedicated
 //               server: no window, no GPU. It loads the game's scenes exactly
-//               as the player does (through NullRenderDevice, which accepts
-//               every mesh, texture and shader and draws nothing), runs
+//               as the player does (meshes and textures are only CPU data
+//               until a renderer uploads them, and none is made here), runs
 //               physics, scripts and the network session, and keeps the
 //               streamed world loaded around every connected player.
 //
@@ -59,7 +59,6 @@
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
-#include <Pyros3D/Rendering/Device/NullRenderDevice.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Streaming/WorldStreamer.h>
@@ -253,10 +252,6 @@ int main(int argc, char** argv)
 	std::string adminPassword = Arg(argc, argv, "--admin-password", "");
 	if (adminPassword.empty()) { const char* env = std::getenv("PYROS_ADMIN_PASSWORD"); if (env) adminPassword = env; }
 	if (adminPassword.empty()) adminPassword = sv.value("adminPassword", std::string());
-
-	// Every GPU call the loaders make lands here and does nothing.
-	std::shared_ptr<IRenderDevice> device = std::make_shared<NullRenderDevice>();
-	SetActiveRenderDevice(device);
 
 	SceneGraph* scene = new SceneGraph();
 	Box3DPhysics* physics = new Box3DPhysics();
@@ -599,7 +594,6 @@ int main(int argc, char** argv)
 	SceneSerializer::UnloadScene(scene, assets);
 	delete physics;
 	delete scene;
-	SetActiveRenderDevice(NULL);
 	if (g_restart)
 	{
 		echo("PyrosServer: restarting");

@@ -654,6 +654,9 @@ namespace p3d {
 	void SimplifiedModel::PrepareAutomatic(const std::shared_ptr<Model> &model)
 	{
 		if (!model || model->GetPath().empty() || dynamic_cast<SimplifiedModel*>(model.get()) != NULL) return;
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+		return;     // (no thread to make them on: RenderingComponent's automatic levels are off in such a build)
+#endif
 		uint32 triangles = 0;
 		for (size_t i = 0; i < model->Geometries.size(); i++) triangles += (uint32)(model->Geometries[i]->GetIndexData().size() / 3);
 		if (triangles < AutoLightest) return;

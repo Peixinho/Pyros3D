@@ -144,14 +144,14 @@ function E.spawn(kind, time)
 			e.onGround = false
 			e.nextAttack = time + 0.5
 			e.hitFlash = 0
-			e.light:setLightIntensity(e.cfg.lightIntensity)
+			e.light:setLightIntensity(LinearFalloffIntensity(e.cfg.lightIntensity, 1.5, e.cfg.lightRadius))
 			e.mat:setColor(vec4(C.color[e.kind]))
 			e.go:setPosition(Vec3.new(e.x, e.y + e.bodyOffset, e.z))
 			e.go:refreshTransformation()
 
 			-- The mouth it came out of flares briefly - the player's only
 			-- warning, and the reason to keep watching the tunnels.
-			sp.light:setLightIntensity(1.6)
+			sp.light:setLightIntensity(LinearFalloffIntensity(1.6, 1.8, 7.0))
 			sp.flareUntil = time + C.enemy.spawnFlashTime
 			Audio.play("spawn", e.x, e.y, e.z)
 			return e
@@ -385,7 +385,7 @@ function E.update(dt, time, P)
 				sp.light:setLightIntensity(0)
 				sp.flareUntil = nil
 			else
-				sp.light:setLightIntensity(1.6 * (sp.flareUntil - time) / C.enemy.spawnFlashTime)
+				sp.light:setLightIntensity(LinearFalloffIntensity(1.6, 1.8, 7.0) * (sp.flareUntil - time) / C.enemy.spawnFlashTime)
 			end
 		end
 	end

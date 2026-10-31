@@ -272,13 +272,8 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.function("resizeLevel", &Texture_Resize3)
 		.function("updateMipmap", &Texture::UpdateMipmap)
 		.function("setTextureByteAlignment", &Texture::SetTextureByteAlignment)
-		.function("getBindID", &Texture::GetBindID)
 		.function("getWidth", &Texture::GetWidth)
-		.function("getHeight", &Texture::GetHeight)
-		.function("bind", &Texture::Bind)
-		.function("unbind", &Texture::Unbind)
-		.function("deleteTexture", &Texture::DeleteTexture)
-		.class_function("getLastBindedUnit", &Texture::GetLastBindedUnit);
+		.function("getHeight", &Texture::GetHeight);
 
 	class_<Cube, base<Renderable>>("Cube")
 		.smart_ptr<std::shared_ptr<Cube>>("CubePtr")
@@ -445,9 +440,6 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.property("looping", &ParticleSystemDesc::looping)
 		.property("emissionRate", &ParticleSystemDesc::emissionRate)
 		.property("burstCount", &ParticleSystemDesc::burstCount)
-		// Always false in practice on this binding's target: WebGL2 has no
-		// compute stage. Exposed anyway so one script runs everywhere.
-		.property("gpuSimulation", &ParticleSystemDesc::gpuSimulation)
 		.property("minLifetime", &ParticleSystemDesc::minLifetime)
 		.property("maxLifetime", &ParticleSystemDesc::maxLifetime)
 		.property("direction", &ParticleSystemDesc::direction)
@@ -488,6 +480,8 @@ EMSCRIPTEN_BINDINGS(pyros3d_assets)
 		.function("setColors", &ParticleSystem::SetColors)
 		.function("setFade", &ParticleSystem::SetFade)
 		.function("setSoftness", &ParticleSystem::SetSoftness)
+		.function("setGPUSimulation", &ParticleSystem::SetGPUSimulation)
+		.function("isSimulatedOnGPU", &ParticleSystem::SimulatedOnGPU)
 		.function("setRotationSpeed", &ParticleSystem::SetRotationSpeed)
 		.function("setBlendMode", &ParticleSystem::SetBlendMode);
 }

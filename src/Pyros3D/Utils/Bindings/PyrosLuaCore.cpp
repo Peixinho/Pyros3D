@@ -6,9 +6,9 @@
 #ifdef LUA_BINDINGS
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+#include <Pyros3D/Rendering/ShaderGlobals.h>
 #include <functional>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
-#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
@@ -49,7 +49,6 @@ namespace p3d {
 			s.raysPerProbe = t.get_or("rays", s.raysPerProbe);
 			s.passes = t.get_or("passes", s.passes);
 			s.padding = t.get_or("padding", s.padding);
-			s.shaderRoot = t.get_or("shaderRoot", s.shaderRoot);
 			sol::optional<sol::table> sky = t["sky"];
 			if (sky)
 			{
@@ -99,34 +98,40 @@ namespace p3d {
 
 	void RegisterLuaCore(sol::state* lua)
 	{
-		// Process-wide ambient multiplier (see IRenderer::SetAmbientScale).
-		lua->set_function("setAmbientScale", [](const f32 scale) { IRenderer::SetAmbientScale(scale); });
-		// setPostEffectParam("Atmosphere", "uFogColor", r, g, b, a): a parameter of a
-		// post effect that is an asset, by the effect's name. Up to four numbers.
-		lua->set_function("setPostEffectParam", [](const std::string &effect, const std::string &param, sol::variadic_args va) {
-			f32 v[4] = { 0.f, 0.f, 0.f, 0.f };
-			uint32 n = 0;
-			for (auto a : va) { if (n >= 4) break; v[n++] = a.get<f32>(); }
-			return PostEffectsManager::SetEffectParam(effect, param, v, n);
-		});
-		// setPostEffectEnabled("SSAO", false): a post effect that is an asset switched off (or on), by name
-		// setGpuExactTimings(true): the profiler's GPU times exact, each pass run alone (slow: for measuring; Metal)
+		// Process-wide ambient multiplier (RenderGlobals::AmbientScale): a day-night cycle's
+		lua->set_function("setAmbientScale", [](const f32 scale) { RenderGlobals::AmbientScale() = scale; });
+		lua->set_function("getAmbientScale", []() { return RenderGlobals::AmbientScale(); });
+		// setGpuExactTimings(true): the profiler's GPU times exact, each pass run alone (slow: for measuring)
 		lua->set_function("setGpuExactTimings", [](const bool on) { FrameProfiler::Instance().SetGpuExact(on); });
-		lua->set_function("setPostEffectEnabled", [](const std::string &effect, const bool on) { return PostEffectsManager::SetEffectEnabled(effect, on); });
 		// setShaderGlobal(index, x, y, z, w): one of the sixteen vec4 every shader may read as
-		// uGlobals[index] (index 0..15; see IRenderer::SetShaderGlobal).
+		// uGlobals[index] (index 0..15; ShaderGlobals).
 		lua->set_function("setShaderGlobal", [](const uint32 index, sol::variadic_args va) {
 			f32 v[4] = { 0.f, 0.f, 0.f, 0.f };
 			uint32 n = 0;
 			for (auto a : va) { if (n >= 4) break; v[n++] = a.get<f32>(); }
-			IRenderer::SetShaderGlobal(index, Vec4(v[0], v[1], v[2], v[3]));
+			ShaderGlobals::Set(index, Vec4(v[0], v[1], v[2], v[3]));
 		});
-		lua->set_function("getAmbientScale", []() { return IRenderer::GetAmbientScale(); });
-		// A background colour set while the game runs, which every view clears to (see
-		// IRenderer::SetBackgroundOverride). clearBackgroundColor() gives each scene its own
-		// background back - call it when the script that set it is destroyed.
-		lua->set_function("setBackgroundColor", [](const f32 r, const f32 g, const f32 b) { IRenderer::SetBackgroundOverride(Vec4(r, g, b, 1.f)); });
-		lua->set_function("clearBackgroundColor", []() { IRenderer::ClearBackgroundOverride(); });
+		// The old renderer's post effects (an effect asset's parameters, switched on and off) and its sea-level mirror:
+		// the renderer has none of them - kept so the games that set them still run (false: nothing was set)
+		// The old effect chain's parameters a game still sets, where the renderer has them: the Sky's weather - its
+		// clouds' cover (0..1), its haze (per metre: 0.0012 the clear air's) and its rain (0..1: the world wet and
+		// puddled in proportion). The rest - there is no effect chain - say false.
+		lua->set_function("setPostEffectParam", [](const std::string &effect, const std::string &param, sol::variadic_args va) {
+			if (effect != "Sky" || va.size() < 1 || !va[0].is<f32>()) return false;
+			const f32 v = va[0].get<f32>();
+			if (param == "uCloudCover") { RenderGlobals::CloudCover() = std::min(std::max(v, 0.f), 1.f); return true; }
+			if (param == "uHaze") { RenderGlobals::Haze() = std::max(v, 0.f) / 0.0012f; return true; }
+			if (param == "uRain") { RenderGlobals::Rain() = std::min(std::max(v, 0.f), 1.f); return true; }
+			return false;
+		});
+		lua->set_function("setPostEffectEnabled", [](const std::string &, const bool) { return false; });
+		lua->set_function("setSkyMirrorLevel", [](const f32) {});
+		lua->set_function("clearSkyMirrorLevel", []() {});
+		// A background colour set while the game runs, which every view clears to (RenderGlobals::BackgroundOverride).
+		// clearBackgroundColor() gives each scene its own background back - call it when the script that set it is
+		// destroyed.
+		lua->set_function("setBackgroundColor", [](const f32 r, const f32 g, const f32 b) { RenderGlobals::BackgroundOverride() = Vec4(r, g, b, 1.f); });
+		lua->set_function("clearBackgroundColor", []() { RenderGlobals::BackgroundOverride() = Vec4(0.f, 0.f, 0.f, 0.f); });
 		{
 			// SceneGraph
 			lua->new_usertype<SceneGraph>("Scene",
@@ -329,66 +334,7 @@ namespace p3d {
 				);
 		};
 
-		{
-			// ForwardRenderer
-			sol::constructors<sol::types<float, float>> con;
-			lua->new_usertype<ForwardRenderer>("ForwardRenderer",
-				con,
-				"clearBufferBit", &ForwardRenderer_ClearBufferBit,
-				"enableClearDepthBuffer", &ForwardRenderer::EnableClearDepthBuffer,
-				"disableClearDepthBuffer", &ForwardRenderer::DisableClearDepthBuffer,
-				"clearDepthBuffer", &ForwardRenderer::ClearDepthBuffer,
-				// EnableClipPlane takes const uint32& with a C++ default -
-				// sol drops/mangles that and Lua's enableClipPlane(1) then
-				// throws "expected number, received no value". Bind by-value
-				// wrappers (with a no-arg default) instead.
-				"enableClipPlane", sol::overload(&ForwardRenderer_EnableClipPlane, &ForwardRenderer_EnableClipPlaneDefault),
-				"disableClipPlane", &ForwardRenderer::DisableClipPlane,
-				"setClipPlane0", &ForwardRenderer::SetClipPlane0,
-				"setClipaPlane0", &ForwardRenderer::SetClipPlane0,
-				"setClipaPlane1", &ForwardRenderer::SetClipPlane1,
-				"setClipaPlane2", &ForwardRenderer::SetClipPlane2,
-				"setClipaPlane3", &ForwardRenderer::SetClipPlane3,
-				"setClipaPlane4", &ForwardRenderer::SetClipPlane4,
-				"setClipaPlane5", &ForwardRenderer::SetClipPlane5,
-				"setClipaPlane6", &ForwardRenderer::SetClipPlane6,
-				"setClipaPlane7", &ForwardRenderer::SetClipPlane7,
-				"enableStencil", &ForwardRenderer::EnableStencil,
-				"disableStencil", &ForwardRenderer::DisableStencil,
-				"clearStencilBuffer", &ForwardRenderer::ClearStencilBuffer,
-				"stencilFunction", &ForwardRenderer::StencilFunction,
-				"stencilOperation", &ForwardRenderer::StencilOperation,
-				"enableScissorTest", &ForwardRenderer::EnableScissorTest,
-				"disableScissorTest", &ForwardRenderer::DisableScissorTest,
-				"scissorTestRect", &ForwardRenderer::ScissorTestRect,
-				"enableWireFrame", &ForwardRenderer::EnableWireFrame,
-				"disableWireFrame", &ForwardRenderer::DisableWireFrame,
-				"colorMask", &ForwardRenderer::ColorMask,
-				"enableSorting", &ForwardRenderer::EnableSorting,
-				"disableSorting", &ForwardRenderer::DisableSorting,
-				"enableLOD", &ForwardRenderer::EnableLOD,
-				"disableLOD", &ForwardRenderer::DisableLOD,
-				"isUsingLOD", &ForwardRenderer::IsUsingLOD,
-				"setBackground", &ForwardRenderer::SetBackground,
-				"unsetBackground", &ForwardRenderer::UnsetBackground,
-				"setGlobalLight", &ForwardRenderer::SetGlobalLight,
-				"bakeGI", &Renderer_BakeGI<ForwardRenderer>,
-				"updateGI", &Renderer_UpdateGI<ForwardRenderer>,
-				"isGIOnGPU", &ForwardRenderer::IsGlobalIlluminationOnGPU,
-				"clearGI", &ForwardRenderer::ClearGlobalIllumination,
-				"enableDepthBias", &ForwardRenderer::EnableDepthBias,
-				"disableDepthBias", &ForwardRenderer::DisableDepthBias,
-				"setViewPort", &ForwardRenderer::SetViewPort,
-				"resetViewPort", &ForwardRenderer::ResetViewPort,
-				"resize", &ForwardRenderer::Resize,
-				"activateCulling", &ForwardRenderer::ActivateCulling,
-				"deactivateCulling", &ForwardRenderer::DeactivateCulling,
-				"renderScene", &ForwardRenderer_RenderScene,
-				// A second view in the same frame - see IRenderer::SetUnshadowed().
-				"setUnshadowed", [](ForwardRenderer &r, const bool on) { r.SetUnshadowed(on); },
-				"preRender", sol::overload(&ForwardRenderer_PreRender, &ForwardRenderer_PreRenderTag)
-				);
-		}
+
 
 	}
 

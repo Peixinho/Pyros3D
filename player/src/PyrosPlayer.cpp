@@ -1,4 +1,4 @@
-#include <Pyros3D/Rendering/Device/RefreshPacer.h>
+#include <sys/stat.h>
 #include <Pyros3D/Core/InputManager/TouchControls.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
@@ -24,10 +24,7 @@
 #include <Pyros3D/Assets/AssetPreload.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "PyrosPlayer.h"
-#include <Pyros3D/Rendering/Frame/FramePipeline.h>
-#ifdef VULKAN_BACKEND
-#include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
-#endif
+#include <Pyros3D/Rendering/ColourSpace.h>
 #include <functional>
 #include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <Pyros3D/Utils/Streaming/AssetStreamer.h>
@@ -43,8 +40,6 @@
 #include <Pyros3D/Audio/AudioSource.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
-#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include "PrefabResolver.h"
 // UI style/palette files, resolved by the same header the editor uses
@@ -112,7 +107,6 @@ static void HoldBenchCamera(p3d::GameObject* camera, p3d::SceneGraph* scene)
 #endif
 
 using json = nlohmann::json;
-static bool g_ssaoTemporalWanted = true;
 namespace fs = std::filesystem;
 
 // ============================== manifest ===============================
@@ -155,12 +149,11 @@ namespace {
 			return m;
 		}
 
-		// The engine loads its shaders from "shaders/PyrosShader.glsl" -
-		// relative to the *working directory*, not to the executable - and
-		// scene files reference their assets project-relative. Making the
-		// game folder the working directory is what lets both resolve when
-		// the game is launched from anywhere (Finder, a shortcut, a
-		// launcher), which is every way a player will actually start it.
+		// Scene files reference their assets project-relative - relative to
+		// the *working directory*, not to the executable. Making the game
+		// folder the working directory is what lets them resolve when the
+		// game is launched from anywhere (Finder, a shortcut, a launcher),
+		// which is every way a player will actually start it.
 		std::error_code chdirEc;
 		m.root = fs::weakly_canonical(fs::path(m.root), chdirEc).string();
 		fs::current_path(m.root, chdirEc);
@@ -178,13 +171,9 @@ namespace {
 		m.startupScene = j.value("startupScene", std::string());
 		m.touchControls = j.value("touchControls", std::string());
 		m.serverPublicKey = j.value("serverPublicKey", std::string());
-		m.deferred = (j.value("renderer", std::string("forward")) == "deferred");
-		if (j.contains("antiAliasing") && !AntiAliasing::FromString(j.value("antiAliasing", std::string()), m.antiAliasing))
-			echo("WARNING: game.json has an unknown \"antiAliasing\" - running without anti-aliasing");
 		m.width = j.value("width", m.width);
 		m.height = j.value("height", m.height);
 		m.fullscreen = j.value("fullscreen", false);
-		m.renderScale = j.value("renderScale", 1.f);
 		m.language = j.value("language", std::string("auto"));
 		m.devConsole = j.value("devConsole", false) || getenv("PYROS_CONSOLE") != NULL;
 		m.fallbackLanguage = j.value("fallbackLanguage", std::string("en"));
@@ -192,28 +181,8 @@ namespace {
 		{
 			const json &q = j["quality"];
 			m.quality = q;
-			// "ssaoTemporal": false - every sample every frame, rather than half, turned each frame for
-			// TAA to add up: cheaper, but on fine detail (window frames) and under a moving camera it flickers
-			if (q.contains("ssaoTemporal")) m.qSsaoTemporal = q.value("ssaoTemporal", true) ? 1 : 0;
-			m.qRenderScale = q.value("renderScale", -1.f);
-			// "upscaleSharpness": 0..1, how sharp a frame rendered below the window's
-			// size is brought up to it; negative for a plain stretch
-			m.qUpscaleSharpness = q.value("upscaleSharpness", 0.85f);
-			// "upscaler": "fsr1" (AMD FSR 1) or "sharp" (the built-in filter: one pass, far cheaper)
-			m.qUpscaler = q.value("upscaler", std::string("fsr1"));
-			// "upscaleQuality": "native" | "quality" | "balanced" | "performance" | "auto".
-			// Left out: renderScale / autoRenderScaleFps below say it, as before.
-			m.qUpscaleQuality = q.value("upscaleQuality", std::string());
-			m.qAutoFps = q.value("autoRenderScaleFps", -1.f);
-			m.qAutoMin = q.value("autoRenderScaleMin", 0.42f);
+			// "frameRateLimit": no more frames a second than that (left out, -1 or 0: as the display refreshes)
 			m.qFrameLimit = q.value("frameRateLimit", -2.f);
-			// "hdrOutput": true - the window shown past SDR white where the display has the range (EDR on a
-			// Mac); the tonemap's highlights then reach the display's peak. SDR where it cannot.
-			m.qHdrOutput = q.value("hdrOutput", false);
-			// "hdrPaperWhite": nits SDR white is shown at, where the output is absolute (HDR10, scRGB on Windows -
-			// match the system's SDR-content brightness); "hdrPeak": the most the highlights may reach, in nits
-			m.qHdrPaperWhite = q.value("hdrPaperWhite", 0.f);
-			m.qHdrPeak = q.value("hdrPeak", 0.f);
 		}
 		if (j.contains("preload") && j["preload"].is_array())
 			for (const auto &e : j["preload"]) if (e.is_string()) m.preload.push_back(e.get<std::string>());
@@ -296,8 +265,6 @@ void PyrosPlayer::SetLaunchArgs(int argc, char** argv)
 		else if (a == "--server-key" && hasValue) launchServerKey = argv[++i];
 		else if (a == "--rendezvous" && hasValue) launchRendezvous = argv[++i];
 		else if (a == "--session" && hasValue) launchSession = argv[++i];
-		// (the render device driven from this thread, as it used to be: see Init)
-		else if (a == "--no-device-thread") launchNoDeviceThread = true;
 		else if (a == "--fill-shader-cache" && hasValue) fillShaderCacheDir = argv[++i];
 	}
 }
@@ -319,16 +286,10 @@ PyrosPlayer::PyrosPlayer()
 	sceneIs2D = false;
 	physics = NULL;
 	wheelDelta = 0.f;
-	renderer = NULL;
-	uiRenderer = NULL;
 	audio = NULL;
-	gbufferFBO = NULL;
-	gbufferDepth = gbufferAlbedo = gbufferSpecular = gbufferNormal = gbufferMatRough = NULL;
 	activeCamera = NULL;
 	resizePending = false;
 	pendingResizeWidth = pendingResizeHeight = 0;
-	effectsManager = NULL;
-	antiAliasingMode = PlayerManifestInstance().antiAliasing;
 	cameraFov = 70.f;
 	cameraNear = 0.1f;
 	cameraFar = 2000.f;
@@ -347,77 +308,11 @@ std::string PyrosPlayer::ResolvePath(const std::string& relative) const
 	return (fs::path(m.root) / relative).string();
 }
 
-// The deferred renderer renders into a G-buffer the caller owns - it does
-// not build one. Same five attachments, same formats, as the editor's
-// viewport (SceneEditor::BuildGBuffer): the two RGBA16F targets carry the
-// additive ambient+emissive term in their alpha, which an 8-bit UNORM would
-// clamp at 1.0 and silently flatten every emissive material.
-void PyrosPlayer::BuildGBuffer(uint32 width, uint32 height)
-{
-	gbufferDepth = new Texture();
-	gbufferDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, width, height, false);
-	gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	// Nearest, not CreateEmptyTexture's default Linear. This is the
-	// depth every secondpass*.glsl samples as tDepth, and a
-	// Linear-filtered depth texture is not filterable: WebGL2 calls the
-	// texture incomplete and every sample returns 0, Apple's GL calls it
-	// "unloadable" and substitutes the zero texture. tDepth then reads 0
-	// everywhere, `if (tDepth >= 1.0) discard` never rejects the sky, and
-	// the ambient pass plus every light shade the whole screen - the
-	// white/washed-out deferred viewport in the browser build. Same rule
-	// as PostEffectsManager::Init() and VelocityRenderer, which document
-	// it from the effect side.
-	gbufferDepth->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-
-	gbufferAlbedo = new Texture();
-	gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, width, height, false);
-	gbufferAlbedo->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-	gbufferSpecular = new Texture();
-	gbufferSpecular->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, width, height, false);
-	gbufferSpecular->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-	gbufferNormal = new Texture();
-	gbufferNormal->CreateEmptyTexture(TextureType::Texture, DeferredRenderer::NormalTargetFormat(), width, height, false);
-	gbufferNormal->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-	gbufferMatRough = new Texture();
-	gbufferMatRough->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, width, height, false);
-	gbufferMatRough->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-	gbufferFBO = new FrameBuffer();
-	gbufferFBO->SetDebugName("Player G-buffer");
-	gbufferFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, gbufferDepth);
-	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, gbufferAlbedo);
-	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, gbufferSpecular);
-	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment2, TextureType::Texture, gbufferNormal);
-	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment3, TextureType::Texture, gbufferMatRough);
-}
-
-void PyrosPlayer::DestroyGBuffer()
-{
-	delete gbufferFBO; gbufferFBO = NULL;
-	delete gbufferDepth; gbufferDepth = NULL;
-	delete gbufferAlbedo; gbufferAlbedo = NULL;
-	delete gbufferSpecular; gbufferSpecular = NULL;
-	delete gbufferNormal; gbufferNormal = NULL;
-	delete gbufferMatRough; gbufferMatRough = NULL;
-}
-
 PyrosPlayer* PyrosPlayer::activePlayer = NULL;
 
 void PyrosPlayer::Init()
 {
 	ClassName::Init();
-
-	// The render device on a thread of its own: this thread says what is to be drawn and
-	// goes on with the game, and that one makes the graphics API's calls and hands the
-	// frame over. (Vulkan; --no-device-thread, or PYROS_DEVICE_THREAD=0, to draw from this
-	// thread as before.)
-	{
-		// (the engine's: any application has it by asking - FramePipeline)
-		if (!launchNoDeviceThread && FramePipeline::StartDeviceThread()) echo("Render device: on a thread of its own");
-	}
 
 	// Wheel notches and typed characters both arrive as events rather than
 	// as state that can be polled, so they are collected as they come.
@@ -460,54 +355,25 @@ void PyrosPlayer::Init()
 		return (h.hasHit && h.distance < length - 2.5f) ? 1.f : 0.f;
 	});
 
-	// A 2D scene is always forward, whatever the manifest asked for.
-	//
-	// Not a preference - deferred cannot draw it. Sprites are alpha-blended
-	// quads and a deferred renderer cannot blend into a G-buffer at all
-	// (which is the entire reason ShaderUsage::AlphaTest exists), so a 2D
-	// scene rendered deferred loses its blending. And ShaderUsage::Lighting2D
-	// is a material flag compiled into the forward shader: the deferred
-	// lighting passes shade whatever is in the G-buffer with no idea which
-	// material wrote each pixel, so sprites would be lit with the N.L term
-	// that Lighting2D exists to remove and would come back dark. There is no
-	// spare G-buffer channel to mark them with either - FragData_pbr already
-	// carries roughness, metallic, SSR and reflectivity.
-	//
-	// Read before the renderer is built, which is before the scene is loaded,
-	// so this peeks at the startup scene's flag rather than waiting for it.
-	bool sceneWantsForward = false;
-	if (m.deferred && StartupSceneIsTwoD(m))
+	// The renderer, on the window's device: Metal, Vulkan or WebGPU (none on this machine: said, and out, not a crash)
+	if (!GetDevice())
 	{
-		sceneWantsForward = true;
-		echo("Startup scene is 2D - using the forward renderer (deferred cannot blend sprites)");
+		echo("ERROR: PyrosPlayer - nothing to draw with: no graphics device could be made on this machine");
+		std::exit(1);
 	}
-
-	renderScale = m.renderScale < 0.25f ? 0.25f : (m.renderScale > 1.f ? 1.f : m.renderScale);
-	if (m.deferred && !sceneWantsForward)
+	renderer.reset(new p3d::SceneRenderer(GetDevice()));
+	// (the game's surface cache, where its folder has one: a native run writes the materials' surfaces there, SPIR-V
+	// and WGSL, and the browser build - which compiles none - reads them)
 	{
-		BuildGBuffer(RenderWidth(), RenderHeight());
-		renderer = new DeferredRenderer(RenderWidth(), RenderHeight(), gbufferFBO);
+		struct stat st;
+		if (stat("surfaces", &st) == 0 && (st.st_mode & S_IFDIR)) renderer->SetSurfaceCache("surfaces");
 	}
-	else
-		renderer = new ForwardRenderer(RenderWidth(), RenderHeight());
-	// (the view the scene's ambient light is told to: other views of this world stand in it too)
-	IRenderer::SetAmbientSource(renderer);
-
-	// Independent of that choice: it composites over whatever the frame
-	// already drew.
-	uiRenderer = new UIRenderer(Width, Height);
-
-	renderer->SetViewPort(0, 0, RenderWidth(), RenderHeight());
-	// Asserted explicitly, never left to the default. The clear colour is
-	// device-global state that outlives any one renderer (see
-	// IRenderer::DrawBackground), so "whatever it happened to be" is not a
-	// value - it is whichever renderer wrote it last. The editor sets its own
-	// 0.2 grey for exactly this reason; a game gets black unless game.json
-	// says otherwise.
-	renderer->SetBackground(m.background);
+	renderer->SetBackground(SrgbToLinear(Vec3(m.background.x, m.background.y, m.background.z)));
+	echo("Renderer on " + GetDevice()->Caps().name);
 
 #ifdef LUA_BINDINGS
 	GenerateBindings(&lua);
+	p3d::SetScriptRenderer(lua, renderer.get());
 	// `network`: the session belongs to the loaded scene and is made the
 	// first time a script hosts or joins.
 	RegisterLuaNetwork(&lua, [this]() -> NetworkSession* {
@@ -572,38 +438,12 @@ end
 		SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
 	});
 	lua.set_function("getWindowSize", [this]() { return std::make_tuple((int)Width, (int)Height); });
-	// The fraction of the window's size the scene is rendered at, 0.25 to 1
-	// (the UI is always at the window's own). A game's graphics setting, and
-	// what keeps a deferred frame affordable on a high-resolution screen.
-	lua.set_function("setRenderScale", [this](const f32 scale) { SetRenderScale(scale); });
-	lua.set_function("getRenderScale", [this]() { return GetRenderScale(); });
-	// setSunLaysAmbient(false): the ambient light in a lighting pass of its own again (to compare)
-	// setNearestFirst(false): the G-buffer in the scene's own order again (to compare)
 	// setTerrainOcclusion(false): what is behind a hill is drawn again (to compare)
 	lua.set_function("setTerrainOcclusion", [](const bool on) { TerrainOcclusion::SetEnabled(on); });
-	// setLateFrameStart(true): each frame begun - its input read - as late as the GPU side allows
-	// (ThreadedRenderDevice::SetLateFrameStart): less time from a look to its being seen, where the GPU is the slower side.
-	lua.set_function("setLateFrameStart", [](const bool on) { ThreadedRenderDevice::SetLateFrameStart(on); });
-	// setLowLatency(true): the least time from a look or a step to its being seen, where the GPU is
-	// the slower side - a frame is begun as late as the GPU allows, and the GPU holds no frame
-	// waiting behind the one it is drawing. What a game's "low latency" setting turns on.
-	lua.set_function("setLowLatency", [](const bool on) {
-		ThreadedRenderDevice::SetLateFrameStart(on);
-#ifdef VULKAN_BACKEND
-		VulkanRenderDevice::SetLowLatency(on);
-#endif
-	});
 	lua.set_function("getTerrainOcclusion", []() { return TerrainOcclusion::GetEnabled(); });
 	// setAutoLOD(false): models are drawn whole however far off (those loaded already included)
 	lua.set_function("setAutoLOD", [](const bool on) { RenderingComponent::SetAutoLODInUse(on); });
-	lua.set_function("setSSAOTemporal", [](const bool on) { g_ssaoTemporalWanted = on; });
-	lua.set_function("setListPatching", [](const bool on) { IRenderer::SetListPatching(on); });
-	lua.set_function("setParallelShadows", [](const bool on) { IRenderer::SetParallelShadows(on); });
 	lua.set_function("setParallelAnimation", [](const bool on) { RenderingComponent::SetParallelAnimation(on); });
-	lua.set_function("setParallelCulling", [](const bool on) { IRenderer::SetParallelCulling(on); });
-	lua.set_function("setShadowUpdateInterval", [](const uint32 frames) { IRenderer::SetShadowUpdateInterval(frames); });
-	lua.set_function("setCullGrid", [](const bool on) { IRenderer::SetCullGrid(on); });
-	lua.set_function("setNearestFirst", [](const bool on) { DeferredRenderer::SetNearestFirst(on); });
 	// setFoliageThinning(false): every plant of a field drawn, however far (see FoliageLayerSpec::thinDensity)
 	lua.set_function("setFoliageThinning", [](const bool on) { FoliageComponent::SetThinning(on); });
 	// Quality for the machine the game is on - scenes are authored at their best:
@@ -612,81 +452,17 @@ end
 	lua.set_function("setLODScale", [](const f32 k) { RenderingComponent::SetLODDistanceScale(k); });
 	lua.set_function("setFoliageQuality", [](const f32 reach, const f32 amount) { FoliageComponent::SetQuality(reach, amount); });
 	lua.set_function("getFoliageThinning", []() { return FoliageComponent::GetThinning(); });
-	lua.set_function("setSunLaysAmbient", [](const bool on) { DeferredRenderer::SetSunLaysAmbient(on); });
-	// setUpscaleSharpness(0.6): how sharp a frame rendered below the window's size is
-	// brought up to it (0..1); negative for a plain stretch
-	// The upscaler and how far below the window the scene is rendered (see
-	// Upscaling.h) - what a game's options menu is made of:
-	//   getSupportedUpscalers()      names this machine can run, e.g. { "off", "sharp", "fsr1" }
-	//   getUpscalerLabel(name)       what to show for one ("AMD FSR 1")
-	//   setUpscaler(name)            asks for one; returns the name of what runs
-	//   getUpscaler()                what runs;  getRequestedUpscaler()  what was asked for
-	//   getUpscaleQualities(), getUpscaleQualityLabel(name), setUpscaleQuality(name), getUpscaleQuality()
-	lua.set_function("getSupportedUpscalers", [this]() {
-		std::vector<std::string> names;
-		const std::vector<UpscalerMode> modes = Upscaling::Supported();
-		for (size_t i = 0; i < modes.size(); i++) names.push_back(Upscaling::ToString(modes[i]));
-		return sol::as_table(names);
-	});
-	lua.set_function("getUpscalerLabel", [](const std::string &name) {
-		UpscalerMode mode = UpscalerMode::Sharp;
-		return std::string(Upscaling::FromString(name, mode) ? Upscaling::DisplayName(mode) : name.c_str());
-	});
-	lua.set_function("setUpscaler", [this](const std::string &name) {
-		UpscalerMode mode = upscaler;
-		if (!Upscaling::FromString(name, mode)) echo("setUpscaler: no upscaler is called \"" + name + "\"");
-		upscaler = mode;
-		ApplyUpscaler();
-		return Upscaling::ToString(Upscaling::Resolve(upscaler));
-	});
-	lua.set_function("getUpscaler", [this]() { return Upscaling::ToString(effectsManager ? effectsManager->GetEffectiveUpscaler() : Upscaling::Resolve(upscaler)); });
-	lua.set_function("getRequestedUpscaler", [this]() { return Upscaling::ToString(upscaler); });
-	lua.set_function("getUpscaleQualities", []() {
-		std::vector<std::string> names;
-		const std::vector<UpscaleQuality> &all = Upscaling::AllQualities();
-		for (size_t i = 0; i < all.size(); i++) names.push_back(Upscaling::ToString(all[i]));
-		return sol::as_table(names);
-	});
-	lua.set_function("getUpscaleQualityLabel", [](const std::string &name) {
-		UpscaleQuality q = UpscaleQuality::Auto;
-		return std::string(Upscaling::FromString(name, q) ? Upscaling::DisplayName(q) : name.c_str());
-	});
-	lua.set_function("setUpscaleQuality", [this](const std::string &name) {
-		UpscaleQuality q = upscaleQuality;
-		if (!Upscaling::FromString(name, q)) echo("setUpscaleQuality: no quality is called \"" + name + "\"");
-		upscaleQuality = q;
-		ApplyUpscaleQuality();
-	});
-	lua.set_function("getUpscaleQuality", [this]() { return Upscaling::ToString(upscaleQuality); });
-	// setUpscaleSharpness(0.85): how sharp (0..1)
-	lua.set_function("setUpscaleSharpness", [this](const f32 s) { if (s < 0.f) upscaler = UpscalerMode::Off; else upscaleSharpness = s; ApplyUpscaler(); });
-	// setFrameRateLimit(fps): no more frames a second than that (0: as many
-	// as there are - a benchmark's). -1: as the display refreshes, each frame
-	// begun on a refresh (RefreshPacer), which is how a game starts. An asked-for
-	// rate is the limit's own: the frames are then no longer begun on the refresh.
-	// getDisplayRefreshRate(): what the screen the window is on can show, or 0
-	// when it will not say.
-	lua.set_function("setFrameRateLimit", [this](const f32 fps) {
-		frameRateLimit = fps < 0.f ? 0.f : fps;
-		RefreshPacer::SetEnabled(fps < 0.f);
-	});
+	// setFrameRateLimit(fps): no more frames a second than that (0 or -1: as many as the display shows - the device
+	// presents on its refresh). getDisplayRefreshRate(): what the screen the window is on can show, or 0 when it will
+	// not say.
+	lua.set_function("setFrameRateLimit", [this](const f32 fps) { frameRateLimit = fps < 0.f ? 0.f : fps; });
 	lua.set_function("getDisplayRefreshRate", [this]() {
 		SDL_DisplayMode mode;
 		const int display = GetSDLWindow() ? SDL_GetWindowDisplayIndex(GetSDLWindow()) : 0;
 		if (SDL_GetCurrentDisplayMode(display < 0 ? 0 : display, &mode) != 0) return 0;
 		return mode.refresh_rate;
 	});
-	// setAutoRenderScale(fps, lowest, highest): the scale is moved by itself to
-	// hold that frame rate where it is the GPU that cannot (0 fps turns it off
-	// and leaves the scale where it is).
-	lua.set_function("setAutoRenderScale", [this](const f32 fps, sol::optional<f32> lo, sol::optional<f32> hi) {
-		SetAutoRenderScale(fps, lo ? *lo : 0.4f, hi ? *hi : 1.f);
-	});
-	// setFrameSplit(true): a frame's scene is recorded by another thread while this
-	// one runs the next frame's game logic. getFrameSplit(): whether it is asked for.
-	lua.set_function("setFrameSplit", [](const bool on) { FramePipeline::SetSplit(on); });
-	lua.set_function("getFrameSplit", []() { return FramePipeline::GetSplit(); });
-	lua.set_function("getRenderSize", [this]() { return std::make_tuple((int)RenderWidth(), (int)RenderHeight()); });
+	lua.set_function("getRenderSize", [this]() { return std::make_tuple((int)Width, (int)Height); });
 	lua.set_function("quitGame", [this]() { Close(); });
 	// The whole screen, or a window: the desktop's own resolution, so nothing about the
 	// display changes and Alt+Tab is instant. Alt+Enter and F11 do the same from the
@@ -814,43 +590,8 @@ end
 	// runs: a script may still change them.
 	// (what is the engine's: the same function the editor's Play applies the project's with)
 	quality::ApplyToEngine(m.quality);
-	if (m.qSsaoTemporal >= 0) g_ssaoTemporalWanted = m.qSsaoTemporal == 1;
-	// (the window's, not the engine's - so here, not in ApplyToEngine; PYROS_HDR=1 forces it, to try)
-	GetActiveRenderDevice().SetHDRLevels(m.qHdrPaperWhite, m.qHdrPeak);
-	if (m.qHdrOutput || (std::getenv("PYROS_HDR") && std::getenv("PYROS_HDR")[0] == '1'))
-		if (!GetActiveRenderDevice().SetHDROutput(true)) echo("HDR output: not on this backend - the window stays SDR");
-	upscaleSharpness = m.qUpscaleSharpness < 0.f ? 0.85f : m.qUpscaleSharpness;
-	if (!Upscaling::FromString(m.qUpscaler, upscaler)) upscaler = UpscalerMode::FSR1;
-	if (m.qUpscaleSharpness < 0.f) upscaler = UpscalerMode::Off;        // (how "a plain stretch" used to be said)
-	{
-		const std::string why = Upscaling::FallbackReason(upscaler);
-		if (!why.empty()) echo(why);
-	}
-	autoFpsWanted = m.qAutoFps > 0.f ? m.qAutoFps : 60.f;
-	autoMinWanted = m.qAutoMin;
-	if (!m.qUpscaleQuality.empty() && Upscaling::FromString(m.qUpscaleQuality, upscaleQuality))
-		ApplyUpscaleQuality();
-	else
-	{
-		// as a project said it before there were names for it
-		if (m.qRenderScale > 0.f) SetRenderScale(m.qRenderScale);
-		if (m.qAutoFps >= 0.f) SetAutoRenderScale(m.qAutoFps, m.qAutoMin, 1.f);
-		upscaleQuality = m.qAutoFps > 0.f ? UpscaleQuality::Auto
-			: (m.qRenderScale > 0.f && m.qRenderScale < 0.999f ? UpscaleQuality::Quality : UpscaleQuality::Native);
-	}
-	// "frameRateLimit": left out or -1, the display's rate - each frame begun on a refresh
-	// (RefreshPacer); a number, that many frames a second at most, and 0 as many as there are -
-	// the frames then no longer begun on the refresh.
-	if (m.qFrameLimit >= 0.f)
-	{
-		frameRateLimit = m.qFrameLimit;
-		RefreshPacer::SetEnabled(false);
-	}
-	else
-	{
-		frameRateLimit = 0.f;
-		RefreshPacer::SetEnabled(true);
-	}
+	// "frameRateLimit": that many frames a second at most; left out, -1 or 0, as the display refreshes
+	frameRateLimit = m.qFrameLimit > 0.f ? m.qFrameLimit : 0.f;
 
 	// What the project asked to have ready before anything is played (its
 	// "preload" list): read here, kept for as long as the game runs.
@@ -898,105 +639,6 @@ std::string PyrosPlayer::ExpandSceneFile(const std::string& absPath)
 
 	if (links.empty()) return std::string();
 	return sceneJson.dump();
-}
-
-// Just the twoD flag, without loading anything. The renderer has to be chosen
-// before the scene is loaded, so the alternative would be building the wrong
-// one and swapping it a moment later.
-bool PyrosPlayer::StartupSceneIsTwoD(const PlayerManifest& m)
-{
-	if (m.startupScene.empty()) return false;
-	const std::string abs = (fs::path(m.root) / m.startupScene).string();
-	std::ifstream f(abs);
-	if (!f.good()) return false;
-	try
-	{
-		nlohmann::json j;
-		f >> j;
-		return j.value("twoD", false);
-	}
-	catch (...)
-	{
-		// A scene this cannot parse is one LoadGameScene is about to complain
-		// about properly; defaulting to the manifest's choice is right here.
-		return false;
-	}
-}
-
-bool PyrosPlayer::ReadPostEffectAsset(const std::string& path, std::string& sourceOut, void* user)
-{
-	PyrosPlayer* self = (PyrosPlayer*)user;
-	if (!self || path.empty()) return false;
-	std::ifstream in(self->ResolvePath(path).c_str(), std::ios::binary);
-	if (!in) return false;
-	std::ostringstream ss;
-	ss << in.rdbuf();
-	sourceOut = ss.str();
-	return true;
-}
-
-bool PyrosPlayer::HavePostEffects()
-{
-	if (antiAliasingMode != AntiAliasingMode::Off || renderScale < 0.999f)
-		EnsureEffectsManager();
-	if (effectsManager == NULL)
-		return false;
-	effectsManager->SetAntiAliasing(antiAliasingMode, gbufferFBO != NULL);
-	// (ambient occlusion takes half its samples a frame where the frames are added
-	// together afterwards: with temporal anti-aliasing - setSSAOTemporal(false) to compare)
-	DeferredRenderer::SetSSAOTemporal(g_ssaoTemporalWanted && effectsManager->GetEffectiveAntiAliasing() == AntiAliasingMode::TAA);
-	// (rendered smaller than the window, something has to carry the frame to
-	// it: the chain's last pass does, so there is always a chain to run)
-	return effectsManager->NeedsCapture() || renderScale < 0.999f;
-}
-
-PostEffectsManager* PyrosPlayer::EnsureEffectsManager()
-{
-	if (effectsManager == NULL)
-		effectsManager = new PostEffectsManager(RenderWidth(), RenderHeight());
-	// (the chain works at the size the scene is rendered at, and its last pass
-	// fills the window: see SetRenderScale)
-	effectsManager->SetOutputSize(Width, Height);
-	ApplyUpscaler();
-	return effectsManager;
-}
-
-void PyrosPlayer::ApplyUpscaler()
-{
-	if (effectsManager == NULL) return;
-	effectsManager->SetSharpUpscale(Upscaling::Resolve(upscaler) != UpscalerMode::Off, upscaleSharpness);
-	effectsManager->SetUpscaler(upscaler);
-}
-
-void PyrosPlayer::ApplyUpscaleQuality()
-{
-	if (upscaleQuality == UpscaleQuality::Auto)
-		SetAutoRenderScale(autoFpsWanted, autoMinWanted, 1.f);
-	else
-	{
-		SetAutoRenderScale(0.f, autoMinWanted, 1.f);
-		SetRenderScale(Upscaling::Scale(upscaleQuality));
-	}
-}
-
-// Called after every scene load, including a mid-game loadScene(): the chain
-// belongs to the scene, so switching scenes switches chains.
-void PyrosPlayer::BuildPostEffectChain()
-{
-	if (meta.postEffects.empty())
-	{
-		// Nothing to run. Drop the chain rather than leave the previous
-		// scene's effects on screen, but keep the manager - rebuilding it per
-		// scene would throw away its capture textures for no reason.
-		if (effectsManager) effectsManager->RemoveAllEffects();
-		// SSAO on a deferred renderer is the renderer's, not the manager's.
-		if (DeferredRenderer* deferred = dynamic_cast<DeferredRenderer*>(renderer))
-			deferred->DisableSSAO();
-		return;
-	}
-	EnsureEffectsManager();
-	PostEffectChain::Build(*effectsManager, meta.postEffects, RenderWidth(), RenderHeight(),
-		&PyrosPlayer::ReadPostEffectAsset, this, dynamic_cast<DeferredRenderer*>(renderer));
 }
 
 namespace {
@@ -1057,18 +699,25 @@ void PyrosPlayer::OpenLoadingScreen()
 			loadingScreen.Resize((uint32)w, (uint32)h);
 		}
 	});
-	// (the window's own present after each of its frames: the swap on GL, nothing where the device presents)
-	if (loadingScreen.IsOpen()) loadingScreen.SetPresent([this]() { Draw(); });
+	// (its frames drawn by the renderer: the screen's UI over its colour, a whole frame each)
+	if (loadingScreen.IsOpen())
+		loadingScreen.SetDrawer([this](SceneGraph* ui, const Vec4 &background, const uint32 w, const uint32 h) {
+			renderer->SetBackground(SrgbToLinear(Vec3(background.x, background.y, background.z)));
+			renderer->SetOverlayScenes(std::vector<SceneGraph*>());
+			p3d::View view;
+			view.width = w; view.height = h;
+			renderer->Render(ui, view);
+		});
 	if (loadingScreen.IsOpen()) loadingScreen.Listen();
 }
 
 bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 {
 	// What the player sees while this runs: a screen with the load's progress on it, closed at
-	// every way out of here (the GPU idle first: its frames may still be drawing its text).
+	// every way out of here (what its frames draw with is let go when they are done: the device's Destroy).
 	struct ScreenUp {
 		LoadingScreen &s;
-		~ScreenUp() { if (s.IsOpen()) { LoadProgress::Phase(1.f, 1.f, ""); s.Draw(); GetActiveRenderDevice().WaitIdle(); s.Close(); } }
+		~ScreenUp() { if (s.IsOpen()) { LoadProgress::Phase(1.f, 1.f, ""); s.Draw(); s.Close(); } }
 	} screenUp{ loadingScreen };
 	OpenLoadingScreen();
 	LoadProgress::Phase(0.f, 0.02f, "Loading");
@@ -1132,10 +781,8 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	// shows - so a build looks like what was authored. The scene's background
 	// wins over game.json's: game.json carries a fallback for a scene that
 	// predates the field, the scene carries the authored one.
-	// The scene's chain, before anything renders with it.
-	BuildPostEffectChain();
-	// TAA's history belongs to the scene that just went away.
-	if (effectsManager) effectsManager->ResetTemporalHistory();
+	// The scene's settings, before anything renders with them: its ambient, background, sky, exposure
+	ConfigureRenderer();
 
 	// The terrain's shadow, where the scene asks for it baked: worked out here,
 	// as part of loading the map (see TerrainHorizon).
@@ -1146,111 +793,30 @@ bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 	// terrain and quietly made nothing, so a built game drew its whole
 	// terrain into the shadow map every frame after all.)
 	terrainBakePending = meta.terrainShadowsBaked;
-	fprintf(stderr, "[terrain] scene %s: its shadow of itself %s\n", sceneRel.c_str(), meta.terrainShadowsBaked ? "to be baked" : "not baked");
+	// (said only when there is a bake to wait for: every scene without one printed it - an error in a browser's console)
+	if (meta.terrainShadowsBaked) fprintf(stderr, "[terrain] scene %s: its shadow of itself to be baked\n", sceneRel.c_str());
 	terrainBakeTiles = 0; terrainBakeStable = 0; terrainBakeWaited = 0;
 
-	renderer->SetGlobalLight(Vec4(meta.ambientLight.x * meta.ambientIntensity,
-								  meta.ambientLight.y * meta.ambientIntensity,
-								  meta.ambientLight.z * meta.ambientIntensity,
-								  meta.ambientLight.w));
-	renderer->SetBackground(meta.background);
-	renderer->SetAmbientMode(meta.ambientMode);
-	{
-		const f32 k = meta.ambientIntensity;
-		renderer->SetAmbientGradient(Vec4(meta.ambientSky.x*k, meta.ambientSky.y*k, meta.ambientSky.z*k, 1.f),
-									 Vec4(meta.ambientEquator.x*k, meta.ambientEquator.y*k, meta.ambientEquator.z*k, 1.f),
-									 Vec4(meta.ambientGround.x*k, meta.ambientGround.y*k, meta.ambientGround.z*k, 1.f));
-	}
-	{
-		// SH and the probe grid, which a build never applied before
-		// this: a scene authored in Environment (SH) mode came up with
-		// the mode set and no coefficients behind it, so it sampled as
-		// black and looked like the ambient had been lost.
-		//
-		// Scaled by ambientIntensity like every other source, so the
-		// slider means the same thing whichever one is selected. SH is
-		// linear, so scaling coefficients scales the reconstruction.
-		const f32 k = meta.ambientIntensity;
-		SphericalHarmonicsL2 sh;
-		for (uint32 i = 0; i < SphericalHarmonicsL2::kCoefficientCount; i++)
-			sh.coefficients[i] = Vec3(meta.ambientSH[i].x * k, meta.ambientSH[i].y * k,
-									  meta.ambientSH[i].z * k);
-		// A scene with an HDR environment is lit by the image itself: its SH comes from the pixels
-		// (EnvironmentMap), and the Sky effect draws it. One without has none left over from the last.
-		if (!meta.environment.empty() && EnvironmentMap::Load(meta.environment, meta.environmentYaw))
-		{
-			EnvironmentMap::SetIntensity(k);
-			sh = EnvironmentMap::GetSH();
-			sh.Scale(k);
-		}
-		else if (meta.environment.empty()) EnvironmentMap::Clear();
-		renderer->SetAmbientSH(sh);
-		renderer->SetAmbientProbeGrid(meta.ambientProbes.IsValid() ? &meta.ambientProbes : NULL);
-	}
-
-	// A DDGI scene carries its settings, not its solution - solve it
-	// here, once, before the first frame. See SceneMeta::ddgiCounts.
-	ddgiActive = false;
+	// A DDGI scene's light: its kept solve, else solved here on the CPU (and kept)
+	renderer->SetGlobalIllumination(nullptr);
 	if (meta.ambientMode == 3)
 	{
-		SceneGISettings gi;
-		gi.enabled = true;
-		for (uint32 i = 0; i < 3; i++) gi.counts[i] = meta.ddgiCounts[i];
-		gi.raysPerProbe = meta.ddgiRaysPerProbe;
-		gi.passes = meta.ddgiPasses;
-		gi.skyColor = Vec3(meta.ddgiSky.x, meta.ddgiSky.y, meta.ddgiSky.z);
-		if (meta.ddgiHasBounds) { gi.hasBounds = true; gi.boundsMin = meta.ddgiMin; gi.boundsMax = meta.ddgiMax; }
-		// a scene with an HDR environment: its rays see that sky, as bright as the scene's ambient
-		if (EnvironmentMap::IsLoaded())
-		{
-			gi.skyFromSH = true;
-			gi.skySH = EnvironmentMap::GetSH();
-			gi.skySH.Scale(meta.ambientIntensity);
-		}
-		// Relative to the game directory, where build_game puts the
-		// shaders next to the binary - the same place the player's own
-		// materials come from.
-		gi.shaderRoot = "shaders";
-		// Light that does not change once solved is kept in <scene>.gi, keyed by the scene's text and
-		// these settings: the next load reads it instead of tracing (a long street: a minute saved).
-		// A package ships the file, so the first load on another machine reads it too.
-		if (!meta.ddgiDynamic && std::getenv("PYROS_GI_NO_CACHE") == NULL)
-		{
-			std::ifstream f(abs, std::ios::binary);
-			std::stringstream ss; ss << f.rdbuf();
-			uint64 h = 1469598103934665603ull;
-			auto mix = [&h](const void* p, size_t n) { const uint8* b = (const uint8*)p; for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 1099511628211ull; } };
-			const std::string text = ss.str();
-			mix(text.data(), text.size());
-			mix(gi.counts, sizeof(gi.counts)); mix(&gi.raysPerProbe, sizeof(gi.raysPerProbe)); mix(&gi.passes, sizeof(gi.passes));
-			mix(&gi.boundsMin, sizeof(Vec3)); mix(&gi.boundsMax, sizeof(Vec3));
-			for (uint32 c = 0; c < SphericalHarmonicsL2::kCoefficientCount; c++) mix(&gi.skySH.coefficients[c], sizeof(Vec3));
-			const char version[] = "gi-cache-1";
-			mix(version, sizeof(version));
-			gi.cachePath = abs + ".gi";
-			gi.cacheKey = h;
-		}
 		LoadProgress::Phase(0.55f, 0.97f, "Lighting");
-		if (renderer->BakeGlobalIllumination(scene, gi))
+		if (!ddgi) ddgi.reset(new DDGIVolume());
+		if (SolveSceneGI(scene, GISettings(abs), *ddgi))
 		{
-			ddgiActive = true;
-			// Said out loud because the difference between GPU and CPU
-			// tracing here is two orders of magnitude, and a build that
-			// quietly fell back to the CPU path looks like a build that
-			// is simply slow.
-			echo(renderer->IsGlobalIlluminationOnGPU()
-				? "Global illumination solved (GPU tracing)."
-				: "Global illumination solved (CPU tracing - no compute on this backend).");
+			renderer->SetGlobalIllumination(ddgi.get());
+			echo("Global illumination solved.");
+			// (a dynamic one refreshed each frame - its light follows a light that moves - against the scene's rays)
+			giRays.reset();
+			if (meta.ddgiDynamic)
+			{
+				giRays.reset(new RayScene());
+				if (giRays->BuildFromScene(scene)) giRays->Build(4); else giRays.reset();
+			}
 		}
-		else
-		{
-			// Better a scene lit flatly than one lit by an ambient mode
-			// with nothing behind it, which samples black everywhere.
-			echo("WARNING: global illumination could not be solved - falling back to flat ambient.");
-			renderer->SetAmbientMode(0);
-		}
+		else echo("WARNING: global illumination could not be solved - the scene's flat ambient instead.");
 	}
-
 	LoadProgress::Phase(0.97f, 1.f, "Starting");
 	ResolveCamera(abs);
 	ApplyProjection();
@@ -1378,8 +944,6 @@ void PyrosPlayer::StartSceneMedia(const std::vector<GameObject*> &objects)
 
 void PyrosPlayer::UnloadGameScene()
 {
-	// (a frame another thread is still recording is finished first)
-	if (FramePipeline::InFlight()) FinishFrameInFlight();
 	if (!sceneLoaded) return;
 #ifdef LUA_BINDINGS
 	// The scripts of the scene being left are told first: destroy() is where
@@ -1614,38 +1178,11 @@ void PyrosPlayer::PushLuaHostGlobals()
 	// exactly right - it is the same thing.
 	lua["setRenderCamera"] = [this](GameObject* go) {
 		if (!go) return;
-		// A cut - see ResetTemporalHistory().
-		if (go != activeCamera && effectsManager) effectsManager->ResetTemporalHistory();
+		// (a cut: what the temporal anti-aliasing kept of the last view is not this one's)
+		if (go != activeCamera) renderer->ResetHistory();
 		activeCamera = go;
 	};
 
-	// Anti-aliasing at run time, for an options menu. Takes effect next
-	// frame. The mode is what was asked for; getEffectiveAntiAliasing() is
-	// what runs after the renderer/device fallbacks, and
-	// getSupportedAntiAliasing() is what a menu should offer.
-	lua["setAntiAliasing"] = [this](const std::string& name) {
-		AntiAliasingMode mode;
-		if (!AntiAliasing::FromString(name, mode))
-		{
-			echo("ERROR: setAntiAliasing: unknown mode \"" + name + "\" (off, fxaa, smaa, taa, msaa2x, msaa4x, msaa8x)");
-			return false;
-		}
-		antiAliasingMode = mode;
-		return true;
-	};
-	lua["getAntiAliasing"] = [this]() { return AntiAliasing::ToString(antiAliasingMode); };
-	lua["getEffectiveAntiAliasing"] = [this]() {
-		return AntiAliasing::ToString(AntiAliasing::Resolve(antiAliasingMode, gbufferFBO != NULL,
-			GetActiveRenderDevice().GetMaxSamples()));
-	};
-	lua["getSupportedAntiAliasing"] = [this](sol::this_state s) {
-		sol::state_view view(s);
-		sol::table t = view.create_table();
-		const std::vector<AntiAliasingMode> modes = AntiAliasing::Supported(gbufferFBO != NULL, GetActiveRenderDevice().GetMaxSamples());
-		for (size_t i = 0; i < modes.size(); i++)
-			t[i + 1] = AntiAliasing::ToString(modes[i]);
-		return t;
-	};
 	lua["loadScene"] = [this](const std::string& name) { pendingLoadSceneName = name; };
 
 	// The scene's own 2D view: the `view` table, bound by the engine so the
@@ -1680,7 +1217,6 @@ void PyrosPlayer::PushLuaHostGlobals()
 		static std::set<std::string> names;
 		p3d::FrameProfiler::Instance().Counter(names.insert(name).first->c_str(), value);
 	};
-	lua["editorRendererType"] = PlayerManifestInstance().deferred ? std::string("deferred") : std::string("forward");
 	lua["ASSETS_PATH"] = (fs::path(PlayerManifestInstance().root) / "assets").string() + "/";
 }
 
@@ -1754,9 +1290,65 @@ void PyrosPlayer::ApplyPendingOverlayIfAny()
 	LoadOverlayScene(rel);
 }
 
+// What a DDGI scene's light is solved with: its counts, rays, passes and sky, and where its solve is kept (<scene>.gi,
+// keyed by the scene's text and these) - for either renderer
+SceneGISettings PyrosPlayer::GISettings(const std::string &abs) const
+{
+	SceneGISettings gi;
+	gi.enabled = true;
+	for (uint32 i = 0; i < 3; i++) gi.counts[i] = meta.ddgiCounts[i];
+	gi.raysPerProbe = meta.ddgiRaysPerProbe;
+	gi.passes = meta.ddgiPasses;
+	gi.skyColor = Vec3(meta.ddgiSky.x, meta.ddgiSky.y, meta.ddgiSky.z);
+	if (meta.ddgiHasBounds) { gi.hasBounds = true; gi.boundsMin = meta.ddgiMin; gi.boundsMax = meta.ddgiMax; }
+	// a scene with an HDR environment: its rays see that sky, as bright as the scene's ambient
+	if (EnvironmentMap::IsLoaded())
+	{
+		gi.skyFromSH = true;
+		gi.skySH = EnvironmentMap::GetSH();
+		gi.skySH.Scale(meta.ambientIntensity);
+	}
+	// Relative to the game directory, where build_game puts the
+	// shaders next to the binary - the same place the player's own
+	// materials come from.
+	// Light that does not change once solved is kept in <scene>.gi, keyed by the scene's text and
+	// these settings: the next load reads it instead of tracing (a long street: a minute saved).
+	// A package ships the file, so the first load on another machine reads it too.
+	if (!meta.ddgiDynamic && std::getenv("PYROS_GI_NO_CACHE") == NULL)
+	{
+		std::ifstream f(abs, std::ios::binary);
+		std::stringstream ss; ss << f.rdbuf();
+		uint64 h = 1469598103934665603ull;
+		auto mix = [&h](const void* p, size_t n) { const uint8* b = (const uint8*)p; for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 1099511628211ull; } };
+		const std::string text = ss.str();
+		mix(text.data(), text.size());
+		mix(gi.counts, sizeof(gi.counts)); mix(&gi.raysPerProbe, sizeof(gi.raysPerProbe)); mix(&gi.passes, sizeof(gi.passes));
+		mix(&gi.boundsMin, sizeof(Vec3)); mix(&gi.boundsMax, sizeof(Vec3));
+		for (uint32 c = 0; c < SphericalHarmonicsL2::kCoefficientCount; c++) mix(&gi.skySH.coefficients[c], sizeof(Vec3));
+		const char version[] = "gi-cache-1";
+		mix(version, sizeof(version));
+		gi.cachePath = abs + ".gi";
+		gi.cacheKey = h;
+	}
+	return gi;
+}
+
 void PyrosPlayer::ApplyPendingSceneLoadIfAny()
 {
 	if (pendingLoadSceneName.empty()) return;
+#if defined(__EMSCRIPTEN__)
+	// (a web game in two parts: its first scene's files first, the rest after it has started - player/web's page says
+	// so with this file while the rest is still coming. Another scene waits for all of them: what it reads is there)
+	{
+		struct stat st;
+		if (stat("/.pyros-files-coming", &st) == 0)
+		{
+			static bool said = false;
+			if (!said) { said = true; echo("Scene " + pendingLoadSceneName + " waits for the game's files still downloading"); }
+			return;
+		}
+	}
+#endif
 	const std::string requested = pendingLoadSceneName;
 	pendingLoadSceneName.clear();
 
@@ -1769,14 +1361,11 @@ void PyrosPlayer::ApplyPendingSceneLoadIfAny()
 #ifdef LUA_BINDINGS
 	p3d::LuaClearTasks(&lua);
 #endif
+	renderer->ForgetScene();     // (what it kept by the old scene's objects' addresses)
 	if (!LoadGameScene(rel))
 		echo("ERROR: loadScene(\"" + requested + "\") failed");
 }
 #endif
-
-// The frame another thread has been recording is finished (FramePipeline): its
-// effects, its UI and its end are done by this thread, before anything else.
-void PyrosPlayer::FinishFrameInFlight() { FramePipeline::Finish(); }
 
 void PyrosPlayer::UpdateConsole()
 {
@@ -1858,7 +1447,6 @@ void PyrosPlayer::Update()
 	}
 
 	// At the top of the frame, before anything renders - see OnResize().
-	if (FramePipeline::InFlight() && resizePending) FinishFrameInFlight();
 	{
 		PYROS_PROFILE_SCOPE("Player.Resize");
 		ApplyPendingResizeIfAny();
@@ -1895,18 +1483,17 @@ void PyrosPlayer::Update()
 	// casters at. Outside the physics guard on purpose - a scene with no
 	// physics still has occluders.
 
-	// One frame of probe refresh, so indirect light follows a light
-	// that moves. Budget 0 means "all of them", which is right on the
-	// GPU and would cost tens of milliseconds a frame on the CPU - so
-	// ask which one is doing the work rather than trusting the number.
-	if (ddgiActive && meta.ddgiDynamic)
+	// One frame of a dynamic DDGI volume's refresh, so indirect light follows a light that moves: on the CPU, as
+	// much of the volume as 2 ms a frame takes, then written into its textures
+	if (ddgi && giRays && meta.ddgiDynamic)
 	{
-		// 0 means "as many as fit": the whole volume on the GPU, and
-		// on the CPU whatever the renderer's millisecond ceiling
-		// allows. A fixed count cannot be right for both a desktop and
-		// a phone, and this build runs on both.
 		PYROS_PROFILE_SCOPE("Player.GI");
-		renderer->UpdateGlobalIllumination(scene, meta.ddgiProbeBudget, meta.ddgiHysteresis);
+		const RaySceneChange::Enum change = giRays->RefreshTransforms();
+		if (change == RaySceneChange::NeedsRebuild) { if (giRays->BuildFromScene(scene)) giRays->Build(4); }
+		else if (change == RaySceneChange::Moved) giRays->RefitBVH();
+		ddgi->SetUpdateTimeBudget(2.f);
+		UpdateSceneGI(scene, *giRays, *ddgi, meta.ddgiRaysPerProbe, giFrame++, meta.ddgiHysteresis, meta.ddgiProbeBudget);
+		renderer->GlobalIlluminationChanged();
 	}
 	// Layer parallax is deliberately NOT applied here. It is three lines of
 	// Lua against Layer2D's factor, and doing it in the engine meant it
@@ -2025,195 +1612,77 @@ void PyrosPlayer::Update()
 		}
 	}
 
-	// One frame for the scene, the post chain and the UI below. Left to
-	// themselves the renderer presented the scene and UIRenderer then opened
-	// and presented a second frame holding only the HUD over black - every
-	// game with a HUD flickered.
+	// The frame: what the scripts place or pose last (hands on a gun, a scope's camera), the scene drawn with its
+	// UI and the overlays over it, then the UI's input against the layout just drawn
+#ifdef LUA_BINDINGS
 	{
-		PYROS_PROFILE_SCOPE("Player.HandOver");
-		FramePipeline::HandOver();
+		PYROS_PROFILE_SCOPE("Player.ScriptPreRender");
+		if (sceneMainScript) sceneMainScript->PreRender();
+		LuaComponent::PreRenderScene(scene);
 	}
-	IRenderDevice &device = GetActiveRenderDevice();
-	// (what the renderers are given for the whole scene, said at the hand-over: a frame
-	// still being drawn by another thread is not told half-way through)
-	// Knowing what is on screen when the scene frames itself, so the shadow
-	// budget goes to the lights in view.
+#endif
+	HoldBenchCamera(activeCamera, scene);
+	// (the scene's 2D shadow casters, for its 2D lights - knowing what is on screen when the scene frames itself)
 	if (meta.view2D.enabled)
 	{
 		const Vec4 seen = meta.view2D.VisibleRect((Height > 0) ? ((f32)Width / (f32)Height) : 1.f);
 		Occluder2D::PublishSceneOccluders(scene, &seen);
 	}
 	else Occluder2D::PublishSceneOccluders(scene);
-	const bool ownFrame = device.GetCurrentRenderTarget() == 0 && !device.IsFrameInProgress();
-	if (ownFrame)
 	{
-		// (the hand-over: what is drawn from here on is drawn where things are now)
-		GameObject::TakeDrawTransforms();
-		PYROS_PROFILE_SCOPE("Player.BeginFrame");
-		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
-		device.BeginFrame();
-		autoScale.gpuWaitMs += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
+		PYROS_PROFILE_SCOPE("Player.Draw");
+		DrawFrame();
 	}
+	// (while the console is open the keys are its, not the game's UI's)
+	if (!console.IsOpen()) DispatchUIInput();
+	CloseFrame();
+}
 
-	// Reflection probes waiting to be seen: one a frame, before the scene is drawn (it draws them
-	// with a renderer of its own, inside this frame).
-	{
-		PYROS_PROFILE_SCOPE("Player.ReflectionProbes");
-		ReflectionProbes::Update(scene);
-	}
-	renderer->ResetViewPort();
-	renderer->SetViewPort(0, 0, RenderWidth(), RenderHeight());
-#ifdef LUA_BINDINGS
-	if (sceneMainScript)
-	{
-		PYROS_PROFILE_SCOPE("Player.ScriptPreRender");
-		sceneMainScript->PreRender();
-	}
-#endif
-	// (and again for what the scripts' own pre-render placed or posed: hands on a gun, a scope's camera)
-	HoldBenchCamera(activeCamera, scene);
+// What the renderer takes of the scene's settings: its ambient, its background, the sky (an enabled Sky effect), the
+// exposure (an Output effect: uAuto 0 a fixed 2^uExposure, otherwise auto compensated by uExposure)
+void PyrosPlayer::ConfigureRenderer()
+{
+	p3d::ApplySceneSettings(*renderer, meta.ambientLight, meta.ambientIntensity, meta.background, meta.postEffects, meta.twoD);
+	p3d::ApplyAmbientEnvironment(*renderer, meta.ambientMode, meta.ambientSky, meta.ambientEquator, meta.ambientGround, meta.ambientSH, meta.ambientIntensity);
+}
+
+void PyrosPlayer::DrawFrame()
+{
 	GameObject::TakeDrawTransforms();
-	renderer->PreRender(activeCamera, scene);
-	renderer->ApplyBackgroundClearColor();
-	// A 2D scene renders through the *normal* pass, not a suppressed one. Its
-	// content is ordinary world geometry - sprites are quads with materials -
-	// seen through an orthographic camera, so it wants everything the pass
-	// already does: transforms, culling, lights, sorting. An earlier version
-	// pointed the renderer at RenderLayer::None here on the assumption that a
-	// 2D scene was canvas-only; that is what UI is for, and it would have
-	// drawn nothing at all for a real 2D game.
-	// Only wrapped when there is a chain or anti-aliasing: with neither,
-	// capturing would render the scene into an FBO that nothing presents,
-	// i.e. a black window for every game that has no post effects.
-	const bool postFX = HavePostEffects();
-	// With a chain the picture on screen is the chain's, made from the renderer's colour texture: the deferred
-	// renderer's own last pass to the screen is drawn over, and its screen-space reflections - which exist only in
-	// that pass - were lost with it. Told to skip the screen, it runs that pass into the texture the chain reads.
-	if (gbufferFBO != NULL) static_cast<DeferredRenderer*>(renderer)->SetSkipRenderToScreen(postFX);
-	if (postFX)
+	p3d::View view;
+	// (a scene without a camera - a menu of UI alone - is still drawn: its UI over the default view)
+	if (activeCamera != NULL) view.cameraWorld = activeCamera->GetDrawWorld();
+	// Over the scene's own UI: the overlay (a pause menu, a dialog), the on-screen controls, the console
+	std::vector<SceneGraph*> overlays;
+	if (overlayScene) overlays.push_back(overlayScene);
+	if (SceneGraph* touch = TouchControls::Instance().Prepare(Width, Height, GetTime())) overlays.push_back(touch);
+	if (console.IsOpen()) if (SceneGraph* c = console.Prepare(GetTime())) overlays.push_back(c);
+	renderer->SetOverlayScenes(overlays);
+	view.fovY = projection.Fov > 0.f ? projection.Fov : 70.f;
+	view.nearZ = projection.Near > 0.f ? projection.Near : 0.1f;
+	// (an orthographic camera - a 2D scene's own view above all - as it frames: its height, its depth range)
+	if (cameraOrthographic)
 	{
-		effectsManager->CaptureFrame();
-		// TAA's sub-pixel offset; zero for every other mode.
-		renderer->SetProjectionJitter(effectsManager->GetProjectionJitter());
+		view.orthographic = true;
+		view.orthoHeight = meta.view2D.enabled ? meta.view2D.halfHeight * 2.f : std::max(projection.Top - projection.Bottom, 0.001f);
+		view.nearZ = cameraNear; view.farZ = cameraFar;
 	}
-
-	// (the frame's passes: by this thread, or - PYROS_FRAME_SPLIT=2 - handed to another
-	// while this one goes on to the next frame's game logic; whatever that asks of the
-	// device meanwhile is carried out after these draws)
-	// (in two parts: the scene itself - nearly all of the recording - and what follows
-	// it: the capture's end, the motion vectors, the effects. The second reads lists
-	// and marks that game logic keeps, so it is this thread's, at the join.)
-	const std::function<void()> scenePass = [this]()
+	view.width = Width; view.height = Height;
+	renderer->Render(scene, view);
+	// (PYROS_RENDER_STATS: every 120 frames, what the frame cost)
+	static const bool stats = getenv("PYROS_RENDER_STATS") != NULL;
+	static uint32 frames = 0;
+	if (stats && ++frames % 120 == 0)
 	{
-		renderer->RenderScene(projection, activeCamera, scene);
-		renderer->SetProjectionJitter(Vec2(0.f, 0.f));
-	};
-	const std::function<void()> afterScene = [this, postFX, dt]()
-	{
-		if (postFX)
-		{
-			effectsManager->EndCapture();
-			// Under Deferred the scene's depth is the renderer's, not the capture's:
-			// the capture's own depth was never drawn into and reads "nothing there"
-			// in every pixel. An effect that tests against the scene - smoke that
-			// must stop at a wall or a hill, ambient occlusion - saw straight through
-			// the world in a built game (the editor has always made this copy).
-			if (gbufferFBO != NULL && effectsManager->GetDepth() != NULL)
-			{
-				DeferredRenderer* dr = static_cast<DeferredRenderer*>(renderer);
-				if (dr->GetDepthTexture() != NULL)
-					GetActiveRenderDevice().CopyDepthTexture(dr->GetDepthTexture()->GetBindID(),
-						effectsManager->GetDepth()->GetBindID(), RenderWidth(), RenderHeight());
-			}
-			// Under Deferred the capture does not hold the scene - the renderer's
-			// final composite targets framebuffer 0 - so the chain is pointed at
-			// its colour output instead. Same reasoning as the editor viewport.
-			// gbufferFBO is the player's own deferred tell: it only exists under
-			// the deferred renderer.
-			effectsManager->SetSceneSourceTexture(gbufferFBO != NULL
-				? static_cast<DeferredRenderer*>(renderer)->GetColorTexture()
-				: NULL);
-			// The last effect draws to the swapchain, which is what a game wants
-			// and - on Vulkan - is also what presents the frame at all. So no
-			// SetRenderLastToTexture() here, unlike the editor.
-			// Per frame, for the same reason as the editor viewport: depth-based
-			// effects need the view the frame was rendered with.
-			if (activeCamera != NULL)
-				effectsManager->SetViewMatrix(activeCamera->GetWorldTransformation().Inverse());
-			// See the editor viewport - no-op unless the chain contains motion
-			// blur, and fed the real frame rate rather than the target one.
-			effectsManager->RenderVelocityPass(projection, activeCamera, scene,
-				dt > 0.0 ? (f32)(1.0 / dt) : 60.f);
-			effectsManager->ProcessPostEffects(&projection);
-		}
-	
-		// UI last, over the finished frame, and input fed to it right before -
-		// so a click is resolved against the layout the player is looking at,
-		// not the one from the previous frame.
-		// (nothing of the scene is still being recorded on another thread when the
-		// UI's handlers, which may change it, are run)
-		renderer->FinishBeside();
-	};
-	// (given to another thread where the frame is split - FramePipeline - and what
-	// follows the scene is then done by this thread at the next hand-over)
-	{
-		PYROS_PROFILE_SCOPE("Player.Submit");
-		FramePipeline::Submit(scene, scenePass, [this, afterScene, ownFrame, dt]() { afterScene(); CloseFrame(ownFrame, dt); }, ownFrame);
+		const gfx::FrameStats &s = renderer->Stats();
+		std::string passes;
+		for (const gfx::FrameStats::Pass &p : s.passes) { char b[96]; snprintf(b, sizeof(b), " %s=%.2f", p.name.c_str(), p.gpuMs); passes += b; }
+		fprintf(stderr, "[renderer] CPU %.2f ms (gather %.2f, submit %.2f, present %.2f; +%.2f waiting), GPU %.2f ms, draws %u |%s\n", renderer->CpuMilliseconds(), renderer->GatherMilliseconds(), renderer->SubmitMilliseconds(), renderer->PresentMilliseconds(), renderer->WaitMilliseconds(), s.gpuMs, s.draws, passes.c_str());
 	}
 }
 
-void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
+void PyrosPlayer::CloseFrame()
 {
-	IRenderDevice &device = GetActiveRenderDevice();
-	if (uiRenderer)
-	{
-		PYROS_PROFILE_SCOPE("Player.UI");
-		uiRenderer->Resize(Width, Height);
-		uiRenderer->RenderUI(scene);
-		// The overlay composites over the finished frame, including over the
-		// base scene's own UI - it is meant to be a pause menu or a dialog,
-		// so it belongs on top of the HUD, not under it.
-		if (overlayScene)
-			uiRenderer->RenderUI(overlayScene);
-		// (the console over everything; while it is open the keys are its, not the game's UI's)
-		TouchControls::Instance().Draw(uiRenderer, Width, Height, GetTime());
-		if (console.IsOpen()) console.Draw(uiRenderer, GetTime());
-		else DispatchUIInput();
-	}
-
-	if (ownFrame)
-	{
-		PYROS_PROFILE_SCOPE("Player.EndFrame");
-		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
-		device.EndFrame();
-		autoScale.presentWaitMs += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
-		// (with the device on its own thread those two calls return at once: what
-		// was waited for the GPU and for the display is what that thread waited,
-		// and what this one waited for it)
-		if (ThreadedRenderDevice* deviceThread = FramePipeline::DeviceThread())
-		{
-			f64 gpuMs = 0.0, presentMs = 0.0, behindMs = 0.0;
-			deviceThread->TakeWaits(gpuMs, presentMs, behindMs);
-			// (what this thread waited for that one is not counted again: it waited
-			// because that one was waiting - for the GPU, counted there, or for the
-			// display, which is time to spare and not a reason to draw smaller)
-			autoScale.gpuWaitMs += gpuMs;
-			autoScale.presentWaitMs += presentMs;
-			FrameProfiler::Instance().Counter("Device.GpuWaitMs", gpuMs);
-			FrameProfiler::Instance().Counter("Device.PresentMs", presentMs);
-			FrameProfiler::Instance().Counter("Device.BehindMs", behindMs);
-			FrameProfiler::Instance().Counter("Device.InputToShownMs", deviceThread->InputToShownMs());
-			FrameProfiler::Instance().Counter("Device.LowLatency", ThreadedRenderDevice::GetLateFrameStart() ? 1.0 : 0.0);
-		}
-		{
-			const IRenderDevice::Built b = IRenderDevice::TakeBuilt();
-			// (every frame, none included: a counter keeps what it was last given)
-			FrameProfiler::Instance().Counter("Built.Programs", (f64)b.programs);
-			FrameProfiler::Instance().Counter("Built.ProgramMs", b.programMs);
-			FrameProfiler::Instance().Counter("Built.Pipelines", (f64)b.pipelines);
-			FrameProfiler::Instance().Counter("Built.PipelineMs", b.pipelineMs);
-		}
-	}
 	// No more frames than asked for (SetFrameRateLimit): what a display cannot
 	// show is heat and nothing else - and a machine that slows itself down when
 	// hot then cannot hold the rate it could have. Waited out here, at the end
@@ -2250,13 +1719,10 @@ void PyrosPlayer::CloseFrame(const bool ownFrame, const f64 dt)
 			}
 #endif
 			while (std::chrono::steady_clock::now() < nextFrameAt) {}
-			autoScale.presentWaitMs += waitMs;
 			// (idle, not the frame's work: FrameProfiler's slow frames and work graph leave it out)
 			FrameProfiler::NoteDisplayWait(waitMs);
 		}
 	}
-	StepAutoRenderScale(dt);
-
 #ifdef LUA_BINDINGS
 	// Between frames, never inside one: the script that asked for the
 	// switch is owned by the scene graph the switch tears down. The overlay
@@ -2299,9 +1765,6 @@ void PyrosPlayer::StepFillShaderCache()
 		next++;
 		return;
 	}
-	// (what the engine makes for a script at any time rather than for a scene - a script's smoke and
-	// fire come in play, long after it loads)
-	p3d::ParticleSystem::BuildShaders();
 	fprintf(stderr, "[shader cache] done\n");
 	Close();
 }
@@ -2546,143 +2009,8 @@ void PyrosPlayer::DispatchUIInput()
 	}
 }
 
-// The scene is rendered at a fraction of the window's size and the last pass
-// of the post chain fills the window with it; the UI is drawn after, at the
-// window's own size, so text stays sharp. What a 4K screen on an integrated
-// GPU needs: every pass of a deferred frame costs by the pixel.
-uint32 PyrosPlayer::ScaledSize(const uint32 full) const
-{
-	const uint32 v = (uint32)((f32)full * renderScale + 0.5f);
-	// (even, and never nothing)
-	return v < 16 ? 16 : (v & ~1u);
-}
-uint32 PyrosPlayer::RenderWidth() const { return ScaledSize((uint32)Width); }
-uint32 PyrosPlayer::RenderHeight() const { return ScaledSize((uint32)Height); }
-
-// The render scale kept where the frame rate asked for holds, by itself.
-// What says the GPU is the limit is the wait for it at the top of a frame
-// (the previous frame's fence); what says there is room is time spent idle in
-// the present (a display that caps the rate) or, with no cap, frames coming
-// faster than asked. Looked at every second and a half, moved a step at a
-// time - changing the size reallocates every target, which is a hitch of its
-// own - and never for a frame that was slow for some other reason: when the
-// GPU is not being waited for, a smaller picture would not help.
-void PyrosPlayer::SetAutoRenderScale(const f32 targetFps, const f32 minScale, const f32 maxScale)
-{
-	autoScale.targetFps = targetFps;
-	autoScale.minScale = minScale < 0.25f ? 0.25f : minScale;
-	autoScale.maxScale = maxScale > 1.f ? 1.f : maxScale;
-	if (autoScale.maxScale < autoScale.minScale) autoScale.maxScale = autoScale.minScale;
-	autoScale.time = 0.0; autoScale.frames = 0; autoScale.gpuWaitMs = autoScale.presentWaitMs = 0.0;
-}
-
-void PyrosPlayer::StepAutoRenderScale(const f64 dt)
-{
-	AutoScale &A = autoScale;
-	FrameProfiler::Instance().Counter("Render.ScalePct", (f64)renderScale * 100.0);
-	if (A.targetFps <= 0.f) { A.gpuWaitMs = A.presentWaitMs = 0.0; return; }
-	A.time += dt; A.frames++;
-	if (A.time < 1.5 || A.frames < 20) return;
-	const f64 frameMs = A.time * 1000.0 / (f64)A.frames;
-	const f64 gpuWait = A.gpuWaitMs / (f64)A.frames, idle = A.presentWaitMs / (f64)A.frames;
-	const f64 want = 1000.0 / (f64)A.targetFps;
-	A.time = 0.0; A.frames = 0; A.gpuWaitMs = A.presentWaitMs = 0.0;
-
-	// Changing the scale is not free - every target is reallocated and the post
-	// chain rebuilt, a hitch of tens of milliseconds - so it moves between a
-	// few fixed rungs and seldom: down a rung after two looks running that are
-	// short of the rate on the GPU's account (two rungs if far short), up a
-	// rung only after six looks running with room AND when the frame the
-	// bigger picture would cost - by the square of the scales - still fits.
-	static const f32 kRungs[] = { 1.f, 0.86f, 0.74f, 0.64f, 0.55f, 0.47f, 0.40f, 0.34f, 0.29f, 0.25f };
-	static const int kRungCount = (int)(sizeof(kRungs) / sizeof(kRungs[0]));
-	int rung = 0;
-	for (int r = 1; r < kRungCount; r++) if (fabsf(kRungs[r] - renderScale) < fabsf(kRungs[rung] - renderScale)) rung = r;
-	f32 next = renderScale;
-	// Short of the rate, whoever's fault it looks like: on a machine where the
-	// GPU and the CPU share their heat, a frame that is slow on the CPU's
-	// account is as often as not slow because of what the GPU is being asked
-	// for. So a rung down is tried - and if a look later the frame is no
-	// better for it, it is taken back and not tried again for a while (a
-	// machine that really is held up by its CPU keeps its sharp picture).
-	const bool shortOfIt = frameMs > want * 1.06;
-	const bool room = (gpuWait < 0.3 && idle > want * 0.25) || frameMs < want * 0.90;
-	A.sinceChange++;
-	if (A.triedDownFrom > 0.0 && A.sinceChange == 2)
-	{
-		// the verdict on the last step down
-		if (frameMs > A.triedDownFrom * 0.97 && rung > 0 && gpuWait < 1.0)
-		{
-			rung -= 1;
-			A.downBlockedLooks = 20;       // half a minute
-		}
-		A.triedDownFrom = 0.0;
-		A.shortLooks = A.roomLooks = 0;
-	}
-	else if (shortOfIt)
-	{
-		A.roomLooks = 0;
-		if (A.downBlockedLooks > 0 && gpuWait < 1.0) A.downBlockedLooks--;
-		else if (++A.shortLooks >= 2 || frameMs > want * 1.4)
-		{
-			A.triedDownFrom = frameMs;
-			rung += (frameMs > want * 1.4) ? 2 : 1;
-			A.shortLooks = 0;
-			A.upBlockedLooks = 60;
-		}
-	}
-	else if (room)
-	{
-		A.shortLooks = 0;
-		// (Up is taken far more slowly than down: the heat of a bigger picture
-		// arrives a minute after the picture does, and a machine that slows
-		// itself down when hot then loses more than the step gained. Half a
-		// minute of room, a minute and a half after any step down, and only
-		// when the bigger picture should fit with a third to spare.)
-		if (A.upBlockedLooks > 0) A.upBlockedLooks--;
-		else if (++A.roomLooks >= 20 && rung > 0)
-		{
-			// what the frame costs now is the frame less what was waited out;
-			// a rung up multiplies the GPU's part of it by the pixels (all of
-			// it, to be on the safe side)
-			const f64 busy = frameMs - idle;
-			const f64 grow = (f64)(kRungs[rung - 1] * kRungs[rung - 1]) / (f64)(kRungs[rung] * kRungs[rung]);
-			if (busy * grow < want * 0.68) rung -= 1;
-			A.roomLooks = 0;
-		}
-	}
-	else
-	{
-		A.shortLooks = 0;
-		A.roomLooks = 0;
-	}
-	if (rung >= kRungCount) rung = kRungCount - 1;
-	next = kRungs[rung];
-	if (next < A.minScale) next = A.minScale;
-	if (next > A.maxScale) next = A.maxScale;
-	if (fabsf(next - renderScale) >= 0.004f) A.sinceChange = 0;
-	SetRenderScale(next);
-}
-
-void PyrosPlayer::SetRenderScale(f32 scale)
-{
-	if (scale < 0.25f) scale = 0.25f;
-	if (scale > 1.f) scale = 1.f;
-	if (fabsf(scale - renderScale) < 0.004f) return;
-	renderScale = scale;
-	// applied where a window resize is: at the top of the next frame
-	pendingResizeWidth = (uint32)Width;
-	pendingResizeHeight = (uint32)Height;
-	resizePending = true;
-}
-
 void PyrosPlayer::OnResize(const uint32 width, const uint32 height)
 {
-	// A frame another thread is still recording is finished first: the window's
-	// events are read while it is in flight, and the swapchain is made again in
-	// here - under that frame it was taken away from the device mid-frame (making
-	// the window full screen brought the game down).
-	if (FramePipeline::InFlight()) FinishFrameInFlight();
 	ClassName::OnResize(width, height);
 	// Recorded, not applied. This runs from SDL event handling, which is not
 	// a safe place to destroy and recreate GPU images: the previous frame is
@@ -2707,58 +2035,16 @@ void PyrosPlayer::ApplyPendingResizeIfAny()
 	if (!resizePending) return;
 	resizePending = false;
 
-	const uint32 fullW = pendingResizeWidth, fullH = pendingResizeHeight;
-	if (fullW == 0 || fullH == 0) return; // minimised
-	// What is rendered is this big; the window is fullW x fullH (SetRenderScale).
-	const uint32 w = ScaledSize(fullW), h = ScaledSize(fullH);
-
-	// Guarded on a real size change, like SceneEditor's own G-buffer resize:
-	// everything below is expensive and none of it has anything to do when
-	// the extent is unchanged.
-	if (gbufferFBO && (w != gbufferAlbedo->GetWidth() || h != gbufferAlbedo->GetHeight()))
-	{
-		// Not waited for: what is reallocated may still be used by a frame on the GPU, and every
-		// backend keeps the old image until that frame is done (Vulkan retires it with the frame,
-		// Metal's command buffers hold on to it, GL's driver does). The render scale changes
-		// this size while the game plays, and the wait - here and in DeferredRenderer::Resize, the
-		// texture resize and the framebuffers on Vulkan - was half of a 70-100 ms hitch, each time.
-		PYROS_PROFILE_SCOPE("Resize.GBuffer");
-		gbufferDepth->Resize(w, h);
-		gbufferAlbedo->Resize(w, h);
-		gbufferSpecular->Resize(w, h);
-		gbufferNormal->Resize(w, h);
-		gbufferMatRough->Resize(w, h);
-		gbufferFBO->Resize(w, h);
-	}
-
-	if (renderer) { PYROS_PROFILE_SCOPE("Resize.Renderer"); renderer->Resize(w, h); }
-	// The chain's own targets are window-sized too, and an effect reading a
-	// stale-sized capture samples the wrong part of it. Resized, not built again: every effect
-	// resizes its own targets (PostEffectsManager::Resize), the temporal upscaler remakes itself
-	// for new sizes and FSR 1 is given them every frame. (It was built again, every effect and its
-	// programs made anew - the other half of the render scale's hitch, 31-37 ms and 22-46 ms of
-	// programs after.)
-	if (effectsManager)
-	{
-		PYROS_PROFILE_SCOPE("Resize.Effects");
-		effectsManager->Resize(w, h);
-		effectsManager->SetOutputSize(fullW, fullH);
-	}
+	// (the renderer's targets follow the size it is given each frame)
+	if (pendingResizeWidth == 0 || pendingResizeHeight == 0) return; // minimised
 	ApplyProjection();
 }
 
 void PyrosPlayer::Shutdown()
 {
-	// (a frame another thread is still recording is finished first)
-	if (FramePipeline::InFlight()) FinishFrameInFlight();
 	PyrosTextInput::SetHandler(NULL);
 	InputManager::RemoveEvent(Event::Type::OnMove, Event::Input::Mouse::Wheel, this, &PyrosPlayer::OnMouseWheel);
 	activePlayer = NULL;
-
-	// The last submitted frame is routinely still executing here - the same
-	// reason SceneSerializer::UnloadScene waits before freeing anything.
-	if (IsActiveRenderDeviceSet())
-		GetActiveRenderDevice().WaitIdle();
 
 	UnloadGameScene();
 #ifdef LUA_BINDINGS
@@ -2779,18 +2065,14 @@ void PyrosPlayer::Shutdown()
 	}
 #endif
 
-	// Before the renderer: an effect owns GPU objects created against the
-	// device the renderer publishes, and ~PostEffectsManager waits on it.
-	delete effectsManager; effectsManager = NULL;
-	delete uiRenderer; uiRenderer = NULL;
-	delete renderer; renderer = NULL;
-	DestroyGBuffer();
 	delete physics; physics = NULL;
 	delete physics2D; physics2D = NULL;
 	delete overlayScene; overlayScene = NULL;
 	delete scene; scene = NULL;
 	delete audio; audio = NULL;
 
-	FramePipeline::StopDeviceThread();
+	// (the scene's light, then the renderer, before the window's device goes)
+	ddgi.reset(); giRays.reset();
+	renderer.reset();
 	ClassName::Shutdown();
 }

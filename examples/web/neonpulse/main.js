@@ -15,11 +15,8 @@ export async function startNeonPulse(P, app, canvas, setStatus) {
   G.scene = new P.Scene();
   G.projection = new P.Projection();
 
-  if (C.renderer === "deferred") {
-    buildDeferredRenderer(P, G, width, height);
-  } else {
-    G.renderer = new P.ForwardRenderer(width, height);
-  }
+  // (drawn by the engine's renderer onto the app's canvas, WebGPU)
+  G.renderer = app.createRenderer();
 
   G.camera = new P.GameObject();
   G.camera.setPosition(C.camera.pos);
@@ -65,75 +62,16 @@ export async function startNeonPulse(P, app, canvas, setStatus) {
     E.fireQueuedBursts();
     Audio.update(dt);
 
-    G.renderer.preRender(G.camera, G.scene);
     G.renderer.renderScene(G.projection, G.camera, G.scene);
     app.draw();
 
     setStatus(
-      `Neon Pulse — ${Game.state} | score ${Game.score} | lives ${Game.lives} | L${Game.level} (${C.renderer})`
+      `Neon Pulse — ${Game.state} | score ${Game.score} | lives ${Game.lives} | L${Game.level}`
     );
     requestAnimationFrame(frame);
   }
 
   requestAnimationFrame(frame);
-}
-
-function buildDeferredRenderer(P, G, width, height) {
-  const target = (dataType) => {
-    const t = new P.Texture();
-    t.createEmptyTextureFull(
-      P.TextureType_Texture,
-      dataType,
-      width,
-      height,
-      false,
-      0,
-      0
-    );
-    t.setRepeat3(
-      P.TextureRepeat_ClampToEdge,
-      P.TextureRepeat_ClampToEdge,
-      P.TextureRepeat_ClampToEdge
-    );
-    return t;
-  };
-
-  G.gbuffer = {
-    depth: target(P.TextureDataType_DepthComponent),
-    albedo: target(P.TextureDataType_RGBA),
-    specular: target(P.TextureDataType_RGBA),
-    normal: target(P.TextureDataType_RGBA32F),
-    matrough: target(P.TextureDataType_RGBA),
-  };
-
-  G.gbufferFBO = new P.FrameBuffer();
-  G.gbufferFBO.initTex(
-    P.FrameBufferAttachmentFormat_Depth_Attachment,
-    P.TextureType_Texture,
-    G.gbuffer.depth
-  );
-  G.gbufferFBO.addAttachTex(
-    P.FrameBufferAttachmentFormat_Color_Attachment0,
-    P.TextureType_Texture,
-    G.gbuffer.albedo
-  );
-  G.gbufferFBO.addAttachTex(
-    P.FrameBufferAttachmentFormat_Color_Attachment1,
-    P.TextureType_Texture,
-    G.gbuffer.specular
-  );
-  G.gbufferFBO.addAttachTex(
-    P.FrameBufferAttachmentFormat_Color_Attachment2,
-    P.TextureType_Texture,
-    G.gbuffer.normal
-  );
-  G.gbufferFBO.addAttachTex(
-    P.FrameBufferAttachmentFormat_Color_Attachment3,
-    P.TextureType_Texture,
-    G.gbuffer.matrough
-  );
-
-  G.renderer = new P.DeferredRenderer(width, height, G.gbufferFBO);
 }
 
 function fitProjection(G, C, width, height) {

@@ -438,7 +438,6 @@ bool SceneEditor::LaunchNetworkProcess(const bool server, std::string& errOut)
 	opts.title = project->GetProjectName() + (server ? " (server)" : " (client)");
 	opts.width = 960;
 	opts.height = 540;
-	opts.deferred = (project->GetSettings().rendererType == ProjectRendererType::Deferred);
 	const ProjectManager::BuildResult built = project->BuildGame(opts);
 	if (!built.ok) { errOut = "build failed: " + built.error; return false; }
 

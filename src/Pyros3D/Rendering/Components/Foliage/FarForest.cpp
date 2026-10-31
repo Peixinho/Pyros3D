@@ -7,11 +7,11 @@
 #include <Pyros3D/Rendering/Components/Foliage/FarForest.h>
 #include <Pyros3D/Rendering/Components/Terrain/TerrainComponent.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
-#include <Pyros3D/Rendering/Renderer/InstanceCullGroup.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cone.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/ImpostorQuad.h>
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
@@ -45,6 +45,11 @@ namespace p3d {
 			struct View { f32 angle = 0.f, left = 0.f, right = 0.f, bottom = 0.f, top = 0.f; Vec4 uv; bool above = false; };
 			std::string atlas;
 			std::vector<View> views;
+			// or an octahedral impostor (the editor's bake_octahedral_impostor): the tree from a grid of
+			// directions over its upper half, its albedo and its normals - drawn facing the eye, the three
+			// views round its direction blended, lit by the scene as it is (ShaderUsage::Impostor)
+			std::string octAlbedo, octNormal;
+			f32 octFrames = 0.f, octRadius = 0.f, octCentre = 0.f;
 		};
 
 		// One tree of the far forest, in the world (the forest's own object is at the origin).
@@ -222,6 +227,13 @@ namespace p3d {
 			kd.radius = size.x; kd.height = size.y;
 			if (k.contains("color") && k["color"].is_array() && k["color"].size() >= 3)
 				kd.colour = Vec4(k["color"][0].get<f32>(), k["color"][1].get<f32>(), k["color"][2].get<f32>(), 1.f);
+			if (k.contains("octahedral") && k["octahedral"].is_object())
+			{
+				const json &oc = k["octahedral"];
+				kd.octAlbedo = oc.value("albedo", std::string()); kd.octNormal = oc.value("normal", std::string());
+				kd.octFrames = oc.value("frames", 8.f); kd.octRadius = oc.value("radius", 0.f); kd.octCentre = oc.value("centre", 0.f);
+				if (kd.octAlbedo.empty() || kd.octNormal.empty() || kd.octRadius <= 0.f) kd.octAlbedo.clear();
+			}
 			if (k.contains("impostor") && k["impostor"].is_object())
 			{
 				const json &im = k["impostor"];
@@ -249,11 +261,15 @@ namespace p3d {
 		// falls in, and a tree's crown near to is half in its own shade)
 		const f32 shade = cfg.value("shade", 1.f);
 		const int32 blockTiles = std::max(1, cfg.value("blockTiles", 4));
-		const Vec2 fadeIn = Pair(cfg, "fadeIn", Vec2(700.f, 850.f));
-		const Vec2 fade = Pair(cfg, "fade", Vec2(6500.f, 8000.f));
+		// Where it is drawn (metres, times the foliage's reach): coming in past where the near trees end ("fadeIn"), fewer
+		// further off ("thin": from, to, the share left - grown to cover), gone at the horizon ("fade")
+		const f32 reach = FoliageComponent::GetReach();
+		const Vec2 fadeIn = Pair(cfg, "fadeIn", Vec2(700.f, 850.f)) * reach;
+		const Vec2 fade = Pair(cfg, "fade", Vec2(6500.f, 8000.f)) * reach;
 		f32 thinFrom = 1500.f, thinTo = 5000.f, thinLeast = 0.35f;
 		if (cfg.contains("thin") && cfg["thin"].is_array() && cfg["thin"].size() >= 3)
 		{ thinFrom = cfg["thin"][0].get<f32>(); thinTo = cfg["thin"][1].get<f32>(); thinLeast = cfg["thin"][2].get<f32>(); }
+		thinFrom *= reach; thinTo *= reach;
 		// grown as the near ones are where they keep this share: wider more than taller
 		const f32 growW = powf(1.f / keep, 0.75f), growH = powf(1.f / keep, 0.25f);
 
@@ -321,7 +337,7 @@ namespace p3d {
 							c.m[0] = kd.radius * growW; c.m[5] = kd.height * 0.5f * growH; c.m[10] = kd.radius * growW;
 							c.m[13] = kd.height * (kd.cone ? 0.62f : 0.68f) * growH;
 							Tree t;
-							const bool cards = !kd.atlas.empty();
+							const bool cards = !kd.atlas.empty() || !kd.octAlbedo.empty();
 							if (cards)
 							{
 								// (the cards are the tree at scale 1: grown as the near ones are)
@@ -363,7 +379,19 @@ namespace p3d {
 			std::shared_ptr<Renderable> mesh;
 			std::shared_ptr<GenericShaderMaterial> mat;
 			f32 meshRadius = 1.f;
-			if (!kd.atlas.empty())
+			if (!kd.octAlbedo.empty())
+			{
+				mesh = std::make_shared<ImpostorQuad>(kd.octRadius, kd.octCentre);
+				mat = std::make_shared<GenericShaderMaterial>((ShaderOptions)(ShaderUsage::Texture | ShaderUsage::Diffuse | ShaderUsage::AlphaTest
+					| ShaderUsage::InstancedRendering | ShaderUsage::InstancedColor | ShaderUsage::Impostor));
+				if (std::shared_ptr<Texture> tex = Texture::LoadShared(assetRoot + "/" + kd.octAlbedo, TextureType::Texture, true, true)) mat->SetColorMap(tex);
+				if (std::shared_ptr<Texture> tex = Texture::LoadShared(assetRoot + "/" + kd.octNormal, TextureType::Texture, true, true)) mat->SetNormalMap(tex);
+				mat->SetImpostor(kd.octFrames, kd.octRadius, kd.octCentre);
+				mat->SetAlphaCutoff(0.5f);
+				mat->SetCullFace(CullFace::DoubleSided);
+				meshRadius = kd.octRadius;
+			}
+			else if (!kd.atlas.empty())
 			{
 				mesh = std::make_shared<Cards>(kd.views);
 				mat = std::make_shared<GenericShaderMaterial>((uint32)(ShaderUsage::Texture | ShaderUsage::Diffuse | ShaderUsage::AlphaTest
@@ -384,15 +412,6 @@ namespace p3d {
 			}
 			mat->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));
 			mat->SetRoughness(0.95f);
-			std::shared_ptr<InstanceCullGroup> group;
-			if (InstanceCullGroup::Available())
-			{
-				group = std::make_shared<InstanceCullGroup>(ff->owner.get(), mesh, std::static_pointer_cast<IMaterial>(mat),
-					std::shared_ptr<Renderable>(), 0.f, true, meshRadius);
-				group->SetThinning(thinFrom, thinTo, thinLeast, fade.x, fade.y);
-				group->SetFadeIn(fadeIn.x, fadeIn.y);
-				ff->groups.push_back(group);
-			}
 			for (int32 b = 0; b < BX * BZ; b++)
 			{
 				std::vector<Tree> &L = lists[(size_t)b * K + k];
@@ -423,8 +442,9 @@ namespace p3d {
 				std::shared_ptr<RenderingInstancedComponent> ic = std::make_shared<RenderingInstancedComponent>(mesh,
 					std::static_pointer_cast<IMaterial>(mat), std::move(ms), std::move(tints), radius);
 				ic->DisableCastShadows();
+				ic->SetDistanceFade(fadeIn.x, fadeIn.y, fade.x, fade.y);
+				ic->SetDistanceThinning(thinFrom, thinTo, thinLeast);
 				go->AddComponent(ic);
-				if (group) group->Add(ic.get());
 				ff->owner->Add(go);
 				ff->blocks.push_back(go);
 				std::vector<Tree>().swap(L);
@@ -438,7 +458,6 @@ namespace p3d {
 
 	FarForest::~FarForest()
 	{
-		for (size_t i = 0; i < groups.size(); i++) if (groups[i]) groups[i]->Detach();
 		if (scene && owner) scene->Remove(owner);
 	}
 

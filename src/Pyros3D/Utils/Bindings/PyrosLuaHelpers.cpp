@@ -403,10 +403,9 @@ namespace p3d {
 
 	// Resolve a Lua camera argument to GameObject*. Scene scripts pass either
 	// a raw GameObject* (camera_fly's `camera = owner` from GetOwner()) or a
-	// shared_ptr from GameObject.new() (Island reflection cam). sol will not
-	// coerce shared_ptr<LUA_GameObject> into GameObject* for a bound
-	// &ForwardRenderer::RenderScene - the call throws and DemoLauncher's
-	// protected draw aborts the whole frame (full black Island on GL).
+	// shared_ptr from GameObject.new(). sol will not coerce
+	// shared_ptr<LUA_GameObject> into GameObject* for a bound function
+	// taking a camera - the call throws.
 	//
 	// Check shared_ptr FIRST: on some sol2/build combos, is<T*>() can
 	// spuriously succeed for shared_ptr userdata and as<T*>() then yields
@@ -574,107 +573,6 @@ namespace p3d {
 		}
 		return sol::lua_nil;
 	}
-	// ForwardRenderer
-	void ForwardRenderer_EnableClipPlane(ForwardRenderer &r, uint32 numberOfClipPlanes)
-	{
-		r.EnableClipPlane(numberOfClipPlanes);
-	}
-	void ForwardRenderer_EnableClipPlaneDefault(ForwardRenderer &r)
-	{
-		r.EnableClipPlane(1);
-	}
-	void ForwardRenderer_ClearBufferBit(ForwardRenderer &r, uint32 option)
-	{
-		r.ClearBufferBit(option);
-	}
-	void DeferredRenderer_EnableClipPlane(DeferredRenderer &r, uint32 numberOfClipPlanes)
-	{
-		r.EnableClipPlane(numberOfClipPlanes);
-	}
-	void DeferredRenderer_EnableClipPlaneDefault(DeferredRenderer &r)
-	{
-		r.EnableClipPlane(1);
-	}
-	void DeferredRenderer_ClearBufferBit(DeferredRenderer &r, uint32 option)
-	{
-		r.ClearBufferBit(option);
-	}
-
-	void ForwardRenderer_PreRender(ForwardRenderer &r, sol::object camObj, SceneGraph* Scene)
-	{
-		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
-		if (!cam) throw std::runtime_error("ForwardRenderer:preRender: camera is not a GameObject");
-		r.PreRender(cam, Scene);
-	}
-	void ForwardRenderer_PreRenderTag(ForwardRenderer &r, sol::object camObj, SceneGraph* Scene, const std::string &tag)
-	{
-		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
-		if (!cam) throw std::runtime_error("ForwardRenderer:preRender: camera is not a GameObject");
-		r.PreRender(cam, Scene, tag);
-	}
-	void ForwardRenderer_RenderScene(ForwardRenderer &r, sol::object projObj, sol::object camObj, SceneGraph* Scene)
-	{
-		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
-		if (!cam) throw std::runtime_error("ForwardRenderer:renderScene: camera is not a GameObject");
-		// DemoLauncher stores lua["projection"] = &projection (Projection*).
-		// Accept pointer or value so Island multipass matches other demos.
-		if (projObj.is<Projection*>())
-		{
-			Projection* p = projObj.as<Projection*>();
-			if (!p) throw std::runtime_error("ForwardRenderer:renderScene: null Projection*");
-			r.RenderScene(*p, cam, Scene);
-			return;
-		}
-		if (projObj.is<Projection>())
-		{
-			r.RenderScene(projObj.as<Projection>(), cam, Scene);
-			return;
-		}
-		throw std::runtime_error("ForwardRenderer:renderScene: projection is not a Projection");
-	}
-	// DeferredRenderer
-	void DeferredRenderer_PreRender(DeferredRenderer &r, sol::object camObj, SceneGraph* Scene)
-	{
-		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
-		if (!cam) throw std::runtime_error("DeferredRenderer:preRender: camera is not a GameObject");
-		r.PreRender(cam, Scene);
-	}
-	void DeferredRenderer_PreRenderTag(DeferredRenderer &r, sol::object camObj, SceneGraph* Scene, const std::string &tag)
-	{
-		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
-		if (!cam) throw std::runtime_error("DeferredRenderer:preRender: camera is not a GameObject");
-		r.PreRender(cam, Scene, tag);
-	}
-	// DeferredRenderer::RenderScene() carries a fourth BufferOptions
-	// parameter that ForwardRenderer's does not. sol binds the function's
-	// full arity, so C++ default arguments are not optional from Lua -
-	// without this wrapper a script had to pass BufferOptions explicitly,
-	// which it could not even spell: the values come from Buffer_Bit,
-	// and only the unrelated FBOBufferBit enum (0/1/2 rather than
-	// 0x10/0x20/0x40) was exposed. Restoring the default here also makes
-	// renderScene() identical across both renderers, so a script can swap
-	// one for the other without touching its render loop.
-	void DeferredRenderer_RenderScene(DeferredRenderer &r, const p3d::Projection &projection, sol::object camObj, SceneGraph* Scene)
-	{
-		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
-		if (!cam) throw std::runtime_error("DeferredRenderer:renderScene: camera is not a GameObject");
-		r.RenderScene(projection, cam, Scene);
-	}
-	void DeferredRenderer_RenderSceneOptions(DeferredRenderer &r, const p3d::Projection &projection, sol::object camObj, SceneGraph* Scene, const uint32 BufferOptions)
-	{
-		GameObject* cam = LuaObjectToGameObjectPtr(camObj);
-		if (!cam) throw std::runtime_error("DeferredRenderer:renderScene: camera is not a GameObject");
-		r.RenderScene(projection, cam, Scene, BufferOptions);
-	}
-	// Shader
-	void Shader_SendUniform(Shader &s, const Uniform &uniform, int32 Handle)
-	{
-		Shader::SendUniform(uniform, Handle);
-	}
-	void Shader_SendUniformPTR(Shader &s, const Uniform &uniform, void* data, int32 Handle, uint32 elementCount)
-	{
-		Shader::SendUniform(uniform, data, Handle, elementCount);
-	}
 	// Skeleton Animation Instance
 	void SkeletonAnimationInstance_AddBone(SkeletonAnimationInstance &a, const uint32 LayerID, const std::string &bone)
 	{
@@ -749,45 +647,6 @@ namespace p3d {
 	std::shared_ptr<IPhysicsComponent> IPhysics_CreateConvexTriangleMesh(IPhysics &p, const std::vector<uint32> &index, const std::vector<Vec3> &vertex, const f32 mass)
 	{
 		return p.CreateConvexTriangleMesh(index, vertex, mass);
-	}
-	// Frame Buffer — Texture args must be shared_ptr (Lua factories); sol
-	// also drops C++ default args, so renderbuffer overloads need both
-	// 4-arg and 5-arg wrappers.
-	void FrameBuffer_InitTex(FrameBuffer &f, const uint32 attachmentFormat, const uint32 texType, const std::shared_ptr<Texture> &attachment)
-	{
-		f.Init(attachmentFormat, texType, attachment.get());
-	}
-	void FrameBuffer_InitRenderBuffer4(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
-	{
-		f.Init(attachmentFormat, attachmentDataType, Width, Height, 0);
-	}
-	void FrameBuffer_InitRenderBuffer5(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
-	{
-		f.Init(attachmentFormat, attachmentDataType, Width, Height, msaa);
-	}
-	void FrameBuffer_AddAttachTex(FrameBuffer &f, const uint32 attachmentFormat, const uint32 texType, const std::shared_ptr<Texture> &attachment)
-	{
-		f.AddAttach(attachmentFormat, texType, attachment.get());
-	}
-	void FrameBuffer_AddAttachRenderBuffer4(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
-	{
-		f.AddAttach(attachmentFormat, attachmentDataType, Width, Height, 0);
-	}
-	void FrameBuffer_AddAttachRenderBuffer5(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
-	{
-		f.AddAttach(attachmentFormat, attachmentDataType, Width, Height, msaa);
-	}
-	// FrameBuffer::Bind(access = Read_Write) - C++ default is invisible to
-	// sol; Lua's fbo:bind() was throwing "expected number, received no
-	// value" into void(unsigned int) and aborting Island multipass every
-	// frame (flash via main-only fallback).
-	void FrameBuffer_Bind(FrameBuffer &f, uint32 access)
-	{
-		f.Bind(access);
-	}
-	void FrameBuffer_BindDefault(FrameBuffer &f)
-	{
-		f.Bind();
 	}
 	void Texture_Resize3(Texture &t, uint32 width, uint32 height, uint32 level)
 	{

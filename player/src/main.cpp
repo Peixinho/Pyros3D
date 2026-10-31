@@ -25,7 +25,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <chrono>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
 #include <Pyros3D/Utils/Console/Console.h>
@@ -114,11 +113,6 @@ int main(int argc, char** argv)
 		FrameProfiler& prof = FrameProfiler::Instance();
 		prof.BeginFrame();
 		{
-			// (the wait for a slower GPU side, taken before the input is read and not after)
-			PYROS_PROFILE_SCOPE("App.WaitDevice");
-			GetActiveRenderDevice().WaitForFrameRoom();
-		}
-		{
 			PYROS_PROFILE_SCOPE("App.GetEvents");
 			game->GetEvents();
 		}
@@ -133,12 +127,6 @@ int main(int argc, char** argv)
 		}
 		prof.EndFrame();
 	}
-
-	// One wait covers every GPU-owning thing Shutdown() is about to free -
-	// see MainProgram.cpp's comment for the Vulkan validation errors this
-	// exists to prevent.
-	if (IsActiveRenderDeviceSet())
-		GetActiveRenderDevice().WaitIdle();
 
 	game->Shutdown();
 	// Everything that has to be closed has been, above. What `delete game` adds

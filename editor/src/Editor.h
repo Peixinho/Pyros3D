@@ -16,19 +16,14 @@
 #include <map>
 #include <vector>
 #include <imgui_impl_sdl2.h>
-#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
-	#include <imgui_impl_opengl3.h>
-#endif
 
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Utils/Colors/Colors.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 
 #include "editor/libgizmo/IGizmo.h"
@@ -66,27 +61,11 @@
 #define STR_EX(path) _STR_EX(path)
 #endif
 
-// Window context per backend, same selection the examples make (see
-// BaseExample.h). The editor is no longer OpenGL-only: on Vulkan and Metal
-// the ImGui draw is issued inside the device's EndFrame() via its UIRenderHook,
-// and the scene viewport goes through IRenderDevice::GetImGuiTextureID().
-#if defined(_SDL2VULKAN)
-	#include "SDL2Vulkan/SDL2VulkanContext.h"
-	#define ClassName SDL2VulkanContext
-#elif defined(_SDL2METAL)
-	#include "SDL2Metal/SDL2MetalContext.h"
-	#define ClassName SDL2MetalContext
-#else
-	#include "SDL2/SDL2Context.h"
-	#define ClassName SDL2Context
-#endif
-
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
-#if defined(_SDL2VULKAN)
-	#include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
-#elif defined(_SDL2METAL)
-	#include <Pyros3D/Rendering/Device/MetalRenderDevice.h>
-#endif
+// The window, with the device the editor is drawn on (the same the player and the demos have)
+#include "SDL2/SDL2Context.h"
+#define ClassName SDL2Context
+#include <Pyros3D/Rendering/Renderer/ImGuiRenderer.h>
+#include <memory>
 
 using namespace p3d;
 
@@ -94,6 +73,8 @@ class Editor : public ClassName
 {
 
 public:
+	// ImGui, drawn by the renderer's ImGuiRenderer
+	std::unique_ptr<p3d::ImGuiRenderer> imguiRenderer;
 	
 	static Editor* getInstance();
 	static void cleanupInstance();
@@ -172,25 +153,6 @@ protected:
 	// PropertiesTab via SetOverrideDrawer() in Init().
 	bool DrawActiveMaterialProperties();
 	void UpdateWindowTitle();
-	// Live renderer switch, shared by the Project Settings "Apply" button
-	// and the "set_renderer" AgentServer command - applies to every open
-	// scene tab (SceneEditor::SwitchRenderer() no-ops if already the
-	// requested type). Does not touch project.json itself; callers decide
-	// whether/how to persist the choice.
-	void SwitchAllScenesRenderer(bool useDeferred);
-	// The project's renderer setting, as one undo step. An anti-aliasing
-	// mode the new renderer cannot run (MSAA under Deferred) is replaced by
-	// its fallback in the same step, since the settings list never offers it.
-	void SetProjectRendererType(ProjectRendererType after);
-	// Recompiles every live CustomShaderMaterial for the branch matching
-	// useDeferred: open Material Editor tabs through their own docs (whose
-	// compiledShader ownership and generated-GLSL text stay in sync),
-	// scene-assigned ones through SceneEditor::RecompileOrphanedCustomMaterials.
-	// Called at the end of SwitchAllScenesRenderer() - safe there because
-	// program compile/link already runs synchronously from UI callbacks
-	// (the Apply/Save buttons); it's the G-buffer FBO rebuild that stays
-	// deferred to the next ShowViewport, not the shader recompilation.
-	void RecompileCustomMaterialsForRenderer(bool useDeferred);
 	// Resolves a scene 'path' argument from the agent/AI API: project-relative
 	// (the form this API hands out) or absolute, either way to something the
 	// scene loader can open.
@@ -371,11 +333,6 @@ private:
 	// a Material Editor tab as a side effect - see AssignMaterialAsset and
 	// MaterialEditorDocument::hiddenFromTabs.
 	MaterialEditorDocument* LoadMaterialQuietly(const std::string& pathArg, std::string& errOut);
-	// Which of a generated material's two compiled branches (see
-	// MaterialCodegen.cpp) is active - driven by the project's Renderer
-	// setting, not a per-scene choice (see ProjectManager::rendererType's
-	// own comment on why).
-	bool UseDeferredGBuffer() const { return project.GetSettings().rendererType == ProjectRendererType::Deferred; }
 	// Loads/opens materialPath and assigns it onto the given object's
 	// submesh in the active scene document. Shared by the agent bridge
 	// (assign_material) and the Properties panel's material picker.

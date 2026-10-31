@@ -6,6 +6,7 @@
 // Description : Particle System
 //============================================================================
 
+#include <algorithm>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Physics/Physics2D/Physics2DWorld.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -13,7 +14,6 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/GameObjects/GameObject.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 namespace p3d {
 
@@ -35,7 +35,6 @@ namespace p3d {
 		collide2D = false;
 		bounce = 0.3f;
 		collisionMask = 0xFFFFFFFFu;
-		gpuSimulation = false;
 		startSize = 1.0f;
 		endSize = 2.0f;
 		sizeRandomJitter = 0.2f;
@@ -50,75 +49,25 @@ namespace p3d {
 		blendMode = ParticleBlendMode::AlphaBlend;
 		softness = getenv("PYROS_HARD_PARTICLES") ? 0.f : 0.4f;   // (PYROS_HARD_PARTICLES=1: the hard edges, to compare)
 		boundingSphereRadius = 0.0f;
+		gpuSimulation = false;
 	}
 
-	// Internal material - see the auto-fix comment in particleSystem.glsl
-	// itself. Every uniform is set via a stored handle so ParticleSystem's
-	// live setters can push new values at any time (Uniform::SetValue()),
-	// exactly the same "stored handle" pattern the old ParticleMaterial/
-	// CustomMaterialExample examples already used for their own tunables.
+	// Its material: how it is blended and its texture - the renderer draws a system from its particles and its desc
 	class ParticleSystemMaterial : public CustomShaderMaterial
 	{
 	public:
-		ParticleSystemMaterial(const std::shared_ptr<Texture> &texture) : CustomShaderMaterial("shaders/particleSystem.glsl")
+		ParticleSystemMaterial(const std::shared_ptr<Texture> &texture) : CustomShaderMaterial()
 		{
-			AddUniform(Uniform("uProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix));
-			AddUniform(Uniform("uViewMatrix", Uniforms::DataUsage::ViewMatrix));
-
-			int32 texUnit = 0;
-			AddUniform(Uniform("uTex0", Uniforms::DataType::Int, &texUnit));
 			if (texture)
 				textures.push_back(texture);
-
-			startColorHandle = AddUniform(Uniform("uStartColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
-			endColorHandle = AddUniform(Uniform("uEndColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
-			startSizeHandle = AddUniform(Uniform("uStartSize", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-			endSizeHandle = AddUniform(Uniform("uEndSize", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-			sizeJitterHandle = AddUniform(Uniform("uSizeRandomJitter", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-			fadeInHandle = AddUniform(Uniform("uFadeInFraction", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-			fadeOutHandle = AddUniform(Uniform("uFadeOutFraction", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-			// Passed as floats, not ints: the mode is compared against
-			// thresholds in the shader, and a float uniform needs no
-			// integer-uniform support from either backend's auto-fix path.
-			sizeEaseHandle = AddUniform(Uniform("uSizeEase", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-			colorEaseHandle = AddUniform(Uniform("uColorEase", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-			// Soft: fades where it meets the scene behind it (IRenderer::SetMaterialSceneDepth).
-			AddUniform(Uniform("uSceneDepth", Uniforms::DataUsage::SceneDepthMap));
-			softnessHandle = AddUniform(Uniform("uSoftness", Uniforms::DataUsage::Other, Uniforms::DataType::Float));
-			const f32 soft = 0.f;
-			softnessHandle->SetValue((void*)&soft);
-
 			SetTransparencyFlag(true);
 			// A spherical billboard's winding isn't guaranteed consistent
-			// from every camera angle - double-sided is the safe default,
-			// matching the old ParticleMaterial's same reasoning.
+			// from every camera angle - double-sided is the safe default.
 			SetCullFace(CullFace::DoubleSided);
 			EnableBlending();
 			SetBlendMode(ParticleBlendMode::AlphaBlend);
 		}
 
-		void SetColors(const Vec4 &start, const Vec4 &end)
-		{
-			startColorHandle->SetValue((void*)&start);
-			endColorHandle->SetValue((void*)&end);
-		}
-		void SetSizes(f32 start, f32 end, f32 jitter)
-		{
-			startSizeHandle->SetValue(&start);
-			endSizeHandle->SetValue(&end);
-			sizeJitterHandle->SetValue(&jitter);
-		}
-		void SetEasing(uchar sizeEase, uchar colorEase)
-		{
-			f32 s = (f32)sizeEase, c = (f32)colorEase;
-			sizeEaseHandle->SetValue(&s);
-			colorEaseHandle->SetValue(&c);
-		}
-		void SetFade(f32 fadeIn, f32 fadeOut)
-		{
-			fadeInHandle->SetValue(&fadeIn);
-			fadeOutHandle->SetValue(&fadeOut);
-		}
 		void SetBlendMode(uint32 mode)
 		{
 			if (mode == ParticleBlendMode::Additive)
@@ -126,16 +75,6 @@ namespace p3d {
 			else
 				BlendingFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
 		}
-
-	private:
-		Uniform *sizeEaseHandle, *colorEaseHandle;
-		Uniform *startColorHandle, *endColorHandle;
-		Uniform *startSizeHandle, *endSizeHandle, *sizeJitterHandle;
-		Uniform *fadeInHandle, *fadeOutHandle;
-		Uniform *softnessHandle;
-	public:
-		// Metres over which it fades where it meets what is behind it (0: a hard edge, as before).
-		void SetSoftness(const f32 metres) { const f32 v = metres > 0.f ? metres : 0.f; softnessHandle->SetValue((void*)&v); }
 	};
 
 	namespace {
@@ -160,12 +99,7 @@ namespace p3d {
 		std::shared_ptr<ParticleSystemMaterial> BuildParticleMaterial(const ParticleSystemDesc &desc)
 		{
 			auto mat = std::make_shared<ParticleSystemMaterial>(desc.texture);
-			mat->SetColors(desc.startColor, desc.endColor);
-			mat->SetSizes(desc.startSize, desc.endSize, desc.sizeRandomJitter);
-			mat->SetFade(desc.fadeInFraction, desc.fadeOutFraction);
-			mat->SetEasing(desc.sizeEase, desc.colorEase);
 			mat->SetBlendMode(desc.blendMode);
-			mat->SetSoftness(desc.softness);
 			g_pendingParticleMaterial = mat.get();
 			return mat;
 		}
@@ -188,11 +122,6 @@ namespace p3d {
 		}
 	}
 
-	void ParticleSystem::BuildShaders()
-	{
-		ParticleSystemMaterial m(std::shared_ptr<Texture>());
-	}
-
 	ParticleSystem::ParticleSystem(const ParticleSystemDesc &d)
 		: IRenderingInstancedComponent(std::make_shared<Plane>(0.5f, 0.5f), BuildParticleMaterial(d), 0, EstimateBoundingSphereRadius(d))
 		, desc(d)
@@ -203,11 +132,6 @@ namespace p3d {
 		, hasUpdatedOnce(false)
 		, playing(true)
 		, pendingBurst(false)
-		, gpuActive(false)
-		, gpuStage(0), gpuProgram(0), gpuPipeline(0)
-		, gpuStateBuffer(0), gpuParamsBuffer(0)
-		, gpuSpawnCursor(0)
-		, particleBuffer(NULL)
 		, material(g_pendingParticleMaterial)
 		, quad(NULL)
 	{
@@ -223,19 +147,17 @@ namespace p3d {
 
 		if (desc.maxParticles == 0)
 			desc.maxParticles = 1;
-		cpuState.resize(desc.maxParticles);
-		gpuState.resize(desc.maxParticles);
-
-		// Before the attribute buffer, because its draw hint depends on
-		// the answer - see CreateGPUPipeline()'s comment.
-		BuildSimulationBackend();
+		// (on the GPU its particles are the GPU's: no copy of a million of them here)
+		if (!SimulatedOnGPU())
+		{
+			cpuState.resize(desc.maxParticles);
+			gpuState.resize(desc.maxParticles);
+		}
+		SetNumberInstances(0);
 	}
 
 	ParticleSystem::~ParticleSystem()
 	{
-		ShutdownGPUSimulation();
-		RemoveBuffer(particleBuffer);
-		delete particleBuffer;
 		// material + quad (Plane) are owned by RenderingComponent's
 		// shared_ptr members - do not delete here.
 		material = NULL;
@@ -267,17 +189,50 @@ namespace p3d {
 	{
 		liveCount = 0;
 		pendingBurst = false;
-		if (gpuActive)
-		{
-			// The GPU path draws the whole pool every frame and hides dead
-			// slots with the alive flag, so "clear" means zero that flag -
-			// NOT drop the instance count to 0, which would stop the
-			// emitter rendering permanently, since nothing on this path
-			// ever raises it again.
-			ZeroGPUState();
-			return;
-		}
+		gpuResetPending = true;
 		SetNumberInstances(0);
+	}
+
+	void ParticleSystem::SetGPUSimulation(const bool on)
+	{
+		if (on == desc.gpuSimulation) return;
+		desc.gpuSimulation = on;
+		// (what it had is the other side's: started again)
+		liveCount = 0; emissionAccumulator = 0.0f; gpuResetPending = true; gpuCursor = 0;
+		if (SimulatedOnGPU()) { std::vector<ParticleCPU>().swap(cpuState); std::vector<ParticleGPU>().swap(gpuState); }
+		else { cpuState.assign(desc.maxParticles, ParticleCPU()); gpuState.assign(desc.maxParticles, ParticleGPU()); }
+		if (!desc.looping && playing) pendingBurst = true;
+		SetNumberInstances(0);
+	}
+
+	void ParticleSystem::UpdateGPU(const f64 time, const f32 dt)
+	{
+		// How many spawn: the burst asked for, and the stream's this frame (counted, not spawned one by one)
+		uint32 spawn = 0;
+		if (pendingBurst) { pendingBurst = false; spawn += desc.burstCount; }
+		if (playing && desc.looping && desc.emissionRate > 0.0f)
+		{
+			emissionAccumulator += dt;
+			const f32 interval = 1.0f / desc.emissionRate;
+			const uint32 ticks = (uint32)(emissionAccumulator / interval);
+			emissionAccumulator -= (f32)ticks * interval;
+			spawn += ticks * desc.burstCount;
+		}
+		// The ring: as many slots as can be alive at once (each spawn takes the next, the oldest's)
+		const f64 alive = desc.looping ? (f64)desc.emissionRate * desc.burstCount * Max(desc.maxLifetime, 0.01f) * 1.1 + desc.burstCount + 1.0 : (f64)desc.burstCount;
+		const uint32 capacity = Max(1u, (uint32)Min((f64)desc.maxParticles, Max(alive, 1.0)));
+		if (capacity != gpuStep.capacity) { gpuResetPending = true; gpuCursor = 0; }
+		spawn = Min(spawn, capacity);
+		Vec3 origin = Vec3::ZERO;
+		if (GetOwner() != NULL) { GetOwner()->RefreshTransformation(); origin = GetOwner()->GetWorldPosition(); }
+		gpuStep.id++;
+		gpuStep.start = gpuCursor; gpuStep.count = spawn; gpuStep.capacity = capacity;
+		gpuStep.origin = origin; gpuStep.time = (f32)time; gpuStep.dt = dt;
+		gpuStep.reset = gpuResetPending; gpuResetPending = false;
+		gpuCursor = (gpuCursor + spawn) % capacity;
+		// (every slot drawn - the dead ones have no size)
+		liveCount = capacity;
+		SetNumberInstances(capacity);
 	}
 
 	void ParticleSystem::SetSizes(const f32 startSize, const f32 endSize, const f32 sizeRandomJitter)
@@ -285,27 +240,29 @@ namespace p3d {
 		desc.startSize = startSize;
 		desc.endSize = endSize;
 		desc.sizeRandomJitter = sizeRandomJitter;
-		material->SetSizes(startSize, endSize, sizeRandomJitter);
 	}
 
 	void ParticleSystem::SetColors(const Vec4 &startColor, const Vec4 &endColor)
 	{
 		desc.startColor = startColor;
 		desc.endColor = endColor;
-		material->SetColors(startColor, endColor);
 	}
 
 	void ParticleSystem::SetFade(const f32 fadeInFraction, const f32 fadeOutFraction)
 	{
 		desc.fadeInFraction = fadeInFraction;
 		desc.fadeOutFraction = fadeOutFraction;
-		material->SetFade(fadeInFraction, fadeOutFraction);
+	}
+
+	void ParticleSystem::SetLit(const bool on, const f32 forwardScatter)
+	{
+		lit = on;
+		this->forwardScatter = std::max(-0.95f, std::min(0.95f, forwardScatter));
 	}
 
 	void ParticleSystem::SetSoftness(const f32 metres)
 	{
 		desc.softness = metres > 0.f ? metres : 0.f;
-		material->SetSoftness(desc.softness);
 	}
 
 	void ParticleSystem::SetEasing(const uchar sizeEase, const uchar colorEase)
@@ -313,7 +270,6 @@ namespace p3d {
 		desc.sizeEase = sizeEase;
 		desc.colorEase = colorEase;
 		if (!material) return;
-		material->SetEasing(sizeEase, colorEase);
 	}
 
 	void ParticleSystem::SetBlendMode(const uint32 blendMode)
@@ -347,22 +303,13 @@ namespace p3d {
 		// and nothing here has a particle identity that outlives its slot.
 		liveCount = 0;
 		emissionAccumulator = 0.0f;
-		cpuState.assign(capacity, ParticleCPU());
-		gpuState.assign(capacity, ParticleGPU());
-		SetNumberInstances(0);
-		if (gpuActive)
+		gpuResetPending = true; gpuCursor = 0;
+		if (!SimulatedOnGPU())
 		{
-			// The GPU path's state SSBO and slot mirror are both sized by
-			// maxParticles, and neither can be resized in place - so the
-			// whole backend is rebuilt. Consistent with this setter's
-			// existing contract, which already discards every particle.
-			BuildSimulationBackend();
-			return;
+			cpuState.assign(capacity, ParticleCPU());
+			gpuState.assign(capacity, ParticleGPU());
 		}
-		// The one legitimate reallocation besides the constructor's - see the
-		// class comment on why every per-frame Update() instead reuploads
-		// this same (now new) fixed byte length.
-		particleBuffer->Buffer->Update(&gpuState[0], (uint32)(gpuState.size() * sizeof(ParticleGPU)));
+		SetNumberInstances(0);
 	}
 
 	void ParticleSystem::SpawnParticle(const f64 time)
@@ -410,12 +357,8 @@ namespace p3d {
 		cpuState[slot].randomSeed = rng.NextFloat01();
 
 		gpuState[slot].data0 = Vec4(origin, 0.0f);
-		// .z is the alive flag the vertex shader multiplies size by (it
-		// was a documented "reserved" component until GPU simulation
-		// needed a way to hide a dead slot it cannot compact away). The
-		// CPU path compacts, so every slot it draws is alive - but it
-		// still has to write 1.0 here, because the shader does not know
-		// which path produced the buffer.
+		// .z is the alive flag the vertex shader multiplies size by: every slot drawn is alive (the live ones are
+		// kept at the front).
 		gpuState[slot].data1 = Vec4(cpuState[slot].rotation, cpuState[slot].randomSeed, 1.0f, 0.0f);
 
 		liveCount++;
@@ -428,12 +371,15 @@ namespace p3d {
 		if (dt > 0.1f) dt = 0.1f; // clamp - avoid a spawn/integration burst after a stall
 		lastUpdateTime = time;
 		hasUpdatedOnce = true;
+		if (SimulatedOnGPU()) { UpdateGPU(time, dt); return; }
+		// (back from the GPU, or a 2D world asked for after it: its particles kept here again)
+		if (cpuState.size() != desc.maxParticles) { cpuState.assign(desc.maxParticles, ParticleCPU()); gpuState.assign(desc.maxParticles, ParticleGPU()); liveCount = 0; }
 
 		if (pendingBurst)
 		{
 			pendingBurst = false;
 			for (uint32 i = 0; i < desc.burstCount; i++)
-				gpuActive ? SpawnParticleGPU(time) : SpawnParticle(time);
+				SpawnParticle(time);
 		}
 
 		if (playing && desc.looping && desc.emissionRate > 0.0f)
@@ -445,18 +391,8 @@ namespace p3d {
 			{
 				emissionAccumulator -= interval;
 				for (uint32 i = 0; i < desc.burstCount; i++)
-					gpuActive ? SpawnParticleGPU(time) : SpawnParticle(time);
+					SpawnParticle(time);
 			}
-		}
-
-		// Emission stays on the CPU either way - it is a handful of
-		// spawns per frame against thousands of integrations, so moving
-		// it would buy nothing and cost the ability to place a particle
-		// at the emitter's current world transform.
-		if (gpuActive)
-		{
-			UpdateGPU(time, dt);
-			return;
 		}
 
 		// Integrate + age every live particle; dead ones are removed via
@@ -515,371 +451,8 @@ namespace p3d {
 		}
 
 		SetNumberInstances(liveCount);
-		// Always the same fixed (maxParticles) byte length - see the class
-		// comment on why this keeps GeometryBuffer::Update() off the
-		// reallocate-every-frame path.
-		particleBuffer->Buffer->Update(&gpuState[0], (uint32)(gpuState.size() * sizeof(ParticleGPU)));
 	}
 
 
-	// =====================================================================
-	// GPU simulation
-	//
-	// The dispatch runs from Update(), which SceneGraph::Update() calls
-	// BEFORE any rendering - and that placement is not incidental. Metal
-	// refuses a dispatch while a render encoder is open, and Vulkan cannot
-	// record one inside a render pass at all, so a per-frame simulation
-	// that ran during the frame would have to suspend and resume the pass.
-	// Simulating in the update phase sidesteps that entirely: the compute
-	// work is submitted and complete before BeginFrame is ever called.
-	// =====================================================================
-
-	namespace {
-
-	// Three vec4s of state per particle. Position lives here rather than
-	// being read back out of the attribute buffer so that the dispatch
-	// only ever WRITES that buffer - the CPU never has to poke at vertex
-	// data the draw is about to consume, and spawning touches one buffer
-	// the device knows the size of.
-	const uint32 kGPUStateVec4s = 3;
-
-	const char *kParticleComputeShader =
-		"layout(local_size_x = 64) in;\n"
-		"layout(std430, binding = 0) buffer StateBuf { vec4 state[]; };\n"
-		"layout(std430, binding = 1) buffer OutBuf { vec4 outData[]; };\n"
-		"layout(std430, binding = 2) buffer ParamBuf { vec4 params[]; };\n"
-		"layout(std430, binding = 3) buffer SpawnBuf { vec4 spawn[]; };\n"
-		"void main() {\n"
-		"    uint i = gl_GlobalInvocationID.x;\n"
-		"    float dt      = params[0].x;\n"
-		"    float now     = params[0].y;\n"
-		"    float count   = params[0].z;\n"
-		"    float damping = params[0].w;\n"
-		"    vec3  gravity = params[1].xyz;\n"
-		"    if (float(i) >= count) return;\n"
-		"    uint b = i * 3u;\n"
-		"    vec4 s0 = state[b + 0u];\n"   // xyz position, w lifetime
-		"    vec4 s1 = state[b + 1u];\n"   // xyz velocity, w spawnTime
-		"    vec4 s2 = state[b + 2u];\n"   // x rotation, y rotationSpeed, z seed, w alive
-		// this frame's new particles: slots cursor .. cursor+n (wrapping), from the spawn buffer
-		"    uint cursor = uint(params[2].x), born = uint(params[2].y), pool = uint(count);\n"
-		"    uint r = (i + pool - cursor) % pool;\n"
-		"    if (r < born) { uint q = r * 3u; s0 = spawn[q + 0u]; s1 = spawn[q + 1u]; s2 = spawn[q + 2u]; }\n"
-		"    float lifetime = s0.w;\n"
-		"    float age = now - s1.w;\n"
-		"    if (s2.w < 0.5 || lifetime <= 0.0 || age >= lifetime) {\n"
-		"        state[b + 2u] = vec4(s2.xyz, 0.0);\n"
-		"        outData[i * 2u + 0u] = vec4(0.0);\n"
-		"        outData[i * 2u + 1u] = vec4(0.0);\n"
-		"        return;\n"
-		"    }\n"
-		"    vec3 velocity = s1.xyz + gravity * dt;\n"
-		"    if (damping > 0.0) velocity *= max(0.0, 1.0 - damping * dt);\n"
-		"    float rotation = s2.x + s2.y * dt;\n"
-		"    vec3 position = s0.xyz + velocity * dt;\n"
-		"    state[b + 0u] = vec4(position, lifetime);\n"
-		"    state[b + 1u] = vec4(velocity, s1.w);\n"
-		"    state[b + 2u] = vec4(rotation, s2.y, s2.z, 1.0);\n"
-		"    outData[i * 2u + 0u] = vec4(position, age / lifetime);\n"
-		"    outData[i * 2u + 1u] = vec4(rotation, s2.z, 1.0, 0.0);\n"
-		"}\n";
-
-	} // namespace
-
-	// Creates the attribute buffer and, if asked for and available, the
-	// compute pipeline and its buffers. Shared by the constructor and by
-	// anything that has to switch paths afterwards, because the two are
-	// not independent: whether the dispatch exists decides the attribute
-	// buffer's draw hint (Static vs Stream - see CreateGPUPipeline's
-	// comment), so they cannot be set up separately or changed in place.
-	void ParticleSystem::BuildSimulationBackend()
-	{
-		ShutdownGPUSimulation();
-		if (particleBuffer != NULL)
-		{
-			RemoveBuffer(particleBuffer);
-			delete particleBuffer;
-			particleBuffer = NULL;
-		}
-
-		const bool useGPU = desc.gpuSimulation && CreateGPUPipeline();
-		if (desc.gpuSimulation && !useGPU)
-			echo("ParticleSystem: gpuSimulation requested but unavailable on this backend - using the CPU path.");
-
-		particleBuffer = new AttributeBuffer(Buffer::Type::Attribute,
-			useGPU ? Buffer::Draw::Static : Buffer::Draw::Stream);
-		particleBuffer->AddAttribute("aParticleData0", Buffer::Attribute::Type::Vec4, NULL, 0, 1);
-		particleBuffer->AddAttribute("aParticleData1", Buffer::Attribute::Type::Vec4, NULL, 0, 1);
-		particleBuffer->SendBuffer();
-		AddBuffer(particleBuffer);
-		// Re-materialise the CPU mirrors if a previous GPU build released
-		// them (see the end of this function). Switching back to the CPU
-		// path would otherwise index an empty vector here, and so would
-		// the upload just below - the failure is silent, because an empty
-		// vector's data() is not required to be null.
-		if (gpuState.size() != desc.maxParticles)
-		{
-			cpuState.assign(desc.maxParticles, ParticleCPU());
-			gpuState.assign(desc.maxParticles, ParticleGPU());
-			liveCount = 0;
-		}
-		// Establish the buffer at full capacity right away - see the class
-		// comment on why every later Update() reuploads this exact same
-		// byte length (keeps GeometryBuffer::Update() on the cheap sub-
-		// data path instead of reallocating every frame). This is the one
-		// legitimate reallocation, from AddAttribute()'s zero-length
-		// initial SendBuffer() up to real capacity.
-		particleBuffer->Buffer->Update(&gpuState[0], (uint32)(gpuState.size() * sizeof(ParticleGPU)));
-
-		// After the attribute buffer exists, because the dispatch writes
-		// into it and needs its device handle.
-		if (useGPU && !CreateGPUBuffers())
-		{
-			echo("ParticleSystem: GPU simulation buffers failed to allocate - using the CPU path.");
-			ShutdownGPUSimulation();
-		}
-		if (gpuActive)
-		{
-			echo("ParticleSystem: GPU simulation active, pool of "
-				+ std::to_string(desc.maxParticles) + " particles ("
-				+ std::to_string((desc.maxParticles * kGPUStateVec4s * sizeof(Vec4)) >> 20)
-				+ " MB state + "
-				+ std::to_string((desc.maxParticles * sizeof(ParticleGPU)) >> 20)
-				+ " MB instance data).");
-			// Nothing reads these again - simulation state lives in the
-			// SSBO and the attribute buffer is written by the dispatch.
-			// They were only needed to size and zero the attribute buffer
-			// just above. At a million particles they are ~60MB of CPU
-			// memory that would otherwise sit untouched for the lifetime
-			// of the emitter, so they are released rather than merely
-			// cleared (clear() keeps the capacity).
-			std::vector<ParticleCPU>().swap(cpuState);
-			std::vector<ParticleGPU>().swap(gpuState);
-		}
-		else
-		{
-			SetNumberInstances(liveCount);
-		}
-	}
-
-	void ParticleSystem::SetGPUSimulation(const bool enabled)
-	{
-		if (enabled == desc.gpuSimulation)
-			return;
-		desc.gpuSimulation = enabled;
-		// Every live particle goes, for the same reason SetMaxParticles
-		// discards them: the two paths keep their state in different
-		// places (cpuState/gpuState here, an SSBO there) and nothing owns
-		// a particle identity that could be migrated between them.
-		liveCount = 0;
-		pendingBurst = false;
-		emissionAccumulator = 0.0f;
-		BuildSimulationBackend();
-	}
-
-	bool ParticleSystem::CreateGPUPipeline()
-	{
-		IRenderDevice &dev = GetActiveRenderDevice();
-		if (!dev.SupportsCompute())
-			return false;
-
-		gpuStage = dev.CreateShaderStage(ShaderType::ComputeShader);
-		if (gpuStage == 0)
-			return false;
-		{
-			std::string errorLog;
-			const std::string source = dev.BuildShaderSource(std::string(), std::string(kParticleComputeShader));
-			if (!dev.CompileShaderStage(gpuStage, source, errorLog))
-			{
-				echo("ParticleSystem: GPU simulation unavailable - compute shader failed to compile: " + errorLog);
-				ShutdownGPUSimulation();
-				return false;
-			}
-		}
-		gpuProgram = dev.CreateProgram();
-		dev.AttachShaderStage(gpuProgram, gpuStage);
-		{
-			std::string errorLog;
-			if (!dev.LinkProgram(gpuProgram, errorLog))
-			{
-				echo("ParticleSystem: GPU simulation unavailable - link failed: " + errorLog);
-				ShutdownGPUSimulation();
-				return false;
-			}
-		}
-		gpuPipeline = dev.CreateComputePipeline(gpuProgram);
-		if (gpuPipeline == 0)
-		{
-			ShutdownGPUSimulation();
-			return false;
-		}
-		return true;
-	}
-
-	// Clears every slot's alive flag. Chunked rather than done from one
-	// pool-sized temporary: at a million particles that staging buffer
-	// alone would be 48MB, allocated only to be copied once.
-	void ParticleSystem::ZeroGPUState()
-	{
-		if (gpuStateBuffer == 0)
-			return;
-		IRenderDevice &dev = GetActiveRenderDevice();
-		const uint32 stateBytes = desc.maxParticles * kGPUStateVec4s * (uint32)sizeof(Vec4);
-		const uint32 kChunkBytes = 1u << 20;
-		std::vector<uint8> zeros(kChunkBytes < stateBytes ? kChunkBytes : stateBytes, 0);
-		for (uint32 offset = 0; offset < stateBytes; offset += (uint32)zeros.size())
-		{
-			const uint32 n = ((stateBytes - offset) < (uint32)zeros.size())
-				? (stateBytes - offset) : (uint32)zeros.size();
-			dev.UpdateStorageBuffer(gpuStateBuffer, offset, n, zeros.data());
-		}
-		gpuSpawnCursor = 0;
-		gpuSpawnStaging.clear();
-	}
-
-	bool ParticleSystem::CreateGPUBuffers()
-	{
-		IRenderDevice &dev = GetActiveRenderDevice();
-
-		// Must start zeroed: alive (s2.w) being 0 for every slot is what
-		// makes an un-spawned pool simulate to nothing instead of to
-		// garbage. Filled in bounded chunks rather than from one
-		// pool-sized temporary - at a million particles that staging
-		// vector alone would be 48MB, allocated only to be memcpy'd once
-		// and thrown away.
-		const uint32 stateBytes = desc.maxParticles * kGPUStateVec4s * (uint32)sizeof(Vec4);
-		gpuStateBuffer = dev.CreateStorageBuffer(stateBytes, 0, NULL);
-		ZeroGPUState();
-		gpuParamsBuffer = dev.CreateStorageBuffer(2 * (uint32)sizeof(Vec4), 2, NULL);
-		bool rings = true;
-		for (uint32 k = 0; k < kGPURing; k++)
-		{
-			gpuParamsRing[k] = dev.CreateStorageBuffer(3 * (uint32)sizeof(Vec4), 2, NULL);
-			gpuSpawnRing[k] = dev.CreateStorageBuffer(desc.maxParticles * kGPUStateVec4s * (uint32)sizeof(Vec4), 3, NULL);
-			rings = rings && gpuParamsRing[k] != 0 && gpuSpawnRing[k] != 0;
-		}
-		if (gpuStateBuffer == 0 || gpuParamsBuffer == 0 || !rings)
-		{
-			ShutdownGPUSimulation();
-			return false;
-		}
-
-		gpuSpawnCursor = 0;
-		gpuSpawnStaging.clear();
-
-		// Every slot is drawn every frame; dead ones collapse to nothing
-		// in the vertex shader. See ParticleSystemDesc::gpuSimulation.
-		SetNumberInstances(desc.maxParticles);
-		gpuActive = true;
-		return true;
-	}
-
-	void ParticleSystem::ShutdownGPUSimulation()
-	{
-		IRenderDevice &dev = GetActiveRenderDevice();
-		if (gpuStateBuffer != 0) { dev.DestroyStorageBuffer(gpuStateBuffer); gpuStateBuffer = 0; }
-		if (gpuParamsBuffer != 0) { dev.DestroyStorageBuffer(gpuParamsBuffer); gpuParamsBuffer = 0; }
-		for (uint32 k = 0; k < kGPURing; k++)
-		{
-			if (gpuParamsRing[k] != 0) { dev.DestroyStorageBuffer(gpuParamsRing[k]); gpuParamsRing[k] = 0; }
-			if (gpuSpawnRing[k] != 0) { dev.DestroyStorageBuffer(gpuSpawnRing[k]); gpuSpawnRing[k] = 0; }
-		}
-		if (gpuPipeline != 0) { dev.DestroyComputePipeline(gpuPipeline); gpuPipeline = 0; }
-		if (gpuProgram != 0) { dev.DeleteProgram(gpuProgram); gpuProgram = 0; }
-		if (gpuStage != 0) { dev.DeleteShaderStage(gpuStage); gpuStage = 0; }
-		gpuActive = false;
-	}
-
-	void ParticleSystem::SpawnParticleGPU(const f64 time)
-	{
-		// No search - see gpuSpawnCursor. Staged rather than uploaded here
-		// so a frame that spawns ten thousand particles does one upload,
-		// not ten thousand.
-		if (gpuSpawnStaging.size() >= (size_t)desc.maxParticles * kGPUStateVec4s)
-			return; // already staged a whole pool's worth this frame
-
-		Vec3 origin = Vec3::ZERO;
-		if (GetOwner() != NULL)
-		{
-			GetOwner()->RefreshTransformation();
-			origin = GetOwner()->GetWorldPosition();
-		}
-
-		// Identical sampling to SpawnParticle() - deliberately, so the two
-		// paths given the same RNG sequence produce the same particles and
-		// can be compared directly (tools/tests/particles_gpu_parity.cpp).
-		const f32 cosSpread = cosf(desc.spreadAngle);
-		const f32 z = rng.Range(cosSpread, 1.0f);
-		const f32 phi = rng.Range(0.0f, 2.0f * (f32)PI);
-		const f32 r = sqrtf(Max(0.0f, 1.0f - z * z));
-		const Vec3 localDir(r * cosf(phi), r * sinf(phi), z);
-
-		const Vec3 axis = desc.direction.normalize();
-		const Vec3 up = (fabsf(axis.y) < 0.99f) ? Vec3(0.0f, 1.0f, 0.0f) : Vec3(1.0f, 0.0f, 0.0f);
-		const Vec3 tangent = up.cross(axis).normalize();
-		const Vec3 bitangent = axis.cross(tangent);
-		const Vec3 worldDir = (tangent * localDir.x) + (bitangent * localDir.y) + (axis * localDir.z);
-
-		const f32 speed = rng.Range(desc.minSpeed, desc.maxSpeed);
-		const f32 lifetime = rng.Range(desc.minLifetime, desc.maxLifetime);
-		const f32 rotationSpeed = rng.Range(desc.minRotationSpeed, desc.maxRotationSpeed);
-		const f32 rotation = rng.Range(0.0f, 2.0f * (f32)PI);
-		const f32 seed = rng.NextFloat01();
-
-		gpuSpawnStaging.push_back(Vec4(origin, lifetime));
-		gpuSpawnStaging.push_back(Vec4(worldDir * speed, (f32)time));
-		gpuSpawnStaging.push_back(Vec4(rotation, rotationSpeed, seed, 1.0f));
-	}
-
-	void ParticleSystem::FlushGPUSpawns()
-	{
-		// (into this frame's spawn buffer, as one run: the kernel puts it at the cursor)
-		gpuSpawnBorn = 0;
-		if (gpuSpawnStaging.empty())
-			return;
-		IRenderDevice &dev = GetActiveRenderDevice();
-		uint32 newParticles = (uint32)(gpuSpawnStaging.size() / kGPUStateVec4s);
-		if (newParticles > desc.maxParticles) newParticles = desc.maxParticles;
-		dev.UpdateStorageBuffer(gpuSpawnRing[gpuRingSlot], 0, newParticles * kGPUStateVec4s * (uint32)sizeof(Vec4), gpuSpawnStaging.data());
-		gpuSpawnBorn = newParticles;
-		gpuSpawnStaging.clear();
-	}
-
-	void ParticleSystem::UpdateGPU(const f64 time, const f32 dt)
-	{
-		PYROS_PROFILE_SCOPE("Particles.GPUUpdate");
-		IRenderDevice &dev = GetActiveRenderDevice();
-		gpuRingSlot = (gpuRingSlot + 1) % kGPURing;
-		const uint32 cursor = gpuSpawnCursor;
-		FlushGPUSpawns();
-		gpuSpawnCursor = desc.maxParticles > 0 ? (gpuSpawnCursor + gpuSpawnBorn) % desc.maxParticles : 0;
-
-		Vec4 params[3];
-		params[0] = Vec4(dt, (f32)time, (f32)desc.maxParticles, desc.damping);
-		params[1] = Vec4(desc.gravity, 0.f);
-		params[2] = Vec4((f32)cursor, (f32)gpuSpawnBorn, 0.f, 0.f);
-		dev.UpdateStorageBuffer(gpuParamsRing[gpuRingSlot], 0, 3 * (uint32)sizeof(Vec4), params);
-
-		dev.BindComputePipeline(0, gpuPipeline);
-		dev.BindStorageBuffer(0, gpuStateBuffer, 0);
-		// The attribute buffer the draw reads, bound as a storage buffer
-		// so the dispatch can fill it in place. GL and Metal buffers carry
-		// no type at creation; Vulkan's do, which is why
-		// AllocHostVisibleVertexBuffer asks for STORAGE_BUFFER usage.
-		dev.BindStorageBuffer(0, (DeviceHandle)particleBuffer->Buffer->ID, 1);
-		dev.BindStorageBuffer(0, gpuParamsRing[gpuRingSlot], 2);
-		dev.BindStorageBuffer(0, gpuSpawnRing[gpuRingSlot], 3);
-
-		const uint32 groups = (desc.maxParticles + 63u) / 64u;
-		dev.Dispatch(0, groups, 1, 1);
-
-		// The very next thing to touch this buffer is a draw call reading
-		// it as vertex attributes - not a shader read, which is why this
-		// is VertexBuffer and not StorageBuffer. On Vulkan that is the
-		// difference between VK_ACCESS_VERTEX_ATTRIBUTE_READ_BIT and
-		// VK_ACCESS_SHADER_READ_BIT, and getting it wrong produces a
-		// barrier that validates, costs the same, and protects nothing.
-		dev.ComputeBarrier(0, ComputeBarrierBit::VertexBuffer);
-	}
 
 }

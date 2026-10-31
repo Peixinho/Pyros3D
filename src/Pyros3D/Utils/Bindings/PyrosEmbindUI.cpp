@@ -18,7 +18,6 @@
 #include <Pyros3D/Utils/Bindings/PyrosEmbindHelpers.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
@@ -184,8 +183,6 @@ namespace {
 		return Vec2(x / screenWidth * r.width, y / screenHeight * r.height);
 	}
 
-	void UIRenderer_RenderUI(UIRenderer &r, SceneGraph &scene) { r.RenderUI(&scene); }
-
 } // namespace
 
 namespace p3d {
@@ -194,15 +191,6 @@ namespace p3d {
 
 EMSCRIPTEN_BINDINGS(pyros3d_ui)
 {
-	// A plain constructor, matching how ForwardRenderer/DeferredRenderer are
-	// bound. Wrapping it in a shared_ptr factory looked tidier and produced a
-	// "function signature mismatch" at call time: a class with no
-	// smart_ptr-based .constructor cannot be handed one.
-	class_<UIRenderer>("UIRenderer")
-		.constructor<const uint32, const uint32>()
-		.function("resize", &UIRenderer::Resize)
-		.function("renderUI", &UIRenderer_RenderUI);
-
 	// Free functions rather than a namespace object: Embind has no namespaces,
 	// and uiFind/uiSetText reads the same as ui.find/ui.setText does in Lua.
 	emscripten::function("uiFind", &UI_Find, allow_raw_pointers());

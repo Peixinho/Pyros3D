@@ -1,7 +1,7 @@
 # PyrosBuilder — the scene editor.
 #
 # Built via the root CMakeLists with -DBUILD_EDITOR=ON; it inherits
-# PYROS_CONTEXT / IMGUI_DIR / GLAD_INCLUDE_DIR / the dependency variables
+# IMGUI_DIR / the dependency variables
 # from the parent, exactly like examples/ does. It deliberately vendors
 # nothing of its own: ImGui, glad and the SDL2 window manager all come from
 # the engine tree (the standalone editor repo this was revived from carried
@@ -12,7 +12,7 @@ cmake_minimum_required(VERSION 3.11)
 if (NOT DEFINED PYROS_CONTEXT)
 	message(FATAL_ERROR
 		"editor/ must be built via the root CMakeLists with -DBUILD_EDITOR=ON "
-		"(it inherits PYROS_GRAPHICS / CONTEXT / OPENGL_VERSION from the parent).")
+		"(it inherits PYROS_GRAPHICS from the parent).")
 endif()
 
 # Builds on OpenGL, Vulkan and Metal. The ImGui backend, the frame-end draw
@@ -72,6 +72,7 @@ set(EDITOR_SOURCE
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialCodegen.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialEditorDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/MaterialPreview.cpp
+	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/RendererView.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimationEditorDocument.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/AnimationPreview.cpp
 	${CMAKE_CURRENT_SOURCE_DIR}/src/editor/PoseTools.cpp
@@ -143,7 +144,6 @@ target_include_directories(PyrosBuilder PRIVATE
 	${CMAKE_SOURCE_DIR}/shared
 	${SDL2_INCLUDE_DIRS}
 	${IMGUI_INCLUDE_DIRS}
-	${GLAD_INCLUDE_DIR}
 	${CURL_INCLUDE_DIRS}
 )
 
@@ -169,7 +169,6 @@ if (EMSCRIPTEN)
 	# work on startup. It is created in IDBFS at runtime instead.
 	target_link_options(PyrosBuilder PRIVATE
 		"SHELL:--preload-file ${CMAKE_CURRENT_SOURCE_DIR}/assets@assets"
-		"SHELL:--preload-file ${CMAKE_SOURCE_DIR}/resources/shaders@shaders"
 		# The class library every LuaComponent script is written against.
 		# Just this one file, not all of examples/assets: that tree is demo
 		# content (models, textures, whole scenes) the editor has no use for,
@@ -260,7 +259,6 @@ endif()
 target_link_libraries(PyrosBuilder PRIVATE
 	PyrosEngine
 	${PYROS_CONTEXT_LIB}
-	${OPENGL_LIBS}
 	${BOX3D_LIBRARIES}
 	${FREETYPE_LIBRARIES}
 	${LUA_LIBRARIES}
@@ -292,11 +290,9 @@ if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 	target_compile_definitions(PyrosBuilder PRIVATE _IMPORT)
 endif()
 
-# The editor loads "assets/..." and the engine loads "shaders/..." relative
-# to the working directory — stage both next to the binary (same trick as
-# examples/, so edits to either are picked up without a rebuild).
+# The editor loads "assets/..." relative to the working directory — staged
+# next to the binary (a symlink, so edits are picked up without a rebuild).
 pyros_stage_dir(${CMAKE_CURRENT_SOURCE_DIR}/assets ${CMAKE_CURRENT_BINARY_DIR}/assets)
-pyros_stage_dir(${CMAKE_SOURCE_DIR}/resources/shaders ${CMAKE_CURRENT_BINARY_DIR}/shaders)
 
 # Ship AssimpImporter next to PyrosBuilder so Import Model can find it.
 if (TARGET AssimpImporter)

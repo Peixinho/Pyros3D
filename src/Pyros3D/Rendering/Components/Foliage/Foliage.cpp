@@ -4,10 +4,10 @@
 // Description : See Foliage.h.
 //============================================================================
 
+#include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
 #include <Pyros3D/Assets/Renderable/Plants/GrassTuft.h>
 #include <Pyros3D/Rendering/Components/Foliage/Foliage.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
-#include <Pyros3D/Rendering/Renderer/InstanceCullGroup.h>
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -212,9 +212,6 @@ namespace p3d {
 	void FoliageComponent::SetAutoFarMesh(const bool on) { g_autoFar = on; }
 	bool FoliageComponent::GetAutoFarMesh() { return g_autoFar; }
 	static bool g_thinning = true;
-	// Thinned plant by plant on the GPU where a layer is culled there (PYROS_FOLIAGE_PER_PLANT=0: by the
-	// block's middle, as it was - to compare)
-	static const bool g_perPlant = !(std::getenv("PYROS_FOLIAGE_PER_PLANT") && std::getenv("PYROS_FOLIAGE_PER_PLANT")[0] == '0');
 	void FoliageComponent::SetThinning(const bool on) { g_thinning = on; }
 	bool FoliageComponent::GetThinning() { return g_thinning; }
 
@@ -241,24 +238,6 @@ namespace p3d {
 				if (!t->IsSimple())
 					layer.autoFar = std::make_shared<GrassTuft>(t->GetBlades(), t->GetHeight(), t->GetSpread(), t->GetSeed(), t->GetBaseColour(),
 						t->GetTipColour(), t->GetFlowers(), t->GetFlowerColour(), t->GetWidth(), true);
-		// Culled on the GPU, plant by plant (InstanceCullGroup): a layer that casts no shadows (a shadow
-		// map draws the blocks, at their own level - the group is for the views), with a material of its
-		// own its far mesh shares. Its far mesh is then each plant's past the distance, not each block's.
-		// A layer that casts its shadows from its far mesh (shadowFromFar) too: the maps draw its blocks
-		// with that, whatever level they are at, and the views have the group - a forest's nearest block
-		// was a hundred metres of trees all at the near level; through the group only those near are.
-		const bool shadowsFromBlocks = !layer.spec.castShadows || (layer.spec.shadowFromFar && layer.lodMesh);
-		if (!layer.cullGroup && owner && InstanceCullGroup::Available() && shadowsFromBlocks && layer.material && layer.mesh
-			&& (!layer.lodMesh || !layer.lodMaterial || layer.lodMaterial == layer.material))
-		{
-			const std::shared_ptr<Renderable> far = layer.lodMesh ? layer.lodMesh : layer.autoFar;
-			const f32 farFrom = layer.lodMesh ? layer.spec.lodDistance : kAutoFarFrom;
-			// (about the plant's root - its matrix's place - not the mesh's own centre)
-			const Vec3 centre = layer.mesh->GetBoundingSphereCenter();
-			const f32 radius = layer.mesh->GetBoundingSphereRadius() + sqrtf(centre.x * centre.x + centre.y * centre.y + centre.z * centre.z);
-			layer.cullGroup = std::make_shared<InstanceCullGroup>(owner, layer.mesh, layer.material, far, farFrom, tinted, radius);
-			if (g_perPlant) layer.cullGroup->SetThinning(layer.spec.thinFrom, layer.spec.thinTo, layer.spec.thinDensity, layer.spec.fullDistance, layer.spec.fadeDistance);
-		}
 		for (size_t b = 0; b < prepared.blocks.size(); b++)
 		{
 			FoliageBlock &block = prepared.blocks[b];
@@ -288,7 +267,6 @@ namespace p3d {
 			if (layer.spec.castShadows) ic->EnableCastShadows(); else ic->DisableCastShadows();
 			child->AddComponent(ic);
 			if (layer.spec.castShadows && layer.spec.shadowFromFar && layer.lodMesh) ic->SetShadowRenderable(layer.lodMesh, 0.f);
-			if (layer.cullGroup) layer.cullGroup->Add(ic.get());
 			if (owner) owner->Add(child);
 			if (created) created->push_back(child);
 			layer.blocks.push_back(ic);
@@ -317,8 +295,6 @@ namespace p3d {
 			layer.blockObjects.clear();
 			layer.centres.clear();
 			layer.counts.clear();
-			if (layer.cullGroup) layer.cullGroup->Detach();
-			layer.cullGroup.reset();
 			if (!layer.mesh) continue;
 			PreparedFoliageLayer prepared;
 			// The map being painted, else the saved one - growing at full
@@ -358,17 +334,21 @@ namespace p3d {
 				// many nearer as further than that - and those left grown to
 				// cover what the others did: wider more than taller, so that a
 				// field far off does not stand higher than one near.)
-				// (a layer culled on the GPU is thinned there, each plant at its own distance - the block
-				// keeps what its nearest point does, all any of its plants can; see InstanceCullGroup)
-				const f32 kept = ThinningAt(layer.spec, layer.cullGroup && g_perPlant ? d : d + half);
-				// (a layer culled on the GPU goes with distance plant by plant there, dithered: its block keeps all
-				// of them until its nearest point is past the fade - see InstanceCullGroup)
-				const f32 dens = layer.cullGroup && g_perPlant ? (d / g_foliageReach >= layer.spec.fadeDistance ? 0.f : 1.f) : DensityAt(layer.spec, d);
-				const uint32 n = (uint32)(layer.counts[b] * dens * kept);
+				const f32 kept = ThinningAt(layer.spec, d + half);
+				const f32 dens = DensityAt(layer.spec, d);
+				// (to the fraction: the plant at the edge of the count dissolves by it rather than vanishing -
+				// SetInstanceKeep)
+				const f32 nf = layer.counts[b] * dens * kept;
+				const uint32 n = std::min(layer.counts[b], (uint32)ceilf(nf));
 				if (rc->NumberOfInstances() != n) rc->SetNumberInstances(n);
+				rc->SetInstanceKeep(std::max(nf, 1e-3f));
 				const f32 area = 1.f / kept;
 				rc->SetInstanceGrowth(powf(area, 0.75f), powf(area, 0.25f));
-				if (layer.spec.castShadows && d <= layer.spec.shadowDistance) rc->EnableCastShadows();
+				// (out to the end of the sun's shadows unless the layer says nearer: 0, the default, is as far
+				// as they reach - it was "nowhere but the block the viewer stands in", which is what scenes
+				// saved with 0 got: a forest with no shadows past a few metres)
+				const f32 castTo = layer.spec.shadowDistance > 0.f ? layer.spec.shadowDistance : DirectionalLight::SunShadowReach();
+				if (layer.spec.castShadows && d <= castTo) rc->EnableCastShadows();
 				else rc->DisableCastShadows();
 			}
 		}

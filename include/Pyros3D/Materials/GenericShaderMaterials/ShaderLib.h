@@ -12,7 +12,6 @@
 #include <map>
 
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
-#include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Other/Global.h>
 
@@ -117,7 +116,16 @@ namespace p3d
 			// The light a surface gives off read from a picture of its own (glTF's emissive map), times
 			// its emission colour and strength: GenericShaderMaterial::SetEmissionMap. Past bit 31 on
 			// purpose - it only works if options are carried whole.
-			EmissionMap = 0x100000000ull
+			EmissionMap = 0x100000000ull,
+			// Drawn straight onto the screen, after the output transform (the UI, the console, touch
+			// controls): its colours and pictures are what is to be seen, already encoded, and are not
+			// decoded into linear light as everything lit in the world is (ColourSpace.h).
+			DisplayReferred = 0x200000000ull,
+			// An octahedral impostor (GenericShaderMaterial::SetImpostor): the mesh a quad of corners
+			// -1..1, the colour map an atlas of the tree baked from a grid of directions over its upper
+			// half (the editor's bake_octahedral_impostor), the normal map the same grid's normals. Drawn
+			// facing the eye, the three baked views round its direction blended, and lit like any surface.
+			Impostor = 0x400000000ull
 		};
 	};
 }

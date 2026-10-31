@@ -25,7 +25,6 @@
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Utils/LoadProgress/LoadProgress.h>
 #include <Pyros3D/Core/Logs/Log.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
@@ -80,6 +79,7 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cylinder.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/ImpostorQuad.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Capsule.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Torus.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/TorusKnot.h>
@@ -910,6 +910,9 @@ namespace p3d {
 				m["subsurfaceColor"] = { sc.x, sc.y, sc.z };
 			}
 
+			// "uvScale": [x, y], "uvOffset": [x, y] - GenericShaderMaterial::SetUVTransform
+			if (gm->GetUVScale() != Vec2(1.f, 1.f)) m["uvScale"] = { gm->GetUVScale().x, gm->GetUVScale().y };
+			if (gm->GetUVOffset() != Vec2(0.f, 0.f)) m["uvOffset"] = { gm->GetUVOffset().x, gm->GetUVOffset().y };
 			if (gm->GetColorMap() && gm->GetColorMap()->IsClampedToEdge()) m["clampMaps"] = true;
 			SerializeTextureRef(m, "colorMap", gm->GetColorMap());
 			SerializeTextureRef(m, "specularMap", gm->GetSpecularMap());
@@ -919,6 +922,8 @@ namespace p3d {
 			SerializeTextureRef(m, "refractMap", gm->GetRefractMap());
 			m["alphaCutoff"] = gm->GetAlphaCutoff();
 			if (gm->GetLightThrough() > 0.f) m["lightThrough"] = gm->GetLightThrough();
+			// (an octahedral impostor's grid, radius and centre: SetImpostor)
+			if (gm->GetImpostor().w > 0.f) m["impostor"] = { gm->GetImpostor().x, gm->GetImpostor().y, gm->GetImpostor().z };
 			// Sway for VertexWind materials (grass): strength, rate, frequency.
 			if (gm->GetWind().x > 0.f)
 				m["wind"] = gm->GetWind().w != 0.f
@@ -930,16 +935,16 @@ namespace p3d {
 		}
 		else if (CustomShaderMaterial* cm = dynamic_cast<CustomShaderMaterial*>(mat))
 		{
-			if (cm->GetShaderFile().empty() && (!cm->GetShaderObject() || cm->GetShaderObject()->GetShaderText().empty()))
+			if (cm->GetShaderFile().empty() && cm->GetSurfaceSource().empty())
 			{
 				m["kind"] = "unsupported";
-				echo("WARNING: SceneSerializer - skipping a CustomShaderMaterial built from a raw Shader* (no recoverable shader file), saved as an unsupported placeholder");
+				echo("WARNING: SceneSerializer - skipping a CustomShaderMaterial with neither a file nor a surface, saved as an unsupported placeholder");
 			}
 			else
 			{
 				m["kind"] = "custom";
 				if (!cm->GetShaderFile().empty()) m["shaderFile"] = RelativizeSceneAssetPath(cm->GetShaderFile());
-				else m["shaderSource"] = cm->GetShaderObject()->GetShaderText();
+				if (!cm->GetSurfaceSource().empty()) m["surface"] = cm->GetSurfaceSource();
 
 				// The shader alone is not the whole material: every texture
 				// bound through AddSampler() used to be dropped here, so a
@@ -961,6 +966,7 @@ namespace p3d {
 						// A map covering one surface exactly (a terrain
 						// tile's splat map) must not wrap at its edges.
 						if (cm->textures[s] && cm->textures[s]->IsClampedToEdge()) entry["clampMaps"] = true;
+						if (cm->textures[s] && cm->textures[s]->IsDataMap()) entry["data"] = true;
 						// Skip a sampler whose texture has neither a file nor
 						// raw data - nothing to restore, and an entry with
 						// only a name would rebind unit indices on load.
@@ -1127,6 +1133,13 @@ namespace p3d {
 			j["flip"] = prim->IsFlipped();
 			j["tangentBitangent"] = prim->HasTangentBitangent();
 			if (prim->GetTileMetres() > 0.f) j["uvMetres"] = prim->GetTileMetres();
+			if (prim->Geometries.empty()) { json none; none["kind"] = "none"; return none; }
+			if (ImpostorQuad* iq = dynamic_cast<ImpostorQuad*>(prim))
+			{
+				j["shape"] = "ImpostorQuad";
+				j["radius"] = iq->GetRadius(); j["centre"] = iq->GetCentre();
+				return j;
+			}
 			if (Card* card = dynamic_cast<Card*>(prim))
 			{
 				j["shape"] = "Card";
@@ -1767,7 +1780,6 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["looping"] = d.looping;
 			j["emissionRate"] = d.emissionRate;
 			j["burstCount"] = d.burstCount;
-			j["gpuSimulation"] = d.gpuSimulation;
 			j["minLifetime"] = d.minLifetime;
 			j["maxLifetime"] = d.maxLifetime;
 			j["direction"] = ToJson(d.direction);
@@ -1789,6 +1801,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["endColor"] = ToJson(d.endColor);
 			j["fadeInFraction"] = d.fadeInFraction;
 			j["softness"] = d.softness;
+			if (d.gpuSimulation) j["gpuSimulation"] = true;
 			j["fadeOutFraction"] = d.fadeOutFraction;
 			j["minRotationSpeed"] = d.minRotationSpeed;
 			j["maxRotationSpeed"] = d.maxRotationSpeed;
@@ -3255,50 +3268,6 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		else mat->DisableDethBias();
 	}
 
-	// Material-Editor-generated shaders written before emissive was moved out
-	// of the G-buffer's albedo channel. The old form packed `albedo + emissive`
-	// into FragData_r.rgb - which the deferred light passes then multiply by
-	// N.L - and derived the ambient alphas from that same sum, so a material's
-	// *emissive* ended up scaled by the scene's ambient colour. Turning the
-	// ambient red made such a material's glow go red under Deferred while
-	// Forward, which adds emissive after lighting, did not budge; that
-	// mismatch is exactly what this removes.
-	//
-	// Only reachable for materials with no recoverable .mat - those are the
-	// ones a scene bakes a copy of the generated GLSL into (see the
-	// shaderFile vs shaderSource branch below), and there is nothing left to
-	// regenerate them from. Anything applied since records a shaderFile and
-	// is recompiled from that instead. The pattern is text MaterialCodegen
-	// emitted verbatim, so this either matches wholesale or does nothing.
-	// This used to rewrite the layout below in the OPPOSITE direction,
-	// moving emissive out of the albedo channel and into the alphas alone.
-	// That packing does not work: measured on a pure-emissive material
-	// (Albedo 0, Emissive 0.8), the alpha-only form renders nothing at all
-	// in Deferred, while the albedo-channel form matches Forward to within
-	// a pixel value (204 vs 204.7). So the rewrite now runs the other way,
-	// repairing any scene that was saved while the broken codegen was
-	// live - those bakes are otherwise permanently emissive-less, since a
-	// baked shaderSource has no .mat left to regenerate it from.
-	static std::string UpgradeGeneratedGBufferWrite(const std::string &src)
-	{
-		static const std::string kBroken =
-			"\tvec3 litAlbedo = albedo * occlusion;\n"
-			"\tvec3 addTerm = litAlbedo * uAmbientLight.rgb + emissive;\n"
-			"\tFragData_r = vec4(litAlbedo, addTerm.x);\n"
-			"\tFragData_g = vec4(1.0, 1.0, 1.0, addTerm.y);\n"
-			"\tFragData_b = vec4(normalOut, addTerm.z);\n";
-		static const std::string kWorking =
-			"\tvec3 color = albedo * occlusion + emissive;\n"
-			"\tFragData_r = vec4(color, color.x * uAmbientLight.x);\n"
-			"\tFragData_g = vec4(1.0, 1.0, 1.0, color.y * uAmbientLight.y);\n"
-			"\tFragData_b = vec4(normalOut, color.z * uAmbientLight.z);\n";
-		const size_t at = src.find(kBroken);
-		if (at == std::string::npos) return src;
-		std::string out = src;
-		out.replace(at, kBroken.size(), kWorking);
-		echo("SceneSerializer: repaired a baked custom shader whose emissive was lost in the Deferred G-buffer");
-		return out;
-	}
 
 	static std::shared_ptr<IMaterial> BuildMaterialBody(const json &j, std::map<std::string, std::shared_ptr<Texture>> &textureCache, LoadedSceneAssets* outAssets);
 
@@ -3327,8 +3296,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			// (CastShadows is the shadow pass's own material - it writes depth as its colour - not "this
 			// casts shadows", which is "castingShadows"; left in a scene's material it drew every object
 			// red with its depth)
-			options &= ~(uint32)ShaderUsage::CastShadows;
+			options &= ~(ShaderOptions)ShaderUsage::CastShadows;
 			if (g_loadingGI && (options & (ShaderUsage::Diffuse | ShaderUsage::PBR))) options |= ShaderUsage::GlobalIllumination;
+			// A lit surface is in the sun's shadow where the sun is shadowed - as the deferred light pass has
+			// every pixel - unless it says otherwise ("receiveShadows": false). Asked of each material, the
+			// forward view left out whatever forgot: the trees' leaves were never in any shadow there, their
+			// crowns 27-68% brighter than in deferred.
+			if ((options & (ShaderUsage::Diffuse | ShaderUsage::PBR)) && j.value("receiveShadows", true)) options |= ShaderUsage::DirectionalShadow;
 			std::shared_ptr<GenericShaderMaterial> gm = std::make_shared<GenericShaderMaterial>(options);
 			if ((j.find("color") != j.end())) gm->SetColor(Vec4FromJson(j["color"]));
 			if ((j.find("specular") != j.end())) gm->SetSpecular(Vec4FromJson(j["specular"]));
@@ -3351,6 +3325,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					c = Vec3(j["subsurfaceColor"][0].get<f32>(), j["subsurfaceColor"][1].get<f32>(), j["subsurfaceColor"][2].get<f32>());
 				gm->SetSubsurface(c, j["subsurface"].get<f32>());
 			}
+			if ((j.contains("uvScale") && j["uvScale"].is_array() && j["uvScale"].size() >= 2) || (j.contains("uvOffset") && j["uvOffset"].is_array() && j["uvOffset"].size() >= 2))
+			{
+				Vec2 sc(1.f, 1.f), of(0.f, 0.f);
+				if (j.contains("uvScale") && j["uvScale"].is_array() && j["uvScale"].size() >= 2) sc = Vec2(j["uvScale"][0].get<f32>(), j["uvScale"][1].get<f32>());
+				if (j.contains("uvOffset") && j["uvOffset"].is_array() && j["uvOffset"].size() >= 2) of = Vec2(j["uvOffset"][0].get<f32>(), j["uvOffset"][1].get<f32>());
+				gm->SetUVTransform(sc, of);
+			}
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "colorMap", textureCache, outAssets, true)) gm->SetColorMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "specularMap", textureCache, outAssets, true)) gm->SetSpecularMap(t);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "normalMap", textureCache, outAssets, true)) gm->SetNormalMap(t);
@@ -3359,6 +3340,8 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "refractMap", textureCache, outAssets, true)) gm->SetRefractMap(t);
 			if (j.find("alphaCutoff") != j.end()) gm->SetAlphaCutoff(j.value("alphaCutoff", 0.5f));
 			if (j.contains("lightThrough")) gm->SetLightThrough(j.value("lightThrough", 0.f));
+			if (j.contains("impostor") && j["impostor"].is_array() && j["impostor"].size() >= 3)
+				gm->SetImpostor(j["impostor"][0].get<f32>(), j["impostor"][1].get<f32>(), j["impostor"][2].get<f32>());
 			if (j.contains("wind") && j["wind"].is_array() && j["wind"].size() >= 3)
 				gm->SetWind(j["wind"][0].get<f32>(), j["wind"][1].get<f32>(), j["wind"][2].get<f32>(), j["wind"].size() >= 4 ? j["wind"][3].get<f32>() : 0.f);
 			if (std::shared_ptr<Texture> t = DeserializeTextureRef(j, "skyboxMap", textureCache, outAssets)) gm->SetSkyboxMap(t);
@@ -3372,70 +3355,15 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			std::shared_ptr<CustomShaderMaterial> cm;
 			if (j.find("shaderFile") != j.end())
 				cm = std::make_shared<CustomShaderMaterial>(ResolveSceneAssetPath(j.value("shaderFile", std::string())));
-			else if (j.find("shaderSource") != j.end())
-			{
-				// Mirrors CustomShaderMaterial's real file-based
-				// constructor (CustomShaderMaterial.cpp) - same platform
-				// #defines, since this compiles into the same target and
-				// shares them. Known minor leak: the Shader* constructor
-				// overload doesn't take ownership (only the file-path
-				// ctor's InternalShader does) - acceptable for this rare
-				// fallback path (a material with no recoverable file at
-				// all), not worth a deeper CustomShaderMaterial ownership
-				// change for.
-				Shader* s = new Shader();
-				std::string define;
-#if defined(GLES3)
-				define += std::string("#define GLES3\n");
-#endif
-#if defined(GLES2_DESKTOP)
-				define += std::string("#define GLES2_DESKTOP\n");
-#endif
-#if defined(GLES3_DESKTOP)
-				define += std::string("#define GLES3_DESKTOP\n");
-#endif
-#if defined(GLLEGACY)
-				define += std::string("#define GLLEGACY\n");
-#endif
-#if defined(EMSCRIPTEN)
-				define += std::string("#define EMSCRIPTEN\n");
-#endif
-				s->LoadShaderText(UpgradeGeneratedGBufferWrite(j["shaderSource"].get<std::string>()));
-				s->CompileShader(ShaderType::VertexShader, std::string("#define VERTEX\n") + define);
-				s->CompileShader(ShaderType::FragmentShader, std::string("#define FRAGMENT\n") + define);
-				s->LinkProgram();
-				cm = std::make_shared<CustomShaderMaterial>(s);
-			}
+			else if (j.find("surface") != j.end())
+				cm = std::make_shared<CustomShaderMaterial>();
 			else
 			{
-				echo("WARNING: SceneSerializer - skipping a CustomShaderMaterial entry with neither shaderFile nor shaderSource");
+				// (a scene saved with the old renderer's shader text alone: nothing the renderer draws)
+				echo("WARNING: SceneSerializer - skipping a CustomShaderMaterial entry with neither shaderFile nor surface");
 				return nullptr;
 			}
-			// CustomShaderMaterial's own constructors never call AddUniform -
-			// unlike GenericShaderMaterial (whose constructor wires its
-			// fixed uniform set internally), a CustomShaderMaterial is
-			// meant to be flexible/user-defined, so wiring these is left to
-			// the caller. The Material Editor's own compile paths
-			// (MaterialEditor::ApplyGraphOrTextToLiveMaterial/
-			// RecompileFromDisk) do this - but a material reconstructed
-			// straight from a scene file via this function bypasses both of
-			// those entirely, and nothing here ever did it either. Result:
-			// every CustomShaderMaterial loaded with a scene (as opposed to
-			// opened fresh in the Material Editor) silently never received
-			// uAmbientLight (or any other standard uniform) at all - not a
-			// wrong value, no value ever sent, permanently zero. Verified
-			// by dumping the auto-UBO scratch buffer right before upload:
-			// (0,0,0,0) for uAmbientLight on every frame. SendUniform/
-			// CaptureExtraUniform silently skip any name the compiled
-			// shader doesn't declare, so issuing the same fixed set
-			// ApplyGraphOrTextToLiveMaterial does is harmless for a shader
-			// that only uses some of them.
-			//
-			// The set now lives in one place, CustomShaderMaterial::
-			// AddGeneratedShaderUniforms(): this copy used to stop at
-			// uLights, so a loaded custom material never got its shadow
-			// maps bound and received no shadows in Forward.
-			cm->AddGeneratedShaderUniforms();
+			if (j.find("surface") != j.end()) cm->SetSurfaceSource(j["surface"].get<std::string>());
 
 			// Parameter values (Float/Color Parameter nodes). Declared
 			// before ApplyCommonMaterialFields, and after the samplers
@@ -3463,8 +3391,13 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					if (name.empty()) continue;
 					// Shared, like a generic material's maps: a terrain's
 					// layer textures are named by every tile.
-					if (std::shared_ptr<Texture> t = DeserializeTextureRef(sj, "texture", textureCache, outAssets, true))
+					// ("data": a map of numbers, not colours - its own texture, never block-compressed)
+					const bool dataMap = sj.value("data", false);
+					if (std::shared_ptr<Texture> t = DeserializeTextureRef(sj, "texture", textureCache, outAssets, !dataMap))
+					{
+						if (dataMap) t->SetDataMap(true);
 						cm->AddSampler(name, t);
+					}
 				}
 			}
 
@@ -3523,6 +3456,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 		if (j.is_null()) return nullptr;
 		std::string kind = j.value("kind", "");
 		std::shared_ptr<Renderable> r;
+		// Nothing: a level of detail past which a part of an object is not drawn at all (a tree's wood
+		// where its leaves' level becomes an impostor of the whole tree). A primitive never built has
+		// no geometry, so the level lists no meshes.
+		if (kind == "none") return std::make_shared<Primitive>();
 		if (kind == "model")
 		{
 			// Shared like primitives (see SharedRenderableSlot), which also
@@ -3608,6 +3545,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			else if (shape == "Cylinder") r = std::make_shared<Cylinder>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("segmentsW", 16u), j.value("segmentsH", 16u), j.value("openEnded", false), smooth, flip, tb);
 			else if (shape == "Plane") r = std::make_shared<Plane>(j.value("width", 1.0f), j.value("height", 1.0f), smooth, flip, tb, j.value("segments", 1u));
 			// Explicit bounds, not half extents: see Card.h.
+			else if (shape == "ImpostorQuad") r = std::make_shared<ImpostorQuad>(j.value("radius", 1.f), j.value("centre", 0.f));
 			else if (shape == "Card") r = std::make_shared<Card>(j.value("left", -0.5f), j.value("right", 0.5f), j.value("bottom", 0.f), j.value("top", 1.f), j.value("crossed", true));
 			else if (shape == "Capsule") r = std::make_shared<Capsule>(j.value("radius", 1.0f), j.value("height", 1.0f), j.value("numRings", 8u), j.value("segmentsW", 16u), j.value("segmentsH", 16u), smooth, flip, tb);
 			else if (shape == "Torus") r = std::make_shared<Torus>(j.value("radius", 1.0f), j.value("tube", 0.3f), j.value("segmentsW", 60u), j.value("segmentsH", 6u), smooth, flip, tb);
@@ -3620,7 +3558,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 				// One mesh for every object that is the same individual: a wood of a few
 				// individuals is then a few meshes drawn many times each, and is grown once.
 				static std::map<std::string, std::weak_ptr<Renderable> > grown;
-				const std::string key = name + "/" + std::to_string(j.value("seed", 1u)) + "/" + j.value("part", "wood") + "/" + std::to_string(j.value("detail", 0u)) + "/" + std::to_string(j.value("sprays", 1u));
+				const std::string key = name + "/" + std::to_string(j.value("seed", 1u)) + "/" + j.value("part", "wood") + "/" + std::to_string(j.value("detail", 0u)) + "/" + std::to_string(j.value("sprays", 1u)) + (j.value("forShadow", false) ? "/shadow" : "");   // (a shadow's own: see SetShadowRenderable)
 				r = grown[key].lock();
 				if (!r)
 				{
@@ -4176,7 +4114,6 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			d.burstCount = j.value("burstCount", d.burstCount);
 			// Defaults to false, so a scene saved before this existed
 			// keeps the CPU path it was authored against.
-			d.gpuSimulation = j.value("gpuSimulation", d.gpuSimulation);
 			d.minLifetime = j.value("minLifetime", d.minLifetime);
 			d.maxLifetime = j.value("maxLifetime", d.maxLifetime);
 			if ((j.find("direction") != j.end())) d.direction = Vec3FromJson(j["direction"]);
@@ -4195,6 +4132,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			if ((j.find("endColor") != j.end())) d.endColor = Vec4FromJson(j["endColor"]);
 			d.fadeInFraction = j.value("fadeInFraction", d.fadeInFraction);
 			d.softness = j.value("softness", d.softness);
+			d.gpuSimulation = j.value("gpuSimulation", false);
 			d.fadeOutFraction = j.value("fadeOutFraction", d.fadeOutFraction);
 			d.minRotationSpeed = j.value("minRotationSpeed", d.minRotationSpeed);
 			d.maxRotationSpeed = j.value("maxRotationSpeed", d.maxRotationSpeed);
@@ -6049,19 +5987,6 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 
 	void SceneSerializer::UnloadScene(SceneGraph* scene, LoadedSceneAssets &assets)
 	{
-		// Everything freed below owns GPU resources (vertex/index buffers,
-		// textures, and on Vulkan the pipelines/descriptor sets cached
-		// against them), and the last submitted frame is routinely still
-		// executing at this point - the frame fence is only waited on at
-		// the top of the *next* BeginFrame(). Freeing them unguarded is a
-		// straight use-after-free on whatever that command buffer is still
-		// reading. It presents as an intermittent segfault a few demo
-		// switches in, and it vanishes entirely under a debugger (which
-		// slows the CPU enough that the GPU is always already done) - which
-		// is exactly why it reads as "random". Same guard, same reason, as
-		// PostEffectsManager::RemoveAllEffects() and ~DeferredRenderer().
-		if (IsActiveRenderDeviceSet())
-			GetActiveRenderDevice().WaitIdle();
 		for (const std::shared_ptr<GameObject> &go : assets.gameObjects)
 		{
 			// Remove() is a safe no-op (logs, doesn't crash) for a

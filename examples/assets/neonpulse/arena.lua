@@ -183,7 +183,9 @@ end
 function A.update(time)
 	for i, light in ipairs(A.rims) do
 		local phase = time * 0.9 + (i - 1) * 2.1
-		light:setLightIntensity((0.55 + 0.30 * math.sin(phase)) * A.lightGain)
+		-- (for the inverse-square falloff: as much light over the back panel as the old straight line gave it -
+		-- 52 to 150 m off, matched as at 79 m)
+		light:setLightIntensity(LinearFalloffIntensity((0.55 + 0.30 * math.sin(phase)) * A.lightGain, 79.0, 150.0))
 	end
 end
 

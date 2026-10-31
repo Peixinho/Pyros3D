@@ -28,8 +28,10 @@ namespace p3d {
 			// is on) - the component goes on being updated, by another thread, while
 			// the frame is drawn. Until taken, the number itself.
 			uint32 InstancesToDraw() const { return (drawCountTakenAt == GameObject::s_drawEpoch && GameObject::s_drawEpoch != 0) ? drawCount : (uint32)NumberOfInstances(); }
-			void TakeDrawCount() { drawCount = (uint32)NumberOfInstances(); drawGrowth = instanceGrowth; drawCountTakenAt = GameObject::s_drawEpoch; }
+			void TakeDrawCount() { drawCount = (uint32)NumberOfInstances(); drawGrowth = instanceGrowth; drawKeep = instanceKeep; drawCountTakenAt = GameObject::s_drawEpoch; }
 			const Vec2 &GrowthToDraw() const { return (drawCountTakenAt == GameObject::s_drawEpoch && GameObject::s_drawEpoch != 0) ? drawGrowth : instanceGrowth; }
+			f32 KeepToDraw() const { return (drawCountTakenAt == GameObject::s_drawEpoch && GameObject::s_drawEpoch != 0) ? drawKeep : instanceKeep; }
+			f32 drawKeep = 0.f;
 			uint32 drawCount = 0;
 			uint32 drawCountTakenAt = 0;
 			Vec2 drawGrowth = Vec2(1.f, 1.f);
@@ -42,16 +44,22 @@ namespace p3d {
 			// instances of a thing far off - a field of grass - grows the ones
 			// left with it, and the field covers the ground as it did.
 			void SetInstanceGrowth(const f32 width, const f32 height) { instanceGrowth = Vec2(width, height); }
+			// How many instances, to the fraction (0: not said - all drawn as they are). The instance past
+			// the whole part is drawn dissolved by the fraction (PyrosShader.glsl, vInstanceFade): a block
+			// thinning with distance lets its plants go one at a time, each fading, instead of each vanishing.
+			void SetInstanceKeep(const f32 keep) { instanceKeep = keep; }
+			f32 instanceKeep = 0.f;
 			const Vec2 &GetInstanceGrowth() const { return instanceGrowth; }
+			// Each instance faded in and out with its own distance from the eye (metres; to <= from: none) - drawn
+			// shrinking to nothing: a far forest's trees coming in past where the near ones end, gone at the horizon
+			void SetDistanceFade(const f32 inFrom, const f32 inTo, const f32 outFrom, const f32 outTo) { fadeIn = Vec2(inFrom, inTo); fadeOut = Vec2(outFrom, outTo); }
+			Vec2 fadeIn = Vec2(0.f, 0.f), fadeOut = Vec2(0.f, 0.f);
+			// Fewer drawn the further the set is (its sphere's nearest point): all to `from` metres, `least` of them
+			// from `to` on, the ones left grown to cover what the others did - its instances must be in no order (a
+			// shuffled list: the first n are any n). The renderer does it, in the view it draws (to <= from: none)
+			void SetDistanceThinning(const f32 from, const f32 to, const f32 least) { thinFrom = from; thinTo = to; thinLeast = least; }
+			f32 thinFrom = 0.f, thinTo = 0.f, thinLeast = 1.f;
 			virtual uint32 GetComponentType() const { return ComponentType::RenderingInstancedComponent; }
-
-			// Culled on the GPU (InstanceCullGroup): a source - in a view that can, its instances are
-			// culled there into its group's drawers, and the drawers drawn in its place - or a drawer,
-			// drawn from the indirect arguments the cull wrote for the view (indirectArgs/indirectOffset,
-			// set by the group before the view's draws; 0: not this view).
-			class InstanceCullGroup* cullGroup = NULL;
-			DeviceHandle indirectArgs = 0;
-			uint32 indirectOffset = 0;
 
 		protected:
 			uint32 nrInstances;
@@ -72,6 +80,8 @@ namespace p3d {
 			// have to be turned on together.
 			std::vector<Vec4> instanceColor;
 			AttributeBuffer* color_buffer;
+			// Changes whenever the instances' transforms or tints do (a renderer's copy of them knows it is stale)
+			uint32 instanceRevision = 0;
 			void EnableInstanceColors();
 			bool HasInstanceColors() const { return color_buffer != NULL; }
 			void UpdateInstanceColors();

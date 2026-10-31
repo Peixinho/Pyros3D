@@ -85,15 +85,19 @@ end
 
 -- ******************************** Lights *******************************
 
-function L.pointLight(x, y, z, color, radius, intensity)
+-- dist: how far off what the light is there to light is (the floor under it, say) - its intensity is
+-- converted for the inverse-square falloff to give there what the old straight-line one did; the
+-- factor is returned third, for a caller that drives the intensity itself
+function L.pointLight(x, y, z, color, radius, intensity, dist)
 	local go = GameObject.new()
 	local light = PointLight.new(vec4(color), radius)
-	light:setLightIntensity(intensity)
+	local k = LinearFalloffIntensity(1.0, dist or 2.5, radius)
+	light:setLightIntensity(intensity * k)
 	go:addComponent(light)
 	go:setPosition(Vec3.new(x, y, z))
 	G.scene:add(go)
 	keep(go); keep(light)
-	return light, go
+	return light, go, k
 end
 
 -- ========================== The station shell ==========================
@@ -346,10 +350,10 @@ function L.buildLights()
 		L.box(spec.x, y, 0, 1.7, 0.10, 0.42, glassMat, false)
 
 		if spec.state ~= "dead" and spec.state ~= "fixed" then
-			local light = L.pointLight(spec.x, y - 0.3, 0, col.lampWarm, 13.0, 1.0)
+			local light, _, k = L.pointLight(spec.x, y - 0.3, 0, col.lampWarm, 13.0, 1.0, y - 0.3 - s.platformTop)
 			L.lamps[#L.lamps + 1] = {
 				light = light, glassMat = glassMat, state = spec.state,
-				base = 1.0,
+				base = 1.0 * k,
 				-- Each lamp gets its own phase so the hall never pulses in
 				-- unison, which reads as a rendering bug rather than as
 				-- failing hardware.
@@ -368,7 +372,7 @@ function L.buildLights()
 			L.box(x, s.platformTop + 2.5, sz * (s.trenchOut - 0.17), 0.9, 0.09, 0.06,
 				L.mat.emergency, false)
 			L.pointLight(x, s.platformTop + 2.5, sz * (s.trenchOut - 0.6),
-				col.emergency, 6.5, 0.30)
+				col.emergency, 6.5, 0.30, 2.5)
 		end
 	end
 
@@ -378,7 +382,7 @@ function L.buildLights()
 	for _, sx in ipairs({ -1, 1 }) do
 		for _, sz in ipairs({ -1, 1 }) do
 			L.pointLight(sx * deep, s.trenchFloor + 2.2, sz * (s.trenchIn + s.trenchOut) * 0.5,
-				col.tunnelGlow, 16.0, 0.5)
+				col.tunnelGlow, 16.0, 0.5, 2.2)
 		end
 	end
 end
@@ -402,7 +406,7 @@ function L.buildSpawns()
 				-- A dim light at each mouth that pulses just before a
 				-- spawn, so the player gets a moment of warning.
 				light = select(1, L.pointLight(sx * (s.tunnelMouth + 2.0), s.trenchFloor + 1.8,
-					sz * mid, C.color.crawler, 7.0, 0.0)),
+					sz * mid, C.color.crawler, 7.0, 0.0, 1.8)),
 			}
 		end
 	end

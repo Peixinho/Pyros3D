@@ -192,6 +192,9 @@ if (HAVE_LUA_BINDINGS)
 				${LUA_SRC}/lstrlib.c ${LUA_SRC}/ltablib.c ${LUA_SRC}/lutf8lib.c ${LUA_SRC}/linit.c
 			)
 			target_include_directories(lua54 PUBLIC ${LUA_SRC})
+			# (5.3's compatibility - math.pow and the rest - as the desktop's Lua is built: Homebrew's and the distributions'
+			# 5.4 have it, and a game's scripts ran on the desktop and stopped in the browser without it)
+			target_compile_definitions(lua54 PUBLIC LUA_COMPAT_5_3)
 			# (iOS has no system(): Lua's own switch for it - os.execute says no shell)
 			if (IOS)
 				target_compile_definitions(lua54 PRIVATE LUA_USE_IOS)

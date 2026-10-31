@@ -8,7 +8,6 @@
 
 #include <Pyros3D/Utils/Localization/Localization.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 namespace p3d {
 
@@ -20,7 +19,7 @@ namespace p3d {
 		// as coverage is a grey smear, and coverage thresholded as a
 		// distance is a hard-edged mess. Font knows which it is, so nothing
 		// above here has to.
-		const uint32 usage = ShaderUsage::TextRendering
+		const uint64 usage = ShaderUsage::TextRendering | ShaderUsage::DisplayReferred
 			| ((font && font->IsSDF()) ? ShaderUsage::TextSDF : 0);
 		GenericShaderMaterial* mat = new GenericShaderMaterial(usage);
 		mat->SetTextFont(font);

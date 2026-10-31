@@ -1,6 +1,6 @@
-# Emscripten / WebGL2
+# Emscripten / WebGPU
 
-Web builds use the main CMake tree via **emcmake**, targeting **GLES3 / WebGL2** and **SDL2**.
+Web builds use the main CMake tree via **emcmake**, targeting **WebGPU** and **SDL2**.
 
 The primary web product is a **JS-first library**: load `Pyros3D.js`, then create the window, scene, meshes, and `requestAnimationFrame` loop entirely in JavaScript (same idea as the old [pyrosjs](https://www.duartepeixinho.com/pyrosjs/) page).
 
@@ -25,10 +25,9 @@ Forced by `cmake/PyrosEmscripten.cmake` when `EMSCRIPTEN` is set:
 
 | Option | Value |
 |--------|--------|
-| `OPENGL_VERSION` | `GLES3` |
-| `CONTEXT` | `SDL2` |
-| `BUILD_VULKAN_BACKEND` | `OFF` |
-| `BUILD_SPIRV_TOOLING` | `OFF` |
+| `PYROS_GRAPHICS` | `WebGPU` |
+| `PYROS_WEB_WEBGPU` | `ON` |
+| `BUILD_VULKAN_BACKEND` / `BUILD_METAL_BACKEND` | `OFF` |
 | `STATIC_LIB` | `ON` |
 | `HAVE_LUA_BINDINGS` | `OFF` (default) |
 
@@ -52,15 +51,16 @@ Minimal client:
 
 ```js
 const P = await createPyros3D({ canvas: document.querySelector("#canvas") });
-const app = new P.Application(1280, 800, "Pyros3D", P.WindowType_Close | P.WindowType_Resize);
-app.init();
+// (awaited: the window waits for the browser's WebGPU adapter and device)
+const app = await new P.Application(1280, 800, "Pyros3D", P.WindowType_Close | P.WindowType_Resize);
+await app.init();
+const renderer = app.createRenderer();   // the engine's renderer, drawing on the app's canvas
 const scene = new P.Scene();
-// … meshes / lights / materials …
+// … camera (a GameObject), projection.perspective(...), meshes / lights / materials …
 function frame() {
   app.pollEvents();
   scene.update(app.getTime());
-  renderer.preRender(camera, scene);
-  renderer.renderScene(projection, camera, scene);
+  renderer.renderScene(projection, camera, scene);   // draws and presents the frame
   app.draw();
   requestAnimationFrame(frame);
 }
@@ -72,7 +72,7 @@ API parity with Lua is tracked in `EMBIND_PARITY.md`.
 ## Notes
 
 - Physics is **Box3D** (same as native): `new P.Box3DPhysics()` from Embind; linked from the `src/Pyros3D/Ext/box3d` submodule.
-- Vulkan / SPIR-V are not used on the web path.
+- The browser needs WebGPU (Chrome/Edge 113+, Safari 26+, Firefox 141+ on Windows). `renderer.useSceneSettings(scene)` takes a loaded editor scene's ambient, background, sky, reflections and exposure; `setSky`, `setHaze`, `setClouds`, `setReflections`, `setAutoExposure`, `setExposure`, `setTemporalAA`, `setBackground`, `setGlobalLight` set them by hand.
 - miniaudio uses the browser Web Audio backend (ScriptProcessorNode today). Chrome may log a deprecation warning; AudioWorklet needs ASYNCIFY/pthreads and breaks Embind sync APIs — left for a later miniaudio upgrade.
 - Embind is linked (`-lembind`); expand `PyrosEmbind.cpp` toward full Lua surface.
 - `Pyros3D.data` packs shaders + `verdana.ttf` + `neonpulse/sfx`. Game textures should use HTTP:

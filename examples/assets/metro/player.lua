@@ -73,7 +73,7 @@ function P.buildFlashlight()
 		f.radius,
 		Vec3.new(0, 0, -1),
 		f.outterCone, f.innerCone)
-	light:setLightIntensity(f.intensity)
+	light:setLightIntensity(LinearFalloffIntensity(f.intensity, 6.0, f.radius))
 
 	-- The beam casts. This is the single most important thing the light
 	-- does: without it the flashlight washes straight through the
@@ -101,7 +101,7 @@ function P.buildFlashlight()
 	-- is pressed against reads as bounce.
 	local fillGO = GameObject.new()
 	local fill = PointLight.new(Vec4.new(0.80, 0.83, 0.92, 1), C.flashlight.fillRadius)
-	fill:setLightIntensity(C.flashlight.fillIntensity)
+	fill:setLightIntensity(LinearFalloffIntensity(C.flashlight.fillIntensity, 0.7, C.flashlight.fillRadius))
 	fillGO:addComponent(fill)
 	G.scene:add(fillGO)
 	keep(fillGO); keep(fill)
@@ -416,7 +416,7 @@ function P.updateFlashlight(dt, time)
 		end
 	end
 
-	P.flashLight:setLightIntensity(intensity)
+	P.flashLight:setLightIntensity(LinearFalloffIntensity(intensity, 6.0, f.radius))
 	if intensity <= 0 then return end
 
 	local dx, dy, dz = P.forward()

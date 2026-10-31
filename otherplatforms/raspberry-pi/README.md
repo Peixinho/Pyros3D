@@ -1,12 +1,15 @@
-# Raspberry Pi (OpenGL ES 3)
+# Raspberry Pi (Vulkan)
 
-Build on the Pi with the **same GLES3 + SDL2 stack** as the Emscripten/WebGL2 path.
-Use modern **Pi OS (Bookworm+) Mesa** drivers — do **not** use the legacy Broadcom
-`/opt/vc` stack.
+Build on the Pi with **Vulkan + SDL2**, through Mesa's Vulkan driver for the Pi's GPU (v3dv). Use modern
+**Pi OS (Bookworm+) Mesa** drivers — do **not** use the legacy Broadcom `/opt/vc` stack.
+
+Not yet run on a Pi since the renderer moved to Vulkan / Metal / WebGPU: treat these steps as the starting point,
+and expect the renderer's full picture (volumetric clouds, AO, reflections, TAA) to be heavy for the Pi's GPU -
+a scene's Scene Effects can turn them off.
 
 ## Requirements
 
-- Raspberry Pi **4 or 5** recommended (Pi 3 may work with Mesa GLES 3.0; untested)
+- Raspberry Pi **4 or 5** (v3dv exposes Vulkan 1.2 on both; the Pi 3 has no Vulkan driver)
 - Pi OS 64-bit Bookworm (or similar) with desktop / KMS
 - Packages:
 
@@ -16,18 +19,15 @@ sudo apt-get install -y \
   build-essential cmake ninja-build git \
   libsdl2-dev \
   libfreetype-dev \
-  libbullet-dev \
-  liblua5.3-dev \
-  libgles2-mesa-dev \
-  libegl1-mesa-dev
+  liblua5.4-dev \
+  libvulkan-dev mesa-vulkan-drivers vulkan-tools \
+  glslc glslang-dev
 ```
 
-Confirm GLES is available:
+Confirm Vulkan is available:
 
 ```bash
-glxinfo -B 2>/dev/null | head -20   # if mesa-utils installed
-# or
-es2_info 2>/dev/null
+vulkaninfo --summary    # should list the V3D device
 ```
 
 ## Configure & build (on-device)
@@ -37,35 +37,26 @@ From the repo root:
 ```bash
 cmake -S . -B build_rpi -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DPYROS_GRAPHICS=OpenGL \
-  -DOPENGL_VERSION=GLES3 \
-  -DCONTEXT=SDL2 \
-  -DIS_DESKTOP=ON \
-  -DBUILD_VULKAN_BACKEND=OFF \
-  -DBUILD_SPIRV_TOOLING=OFF \
+  -DPYROS_GRAPHICS=Vulkan \
   -DBUILD_DEMOS=ON \
-  -DSTATIC_LIB=ON \
-  -DLUA_INCLUDE_DIR=/usr/include/lua5.3 \
-  -DLUA_LIBRARY=/usr/lib/aarch64-linux-gnu/liblua5.3.so
+  -DSTATIC_LIB=ON
 
 cmake --build build_rpi -j"$(nproc)"
 ```
 
-`IS_DESKTOP=ON` keeps the glad GLES3 loader (same as Web). Leave Vulkan off —
-the interesting path on Pi is GLES3 parity with the browser.
+`glslc` compiles the renderer's shaders at build time (they are embedded in the engine); glslang compiles
+materials' surfaces at run time and is optional. volk and VMA come through FetchContent, so the first configure
+needs network.
 
-Run from the examples build dir (shaders are resolved relative to the binary / `EXAMPLES_PATH`):
+Run from the examples build dir:
 
 ```bash
 cd build_rpi/examples
-./CppApiDemo          # minimal ForwardRenderer cube — best first smoke test
-# ./DemoLauncher      # only if HAVE_LUA_BINDINGS=ON
+./DemoLauncher        # PYROS_DEMO_INDEX=<n> picks a demo; PYROS_SHOT=/tmp/f.png saves frame 120
 ```
 
 ## Notes
 
-- Context requests **OpenGL ES 3.0** (aligned with WebGL2).
-- CMake links `libGLESv2` + `libEGL` via `find_library`.
+- The window is SDL2's; the Vulkan surface is the X11 / Wayland window SDL makes.
 - Cross-compile from x86 is possible with an aarch64 toolchain + sysroot, but
   on-device builds are the supported first step.
-- Vulkan on Pi 4/5 is a later experiment; not wired here.

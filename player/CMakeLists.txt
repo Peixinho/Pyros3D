@@ -1,7 +1,7 @@
 # PyrosPlayer — the runtime a built game ships with.
 #
 # Built via the root CMakeLists with -DBUILD_PLAYER=ON, inheriting
-# PYROS_CONTEXT / OPENGL_VERSION / the dependency variables from the parent
+# PYROS_GRAPHICS / the dependency variables from the parent
 # exactly like editor/ and examples/ do. It draws no editor UI of its own: a
 # shipped game has no editor UI - see the note on the ImGui backend below.
 #
@@ -9,7 +9,7 @@
 # next to the game's assets, so this target is what a player ends up running.
 #
 # It does link ImGui's SDL2 backend, which a shipped game has no use for.
-# That is not a choice: the shared SDL2/Vulkan/Metal window managers call
+# That is not a choice: the shared window manager calls
 # ImGui_ImplSDL2_ProcessEvent() from GetEvents() (guarded on there being a
 # live ImGui context, which in a player there never is), and ImGui core is
 # already inside PyrosEngine regardless. Forking the window manager to drop
@@ -20,7 +20,7 @@ cmake_minimum_required(VERSION 3.11)
 if (NOT DEFINED PYROS_CONTEXT)
 	message(FATAL_ERROR
 		"player/ must be built via the root CMakeLists with -DBUILD_PLAYER=ON "
-		"(it inherits PYROS_GRAPHICS / CONTEXT / OPENGL_VERSION from the parent).")
+		"(it inherits PYROS_GRAPHICS from the parent).")
 endif()
 
 include(${CMAKE_SOURCE_DIR}/cmake/PyrosWindowContext.cmake)
@@ -52,7 +52,6 @@ target_include_directories(PyrosPlayer PRIVATE
 target_link_libraries(PyrosPlayer PRIVATE
 	PyrosEngine
 	${PYROS_CONTEXT_LIB}
-	${OPENGL_LIBS}
 	${BOX3D_LIBRARIES}
 	${FREETYPE_LIBRARIES}
 	${LUA_LIBRARIES}
@@ -95,7 +94,7 @@ if (EMSCRIPTEN)
 		"SHELL:-sINITIAL_MEMORY=128MB"
 		# What the page calls: the file system, to write the game into, and
 		# the run dependency that holds main() until it has.
-		"SHELL:-sEXPORTED_RUNTIME_METHODS=['FS','addRunDependency','removeRunDependency','ccall']"
+		"SHELL:-sEXPORTED_RUNTIME_METHODS=['FS','ENV','addRunDependency','removeRunDependency','ccall']"
 		# A crash in a browser with neither of these is a list of addresses.
 		# Names cost a little size and no speed; the assertions a little speed.
 		"SHELL:--profiling-funcs"
@@ -111,7 +110,7 @@ if (EMSCRIPTEN)
 	return()
 endif()
 
-# PyrosServer - the same game, headless: no window, no GPU (NullRenderDevice),
+# PyrosServer - the same game, headless: no window, no GPU (no renderer made),
 # for dedicated multiplayer servers. Built alongside the player; Build Game
 # ships it next to PyrosPlayer.
 add_executable(PyrosServer
@@ -152,9 +151,8 @@ if (IOS)
 		MACOSX_BUNDLE_EXECUTABLE_NAME PyrosPlayer)
 	target_link_libraries(PyrosPlayer PRIVATE SDL2main)
 	add_custom_command(TARGET PyrosPlayer POST_BUILD
-		COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/resources/shaders $<TARGET_BUNDLE_DIR:PyrosPlayer>/shaders
 		COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_SOURCE_DIR}/examples/assets/middleclass.lua $<TARGET_BUNDLE_DIR:PyrosPlayer>/lua/middleclass.lua
-		COMMENT "PyrosPlayer: the engine's shaders and its script runtime (lua/middleclass.lua) into the app")
+		COMMENT "PyrosPlayer: its script runtime (lua/middleclass.lua) into the app")
 	if (PYROS_IOS_GAME)
 		add_custom_command(TARGET PyrosPlayer POST_BUILD
 			COMMAND ${CMAKE_COMMAND} -E copy_directory ${PYROS_IOS_GAME} $<TARGET_BUNDLE_DIR:PyrosPlayer>

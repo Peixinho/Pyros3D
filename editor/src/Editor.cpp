@@ -8,7 +8,7 @@
 
 #include <Pyros3D/Utils/Localization/Localization.h>
 #include "Editor.h"
-#include <Pyros3D/Rendering/PostEffects/Upscaling.h>
+#include "editor/RendererView.h"
 #include "editor/UI/TileSetEditor.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
@@ -28,7 +28,6 @@
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <FileDropHook.h>
 #include <CloseHook.h>
-#include <glad/glad.h>
 #include <filesystem>
 #include <fstream>
 #include <cstdlib>
@@ -501,30 +500,15 @@ void Editor::Init()
 	}
 	//ImGui::StyleColorsClassic();
 
-	// Platform + renderer backends per graphics API. Vulkan and Metal are
-	// wrapped by their render devices rather than calling ImGui_Impl* here -
-	// they share the engine's already-loaded volk pointers / MTLDevice, which
-	// a copy compiled into this binary could not (see VulkanImGuiBackend.cpp).
-	// Scene brightness: VK/Metal keep UNORM swapchains (ImGui UI stays correct);
-	// the editor viewport is display-encoded via PostEffectsManager::GetViewportColor().
-#if defined(_SDL2VULKAN)
-	ImGui_ImplSDL2_InitForVulkan(GetSDLWindow());
-	static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).InitImGuiVulkanBackend();
-#elif defined(_SDL2METAL)
-	ImGui_ImplSDL2_InitForMetal(GetSDLWindow());
-	static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).InitImGuiMetalBackend();
-#else
-	ImGui_ImplSDL2_InitForOpenGL(rview, mainGLContext);
-	// Must match the context the engine asks SDL for (a GL core profile, or
-	// GLES3): "#version 130" is compatibility-profile-only and the driver
-	// rejects it outright on macOS, which used to abort in the backend's
-	// first NewFrame(). Same choice BaseExample makes.
-	#if defined(GLES3) || defined(EMSCRIPTEN)
-		ImGui_ImplOpenGL3_Init("#version 300 es");
-	#else
-		ImGui_ImplOpenGL3_Init("#version 330");
-	#endif
-#endif
+	// ImGui: the platform's side - mouse, keys, clipboard - SDL's; the drawing the renderer's
+	ImGui_ImplSDL2_InitForOther(GetSDLWindow());
+	imguiRenderer.reset(new p3d::ImGuiRenderer(GetDevice()));
+	SceneEditor::gfxDevice = GetDevice();
+	SceneEditor::imguiRenderer = imguiRenderer.get();
+	MaterialPreview::gfxDevice = GetDevice();
+	MaterialPreview::imguiRenderer = imguiRenderer.get();
+	RendererView::device = GetDevice();
+	RendererView::imgui = imguiRenderer.get();
 
 	InputManager::AddEvent(Event::Type::OnPress, Event::Input::Keyboard::Space, this, &Editor::MouseMove);
 
@@ -532,18 +516,10 @@ void Editor::Init()
 
 	// Pre Render to Load docs correctly
 	ImGui_ImplSDL2_NewFrame();
-#if defined(_SDL2VULKAN)
-	// After SDL NewFrame so Sync can override stale drawable scale - see
-	// VulkanRenderDevice::NewImGuiVulkanFrame().
-	static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).NewImGuiVulkanFrame();
-#elif defined(_SDL2METAL)
-	static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).NewImGuiMetalFrame();
-#else
-	ImGui_ImplOpenGL3_NewFrame();
-#endif
-	
+
 	tabLog = new TabLog("Log", &showingLog);
 	tabRenderTargets = new RenderTargetsTab("Render Targets", &showingRenderTargets);
+	tabRenderTargets->SetSource([this]() { return sceneView ? sceneView->GetViewRenderer() : nullptr; });
 	tabProperties = new PropertiesTab(&showingTabProperties);
 	// Material properties take the panel over from the scene selection
 	// whenever a material document has focus - see
@@ -798,7 +774,7 @@ MaterialEditorDocument* Editor::LoadMaterialQuietly(const std::string& pathArg, 
 	doc->id = nextMaterialDocId++;
 	BindUndoRouting(doc);
 	doc->hiddenFromTabs = true;
-	if (!MaterialEditor::LoadFromFile(*doc, abs, project.GetProjectPath(), UseDeferredGBuffer()))
+	if (!MaterialEditor::LoadFromFile(*doc, abs, project.GetProjectPath()))
 	{
 		delete doc;
 		errOut = "could not open material: " + pathArg;
@@ -1033,7 +1009,6 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 				d["name"] = sceneDocs[i]->GetSceneDisplayName();
 				d["path"] = project.DisplayPath(sceneDocs[i]->GetScenePath());
 				d["twoD"] = sceneDocs[i]->IsTwoDScene();
-				d["renderer"] = sceneDocs[i]->WillUseDeferredRenderer() ? "deferred" : "forward";
 				d["dirty"] = sceneDocs[i]->IsSceneDirty();
 				d["active"] = (sceneDocs[i] == sceneView);
 				docs.push_back(d);
@@ -2625,6 +2600,9 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	if (name == "focus_window")
 	{
 		pendingFocusWindow = A("name");
+		// (the tool windows that start closed: opened to be focused)
+		if (pendingFocusWindow == "Render Targets") showingRenderTargets = true;
+		if (pendingFocusWindow == "Profiler") showingProfiler = true;
 		nlohmann::json r;
 		r["ok"] = true;
 		return r;
@@ -2639,27 +2617,13 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
-	// The Project Settings modal. With no arguments it only reads;
-	// "name" and "renderer" ("forward" | "deferred") apply and save, as
-	// the modal's Apply does - undoable the same way.
+	// The Project Settings modal. With no arguments it only reads; "name",
+	// "quality" and "preload" apply and save, as the modal's Apply does -
+	// undoable the same way.
 	if (name == "project_settings")
 	{
 		if (!project.IsOpen()) throw std::runtime_error("no project open");
 		bool changed = false;
-		if (a.is_object() && a.contains("renderer"))
-		{
-			std::string rt = a.value("renderer", std::string());
-			for (size_t i = 0; i < rt.size(); i++) rt[i] = (char)tolower((unsigned char)rt[i]);
-			if (rt != "forward" && rt != "deferred")
-				throw std::runtime_error("renderer must be forward or deferred");
-			const ProjectRendererType before = project.GetSettings().rendererType;
-			const ProjectRendererType after = (rt == "deferred") ? ProjectRendererType::Deferred : ProjectRendererType::Forward;
-			if (before != after)
-			{
-				SetProjectRendererType(after);
-				changed = true;
-			}
-		}
 		if (a.is_object() && a.contains("name"))
 		{
 			const std::string oldName = project.GetProjectName();
@@ -2672,33 +2636,6 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 					[this, oldName]() { project.SetProjectName(oldName); },
 					[this, newName]() { project.SetProjectName(newName); },
 					"Set Project Name"));
-				changed = true;
-			}
-		}
-		if (a.is_object() && a.contains("antiAliasing"))
-		{
-			const std::string aa = a.value("antiAliasing", std::string());
-			p3d::AntiAliasingMode after;
-			if (!p3d::AntiAliasing::FromString(aa, after))
-				throw std::runtime_error("antiAliasing must be one of off, fxaa, smaa, taa, msaa2x, msaa4x, msaa8x");
-			const bool deferred = project.GetSettings().rendererType == ProjectRendererType::Deferred;
-			const std::vector<p3d::AntiAliasingMode> supported = p3d::AntiAliasing::Supported(deferred, GetActiveRenderDevice().GetMaxSamples());
-			if (std::find(supported.begin(), supported.end(), after) == supported.end())
-			{
-				std::string names;
-				for (size_t i = 0; i < supported.size(); i++)
-					names += (i ? ", " : "") + p3d::AntiAliasing::ToString(supported[i]);
-				throw std::runtime_error(p3d::AntiAliasing::ToString(after) + " is not available with the "
-					+ (deferred ? "deferred" : "forward") + " renderer on this device; choose one of " + names);
-			}
-			const p3d::AntiAliasingMode before = project.GetSettings().antiAliasing;
-			if (before != after)
-			{
-				project.GetSettingsMutable().antiAliasing = after;
-				projectUndo.Push(std::make_unique<ApplyClosureCommand>(
-					[this, before]() { project.GetSettingsMutable().antiAliasing = before; project.MarkDirty(); },
-					[this, after]() { project.GetSettingsMutable().antiAliasing = after; project.MarkDirty(); },
-					"Set Anti-aliasing"));
 				changed = true;
 			}
 		}
@@ -2747,22 +2684,13 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			std::string perr;
 			if (!project.Save(&perr))
 				throw std::runtime_error(perr);
-			SwitchAllScenesRenderer(project.GetSettings().rendererType == ProjectRendererType::Deferred);
 			UpdateWindowTitle();
 		}
 		nlohmann::json r;
 		r["name"] = project.GetProjectName();
 		r["path"] = project.GetProjectPath();
-		r["renderer"] = project.GetSettings().rendererType == ProjectRendererType::Deferred ? "deferred" : "forward";
 		r["preload"] = project.GetSettings().preload;
 		r["quality"] = project.GetSettings().quality.is_object() ? project.GetSettings().quality : nlohmann::json::object();
-		r["antiAliasing"] = p3d::AntiAliasing::ToString(project.GetSettings().antiAliasing);
-		// What the viewport actually runs - the renderer and the device can
-		// both stand in the way (see AntiAliasing::Resolve).
-		r["effectiveAntiAliasing"] = p3d::AntiAliasing::ToString(p3d::AntiAliasing::Resolve(
-			project.GetSettings().antiAliasing,
-			project.GetSettings().rendererType == ProjectRendererType::Deferred,
-			GetActiveRenderDevice().GetMaxSamples()));
 		r["changed"] = changed;
 		return r;
 	}
@@ -2828,7 +2756,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		// UI/MaterialEditor.cpp) - a bulk agent-driven graph replace is one
 		// undo step, same as any other single edit.
 		doc->undo.Push(std::make_unique<GraphEditCommand>(doc, graphBefore, doc->CaptureGraphSnapshot(), "Set Material Graph"));
-		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath(), UseDeferredGBuffer()))
+		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath()))
 			throw std::runtime_error("failed to save material to " + doc->absolutePath);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -2843,7 +2771,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		MaterialEditorDocument* doc = AgentOpenMaterial(A("path"), aerr);
 		if (!doc) throw std::runtime_error(aerr);
 		std::string cerr;
-		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(*doc, project.GetProjectPath(), UseDeferredGBuffer(), &cerr))
+		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(*doc, project.GetProjectPath(), &cerr))
 			throw std::runtime_error(cerr);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -2892,7 +2820,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 					throw std::runtime_error(std::string("'") + k + "' is a Generic material setting - a Custom material's surface is set with set_material_graph or set_material_text");
 			applyCommon(doc->currentMaterial.get());
 			doc->dirty = true;
-			if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath(), UseDeferredGBuffer()))
+			if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath()))
 				throw std::runtime_error("failed to save material to " + doc->absolutePath);
 			nlohmann::json r;
 			r["ok"] = true;
@@ -3011,7 +2939,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			}
 		}
 		doc->dirty = true;
-		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath(), UseDeferredGBuffer()))
+		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath()))
 			throw std::runtime_error("failed to save material to " + doc->absolutePath);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -3037,7 +2965,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		if (!doc->AgentSetText(a.value("text", std::string()),
 			a.contains("textures") ? a["textures"] : nlohmann::json(), terr))
 			throw std::runtime_error(terr);
-		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath(), UseDeferredGBuffer()))
+		if (!MaterialEditor::SaveToFile(*doc, doc->absolutePath, project.GetProjectPath()))
 			throw std::runtime_error("failed to save material to " + doc->absolutePath);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -3104,6 +3032,13 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	{
 		nlohmann::json r;
 		if (!sceneView->BakeSubtreeImpostor(a, r, err)) throw std::runtime_error(err);
+		r["ok"] = true;
+		return r;
+	}
+	if (name == "bake_octahedral_impostor")
+	{
+		nlohmann::json r;
+		if (!sceneView->BakeOctahedralImpostor(a, r, err)) throw std::runtime_error(err);
 		r["ok"] = true;
 		return r;
 	}
@@ -3292,26 +3227,22 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["ok"] = true;
 		return r;
 	}
-	// what the render device is holding: textures by size, buffers, bytes (and the process's own footprint is the caller's to read)
+	// What the device is and what the Scene View's renderer holds: its targets, by size, and the last frame's counts
 	if (name == "gpu_memory")
 	{
-		nlohmann::json r = nlohmann::json::parse(p3d::GetActiveRenderDevice().MemoryReport(), NULL, false);
-		if (r.is_discarded()) r = nlohmann::json::object();
-		nlohmann::json fbos = nlohmann::json::array();
-		const std::vector<p3d::FrameBuffer*> &live = p3d::FrameBuffer::GetLiveFrameBuffers();
-		for (size_t i = 0; i < live.size(); i++)
+		nlohmann::json r;
+		if (GetDevice()) r["device"] = GetDevice()->Caps().name;
+		nlohmann::json targets = nlohmann::json::array();
+		p3d::SceneRenderer* view = sceneView ? sceneView->GetViewRenderer() : nullptr;
+		if (view)
+			for (const p3d::SceneRenderer::DebugTarget &t : view->DebugTargets())
+				targets.push_back({ { "name", t.name }, { "width", t.width }, { "height", t.height } });
+		r["targets"] = targets;
+		if (GetDevice())
 		{
-			if (!live[i]) continue;
-			nlohmann::json f;
-			f["name"] = live[i]->GetDebugName();
-			nlohmann::json atts = nlohmann::json::array();
-			std::vector<p3d::FBOAttachment*> a2 = live[i]->GetAttachments();
-			for (size_t k = 0; k < a2.size(); k++)
-				if (a2[k] && a2[k]->TexturePTR) atts.push_back(std::to_string(a2[k]->TexturePTR->GetWidth()) + "x" + std::to_string(a2[k]->TexturePTR->GetHeight()));
-			f["attachments"] = atts;
-			fbos.push_back(f);
+			const p3d::gfx::FrameStats &fs = GetDevice()->LastFrameStats();
+			r["draws"] = fs.draws; r["pipelinesPending"] = fs.pipelinesPending;
 		}
-		r["framebuffers"] = fbos;
 		return r;
 	}
 	if (name == "find_objects")
@@ -3363,7 +3294,7 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 	if (name == "save_material_document")
 	{
 		if (!activeMaterialDoc) throw std::runtime_error("no material document is active");
-		if (!MaterialEditor::SaveDocument(*activeMaterialDoc, project.GetProjectPath(), UseDeferredGBuffer()))
+		if (!MaterialEditor::SaveDocument(*activeMaterialDoc, project.GetProjectPath()))
 			throw std::runtime_error(activeMaterialDoc->lastApplyError);
 		nlohmann::json r;
 		r["ok"] = true;
@@ -4637,7 +4568,6 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 			opts.server.maxClientSpeed = sv.value("maxClientSpeed", opts.server.maxClientSpeed);
 			opts.server.publicKey = sv.value("publicKey", opts.server.publicKey);
 		}
-		opts.deferred = (project.GetSettings().rendererType == ProjectRendererType::Deferred);
 
 		ProjectManager::BuildResult br = project.BuildGame(opts);
 		if (!br.ok) throw std::runtime_error(br.error);
@@ -4647,62 +4577,6 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["files"] = br.filesCopied;
 		r["platform"] = opts.platform.empty() ? std::string(ProjectManager::HostPlatform()) : opts.platform;
 		r["warnings"] = br.warnings;
-		return r;
-	}
-	// set_upscale_preview {upscaler?: "off"|"sharp"|"fsr1"|..., quality?: "native"|"quality"|"balanced"|"performance"|"auto"}
-	// and get_upscale_preview: the Play viewport's upscaler and render quality
-	// (the two lists on the Play toolbar).
-	if (name == "set_upscale_preview" || name == "get_upscale_preview")
-	{
-		UpscalerMode mode = sceneView->GetUpscalePreviewMode();
-		UpscaleQuality quality = sceneView->GetUpscalePreviewQuality();
-		if (name == "set_upscale_preview")
-		{
-			if (a.contains("upscaler") && !Upscaling::FromString(a["upscaler"].get<std::string>(), mode))
-				throw std::runtime_error("set_upscale_preview: no upscaler is called '" + a["upscaler"].get<std::string>() + "'");
-			if (a.contains("quality") && !Upscaling::FromString(a["quality"].get<std::string>(), quality))
-				throw std::runtime_error("set_upscale_preview: no quality is called '" + a["quality"].get<std::string>() + "'");
-			sceneView->SetUpscalePreview(mode, quality);
-		}
-		nlohmann::json r;
-		r["ok"] = true;
-		r["upscaler"] = Upscaling::ToString(mode);
-		r["runs"] = Upscaling::ToString(Upscaling::Resolve(mode));
-		r["quality"] = Upscaling::ToString(quality);
-		r["renderScale"] = sceneView->ViewportRenderScale();
-		nlohmann::json supported = nlohmann::json::array();
-		const std::vector<UpscalerMode> modes = Upscaling::Supported();
-		for (size_t i = 0; i < modes.size(); i++) supported.push_back(Upscaling::ToString(modes[i]));
-		r["supported"] = supported;
-		return r;
-	}
-	if (name == "set_renderer")
-	{
-		const std::string type = A("type");
-		if (type != "forward" && type != "deferred")
-			throw std::runtime_error("set_renderer requires type='forward' or 'deferred'");
-		const bool wanted = (type == "deferred");
-		// The PROJECT setting too, not only the open documents. This is the
-		// agent's Project Settings > Renderer, and changing documents alone
-		// meant the next scene opened reverted to whatever the project still
-		// said - the change looked like it had stuck and had not.
-		if (project.IsOpen())
-		{
-			project.GetSettingsMutable().rendererType =
-				wanted ? ProjectRendererType::Deferred : ProjectRendererType::Forward;
-			project.MarkDirty();
-		}
-		SwitchAllScenesRenderer(wanted);
-		nlohmann::json r;
-		r["ok"] = true;
-		// What the ACTIVE scene ended up on, not what was asked for: a 2D
-		// scene overrides this to forward, and reporting the request back
-		// verbatim told the caller a switch had happened when it had not.
-		const bool effective = (sceneView && sceneView->WillUseDeferredRenderer());
-		r["rendererType"] = effective ? "deferred" : "forward";
-		r["requested"] = type;
-		if (wanted != effective && sceneView && sceneView->IsTwoDScene())
-			r["note"] = "the open scene is 2D, which always uses forward - deferred cannot blend sprites";
 		return r;
 	}
 	// Synthetic keyboard, straight into InputManager - the same entry point
@@ -5753,6 +5627,15 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		r["playing"] = false;
 		return r;
 	}
+	// The window at a size of its own (for measuring at a known resolution, whatever a window manager did)
+	if (name == "set_window_size")
+	{
+		const int w = a.value("width", 1920), h = a.value("height", 1080);
+		SDL_SetWindowSize(GetSDLWindow(), w, h);
+		nlohmann::json r;
+		r["ok"] = true;
+		return r;
+	}
 	if (name == "screenshot")
 	{
 		const bool live = a.is_object() && a.value("live", false);
@@ -5836,16 +5719,13 @@ void Editor::ProcessPendingFileDrops()
 
 void Editor::DrawUI()
 {
-	// Update - Game Loop. SDL first so Vulkan can correct FramebufferScale
-	// against the real swapchain extent (see NewImGuiVulkanFrame).
 	ImGui_ImplSDL2_NewFrame();
-#if defined(_SDL2VULKAN)
-	static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).NewImGuiVulkanFrame();
-#elif defined(_SDL2METAL)
-	static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).NewImGuiMetalFrame();
-#else
-	ImGui_ImplOpenGL3_NewFrame();
-#endif
+	{
+		// (the window's pixels to its points: the backbuffer is the drawable, not the window's size)
+		int w = 0, h = 0;
+		SDL_GetWindowSize(GetSDLWindow(), &w, &h);
+		if (w > 0 && h > 0) ImGui::GetIO().DisplayFramebufferScale = ImVec2((float)Width / (float)w, (float)Height / (float)h);
+	}
 	ImGui::NewFrame();
 
 	if (!pendingFocusWindow.empty())
@@ -6260,13 +6140,6 @@ void Editor::DrawUI()
 		DrawWelcomeScreen();
 		ImGui::EndFrame();
 		ImGui::Render();
-#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
-		ImGuiIO& io = ImGui::GetIO(); (void)io;
-		glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-		glClearColor(0.16f, 0.14f, 0.15f, 1.f);
-		glClear(GL_COLOR_BUFFER_BIT);
-		ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-#endif
 		return;
 	}
 
@@ -6381,13 +6254,6 @@ void Editor::DrawUI()
 	// On Vulkan and Metal the draw data is consumed inside the device's
 	// EndFrame() through its UIRenderHook, so there is nothing to issue here
 	// and no backbuffer of ours to clear - the render pass does it.
-#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	glViewport(0, 0, (int)io.DisplaySize.x, (int)io.DisplaySize.y);
-	glClearColor(0, 0, 0, 0);
-	glClear(GL_COLOR_BUFFER_BIT);
-	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-#endif
 
     // Multi-viewport disabled
 }
@@ -6412,7 +6278,6 @@ bool Editor::CreateNewProject(const std::string& parentDir, const std::string& n
 	const std::string sceneAbs = project.AbsolutePath(project.GetActiveSceneRel());
 	if (sceneView)
 		sceneView->LoadSceneFromFile(sceneAbs);
-	GetActiveRenderDevice().WaitIdle();
 	if (sceneView)
 		sceneView->QueueMissingProjectModelThumbnails();
 	AddRecentProject(project.GetProjectPath());
@@ -6448,7 +6313,6 @@ bool Editor::OpenProjectFromPath(const std::string& path)
 	std::error_code ec;
 	if (sceneView && fs::exists(sceneAbs, ec))
 		sceneView->LoadSceneFromFile(sceneAbs);
-	GetActiveRenderDevice().WaitIdle();
 	if (sceneView)
 		sceneView->QueueMissingProjectModelThumbnails();
 #ifdef LUA_BINDINGS
@@ -6780,8 +6644,7 @@ void Editor::DrawWelcomeScreen()
 	const float logoSz = std::min(220.f, std::max(140.f, size.y * 0.28f));
 	if (welcomeLogo)
 	{
-		void* tid = GetActiveRenderDevice().GetImGuiTextureID(
-			welcomeLogo->GetBindID(), welcomeLogo->GetTextureType());
+		void* tid = EditorImGuiTexture(welcomeLogo);
 		if (tid)
 		{
 			const ImVec2 logoMin(hero.x - logoSz * 0.5f, hero.y - logoSz * 0.62f);
@@ -7105,8 +6968,7 @@ void Editor::DrawDemoBrowser()
 		Texture* thumb = d.thumbnailFile.empty() ? NULL : GetAssetPreviewTexture(d.thumbnailFile);
 		if (thumb)
 		{
-			void* tid = GetActiveRenderDevice().GetImGuiTextureID(
-				thumb->GetBindID(), thumb->GetTextureType());
+			void* tid = EditorImGuiTexture(thumb);
 			if (tid)
 			{
 				const float w = std::min(ImGui::GetContentRegionAvail().x, 420.f);
@@ -7362,148 +7224,17 @@ void Editor::DrawProjectDialogs()
 		ImGui::Separator();
 		ImGui::InputText("Project Name", &projectSettingsName);
 
-		// A project can hold both 3D and 2D scenes, so the setting itself stays
-		// - but it does not apply to the 2D ones, and saying so here is the
-		// difference between "a setting that does nothing" and a documented
-		// rule. The scene currently open is called out by name, because that
-		// is the one whose viewport the user is looking at while they choose.
-		const bool activeSceneIsTwoD = (sceneView && sceneView->IsTwoDScene());
-		int rendererIdx = (project.GetSettings().rendererType == ProjectRendererType::Deferred) ? 1 : 0;
-		if (ImGui::Combo("Renderer", &rendererIdx, "Forward\0Deferred\0"))
-		{
-			// Note: unlike Project Name below, this applies to the setting
-			// immediately (matching the pre-existing behavior - Cancel does
-			// NOT revert it, only skips the Name/Save step) - Ctrl+Z while
-			// this modal is open is the only way to revert an accidental
-			// change today.
-			SetProjectRendererType((rendererIdx == 1) ? ProjectRendererType::Deferred : ProjectRendererType::Forward);
-		}
-
-		if (rendererIdx == 1)
-		{
-			ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f),
-				activeSceneIsTwoD
-					? "The open scene is 2D and will keep using Forward."
-					: "2D scenes always use Forward, whatever this says.");
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("A G-buffer holds one opaque fragment per pixel, so it cannot blend -\n"
-					"and a 2D scene is almost entirely alpha-blended cut-outs. Rendered\n"
-					"deferred, every sprite gets a hard ring of its invisible border.\n"
-					"There is nothing to gain either: 2D lighting is a few lights on flat\n"
-					"quads, which is what forward is good at.");
-		}
-
-		// Applied as soon as it changes - the viewports read the setting every
-		// frame, so there is nothing for Apply to do but save it.
-		{
-			const p3d::AntiAliasingMode current = project.GetSettings().antiAliasing;
-			const bool deferred = (rendererIdx == 1);
-			const uint32 maxSamples = GetActiveRenderDevice().GetMaxSamples();
-			const std::vector<p3d::AntiAliasingMode> modes = p3d::AntiAliasing::Supported(deferred, maxSamples);
-			// Only a sample count above this device's limit gets here - a
-			// project authored on a machine with more MSAA than this one.
-			std::string preview = p3d::AntiAliasing::DisplayName(current);
-			const p3d::AntiAliasingMode effective = p3d::AntiAliasing::Resolve(current, deferred, maxSamples);
-			if (effective != current)
-				preview += std::string(" (runs as ") + p3d::AntiAliasing::DisplayName(effective) + ")";
-			if (ImGui::BeginCombo("Anti-aliasing", preview.c_str()))
-			{
-				for (size_t i = 0; i < modes.size(); i++)
-				{
-					const p3d::AntiAliasingMode m = modes[i];
-					if (ImGui::Selectable(p3d::AntiAliasing::DisplayName(m), m == current) && m != current)
-					{
-						const p3d::AntiAliasingMode before = current;
-						project.GetSettingsMutable().antiAliasing = m;
-						project.MarkDirty();
-						projectUndo.Push(std::make_unique<ApplyClosureCommand>(
-							[this, before]() { project.GetSettingsMutable().antiAliasing = before; project.MarkDirty(); },
-							[this, m]() { project.GetSettingsMutable().antiAliasing = m; project.MarkDirty(); },
-							"Set Anti-aliasing"));
-					}
-				}
-				ImGui::EndCombo();
-			}
-			if (ImGui::IsItemHovered())
-				ImGui::SetTooltip("The game starts with this; scripts can change it with setAntiAliasing().\n"
-					"FXAA: cheapest, slightly soft. SMAA: sharper, a little more cost.\n"
-					"TAA: smoothest, also catches shimmering; can ghost on fast motion.\n"
-					"MSAA: geometry edges only, Forward renderer only.");
-			const std::string reason = p3d::AntiAliasing::FallbackReason(current, deferred, maxSamples);
-			if (!reason.empty())
-				ImGui::TextColored(ImVec4(1.f, 0.75f, 0.3f, 1.f), "%s", reason.c_str());
-		}
-
 		// What the game trades for frame rate. Applied when a built game
 		// starts and while playing here; a script can still change any of it.
 		if (ImGui::CollapsingHeader("Quality"))
 		{
 			nlohmann::json q = project.GetSettings().quality.is_object() ? project.GetSettings().quality : nlohmann::json::object();
 			const nlohmann::json was = q;
-			f32 cull = q.value("smallObjectCull", 1.f);
+			// Seconds a change of level of detail dissolves over (0: switches at once)
+			f32 crossfade = q.value("lodCrossfade", -1.f);
+			if (crossfade < 0.f) crossfade = RenderingComponent::GetLODCrossfade();
 			ImGui::SetNextItemWidth(160.f);
-			if (ImGui::SliderFloat("Skip things smaller than (pixels)", &cull, 0.f, 6.f, "%.1f")) q["smallObjectCull"] = cull;
-			int every = q.value("shadowUpdateInterval", 1);
-			ImGui::SetNextItemWidth(160.f);
-			if (ImGui::SliderInt("Redraw the sun's shadows every (frames)", &every, 1, 4)) q["shadowUpdateInterval"] = every;
-			bool half = q.value("ssaoHalfResolution", false);
-			if (ImGui::Checkbox("Ambient occlusion at half resolution", &half)) q["ssaoHalfResolution"] = half;
-			// What brings a frame rendered below the window's size up to it, and
-			// how far below (Upscaling.h). The game's own options menu offers
-			// the same two lists; these are what it starts with.
-			{
-				UpscalerMode mode = UpscalerMode::FSR1;
-				Upscaling::FromString(q.value("upscaler", std::string("fsr1")), mode);
-				ImGui::SetNextItemWidth(220.f);
-				if (ImGui::BeginCombo("Upscaler", Upscaling::DisplayName(mode)))
-				{
-					const std::vector<UpscalerMode> &all = Upscaling::All();
-					for (size_t u = 0; u < all.size(); u++)
-					{
-						// (one this machine cannot run may still be the project's
-						// choice: a machine that can will use it, the rest fall back)
-						std::string label = Upscaling::DisplayName(all[u]);
-						if (!Upscaling::IsAvailable(all[u])) label += std::string("  (here: ") + Upscaling::DisplayName(Upscaling::Resolve(all[u])) + ")";
-						if (ImGui::Selectable(label.c_str(), all[u] == mode)) q["upscaler"] = Upscaling::ToString(all[u]);
-					}
-					ImGui::EndCombo();
-				}
-				f32 sharp = q.value("upscaleSharpness", 0.85f);
-				if (sharp < 0.f) sharp = 0.85f;
-				ImGui::SetNextItemWidth(160.f);
-				if (ImGui::SliderFloat("Upscale sharpness", &sharp, 0.f, 1.f, "%.2f")) q["upscaleSharpness"] = sharp;
-
-				// (a project from before the names: its numbers say which it is)
-				UpscaleQuality quality = q.value("autoRenderScaleFps", 0.f) > 0.f ? UpscaleQuality::Auto
-					: (q.value("renderScale", 1.f) < 0.999f ? UpscaleQuality::Quality : UpscaleQuality::Native);
-				Upscaling::FromString(q.value("upscaleQuality", std::string()), quality);
-				ImGui::SetNextItemWidth(220.f);
-				if (ImGui::BeginCombo("Render quality", Upscaling::DisplayName(quality)))
-				{
-					const std::vector<UpscaleQuality> &all = Upscaling::AllQualities();
-					for (size_t u = 0; u < all.size(); u++)
-						if (ImGui::Selectable(Upscaling::DisplayName(all[u]), all[u] == quality))
-						{
-							q["upscaleQuality"] = Upscaling::ToString(all[u]);
-							if (all[u] == UpscaleQuality::Auto && q.value("autoRenderScaleFps", 0.f) <= 0.f) q["autoRenderScaleFps"] = 60.f;
-						}
-					ImGui::EndCombo();
-				}
-				quality = UpscaleQuality::Native;
-				Upscaling::FromString(q.value("upscaleQuality", std::string()), quality);
-			}
-			f32 autoFps = q.value("upscaleQuality", std::string()) == "auto" || !q.contains("upscaleQuality") ? q.value("autoRenderScaleFps", 0.f) : 0.f;
-			if (q.value("upscaleQuality", std::string()) == "auto")
-			{
-				ImGui::SetNextItemWidth(160.f);
-				if (ImGui::InputFloat("Auto: hold this frame rate", &autoFps, 0.f, 0.f, "%.0f")) q["autoRenderScaleFps"] = autoFps < 1.f ? 60.f : autoFps;
-			}
-			if (autoFps > 0.f)
-			{
-				f32 lowest = q.value("autoRenderScaleMin", 0.42f);
-				ImGui::SetNextItemWidth(160.f);
-				if (ImGui::SliderFloat("...never below", &lowest, 0.25f, 1.f, "%.2f")) q["autoRenderScaleMin"] = lowest;
-			}
+			if (ImGui::SliderFloat("Level-of-detail crossfade (s)", &crossfade, 0.f, 1.f, "%.2f")) q["lodCrossfade"] = crossfade;
 			static const char* kLimit[] = { "No frame limit", "The display's rate (50-75 Hz displays)", "A fixed rate" };
 			const f32 limit = q.value("frameRateLimit", 0.f);
 			int mode = limit < 0.f ? 1 : (limit > 0.f ? 2 : 0);
@@ -7597,8 +7328,6 @@ void Editor::DrawProjectDialogs()
 			}
 			else
 			{
-				// Apply live instead of only writing project.json.
-				SwitchAllScenesRenderer(project.GetSettings().rendererType == ProjectRendererType::Deferred);
 				UpdateWindowTitle();
 				ImGui::CloseCurrentPopup();
 			}
@@ -7614,60 +7343,8 @@ void Editor::DrawProjectDialogs()
 	DrawDemoBrowser();
 }
 
-void Editor::SetProjectRendererType(ProjectRendererType after)
-{
-	const ProjectRendererType before = project.GetSettings().rendererType;
-	if (before == after)
-		return;
-	const p3d::AntiAliasingMode aaBefore = project.GetSettings().antiAliasing;
-	// Renderer rule only: a device limit is this machine's, not the project's.
-	const p3d::AntiAliasingMode aaAfter = p3d::AntiAliasing::Resolve(aaBefore,
-		after == ProjectRendererType::Deferred, p3d::AntiAliasing::SampleCount(aaBefore));
-	project.GetSettingsMutable().rendererType = after;
-	project.GetSettingsMutable().antiAliasing = aaAfter;
-	project.MarkDirty();
-	projectUndo.Push(std::make_unique<ApplyClosureCommand>(
-		[this, before, aaBefore]() { project.GetSettingsMutable().rendererType = before; project.GetSettingsMutable().antiAliasing = aaBefore; project.MarkDirty(); },
-		[this, after, aaAfter]() { project.GetSettingsMutable().rendererType = after; project.GetSettingsMutable().antiAliasing = aaAfter; project.MarkDirty(); },
-		"Set Renderer Type"));
-}
 
-void Editor::SwitchAllScenesRenderer(bool useDeferred)
-{
-	for (size_t i = 0; i < sceneDocs.size(); ++i)
-		sceneDocs[i]->SwitchRenderer(useDeferred);
-	RecompileCustomMaterialsForRenderer(useDeferred);
-}
 
-void Editor::RecompileCustomMaterialsForRenderer(bool useDeferred)
-{
-	if (!project.IsOpen()) return;
-	const std::string projectRoot = project.GetProjectPath();
-
-	// Open editor tabs first: their doc owns compiledShader, so their
-	// material must be recompiled through ApplyGraphOrTextToLiveMaterial
-	// (which re-wires uniforms/samplers and updates the doc's tracking
-	// fields) rather than the orphan path's RecompileFromDisk.
-	std::set<IMaterial*> handled;
-	for (size_t i = 0; i < materialDocs.size(); ++i)
-	{
-		MaterialEditorDocument* doc = materialDocs[i];
-		if (!doc || doc->editKind != MaterialEditKind::Custom || !doc->currentMaterial) continue;
-		handled.insert(doc->currentMaterial.get());
-		// Already on the right branch (or never compiled) - nothing to do.
-		if (!doc->hasCompiledShader || doc->compiledForDeferredGBuffer == useDeferred) continue;
-		std::string err;
-		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(*doc, projectRoot, useDeferred, &err))
-			doc->lastApplyError = err;
-	}
-
-	// Then every scene-assigned custom material NOT owned by an open tab
-	// (the "orphaned" ones - e.g. a material loaded with the scene and
-	// never opened in the editor).
-	for (size_t i = 0; i < sceneDocs.size(); ++i)
-		if (sceneDocs[i])
-			sceneDocs[i]->RecompileOrphanedCustomMaterials(projectRoot, useDeferred, handled);
-}
 
 void Editor::UpdateWindowTitle()
 {
@@ -7868,12 +7545,11 @@ void Editor::DrawMaterialEditorWindows()
 			if (sceneView && !doc->generatedGlslPath.empty())
 			{
 				// The document's own material is already up to date - Apply
-				// swapped its shader in place - and recompiling it here
-				// would throw away doc.compiledShader's ownership.
+				// its surface set in place already.
 				std::set<IMaterial*> skip;
 				if (doc->currentMaterial) skip.insert(doc->currentMaterial.get());
 				const int n = sceneView->RefreshMaterialsFromGeneratedGlsl(
-					doc->generatedGlslPath, project.GetProjectPath(), UseDeferredGBuffer(), skip);
+					doc->generatedGlslPath, project.GetProjectPath(), skip);
 				if (n > 0)
 					echo("Updated " + std::to_string(n) + " scene material(s) from " + doc->generatedGlslPath);
 			}
@@ -7920,7 +7596,7 @@ void Editor::DrawMaterialEditorWindows()
 		if (pendingSelectMaterialDocId == doc->id)
 			if (canDock) pendingSelectMaterialDocId = 0;
 
-		MaterialEditor::DrawWindow(*doc, projectRoot, UseDeferredGBuffer());
+		MaterialEditor::DrawWindow(*doc, projectRoot);
 
 		ImGui::End();
 
@@ -8350,7 +8026,6 @@ void Editor::HostOpenCharacter2D(const std::string& absPath)
 	instance->OpenCharacter2DDocument(absPath);
 }
 
-
 TileSetDocument* Editor::FindTileSetDocumentByPath(const std::string& absPath)
 {
 	for (size_t i = 0; i < tileSetDocs.size(); ++i)
@@ -8477,8 +8152,7 @@ void Editor::DrawTileSetEditorWindows()
 		void* texId = nullptr;
 		std::map<uint32, std::shared_ptr<p3d::Texture> >::iterator t = tileSetAtlasTex.find(doc->id);
 		if (t != tileSetAtlasTex.end() && t->second)
-			texId = (void*)GetActiveRenderDevice().GetImGuiTextureID(
-				t->second->GetBindID(), t->second->GetTextureType());
+			texId = EditorImGuiTexture(t->second);
 
 		TileSetEditor::FrameRequests req;
 		TileSetEditor::DrawWindow(*doc, texId, req);
@@ -9147,7 +8821,7 @@ void Editor::DrawUnsavedDocumentModal()
 				std::string path = material->absolutePath;
 				if (path.empty())
 					path = MaterialEditor::DefaultSavePath(*material, project.GetProjectPath());
-				saved = MaterialEditor::SaveToFile(*material, path, project.GetProjectPath(), UseDeferredGBuffer());
+				saved = MaterialEditor::SaveToFile(*material, path, project.GetProjectPath());
 				if (!saved)
 					material->lastApplyError = "Could not save to " + path;
 			}
@@ -9713,7 +9387,7 @@ void Editor::DrawAssetsWindow()
 			preview = GetAssetPreviewTexture(abs);
 		void* tid = NULL;
 		if (preview)
-			tid = GetActiveRenderDevice().GetImGuiTextureID(preview->GetBindID(), preview->GetTextureType());
+			tid = EditorImGuiTexture(preview);
 
 		if (tid)
 		{
@@ -9728,11 +9402,7 @@ void Editor::DrawAssetsWindow()
 			const float dh = ih * scale;
 			const ImVec2 imgMin(thumbMin.x + (tw - dw) * 0.5f, thumbMin.y + (th - dh) * 0.5f);
 			const ImVec2 imgMax(imgMin.x + dw, imgMin.y + dh);
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 			dl->AddImage((ImTextureID)tid, imgMin, imgMax);
-#else
-			dl->AddImage((ImTextureID)tid, imgMin, imgMax, ImVec2(0, 1), ImVec2(1, 0));
-#endif
 		}
 		else
 		{
@@ -9857,11 +9527,7 @@ void Editor::DrawAssetsWindow()
 			ImGui::TextUnformatted(e.name.c_str());
 			if (tid)
 			{
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 				ImGui::Image((ImTextureID)tid, ImVec2(64, isModel ? 48 : 64));
-#else
-				ImGui::Image((ImTextureID)tid, ImVec2(64, isModel ? 48 : 64), ImVec2(0, 1), ImVec2(1, 0));
-#endif
 			}
 			ImGui::EndDragDropSource();
 		}
@@ -10020,16 +9686,8 @@ void PyrosWebPublishTextInputState();
 
 void Editor::Draw()
 {
-	// Before BeginFrame, and for every document, not just the active one: a
-	// queued renderer switch deletes the Renderer, the G-buffer and the
-	// PostEffectsManager, and that can only happen while no command buffer
-	// is open. See SceneEditor::ApplyPendingRendererSwitchIfAny().
-	for (size_t i = 0; i < sceneDocs.size(); ++i)
-		if (sceneDocs[i]) sceneDocs[i]->ApplyPendingRendererSwitchIfAny();
-
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
-	GetActiveRenderDevice().BeginFrame();
-#endif
+	if (GetDevice() == NULL) return;
+	GetDevice()->BeginFrame();
 	if (sceneView)
 	{
 		PYROS_PROFILE_SCOPE("Editor.Thumbnails");
@@ -10047,12 +9705,15 @@ void Editor::Draw()
 	// actually in. The browser build's page reads this to decide whether the
 	// next touch should raise the on-screen keyboard; a no-op everywhere else.
 	PyrosWebPublishTextInputState();
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
-	GetActiveRenderDevice().EndFrame();
-#endif
 	{
+		// The panels - and the views the renderer drew into their textures, shown as their images - over the backbuffer
 		PYROS_PROFILE_SCOPE("Editor.Present");
-		ClassName::Draw();
+		gfx::Device* device = GetDevice();
+		gfx::CommandList* cl = device->NewCommandList("Editor.ImGui");
+		imguiRenderer->Render(ImGui::GetDrawData(), cl, gfx::Texture(), true);
+		device->Submit(&cl, 1);
+		device->Present();
+		device->EndFrame();
 	}
 	// After ImGui has consumed texture IDs from this frame's draw list.
 	FlushDeferredPreviewDestroy();
@@ -10128,13 +9789,7 @@ void Editor::Shutdown()
 	delete tabRenderTargets;
 	tabRenderTargets = NULL;
 
-#if defined(_SDL2VULKAN)
-	static_cast<VulkanRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiVulkanBackend();
-#elif defined(_SDL2METAL)
-	static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiMetalBackend();
-#else
-	ImGui_ImplOpenGL3_Shutdown();
-#endif
+	imguiRenderer.reset();
 	ImGui_ImplSDL2_Shutdown();
 	ImGui::DestroyContext();
 }
@@ -10183,9 +9838,6 @@ SceneEditor* Editor::CreateSceneDocument()
 	if (luaReady)
 		doc->SetSharedLua(&lua);
 #endif
-	// Must be set before Init() - that's where the renderer actually gets
-	// constructed (Forward or Deferred, see SceneEditor::Init()'s comment).
-	doc->SetUseDeferredRenderer(UseDeferredGBuffer());
 	doc->Init(Width, Height);
 	doc->SetProjectManager(&project);
 	doc->SetHostCallbacks(&Editor::HostCloseProject, &Editor::HostQuitApp,
@@ -10319,7 +9971,7 @@ bool Editor::OpenMaterialDocument(const std::string& absPath)
 	MaterialEditorDocument* doc = new MaterialEditorDocument();
 	doc->id = nextMaterialDocId++;
 	BindUndoRouting(doc);
-	if (!MaterialEditor::LoadFromFile(*doc, absPath, project.GetProjectPath(), UseDeferredGBuffer()))
+	if (!MaterialEditor::LoadFromFile(*doc, absPath, project.GetProjectPath()))
 	{
 		echo("ERROR: Could not open material " + project.DisplayPath(absPath));
 		delete doc;
@@ -10372,8 +10024,7 @@ MaterialEditorDocument* Editor::EditMaterialInline(std::shared_ptr<IMaterial> ma
 			doc->codeDoc->editor.SetPalette(TextEditor::GetDarkPalette());
 			doc->codeDoc->editor.SetShowWhitespaces(false);
 			doc->codeDoc->editor.SetTabSize(4);
-			if (cm->GetShaderObject())
-				doc->codeDoc->editor.SetText(cm->GetShaderObject()->GetShaderText());
+			doc->codeDoc->editor.SetText(cm->GetSurfaceSource());
 		}
 	}
 	materialDocs.push_back(doc);
@@ -10382,18 +10033,6 @@ MaterialEditorDocument* Editor::EditMaterialInline(std::shared_ptr<IMaterial> ma
 	return doc;
 }
 
-// The doc owns its live material's Shader* (doc.compiledShader) while
-// CustomShaderMaterial::shader is only a non-owning raw pointer to it. If
-// the material outlives the doc (still assigned to a scene GameObject),
-// move ownership into the material BEFORE `delete doc` frees it -
-// otherwise the material's shader pointer dangles.
-static void AdoptDocumentShaderIfShared(MaterialEditorDocument* doc)
-{
-	if (!doc || !doc->compiledShader || !doc->currentMaterial || doc->currentMaterial.use_count() <= 1)
-		return;
-	if (auto* cm = dynamic_cast<CustomShaderMaterial*>(doc->currentMaterial.get()))
-		cm->AdoptShader(std::move(doc->compiledShader));
-}
 
 // The doc's sphere preview owns an FBO whose color texture this frame's
 // ImGui draw list already sampled (its window was drawn earlier this frame)
@@ -10414,7 +10053,6 @@ void Editor::CloseMaterialDocument(uint32_t id)
 		MaterialEditorDocument* doc = materialDocs[i];
 		if (activeMaterialDoc == doc)
 			activeMaterialDoc = NULL;
-		AdoptDocumentShaderIfShared(doc);
 		QueuePreviewForDeferredDestroy(doc);
 		delete doc;
 		materialDocs.erase(materialDocs.begin() + (std::ptrdiff_t)i);
@@ -10426,7 +10064,6 @@ void Editor::CloseAllMaterialDocuments()
 {
 	for (size_t i = 0; i < materialDocs.size(); ++i)
 	{
-		AdoptDocumentShaderIfShared(materialDocs[i]);
 		QueuePreviewForDeferredDestroy(materialDocs[i]);
 		delete materialDocs[i];
 	}
@@ -10524,7 +10161,6 @@ bool Editor::OpenSceneDocument(const std::string& absPath)
 		echo("ERROR: failed to open scene: " + project.DisplayPath(absPath));
 		return false;
 	}
-	GetActiveRenderDevice().WaitIdle();
 	const std::string rel = project.RelativePath(absPath);
 	if (!rel.empty())
 	{
@@ -10600,7 +10236,6 @@ bool Editor::OpenPrefabDocument(const std::string& absPath)
 		echo("ERROR: failed to open prefab: " + rel);
 		return false;
 	}
-	GetActiveRenderDevice().WaitIdle();
 	SetActiveSceneDocument(doc);
 	echo("Opened prefab: " + rel + " - Save writes it back, for every scene that uses it");
 	return true;

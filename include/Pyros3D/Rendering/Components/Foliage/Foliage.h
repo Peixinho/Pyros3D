@@ -54,7 +54,8 @@ namespace p3d {
 		f32 alignToGround = 0.f;	// 0 upright, 1 along the ground's normal
 		f32 sink = 0.05f;			// metres pushed into the ground
 		uint32 seed = 1;
-		f32 fullDistance = 60.f, fadeDistance = 120.f, shadowDistance = 60.f;
+		// shadowDistance 0: shadows as far as the sun casts them (DirectionalLight::SunShadowReach)
+		f32 fullDistance = 60.f, fadeDistance = 120.f, shadowDistance = 0.f;
 		// Thinning: from thinFrom to thinTo metres the plants drawn fall to
 		// thinDensity of them (1: none taken), and those left grow, so that
 		// the ground is covered as it was. Far off a plant is a few pixels,
@@ -127,9 +128,6 @@ namespace p3d {
 			// Made here, not the scene's (never saved): a grass tuft's simple self past kAutoFarFrom,
 			// where the layer names no far mesh of its own (SetAutoFarMesh)
 			std::shared_ptr<Renderable> autoFar;
-			// Its blocks culled on the GPU, plant by plant, where the device can (InstanceCullGroup):
-			// made with the blocks, for a layer that casts no shadows
-			std::shared_ptr<class InstanceCullGroup> cullGroup;
 			std::vector<std::shared_ptr<RenderingInstancedComponent> > blocks;
 			std::vector<std::shared_ptr<GameObject> > blockObjects;	// parallel to blocks
 			std::vector<Vec3> centres;	// tile-local, parallel to blocks

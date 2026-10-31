@@ -12,8 +12,6 @@
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
@@ -52,18 +50,14 @@ AnimationPreview::~AnimationPreview()
 	cameraGO.reset();
 	lightGO.reset();
 	delete scene; scene = nullptr;
-	delete effects; effects = nullptr;
-	delete renderer; renderer = nullptr;
+	delete emptyScene; emptyScene = nullptr;
 	delete debug; debug = nullptr;
 }
 
 void AnimationPreview::EnsureInit()
 {
-	if (renderer) return;
+	if (scene) return;
 
-	renderer = new ForwardRenderer((uint32)width, (uint32)height);
-	effects = new PostEffectsManager((uint32)width, (uint32)height);
-	effects->GetExternalFrameBuffer()->SetDebugName("Animation preview");
 	scene = new SceneGraph();
 	debug = new DebugRenderer();
 
@@ -74,8 +68,10 @@ void AnimationPreview::EnsureInit()
 	lightGO->Add(std::make_shared<DirectionalLight>(Vec4(1.f, 1.f, 1.f, 1.f), Vec3(-0.45f, -1.f, -0.35f)));
 	scene->Add(lightGO);
 
-	renderer->SetBackground(Vec4(0.13f, 0.14f, 0.17f, 1.f));
-	renderer->SetGlobalLight(Vec4(0.35f, 0.35f, 0.4f, 1.f));
+	rendererView.Renderer()->SetBackground(Vec3(0.016f, 0.019f, 0.025f));
+	rendererView.Renderer()->SetAmbient(Vec3(0.35f, 0.35f, 0.4f));
+	rendererView.Renderer()->SetName("Animation preview");
+	emptyScene = new SceneGraph();
 
 	scene->Update(0);
 }
@@ -172,7 +168,6 @@ bool AnimationPreview::LoadMesh(const std::string& absPath)
 	FrameCamera();
 	return true;
 }
-
 
 bool AnimationPreview::ComputeSkeletonBounds(Vec3& outMin, Vec3& outMax) const
 {
@@ -877,7 +872,7 @@ void AnimationPreview::PrepareGizmo(int boneId, const Matrix& view, const Matrix
 
 void AnimationPreview::RenderFrame()
 {
-	if (!renderer || !effects || !scene || !cameraGO) return;
+	if (!scene || !cameraGO) return;
 
 	const Vec3 eye = ComputeEye();
 	Matrix view;
@@ -885,25 +880,6 @@ void AnimationPreview::RenderFrame()
 	cameraGO->SetTransformationMatrix(view.Inverse());
 	scene->Update(ImGui::GetTime());
 
-	Projection proj;
-	proj.Perspective(45.f, (f32)width / (f32)height, 0.05f, std::max(500.f, framedDistance * 20.f));
-
-	IRenderer::InvalidateSharedUniformCaches();
-	renderer->Resize((uint32)width, (uint32)height);
-	effects->Resize((uint32)width, (uint32)height);
-	effects->ProcessPostEffects(&proj);
-	renderer->ResetViewPort();
-	renderer->SetViewPort(0, 0, (uint32)width, (uint32)height);
-	renderer->PreRender(cameraGO.get(), scene);
-	renderer->ApplyBackgroundClearColor();
-	effects->CaptureFrame();
-	if (showMesh)
-		renderer->RenderScene(proj, cameraGO.get(), scene);
-
-	// Overlay pass. DebugRenderer draws with depth test off by design, so
-	// bones/gizmo stay visible through the mesh - which is what you want
-	// when posing a skeleton inside a body.
-	GetActiveRenderDevice().SetViewport(0, 0, (uint32)width, (uint32)height);
 	if (debug)
 	{
 		if (showGrid)
@@ -934,14 +910,16 @@ void AnimationPreview::RenderFrame()
 			}
 		}
 
-		// The skeleton and the gizmo are submitted by DrawAndUpdate before
-		// it calls this (it is the one that knows the selection), so this
-		// only flushes the batch.
-		debug->Render(cameraGO->GetWorldTransformation().Inverse(), proj.GetProjectionMatrix());
+		// (the skeleton and the gizmo are submitted by DrawAndUpdate before it calls this - it is the one that knows
+		// the selection)
 	}
 
-	effects->EndCapture();
-	IRenderer::InvalidateSharedUniformCaches();
+	// The scene - or, the mesh hidden, nothing - with the batch over it, on top: bones and gizmo stay visible through
+	// the mesh, which is what you want when posing a skeleton inside a body
+	p3d::View v;
+	v.cameraWorld = view.Inverse(); v.fovY = 45.f; v.nearZ = 0.05f;
+	v.width = (uint32)std::max(width, 1); v.height = (uint32)std::max(height, 1);
+	viewImage = rendererView.Draw(showMesh ? scene : emptyScene, v, debug);
 }
 
 AnimationPreview::Interaction AnimationPreview::DrawAndUpdate(AnimationEditorDocument& doc)
@@ -1019,13 +997,8 @@ AnimationPreview::Interaction AnimationPreview::DrawAndUpdate(AnimationEditorDoc
 	}
 	ProjectBones(viewMat, projMat);
 
-	Texture* color = effects->GetViewportColor();
-	if (!color)
-	{
-		ImGui::TextDisabled("No preview texture");
-		return result;
-	}
-	void* tid = GetActiveRenderDevice().GetImGuiTextureID(color->GetBindID(), color->GetTextureType());
+	void* tid = NULL;
+	tid = viewImage;
 	if (!tid)
 	{
 		ImGui::TextDisabled("[preview texture unavailable]");
@@ -1039,11 +1012,7 @@ AnimationPreview::Interaction AnimationPreview::DrawAndUpdate(AnimationEditorDoc
 	// head-down, the floor grid sits above it, and (worse than cosmetic)
 	// every screen-space mouse mapping below - bone picking and the gizmo
 	// hit test alike - is measuring against a flipped image.
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
 	const ImVec2 uv0(0, 0), uv1(1, 1);
-#else
-	const ImVec2 uv0(0, 1), uv1(1, 0);
-#endif
 	const ImVec2 imageOrigin = ImGui::GetCursorScreenPos();
 	imageScreenX = imageOrigin.x;
 	imageScreenY = imageOrigin.y;

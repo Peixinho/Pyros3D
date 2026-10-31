@@ -76,8 +76,15 @@ namespace p3d {
 			if ((size_t)slot < g_forDraw.size() && g_forDraw[slot] == go) g_forDraw[slot] = NULL;
 		}
 	}
+	static std::atomic<uint64> g_treeVersion(1);
+	uint64 GameObject::TreeVersion() { return g_treeVersion.load(); }
+	void GameObject::TreeChanged() { g_treeVersion.fetch_add(1); }
+
 	GameObject::~GameObject()
 	{
+		// (only one that was in a tree: a scratch object made on the stack to draw with - every frame, by
+		// the renderer - is in no list, and made every kept list stale each frame)
+		if (_HaveOwner || !_Childs.empty() || Scene != NULL) TreeChanged();
 		ForgetForDraw(this, _DrawSlot);
 		if (_WatchScene) _WatchScene->_NoteLeft(this);
 		// Orphan the children before they are released.
@@ -588,6 +595,7 @@ namespace p3d {
 			{
 				// Add Component to List
 				Components.push_back(Component);
+				TreeChanged();      // (what a kept list of a scene's lights, cameras... reads: TreeVersion)
 				// Own this Shit!
 				Component->Owner = this;
 				// Change Flag
@@ -651,6 +659,7 @@ namespace p3d {
 				// Erase it!
 				KeepUntilDrawn(*i);
 				Components.erase(i);
+				TreeChanged();
 				// Change Flag
 				_ComponentsChanged = true;
 				RenderState::Structure++;
@@ -708,6 +717,7 @@ namespace p3d {
 			std::shared_ptr<GameObject> held = _Childs[i];
 			_Childs.erase(_Childs.begin() + (std::ptrdiff_t)i);
 			_Childs.insert(_Childs.begin() + (std::ptrdiff_t)to, held);
+			TreeChanged();
 			RenderState::Structure++;
 			return true;
 		}
@@ -755,6 +765,7 @@ namespace p3d {
 			if (found) echo("ERROR: GameObject Already Added");
 			else {
 				_Childs.push_back(Child);
+				TreeChanged();
 				RenderState::Structure++;
 				Child->Wake();
 				Wake();
@@ -802,6 +813,7 @@ namespace p3d {
 				{
 					KeepUntilDrawn(*i);
 					_Childs.erase(i);
+					TreeChanged();
 					found = true;
 					RenderState::Structure++;
 					Wake();

@@ -10,7 +10,6 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Core/Logs/Log.h>
 
 namespace p3d {

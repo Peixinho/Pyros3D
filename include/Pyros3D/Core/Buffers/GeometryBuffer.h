@@ -51,7 +51,6 @@ namespace p3d {
 
 			const uint32 GetTypeSize(const uint32 type);
 			const uint32 GetTypeCount(const uint32 type);
-			const uint32 GetType(const uint32 type);
 
 		};
 
@@ -92,11 +91,15 @@ namespace p3d {
 
 	public:
 
-		// OpenGL ID
-		int32 ID;
-
 		// Data Size
 		uint32 DataLength;
+
+		// The bytes, kept on the CPU while the old device is off (the renderer - LegacyDeviceEnabled()): no GPU
+		// buffer is made of them, and Map() gives this memory
+		std::vector<uchar> CpuData;
+		// Changes with them: what the renderer keeps on the GPU of a geometry is made again when it moves (a sprite
+		// animating writes its quads into the same buffer each frame, its handles unchanged)
+		uint32 cpuRevision = 0;
 
 		GeometryBuffer();
 		GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw);

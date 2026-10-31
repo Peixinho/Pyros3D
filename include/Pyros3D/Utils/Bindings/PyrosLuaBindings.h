@@ -27,7 +27,6 @@ namespace p3d {
 	void RegisterLuaAssetsMid(sol::state* lua);
 	void RegisterLuaAssetsLate(sol::state* lua);
 	void RegisterLuaAssets(sol::state* lua);
-	void RegisterLuaPostFX(sol::state* lua);
 	void RegisterLuaAudio(sol::state* lua);
 	void RegisterLuaMisc(sol::state* lua);
 

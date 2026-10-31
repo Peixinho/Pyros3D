@@ -1,0 +1,421 @@
+{
+ "materials": [
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.42,
+    0.4,
+    0.37,
+    1
+   ],
+   "cullFace": 0,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 0,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 4211201,
+   "reflectivity": 0.0,
+   "roughness": 0.85,
+   "shininess": 50,
+   "specular": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "ssrEnabled": false,
+   "transparent": false,
+   "wireframe": false
+  },
+  {
+   "blendDFactor": 0,
+   "blendEquation": 0,
+   "blendSFactor": 0,
+   "blending": false,
+   "castingShadows": true,
+   "color": [
+    0.55,
+    0.5,
+    0.45,
+    1
+   ],
+   "cullFace": 0,
+   "depthBias": false,
+   "depthBiasFactor": 0.0,
+   "depthBiasUnits": 0.0,
+   "depthTest": true,
+   "depthWrite": true,
+   "displacementHeight": 0.05,
+   "id": 1,
+   "kind": "generic",
+   "metallic": 0.0,
+   "opacity": 1.0,
+   "options": 4211201,
+   "reflectivity": 0.0,
+   "roughness": 0.6,
+   "shininess": 50,
+   "specular": [
+    0,
+    0,
+    0,
+    0
+   ],
+   "ssrEnabled": false,
+   "transparent": false,
+   "wireframe": false
+  }
+ ],
+ "roots": [
+  {
+   "name": "Camera",
+   "position": [
+    0,
+    4.5,
+    12
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": [],
+   "children": [],
+   "components": [
+    {
+     "type": "LuaComponent",
+     "scriptFile": "demos/scripts/camera_fly.lua",
+     "data": {
+      "yaw": 0,
+      "pitch": -14
+     }
+    }
+   ]
+  },
+  {
+   "name": "Sun",
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": [],
+   "children": [],
+   "components": [
+    {
+     "type": "DirectionalLight",
+     "color": [
+      1,
+      0.93,
+      0.82,
+      1
+     ],
+     "intensity": 1.0,
+     "direction": [
+      0.55,
+      -0.45,
+      0.7
+     ],
+     "castingShadows": true,
+     "cascades": 4,
+     "shadowWidth": 2048,
+     "shadowHeight": 2048,
+     "shadowNear": 0.1,
+     "shadowFar": 120.0,
+     "fov": 70.0,
+     "aspect": 1.7777,
+     "shadowBiasFactor": 2.0,
+     "shadowBiasUnits": 1.0
+    }
+   ]
+  },
+  {
+   "name": "Ground",
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    -1.5707963,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": [],
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 0,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Plane",
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false,
+      "width": 30.0,
+      "height": 30.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "Roof",
+   "position": [
+    2.5,
+    3.0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": [],
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false,
+      "width": 3.0,
+      "height": 0.15,
+      "depth": 3.0
+     }
+    }
+   ]
+  },
+  {
+   "name": "Post A",
+   "position": [
+    0.0,
+    1.5,
+    -2.5
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": [],
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false,
+      "width": 0.15,
+      "height": 1.5,
+      "depth": 0.15
+     }
+    }
+   ]
+  },
+  {
+   "name": "Post B",
+   "position": [
+    5.0,
+    1.5,
+    -2.5
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": [],
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false,
+      "width": 0.15,
+      "height": 1.5,
+      "depth": 0.15
+     }
+    }
+   ]
+  },
+  {
+   "name": "Post C",
+   "position": [
+    0.0,
+    1.5,
+    2.5
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": [],
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false,
+      "width": 0.15,
+      "height": 1.5,
+      "depth": 0.15
+     }
+    }
+   ]
+  },
+  {
+   "name": "Post D",
+   "position": [
+    5.0,
+    1.5,
+    2.5
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": [],
+   "children": [],
+   "components": [
+    {
+     "type": "RenderingComponent",
+     "castingShadows": true,
+     "cullTest": true,
+     "material": 1,
+     "renderable": {
+      "kind": "primitive",
+      "shape": "Cube",
+      "smooth": false,
+      "flip": false,
+      "tangentBitangent": false,
+      "width": 0.15,
+      "height": 1.5,
+      "depth": 0.15
+     }
+    }
+   ]
+  },
+  {
+   "name": "Weather",
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": true,
+   "tags": [],
+   "children": [],
+   "components": [
+    {
+     "type": "LuaComponent",
+     "scriptFile": "demos/scripts/rain.lua",
+     "data": {}
+    }
+   ]
+  }
+ ],
+ "version": 1
+}

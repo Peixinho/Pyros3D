@@ -12,7 +12,7 @@ function DOFSetup:init(owner)
 	if not scene then error("DOFSetup:init - global scene is nil") end
 	if not ASSETS_PATH then error("DOFSetup:init - global ASSETS_PATH is nil") end
 	if renderer and renderer.setBackground then
-		renderer:setBackground(Vec4.new(1, 0, 0, 1))
+		renderer:setBackground(Vec4.new(0.07, 0.075, 0.085, 1))   -- (a dark studio grey: the blur reads against it - it was pure red)
 	end
 
 	local path = ASSETS_PATH .. "suzanne.p3dm"

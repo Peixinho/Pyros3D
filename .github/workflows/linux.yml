@@ -42,50 +42,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: OpenGL
-            graphics: OpenGL
-            context: SDL2
-            vulkan: "OFF"
-            opengl: GL41
-            compute: "OFF"
-            artifact: Pyros3D-linux-opengl
+          # One leg. The OpenGL ones (GL 4.1, and the GL 4.5 one that ran the
+          # compute parity tests on llvmpipe) went with the OpenGL renderer;
+          # Vulkan is the only GPU API the renderer has on Linux. Kept as a
+          # matrix so the job name and artifact name stay where they were.
           - name: Vulkan
-            graphics: Vulkan
-            context: SDL2Vulkan
-            vulkan: "ON"
-            opengl: GL41
-            # No compute here, and not for want of a device: this leg
-            # configures with BUILD_SPIRV_TOOLING=OFF (see the Configure
-            # step for why), which means CompileShaderStage cannot
-            # produce a module for ANY stage on any backend. Vulkan on
-            # Linux has its shader compiler since 2026-10-11 (built in this
-            # workflow); compute through it is not exercised here, so
-            # SupportsCompute() correctly reports false here.
-            #
-            # Vulkan compute IS covered - on macOS, against MoltenVK,
-            # where SPIRV_TOOLING is on. Tried lavapipe here first; the
-            # SKIP-is-a-failure guard below caught it immediately, which
-            # is the guard doing its job.
-            compute: "OFF"
             artifact: Pyros3D-linux-vulkan
-          # The only job in the whole CI matrix that can actually RUN a
-          # compute shader. Compute is GL 4.3, and of the platforms this
-          # project builds for, Linux is the one where that is reachable
-          # without a GPU: Mesa's llvmpipe implements GL 4.5 in software,
-          # so a headless container gets real dispatches, real SSBO
-          # writes and a real readback to verify.
-          #
-          # macOS cannot host this at any speed (Apple caps OpenGL at
-          # 4.1), and the web target never will (WebGL2 has no compute
-          # stage). So if this job does not exercise the GL compute path,
-          # nothing does - see tools/tests/compute_smoke.cpp.
-          - name: OpenGL GL45 (compute)
-            graphics: OpenGL
-            context: SDL2
-            vulkan: "OFF"
-            opengl: GL45
-            compute: "gl"
-            artifact: Pyros3D-linux-opengl-gl45
 
     steps:
       # Before checkout, not after: actions/checkout needs git present to clone
@@ -114,14 +76,17 @@ jobs:
         # editor at all.
         run: |
           apt-get install -y --no-install-recommends \
-            build-essential ninja-build patchelf pkg-config file \
+            build-essential ninja-build patchelf pkg-config file python3 \
             libsdl2-dev \
+            libx11-dev \
             libfreetype-dev \
             liblua5.4-dev \
-            libgl1-mesa-dev \
-            libgl1-mesa-dri \
             libassimp-dev \
             libcurl4-openssl-dev
+          # libx11-dev: the Vulkan device builds its surface against Xlib
+          # (VK_USE_PLATFORM_XLIB_KHR in PyrosRenderer.cmake). libsdl2-dev
+          # pulls it in today; named so that stays true if SDL's packaging
+          # changes.
 
       - name: Install CMake
         # Jammy ships exactly 3.22.1 and the project asks for 3.22, which is a
@@ -134,7 +99,6 @@ jobs:
           cmake --version
 
       - name: Install Vulkan headers
-        if: matrix.vulkan == 'ON'
         # Jammy's libvulkan-dev is 1.3.204, and volk is pinned to
         # vulkan-sdk-1.4.357.0 in PyrosBackend.cmake. volk.c references entry
         # points declared in the headers of its own release, so headers older
@@ -159,48 +123,65 @@ jobs:
           grep -m1 VK_HEADER_VERSION_COMPLETE /opt/vulkan/include/vulkan/vulkan_core.h
 
       - name: Cache the shader compiler
-        if: matrix.vulkan == 'ON'
         id: spirv
         uses: actions/cache@v4
         with:
           path: /opt/spirv
-          key: linux-jammy-shaderc-v2024.4-spirv-cross-1.4.357.0-pic-1
+          key: linux-jammy-shaderc-v2024.4-glslc-glslang-pic-1
 
-      - name: Build the shader compiler (shaderc + SPIRV-Cross)
-        if: matrix.vulkan == 'ON' && steps.spirv.outputs.cache-hit != 'true'
-        # The Vulkan backend compiles its shaders from GLSL at run time: without
-        # these two the package starts and draws nothing. Built here, static and
-        # position-independent, so they go INTO libPyrosEngine.so - Ubuntu's own
-        # packages are the thin libshaderc_combined.a PyrosBackend.cmake warns
-        # about, and no spirv-cross static libraries at all. About ten minutes
-        # on a cold cache; the cache above makes it once per version.
+      - name: Build the shader compiler (shaderc - glslc + glslang)
+        if: steps.spirv.outputs.cache-hit != 'true'
+        # glslc is a build-time requirement, not a runtime one:
+        # PyrosRenderer.cmake compiles resources/shaders to SPIR-V when the
+        # engine is built (find_program(glslc REQUIRED)) and embeds it, so
+        # nothing compiles the renderer's shaders at run time and nothing
+        # ships a shaders/ folder.
+        #
+        # From source rather than Jammy's glslc package so that the same build
+        # also yields glslang - the optional runtime compiler for materials'
+        # surfaces (PyrosRenderer.cmake: PYROS_GLSLANG_DIR) - as static,
+        # position-independent archives that go INTO libPyrosEngine.so, with
+        # the SPIRV-Tools optimizer glslang links against beside them. About
+        # ten minutes on a cold cache; the cache above makes it once per
+        # version. SPIRV-Cross is no longer built: only the Metal device uses
+        # it.
         run: |
-          apt-get install -y --no-install-recommends python3
           git clone --depth 1 --branch v2024.4 https://github.com/google/shaderc.git /tmp/shaderc
           (cd /tmp/shaderc && python3 utils/git-sync-deps)
           cmake -S /tmp/shaderc -B /tmp/shaderc/build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
             -DSHADERC_SKIP_TESTS=ON -DSHADERC_SKIP_EXAMPLES=ON -DSHADERC_SKIP_COPYRIGHT_CHECK=ON \
-            -DSKIP_GLSLANG_INSTALL=ON -DSKIP_SPIRV_TOOLS_INSTALL=ON \
             -DCMAKE_INSTALL_PREFIX=/opt/spirv >/dev/null
           cmake --build /tmp/shaderc/build --target install >/dev/null
-          # (the combined archive is the whole compiler in one file; with the
-          # shared one beside it the build would pick that and have to ship it)
-          rm -f /opt/spirv/lib/libshaderc_shared.so* /opt/spirv/lib/libshaderc.a
-          git clone --depth 1 --branch vulkan-sdk-1.4.357.0 https://github.com/KhronosGroup/SPIRV-Cross.git /tmp/spirv-cross
-          cmake -S /tmp/spirv-cross -B /tmp/spirv-cross/build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Release -DSPIRV_CROSS_FORCE_PIC=ON -DSPIRV_CROSS_SHARED=OFF \
-            -DSPIRV_CROSS_CLI=OFF -DSPIRV_CROSS_ENABLE_TESTS=OFF \
-            -DCMAKE_INSTALL_PREFIX=/opt/spirv >/dev/null
-          cmake --build /tmp/spirv-cross/build --target install >/dev/null
 
       - name: Show the shader compiler
-        if: matrix.vulkan == 'ON'
+        # glslc must be there or the build cannot start. glslang is optional
+        # for the engine, so a missing piece of it is a warning that the
+        # build goes on without the runtime compiler, not a failure.
+        #
+        # glslang's static archives depend on each other and on SPIRV-Tools,
+        # and PyrosRenderer.cmake only find_library()s the first of them
+        # (RENDERER_GLSLANG_LIBRARY). Seeding that variable with the whole
+        # set - as a STRING, so find_library leaves it alone, and inside a
+        # link group so GNU ld's one-pass archive order does not matter -
+        # makes it link without changing the engine's CMake.
         run: |
-          ls -la /opt/spirv/lib | grep -E "shaderc|spirv-cross"
-          test -f /opt/spirv/lib/libshaderc_combined.a
-          test -f /opt/spirv/lib/libspirv-cross-core.a
-          test -f /opt/spirv/include/shaderc/shaderc.hpp
+          echo /opt/spirv/bin >> "$GITHUB_PATH"
+          /opt/spirv/bin/glslc --version | head -1
+          ls /opt/spirv/lib
+          libs="-Wl,--start-group"
+          for l in glslang MachineIndependent GenericCodeGen OSDependent SPIRV SPIRV-Tools-opt SPIRV-Tools; do
+            [ -f "/opt/spirv/lib/lib$l.a" ] && libs="$libs;/opt/spirv/lib/lib$l.a"
+          done
+          libs="$libs;-Wl,--end-group"
+          if [ -f /opt/spirv/include/glslang/Include/glslang_c_interface.h ] \
+             && [ -f /opt/spirv/lib/libglslang.a ] \
+             && [ -f /opt/spirv/lib/libglslang-default-resource-limits.a ]; then
+            echo "PYROS_GLSLANG_LIBS=$libs" >> "$GITHUB_ENV"
+            echo "glslang: $libs"
+          else
+            echo "::warning::glslang was not installed by the shaderc build - the engine builds without the runtime GLSL compiler"
+          fi
 
       - name: Configure
         # BUILD_EDITOR and BUILD_CONVERTER are new here. The old Build workflow
@@ -208,27 +189,35 @@ jobs:
         # file - which is most of what changes week to week - was unbuilt on
         # Linux entirely.
         #
-        # BUILD_SPIRV_TOOLING follows the Vulkan leg: that backend cannot draw
-        # without its shader compiler (built above), and the OpenGL legs have
-        # no use for one.
+        # PYROS_GRAPHICS=Vulkan is the default on Linux; it is spelled out so
+        # the log says what was built. BUILD_VULKAN_BACKEND follows it
+        # (PyrosOptions.cmake). HAVE_LUA_BINDINGS is on by default, which
+        # DemoLauncher needs.
         run: |
-          prefix=""
-          [ -n "${VULKAN_SDK:-}" ] && prefix="-DCMAKE_PREFIX_PATH=$VULKAN_SDK;/opt/spirv"
+          set -o pipefail
+          glslang=()
+          if [ -n "${PYROS_GLSLANG_LIBS:-}" ]; then
+            glslang=(-DPYROS_GLSLANG_DIR=/opt/spirv "-DRENDERER_GLSLANG_LIBRARY:STRING=$PYROS_GLSLANG_LIBS")
+          fi
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
-            -DPYROS_GRAPHICS=${{ matrix.graphics }} \
-            -DCONTEXT=${{ matrix.context }} \
-            -DOPENGL_VERSION=${{ matrix.opengl }} \
+            -DPYROS_GRAPHICS=Vulkan \
             -DSTATIC_LIB=OFF \
-            -DBUILD_VULKAN_BACKEND=${{ matrix.vulkan }} \
-            ${prefix:+"$prefix"} \
-            -DBUILD_SPIRV_TOOLING=${{ matrix.vulkan }} \
+            "-DCMAKE_PREFIX_PATH=$VULKAN_SDK" \
+            "${glslang[@]}" \
             -DBUILD_DEMOS=ON \
             -DBUILD_EDITOR=ON \
             -DBUILD_CONVERTER=ON \
             -DPYROS_RELOCATABLE_ASSETS=ON \
             -DLUA_INCLUDE_DIR=/usr/include/lua5.4 \
-            -DLUA_LIBRARY=/usr/lib/x86_64-linux-gnu/liblua5.4.so
+            -DLUA_LIBRARY=/usr/lib/x86_64-linux-gnu/liblua5.4.so | tee configure.log
+          # Vulkan not found only WARNs, and the engine then configures with
+          # no renderer at all. Fail here, where the cause is legible.
+          grep -q "Renderer: on (Vulkan" configure.log || {
+            echo "::error::the renderer is not on Vulkan - see the Renderer: line above"
+            exit 1
+          }
+          grep "Renderer: on" configure.log
 
       - name: Build
         run: cmake --build build --parallel "$(nproc)"
@@ -236,12 +225,9 @@ jobs:
       - name: CPU tests
         # Everything in tools/tests that needs no GPU. They run HERE
         # rather than on macOS because this is the cheapest runner and
-        # because none of them care what backend the library was built
-        # with - the GPU-bound tests are on macOS, which is the only CI
-        # machine with a real device.
-        #
-        # One matrix leg only: the same CPU code three times over
-        # teaches nothing.
+        # because none of them care what device the library was built
+        # with. (The GPU parity tests that used to run on macOS and on the
+        # GL 4.5 leg here went with the old renderer.)
         #
         # Built by hand, matching every other binary in tools/tests
         # (none are in the build system - see the compile line in each
@@ -251,7 +237,6 @@ jobs:
         # Until this step existed, eleven of these ran nowhere at all:
         # they were written, they passed on the author's machine, and
         # CI never saw them again.
-        if: matrix.name == 'OpenGL'
         run: |
           set -euo pipefail
           FT="$(pkg-config --cflags freetype2)"
@@ -354,10 +339,11 @@ jobs:
 
           cp build/libPyrosEngine*.so* "$out/lib" 2>/dev/null || true
 
+          # No shaders/ beside either executable any more: the renderer's
+          # shaders are compiled to SPIR-V at build time and embedded in the
+          # engine library.
           cp build/examples/DemoLauncher "$out/demolauncher"
-          cp build/examples/CppApiDemo   "$out/demolauncher"
           cp -R examples/assets          "$out/demolauncher/assets"
-          cp -R resources/shaders        "$out/demolauncher/shaders"
 
           cp build/editor/PyrosBuilder   "$out/editor"
           # The game runtime: what Build Game ships, here so a downloaded
@@ -369,7 +355,6 @@ jobs:
           cp build/libPyrosEngine*.so* "$out/player" 2>/dev/null || true
           cp build/editor/AssimpImporter "$out/editor"
           cp -R editor/assets            "$out/editor/assets"
-          cp -R resources/shaders        "$out/editor/shaders"
           cp examples/assets/middleclass.lua "$out/editor/assets/"
 
           cp build/libPyrosEngine*.so* "$out/demolauncher" 2>/dev/null || true
@@ -378,12 +363,12 @@ jobs:
           cat > "$out/README.txt" <<'EOF'
           Pyros3D - Linux
 
-            demolauncher/  DemoLauncher, CppApiDemo
+            demolauncher/  DemoLauncher
             editor/        PyrosBuilder, AssimpImporter
             lib/           engine shared library
 
           Run each executable from inside its own folder - both resolve
-          assets/ and shaders/ against the current directory:
+          assets/ against the current directory:
 
               cd demolauncher
               ./DemoLauncher
@@ -391,12 +376,13 @@ jobs:
           The bundled libraries (SDL2, freetype, lua, ...) sit next to the
           executables and are found through an $ORIGIN RUNPATH, so nothing
           needs installing for them. What is NOT bundled, deliberately, is
-          anything tied to your machine: the GL/Vulkan driver, X11/Wayland,
+          anything tied to your machine: the Vulkan loader and driver, X11,
           and the C library. Those must come from your system, which means:
 
             - GLIBC_FLOOR_PLACEHOLDER
-            - a working OpenGL or Vulkan driver
-            - X11 or Wayland client libraries
+            - a working Vulkan driver and the Vulkan loader (libvulkan.so.1)
+            - X11 client libraries (the window's Vulkan surface is Xlib's;
+              under Wayland that means XWayland)
 
           Raise the log level with PYROS_LOG_LEVEL=3 for detail
           (0=errors, 1=+warnings, 2=+success, 3=everything).
@@ -435,150 +421,33 @@ jobs:
           sed -i "s/- GLIBC_FLOOR_PLACEHOLDER/- ${floor/GLIBC_/glibc } or newer (measured from the binaries)/" package/README.txt
           grep glibc package/README.txt
 
-      - name: Compute smoke test
-        if: matrix.compute != 'OFF'
-        # Built by hand rather than through CMake, matching every other
-        # binary in tools/tests (none of them are in the build system -
-        # see the compile line in each file's header comment). Kept that
-        # way deliberately here too: this links against the GL45 build
-        # tree specifically, which is one matrix entry out of three, and
-        # wiring a conditional target into the root CMakeLists for it
-        # would cost more than the two commands below.
-        #
-        # GL: LIBGL_ALWAYS_SOFTWARE forces llvmpipe rather than whatever
-        # stub the container might otherwise pick. Without it a runner
-        # with no DRI device can land on a GL 1.4 software path, where
-        # the test correctly reports SKIP.
-        #
-        # Only the GL45 leg reaches here today - see the Vulkan entry in
-        # the matrix for why that backend is covered on macOS instead.
-        # The Vulkan branch below is kept because it is correct and costs
-        # nothing, and becomes live the moment a Linux leg builds with
-        # SPIRV_TOOLING on.
-        #
-        # A SKIP means the coverage silently evaporated, so the step
-        # turns that into a hard failure on purpose.
-        run: |
-          set -euo pipefail
-          FT="$(pkg-config --cflags freetype2)"
-          if [ "${{ matrix.compute }}" = "gl" ]; then
-            apt-get install -y --no-install-recommends xvfb
-            cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
-              src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
-            c++ -std=c++17 -DGL45 -DCOMPUTE_SMOKE_GL \
-              -I include -I include/Pyros3D/Ext/gl45 \
-              $FT $(pkg-config --cflags sdl2) \
-              tools/tests/compute_smoke.cpp /tmp/glad45.o \
-              -o /tmp/compute_smoke \
-              -L build -lPyrosEngine $(pkg-config --libs sdl2) \
-              -Wl,-rpath,"$PWD/build"
-            RUNNER="LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a"
-          else
-            # Headless: no SDL, no xvfb, no window. VMA and volk are
-            # FetchContent'd, so their headers live in the build tree.
-            VMA="$(find . -name vk_mem_alloc.h -print -quit)"
-            VOLK="$(find . -name volk.h -print -quit)"
-            c++ -std=c++17 -DVULKAN_BACKEND -DCOMPUTE_SMOKE_VULKAN \
-              -I include -I "$VULKAN_SDK/include" $FT \
-              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
-              tools/tests/compute_smoke.cpp -o /tmp/compute_smoke \
-              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
-            RUNNER=""
-          fi
-          set +e
-          env $RUNNER /tmp/compute_smoke | tee /tmp/compute_out.txt
-          code=${PIPESTATUS[0]}
-          set -e
-          echo "--- exit code $code ---"
-          if [ $code -ne 0 ]; then
-            echo "::error::compute_smoke failed on ${{ matrix.compute }}"
-            exit 1
-          fi
-          # A SKIP exits 0 by design (so the test is safe to run anywhere),
-          # but on THIS job a skip means llvmpipe did not give us GL 4.3+
-          # and the coverage silently evaporated. Fail loudly instead.
-          if grep -q '^SKIP' /tmp/compute_out.txt; then
-            echo "::error::compute_smoke SKIPped on ${{ matrix.compute }} - the backend reported no compute support"
-            exit 1
-          fi
-          grep -q '^PASS  compute_smoke' /tmp/compute_out.txt
-
-      - name: Shader parity on GL compute
-        if: matrix.compute == 'gl'
-        # The only place the DDGI kernels' GLSL is RUN on OpenGL.
-        #
-        # Everything else that exercises compute for real - ddgi_gpu,
-        # bvh_gpu, the particle parity - runs on macOS against Metal and
-        # MoltenVK, because those are the only CI machines with a GPU.
-        # That left GL 4.5 supported on the strength of "it compiles,
-        # and compute_smoke dispatches a trivial kernel", while every
-        # backend-specific bug this engine has had in compute was in the
-        # real kernels: a SPIRV-Cross buffer-index swap, a barrier that
-        # ordered without submitting, a bytes-per-row assert. None of
-        # those would have been caught by a smoke test.
-        #
-        # The first three are cheap: two 64-thread dispatches and one of
-        # 1024 rays, so llvmpipe finishes them in seconds. Each reads the shipped GLSL, compiles it as compute
-        # and compares against the C++ it is supposed to mirror - so
-        # what they prove is that the shaders the renderer ships
-        # compile and compute the same answers on GL. bvh_gpu covers
-        # the BVH traversal kernel, which is the core of the tracing.
-        #
-        # ddgi_gpu runs in FULL here, including the multi-update
-        # sections - multi-bounce, relocation, moving geometry.
-        #
-        # It first ran reduced, because nobody had measured what
-        # llvmpipe makes of millions of rays with no hardware behind
-        # it and guessing at that in CI is how a suite becomes
-        # something people skip. Then it ran, and the whole step -
-        # four binaries, all four tests - took seven seconds, with the
-        # reduced ddgi_gpu under three. Full is about 4.6x that work.
-        # The caution is spent; DDGI_GPU_QUICK stays in the test for
-        # anywhere slower.
-        #
-        # A SKIP is a hard failure here for the same reason it is in the
-        # step above: on this job it means the coverage evaporated.
-        run: |
-          set -euo pipefail
-          apt-get install -y --no-install-recommends xvfb
-          FT="$(pkg-config --cflags freetype2)"
-          SDLC="$(pkg-config --cflags sdl2)"
-          SDLL="$(pkg-config --libs sdl2)"
-          cc -c -DGL45 -I include -I include/Pyros3D/Ext/gl45 \
-            src/Pyros3D/Ext/gl45/glad.c -o /tmp/glad45.o
-          # Each of these kept its own define prefix as it was written.
-          for t in sh_shader_parity ddgi_specular_shader_parity bvh_gpu ddgi_gpu; do
-            case "$t" in
-              bvh_gpu)  DEF=-DRTPARITY_GL ;;
-              ddgi_gpu) DEF=-DDDGIGPU_GL ;;
-              *)        DEF=-DPARITY_GL ;;
-            esac
-            c++ -std=c++17 -O2 -DGL45 $DEF \
-              -I include -I include/Pyros3D/Ext/gl45 $FT $SDLC \
-              tools/tests/$t.cpp /tmp/glad45.o -o /tmp/$t \
-              -L build -lPyrosEngine $SDLL -Wl,-rpath,"$PWD/build"
-            # Run from the repo root - they read resources/shaders/.
-            LIBGL_ALWAYS_SOFTWARE=1 xvfb-run -a /tmp/$t | tee /tmp/$t.out
-            if grep -q '^SKIP' /tmp/$t.out; then
-              echo "::error::$t SKIPped - llvmpipe did not give us a GL 4.3+ compute context"
-              exit 1
-            fi
-            grep -q "^PASS  $t" /tmp/$t.out
-          done
-
       - name: Smoke run
-        # A runner has no GPU and no display, so failing to open a window is
-        # expected and fine. Death by signal is not - that is a broken package.
-        # xvfb gives it a display to fail against for the right reasons.
+        # A runner has no GPU and no display. xvfb gives it a display, and
+        # Mesa's lavapipe (mesa-vulkan-drivers) a software Vulkan device, so
+        # the package gets a real chance to draw rather than only to fail -
+        # the frame it captures (PYROS_SHOT, the 60th presented) is kept as
+        # an artifact. Not a rendering test: a clean non-zero exit is still
+        # an acceptable outcome. Death by signal is not - that is a broken
+        # package.
+        #
+        # One exception to "signal = broken": when no device could be made
+        # at all (lavapipe lacking something the device requires),
+        # DemoLauncher::Init goes on to use the null device and crashes.
+        # That is a defect in DemoLauncher, not in the package - it had
+        # loaded every bundled library and opened its window to get that
+        # far - so it is a warning rather than a failure.
         run: |
-          apt-get install -y --no-install-recommends xvfb
+          apt-get install -y --no-install-recommends xvfb mesa-vulkan-drivers
+          shot="$PWD/smoke-shot.png"
           cd package/demolauncher
           set +e
-          xvfb-run -a ./CppApiDemo > out.txt 2> err.txt &
+          PYROS_DEMO_INDEX=0 PYROS_DEMO_NO_UI=1 PYROS_DEMO_FIXED_CLOCK=1 \
+            PYROS_SHOT="$shot" PYROS_SHOT_FRAME=60 \
+            xvfb-run -a ./DemoLauncher > out.txt 2> err.txt &
           pid=$!
-          sleep 20
+          sleep 30
           if kill -0 $pid 2>/dev/null; then
-            echo "--- still running after 20s, which is the good outcome ---"
+            echo "--- still running after 30s, which is the good outcome ---"
             kill $pid
             code=0
           else
@@ -588,11 +457,23 @@ jobs:
           fi
           echo "--- stdout ---"; head -60 out.txt
           echo "--- stderr ---"; head -60 err.txt
+          if [ -s "$shot" ]; then
+            echo "--- frame captured: $(wc -c < "$shot") bytes ---"
+          else
+            echo "::warning::DemoLauncher wrote no PYROS_SHOT frame - no Vulkan device came up on lavapipe"
+          fi
           if [ $code -ge 128 ]; then
-            echo "::error::CppApiDemo was killed by signal $((code - 128)) - the package is broken, not merely unable to render"
+            echo "::error::DemoLauncher was killed by signal $((code - 128)) - the package is broken, not merely unable to render"
             exit 1
           fi
           exit 0
+
+      - name: Upload the smoke-run frame
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-smoke-frame
+          path: smoke-shot.png
+          if-no-files-found: ignore
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

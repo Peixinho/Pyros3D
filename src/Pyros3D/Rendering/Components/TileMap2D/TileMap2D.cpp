@@ -9,7 +9,6 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Rendering/Culling/Culling.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>

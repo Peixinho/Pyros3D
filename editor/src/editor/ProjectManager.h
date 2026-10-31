@@ -13,15 +13,12 @@
 #include <vector>
 
 #include <Pyros3D/Utils/Json/json.hpp>
-#include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
 
 struct ProjectAssetEntry {
 	std::string relativePath; // under project root, e.g. assets/models/foo.p3dm
 	std::string name;
 	bool isDirectory;
 };
-
-enum class ProjectRendererType { Forward, Deferred };
 
 struct ProjectSettings {
 	// Deprecated: scene scripts are scenes/<SceneName>.lua companions.
@@ -32,12 +29,7 @@ struct ProjectSettings {
 	std::vector<std::string> preload;
 	// What the game trades for frame rate, exported to game.json as "quality"
 	// and applied when it starts (and by the editor while playing):
-	//   smallObjectCull      pixels under which a thing is not drawn (0 off)
-	//   shadowUpdateInterval the sun's shadow map is redrawn every N frames
-	//   ssaoHalfResolution   ambient occlusion at half resolution
-	//   renderScale          the 3D view's share of the window, 0.25-1
-	//   autoRenderScaleFps   hold this rate by moving the scale (0 off),
-	//   autoRenderScaleMin   between this
+	//   lodCrossfade         seconds a change of level of detail dissolves over (0: at once)
 	//   frameRateLimit       0 none, -1 the display's (where it is 50-75 Hz), or a rate
 	// Whatever is missing keeps the engine's default. A script can still
 	// change any of them.
@@ -46,12 +38,6 @@ struct ProjectSettings {
 	// player's PlayerManifest): false, or { "title", "image", "background", "accent", "text",
 	// "percent", "scene" }. Null: the engine's default screen.
 	nlohmann::json loadingScreen;
-	ProjectRendererType rendererType = ProjectRendererType::Forward;
-	// The game's starting anti-aliasing mode, exported to game.json; a
-	// script can change it at run time. What is stored is what was asked
-	// for - MSAA stays MSAA here even while the renderer is Deferred, so
-	// switching back to Forward does not lose the choice.
-	p3d::AntiAliasingMode antiAliasing = p3d::AntiAliasingMode::FXAA;
 	// AI Assistant panel settings (provider, baseUrl, model, apiKey, ...).
 	// Opaque JSON on purpose - the panel owns the schema. Null when the
 	// project never set one (panel falls back to its defaults).
@@ -289,7 +275,6 @@ public:
 		int width = 1280;
 		int height = 720;
 		bool fullscreen = false;
-		bool deferred = false;       // set from ProjectSettings by the caller
 		// "windows", "linux" or "macos"; empty = the machine the editor
 		// runs on. Another platform's runtime (player, server and their
 		// libraries) comes from a template folder - see
@@ -338,7 +323,6 @@ public:
 	// All three are searched relative to the running editor, so a build works
 	// out of a build tree without any configuration. Empty when not found.
 	static std::string FindPlayerBinary();
-	static std::string FindEngineShadersDir();
 	static std::string FindMiddleclassLua();
 	static bool IsSceneExtension(const std::string& path);
 	// <scene>.json.editor.json — the camera/view sidecar. It ends in .json,

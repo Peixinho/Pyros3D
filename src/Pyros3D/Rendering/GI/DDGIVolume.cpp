@@ -320,8 +320,11 @@ namespace p3d {
 			f32 attenuation = 1.f;
 			if (light.isPoint > 0.5f && light.range > 0.f)
 			{
-				const f32 k = std::max(0.f, 1.f - distance / light.range);
-				attenuation = k * k;
+				// (the direct light's falloff - p3d_lighting.glsl's p3d_Falloff: the inverse square, windowed
+				// to nothing at the radius)
+				const f32 x = distance / light.range;
+				const f32 w = std::min(std::max(1.f - x * x * x * x, 0.f), 1.f);
+				attenuation = w * w / std::max(distance * distance, 0.01f);
 			}
 			// Lambert, energy-conserving. albedo/PI times irradiance;
 			// the engine's convention is that a light colour is already

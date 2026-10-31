@@ -3,27 +3,33 @@
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : SDL Context
+// Description : See SDL2Context.h
 //============================================================================
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
 #include <chrono>
 #ifdef EMSCRIPTEN
 #include <emscripten.h>
 #include <emscripten/html5.h>
 #endif
 #include <Pyros3D/Core/InputManager/InputManager.h>
-#include <Pyros3D/Rendering/Device/RefreshPacer.h>
 #include <Pyros3D/Core/InputManager/InputActions.h>
-#include <Pyros3D/Other/PyrosGL.h>
-#include "SDL2Context.h"
-#include "imgui_impl_sdl2.h"
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include "SDL2Context.h"
+#include "imgui.h"
+#include "imgui_impl_sdl2.h"
 #include "../FileDropHook.h"
 #include "../TextInputHook.h"
 #include "../CloseHook.h"
 #include "../GamepadHook.h"
+#include <SDL2/SDL_syswm.h>
+#if defined(__APPLE__)
+#include <SDL2/SDL_metal.h>
+#endif
 #include <cstdlib>
-#include <sstream>
+#include <cstring>
 
 namespace p3d {
 
@@ -31,264 +37,138 @@ namespace p3d {
 
     void SDL2Context::CreateKeyboardMap()
     {
-        SDL2Context::MapSDLKeyboard[SDLK_a] = Event::Input::Keyboard::A;
-        SDL2Context::MapSDLKeyboard[SDLK_b] = Event::Input::Keyboard::B;
-        SDL2Context::MapSDLKeyboard[SDLK_c] = Event::Input::Keyboard::C;
-        SDL2Context::MapSDLKeyboard[SDLK_d] = Event::Input::Keyboard::D;
-        SDL2Context::MapSDLKeyboard[SDLK_e] = Event::Input::Keyboard::E;
-        SDL2Context::MapSDLKeyboard[SDLK_f] = Event::Input::Keyboard::F;
-        SDL2Context::MapSDLKeyboard[SDLK_g] = Event::Input::Keyboard::G;
-        SDL2Context::MapSDLKeyboard[SDLK_h] = Event::Input::Keyboard::H;
-        SDL2Context::MapSDLKeyboard[SDLK_i] = Event::Input::Keyboard::I;
-        SDL2Context::MapSDLKeyboard[SDLK_j] = Event::Input::Keyboard::J;
-        SDL2Context::MapSDLKeyboard[SDLK_k] = Event::Input::Keyboard::K;
-        SDL2Context::MapSDLKeyboard[SDLK_l] = Event::Input::Keyboard::L;
-        SDL2Context::MapSDLKeyboard[SDLK_m] = Event::Input::Keyboard::M;
-        SDL2Context::MapSDLKeyboard[SDLK_n] = Event::Input::Keyboard::N;
-        SDL2Context::MapSDLKeyboard[SDLK_o] = Event::Input::Keyboard::O;
-        SDL2Context::MapSDLKeyboard[SDLK_p] = Event::Input::Keyboard::P;
-        SDL2Context::MapSDLKeyboard[SDLK_q] = Event::Input::Keyboard::Q;
-        SDL2Context::MapSDLKeyboard[SDLK_r] = Event::Input::Keyboard::R;
-        SDL2Context::MapSDLKeyboard[SDLK_s] = Event::Input::Keyboard::S;
-        SDL2Context::MapSDLKeyboard[SDLK_t] = Event::Input::Keyboard::T;
-        SDL2Context::MapSDLKeyboard[SDLK_u] = Event::Input::Keyboard::U;
-        SDL2Context::MapSDLKeyboard[SDLK_v] = Event::Input::Keyboard::V;
-        SDL2Context::MapSDLKeyboard[SDLK_w] = Event::Input::Keyboard::W;
-        SDL2Context::MapSDLKeyboard[SDLK_x] = Event::Input::Keyboard::X;
-        SDL2Context::MapSDLKeyboard[SDLK_y] = Event::Input::Keyboard::Y;
-        SDL2Context::MapSDLKeyboard[SDLK_z] = Event::Input::Keyboard::Z;
-        SDL2Context::MapSDLKeyboard[SDLK_p] = Event::Input::Keyboard::P;
-        SDL2Context::// (the keypad's digits are Numpad0..9 and the row above the letters Num0..9, as
-        SDL2Context::// InputManager.h names them: the two were the wrong way round here, so a game's
-        SDL2Context::// "1" was the keypad's and the row of digits did nothing in it)
-        SDL2Context::MapSDLKeyboard[SDLK_KP_0] = Event::Input::Keyboard::Numpad0;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_1] = Event::Input::Keyboard::Numpad1;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_2] = Event::Input::Keyboard::Numpad2;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_3] = Event::Input::Keyboard::Numpad3;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_4] = Event::Input::Keyboard::Numpad4;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_5] = Event::Input::Keyboard::Numpad5;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_6] = Event::Input::Keyboard::Numpad6;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_7] = Event::Input::Keyboard::Numpad7;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_8] = Event::Input::Keyboard::Numpad8;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_9] = Event::Input::Keyboard::Numpad9;
-        SDL2Context::MapSDLKeyboard[SDLK_ESCAPE] = Event::Input::Keyboard::Escape;
-        SDL2Context::MapSDLKeyboard[SDLK_LCTRL] = Event::Input::Keyboard::LControl;
-        SDL2Context::MapSDLKeyboard[SDLK_LSHIFT] = Event::Input::Keyboard::LShift;
-        SDL2Context::MapSDLKeyboard[SDLK_LALT] = Event::Input::Keyboard::LAlt;
-        SDL2Context::MapSDLKeyboard[SDLK_LGUI] = Event::Input::Keyboard::LSystem;
-        SDL2Context::MapSDLKeyboard[SDLK_RSHIFT] = Event::Input::Keyboard::RShift;
-        SDL2Context::MapSDLKeyboard[SDLK_RALT] = Event::Input::Keyboard::RAlt;
-        SDL2Context::MapSDLKeyboard[SDLK_RGUI] = Event::Input::Keyboard::RSystem;
-        SDL2Context::MapSDLKeyboard[SDLK_MENU] = Event::Input::Keyboard::Menu;
-        SDL2Context::MapSDLKeyboard[SDLK_LEFTBRACKET] = Event::Input::Keyboard::LBracket;
-        SDL2Context::MapSDLKeyboard[SDLK_RIGHTBRACKET] = Event::Input::Keyboard::RBracket;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_COLON] = Event::Input::Keyboard::SemiColon;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_COMMA] = Event::Input::Keyboard::Comma;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_PERIOD] = Event::Input::Keyboard::Period;
-        SDL2Context::MapSDLKeyboard[SDLK_QUOTE] = Event::Input::Keyboard::Quote;
-        SDL2Context::MapSDLKeyboard[SDLK_SLASH] = Event::Input::Keyboard::Slash;
-        SDL2Context::MapSDLKeyboard[SDLK_BACKSLASH] = Event::Input::Keyboard::BackSlash;
-        //< The ~ key
-        SDL2Context::MapSDLKeyboard[SDLK_EQUALS] = Event::Input::Keyboard::Equal;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_MINUS] = Event::Input::Keyboard::Dash;
-        SDL2Context::MapSDLKeyboard[SDLK_SPACE] = Event::Input::Keyboard::Space;
-        SDL2Context::MapSDLKeyboard[SDLK_RETURN] =Event::Input::Keyboard::Return;;
-        SDL2Context::MapSDLKeyboard[SDLK_AC_BACK] = Event::Input::Keyboard::Back;
-        SDL2Context::MapSDLKeyboard[SDLK_TAB] = Event::Input::Keyboard::Tab;
-        SDL2Context::MapSDLKeyboard[SDLK_PAGEUP] = Event::Input::Keyboard::PageUp;
-        SDL2Context::MapSDLKeyboard[SDLK_PAGEDOWN] = Event::Input::Keyboard::PageDown;
-        SDL2Context::MapSDLKeyboard[SDLK_END] = Event::Input::Keyboard::End;
-        SDL2Context::MapSDLKeyboard[SDLK_AC_HOME] = Event::Input::Keyboard::Home;
-        SDL2Context::MapSDLKeyboard[SDLK_INSERT] = Event::Input::Keyboard::Insert;
-        SDL2Context::MapSDLKeyboard[SDLK_DELETE] = Event::Input::Keyboard::Delete;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_MEMADD] = Event::Input::Keyboard::Add;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_MEMSUBTRACT] = Event::Input::Keyboard::Subtract;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_MULTIPLY] = Event::Input::Keyboard::Multiply;
-        SDL2Context::MapSDLKeyboard[SDLK_KP_DIVIDE] = Event::Input::Keyboard::Divide;
-        SDL2Context::MapSDLKeyboard[SDLK_LEFT] = Event::Input::Keyboard::Left;
-        SDL2Context::MapSDLKeyboard[SDLK_RIGHT] = Event::Input::Keyboard::Right;
-        SDL2Context::MapSDLKeyboard[SDLK_UP] = Event::Input::Keyboard::Up;
-        SDL2Context::MapSDLKeyboard[SDLK_DOWN] = Event::Input::Keyboard::Down;
-        SDL2Context::MapSDLKeyboard[SDLK_0] = Event::Input::Keyboard::Num0;
-        SDL2Context::MapSDLKeyboard[SDLK_1] = Event::Input::Keyboard::Num1;
-        SDL2Context::MapSDLKeyboard[SDLK_2] = Event::Input::Keyboard::Num2;
-        SDL2Context::MapSDLKeyboard[SDLK_3] = Event::Input::Keyboard::Num3;
-        SDL2Context::MapSDLKeyboard[SDLK_4] = Event::Input::Keyboard::Num4;
-        SDL2Context::MapSDLKeyboard[SDLK_5] = Event::Input::Keyboard::Num5;
-        SDL2Context::MapSDLKeyboard[SDLK_6] = Event::Input::Keyboard::Num6;
-        SDL2Context::MapSDLKeyboard[SDLK_7] = Event::Input::Keyboard::Num7;
-        SDL2Context::MapSDLKeyboard[SDLK_8] = Event::Input::Keyboard::Num8;
-        SDL2Context::MapSDLKeyboard[SDLK_9] = Event::Input::Keyboard::Num9;
-        SDL2Context::MapSDLKeyboard[SDLK_F1] = Event::Input::Keyboard::F1;
-        SDL2Context::MapSDLKeyboard[SDLK_F12] = Event::Input::Keyboard::F2;
-        SDL2Context::MapSDLKeyboard[SDLK_F13] = Event::Input::Keyboard::F3;
-        SDL2Context::MapSDLKeyboard[SDLK_F14] = Event::Input::Keyboard::F4;
-        SDL2Context::MapSDLKeyboard[SDLK_F15] = Event::Input::Keyboard::F5;
-        SDL2Context::MapSDLKeyboard[SDLK_F16] = Event::Input::Keyboard::F6;
-        SDL2Context::MapSDLKeyboard[SDLK_F17] = Event::Input::Keyboard::F7;
-        SDL2Context::MapSDLKeyboard[SDLK_F18] = Event::Input::Keyboard::F8;
-        SDL2Context::MapSDLKeyboard[SDLK_F19] = Event::Input::Keyboard::F9;
-        SDL2Context::MapSDLKeyboard[SDLK_F10] = Event::Input::Keyboard::F10;
-        SDL2Context::MapSDLKeyboard[SDLK_F11] = Event::Input::Keyboard::F11;
-        SDL2Context::MapSDLKeyboard[SDLK_F12] = Event::Input::Keyboard::F12;
-        SDL2Context::MapSDLKeyboard[SDLK_F13] = Event::Input::Keyboard::F13;
-        SDL2Context::MapSDLKeyboard[SDLK_F14] = Event::Input::Keyboard::F14;
-        SDL2Context::MapSDLKeyboard[SDLK_F15] = Event::Input::Keyboard::F15;
-        SDL2Context::MapSDLKeyboard[SDLK_PAUSE] = Event::Input::Keyboard::Pause;
+        using namespace Event::Input;
+        std::map<uint32, uint32> &k = MapSDLKeyboard;
+        if (!k.empty()) return;
+        for (int i = 0; i < 26; i++) k[SDLK_a + i] = Keyboard::A + i;
+        // (the row above the letters is Num0..9, the keypad's digits Numpad0..9 - InputManager.h's names)
+        for (int i = 0; i < 10; i++) k[SDLK_0 + i] = Keyboard::Num0 + i;
+        k[SDLK_KP_0] = Keyboard::Numpad0;
+        for (int i = 0; i < 9; i++) k[SDLK_KP_1 + i] = Keyboard::Numpad1 + i;
+        for (int i = 0; i < 12; i++) k[SDLK_F1 + i] = Keyboard::F1 + i;
+        k[SDLK_F13] = Keyboard::F13; k[SDLK_F14] = Keyboard::F14; k[SDLK_F15] = Keyboard::F15;
+        k[SDLK_ESCAPE] = Keyboard::Escape;
+        k[SDLK_LCTRL] = Keyboard::LControl; k[SDLK_LSHIFT] = Keyboard::LShift; k[SDLK_LALT] = Keyboard::LAlt; k[SDLK_LGUI] = Keyboard::LSystem;
+        k[SDLK_RCTRL] = Keyboard::RControl; k[SDLK_RSHIFT] = Keyboard::RShift; k[SDLK_RALT] = Keyboard::RAlt; k[SDLK_RGUI] = Keyboard::RSystem;
+        k[SDLK_MENU] = Keyboard::Menu;
+        k[SDLK_LEFTBRACKET] = Keyboard::LBracket; k[SDLK_RIGHTBRACKET] = Keyboard::RBracket;
+        k[SDLK_SEMICOLON] = Keyboard::SemiColon; k[SDLK_COMMA] = Keyboard::Comma; k[SDLK_PERIOD] = Keyboard::Period;
+        k[SDLK_QUOTE] = Keyboard::Quote; k[SDLK_SLASH] = Keyboard::Slash; k[SDLK_BACKSLASH] = Keyboard::BackSlash;
+        k[SDLK_BACKQUOTE] = Keyboard::Tilde; k[SDLK_EQUALS] = Keyboard::Equal; k[SDLK_MINUS] = Keyboard::Dash;
+        k[SDLK_SPACE] = Keyboard::Space; k[SDLK_RETURN] = Keyboard::Return; k[SDLK_KP_ENTER] = Keyboard::Return;
+        k[SDLK_BACKSPACE] = Keyboard::Back; k[SDLK_AC_BACK] = Keyboard::Back; k[SDLK_TAB] = Keyboard::Tab;
+        k[SDLK_PAGEUP] = Keyboard::PageUp; k[SDLK_PAGEDOWN] = Keyboard::PageDown; k[SDLK_END] = Keyboard::End; k[SDLK_HOME] = Keyboard::Home;
+        k[SDLK_INSERT] = Keyboard::Insert; k[SDLK_DELETE] = Keyboard::Delete;
+        k[SDLK_KP_PLUS] = Keyboard::Add; k[SDLK_KP_MINUS] = Keyboard::Subtract; k[SDLK_KP_MULTIPLY] = Keyboard::Multiply; k[SDLK_KP_DIVIDE] = Keyboard::Divide;
+        k[SDLK_LEFT] = Keyboard::Left; k[SDLK_RIGHT] = Keyboard::Right; k[SDLK_UP] = Keyboard::Up; k[SDLK_DOWN] = Keyboard::Down;
+        k[SDLK_PAUSE] = Keyboard::Pause;
     }
 
-    SDL2Context::SDL2Context(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType) : Context(width,height) 
+    void SDL2Context::DrawableSize(int &width, int &height) const
     {
-        // Map Keys
+#ifdef EMSCRIPTEN
+        // (the page sizes the canvas, in device pixels: it is the truth)
+        emscripten_get_canvas_element_size("#canvas", &width, &height);
+#elif defined(__APPLE__)
+        if (metalView != NULL) { SDL_Metal_GetDrawableSize(rview, &width, &height); return; }
+        SDL_GetWindowSizeInPixels(rview, &width, &height);
+#else
+        SDL_GetWindowSizeInPixels(rview, &width, &height);
+#endif
+    }
+
+    gfx::Device* SDL2Context::CreateDevice()
+    {
+        gfx::SurfaceSource src;
+        src.width = Width; src.height = Height; src.vsync = true;
+#ifdef EMSCRIPTEN
+        src.kind = gfx::SurfaceSource::Canvas; src.a = (void*)"#canvas";
+#elif defined(__APPLE__)
+        if (metalView == NULL) return NULL;
+        src.kind = gfx::SurfaceSource::MetalLayer; src.a = SDL_Metal_GetLayer((SDL_MetalView)metalView);
+#else
+        SDL_SysWMinfo wm; SDL_VERSION(&wm.version);
+        if (!SDL_GetWindowWMInfo(rview, &wm)) { echo(std::string("ERROR: the window's native handle: ") + SDL_GetError()); return NULL; }
+#if defined(_WIN32)
+        src.kind = gfx::SurfaceSource::Win32; src.a = (void*)wm.info.win.window; src.b = (void*)wm.info.win.hinstance;
+#else
+        src.kind = gfx::SurfaceSource::Xlib; src.a = (void*)wm.info.x11.display; src.b = (void*)(uintptr_t)wm.info.x11.window;
+#endif
+#endif
+        // (the one asked for, among those built; else the build's own, Metal before Vulkan before WebGPU)
+        const char* asked = getenv("PYROS_GFX_BACKEND");
+        const std::string want = asked ? asked : "";
+        gfx::Device* d = NULL;
+#ifdef PYROS_GFX_WEBGPU
+        if (want == "webgpu") d = gfx::CreateWebGPUDevice(src);
+#endif
+#ifdef PYROS_GFX_VULKAN
+        if (d == NULL && want == "vulkan") d = gfx::CreateVulkanDevice(src);
+#endif
+#ifdef PYROS_GFX_METAL
+        if (d == NULL && (want.empty() || want == "metal")) d = gfx::CreateMetalDevice(src);
+#endif
+#ifdef PYROS_GFX_VULKAN
+        if (d == NULL && want != "webgpu") d = gfx::CreateVulkanDevice(src);
+#endif
+#ifdef PYROS_GFX_WEBGPU
+        if (d == NULL) d = gfx::CreateWebGPUDevice(src);
+#endif
+        return d;
+    }
+
+    SDL2Context::SDL2Context(const uint32 width, const uint32 height, const std::string &title, const uint32 windowType) : Context(width, height)
+    {
         CreateKeyboardMap();
 
-        // Initialize SDL2
-		if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0)
-		{
-			echo(std::string("ERROR: SDL_Init failed: ") + SDL_GetError());
-			exit(EXIT_FAILURE);
-		}
+        if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0)
+        {
+            echo(std::string("ERROR: SDL_Init failed: ") + SDL_GetError());
+            return;
+        }
 
-#if defined(GLES2)
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-#elif defined(GLES3)
-        // ES 3.0 everywhere: WebGL2, Raspberry Pi (Mesa), desktop GLES.
-        // Requesting 3.1 broke older Pi / Mesa drivers that only expose 3.0.
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
-#else
-		SDL_GL_SetAttribute(SDL_GL_ACCELERATED_VISUAL, 1);
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 4);
-#if defined(GL42)
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 2);
-#elif defined(GL41)
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
-#else
-        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 5);
+        uint32 type = SDL_WINDOW_ALLOW_HIGHDPI;
+        if (windowType & WindowType::Fullscreen) type |= SDL_WINDOW_FULLSCREEN;
+        if (windowType & WindowType::None) type |= SDL_WINDOW_BORDERLESS;
+        if (windowType & WindowType::Resize) type |= SDL_WINDOW_RESIZABLE;
+#if defined(__APPLE__)
+        // (a CAMetalLayer whichever API draws: Metal's, MoltenVK's, Dawn's)
+        type |= SDL_WINDOW_METAL;
+#if TARGET_OS_IPHONE
+        type |= SDL_WINDOW_FULLSCREEN;
 #endif
-		SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
 #endif
-		// Also request a depth buffer
-		SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-		SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
 
-//        int audio_rate = 22050;
-//        Uint16 audio_format = AUDIO_S16; /* 16-bit stereo */
-//        int audio_channels = 2;
-//        int audio_buffers = 4096;
-
-//        if (Mix_OpenAudio(audio_rate, audio_format, audio_channels, audio_buffers))
-//            echo("ERROR: Failed to open audio device");
-
-//        Mix_QuerySpec(&audio_rate, &audio_format, &audio_channels);
-
-        uint32 type = 0;
-
-		if (windowType & WindowType::Fullscreen) { type = (type | SDL_WINDOW_FULLSCREEN); }
-        if (windowType & WindowType::None) type = (type | SDL_WINDOW_BORDERLESS);
-        if (windowType & WindowType::Resize) type = (type | SDL_WINDOW_RESIZABLE);
-        type = type | SDL_WINDOW_OPENGL;
-
-    	rview = SDL_CreateWindow(
-    		title.c_str(),
-			SDL_WINDOWPOS_UNDEFINED,
-    		SDL_WINDOWPOS_UNDEFINED,
-    		width,
-    		height,
-    		type
-		);
-
-		if (!rview)
-		{
-			echo(std::string("ERROR: SDL_CreateWindow failed: ") + SDL_GetError());
-			exit(EXIT_FAILURE);
-		}
-
-		mainGLContext = SDL_GL_CreateContext(rview);
-		if (!mainGLContext)
-		{
-			// Was a bare echo() that then carried on regardless, which is
-			// how a failure here reached glad and the shader compiler as a
-			// call through a null function pointer instead of a message.
-			echo(std::string("ERROR: SDL_GL_CreateContext failed: ") + SDL_GetError());
-			exit(EXIT_FAILURE);
-		}
-
-		// See SDL2VulkanContext's identical fix/comment - the window
-		// manager can silently clamp the requested size, and no
-		// SDL_WINDOWEVENT_RESIZED fires for a size decided at creation
-		// time, so Width/Height (read by every example for its camera's
-		// aspect ratio and render-target sizing) must come from the
-		// window's real post-creation size, not the caller's request.
-		// SDL_GL_GetDrawableSize() (not SDL_GetWindowSize(), which
-		// returns logical points and undershoots by the display's HiDPI
-		// scale factor - the exact bug found and fixed on the Vulkan
-		// path this session) needs a live GL context to query, hence
-		// called after SDL_GL_CreateContext() above rather than
-		// immediately after SDL_CreateWindow() the way the Vulkan path
-		// (which has no such ordering constraint) does it.
-		int actualWidth = width, actualHeight = height;
-		SDL_GL_GetDrawableSize(rview, &actualWidth, &actualHeight);
-		Width = (uint32)actualWidth;
-		Height = (uint32)actualHeight;
-
-#if !defined(GLES2) && !defined(GLES3)
-		// glad returns 0 when it cannot resolve the core entry points, and
-		// GLVersion tells us what it did manage to load. Ignoring both is
-		// how a machine without a usable GL driver got all the way to
-		// Shader::CompileShader() and jumped to address 0: Windows falls
-		// back to its own software OPENGL32.DLL, which is GL 1.1, so the
-		// context is created successfully and every function above 1.1 -
-		// glCreateShader included - is left null.
-		const int gladOk = gladLoadGL();
-
-	#if defined(GL42)
-		const int requiredMajor = 4, requiredMinor = 2;
-	#elif defined(GL41)
-		const int requiredMajor = 4, requiredMinor = 1;
-	#else
-		const int requiredMajor = 4, requiredMinor = 5;
-	#endif
-
-		if (!gladOk ||
-			GLVersion.major < requiredMajor ||
-			(GLVersion.major == requiredMajor && GLVersion.minor < requiredMinor))
-		{
-			// glGetString is GL 1.0, so it is present even in the fallback
-			// case - which is exactly when naming the driver is useful.
-			const char *glVersionStr = (const char*)glGetString(GL_VERSION);
-			const char *glRenderer = (const char*)glGetString(GL_RENDERER);
-			const char *glVendor = (const char*)glGetString(GL_VENDOR);
-
-			std::stringstream err;
-			err << "ERROR: this build needs OpenGL " << requiredMajor << "." << requiredMinor
-				<< ", but the context provides "
-				<< (glVersionStr ? glVersionStr : "an unknown version")
-				<< " (renderer: " << (glRenderer ? glRenderer : "unknown")
-				<< ", vendor: " << (glVendor ? glVendor : "unknown") << ")."
-				<< " Update the graphics driver, or rebuild with -DOPENGL_VERSION"
-				<< " set to a profile this machine supports.";
-			echo(err.str());
-			exit(EXIT_FAILURE);
-		}
-#elif defined(DESKTOP) || defined(EMSCRIPTEN)
-		if (!gladLoadGLES2Loader((GLADloadproc)SDL_GL_GetProcAddress))
-		{
-			echo("ERROR: failed to load OpenGL ES entry points via SDL_GL_GetProcAddress.");
-			exit(EXIT_FAILURE);
-		}
+        rview = SDL_CreateWindow(title.c_str(), SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, type);
+        if (rview == NULL)
+        {
+            echo(std::string("ERROR: SDL_CreateWindow failed: ") + SDL_GetError());
+            return;
+        }
+#if defined(__APPLE__)
+        metalView = SDL_Metal_CreateView(rview);
 #endif
-		// Set OpenGL Major and Minor Versions
-		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION,(int*)&glMajor);
-		SDL_GL_GetAttribute(SDL_GL_CONTEXT_MINOR_VERSION,(int*)&glMinor);
+
+        int w = (int)width, h = (int)height;
+        DrawableSize(w, h);
+        if (w > 0 && h > 0) { Width = (uint32)w; Height = (uint32)h; }
+
+        device = CreateDevice();
+        if (device != NULL)
+            echo(std::string("SDL2Context: ") + device->Caps().name);
+        else
+            echo("ERROR: no graphics device could be made on this window (PYROS_GFX_BACKEND, and what the build has)");
     }
+
     SDL2Context::~SDL2Context()
     {
-    	SDL_GL_DeleteContext(mainGLContext);
-        SDL_DestroyWindow(rview);
+        Shutdown();
+#if defined(__APPLE__)
+        if (metalView != NULL)
+            SDL_Metal_DestroyView((SDL_MetalView)metalView);
+#endif
+        if (rview != NULL)
+            SDL_DestroyWindow(rview);
         SDL_Quit();
     }
 
@@ -296,74 +176,46 @@ namespace p3d {
     {
         Width = width;
         Height = height;
-
-        // resize application
-        SDL_SetWindowSize(rview,width,height);
+        if (device != NULL)
+            device->ResizeSurface(width, height);
     }
+
     bool SDL2Context::IsRunning() const
     {
-    	return Initialized;
+        return Initialized;
     }
+
     void SDL2Context::GetEvents()
     {
-        // (the display's refresh rate, for frames begun on the refresh where the system has no refresh to
-        // wait on - RefreshPacer; looked at about once a second, as the window may move to another display)
-        {
-            static int refreshLook = 0;
-            if (refreshLook-- <= 0 && rview != NULL)
-            {
-                refreshLook = 60;
-                SDL_DisplayMode mode;
-                const int display = SDL_GetWindowDisplayIndex(rview);
-                if (SDL_GetCurrentDisplayMode(display < 0 ? 0 : display, &mode) == 0 && mode.refresh_rate > 0)
-                    p3d::RefreshPacer::SetRefreshRate((double)mode.refresh_rate);
-            }
-        }
-        // Brought up here rather than beside SDL_Init: it is its own
-        // subsystem, safe to ask for late, and this is the one place every
-        // path through the window manager reaches.
+        // (pads: opened here, the first time, rather than with the window - its own SDL subsystem)
         PyrosGamepad::Init();
         SDL_Event sdl_event;
-		InputManager::BeginTouchFrame();
-		while(SDL_PollEvent(&sdl_event) > 0) /* While there are more than 0 events in the queue */
-		{
-            // Game controllers: plugged in, pulled, buttons and sticks.
+        InputManager::BeginTouchFrame();
+        while (SDL_PollEvent(&sdl_event) > 0)
+        {
             if (PyrosGamepad::HandleEvent(sdl_event,
                 [this](p3d::uint32 pad, p3d::uint32 b) { SetJoypadButtonPressed(pad, b); },
                 [this](p3d::uint32 pad, p3d::uint32 b) { SetJoypadButtonReleased(pad, b); },
                 [this](p3d::uint32 pad, p3d::uint32 axis, p3d::f32 v) { SetJoypadMove(pad, axis, v); }))
                 continue;
 
-            // Process ImGui events first - guarded, not every example calls
-            // BaseExample::InitImGui() (ParticlesExample didn't - see its
-            // own fix), and this runs unconditionally for every example
-            // regardless. ImGui_ImplSDL2_ProcessEvent() asserts hard on a
-            // null backend/context if called before ImGui::CreateContext()
-            // (InitImGui()'s job), so any example skipping it crashed on
-            // the very first SDL event, not just a cosmetic gap.
             if (ImGui::GetCurrentContext() != NULL)
                 ImGui_ImplSDL2_ProcessEvent(&sdl_event);
 
             if (sdl_event.type == SDL_QUIT
                 || (sdl_event.type == SDL_WINDOWEVENT && sdl_event.window.event == SDL_WINDOWEVENT_CLOSE))
             {
+                // (an application with unsaved work may say not yet - CloseHook.h)
                 if (PyrosWindowClose::AllowClose())
                     Close();
             }
 
-            // Characters, separately from keys: which key produces which
-            // character is the platform's business (layouts, dead keys,
-            // IMEs), so a text field is fed decoded text and never keycodes.
             if (sdl_event.type == SDL_TEXTINPUT)
                 PyrosTextInput::Notify(sdl_event.text.text);
 
-            // A key held down is pressed once. The system sends the press again and
-            // again while it is held (its auto-repeat): passed on, anything a key
-            // switches - a screen opened with Tab - flipped back and forth for as
-            // long as the key was down a moment too long. The keys text is edited
-            // with still repeat: that is what the repeat is for.
             if (sdl_event.type == SDL_KEYDOWN)
             {
+                // (a held key repeats only where that edits text: the game sees a key go down once)
                 const SDL_Keycode sym = sdl_event.key.keysym.sym;
                 const bool edits = sym == SDLK_BACKSPACE || sym == SDLK_DELETE || sym == SDLK_LEFT || sym == SDLK_RIGHT || sym == SDLK_UP || sym == SDLK_DOWN;
                 if (sdl_event.key.repeat == 0 || edits) KeyPressed(sym);
@@ -380,15 +232,14 @@ namespace p3d {
 
             if (sdl_event.type == SDL_MOUSEMOTION)
             {
-                // (the motion itself, for a captured pointer: see InputManager::ConsumeMouseDelta.
-                // Before the move is announced, so whoever hears of the move can ask for it.)
-                InputManager::AddMouseDelta((f32)sdl_event.motion.xrel, (f32)sdl_event.motion.yrel);
-                MouseMove(sdl_event.motion.x,sdl_event.motion.y);
+                // (SDL's points to the picture's pixels: a high-density screen has more of them than points)
+                int pw = 0, ph = 0;
+                SDL_GetWindowSize(rview, &pw, &ph);
+                const f32 kx = pw > 0 ? (f32)Width / (f32)pw : 1.f, ky = ph > 0 ? (f32)Height / (f32)ph : 1.f;
+                InputManager::AddMouseDelta((f32)sdl_event.motion.xrel * kx, (f32)sdl_event.motion.yrel * ky);
+                MouseMove((f32)sdl_event.motion.x * kx, (f32)sdl_event.motion.y * ky);
             }
 
-            // Fingers. SDL gives each a place from 0 to 1 across the window; the
-            // engine wants the pointer's pixels. (The first finger also arrives
-            // as the mouse - SDL makes those events itself.)
             if (sdl_event.type == SDL_FINGERDOWN || sdl_event.type == SDL_FINGERMOTION || sdl_event.type == SDL_FINGERUP)
             {
                 const f32 tx = sdl_event.tfinger.x * (f32)Width, ty = sdl_event.tfinger.y * (f32)Height;
@@ -406,42 +257,14 @@ namespace p3d {
                 PyrosFileDrop::Notify(sdl_event.drop.file);
                 SDL_free(sdl_event.drop.file);
             }
+        }
+        // (actions read the keys and pads as this frame left them)
+        InputActions::NewFrame();
 
-            // // Joypad
-            // if (event.type == sf::Event::JoystickButtonPressed)
-            //     JoypadButtonPressed(event.joystickButton.joystickId,event.joystickButton.button);
-
-            // if (event.type == sf::Event::JoystickButtonReleased)
-            //     JoypadButtonReleased(event.joystickButton.joystickId,event.joystickButton.button);
-
-            // if (event.type == sf::Event::JoystickMoved)
-            // {
-            //     JoypadMove(event.joystickButton.joystickId, event.joystickMove.axis, event.joystickMove.position);
-            // }
-
-            // Adjust the viewport when the window is resized
-            if (sdl_event.window.event == SDL_WINDOWEVENT_RESIZED)
-            {
-                OnResize(sdl_event.window.data1, sdl_event.window.data2);
-            }
-		}
-		// (actions read the keys and pads as this frame left them)
-		InputActions::NewFrame();
-
-        // See SDL2VulkanContext::GetEvents()'s identical fix/comment - a
-        // tiling window manager can resize the window via the
-        // Accessibility API without ever delivering
-        // SDL_WINDOWEVENT_RESIZED, so poll the real drawable size every
-        // frame and self-correct if it no longer matches what we last
-        // recorded.
 #ifdef EMSCRIPTEN
-        // In a browser the page sizes the canvas - to the window, in device
-        // pixels - and SDL is not told: what it calls the window's size is
-        // what was asked for when the window was made, or the element's
-        // size in CSS pixels after a resize. The canvas is the truth. Making
-        // SDL's window that size is also what puts the pointer in the same
-        // pixels as the picture (SDL scales it by window size over element
-        // size).
+        // In a browser the page sizes the canvas and SDL is not told: what it calls the window's size is what was asked
+        // for when it was made. Making SDL's window the canvas's size is also what puts the pointer in the picture's
+        // pixels (SDL scales it by window size over element size).
         {
             int canvasW = 0, canvasH = 0, windowW = 0, windowH = 0;
             emscripten_get_canvas_element_size("#canvas", &canvasW, &canvasH);
@@ -450,24 +273,20 @@ namespace p3d {
                 SDL_SetWindowSize(rview, canvasW, canvasH);
         }
 #endif
-        int drawableW = 0, drawableH = 0;
-        SDL_GL_GetDrawableSize(rview, &drawableW, &drawableH);
-        if (drawableW > 0 && drawableH > 0 && ((uint32)drawableW != Width || (uint32)drawableH != Height))
-            OnResize((uint32)drawableW, (uint32)drawableH);
+        // The size the window really has, each frame: a tiling window manager can resize it without
+        // SDL_WINDOWEVENT_RESIZED ever arriving.
+        int w = 0, h = 0;
+        DrawableSize(w, h);
+        if (w > 0 && h > 0 && ((uint32)w != Width || (uint32)h != Height))
+            OnResize((uint32)w, (uint32)h);
 
         frameClock.Tick((f64)SDL_GetPerformanceCounter() / (f64)SDL_GetPerformanceFrequency());
         SetTime(frameClock.Seconds() * 1000.0);
         fps.setFPS(SDL_GetTicks());
     }
 
-    void SDL2Context::Draw()
-    {
-        PYROS_PROFILE_SCOPE("GL.SwapWindow");
-        // (the swap waits for the display with vsync on: not the frame's work)
-        const std::chrono::steady_clock::time_point s0 = std::chrono::steady_clock::now();
-        SDL_GL_SwapWindow(rview);
-        FrameProfiler::NoteDisplayWait(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - s0).count());
-    }
+    // (the device presents its frame itself: Device::EndFrame)
+    void SDL2Context::Draw() {}
 
     void SDL2Context::HideMouse()
     {
@@ -478,14 +297,15 @@ namespace p3d {
         SDL_ShowCursor(SDL_ENABLE);
     }
 
-    // Buttons and Mouse
     void SDL2Context::KeyPressed(const uint32 key)
     {
-       SetKeyPressed(MapSDLKeyboard[key]);
+        std::map<uint32, uint32>::const_iterator it = MapSDLKeyboard.find(key);
+        if (it != MapSDLKeyboard.end()) SetKeyPressed(it->second);
     }
     void SDL2Context::KeyReleased(const uint32 key)
     {
-        SetKeyReleased(MapSDLKeyboard[key]);
+        std::map<uint32, uint32>::const_iterator it = MapSDLKeyboard.find(key);
+        if (it != MapSDLKeyboard.end()) SetKeyReleased(it->second);
     }
     void SDL2Context::TextEntered(const uint32 Code)
     {
@@ -493,40 +313,25 @@ namespace p3d {
     }
     void SDL2Context::MouseButtonPressed(const uint32 button)
     {
-        // Mouse Button Pressed
-        switch(button)
+        switch (button)
         {
-            case SDL_BUTTON_LEFT:
-                SetMouseButtonPressed(Event::Input::Mouse::Left);
-                break;
-            case SDL_BUTTON_MIDDLE:
-                SetMouseButtonPressed(Event::Input::Mouse::Middle);
-                break;
-            case SDL_BUTTON_RIGHT:
-                SetMouseButtonPressed(Event::Input::Mouse::Right);
-                break;
+            case SDL_BUTTON_LEFT: SetMouseButtonPressed(Event::Input::Mouse::Left); break;
+            case SDL_BUTTON_MIDDLE: SetMouseButtonPressed(Event::Input::Mouse::Middle); break;
+            case SDL_BUTTON_RIGHT: SetMouseButtonPressed(Event::Input::Mouse::Right); break;
         }
     }
     void SDL2Context::MouseButtonReleased(const uint32 button)
     {
-        // Mouse Button Released
-        switch(button)
+        switch (button)
         {
-            case SDL_BUTTON_LEFT:
-                SetMouseButtonReleased(Event::Input::Mouse::Left);
-                break;
-            case SDL_BUTTON_MIDDLE:
-                SetMouseButtonReleased(Event::Input::Mouse::Middle);
-                break;
-            case SDL_BUTTON_RIGHT:
-                SetMouseButtonReleased(Event::Input::Mouse::Right);
-                break;
+            case SDL_BUTTON_LEFT: SetMouseButtonReleased(Event::Input::Mouse::Left); break;
+            case SDL_BUTTON_MIDDLE: SetMouseButtonReleased(Event::Input::Mouse::Middle); break;
+            case SDL_BUTTON_RIGHT: SetMouseButtonReleased(Event::Input::Mouse::Right); break;
         }
     }
     void SDL2Context::MouseMove(const f32 mousex, const f32 mousey)
     {
-        // Mouse Moving
-        SetMouseMove(mousex,mousey);
+        SetMouseMove(mousex, mousey);
     }
     void SDL2Context::MouseWheel(const f32 delta)
     {
@@ -539,25 +344,24 @@ namespace p3d {
     const Vec2 SDL2Context::GetMousePosition() const
     {
         int mousex, mousey;
-        SDL_GetMouseState(&mousex,&mousey);
-        return Vec2(mousex,mousey);
+        SDL_GetMouseState(&mousex, &mousey);
+        return Vec2((f32)mousex, (f32)mousey);
     }
-    void SDL2Context::JoypadButtonPressed(const uint32 JoypadID, const uint32 Button)
-    {
-
-    }
-    void SDL2Context::JoypadButtonReleased(const uint32 JoypadID, const uint32 Button)
-    {
-
-    }
-    void SDL2Context::JoypadMove(const uint32 JoypadID, const uint32 Axis, const f32 Value)
-    {
-
-    }
-    // virtuals methods
+    // (pads come through GamepadHook.h, which calls the Context's own setters)
+    void SDL2Context::JoypadButtonPressed(const uint32 JoypadID, const uint32 Button) {}
+    void SDL2Context::JoypadButtonReleased(const uint32 JoypadID, const uint32 Button) {}
+    void SDL2Context::JoypadMove(const uint32 JoypadID, const uint32 Axis, const f32 Value) {}
     void SDL2Context::Init() {}
     void SDL2Context::Update() {}
-    void SDL2Context::Shutdown() {}
+    void SDL2Context::Shutdown()
+    {
+        // (after the application has let go of what it made on the device: its renderers first)
+        if (device != NULL)
+        {
+            delete device;
+            device = NULL;
+        }
+    }
     void SDL2Context::Close()
     {
         Initialized = false;

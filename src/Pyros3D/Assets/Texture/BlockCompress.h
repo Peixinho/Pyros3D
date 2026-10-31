@@ -53,8 +53,15 @@ namespace p3d {
 
 		// The image and every mip below it, down to 1x1 (a 2x2 box each step - what a
 		// GPU's GenerateMipmap does), each level encoded: levels[0] is the image itself.
+		// srgb: the image is a painted colour (sRGB-encoded): its four texels are averaged as light -
+		// decoded, averaged, encoded again - not as the encoded numbers, which made every smaller level
+		// darker and duller than the picture it stands for (a lit leaf against a dark gap went to the
+		// gap's colour). A data picture (normals, roughness, masks) is averaged as it is.
 		PYROS3D_API void EncodeMipChain(const uint32_t format, const std::vector<uint8_t> &rgba, const uint32_t w, const uint32_t h,
-			std::vector<std::vector<uint8_t> > &levels);
+			std::vector<std::vector<uint8_t> > &levels, const bool srgb = false);
+		// Whether a picture holds a painted colour (sRGB) or data, by its format and its name - the names
+		// every texture tool gives its maps (MaterialCodegen's TextureNodeIsData is the same rule).
+		PYROS3D_API bool IsColourPicture(const uint32_t format, const char* name);
 
 		// BC5 for a normal map, BC3 when any texel is not fully opaque, else BC1. A normal map is
 		// told by what it holds: unit vectors pointing out of the surface (blue above half), for

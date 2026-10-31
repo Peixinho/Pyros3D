@@ -4,7 +4,6 @@
   "description": "Red diffuse cube under a directional light, spinning on Y.",
   "scene": "RotatingCubeWithLighting.json",
   "render": {
-   "type": "forward",
    "globalLight": [
     0.12,
     0.12,
@@ -18,15 +17,11 @@
   "description": "Cube textured with the Pyros logo, spinning on Y.",
   "scene": "RotatingTexturedCube.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -35,15 +30,11 @@
   "description": "Brick cube with diffuse, normal and displacement (parallax) maps.",
   "scene": "ParallaxMapping.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -52,15 +43,11 @@
   "description": "Cube with a 6-frame YoYo texture animation at 30 fps.",
   "scene": "RotatingTextureAnimatedCube.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -69,15 +56,11 @@
   "description": "Directional + point light, both casting shadows, onto a floor/ceiling and a spinning cube.",
   "scene": "RotatingCubeWithLightingAndShadow.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -86,15 +69,11 @@
   "description": "Cubemap skybox that follows the camera.",
   "scene": "SkyboxTest.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -103,15 +82,11 @@
   "description": "Left-click places a Pyros logo decal on the cube, sphere or teapot. Free mouse (Tab capture disabled); WASD to move.",
   "scene": "Decals.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -120,7 +95,6 @@
   "description": "Metallic/roughness calibration grid, plus a sphere driven by a metallic-roughness map texture.",
   "scene": "PBRSpheres.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
@@ -128,24 +102,29 @@
     1
    ],
    "effects": [
-    "tonemap"
+    {
+     "name": "Output",
+     "params": {
+      "uAuto": 0.0,
+      "uExposure": -0.61,
+      "uCurve": 3.0,
+      "uContrast": 1.0,
+      "uSaturation": 1.0
+     }
+    }
    ]
   }
  },
  {
-  "name": "Deferred Rendering",
-  "description": "100 small rotating cubes lit by 100 random point lights, through the deferred G-buffer.",
+  "name": "Many Lights",
+  "description": "A cloud of cubes lit by many coloured point lights at once.",
   "scene": "DeferredRendering.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -154,21 +133,6 @@
   "description": "Smoke (alpha-blended, tunable) and embers (additive) particle emitters.",
   "scene": "ParticlesExample.json",
   "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ]
-  }
- },
- {
-  "name": "Particles (GPU)",
-  "description": "The same emitters at 100x the particle count, simulated by a compute shader instead of the CPU. Falls back to the CPU path automatically on a backend without compute (WebGL2, GLES, GL below 4.3, GL on macOS).",
-  "scene": "ParticlesExampleGPU.json",
-  "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
@@ -182,15 +146,11 @@
   "description": "1000 dynamic physics cubes falling onto a static floor, real-time Box3D simulation.",
   "scene": "SimplePhysics.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -199,7 +159,6 @@
   "description": "Box3D stress test: small spheres continuously raining into a boxed arena (up to 20k bodies).",
   "scene": "PhysicsStress.json",
   "render": {
-   "type": "forward",
    "globalLight": [
     0.15,
     0.15,
@@ -213,15 +172,11 @@
   "description": "Skinned human model blending between walk/run/alert animations by mouse X position.",
   "scene": "SkeletonAnimationExample.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -230,7 +185,6 @@
   "description": "Material-aware screen-space reflections on a glossy floor under an orbiting camera.",
   "scene": "SSRTest.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
@@ -246,18 +200,14 @@
     "fov": 60,
     "near": 0.1,
     "far": 200
-   },
-   "effects": [
-    "tonemap"
-   ]
+   }
   }
  },
  {
-  "name": "SSAO",
-  "description": "Screen-space ambient occlusion on a teapot grid (forward + SSAO post chain).",
+  "name": "Ambient Occlusion",
+  "description": "Ground-truth ambient occlusion (GTAO) darkening the creases between objects.",
   "scene": "SSAOExample.json",
   "render": {
-   "type": "forward",
    "globalLight": [
     0.2,
     0.2,
@@ -270,85 +220,16 @@
     "far": 50
    },
    "effects": [
-    "ssao"
-   ]
-  }
- },
- {
-  "name": "SSAO (Deferred)",
-  "description": "The same teapot grid through the deferred renderer, whose SSAO darkens ambient light only.",
-  "scene": "SSAOExample.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.2,
-    0.2,
-    0.2,
-    0.2
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 0.01,
-    "far": 50
-   },
-   "effects": [
-    "ssao"
-   ]
-  }
- },
- {
-  "name": "Motion Blur",
-  "description": "Velocity-map motion blur on fast orbiting coloured objects; static cubes stay sharp for contrast.",
-  "scene": "MotionBlur.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.08,
-    0.08,
-    0.1,
-    1
-   ],
-   "background": [
-    0.04,
-    0.04,
-    0.06,
-    1
-   ],
-   "projection": {
-    "fov": 60,
-    "near": 1,
-    "far": 2000
-   },
-   "effects": [
-    "motionblur"
-   ]
-  }
- },
- {
-  "name": "Depth of Field",
-  "description": "Suzanne row with multi-resolution blur DoF post chain.",
-  "scene": "DepthOfField.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "background": [
-    1,
-    0,
-    0,
-    1
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 1,
-    "far": 1000
-   },
-   "effects": [
-    "dof"
+    {
+     "name": "Output",
+     "params": {
+      "uAuto": 0.0,
+      "uExposure": -0.3,
+      "uCurve": 0.0,
+      "uContrast": 1.0,
+      "uSaturation": 1.0
+     }
+    }
    ]
   }
  },
@@ -357,11 +238,10 @@
   "description": "10k static teapots with 3 LOD levels, frustum culling and point lights.",
   "scene": "LOD_Example.json",
   "render": {
-   "type": "forward",
    "globalLight": [
-    0,
-    0,
-    0,
+    0.0,
+    0.0,
+    0.0,
     1
    ],
    "lod": true,
@@ -378,7 +258,6 @@
   "description": "144 blocks in one instanced draw call, casting per-instance directional shadows onto the ground.",
   "scene": "InstancedShadows.json",
   "render": {
-   "type": "forward",
    "globalLight": [
     0.16,
     0.16,
@@ -397,15 +276,11 @@
   "description": "Spot and point lights scattering through the air: shadowed light shafts marched per-pixel in the deferred lighting pass.",
   "scene": "VolumetricLights.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.03,
     0.03,
     0.045,
     1
-   ],
-   "effects": [
-    "tonemap"
    ],
    "projection": {
     "fov": 70,
@@ -419,15 +294,11 @@
   "description": "Alpha-cutout grass on crossed quads, chunked into one instanced draw call per grid cell.",
   "scene": "GrassField.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.3,
     0.34,
     0.3,
     1
-   ],
-   "effects": [
-    "tonemap"
    ],
    "projection": {
     "fov": 70,
@@ -437,30 +308,10 @@
   }
  },
  {
-  "name": "Island (Planar Reflections)",
-  "description": "Island water reflected/refracted by a clip-plane multipass: mirrored camera into a reflection FBO, below-water pass into a refraction FBO, composited by WaterShader.glsl (forward).",
-  "scene": "IslandDemo.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.3,
-    0.3,
-    0.35,
-    1
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 1,
-    "far": 10000
-   }
-  }
- },
- {
-  "name": "Island (SSR Water)",
+  "name": "Island",
   "description": "The same island, reflected by screen-space reflections instead: one opaque G-buffer water surface with per-material SSR, no mirror pass and no extra render targets.",
   "scene": "IslandSSRDemo.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.3,
     0.3,
@@ -480,25 +331,10 @@
   }
  },
  {
-  "name": "Ambient Bug Repro (Forward)",
-  "description": "Bare-engine repro: one CustomShaderMaterial sphere, zero lights, ambient only. Forward baseline.",
-  "scene": "AmbientBugRepro.json",
-  "render": {
-   "type": "forward",
-   "globalLight": [
-    0.9557521939277649,
-    0.38906726241111755,
-    0.38906726241111755,
-    1
-   ]
-  }
- },
- {
-  "name": "Ambient Bug Repro (Deferred)",
+  "name": "Ambient Bug Repro",
   "description": "Same scene/material as the Forward repro, Deferred renderer, no post effects.",
   "scene": "AmbientBugRepro.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.9557521939277649,
     0.38906726241111755,
@@ -512,7 +348,6 @@
   "description": "Full Lua breakout-style game - arena, paddle and ball lit through the deferred renderer.",
   "scene": "NeonPulse.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
@@ -520,7 +355,16 @@
     1
    ],
    "effects": [
-    "tonemap"
+    {
+     "name": "Output",
+     "params": {
+      "uAuto": 0.0,
+      "uExposure": 0.43,
+      "uCurve": 3.0,
+      "uContrast": 1.0,
+      "uSaturation": 1.0
+     }
+    }
    ]
   }
  },
@@ -529,15 +373,11 @@
   "description": "Grab any limb and drag it. Four IK handles drive both legs (exact two-bone solve) and both arms (FABRIK) while the walk clip keeps playing - the solve runs inside SkeletonAnimation::update, so the constraint survives the clip rewriting the pose every frame. Left-drag a handle, SPACE pauses the walk.",
   "scene": "IKExample.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.12,
     0.12,
     0.14,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -546,7 +386,6 @@
   "description": "A first-person survival shooter in an abandoned metro station: deferred lighting with a flashlight, failing sodium lamps, volumetric shafts and per-shot muzzle flashes. TAB to capture the mouse.",
   "scene": "Metro.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.03,
     0.032,
@@ -554,7 +393,16 @@
     1
    ],
    "effects": [
-    "tonemap"
+    {
+     "name": "Output",
+     "params": {
+      "uAuto": 0.0,
+      "uExposure": -0.5,
+      "uCurve": 3.0,
+      "uContrast": 1.0,
+      "uSaturation": 1.0
+     }
+    }
    ],
    "projection": {
     "fov": 70,
@@ -564,86 +412,77 @@
   }
  },
  {
-  "name": "Shadow Matrix (forward)",
+  "name": "Shadow Matrix",
   "description": "Three shadow-casting lights at once, one per channel: red directional, green point, blue spot. Every shadow is attributable to its light by colour, so the same scene renders comparably in forward and deferred and across backends.",
   "scene": "ShadowMatrix.json",
   "render": {
-   "type": "forward",
    "globalLight": [
     0.05,
     0.05,
     0.06,
     1
+   ],
+   "effects": [
+    {
+     "name": "Output",
+     "params": {
+      "uAuto": 0.0,
+      "uExposure": -1.07,
+      "uCurve": 0.0,
+      "uContrast": 1.0,
+      "uSaturation": 1.0
+     }
+    }
    ]
   }
  },
  {
-  "name": "Shadow Matrix (deferred)",
-  "description": "Three shadow-casting lights at once, one per channel: red directional, green point, blue spot. Every shadow is attributable to its light by colour, so the same scene renders comparably in forward and deferred and across backends.",
-  "scene": "ShadowMatrix.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.05,
-    0.05,
-    0.06,
-    1
-   ]
-  }
- },
- {
-  "name": "Two Point Shadows (forward)",
+  "name": "Two Point Shadows",
   "description": "Two shadow-casting point lights, green and magenta, one over each box - exercises the per-light cube map indexing.",
   "scene": "ShadowTwoPoint.json",
   "render": {
-   "type": "forward",
    "globalLight": [
     0.05,
     0.05,
     0.06,
     1
+   ],
+   "effects": [
+    {
+     "name": "Output",
+     "params": {
+      "uAuto": 0.0,
+      "uExposure": -1.0,
+      "uCurve": 0.0,
+      "uContrast": 1.0,
+      "uSaturation": 1.0
+     }
+    }
    ]
   }
  },
  {
-  "name": "Two Point Shadows (deferred)",
-  "description": "Two shadow-casting point lights, green and magenta, one over each box - exercises the per-light cube map indexing.",
-  "scene": "ShadowTwoPoint.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.05,
-    0.05,
-    0.06,
-    1
-   ]
-  }
- },
- {
-  "name": "Two Directional Shadows (forward)",
+  "name": "Two Directional Shadows",
   "description": "Two shadow-casting directional lights, the red one with 3 cascades and the blue with 1 - exercises the per-cascade matrix indexing.",
   "scene": "ShadowTwoDirectional.json",
   "render": {
-   "type": "forward",
    "globalLight": [
     0.05,
     0.05,
     0.06,
     1
-   ]
-  }
- },
- {
-  "name": "Two Directional Shadows (deferred)",
-  "description": "Two shadow-casting directional lights, the red one with 3 cascades and the blue with 1 - exercises the per-cascade matrix indexing.",
-  "scene": "ShadowTwoDirectional.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.05,
-    0.05,
-    0.06,
-    1
+   ],
+   "effects": [
+    {
+     "name": "Output",
+     "params": {
+      "uAuto": 0.0,
+      "uExposure": -0.73,
+      "uCurve": 0.0,
+      "uContrast": 1.0,
+      "uSaturation": 1.0
+     }
+    }
    ]
   }
  },
@@ -652,15 +491,11 @@
   "description": "Ray-traced DDGI. A single WHITE light - every tint on the white floor and the centre block is light that bounced off the red or green wall and carried its colour.",
   "scene": "CornellGI.json",
   "render": {
-   "type": "forward",
    "globalLight": [
     0.0,
     0.0,
     0.0,
     1
-   ],
-   "effects": [
-    "tonemap"
    ]
   }
  },
@@ -669,7 +504,6 @@
   "description": "The courtyard every feature demo below is built on: shadow maps and screen-space reflections only.",
   "scene": "Courtyard_Base.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.16,
     0.17,
@@ -692,108 +526,7 @@
     "near": 0.1,
     "far": 4000
    },
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Sun Shafts",
-  "description": "Light scattered by the air, broken into shafts by the colonnade - the sun pass marching each view ray through the shadow map (DirectionalLight::SetVolumetric). Deferred.",
-  "scene": "Courtyard_Shafts.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.16,
-    0.17,
-    0.2,
-    1
-   ],
-   "background": [
-    0.42,
-    0.58,
-    0.82,
-    1
-   ],
-   "ssr": true,
-   "ssrDistances": [
-    0.5,
-    60.0
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 0.1,
-    "far": 4000
-   },
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Ray-Traced Shadows",
-  "description": "Every pixel traces a ray toward a point of the sun's disc against the scene's acceleration structure: exact contact shadows (the slab, the ball's foot), softening with distance, no shadow-map texels or acne. Needs a GPU that traces rays (Metal on Apple silicon, Vulkan RTX/RDNA2+); elsewhere this is the baseline. Compare with 'Courtyard (baseline)'.",
-  "scene": "Courtyard_RTShadows.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.16,
-    0.17,
-    0.2,
-    1
-   ],
-   "background": [
-    0.42,
-    0.58,
-    0.82,
-    1
-   ],
-   "ssr": true,
-   "ssrDistances": [
-    0.5,
-    60.0
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 0.1,
-    "far": 4000
-   },
-   "effects": [
-    "tonemap"
-   ]
-  }
- },
- {
-  "name": "Ray-Traced Reflections",
-  "description": "The glossy floor and metals trace their reflections against the scene: the tower and pillar beside the camera and the arch behind it reflect, which screen-space reflections cannot see. SSR (baseline) is still there and cheaper. Needs a GPU that traces rays.",
-  "scene": "Courtyard_RTReflections.json",
-  "render": {
-   "type": "deferred",
-   "globalLight": [
-    0.16,
-    0.17,
-    0.2,
-    1
-   ],
-   "background": [
-    0.42,
-    0.58,
-    0.82,
-    1
-   ],
-   "ssr": true,
-   "ssrDistances": [
-    0.5,
-    60.0
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 0.1,
-    "far": 4000
-   },
-   "effects": [
-    "tonemap"
-   ]
+   "sky": true
   }
  },
  {
@@ -801,7 +534,6 @@
   "description": "Sun shafts, ray-traced shadows and ray-traced reflections together.",
   "scene": "Courtyard_All.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.16,
     0.17,
@@ -824,9 +556,7 @@
     "near": 0.1,
     "far": 4000
    },
-   "effects": [
-    "tonemap"
-   ]
+   "sky": true
   }
  },
  {
@@ -834,7 +564,6 @@
   "description": "The Sky effect's clouds marched through a slab of 3D noise 1.2-2.8 km up, each step lit by the sun through the cloud itself (Beer's law, powder, a forward-scattering phase) - against its flat cloud layer (uCloudVolume 0). Look up: they drift.",
   "scene": "Courtyard_Clouds.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.16,
     0.17,
@@ -859,6 +588,12 @@
       "uCloudCover": 0.55,
       "uCloudSteps": 32.0
      }
+    },
+    {
+     "name": "Output",
+     "params": {
+      "uExposure": 2.0
+     }
     }
    ]
   }
@@ -868,7 +603,6 @@
   "description": "Run-time fracture (physics:fracture): a crate, then the stack, the wall and the column break one after another into Voronoi pieces packed round where they are hit - each piece keeps its faces and gets a cap over the cut, and a convex body of its own; a click breaks what is under the cursor.",
   "scene": "Destruction.json",
   "render": {
-   "type": "deferred",
    "globalLight": [
     0.2,
     0.21,
@@ -886,9 +620,283 @@
     "near": 0.1,
     "far": 400
    },
+   "sky": true
+  }
+ },
+ {
+  "name": "Scene View (Render to Texture)",
+  "description": "A second camera drawn into a texture a monitor in the scene shows (SceneView): its own renderer, its own size, drawn ahead of the frame's own view and sampled like any other texture - a scope, a security camera, a mirror.",
+  "scene": "SceneView.json",
+  "render": {
+   "globalLight": [
+    0.2,
+    0.21,
+    0.24,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 500
+   },
+   "sky": true
+  }
+ },
+ {
+  "name": "Wet Ground and Subsurface",
+  "description": "Material features: the ground soaked, with puddles fixed in the world (a mirror, its bumps gone); three spheres in a low sun - plain, skin and wax - the last two lit under the surface (subsurface): a wider, warm terminator and light seen through from behind.",
+  "scene": "Materials.json",
+  "render": {
+   "globalLight": [
+    0.2,
+    0.21,
+    0.24,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "projection": {
+    "fov": 55,
+    "near": 0.1,
+    "far": 300
+   },
+   "sky": true
+  }
+ },
+ {
+  "name": "Rain and Shelter",
+  "description": "Rain set the way a game sets it (setPostEffectParam(\"Sky\", \"uRain\")): what faces up out in it soaks and gathers puddles - a mirror of the sky - and what is under the roof stays dry, known from a view straight down round the eye.",
+  "scene": "Rain.json",
+  "render": {
+   "globalLight": [
+    0.2,
+    0.21,
+    0.24,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "projection": {
+    "fov": 55,
+    "near": 0.1,
+    "far": 300
+   },
+   "sky": true
+  }
+ },
+ {
+  "name": "Sun Shafts",
+  "description": "Light shafts from a low sun streaming past the courtyard's columns: the sky's light gathered toward the sun on the screen, what stands against the sky casting its shadow through the air.",
+  "scene": "Courtyard_Shafts.json",
+  "render": {
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 4000
+   },
    "effects": [
-    "tonemap"
+    {
+     "name": "SunShafts",
+     "params": {
+      "uStrength": 1.0
+     }
+    }
+   ],
+   "sky": true
+  }
+ },
+ {
+  "name": "Depth of Field",
+  "description": "A lens focused at one distance: the heads near the middle sharp, the nearer and the further out of focus - each point blurred by how far it is from the focus, a sharp edge in front not hazed by the blurred background behind it.",
+  "scene": "DepthOfField.json",
+  "render": {
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ],
+   "background": [
+    0.07,
+    0.075,
+    0.085,
+    1
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 1,
+    "far": 1000
+   },
+   "effects": [
+    {
+     "name": "DepthOfField",
+     "params": {
+      "uFocus": 14.0,
+      "uRange": 3.0,
+      "uBlur": 10.0
+     }
+    }
    ]
+  }
+ },
+ {
+  "name": "Motion Blur",
+  "description": "What moves on screen smeared along its move this frame, as a camera's shutter does - from each surface's own motion vector (the depth prepass), the camera's turn included.",
+  "scene": "MotionBlur.json",
+  "render": {
+   "globalLight": [
+    0.08,
+    0.08,
+    0.1,
+    1
+   ],
+   "background": [
+    0.04,
+    0.04,
+    0.06,
+    1
+   ],
+   "projection": {
+    "fov": 60,
+    "near": 1,
+    "far": 2000
+   },
+   "effects": [
+    {
+     "name": "Output",
+     "params": {
+      "uAuto": 0.0,
+      "uExposure": -0.19,
+      "uCurve": 0.0,
+      "uContrast": 1.0,
+      "uSaturation": 1.0
+     }
+    },
+    {
+     "name": "MotionBlur",
+     "params": {
+      "uShutter": 1.0
+     }
+    }
+   ]
+  }
+ },
+ {
+  "name": "Particles (GPU)",
+  "description": "Two emitters of a million particles each, simulated on the GPU: a compute pass steps every particle each frame - started in its cone, moved on, aged - and the stream it writes is what the particles are drawn from. The CPU only counts how many spawn.",
+  "scene": "ParticlesExampleGPU.json",
+  "render": {
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ]
+  }
+ },
+ {
+  "name": "Ray-Traced Shadows",
+  "description": "The courtyard's sun shadows traced through its triangles, a ray a pixel toward a point of the sun's disc - gathered over frames into the penumbra the sun's size makes: sharp where a column meets the ground, softer the further its shadow falls. No shadow map, no cascades.",
+  "scene": "Courtyard_RTShadows.json",
+  "render": {
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 4000
+   },
+   "effects": [
+    {
+     "name": "RayTracedShadows",
+     "params": {
+      "uSunAngle": 1.2
+     }
+    }
+   ],
+   "sky": true
+  }
+ },
+ {
+  "name": "Ray-Traced Reflections",
+  "description": "Reflections traced through the scene's triangles: the view's ray mirrored at each smooth surface, and what it finds lit by the sun and the sky - what the screen does not show too: the back of a thing, what is behind the camera.",
+  "scene": "Courtyard_RTReflections.json",
+  "render": {
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 4000
+   },
+   "effects": [
+    {
+     "name": "RayTracedReflections",
+     "params": {}
+    }
+   ],
+   "sky": true
   }
  }
 ]

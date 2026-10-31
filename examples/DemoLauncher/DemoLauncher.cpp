@@ -9,51 +9,22 @@
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
-#if defined(_SDL2METAL)
-#include <SDL_metal.h>
-#endif
 #include "DemoLauncher.h"
 #include <Pyros3D/Core/Math/Random.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
-#include <Pyros3D/Rendering/Frame/FramePipeline.h>
+#include <Pyros3D/Rendering/Renderer/SceneView.h>
 #include "imgui_internal.h"   // DockBuilder* - see Math.h on why order used to matter
 
-#include <Pyros3D/Other/PyrosGL.h>
 #include <Pyros3D/Core/Logs/Log.h>
-#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <SDL2/SDL.h>
 #include <cstring>
+#include <cmath>
+#include <algorithm>
 #include <fstream>
 #include <cstdlib>
 
 using namespace p3d;
 
-namespace {
-
-sol::object JsonToSol(sol::state &lua, const json &j)
-{
-	if (j.is_null()) return sol::make_object(lua, sol::lua_nil);
-	if (j.is_boolean()) return sol::make_object(lua, j.get<bool>());
-	if (j.is_number()) return sol::make_object(lua, j.get<double>());
-	if (j.is_string()) return sol::make_object(lua, j.get<std::string>());
-	if (j.is_array())
-	{
-		sol::table t = lua.create_table((int)j.size(), 0);
-		for (size_t i = 0; i < j.size(); ++i)
-			t[i + 1] = JsonToSol(lua, j[i]);
-		return t;
-	}
-	if (j.is_object())
-	{
-		sol::table t = lua.create_table(0, (int)j.size());
-		for (auto it = j.begin(); it != j.end(); ++it)
-			t[it.key()] = JsonToSol(lua, it.value());
-		return t;
-	}
-	return sol::make_object(lua, sol::lua_nil);
-}
-
-} // namespace
 
 DemoLauncher::DemoLauncher() : ClassName(1280, 720, "Pyros3D - Demos", WindowType::Close | WindowType::Resize)
 {
@@ -62,7 +33,6 @@ DemoLauncher::DemoLauncher() : ClassName(1280, 720, "Pyros3D - Demos", WindowTyp
 	activeDemo = -1;
 	showRenderTargets = false;
 	renderTargetThumbSize = 200.0f;
-	rtRefreshSeconds = 0.25f;
 	showLog = false;
 	logErrorsOnly = false;
 	logSeen = 0;
@@ -78,13 +48,6 @@ void DemoLauncher::OnResize(const uint32 width, const uint32 height)
 	ClassName::OnResize(width, height);
 	// (in the check's log: a demo framed differently from its baseline was often a window resized under it)
 	if (std::getenv("PYROS_DEMO_FIXED_CLOCK") != NULL) { fprintf(stdout, "[check] resized to %ux%u\n", width, height); fflush(stdout); }
-
-	sol::table host = lua["RenderHost"];
-	if (host.valid())
-	{
-		sol::function resize = host["resize"];
-		if (resize.valid()) resize((int)width, (int)height);
-	}
 }
 
 // (PYROS_DEMO_NO_UI: no keyboard, mouse or text input reaches the demo either. The window the check
@@ -106,12 +69,15 @@ void DemoLauncher::Init()
 {
 	ClassName::Init();
 	if (std::getenv("PYROS_DEMO_NO_UI") != NULL) SDL_SetEventFilter(DropInputEvents, NULL);
-	// (PYROS_HDR=1: the window past SDR white, where the display can - see IRenderDevice::SetHDROutput)
-	if (std::getenv("PYROS_HDR") && std::getenv("PYROS_HDR")[0] == '1' && !GetActiveRenderDevice().SetHDROutput(true))
-		echo("HDR output: not on this backend - the window stays SDR");
-	// (the render device on a thread of its own - the engine's FramePipeline: every
-	// pass of every demo is then recorded on every core. PYROS_DEVICE_THREAD=0 for the old way.)
-	FramePipeline::StartDeviceThread();
+	// (no device on this machine - no Metal, Vulkan driver or WebGPU adapter: said, and out, not a crash)
+	if (!GetDevice())
+	{
+		echo("ERROR: DemoLauncher - nothing to draw with: no graphics device could be made on this machine");
+		std::exit(1);
+	}
+	renderer.reset(new p3d::SceneRenderer(GetDevice()));
+	p3d::SceneView::SetMainRenderer(renderer.get());     // (the demos' own second views are drawn beside it)
+	echo("DemoLauncher: the renderer on " + GetDevice()->Caps().name);
 
 	Scene = new SceneGraph();
 
@@ -124,7 +90,6 @@ void DemoLauncher::Init()
 		sol::object classMod = lua.require_file("class", STR(EXAMPLES_PATH) "/assets/middleclass.lua");
 		lua["class"] = classMod;
 	}
-	lua.require_file("RenderHost", STR(EXAMPLES_PATH) "/assets/demos/scripts/render_host.lua");
 
 	lua.set_function("setMouseCaptured", [this](bool captured) {
 		if (captured)
@@ -223,6 +188,23 @@ void DemoLauncher::Init()
 
 	lua["imgui"] = imgui;
 
+	// The demos were tuned before the engine lit in linear light. Linear(r, g, b[, a]): a colour as a demo
+	// was tuned with it - the number taken as light - re-encoded so the engine's sRGB decode
+	// (ColourSpace.h) gives that number back. LinearFalloffIntensity(intensity, distance, radius): a point
+	// or spot light's intensity for the inverse-square falloff (p3d_lighting.glsl's p3d_Falloff) that
+	// gives, at `distance`, what the old straight-line falloff gave there.
+	lua.set_function("Linear", [](const f32 r, const f32 g, const f32 b, sol::optional<f32> a) {
+		auto enc = [](const f32 c) { const f32 v = c < 0.f ? 0.f : c; return v <= 0.0031308f ? v * 12.92f : 1.055f * powf(v, 1.f / 2.4f) - 0.055f; };
+		return Vec4(enc(r), enc(g), enc(b), a ? *a : 1.f);
+	});
+	lua.set_function("LinearFalloffIntensity", [](const f32 intensity, const f32 distance, const f32 radius) {
+		const f32 d = distance < 0.1f ? 0.1f : distance;
+		const f32 was = radius > 0.f ? std::max(0.f, 1.f - d / radius) : 1.f;
+		const f32 x = radius > 0.f ? d / radius : 0.f, w = std::max(0.f, std::min(1.f, 1.f - x * x * x * x));
+		const f32 now = w * w / std::max(d * d, 0.01f);
+		return now > 0.f ? intensity * was / now : intensity;
+	});
+
 	lua["scene"] = Scene;
 	lua["projection"] = &projection;
 	lua["EXAMPLES_PATH"] = STR(EXAMPLES_PATH);
@@ -239,6 +221,148 @@ void DemoLauncher::Init()
 	}
 
 	InitImGui();
+}
+
+// What the renderer takes of a demo's render config: the ambient (globalLight, linear), the background, the sky, the
+// exposure and the projection
+void DemoLauncher::ConfigureRenderer(const DemoEntry &entry)
+{
+	// The scripts' `renderer` (RendererLua.h)
+	p3d::SetScriptRenderer(lua, renderer.get());
+	const json &r = entry.render;
+	Vec3 ambient(0.03f, 0.03f, 0.035f);
+	if (r.contains("globalLight") && r["globalLight"].is_array() && r["globalLight"].size() >= 3)
+		ambient = Vec3(r["globalLight"][0].get<f32>(), r["globalLight"][1].get<f32>(), r["globalLight"][2].get<f32>());
+	renderer->SetAmbient(ambient);
+	Vec3 background(0.f, 0.f, 0.f);
+	if (r.contains("background") && r["background"].is_array() && r["background"].size() >= 3)
+		background = SrgbToLinear(Vec3(r["background"][0].get<f32>(), r["background"][1].get<f32>(), r["background"][2].get<f32>()));
+	renderer->SetBackground(background);
+	// (the physical sky: asked for by name - "sky": true, or the old renderer's Sky effect)
+	bool sky = r.value("sky", false);
+	if (r.contains("effects") && r["effects"].is_array())
+		for (const json &e : r["effects"])
+			if ((e.is_string() && e.get<std::string>() == "Sky") || (e.is_object() && e.value("name", std::string()) == "Sky")) sky = true;
+	renderer->SetSky(sky);
+	// (exposure: the config's Output effect - uAuto 0 a fixed exposure of 2^uExposure, otherwise auto exposure
+	// compensated by uExposure stops; a demo that says nothing gets auto exposure)
+	bool autoExposure = true; f32 ev = 0.f;
+	if (r.contains("effects") && r["effects"].is_array())
+		for (const json &e : r["effects"])
+			if (e.is_object() && e.value("name", std::string()) == "Output" && e.contains("params"))
+			{
+				autoExposure = e["params"].value("uAuto", 1.f) > 0.5f;
+				ev = e["params"].value("uExposure", 0.f);
+			}
+	renderer->SetAutoExposure(autoExposure, ev);
+	// (the lens and shutter, where the demo asks: SunShafts, DepthOfField, MotionBlur - as a scene's effects say them)
+	f32 shafts = 0.f, focus = 10.f, range = 4.f, blur = 0.f, shutter = 0.f, sunAngle = 0.0093f;
+	bool rayTraced = false, rtReflections = false;
+	if (r.contains("effects") && r["effects"].is_array())
+		for (const json &e : r["effects"])
+		{
+			if (!e.is_object()) continue;
+			const std::string name = e.value("name", std::string());
+			const json p = e.contains("params") ? e["params"] : json::object();
+			if (name == "SunShafts") shafts = p.value("uStrength", 0.6f);
+			if (name == "DepthOfField") { focus = p.value("uFocus", focus); range = p.value("uRange", range); blur = p.value("uBlur", 8.f); }
+			if (name == "MotionBlur") shutter = p.value("uShutter", 0.5f);
+			if (name == "RayTracedReflections") rtReflections = true;
+			if (name == "RayTracedShadows") { rayTraced = true; sunAngle = p.value("uSunAngle", 0.53f) * 0.017453293f; }
+		}
+	renderer->SetRayTracedShadows(rayTraced, sunAngle);
+	renderer->SetRayTracedReflections(rtReflections);
+	renderer->SetSunShafts(shafts); renderer->SetDepthOfField(focus, range, blur); renderer->SetMotionBlur(shutter);
+	viewFov = 70.f; viewNear = 0.1f;
+	if (r.contains("projection") && r["projection"].is_object())
+	{
+		viewFov = r["projection"].value("fov", 70.f);
+		viewNear = r["projection"].value("near", 0.1f);
+	}
+}
+
+void DemoLauncher::DrawFrame()
+{
+	sol::object cam = lua["camera"];
+	if (!cam.valid() || !cam.is<GameObject*>()) return;
+	GameObject* camera = cam.as<GameObject*>();
+	if (!camera) return;
+	p3d::View view;
+	view.cameraWorld = camera->GetDrawWorld();
+	view.fovY = viewFov; view.nearZ = viewNear;
+	view.width = Width; view.height = Height;
+	// (PYROS_DEMO_ORTHO=<height>: seen orthographically, that many units top to bottom - a test of the renderer's)
+	if (const char* ortho = std::getenv("PYROS_DEMO_ORTHO")) { view.orthographic = true; view.orthoHeight = (f32)atof(ortho); view.farZ = 2000.f; }
+	// One frame: the scene, then the panels over it (ImGui on the device), then presented
+	gfx::Device* device = GetDevice();
+	view.hostFrame = imgui != nullptr;
+	if (view.hostFrame) device->BeginFrame();
+#ifdef LUA_BINDINGS
+	// (the scripts' own views first - a second camera into a texture: drawn ahead of this one, which shows it)
+	LuaComponent::PreRenderScene(Scene);
+#endif
+	// (PYROS_DEMO_READBACK=<file.png>: the 120th frame drawn into a texture of its own - View::target, as an editor's
+	// viewport is - and read back (Device::ReadTexture) into the file: a test of both)
+	static uint32 drawn = 0;
+	static const char* readback = std::getenv("PYROS_DEMO_READBACK");
+	gfx::Texture offscreen;
+	if (readback && view.hostFrame && ++drawn == 120)
+	{
+		gfx::TextureDesc d; d.width = Width; d.height = Height; d.format = device->BackbufferFormat();
+		d.usage = gfx::TexColorTarget | gfx::TexSampled | gfx::TexCopySrc; d.debugName = "DemoLauncher.Readback";
+		offscreen = device->CreateTexture(d);
+		view.target = offscreen;
+	}
+	renderer->Render(Scene, view);
+	if (offscreen)
+	{
+		std::vector<uint8_t> px;
+		const gfx::Format f = device->BackbufferFormat();
+		if (device->ReadTexture(offscreen, px) && px.size() == (size_t)Width * Height * 4)
+		{
+			if (f == gfx::Format::BGRA8 || f == gfx::Format::BGRA8_sRGB) for (size_t k = 0; k < px.size(); k += 4) std::swap(px[k], px[k + 2]);
+			for (size_t k = 3; k < px.size(); k += 4) px[k] = 255;
+			gfx::WritePng(readback, px.data(), Width, Height);
+			echo(std::string("DemoLauncher: frame read back into ") + readback);
+		}
+		else echo("DemoLauncher: the read back failed");
+		device->Destroy(offscreen);
+	}
+	if (imgui)
+	{
+		ImGui_ImplSDL2_NewFrame();
+		// (the window's pixels to its points: the backbuffer is the drawable, not the window's size)
+		int w = 0, h = 0;
+		SDL_GetWindowSize(GetSDLWindow(), &w, &h);
+		if (w > 0 && h > 0) ImGui::GetIO().DisplayFramebufferScale = ImVec2((float)Width / (float)w, (float)Height / (float)h);
+		ImGui::NewFrame();
+		static const bool noUI = std::getenv("PYROS_DEMO_NO_UI") != NULL;
+		if (!noUI) DrawUI();
+		ImGui::Render();
+		gfx::CommandList* cl = device->NewCommandList("ImGui");
+		imgui->Render(ImGui::GetDrawData(), cl, gfx::Texture(), false);
+		device->Submit(&cl, 1);
+		device->Present();
+		device->EndFrame();
+	}
+	// (every 120 frames: what the frame cost - the CPU's whole Render, the GPU's passes)
+	static uint32 frames = 0;
+	if (++frames % 120 == 0)
+	{
+		const gfx::FrameStats &s = renderer->Stats();
+		char line[256];
+		snprintf(line, sizeof(line), "[renderer] frame %u: CPU %.3f ms (+ %.3f waiting for the display), GPU %.3f ms, draws %u, pipelines %u, bind groups %u, skipped %u",
+			frames, renderer->CpuMilliseconds(), renderer->WaitMilliseconds(), s.gpuMs, s.draws, s.pipelineChanges, s.bindGroupChanges, s.skippedDraws);
+		fprintf(stdout, "%s\n", line);
+		std::string passes;
+		for (const gfx::FrameStats::Pass &p : s.passes) { char b[96]; snprintf(b, sizeof(b), " %s=%.3f", p.name.c_str(), p.gpuMs); passes += b; }
+		fprintf(stdout, "[renderer] passes:%s\n", passes.c_str());
+		const p3d::FrameGraph &g = renderer->Graph();
+		std::string culled;
+		for (const std::string &c : g.culled) culled += " " + c;
+		fprintf(stdout, "[renderer] graph: %u passes, %u recorded, %u barriers; culled:%s\n", g.passesAdded, g.passesRecorded, g.barriersMade, culled.empty() ? " none" : culled.c_str());
+		fflush(stdout);
+	}
 }
 
 void DemoLauncher::LoadManifest()
@@ -262,26 +386,18 @@ void DemoLauncher::LoadManifest()
 		entry.name = e.value("name", std::string());
 		entry.description = e.value("description", std::string());
 		entry.scene = e.value("scene", std::string());
-		if (e.find("render") != e.end())
-			entry.render = e["render"];
-		else
-		{
-			entry.render = json::object();
-			entry.render["type"] = "deferred";
-			if (e.find("effects") != e.end())
-				entry.render["effects"] = e["effects"];
-		}
+		// (its look: "globalLight", "background", "sky", "projection", and "effects" for an older entry's Sky / Output)
+		entry.render = e.find("render") != e.end() ? e["render"] : json::object();
+		if (e.find("effects") != e.end() && entry.render.find("effects") == entry.render.end())
+			entry.render["effects"] = e["effects"];
 		demos.push_back(entry);
 	}
 }
 
 void DemoLauncher::SwitchDemo(int index)
 {
-	// Previews are keyed on source Texture* and those die with the scene -
-	// a new texture could land on the same address and inherit a stale one.
-	ClearRenderTargetPreviews();
-
 	if (index < 0 || index >= (int)demos.size()) return;
+	renderer->ForgetScene();     // (its caches are keyed on the scene's objects' addresses)
 
 	for (const std::shared_ptr<GameObject> &go : currentAssets.gameObjects)
 	{
@@ -301,14 +417,7 @@ void DemoLauncher::SwitchDemo(int index)
 	const DemoEntry &entry = demos[index];
 	activeDemo = index;
 
-	{
-		sol::table host = lua["RenderHost"];
-		sol::function setup = host.valid() ? host["setup"] : sol::function();
-		if (setup.valid())
-			setup(JsonToSol(lua, entry.render), (int)Width, (int)Height);
-		else
-			echo("ERROR: DemoLauncher - RenderHost.setup missing");
-	}
+	ConfigureRenderer(entry);
 
 	// (under the fixed clock, chance is fixed too: Lua seeds its generator differently every run, and a
 	// demo whose lamps flicker at random - Metro - showed another moment of the flicker each time)
@@ -437,51 +546,10 @@ void DemoLauncher::Update()
 		p3d::LuaCollectWithinBudget(&lua, 1.0);
 	}
 
-	if (imguiInitialized)
 	{
-		PYROS_PROFILE_SCOPE("ImGui.Prepare");
-		PrepareImGuiFrame();
+		PYROS_PROFILE_SCOPE("Demo.Draw");
+		DrawFrame();
 	}
-
-	// One frame for the 3D pass, the post chain and the scene's HUD, all of
-	// which RenderHost.draw issues. Left to themselves the renderer presented
-	// the scene and UIRenderer then opened and presented a second frame
-	// holding only the HUD over black - every demo with a canvas flickered.
-	IRenderDevice &device = GetActiveRenderDevice();
-	const bool ownFrame = device.GetCurrentRenderTarget() == 0 && !device.IsFrameInProgress();
-	if (ownFrame)
-		device.BeginFrame();
-
-	{
-		PYROS_PROFILE_SCOPE("RenderHost.Draw");
-		sol::table host = lua["RenderHost"];
-		if (host.valid())
-		{
-			sol::protected_function draw = host["draw"];
-			if (draw.valid())
-			{
-				sol::protected_function_result r = draw(lua["camera"], lua["scene"], lua["projection"]);
-				if (!r.valid())
-				{
-					sol::error err = r;
-					const std::string msg = std::string("ERROR: RenderHost.draw - ") + err.what();
-					echo(msg);
-					std::ofstream dbg("/tmp/pyros_demolauncher_draw.log", std::ios::app);
-					if (dbg) dbg << msg << std::endl;
-				}
-			}
-		}
-	}
-
-	if (imguiInitialized)
-	{
-		PYROS_PROFILE_SCOPE("ImGui.End");
-		EndImGuiFrame();
-	}
-
-	// ImGui records into this through the device's UIRenderHook.
-	if (ownFrame)
-		device.EndFrame();
 }
 
 
@@ -555,240 +623,22 @@ void DemoLauncher::DrawLogWindow()
 // Depth is normalised between the min and max actually present rather than
 // shown raw. A raw depth buffer is almost entirely values near 1.0 and reads
 // as a white rectangle - technically correct and completely useless, which
-// is what the old cubemap viewer had to work around too.
-DemoLauncher::RenderTargetPreview *DemoLauncher::GetRenderTargetPreview(Texture *src, const int32 face, const bool refresh)
-{
-	if (src == NULL)
-		return NULL;
-
-	std::pair<Texture*, int32> key(src, face);
-	RenderTargetPreview &pv = rtPreviews[key];
-
-	const f64 now = GetTime();
-	const bool due = (pv.lastUpdate < 0.0) || (now - pv.lastUpdate >= (f64)rtRefreshSeconds);
-	if (pv.preview != NULL && (!refresh || !due))
-		return pv.preview != NULL ? &pv : NULL;
-	if (!refresh && pv.preview == NULL)
-		return NULL;
-
-	const uint32 srcW = src->GetWidth(), srcH = src->GetHeight();
-	if (srcW == 0 || srcH == 0)
-		return NULL;
-
-	std::vector<uchar> data = src->GetTextureData(0, face);
-	const size_t texels = (size_t)srcW * (size_t)srcH;
-	if (data.size() < texels)
-		return NULL;
-
-	// Depth comes back as 32-bit float per texel on all three backends.
-	const bool haveFloats = data.size() >= texels * 4;
-	const float *depth = haveFloats ? (const float*)&data[0] : NULL;
-
-	// Fixed preview size, point-sampled down - the source can be 2048 square
-	// and the panel shows it a couple of hundred pixels wide.
-	const uint32 pw = 256, ph = 256;
-	std::vector<uchar> rgba((size_t)pw * ph * 4, 0);
-
-	float lo = 1.0e30f, hi = -1.0e30f;
-	std::vector<float> sampled((size_t)pw * ph, 0.0f);
-	for (uint32 y = 0; y < ph; y++)
-	{
-		const uint32 sy = (uint32)((f32)y / (f32)ph * (f32)srcH);
-		for (uint32 x = 0; x < pw; x++)
-		{
-			const uint32 sx = (uint32)((f32)x / (f32)pw * (f32)srcW);
-			const size_t si = (size_t)sy * srcW + sx;
-			float v = depth != NULL ? depth[si] : (float)data[si] / 255.0f;
-			sampled[(size_t)y * pw + x] = v;
-			if (v < lo) lo = v;
-			if (v > hi) hi = v;
-		}
-	}
-	// A flat buffer (nothing drawn, all cleared) must not blow up into noise.
-	const float span = (hi - lo) > 1.0e-6f ? (hi - lo) : 1.0f;
-	for (size_t i = 0; i < sampled.size(); i++)
-	{
-		const float n = (sampled[i] - lo) / span;
-		const uchar c = (uchar)(n * 255.0f);
-		rgba[i * 4 + 0] = c; rgba[i * 4 + 1] = c; rgba[i * 4 + 2] = c; rgba[i * 4 + 3] = 255;
-	}
-
-	if (pv.preview == NULL)
-	{
-		pv.preview = new Texture();
-		pv.preview->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, (int32)pw, (int32)ph, false);
-		pv.width = pw; pv.height = ph;
-	}
-	pv.preview->UpdateData(&rgba[0], 0);
-	pv.lastUpdate = now;
-	pv.rangeMin = lo;
-	pv.rangeMax = hi;
-	return &pv;
-}
-
-void DemoLauncher::ClearRenderTargetPreviews()
-{
-	for (std::map<std::pair<Texture*, int32>, RenderTargetPreview>::iterator i = rtPreviews.begin(); i != rtPreviews.end(); i++)
-		delete i->second.preview;
-	rtPreviews.clear();
-}
-
+// The renderer's own targets, as pictures (SceneRenderer::DebugTargets: the HDR picture, the AO, the motion, the bloom,
+// the sky's tables, the clouds, the probes' atlas)
 void DemoLauncher::DrawRenderTargetViewer()
 {
-	if (!showRenderTargets)
-		return;
-
+	if (!showRenderTargets) return;
 	ImGui::SetNextWindowSize(ImVec2(560, 620), ImGuiCond_FirstUseEver);
 	if (ImGui::Begin("Render Targets", &showRenderTargets))
 	{
-		const std::vector<FrameBuffer*> &fbos = FrameBuffer::GetLiveFrameBuffers();
-		ImGui::SliderFloat("Size", &renderTargetThumbSize, 90.0f, 480.0f, "%.0f px");
-		// Depth and cube previews are CPU readbacks and stall the pipeline,
-		// so they refresh on a timer rather than every frame.
-		ImGui::SliderFloat("Readback every", &rtRefreshSeconds, 0.05f, 2.0f, "%.2f s");
-		ImGui::Text("%d live framebuffer(s)", (int)fbos.size());
-		ImGui::TextDisabled("Expand one to view it. Depth and cube previews are");
-		ImGui::TextDisabled("CPU readbacks, so only expanded ones cost anything.");
-		ImGui::Separator();
-
-		if (fbos.empty())
-			ImGui::TextDisabled("None. Deferred, shadowed and post-effect demos create them.");
-
-		for (size_t f = 0; f < fbos.size(); f++)
+		ImGui::SliderFloat("Size", &renderTargetThumbSize, 64.f, 512.f, "%.0f px");
+		const std::vector<p3d::SceneRenderer::DebugTarget> targets = renderer->DebugTargets();
+		for (size_t k = 0; k < targets.size(); k++)
 		{
-			FrameBuffer *fbo = fbos[f];
-			if (fbo == NULL)
-				continue;
-			const std::vector<FBOAttachment*> attachments = fbo->GetAttachments();
-
-			ImGui::PushID((int)f);
-			// Not "FBO f": the index is a slot in a list that changes as
-			// demos come and go, so show the GPU handle too - that is what
-			// identifies it across frames.
-			if (ImGui::CollapsingHeader(("Framebuffer #" + std::to_string(f) +
-					"  (id " + std::to_string(fbo->GetBindID()) + ", " +
-					std::to_string(attachments.size()) + " attachment(s))").c_str(),
-					0))
-			{
-				for (size_t a = 0; a < attachments.size(); a++)
-				{
-					FBOAttachment *att = attachments[a];
-					if (att == NULL)
-						continue;
-					ImGui::PushID((int)a);
-
-					// Depth is decided from the texture's data type, not from
-					// att->NativeAttachmentFormat: that field holds a
-					// backend-translated value (GL_DEPTH_ATTACHMENT = 36096
-					// on GL, the untranslated engine 16 on Vulkan), so
-					// comparing it against the engine enum silently reported
-					// every GL depth target as colour - which is exactly what
-					// it did to the 2048x2048 cascaded shadow map.
-					Texture *attTex = att->TexturePTR;
-					const uint32 dataType = (attTex != NULL) ? attTex->GetDataType() : 0;
-					const bool isDepth = (dataType == TextureDataType::DepthComponent ||
-										  dataType == TextureDataType::DepthComponent16 ||
-										  dataType == TextureDataType::DepthComponent24 ||
-										  dataType == TextureDataType::DepthComponent32);
-					const bool isStencil = false;
-					const char *kind = isDepth ? "depth" : (isStencil ? "stencil" : "colour");
-
-					if (att->AttachmentType == FBOAttachmentType::RenderBuffer)
-					{
-						// A renderbuffer has no texture to sample at all.
-						ImGui::TextDisabled("attachment %d: %s renderbuffer %ux%u - not sampleable",
-							(int)a, kind, att->Width, att->Height);
-						ImGui::PopID();
-						continue;
-					}
-
-					Texture *tex = att->TexturePTR;
-					if (tex == NULL)
-					{
-						ImGui::TextDisabled("attachment %d: %s, no texture", (int)a, kind);
-						ImGui::PopID();
-						continue;
-					}
-
-					// tex->GetTextureType(), NOT att->NativeTextureTarget: the
-					// attachment stores the *native* target (GL_TEXTURE_2D,
-					// 3553), while the device expects the engine enum.
-					const bool isCube = (tex->GetTextureType() >= TextureType::CubemapPositive_X &&
-										 tex->GetTextureType() <= TextureType::CubemapNegative_Z);
-					const bool isMultisample = (tex->GetTextureType() == TextureType::Texture_Multisample);
-					void *id = GetActiveRenderDevice().GetImGuiTextureID(tex->GetBindID(), tex->GetTextureType());
-					ImGui::Text("attachment %d: %s  %ux%u", (int)a, kind, tex->GetWidth(), tex->GetHeight());
-
-					const float w = renderTargetThumbSize;
-					if (id != NULL && !isDepth && !isStencil)
-					{
-						const float aspect = (tex->GetWidth() > 0)
-							? ((float)tex->GetHeight() / (float)tex->GetWidth()) : 1.0f;
-						// uv flipped vertically: render targets are written
-						// bottom-up relative to how ImGui samples them.
-						ImGui::Image((ImTextureID)id, ImVec2(w, w * aspect), ImVec2(0, 1), ImVec2(1, 0));
-					}
-					else if (isMultisample)
-					{
-						// Nothing can sample or read back a multisample
-						// image; it needs resolving to a single-sample
-						// target first, which is not this panel's job.
-						ImGui::TextDisabled("   (multisample - needs a resolve first)");
-					}
-					else if (isCube)
-					{
-						// Six faces, read back one at a time. Laid out 3 per
-						// row rather than as a cross: this is for seeing
-						// whether a face has content at all, not for judging
-						// continuity across edges.
-						static const int32 kFaces[6] = {
-							TextureType::CubemapPositive_X, TextureType::CubemapNegative_X,
-							TextureType::CubemapPositive_Y, TextureType::CubemapNegative_Y,
-							TextureType::CubemapPositive_Z, TextureType::CubemapNegative_Z };
-						static const char *kNames[6] = { "+X", "-X", "+Y", "-Y", "+Z", "-Z" };
-						const float fw = w / 3.2f;
-						for (int fc = 0; fc < 6; fc++)
-						{
-							RenderTargetPreview *pv = GetRenderTargetPreview(tex, kFaces[fc], true);
-							if (fc % 3 != 0) ImGui::SameLine();
-							ImGui::BeginGroup();
-							ImGui::TextDisabled("%s", kNames[fc]);
-							void *pid = (pv != NULL && pv->preview != NULL)
-								? GetActiveRenderDevice().GetImGuiTextureID(pv->preview->GetBindID(), TextureType::Texture)
-								: NULL;
-							if (pid != NULL)
-								ImGui::Image((ImTextureID)pid, ImVec2(fw, fw));
-							else
-								ImGui::Dummy(ImVec2(fw, fw));
-							ImGui::EndGroup();
-						}
-						RenderTargetPreview *any = GetRenderTargetPreview(tex, kFaces[0], false);
-						if (any != NULL)
-							ImGui::TextDisabled("   depth range %.4f .. %.4f (normalised)", any->rangeMin, any->rangeMax);
-					}
-					else
-					{
-						// Depth/stencil: read back and normalised, because
-						// raw depth is almost all values near 1.0 and draws
-						// as a flat white rectangle.
-						RenderTargetPreview *pv = GetRenderTargetPreview(tex, -1, true);
-						void *pid = (pv != NULL && pv->preview != NULL)
-							? GetActiveRenderDevice().GetImGuiTextureID(pv->preview->GetBindID(), TextureType::Texture)
-							: NULL;
-						if (pid != NULL)
-						{
-							ImGui::Image((ImTextureID)pid, ImVec2(w, w));
-							ImGui::TextDisabled("   range %.4f .. %.4f (normalised)", pv->rangeMin, pv->rangeMax);
-						}
-						else
-						{
-							ImGui::TextDisabled("   (could not read back)");
-						}
-					}
-					ImGui::PopID();
-				}
-			}
-			ImGui::PopID();
+			const p3d::SceneRenderer::DebugTarget &t = targets[k];
+			ImGui::Text("%s  %ux%u", t.name, t.width, t.height);
+			const float aspect = t.height ? (float)t.width / (float)t.height : 1.f;
+			ImGui::Image((ImTextureID)p3d::ImGuiRenderer::Id(t.texture), ImVec2(renderTargetThumbSize * aspect, renderTargetThumbSize));
 		}
 	}
 	ImGui::End();
@@ -834,11 +684,7 @@ void DemoLauncher::DrawUI()
 	ImGui::Begin("Pyros3D Demos");
 
 	ImGui::Text("FPS: %.1u", (uint32)fps.getFPS());
-#if defined(_SDL2METAL)
-	ImGui::Text("Backend: Metal");
-#else
-	ImGui::Text("Backend: %s", GetActiveRenderDevice().IsVulkan() ? "Vulkan" : "OpenGL");
-#endif
+	ImGui::Text("Backend: %s", GetDevice()->Caps().name.c_str());
 	ImGui::Text("Mouse: %s (TAB to toggle)", SDL_GetRelativeMouseMode() ? "Captured" : "Free");
 #if TARGET_OS_IPHONE
 	ImGui::Checkbox("Profiler", &FrameProfiler::Instance().WindowOpen());
@@ -925,30 +771,12 @@ void DemoLauncher::Shutdown()
 	if (!currentAssets.gameObjects.empty())
 		SceneSerializer::UnloadScene(Scene, currentAssets);
 
-	{
-		sol::table host = lua["RenderHost"];
-		if (host.valid())
-		{
-			sol::protected_function destroy = host["destroy"];
-			if (destroy.valid())
-			{
-				sol::protected_function_result r = destroy();
-				if (!r.valid())
-				{
-					sol::error err = r;
-					echo(std::string("ERROR: RenderHost.destroy - ") + err.what());
-				}
-			}
-		}
-	}
-
 	lua["renderer"] = sol::lua_nil;
 	lua["effectManager"] = sol::lua_nil;
 	lua["camera"] = sol::lua_nil;
 	lua["scene"] = sol::lua_nil;
 	lua["projection"] = sol::lua_nil;
 	lua["imgui"] = sol::lua_nil;
-	lua["RenderHost"] = sol::lua_nil;
 	lua["physics"] = sol::lua_nil;
 
 	lua.script("collectgarbage(); collectgarbage()");
@@ -957,158 +785,39 @@ void DemoLauncher::Shutdown()
 	if (physics) { delete physics; physics = nullptr; }
 	if (Scene) { delete Scene; Scene = nullptr; }
 
-	FramePipeline::StopDeviceThread();
+	renderer.reset();
 	ClassName::Shutdown();
 }
 
 void DemoLauncher::InitImGui()
 {
-#if defined(_SDL2METAL)
+	// (the platform's side - mouse, keys, clipboard - is SDL's; the drawing the device's: ImGuiRenderer)
 	IMGUI_CHECKVERSION();
 	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	// Docking is in ImGui master as of 1.92 - no separate branch needed.
-	// DockingEnable only: ViewportsEnable would additionally require real
-	// multi-viewport support from all three platform/renderer backends.
+	ImGuiIO& io = ImGui::GetIO();
+	// Docking only: ViewportsEnable would want multi-viewport support from the platform and renderer backends.
 	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-	// Only lay out the default arrangement when there is no saved one, so a
-	// layout the user has dragged into shape survives a restart.
+	// (the default arrangement only when there is no saved one: a layout dragged into shape survives a restart)
 	buildDefaultDockLayout = !std::ifstream(io.IniFilename ? io.IniFilename : "imgui.ini").good();
-	// Do not enable NavEnableKeyboard - ImGui steals Tab for widget
-	// focus, which breaks camera_fly.lua's Tab mouse-capture toggle.
+	// (no NavEnableKeyboard: ImGui would take Tab for widget focus, which camera_fly.lua's mouse capture is)
 	ImGui::StyleColorsDark();
-
-	// SDL2's Metal init path is backend-agnostic - same InitForOther() a
-	// bespoke non-GL/Vulkan renderer would use (ImGui_ImplSDL2.h's own
-	// comment); it only wires up platform (mouse/keyboard/clipboard), no
-	// GL context or Vulkan instance/device required.
 #if TARGET_OS_IPHONE
-	// A phone: no layout saved from a desktop (the bundle holds one, and cannot be written to), and
-	// the profiler shut until asked for - its F3 is a key a phone has not got.
+	// A phone: no layout saved from a desktop (the bundle holds one, and cannot be written to), and the profiler
+	// shut until asked for - its F3 is a key a phone has not got.
 	io.IniFilename = NULL;
 	buildDefaultDockLayout = true;
 	FrameProfiler::Instance().WindowOpen() = false;
 #endif
-	ImGui_ImplSDL2_InitForMetal(GetSDLWindow());
-	imguiInitialized = static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).InitImGuiMetalBackend();
-#elif !defined(_SDL2VULKAN)
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	// Docking is in ImGui master as of 1.92 - no separate branch needed.
-	// DockingEnable only: ViewportsEnable would additionally require real
-	// multi-viewport support from all three platform/renderer backends.
-	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-	// Only lay out the default arrangement when there is no saved one, so a
-	// layout the user has dragged into shape survives a restart.
-	buildDefaultDockLayout = !std::ifstream(io.IniFilename ? io.IniFilename : "imgui.ini").good();
-	// Do not enable NavEnableKeyboard - ImGui steals Tab for widget
-	// focus, which breaks camera_fly.lua's Tab mouse-capture toggle.
-
-	ImGui::StyleColorsDark();
-
-	ImGui_ImplSDL2_InitForOpenGL(GetSDLWindow(), GetGLContext());
-#if defined(GLES3) || defined(EMSCRIPTEN)
-	ImGui_ImplOpenGL3_Init("#version 300 es");
-#else
-	ImGui_ImplOpenGL3_Init("#version 330");
-#endif
-
+	ImGui_ImplSDL2_InitForOther(GetSDLWindow());
+	imgui.reset(new p3d::ImGuiRenderer(GetDevice()));
 	imguiInitialized = true;
-#else
-	IMGUI_CHECKVERSION();
-	ImGui::CreateContext();
-	ImGuiIO& io = ImGui::GetIO(); (void)io;
-	// Docking is in ImGui master as of 1.92 - no separate branch needed.
-	// DockingEnable only: ViewportsEnable would additionally require real
-	// multi-viewport support from all three platform/renderer backends.
-	io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
-	// Only lay out the default arrangement when there is no saved one, so a
-	// layout the user has dragged into shape survives a restart.
-	buildDefaultDockLayout = !std::ifstream(io.IniFilename ? io.IniFilename : "imgui.ini").good();
-	// Do not enable NavEnableKeyboard - ImGui steals Tab for widget
-	// focus, which breaks camera_fly.lua's Tab mouse-capture toggle.
-	ImGui::StyleColorsDark();
-
-	ImGui_ImplSDL2_InitForVulkan(GetSDLWindow());
-	imguiInitialized = static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).InitImGuiVulkanBackend();
-#endif
 }
 
 void DemoLauncher::ShutdownImGui()
 {
-	if (imguiInitialized)
-	{
-#if defined(_SDL2VULKAN)
-		static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).ShutdownImGuiVulkanBackend();
-#elif defined(_SDL2METAL)
-		static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).ShutdownImGuiMetalBackend();
-#else
-		ImGui_ImplOpenGL3_Shutdown();
-#endif
-		ImGui_ImplSDL2_Shutdown();
-		ImGui::DestroyContext();
-		imguiInitialized = false;
-	}
-}
-
-void DemoLauncher::BeginImGuiFrame()
-{
-	ImGui_ImplSDL2_NewFrame();
-#if defined(_SDL2METAL)
-	{
-		// ImGui's SDL2 backend asks GL for the drawable size, which a Metal window has none of: it got the
-		// window's own (points) and a framebuffer scale of 1 - on a 3x iPhone the UI a third of its size.
-		// The Metal view's drawable size, then.
-		int w = 0, h = 0, dw = 0, dh = 0;
-		SDL_GetWindowSize(GetSDLWindow(), &w, &h);
-		SDL_Metal_GetDrawableSize(GetSDLWindow(), &dw, &dh);
-		if (w > 0 && h > 0 && dw > 0 && dh > 0) ImGui::GetIO().DisplayFramebufferScale = ImVec2((float)dw / (float)w, (float)dh / (float)h);
-	}
-	static_cast<MetalRenderDevice&>(GetActiveRenderDevice()).NewImGuiMetalFrame();
-#elif !defined(_SDL2VULKAN)
-	ImGui_ImplOpenGL3_NewFrame();
-#else
-	// After SDL NewFrame - corrects FramebufferScale to swapchainExtent.
-	// At rest, every frame: ImGui's draw data for this frame is about to be built over the last
-	// frame's, which the device thread may still be drawing (MoltenVK encodes it at submit) - not
-	// waiting crashed the Skybox demo in its index buffer about one run in two.
-	static_cast<VulkanRenderDevice&>(*FramePipeline::DeviceItselfAtRest()).NewImGuiVulkanFrame();
-#endif
-	ImGui::NewFrame();
-}
-
-void DemoLauncher::PrepareImGuiFrame()
-{
-	if (!imguiInitialized) return;
-	BeginImGuiFrame();
-	// (PYROS_DEMO_NO_UI=1: the scene alone - what tools/VisualCheck compares. The panels are
-	// where imgui.ini last put them: docked, they were captured over the scene and failed the check)
-	static const bool noUI = std::getenv("PYROS_DEMO_NO_UI") != NULL;
-	if (!noUI) DrawUI();
-	ImGui::Render();
-}
-
-void DemoLauncher::EndImGuiFrame()
-{
-#if !defined(_SDL2VULKAN) && !defined(_SDL2METAL)
-	GLint last_program, last_texture, last_array_buffer, last_element_array_buffer, last_vertex_array;
-	glGetIntegerv(GL_CURRENT_PROGRAM, &last_program);
-	glGetIntegerv(GL_TEXTURE_BINDING_2D, &last_texture);
-	glGetIntegerv(GL_ARRAY_BUFFER_BINDING, &last_array_buffer);
-	glGetIntegerv(GL_ELEMENT_ARRAY_BUFFER_BINDING, &last_element_array_buffer);
-	glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &last_vertex_array);
-
-	ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
-
-	glUseProgram(last_program);
-	glBindTexture(GL_TEXTURE_2D, last_texture);
-	glBindBuffer(GL_ARRAY_BUFFER, last_array_buffer);
-	glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, last_element_array_buffer);
-	glBindVertexArray(last_vertex_array);
-	glEnable(GL_DEPTH_TEST);
-	glEnable(GL_CULL_FACE);
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-#endif
+	if (!imgui) return;
+	imgui.reset();
+	ImGui_ImplSDL2_Shutdown();
+	ImGui::DestroyContext();
+	imguiInitialized = false;
 }

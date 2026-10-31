@@ -24,7 +24,6 @@
 #include <mutex>
 #include <Pyros3D/Rendering/RenderState.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
-#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 // In the .cpp only: the AnimationManager headers include this one, so pulling
 // them into the header would be circular - which is why activeTextureAnimation
 // is a void* in the first place.
@@ -38,16 +37,6 @@
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 
 namespace p3d {
-
-	// Every RenderingMesh shares whichever backend is currently active
-	// (see GetActiveRenderDevice() in IRenderDevice.h) - same pattern as
-	// GeometryBuffer.cpp/Shaders.cpp. Texture.cpp/FrameBuffer.cpp still
-	// hardcode GLRenderDevice directly (not part of RotatingCube's
-	// Vulkan-validation path - see VULKAN_ROADMAP.md Phase 5 Step D).
-	static IRenderDevice& Device()
-	{
-		return GetActiveRenderDevice();
-	}
 
 	// Initialize Rendering Components vector
 	std::vector<IComponent*> RenderingComponent::Components;
@@ -87,32 +76,15 @@ namespace p3d {
 			std::lock_guard<std::mutex> lock(g_bonesForDrawMutex);
 			if ((size_t)DrawBoneSlot < g_bonesForDraw.size() && g_bonesForDraw[DrawBoneSlot] == this) g_bonesForDraw[DrawBoneSlot] = NULL;
 		}
-		// Nothing to hand back once the device is gone. Its VAOs and pipelines
-		// died with it, and Device() would not reach it anyway:
-		// GetActiveRenderDevice() falls back to a lazily constructed *static*
-		// GLRenderDevice when none is registered, so asking it to free a
-		// Vulkan VAO builds a GL device with no context and dereferences its
-		// null function table - a SIGSEGV on every clean exit, inside a
-		// destructor, with a stack that blames the mesh rather than the order
-		// it was destroyed in.
-		//
-		// The same rule the editor's shutdown ordering follows from the other
-		// side (Editor::Shutdown tears previews down before the device): a
-		// GPU-owning object must not outlive its device, and when it does
-		// anyway it must not try to talk to one.
-		if (!IsActiveRenderDeviceSet()) return;
-
-		for (std::map<uint32, uint32>::iterator i = VAOCache.begin(); i != VAOCache.end(); i++)
-		{
-			Device().DeleteVertexArray(i->second);
-		}
-		for (std::map<uint64, uint32>::iterator i = PipelineCache.begin(); i != PipelineCache.end(); i++)
-		{
-			Device().DestroyPipeline(i->second);
-		}
 	}
 
+	// (automatic levels are made on a thread of their own - SimplifiedModel::PrepareAutomatic: a build without threads, a
+	// browser's, makes none - hundreds of models simplified on the page's one thread would be minutes of hitches)
+#if defined(__EMSCRIPTEN__) && !defined(__EMSCRIPTEN_PTHREADS__)
+	namespace { bool g_autoLod = false, g_autoLodInUse = true; uint32 g_autoLodChanges = 0; }
+#else
 	namespace { bool g_autoLod = !(std::getenv("PYROS_AUTO_LOD") && std::getenv("PYROS_AUTO_LOD")[0] == '0'), g_autoLodInUse = true; uint32 g_autoLodChanges = 0; }
+#endif
 	namespace {
 		// PYROS_AUTO_LOD_AHEAD=0: levels made on the spot, the first time a model is listed, as they were (to compare)
 		const bool g_autoLodAhead = !(std::getenv("PYROS_AUTO_LOD_AHEAD") && std::getenv("PYROS_AUTO_LOD_AHEAD")[0] == '0');
@@ -556,6 +528,14 @@ namespace p3d {
 			if (Distance < LODDistances[i] * LODDistances[i] * g_lodScale * g_lodScale)
 				return (autoLevels != 0 && !g_autoLodInUse && i >= 1 && i <= autoLevels) ? 0 : (uint32)i;
 		return (uint32)LODDistances.size();
+	}
+	f32 RenderingComponent::LODDistanceSQR(const Vec3 &from, const Vec3 &ownerPosition, const Vec3 &ownerScale)
+	{
+		const f32 maxScale = std::max(fabs(ownerScale.x), std::max(fabs(ownerScale.y), fabs(ownerScale.z)));
+		Vec3 sphere; f32 sphereRadius;
+		GetLODSphere(sphere, sphereRadius);
+		const f32 d = std::max(0.f, from.distance(ownerPosition + sphere * ownerScale) - sphereRadius * maxScale);
+		return d * d;
 	}
 	void RenderingComponent::GetLODSphere(Vec3 &centre, f32 &radius)
 	{

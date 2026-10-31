@@ -14,7 +14,6 @@
 namespace p3d {
 
 	class SceneGraph;
-	class Texture;
 
 	// A reflection probe: the scene seen from this object's position, in every direction, kept
 	// blurred for each roughness - what a metal or a polished floor inside its box reflects, where
@@ -25,7 +24,8 @@ namespace p3d {
 	// faces. Several probes may overlap; a pixel takes the smallest box it is inside.
 	//
 	// Captured, not live: when the scene has loaded and whenever Capture() is asked for (a door
-	// opened, a light switched) - ReflectionProbes::Update does the work, a probe a frame.
+	// opened, a light switched) - the renderer sees it, a probe at a time, into its probe atlas
+	// (SceneRenderer::SetReflectionProbes).
 	class PYROS3D_API ReflectionProbe : public IComponent {
 	public:
 		ReflectionProbe();
@@ -44,49 +44,29 @@ namespace p3d {
 		void SetBlend(const f32 metres) { blend = metres > 0.f ? metres : 0.f; }
 		f32 GetBlend() const { return blend; }
 
-		// See it again (next ReflectionProbes::Update).
-		void Capture() { wanted = true; bounces = 0; }
-		bool IsCaptured() const { return slot >= 0 && ready; }
+		// See it again
+		void Capture() { captureRevision++; }
+		// (the renderer sees it again whenever this changes - Capture() asked for it)
+		uint32 GetCaptureRevision() const { return captureRevision; }
+		SceneGraph* GetScene() const { return scene; }
 
 	private:
 		friend class ReflectionProbes;
 		SceneGraph* scene;
 		Vec3 extents;
 		f32 blend;
-		bool wanted, ready;
-		uint32 bounces;          // times seen since asked: twice, the second with the first in the atlas
-		int32 slot;              // its block in the atlas
-		Vec3 capturedAt;         // where it was seen from
+		uint32 captureRevision = 1;
 	};
 
-	// Every probe of the process, as the environment map is: their pictures in one texture (one
-	// sampler however many probes there are - a PBR stage is near the 16 it may have) and their
-	// boxes in a uniform block.
+	// Every probe of the process
 	class PYROS3D_API ReflectionProbes {
 	public:
-		static const uint32 kMaxProbes = 16;
-		static const uint32 kBlockWidth = 256;        // a probe's sharpest level: 256x128
-		static const uint32 kFaceSize = 128;          // what each of its six views is drawn at
-		static const uint32 kColumns = 4;
-
-		// Inside a frame, before the scene is drawn, once a frame: the next probe waiting is seen
-		// (six views, read back), its filtering is handed to another thread, and what has finished
-		// filtering is put in the atlas. Returns true while there is more to do.
-		// followMoves: a probe whose object has moved since it was seen is seen again (the editor,
-		// where probes are placed by dragging them).
-		static bool Update(SceneGraph* scene, const bool followMoves = false);
-		// Every probe of this scene seen again.
+		// Every probe of this scene seen again (NULL: of every scene).
 		static void CaptureAll(SceneGraph* scene);
-
-		// Never NULL: 1x1 black until a probe has been captured.
-		static Texture* GetAtlas();
-		// The uniform block (PyrosShader.glsl's ReflectionProbeBlock): vec4 count, then per probe
-		// three vec4s - box min (w = blend), box max (w = its block), where it was seen from.
-		static const uint32 kBlockVec4s = 1 + 3 * kMaxProbes;
-		static void FillBlock(Vec4 out[kBlockVec4s]);
-		static uint32 Revision();          // changes whenever the block or the atlas does
-		static uint32 Count();             // captured ones
-		static uint32 Pending();           // waiting to be seen or still filtering
+		// The probes registered in this scene (NULL: in every scene)
+		static uint32 Count(SceneGraph* scene = NULL);
+		// Every probe registered in a scene (the renderer sees them, into an atlas of its own)
+		static const std::vector<ReflectionProbe*>& All();
 
 	private:
 		friend class ReflectionProbe;

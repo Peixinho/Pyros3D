@@ -6,16 +6,11 @@
 #if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
 
 #include <emscripten/bind.h>
-#include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
 
 #include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
-#include <Pyros3D/Core/Buffers/FrameBuffer.h>
-#include <Pyros3D/Materials/Shaders/Uniforms.h>
 #include <Pyros3D/Materials/IMaterial.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/IEffect.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Core/InputManager/InputManager.h>
@@ -114,48 +109,6 @@ EMSCRIPTEN_BINDINGS(pyros3d_enums)
 	constant("TextureType_Texture_Multisample", (int)TextureType::Texture_Multisample);
 	constant("TextureType_Texture", (int)TextureType::Texture);
 
-	constant("FrameBufferAttachmentFormat_Color_Attachment0", (int)FrameBufferAttachmentFormat::Color_Attachment0);
-	constant("FrameBufferAttachmentFormat_Color_Attachment1", (int)FrameBufferAttachmentFormat::Color_Attachment1);
-	constant("FrameBufferAttachmentFormat_Color_Attachment2", (int)FrameBufferAttachmentFormat::Color_Attachment2);
-	constant("FrameBufferAttachmentFormat_Color_Attachment3", (int)FrameBufferAttachmentFormat::Color_Attachment3);
-	constant("FrameBufferAttachmentFormat_Color_Attachment4", (int)FrameBufferAttachmentFormat::Color_Attachment4);
-	constant("FrameBufferAttachmentFormat_Color_Attachment5", (int)FrameBufferAttachmentFormat::Color_Attachment5);
-	constant("FrameBufferAttachmentFormat_Color_Attachment6", (int)FrameBufferAttachmentFormat::Color_Attachment6);
-	constant("FrameBufferAttachmentFormat_Color_Attachment7", (int)FrameBufferAttachmentFormat::Color_Attachment7);
-	constant("FrameBufferAttachmentFormat_Color_Attachment8", (int)FrameBufferAttachmentFormat::Color_Attachment8);
-	constant("FrameBufferAttachmentFormat_Color_Attachment9", (int)FrameBufferAttachmentFormat::Color_Attachment9);
-	constant("FrameBufferAttachmentFormat_Color_Attachment10", (int)FrameBufferAttachmentFormat::Color_Attachment10);
-	constant("FrameBufferAttachmentFormat_Color_Attachment11", (int)FrameBufferAttachmentFormat::Color_Attachment11);
-	constant("FrameBufferAttachmentFormat_Color_Attachment12", (int)FrameBufferAttachmentFormat::Color_Attachment12);
-	constant("FrameBufferAttachmentFormat_Color_Attachment13", (int)FrameBufferAttachmentFormat::Color_Attachment13);
-	constant("FrameBufferAttachmentFormat_Color_Attachment14", (int)FrameBufferAttachmentFormat::Color_Attachment14);
-	constant("FrameBufferAttachmentFormat_Color_Attachment15", (int)FrameBufferAttachmentFormat::Color_Attachment15);
-	constant("FrameBufferAttachmentFormat_Depth_Attachment", (int)FrameBufferAttachmentFormat::Depth_Attachment);
-	constant("FrameBufferAttachmentFormat_Stencil_Attachment", (int)FrameBufferAttachmentFormat::Stencil_Attachment);
-
-	constant("RenderBufferDataType_RGBA", (int)RenderBufferDataType::RGBA);
-	constant("RenderBufferDataType_Depth", (int)RenderBufferDataType::Depth);
-	constant("RenderBufferDataType_Stencil", (int)RenderBufferDataType::Stencil);
-	constant("RenderBufferDataType_RGBA_Multisample", (int)RenderBufferDataType::RGBA_Multisample);
-	constant("RenderBufferDataType_Depth_Multisample", (int)RenderBufferDataType::Depth_Multisample);
-	constant("RenderBufferDataType_Stencil_Multisample", (int)RenderBufferDataType::Stencil_Multisample);
-
-	constant("FBOAttachmentType_Texture", (int)FBOAttachmentType::Texture);
-	constant("FBOAttachmentType_RenderBuffer", (int)FBOAttachmentType::RenderBuffer);
-
-	constant("FBOAccess_Read_Write", (int)FBOAccess::Read_Write);
-	constant("FBOAccess_Read", (int)FBOAccess::Read);
-	constant("FBOAccess_Write", (int)FBOAccess::Write);
-
-	constant("FBOBufferBit_Color", (int)FBOBufferBit::Color);
-	constant("FBOBufferBit_Depth", (int)FBOBufferBit::Depth);
-	constant("FBOBufferBit_Stencil", (int)FBOBufferBit::Stencil);
-
-	constant("BufferBit_None", (int)Buffer_Bit::None);
-	constant("BufferBit_Color", (int)Buffer_Bit::Color);
-	constant("BufferBit_Depth", (int)Buffer_Bit::Depth);
-	constant("BufferBit_Stencil", (int)Buffer_Bit::Stencil);
-
 	constant("BlendFunc_Zero", (int)BlendFunc::Zero);
 	constant("BlendFunc_One", (int)BlendFunc::One);
 	constant("BlendFunc_Src_Alpha", (int)BlendFunc::Src_Alpha);
@@ -164,18 +117,8 @@ EMSCRIPTEN_BINDINGS(pyros3d_enums)
 	constant("BlendFunc_One_Minus_Dst_Alpha", (int)BlendFunc::One_Minus_Dst_Alpha);
 
 	constant("CullFace_BackFace", (int)CullFace::BackFace);
-	constant("AntiAliasing_Off", (int)AntiAliasingMode::Off);
-	constant("AntiAliasing_FXAA", (int)AntiAliasingMode::FXAA);
-	constant("AntiAliasing_SMAA", (int)AntiAliasingMode::SMAA);
-	constant("AntiAliasing_TAA", (int)AntiAliasingMode::TAA);
-	constant("AntiAliasing_MSAA2x", (int)AntiAliasingMode::MSAA2x);
-	constant("AntiAliasing_MSAA4x", (int)AntiAliasingMode::MSAA4x);
-	constant("AntiAliasing_MSAA8x", (int)AntiAliasingMode::MSAA8x);
 	constant("CullFace_FrontFace", (int)CullFace::FrontFace);
 	constant("CullFace_DoubleSided", (int)CullFace::DoubleSided);
-
-	constant("FBOFilter_Linear", (int)FBOFilter::Linear);
-	constant("FBOFilter_Nearest", (int)FBOFilter::Nearest);
 
 	constant("DrawingType_Triangles", (int)DrawingType::Triangles);
 	constant("DrawingType_Lines", (int)DrawingType::Lines);
@@ -186,26 +129,6 @@ EMSCRIPTEN_BINDINGS(pyros3d_enums)
 	constant("DrawingType_Quads", (int)DrawingType::Quads);
 	constant("DrawingType_Points", (int)DrawingType::Points);
 	constant("DrawingType_Polygons", (int)DrawingType::Polygons);
-
-	constant("UniformUsage_ProjectionMatrix", (int)Uniforms::DataUsage::ProjectionMatrix);
-	constant("UniformUsage_ViewMatrix", (int)Uniforms::DataUsage::ViewMatrix);
-	constant("UniformUsage_ModelMatrix", (int)Uniforms::DataUsage::ModelMatrix);
-	constant("UniformUsage_CameraPosition", (int)Uniforms::DataUsage::CameraPosition);
-	constant("UniformUsage_Timer", (int)Uniforms::DataUsage::Timer);
-	constant("UniformUsage_NearFarPlane", (int)Uniforms::DataUsage::NearFarPlane);
-	constant("UniformUsage_Other", (int)Uniforms::DataUsage::Other);
-
-	constant("UniformDataType_Int", (int)Uniforms::DataType::Int);
-	constant("UniformDataType_Float", (int)Uniforms::DataType::Float);
-	constant("UniformDataType_Vec2", (int)Uniforms::DataType::Vec2);
-	constant("UniformDataType_Vec3", (int)Uniforms::DataType::Vec3);
-	constant("UniformDataType_Vec4", (int)Uniforms::DataType::Vec4);
-	constant("UniformDataType_Matrix", (int)Uniforms::DataType::Matrix);
-
-	constant("RTT_Color", (int)RTT::Color);
-	constant("RTT_Depth", (int)RTT::Depth);
-	constant("RTT_LastRTT", (int)RTT::LastRTT);
-	constant("RTT_CustomTexture", (int)RTT::CustomTexture);
 
 	constant("CullingMode_FrustumCulling", (int)CullingMode::FrustumCulling);
 

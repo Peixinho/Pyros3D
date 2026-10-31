@@ -4,10 +4,6 @@ export function createConfig(P) {
   const rgb = (r, g, b, a = 1) => new P.Vec4(r, g, b, a);
 
   return {
-    // Deferred second-pass / G-buffer path still needs WebGL polish; Forward
-    // matches the working cube demo and keeps Neon Pulse playable.
-    renderer: "forward",
-    deferredLightGain: 3.14159,
 
     arena: {
       halfW: 84,

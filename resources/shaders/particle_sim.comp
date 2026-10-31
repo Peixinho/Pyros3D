@@ -1,0 +1,81 @@
+#version 450
+// A particle system simulated on the GPU (ParticleSystemDesc::gpuSimulation): its particles kept in a ring of slots on
+// the GPU, a thread a slot each frame - the ones this frame spawns started (from the emitter's place, in its cone, at a
+// random speed and life), the rest moved on (gravity, damping) and aged, the dead left with no size. What it writes is
+// the stream particle.vert draws from, as the CPU simulation's: xyz world position and w normalized age; x rotation,
+// y random seed, z alive.
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0, std140) uniform DrawData
+{
+	vec4 origin;       // xyz the emitter's world position, w seconds (the frame's: each spawn's randomness from it)
+	vec4 direction;    // xyz the cone's axis (unit), w the cosine of its half angle
+	vec4 speedLife;    // x, y the least and most speed; z, w the least and most lifetime (seconds)
+	vec4 gravity;      // xyz world acceleration, w damping
+	vec4 counts;       // x the first slot spawned this frame, y how many, z the slots in all, w 1: every slot emptied first
+	vec4 motion;       // x this frame's seconds, y, z the least and most rotation speed (radians a second)
+} uSim;
+
+struct Particle
+{
+	vec4 positionAge;      // xyz world position, w age (seconds)
+	vec4 velocityLife;     // xyz velocity, w lifetime (seconds)
+	vec4 spin;             // x rotation, y rotation speed, z random seed, w alive
+};
+layout(set = 1, binding = 1, std430) buffer State { Particle particles[]; } uState;
+layout(set = 1, binding = 2, std430) buffer Stream { vec4 data[]; } uStream;
+
+// (a whole-number hash: the same on every card)
+float Hash(uint n)
+{
+	n ^= n >> 16; n *= 0x7feb352du; n ^= n >> 15; n *= 0x846ca68bu; n ^= n >> 16;
+	return float(n >> 8) * (1.0 / 16777216.0);
+}
+
+void main()
+{
+	uint i = gl_GlobalInvocationID.x;
+	uint capacity = uint(uSim.counts.z);
+	if (i >= capacity) return;
+	Particle p = uState.particles[i];
+	if (uSim.counts.w > 0.5) p = Particle(vec4(0.0), vec4(0.0, 0.0, 0.0, 1.0), vec4(0.0));     // (a new ring: nothing in it)
+	float dt = uSim.motion.x;
+	// Spawned this frame: its slot among the ring's next few
+	uint first = uint(uSim.counts.x), spawned = uint(uSim.counts.y);
+	uint along = (i + capacity - first) % capacity;
+	if (along < spawned)
+	{
+		uint seed = i * 9781u + uint(fract(uSim.origin.w * 0.137) * 1048576.0) * 6271u;
+		float r0 = Hash(seed), r1 = Hash(seed + 1u), r2 = Hash(seed + 2u), r3 = Hash(seed + 3u), r4 = Hash(seed + 4u), r5 = Hash(seed + 5u), r6 = Hash(seed + 6u);
+		// a direction in the cone round its axis: the polar angle's cosine in [cos spread, 1], the azimuth all round
+		float z = mix(uSim.direction.w, 1.0, r0), phi = r1 * 6.2831853, rr = sqrt(max(0.0, 1.0 - z * z));
+		vec3 axis = uSim.direction.xyz;
+		vec3 up = abs(axis.y) < 0.99 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+		vec3 tangent = normalize(cross(up, axis)), bitangent = cross(axis, tangent);
+		vec3 dir = tangent * (rr * cos(phi)) + bitangent * (rr * sin(phi)) + axis * z;
+		// (spread over the frame: a fast stream does not come out in clumps a frame apart)
+		float within = (float(along) + 0.5) / float(max(spawned, 1u));
+		vec3 velocity = dir * mix(uSim.speedLife.x, uSim.speedLife.y, r2);
+		float age = dt * (1.0 - within);
+		p.positionAge = vec4(uSim.origin.xyz + velocity * age, age);
+		p.velocityLife = vec4(velocity, mix(uSim.speedLife.z, uSim.speedLife.w, r3));
+		p.spin = vec4(r4 * 6.2831853, mix(uSim.motion.y, uSim.motion.z, r5), r6, 1.0);
+	}
+	else if (p.spin.w > 0.5)
+	{
+		p.positionAge.w += dt;
+		if (p.positionAge.w >= p.velocityLife.w) p.spin.w = 0.0;
+		else
+		{
+			vec3 v = p.velocityLife.xyz + uSim.gravity.xyz * dt;
+			if (uSim.gravity.w > 0.0) v *= max(0.0, 1.0 - uSim.gravity.w * dt);
+			p.velocityLife.xyz = v;
+			p.positionAge.xyz += v * dt;
+			p.spin.x += p.spin.y * dt;
+		}
+	}
+	uState.particles[i] = p;
+	float life = max(p.velocityLife.w, 1e-4);
+	uStream.data[i * 2u] = vec4(p.positionAge.xyz, clamp(p.positionAge.w / life, 0.0, 1.0));
+	uStream.data[i * 2u + 1u] = vec4(p.spin.x, p.spin.z, p.spin.w, 0.0);
+}

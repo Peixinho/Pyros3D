@@ -11,7 +11,6 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 #include <algorithm>
 #include <cmath>
@@ -21,27 +20,26 @@ using namespace p3d::Math;
 
 Character2DPreview::~Character2DPreview()
 {
-	// Order matters: the character owns GPU resources registered with the
-	// renderer, so it goes before the renderer that knows about them.
 	built.animation.reset();
 	characterGO.reset();
 	cameraGO.reset();
 	lightGO.reset();
-	if (effects) { delete effects; effects = NULL; }
-	if (renderer) { delete renderer; renderer = NULL; }
 	if (scene) { delete scene; scene = NULL; }
+	if (emptyScene) { delete emptyScene; emptyScene = NULL; }
 }
 
 void Character2DPreview::EnsureInit()
 {
-	if (renderer) return;
+	if (scene) return;
 
-	renderer = new ForwardRenderer((uint32)width, (uint32)height);
-	// Nothing here casts a shadow that matters, and building shadow maps for
-	// a second viewport doubles the cost of every frame the window is open.
-	renderer->SetSkipShadowMaps(true);
-	effects = new PostEffectsManager((uint32)width, (uint32)height);
-	effects->GetExternalFrameBuffer()->SetDebugName("2D character preview");
+	// Full ambient and NO light. A character is authored to be looked at, not lit: the artwork must read at its own
+	// brightness - exposure 1 - so what you pick in the sprite panel is what you see. (How a part is lit depends on
+	// the scene's lights, which a character asset cannot know: the `lit` flag has no visible effect here.)
+	rendererView.Renderer()->SetBackground(Vec3(0.016f, 0.019f, 0.025f));
+	rendererView.Renderer()->SetAmbient(Vec3(1.f, 1.f, 1.f));
+	rendererView.Renderer()->SetAutoExposure(false, 0.f);
+	rendererView.Renderer()->SetName("2D character preview");
+	emptyScene = new SceneGraph();
 	scene = new SceneGraph();
 
 	cameraGO = std::make_shared<GameObject>();
@@ -49,19 +47,6 @@ void Character2DPreview::EnsureInit()
 
 	characterGO = std::make_shared<GameObject>();
 	scene->Add(characterGO);
-
-	renderer->SetBackground(Vec4(0.13f, 0.14f, 0.17f, 1.f));
-	// Full ambient and NO light. A character is authored to be looked at, not
-	// lit: the artwork must read at its own brightness so what you pick in the
-	// sprite panel is what you see. Adding a light on top of full ambient -
-	// which this did, to preview the "lit by 2D lights" flag - pushed every
-	// part past 1.0 and turned a dark red torso bright pink, so the preview
-	// disagreed with every scene the character is placed in.
-	//
-	// The consequence is that the `lit` flag has no visible effect here. That
-	// is the honest trade: how a part is lit depends on the scene's lights,
-	// which a character asset cannot know.
-	renderer->SetGlobalLight(Vec4(1.f, 1.f, 1.f, 1.f));
 
 	scene->Update(0);
 }
@@ -465,39 +450,17 @@ void Character2DPreview::RefreshLimits(const Character2DDocument& doc)
 	}
 }
 
-Texture* Character2DPreview::RenderFrame()
+void Character2DPreview::RenderFrame()
 {
-	if (!renderer || !effects || !scene || !cameraGO) return NULL;
-	if (width < 16 || height < 16) return NULL;
-
-	// Straight down -Z at the framed centre, like every other 2D view.
+	// Straight down -Z at the framed centre, like every other 2D view: into its texture, viewImage the image this frame
+	viewImage = nullptr;
+	if (!scene || !cameraGO || width < 16 || height < 16) return;
 	Matrix camM;
 	camM.Translate(Vec3(centerX, centerY, 50.f));
 	cameraGO->SetTransformationMatrix(camM);
 	scene->Update(0);
-
-	const f32 halfH = halfWidth * (f32)height / (f32)width;
-	Projection proj;
-	proj.Ortho(-halfWidth, halfWidth, -halfH, halfH, 0.1f, 1000.f);
-
-	IRenderer::InvalidateSharedUniformCaches();
-	renderer->Resize((uint32)width, (uint32)height);
-	effects->Resize((uint32)width, (uint32)height);
-	effects->ProcessPostEffects(&proj);
-	renderer->ResetViewPort();
-	renderer->SetViewPort(0, 0, (uint32)width, (uint32)height);
-	renderer->PreRender(cameraGO.get(), scene);
-	renderer->ApplyBackgroundClearColor();
-	effects->CaptureFrame();
-	if (showSprites)
-		renderer->RenderScene(proj, cameraGO.get(), scene);
-	effects->EndCapture();
-
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
-	// This and the main viewport share one GlobalMatrices UBO; the same rule
-	// AnimationPreview and the camera preview follow.
-	GetActiveRenderDevice().WaitIdle();
-#endif
-	IRenderer::InvalidateSharedUniformCaches();
-	return effects->GetViewportColor();
+	p3d::View v;
+	v.cameraWorld = camM; v.orthographic = true; v.orthoHeight = 2.f * halfWidth * (f32)height / (f32)width;
+	v.nearZ = 0.1f; v.farZ = 1000.f; v.width = (uint32)width; v.height = (uint32)height;
+	viewImage = rendererView.Draw(showSprites ? scene : emptyScene, v);
 }

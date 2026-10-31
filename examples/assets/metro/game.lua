@@ -120,7 +120,7 @@ function Game.dropPickup(kind, x, y, z)
 			p.active = true
 			p.x, p.y, p.z = x, y + 0.35, z
 			p.phase = math.random() * 6.28
-			p.light:setLightIntensity(0.7)
+			p.light:setLightIntensity(LinearFalloffIntensity(0.7, 1.0, 3.2))
 			p.go:setPosition(Vec3.new(p.x, p.y, p.z))
 			p.go:refreshTransformation()
 			return p

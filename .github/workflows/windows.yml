@@ -24,38 +24,21 @@ jobs:
     runs-on: windows-2022
 
     strategy:
-      # One backend/link-type failing shouldn't hide the state of the other
-      # three - the point of this workflow is a full picture per push.
+      # One link type failing shouldn't hide the state of the other - the
+      # point of this workflow is a full picture per push.
       fail-fast: false
       matrix:
         include:
-          - name: OpenGL / DLL
-            graphics: OpenGL
-            context: SDL2
-            static: "OFF"
-            vulkan: "OFF"
-            spirv: "OFF"
-            artifact: Pyros3D-windows-opengl-dll
-          - name: OpenGL / static
-            graphics: OpenGL
-            context: SDL2
-            static: "ON"
-            vulkan: "OFF"
-            spirv: "OFF"
-            artifact: Pyros3D-windows-opengl-static
+          # Vulkan is the renderer's only GPU API on Windows; the two OpenGL
+          # legs went with the OpenGL renderer. Both linkage modes stay,
+          # because they fail differently: the DLL is where PYROS3D_API /
+          # IMGUI_API export mistakes show up (LNK2019 in a consumer), the
+          # static library is where a missing transitive dependency does.
           - name: Vulkan / DLL
-            graphics: Vulkan
-            context: SDL2Vulkan
             static: "OFF"
-            vulkan: "ON"
-            spirv: "ON"
             artifact: Pyros3D-windows-vulkan-dll
           - name: Vulkan / static
-            graphics: Vulkan
-            context: SDL2Vulkan
             static: "ON"
-            vulkan: "ON"
-            spirv: "ON"
             artifact: Pyros3D-windows-vulkan-static
 
     steps:
@@ -64,13 +47,14 @@ jobs:
           submodules: recursive
 
       - name: Install Vulkan SDK
-        if: matrix.vulkan == 'ON'
         shell: pwsh
         run: |
-          # The LunarG Windows SDK carries the loader *and* shaderc +
-          # SPIRV-Cross, which is everything BUILD_SPIRV_TOOLING looks for -
-          # building those through vcpkg instead costs ~20 minutes of
-          # glslang/SPIRV-Tools compilation per cold cache.
+          # The LunarG Windows SDK carries the headers the Vulkan device
+          # builds against, glslc - which PyrosRenderer.cmake requires to
+          # compile resources/shaders to SPIR-V when the engine is built - and
+          # glslang's libraries, the optional runtime compiler for materials'
+          # surfaces. Building those through vcpkg instead costs ~20 minutes
+          # of glslang/SPIRV-Tools compilation per cold cache.
           $ver = $env:VULKAN_SDK_VERSION
           # vulkansdk-windows-X64-<version>.exe, not the pre-1.3.2xx
           # VulkanSDK-<version>-Installer.exe - that name now 404s.
@@ -83,7 +67,7 @@ jobs:
           Invoke-WebRequest -Uri $url -OutFile "$env:RUNNER_TEMP\vulkan-sdk.exe"
           $installDir = "C:\VulkanSDK\$ver"
           # Qt Installer Framework flags - the default component set already
-          # includes the loader, shaderc and SPIRV-Cross.
+          # includes the headers, glslc and glslang.
           $proc = Start-Process -FilePath "$env:RUNNER_TEMP\vulkan-sdk.exe" -Wait -PassThru -ArgumentList `
             "--root", $installDir, `
             "--accept-licenses", "--default-answer", "--confirm-command", "install"
@@ -99,15 +83,17 @@ jobs:
           echo "$installDir\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
 
       - name: Show Vulkan SDK contents
-        if: matrix.vulkan == 'ON'
         shell: pwsh
         run: |
-          # Cheap insurance: if LunarG moves shaderc/SPIRV-Cross out of the
-          # default install, PyrosBackend.cmake only emits a *warning* and
-          # silently drops SPIRV_TOOLING, and the failure resurfaces much
-          # later as a runtime "cannot compile shader". Print the evidence.
-          Get-ChildItem "$env:VULKAN_SDK\Lib" -Filter "shaderc*"     | Select-Object Name
-          Get-ChildItem "$env:VULKAN_SDK\Lib" -Filter "spirv-cross*" | Select-Object Name
+          # Cheap insurance: glslc missing fails the configure with a clear
+          # message, but glslang missing only drops the runtime compiler
+          # silently (PyrosRenderer.cmake treats it as optional). Print the
+          # evidence either way.
+          $ErrorActionPreference = "Stop"
+          & "$env:VULKAN_SDK\Bin\glslc.exe" --version | Select-Object -First 1
+          Get-ChildItem "$env:VULKAN_SDK\Lib" -Filter "*.lib" |
+            Where-Object { $_.Name -match '^(glslang|MachineIndependent|GenericCodeGen|OSDependent|SPIRV)' } |
+            Select-Object Name
 
       - name: Setup MSVC
         uses: ilammy/msvc-dev-cmd@v1
@@ -161,43 +147,71 @@ jobs:
       - name: Configure (vcpkg installs dependencies here)
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
           $vcpkgToolchain = "$env:VCPKG_INSTALLATION_ROOT\scripts\buildsystems\vcpkg.cmake"
           # vcpkg.json at the repo root puts this in manifest mode, so the
           # toolchain builds and installs the dependency set as part of this
           # step - there is no separate install step. The manifest pins Lua
           # to 5.4.8: the current port is 5.5, which sol.hpp does not support
           # and which PyrosDependencies.cmake rejects outright.
-          $prefix = ""
-          if ("${{ matrix.vulkan }}" -eq "ON") { $prefix = "$env:VULKAN_SDK" }
+          $sdk = $env:VULKAN_SDK.Replace('\', '/')
+
+          # glslang from the SDK. Its libraries there are static, and
+          # glslang.lib needs its siblings (MachineIndependent, GenericCodeGen,
+          # OSDependent) and the SPIRV-Tools optimizer to link - while
+          # PyrosRenderer.cmake only find_library()s glslang.lib itself.
+          # Seeding RENDERER_GLSLANG_LIBRARY with the whole set (as a STRING,
+          # so find_library leaves it alone) links it without changing the
+          # engine's CMake. Only when the header is there too; otherwise the
+          # engine builds without the runtime compiler, which is allowed.
+          $glslang = @()
+          if (Test-Path "$sdk/Include/glslang/Include/glslang_c_interface.h") {
+            $libs = @("glslang", "MachineIndependent", "GenericCodeGen", "OSDependent", "SPIRV", "SPIRV-Tools-opt", "SPIRV-Tools") |
+              Where-Object { Test-Path "$sdk/Lib/$_.lib" } |
+              ForEach-Object { "$sdk/Lib/$_.lib" }
+            $glslang = @("-DPYROS_GLSLANG_DIR=$sdk", "-DRENDERER_GLSLANG_LIBRARY:STRING=$($libs -join ';')")
+            Write-Host "glslang: $($libs -join ';')"
+          } else {
+            Write-Warning "glslang headers not in the Vulkan SDK - the engine builds without the runtime GLSL compiler"
+          }
 
           # PYROS_RELOCATABLE_ASSETS makes DemoLauncher and PyrosBuilder
           # resolve their Lua assets relative to the working directory
           # instead of baking in this runner's checkout path - see Package.
           # It is a boolean rather than -DPYROS_ASSET_ROOT=. because a bare
           # "." does not survive PowerShell's native-argument parsing.
+          #
+          # PYROS_GRAPHICS=Vulkan is the default on Windows; spelled out so
+          # the log says what was built. BUILD_VULKAN_BACKEND follows it
+          # (PyrosOptions.cmake). HAVE_LUA_BINDINGS is on by default, which
+          # DemoLauncher needs.
           cmake -S . -B build -G Ninja `
             -DCMAKE_BUILD_TYPE=Release `
-            -DCMAKE_TOOLCHAIN_FILE="$vcpkgToolchain" `
+            "-DCMAKE_TOOLCHAIN_FILE=$vcpkgToolchain" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
-            -DCMAKE_PREFIX_PATH="$prefix" `
-            -DPYROS_GRAPHICS=${{ matrix.graphics }} `
-            -DCONTEXT=${{ matrix.context }} `
-            -DOPENGL_VERSION=GL41 `
+            "-DCMAKE_PREFIX_PATH=$sdk" `
+            -DPYROS_GRAPHICS=Vulkan `
             -DSTATIC_LIB=${{ matrix.static }} `
-            -DBUILD_VULKAN_BACKEND=${{ matrix.vulkan }} `
-            -DBUILD_SPIRV_TOOLING=${{ matrix.spirv }} `
+            @glslang `
             -DBUILD_DEMOS=ON `
             -DBUILD_EDITOR=ON `
             -DBUILD_CONVERTER=ON `
-            -DPYROS_RELOCATABLE_ASSETS=ON
+            -DPYROS_RELOCATABLE_ASSETS=ON 2>&1 | Tee-Object -FilePath configure.log
+          if ($LASTEXITCODE -ne 0) { throw "cmake configure failed ($LASTEXITCODE)" }
+          # The Vulkan SDK not found only WARNs, and the engine then
+          # configures with no renderer at all. Fail here, where the cause is
+          # legible.
+          $line = Select-String -Path configure.log -Pattern "Renderer: on \(Vulkan" | Select-Object -First 1
+          if (-not $line) { throw "the renderer is not on Vulkan - see the Renderer: line in the configure output" }
+          Write-Host $line.Line
 
       - name: Build
         shell: pwsh
         run: cmake --build build --parallel
 
       - name: CPU tests
-        # Windows ran no tests at all. It built four configurations and
-        # packaged them, and every assertion this repo has was checked
+        # Windows ran no tests at all. It built every configuration and
+        # packaged it, and every assertion this repo has was checked
         # on Linux or macOS - which is exactly backwards for the
         # platform whose distinctive failure is an uninitialised member
         # that reads as NULL under one compiler and garbage under
@@ -215,7 +229,7 @@ jobs:
         #
         # Built by hand rather than through CMake, matching every other
         # binary in tools/tests.
-        if: matrix.name == 'OpenGL / DLL'
+        if: matrix.name == 'Vulkan / DLL'
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
@@ -276,14 +290,14 @@ jobs:
           Copy-Item "build\*.dll" "$out\lib" -ErrorAction SilentlyContinue
           Copy-Item "build\*.lib" "$out\lib" -ErrorAction SilentlyContinue
           # A STATIC PyrosEngine.lib does not absorb its dependencies, so
-          # anything linking it needs box3d, and volk on Vulkan, alongside.
+          # anything linking it needs box3d and volk alongside.
           # They land in two different places: box3d under
           # build\_deps\box3d\src\, but volk under .fetchcontent-cache\,
           # because box3d's own CMakeLists points FETCHCONTENT_BASE_DIR at
           # the source tree so downloads survive a clean rebuild - and that
           # applies to every FetchContent after it, volk included. Everything
-          # else the engine links (freetype, lua, the Vulkan loader, shaderc)
-          # comes from vcpkg or the SDK, which a consumer supplies itself.
+          # else the engine links (freetype, lua, glslang) comes from vcpkg or
+          # the SDK, which a consumer supplies itself.
           @("build\_deps", ".fetchcontent-cache") | ForEach-Object {
             if (Test-Path $_) {
               Get-ChildItem -Path $_ -Recurse -Filter "*.lib" -ErrorAction SilentlyContinue |
@@ -292,11 +306,12 @@ jobs:
           }
 
           # --- DemoLauncher ----------------------------------------------
+          # No shaders\ beside either executable any more: the renderer's
+          # shaders are compiled to SPIR-V at build time and embedded in the
+          # engine library.
           Copy-Item "build\examples\DemoLauncher.exe" "$out\demolauncher"
-          Copy-Item "build\examples\CppApiDemo.exe"   "$out\demolauncher"
           Copy-Item "build\examples\*.dll"            "$out\demolauncher" -ErrorAction SilentlyContinue
           Copy-Item "examples\assets"                 "$out\demolauncher\assets" -Recurse
-          Copy-Item "resources\shaders"               "$out\demolauncher\shaders" -Recurse
 
           # --- PyrosBuilder ----------------------------------------------
           Copy-Item "build\editor\PyrosBuilder.exe" "$out\editor"
@@ -324,7 +339,6 @@ jobs:
             Write-Host "FSR 3.1: $((Get-Item "$out\player\amd_fidelityfx_vk.dll").Length) bytes"
           } catch { Write-Warning "FSR 3.1 library not fetched: $_" }
           Copy-Item "editor\assets"                 "$out\editor\assets" -Recurse
-          Copy-Item "resources\shaders"             "$out\editor\shaders" -Recurse
           # Editor.cpp loads "<PYROS_ASSET_ROOT>/assets/middleclass.lua", and
           # with PYROS_ASSET_ROOT=. that resolves into the editor's own
           # assets folder - which is not where middleclass.lua lives.
@@ -382,30 +396,28 @@ jobs:
             Copy-Item "build\PyrosEngine.pdb" "$sym\editor"       -Force -ErrorAction SilentlyContinue
           }
 
-          # shaderc_shared.dll comes from the SDK, not vcpkg.
-          if ("${{ matrix.spirv }}" -eq "ON") {
-            Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\demolauncher" -ErrorAction SilentlyContinue
-            Copy-Item "$env:VULKAN_SDK\Bin\shaderc_shared.dll" "$out\editor"       -ErrorAction SilentlyContinue
-          }
+          # (No shaderc_shared.dll any more: nothing compiles the renderer's
+          # shaders at run time, and glslang, when present, is linked
+          # statically into the engine.)
 
           # The player's DLLs, last: by now the editor's folder holds the
-          # engine, vcpkg's runtime, the MSVC runtime and shaderc - a
-          # superset of what the player and the server import.
+          # engine, vcpkg's runtime and the MSVC runtime - a superset of what
+          # the player and the server import.
           Copy-Item "$out\editor\*.dll" "$out\player" -Force -ErrorAction SilentlyContinue
 
-          # Both executables resolve "assets/..." and "shaders/..." against the
-          # working directory, so they have to be started from their own
-          # folder. Worth saying so in the artifact rather than letting it
-          # present as a missing-shader error.
+          # Both executables resolve "assets/..." against the working
+          # directory, so they have to be started from their own folder.
+          # Worth saying so in the artifact rather than letting it present as
+          # a missing-asset error.
           @(
             "Pyros3D - Windows ${{ matrix.name }}",
             "",
-            "  demolauncher\  DemoLauncher.exe, CppApiDemo.exe",
+            "  demolauncher\  DemoLauncher.exe",
             "  editor\        PyrosBuilder.exe, AssimpImporter.exe",
             "  lib\           engine library + import/static libs",
             "",
             "Run each executable from inside its own folder - both load",
-            "assets\ and shaders\ relative to the current directory:",
+            "assets\ relative to the current directory:",
             "",
             "    cd demolauncher",
             "    .\DemoLauncher.exe",
@@ -430,10 +442,12 @@ jobs:
             "    set PYROS_LOG_LEVEL=3",
             "    .\DemoLauncher.exe",
             "",
-            "0=errors only, 1=+warnings (default), 2=+success, 3=everything."
+            "0=errors only, 1=+warnings (default), 2=+success, 3=everything.",
+            "",
+            "Drawing needs a Vulkan driver (vulkan-1.dll comes with it)."
           ) | Out-File -FilePath "$out\README.txt" -Encoding utf8
 
-          # Binaries only - the assets/shaders trees would bury the log.
+          # Binaries only - the assets trees would bury the log.
           Get-ChildItem -Recurse $out -Include *.exe, *.dll, *.lib |
             Select-Object @{n="File";e={$_.FullName.Replace("$pwd\\","")}}, Length |
             Format-Table -AutoSize
@@ -485,21 +499,34 @@ jobs:
           }
           if ($failed) { throw "Packaged binaries have unresolved DLL dependencies" }
 
-      # Diagnostic only - never fails the job. A GitHub runner has no GPU,
-      # so a GL 4.1 / Vulkan context may legitimately not come up here; the
-      # point is to capture what the binary prints on startup (the engine
-      # logs through echo() to the console by default) so a startup failure
-      # is visible in CI rather than only on a user's desktop.
-      # Not merely diagnostic any more: a clean non-zero exit is fine here
-      # (no GPU on a runner), but an unhandled exception is a real defect.
-      # Every crash this session - null glad pointer, null volk pointer,
-      # volk vs vulkan-1 symbol clash - shipped with CI green because
-      # nothing checked how the process died.
+      # Not merely diagnostic: a clean non-zero exit is fine here (no GPU on
+      # a runner), but an unhandled exception is a real defect. Every crash
+      # that shipped with CI green - null glad pointer, null volk pointer,
+      # volk vs vulkan-1 symbol clash - did so because nothing checked how
+      # the process died. The point is also to capture what the binary
+      # prints on startup (the engine logs through echo() to the console by
+      # default), so a startup failure is visible in CI rather than only on
+      # a user's desktop.
+      #
+      # One exception: a runner has no Vulkan driver, so usually no device
+      # can be made at all - and DemoLauncher::Init then goes on to use the
+      # null device and takes an access violation. That is a defect in
+      # DemoLauncher, not in the package (it had loaded every DLL and opened
+      # its window to get that far), so it is reported as a warning when the
+      # log says no device could be made, and as a failure otherwise.
       - name: Smoke run
         shell: pwsh
         run: |
           $dir = "$pwd\package\demolauncher"
-          $exe = "$dir\CppApiDemo.exe"
+          $exe = "$dir\DemoLauncher.exe"
+          # Its first demo, input dropped, fixed clock - the switches
+          # tools/VisualCheck runs it with. PYROS_SHOT writes the 60th
+          # presented frame, should a device come up.
+          $env:PYROS_DEMO_INDEX = "0"
+          $env:PYROS_DEMO_NO_UI = "1"
+          $env:PYROS_DEMO_FIXED_CLOCK = "1"
+          $env:PYROS_SHOT = "$pwd\smoke-shot.png"
+          $env:PYROS_SHOT_FRAME = "60"
           Write-Host "--- launching $exe from $dir ---"
           # An exit code of -1073741819 (0xC0000005, access violation) with
           # empty stdout/stderr says only "it crashed before it logged
@@ -512,8 +539,8 @@ jobs:
             # Commands run at the initial breakpoint: g continues to the
             # fault, then .lastevent/!analyze/kb describe it. No -g, which
             # would skip past that breakpoint and the -c list with it.
-            # Push-Location because the app resolves assets\ and shaders\
-            # against the working directory, and cdb inherits ours.
+            # Push-Location because the app resolves assets\ against the
+            # working directory, and cdb inherits ours.
             Push-Location $dir
             & $cdb.FullName -G -c '.symfix; .reload; g; .lastevent; !analyze -v; kb; q' $exe 2>&1 |
               Select-Object -First 200
@@ -535,8 +562,10 @@ jobs:
             # is 1. So: negative means it crashed, positive means it failed
             # cleanly and said why - and only the former is a bug here, since
             # a runner has no GPU and is *expected* to fail.
+            # (no Vulkan device on the runner is the expected case: DemoLauncher
+            # says so and exits 1 - only a crash is a bug)
             if ($code -lt 0) {
-              Write-Host ("::error::CppApiDemo terminated on an unhandled exception (0x{0:X8}) instead of reporting a failure. See the stack above." -f $code)
+              Write-Host ("::error::DemoLauncher terminated on an unhandled exception (0x{0:X8}) instead of reporting a failure. See the stack above." -f $code)
               $crashed = $true
             }
           } else {
@@ -549,6 +578,7 @@ jobs:
           Get-Content "$pwd\smoke-out.txt" -ErrorAction SilentlyContinue | Select-Object -First 60
           Write-Host "--- stderr ---"
           Get-Content "$pwd\smoke-err.txt" -ErrorAction SilentlyContinue | Select-Object -First 60
+          if (Test-Path "$pwd\smoke-shot.png") { Write-Host "--- frame captured: $((Get-Item "$pwd\smoke-shot.png").Length) bytes ---" }
           if ($crashed) { exit 1 }
           exit 0
 

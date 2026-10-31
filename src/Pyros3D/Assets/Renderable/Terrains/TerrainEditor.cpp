@@ -109,10 +109,20 @@ namespace p3d {
 			// (each thread its own: game logic asks the ground's height while another
 			// thread, drawing the frame before, asks what the ground hides - two of
 			// them made the one list again at the same moment)
-			static thread_local SceneGraph* forScene = NULL;
-			static thread_local f64 forTime = -1.0;
-			static thread_local uint32 forGeneration = 0;
-			static thread_local std::vector<TerrainTile> tiles;
+			// ... and each scene its own: the editor asks in two every frame (the scene, and a preview's
+			// with no ground), and one list for both was the scene's walk again every frame - 6-7 ms of
+			// the main thread for a single height. (A few kept, the least recently asked given up.)
+			struct Kept { SceneGraph* scene = NULL; f64 time = -1.0; uint32 generation = 0; uint64 asked = 0; std::vector<TerrainTile> tiles; };
+			static thread_local Kept kept[4];
+			static thread_local uint64 asks = 0;
+			Kept* k = NULL;
+			for (int i = 0; i < 4 && !k; i++) if (kept[i].scene == scene) k = &kept[i];
+			if (!k) { k = &kept[0]; for (int i = 1; i < 4; i++) if (kept[i].asked < k->asked) k = &kept[i]; k->scene = NULL; }
+			k->asked = ++asks;
+			SceneGraph* &forScene = k->scene;
+			f64 &forTime = k->time;
+			uint32 &forGeneration = k->generation;
+			std::vector<TerrainTile> &tiles = k->tiles;
 			// ... except when a script swaps the scene for another: the new
 			// scene is the same object at the same time, and its tiles are new
 			// ones - the list held pointers to the old scene's, already

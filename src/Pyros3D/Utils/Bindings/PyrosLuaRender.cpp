@@ -5,171 +5,17 @@
 
 #ifdef LUA_BINDINGS
 
+#include <Pyros3D/Rendering/Water/OceanSim.h>
+#include <Pyros3D/Rendering/Renderer/SceneView.h>
+#include <Pyros3D/Rendering/Renderer/SceneRenderer.h>
+#include <Pyros3D/Rendering/ColourSpace.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
-#include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 
 namespace p3d {
 
-	// Bakes GI from a Lua table, so a scene script can ask for indirect
-	// light without the binding layer growing a SceneGISettings usertype
-	// nobody would construct by hand. Every field optional:
-	//   renderer:bakeGI(scene, { counts = {6,4,6}, rays = 128,
-	// One frame of GI refresh, budgeted. Called every frame by a scene
-	// that wants indirect light to follow a moving light rather than be
-	// frozen at load.
-	template <typename R>
-	bool Renderer_UpdateGI(R &r, SceneGraph &scene, sol::optional<uint32> probes,
-		sol::optional<f32> hysteresis)
-	{
-		return r.UpdateGlobalIllumination(&scene, probes.value_or(16u), hysteresis.value_or(0.92f));
-	}
-
-	//                            passes = 6, sky = {0.1,0.12,0.16} })
-	template <typename R>
-	bool Renderer_BakeGI(R &r, SceneGraph &scene, sol::optional<sol::table> opts)
-	{
-		SceneGISettings s;
-		s.enabled = true;
-		if (opts)
-		{
-			sol::table t = *opts;
-			sol::optional<sol::table> c = t["counts"];
-			if (c)
-			{
-				for (uint32 i = 0; i < 3; i++)
-				{
-					sol::optional<uint32> v = (*c)[i + 1];
-					if (v) s.counts[i] = *v;
-				}
-			}
-			s.raysPerProbe = t.get_or("rays", s.raysPerProbe);
-			s.passes = t.get_or("passes", s.passes);
-			s.padding = t.get_or("padding", s.padding);
-			s.shaderRoot = t.get_or("shaderRoot", s.shaderRoot);
-			sol::optional<sol::table> sky = t["sky"];
-			if (sky)
-			{
-				s.skyColor = Vec3((*sky)[1].get_or(0.f), (*sky)[2].get_or(0.f), (*sky)[3].get_or(0.f));
-			}
-		}
-		return r.BakeGlobalIllumination(&scene, s);
-	}
-
 	void RegisterLuaRenderEarly(sol::state* lua)
 	{
-		{
-			// DeferredRenderer
-			sol::constructors<sol::types<float, float, FrameBuffer*>> con;
-			lua->new_usertype<DeferredRenderer>("DeferredRenderer",
-				con,
-				"clearBufferBit", &DeferredRenderer_ClearBufferBit,
-				"enableClearDepthBuffer", &DeferredRenderer::EnableClearDepthBuffer,
-				"disableClearDepthBuffer", &DeferredRenderer::DisableClearDepthBuffer,
-				"clearDepthBuffer", &DeferredRenderer::ClearDepthBuffer,
-				"enableClipPlane", sol::overload(&DeferredRenderer_EnableClipPlane, &DeferredRenderer_EnableClipPlaneDefault),
-				"disableClipPlane", &DeferredRenderer::DisableClipPlane,
-				"setClipPlane0", &DeferredRenderer::SetClipPlane0,
-				"setClipaPlane0", &DeferredRenderer::SetClipPlane0,
-				"setClipaPlane1", &DeferredRenderer::SetClipPlane1,
-				"setClipaPlane2", &DeferredRenderer::SetClipPlane2,
-				"setClipaPlane3", &DeferredRenderer::SetClipPlane3,
-				"setClipaPlane4", &DeferredRenderer::SetClipPlane4,
-				"setClipaPlane5", &DeferredRenderer::SetClipPlane5,
-				"setClipaPlane6", &DeferredRenderer::SetClipPlane6,
-				"setClipaPlane7", &DeferredRenderer::SetClipPlane7,
-				"enableStencil", &DeferredRenderer::EnableStencil,
-				"disableStencil", &DeferredRenderer::DisableStencil,
-				"clearStencilBuffer", &DeferredRenderer::ClearStencilBuffer,
-				"stencilFunction", &DeferredRenderer::StencilFunction,
-				"stencilOperation", &DeferredRenderer::StencilOperation,
-				"enableScissorTest", &DeferredRenderer::EnableScissorTest,
-				"disableScissorTest", &DeferredRenderer::DisableScissorTest,
-				"scissorTestRect", &DeferredRenderer::ScissorTestRect,
-				"enableWireFrame", &DeferredRenderer::EnableWireFrame,
-				"disableWireFrame", &DeferredRenderer::DisableWireFrame,
-				"colorMask", &DeferredRenderer::ColorMask,
-				"enableSorting", &DeferredRenderer::EnableSorting,
-				"disableSorting", &DeferredRenderer::DisableSorting,
-				"enableLOD", &DeferredRenderer::EnableLOD,
-				"disableLOD", &DeferredRenderer::DisableLOD,
-				"isUsingLOD", &DeferredRenderer::IsUsingLOD,
-				"setBackground", &DeferredRenderer::SetBackground,
-				"unsetBackground", &DeferredRenderer::UnsetBackground,
-				"setGlobalLight", &DeferredRenderer::SetGlobalLight,
-				"bakeGI", &Renderer_BakeGI<DeferredRenderer>,
-				"updateGI", &Renderer_UpdateGI<DeferredRenderer>,
-				"isGIOnGPU", &DeferredRenderer::IsGlobalIlluminationOnGPU,
-				"clearGI", &DeferredRenderer::ClearGlobalIllumination,
-				"enableDepthBias", &DeferredRenderer::EnableDepthBias,
-				"disableDepthBias", &DeferredRenderer::DisableDepthBias,
-				"setViewPort", &DeferredRenderer::SetViewPort,
-				"resetViewPort", &DeferredRenderer::ResetViewPort,
-				"resize", &DeferredRenderer::Resize,
-				"activateCulling", &DeferredRenderer::ActivateCulling,
-				"deactivateCulling", &DeferredRenderer::DeactivateCulling,
-				"renderScene", sol::overload(&DeferredRenderer_RenderScene, &DeferredRenderer_RenderSceneOptions),
-				"preRender", sol::overload(&DeferredRenderer_PreRender, &DeferredRenderer_PreRenderTag),
-				"setSSRDistances", &DeferredRenderer::SetSSRDistances,
-				"enableSSR", &DeferredRenderer::EnableSSR,
-				"disableSSR", &DeferredRenderer::DisableSSR,
-				"enableSSAO", &DeferredRenderer::EnableSSAO,
-				"disableSSAO", &DeferredRenderer::DisableSSAO,
-				"isSSAOEnabled", &DeferredRenderer::IsSSAOEnabled,
-				"setSSAOParams", &DeferredRenderer::SetSSAOParams,
-				"setSSAODirectStrength", &DeferredRenderer::SetSSAODirectStrength
-				);
-		}
-
-		{
-			// VelocityRenderer - used by DemoLauncher motion-blur demos.
-			sol::constructors<sol::types<uint32, uint32>> con;
-			lua->new_usertype<VelocityRenderer>("VelocityRenderer",
-				con,
-				"renderVelocityMap", &VelocityRenderer::RenderVelocityMap,
-				"resize", &VelocityRenderer::Resize,
-				"getTexture", &VelocityRenderer::GetTexture
-				);
-		}
-
-		{
-			// CubemapRenderer
-			sol::constructors<sol::types<float, float>> con;
-			lua->new_usertype<CubemapRenderer>("CubemapRenderer",
-				con,
-				"renderCubeMap", &CubemapRenderer::RenderCubeMap
-				);
-		}
-
-		{
-			// Frame Buffer
-			sol::constructors<sol::types<>> con;
-			lua->new_usertype<FrameBuffer>("FrameBuffer",
-				con,
-				"init", sol::overload(
-					&FrameBuffer_InitTex,
-					&FrameBuffer_InitRenderBuffer4,
-					&FrameBuffer_InitRenderBuffer5
-				),
-				"addAttach", sol::overload(
-					&FrameBuffer_AddAttachTex,
-					&FrameBuffer_AddAttachRenderBuffer4,
-					&FrameBuffer_AddAttachRenderBuffer5
-				),
-				"resize", &FrameBuffer::Resize,
-				"bind", sol::overload(&FrameBuffer_Bind, &FrameBuffer_BindDefault),
-				"isBinded", &FrameBuffer::IsBinded,
-				"getBindID", &FrameBuffer::GetBindID,
-				"unbind", &FrameBuffer::UnBind,
-				"getAttachments", &FrameBuffer::GetAttachments,
-				"getFrameBufferFormat", &FrameBuffer::GetFrameBufferFormat,
-				"isInitialized", &FrameBuffer::IsInitialized,
-				"enableMultiSample", &FrameBuffer::EnableMultisample,
-				"disableMultiSample", &FrameBuffer::DisableMultisample,
-				"blitFrameBuffer", &FrameBuffer::BlitFrameBuffer
-				);
-		}
-
 		// Base usertypes for mesh/material hierarchies.
 		lua->new_usertype<Renderable>("Renderable");
 
@@ -179,9 +25,6 @@ namespace p3d {
 				sol::factories(
 					[]() { return std::make_shared<IMaterial>(); }
 				),
-				"preRender", &IMaterial::PreRender,
-				"render", &IMaterial::Render,
-				"afterRender", &IMaterial::AfterRender,
 				"setCullFace", &IMaterial::SetCullFace,
 				"getCullFace", &IMaterial::GetCullFace,
 				"isWireFrame", &IMaterial::IsWireFrame,
@@ -195,14 +38,12 @@ namespace p3d {
 				"disableBlending", &IMaterial::DisableBlending,
 				"blendingFunction", &IMaterial::BlendingFunction,
 				"blendingEquation", &IMaterial::BlendingEquation,
-				"addUniform", &IMaterial::AddUniform,
 				"startRenderWireFrame", &IMaterial::StartRenderWireFrame,
 				"stopRenderWireFrame", &IMaterial::StopRenderWireFrame,
 				"enableCastingShadows", &IMaterial::EnableCastingShadows,
 				"disableCastingShadows", &IMaterial::DisableCastingShadows,
 				"isCastingShadows", &IMaterial::IsCastingShadows,
 				"destroy", &IMaterial::Destroy,
-				"getShader", &IMaterial::GetShader,
 				"getInternalID", &IMaterial::GetInternalID,
 				"enableDepthTest", &IMaterial::EnableDepthTest,
 				"disableDepthTest", &IMaterial::DisableDepthTest,
@@ -495,14 +336,6 @@ namespace p3d {
 				);
 		}
 
-		{
-			// Uniform
-			sol::constructors<sol::types<>, sol::types<std::string, int, int>, sol::types<std::string, int, void*, int>> con;
-			lua->new_usertype<Uniform>("Uniform",
-				con,
-				"setValue", &Uniform::SetValue
-				);
-		}
 
 		{
 			// Texture - shared_ptr via sol::factories (Stage 2 / LoadedSceneAssets)
@@ -521,35 +354,11 @@ namespace p3d {
 				"updateData", &Texture::UpdateData,
 				"UpdateMipmap", &Texture::UpdateMipmap,
 				"setTextureByteAlignment", &Texture::SetTextureByteAlignment,
-				"getBindID", &Texture::GetBindID,
 				"getWidth", &Texture::GetWidth,
-				"getHeight", &Texture::GetHeight,
-				"bind", &Texture::Bind,
-				"unbind", &Texture::Unbind,
-				"deleteTexture", &Texture::DeleteTexture,
-				"getLastBindedUnit", &Texture::GetLastBindedUnit
+				"getHeight", &Texture::GetHeight
 				);
 		}
 
-		{
-			// Shader
-			sol::constructors<sol::types<>> con;
-			lua->new_usertype<Shader>("Shader",
-				con,
-				"loadShaderFile", &Shader::LoadShaderFile,
-				"loadShaderText", &Shader::LoadShaderText,
-				"compileShader", &Shader::CompileShader,
-				"deleteShader", &Shader::DeleteShader,
-				"linkProgram", &Shader::LinkProgram,
-				"shaderProgram", &Shader::ShaderProgram,
-				"getUniformLocation", &Shader::GetUniformLocation,
-				"getAttributeLocation", &Shader::GetAttributeLocation,
-				"SendUniform", sol::overload(
-					sol::resolve<void(const Uniform&, const int)>(&Shader::SendUniform),
-					sol::resolve<void(const Uniform&, void*, const int, const unsigned int)>(&Shader::SendUniform)
-				)
-				);
-		}
 
 		{
 			// GenericShaderMaterial - shared_ptr via sol::factories
@@ -583,7 +392,6 @@ namespace p3d {
 				"getEmissionStrength", &GenericShaderMaterial::GetEmissionStrength,
 				"getEmissionColor", [](GenericShaderMaterial &m) { return m.GetEmissionColor(); },
 				"setEmissionMap", &GenericShaderMaterial::SetEmissionMap,
-				"bindTextures", &GenericShaderMaterial::BindTextures,
 				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
 				"getAlphaCutoff", &GenericShaderMaterial::GetAlphaCutoff,
 				"setLightThrough", &GenericShaderMaterial::SetLightThrough,
@@ -592,7 +400,6 @@ namespace p3d {
 					[](GenericShaderMaterial &m, f32 strength, f32 rate) { m.SetWind(strength, rate); },
 					[](GenericShaderMaterial &m, f32 strength, f32 rate, f32 freq) { m.SetWind(strength, rate, freq); }),
 				"getWind", &GenericShaderMaterial::GetWind,
-				"unbindTextures", &GenericShaderMaterial::UnbindTextures,
 				sol::base_classes, sol::bases<IMaterial>()
 				);
 		}
@@ -602,9 +409,10 @@ namespace p3d {
 			lua->new_usertype<CustomShaderMaterial>("CustomShaderMaterial",
 				sol::factories(
 					[](const std::string &shaderFile) { return std::make_shared<CustomShaderMaterial>(shaderFile); },
-					[](Shader* shader) { return std::make_shared<CustomShaderMaterial>(shader); }
+					[]() { return std::make_shared<CustomShaderMaterial>(); }
 				),
-				"setShader", &CustomShaderMaterial::SetShader,
+				// the surface the renderer draws it with (CustomShaderMaterial::SetSurfaceSource)
+				"setSurface", &CustomShaderMaterial::SetSurfaceSource,
 				"addSampler", &CustomShaderMaterial::AddSampler,
 				// Material Editor Parameter nodes, by the name the graph
 				// shows: setParameter("Tint", Vec4(1,0,0,1)) or
@@ -620,39 +428,83 @@ namespace p3d {
 				);
 		}
 		{
-			lua->new_enum("UniformUsage",
-				"ProjectionMatrix", Uniforms::DataUsage::ProjectionMatrix,
-				"ViewMatrix", Uniforms::DataUsage::ViewMatrix,
-				"ModelMatrix", Uniforms::DataUsage::ModelMatrix,
-				"CameraPosition", Uniforms::DataUsage::CameraPosition,
-				"Timer", Uniforms::DataUsage::Timer,
-				"NearFarPlane", Uniforms::DataUsage::NearFarPlane,
-				"Other", Uniforms::DataUsage::Other
-			);
-			lua->new_enum("UniformDataType",
-				"Int", Uniforms::DataType::Int,
-				"Float", Uniforms::DataType::Float,
-				"Vec2", Uniforms::DataType::Vec2,
-				"Vec3", Uniforms::DataType::Vec3,
-				"Vec4", Uniforms::DataType::Vec4,
-				"Matrix", Uniforms::DataType::Matrix
-			);
-			// Configure IMaterial::extraUniforms[index] from Lua (WaterShader blocks, etc.).
-			lua->set_function("setMaterialExtraUniformBlock",
-				[](IMaterial &m, int index, uint32 binding, const std::string &blockName, uint32 size, sol::table offsets) {
-					std::map<std::string, uint32> off;
-					offsets.for_each([&](sol::object key, sol::object value) {
-						if (key.get_type() == sol::type::string && value.get_type() == sol::type::number)
-							off[key.as<std::string>()] = (uint32)value.as<double>();
-					});
-					m.SetExtraUniformBlock(index, binding, blockName, size, off);
-				});
+			// OceanSim - an FFT sea (see Rendering/Water/OceanSim.h). ocean = OceanSim.new(); each frame ocean:update(dt);
+			// ocean:bind(material) hands a custom material its eight fields (uOceanD0..3, uOceanS0..3).
+			lua->new_usertype<OceanSim>("OceanSim",
+				sol::factories([]() { return std::make_shared<OceanSim>(); }),
+				"update", &OceanSim::Update,
+				"getLength", &OceanSim::GetLength,
+				"getDisplacement", &OceanSim::GetDisplacement,
+				"getSlope", &OceanSim::GetSlope,
+				"getLastUpdateMs", &OceanSim::GetLastUpdateMs,
+				"getLastWorkMs", &OceanSim::GetLastWorkMs,
+				"getStats", &OceanSim::GetStats,
+				// heightAt(x, z[, wSwell, wChop, wFine]): the sea's height there, as drawn
+				"heightAt", [](OceanSim &o, f32 x, f32 z, sol::optional<f32> a, sol::optional<f32> b, sol::optional<f32> c) {
+					return o.HeightAt(x, z, Vec3(a.value_or(1.f), b.value_or(1.f), c.value_or(1.f)));
+				},
+				"bind", [](OceanSim &o, CustomShaderMaterial* m) {
+					if (!m) return;
+					for (uint32 c = 0; c < OceanSim::Cascades; c++)
+					{
+						m->AddSampler("uOceanD" + std::to_string(c), o.GetDisplacement(c));
+						m->AddSampler("uOceanS" + std::to_string(c), o.GetSlope(c));
+					}
+				},
+				// the wind: setWind(speed m/s, direction degrees[, choppiness]) - remakes the spectrum
+				"setWind", [](OceanSim &o, f32 speed, f32 dir, sol::optional<f32> chop) {
+					OceanSimParams p = o.GetParams();
+					p.windSpeed = speed; p.windDirection = dir;
+					if (chop) p.choppiness = *chop;
+					o.SetParams(p);
+				},
+				"setSwell", [](OceanSim &o, f32 scale, f32 dir) {
+					OceanSimParams p = o.GetParams();
+					p.swellScale = scale; p.swellDirection = dir;
+					o.SetParams(p);
+				}
+				);
 		}
+	}
 
+	// SceneView: a second view drawn into a texture a material shows (a scope, a security camera, a mirror)
+	//   local view = SceneView.new(512, 512)
+	//   material:setColorMap(view:getTexture())
+	//   view:render(projection, camera, scene)      -- now, ahead of the frame's own view
+	static void RegisterLuaSceneView(sol::state* lua)
+	{
+		using p3d::SceneView;
+		lua->new_usertype<SceneView>("SceneView",
+			sol::factories([](const uint32 w, const uint32 h) -> std::shared_ptr<SceneView> {
+				// (on the device the frame's own renderer draws with)
+				p3d::SceneRenderer* main = SceneView::MainRenderer();
+				if (!main || !main->GetDevice()) { echo("ERROR: SceneView.new - no renderer yet to draw it with"); return nullptr; }
+				std::shared_ptr<SceneView> v = std::make_shared<SceneView>(main->GetDevice(), w, h);
+				v->SetFollow(main);     // (looking as the frame's own view does - until one of the set* below)
+				return v;
+			}),
+			"getTexture", [](SceneView &v) { return v.GetTexture(); },
+			"getWidth", &SceneView::GetWidth,
+			"getHeight", &SceneView::GetHeight,
+			"resize", &SceneView::Resize,
+			"render", [](SceneView &v, const Projection &projection, GameObject* camera, SceneGraph* scene) { v.Render(scene, camera, projection); },
+			"setBackground", [](SceneView &v, const Vec4 &c) { v.SetBackground(SrgbToLinear(Vec3(c.x, c.y, c.z))); },
+			"setGlobalLight", [](SceneView &v, const Vec4 &c) { v.SetFollow(nullptr); v.Renderer().SetAmbient(Vec3(c.x, c.y, c.z)); },
+			"setSky", [](SceneView &v, bool on) { v.SetFollow(nullptr); v.Renderer().SetSky(on); },
+			"setHaze", [](SceneView &v, float density) { v.SetFollow(nullptr); v.Renderer().SetHaze(density); },
+			"setClouds", [](SceneView &v, float cover) { v.SetFollow(nullptr); v.Renderer().SetClouds(cover); },
+			"setReflections", [](SceneView &v, bool on) { v.SetFollow(nullptr); v.Renderer().SetReflections(on); },
+			"setAutoExposure", [](SceneView &v, bool on, sol::optional<f32> ev) { v.SetFollow(nullptr); v.Renderer().SetAutoExposure(on, ev.value_or(0.f)); },
+			"setTemporalAA", [](SceneView &v, bool on) { v.Renderer().SetTemporalAA(on); },
+			"setTransparentBackground", [](SceneView &v, bool on) { v.SetTransparentBackground(on); },
+			"enableLOD", [](SceneView &v) { v.SetFollow(nullptr); v.Renderer().SetLOD(true); },
+			"disableLOD", [](SceneView &v) { v.SetFollow(nullptr); v.Renderer().SetLOD(false); },
+			"follow", [](SceneView &v) { v.SetFollow(SceneView::MainRenderer()); });
 	}
 
 	void RegisterLuaRenderLate(sol::state* lua)
 	{
+		RegisterLuaSceneView(lua);
 		// RenderingComponent.new(mesh, material) - factories take sol::object
 		// and convert explicitly (see LuaObjectToRenderable). SOL_CHECK_ARGUMENTS
 		// will not match shared_ptr<Cube> to shared_ptr<Renderable> on its own.

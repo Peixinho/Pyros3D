@@ -458,7 +458,8 @@
      "shadowHeight": 1024,
      "shadowNear": 0.1,
      "shadowBiasFactor": 2.0,
-     "shadowBiasUnits": 1.0
+     "shadowBiasUnits": 1.0,
+     "intensity": 3.0
     },
     {
      "data": {},

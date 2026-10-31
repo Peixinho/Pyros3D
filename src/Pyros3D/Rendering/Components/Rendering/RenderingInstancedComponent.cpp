@@ -90,6 +90,7 @@ namespace p3d {
 	}
 	void RenderingInstancedComponent::InitFilled(std::vector<Matrix> &&transforms, std::vector<Vec4> &&tints)
 	{
+		instanceRevision++;
 		transform = std::move(transforms);
 		nrInstances = (uint32)transform.size();
 		// (one copy, into what the device is handed: the instances themselves are kept here)
@@ -123,6 +124,7 @@ namespace p3d {
 	// straight from the vector) and every existing caller depends on that.
 	void RenderingInstancedComponent::ResizeForGpu(const uint32 capacity, const bool tinted)
 	{
+		instanceRevision++;
 		const uint32 n = capacity > 0 ? capacity : 1;
 		RemoveBuffer(transform_buffer);
 		delete transform_buffer;
@@ -152,6 +154,7 @@ namespace p3d {
 
 	void RenderingInstancedComponent::EnableInstanceColors()
 	{
+		instanceRevision++;
 		if (color_buffer != NULL)
 			return;
 		instanceColor.resize(nrInstances, Vec4(1.f, 1.f, 1.f, 1.f));
@@ -163,6 +166,7 @@ namespace p3d {
 
 	void RenderingInstancedComponent::UpdateInstanceColors()
 	{
+		instanceRevision++;
 		if (color_buffer == NULL)
 			return;
 		color_buffer->Buffer->Update(&instanceColor[0], instanceColor.size()*sizeof(Vec4));
@@ -183,6 +187,7 @@ namespace p3d {
 	                                                   const uint32 items, const uint32 quadsPerItem,
 	                                                   const Vec4 &tintLow, const Vec4 &tintHigh)
 	{
+		instanceRevision++;
 		if (items == 0 || quadsPerItem == 0)
 			return;
 
@@ -236,6 +241,7 @@ namespace p3d {
 
 	void RenderingInstancedComponent::UpdateTransforms()
 	{
+		instanceRevision++;
 		transform_buffer->Buffer->Update(&transform[0], transform.size()*sizeof(Matrix));
 	}
 

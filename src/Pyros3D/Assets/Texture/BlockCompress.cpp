@@ -263,12 +263,88 @@ namespace p3d { namespace BlockCompress {
 		});
 	}
 
-	void EncodeMipChain(const uint32_t format, const std::vector<uint8_t> &rgba, const uint32_t w, const uint32_t h,
-		std::vector<std::vector<uint8_t> > &levels)
+	namespace {
+		// A cut-out: alpha that is nearly all fully clear or fully solid - leaves, grass, needles,
+		// a fence - drawn with an alpha test, not blended
+		bool IsCutout(const std::vector<uint8_t> &rgba)
+		{
+			const size_t texels = rgba.size() / 4;
+			if (!texels) return false;
+			const size_t step = std::max<size_t>(1, texels / 65536);
+			size_t looked = 0, hard = 0, clear = 0;
+			for (size_t t = 0; t < texels; t += step, looked++)
+			{
+				const uint8_t a = rgba[t * 4 + 3];
+				if (a <= 8 || a >= 247) hard++;
+				if (a <= 8) clear++;
+			}
+			// (four fifths hard, not nine tenths: a bough painted with soft edges - the spruces' - is still a
+			// cut-out, and averaged plainly its needles faded out of the far levels and the coarse shadow maps)
+			return clear > looked / 20 && hard >= looked * 4 / 5;
+		}
+		// The share of texels at or past the cut
+		float Coverage(const std::vector<uint8_t> &rgba, const float scale, const int cut)
+		{
+			const size_t texels = rgba.size() / 4;
+			size_t in = 0;
+			for (size_t t = 0; t < texels; t++) if (rgba[t * 4 + 3] * scale >= (float)cut) in++;
+			return texels ? (float)in / (float)texels : 0.f;
+		}
+	}
+
+	bool IsColourPicture(const uint32_t format, const char* name)
 	{
+		if (format == BC5) return false;
+		if (!name) return true;
+		std::string n(name);
+		std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+		const size_t slash = n.find_last_of("/\\");
+		if (slash != std::string::npos) n = n.substr(slash + 1);
+		static const char* kData[] = { "nor", "nrm", "normal", "rough", "metal", "orm", "arm", "_ao", "occlusion", "mask", "height", "disp", "bump", "spec", "splat", "density", "macro" };
+		for (const char* k : kData) if (n.find(k) != std::string::npos) return false;
+		return true;
+	}
+
+	namespace {
+		// sRGB <-> linear for the colour mips (ColourSpace.h's curve): a table one way, a search the other
+		struct SrgbTables
+		{
+			float toLinear[256];
+			SrgbTables()
+			{
+				for (int i = 0; i < 256; i++)
+				{
+					const float c = i / 255.f;
+					toLinear[i] = c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f);
+				}
+			}
+			uint8_t Encode(const float l) const
+			{
+				// the nearest code: binary search on the monotonic table, then the closer neighbour
+				int lo = 0, hi = 255;
+				while (lo < hi) { const int mid = (lo + hi) / 2; if (toLinear[mid] < l) lo = mid + 1; else hi = mid; }
+				if (lo > 0 && (l - toLinear[lo - 1]) < (toLinear[lo] - l)) lo--;
+				return (uint8_t)lo;
+			}
+		};
+		const SrgbTables &Srgb() { static const SrgbTables t; return t; }
+	}
+
+	void EncodeMipChain(const uint32_t format, const std::vector<uint8_t> &rgba, const uint32_t w, const uint32_t h,
+		std::vector<std::vector<uint8_t> > &levels, const bool srgb)
+	{
+		const SrgbTables &st = Srgb();
 		levels.clear();
 		std::vector<uint8_t> cur = rgba, next;
 		uint32_t cw = w, ch = h;
+		// A cut-out's smaller levels: each texel's colour the average of its four by how solid each is
+		// (the colour under a clear texel is not what is seen), and the alpha scaled so as many texels
+		// pass the cut as in the full picture. Averaged plainly, a grass blade or a needle half a texel
+		// wide went to an alpha of a quarter - under the cut, gone - or, where they were many, every
+		// texel of the clump passed at once in the dark of the gaps, and a tree far off was a black blob.
+		const bool cutout = IsCutout(rgba);
+		const int cut = 115;                  // (about the 0.4 - 0.45 the leaf materials cut at)
+		const float want = cutout ? Coverage(rgba, 1.f, cut) : 0.f;
 		while (true)
 		{
 			levels.push_back(std::vector<uint8_t>());
@@ -278,14 +354,50 @@ namespace p3d { namespace BlockCompress {
 			next.assign((size_t)nw * nh * 4, 0);
 			for (uint32_t y = 0; y < nh; y++)
 				for (uint32_t x = 0; x < nw; x++)
-					for (int k = 0; k < 4; k++)
+				{
+					const uint32_t x0 = std::min(cw - 1, x * 2), x1 = std::min(cw - 1, x * 2 + 1);
+					const uint32_t y0 = std::min(ch - 1, y * 2), y1 = std::min(ch - 1, y * 2 + 1);
+					const size_t q[4] = { ((size_t)y0 * cw + x0) * 4, ((size_t)y0 * cw + x1) * 4, ((size_t)y1 * cw + x0) * 4, ((size_t)y1 * cw + x1) * 4 };
+					const size_t o = ((size_t)y * nw + x) * 4;
+					const int as = cur[q[0] + 3] + cur[q[1] + 3] + cur[q[2] + 3] + cur[q[3] + 3];
+					for (int k = 0; k < 3; k++)
 					{
-						const uint32_t x0 = std::min(cw - 1, x * 2), x1 = std::min(cw - 1, x * 2 + 1);
-						const uint32_t y0 = std::min(ch - 1, y * 2), y1 = std::min(ch - 1, y * 2 + 1);
-						const int s = cur[((size_t)y0 * cw + x0) * 4 + k] + cur[((size_t)y0 * cw + x1) * 4 + k]
-							+ cur[((size_t)y1 * cw + x0) * 4 + k] + cur[((size_t)y1 * cw + x1) * 4 + k];
-						next[((size_t)y * nw + x) * 4 + k] = (uint8_t)((s + 2) / 4);
+						if (srgb)
+						{
+							// as light: decoded, averaged (by how solid each is, for a cut-out), encoded
+							float sum = 0.f, wsum = 0.f;
+							for (int t = 0; t < 4; t++)
+							{
+								const float wt = (cutout && as > 0) ? (float)cur[q[t] + 3] : 1.f;
+								sum += st.toLinear[cur[q[t] + k]] * wt; wsum += wt;
+							}
+							next[o + k] = st.Encode(wsum > 0.f ? sum / wsum : 0.f);
+						}
+						else if (cutout && as > 0)
+						{
+							const int s = cur[q[0] + k] * cur[q[0] + 3] + cur[q[1] + k] * cur[q[1] + 3] + cur[q[2] + k] * cur[q[2] + 3] + cur[q[3] + k] * cur[q[3] + 3];
+							next[o + k] = (uint8_t)std::min(255, (s + as / 2) / as);
+						}
+						else
+						{
+							const int s = cur[q[0] + k] + cur[q[1] + k] + cur[q[2] + k] + cur[q[3] + k];
+							next[o + k] = (uint8_t)((s + 2) / 4);
+						}
 					}
+					next[o + 3] = (uint8_t)((as + 2) / 4);
+				}
+			if (cutout && want > 0.f)
+			{
+				// the scale that gives the full picture's coverage (it only grows: a smaller level
+				// averages solid with clear, never the other way)
+				float lo = 1.f, hi = 8.f;
+				for (int it = 0; it < 12; it++)
+				{
+					const float mid = 0.5f * (lo + hi);
+					if (Coverage(next, mid, cut) < want) lo = mid; else hi = mid;
+				}
+				for (size_t t = 3; t < next.size(); t += 4) next[t] = (uint8_t)std::min(255.f, next[t] * hi + 0.5f);
+			}
 			cur.swap(next); cw = nw; ch = nh;
 		}
 	}

@@ -12,7 +12,6 @@
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Core/Projection/Projection.h>
-#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
@@ -102,40 +101,6 @@ namespace embind_helpers {
 	inline void Scene_RemoveGameObject(SceneGraph &scene, std::shared_ptr<GameObject> go)
 	{
 		scene.RemoveGameObject(go);
-	}
-
-	// ----- FrameBuffer (Texture via shared_ptr; Bind default) -----
-	inline void FrameBuffer_InitTex(FrameBuffer &f, const uint32 attachmentFormat, const uint32 texType, const std::shared_ptr<Texture> &attachment)
-	{
-		f.Init(attachmentFormat, texType, attachment.get());
-	}
-	inline void FrameBuffer_InitRenderBuffer4(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
-	{
-		f.Init(attachmentFormat, attachmentDataType, Width, Height, 0);
-	}
-	inline void FrameBuffer_InitRenderBuffer5(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
-	{
-		f.Init(attachmentFormat, attachmentDataType, Width, Height, msaa);
-	}
-	inline void FrameBuffer_AddAttachTex(FrameBuffer &f, const uint32 attachmentFormat, const uint32 texType, const std::shared_ptr<Texture> &attachment)
-	{
-		f.AddAttach(attachmentFormat, texType, attachment.get());
-	}
-	inline void FrameBuffer_AddAttachRenderBuffer4(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height)
-	{
-		f.AddAttach(attachmentFormat, attachmentDataType, Width, Height, 0);
-	}
-	inline void FrameBuffer_AddAttachRenderBuffer5(FrameBuffer &f, const uint32 attachmentFormat, const uint32 attachmentDataType, const uint32 Width, const uint32 Height, const uint32 msaa)
-	{
-		f.AddAttach(attachmentFormat, attachmentDataType, Width, Height, msaa);
-	}
-	inline void FrameBuffer_Bind(FrameBuffer &f, uint32 access)
-	{
-		f.Bind(access);
-	}
-	inline void FrameBuffer_BindDefault(FrameBuffer &f)
-	{
-		f.Bind();
 	}
 
 	inline void Texture_Resize2(Texture &t, uint32 width, uint32 height)

@@ -5,8 +5,8 @@
 // two front ends can no longer apply different fixups for the same edit.
 
 #include "SceneEditor.h"
-#include <Pyros3D/Rendering/GI/IrradianceProbeBaker.h>
 #include <Pyros3D/Rendering/GI/SphericalHarmonics.h>
+#include <Pyros3D/Rendering/GI/SceneGI.h>
 #include "SceneCommands.h"
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include "PrefabResolver.h"
@@ -577,9 +577,6 @@ void SceneEditor::ApplyParticleDesc(uint32 psId, const ParticleSystemDesc& desc)
 	// one setter that throws away every live particle, so re-applying an
 	// unchanged capacity on any other field's undo would visibly wipe the
 	// effect (SetMaxParticles' own early-out is what makes this safe).
-	// First: it rebuilds the attribute buffer and the compute pipeline, so
-	// every setter below has to apply to the backend that survives.
-	ps->SetGPUSimulation(desc.gpuSimulation);
 	ps->SetMaxParticles(desc.maxParticles);
 	ps->SetTexture(desc.texture);
 	ps->SetLooping(desc.looping);
@@ -1208,23 +1205,14 @@ bool SceneEditor::BakeAmbientFromSkybox(const std::string& folder, std::string& 
 			echo("BakeAmbientFromSkybox: SH projection failed; keeping the three-band gradient.");
 		}
 	}
-	ApplyEnvironment();
 	MarkSceneDirty();
 	return true;
 }
 
-// Sizes a probe grid to the scene's own bounds and fills it by rendering
-// the scene from each probe.
-//
-// Bounds from the objects rather than an authored volume: a light-probe
-// volume with a gizmo is the right long-term answer, and requiring one
-// before probes do anything at all would mean nobody ever tries them.
-// Padded outwards so surfaces on the boundary sit inside the grid rather
-// than exactly on its clamped face.
+// Solves the scene's indirect light (DDGI) over the grid the panel sets, on the CPU.
 bool SceneEditor::BakeDDGI(std::string& errOut)
 {
 	if (scene == NULL) { errOut = "no scene"; return false; }
-	if (Renderer == NULL) { errOut = "no renderer"; return false; }
 
 	SceneGISettings gi;
 	gi.enabled = true;
@@ -1234,16 +1222,24 @@ bool SceneEditor::BakeDDGI(std::string& errOut)
 	gi.raysPerProbe = (uint32)Max(1, ddgiRays);
 	gi.passes = (uint32)Max(1, ddgiPasses);
 	gi.skyColor = Vec3(ddgiSky.x, ddgiSky.y, ddgiSky.z);
-	// The editor runs from the build directory, where `shaders` is a
-	// symlink to resources/shaders - the same path the viewport's own
-	// materials are compiled from. Hardcoding "resources/shaders" here
-	// would work when the editor is launched from the repo root and
-	// nowhere else.
-	gi.shaderRoot = "shaders";
 
 	std::vector<RenderingComponent*> chrome;
 	HideEditorChrome(chrome);
-	const bool baked = Renderer->BakeGlobalIllumination(scene, gi);
+	bool baked = false;
+	{
+		// Solved on the CPU into the editor's own volume, which the Scene View's renderer draws; a dynamic one keeps the
+		// scene's rays for its refresh
+		if (viewRenderer) viewRenderer->SetGlobalIllumination(nullptr);     // (it holds the volume let go here)
+		ddgiVolume.reset(new DDGIVolume());
+		baked = BakeSceneGI(scene, gi, *ddgiVolume);
+		if (!baked) ddgiVolume.reset();
+		rayScene.reset();
+		if (baked && ddgiDynamic)
+		{
+			rayScene.reset(new RayScene());
+			if (rayScene->BuildFromScene(scene)) rayScene->Build(4); else rayScene.reset();
+		}
+	}
 	for (size_t i = 0; i < chrome.size(); ++i)
 		chrome[i]->Enable();
 	if (!baked)
@@ -1259,115 +1255,28 @@ bool SceneEditor::BakeDDGI(std::string& errOut)
 	}
 	ddgiBuilt = true;
 	ambientMode = 3;
-	ApplyEnvironment();
 	return true;
 }
 
 void SceneEditor::UpdateDDGIIfDynamic()
 {
-	if (Renderer == NULL || scene == NULL) return;
+	if (scene == NULL) return;
 	if (ambientMode != 3 || !ddgiBuilt || !ddgiDynamic) return;
-
-	// Budget 0 means "decide for me", and the two answers are orders of
-	// magnitude apart: on the GPU the whole volume fits in a frame, on
-	// the CPU a dozen probes is already milliseconds. Asking the
-	// renderer rather than guessing is the difference between indirect
-	// light that tracks a moving light and an editor that drops to
-	// single-digit frame rates the moment GI is switched on.
-	// 0 means "as many as fit". On the GPU that is the whole volume;
-	// on the CPU the renderer's own millisecond ceiling stops it, which
-	// is a limit the machine sets rather than one guessed here - the
-	// 12 that used to be hardcoded costs 8.6 ms on a fast desktop.
-	// Chrome hidden here too, not only in the solve: deleting an object
-	// makes the refresh re-extract the whole scene, and it would pick
-	// the icons up again then.
-	std::vector<RenderingComponent*> chrome;
-	HideEditorChrome(chrome);
-	Renderer->UpdateGlobalIllumination(scene, (uint32)Max(0, ddgiProbeBudget), ddgiHysteresis);
-	for (size_t i = 0; i < chrome.size(); ++i)
-		chrome[i]->Enable();
+	{
+		// On the CPU, as much of the volume as 2 ms a frame takes, then written into the renderer's textures
+		if (!ddgiVolume || !rayScene || !viewRenderer) return;
+		std::vector<RenderingComponent*> chrome;
+		HideEditorChrome(chrome);
+		const RaySceneChange::Enum change = rayScene->RefreshTransforms();
+		if (change == RaySceneChange::NeedsRebuild) { if (rayScene->BuildFromScene(scene)) rayScene->Build(4); }
+		else if (change == RaySceneChange::Moved) rayScene->RefitBVH();
+		ddgiVolume->SetUpdateTimeBudget(2.f);
+		UpdateSceneGI(scene, *rayScene, *ddgiVolume, (uint32)Max(1, ddgiRays), giRefreshFrame++, ddgiHysteresis, (uint32)Max(0, ddgiProbeBudget));
+		for (size_t i = 0; i < chrome.size(); ++i) chrome[i]->Enable();
+		viewRenderer->GlobalIlluminationChanged();
+	}
 }
 
-bool SceneEditor::BakeIrradianceProbes(std::string& errOut)
-{
-	if (scene == NULL)
-	{
-		errOut = "no scene";
-		return false;
-	}
-
-	Vec3 mn(1e30f, 1e30f, 1e30f), mx(-1e30f, -1e30f, -1e30f);
-	uint32 counted = 0;
-	std::vector<RenderingMesh*> meshes = RenderingComponent::GetRenderingMeshes(scene);
-	for (size_t i = 0; i < meshes.size(); i++)
-	{
-		RenderingMesh* m = meshes[i];
-		if (m == NULL || m->renderingComponent == NULL) continue;
-		GameObject* go = m->renderingComponent->GetOwner();
-		if (go == NULL) continue;
-		const Vec3 c = go->GetWorldPosition();
-		const f32 r = go->GetBoundingSphereRadiusWorldSpace();
-		mn = Vec3(Min(mn.x, c.x - r), Min(mn.y, c.y - r), Min(mn.z, c.z - r));
-		mx = Vec3(Max(mx.x, c.x + r), Max(mx.y, c.y + r), Max(mx.z, c.z + r));
-		counted++;
-	}
-	if (counted == 0)
-	{
-		errOut = "scene has no renderable objects to bound";
-		return false;
-	}
-
-	const Vec3 pad = (mx - mn) * 0.1f;
-	mn = mn - pad;
-	mx = mx + pad;
-
-	const uint32 nx = (uint32)Max(2, ambientProbeCounts[0]);
-	const uint32 ny = (uint32)Max(2, ambientProbeCounts[1]);
-	const uint32 nz = (uint32)Max(2, ambientProbeCounts[2]);
-	const Vec3 extent = mx - mn;
-	// spacing spans count-1 intervals, so the last probe lands exactly on
-	// the far bound rather than one cell short of it.
-	const Vec3 spacing((extent.x) / (f32)(nx - 1),
-					   (extent.y) / (f32)(ny - 1),
-					   (extent.z) / (f32)(nz - 1));
-
-	IrradianceProbeGrid grid;
-	if (!grid.Allocate(mn, spacing, nx, ny, nz))
-	{
-		errOut = "invalid probe grid dimensions";
-		return false;
-	}
-
-	IrradianceProbeBaker baker(16);
-	if (!baker.IsSupported())
-	{
-		errOut = "this backend cannot read a texture back, so probes cannot be captured here";
-		return false;
-	}
-	// The far plane has to reach the whole scene or probes see clipped
-	// geometry and come back too dark.
-	const f32 diagonal = extent.magnitude();
-	baker.SetNearFar(0.05f, Max(10.f, diagonal * 2.f));
-
-	// budget 0 = the whole grid in one call. This is the editor's
-	// explicit "bake" button, so blocking is what the user asked for;
-	// the same call with a small budget per frame is the progressive
-	// path.
-	const uint32 done = baker.Update(scene, grid, 0);
-	if (done == 0)
-	{
-		errOut = "no probes could be captured";
-		return false;
-	}
-
-	ambientProbes = grid;
-	ambientMode = 2;
-	ApplyEnvironment();
-	MarkSceneDirty();
-	echo("Baked " + std::to_string(done) + " of " + std::to_string(grid.ProbeCount())
-		+ " irradiance probes.");
-	return true;
-}
 
 // OpAddSprite lives in SceneEditorSprites.cpp, with the rest of Sprite2D.
 
@@ -3325,7 +3234,6 @@ bool SceneEditor::OpClearUIStyle(uint32 goId, std::string& errOut)
 	MarkSceneDirty();
 	return true;
 }
-
 
 // ---- the sun's shafts and ray tracing (the panel's "Sun shafts and ray tracing", set_light) ----
 SceneEditor::SunEffects SceneEditor::GetSunEffects(DirectionalLight* l)

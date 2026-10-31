@@ -162,6 +162,8 @@ namespace p3d {
 		}
 
 		virtual void SendBuffer() {}
+		// Its buffer, where its vertices are packed in one (AttributeBuffer) - its bytes and their revision
+		virtual GeometryBuffer* PackedBuffer() const { return nullptr; }
 
 		virtual void Dispose()
 		{
@@ -180,6 +182,7 @@ namespace p3d {
 	// Attributes Buffer
 	class PYROS3D_API AttributeBuffer : public AttributeArray {
 	public:
+		virtual GeometryBuffer* PackedBuffer() const { return Buffer; }
 		// Buffer
 		GeometryBuffer* Buffer;
 		uint32 bufferType;
@@ -294,6 +297,10 @@ namespace p3d {
 		}
 
 		virtual ~IGeometry() {}
+
+		// Never the same for two geometries, while the process lives: what a cache keyed by a geometry's address checks
+		// (a new one can be made where a freed one was - the renderer's GPU meshes)
+		uint32 GetInstanceID() const { return ID; }
 
 		// Material Properties
 		MaterialProperties materialProperties;

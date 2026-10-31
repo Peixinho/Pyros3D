@@ -1,0 +1,12 @@
+// The editor's selection: a pulsing amber rim over the selected mesh, brightest where its surface turns away from the eye
+void Surface(inout SurfaceData s)
+{
+	float rim = 1.0 - max(dot(normalize(s.normal), normalize(s.view)), 0.0);
+	float pulse = 0.8 + 0.2 * sin(uTime * 4.0);
+	s.albedo = vec3(0.0);
+	s.metallic = 0.0;
+	s.roughness = 1.0;
+	s.occlusion = 1.0;
+	s.emission = vec3(1.0, 0.7, 0.15) * (0.3 + 2.2 * rim * rim) * pulse;
+	s.alpha = clamp(0.1 + 0.65 * rim * rim, 0.0, 0.85);
+}

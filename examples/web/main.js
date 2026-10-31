@@ -25,13 +25,15 @@ async function main() {
   const P = await createPyros3D({ canvas });
   installPyrosAssets(P);
 
-  const app = new P.Application(
+  // (awaited: making the window waits for the browser's WebGPU adapter and device - Asyncify - so the call hands
+  // back a promise)
+  const app = await new P.Application(
     canvas.width,
     canvas.height,
     "Neon Pulse",
     P.WindowType_Close | P.WindowType_Resize
   );
-  app.init();
+  await app.init();
 
   const { startNeonPulse } = await import("./neonpulse/main.js");
   await startNeonPulse(P, app, canvas, setStatus);

@@ -1,64 +1,64 @@
 {
-    "materials": [],
-    "roots": [
-        {
-            "name": "Camera",
-            "tags": [
-                "Camera"
-            ],
-            "position": [
-                0,
-                72,
-                165
-            ],
-            "rotation": [
-                0.0,
-                0.0,
-                0.0
-            ],
-            "scale": [
-                1,
-                1,
-                1
-            ],
-            "static": false,
-            "children": [],
-            "components": [
-                {
-                    "type": "LuaComponent",
-                    "scriptFile": "demos/scripts/camera_none.lua",
-                    "data": {}
-                }
-            ]
-        },
-        {
-            "children": [],
-            "components": [
-                {
-                    "data": {},
-                    "scriptFile": "demos/scripts/neonpulse.lua",
-                    "type": "LuaComponent"
-                }
-            ],
-            "name": "NeonPulse",
-            "position": [
-                0,
-                0,
-                0
-            ],
-            "rotation": [
-                0,
-                0,
-                0
-            ],
-            "scale": [
-                1,
-                1,
-                1
-            ],
-            "static": false,
-            "tags": []
-        }
-    ],
-    "version": 1
+ "materials": [],
+ "roots": [
+  {
+   "name": "Camera",
+   "tags": [
+    "Camera"
+   ],
+   "position": [
+    0,
+    72,
+    165
+   ],
+   "rotation": [
+    0.0,
+    0.0,
+    0.0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "children": [],
+   "components": [
+    {
+     "type": "LuaComponent",
+     "scriptFile": "demos/scripts/camera_none.lua",
+     "data": {}
+    }
+   ]
+  },
+  {
+   "children": [],
+   "components": [
+    {
+     "data": {},
+     "scriptFile": "demos/scripts/neonpulse.lua",
+     "type": "LuaComponent"
+    }
+   ],
+   "name": "NeonPulse",
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "tags": []
+  }
+ ],
+ "version": 1
 }

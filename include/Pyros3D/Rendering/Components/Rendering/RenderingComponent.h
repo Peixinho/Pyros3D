@@ -17,7 +17,6 @@
 #include <Pyros3D/Assets/Renderable/Renderables.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Materials/IMaterial.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Components/Rendering/SpriteRig2D.h>
@@ -79,61 +78,12 @@ namespace p3d {
 
 		RenderingMesh(const uint32 lod = 0) : drawingType(DrawingType::Triangles), CullingGeometry(0), Active(true), Clickable(true), hasTexcoordAttribute(-1), LodLevel(lod) {} // Triangles by Default
 
-		// Not = default: releases the cached VAOs in VAOCache, which needs
-		// glDeleteVertexArrays (defined out-of-line in RenderingComponent.cpp
-		// so this widely-included header doesn't need a GL dependency).
 		virtual ~RenderingMesh();
 
 		uint32 GetDrawingType() { return drawingType; }
 
 		// Pointer to Geometry
 		IGeometry* Geometry;
-
-		// Shaders Cache
-		std::map<uint32, std::vector< std::vector<int32> > > ShadersAttributesCache;
-		std::map<uint32, std::vector<int32> > ShadersGlobalCache;
-		std::map<uint32, std::vector<int32> > ShadersModelCache;
-		std::map<uint32, std::vector<int32> > ShadersUserCache;
-		// GL Vertex Array Object cache, keyed by shader program. Bakes in
-		// attribute enable/pointer state and the bound index buffer so
-		// switching meshes at draw time is a single glBindVertexArray
-		// instead of re-issuing glEnableVertexAttribArray/glVertexAttribPointer
-		// per attribute on every switch. Keyed by shader because attribute
-		// locations can differ across shader variants using this mesh.
-		std::map<uint32, uint32> VAOCache;
-
-		// Geometry->buffersRevision (plus the owning component's
-		// ownBuffersRevision) that VAOCache's entries were built
-		// against. A geometry can hand out new GPU buffers under a mesh that
-		// is already being drawn (Text::UpdateText() disposes and rebuilds
-		// in place), which leaves every cached VAO referencing freed buffer
-		// handles - BindMesh() compares this and throws the cache away when
-		// it goes stale. See IGeometry::buffersRevision.
-		uint32 VAOCacheRevision = 0;
-
-		// Vulkan pipeline cache, keyed by (shader program, current render
-		// target) packed into one uint64 - ((uint64)shader << 32) | targetFBO,
-		// see IRenderDevice::GetCurrentRenderTarget(). Mirrors VAOCache's
-		// shader-only keying (see RenderObject()/BindMesh() in IRenderer.cpp)
-		// plus the render-target dimension a Vulkan pipeline needs, since
-		// it bakes in a specific render pass's attachment shape at
-		// creation time - the same mesh+shader drawn into two
-		// differently-shaped targets (e.g. a color-only reflection FBO
-		// versus the main color+depth swapchain pass) needs two separate
-		// pipelines. Only ever populated on the Vulkan backend
-		// (GLRenderDevice::CreatePipeline() exists too, but nothing calls
-		// it outside this cache - GL still uses the individual
-		// SetCullFaceMode/SetBlendingEnabled/etc calls directly, and
-		// GetCurrentRenderTarget() always returns 0 there, collapsing
-		// this back to shader-only keying, matching prior behavior
-		// exactly since GL has no render-pass-shape concept to
-		// disambiguate). Built from Material's blend/depth/cull/wireframe
-		// state at the moment this (mesh, shader, target) triple is first
-		// bound, not re-evaluated per object the way GL's own
-		// dirty-tracked state is - correct for any Material whose
-		// blend/depth/cull state doesn't change after the fact for a
-		// given mesh/shader/target combination.
-		std::map<uint64, uint32> PipelineCache;
 
 		// Materials - shared_ptr so many meshes/components can share one
 		// IMaterial (and Lua/C++ share one refcount). BuildMaterials()
@@ -327,8 +277,6 @@ namespace p3d {
 	};
 
 	class PYROS3D_API RenderingComponent : public IComponent {
-
-		friend class IRenderer;
 
 	public:
 
@@ -525,11 +473,6 @@ namespace p3d {
 		Renderable* GetRenderable() { return renderable.get(); }
 		// (whether that is terrain: asked of every mesh in every shadow pass, so known once, where it is set)
 		bool IsHeightfield() const { return isHeightfield; }
-		uint32 shadowPickSeen = 0;      // (IRenderer::ChooseShadowCasters' pass it was last counted in)
-		// How long it has stood still, for the sun's shadow cache (IRenderer): its owner's world matrix as
-		// last seen, the frames since it changed, and the frame that was looked at last
-		Matrix shadowStillWorld;
-		uint32 shadowStillFrames = 0, shadowStillStamp = 0;
 		// The owning handle, for callers that need to build another
 		// component over the same geometry (the editor's selection
 		// highlight draws a second RenderingComponent on the same
@@ -726,6 +669,8 @@ namespace p3d {
 
 		// Whether any levels beyond the first were given.
 		bool HasLOD() const { return LOD; }
+		// The highest level of detail it has (0 with none)
+		uint32 GetHighestLOD() const { return Meshes.empty() ? 0 : Meshes.rbegin()->first; }
 		// Every level's renderable, level 0 first. AddLOD() now keeps them
 		// alive: it used to take only their geometry pointers, so a level
 		// nothing else held (a scene loaded without LoadedSceneAssets) left
@@ -749,6 +694,9 @@ namespace p3d {
 		// The level a distance (squared) asks for, worked out afresh and remembering nothing
 		// (GetLODByDistance keeps the last answer: this is to hold that against).
 		uint32 LevelAtDistanceSQR(const f32 Distance) const;
+		// Squared distance from a point to its level-of-detail sphere (scaled; 0 inside it) - what a level is chosen by.
+		// To its centre or its origin, a camera standing on a terrain tile (its origin a corner) got a coarse level
+		f32 LODDistanceSQR(const Vec3 &from, const Vec3 &ownerPosition, const Vec3 &ownerScale);
 		const std::vector<RenderingMesh*>* MeshesOfLevel(const uint32 level) const { std::map<uint32, std::vector<RenderingMesh*> >::const_iterator i = Meshes.find(level); return i != Meshes.end() ? &i->second : NULL; }
 		size_t MeshesAtLevel(const uint32 level) const { std::map<uint32, std::vector<RenderingMesh*> >::const_iterator i = Meshes.find(level); return i != Meshes.end() ? i->second.size() : 0; }
 		// The level whose meshes the scene lists now.

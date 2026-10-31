@@ -12,34 +12,24 @@
 #define PYROSPLAYER_H
 
 #include <functional>
-#include <Pyros3D/Rendering/Device/ThreadedRenderDevice.h>
 
-#if defined(_SDL2VULKAN)
-#include "SDL2Vulkan/SDL2VulkanContext.h"
-#include <Pyros3D/Rendering/PostEffects/Upscaling.h>
-#define ClassName SDL2VulkanContext
-#include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
-#elif defined(_SDL2METAL)
-#include "SDL2Metal/SDL2MetalContext.h"
-#define ClassName SDL2MetalContext
-#include <Pyros3D/Rendering/Device/MetalRenderDevice.h>
-#else
+// The window, with the device the game is drawn on: Metal, Vulkan, or WebGPU in a browser
 #include "SDL2/SDL2Context.h"
 #define ClassName SDL2Context
-#endif
+#include <Pyros3D/Rendering/Renderer/SceneRenderer.h>
+#include <Pyros3D/Rendering/Renderer/RendererLua.h>
+#include <Pyros3D/Rendering/Renderer/SceneSettings.h>
+#include <Pyros3D/Rendering/GI/SceneGI.h>
+#include <Pyros3D/Rendering/GI/DDGIVolume.h>
+#include <memory>
 
 #include <set>
 #include <string>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Physics/Physics.h>
 #include <Pyros3D/Core/Projection/Projection.h>
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
-#include <Pyros3D/Rendering/PostEffects/PostEffectChain.h>
-#include <Pyros3D/Rendering/PostEffects/AntiAliasing.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/LoadingScreen.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/DevConsole.h>
+#include <Pyros3D/Rendering/Components/UI/LoadingScreen.h>
+#include <Pyros3D/Rendering/Components/UI/DevConsole.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIButton.h>
 #include <Pyros3D/Rendering/Components/UI/UIToggle.h>
@@ -75,22 +65,14 @@ struct PlayerManifest
 	// "language": a code with a table in assets/strings ("pt"), or "auto" (the default): the
 	// system's preferred language that has one, else "fallbackLanguage" (en).
 	std::string language = "auto", fallbackLanguage = "en";
-	// the fraction of the window's size the scene is rendered at (PyrosPlayer::SetRenderScale)
-	float renderScale = 1.f;
 	std::vector<std::string> preload;      // game.json "preload": read before the first scene
 	// game.json "quality" (see ProjectSettings::quality): -1 where it says nothing
 	nlohmann::json quality;   // (the engine's part applied by shared/QualitySettings.h - the editor's Play calls the same)
-	float qRenderScale = -1.f, qAutoFps = -1.f, qAutoMin = 0.42f, qFrameLimit = -2.f; int qSsaoTemporal = -1; float qUpscaleSharpness = 0.85f; std::string qUpscaler = "fsr1", qUpscaleQuality; // (negative: a plain stretch)
-	bool qHdrOutput = false; float qHdrPaperWhite = 0.f, qHdrPeak = 0.f;   // ("hdrOutput": the window past SDR white, where the display can)
+	float qFrameLimit = -2.f;      // ("frameRateLimit")
 	std::string title = "Pyros3D";
 	std::string startupScene;              // project-relative, e.g. "scenes/Level1.json"
 	std::string touchControls;             // ("touchControls": the game's layout of on-screen controls, project-relative - TouchControls)
 	std::string serverPublicKey;           // pinned when joining with --connect; empty = any server
-	bool deferred = false;                 // matches ProjectSettings::rendererType
-	// The starting mode, as the project asked for it; scripts change it
-	// with setAntiAliasing(). Off when game.json predates the setting, so
-	// an older build keeps looking the way it shipped.
-	p3d::AntiAliasingMode antiAliasing = p3d::AntiAliasingMode::Off;
 	int width = 1280;
 	int height = 720;
 	bool fullscreen = false;
@@ -144,9 +126,6 @@ public:
 	virtual void Update();
 	virtual void Shutdown();
 	virtual void OnResize(const uint32 width, const uint32 height);
-	void SetRenderScale(f32 scale);
-	void SetAutoRenderScale(const f32 targetFps, const f32 minScale, const f32 maxScale);
-	f32 GetRenderScale() const { return renderScale; }
 
 private:
 
@@ -155,8 +134,6 @@ private:
 	// synced, audio sources and particle systems started, scripts allowed
 	// to run, scene main script initialised.
 	bool LoadGameScene(const std::string& sceneRel);
-	// Peeks the startup scene's twoD flag before the renderer is built.
-	static bool StartupSceneIsTwoD(const PlayerManifest& m);
 
 	// --- 2D scenes and overlays -------------------------------------------
 	// A scene marked twoD (SceneMeta::twoD) is an ordinary scene seen through
@@ -202,20 +179,11 @@ private:
 	// LoadGameScene because SceneMeta::View2D is read (and written - it
 	// follows and clamps) on every frame, not only at load.
 	SceneMeta meta;
-	// A DDGI volume was solved for this scene, so the per-frame refresh
-	// has something to refresh. Distinct from meta.ambientMode == 3,
-	// which is only the intent: a solve can fail (no geometry, no
-	// lights, no compute) and the player falls back to flat ambient.
-	bool ddgiActive = false;
-	// What brings the frame up to the window's size, and how far below it the
-	// scene is rendered (Upscaling.h): the project's defaults, then whatever a
-	// script - a game's options menu - asks for.
-	float upscaleSharpness = 0.85f;
-	p3d::UpscalerMode upscaler = p3d::UpscalerMode::FSR1;
-	p3d::UpscaleQuality upscaleQuality = p3d::UpscaleQuality::Auto;
-	float autoFpsWanted = 0.f, autoMinWanted = 0.42f;      // what Auto means for this game
-	void ApplyUpscaler();
-	void ApplyUpscaleQuality();
+	// A DDGI scene's light (ambient mode 3), solved at load - NULL when the scene has none or it could not be solved -
+	// and a dynamic one's rays, for its refresh each frame
+	std::unique_ptr<DDGIVolume> ddgi;
+	std::unique_ptr<RayScene> giRays; uint32 giFrame = 0;
+	SceneGISettings GISettings(const std::string &abs) const;
 	// A scene's baked terrain shadow, waiting for the terrain's tiles to exist (see Update)
 	bool terrainBakePending = false;
 	size_t terrainBakeTiles = 0;
@@ -237,31 +205,17 @@ private:
 	void UpdateView2DCamera(const f32 dt);
 	void ApplyProjection();
 
-	// DeferredRenderer renders into a G-buffer its caller owns.
-	void BuildGBuffer(uint32 width, uint32 height);
-	void DestroyGBuffer();
-
 	// Window resizes are recorded by OnResize() and applied here, at the top
 	// of a frame. See OnResize() for why reallocating GPU images from inside
 	// the event callback is not safe.
 	void ApplyPendingResizeIfAny();
-	// A frame's drawing recorded by another thread while this one runs the next
-	// frame's game logic (PYROS_FRAME_SPLIT=2; see GameObject::GetDrawWorld).
-	void CloseFrame(const bool ownFrame, const f64 dt);
-	void FinishFrameInFlight();
+	// The frame's end: the frame rate's limit waited out, then a scene or overlay a script asked for
+	void CloseFrame();
 	uint32 pendingResizeWidth, pendingResizeHeight;
 	bool resizePending;
-	// The fraction of the window's size the scene is rendered at (SetRenderScale).
-	f32 renderScale = 1.f;
-	// (SetAutoRenderScale: what a second and a half of frames spent waiting for the GPU and idle in the present)
-	struct AutoScale { f32 targetFps = 0.f, minScale = 0.4f, maxScale = 1.f; f64 time = 0.0, gpuWaitMs = 0.0, presentWaitMs = 0.0; uint32 frames = 0; bool roomBefore = false; int shortLooks = 0, roomLooks = 0, sinceChange = 100, downBlockedLooks = 0, upBlockedLooks = 0; f64 triedDownFrom = 0.0; } autoScale;
-	void StepAutoRenderScale(const f64 dt);
 	// (setFrameRateLimit: frames a second at most, and when the next one is due)
 	f32 frameRateLimit = 0.f;
 	std::chrono::steady_clock::time_point nextFrameAt;
-	uint32 ScaledSize(const uint32 full) const;
-	uint32 RenderWidth() const;
-	uint32 RenderHeight() const;
 
 	// Scene switches requested by a script (loadScene("Level2")) are queued,
 	// not immediate: the caller is running inside a component owned by the
@@ -320,14 +274,10 @@ private:
 	bool navKeyWasDown[10] = { false };
 	bool navActivateWasDown = false;
 
-	IRenderer* renderer;
-	// The device driven from a thread of its own (Vulkan): what the frame asks of it is
-	// queued, and made by that thread. NULL where it is not (see Init).
-	bool launchNoDeviceThread = false;
-	// Screen-space UI, composited over the finished 3D frame. Independent of
-	// the Forward/Deferred choice above - it draws into whatever target the
-	// frame is already using.
-	UIRenderer* uiRenderer;
+	// The renderer, on the window's device: the scene, its UI, the overlays over it
+	std::unique_ptr<p3d::SceneRenderer> renderer;
+	void ConfigureRenderer();
+	void DrawFrame();
 	// shown while LoadGameScene runs (game.json "loadingScreen")
 	void OpenLoadingScreen();
 	LoadingScreen loadingScreen;
@@ -335,30 +285,6 @@ private:
 	void UpdateConsole();
 	AudioManager* audio;
 	Projection projection;
-
-	// The scene's post-effect chain - SceneMeta::postEffects, built by the
-	// same PostEffectChain::Build the editor viewport uses, so a built game
-	// looks like what was authored rather than like a second implementation
-	// of the same list. NULL until the first scene that actually has effects:
-	// wrapping the frame in CaptureFrame()/EndCapture() with an empty chain
-	// would render the scene into an FBO that nothing then presents.
-	PostEffectsManager* effectsManager;
-	void BuildPostEffectChain();
-	// Whether this frame goes through the manager: a chain, or any
-	// anti-aliasing mode (MSAA included - its samples live in the capture).
-	bool HavePostEffects();
-	PostEffectsManager* EnsureEffectsManager();
-	// game.json's mode until a script calls setAntiAliasing(). Kept here, not
-	// only in the manager, because the manager does not exist until a scene
-	// or a mode needs it.
-	AntiAliasingMode antiAliasingMode;
-	// Reads a game-relative .glsl for PostEffectChain::Build; `user` is the
-	// player. Assets ship beside the binary, so this is ResolvePath().
-	static bool ReadPostEffectAsset(const std::string& path, std::string& sourceOut, void* user);
-
-	// Deferred only - NULL under the forward renderer.
-	FrameBuffer* gbufferFBO;
-	Texture *gbufferDepth, *gbufferAlbedo, *gbufferSpecular, *gbufferNormal, *gbufferMatRough;
 
 	// Owned by the player, used only when the scene has no camera of its own.
 	std::shared_ptr<GameObject> fallbackCamera;

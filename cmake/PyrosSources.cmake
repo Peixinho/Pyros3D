@@ -15,7 +15,6 @@ set(PYROS_ENGINE_SOURCE
 	${AUDIO_SOURCE}
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/CrashHandler/CrashHandler.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/LoadProgress/LoadProgress.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Frame/FramePipeline.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Console/Console.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Thread/Thread.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/View/ViewFovScale.cpp
@@ -36,9 +35,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Terrain/TerrainOcclusion.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetTransport.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetBuffer.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/NullRenderDevice.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/RefreshPacer.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/ThreadedRenderDevice.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/ShaderGlobals.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetworkIdentity.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetworkSession.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Network/NetCrypto.cpp
@@ -47,7 +44,6 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/MultiModelLoader/AnimationLoader.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/ModelLoaders/IModelLoader.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Mouse3D/Mouse3D.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Mouse3D/PainterPick.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosBindings.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaHelpers.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaEnums.cpp
@@ -57,7 +53,6 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaAssets.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaPhysics.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLua2D.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaPostFX.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaAudio.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaMisc.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosLuaJson.cpp
@@ -83,38 +78,6 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Particles/ParticleSystem.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Culling/Culling.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Culling/FrustumCulling/FrustumCulling.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/PostEffectsManager.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/IEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/CustomEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/PostEffectChain.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BlurSSAOEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/VignetteEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BlurXEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SharpUpscaleEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/FsrEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BlurYEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/BloomEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SkyEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/GradeEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/VolumetricSmokeEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/VolumetricLightEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/AutoExposureEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/VolumetricSmoke.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/RTTDebug.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/SSAOCompositeEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/TonemapEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/GammaEncodeEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/DisplayTextureEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/DepthOfFieldEffect.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/AntiAliasing.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Upscaling.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/Effects/AntiAliasingEffects.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/PostEffects/AntiAliasingStage.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Layer2D/Layer2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/Occluder2D/Occluder2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/TileMap2D/TileMap2D.cpp
@@ -127,9 +90,8 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Physics2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Joint2D.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Physics2D/Physics2DWorld.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/LoadingScreen.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/DevConsole.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/LoadingScreen.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/DevConsole.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIRect.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UICanvas.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIImage.cpp
@@ -144,29 +106,22 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIMenu.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Components/UI/UIPopup.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/IRenderer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/SphericalHarmonics.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Volumetrics/VolumetricSmoke.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/PhysicalSky.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/EnvironmentMap.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/ReflectionProbes.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Culling/OcclusionBuffer.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/OcclusionCulling.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/InstanceCullGroup.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/IrradianceProbeGrid.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/IrradianceProbeBaker.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/RayScene.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/Octahedral.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/DDGIVolume.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/SceneGI.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/DDGICompute.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/GI/BRDFLut.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/GLRenderDevice.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/IRenderDevice.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Water/OceanSim.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/GameObjects/GameObject.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Octree/Octree.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Logs/Log.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Buffers/FrameBuffer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Buffers/GeometryBuffer.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/InputManager/InputManager.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/InputManager/InputActions.cpp
@@ -182,7 +137,6 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Math/Random.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Context/Context.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Core/Projection/Projection.cpp
-	${CMAKE_SOURCE_DIR}/src/Pyros3D/Materials/Shaders/Shaders.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Materials/IMaterial.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.cpp
@@ -227,6 +181,7 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Primitives/Shapes/Torus.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Primitives/Shapes/Card.cpp
+	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Primitives/Shapes/ImpostorQuad.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Plants/GrassTuft.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Trees/TreeMesh.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Renderable/Trees/TreeTextures.cpp
@@ -242,10 +197,6 @@ set(PYROS_ENGINE_SOURCE
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Physics/Components/HeightField/PhysicsHeightField.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Texture/Texture.cpp
 	${CMAKE_SOURCE_DIR}/src/Pyros3D/Assets/Texture/BlockCompress.cpp
-	${GL_INCLUDE}
-	${SPIRV_TOOLING_SOURCE}
-	${VULKAN_BACKEND_SOURCE}
-	${METAL_BACKEND_SOURCE}
 	${IMGUI_CORE_SOURCE}
 )
 
@@ -269,7 +220,6 @@ if (EMSCRIPTEN)
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindRender.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindAssets.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindPhysics.cpp
-		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindPostFX.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindAudio.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindMisc.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Utils/Bindings/PyrosEmbindUI.cpp

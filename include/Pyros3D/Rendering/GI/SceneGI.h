@@ -43,12 +43,7 @@ namespace p3d {
 		// surfaces at the boundary sit inside it rather than exactly on
 		// its clamped face.
 		f32 padding;
-		// Where gi/*.glsl lives. The compute kernels are assembled from
-		// those files at runtime rather than embedded, so the GPU
-		// traversal cannot silently drift from the CPU one that is
-		// tested against it - the cost is that the path has to be known.
-		std::string shaderRoot;
-		// A solve kept between loads (IRenderer::BakeGlobalIllumination): when cachePath names a file
+		// A solve kept between loads (SceneRenderer::SolveGlobalIllumination): when cachePath names a file
 		// written for this cacheKey - the caller's hash of the scene and these settings - the volume is
 		// read from it and nothing is traced; else it is solved and written there. For light that does
 		// not change once solved (a scene's "dynamic": false): a long street was a minute of tracing
@@ -58,7 +53,7 @@ namespace p3d {
 
 		SceneGISettings()
 			: enabled(false), raysPerProbe(128), passes(6),
-			  skyColor(0.f, 0.f, 0.f), padding(0.1f), shaderRoot("resources/shaders")
+			  skyColor(0.f, 0.f, 0.f), padding(0.1f)
 		{
 			counts[0] = 6; counts[1] = 4; counts[2] = 6;
 		}
@@ -86,6 +81,15 @@ namespace p3d {
 	// (IRenderer: on the GPU, where the passes take seconds instead of a minute).
 	PYROS3D_API bool BakeSceneGI(SceneGraph *scene, const SceneGISettings &settings, DDGIVolume &outVolume,
 		const RayScene &rays, const bool trace);
+
+	// The solve kept in settings.cachePath (keyed by settings.cacheKey): read into the volume when it is this scene's
+	// with these settings (false: none, or someone else's), and written after a solve. keepRadiance false leaves the
+	// reflections out (a sky gives them). One format, the old renderer's and the renderer's hosts'
+	PYROS3D_API bool ReadSceneGICache(const SceneGISettings &settings, DDGIVolume &volume);
+	PYROS3D_API bool WriteSceneGICache(const SceneGISettings &settings, const DDGIVolume &volume, const bool keepRadiance);
+	// The cache, else a solve on the CPU (and kept): what a renderer without the old one's compute does - the renderer's
+	// hosts. False: the scene has no geometry, or GI is off
+	PYROS3D_API bool SolveSceneGI(SceneGraph *scene, const SceneGISettings &settings, DDGIVolume &volume);
 
 	// One frame's worth of refresh on an already-allocated volume.
 	//

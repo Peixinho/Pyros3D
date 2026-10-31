@@ -7,7 +7,6 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 
 namespace p3d {
 
@@ -139,7 +138,7 @@ namespace p3d {
 	// the body of UIImage's own constructor can run.
 	static std::shared_ptr<IMaterial> MakeUIMaterial(const Vec4 &tint)
 	{
-		GenericShaderMaterial* mat = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Texture);
+		GenericShaderMaterial* mat = new GenericShaderMaterial(ShaderUsage::Color | ShaderUsage::Texture | ShaderUsage::DisplayReferred);
 		mat->SetColor(tint);
 		mat->SetColorMap(UIImage::WhiteTexture());
 		// Unlit by construction: Diffuse/PBR are the flags that pull
@@ -226,10 +225,7 @@ namespace p3d {
 			return;
 
 		UIQuad* q = static_cast<UIQuad*>(GetRenderable());
-		// A picture something drew (a view rendered for the UI to show) has
-		// its first row at the bottom on OpenGL and at the top elsewhere: the
-		// player's portrait in an inventory stood on its head on GL alone.
-		const bool flipV = texture->IsRenderTarget() && !GetActiveRenderDevice().RenderTargetOriginIsTopLeft();
+		const bool flipV = false;
 		q->Rebuild(rect.width, rect.height, pivot, border,
 			Vec2((f32)texture->GetWidth(), (f32)texture->GetHeight()), flipV);
 

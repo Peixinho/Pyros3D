@@ -23,13 +23,11 @@ namespace p3d
 	{
 	public:
 
+
 		GenericShaderMaterial() {}
 		GenericShaderMaterial(const ShaderOptions options);
 		virtual ~GenericShaderMaterial();
 
-		// PyrosShader.glsl is guaranteed to declare the fixed-binding UBOs
-		// these materials' uniforms map into - see IMaterial::SupportsUniformBlocks().
-		virtual bool SupportsUniformBlocks() const { return true; }
 		// Set Colors
 		void SetColor(const Vec4 &color);
 		void SetSpecular(const Vec4 &specularColor);
@@ -103,6 +101,11 @@ namespace p3d
 		// it (a sign glows in its own letters). Seen by DDGI as light, so it lights what is round it.
 		// Strength 0: none.
 		void SetEmission(const Vec3 &color, const f32 strength, const bool usesColorMap = false);
+		// The maps repeated `scale` times across the mesh's texture coordinates and moved by `offset`: a stone
+		// floor tiled every metre or two, not one picture stretched over the whole slab. (1, 1), (0, 0): as made.
+		void SetUVTransform(const Vec2 &scale, const Vec2 &offset = Vec2(0.f, 0.f));
+		Vec2 GetUVScale() const { return Vec2(UVTransform.x, UVTransform.y); }
+		Vec2 GetUVOffset() const { return Vec2(UVTransform.z, UVTransform.w); }
 		const Vec3 &GetEmissionColor() const { return EmissionColor; }
 		f32 GetEmissionStrength() const { return EmissionStrength; }
 		bool GetEmissionUsesColorMap() const { return EmissionUsesColorMap; }
@@ -123,10 +126,7 @@ namespace p3d
 		// Vertex sway for ShaderUsage::VertexWind materials: strength in
 		// world units at the top of the mesh, rate in radians/second,
 		// spatial frequency deciding how quickly the phase varies across
-		// the scene (so a field ripples instead of moving as one). Read by
-		// IRenderer::SendModelUniforms() into ObjectMatrixUniforms' uWind,
-		// which is why this is stored here rather than in the fragment-only
-		// MaterialUniforms block.
+		// the scene (so a field ripples instead of moving as one).
 		// skyLean: how far the surface's normal leans to the sky for
 		// lighting (0 as modelled, 1 straight up) - grass and leaves then
 		// take the light the ground takes instead of each card's own.
@@ -134,6 +134,10 @@ namespace p3d
 		// For materials drawn with ShaderUsage::VertexWind - leaves and grass. Deferred frames.
 		void SetLightThrough(const f32 amount) { LightThrough = amount; }
 		f32 GetLightThrough() const { return LightThrough; }
+		// An octahedral impostor's numbers (ShaderUsage::Impostor): the grid's side (views a row), the
+		// tree's bounding radius and its centre's height above its foot, both at scale 1.
+		void SetImpostor(const f32 frames, const f32 radius, const f32 centreHeight) { Impostor = Vec4(frames, radius, centreHeight, 1.f); }
+		const Vec4 &GetImpostor() const { return Impostor; }
 		void SetWind(const f32 strength, const f32 rate = 1.6f, const f32 spatialFrequency = 0.12f, const f32 skyLean = 0.f) { Wind = Vec4(strength, rate, spatialFrequency, skyLean); }
 		const Vec4 &GetWind() const { return Wind; }
 
@@ -149,63 +153,14 @@ namespace p3d
 
 		void AddTexture(const std::string &uniformName, const std::shared_ptr<Texture> &texture);
 
-		// Render
-		virtual void PreRender();
-		virtual void AfterRender();
-
-		// Bind
-		void BindTextures();
-		void UnbindTextures();
-
 		// Real getters - this material was previously write-only (every
 		// Set* above had no matching Get*, blocking anything that needs
 		// to read a material's current state back, e.g. scene
 		// serialization or an editor Inspector panel showing the actual
 		// current color instead of a disconnected local variable).
 		// GetOptions() is the critical one: the ctor's ShaderUsage bitmask
-		// selects which shader variant compiles, and without it a saved
-		// material can't be reconstructed with the right shader at all.
-		// True when this material's own compiled program (shaderID, set
-		// once at construction) already has DeferredRenderer_Gbuffer in
-		// its options - i.e. it's safe to bind as-is during a
-		// DeferredRenderer G-buffer pass. False for every ordinary
-		// scene material (SceneObjects::GenericMaterial, anything loaded
-		// via SceneSerializer::BuildMaterial's "options" field) - see
-		// GetOrBuildGBufferProgram()'s comment.
-		bool IsCompiledForGBuffer() const { return (shaderID & ShaderUsage::DeferredRenderer_Gbuffer) != 0; }
-		// Lazily compiles (once per distinct options value, cached like
-		// every other ShadersList entry) a DEFERRED_GBUFFER sibling of
-		// this material's own shader and returns its program handle,
-		// without touching this material's own shaderProgram. See the
-		// .cpp for why this exists.
-		uint32 GetOrBuildGBufferProgram();
-		// Paired calls around a single G-buffer RenderObject() -
-		// DeferredRenderer::RenderScene() is the only caller. Swaps
-		// shaderProgram to the G-buffer sibling for exactly that one
-		// draw, then must be restored before this material is used for
-		// anything else (a Forward pass, a shadow pass, another
-		// material's uniforms being resolved against the wrong program).
-		void UseGBufferProgramForNextDraw() { DrawOverride &o = Override(); o.program = GetOrBuildGBufferProgram(); o.extra = NULL; o.variant = -1; o.material = this; }
-		// The general form: this material's options plus `extraOptions`
-		// (ShaderUsage bits - DeferredRenderer_Gbuffer, InstancedRendering),
-		// compiled once and cached like every ShadersList entry. The
-		// renderer's automatic instancing draws with shaderID|InstancedRendering.
-		uint32 GetOrBuildVariantProgram(const ShaderOptions extraOptions);
-		// Whether the variant GetOrBuildVariantProgram(extraOptions) gives can be made without holding the
-		// frame up: made already, or its SPIR-V compiled ahead (Vulkan: on a worker, started by the first
-		// ask; other backends: always). The renderer leaves a mesh undrawn until it is.
-		bool VariantReady(const ShaderOptions extraOptions);
-		// Hash of everything that decides how this material renders: shader
-		// options, parameters, textures, uniform values and render state.
-		// Two materials with the same fingerprint draw identically, so the
-		// renderer's automatic instancing batches their meshes together -
-		// editor scenes give every object a private copy, and pointer
-		// identity alone would batch nothing there. Identity is not part of
-		// it: a script that changes one object's colour changes only that
-		// object's fingerprint.
-		uint64 RenderFingerprint() const;
-		void UseVariantProgramForNextDraw(const ShaderOptions extraOptions) { DrawOverride &o = Override(); o.program = GetOrBuildVariantProgram(extraOptions); o.extra = NULL; o.variant = -1; o.material = this; }
-		void RestoreOwnProgram() { DrawOverride &o = Override(); if (o.material == this) o = DrawOverride(); }
+		// says what the material is, and without it a saved material
+		// can't be reconstructed.
 		const ShaderOptions &GetOptions() const { return shaderID; }
 		const Vec4 &GetColor() const { return Kd; }
 		const Vec4 &GetSpecular() const { return Ks; }
@@ -219,6 +174,7 @@ namespace p3d
 		f32 GetSubsurfaceStrength() const { return Subsurface.w; }
 		// Observing raw pointers - Material owns the shared_ptrs in Textures.
 		Texture* GetColorMap() const { return colorMapID >= 0 ? Textures[colorMapID].get() : NULL; }
+		Texture* GetFontMap() const { return fontMapID >= 0 ? Textures[fontMapID].get() : NULL; }
 		// Shares ownership rather than observing, for handing one material's
 		// colormap to another - IRenderer::PickShadowMaterial() lends a
 		// cutout caster's map to the shared alpha-test shadow material, and
@@ -227,6 +183,7 @@ namespace p3d
 		std::shared_ptr<Texture> GetColorMapShared() const { return colorMapID >= 0 ? Textures[colorMapID] : std::shared_ptr<Texture>(); }
 		Texture* GetSpecularMap() const { return specularMapID >= 0 ? Textures[specularMapID].get() : NULL; }
 		Texture* GetNormalMap() const { return normalMapID >= 0 ? Textures[normalMapID].get() : NULL; }
+		std::shared_ptr<Texture> GetNormalMapShared() const { return normalMapID >= 0 ? Textures[normalMapID] : std::shared_ptr<Texture>(); }
 		Texture* GetDisplacementMap() const { return displacementMapID >= 0 ? Textures[displacementMapID].get() : NULL; }
 		Texture* GetEnvMap() const { return envMapID >= 0 ? Textures[envMapID].get() : NULL; }
 		Texture* GetRefractMap() const { return refractMapID >= 0 ? Textures[refractMapID].get() : NULL; }
@@ -239,11 +196,7 @@ namespace p3d
 		std::vector<std::shared_ptr<Texture>> Textures;
 
 	protected:
-		// Shaders List
-		static std::map<ShaderOptions, Shader* > ShadersList;
-
-		static Shader* BuildProgram(const ShaderOptions options, bool &ok);
-		// Save Shader Location on Shaders List
+		// What it is (ShaderUsage)
 		ShaderOptions shaderID;
 
 		// Lighting Properties
@@ -271,26 +224,20 @@ namespace p3d
 		f32 EmissionStrength = 0.f;
 		bool EmissionUsesColorMap = false;
 		Vec4 Emission = Vec4(0.f, 0.f, 0.f, 0.f);
-		// See SetWind(). Not in the MaterialUniforms mirror - it travels in
-		// ObjectMatrixUniforms because it is needed in the vertex stage.
+		// See SetUVTransform().
+		Vec4 UVTransform = Vec4(1.f, 1.f, 0.f, 0.f);
+		// See SetWind().
 		Vec4 Wind;
 		// See SetLightThrough().
 		f32 LightThrough = 0.f;
+		// See SetImpostor().
+		Vec4 Impostor = Vec4(0.f, 0.f, 0.f, 0.f);
 
 		// Texture IDs
 		int32 colorMapID, specularMapID, normalMapID, displacementMapID, envMapID, skyboxMapID, refractMapID, fontMapID;
 		int32 metallicRoughnessMapID;
 		int32 emissionMapID;
 
-		// Uniforms Handles
-		Uniform *uColor = NULL, *uSpecular = NULL, *uReflectivity = NULL, *uShininess = NULL, *uUseLights = NULL, *uDisplacementHeight = NULL;
-		Uniform *uMetallic = NULL, *uRoughness = NULL;
-		Uniform *uSSRReflective = NULL;
-		// See SetAlphaCutoff().
-		Uniform *uAlphaCutoffUniform = NULL;
-		Uniform *uSubsurfaceUniform = NULL;
-		Uniform *uWetnessUniform = NULL;
-		Uniform *uEmissionUniform = NULL;
 	};
 }
 

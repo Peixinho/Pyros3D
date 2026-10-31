@@ -1,19 +1,7 @@
 //=============================================================================
 // Name        : MaterialPreview.cpp
-// Description : Live sphere preview for Custom Shader materials. See
-//               MaterialPreview.h for the class contract.
-//
-// Design note: the preview's shader is still always compiled Forward
-// (/*deferredGBuffer=*/false in SyncFromDoc below) regardless of which
-// renderer EnsureInit() built. That's fine, not a shortcut: the generated
-// GLSL always contains BOTH #ifdef DEFERRED_GBUFFER branches (see
-// MaterialCodegen.cpp), and CustomShaderMaterial::UseGBufferProgramForNextDraw()
-// lazily compiles+caches the Deferred sibling from that same source text the
-// first time DeferredRenderer::RenderScene() draws it, swapping it in for
-// that draw and restoring the Forward program after - see
-// CustomShaderMaterial.cpp. So which renderer is active is what actually
-// determines which branch's math the preview exercises; the initial compile
-// flag here only picks which one links first.
+// Description : Live sphere preview for materials. See MaterialPreview.h for
+//               the class contract.
 //=============================================================================
 
 #include "MaterialPreview.h"
@@ -22,9 +10,6 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Sphere.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <imgui.h>
 #include <algorithm>
@@ -44,104 +29,26 @@ std::string JoinPath(const std::string& root, const std::string& rel) {
 } // namespace
 
 MaterialPreview::~MaterialPreview() {
-	// Drop the GameObject refs first, then the scene that owns them, then
-	// the FBO-backed pipeline objects (their color texture is what a
-	// frame's ImGui draw list samples - the same mid-frame-free hazard
-	// Editor::deferredDestroyPreviews guards against).
+	// Drop the GameObject refs first, then the scene that owns them, then what was drawn with (its texture is what
+	// a frame's ImGui draw list samples: freed by the device once those frames are done)
 	sphereGO.reset();
 	sphereRC = nullptr; // non-owning, freed along with sphereGO above
 	cameraGO.reset();
 	lightGO.reset();
 	previewMaterial.reset();
 	delete scene;
-	delete effects;
-	delete renderer;
 	scene = nullptr;
-	effects = nullptr;
-	renderer = nullptr;
-	DestroyGBuffer();
+	sceneRenderer.reset();
+	if (previewTarget && gfxDevice) { if (imguiRenderer) imguiRenderer->Forget(previewTarget); gfxDevice->Destroy(previewTarget); }
+	previewTarget = p3d::gfx::Texture();
 }
 
-void MaterialPreview::BuildGBuffer(uint32_t w, uint32_t h) {
-	using namespace p3d;
-	gbufferDepth = new Texture();
-	gbufferDepth->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, w, h, false);
-	gbufferDepth->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-	// Nearest, not CreateEmptyTexture's default Linear. This is the
-	// depth every secondpass*.glsl samples as tDepth, and a
-	// Linear-filtered depth texture is not filterable: WebGL2 calls the
-	// texture incomplete and every sample returns 0, Apple's GL calls it
-	// "unloadable" and substitutes the zero texture. tDepth then reads 0
-	// everywhere, `if (tDepth >= 1.0) discard` never rejects the sky, and
-	// the ambient pass plus every light shade the whole screen - the
-	// white/washed-out deferred viewport in the browser build. Same rule
-	// as PostEffectsManager::Init() and VelocityRenderer, which document
-	// it from the effect side.
-	gbufferDepth->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
+p3d::gfx::Device* MaterialPreview::gfxDevice = nullptr;
+p3d::ImGuiRenderer* MaterialPreview::imguiRenderer = nullptr;
 
-	gbufferAlbedo = new Texture();
-	// RGBA16F, not RGBA8. These two carry the additive ambient+emissive
-	// term in their alpha channels (see secondpassAmbient.glsl), and an
-	// 8-bit UNORM alpha clamps that at 1.0 - which silently flattened
-	// the brightest parts of any emissive material. The normal target
-	// was already float for the same kind of reason.
-	gbufferAlbedo->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, w, h, false);
-	gbufferAlbedo->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-	gbufferSpecular = new Texture();
-	// RGBA16F, not RGBA8. These two carry the additive ambient+emissive
-	// term in their alpha channels (see secondpassAmbient.glsl), and an
-	// 8-bit UNORM alpha clamps that at 1.0 - which silently flattened
-	// the brightest parts of any emissive material. The normal target
-	// was already float for the same kind of reason.
-	gbufferSpecular->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA16F, w, h, false);
-	gbufferSpecular->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-	gbufferNormal = new Texture();
-	gbufferNormal->CreateEmptyTexture(TextureType::Texture, DeferredRenderer::NormalTargetFormat(), w, h, false);
-	gbufferNormal->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-	gbufferMatRough = new Texture();
-	gbufferMatRough->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, w, h, false);
-	gbufferMatRough->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-	gbufferFBO = new FrameBuffer();
-	gbufferFBO->SetDebugName("Material preview G-buffer");
-	gbufferFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, gbufferDepth);
-	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, gbufferAlbedo);
-	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment1, TextureType::Texture, gbufferSpecular);
-	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment2, TextureType::Texture, gbufferNormal);
-	gbufferFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment3, TextureType::Texture, gbufferMatRough);
-}
-
-void MaterialPreview::DestroyGBuffer() {
-	delete gbufferFBO; gbufferFBO = nullptr;
-	delete gbufferDepth; gbufferDepth = nullptr;
-	delete gbufferAlbedo; gbufferAlbedo = nullptr;
-	delete gbufferSpecular; gbufferSpecular = nullptr;
-	delete gbufferNormal; gbufferNormal = nullptr;
-	delete gbufferMatRough; gbufferMatRough = nullptr;
-}
-
-void MaterialPreview::EnsureInit(bool useDeferred) {
-	if (renderer) return;
-
-	usingDeferred = useDeferred;
-	if (usingDeferred) {
-		BuildGBuffer((uint32)width, (uint32)height);
-		auto* deferred = new p3d::DeferredRenderer((uint32)width, (uint32)height, gbufferFBO);
-		// This preview only ever reads GetColorTexture() (see RenderFrame()/
-		// DrawAndUpdate() below) - never relies on RenderScene()'s own
-		// direct-to-screen draw, which otherwise races the main viewport's
-		// own DeferredRenderer for framebuffer 0 whenever both render in the
-		// same frame (see DeferredRenderer::SetSkipRenderToScreen()).
-		deferred->SetSkipRenderToScreen(true);
-		renderer = deferred;
-	} else {
-		renderer = new p3d::ForwardRenderer((uint32)width, (uint32)height);
-	}
-	effects = new p3d::PostEffectsManager((uint32)width, (uint32)height);
-	effects->GetExternalFrameBuffer()->SetDebugName("Material preview");
+void MaterialPreview::EnsureInit() {
+	if (sceneRenderer || !gfxDevice) return;
+	sceneRenderer.reset(new p3d::SceneRenderer(gfxDevice));
 	scene = new p3d::SceneGraph();
 
 	cameraGO = std::make_shared<p3d::GameObject>();
@@ -152,10 +59,10 @@ void MaterialPreview::EnsureInit(bool useDeferred) {
 	lightGO->Add(std::make_shared<p3d::DirectionalLight>(p3d::Vec4(1.f, 1.f, 1.f, 1.f), p3d::Vec3(-0.45f, -1.f, -0.35f)));
 	scene->Add(lightGO);
 
-	// Modest ambient so unlit areas aren't pure black (mirrors
-	// SceneEditor::ambientLightColor / Renderer->SetGlobalLight).
-	renderer->SetBackground(p3d::Vec4(0.18f, 0.18f, 0.2f, 1.f));
-	renderer->SetGlobalLight(p3d::Vec4(0.3f, 0.3f, 0.35f, 1.f));
+	// Modest ambient so unlit areas aren't pure black
+	sceneRenderer->SetName("Material preview");
+	sceneRenderer->SetBackground(p3d::Vec3(0.027f, 0.027f, 0.033f));
+	sceneRenderer->SetAmbient(p3d::Vec3(0.3f, 0.3f, 0.35f));
 
 	if (previewMaterial)
 		CreateSphere();
@@ -165,12 +72,7 @@ void MaterialPreview::EnsureInit(bool useDeferred) {
 void MaterialPreview::CreateSphere() {
 	if (sphereGO || !scene) return;
 	sphereGO = std::make_shared<p3d::GameObject>();
-	// With tangents. A material whose shader has the Normal Map option
-	// declares aTangent/aBitangent, and on Vulkan/Metal a draw whose
-	// geometry lacks an attribute the shader declares is dropped - so every
-	// normal-mapped material (which is most imported model materials)
-	// previewed as an empty background. Shaders that don't declare them
-	// just ignore the extra streams.
+	// With tangents: a normal-mapped material reads them
 	auto mesh = std::make_shared<p3d::Sphere>(1.0f, 32, 24, /*smooth=*/true, /*HalfSphere=*/false, /*flip=*/false, /*TangentBitangent=*/true);
 	auto rc = std::make_shared<p3d::RenderingComponent>(mesh, previewMaterial);
 	rc->DisableCastShadows();
@@ -223,49 +125,22 @@ void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::
 	}
 	if (previewMaterial && doc.applyGeneration == lastSeenApplyGeneration) return;
 
-	std::unique_ptr<p3d::Shader> newShader;
-	std::string err;
-	bool compiled = false;
-	// Prefer the on-disk generated file when there is one (keeps the
-	// preview in step with unsaved edits to it). Same "no recoverable
-	// file -> fall back to the material's own cached shader text" split
-	// MaterialEditor::RecompileFromDisk uses: EditMaterialInline-opened
-	// docs for a material assigned via the Scene/Assign-material flow
-	// (rather than created fresh in this editor) have no generatedGlslPath
-	// at all - SceneSerializer saves those with an embedded shaderSource
-	// and no file, since there's nothing on disk to point at. Without this
-	// fallback the preview stayed permanently empty for every material
-	// that reached the Material Editor that way, which - since dragging a
-	// mesh's assigned material open via "Edit Material" is the ordinary
-	// way to land here - was effectively always.
-	if (!doc.generatedGlslPath.empty()) {
-		const std::string glslAbsPath = JoinPath(projectRoot, doc.generatedGlslPath);
-		compiled = MaterialEditor::CompileMaterialShaderFile(glslAbsPath, /*deferredGBuffer=*/false, &newShader, &err);
-	} else if (auto* cm = dynamic_cast<p3d::CustomShaderMaterial*>(doc.currentMaterial.get())) {
-		if (cm->GetShaderObject() && !cm->GetShaderObject()->GetShaderText().empty())
-			compiled = MaterialEditor::CompileMaterialShaderText(cm->GetShaderObject()->GetShaderText(), /*deferredGBuffer=*/false, &newShader, &err);
-	}
-	if (!compiled)
+	// The material's surface from the same codegen, the graph's or the text's
+	MaterialCodegenResult gen2 = doc.editMode == MaterialEditMode::Text
+		? GenerateSurfaceFromSimpleText(doc.simpleShaderText, [&]() { std::vector<std::string> n; for (const auto &t : MaterialEditor::BuildTextSamplerList(doc.textTextures)) n.push_back(t.first); return n; }())
+		: GenerateSurface(doc.nodes, doc.connections);
+	if (gen2.surface.empty())
 		return; // keep showing the last-good preview material on failure
 
-	// previewMaterial is IMaterial-typed (shared with the Generic-kind
-	// branch above) - SetShader/AdoptShader are CustomShaderMaterial-only,
-	// so keep a same-instance typed alias for those two calls.
+	// previewMaterial is IMaterial-typed (shared with the Generic-kind branch above)
 	std::shared_ptr<p3d::CustomShaderMaterial> customPreview = std::dynamic_pointer_cast<p3d::CustomShaderMaterial>(previewMaterial);
 	if (!customPreview) {
-		customPreview = std::make_shared<p3d::CustomShaderMaterial>(newShader.get());
+		customPreview = std::make_shared<p3d::CustomShaderMaterial>();
 		previewMaterial = customPreview;
-	} else {
-		customPreview->SetShader(newShader.get());
 	}
-	// The Shader* constructor and SetShader() don't take ownership - adopt
-	// explicitly (same recurring gotcha as every other path in this code).
-	customPreview->AdoptShader(std::move(newShader));
+	customPreview->SetSurfaceSource(gen2.surface);
 
-	// The same fixed uniform set every generated shader is written against
-	// (idempotent - this runs on every re-sync), and the settings mirrored
-	// above, for a freshly created preview material.
-	customPreview->AddGeneratedShaderUniforms();
+	// The settings mirrored above, for a freshly created preview material
 	if (doc.currentMaterial) {
 		customPreview->SetOpacity(doc.currentMaterial->GetOpacity());
 		customPreview->SetTransparencyFlag(doc.currentMaterial->IsTransparent());
@@ -280,7 +155,7 @@ void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::
 	if (doc.editMode == MaterialEditMode::Text) {
 		samplerList = MaterialEditor::BuildTextSamplerList(doc.textTextures);
 	} else {
-		MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
+		MaterialCodegenResult gen = GenerateSurface(doc.nodes, doc.connections);
 		samplerList = MaterialEditor::BuildNodeSamplerList(gen.textureSamplers, doc.nodes);
 		MaterialEditor::SyncParameters(customPreview.get(), gen.parameters);
 	}
@@ -292,108 +167,33 @@ void MaterialPreview::SyncFromDoc(const MaterialEditorDocument& doc, const std::
 }
 
 void MaterialPreview::RenderFrame() {
-	if (!renderer || !effects || !scene || !cameraGO) return;
-
+	if (!sceneRenderer || !scene || !cameraGO) return;
 	const p3d::Vec3 eye = ComputeEye();
 	p3d::Matrix view;
 	view.LookAt(eye, panTarget, p3d::Vec3::UP);
 	// GameObject stores world transform, not view.
 	cameraGO->SetTransformationMatrix(view.Inverse());
-	// Real elapsed time, not 0. Both renderers take the value behind
-	// Uniforms::DataUsage::Timer - what a shader reads as uTime - straight
-	// from the SceneGraph they are handed (ForwardRenderer.cpp /
-	// DeferredRenderer.cpp both do `Timer = Scene->GetTime()`), and
-	// SceneGraph::GetTime() returns whatever was last passed to Update().
-	// Passing 0 every frame, as this did, pinned uTime at 0 for the whole
-	// life of the preview: every time-driven material - anything scrolling,
-	// pulsing or flowing - rendered as a single frozen frame here while
-	// animating correctly in the Scene View, whose SceneEditor::Update()
-	// passes the real time. ImGui's clock is the same one the auto-apply
-	// debounce in MaterialEditor::DrawWindow already runs on, and
-	// RenderFrame() is only ever reached from inside an ImGui frame.
+	// Real elapsed time, not 0: what a surface reads as uTime is the scene's clock, and a time-driven material -
+	// anything scrolling, pulsing or flowing - would otherwise show one frozen frame here
 	scene->Update(ImGui::GetTime());
-
-	p3d::Projection proj;
-	proj.Perspective(45.0f, (f32)width / (f32)height, 0.05f, 100.0f);
-
-	// Same call sequence as SceneEditor::RenderCameraPreview (including its
-	// shared-UBO invalidation), which is the established "second live
-	// offscreen render interleaved into the same frame as the main
-	// viewport" pattern in this codebase.
-	p3d::IRenderer::InvalidateSharedUniformCaches();
-	// DeferredRenderer::Resize() only resizes its own internal FBOs, never
-	// this class's externally-owned gbufferFBO - identical split to
-	// SceneEditor::ShowViewport()'s. It matters now that the caller sizes
-	// the preview to fit the Material Editor's panel (see
-	// MaterialEditor::DrawWindow) rather than always handing it 220x220.
-	if (usingDeferred && gbufferFBO
-		&& ((uint32)width != gbufferAlbedo->GetWidth() || (uint32)height != gbufferAlbedo->GetHeight()))
+	const uint32_t w = (uint32_t)std::max(width, 1), h = (uint32_t)std::max(height, 1);
+	if (!previewTarget || w != previewTargetW || h != previewTargetH)
 	{
-		gbufferDepth->Resize((uint32)width, (uint32)height);
-		gbufferAlbedo->Resize((uint32)width, (uint32)height);
-		gbufferSpecular->Resize((uint32)width, (uint32)height);
-		gbufferNormal->Resize((uint32)width, (uint32)height);
-		gbufferMatRough->Resize((uint32)width, (uint32)height);
-		gbufferFBO->Resize((uint32)width, (uint32)height);
+		if (previewTarget) { if (imguiRenderer) imguiRenderer->Forget(previewTarget); gfxDevice->Destroy(previewTarget); }
+		p3d::gfx::TextureDesc d; d.width = w; d.height = h; d.format = gfxDevice->BackbufferFormat();
+		d.usage = p3d::gfx::TexColorTarget | p3d::gfx::TexSampled | p3d::gfx::TexCopySrc; d.debugName = "Editor.MaterialPreview";
+		previewTarget = gfxDevice->CreateTexture(d); previewTargetW = w; previewTargetH = h;
 	}
-	renderer->Resize((uint32)width, (uint32)height);
-	effects->Resize((uint32)width, (uint32)height);
-	effects->ProcessPostEffects(&proj);
-	renderer->ResetViewPort();
-	renderer->SetViewPort(0, 0, (uint32)width, (uint32)height);
-	renderer->PreRender(cameraGO.get(), scene);
-	renderer->ApplyBackgroundClearColor();
-	effects->CaptureFrame();
-	renderer->RenderScene(proj, cameraGO.get(), scene);
-	effects->EndCapture();
-#if defined(_SDL2VULKAN) || defined(_SDL2METAL)
-	// Preview and the main viewport share one GlobalMatrices UBO. Without
-	// waiting here the main pass can overwrite view/proj on the GPU while
-	// preview draws are still in flight, causing the two cameras to
-	// visibly alternate/flicker. Do not skip this call.
-	GetActiveRenderDevice().WaitIdle();
-#endif
-	p3d::IRenderer::InvalidateSharedUniformCaches();
+	p3d::View v;
+	v.cameraWorld = view.Inverse(); v.fovY = 45.f; v.nearZ = 0.05f;
+	v.width = w; v.height = h; v.target = previewTarget; v.hostFrame = true;     // (the editor's frame, presented by it)
+	sceneRenderer->Render(scene, v);
 }
 
 void MaterialPreview::DrawAndUpdate() {
-	if (!renderer || !effects || !scene || !cameraGO) {
-		ImGui::TextDisabled("Preview unavailable (no renderer)");
-		return;
-	}
-
-	// Render on every other call instead of every one. This preview and the
-	// main Scene View viewport share low-level renderer state (the
-	// GlobalMatrices UBO, and - for Deferred - framebuffer 0 itself; see
-	// RenderFrame()'s and DeferredRenderer::SetSkipRenderToScreen()'s own
-	// comments) in a way that's proven unsafe to interleave within the same
-	// frame even with the explicit WaitIdle()/cache-invalidation this class
-	// already does around its own render - the two GPU command streams
-	// don't actually serialize the way that CPU-side ordering implies.
-	// Skipping every other frame is a hard guarantee instead of another
-	// attempt at making concurrent rendering safe: this preview's render
-	// and the main viewport's simply never happen in the same frame, so
-	// there's nothing left to race. GetColorTexture()/GetViewportColor()
-	// below still return a valid, fully-formed image on skipped frames
-	// (last real render's result - a persistent texture, not cleared
-	// between calls), so the displayed preview just updates at half
-	// framerate, imperceptible for a mostly-static preview sphere.
-	skipRenderThisCall = !skipRenderThisCall;
-	if (!skipRenderThisCall)
-		RenderFrame();
-
-	// DeferredRenderer::RenderScene()'s final composite always lands on
-	// framebuffer 0, not on effects' capture target (FrameBuffer::UnBind()
-	// rebinds fb 0 as its first action) - same divergence SceneEditor's
-	// viewport handles by reading GetColorTexture() directly for Deferred.
-	p3d::Texture* color = usingDeferred
-		? static_cast<p3d::DeferredRenderer*>(renderer)->GetColorTexture()
-		: effects->GetViewportColor();
-	if (!color) {
-		ImGui::TextDisabled("No preview texture");
-		return;
-	}
-	void* tid = GetActiveRenderDevice().GetImGuiTextureID(color->GetBindID(), color->GetTextureType());
+	// Drawn every frame - its own renderer, nothing shared with the Scene View's to race
+	RenderFrame();
+	void* tid = previewTarget ? (void*)(uintptr_t)p3d::ImGuiRenderer::Id(previewTarget) : NULL;
 	if (!tid) {
 		ImGui::TextDisabled("[preview texture unavailable]");
 		return;

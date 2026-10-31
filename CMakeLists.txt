@@ -25,7 +25,7 @@ include(PyrosWindows)
 # root scope so examples/ and editor/ both see it.
 include(PyrosStageAssets)
 
-# Options → dependencies → GL/Vulkan/ImGui → engine sources
+# Options → dependencies → devices/ImGui → engine sources
 include(PyrosOptions)
 include(PyrosDependencies)
 include(PyrosBackend)
@@ -35,6 +35,8 @@ include(PyrosSources)
 # PyrosEngine library
 # ---------------------------------------------------------------------------
 add_library(PyrosEngine ${LIB_TYPE} ${PYROS_ENGINE_SOURCE})
+include(PyrosRenderer)
+pyros_add_renderer(PyrosEngine)
 # (miniaudio on iOS includes AVFoundation - Objective-C: its implementation is compiled as Objective-C++ there)
 if (IOS)
 	set_source_files_properties(${CMAKE_SOURCE_DIR}/src/Pyros3D/Ext/miniaudio/miniaudio_impl.cpp PROPERTIES LANGUAGE OBJCXX)
@@ -48,21 +50,17 @@ target_include_directories(PyrosEngine
 		${FREETYPE_INCLUDE_DIRS}
 		${BOX3D_INCLUDE_DIRS}
 		${BOX2D_INCLUDE_DIRS}
-		${GLAD_INCLUDE_DIR}
 	PRIVATE
-		${OPENGL_INCLUDE_DIRS}
-		${SPIRV_TOOLING_INCLUDE_DIRS}
+		${PYROS_DEVICE_INCLUDE_DIRS}
 		${ENET_INCLUDE_DIRS}
 )
 
 target_link_libraries(PyrosEngine
 	PUBLIC
-		${OPENGL_LIBS}
 		${BOX3D_LIBRARIES}
 		${BOX2D_LIBRARIES}
 		${FREETYPE_LIBRARIES}
 		${LUA_LIBRARIES}
-		${SPIRV_TOOLING_LIBS}
 		${VULKAN_BACKEND_LIBS}
 		${METAL_BACKEND_LIBS}
 		${AUDIO_LIBS}
@@ -71,20 +69,12 @@ target_link_libraries(PyrosEngine
 # Networking: ENet stays private - nothing in include/Pyros3D names it - and
 # PYROS_NETWORKING tells the engine and its users the transport is there.
 target_link_libraries(PyrosEngine PRIVATE ${MONOCYPHER_LIBRARIES})
-# (Windows: the monitor's peak and SDR-content brightness, for HDR output - Vulkan says neither)
-if (WIN32)
-	target_sources(PyrosEngine PRIVATE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/WindowsDisplay.cpp)
-	target_link_libraries(PyrosEngine PRIVATE dxgi)
-endif()
-# (the Mac's displays: how far past SDR white they can show, for HDR output on any backend)
+# (Apple: AppKit/UIKit for the device's layer and window)
 if (APPLE AND NOT EMSCRIPTEN)
-	target_sources(PyrosEngine PRIVATE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/AppleDisplay.mm)
-	set_source_files_properties(${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/AppleDisplay.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
 	if (IOS)
 		target_link_libraries(PyrosEngine PRIVATE "-framework UIKit")
 	else()
-		# (and CoreVideo: its display link begins frames on the refresh - PyrosAppleWaitForRefresh)
-		target_link_libraries(PyrosEngine PRIVATE "-framework AppKit" "-framework CoreVideo")
+		target_link_libraries(PyrosEngine PRIVATE "-framework AppKit")
 	endif()
 endif()
 target_link_libraries(PyrosEngine PRIVATE ${RECAST_LIBRARIES})
@@ -114,11 +104,10 @@ endif()
 if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 	target_compile_definitions(PyrosEngine PRIVATE _EXPORT)
 
-	# ImGui and glad are compiled into the engine but carry no PYROS3D_API -
-	# they have export macros of their own instead. The demos and the editor
-	# call both directly (the ImGui backends, and BaseExample/SDL2Context's
-	# GL calls), so without this a SHARED build fails with LNK2001/LNK2019 on
-	# every ImGui:: and glad_gl* symbol.
+	# ImGui is compiled into the engine but carries no PYROS3D_API - it has
+	# an export macro of its own instead. The demos and the editor call it
+	# directly, so without this a SHARED build fails with LNK2001/LNK2019 on
+	# every ImGui:: symbol.
 	#
 	# PRIVATE vs INTERFACE is what splits export from import: PRIVATE reaches
 	# only the engine's own translation units, INTERFACE only what links it.
@@ -126,22 +115,12 @@ if (WIN32 AND LIB_TYPE STREQUAL "SHARED")
 		PRIVATE   "IMGUI_API=__declspec(dllexport)"
 		INTERFACE "IMGUI_API=__declspec(dllimport)"
 
-		# The ImGui *backends* straddle the boundary: the engine builds
-		# imgui_impl_vulkan/metal, and each consumer builds imgui_impl_sdl2 +
-		# imgui_impl_opengl3 (see PyrosWindowContext.cmake). Every one of them
-		# is defined and called on the same side of the DLL, so their entry
-		# points stay plain - IMGUI_IMPL_API defaults to IMGUI_API, and
-		# leaving that to become dllimport in the consumer would reject the
+		# The ImGui SDL backend is built by each consumer (see
+		# PyrosWindowContext.cmake) and called on the same side of the DLL, so
+		# its entry points stay plain - IMGUI_IMPL_API defaults to IMGUI_API,
+		# and leaving that to become dllimport in the consumer would reject the
 		# definitions the consumer compiles itself (C2491).
 		PUBLIC    "IMGUI_IMPL_API="
-
-		# glad's equivalent, already wired through GLAPI in glad.h. Both sides
-		# need GLAD_GLAPI_EXPORT; only the engine adds _BUILD, which is what
-		# turns dllimport into dllexport. These are data symbols (the
-		# glad_gl* function pointers), so the consumer genuinely needs
-		# dllimport rather than merely benefiting from it.
-		PUBLIC    GLAD_GLAPI_EXPORT
-		PRIVATE   GLAD_GLAPI_EXPORT_BUILD
 	)
 endif()
 

@@ -7,80 +7,52 @@
 //============================================================================
 
 #include <Pyros3D/Core/Buffers/GeometryBuffer.h>
-#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
+#include <cstring>
 
 namespace p3d {
 
-	// Every GeometryBuffer shares whichever backend is currently active
-	// (see GetActiveRenderDevice() in IRenderDevice.h) - avoids plumbing
-	// an IRenderDevice* through every call site that constructs a
-	// GeometryBuffer (there's no IRenderer/IRenderDevice reference
-	// available at most of those - asset loading, mesh construction, etc.)
-	// while still respecting the actual backend in use (GL vs Vulkan).
-	static IRenderDevice& Device()
-	{
-		return GetActiveRenderDevice();
-	}
+	// A buffer is its bytes, kept on the CPU: the renderer makes its GPU copy, and makes it again when cpuRevision moves
+	GeometryBuffer::GeometryBuffer() : DataLength(0) {}
 
-	GeometryBuffer::GeometryBuffer() : ID(-1), DataLength(0) {}
-
-	GeometryBuffer::GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw) : ID(-1)
+	GeometryBuffer::GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw) : DataLength(0)
 	{
 		this->bufferType = bufferType;
 		this->bufferDraw = bufferDraw;
 	}
 
-	GeometryBuffer::~GeometryBuffer()
-	{
-		if (ID != -1) {
-			Device().DestroyBuffer(ID);
-		}
-	}
+	GeometryBuffer::~GeometryBuffer() {}
 
 	void GeometryBuffer::Init(const void* GeometryData, const uint32 length)
 	{
-		// Destroy buffer if exists
-		if (ID != -1) {
-			Device().DestroyBuffer(ID);
-			ID = -1;
-		}
-
-		// creating buffer
-		ID = Device().CreateBuffer(bufferType, bufferDraw, GeometryData, length);
-
+		const uchar* p = (const uchar*)GeometryData;
+		if (p) CpuData.assign(p, p + length); else CpuData.assign(length, 0);
 		DataLength = length;
+		cpuRevision++;
 	}
 
 	void GeometryBuffer::InitOwned(std::vector<uchar> &&GeometryData)
 	{
-		if (ID != -1) {
-			Device().DestroyBuffer(ID);
-			ID = -1;
-		}
 		DataLength = (uint32)GeometryData.size();
-		ID = Device().CreateBufferOwned(bufferType, bufferDraw, std::move(GeometryData));
+		CpuData = std::move(GeometryData);
+		cpuRevision++;
 	}
 
-	// Updates Buffer
 	void GeometryBuffer::Update(const void* GeometryData, const uint32 length)
 	{
-		if (length != DataLength)
-		{
-			DataLength = length;
-			Device().ReallocateBuffer(ID, bufferType, bufferDraw, GeometryData, DataLength);
-		}
-		else {
-			Device().UpdateBufferSubData(ID, bufferType, GeometryData, DataLength);
-		}
+		const uint32 n = length ? length : DataLength;
+		if (CpuData.size() != n) CpuData.resize(n);
+		if (GeometryData && n) memcpy(CpuData.data(), GeometryData, n);
+		DataLength = n;
+		cpuRevision++;
 	}
 
 	void *GeometryBuffer::Map(const uint32 MappingType)
 	{
-		return Device().MapBuffer(ID, bufferType, MappingType);
+		return CpuData.empty() ? NULL : CpuData.data();
 	}
 	void GeometryBuffer::Unmap()
 	{
-		Device().UnmapBuffer(ID, bufferType);
+		cpuRevision++;     // (what was written through Map: changed)
 	}
 
 	namespace Buffer {
@@ -142,10 +114,6 @@ namespace p3d {
 					break;
 				}
 				return 0;
-			}
-			const uint32 GetType(const uint32 type)
-			{
-				return Device().TranslateAttributeType(type);
 			}
 		}
 	}

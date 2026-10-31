@@ -13,7 +13,6 @@
 #include <Pyros3D/Core/Math/Easing.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Core/Math/Random.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Other/Export.h>
 #include <vector>
 #include <memory>
@@ -74,24 +73,10 @@ namespace p3d {
 		// a ray a particle a frame: for tens or hundreds, not thousands.
 		// `bounce` is how much of its speed into the surface it keeps (0
 		// lands and slides, 1 loses nothing), `collisionMask` which
-		// collision layers it sees. CPU simulation only - a GPU-simulated
-		// system has no world to ask and ignores this.
+		// collision layers it sees.
 		bool collide2D;
 		f32 bounce;
 		uint32 collisionMask;
-
-		// Simulate on the GPU instead of the CPU. Opt-in, and silently
-		// ignored where the backend has no compute (WebGL2, GLES3,
-		// GL41/GL42, and GL on macOS) - IsGPUSimulated() reports what
-		// actually happened, which is not always what was asked for.
-		//
-		// The trade is not free. GPU simulation cannot do the CPU path's
-		// swap-with-last compaction, so the draw submits maxParticles
-		// instances every frame rather than liveCount, with dead slots
-		// collapsed to zero-size quads in the vertex shader. Below a few
-		// thousand particles the CPU path is usually the better deal;
-		// above that the integration cost dominates and this wins.
-		bool gpuSimulation;
 
 		f32 startSize, endSize;     // world-space diameter, ramped over normalized age
 		f32 sizeRandomJitter;        // +/- fraction of size, randomized per particle
@@ -121,6 +106,11 @@ namespace p3d {
 		// renderer's depth): smoke on the ground without a hard line along it. 0: off.
 		f32 softness;
 
+		// Simulated on the GPU (a compute pass the renderer runs): hundreds of thousands, a million, for the cost of a
+		// few thousand on the CPU. What it does not do there: stop at a 2D world (collide2D keeps it on the CPU), keep its
+		// see-through particles in depth order. The CPU keeps only the emitter: how many spawn each frame, and from where.
+		bool gpuSimulation;
+
 		// 0 = auto-estimate from motion parameters (see ParticleSystem.cpp).
 		// Note: cull-testing is disabled by default regardless (see the
 		// class comment) - this only matters if a caller re-enables it, or
@@ -130,12 +120,8 @@ namespace p3d {
 		ParticleSystemDesc();
 	};
 
-	// A real, reusable per-GameObject particle emitter - CPU-simulated by
-	// default, optionally GPU-simulated (ParticleSystemDesc::gpuSimulation,
-	// which needs a backend with compute; this comment used to say no such
-	// infrastructure existed, which stopped being true once GL45, Metal
-	// and Vulkan grew IRenderDevice::Dispatch), self-contained
-	// (attach to a GameObject and it runs itself every frame via the
+	// A real, reusable per-GameObject particle emitter - simulated on the
+	// CPU, self-contained (attach to a GameObject and it runs itself every frame via the
 	// IComponent::Update() hook SceneGraph::Update() already calls
 	// automatically - no manual per-frame driving needed by the owner,
 	// unlike the old hand-rolled ParticlesExample code this replaces).
@@ -149,16 +135,7 @@ namespace p3d {
 	// owner's current world position. This also means the shader needs
 	// neither a per-object model matrix nor a global clock uniform -
 	// position and normalized age are computed here on the CPU every frame
-	// and written directly into the per-instance GPU buffer.
-	//
-	// The per-instance buffer is allocated ONCE at full `maxParticles`
-	// capacity and every frame's update writes that same fixed byte length
-	// back (regardless of how many particles are actually alive) - this is
-	// what keeps GeometryBuffer::Update() on the cheap sub-data-update path
-	// instead of reallocating the whole GPU buffer every frame (see
-	// ParticleSystem.cpp for the full explanation). Visibility of just the
-	// live prefix is handled by SetNumberInstances(), independent of the
-	// buffer's size.
+	// (GetParticleData), and the renderer draws the live ones from there.
 	//
 	// Cull-testing is disabled in the constructor (DisableCullTest()) -
 	// see ParticleSystem.cpp for why a GameObject-anchored bounding sphere
@@ -166,11 +143,6 @@ namespace p3d {
 	class PYROS3D_API ParticleSystem : public IRenderingInstancedComponent
 	{
 	public:
-		// Builds the shader every particle system draws with, and lets it go: for filling a game's
-		// shader cache (the player's --fill-shader-cache), where a script's particles - made in play,
-		// long after a scene loads - would otherwise leave it to be compiled in the game's first frames.
-		static void BuildShaders();
-
 		ParticleSystem(const ParticleSystemDesc &desc);
 		virtual ~ParticleSystem();
 
@@ -224,6 +196,10 @@ namespace p3d {
 		void SetRotationSpeed(const f32 minRotationSpeed, const f32 maxRotationSpeed) { desc.minRotationSpeed = minRotationSpeed; desc.maxRotationSpeed = maxRotationSpeed; }
 		void SetBlendMode(const uint32 blendMode);
 		void SetSoftness(const f32 metres);
+		// Lit (off by default: the colours are drawn as they are, as before): the scene's sun on each particle -
+		// scattered forward as mist and spray are, `forwardScatter` the Henyey-Greenstein g (0 even, toward 1
+		// a glow round the sun behind it) - and the sky's light over it.
+		void SetLit(const bool on, const f32 forwardScatter = 0.6f);
 		// Switching to a one-shot burst stops the continuous emission
 		// immediately; switching back to looping resumes it. Neither
 		// touches particles already alive.
@@ -233,23 +209,30 @@ namespace p3d {
 		void SetTexture(const std::shared_ptr<Texture> &texture);
 
 		// Re-allocates the fixed capacity. Unlike the setters above this is
-		// NOT free (it reallocates the GPU buffer - see the class comment on
-		// why capacity is otherwise chosen once) and it drops every live
+		// NOT free (it reallocates the particles' state) and it drops every live
 		// particle, since slot indices don't survive the resize. Meant for
 		// an authoring tool retuning an emitter, not for per-frame use.
 		void SetMaxParticles(const uint32 maxParticles);
 
-		// True when the GPU path is actually running - desc.gpuSimulation
-		// was asked for AND the backend could provide it. Always check
-		// this rather than the desc flag.
-		bool IsGPUSimulated() const { return gpuActive; }
-		// Switches paths on a live emitter. Discards every particle - the
-		// two paths keep their state in different places and nothing can
-		// be migrated between them - and rebuilds the attribute buffer,
-		// whose draw hint depends on the answer.
-		void SetGPUSimulation(const bool enabled);
+		// The live particles as a renderer draws them: two vec4s each - xyz world position, w normalized age; then
+		// rotation, random seed, alive (1/0) - GetLiveParticleCount() of them (the CPU simulation's)
+		const Vec4* GetParticleData() const { return gpuState.empty() ? NULL : &gpuState[0].data0; }
+
+		// On the GPU (gpuSimulation, and not stopping at a 2D world): what this frame's step asks of the renderer's
+		// compute pass - the ring's slots from `start`, `count` of them, started this frame at `origin`; `capacity`
+		// slots in all (what can be alive at once: the rate times the longest life, at most maxParticles); `reset`:
+		// every slot emptied first. `id` goes up each Update: a step is run once, by the first view that draws it.
+		bool SimulatedOnGPU() const { return desc.gpuSimulation && !desc.collide2D; }
+		void SetGPUSimulation(const bool on);
+		struct GpuStep { uint64 id = 0; uint32 start = 0, count = 0, capacity = 0; Vec3 origin; f32 time = 0.f, dt = 0.f; bool reset = false; };
+		const GpuStep &GetGpuStep() const { return gpuStep; }
+		// Lit by the scene (SetLit), and how much of the light it scatters onward
+		bool IsLit() const { return lit; }
+		f32 GetForwardScatter() const { return forwardScatter; }
 
 	private:
+		bool lit = false;
+		f32 forwardScatter = 0.6f;
 
 		// Reads the owner's CURRENT world position as the spawn origin -
 		// note SceneGraph::Update()'s per-object call order means this can
@@ -259,6 +242,10 @@ namespace p3d {
 		// invisible at real framerates, documented here so nobody "fixes"
 		// it into something worse.
 		void SpawnParticle(const f64 time);
+		void UpdateGPU(const f64 time, const f32 dt);
+		GpuStep gpuStep;
+		uint32 gpuCursor = 0;
+		bool gpuResetPending = true;
 
 		// Per-particle CPU-only simulation state (never uploaded to the
 		// GPU directly - GPU only ever sees the derived ParticleGPU below).
@@ -272,13 +259,10 @@ namespace p3d {
 			f32 randomSeed;
 		};
 
-		// Packed per-instance GPU attributes - see the class comment.
-		// aParticleData0: xyz = world position, w = normalized age [0,1].
-		// aParticleData1: x = rotation (radians), y = random seed [0,1],
-		// z/w reserved. Must stay exactly 2 consecutive Vec4s - AttributeBuffer::
-		// SendBuffer()'s interleaving assumes each attribute's raw byte
-		// layout matches this struct's memory layout directly (same
-		// pattern the old ParticleEmitter/Particle struct relied on).
+		// What the renderer draws a particle from - see GetParticleData.
+		// data0: xyz = world position, w = normalized age [0,1].
+		// data1: x = rotation (radians), y = random seed [0,1], z = alive,
+		// w reserved. Exactly 2 consecutive Vec4s (the renderer uploads them as they lie).
 		struct ParticleGPU
 		{
 			Vec4 data0;
@@ -300,66 +284,6 @@ namespace p3d {
 		// instead of spawning immediately - see Play() in ParticleSystem.cpp.
 		bool pendingBurst;
 
-		// ---- GPU simulation -------------------------------------------
-		// All of this is inert unless gpuActive.
-		bool gpuActive;
-		DeviceHandle gpuStage, gpuProgram, gpuPipeline;
-		// Per-particle simulation state, 3 vec4s: position+lifetime,
-		// velocity+spawnTime, rotation/rotationSpeed/seed/alive. Distinct
-		// from the attribute buffer, which the dispatch only ever WRITES -
-		// keeping every input here means spawning touches one buffer the
-		// device knows the size of, and never has to write into the
-		// vertex data the draw is reading.
-		DeviceHandle gpuStateBuffer;
-		// dt, time, gravity, damping, count - rewritten every step.
-		DeviceHandle gpuParamsBuffer;
-		// The frame's new particles and parameters, in rings of three: written by the CPU into a
-		// buffer the GPU is not reading (the frame two before is done), and read by the simulation
-		// itself, which takes slot i's new state from the spawn buffer when i falls in this frame's
-		// run - the CPU never writes the state the GPU is simulating, and never waits for it.
-		static const uint32 kGPURing = 3;
-		DeviceHandle gpuSpawnRing[kGPURing] = { 0, 0, 0 };
-		DeviceHandle gpuParamsRing[kGPURing] = { 0, 0, 0 };
-		uint32 gpuRingSlot = 0;
-		uint32 gpuSpawnBorn = 0;      // how many this frame's dispatch takes from the spawn buffer
-
-		// Where the next spawn goes. A rotating cursor, not a search.
-		//
-		// The first version scanned the pool for a free slot, which is
-		// O(maxParticles) per spawn - fine at a few hundred particles and
-		// quadratic disaster at a million, where a single frame's
-		// emission would walk millions of slots. It is also unnecessary:
-		// particles are spawned in time order and have bounded lifetimes,
-		// so the slot least likely to still be alive is always the one
-		// spawned longest ago, which is exactly where a wrapping cursor
-		// already points. At capacity this overwrites the oldest particle,
-		// which is the right behaviour for an emitter that is over its
-		// budget anyway.
-		//
-		// It also makes a frame's spawns CONTIGUOUS, which is what lets
-		// them upload as one or two memcpys instead of one call each.
-		uint32 gpuSpawnCursor;
-		// This frame's new particles, 3 vec4s each, flushed by UpdateGPU.
-		std::vector<Vec4> gpuSpawnStaging;
-
-		// Two phases, and the split is forced by Vulkan. A Stream/Dynamic
-		// buffer there is a RING of buffers so the CPU can rewrite one
-		// while another is still being drawn - but a compute shader
-		// writes the single handle it was given, which would then be the
-		// wrong slot. So a GPU-simulated emitter needs a Static (single)
-		// attribute buffer, and that choice has to be made when the
-		// buffer is created - which means knowing whether the compute
-		// pipeline actually built BEFORE creating it.
-		void BuildSimulationBackend();
-		bool CreateGPUPipeline();
-		bool CreateGPUBuffers();
-		void ZeroGPUState();
-		void ShutdownGPUSimulation();
-		void UpdateGPU(const f64 time, const f32 dt);
-		void SpawnParticleGPU(const f64 time);
-		void FlushGPUSpawns();
-
-		AttributeBuffer* particleBuffer;
 		ParticleSystemMaterial* material;
 		Renderable* quad;
 	};

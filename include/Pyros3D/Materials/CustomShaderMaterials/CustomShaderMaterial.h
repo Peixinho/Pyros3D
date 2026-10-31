@@ -21,184 +21,49 @@
 namespace p3d
 {
 
+	// A material of its own: a surface function the renderer compiles and lights as every other surface (see
+	// SetSurfaceSource), the named parameters and the textures it reads.
 	class PYROS3D_API CustomShaderMaterial : public IMaterial
 	{
 
 	public:
 
-		CustomShaderMaterial(const std::string& ShaderFile, const std::string& ExtraDefines = std::string());
-		CustomShaderMaterial(Shader* shader);
-		void SetShader(Shader* shader);
-		// Transfers ownership of a Shader previously wired in via SetShader()
-		// into this material, so it survives whatever used to own it (e.g. a
-		// closed MaterialEditorDocument). ownedShader.get() must equal the
-		// currently-active `shader` pointer.
-		void AdoptShader(std::unique_ptr<Shader> ownedShader);
+		// `ShaderFile` names the material (a .mat's shader, or an engine one): its surface is read from
+		// <ShaderFile>.surface where that lies beside it. Empty: the caller sets the surface itself.
+		explicit CustomShaderMaterial(const std::string& ShaderFile = std::string());
 
 		virtual ~CustomShaderMaterial();
 
-		// The GPU ring behind an extra-uniform block, one per (program,
-		// block): every draw writes its own slot, so all the materials drawn
-		// with one program can share it. One ring per material was up to
-		// 64 MB each (a dynamic binding's ring) - a streamed terrain with a
-		// material per tile spent ~40 MB of GPU memory per cell on them.
-		// IRenderer asks for it on first use; released when the last
-		// CustomShaderMaterial goes.
-		static uint32 SharedExtraBuffer(const uint32 program, const ExtraUniformsBlock &block);
-		static bool IsSharedExtraBuffer(const uint32 handle);
-
-		virtual void PreRender();
-
-		virtual void AfterRender();
-
-		// Bind tex as next sampler unit and register uniformName = unit index.
+		// A texture the surface reads, by the name its `//@texture <name>` line gives
 		void AddSampler(const std::string &uniformName, const std::shared_ptr<Texture> &tex);
-
-		// Removes every texture added via AddSampler() and exactly their
-		// unit-index uniforms, by name. Every other user uniform stays: it
-		// used to clear UserUniforms wholesale, which also freed IMaterial's
-		// own uOpacity - leaving IMaterial::opacityHandle dangling, so the
-		// next SetOpacity() wrote through freed memory - and dropped every
-		// parameter. Used by the Material Editor to reset bindings before
-		// re-wiring a node graph whose Texture nodes may have changed
-		// count/order since the last Apply.
+		// Removes every texture added via AddSampler(); the parameters stay
 		void ClearSamplers();
 
 		std::vector<std::shared_ptr<Texture>> textures;
 
-		// The uniform name AddSampler() bound each entry of `textures` to,
-		// parallel to it and in the same order (sampler units are handed out
-		// sequentially). Without this the name survives only inside
-		// UserUniforms as an opaque Int holding a unit index, with no way to
-		// map it back to a texture - which is why scene serialization used to
-		// drop a custom material's textures entirely: it wrote the shader and
-		// nothing else, so a reloaded scene sampled an unbound sampler2D.
+		// The name AddSampler() gave each entry of `textures`, parallel to it and in the same order
 		const std::vector<std::string>& GetSamplerNames() const { return samplerNames; }
 
-		// Empty when constructed from a raw Shader* - that path has no
-		// recoverable source, callers (e.g. scene serialization) must
-		// treat an empty string as "can't be saved/reconstructed".
+		// Where the material came from (project-relative, so the scene stays portable): the scene saves it, and
+		// a material saved this way is read back from the file, so editing the .mat reaches every object using it.
+		// Empty for a material with only its surface - the scene embeds that.
 		const std::string &GetShaderFile() const { return ShaderFilePath; }
+		void SetShaderFile(const std::string &path) { ShaderFilePath = path; LoadSurfaceBeside(path); }
+		// The material as the renderer draws it: a surface function (`void Surface(inout SurfaceData s)`) that fills
+		// the surface's colour, normal, roughness, metallic, emission, occlusion and alpha - the renderer lights it,
+		// shadows it and so on as every other surface. A `//@param <name> <float|vec4>` line for each parameter it
+		// reads (p_<name>), a `//@texture <name>` line for each texture (bound by the AddSampler() name). Made by the
+		// Material Editor's graph (MaterialCodegen), saved in the scene as "surface".
+		void SetSurfaceSource(const std::string &source) { surfaceSource = source; surfaceRevision++; }
+		const std::string &GetSurfaceSource() const { return surfaceSource; }
+		uint32 GetSurfaceRevision() const { return surfaceRevision; }
+		// Reads <shaderFile>.surface where it lies beside the shader
+		void LoadSurfaceBeside(const std::string &shaderFile);
 
-		// Records where the shader source lives for a material whose Shader*
-		// was compiled by the caller rather than by the file constructor -
-		// the Material Editor, which compiles its generated GLSL itself and
-		// hands over the linked program. Without this such a material looks
-		// path-less, so SceneSerializer embeds a *copy* of the shader text in
-		// the scene, and from then on every edit of the .mat stops reaching
-		// the objects using it: they keep recompiling their frozen copy.
-		// Store it project-relative so the scene stays portable.
-		void SetShaderFile(const std::string &path) { ShaderFilePath = path; }
-
-		// The underlying Shader* itself - needed so a path-less material
-		// (built from a raw Shader*) can still fall back to embedding
-		// Shader::GetShaderText()'s real cached source.
-		Shader* GetShaderObject() const { return shader; }
-
-		// Which DEFERRED_GBUFFER branch `shader`'s currently-bound program
-		// was actually compiled for - unset (HasKnownShaderBranch() ==
-		// false) until the first MarkShaderBranch() call. Lets a
-		// Forward<->Deferred renderer switch that fails to recompile a
-		// material detect "the shader still bound is from the OTHER
-		// branch" before letting it run inside the wrong render pass: a
-		// Forward branch's real per-fragment lighting code executing
-		// during the Deferred G-buffer's MRT pass produces lit-looking
-		// output out of thin air (reading whatever's in the shared
-		// LightsUBO) plus wrong attachment counts corrupting depth/
-		// compositing, rather than a clean error.
-		bool HasKnownShaderBranch() const { return hasKnownShaderBranch; }
-		bool IsShaderCompiledForDeferredGBuffer() const { return deferredGBufferBranch; }
-		void MarkShaderBranch(bool deferredGBuffer) { hasKnownShaderBranch = true; deferredGBufferBranch = deferredGBuffer; }
-
-		// True once this material's own `shader` has been probed and found
-		// to already be the DEFERRED_GBUFFER branch - lets a caller skip
-		// the swap below when it isn't needed (matches
-		// GenericShaderMaterial::IsCompiledForGBuffer()'s role).
-		bool IsCompiledForGBuffer() const { return hasKnownShaderBranch && deferredGBufferBranch; }
-
-		// Program variants. One CustomShaderMaterial is drawn under up to
-		// four different conditions - G-buffer pass or a forward pass
-		// (ForwardRenderer, or DeferredRenderer's translucent pass), on a
-		// static or a skinned mesh - while `shader` is compiled for only
-		// one of them. Each other variant is compiled lazily (once, cached)
-		// from the same source text with DEFERRED_GBUFFER / SKINNING
-		// defined or not, and never touches `shader` itself.
-		//
-		// Why each exists:
-		//  - G-buffer: a scene-loaded material is compiled Forward only
-		//    (see the .cpp), and its lighting code must not run inside the
-		//    MRT pass.
-		//  - Forward from a G-buffer material: a transparent object is drawn
-		//    in DeferredRenderer's translucent pass, a single-target forward
-		//    pass, so the G-buffer program there wrote FragData_r unlit.
-		//  - Skinned: bone attributes exist only on skinned geometry, and a
-		//    pipeline whose shader declares an attribute the mesh does not
-		//    have fails to build on Vulkan, so the same material needs a
-		//    SKINNING and a plain program side by side. Only built for a
-		//    source that mentions SKINNING at all.
-		//
-		// UseVariantForNextDraw() swaps shaderProgram and extraUniforms[]
-		// (every variant has its own std140 layout) for exactly one
-		// RenderObject(). Returns false when no swap is needed or the
-		// variant cannot be built - the caller then draws with the own
-		// program as before. Call RestoreOwnProgram() only after true.
-		// Scoped to exactly CustomShaderMaterial by the renderers (typeid):
-		// subclasses hand-assign extraUniforms[] and are left alone.
-		bool UseVariantForNextDraw(bool gbuffer, bool skinned);
-		// Whether the variant UseVariantForNextDraw / UseInstancedVariantForNextDraw would use is ready to
-		// be made without holding the frame up: made already, or its SPIR-V compiled ahead (on Vulkan, on a
-		// worker - started by the first ask; other backends: always). A renderer leaves a mesh undrawn
-		// while it is not - it shows a few frames late, the game does not stop for seconds.
-		bool VariantReadyFor(bool gbuffer, bool skinned);
-		bool InstancedVariantReady(bool gbuffer);
-		// The shadow pass's variant (SHADOW_DEPTH): only the vertex offset
-		// and the alpha cutout, writing depth. Worth using only when
-		// HasCustomShadow() - a generated shader that moves vertices or cuts
-		// holes, so its shadow must too; anything else is better served by
-		// the renderer's shared shadow material. Same pairing rule as above:
-		// RestoreOwnProgram() only after true.
-		bool HasCustomShadow() const;
-		bool UseShadowVariantForNextDraw(bool skinned);
-		// True between a successful UseShadowVariantForNextDraw() and
-		// RestoreOwnProgram() - what makes IRenderer build this draw's
-		// pipeline against the shadow render pass.
-		bool IsDrawingShadowVariant() const { const DrawOverride &o = Override(); return o.material == this && o.variant >= 0 && (o.variant & 4) != 0; }
-		// The G-buffer, non-skinned variant - kept for existing callers.
-		uint32 GetOrBuildGBufferProgram();
-		bool UseGBufferProgramForNextDraw() { return UseVariantForNextDraw(true, false); }
-		void RestoreOwnProgram();
-
-		// Drawn many at once. A source with an INSTANCED_RENDERING branch (every
-		// generated shader has one: its model matrix is multiplied by the
-		// instance's, as the engine's own shader does) can be drawn as one batch
-		// by the renderers' automatic instancing - which used to take only the
-		// engine's own material, so a hundred identical things given a shader of
-		// their own were a hundred draws. Same pairing rule as the others:
-		// RestoreOwnProgram() only after true.
-		bool SupportsInstancing() const;
-		bool UseInstancedVariantForNextDraw(bool gbuffer);
-		// A generated shader from before the template had the branch is given it
-		// (the two lines of its vertex stage that place a vertex in the world).
-		// Returns the source as it was when it is not one of those.
-		static std::string WithInstancingBranch(const std::string &source);
-
-		// The uniform set every Material Editor shader (MaterialCodegen)
-		// is written against: matrices, camera, time, lights, the
-		// environment ambient, the forward branch's shadow maps and the
-		// bone palette. There is exactly one list, here, because it used
-		// to be copied into the editor's Apply path, its recompile path and
-		// the scene loader - and the loader's copy stopped at uLights, so
-		// every custom material in a loaded scene received no shadows.
-		// Idempotent; names the program doesn't declare are skipped.
-		void AddGeneratedShaderUniforms();
-
-		// Named material parameters - the Material Editor's Float/Color
-		// Parameter nodes. `name` is what the graph shows; the shader
-		// uniform is "p_" + name, so a parameter can never collide with an
-		// engine uniform. Declare fixes the uniform's GLSL type (float or
-		// vec4); Set on an undeclared name declares it from the value given.
-		// Values survive SetShader()/ClearSamplers() and round-trip through
-		// scene files. Shared by every object using this material.
+		// Named material parameters - the Material Editor's Float/Color Parameter nodes. `name` is what the graph
+		// shows; the surface reads it as "p_" + name, so a parameter can never collide with an engine name. Declare
+		// fixes its type (float or vec4); Set on an undeclared name declares it from the value given. Values
+		// survive ClearSamplers() and round-trip through scene files. Shared by every object using this material.
 		void DeclareParameter(const std::string &name, bool isVector, const Vec4 &defaultValue);
 		void SetParameter(const std::string &name, const Vec4 &value);
 		void SetParameter(const std::string &name, f32 value);
@@ -212,71 +77,18 @@ namespace p3d
 	protected:
 
 		std::string ShaderFilePath;
+		std::string surfaceSource;
+		uint32 surfaceRevision = 0;
 
 		// Parallel to `textures` - see GetSamplerNames().
 		std::vector<std::string> samplerNames;
-
-		// Generic Vulkan auto-fix hookup - see IRenderDevice::
-		// GetAutoUniformBlockLayout()'s comment. Called from every place
-		// this class finishes wiring up `shader` (both constructors and
-		// SetShader()); a no-op on GL and on any shader whose loose
-		// uniforms are already hand-wrapped in an explicit UBO (every
-		// shader this engine ships today) - only actually populates
-		// extraUniforms[] for a shader that genuinely had nothing but
-		// plain, unlabeled loose uniforms. Runs before a subclass's own
-		// constructor body (base-class constructors always run first), so
-		// a subclass that still hand-assigns extraUniforms[] itself
-		// (CustomMaterialExample/ParticleMaterial/Lua water_material) simply
-		// overwrites this afterward - manual authoring always wins.
-		void PopulateAutoExtraUniforms();
-
-		// Shader
-		Shader* shader;
-		// Owned only when `shader` was built internally (from a file) or
-		// handed over by an AdoptShader() call - null when `shader` points
-		// at a caller-owned Shader (SetShader() alone never takes ownership).
-		// Shared: programs compiled from the same source and defines are one
-		// program for every material that uses them (see the .cpp).
-		std::shared_ptr<Shader> InternalShader;
-
-		bool hasKnownShaderBranch = false;
-		bool deferredGBufferBranch = false;
-
-		// Lazily-built variants of `shader`, index = (gbuffer ? 1 : 0) |
-		// (skinned ? 2 : 0) | (shadow ? 4 : 0) | (instanced ? 8 : 0), each with its own
-		// extraUniforms layout - see UseVariantForNextDraw(). Dropped
-		// whenever SetShader() changes the source they were built from.
-		struct ProgramVariant
-		{
-			std::shared_ptr<Shader> shader;
-			bool failed = false;
-			ExtraUniformsBlock extraUniforms[2];
-		};
-		ProgramVariant variants[16];
-		int VariantIndexFor(bool gbuffer, bool skinned) const;      // -1: the own program
-		bool VariantReady(int index);
-		// What the source says of itself, read once (it is thousands of lines, and
-		// these are asked of every object, every pass, every frame): -1 not read.
-		mutable int8 knownInstancing = -1, knownCustomShadow = -1;
-		uint32 GetOrBuildVariant(int index);
-		void ResetVariants();
-		bool SwapToVariant(int index);
 
 		struct Parameter
 		{
 			bool isVector = true;
 			Vec4 value;
-			Uniform* handle = nullptr;
 		};
 		std::map<std::string, Parameter> parameters;
-		// (Re)creates each parameter's uniform - after ClearSamplers() or a
-		// type change dropped the old one.
-		void RegisterParameterUniform(const std::string &name, Parameter &p);
-
-		// Shared by PopulateAutoExtraUniforms() and
-		// GetOrBuildGBufferProgram() - fills outBlocks[VertexShader/
-		// FragmentShader] from `program`'s own reflected std140 layout.
-		void PopulateExtraUniformsFor(uint32 program, ExtraUniformsBlock outBlocks[2]) const;
 	};
 
 }

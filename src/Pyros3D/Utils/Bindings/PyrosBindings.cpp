@@ -19,6 +19,8 @@ namespace p3d {
 		lua->open_libraries(sol::lib::base, sol::lib::math, sol::lib::coroutine, sol::lib::table, sol::lib::string);
 		// (PYROS_LUA_DEBUG=1: Lua's debug library too, for looking into what the scripts hold - not for a game to use)
 		if (std::getenv("PYROS_LUA_DEBUG") != NULL) lua->open_libraries(sol::lib::debug);
+		// (PYROS_LUA_SEED=<n>: every script's math.random from the same start - a run repeated, to set one capture beside another)
+		if (const char* seed = std::getenv("PYROS_LUA_SEED")) lua->script(std::string("math.randomseed(") + std::to_string(std::atoll(seed)) + ")");
 
 		// Order matters for sol usertype bases — keep interleaved registration.
 		RegisterLuaEnums(lua);
@@ -32,7 +34,6 @@ namespace p3d {
 		RegisterLuaAssetsMid(lua);
 		RegisterLuaPhysicsLate(lua);
 		RegisterLua2D(lua);
-		RegisterLuaPostFX(lua);
 		RegisterLuaAssetsLate(lua);
 		RegisterLuaAudio(lua);
 		RegisterLuaMisc(lua);

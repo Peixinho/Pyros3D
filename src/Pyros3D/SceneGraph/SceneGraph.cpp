@@ -43,6 +43,7 @@ namespace p3d {
 		if (GO->Scene == NULL)
 		{
 			_GameObjectListALL.push_back(GO);
+			GameObject::TreeChanged();
 
 			std::vector<std::shared_ptr<GameObject>> *vec = (GO->IsStatic() ? &_GameObjectListStaticPrevious : &_GameObjectListDynamic);
 
@@ -148,7 +149,7 @@ namespace p3d {
 			std::vector<std::shared_ptr<GameObject>>::iterator all_it = std::find_if(
 				_GameObjectListALL.begin(), _GameObjectListALL.end(),
 				[GO](const std::shared_ptr<GameObject> &p) { return p.get() == GO; });
-			if (all_it != _GameObjectListALL.end()) _GameObjectListALL.erase(all_it);
+			if (all_it != _GameObjectListALL.end()) { _GameObjectListALL.erase(all_it); GameObject::TreeChanged(); }
 		}
 	}
 
@@ -167,7 +168,7 @@ namespace p3d {
 		std::vector<std::shared_ptr<GameObject>>::iterator all_it = std::find_if(
 			_GameObjectListALL.begin(), _GameObjectListALL.end(),
 			[GO](const std::shared_ptr<GameObject> &p) { return p.get() == GO; });
-		if (all_it != _GameObjectListALL.end()) _GameObjectListALL.erase(all_it);
+		if (all_it != _GameObjectListALL.end()) { _GameObjectListALL.erase(all_it); GameObject::TreeChanged(); }
 
 		GO->Scene = NULL;
 	}
@@ -673,12 +674,18 @@ namespace p3d {
 
 	void SceneGraph::CollectGameObjectsRecursive(std::vector<GameObject*> &out)
 	{
+		// (kept while no object tree has changed - GameObject::TreeVersion: asked every frame by the editor's
+		// gizmos and icons and by the 2D systems, a forest of seven thousand objects was walked several times a
+		// frame for the same list)
+		if (out.empty() && collectedVersion == GameObject::TreeVersion()) { out = collected; return; }
+		const bool keep = out.empty();
 		// The duplicate check used to be a linear search of `out` per node -
 		// quadratic, and two 2D systems (Occluder2D, Physics2DWorld) run
 		// this every frame even in scenes with nothing 2D in them.
 		std::unordered_set<GameObject*> seen(out.begin(), out.end());
 		for (size_t i = 0; i < _GameObjectListALL.size(); i++)
 			CollectSubtree(_GameObjectListALL[i].get(), out, seen);
+		if (keep) { collected = out; collectedVersion = GameObject::TreeVersion(); }
 	}
 
 };

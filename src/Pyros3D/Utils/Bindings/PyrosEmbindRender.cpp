@@ -1,6 +1,6 @@
 //============================================================================
 // Name        : PyrosEmbindRender.cpp
-// Description : Embind renderers, FBO, materials, lights, rendering components.
+// Description : Embind materials, lights, rendering components.
 //============================================================================
 
 #if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
@@ -8,15 +8,9 @@
 #include <emscripten/bind.h>
 
 #include <Pyros3D/Utils/Bindings/PyrosEmbindHelpers.h>
-#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h>
-#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Materials/IMaterial.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
-#include <Pyros3D/Materials/Shaders/Uniforms.h>
-#include <Pyros3D/Materials/Shaders/Shaders.h>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
@@ -44,10 +38,6 @@ namespace {
 	std::shared_ptr<CustomShaderMaterial> MakeCustomFromFile(const std::string &path)
 	{
 		return std::make_shared<CustomShaderMaterial>(path);
-	}
-	std::shared_ptr<CustomShaderMaterial> MakeCustomFromShader(Shader *shader)
-	{
-		return std::make_shared<CustomShaderMaterial>(shader);
 	}
 
 	// Sways the vertices with height: strength, rate, spatial frequency, lean.
@@ -133,88 +123,6 @@ namespace {
 		return std::dynamic_pointer_cast<CustomShaderMaterial>(m.Material);
 	}
 
-	// ----- DeferredRenderer IRenderer wrappers -----
-	void DeferredRenderer_PreRender(DeferredRenderer &r, const std::shared_ptr<GameObject> &cam, SceneGraph &scene)
-	{
-		r.PreRender(cam.get(), &scene);
-	}
-	void DeferredRenderer_PreRenderTag(DeferredRenderer &r, const std::shared_ptr<GameObject> &cam, SceneGraph &scene, const std::string &tag)
-	{
-		r.PreRender(cam.get(), &scene, tag);
-	}
-	void DeferredRenderer_RenderScene(DeferredRenderer &r, const Projection &proj, const std::shared_ptr<GameObject> &cam, SceneGraph &scene)
-	{
-		r.RenderScene(proj, cam.get(), &scene);
-	}
-	void DeferredRenderer_RenderSceneOptions(DeferredRenderer &r, const Projection &proj, const std::shared_ptr<GameObject> &cam, SceneGraph &scene, uint32 opts)
-	{
-		r.RenderScene(proj, cam.get(), &scene, opts);
-	}
-	void DeferredRenderer_ClearBufferBit(DeferredRenderer &r, uint32 option) { r.ClearBufferBit(option); }
-	void DeferredRenderer_EnableClipPlane(DeferredRenderer &r, uint32 n) { r.EnableClipPlane(n); }
-	void DeferredRenderer_EnableClipPlaneDefault(DeferredRenderer &r) { r.EnableClipPlane(1); }
-	void DeferredRenderer_SetBackground(DeferredRenderer &r, const Vec4 &color) { r.SetBackground(color); }
-	void DeferredRenderer_UnsetBackground(DeferredRenderer &r) { r.UnsetBackground(); }
-	void DeferredRenderer_SetGlobalLight(DeferredRenderer &r, const Vec4 &light) { r.SetGlobalLight(light); }
-	void DeferredRenderer_Resize(DeferredRenderer &r, uint32 w, uint32 h) { r.Resize(w, h); }
-	void DeferredRenderer_EnableClearDepthBuffer(DeferredRenderer &r) { r.EnableClearDepthBuffer(); }
-	void DeferredRenderer_DisableClearDepthBuffer(DeferredRenderer &r) { r.DisableClearDepthBuffer(); }
-	void DeferredRenderer_ClearDepthBuffer(DeferredRenderer &r) { r.ClearDepthBuffer(); }
-	void DeferredRenderer_DisableClipPlane(DeferredRenderer &r) { r.DisableClipPlane(); }
-	void DeferredRenderer_SetClipPlane0(DeferredRenderer &r, const Vec4 &p) { r.SetClipPlane0(p); }
-	void DeferredRenderer_SetClipPlane1(DeferredRenderer &r, const Vec4 &p) { r.SetClipPlane1(p); }
-	void DeferredRenderer_SetClipPlane2(DeferredRenderer &r, const Vec4 &p) { r.SetClipPlane2(p); }
-	void DeferredRenderer_SetClipPlane3(DeferredRenderer &r, const Vec4 &p) { r.SetClipPlane3(p); }
-	void DeferredRenderer_SetClipPlane4(DeferredRenderer &r, const Vec4 &p) { r.SetClipPlane4(p); }
-	void DeferredRenderer_SetClipPlane5(DeferredRenderer &r, const Vec4 &p) { r.SetClipPlane5(p); }
-	void DeferredRenderer_SetClipPlane6(DeferredRenderer &r, const Vec4 &p) { r.SetClipPlane6(p); }
-	void DeferredRenderer_SetClipPlane7(DeferredRenderer &r, const Vec4 &p) { r.SetClipPlane7(p); }
-	void DeferredRenderer_EnableStencil(DeferredRenderer &r) { r.EnableStencil(); }
-	void DeferredRenderer_DisableStencil(DeferredRenderer &r) { r.DisableStencil(); }
-	void DeferredRenderer_ClearStencilBuffer(DeferredRenderer &r) { r.ClearStencilBuffer(); }
-	void DeferredRenderer_StencilFunction(DeferredRenderer &r, uint32 func, uint32 ref, uint32 mask) { r.StencilFunction(func, ref, mask); }
-	void DeferredRenderer_StencilOperation(DeferredRenderer &r, uint32 sfail, uint32 dpfail, uint32 dppass) { r.StencilOperation(sfail, dpfail, dppass); }
-	void DeferredRenderer_EnableScissorTest(DeferredRenderer &r) { r.EnableScissorTest(); }
-	void DeferredRenderer_DisableScissorTest(DeferredRenderer &r) { r.DisableScissorTest(); }
-	void DeferredRenderer_ScissorTestRect(DeferredRenderer &r, f32 x, f32 y, f32 width, f32 height) { r.ScissorTestRect(x, y, width, height); }
-	void DeferredRenderer_EnableWireFrame(DeferredRenderer &r) { r.EnableWireFrame(); }
-	void DeferredRenderer_DisableWireFrame(DeferredRenderer &r) { r.DisableWireFrame(); }
-	void DeferredRenderer_ColorMask(DeferredRenderer &r, bool rmask, bool g, bool b, bool a) { r.ColorMask(rmask, g, b, a); }
-	void DeferredRenderer_EnableSorting(DeferredRenderer &r) { r.EnableSorting(); }
-	void DeferredRenderer_DisableSorting(DeferredRenderer &r) { r.DisableSorting(); }
-	void DeferredRenderer_EnableLOD(DeferredRenderer &r) { r.EnableLOD(); }
-	void DeferredRenderer_DisableLOD(DeferredRenderer &r) { r.DisableLOD(); }
-	bool DeferredRenderer_IsUsingLOD(DeferredRenderer &r) { return r.IsUsingLOD(); }
-	void DeferredRenderer_EnableDepthBias(DeferredRenderer &r, const Vec2 &factor) { r.EnableDepthBias(factor); }
-	void DeferredRenderer_DisableDepthBias(DeferredRenderer &r) { r.DisableDepthBias(); }
-	void DeferredRenderer_SetViewPort(DeferredRenderer &r, uint32 initX, uint32 initY, uint32 endX, uint32 endY) { r.SetViewPort(initX, initY, endX, endY); }
-	void DeferredRenderer_ResetViewPort(DeferredRenderer &r) { r.ResetViewPort(); }
-	void DeferredRenderer_ActivateCulling(DeferredRenderer &r, const uint32 mode) { r.ActivateCulling(mode); }
-	void DeferredRenderer_DeactivateCulling(DeferredRenderer &r) { r.DeactivateCulling(); }
-	void DeferredRenderer_SetSSRDistances(DeferredRenderer &r, float step, float maxd) { r.SetSSRDistances(step, maxd); }
-	void DeferredRenderer_EnableSSR(DeferredRenderer &r) { r.EnableSSR(); }
-	void DeferredRenderer_DisableSSR(DeferredRenderer &r) { r.DisableSSR(); }
-	void DeferredRenderer_EnableSSAO(DeferredRenderer &r) { r.EnableSSAO(); }
-	void DeferredRenderer_DisableSSAO(DeferredRenderer &r) { r.DisableSSAO(); }
-	void DeferredRenderer_SetSSAODirectStrength(DeferredRenderer &r, float direct) { r.SetSSAODirectStrength(direct); }
-	void DeferredRenderer_SetSSAOParams(DeferredRenderer &r, float radius, float strength, float falloff) { r.SetSSAOParams(radius, strength, falloff); }
-
-	void Velocity_Render(VelocityRenderer &v, const Projection &proj, const std::shared_ptr<GameObject> &cam, SceneGraph &scene)
-	{
-		v.RenderVelocityMap(proj, cam.get(), &scene);
-	}
-	void Cubemap_Render(CubemapRenderer &c, SceneGraph &scene, const std::shared_ptr<GameObject> &cam, f32 nearP, f32 farP)
-	{
-		c.RenderCubeMap(&scene, cam.get(), nearP, farP);
-	}
-
-	void Shader_LoadFile(Shader &s, const std::string &path) { s.LoadShaderFile(path.c_str()); }
-	void Shader_LoadText(Shader &s, const std::string &text) { s.LoadShaderText(text); }
-	bool Shader_Compile(Shader &s, uint32 type) { return s.CompileShader(type); }
-	bool Shader_CompileDef(Shader &s, uint32 type, const std::string &defs) { return s.CompileShader(type, defs); }
-	bool Shader_Link(Shader &s) { return s.LinkProgram(); }
-	void Shader_SendUniform(const Uniform &u, int handle) { Shader::SendUniform(u, handle); }
-
 } // namespace
 
 namespace p3d {
@@ -239,9 +147,6 @@ EMSCRIPTEN_BINDINGS(pyros3d_render)
 		.function("disableBlending", &IMaterial::DisableBlending)
 		.function("blendingFunction", &IMaterial::BlendingFunction)
 		.function("blendingEquation", &IMaterial::BlendingEquation)
-		.function("addUniform", optional_override([](IMaterial &m, const Uniform &u) {
-			m.AddUniform(u);
-		}))
 		.function("startRenderWireFrame", &IMaterial::StartRenderWireFrame)
 		.function("stopRenderWireFrame", &IMaterial::StopRenderWireFrame)
 		.function("enableCastingShadows", &IMaterial::EnableCastingShadows)
@@ -278,38 +183,20 @@ EMSCRIPTEN_BINDINGS(pyros3d_render)
 		.function("setRoughness", &GenericShaderMaterial::SetRoughness)
 		.function("setMetallicRoughnessMap", &GenericShaderMaterial::SetMetallicRoughnessMap)
 		.function("setSSREnabled", &GenericShaderMaterial::SetSSREnabled)
-		.function("setSubsurface", &GenericShaderMaterial::SetSubsurface)
-		.function("bindTextures", &GenericShaderMaterial::BindTextures)
-		.function("unbindTextures", &GenericShaderMaterial::UnbindTextures);
+		.function("setSubsurface", &GenericShaderMaterial::SetSubsurface);
 
 	class_<CustomShaderMaterial, base<IMaterial>>("CustomShaderMaterial")
 		.smart_ptr<std::shared_ptr<CustomShaderMaterial>>("CustomShaderMaterialPtr")
-		// Embind overloads only by arity — keep file ctor; Shader* via factory.
+		// (a surface file - <path>.surface - or "" and setSurface: the material's code, see CustomShaderMaterial.h)
 		.constructor(&MakeCustomFromFile)
-		.class_function("fromShader", &MakeCustomFromShader, allow_raw_pointers())
-		.function("setShader", &CustomShaderMaterial::SetShader, allow_raw_pointers())
+		.function("setSurface", &CustomShaderMaterial::SetSurfaceSource)
+		.function("getSurface", &CustomShaderMaterial::GetSurfaceSource)
+		.function("clearSamplers", &CustomShaderMaterial::ClearSamplers)
 		.function("addSampler", &CustomShaderMaterial::AddSampler)
 		.function("setParameterVec4", select_overload<void(const std::string&, const Vec4&)>(&CustomShaderMaterial::SetParameter))
 		.function("setParameter", select_overload<void(const std::string&, f32)>(&CustomShaderMaterial::SetParameter))
 		.function("getParameter", &CustomShaderMaterial::GetParameter)
 		.function("hasParameter", &CustomShaderMaterial::HasParameter);
-
-	class_<Uniform>("Uniform")
-		.constructor<>()
-		.constructor<std::string, uint32, uint32>();
-
-	class_<Shader>("Shader")
-		.constructor<>()
-		.function("loadShaderFile", &Shader_LoadFile)
-		.function("loadShaderText", &Shader_LoadText)
-		.function("compileShader", &Shader_Compile)
-		.function("compileShaderDefs", &Shader_CompileDef)
-		.function("deleteShader", &Shader::DeleteShader)
-		.function("linkProgram", &Shader_Link)
-		.function("shaderProgram", &Shader::ShaderProgram)
-		.function("getUniformLocation", &Shader::GetUniformLocation)
-		.function("getAttributeLocation", &Shader::GetAttributeLocation)
-		.class_function("sendUniform", &Shader_SendUniform);
 
 	class_<Renderable>("Renderable")
 		.smart_ptr<std::shared_ptr<Renderable>>("RenderablePtr");
@@ -421,92 +308,6 @@ EMSCRIPTEN_BINDINGS(pyros3d_render)
 		.function("updateLOD", &RenderingInstancedComponent::UpdateLOD)
 		.function("numberOfInstances", &RenderingInstancedComponent::NumberOfInstances)
 		.function("setNumberInstances", &RenderingInstancedComponent::SetNumberInstances);
-
-	class_<FrameBuffer>("FrameBuffer")
-		.constructor<>()
-		.function("initTex", &FrameBuffer_InitTex)
-		.function("initRenderBuffer", &FrameBuffer_InitRenderBuffer4)
-		.function("initRenderBufferMsaa", &FrameBuffer_InitRenderBuffer5)
-		.function("addAttachTex", &FrameBuffer_AddAttachTex)
-		.function("addAttachRenderBuffer", &FrameBuffer_AddAttachRenderBuffer4)
-		.function("addAttachRenderBufferMsaa", &FrameBuffer_AddAttachRenderBuffer5)
-		.function("resize", &FrameBuffer::Resize)
-		.function("bind", &FrameBuffer_Bind)
-		.function("bindDefault", &FrameBuffer_BindDefault)
-		.function("isBinded", &FrameBuffer::IsBinded)
-		.function("getBindID", &FrameBuffer::GetBindID)
-		.function("unbind", &FrameBuffer::UnBind)
-		.function("getFrameBufferFormat", &FrameBuffer::GetFrameBufferFormat)
-		.function("isInitialized", &FrameBuffer::IsInitialized)
-		.class_function("enableMultiSample", &FrameBuffer::EnableMultisample)
-		.class_function("disableMultiSample", &FrameBuffer::DisableMultisample)
-		.class_function("blitFrameBuffer", &FrameBuffer::BlitFrameBuffer);
-
-	class_<DeferredRenderer>("DeferredRenderer")
-		.constructor<const uint32, const uint32, FrameBuffer *>(allow_raw_pointers())
-		.function("clearBufferBit", &DeferredRenderer_ClearBufferBit)
-		.function("enableClearDepthBuffer", &DeferredRenderer_EnableClearDepthBuffer)
-		.function("disableClearDepthBuffer", &DeferredRenderer_DisableClearDepthBuffer)
-		.function("clearDepthBuffer", &DeferredRenderer_ClearDepthBuffer)
-		.function("enableClipPlane", &DeferredRenderer_EnableClipPlane)
-		.function("enableClipPlaneDefault", &DeferredRenderer_EnableClipPlaneDefault)
-		.function("disableClipPlane", &DeferredRenderer_DisableClipPlane)
-		.function("setClipPlane0", &DeferredRenderer_SetClipPlane0)
-		.function("setClipaPlane0", &DeferredRenderer_SetClipPlane0)
-		.function("setClipaPlane1", &DeferredRenderer_SetClipPlane1)
-		.function("setClipaPlane2", &DeferredRenderer_SetClipPlane2)
-		.function("setClipaPlane3", &DeferredRenderer_SetClipPlane3)
-		.function("setClipaPlane4", &DeferredRenderer_SetClipPlane4)
-		.function("setClipaPlane5", &DeferredRenderer_SetClipPlane5)
-		.function("setClipaPlane6", &DeferredRenderer_SetClipPlane6)
-		.function("setClipaPlane7", &DeferredRenderer_SetClipPlane7)
-		.function("enableStencil", &DeferredRenderer_EnableStencil)
-		.function("disableStencil", &DeferredRenderer_DisableStencil)
-		.function("clearStencilBuffer", &DeferredRenderer_ClearStencilBuffer)
-		.function("stencilFunction", &DeferredRenderer_StencilFunction)
-		.function("stencilOperation", &DeferredRenderer_StencilOperation)
-		.function("enableScissorTest", &DeferredRenderer_EnableScissorTest)
-		.function("disableScissorTest", &DeferredRenderer_DisableScissorTest)
-		.function("scissorTestRect", &DeferredRenderer_ScissorTestRect)
-		.function("enableWireFrame", &DeferredRenderer_EnableWireFrame)
-		.function("disableWireFrame", &DeferredRenderer_DisableWireFrame)
-		.function("colorMask", &DeferredRenderer_ColorMask)
-		.function("enableSorting", &DeferredRenderer_EnableSorting)
-		.function("disableSorting", &DeferredRenderer_DisableSorting)
-		.function("enableLOD", &DeferredRenderer_EnableLOD)
-		.function("disableLOD", &DeferredRenderer_DisableLOD)
-		.function("isUsingLOD", &DeferredRenderer_IsUsingLOD)
-		.function("setBackground", &DeferredRenderer_SetBackground)
-		.function("unsetBackground", &DeferredRenderer_UnsetBackground)
-		.function("setGlobalLight", &DeferredRenderer_SetGlobalLight)
-		.function("enableDepthBias", &DeferredRenderer_EnableDepthBias)
-		.function("disableDepthBias", &DeferredRenderer_DisableDepthBias)
-		.function("setViewPort", &DeferredRenderer_SetViewPort)
-		.function("resetViewPort", &DeferredRenderer_ResetViewPort)
-		.function("resize", &DeferredRenderer_Resize)
-		.function("activateCulling", &DeferredRenderer_ActivateCulling)
-		.function("deactivateCulling", &DeferredRenderer_DeactivateCulling)
-		.function("preRender", &DeferredRenderer_PreRender)
-		.function("preRenderTag", &DeferredRenderer_PreRenderTag)
-		.function("renderScene", &DeferredRenderer_RenderScene)
-		.function("renderSceneOptions", &DeferredRenderer_RenderSceneOptions)
-		.function("setSSRDistances", &DeferredRenderer_SetSSRDistances)
-		.function("enableSSR", &DeferredRenderer_EnableSSR)
-		.function("disableSSR", &DeferredRenderer_DisableSSR)
-		.function("enableSSAO", &DeferredRenderer_EnableSSAO)
-		.function("disableSSAO", &DeferredRenderer_DisableSSAO)
-		.function("setSSAOParams", &DeferredRenderer_SetSSAOParams)
-		.function("setSSAODirectStrength", &DeferredRenderer_SetSSAODirectStrength);
-
-	class_<VelocityRenderer>("VelocityRenderer")
-		.constructor<uint32, uint32>()
-		.function("renderVelocityMap", &Velocity_Render)
-		.function("resize", &VelocityRenderer::Resize)
-		.function("getTexture", &VelocityRenderer::GetTexture, allow_raw_pointers());
-
-	class_<CubemapRenderer>("CubemapRenderer")
-		.constructor<uint32, uint32>()
-		.function("renderCubeMap", &Cubemap_Render);
 }
 
 #endif /* EMSCRIPTEN */

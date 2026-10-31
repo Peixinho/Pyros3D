@@ -33,7 +33,7 @@ namespace p3d {
 		void EnsureDebugRenderer();
 
 		void ClearBuffers();
-		void Render(const Matrix &camera, const Matrix &projection);
+		DebugRenderer* GetDebugRenderer() { return debugRenderer; }
 
 		static void* CreateDebugShapeCallback(const b3DebugShape* debugShape, void* userContext);
 		static void DestroyDebugShapeCallback(void* userShape, void* userContext);

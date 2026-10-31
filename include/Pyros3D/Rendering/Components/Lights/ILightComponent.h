@@ -11,8 +11,8 @@
 
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Core/Math/Math.h>
+#include <Pyros3D/Rendering/ColourSpace.h>
 #include <Pyros3D/Core/Projection/Projection.h>
-#include <Pyros3D/Core/Buffers/FrameBuffer.h>
 #include <Pyros3D/Other/Export.h>
 #include <vector>
 #include <map>
@@ -64,41 +64,12 @@ namespace p3d {
 		// raw authored value (that's what serialization and any UI wants to
 		// round-trip). Alpha is deliberately left unscaled: it isn't part of
 		// the light's radiance, it's carried through into the forward path's
-		// _diffuse.w accumulator.
-		Vec4 GetLightRadiance() const { return Vec4(Color.x * Intensity, Color.y * Intensity, Color.z * Intensity, Color.w); }
+		// _diffuse.w accumulator. The colour is decoded from sRGB here (ColourSpace.h): the renderer
+		// lights in linear light.
+		Vec4 GetLightRadiance() const { const Vec4 c = SrgbToLinear(Color); return Vec4(c.x * Intensity, c.y * Intensity, c.z * Intensity, c.w); }
 
 		bool IsCastingShadows() { return isCastingShadows; }
 		void DisableCastShadows();
-
-	protected:
-
-		// Releases the shadow FBO and map, waiting for the GPU to finish with
-		// them first. The wait is the whole point on Vulkan and Metal, where
-		// the frames that sampled this shadow map may still be in flight when
-		// a reconfiguration destroys it - the same in-flight-submission hazard
-		// PostEffectsManager's destructor guards against. It is a genuine
-		// no-op on GL, so this costs nothing there.
-		void ReleaseShadowResources();
-
-	public:
-
-		FrameBuffer* GetShadowFBO();
-
-		Texture* GetShadowMapTexture() { return ShadowMap.get(); }
-
-		// The shadow of what does not move, kept apart from the map read by the lighting: six plain
-		// R32F pictures (a point light's faces) and a framebuffer to draw them, made on first use.
-		// Each frame a face that changed is put back from here and only what moves is drawn over it
-		// (IRenderer's point shadow pass) - a pedestrian under a lamp no longer redraws the street.
-		bool EnsureStaticShadowFaces();
-		Texture* GetStaticShadowFace(const int face) { return (face >= 0 && face < 6) ? staticShadowFaces[face].get() : NULL; }
-		// (one framebuffer for each face, the face attached once: under Vulkan another picture attached to
-		// the same framebuffer was drawn into the first one)
-		FrameBuffer* GetStaticShadowFBO(const int face) { return (face >= 0 && face < 6) ? staticShadowFBO[face].get() : NULL; }
-		// A point light's map, one face at a time: a framebuffer a face, each always on its own face
-		// (and one depth between them). Made the first time it is asked for, NULL for a light that is
-		// not a point light casting shadows.
-		FrameBuffer* GetShadowFaceFBO(const int face);
 
 		// Volumetric in-scattering - how much light this one scatters back
 		// to the eye out of the medium it passes through, on top of what it
@@ -231,23 +202,8 @@ namespace p3d {
 
 	protected:
 
-		// Shadows Mapping
-		// FrameBuffer - owned whenever isCastingShadows is true; assigning a
-		// new one via .reset() always releases whichever was previously owned,
-		// so re-enabling shadows can't leak the prior FBO/texture.
-		std::unique_ptr<FrameBuffer> shadowsFBO;
-		std::unique_ptr<FrameBuffer> staticShadowFBO[6];
-		// (see GetShadowFaceFBO: one framebuffer re-aimed at each face in turn began every pass on the
-		// face it was left on, and Metal and Vulkan clear what a pass begins on - the face drawn last the
-		// frame before was wiped, and with the shadow cache it was not drawn again)
-		std::unique_ptr<FrameBuffer> shadowFaceFBO[6];
-		std::unique_ptr<Texture> shadowFaceDepth;
-		Texture* shadowFaceFBOFor = NULL;
-		std::unique_ptr<Texture> staticShadowFaces[6];
-		// Dimensions
+		// Shadow map size
 		uint32 ShadowWidth, ShadowHeight;
-		// Shadow Map Texture
-		std::unique_ptr<Texture> ShadowMap;
 		// Far ane Near for Projection
 		f32 ShadowNear, ShadowFar;
 		// Flag

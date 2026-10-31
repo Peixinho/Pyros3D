@@ -3,7 +3,8 @@
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Selected Material
+// Description : Selected Material - the selection's highlight, drawn over the
+//               selected mesh (its surface: assets/selectedmaterial.glsl.surface)
 //============================================================================
 
 #ifndef SELECTEDMATERIAL_H
@@ -14,42 +15,13 @@
 using namespace p3d;
 
 class SelectedMaterial : public CustomShaderMaterial {
-    
-        public:
-            
-			Uniform *uColor, *uColor2;
-
-            SelectedMaterial() : CustomShaderMaterial("assets/selectedmaterial.glsl")
-            {
-				texture = new Texture();
-				texture->LoadTexture("assets/selectedmaterial.png");
-                AddUniform(Uniform("uProjectionMatrix",Uniforms::DataUsage::ProjectionMatrix));
-                AddUniform(Uniform("uViewMatrix",Uniforms::DataUsage::ViewMatrix));
-                AddUniform(Uniform("uModelMatrix",Uniforms::DataUsage::ModelMatrix));
-                AddUniform(Uniform("uTime",Uniforms::DataUsage::Timer)); 
-				int32 id = 0;
-				AddUniform(Uniform("uTexture", DataType::Int, &id));
-				uColor = AddUniform(Uniform("uColor", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
-				uColor2 = AddUniform(Uniform("uColor2", Uniforms::DataUsage::Other, Uniforms::DataType::Vec4));
-			}
-
-			virtual void PreRender()
-			{
-				Vec4 color = Vec4(1, 1, 0, 1);
-				Vec4 color2 = Vec4(1, 0, 1, 1);
-				uColor->SetValue(&color);
-				uColor2->SetValue(&color2);
-				texture->Bind();
-            }
-            virtual void Render() {}
-            virtual void AfterRender() 
-			{
-				texture->Unbind();
-			}
-
-			Texture* texture;
-            
+	public:
+		SelectedMaterial() : CustomShaderMaterial("assets/selectedmaterial.glsl")
+		{
+			SetTransparencyFlag(true);
+			DisableDepthWrite();
+			SetCullFace(CullFace::BackFace);
+		}
 };
 
 #endif	/* SELECTEDMATERIAL_H */
-

@@ -21,12 +21,38 @@ permissions:
 
 # One place, so the library and the editor can never be built by two
 # different compilers and then debugged as if they were the same thing.
+#
+# EMSDK_VERSION: emdawnwebgpu (below) needs Emscripten 4.0.3 or later - see
+# src/emdawnwebgpu/README.md in the Dawn source - so the old 3.1.74 pin cannot
+# build the browser device at all. 6.0.10 is what the engine's own web build
+# is made with locally against this same Dawn commit.
+#
+# DAWN_COMMIT: the Dawn source the browser device is built from. Pinned to the
+# commit used locally (.fetchcontent-cache/dawn-src), so CI and a local build
+# make the same emdawnwebgpu and the same SPIR-V -> WGSL. It is also the cache
+# key: changing it is what pays for a Dawn build again, once.
 env:
-  EMSDK_VERSION: 3.1.74
+  EMSDK_VERSION: 6.0.10
+  DAWN_COMMIT: 537308541a072a4b348a6bdd4d54e808f4239a7a
 
 jobs:
-  web:
-    name: WebGL2 / Pyros3D.js
+  # The browser build draws with WebGPU only, and PyrosEmscripten.cmake turns
+  # PYROS_WEB_WEBGPU on, which refuses to configure (FATAL_ERROR) without two
+  # things made from Dawn's source - see the header comments in
+  # cmake/PyrosWebGPU.cmake for the one-time commands this job automates:
+  #
+  #   - emdawnwebgpu: Dawn's webgpu.h over the browser's WebGPU, as an
+  #     Emscripten port (PYROS_DAWN_WASM_BUILD). Built with emcmake.
+  #   - pyros_spirv2wgsl: a NATIVE tool that turns the renderer's SPIR-V into
+  #     WGSL at build time (PYROS_SPIRV2WGSL), because the page compiles no
+  #     shaders. It is Tint's SPIR-V reader, so it needs a native Dawn built
+  #     with that reader on.
+  #
+  # Both Dawn builds are long (the native one most of all), so each is cached
+  # on the Dawn commit and paid for once; on a cache hit this job only builds
+  # the two-file tool. What the web jobs need is handed on as an artifact.
+  dawn:
+    name: Dawn for the browser
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -34,21 +60,173 @@ jobs:
           submodules: recursive
 
       - name: Install build tools
+        # clang/lld rather than the image's gcc + GNU ld: Dawn is developed
+        # and tested with clang, and lld resolves static archives in any
+        # order - the tool links Dawn's monolith plus a glob of its abseil and
+        # SPIRV-Tools archives (PyrosWebGPU.cmake) in no particular order,
+        # which GNU ld's single pass does not forgive.
+        #
+        # glslc: the native Pyros configure below has a renderer (WebGPU), so
+        # PyrosRenderer.cmake's find_program(glslc REQUIRED) runs. The tool's
+        # self-check uses it too.
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build
+          sudo apt-get install -y --no-install-recommends \
+            cmake ninja-build clang lld python3 git glslc libfreetype-dev
+
+      - name: Cache the native Dawn
+        id: dawn-native
+        uses: actions/cache@v4
+        with:
+          path: ~/dawn/native
+          key: dawn-native-ubuntu-24.04-${{ env.DAWN_COMMIT }}-v1
+
+      - name: Cache emdawnwebgpu
+        id: dawn-wasm
+        uses: actions/cache@v4
+        with:
+          path: ~/dawn/emdawnwebgpu_pkg
+          key: dawn-emdawnwebgpu-${{ env.DAWN_COMMIT }}-emsdk-${{ env.EMSDK_VERSION }}-v1
+
+      - name: Fetch the Dawn source
+        if: steps.dawn-native.outputs.cache-hit != 'true' || steps.dawn-wasm.outputs.cache-hit != 'true'
+        # From the GitHub mirror, which serves a fetch of one commit by hash
+        # at depth 1. Its own dependencies come with DAWN_FETCH_DEPENDENCIES
+        # at configure time.
+        run: |
+          git init -q "$HOME/dawn-src"
+          git -C "$HOME/dawn-src" fetch -q --depth 1 https://github.com/google/dawn.git "$DAWN_COMMIT"
+          git -C "$HOME/dawn-src" checkout -q FETCH_HEAD
+          git -C "$HOME/dawn-src" log -1 --format='Dawn %H (%cd)'
+
+      - name: Build the native Dawn (Tint's SPIR-V reader on)
+        if: steps.dawn-native.outputs.cache-hit != 'true'
+        # The flags in cmake/PyrosWebGPU.cmake's header, plus no X11/Wayland:
+        # only the tool links this, and it opens no window. The longest step
+        # in the workflow on a cold cache, and cached on the commit after.
+        #
+        # What is cached is cut down to what PyrosWebGPU.cmake reads: the
+        # source's src/ and include/ (Tint's headers, webgpu.h) and the build
+        # tree's archives and generated headers - not the object files, which
+        # are most of its size.
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          cmake -S "$HOME/dawn-src" -B "$HOME/dawn/native/build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DDAWN_FETCH_DEPENDENCIES=ON -DTINT_BUILD_SPV_READER=ON -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
+            -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_USE_GLFW=OFF -DDAWN_BUILD_PROTOBUF=OFF \
+            -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF \
+            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF
+          cmake --build "$HOME/dawn/native/build" --parallel "$(nproc)" --target webgpu_dawn tint_api
+          find "$HOME/dawn/native/build" -name '*.o' -delete
+          mkdir -p "$HOME/dawn/native/src"
+          cp -R "$HOME/dawn-src/src" "$HOME/dawn-src/include" "$HOME/dawn/native/src/"
+          du -sh "$HOME/dawn/native"
+
+      - name: Setup Emscripten
+        if: steps.dawn-wasm.outputs.cache-hit != 'true'
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+
+      - name: Build emdawnwebgpu
+        if: steps.dawn-wasm.outputs.cache-hit != 'true'
+        # The same Dawn source, through Emscripten: the port package is
+        # self-contained (its .port.py, webgpu.h and the JS library), so only
+        # it is kept.
+        run: |
+          emcmake cmake -S "$HOME/dawn-src" -B "$HOME/dawn-wasm-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DTINT_BUILD_TESTS=OFF
+          cmake --build "$HOME/dawn-wasm-build" --parallel "$(nproc)" --target emdawnwebgpu_pkg
+          rm -rf "$HOME/dawn-wasm-build/emdawnwebgpu_pkg/__pycache__"
+          mkdir -p "$HOME/dawn"
+          cp -R "$HOME/dawn-wasm-build/emdawnwebgpu_pkg" "$HOME/dawn/emdawnwebgpu_pkg"
+          test -f "$HOME/dawn/emdawnwebgpu_pkg/emdawnwebgpu.port.py"
+
+      - name: Build pyros_spirv2wgsl
+        # A native configure of the engine on WebGPU, pointed at the Dawn
+        # above, and then only the tool's target: two source files against
+        # Dawn's archives, so this is cheap even on a cache hit. Lua off
+        # because nothing here runs a script; the engine itself is never
+        # built.
+        env:
+          CC: clang
+          CXX: clang++
+        run: |
+          set -o pipefail
+          cmake -S . -B build_spirv2wgsl -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPYROS_GRAPHICS=WebGPU \
+            -DHAVE_LUA_BINDINGS=OFF \
+            "-DPYROS_DAWN_SOURCE=$HOME/dawn/native/src" \
+            "-DPYROS_DAWN_BUILD=$HOME/dawn/native/build" \
+            -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld | tee configure.log
+          grep -q "WebGPU device: on" configure.log || {
+            echo "::error::the native Dawn was not picked up - see the WebGPU device: line above"
+            exit 1
+          }
+          cmake --build build_spirv2wgsl --parallel "$(nproc)" --target pyros_spirv2wgsl
+          # Prove it does its one job before three jobs depend on it.
+          glslc --target-env=vulkan1.1 -O -I resources/shaders \
+            -o /tmp/fullscreen.spv resources/shaders/fullscreen.vert
+          build_spirv2wgsl/pyros_spirv2wgsl /tmp/fullscreen.spv /tmp/fullscreen.wgsl.inc
+          head -c 400 /tmp/fullscreen.wgsl.inc; echo
+
+      - name: Hand the Dawn pieces on
+        run: |
+          mkdir -p web-dawn
+          cp -R "$HOME/dawn/emdawnwebgpu_pkg" web-dawn/emdawnwebgpu_pkg
+          cp build_spirv2wgsl/pyros_spirv2wgsl web-dawn/
+
+      - name: Upload the Dawn pieces
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dawn
+          path: web-dawn/
+          if-no-files-found: error
+          # Only this run's two web jobs read it.
+          retention-days: 1
+
+  web:
+    name: WebGPU / Pyros3D.js
+    needs: dawn
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install build tools
+        # glslc: the renderer's shaders are compiled to SPIR-V on the build
+        # machine (PyrosRenderer.cmake), then to WGSL by pyros_spirv2wgsl.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends cmake ninja-build glslc
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: ${{ env.EMSDK_VERSION }}
 
+      - name: Fetch the Dawn pieces
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dawn
+          path: web-dawn
+
       - name: Configure
+        # PyrosEmscripten.cmake forces WebGPU and the browser's device on;
+        # these two say where its Dawn pieces are. The artifact does not keep
+        # the tool's executable bit, hence the chmod.
         run: |
+          chmod +x web-dawn/pyros_spirv2wgsl
           emcmake cmake -S . -B build_web -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_DEMOS=ON \
-            -DHAVE_LUA_BINDINGS=OFF
+            -DHAVE_LUA_BINDINGS=OFF \
+            "-DPYROS_DAWN_WASM_BUILD=$PWD/web-dawn" \
+            "-DPYROS_SPIRV2WGSL=$PWD/web-dawn/pyros_spirv2wgsl"
 
       - name: Build Pyros3D library
         run: cmake --build build_web --parallel "$(nproc)" --target Pyros3D
@@ -68,7 +246,9 @@ jobs:
         # Actually instantiate the wasm and check the page's entry points are
         # registered, rather than only checking the files exist. Catches a
         # module that builds and uploads but aborts the moment a browser
-        # loads it - which is otherwise only discovered by a human.
+        # loads it - which is otherwise only discovered by a human. Node has
+        # no WebGPU, but nothing touches the device until an Application is
+        # made, so instantiation itself is still testable here.
         working-directory: build_web/examples/web
         run: |
           node -e '
@@ -96,7 +276,8 @@ jobs:
           if-no-files-found: error
 
   editor:
-    name: WebGL2 / PyrosBuilder
+    name: WebGPU / PyrosBuilder
+    needs: dawn
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -106,12 +287,18 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build
+          sudo apt-get install -y --no-install-recommends cmake ninja-build glslc
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
         with:
           version: ${{ env.EMSDK_VERSION }}
+
+      - name: Fetch the Dawn pieces
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dawn
+          path: web-dawn
 
       - name: Configure
         # Lua ON, unlike the library job above. That is not a preference: a
@@ -121,12 +308,15 @@ jobs:
         # both cross-compile to wasm with no special handling.
         #
         # No BUILD_DEMOS: the editor does not need them and they double the
-        # build time.
+        # build time. The Dawn pieces as in the library job above.
         run: |
+          chmod +x web-dawn/pyros_spirv2wgsl
           emcmake cmake -S . -B build_web_editor -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_EDITOR=ON \
-            -DHAVE_LUA_BINDINGS=ON
+            -DHAVE_LUA_BINDINGS=ON \
+            "-DPYROS_DAWN_WASM_BUILD=$PWD/web-dawn" \
+            "-DPYROS_SPIRV2WGSL=$PWD/web-dawn/pyros_spirv2wgsl"
 
       - name: Build PyrosBuilder
         run: cmake --build build_web_editor --parallel "$(nproc)" --target PyrosBuilder
@@ -148,16 +338,17 @@ jobs:
                 build_web_editor/editor/editor-shell.js
 
       - name: Smoke-test the module
-        # The editor cannot be instantiated under node - it is an SDL/WebGL
-        # application and needs a canvas and a GL context, neither of which
+        # The editor cannot be instantiated under node - it is an SDL/WebGPU
+        # application and needs a canvas and a device, neither of which
         # exists here. What CAN be checked without a browser is that the glue
         # parses and the preloaded filesystem carries what the editor opens on
-        # startup: a .data missing its font or its shaders builds and uploads
-        # perfectly and then fails on somebody's machine.
+        # startup: a .data missing its font builds and uploads perfectly and
+        # then fails on somebody's machine. (No shaders in it any more: the
+        # renderer's are WGSL compiled into the module.)
         working-directory: build_web_editor/editor
         run: |
           node --check PyrosBuilder.js
-          for f in assets/fonts/fa-solid-900.ttf assets/middleclass.lua shaders/PyrosShader.glsl; do
+          for f in assets/fonts/fa-solid-900.ttf assets/middleclass.lua; do
             grep -q "$f" PyrosBuilder.js || { echo "missing from the preloaded FS: $f"; exit 1; }
           done
           echo "editor module OK - glue parses, packaged filesystem has its startup files"

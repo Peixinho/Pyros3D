@@ -1,0 +1,333 @@
+// Water, for renderer 2 (CustomShaderMaterial::SetSurfaceSource) - Water.glsl's sea, ported.
+//
+// The water is what it was: its waves (the travelling trains, their slope in one pass), the swell that lifts the
+// sheet and the wash that runs up the sand, what touched it lately (uGlobals 0..11), a river's current and the
+// foam it carries, its colour from its depth (the shore picture), the foam at the shore - a cracked sheet thinning
+// into threads - wet sand under the last film of it, winter's ice. What it no longer does is light itself: the old
+// one painted a sky and the sun's glints into its colour; renderer 2 reflects the real sky in it (sharp, by
+// Fresnel) and the sun off it, so here it is a surface - a dielectric (F0 0.02, water's), smooth, its normal the
+// waves' - and its colour is the light the water itself scatters.
+//
+//@texture shore
+//@texture waves
+
+#define WATER_MAP_SIZE 512.0       // metres the depth picture covers, centred on the world's origin (its .bake.json)
+#define WATER_DEPTH_RANGE 12.0      // the depth that is white
+#define WATER_DEPTH_ABOVE 0.5       // the ground above the water kept in it
+#define WATER_LEVEL (uModelMatrix[3].y)
+// A sea is drawn round the eye out to the horizon; a lake or a pool (WATER_BOUNDED) where its plane is, at its own
+// size, a quarter as rough and read deeper (a lake a few metres deep is all surf zone to a sea's shading)
+#ifdef WATER_BOUNDED
+#define WATER_ROUGH 0.25
+#define WATER_DEEPEN 3.5
+#define WATER_BED vec3(0.36, 0.33, 0.25)
+#else
+#define WATER_ROUGH 1.0
+#define WATER_DEEPEN 1.0
+#define WATER_BED vec3(0.62, 0.58, 0.44)
+#endif
+#ifndef uModelMatrix
+#define uModelMatrix (uDraw.model)
+#endif
+
+float p3d_ih(ivec3 q) { uint n = uint(q.x) * 1597334673u ^ uint(q.y) * 3812015801u ^ uint(q.z) * 2798796415u; n ^= n >> 15; n *= 2246822519u; n ^= n >> 13; n *= 3266489917u; n ^= n >> 16; return float(n >> 8) * (1.0 / 16777216.0); }
+float p3d_hash(vec3 p) { return p3d_ih(ivec3(floor(p * 4.0 + 0.5))); }
+float p3d_noise(vec3 x) {
+	vec3 i = floor(x);
+	vec3 f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(mix(p3d_hash(i + vec3(0.0, 0.0, 0.0)), p3d_hash(i + vec3(1.0, 0.0, 0.0)), f.x),
+	               mix(p3d_hash(i + vec3(0.0, 1.0, 0.0)), p3d_hash(i + vec3(1.0, 1.0, 0.0)), f.x), f.y),
+	           mix(mix(p3d_hash(i + vec3(0.0, 0.0, 1.0)), p3d_hash(i + vec3(1.0, 0.0, 1.0)), f.x),
+	               mix(p3d_hash(i + vec3(0.0, 1.0, 1.0)), p3d_hash(i + vec3(1.0, 1.0, 1.0)), f.x), f.y), f.z);
+}
+float p3d_vh(vec2 p) { return p3d_ih(ivec3(ivec2(floor(p * 16.0 + 0.5)), 7)); }
+float p3d_vn(vec2 p) {
+	vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(p3d_vh(i), p3d_vh(i + vec2(1.0, 0.0)), f.x), mix(p3d_vh(i + vec2(0.0, 1.0)), p3d_vh(i + vec2(1.0, 1.0)), f.x), f.y);
+}
+// (each train's way: sin and cos of a running 1232.4 rad - as a table, not 48 trig calls a pixel)
+const vec2 kSeaDir[40] = vec2[](
+	vec2(0.0000000, 1.0000000), vec2(0.7805731, 0.6250645), vec2(0.9758171, -0.2185887), vec2(0.4393242, -0.8983286),
+	vec2(-0.4266051, -0.9044380), vec2(-0.9726357, -0.2323356), vec2(-0.7893150, 0.6139885), vec2(-0.0145981, 0.9998934),
+	vec2(0.7716758, 0.6360161), vec2(0.9787041, -0.2052762), vec2(0.4510844, -0.8924813), vec2(-0.4151343, -0.9097602),
+	vec2(-0.9697393, -0.2441427), vec2(-0.7964257, 0.6047364), vec2(-0.0252883, 0.9996802), vec2(0.7648313, 0.6442306),
+	vec2(0.9808430, -0.1948000), vec2(0.4606012, -0.8876072), vec2(-0.4053832, -0.9141468), vec2(-0.9670735, -0.2544974),
+	vec2(-0.8028461, 0.5961863), vec2(-0.0359756, 0.9993527), vec2(0.7578993, 0.6523715), vec2(0.9828698, -0.1843015),
+	vec2(0.4700653, -0.8826316), vec2(-0.3955858, -0.9184290), vec2(-0.9642971, -0.2648229), vec2(-0.8103208, 0.5859866),
+	vec2(-0.0505605, 0.9987210), vec2(0.7469981, 0.6648262), vec2(0.9861118, -0.1660831), vec2(0.4880226, -0.8728310),
+	vec2(-0.3749052, -0.9270632), vec2(-0.9575593, -0.2882364), vec2(-0.8243560, 0.5660717), vec2(-0.0748761, 0.9971928),
+	vec2(0.7305800, 0.6828271), vec2(0.9898652, -0.1420103), vec2(0.5091415, -0.8606828), vec2(-0.3522089, -0.9359214));
+// Waves as a sum of travelling sharp-crested trains, each dragging the next sideways (after afl_ext's procedural
+// ocean); `iters` falls with distance, so no train is finer than a pixel
+float p3d_sea(vec2 pos, float t, int iters) {
+	float iter = 0.0, freq = 1.0, tm = 2.0, weight = 1.0, sumV = 0.0, sumW = 0.0;
+	for (int i = 0; i < 40; i++) {
+		if (i >= iters) break;
+		vec2 d = kSeaDir[i];
+		float x = dot(d, pos) * freq + t * tm;
+		float wave = exp(sin(x) - 1.0);
+		pos += d * (-wave * cos(x)) * weight * 0.30;
+		sumV += wave * weight; sumW += weight;
+		weight *= 0.85; freq *= 1.18; tm *= 1.07; iter += 1232.399963;
+	}
+	return sumV / max(sumW, 1e-4);
+}
+// The same sea and its slope in one pass
+// (`count` may be fractional: the last train fades in by it, so where the count falls with distance there is no
+// step - a whole train appearing at once drew rings round the eye out to the horizon)
+float p3d_seaG(vec2 pos, float t, float count, out vec2 grad) {
+	float iter = 0.0, freq = 1.0, tm = 2.0, weight = 1.0, sumV = 0.0, sumW = 0.0;
+	vec2 g = vec2(0.0);
+	for (int i = 0; i < 40; i++) {
+		float fade = clamp(count - float(i), 0.0, 1.0);
+		if (fade <= 0.0) break;
+		vec2 d = kSeaDir[i];
+		float x = dot(d, pos) * freq + t * tm;
+		float wave = exp(sin(x) - 1.0);
+		float dw = wave * cos(x);
+		float w = weight * fade;
+		g += d * (dw * freq * w);
+		pos += d * (-dw) * w * 0.30;
+		sumV += wave * w; sumW += w;
+		weight *= 0.85; freq *= 1.18; tm *= 1.07; iter += 1232.399963;
+	}
+	float k = 1.0 / max(sumW, 1e-4);
+	grad = g * k;
+	return sumV * k;
+}
+
+#ifdef P3D_STAGE_VERTEX
+// The sea is a sheet of many vertices drawn round the eye - fine underfoot, coarse at the horizon - and its swell
+// really lifts it; the wash runs up the sand and back; a river's surface moves with its current
+void Vertex(inout VertexData v) {
+	vec3 p = v.position;
+#ifndef WATER_BOUNDED
+	vec2 gn = p.xz / 6960.0;
+	// (out to the horizon from any height a game flies at: 40 km - past that the air hides it)
+	p.xz = floor(uCameraPosition.xz / 4.0) * 4.0 + sign(gn) * pow(abs(gn), vec2(2.6)) * 40000.0;
+#endif
+	vec2 suv = (p.xz + vec2(WATER_MAP_SIZE * 0.5)) / WATER_MAP_SIZE;
+	float inMap = step(0.0, min(suv.x, suv.y)) * step(max(suv.x, suv.y), 1.0);
+	vec4 shv = textureLod(shore, clamp(suv, vec2(0.002), vec2(0.998)), 0.0);
+	float dep = max(mix(WATER_DEPTH_RANGE, shv.r * shv.r * (WATER_DEPTH_RANGE + WATER_DEPTH_ABOVE) - WATER_DEPTH_ABOVE, inMap), 0.0);
+	float lift = smoothstep(0.4, 4.0, dep) * (1.0 - clamp(shv.g, 0.0, 1.0) * inMap);
+	float swell = p3d_sea(p.xz * 0.11, uTime * 0.6, 12);
+	p.y += (swell - 0.42) * 1.5 * (uGlobals[13].y > 0.001 ? uGlobals[13].y : 1.0) * lift * WATER_ROUGH;
+	float n2 = p3d_vn(p.xz * 0.22 + vec2(uTime * 0.03, 0.0));
+	float wash = 0.015 + 0.15 * smoothstep(0.28, 0.66, swell) * (0.65 + 0.35 * n2);
+	p.y += wash * (1.0 - smoothstep(0.10, 0.9, dep)) * inMap * (1.0 - clamp(shv.g, 0.0, 1.0));
+	float riv = clamp(shv.g, 0.0, 1.0) * inMap;
+	if (riv > 0.02) {
+		vec2 fl = shv.ba * 2.0 - 1.0;
+		fl = dot(fl, fl) > 0.01 ? normalize(fl) : vec2(0.0);
+		float beat = uTime * 0.22, t0 = fract(beat), t1 = fract(beat + 0.5), w1 = abs(1.0 - 2.0 * t0);
+		float h0 = p3d_sea((p.xz - fl * t0 * 5.0) * 1.3, uTime * 0.6, 12);
+		float h1 = p3d_sea((p.xz - fl * t1 * 5.0) * 1.3 + 13.0, uTime * 0.6, 12);
+		p.y += (mix(h0, h1, w1) - 0.42) * 0.14 * riv * smoothstep(0.25, 1.0, dep);
+	}
+	v.position = p;
+	v.normal = vec3(0.0, 1.0, 0.0);
+	v.uv = p.xz;
+}
+#endif
+
+#ifdef P3D_STAGE_FRAGMENT
+// the nearest two of a scatter of points: x how far in from the cell's edge, y z the cell
+vec3 p3d_cells(vec2 p) {
+	vec2 ci = floor(p), cf = fract(p);
+	float d1 = 9.0, d2 = 9.0; vec2 id = vec2(0.0);
+	for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+		vec2 o = vec2(float(i), float(j));
+		vec2 cid = ci + o;
+		vec2 pt = o + vec2(p3d_ih(ivec3(ivec2(floor(cid + 0.5)), 11)), p3d_ih(ivec3(ivec2(floor(cid + 0.5)), 23))) - cf;
+		float dd = dot(pt, pt);
+		if (dd < d1) { d2 = d1; d1 = dd; id = cid; } else if (dd < d2) d2 = dd;
+	}
+	return vec3(sqrt(d2) - sqrt(d1), id);
+}
+
+void Surface(inout SurfaceData s) {
+	vec3 V = s.view;
+	vec2 wp = s.position.xz;
+	float wt = uTime * 0.6;
+	float px = max(length(dFdx(wp)), length(dFdy(wp)));
+	float fine = 1.0 - smoothstep(0.05, 0.5, px);
+	vec2 muv = (wp + vec2(WATER_MAP_SIZE * 0.5)) / WATER_MAP_SIZE;
+	vec4 sh = texture_2D(shore, clamp(muv, vec2(0.002), vec2(0.998)));
+	float inside = step(0.0, min(muv.x, muv.y)) * step(max(muv.x, muv.y), 1.0);
+	float depthRaw = mix(WATER_DEPTH_RANGE, sh.r * sh.r * (WATER_DEPTH_RANGE + WATER_DEPTH_ABOVE) - WATER_DEPTH_ABOVE, inside);
+	float depth = max(depthRaw, 0.0) * WATER_DEEPEN;
+	float creek = clamp(sh.g, 0.0, 1.0) * inside;
+	float winterSea = uGlobals[14].x;
+	vec3 sunDir = uFrame.sunDirection.w > 0.0 ? normalize(uFrame.sunDirection.xyz) : vec3(0.0, 1.0, 0.0);
+
+	// (where the ground is all but at the surface the two fight for the pixel - further off, sooner: the water gives way)
+	if (inside > 0.5 && depthRaw + (s.position.y - WATER_LEVEL) < length(uCameraPosition - s.position) * 0.0004 - 0.004) discard;
+
+	// the surface: the trains, their slope; eased from high up (from the air a sea is a fine texture, not hills)
+	// (the footprint's long side: at a glancing look a pixel stretches far along the view, and the waves finer than that
+	// beat against the pixels in rings round the eye)
+	float pxw = max(max(length(dFdx(wp)), length(dFdy(wp))), 1e-4);
+	const float SEA_SCALE = 0.11;
+	// (24 at most: the trains past that are finer than a hand's width, under a pixel from a few metres on)
+	// (as few as the pixel resolves - down to none at the horizon, where one pixel holds hundreds of metres: trains
+	// finer than it beat against the pixels in arcs round the eye. What they would have tilted, the roughness keeps)
+	float itersWanted = log(1.6 / max(pxw * SEA_SCALE, 1e-5)) / log(1.18);
+	float iters = clamp(itersWanted, 1.0, 24.0);
+	// (and the slope only while enough trains are left to cross each other: two or three alone are a corrugated sheet)
+	float resolved = smoothstep(5.0, 10.0, itersWanted);
+	float calm = mix(1.0, 0.18, creek) * mix(0.35, 1.0, smoothstep(0.1, 3.0, depth));
+	calm *= 0.6 + 0.8 * smoothstep(0.25, 0.75, p3d_noise(vec3(wp * 0.006 + wt * 0.004, 1.0)) * 0.6 + p3d_noise(vec3(wp * 0.021, 5.0)) * 0.4);
+	vec2 sp = wp * SEA_SCALE;
+	vec2 seaGrad;
+	float h0 = p3d_seaG(sp, wt, iters, seaGrad);
+	// (and the height to its mean where too few trains are left to cross: one alone peaks along straight lines, and its
+	// crests' foam drew them - dotted rays to the horizon)
+	h0 = mix(0.42, h0, resolved);
+	float fromSky = smoothstep(0.30, 0.70, V.y) * smoothstep(8.0, 40.0, uCameraPosition.y - WATER_LEVEL);
+	vec4 waterSet = vec4(uGlobals[13].x > 0.001 ? uGlobals[13].x : 1.0, 1.0, uGlobals[13].z > 0.001 ? uGlobals[13].z : 1.0, uGlobals[13].w > 0.001 ? uGlobals[13].w : 1.0);
+	float waveH = 7.5 * waterSet.x * calm * mix(1.0, 0.22, fromSky) * WATER_ROUGH;
+	vec2 slope = seaGrad * SEA_SCALE * waveH * resolved;
+	float unresolved = (24.0 - clamp(itersWanted, 0.0, 24.0)) / 24.0;     // (the share of the trains left out)
+	// (the wind's own ripple on top, seen only close to)
+	float rippleSeen = 1.0 - smoothstep(0.02, 0.14, pxw);
+	if (rippleSeen > 0.0) {
+		// (two layers of the material's wave normals drifting across each other: mip-filtered, so they cannot shimmer)
+		vec3 r0 = texture_2D(waves, wp * 0.21 + vec2(wt * 0.031, wt * 0.017)).xyz * 2.0 - 1.0;
+		vec3 r1 = texture_2D(waves, wp * 0.47 - vec2(wt * 0.023, -wt * 0.029)).xyz * 2.0 - 1.0;
+		vec2 rg = r0.xy / max(r0.z, 0.2) + r1.xy / max(r1.z, 0.2) * 0.6;
+		slope += rg * 0.30 * rippleSeen * calm;
+	}
+	// a river runs: its ripples carried downstream, and the foam streaked along it
+	float streaks = 0.0;
+	if (creek > 0.02) {
+		vec2 flow = sh.ba * 2.0 - 1.0;
+		flow = dot(flow, flow) > 0.01 ? normalize(flow) : vec2(0.0);
+		float beat = uTime * 0.22, t0 = fract(beat), t1 = fract(beat + 0.5), w1 = abs(1.0 - 2.0 * t0);
+		const float RUN = 5.0;
+		vec2 q0 = (wp - flow * t0 * RUN) * 1.3, q1 = (wp - flow * t1 * RUN) * 1.3 + 13.0;
+		float er = 0.05;
+		float a0 = p3d_sea(q0, wt, 9), b0 = p3d_sea(q1, wt, 9);
+		vec2 s0 = vec2(p3d_sea(q0 + vec2(er * 1.3, 0.0), wt, 9) - a0, p3d_sea(q0 + vec2(0.0, er * 1.3), wt, 9) - a0);
+		vec2 s1 = vec2(p3d_sea(q1 + vec2(er * 1.3, 0.0), wt, 9) - b0, p3d_sea(q1 + vec2(0.0, er * 1.3), wt, 9) - b0);
+		slope = mix(slope, mix(s0, s1, w1) / er * 0.34, creek);
+		vec2 f0 = wp - flow * t0 * RUN, f1 = wp - flow * t1 * RUN + 7.0;
+		float k0 = 0.0, k1 = 0.0;
+		for (int q = -8; q <= 8; q++) {
+			vec2 o = flow * (float(q) * 0.14);
+			float wq_ = (1.0 - abs(float(q)) / 9.0) * (4.0 / 9.0);
+			k0 += p3d_noise(vec3((f0 + o) * 3.4, 1.0)) * wq_;
+			k1 += p3d_noise(vec3((f1 + o) * 3.4, 5.0)) * wq_;
+		}
+		streaks = smoothstep(0.57, 0.66, mix(k0 / 4.0, k1 / 4.0, w1)) * creek;
+	}
+	// what touched the water lately (assets/lua/pubg/ripples.lua): rings of small waves
+	{
+		vec2 ripSlope = vec2(0.0);
+		for (int i = 0; i < 12; i++) {
+			vec4 src = uGlobals[i];
+			if (src.w <= 0.0) continue;
+			vec2 away = wp - src.xy;
+			float dist = length(away) + 0.0001;
+			float front = 0.20 + src.z * 1.45;
+			float width = 0.28 + src.z * 0.20;
+			float near = (dist - front) / width;
+			float amp = exp(-near * near) * src.w * exp(-src.z * 0.85) / (1.0 + front * 0.55);
+			ripSlope += (away / dist) * cos((dist - front) * 11.0) * amp;
+		}
+		slope += ripSlope * 0.50;
+	}
+	vec3 Nw = normalize(vec3(-slope.x, 1.0, -slope.y));
+
+	// the light the water scatters back: sand through the shallows, teal, then the deep
+	// (the light the waves focus on the bed: only where the bed is seen - a few metres down at most)
+	float caust = depth < 5.0 ? p3d_noise(vec3(wp * 1.3 + Nw.xz * 2.0, wt * 0.9)) * p3d_noise(vec3(wp * 2.9 - 5.0, wt * 1.1 + 3.0)) : 0.25;
+	vec3 bed = mix(WATER_BED, vec3(0.46, 0.46, 0.40), creek) * (0.85 + 1.4 * caust * fine);
+	vec3 body = mix(vec3(0.020, 0.30, 0.28), vec3(0.0, 0.07, 0.09), smoothstep(0.3, 4.5, depth));
+	body = mix(body, mix(vec3(0.02, 0.18, 0.18), vec3(0.0, 0.05, 0.07), smoothstep(0.2, 1.5, depth)), creek * 0.9);
+	if (creek > 0.02) {
+		float cl = 1.0 - abs(p3d_noise(vec3(wp * 0.9 + Nw.xz * 0.6, wt * 0.5)) + p3d_noise(vec3(wp * 2.1 + 4.0, wt * 0.7)) * 0.5 - 0.75) * 4.0;
+		body += vec3(0.035, 0.09, 0.08) * smoothstep(0.55, 1.0, cl) * creek * exp(-depth * 0.4) * fine;
+	}
+	body = mix(body, bed * vec3(0.40, 0.62, 0.58), exp(-depth * 1.1) * 0.8);
+	body = mix(body, vec3(0.36, 0.34, 0.27), exp(-depth * 6.0) * 0.85 * (1.0 - creek));
+	vec3 col = body;
+
+	// foam: at the shore a sheet of white that cracks into plates going out, then thin threads; crests break at sea
+	float lace = p3d_noise(vec3(wp * 1.1 + vec2(wt * 0.2, 0.0), wt * 0.4)) * 0.55 + p3d_noise(vec3(wp * 4.3, wt * 0.8)) * 0.45;
+	float breathe = 0.5 + 0.5 * sin(wt * 1.1 + p3d_noise(vec3(wp * 0.05, 0.0)) * 6.0);
+	float push = smoothstep(0.28, 0.66, h0);
+	// (how far out from the sand, in metres: the depth over the bed's slope - four taps of the depth picture)
+	float eS = 1.5 / 1024.0;
+	vec2 guv = clamp(muv, vec2(eS + 0.002), vec2(0.998 - eS));
+	float gx1 = texture_2D(shore, guv + vec2(eS, 0.0)).r, gx0 = texture_2D(shore, guv - vec2(eS, 0.0)).r, gz1 = texture_2D(shore, guv + vec2(0.0, eS)).r, gz0 = texture_2D(shore, guv - vec2(0.0, eS)).r;
+	vec2 gradD = vec2(gx1 * gx1 - gx0 * gx0, gz1 * gz1 - gz0 * gz0) * ((WATER_DEPTH_RANGE + WATER_DEPTH_ABOVE) / (3.0 * WATER_MAP_SIZE / 1024.0)) * inside;
+	float away = depth / max(length(gradD), 0.004) / waterSet.z;
+	float out_ = away + (lace - 0.5) * 1.1 - 0.7 * push;
+	float foam = 0.0;
+	// (the plates and the web only where there is shore foam to draw: past 21 m out none is left - most of a sea
+	// is spared the cells and the web, which were most of what it cost)
+	if (out_ < 21.0) {
+		vec2 fq = wp + vec2(p3d_noise(vec3(wp * 0.30, wt * 0.12)), p3d_noise(vec3(wp * 0.30 + 7.0, wt * 0.12))) * 3.0 + Nw.xz * 1.2;
+		float web = 0.0;
+		for (int o = 0; o < 3; o++) {
+			float wf = 0.45 * pow(2.3, float(o));
+			float rdg = 1.0 - abs(p3d_noise(vec3(fq * wf + float(o) * 5.3, wt * (0.10 + 0.06 * float(o)))) * 2.0 - 1.0);
+			web = max(web, smoothstep(0.90 - 0.03 * float(o), 0.985, rdg) * (1.0 - 0.22 * float(o)));
+		}
+		vec3 plates = p3d_cells(wp * 1.5 + vec2(p3d_noise(vec3(wp * 1.1, 1.0)), p3d_noise(vec3(wp * 1.1, 5.0))) * 2.4 + vec2(p3d_noise(vec3(wp * 4.0, 2.0)), p3d_noise(vec3(wp * 4.0, 7.0))) * 0.5 + Nw.xz * 0.5 + vec2(wt * 0.05, wt * 0.03));
+		float open_ = pow(smoothstep(2.0, 10.0, out_), 1.5);
+		float crk = 0.014 + open_ * 0.42;
+		float sheet = smoothstep(crk, crk + 0.035, plates.x) * (1.0 - smoothstep(9.5, 13.0, out_)) * mix(0.96, 0.72, smoothstep(2.0, 9.0, out_));
+		float threads = web * (1.0 - smoothstep(9.0, 20.0, out_)) * smoothstep(6.0, 11.0, out_) * 0.5;
+		foam = max(sheet, threads) * (1.0 - creek);
+		foam *= 0.86 + 0.14 * p3d_noise(vec3(wp * 18.0, wt));
+	}
+	// (out at sea only the crests of the steepest waves break, in patches)
+	float crestNoise = p3d_noise(vec3(wp * 0.9, wt * 0.3));
+	float crest = smoothstep(0.88, 0.98, h0 + (lace - 0.5) * 0.12) * smoothstep(2.5, 6.0, depth) * smoothstep(0.75, 1.25, calm) * smoothstep(0.55, 0.75, crestNoise) * 0.8;
+	foam = max(foam, crest * (1.0 - creek));
+	foam = max(foam, creek * (1.0 - smoothstep(0.42, 0.80 + 0.20 * breathe, depth)) * (0.75 + 0.25 * lace));
+	foam = max(foam, streaks * 0.17 * smoothstep(0.25, 0.8, depth));
+	foam *= step(0.0005, depth + inside);
+	col = mix(col, vec3(0.80, 0.83, 0.84), foam * 0.92);
+	// at the sand the water is a film: foam and water thin away and the wet sand shows through
+	float film = depthRaw + (s.position.y - WATER_LEVEL);
+	float thick = smoothstep(0.0, 0.09, film + (lace - 0.5) * 0.02);
+	float wetness = 1.0 - (mix(0.12, 1.0, thick) + (1.0 - mix(0.12, 1.0, thick)) * creek);
+	col = mix(col, vec3(0.54, 0.50, 0.39), wetness);
+
+	// winter: a cracked white crust from the shore out, loose plates beyond
+	float iceOn = 0.0;
+	if (winterSea > 0.01) {
+		vec2 iq = wp + vec2(p3d_noise(vec3(wp * 0.09, 2.0)), p3d_noise(vec3(wp * 0.09, 9.0))) * 2.0;
+		float reach = depth + (p3d_noise(vec3(wp * 0.05, 6.0)) - 0.5) * 1.4 + (p3d_noise(vec3(wp * 0.6, 8.0)) - 0.5) * 0.5;
+		float isheet = (1.0 - smoothstep(1.2, 1.5, reach)) * winterSea;
+		float floes = smoothstep(0.56, 0.60, p3d_noise(vec3(iq * 0.35, 4.0))) * (1.0 - smoothstep(1.4, 4.0, reach)) * winterSea;
+		float plate = max(isheet, floes);
+		float crack = 0.0;
+		for (int o = 0; o < 3; o++) {
+			float cf = 0.5 * pow(2.6, float(o));
+			float rdg = 1.0 - abs(p3d_noise(vec3(iq * cf + float(o) * 7.1, 3.0)) * 2.0 - 1.0);
+			crack = max(crack, smoothstep(0.988, 0.998, rdg) * (1.0 - 0.25 * float(o)));
+		}
+		crack *= fine * 0.6 + 0.4;
+		float drift = smoothstep(0.35, 0.65, p3d_noise(vec3(wp * 0.7, 12.0)) * 0.6 + p3d_noise(vec3(wp * 3.1, 15.0)) * 0.4);
+		vec3 iceCol = mix(vec3(0.72, 0.78, 0.84), vec3(0.93, 0.94, 0.95), drift) * (1.0 - 0.45 * crack);
+		col = mix(col, iceCol, plate);
+		iceOn = plate;
+	}
+
+	// The surface: the water a smooth dielectric (F0 0.02) with the waves' normal; foam, ice and wet sand rough
+	float rough = max(max(foam, iceOn), wetness);
+	s.albedo = col;
+	s.normal = normalize(mix(Nw, vec3(0.0, 1.0, 0.0), rough * 0.7));
+	// (the trains too fine to draw tilt the water within each pixel: a broader glitter far off - the sun's road)
+	s.roughness = mix(mix(0.035, 0.22, unresolved * unresolved * calm * WATER_ROUGH), 0.8, rough);
+	s.metallic = 0.0;
+	s.emission = vec3(0.0);
+	s.occlusion = 1.0;
+	s.alpha = uOpacity;
+}
+#endif

@@ -152,7 +152,7 @@ function init()
 				wait(2.0)
 				tinted = not tinted
 				if tinted then
-					Diffuse:setColor(Vec4.new(1, 0.6, 0.6, 1))
+					Diffuse:setColor(Linear(1, 0.6, 0.6, 1))
 				else
 					Diffuse:setColor(Vec4.new(1, 1, 1, 1))
 				end

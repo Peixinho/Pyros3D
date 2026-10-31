@@ -26,38 +26,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # The native path, and the one that ships. The renderer's shaders
+          # are SPIR-V compiled at build time (glslc) and turned into MSL by
+          # SPIRV-Cross when a pipeline is made.
           - name: Metal
             graphics: Metal
-            context: Auto
-            metal: "ON"
-            vulkan: "OFF"
-            compute: metal
+            tests: "yes"
             package: "yes"
             artifact: Pyros3D-macos-metal
-          - name: OpenGL
-            graphics: OpenGL
-            context: SDL2
-            metal: "OFF"
-            vulkan: "OFF"
-            # GL on macOS caps at 4.1 and compute is 4.3, so there is
-            # nothing to run here - see tools/tests/compute_smoke.cpp.
-            compute: none
-            package: "yes"
-            artifact: Pyros3D-macos-opengl
           # Builds and links, but ships nothing. A redistributable Vulkan
-          # package on macOS is a different problem from the other two: volk
+          # package on macOS is a different problem from Metal: volk
           # dlopen()s the loader, and the loader then needs MoltenVK's ICD
           # manifest found through VK_ICD_FILENAMES - so the folder only works
           # behind a launcher script that sets it. Metal is the native path
           # anyone would actually ship here. This leg is for compile/link
-          # coverage of the Vulkan backend on Apple, which is where the
-          # breakage actually happens.
+          # coverage of the Vulkan device (VulkanDevice.cpp) on Apple, where
+          # it is built against MoltenVK's CAMetalLayer surface rather than
+          # the Win32/Xlib ones the other two workflows cover.
           - name: Vulkan (MoltenVK)
             graphics: Vulkan
-            context: SDL2Vulkan
-            metal: "OFF"
-            vulkan: "ON"
-            compute: vulkan
+            tests: "no"
             package: "no"
             artifact: ""
 
@@ -73,19 +61,30 @@ jobs:
           # lua@5.4, not lua: the unversioned formula is 5.5 now, which
           # sol.hpp does not support and PyrosDependencies.cmake looks past -
           # it probes `brew --prefix lua@5.4` by name.
-          brew install --quiet ninja sdl2 freetype lua@5.4 shaderc spirv-cross assimp
-          if [ "${{ matrix.vulkan }}" = "ON" ]; then
+          #
+          # shaderc for glslc, which is not optional: PyrosRenderer.cmake
+          # compiles resources/shaders to SPIR-V when the engine is built
+          # (find_program(glslc REQUIRED)) and embeds the result. glslang is
+          # the runtime GLSL compiler for materials' surfaces; it is optional
+          # (without it surfaces come from the surface cache), but it is one
+          # formula and shaderc depends on it anyway, so it is named here
+          # rather than left to arrive by accident. spirv-cross is what the
+          # Metal device turns that SPIR-V into MSL with.
+          brew install --quiet ninja sdl2 freetype lua@5.4 shaderc glslang spirv-cross assimp
+          if [ "${{ matrix.graphics }}" = "Vulkan" ]; then
             # Homebrew rather than the LunarG .dmg: find_package(Vulkan) only
             # needs headers + loader, both of which brew has, and the installer
             # costs ~10 minutes per run. molten-vk supplies the ICD that turns
             # Vulkan calls into Metal ones.
             brew install --quiet molten-vk vulkan-loader vulkan-headers
           fi
+          glslc --version | head -1
 
       - name: Configure
         run: |
+          set -o pipefail
           EXTRA=""
-          if [ "${{ matrix.vulkan }}" = "ON" ]; then
+          if [ "${{ matrix.graphics }}" = "Vulkan" ]; then
             # FindVulkan checks $VULKAN_SDK before system paths, and the brew
             # prefix has the include/ and lib/ layout it expects.
             export VULKAN_SDK="$(brew --prefix)"
@@ -94,33 +93,42 @@ jobs:
           # STATIC_LIB=OFF on purpose: a shared build is the one that exercises
           # symbol visibility and install names, which is where the
           # platform-specific defects live. The static path is covered on
-          # Windows and Linux.
+          # Windows.
+          #
+          # PYROS_GRAPHICS alone picks the device: BUILD_METAL_BACKEND and
+          # BUILD_VULKAN_BACKEND default to whatever it names
+          # (PyrosOptions.cmake), so passing them as well would only be a
+          # second place to get it wrong. HAVE_LUA_BINDINGS is on by default,
+          # which is what DemoLauncher needs to be built at all.
           cmake -S . -B build -G Ninja \
             -DCMAKE_BUILD_TYPE=Release \
             -DPYROS_GRAPHICS=${{ matrix.graphics }} \
-            -DCONTEXT=${{ matrix.context }} \
-            -DOPENGL_VERSION=GL41 \
             -DSTATIC_LIB=OFF \
-            -DBUILD_METAL_BACKEND=${{ matrix.metal }} \
-            -DBUILD_VULKAN_BACKEND=${{ matrix.vulkan }} \
-            -DBUILD_SPIRV_TOOLING=ON \
             -DBUILD_DEMOS=ON \
             -DBUILD_EDITOR=ON \
             -DBUILD_CONVERTER=ON \
             -DPYROS_RELOCATABLE_ASSETS=ON \
-            $EXTRA
+            $EXTRA | tee configure.log
+          # A device that was asked for but not found (no spirv-cross, no
+          # Vulkan headers) only WARNs, and the engine then configures with
+          # no renderer at all. Fail here, where the cause is legible.
+          grep -q "Renderer: on (${{ matrix.graphics }}" configure.log || {
+            echo "::error::the renderer is not on ${{ matrix.graphics }} - see the Renderer: line above"
+            exit 1
+          }
+          grep "Renderer: on" configure.log
 
       - name: Build
         run: cmake --build build --parallel "$(sysctl -n hw.ncpu)"
 
-      - name: Compute, GI and particle tests
-        if: matrix.compute != 'none'
-        # The macOS runners are the only CI machines with a real GPU, and
-        # Metal and MoltenVK are the only backends whose compute path
-        # cannot be exercised anywhere else - Linux covers GL via llvmpipe,
-        # and the web target has no compute stage at all. Without this step
-        # nothing would catch a regression in either until someone ran the
-        # test by hand.
+      - name: CPU tests (GI maths, scene round-trip)
+        if: matrix.tests == 'yes'
+        # These used to share a step with the GPU parity tests (compute_smoke,
+        # sh_shader_parity, bvh_gpu, ddgi_gpu, the particle and DDGI-specular
+        # parity), which ran compute kernels through the old renderer's
+        # devices. Those devices and those tests are gone with it; what is
+        # left here is CPU-only and backend-independent, so it runs on one
+        # leg. The rest of tools/tests runs on Linux and Windows.
         #
         # Built by hand rather than through CMake, matching every other
         # binary in tools/tests (none are in the build system - see the
@@ -128,53 +136,6 @@ jobs:
         run: |
           set -euo pipefail
           FT="$(pkg-config --cflags freetype2)"
-          # Hoisted rather than set inside the first Vulkan branch that
-          # needs them: three separate if/else blocks below use these, and
-          # relying on an earlier branch having run is the kind of
-          # ordering dependency that breaks the moment someone reorders
-          # the tests. FetchContent puts them in the build tree, not on
-          # any install prefix.
-          VMA="$(find . -name vk_mem_alloc.h -print -quit)"
-          VOLK="$(find . -name volk.h -print -quit)"
-          if [ "${{ matrix.compute }}" = "metal" ]; then
-            c++ -std=c++17 -DMETAL_BACKEND -DCOMPUTE_SMOKE_METAL \
-              -I include $FT \
-              tools/tests/compute_smoke.cpp -o /tmp/compute_smoke \
-              -L build -lPyrosEngine \
-              -framework Foundation -framework Metal \
-              -Wl,-rpath,"$PWD/build"
-          else
-            # No SDL at all - the Vulkan leg runs headless via
-            # InitializeHeadless().
-            c++ -std=c++17 -DVULKAN_BACKEND -DCOMPUTE_SMOKE_VULKAN \
-              -I include -I "$(brew --prefix)/include" $FT \
-              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
-              tools/tests/compute_smoke.cpp -o /tmp/compute_smoke \
-              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
-            # volk dlopen()s the loader, so it has to be findable, and the
-            # loader needs MoltenVK's ICD manifest pointed at explicitly -
-            # the same reason this matrix entry ships no package (see its
-            # comment above).
-            export VK_ICD_FILENAMES="$(brew --prefix)/etc/vulkan/icd.d/MoltenVK_icd.json"
-            export DYLD_LIBRARY_PATH="$(brew --prefix)/lib:${DYLD_LIBRARY_PATH:-}"
-          fi
-          set +e
-          /tmp/compute_smoke | tee /tmp/compute_out.txt
-          code=${PIPESTATUS[0]}
-          set -e
-          echo "--- exit code $code ---"
-          if [ $code -ne 0 ]; then
-            echo "::error::compute_smoke failed on ${{ matrix.compute }}"
-            exit 1
-          fi
-          # A SKIP exits 0 by design so the test is safe to run anywhere,
-          # but on a runner that is supposed to have this backend a skip
-          # means the coverage silently evaporated. Fail loudly instead.
-          if grep -q '^SKIP' /tmp/compute_out.txt; then
-            echo "::error::compute_smoke SKIPped on ${{ matrix.compute }} - the backend reported no compute support"
-            exit 1
-          fi
-          grep -q '^PASS  compute_smoke' /tmp/compute_out.txt
 
           # SH irradiance: pure CPU maths, checked against closed forms
           # and brute-force integration. Cheap, and the failure mode it
@@ -192,139 +153,38 @@ jobs:
             src/Pyros3D/Core/Math/Vec3.cpp -o /tmp/probe_grid
           /tmp/probe_grid
 
-          # BVH traversal against a brute-force scan. CPU-only, and the
-          # failure it guards is speckled noise or light through walls -
-          # both of which get blamed on the GI algorithm, not the tree.
+          # BVH traversal against a brute-force scan. The failure it guards
+          # is speckled noise or light through walls - both of which get
+          # blamed on the GI algorithm, not the tree.
           c++ -std=c++17 -I include $FT tools/tests/bvh.cpp -o /tmp/bvh \
             -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
           /tmp/bvh
 
-          # Octahedral encoding and the bordered probe atlas. CPU-only.
-          # The border rule is the one no texture wrap mode implements,
-          # and getting it wrong filters across the seam into unrelated
-          # directions - which reads as probe density, not a bug.
+          # Octahedral encoding and the bordered probe atlas. The border
+          # rule is the one no texture wrap mode implements, and getting it
+          # wrong filters across the seam into unrelated directions - which
+          # reads as probe density, not a bug.
           c++ -std=c++17 -I include $FT tools/tests/octahedral.cpp -o /tmp/octahedral \
             -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
           /tmp/octahedral
 
-          # The Cornell box: colour bleeding and leak rejection. CPU-only
-          # and the slowest of these, but it is the test that decides
-          # whether any of the GI work is real - a white light must leave
-          # a red tint on a white floor beside a red wall, and a sealed
-          # box must not light its own outside.
+          # The Cornell box: colour bleeding and leak rejection. The slowest
+          # of these, but it is the test that decides whether any of the GI
+          # work is real - a white light must leave a red tint on a white
+          # floor beside a red wall, and a sealed box must not light its own
+          # outside.
           c++ -std=c++17 -O2 -I include $FT tools/tests/ddgi.cpp -o /tmp/ddgi \
             -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
           /tmp/ddgi
 
-          # And that PyrosShader.glsl's SHIrradiance still agrees with the
-          # C++ one. Reads the shader file and runs it through compute, so
-          # it needs a backend that has compute - which is exactly the
-          # legs this step runs on.
-          if [ "${{ matrix.compute }}" = "metal" ]; then
-            c++ -std=c++17 -DMETAL_BACKEND -DPARITY_METAL -I include $FT \
-              tools/tests/sh_shader_parity.cpp -o /tmp/sh_parity \
-              -L build -lPyrosEngine -framework Foundation -framework Metal \
-              -Wl,-rpath,"$PWD/build"
-          else
-            c++ -std=c++17 -DVULKAN_BACKEND -DPARITY_VULKAN \
-              -I include -I "$(brew --prefix)/include" $FT \
-              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
-              tools/tests/sh_shader_parity.cpp -o /tmp/sh_parity \
-              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
-          fi
-          # Run from the repo root - it reads resources/shaders/.
-          /tmp/sh_parity | tee /tmp/parity_out.txt
-          grep -q '^PASS  sh_shader_parity' /tmp/parity_out.txt
-
-          # GPU particle simulation against the CPU integrator it
-          # replaces. Same two-backend build shape as sh_parity above.
-          if [ "${{ matrix.compute }}" = "metal" ]; then
-            c++ -std=c++17 -DMETAL_BACKEND -DPARITY_METAL -I include $FT \
-              tools/tests/particles_gpu_parity.cpp -o /tmp/particles_parity \
-              -L build -lPyrosEngine -framework Foundation -framework Metal \
-              -Wl,-rpath,"$PWD/build"
-          else
-            c++ -std=c++17 -DVULKAN_BACKEND -DPARITY_VULKAN \
-              -I include -I "$(brew --prefix)/include" $FT \
-              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
-              tools/tests/particles_gpu_parity.cpp -o /tmp/particles_parity \
-              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
-          fi
-          /tmp/particles_parity | tee /tmp/particles_out.txt
-          grep -q '^PASS  particles_gpu_parity' /tmp/particles_out.txt
-
-          # The BVH traversal kernel against the CPU intersector. Closes
-          # the chain: brute force -> CPU BVH -> GPU kernel, all on the
-          # same rays.
-          if [ "${{ matrix.compute }}" = "metal" ]; then
-            c++ -std=c++17 -DMETAL_BACKEND -DRTPARITY_METAL -I include $FT \
-              tools/tests/bvh_gpu.cpp -o /tmp/bvh_gpu \
-              -L build -lPyrosEngine -framework Foundation -framework Metal \
-              -Wl,-rpath,"$PWD/build"
-          else
-            c++ -std=c++17 -DVULKAN_BACKEND -DRTPARITY_VULKAN \
-              -I include -I "$(brew --prefix)/include" $FT \
-              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
-              tools/tests/bvh_gpu.cpp -o /tmp/bvh_gpu \
-              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
-          fi
-          # Run from the repo root - it reads resources/shaders/gi/.
-          /tmp/bvh_gpu | tee /tmp/bvhgpu_out.txt
-          grep -q '^PASS  bvh_gpu' /tmp/bvhgpu_out.txt
-
-          # The DDGI compute port against the CPU volume it replaces -
-          # every interior texel of every probe, both atlases.
-          if [ "${{ matrix.compute }}" = "metal" ]; then
-            c++ -std=c++17 -DMETAL_BACKEND -DDDGIGPU_METAL -I include $FT \
-              tools/tests/ddgi_gpu.cpp -o /tmp/ddgi_gpu \
-              -L build -lPyrosEngine -framework Foundation -framework Metal \
-              -Wl,-rpath,"$PWD/build"
-          else
-            c++ -std=c++17 -DVULKAN_BACKEND -DDDGIGPU_VULKAN \
-              -I include -I "$(brew --prefix)/include" $FT \
-              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
-              tools/tests/ddgi_gpu.cpp -o /tmp/ddgi_gpu \
-              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
-          fi
-          /tmp/ddgi_gpu | tee /tmp/ddgigpu_out.txt
-          grep -q '^PASS  ddgi_gpu' /tmp/ddgigpu_out.txt
-
-          # A baked environment must survive save/load. Pure CPU, and the
-          # failure it guards is silent data loss rather than a crash.
+          # A baked environment must survive save/load. The failure it
+          # guards is silent data loss rather than a crash.
           c++ -std=c++17 -DLUA_BINDINGS -I include -I shared $FT \
             -I "$(brew --prefix lua@5.4)/include/lua" \
             tools/tests/sh_scene_roundtrip.cpp -o /tmp/sh_roundtrip \
             -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
           /tmp/sh_roundtrip | tee /tmp/roundtrip_out.txt
           grep -q '^PASS  sh_roundtrip' /tmp/roundtrip_out.txt
-
-          # The specular sampler in PyrosShader.glsl against
-          # DDGIVolume::SampleRadiance, by reading the shipped GLSL and
-          # running it - the same trick sh_shader_parity uses, and it
-          # needs compute for the same reason.
-          #
-          # What it guards is not the lighting maths but the ATLAS
-          # ARITHMETIC: the radiance atlas stacks every probe at
-          # roughness level 0, then every probe at level 1, and a wrong
-          # stride still produces a perfectly plausible reflection of
-          # the wrong part of the room. It also carries probe
-          # relocation offsets, so it catches a shader that samples a
-          # probe where it no longer is.
-          if [ "${{ matrix.compute }}" = "metal" ]; then
-            c++ -std=c++17 -O2 -DMETAL_BACKEND -DPARITY_METAL -I include $FT \
-              tools/tests/ddgi_specular_shader_parity.cpp -o /tmp/ddgi_sp \
-              -L build -lPyrosEngine -framework Foundation -framework Metal \
-              -Wl,-rpath,"$PWD/build"
-          else
-            c++ -std=c++17 -O2 -DVULKAN_BACKEND -DPARITY_VULKAN \
-              -I include -I "$(brew --prefix)/include" $FT \
-              -I "$(dirname "$VMA")" -I "$(dirname "$VOLK")" \
-              tools/tests/ddgi_specular_shader_parity.cpp -o /tmp/ddgi_sp \
-              -L build -lPyrosEngine -Wl,-rpath,"$PWD/build"
-          fi
-          # Run from the repo root - it reads resources/shaders/.
-          /tmp/ddgi_sp | tee /tmp/ddgisp_out.txt
-          grep -q '^PASS  ddgi_specular_shader_parity' /tmp/ddgisp_out.txt
 
       - name: Package
         if: matrix.package == 'yes'
@@ -338,10 +198,11 @@ jobs:
 
           cp build/libPyrosEngine*.dylib "$out/lib" 2>/dev/null || true
 
+          # No shaders/ beside either executable any more: the renderer's
+          # shaders are compiled to SPIR-V at build time and embedded in the
+          # engine library.
           cp build/examples/DemoLauncher "$out/demolauncher"
-          cp build/examples/CppApiDemo   "$out/demolauncher"
           cp -R examples/assets          "$out/demolauncher/assets"
-          cp -R resources/shaders        "$out/demolauncher/shaders"
 
           cp build/editor/PyrosBuilder   "$out/editor"
           # The game runtime: what Build Game ships, here so a downloaded
@@ -354,7 +215,6 @@ jobs:
           # Import Model shells out to AssimpImporter and expects it alongside.
           cp build/editor/AssimpImporter "$out/editor"
           cp -R editor/assets            "$out/editor/assets"
-          cp -R resources/shaders        "$out/editor/shaders"
           # Editor.cpp loads <asset root>/assets/middleclass.lua, and with
           # relocatable assets that resolves into the editor's own assets
           # folder - which is not where middleclass.lua is kept.
@@ -388,14 +248,29 @@ jobs:
         # and display situation is not a user's. What is NOT acceptable is
         # death by signal - that means the package is broken, and it is exactly
         # how a missing dylib or an invalidated code signature presents.
+        #
+        # DemoLauncher, on its first demo, with input dropped and a fixed
+        # clock (the same switches tools/VisualCheck runs it with). The Metal
+        # device writes the 60th presented frame to PYROS_SHOT, which is kept
+        # as an artifact: whether the runner's paravirtual GPU drew anything
+        # is then something a human can look at, not something guessed.
+        #
+        # One exception to "signal = broken": when no device could be made
+        # at all, DemoLauncher::Init goes on to use the null device and
+        # crashes. That is a defect in DemoLauncher, not in the package (it
+        # had already loaded every dylib and opened its window to get that
+        # far), so it is reported as a warning rather than failing the job.
         run: |
+          shot="$PWD/smoke-shot.png"
           cd package/demolauncher
           set +e
-          ./CppApiDemo > out.txt 2> err.txt &
+          PYROS_DEMO_INDEX=0 PYROS_DEMO_NO_UI=1 PYROS_DEMO_FIXED_CLOCK=1 \
+            PYROS_SHOT="$shot" PYROS_SHOT_FRAME=60 \
+            ./DemoLauncher > out.txt 2> err.txt &
           pid=$!
-          sleep 20
+          sleep 30
           if kill -0 $pid 2>/dev/null; then
-            echo "--- still running after 20s, which is the good outcome ---"
+            echo "--- still running after 30s, which is the good outcome ---"
             kill $pid
             code=0
           else
@@ -405,12 +280,25 @@ jobs:
           fi
           echo "--- stdout ---"; head -60 out.txt
           echo "--- stderr ---"; head -60 err.txt
+          if [ -s "$shot" ]; then
+            echo "--- frame captured: $(wc -c < "$shot") bytes ---"
+          else
+            echo "::warning::DemoLauncher wrote no PYROS_SHOT frame - the device may not have come up on this runner"
+          fi
           # 128+N means terminated by signal N: 139 = SIGSEGV, 134 = SIGABRT.
           if [ $code -ge 128 ]; then
-            echo "::error::CppApiDemo was killed by signal $((code - 128)) - the package is broken, not merely unable to render"
+            echo "::error::DemoLauncher was killed by signal $((code - 128)) - the package is broken, not merely unable to render"
             exit 1
           fi
           exit 0
+
+      - name: Upload the smoke-run frame
+        if: matrix.package == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-smoke-frame
+          path: smoke-shot.png
+          if-no-files-found: ignore
 
       - name: Upload artifact
         if: matrix.package == 'yes'

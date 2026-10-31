@@ -505,7 +505,7 @@ local function fire(P, time)
 		ey + ry * mx + vy * my - fy * mz,
 		ez + rz * mx + vz * my - fz * mz))
 	W.flashGO:refreshTransformation()
-	W.flashLight:setLightIntensity(4.5)
+	W.flashLight:setLightIntensity(LinearFalloffIntensity(4.5, 3.0, 14.0))
 
 	-- Kick the gun back and up; W.update decays it.
 	W.vmRecoil = math.min(1.6, W.vmRecoil + 1.0)

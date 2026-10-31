@@ -136,9 +136,35 @@
     if (list.title) document.title = list.title;
     wantLandscape = (list.width || 0) > (list.height || 0);
     resize();
-    const response = await fetch(list.data || 'game.data', { cache: 'no-cache' });
-    if (!response.ok) throw new Error('game.data: ' + response.status);
-    const total = list.size || Number(response.headers.get('Content-Length')) || 0;
+    const bytes = await fetchPart(list.data || 'game.data', list.size, true);
+    writeFiles(Module.FS, list, bytes, 0);
+    // A game in two parts (game.more.data: what its first scene does not read): the rest comes after it has started,
+    // and until it is written /.pyros-files-coming says so - the player starts no other scene meanwhile
+    if (list.more) {
+      Module.FS.writeFile('/.pyros-files-coming', '');
+      moreToCome = list;
+    }
+    status('Starting…', 1);
+  }
+
+  let moreToCome = null;
+  async function loadRest(Module) {
+    const list = moreToCome;
+    moreToCome = null;
+    try {
+      const bytes = await fetchPart(list.more, list.moreSize, false);
+      writeFiles(Module.FS, list, bytes, 1);
+      Module.FS.unlink('/.pyros-files-coming');
+    } catch (e) {
+      console.error('The rest of the game could not be loaded (' + (e && e.message ? e.message : e) + ')');
+    }
+  }
+
+  // One part's bytes, the bar following them when it is shown
+  async function fetchPart(url, size, showing) {
+    const response = await fetch(url, { cache: 'no-cache' });
+    if (!response.ok) throw new Error(url + ': ' + response.status);
+    const total = size || Number(response.headers.get('Content-Length')) || 0;
     let bytes;
     if (response.body && total) {
       bytes = new Uint8Array(total);
@@ -154,23 +180,23 @@
         }
         bytes.set(part.value, got);
         got += part.value.length;
-        status('Loading…', Math.min(1, got / total));
+        if (showing) status('Loading…', Math.min(1, got / total));
       }
       bytes = bytes.subarray(0, got);
     } else {
       bytes = new Uint8Array(await response.arrayBuffer());
     }
-    const FS = Module.FS;
-    const made = {};
+    return bytes;
+  }
+
+  // The files of one part (an entry's "part": 0, or none, the first) into the module's file system
+  function writeFiles(FS, list, bytes, part) {
     for (const f of list.files) {
+      if ((f.part || 0) !== part) continue;
       const at = f.path.lastIndexOf('/');
-      if (at > 0) {
-        const dir = f.path.slice(0, at);
-        if (!made[dir]) { FS.mkdirTree('/' + dir); made[dir] = true; }
-      }
+      if (at > 0) FS.mkdirTree('/' + f.path.slice(0, at));
       FS.writeFile('/' + f.path, bytes.subarray(f.offset, f.offset + f.size));
     }
-    status('Starting…', 1);
   }
 
   const Module = {
@@ -178,6 +204,11 @@
     // The page sizes the canvas; the game is told, and does not get to.
     setCanvasSize: null,
     preRun: [function () {
+      // The page's PYROS_* parameters as the game's environment (?PYROS_LOG_LEVEL=3&PYROS_RENDERER_DEBUG=albedo): the switches
+      // a desktop run is given, for a build in a browser that nothing else reaches
+      new URLSearchParams(location.search).forEach(function (value, name) {
+        if (name.indexOf('PYROS_') === 0) Module.ENV[name] = value;
+      });
       Module.addRunDependency('game-files');
       loadGame(Module).then(function () {
         Module.removeRunDependency('game-files');
@@ -189,6 +220,7 @@
     onRuntimeInitialized: function () { resize(); },
     // main() has returned: the game is set up and its first frame is next.
     postRun: [function () {
+      if (moreToCome) loadRest(Module);
       setTimeout(function () { overlay.classList.add('gone'); canvas.focus(); resize(); }, 200);
     }],
     print: function (text) { console.log(text); },

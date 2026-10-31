@@ -10,12 +10,12 @@
 //=============================================================================
 
 #include "Editor.h"
+#include "editor/RendererView.h"
 #include "editor/UI/SpriteSheetEditor.h"
 #include <Pyros3D/Assets/SpriteSheet2D/SpriteSheet2D.h>
 #include <Pyros3D/Assets/TileSet2D/TileSet2D.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/Sprite2D.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <misc/cpp/imgui_stdlib.h>
@@ -462,8 +462,7 @@ void Editor::DrawSpriteSheetEditorWindows()
 		void* texId = nullptr;
 		std::map<uint32, std::shared_ptr<p3d::Texture> >::iterator t = spriteSheetTex.find(doc->id);
 		if (t != spriteSheetTex.end() && t->second)
-			texId = (void*)GetActiveRenderDevice().GetImGuiTextureID(
-				t->second->GetBindID(), t->second->GetTextureType());
+			texId = EditorImGuiTexture(t->second);
 
 		SpriteSheetEditor::FrameRequests req;
 		SpriteSheetEditor::DrawWindow(*doc, texId, req);

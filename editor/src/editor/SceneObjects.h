@@ -72,6 +72,8 @@ class SceneObject {
 		std::shared_ptr<GameObject> Helper;
 		std::string Name;
 		uint32 NameID;
+		// (counted in SceneObjects::nameUse under NameID: see TrackName)
+		bool nameTracked = false;
 		uint32 ParentID;
 		uint32 Type;
 
@@ -214,6 +216,21 @@ class SceneObjects
 
 	protected:
 		std::map<uint32,SceneObject*> listObjects;
+		// How many objects hold each name - what SetName asks to give a new one a free suffix, in one
+		// look-up instead of gathering every other object's name each time (quadratic in the scene:
+		// NatureLab's open took ~26 s in it). Every object in listObjects is counted once, under the
+		// NameID it has: TrackName as it comes in (or once its name is set), UntrackName before it goes.
+		std::unordered_map<uint32, uint32> nameUse;
+		// (a name's next suffix to try: where SetName's last count for it stopped)
+		std::unordered_map<uint32, uint32> nextSuffix;
+		void TrackName(SceneObject* obj) { if (obj != NULL && !obj->nameTracked) { nameUse[obj->NameID]++; obj->nameTracked = true; } }
+		void UntrackName(SceneObject* obj)
+		{
+			if (obj == NULL || !obj->nameTracked) return;
+			std::unordered_map<uint32, uint32>::iterator u = nameUse.find(obj->NameID);
+			if (u != nameUse.end() && --u->second == 0) nameUse.erase(u);
+			obj->nameTracked = false;
+		}
 		SceneGraph* Scene;
 		// The template NewPrivateMaterial clones - never assigned to a mesh.
 		std::shared_ptr<GenericShaderMaterial> GenericMaterial;

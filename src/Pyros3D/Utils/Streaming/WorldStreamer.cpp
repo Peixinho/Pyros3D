@@ -8,7 +8,6 @@
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Core/Logs/Log.h>
 
 #include <Pyros3D/Utils/Streaming/LoadStats.h>
@@ -356,8 +355,6 @@ namespace p3d {
 			if (it->second.state != Cell::Unloaded) Unload(it->first);
 			if (it->second.farState != Cell::Unloaded) UnloadFar(it->first);
 		}
-		if (!graveyard.empty() && IsActiveRenderDeviceSet())
-			GetActiveRenderDevice().WaitIdle();
 		CollectGraveyard(true);
 	}
 

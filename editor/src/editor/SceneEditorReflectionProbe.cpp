@@ -42,8 +42,8 @@ bool SceneEditor::AgentReflectionProbe(const std::string& command, const json& a
 	if (command == "capture_reflection_probes")
 	{
 		ReflectionProbes::CaptureAll(scene);
-		out["probes"] = ReflectionProbes::Count();
-		out["pending"] = ReflectionProbes::Pending();
+		out["probes"] = ReflectionProbes::Count(scene);
+		out["pending"] = viewRenderer ? viewRenderer->ProbesPending(scene) : ReflectionProbes::Count(scene);
 		return true;
 	}
 	SceneObject* target = NULL;
@@ -68,7 +68,7 @@ bool SceneEditor::AgentReflectionProbe(const std::string& command, const json& a
 	{
 		if (!probe) { out["reflectionProbe"] = nullptr; return true; }
 		out = ProbeSettings(probe);
-		out["captured"] = probe->IsCaptured();
+		out["captured"] = viewRenderer && viewRenderer->IsProbeCaptured(probe);
 		return true;
 	}
 	if (playMode) { errOut = "stop play mode first"; return false; }
@@ -131,7 +131,7 @@ void SceneEditor::DrawReflectionProbeProperties(GameObject* go, uint32 goId)
 	if (ImGui::IsItemHovered()) ImGui::SetTooltip("How far inside the box's faces it fades out, to the next probe or the sky.");
 	if (ImGui::IsItemDeactivatedAfterEdit())
 		pendingFoliageOp = { { "cmd", "set_reflection_probe" }, { "id", goId }, { "blend", blend } };
-	ImGui::TextDisabled("%s", probe->IsCaptured() ? "captured" : "waiting to be captured");
+	ImGui::TextDisabled("%s", viewRenderer && viewRenderer->IsProbeCaptured(probe) ? "captured" : "waiting to be captured");
 	ImGui::SameLine();
 	if (ImGui::SmallButton("Capture again")) probe->Capture();
 	if (ImGui::IsItemHovered()) ImGui::SetTooltip("See the room again - after lights or objects in it changed.\n(capture_reflection_probes sees every probe again.)");

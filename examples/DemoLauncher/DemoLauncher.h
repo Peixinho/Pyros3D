@@ -13,18 +13,8 @@
 #define _STR(path) #path
 #define STR(path) _STR(path)
 
-#if defined(_SDL2VULKAN)
-#include "../WindowManagers/SDL2Vulkan/SDL2VulkanContext.h"
-#define ClassName SDL2VulkanContext
-#include <Pyros3D/Rendering/Device/VulkanRenderDevice.h>
-#elif defined(_SDL2METAL)
-#include "../WindowManagers/SDL2Metal/SDL2MetalContext.h"
-#define ClassName SDL2MetalContext
-#include <Pyros3D/Rendering/Device/MetalRenderDevice.h>
-#else
 #include "../WindowManagers/SDL2/SDL2Context.h"
 #define ClassName SDL2Context
-#endif
 
 #include <Pyros3D/Ext/sol/sol.hpp>
 #include <Pyros3D/Utils/Bindings/PyrosBindings.h>
@@ -33,10 +23,14 @@
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <Pyros3D/Rendering/Renderer/SceneRenderer.h>
+#include <Pyros3D/Rendering/Renderer/RendererLua.h>
+#include <Pyros3D/Rendering/Renderer/ImGuiRenderer.h>
+#include <Pyros3D/Rendering/Device/WritePng.h>
+#include <Pyros3D/Rendering/ColourSpace.h>
 
 #include "imgui.h"
 #include "imgui_impl_sdl2.h"
-#include "imgui_impl_opengl3.h"
 
 #include <string>
 #include <vector>
@@ -52,7 +46,7 @@ struct DemoEntry
 	std::string name;
 	std::string description;
 	std::string scene;
-	// Opaque render config forwarded to RenderHost.setup().
+	// The demo's render config: its ambient, background, sky, exposure, projection (ConfigureRenderer)
 	json render;
 };
 
@@ -79,37 +73,20 @@ private:
 	// of the UI existed.
 	void DrawLogWindow();
 
-	// Lists every live FrameBuffer and draws the colour attachments it can
-	// get an ImTextureID for. Built on FrameBuffer::GetLiveFrameBuffers(),
-	// so it follows whatever the active demo actually creates rather than
-	// any fixed list.
+	// The renderer's own targets, as pictures
 	void DrawRenderTargetViewer();
-	// Depth and cube attachments cannot be handed to ImGui directly (see
-	// IRenderDevice::GetImGuiTextureID). These read the texture back on the
-	// CPU, normalise it, and keep a small RGBA8 copy that ImGui can draw.
-	// Keyed on the source Texture* and cube face; cleared on demo switch,
-	// since those pointers die with the scene.
-	struct RenderTargetPreview
-	{
-		Texture *preview;      // owned
-		f64 lastUpdate;
-		uint32 width, height;
-		float rangeMin, rangeMax;
-		RenderTargetPreview() : preview(NULL), lastUpdate(-1.0), width(0), height(0), rangeMin(0.f), rangeMax(1.f) {}
-	};
-	// face is -1 for a plain 2D depth target, or a TextureType::Cubemap*.
-	RenderTargetPreview *GetRenderTargetPreview(Texture *src, const int32 face, const bool refresh);
-	void ClearRenderTargetPreviews();
-	std::map<std::pair<Texture*, int32>, RenderTargetPreview> rtPreviews;
-	float rtRefreshSeconds;
 
 	void InitImGui();
 	void ShutdownImGui();
-	void BeginImGuiFrame();
-	void PrepareImGuiFrame();
-	void EndImGuiFrame();
 
 	sol::state lua;
+
+	// The renderer, on the window's device, and ImGui drawn on the device over it, in the same frame
+	std::unique_ptr<p3d::SceneRenderer> renderer;
+	std::unique_ptr<p3d::ImGuiRenderer> imgui;
+	f32 viewFov = 70.f, viewNear = 0.1f;
+	void ConfigureRenderer(const DemoEntry &entry);
+	void DrawFrame();
 
 	SceneGraph* Scene;
 	Physics* physics;

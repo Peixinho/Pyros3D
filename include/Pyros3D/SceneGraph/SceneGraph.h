@@ -202,6 +202,9 @@ Vec3 lastViewPosition; bool viewed = false;
 		std::vector<std::shared_ptr<GameObject>> _GameObjectListStaticAfter;
 		// GameObject All List
 		std::vector<std::shared_ptr<GameObject>> _GameObjectListALL;
+		// (CollectGameObjectsRecursive's last answer, and the object trees' version it was made at)
+		std::vector<GameObject*> collected;
+		uint64 collectedVersion = 0;
 
 		// Registered Rendering Meshes/Components and Lights for this Scene
 		std::vector<RenderingMesh*> _RenderingMeshes;

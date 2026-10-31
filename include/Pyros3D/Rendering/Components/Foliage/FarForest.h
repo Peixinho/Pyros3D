@@ -19,7 +19,6 @@ namespace p3d {
 	class SceneGraph;
 	class GameObject;
 	class TerrainComponent;
-	class InstanceCullGroup;
 	class RenderingInstancedComponent;
 
 	// A streamed terrain has its trees only on the tiles loaded round the eye: past them the
@@ -28,12 +27,10 @@ namespace p3d {
 	// from - the same layer numbers and seeds, its density maps for the whole terrain, the
 	// ground of its overview - so each stands on the spot its tree does when its tile loads,
 	// as a rounded canopy (or a cone, for a conifer) tinted the kind's colour. It is drawn
-	// in a few blocks culled on the GPU (InstanceCullGroup), one draw a shape: it comes in
-	// where the near trees go (fadeIn), and thins and goes with distance as they do.
+	// in a few instanced blocks, one draw a shape a block.
 	//
 	// The config, a JSON file (paths relative to the asset root):
 	//   { "terrain": "<object name>", "blockTiles": 4, "keep": 0.3,
-	//     "fadeIn": [700, 850], "thin": [1500, 5000, 0.35], "fade": [6500, 8000],
 	//     "kinds": [ { "name", "shape": "round" | "cone", "size": [radius, height],
 	//                  "color": [r, g, b], "densityMap": "<whole terrain, row 0 at the
 	//                  terrain's -z edge>", and the near layer's own numbers: "density",
@@ -55,7 +52,6 @@ namespace p3d {
 		FarForest() {}
 		SceneGraph* scene = NULL;
 		std::shared_ptr<GameObject> owner;
-		std::vector<std::shared_ptr<InstanceCullGroup> > groups;
 		std::vector<std::shared_ptr<GameObject> > blocks;
 		uint32 trees = 0;
 	};

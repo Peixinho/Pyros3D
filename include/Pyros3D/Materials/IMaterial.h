@@ -11,8 +11,7 @@
 
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
-#include <Pyros3D/Materials/Shaders/Shaders.h>
-#include <Pyros3D/Materials/Shaders/Uniforms.h>
+#include <Pyros3D/Materials/BlendState.h>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Other/Export.h>
@@ -33,14 +32,6 @@ namespace p3d {
 
 	class PYROS3D_API IMaterial {
 
-		friend class IRenderer;
-		friend class ForwardRenderer;
-		// Needs to set extraUniformsBinding/BlockName/Size/Offsets on its
-		// own CustomShaderMaterial instances (secondpass*.glsl/lastPass.glsl)
-		// after construction - same reasoning as IEffect's PostEffectsManager
-		// friendship.
-		friend class DeferredRenderer;
-
 	public:
 
 		// Constructor
@@ -48,26 +39,6 @@ namespace p3d {
 
 		// Destructor
 		virtual ~IMaterial();
-
-		// Virtual Methods
-		virtual void PreRender() {}
-		virtual void Render() {}
-		virtual void AfterRender() {}
-
-		// True for materials whose shader is guaranteed to declare the
-		// engine's fixed-binding UBOs for what would otherwise be "loose"
-		// uniforms (VertexFrameUniforms/ObjectMatrixUniforms/BoneMatrices/
-		// VelocityFrameUniforms/VelocityObjectUniforms/AmbientLightUniforms/
-		// MaterialUniforms - see resources/shaders/PyrosShader.glsl).
-		// IRenderer's uniform-sending loops check this once per material to
-		// decide whether to accumulate matching Uniform values into those
-		// UBOs (one UpdateUniformBuffer call per block) or fall back to
-		// sending them individually via Shader::SendUniform, which is what
-		// every material still does by default here. Only GenericShaderMaterial
-		// overrides this - custom shaders (CustomShaderMaterial) declare
-		// their own uniforms as loose GLSL uniforms and must keep receiving
-		// them the old way.
-		virtual bool SupportsUniformBlocks() const { return false; }
 
 		// Properties
 		void SetCullFace(const uint32 &face);
@@ -96,20 +67,6 @@ namespace p3d {
 		f32 GetDepthBiasFactor() const { return depthFactor; }
 		f32 GetDepthBiasUnits() const { return depthUnits; }
 
-		// Uniforms        
-		std::list<Uniform> GlobalUniforms;
-		std::list<Uniform> ModelUniforms;
-		std::list<Uniform> UserUniforms;
-
-		// Add Uniform
-		Uniform* AddUniform(const Uniform Data);
-		void RemoveUniform(Uniform* handle);
-
-		// Configure extraUniforms[index] for Vulkan/UBO materials (Lua / tooling).
-		// index must be 0 or 1; binding 0 means unused.
-		void SetExtraUniformBlock(int index, uint32 binding, const std::string &blockName,
-			uint32 size, const std::map<std::string, uint32> &offsets);
-
 		// Render WireFrame
 		void StartRenderWireFrame();
 		void StopRenderWireFrame();
@@ -121,9 +78,6 @@ namespace p3d {
 
 		// Destroy
 		void Destroy();
-
-		// Get Shader Program
-		const uint32 &GetShader() const;
 
 		// Get Internal ID
 		uint32 GetInternalID();
@@ -182,10 +136,6 @@ namespace p3d {
 
 		// Opacity
 		f32 opacity;
-		Uniform* opacityHandle;
-
-		// Shader program        
-		uint32 shaderProgram;
 
 		// Material Options
 		uint32 materialID;
@@ -197,70 +147,6 @@ namespace p3d {
 		// Blending
 		bool blending;
 		uint32 sfactor, dfactor, mode;
-
-		// Vulkan/SPIR-V rejects non-opaque uniforms outside a block outright
-		// (see PyrosShader.glsl's header comment, and IEffect.h's identical
-		// mechanism for post-effects). CustomShaderMaterial subclasses whose
-		// shader wraps its own loose uniforms in a UBO block set one of
-		// these (after the block's layout is decided - see
-		// DeferredRenderer.cpp's constructor for the reference usage) so
-		// IRenderer::SendExtraUniforms() can fill+upload it generically.
-		// Two slots, not one: a shader whose loose uniforms are split
-		// across both VERTEX and FRAGMENT stages needs two separate blocks/
-		// bindings (secondpassPoint.glsl/secondpassSpot.glsl - one real GPU
-		// uniform-buffer binding per stage; empirically, declaring a single
-		// block referenced from both stages of one program triggered a real
-		// GL_INVALID_OPERATION at draw time on this machine's Metal-backed
-		// GL driver - not just a style preference). A material needing only
-		// one stage's worth (every other CustomShaderMaterial so far) just
-		// leaves slot [1] at its default (binding 0 = unused).
-		struct ExtraUniformsBlock
-		{
-			// Binding 0 (the default) means "not in use" - every material
-			// not opting into this slot is unaffected. Binding must be a
-			// value no *differently shaped* block anywhere in the engine
-			// uses (the engine's own shared UBOs occupy 0-23 - see the
-			// BindUniformBlockIfPresent() run at the end of
-			// IRenderer::BindMesh()); two instances of the
-			// same material type sharing this binding is fine and expected,
-			// since SendExtraUniforms() points each program's descriptor at
-			// bufferHandle below rather than at the device's global
-			// binding-point registry (see
-			// IRenderDevice::BindUniformBlockIfPresent()).
-			uint32 binding;
-			std::string blockName;
-			uint32 size;
-			// This block's own UBO, allocated lazily on first use by
-			// IRenderer::SendExtraUniforms() - one per material instance,
-			// NOT one per binding point.
-			uint32 bufferHandle;
-			std::vector<uchar> scratch;
-			std::map<std::string, uint32> offsets;
-			ExtraUniformsBlock() : binding(0), size(0), bufferHandle(0) {}
-		};
-		ExtraUniformsBlock extraUniforms[2];
-
-		// A material drawn with another of its programs for one draw - its
-		// G-buffer sibling, its instanced one, a custom shader's variant - used to
-		// be CHANGED for that draw and put back: its program, and for a custom
-		// shader its uniform blocks, copied in and out. Two threads drawing two
-		// things that wear the same material could not do that at once. So the
-		// change is now this THREAD's, not the material's: "for the next draw here,
-		// this material is drawn with this program (and these blocks)". GetShader()
-		// and ExtraBlock() answer through it; the material itself is not written.
-		struct DrawOverride
-		{
-			const IMaterial* material = NULL;
-			uint32 program = 0;
-			ExtraUniformsBlock* extra = NULL;      // two of them, or NULL: the material's own
-			int variant = -1;                      // a custom shader's variant index, for whoever asks
-		};
-		static DrawOverride &Override();           // this thread's
-		ExtraUniformsBlock &ExtraBlock(const int index)
-		{
-			const DrawOverride &o = Override();
-			return (o.material == this && o.extra != NULL) ? o.extra[index] : extraUniforms[index];
-		}
 
 	private:
 

@@ -1,7 +1,7 @@
 //============================================================================
 // Name        : PyrosEmbind.cpp
-// Description : Core Embind — Scene, GameObject, Projection, ForwardRenderer.
-//               Other modules: Enums/Math/Render/Assets/Physics/PostFX/Audio/Misc.
+// Description : Core Embind — Scene, GameObject, Projection, Renderer.
+//               Other modules: Enums/Math/Render/Assets/Physics/Audio/Misc/UI.
 //============================================================================
 
 #if defined(__EMSCRIPTEN__) || defined(EMSCRIPTEN)
@@ -12,12 +12,14 @@
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Core/Projection/Projection.h>
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Utils/Serialization/SceneSerializer.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
+#include <Pyros3D/Rendering/Renderer/SceneRenderer.h>
+#include <Pyros3D/Rendering/Renderer/SceneSettings.h>
+#include <Pyros3D/Utils/Bindings/PyrosEmbind.h>
 
 #include <map>
 #include <memory>
@@ -33,7 +35,6 @@ namespace p3d {
 	void PyrosEmbindRenderForceLink();
 	void PyrosEmbindAssetsForceLink();
 	void PyrosEmbindPhysicsForceLink();
-	void PyrosEmbindPostFXForceLink();
 	void PyrosEmbindAudioForceLink();
 	void PyrosEmbindMiscForceLink();
 	void PyrosEmbindUIForceLink();
@@ -46,7 +47,6 @@ namespace p3d {
 		PyrosEmbindRenderForceLink();
 		PyrosEmbindAssetsForceLink();
 		PyrosEmbindPhysicsForceLink();
-		PyrosEmbindPostFXForceLink();
 		PyrosEmbindAudioForceLink();
 		PyrosEmbindMiscForceLink();
 		PyrosEmbindUIForceLink();
@@ -159,61 +159,49 @@ namespace {
 		return std::make_shared<GameObject>(isStatic);
 	}
 
-	void ForwardRenderer_PreRender(ForwardRenderer &r, const std::shared_ptr<GameObject> &cam, SceneGraph &scene)
-	{
-		r.PreRender(cam.get(), &scene);
-	}
-	void ForwardRenderer_PreRenderTag(ForwardRenderer &r, const std::shared_ptr<GameObject> &cam, SceneGraph &scene, const std::string &tag)
-	{
-		r.PreRender(cam.get(), &scene, tag);
-	}
-	void ForwardRenderer_RenderScene(ForwardRenderer &r, const Projection &proj, const std::shared_ptr<GameObject> &cam, SceneGraph &scene)
-	{
-		r.RenderScene(proj, cam.get(), &scene);
-	}
-	void ForwardRenderer_ClearBufferBit(ForwardRenderer &r, uint32 option) { r.ClearBufferBit(option); }
-	void ForwardRenderer_EnableClipPlane(ForwardRenderer &r, uint32 n) { r.EnableClipPlane(n); }
-	void ForwardRenderer_EnableClipPlaneDefault(ForwardRenderer &r) { r.EnableClipPlane(1); }
-	void ForwardRenderer_SetBackground(ForwardRenderer &r, const Vec4 &color) { r.SetBackground(color); }
-	void ForwardRenderer_UnsetBackground(ForwardRenderer &r) { r.UnsetBackground(); }
-	void ForwardRenderer_SetGlobalLight(ForwardRenderer &r, const Vec4 &light) { r.SetGlobalLight(light); }
-	void ForwardRenderer_Resize(ForwardRenderer &r, uint32 w, uint32 h) { r.Resize(w, h); }
-	void ForwardRenderer_EnableClearDepthBuffer(ForwardRenderer &r) { r.EnableClearDepthBuffer(); }
-	void ForwardRenderer_DisableClearDepthBuffer(ForwardRenderer &r) { r.DisableClearDepthBuffer(); }
-	void ForwardRenderer_ClearDepthBuffer(ForwardRenderer &r) { r.ClearDepthBuffer(); }
-	void ForwardRenderer_DisableClipPlane(ForwardRenderer &r) { r.DisableClipPlane(); }
-	void ForwardRenderer_SetClipPlane0(ForwardRenderer &r, const Vec4 &p) { r.SetClipPlane0(p); }
-	void ForwardRenderer_SetClipPlane1(ForwardRenderer &r, const Vec4 &p) { r.SetClipPlane1(p); }
-	void ForwardRenderer_SetClipPlane2(ForwardRenderer &r, const Vec4 &p) { r.SetClipPlane2(p); }
-	void ForwardRenderer_SetClipPlane3(ForwardRenderer &r, const Vec4 &p) { r.SetClipPlane3(p); }
-	void ForwardRenderer_SetClipPlane4(ForwardRenderer &r, const Vec4 &p) { r.SetClipPlane4(p); }
-	void ForwardRenderer_SetClipPlane5(ForwardRenderer &r, const Vec4 &p) { r.SetClipPlane5(p); }
-	void ForwardRenderer_SetClipPlane6(ForwardRenderer &r, const Vec4 &p) { r.SetClipPlane6(p); }
-	void ForwardRenderer_SetClipPlane7(ForwardRenderer &r, const Vec4 &p) { r.SetClipPlane7(p); }
-	void ForwardRenderer_EnableStencil(ForwardRenderer &r) { r.EnableStencil(); }
-	void ForwardRenderer_DisableStencil(ForwardRenderer &r) { r.DisableStencil(); }
-	void ForwardRenderer_ClearStencilBuffer(ForwardRenderer &r) { r.ClearStencilBuffer(); }
-	void ForwardRenderer_StencilFunction(ForwardRenderer &r, uint32 func, uint32 ref, uint32 mask) { r.StencilFunction(func, ref, mask); }
-	void ForwardRenderer_StencilOperation(ForwardRenderer &r, uint32 sfail, uint32 dpfail, uint32 dppass) { r.StencilOperation(sfail, dpfail, dppass); }
-	void ForwardRenderer_EnableScissorTest(ForwardRenderer &r) { r.EnableScissorTest(); }
-	void ForwardRenderer_DisableScissorTest(ForwardRenderer &r) { r.DisableScissorTest(); }
-	void ForwardRenderer_ScissorTestRect(ForwardRenderer &r, const f32 x, const f32 y, const f32 width, const f32 height) { r.ScissorTestRect(x, y, width, height); }
-	void ForwardRenderer_EnableWireFrame(ForwardRenderer &r) { r.EnableWireFrame(); }
-	void ForwardRenderer_DisableWireFrame(ForwardRenderer &r) { r.DisableWireFrame(); }
-	void ForwardRenderer_ColorMask(ForwardRenderer &r, bool rmask, bool g, bool b, bool a) { r.ColorMask(rmask, g, b, a); }
-	void ForwardRenderer_EnableSorting(ForwardRenderer &r) { r.EnableSorting(); }
-	void ForwardRenderer_DisableSorting(ForwardRenderer &r) { r.DisableSorting(); }
-	void ForwardRenderer_EnableLOD(ForwardRenderer &r) { r.EnableLOD(); }
-	void ForwardRenderer_DisableLOD(ForwardRenderer &r) { r.DisableLOD(); }
-	bool ForwardRenderer_IsUsingLOD(ForwardRenderer &r) { return r.IsUsingLOD(); }
-	void ForwardRenderer_EnableDepthBias(ForwardRenderer &r, const Vec2 &factor) { r.EnableDepthBias(factor); }
-	void ForwardRenderer_DisableDepthBias(ForwardRenderer &r) { r.DisableDepthBias(); }
-	void ForwardRenderer_SetViewPort(ForwardRenderer &r, uint32 initX, uint32 initY, uint32 endX, uint32 endY) { r.SetViewPort(initX, initY, endX, endY); }
-	void ForwardRenderer_ResetViewPort(ForwardRenderer &r) { r.ResetViewPort(); }
-	void ForwardRenderer_ActivateCulling(ForwardRenderer &r, const uint32 mode) { r.ActivateCulling(mode); }
-	void ForwardRenderer_DeactivateCulling(ForwardRenderer &r) { r.DeactivateCulling(); }
-
 } // namespace
+
+namespace p3d {
+
+	EmbindRenderer::EmbindRenderer(gfx::Device* device, const uint32 w, const uint32 h) : renderer(new p3d::SceneRenderer(device)), width(w), height(h)
+	{
+		renderer->SetName("Page");
+	}
+	EmbindRenderer::~EmbindRenderer() {}
+
+	void EmbindRenderer::RenderScene(const Projection &projection, const std::shared_ptr<GameObject> &camera, SceneGraph &scene)
+	{
+		if (width == 0 || height == 0) return;
+		GameObject::TakeDrawTransforms();
+		p3d::View v;
+		if (camera) v.cameraWorld = camera->GetDrawWorld();
+		// (the projection as the page made it: perspective - its field of view - or orthographic, its height; told apart by
+		// its matrix, the fields the other one sets left as they were)
+		const bool ortho = projection.m.m[15] == 1.f;
+		v.orthographic = ortho;
+		if (ortho) { v.orthoHeight = std::max(projection.Top - projection.Bottom, 0.001f); v.nearZ = projection.Near; v.farZ = projection.Far; }
+		else { v.fovY = projection.Fov > 0.f ? projection.Fov : 70.f; v.nearZ = projection.Near > 0.f ? projection.Near : 0.1f; }
+		v.width = width; v.height = height;
+		renderer->Render(&scene, v);
+	}
+	void EmbindRenderer::SetBackground(const Vec4 &c)
+	{
+		renderer->SetBackground(Vec3(powf(c.x, 2.2f), powf(c.y, 2.2f), powf(c.z, 2.2f)));
+	}
+	void EmbindRenderer::SetGlobalLight(const Vec4 &c)
+	{
+		renderer->SetAmbient(Vec3(powf(c.x, 2.2f), powf(c.y, 2.2f), powf(c.z, 2.2f)));
+	}
+	void EmbindRenderer::UseSceneSettings(SceneGraph &scene)
+	{
+		std::map<SceneGraph*, std::unique_ptr<LoadedFromJS> >::iterator it = LoadedScenes().find(&scene);
+		if (it == LoadedScenes().end()) return;
+		const SceneMeta &m = it->second->meta;
+		p3d::ApplySceneSettings(*renderer, m.ambientLight, m.ambientIntensity, m.background, m.postEffects, m.twoD);
+		p3d::ApplyAmbientEnvironment(*renderer, m.ambientMode, m.ambientSky, m.ambientEquator, m.ambientGround, m.ambientSH, m.ambientIntensity);
+	}
+
+}
 
 EMSCRIPTEN_BINDINGS(pyros3d_core)
 {
@@ -296,53 +284,25 @@ EMSCRIPTEN_BINDINGS(pyros3d_core)
 		.function("ortho", &Projection::Ortho)
 		.function("getProjectionMatrix", &Projection::GetProjectionMatrix);
 
-	class_<ForwardRenderer>("ForwardRenderer")
-		.constructor<const uint32, const uint32>()
-		.function("clearBufferBit", &ForwardRenderer_ClearBufferBit)
-		.function("enableClearDepthBuffer", &ForwardRenderer_EnableClearDepthBuffer)
-		.function("disableClearDepthBuffer", &ForwardRenderer_DisableClearDepthBuffer)
-		.function("clearDepthBuffer", &ForwardRenderer_ClearDepthBuffer)
-		.function("enableClipPlane", &ForwardRenderer_EnableClipPlane)
-		.function("enableClipPlaneDefault", &ForwardRenderer_EnableClipPlaneDefault)
-		.function("disableClipPlane", &ForwardRenderer_DisableClipPlane)
-		.function("setClipPlane0", &ForwardRenderer_SetClipPlane0)
-		.function("setClipaPlane0", &ForwardRenderer_SetClipPlane0)
-		.function("setClipaPlane1", &ForwardRenderer_SetClipPlane1)
-		.function("setClipaPlane2", &ForwardRenderer_SetClipPlane2)
-		.function("setClipaPlane3", &ForwardRenderer_SetClipPlane3)
-		.function("setClipaPlane4", &ForwardRenderer_SetClipPlane4)
-		.function("setClipaPlane5", &ForwardRenderer_SetClipPlane5)
-		.function("setClipaPlane6", &ForwardRenderer_SetClipPlane6)
-		.function("setClipaPlane7", &ForwardRenderer_SetClipPlane7)
-		.function("enableStencil", &ForwardRenderer_EnableStencil)
-		.function("disableStencil", &ForwardRenderer_DisableStencil)
-		.function("clearStencilBuffer", &ForwardRenderer_ClearStencilBuffer)
-		.function("stencilFunction", &ForwardRenderer_StencilFunction)
-		.function("stencilOperation", &ForwardRenderer_StencilOperation)
-		.function("enableScissorTest", &ForwardRenderer_EnableScissorTest)
-		.function("disableScissorTest", &ForwardRenderer_DisableScissorTest)
-		.function("scissorTestRect", &ForwardRenderer_ScissorTestRect)
-		.function("enableWireFrame", &ForwardRenderer_EnableWireFrame)
-		.function("disableWireFrame", &ForwardRenderer_DisableWireFrame)
-		.function("colorMask", &ForwardRenderer_ColorMask)
-		.function("enableSorting", &ForwardRenderer_EnableSorting)
-		.function("disableSorting", &ForwardRenderer_DisableSorting)
-		.function("enableLOD", &ForwardRenderer_EnableLOD)
-		.function("disableLOD", &ForwardRenderer_DisableLOD)
-		.function("isUsingLOD", &ForwardRenderer_IsUsingLOD)
-		.function("setBackground", &ForwardRenderer_SetBackground)
-		.function("unsetBackground", &ForwardRenderer_UnsetBackground)
-		.function("setGlobalLight", &ForwardRenderer_SetGlobalLight)
-		.function("enableDepthBias", &ForwardRenderer_EnableDepthBias)
-		.function("disableDepthBias", &ForwardRenderer_DisableDepthBias)
-		.function("setViewPort", &ForwardRenderer_SetViewPort)
-		.function("resetViewPort", &ForwardRenderer_ResetViewPort)
-		.function("resize", &ForwardRenderer_Resize)
-		.function("activateCulling", &ForwardRenderer_ActivateCulling)
-		.function("deactivateCulling", &ForwardRenderer_DeactivateCulling)
-		.function("preRender", &ForwardRenderer_PreRender)
-		.function("preRenderTag", &ForwardRenderer_PreRenderTag)
-		.function("renderScene", &ForwardRenderer_RenderScene);
+	class_<EmbindRenderer>("Renderer")
+		.smart_ptr<std::shared_ptr<EmbindRenderer>>("RendererPtr")
+		.function("resize", &EmbindRenderer::Resize)
+		.function("renderScene", &EmbindRenderer::RenderScene)
+		.function("setBackground", &EmbindRenderer::SetBackground)
+		.function("setGlobalLight", &EmbindRenderer::SetGlobalLight)
+		.function("useSceneSettings", &EmbindRenderer::UseSceneSettings)
+		.function("setAutoExposure", optional_override([](EmbindRenderer &r, bool on, f32 ev) { r.Get()->SetAutoExposure(on, ev); }))
+		.function("setExposure", optional_override([](EmbindRenderer &r, f32 e) { r.Get()->SetAutoExposure(false); r.Get()->SetExposure(e); }))
+		.function("setSky", optional_override([](EmbindRenderer &r, bool on) { r.Get()->SetSky(on); }))
+		.function("setHaze", optional_override([](EmbindRenderer &r, f32 density) { r.Get()->SetHaze(density); }))
+		.function("setClouds", optional_override([](EmbindRenderer &r, f32 cover) { r.Get()->SetClouds(cover); }))
+		.function("setReflections", optional_override([](EmbindRenderer &r, bool on) { r.Get()->SetReflections(on); }))
+		.function("setTemporalAA", optional_override([](EmbindRenderer &r, bool on) { r.Get()->SetTemporalAA(on); }))
+		.function("setToneCurve", optional_override([](EmbindRenderer &r, bool on) { r.Get()->SetToneCurve(on); }))
+		.function("setFrustumCulling", optional_override([](EmbindRenderer &r, bool on) { r.Get()->SetFrustumCulling(on); }))
+		.function("enableLOD", optional_override([](EmbindRenderer &r) { r.Get()->SetLOD(true); }))
+		.function("disableLOD", optional_override([](EmbindRenderer &r) { r.Get()->SetLOD(false); }))
+		.function("isUsingLOD", optional_override([](EmbindRenderer &r) { return r.Get()->GetLOD(); }));
 }
 
 #endif /* EMSCRIPTEN */

@@ -13,7 +13,6 @@
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
-#include <Pyros3D/Rendering/Renderer/IRenderer.h>
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <Pyros3D/Physics/PhysicsStepping.h>
 #include <box2d/box2d.h>

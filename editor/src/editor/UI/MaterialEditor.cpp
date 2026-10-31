@@ -6,6 +6,7 @@
 //============================================================================
 
 #include "MaterialEditor.h"
+#include "../RendererView.h"
 #include "OpenDir.h"
 #include "../ShortcutMod.h"
 #include "../CodeEditorDocument.h"
@@ -14,8 +15,6 @@
 #include "../UndoValueEdit.h"
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
-#include <Pyros3D/Materials/Shaders/Shaders.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <imgui.h>
 #include <imgui_internal.h> // ImGuiStorage - per-slot texture-browse toggle state
@@ -66,8 +65,6 @@ void UndoMaterialValue(MaterialEditorDocument& doc, T& baseline, const T& liveVa
 			description));
 	});
 }
-
-
 
 // A relative texture path like "brick.png" is resolved against
 // assets/textures/; anything that already looks absolute (starts with '/'
@@ -121,7 +118,7 @@ std::string UniqueMaterialPath(const std::string& projectRoot, std::string& name
 // Called right after CreateNewMaterial() at every call site below, so a
 // freshly created material is a real assets/materials/*.mat file the moment
 // it exists - see UniqueMaterialPath's comment for why that matters.
-void AutoSaveNewMaterial(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+void AutoSaveNewMaterial(MaterialEditorDocument& doc, const std::string& projectRoot) {
 	if (!doc.absolutePath.empty()) return; // already has a path somehow - don't touch it
 	const std::string relPath = UniqueMaterialPath(projectRoot, doc.materialName);
 	doc.displayName = doc.materialName;
@@ -135,7 +132,7 @@ void AutoSaveNewMaterial(MaterialEditorDocument& doc, const std::string& project
 	}
 	if (doc.editKind == MaterialEditKind::Custom) {
 		std::string err;
-		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
+		if (!MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, &err))
 			doc.lastApplyError = err;
 	}
 }
@@ -198,7 +195,7 @@ void DrawTextureSlot(const char* label, Texture* tex, const std::string& texture
 	if (tex) {
 		ImGui::TextDisabled("(loaded)");
 		ImVec2 slotSize = ImVec2(ImGui::GetContentRegionAvail().x, 64.f);
-		void* tid = GetActiveRenderDevice().GetImGuiTextureID(tex->GetBindID(), tex->GetTextureType());
+		void* tid = EditorImGuiTexture(tex);
 		if (tid) ImGui::Image((ImTextureID)tid, slotSize);
 		else ImGui::TextDisabled("[texture preview unavailable]");
 	} else {
@@ -394,7 +391,6 @@ std::shared_ptr<IMaterial> MaterialEditor::CreateNewMaterial(MaterialEditorDocum
 	doc.ClearNodes();
 	doc.ClearTextTextures();
 	doc.currentMaterial.reset();
-	doc.compiledShader.reset();
 	doc.generatedGlslPath.clear();
 	doc.absolutePath.clear();
 	doc.editKind = kind;
@@ -427,7 +423,7 @@ std::shared_ptr<IMaterial> MaterialEditor::CreateNewMaterial(MaterialEditorDocum
 	return doc.currentMaterial;
 }
 
-bool MaterialEditor::LoadFromFile(MaterialEditorDocument& doc, const std::string& path, const std::string& projectRoot, bool deferredGBuffer) {
+bool MaterialEditor::LoadFromFile(MaterialEditorDocument& doc, const std::string& path, const std::string& projectRoot) {
 	if (!doc.LoadFromFile(path)) return false;
 	doc.lastApplyError.clear();
 
@@ -438,7 +434,7 @@ bool MaterialEditor::LoadFromFile(MaterialEditorDocument& doc, const std::string
 			doc.codeDoc->editor.SetText(doc.simpleShaderText.empty() ? kDefaultSimpleShaderText : doc.simpleShaderText);
 		}
 		std::string err;
-		if (!ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
+		if (!ApplyGraphOrTextToLiveMaterial(doc, projectRoot, &err))
 			doc.lastApplyError = err;
 	}
 	return true;
@@ -471,18 +467,18 @@ std::string MaterialEditor::DefaultSavePath(const MaterialEditorDocument& doc, c
 
 // The toolbar's Save / Save As..., shared with the save_material_document
 // socket command.
-bool MaterialEditor::SaveDocument(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+bool MaterialEditor::SaveDocument(MaterialEditorDocument& doc, const std::string& projectRoot) {
 	std::string path = doc.absolutePath;
 	if (path.empty())
 		path = DefaultSavePath(doc, projectRoot);
-	if (!SaveToFile(doc, path, projectRoot, deferredGBuffer)) {
+	if (!SaveToFile(doc, path, projectRoot)) {
 		doc.lastApplyError = "Could not save to " + DisplayPath(path, projectRoot);
 		return false;
 	}
 	return true;
 }
 
-bool MaterialEditor::SaveToFile(MaterialEditorDocument& doc, const std::string& path, const std::string& projectRoot, bool deferredGBuffer) {
+bool MaterialEditor::SaveToFile(MaterialEditorDocument& doc, const std::string& path, const std::string& projectRoot) {
 	// A project need not have an assets/materials folder yet.
 	std::error_code dirEc;
 	const std::filesystem::path parent = std::filesystem::path(path).parent_path();
@@ -490,7 +486,7 @@ bool MaterialEditor::SaveToFile(MaterialEditorDocument& doc, const std::string& 
 		std::filesystem::create_directories(parent, dirEc);
 	if (doc.editKind == MaterialEditKind::Custom) {
 		std::string err;
-		if (!ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err))
+		if (!ApplyGraphOrTextToLiveMaterial(doc, projectRoot, &err))
 			doc.lastApplyError = err; // still save the graph/text below so in-progress work isn't lost
 	}
 	return doc.SaveToFile(path);
@@ -514,50 +510,6 @@ std::string MaterialEditor::DisplayPath(const std::string& path, const std::stri
 	return rel.generic_string();
 }
 
-static std::string BuildErrorFallbackShaderGLSL(bool deferredGBuffer) {
-	std::ostringstream out;
-	out <<
-		"#define varying_out out\n"
-		"#define attribute_in in\n"
-		"#ifdef VERTEX\n"
-		"attribute_in vec3 aPosition;\n"
-		"uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;\n"
-		"void main() {\n"
-		"\tgl_Position = uProjectionMatrix * uViewMatrix * uModelMatrix * vec4(aPosition, 1.0);\n"
-		"}\n"
-		"#endif\n"
-		"#ifdef FRAGMENT\n";
-	if (deferredGBuffer) {
-		out <<
-			"layout(location = 0) out vec4 FragData_r;\n"
-			"layout(location = 1) out vec4 FragData_g;\n"
-			"layout(location = 2) out vec4 FragData_b;\n"
-			"layout(location = 3) out vec4 FragData_pbr;\n"
-			"void main() {\n"
-			"\tFragData_r = vec4(1.0, 0.0, 1.0, 1.0);\n"
-			"\tFragData_g = vec4(1.0, 1.0, 1.0, 1.0);\n"
-			"\tFragData_b = vec4(0.0, 0.0, 1.0, 1.0);\n"
-			"\tFragData_pbr = vec4(0.5, 0.0, 0.0, 0.0);\n"
-			"}\n";
-	} else {
-		out <<
-			"varying_out vec4 FragColor;\n"
-			"void main() {\n"
-			"\tFragColor = vec4(1.0, 0.0, 1.0, 1.0);\n"
-			"}\n";
-	}
-	out << "#endif\n";
-	return out.str();
-}
-
-// Always produces a branch-correct shader (matching the exact attribute/
-// output contract `deferredGBuffer` requires) - the source above has no
-// external dependencies, so this is only expected to fail on a genuinely
-// broken graphics context, not on anything project-data-related.
-static bool CompileFallbackErrorShader(bool deferredGBuffer, std::unique_ptr<Shader>* outShader) {
-	return MaterialEditor::CompileMaterialShaderText(BuildErrorFallbackShaderGLSL(deferredGBuffer), deferredGBuffer, outShader, NULL);
-}
-
 int MaterialEditor::RegenerateStaleGeneratedShaders(const std::string& projectRoot) {
 	namespace fs = std::filesystem;
 	std::error_code ec;
@@ -573,35 +525,35 @@ int MaterialEditor::RegenerateStaleGeneratedShaders(const std::string& projectRo
 		std::string glslAbsPath = doc.generatedGlslPath.empty()
 			? (it->path().parent_path() / (it->path().stem().string() + ".generated.glsl")).string()
 			: JoinPath(projectRoot, doc.generatedGlslPath);
-		// Only a file Apply already wrote - a material never applied has
-		// nothing stale, and creating one here would be a new asset.
-		if (!fs::exists(glslAbsPath, ec)) continue;
+		// Only a material Apply already wrote - one never applied has nothing
+		// stale, and creating its surface here would be a new asset.
+		if (!fs::exists(glslAbsPath + ".surface", ec)) continue;
 
 		MaterialCodegenResult gen;
 		if (doc.editMode == MaterialEditMode::Text) {
 			std::vector<std::string> textureNames;
 			for (const auto& t : doc.textTextures) textureNames.push_back(t.name);
-			gen = GenerateGLSLFromSimpleText(doc.simpleShaderText, textureNames);
+			gen = GenerateSurfaceFromSimpleText(doc.simpleShaderText, textureNames);
 		} else {
-			gen = GenerateGLSL(doc.nodes, doc.connections);
+			gen = GenerateSurface(doc.nodes, doc.connections);
 		}
 		if (!gen.error.empty()) continue;
 
-		std::string current;
+		std::string currentSurface;
 		{
-			std::ifstream in(glslAbsPath, std::ios::binary);
-			current.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+			std::ifstream in(glslAbsPath + ".surface", std::ios::binary);
+			currentSurface.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
 		}
-		if (current == gen.glsl) continue;
-		std::ofstream out(glslAbsPath, std::ios::binary | std::ios::trunc);
+		if (currentSurface == gen.surface) continue;
+		std::ofstream out(glslAbsPath + ".surface", std::ios::binary | std::ios::trunc);
 		if (!out) continue;
-		out << gen.glsl;
+		out << gen.surface;
 		rewritten++;
 	}
 	return rewritten;
 }
 
-bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer, std::string* errorOut) {
+bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc, const std::string& projectRoot, std::string* errorOut) {
 	auto* cm = dynamic_cast<CustomShaderMaterial*>(doc.currentMaterial.get());
 	if (!cm) { if (errorOut) *errorOut = "Not a Custom Shader material"; return false; }
 
@@ -624,7 +576,7 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 		doc.generatedGlslPath = base + ".generated.glsl";
 	}
 
-	std::string glslText;
+	std::string surfaceText;
 	std::vector<std::pair<std::string, std::string>> samplerList;
 	std::vector<MaterialCodegenResult::Parameter> parameters;
 
@@ -633,14 +585,14 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 		doc.simpleShaderText = doc.codeDoc->editor.GetText();
 		std::vector<std::string> textureNames;
 		for (const auto& t : doc.textTextures) textureNames.push_back(t.name);
-		MaterialCodegenResult gen = GenerateGLSLFromSimpleText(doc.simpleShaderText, textureNames);
+		MaterialCodegenResult gen = GenerateSurfaceFromSimpleText(doc.simpleShaderText, textureNames);
 		if (!gen.error.empty()) { if (errorOut) *errorOut = gen.error; return false; }
-		glslText = gen.glsl;
+		surfaceText = gen.surface;
 		samplerList = BuildTextSamplerList(doc.textTextures);
 	} else {
-		MaterialCodegenResult gen = GenerateGLSL(doc.nodes, doc.connections);
+		MaterialCodegenResult gen = GenerateSurface(doc.nodes, doc.connections);
 		if (!gen.error.empty()) { if (errorOut) *errorOut = gen.error; return false; }
-		glslText = gen.glsl;
+		surfaceText = gen.surface;
 		samplerList = BuildNodeSamplerList(gen.textureSamplers, doc.nodes);
 		parameters = gen.parameters;
 		// codeDoc (if it exists from a previous visit to Text mode) is
@@ -649,111 +601,30 @@ bool MaterialEditor::ApplyGraphOrTextToLiveMaterial(MaterialEditorDocument& doc,
 		// not a mirror of whatever the graph currently produces.
 	}
 
+	// The material is its surface: written beside the material's file key (generatedGlslPath - what scenes name it by),
+	// checked as the renderer compiles it - its errors the editor's to show - and set on the live material
 	const std::string glslAbsPath = JoinPath(projectRoot, doc.generatedGlslPath);
+	std::string surfaceError;
+	if (!p3d::SceneRenderer::CheckSurface(surfaceText, surfaceError))
 	{
-		std::ofstream f(glslAbsPath);
-		if (!f) { if (errorOut) *errorOut = "Could not write " + glslAbsPath; return false; }
-		f << glslText;
-	}
-
-	std::unique_ptr<Shader> newShader;
-	if (!CompileMaterialShaderFile(glslAbsPath, deferredGBuffer, &newShader, errorOut))
-	{
-		// live material's previous shader is untouched, UNLESS it was
-		// compiled for the other branch: running a Forward-branch shader's
-		// real per-fragment lighting code inside a Deferred G-buffer MRT
-		// pass (or vice versa) silently corrupts rendering - phantom
-		// lighting baked from stale shared-UBO data, wrong output/
-		// attachment count, wrong depth behavior. A branch-correct magenta
-		// placeholder beats that. Same-branch failures (e.g. a typo while
-		// iterating without switching renderers) keep the old behavior so
-		// editing isn't disrupted mid-edit.
-		if (!cm->HasKnownShaderBranch() || cm->IsShaderCompiledForDeferredGBuffer() != deferredGBuffer)
-		{
-			std::unique_ptr<Shader> fallback;
-			if (CompileFallbackErrorShader(deferredGBuffer, &fallback))
-			{
-				cm->SetShader(fallback.get());
-				doc.compiledShader = std::move(fallback);
-				cm->MarkShaderBranch(deferredGBuffer);
-			}
-		}
+		if (errorOut) *errorOut = "Surface did not compile:\n" + surfaceError;
 		return false;
 	}
-
-	// SetShader() does NOT take ownership - only reset compiledShader
-	// (which owns the previously swapped-in shader, if any) AFTER the swap,
-	// so the material never points at a shader that's already been freed.
-	cm->SetShader(newShader.get());
-	doc.compiledShader = std::move(newShader);
-	cm->MarkShaderBranch(deferredGBuffer);
-	// Record where this shader came from. The material is compiled here, not
-	// by CustomShaderMaterial's file constructor, so ShaderFilePath would
-	// otherwise stay empty and SceneSerializer would fall back to embedding a
-	// snapshot of the shader text (see its `shaderFile` vs `shaderSource`
-	// branch). That snapshot is exactly why a saved scene stopped tracking
-	// later edits to the .mat: its objects kept recompiling their frozen
-	// copy, and the material had to be re-assigned by hand to pick anything
-	// up. Project-relative, so the scene stays portable.
+	{
+		std::ofstream s(glslAbsPath + ".surface");
+		if (!s) { if (errorOut) *errorOut = "Could not write " + glslAbsPath + ".surface"; return false; }
+		s << surfaceText;
+	}
 	cm->SetShaderFile(doc.generatedGlslPath);
-
-	// The fixed uniform set, shadow receiving included - one list shared
-	// with the scene loader and RecompileFromDisk, see
-	// CustomShaderMaterial::AddGeneratedShaderUniforms.
-	cm->AddGeneratedShaderUniforms();
+	cm->SetSurfaceSource(surfaceText);
 	SyncParameters(cm, parameters);
-
 	WireSamplers(cm, samplerList, projectRoot);
-
 	if (errorOut) errorOut->clear();
 	doc.lastApplyError.clear();
-	doc.hasCompiledShader = true;
-	doc.compiledForDeferredGBuffer = deferredGBuffer;
 	doc.applyGeneration++;
 	return true;
 }
 
-// Runs the VERTEX+FRAGMENT compile/link on a Shader that already has its
-// source loaded (via LoadShaderFile or LoadShaderText). Returns false and
-// sets *errorOut on failure. Shared by the file- and text-compile wrappers.
-static bool CompileAndLinkShader(Shader* shader, bool deferredGBuffer, std::string* errorOut) {
-	const std::string deferredDefine = deferredGBuffer ? "#define DEFERRED_GBUFFER\n" : "";
-	std::string vErr, fErr, lErr;
-	const bool vOk = shader->CompileShader(ShaderType::VertexShader, "#define VERTEX\n" + deferredDefine, &vErr);
-	const bool fOk = shader->CompileShader(ShaderType::FragmentShader, "#define FRAGMENT\n" + deferredDefine, &fErr);
-	const bool linkOk = (vOk && fOk) && shader->LinkProgram(&lErr);
-	if (!vOk || !fOk || !linkOk || shader->ShaderProgram() == 0) {
-		if (errorOut) {
-			*errorOut = "Shader compile/link failed:";
-			if (!vOk) *errorOut += "\n[vertex] " + vErr;
-			if (!fOk) *errorOut += "\n[fragment] " + fErr;
-			if (vOk && fOk && !linkOk) *errorOut += "\n[link] " + lErr;
-		}
-		return false; // caller's Shader cleans itself up; live material's previous shader is untouched
-	}
-	return true;
-}
-
-bool MaterialEditor::CompileMaterialShaderFile(const std::string& glslAbsPath, bool deferredGBuffer,
-                                                std::unique_ptr<Shader>* outShader, std::string* errorOut) {
-	std::unique_ptr<Shader> newShader(new Shader());
-	newShader->LoadShaderFile(glslAbsPath.c_str());
-	if (!CompileAndLinkShader(newShader.get(), deferredGBuffer, errorOut))
-		return false; // newShader cleans itself up; live material's previous shader is untouched
-	*outShader = std::move(newShader);
-	return true;
-}
-
-bool MaterialEditor::CompileMaterialShaderText(const std::string& glslText, bool deferredGBuffer,
-                                                std::unique_ptr<Shader>* outShader, std::string* errorOut) {
-	if (glslText.empty()) { if (errorOut) *errorOut = "no shader text"; return false; }
-	std::unique_ptr<Shader> newShader(new Shader());
-	newShader->LoadShaderText(glslText);
-	if (!CompileAndLinkShader(newShader.get(), deferredGBuffer, errorOut))
-		return false; // newShader cleans itself up; live material's previous shader is untouched
-	*outShader = std::move(newShader);
-	return true;
-}
 
 void MaterialEditor::SyncParameters(CustomShaderMaterial* mat, const std::vector<MaterialCodegenResult::Parameter>& params) {
 	if (!mat) return;
@@ -797,78 +668,19 @@ std::vector<std::pair<std::string, std::string>> MaterialEditor::BuildTextSample
 	return out;
 }
 
-bool MaterialEditor::RecompileFromDisk(CustomShaderMaterial* mat, const std::string& projectRoot,
-                                       bool deferredGBuffer, std::string* errorOut) {
+bool MaterialEditor::RecompileFromDisk(CustomShaderMaterial* mat, const std::string& projectRoot, std::string* errorOut) {
 	if (!mat) { if (errorOut) *errorOut = "no material"; return false; }
-
-	std::unique_ptr<Shader> newShader;
-	bool compiledOk;
-	if (!mat->GetShaderFile().empty())
-	{
-		const std::string shaderPath = mat->GetShaderFile();
-		const bool looksAbsolute = (shaderPath[0] == '/') || (shaderPath.size() >= 2 && shaderPath[1] == ':');
-		const std::string glslAbsPath = looksAbsolute ? shaderPath : JoinPath(projectRoot, shaderPath);
-		// A path that resolves to nothing is not a broken shader, it is a
-		// material whose source does not live under this project at all
-		// (an engine-owned material, or one whose file moved). Recompiling
-		// is simply not something we can do for it - say so and leave the
-		// material's working shader exactly where it is, rather than falling
-		// through to the branch-mismatch handling below and replacing it
-		// with the magenta error shader.
-		std::ifstream probe(glslAbsPath.c_str());
-		if (!probe.good())
-		{
-			if (errorOut) *errorOut = "shader source not found: " + glslAbsPath;
-			return false;
-		}
-		probe.close();
-		compiledOk = CompileMaterialShaderFile(glslAbsPath, deferredGBuffer, &newShader, errorOut);
-	}
-	else if (mat->GetShaderObject() && !mat->GetShaderObject()->GetShaderText().empty())
-	{
-		// No recoverable file - the usual case for a Material-Editor-created
-		// material assigned to a scene, which SceneSerializer saves via its
-		// embedded shaderSource and rebuilds from raw Shader* on load. The
-		// cached text is the full generated GLSL (both branches), so it
-		// recompiles for the other branch the same way the file path does.
-		compiledOk = CompileMaterialShaderText(mat->GetShaderObject()->GetShaderText(), deferredGBuffer, &newShader, errorOut);
-	}
-	else
-	{
-		if (errorOut) *errorOut = "no shader file or source";
-		compiledOk = false;
-	}
-
-	if (!compiledOk)
-	{
-		// Never leave a shader compiled for the OTHER branch bound - see
-		// ApplyGraphOrTextToLiveMaterial's identical guard for why (stale
-		// Forward per-fragment lighting running inside the Deferred
-		// G-buffer pass or vice versa). A same-branch failure (e.g. the
-		// disk source just has a genuine syntax error) keeps the old,
-		// still branch-correct shader running instead.
-		if (!mat->HasKnownShaderBranch() || mat->IsShaderCompiledForDeferredGBuffer() != deferredGBuffer)
-		{
-			std::unique_ptr<Shader> fallback;
-			if (CompileFallbackErrorShader(deferredGBuffer, &fallback))
-			{
-				mat->SetShader(fallback.get());
-				mat->AdoptShader(std::move(fallback));
-				mat->MarkShaderBranch(deferredGBuffer);
-			}
-		}
-		return false;
-	}
-
-	// No MaterialEditorDocument owns this material's shader, so adopt it
-	// into the material itself - SetShader() alone doesn't take ownership
-	// (same as the doc path, where doc.compiledShader plays this role).
-	mat->SetShader(newShader.get());
-	mat->AdoptShader(std::move(newShader));
-	mat->MarkShaderBranch(deferredGBuffer);
-	// Idempotent; covers a material built before the uniform set grew
-	// (ambient environment, bones) as well as the scene loader's own call.
-	mat->AddGeneratedShaderUniforms();
+	// The surface beside the material's file read again, if there is one, checked and set
+	if (mat->GetShaderFile().empty()) { if (errorOut) errorOut->clear(); return true; }
+	const std::string shaderPath = mat->GetShaderFile();
+	const bool looksAbsolute = (shaderPath[0] == '/') || (shaderPath.size() >= 2 && shaderPath[1] == ':');
+	std::ifstream in((looksAbsolute ? shaderPath : JoinPath(projectRoot, shaderPath)) + ".surface", std::ios::binary);
+	if (!in) { if (errorOut) errorOut->clear(); return true; }
+	const std::string surface((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+	std::string surfaceError;
+	if (!p3d::SceneRenderer::CheckSurface(surface, surfaceError)) { if (errorOut) *errorOut = "Surface did not compile:\n" + surfaceError; return false; }
+	mat->SetSurfaceSource(surface);
+	if (errorOut) errorOut->clear();
 	return true;
 }
 
@@ -876,7 +688,7 @@ bool MaterialEditor::RecompileFromDisk(CustomShaderMaterial* mat, const std::str
 // Drawing
 // ---------------------------------------------------------------------------
 
-static void DrawToolbar(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+static void DrawToolbar(MaterialEditorDocument& doc, const std::string& projectRoot) {
 	if (!doc.currentMaterial) return;
 
 	// Fixed-offset SameLine() right-alignment breaks in a narrow docked
@@ -918,7 +730,7 @@ static void DrawToolbar(MaterialEditorDocument& doc, const std::string& projectR
 
 	const bool hasPath = !doc.absolutePath.empty();
 	if (ImGui::Button(hasPath ? "Save" : "Save As...", ImVec2(120.f, 0.f))) {
-		MaterialEditor::SaveDocument(doc, projectRoot, deferredGBuffer);
+		MaterialEditor::SaveDocument(doc, projectRoot);
 	}
 	if (hasPath) {
 		ImGui::SameLine();
@@ -1263,7 +1075,7 @@ static void DrawInspectorTab(MaterialEditorDocument& doc, const std::string& pro
 static void DrawTextTextureInputs(MaterialEditorDocument& doc, const std::string& projectRoot) {
 	// Text mode's stand-in for the node graph's Texture node: a flat list of
 	// named `uniform sampler2D` inputs, declared at the top of the generated
-	// shader by MaterialCodegen::GenerateGLSLFromSimpleText and sampled
+	// shader by MaterialCodegen::GenerateSurfaceFromSimpleText and sampled
 	// directly by name from the snippet in the Material Editor window.
 	if (ImGui::TreeNodeEx("Textures", ImGuiTreeNodeFlags_DefaultOpen)) {
 		const std::string textureRoot = JoinPath(projectRoot, "assets/textures");
@@ -1301,7 +1113,7 @@ static void DrawTextTextureInputs(MaterialEditorDocument& doc, const std::string
 					t.previewTex = new Texture();
 					t.previewTex->LoadTexture(JoinPath(projectRoot, ResolveTexturePath(t.texturePath)), TextureType::Texture);
 				}
-				void* tid = GetActiveRenderDevice().GetImGuiTextureID(t.previewTex->GetBindID(), t.previewTex->GetTextureType());
+				void* tid = EditorImGuiTexture(t.previewTex);
 				if (tid) ImGui::Image((ImTextureID)tid, ImVec2(48.f, 48.f));
 			}
 
@@ -1338,7 +1150,7 @@ static void DrawTextTextureInputs(MaterialEditorDocument& doc, const std::string
 	}
 }
 
-static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+static void DrawTextEditorTab(MaterialEditorDocument& doc, const std::string& projectRoot) {
 	if (!doc.codeDoc) {
 		doc.codeDoc = new CodeEditorDocument();
 		SetupGlslEditor(doc.codeDoc);
@@ -1504,7 +1316,7 @@ static void DrawNodeBody(MaterialEditorDocument& doc, MaterialNode& node, const 
 					node.previewTex->LoadTexture(JoinPath(projectRoot, ResolveTexturePath(node.texturePath)), TextureType::Texture);
 				}
 				ImVec2 slotSize(ImGui::GetContentRegionAvail().x, 64.f);
-				void* tid = GetActiveRenderDevice().GetImGuiTextureID(node.previewTex->GetBindID(), node.previewTex->GetTextureType());
+				void* tid = EditorImGuiTexture(node.previewTex);
 				if (tid) ImGui::Image((ImTextureID)tid, slotSize);
 				else ImGui::TextDisabled("[preview unavailable]");
 			}
@@ -1667,7 +1479,7 @@ static bool ContainsNoCase(const std::string& hay, const char* needle) {
 	return h.find(n) != std::string::npos;
 }
 
-static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
+static void DrawNodeGraphTab(MaterialEditorDocument& doc, const std::string& projectRoot) {
 	ImVec2 avail = ImGui::GetContentRegionAvail();
 	if (avail.x < 10 || avail.y < 10) return;
 
@@ -2143,8 +1955,8 @@ void MaterialEditor::DrawProperties(MaterialEditorDocument& doc, const std::stri
 	ImGui::PopID();
 }
 
-void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& projectRoot, bool deferredGBuffer) {
-	DrawToolbar(doc, projectRoot, deferredGBuffer);
+void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& projectRoot) {
+	DrawToolbar(doc, projectRoot);
 	ImGui::Separator();
 
 	if (!doc.currentMaterial) {
@@ -2152,7 +1964,7 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 		ImGui::Spacing();
 		if (ImGui::Button("New Generic Material")) {
 			CreateNewMaterial(doc, MaterialEditKind::Generic);
-			AutoSaveNewMaterial(doc, projectRoot, deferredGBuffer);
+			AutoSaveNewMaterial(doc, projectRoot);
 		}
 		ImGui::SameLine();
 		if (ImGui::Button("New Custom Shader Material"))
@@ -2165,7 +1977,7 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 			ImGui::Combo("Editing Mode", &modeCombo, modeLabels, IM_ARRAYSIZE(modeLabels));
 			if (ImGui::Button("Create")) {
 				CreateNewMaterial(doc, MaterialEditKind::Custom, modeCombo == 1 ? MaterialEditMode::Text : MaterialEditMode::NodeGraph);
-				AutoSaveNewMaterial(doc, projectRoot, deferredGBuffer);
+				AutoSaveNewMaterial(doc, projectRoot);
 				ImGui::CloseCurrentPopup();
 			}
 			ImGui::SameLine();
@@ -2204,8 +2016,8 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 		ImGui::BeginChild("##MaterialContent", ImVec2(availW - previewPaneW - spacingX, 0.f), false);
 	switch (doc.editMode) {
 		case MaterialEditMode::Inspector: DrawInspectorTab(doc, projectRoot); break;
-		case MaterialEditMode::Text: DrawTextEditorTab(doc, projectRoot, deferredGBuffer); break;
-		case MaterialEditMode::NodeGraph: DrawNodeGraphTab(doc, projectRoot, deferredGBuffer); break;
+		case MaterialEditMode::Text: DrawTextEditorTab(doc, projectRoot); break;
+		case MaterialEditMode::NodeGraph: DrawNodeGraphTab(doc, projectRoot); break;
 	}
 	if (previewPaneW > 0.f) {
 		ImGui::EndChild();
@@ -2281,7 +2093,7 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 			|| doc.pendingFingerprint != doc.autoAppliedFingerprint;
 		if (wantApply && (contentChanged || forceApply)) {
 			std::string err;
-			MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, deferredGBuffer, &err);
+			MaterialEditor::ApplyGraphOrTextToLiveMaterial(doc, projectRoot, &err);
 			doc.lastApplyError = err;
 			doc.autoAppliedFingerprint = doc.pendingFingerprint;
 			doc.autoAppliedValid = true;
@@ -2293,10 +2105,7 @@ void MaterialEditor::DrawWindow(MaterialEditorDocument& doc, const std::string& 
 	// the doc's own live GenericShaderMaterial with no compile step).
 	if (doc.currentMaterial && doc.showPreview && (previewPaneW > 0.f || genericLayout)) {
 		if (!doc.preview) doc.preview = std::make_unique<MaterialPreview>();
-		// Matches the project's actual renderer (Editor::UseDeferredGBuffer)
-		// so the preview's lighting - including Deferred-only effects like
-		// SSR - matches what the material really looks like in-game.
-		doc.preview->EnsureInit(deferredGBuffer);
+		doc.preview->EnsureInit();
 		doc.preview->SyncFromDoc(doc, projectRoot);
 
 		if (previewPaneW > 0.f)

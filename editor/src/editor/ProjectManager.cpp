@@ -8,6 +8,8 @@
 
 #include <Pyros3D/Utils/Localization/Localization.h>
 #include "ProjectManager.h"
+#include <Pyros3D/Rendering/Renderer/SceneRenderer.h>
+#include <tuple>
 #include <Pyros3D/Utils/Json/json.hpp>
 #include <Pyros3D/Core/Logs/Log.h>
 #include <fstream>
@@ -18,6 +20,7 @@
 #include <cstdio>
 #include <cstring>
 #include <map>
+#include <set>
 #include <iterator>
 #include <filesystem>
 #include <chrono>
@@ -2071,11 +2074,6 @@ bool ProjectManager::WriteProjectJson(std::string* errorOut) const
 	if (!settings.preload.empty()) settingsJ["preload"] = settings.preload;
 	if (settings.quality.is_object() && !settings.quality.empty()) settingsJ["quality"] = settings.quality;
 	if (!settings.loadingScreen.is_null()) settingsJ["loadingScreen"] = settings.loadingScreen;
-	if (settings.rendererType == ProjectRendererType::Deferred)
-		settingsJ["rendererType"] = "deferred";
-	else
-		settingsJ["rendererType"] = "forward";
-	settingsJ["antiAliasing"] = p3d::AntiAliasing::ToString(settings.antiAliasing);
 	// AI Assistant panel settings (provider/model/key/...) - the panel
 	// owns the schema, the project just persists it per project.
 	if (!settings.aiAssistant.is_null())
@@ -2137,11 +2135,6 @@ bool ProjectManager::LoadProjectJson(const std::string& jsonPath, std::string* e
 		if (s.contains("loadingScreen") && (s["loadingScreen"].is_object() || s["loadingScreen"].is_boolean())) settings.loadingScreen = s["loadingScreen"];
 		if (s.contains("preload") && s["preload"].is_array())
 			for (const json &e : s["preload"]) if (e.is_string()) settings.preload.push_back(e.get<std::string>());
-		std::string rt = s.value("rendererType", "forward");
-		if (rt == "deferred") settings.rendererType = ProjectRendererType::Deferred;
-		else settings.rendererType = ProjectRendererType::Forward;
-		// Unknown names keep the default rather than turning AA off.
-		p3d::AntiAliasing::FromString(s.value("antiAliasing", std::string()), settings.antiAliasing);
 		if (s.contains("aiAssistant") && s["aiAssistant"].is_object())
 			settings.aiAssistant = s["aiAssistant"];
 		if (s.contains("animationBindings") && s["animationBindings"].is_object())
@@ -2235,6 +2228,8 @@ std::string ProjectManager::FindPlayerTemplate(const std::string& platform)
 	// the editor's own)
 	if (platform == "web")
 	{
+		// (the renderer on WebGPU first - the player's own renderer everywhere else too - then the WebGL ones)
+		candidates.push_back(cwd / ".." / ".." / "build_web_r2" / "player");
 		candidates.push_back(cwd / ".." / ".." / "build_web_player" / "player");
 		candidates.push_back(cwd / ".." / ".." / "build_web_editor" / "player");
 	}
@@ -2244,28 +2239,6 @@ std::string ProjectManager::FindPlayerTemplate(const std::string& platform)
 		fs::path p = fs::weakly_canonical(candidates[i], ec);
 		if (!ec && fs::exists(p / exe, ec)) return p.string();
 		ec.clear();
-	}
-	return std::string();
-}
-
-std::string ProjectManager::FindEngineShadersDir()
-{
-	std::error_code ec;
-	const fs::path cwd = fs::current_path(ec);
-	// pyros_stage_dir() puts resources/shaders next to the binaries as
-	// shaders/ (a symlink in a dev build, a copy on Windows) - which is
-	// also exactly where the engine loads them from at run time
-	// ("shaders/PyrosShader.glsl", relative to the working directory).
-	std::vector<fs::path> candidates = {
-		cwd / "shaders",
-		cwd / ".." / "shaders",
-		cwd / ".." / ".." / "resources" / "shaders",
-		cwd.parent_path() / "resources" / "shaders"
-	};
-	for (size_t i = 0; i < candidates.size(); ++i)
-	{
-		fs::path p = fs::weakly_canonical(candidates[i], ec);
-		if (!ec && fs::exists(p, ec) && fs::is_directory(p, ec)) return p.string();
 	}
 	return std::string();
 }
@@ -2354,12 +2327,34 @@ namespace {
 // into the module's file system before the player starts, which then finds
 // game.json where it always does. The loose copies are removed: served,
 // they would only be a second download nobody makes.
+// The renderer's surfaces of the game's custom materials, compiled into its surfaces/ (SPIR-V and WGSL): a browser compiles
+// none, and found no file of one there, it draws nothing with that material (an Erangel's terrain, its water). Every
+// <shader>.surface the game ships, the editor's the renderer compiling it as a native run would.
+static void WriteWebSurfaces(const fs::path& out, std::vector<std::string>& warnings)
+{
+	std::error_code ec;
+	const fs::path assets = out / "assets";
+	if (!fs::exists(assets, ec)) return;
+	fs::create_directories(out / "surfaces", ec);
+	for (fs::recursive_directory_iterator it(assets, ec), end; it != end && !ec; it.increment(ec))
+	{
+		if (!it->is_regular_file(ec) || it->path().extension() != ".surface") continue;
+		std::ifstream in(it->path().string().c_str(), std::ios::binary);
+		const std::string source((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+		std::string error;
+		if (!p3d::SceneRenderer::WriteSurfaceCache(source, (out / "surfaces").string(), error))
+			warnings.push_back(it->path().lexically_relative(out).generic_string() + ": not compiled for the browser - " + error);
+	}
+}
+
 static bool PackWebGame(const fs::path& out, const nlohmann::json& manifest, std::string& err)
 {
 	std::error_code ec;
 	std::vector<fs::path> files;
-	const char* trees[] = { "shaders", "lua", "scenes", "assets" };
-	for (size_t t = 0; t < 4; ++t)
+	// (surfaces: the renderer's materials compiled - SPIR-V and WGSL - which the browser build reads and does not compile)
+	const char* trees[] = { "lua", "scenes", "assets", "surfaces" };
+	const size_t treeCount = sizeof(trees) / sizeof(trees[0]);
+	for (size_t t = 0; t < treeCount; ++t)
 	{
 		const fs::path root = out / trees[t];
 		if (!fs::exists(root, ec)) continue;
@@ -2369,40 +2364,158 @@ static bool PackWebGame(const fs::path& out, const nlohmann::json& manifest, std
 	files.push_back(out / "game.json");
 	std::sort(files.begin(), files.end());
 
-	std::ofstream data((out / "game.data").string().c_str(), std::ios::binary);
-	if (!data) { err = "Could not write game.data"; return false; }
-	nlohmann::json list = nlohmann::json::array();
-	uint64_t offset = 0;
-	std::vector<char> buf;
-	for (size_t i = 0; i < files.size(); ++i)
+	// Which part each file is in: game.data with what the first scene reads - and every script, shader, surface and
+	// small file - and game.more.data with the rest, which the page fetches once the game has started (the player starts
+	// no other scene before it is there). In two parts only when that saves much. As tools/pack_web_game.py packs it
+	std::vector<int> part(files.size(), 0);
 	{
-		std::ifstream in(files[i].string().c_str(), std::ios::binary);
-		if (!in) { err = "Could not read " + files[i].string(); return false; }
-		in.seekg(0, std::ios::end);
-		const uint64_t size = (uint64_t)in.tellg();
-		in.seekg(0, std::ios::beg);
-		buf.resize((size_t)size);
-		if (size > 0) in.read(&buf[0], (std::streamsize)size);
-		if (size > 0) data.write(&buf[0], (std::streamsize)size);
-		list.push_back({ { "path", files[i].lexically_relative(out).generic_string() }, { "offset", offset }, { "size", size } });
-		offset += size;
+		const std::string startup = manifest.value("startupScene", std::string());
+		const fs::path start = (out / startup).lexically_normal();
+		if (!startup.empty() && fs::exists(start, ec))
+		{
+			std::map<std::string, size_t> known;
+			std::map<std::string, std::vector<std::string> > byBase;      // (a name may be only a path's end: a script's "heli_body.p3dm")
+			for (size_t i = 0; i < files.size(); ++i)
+			{
+				const std::string f = files[i].lexically_normal().generic_string();
+				known[f] = i;
+				byBase[files[i].filename().string()].push_back(f);
+			}
+			const std::string scenes = (out / "scenes").lexically_normal().generic_string() + "/";
+			const std::string startStem = (start.parent_path() / start.stem()).generic_string();
+			std::set<std::string> seen;
+			std::vector<std::string> todo(1, start.generic_string());
+			for (size_t i = 0; i < files.size(); ++i) if (files[i].extension() == ".lua") todo.push_back(files[i].lexically_normal().generic_string());
+			const char* opaque[] = { ".png", ".jpg", ".jpeg", ".tga", ".dds", ".ktx", ".ktx2", ".hdr", ".exr", ".wav", ".ogg", ".mp3", ".ttf", ".otf", ".raw", ".r16" };
+			auto named = [](const char c) { return isalnum((unsigned char)c) || c == '_' || c == '.' || c == '/' || c == '\\' || c == ' ' || c == '-'; };
+			while (!todo.empty())
+			{
+				const std::string f = todo.back(); todo.pop_back();
+				if (seen.count(f) || !known.count(f)) continue;
+				seen.insert(f);
+				std::string ext = fs::path(f).extension().string();
+				std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+				if (std::find(std::begin(opaque), std::end(opaque), ext) != std::end(opaque)) continue;
+				std::ifstream in(f.c_str(), std::ios::binary);
+				const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+				// (the names in its bytes: runs of path characters ending in an extension)
+				for (size_t a = 0; a < bytes.size();)
+				{
+					if (!named(bytes[a])) { ++a; continue; }
+					size_t b = a;
+					while (b < bytes.size() && named(bytes[b])) ++b;
+					std::string name = bytes.substr(a, b - a);
+					a = b;
+					std::replace(name.begin(), name.end(), '\\', '/');
+					const size_t dot = name.rfind('.');
+					if (dot == std::string::npos || dot + 1 >= name.size() || name.size() - dot - 1 > 8) continue;
+					while (!name.empty() && (name[0] == ' ' || name[0] == '.' || name[0] == '/')) name.erase(0, 1);
+					while (!name.empty() && name.back() == ' ') name.pop_back();
+					if (name.empty()) continue;
+					std::vector<std::string> candidates;
+					candidates.push_back((out / name).lexically_normal().generic_string());
+					candidates.push_back((fs::path(f).parent_path() / name).lexically_normal().generic_string());
+					const std::map<std::string, std::vector<std::string> >::const_iterator base = byBase.find(fs::path(name).filename().string());
+					if (base != byBase.end())
+						for (const std::string &k : base->second)
+							if (k.size() > name.size() && k.compare(k.size() - name.size(), name.size(), name) == 0 && k[k.size() - name.size() - 1] == '/') candidates.push_back(k);
+					for (const std::string &c : candidates)
+					{
+						if (!known.count(c) || seen.count(c)) continue;
+						// (never into another scene's file: a script names every scene, and theirs are the second part's)
+						const bool otherScene = c.compare(0, scenes.size(), scenes) == 0 && fs::path(c).extension() == ".json" && c.compare(0, startStem.size(), startStem) != 0;
+						if (!otherScene) todo.push_back(c);
+					}
+				}
+			}
+			uint64_t total = 0, later = 0;
+			for (size_t i = 0; i < files.size(); ++i)
+			{
+				const uint64_t size = (uint64_t)fs::file_size(files[i], ec);
+				total += size;
+				const std::string rel = files[i].lexically_relative(out).generic_string();
+				// (fonts too: the engine opens its own by name, which no file of the game says)
+				std::string ext = files[i].extension().string();
+				std::transform(ext.begin(), ext.end(), ext.begin(), ::tolower);
+				const bool always = rel.compare(0, 4, "lua/") == 0 || rel.compare(0, 9, "surfaces/") == 0 || rel == "game.json"
+					|| ext == ".ttf" || ext == ".otf";
+				if (!seen.count(files[i].lexically_normal().generic_string()) && !always && size > 256 * 1024) { part[i] = 1; later += size; }
+			}
+			if (later < total / 5) std::fill(part.begin(), part.end(), 0);
+		}
 	}
-	data.close();
-	if (!data) { err = "Could not write game.data"; return false; }
+	const bool twoParts = std::find(part.begin(), part.end(), 1) != part.end();
+	fs::remove(out / "game.more.data", ec);
+
+	std::ofstream data[2];
+	data[0].open((out / "game.data").string().c_str(), std::ios::binary);
+	if (!data[0]) { err = "Could not write game.data"; return false; }
+	if (twoParts)
+	{
+		data[1].open((out / "game.more.data").string().c_str(), std::ios::binary);
+		if (!data[1]) { err = "Could not write game.more.data"; return false; }
+	}
+	nlohmann::json list = nlohmann::json::array();
+	uint64_t offsets[2] = { 0, 0 };
+	std::vector<char> buf;
+	// A file whose bytes are already packed is not written again: its entry points at the copy (a game's assets hold
+	// many - a texture imported twice, a model's maps under two names; Erangel's 600 MB, 183 MB of them). Known by its
+	// size and two hashes of its bytes, independent of each other. The first part's files first: a later one the same
+	// as one of them points into the first part
+	std::map<std::tuple<uint64_t, uint64_t, uint64_t>, std::pair<int, uint64_t> > written;
+	for (int p = 0; p < 2; ++p)
+		for (size_t i = 0; i < files.size(); ++i)
+		{
+			if (part[i] != p) continue;
+			std::ifstream in(files[i].string().c_str(), std::ios::binary);
+			if (!in) { err = "Could not read " + files[i].string(); return false; }
+			in.seekg(0, std::ios::end);
+			const uint64_t size = (uint64_t)in.tellg();
+			in.seekg(0, std::ios::beg);
+			buf.resize((size_t)size);
+			if (size > 0) in.read(&buf[0], (std::streamsize)size);
+			uint64_t fnv = 14695981039346656037ull, mix = 0x9E3779B97F4A7C15ull;
+			for (size_t b = 0; b < buf.size(); ++b)
+			{
+				const uint64_t c = (unsigned char)buf[b];
+				fnv = (fnv ^ c) * 1099511628211ull;
+				mix = (mix + c + 1) * 0xBF58476D1CE4E5B9ull; mix ^= mix >> 31;
+			}
+			const std::tuple<uint64_t, uint64_t, uint64_t> key(size, fnv, mix);
+			std::pair<int, uint64_t> at(p, offsets[p]);
+			const std::map<std::tuple<uint64_t, uint64_t, uint64_t>, std::pair<int, uint64_t> >::const_iterator there = written.find(key);
+			if (there != written.end() && size > 0) at = there->second;
+			else
+			{
+				if (size > 0) data[p].write(&buf[0], (std::streamsize)size);
+				written[key] = at;
+				offsets[p] += size;
+			}
+			nlohmann::json entry = { { "path", files[i].lexically_relative(out).generic_string() }, { "offset", at.second }, { "size", size } };
+			if (at.first == 1) entry["part"] = 1;
+			list.push_back(entry);
+		}
+	for (int p = 0; p < 2; ++p)
+		if (p == 0 || twoParts)
+		{
+			data[p].close();
+			if (!data[p]) { err = p ? "Could not write game.more.data" : "Could not write game.data"; return false; }
+		}
 
 	nlohmann::json index;
 	index["title"] = manifest.value("title", std::string("Pyros3D"));
 	index["width"] = manifest.value("width", 0);
 	index["height"] = manifest.value("height", 0);
 	index["data"] = "game.data";
-	index["size"] = offset;
+	index["size"] = offsets[0];
+	if (twoParts) { index["more"] = "game.more.data"; index["moreSize"] = offsets[1]; }
 	index["files"] = list;
 	std::ofstream idx((out / "game.files.json").string().c_str());
 	if (!idx) { err = "Could not write game.files.json"; return false; }
 	idx << index.dump();
 	idx.close();
 
-	for (size_t t = 0; t < 4; ++t) fs::remove_all(out / trees[t], ec);
+	for (size_t t = 0; t < treeCount; ++t) fs::remove_all(out / trees[t], ec);
 	fs::remove(out / "game.json", ec);
 
 	// The page and the home-screen entry carry the game's name, not the
@@ -2599,14 +2712,6 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 			"does not launch elsewhere, copy libPyrosEngine beside the executable.");
 	}	// the host's own runtime
 
-	// ---- engine shaders ----
-	const std::string shaders = FindEngineShadersDir();
-	if (shaders.empty())
-		r.warnings.push_back("Engine shaders not found - the game will render nothing. "
-			"Run the editor from its build folder, where shaders/ is staged.");
-	else if (!CopyGameTree(shaders, out / "shaders", r.filesCopied, r.error))
-		return r;
-
 	// ---- middleclass.lua ----
 	const std::string middleclass = FindMiddleclassLua();
 	if (middleclass.empty())
@@ -2636,10 +2741,6 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	nlohmann::json manifest;
 	manifest["title"] = opts.title.empty() ? projectName : opts.title;
 	manifest["startupScene"] = sceneRel;
-	manifest["renderer"] = opts.deferred ? "deferred" : "forward";
-	// The requested mode; the player applies its own renderer/device
-	// fallbacks, the same as the editor viewport does.
-	manifest["antiAliasing"] = p3d::AntiAliasing::ToString(settings.antiAliasing);
 	manifest["width"] = opts.width;
 	manifest["height"] = opts.height;
 	manifest["fullscreen"] = opts.fullscreen;
@@ -2660,6 +2761,7 @@ ProjectManager::BuildResult ProjectManager::BuildGame(const BuildOptions& opts) 
 	mf.close();
 	++r.filesCopied;
 
+	if (foreign && opts.platform == "web") WriteWebSurfaces(out, r.warnings);
 	if (foreign && opts.platform == "web" && !PackWebGame(out, manifest, r.error)) return r;
 
 	// The shaders the game's scenes use, compiled now rather than on its first launch: the player

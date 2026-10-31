@@ -25,7 +25,7 @@ namespace p3d {
 	{
 	public:
 		static const uint32 kHistorySize = 240;
-		static const uint32 kMaxScopes = 64;
+		static const uint32 kMaxScopes = 256;      // (64 cut a big scene's frame short: its drawing and present were never listed)
 		static const uint32 kMaxNameLen = 48;
 
 		struct ScopeRecord

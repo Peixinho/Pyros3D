@@ -14,7 +14,6 @@
 #include <cstdio>
 #include <cstdlib>
 #include <Pyros3D/Ext/StringIDs/StringID.hpp>
-#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
 #include <string.h>
 #include <Pyros3D/Resources/Resources.h>
 #define STB_IMAGE_IMPLEMENTATION
@@ -27,72 +26,17 @@
 
 namespace p3d {
 
-	static thread_local std::vector<uchar>* t_handOver = NULL;
+	uint32 Texture::NextInstanceID() { static std::atomic<uint32> next{ 1 }; return next++; }
 
 
-	// Every Texture shares whichever backend is currently active (see
-	// GetActiveRenderDevice() in IRenderDevice.h) rather than each Texture
-	// needing an injected IRenderDevice* - avoids plumbing one through
-	// every call site that constructs a Texture, while still respecting
-	// the actual backend in use (GL vs Vulkan) - same pattern as
-	// GeometryBuffer.cpp/Shaders.cpp/RenderingComponent.cpp. Previously
-	// hardcoded to a static GLRenderDevice (deliberately, before this
-	// backend had any real texture support) - calling any GL function
-	// with no current GL context (true for a Vulkan-only window) is
-	// undefined behavior, and crashed the hard way through an unloaded/
-	// null GLAD function pointer once a real Vulkan texture load was
-	// actually attempted.
-	static IRenderDevice& Device()
-	{
-		return GetActiveRenderDevice();
-	}
+	// A texture is its pictures, decoded and kept on the CPU (GetCpuPixels), with what they are and how they are to be
+	// sampled: the renderer makes its own GPU copy of each, and makes it again when cpuRevision moves
+	Texture::Texture() : Type(TextureType::Texture), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0), storedSamples(0) {}
 
-	uint32 Texture::UnitBinded = 0;
-
-	uint32 Texture::LastUnitBinded = 0;
-
-	namespace { thread_local bool t_ownUnits = false; thread_local uint32 t_unit = 0, t_lastUnit = 0; }
-	void Texture::UseOwnUnitCounter(const bool on) { t_ownUnits = on; t_unit = 0; t_lastUnit = 0; }
-	// (from here on these two names are this thread's counters where it has its own)
-#define UnitBinded (t_ownUnits ? t_unit : Texture::UnitBinded)
-#define LastUnitBinded (t_ownUnits ? t_lastUnit : Texture::LastUnitBinded)
-	void Texture::ResetUnitCounter() { UnitBinded = 0; LastUnitBinded = 0; }
-	void Texture::GetUnitCounter(uint32 &unit, uint32 &last) { unit = UnitBinded; last = LastUnitBinded; }
-	void Texture::SetUnitCounter(const uint32 unit, const uint32 last) { UnitBinded = unit; LastUnitBinded = last; }
-
-	Texture::Texture() : GL_ID(-1), Type(TextureType::Texture), haveImage(false), isMipMap(false), isMipMapManual(false), Anysotropic(0), cubemapFaces(0), storedSamples(0) {}
-
-	Texture::~Texture()
-	{
-		// See FrameBuffer::~FrameBuffer() for why the device has to still be
-		// there: without a real one, Device() hands back a static
-		// GLRenderDevice and this frees a handle that backend never created,
-		// through GL entry points a Vulkan build never loaded. Lua-owned
-		// textures hit this on every shutdown, since sol finalizes its
-		// userdata after the context has torn the device down.
-		if (GL_ID != -1 && IsActiveRenderDeviceSet())
-		{
-			Device().DestroyTextureObject(GL_ID);
-		}
-	}
-
-	void Texture::DeleteTexture() {}
-
-	void Texture::GetInternalFormat()
-	{
-		Device().TranslateTextureFormat(DataType, internalFormat, internalFormat2, internalFormat3);
-	}
-
-	void Texture::GetGLModes()
-	{
-		Device().TranslateTextureTarget(Type, GLMode, GLSubMode);
-	}
+	Texture::~Texture() {}
 
 	bool Texture::LoadTexture(const std::string& Filename, const uint32 Type, bool Mipmapping, const uint32 level)
 	{
-		if (this->GL_ID == -1)
-			this->GL_ID = Device().CreateTextureObject();
-
 		this->Type = Type;
 
 		// A Radiance .hdr (an HDR sky, a light probe): linear float RGB, kept as floats. The mips are
@@ -116,13 +60,6 @@ namespace p3d {
 			}
 			if (px) stbi_image_free(px);
 			echo("ERROR: could not read the HDR image " + Filename);
-		}
-
-		// a material's map: as blocks, where the device takes them (see Texture.h)
-		if (Mipmapping && level == 0 && Type == TextureType::Texture && InCompressedLoads() && LoadCompressed(Filename))
-		{
-			this->Filename = Filename;
-			return true;
 		}
 
 		DecodedImage image;
@@ -301,7 +238,9 @@ namespace p3d {
 			});
 			return dir;
 		}
-		const char kTexCacheMagic[8] = { 'P', '3', 'D', 'T', 'C', '0', '0', '3' };
+		// (004: a cut-out's mips keep its coverage - BlockCompress::EncodeMipChain;
+		//  005: a colour picture's mips averaged as light, not as encoded numbers)
+		const char kTexCacheMagic[8] = { 'P', '3', 'D', 'T', 'C', '0', '0', '6' };
 		struct TexCacheHeader
 		{
 			char magic[8]; uint64 sourceSize; int64 sourceTime; uint32 format, width, height, levels; f32 average[3]; uint32 haveAverage;
@@ -404,7 +343,7 @@ namespace p3d {
 
 	bool Texture::HasCompressedCache(const std::string& Filename)
 	{
-		if (!GetCompression() || !Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3) || !Device().SupportsCompressedFormat(BlockCompress::BC5)) return false;
+		if (!GetCompression()) return false;
 		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0;
 		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime)) return false;
 		TexCacheHeader hd;
@@ -441,7 +380,7 @@ namespace p3d {
 				hd.average[0] = n ? (f32)(r / n) : 0.f; hd.average[1] = n ? (f32)(g / n) : 0.f; hd.average[2] = n ? (f32)(b / n) : 0.f;
 				hd.haveAverage = n ? 1 : 0;
 			}
-			BlockCompress::EncodeMipChain(hd.format, image.pixels, hd.width, hd.height, levels);
+			BlockCompress::EncodeMipChain(hd.format, image.pixels, hd.width, hd.height, levels, BlockCompress::IsColourPicture(hd.format, where.c_str()));
 			hd.levels = (uint32)levels.size();
 			// kept for next time (written aside and moved in: a half-written file is never read)
 			std::filesystem::create_directories(CompressionCacheDir(), ec);
@@ -459,7 +398,7 @@ namespace p3d {
 
 	bool Texture::MakeCompressedCache(const std::string& Filename)
 	{
-		if (!GetCompression() || !Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3) || !Device().SupportsCompressedFormat(BlockCompress::BC5)) return false;
+		if (!GetCompression()) return false;
 		// (a float image - an HDR sky - is read by its own loader, never as blocks)
 		if (Filename.size() > 4 && (Filename.compare(Filename.size() - 4, 4, ".hdr") == 0 || Filename.compare(Filename.size() - 4, 4, ".HDR") == 0)) return false;
 		if (HasCompressedCache(Filename)) return true;
@@ -470,73 +409,6 @@ namespace p3d {
 		TexCacheHeader hd;
 		std::vector<std::vector<uchar> > levels;
 		EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels, where);
-		return true;
-	}
-
-	bool Texture::LoadCompressed(const std::string& Filename)
-	{
-		if (!Device().SupportsCompressedFormat(BlockCompress::BC1) || !Device().SupportsCompressedFormat(BlockCompress::BC3) || !Device().SupportsCompressedFormat(BlockCompress::BC5))
-			return false;
-		std::error_code ec;
-		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0; std::string where;
-		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime, &where)) return false;
-
-		TexCacheHeader hd;
-		std::vector<std::vector<uchar> > levels;
-		bool have = false;
-		{
-			// the blocks made before, while the image has not changed since
-			LoadStats::Scope t(LoadStats::FileRead);
-			if (FILE* f = fopen(cacheFile.string().c_str(), "rb"))
-			{
-				if (fread(&hd, sizeof(hd), 1, f) == 1 && memcmp(hd.magic, kTexCacheMagic, 8) == 0 && hd.sourceSize == srcSize && hd.sourceTime == srcTime
-					&& (hd.format == BlockCompress::BC1 || hd.format == BlockCompress::BC3 || hd.format == BlockCompress::BC5) && hd.levels > 0 && hd.levels <= 16 && hd.width > 0 && hd.height > 0)
-				{
-					have = true;
-					levels.resize(hd.levels);
-					uint32 w = hd.width, h = hd.height;
-					for (uint32 l = 0; l < hd.levels && have; l++)
-					{
-						levels[l].resize(BlockCompress::LevelBytes(hd.format, w, h));
-						have = fread(levels[l].data(), 1, levels[l].size(), f) == levels[l].size();
-						w = std::max(1u, w / 2); h = std::max(1u, h / 2);
-					}
-				}
-				fclose(f);
-			}
-		}
-		if (have)
-		{
-			// (an image the bundle decoded ahead is not wanted now)
-			DecodedImage unused;
-			AssetBundle::TakeImage(Filename, unused);
-		}
-		else
-		{
-			DecodedImage image;
-			if (!(AssetBundle::TakeImage(Filename, image) || DecodeFile(Filename, image)) || image.width < 4 || image.height < 4)
-				return false;
-			EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels, where);
-		}
-
-		if (hd.haveAverage) { averageColour = Vec3(hd.average[0], hd.average[1], hd.average[2]); haveAverageColour = true; }
-		if (this->Width.size() < 1) { this->Width.resize(1); this->Height.resize(1); }
-		this->Width[0] = hd.width; this->Height[0] = hd.height;
-		this->haveImage = true;
-		this->Transparency = TextureTransparency::Opaque;
-		this->DataType = TextureDataType::RGBA;
-		this->compressedFormat = hd.format;
-		this->isMipMap = hd.levels > 1;
-		LoadStats::Scope t(LoadStats::TextureUpload);
-		GetGLModes();
-		GetInternalFormat();
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-		Device().UploadCompressedTexture2D(hd.format, hd.width, hd.height, levels);
-		// (in the manifest: what is uploaded as blocks - and only that - may ship without its image)
-		if (std::filesystem::exists(Filename, ec)) ManifestAdd(cacheFile, srcSize, srcTime, where);
-		Device().BindTextureToTarget(GLSubMode, 0);
-		SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
-		SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 		return true;
 	}
 
@@ -583,26 +455,12 @@ namespace p3d {
 
 	bool Texture::LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type, bool Mipmapping, const uint32 level)
 	{
-		// Cache the raw compressed bytes as a fallback source for scene
-		// serialization - LoadTexture() clears it right after setting a real
-		// Filename, since a path is strictly better than embedding bytes;
-		// this only survives for a Texture built directly via this method
-		// (no path available at all).
+		// (the bytes kept as the texture's source for a scene that saves it - a path, when it has one, is better:
+		// LoadTexture clears them)
 		this->RawData = data;
-		// What kind of texture this is. It was never recorded here - only
-		// LoadTexture and CreateEmptyTexture did - and the member had no
-		// default, so a texture made straight from bytes was whatever kind
-		// the memory under it said: now and then a cube map, which is sent
-		// to the wrong target and draws black.
 		this->Type = Type;
-
-		if (this->GL_ID == -1) {
-			this->GL_ID = Device().CreateTextureObject();
-		}
-
 		DecodedImage image;
-		if (data.empty() || !DecodeMemory(&data[0], length, image))
-			return false;
+		if (data.empty() || !DecodeMemory(&data[0], length, image)) return false;
 		return UploadDecoded(image, Mipmapping, level);
 	}
 
@@ -620,106 +478,8 @@ namespace p3d {
 		this->Transparency = TextureTransparency::Opaque;
 		this->DataType = TextureDataType::RGBA;
 
-		if (this->GL_ID == -1)
-		{
-			return false;
-		}
-
-		LoadStats::Scope t(LoadStats::TextureUpload);
-		// (a decoded picture is only ever sent: it is handed to the device, not copied for it)
-		t_handOver = &image.pixels;
-		const bool made = CreateTexture(&image.pixels[0], Mipmapping, level);
-		t_handOver = NULL;
-		return made;
-	}
-
-	// The picture UploadDecoded() is sending, for CreateTexture() to hand over whole.
-	static void SendPixels(const uint32 target, const uint32 level, const uint32 internalFormat, const uint32 width, const uint32 height, const uint32 format, const uint32 type, uchar* data, const bool willMipmap)
-	{
-		if (data != NULL && t_handOver != NULL && !t_handOver->empty() && data == &(*t_handOver)[0])
-		{
-			std::vector<uchar>* owned = t_handOver;
-			t_handOver = NULL;
-			Device().UploadTexture2DOwned(target, level, internalFormat, width, height, format, type, std::move(*owned), willMipmap);
-			return;
-		}
-		Device().UploadTexture2D(target, level, internalFormat, width, height, format, type, data, willMipmap);
-	}
-
-	bool Texture::CreateTexture(uchar* data, bool Mipmapping, const uint32 level, const uint32 msaa)
-	{
-
-		GetGLModes();
-		GetInternalFormat();
-
-		bool isMultisample = (Type == TextureType::Texture_Multisample);
-		if (isMultisample)
-			storedSamples = msaa;
-
-		// bind
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-
-		if (Mipmapping)
-		{
-			SendPixels(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), true);
-#if defined(GLES3)
-			Device().GenerateMipmap(GLMode);
-#else
-			if (Type <= TextureType::CubemapNegative_Z)
-			{
-				cubemapFaces++;
-				if (cubemapFaces == 6)
-					Device().GenerateMipmap(GLSubMode);
-
-			}
-			else Device().GenerateMipmap(GLSubMode);
-#endif
-			isMipMap = true;
-
-		}
-		else {
-
-#if !defined(GLES3)
-			// setting manual mipmaps
-			// No gles :|
-			// GL_TEXTURE_2D_MULTISAMPLE doesn't support GL_TEXTURE_BASE_LEVEL/
-			// MAX_LEVEL at all (same restriction as SetRepeat()/
-			// SetMinMagFilter() below, which already gate on isMultisample -
-			// this call was missing the same gate) - GL_INVALID_ENUM the
-			// moment a real multisample texture with Mipmapping=false
-			// actually exercised this path under a GLCHECKER build (every
-			// multisample texture, in fact - CreateEmptyTexture()'s own
-			// Mipmapping parameter is meaningless for a type GL never lets
-			// mipmap in the first place).
-			if (!isMultisample)
-				Device().SetTextureBaseMaxLevel(GLSubMode, 0, level);
-
-			if (!isMultisample)
-			{
-				SendPixels(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
-			}
-			else {
-				Device().UploadTexture2DMultisample(GLMode, msaa, internalFormat, Width[level], Height[level]);
-			}
-#else
-			SendPixels(GLMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, (haveImage == false ? NULL : data), false);
-#endif
-			if (level > 0)
-				isMipMapManual = true;
-		}
-
-		// unbind
-		Device().BindTextureToTarget(GLSubMode, 0);
-
-		// default values
-#if !defined(GLES3)
-		if (!isMultisample)
-#endif
-		{
-			SetRepeat(TextureRepeat::Repeat, TextureRepeat::Repeat);
-			SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
-		}
-
+		isMipMap = Mipmapping;
+		KeepCpuPixels(level, std::move(image.pixels));
 		return true;
 	}
 
@@ -757,17 +517,8 @@ namespace p3d {
 			MagFilter = TextureFilter::Nearest;
 		}
 
-		if (GL_ID == -1) {
-			GL_ID = Device().CreateTextureObject();
-		}
-		if (GL_ID == -1)
-		{
-			echo("ERROR: Couldn't Create Texture");
-			return false;
-		}
-
-		// Create Texture
-		return CreateTexture(NULL, Mipmapping, 0, msaa);
+		isMipMap = Mipmapping; storedSamples = msaa;
+		return true;
 	}
 
 	void Texture::SetRepeat(const uint32 WrapS, const uint32 WrapT, const int32 WrapR)
@@ -776,22 +527,6 @@ namespace p3d {
 		SRepeat = WrapS;
 		TRepeat = WrapT;
 		if (WrapR > -1) RRepeat = WrapR;
-
-		// bind
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-
-		Device().SetTextureWrapS(GLSubMode, SRepeat);
-		Device().SetTextureWrapT(GLSubMode, TRepeat);
-
-#if !defined(GLES3)
-		if (WrapR > -1 && Type <= TextureType::CubemapNegative_Z)
-		{
-			Device().SetTextureWrapR(GLSubMode, RRepeat);
-		}
-#endif
-		// unbind
-		Device().BindTextureToTarget(GLSubMode, 0);
-
 	}
 
 	void Texture::SetMinMagFilter(const uint32 MinFilter, const uint32 MagFilter)
@@ -799,38 +534,6 @@ namespace p3d {
 
 		this->MinFilter = MinFilter;
 		this->MagFilter = MagFilter;
-
-		// bind
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-
-		Device().SetTextureMagFilter(GLSubMode, MagFilter);
-		Device().SetTextureMinFilter(GLSubMode, MinFilter, isMipMap || isMipMapManual);
-
-		// unbind
-		Device().BindTextureToTarget(GLSubMode, 0);
-
-	}
-
-	void Texture::EnableCompareMode()
-	{
-		// Runs on GLES3 too. The whole body used to be #if !defined(GLES3),
-		// which left every shadow map on the web without a compare mode and
-		// made WebGL2 discard each draw that sampled one - see
-		// GLRenderDevice::SetTextureCompareMode. Of the calls below only the
-		// border colour is genuinely absent from ES 3.0, and that one guards
-		// itself inside the device.
-		//
-		// USED ONLY FOR DEPTH MAPS
-		// Bind
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-
-		Device().SetTextureBorderColor(GLSubMode, Vec4(1.0f, 1.0f, 1.0f, 1.0f));
-
-		// This is to allow usage of shadow2DProj function in the shader
-		Device().SetTextureCompareMode(GLSubMode);
-
-		// Unbind
-		Device().BindTextureToTarget(GLSubMode, 0);
 	}
 
 	namespace {
@@ -959,171 +662,57 @@ namespace p3d {
 
 	void Texture::SetBorderColor(const Vec4 &Color)
 	{
-#if !defined(GLES3)
 		borderColor = Color;
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-		Device().SetTextureBorderColor(GLSubMode, borderColor);
-		Device().BindTextureToTarget(GLSubMode, 0);
-#endif
 	}
 
 	void Texture::Resize(const uint32 Width, const uint32 Height, const uint32 level)
 	{
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-		this->Width[level] = Width;
-		this->Height[level] = Height;
-
-		// GL_TEXTURE_2D_MULTISAMPLE isn't a valid glTexImage2D target (only
-		// glTexImage2DMultisample accepts it) - same isMultisample split as
-		// CreateTexture(), which Resize() had never mirrored since nothing
-		// resized a multisample texture before MSAATest.
-		bool isMultisample = (Type == TextureType::Texture_Multisample);
-		if (!isMultisample)
-		{
-			Device().UploadTexture2D(GLSubMode, level, internalFormat, Width, Height, internalFormat2, internalFormat3, NULL, isMipMap);
-
-			if (isMipMap)
-			{
-				Device().GenerateMipmap(GLSubMode);
-			}
-		}
-		else
-		{
-			Device().UploadTexture2DMultisample(GLSubMode, storedSamples, internalFormat, Width, Height);
-		}
-
-		Device().BindTextureToTarget(GLSubMode, 0);
-	}
-
-	void Texture::SetTextureByteAlignment(const uint32 Value)
-	{
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-
-		Device().SetPixelUnpackAlignment(Value);
-
-		Device().BindTextureToTarget(GLSubMode, 0);
+		// (a new size: the pictures it had are not of it)
+		if (this->Width.size() <= level) { this->Width.resize(level + 1, 0); this->Height.resize(level + 1, 0); }     // (a level never made for it)
+		this->Width[level] = Width; this->Height[level] = Height;
+		cpuPixels.erase(std::make_pair(Type, level));
+		cpuRevision++;
 	}
 
 	void Texture::UpdateData(void* srcPTR, const uint32 level)
 	{
-		if (GL_ID > 0)
 		{
-			// bind
-			Device().BindTextureToTarget(GLSubMode, GL_ID);
-			Device().UploadTexture2D(GLSubMode, level, internalFormat, Width[level], Height[level], internalFormat2, internalFormat3, srcPTR, isMipMap);
-
-			UpdateMipmap();
-
-			// unbind
-			Device().BindTextureToTarget(GLSubMode, 0);
+			// (as DataType lays it out: the formats a picture or a float image comes in)
+			uint32 bpp = 0;
+			switch (DataType)
+			{
+			case TextureDataType::RGBA: case TextureDataType::BGRA: bpp = 4; break;
+			case TextureDataType::R8: bpp = 1; break;
+			case TextureDataType::RG8: bpp = 2; break;
+			case TextureDataType::R32F: bpp = 4; break;
+			case TextureDataType::RG32F: bpp = 8; break;
+			case TextureDataType::RGBA16F: bpp = 8; break;
+			case TextureDataType::RGBA32F: bpp = 16; break;
+			default: break;
+			}
+			if (bpp && srcPTR && level < Width.size())
+			{
+				const uchar* p = (const uchar*)srcPTR;
+				KeepCpuPixels(level, std::vector<uchar>(p, p + (size_t)Width[level] * Height[level] * bpp));
+			}
 		}
-	}
-
-	void Texture::UpdateMipmap()
-	{
-		if (isMipMap)
-		{
-			// bind
-			Device().BindTextureToTarget(GLSubMode, GL_ID);
-
-			Device().GenerateMipmap(GLSubMode);
-
-			// unbind
-			Device().BindTextureToTarget(GLSubMode, 0);
-		}
-	}
-
-	void Texture::Bind()
-	{
-		Device().ActivateTextureUnit(UnitBinded);
-		Device().BindTextureToTarget(GLSubMode, GL_ID);
-
-		// For Transparency
-		if (Transparency == TextureTransparency::Transparent)
-		{
-			Device().SetBlendingEnabled(true);
-			Device().SetBlendFunction(BlendFunc::Src_Alpha, BlendFunc::One_Minus_Src_Alpha);
-		}
-		// Save Last Unit Binded
-		LastUnitBinded = UnitBinded;
-		// Set New Unit value
-		UnitBinded++;
-	}
-
-	void Texture::Unbind()
-	{
-		UnitBinded--;
-		if (Transparency == TextureTransparency::Transparent) Device().SetBlendingEnabled(false);
-		Device().ActivateTextureUnit(UnitBinded);
-		Device().BindTextureToTarget(GLSubMode, 0);
-
-		// Save Last Unit Binded
-		LastUnitBinded = UnitBinded;
-	}
-
-	uint32 Texture::GetLastBindedUnit()
-	{
-		return LastUnitBinded;
 	}
 
 	const uint32 Texture::GetWidth(const uint32 level) const
 	{
-		return Width[level];
+		return level < Width.size() ? Width[level] : 0;
 	}
 
 	const uint32 Texture::GetHeight(const uint32 level) const
 	{
-		return Height[level];
-	}
-
-	const uint32 Texture::GetBindID() const
-	{
-		return GL_ID;
+		return level < Height.size() ? Height[level] : 0;
 	}
 
 	std::vector<uchar> Texture::GetTextureData(const uint32 level, const int32 faceType)
 	{
 		std::vector<uchar> pixels;
-		// blocks are no use to whoever reads the pixels: the image they were made from, decoded again
-		if (compressedFormat != 0)
-		{
-			DecodedImage image;
-			if (level == 0 && !Filename.empty() && DecodeFile(Filename, image)) pixels.swap(image.pixels);
-			return pixels;
-		}
-#if !defined(GLES3)
-		pixels.resize(Device().GetTextureDataSize(internalFormat, Width[level], Height[level]));
-
-		// See the header - a cubemap needs its face named explicitly, or
-		// GLSubMode (whatever was bound last) decides for us.
-		// Bind target and read target are NOT the same thing for a
-		// cubemap: glBindTexture() only accepts GL_TEXTURE_CUBE_MAP while
-		// glGetTexImage() needs the individual face
-		// (GL_TEXTURE_CUBE_MAP_POSITIVE_X + n). Binding with the face enum
-		// is invalid and leaves nothing bound, which reads back as all
-		// zeroes.
-		//
-		// Note which is which: TranslateTextureTarget() puts the *face* in
-		// `mode` and the bindable GL_TEXTURE_CUBE_MAP in `subMode` - the
-		// opposite of what the names suggest. The rest of this class
-		// already relies on that (it binds GLSubMode and uploads to
-		// GLMode, just above), so matching it here keeps one convention
-		// rather than two.
-		uint32 bindTarget = GLSubMode;
-		uint32 readTarget = GLMode;
-		if (faceType >= 0)
-		{
-			uint32 mode = 0, subMode = 0;
-			Device().TranslateTextureTarget((uint32)faceType, mode, subMode);
-			bindTarget = subMode;
-			readTarget = mode;
-		}
-
-		Device().BindTextureToTarget(bindTarget, GL_ID);
-		Device().ReadTexturePixels(readTarget, level, internalFormat2, internalFormat3, &pixels[0]);
-		Device().BindTextureToTarget(bindTarget, 0);
-#endif
-
+		const std::vector<uchar>* kept = GetCpuPixels(faceType >= 0 ? (uint32)faceType : Type, level);
+		if (kept) pixels = *kept;
 		return pixels;
 	}
 

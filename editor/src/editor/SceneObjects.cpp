@@ -120,6 +120,7 @@ namespace {
 
 			SceneObject* obj = new SceneObject(Name, go.get(), id, SceneObjectTypes::GAMEOBJECT);
 			listObjects[id] = obj;
+			TrackName(obj);
 
 			SetName(id, Name);
 
@@ -200,6 +201,7 @@ namespace {
 			Scene->Remove(entry->second->Helper);
 			entry->second->Helper.reset();
 		}
+		UntrackName(entry->second);
 		delete entry->second;
 		listObjects.erase(entry);
 	}
@@ -254,8 +256,9 @@ namespace {
 		std::string name = go->GetName().size() > 0 ? go->GetName() : std::string("GameObject");
 		SceneObject* obj = new SceneObject(name, go, id, SceneObjectTypes::GAMEOBJECT);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->SetParentID(parentID);
-		if (keepNames) { obj->Name = name; obj->NameID = MakeStringID(name); }
+		if (keepNames) { obj->Name = name; obj->NameID = MakeStringID(name); TrackName(obj); }
 		else SetName(id, name);
 
 		// Components become their own registry entries parented to the
@@ -269,8 +272,9 @@ namespace {
 			uint32 cid = NextId(preferredIds, cursor);
 			SceneObject* cobj = new SceneObject(cname, (*c).get(), cid, type);
 			listObjects[cid] = cobj;
+			TrackName(cobj);
 			cobj->SetParentID(id);
-			if (keepNames) { cobj->Name = cname; cobj->NameID = MakeStringID(cname); }
+			if (keepNames) { cobj->Name = cname; cobj->NameID = MakeStringID(cname); TrackName(cobj); }
 			else SetName(cid, cname);
 		}
 
@@ -310,6 +314,7 @@ namespace {
 		for (size_t i = 0; i < gone.size(); i++)
 		{
 			// Only the row: the component is already not there.
+			UntrackName(listObjects[gone[i]]);
 			delete listObjects[gone[i]];
 			listObjects.erase(gone[i]);
 			if (removedOut) removedOut->push_back(gone[i]);
@@ -325,6 +330,7 @@ namespace {
 			const uint32 cid = NextId(NULL, cursor);
 			SceneObject* cobj = new SceneObject(cname, components[c].get(), cid, type);
 			listObjects[cid] = cobj;
+			TrackName(cobj);
 			cobj->SetParentID(goId);
 			SetName(cid, cname);
 		}
@@ -346,6 +352,8 @@ namespace {
 		for (std::map<uint32, SceneObject*>::iterator i = listObjects.begin(); i != listObjects.end(); i++)
 			delete (*i).second;
 		listObjects.clear();
+		nameUse.clear();
+		nextSuffix.clear();
 		_ID = 0;
 	}
 
@@ -355,27 +363,29 @@ namespace {
 		uint32 nameID = MakeStringID(Name);
 		std::string name = Name;
 
-		// Every other object's name, gathered once: the suffix is then counted up
-		// against that set. Rescanning the whole registry from the start for each
-		// taken suffix (as this did) is quadratic in the number of same-named
-		// objects - a terrain of a thousand tiles all called "Tile" took minutes.
-		std::unordered_set<uint32> taken;
-		taken.reserve(listObjects.size());
-		for (std::map<uint32,SceneObject*>::iterator i=listObjects.begin();i!=listObjects.end();i++)
-			if ((*i).second != NULL && id!=(*i).second->GetID())
-				taken.insert((*i).second->NameID);
-		std::ostringstream append;
-		uint32 count = 1;
-		while (taken.find(nameID) != taken.end())
+		// The others' names are counted in nameUse (this one's own taken out first): a suffix is
+		// counted up against that, one look-up each - from where the last search for this name
+		// stopped (nextSuffix), not from (1): thousands of "Tree"s each counting up through all the
+		// suffixes before theirs was quadratic again.
+		UntrackName(obj);
+		std::string suffix;
+		if (nameUse.find(nameID) != nameUse.end())
 		{
-			append.str("");
-			append << "(" << count << ")";
-			nameID = MakeStringID(name + append.str());
-			count++;
+			const uint32 base = nameID;
+			std::unordered_map<uint32, uint32>::iterator from = nextSuffix.find(base);
+			uint32 count = from != nextSuffix.end() ? from->second : 1;
+			do
+			{
+				suffix = "(" + std::to_string(count) + ")";
+				nameID = MakeStringID(name + suffix);
+				count++;
+			} while (nameUse.find(nameID) != nameUse.end());
+			nextSuffix[base] = count;
 		}
 
-			obj->Name = name + append.str();
-	obj->NameID = MakeStringID(obj->Name);
+		obj->Name = name + suffix;
+		obj->NameID = nameID;
+		TrackName(obj);
 
 	// Push the resolved name onto the engine object too. Names used to live
 	// only in this registry, which is not what gets serialized - so every
@@ -432,6 +442,8 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Cube", rCube.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::RENDERING_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -450,6 +462,8 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Sphere", rSphere.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::RENDERING_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -468,6 +482,8 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Capsule", rCapsule.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::RENDERING_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -486,6 +502,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Cone", rCone.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::RENDERING_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -504,6 +521,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Cylinder", rCylinder.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::RENDERING_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -522,6 +540,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Plane", rPlane.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::RENDERING_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -540,6 +559,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Torus", rTorus.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::RENDERING_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -558,6 +578,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("TorusKnot", rTorusKnot.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::RENDERING_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -600,6 +621,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Model", rModel.get(), id, SceneObjectTypes::RENDERING_COMPONENT);
 		listObjects[id] = obj;
+		TrackName(obj);
 
 		obj->SetParentID(GetSceneObjectID(go));
 
@@ -649,6 +671,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		SceneObject* obj = new SceneObject("Character2D", rc.get(), id,
 			SceneObjectTypes::RENDERING_COMPONENT);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->SetParentID(GetSceneObjectID(go));
 		return obj;
 	}
@@ -662,6 +685,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Directional Light", light.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::DIRECTIONALLIGHT_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -677,6 +701,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Point Light", light.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::POINTLIGHT_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -692,6 +717,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Spot Light", light.get(), id);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->Type = SceneObjectTypes::SPOTLIGHT_COMPONENT;
 
 		obj->SetParentID(GetSceneObjectID(go));
@@ -712,6 +738,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Sound", source.get(), id, SceneObjectTypes::AUDIO_SOURCE_COMPONENT);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->SetParentID(GetSceneObjectID(go));
 		SetName(id, "Sound");
 		return obj;
@@ -727,6 +754,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 
 		SceneObject* obj = new SceneObject("Particles", particles.get(), id, SceneObjectTypes::PARTICLE_SYSTEM_COMPONENT);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->SetParentID(GetSceneObjectID(go));
 		SetName(id, "Particles");
 		return obj;
@@ -741,6 +769,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 		const std::string cname = ScriptStemName(comp->scriptFile);
 		SceneObject* obj = new SceneObject(cname, comp.get(), id, SceneObjectTypes::LUA_COMPONENT);
 		listObjects[id] = obj;
+		TrackName(obj);
 		obj->SetParentID(GetSceneObjectID(go));
 		SetName(id, cname);
 		return obj;
@@ -805,6 +834,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 				Scene->Remove(listObjects[idToRemove]->Helper);
 				listObjects[idToRemove]->Helper.reset();
 			}
+			UntrackName(listObjects[idToRemove]);
 			delete listObjects[idToRemove];
 			listObjects.erase(idToRemove);
 		}
@@ -993,6 +1023,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 				uint32 cid = ++_ID;
 				SceneObject* cobj = new SceneObject("Mesh", newRc.get(), cid, SceneObjectTypes::RENDERING_COMPONENT);
 				listObjects[cid] = cobj;
+				TrackName(cobj);
 				cobj->SetParentID(dupObj->GetID());
 				SetName(cid, "Mesh");
 				break;
@@ -1141,6 +1172,7 @@ std::shared_ptr<p3d::RenderingComponent> MakeSceneRenderingComponent(
 					uint32 cid = ++_ID;
 					SceneObject* cobj = new SceneObject(physName, newPhys.get(), cid, SceneObjectTypes::PHYSICS_COMPONENT);
 					listObjects[cid] = cobj;
+					TrackName(cobj);
 					cobj->SetParentID(dupObj->GetID());
 					SetName(cid, physName);
 				}

@@ -11,6 +11,7 @@
 
 #include <Pyros3D/Components/IComponent.h>
 #include <Pyros3D/Core/Math/Math.h>
+#include <vector>
 
 namespace p3d {
 
@@ -79,6 +80,13 @@ namespace p3d {
 		// fragment per light, so it is spent on the shadows that will be
 		// seen rather than on the first few shapes of the level.
 		static void PublishSceneOccluders(SceneGraph* Scene, const Vec4* viewRect);
+		// What was last published, (x0, y0, x1, y1) a segment, within the budget - the renderer reads it
+		static const std::vector<Vec4>& PublishedSegments();
+		// The budget: segments a frame (each one an entry of the renderer's lights buffer)
+		static uint32 MaxSegments() { return 256; }
+	private:
+		static std::vector<Vec4>& Published();
+	public:
 
 	private:
 

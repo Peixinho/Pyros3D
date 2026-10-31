@@ -105,39 +105,25 @@ namespace p3d {
 
 	private:
 
-		// Internal ID for GL
-		int32 GL_ID;
 		uint32 Type;
 		uint32 DataType;
 		std::vector<uint32> Width;
 		std::vector<uint32> Height;
 		bool haveImage;
 		bool isMipMap, isMipMapManual;
-		// Something is drawn into it (FrameBuffer attaches it). What reads
-		// it back as a picture has to know: on a device whose render targets
-		// start at the bottom (IRenderDevice::RenderTargetOriginIsTopLeft)
-		// its rows are the other way up from a loaded image's.
-		bool renderTarget = false;
-	public:
-		void MarkRenderTarget() { renderTarget = true; }
-		bool IsRenderTarget() const { return renderTarget; }
 	protected:
 		uint32 cubemapFaces;
-		// Sample count for TextureType::Texture_Multisample - Resize() needs
-		// this to re-issue UploadTexture2DMultisample() with the same
-		// sample count the texture was originally created with.
+		// Sample count for TextureType::Texture_Multisample
 		uint32 storedSamples;
 
-		// GL Properties
+		// How it is sampled
 		f32 Transparency;
 		uint32 MinFilter;
 		uint32 MagFilter;
+		bool dataMap = false;
 		uint32 SRepeat;
 		uint32 TRepeat;
 		uint32 RRepeat;
-		uint32 mode, GLMode;
-		uint32 subMode, GLSubMode;
-		uint32 internalFormat, internalFormat2, internalFormat3;
 		uint32 Anysotropic;
 		Vec4 borderColor;
 
@@ -148,8 +134,6 @@ namespace p3d {
 		// instead - those have no file source to record.
 		std::string Filename;
 		Vec3 averageColour; bool haveAverageColour = false;
-		uint32 compressedFormat = 0;
-		bool LoadCompressed(const std::string& Filename);
 
 		// Fallback for when there's no Filename (built via
 		// LoadTextureFromMemory() directly, not through LoadTexture()) -
@@ -161,23 +145,8 @@ namespace p3d {
 		// LoadTextureFromMemory() internally too).
 		std::vector<uchar> RawData;
 
-		bool CreateTexture(uchar* data = NULL, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0);
-		// The device half of a load: records the size and uploads.
+		// The rest of a load: records the size and keeps the pixels.
 		bool UploadDecoded(DecodedImage& image, bool Mipmapping, const uint32 level);
-
-		void GetGLModes();
-		void GetInternalFormat();
-
-		// LoadDDS()/LoadETC1() used to live here - a DXT1/3/5 parser for
-		// desktop and an ETC1/PKM one for Android, both added in f45680b.
-		// 5321eb4 ("Massive changes", the OpenGL 4.5 / CMake refactor)
-		// deleted both implementations and the extension dispatch that
-		// chose them, but left these declarations behind. Nothing has
-		// defined them since, so .dds/.pkm now fall through to
-		// LoadTextureFromMemory() and stb_image, which decodes neither.
-		// Declarations dropped rather than left dangling; restoring the
-		// feature means a real compressed-upload path on IRenderDevice
-		// (which has none) or CPU-decoding to RGBA first.
 
 	public:
 
@@ -212,6 +181,11 @@ namespace p3d {
 		static std::shared_ptr<Texture> LoadShared(const std::string& Filename,
 			const uint32 Type = TextureType::Texture, bool Mipmapping = true, bool clampToEdge = false);
 		bool IsClampedToEdge() const { return SRepeat == TextureRepeat::ClampToEdge; }
+		// A data map - numbers packed in a picture's channels (a sea's depth, a travel time in two bytes) - is
+		// loaded as written: never block-compressed, which would mix its channels into blocks. A scene sampler
+		// asks for it with "data": true.
+		bool IsDataMap() const { return dataMap; }
+		void SetDataMap(const bool on) { dataMap = on; }
 		// Drops entries whose texture is already gone. Housekeeping only.
 		static void PurgeSharedCache();
 		// The shared textures alive now whose file name ends with `suffix` (a path relative to a
@@ -249,8 +223,6 @@ namespace p3d {
 		static bool MakeCompressedCache(const std::string& Filename);
 		static void SetCompression(const bool on);
 		static bool GetCompression();
-		// 0 for RGBA8, else the format its blocks are in (BlockCompress::Format).
-		uint32 GetCompressedFormat() const { return compressedFormat; }
 		static bool DecodeMemory(const uchar* data, const size_t length, DecodedImage& out);
 		bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
 		bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0); // msaa if using multisample only
@@ -260,23 +232,18 @@ namespace p3d {
 		bool HasMinMagFilter(const uint32 MinFilter, const uint32 MagFilter) const { return this->MinFilter == MinFilter && this->MagFilter == MagFilter; }
 		void SetRepeat(const uint32 WrapS, const uint32 WrapT, const int32 WrapR = -1);
 		void SetBorderColor(const Vec4 &Color);
-		void EnableCompareMode();
+		// (a shadow map's: the renderer compares depths itself)
+		void EnableCompareMode() {}
 		void SetTransparency(const f32 Transparency);
 		void Resize(const uint32 Width, const uint32 Height, const uint32 level = 0);
 		void UpdateData(void* srcPTR, const uint32 level = 0);
-		void UpdateMipmap();
-		void SetTextureByteAlignment(const uint32 Value);
-		const uint32 GetBindID() const;
-		// The engine's TextureType::* this was created as. Distinct from
-		// FBOAttachment::TextureType, which holds the *native* target
-		// (GL_TEXTURE_2D and friends) - a real trap, since both are called
-		// "texture type" and only one of them means the engine enum.
+		// The pixels were changed in place (through GetCpuPixels' storage): the renderer makes its copy again
+		void UpdateMipmap() { cpuRevision++; }
+		// (rows are always tightly packed)
+		void SetTextureByteAlignment(const uint32) {}
+		// The engine's TextureType::* this was created as.
 		const uint32 GetTextureType() const { return Type; }
-		// The engine's TextureDataType::* this was created with. The reliable
-		// way to tell a depth target from a colour one: FBOAttachment's
-		// AttachmentFormat is backend-translated (GL reports 36096 for depth
-		// where the engine enum is 16, and Vulkan does not translate at all),
-		// so it cannot be compared against the engine enum portably.
+		// The engine's TextureDataType::* this was created with.
 		const uint32 GetDataType() const { return DataType; }
 		const uint32 GetWidth(const uint32 level = 0) const;
 		const uint32 GetHeight(const uint32 level = 0) const;
@@ -288,42 +255,38 @@ namespace p3d {
 		// Empty whenever GetFilename() is non-empty (redundant then).
 		const std::vector<uchar> &GetRawData() const { return RawData; }
 
-		// Use Asset
-		void Bind();
-		void Unbind();
-		void DeleteTexture();
+		// The pixels, kept on the CPU (the renderer makes the GPU texture itself) - by face (a TextureType: Texture, or a cubemap's face) and mip level.
+		// RGBA8 for a decoded picture; otherwise as DataType says. GetCpuRevision() changes when any does.
+		const std::vector<uchar>* GetCpuPixels(const uint32 face = 0, const uint32 level = 0) const
+		{
+			std::map<std::pair<uint32, uint32>, std::vector<uchar> >::const_iterator i = cpuPixels.find(std::make_pair(face, level));
+			return i == cpuPixels.end() ? NULL : &i->second;
+		}
+		uint32 GetCpuRevision() const { return cpuRevision; }
+		// Never the same for two textures, while the process lives: what a cache keyed by a texture's address checks (a
+		// new one can be made where a freed one was - the renderer's GPU textures)
+		uint32 GetInstanceID() const { return instanceId; }
+		uint32 GetMinFilter() const { return MinFilter; }
+		uint32 GetMagFilter() const { return MagFilter; }
+		uint32 GetRepeatS() const { return SRepeat; }
+		uint32 GetRepeatT() const { return TRepeat; }
+		bool IsMipmapped() const { return isMipMap; }
+	private:
+		std::map<std::pair<uint32, uint32>, std::vector<uchar> > cpuPixels;
+		uint32 cpuRevision = 0;
+		static uint32 NextInstanceID();
+		uint32 instanceId = NextInstanceID();
+		void KeepCpuPixels(const uint32 level, std::vector<uchar> &&pixels) { cpuPixels[std::make_pair(Type, level)] = std::move(pixels); cpuRevision++; }
+	public:
 
 		// Get Texture Data
 		// `faceType` overrides which sub-target is read - pass a
 		// TextureType::Cubemap* value to read one face of a cubemap.
-		// Without it a cubemap reads back whichever face happened to be
-		// current (the last one CreateEmptyTexture() touched), which makes
-		// reading all six impossible. TextureType::Texture (the default)
-		// keeps the previous behaviour exactly.
+		// Without it, the face it was last made as.
 		std::vector<uchar> GetTextureData(const uint32 level = 0, const int32 faceType = -1);
-
-		// Get Last Binded Texture
-		static uint32 GetLastBindedUnit();
-
-		// Reset the static Bind()/Unbind() unit counter - call on demo/renderer
-		// teardown so a mismatched Bind/Unbind cannot permanently shift every
-		// subsequent texture unit assignment (black screen / unloadable tex).
-		static void ResetUnitCounter();
-		// The counter as it stands, and put back: a pass drawn in the middle of another that needs its
-		// sampler on unit 0 (IRenderer::SunCacheCopy) leaves the units as it found them.
-		static void GetUnitCounter(uint32 &unit, uint32 &last);
-		static void SetUnitCounter(const uint32 unit, const uint32 last);
-		// A thread that records a pass of its own beside the frame's (see
-		// IRenderDevice::BeginParallelStream) counts its texture units for
-		// itself, from zero: on from true to false.
-		static void UseOwnUnitCounter(const bool on);
 
 		// Destructor
 		virtual ~Texture();
-
-		// Keep Unit Binded
-		static uint32 LastUnitBinded;
-		static uint32 UnitBinded;
 
 	};
 

@@ -49,7 +49,10 @@ namespace p3d {
 		virtual void InitPhysics() = 0;
 		virtual void Update(const f64 &time, const uint32 steps) = 0;
 		virtual void EnableDebugDraw() = 0;
+		// The shapes, as lines, into the debug renderer (GetDebugRenderer): the host hands them to the renderer's
+		// overlay (DebugRenderer::TakeBatches)
 		virtual void RenderDebugDraw(Projection projection, GameObject* Camera) = 0;
+		virtual class DebugRenderer* GetDebugRenderer() { return nullptr; }
 		virtual void DisableDebugDraw() = 0;
 		virtual void EndPhysics() = 0;
 

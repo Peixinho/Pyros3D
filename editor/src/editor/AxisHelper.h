@@ -3,20 +3,17 @@
 // Author      : Duarte Peixinho
 // Version     :
 // Copyright   : ;)
-// Description : Axis Helper
+// Description : Axis Helper - the viewport's orientation widget: the world's
+//               axes as the camera sees them, drawn by ImGui over the
+//               viewport's corner. Clicking an axis looks down it; the centre
+//               goes back to the perspective view.
 //============================================================================
 
 #ifndef AXISHELPER_H
 #define	AXISHELPER_H
 
-#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
-#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
-#include <Pyros3D/Assets/Renderable/Text/Text.h>
-#include <Pyros3D/SceneGraph/SceneGraph.h>
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
-#include <memory>
+#include <imgui.h>
+#include <Pyros3D/GameObjects/GameObject.h>
 using namespace p3d;
 
 namespace AXIS_HELPER_AXIS {
@@ -34,59 +31,20 @@ namespace AXIS_HELPER_AXIS {
 class AxisHelper {
 public:
 
-	AxisHelper();
-	virtual ~AxisHelper();
+	AxisHelper() {}
+	virtual ~AxisHelper() {}
 
-	bool Update(const double time, GameObject* Camera, const Vec2 &mousePos);
-	void Render(const uint32 x, const uint32 y, const uint32 distx, const uint32 disty, bool isPerspective = true);
-	int32 MouseClick();
+	// Draws it in the square at `topLeft`, `size` points a side, as `camera` sees the world
+	void Draw(ImDrawList* drawList, const ImVec2 &topLeft, const f32 size, GameObject* camera, const bool isPerspective);
+	// What is under the mouse as it was last drawn (AXIS_HELPER_AXIS, -1: nothing)
+	int32 MouseClick() const;
 
 private:
 
-	// Scene
-	SceneGraph* Scene;
-	// Renderer
-	ForwardRenderer* Renderer;
-	// Projection
-	Projection projection;
-	// Camera - Its a regular GameObject
-	GameObject* Camera;
-
-	std::shared_ptr<GameObject> axisHelper;
-	std::shared_ptr<Renderable> axisHelperHandle;
-	std::shared_ptr<RenderingComponent> axisRcomp;
-	std::shared_ptr<GameObject> xHelper, yHelper, zHelper;
-	std::shared_ptr<Renderable> axisLabelHelper;
-	std::shared_ptr<GenericShaderMaterial> xMat, yMat, zMat;
-	std::shared_ptr<RenderingComponent> xRcomp, yRcomp, zRcomp;
-	Font* font;
-	std::shared_ptr<Text> tX, tY, tZ;
-	std::shared_ptr<GameObject> Light;
-	std::shared_ptr<DirectionalLight> dLight;
-	Vec2 mPos;
-	Vec4 lastDim;
-	Mouse3D mouse;
-	std::shared_ptr<IMaterial> selectedMaterial, tempMaterial;
-	RenderingMesh *selectedMesh;
-	int32 selectedAxis;
-
-	// The widget's own camera, left at the origin with an identity
-	// transform: the view matrix is then identity and the intended
-	// "8 units in front of a fixed viewpoint" lives in the model matrices
-	// instead. This replaces a per-material uViewMatrix override that the
-	// engine can no longer honour - uViewMatrix moved into the
-	// GlobalMatrices uniform block, so glGetUniformLocation() returns -1 and
-	// every SetValue() on those handles went nowhere.
-	std::shared_ptr<GameObject> axisCamera;
-
-	// Label
-	SceneGraph* SceneLabel;
-	Projection projectionLabel;
-	std::shared_ptr<Text> labelText;
-	std::shared_ptr<RenderingComponent> labelRcomp;
-	std::shared_ptr<GenericShaderMaterial> labelmat;
-	std::shared_ptr<GameObject> labelCamera, labelObj;
-	bool isPerspective;
+	// Where each was last drawn, and how big - AXIS_HELPER_AXIS order
+	ImVec2 targets[7];
+	f32 radii[7] = { 0.f, 0.f, 0.f, 0.f, 0.f, 0.f, 0.f };
+	bool drawn = false;
 };
 
 #endif	/* AXISHELPER_H */

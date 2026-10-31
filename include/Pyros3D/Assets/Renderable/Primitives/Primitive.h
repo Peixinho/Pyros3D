@@ -65,7 +65,9 @@ namespace p3d {
 
 	protected:
 
-		void CalculateBounding() {}
+		// Its box and sphere, from its vertices (it was empty: every primitive's geometry said a sphere of
+		// radius 0 at the origin - the shape's own Primitive kept the real one)
+		void CalculateBounding();
 	};
 
 	class PYROS3D_API Primitive : public Renderable {

@@ -1,240 +1,17 @@
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
-#include <Pyros3D/Rendering/Device/GLRenderDevice.h>
-#include <Pyros3D/Rendering/Renderer/IRenderer.h>
-#include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <cstring>
-#include <iostream>
+#include <algorithm>
+#include <cmath>
 
 namespace p3d {
 
-	// Same reasoning as PostEffectsManager's ResolvePostEffectsDevice()
-	// (PostEffectsManager.cpp): borrow the already-active device rather
-	// than always constructing a GLRenderDevice, which has no valid glad
-	// function pointers in a Vulkan- or Metal-only process. The editor hit
-	// this immediately on Vulkan - DebugRenderer::Render() called
-	// CreateVertexArray() and jumped to address 0.
-	static MaybeOwningDevicePtr ResolveDebugRendererDevice()
+	// Lines, triangles and points batched in world space, for the renderer to draw over its picture (TakeBatches)
+	DebugRenderer::DebugRenderer()
 	{
-		if (IsActiveRenderDeviceSet())
-			return BorrowActiveRenderDevice();
-		// Not published as active: this one is private to the debug renderer,
-		// exactly as it was before device lifetime became shared.
-		return std::make_shared<GLRenderDevice>();
-	}
-
-	DebugRenderer::DebugRenderer() : device(ResolveDebugRendererDevice())
-	{
-		DebugMaterial = new GenericShaderMaterial(ShaderUsage::DebugRendering);
-		// Editor gizmos / selection bounds / physics wireframes must read
-		// through scene geometry. Depth-tested LEqual hid the transform
-		// gizmo behind meshes; ClearBufferBit(Depth) before the flush was
-		// tried and rejected in SceneEditor because it rewrites the
-		// renderer's persistent clear mask. Same contract as
-		// GameObjectHelper's overlay materials.
-		DebugMaterial->DisableDepthTest();
-		DebugMaterial->DisableDepthWrite();
-		DebugMaterial->SetCullFace(CullFace::DoubleSided);
 		pushedMatrix = false;
 		temp = Matrix();
-		holdsSharedUbos = false;
-
-		VertexLinesBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
-		ColorLinesBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
-		VertexTrianglesBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
-		ColorTrianglesBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
-		PointsBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
-		ColorPointsBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
-		PointsSizeBF = new GeometryBuffer(Buffer::Type::Attribute, Buffer::Draw::Stream);
-
-		linesVao = trianglesVao = pointsVao = 0;
-		linesVaoBuilt = trianglesVaoBuilt = pointsVaoBuilt = false;
-		linesPipeline = trianglesPipeline = pointsPipeline = 0;
-		pipelinesBuiltForTarget = 0;
-		pipelinesBuiltForSwapchainGeneration = 0;
-
-		IRenderer::RetainSharedUniformBuffers(device.get());
-		holdsSharedUbos = true;
 	}
 
-	DebugRenderer::~DebugRenderer()
-	{
-		DestroyGpuResources();
-		if (holdsSharedUbos)
-		{
-			IRenderer::ReleaseSharedUniformBuffers(device.get());
-			holdsSharedUbos = false;
-		}
-		delete DebugMaterial;
-		if (VertexLinesBF) delete VertexLinesBF;
-		if (ColorLinesBF) delete ColorLinesBF;
-		if (VertexTrianglesBF) delete VertexTrianglesBF;
-		if (ColorTrianglesBF) delete ColorTrianglesBF;
-		if (PointsBF) delete PointsBF;
-		if (ColorPointsBF) delete ColorPointsBF;
-		if (PointsSizeBF) delete PointsSizeBF;
-	}
-
-	void DebugRenderer::DestroyGpuResources()
-	{
-		if (linesPipeline != 0)
-		{
-			device->DestroyPipeline(linesPipeline);
-			linesPipeline = 0;
-		}
-		if (trianglesPipeline != 0)
-		{
-			device->DestroyPipeline(trianglesPipeline);
-			trianglesPipeline = 0;
-		}
-		if (pointsPipeline != 0)
-		{
-			device->DestroyPipeline(pointsPipeline);
-			pointsPipeline = 0;
-		}
-		if (linesVao != 0)
-		{
-			device->DeleteVertexArray(linesVao);
-			linesVao = 0;
-			linesVaoBuilt = false;
-		}
-		if (trianglesVao != 0)
-		{
-			device->DeleteVertexArray(trianglesVao);
-			trianglesVao = 0;
-			trianglesVaoBuilt = false;
-		}
-		if (pointsVao != 0)
-		{
-			device->DeleteVertexArray(pointsVao);
-			pointsVao = 0;
-			pointsVaoBuilt = false;
-		}
-		pipelinesBuiltForTarget = 0;
-		pipelinesBuiltForSwapchainGeneration = 0;
-	}
-
-	void DebugRenderer::EnsureGpuResources()
-	{
-		// GeometryBuffer handles are only valid after the first Init();
-		// callers update CPU vectors first so Init/Update runs before this.
-		if (!linesVaoBuilt && VertexLinesBF->ID >= 0 && ColorLinesBF->ID >= 0)
-		{
-			linesVao = device->CreateVertexArray();
-			CommandBufferHandle cmd = device->BeginCommandBuffer();
-			device->BindVertexArray(cmd, linesVao);
-			device->BindArrayBuffer(VertexLinesBF->ID);
-			device->SetFloatVertexAttribute(device->GetAttributeLocation(DebugMaterial->GetShader(), "aPosition"), 3, sizeof(Vec3), 0);
-			device->BindArrayBuffer(ColorLinesBF->ID);
-			device->SetFloatVertexAttribute(device->GetAttributeLocation(DebugMaterial->GetShader(), "aColor"), 4, sizeof(Vec4), 0);
-			device->EndCommandBuffer(cmd);
-			linesVaoBuilt = true;
-		}
-
-		if (!trianglesVaoBuilt && VertexTrianglesBF->ID >= 0 && ColorTrianglesBF->ID >= 0)
-		{
-			trianglesVao = device->CreateVertexArray();
-			CommandBufferHandle cmd = device->BeginCommandBuffer();
-			device->BindVertexArray(cmd, trianglesVao);
-			device->BindArrayBuffer(VertexTrianglesBF->ID);
-			device->SetFloatVertexAttribute(device->GetAttributeLocation(DebugMaterial->GetShader(), "aPosition"), 3, sizeof(Vec3), 0);
-			device->BindArrayBuffer(ColorTrianglesBF->ID);
-			device->SetFloatVertexAttribute(device->GetAttributeLocation(DebugMaterial->GetShader(), "aColor"), 4, sizeof(Vec4), 0);
-			device->EndCommandBuffer(cmd);
-			trianglesVaoBuilt = true;
-		}
-
-		if (!pointsVaoBuilt && PointsBF->ID >= 0 && ColorPointsBF->ID >= 0)
-		{
-			pointsVao = device->CreateVertexArray();
-			CommandBufferHandle cmd = device->BeginCommandBuffer();
-			device->BindVertexArray(cmd, pointsVao);
-			device->BindArrayBuffer(PointsBF->ID);
-			device->SetFloatVertexAttribute(device->GetAttributeLocation(DebugMaterial->GetShader(), "aPosition"), 3, sizeof(Vec3), 0);
-			device->BindArrayBuffer(ColorPointsBF->ID);
-			device->SetFloatVertexAttribute(device->GetAttributeLocation(DebugMaterial->GetShader(), "aColor"), 4, sizeof(Vec4), 0);
-			device->EndCommandBuffer(cmd);
-			pointsVaoBuilt = true;
-		}
-	}
-
-	DeviceHandle DebugRenderer::EnsurePipeline(const uint32 drawingType)
-	{
-		const DeviceHandle target = device->GetCurrentRenderTarget();
-		const uint32 generation = device->GetSwapchainGeneration();
-		const bool stale = (linesPipeline != 0 || trianglesPipeline != 0 || pointsPipeline != 0) &&
-			(pipelinesBuiltForTarget != target ||
-			 (target == 0 && pipelinesBuiltForSwapchainGeneration != generation));
-		if (stale)
-		{
-			if (linesPipeline != 0) { device->DestroyPipeline(linesPipeline); linesPipeline = 0; }
-			if (trianglesPipeline != 0) { device->DestroyPipeline(trianglesPipeline); trianglesPipeline = 0; }
-			if (pointsPipeline != 0) { device->DestroyPipeline(pointsPipeline); pointsPipeline = 0; }
-		}
-
-		DeviceHandle &pipeline = (drawingType == DrawingType::Lines) ? linesPipeline :
-			(drawingType == DrawingType::Triangles) ? trianglesPipeline : pointsPipeline;
-		if (pipeline != 0)
-			return pipeline;
-
-		IRenderDevice::PipelineDesc pdesc;
-		pdesc.shaderProgram = DebugMaterial->GetShader();
-		pdesc.depthTest = DebugMaterial->IsDepthTesting();
-		// Mode is ignored while depthTest is false (Metal forces Always);
-		// keep Always so a later EnableDepthTest without an arg still draws
-		// on top if pipelines are rebuilt.
-		pdesc.depthTestMode = DepthTest::Always;
-		pdesc.depthWrite = DebugMaterial->IsDepthWritting();
-		pdesc.cullFace = DebugMaterial->GetCullFace();
-		pdesc.drawingType = drawingType;
-		pdesc.blendingEnabled = true;
-		pdesc.blendSrcFactor = BlendFunc::Src_Alpha;
-		pdesc.blendDstFactor = BlendFunc::One_Minus_Src_Alpha;
-		pdesc.blendEquation = BlendEq::Add;
-
-		IRenderDevice::VertexBufferLayoutDesc positionLayout;
-		positionLayout.stride = sizeof(Vec3);
-		{
-			IRenderDevice::VertexAttributeDesc attr;
-			attr.name = "aPosition";
-			attr.type = Buffer::Attribute::Type::Vec3;
-			attr.offset = 0;
-			attr.divisor = 0;
-			positionLayout.attributes.push_back(attr);
-		}
-		IRenderDevice::VertexBufferLayoutDesc colorLayout;
-		colorLayout.stride = sizeof(Vec4);
-		{
-			IRenderDevice::VertexAttributeDesc attr;
-			attr.name = "aColor";
-			attr.type = Buffer::Attribute::Type::Vec4;
-			attr.offset = 0;
-			attr.divisor = 0;
-			colorLayout.attributes.push_back(attr);
-		}
-		pdesc.vertexLayout.push_back(positionLayout);
-		pdesc.vertexLayout.push_back(colorLayout);
-
-		pipeline = device->CreatePipeline(pdesc);
-		pipelinesBuiltForTarget = target;
-		pipelinesBuiltForSwapchainGeneration = generation;
-
-		// Same UBO block binds BindMesh() does for PyrosShader materials.
-		const uint32 program = DebugMaterial->GetShader();
-		device->BindUniformBlockIfPresent(program, "GlobalMatrices", 0);
-		device->BindUniformBlockIfPresent(program, "ObjectMatrixUniforms", 18);
-		device->BindUniformBlockIfPresent(program, "MaterialUniforms", 22);
-
-		return pipeline;
-	}
-
-	void DebugRenderer::ClearScreen()
-	{
-		device->Clear(device->TranslateBufferBit(Buffer_Bit::Color));
-	}
-	void DebugRenderer::SetViewPort(const int32 &w0, const int32 h0, const int32 w1, const int32 h1)
-	{
-		device->SetViewport(w0, h0, w1, h1);
-	}
+	DebugRenderer::~DebugRenderer() {}
 
 	void DebugRenderer::ClearBuffers()
 	{
@@ -245,141 +22,6 @@ namespace p3d {
 		points.clear();
 		colorPoints.clear();
 		pointsSize.clear();
-	}
-
-	void DebugRenderer::Render(const Matrix &camera, const Matrix &projection)
-	{
-		const bool hasLines = !vertexLines.empty();
-		const bool hasTriangles = !vertexTriangles.empty();
-		const bool hasPoints = !points.empty();
-		if (!hasLines && !hasTriangles && !hasPoints)
-		{
-			ClearBuffers();
-			return;
-		}
-
-		// Caller must already have an open render pass (editor: inside
-		// CaptureFrame; examples: during ForwardRenderer's frame). Do not
-		// BeginFrame/EndFrame here - nesting EndFrame after Forward already
-		// started a swapchain frame ends the frame early on Vulkan/Metal.
-
-		if (hasLines)
-		{
-			if (VertexLinesBF->ID >= 0)
-				VertexLinesBF->Update(&vertexLines[0], vertexLines.size() * sizeof(Vec3));
-			else
-				VertexLinesBF->Init(&vertexLines[0], vertexLines.size() * sizeof(Vec3));
-
-			if (ColorLinesBF->ID >= 0)
-				ColorLinesBF->Update(&colorLines[0], colorLines.size() * sizeof(Vec4));
-			else
-				ColorLinesBF->Init(&colorLines[0], colorLines.size() * sizeof(Vec4));
-		}
-
-		if (hasTriangles)
-		{
-			if (VertexTrianglesBF->ID >= 0)
-				VertexTrianglesBF->Update(&vertexTriangles[0], vertexTriangles.size() * sizeof(Vec3));
-			else
-				VertexTrianglesBF->Init(&vertexTriangles[0], vertexTriangles.size() * sizeof(Vec3));
-
-			if (ColorTrianglesBF->ID >= 0)
-				ColorTrianglesBF->Update(&colorTriangles[0], colorTriangles.size() * sizeof(Vec4));
-			else
-				ColorTrianglesBF->Init(&colorTriangles[0], colorTriangles.size() * sizeof(Vec4));
-		}
-
-		if (hasPoints)
-		{
-			if (PointsBF->ID >= 0)
-				PointsBF->Update(&points[0], points.size() * sizeof(Vec3));
-			else
-				PointsBF->Init(&points[0], points.size() * sizeof(Vec3));
-
-			if (ColorPointsBF->ID >= 0)
-				ColorPointsBF->Update(&colorPoints[0], colorPoints.size() * sizeof(Vec4));
-			else
-				ColorPointsBF->Init(&colorPoints[0], colorPoints.size() * sizeof(Vec4));
-		}
-
-		EnsureGpuResources();
-
-		projectionMatrix = projection;
-		viewMatrix = camera;
-		modelMatrix.identity();
-
-		// Upload through the shared IRenderer UBO handles (bindings 0/18/22)
-		// - same contract as RenderObject(), required on Vulkan/Metal where
-		// loose SendUniformMatrix is a no-op.
-		//
-		// Do NOT rewrite MaterialUniformsUBO here. The editor flushes debug
-		// lines after the lit scene pass; zeroing UseLights in the shared
-		// material block made the next frame's shadowed materials sample as
-		// unlit (full albedo → looks "brighter") until something forced a
-		// full material reupload. Only view/proj/model are needed for lines.
-		Matrix globalMatricesData[2] = {
-			device->TranslateProjectionMatrix(projectionMatrix),
-			viewMatrix
-		};
-		device->ReplaceUniformBuffer(IRenderer::GetSharedGlobalMatricesUBO(), sizeof(Matrix) * 2, globalMatricesData);
-
-		struct { Matrix model; Vec4 wind; Vec4 growth; Vec4 through; } objectMatrixData;
-		objectMatrixData.through = Vec4(0.f, 1.f, 0.f, 0.f);
-		objectMatrixData.model = modelMatrix;
-		objectMatrixData.wind = Vec4(0.f, 0.f, 0.f, 0.f);
-		objectMatrixData.growth = Vec4(1.f, 1.f, 0.f, 0.f);
-		device->ReplaceUniformBuffer(IRenderer::GetSharedObjectMatrixUniformsUBO(), sizeof(objectMatrixData), &objectMatrixData);
-
-		IRenderer::MarkSharedGlobalMatricesDirty();
-
-		CommandBufferHandle cmd = device->BeginCommandBuffer();
-
-		if (hasLines && linesVaoBuilt)
-		{
-			DeviceHandle pipeline = EnsurePipeline(DrawingType::Lines);
-			if (pipeline != 0)
-			{
-				device->BindVertexArray(cmd, linesVao);
-				device->BindPipeline(cmd, pipeline);
-				device->DrawArrays(device->TranslateDrawType(DrawingType::Lines), 0, (uint32)vertexLines.size());
-			}
-		}
-
-		if (hasTriangles && trianglesVaoBuilt)
-		{
-			DeviceHandle pipeline = EnsurePipeline(DrawingType::Triangles);
-			if (pipeline != 0)
-			{
-				device->BindVertexArray(cmd, trianglesVao);
-				device->BindPipeline(cmd, pipeline);
-				device->DrawArrays(device->TranslateDrawType(DrawingType::Triangles), 0, (uint32)vertexTriangles.size());
-			}
-		}
-
-		// Points are deliberately not drawn. The shared debug shader writes
-		// no gl_PointSize (PyrosShader.glsl explains why: declaring aSize
-		// without a matching vertex-input binding breaks CreatePipeline on
-		// Vulkan, and a PointSize output in a line/triangle pipeline is a
-		// MoltenVK compile failure), and PointsSizeBF is filled but never
-		// bound to the points VAO - so the size is whatever the driver
-		// defaults to. On GL that is a 1px dot, which merely looked
-		// unremarkable; on Metal it is *undefined*, and the editor's 48
-		// skeleton joint markers each rasterised as a screen-filling square
-		// that buried the entire animation preview.
-		//
-		// Say so once rather than silently dropping the geometry, so the
-		// next caller of drawPoint() finds out here instead of from a blank
-		// viewport. Draw markers from lines instead - see
-		// AnimationPreview::DrawJointMarker(), which is what the editor's
-		// own joint dots became.
-		if (hasPoints && !warnedPointsUnsupported)
-		{
-			warnedPointsUnsupported = true;
-			echo("WARNING: DebugRenderer::drawPoint() is not drawn - the debug shader cannot size points. Use lines instead.");
-		}
-		device->EndCommandBuffer(cmd);
-
-		ClearBuffers();
 	}
 
 	void DebugRenderer::drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &fromColor, const Vec4 &toColor)
@@ -393,6 +35,20 @@ namespace p3d {
 	void DebugRenderer::drawLine(const Vec3 &from, const Vec3 &to, const Vec4 &color)
 	{
 		drawLine(from, to, color, color);
+	}
+
+	void DebugRenderer::TakeBatches(std::vector<Vec3> &lines, std::vector<Vec4> &lineColors, std::vector<Vec3> &triangles, std::vector<Vec4> &triangleColors)
+	{
+		lines.swap(vertexLines); lineColors.swap(colorLines);
+		triangles.swap(vertexTriangles); triangleColors.swap(colorTriangles);
+		for (size_t i = 0; i < points.size(); i++)
+		{
+			const f32 h = std::max(pointsSize[i], 1.f) * 0.01f;
+			const Vec3 axes[3] = { Vec3(h, 0.f, 0.f), Vec3(0.f, h, 0.f), Vec3(0.f, 0.f, h) };
+			for (const Vec3 &a : axes) { lines.push_back(points[i] - a); lines.push_back(points[i] + a); lineColors.push_back(colorPoints[i]); lineColors.push_back(colorPoints[i]); }
+		}
+		vertexLines.clear(); colorLines.clear(); vertexTriangles.clear(); colorTriangles.clear();
+		points.clear(); colorPoints.clear(); pointsSize.clear();
 	}
 
 	void DebugRenderer::drawPoint(const Vec3 &point, const f32 size, const Vec4 &color)

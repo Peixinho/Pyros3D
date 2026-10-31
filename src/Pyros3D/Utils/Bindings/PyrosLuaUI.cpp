@@ -23,7 +23,6 @@
 #include <Pyros3D/Rendering/Components/UI/UIInput.h>
 #include <Pyros3D/Rendering/Components/UI/UIList.h>
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 
 namespace p3d {
 
@@ -439,18 +438,6 @@ namespace p3d {
 
 	void RegisterLuaUI(sol::state* lua)
 	{
-		// The pass itself, so a Lua-driven host (the DemoLauncher's
-		// render_host) can composite UI the same way the editor and the
-		// player do. Nothing else in the engine needs to be told about it -
-		// it draws whatever canvases the scene has.
-		{
-			sol::constructors<sol::types<uint32, uint32>> con;
-			lua->new_usertype<UIRenderer>("UIRenderer",
-				con,
-				"resize", &UIRenderer::Resize,
-				"renderUI", &UIRenderer::RenderUI);
-		}
-
 		sol::table ui = lua->create_named_table("ui");
 		ui.set_function("updateInput", &UI_UpdateInput);
 		ui.set_function("screenToCanvas", &UI_ScreenToCanvas);

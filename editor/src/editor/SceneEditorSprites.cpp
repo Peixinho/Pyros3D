@@ -12,12 +12,12 @@
 //============================================================================
 
 #include "SceneEditor.h"
+#include "RendererView.h"
 #include "SceneCommands.h"
 #include <Pyros3D/Rendering/Components/Sprite2D/Sprite2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteBatch2D.h>
 #include <Pyros3D/Rendering/Components/Sprite2D/SpriteMask2D.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Plane.h>
 #include <Pyros3D/Assets/SpriteSheet2D/SpriteSheet2D.h>
 #include <Pyros3D/Assets/TileSet2D/TileSet2D.h>
@@ -80,7 +80,7 @@ namespace {
 		GenericShaderMaterial* gm = mat ? dynamic_cast<GenericShaderMaterial*>(mat.get()) : NULL;
 		Texture* t = gm ? gm->GetColorMap() : NULL;
 		if (!t) return NULL;
-		return (void*)GetActiveRenderDevice().GetImGuiTextureID(t->GetBindID(), t->GetTextureType());
+		return EditorImGuiTexture(t);
 	}
 
 	// Which sprite the Properties panel is playing a clip on while the scene

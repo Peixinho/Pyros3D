@@ -30,7 +30,7 @@ inline void CollectCandidates(const std::string& receiver, const std::string& pr
 	matches.reserve(96);
 
 	// The surface outputs a Text-mode snippet assigns - see
-	// MaterialCodegen::kDefaultSimpleShaderText/GenerateGLSLFromSimpleText.
+	// MaterialCodegen::kDefaultSimpleShaderText/GenerateSurfaceFromSimpleText.
 	static const char* const kOutputs[] = {
 		"Albedo", "Normal", "Metallic", "Roughness", "Emissive", "Occlusion",
 		"Opacity", "AlphaClip", "Reflection",

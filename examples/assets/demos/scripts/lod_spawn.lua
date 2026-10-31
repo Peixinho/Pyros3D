@@ -33,6 +33,8 @@ function LODSpawn:init(owner)
 	for i = 1, LIGHTS do
 		local go = GameObject.new()
 		local light = PointLight.new(Vec4.new(1, 1, 1, 1), 100)
+		-- (what the old straight-line falloff gave ~50 m off: LinearFalloffIntensity, DemoLauncher.cpp)
+		light:setLightIntensity(LinearFalloffIntensity(1.0, 50.0, 100.0))
 		go:addComponent(light)
 		go:addComponent(RenderingComponent.new(sphere, ShaderUsage.Color))
 		go:setPosition(Vec3.new(math.random() * 1000 - 500, math.random() * 1000 - 500, math.random() * 1000 - 500))

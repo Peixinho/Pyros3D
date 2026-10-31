@@ -7,7 +7,6 @@
 //============================================================================
 
 #include <Pyros3D/Core/Octree/Octree.h>
-#include <Pyros3D/Other/PyrosGL.h>
 
 namespace p3d {
 

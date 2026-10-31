@@ -1,6 +1,6 @@
 -- Island water, screen-space reflections variant.
 --
--- Same island as island_setup.lua, but the water is an ordinary opaque
+-- The island, its water an ordinary opaque
 -- G-buffer surface with the DeferredRenderer's material-aware SSR doing
 -- the reflection, instead of the planar reflection/refraction multipass.
 -- No mirror camera, no clip planes, no reflection/refraction FBOs and no

@@ -3,7 +3,11 @@
 // Description : Node graph -> GLSL codegen implementation. See MaterialCodegen.h.
 //============================================================================
 
+#include <fstream>
+#include <iterator>
 #include "MaterialCodegen.h"
+#include <algorithm>
+#include <Pyros3D/Rendering/ColourSpace.h>
 #include <cstdio>
 #include <map>
 #include <regex>
@@ -71,6 +75,19 @@ public:
 		return defaultExpr;
 	}
 
+	// Whether a Texture node holds data rather than a painted colour (see the Texture case).
+	bool TextureNodeIsData(const MaterialNode& node) {
+		if (node.userData == "linear") return true;
+		if (node.userData == "srgb") return false;
+		std::string n = node.texturePath;
+		std::transform(n.begin(), n.end(), n.begin(), ::tolower);
+		const size_t slash = n.find_last_of("/\\");
+		if (slash != std::string::npos) n = n.substr(slash + 1);
+		static const char* kData[] = { "nor", "nrm", "normal", "rough", "metal", "orm", "arm", "_ao", "occlusion", "mask", "height", "disp", "bump", "spec" };
+		for (const char* k : kData) if (n.find(k) != std::string::npos) return true;
+		return false;
+	}
+
 	// Per-output-pin swizzle for multi-output nodes (Color's R/G/B/A/RGBA,
 	// Texture's RGBA/R/G/B/A, Split*'s X/Y/Z/W) - broadcasts the selected
 	// scalar component back to a vec4 so every node's local var stays
@@ -102,9 +119,9 @@ public:
 	}
 
 	// Built-in inputs, spelled for this stage. The vertex stage works from
-	// the (skinned) world-space position/normal main() computes before the
-	// offset is applied - see BuildTemplate.
-	std::string UVExpr() const { return stage == Stage::Fragment ? "vec4(vTexcoord, 0.0, 1.0)" : "vec4(aTexcoord, 0.0, 1.0)"; }
+	// the (skinned) world-space position, normal and texcoord the renderer
+	// hands its Vertex() before the offset is applied - see BuildSurface.
+	std::string UVExpr() const { return stage == Stage::Fragment ? "vec4(vTexcoord, 0.0, 1.0)" : "vec4(p3d_vertexUV, 0.0, 1.0)"; }
 	std::string NormalExpr() const { return stage == Stage::Fragment ? "vec4(p3d_N, 0.0)" : "vec4(p3d_worldNormal, 0.0)"; }
 	std::string PositionExpr() const { return stage == Stage::Fragment ? "vec4(vWorldPos.xyz, 1.0)" : "vec4(p3d_worldPos.xyz, 1.0)"; }
 	std::string ViewDirExpr() const {
@@ -128,7 +145,8 @@ public:
 			case T::Color: {
 				float c[4] = {1, 1, 1, 1};
 				if (!node.userData.empty()) sscanf(node.userData.c_str(), "%f,%f,%f,%f", &c[0], &c[1], &c[2], &c[3]);
-				expr = Vec4Literal(c[0], c[1], c[2], c[3]);
+				// (a picked colour: decoded here, once - the renderer lights in linear light, ColourSpace.h)
+				expr = Vec4Literal(p3d::SrgbToLinear(c[0]), p3d::SrgbToLinear(c[1]), p3d::SrgbToLinear(c[2]), c[3]);
 				break;
 			}
 			case T::Float: {
@@ -189,7 +207,7 @@ public:
 					parameterIndex[name] = parameters.size();
 					parameters.push_back(p);
 				}
-				expr = isVector ? ("p_" + name) : ("vec4(p_" + name + ")");
+				expr = isVector ? ("p3d_ToLinear(p_" + name + ")") : ("vec4(p_" + name + ")");    // (a colour parameter is picked: decoded)
 				break;
 			}
 			case T::Texture: {
@@ -197,6 +215,10 @@ public:
 				std::string sampler = "uTex" + std::to_string((int)textureSamplers.size());
 				textureSamplers.push_back({node.id, sampler});
 				expr = "texture_2D(" + sampler + ", (" + in(0, UVExpr().c_str()) + ").xy)";
+				// A painted picture is sRGB and decoded as it is read; a data picture (normals, roughness,
+				// metal, occlusion, masks, heights) is not. userData "linear" / "srgb" says which; without
+				// it the file's name does (the names every texture tool gives its maps).
+				if (!TextureNodeIsData(node)) expr = "p3d_ToLinear(" + expr + ")";
 				break;
 			}
 			case T::Add: expr = "(" + in(0,"vec4(0.0)") + " + " + in(1,"vec4(0.0)") + ")"; break;
@@ -312,20 +334,6 @@ public:
 	std::string error;
 };
 
-// Generated shaders always contain BOTH branches, selected at compile time
-// by whichever renderer the project actually uses (#define DEFERRED_GBUFFER
-// passed in by MaterialEditor::ApplyGraphOrTextToLiveMaterial, mirroring how
-// PyrosShader.glsl itself is a single dual-mode source file) - so the same
-// .mat keeps working if the project's renderer setting changes, with no
-// regeneration needed.
-//
-// The Forward branch is a real per-fragment PBR light loop (directional/
-// point/spot, no shadow-map sampling yet), deliberately ported close to
-// verbatim from PyrosShader.glsl's own non-deferred branch (LIGHT struct,
-// buildLightFromMatrix, Attenuation, DualConeSpotLight, the Cook-Torrance
-// CalculatePBRLighting/DistributionGGX/GeometrySchlickGGX/GeometrySmith/
-// FresnelSchlick functions) rather than re-derived, so it matches how the
-// engine's built-in materials actually light a surface.
 // Everything the template needs from either front end (graph or Text mode).
 // Every *Expr is a vec4-valued GLSL expression over the fragment stage's
 // statements; vertexOffsetExpr over vertexStatements.
@@ -348,22 +356,28 @@ struct TemplateInputs {
 	std::vector<MaterialCodegenResult::Parameter> parameters;
 };
 
-// Declarations shared by both stages: parameter uniforms and the small
-// helper functions graph nodes expand to. Stage-neutral GLSL only - no
-// derivatives, no samplers.
-void EmitSharedPrelude(std::ostringstream& out, const TemplateInputs& in) {
-	out << "uniform float uTime;\n";
-	// The application's sixteen (IRenderer::SetShaderGlobal), for a material
-	// whose text reads them - not declared otherwise, so no other material
-	// carries them about.
-	{
-		bool reads = false;
-		for (const auto& st : in.statements) if (st.find("uGlobals") != std::string::npos) reads = true;
-		for (const auto& st : in.vertexStatements) if (st.find("uGlobals") != std::string::npos) reads = true;
-		if (reads) out << "uniform vec4 uGlobals[16];\n";
-	}
-	for (const auto& p : in.parameters)
-		out << "uniform " << (p.isVector ? "vec4" : "float") << " p_" << p.name << ";\n";
+// Normal Map node: tangent-space `m` -> world space, around the geometric normal N, with the tangent frame solved
+// from screen-space derivatives of position and UV (Schueler's cotangent frame); sign(det) keeps it right on every
+// backend's screen-Y direction.
+const char* const kPerturbNormalGLSL =
+		"vec3 p3d_PerturbNormal(vec3 N, vec3 p, vec2 uv, vec3 m, float strength) {\n"
+		"\tvec3 dp1 = dFdx(p);\n"
+		"\tvec3 dp2 = dFdy(p);\n"
+		"\tvec2 duv1 = dFdx(uv);\n"
+		"\tvec2 duv2 = dFdy(uv);\n"
+		"\tvec3 dp2perp = cross(dp2, N);\n"
+		"\tvec3 dp1perp = cross(N, dp1);\n"
+		"\tvec3 T = dp2perp * duv1.x + dp1perp * duv2.x;\n"
+		"\tvec3 B = dp2perp * duv1.y + dp1perp * duv2.y;\n"
+		"\tfloat det = dot(dp1, dp2perp);\n"
+		"\tfloat s = (det < 0.0) ? -1.0 : 1.0;\n"
+		"\tfloat invmax = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-20));\n"
+		"\tm.xy *= strength;\n"
+		"\treturn normalize(mat3(T * (invmax * s), B * (invmax * s), N) * m);\n"
+		"}\n";
+
+// The functions graph nodes expand to - stage-neutral GLSL, no uniforms: both stages carry them
+void EmitNodeHelpers(std::ostringstream& out) {
 	out <<
 		// Widens a Custom Expression's result, whatever its type, to the
 		// vec4 every node value is.
@@ -393,547 +407,47 @@ void EmitSharedPrelude(std::ostringstream& out, const TemplateInputs& in) {
 		"}\n";
 }
 
-std::string BuildTemplate(const TemplateInputs& in) {
+// The renderer's form of the material (CustomShaderMaterial::SetSurfaceSource): the graph's statements in a surface
+// function filling SurfaceData; the renderer does the lighting, shadows and the rest. Parameters and textures are
+// named in //@ lines for it to bind; uTime, uCameraPosition, vWorldPos, vTexcoord and uOpacity mean what they do here.
+std::string BuildSurface(const TemplateInputs& in) {
 	std::ostringstream out;
-	out <<
-		"#define varying_in in\n"
-		"#define varying_out out\n"
-		"#define attribute_in in\n"
-		"#define texture_2D texture\n"
-		"#define texture_cube texture\n"
-		"#define MAX_LIGHTS 8\n"
-		// Matches PyrosShader.glsl / IRenderer's PYROS_MAX_BONES.
-		"#define MAX_BONES 192\n"
-		// highp, never mediump: this line lands after the device's own
-		// `precision highp float` preamble and silently wins. On Apple GPUs
-		// mediump is fp16, world-space positions through the MVP overflow
-		// it, and the whole mesh is dropped before rasterization - the
-		// web-only "invisible geometry" bug every shader in
-		// resources/shaders was fixed for.
-		"#if defined(GLES3)\n"
-		"\tprecision highp float;\n"
-		"#endif\n"
-		"\n"
-		"// Generated by the Pyros3D Material Editor's node graph. Hand edits here\n"
-		"// are preserved until the graph is re-Applied (which overwrites this file).\n"
-		"// Contains both a Forward (real per-fragment lighting) and a Deferred\n"
-		"// G-buffer branch - DEFERRED_GBUFFER picks which one compiles, set by\n"
-		"// the project's Renderer setting at Apply time. SKINNING is defined for\n"
-		"// skinned meshes by CustomShaderMaterial's variant cache.\n"
-		"\n"
-		;
-	// Read by CustomShaderMaterial::HasCustomShadow(): only a graph that
-	// moves vertices or cuts holes needs to cast its own shadow - every
-	// other material keeps the renderer's shared (cheaper) shadow shader.
-	if (!in.vertexOffset.empty() || in.alphaClipConnected)
-		out << "// P3D_CUSTOM_SHADOW\n\n";
-	out <<
-		"#ifdef VERTEX\n"
-		"attribute_in vec3 aPosition;\n"
-		"attribute_in vec3 aNormal;\n"
-		"attribute_in vec2 aTexcoord;\n"
-		// A plain uniform array, not PyrosShader.glsl's BoneMatrices block:
-		// that block is only uploaded for materials that SupportsUniformBlocks(),
-		// which a CustomShaderMaterial does not. Fed by DataUsage::Skinning.
-		"#ifdef SKINNING\n"
-		"attribute_in vec4 aBonesID;\n"
-		"attribute_in vec4 aBonesWeight;\n"
-		"uniform mat4 uBoneMatrix[MAX_BONES];\n"
-		"#endif\n"
-		"uniform mat4 uProjectionMatrix, uViewMatrix, uModelMatrix;\n"
-		"uniform vec3 uCameraPosition;\n";
-	EmitSharedPrelude(out, in);
-	out <<
-		"varying_out vec2 vTexcoord;\n"
-		"varying_out vec3 vNormal;\n"      // view-space - deferred G-buffer convention
-		"varying_out vec3 vNormalWorld;\n" // world-space - forward lighting convention
-		"varying_out vec4 vWorldPos;\n"
-		// View-space position, which is what the shadow matrices
-		// (uDirectionalDepthsMVP) are built to consume - see
-		// lighting.glsl's header note and PyrosShader.glsl's identical
-		// vWorldPositionShadow, whose name this keeps despite holding
-		// view space, so the two stay comparable.
-		"varying_out vec4 vWorldPositionShadow;\n"
-		"void main() {\n"
-		"\tvec4 p3d_localPos = vec4(aPosition, 1.0);\n"
-		"\tvec3 p3d_localNormal = aNormal;\n"
-		"#ifdef SKINNING\n"
-		"\tmat4 p3d_skin = uBoneMatrix[int(aBonesID.x)] * aBonesWeight.x\n"
-		"\t              + uBoneMatrix[int(aBonesID.y)] * aBonesWeight.y\n"
-		"\t              + uBoneMatrix[int(aBonesID.z)] * aBonesWeight.z\n"
-		"\t              + uBoneMatrix[int(aBonesID.w)] * aBonesWeight.w;\n"
-		"\tp3d_localPos = p3d_skin * p3d_localPos;\n"
-		"\tp3d_localNormal = (p3d_skin * vec4(aNormal, 0.0)).xyz;\n"
-		"#endif\n"
-		"\tvec4 p3d_worldPos = uModelMatrix * p3d_localPos;\n"
-		"\tvec3 p3d_worldNormal = normalize((uModelMatrix * vec4(p3d_localNormal, 0.0)).xyz);\n";
-	for (const auto& st : in.vertexStatements)
-		out << "\t" << st << "\n";
-	// World-space offset (Vertex Offset pin), before anything below derives
-	// from the position. The shadow pass draws with the engine's own depth
-	// material, so a displaced surface casts its undisplaced shadow.
-	if (!in.vertexOffset.empty())
-		out << "\tp3d_worldPos.xyz += (" << in.vertexOffset << ").xyz;\n";
-	out <<
-		"\tvTexcoord = aTexcoord;\n"
-		"\tvNormalWorld = p3d_worldNormal;\n"
-		"\tvNormal = (uViewMatrix * vec4(p3d_worldNormal, 0.0)).xyz;\n"
-		"\tvWorldPos = p3d_worldPos;\n"
-		"\tvWorldPositionShadow = uViewMatrix * p3d_worldPos;\n"
-		"\tgl_Position = uProjectionMatrix * uViewMatrix * p3d_worldPos;\n"
-		"}\n"
-		"#endif\n"
-		"\n"
-		"#ifdef FRAGMENT\n"
-		"uniform vec4 uAmbientLight;\n"
-		// Environment ambient - see p3d_Ambient below.
-		"uniform vec4 uAmbientSky;\n"
-		"uniform vec4 uAmbientEquator;\n"
-		"uniform vec4 uAmbientGround;\n"
-		"uniform vec4 uAmbientParams;\n"
-		"uniform vec4 uAmbientSH[9];\n"
-		"uniform mat4 uViewMatrix;\n"
-		"uniform mat4 uModelMatrix;\n"
-		"uniform vec3 uCameraPosition;\n"
-		// IMaterial's own opacity, multiplied into the Opacity pin.
-		"uniform float uOpacity;\n";
-	for (const auto& name : in.samplerNames)
-		out << "uniform sampler2D " << name << ";\n";
-	EmitSharedPrelude(out, in);
-	out <<
-		// The lit forward branch - neither the G-buffer write nor the shadow
-		// pass's depth-only one (SHADOW_DEPTH, see CustomShaderMaterial's
-		// shadow variant), which must never declare the shadow-map samplers:
-		// it runs while those very maps are the render target.
-		"#if !defined(DEFERRED_GBUFFER) && !defined(SHADOW_DEPTH)\n"
-		"#define P3D_FORWARD_LIT\n"
-		"#endif\n"
-		"#ifdef P3D_FORWARD_LIT\n"
-		"uniform mat4 uLights[MAX_LIGHTS];\n"
-		"uniform int uNumberOfLights;\n"
-		// Directional shadow receiving. Forward only: under Deferred the
-		// light passes do their own PCF against the G-buffer
-		// (lighting.glsl / secondpass*.glsl), so a G-buffer-writing
-		// material gets shadows without knowing anything about them.
-		// Declared as plain uniforms rather than PyrosShader.glsl's
-		// UBO_BINDING/SAMPLER_BINDING blocks to match how uLights above
-		// is already declared here - IRenderer feeds all four through the
-		// per-material Uniforms::DataUsage path.
-		"uniform sampler2DShadow uDirectionalShadowMaps;\n"
-		"uniform mat4 uDirectionalDepthsMVP[4];\n"
-		"uniform vec4 uDirectionalShadowFar[4];\n"
-		"uniform int uNumberOfDirectionalShadows;\n"
-		"uniform samplerCube uPointShadowMaps[1];\n"   // (one: only [0] is read - PyrosShader.glsl's note)
-		"uniform mat4 uPointDepthsMVP[8];\n"
-		"uniform int uNumberOfPointShadows;\n"
-		"uniform sampler2DShadow uSpotShadowMaps[1];\n"
-		"uniform mat4 uSpotDepthsMVP[4];\n"
-		"uniform int uNumberOfSpotShadows;\n"
-		"varying_in vec4 vWorldPositionShadow;\n"
-		"#endif\n"
-		"varying_in vec2 vTexcoord;\n"
-		"varying_in vec3 vNormal;\n"
-		"varying_in vec3 vNormalWorld;\n"
-		"varying_in vec4 vWorldPos;\n"
-		"\n"
-		"#if defined(DEFERRED_GBUFFER)\n"
-		"layout(location = 0) out vec4 FragData_r;\n"
-		"layout(location = 1) out vec4 FragData_g;\n"
-		"layout(location = 2) out vec4 FragData_b;\n"
-		"layout(location = 3) out vec4 FragData_pbr;\n"
-		"#elif defined(SHADOW_DEPTH)\n"
-		"out vec4 FragColor;\n"
-		"#else\n"
-		"out vec4 FragColor;\n"
-		"\n"
-		"struct LIGHT { vec4 Color; vec3 Direction; vec3 Position; float Radius; vec2 Cones; float Type; bool HaveShadowMap; float PCFTexelSize; int ShadowMap; };\n"
-		"void buildLightFromMatrix(mat4 Light, inout LIGHT L) {\n"
-		"\tL.Color = Light[0];\n"
-		"\tL.Position = vec3(Light[1][0], Light[1][1], Light[1][2]);\n"
-		"\tL.Direction = vec3(Light[1][3], Light[2][0], Light[2][1]);\n"
-		"\tL.Radius = Light[2][2];\n"
-		"\tL.Cones = vec2(Light[2][3], Light[3][0]);\n"
-		"\tL.Type = Light[3][1];\n"
-		// Same packing IRenderer writes and lighting.glsl reads: a
-		// negative shadow-map slot means this light has none.
-		"\tL.HaveShadowMap = (Light[3][3] >= 0.0);\n"
-		"\tL.PCFTexelSize = Light[3][2];\n"
-		// Which shadow map this light owns - point and spot only;
-		// directional has a single map and ignores it.
-		"\tL.ShadowMap = int(Light[3][3]);\n"
-		"}\n"
-		"#ifndef DEFERRED_GBUFFER\n"
-		// Shadow filtering - the same functions as PyrosShader.glsl's (see there for
-		// the reasoning) and secondpass*.glsl's. L.PCFTexelSize carries
-		// ILightComponent::GetShadowFilterPacked(): filter radius in texels in the
-		// integer part, normal bias / 8 in the fraction.
-		"int ShadowFilterRadius(float packed) { return int(mod(floor(packed), 4.0)); }\n"
-		"float ShadowPenumbraMetres(float packed) { return floor(floor(packed) / 4.0) * 0.01; }\n"
-		"float ShadowNormalBiasTexels(float packed) { return fract(packed) * 8.0; }\n"
-		"float ShadowTexelWorld(mat4 M, vec4 pos, float texels) {\n"
-		"\tvec3 rowX = vec3(M[0][0], M[1][0], M[2][0]);\n"
-		"\tvec3 rowW = vec3(M[0][3], M[1][3], M[2][3]);\n"
-		"\tfloat w = dot(vec4(M[0][3], M[1][3], M[2][3], M[3][3]), pos);\n"
-		"\treturn abs(w) / (texels * max(length(rowX - 0.5 * rowW), 1e-8));\n"
-		"}\n"
-		// The interpolated view-space normal, turned toward the camera.
-		"vec3 ShadowReceiverNormal() {\n"
-		"\tvec3 n = normalize(vNormal);\n"
-		"\treturn dot(n, vWorldPositionShadow.xyz) > 0.0 ? -n : n;\n"
-		"}\n"
-		"float ShadowPCF2D(sampler2DShadow map, vec3 uvz, int K, vec2 size, vec4 rect) {\n"
-		"\tvec2 st = uvz.xy * size - 0.5;\n"
-		"\tvec2 base = floor(st);\n"
-		"\tvec2 f = st - base;\n"
-		"\tfloat sum = 0.0;\n"
-		"\tfor (int j = -K; j <= K + 1; j++) {\n"
-		"\t\tfloat wy = (j == -K) ? 1.0 - f.y : ((j == K + 1) ? f.y : 1.0);\n"
-		"\t\tfor (int i = -K; i <= K + 1; i++) {\n"
-		"\t\t\tfloat wx = (i == -K) ? 1.0 - f.x : ((i == K + 1) ? f.x : 1.0);\n"
-		"\t\t\tvec2 uv = clamp((base + vec2(float(i), float(j)) + 0.5) / size, rect.xy, rect.zw);\n"
-		"\t\t\tsum += wx * wy * texture(map, vec3(uv, uvz.z));\n"
-		"\t\t}\n"
-		"\t}\n"
-		"\tfloat n = float(2 * K + 1);\n"
-		"\treturn sum / (n * n);\n"
-		"}\n"
-		"float ShadowCascadeFar(vec4 splits, int c) {\n"
-		"\tif (c == 0) return splits.x;\n"
-		"\tif (c == 1) return splits.y;\n"
-		"\tif (c == 2) return splits.z;\n"
-		"\treturn splits.w;\n"
-		"}\n"
-		// A sun's penumbra (ShadowPenumbraMetres): 32 taps on a golden-angle spiral `radius` texels across, turned
-		// per pixel so the few taps read as fine grain rather than rings; each tap is itself a comparison.
-		"float ShadowDisc(sampler2DShadow map, vec3 uvz, float radius, vec2 size, vec4 rect)\n"
-		"{\n"
-		"\tfloat a = 6.2831853 * fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));\n"
-		"\tfloat sum = 0.0;\n"
-		"\tfor (int i = 0; i < 32; i++)\n"
-		"\t{\n"
-		"\t\tfloat t = a + float(i) * 2.3999632;\n"
-		"\t\tvec2 o = vec2(cos(t), sin(t)) * (sqrt((float(i) + 0.5) / 32.0) * radius);\n"
-		"\t\tvec2 st = uvz.xy * size + o - 0.5;\n"
-		"\t\tvec2 b = floor(st), f = st - b;\n"
-		"\t\tvec2 u0 = clamp((b + 0.5) / size, rect.xy, rect.zw), u1 = clamp((b + 1.5) / size, rect.xy, rect.zw);\n"
-		"\t\tsum += mix(mix(texture(map, vec3(u0, uvz.z)), texture(map, vec3(u1.x, u0.y, uvz.z)), f.x),\n"
-		"\t\t\tmix(texture(map, vec3(u0.x, u1.y, uvz.z)), texture(map, vec3(u1, uvz.z)), f.x), f.y);\n"
-		"\t}\n"
-		"\treturn sum / 32.0;\n"
-		"}\n"
-		"float ShadowDirectionalCascade(int c, bool multi, float packed, vec4 pos, vec3 n) {\n"
-		"\tmat4 M = uDirectionalDepthsMVP[c];\n"
-		"\tvec2 size = vec2(textureSize(uDirectionalShadowMaps, 0));\n"
-		"\tfloat tile = multi ? size.x * 0.5 : size.x;\n"
-		"\tvec4 coord = M * vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(M, pos, tile)), 1.0);\n"
-		"\tvec4 rect = vec4(0.0, 0.0, 1.0, 1.0);\n"
-		"\tif (multi) {\n"
-		"\t\tvec2 off = vec2((c == 1 || c == 3) ? 0.5 : 0.0, (c >= 2) ? 0.5 : 0.0);\n"
-		"\t\tcoord.xy = coord.xy * 0.5 + off;\n"
-		"\t\trect = vec4(off + 0.5 / size, off + 0.5 - 0.5 / size);\n"
-		"\t}\n"
-		// (a sun's penumbra in metres, wider here than the filter: the disc - as wide in every cascade)
-		"\t{\n"
-		"\t\tfloat texel = max(ShadowTexelWorld(M, pos, tile), 1e-6), r = ShadowPenumbraMetres(packed) * 0.5 / texel;\n"
-		// (a tap that far off reads the receiver itself where it slopes away from the light: its depth moves on with it)
-		"\t\tif (r > float(ShadowFilterRadius(packed)) + 1.0) {\n"
-		"\t\t\tvec3 dz = vec3(M[0][2], M[1][2], M[2][2]);\n"
-		"\t\t\tfloat ndl = abs(dot(normalize(n), normalize(dz)));\n"
-		"\t\t\tcoord.z -= r * texel * min(sqrt(max(1.0 - ndl * ndl, 0.0)) / max(ndl, 0.05), 4.0) * length(dz);\n"
-		"\t\t\treturn ShadowDisc(uDirectionalShadowMaps, coord.xyz, r, size, rect);\n"
-		"\t\t}\n"
-		"\t}\n"
-		"\treturn ShadowPCF2D(uDirectionalShadowMaps, coord.xyz, ShadowFilterRadius(packed), size, rect);\n"
-		"}\n"
-		// uDirectionalShadowFar[0] holds the cascades' linear view-space far
-		// distances; cross-faded over the last 10% of each.
-		"float DirectionalShadowFactor(LIGHT L) {\n"
-		"\tif (!L.HaveShadowMap || uNumberOfDirectionalShadows <= 0) return 1.0;\n"
-		"\tvec4 splits = uDirectionalShadowFar[0];\n"
-		"\tbool multi = splits.y > 0.0;\n"
-		"\tint count = !multi ? 1 : (splits.w > 0.0 ? 4 : (splits.z > 0.0 ? 3 : 2));\n"
-		"\tvec4 pos = vWorldPositionShadow;\n"
-		"\tvec3 n = ShadowReceiverNormal();\n"
-		"\tfloat depth = -pos.z;\n"
-		"\tint c = count;\n"
-		"\tfor (int i = 3; i >= 0; i--)\n"
-		"\t\tif (i < count && depth < ShadowCascadeFar(splits, i)) c = i;\n"
-		"\tif (c >= count) return 1.0;\n"
-		"\tfloat cFar = ShadowCascadeFar(splits, c);\n"
-		"\tfloat t = clamp((depth - cFar * 0.9) / (cFar * 0.1), 0.0, 1.0);\n"
-		"\tfloat s = ShadowDirectionalCascade(c, multi, L.PCFTexelSize, pos, n);\n"
-		"\tif (t > 0.0) {\n"
-		"\t\tfloat next = (c + 1 < count) ? ShadowDirectionalCascade(c + 1, multi, L.PCFTexelSize, pos, n) : 1.0;\n"
-		"\t\ts = mix(s, next, t);\n"
-		"\t}\n"
-		"\treturn s;\n"
-		"}\n"
-		// Point and spot both sample element [0] of their sampler array and index
-		// only the *matrix* by the light's slot. That mirrors PyrosShader.glsl
-		// exactly: indexing a sampler array by a value that varies with the light
-		// loop is not a constant expression, which core GLSL 3.30 does not allow.
-		"float PCFPoint(mat4 m1, mat4 m2, float packed, vec4 pos, vec3 n) {\n"
-		"\tvec3 ls = (m2 * pos).xyz;\n"
-		"\tfloat size = float(textureSize(uPointShadowMaps[0], 0).x);\n"
-		"\tvec3 a = abs(ls);\n"
-		"\tfloat ma = max(a.x, max(a.y, a.z));\n"
-		"\tls += mat3(m2) * n * (ShadowNormalBiasTexels(packed) * 2.0 * ma / size);\n"
-		"\ta = abs(ls);\n"
-		"\tma = max(a.x, max(a.y, a.z));\n"
-		"\t// m1 already carries the device's shadow-bias/projection remap, so no\n"
-		"\t// extra *0.5+0.5 here. 0.02 is PointLight's default bias scale - this\n"
-		"\t// path has no per-light value for it.\n"
-		"\tvec4 clip = m1 * vec4(0.0, 0.0, -ma * 0.98, 1.0);\n"
-		"\tfloat depth = clip.z / clip.w;\n"
-		"\tvec3 axis, t, b;\n"
-		"\tif (a.x >= a.y && a.x >= a.z) { axis = vec3(sign(ls.x), 0.0, 0.0); t = vec3(0.0, 0.0, 1.0); b = vec3(0.0, 1.0, 0.0); }\n"
-		"\telse if (a.y >= a.z)          { axis = vec3(0.0, sign(ls.y), 0.0); t = vec3(1.0, 0.0, 0.0); b = vec3(0.0, 0.0, 1.0); }\n"
-		"\telse                          { axis = vec3(0.0, 0.0, sign(ls.z)); t = vec3(1.0, 0.0, 0.0); b = vec3(0.0, 1.0, 0.0); }\n"
-		"\tvec2 st = (vec2(dot(ls, t), dot(ls, b)) / ma * 0.5 + 0.5) * size - 0.5;\n"
-		"\tvec2 base = floor(st);\n"
-		"\tvec2 f = st - base;\n"
-		"\tint K = ShadowFilterRadius(packed);\n"
-		"\tfloat sum = 0.0;\n"
-		"\tfor (int j = -K; j <= K + 1; j++) {\n"
-		"\t\tfloat wy = (j == -K) ? 1.0 - f.y : ((j == K + 1) ? f.y : 1.0);\n"
-		"\t\tfor (int i = -K; i <= K + 1; i++) {\n"
-		"\t\t\tfloat wx = (i == -K) ? 1.0 - f.x : ((i == K + 1) ? f.x : 1.0);\n"
-		"\t\t\tvec2 uv = (base + vec2(float(i), float(j)) + 0.5) / size * 2.0 - 1.0;\n"
-		"\t\t\tsum += wx * wy * ((texture(uPointShadowMaps[0], axis + t * uv.x + b * uv.y).r >= depth) ? 1.0 : 0.0);\n"
-		"\t\t}\n"
-		"\t}\n"
-		"\tfloat nk = float(2 * K + 1);\n"
-		"\treturn sum / (nk * nk);\n"
-		"}\n"
-		"float PCFSpot(mat4 sMatrix, float packed, vec4 pos, vec3 n) {\n"
-		"\tvec2 size = vec2(textureSize(uSpotShadowMaps[0], 0));\n"
-		"\tvec4 coord = sMatrix * vec4(pos.xyz + n * (ShadowNormalBiasTexels(packed) * ShadowTexelWorld(sMatrix, pos, size.x)), 1.0);\n"
-		"\tcoord.xyz /= coord.w;\n"
-		"\treturn ShadowPCF2D(uSpotShadowMaps[0], coord.xyz, ShadowFilterRadius(packed), size, vec4(0.0, 0.0, 1.0, 1.0));\n"
-		"}\n"
-		// Slot clamped before use: nothing validates the packed index, and an
-		// out-of-range read of uPointDepthsMVP/uSpotDepthsMVP is undefined rather
-		// than merely wrong.
-		"float PointShadowFactor(LIGHT L) {\n"
-		"\tif (!L.HaveShadowMap || uNumberOfPointShadows <= 0) return 1.0;\n"
-		"\tint slot = clamp(L.ShadowMap, 0, 3);\n"
-		"\treturn PCFPoint(uPointDepthsMVP[slot * 2], uPointDepthsMVP[slot * 2 + 1], L.PCFTexelSize, vWorldPositionShadow, ShadowReceiverNormal());\n"
-		"}\n"
-		"float SpotShadowFactor(LIGHT L) {\n"
-		"\tif (!L.HaveShadowMap || uNumberOfSpotShadows <= 0) return 1.0;\n"
-		"\tint slot = clamp(L.ShadowMap, 0, 3);\n"
-		"\treturn PCFSpot(uSpotDepthsMVP[slot], L.PCFTexelSize, vWorldPositionShadow, ShadowReceiverNormal());\n"
-		"}\n"
-		"#endif\n"
-		"float Attenuation(vec3 Vertex, vec3 LightPosition, float Radius) {\n"
-		"\tif (Radius > 0.0) {\n"
-		"\t\tfloat d = distance(Vertex, LightPosition);\n"
-		"\t\treturn clamp(1.0 - (1.0 / Radius) * d, 0.0, 1.0);\n"
-		"\t}\n"
-		"\treturn 1.0;\n"
-		"}\n"
-		"float DualConeSpotLight(vec3 Vertex, vec3 SpotLightPosition, vec3 SpotLightDirection, float cosOutterCone, float cosInnerCone) {\n"
-		"\tif (cosOutterCone > 0.0 || cosInnerCone > 0.0) {\n"
-		"\t\tvec3 to_light = normalize(SpotLightPosition - Vertex);\n"
-		"\t\tfloat angle = dot(-to_light, normalize(SpotLightDirection));\n"
-		"\t\tfloat funcX = 1.0 / (cosInnerCone - cosOutterCone);\n"
-		"\t\tfloat funcY = -funcX * cosOutterCone;\n"
-		"\t\treturn clamp(angle * funcX + funcY, 0.0, 1.0);\n"
-		"\t}\n"
-		"\treturn 0.0;\n"
-		"}\n"
-		"const float PBR_PI = 3.14159265359;\n"
-		"float DistributionGGX(vec3 N, vec3 H, float roughness) {\n"
-		"\tfloat a = roughness * roughness;\n"
-		"\tfloat a2 = a * a;\n"
-		"\tfloat NdotH = max(dot(N, H), 0.0);\n"
-		"\tfloat denom = (NdotH * NdotH * (a2 - 1.0) + 1.0);\n"
-		"\treturn a2 / max(PBR_PI * denom * denom, 1e-6);\n"
-		"}\n"
-		"float GeometrySchlickGGX(float NdotV, float roughness) {\n"
-		"\tfloat r = (roughness + 1.0);\n"
-		"\tfloat k = (r * r) / 8.0;\n"
-		"\treturn NdotV / (NdotV * (1.0 - k) + k);\n"
-		"}\n"
-		"float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness) {\n"
-		"\tfloat NdotV = max(dot(N, V), 0.0);\n"
-		"\tfloat NdotL = max(dot(N, L), 0.0);\n"
-		"\treturn GeometrySchlickGGX(NdotV, roughness) * GeometrySchlickGGX(NdotL, roughness);\n"
-		"}\n"
-		"vec3 FresnelSchlick(float cosTheta, vec3 F0) {\n"
-		"\treturn F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);\n"
-		"}\n"
-		"vec3 CalculatePBRLighting(vec3 N, vec3 V, vec3 L, vec3 radiance, vec3 albedo, float metallic, float roughness) {\n"
-		"\tvec3 H = normalize(V + L);\n"
-		"\tvec3 F0 = mix(vec3(0.04), albedo, metallic);\n"
-		"\tfloat NDF = DistributionGGX(N, H, roughness);\n"
-		"\tfloat G = GeometrySmith(N, V, L, roughness);\n"
-		"\tvec3 F = FresnelSchlick(max(dot(H, V), 0.0), F0);\n"
-		"\tvec3 numerator = NDF * G * F;\n"
-		"\tfloat denom = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 1e-4;\n"
-		"\tvec3 specularTerm = numerator / denom;\n"
-		"\tvec3 kS = F;\n"
-		"\tvec3 kD = (vec3(1.0) - kS) * (1.0 - metallic);\n"
-		// radiance * PI: the engine's light colour is irradiance/PI, not
-		// irradiance - see resources/shaders/PyrosShader.glsl's identical
-		// comment. Without it a graph material lit through this BRDF was
-		// exactly PI (3.14x) darker than a Generic Diffuse material under
-		// the same light, which has no 1/PI at all.
-		"\tvec3 irradiance = radiance * PBR_PI;\n"
-		"\tfloat NdotL = max(dot(N, L), 0.0);\n"
-		"\treturn (kD * albedo / PBR_PI + specularTerm) * irradiance * NdotL;\n"
-		"}\n"
-		"#endif\n"
-		"\n"
-		// The ambient term, the same three modes as PyrosShader.glsl's
-		// AmbientAt() for a material without GLOBALILLUMINATION: 0 flat,
-		// 1 sky/equator/ground gradient, 2+ order-2 SH (a DDGI scene, mode
-		// 3, lands on SH exactly as a Generic material without the GI flag
-		// does). Before this every custom material used the flat colour in
-		// every mode. Returns irradiance/PI, like AmbientAt() - see there.
-		//
-		// SHIrradiance is a THIRD copy of that formula (C++
-		// SphericalHarmonicsL2::Irradiance and PyrosShader.glsl being the
-		// other two). Index order is (l,m) -> l*(l+1)+m in all three.
-		"vec3 p3d_SHIrradiance(vec3 n) {\n"
-		"\tconst float c1 = 0.429043, c2 = 0.511664, c3 = 0.743125, c4 = 0.886227, c5 = 0.247708;\n"
-		"\treturn uAmbientSH[8].rgb * (c1 * (n.x * n.x - n.y * n.y))\n"
-		"\t     + uAmbientSH[6].rgb * (c3 * n.z * n.z)\n"
-		"\t     + uAmbientSH[0].rgb * c4\n"
-		"\t     - uAmbientSH[6].rgb * c5\n"
-		"\t     + uAmbientSH[4].rgb * (2.0 * c1 * n.x * n.y)\n"
-		"\t     + uAmbientSH[7].rgb * (2.0 * c1 * n.x * n.z)\n"
-		"\t     + uAmbientSH[5].rgb * (2.0 * c1 * n.y * n.z)\n"
-		"\t     + uAmbientSH[3].rgb * (2.0 * c2 * n.x)\n"
-		"\t     + uAmbientSH[1].rgb * (2.0 * c2 * n.y)\n"
-		"\t     + uAmbientSH[2].rgb * (2.0 * c2 * n.z);\n"
-		"}\n"
-		"vec3 p3d_Ambient(vec3 n) {\n"
-		"\tif (uAmbientParams.x >= 1.5)\n"
-		"\t\treturn max(p3d_SHIrradiance(n) * (1.0 / 3.14159265359), vec3(0.0));\n"
-		"\tif (uAmbientParams.x >= 0.5) {\n"
-		"\t\tfloat y = clamp(n.y, -1.0, 1.0);\n"
-		"\t\treturn (y >= 0.0) ? mix(uAmbientEquator.rgb, uAmbientSky.rgb, y)\n"
-		"\t\t                  : mix(uAmbientEquator.rgb, uAmbientGround.rgb, -y);\n"
-		"\t}\n"
-		"\treturn uAmbientLight.rgb;\n"
-		"}\n"
-		// Normal Map node: tangent-space `m` -> world space, around the
-		// geometric normal N, with the tangent frame solved from screen-space
-		// derivatives of position and UV (Schueler's cotangent frame). The
-		// sign(det) term is what makes it independent of the backend's
-		// screen-Y direction: without it the frame mirrors on Vulkan/Metal,
-		// whose framebuffer Y runs the other way from GL's, and every bump
-		// lights inside out.
-		"vec3 p3d_PerturbNormal(vec3 N, vec3 p, vec2 uv, vec3 m, float strength) {\n"
-		"\tvec3 dp1 = dFdx(p);\n"
-		"\tvec3 dp2 = dFdy(p);\n"
-		"\tvec2 duv1 = dFdx(uv);\n"
-		"\tvec2 duv2 = dFdy(uv);\n"
-		"\tvec3 dp2perp = cross(dp2, N);\n"
-		"\tvec3 dp1perp = cross(N, dp1);\n"
-		"\tvec3 T = dp2perp * duv1.x + dp1perp * duv2.x;\n"
-		"\tvec3 B = dp2perp * duv1.y + dp1perp * duv2.y;\n"
-		"\tfloat det = dot(dp1, dp2perp);\n"
-		"\tfloat s = (det < 0.0) ? -1.0 : 1.0;\n"
-		"\tfloat invmax = inversesqrt(max(max(dot(T, T), dot(B, B)), 1e-20));\n"
-		"\tm.xy *= strength;\n"
-		"\treturn normalize(mat3(T * (invmax * s), B * (invmax * s), N) * m);\n"
-		"}\n"
-		"\n"
-		"void main() {\n"
-		// World normal and view direction, available to every node as
-		// World Normal / View Direction / Fresnel's default.
-		"\tvec3 p3d_N = normalize(vNormalWorld);\n"
-		"\tvec3 p3d_V = normalize(uCameraPosition - vWorldPos.xyz);\n";
-	for (const auto& st : in.statements)
-		out << "\t" << st << "\n";
-	out <<
-		"\tvec3 albedo = (" << in.albedo << ").xyz;\n"
-		"\tfloat metallic = (" << in.metallic << ").x;\n"
-		"\tfloat roughness = clamp((" << in.roughness << ").x, 0.03, 1.0);\n"
-		"\tvec3 emissive = (" << in.emissive << ").xyz;\n"
-		"\tfloat occlusion = (" << in.occlusion << ").x;\n"
-		"\tfloat opacity = clamp((" << in.opacity << ").x, 0.0, 1.0) * uOpacity;\n"
-		"\tfloat reflection = clamp((" << in.reflection << ").x, 0.0, 1.0);\n";
-	// Cutout: in both branches, so a clipped fragment never reaches the
-	// G-buffer either. Only when the pin is used - a shader containing
-	// `discard` at all loses early depth testing on some GPUs.
-	if (in.alphaClipConnected)
-		out << "\tif (opacity < (" << in.alphaClip << ").x) discard;\n";
-	if (in.normalConnected)
-		out << "\tvec3 N = normalize((" << in.normal << ").xyz);\n";
-	else
-		out << "\tvec3 N = p3d_N;\n";
-	out <<
-		"\n"
-		// Shadow pass: the offset position and the cutout above are all it
-		// needs. Depth in R, like PyrosShader.glsl's CASTSHADOWS - a point
-		// light's cube map is an R32F colour target that stores exactly
-		// this; the directional/spot targets are depth-only and drop it.
-		"#if defined(SHADOW_DEPTH)\n"
-		"\tFragColor = vec4(gl_FragCoord.z, 0.0, 0.0, 1.0);\n"
-		"#elif defined(DEFERRED_GBUFFER)\n"
-		"\tvec3 normalOut = normalize((uViewMatrix * vec4(N, 0.0)).xyz);\n"
-		// Emissive goes into the albedo channel, and the three alphas
-		// carry that same value scaled by the ambient.
-		//
-		// A previous attempt moved emissive out of the albedo channel and
-		// into the alphas alone, on the theory that anything in albedo
-		// gets attenuated by N.L in the light passes. Measured, that
-		// theory is wrong about where deferred actually reads emissive
-		// from: a pure-emissive material (Albedo 0, Emissive 0.8) renders
-		// at 204/255 in Forward and, with this write, 204/255 in
-		// Deferred - but with the alpha-only packing it disappeared
-		// completely, not one lit pixel. The alphas alone do not get
-		// emissive to the screen. Keep it here.
-		"\tvec3 color = albedo * occlusion + emissive;\n"
-		"\tvec3 ambient = p3d_Ambient(N);\n"
-		"\tFragData_r = vec4(color, color.x * ambient.x);\n"
-		"\tFragData_g = vec4(1.0, 1.0, 1.0, color.y * ambient.y);\n"
-		"\tFragData_b = vec4(normalOut, color.z * ambient.z);\n"
-		// z/w: SSR opt-in and strength, the same pair PyrosShader.glsl writes
-		// from uSSRReflective/uReflectivity - lastPass.glsl reflects only
-		// where z is set.
-		"\tFragData_pbr = vec4(roughness, metallic, reflection > 0.0 ? 1.0 : 0.0, reflection);\n"
-		"#else\n"
-		"\tvec3 Position = vWorldPos.xyz;\n"
-		"\tvec3 V = p3d_V;\n"
-		"\tvec3 pbrColor = vec3(0.0);\n"
-		"\tfor (int i = 0; i < MAX_LIGHTS; i++) {\n"
-		"\t\tif (i < uNumberOfLights) {\n"
-		"\t\t\tLIGHT L;\n"
-		"\t\t\tbuildLightFromMatrix(uLights[i], L);\n"
-		"\t\t\tvec3 Ldir = vec3(0.0);\n"
-		"\t\t\tfloat atten = 1.0;\n"
-		"\t\t\tfloat spotEffect = 1.0;\n"
-		// 1.0 = fully lit. Set per light type below; all three casters
-		// are handled, each against its own shadow map.
-		"\t\t\tfloat shadowFactor = 1.0;\n"
-		"\t\t\tif (L.Type == 1.0) {\n"
-		"\t\t\t\tLdir = normalize(-L.Direction);\n"
-		"\t\t\t\tshadowFactor = DirectionalShadowFactor(L);\n"
-		"\t\t\t} else if (L.Type == 2.0) {\n"
-		"\t\t\t\tLdir = normalize(L.Position - Position);\n"
-		"\t\t\t\tatten = Attenuation(Position, L.Position, L.Radius);\n"
-		// Only worth a shadow lookup where the light actually reaches,
-		// same gate PyrosShader.glsl uses.
-		"\t\t\t\tif (atten > 0.0) shadowFactor = PointShadowFactor(L);\n"
-		"\t\t\t} else if (L.Type == 3.0) {\n"
-		"\t\t\t\tLdir = normalize(L.Position - Position);\n"
-		"\t\t\t\tatten = Attenuation(Position, L.Position, L.Radius);\n"
-		"\t\t\t\tspotEffect = 1.0 - DualConeSpotLight(Position, L.Position, L.Direction, L.Cones.x, L.Cones.y);\n"
-		"\t\t\t\tif (atten > 0.0 && spotEffect > 0.0) shadowFactor = SpotShadowFactor(L);\n"
-		"\t\t\t}\n"
-		"\t\t\tpbrColor += CalculatePBRLighting(N, V, Ldir, L.Color.rgb, albedo, metallic, roughness) * atten * spotEffect * shadowFactor;\n"
-		"\t\t}\n"
-		"\t}\n"
-		"\tvec3 ambientPBR = albedo * occlusion * (1.0 - metallic) * p3d_Ambient(N);\n"
-		"\tvec3 color = pbrColor + ambientPBR + emissive;\n"
-		"\tFragColor = vec4(color, opacity);\n"
-		"#endif\n"
-		"}\n"
-		"#endif\n";
+	out << "// Generated by the Pyros3D Material Editor's node graph - the renderer's surface\n";
+	for (const auto& p : in.parameters) out << "//@param " << p.name << " " << (p.isVector ? "vec4" : "float") << "\n";
+	for (const auto& n : in.samplerNames) out << "//@texture " << n << "\n";
+	out << "vec4 p3d_ToLinear(vec4 c) {\n"
+		"\tvec3 x = max(c.rgb, vec3(0.0));\n"
+		"\treturn vec4(mix(x / 12.92, pow((x + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), x)), c.a);\n"
+		"}\n";
+	EmitNodeHelpers(out);
+	// The Vertex Offset pin: the renderer's vertex stage for this material (surface.vert's CUSTOM_VERTEX), the world
+	// position moved before it is projected. The same text is compiled for both stages; each keeps its own part.
+	if (!in.vertexOffset.empty()) {
+		out << "#ifdef P3D_STAGE_VERTEX\n"
+			"void Vertex(inout VertexData v) {\n"
+			"\tvec4 p3d_worldPos = vec4(v.position, 1.0);\n"
+			"\tvec3 p3d_worldNormal = v.normal;\n"
+			"\tvec2 p3d_vertexUV = v.uv;\n";
+		for (const auto& st : in.vertexStatements) out << "\t" << st << "\n";
+		out << "\tv.position += (" << in.vertexOffset << ").xyz;\n"
+			"}\n"
+			"#else\n";
+	}
+	out << kPerturbNormalGLSL << "\n";
+	out << "void Surface(inout SurfaceData s) {\n"
+		"\tvec3 p3d_N = s.normal;\n"
+		"\tvec3 p3d_V = s.view;\n";
+	for (const auto& st : in.statements) out << "\t" << st << "\n";
+	out << "\ts.albedo = (" << in.albedo << ").xyz;\n"
+		"\ts.metallic = (" << in.metallic << ").x;\n"
+		"\ts.roughness = clamp((" << in.roughness << ").x, 0.03, 1.0);\n"
+		"\ts.emission = (" << in.emissive << ").xyz;\n"
+		"\ts.occlusion = (" << in.occlusion << ").x;\n"
+		"\ts.alpha = clamp((" << in.opacity << ").x, 0.0, 1.0) * uOpacity;\n";
+	if (in.alphaClipConnected) out << "\tif (s.alpha < (" << in.alphaClip << ").x) discard;\n";
+	if (in.normalConnected) out << "\ts.normal = normalize((" << in.normal << ").xyz);\n";
+	out << "}\n";
+	if (!in.vertexOffset.empty()) out << "#endif\n";
 	return out.str();
 }
 
@@ -977,7 +491,7 @@ std::string StripComments(const std::string& body) {
 }
 } // namespace
 
-MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody, const std::vector<std::string>& textureNames) {
+MaterialCodegenResult GenerateSurfaceFromSimpleText(const std::string& userBody, const std::vector<std::string>& textureNames) {
 	MaterialCodegenResult result;
 	const std::string code = StripComments(userBody);
 
@@ -1022,13 +536,13 @@ MaterialCodegenResult GenerateGLSLFromSimpleText(const std::string& userBody, co
 		in.alphaClipConnected = true;
 		in.alphaClip = "vec4(AlphaClip)";
 	}
-	result.glsl = BuildTemplate(in);
+	result.surface = BuildSurface(in);
 	result.usesCameraPosition = true;
 	result.usesTime = true;
 	return result;
 }
 
-MaterialCodegenResult GenerateGLSL(const std::vector<MaterialNode>& nodes, const std::vector<MaterialConnection>& connections) {
+MaterialCodegenResult GenerateSurface(const std::vector<MaterialNode>& nodes, const std::vector<MaterialConnection>& connections) {
 	MaterialCodegenResult result;
 
 	const MaterialNode* outputNode = nullptr;
@@ -1087,7 +601,7 @@ MaterialCodegenResult GenerateGLSL(const std::vector<MaterialNode>& nodes, const
 	in.vertexStatements = vg.statements;
 	for (const auto& ts : cg.textureSamplers) in.samplerNames.push_back(ts.second);
 
-	result.glsl = BuildTemplate(in);
+	result.surface = BuildSurface(in);
 	result.textureSamplers = cg.textureSamplers;
 	result.parameters = in.parameters;
 	result.usesCameraPosition = cg.usesCameraPosition || vg.usesCameraPosition;

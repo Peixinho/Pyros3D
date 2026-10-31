@@ -10,7 +10,6 @@
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
 #include <Pyros3D/Rendering/Components/UI/UIText.h>
 #include <Pyros3D/Assets/Renderable/Text/Text.h>
-#include <Pyros3D/Rendering/Device/IRenderDevice.h>
 #include <cstring>
 
 namespace p3d {
@@ -74,7 +73,7 @@ namespace p3d {
 		renderable = std::make_shared<UIBatchRenderable>();
 		// A throwaway material: Build() assigns the real one, which depends
 		// on what ended up in the batch.
-		std::shared_ptr<IMaterial> placeholder(new GenericShaderMaterial(ShaderUsage::Texture | ShaderUsage::VertexColor));
+		std::shared_ptr<IMaterial> placeholder(new GenericShaderMaterial(ShaderUsage::Texture | ShaderUsage::VertexColor | ShaderUsage::DisplayReferred));
 		component = std::make_shared<RenderingComponent>(
 			std::static_pointer_cast<Renderable>(renderable), placeholder);
 		component->SetRenderLayer(RenderLayer::UI);
@@ -218,13 +217,13 @@ namespace p3d {
 			if (kind == KIND_TEXT)
 			{
 				Font* font = static_cast<UIText*>(first->renderingComponent)->GetFont().get();
-				mat = new GenericShaderMaterial(ShaderUsage::TextRendering
+				mat = new GenericShaderMaterial(ShaderUsage::TextRendering | ShaderUsage::DisplayReferred
 					| ((font && font->IsSDF()) ? ShaderUsage::TextSDF : 0));
 				mat->SetTextFont(font);
 			}
 			else
 			{
-				mat = new GenericShaderMaterial(ShaderUsage::Texture | ShaderUsage::VertexColor);
+				mat = new GenericShaderMaterial(ShaderUsage::Texture | ShaderUsage::VertexColor | ShaderUsage::DisplayReferred);
 				// The tint moved to the vertices, so the colormap is all
 				// the material still carries.
 				mat->SetColorMap(static_cast<UIImage*>(first->renderingComponent)->GetTexture());

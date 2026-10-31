@@ -31,6 +31,12 @@ namespace p3d {
 		friend class SceneGraph;
 
 	public:
+		// Goes up whenever any object tree changes - a child added, taken away or moved among its siblings,
+		// a component added or taken away, an object destroyed, an object added to or removed from a scene: what keeps a list of a scene's
+		// objects (SceneGraph::CollectGameObjectsRecursive) knows it is stale.
+		static uint64 TreeVersion();
+		static void TreeChanged();
+
 
 		// Constructor
 		GameObject(bool isStatic = false);

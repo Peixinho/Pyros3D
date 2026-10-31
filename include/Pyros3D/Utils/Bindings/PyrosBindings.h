@@ -27,10 +27,6 @@
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
 #include <Pyros3D/Core/Projection/Projection.h>
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/VelocityRenderer/VelocityRenderer.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Capsule.h>
@@ -47,20 +43,11 @@
 #include <Pyros3D/Physics/Components/IPhysicsComponent.h>
 #include <Pyros3D/Physics/Components/Vehicle/PhysicsVehicle.h>
 #include <Pyros3D/Physics/PhysicsEngines/Box3D/Box3DPhysics.h>
-#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/BloomEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/BlurXEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/BlurYEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/ResizeEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/RTTDebug.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/SSAOEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/VignetteEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/MotionBlurEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/TonemapEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/BlurSSAOEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/SSAOCompositeEffect.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/DepthOfFieldEffect.h>
 #include <Pyros3D/Rendering/Components/Particles/ParticleSystem.h>
+#include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
+#include <Pyros3D/Rendering/Components/Lights/PointLight/PointLight.h>
+#include <Pyros3D/Rendering/Components/Lights/SpotLight/SpotLight.h>
+#include <Pyros3D/Rendering/Components/Rendering/RenderingInstancedComponent.h>
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Audio/AudioBus.h>
 #include <Pyros3D/Audio/Sound.h>
@@ -838,9 +825,6 @@ namespace p3d {
                 sol::error err = r;
                 echo(std::string("ERROR: LuaComponent preRender - ") + err.what());
             }
-            // Whatever the script drew offscreen has to be readable by the
-            // passes that follow; on Vulkan it is still queued otherwise.
-            GetActiveRenderDevice().FlushOffscreenWork();
         }
 
         // Call destroy hooks and allow Init to fire again (editor Stop Play).
@@ -857,6 +841,19 @@ namespace p3d {
             // last one.
             hasLastUpdateTime = false;
             lastUpdateTime = 0.0;
+        }
+
+        // Every script in the scene, its preRender - the frame open, before the scene is drawn: what a component draws
+        // ahead of the frame's own view (a second camera into a texture - a SceneView) is drawn here
+        static void PreRenderScene(SceneGraph* scene)
+        {
+            if (!scene || !s_updatesEnabled) return;
+            std::vector<GameObject*> all;
+            scene->CollectGameObjectsRecursive(all);
+            for (GameObject* go : all)
+                for (const std::shared_ptr<IComponent> &c : go->GetComponents())
+                    if (c && c->GetComponentType() == ComponentType::LuaComponent)
+                        static_cast<LuaComponent*>(c.get())->PreRender();
         }
 
         static void SetUpdatesEnabled(bool enabled) { s_updatesEnabled = enabled; }

@@ -141,7 +141,7 @@ function E.buildBalls()
 		-- important visual in the game: it rakes across the back panel and
 		-- the brick faces as it travels, so the arena is lit by play.
 		local light = PointLight.new(C.color.ballLight, 120)
-		light:setLightIntensity(1.5 * Arena.lightGain)
+		light:setLightIntensity(LinearFalloffIntensity(1.5 * Arena.lightGain, 10.0, 120.0))
 		go:addComponent(light)
 
 		-- Additive trail. Emission is world-space, so particles are left
@@ -210,7 +210,7 @@ function E.activateBall(b, x, y, vx, vy)
 	-- single ball launch, found by reading the velocity back out of
 	-- miniaudio during real play - see AudioSource.h's ResetVelocityTracking().
 	b.go:refreshTransformation()
-	b.light:setLightIntensity(1.5 * Arena.lightGain)
+	b.light:setLightIntensity(LinearFalloffIntensity(1.5 * Arena.lightGain, 10.0, 120.0))
 	b.trail:play()
 	if b.hum then
 		b.hum:resetVelocityTracking()

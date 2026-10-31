@@ -7,6 +7,7 @@
 //============================================================================
 
 #include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
+#include <algorithm>
 
 namespace p3d {
 
@@ -47,7 +48,19 @@ namespace p3d {
 		Attributes.push_back(Vertex);
 	}
 
-	void CalculateBounding() {}
+	void PrimitiveGeometry::CalculateBounding()
+	{
+		if (tVertex.empty()) return;
+		minBounds = maxBounds = tVertex[0];
+		for (const Vec3 &v : tVertex)
+		{
+			minBounds = Vec3(std::min(minBounds.x, v.x), std::min(minBounds.y, v.y), std::min(minBounds.z, v.z));
+			maxBounds = Vec3(std::max(maxBounds.x, v.x), std::max(maxBounds.y, v.y), std::max(maxBounds.z, v.z));
+		}
+		BoundingSphereCenter = (minBounds + maxBounds) * 0.5f;
+		BoundingSphereRadius = 0.f;
+		for (const Vec3 &v : tVertex) BoundingSphereRadius = std::max(BoundingSphereRadius, v.distance(BoundingSphereCenter));
+	}
 
 	Primitive::Primitive() { 
 		geometry = new PrimitiveGeometry(); 

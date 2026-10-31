@@ -6,6 +6,7 @@
 #ifdef LUA_BINDINGS
 
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
+#include <Pyros3D/Rendering/Culling/Culling.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaHelpers.h>
 
 namespace p3d {
@@ -117,65 +118,6 @@ namespace p3d {
 				"Texture", TextureType::Texture
 			);
 
-			lua->new_enum("FrameBufferAttachmentFormat",
-				"Color_Attachment0", FrameBufferAttachmentFormat::Color_Attachment0,
-				"Color_Attachment1", FrameBufferAttachmentFormat::Color_Attachment1,
-				"Color_Attachment2", FrameBufferAttachmentFormat::Color_Attachment2,
-				"Color_Attachment3", FrameBufferAttachmentFormat::Color_Attachment3,
-				"Color_Attachment4", FrameBufferAttachmentFormat::Color_Attachment4,
-				"Color_Attachment5", FrameBufferAttachmentFormat::Color_Attachment5,
-				"Color_Attachment6", FrameBufferAttachmentFormat::Color_Attachment6,
-				"Color_Attachment7", FrameBufferAttachmentFormat::Color_Attachment7,
-				"Color_Attachment8", FrameBufferAttachmentFormat::Color_Attachment8,
-				"Color_Attachment9", FrameBufferAttachmentFormat::Color_Attachment9,
-				"Color_Attachment10", FrameBufferAttachmentFormat::Color_Attachment10,
-				"Color_Attachment11", FrameBufferAttachmentFormat::Color_Attachment11,
-				"Color_Attachment12", FrameBufferAttachmentFormat::Color_Attachment12,
-				"Color_Attachment13", FrameBufferAttachmentFormat::Color_Attachment13,
-				"Color_Attachment14", FrameBufferAttachmentFormat::Color_Attachment14,
-				"Color_Attachment15", FrameBufferAttachmentFormat::Color_Attachment15,
-				"Depth_Attachment", FrameBufferAttachmentFormat::Depth_Attachment,
-				"Stencil_Attachment", FrameBufferAttachmentFormat::Stencil_Attachment
-			);
-
-			lua->new_enum("RenderBufferDataType",
-				"RGBA", RenderBufferDataType::RGBA,
-				"Depth", RenderBufferDataType::Depth,
-				"Stencil", RenderBufferDataType::Stencil,
-				"RGBA_Multisample", RenderBufferDataType::RGBA_Multisample,
-				"Depth_Multisample", RenderBufferDataType::Depth_Multisample,
-				"Stencil_Multisample", RenderBufferDataType::Stencil_Multisample
-			);
-
-			lua->new_enum("FBOAttachmentType",
-				"Texture", FBOAttachmentType::Texture,
-				"RenderBuffer", FBOAttachmentType::RenderBuffer
-			);
-
-			lua->new_enum("FBOAccess",
-				"Read_Write", FBOAccess::Read_Write,
-				"Read", FBOAccess::Read,
-				"Write", FBOAccess::Write
-			);
-
-			lua->new_enum("FBOBufferBit",
-				"Color", FBOBufferBit::Color,
-				"Depth", FBOBufferBit::Depth,
-				"Stencil", FBOBufferBit::Stencil
-			);
-
-			// Distinct from FBOBufferBit above despite the similar name:
-			// these are real OR-able mask bits (0x10/0x20/0x40), whereas
-			// FBOBufferBit is a 0/1/2 index used to pick an attachment.
-			// clearBufferBit()/renderScene()'s BufferOptions take THESE -
-			// previously unreachable from Lua, so any script calling
-			// clearBufferBit(FBOBufferBit.Color) was passing 0 (None).
-			lua->new_enum("BufferBit",
-				"None", Buffer_Bit::None,
-				"Color", Buffer_Bit::Color,
-				"Depth", Buffer_Bit::Depth,
-				"Stencil", Buffer_Bit::Stencil
-			);
 			lua->new_enum("BlendFunc",
 				"Zero", BlendFunc::Zero,
 				"One", BlendFunc::One,
@@ -184,15 +126,14 @@ namespace p3d {
 				"Dst_Alpha", BlendFunc::Dst_Alpha,
 				"One_Minus_Dst_Alpha", BlendFunc::One_Minus_Dst_Alpha
 			);
+			// (renderer:activateCulling's argument)
+			lua->new_enum("CullingMode",
+				"FrustumCulling", CullingMode::FrustumCulling
+			);
 			lua->new_enum("CullFace",
 				"BackFace", CullFace::BackFace,
 				"FrontFace", CullFace::FrontFace,
 				"DoubleSided", CullFace::DoubleSided
-			);
-
-			lua->new_enum("FBOFilter",
-				"Linear", FBOFilter::Linear,
-				"Nearest", FBOFilter::Nearest
 			);
 
 			// Drawing Type

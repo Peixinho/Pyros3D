@@ -215,15 +215,35 @@ void EditorDebugDraw::drawLightGizmos(DebugRenderer* dbg, GameObject* viewCam, f
 	// with GameObject::Add() never appears in GetAllGameObjectList(), so in a
 	// layered scene this drew no light volumes, no spot cones and no normals
 	// for anything.
-	std::vector<GameObject*> all;
-	sg->CollectGameObjectsRecursive(all);
-	for (std::vector<GameObject*>::iterator it = all.begin(); it != all.end(); ++it) {
-		GameObject* go = *it;
+	// (the lights - all that may draw something here but the normals asked for, below - listed once and kept
+	// while no object tree changes: GameObject::TreeVersion. Every component of a forest's seven thousand
+	// objects type-checked each frame was a tenth of the editor's frame.)
+	struct GizmoCandidate { GameObject* go; IComponent* c; };
+	static std::vector<GizmoCandidate> candidates;
+	static uint64 candidatesVersion = 0;
+	static const SceneGraph* candidatesScene = NULL;
+	if (candidatesScene != sg || candidatesVersion != GameObject::TreeVersion()) {
+		candidatesScene = sg; candidatesVersion = GameObject::TreeVersion();
+		candidates.clear();
+		std::vector<GameObject*> all;
+		sg->CollectGameObjectsRecursive(all);
+		for (std::vector<GameObject*>::iterator it = all.begin(); it != all.end(); ++it) {
+			if (!*it) continue;
+			const std::vector<std::shared_ptr<IComponent>>& comps = (*it)->GetComponents();
+			for (std::vector<std::shared_ptr<IComponent>>::const_iterator ci = comps.begin(); ci != comps.end(); ++ci)
+				if ((*ci) && dynamic_cast<ILightComponent*>((*ci).get()))
+					candidates.push_back(GizmoCandidate{ *it, (*ci).get() });
+		}
+	}
+	// (and the rendering components whose normals are asked for: few, if any)
+	std::vector<GizmoCandidate> drawn = candidates;
+	for (std::unordered_set<IComponent*>::const_iterator ni = renderingNormalsOn.begin(); ni != renderingNormalsOn.end(); ++ni)
+		if (*ni && (*ni)->GetOwner()) drawn.push_back(GizmoCandidate{ (*ni)->GetOwner(), *ni });
+	for (size_t k = 0; k < drawn.size(); k++) {
+		GameObject* go = drawn[k].go;
 		if (!go || shouldSkipGO(go, skipA, skipB, skipC)) continue;
-
-		const std::vector<std::shared_ptr<IComponent>>& comps = go->GetComponents();
-		for (std::vector<std::shared_ptr<IComponent>>::const_iterator ci = comps.begin(); ci != comps.end(); ++ci) {
-			IComponent* c = (*ci).get();
+		{
+			IComponent* c = drawn[k].c;
 			if (!c) continue;
 
 			if (dynamic_cast<RenderingComponent*>(c)) {

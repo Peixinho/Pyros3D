@@ -13,9 +13,11 @@
 // which defines a global `isnan` macro that would corrupt json.hpp's own
 // std::isnan() calls if json.hpp were parsed first (see the `#undef isnan`
 // pattern in SceneEditor.cpp).
+#include <Pyros3D/Rendering/GI/DDGIVolume.h>
+#include <Pyros3D/Rendering/GI/RayScene.h>
+#include <memory>
 #include <Pyros3D/AnimationManager/AnimatorController.h>
 #include <Pyros3D/Utils/Json/json.hpp>
-#include <Pyros3D/Rendering/PostEffects/Upscaling.h>
 #include <Pyros3D/Rendering/GI/IrradianceProbeGrid.h>
 // Same alias the rest of the editor code uses (MaterialEditor.h defines it
 // identically; redeclaring a namespace-scope alias to the same type is legal).
@@ -28,8 +30,6 @@ using json = nlohmann::json;
 #include "EditorWorld.h"
 #include <Pyros3D/AnimationManager/SkeletonAnimation.h>
 #include <Pyros3D/Physics/Physics2D/Physics2D.h>   // Body2DType/Shape2DType defaults
-#include <Pyros3D/Rendering/Renderer/ForwardRenderer/ForwardRenderer.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/UIRenderer/UIRenderer.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Rendering/Components/UI/UIRect.h>
 #include <Pyros3D/Rendering/Components/UI/UIImage.h>
@@ -42,21 +42,22 @@ using json = nlohmann::json;
 #include <Pyros3D/Rendering/Components/UI/UIDropdown.h>
 #include <Pyros3D/Rendering/Components/UI/UIMenu.h>
 #include <Pyros3D/Rendering/Components/UI/UIPopup.h>
-#include <Pyros3D/Rendering/Renderer/DeferredRenderer/DeferredRenderer.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Physics/Physics.h>
+#include <Pyros3D/Rendering/Renderer/SceneRenderer.h>
+#include <Pyros3D/Rendering/Renderer/ImGuiRenderer.h>
+#include <Pyros3D/Rendering/Renderer/SceneSettings.h>
+#include "RendererView.h"
+#include <memory>
 #include <Pyros3D/Audio/AudioManager.h>
 #include <Pyros3D/Audio/AudioSource.h>
 #include <Pyros3D/Audio/Sound.h>
-#include <Pyros3D/Utils/Mouse3D/PainterPick.h>
 #include <Pyros3D/Assets/Renderable/Text/Text.h>
 #include <Pyros3D/Assets/Renderable/Renderables.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Cube.h>
-#include <Pyros3D/Rendering/Renderer/SpecialRenderers/CubemapRenderer/CubemapRenderer.h>
 #include <Pyros3D/Utils/Mouse3D/Mouse3D.h>
-#include <Pyros3D/Rendering/PostEffects/PostEffectsManager.h>
-#include <Pyros3D/Rendering/PostEffects/Effects/CustomEffect.h>
+#include "SceneEffects.h"
 #include <Pyros3D/Rendering/Renderer/DebugRenderer/DebugRenderer.h>
 #include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include "EditorDebugDraw.h"
@@ -118,25 +119,33 @@ namespace GizmoFunction {
 
 class SceneEditor : public IUInterface {
     public:
+	// The editor on the renderer (its window the device layer's - Editor sets these): each document's Scene View drawn by a
+	// the renderer of its own into a texture, shown as the viewport's image
+	static p3d::gfx::Device* gfxDevice;
+	static p3d::ImGuiRenderer* imguiRenderer;
+	std::unique_ptr<p3d::SceneRenderer> viewRenderer;
+	// The renderer drawing this document's Scene View (NULL before its first frame)
+	p3d::SceneRenderer* GetViewRenderer() const { return viewRenderer.get(); }
+	p3d::gfx::Texture viewTarget; uint32 viewTargetW = 0, viewTargetH = 0;
+	void* RenderViewport(GameObject* viewCam, const uint32 w, const uint32 h, const bool ortho, const f32 fovOrHeight, const f32 nearZ, const f32 farZ);
+	// (this frame's gizmos and debug lines, taken from the DebugRenderer where it would have drawn them; the grid's lift)
+	std::vector<Vec3> debugLines, debugTriangles; std::vector<Vec4> debugLineColors, debugTriangleColors;
+	bool drawGrid = false; f32 gridLift = 0.f;
+	p3d::View lastView;     // (the view the Scene View was last drawn with: what a click picks in)
+	// (the selected camera's preview: a renderer of its own, its texture, as Properties shows it)
+	std::unique_ptr<p3d::SceneRenderer> previewRenderer;
+	p3d::gfx::Texture previewTarget; uint32 previewTargetW = 0, previewTargetH = 0;
+	void* previewImage = NULL;
+	RendererView thumbView;     // (the asset browser's thumbnails, read back - RenderModelPreviewToRGBA8)
+	RendererView impostorView;     // (impostor bakes: two passes read back - RenderImpostorRGBA8)
+	// (a renderer view's texture read back - Device::ReadTexture - as a base64 PNG: the agent's screenshots)
+	std::string ScreenshotOf(const p3d::gfx::Texture texture);
+	// (a view's texture made, or made again at a new size - ImGui's group for the old one let go)
+	void EnsureTarget(p3d::gfx::Texture &target, uint32 &w, uint32 &h, const uint32 width, const uint32 height, const char* name);
 
         SceneEditor(uint32 documentId);
         virtual ~SceneEditor();
 
-	// Must be called before Init() - Init() overrides IUInterface's pure
-	// virtual Init(width,height), so the renderer choice can't just be an
-	// extra Init() parameter; Init() reads this member instead.
-	void SetUseDeferredRenderer(bool use) { pendingUseDeferredRenderer = use; }
-	// Live toggle (unlike SetUseDeferredRenderer(), safe to call any time
-	// after Init() - queues the switch rather than doing it inline; see
-	// ApplyPendingRendererSwitchIfAny()'s comment for why a UI-callback-
-	// timed WaitIdle() is a real deadlock risk here, not just a stall.
-	void SwitchRenderer(bool useDeferred);
-	// Actually swaps Renderer/EffectsManager/gbufferFBO for a queued
-	// SwitchRenderer() call, matching Init()'s construction order and
-	// Shutdown()'s teardown order. Must run at the very start of
-	// ShowViewport(), before this frame's own rendering begins - never
-	// call this from a UI callback directly.
-	void ApplyPendingRendererSwitchIfAny();
 	virtual void Init(const uint32 width, const uint32 height);
 	virtual void OnResize(const uint32 width, const uint32 height);
 	virtual void Update(const f64 time);
@@ -181,6 +190,10 @@ class SceneEditor : public IUInterface {
 	UICanvas* GetEditingCanvas() const;
 	// Canvas bounds, canvas-unit grid and the selected element's rect,
 	// drawn through the debug renderer in canvas space.
+	// (DrawCanvasOverlay's lines, in canvas units, drawn by ImGui over the viewport's picture)
+	struct CanvasOverlayLine { Vec2 a, b; Vec4 color; };
+	std::vector<CanvasOverlayLine> canvasOverlayLines;
+	Vec2 canvasOverlaySize;
 	void DrawCanvasOverlay(UICanvas* canvas, const Vec2& viewSize);
 	virtual void ShowTools();
 	virtual void Shutdown();
@@ -226,27 +239,16 @@ public:
 	void TakePrefabFromFile(const std::string& rel);
 	// The host's: told when a prefab tab has written its prefab (set once, for all tabs).
 	static void (*hostPrefabChanged)(const std::string& rel, SceneEditor* from);
-	// Recompiles every CustomShaderMaterial assigned to a GameObject in
-	// this scene (LOD 0 only, matching AgentSetMaterial/AgentAssignMaterial's
-	// own convention) that isn't in skipMaterials - those are handled by
-	// the caller via their own open MaterialEditorDocument instead, so
-	// their doc state (compiledShader ownership, generated GLSL text) stays
-	// in sync. Used after a live Forward/Deferred renderer switch and after
-	// a fresh scene load: SceneSerializer::BuildMaterial never chooses a
-	// DEFERRED_GBUFFER branch at all, so scene-only custom materials would
-	// otherwise keep rendering with a stale/wrong one.
-	void RecompileOrphanedCustomMaterials(const std::string& projectRoot, bool deferredGBuffer,
-	                                      const std::set<p3d::IMaterial*>& skipMaterials);
 	// Recompile just the scene materials generated from `generatedGlslRel`,
 	// so editing a material in the Material Editor immediately shows on the
 	// objects already using it. Without this an edit only reached the
 	// document's own material instance, and anything that got its own copy -
 	// notably every material rebuilt by SceneSerializer on scene load - kept
-	// the old shader until it was re-assigned to the mesh by hand. Matches
+	// the old surface until it was re-assigned to the mesh by hand. Matches
 	// on CustomShaderMaterial::GetShaderFile(), which is the only durable
 	// link back to the .mat that produced it. Returns how many it refreshed.
 	int RefreshMaterialsFromGeneratedGlsl(const std::string& generatedGlslRel, const std::string& projectRoot,
-	                                      bool deferredGBuffer, const std::set<p3d::IMaterial*>& skipMaterials);
+	                                      const std::set<p3d::IMaterial*>& skipMaterials);
 	const std::string &GetScenePath() const { return scenePath; }
 	// For a host that has to hand the physics world to something loading
 	// objects into this document (Prefab.instantiate in the Lua host).
@@ -330,7 +332,6 @@ public:
 		const Vec3& position, std::string& errOut);
 	bool AgentSetAutoPlay2D(const std::string& objName, const std::string& clipName,
 		const bool loop, std::string& errOut);
-
 
 	bool AgentSetSpritePivot(const std::string& name, const Vec2 &norm, std::string& errOut);
 	bool AgentSliceSpritesheet(const std::string& name, const std::string& sheetPath,
@@ -654,12 +655,8 @@ public:
 	bool AgentPlay(std::string& errOut);
 	bool AgentStopPlay(std::string& errOut);
 	// Base64 PNG of the current viewport; empty string on failure.
-	// liveViewport reads back the texture the Scene View is actually
-	// showing this frame - the project's own renderer, Deferred
-	// included. The default path re-renders through previewRenderer,
-	// which is a ForwardRenderer, so it cannot show a Deferred-only
-	// problem (and quietly disagreed with the screen whenever there
-	// was one).
+	// liveViewport reads back the texture the Scene View is showing; the
+	// other, the selected camera's preview where there is one.
 	std::string AgentScreenshot(bool liveViewport = false);
 	std::string AgentScreenshotLiveViewport();
 	// Last `maxLines` entries of the editor log ring ("" if none).
@@ -958,11 +955,7 @@ private:
 	// per widget: UndoValueEdit() only ever has a single active widget to
 	// track at a time, and the command is a whole-desc pair anyway.
 	ParticleSystemDesc undoBaselineParticleDesc;
-	// Scene-level ambient colour - see SceneMeta::ambientLight. Kept in
-	// sync with Renderer->SetGlobalLight() any time it changes (edited in
-	// Properties), a scene loads, or SwitchRenderer() replaces Renderer
-	// wholesale (a freshly constructed one resets to IRenderer's own
-	// hardcoded default otherwise).
+	// Scene-level ambient colour - see SceneMeta::ambientLight (the renderer is given it each frame).
 	Vec4 ambientLightColor = Vec4(0.2f, 0.2f, 0.2f, 0.2f);
 	// Environment lighting - see SceneMeta::ambientIntensity/background. The
 	// background is deliberately NOT the ambient colour: they used to be the
@@ -998,6 +991,10 @@ private:
 	// ambientMode == 3: the mode is the intent, this is whether there
 	// is anything to sample yet.
 	bool ddgiBuilt = false;
+	// (the renderer's: the volume solved for its Scene View, and a dynamic one's rays for its refresh)
+	std::unique_ptr<p3d::DDGIVolume> ddgiVolume;
+	std::unique_ptr<p3d::RayScene> rayScene;
+	uint32 giRefreshFrame = 0;
 	// Set by scene load: solve once the scene has been updated and its
 	// lights have registered. See the load path in SceneEditor.cpp.
 	bool ddgiSolveAfterUpdate = false;
@@ -1019,77 +1016,22 @@ private:
 	// Folder the last skybox bake read its six faces from, so the field
 	// keeps what was typed and the scene remembers where it came from.
 	std::string ambientSkyboxFolder;
-	// The scene's post-effect chain - see SceneMeta::postEffects. Held here
-	// rather than rebuilt from the manager because a disabled entry, and the
-	// parameter overrides of one, have to survive round-tripping through a
-	// PostEffectsManager that only knows about live effects.
+	// The scene's effects - see SceneMeta::postEffects and SceneEffects.h (the renderer is given them each frame).
 	std::vector<SceneMeta::PostEffectEntry> postEffects;
-	// Rebuilds EffectsManager's chain from `postEffects`. Cheap enough to
-	// call on any edit (it recompiles each asset effect's shader), but not
-	// per frame - ApplyPostEffects is called when the list changes, a scene
-	// loads, the viewport resizes, or SwitchRenderer replaces the manager.
-	void ApplyPostEffects();
-	// See its definition - clears the overlay capture that CaptureFrame()
-	// only binds.
-	void ClearOverlayCapture();
-	// One frame of the chain: source, per-frame inputs, then the passes.
-	// Called from two places in ShowViewport() because *when* it runs
-	// depends on the renderer - see overlayGetsOwnLayer there.
-	void RunViewportPostEffects(GameObject* viewCam, SceneGraph* scene, bool isPerspective,
-		Projection &projection, Projection &projectionOrtho);
-	// The anti-aliasing mode the viewport should be running: the project's,
-	// unless a script changed it during Play. Applied every frame - the
-	// manager ignores a request that changes nothing.
-	p3d::AntiAliasingMode WantedAntiAliasing() const;
-public:
-	void SetUpscalePreview(const p3d::UpscalerMode upscaler, const p3d::UpscaleQuality quality) { viewUpscaler = upscaler; viewQuality = quality; viewUpscaleSetByHand = true; }
-	p3d::UpscalerMode GetUpscalePreviewMode() const { return viewUpscaler; }
-	p3d::UpscaleQuality GetUpscalePreviewQuality() const { return viewQuality; }
-	// The share of the viewport's size the scene is rendered at this frame (1 outside Play).
-	p3d::f32 ViewportRenderScale() const;
 private:
-	// Set by the Lua setAntiAliasing() during Play and dropped when Play
-	// stops, so testing a game's options menu does not edit the project.
-	// In Play, the viewport can be rendered below its size and brought up to it
-	// by any of the engine's upscalers (Upscaling.h), as a built game is: to see
-	// what a choice looks like without building one. Starts each Play as the
-	// project has it unless set by hand (the toolbar, a script, the agent).
-	p3d::UpscalerMode viewUpscaler = p3d::UpscalerMode::Sharp;
-	p3d::UpscaleQuality viewQuality = p3d::UpscaleQuality::Native;
-	bool viewUpscaleSetByHand = false;
-	void UpscalePreviewFromProject();
-	bool aaScriptOverride = false;
-	p3d::AntiAliasingMode aaScriptMode = p3d::AntiAliasingMode::Off;
-	// Reads a project-relative .glsl for PostEffectChain::Build. Static so it
-	// can be a plain function pointer; `user` is the SceneEditor.
-	static bool ReadPostEffectAsset(const std::string &path, std::string &sourceOut, void *user);
-	// The Scene Properties section: the chain, in order, with add/remove/
-	// reorder/enable and a widget per parameter.
+	// The Scene Properties section: the scene's effects, with add/remove/enable and a widget per parameter.
 	void DrawPostEffectsInProperties();
 	// Shared by built-in and asset entries - see the definition.
 	// A river's points picked by clicks in the view (the River tools' "Click in the view"): true when it took this one.
 	bool TerrainRiverClick();
 	// (the river being laid out, drawn in the view: a mark at each point and the line through them)
 	void DrawTerrainRiverOverlay();
-	bool DrawPostEffectParams(const std::vector<CustomEffect::Param> &params, SceneMeta::PostEffectEntry &entry);
+	bool DrawPostEffectParams(const std::vector<SceneEffectParam> &params, SceneMeta::PostEffectEntry &entry);
 	// Parameter metadata for one effect asset, read from its `//! param`
 	// lines. Cached by project-relative path: the panel needs it every frame
 	// to draw widgets, and re-reading a file per frame to draw a slider is
 	// not a thing to do. Cleared whenever the chain is rebuilt, so editing an
 	// asset and reloading picks up new parameters.
-	struct PostEffectAssetInfo
-	{
-		std::string name;
-		std::vector<CustomEffect::Param> params;
-		bool ok = false;
-		std::string error;
-	};
-	std::map<std::string, PostEffectAssetInfo> postEffectAssetInfo;
-	const PostEffectAssetInfo &GetPostEffectAssetInfo(const std::string &path);
-	// The .glsl effects this project offers, project-relative and sorted -
-	// assets/effects by convention. Shared by the Add popup and the socket's
-	// post_effects reply, which have to agree on what exists.
-	std::vector<std::string> ListPostEffectAssets();
 	// Replaces the chain and rebuilds the manager from it. Every edit goes
 	// through here (panel, socket, and undo alike) so none of them can set
 	// the list and forget to rebuild.
@@ -1107,13 +1049,6 @@ private:
 	// Which entry a socket command means: `index`, or the built-in name in
 	// `effect` (case-insensitive), or the project-relative path in `asset`.
 	bool AgentFindPostEffect(const json &p, size_t &outIndex, std::string &errOut) const;
-	// The parameters `entry` accepts, built-in or asset - the two carry the
-	// same Param shape, so callers do not care which they are looking at.
-	const std::vector<CustomEffect::Param> &PostEffectParamMeta(const SceneMeta::PostEffectEntry &entry);
-	// Pushes ambientLightColor*ambientIntensity and backgroundColor at the
-	// renderer. Called on load, on edit and after a renderer switch (a fresh
-	// IRenderer starts on its own hardcoded defaults).
-	void ApplyEnvironment();
 	// Averages a skybox's six faces into the three gradient bands: +Y becomes
 	// Sky, -Y becomes Ground, the four sides average into Equator. Returns
 	// false (and leaves the bands alone) when a face is missing.
@@ -1126,11 +1061,6 @@ private:
 	// editor render nothing. Baking to the bands costs nothing at draw time
 	// and behaves identically on all three backends.
 	bool BakeAmbientFromSkybox(const std::string& folder, std::string& errOut);
-	// Fills a probe grid by rendering the scene from each probe. Sizes
-	// the grid to the scene's own bounds, so it needs no authored volume
-	// to be useful - a real light-probe volume with its own gizmo is the
-	// obvious next step and is not this.
-	bool BakeIrradianceProbes(std::string& errOut);
 	// mtime of the scene file as of the last successful load — AgentServer
 	// uses this to detect external edits (AgentReloadIfChanged).
 	time_t lastLoadMtime = 0;
@@ -1179,17 +1109,11 @@ private:
 
 	std::map<uint32, EditorCameraSettings> sceneCameras;
 	uint32 activeSceneCameraId;
-	ForwardRenderer* previewRenderer;
-	PostEffectsManager* previewEffects;
 	// Dedicated offscreen path for model Assets thumbnails — never resize
 	// the camera-preview FBO (that was crashing Metal readback).
-	ForwardRenderer* thumbRenderer;
-	PostEffectsManager* thumbEffects;
 	enum { previewWidth = 320, previewHeight = 180 };
 	enum { thumbWidth = 128, thumbHeight = 128 };
 	// Impostor baking: its own larger offscreen target, made on first bake.
-	ForwardRenderer* impostorRenderer = NULL;
-	PostEffectsManager* impostorEffects = NULL;
 	enum { impostorSize = 512 };
 public:
 	// A model's side view, orthographic, as RGBA8 with real alpha (rendered
@@ -1204,6 +1128,13 @@ public:
 	// queued from the panel into ProcessPendingModelThumbnails).
 	bool BakeFoliageImpostor(const json& args, json& out, std::string& errOut);
 	bool BakeModelImpostor(const json& args, json& out, std::string& errOut);
+	// bake_octahedral_impostor {model: "assets/...p3dm" | subtree: {materials, root}, out: "assets/.../name",
+	// frames: 8, size: 256}: the object seen from a grid of frames x frames directions over its upper half
+	// (hemi-octahedral, PyrosShader.glsl's IMPOSTOR), each a size x size picture of its G-buffer - one
+	// atlas of its albedo (sRGB, alpha its coverage: out_albedo.png) and one of its normals in its own frame
+	// (out_normal.png). Returns frames, radius and centre (its height above the foot), at scale 1:
+	// GenericShaderMaterial::SetImpostor's numbers.
+	bool BakeOctahedralImpostor(const json& args, json& out, std::string& errOut);
 	// bake_subtree_impostor {subtree: {materials, root}, angles: [degrees], top: bool, out: "assets/.../name"}:
 	// the object a subtree makes (a tree's wood and leaves as the scene draws them) pictured from each
 	// angle round its upright axis - and, with top, from above - one PNG each (out_<i>.png), with
@@ -1483,17 +1414,6 @@ public:
 	void MakeUIScene();
 
 	bool IsTwoDScene() const { return sceneIsTwoD; }
-	// What this scene will render with, which is not always what the project
-	// asked for - a 2D scene is always forward (see SwitchRenderer).
-	//
-	// Accounts for a switch that has been requested but not applied yet:
-	// SwitchRenderer only QUEUES, and the swap happens at the start of the
-	// next ShowViewport(). Reading the live flag straight after asking for a
-	// change therefore reports the value you just replaced.
-	bool WillUseDeferredRenderer() const
-	{
-		return queuedRendererSwitch ? queuedUseDeferredRenderer : usingDeferredRenderer;
-	}
 	bool IsInPlayMode() const { return playMode; }
 	// True when a camera GameObject is driving the viewport, which overrides
 	// the scene's own 2D view.
@@ -1851,34 +1771,6 @@ private:
 
 	// Scene
 	SceneGraph* scene;
-	// Chosen once in Init() from the project's Renderer setting (see
-	// ProjectManager::ProjectSettings::rendererType) - Forward or Deferred,
-	// used uniformly for both the edit viewport and Play Mode so a
-	// project's materials render the same in both. Gizmos/axis-helper/
-	// physics-debug draw independently of this (see ShowViewport()) so
-	// they're unaffected either way; the grid IS a real SceneGraph object
-	// and gets ShaderUsage::DeferredRenderer_Gbuffer added to its material
-	// when Deferred is active (see Init()).
-	IRenderer* Renderer;
-	// Draws the scene's UICanvases over the finished 3D frame. Independent
-	// of the Forward/Deferred switch - it composites into whatever target
-	// the viewport is already assembling, so SwitchRenderer() never touches
-	// it.
-	UIRenderer* uiRenderer;
-	bool usingDeferredRenderer;
-	bool pendingUseDeferredRenderer; // set via SetUseDeferredRenderer() before Init() runs
-	// Live post-Init() switch, queued by SwitchRenderer() and consumed by
-	// ApplyPendingRendererSwitchIfAny() - deliberately separate from
-	// pendingUseDeferredRenderer above, which only ever matters once, pre-Init().
-	bool queuedRendererSwitch = false;
-	bool queuedUseDeferredRenderer = false;
-	// G-buffer backing Renderer when usingDeferredRenderer is true - owned
-	// here (not by DeferredRenderer), built in Init(), resized in
-	// OnResize()/ShowViewport(), torn down in Shutdown().
-	Texture* gbufferDepth, *gbufferAlbedo, *gbufferSpecular, *gbufferNormal, *gbufferMatRough;
-	FrameBuffer* gbufferFBO;
-	void BuildGBuffer(uint32 width, uint32 height);
-	void DestroyGBuffer();
 	// Projection
 	Projection projection, projectionOrtho;
         // Physics
@@ -2120,7 +2012,6 @@ private:
 	SceneObjects* sceneObjects;
 
 	// Painter Pick
-	PainterPick* Picking;
 
 	// Object Properties
 	Vec3 _translation, _rotation, _scale;
@@ -2130,7 +2021,6 @@ private:
 	f32 zoomOrtho;
 
 	uint32 Width, Height;
-	PostEffectsManager* EffectsManager;
 	Vec2 dim; // Real available dimensions
 	Vec2 mPos; // Mouse Position
 

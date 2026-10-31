@@ -37,48 +37,11 @@ namespace p3d {
 
 	void SpotLight::EnableCastShadows(const uint32 Width, const uint32 Height, const f32 Near)
 	{
-		// Unlike DirectionalLight this was never guarded, so it already
-		// reassigned its dimensions on a second call - but it left the
-		// previous FBO and shadow texture to be overwritten without
-		// waiting for the GPU that may still be reading them, which is
-		// only safe on GL. Same release path as the other two now.
-		if (isCastingShadows) ReleaseShadowResources();
-
 		ShadowWidth = Width;
 		ShadowHeight = Height;
 
 		// Set Flag
 		isCastingShadows = true;
-
-		// Initiate FBO (releases any previously owned FBO/texture first)
-		shadowsFBO.reset(new FrameBuffer());
-		shadowsFBO->SetDebugName("Shadow map (spot)");
-
-		// GPU Shadows
-		ShadowMap.reset(new Texture());
-
-#if defined(GLLEGACY)
-
-		ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::RGBA, ShadowWidth, ShadowHeight, false);
-		ShadowMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-
-		// Initialize Frame Buffer
-		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, RenderBufferDataType::Depth, ShadowWidth, ShadowHeight);
-		shadowsFBO->AddAttach(FrameBufferAttachmentFormat::Color_Attachment0, TextureType::Texture, ShadowMap.get());
-
-#else
-
-		ShadowMap->CreateEmptyTexture(TextureType::Texture, TextureDataType::DepthComponent, ShadowWidth, ShadowHeight, false);
-		ShadowMap->SetRepeat(TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge, TextureRepeat::ClampToEdge);
-		// See DirectionalLight::EnableCastShadows - Linear depth+compare is
-		// unloadable on Apple GL; PCF is shader-side so Nearest is fine.
-		ShadowMap->SetMinMagFilter(TextureFilter::Nearest, TextureFilter::Nearest);
-		ShadowMap->EnableCompareMode();
-
-		// Initialize Frame Buffer
-		shadowsFBO->Init(FrameBufferAttachmentFormat::Depth_Attachment, TextureType::Texture, ShadowMap.get());
-
-#endif
 
 		// Near and Far Clip Planes
 		ShadowNear = Near;

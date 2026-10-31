@@ -2,6 +2,7 @@
 // the cursor ray, the stroke's press/drag/release, undo, saving, the
 // Terrain panel and the terrain_* agent commands.
 
+#include <cstring>
 #include "SceneEditor.h"
 #include "EditorWorld.h"
 #include "SceneCommands.h"
@@ -150,7 +151,6 @@ namespace {
 		return NULL;
 	}
 }
-
 
 namespace {
 	// One brush stroke. Holds every touched tile's state before and after,
@@ -567,7 +567,7 @@ void SceneEditor::EnsureCaveMaterials()
 		std::string rock = "assets/terrain/layers/rock.png";
 		if (!fs::exists(root / rock, ec)) rock = TerrainLayerTexture(2);
 		if (rock.empty() || !fs::exists(root / rock, ec)) continue;	// plain grey walls
-		if (!fs::exists(root / shaderRel, ec))
+		if (!fs::exists(root / (shaderRel + ".surface"), ec))
 		{
 			const char* body =
 				"vec3 bw = abs(p3d_N);\n"
@@ -578,12 +578,14 @@ void SceneEditor::EnsureCaveMaterials()
 				"Albedo *= 0.8;\n"
 				"float Metallic = 0.0;\n"
 				"float Roughness = 0.95;\n";
-			const MaterialCodegenResult gen = GenerateGLSLFromSimpleText(body, { "rock" });
+			const MaterialCodegenResult gen = GenerateSurfaceFromSimpleText(body, { "rock" });
 			if (!gen.error.empty()) { echo("ERROR: cave shader - " + gen.error); continue; }
 			fs::create_directories((root / shaderRel).parent_path(), ec);
-			std::ofstream out((root / shaderRel).string().c_str(), std::ios::binary | std::ios::trunc);
-			out << gen.glsl;
-			if (!out) continue;
+			{
+				std::ofstream s((root / (shaderRel + ".surface")).string().c_str(), std::ios::binary | std::ios::trunc);
+				s << gen.surface;      // (the material names shaderRel and reads its surface)
+				if (!s) continue;
+			}
 		}
 		const json m = { { "id", 0 }, { "kind", "custom" }, { "shaderFile", shaderRel }, { "castingShadows", false },
 			{ "samplers", json::array({ { { "name", "rock" }, { "texture", rock } } }) } };
@@ -1859,7 +1861,7 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		return true;
 	}
 	// terrain_add_water {level, size, texture, name}: a sea (or a lake) - a plane at `level` drawn with the
-	// Water template (written into the project as assets/materials/Water.glsl the first time), its depth
+	// Water template (written into the project as assets/materials/Water.glsl.surface the first time), its depth
 	// picture (`texture`, default assets/textures/water_depth.png) baked from the ground now, ripples made
 	// for it, and the Sky effect's sea level set to the same height. `size`: metres the depth picture
 	// covers, centred on the origin (default: as far as the terrains reach). One undo step for the object.
@@ -1893,20 +1895,27 @@ bool SceneEditor::AgentTerrain(const std::string& command, const json& a, json& 
 		const std::string wavesRel = "assets/textures/water_normals.png", shaderRel = "assets/materials/Water.glsl";
 		fs::create_directories((root / depthRel).parent_path(), ec);
 		fs::create_directories((root / shaderRel).parent_path(), ec);
-		// (the shader: the editor's template, laid out for this picture)
-		if (!fs::exists(root / shaderRel, ec))
+		// (the material's surface: the editor's template, laid out for this picture - the material names Water.glsl and
+		// reads Water.glsl.surface beside it)
+		const std::string surfaceRel = shaderRel + ".surface";
+		if (!fs::exists(root / surfaceRel, ec))
 		{
-			std::ifstream in("assets/materials/Water.glsl", std::ios::binary);
-			if (!in) { errOut = "the editor's Water template (assets/materials/Water.glsl) is missing"; return false; }
+			std::ifstream in("assets/materials/Water.glsl.surface", std::ios::binary);
+			if (!in) { errOut = "the editor's Water template (assets/materials/Water.glsl.surface) is missing"; return false; }
 			std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-			const std::string key = "#define WATER_MAP_SIZE 1024.0";
+			const std::string key = "#define WATER_MAP_SIZE ";
 			const size_t at = text.find(key);
-			if (at != std::string::npos) { char v[64]; snprintf(v, sizeof(v), "#define WATER_MAP_SIZE %.1f", size); text.replace(at, key.size(), v); }
-			std::ofstream out((root / shaderRel).string().c_str(), std::ios::binary | std::ios::trunc);
+			if (at != std::string::npos)
+			{
+				const size_t end = text.find_first_of(" \t\n", at + key.size());
+				char v[64]; snprintf(v, sizeof(v), "%.1f", size);
+				text.replace(at + key.size(), end - (at + key.size()), v);
+			}
+			std::ofstream out((root / surfaceRel).string().c_str(), std::ios::binary | std::ios::trunc);
 			out << text;
-			if (!out) { errOut = "could not write " + shaderRel; return false; }
+			if (!out) { errOut = "could not write " + surfaceRel; return false; }
 		}
-		else echo("Add water: " + shaderRel + " is the project's already - kept as it is (its WATER_MAP_SIZE must match the bake's size)");
+		else echo("Add water: " + surfaceRel + " is the project's already - kept as it is (its WATER_MAP_SIZE must match the bake's size)");
 		if (!fs::exists(root / wavesRel, ec) && !WriteWaterNormals((root / wavesRel).string(), 7u)) { errOut = "could not write " + wavesRel; return false; }
 		// (a picture to bake into: the material must hold it before the bake can find it)
 		if (!fs::exists(root / depthRel, ec))
@@ -2501,6 +2510,233 @@ bool SceneEditor::BakeModelImpostor(const json& a, json& out, std::string& errOu
 	out["texture"] = texRel;
 	out["width"] = w; out["height"] = h;
 	out["left"] = left; out["right"] = right; out["bottom"] = bottom; out["top"] = top;
+	return true;
+}
+
+bool SceneEditor::BakeOctahedralImpostor(const json& a, json& out, std::string& errOut)
+{
+	const json args = a.is_object() ? a : json::object();
+	if (playMode) { errOut = "stop play mode first"; return false; }
+	if (!project || !project->IsOpen()) { errOut = "no project open"; return false; }
+	const std::string outRel = args.value("out", std::string());
+	if (outRel.empty()) { errOut = "bake_octahedral_impostor needs \"out\""; return false; }
+	const uint32 N = (uint32)std::max(2, std::min(16, args.value("frames", 8)));
+	const uint32 F = (uint32)std::max(32, std::min(1024, args.value("size", 256)));
+
+	// The object: a model file, or what a subtree makes (a tree's wood and leaves as the scene draws them)
+	std::shared_ptr<GameObject> subject;
+	const std::string modelRel = args.value("model", std::string());
+	if (args.contains("subtree") && args["subtree"].is_object())
+		subject = SceneSerializer::DeserializeSubtree(args["subtree"].dump(), scenePath);
+	else if (!modelRel.empty())
+	{
+		std::shared_ptr<Renderable> mesh = std::make_shared<Model>(project->AbsolutePath(modelRel), true);
+		if (!mesh || mesh->Geometries.empty()) { errOut = "could not load " + modelRel; return false; }
+		subject = std::make_shared<GameObject>();
+		subject->Add(std::make_shared<RenderingComponent>(mesh, ShaderUsage::Diffuse | ShaderUsage::SpecularColor));
+	}
+	if (!subject) { errOut = "bake_octahedral_impostor needs \"model\" or \"subtree\""; return false; }
+
+	// A view of its own, the light switched off for the surface's outputs - see the loop
+	RendererView octView;
+	p3d::SceneRenderer* r2r = octView.Renderer();
+	if (!r2r) { errOut = "no renderer"; return false; }
+	r2r->SetToneCurve(false); r2r->SetAutoExposure(false, 0.f); r2r->SetTemporalAA(false); r2r->SetBackground(Vec3(0.f, 0.f, 0.f));
+
+	SceneGraph* scene = new SceneGraph();
+	scene->Add(subject);
+	std::shared_ptr<GameObject> cam = std::make_shared<GameObject>();
+	scene->Add(cam);
+	scene->Update(0);
+
+	// Its bounds, in its own space: every renderable's box through its owner's transform
+	Vec3 bmin, bmax; bool any = false;
+	std::function<void(GameObject*)> visit = [&](GameObject* g) {
+		for (size_t c = 0; c < g->GetComponents().size(); c++)
+			if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(g->GetComponents()[c].get()))
+			{
+				if (!rc->GetRenderable()) continue;
+				const Vec3 lo = rc->GetRenderable()->GetBoundingMinValue(), hi = rc->GetRenderable()->GetBoundingMaxValue();
+				const Matrix m = g->GetWorldTransformation();
+				for (int k = 0; k < 8; k++)
+				{
+					const Vec3 p = m * Vec3(k & 1 ? hi.x : lo.x, k & 2 ? hi.y : lo.y, k & 4 ? hi.z : lo.z);
+					if (!any) { bmin = bmax = p; any = true; }
+					bmin = Vec3(Min(bmin.x, p.x), Min(bmin.y, p.y), Min(bmin.z, p.z));
+					bmax = Vec3(Max(bmax.x, p.x), Max(bmax.y, p.y), Max(bmax.z, p.z));
+				}
+			}
+		for (size_t i = 0; i < g->GetChildren().size(); i++) visit(g->GetChildren()[i].get());
+	};
+	visit(subject.get());
+	if (!any) { delete scene; errOut = "nothing to bake"; return false; }
+	// on its own upright axis (what an instance turns about), at half its height
+	const f32 centreY = 0.5f * (bmin.y + bmax.y);
+	const Vec3 C(0.f, centreY, 0.f);
+	// (the farthest point of the tree itself from the centre, not its box's corner: a round crown's box
+	// corners stand a third further out, and every view would spend that much of its picture on nothing)
+	f32 radius = 0.f;
+	std::function<void(GameObject*)> reach = [&](GameObject* g) {
+		const Matrix m = g->GetWorldTransformation();
+		for (size_t c = 0; c < g->GetComponents().size(); c++)
+			if (RenderingComponent* rc = dynamic_cast<RenderingComponent*>(g->GetComponents()[c].get()))
+				if (rc->GetRenderable())
+					for (size_t gi = 0; gi < rc->GetRenderable()->Geometries.size(); gi++)
+					{
+						const std::vector<Vec3> &v = rc->GetRenderable()->Geometries[gi]->GetVertexData();
+						for (size_t k = 0; k < v.size(); k++) radius = Max(radius, (m * v[k] - C).magnitude());
+					}
+		for (size_t i = 0; i < g->GetChildren().size(); i++) reach(g->GetChildren()[i].get());
+	};
+	reach(subject.get());
+	if (radius <= 0.f)
+		for (int k = 0; k < 8; k++)
+		{
+			const Vec3 p(k & 1 ? bmax.x : bmin.x, k & 2 ? bmax.y : bmin.y, k & 4 ? bmax.z : bmin.z);
+			radius = Max(radius, (p - C).magnitude());
+		}
+	radius *= 1.02f;   // (a leaf's edge, filtered, not cut off)
+
+	auto hemiOctDecode = [](f32 ex, f32 ey) {
+		const f32 tx = (ex + ey) * 0.5f, ty = (ex - ey) * 0.5f;
+		return Vec3(tx, 1.f - fabsf(tx) - fabsf(ty), ty).normalize();
+	};
+	auto halfToFloat = [](uint16_t h) -> f32 {
+		const uint32 s = (h >> 15) & 1, e = (h >> 10) & 31, m = h & 1023;
+		uint32 f;
+		if (e == 0) { if (m == 0) f = s << 31; else { int ee = -1; uint32 mm = m; do { ee++; mm <<= 1; } while (!(mm & 1024)); f = (s << 31) | ((uint32)(127 - 15 - ee) << 23) | ((mm & 1023) << 13); } }
+		else if (e == 31) f = (s << 31) | 0x7f800000 | (m << 13);
+		else f = (s << 31) | ((e - 15 + 127) << 23) | (m << 13);
+		f32 r; memcpy(&r, &f, 4); return r;
+	};
+	auto toSrgb8 = [](f32 c) {
+		c = Max(0.f, Min(1.f, c));
+		c = c <= 0.0031308f ? c * 12.92f : 1.055f * powf(c, 1.f / 2.4f) - 0.055f;
+		return (unsigned char)(c * 255.f + 0.5f);
+	};
+
+	const uint32 A = N * F;
+	std::vector<unsigned char> albedo((size_t)A * A * 4, 0), normals((size_t)A * A * 4, 0);
+	bool ok = true;
+	for (uint32 fy = 0; fy < N && ok; fy++)
+		for (uint32 fx = 0; fx < N && ok; fx++)
+		{
+			// the frame's direction (PyrosShader.glsl's p3d_ImpFrameUV: grid cell -> -1..1 -> hemi-octahedral)
+			const Vec3 d = hemiOctDecode((f32)fx / (f32)(N - 1) * 2.f - 1.f, (f32)fy / (f32)(N - 1) * 2.f - 1.f);
+			const Vec3 up0 = fabsf(d.y) > 0.999f ? Vec3(0.f, 0.f, -1.f) : Vec3(0.f, 1.f, 0.f);
+			const Vec3 r = up0.cross(d).normalize();
+			const Vec3 u = d.cross(r);
+			const f32 dist = radius * 3.f;
+			const Vec3 eye = C + d * dist;
+			// the camera's frame written out (right r, up u, looking down -d): the same basis the shader
+			// rebuilds, whatever LookAt's own convention is
+			Matrix world;
+			world.identity();
+			world.m[0] = r.x; world.m[1] = r.y; world.m[2] = r.z;
+			world.m[4] = u.x; world.m[5] = u.y; world.m[6] = u.z;
+			world.m[8] = d.x; world.m[9] = d.y; world.m[10] = d.z;
+			world.m[12] = eye.x; world.m[13] = eye.y; world.m[14] = eye.z;
+			cam->SetTransformationMatrix(world);
+			scene->Update(0);
+			Projection p;
+			p.Ortho(-radius, radius, -radius, radius, dist - radius * 1.1f, dist + radius * 1.1f);
+			// This view's surface, in one form whichever renderer drew it: its albedo (sRGB bytes), its normal in view space
+			// (x right, y up, z toward the camera; zero where nothing was drawn) and its depth across the view (0 near, 1 far
+			// or nothing) - rows from the top
+			std::vector<unsigned char> albB((size_t)F * F * 3, 0);
+			std::vector<Vec3> nrmV((size_t)F * F, Vec3(0.f, 0.f, 0.f));
+			std::vector<f32> depV((size_t)F * F, 1.f);
+			bool haveDepth = false;
+			{
+				// (three views of the surface's own outputs - SetDebugView 6, 7, 8 - on black, read back)
+				p3d::View v;
+				v.cameraWorld = world; v.orthographic = true; v.orthoHeight = radius * 2.f;
+				v.nearZ = dist - radius * 1.1f; v.farZ = dist + radius * 1.1f; v.width = v.height = F;
+				std::vector<uint8_t> px[3];
+				for (int k = 0; k < 3 && ok; k++)
+				{
+					r2r->SetDebugView(6 + k);
+					octView.Draw(scene, v);
+					if (!(gfxDevice->ReadTexture(octView.target, px[k])) || px[k].size() != (size_t)F * F * 4) { ok = false; errOut = "read back failed"; }
+				}
+				if (!ok) break;
+				const p3d::gfx::Format bf = gfxDevice->BackbufferFormat();
+				const bool bgra = bf == p3d::gfx::Format::BGRA8 || bf == p3d::gfx::Format::BGRA8_sRGB;
+				for (size_t t = 0; t < (size_t)F * F; t++)
+				{
+					const uint8_t* n8 = &px[1][t * 4];
+					const f32 nx = (bgra ? n8[2] : n8[0]) / 255.f, ny = n8[1] / 255.f, nz = (bgra ? n8[0] : n8[2]) / 255.f;
+					if (nx + ny + nz < 0.02f) continue;     // (the black behind: nothing drawn)
+					nrmV[t] = Vec3(nx * 2.f - 1.f, ny * 2.f - 1.f, nz * 2.f - 1.f);
+					const uint8_t* a8 = &px[0][t * 4];
+					albB[t * 3] = bgra ? a8[2] : a8[0]; albB[t * 3 + 1] = a8[1]; albB[t * 3 + 2] = bgra ? a8[0] : a8[2];
+					depV[t] = px[2][t * 4 + 1] / 255.f;
+				}
+				haveDepth = true;
+			}
+			// The crown's own shadow, the same whatever the sun: how much of the leaves round a point stand
+			// in front of it, from this view's depth (orthographic: linear, 0..1 across 2.2 radii). A leaf deep
+			// in the crown, seen through a gap, is mostly shut in; one on the outside is open. (Without it an
+			// impostor was every leaf in full sun - flat and lighter than the tree it stood for.)
+			std::vector<f32> occ((size_t)F * F, 1.f);
+			if (haveDepth)
+			{
+				auto depthAt = [&](int x, int y) {
+					x = std::max(0, std::min((int)F - 1, x)); y = std::max(0, std::min((int)F - 1, y));
+					return depV[(size_t)y * F + x];
+				};
+				const int R = std::max(2, (int)(F * 0.06f));                 // (a disc of an eighth of the radius... in pixels)
+				const f32 near = 0.04f / 2.2f, far = 0.6f / 2.2f;            // (in front by 0.04 to 0.6 radii counts)
+				static const f32 kDisc[16][2] = { {0.18f,0.05f},{-0.31f,0.22f},{0.07f,-0.44f},{0.52f,0.33f},{-0.58f,-0.27f},{0.29f,-0.71f},{-0.12f,0.79f},{0.81f,-0.18f},
+					{-0.86f,0.31f},{0.45f,0.82f},{-0.47f,-0.80f},{0.95f,0.21f},{-0.22f,-0.97f},{-0.93f,-0.05f},{0.69f,-0.69f},{-0.62f,0.73f} };
+				for (int y = 0; y < (int)F; y++)
+					for (int x = 0; x < (int)F; x++)
+					{
+						const f32 z = depV[(size_t)y * F + x];
+						if (z >= 0.9999f) continue;
+						int shut = 0;
+						for (int k = 0; k < 16; k++)
+						{
+							const f32 dzk = z - depthAt(x + (int)(kDisc[k][0] * R), y + (int)(kDisc[k][1] * R));
+							if (dzk > near && dzk < far) shut++;
+						}
+						occ[(size_t)y * F + x] = 1.f - (f32)shut / 16.f;
+					}
+			}
+			else if (fy == 0 && fx == 0) fprintf(stderr, "bake_octahedral_impostor: depth not read back - no crown occlusion\n");
+			for (uint32 y = 0; y < F; y++)
+				for (uint32 x = 0; x < F; x++)
+				{
+					const size_t t = (size_t)y * F + x;
+					const Vec3 nv = nrmV[t];
+					const f32 len = nv.magnitude();
+					const size_t di = ((size_t)(fy * F + y) * A + (fx * F + x)) * 4;
+					if (len < 0.5f) continue;            // (nothing drawn: left clear - the loader bleeds colour into it)
+					// view space (x right, y up, z toward the camera) into the object's own frame
+					const Vec3 n = (r * nv.x + u * nv.y + d * nv.z) * (1.f / len);
+					albedo[di] = albB[t * 3]; albedo[di + 1] = albB[t * 3 + 1]; albedo[di + 2] = albB[t * 3 + 2];
+					albedo[di + 3] = 255;
+					normals[di] = (unsigned char)((n.x * 0.5f + 0.5f) * 255.f + 0.5f);
+					normals[di + 1] = (unsigned char)((n.y * 0.5f + 0.5f) * 255.f + 0.5f);
+					normals[di + 2] = (unsigned char)((n.z * 0.5f + 0.5f) * 255.f + 0.5f);
+					// (alpha: the crown's occlusion - PyrosShader.glsl's impostor path darkens the leaves by it)
+					normals[di + 3] = (unsigned char)(Max(0.f, Min(1.f, occ[t])) * 255.f + 0.5f);
+				}
+		}
+	delete scene;
+	if (!ok) return false;
+
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	fs::create_directories(fs::path(project->AbsolutePath(outRel)).parent_path(), ec);
+	const std::string albRel = outRel + "_albedo.png", nrmRel = outRel + "_normal.png";
+	if (!PaintableImage::WritePNG(project->AbsolutePath(albRel), (int32)A, (int32)A, 4, albedo.data())
+		|| !PaintableImage::WritePNG(project->AbsolutePath(nrmRel), (int32)A, (int32)A, 4, normals.data()))
+	{ errOut = "could not write the atlases"; return false; }
+	Texture::ForgetShared(project->AbsolutePath(albRel));
+	Texture::ForgetShared(project->AbsolutePath(nrmRel));
+	out["albedo"] = albRel; out["normal"] = nrmRel;
+	out["frames"] = N; out["radius"] = radius; out["centre"] = centreY;
 	return true;
 }
 
