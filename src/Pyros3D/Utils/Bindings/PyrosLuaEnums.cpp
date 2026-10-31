@@ -35,11 +35,8 @@ namespace p3d {
 				"TextRendering", ShaderUsage::TextRendering,
 				"DebugRendering", ShaderUsage::DebugRendering,
 				"ClipPlane", ShaderUsage::ClipPlane,
-				// The remaining ShaderLib.h flags. Without these a Lua scene
-				// could construct a DeferredRenderer but had no way to build
-				// a material that writes the G-buffer, so every object was
-				// silently missing from the deferred pass - the enum stopped
-				// at ClipPlane while the C++ enum carried six more values.
+				// The remaining ShaderLib.h flags (DeferredRenderer_Gbuffer: ignored, kept so
+				// scripts that set it still run).
 				"DeferredRenderer_Gbuffer", ShaderUsage::DeferredRenderer_Gbuffer,
 				"ParallaxMapping", ShaderUsage::ParallaxMapping,
 				"InstancedRendering", ShaderUsage::InstancedRendering,

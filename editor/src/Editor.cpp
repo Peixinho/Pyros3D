@@ -6187,9 +6187,7 @@ void Editor::DrawUI()
 	// own RenderCameraPreview call ("run it before the viewport pass so
 	// PreRender below restores that state"): the Material Editor's live
 	// preview is a second offscreen render sharing the same GlobalMatrices
-	// UBO (and, when the project's renderer is Deferred, the same
-	// composite-always-targets-framebuffer-0 quirk - see
-	// DeferredRenderer.h's GetColorTexture() comment) as the main viewport.
+	// UBO as the main viewport.
 	// Rendering it first means DrawSceneViewWindow()'s own
 	// ResetViewPort()/SetViewPort()/PreRender() sequence unconditionally
 	// restores the correct camera/viewport state afterward, instead of the
@@ -9669,10 +9667,9 @@ void Editor::DrawAssetsWindow()
 	ImGui::End();
 }
 
-// The editor never adds a post effect, so PostEffectsManager::
-// ProcessPostEffects() returns at its effects.empty() guard - and that is the
-// only thing in the engine that brackets a swapchain frame for a scene drawn
-// entirely offscreen. On GL that is invisible (SDL_GL_SwapWindow presents
+// A scene drawn entirely offscreen (into the viewports' textures) brackets no
+// swapchain frame of its own - the old renderer's post-effect pass was the only
+// thing that did. On GL that is invisible (SDL_GL_SwapWindow presents
 // regardless), but on Vulkan and Metal nothing acquired or presented a frame
 // at all: a black window, and the ImGui draw never ran because the backends
 // record it inside EndFrame() via UIRenderHook.
@@ -9747,17 +9744,9 @@ void Editor::Shutdown()
 		welcomeLogo = NULL;
 	}
 
-	// Animation previews FIRST, before the scene documents go. Each one
-	// owns a PostEffectsManager whose device pointer is *borrowed* from the
-	// process-wide active render device (see ResolvePostEffectsDevice), and
-	// ~PostEffectsManager's very first statement is device->WaitIdle().
-	// Tearing down the scene documents clears/destroys that device - measured
-	// directly: at this point after CloseAllSceneDocuments(),
-	// IsActiveRenderDeviceSet() is already false - so destroying a preview
-	// afterwards dereferences a freed device and segfaults on every clean
-	// exit that had an animation tab open. Same latent hazard IRenderer's
-	// ResolveInitialDevice() comment describes for renderers outliving their
-	// device; the fix here is simply to go first, while it is still alive.
+	// Animation previews FIRST, before the scene documents go: each owns a
+	// renderer (RendererView) on the editor's device, and a GPU object must not
+	// outlive its device - the previews go while it is still alive.
 	CloseAllAnimationDocuments();
 	FlushDeferredAnimationDocs();
 	// Same reason: a character document owns a renderer and an FBO, and a GPU
@@ -9769,10 +9758,7 @@ void Editor::Shutdown()
 	CloseAllLuaScriptDocuments();
 	CloseAllMaterialDocuments();
 	// CloseAllMaterialDocuments() queued any live previews above - finish
-	// them now (no more frames coming on the shutdown path). NOTE: a
-	// MaterialPreview holds a PostEffectsManager too, so this has the same
-	// dangling-device exposure the animation previews were moved above to
-	// avoid; it just needs a material tab open at quit to show it.
+	// them now (no more frames coming on the shutdown path).
 	FlushDeferredPreviewRenderers();
 	sceneView = NULL;
 

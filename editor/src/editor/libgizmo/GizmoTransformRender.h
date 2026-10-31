@@ -68,10 +68,8 @@ public:
 
 	// Expands `vertices` into the engine's DebugRenderer as lines or
 	// triangles. This used to own a GL program, VAO and VBO and issue its own
-	// draw call - the last raw-GL code in the editor, and the reason the
-	// gizmo could not exist on Vulkan or Metal. DebugRenderer already does
-	// exactly this job (dynamic per-frame line/triangle geometry, through
-	// IRenderDevice) on every backend.
+	// draw call. DebugRenderer does this job (dynamic per-frame line/triangle
+	// geometry, drawn by the renderer as its overlay) on every backend.
 	static void DrawVertices(const unsigned mode, const std::vector<tvector3> &vertices);
 
 	// Set once by SceneEditor. Primitives accumulate in it and are flushed by

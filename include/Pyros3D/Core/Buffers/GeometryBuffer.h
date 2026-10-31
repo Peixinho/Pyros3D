@@ -94,8 +94,8 @@ namespace p3d {
 		// Data Size
 		uint32 DataLength;
 
-		// The bytes, kept on the CPU while the old device is off (the renderer - LegacyDeviceEnabled()): no GPU
-		// buffer is made of them, and Map() gives this memory
+		// The bytes, kept on the CPU: the renderer makes its own GPU copy of them (no GPU buffer is made here), and
+		// Map() gives this memory
 		std::vector<uchar> CpuData;
 		// Changes with them: what the renderer keeps on the GPU of a geometry is made again when it moves (a sprite
 		// animating writes its quads into the same buffer each frame, its handles unchanged)
@@ -106,7 +106,7 @@ namespace p3d {
 		~GeometryBuffer();
 		// methods
 		void Init(const void *GeometryData, const uint32 length);
-		// (the data handed over, not copied: see IRenderDevice::CreateBufferOwned)
+		// (the data handed over, not copied)
 		void InitOwned(std::vector<uchar> &&GeometryData);
 
 		void *Map(const uint32 MappingType = 1);

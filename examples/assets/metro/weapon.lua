@@ -108,7 +108,6 @@ local MUZZLE_Z = (-0.40 + VM_Z_SHIFT) * VM_SCALE
 
 function W.buildViewmodel()
 	local pbrUsage = ShaderUsage.Color + ShaderUsage.Diffuse + ShaderUsage.PBR
-		+ ShaderUsage.DeferredRenderer_Gbuffer
 
 	local function mat(r, g, b, rough, metal)
 		local m = GenericShaderMaterial.new(pbrUsage)

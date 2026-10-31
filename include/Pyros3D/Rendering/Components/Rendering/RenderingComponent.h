@@ -133,7 +133,7 @@ namespace p3d {
 		static void TakeDrawBones();
 
 		// Whether this mesh's geometry actually supplies aTexcoord, cached
-		// because IRenderer::PickShadowMaterial() has to know it per draw.
+		// because a shadow pass has to know it per draw (a cut-out needs its texcoords).
 		// A cutout caster only gets the alpha-test shadow material if its
 		// geometry can feed that shader's texcoord attribute: Vulkan
 		// requires every attribute a compiled shader declares to have a
@@ -146,8 +146,8 @@ namespace p3d {
 		// LOD
 		uint32 LodLevel;
 		// Changing level, a level crossfades (RenderingComponent::SetLODCrossfade): (0, 1] the level
-		// coming in, how far; [-1, 0) the one going, -1 + how far; 0 neither. A dither in the shader
-		// shows the one where the other is not - see PyrosShader.glsl's p3d_LodFade.
+		// coming in, how far; [-1, 0) the one going, -1 + how far; 0 neither. (Worked out here; the
+		// renderer does not dither between the two yet - it shows the level chosen.)
 		f32 LodFade = 0.f;
 
 		void BuildMaterials(const ShaderOptions &MaterialOptions)
@@ -378,9 +378,6 @@ namespace p3d {
 		void SetShadowRenderable(const std::shared_ptr<Renderable> &renderable, const f32 from = -1.f);
 		const std::shared_ptr<Renderable> &GetShadowRenderable() const { return shadowRenderable; }
 		const std::vector<RenderingMesh*> &GetShadowMeshes() const { return shadowMeshes; }
-		// Every mesh it shows is in this frame's ray scene (DeferredRenderer's ray-traced
-		// sun shadows): the shadow map may leave it out (IRenderer::SetSunCastersLeaveRayTraced).
-		bool inRayScene = false;
 		// Whether the eye is too near for the shadow's own mesh to stand in:
 		// a model with a quarter of the triangles does not lie where the
 		// model does, and close to, where it lies outside, it throws shadow

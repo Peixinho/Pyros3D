@@ -1130,7 +1130,7 @@ public:
 	bool BakeModelImpostor(const json& args, json& out, std::string& errOut);
 	// bake_octahedral_impostor {model: "assets/...p3dm" | subtree: {materials, root}, out: "assets/.../name",
 	// frames: 8, size: 256}: the object seen from a grid of frames x frames directions over its upper half
-	// (hemi-octahedral, PyrosShader.glsl's IMPOSTOR), each a size x size picture of its G-buffer - one
+	// (hemi-octahedral - the renderer does not draw octahedral impostors yet: a far forest's kinds are drawn as cards), each a size x size picture of its G-buffer - one
 	// atlas of its albedo (sRGB, alpha its coverage: out_albedo.png) and one of its normals in its own frame
 	// (out_normal.png). Returns frames, radius and centre (its height above the foot), at scale 1:
 	// GenericShaderMaterial::SetImpostor's numbers.

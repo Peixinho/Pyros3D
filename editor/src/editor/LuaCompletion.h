@@ -181,7 +181,7 @@ inline void CollectCandidates(const std::string& receiver, const std::string& pr
 		"GameObject", "Scene", "SceneGraph", "Vec2", "Vec3", "Vec4", "Quaternion", "Matrix",
 		"Color", "Texture", "Model", "Cube", "Sphere", "Plane",
 		"RenderingComponent", "DirectionalLight", "PointLight", "SpotLight",
-		"AudioSource", "AudioManager", "ForwardRenderer", "PerspectiveProjection",
+		"AudioSource", "AudioManager", "Renderer", "SceneView", "PerspectiveProjection",
 		"GenericShaderMaterial", "CustomShaderMaterial",
 	};
 	static const char* const kLifecycle[] = {

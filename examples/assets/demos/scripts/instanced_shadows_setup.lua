@@ -7,7 +7,7 @@
 -- The point of the demo is the *shadow* pass, which is where instancing
 -- used to fall apart. That pass doesn't use an object's own material: it
 -- overrides every caster with one shared shadow material (see
--- IRenderer::PickShadowMaterial). Until that override gained an
+-- the old renderer's shadow material). Until that override gained an
 -- InstancedRendering variant, its shader never declared
 -- aInstancedTransform, so the attribute divisor was never set and all N
 -- instances rendered their shadow at the component's own model matrix -

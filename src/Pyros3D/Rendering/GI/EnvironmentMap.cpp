@@ -41,7 +41,7 @@ namespace p3d {
 		// reflects a wider cone of the sky; the blur is a gaussian of that cone's width, along the
 		// image's two axes (wider across where the panorama is stretched, toward the poles). Not
 		// the GGX integral, but its width and its weight, and cheap enough to make at load.
-		// PyrosShader.glsl's EnvSpecular reads the same layout.
+		// The renderer's reflection probes read the same layout (probefilter.frag, surface.frag's ProbeLevel).
 		const uint32 kAtlasW = 512, kLevels = 6;
 		uint32 LevelW(uint32 atlasW, uint32 k) { return std::max<uint32>(atlasW >> k, 32u); }
 		// (the sharpest level, kept on the CPU for SampleRadiance)

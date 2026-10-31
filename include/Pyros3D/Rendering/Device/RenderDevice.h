@@ -4,7 +4,7 @@
 // Description : The explicit device API the renderer is rebuilt on - DRAFT for
 //               review (docs/device-design.md). Not built yet: nothing includes it.
 //
-// What it replaces: IRenderDevice is OpenGL's state machine (set the blend, bind a
+// What it replaced: the old IRenderDevice was OpenGL's state machine (set the blend, bind a
 // texture to a target, draw), and Vulkan and Metal emulate it - building pipelines,
 // descriptor sets and render passes as the state is seen, at draw time. Here the
 // renderer says up front what it will draw with, and a draw names those objects:

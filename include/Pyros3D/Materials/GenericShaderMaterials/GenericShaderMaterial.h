@@ -49,22 +49,12 @@ namespace p3d
 		// Packed ORM-style texture: G channel = roughness, B channel = metalness
 		// (R unused/free - glTF convention minus AO, not yet supported here).
 		void SetMetallicRoughnessMap(const std::shared_ptr<Texture> &metallicRoughnessMap);
-		// Real screen-space-reflection opt-in, per material - not to be
-		// confused with SetReflectivity() above (an unrelated, older
-		// env-map/skybox reflection blend amount). Defaults to false: SSR
-		// in DeferredRenderer's lastPass.glsl used to be gated purely by
-		// roughness (anything under its cutoff reflected, regardless of
-		// what the material author actually wanted), with no way for a
-		// material to opt out short of raising its roughness past the
-		// cutoff - or, for anything that never asked for it at all, opt
-		// in without also being deferred-G-buffer-compatible. This is the
-		// material-level control DeferredRenderer::EnableSSR()'s own
-		// comment always meant to imply but never actually built. Written
-		// into the G-buffer's otherwise-always-0.0 metallicRoughness blue
-		// channel (see PyrosShader.glsl's FragData_pbr) - existing
-		// materials that never call this keep reading 0.0/"not
-		// reflective" there, so this is purely additive, no behavior
-		// change for anything that doesn't opt in.
+		// A mirror, per material - not to be confused with SetReflectivity()
+		// above (an older env-map/skybox reflection blend amount). Every smooth
+		// surface reflects as its Fresnel says; one that asks (this, or
+		// SetSSRStrength) is a polished floor too: more of the reflection than
+		// Fresnel gives, over its own colour (surface.frag's MirrorFloor).
+		// Defaults to false: nothing changes for a material that does not ask.
 		void SetSSREnabled(const bool enabled);
 		// How much it reflects, 0..1 (0 is off): the reflection's weight - Fresnel's and the
 		// mirror floor's - scaled by it. SetSSREnabled(true) is 1. Lacquer, glass, a wet road want
@@ -82,11 +72,8 @@ namespace p3d
 		// sun) glows, and a shadow cast from less than that distance away is
 		// partly seen through - which is the same thing, light from the lit
 		// skin beside it.
-		// Forward and deferred both; in the G-buffer it travels in the blue
-		// of the roughness/metallic target, below the half that means
-		// "reflects the screen", and the colour shares the specular tint's
-		// channels (see PyrosShader.glsl) - so a surface cannot be both
-		// this and reflecting, and reflecting wins.
+		// (surface.frag: a generic material's, for the sun - its wrap past the
+		// terminator, and its light through from behind.)
 		void SetSubsurface(const Vec3 &color, const f32 strength);
 		// A wet surface (PBR materials): `amount` 0 dry .. 1 soaked - darker and glossier;
 		// `puddles` 0..1 how much of the ground facing up lies under still water (a mirror there, its
@@ -176,8 +163,8 @@ namespace p3d
 		Texture* GetColorMap() const { return colorMapID >= 0 ? Textures[colorMapID].get() : NULL; }
 		Texture* GetFontMap() const { return fontMapID >= 0 ? Textures[fontMapID].get() : NULL; }
 		// Shares ownership rather than observing, for handing one material's
-		// colormap to another - IRenderer::PickShadowMaterial() lends a
-		// cutout caster's map to the shared alpha-test shadow material, and
+		// colormap to another - a cut-out caster's map lent to a shadow
+		// material, and
 		// that material must not be left holding a dangling pointer if the
 		// caster is destroyed while the shadow material still refers to it.
 		std::shared_ptr<Texture> GetColorMapShared() const { return colorMapID >= 0 ? Textures[colorMapID] : std::shared_ptr<Texture>(); }

@@ -754,8 +754,8 @@ namespace p3d {
 
             // Callers hand this the SceneGraph's ABSOLUTE timer, and that
             // cannot change: SceneGraph::Update() stores the same value for
-            // the renderers to read back as a shader's uTime
-            // (`Timer = Scene->GetTime()` in Forward/DeferredRenderer), so
+            // the renderer to read back as a shader's time (FrameData's
+            // seconds), so
             // turning it into a delta upstream would break every time-driven
             // material. Scripts want the frame delta though - every script in
             // the tree accumulates its argument, e.g. MoveObject.lua's

@@ -4,8 +4,8 @@
 // Description : The engine lights in linear light. Every colour a person picks (a material's colour, a
 //               light's, the ambient, the background) and every colour picture is sRGB-encoded - what
 //               looked right on a screen - and is decoded once, where it enters the renderer. The frame
-//               is encoded again once, at its end (OutputTransformEffect). PyrosShader.glsl's
-//               p3d_ToLinear() is the same curve for what is decoded on the GPU.
+//               is encoded again once, at its end (the backbuffer's sRGB store, after the tonemap). The
+//               shaders' SrgbDecode() (common.glsl) is the same curve for what is decoded on the GPU.
 //============================================================================
 
 #ifndef COLOURSPACE_H

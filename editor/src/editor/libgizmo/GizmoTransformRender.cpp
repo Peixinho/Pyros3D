@@ -37,9 +37,8 @@ Vec4 CGizmoTransformRender::currentColor = Vec4(1, 1, 1, 1);
 
 void CGizmoTransformRender::Initialize()
 {
-	// Nothing to build any more. The gizmo used to compile its own GL program
-	// and allocate a VAO/VBO here; it now feeds DebugRenderer, which owns all
-	// of that behind IRenderDevice and works on GL, Vulkan and Metal alike.
+	// Nothing to build: the gizmo feeds DebugRenderer, whose batches the
+	// renderer draws over its picture (SceneRenderer::AddOverlay) on every backend.
 	initialized = true;
 }
 

@@ -12,8 +12,6 @@
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
-#include <execinfo.h>
-#include <dlfcn.h>
 #endif
 #include <map>
 #include <string>
@@ -602,11 +600,11 @@ namespace p3d {
 			// Add Meshes to Rendering Meshes - and say so, mesh by mesh: whoever
 			// keeps a list of what the scene draws puts them into it (it was
 			// told only that something had changed, and made its list again)
-			RenderState::NoteListed(RenderState::Listed::ComponentOn, Scene, this, Owner);
+			RenderState::Touch();
 			for (std::vector<RenderingMesh*>::iterator k = Meshes[LodInUse].begin(); k != Meshes[LodInUse].end(); k++)
 			{
 				Scene->GetRenderingMeshes().push_back((*k));
-				RenderState::NoteListed(RenderState::Listed::MeshOn, Scene, this, Owner, *k);
+				RenderState::Touch();
 			}
 
 			Registered = true;
@@ -629,7 +627,7 @@ namespace p3d {
 			// the most visible thing about a big world.
 			if (!instant && g_lodFade > 0.f)
 			{
-				for (size_t m = 0; m < now.size(); m++) { listed.push_back(now[m]); RenderState::NoteListed(RenderState::Listed::MeshOn, Scene, this, Owner, now[m]); now[m]->LodFade = 1e-3f; }
+				for (size_t m = 0; m < now.size(); m++) { listed.push_back(now[m]); RenderState::Touch(); now[m]->LodFade = 1e-3f; }
 				for (size_t m = 0; m < was.size(); m++) was[m]->LodFade = -1.f + 1e-3f;
 				lodFadeFrom = (int32)LodInUse;
 				lodFadeStart = LodClock();
@@ -650,12 +648,12 @@ namespace p3d {
 				for (size_t k = listed.size(); k-- > 0;)
 				{
 					if (listed[k] != was[m]) continue;
-					if (put < now.size()) { listed[k] = now[put]; RenderState::NoteListed(RenderState::Listed::MeshSwap, Scene, this, Owner, was[m], now[put]); put++; }
-					else { listed.erase(listed.begin() + k); RenderState::NoteListed(RenderState::Listed::MeshOff, Scene, this, Owner, was[m]); }
+					if (put < now.size()) { listed[k] = now[put]; RenderState::Touch(); put++; }
+					else { listed.erase(listed.begin() + k); RenderState::Touch(); }
 					break;
 				}
 			}
-			for (; put < now.size(); put++) { listed.push_back(now[put]); RenderState::NoteListed(RenderState::Listed::MeshOn, Scene, this, Owner, now[put]); }
+			for (; put < now.size(); put++) { listed.push_back(now[put]); RenderState::Touch(); }
 			LodInUse = lod;
 		}
 	}
@@ -679,7 +677,7 @@ namespace p3d {
 			std::vector<RenderingMesh*> &listed = Scene->GetRenderingMeshes();
 			for (size_t m = 0; m < was.size(); m++)
 				for (size_t k = listed.size(); k-- > 0;)
-					if (listed[k] == was[m]) { listed.erase(listed.begin() + k); RenderState::NoteListed(RenderState::Listed::MeshOff, Scene, this, Owner, was[m]); break; }
+					if (listed[k] == was[m]) { listed.erase(listed.begin() + k); RenderState::Touch(); break; }
 		}
 		for (size_t m = 0; m < was.size(); m++) was[m]->LodFade = 0.f;
 		for (size_t m = 0; m < now.size(); m++) now[m]->LodFade = 0.f;
@@ -693,8 +691,7 @@ namespace p3d {
 			// past its last level of detail - is still in the renderers' kept
 			// lists of components to watch. Said first: whoever reads the log
 			// forgets the component before anything of it.)
-			if (Scene != NULL) RenderState::NoteListed(RenderState::Listed::ComponentOff, Scene, this, Owner);
-			else RenderState::Touch();
+			RenderState::Touch();
 			// Remove from Components vector. This one is a process-wide list,
 			// not the scene's, so it happens whether or not there is a scene
 			// to unregister from - leaving a destroyed component in it is a
@@ -742,7 +739,7 @@ namespace p3d {
 						if ((*k) == (*i1))
 						{
 							Scene->GetRenderingMeshes().erase(k);
-							RenderState::NoteListed(RenderState::Listed::MeshOff, Scene, this, Owner, *i1);
+							RenderState::Touch();
 							break;
 						}
 					}
@@ -1013,14 +1010,14 @@ namespace p3d {
 	void RenderingComponent::SayDrawnChanged()
 	{
 		if (!Registered) return;
-		if (Owner != NULL) RenderState::NoteMoved(Owner); else RenderState::Touch();
+		RenderState::Touch();
 	}
 	// Levels given to one already in a scene: said as the component coming
 	// (whoever keeps the components that have levels takes it up).
 	void RenderingComponent::SayLevelsChanged()
 	{
 		if (!Registered) return;
-		if (Scene != NULL) RenderState::NoteListed(RenderState::Listed::ComponentOn, Scene, this, Owner); else RenderState::Touch();
+		RenderState::Touch();
 	}
 	bool RenderingComponent::IsCastingShadows()
 	{
@@ -1353,97 +1350,8 @@ namespace p3d {
 
 	std::atomic<uint32> RenderingComponent::SeenEpoch(0);
 
-	std::atomic<uint32_t> RenderState::Version(1);
 	std::atomic<uint64_t> RenderState::Structure(1);
-	std::atomic<uint32_t> RenderState::ReadEpoch(1);
-	namespace {
-		// The last so many objects moved, and how many there have ever been.
-		const size_t kMovedKept = 1 << 16;
-		std::vector<GameObject*> &MovedRing() { static std::vector<GameObject*> ring(kMovedKept, (GameObject*)NULL); return ring; }
-		uint64_t g_movedCount = 0;
-		std::mutex &MovedMutex() { static std::mutex m; return m; }
-	}
-	void RenderState::Touch()
-	{
-		Version.fetch_add(1, std::memory_order_relaxed);
-#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
-		static const bool trace = std::getenv("PYROS_TRACE_TOUCH") != NULL;
-		if (trace)
-		{
-			static std::mutex m;
-			static std::map<std::string, uint64_t> by;
-			static uint64_t calls = 0;
-			std::lock_guard<std::mutex> lock(m);
-			void* frames[6];
-			const int n = backtrace(frames, 6);
-			std::string who;
-			for (int i = 1; i < n && i < 5; i++)
-			{
-				Dl_info info;
-				if (dladdr(frames[i], &info) && info.dli_sname) { who += info.dli_sname; who += " < "; }
-			}
-			by[who]++;
-			if (++calls % 3000 == 0)
-			{
-				fprintf(stderr, "[touch] %llu calls so far:\n", (unsigned long long)calls);
-				std::vector<std::pair<uint64_t, std::string> > top;
-				for (std::map<std::string, uint64_t>::iterator i = by.begin(); i != by.end(); ++i) top.push_back(std::make_pair(i->second, i->first));
-				std::sort(top.rbegin(), top.rend());
-				for (size_t i = 0; i < top.size() && i < 6; i++) fprintf(stderr, "[touch]   %8llu  %s\n", (unsigned long long)top[i].first, top[i].second.substr(0, 230).c_str());
-				by.clear();
-			}
-		}
-#endif
-	}
-	void RenderState::NoteMoved(GameObject* object)
-	{
-		std::lock_guard<std::mutex> lock(MovedMutex());
-		MovedRing()[g_movedCount % kMovedKept] = object;
-		g_movedCount++;
-	}
-	uint64_t RenderState::MovedCount()
-	{
-		std::lock_guard<std::mutex> lock(MovedMutex());
-		return g_movedCount;
-	}
-	bool RenderState::MovedSince(const uint64_t seq, std::vector<GameObject*> &out)
-	{
-		std::lock_guard<std::mutex> lock(MovedMutex());
-		out.clear();
-		ReadEpoch.fetch_add(1, std::memory_order_relaxed);
-		if (seq > g_movedCount || g_movedCount - seq > kMovedKept) return false;
-		out.reserve((size_t)(g_movedCount - seq));
-		for (uint64_t k = seq; k < g_movedCount; k++) out.push_back(MovedRing()[k % kMovedKept]);
-		return true;
-	}
-
-	namespace {
-		const uint64_t kListedKept = 16384;
-		std::mutex &ListedMutex() { static std::mutex m; return m; }
-		std::vector<RenderState::Listed> &ListedRing() { static std::vector<RenderState::Listed> r(kListedKept); return r; }
-		uint64_t g_listedCount = 0;
-	}
-	void RenderState::NoteListed(const uint32_t what, SceneGraph* scene, RenderingComponent* component, GameObject* owner, RenderingMesh* mesh, RenderingMesh* other)
-	{
-		std::lock_guard<std::mutex> lock(ListedMutex());
-		Listed &e = ListedRing()[g_listedCount % kListedKept];
-		e.mesh = mesh; e.other = other; e.component = component; e.owner = owner; e.scene = scene; e.what = what;
-		g_listedCount++;
-	}
-	uint64_t RenderState::ListedCount()
-	{
-		std::lock_guard<std::mutex> lock(ListedMutex());
-		return g_listedCount;
-	}
-	bool RenderState::ListedSince(const uint64_t seq, std::vector<Listed> &out)
-	{
-		std::lock_guard<std::mutex> lock(ListedMutex());
-		out.clear();
-		if (seq > g_listedCount || g_listedCount - seq > kListedKept) return false;
-		out.reserve((size_t)(g_listedCount - seq));
-		for (uint64_t k = seq; k < g_listedCount; k++) out.push_back(ListedRing()[k % kListedKept]);
-		return true;
-	}
+	std::atomic<uint64_t> RenderState::Moved(1);
 
 	namespace {
 		std::vector<RenderingComponent*> &Animated() { static std::vector<RenderingComponent*> v; return v; }

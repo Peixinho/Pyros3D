@@ -88,10 +88,8 @@ namespace p3d {
 		// What is set of the variables the main script offers (ScriptProperty): a JSON object, by name.
 		std::string mainScriptProperties;
 
-		// Flat ambient colour, fed to IRenderer::SetGlobalLight() - only
-		// .xyz matter (see PyrosShader.glsl's uAmbientLight.rgb / w is
-		// never sampled by any shader). Defaults to IRenderer's own
-		// constructor default so a scene saved without ever touching this
+		// Flat ambient colour, fed to the renderer's ambient (SceneRenderer::SetAmbient) -
+		// only .xyz matter. Defaults to the renderer's own default so a scene saved without ever touching this
 		// round-trips to the same look; a scene file predating this field
 		// loads the same default too (LoadScene leaves it untouched when
 		// the JSON key is absent).
@@ -100,7 +98,7 @@ namespace p3d {
 		// Environment lighting, the rest of it.
 		//
 		// ambientIntensity scales ambientLight on its way to
-		// IRenderer::SetGlobalLight(), so the colour and how much of it there is
+		// the renderer (SceneSettings), so the colour and how much of it there is
 		// are two separate decisions - the same split Unity's Environment
 		// Lighting makes between an ambient colour and its intensity multiplier.
 		f32 ambientIntensity = 1.f;
@@ -191,8 +189,7 @@ namespace p3d {
 		bool ddgiDynamic = true;
 		// Probes re-traced per frame when dynamic, 0 meaning all of
 		// them. All of them is right on the GPU and far too slow on the
-		// CPU - IRenderer::IsGlobalIlluminationOnGPU is the thing to
-		// ask, and 0 here means "decide for me".
+		// CPU; 0 here means "decide for me".
 		uint32 ddgiProbeBudget = 0;
 		f32 ddgiHysteresis = 0.92f;
 

@@ -793,11 +793,9 @@ static void DrawGenericMaterialInspector(MaterialEditorDocument& doc, const std:
 	CHK(Refraction, "Refract");
 	ImGui::Separator();
 	// ShaderUsage::CastShadows is deliberately NOT offered here. It is not
-	// "this material casts shadows" - it selects the shadow-*depth* program,
-	// whose fragment path ends at `diffuse = vec4(gl_FragCoord.z,0,0,1)`
-	// (PyrosShader.glsl's CASTSHADOWS branch), so setting it on a surface
-	// material just makes it render its own depth as red. The engine builds
-	// its own materials with that flag (IRenderer's constructor) and
+	// "this material casts shadows" (that is the component's: castingShadows) -
+	// it named the old renderer's shadow-depth program, and the engine's own
+	// materials set it themselves, and
 	// PickShadowMaterial() substitutes them for casters; a user material
 	// never wants it. What decides whether an object casts is
 	// RenderingComponent::EnableCastShadows(), per object, not per material.

@@ -27,7 +27,7 @@ namespace p3d {
 
 	namespace BlockCompress {
 
-		// The formats (IRenderDevice::SupportsCompressedFormat / UploadCompressedTexture2D).
+		// The formats (the device layer's BC1..BC7 - Caps().bc).
 		// BC5: two channels, 8 bits a texel - a normal map's x and y, each as finely as BC3's alpha
 		// (the shader makes z from them); BC1's shared colour endpoints smeared a normal map.
 		enum Format { None = 0, BC1 = 1, BC3 = 2, BC5 = 3 };

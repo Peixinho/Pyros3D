@@ -416,7 +416,6 @@ end
 
 function L.build()
 	LIT_USAGE = ShaderUsage.Color + ShaderUsage.Diffuse + ShaderUsage.PBR
-		+ ShaderUsage.DeferredRenderer_Gbuffer
 
 	L.buildShell()
 	L.buildTrack()

@@ -2,7 +2,8 @@
 // Name        : ImpostorQuad
 // Author      : Duarte Peixinho
 // Description : An octahedral impostor's mesh (ShaderUsage::Impostor): one quad of corners -1..1, which
-//               the shader turns to face the eye and sizes to the tree (PyrosShader.glsl, IMPOSTOR). Its
+//               a shader is to turn to face the eye and size to the tree (the renderer does not draw octahedral
+//               impostors yet - a far forest's kinds are drawn as cards). Its
 //               bounds are the tree's - a sphere of `radius` about `centre` metres above its foot - so it
 //               is culled as the tree it stands for, not as the unit square it is made of.
 //============================================================================

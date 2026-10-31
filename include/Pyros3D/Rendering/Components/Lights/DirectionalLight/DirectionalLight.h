@@ -68,11 +68,10 @@ namespace p3d {
 		void SetVolumetric(const Vec4 &params, const Vec4 &tint = Vec4(1, 1, 1, 20)) { volumetric = params; volumetricTint = tint; }
 		const Vec4 &GetVolumetric() const { return volumetric; }
 		const Vec4 &GetVolumetricTint() const { return volumetricTint; }
-		// Ray-traced shadows (the deferred renderer, where the device can trace rays -
-		// IRenderDevice::SupportsRayQuery()): what is solid and still casts by rays traced
-		// toward the sun from every pixel, exact at contact and softening with distance
-		// (`softness`: the sun's angular radius, radians); out to `distance` metres from the
-		// camera. People (skinned) and cut-out or see-through things keep the shadow map.
+		// Ray-traced shadows asked for by the scene's sun (as the renderer's own SetRayTracedShadows): rays
+		// toward the sun from every pixel, exact at contact and softening with distance (`softness`: the
+		// sun's angular radius, radians) - the GPU's ray tracing where it has it, else the shaders' own BVH,
+		// else the shadow maps. (`distance`: kept for scenes that set it.)
 		void SetRayTracedShadows(const bool on, const f32 distance = 150.f, const f32 softness = 0.0093f) { rayShadows = on; rayShadowDistance = distance; raySoftness = softness; }
 		// The shadow cache (IRenderer's sun pass): what stands still is drawn into a cascade's map once
 		// and kept - scrolled as the view moves, its parts redrawn where something arrives, leaves or

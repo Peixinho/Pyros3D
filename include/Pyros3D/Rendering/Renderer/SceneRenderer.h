@@ -386,9 +386,12 @@ namespace p3d {
 		// else the shaders' own walk of the scene's BVH (WebGPU too), and where that is too many triangles for it (and no
 		// hardware), neither: the shadow maps and the screen's reflections, said once
 		bool rtRefused = false;
-		bool RtShadows() const { return rtShadowsOn && !rtRefused; }
-		bool RtReflections() const { return rtReflectionsOn && !rtRefused; }
-		bool ScreenReflections() const { return reflectionsOn || (rtReflectionsOn && rtRefused); }     // (the screen's: asked for, or traced ones refused)
+		// (asked for by the renderer's own settings, or by the scene's sun - DirectionalLight::SetRayTracedShadows/
+		// Reflections, what scenes saved them as)
+		bool rtSunShadows = false, rtSunReflections = false; f32 rtSunSoftness = 0.0093f;
+		bool RtShadows() const { return (rtShadowsOn || rtSunShadows) && !rtRefused; }
+		bool RtReflections() const { return (rtReflectionsOn || rtSunReflections) && !rtRefused; }
+		bool ScreenReflections() const { return reflectionsOn || ((rtReflectionsOn || rtSunReflections) && rtRefused); }     // (the screen's: asked for, or traced ones refused)
 		bool RtHardware() const { return device && device->Caps().rayQuery && rtShadowRQPipeline; }
 		struct RtGeometry { gfx::RayGeometry geometry; uint64 revision = ~0ull; uint32 geometryId = 0; };
 		std::unordered_map<IGeometry*, RtGeometry> rtGeometries;

@@ -46,7 +46,7 @@ namespace p3d {
 		static bool IsLoaded();
 		static const std::string &GetPath();
 		static f32 GetYaw();
-		// Radiance projections (not irradiance): what IRenderer::SetAmbientSH takes.
+		// Radiance projections (not irradiance): what the renderer's ambient SH takes (SceneRenderer).
 		static const SphericalHarmonicsL2 &GetSH();
 		// The direction toward the brightest patch above the horizon - the sun of a daylight sky.
 		static Vec3 GetSunDirection();

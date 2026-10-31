@@ -1,30 +1,15 @@
--- Island water, screen-space reflections variant.
---
--- The island, its water an ordinary opaque
--- G-buffer surface with the DeferredRenderer's material-aware SSR doing
--- the reflection, instead of the planar reflection/refraction multipass.
--- No mirror camera, no clip planes, no reflection/refraction FBOs and no
--- draw override at all - the whole reflection is
--- DeferredRenderer::EnableSSR() plus GenericShaderMaterial::SetSSREnabled()
--- on the water material (see lastPass.glsl's TraceSSR).
---
--- The trade-off vs the planar version is the usual SSR one: only what is
--- already on screen can be reflected, so the island reflects and the sky
--- cannot (the skybox is transparent, drawn in the deferred translucent
--- pass after the SSR composite, so it never reaches the G-buffer at all).
--- The water therefore also carries an ENVMAP cubemap fallback underneath
--- the traced reflection - see buildWater(). That is how SSR is shipped in
--- practice, not a workaround, but it does mean the calm open sea here is
--- mostly cubemap and only the island's reflection is genuinely traced.
+-- The island and its water: a smooth opaque surface whose material asks to be a mirror (setSSREnabled - the
+-- renderer's mirror floor), the island found in it by the screen's reflections, and the sky's own reflection where
+-- they find nothing. Only what the screen shows can be reflected - the usual SSR trade-off; the renderer's
+-- ray-traced reflections (setRayTracedReflections) find the rest.
 local IslandSSRSetup = class('IslandSSRSetup')
 
 local WATER_Y = 6.8
 
 -- Plane.new(h, h) spans -h..h, so a tile is TILE_HALF*2 across, and its
--- UVs run 0..1 over that whole quad. PyrosShader.glsl has no UV-scale
--- uniform anywhere, so the only way to tile the wave normal map across a
--- big water surface is to tile the geometry: GRID x GRID identical quads
--- sharing one mesh and one material.
+-- UVs run 0..1 over that whole quad: the wave normal map tiled across the
+-- water by tiling the geometry - GRID x GRID identical quads sharing one
+-- mesh and one material.
 local TILE_HALF = 25
 local TILE_SIZE = TILE_HALF * 2
 local GRID = 19 -- 19 * 50 = 950 units of water
@@ -65,13 +50,12 @@ function IslandSSRSetup:init(owner)
 	-- Same opt-in the SSR Test demo does (the manifest entry asks for it
 	-- too; doing it here keeps the scene self-contained and gives the UI
 	-- checkbox below a known starting state).
-	if renderer.enableSSR then renderer:enableSSR() end
-	if renderer.setSSRDistances then renderer:setSSRDistances(SSR_STEP, SSR_MAX) end
+	if renderer.setReflections then renderer:setReflections(true, SSR_MAX) end
 	self.ssrOn = true
 
 	local island = Model.new(ASSETS_PATH .. "island.p3dm", true)
 	local gIsland = GameObject.new()
-	local rIsland = RenderingComponent.new(island, ShaderUsage.Diffuse + ShaderUsage.DeferredRenderer_Gbuffer)
+	local rIsland = RenderingComponent.new(island, ShaderUsage.Diffuse)
 	rIsland:disableCullTest()
 	gIsland:addComponent(rIsland)
 	scene:add(gIsland)
@@ -102,20 +86,13 @@ function IslandSSRSetup:buildWater()
 	normalMap:setMinMagFilter(TextureFilter.LinearMipmapLinear, TextureFilter.Linear)
 	self.keep[#self.keep + 1] = normalMap
 
-	-- PBR + a low roughness keeps the surface under lastPass.glsl's
-	-- SSR_ROUGHNESS_CUTOFF, above which it skips the march entirely.
+	-- PBR + a low roughness: the screen's reflections stop at a roughness of 0.4.
 	local mat = GenericShaderMaterial.new(
 		ShaderUsage.Color + ShaderUsage.BumpMapping + ShaderUsage.EnvMap +
-		ShaderUsage.PBR + ShaderUsage.DeferredRenderer_Gbuffer)
-	-- The cubemap under the SSR. SSR can only reflect what's in the
-	-- G-buffer, and the skybox never gets there (it's a transparent
-	-- material, drawn in the deferred translucent pass after the composite),
-	-- so a pure-SSR ocean at sunset reflects the island and nothing else -
-	-- no sky, no sun, which is most of what you actually expect to see in
-	-- water. ENVMAP mixes the mirrored cubemap into `diffuse` in
-	-- PyrosShader.glsl BEFORE the DEFERRED_GBUFFER write, so it lands in
-	-- the albedo target and becomes exactly what lastPass.glsl composites
-	-- the traced island reflection on top of. Standard SSR fallback.
+		ShaderUsage.PBR)
+	-- The sky's cubemap, as the material's environment map (the scene's
+	-- sky is what the renderer reflects where the screen's reflections
+	-- find nothing).
 	local sky = Texture.new()
 	local faces = {
 		{ "posx", TextureType.CubemapPositive_X }, { "negx", TextureType.CubemapNegative_X },
@@ -137,13 +114,8 @@ function IslandSSRSetup:buildWater()
 	mat:setNormalMap(normalMap)
 	mat:setMetallic(0.0)
 	mat:setRoughness(self.roughness)
-	-- uReflectivity does double duty and there is no separating the two:
-	-- PyrosShader.glsl uses it as the ENVMAP blend weight, and writes the
-	-- same value into the G-buffer's mr.a, which lastPass.glsl reads as the
-	-- SSR strength multiplier. So this one number is "how much sky" AND
-	-- "how strong the traced reflection" at once. 0.55 keeps some water
-	-- colour in the surface instead of turning it into a pure mirror; the
-	-- UI slider below lets you find your own balance.
+	-- Reflectivity: the environment map's blend (0.55 keeps some water colour
+	-- in the surface); the UI slider below lets you find your own balance.
 	mat:setReflectivity(self.reflectivity)
 	mat:setSSREnabled(true)
 	self.waterMat = mat
@@ -219,20 +191,7 @@ function IslandSSRSetup:drawUI()
 	local ssr = imgui.checkbox("SSR", self.ssrOn)
 	if ssr ~= self.ssrOn then
 		self.ssrOn = ssr
-		if ssr then
-			if renderer.enableSSR then renderer:enableSSR() end
-		else
-			if renderer.disableSSR then renderer:disableSSR() end
-		end
-	end
-
-	-- Coarse march stride, in screen pixels. 128 * this is how far a
-	-- reflection can reach across the frame; drag it to 1 to see the
-	-- treeline drop out and only the near shoreline survive.
-	local st = imgui.sliderFloat("SSR stride (px)", self.ssrStep, 1.0, 16.0)
-	if st ~= self.ssrStep then
-		self.ssrStep = st
-		if renderer.setSSRDistances then renderer:setSSRDistances(st, SSR_MAX) end
+		if renderer.setReflections then renderer:setReflections(ssr, SSR_MAX) end
 	end
 
 	-- One slider, two effects - see setReflectivity above.
@@ -252,7 +211,6 @@ function IslandSSRSetup:drawUI()
 end
 
 function IslandSSRSetup:destroy()
-	if renderer and renderer.disableSSR then renderer:disableSSR() end
 	if scene then
 		for _, go in ipairs(self.owned) do
 			pcall(function() scene:remove(go) end)

@@ -53,7 +53,7 @@ namespace p3d {
 		// Was Max(w2, h2) - the half-EDGE, not the half-DIAGONAL, so the
 		// sphere didn't contain the plane's own corners: a 50x50 quad got
 		// radius 25 when it needs sqrt(25^2+25^2) = 35.36, leaving each
-		// corner 10.4 units outside. IRenderer::CullingSphereTest() then
+		// corner 10.4 units outside. Culling by that sphere then
 		// frustum-culled quads that were still partly on screen, which
 		// showed up as whole tiles vanishing from a tiled water surface at
 		// specific camera angles (island SSR demo) - deterministic, and

@@ -23,8 +23,7 @@ namespace p3d {
 	//
 	//   * membership - the subtree, plus GameObject tags for anything that
 	//     has to be addressed across layers;
-	//   * filtering  - IRenderer::GroupAndSortAssets() already takes an
-	//     include-only Tag, so "draw only this layer" is a parameter it has
+	//   * filtering  - a renderer can take an include-only Tag, so "draw only this layer" is a parameter it has
 	//     always had;
 	//   * ordering   - the layer root's own z. Under the orthographic camera
 	//     a 2D scene uses, z *is* draw order, and the renderer's existing

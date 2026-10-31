@@ -2983,7 +2983,7 @@ namespace p3d {
 		cl->SetPipeline(pipe);
 		cl->SetBindGroup(hw ? rtShadowRQGroup : rtShadowGroup, &frameOffset, 1);
 		{ static int said = -1; if (said != (int)hw) { said = (int)hw; fprintf(stderr, "[renderer] ray-traced %s: %s\n", "shadows", hw ? "the GPU's ray tracing (ray queries)" : "the shaders' own BVH walk"); } }
-		const f32 dd[4] = { rtSunAngle, hw || (rtScene && rtScene->TriangleCount() > 0) ? 1.f : 0.f, (f32)(frameNumber % 1024), 2000.f };
+		const f32 dd[4] = { rtShadowsOn ? rtSunAngle : rtSunSoftness, hw || (rtScene && rtScene->TriangleCount() > 0) ? 1.f : 0.f, (f32)(frameNumber % 1024), 2000.f };
 		cl->DrawData(dd, sizeof(dd));
 		cl->Draw(3, 1, 0, 0);
 		cl->EndPass();
@@ -4269,7 +4269,22 @@ namespace p3d {
 		// (the shaders' own tracer's scene made before the targets: too big for it, and no hardware - refused, the targets
 		// made without the rays' - the shadow maps and the screen's reflections)
 		if (rtRefused && rtSceneOf != scene) { rtRefused = false; rtScene.reset(); rtSceneOf = nullptr; targetWidth = 0; }     // (another scene: asked again)
-		if ((rtShadowsOn || rtReflectionsOn) && !RtHardware() && !rtRefused) PrepareRayTracing(scene);
+		// (what the scene's sun asks for: its ray-traced shadows - with its softness - and reflections; a change, the targets
+		// made again with the rays' or without)
+		{
+			bool sunShadows = false, sunReflections = false; f32 softness = rtSunSoftness;
+			if (scene)
+				for (IComponent* c : scene->GetLights())
+					if (c && c->GetComponentType() == ComponentType::DirectionalLight)
+					{
+						DirectionalLight* sun = static_cast<DirectionalLight*>(c);
+						sunShadows = sun->GetRayTracedShadows(); sunReflections = sun->GetRayTracedReflections(); softness = sun->GetRayTracedShadowSoftness();
+						break;
+					}
+			if (sunShadows != rtSunShadows || sunReflections != rtSunReflections) { rtSunShadows = sunShadows; rtSunReflections = sunReflections; targetWidth = 0; }
+			rtSunSoftness = softness;
+		}
+		if ((RtShadows() || RtReflections()) && !RtHardware()) PrepareRayTracing(scene);
 		EnsureTargets(view.width, view.height);
 
 		// The frame's data: camera, sun, ambient

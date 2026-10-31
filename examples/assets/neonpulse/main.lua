@@ -51,10 +51,10 @@ local C, Arena, E, Game, Audio
 function init()
 	C = import("config")
 
-	-- Hosted by DemoLauncher (or any host that already owns the stack):
-	-- reuse its Scene/DeferredRenderer/shell camera/projection. Standalone
-	-- NeonPulse.cpp leaves these globals unset and we build our own.
+	-- Hosted by DemoLauncher (or any host that already owns the stack): its
+	-- Scene, renderer, shell camera and projection are reused.
 	local hosted = (scene ~= nil and renderer ~= nil and camera ~= nil and projection ~= nil)
+	if not hosted then error("Neon Pulse runs in a host that gives it scene, renderer, camera and projection (DemoLauncher)") end
 	G._hosted = hosted
 
 	if hosted then
@@ -82,20 +82,6 @@ function init()
 			G.camera:lookAtVec(C.camera.lookAt)
 			if G.camera.refreshTransformation then G.camera:refreshTransformation() end
 		end
-	else
-		G.scene = Scene.new()
-		G.projection = Projection.new()
-
-		if C.renderer == "deferred" then
-			buildDeferredRenderer(SCREEN_W, SCREEN_H)
-		else
-			G.renderer = ForwardRenderer.new(SCREEN_W, SCREEN_H)
-		end
-
-		G.camera = GameObject.new()
-		G.camera:setPosition(C.camera.pos)
-		G.camera:lookAtVec(C.camera.lookAt)
-		G.scene:add(G.camera)
 	end
 
 	-- One soft sprite shared by the ball trails and every impact burst.
@@ -119,42 +105,6 @@ function init()
 	Game.setState("title")
 
 	fitProjection(SCREEN_W, SCREEN_H)
-end
-
--- ***************************** Deferred setup **************************
---
--- The G-buffer DeferredRenderer expects: depth first (its own forward pass
--- copies attachment 0 as depth), then albedo / specular / normal /
--- metallic-roughness as colour attachments 0..3. Normals need the float
--- format - packing them into RGBA8 quantises them badly enough to band
--- the falloff of the ball lights across the flat back panel.
-function buildDeferredRenderer(width, height)
-	-- All seven arguments spelled out: the binding exposes the single
-	-- widest C++ overload, so its default arguments (mipmapping, level,
-	-- msaa) are not optional from Lua.
-	local function target(dataType)
-		local t = Texture.new()
-		t:createEmptyTexture(TextureType.Texture, dataType, width, height, false, 0, 0)
-		t:setRepeat(TextureRepeat.ClampToEdge, TextureRepeat.ClampToEdge, TextureRepeat.ClampToEdge)
-		return t
-	end
-
-	G.gbuffer = {
-		depth    = target(TextureDataType.DepthComponent),
-		albedo   = target(TextureDataType.RGBA),
-		specular = target(TextureDataType.RGBA),
-		normal   = target(TextureDataType.RGBA32F),
-		matrough = target(TextureDataType.RGBA),
-	}
-
-	G.gbufferFBO = FrameBuffer.new()
-	G.gbufferFBO:init(FrameBufferAttachmentFormat.Depth_Attachment, TextureType.Texture, G.gbuffer.depth)
-	G.gbufferFBO:addAttach(FrameBufferAttachmentFormat.Color_Attachment0, TextureType.Texture, G.gbuffer.albedo)
-	G.gbufferFBO:addAttach(FrameBufferAttachmentFormat.Color_Attachment1, TextureType.Texture, G.gbuffer.specular)
-	G.gbufferFBO:addAttach(FrameBufferAttachmentFormat.Color_Attachment2, TextureType.Texture, G.gbuffer.normal)
-	G.gbufferFBO:addAttach(FrameBufferAttachmentFormat.Color_Attachment3, TextureType.Texture, G.gbuffer.matrough)
-
-	G.renderer = DeferredRenderer.new(width, height, G.gbufferFBO)
 end
 
 -- The arena is a fixed-size rectangle, so a narrow window would crop it.
@@ -211,19 +161,7 @@ end
 function resize(width, height)
 	if not C then return end
 	fitProjection(width, height)
-	if G._hosted then
-		-- Host owns renderer + G-buffer resize (DemoLauncher::OnResize).
-		return
-	end
-	G.renderer:resize(width, height)
-	-- The renderer resizes its own internal targets, but the G-buffer
-	-- textures are ours - miss these and the deferred pass keeps sampling
-	-- a stale, wrongly-sized buffer after every window change.
-	if G.gbuffer then
-		-- Trailing mip level is not optional from Lua (see the seven-argument
-		-- createEmptyTexture call above for the same reason).
-		for _, tex in pairs(G.gbuffer) do tex:resize(width, height, 0) end
-	end
+	-- (the host resizes its renderer: DemoLauncher::OnResize)
 end
 
 -- Standalone: optional. Hosted: required so the next demo does not inherit
@@ -245,8 +183,6 @@ function destroy()
 		G.scene = nil
 		G.renderer = nil
 		G.camera = nil
-		G.gbuffer = nil
-		G.gbufferFBO = nil
 		G.projection = nil
 		G.sprite = nil
 		G.owned = nil

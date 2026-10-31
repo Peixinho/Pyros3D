@@ -280,7 +280,7 @@ namespace p3d {
 
 		// Bumped every time SendBuffers() hands a fresh set of GPU buffers to
 		// this geometry. Anything that caches state derived from those
-		// buffers' handles - IRenderer::BindMesh()'s per-shader VAO cache
+		// buffers' handles - the renderer's GPU copy of a mesh (SceneRenderer::MeshFor)
 		// above all - has to compare this against the revision it cached at
 		// and rebuild when they differ. Without it, a geometry that is
 		// disposed and rebuilt in place (Text::UpdateText() is the one that

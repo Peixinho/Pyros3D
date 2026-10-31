@@ -2621,7 +2621,7 @@ bool SceneEditor::BakeOctahedralImpostor(const json& a, json& out, std::string& 
 	for (uint32 fy = 0; fy < N && ok; fy++)
 		for (uint32 fx = 0; fx < N && ok; fx++)
 		{
-			// the frame's direction (PyrosShader.glsl's p3d_ImpFrameUV: grid cell -> -1..1 -> hemi-octahedral)
+			// the frame's direction (grid cell -> -1..1 -> hemi-octahedral)
 			const Vec3 d = hemiOctDecode((f32)fx / (f32)(N - 1) * 2.f - 1.f, (f32)fy / (f32)(N - 1) * 2.f - 1.f);
 			const Vec3 up0 = fabsf(d.y) > 0.999f ? Vec3(0.f, 0.f, -1.f) : Vec3(0.f, 1.f, 0.f);
 			const Vec3 r = up0.cross(d).normalize();
@@ -2719,7 +2719,7 @@ bool SceneEditor::BakeOctahedralImpostor(const json& a, json& out, std::string& 
 					normals[di] = (unsigned char)((n.x * 0.5f + 0.5f) * 255.f + 0.5f);
 					normals[di + 1] = (unsigned char)((n.y * 0.5f + 0.5f) * 255.f + 0.5f);
 					normals[di + 2] = (unsigned char)((n.z * 0.5f + 0.5f) * 255.f + 0.5f);
-					// (alpha: the crown's occlusion - PyrosShader.glsl's impostor path darkens the leaves by it)
+					// (alpha: the crown's occlusion - for an impostor's shading to darken the leaves by)
 					normals[di + 3] = (unsigned char)(Max(0.f, Min(1.f, occ[t])) * 255.f + 0.5f);
 				}
 		}

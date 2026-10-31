@@ -40,8 +40,7 @@ struct RendererView
 
 #include <memory>
 namespace p3d { class Texture; }
-// A texture asset as ImGui shows it: on the renderer, the device layer's copy of it (SceneRenderer::GpuTexture - a picture, sRGB);
-// else the old device's (IRenderDevice::GetImGuiTextureID)
+// A texture asset as ImGui shows it: the device layer's copy of it (SceneRenderer::GpuTexture - a picture, sRGB)
 void* EditorImGuiTexture(p3d::Texture* texture);
 inline void* EditorImGuiTexture(const std::shared_ptr<p3d::Texture> &texture) { return EditorImGuiTexture(texture.get()); }
 

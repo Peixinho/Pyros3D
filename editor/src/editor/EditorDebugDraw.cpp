@@ -93,9 +93,8 @@ static void drawArc(DebugRenderer* dbg, const Vec3& center, const Vec3& x, const
 	}
 }
 
-// A light's direction is stored in its owner's LOCAL space - every renderer
-// transforms it by the owner's world matrix before use (see
-// ForwardRenderer/DeferredRenderer). Drawing the raw vector showed where the
+// A light's direction is stored in its owner's LOCAL space - the renderer
+// transforms it by the owner's world matrix before use (SceneRenderer). Drawing the raw vector showed where the
 // light would point on an unrotated object, so rotating a light with the
 // gizmo left its arrow/cone pointing the old way while the lighting moved.
 static Vec3 lightWorldDirection(GameObject* go, const Vec3& localDir) {

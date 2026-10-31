@@ -43,8 +43,7 @@ local function buildOne(kind)
 	-- Its own material instance, so a hit can flash this one enemy
 	-- without lighting up every other member of the pool.
 	local bodyMat = GenericShaderMaterial.new(
-		ShaderUsage.Color + ShaderUsage.Diffuse + ShaderUsage.PBR
-		+ ShaderUsage.DeferredRenderer_Gbuffer)
+		ShaderUsage.Color + ShaderUsage.Diffuse + ShaderUsage.PBR)
 	bodyMat:setColor(vec4(C.color[kind]))
 	bodyMat:setRoughness(0.88)
 	bodyMat:setMetallic(0.0)

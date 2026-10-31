@@ -51,12 +51,9 @@ namespace p3d {
 
 		// Scalar multiplier on Color, kept separate from it so a light's hue
 		// and its brightness stay independently authorable (a Vec4 colour
-		// clamped at 1.0 per channel can't express "white, but 3x") - the
-		// deferred second pass is a real Cook-Torrance BRDF whose diffuse
-		// lobe is albedo/PI, so reproducing ForwardRenderer's non-physical
-		// bare-Lambert brightness needs roughly a PI multiplier here rather
-		// than a washed-out colour. Defaults to 1.0, so every existing light
-		// keeps its exact current output.
+		// clamped at 1.0 per channel can't express "white, but 3x"). The
+		// renderer takes it as what a white surface lit head-on at a metre
+		// gives back. Defaults to 1.0.
 		f32 GetLightIntensity() const { return Intensity; }
 		void SetLightIntensity(const f32 intensity) { Intensity = intensity; }
 
@@ -73,13 +70,10 @@ namespace p3d {
 
 		// Volumetric in-scattering - how much light this one scatters back
 		// to the eye out of the medium it passes through, on top of what it
-		// does to surfaces. Consumed by DeferredRenderer's point and spot
-		// passes (see secondpassSpot.glsl's march); directional lights
-		// ignore it for now.
-		//
-		// Density defaults to 0, which skips the march entirely - so this
-		// costs nothing at all for every light that doesn't ask for it, and
-		// no existing scene changes behaviour.
+		// does to surfaces - a point or spot light's beam through the air.
+		// (Kept with the light and saved with scenes; the renderer does not
+		// march a light's own beam yet - its volumetrics are the scene's fog
+		// volumes and the sun's shafts.) Density defaults to 0: none.
 		void SetVolumetricScattering(const f32 density) { volumetricDensity = density; }
 		f32 GetVolumetricScattering() const { return volumetricDensity; }
 		// Henyey-Greenstein g in (-1,1). Positive is forward-scattering,
@@ -126,11 +120,10 @@ namespace p3d {
 		f32 GetShadowNormalBias() const { return ShadowNormalBias; }
 		static constexpr f32 MaxShadowNormalBias = 7.9f;
 
-		// Both of the above, packed into the one float slot the forward
-		// light matrix and the deferred passes carry for them: the integer
-		// part is the filter radius, the fraction is normal bias / 8.
-		// Decoded by ShadowFilterRadius()/ShadowNormalOffset() in the
-		// shaders (PyrosShader.glsl, secondpass*.glsl, MaterialCodegen).
+		// Both of the above, packed into one float as scenes save them: the
+		// integer part is the filter radius, the fraction is normal bias / 8.
+		// (The renderer filters its shadows its own way - these are kept with
+		// the light and saved, not yet read by it.)
 		//
 		// And a third, the penumbra (SetShadowPenumbra): its centimetres are four times
 		// the integer part's worth over the radius - integer = radius + 4 x centimetres -

@@ -8935,7 +8935,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			// it ("the scene has no lights") and, with "Follow moving
 			// lights" off, the room stays unlit until Solve is pressed.
 			// Until then mode 3 has no volume and renders as flat
-			// ambient - see IRenderer::EffectiveAmbientMode.
+			// ambient (the renderer's SceneSettings).
 			ddgiBuilt = false;
 			ddgiSolveAfterUpdate = (ambientMode == 3);
 			for (uint32 i = 0; i < 9; i++) ambientSH[i] = meta.ambientSH[i];
@@ -16294,11 +16294,8 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		return true;
 	}
 
-	// Reads back the exact texture ShowViewport() hands to ImGui: for
-	// Deferred that is the renderer's own composite (its final pass targets
-	// framebuffer 0, so EffectsManager's capture holds only the overlay -
-	// see ShowViewport()'s comment on the same two lines), for Forward the
-	// captured viewport colour. Nothing is re-rendered, so this reports what
+	// Reads back the exact texture ShowViewport() hands to ImGui - the
+	// renderer's picture of the viewport. Nothing is re-rendered, so this reports what
 	// is on screen rather than what a second renderer would have drawn.
 	//
 	// The GL caveat on the offscreen path applies here too - reading the

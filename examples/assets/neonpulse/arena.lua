@@ -24,20 +24,14 @@ end
 
 -- ****************************** Materials ******************************
 
-A.deferred = false   -- set by A.build() from C.renderer
-
 -- Lit: shaded by the directional fill and, more importantly, by the point
 -- light riding on the ball - that moving pool of light across the back
 -- panel and the brick faces is most of what sells the depth here.
---
--- On the deferred path the same material additionally writes the G-buffer.
--- Diffuse (not PBR) is kept deliberately: the deferred pass derives
--- roughness from uShininess for non-PBR materials, so the per-material
--- shininess below still controls the highlight, and the colours stay the
--- literal palette values rather than becoming metal/roughness inputs.
+-- Diffuse (not PBR) deliberately: the renderer takes a classic material's
+-- roughness from its shininess, so the per-material shininess below still
+-- controls the highlight, and the colours stay the literal palette values.
 function A.lit(color, shininess)
 	local usage = ShaderUsage.Color + ShaderUsage.Diffuse
-	if A.deferred then usage = usage + ShaderUsage.DeferredRenderer_Gbuffer end
 	local m = GenericShaderMaterial.new(usage)
 	m:setColor(color)
 	m:setSpecular(Vec4.new(0.55, 0.75, 0.95, 1))
@@ -45,33 +39,12 @@ function A.lit(color, shininess)
 	return keep(m)
 end
 
--- Unlit: flat full-brightness colour, no lighting term at all. This is the
--- "neon tube" material - trim strips, the ball core, the grid.
---
--- These deliberately do NOT write the G-buffer. A deferred G-buffer has
--- nowhere to put "this surface emits light and must not be shaded", so an
--- unlit material pushed through it would come back shaded like everything
--- else and the neon would go dark. Flagging them transparent instead puts
--- them in DeferredRenderer's forward pass, which runs after the lighting
--- composite and depth-tests against the G-buffer depth.
---
--- The catch: IMaterial::IsDepthWritting() reports false for *any*
--- transparent material unless depth testing was explicitly enabled, and
--- the translucent bucket is sorted back-to-front by object origin - so
--- these solid, fully-opaque neon pieces stopped writing depth the moment
--- they were flagged, and started resolving against each other by sort
--- order instead of per pixel. That is what put the grid on top of the ball
--- trail. EnableDepthTest() sets the forceDepthWrite flag that overrides
--- the transparent default, which is exactly right here: nothing about
--- these is actually translucent, they only ride the transparent pass to
--- escape the G-buffer.
+-- Unlit: flat full-brightness colour, no lighting term at all (no Diffuse:
+-- the renderer lights it with nothing). This is the "neon tube" material -
+-- trim strips, the ball core, the grid.
 function A.unlit(color)
 	local m = GenericShaderMaterial.new(ShaderUsage.Color)
 	m:setColor(color)
-	if A.deferred then
-		m:setTransparencyFlag(true)
-		m:enableDepthTest(0)
-	end
 	return keep(m)
 end
 
@@ -101,9 +74,7 @@ function A.build()
 	local a = C.arena
 	local col = C.color
 
-	A.deferred = (C.renderer == "deferred")
-	A.lightGain = A.deferred and C.deferredLightGain or 1.0
-	print("GBUFDBG-LUA C.renderer=" .. tostring(C.renderer) .. " A.deferred=" .. tostring(A.deferred) .. " G._hosted=" .. tostring(G._hosted))
+	A.lightGain = C.lightGain or 1.0
 
 	A.mat.panel  = A.lit(col.panel, 8)
 	A.mat.wall   = A.lit(col.wall, 40)

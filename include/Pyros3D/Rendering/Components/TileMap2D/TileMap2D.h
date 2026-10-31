@@ -10,8 +10,7 @@
 //
 //               Storage is sparse 32x32 chunks, and a chunk is one geometry.
 //               Both follow from the same fact: culling is per RenderingMesh,
-//               i.e. per geometry (IRenderer::ShadowCasterVisible dispatches
-//               on rmesh->CullingGeometry), so chunking is what lets a large
+//               i.e. per geometry, so chunking is what lets a large
 //               map submit only the part of itself that is on screen. Sparse
 //               so a level that grows leftwards costs nothing and never needs
 //               rebasing.

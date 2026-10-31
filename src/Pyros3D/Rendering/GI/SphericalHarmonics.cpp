@@ -131,7 +131,7 @@ namespace p3d {
 	Vec3 SphericalHarmonicsL2::Irradiance(const Vec3 &normal) const
 	{
 		const f32 x = normal.x, y = normal.y, z = normal.z;
-		// Mirrors the shader's SHIrradiance() in PyrosShader.glsl exactly.
+		// Mirrors the shaders' SkyIrradiance() (skylight.glsl) exactly.
 		// If one changes, the other must - a CPU/GPU divergence here shows
 		// up as ambient that shifts when a material switches between the
 		// forward and deferred paths, which is a miserable thing to chase.

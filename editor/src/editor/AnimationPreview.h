@@ -1,8 +1,8 @@
 //=============================================================================
 // Name        : AnimationPreview.h
-// Description : The Animation Editor's 3D viewport: a private SceneGraph +
-//               ForwardRenderer + PostEffectsManager rendering the bound
-//               .p3dm into an ImGui::Image, with the skeleton drawn over it
+// Description : The Animation Editor's 3D viewport: a private SceneGraph
+//               drawn by a RendererView (the renderer) into an ImGui::Image -
+//               the bound .p3dm, with the skeleton drawn over it
 //               through a DebugRenderer and a libgizmo manipulator on the
 //               selected bone.
 //
@@ -323,12 +323,10 @@ private:
 	// roll visible. Wireframe rather than solid because DebugRenderer draws
 	// with depth testing off (so gizmos stay on top), and filled bones would
 	// paint over the mesh they are supposed to be inside.
-	// A joint marker as three short crossed lines rather than a GL point.
-	// DebugRenderer's point path cannot be sized: the shared debug shader
-	// deliberately omits gl_PointSize (see PyrosShader.glsl - declaring the
-	// aSize attribute without a matching vertex-input binding breaks
-	// CreatePipeline on Vulkan), and PointsSizeBF is filled but never bound
-	// to the VAO. That left points at the driver default - a 1px dot on GL,
+	// A joint marker as three short crossed lines rather than a point: the
+	// overlay the renderer draws DebugRenderer's batches with has lines and
+	// triangles, no sized points (a point there is a small cross too). Before,
+	// points were left at the driver default - a 1px dot on GL,
 	// and on Metal an *undefined* size, which rasterised every joint as a
 	// screen-filling square and buried the whole skeleton.
 	//

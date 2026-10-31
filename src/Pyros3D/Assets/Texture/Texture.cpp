@@ -501,8 +501,7 @@ namespace p3d {
 		// texture and silently substitutes the zero texture for it - which
 		// is how SSAO ended up sampling nothing on that backend - and every
 		// caller in the engine already sets Nearest by hand right after this
-		// (see DirectionalLight/SpotLight::EnableCastShadows and
-		// PostEffectsManager::Init). Setting it here instead of relying on
+		// (see DirectionalLight/SpotLight::EnableCastShadows). Setting it here instead of relying on
 		// each caller to remember means the texture is never *created*
 		// wrong, so the driver has nothing to reject in the window between
 		// CreateTexture() below and the caller's own SetMinMagFilter().

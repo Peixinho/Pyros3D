@@ -1,6 +1,6 @@
 //============================================================================
 // Name        : PyrosLuaCore.cpp
-// Description : Scene, GameObject, Projection, ForwardRenderer.
+// Description : Scene, GameObject, Projection, and what a game sets of the renderer's globals.
 //============================================================================
 
 #ifdef LUA_BINDINGS
@@ -111,9 +111,8 @@ namespace p3d {
 			for (auto a : va) { if (n >= 4) break; v[n++] = a.get<f32>(); }
 			ShaderGlobals::Set(index, Vec4(v[0], v[1], v[2], v[3]));
 		});
-		// The old renderer's post effects (an effect asset's parameters, switched on and off) and its sea-level mirror:
-		// the renderer has none of them - kept so the games that set them still run (false: nothing was set)
-		// The old effect chain's parameters a game still sets, where the renderer has them: the Sky's weather - its
+		// Post effects as games set them (an effect asset's parameters, switched on and off) and a sea-level mirror:
+		// kept so the games that set them still run (false: nothing was set). The parameters a game still sets, where the renderer has them: the Sky's weather - its
 		// clouds' cover (0..1), its haze (per metre: 0.0012 the clear air's) and its rain (0..1: the world wet and
 		// puddled in proportion). The rest - there is no effect chain - say false.
 		lua->set_function("setPostEffectParam", [](const std::string &effect, const std::string &param, sol::variadic_args va) {

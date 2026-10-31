@@ -287,7 +287,7 @@ namespace p3d {
 		void Refresh() { Touch(); }
 
 		// Rebuilds the scene's changed sprites and re-merges its batches.
-		// IRenderer::PreRender calls this, so nothing else has to.
+		// The renderer calls this before it gathers a scene (SceneRenderer), so nothing else has to.
 		static void FlushScene(SceneGraph* scene);
 
 		virtual void Register(SceneGraph* Scene) {}

@@ -184,11 +184,10 @@ namespace p3d {
 		bool IsActive() { return active; }
 		void Disable() { const bool was = active; active = false; if (was && ChangesWhatIsDrawn()) SayDrawnChanged(); }
 		void Enable() { const bool was = active; active = true; if (!was && ChangesWhatIsDrawn()) SayDrawnChanged(); }
-		// Whether switching it on or off changes what a renderer's kept list of
-		// a scene holds (RenderState): a component that draws meshes, yes.
+		// Whether switching it on or off changes what is drawn - what a sprite
+		// batch over it keeps (RenderState): a component that draws meshes, yes.
 		virtual bool ChangesWhatIsDrawn() const { return false; }
-		// How it is said: everything listed again, unless the component knows a
-		// narrower way (RenderingComponent: only its own entries are read again).
+		// How it is said (RenderState::Touch; RenderingComponent: only once it is in a scene).
 		virtual void SayDrawnChanged() { RenderState::Touch(); }
 
 		virtual const f32 &GetBoundingSphereRadius() const { return BoundingSphereRadius; }

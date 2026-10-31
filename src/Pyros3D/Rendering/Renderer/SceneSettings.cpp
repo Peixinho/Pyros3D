@@ -32,7 +32,7 @@ namespace p3d {
 	void ApplySceneSettings(SceneRenderer &renderer, const Vec4 &ambient, const f32 k, const Vec4 &background,
 		const std::vector<SceneMeta::PostEffectEntry> &postEffects, const bool twoD)
 	{
-		// (both picked colours: sRGB, as the old renderer takes them - IRenderer::ScaleAmbient)
+		// (both picked colours: sRGB, decoded here)
 		renderer.SetAmbient(Vec3(ToLinear(ambient.x) * k, ToLinear(ambient.y) * k, ToLinear(ambient.z) * k));
 		renderer.SetBackground(Vec3(ToLinear(background.x), ToLinear(background.y), ToLinear(background.z)));
 		bool sky = false, autoExposure = true, reflections = false;

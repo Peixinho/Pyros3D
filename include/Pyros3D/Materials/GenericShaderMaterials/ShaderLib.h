@@ -43,7 +43,7 @@ namespace p3d
 			TextRendering = 0x8000,
 			DebugRendering = 0x10000,
 			ClipPlane = 0x20000,
-			DeferredRenderer_Gbuffer = 0x40000,
+			DeferredRenderer_Gbuffer = 0x40000,     // (ignored: the old deferred renderer's - kept so scenes and scripts that set it still load)
 			ParallaxMapping = 0x80000,
 			InstancedRendering = 0x100000,
 			VelocityRendering = 0x200000,

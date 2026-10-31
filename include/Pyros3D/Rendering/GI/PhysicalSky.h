@@ -12,7 +12,7 @@
 
 namespace p3d {
 
-	// toSun: the way to the sun (normalised); sunStrength: IRenderer::GetSunHint's (the sun's radiance over
+	// toSun: the way to the sun (normalised); sunStrength: the sun's radiance over
 	// PI); haze and sunPower: the Sky effect's uAirHaze and uAirSunPower; groundAlbedo: what the ground below
 	// the horizon reflects of the sun and the sky (0.15: grass, soil and rock on average). The result is in
 	// the scene's light units, as the sky is drawn: a surface under it is lit as the picture of the sky says.
@@ -23,7 +23,7 @@ namespace p3d {
 	// the same column of air and air mass the Sky effect lights its sky with - a sun's light reddens
 	// as the sky does. haze: the Sky effect's uAirHaze.
 	PYROS3D_API Vec3 PhysicalSunTransmittance(const f32 sunY, const f32 haze);
-	// (the haze the scene's sky has - IRenderer::SetSkyAmbient keeps it; a sun's colour follows it)
+	// (the haze the scene's sky has; a sun's colour follows it)
 	PYROS3D_API void SetSunAirHaze(const f32 haze);
 	PYROS3D_API f32 GetSunAirHaze();
 

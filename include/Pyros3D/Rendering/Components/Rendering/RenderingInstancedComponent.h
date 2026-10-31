@@ -45,8 +45,8 @@ namespace p3d {
 			// left with it, and the field covers the ground as it did.
 			void SetInstanceGrowth(const f32 width, const f32 height) { instanceGrowth = Vec2(width, height); }
 			// How many instances, to the fraction (0: not said - all drawn as they are). The instance past
-			// the whole part is drawn dissolved by the fraction (PyrosShader.glsl, vInstanceFade): a block
-			// thinning with distance lets its plants go one at a time, each fading, instead of each vanishing.
+			// the whole part is to be drawn dissolved by the fraction, a block thinning with distance letting its
+			// plants go one at a time, each fading (the renderer draws the whole part, the growth, not the fade yet).
 			void SetInstanceKeep(const f32 keep) { instanceKeep = keep; }
 			f32 instanceKeep = 0.f;
 			const Vec2 &GetInstanceGrowth() const { return instanceGrowth; }

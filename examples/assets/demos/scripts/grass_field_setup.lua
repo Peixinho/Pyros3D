@@ -117,8 +117,7 @@ end
 
 function GrassFieldSetup:buildGround()
 	local mat = GenericShaderMaterial.new(
-		ShaderUsage.Color + ShaderUsage.Diffuse + ShaderUsage.PBR +
-		ShaderUsage.DeferredRenderer_Gbuffer)
+		ShaderUsage.Color + ShaderUsage.Diffuse + ShaderUsage.PBR)
 	mat:setColor(Vec4.new(0.16, 0.21, 0.12, 1.0))
 	mat:setRoughness(0.9)
 	self.keep[#self.keep + 1] = mat
@@ -167,8 +166,7 @@ function GrassFieldSetup:buildGrass()
 	local mat = GenericShaderMaterial.new(
 		ShaderUsage.Texture + ShaderUsage.Diffuse + ShaderUsage.PBR +
 		ShaderUsage.AlphaTest + ShaderUsage.InstancedRendering +
-		ShaderUsage.InstancedColor + ShaderUsage.VertexWind +
-		ShaderUsage.DeferredRenderer_Gbuffer)
+		ShaderUsage.InstancedColor + ShaderUsage.VertexWind)
 	mat:setColorMap(tex)
 	mat:setAlphaCutoff(self.cutoff)
 	mat:setRoughness(0.85)
@@ -198,8 +196,7 @@ function GrassFieldSetup:buildGrass()
 	local lodMat = GenericShaderMaterial.new(
 		ShaderUsage.Texture + ShaderUsage.Diffuse + ShaderUsage.PBR +
 		ShaderUsage.AlphaTest + ShaderUsage.InstancedRendering +
-		ShaderUsage.InstancedColor + ShaderUsage.VertexWind +
-		ShaderUsage.DeferredRenderer_Gbuffer)
+		ShaderUsage.InstancedColor + ShaderUsage.VertexWind)
 	lodMat:setColorMap(clumpTex)
 	lodMat:setAlphaCutoff(self.cutoff)
 	lodMat:setRoughness(0.85)

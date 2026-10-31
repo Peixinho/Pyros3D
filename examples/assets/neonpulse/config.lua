@@ -8,23 +8,11 @@
 
 local C = {}
 
--- ******************************* Renderer ******************************
+-- ******************************* Lights *******************************
 --
--- "deferred" or "forward". Both are fully supported; the arena is built
--- the same way either side of the switch, only the materials and the
--- light intensities change (see arena.lua).
---
--- Deferred is the interesting one here: the lit geometry goes through the
--- G-buffer and gets Cook-Torrance shading from every ball light at once,
--- while the unlit neon (trim, grid, ball cores, HUD) rides the deferred
--- renderer's forward/transparent pass so it stays full-brightness.
-C.renderer = "deferred"
-
--- DeferredRenderer's second pass is PBR-only: its diffuse lobe is
--- albedo/PI where ForwardRenderer's is a bare Lambert, so the same light
--- lands roughly PI times dimmer. Light intensities are scaled by this on
--- the deferred path to bring the two back into line.
-C.deferredLightGain = 3.14159
+-- The ball lights' intensities as the arena was tuned (its look was set
+-- with the lights this much brighter than their nominal values).
+C.lightGain = 3.14159
 
 -- ******************************** Arena ********************************
 

@@ -194,17 +194,13 @@ namespace p3d {
 		SceneGraph* GetScene() const { return Scene; }
 		// The scene this object is in, through whatever it hangs from (NULL: none).
 		SceneGraph* GetOwningScene() { return FindScene(); }
-		// Says this object's place or size in the world was worked out again
-		// (RenderState's moved log) - once between one reading of the log and the next.
+		// Says this object's place or size in the world was worked out again (RenderState::Moved - a sprite batch over
+		// it then looks again; it was noted only once, ever, after the old renderer that read a log of them went)
 		void NoteMovedOnce()
 		{
 			if (s_drawEpoch != 0 && _DrawSlot < 0) NoteForDraw(this);
-			const uint32_t epoch = RenderState::ReadEpoch.load(std::memory_order_relaxed);
-			if (_MovedNoted == epoch) return;
-			_MovedNoted = epoch;
-			RenderState::NoteMoved(this);
+			RenderState::NoteMoved();
 		}
-		uint32_t _MovedNoted = 0;
 		// Whether LookAt(GameObject*) is currently in force. Goes false on
 		// its own if the target is destroyed.
 		bool IsLookingAtGameObject() const { return _IsLookingAtGameObject; }

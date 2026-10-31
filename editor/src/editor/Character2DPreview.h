@@ -1,7 +1,7 @@
 //=============================================================================
 // Name        : Character2DPreview.h
-// Description : The Character 2D editor's viewport: a private SceneGraph +
-//               ForwardRenderer holding ONE GameObject - the character being
+// Description : The Character 2D editor's viewport: a private SceneGraph,
+//               drawn by a RendererView, holding ONE GameObject - the character being
 //               authored - viewed through an orthographic camera.
 //
 //               Private, not the open scene. Authoring a character inside a
