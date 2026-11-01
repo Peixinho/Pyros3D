@@ -74,9 +74,10 @@ int main()
 	HeightfieldMesh::Build(data, 1, 3.f, m1);
 	HeightfieldMesh::Build(data, 4, 3.f, m4);
 	HeightfieldMesh::Build(data, 3, 3.f, m3);
-	check(m1.vertex.size() == 65 * 65 + 4 * 65 && m1.index.size() == 64 * 64 * 6 + 4 * 64 * 6, "step 1: every point, plus skirts");
-	check(m4.vertex.size() == 17 * 17 + 4 * 17, "step 4: every fourth point");
-	check(m3.vertex.size() == 33 * 33 + 4 * 33, "step 3 rounds down to 2, which divides the grid");
+	check(m1.vertex.size() == 65 * 65 + 4 * 65 && m1.index.size() == 64 * 64 * 6 + 4 * 64 * 12, "step 1: every point, plus skirts (drawn from both sides)");
+	// (a coarser level: its own grid, and its border stitched at the full resolution - every edge point, and its skirt)
+	check(m4.vertex.size() == 17 * 17 + 4 * 65 + 4 * 65, "step 4: every fourth point, the border at full resolution");
+	check(m3.vertex.size() == 33 * 33 + 4 * 65 + 4 * 65, "step 3 rounds down to 2, which divides the grid");
 	check(near(m4.vertex[16].x, 128.f, 1e-4f), "the last column lands on the tile's edge");
 	bool skirtBelow = true;
 	for (size_t i = 65 * 65; i < m1.vertex.size(); i++)
@@ -187,7 +188,8 @@ int main()
 		HeightfieldMesh::Build(d, 2, 0.f, wide);
 		d.holes.clear();
 		HeightfieldMesh::Build(d, 2, 0.f, coarseWhole);
-		check(coarse.index.size() == coarseWhole.index.size(), "a hole smaller than a coarse cell closes at that level");
+		// (closed: the coarse grid whole - 4 x 4 cells of two triangles; a holed tile is not stitched, so not coarseWhole's count)
+		check(coarse.index.size() == 4 * 4 * 6, "a hole smaller than a coarse cell closes at that level");
 		check(wide.index != coarseWhole.index, "a wider one stays open");
 		bool inside = true;
 		for (size_t i = 0; i + 2 < wide.index.size(); i += 3)

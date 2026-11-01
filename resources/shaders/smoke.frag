@@ -155,6 +155,13 @@ vec4 March(vec3 ro, vec3 rd, float tEnd, int maxSteps)
 			vec3 inCells = (p - uVolA[v].xyz) / uVolA[v].w;
 			vec3 toEdge = min(inCells, uVolB[v].xyz - inCells);
 			c.x *= smoothstep(0.0, 4.0, min(min(toEdge.x, toEdge.z), uVolB[v].y - inCells.y));
+			// (and rounded, its edge broken up: thinned over the box's straight faces alone, a cloud that filled its grid
+			// showed the box - flat sides, square corners. Out toward an ellipsoid in the box - the floor kept, smoke lies on
+			// it - with the edge moved about by a slow noise)
+			vec3 q = inCells / max(uVolB[v].xyz, vec3(1.0)) * 2.0 - 1.0;
+			q.y = max(q.y, 0.0);
+			float edgeNoise = vnoise(p * 0.35 + vec3(0.0, -time * 0.05, 0.0)) - 0.5;
+			c.x *= 1.0 - smoothstep(0.62, 1.04, length(q) + edgeNoise * 0.3);
 			float fade = uVolD[v].x;
 			float kind = uVolD[v].z;
 			float d = c.x * uVolD[v].y * (kind < 0.5 ? fade : mix(0.3, 1.0, fade));
