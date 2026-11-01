@@ -58,6 +58,8 @@ namespace p3d {
 			bool scalCur = false, velCur = false, presCur = false;
 			f64 clock = 0.0;                   // (the clouds' clock it has been stepped to)
 			f32 age = 0.f;                     // (seconds it has been simulated)
+			bool closedSides = false;          // (indoors: the box's sides keep the smoke in)
+			f32 enclosed = 0.f;                // (0 in the open .. 1 under a roof: the share of columns over the canister with a cover above it)
 			std::vector<f32> pendingSteps;     // (Prepare's: the steps' seconds)
 			uint64 lastUsed = 0;
 			uint32 lightSlice = 0, lightAxis = 1;     // (the light pass's slice, and the axis it goes along)

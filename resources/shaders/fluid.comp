@@ -40,6 +40,7 @@ layout(set = 0, binding = 0, std140) uniform DrawData
 	vec4 sun;        // xyz toward the sun, w the smoke's extinction (a metre, at 1)
 	vec4 emit;       // x 1 while the emitter runs, y how wide its noise breaks it up, z the fade (0..1: 1 none), w seed
 	vec4 turb;       // x turbulence's push (m/s2) where there is smoke or heat, y its scale (a metre), z how fast it changes, w the speed limit
+	vec4 extra;      // x 1 where the box's sides hold the smoke in (under a roof: the room's walls stop it, not the box)
 } uSim;
 
 // (four half floats a cell, eight bytes: what the solver spends its time on is reading memory)
@@ -230,7 +231,7 @@ void main()
 			}
 			s.xyz = clamp(s.xyz, vec3(0.0), vec3(4.0, 3.0, 4.0));
 			// the open sides and top: what reaches them leaves (kept, it piled up against the box's lid in a slab)
-			if (c.x == 0 || c.z == 0 || c.x == N.x - 1 || c.z == N.z - 1 || c.y == N.y - 1) s.xyz = vec3(0.0);
+			if (uSim.extra.x < 0.5 && (c.x == 0 || c.z == 0 || c.x == N.x - 1 || c.z == N.z - 1 || c.y == N.y - 1)) s.xyz = vec3(0.0);
 		}
 		SetScal(!sc, i, s);
 		return;
@@ -305,6 +306,9 @@ void main()
 				v.xyz = mix(v.xyz, target, smoothstep(1.0, 0.2, r) * min(dt * 12.0, 1.0));
 			}
 		}
+		// (the air's drag on a cloud that has settled - jet.w below 0: minus its rate, a second. Still air in a room stops what
+		// is left moving; without it the cloud went on churning as hard as while the canister poured)
+		if (uSim.jet.w < 0.0) v.xyz *= exp(uSim.jet.w * dt);
 		// (no faster than the fastest thing in it could be - a blast's front: the confinement and the stirring feed on
 		// each other, and unchecked the speed ran away and swept the fire off its own fuel)
 		float speed = length(v.xyz);
