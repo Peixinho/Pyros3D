@@ -221,6 +221,12 @@ namespace p3d {
 		// ...and makes them when not (decode, encode, store - no device call: a loader's worker can).
 		// False when compression is off or the device does not take blocks.
 		static bool MakeCompressedCache(const std::string& Filename);
+		// Its mip chain in blocks (BlockCompress::Format, levels[0] the picture): read from the cache, or made there
+		// from its pixels the first time - what the renderer uploads in place of RGBA8, where the device samples
+		// blocks. False when it is not a material's map (loaded outside CompressedLoads), compression is off, it is a
+		// data map, or it has no file to be cached by.
+		bool CompressedChain(uint32 &format, std::vector<std::vector<uchar> > &levels) const;
+		bool wantsBlocks = false;     // (loaded as a material's map: CompressedLoads)
 		static void SetCompression(const bool on);
 		static bool GetCompression();
 		static bool DecodeMemory(const uchar* data, const size_t length, DecodedImage& out);

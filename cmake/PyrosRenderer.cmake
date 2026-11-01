@@ -29,8 +29,8 @@ function(pyros_add_renderer target)
 	file(MAKE_DIRECTORY ${out})
 	file(GLOB RENDERER_SHADER_INCLUDES ${src}/*.glsl)
 	set(RENDERER_SHADERS surface.vert surface.frag fullscreen.vert tonemap.frag shadow.vert depthonly.frag transmittance.frag skyview.frag sky.frag skysh.frag depth.vert gtao.frag aoblur.frag skyshsum.frag bloomdown.frag bloomup.frag luminance.frag reduce4.frag adapt.frag
-		surface.vert@INSTANCED depth.vert@INSTANCED shadow.vert@INSTANCED depth.vert@ALPHA depth.vert@INSTANCED,ALPHA depthalpha.frag alphacut.frag surface.frag@NOCUT post.frag
-		shadow.vert@ALPHA shadow.vert@INSTANCED,ALPHA shadowalpha.frag surface.vert@SKINNED depth.vert@SKINNED shadow.vert@SKINNED shadow.vert@SKINNED,ALPHA particle.vert particle.frag particle_sim.comp rtshadow.frag rtreflect.frag ui.vert ui.frag clouds.frag clouds.frag@DOME cloudshadow.frag taa.frag velocity.frag novelocity.frag particle.frag@HALF particlecomposite.frag skybox.frag skyboxtable.frag imgui.vert imgui.frag overlay.vert overlay.frag surface.vert@VERTEX_COLOR probefilter.frag)
+		surface.vert@INSTANCED depth.vert@INSTANCED shadow.vert@INSTANCED depth.vert@ALPHA depth.vert@INSTANCED,ALPHA depthalpha.frag alphacut.frag surface.frag@NOCUT surface.vert@INSTANCED,IMPOSTOR surface.vert@IMPOSTOR surface.frag@IMPOSTOR post.frag
+		shadow.vert@ALPHA shadow.vert@INSTANCED,ALPHA shadowalpha.frag surface.vert@SKINNED depth.vert@SKINNED shadow.vert@SKINNED shadow.vert@SKINNED,ALPHA particle.vert particle.frag particle_sim.comp fluid.comp instance_cull.comp sspr.vert sspr.frag smoke.frag smokecomposite.frag beams.frag beamscomposite.frag fxaa.frag present.frag rtshadow.frag rtreflect.frag ui.vert ui.frag clouds.frag clouds.frag@DOME cloudshadow.frag taa.frag velocity.frag novelocity.frag particle.frag@HALF particle.frag@SCREEN particlecomposite.frag skybox.frag skyboxtable.frag imgui.vert imgui.frag overlay.vert overlay.frag surface.vert@VERTEX_COLOR surface.vert@INSTANCED,VERTEX_COLOR probefilter.frag)
 	set(RENDERER_SPIRV "")
 	# (a permutation is the same source with defines: "file@A,B" -> file.A.B.inc, compiled with -DA -DB)
 	foreach(entry ${RENDERER_SHADERS})
@@ -108,6 +108,9 @@ function(pyros_add_renderer target)
 	set(RENDERER_SOURCE
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SceneRenderer.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/FrameGraph.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/FluidVolumes.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ImpostorBaker.cpp
+		${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/DisplayHdr.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/ImGuiRenderer.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SceneSettings.cpp
 		${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Renderer/SceneView.cpp
@@ -128,6 +131,14 @@ function(pyros_add_renderer target)
 		endif()
 	endif()
 	set(RENDERER_DEVICES "")
+	# (the screen's HDR headroom on Apple's systems - EDR - for whichever device draws: DisplayHdr.mm)
+	if (APPLE AND NOT EMSCRIPTEN)
+		list(APPEND RENDERER_SOURCE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/DisplayHdr.mm)
+		set_source_files_properties(${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/DisplayHdr.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")
+		if (NOT IOS)
+			target_link_libraries(${target} PRIVATE "-framework AppKit")
+		endif()
+	endif()
 	if (RENDERER_METAL)
 		list(APPEND RENDERER_SOURCE ${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalDevice.mm)
 		set_source_files_properties(${CMAKE_SOURCE_DIR}/src/Pyros3D/Rendering/Device/MetalDevice.mm PROPERTIES COMPILE_FLAGS "-fobjc-arc")

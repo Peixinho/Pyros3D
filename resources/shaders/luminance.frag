@@ -9,6 +9,7 @@ layout(location = 0) out vec4 outColor;
 void main()
 {
 	vec3 c = texture(sampler2D(uSource, uLinearClamp), vUV).rgb;
+	if (!all(lessThan(abs(c), vec3(65000.0)))) c = vec3(0.0);     // (a bad pixel: not counted - one NaN in the average was the whole picture black)
 	float lum = dot(c, vec3(0.2126, 0.7152, 0.0722));
 	// (the centre counts more: what the eye looks at - a gentle weight, the edges still count)
 	vec2 d = vUV - 0.5;

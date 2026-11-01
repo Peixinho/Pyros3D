@@ -5,6 +5,7 @@
 
 #ifdef LUA_BINDINGS
 
+#include <limits>
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/Rendering/ShaderGlobals.h>
 #include <functional>
@@ -124,8 +125,9 @@ namespace p3d {
 			return false;
 		});
 		lua->set_function("setPostEffectEnabled", [](const std::string &, const bool) { return false; });
-		lua->set_function("setSkyMirrorLevel", [](const f32) {});
-		lua->set_function("clearSkyMirrorLevel", []() {});
+		// (a still water's mirror at this height, for every view - RenderGlobals::MirrorLevel: a sea's planar reflection)
+		lua->set_function("setSkyMirrorLevel", [](const f32 level) { RenderGlobals::MirrorLevel() = level; });
+		lua->set_function("clearSkyMirrorLevel", []() { RenderGlobals::MirrorLevel() = std::numeric_limits<f32>::quiet_NaN(); });
 		// A background colour set while the game runs, which every view clears to (RenderGlobals::BackgroundOverride).
 		// clearBackgroundColor() gives each scene its own background back - call it when the script that set it is
 		// destroyed.

@@ -1,3 +1,7 @@
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/ImpostorQuad.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
+#include <Pyros3D/Rendering/Renderer/ImpostorBaker.h>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <chrono>
 #include <cstdlib>
 #include <cstdio>
@@ -87,6 +91,7 @@ namespace p3d {
 		// PYROS_AUTO_LOD_AHEAD=0: levels made on the spot, the first time a model is listed, as they were (to compare)
 		const bool g_autoLodAhead = !(std::getenv("PYROS_AUTO_LOD_AHEAD") && std::getenv("PYROS_AUTO_LOD_AHEAD")[0] == '0');
 		std::vector<RenderingComponent*> g_autoLodWaiting;     // (drawing thread only)
+		std::vector<RenderingComponent*> g_impostorWaiting;    // (their impostors being baked - drawing thread only)
 	}
 
 	RenderingComponent::RenderingComponent(const std::shared_ptr<Renderable> &renderable, const std::shared_ptr<IMaterial> &Material, const f32 Distance) : IComponent()
@@ -379,9 +384,82 @@ namespace p3d {
 
 	void RenderingComponent::PollAutomaticLODs()
 	{
-		if (g_autoLodWaiting.empty()) return;
-		const std::vector<RenderingComponent*> waiting = g_autoLodWaiting;
-		for (size_t i = 0; i < waiting.size(); i++) waiting[i]->TryAutomaticLODs();
+		if (!g_autoLodWaiting.empty())
+		{
+			const std::vector<RenderingComponent*> waiting = g_autoLodWaiting;
+			for (size_t i = 0; i < waiting.size(); i++) waiting[i]->TryAutomaticLODs();
+		}
+		if (!g_impostorWaiting.empty() && !ImpostorBank::AnyPending())
+		{
+			const std::vector<RenderingComponent*> waiting = g_impostorWaiting;
+			for (size_t i = 0; i < waiting.size(); i++) { waiting[i]->autoImpostorTried = false; waiting[i]->TryAutomaticImpostor(); }
+		}
+	}
+
+	void RenderingComponent::TryAutomaticImpostor()
+	{
+		if (autoImpostorTried) return;
+		autoImpostorTried = true;
+		auto stopWaiting = [this]() {
+			if (!autoImpostorWaiting) return;
+			autoImpostorWaiting = false;
+			g_impostorWaiting.erase(std::remove(g_impostorWaiting.begin(), g_impostorWaiting.end(), this), g_impostorWaiting.end());
+		};
+		Model* model = dynamic_cast<Model*>(renderable.get());
+		if (!g_autoLod || !ImpostorBank::Enabled() || IsInstanced() || !Owner || !model || model->GetPath().empty() || autoLodWaiting)
+		{
+			if (autoLodWaiting) autoImpostorTried = false;     // (its mesh levels first)
+			else stopWaiting();
+			return;
+		}
+		// (not for what bends - a skinned model - nor what already ends in a picture of itself)
+		for (size_t i = 0; i < model->Geometries.size(); i++) if (model->Geometries[i]->materialProperties.haveBones) { stopWaiting(); return; }
+		// (nor what places its own vertices - a custom surface's Vertex(): a sea drawn round the eye, grass in the wind; a
+		// picture of it as it stands in its file is nothing like it - NatureLab's sea baked one for 5 s, every first run)
+		for (size_t l = 0; l < Meshes.size(); l++)
+			for (RenderingMesh* m : Meshes[l])
+				if (CustomShaderMaterial* cm = dynamic_cast<CustomShaderMaterial*>(m->Material.get()))
+					if (cm->GetSurfaceSource().find("void Vertex(") != std::string::npos) { stopWaiting(); return; }
+		if (!lodRenderables.empty() && (std::dynamic_pointer_cast<ImpostorQuad>(lodRenderables.back()) || std::dynamic_pointer_cast<Card>(lodRenderables.back()))) { stopWaiting(); return; }
+		uint32 triangles = 0;
+		for (size_t i = 0; i < model->Geometries.size(); i++) triangles += (uint32)(model->Geometries[i]->GetIndexData().size() / 3);
+		if (triangles < 200) { stopWaiting(); return; }      // (a box is cheaper drawn as it is)
+		// (in its own colour: the nearest level's material, where every mesh of it has the same one)
+		std::shared_ptr<IMaterial> look;
+		if (!Meshes[0].empty() && Meshes[0][0]->Material)
+		{
+			look = Meshes[0][0]->Material;
+			for (RenderingMesh* m : Meshes[0]) if (m->Material != look) { look.reset(); break; }
+		}
+		const ImpostorBank::Entry* e = ImpostorBank::Request(model->GetPath(), look);
+		if (!e)
+		{
+			if (!autoImpostorWaiting) { autoImpostorWaiting = true; g_impostorWaiting.push_back(this); }
+			return;
+		}
+		stopWaiting();
+		// From where its screen size is a view's worth of the bake (40 radii - a few dozen pixels), and not before its
+		// last mesh level has had its own reach
+		const Vec3 &scale = Owner->GetScale();
+		const f32 worldRadius = renderable->GetBoundingSphereRadius() * std::max(fabs(scale.x), std::max(fabs(scale.y), fabs(scale.z)));
+		f32 from = std::max(worldRadius * 40.f, 1.f);
+		std::shared_ptr<IMaterial> material = e->material;
+		if (Meshes.size() == 1 && LODDistances.empty()) { SetFirstLODDistance(from); AddLOD(e->quad, 1e9f, material); }
+		else if (LODDistances.size() == Meshes.size())         // (its last level reaching all the way out: ended at the impostor)
+		{
+			const f32 lastFrom = LODDistances.size() >= 2 ? LODDistances[LODDistances.size() - 2] : 0.f;
+			from = std::max(from, lastFrom * 1.5f);
+			LODDistances.back() = from;
+			AddLOD(e->quad, 1e9f, material);
+		}
+		else if (LODDistances.size() + 1 == Meshes.size())     // (levels given: the last runs on past its own start)
+		{
+			from = std::max(from, LODDistances.back() * 1.5f);
+			AddLOD(e->quad, from, material);
+		}
+		else return;
+		LastLodDistance = -1.f;
+		RenderState::Touch();
 	}
 
 	bool RenderingComponent::AddAutomaticLODs(const f32 worldRadius, const f32 given)
@@ -526,6 +604,15 @@ namespace p3d {
 			if (Distance < LODDistances[i] * LODDistances[i] * g_lodScale * g_lodScale)
 				return (autoLevels != 0 && !g_autoLodInUse && i >= 1 && i <= autoLevels) ? 0 : (uint32)i;
 		return (uint32)LODDistances.size();
+	}
+	f32 RenderingComponent::LevelFadeAtDistanceSQR(const f32 Distance, uint32 &level) const
+	{
+		level = LevelAtDistanceSQR(Distance);
+		if (level >= LODDistances.size()) return 0.f;
+		// (the last eighth of the way to where the next level takes over)
+		const f32 handOver = LODDistances[level] * g_lodScale;
+		const f32 d = sqrtf(Distance), from = handOver * 0.875f;
+		return d <= from ? 0.f : std::min((d - from) / std::max(handOver - from, 1e-4f), 1.f);
 	}
 	f32 RenderingComponent::LODDistanceSQR(const Vec3 &from, const Vec3 &ownerPosition, const Vec3 &ownerScale)
 	{
@@ -1026,6 +1113,7 @@ namespace p3d {
 	RenderingComponent::~RenderingComponent()
 	{
 		if (autoLodWaiting) g_autoLodWaiting.erase(std::remove(g_autoLodWaiting.begin(), g_autoLodWaiting.end(), this), g_autoLodWaiting.end());
+		if (autoImpostorWaiting) g_impostorWaiting.erase(std::remove(g_impostorWaiting.begin(), g_impostorWaiting.end(), this), g_impostorWaiting.end());
 		if (animatedSlot >= 0) SetActiveSkeletonAnimation(NULL);
 		for (std::map<uint32, std::vector<RenderingMesh*> >::iterator i = Meshes.begin(); i != Meshes.end(); i++)
 		{

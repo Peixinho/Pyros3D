@@ -78,8 +78,16 @@ namespace p3d {
 			// 1: a blast, burning solid right through.
 			f32 blast;
 			uint32 cells;         // voxels the fill reached
+			// What it was spawned with - for what simulates it as a fluid (the renderer's FluidSim): where, how big,
+			// how much a step up costs it, the world it fills (its colliders: may be null), and a number no other
+			// spawn has (a slot taken again is a new cloud)
+			Vec3 position;
+			f32 radius, rise;
+			IPhysics* physics;
+			uint32 serial;
 			Cloud() : active(false), growth(0.f), density(0.f), thickness(1.f), age(0.f),
-				growTime(1.f), lifeTime(1.f), fadeTime(1.f), emission(0.f), blast(0.f), cells(0) {}
+				growTime(1.f), lifeTime(1.f), fadeTime(1.f), emission(0.f), blast(0.f), cells(0),
+				radius(1.f), rise(0.85f), physics(nullptr), serial(0) {}
 		};
 
 		// Starts a cloud at `position` and returns its slot, or -1 when all
@@ -116,6 +124,8 @@ namespace p3d {
 		// only if none are alive - the shader has one cell size for all.
 		static void SetCellSize(const f32 size);
 		static f32 GetCellSize() { return cellSize; }
+		// Seconds the clouds have been advanced, all told (Update's): what a simulation of them keeps time by
+		static f64 GetClock() { return clock; }
 
 		// A point or spot light near the smoke.
 		struct LocalLight
@@ -172,6 +182,8 @@ namespace p3d {
 		static Cloud clouds[MaxClouds];
 		static std::vector<uchar> atlas;
 		static uint32 atlasVersion;
+		static f64 clock;
+		static uint32 serials;
 		static f32 cellSize;
 		// One to a line: MSVC refuses the second and later names of a list of statics in
 		// an exported class (C2487), which is what broke the Windows build.

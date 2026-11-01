@@ -123,7 +123,10 @@ namespace p3d
 		f32 GetLightThrough() const { return LightThrough; }
 		// An octahedral impostor's numbers (ShaderUsage::Impostor): the grid's side (views a row), the
 		// tree's bounding radius and its centre's height above its foot, both at scale 1.
-		void SetImpostor(const f32 frames, const f32 radius, const f32 centreHeight) { Impostor = Vec4(frames, radius, centreHeight, 1.f); }
+		void SetImpostor(const f32 frames, const f32 radius, const f32 centreHeight) { Impostor = Vec4(frames, radius, centreHeight, Impostor.w > 1.5f ? 2.f : 1.f); }
+		// Its atlas baked from every way round (a full octahedron - what is seen from below too: a floating thing, a rock
+		// on a slope) rather than the upper half alone (a tree, seen from the ground)
+		void SetImpostorFullSphere(const bool on) { Impostor.w = on ? 2.f : (Impostor.w > 0.f ? 1.f : 0.f); }
 		const Vec4 &GetImpostor() const { return Impostor; }
 		void SetWind(const f32 strength, const f32 rate = 1.6f, const f32 spatialFrequency = 0.12f, const f32 skyLean = 0.f) { Wind = Vec4(strength, rate, spatialFrequency, skyLean); }
 		const Vec4 &GetWind() const { return Wind; }

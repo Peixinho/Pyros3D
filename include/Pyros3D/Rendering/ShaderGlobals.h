@@ -34,6 +34,9 @@ namespace p3d {
 		PYROS3D_API f32 &CloudCover();
 		PYROS3D_API f32 &Haze();
 		PYROS3D_API f32 &Rain();
+		// A still water's mirror (setSkyMirrorLevel): the height of the plane the scene is reflected in - a sea, a lake -
+		// drawn as a screen-space planar reflection on what lies at that height facing up; NaN: none
+		PYROS3D_API f32 &MirrorLevel();
 		// (all of it back to the engine's: a game ended)
 		PYROS3D_API void Reset();
 	}

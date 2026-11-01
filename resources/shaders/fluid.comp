@@ -1,0 +1,371 @@
+#version 450
+// Smoke and fire as a fluid (SceneRenderer's FluidSim, a grid a VolumetricSmoke cloud): what is in the air carried by
+// how the air moves, the air pushed by heat and by its own swirl, and kept from piling up or thinning out - the
+// stable-fluids recipe (Stam), with vorticity confinement (Fedkiw, Stam & Jensen) for the curls a coarse grid loses,
+// and a flame's chemistry: fuel burning to heat and soot. One shader, one pass of it a dispatch (uSim.step.y):
+//
+//   0 clear      the grid emptied (what is solid - the colliders - is a bit a cell the CPU lays in: uSolid)
+//   9 scalars'   smoke, heat and fuel carried back along the velocity (semi-Lagrangian) into aux: a first guess
+//   1 scalars    the guess corrected (MacCormack: carried forward again, half of what that misses added back, kept
+//                within what it was carried from - far less smearing than the guess alone), then the fuel burning,
+//                the heat cooling, the smoke thinning, and what the emitter adds
+//  10 velocity'  the velocity carried along itself into aux, a first guess
+//   2 velocity   ... corrected, as the scalars are
+//   3 curl       the velocity's curl, for the confinement
+//   4 forces     buoyancy (heat lifts, soot weighs), the confinement's push round each eddy, the wind, the emitter's jet
+//   5 divergence how much flows out of each cell
+//   6 pressure   one Jacobi iteration of the pressure that cancels it (solid walls: no flow through; the open sky: none)
+//   7 project    the pressure's push taken off: what is left flows without piling up
+//  11 light      a slice of cells across the sun's main axis, from the sun's side in: each cell's share of the sun is
+//                its upstream neighbour's (filtered between the four round where the sun's ray comes from) dimmed by
+//                the smoke in it - one read a cell, smooth, exact along the sun - into the pressure's spare half
+//   8 pack       the cell packed for drawing (smoke.frag): smoke, heat, light, fuel
+//
+// Units: metres and seconds; heat 0 the air's, 1 a flame's heart; smoke and fuel 0..~1.
+layout(local_size_x = 4, local_size_y = 4, local_size_z = 4) in;
+
+layout(set = 0, binding = 0, std140) uniform DrawData
+{
+	vec4 dims;       // xyz cells, w how many in all
+	vec4 grid;       // xyz the grid's low corner (world), w a cell's size
+	vec4 step;       // x seconds this step, y the pass, z the light's slice, w seconds since it began
+	vec4 flags;      // which of each pair holds the current state (0/1): x the scalars, y the velocity, z the pressure;
+	                 // w the light's axis (0 x, 1 y, 2 z)
+	vec4 source;     // xyz the emitter (world), w its radius
+	vec4 inject;     // x smoke, y heat, z fuel a second (at the emitter's heart), w the jet's speed
+	vec4 jet;        // xyz the jet's direction, w 1 where the emitter blows outward from its heart (a blast) - else along xyz
+	vec4 forces;     // x buoyancy (m/s2 per unit heat), y the soot's weight, z vorticity confinement, w cooling (a second)
+	vec4 decay;      // x the smoke's thinning (a second), y how fast fuel burns, z soot a unit of fuel makes, w heat it gives
+	vec4 wind;       // xyz the wind (m/s), w where this grid starts in the render pool (cells)
+	vec4 sun;        // xyz toward the sun, w the smoke's extinction (a metre, at 1)
+	vec4 emit;       // x 1 while the emitter runs, y how wide its noise breaks it up, z the fade (0..1: 1 none), w seed
+	vec4 turb;       // x turbulence's push (m/s2) where there is smoke or heat, y its scale (a metre), z how fast it changes, w the speed limit
+} uSim;
+
+// (four half floats a cell, eight bytes: what the solver spends its time on is reading memory)
+layout(set = 1, binding = 1, std430) buffer Vel0 { uvec2 v[]; } uVel0;
+layout(set = 1, binding = 2, std430) buffer Vel1 { uvec2 v[]; } uVel1;
+layout(set = 1, binding = 3, std430) buffer Scal0 { uvec2 s[]; } uScal0;    // x smoke, y heat, z fuel, w -
+layout(set = 1, binding = 4, std430) buffer Scal1 { uvec2 s[]; } uScal1;
+layout(set = 1, binding = 5, std430) buffer Pressure { float p[]; } uPres;   // (two halves: the pair)
+layout(set = 1, binding = 6, std430) buffer Aux { uvec2 a[]; } uAux;         // x divergence, yzw curl - or an advection's guess
+layout(set = 1, binding = 7, std430) buffer Render { uvec2 c[]; } uRender;   // (packHalf2x16(smoke, heat), packHalf2x16(light, fuel))
+layout(set = 1, binding = 8, std430) readonly buffer SolidBits { uint bits[]; } uSolid;     // (a bit a cell: the colliders, laid in by the CPU)
+
+vec4 H4(uvec2 u) { return vec4(unpackHalf2x16(u.x), unpackHalf2x16(u.y)); }
+uvec2 P4(vec4 v) { return uvec2(packHalf2x16(v.xy), packHalf2x16(v.zw)); }
+
+ivec3 N;
+int Index(ivec3 c) { return c.x + N.x * (c.y + N.y * c.z); }
+bool Inside(ivec3 c) { return all(greaterThanEqual(c, ivec3(0))) && all(lessThan(c, N)); }
+
+vec4 Vel(bool one, ivec3 c) { c = clamp(c, ivec3(0), N - 1); return H4(one ? uVel1.v[Index(c)] : uVel0.v[Index(c)]); }
+vec4 Scal(bool one, ivec3 c) { c = clamp(c, ivec3(0), N - 1); return H4(one ? uScal1.s[Index(c)] : uScal0.s[Index(c)]); }
+float SolidAt(int i) { return float((uSolid.bits[i >> 5] >> uint(i & 31)) & 1u); }
+float Solid(ivec3 c) { return Inside(c) ? SolidAt(Index(c)) : 0.0; }
+void SetVel(bool one, int i, vec4 v) { if (one) uVel1.v[i] = P4(v); else uVel0.v[i] = P4(v); }
+void SetScal(bool one, int i, vec4 s) { if (one) uScal1.s[i] = P4(s); else uScal0.s[i] = P4(s); }
+
+// Trilinear, at a position in cells (a cell's centre at its index + 0.5)
+vec4 VelAt(bool one, vec3 x)
+{
+	vec3 f = x - 0.5;
+	ivec3 i = ivec3(floor(f));
+	vec3 t = f - vec3(i);
+	return mix(mix(mix(Vel(one, i), Vel(one, i + ivec3(1, 0, 0)), t.x), mix(Vel(one, i + ivec3(0, 1, 0)), Vel(one, i + ivec3(1, 1, 0)), t.x), t.y),
+	           mix(mix(Vel(one, i + ivec3(0, 0, 1)), Vel(one, i + ivec3(1, 0, 1)), t.x), mix(Vel(one, i + ivec3(0, 1, 1)), Vel(one, i + ivec3(1, 1, 1)), t.x), t.y), t.z);
+}
+vec4 ScalAt(bool one, vec3 x)
+{
+	vec3 f = x - 0.5;
+	ivec3 i = ivec3(floor(f));
+	vec3 t = f - vec3(i);
+	return mix(mix(mix(Scal(one, i), Scal(one, i + ivec3(1, 0, 0)), t.x), mix(Scal(one, i + ivec3(0, 1, 0)), Scal(one, i + ivec3(1, 1, 0)), t.x), t.y),
+	           mix(mix(Scal(one, i + ivec3(0, 0, 1)), Scal(one, i + ivec3(1, 0, 1)), t.x), mix(Scal(one, i + ivec3(0, 1, 1)), Scal(one, i + ivec3(1, 1, 1)), t.x), t.y), t.z);
+}
+
+vec4 Guess(ivec3 c) { c = clamp(c, ivec3(0), N - 1); return H4(uAux.a[Index(c)]); }
+vec4 GuessAt(vec3 x)
+{
+	vec3 f = x - 0.5;
+	ivec3 i = ivec3(floor(f));
+	vec3 t = f - vec3(i);
+	return mix(mix(mix(Guess(i), Guess(i + ivec3(1, 0, 0)), t.x), mix(Guess(i + ivec3(0, 1, 0)), Guess(i + ivec3(1, 1, 0)), t.x), t.y),
+	           mix(mix(Guess(i + ivec3(0, 0, 1)), Guess(i + ivec3(1, 0, 1)), t.x), mix(Guess(i + ivec3(0, 1, 1)), Guess(i + ivec3(1, 1, 1)), t.x), t.y), t.z);
+}
+// The least and most of the 8 cells round a position (cells): what a MacCormack correction is kept within
+void ScalRange(bool one, vec3 x, out vec4 lo, out vec4 hi)
+{
+	ivec3 i = ivec3(floor(x - 0.5));
+	lo = vec4(1e9); hi = vec4(-1e9);
+	for (int k = 0; k < 8; k++) { vec4 v = Scal(one, i + ivec3(k & 1, (k >> 1) & 1, k >> 2)); lo = min(lo, v); hi = max(hi, v); }
+}
+void VelRange(bool one, vec3 x, out vec4 lo, out vec4 hi)
+{
+	ivec3 i = ivec3(floor(x - 0.5));
+	lo = vec4(1e9); hi = vec4(-1e9);
+	for (int k = 0; k < 8; k++) { vec4 v = Vel(one, i + ivec3(k & 1, (k >> 1) & 1, k >> 2)); lo = min(lo, v); hi = max(hi, v); }
+}
+
+float Hash(vec3 p)
+{
+	p = fract(p * 0.1031);
+	p += dot(p, p.zyx + 31.32);
+	return fract((p.x + p.y) * p.z);
+}
+float Noise(vec3 x)
+{
+	vec3 i = floor(x), f = fract(x);
+	f = f * f * (3.0 - 2.0 * f);
+	return mix(mix(mix(Hash(i), Hash(i + vec3(1, 0, 0)), f.x), mix(Hash(i + vec3(0, 1, 0)), Hash(i + vec3(1, 1, 0)), f.x), f.y),
+	           mix(mix(Hash(i + vec3(0, 0, 1)), Hash(i + vec3(1, 0, 1)), f.x), mix(Hash(i + vec3(0, 1, 1)), Hash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+
+void main()
+{
+	N = ivec3(uSim.dims.xyz);
+	ivec3 c = ivec3(gl_GlobalInvocationID);
+	if (int(uSim.step.y + 0.5) == 11)
+	{
+		// (dispatched over the slice: x and y the two axes across the sun's, z unused)
+		if (c.z != 0) return;
+		int axis = int(uSim.flags.w + 0.5), slice = int(uSim.step.z + 0.5);
+		ivec3 cell = axis == 0 ? ivec3(slice, c.x, c.y) : (axis == 1 ? ivec3(c.x, slice, c.y) : ivec3(c.x, c.y, slice));
+		if (!Inside(cell)) return;
+		int i = Index(cell);
+		int n = int(uSim.dims.w);
+		int spare = uSim.flags.z > 0.5 ? 0 : n;
+		vec3 dir = normalize(uSim.sun.xyz);
+		float along = abs(dir[axis]);
+		// where the sun's ray through this cell's centre crosses the slice before it (toward the sun)
+		vec3 up = vec3(cell) + 0.5 + dir / max(along, 1e-3);
+		float t = 1.0;
+		ivec3 u0 = ivec3(floor(up - 0.5));
+		vec3 f = up - 0.5 - vec3(u0);
+		// (four cells of that slice round the crossing, filtered; outside the box the sun comes in whole)
+		float lit = 0.0, wsum = 0.0;
+		for (int k = 0; k < 8; k++)
+		{
+			ivec3 o = ivec3(k & 1, (k >> 1) & 1, k >> 2);
+			if (o[axis] != 0) continue;
+			ivec3 q = u0 + o;
+			q[axis] = cell[axis] + (dir[axis] > 0.0 ? 1 : -1);
+			float w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y) * (o.z == 1 ? f.z : 1.0 - f.z);
+			if (axis == 0) w = (o.y == 1 ? f.y : 1.0 - f.y) * (o.z == 1 ? f.z : 1.0 - f.z);
+			if (axis == 1) w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.z == 1 ? f.z : 1.0 - f.z);
+			if (axis == 2) w = (o.x == 1 ? f.x : 1.0 - f.x) * (o.y == 1 ? f.y : 1.0 - f.y);
+			lit += (Inside(q) ? uPres.p[spare + Index(q)] : 1.0) * w;
+			wsum += w;
+		}
+		lit /= max(wsum, 1e-4);
+		// dimmed by what is in this cell, over the length of the ray across it
+		float len = uSim.grid.w / max(along, 1e-3);
+		float d = Scal(uSim.flags.x > 0.5, cell).x + SolidAt(i) * 8.0;
+		uPres.p[spare + i] = lit * exp(-d * len * uSim.sun.w);
+		return;
+	}
+	if (!Inside(c)) return;
+	int i = Index(c);
+	int pass = int(uSim.step.y + 0.5);
+	bool sc = uSim.flags.x > 0.5, vc = uSim.flags.y > 0.5, pcur = uSim.flags.z > 0.5;
+	// (every pass reads the current half of a pair and writes the other: the host then swaps it)
+	float dt = uSim.step.x;
+	float h = uSim.grid.w;
+	vec3 world = uSim.grid.xyz + (vec3(c) + 0.5) * h;
+
+	if (pass == 0)
+	{
+		uVel0.v[i] = uvec2(0u); uVel1.v[i] = uvec2(0u);
+		uScal0.s[i] = uvec2(0u); uScal1.s[i] = uvec2(0u);
+		uPres.p[i] = 0.0; uPres.p[i + int(uSim.dims.w)] = 0.0;
+		uAux.a[i] = uvec2(0u);
+		return;
+	}
+	if (pass == 9)
+	{
+		vec3 back = vec3(c) + 0.5 - Vel(vc, c).xyz * dt / h;
+		uAux.a[i] = P4(Solid(c) > 0.5 ? vec4(0.0) : ScalAt(sc, back));
+		return;
+	}
+	if (pass == 10)
+	{
+		vec3 back = vec3(c) + 0.5 - Vel(vc, c).xyz * dt / h;
+		uAux.a[i] = P4(Solid(c) > 0.5 ? vec4(0.0) : VelAt(vc, back));
+		return;
+	}
+	if (pass == 1)
+	{
+		vec4 here = Scal(sc, c);
+		vec4 s = vec4(0.0);
+		if (SolidAt(i) < 0.5)
+		{
+			// carried back along the velocity: what is here now was there a moment ago
+			// the guess (pass 9, in aux) carried forward again: what it misses of where it started, half of it
+			// added back, kept within the cells it was carried from
+			vec3 u = Vel(vc, c).xyz * dt / h;
+			vec3 back = vec3(c) + 0.5 - u;
+			vec4 guess = H4(uAux.a[i]);
+			vec4 again = GuessAt(vec3(c) + 0.5 + u);
+			vec4 lo, hi;
+			ScalRange(sc, back, lo, hi);
+			s.xyz = clamp(guess.xyz + 0.5 * (here.xyz - again.xyz), lo.xyz, hi.xyz);
+			// the fuel burning: as fast as it can where it is hot enough to burn, into heat and soot
+			float burn = min(s.z, uSim.decay.y * dt * smoothstep(0.08, 0.3, s.y + 0.2 * s.z));
+			s.z -= burn;
+			s.y += burn * uSim.decay.w;
+			s.x += burn * uSim.decay.z;
+			// the heat going into the air round it; the smoke spreading thin (faster as the cloud fades)
+			s.y *= exp(-uSim.forces.w * dt * (0.4 + s.y));
+			s.x *= exp(-uSim.decay.x * dt * mix(6.0, 1.0, uSim.emit.z));
+			// what the emitter adds: most at its heart, broken up by a noise that boils as it goes
+			if (uSim.emit.x > 0.5)
+			{
+				float r = length(world - uSim.source.xyz) / max(uSim.source.w, 1e-3);
+				if (r < 1.0)
+				{
+					float n = Noise(world * uSim.emit.y + vec3(uSim.emit.w, -uSim.step.w * 3.0, uSim.step.w * 1.3));
+					float w = smoothstep(1.0, 0.3, r) * mix(1.0, smoothstep(0.25, 0.75, n) * 2.0, 0.7);
+					s.xyz += uSim.inject.xyz * w * dt;
+				}
+			}
+			s.xyz = clamp(s.xyz, vec3(0.0), vec3(4.0, 3.0, 4.0));
+			// the open sides and top: what reaches them leaves (kept, it piled up against the box's lid in a slab)
+			if (c.x == 0 || c.z == 0 || c.x == N.x - 1 || c.z == N.z - 1 || c.y == N.y - 1) s.xyz = vec3(0.0);
+		}
+		SetScal(!sc, i, s);
+		return;
+	}
+	if (pass == 2)
+	{
+		vec4 v = vec4(0.0);
+		if (Solid(c) < 0.5)
+		{
+			vec4 now = Vel(vc, c);
+			vec3 u = now.xyz * dt / h;
+			vec3 back = vec3(c) + 0.5 - u;
+			vec4 again = GuessAt(vec3(c) + 0.5 + u);
+			vec4 lo, hi;
+			VelRange(vc, back, lo, hi);
+			v = clamp(H4(uAux.a[i]) + 0.5 * (now - again), lo, hi);
+		}
+		SetVel(!vc, i, v);
+		return;
+	}
+	if (pass == 3)
+	{
+		vec3 l = Vel(vc, c - ivec3(1, 0, 0)).xyz, r = Vel(vc, c + ivec3(1, 0, 0)).xyz;
+		vec3 d = Vel(vc, c - ivec3(0, 1, 0)).xyz, u = Vel(vc, c + ivec3(0, 1, 0)).xyz;
+		vec3 b = Vel(vc, c - ivec3(0, 0, 1)).xyz, f = Vel(vc, c + ivec3(0, 0, 1)).xyz;
+		vec3 curl = vec3((u.z - d.z) - (f.y - b.y), (f.x - b.x) - (r.z - l.z), (r.y - l.y) - (u.x - d.x)) / (2.0 * h);
+		uAux.a[i] = P4(vec4(0.0, curl));
+		return;
+	}
+	if (pass == 4)
+	{
+		if (SolidAt(i) > 0.5) { SetVel(!vc, i, vec4(0.0)); return; }
+		vec4 v = Vel(vc, c);
+		vec4 s = Scal(sc, c);
+		// buoyancy: hot air rises, soot is heavy
+		v.y += (uSim.forces.x * s.y - uSim.forces.y * s.x) * dt;
+		// vorticity confinement: a push round each eddy toward where it spins hardest, giving back the swirl the grid
+		// smears away - what turns a plume into curls and wisps
+		vec3 w = Guess(c).yzw;
+		vec3 grad = vec3(length(Guess(c + ivec3(1, 0, 0)).yzw) - length(Guess(c - ivec3(1, 0, 0)).yzw),
+		                 length(Guess(c + ivec3(0, 1, 0)).yzw) - length(Guess(c - ivec3(0, 1, 0)).yzw),
+		                 length(Guess(c + ivec3(0, 0, 1)).yzw) - length(Guess(c - ivec3(0, 0, 1)).yzw));
+		float gl = length(grad);
+		if (gl > 1e-5) v.xyz += uSim.forces.z * h * cross(grad / gl, w) * dt;
+		// turbulence: small swirls stirred in wherever there is smoke or heat - a noise's curl (it adds no divergence),
+		// changing as it goes; the grid then carries and stretches them into wisps
+		if (uSim.turb.x > 0.0 && (s.x + s.y) > 0.01)
+		{
+			vec3 q = world * uSim.turb.y + vec3(0.0, -uSim.step.w * uSim.turb.z, uSim.step.w * uSim.turb.z * 0.4);
+			const float e = 0.35;
+			float nx0 = Noise(q - vec3(0, e, 0) + 11.0), nx1 = Noise(q + vec3(0, e, 0) + 11.0);
+			float ny0 = Noise(q - vec3(0, 0, e) + 23.0), ny1 = Noise(q + vec3(0, 0, e) + 23.0);
+			float nz0 = Noise(q - vec3(e, 0, 0) + 37.0), nz1 = Noise(q + vec3(e, 0, 0) + 37.0);
+			float az0 = Noise(q - vec3(0, 0, e) + 11.0), az1 = Noise(q + vec3(0, 0, e) + 11.0);
+			float bx0 = Noise(q - vec3(e, 0, 0) + 23.0), bx1 = Noise(q + vec3(e, 0, 0) + 23.0);
+			float cy0 = Noise(q - vec3(0, e, 0) + 37.0), cy1 = Noise(q + vec3(0, e, 0) + 37.0);
+			// (the curl of three noise fields A, B, C: dC/dy - dB/dz, dA/dz - dC/dx, dB/dx - dA/dy)
+			vec3 curlN = vec3((cy1 - cy0) - (ny1 - ny0), (az1 - az0) - (nz1 - nz0), (bx1 - bx0) - (nx1 - nx0)) / (2.0 * e);
+			v.xyz += curlN * uSim.turb.x * clamp((s.x + s.y) * 2.0, 0.0, 1.0) * dt;
+		}
+		// the wind: what is in the air drifts with it, the faster the less there is to drag
+		v.xyz += (uSim.wind.xyz - v.xyz) * min(dt * 0.25, 1.0);
+		// the emitter's jet: out of the canister (or out from a blast's heart), strongest at its centre
+		if (uSim.emit.x > 0.5 && uSim.inject.w > 0.0)
+		{
+			vec3 off = world - uSim.source.xyz;
+			float r = length(off) / max(uSim.source.w, 1e-3);
+			if (r < 1.0)
+			{
+				vec3 dir = uSim.jet.w > 0.5 ? (length(off) > 1e-4 ? off / length(off) : vec3(0.0, 1.0, 0.0)) : uSim.jet.xyz;
+				vec3 target = dir * uSim.inject.w;
+				v.xyz = mix(v.xyz, target, smoothstep(1.0, 0.2, r) * min(dt * 12.0, 1.0));
+			}
+		}
+		// (no faster than the fastest thing in it could be - a blast's front: the confinement and the stirring feed on
+		// each other, and unchecked the speed ran away and swept the fire off its own fuel)
+		float speed = length(v.xyz);
+		if (speed > uSim.turb.w) v.xyz *= uSim.turb.w / speed;
+		SetVel(!vc, i, v);
+		return;
+	}
+	if (pass == 5)
+	{
+		// (a solid neighbour's velocity is taken as nothing: no flow through a wall)
+		float vxl = Solid(c - ivec3(1, 0, 0)) > 0.5 ? 0.0 : Vel(vc, c - ivec3(1, 0, 0)).x;
+		float vxr = Solid(c + ivec3(1, 0, 0)) > 0.5 ? 0.0 : Vel(vc, c + ivec3(1, 0, 0)).x;
+		float vyd = Solid(c - ivec3(0, 1, 0)) > 0.5 || c.y == 0 ? 0.0 : Vel(vc, c - ivec3(0, 1, 0)).y;
+		float vyu = Solid(c + ivec3(0, 1, 0)) > 0.5 ? 0.0 : Vel(vc, c + ivec3(0, 1, 0)).y;
+		float vzb = Solid(c - ivec3(0, 0, 1)) > 0.5 ? 0.0 : Vel(vc, c - ivec3(0, 0, 1)).z;
+		float vzf = Solid(c + ivec3(0, 0, 1)) > 0.5 ? 0.0 : Vel(vc, c + ivec3(0, 0, 1)).z;
+		uAux.a[i] = P4(vec4((vxr - vxl + vyu - vyd + vzf - vzb) / (2.0 * h), 0.0, 0.0, 0.0));
+		return;
+	}
+	if (pass == 6)
+	{
+		int n = int(uSim.dims.w);
+		int from = pcur ? n : 0, to = pcur ? 0 : n;
+		float pc = uPres.p[from + i];
+		float sum = 0.0;
+		for (int k = 0; k < 6; k++)
+		{
+			ivec3 o = k == 0 ? ivec3(1, 0, 0) : k == 1 ? ivec3(-1, 0, 0) : k == 2 ? ivec3(0, 1, 0) : k == 3 ? ivec3(0, -1, 0) : k == 4 ? ivec3(0, 0, 1) : ivec3(0, 0, -1);
+			ivec3 q = c + o;
+			// a wall or the ground: the same pressure as here (nothing flows across); the open sides and top: none
+			if (!Inside(q)) sum += q.y < 0 ? pc : 0.0;
+			else if (Solid(q) > 0.5) sum += pc;
+			else sum += uPres.p[from + Index(q)];
+		}
+		uPres.p[to + i] = (sum - unpackHalf2x16(uAux.a[i].x).x * h * h) / 6.0;
+		return;
+	}
+	if (pass == 7)
+	{
+		if (SolidAt(i) > 0.5) { SetVel(!vc, i, vec4(0.0)); return; }
+		int n = int(uSim.dims.w);
+		int at = pcur ? n : 0;
+		float pc = uPres.p[at + i];
+		float g[6];
+		for (int k = 0; k < 6; k++)
+		{
+			ivec3 o = k == 0 ? ivec3(1, 0, 0) : k == 1 ? ivec3(-1, 0, 0) : k == 2 ? ivec3(0, 1, 0) : k == 3 ? ivec3(0, -1, 0) : k == 4 ? ivec3(0, 0, 1) : ivec3(0, 0, -1);
+			ivec3 q = c + o;
+			g[k] = !Inside(q) ? (q.y < 0 ? pc : 0.0) : (Solid(q) > 0.5 ? pc : uPres.p[at + Index(q)]);
+		}
+		vec4 v = Vel(vc, c);
+		v.xyz -= vec3(g[0] - g[1], g[2] - g[3], g[4] - g[5]) / (2.0 * h);
+		SetVel(!vc, i, v);
+		return;
+	}
+	if (pass == 8)
+	{
+		vec4 s = Scal(sc, c);
+		int n = int(uSim.dims.w);
+		float light = uPres.p[(pcur ? 0 : n) + i];
+		uRender.c[int(uSim.wind.w) + i] = uvec2(packHalf2x16(vec2(SolidAt(i) > 0.5 ? 0.0 : s.x, s.y)), packHalf2x16(vec2(light, s.z)));
+		return;
+	}
+}

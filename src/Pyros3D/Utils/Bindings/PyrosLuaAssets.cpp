@@ -5,6 +5,7 @@
 
 #ifdef LUA_BINDINGS
 
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/ImpostorQuad.h>
 #include <Pyros3D/Assets/Renderable/Trees/Tree.h>
 #include <Pyros3D/Utils/Bindings/PyrosLuaBindings.h>
 #include <Pyros3D/AnimationManager/Components/IKComponent.h>
@@ -96,6 +97,12 @@ namespace p3d {
 			(*lua)["TreeSpecies"] = lua->create_table_with("Oak", TreeSpecies::Oak, "Birch", TreeSpecies::Birch, "Spruce", TreeSpecies::Spruce,
 				"ScotsPine", TreeSpecies::ScotsPine, "Palm", TreeSpecies::Palm, "Dead", TreeSpecies::Dead, "Bush", TreeSpecies::Bush, "Count", TreeSpecies::Count);
 			(*lua)["TreePart"] = lua->create_table_with("Wood", TreePart::Wood, "Leaves", TreePart::Leaves);
+			// ImpostorQuad(radius, centre height): an octahedral impostor's quad (ShaderUsage.Impostor), culled as the
+			// tree - or whatever was baked - it stands for
+			lua->new_usertype<ImpostorQuad>("ImpostorQuad",
+				sol::factories([](float radius, float centre) { return std::make_shared<ImpostorQuad>(radius, centre); }),
+				sol::base_classes, sol::bases<Renderable>()
+				);
 			// Plane - shared_ptr via sol::factories
 			lua->new_usertype<Plane>("Plane",
 				sol::factories(

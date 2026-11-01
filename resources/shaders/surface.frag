@@ -15,6 +15,7 @@ layout(set = 1, binding = 12) uniform texture2D uSkyView;          // (absolute 
 layout(set = 1, binding = 13) uniform texture2D uSceneDepth;       // (the opaque scene's depth, 1x: what is behind a surface seen through)
 layout(set = 1, binding = 14) uniform sampler uLinearClamp;
 layout(set = 1, binding = 16) uniform texture2D uPreviousColor;     // (last frame's picture, linear HDR: what the reflections find)
+layout(set = 1, binding = 25) uniform texture2D uMirrorPlane;       // (the planar reflection, the picture's size: rgb what is mirrored, a there - sspr.vert)
 
 // What a glossy surface mirrors of the picture itself: its reflected ray marched across the screen against the depth
 // prepass (perspective-correct depth, the hit refined by halving), the colour there from last frame's picture. rgb the
@@ -22,9 +23,114 @@ layout(set = 1, binding = 16) uniform texture2D uPreviousColor;     // (last fra
 // NoV: the view's angle to the surface - at grazing (the far sea) the ray skims the surface and finds the surface
 // itself, the next wave: its own last picture mirrored at a Fresnel near 1, plus the sun's highlight, every frame -
 // a feedback that grows to white along the horizon. There the sky's reflection (what it would find) takes over.
+// A still water's mirror (SceneRenderer::SetSkyMirrorLevel, FrameData.temporal.y the plane's height, z on): on a surface
+// at that height facing up, what the scene above the plane shows mirrored there - read where this pixel is, moved by the
+// surface's own tilt (waves bend what is seen in them); a few texels round, for the points that did not land on it
+// (the mirror's texel at uv, or between the two nearest landed above and below where it is a hole - rgb, a its distance;
+// a 0 nothing. A hole with nothing below it is past an image's lower edge - the top of what it mirrors: not filled, or
+// the image smeared on down the water. One with nothing above is between an image and what it mirrors - the waterline
+// a wave hides, the base of a thing: the image taken on up to it. A gap of a texel or two from either side alone: the
+// regular holes where an image is larger than its source)
+vec4 MirrorTexel(vec2 uv, vec2 texel, out float cover)     // (cover: how much of the tent round it landed, 0..1)
+{
+	cover = 0.0;
+	// (filtered: the landed texels of the 4 x 4 round it, a tent's weights - points landing a texel apart leave a
+	// scatter of single holes, and read nearest, or bilinear over them, the image came out in blocks)
+	vec2 f = uv / texel - 0.5;
+	ivec2 b = ivec2(floor(f)) - 1;
+	ivec2 top = textureSize(sampler2D(uMirrorPlane, uLinearClamp), 0) - 1;
+	vec4 sum = vec4(0.0); float weight = 0.0, all_ = 0.0;
+	for (int y = 0; y < 4; y++)
+		for (int x = 0; x < 4; x++)
+		{
+			ivec2 q = b + ivec2(x, y);
+			vec2 d = abs(vec2(q) - f);
+			float k = max(0.0, 2.0 - d.x) * max(0.0, 2.0 - d.y);
+			vec4 s = texelFetch(sampler2D(uMirrorPlane, uLinearClamp), clamp(q, ivec2(0), top), 0);
+			all_ += k;
+			if (s.a > 0.0 && k > 0.0) { sum += s * k; weight += k; }
+		}
+	cover = weight / max(all_, 1e-4);
+	if (weight > 1.2) return sum / weight;
+	ivec2 c = ivec2(uv / texel);
+	vec4 t = texelFetch(sampler2D(uMirrorPlane, uLinearClamp), c, 0);
+	if (t.a > 0.0) { cover = max(cover, 0.5); return t; }
+	vec4 up = vec4(0.0), down = vec4(0.0);
+	float du = 0.0, dd = 0.0;
+	for (int k = 1; k <= 16; k++)
+	{
+		if (up.a <= 0.0) { up = texelFetch(sampler2D(uMirrorPlane, uLinearClamp), c - ivec2(0, k), 0); du = float(k); }
+		if (down.a <= 0.0) { down = texelFetch(sampler2D(uMirrorPlane, uLinearClamp), c + ivec2(0, k), 0); dd = float(k); }
+	}
+	if (up.a > 0.0 && down.a > 0.0) { cover = 1.0; return mix(up, down, du / (du + dd)); }
+	if (up.a > 0.0 && du <= 2.0) { cover = 0.5; return up; }
+	if (down.a > 0.0) { cover = 1.0; return down; }
+	return vec4(0.0);
+}
+// (the sky a still water mirrors, from the picture itself: where the mirrored ray's way is sky on the screen - no depth
+// there - last frame's pixel that way. The sky's own table is coarse, its clouds in blocks; the screen's are sharp)
+bool ScreenSky(vec3 p, vec3 n, out vec3 sky)
+{
+	sky = vec3(0.0);
+	vec3 r = reflect(-normalize(uFrame.cameraPosition.xyz - p), n);
+	if (r.y <= 0.02 || Orthographic()) return false;
+	vec3 q = uFrame.cameraPosition.xyz + r * 20000.0;
+	vec4 c = uFrame.viewProjection * vec4(q, 1.0);
+	if (c.w <= 0.0) return false;
+	vec2 uv = vec2(c.x / c.w * 0.5 + 0.5, 0.5 - c.y / c.w * 0.5);
+	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0)))) return false;
+	ivec2 size = textureSize(sampler2D(uSceneDepth, uLinearClamp), 0);
+	if (texelFetch(sampler2D(uSceneDepth, uLinearClamp), clamp(ivec2(uv * vec2(size)), ivec2(0), size - 1), 0).r > 0.0) return false;
+	vec2 puv = PreviousUV(q);
+	if (puv.x < 0.0) return false;
+	sky = textureLod(sampler2D(uPreviousColor, uLinearClamp), puv, 0.0).rgb;
+	return true;
+}
+vec4 PlanarReflection(vec3 p, vec3 n, vec4 found)
+{
+	if (uFrame.temporal.z < 0.5 || abs(p.y - uFrame.temporal.y) > 3.0 || n.y < 0.3) return found;
+	vec2 texel = uFrame.viewport.zw;     // (the mirror is the picture's size)
+	// (moved by its waves' slope as far as a fixed reach in the world looks on the screen: a fixed fraction of the screen,
+	// the far water's normals - read in blocks of their map's coarse levels - threw each pixel a dozen texels off, in blocks)
+	vec2 uv = gl_FragCoord.xy * uFrame.viewport.zw + vec2(n.x, -n.z) * min(0.3 / max(distance(p, uFrame.cameraPosition.xyz), 1.0), 0.03);
+	float cover;
+	vec4 t = MirrorTexel(uv, texel, cover);
+	float sure = 1.0 - smoothstep(2.0, 3.0, abs(p.y - uFrame.temporal.y));
+	// (where nothing is mirrored, the sky - from the screen where it can be)
+	vec3 sky;
+	bool skyOk = ScreenSky(p, n, sky);
+	if (t.a <= 0.0)
+	{
+		if (!skyOk) return found;
+		float a = sure + found.a * (1.0 - sure);
+		return vec4((sky * sure + found.rgb * found.a * (1.0 - sure)) / max(a, 1e-4), a);
+	}
+	// (faded out towards the image's edges - the screen's edge of what it could mirror, the top of a mountain off the
+	// top of the picture - not cut there: how much of the texels round it a few and several away landed)
+	// (each a quad of texels, any of them: one texel read alone fell in the scatter of single holes a mirror has, and the
+	// fade flickered in blocks over the whole of it)
+	float near = 0.0;
+	for (int k = 0; k < 8; k++)
+	{
+		vec2 o = (k < 4 ? 8.0 : 20.0) * vec2(k % 4 == 0 ? 1.0 : k % 4 == 1 ? -1.0 : 0.0, k % 4 == 2 ? 1.0 : k % 4 == 3 ? -1.0 : 0.0);
+		vec4 q = textureGather(sampler2D(uMirrorPlane, uLinearClamp), uv + o * texel, 3);
+		near += max(max(q.x, q.y), max(q.z, q.w)) > 0.0 ? 1.0 : 0.0;
+	}
+	float w = sure * smoothstep(3.0, 7.5, near);
+	// (an image's edge over the screen's sky where there is one - as much of it as landed round this pixel: an edge as
+	// sharp as the image's own - else faded over what the rays found)
+	if (skyOk) { t.rgb = mix(sky, t.rgb, smoothstep(0.25, 0.75, cover)); w = sure; }
+	if (w <= 0.0) return found;
+	// (laid over what the screen's rays found: they keep what of it this does not cover)
+	float a = w + found.a * (1.0 - w);
+	return vec4((t.rgb * w + found.rgb * found.a * (1.0 - w)) / a, a);
+}
+float gSurfaceMirror = 0.0;     // (the custom surface's own - SurfaceData.reflection, set once it has run)
 vec4 ScreenReflection(vec3 p, vec3 r, float roughness, float NoV)
 {
-	if (uShadow.reflections.x < 0.5 || roughness > 0.4) return vec4(0.0);
+	// (to a roughness of 0.5, fading from 0.3: the old renderer mirrored to 0.42, and materials were tuned to it - a sea
+	// at 0.41 was cut off here at 0.4, and mirrored nothing at all)
+	if (uShadow.reflections.x < 0.5 || roughness > 0.5) return vec4(0.0);
 	// (ray-traced: what this pixel's ray found - its texture in last frame's picture's place - less sure the rougher)
 	if (uShadow.reflections.x > 1.5)
 	{
@@ -80,7 +186,7 @@ vec4 ScreenReflection(vec3 p, vec3 r, float roughness, float NoV)
 		// behind a thing: a thing has a thickness, here a share of its distance)
 		// (thin: a ray that passes behind a thing is not a reflection of it - with a metre's thickness a ball's reflection
 		// was a pillar, every ray under it that went behind it taken for one that met it; the steps are close enough now)
-		float thickness = 0.12 + rayDepth * 0.025;
+		float thickness = (0.12 + rayDepth * 0.025) * (gSurfaceMirror > 0.0 ? 3.0 : 1.0);     // (a mirror's glancing rays pass behind things at a slant: thicker)
 		bool behind = rayDepth > sceneDepth + 0.02 + rayDepth * 0.003;     // (the depth's own precision, wider far off)
 		if (behind && prevInFront && rayDepth < sceneDepth + thickness)
 		{
@@ -107,8 +213,10 @@ vec4 ScreenReflection(vec3 p, vec3 r, float roughness, float NoV)
 	vec2 uv = mix(s0, s1, hitT);
 	// How sure: not at the screen's edges, not for rays toward the eye, not on rough surfaces, less far along
 	vec2 edge = smoothstep(vec2(0.0), vec2(0.08), uv) * (1.0 - smoothstep(vec2(0.92), vec2(1.0), uv));
-	float sure = edge.x * edge.y * (1.0 - smoothstep(0.2, 0.4, roughness)) * (1.0 - smoothstep(0.0, 0.6, vr.z)) * (1.0 - smoothstep(0.75, 1.0, hitT))
-		* smoothstep(0.01, 0.06, NoV) * (1.0 - smoothstep(0.35, 1.0, hitOver));
+	float sure = edge.x * edge.y * (1.0 - smoothstep(0.3, 0.5, roughness)) * (1.0 - smoothstep(0.0, 0.6, vr.z)) * (1.0 - smoothstep(0.75, 1.0, hitT))
+		// (a mirror of its own - water, SurfaceData.reflection - kept to the most glancing look: a still sea seen from a
+		// boat is nearly all reflection, at a NoV of a hundredth; a floor's glancing reflections are noise, so only it)
+		* (gSurfaceMirror > 0.0 ? smoothstep(0.0, 0.008, NoV) : smoothstep(0.01, 0.06, NoV)) * (1.0 - smoothstep(0.35, 1.0, hitOver));
 	// (what was there last frame - the picture is last frame's: the hit taken back to where it was in it, or a moving
 	// camera's reflections show what was at that place on the screen then - the floor beside a ball, not the ball)
 	// (a pixel and a half on along the ray, into what it met: at its edge the picture is the thing and what is behind it
@@ -127,7 +235,10 @@ float MirrorFloor(float metallic, float roughness)
 {
 	float strength = uDraw.normalRows[1].w;
 	float polish = 1.0 - clamp(roughness / 0.4, 0.0, 1.0);
-	return 0.55 * (1.0 - metallic) * strength * strength * polish * polish;
+	// (a surface that says how much it mirrors - water: as much as it says, to a roughness of about a half, as the
+	// old renderer mirrored "0.42 and under")
+	float own = clamp(gSurfaceMirror, 0.0, 1.0) * (1.0 - metallic) * (1.0 - smoothstep(0.45, 0.7, roughness));
+	return max(0.55 * (1.0 - metallic) * strength * strength * polish * polish, own);
 }
 
 // The clouds' shadow on the sun's light (their shadow map, over the ground round the camera)
@@ -384,12 +495,51 @@ struct SurfaceData
 	vec3 albedo; float alpha;
 	float metallic, roughness;
 	vec3 emission; float occlusion;
+	float reflection;              // (a custom surface's mirror, 0..1: how much of what it reflects it shows, past Fresnel -
+	                               // water, a wet road; the old renderer's Reflection output)
 };
 
 layout(location = 0) in vec3 vWorldPosition;
 layout(location = 1) in vec3 vNormal;
 layout(location = 2) in vec2 vTexcoord;
 layout(location = 3) in vec4 vTint;
+layout(location = 9) in float vFade;          // (an instance dissolving, and its level's crossfade - instancing.glsl:
+layout(location = 10) in float vLodCode;      // a custom surface has no cut pass, so its own stage dissolves it)
+#ifdef IMPOSTOR
+layout(location = 4) in vec3 vImpostorPoint;
+layout(location = 5) flat in vec3 vImpostorEye;
+layout(location = 6) flat in vec3 vImpostorX;
+layout(location = 7) flat in vec3 vImpostorY;
+layout(location = 8) flat in vec3 vImpostorZ;
+// The baked view (fx, fy) of an N x N grid: its way out from the tree's centre (the editor's bake_octahedral_impostor:
+// grid -> -1..1 -> hemi-octahedral, the upper half)
+vec3 ImpostorView(vec2 cell, float n)
+{
+	vec2 e = cell / (n - 1.0) * 2.0 - 1.0;
+	// (a full sphere's atlas - uvTransform.w 2: the octahedron, its lower half folded out to the corners)
+	if (uDraw.uvTransform.w > 1.5)
+	{
+		vec3 v = vec3(e.x, 1.0 - abs(e.x) - abs(e.y), e.y);
+		if (v.y < 0.0) v.xz = (1.0 - abs(v.zx)) * vec2(v.x >= 0.0 ? 1.0 : -1.0, v.z >= 0.0 ? 1.0 : -1.0);
+		return normalize(v);
+	}
+	float tx = (e.x + e.y) * 0.5, ty = (e.x - e.y) * 0.5;
+	return normalize(vec3(tx, 1.0 - abs(tx) - abs(ty), ty));
+}
+// This fragment as the view `cell` saw it: its albedo (a coverage) and normal (a the crown's own occlusion), read where
+// its point on the quad falls in that view's picture
+void ImpostorRead(vec2 cell, float n, float radius, out vec4 albedo, out vec4 normal)
+{
+	vec3 d = ImpostorView(cell, n);
+	vec3 up0 = abs(d.y) > 0.999 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 1.0, 0.0);
+	vec3 r = normalize(cross(up0, d)), u = cross(d, r);
+	vec2 inView = vec2(dot(vImpostorPoint, r), dot(vImpostorPoint, u)) / radius * 0.5 + 0.5;
+	vec2 uv = (cell + vec2(clamp(inView.x, 0.0, 1.0), 1.0 - clamp(inView.y, 0.0, 1.0))) / n;     // (rows from the top)
+	albedo = texture(sampler2D(uBaseColorMap, uMaterialSampler), uv);
+	normal = texture(sampler2D(uNormalMap, uMaterialSampler), uv);
+	if (any(lessThan(inView, vec2(0.0))) || any(greaterThan(inView, vec2(1.0)))) albedo.a = 0.0;
+}
+#endif
 
 layout(location = 0) out vec4 outColor;      // linear HDR
 
@@ -403,6 +553,14 @@ layout(location = 0) out vec4 outColor;      // linear HDR
 #define texture_2D texture
 #define uOpacity (uDraw.baseColor.a)
 #define uGlobals (uFrame.globals)
+// (the old renderer's ambient light, by its names: flat colour, the three-colour gradient, the order-2 SH; and its mode
+// - x 0 flat, 1 a gradient, 2 SH - as the old uAmbientParams had it)
+#define uAmbientLight (uFrame.ambient)
+#define uAmbientSky (uFrame.ambientSky)
+#define uAmbientEquator (uFrame.ambientEquator)
+#define uAmbientGround (uFrame.ambientGround)
+#define uAmbientSH (uFrame.ambientSH)
+#define uAmbientParams vec4(uFrame.ambientSky.w, 0.0, 0.0, 0.0)
 #define P3D_PI PI
 //P3D_SURFACE_DECLARATIONS
 //P3D_SURFACE
@@ -479,6 +637,7 @@ vec2 ParallaxUV(vec3 n, vec3 p, vec2 uv, vec3 toEye, float depth)
 
 void main()
 {
+	if (InstanceDissolved(vFade, vLodCode, LodDither(gl_FragCoord.xy))) discard;
 	vec3 ng = normalize(vNormal);
 	// (where its normal points away from the eye - the back of a two-sided card, a silhouette's edge - mirrored through
 	// the face, not turned round: a picture card's normal leans up so that the sun lights it alike from either side, and
@@ -504,6 +663,50 @@ void main()
 		n = PerturbNormal(ng, vWorldPosition, vTexcoord, m);
 	}
 	vec4 mr = MAP(uMetalRoughMap);
+#ifdef IMPOSTOR
+	float impostorOcclusion = 1.0;
+	{
+		// The three baked views round the way to the eye (held to the upper half: below, the horizon's), blended by where
+		// that way falls among them; each read where this point falls in its picture
+		float N = uDraw.uvTransform.z, radius = uDraw.uvTransform.x;
+		// (every division and normalize guarded: MoltenVK and Dawn compile with fast math, where a normalize of nothing is
+		// not a number - and one such pixel, through the bloom and the exposure, blacked the whole frame)
+		bool sphere = uDraw.uvTransform.w > 1.5;
+		vec3 w = vec3(vImpostorEye.x, sphere ? vImpostorEye.y : max(vImpostorEye.y, 0.0), vImpostorEye.z);
+		float wl = abs(w.x) + abs(w.y) + abs(w.z);
+		w = wl > 1e-6 ? w / wl : vec3(0.0, 1.0, 0.0);
+		vec2 g;
+		if (sphere)
+		{
+			// (the octahedron: the upper half in the middle, the lower folded out to the corners - seen from below too)
+			vec2 o = w.xz;
+			if (w.y < 0.0) o = (1.0 - abs(o.yx)) * vec2(o.x >= 0.0 ? 1.0 : -1.0, o.y >= 0.0 ? 1.0 : -1.0);
+			g = (o * 0.5 + 0.5) * (N - 1.0);
+		}
+		else g = (vec2(w.x + w.z, w.x - w.z) * 0.5 + 0.5) * (N - 1.0);
+		vec2 c0 = clamp(floor(g), vec2(0.0), vec2(N - 2.0));
+		vec2 f = clamp(g - c0, 0.0, 1.0);
+		vec2 ca, cb, cc; vec3 wt;
+		if (f.x + f.y < 1.0) { ca = c0; cb = c0 + vec2(1.0, 0.0); cc = c0 + vec2(0.0, 1.0); wt = vec3(1.0 - f.x - f.y, f.x, f.y); }
+		else { ca = c0 + vec2(1.0); cb = c0 + vec2(1.0, 0.0); cc = c0 + vec2(0.0, 1.0); wt = vec3(f.x + f.y - 1.0, 1.0 - f.y, 1.0 - f.x); }
+		vec4 a0, n0, a1, n1, a2, n2;
+		ImpostorRead(ca, N, radius, a0, n0); ImpostorRead(cb, N, radius, a1, n1); ImpostorRead(cc, N, radius, a2, n2);
+		vec4 albedo = a0 * wt.x + a1 * wt.y + a2 * wt.z;
+		vec4 nrm = n0 * wt.x + n1 * wt.y + n2 * wt.z;
+		base = vec4(albedo.rgb, albedo.a) * uDraw.baseColor * vTint;
+		// (its normal baked in the tree's own frame: turned as the tree is)
+		vec3 nw = mat3(vImpostorX, vImpostorY, vImpostorZ) * (nrm.xyz * 2.0 - 1.0);
+		float nwl = dot(nw, nw);
+		n = nwl > 1e-8 ? nw * inversesqrt(nwl) : vImpostorY;     // (three views' normals cancelling out: up)
+		impostorOcclusion = nrm.a;
+		// (a level of detail handing over - wet.w, alphacut.frag's dither: an impostor is in no prepass, so here)
+		if (uDraw.wet.w != 0.0)
+		{
+			float dither = LodDither(gl_FragCoord.xy);
+			if (uDraw.wet.w > 0.0 ? dither < uDraw.wet.w : dither >= -uDraw.wet.w) discard;
+		}
+	}
+#endif
 	SurfaceData s;
 	s.position = vWorldPosition; s.normal = n; s.view = ToEye(vWorldPosition); s.uv = uv;
 	s.albedo = base.rgb; s.alpha = base.a;
@@ -511,8 +714,13 @@ void main()
 	s.emission = uDraw.emission.rgb * MAP(uEmissionMap).rgb;
 #undef MAP
 	s.occlusion = 1.0;
+	s.reflection = 0.0;
+#ifdef IMPOSTOR
+	s.occlusion = impostorOcclusion;     // (the crown's own, baked: a leaf deep in it darker)
+#endif
 #ifdef CUSTOM_SURFACE
 	Surface(s);
+	gSurfaceMirror = s.reflection;
 #else
 	// Wet (GenericShaderMaterial::SetWetness): a soaked surface is darker - water fills its pores, so less light comes
 	// back out of it - and glossier, a film over it. Its puddles: of what faces up, a share lies under still water -
@@ -620,6 +828,11 @@ void main()
 	float ao = (uFrame.frame.w == 2.0 ? 1.0 : textureLod(sampler2D(uAO, uMaterialSampler), gl_FragCoord.xy * uFrame.viewport.zw, 0.0).r) * s.occlusion;
 	float NoV = max(dot(n, v), 1e-4);
 	float specAO = clamp(pow(NoV + ao, exp2(-16.0 * roughness - 1.0)) - 1.0 + ao, 0.0, 1.0);
+	// (and a share of it on the direct light - uShadow.rain.z, the scene's SSAO uDirect, 0.2 by default: in strict terms
+	// occlusion is the ambient's, but a crease the sun lights fully reads as no contact at all - the old renderer's SSAO
+	// darkened the direct light this much too, and without it a sunlit scene showed none of its AO)
+	color *= mix(1.0, ao, clamp(uShadow.rain.z, 0.0, 1.0));
+	float reflectShare = 0.0;     // (how much of this pixel is what it mirrors: for the smoke's reflection, below)
 	if (uFrame.frame.z > 0.5)
 	{
 		// The sky's light: its irradiance on the surface, and what of it the surface reflects toward the eye
@@ -627,6 +840,7 @@ void main()
 		// (what it mirrors: the picture itself where a ray finds it, the sky - with its clouds - where not)
 		// (inside a reflection probe's box, what it saw in place of the sky: the room, not the sky through its ceiling)
 		vec4 found = ScreenReflection(vWorldPosition, r, roughness, NoV);
+		found = PlanarReflection(vWorldPosition, n, found);
 		float probeCover;
 		vec3 probe = ProbeReflection(vWorldPosition, r, roughness, probeCover);
 		// (the sky's, or where the scene's light is solved with reflections, what its probes see; a reflection probe's over it)
@@ -642,7 +856,12 @@ void main()
 		// (a polished floor's mirror - the material's SSR strength: more of the reflection than Fresnel gives, over its own
 		// colour, where something was found - the old renderer's mirror floor)
 		float mirror = MirrorFloor(metallic, roughness) * found.a;
-		color = color * (1.0 - mirror) + mirrored * max(EnvBRDFApprox(f0, roughness, NoV), vec3(mirror)) * specAO;
+		vec3 share = max(EnvBRDFApprox(f0, roughness, NoV), vec3(mirror)) * specAO;
+		color = color * (1.0 - mirror) + mirrored * share;
+		// (the material's own: a mirror shows the smoke in front of what it mirrors whether or not the screen's ray
+		// found that - its sureness, found.a, is in streaks, and the smoke came out in streaks with it)
+		vec3 mirrors = max(EnvBRDFApprox(f0, roughness, NoV), vec3(MirrorFloor(metallic, roughness))) * specAO;
+		reflectShare = max(max(mirrors.r, mirrors.g), mirrors.b) * smoothstep(0.5, 0.1, roughness);
 	}
 	else
 	{
@@ -653,6 +872,7 @@ void main()
 		// reflection probe saw, or the solved light's probes; nothing else - there is no sky to mirror)
 		vec3 r = reflect(-v, n);
 		vec4 found = ScreenReflection(vWorldPosition, r, roughness, NoV);
+		found = PlanarReflection(vWorldPosition, n, found);
 		float probeCover;
 		vec3 probe = ProbeReflection(vWorldPosition, r, roughness, probeCover);
 		bool giReflects;
@@ -661,7 +881,12 @@ void main()
 		if (uFrame.frame.w == 9.0) { outColor = vec4(0.0, found.a, found.a > 0.0 ? 0.0 : 0.15, 1.0); return; }     // (PYROS_RENDERER_DEBUG=ssr: green where a reflection was found, how sure; blue none)
 		if (uFrame.frame.w == 10.0 && uDraw.normalRows[1].w > 0.0) { outColor = vec4(found.rgb * found.a, 1.0); return; }     // (=ssrcolor: what a mirror floor found, the rest drawn as it is)
 		float mirror = MirrorFloor(metallic, roughness) * found.a;
-		color = color * (1.0 - mirror) + mirrored * max(EnvBRDFApprox(f0, roughness, NoV), vec3(mirror)) * specAO;
+		vec3 share = max(EnvBRDFApprox(f0, roughness, NoV), vec3(mirror)) * specAO;
+		color = color * (1.0 - mirror) + mirrored * share;
+		// (the material's own: a mirror shows the smoke in front of what it mirrors whether or not the screen's ray
+		// found that - its sureness, found.a, is in streaks, and the smoke came out in streaks with it)
+		vec3 mirrors = max(EnvBRDFApprox(f0, roughness, NoV), vec3(MirrorFloor(metallic, roughness))) * specAO;
+		reflectShare = max(max(mirrors.r, mirrors.g), mirrors.b) * smoothstep(0.5, 0.1, roughness);
 	}
 	color += s.emission;
 
@@ -693,5 +918,16 @@ void main()
 		color = uFrame.frame.w == 6.0 ? s.albedo : SrgbDecode(uFrame.frame.w == 7.0 ? vn : vec3(d01));
 	}
 	if (uFrame.frame.w == 5.0) color = vec3(CloudShadow(vWorldPosition));      // (PYROS_RENDERER_DEBUG=cloudshadow)
-	outColor = vec4(color, s.alpha);
+	// (PYROS_RENDERER_DEBUG=lod: lit as usual, tinted by its level of detail - 0 green, 1 yellow, 2 orange, more purple;
+	// an impostor red)
+	if (uFrame.frame.w == 11.0)
+	{
+		float level = uDraw.normalRows[2].w;
+		vec3 tint = level > 8.5 ? vec3(1.0, 0.1, 0.1) : level < 0.5 ? vec3(0.2, 1.0, 0.2) : level < 1.5 ? vec3(1.0, 1.0, 0.2) : level < 2.5 ? vec3(1.0, 0.55, 0.1) : vec3(0.7, 0.3, 1.0);
+		color = tint * (0.25 + 0.75 * clamp(dot(color, vec3(0.2126, 0.7152, 0.0722)) * 2.0, 0.0, 1.0));     // (its level's colour, shaded by its brightness alone: a green leaf tinted yellow read as green)
+	}
+	// An opaque surface's alpha says how much of it is a reflection (1 - that; 1, as before, where it mirrors
+	// nothing): the volumetric smoke marches the mirrored ray there and lays its smoke and fire into the reflection
+	// (smoke.frag). Not in a view whose background is see-through, where the alpha is the picture's own.
+	outColor = vec4(color, s.alpha >= 0.999 && uFrame.weather.z < 0.5 ? 1.0 - clamp(reflectShare, 0.0, 0.98) : s.alpha);
 }

@@ -29,7 +29,7 @@ void main()
 #ifdef ALPHA
 	vTexcoord = aTexcoord * uDraw.uvTransform.xy + uDraw.uvTransform.zw;
 #endif
-	mat4 instance = GrownInstance(InstanceMatrix(), uDraw.shape.xy);
+	mat4 instance = GrownInstance(InstanceMatrix(), uDraw.shape);
 	vec3 posed = (SkinMatrix(uDraw.skin.x) * vec4(aPosition, 1.0)).xyz;
 	gl_Position = uCascade.viewProjection * (uDraw.model * instance * vec4(WindSway(posed, (uDraw.model * instance)[3].xyz, uDraw.wind, uDraw.skin.y), 1.0));
 }

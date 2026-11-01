@@ -100,7 +100,10 @@ int main()
 	check(scene.TriangleCount() == 10, "the box has 10 triangles",
 		std::to_string(scene.TriangleCount()));
 
-	// A point light INSIDE the box, near the ceiling.
+	// A point light INSIDE the box, a little above its middle. Not near
+	// the ceiling: the falloff is the inverse square (what direct light
+	// uses), and a lamp a metre under a white ceiling gives nearly all of
+	// itself to it - the walls then have too little to bleed.
 	//
 	// Not a directional light: the box is sealed, so a light outside it
 	// illuminates nothing at all - every shadow ray from the floor hits
@@ -111,8 +114,8 @@ int main()
 	// green reaching the floor has bounced off a wall.
 	std::vector<RayLight> lights(1);
 	lights[0].isPoint = 1.f;
-	lights[0].positionOrDirection = Vec3(0.f, 4.f, 0.f);
-	lights[0].color = Vec3(6.f, 6.f, 6.f);
+	lights[0].positionOrDirection = Vec3(0.f, 1.f, 0.f);
+	lights[0].color = Vec3(150.f, 150.f, 150.f);   // (about 6 at the walls, 5 m away)
 	lights[0].range = 40.f;
 
 	DDGIVolume volume;

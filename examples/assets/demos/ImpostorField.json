@@ -1,0 +1,116 @@
+{
+ "version": 1,
+ "materials": [],
+ "roots": [
+  {
+   "name": "Camera",
+   "tags": [
+    "Camera"
+   ],
+   "position": [
+    0,
+    2.4,
+    7.0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "children": [],
+   "components": [
+    {
+     "type": "LuaComponent",
+     "scriptFile": "demos/scripts/camera_fly.lua",
+     "data": {
+      "yaw": 0,
+      "pitch": -8
+     }
+    }
+   ]
+  },
+  {
+   "name": "Sun",
+   "tags": [],
+   "position": [
+    0,
+    30,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "children": [],
+   "components": [
+    {
+     "type": "DirectionalLight",
+     "sun": false,
+     "castingShadows": true,
+     "cascades": 3,
+     "color": [
+      1.0,
+      0.93,
+      0.82,
+      1.0
+     ],
+     "intensity": 2.2,
+     "direction": [
+      0.45,
+      -0.6,
+      -0.66
+     ],
+     "shadowWidth": 2048,
+     "shadowHeight": 2048,
+     "shadowNear": 0.1,
+     "shadowFar": 120.0,
+     "shadowBiasFactor": 2.0,
+     "shadowBiasUnits": 1.0,
+     "shadowNormalBias": 1.5,
+     "shadowSoftness": 1.0
+    }
+   ]
+  },
+  {
+   "name": "Field",
+   "tags": [],
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "children": [],
+   "components": [
+    {
+     "type": "LuaComponent",
+     "scriptFile": "demos/scripts/impostor_field.lua",
+     "data": {}
+    }
+   ]
+  }
+ ]
+}

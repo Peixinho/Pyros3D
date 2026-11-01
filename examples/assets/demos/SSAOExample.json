@@ -8,9 +8,9 @@
     "Camera"
    ],
    "position": [
-    0,
-    3,
-    3
+    2.6,
+    1.8,
+    4.0
    ],
    "rotation": [
     -0.7853981633974483,
@@ -29,8 +29,8 @@
      "type": "LuaComponent",
      "scriptFile": "demos/scripts/camera_fly.lua",
      "data": {
-      "yaw": 0,
-      "pitch": -45
+      "yaw": 28,
+      "pitch": -14
      }
     }
    ]
@@ -65,11 +65,11 @@
       1
      ],
      "direction": [
-      -1,
-      -1,
-      -1
+      0.35,
+      -0.8,
+      -0.5
      ],
-     "intensity": 1.0,
+     "intensity": 0.45,
      "castingShadows": false,
      "aspect": 1.777,
      "cascades": 1,

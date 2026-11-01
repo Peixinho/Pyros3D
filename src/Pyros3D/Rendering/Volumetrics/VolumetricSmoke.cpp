@@ -22,6 +22,8 @@ namespace p3d {
 	std::vector<uchar> VolumetricSmoke::atlas;
 	uint32 VolumetricSmoke::atlasVersion = 0;
 	f32 VolumetricSmoke::cellSize = 0.6f;
+	f64 VolumetricSmoke::clock = 0.0;
+	uint32 VolumetricSmoke::serials = 0;
 	Vec3 VolumetricSmoke::lightDirection = Vec3(0.45f, 0.8f, 0.35f).normalize();
 	Vec3 VolumetricSmoke::lightColor = Vec3(0.70f, 0.68f, 0.62f);
 	Vec3 VolumetricSmoke::ambient = Vec3(0.28f, 0.30f, 0.34f);
@@ -226,6 +228,11 @@ namespace p3d {
 		c.density = 1.f;
 		c.emission = emission > 0.f ? emission : 0.f;
 		c.blast = blast < 0.f ? 0.f : (blast > 1.f ? 1.f : blast);
+		c.position = position;
+		c.radius = radius;
+		c.rise = rise;
+		c.physics = physics;
+		c.serial = ++serials;
 
 		// How many voxels a dome of that radius is worth, and how far the
 		// smoke may travel from the grenade. The second is what ends the
@@ -348,6 +355,7 @@ namespace p3d {
 
 	void VolumetricSmoke::Update(const f32 dt)
 	{
+		clock += dt;
 		for (int32 i = 0; i < MaxClouds; i++)
 		{
 			Cloud &c = clouds[i];

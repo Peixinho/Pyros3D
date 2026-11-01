@@ -416,7 +416,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		v.target = viewTarget; v.hostFrame = true;     // (the editor's frame: begun by it, its panels over this, presented by it)
 		lastView = v;
 		// (the scene's own settings, as they are being edited: what a game of it would show)
-		p3d::ApplySceneSettings(*viewRenderer, ambientLightColor, ambientIntensity, backgroundColor, postEffects, sceneIsTwoD);
+		p3d::ApplySceneSettings(*viewRenderer, ambientLightColor, ambientIntensity, backgroundColor, postEffects, sceneIsTwoD, project ? project->GetProjectPath() : std::string());
 		p3d::ApplyAmbientEnvironment(*viewRenderer, ambientMode, ambientSky, ambientEquator, ambientGround, ambientSH, ambientIntensity);
 		viewRenderer->SetGlobalIllumination(ambientMode == 3 && ddgiBuilt ? ddgiVolume.get() : nullptr);     // (the solved light, where the scene has one)
 		// Over it: the grid - behind what is in front of it - then the gizmos and debug lines, on top of everything
@@ -2392,7 +2392,7 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 			v.target = previewTarget; v.hostFrame = true;
 			std::vector<RenderingComponent*> hidden;
 			HideEditorChrome(hidden);     // (what the camera would see: the editor's helpers off)
-			p3d::ApplySceneSettings(*previewRenderer, ambientLightColor, ambientIntensity, backgroundColor, postEffects, sceneIsTwoD);
+			p3d::ApplySceneSettings(*previewRenderer, ambientLightColor, ambientIntensity, backgroundColor, postEffects, sceneIsTwoD, project ? project->GetProjectPath() : std::string());
 			p3d::ApplyAmbientEnvironment(*previewRenderer, ambientMode, ambientSky, ambientEquator, ambientGround, ambientSH, ambientIntensity);
 			previewRenderer->Render(scene, v);
 			for (RenderingComponent* rc : hidden) rc->Enable();
@@ -11495,6 +11495,36 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 						commitParticleEdit("Set Particle Collision");
 					}
 					{
+						// The swirl: the curl of a moving noise field - smoke that curls, sparks that wander
+						f32 turb[2] = { d.turbulence, d.turbulenceScale };
+						if (ImGui::DragFloat2("Turbulence (m/s2, swirl m)", turb, 0.02f, 0.f, 100.f))
+						{
+							ps->SetTurbulence(turb[0], turb[1]);
+							MarkSceneDirty();
+						}
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("A swirling push without divergence: its strength, and the size of its swirls.\nSmoke curls, sparks wander - nothing bunches up or thins out.");
+						commitParticleEdit("Set Particle Turbulence");
+					}
+					{
+						bool floor = d.collideFloor;
+						f32 height = d.floorHeight, bounce = d.bounce;
+						bool changed = ImGui::Checkbox("Floor", &floor);
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("A floor at a world height the particles bounce off: sparks skitter along it.\nFree - on the GPU too, unlike Collide (2D).");
+						if (floor)
+						{
+							changed |= ImGui::DragFloat("Floor Height", &height, 0.01f, -10000.f, 10000.f);
+							changed |= ImGui::SliderFloat("Floor Bounce", &bounce, 0.f, 1.f);
+						}
+						if (changed)
+						{
+							ps->SetFloor(floor, height, bounce);
+							MarkSceneDirty();
+						}
+						commitParticleEdit("Set Particle Floor");
+					}
+					{
 						f32 rot[2] = { d.minRotationSpeed, d.maxRotationSpeed };
 						if (ImGui::DragFloat2("Spin rad/s (min/max)", rot, 0.01f, -50.f, 50.f))
 						{
@@ -11545,6 +11575,33 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 							MarkSceneDirty();
 						}
 						commitParticleEdit("Set Particle Size Jitter");
+					}
+					{
+						f32 stretch = d.stretch;
+						if (ImGui::DragFloat("Stretch (s)", &stretch, 0.001f, 0.f, 1.f, stretch > 0.f ? "%.3f" : "round"))
+						{
+							ps->SetStretch(stretch);
+							MarkSceneDirty();
+						}
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Each drawn as the streak it travelled over this many seconds: sparks, rain, tracers.\n0: round, turning with its spin.");
+						commitParticleEdit("Set Particle Stretch");
+						f32 soft = d.softness;
+						if (ImGui::DragFloat("Soft Edge (m)", &soft, 0.01f, 0.f, 10.f, soft > 0.f ? "%.2f" : "hard"))
+						{
+							ps->SetSoftness(soft);
+							MarkSceneDirty();
+						}
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Fades out over this many metres where it meets what is behind it: no hard line along the ground.");
+						commitParticleEdit("Set Particle Softness");
+						bool lit = ps->IsLit();
+						f32 scatter = ps->GetForwardScatter();
+						bool changed = ImGui::Checkbox("Lit", &lit);
+						if (ImGui::IsItemHovered())
+							ImGui::SetTooltip("Lit by the scene's sky and sun, scattered as mist and smoke are.\nOff: its colours as they are (sparks, fire, glows).");
+						if (lit) changed |= ImGui::SliderFloat("Forward Scatter", &scatter, -0.9f, 0.9f);
+						if (changed) { ps->SetLit(lit, scatter); MarkSceneDirty(); }
 					}
 					{
 						// How each ramp travels between its two ends. Bezier
@@ -14359,6 +14416,12 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 		desc.damping = F("damping", desc.damping);
 		if (p.is_object() && p.contains("collide2D") && p["collide2D"].is_boolean()) desc.collide2D = p["collide2D"].get<bool>();
 		desc.bounce = F("bounce", desc.bounce);
+		desc.turbulence = std::max(0.f, F("turbulence", desc.turbulence));
+		desc.turbulenceScale = std::max(1e-3f, F("turbulenceScale", desc.turbulenceScale));
+		desc.collideFloor = B("collideFloor", desc.collideFloor);
+		desc.floorHeight = F("floorHeight", desc.floorHeight);
+		desc.stretch = std::max(0.f, F("stretch", desc.stretch));
+		desc.softness = std::max(0.f, F("softness", desc.softness));
 		desc.startSize = F("startSize", desc.startSize);
 		desc.endSize = F("endSize", desc.endSize);
 		desc.sizeRandomJitter = F("sizeRandomJitter", desc.sizeRandomJitter);
@@ -14499,6 +14562,9 @@ static void FlipRGBA8Vertically(std::vector<unsigned char>& rgba, uint32 w, uint
 				after.texture = LoadParticleTexture(ImportParticleTexture(p.value("texture", std::string())));
 			PushParticleDescCommand(psObj->GetID(), before, after, "Set Particles");
 		}
+		// (lit is the system's, not its description's: set as the panel's checkbox does)
+		if (p.is_object() && p.contains("lit") && p["lit"].is_boolean())
+			ps->SetLit(p["lit"].get<bool>(), (f32)p.value("forwardScatter", (double)ps->GetForwardScatter()));
 		// The panel's two buttons. Restart clears first for the same reason
 		// the button does: a one-shot burst would otherwise land on top of
 		// the previous one's survivors.

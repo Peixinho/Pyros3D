@@ -4,6 +4,7 @@
 // Description : The renderer - see SceneRenderer.h
 //============================================================================
 
+#include <Pyros3D/Rendering/Renderer/ImpostorBaker.h>
 #include <Pyros3D/Rendering/Renderer/SceneRenderer.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/Rendering/Components/Rendering/RenderingComponent.h>
@@ -17,6 +18,8 @@
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Rendering/GI/RayScene.h>
+#include <Pyros3D/Rendering/Volumetrics/VolumetricSmoke.h>
+#include <Pyros3D/Rendering/Renderer/FluidVolumes.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
 #include <Pyros3D/Core/Projection/Projection.h>
 #include <Pyros3D/Rendering/Components/Lights/DirectionalLight/DirectionalLight.h>
@@ -34,6 +37,7 @@
 #endif
 #include <cstdio>
 #include <sstream>
+#include <algorithm>
 #include <Pyros3D/Rendering/ColourSpace.h>
 #include <Pyros3D/Rendering/ShaderGlobals.h>
 #include <chrono>
@@ -56,6 +60,14 @@ namespace p3d {
 		const uint32_t kSurfaceVertColor[] = {
 #include "shaders/surface.vert.VERTEX_COLOR.inc"
 		};
+		const uint32_t kSurfaceVertInstColor[] = {
+#include "shaders/surface.vert.INSTANCED.VERTEX_COLOR.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kSurfaceVertInstColorWgsl =
+#include "shaders/surface.vert.INSTANCED.VERTEX_COLOR.wgsl.inc"
+			;
+#endif
 #if defined(PYROS_RENDERER_WGSL)
 		const char* const kSurfaceVertColorWgsl =
 #include "shaders/surface.vert.VERTEX_COLOR.wgsl.inc"
@@ -194,6 +206,14 @@ namespace p3d {
 		const uint32_t kParticleFrag[] = {
 #include "shaders/particle.frag.inc"
 		};
+		const uint32_t kParticleFragScreen[] = {
+#include "shaders/particle.frag.SCREEN.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kParticleFragScreenWgsl =
+#include "shaders/particle.frag.SCREEN.wgsl.inc"
+			;
+#endif
 		const uint32_t kParticleFragHalf[] = {
 #include "shaders/particle.frag.HALF.inc"
 		};
@@ -265,7 +285,8 @@ namespace p3d {
 #endif
 		struct UIDrawData { f32 transform[16]; f32 colour[4]; f32 flags[4]; };
 		// the renderer's shader sources as text, for the surfaces compiled at run time (cmake/EmbedShaderSources.cmake)
-		struct EmbeddedSource { const char* name; const char* text; };
+		// (in parts: cmake/EmbedShaderSources.cmake says why)
+		struct EmbeddedSource { const char* name; const char* parts[16]; };
 		const EmbeddedSource kSources[] = {
 #include "shaders/sources.inc"
 		};
@@ -274,7 +295,7 @@ namespace p3d {
 		{
 			if (!done.insert(name).second) return std::string();
 			std::string text;
-			for (const EmbeddedSource &e : kSources) if (name == e.name) text = e.text;
+			for (const EmbeddedSource &e : kSources) if (name == e.name) for (const char* part : e.parts) if (part) text += part;
 			std::istringstream in(text);
 			std::string line, out;
 			while (std::getline(in, line))
@@ -391,6 +412,102 @@ namespace p3d {
 #include "shaders/rtreflect.frag.RAYQUERY.inc"
 		};
 #endif
+		const uint32_t kFluidComp[] = {
+#include "shaders/fluid.comp.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kFluidCompWgsl =
+#include "shaders/fluid.comp.wgsl.inc"
+			;
+#endif
+		const uint32_t kBeamsFrag[] = {
+#include "shaders/beams.frag.inc"
+		};
+		const uint32_t kBeamsCompositeFrag[] = {
+#include "shaders/beamscomposite.frag.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kBeamsFragWgsl =
+#include "shaders/beams.frag.wgsl.inc"
+			;
+		const char* const kBeamsCompositeFragWgsl =
+#include "shaders/beamscomposite.frag.wgsl.inc"
+			;
+#endif
+		const uint32_t kSurfaceVertImpostor[] = {
+#include "shaders/surface.vert.INSTANCED.IMPOSTOR.inc"
+		};
+		const uint32_t kSurfaceVertImpostorPlain[] = {
+#include "shaders/surface.vert.IMPOSTOR.inc"
+		};
+		const uint32_t kSurfaceFragImpostor[] = {
+#include "shaders/surface.frag.IMPOSTOR.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kSurfaceVertImpostorWgsl =
+#include "shaders/surface.vert.INSTANCED.IMPOSTOR.wgsl.inc"
+			;
+		const char* const kSurfaceVertImpostorPlainWgsl =
+#include "shaders/surface.vert.IMPOSTOR.wgsl.inc"
+			;
+		const char* const kSurfaceFragImpostorWgsl =
+#include "shaders/surface.frag.IMPOSTOR.wgsl.inc"
+			;
+#endif
+		const uint32_t kSsprVert[] = {
+#include "shaders/sspr.vert.inc"
+		};
+		const uint32_t kSsprFrag[] = {
+#include "shaders/sspr.frag.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kSsprVertWgsl =
+#include "shaders/sspr.vert.wgsl.inc"
+			;
+		const char* const kSsprFragWgsl =
+#include "shaders/sspr.frag.wgsl.inc"
+			;
+#endif
+		const uint32_t kInstanceCullComp[] = {
+#include "shaders/instance_cull.comp.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kInstanceCullCompWgsl =
+#include "shaders/instance_cull.comp.wgsl.inc"
+			;
+#endif
+		const uint32 kCullInstances = 256;     // (an instanced set this big or more culled on the GPU, instance by instance)
+		const uint32_t kPresentFrag[] = {
+#include "shaders/present.frag.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kPresentFragWgsl =
+#include "shaders/present.frag.wgsl.inc"
+			;
+#endif
+		const uint32_t kFxaaFrag[] = {
+#include "shaders/fxaa.frag.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kFxaaFragWgsl =
+#include "shaders/fxaa.frag.wgsl.inc"
+			;
+#endif
+		const uint32_t kSmokeFrag[] = {
+#include "shaders/smoke.frag.inc"
+		};
+		const uint32_t kSmokeCompositeFrag[] = {
+#include "shaders/smokecomposite.frag.inc"
+		};
+#if defined(PYROS_RENDERER_WGSL)
+		const char* const kSmokeFragWgsl =
+#include "shaders/smoke.frag.wgsl.inc"
+			;
+		const char* const kSmokeCompositeFragWgsl =
+#include "shaders/smokecomposite.frag.wgsl.inc"
+			;
+#endif
+		const uint32 kSmokeDataBytes = 992, kSmokeDataSlot = 1024;     // (smoke.frag's SmokeData; a slot a frame in flight, 256-aligned)
 		const uint32_t kPostFrag[] = {
 #include "shaders/post.frag.inc"
 		};
@@ -555,6 +672,7 @@ namespace p3d {
 			f32 ambientSH[9][4];
 			f32 weather[4];
 			f32 previousViewProjection[16];     // (last frame's, without its jitter: where a point was in last frame's picture)
+			f32 temporal[4];                    // (x: the frame's index 0..63 - common.glsl's LodDither)
 		};
 		// std140, as surface_draw.glsl's DrawData
 		struct DrawData
@@ -571,6 +689,47 @@ namespace p3d {
 			f32 subsurface[4];
 			f32 shape[4];
 		};
+		// The light a fire gives its surroundings (VolumetricSmoke's clouds with an emission): a point light low in its
+		// flames, where they are hottest, tinted by the fire and as strong as it is thick, flickering - two sines out
+		// of step and a third for the gusts; a blast's brief and much brighter
+		// Seconds since the first frame: a material's uTime, the smoke's boil, a fire's flicker
+		f32 RendererSeconds()
+		{
+			static const std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
+			return (f32)std::chrono::duration<f64>(std::chrono::steady_clock::now() - started).count();
+		}
+		f32 HalfToFloat(const uint16 h)
+		{
+			const uint32 sign = (uint32)(h & 0x8000) << 16, exponent = (h >> 10) & 0x1F, mantissa = h & 0x3FF;
+			if (exponent == 0) { const f32 f = std::ldexp((f32)mantissa, -24); return sign ? -f : f; }
+			const uint32 bits = exponent == 31 ? sign | 0x7F800000u | (mantissa << 13) : sign | ((exponent + 112) << 23) | (mantissa << 13);
+			f32 f; memcpy(&f, &bits, 4); return f;
+		}
+		struct FireLight { Vec3 position; Vec3 radiance; f32 radius; };
+		void FireLights(const f32 seconds, std::vector<FireLight> &out)
+		{
+			out.clear();
+			for (uint32 i = 0; i < VolumetricSmoke::MaxClouds; i++)
+			{
+				const VolumetricSmoke::Cloud &c = VolumetricSmoke::GetCloud(i);
+				if (!c.active || c.emission <= 0.f || c.density <= 0.f) continue;
+				const Vec3 size = c.boundsMax - c.boundsMin;
+				FireLight f;
+				f.position = Vec3((c.boundsMin.x + c.boundsMax.x) * 0.5f, c.boundsMin.y + size.y * (c.blast > 0.5f ? 0.5f : 0.25f), (c.boundsMin.z + c.boundsMax.z) * 0.5f);
+				const f32 phase = (f32)i * 1.7f;
+				const f32 flicker = 0.82f + 0.1f * sinf(seconds * 13.f + phase) + 0.06f * sinf(seconds * 23.7f + phase * 2.3f) + 0.05f * sinf(seconds * 3.1f + phase * 0.7f);
+				const f32 peak = std::max(c.color.x, std::max(c.color.y, c.color.z));
+				const Vec3 tint = peak > 0.f ? c.color / peak : Vec3(1.f, 1.f, 1.f);
+				// (a flame's light is a ~1500 K blackbody's: orange; the cloud's colour tints it further)
+				const Vec3 fire(1.f, 0.42f, 0.12f);
+				// (a fire's as long as it burns; a blast's a flash dying in a second or so, whatever its smoke does after)
+				const f32 strength = c.emission * c.density * c.growth * (c.blast > 0.5f ? 30.f * expf(-c.age * 2.2f) : 16.f) * flicker;
+				f.radiance = Vec3(fire.x * tint.x, fire.y * tint.y, fire.z * tint.z) * strength;
+				f.radius = std::max(size.x, std::max(size.y, size.z)) * 3.f + 3.f;
+				out.push_back(f);
+			}
+		}
+
 		// std430, as lighting.glsl's Light
 		struct LightData
 		{
@@ -773,7 +932,7 @@ namespace p3d {
 		gfx::BufferDesc sb; sb.size = kShadowDataSlot * kFramesInFlight; sb.usage = gfx::BufUniform; sb.memory = gfx::Memory::Upload; sb.debugName = "Renderer.ShadowData";
 		shadowData = device->CreateBuffer(sb);
 		gfx::TextureDesc at; at.width = kShadowAtlasW; at.height = kShadowAtlasH; at.format = kShadowFormat; at.usage = gfx::TexDepthTarget | gfx::TexSampled; at.debugName = "Renderer.SunShadow";
-		shadowAtlas = device->CreateTexture(at);
+		shadowAtlas = MakeTexture(at);
 
 		gfx::GraphicsPipelineDesc sp;
 		sp.vertex = shadowVS; sp.fragment = depthOnlyFS;
@@ -845,9 +1004,20 @@ namespace p3d {
 		tp.material = { { 0, gfx::BindingKind::Uniform, true, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::Sampler, false, true },
 			{ 3, gfx::BindingKind::Texture2D, false, true }, { 4, gfx::BindingKind::Texture2D, false, true }, { 5, gfx::BindingKind::DepthTexture, false, true } };
 		tp.cull = gfx::Cull::None; tp.depthTest = tp.depthWrite = false;
+		tp.drawDataBytes = 144;     // (the grade and the bloom's share - tonemap.frag's DrawData)
 		tp.colorCount = 1; tp.colorFormats[0] = gfx::Format::Unknown;     // (the backbuffer's own)
 		tp.debugName = "Renderer.Tonemap";
 		tonemapPipeline = device->CreatePipeline(tp);
+		// (the same into a texture - the picture in display terms, for the scene's asset effects - and that brought to the screen)
+		tp.colorFormats[0] = kHdrFormat; tp.debugName = "Renderer.Tonemap (to display)";
+		tonemapToDisplayPipeline = device->CreatePipeline(tp);
+		{
+			gfx::GraphicsPipelineDesc pr;
+			pr.vertex = fullscreenVS; pr.fragment = presentFS; pr.cull = gfx::Cull::None; pr.depthTest = pr.depthWrite = false;
+			pr.material = { { 0, gfx::BindingKind::Uniform, false, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::Sampler, false, true } };
+			pr.colorCount = 1; pr.colorFormats[0] = gfx::Format::Unknown; pr.debugName = "Renderer.Present";
+			presentPipeline = device->CreatePipeline(pr);
+		}
 	}
 
 	SceneRenderer::~SceneRenderer()
@@ -877,6 +1047,11 @@ namespace p3d {
 		for (std::map<uint32_t, gfx::BindGroup>::iterator i = uiGroups.begin(); i != uiGroups.end(); ++i) device->Destroy(i->second);
 		if (batchRing) device->Destroy(batchRing);
 		device->Destroy(particleRing);
+		for (gfx::Texture t : { smokeTex, smokeReflectTex, beamsTex }) if (t) device->Destroy(t);
+		for (gfx::BindGroup g : { beamsGroup, beamsCompositeGroup }) if (g) device->Destroy(g);
+		fluids.Destroy();
+		if (smokeData) device->Destroy(smokeData);
+		for (gfx::BindGroup g : { smokeGroup, smokeCompositeGroup }) if (g) device->Destroy(g);
 		for (std::unordered_map<ParticleSystem*, GpuParticles>::iterator i = gpuParticles.begin(); i != gpuParticles.end(); ++i) ForgetGpuParticles(i->second);
 		gpuParticles.clear();
 		ForgetRayTracing();
@@ -895,6 +1070,11 @@ namespace p3d {
 		if (skyboxTex) device->Destroy(skyboxTex);
 		if (particleTex) device->Destroy(particleTex);
 		if (particleCompositeGroup) device->Destroy(particleCompositeGroup);
+		if (particleFullTex) device->Destroy(particleFullTex);
+		if (particleFullCompositeGroup) device->Destroy(particleFullCompositeGroup);
+		if (mirrorTex) device->Destroy(mirrorTex);
+		if (mirrorDepth) device->Destroy(mirrorDepth);
+		if (ssprGroup) device->Destroy(ssprGroup);
 		if (taaData) device->Destroy(taaData);
 		if (bonePalette) device->Destroy(bonePalette);
 		if (velocityTex) device->Destroy(velocityTex);
@@ -926,6 +1106,9 @@ namespace p3d {
 		s.stage = gfx::Stage::Vertex; s.spirv = kShadowVert; s.spirvWords = sizeof(kShadowVert) / 4; PYROS_WGSL(s, kShadowVert); s.debugName = "shadow.vert";
 		shadowVS = device->CreateShader(s);
 		s.spirv = kSurfaceVertInstanced; s.spirvWords = sizeof(kSurfaceVertInstanced) / 4; PYROS_WGSL(s, kSurfaceVertInstanced); s.debugName = "surface.vert (instanced)"; surfaceInstVS = device->CreateShader(s);
+		s.spirv = kSurfaceVertImpostor; s.spirvWords = sizeof(kSurfaceVertImpostor) / 4; PYROS_WGSL(s, kSurfaceVertImpostor); s.debugName = "surface.vert (impostor)"; surfaceImpostorVS = device->CreateShader(s);
+		s.spirv = kSurfaceVertImpostorPlain; s.spirvWords = sizeof(kSurfaceVertImpostorPlain) / 4; PYROS_WGSL(s, kSurfaceVertImpostorPlain); s.debugName = "surface.vert (impostor, one object)"; surfaceImpostorPlainVS = device->CreateShader(s);
+		s.spirv = kSsprVert; s.spirvWords = sizeof(kSsprVert) / 4; PYROS_WGSL(s, kSsprVert); s.debugName = "sspr.vert"; ssprVS = device->CreateShader(s);
 		s.spirv = kDepthVertInstanced; s.spirvWords = sizeof(kDepthVertInstanced) / 4; PYROS_WGSL(s, kDepthVertInstanced); s.debugName = "depth.vert (instanced)"; depthInstVS = device->CreateShader(s);
 		s.spirv = kDepthVertAlpha; s.spirvWords = sizeof(kDepthVertAlpha) / 4; PYROS_WGSL(s, kDepthVertAlpha); s.debugName = "depth.vert (alpha)"; depthAlphaVS = device->CreateShader(s);
 		s.spirv = kDepthVertInstancedAlpha; s.spirvWords = sizeof(kDepthVertInstancedAlpha) / 4; PYROS_WGSL(s, kDepthVertInstancedAlpha); s.debugName = "depth.vert (instanced, alpha)"; depthInstAlphaVS = device->CreateShader(s);
@@ -956,6 +1139,13 @@ namespace p3d {
 		s.spirv = kCloudShadowFrag; s.spirvWords = sizeof(kCloudShadowFrag) / 4; PYROS_WGSL(s, kCloudShadowFrag); s.debugName = "cloudshadow.frag"; cloudShadowFS = device->CreateShader(s);
 		s.spirv = kTaaFrag; s.spirvWords = sizeof(kTaaFrag) / 4; PYROS_WGSL(s, kTaaFrag); s.debugName = "taa.frag"; taaFS = device->CreateShader(s);
 		s.spirv = kPostFrag; s.spirvWords = sizeof(kPostFrag) / 4; PYROS_WGSL(s, kPostFrag); s.debugName = "post.frag"; postFS = device->CreateShader(s);
+		s.spirv = kSmokeFrag; s.spirvWords = sizeof(kSmokeFrag) / 4; PYROS_WGSL(s, kSmokeFrag); s.debugName = "smoke.frag"; smokeFS = device->CreateShader(s);
+		s.spirv = kFxaaFrag; s.spirvWords = sizeof(kFxaaFrag) / 4; PYROS_WGSL(s, kFxaaFrag); s.debugName = "fxaa.frag"; fxaaFS = device->CreateShader(s);
+		s.spirv = kPresentFrag; s.spirvWords = sizeof(kPresentFrag) / 4; PYROS_WGSL(s, kPresentFrag); s.debugName = "present.frag"; presentFS = device->CreateShader(s);
+		s.spirv = kSurfaceFragImpostor; s.spirvWords = sizeof(kSurfaceFragImpostor) / 4; PYROS_WGSL(s, kSurfaceFragImpostor); s.debugName = "surface.frag (impostor)"; surfaceImpostorFS = device->CreateShader(s);
+		s.spirv = kBeamsFrag; s.spirvWords = sizeof(kBeamsFrag) / 4; PYROS_WGSL(s, kBeamsFrag); s.debugName = "beams.frag"; beamsFS = device->CreateShader(s);
+		s.spirv = kBeamsCompositeFrag; s.spirvWords = sizeof(kBeamsCompositeFrag) / 4; PYROS_WGSL(s, kBeamsCompositeFrag); s.debugName = "beamscomposite.frag"; beamsCompositeFS = device->CreateShader(s);
+		s.spirv = kSmokeCompositeFrag; s.spirvWords = sizeof(kSmokeCompositeFrag) / 4; PYROS_WGSL(s, kSmokeCompositeFrag); s.debugName = "smokecomposite.frag"; smokeCompositeFS = device->CreateShader(s);
 		s.spirv = kRtShadowFrag; s.spirvWords = sizeof(kRtShadowFrag) / 4; PYROS_WGSL(s, kRtShadowFrag); s.debugName = "rtshadow.frag"; rtShadowFS = device->CreateShader(s);
 		s.spirv = kRtReflectFrag; s.spirvWords = sizeof(kRtReflectFrag) / 4; PYROS_WGSL(s, kRtReflectFrag); s.debugName = "rtreflect.frag"; rtReflectFS = device->CreateShader(s);
 #if !defined(__EMSCRIPTEN__)
@@ -969,8 +1159,14 @@ namespace p3d {
 		{
 			gfx::ShaderDesc c = s; c.stage = gfx::Stage::Compute; c.spirv = kParticleSimComp; c.spirvWords = sizeof(kParticleSimComp) / 4; PYROS_WGSL(c, kParticleSimComp);
 			c.debugName = "particle_sim.comp"; particleSimCS = device->CreateShader(c);
+			c.spirv = kFluidComp; c.spirvWords = sizeof(kFluidComp) / 4; PYROS_WGSL(c, kFluidComp);
+			c.debugName = "fluid.comp"; fluidCS = device->CreateShader(c);
+			c.spirv = kInstanceCullComp; c.spirvWords = sizeof(kInstanceCullComp) / 4; PYROS_WGSL(c, kInstanceCullComp);
+			c.debugName = "instance_cull.comp"; instanceCullCS = device->CreateShader(c);
 		}
 		s.spirv = kParticleFragHalf; s.spirvWords = sizeof(kParticleFragHalf) / 4; PYROS_WGSL(s, kParticleFragHalf); s.debugName = "particle.frag (half)"; particleHalfFS = device->CreateShader(s);
+		s.spirv = kParticleFragScreen; s.spirvWords = sizeof(kParticleFragScreen) / 4; PYROS_WGSL(s, kParticleFragScreen); s.debugName = "particle.frag (screen)"; particleScreenFS = device->CreateShader(s);
+		s.spirv = kSsprFrag; s.spirvWords = sizeof(kSsprFrag) / 4; PYROS_WGSL(s, kSsprFrag); s.debugName = "sspr.frag"; ssprFS = device->CreateShader(s);
 		s.spirv = kParticleCompositeFrag; s.spirvWords = sizeof(kParticleCompositeFrag) / 4; PYROS_WGSL(s, kParticleCompositeFrag); s.debugName = "particlecomposite.frag"; particleCompositeFS = device->CreateShader(s);
 		s.spirv = kSkyboxFrag; s.spirvWords = sizeof(kSkyboxFrag) / 4; PYROS_WGSL(s, kSkyboxFrag); s.debugName = "skybox.frag"; skyboxFS = device->CreateShader(s);
 		s.spirv = kSkyboxTableFrag; s.spirvWords = sizeof(kSkyboxTableFrag) / 4; PYROS_WGSL(s, kSkyboxTableFrag); s.debugName = "skyboxtable.frag"; skyboxTableFS = device->CreateShader(s);
@@ -979,6 +1175,7 @@ namespace p3d {
 		s.stage = gfx::Stage::Vertex;
 		s.spirv = kSurfaceVertSkinned; s.spirvWords = sizeof(kSurfaceVertSkinned) / 4; PYROS_WGSL(s, kSurfaceVertSkinned); s.debugName = "surface.vert (skinned)"; surfaceSkinVS = device->CreateShader(s);
 		s.spirv = kSurfaceVertColor; s.spirvWords = sizeof(kSurfaceVertColor) / 4; PYROS_WGSL(s, kSurfaceVertColor); s.debugName = "surface.vert (vertex colour)"; surfaceColorVS = device->CreateShader(s);
+		s.spirv = kSurfaceVertInstColor; s.spirvWords = sizeof(kSurfaceVertInstColor) / 4; PYROS_WGSL(s, kSurfaceVertInstColor); s.debugName = "surface.vert (instanced, vertex colour)"; surfaceInstColorVS = device->CreateShader(s);
 		s.spirv = kDepthVertSkinned; s.spirvWords = sizeof(kDepthVertSkinned) / 4; PYROS_WGSL(s, kDepthVertSkinned); s.debugName = "depth.vert (skinned)"; depthSkinVS = device->CreateShader(s);
 		s.spirv = kShadowVertSkinned; s.spirvWords = sizeof(kShadowVertSkinned) / 4; PYROS_WGSL(s, kShadowVertSkinned); s.debugName = "shadow.vert (skinned)"; shadowSkinVS = device->CreateShader(s);
 		s.spirv = kShadowVertSkinnedAlpha; s.spirvWords = sizeof(kShadowVertSkinnedAlpha) / 4; PYROS_WGSL(s, kShadowVertSkinnedAlpha); s.debugName = "shadow.vert (skinned, alpha)"; shadowSkinAlphaVS = device->CreateShader(s);
@@ -987,7 +1184,7 @@ namespace p3d {
 		s.spirv = kNoVelocityFrag; s.spirvWords = sizeof(kNoVelocityFrag) / 4; PYROS_WGSL(s, kNoVelocityFrag); s.debugName = "novelocity.frag"; noVelocityFS = device->CreateShader(s);
 		{
 			gfx::TextureDesc sd; sd.width = sd.height = 1; sd.format = kDepthFormat; sd.usage = gfx::TexDepthTarget | gfx::TexSampled; sd.debugName = "Renderer.StandInDepth";
-			standInDepth = device->CreateTexture(sd);
+			standInDepth = MakeTexture(sd);
 		}
 		s.spirv = kSkyShFrag; s.spirvWords = sizeof(kSkyShFrag) / 4; PYROS_WGSL(s, kSkyShFrag); s.debugName = "skysh.frag";
 		skyShFS = device->CreateShader(s);
@@ -1012,8 +1209,8 @@ namespace p3d {
 		const uchar w[4] = { 255, 255, 255, 255 }, n[4] = { 128, 128, 255, 255 };
 		gfx::TextureDesc t; t.format = gfx::Format::RGBA8; t.usage = gfx::TexSampled;
 		gfx::TextureData d; d.size = 4;
-		d.bytes = w; t.debugName = "Renderer.White"; white = device->CreateTexture(t, &d, 1);
-		d.bytes = n; t.debugName = "Renderer.FlatNormal"; flatNormal = device->CreateTexture(t, &d, 1);
+		d.bytes = w; t.debugName = "Renderer.White"; white = MakeTexture(t, &d, 1);
+		d.bytes = n; t.debugName = "Renderer.FlatNormal"; flatNormal = MakeTexture(t, &d, 1);
 	}
 
 	namespace { std::unordered_map<const Texture*, gfx::Texture>& ViewTextures() { static std::unordered_map<const Texture*, gfx::Texture> all; return all; } }
@@ -1021,6 +1218,23 @@ namespace p3d {
 	void SceneRenderer::SetViewTexture(const Texture* texture, const gfx::Texture picture)
 	{
 		if (picture) ViewTextures()[texture] = picture; else ViewTextures().erase(texture);
+	}
+
+	void SceneRenderer::ForgetTexture(const gfx::Texture t)
+	{
+		for (std::map<uint32_t, gfx::BindGroup>* m : { &uiGroups, &particleGroups, &shadowAlphaGroups, &depthAlphaGroups })
+		{
+			std::map<uint32_t, gfx::BindGroup>::iterator i = m->find(t.id);
+			if (i != m->end()) { if (i->second) device->Destroy(i->second); m->erase(i); }
+		}
+		for (std::map<std::array<uint32_t, 5>, gfx::BindGroup>::iterator i = surfaceGroups.begin(); i != surfaceGroups.end();)
+			if (std::find(i->first.begin(), i->first.end(), t.id) != i->first.end()) { if (i->second) device->Destroy(i->second); i = surfaceGroups.erase(i); }
+			else ++i;
+		for (std::map<CustomShaderMaterial*, CustomGroup>* m : { &customGroups, &customPrepassGroups })
+			for (std::map<CustomShaderMaterial*, CustomGroup>::iterator i = m->begin(); i != m->end(); ++i)
+				if (std::find(i->second.textures.begin(), i->second.textures.end(), t.id) != i->second.textures.end()) i->second.textures.clear();     // (remade at its next use)
+		textureEpoch++;
+		device->Destroy(t);
 	}
 
 	gfx::Texture SceneRenderer::TextureFor(Texture* source, const bool srgb, const gfx::Texture fallback)
@@ -1040,6 +1254,77 @@ namespace p3d {
 		const std::vector<uchar>* pixels = source->GetCpuPixels(source->GetTextureType(), 0);
 		const uint32 w = source->GetWidth(0), h = source->GetHeight(0);
 		if (!pixels || w == 0 || h == 0) return g.texture ? g.texture : fallback;
+		// Float data - an FFT sea's displacement and slopes, remade every frame: as half floats (filterable on every
+		// backend; 32-bit floats are not on WebGPU), its whole mip chain, the texture kept and written again in place.
+		// (Read as RGBA8, sixteen bytes a texel failed the size test above all: the sea sampled white - foam all over)
+		{
+			const uint32 dt = source->GetDataType();
+			const uint32 floatChannels = dt == TextureDataType::RGBA32F ? 4 : dt == TextureDataType::RGB32F ? 3 : dt == TextureDataType::RG32F ? 2 : dt == TextureDataType::R32F ? 1 : 0;
+			if (floatChannels && pixels->size() == (size_t)w * h * floatChannels * 4)
+			{
+				const f32* src = (const f32*)pixels->data();
+				std::vector<std::vector<uint16_t> > mips(1, std::vector<uint16_t>((size_t)w * h * 4));
+				std::vector<std::vector<f32> > level(1, std::vector<f32>((size_t)w * h * 4, 0.f));
+				for (size_t t = 0; t < (size_t)w * h; t++)
+					for (uint32 c = 0; c < 4; c++) level[0][t * 4 + c] = c < floatChannels ? src[t * floatChannels + c] : (c == 3 ? 1.f : 0.f);
+				std::vector<std::pair<uint32, uint32> > sizes(1, std::make_pair(w, h));
+				while (sizes.back().first > 1 || sizes.back().second > 1)
+				{
+					const uint32 pw = sizes.back().first, ph = sizes.back().second, nw = std::max(1u, pw / 2), nh = std::max(1u, ph / 2);
+					std::vector<f32> next((size_t)nw * nh * 4, 0.f);
+					const std::vector<f32> &prev = level.back();
+					for (uint32 y = 0; y < nh; y++)
+						for (uint32 x = 0; x < nw; x++)
+							for (uint32 c = 0; c < 4; c++)
+							{
+								f32 sum = 0.f;
+								for (uint32 k = 0; k < 4; k++) { const uint32 sx = std::min(pw - 1, x * 2 + (k & 1)), sy = std::min(ph - 1, y * 2 + (k >> 1)); sum += prev[((size_t)sy * pw + sx) * 4 + c]; }
+								next[((size_t)y * nw + x) * 4 + c] = sum * 0.25f;
+							}
+					level.push_back(std::move(next)); sizes.push_back(std::make_pair(nw, nh));
+				}
+				mips.resize(level.size());
+				std::vector<gfx::TextureData> data(level.size());
+				for (size_t i = 0; i < level.size(); i++)
+				{
+					mips[i].resize(level[i].size());
+					for (size_t k = 0; k < level[i].size(); k++) mips[i][k] = (uint16_t)HalfBits(level[i][k]);
+					data[i].mip = (uint32_t)i; data[i].bytes = mips[i].data(); data[i].size = mips[i].size() * 2;
+				}
+				if (g.texture && g.floatW == w && g.floatH == h) device->Upload(g.texture, data.data(), (uint32_t)data.size());
+				else
+				{
+					gfx::TextureDesc t; t.width = w; t.height = h; t.mips = (uint32_t)data.size();
+					t.format = gfx::Format::RGBA16F; t.usage = gfx::TexSampled | gfx::TexCopyDst; t.debugName = "Renderer.Material (float)";     // (written again each frame: Vulkan and WebGPU need it a copy's target)
+					if (g.texture) ForgetTexture(g.texture);
+					g.texture = MakeTexture(t, data.data(), (uint32_t)data.size());
+					g.floatW = w; g.floatH = h;
+				}
+				g.revision = source->GetCpuRevision();
+				return g.texture ? g.texture : fallback;
+			}
+		}
+		// A material's map in blocks, where the device samples them (Texture::CompressedChain - its cache, or made there
+		// once): an eighth (BC1) or a quarter (BC3, with alpha) of the memory and bandwidth, its mips made already.
+		// (Not a normal map's BC5 - two channels: a surface reading the map's xyz, a custom one, would find no z. Not
+		// one whose size is not whole blocks: WebGPU takes no other.)
+		if (device->Caps().bc && w % 4 == 0 && h % 4 == 0 && !getenv("PYROS_NO_BLOCKS"))
+		{
+			uint32 blockFormat = 0; std::vector<std::vector<uchar> > blocks;
+			if (source->CompressedChain(blockFormat, blocks) && (blockFormat == 1 || blockFormat == 2))     // (BlockCompress: 1 BC1, 2 BC3)
+			{
+				std::vector<gfx::TextureData> data(blocks.size());
+				for (size_t i = 0; i < blocks.size(); i++) { data[i].mip = (uint32_t)i; data[i].bytes = blocks[i].data(); data[i].size = blocks[i].size(); }
+				gfx::TextureDesc t; t.width = w; t.height = h; t.mips = (uint32_t)blocks.size();
+				t.format = blockFormat == 1 ? (srgb ? gfx::Format::BC1_sRGB : gfx::Format::BC1) : (srgb ? gfx::Format::BC3_sRGB : gfx::Format::BC3);
+				t.usage = gfx::TexSampled; t.debugName = "Renderer.Material (blocks)";
+				if (g.texture) ForgetTexture(g.texture);
+				g.texture = MakeTexture(t, data.data(), (uint32_t)data.size());
+				g.revision = source->GetCpuRevision();
+				{ static uint32 said = 0; if (g.texture && said++ < 1) fprintf(stderr, "[renderer] material maps in blocks (BC1/BC3) where the device samples them - e.g. %s\n", source->GetFilename().c_str()); }
+				if (g.texture) return g.texture;
+			}
+		}
 		// As RGBA8: a one-channel picture (a font's coverage) into every channel, two as grey and alpha, three with alpha 1
 		const size_t texels = (size_t)w * h, channels = pixels->size() / texels;
 		if (channels < 1 || channels > 4 || pixels->size() != texels * channels) return g.texture ? g.texture : fallback;
@@ -1070,10 +1355,22 @@ namespace p3d {
 		for (size_t i = 0; i < mips.size(); i++) { data[i].mip = (uint32_t)i; data[i].bytes = mips[i].data(); data[i].size = mips[i].size(); }
 		gfx::TextureDesc t; t.width = w; t.height = h; t.mips = (uint32_t)mips.size();
 		t.format = srgb ? gfx::Format::RGBA8_sRGB : gfx::Format::RGBA8; t.usage = gfx::TexSampled; t.debugName = "Renderer.Material";
-		if (g.texture) device->Destroy(g.texture);
-		g.texture = device->CreateTexture(t, data.data(), (uint32_t)data.size());
+		if (g.texture) ForgetTexture(g.texture);
+		g.texture = MakeTexture(t, data.data(), (uint32_t)data.size());
 		g.revision = source->GetCpuRevision();
 		return g.texture ? g.texture : fallback;
+	}
+
+	// A texture of the renderer's own: a render target made with nothing in it is cleared on its first frame (ClearNew,
+	// Render) - Vulkan and Metal hand out memory as it was, and a pass reading one before its writer had run (its pipeline
+	// still compiling, the machine busy) showed that: a green sky, a black frame, once in a while
+	gfx::Texture SceneRenderer::MakeTexture(const gfx::TextureDesc &d, const gfx::TextureData* data, const uint32_t count)
+	{
+		const gfx::Texture t = device->CreateTexture(d, data, count);
+		const bool depth = d.format == gfx::Format::D32F || d.format == gfx::Format::D24S8 || d.format == gfx::Format::D32FS8 || d.format == gfx::Format::D16;
+		if (t && !data && !d.transient && (d.usage & gfx::TexColorTarget) && !depth && d.kind == gfx::TextureKind::Tex2D && d.depthOrLayers <= 1 && d.samples <= 1)
+			pendingClears.push_back(std::make_pair(t, std::make_pair(d.width, d.height)));
+		return t;
 	}
 
 	gfx::Texture SceneRenderer::SkyboxFor(Texture* source)
@@ -1103,7 +1400,7 @@ namespace p3d {
 		if (skyboxTex) device->Destroy(skyboxTex);
 		if (skyboxGroup) { device->Destroy(skyboxGroup); skyboxGroup = gfx::BindGroup(); }
 		if (skyboxTableGroup) { device->Destroy(skyboxTableGroup); skyboxTableGroup = gfx::BindGroup(); }
-		skyboxTex = device->CreateTexture(t, data, 6);
+		skyboxTex = MakeTexture(t, data, 6);
 		skyboxMadeFrom = source; skyboxRevision = source->GetCpuRevision();
 		return skyboxTex;
 	}
@@ -1113,7 +1410,7 @@ namespace p3d {
 		const std::array<uint32_t, 5> key = { maps[0].id, maps[1].id, maps[2].id, maps[3].id, maps[4].id };
 		std::map<std::array<uint32_t, 5>, gfx::BindGroup>::iterator i = surfaceGroups.find(key);
 		if (i != surfaceGroups.end()) return i->second;
-		gfx::Device::BindGroupEntry e[24];
+		gfx::Device::BindGroupEntry e[25];
 		e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
 		e[1].binding = 1; e[1].buffer = lightData; e[1].size = kLightDataSlot;
 		for (int m = 0; m < 4; m++) { e[2 + m].binding = 2 + m; e[2 + m].texture = maps[m]; }
@@ -1135,7 +1432,8 @@ namespace p3d {
 		e[21].binding = 22; e[21].texture = giVisibility ? giVisibility : white;
 		e[22].binding = 23; e[22].texture = giProbes ? giProbes : white;
 		e[23].binding = 24; e[23].texture = giRadiance ? giRadiance : white;
-		const gfx::BindGroup g = device->CreateBindGroup(layoutOf, e, 24);
+		e[24].binding = 25; e[24].texture = mirrorTex ? mirrorTex : white;
+		const gfx::BindGroup g = device->CreateBindGroup(layoutOf, e, 25);
 		surfaceGroups[key] = g;
 		return g;
 	}
@@ -1176,6 +1474,7 @@ namespace p3d {
 				for (uint32 f = 0; f < faces; f++)
 				{
 					LocalTile t;
+					t.softness = static_cast<ILightComponent*>(c)->GetShadowSoftness();
 					Vec3 forward, up;
 					if (point)
 					{
@@ -1230,6 +1529,7 @@ namespace p3d {
 					const Vec3 right = forward.cross(up).normalize(), u = right.cross(forward).normalize();
 					LocalTile t;
 					t.ortho = true; t.halfSize = half;
+					t.softness = dl->GetShadowSoftness();
 					Matrix v;
 					v.m[0] = right.x; v.m[4] = right.y; v.m[8] = right.z;  v.m[12] = -right.dotProduct(p);
 					v.m[1] = u.x;     v.m[5] = u.y;     v.m[9] = u.z;      v.m[13] = -u.dotProduct(p);
@@ -1273,6 +1573,7 @@ namespace p3d {
 		// (built here, then uploaded - the count and the lights in use, not the whole slot: every backend's way, WebGPU's
 		// writeBuffer as Metal's copy)
 		lightScratch.assign(16 + sizeof(LightData) * kMaxLights, 0);
+		beamLamps.clear(); beamSteps = 0;
 		uint8* base = lightScratch.data();
 		LightData* out = (LightData*)(base + 16);
 		uint32 count = 0;
@@ -1306,6 +1607,10 @@ namespace p3d {
 				}
 				const std::map<IComponent*, int>::const_iterator tile = firstTile.find(c);
 				L.cosInner[1] = tile != firstTile.end() ? (f32)tile->second : -1.f;
+				// (its beam through the air, where it has one: the air's density and the scattering's lobe - beams.frag)
+				L.cosInner[2] = std::max(light->GetVolumetricScattering(), 0.f);
+				L.cosInner[3] = light->GetVolumetricAnisotropy();
+				if (L.cosInner[2] > 0.f && beamLamps.size() < 16) { beamLamps.push_back(count); beamSteps = std::max(beamSteps, light->GetVolumetricSteps()); }
 				count++;
 			}
 		// (the directional lights after the sun: type 2, from everywhere along its direction - the sun is the frame's own)
@@ -1329,6 +1634,21 @@ namespace p3d {
 				const std::map<IComponent*, int>::const_iterator tile = firstTile.find(c);
 				L.cosInner[1] = tile != firstTile.end() ? (f32)tile->second : -1.f;
 				L.cosInner[2] = tile != firstTile.end() ? localTiles[tile->second].halfSize : 40.f;
+				count++;
+			}
+		}
+		// The fires' own light (VolumetricSmoke), as point lights without shadows
+		{
+			std::vector<FireLight> fires;
+			FireLights(RendererSeconds(), fires);
+			for (const FireLight &f : fires)
+			{
+				if (count >= kMaxLights) break;
+				LightData &L = out[count];
+				memset(&L, 0, sizeof(L));
+				L.positionRange[0] = f.position.x; L.positionRange[1] = f.position.y; L.positionRange[2] = f.position.z; L.positionRange[3] = f.radius;
+				L.radianceType[0] = f.radiance.x; L.radianceType[1] = f.radiance.y; L.radianceType[2] = f.radiance.z;
+				L.cosInner[1] = -1.f;
 				count++;
 			}
 		}
@@ -1404,11 +1724,11 @@ namespace p3d {
 	{
 		const gfx::Format f = gfx::Format::RGBA16F;
 		gfx::TextureDesc t; t.format = f; t.usage = gfx::TexColorTarget | gfx::TexSampled;
-		t.width = 256; t.height = 64; t.debugName = "Renderer.Transmittance"; transmittance = device->CreateTexture(t);
-		t.width = 192; t.height = 108; t.debugName = "Renderer.SkyView"; skyView = device->CreateTexture(t);
-		t.debugName = "Renderer.SkyViewClouded"; skyViewClouded = device->CreateTexture(t);
-		t.width = 9; t.height = 1; t.debugName = "Renderer.SkySH"; skySH = device->CreateTexture(t);
-		t.format = gfx::Format::RGBA32F; t.width = 9; t.height = 16; t.debugName = "Renderer.SkySHPartial"; skySHPartial = device->CreateTexture(t);
+		t.width = 256; t.height = 64; t.debugName = "Renderer.Transmittance"; transmittance = MakeTexture(t);
+		t.width = 192; t.height = 108; t.debugName = "Renderer.SkyView"; skyView = MakeTexture(t);
+		t.debugName = "Renderer.SkyViewClouded"; skyViewClouded = MakeTexture(t);
+		t.width = 9; t.height = 1; t.debugName = "Renderer.SkySH"; skySH = MakeTexture(t);
+		t.format = gfx::Format::RGBA32F; t.width = 9; t.height = 16; t.debugName = "Renderer.SkySHPartial"; skySHPartial = MakeTexture(t);
 		gfx::BufferDesc b; b.size = 256 * kFramesInFlight; b.usage = gfx::BufUniform; b.memory = gfx::Memory::Upload; b.debugName = "Renderer.SkyData";
 		skyData = device->CreateBuffer(b);
 
@@ -1575,6 +1895,7 @@ namespace p3d {
 		g.vertex = fullscreenVS; g.cull = gfx::Cull::None; g.depthTest = g.depthWrite = false;
 		g.colorCount = 1; g.colorFormats[0] = gfx::Format::R8;
 		g.fragment = gtaoFS; g.material = { frame, { 1, gfx::BindingKind::DepthTexture, false, true }, { 2, gfx::BindingKind::Sampler, false, true } };
+		g.drawDataBytes = 16;     // (its radius and strength - gtao.frag; the blur's direction)
 		g.debugName = "Renderer.GTAO";
 		gtaoPipeline = device->CreatePipeline(g);
 		g.fragment = aoBlurFS; g.material.push_back({ 3, gfx::BindingKind::Texture2D, false, true });
@@ -1620,6 +1941,8 @@ namespace p3d {
 			{
 				const DrawItem &it = items[i];
 				if (it.material && (it.material->GetOptions() & ShaderUsage::AlphaTest) && !(alphaReady && it.alphaCut && it.baseMap && !it.skinned)) continue;
+				if (it.lodFade != 0.f && !alphaReady) continue;     // (a crossfade's levels: in the prepass dithered, or not at all)
+				if (it.impostor) continue;     // (its depth is its own stage's: drawn by the lit pass alone)
 				if (it.movesItself) { ownVertices.push_back(i); continue; }     // (drawn by their own vertex stage, below)
 				if (it.instances && !instReady) continue;
 				depthOrder.push_back(i);
@@ -1631,7 +1954,7 @@ namespace p3d {
 				size_t e = k + 1;
 				if (instReady && !it.instances)
 					while (e < depthOrder.size() && items[depthOrder[e]].gpu == it.gpu && !items[depthOrder[e]].instances && !items[depthOrder[e]].moved && !it.moved && !it.skinned && !items[depthOrder[e]].skinned
-						&& SameWind(items[depthOrder[e]].material, it.material) && items[depthOrder[e]].alphaCut == it.alphaCut
+						&& SameWind(items[depthOrder[e]].material, it.material) && items[depthOrder[e]].alphaCut == it.alphaCut && it.lodFade == 0.f && items[depthOrder[e]].lodFade == 0.f
 						&& (!it.alphaCut || items[depthOrder[e]].material == it.material)) e++;     // (a batch carries no last-frame matrices: what moved, alone)
 				uint64 batchAt = 0;
 				const uint32 count = (uint32)(e - k);
@@ -1642,7 +1965,7 @@ namespace p3d {
 					const DrawItem &di = items[depthOrder[k + d]];
 					const bool instanced = batch || di.instances;
 					// (the pipeline: 0 plain, 1 instanced, 2 skinned; alpha-cut 3 plain, 4 instanced - each with its base colour map's group)
-					const bool cut = di.alphaCut && di.baseMap;
+					const bool cut = (di.alphaCut || di.lodFade != 0.f || di.fades) && di.baseMap;
 					const int want = cut ? (instanced ? 4 : 3) : instanced ? 1 : di.skinned ? 2 : 0;
 					if (want == 2 && !device->PipelineReady(depthSkinPipeline)) continue;
 					if (cut)
@@ -1665,7 +1988,8 @@ namespace p3d {
 					{
 						const Vec2 uvScale = di.material->GetUVScale(), uvOffset = di.material->GetUVOffset();
 						models[40] = uvScale.x; models[41] = uvScale.y; models[42] = uvOffset.x; models[43] = uvOffset.y;
-						models[44] = di.material->GetAlphaCutoff();
+						models[44] = di.alphaCut ? di.material->GetAlphaCutoff() : 0.f;
+						models[47] = di.lodFade;     // (a crossfade's dither - depthalpha.frag)
 					}
 					memcpy(models, batch ? identity.m : di.model.m, 64); memcpy(models + 16, batch ? identity.m : di.previousModel.m, 64);
 					models[32] = (f32)di.boneBase; models[33] = drawSeconds; models[34] = drawPreviousSeconds;
@@ -1673,7 +1997,7 @@ namespace p3d {
 					models[36] = wind.x; models[37] = wind.y; models[38] = wind.z; models[39] = wind.w;
 					if (!batch) memcpy(models + 48, di.shape, sizeof(di.shape));
 					cl->DrawData(models, sizeof(models));
-					if (!batch) { DrawItemGeometry(cl, di); continue; }
+					if (!batch) { DrawItemGeometry(cl, di, true); continue; }
 					cl->SetVertexBuffer(0, di.gpu->vertices, 0);
 					cl->SetVertexBuffer(1, batchRing, batchAt);
 					cl->SetIndexBuffer(di.gpu->indices, 0, true);
@@ -1734,7 +2058,8 @@ namespace p3d {
 			graph.Use(cl, { { target, gfx::Access::ShaderRead } });
 		};
 		const f32 horizontal[4] = { 1.f / w, 0.f, 0.f, 0.f }, vertical[4] = { 0.f, 1.f / h, 0.f, 0.f };
-		pass2(aoA, gtaoPipeline, gtaoGroup, nullptr, "GTAO");
+		const f32 aoParams[4] = { aoRadius, aoStrength, 0.f, 0.f };
+		pass2(aoA, gtaoPipeline, gtaoGroup, aoParams, "GTAO");
 		pass2(aoB, aoBlurPipeline, aoBlurGroupH, horizontal, "AOBlurH");
 		pass2(aoA, aoBlurPipeline, aoBlurGroupV, vertical, "AOBlurV");
 	}
@@ -1770,13 +2095,13 @@ namespace p3d {
 		p.material = { { 0, gfx::BindingKind::Uniform, true, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::Texture2D, false, true }, { 3, gfx::BindingKind::Sampler, false, true } };
 		p.fragment = adaptFS; p.debugName = "Renderer.Adapt"; adaptPipeline = device->CreatePipeline(p);
 		gfx::TextureDesc t; t.usage = gfx::TexColorTarget | gfx::TexSampled; t.format = gfx::Format::RG32F;
-		t.width = t.height = 64; t.debugName = "Renderer.Lum64"; lum64 = device->CreateTexture(t);
-		t.width = t.height = 16; t.debugName = "Renderer.Lum16"; lum16 = device->CreateTexture(t);
-		t.width = t.height = 4; t.debugName = "Renderer.Lum4"; lum4 = device->CreateTexture(t);
-		t.width = t.height = 1; t.debugName = "Renderer.Lum1"; lum1 = device->CreateTexture(t);
+		t.width = t.height = 64; t.debugName = "Renderer.Lum64"; lum64 = MakeTexture(t);
+		t.width = t.height = 16; t.debugName = "Renderer.Lum16"; lum16 = MakeTexture(t);
+		t.width = t.height = 4; t.debugName = "Renderer.Lum4"; lum4 = MakeTexture(t);
+		t.width = t.height = 1; t.debugName = "Renderer.Lum1"; lum1 = MakeTexture(t);
 		t.format = gfx::Format::R32F; t.debugName = "Renderer.Exposure";
 		const f32 one = 1.f; gfx::TextureData d; d.bytes = &one; d.size = 4;
-		exposureTex[0] = device->CreateTexture(t, &d, 1); exposureTex[1] = device->CreateTexture(t, &d, 1);
+		exposureTex[0] = MakeTexture(t, &d, 1); exposureTex[1] = MakeTexture(t, &d, 1);
 	}
 
 	void SceneRenderer::RecordBloomAndExposure(gfx::CommandList* cl, const uint32 frameOffset)
@@ -1848,6 +2173,7 @@ namespace p3d {
 		sd.cloudGrid[0] = cloudGrid[0]; sd.cloudGrid[1] = cloudGrid[1]; sd.cloudGrid[2] = 1.f / cloudGrid[2]; sd.cloudGrid[3] = cloudShadowOn ? cloudShadow : 0.f;
 		// (the reflections: only once there is a last frame's picture to find things in)
 		sd.rain[0] = (f32)rainTile;
+		sd.rain[2] = aoDirect;     // (the AO's share on direct light - surface.frag)
 		// (a deck of overcast all but puts the sun out, wherever its gaps are: the sun on surfaces dimmed by the cover - the
 		// clouds' shadow map shapes it, this is the deck's whole weight - and only where there are clouds and a sky)
 		{
@@ -1864,6 +2190,7 @@ namespace p3d {
 			sd.localRect[t][0] = (f32)(kShadowAtlasW / 2 + (t % kLocalTilesAcross) * kLocalTile) / kShadowAtlasW;
 			sd.localRect[t][1] = (f32)((t / kLocalTilesAcross) * kLocalTile) / kShadowAtlasH;
 			sd.localRect[t][2] = localTiles[t].tanHalf;
+			sd.localRect[t][3] = localTiles[t].softness;     // (its light's filter radius, texels - shadows.glsl's LocalShadow)
 			memcpy(sd.local[t], localTiles[t].viewProjection.m, sizeof(sd.local[t]));
 			device->Upload(cascadeData, (slot * kShadowSlots + kCascades + t) * 256, localTiles[t].viewProjection.m, sizeof(localTiles[t].viewProjection.m));
 		}
@@ -1882,6 +2209,7 @@ namespace p3d {
 			// (a shadow falls at most this many of its caster's sizes beyond it: the sun's slant - long when it is low)
 			shadowStretch = std::sqrt(std::max(0.f, 1.f - l.y * l.y)) / std::max(std::fabs(l.y), 0.15f);
 			shadowEye = view.cameraWorld.GetTranslation(); shadowForward = forward;
+			shadowLightForward = l.dotProduct(forward);
 			const f32 n = std::max(view.nearZ, 0.05f);
 			const f32 aspect = view.height ? (f32)view.width / (f32)view.height : 1.f;
 			const f32 tanY = std::tan(view.fovY * (f32)PI / 360.f), tanX = tanY * aspect;
@@ -1894,6 +2222,9 @@ namespace p3d {
 
 			// How far toward the light the casters reach: every caster's sphere along the light's way
 			f32 casterMin = 1e30f, casterMax = -1e30f;
+			shadowFloorY = 1e30f;
+			for (const DrawItem &it : items) shadowFloorY = std::min(shadowFloorY, it.center.y - it.radius);
+			shadowLightDown = std::max(std::fabs(l.y), 0.15f);
 			for (const DrawItem &it : items)
 			{
 				if (!it.caster) continue;
@@ -1948,7 +2279,7 @@ namespace p3d {
 				cascadeNear[c] = prev; cascadeFar[c] = split;
 				prev = split;
 			}
-			sd.params[0] = 1.f / kShadowAtlasW; sd.params[1] = 1.f; sd.params[2] = shadowDistance; sd.params[3] = 1.5f;
+			sd.params[0] = sun->GetShadowSoftness(); sd.params[1] = 1.f; sd.params[2] = shadowDistance; sd.params[3] = 1.5f;     // (x: the sun's filter radius, texels)
 			sunShadowOn = true;
 			// Each cascade's matrix for the shadow pass, in the frame's slots
 			for (uint32 c = 0; c < kCascades; c++) device->Upload(cascadeData, (slot * kShadowSlots + c) * 256, cascadeMatrix[c].m, sizeof(cascadeMatrix[c].m));
@@ -2016,9 +2347,17 @@ namespace p3d {
 					}
 					else
 					{
-						// (only into the cascades whose slice its shadow can reach - a blade of grass into the one it stands in)
+						// (only into the cascades whose slice its shadow can reach - a blade of grass into the one it stands in. Its
+						// shadow runs from it along the light as far as there is anything to fall on: with the light going away from
+						// the eye, into every slice from its own outward; toward the eye, inward. A margin of its size alone held
+						// for what stands on the ground, and dropped the shadows of what is high above what it shades - a teapot
+						// in the air lost its shadow as the slice it fell in changed, and found it again a few metres on)
+						// (how far it runs: down to the lowest thing drawn, at the light's slant - a blade of grass a hand's
+						// width, a teapot in the air hundreds of metres - and only the way the light goes along the view)
 						const f32 along = (it.center - shadowEye).dotProduct(shadowForward), reach = it.radius * (1.f + shadowStretch);
-						if (along + reach < cascadeNear[c] || along - reach > cascadeFar[c]) continue;
+						const f32 run = std::max(0.f, it.center.y + it.radius - shadowFloorY) / shadowLightDown * std::fabs(shadowLightForward);
+						const f32 lo = shadowLightForward < 0.f ? along - reach - run : along - reach, hi = shadowLightForward > 0.f ? along + reach + run : along + reach;
+						if (hi < cascadeNear[c] || lo > cascadeFar[c]) continue;
 						// (and only what this cascade's square can hold)
 						const Vec4 lc = cascadeMatrix[c] * Vec4(it.center, 1.f);
 						const f32 rn = it.radius / cascadeRadius[c];
@@ -2106,6 +2445,7 @@ namespace p3d {
 		{
 			const Matrix &m = rc->transform[i];
 			memcpy(data[i].model, m.m, sizeof(data[i].model));
+			data[i].model[3] = ((f32)i + 0.5f) / (f32)data.size();     // (its rank: which go first as the set thins - instancing.glsl)
 			const Vec4 t = tinted ? rc->instanceColor[i] : Vec4(1.f, 1.f, 1.f, 1.f);
 			data[i].tint[0] = t.x; data[i].tint[1] = t.y; data[i].tint[2] = t.z; data[i].tint[3] = t.w;
 			const Vec3 p = m.GetTranslation();
@@ -2116,7 +2456,7 @@ namespace p3d {
 		g.center = (lo + hi) * 0.5f;
 		g.radius = (hi - g.center).magnitude() + (mesh->center.magnitude() + mesh->radius) * scale;
 		if (g.buffer) device->Destroy(g.buffer);
-		gfx::BufferDesc b; b.size = data.size() * sizeof(Instance); b.usage = gfx::BufVertex; b.debugName = "Renderer.Instances";
+		gfx::BufferDesc b; b.size = data.size() * sizeof(Instance); b.usage = gfx::BufVertex | gfx::BufStorage; b.debugName = "Renderer.Instances";     // (storage too: read by the GPU culling, instance_cull.comp)
 		g.buffer = device->CreateBuffer(b, data.data());
 		g.revision = rc->instanceRevision; g.count = (uint32)data.size();
 		return &g;
@@ -2187,9 +2527,19 @@ namespace p3d {
 		return true;
 	}
 
-	void SceneRenderer::DrawItemGeometry(gfx::CommandList* cl, const DrawItem &it)
+	void SceneRenderer::DrawItemGeometry(gfx::CommandList* cl, const DrawItem &it, const bool culled)
 	{
 		cl->SetVertexBuffer(0, it.gpu->vertices, 0);
+		// (a big instanced set, culled on the GPU this frame: its visible instances, drawn as many as were counted)
+		if (culled && it.cullArgs)
+		{
+			cl->SetVertexBuffer(1, it.cullVisible, 0);
+			if (it.skinned) cl->SetVertexBuffer(2, it.gpu->skin, 0);
+			if (it.vertexColor && it.mesh) cl->SetVertexBuffer(3, ColorsFor(it.mesh->Geometry, it.gpu), 0);
+			cl->SetIndexBuffer(it.gpu->indices, 0, true);
+			cl->DrawIndexedIndirect(it.cullArgs, 0, 1);
+			return;
+		}
 		if (it.instances) cl->SetVertexBuffer(1, it.instances, 0);
 		if (it.skinned) cl->SetVertexBuffer(2, it.gpu->skin, 0);
 		if (it.vertexColor && it.mesh) cl->SetVertexBuffer(3, ColorsFor(it.mesh->Geometry, it.gpu), 0);
@@ -2330,37 +2680,43 @@ namespace p3d {
 	void SceneRenderer::CreateClouds()
 	{
 		// The noise: 64^3, tiling. r: Perlin fbm cut by Worley (the clouds' shapes), gba: Worley at 4, 8 and 16 cells (wearing them away)
+		// (made once a run, the same for every renderer: 90 ms of the CPU's - each renderer made, an impostor bake's too, stood
+		// still a frame for it)
 		const uint32 n = 64;
-		std::vector<uint8> texels((size_t)n * n * n * 4);
-		for (uint32 z = 0; z < n; z++)
-			for (uint32 y = 0; y < n; y++)
-				for (uint32 x = 0; x < n; x++)
-				{
-					const f32 fx = (x + 0.5f) / n, fy = (y + 0.5f) / n, fz = (z + 0.5f) / n;
-					f32 perlin = 0.f, amp = 1.f, sum = 0.f;
-					for (int32 o = 0, p = 4; o < 4; o++, p *= 2) { perlin += PerlinTiled(fx * p, fy * p, fz * p, p) * amp; sum += amp; amp *= 0.5f; }
-					perlin /= sum;
-					const f32 w4 = WorleyTiled(fx * 4, fy * 4, fz * 4, 4), w8 = WorleyTiled(fx * 8, fy * 8, fz * 8, 8), w16 = WorleyTiled(fx * 16, fy * 16, fz * 16, 16);
-					const f32 worley = w4 * 0.625f + w8 * 0.25f + w16 * 0.125f;
-					// (the Perlin's billows lifted by the Worley's cells: from the Worley's floor up)
-					const f32 pw = worley + perlin * (1.f - worley);
-					uint8* t = &texels[(((size_t)z * n + y) * n + x) * 4];
-					t[0] = (uint8)std::min(pw * 255.f + 0.5f, 255.f); t[1] = (uint8)(w4 * 255.f + 0.5f); t[2] = (uint8)(w8 * 255.f + 0.5f); t[3] = (uint8)(w16 * 255.f + 0.5f);
-				}
-		// (the shapes' channel made even - each value as common as any other: a cover of c leaves about c of the slab's
-		// middle in cloud)
-		{
-			std::vector<std::pair<uint8, uint32> > ranked;
-			ranked.reserve((size_t)n * n * n);
-			for (uint32 k = 0; k < n * n * n; k++) ranked.push_back(std::make_pair(texels[(size_t)k * 4], k));
-			std::sort(ranked.begin(), ranked.end());
-			for (size_t r = 0; r < ranked.size(); r++) texels[(size_t)ranked[r].second * 4] = (uint8)(r * 255 / (ranked.size() - 1));
-		}
+		static const std::vector<uint8> made = [n]() {
+			std::vector<uint8> texels((size_t)n * n * n * 4);
+			for (uint32 z = 0; z < n; z++)
+				for (uint32 y = 0; y < n; y++)
+					for (uint32 x = 0; x < n; x++)
+					{
+						const f32 fx = (x + 0.5f) / n, fy = (y + 0.5f) / n, fz = (z + 0.5f) / n;
+						f32 perlin = 0.f, amp = 1.f, sum = 0.f;
+						for (int32 o = 0, p = 4; o < 4; o++, p *= 2) { perlin += PerlinTiled(fx * p, fy * p, fz * p, p) * amp; sum += amp; amp *= 0.5f; }
+						perlin /= sum;
+						const f32 w4 = WorleyTiled(fx * 4, fy * 4, fz * 4, 4), w8 = WorleyTiled(fx * 8, fy * 8, fz * 8, 8), w16 = WorleyTiled(fx * 16, fy * 16, fz * 16, 16);
+						const f32 worley = w4 * 0.625f + w8 * 0.25f + w16 * 0.125f;
+						// (the Perlin's billows lifted by the Worley's cells: from the Worley's floor up)
+						const f32 pw = worley + perlin * (1.f - worley);
+						uint8* t = &texels[(((size_t)z * n + y) * n + x) * 4];
+						t[0] = (uint8)std::min(pw * 255.f + 0.5f, 255.f); t[1] = (uint8)(w4 * 255.f + 0.5f); t[2] = (uint8)(w8 * 255.f + 0.5f); t[3] = (uint8)(w16 * 255.f + 0.5f);
+					}
+			// (the shapes' channel made even - each value as common as any other: a cover of c leaves about c of the slab's
+			// middle in cloud)
+			{
+				std::vector<std::pair<uint8, uint32> > ranked;
+				ranked.reserve((size_t)n * n * n);
+				for (uint32 k = 0; k < n * n * n; k++) ranked.push_back(std::make_pair(texels[(size_t)k * 4], k));
+				std::sort(ranked.begin(), ranked.end());
+				for (size_t r = 0; r < ranked.size(); r++) texels[(size_t)ranked[r].second * 4] = (uint8)(r * 255 / (ranked.size() - 1));
+			}
+			return texels;
+		}();
+		const std::vector<uint8> &texels = made;
 		gfx::TextureDesc d; d.kind = gfx::TextureKind::Tex3D; d.width = d.height = n; d.depthOrLayers = n; d.format = gfx::Format::RGBA8;
 		d.usage = gfx::TexSampled; d.debugName = "Renderer.CloudNoise";
 		std::vector<gfx::TextureData> slices(n);
 		for (uint32 z = 0; z < n; z++) { slices[z].layer = z; slices[z].bytes = &texels[(size_t)z * n * n * 4]; slices[z].size = (uint64)n * n * 4; }
-		cloudNoise = device->CreateTexture(d, slices.data(), n);
+		cloudNoise = MakeTexture(d, slices.data(), n);
 		gfx::SamplerDesc rs; rs.u = rs.v = rs.w = gfx::Address::Repeat; rs.mip = gfx::Filter::Nearest; rs.anisotropy = 1.f;
 		repeatLinear = device->CreateSampler(rs);
 		gfx::GraphicsPipelineDesc p;
@@ -2378,14 +2734,14 @@ namespace p3d {
 			{ 5, gfx::BindingKind::Uniform, false, true, false, true } };
 		cloudShadowPipeline = device->CreatePipeline(p);
 		gfx::TextureDesc st; st.width = st.height = 256; st.format = gfx::Format::R16F; st.usage = gfx::TexColorTarget | gfx::TexSampled; st.debugName = "Renderer.CloudShadow";
-		cloudShadowTex = device->CreateTexture(st);
+		cloudShadowTex = MakeTexture(st);
 		// (the temporal anti-aliasing's resolve, with these: a full screen, into the HDR format)
 		{
 			gfx::GraphicsPipelineDesc t;
 			t.vertex = fullscreenVS; t.fragment = taaFS; t.cull = gfx::Cull::None; t.depthTest = t.depthWrite = false;
 			t.material = { { 0, gfx::BindingKind::Uniform, false, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::Sampler, false, true },
 				{ 3, gfx::BindingKind::Texture2D, false, true }, { 4, gfx::BindingKind::DepthTexture, false, true }, { 5, gfx::BindingKind::Uniform, false, true, false, true },
-				{ 6, gfx::BindingKind::Texture2D, false, true } };
+				{ 6, gfx::BindingKind::Texture2D, false, true }, { 7, gfx::BindingKind::Texture2D, false, true }, { 8, gfx::BindingKind::Texture2D, false, true } };
 			t.colorCount = 1; t.colorFormats[0] = kHdrFormat; t.debugName = "Renderer.TemporalAA";
 			taaPipeline = device->CreatePipeline(t);
 			// (the lens and shutter: the picture, its moves on screen, its depth - post.frag)
@@ -2395,6 +2751,60 @@ namespace p3d {
 				{ 3, gfx::BindingKind::Texture2D, false, true }, { 4, gfx::BindingKind::DepthTexture, false, true } };
 			po.drawDataBytes = 64; po.colorCount = 1; po.colorFormats[0] = kHdrFormat; po.debugName = "Renderer.Post";
 			postPipeline = device->CreatePipeline(po);
+			// (the smoke: its march at half size, and laid over the picture - premultiplied, what it hides in its alpha)
+			gfx::GraphicsPipelineDesc sm;
+			sm.vertex = fullscreenVS; sm.fragment = smokeFS; sm.cull = gfx::Cull::None; sm.depthTest = sm.depthWrite = false;
+			sm.material = { { 0, gfx::BindingKind::Uniform, false, true, false, true }, { 1, gfx::BindingKind::DepthTexture, false, true }, { 2, gfx::BindingKind::StorageRead, false, true },
+				{ 3, gfx::BindingKind::Sampler, false, true }, { 4, gfx::BindingKind::Uniform, false, true, false, true }, { 5, gfx::BindingKind::Texture2D, false, true },
+				{ 6, gfx::BindingKind::Texture2D, false, true } };
+			sm.colorCount = 2; sm.colorFormats[0] = sm.colorFormats[1] = gfx::Format::RGBA16F; sm.debugName = "Renderer.Smoke";
+			smokePipeline = device->CreatePipeline(sm);
+			gfx::GraphicsPipelineDesc sc;
+			sc.vertex = fullscreenVS; sc.fragment = smokeCompositeFS; sc.cull = gfx::Cull::None; sc.depthTest = sc.depthWrite = false;
+			sc.material = { { 0, gfx::BindingKind::Uniform, false, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::DepthTexture, false, true },
+				{ 3, gfx::BindingKind::Sampler, false, true }, { 4, gfx::BindingKind::Texture2D, false, true } };
+			sc.drawDataBytes = 32; sc.colorCount = 1; sc.colorFormats[0] = kHdrFormat; sc.blend[0] = gfx::Blend::PremultipliedAlpha; sc.debugName = "Renderer.SmokeComposite";
+			smokeCompositePipeline = device->CreatePipeline(sc);
+			// (FXAA: the picture's edges blended, the anti-aliasing in place of the temporal resolve where it is asked for)
+			gfx::GraphicsPipelineDesc fx;
+			fx.vertex = fullscreenVS; fx.fragment = fxaaFS; fx.cull = gfx::Cull::None; fx.depthTest = fx.depthWrite = false;
+			fx.material = { { 0, gfx::BindingKind::Uniform, false, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::Sampler, false, true } };
+			fx.colorCount = 1; fx.colorFormats[0] = kHdrFormat; fx.debugName = "Renderer.FXAA";
+			fxaaPipeline = device->CreatePipeline(fx);
+			// (the lamps' beams: marched at half size, added to the picture)
+			gfx::GraphicsPipelineDesc bm;
+			bm.vertex = fullscreenVS; bm.fragment = beamsFS; bm.cull = gfx::Cull::None; bm.depthTest = bm.depthWrite = false;
+			bm.material = { { 0, gfx::BindingKind::Uniform, false, true, false, true }, { 1, gfx::BindingKind::StorageRead, false, true, false, true },
+				{ 7, gfx::BindingKind::Uniform, false, true, false, true }, { 8, gfx::BindingKind::ShadowTexture, false, true }, { 9, gfx::BindingKind::ComparisonSampler, false, true },
+				{ 15, gfx::BindingKind::Texture2D, false, true }, { 20, gfx::BindingKind::DepthTexture, false, true }, { 21, gfx::BindingKind::Sampler, false, true } };
+			bm.drawDataBytes = 128; bm.colorCount = 1; bm.colorFormats[0] = gfx::Format::RGBA16F; bm.debugName = "Renderer.Beams";
+			beamsPipeline = device->CreatePipeline(bm);
+			gfx::GraphicsPipelineDesc bc;
+			bc.vertex = fullscreenVS; bc.fragment = beamsCompositeFS; bc.cull = gfx::Cull::None; bc.depthTest = bc.depthWrite = false;
+			bc.material = { { 0, gfx::BindingKind::Uniform, false, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::DepthTexture, false, true },
+				{ 3, gfx::BindingKind::Sampler, false, true } };
+			bc.colorCount = 1; bc.colorFormats[0] = kHdrFormat; bc.blend[0] = gfx::Blend::PremultipliedAlpha; bc.debugName = "Renderer.BeamsComposite";
+			beamsCompositePipeline = device->CreatePipeline(bc);
+			gfx::BufferDesc sb; sb.size = (uint64)kSmokeDataSlot * kFramesInFlight; sb.usage = gfx::BufUniform; sb.memory = gfx::Memory::Upload; sb.debugName = "Renderer.SmokeData";
+			smokeData = device->CreateBuffer(sb);
+			fluids.Create(device, fluidCS);
+			{
+				gfx::ComputePipelineDesc cp;
+				cp.compute = instanceCullCS;
+				cp.material = { { 1, gfx::BindingKind::StorageRead, false, false, true }, { 2, gfx::BindingKind::StorageReadWrite, false, false, true }, { 3, gfx::BindingKind::StorageReadWrite, false, false, true } };
+				cp.drawDataBytes = 224; cp.debugName = "Renderer.InstanceCull";
+				instanceCullPipeline = device->CreatePipeline(cp);
+			}
+			{
+				// (the planar reflection: a point a pixel, where its mirror image falls - the nearest the plane on top)
+				gfx::GraphicsPipelineDesc m;
+				m.vertex = ssprVS; m.fragment = ssprFS; m.topology = gfx::Topology::Points; m.cull = gfx::Cull::None;
+				m.material = { { 0, gfx::BindingKind::Uniform, true, false, false, true }, { 1, gfx::BindingKind::DepthTexture, true, false },
+					{ 2, gfx::BindingKind::Texture2D, true, false }, { 3, gfx::BindingKind::Sampler, true, false } };
+				m.colorCount = 1; m.colorFormats[0] = gfx::Format::RGBA16F; m.depthFormat = gfx::Format::D32F;
+				m.depthTest = true; m.depthWrite = true; m.depthCompare = gfx::Compare::LessEqual; m.debugName = "Renderer.MirrorPlane";
+				ssprPipeline = device->CreatePipeline(m);
+			}
 			// (the ray-traced shadows: the depth, the AO, the scene's triangles - rtshadow.frag)
 			gfx::GraphicsPipelineDesc rt;
 			rt.vertex = fullscreenVS; rt.fragment = rtShadowFS; rt.cull = gfx::Cull::None; rt.depthTest = rt.depthWrite = false;
@@ -2426,6 +2836,7 @@ namespace p3d {
 			gfx::BufferDesc b; b.size = 256 * kFramesInFlight; b.usage = gfx::BufUniform; b.memory = gfx::Memory::Upload; b.debugName = "Renderer.TemporalAA";
 			taaData = device->CreateBuffer(b);
 			if (const char* e = getenv("PYROS_RENDERER_TAA")) taaOn = e[0] != '0';
+			if (const char* e = getenv("PYROS_RENDERER_AA")) SetAntiAliasing(!strcmp(e, "fxaa") ? AntiAliasing::FXAA : !strcmp(e, "none") ? AntiAliasing::None : AntiAliasing::TAA);     // (taa, fxaa, none)
 		}
 	}
 
@@ -2498,6 +2909,7 @@ namespace p3d {
 		dd.skin[0] = (f32)it.boneBase;
 		const Matrix normal = model.Inverse().Transpose();      // (rows of its 3x3: column-major m[col * 4 + row])
 		for (int r = 0; r < 3; r++) { dd.normalRows[r * 4 + 0] = normal.m[0 * 4 + r]; dd.normalRows[r * 4 + 1] = normal.m[1 * 4 + r]; dd.normalRows[r * 4 + 2] = normal.m[2 * 4 + r]; }
+		dd.normalRows[11] = it.impostor ? 9.f : (f32)it.lodLevel;     // (its level of detail, for the debug view; 9 an impostor)
 		if (it.custom)
 		{
 			dd.baseColor[0] = dd.baseColor[1] = dd.baseColor[2] = 1.f; dd.baseColor[3] = it.custom->GetOpacity();
@@ -2537,13 +2949,21 @@ namespace p3d {
 		dd.emission[3] = (gm->GetOptions() & ShaderUsage::AlphaTest) ? gm->GetAlphaCutoff() : 0.f;
 		const Vec2 uvScale = gm->GetUVScale(), uvOffset = gm->GetUVOffset();
 		dd.uvTransform[0] = uvScale.x; dd.uvTransform[1] = uvScale.y; dd.uvTransform[2] = uvOffset.x; dd.uvTransform[3] = uvOffset.y;
+		if (it.impostor && it.material)
+		{
+			// (an octahedral impostor's numbers in place of the texcoord's: radius, centre height, grid side - surface.vert/.frag IMPOSTOR)
+			const Vec4 &imp = it.material->GetImpostor();
+			dd.uvTransform[0] = imp.y; dd.uvTransform[1] = imp.z; dd.uvTransform[2] = imp.x; dd.uvTransform[3] = imp.w;     // (w: 2 a full sphere's atlas)
+		}
 		// (a plant: its sway, and how much sunlight it lets through - surface.vert, surface.frag)
 		const Vec4 wind = gm->GetWind();
 		dd.wind[0] = wind.x; dd.wind[1] = wind.y; dd.wind[2] = wind.z; dd.wind[3] = wind.w;
 		dd.normalRows[3] = std::max(gm->GetLightThrough(), 0.f);
-		dd.normalRows[7] = gm->GetSSRStrength();     // (its mirror floor's strength - surface.frag's MirrorFloor)
+		dd.normalRows[7] = gm->GetSSRStrength();
+		dd.normalRows[11] = it.impostor ? 9.f : (f32)it.lodLevel;     // (its level of detail, for the debug view; 9 an impostor)     // (its mirror floor's strength - surface.frag's MirrorFloor)
 		// (wet - and its puddles - and the light under the skin: surface.frag)
 		dd.wet[0] = gm->GetWetness(); dd.wet[1] = gm->GetPuddles(); dd.wet[2] = gm->GetPuddleSize();
+		dd.wet[3] = it.lodFade;
 		const Vec3 sss = SrgbToLinear(gm->GetSubsurfaceColor());
 		dd.subsurface[0] = sss.x; dd.subsurface[1] = sss.y; dd.subsurface[2] = sss.z; dd.subsurface[3] = gm->GetSubsurfaceStrength();
 		}
@@ -2590,25 +3010,35 @@ namespace p3d {
 		}
 	}
 
-	void SceneRenderer::RecordHalfParticles(gfx::CommandList* cl, const uint32 frameOffset)
+	// (at half resolution only big soft ones - smoke, dust - where it cannot be seen: what is small or streaked, sparks and
+	// rain a pixel or two across, at full size, or a half-size pixel blurs it away)
+	bool SceneRenderer::ParticleWantsHalf(const ParticleSystem* ps) const
 	{
-		if (particleSystems.empty() || !particleTex || !device->PipelineReady(particleCompositePipeline)) return;
-		const uint32 w = std::max(1u, targetWidth / 2), h = std::max(1u, targetHeight / 2);
-		graph.Use(cl, { { particleTex, gfx::Access::ColorTarget } });
+		const ParticleSystemDesc &d = ps->GetDesc();
+		return halfParticles && d.stretch <= 0.f && std::max(d.startSize, d.endSize) >= 0.1f;
+	}
+
+	void SceneRenderer::RecordParticleLayer(gfx::CommandList* cl, const uint32 frameOffset, const bool half)
+	{
+		const gfx::Texture layer = half ? particleTex : particleFullTex;
+		if (particleSystems.empty() || !layer || !device->PipelineReady(particleCompositePipeline)) return;
+		const uint32 w = half ? std::max(1u, targetWidth / 2) : targetWidth, h = half ? std::max(1u, targetHeight / 2) : targetHeight;
+		graph.Use(cl, { { layer, gfx::Access::ColorTarget } });
 		gfx::PassDesc pass;
-		pass.colorCount = 1; pass.colors[0].texture = particleTex; pass.colors[0].load = gfx::Load::Clear;
+		pass.colorCount = 1; pass.colors[0].texture = layer; pass.colors[0].load = gfx::Load::Clear;
 		pass.colors[0].clear[0] = pass.colors[0].clear[1] = pass.colors[0].clear[2] = pass.colors[0].clear[3] = 0.f;
 		pass.width = w; pass.height = h; pass.debugName = "Particles";
 		cl->BeginPass(pass);
 		cl->SetViewport(0.f, 0.f, (f32)w, (f32)h);
-		RecordParticles(cl, frameOffset, true);
+		RecordParticles(cl, frameOffset, half);
 		cl->EndPass();
-		graph.Use(cl, { { particleTex, gfx::Access::ShaderRead } });
+		graph.Use(cl, { { layer, gfx::Access::ShaderRead } });
 		// Over the picture: their light, and what is behind them dimmed by their cover
-		if (!particleCompositeGroup)
+		gfx::BindGroup &group = half ? particleCompositeGroup : particleFullCompositeGroup;
+		if (!group)
 		{
-			gfx::Device::BindGroupEntry e[2]; e[0].binding = 1; e[0].texture = particleTex; e[1].binding = 2; e[1].sampler = linearClamp;
-			particleCompositeGroup = device->CreateBindGroup(particleCompositePipeline, e, 2);
+			gfx::Device::BindGroupEntry e[2]; e[0].binding = 1; e[0].texture = layer; e[1].binding = 2; e[1].sampler = linearClamp;
+			group = device->CreateBindGroup(particleCompositePipeline, e, 2);
 		}
 		graph.Use(cl, { { hdr, gfx::Access::ColorTarget } });
 		gfx::PassDesc cp;
@@ -2617,7 +3047,7 @@ namespace p3d {
 		cl->BeginPass(cp);
 		cl->SetViewport(0.f, 0.f, (f32)targetWidth, (f32)targetHeight);
 		cl->SetPipeline(particleCompositePipeline);
-		cl->SetBindGroup(particleCompositeGroup, nullptr, 0);
+		cl->SetBindGroup(group, nullptr, 0);
 		cl->Draw(3, 1, 0, 0);
 		cl->EndPass();
 		graph.Use(cl, { { hdr, gfx::Access::ShaderRead } });
@@ -2637,9 +3067,12 @@ namespace p3d {
 		e[3].binding = 3; e[3].texture = taaTex[cur ^ 1];      // (last frame's result)
 		e[4].binding = 4; e[4].texture = prepassDepth;
 		e[5].binding = 5; e[5].buffer = taaData; e[5].size = 208;
-		gfx::Device::BindGroupEntry all[7] = { e[0], e[1], e[2], e[3], e[4], e[5], gfx::Device::BindGroupEntry() };
+		e[5].size = 224;
+		gfx::Device::BindGroupEntry all[9] = { e[0], e[1], e[2], e[3], e[4], e[5], gfx::Device::BindGroupEntry(), gfx::Device::BindGroupEntry(), gfx::Device::BindGroupEntry() };
 		all[6].binding = 6; all[6].texture = velocityTex;
-		g = device->CreateBindGroup(taaPipeline, all, 7);
+		all[7].binding = 7; all[7].texture = particleFullTex;
+		all[8].binding = 8; all[8].texture = particleTex;
+		g = device->CreateBindGroup(taaPipeline, all, 9);
 		}
 		graph.Use(cl, { { taaTex[cur], gfx::Access::ColorTarget } });
 		gfx::PassDesc pass;
@@ -2716,8 +3149,11 @@ namespace p3d {
 		p.drawDataBytes = 80;
 		p.bindings = { { 0, 32, true } };
 		p.attributes = { { 0, 0, gfx::Format::RGBA32F, 0 }, { 1, 0, gfx::Format::RGBA32F, 16 } };
-		p.cull = gfx::Cull::None; p.depthTest = true; p.depthWrite = false; p.depthCompare = gfx::Compare::GreaterEqual;
-		p.colorCount = 1; p.colorFormats[0] = kHdrFormat; p.depthFormat = kDepthFormat; p.samples = kSceneSamples;
+		// (full size: a layer of their own, as half resolution's - no depth target, no multisampling, the prepass's depth
+		// hides them - laid over the picture after the scene pass, which keeps its picture for the reflections first)
+		p.fragment = particleScreenFS;
+		p.cull = gfx::Cull::None; p.depthTest = false; p.depthWrite = false;
+		p.colorCount = 1; p.colorFormats[0] = gfx::Format::RGBA16F; p.depthFormat = gfx::Format::Unknown; p.samples = 1;
 		p.blend[0] = gfx::Blend::PremultipliedAlpha; p.debugName = "Renderer.Particles";
 		particleAlphaPipeline = device->CreatePipeline(p);
 		p.blend[0] = gfx::Blend::Additive; p.debugName = "Renderer.Particles (additive)";
@@ -2739,7 +3175,7 @@ namespace p3d {
 			cp.compute = particleSimCS;
 			gfx::BindingDesc state = { 1, gfx::BindingKind::StorageReadWrite, false, false, true }, stream = { 2, gfx::BindingKind::StorageReadWrite, false, false, true };
 			cp.material = { state, stream };
-			cp.drawDataBytes = 96; cp.debugName = "Renderer.ParticleSim";
+			cp.drawDataBytes = 112; cp.debugName = "Renderer.ParticleSim";
 			particleSimPipeline = device->CreatePipeline(cp);
 		}
 		// (the skybox: behind everything - only where the depth is still the clear's far, reversed Z 0)
@@ -2990,6 +3426,359 @@ namespace p3d {
 		graph.Use(cl, { { aoRT, gfx::Access::ShaderRead } });
 	}
 
+	void SceneRenderer::RecordSmoke(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot)
+	{
+		// The grids (FluidVolumes) and their light, packed fresh: smoke.frag's SmokeData
+		std::vector<f32> b(kSmokeDataSlot / 4, 0.f);
+		auto put = [&](uint32 vec4Index, f32 x, f32 y, f32 z, f32 w) { f32* p = &b[vec4Index * 4]; p[0] = x; p[1] = y; p[2] = z; p[3] = w; };
+		const std::vector<FluidVolumes::Volume> &volumes = fluids.Volumes();
+		const uint32 count = std::min((uint32)volumes.size(), FluidVolumes::MaxVolumes);
+		f32 finest = 1e9f;
+		for (uint32 v = 0; v < count; v++)
+		{
+			const FluidVolumes::Volume &g = volumes[v];
+			finest = std::min(finest, g.cell);
+			put(6 + v, g.origin.x, g.origin.y, g.origin.z, g.cell);
+			put(14 + v, (f32)g.nx, (f32)g.ny, (f32)g.nz, (f32)g.offset);
+			put(22 + v, g.color.x, g.color.y, g.color.z, g.emission);
+			put(30 + v, g.fade, g.thickness, g.kind, 0.f);
+		}
+		// (a step about a cell of the finest grid: what the simulation resolves, and no more)
+		put(0, (f32)count, 0.f, 5.f, std::min(std::max(finest * 1.1f, 0.06f), 0.35f));     // (grids, -, extinction, step)
+		put(1, 3.2f, 0.45f, 0.f, 150.f);                                                   // (detail scale, its strength, -, max steps)
+		uint32 used = 0;
+		const std::vector<VolumetricSmoke::LocalLight> &lamps = VolumetricSmoke::GetLocalLights();
+		for (size_t l = 0; l < lamps.size() && used < 8; l++)
+		{
+			const VolumetricSmoke::LocalLight &lamp = lamps[l];
+			bool reaches = false;
+			for (uint32 v = 0; v < count && !reaches; v++)
+			{
+				const FluidVolumes::Volume &g = volumes[v];
+				const Vec3 lo = g.origin, hi = g.origin + Vec3((f32)g.nx, (f32)g.ny, (f32)g.nz) * g.cell;
+				const f32 dx = std::max(std::max(lo.x - lamp.position.x, lamp.position.x - hi.x), 0.f);
+				const f32 dy = std::max(std::max(lo.y - lamp.position.y, lamp.position.y - hi.y), 0.f);
+				const f32 dz = std::max(std::max(lo.z - lamp.position.z, lamp.position.z - hi.z), 0.f);
+				reaches = dx * dx + dy * dy + dz * dz < lamp.radius * lamp.radius;
+			}
+			if (!reaches) continue;
+			put(38 + used, lamp.position.x, lamp.position.y, lamp.position.z, std::max(lamp.radius, 0.01f));
+			put(46 + used, lamp.color.x, lamp.color.y, lamp.color.z, lamp.cosOuter);
+			put(54 + used, lamp.direction.x, lamp.direction.y, lamp.direction.z, lamp.cosInner);
+			used++;
+		}
+		// (and the fires' own light: smoke near a fire glows with it)
+		{
+			std::vector<FireLight> fires;
+			FireLights(RendererSeconds(), fires);
+			for (const FireLight &f : fires)
+			{
+				if (used >= 8) break;
+				// (nearer than it lights the scene: a fire lights the smoke round it, not a grenade's across the yard)
+				put(38 + used, f.position.x, f.position.y, f.position.z, f.radius * 0.5f);
+				put(46 + used, f.radiance.x / (f32)PI, f.radiance.y / (f32)PI, f.radiance.z / (f32)PI, -1.f);
+				put(54 + used, 0.f, -1.f, 0.f, -1.f);
+				used++;
+			}
+		}
+		const Vec3 &sun = VolumetricSmoke::GetLightDirection(), &sunColor = VolumetricSmoke::GetLightColor(), &amb = VolumetricSmoke::GetAmbient(), &wind = VolumetricSmoke::GetWind();
+		put(2, sun.x, sun.y, sun.z, (f32)used);
+		put(3, sunColor.x, sunColor.y, sunColor.z, 0.f);
+		put(4, amb.x, amb.y, amb.z, 0.f);
+		put(5, wind.x, wind.y, wind.z, 0.f);
+		device->Upload(smokeData, (uint64)slot * kSmokeDataSlot, b.data(), kSmokeDataBytes);
+		if (!smokeGroup)
+		{
+			gfx::Device::BindGroupEntry e[7];
+			e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
+			e[1].binding = 1; e[1].texture = prepassDepth;
+			e[2].binding = 2; e[2].buffer = fluids.RenderPool(); e[2].size = fluids.RenderPoolBytes();
+			e[3].binding = 3; e[3].sampler = linearClamp;
+			e[4].binding = 4; e[4].buffer = smokeData; e[4].size = kSmokeDataBytes;
+			e[5].binding = 5; e[5].texture = skySH;
+			e[6].binding = 6; e[6].texture = hdr;
+			smokeGroup = device->CreateBindGroup(smokePipeline, e, 7);
+		}
+		const uint32 w = std::max(1u, targetWidth / 2), h = std::max(1u, targetHeight / 2);
+		graph.Use(cl, { { smokeTex, gfx::Access::ColorTarget }, { smokeReflectTex, gfx::Access::ColorTarget } });
+		gfx::PassDesc pass;
+		pass.colorCount = 2; pass.colors[0].texture = smokeTex; pass.colors[0].load = gfx::Load::DontCare;
+		pass.colors[1].texture = smokeReflectTex; pass.colors[1].load = gfx::Load::DontCare;
+		pass.width = w; pass.height = h; pass.debugName = "Smoke";
+		cl->BeginPass(pass);
+		cl->SetViewport(0.f, 0.f, (f32)w, (f32)h);
+		cl->SetPipeline(smokePipeline);
+		const uint32 offsets[2] = { frameOffset, slot * kSmokeDataSlot };
+		cl->SetBindGroup(smokeGroup, offsets, 2);
+		cl->Draw(3, 1, 0, 0);
+		cl->EndPass();
+		graph.Use(cl, { { smokeTex, gfx::Access::ShaderRead }, { smokeReflectTex, gfx::Access::ShaderRead } });
+	}
+
+	SceneRenderer::AssetEffectGpu* SceneRenderer::AssetEffectFor(const AssetEffect &effect)
+	{
+		uint64 hash = 14695981039346656037ull;
+		for (unsigned char c : effect.source) { hash ^= c; hash *= 1099511628211ull; }
+		std::map<uint64, AssetEffectGpu>::iterator found = assetEffectGpus.find(hash);
+		if (found != assetEffectGpus.end()) return found->second.failed ? nullptr : &found->second;
+		AssetEffectGpu &g = assetEffectGpus[hash];
+		// Its header: inputs in order (uTex0, uTex1, ...: LastRTT the picture, Depth the depth) and parameters (16 at most)
+		std::vector<std::string> inputs;
+		std::string defines;
+		std::istringstream lines(effect.source);
+		std::string line;
+		while (std::getline(lines, line))
+		{
+			std::istringstream w(line);
+			std::string tag, kind, type, name, value;
+			w >> tag >> kind;
+			if (tag != "//!") continue;
+			if (kind == "input") { w >> name; inputs.push_back(name); }
+			else if (kind == "param" && g.paramNames.size() < 16)
+			{
+				w >> type >> name >> value;
+				Vec4 d(0.f, 0.f, 0.f, 0.f);
+				f32 parts[4] = { 0.f, 0.f, 0.f, 0.f }; int n = 0;
+				std::istringstream v(value); std::string part;
+				while (n < 4 && std::getline(v, part, ',')) parts[n++] = (f32)atof(part.c_str());
+				d = Vec4(parts[0], parts[1], parts[2], parts[3]);
+				const int i = (int)g.paramNames.size();
+				const std::string swizzle = type == "float" || type == "int" ? ".x" : type == "vec2" ? ".xy" : type == "vec3" ? ".xyz" : "";
+				defines += "#define " + name + " (pyrosParams.p[" + std::to_string(i) + "]" + swizzle + ")\n";
+				g.paramNames.push_back(name); g.paramDefaults.push_back(d);
+			}
+		}
+		// The old renderer's world round it: texture_2D(uTexN, uv) its inputs, read as GL had them (uv's y up), vTexcoord,
+		// FragColor; the depth as GL's (0 near .. 1 far between the effect's uNear and uFar, where it says them, else the
+		// view's near and 1500 m; 1 where nothing was drawn) from the renderer's reversed, infinite one
+		std::set<std::string> done;
+		std::string text = "#version 450\n" + Resolve("common.glsl", done);
+		text += "layout(set = 1, binding = 1) uniform texture2D pyrosPicture;\n"
+			"layout(set = 1, binding = 2) uniform texture2D pyrosDepth;\n"
+			"layout(set = 1, binding = 3) uniform sampler pyrosLinear;\n"
+			"layout(set = 0, binding = 0, std140) uniform DrawData { vec4 p[16]; } pyrosParams;\n"
+			"layout(location = 0) in vec2 vUV;\n"
+			"layout(location = 0) out vec4 pyrosOut;\n";
+		text += defines;
+		const bool hasNear = std::find(g.paramNames.begin(), g.paramNames.end(), "uNear") != g.paramNames.end();
+		const bool hasFar = std::find(g.paramNames.begin(), g.paramNames.end(), "uFar") != g.paramNames.end();
+		text += std::string("float pyrosNear() { return ") + (hasNear ? "uNear" : "uFrame.projection.z") + "; }\n";
+		text += std::string("float pyrosFar() { return ") + (hasFar ? "uFar" : "1500.0") + "; }\n";
+		text += "vec4 pyrosReadPicture(vec2 uv) { return textureLod(sampler2D(pyrosPicture, pyrosLinear), vec2(uv.x, 1.0 - uv.y), 0.0); }\n"
+			"vec4 pyrosReadDepth(vec2 uv)\n"
+			"{\n"
+			"\tivec2 size = textureSize(sampler2D(pyrosDepth, pyrosLinear), 0);\n"
+			"\tfloat d = texelFetch(sampler2D(pyrosDepth, pyrosLinear), clamp(ivec2(vec2(uv.x, 1.0 - uv.y) * vec2(size)), ivec2(0), size - 1), 0).r;\n"
+			"\tif (d <= 0.0) return vec4(1.0);\n"
+			"\tfloat z = DepthDistance(d), n = pyrosNear(), f = pyrosFar();\n"
+			"\treturn vec4(clamp(f / (f - n) * (1.0 - n / max(z, n)), 0.0, 1.0));\n"
+			"}\n";
+		for (size_t k = 0; k < inputs.size() && k < 4; k++)
+			text += "vec4 pyrosTex_uTex" + std::to_string(k) + "(vec2 uv) { return " + (inputs[k] == "Depth" ? "pyrosReadDepth" : "pyrosReadPicture") + "(uv); }\n";
+		text += "#define texture_2D(t, uv) pyrosTex_##t(uv)\n"
+			"#define vTexcoord vec2(vUV.x, 1.0 - vUV.y)\n"
+			"#define FragColor pyrosOut\n";
+		text += "#line 1\n" + effect.source;
+		std::vector<uint32> spirv; std::string wgsl, error;
+		if (!SurfaceProgram(text, gfx::Stage::Fragment, spirv, wgsl, error))
+		{
+			fprintf(stderr, "Renderer: the post effect %s did not compile:\n%s\n", effect.name.c_str(), error.c_str());
+			g.failed = true;
+			return nullptr;
+		}
+		gfx::ShaderDesc sd; sd.stage = gfx::Stage::Fragment; sd.spirv = spirv.data(); sd.spirvWords = spirv.size(); sd.debugName = "post effect (asset)";
+		if (!wgsl.empty()) sd.wgsl = wgsl.c_str();
+		g.shader = device->CreateShader(sd);
+		if (!g.shader) { g.failed = true; return nullptr; }
+		gfx::GraphicsPipelineDesc p;
+		p.vertex = fullscreenVS; p.fragment = g.shader; p.cull = gfx::Cull::None; p.depthTest = p.depthWrite = false;
+		p.material = { { 0, gfx::BindingKind::Uniform, false, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true },
+			{ 2, gfx::BindingKind::DepthTexture, false, true }, { 3, gfx::BindingKind::Sampler, false, true } };
+		p.drawDataBytes = 256; p.colorCount = 1; p.colorFormats[0] = kHdrFormat; p.debugName = "Renderer.PostEffect (asset)";
+		g.pipeline = device->CreatePipeline(p);
+		return &g;
+	}
+
+	void SceneRenderer::RecordMirrorPlane(gfx::CommandList* cl, const uint32 frameOffset)
+	{
+		const uint32 w = std::max(1u, targetWidth), h = std::max(1u, targetHeight);
+		if (!ssprGroup)
+		{
+			gfx::Device::BindGroupEntry e[4];
+			e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
+			e[1].binding = 1; e[1].texture = prepassDepth;
+			e[2].binding = 2; e[2].texture = hdrPrevious;
+			e[3].binding = 3; e[3].sampler = linearClamp;
+			ssprGroup = device->CreateBindGroup(ssprPipeline, e, 4);
+		}
+		graph.Use(cl, { { mirrorTex, gfx::Access::ColorTarget }, { mirrorDepth, gfx::Access::DepthTarget } });
+		gfx::PassDesc pass;
+		pass.colorCount = 1; pass.colors[0].texture = mirrorTex; pass.colors[0].load = gfx::Load::Clear;
+		pass.colors[0].clear[0] = pass.colors[0].clear[1] = pass.colors[0].clear[2] = pass.colors[0].clear[3] = 0.f;
+		pass.depth.texture = mirrorDepth; pass.depth.clear = 1.f; pass.depth.store = gfx::StoreOp::DontCare;
+		pass.width = w; pass.height = h; pass.debugName = "MirrorPlane";
+		cl->BeginPass(pass);
+		cl->SetViewport(0.f, 0.f, (f32)w, (f32)h);
+		cl->SetPipeline(ssprPipeline);
+		cl->SetBindGroup(ssprGroup, &frameOffset, 1);
+		cl->Draw(w * h, 1, 0, 0);     // (a point a pixel of the scene)
+		cl->EndPass();
+		graph.Use(cl, { { mirrorTex, gfx::Access::ShaderRead } });
+	}
+
+	void SceneRenderer::RecordInstanceCull(gfx::CommandList* cl, const uint32 slot)
+	{
+		bool any = false;
+		for (const DrawItem &it : items) if (it.cullArgs) { any = true; break; }
+		if (!any) return;
+		cl->SetPipeline(instanceCullPipeline);
+		for (const DrawItem &it : items)
+		{
+			if (!it.cullArgs) continue;
+			const InstanceCull &ic = instanceCulls[it.cullKey];
+			cl->SetBindGroup(ic.group[slot], nullptr, 0);
+			f32 dd[56] = {};
+			memcpy(dd, it.model.m, 64);
+			for (int k = 0; k < 6; k++) { dd[16 + k * 4] = cullPlanes[k].x; dd[17 + k * 4] = cullPlanes[k].y; dd[18 + k * 4] = cullPlanes[k].z; dd[19 + k * 4] = cullPlanes[k].w; }
+			dd[40] = it.gpu->center.x; dd[41] = it.gpu->center.y; dd[42] = it.gpu->center.z; dd[43] = it.gpu->radius;
+			// (an impostor's quad is a unit square: its sphere is the baked thing's - its radius about its centre's height)
+			if (it.impostor && it.material) { const Vec4 &imp = it.material->GetImpostor(); dd[40] = 0.f; dd[41] = imp.z; dd[42] = 0.f; dd[43] = imp.y; }
+			dd[44] = cullEye.x; dd[45] = cullEye.y; dd[46] = cullEye.z; dd[47] = it.cullFade;
+			dd[48] = (f32)it.instanceCount; dd[49] = 1.f; dd[50] = (f32)it.gpu->indexCount;
+			dd[52] = it.instanceLod.x; dd[53] = it.instanceLod.y; dd[54] = it.instanceLod.z; dd[55] = it.instanceLod.w;     // (its level's distances)
+			// (its arguments reset - the index count, nothing counted - then every instance tested)
+			cl->DrawData(dd, sizeof(dd));
+			cl->Dispatch(1, 1, 1);
+			gfx::Barrier reset; reset.buffer = it.cullArgs; reset.from = gfx::Access::ShaderWrite; reset.to = gfx::Access::ShaderWrite;
+			cl->Barriers(&reset, 1);
+			dd[49] = 0.f;
+			cl->DrawData(dd, sizeof(dd));
+			cl->Dispatch((it.instanceCount + 63) / 64, 1, 1);
+			gfx::Barrier after[2];
+			after[0].buffer = it.cullVisible; after[0].from = gfx::Access::ShaderWrite; after[0].to = gfx::Access::VertexIndex;
+			after[1].buffer = it.cullArgs; after[1].from = gfx::Access::ShaderWrite; after[1].to = gfx::Access::Indirect;
+			cl->Barriers(after, 2);
+		}
+	}
+
+	void SceneRenderer::RecordFXAA(gfx::CommandList* cl, const uint32 frameOffset)
+	{
+		if (!fxaaGroup)
+		{
+			gfx::Device::BindGroupEntry e[3];
+			e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
+			e[1].binding = 1; e[1].texture = hdr;
+			e[2].binding = 2; e[2].sampler = linearClamp;
+			fxaaGroup = device->CreateBindGroup(fxaaPipeline, e, 3);
+		}
+		graph.Use(cl, { { taaTex[0], gfx::Access::ColorTarget } });
+		gfx::PassDesc pass;
+		pass.colorCount = 1; pass.colors[0].texture = taaTex[0]; pass.colors[0].load = gfx::Load::DontCare;
+		pass.width = outputWidth; pass.height = outputHeight; pass.debugName = "FXAA";
+		cl->BeginPass(pass);
+		cl->SetViewport(0.f, 0.f, (f32)outputWidth, (f32)outputHeight);
+		cl->SetPipeline(fxaaPipeline);
+		cl->SetBindGroup(fxaaGroup, &frameOffset, 1);
+		cl->Draw(3, 1, 0, 0);
+		cl->EndPass();
+		// (the result back where the rest reads the picture from, as the temporal resolve's)
+		graph.Use(cl, { { taaTex[0], gfx::Access::CopySrc }, { picture, gfx::Access::CopyDst } });
+		cl->CopyTexture(taaTex[0], picture);
+		graph.Use(cl, { { taaTex[0], gfx::Access::ShaderRead }, { picture, gfx::Access::ShaderRead } });
+	}
+
+	void SceneRenderer::RecordBeams(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot)
+	{
+		if (!beamsGroup)
+		{
+			gfx::Device::BindGroupEntry e[8];
+			e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
+			e[1].binding = 1; e[1].buffer = lightData; e[1].size = kLightDataSlot;
+			e[2].binding = 7; e[2].buffer = shadowData; e[2].size = sizeof(ShadowData);
+			e[3].binding = 8; e[3].texture = shadowAtlas;
+			e[4].binding = 9; e[4].sampler = shadowCompare;
+			e[5].binding = 15; e[5].texture = cloudShadowTex;
+			e[6].binding = 20; e[6].texture = prepassDepth;
+			e[7].binding = 21; e[7].sampler = pointClamp;
+			beamsGroup = device->CreateBindGroup(beamsPipeline, e, 8);
+		}
+		const uint32 w = std::max(1u, targetWidth / 2), h = std::max(1u, targetHeight / 2);
+		graph.Use(cl, { { beamsTex, gfx::Access::ColorTarget } });
+		gfx::PassDesc pass;
+		pass.colorCount = 1; pass.colors[0].texture = beamsTex; pass.colors[0].load = gfx::Load::DontCare;
+		pass.width = w; pass.height = h; pass.debugName = "Beams";
+		cl->BeginPass(pass);
+		cl->SetViewport(0.f, 0.f, (f32)w, (f32)h);
+		cl->SetPipeline(beamsPipeline);
+		const uint32 offsets[3] = { frameOffset, slot * kLightDataSlot, slot * kShadowDataSlot };
+		cl->SetBindGroup(beamsGroup, offsets, 3);
+		// (the lamps, their steps - the most any asked for, 24 if none did - and how far a ray goes)
+		f32 dd[32] = {};
+		dd[0] = (f32)beamLamps.size(); dd[1] = (f32)std::min(std::max(beamSteps ? beamSteps : 24u, 8u), 64u); dd[2] = 80.f;
+		for (size_t k = 0; k < beamLamps.size() && k < 16; k++) dd[4 + k] = (f32)beamLamps[k];
+		// (the fog's: beams.frag's fog0, fog1, fogTint)
+		const VolumetricFog &f = fogNow;
+		dd[20] = f.density; dd[21] = f.anisotropy; dd[22] = f.falloff; dd[23] = f.baseHeight;
+		dd[24] = f.maxDistance; dd[25] = std::min(std::max(f.steps, 8.f), 128.f); dd[26] = f.scattering; dd[27] = f.ambient;
+		dd[28] = f.tint.x; dd[29] = f.tint.y; dd[30] = f.tint.z;
+		cl->DrawData(dd, sizeof(dd));
+		cl->Draw(3, 1, 0, 0);
+		cl->EndPass();
+		graph.Use(cl, { { beamsTex, gfx::Access::ShaderRead } });
+	}
+
+	void SceneRenderer::RecordBeamsComposite(gfx::CommandList* cl, const uint32 frameOffset)
+	{
+		if (!beamsCompositeGroup)
+		{
+			gfx::Device::BindGroupEntry e[4];
+			e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
+			e[1].binding = 1; e[1].texture = beamsTex;
+			e[2].binding = 2; e[2].texture = prepassDepth;
+			e[3].binding = 3; e[3].sampler = linearClamp;
+			beamsCompositeGroup = device->CreateBindGroup(beamsCompositePipeline, e, 4);
+		}
+		graph.Use(cl, { { hdr, gfx::Access::ColorTarget } });
+		gfx::PassDesc pass;
+		pass.colorCount = 1; pass.colors[0].texture = hdr; pass.colors[0].load = gfx::Load::Keep;
+		pass.width = targetWidth; pass.height = targetHeight; pass.debugName = "BeamsComposite";
+		cl->BeginPass(pass);
+		cl->SetViewport(0.f, 0.f, (f32)targetWidth, (f32)targetHeight);
+		cl->SetPipeline(beamsCompositePipeline);
+		cl->SetBindGroup(beamsCompositeGroup, &frameOffset, 1);
+		cl->Draw(3, 1, 0, 0);
+		cl->EndPass();
+		graph.Use(cl, { { hdr, gfx::Access::ShaderRead } });
+	}
+
+	void SceneRenderer::RecordSmokeComposite(gfx::CommandList* cl, const uint32 frameOffset)
+	{
+		if (!smokeCompositeGroup)
+		{
+			gfx::Device::BindGroupEntry e[5];
+			e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
+			e[1].binding = 1; e[1].texture = smokeTex;
+			e[2].binding = 2; e[2].texture = prepassDepth;
+			e[3].binding = 3; e[3].sampler = linearClamp;
+			e[4].binding = 4; e[4].texture = smokeReflectTex;
+			smokeCompositeGroup = device->CreateBindGroup(smokeCompositePipeline, e, 5);
+		}
+		graph.Use(cl, { { hdr, gfx::Access::ColorTarget } });
+		gfx::PassDesc pass;
+		pass.colorCount = 1; pass.colors[0].texture = hdr; pass.colors[0].load = gfx::Load::Keep;
+		pass.width = targetWidth; pass.height = targetHeight; pass.debugName = "SmokeComposite";
+		cl->BeginPass(pass);
+		cl->SetViewport(0.f, 0.f, (f32)targetWidth, (f32)targetHeight);
+		cl->SetPipeline(smokeCompositePipeline);
+		cl->SetBindGroup(smokeCompositeGroup, &frameOffset, 1);
+		const Vec3 &fc = VolumetricSmoke::GetScreenFlashColor();
+		const f32 dd[8] = { fc.x, fc.y, fc.z, VolumetricSmoke::GetScreenFlash(), smokeOn ? 1.f : 0.f, 0.f, 0.f, 0.f };
+		cl->DrawData(dd, sizeof(dd));
+		cl->Draw(3, 1, 0, 0);
+		cl->EndPass();
+		graph.Use(cl, { { hdr, gfx::Access::ShaderRead } });
+	}
+
 	void SceneRenderer::ForgetGpuParticles(GpuParticles &g)
 	{
 		if (g.group) device->Destroy(g.group);
@@ -3028,13 +3817,14 @@ namespace p3d {
 			g.step = st.id;
 			const ParticleSystemDesc &d = ps->GetDesc();
 			const Vec3 axis = d.direction.magnitude() > 1e-6f ? d.direction.normalize() : Vec3(0.f, 1.f, 0.f);
-			const f32 dd[24] = {
+			const f32 dd[28] = {
 				st.origin.x, st.origin.y, st.origin.z, st.time,
 				axis.x, axis.y, axis.z, cosf(d.spreadAngle),
 				d.minSpeed, d.maxSpeed, d.minLifetime, d.maxLifetime,
 				d.gravity.x, d.gravity.y, d.gravity.z, d.damping,
 				(f32)st.start, (f32)st.count, (f32)st.capacity, (st.reset || fresh) ? 1.f : 0.f,
-				st.dt, d.minRotationSpeed, d.maxRotationSpeed, 0.f };
+				st.dt, d.minRotationSpeed, d.maxRotationSpeed, 0.f,
+				d.turbulence, 1.f / std::max(d.turbulenceScale, 1e-3f), d.collideFloor ? d.floorHeight : -1e30f, d.bounce };
 			gfx::Barrier before; before.buffer = g.stream; before.from = fresh ? gfx::Access::Undefined : gfx::Access::VertexIndex; before.to = gfx::Access::ShaderWrite;
 			cl->Barriers(&before, 1);
 			cl->SetPipeline(particleSimPipeline);
@@ -3066,12 +3856,19 @@ namespace p3d {
 			particleRing = device->CreateBuffer(b);
 		}
 		const uint64 slotStart = (uint64)particleSlot * particleRingBytes;
+		// (the half-size pass writes after what the full-size one uploaded this frame, which its draws still read)
 		uint64 used = 0;
+		if (half)
+			for (const std::pair<f32, ParticleSystem*> &e : particleSystems)
+			{
+				if (!ParticleWantsHalf(e.second) && !e.second->SimulatedOnGPU()) used += (uint64)e.second->GetLiveParticleCount() * 32;
+			}
 		gfx::Pipeline bound;
 		for (const std::pair<f32, ParticleSystem*> &e : particleSystems)
 		{
 			ParticleSystem* ps = e.second;
 			const ParticleSystemDesc &d = ps->GetDesc();
+			if (ParticleWantsHalf(ps) != half) continue;
 			// (on the GPU: its own stream, as the compute pass left it - every slot of its ring, the dead with no size)
 			const std::unordered_map<ParticleSystem*, GpuParticles>::const_iterator onGpu = ps->SimulatedOnGPU() ? gpuParticles.find(ps) : gpuParticles.end();
 			if (ps->SimulatedOnGPU() && (onGpu == gpuParticles.end() || !onGpu->second.stream)) continue;
@@ -3098,7 +3895,7 @@ namespace p3d {
 			const f32 dd[20] = { c0.x, c0.y, c0.z, c0.w, c1.x, c1.y, c1.z, c1.w,
 				d.startSize, d.endSize, d.sizeRandomJitter, (f32)d.sizeEase,
 				(f32)d.colorEase, d.fadeInFraction, d.fadeOutFraction, d.softness,
-				ps->IsLit() ? 1.f : 0.f, ps->GetForwardScatter(), additive ? 1.f : 0.f, 0.f };
+				ps->IsLit() ? 1.f : 0.f, ps->GetForwardScatter(), additive ? 1.f : 0.f, d.stretch };
 			cl->DrawData(dd, sizeof(dd));
 			if (onGpu != gpuParticles.end()) cl->SetVertexBuffer(0, onGpu->second.stream, 0);
 			else cl->SetVertexBuffer(0, particleRing, slotStart + used);
@@ -3327,7 +4124,8 @@ namespace p3d {
 			{ 19, gfx::BindingKind::Texture2D, false, true },     // (the reflection probes' atlas)
 			{ 20, gfx::BindingKind::Uniform, true, true, false, true },     // (18 kept for the renderer's own)
 			{ 21, gfx::BindingKind::Texture2D, false, true }, { 22, gfx::BindingKind::UnfilteredTexture2D, false, true }, { 23, gfx::BindingKind::UnfilteredTexture2D, false, true },
-			{ 24, gfx::BindingKind::Texture2D, false, true } };     // (the DDGI's: 24-27 kept for the renderer's own)
+			{ 24, gfx::BindingKind::Texture2D, false, true },     // (the DDGI's: 24-27 kept for the renderer's own)
+			{ 25, gfx::BindingKind::Texture2D, false, true } };     // (a still water's planar reflection - sspr.vert)
 		// (its textures, and the material sampler, seen by its vertex stage too where it has one)
 		if (cs->vertex) p.material[6].vertex = true;
 		for (size_t t = 0; t < cs->textures.size(); t++) p.material.push_back({ (uint32_t)(28 + t), gfx::BindingKind::Texture2D, cs->vertex ? true : false, true });
@@ -3366,7 +4164,7 @@ namespace p3d {
 		if (g.group && g.textures == ids && g.revision == m->GetSurfaceRevision() && g.materialId == m->GetInternalID()) return g.group;
 		if (g.group) device->Destroy(g.group);
 		g.materialId = m->GetInternalID();
-		std::vector<gfx::Device::BindGroupEntry> e(24 + tex.size());
+		std::vector<gfx::Device::BindGroupEntry> e(25 + tex.size());
 		e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
 		e[1].binding = 1; e[1].buffer = lightData; e[1].size = kLightDataSlot;
 		e[2].binding = 2; e[2].texture = white; e[3].binding = 3; e[3].texture = flatNormal; e[4].binding = 4; e[4].texture = white; e[5].binding = 5; e[5].texture = white;
@@ -3388,7 +4186,8 @@ namespace p3d {
 		e[21].binding = 22; e[21].texture = giVisibility ? giVisibility : white;
 		e[22].binding = 23; e[22].texture = giProbes ? giProbes : white;
 		e[23].binding = 24; e[23].texture = giRadiance ? giRadiance : white;
-		for (size_t t = 0; t < tex.size(); t++) { e[24 + t].binding = (uint32_t)(28 + t); e[24 + t].texture = tex[t]; }
+		e[24].binding = 25; e[24].texture = mirrorTex ? mirrorTex : white;
+		for (size_t t = 0; t < tex.size(); t++) { e[25 + t].binding = (uint32_t)(28 + t); e[25 + t].texture = tex[t]; }
 		g.group = device->CreateBindGroup(layoutOf, e.data(), (uint32_t)e.size());
 		g.textures = ids; g.revision = m->GetSurfaceRevision();
 		return g.group;
@@ -3432,10 +4231,20 @@ namespace p3d {
 		const Vec4 r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
 		planes[0] = r3 + r0; planes[1] = r3 - r0; planes[2] = r3 + r1; planes[3] = r3 - r1; planes[4] = r3 - r2;
 		for (Vec4 &p : planes) { const f32 len = Vec3(p.x, p.y, p.z).magnitude(); if (len > 0.f) p = p / len; }
+		for (int k = 0; k < 5; k++) cullPlanes[k] = planes[k];
+		cullEye = view.cameraWorld.GetTranslation();
+		cullPlanes[5] = Vec4(0.f, 0.f, 0.f, 1e30f);     // (no far plane: reversed Z, infinite)
 		// (the scene lists each component's first level; a component at another level is drawn from its own list of it)
 		std::vector<RenderingMesh*> chosen;
 		std::unordered_set<RenderingComponent*> done;
 		done.reserve(1024);
+		lodFades.clear();
+		instanceLodPicks.clear();
+		lodClock = std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
+		// (the levels of what has not been seen for a while let go - a component gone, or far off-screen)
+		if ((frameNumber & 127) == 0)
+			for (std::unordered_map<RenderingComponent*, LodState>::iterator i = lodStates.begin(); i != lodStates.end();)
+				if (i->second.seen + 120 < frameNumber + 1) i = lodStates.erase(i); else ++i;
 		particleSystems.clear();
 		std::set<ParticleSystem*> seenSystems;
 		// The components with levels of detail, from the scene's components - not from its meshes: it lists the meshes
@@ -3447,9 +4256,48 @@ namespace p3d {
 			{
 				if (!rc || !rc->GetOwner() || rc->GetRenderLayer() != RenderLayer::World || rc->GetComponentType() == ComponentType::ParticleSystem) continue;
 				if (!rc->HasLOD()) rc->TryAutomaticLODs();
+				rc->TryAutomaticImpostor();     // (an impostor as its last level - ImpostorBank)
 				if (!rc->HasLOD() || !done.insert(rc).second) continue;
-				const uint32 level = rc->LevelAtDistanceSQR(rc->LODDistanceSQR(eye, rc->GetOwner()->GetDrawWorldPosition(), rc->GetOwner()->GetScale()));
-				for (RenderingMesh* m : rc->GetMeshes(level)) chosen.push_back(m);
+				// Its level by its distance - with a little room either way (5%), so one hovering at a hand-over does not
+				// switch back and forth - and when it changes, the two levels dissolved into each other over a quarter of a
+				// second on the moving dither (common.glsl's LodDither), then the new one alone: nothing rests half-way,
+				// as it did when the crossfade was a band of distance (a teapot standing in it was a screen-door for good)
+				const f32 d2 = rc->LODDistanceSQR(eye, rc->GetOwner()->GetDrawWorldPosition(), rc->GetOwner()->GetScale());
+				LodState &ls = lodStates[rc];
+				const uint32 coarser = rc->LevelAtDistanceSQR(d2), finer = rc->LevelAtDistanceSQR(d2 * 1.1025f);
+				const bool fresh = ls.seen == 0 || ls.seen + 3 < frameNumber + 1;     // (newly seen, or back after a while: as it is now, no fade)
+				if (fresh) { ls.level = ls.from = coarser; ls.start = -1.0; }
+				else
+				{
+					const uint32 want = coarser > ls.level ? coarser : finer < ls.level ? finer : ls.level;
+					if (want != ls.level) { ls.from = ls.level; ls.level = want; ls.start = lodClock; }
+				}
+				ls.seen = frameNumber + 1;
+				const f32 t = ls.start < 0.0 || !lodCrossfade ? 1.f : (f32)std::min(1.0, (lodClock - ls.start) / 0.25);
+				const uint32 level = std::min<uint32>(ls.level, (uint32)rc->GetLODSize() - 1);
+				const bool crossfade = t < 1.f && ls.from != ls.level && ls.from < rc->GetLODSize();
+				// An instanced set - a block of a forest - by each tree, not by the block: every level drawn, the GPU culling
+				// sending each instance to the level its own distance says, across a band dissolved one into the next. By
+				// the block, its hundred trees swapped to their far mesh at once as it crossed the distance - a pop
+				if (rc->IsInstanced() && device->PipelineReady(instanceCullPipeline) && rc->GetLODSize() >= 2 && rc->GetLODSize() <= 6)
+				{
+					const std::vector<f32> &ld = rc->GetLODDistances();
+					const f32 scale = RenderingComponent::GetLODDistanceScale();
+					for (uint32 l = 0; l < rc->GetLODSize(); l++)
+					{
+						const f32 lo = l == 0 ? 0.f : ld[l - 1] * scale, hi = l < ld.size() && ld[l] < 1e8f ? ld[l] * scale : 1e30f;
+						for (RenderingMesh* m : rc->GetMeshes(l))
+						{
+							chosen.push_back(m);
+							InstanceLodPick &p = instanceLodPicks[m];
+							p.range = Vec4(lo, hi, 0.12f, 1.f); p.caster = l == level;
+						}
+					}
+					continue;
+				}
+				// (the coming level keeps the dither's pixels below t, the going one the rest: complementary, one surface)
+				for (RenderingMesh* m : rc->GetMeshes(level)) { chosen.push_back(m); if (crossfade) lodFades[m] = -std::max(t, 0.001f); }
+				if (crossfade) for (RenderingMesh* m : rc->GetMeshes(ls.from)) { chosen.push_back(m); lodFades[m] = std::max(t, 0.001f); }
 			}
 		for (RenderingMesh* base : scene->GetRenderingMeshes())
 		{
@@ -3484,12 +4332,14 @@ namespace p3d {
 			{
 				Texture* const maps[5] = { md.gm->GetColorMap(), md.gm->GetNormalMap(), md.gm->GetMetallicRoughnessMap(), md.gm->GetEmissionMap(), md.gm->GetDisplacementMap() };
 				for (int k = 0; k < 5 && !stale; k++) stale = maps[k] != md.maps[k] || (maps[k] && maps[k]->GetCpuRevision() != md.mapRevisions[k]);
+				if (!stale) stale = md.textureEpoch != textureEpoch;     // (a texture forgotten: its group, its baseMap may have been it)
 			}
 			if (stale)
 			{
 				md = MeshDraw();
 				md.material = material; md.geometry = rm->Geometry; md.instanced = instancedComponent;
 				md.materialId = material->GetInternalID(); md.geometryId = rm->Geometry->GetInstanceID();
+				md.textureEpoch = textureEpoch;
 				md.gm = dynamic_cast<GenericShaderMaterial*>(material);
 				md.cm = md.gm ? nullptr : dynamic_cast<CustomShaderMaterial*>(material);
 				md.skybox = md.gm ? md.gm->GetSkyboxMap() : nullptr;
@@ -3513,7 +4363,8 @@ namespace p3d {
 				{
 					Texture* const maps[5] = { md.gm->GetColorMap(), md.gm->GetNormalMap(), md.gm->GetMetallicRoughnessMap(), md.gm->GetEmissionMap(), md.gm->GetDisplacementMap() };
 					for (int k = 0; k < 5; k++) { md.maps[k] = maps[k]; md.mapRevisions[k] = maps[k] ? maps[k]->GetCpuRevision() : 0; }
-					md.alphaCut = (md.gm->GetOptions() & ShaderUsage::AlphaTest) != 0 && maps[0] != nullptr;
+					md.impostor = (md.gm->GetOptions() & ShaderUsage::Impostor) != 0 && md.gm->GetImpostor().w > 0.f;     // (an instanced set's, or one object's - a far level of detail)
+					md.alphaCut = (md.gm->GetOptions() & ShaderUsage::AlphaTest) != 0 && maps[0] != nullptr && !md.impostor;     // (an impostor cuts in its own stage)
 					// (its colours per vertex - a sprite's tint; and how it blends where it is see-through: added, premultiplied, or over)
 					md.vertexColor = (md.gm->GetOptions() & ShaderUsage::VertexColor) != 0;
 					const uint32 sf = md.gm->GetBlendingSFactor(), df = md.gm->GetBlendingDFactor();
@@ -3527,7 +4378,7 @@ namespace p3d {
 			if (!md.gpu || (md.cm && !md.surface)) continue;
 			DrawItem it;
 			it.mesh = rm; it.material = md.gm; it.custom = md.cm; it.movesItself = md.movesItself;
-			it.vertexColor = md.vertexColor && md.gm && !instancedComponent; it.sortOrder = rc->GetSortOrder();
+			it.vertexColor = md.vertexColor && md.gm; it.sortOrder = rc->GetSortOrder();
 			{
 				const Vec3 place = owner->GetDrawWorldPosition();
 				it.sortDepth = view.orthographic ? (place - eye).dotProduct(sortForward) : (place - eye).dotProduct(place - eye);
@@ -3550,6 +4401,7 @@ namespace p3d {
 				// (how it is drawn now: its instances grown - a thinned layer's - and faded with distance; and thinned here,
 				// where it says to, by how far its nearest point is - fewer, each grown to cover the ground the others did)
 				Vec2 grow = ic->GrowthToDraw();
+				f32 thinKeep = 1.f;
 				// (PYROS_INSTANCE_SHAPE=0: every instance drawn as it is - to compare)
 				static const bool shaping = !(getenv("PYROS_INSTANCE_SHAPE") && getenv("PYROS_INSTANCE_SHAPE")[0] == '0');
 				if (shaping && ic->thinTo > ic->thinFrom)
@@ -3557,13 +4409,20 @@ namespace p3d {
 					const f32 d = std::max(0.f, (it.center - eye).magnitude() - it.radius);
 					const f32 t = std::min(std::max((d - ic->thinFrom) / (ic->thinTo - ic->thinFrom), 0.f), 1.f);
 					const f32 keep = 1.f + (std::max(ic->thinLeast, 0.02f) - 1.f) * t * t * (3.f - 2.f * t);
+					thinKeep = keep;
 					it.instanceCount = std::max(1u, std::min(it.instanceCount, (uint32)std::ceil(it.instanceCount * keep)));
 					const f32 area = 1.f / keep;
 					grow = Vec2(grow.x * powf(area, 0.75f), grow.y * powf(area, 0.25f));
 				}
+				// (the count its owner asked for, to a fraction - a foliage block thinning and fading with distance,
+				// SetInstanceKeep: the last of them dissolving rather than dropping out, block by block)
+				if (shaping && ic->KeepToDraw() > 0.f && inst->count > 0 && ic->KeepToDraw() < (f32)inst->count)
+					thinKeep = std::min(thinKeep, ic->KeepToDraw() / (f32)inst->count);
 				if (shaping)
 				{
-					it.shape[0] = grow.x; it.shape[1] = grow.y;
+					// (grown, two halves; and how much of it is kept - its last ones dissolving, not dropped: instancing.glsl)
+					it.shape[0] = PackHalves(grow.x, grow.y); it.shape[1] = std::max(thinKeep, 0.001f);
+					it.fades = thinKeep < 0.999f || ic->fadeIn.y > ic->fadeIn.x || ic->fadeOut.y > ic->fadeOut.x;
 					it.shape[2] = PackHalves(ic->fadeIn.x, ic->fadeIn.y); it.shape[3] = PackHalves(ic->fadeOut.x, ic->fadeOut.y);
 					// (all of it faded away - nearer than its fade in begins, or further than its fade out ends: not drawn)
 					if (ic->fadeIn.y > ic->fadeIn.x && (it.center - eye).magnitude() + it.radius < ic->fadeIn.x) continue;
@@ -3577,6 +4436,41 @@ namespace p3d {
 			it.transparent = md.transparent;
 			it.alphaCut = md.alphaCut;
 			if (it.alphaCut) it.baseMap = md.baseMap;     // (the shadow's cut, and the depth prepass's)
+			it.impostor = md.impostor;
+			it.lodLevel = rm->LodLevel;
+			{
+				const std::unordered_map<RenderingMesh*, InstanceLodPick>::const_iterator p = instanceLodPicks.find(rm);
+				if (p != instanceLodPicks.end() && instancedComponent)
+				{
+					it.instanceLod = p->second.range;
+					it.fades = true;                            // (its crossfade cut in the cut pass and the prepass)
+					if (!p->second.caster) it.caster = false;     // (the shadow: the block's own level's, whole)
+				}
+			}
+			if (it.impostor) it.caster = false;     // (a far tree's picture: its shadow would be its quad's)
+			{
+				const std::unordered_map<RenderingMesh*, f32>::const_iterator f = lodFades.find(rm);
+				// (a level mid crossfade: drawn as the alpha-cut are - its cut, then its light at that depth - opaque, plain
+				// materials only: the rest switch as before)
+				// (an instanced set dissolving plants - thinned, or past their fade: drawn as the alpha-cut are, so the cut and
+				// the prepass discard the same pixels)
+				if (it.fades && md.gm && !md.transparent && !md.impostor)
+				{
+					if (!it.baseMap) it.baseMap = white;
+					// (its pipelines made again where they were made before it first faded - without the cut ones)
+					if (!md.wantsCut && md.pipeline && !md.cut) { md.group = gfx::BindGroup(); md.pipeline = gfx::Pipeline(); md.pipelineInstanced = gfx::Pipeline(); }
+					md.wantsCut = true;
+				}
+				if (f != lodFades.end() && md.impostor)
+					it.lodFade = f->second;     // (an impostor: in no prepass - its own stage dithers, surface.frag)
+				else if (f != lodFades.end() && md.gm && !md.transparent && !it.skinned && !instancedComponent)
+				{
+					it.lodFade = f->second;
+					if (!it.baseMap) it.baseMap = white;
+					md.wantsCut = true;
+					if (it.lodFade < 0.f) it.caster = false;     // (the shadow: the going level's, whole)
+				}
+			}
 			it.visible = true;
 			// (posed by its bones: this frame's into the palette)
 			{
@@ -3595,8 +4489,19 @@ namespace p3d {
 				if (it.skinned != md.skinnedPipeline) { md.group = gfx::BindGroup(); md.pipeline = gfx::Pipeline(); md.pipelineInstanced = gfx::Pipeline(); }
 				md.skinnedPipeline = it.skinned;
 			}
+			// (a crossfade's levels: posed ones switch at once - the coming one not drawn; the coming one casts no shadow,
+			// the going one does; and the cut pipelines made where the crossfade is the first to want them)
+			if (it.lodFade != 0.f)
+			{
+				if (it.skinned) { if (it.lodFade < 0.f) continue; it.lodFade = 0.f; }
+				else if (md.wantsCut && !md.cut && md.pipeline) { md.group = gfx::BindGroup(); md.pipeline = gfx::Pipeline(); md.pipelineInstanced = gfx::Pipeline(); }
+			}
 			if (cullingOn && !md.movesItself) for (const Vec4 &p : planes)
 				if (p.x * it.center.x + p.y * it.center.y + p.z * it.center.z + p.w < -it.radius) { it.visible = false; break; }
+			// (a custom material's group asked for again each frame it is seen: its textures can change under it - a sampler
+			// added from a script, an FFT sea's - and asking is what writes a float texture's new data. Made once, the sea
+			// drew its first group's white placeholders - its swell 1 m everywhere, the water stood 1.75 m high)
+			if (it.visible && md.group && md.cm && md.pipeline) md.group = CustomGroupFor(md.cm, md.surface, md.pipeline);
 			// (its pipelines and bind group: made once, the group once the pipeline is ready)
 			if (it.visible && !md.group)
 			{
@@ -3616,12 +4521,13 @@ namespace p3d {
 					key.blend = md.transparent ? md.blend : (uint8)gfx::Blend::Opaque;
 					key.instanced = instancedComponent ? 1 : 0;
 					key.skinned = it.skinned ? 1 : 0;
-					key.vertexColor = md.vertexColor && !instancedComponent && !it.skinned ? 1 : 0;
+					key.vertexColor = md.vertexColor && !it.skinned ? 1 : 0;     // (instanced too: a foliage layer's tufts, coloured blade by blade - white without)
+					key.impostor = md.impostor ? 1 : 0;
 					md.pipeline = SurfacePipeline(key);
 					if (!instancedComponent && !md.transparent && !it.skinned && !key.vertexColor) { PipelineKey ik = key; ik.instanced = 1; md.pipelineInstanced = SurfacePipeline(ik); }
 					// (alpha-cut and opaque: its two draws as well - its cut, then its light at that depth)
 					md.plain = md.pipeline; md.plainInstanced = md.pipelineInstanced; md.cut = gfx::Pipeline(); md.cutInstanced = gfx::Pipeline();
-					if (md.alphaCut && !md.transparent && !it.skinned)
+					if ((md.alphaCut || md.wantsCut) && !md.transparent && !it.skinned)
 					{
 						PipelineKey ck = key; ck.cut = 1; md.cut = SurfacePipeline(ck);
 						PipelineKey lk = key; lk.cut = 2; md.pipeline = SurfacePipeline(lk);
@@ -3644,6 +4550,54 @@ namespace p3d {
 				if (it.cutPipeline && md.pipelineInstanced && !(device->PipelineReady(md.cutInstanced) && device->PipelineReady(md.pipelineInstanced))) { it.pipelineInstanced = gfx::Pipeline(); it.cutPipelineInstanced = gfx::Pipeline(); }
 			}
 			items.push_back(it);
+		}
+		// The big instanced sets seen: culled on the GPU (RecordInstanceCull) - their buffers for this frame in flight
+		if (device->PipelineReady(instanceCullPipeline))
+		{
+			const uint32 cslot = (uint32)(frameNumber % kFramesInFlight);
+			for (DrawItem &x : items)
+			{
+				if (!x.visible || !x.instances || (x.instanceCount < kCullInstances && x.instanceLod.w <= 0.f) || x.skinned) continue;
+				x.cullKey = ((uint64)x.instances.id << 32) ^ (uint64)(uintptr_t)x.gpu;
+				InstanceCull &ic = instanceCulls[x.cullKey];
+				ic.seen = frameNumber;
+				if (ic.capacity < x.instanceCount)
+				{
+					for (uint32 k = 0; k < kFramesInFlight; k++)
+					{
+						if (ic.visible[k]) device->Destroy(ic.visible[k]);
+						if (ic.args[k]) device->Destroy(ic.args[k]);
+						if (ic.group[k]) { device->Destroy(ic.group[k]); ic.group[k] = gfx::BindGroup(); }
+						gfx::BufferDesc b; b.memory = gfx::Memory::GpuOnly;
+						b.size = (uint64)x.instanceCount * 80; b.usage = gfx::BufStorage | gfx::BufVertex; b.debugName = "Renderer.CulledInstances";
+						ic.visible[k] = device->CreateBuffer(b);
+						b.size = 256; b.usage = gfx::BufStorage | gfx::BufIndirect; b.debugName = "Renderer.CulledArgs";
+						ic.args[k] = device->CreateBuffer(b);
+					}
+					ic.capacity = x.instanceCount;
+				}
+				if (!ic.group[cslot])
+				{
+					gfx::Device::BindGroupEntry e[3];
+					e[0].binding = 1; e[0].buffer = x.instances; e[0].size = (uint64)x.instanceCount * 80;
+					e[1].binding = 2; e[1].buffer = ic.visible[cslot]; e[1].size = (uint64)ic.capacity * 80;
+					e[2].binding = 3; e[2].buffer = ic.args[cslot]; e[2].size = 20;
+					ic.group[cslot] = device->CreateBindGroup(instanceCullPipeline, e, 3);
+				}
+				x.cullVisible = ic.visible[cslot]; x.cullArgs = ic.args[cslot];
+				// (past where the set fades out with distance - its shape's fade-out, two halves: from, to)
+				uint32 bits; memcpy(&bits, &x.shape[3], 4);
+				const f32 fadeFrom = HalfToFloat((uint16)(bits & 0xFFFF)), fadeTo = HalfToFloat((uint16)(bits >> 16));
+				x.cullFade = fadeTo > fadeFrom ? fadeTo : 0.f;
+			}
+			// (the sets no longer seen, let go a few frames on)
+			for (std::unordered_map<uint64, InstanceCull>::iterator c = instanceCulls.begin(); c != instanceCulls.end();)
+				if (c->second.seen + 8 < frameNumber)
+				{
+					for (uint32 k = 0; k < kFramesInFlight; k++) { if (c->second.visible[k]) device->Destroy(c->second.visible[k]); if (c->second.args[k]) device->Destroy(c->second.args[k]); if (c->second.group[k]) device->Destroy(c->second.group[k]); }
+					c = instanceCulls.erase(c);
+				}
+				else ++c;
 		}
 		notDrawnYet = 0;
 		for (const DrawItem &x : items) if (x.visible && !x.group) notDrawnYet++;     // (its pipeline still being made: not drawn this frame)
@@ -3688,8 +4642,8 @@ namespace p3d {
 		std::map<PipelineKey, gfx::Pipeline>::iterator i = surfacePipelines.find(key);
 		if (i != surfacePipelines.end()) return i->second;
 		gfx::GraphicsPipelineDesc p;
-		p.vertex = key.instanced ? surfaceInstVS : key.skinned ? surfaceSkinVS : key.vertexColor ? surfaceColorVS : surfaceVS;
-		p.fragment = key.cut == 1 ? alphaCutFS : key.cut == 2 ? surfaceNoCutFS : surfaceFS;
+		p.vertex = key.impostor ? (key.instanced ? surfaceImpostorVS : surfaceImpostorPlainVS) : key.instanced ? (key.vertexColor ? surfaceInstColorVS : surfaceInstVS) : key.skinned ? surfaceSkinVS : key.vertexColor ? surfaceColorVS : surfaceVS;
+		p.fragment = key.impostor ? surfaceImpostorFS : key.cut == 1 ? alphaCutFS : key.cut == 2 ? surfaceNoCutFS : surfaceFS;
 		p.material = { { 0, gfx::BindingKind::Uniform, true, true, false, true }, { 1, gfx::BindingKind::StorageRead, false, true, false, true },
 			{ 2, gfx::BindingKind::Texture2D, false, true }, { 3, gfx::BindingKind::Texture2D, false, true }, { 4, gfx::BindingKind::Texture2D, false, true },
 			{ 5, gfx::BindingKind::Texture2D, false, true }, { 6, gfx::BindingKind::Sampler, false, true },
@@ -3701,7 +4655,8 @@ namespace p3d {
 			{ 18, gfx::BindingKind::Texture2D, false, true },     // (the height map: parallax)
 			{ 19, gfx::BindingKind::Texture2D, false, true },     // (the reflection probes' atlas)
 			{ 21, gfx::BindingKind::Texture2D, false, true }, { 22, gfx::BindingKind::UnfilteredTexture2D, false, true }, { 23, gfx::BindingKind::UnfilteredTexture2D, false, true },
-			{ 24, gfx::BindingKind::Texture2D, false, true } };     // (the DDGI's: 24-27 kept for the renderer's own)
+			{ 24, gfx::BindingKind::Texture2D, false, true },     // (the DDGI's: 24-27 kept for the renderer's own)
+			{ 25, gfx::BindingKind::Texture2D, false, true } };     // (a still water's planar reflection - sspr.vert)
 		p.drawDataBytes = sizeof(DrawData);
 		p.bindings = { { 0, (uint16_t)sizeof(Vertex), false } };
 		p.attributes = { { 0, 0, gfx::Format::RGB32F, 0 }, { 1, 0, gfx::Format::RGB32F, 12 }, { 2, 0, gfx::Format::RG32F, 24 } };
@@ -3740,23 +4695,34 @@ namespace p3d {
 		if (msaaColor) device->Destroy(msaaColor);
 		gfx::TextureDesc t; t.width = width; t.height = height;
 		t.format = kHdrFormat; t.usage = gfx::TexColorTarget | gfx::TexSampled | gfx::TexCopySrc; t.debugName = "Renderer.HDR";     // (copied: last frame's, for the reflections)
-		hdr = device->CreateTexture(t);
+		hdr = MakeTexture(t);
 		if (width != outW || height != outH)
 		{
 			gfx::TextureDesc pt = t; pt.width = outW; pt.height = outH; pt.debugName = "Renderer.Picture";
 			pt.usage = gfx::TexColorTarget | gfx::TexSampled | gfx::TexCopySrc | gfx::TexCopyDst;
-			picture = device->CreateTexture(pt);
+			picture = MakeTexture(pt);
 		}
 		else picture = hdr;
 		t.usage = gfx::TexSampled | gfx::TexCopySrc; t.debugName = "Renderer.HDRPrevious";
-		hdrPrevious = device->CreateTexture(t);
+		hdrPrevious = MakeTexture(t);
+		if (mirrorTex) device->Destroy(mirrorTex);
+		if (mirrorDepth) device->Destroy(mirrorDepth);
+		if (ssprGroup) { device->Destroy(ssprGroup); ssprGroup = gfx::BindGroup(); }
+		{
+			// (the picture's own size: at half, a mirrored box's edges came out in steps two pixels high)
+			gfx::TextureDesc mt; mt.width = std::max(1u, width); mt.height = std::max(1u, height); mt.format = gfx::Format::RGBA16F;
+			mt.usage = gfx::TexColorTarget | gfx::TexSampled; mt.debugName = "Renderer.MirrorPlane";
+			mirrorTex = MakeTexture(mt);
+			mt.format = gfx::Format::D32F; mt.usage = gfx::TexDepthTarget; mt.debugName = "Renderer.MirrorPlaneDepth";
+			mirrorDepth = MakeTexture(mt);
+		}
 		hdrPreviousMade = false;
 		t.usage = gfx::TexColorTarget | gfx::TexSampled;
 		t.samples = kSceneSamples; t.transient = true;
 		t.format = kHdrFormat; t.usage = gfx::TexColorTarget; t.debugName = "Renderer.SceneMSAA";
-		msaaColor = device->CreateTexture(t);
+		msaaColor = MakeTexture(t);
 		t.format = kDepthFormat; t.usage = gfx::TexDepthTarget; t.debugName = "Renderer.Depth";
-		depth = device->CreateTexture(t);
+		depth = MakeTexture(t);
 		// The AO's targets, and every bind group that names them, made again at the new size
 		for (gfx::Texture x : { prepassDepth, aoA, aoB, aoRT, rtReflectTex }) if (x) device->Destroy(x);
 		aoRT = gfx::Texture(); rtReflectTex = gfx::Texture();
@@ -3776,21 +4742,21 @@ namespace p3d {
 		for (DrawItem &it : items) it.group = gfx::BindGroup();
 		gfx::TextureDesc a; a.width = width; a.height = height;
 		a.format = kDepthFormat; a.usage = gfx::TexDepthTarget | gfx::TexSampled; a.debugName = "Renderer.PrepassDepth";
-		prepassDepth = device->CreateTexture(a);
+		prepassDepth = MakeTexture(a);
 		a.width = std::max(1u, width / 2); a.height = std::max(1u, height / 2);
 		a.format = gfx::Format::R8; a.usage = gfx::TexColorTarget | gfx::TexSampled; a.debugName = "Renderer.AO";
-		aoA = device->CreateTexture(a);
-		aoB = device->CreateTexture(a);
+		aoA = MakeTexture(a);
+		aoB = MakeTexture(a);
 		// (the ray-traced shadows' - the AO and the sun's share, at the full size)
 		if (RtShadows())
 		{
 			gfx::TextureDesc r; r.width = width; r.height = height; r.format = gfx::Format::RG8; r.usage = gfx::TexColorTarget | gfx::TexSampled; r.debugName = "Renderer.AOAndRTShadow";
-			aoRT = device->CreateTexture(r);
+			aoRT = MakeTexture(r);
 		}
 		if (RtReflections())
 		{
 			gfx::TextureDesc r; r.width = width; r.height = height; r.format = kHdrFormat; r.usage = gfx::TexColorTarget | gfx::TexSampled; r.debugName = "Renderer.RTReflections";
-			rtReflectTex = device->CreateTexture(r);
+			rtReflectTex = MakeTexture(r);
 		}
 		// The bloom chain, from half the size down; and the groups that name it or the HDR target
 		for (uint32 i = 0; i < kBloomLevels; i++)
@@ -3799,9 +4765,10 @@ namespace p3d {
 			for (gfx::BindGroup* g : { &bloomDownGroup[i], &bloomUpGroup[i] }) if (*g) { device->Destroy(*g); *g = gfx::BindGroup(); }
 			bloomW[i] = std::max(1u, outW >> (i + 1)); bloomH[i] = std::max(1u, outH >> (i + 1));
 			gfx::TextureDesc bt; bt.width = bloomW[i]; bt.height = bloomH[i]; bt.format = BloomFormat(); bt.usage = gfx::TexColorTarget | gfx::TexSampled; bt.debugName = "Renderer.Bloom";
-			bloom[i] = device->CreateTexture(bt);
+			bloom[i] = MakeTexture(bt);
 		}
-		for (gfx::BindGroup* g : { &lumGroup, &tonemapGroups[0], &tonemapGroups[1] }) if (*g) { device->Destroy(*g); *g = gfx::BindGroup(); }
+		for (gfx::BindGroup* g : { &lumGroup, &tonemapGroups[0], &tonemapGroups[1], &tonemapToDisplayGroups[0], &tonemapToDisplayGroups[1] }) if (*g) { device->Destroy(*g); *g = gfx::BindGroup(); }
+		for (gfx::Texture &t : displayTex) if (t) { device->Destroy(t); t = gfx::Texture(); }     // (made again at the new size where asset effects want them)
 		// The clouds' target, at half the size, and the sky's group that names it
 		for (gfx::Texture &t : cloudTex) if (t) { device->Destroy(t); t = gfx::Texture(); }
 		for (gfx::BindGroup* g : { &skyGroups[0], &skyGroups[1], &cloudsGroup[0], &cloudsGroup[1] }) if (*g) { device->Destroy(*g); *g = gfx::BindGroup(); }
@@ -3809,36 +4776,56 @@ namespace p3d {
 		{
 			gfx::TextureDesc ct; ct.width = std::max(1u, width / 2); ct.height = std::max(1u, height / 2); ct.format = gfx::Format::RGBA16F;
 			ct.usage = gfx::TexColorTarget | gfx::TexSampled; ct.debugName = "Renderer.Clouds";
-			t = device->CreateTexture(ct);
+			t = MakeTexture(ct);
 		}
 		cloudHistory = false;     // (the new targets hold nothing to blend into)
 		for (gfx::Texture &t : taaTex) if (t) { device->Destroy(t); t = gfx::Texture(); }
+		if (fxaaGroup) { device->Destroy(fxaaGroup); fxaaGroup = gfx::BindGroup(); }
 		for (gfx::BindGroup &g : taaGroups) if (g) { device->Destroy(g); g = gfx::BindGroup(); }
 		if (postTex) device->Destroy(postTex);
 		if (postGroup) { device->Destroy(postGroup); postGroup = gfx::BindGroup(); }
+		for (gfx::Texture* t : { &smokeTex, &smokeReflectTex, &beamsTex }) if (*t) { device->Destroy(*t); *t = gfx::Texture(); }
+		for (gfx::BindGroup* g : { &beamsGroup, &beamsCompositeGroup }) if (*g) { device->Destroy(*g); *g = gfx::BindGroup(); }
+		for (gfx::BindGroup* g : { &smokeGroup, &smokeCompositeGroup }) if (*g) { device->Destroy(*g); *g = gfx::BindGroup(); }
+		{
+			gfx::TextureDesc st; st.width = std::max(1u, width / 2); st.height = std::max(1u, height / 2); st.format = gfx::Format::RGBA16F;
+			st.usage = gfx::TexColorTarget | gfx::TexSampled; st.debugName = "Renderer.Smoke";
+			smokeTex = MakeTexture(st);
+			st.debugName = "Renderer.SmokeReflection";     // (the smoke along the mirrored rays, weighed by how much each surface mirrors)
+			smokeReflectTex = MakeTexture(st);
+			st.debugName = "Renderer.Beams";
+			beamsTex = MakeTexture(st);
+		}
 		{
 			gfx::TextureDesc pt; pt.width = width; pt.height = height; pt.format = kHdrFormat;
 			pt.usage = gfx::TexColorTarget | gfx::TexSampled | gfx::TexCopySrc; pt.debugName = "Renderer.Post";
-			postTex = device->CreateTexture(pt);
+			postTex = MakeTexture(pt);
 		}
 		if (particleTex) device->Destroy(particleTex);
 		if (particleCompositeGroup) { device->Destroy(particleCompositeGroup); particleCompositeGroup = gfx::BindGroup(); }
 		{
 			gfx::TextureDesc pt; pt.width = std::max(1u, width / 2); pt.height = std::max(1u, height / 2); pt.format = gfx::Format::RGBA16F;
 			pt.usage = gfx::TexColorTarget | gfx::TexSampled; pt.debugName = "Renderer.HalfParticles";
-			particleTex = device->CreateTexture(pt);
+			particleTex = MakeTexture(pt);
+		}
+		if (particleFullTex) device->Destroy(particleFullTex);
+		if (particleFullCompositeGroup) { device->Destroy(particleFullCompositeGroup); particleFullCompositeGroup = gfx::BindGroup(); }
+		{
+			gfx::TextureDesc pt; pt.width = width; pt.height = height; pt.format = gfx::Format::RGBA16F;
+			pt.usage = gfx::TexColorTarget | gfx::TexSampled; pt.debugName = "Renderer.Particles";
+			particleFullTex = MakeTexture(pt);
 		}
 		if (velocityTex) device->Destroy(velocityTex);
 		{
 			gfx::TextureDesc vt; vt.width = width; vt.height = height; vt.format = gfx::Format::RG16F; vt.usage = gfx::TexColorTarget | gfx::TexSampled; vt.debugName = "Renderer.Velocity";
-			velocityTex = device->CreateTexture(vt);
-			graph.Transient(velocityTex); graph.Transient(aoB); graph.Transient(particleTex);     // (this frame's only)
+			velocityTex = MakeTexture(vt);
+			graph.Transient(velocityTex); graph.Transient(aoB); graph.Transient(particleTex); graph.Transient(particleFullTex);     // (this frame's only)
 		}
 		for (gfx::Texture &t : taaTex)
 		{
 			gfx::TextureDesc tt; tt.width = outW; tt.height = outH; tt.format = kHdrFormat;     // (the resolved picture's size)
 			tt.usage = gfx::TexColorTarget | gfx::TexSampled | gfx::TexCopySrc; tt.debugName = "Renderer.TemporalAA";
-			t = device->CreateTexture(tt);
+			t = MakeTexture(tt);
 		}
 		taaHistory = false;
 		targetWidth = width; targetHeight = height;
@@ -4069,7 +5056,7 @@ namespace p3d {
 		const bool same = gi && giIrradiance && giShape[0] == gi->GetIrradianceAtlas().GetWidth() && giShape[1] == gi->GetIrradianceAtlas().GetHeight()
 			&& giShape[2] == gi->GetVisibilityAtlas().GetWidth() && giShape[3] == gi->GetRadianceAtlas().GetWidth() && giShape[4] == gi->ProbeCount();
 		auto make = [&](gfx::Texture &tex, const gfx::TextureDesc &t, const gfx::TextureData &td) {
-			if (same && tex) device->Upload(tex, &td, 1); else tex = device->CreateTexture(t, &td, 1); };
+			if (same && tex) device->Upload(tex, &td, 1); else tex = MakeTexture(t, &td, 1); };
 		if (!same)
 		{
 			for (gfx::Texture* t : { &giIrradiance, &giVisibility, &giProbes, &giRadiance }) if (*t) { device->Destroy(*t); *t = gfx::Texture(); }
@@ -4227,6 +5214,17 @@ namespace p3d {
 	{
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		if (!view.hostFrame) device->BeginFrame();
+		// (impostors the scene's models asked for - ImpostorBank, a model's last level of detail: one baked a frame, by a
+		// renderer of its own inside this frame; not from that renderer's own frames, nor a probe's)
+		{
+			static bool baking = false;
+			if (!baking && ImpostorBank::AnyPending())
+			{
+				baking = true;
+				ImpostorBank::BakePending(device, impostorRenderer);
+				baking = false;
+			}
+		}
 		drawingInto = view.target;
 		// (the weather a game set over the scene's own: its clouds and haze - and the scene's back when it lets go)
 		{
@@ -4251,11 +5249,11 @@ namespace p3d {
 			{
 				gfx::TextureDesc a; a.width = kProbeColumns * kProbeBlockWidth; a.height = kProbeRows * kProbeBlockHeight;
 				a.format = kHdrFormat; a.usage = gfx::TexColorTarget | gfx::TexSampled; a.debugName = "Renderer.ProbeAtlas";
-				probeAtlas = device->CreateTexture(a);
+				probeAtlas = MakeTexture(a);
 				a.width = a.height = kProbeFace; a.usage = gfx::TexCopyDst | gfx::TexSampled;
-				for (int i = 0; i < 6; i++) { a.debugName = "Renderer.ProbeFace"; probeFaces[i] = device->CreateTexture(a); }
+				for (int i = 0; i < 6; i++) { a.debugName = "Renderer.ProbeFace"; probeFaces[i] = MakeTexture(a); }
 				a.format = device->BackbufferFormat(); a.usage = gfx::TexColorTarget | gfx::TexSampled; a.debugName = "Renderer.ProbeFacePicture";
-				probeFaceLdr = device->CreateTexture(a);
+				probeFaceLdr = MakeTexture(a);
 				targetWidth = 0;     // (the targets and their groups made again: with the atlas in them)
 			}
 			if (probeAtlas)
@@ -4309,10 +5307,19 @@ namespace p3d {
 		// (and the resolve's: this frame's inverse and last frame's, both without the jitter)
 		{
 			const Matrix inv = vp.Inverse();
-			f32 td[52];
+			f32 td[56];
 			memcpy(td, inv.m, 64); memcpy(td + 16, taaPreviousViewProjection.m, 64); memcpy(td + 32, vp.m, 64);
 			memcpy(fd.previousViewProjection, taaPreviousViewProjection.m, 64);
+			fd.temporal[0] = (f32)(frameNumber % 64); fd.temporal[3] = 0.f;
+			// (a still water's mirror: its plane's height, and on - where there is last frame's picture to take it from)
+			{
+				const f32 level = RenderGlobals::MirrorLevel();
+				mirrorOn = level == level && hdrPreviousMade && mirrorTex && device->PipelineReady(ssprPipeline) && (ScreenReflections() || RtReflections());
+				mirrorLevel = mirrorOn ? level : 0.f;
+				fd.temporal[1] = mirrorLevel; fd.temporal[2] = mirrorOn ? 1.f : 0.f;
+			}
 			td[48] = taaHistory ? 1.f : 0.f; td[49] = targetWidth < outputWidth ? 0.08f : 0.1f; td[50] = taaJitter[0]; td[51] = taaJitter[1];
+			td[52] = td[53] = td[54] = td[55] = 0.f;     // (the particle layers': written once they are gathered, below)
 			device->Upload(taaData, slot * 256, td, sizeof(td));
 			taaPreviousViewProjection = vp;
 		}
@@ -4353,7 +5360,7 @@ namespace p3d {
 			const char* dbg = getenv("PYROS_RENDERER_DEBUG");
 			const std::string d = dbg ? dbg : "";
 			fd.frame[3] = d == "cascades" ? 1.f : d == "ao-off" ? 2.f : d == "ao" ? 3.f : d == "shadows-off" ? 4.f : d == "cloudshadow" ? 5.f
-				: d == "albedo" ? 6.f : d == "normal" ? 7.f : d == "depth" ? 8.f : d == "ssr" ? 9.f : d == "ssrcolor" ? 10.f : 0.f;
+				: d == "albedo" ? 6.f : d == "normal" ? 7.f : d == "depth" ? 8.f : d == "ssr" ? 9.f : d == "ssrcolor" ? 10.f : d == "lod" ? 11.f : 0.f;
 			if (debugView >= 0) fd.frame[3] = (f32)debugView;
 		}
 		const bool skyLit = skyOn && fd.sunDirection[3] > 0.f;
@@ -4361,8 +5368,7 @@ namespace p3d {
 		fd.sky[0] = std::max(eye.y, 0.f) * 0.001f + 0.05f;       // (km: the scene's units are metres)
 		fd.sky[1] = 0.00465f * 2.f;                              // (the sun's angular radius, a little larger than it is)
 		{
-			static const std::chrono::steady_clock::time_point started = std::chrono::steady_clock::now();
-			fd.sky[2] = (f32)std::chrono::duration<f64>(std::chrono::steady_clock::now() - started).count();     // (seconds: a material's uTime)
+			fd.sky[2] = RendererSeconds();     // (seconds: a material's uTime)
 			drawPreviousSeconds = drawSeconds > 0.f ? drawSeconds : fd.sky[2]; drawSeconds = fd.sky[2];
 		}
 		fd.sky[3] = skyLit ? hazeDensity : 0.f;
@@ -4406,6 +5412,13 @@ namespace p3d {
 		materialParamsUsed = 0;
 		const std::chrono::steady_clock::time_point g0 = std::chrono::steady_clock::now();
 		Gather(scene, view, vp);
+		// (which particle layers this frame draws - and the resolve, which takes this frame over its history where they are)
+		particlesFull = particlesHalf = false;
+		for (const std::pair<f32, ParticleSystem*> &e : particleSystems) (ParticleWantsHalf(e.second) ? particlesHalf : particlesFull) = true;
+		{
+			const f32 layers[4] = { particlesFull ? 1.f : 0.f, particlesHalf ? 1.f : 0.f, 0.f, 0.f };
+			device->Upload(taaData, slot * 256 + 208, layers, sizeof(layers));
+		}
 		gatherMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - g0).count();
 		PrepareSunShadow(scene, view, slot);
 		// (with a skybox - Gather found it - the sky's table and harmonics are its, all round: the surfaces lit by the sky)
@@ -4419,6 +5432,32 @@ namespace p3d {
 		// The frame, as a graph (FrameGraph.h): each pass what it writes and reads, recorded in this order with the
 		// barriers between made by the graph
 		graph.Begin();
+		// (render targets made since the last frame: cleared before anything reads them - MakeTexture)
+		if (!pendingClears.empty())
+		{
+			// (the ones still alive: a target remade - a resize - was destroyed before its first frame, and a pass on it has
+			// no attachment at all, which WebGPU refuses with the whole frame)
+			std::vector<std::pair<gfx::Texture, std::pair<uint32, uint32> > > clears;
+			// (and each handle once, its newest: a slot freed and handed out again at once is the new texture, its size the
+			// newer entry's)
+			std::set<uint32> seen;
+			for (size_t k = pendingClears.size(); k-- > 0;)
+				if (device->Alive(pendingClears[k].first) && seen.insert(pendingClears[k].first.id).second) clears.push_back(pendingClears[k]);
+			pendingClears.clear();
+			graph.AddPass("ClearNew", {}, {}, [this, clears](gfx::CommandList* cl)
+			{
+				for (const std::pair<gfx::Texture, std::pair<uint32, uint32> > &c : clears)
+				{
+					graph.Use(cl, { { c.first, gfx::Access::ColorTarget } });
+					gfx::PassDesc pd; pd.colorCount = 1; pd.colors[0].texture = c.first; pd.colors[0].load = gfx::Load::Clear;
+					pd.colors[0].clear[0] = pd.colors[0].clear[1] = pd.colors[0].clear[2] = 0.f; pd.colors[0].clear[3] = 0.f;
+					pd.width = c.second.first; pd.height = c.second.second; pd.debugName = "ClearNew";
+					cl->BeginPass(pd);
+					cl->EndPass();
+					graph.Use(cl, { { c.first, gfx::Access::ShaderRead } });
+				}
+			});
+		}
 		typedef FrameGraph::Write W;
 		const gfx::Access Color = gfx::Access::ColorTarget, Depth = gfx::Access::DepthTarget;
 		// The probe seen this frame, filtered into its block: a level of roughness a draw, 256 wide halving to 32
@@ -4473,9 +5512,15 @@ namespace p3d {
 			if (cloudShadow > 0.f) graph.AddPass("CloudShadow", { { cloudShadowTex, Color } }, { cloudNoise }, [=](gfx::CommandList* cl) { RecordCloudShadow(cl, frameOffset, slot); });
 		}
 		else cloudShadowOn = false;
-		if (scene) graph.AddPass("Shadows", { { shadowAtlas, Depth } }, {}, [=](gfx::CommandList* cl) { RecordSunShadow(cl, scene, slot); });
+		// (only with something casting: an 8192 x 4096 depth atlas cleared every frame for nothing was a scene without a
+		// sun's - and every impostor bake view's - largest cost)
+		if (scene && (sunShadowOn || !localTiles.empty())) graph.AddPass("Shadows", { { shadowAtlas, Depth } }, {}, [=](gfx::CommandList* cl) { RecordSunShadow(cl, scene, slot); });
+		// (the big instanced sets culled instance by instance, before anything draws them)
+		graph.AddPass("InstanceCull", {}, {}, [=](gfx::CommandList* cl) { RecordInstanceCull(cl, slot); });
 		graph.AddPass("DepthAndAO", { { prepassDepth, Depth }, { velocityTex, Color }, { aoA, Color }, { aoB, Color } }, {},
 			[=](gfx::CommandList* cl) { RecordDepthAndAO(cl, scene, frameOffset); });
+		if (mirrorOn)
+			graph.AddPass("MirrorPlane", { { mirrorTex, Color }, { mirrorDepth, Depth } }, { prepassDepth, hdrPrevious }, [=](gfx::CommandList* cl) { RecordMirrorPlane(cl, frameOffset); });
 		if (((RtShadows() && aoRT) || (RtReflections() && rtReflectTex)) && RtHardware()) BuildRayInstances();
 		if (RtShadows() && aoRT)
 			graph.AddPass("RTShadows", { { aoRT, Color } }, { prepassDepth, aoA }, [=](gfx::CommandList* cl) { RecordRTShadows(cl, frameOffset); });
@@ -4496,6 +5541,7 @@ namespace p3d {
 		// (what the game asked every view to clear to, over the scene's own: RenderGlobals::BackgroundOverride)
 		const Vec4 &backgroundOverride = RenderGlobals::BackgroundOverride();
 		const Vec3 clearColour = backgroundOverride.w > 0.f ? SrgbToLinear(Vec3(backgroundOverride.x, backgroundOverride.y, backgroundOverride.z)) : background;
+		backdropNow = clearColour;
 		// (the systems simulated on the GPU stepped first: their streams are what the scene draws them from)
 		{
 			bool anyOnGpu = false;
@@ -4503,7 +5549,7 @@ namespace p3d {
 			if (anyOnGpu) graph.AddPass("ParticleSim", {}, {}, [=](gfx::CommandList* cl) { RecordParticleSim(cl); });
 		}
 		graph.AddPass("Scene", { { hdr, Color, true }, { depth, Depth, true, false } },
-			{ shadowAtlas, prepassDepth, aoA, skySH, skyView, skyViewClouded, transmittance, cloudShadowTex, hdrPrevious, cloudTex[cloudFrame & 1], skybox },
+			{ shadowAtlas, prepassDepth, aoA, skySH, skyView, skyViewClouded, transmittance, cloudShadowTex, hdrPrevious, cloudTex[cloudFrame & 1], skybox, mirrorTex },
 			[=](gfx::CommandList* cl)
 		{
 				gfx::PassDesc pass;
@@ -4523,7 +5569,7 @@ namespace p3d {
 					// (the same mesh, material and pipeline: drawn as one)
 					auto sameBatch = [&](const DrawItem &a, const DrawItem &b)
 					{
-						return a.gpu == b.gpu && a.material == b.material && a.custom == b.custom && a.pipeline == b.pipeline && a.group == b.group
+						return a.gpu == b.gpu && a.material == b.material && a.custom == b.custom && a.pipeline == b.pipeline && a.group == b.group && a.lodFade == 0.f && b.lodFade == 0.f
 							&& !a.instances && !b.instances && a.pipelineInstanced == b.pipelineInstanced && !a.skinned && !b.skinned;
 					};
 					auto drawList = [&](const std::vector<uint32> &order, const bool batching, const bool cutOnly = false)
@@ -4568,7 +5614,7 @@ namespace p3d {
 						DrawData dd;
 						fillDrawData(it, batch, dd);
 						cl->DrawData(&dd, sizeof(dd));
-						if (!batch) { DrawItemGeometry(cl, it); return; }
+						if (!batch) { DrawItemGeometry(cl, it, true); return; }
 						cl->SetVertexBuffer(0, it.gpu->vertices, 0);
 						cl->SetVertexBuffer(1, batchRing, batchAt);
 						cl->SetIndexBuffer(it.gpu->indices, 0, true);
@@ -4624,24 +5670,213 @@ namespace p3d {
 						cl->SetPipeline(worldTextPipeline);
 						for (uint32 index : worldTextOrder) DrawUIMesh(cl, items[index].mesh, vp * items[index].model, true);
 					}
-					if (!halfParticles) RecordParticles(cl, frameOffset);     // (else at half resolution, after this pass)
 				}
 				cl->EndPass();
 		});
-		// Over the picture: the particles at half resolution, then the temporal resolve
-		if (halfParticles && !particleSystems.empty())
-			graph.AddPass("HalfParticles", { { particleTex, Color }, { hdr, Color } }, { prepassDepth, skySH }, [=](gfx::CommandList* cl) { RecordHalfParticles(cl, frameOffset); });
+		// This frame's picture kept for the next one's reflections - as the scene pass left it, before anything is laid
+		// in the air over it: what is in front of a surface for the eye (particles, smoke, fog) is not in front of it for a
+		// mirror, and kept in, a glossy floor showed the smoke and sparks over it a second time
+		if ((ScreenReflections() || RtReflections()) && hdr && hdrPrevious)
+		{
+			graph.AddPass("KeepPicture", { { hdrPrevious, gfx::Access::CopyDst } }, {}, [=](gfx::CommandList* cl)
+			{
+				graph.Use(cl, { { hdr, gfx::Access::CopySrc } });
+				cl->CopyTexture(hdr, hdrPrevious);
+			});
+			hdrPreviousMade = true;
+		}
+		// Over the picture: the particles - small and streaked ones at full size, big soft ones at half resolution
+		if (particlesFull)
+			graph.AddPass("Particles", { { particleFullTex, Color }, { hdr, Color } }, { prepassDepth, skySH }, [=](gfx::CommandList* cl) { RecordParticleLayer(cl, frameOffset, false); });
+		if (particlesHalf)
+			graph.AddPass("HalfParticles", { { particleTex, Color }, { hdr, Color } }, { prepassDepth, skySH }, [=](gfx::CommandList* cl) { RecordParticleLayer(cl, frameOffset, true); });
+		// The light in the air - the fog (the sun's SetVolumetric, else the scene's), the lamps' beams (SetVolumetricScattering) -
+		// laid over the picture before the smoke
+		{
+			fogNow = fog;
+			if (scene)
+				for (IComponent* c : scene->GetLights())
+					if (c && c->GetComponentType() == ComponentType::DirectionalLight)
+					{
+						const DirectionalLight* dl = static_cast<DirectionalLight*>(c);
+						const Vec4 &v = dl->GetVolumetric(), &tint = dl->GetVolumetricTint();
+						if (v.x > 0.f) { fogNow.density = v.x; fogNow.anisotropy = v.y; fogNow.falloff = v.z; fogNow.maxDistance = v.w > 0.f ? v.w : 150.f; fogNow.tint = Vec3(tint.x, tint.y, tint.z); fogNow.steps = tint.w > 0.f ? tint.w : 32.f; fogNow.baseHeight = 0.f; }
+						break;
+					}
+		}
+		if ((!beamLamps.empty() || fogNow.density > 0.f) && device->PipelineReady(beamsPipeline) && device->PipelineReady(beamsCompositePipeline))
+		{
+			graph.AddPass("Beams", { { beamsTex, Color } }, { prepassDepth, shadowAtlas, cloudShadowTex }, [=](gfx::CommandList* cl) { RecordBeams(cl, frameOffset, slot); });
+			graph.AddPass("BeamsComposite", { { hdr, Color } }, { beamsTex, prepassDepth }, [=](gfx::CommandList* cl) { RecordBeamsComposite(cl, frameOffset); });
+		}
+		// The volumetric smoke and fire, where there is any (VolumetricSmoke), and a screen flash: lit by this scene's lights,
+		// marched at half size, laid over the picture - ahead of the temporal resolve, which smooths the march's grain
+		{
+			bool anyCloud = false;
+			for (uint32 i = 0; i < VolumetricSmoke::MaxClouds && !anyCloud; i++) anyCloud = VolumetricSmoke::GetCloud(i).active;
+			if (anyCloud && scene) VolumetricSmoke::CaptureLights(scene->GetLights(), ambient);
+			// (each cloud's fluid stepped on: FluidVolumes - its grids made, kept or let go here, on the CPU)
+			fluids.Prepare();
+			const bool anySmoke = fluids.Any();
+			smokeOn = anySmoke;
+			if (anySmoke)
+			{
+				const Vec3 toSun = VolumetricSmoke::GetLightDirection();
+				graph.AddPass("Fluid", {}, {}, [=](gfx::CommandList* cl) { fluids.Record(cl, toSun); });
+			}
+			if (anySmoke && device->PipelineReady(smokePipeline))
+				graph.AddPass("Smoke", { { smokeTex, Color }, { smokeReflectTex, Color } }, { prepassDepth, skySH, hdr }, [=](gfx::CommandList* cl) { RecordSmoke(cl, frameOffset, slot); });
+			// (this frame's picture kept for the next one's reflections before the smoke is laid on: the reflections
+			// find surfaces in it, and the smoke the eye sees in front of one is not in front of it for a mirror -
+			// the smoke a mirror shows is its own, marched along its rays)
+			// (kept already, after the scene pass)
+			if ((anySmoke || VolumetricSmoke::GetScreenFlash() > 0.f) && device->PipelineReady(smokeCompositePipeline))
+				graph.AddPass("SmokeComposite", { { hdr, Color } }, { smokeTex, smokeReflectTex, prepassDepth }, [=](gfx::CommandList* cl) { RecordSmokeComposite(cl, frameOffset); });
+		}
 		// The lens and shutter, where any of it is on: shafts, depth of field, motion blur (post.frag) - ahead of the temporal resolve, which smooths their sampling noise
 		if ((shaftsStrength > 0.f && skyOn) || dofBlur > 0.f || motionShutter > 0.f)
 			graph.AddPass("Post", { { postTex, Color } }, { hdr, velocityTex, prepassDepth }, [=](gfx::CommandList* cl) { RecordPost(cl, view, frameOffset); });
 		if (taaOn)
-			graph.AddPass("TemporalAA", { { taaTex[taaFrame & 1], Color } }, { hdr, taaTex[(taaFrame & 1) ^ 1], velocityTex, prepassDepth },     // (hdr read, then the result copied into it: Use())
+			graph.AddPass("TemporalAA", { { taaTex[taaFrame & 1], Color } }, { hdr, taaTex[(taaFrame & 1) ^ 1], velocityTex, prepassDepth, particleFullTex, particleTex },     // (hdr read, then the result copied into it: Use())
 				[=](gfx::CommandList* cl) { RecordTemporalAA(cl, frameOffset, slot); });
+		else if (fxaaOn && device->PipelineReady(fxaaPipeline))
+			graph.AddPass("FXAA", { { taaTex[0], Color } }, { hdr }, [=](gfx::CommandList* cl) { RecordFXAA(cl, frameOffset); });
 		// (its chain of targets its own: said within it, Use())
 		graph.AddPass("BloomAndExposure", {}, { hdr, picture, prepassDepth }, [=](gfx::CommandList* cl) { RecordBloomAndExposure(cl, frameOffset); });
 		// Tonemap: the HDR scene into the backbuffer, with its bloom and this frame's exposure; the UI over it
 		std::vector<W> tonemapWrites;
 		if (view.target) tonemapWrites.push_back({ view.target, Color, true });     // (left sampleable: its reader's)
+		// (the tone curve's draw - its bloom, exposure, the scene's grade - with `pipe`: to the screen, or to a texture)
+		auto drawTonemap = [=](gfx::CommandList* cl, const gfx::Pipeline pipe, gfx::BindGroup* groups)
+		{
+			const uint32 cur = (uint32)(frameNumber & 1);
+			if (!groups[cur])
+			{
+				gfx::Device::BindGroupEntry e[6];
+				e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
+				e[1].binding = 1; e[1].texture = picture;
+				e[2].binding = 2; e[2].sampler = linearClamp;
+				e[3].binding = 3; e[3].texture = bloom[0];
+				e[4].binding = 4; e[4].texture = exposureTex[cur];
+				e[5].binding = 5; e[5].texture = prepassDepth;     // (where nothing was drawn: the background as it was set)
+				groups[cur] = device->CreateBindGroup(pipe, e, 6);
+			}
+			cl->SetPipeline(pipe);
+			cl->SetBindGroup(groups[cur], &frameOffset, 1);
+			const Grade &g = grade;
+			const f32 dd[36] = {
+				g.exposure, g.shoulder, g.temperature, g.tint,
+				g.contrast, g.pivot, g.saturation, g.vibrance,
+				g.lift.x, g.lift.y, g.lift.z, g.lift.w, g.gamma.x, g.gamma.y, g.gamma.z, g.gamma.w, g.gain.x, g.gain.y, g.gain.z, g.gain.w,
+				g.shadowTint.x, g.shadowTint.y, g.shadowTint.z, g.shadowTint.w, g.highlightTint.x, g.highlightTint.y, g.highlightTint.z, g.highlightTint.w,
+				g.vignette, g.grain, g.chromatic, g.on ? 1.f : 0.f,
+				0.06f * bloomIntensity, backdropNow.x, backdropNow.y, backdropNow.z };
+			cl->DrawData(dd, sizeof(dd));
+			cl->Draw(3, 1, 0, 0);
+		};
+		// (the overlay - an editor's grid, gizmos, debug lines - then the UI over it, in display terms: the scene's, then its overlays')
+		auto drawOverlays = [=](gfx::CommandList* cl)
+		{
+			RecordOverlay(cl, vp, slot);
+			if (view.ui)
+			{
+				RecordUI(cl, scene, view.width, view.height);
+				for (SceneGraph* overlay : overlayScenes) if (overlay) RecordUI(cl, overlay, view.width, view.height);
+			}
+		};
+		// The scene's asset effects (SetAssetEffects), where it has any compiled: the picture in display terms into a texture,
+		// each effect on it in turn, then that to the screen
+		std::vector<std::pair<AssetEffectGpu*, const AssetEffect*> > effectsNow;
+		for (const AssetEffect &e : assetEffects)
+			if (AssetEffectGpu* g = AssetEffectFor(e)) if (device->PipelineReady(g->pipeline)) effectsNow.push_back(std::make_pair(g, &e));
+		const bool viaDisplay = !effectsNow.empty() && device->PipelineReady(tonemapToDisplayPipeline) && device->PipelineReady(presentPipeline);
+		if (viaDisplay)
+		{
+			for (int k = 0; k < 2; k++)
+				if (!displayTex[k])
+				{
+					gfx::TextureDesc d; d.width = outputWidth; d.height = outputHeight; d.format = kHdrFormat; d.usage = gfx::TexColorTarget | gfx::TexSampled;
+					d.debugName = k ? "Renderer.Display B" : "Renderer.Display A";
+					displayTex[k] = MakeTexture(d);
+				}
+			graph.AddPass("Tonemap", { { displayTex[0], Color } }, { picture, prepassDepth }, [=](gfx::CommandList* cl)
+			{
+				graph.Use(cl, { { displayTex[0], gfx::Access::ColorTarget } });
+				gfx::PassDesc pass;
+				pass.colorCount = 1; pass.colors[0].texture = displayTex[0]; pass.colors[0].load = gfx::Load::DontCare;
+				pass.width = outputWidth; pass.height = outputHeight; pass.debugName = "Tonemap";
+				cl->BeginPass(pass);
+				cl->SetViewport(0.f, 0.f, (f32)outputWidth, (f32)outputHeight);
+				drawTonemap(cl, tonemapToDisplayPipeline, tonemapToDisplayGroups);
+				cl->EndPass();
+				graph.Use(cl, { { displayTex[0], gfx::Access::ShaderRead } });
+			});
+			for (size_t k = 0; k < effectsNow.size(); k++)
+			{
+				const gfx::Texture from = displayTex[k & 1], to = displayTex[(k + 1) & 1];
+				AssetEffectGpu* g = effectsNow[k].first;
+				const AssetEffect* e = effectsNow[k].second;
+				graph.AddPass("PostEffect", { { to, Color } }, { from, prepassDepth }, [=](gfx::CommandList* cl)
+				{
+					gfx::Device::BindGroupEntry be[4];
+					be[0].binding = 0; be[0].buffer = frameData; be[0].size = sizeof(FrameData);
+					be[1].binding = 1; be[1].texture = from;
+					be[2].binding = 2; be[2].texture = prepassDepth;
+					be[3].binding = 3; be[3].sampler = linearClamp;
+					const gfx::BindGroup group = device->CreateBindGroup(g->pipeline, be, 4);
+					graph.Use(cl, { { to, gfx::Access::ColorTarget } });
+					gfx::PassDesc pass;
+					pass.colorCount = 1; pass.colors[0].texture = to; pass.colors[0].load = gfx::Load::DontCare;
+					pass.width = outputWidth; pass.height = outputHeight; pass.debugName = "PostEffect";
+					cl->BeginPass(pass);
+					cl->SetViewport(0.f, 0.f, (f32)outputWidth, (f32)outputHeight);
+					cl->SetPipeline(g->pipeline);
+					cl->SetBindGroup(group, &frameOffset, 1);
+					// (its parameters: the scene's, else the effect's own defaults - and what the engine fills: uTime, uLens)
+					f32 dd[64] = {};
+					for (size_t i = 0; i < g->paramNames.size() && i < 16; i++)
+					{
+						Vec4 v = g->paramDefaults[i];
+						const std::map<std::string, std::vector<f32> >::const_iterator o = e->params.find(g->paramNames[i]);
+						if (o != e->params.end()) { const std::vector<f32> &f = o->second; v = Vec4(f.size() > 0 ? f[0] : v.x, f.size() > 1 ? f[1] : v.y, f.size() > 2 ? f[2] : v.z, f.size() > 3 ? f[3] : v.w); }
+						if (g->paramNames[i] == "uTime") v = Vec4(RendererSeconds(), 0.f, 0.f, 0.f);
+						if (g->paramNames[i] == "uLens") v = Vec4(tanf(view.fovY * 0.5f * (f32)PI / 180.f), (f32)view.width / (f32)std::max(view.height, 1u), 0.f, 0.f);
+						dd[i * 4 + 0] = v.x; dd[i * 4 + 1] = v.y; dd[i * 4 + 2] = v.z; dd[i * 4 + 3] = v.w;
+					}
+					cl->DrawData(dd, sizeof(dd));
+					cl->Draw(3, 1, 0, 0);
+					cl->EndPass();
+					graph.Use(cl, { { to, gfx::Access::ShaderRead } });
+					device->Destroy(group);
+				});
+			}
+			const gfx::Texture shown = displayTex[effectsNow.size() & 1];
+			std::vector<W> presentWrites;
+			if (view.target) presentWrites.push_back({ view.target, Color, true });
+			graph.AddPass("Present", presentWrites, { shown }, [=](gfx::CommandList* cl)
+			{
+				const std::chrono::steady_clock::time_point a0 = std::chrono::steady_clock::now();
+				const gfx::Texture back = view.target ? view.target : device->AcquireBackbuffer();
+				acquireMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - a0).count();
+				gfx::PassDesc pass;
+				pass.colorCount = 1; pass.colors[0].texture = back; pass.colors[0].load = gfx::Load::DontCare;
+				pass.width = view.width; pass.height = view.height; pass.debugName = "Present";
+				cl->BeginPass(pass);
+				cl->SetViewport(0.f, 0.f, (f32)view.width, (f32)view.height);
+				gfx::Device::BindGroupEntry be[3];
+				be[0].binding = 0; be[0].buffer = frameData; be[0].size = sizeof(FrameData);
+				be[1].binding = 1; be[1].texture = shown;
+				be[2].binding = 2; be[2].sampler = linearClamp;
+				const gfx::BindGroup group = device->CreateBindGroup(presentPipeline, be, 3);
+				cl->SetPipeline(presentPipeline);
+				cl->SetBindGroup(group, &frameOffset, 1);
+				cl->Draw(3, 1, 0, 0);
+				drawOverlays(cl);
+				cl->EndPass();
+				device->Destroy(group);
+			}, true);
+		}
+		else
 		graph.AddPass("Tonemap", tonemapWrites, { picture, prepassDepth }, [=](gfx::CommandList* cl)
 		{
 				// (the display's pace shows here too: Metal's nextDrawable waits for one the display let go)
@@ -4653,43 +5888,10 @@ namespace p3d {
 				pass.width = view.width; pass.height = view.height; pass.debugName = "Tonemap";
 				cl->BeginPass(pass);
 				cl->SetViewport(0.f, 0.f, (f32)view.width, (f32)view.height);
-				if (device->PipelineReady(tonemapPipeline))
-				{
-					const uint32 cur = (uint32)(frameNumber & 1);
-					if (!tonemapGroups[cur])
-					{
-						gfx::Device::BindGroupEntry e[6];
-						e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
-						e[1].binding = 1; e[1].texture = picture;
-						e[2].binding = 2; e[2].sampler = linearClamp;
-						e[3].binding = 3; e[3].texture = bloom[0];
-						e[4].binding = 4; e[4].texture = exposureTex[cur];
-						e[5].binding = 5; e[5].texture = prepassDepth;     // (where nothing was drawn: the background as it was set)
-						tonemapGroups[cur] = device->CreateBindGroup(tonemapPipeline, e, 6);
-					}
-					cl->SetPipeline(tonemapPipeline);
-					cl->SetBindGroup(tonemapGroups[cur], &frameOffset, 1);
-					cl->Draw(3, 1, 0, 0);
-				}
-				// The overlay (an editor's grid, gizmos, debug lines), then the UI over it, in display terms: the scene's, then its overlays'
-				RecordOverlay(cl, vp, slot);
-				if (view.ui)
-				{
-					RecordUI(cl, scene, view.width, view.height);
-					for (SceneGraph* overlay : overlayScenes) if (overlay) RecordUI(cl, overlay, view.width, view.height);
-				}
+				if (device->PipelineReady(tonemapPipeline)) drawTonemap(cl, tonemapPipeline, tonemapGroups);
+				drawOverlays(cl);
 				cl->EndPass();
 		}, true);
-		// This frame's picture kept for the next one's reflections
-		if ((ScreenReflections() || RtReflections()) && hdr && hdrPrevious)
-		{
-			graph.AddPass("KeepPicture", { { hdrPrevious, gfx::Access::CopyDst } }, {}, [=](gfx::CommandList* cl)
-			{
-				graph.Use(cl, { { hdr, gfx::Access::CopySrc } });
-				cl->CopyTexture(hdr, hdrPrevious);
-			});
-			hdrPreviousMade = true;
-		}
 		// The picture before its exposure, where the view wants it too (a reflection probe's view)
 		if (view.hdrCopy && hdr)
 			graph.AddPass("CopyHDR", { { view.hdrCopy, gfx::Access::CopyDst } }, {}, [=](gfx::CommandList* cl)

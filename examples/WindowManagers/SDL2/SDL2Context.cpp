@@ -25,6 +25,18 @@
 #include "../CloseHook.h"
 #include "../GamepadHook.h"
 #include <SDL2/SDL_syswm.h>
+#include <SDL2/SDL_vulkan.h>
+// (X11's headers, which SDL_syswm.h brings in on Linux, define None, Status, Bool... as macros: WindowType::None
+// read as WindowType::0L)
+#ifdef None
+#undef None
+#endif
+#ifdef Status
+#undef Status
+#endif
+#ifdef Bool
+#undef Bool
+#endif
 #if defined(__APPLE__)
 #include <SDL2/SDL_metal.h>
 #endif
@@ -32,6 +44,21 @@
 #include <cstring>
 
 namespace p3d {
+
+    namespace {
+        // The window's size in pixels: SDL 2.26's SDL_GetWindowSizeInPixels, and before it (an older system's SDL2) its
+        // Vulkan drawable's, or its size in points where the window has neither
+        void WindowPixels(SDL_Window* window, int &width, int &height)
+        {
+#if SDL_VERSION_ATLEAST(2, 26, 0)
+            SDL_GetWindowSizeInPixels(window, &width, &height);
+#else
+            if (SDL_GetWindowFlags(window) & SDL_WINDOW_VULKAN) SDL_Vulkan_GetDrawableSize(window, &width, &height);
+            else SDL_GetWindowSize(window, &width, &height);
+#endif
+        }
+    }
+
 
     std::map<uint32, uint32> SDL2Context::MapSDLKeyboard;
 
@@ -71,9 +98,9 @@ namespace p3d {
         emscripten_get_canvas_element_size("#canvas", &width, &height);
 #elif defined(__APPLE__)
         if (metalView != NULL) { SDL_Metal_GetDrawableSize(rview, &width, &height); return; }
-        SDL_GetWindowSizeInPixels(rview, &width, &height);
+        WindowPixels(rview, width, height);
 #else
-        SDL_GetWindowSizeInPixels(rview, &width, &height);
+        WindowPixels(rview, width, height);
 #endif
     }
 

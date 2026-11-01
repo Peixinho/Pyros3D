@@ -18,6 +18,7 @@ static inline uint64_t ShotFrame() { static const uint64_t f = getenv("PYROS_SHO
 #if defined(PYROS_GFX_SPIRV_TO_WGSL)
 #include <Pyros3D/Rendering/Device/SpirvToWgsl.h>
 #endif
+#include <Pyros3D/Rendering/Device/DisplayHdr.h>
 #include <webgpu/webgpu.h>
 #include <algorithm>
 #include <atomic>
@@ -223,6 +224,8 @@ namespace p3d { namespace gfx {
 		public:
 			WGPUInstance instance = nullptr; WGPUAdapter adapter = nullptr; WGPUDevice device = nullptr; WGPUQueue queue = nullptr;
 			WGPUSurface surface = nullptr; WGPUTextureFormat surfaceFormat = WGPUTextureFormat_BGRA8Unorm, viewFormat = WGPUTextureFormat_BGRA8UnormSrgb;
+			bool hdrOutput = false;     // (the surface half floats in extended linear sRGB: PYROS_HDR)
+			float OutputHeadroom() const override { return hdrOutput ? DisplayHeadroom() : 1.f; }
 			uint32_t width = 0, height = 0; bool vsync = true, threadSafe = false; WGPUPresentMode presentMode = WGPUPresentMode_Fifo;
 			Capabilities caps;
 			Pool<WGPUBuffer> buffers; Pool<TextureRec> textures; Pool<WGPUSampler> samplers; Pool<ShaderRec> shaders;
@@ -258,12 +261,14 @@ namespace p3d { namespace gfx {
 			const Capabilities &Caps() const override { return caps; }
 			Format BackbufferFormat() const override { return FromWGPU(viewFormat); }
 			bool ReadTexture(Texture t, std::vector<uint8_t> &out) override;
+			bool ReadTextures(const Texture* ts, const uint32_t count, std::vector<std::vector<uint8_t> > &out) override;
 
 			Buffer CreateBuffer(const BufferDesc &d, const void* initial) override;
 			Texture CreateTexture(const TextureDesc &d, const TextureData* data, uint32_t count) override;
 			Sampler CreateSampler(const SamplerDesc &d) override;
 			void Destroy(Buffer b) override { if (WGPUBuffer* p = buffers.Get(b.id)) { if (*p) wgpuBufferRelease(*p); buffers.Remove(b.id); } }
 			void Destroy(Texture t) override { if (TextureRec* r = textures.Get(t.id)) { if (r->view) wgpuTextureViewRelease(r->view); if (r->texture && !r->backbuffer) wgpuTextureRelease(r->texture); textures.Remove(t.id); } }
+			bool Alive(Texture t) override { return t.id != 0 && textures.Get(t.id) != nullptr; }
 			BindGroup CreateBindGroup(Pipeline layoutOf, const BindGroupEntry* e, uint32_t count) override;
 			void Destroy(BindGroup g) override { if (WGPUBindGroup* p = groups.Get(g.id)) { if (*p) wgpuBindGroupRelease(*p); groups.Remove(g.id); } }
 			BindlessIndex Index(Texture, Sampler) override { return kNoIndex; }    // (core WebGPU: none)
@@ -284,6 +289,7 @@ namespace p3d { namespace gfx {
 			Pipeline CreatePipeline(const GraphicsPipelineDesc &d) override;
 			Pipeline CreatePipeline(const ComputePipelineDesc &d) override;
 			bool PipelineReady(Pipeline p) const override;
+			void PollPipelines() override { wgpuInstanceProcessEvents(instance); }
 			void SavePipelineCache(const std::string &) override {}       // (Dawn keeps its own blob cache)
 			bool frameOpen = false;     // (begun and not yet presented)
 			void BeginFrame() override;
@@ -529,6 +535,21 @@ namespace p3d { namespace gfx {
 			// picture is encoded as on every other backend: plain, it came out too dark)
 			viewFormat = surfaceFormat == WGPUTextureFormat_BGRA8Unorm ? WGPUTextureFormat_BGRA8UnormSrgb
 				: surfaceFormat == WGPUTextureFormat_RGBA8Unorm ? WGPUTextureFormat_RGBA8UnormSrgb : surfaceFormat;
+			// (PYROS_HDR: half floats in extended linear sRGB - 1 SDR white, more brighter - with the surface's extended
+			// tone mapping, as Metal's EDR layer and Vulkan's EXTENDED_SRGB_LINEAR; shaders write linear values)
+			hdrOutput = false;
+#if !defined(__EMSCRIPTEN__)
+			// (native Dawn takes no colour management on its surface yet - a half-float surface without extended tone
+			// mapping is clamped to SDR: there, SDR; the browser's canvas has it)
+			if (WantsHdrOutput()) fprintf(stderr, "WebGPU device: HDR asked for - native Dawn has no extended tone mapping yet, SDR (the browser has it)\n");
+			else
+#endif
+			if (WantsHdrOutput())
+			{
+				for (size_t i = 0; i < sc.formatCount; i++) if (sc.formats[i] == WGPUTextureFormat_RGBA16Float) hdrOutput = true;
+				if (hdrOutput) { surfaceFormat = viewFormat = WGPUTextureFormat_RGBA16Float; fprintf(stderr, "WebGPU device: HDR output (extended linear sRGB), headroom now %.2f\n", DisplayHeadroom()); }
+				else fprintf(stderr, "WebGPU device: HDR asked for, but the surface has no RGBA16Float - SDR\n");
+			}
 			// (unsynchronised when asked, where the surface has it: immediate, else mailbox)
 			presentMode = WGPUPresentMode_Fifo;
 			if (!s.vsync)
@@ -574,6 +595,13 @@ namespace p3d { namespace gfx {
 			c.width = width; c.height = height;
 			c.presentMode = presentMode;
 			c.alphaMode = WGPUCompositeAlphaMode_Auto;
+			WGPUSurfaceColorManagement cm = {};
+			if (hdrOutput)
+			{
+				cm.chain.sType = WGPUSType_SurfaceColorManagement;
+				cm.colorSpace = WGPUPredefinedColorSpace_SRGBLinear; cm.toneMappingMode = WGPUToneMappingMode_Extended;
+				c.nextInChain = &cm.chain;
+			}
 			wgpuSurfaceConfigure(surface, &c);
 		}
 
@@ -643,7 +671,9 @@ namespace p3d { namespace gfx {
 				uint32_t dim = 1; const uint32_t bytes = BlockBytes(r->desc.format, dim);
 				WGPUTexelCopyTextureInfo dst = {}; dst.texture = r->texture; dst.mipLevel = data[i].mip; dst.origin = { 0, 0, data[i].layer };
 				WGPUTexelCopyBufferLayout layout = {}; layout.bytesPerRow = (w + dim - 1) / dim * bytes; layout.rowsPerImage = (h + dim - 1) / dim;
-				WGPUExtent3D e = { w, h, 1 };
+				// (a block-compressed level smaller than a block - a 2x2, a 1x1 mip - copied as the whole block it is in:
+				// WebGPU takes no copy of part of a block)
+				WGPUExtent3D e = { (w + dim - 1) / dim * dim, (h + dim - 1) / dim * dim, 1 };
 				wgpuQueueWriteTexture(queue, &dst, data[i].bytes, (size_t)data[i].size, &layout, &e);
 			}
 		}
@@ -928,6 +958,58 @@ namespace p3d { namespace gfx {
 			return mapped;
 		}
 
+		bool WebGPUDevice::ReadTextures(const Texture* ts, const uint32_t count, std::vector<std::vector<uint8_t> > &out)
+		{
+			out.assign(count, std::vector<uint8_t>());
+			struct Staging { WGPUBuffer buffer = nullptr; uint32_t w = 0, h = 0, bpt = 0, row = 0; bool mapped = false; };
+			std::vector<Staging> st(count);
+			WGPUCommandEncoderDescriptor ed = {}; WGPUCommandEncoder e = wgpuDeviceCreateCommandEncoder(device, &ed);
+			bool ok = true;
+			for (uint32_t i = 0; i < count && ok; i++)
+			{
+				TextureRec* r = textures.Get(ts[i].id);
+				if (!r || !r->texture || r->backbuffer) { ok = false; break; }
+				Staging &s = st[i];
+				s.bpt = BytesPerTexel(r->desc.format);
+				if (!s.bpt || !(r->desc.usage & TexCopySrc) || r->desc.samples > 1) { ok = false; break; }
+				s.w = wgpuTextureGetWidth(r->texture); s.h = wgpuTextureGetHeight(r->texture); s.row = (s.w * s.bpt + 255) & ~255u;
+				WGPUBufferDescriptor bd = {}; bd.size = (uint64_t)s.row * s.h; bd.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
+				s.buffer = wgpuDeviceCreateBuffer(device, &bd);
+				WGPUTexelCopyTextureInfo src = {}; src.texture = r->texture;
+				WGPUTexelCopyBufferInfo dst = {}; dst.buffer = s.buffer; dst.layout.bytesPerRow = s.row; dst.layout.rowsPerImage = s.h;
+				WGPUExtent3D ext = { s.w, s.h, 1 };
+				wgpuCommandEncoderCopyTextureToBuffer(e, &src, &dst, &ext);
+			}
+			// (every copy in one submission - one wait for them all)
+			WGPUCommandBufferDescriptor cd = {}; WGPUCommandBuffer cb = wgpuCommandEncoderFinish(e, &cd);
+			if (ok) wgpuQueueSubmit(queue, 1, &cb);
+			wgpuCommandBufferRelease(cb); wgpuCommandEncoderRelease(e);
+			std::vector<WGPUFutureWaitInfo> waits;
+			for (uint32_t i = 0; i < count && ok; i++)
+			{
+				WGPUBufferMapCallbackInfo mc = {}; mc.mode = WGPUCallbackMode_WaitAnyOnly; mc.userdata1 = &st[i].mapped;
+				mc.callback = [](WGPUMapAsyncStatus s, WGPUStringView, void* u1, void*) { *(bool*)u1 = s == WGPUMapAsyncStatus_Success; };
+				WGPUFutureWaitInfo wf = {}; wf.future = wgpuBufferMapAsync(st[i].buffer, WGPUMapMode_Read, 0, (uint64_t)st[i].row * st[i].h, mc);
+				waits.push_back(wf);
+			}
+			for (WGPUFutureWaitInfo &wf : waits) wgpuInstanceWaitAny(instance, 1, &wf, UINT64_MAX);
+			for (uint32_t i = 0; i < count; i++)
+			{
+				Staging &s = st[i];
+				if (!s.buffer) continue;
+				if (ok && s.mapped)
+				{
+					const uint8_t* p = (const uint8_t*)wgpuBufferGetConstMappedRange(s.buffer, 0, (uint64_t)s.row * s.h);
+					out[i].resize((size_t)s.w * s.h * s.bpt);
+					for (uint32_t y = 0; y < s.h; y++) memcpy(&out[i][(size_t)y * s.w * s.bpt], p + (size_t)y * s.row, (size_t)s.w * s.bpt);
+					wgpuBufferUnmap(s.buffer);
+				}
+				else ok = false;
+				wgpuBufferRelease(s.buffer);
+			}
+			return ok;
+		}
+
 		Texture WebGPUDevice::AcquireBackbuffer()
 		{
 			// (one a frame: a second pass over it - an editor's panels over its views - draws on the same)
@@ -1029,7 +1111,8 @@ namespace p3d { namespace gfx {
 			const char* shotPath = getenv("PYROS_SHOT");
 			if (shotPath && frameNumber == ShotFrame() && surfaceTexture)
 			{
-				const uint32_t w = wgpuTextureGetWidth(surfaceTexture), h = wgpuTextureGetHeight(surfaceTexture), row = (w * 4 + 255) & ~255u;
+				const uint32_t bpp = hdrOutput ? 8 : 4;
+				const uint32_t w = wgpuTextureGetWidth(surfaceTexture), h = wgpuTextureGetHeight(surfaceTexture), row = (w * bpp + 255) & ~255u;
 				WGPUBufferDescriptor bd = {}; bd.size = (uint64_t)row * h; bd.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst;
 				WGPUBuffer read = wgpuDeviceCreateBuffer(device, &bd);
 				WGPUCommandEncoderDescriptor ed = {}; WGPUCommandEncoder e = wgpuDeviceCreateCommandEncoder(device, &ed);
@@ -1050,11 +1133,14 @@ namespace p3d { namespace gfx {
 					std::vector<uint8_t> px((size_t)w * h * 4);
 					const bool bgra = surfaceFormat == WGPUTextureFormat_BGRA8Unorm || surfaceFormat == WGPUTextureFormat_BGRA8UnormSrgb;
 					for (uint32_t y = 0; y < h; y++)
+					{
+						if (hdrOutput) { HalfToSrgb8((const uint16_t*)(p + (size_t)y * row), &px[(size_t)y * w * 4], w); continue; }     // (half floats: written as SDR)
 						for (uint32_t x = 0; x < w; x++)
 						{
 							const uint8_t* s = p + (size_t)y * row + x * 4; uint8_t* o = &px[((size_t)y * w + x) * 4];
 							o[0] = bgra ? s[2] : s[0]; o[1] = s[1]; o[2] = bgra ? s[0] : s[2]; o[3] = 255;
 						}
+					}
 					wgpuBufferUnmap(read);
 					WritePng(shotPath, px.data(), w, h);
 				}

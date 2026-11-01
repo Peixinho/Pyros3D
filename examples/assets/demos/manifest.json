@@ -1,31 +1,5 @@
 [
  {
-  "name": "Rotating Cube (Lighting)",
-  "description": "Red diffuse cube under a directional light, spinning on Y.",
-  "scene": "RotatingCubeWithLighting.json",
-  "render": {
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ]
-  }
- },
- {
-  "name": "Rotating Textured Cube",
-  "description": "Cube textured with the Pyros logo, spinning on Y.",
-  "scene": "RotatingTexturedCube.json",
-  "render": {
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ]
-  }
- },
- {
   "name": "Parallax Mapping",
   "description": "Brick cube with diffuse, normal and displacement (parallax) maps.",
   "scene": "ParallaxMapping.json",
@@ -42,19 +16,6 @@
   "name": "Texture Animation",
   "description": "Cube with a 6-frame YoYo texture animation at 30 fps.",
   "scene": "RotatingTextureAnimatedCube.json",
-  "render": {
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ]
-  }
- },
- {
-  "name": "Rotating Cube (Lighting + Shadows)",
-  "description": "Directional + point light, both casting shadows, onto a floor/ceiling and a spinning cube.",
-  "scene": "RotatingCubeWithLightingAndShadow.json",
   "render": {
    "globalLight": [
     0.12,
@@ -155,19 +116,6 @@
   }
  },
  {
-  "name": "Physics Stress (20k)",
-  "description": "Box3D stress test: small spheres continuously raining into a boxed arena (up to 20k bodies).",
-  "scene": "PhysicsStress.json",
-  "render": {
-   "globalLight": [
-    0.15,
-    0.15,
-    0.18,
-    1
-   ]
-  }
- },
- {
   "name": "Skeleton Animation",
   "description": "Skinned human model blending between walk/run/alert animations by mouse X position.",
   "scene": "SkeletonAnimationExample.json",
@@ -181,38 +129,15 @@
   }
  },
  {
-  "name": "SSR Test",
-  "description": "Material-aware screen-space reflections on a glossy floor under an orbiting camera.",
-  "scene": "SSRTest.json",
-  "render": {
-   "globalLight": [
-    0.12,
-    0.12,
-    0.14,
-    1
-   ],
-   "ssr": true,
-   "ssrDistances": [
-    0.35,
-    12.0
-   ],
-   "projection": {
-    "fov": 60,
-    "near": 0.1,
-    "far": 200
-   }
-  }
- },
- {
   "name": "Ambient Occlusion",
-  "description": "Ground-truth ambient occlusion (GTAO) darkening the creases between objects.",
+  "description": "Ground-truth ambient occlusion (GTAO) from the depth prepass, in a room's corner under soft, mostly sky light: dark where boxes, balls, columns and a knot meet the floor, the walls and each other, open where they face the room. (PYROS_RENDERER_DEBUG=ao shows the AO alone, ao-off the scene without it.)",
   "scene": "SSAOExample.json",
   "render": {
    "globalLight": [
-    0.2,
-    0.2,
-    0.2,
-    0.2
+    0.8,
+    0.8,
+    0.82,
+    1
    ],
    "projection": {
     "fov": 70,
@@ -224,10 +149,33 @@
      "name": "Output",
      "params": {
       "uAuto": 0.0,
-      "uExposure": -0.3,
+      "uExposure": -0.6,
       "uCurve": 0.0,
       "uContrast": 1.0,
       "uSaturation": 1.0
+     }
+    },
+    {
+     "name": "SSAO",
+     "params": {
+      "uRadius": [
+       0.8,
+       0,
+       0,
+       0
+      ],
+      "uStrength": [
+       1.5,
+       0,
+       0,
+       0
+      ],
+      "uDirect": [
+       0.5,
+       0,
+       0,
+       0
+      ]
      }
     }
    ]
@@ -235,13 +183,13 @@
  },
  {
   "name": "LOD",
-  "description": "10k static teapots with 3 LOD levels, frustum culling and point lights.",
+  "description": "10k teapots under the sun and sky, four levels of detail each: three meshes, then an octahedral impostor (one quad, lit like the mesh) the engine bakes and adds by itself. Levels hand over with a quarter-second dissolve instead of popping; frustum culling, cascaded sun shadows and 100 point lights.",
   "scene": "LOD_Example.json",
   "render": {
    "globalLight": [
-    0.0,
-    0.0,
-    0.0,
+    0.22,
+    0.25,
+    0.3,
     1
    ],
    "lod": true,
@@ -250,7 +198,8 @@
     "fov": 70,
     "near": 1,
     "far": 3000
-   }
+   },
+   "sky": true
   }
  },
  {
@@ -309,7 +258,7 @@
  },
  {
   "name": "Island",
-  "description": "The same island, reflected by screen-space reflections instead: one opaque G-buffer water surface with per-material SSR, no mirror pass and no extra render targets.",
+  "description": "The same island, reflected by screen-space reflections instead: one opaque G-buffer water surface with per-material SSR, no mirror pass and no extra render targets. Graded as a film would be (the Grade effect): a gentle S-curve, warm highlights, teal shadows, a vignette and fine grain.",
   "scene": "IslandSSRDemo.json",
   "render": {
    "globalLight": [
@@ -327,19 +276,67 @@
     "fov": 70,
     "near": 1,
     "far": 3500
-   }
-  }
- },
- {
-  "name": "Ambient Bug Repro",
-  "description": "Same scene/material as the Forward repro, Deferred renderer, no post effects.",
-  "scene": "AmbientBugRepro.json",
-  "render": {
-   "globalLight": [
-    0.9557521939277649,
-    0.38906726241111755,
-    0.38906726241111755,
-    1
+   },
+   "effects": [
+    {
+     "name": "Grade",
+     "params": {
+      "uContrast": [
+       1.15,
+       0,
+       0,
+       0
+      ],
+      "uPivot": [
+       0.42,
+       0,
+       0,
+       0
+      ],
+      "uTemperature": [
+       0.15,
+       0,
+       0,
+       0
+      ],
+      "uShadowTint": [
+       0.2,
+       0.55,
+       0.75,
+       0.05
+      ],
+      "uHighlightTint": [
+       1.0,
+       0.8,
+       0.55,
+       0.04
+      ],
+      "uSaturation": [
+       1.08,
+       0,
+       0,
+       0
+      ],
+      "uVibrance": [
+       0.12,
+       0,
+       0,
+       0
+      ],
+      "uVignette": [
+       0.22,
+       0,
+       0,
+       0
+      ],
+      "uGrain": [
+       0.012,
+       0,
+       0,
+       0
+      ]
+     }
+    }
    ]
   }
  },
@@ -413,7 +410,7 @@
  },
  {
   "name": "Shadow Matrix",
-  "description": "Three shadow-casting lights at once, one per channel: red directional, green point, blue spot. Every shadow is attributable to its light by colour, so the same scene renders comparably in forward and deferred and across backends.",
+  "description": "Three shadow-casting lights at once, one per channel - and each its own shadow filter (SetShadowSoftness): the red directional's hard (0, one compare), the green point's the default (1), the blue spot's soft (3).",
   "scene": "ShadowMatrix.json",
   "render": {
    "globalLight": [
@@ -437,56 +434,6 @@
   }
  },
  {
-  "name": "Two Point Shadows",
-  "description": "Two shadow-casting point lights, green and magenta, one over each box - exercises the per-light cube map indexing.",
-  "scene": "ShadowTwoPoint.json",
-  "render": {
-   "globalLight": [
-    0.05,
-    0.05,
-    0.06,
-    1
-   ],
-   "effects": [
-    {
-     "name": "Output",
-     "params": {
-      "uAuto": 0.0,
-      "uExposure": -1.0,
-      "uCurve": 0.0,
-      "uContrast": 1.0,
-      "uSaturation": 1.0
-     }
-    }
-   ]
-  }
- },
- {
-  "name": "Two Directional Shadows",
-  "description": "Two shadow-casting directional lights, the red one with 3 cascades and the blue with 1 - exercises the per-cascade matrix indexing.",
-  "scene": "ShadowTwoDirectional.json",
-  "render": {
-   "globalLight": [
-    0.05,
-    0.05,
-    0.06,
-    1
-   ],
-   "effects": [
-    {
-     "name": "Output",
-     "params": {
-      "uAuto": 0.0,
-      "uExposure": -0.73,
-      "uCurve": 0.0,
-      "uContrast": 1.0,
-      "uSaturation": 1.0
-     }
-    }
-   ]
-  }
- },
- {
   "name": "Cornell Box (GI)",
   "description": "Ray-traced DDGI. A single WHITE light - every tint on the white floor and the centre block is light that bounced off the red or green wall and carried its colour.",
   "scene": "CornellGI.json",
@@ -497,66 +444,6 @@
     0.0,
     1
    ]
-  }
- },
- {
-  "name": "Courtyard (baseline)",
-  "description": "The courtyard every feature demo below is built on: shadow maps and screen-space reflections only.",
-  "scene": "Courtyard_Base.json",
-  "render": {
-   "globalLight": [
-    0.16,
-    0.17,
-    0.2,
-    1
-   ],
-   "background": [
-    0.42,
-    0.58,
-    0.82,
-    1
-   ],
-   "ssr": true,
-   "ssrDistances": [
-    0.5,
-    60.0
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 0.1,
-    "far": 4000
-   },
-   "sky": true
-  }
- },
- {
-  "name": "Courtyard (everything)",
-  "description": "Sun shafts, ray-traced shadows and ray-traced reflections together.",
-  "scene": "Courtyard_All.json",
-  "render": {
-   "globalLight": [
-    0.16,
-    0.17,
-    0.2,
-    1
-   ],
-   "background": [
-    0.42,
-    0.58,
-    0.82,
-    1
-   ],
-   "ssr": true,
-   "ssrDistances": [
-    0.5,
-    60.0
-   ],
-   "projection": {
-    "fov": 70,
-    "near": 0.1,
-    "far": 4000
-   },
-   "sky": true
   }
  },
  {
@@ -675,7 +562,7 @@
  },
  {
   "name": "Rain and Shelter",
-  "description": "Rain set the way a game sets it (setPostEffectParam(\"Sky\", \"uRain\")): what faces up out in it soaks and gathers puddles - a mirror of the sky - and what is under the roof stays dry, known from a view straight down round the eye.",
+  "description": "Rain set the way a game sets it (setPostEffectParam(\"Sky\", \"uRain\")): what faces up out in it soaks and gathers puddles - a mirror of the sky - and what is under the roof stays dry, known from a view straight down round the eye. With a post effect of the scene's own (demos/effects/coastal_haze.glsl, the old asset-effect format): distance haze from the depth, a faint rolling scan line.",
   "scene": "Rain.json",
   "render": {
    "globalLight": [
@@ -695,7 +582,26 @@
     "near": 0.1,
     "far": 300
    },
-   "sky": true
+   "sky": true,
+   "effects": [
+    {
+     "asset": "demos/effects/coastal_haze.glsl",
+     "params": {
+      "uHazeDensity": [
+       0.02,
+       0,
+       0,
+       0
+      ],
+      "uScanlines": [
+       0.04,
+       0,
+       0,
+       0
+      ]
+     }
+    }
+   ]
   }
  },
  {
@@ -814,13 +720,13 @@
  },
  {
   "name": "Particles (GPU)",
-  "description": "Two emitters of a million particles each, simulated on the GPU: a compute pass steps every particle each frame - started in its cone, moved on, aged - and the stream it writes is what the particles are drawn from. The CPU only counts how many spawn.",
+  "description": "Particles simulated on the GPU, a compute pass stepping every one each frame. Left, a fountain of sparks (hundreds of thousands at once), each drawn as the streak it travelled, swirled by curl-noise turbulence and bouncing off the floor. Right, a plume of lit, soft smoke rising in the same turbulence.",
   "scene": "ParticlesExampleGPU.json",
   "render": {
    "globalLight": [
-    0.12,
-    0.12,
-    0.14,
+    0.05,
+    0.05,
+    0.07,
     1
    ]
   }
@@ -897,6 +803,49 @@
     }
    ],
    "sky": true
+  }
+ },
+ {
+  "name": "Volumetric Smoke",
+  "description": "Smoke and fire as volumes (VolumetricSmoke): a grenade's smoke fills the colonnade and stops at its columns and the floor, a red signal smoke stays low, a fire burns beside the slab and an explosion now and then flashes the whole picture - each marched through its voxel field at half size, lit by the sun, the sky and its own flames.",
+  "scene": "VolumetricSmoke.json",
+  "render": {
+   "globalLight": [
+    0.16,
+    0.17,
+    0.2,
+    1
+   ],
+   "background": [
+    0.42,
+    0.58,
+    0.82,
+    1
+   ],
+   "ssr": true,
+   "ssrDistances": [
+    0.5,
+    60.0
+   ],
+   "projection": {
+    "fov": 70,
+    "near": 0.1,
+    "far": 4000
+   },
+   "sky": true
+  }
+ },
+ {
+  "name": "Octahedral Impostors",
+  "description": "Two thousand teapots, each one quad: an octahedral impostor baked by the editor (bake_octahedral_impostor) from 64 directions over its upper half, colour and normals. Each quad turns to the eye, blends the three nearest baked views and is lit by the scene like a mesh. The front row is the real mesh, for comparison.",
+  "scene": "ImpostorField.json",
+  "render": {
+   "globalLight": [
+    0.12,
+    0.12,
+    0.14,
+    1
+   ]
   }
  }
 ]

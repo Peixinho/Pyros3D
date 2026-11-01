@@ -62,6 +62,55 @@
      "data": {}
     }
    ]
+  },
+  {
+   "name": "Sun",
+   "tags": [],
+   "position": [
+    0,
+    30,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "children": [],
+   "components": [
+    {
+     "type": "DirectionalLight",
+     "sun": false,
+     "castingShadows": true,
+     "cascades": 4,
+     "color": [
+      1.0,
+      0.95,
+      0.86,
+      1.0
+     ],
+     "intensity": 2.4,
+     "direction": [
+      0.4,
+      -0.75,
+      -0.53
+     ],
+     "shadowWidth": 2048,
+     "shadowHeight": 2048,
+     "shadowNear": 0.1,
+     "shadowFar": 400.0,
+     "shadowBiasFactor": 2.0,
+     "shadowBiasUnits": 1.0,
+     "shadowNormalBias": 1.5,
+     "shadowSoftness": 1.0
+    }
+   ]
   }
  ]
 }

@@ -1802,6 +1802,10 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			j["fadeInFraction"] = d.fadeInFraction;
 			j["softness"] = d.softness;
 			if (d.gpuSimulation) j["gpuSimulation"] = true;
+			if (d.turbulence > 0.f) { j["turbulence"] = d.turbulence; j["turbulenceScale"] = d.turbulenceScale; }
+			if (d.collideFloor) { j["collideFloor"] = true; j["floorHeight"] = d.floorHeight; j["bounce"] = d.bounce; }
+			if (d.stretch > 0.f) j["stretch"] = d.stretch;
+			if (ps->IsLit()) { j["lit"] = true; j["forwardScatter"] = ps->GetForwardScatter(); }
 			j["fadeOutFraction"] = d.fadeOutFraction;
 			j["minRotationSpeed"] = d.minRotationSpeed;
 			j["maxRotationSpeed"] = d.maxRotationSpeed;
@@ -4133,6 +4137,11 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			d.fadeInFraction = j.value("fadeInFraction", d.fadeInFraction);
 			d.softness = j.value("softness", d.softness);
 			d.gpuSimulation = j.value("gpuSimulation", false);
+			d.turbulence = j.value("turbulence", d.turbulence);
+			d.turbulenceScale = j.value("turbulenceScale", d.turbulenceScale);
+			d.collideFloor = j.value("collideFloor", false);
+			d.floorHeight = j.value("floorHeight", d.floorHeight);
+			d.stretch = j.value("stretch", d.stretch);
 			d.fadeOutFraction = j.value("fadeOutFraction", d.fadeOutFraction);
 			d.minRotationSpeed = j.value("minRotationSpeed", d.minRotationSpeed);
 			d.maxRotationSpeed = j.value("maxRotationSpeed", d.maxRotationSpeed);
@@ -4140,7 +4149,9 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 			d.sizeEase = (uchar)j.value("sizeEase", (int)d.sizeEase);
 			d.colorEase = (uchar)j.value("colorEase", (int)d.colorEase);
 			d.boundingSphereRadius = j.value("boundingSphereRadius", d.boundingSphereRadius);
-			go->AddComponent(std::make_shared<ParticleSystem>(d));
+			std::shared_ptr<ParticleSystem> ps = std::make_shared<ParticleSystem>(d);
+			if (j.value("lit", false)) ps->SetLit(true, j.value("forwardScatter", 0.6f));
+			go->AddComponent(ps);
 		}
 		else if (type == "NetworkIdentity")
 		{

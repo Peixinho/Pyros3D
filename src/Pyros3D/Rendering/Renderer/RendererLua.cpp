@@ -40,6 +40,10 @@ namespace p3d {
 			"setRayTracedShadows", [](SceneRenderer &r, bool on, sol::optional<f32> degrees) { r.SetRayTracedShadows(on, degrees.value_or(0.53f) * 0.017453293f); },
 			// (fewer pixels drawn than shown, 0.5..1 - resolved up to the view by the temporal anti-aliasing)
 			"setRenderScale", [](SceneRenderer &r, f32 scale) { r.SetRenderScale(scale); },
+			// (the anti-aliasing after the MSAA: "taa" - the default - "fxaa", or "none")
+			"setAntiAliasing", [](SceneRenderer &r, const std::string &mode) {
+				r.SetAntiAliasing(mode == "fxaa" ? SceneRenderer::AntiAliasing::FXAA : mode == "none" ? SceneRenderer::AntiAliasing::None : SceneRenderer::AntiAliasing::TAA); },
+			"getAntiAliasing", [](SceneRenderer &r) { const SceneRenderer::AntiAliasing m = r.GetAntiAliasing(); return std::string(m == SceneRenderer::AntiAliasing::FXAA ? "fxaa" : m == SceneRenderer::AntiAliasing::None ? "none" : "taa"); },
 			"getRenderScale", [](SceneRenderer &r) { return r.GetRenderScale(); },
 			"setShaderGlobal", [](SceneRenderer &, int index, const Vec4 &v) { if (index >= 0) ShaderGlobals::Set((uint32)index, v); },
 			// The scene's light (DDGI): bakeGI(scene, { counts = {x, y, z}, rays, passes, sky = {r, g, b} }) solves it,

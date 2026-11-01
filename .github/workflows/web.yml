@@ -135,9 +135,14 @@ jobs:
         # The same Dawn source, through Emscripten: the port package is
         # self-contained (its .port.py, webgpu.h and the JS library), so only
         # it is kept.
+        # DAWN_SUPPORTS_CXX_MODULES off: with Ninja and CMake 3.28+ Dawn adds
+        # its C++20 module interface to the package, by a copy that does not
+        # wait for the file to be generated ("Error copying file .../
+        # webgpu.ixx"). The engine includes webgpu.h; it imports no module.
         run: |
           emcmake cmake -S "$HOME/dawn-src" -B "$HOME/dawn-wasm-build" -G Ninja -DCMAKE_BUILD_TYPE=Release \
-            -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DTINT_BUILD_TESTS=OFF
+            -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DTINT_BUILD_TESTS=OFF \
+            -DDAWN_SUPPORTS_CXX_MODULES=OFF
           cmake --build "$HOME/dawn-wasm-build" --parallel "$(nproc)" --target emdawnwebgpu_pkg
           rm -rf "$HOME/dawn-wasm-build/emdawnwebgpu_pkg/__pycache__"
           mkdir -p "$HOME/dawn"

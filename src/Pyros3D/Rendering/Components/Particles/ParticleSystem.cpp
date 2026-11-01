@@ -32,6 +32,11 @@ namespace p3d {
 		maxSpeed = 2.0f;
 		gravity = Vec3::ZERO;
 		damping = 0.0f;
+		turbulence = 0.0f;
+		turbulenceScale = 1.0f;
+		collideFloor = false;
+		floorHeight = 0.0f;
+		stretch = 0.0f;
 		collide2D = false;
 		bounce = 0.3f;
 		collisionMask = 0xFFFFFFFFu;
@@ -50,6 +55,35 @@ namespace p3d {
 		softness = getenv("PYROS_HARD_PARTICLES") ? 0.f : 0.4f;   // (PYROS_HARD_PARTICLES=1: the hard edges, to compare)
 		boundingSphereRadius = 0.0f;
 		gpuSimulation = false;
+	}
+
+	// The turbulence's push (particle_sim.comp's Curl, the same field): the curl of a moving potential of sines,
+	// two octaves - without divergence, so what it moves swirls rather than bunching up or thinning out
+	static Vec3 ParticleCurlOctave(const Vec3 &p, const f32 k, const f32 t)
+	{
+		const f32 fy = p.y * k + t * 0.31f, fz = p.z * k * 1.31f + t * 0.23f;
+		const f32 gz = p.z * k * 1.07f + t * 0.27f, gx = p.x * k * 1.19f + t * 0.41f;
+		const f32 hx = p.x * k * 0.93f + t * 0.37f, hy = p.y * k * 1.23f + t * 0.29f;
+		// A = (sin fy cos fz, sin gz cos gx, sin hx cos hy); the curl's terms are its cross derivatives
+		const f32 dAx_dy = k * cosf(fy) * cosf(fz), dAx_dz = -k * 1.31f * sinf(fy) * sinf(fz);
+		const f32 dAy_dz = k * 1.07f * cosf(gz) * cosf(gx), dAy_dx = -k * 1.19f * sinf(gz) * sinf(gx);
+		const f32 dAz_dx = k * 0.93f * cosf(hx) * cosf(hy), dAz_dy = -k * 1.23f * sinf(hx) * sinf(hy);
+		return Vec3(dAz_dy - dAy_dz, dAx_dz - dAz_dx, dAy_dx - dAx_dy);
+	}
+	static Vec3 ParticleCurl(const Vec3 &p, const f32 scale, const f32 t)
+	{
+		const f32 k = 1.0f / Max(scale, 1e-3f);
+		return (ParticleCurlOctave(p, k, t) + ParticleCurlOctave(p + Vec3(17.3f, 17.3f, 17.3f), k * 2.17f, t * 1.3f) * 0.5f) / k;
+	}
+	// A unit direction as one float particle.vert reads exactly: its octahedral coordinates, 10 bits each, as a whole
+	// number (u * 1024 + v - below 2^20, so a float holds it as it is)
+	static f32 ParticlePackDirection(const Vec3 &d)
+	{
+		const f32 l1 = fabsf(d.x) + fabsf(d.y) + fabsf(d.z);
+		f32 u = d.x / l1, v = d.z / l1;
+		if (d.y < 0.f) { const f32 ou = u; u = (1.f - fabsf(v)) * (ou >= 0.f ? 1.f : -1.f); v = (1.f - fabsf(ou)) * (v >= 0.f ? 1.f : -1.f); }
+		const uint32 qu = (uint32)Min(1023.f, Max(0.f, (u * 0.5f + 0.5f) * 1023.f + 0.5f)), qv = (uint32)Min(1023.f, Max(0.f, (v * 0.5f + 0.5f) * 1023.f + 0.5f));
+		return (f32)(qu * 1024u + qv);
 	}
 
 	// Its material: how it is blended and its texture - the renderer draws a system from its particles and its desc
@@ -413,6 +447,8 @@ namespace p3d {
 			}
 
 			cpuState[i].velocity += desc.gravity * dt;
+			if (desc.turbulence > 0.0f)
+				cpuState[i].velocity += ParticleCurl(gpuState[i].data0.xyz(), desc.turbulenceScale, (f32)time) * (desc.turbulence * dt);
 			if (desc.damping > 0.0f)
 				cpuState[i].velocity *= Max(0.0f, 1.0f - desc.damping * dt);
 			cpuState[i].rotation += cpuState[i].rotationSpeed * dt;
@@ -442,10 +478,21 @@ namespace p3d {
 					}
 				}
 			}
+			if (desc.collideFloor && worldPos.y < desc.floorHeight)
+			{
+				// (off the floor: what speed it had into it turned back as much as it bounces, and some of its slide lost)
+				worldPos.y = desc.floorHeight;
+				Vec3 &v = cpuState[i].velocity;
+				if (v.y < 0.f) { v.y = -v.y * desc.bounce; v.x *= 0.8f; v.z *= 0.8f; }
+			}
 			f32 normalizedAge = cpuState[i].lifetime > 0.0f ? (age / cpuState[i].lifetime) : 1.0f;
 
 			gpuState[i].data0 = Vec4(worldPos, normalizedAge);
 			gpuState[i].data1.x = cpuState[i].rotation;
+			// (its motion, for the streak particle.vert draws: the speed in the alive slot, past 1; its way in w)
+			const f32 speed = cpuState[i].velocity.magnitude();
+			gpuState[i].data1.z = 1.0f + speed;
+			gpuState[i].data1.w = speed > 1e-5f ? ParticlePackDirection(cpuState[i].velocity / speed) : 0.0f;
 
 			i++;
 		}

@@ -122,8 +122,11 @@ void main()
 		vec4 clip = uSky.previousViewProjection * vec4(eye + dir * at, 1.0);
 		vec2 prev = vec2(clip.x / clip.w * 0.5 + 0.5, 0.5 - clip.y / clip.w * 0.5);
 		if (clip.w > 0.0 && all(greaterThanEqual(prev, vec2(0.0))) && all(lessThanEqual(prev, vec2(1.0))))
-			current = mix(textureLod(sampler2D(uHistory, uLinearClamp), prev, 0.0), current, uSky.history.y);
+		{
+			vec4 h = textureLod(sampler2D(uHistory, uLinearClamp), prev, 0.0);
+			if (all(lessThan(abs(h), vec4(65000.0)))) current = mix(h, current, uSky.history.y);     // (a bad history texel: this frame's alone)
+		}
 	}
-	outColor = current;
+	outColor = all(lessThan(abs(current), vec4(65000.0))) ? current : vec4(0.0, 0.0, 0.0, 1.0);     // (gone wrong: no cloud - alpha is what shows through)
 #endif
 }

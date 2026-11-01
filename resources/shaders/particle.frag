@@ -29,9 +29,14 @@ void main()
 	vec4 tex = texture(sampler2D(uTexture, uLinear), vTexcoord);
 	vec4 color = mix(uDraw.startColor, uDraw.endColor, Ease(vAge, uDraw.params.x)) * tex;
 	color.a *= smoothstep(0.0, max(uDraw.params.y, 1e-4), vAge) * (1.0 - smoothstep(uDraw.params.z, 1.0, vAge));
+#if defined(HALF) || defined(SCREEN)
+	// (a layer of their own, no depth target: hidden where the scene is in front, by the prepass depth - full size, or
+	// half resolution's, a texel of it two of the depth's)
 #ifdef HALF
-	// (half resolution, no depth target of its own: hidden where the scene is in front, by the full-size prepass depth)
 	float d = texelFetch(sampler2D(uSceneDepth, uLinear), ivec2(gl_FragCoord.xy * 2.0), 0).r;
+#else
+	float d = texelFetch(sampler2D(uSceneDepth, uLinear), ivec2(gl_FragCoord.xy), 0).r;
+#endif
 	float sceneZ = d > 0.0 ? DepthDistance(d) : 1e9;
 	if (vViewDepth > sceneZ) discard;
 	if (uDraw.params.w > 0.0) color.a *= clamp((sceneZ - vViewDepth) / uDraw.params.w, 0.0, 1.0);

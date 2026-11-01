@@ -17,16 +17,34 @@ layout(set = 1, binding = 5, std140) uniform TaaData
 	vec4 params;                     // x: 1 where last frame's result can be used, y: how much of this frame goes in; zw: this
 	                                 // frame's jitter (uv) - where it drew a point; with fewer pixels drawn than resolved (a render
 	                                 // scale), the frame is read there, between its pixels
+	vec4 reactive;                   // x: 1 the full-size particle layer drawn this frame, y: the half-size one
 } uTaa;
 layout(set = 1, binding = 6) uniform texture2D uVelocity;     // (the prepass's: each surface's move on screen; 1e4 where none was drawn)
+// The particles' layers (premultiplied: rgb their light, a their cover) - full size and half: where they are, this frame
+// taken over the history, which knows nothing of how they moved (they draw no motion) and would smear and tint a spark
+layout(set = 1, binding = 7) uniform texture2D uParticles;
+layout(set = 1, binding = 8) uniform texture2D uHalfParticles;
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;
 
 float Luma(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 vec3 Weigh(vec3 c) { return c / (1.0 + Luma(c)); }                 // (the bright brought into range)
-vec3 Unweigh(vec3 c) { return c / max(1.0 - Luma(c), 1e-4); }
+// (back out of range - kept below 1 first: the sharpen below extrapolates, and over a high-contrast flicker - a moving
+// dither, a plant dissolving - it could reach 1 or past it, where this divided by nothing or went negative: black)
+vec3 Unweigh(vec3 c) { c = max(c, vec3(0.0)); float l = Luma(c); if (l > 0.98) c *= 0.98 / l; return c / max(1.0 - Luma(c), 1e-4); }
 vec3 ToYCoCg(vec3 c) { return vec3(0.25 * c.r + 0.5 * c.g + 0.25 * c.b, 0.5 * c.r - 0.5 * c.b, -0.25 * c.r + 0.5 * c.g - 0.25 * c.b); }
 vec3 FromYCoCg(vec3 c) { return vec3(c.x + c.y - c.z, c.x + c.z, c.x - c.y - c.z); }
+
+// (last frame's colour brought inside the box this frame's neighbourhood allows - along the line to its centre, not
+// each channel on its own: clamped apart, a blade's green and the ground's took a hue neither had, yellow-brown)
+vec3 ClipToBox(vec3 h, vec3 bmin, vec3 bmax)
+{
+	vec3 c = 0.5 * (bmin + bmax), e = max(0.5 * (bmax - bmin), vec3(1e-5));
+	vec3 v = h - c;
+	vec3 a = abs(v / e);
+	float m = max(a.x, max(a.y, a.z));
+	return m > 1.0 ? c + v / m : h;
+}
 
 // Catmull-Rom from five bilinear taps (the corners' weights are small enough to drop): sharp where bilinear blurs
 vec3 History(vec2 uv, vec2 size)
@@ -51,16 +69,16 @@ void main()
 	bool upscale = outSize.x != size.x || outSize.y != size.y;
 	ivec2 px = upscale ? clamp(ivec2(vUV * vec2(size)), ivec2(0), size - 1) : ivec2(gl_FragCoord.xy);
 	// This frame's neighbourhood: its mean and spread, and the nearest depth among it (edges move with what is in front)
-	vec3 m1 = vec3(0.0), m2 = vec3(0.0), center = vec3(0.0);
+	vec3 m1 = vec3(0.0), m2 = vec3(0.0), center = vec3(0.0), lo = vec3(1e9), hi = vec3(-1e9);
 	float nearest = 0.0;
 	ivec2 nearestAt = px;
 	for (int y = -1; y <= 1; y++)
 		for (int x = -1; x <= 1; x++)
 		{
 			ivec2 q = clamp(px + ivec2(x, y), ivec2(0), size - 1);
-			vec3 c = Weigh(texelFetch(sampler2D(uCurrent, uLinearClamp), q, 0).rgb);
+			vec3 c = Weigh(Sane(texelFetch(sampler2D(uCurrent, uLinearClamp), q, 0).rgb));
 			vec3 yc = ToYCoCg(c);
-			m1 += yc; m2 += yc * yc;
+			m1 += yc; m2 += yc * yc; lo = min(lo, yc); hi = max(hi, yc);
 			if (x == 0 && y == 0) center = c;
 			float d = texelFetch(sampler2D(uDepth, uLinearClamp), q, 0).r;
 			if (d > nearest) { nearest = d; nearestAt = q; }
@@ -84,15 +102,30 @@ void main()
 	}
 	if (any(lessThan(prev, vec2(0.0))) || any(greaterThan(prev, vec2(1.0)))) { outColor = vec4(Unweigh(center), 1.0); return; }
 	// Last frame's, held to what this neighbourhood allows
-	vec3 history = ToYCoCg(Weigh(History(prev, vec2(outSize))));
-	history = clamp(history, mean - 1.25 * sigma, mean + 1.25 * sigma);
+	vec3 history = ToYCoCg(Weigh(Sane(History(prev, vec2(outSize)))));
+	// (and never past what the neighbourhood actually holds: over a dither or a dissolving plant the spread is wide, and
+	// the sharp history fetch rings - below black on a fine pattern - which the spread alone let through, and kept)
+	history = ClipToBox(history, max(mean - 1.25 * sigma, lo), min(mean + 1.25 * sigma, hi));
 	// (more of this frame where things move fast: their history is resampled every frame, and softens)
 	float speed = length((vUV - prev) * vec2(outSize));
 	float blend = mix(uTaa.params.y, 0.35, clamp(speed / 12.0, 0.0, 1.0));
+	// (where particles are: this frame's - by how much of the pixel they make, their cover or their light)
+	float reactive = 0.0;
+	if (uTaa.reactive.x > 0.5)
+	{
+		vec4 p = texelFetch(sampler2D(uParticles, uLinearClamp), px, 0);
+		reactive = max(p.a, Luma(p.rgb) / (Luma(p.rgb) + Luma(Unweigh(center)) * 0.5 + 1e-4));
+	}
+	if (uTaa.reactive.y > 0.5)
+	{
+		vec4 p = textureLod(sampler2D(uHalfParticles, uLinearClamp), vUV, 0.0);
+		reactive = max(reactive, max(p.a, Luma(p.rgb) / (Luma(p.rgb) + Luma(Unweigh(center)) * 0.5 + 1e-4)));
+	}
+	blend = mix(blend, 1.0, clamp(reactive * 1.5, 0.0, 0.95));
 	vec3 result = mix(FromYCoCg(history), center, blend);
 	// A light sharpen, by the neighbourhood's own contrast (what the resolve's filtering takes back)
 	vec3 meanRGB = FromYCoCg(mean);
 	float contrast = clamp(Luma(sigma) * 8.0, 0.0, 1.0);
 	result = max(result + (result - meanRGB) * 0.25 * (1.0 - contrast), vec3(0.0));
-	outColor = vec4(Unweigh(result), 1.0);
+	outColor = vec4(Sane(Unweigh(result)), 1.0);
 }

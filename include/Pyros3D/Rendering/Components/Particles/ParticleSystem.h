@@ -67,6 +67,15 @@ namespace p3d {
 		Vec3 gravity;        // world-space acceleration, applied every frame
 		f32 damping;         // velocity *= (1 - damping*dt) every frame, 0 = none
 
+		// Turbulence: a swirling, divergence-free push (the curl of a moving noise field) - smoke that curls, sparks
+		// that wander - `turbulence` its strength (m/s^2, 0 none), `turbulenceScale` the size of its swirls (metres).
+		f32 turbulence, turbulenceScale;
+
+		// A floor at a world height the particles bounce off (`bounce` how much of their speed they keep, the
+		// same field as collide2D's): sparks that skitter along the ground instead of falling through it.
+		bool collideFloor;
+		f32 floorHeight;
+
 		// In a 2D scene: particles stop at the bodies of the 2D world -
 		// sparks that bounce along a floor, rain that ends at a roof, dust
 		// that settles. Each one is a point moved along a ray, so it costs
@@ -79,6 +88,10 @@ namespace p3d {
 		uint32 collisionMask;
 
 		f32 startSize, endSize;     // world-space diameter, ramped over normalized age
+
+		// Stretched along their motion: each one drawn as the streak it travelled over `stretch` seconds (as seen on
+		// the screen) - sparks, rain, tracers. 0: round, turning with their rotation.
+		f32 stretch;
 		f32 sizeRandomJitter;        // +/- fraction of size, randomized per particle
 
 		Vec4 startColor, endColor;   // ramped over normalized age, multiplies the texture
@@ -185,6 +198,10 @@ namespace p3d {
 		void SetSpeed(const f32 minSpeed, const f32 maxSpeed) { desc.minSpeed = minSpeed; desc.maxSpeed = maxSpeed; }
 		void SetGravity(const Vec3 &gravity) { desc.gravity = gravity; }
 		void SetDamping(const f32 damping) { desc.damping = damping; }
+		// The swirl (ParticleSystemDesc::turbulence), the floor they bounce off, and the streak each is drawn as
+		void SetTurbulence(const f32 strength, const f32 scale) { desc.turbulence = strength > 0.f ? strength : 0.f; desc.turbulenceScale = scale > 1e-3f ? scale : 1e-3f; }
+		void SetFloor(const bool on, const f32 height, const f32 bounce) { desc.collideFloor = on; desc.floorHeight = height; desc.bounce = bounce; }
+		void SetStretch(const f32 seconds) { desc.stretch = seconds > 0.f ? seconds : 0.f; }
 		void SetCollide2D(const bool on, const f32 bounce = 0.3f, const uint32 mask = 0xFFFFFFFFu)
 		{ desc.collide2D = on; desc.bounce = bounce < 0.f ? 0.f : (bounce > 1.f ? 1.f : bounce); desc.collisionMask = mask; }
 		bool GetCollide2D() const { return desc.collide2D; }

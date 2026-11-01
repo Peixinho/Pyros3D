@@ -24,6 +24,8 @@ layout(location = 1) out vec4 vPrevious;
 #ifdef ALPHA
 layout(location = 2) in vec2 aTexcoord;
 layout(location = 2) out vec2 vTexcoord;
+layout(location = 3) out float vFade;     // (an instance dissolving - depthalpha.frag)
+layout(location = 4) out float vLodCode;
 #endif
 void main()
 {
@@ -40,5 +42,6 @@ void main()
 	vPrevious = uTaa.previousViewProjection * (uDraw.previousModel * localBefore);
 #ifdef ALPHA
 	vTexcoord = aTexcoord * uDraw.uvTransform.xy + uDraw.uvTransform.zw;
+	vFade = gInstanceFade; vLodCode = InstanceLodCode();
 #endif
 }

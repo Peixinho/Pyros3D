@@ -364,7 +364,8 @@ namespace p3d {
 			// GenericShaderMaterial - shared_ptr via sol::factories
 			lua->new_usertype<GenericShaderMaterial>("GenericShaderMaterial",
 				sol::factories(
-					[](int options) { return std::make_shared<GenericShaderMaterial>(options); }
+					// (whole: the flags past bit 31 - Impostor's, 34 - were cut off by an int)
+					[](int64 options) { return std::make_shared<GenericShaderMaterial>((ShaderOptions)options); }
 				),
 				"setColor", &GenericShaderMaterial::SetColor,
 				"setColorRGBA", [](GenericShaderMaterial &m, const f32 r, const f32 g, const f32 b, const f32 a) { m.SetColor(Vec4(r, g, b, a)); },
@@ -393,6 +394,9 @@ namespace p3d {
 				"getEmissionColor", [](GenericShaderMaterial &m) { return m.GetEmissionColor(); },
 				"setEmissionMap", &GenericShaderMaterial::SetEmissionMap,
 				"setAlphaCutoff", &GenericShaderMaterial::SetAlphaCutoff,
+				// (an octahedral impostor's numbers - ShaderUsage.Impostor: the grid's side, the baked thing's radius, its centre's height)
+				"setImpostor", &GenericShaderMaterial::SetImpostor,
+				"setImpostorFullSphere", &GenericShaderMaterial::SetImpostorFullSphere,
 				"getAlphaCutoff", &GenericShaderMaterial::GetAlphaCutoff,
 				"setLightThrough", &GenericShaderMaterial::SetLightThrough,
 				"setWind", sol::overload(
@@ -638,6 +642,10 @@ namespace p3d {
                 "update", &LUA_RenderingInstancedComponent::Update,
                 "destroy", &LUA_RenderingInstancedComponent::Destroy,
                 "setCullingGeometry", &LUA_RenderingInstancedComponent::SetCullingGeometry, "enableCullTest", &LUA_RenderingInstancedComponent::EnableCullTest,
+                // Fewer plants with distance - each remaining one grown to cover the ground, the ones going dissolving -
+                // and every plant dissolving in and out with its own distance (metres: from, to)
+                "setDistanceThinning", &LUA_RenderingInstancedComponent::SetDistanceThinning,
+                "setDistanceFade", &LUA_RenderingInstancedComponent::SetDistanceFade,
                 "disableCullTest", &LUA_RenderingInstancedComponent::DisableCullTest,
                 "isCullTesting", &LUA_RenderingInstancedComponent::IsCullTesting,
                 "enableCastShadows", &LUA_RenderingInstancedComponent::EnableCastShadows,

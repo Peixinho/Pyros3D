@@ -16,6 +16,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Rendering/Device/RenderDevice.h>
+#include <Pyros3D/Rendering/Renderer/FluidVolumes.h>
 #include <Pyros3D/Rendering/Renderer/FrameGraph.h>
 #include <array>
 #include <map>
@@ -29,6 +30,7 @@ namespace p3d {
 	class IGeometry;
 	class Texture;
 	class RenderingMesh;
+	class RenderingComponent;
 	class RenderingInstancedComponent;
 	class ParticleSystem;
 	class CustomShaderMaterial;
@@ -101,11 +103,53 @@ namespace p3d {
 		void SetHaze(const f32 density) { hazeDensity = std::max(density, 0.f); }
 		// Clouds, with the sky: how much of it they cover (0 none), and the steps along a ray (more: smoother, dearer)
 		// Temporal anti-aliasing: each frame a sub-pixel off, blended into the last (on unless turned off; PYROS_RENDERER_TAA=0 too)
-		void SetTemporalAA(const bool on) { taaOn = on; taaHistory = false; }
+		void SetTemporalAA(const bool on) { taaOn = on; taaHistory = false; if (on) fxaaOn = false; }
+		// The anti-aliasing after the scene's 4x MSAA: TAA (the default - sub-pixel detail and shimmer resolved over
+		// frames, what render scale needs), FXAA (edges found and blended in one frame: no softness, no trails), or none
+		enum class AntiAliasing : uint8 { None = 0, FXAA = 1, TAA = 2 };
+		// A colourist's grade on the finished picture (a scene's "Grade" effect), after the tone curve, as the old
+		// renderer's GradeEffect: exposure (stops) and a highlight shoulder, white balance (temperature, tint),
+		// lift / gamma / gain (rgb, and w for all), a film S-curve about a pivot, split toning (rgb, w strength),
+		// saturation and vibrance, a vignette, film grain and chromatic aberration
+		struct Grade
+		{
+			bool on = false;
+			f32 exposure = 0.f, shoulder = 0.f, temperature = 0.f, tint = 0.f, contrast = 1.f, pivot = 0.43f;
+			Vec4 lift = Vec4(0.f, 0.f, 0.f, 0.f), gamma = Vec4(1.f, 1.f, 1.f, 1.f), gain = Vec4(1.f, 1.f, 1.f, 1.f);
+			Vec4 shadowTint = Vec4(0.f, 0.f, 0.f, 0.f), highlightTint = Vec4(0.f, 0.f, 0.f, 0.f);
+			f32 saturation = 1.f, vibrance = 0.f, vignette = 0.f, grain = 0.f, chromatic = 0.f;
+		};
+		void SetGrade(const Grade &g) { grade = g; }
+		const Grade &GetGrade() const { return grade; }
+		// How much of the bloom's spread light the picture takes (a scene's Bloom uIntensity: 0.5 the usual)
+		void SetBloomIntensity(const f32 intensity) { bloomIntensity = std::max(intensity, 0.f); }
+		// A height fog lit by the sun through its shadows - light shafts - and by the sky (a scene's VolumetricLight; the sun's
+		// own DirectionalLight::SetVolumetric, where it has one, takes its place): density at its base per metre (0 off),
+		// forward scattering, thinning with height per metre, its base height, how far out it is marched, steps, the sun's
+		// share, the sky's share, the scattered light's colour
+		struct VolumetricFog
+		{
+			f32 density = 0.f, anisotropy = 0.6f, falloff = 0.05f, baseHeight = 0.f, maxDistance = 150.f, steps = 32.f, scattering = 1.f, ambient = 0.2f;
+			Vec3 tint = Vec3(1.f, 1.f, 1.f);
+		};
+		void SetVolumetricFog(const VolumetricFog &f) { fog = f; }
+		// A scene's own post effects (asset effects: a .glsl as the old renderer's PostEffectChain took them - "//! effect",
+		// "//! input LastRTT|Depth", "//! param <type> <name> <default>..." lines, then its main() reading
+		// texture_2D(uTex0, vTexcoord) and writing FragColor), in its chain's order: run on the finished picture in display
+		// terms (after the tone curve, linear 0..1 - what they were written for), its parameters as the scene set them
+		struct AssetEffect { std::string name, source; std::map<std::string, std::vector<f32> > params; };
+		void SetAssetEffects(const std::vector<AssetEffect> &effects) { assetEffects = effects; }
+		// The ambient occlusion's reach (metres), strength (a power on what it leaves lit: 1 as it is) and its share on the
+		// direct light (0 the ambient's alone; 0.2, the default, as the old renderer's SSAO) - a scene's SSAO
+		void SetAmbientOcclusion(const f32 radius, const f32 strength, const f32 direct = 0.2f) { aoRadius = std::min(std::max(radius, 0.05f), 8.f); aoStrength = std::min(std::max(strength, 0.f), 4.f); aoDirect = std::min(std::max(direct, 0.f), 1.f); }
+		void SetAntiAliasing(const AntiAliasing mode) { taaOn = mode == AntiAliasing::TAA; fxaaOn = mode == AntiAliasing::FXAA; taaHistory = false; }
+		AntiAliasing GetAntiAliasing() const { return taaOn ? AntiAliasing::TAA : fxaaOn ? AntiAliasing::FXAA : AntiAliasing::None; }
 		// A cut: what the temporal anti-aliasing kept of the last view is not the next one's
 		void ResetHistory() { taaHistory = false; }
 		// Particles at half resolution, composited over the picture (on unless turned off; PYROS_RENDERER_HALF_PARTICLES=0 too)
 		void SetHalfResolutionParticles(const bool on) { halfParticles = on; }
+		// How many visible surfaces its last frame left undrawn - their pipelines still being made (a bake draws again)
+		uint32 PendingDraws() const { return notDrawnYet; }
 		bool halfParticles = true;
 		FrameGraph graph;     // (the frame's passes, and every texture's state between them)
 		struct OverlayBatch { uint32 first, count; bool lines, depthTested; };
@@ -122,7 +166,25 @@ namespace p3d {
 		gfx::Texture SkyboxFor(Texture* source);
 		gfx::Shader particleHalfFS, particleCompositeFS; gfx::Pipeline particleHalfAlphaPipeline, particleHalfAddPipeline, particleCompositePipeline;
 		gfx::Texture particleTex; gfx::BindGroup particleCompositeGroup;
-		void RecordHalfParticles(gfx::CommandList* cl, const uint32 frameOffset);
+		// (the full-size particles' layer - sparks, rain, what is small or streaked - and its composite; the shader that
+		// hides them behind the scene by the prepass depth; which layers this frame has, for the temporal resolve)
+		gfx::Texture particleFullTex; gfx::BindGroup particleFullCompositeGroup; gfx::Shader particleScreenFS;
+		bool particlesFull = false, particlesHalf = false;
+		Vec3 backdropNow;     // (this frame's background where nothing is drawn, a scene with no sky's - linear: the tonemap keeps it as set)
+		std::unique_ptr<SceneRenderer> impostorRenderer;
+		// (a still water's planar reflection - RenderGlobals::MirrorLevel, sspr.vert: its picture and depth, half size)
+		gfx::Texture mirrorTex, mirrorDepth; gfx::Shader ssprVS, ssprFS; gfx::Pipeline ssprPipeline; gfx::BindGroup ssprGroup;
+		bool mirrorOn = false; f32 mirrorLevel = 0.f;
+		void RecordMirrorPlane(gfx::CommandList* cl, const uint32 frameOffset);
+		// (render targets made and not yet cleared - MakeTexture: cleared at the next frame's start)
+		std::vector<std::pair<gfx::Texture, std::pair<uint32, uint32> > > pendingClears;
+		gfx::Texture MakeTexture(const gfx::TextureDesc &d, const gfx::TextureData* data = nullptr, const uint32_t count = 0);     // (ImpostorBank's bakes: a renderer of its own, made on the first)
+		// Each component's level of detail as drawn: the level, the one it is leaving and since when (a time crossfade)
+		struct LodState { uint32 level = 0, from = 0; f64 start = -1.0; uint64 seen = 0; };
+		std::unordered_map<RenderingComponent*, LodState> lodStates;
+		f64 lodClock = 0.0;
+		bool ParticleWantsHalf(const ParticleSystem* ps) const;
+		void RecordParticleLayer(gfx::CommandList* cl, const uint32 frameOffset, const bool half);
 		// The scene is going (another is loaded in its place): what is kept by its objects' addresses - their GPU meshes,
 		// textures, instances, groups - let go, as a new object may land at a freed one's address. Pipelines and compiled
 		// surfaces (by their text) stay.
@@ -189,6 +251,8 @@ namespace p3d {
 		void SetSurfaceCache(const std::string &directory) { surfaceCache = directory; }
 		// Levels of detail (each component's chosen by its distance) and frustum culling: both on unless turned off
 		void SetLOD(const bool on) { lodOn = on; }
+		// Levels of detail handing over by a dithered crossfade (on), or at once
+		void SetLODCrossfade(const bool on) { lodCrossfade = on; }
 		// Fewer pixels drawn than shown (0.5 .. 1): the scene drawn at this share of the view's size and resolved up to it by
 		// the temporal anti-aliasing - its jitter reaching between the drawn pixels over the frames (with TAA off: 1)
 		// Ray-traced sun shadows: a ray a pixel toward a point of the sun's disc through the scene's triangles (its
@@ -266,8 +330,9 @@ namespace p3d {
 		{
 			uint8 cull, blend, instanced = 0, skinned = 0, vertexColor = 0;
 			uint8 cut = 0;     // (an alpha-cut surface's two draws: 1 its cut alone, laying down depth; 2 its light at that depth, no cut)
+			uint8 impostor = 0;     // (an octahedral impostor: surface.vert/.frag IMPOSTOR - instanced)
 			bool operator<(const PipelineKey &o) const { return cull != o.cull ? cull < o.cull : blend != o.blend ? blend < o.blend : instanced != o.instanced ? instanced < o.instanced
-				: skinned != o.skinned ? skinned < o.skinned : vertexColor != o.vertexColor ? vertexColor < o.vertexColor : cut < o.cut; }
+				: skinned != o.skinned ? skinned < o.skinned : vertexColor != o.vertexColor ? vertexColor < o.vertexColor : cut != o.cut ? cut < o.cut : impostor < o.impostor; }
 		};
 
 		struct TextureGpu
@@ -275,6 +340,7 @@ namespace p3d {
 			gfx::Texture texture;
 			uint32 revision = 0xFFFFFFFFu;
 			uint32 textureId = 0;     // (the texture it was made of: another at a freed one's address is not it)
+			uint32 floatW = 0, floatH = 0;     // (a float texture's size, written again in place while it keeps it)
 		};
 
 		// What the frame draws: every mesh at the level of detail its distance picks, with its sphere in the world;
@@ -296,7 +362,17 @@ namespace p3d {
 			int32 sortOrder = 0;                                 // (its component's: a 2D scene's draw order among the see-through)
 			f32 sortDepth = 0.f;                                 // (its owner's place from the eye: along the view looked down orthographic, else squared)
 			f32 shape[4] = { 0.f, 0.f, 0.f, 0.f };              // (an instanced set's: grown and faded - instancing.glsl's ShapedInstance)
+			f32 lodFade = 0.f;                                   // (a level of detail mid crossfade: + going, - coming - alphacut.frag)
+			uint32 lodLevel = 0;                                 // (which of its levels this is - PYROS_RENDERER_DEBUG=lod tints by it)
+			bool fades = false;                                  // (an instanced set whose plants dissolve - thinned, or past their fade)
+			// (one level of an instanced set drawn level by level per instance - the GPU culling picks each instance's level
+			// by its own distance: x, y the distances this level covers, z the crossfade band's share, w 1 on)
+			Vec4 instanceLod; uint64 cullKey = 0;
+			bool impostor = false;                               // (an octahedral impostor: not in the depth prepass, casts no shadow)
+			gfx::Buffer cullVisible, cullArgs; f32 cullFade = 0.f;     // (a big instanced set culled on the GPU: its visible instances, its indirect draw)
 		};
+		// The frame's levels of detail mid crossfade: each mesh's fade (+ the level going, - the one coming)
+		std::unordered_map<RenderingMesh*, f32> lodFades;
 		// An instanced component's instances on the GPU: matrix and tint each (80 bytes), and the sphere round them all
 		struct InstancesGpu
 		{
@@ -305,7 +381,18 @@ namespace p3d {
 		};
 		InstancesGpu* InstancesFor(RenderingInstancedComponent* component, MeshGpu* mesh);
 		std::map<RenderingInstancedComponent*, InstancesGpu> instanceBuffers;
-		void DrawItemGeometry(gfx::CommandList* cl, const DrawItem &it);
+		void DrawItemGeometry(gfx::CommandList* cl, const DrawItem &it, const bool culled = false);
+		// Big instanced sets (kCullInstances or more) culled instance by instance on the GPU (instance_cull.comp): for each
+		// set, a frame in flight's visible stream and indirect arguments; the view's frustum
+		struct InstanceCull { gfx::Buffer visible[3], args[3]; gfx::BindGroup group[3]; uint32 capacity = 0; uint64 seen = 0; };
+		std::unordered_map<uint64, InstanceCull> instanceCulls;     // (by its instances and its mesh: a stream for each level's mesh)
+		// (the levels of an instanced set drawn per instance this frame: each mesh's - its range, and whether its block's
+		// own level, the one that casts the shadow)
+		struct InstanceLodPick { Vec4 range; bool caster = false; };
+		std::unordered_map<RenderingMesh*, InstanceLodPick> instanceLodPicks;
+		gfx::Shader instanceCullCS; gfx::Pipeline instanceCullPipeline;
+		Vec4 cullPlanes[6]; Vec3 cullEye;
+		void RecordInstanceCull(gfx::CommandList* cl, const uint32 slot);
 		// Materials with a surface of their own (CustomShaderMaterial::SetSurfaceSource): compiled once into surface.frag
 		// (by the source's hash), a pipeline for each way it is drawn, a bind group for each material (its textures),
 		// its parameters written each frame into a ring (a fourth dynamic offset)
@@ -374,6 +461,23 @@ namespace p3d {
 		gfx::Shader particleSimCS; gfx::Pipeline particleSimPipeline;
 		void RecordParticleSim(gfx::CommandList* cl);
 		void ForgetGpuParticles(GpuParticles &g);
+		// Volumetric smoke and fire (VolumetricSmoke - its clouds, process-wide): their voxel atlas on the GPU, marched
+		// at half size (smoke.frag) and laid over the picture (smokecomposite.frag) with the screen flash
+		gfx::Shader smokeFS, smokeCompositeFS, fluidCS; gfx::Pipeline smokePipeline, smokeCompositePipeline;
+		gfx::Texture smokeTex, smokeReflectTex;
+		FluidVolumes fluids;
+		// The beams of point and spot lights through the air (ILightComponent::SetVolumetricScattering): marched at half
+		// size (beams.frag) and added to the picture (beamscomposite.frag); the frame's lamps that have one (their
+		// indices in the light buffer, 16 at most) and the most steps any asks for
+		gfx::Shader beamsFS, beamsCompositeFS; gfx::Pipeline beamsPipeline, beamsCompositePipeline;
+		gfx::Texture beamsTex; gfx::BindGroup beamsGroup, beamsCompositeGroup;
+		std::vector<uint32> beamLamps; uint32 beamSteps = 0;
+		void RecordBeams(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot);
+		void RecordBeamsComposite(gfx::CommandList* cl, const uint32 frameOffset);
+		gfx::Buffer smokeData; gfx::BindGroup smokeGroup, smokeCompositeGroup;
+		bool smokeOn = false, smokeKeptPicture = false;
+		void RecordSmoke(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot);
+		void RecordSmokeComposite(gfx::CommandList* cl, const uint32 frameOffset);
 		// (the ray-traced shadows' scene and pass - rtshadow.frag: its triangles, nodes and leaves' lists on the GPU, and
 		// the AO with the sun's share beside it, what the surfaces read for AO while it is on)
 		std::unique_ptr<RayScene> rtScene; SceneGraph* rtSceneOf = nullptr;
@@ -422,6 +526,10 @@ namespace p3d {
 		static void IndicesOf(IGeometry* g, const uint32* &data, size_t &count);
 		// A texture's GPU copy (made from its CPU pixels, mips built here), or `fallback` while it has none
 		gfx::Texture TextureFor(Texture* texture, const bool srgb, const gfx::Texture fallback);
+		// (a material's texture destroyed - remade: every group made with it forgotten too, the ones kept by its id above all -
+		// its id handed out again, a group found by it read the old one's view, destroyed)
+		void ForgetTexture(const gfx::Texture t);
+		uint32 textureEpoch = 0;     // (counted up by ForgetTexture)
 		gfx::BindGroup SurfaceGroupFor(const gfx::Pipeline layoutOf, const std::array<gfx::Texture, 5> &maps);
 		uint32 WriteLights(SceneGraph* scene, const View &view, const uint32 slot);
 		// The sun's cascades for this view, written to the frame's slot; false when nothing casts a sun shadow
@@ -447,9 +555,10 @@ namespace p3d {
 		Matrix cascadeMatrix[4];
 		f32 cascadeRadius[4] = {}, cascadeNear[4] = {}, cascadeFar[4] = {};
 		Vec3 shadowEye, shadowForward; f32 shadowStretch = 1.f;     // (how far a shadow reaches beyond its caster, per its size)
+		f32 shadowLightForward = 0.f, shadowLightDown = 1.f, shadowFloorY = 0.f;     // (the light's steepness; the lowest anything drawn reaches - how far a shadow can run)     // (the light's way along the view's: + away from the eye - a shadow runs down the cascades, - up them)
 		bool sunShadowOn = false;
 		// A point or spot light's shadow tile (a spot one, a point light six - a face of its cube each), this frame's
-		struct LocalTile { Matrix view, viewProjection; Vec3 position; f32 tanHalf = 1.f, nearZ = 0.1f, farZ = 1.f; bool ortho = false; f32 halfSize = 0.f; };
+		struct LocalTile { Matrix view, viewProjection; Vec3 position; f32 tanHalf = 1.f, nearZ = 0.1f, farZ = 1.f; bool ortho = false; f32 halfSize = 0.f; f32 softness = 1.f; };     // (softness: its light's ILightComponent::GetShadowSoftness, texels)
 		int rainTile = -1;     // (the local tile looking down round the eye while it rains: RainExposure)
 		std::vector<LocalTile> localTiles;
 		gfx::Pipeline transmittancePipeline, skyViewPipeline, skyPipeline, skyShPipeline, skyShSumPipeline;
@@ -483,7 +592,7 @@ namespace p3d {
 		gfx::Texture bloom[kBloomLevels], lum64, lum16, lum4, lum1, exposureTex[2];
 		gfx::BindGroup bloomDownGroup[kBloomLevels], bloomUpGroup[kBloomLevels], lumGroup, reduceGroup[3], adaptGroup[2], tonemapGroups[2];
 		uint32 bloomW[kBloomLevels] = {}, bloomH[kBloomLevels] = {};
-		bool autoExposure = true, exposureRestart = true, lodOn = true, cullingOn = true;
+		bool autoExposure = true, exposureRestart = true, lodOn = true, cullingOn = true, lodCrossfade = true;
 		f32 exposureEV = 0.f;
 		f64 lastFrameTime = 0.0;
 		f32 drawSeconds = 0.f, drawPreviousSeconds = 0.f;
@@ -504,10 +613,31 @@ namespace p3d {
 		Vec4 lastSunDirection; Matrix lastViewProjection;     // (this frame's: where the sun is on the screen)
 		gfx::Texture taaTex[2], velocityTex; gfx::Shader velocityFS; gfx::Pipeline taaPipeline; gfx::Shader taaFS; gfx::BindGroup taaGroups[2]; gfx::Buffer taaData;
 		bool taaOn = true, taaHistory = false; uint32 taaFrame = 0; Matrix taaPreviousViewProjection;
+		Grade grade; f32 bloomIntensity = 0.5f, aoRadius = 1.f, aoStrength = 1.f, aoDirect = 0.2f;
+		VolumetricFog fog, fogNow;     // (the scene's, and this frame's - the sun's own where it has one)
+		// The asset effects, and each one compiled (by its source): its pipeline, its parameters' order and defaults, its
+		// inputs; the picture in display terms ping-ponged between two targets, then brought to the screen (present.frag)
+		std::vector<AssetEffect> assetEffects;
+		struct AssetEffectGpu
+		{
+			gfx::Shader shader; gfx::Pipeline pipeline; bool failed = false;
+			std::vector<std::string> paramNames; std::vector<Vec4> paramDefaults;
+		};
+		std::map<uint64, AssetEffectGpu> assetEffectGpus;
+		AssetEffectGpu* AssetEffectFor(const AssetEffect &effect);
+		gfx::Shader surfaceImpostorVS, surfaceImpostorPlainVS, surfaceImpostorFS, surfaceInstColorVS;     // (instanced, and one object's - a level of detail's)
+		gfx::Texture displayTex[2]; gfx::Shader presentFS; gfx::Pipeline tonemapToDisplayPipeline, presentPipeline; gfx::BindGroup tonemapToDisplayGroups[2];
+		bool fxaaOn = false; gfx::Shader fxaaFS; gfx::Pipeline fxaaPipeline; gfx::BindGroup fxaaGroup;
+		void RecordFXAA(gfx::CommandList* cl, const uint32 frameOffset);
 		void RecordTemporalAA(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot);     // (hdrPrevious: last frame's picture - what screen-space reflections find)
 		// Reflection probes (CaptureProbe): their atlas - a block each, 4 across, each 256x272 (six roughnesses, 256 wide
 		// halving to 32, one under the other) - the six views' pictures of the one being seen, and the renderer that sees them
-		static const uint32 kProbeColumns = 4, kProbeRows = 4, kProbeBlockWidth = 256, kProbeBlockHeight = 272, kProbeFace = 128;
+		// (one a declaration: in an exported class MSVC refuses every name after the first of a list - C2487)
+		static const uint32 kProbeColumns = 4;
+		static const uint32 kProbeRows = 4;
+		static const uint32 kProbeBlockWidth = 256;
+		static const uint32 kProbeBlockHeight = 272;
+		static const uint32 kProbeFace = 128;
 		struct ProbeState { int32 slot = -1; uint32 revision = 0; Vec3 seenFrom; bool seen = false; };
 		ReflectionProbe* probeSeeing = nullptr; int probeFace = 0; uint32 probeRevision = 0; Vec3 probeAt;     // (the one being seen, a view a frame)
 		// The scene's DDGI (SetGlobalIllumination): its irradiance (RGBA16F, filtered), visibility (RG32F: squared
@@ -541,9 +671,12 @@ namespace p3d {
 			GenericShaderMaterial* gm = nullptr; CustomShaderMaterial* cm = nullptr;
 			MeshGpu* gpu = nullptr; CustomSurface* surface = nullptr; uint64 surfaceHash = 0;
 			bool transparent = false, alphaCut = false, movesItself = false; uint32 cull = 0;
+			bool wantsCut = false;     // (drawn mid crossfade: its cut pipelines made though it cuts nothing)
+			bool impostor = false;     // (an octahedral impostor - ShaderUsage::Impostor: its own stages, not in the prepass, no shadow)
 			Texture* skybox = nullptr;     // (its material's skybox cubemap: it is the background, not drawn as a mesh)
 			Texture* maps[5] = { nullptr, nullptr, nullptr, nullptr, nullptr }; uint32 mapRevisions[5] = { 0, 0, 0, 0, 0 };     // (colour, normal, metal-rough, emission, height)
 			gfx::Pipeline pipeline, pipelineInstanced; gfx::BindGroup group; gfx::Texture baseMap;
+			uint32 textureEpoch = 0;     // (SceneRenderer::textureEpoch when its group and baseMap were made: a texture forgotten since, made again)
 			gfx::Pipeline plain, plainInstanced, cut, cutInstanced;     // (alpha-cut: its one-draw pipelines, and its cut's; `pipeline` its light at the cut's depth)
 			bool instanced = false;
 			Matrix lastModel; uint64 modelFrame = ~0ull;      // (its matrix, and the frame it was drawn with it)

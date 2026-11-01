@@ -44,6 +44,7 @@ namespace p3d {
 				"PBR", ShaderUsage::PBR,
 				"PBRMap", ShaderUsage::PBRMap,
 				"AlphaTest", ShaderUsage::AlphaTest,
+				"Impostor", ShaderUsage::Impostor,
             "InstancedColor", ShaderUsage::InstancedColor,
             "VertexWind", ShaderUsage::VertexWind,
             "VertexColor", ShaderUsage::VertexColor,

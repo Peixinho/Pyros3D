@@ -1,4 +1,6 @@
--- Spawns LOD teapots + point lights. Kept out of JSON (10k instances).
+-- Spawns LOD teapots + point lights. Kept out of JSON (10k instances). Three mesh levels given here; the fourth - an
+-- octahedral impostor, one quad - the engine makes by itself (ImpostorBank: baked from the model on first sight, cached
+-- on disk) and puts past the last; each hand-over dithered across.
 local LODSpawn = class('LODSpawn')
 
 local TEAPOTS = 10000
@@ -45,11 +47,11 @@ function LODSpawn:init(owner)
 
 	for i = 1, TEAPOTS do
 		local mat = GenericShaderMaterial.new(usage)
-		mat:setColor(Vec4.new(0.5, 0.5, 0.5, 1))
+		mat:setColor(Vec4.new(0.72, 0.72, 0.72, 1))
 		mat:setSpecular(Vec4.new(1, 1, 1, 1))
 		local rc = RenderingComponent.new(lod1, mat)
-		rc:addLOD(lod2, 50, usage)
-		rc:addLOD(lod3, 100, usage)
+		rc:addLOD(lod2, 50, mat)     -- (every level in the same material: their own default one lit them differently)
+		rc:addLOD(lod3, 100, mat)
 		local go = GameObject.new(true)
 		go:setPosition(Vec3.new(math.random() * 1000 - 500, math.random() * 1000 - 500, math.random() * 1000 - 500))
 		go:setScale(Vec3.new(0.1, 0.1, 0.1))

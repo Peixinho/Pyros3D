@@ -71,9 +71,9 @@ namespace p3d {
 		// Volumetric in-scattering - how much light this one scatters back
 		// to the eye out of the medium it passes through, on top of what it
 		// does to surfaces - a point or spot light's beam through the air.
-		// (Kept with the light and saved with scenes; the renderer does not
-		// march a light's own beam yet - its volumetrics are the scene's fog
-		// volumes and the sun's shafts.) Density defaults to 0: none.
+		// (The renderer marches a point or spot light's beam where this is
+		// above 0 - beams.frag; a hazy room is about 0.1 to 0.2.) Density
+		// defaults to 0: none.
 		void SetVolumetricScattering(const f32 density) { volumetricDensity = density; }
 		f32 GetVolumetricScattering() const { return volumetricDensity; }
 		// Henyey-Greenstein g in (-1,1). Positive is forward-scattering,
@@ -122,8 +122,8 @@ namespace p3d {
 
 		// Both of the above, packed into one float as scenes save them: the
 		// integer part is the filter radius, the fraction is normal bias / 8.
-		// (The renderer filters its shadows its own way - these are kept with
-		// the light and saved, not yet read by it.)
+		// (The renderer reads Softness as its filter's radius - 0 one compare, a hard
+		// edge, the default 1 its usual disc - for the sun's cascades and every light's tile.)
 		//
 		// And a third, the penumbra (SetShadowPenumbra): its centimetres are four times
 		// the integer part's worth over the radius - integer = radius + 4 x centimetres -

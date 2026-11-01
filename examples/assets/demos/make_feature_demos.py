@@ -71,11 +71,9 @@ def sun(**extra):
 
 SHAFTS = {"volumetric": [0.008, 0.75, 0.05, 80.0], "volumetricTint": [1.0, 0.9, 0.75, 32.0]}
 VARIANTS = [
-    ("Courtyard_Base", "Courtyard (baseline)", "The courtyard every feature demo below is built on: shadow maps and screen-space reflections only.", {}),
     ("Courtyard_Shafts", "Sun Shafts", "Light scattered by the air, broken into shafts by the colonnade - the sun pass marching each view ray through the shadow map (DirectionalLight::SetVolumetric). Deferred.", SHAFTS),
     ("Courtyard_RTShadows", "Ray-Traced Shadows", "Every pixel traces a ray toward a point of the sun's disc against the scene's acceleration structure: exact contact shadows (the slab, the ball's foot), softening with distance, no shadow-map texels or acne. Needs a GPU that traces rays (Metal on Apple silicon, Vulkan RTX/RDNA2+); elsewhere this is the baseline. Compare with 'Courtyard (baseline)'.", {"rayTracedShadows": 120.0, "rayShadowSoftness": 0.003}),
     ("Courtyard_RTReflections", "Ray-Traced Reflections", "The glossy floor and metals trace their reflections against the scene: the tower and pillar beside the camera and the arch behind it reflect, which screen-space reflections cannot see. SSR (baseline) is still there and cheaper. Needs a GPU that traces rays.", {"rayTracedReflections": 80.0}),
-    ("Courtyard_All", "Courtyard (everything)", "Sun shafts, ray-traced shadows and ray-traced reflections together.", dict(SHAFTS, rayTracedShadows=120.0, rayShadowSoftness=0.003, rayTracedReflections=80.0)),
     ("Courtyard_Clouds", "Volumetric Clouds", "The Sky effect's clouds marched through a slab of 3D noise 1.2-2.8 km up, each step lit by the sun through the cloud itself (Beer's law, powder, a forward-scattering phase) - against its flat cloud layer (uCloudVolume 0). Look up: they drift.", {},
      {"effects": [{"name": "Sky", "params": {"uCloudVolume": 1.0, "uCloudCover": 0.55, "uCloudSteps": 32.0}}], "background": None}, 18),
 ]

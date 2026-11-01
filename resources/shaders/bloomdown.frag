@@ -6,7 +6,7 @@ layout(set = 1, binding = 1) uniform texture2D uSource;
 layout(set = 1, binding = 2) uniform sampler uLinearClamp;
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;
-vec3 S(vec2 o) { return texture(sampler2D(uSource, uLinearClamp), vUV + o * uDraw.sourceTexel.xy).rgb; }
+vec3 S(vec2 o) { vec3 c = texture(sampler2D(uSource, uLinearClamp), vUV + o * uDraw.sourceTexel.xy).rgb; return all(lessThan(abs(c), vec3(65000.0))) ? c : vec3(0.0); }     // (a bad pixel spread by the blur over its whole neighbourhood: as nothing)
 float KarisWeight(vec3 c) { return 1.0 / (1.0 + dot(c, vec3(0.2126, 0.7152, 0.0722))); }
 void main()
 {

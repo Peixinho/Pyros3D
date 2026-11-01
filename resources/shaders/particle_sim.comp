@@ -14,6 +14,7 @@ layout(set = 0, binding = 0, std140) uniform DrawData
 	vec4 gravity;      // xyz world acceleration, w damping
 	vec4 counts;       // x the first slot spawned this frame, y how many, z the slots in all, w 1: every slot emptied first
 	vec4 motion;       // x this frame's seconds, y, z the least and most rotation speed (radians a second)
+	vec4 turb;         // x turbulence (m/s^2), y 1 / its swirls' size, z the floor's height (-1e30 none), w bounce
 } uSim;
 
 struct Particle
@@ -30,6 +31,29 @@ float Hash(uint n)
 {
 	n ^= n >> 16; n *= 0x7feb352du; n ^= n >> 15; n *= 0x846ca68bu; n ^= n >> 16;
 	return float(n >> 8) * (1.0 / 16777216.0);
+}
+
+// The turbulence's push (ParticleSystem.cpp's ParticleCurl, the same field): the curl of a moving potential of sines,
+// two octaves - divergence-free, so what it moves swirls instead of bunching up or thinning out
+vec3 CurlOctave(vec3 p, float k, float t)
+{
+	float fy = p.y * k + t * 0.31, fz = p.z * k * 1.31 + t * 0.23;
+	float gz = p.z * k * 1.07 + t * 0.27, gx = p.x * k * 1.19 + t * 0.41;
+	float hx = p.x * k * 0.93 + t * 0.37, hy = p.y * k * 1.23 + t * 0.29;
+	float dAx_dy = k * cos(fy) * cos(fz), dAx_dz = -k * 1.31 * sin(fy) * sin(fz);
+	float dAy_dz = k * 1.07 * cos(gz) * cos(gx), dAy_dx = -k * 1.19 * sin(gz) * sin(gx);
+	float dAz_dx = k * 0.93 * cos(hx) * cos(hy), dAz_dy = -k * 1.23 * sin(hx) * sin(hy);
+	return vec3(dAz_dy - dAy_dz, dAx_dz - dAz_dx, dAy_dx - dAx_dy);
+}
+vec3 Curl(vec3 p, float k, float t) { return (CurlOctave(p, k, t) + CurlOctave(p + 17.3, k * 2.17, t * 1.3) * 0.5) / k; }
+
+// A unit direction as one float particle.vert reads exactly: its octahedral coordinates, 10 bits each, as a whole number
+float PackDirection(vec3 d)
+{
+	vec2 o = d.xz / (abs(d.x) + abs(d.y) + abs(d.z));
+	if (d.y < 0.0) o = (1.0 - abs(o.yx)) * vec2(o.x >= 0.0 ? 1.0 : -1.0, o.y >= 0.0 ? 1.0 : -1.0);
+	uvec2 q = uvec2(clamp(floor((o * 0.5 + 0.5) * 1023.0 + 0.5), 0.0, 1023.0));
+	return float(q.x * 1024u + q.y);
 }
 
 void main()
@@ -68,14 +92,27 @@ void main()
 		else
 		{
 			vec3 v = p.velocityLife.xyz + uSim.gravity.xyz * dt;
+			if (uSim.turb.x > 0.0) v += Curl(p.positionAge.xyz, uSim.turb.y, uSim.origin.w) * (uSim.turb.x * dt);
 			if (uSim.gravity.w > 0.0) v *= max(0.0, 1.0 - uSim.gravity.w * dt);
-			p.velocityLife.xyz = v;
 			p.positionAge.xyz += v * dt;
+			// (off the floor: what speed it had into it turned back as much as it bounces, and some of its slide lost)
+			if (p.positionAge.y < uSim.turb.z)
+			{
+				p.positionAge.y = uSim.turb.z;
+				if (v.y < 0.0) v = vec3(v.x * 0.8, -v.y * uSim.turb.w, v.z * 0.8);
+			}
+			p.velocityLife.xyz = v;
+			// (one gone wrong - not a number, or flung past all reason - let go, before it reaches the picture: one NaN laid
+			// over it spreads through the bloom and the exposure to the whole frame)
+			// (as ranges, not isnan - WGSL has no NaN: a comparison with one is false, so "not within" catches it)
+			if (!(dot(v, v) < 1e8) || !(dot(p.positionAge.xyz, p.positionAge.xyz) < 1e14)) p.spin.w = 0.0;
 			p.spin.x += p.spin.y * dt;
 		}
 	}
 	uState.particles[i] = p;
 	float life = max(p.velocityLife.w, 1e-4);
 	uStream.data[i * 2u] = vec4(p.positionAge.xyz, clamp(p.positionAge.w / life, 0.0, 1.0));
-	uStream.data[i * 2u + 1u] = vec4(p.spin.x, p.spin.z, p.spin.w, 0.0);
+	// (its motion, for the streak particle.vert draws: the speed in the alive slot, past 1; its way in w)
+	float speed = length(p.velocityLife.xyz);
+	uStream.data[i * 2u + 1u] = vec4(p.spin.x, p.spin.z, p.spin.w > 0.5 ? 1.0 + speed : 0.0, speed > 1e-5 ? PackDirection(p.velocityLife.xyz / speed) : 0.0);
 }

@@ -224,6 +224,11 @@ function GrassFieldSetup:buildGrass()
 			-- every blade with it, no transform rewrite needed.
 			local rc = RenderingInstancedComponent.new(mesh, mat, total, radius)
 			rc:addLOD(self.lodMesh, LOD_MESH_SWAP, self.lodMat)
+			-- The thinning the renderer does: fewer blades with distance, each grown to cover the ground, the ones
+			-- going dissolving instead of dropping out (they popped, chunk by chunk, when this script cut the count);
+			-- and every blade dissolving at the field's edge by its own distance
+			rc:setDistanceThinning(LOD_MESH_SWAP, LOD_THIN, 0.02)
+			rc:setDistanceFade(0, 0, LOD_THIN - 30.0, LOD_THIN)
 			rc:enableInstanceColors()
 
 			local go = GameObject.new()
@@ -299,15 +304,14 @@ function GrassFieldSetup:update(time)
 			local dx = cp.x - c.x
 			local dz = cp.z - c.z
 			local d = math.sqrt(dx * dx + dz * dz)
-			if d > LOD_THIN then
-				n = 0
+			if d > LOD_THIN + CHUNK_SIZE then
+				n = 0     -- (every blade of it dissolved by now: setDistanceFade)
 			elseif d > LOD_MESH_SWAP then
 				-- Past here the renderer has swapped this chunk to the clump
 				-- impostor, so each instance is worth CLUMP_BLADES blades and
-				-- the count comes down to match. Still thinning to nothing by
-				-- LOD_THIN, just from a lower starting point.
-				local t = (d - LOD_MESH_SWAP) / (LOD_THIN - LOD_MESH_SWAP)
-				n = math.floor((PER_CHUNK / CLUMP_BLADES) * (1.0 - t))
+				-- the count comes down to match; the renderer thins it from
+				-- there (setDistanceThinning), dissolving the ones it lets go.
+				n = math.floor(PER_CHUNK / CLUMP_BLADES)
 			elseif d > LOD_FULL then
 				-- One quad per blade instead of a cross. The first half of
 				-- the buffer is exactly that, by construction.

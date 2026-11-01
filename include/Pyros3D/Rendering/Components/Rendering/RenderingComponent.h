@@ -324,6 +324,9 @@ namespace p3d {
 		// Every component whose automatic levels were still being made: given them where they are done
 		// now (a renderer calls it once a frame - a kept draw list asks a component only as it comes).
 		static void PollAutomaticLODs();
+		// An octahedral impostor as its last level (ImpostorBank: baked by the engine, cached on disk) - any model of a
+		// file, its levels made or given; past where its last mesh would have reached a few hundred metres, one quad
+		void TryAutomaticImpostor();
 		// The level of detail for a view that wants `level`, with the frame's other views in mind: the
 		// finest any view has asked for this frame or the last. A level is one for every view - a second
 		// view (an inventory's picture of the player, from under the world) chose the coarse level for
@@ -691,6 +694,9 @@ namespace p3d {
 		// The level a distance (squared) asks for, worked out afresh and remembering nothing
 		// (GetLODByDistance keeps the last answer: this is to hold that against).
 		uint32 LevelAtDistanceSQR(const f32 Distance) const;
+		// The same, and how far through its hand-over to the next level it is: 0 until the last part of the way to the
+		// distance the next takes over, then up to 1 at it (a crossfade: the two drawn dithered, one out, one in)
+		f32 LevelFadeAtDistanceSQR(const f32 Distance, uint32 &level) const;
 		// Squared distance from a point to its level-of-detail sphere (scaled; 0 inside it) - what a level is chosen by.
 		// To its centre or its origin, a camera standing on a terrain tile (its origin a corner) got a coarse level
 		f32 LODDistanceSQR(const Vec3 &from, const Vec3 &ownerPosition, const Vec3 &ownerScale);
@@ -795,6 +801,7 @@ namespace p3d {
 		f64 lodViewsFrame = -1.0;
 		uint32 lodWantNow = 0xFFFFFFFFu, lodWantBefore = 0xFFFFFFFFu;
 		bool autoLodWaiting = false;            // (its levels being made: asked again each frame - PollAutomaticLODs)
+		bool autoImpostorTried = false, autoImpostorWaiting = false;     // (its impostor: asked for, being baked)
 		uint32 autoLodSeen = 0;                 // the state of SetAutoLODInUse the level in use was picked under
 		std::shared_ptr<Renderable> shadowRenderable;
 		std::vector<RenderingMesh*> shadowMeshes;

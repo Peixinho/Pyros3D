@@ -258,6 +258,7 @@ void DemoLauncher::ConfigureRenderer(const DemoEntry &entry)
 	// (the lens and shutter, where the demo asks: SunShafts, DepthOfField, MotionBlur - as a scene's effects say them)
 	f32 shafts = 0.f, focus = 10.f, range = 4.f, blur = 0.f, shutter = 0.f, sunAngle = 0.0093f;
 	bool rayTraced = false, rtReflections = false;
+	SceneRenderer::Grade grade; f32 bloom = 0.5f, aoRadius = 1.f, aoStrength = 1.f, aoDirect = 0.2f;
 	if (r.contains("effects") && r["effects"].is_array())
 		for (const json &e : r["effects"])
 		{
@@ -269,7 +270,48 @@ void DemoLauncher::ConfigureRenderer(const DemoEntry &entry)
 			if (name == "MotionBlur") shutter = p.value("uShutter", 0.5f);
 			if (name == "RayTracedReflections") rtReflections = true;
 			if (name == "RayTracedShadows") { rayTraced = true; sunAngle = p.value("uSunAngle", 0.53f) * 0.017453293f; }
+			// (a parameter as a number, or as a scene writes it: four)
+			auto one = [&p](const char* k, const f32 d) -> f32 { if (!p.contains(k)) return d; const json &v = p[k]; return v.is_array() ? (v.empty() ? d : v[0].get<f32>()) : v.get<f32>(); };
+			auto four = [&p](const char* k, const Vec4 &d) -> Vec4 { if (!p.contains(k) || !p[k].is_array() || p[k].size() < 4) return d; const json &v = p[k]; return Vec4(v[0].get<f32>(), v[1].get<f32>(), v[2].get<f32>(), v[3].get<f32>()); };
+			if (name == "Bloom") bloom = one("uIntensity", bloom);
+			if (name == "SSAO") { aoRadius = one("uRadius", aoRadius); aoStrength = one("uStrength", aoStrength); aoDirect = one("uDirect", aoDirect); }
+			if (name == "Grade")
+			{
+				grade.on = true;
+				grade.exposure = one("uExposure", 0.f); grade.shoulder = one("uShoulder", 0.f); grade.temperature = one("uTemperature", 0.f); grade.tint = one("uTint", 0.f);
+				grade.contrast = one("uContrast", 1.f); grade.pivot = one("uPivot", 0.43f);
+				grade.lift = four("uLift", grade.lift); grade.gamma = four("uGamma", grade.gamma); grade.gain = four("uGain", grade.gain);
+				grade.shadowTint = four("uShadowTint", grade.shadowTint); grade.highlightTint = four("uHighlightTint", grade.highlightTint);
+				grade.saturation = one("uSaturation", 1.f); grade.vibrance = one("uVibrance", 0.f);
+				grade.vignette = one("uVignette", 0.f); grade.grain = one("uGrain", 0.f); grade.chromatic = one("uChromatic", 0.f);
+			}
 		}
+	renderer->SetGrade(grade);
+	renderer->SetBloomIntensity(bloom);
+	renderer->SetAmbientOcclusion(aoRadius, aoStrength, aoDirect);
+	// (the demo's own post effects: { "asset": "demos/effects/x.glsl", "params": {...} }, read from the assets folder)
+	std::vector<SceneRenderer::AssetEffect> assets;
+	if (r.contains("effects") && r["effects"].is_array())
+		for (const json &e : r["effects"])
+		{
+			if (!e.is_object() || !e.contains("asset")) continue;
+			const std::string path = std::string(STR(EXAMPLES_PATH) "/assets/") + e["asset"].get<std::string>();
+			std::ifstream in(path);
+			if (!in) { fprintf(stderr, "DemoLauncher: no post effect at %s\n", path.c_str()); continue; }
+			SceneRenderer::AssetEffect a;
+			a.name = e["asset"].get<std::string>();
+			a.source.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+			if (e.contains("params") && e["params"].is_object())
+				for (auto it = e["params"].begin(); it != e["params"].end(); ++it)
+				{
+					std::vector<f32> v;
+					if (it.value().is_array()) for (const json &x : it.value()) v.push_back(x.get<f32>());
+					else if (it.value().is_number()) v.push_back(it.value().get<f32>());
+					a.params[it.key()] = v;
+				}
+			assets.push_back(a);
+		}
+	renderer->SetAssetEffects(assets);
 	renderer->SetRayTracedShadows(rayTraced, sunAngle);
 	renderer->SetRayTracedReflections(rtReflections);
 	renderer->SetSunShafts(shafts); renderer->SetDepthOfField(focus, range, blur); renderer->SetMotionBlur(shutter);

@@ -1,4 +1,4 @@
--- Automatic orbit camera (SSRTest). Sets global `camera` to this owner.
+-- Automatic orbit camera. Sets global `camera` to this owner.
 local CameraOrbit = class('CameraOrbit')
 local dTime = 0
 

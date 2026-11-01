@@ -1,3 +1,4 @@
+#include <Pyros3D/Assets/Renderable/Primitives/Shapes/ImpostorQuad.h>
 #include <Pyros3D/Physics/CharacterController.h>
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <Pyros3D/Utils/Navigation/NavAgentComponent.h>
@@ -708,6 +709,7 @@ namespace p3d {
 		if (o.is<std::shared_ptr<Text>>()) return o.as<std::shared_ptr<Text>>();
 		if (o.is<std::shared_ptr<Model>>()) return o.as<std::shared_ptr<Model>>();
 		if (o.is<std::shared_ptr<Decal>>()) return o.as<std::shared_ptr<Decal>>();
+		if (o.is<std::shared_ptr<ImpostorQuad>>()) return o.as<std::shared_ptr<ImpostorQuad>>();
 		if (o.is<std::shared_ptr<Renderable>>()) return o.as<std::shared_ptr<Renderable>>();
 		return nullptr;
 	}

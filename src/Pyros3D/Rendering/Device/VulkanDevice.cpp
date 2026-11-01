@@ -11,6 +11,10 @@
 // up (a negative viewport height), depth 0..1, reversed Z as the renderer asks for it.
 //============================================================================
 
+#include <string>
+#include <unordered_map>
+#include <chrono>
+#include <Pyros3D/Rendering/Device/DisplayHdr.h>
 #include <Pyros3D/Rendering/Device/RenderDevice.h>
 #include <cstdlib>
 // (the frame a test's capture is of: PYROS_SHOT_FRAME, else the 120th)
@@ -209,6 +213,16 @@ namespace p3d { namespace gfx {
 			VmaAllocator vma = nullptr;
 			BufferRec shotBuffer; uint32_t shotW = 0, shotH = 0; bool shotWritten = false;     // (PYROS_SHOT)
 			VkSwapchainKHR swapchain = VK_NULL_HANDLE; VkFormat swapFormat = VK_FORMAT_B8G8R8A8_SRGB; VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
+			std::mutex shaderNamesMutex; std::unordered_map<VkShaderModule, std::string> shaderNames;
+			bool naming = false;     // (VK_EXT_debug_utils on - with the validation layer: objects given their debug names)
+			void Name(VkObjectType type, uint64_t handle, const char* name)
+			{
+				if (!naming || !name || !handle || !vkSetDebugUtilsObjectNameEXT) return;
+				VkDebugUtilsObjectNameInfoEXT n = {}; n.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT; n.objectType = type; n.objectHandle = handle; n.pObjectName = name;
+				vkSetDebugUtilsObjectNameEXT(device, &n);
+			}
+			bool colorSpaces = false, hdrOutput = false;     // (VK_EXT_swapchain_colorspace on; the swapchain half floats in extended linear sRGB)
+			float OutputHeadroom() const override { return hdrOutput ? DisplayHeadroom() : 1.f; }
 			std::vector<uint32_t> swapTextures; std::vector<VkSemaphore> renderDone;
 			uint32_t width = 0, height = 0, imageIndex = 0; bool vsync = true, haveImage = false;
 			Capabilities caps; float timestampPeriod = 1.f;
@@ -251,6 +265,7 @@ namespace p3d { namespace gfx {
 				case VK_FORMAT_B8G8R8A8_UNORM: return Format::BGRA8;
 				case VK_FORMAT_R8G8B8A8_UNORM: return Format::RGBA8;
 				case VK_FORMAT_R8G8B8A8_SRGB: return Format::RGBA8_sRGB;
+				case VK_FORMAT_R16G16B16A16_SFLOAT: return Format::RGBA16F;
 				default: return Format::BGRA8_sRGB;
 				}
 			}
@@ -259,6 +274,7 @@ namespace p3d { namespace gfx {
 			Sampler CreateSampler(const SamplerDesc &d) override;
 			void Destroy(Buffer b) override;
 			void Destroy(Texture t) override;
+			bool Alive(Texture t) override { return t.id != 0 && textures.Get(t.id) != nullptr; }
 			BindGroup CreateBindGroup(Pipeline layoutOf, const BindGroupEntry* e, uint32_t count) override;
 			// Ray queries (VK_KHR_acceleration_structure + VK_KHR_ray_query, where the device has them): each geometry's own
 			// structure (built at once, waited on), and each frame's scene over them, built by a command buffer that goes
@@ -311,11 +327,25 @@ namespace p3d { namespace gfx {
 			void Flush();
 			void SubmitPending();     // (the frame's lists so far to the queue - not its end: a readback reads what they drew)
 			bool ReadTexture(Texture t, std::vector<uint8_t> &out) override;
+			bool ReadTextures(const Texture* ts, const uint32_t count, std::vector<std::vector<uint8_t> > &out) override;
+			uint64_t ReadTexturesLater(const Texture* ts, const uint32_t count) override;
+			bool ReadTexturesDone(const uint64_t ticket, std::vector<std::vector<uint8_t> > &out) override;
+			// (reads not waited for: their command buffer's pool, its fence, and the buffers they copy into)
+			struct LaterStaging { VkBuffer buffer = VK_NULL_HANDLE; VmaAllocation alloc = VK_NULL_HANDLE; VmaAllocationInfo info = {}; size_t size = 0; };
+			struct LaterRead { VkCommandPool pool = VK_NULL_HANDLE; VkFence fence = VK_NULL_HANDLE; std::vector<LaterStaging> staging; };
+			std::map<uint64_t, LaterRead> vkLater;
 
 			bool CreateSwapchain();
 			VkDescriptorSetLayout MaterialLayout(const std::vector<BindingDesc> &m);
 			void Transition(VkCommandBuffer cmd, TextureRec &t, VkImageLayout to);
 			void OneShot(const std::function<void(VkCommandBuffer)> &f);
+			// (the same, not waited for: queued behind what was submitted before it - its barriers order it after that - and
+			// `done` run, its pool and fence freed, once its fence is seen signalled; ReapShots looks, at each Present)
+			struct LaterShot { VkCommandPool pool = VK_NULL_HANDLE; VkFence fence = VK_NULL_HANDLE; std::function<void()> done; };
+			std::vector<LaterShot> laterShots;
+			std::mutex laterShotsMutex;
+			void OneShotLater(const std::function<void(VkCommandBuffer)> &f, const std::function<void()> &done);
+			void ReapShots(const bool wait);
 			void Job(std::function<void()> f) { { std::lock_guard<std::mutex> l(jobMutex); jobs.push_back(std::move(f)); } jobCv.notify_one(); }
 			int TimedPass(const char* name);
 		};
@@ -526,6 +556,13 @@ namespace p3d { namespace gfx {
 		// ---------------------------------------------------------------- the device
 		bool VulkanDevice::Init(const SurfaceSource &s)
 		{
+#if defined(__APPLE__)
+			// (MoltenVK: resources bound one by one, not through Metal argument buffers - with them, Apple's shader
+			// compiler service crashes building the lit surface's pipeline (XPC_ERROR_CONNECTION_INTERRUPTED) and every
+			// mesh drawn with it goes missing; a surface binds ~25 resources, well within Metal's direct limits. Read
+			// when MoltenVK starts: set before the loader, and only where the user has not set it)
+			setenv("MVK_CONFIG_USE_METAL_ARGUMENT_BUFFERS", "0", 0);
+#endif
 			if (volkInitialize() != VK_SUCCESS) { fprintf(stderr, "Vulkan: no loader\n"); return false; }
 			std::vector<const char*> ext = { VK_KHR_SURFACE_EXTENSION_NAME };
 			VkInstanceCreateFlags flags = 0;
@@ -538,6 +575,14 @@ namespace p3d { namespace gfx {
 #else
 			ext.push_back(s.kind == SurfaceSource::Wayland ? "VK_KHR_wayland_surface" : "VK_KHR_xlib_surface");
 #endif
+			// (HDR output asked for - PYROS_HDR: the colour spaces past sRGB's, where the loader has them)
+			if (WantsHdrOutput())
+			{
+				uint32_t n = 0; vkEnumerateInstanceExtensionProperties(nullptr, &n, nullptr);
+				std::vector<VkExtensionProperties> props(n); vkEnumerateInstanceExtensionProperties(nullptr, &n, props.data());
+				for (const VkExtensionProperties &e : props) if (!strcmp(e.extensionName, VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME)) { ext.push_back(VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME); colorSpaces = true; }
+				if (!colorSpaces) fprintf(stderr, "Vulkan: HDR asked for, but the loader has no %s - SDR\n", VK_EXT_SWAPCHAIN_COLOR_SPACE_EXTENSION_NAME);
+			}
 			VkApplicationInfo app = {}; app.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO; app.pApplicationName = "Pyros3D"; app.apiVersion = VK_API_VERSION_1_3;
 			VkInstanceCreateInfo ici = {}; ici.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO; ici.flags = flags; ici.pApplicationInfo = &app;
 			ici.enabledExtensionCount = (uint32_t)ext.size(); ici.ppEnabledExtensionNames = ext.data();
@@ -549,7 +594,8 @@ namespace p3d { namespace gfx {
 				uint32_t ln = 0; vkEnumerateInstanceLayerProperties(&ln, nullptr);
 				std::vector<VkLayerProperties> lp(ln); vkEnumerateInstanceLayerProperties(&ln, lp.data());
 				bool have = false; for (const VkLayerProperties &l : lp) if (strcmp(l.layerName, layers[0]) == 0) have = true;
-				if (have) { ici.enabledLayerCount = 1; ici.ppEnabledLayerNames = layers; }
+				// (and its objects named, the renderer's names for them - the layer's messages say which texture, which pipeline)
+				if (have) { ici.enabledLayerCount = 1; ici.ppEnabledLayerNames = layers; ext.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME); ici.enabledExtensionCount = (uint32_t)ext.size(); ici.ppEnabledExtensionNames = ext.data(); naming = true; }
 				else fprintf(stderr, "Vulkan: PYROS_VK_VALIDATION set, but the loader has no VK_LAYER_KHRONOS_validation (VK_LAYER_PATH) - without it\n");
 			}
 			if (vkCreateInstance(&ici, nullptr, &instance) != VK_SUCCESS) { fprintf(stderr, "Vulkan: no instance\n"); return false; }
@@ -724,6 +770,13 @@ namespace p3d { namespace gfx {
 			// (sRGB pixels in the sRGB colour space: the same format is offered in others - MoltenVK lists it
 			// with linear and wide-gamut ones too - and in a linear one the system encodes the picture again)
 			for (auto &f : fs) if (f.format == VK_FORMAT_B8G8R8A8_SRGB && f.colorSpace == VK_COLOR_SPACE_SRGB_NONLINEAR_KHR) { chosen = f; break; }
+			// (HDR: half floats in extended linear sRGB - 1 SDR white, more brighter - as Metal's EDR layer; shaders
+			// write linear values, nothing to encode)
+			hdrOutput = false;
+			if (colorSpaces)
+				for (auto &f : fs) if (f.format == VK_FORMAT_R16G16B16A16_SFLOAT && f.colorSpace == VK_COLOR_SPACE_EXTENDED_SRGB_LINEAR_EXT) { chosen = f; hdrOutput = true; break; }
+			if (colorSpaces && !hdrOutput) fprintf(stderr, "Vulkan: HDR asked for, but the surface has no extended linear sRGB - SDR\n");
+			else if (hdrOutput) fprintf(stderr, "Vulkan: HDR output (extended linear sRGB), headroom now %.2f\n", DisplayHeadroom());
 			if (getenv("PYROS_SHOW_FORMATS")) for (auto &f : fs) fprintf(stderr, "Vulkan surface format %d colour space %d\n", (int)f.format, (int)f.colorSpace);
 			swapFormat = chosen.format;
 			uint32_t pn = 0; vkGetPhysicalDeviceSurfacePresentModesKHR(phys, surface, &pn, nullptr);
@@ -747,7 +800,7 @@ namespace p3d { namespace gfx {
 			for (VkImage img : imgs)
 			{
 				TextureRec r; r.image = img; r.swapchain = true; r.desc.width = width; r.desc.height = height;
-				r.desc.format = swapFormat == VK_FORMAT_B8G8R8A8_SRGB ? Format::BGRA8_sRGB : Format::BGRA8; r.desc.usage = TexColorTarget;
+				r.desc.format = BackbufferFormat(); r.desc.usage = TexColorTarget;
 				VkImageViewCreateInfo vi = {}; vi.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO; vi.image = img; vi.viewType = VK_IMAGE_VIEW_TYPE_2D; vi.format = swapFormat;
 				vi.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 				vkCreateImageView(device, &vi, nullptr, &r.view);
@@ -762,6 +815,7 @@ namespace p3d { namespace gfx {
 		VulkanDevice::~VulkanDevice()
 		{
 			if (device) vkDeviceWaitIdle(device);
+			if (device) ReapShots(true);
 			for (Frame &f : frames) { for (std::function<void()> &r : f.retire) r(); f.retire.clear(); }     // (all done now)
 			if (caps.rayQuery && device)
 			{
@@ -833,6 +887,39 @@ namespace p3d { namespace gfx {
 			vkDestroyFence(device, fence, nullptr); vkDestroyCommandPool(device, pool, nullptr);
 		}
 
+		void VulkanDevice::OneShotLater(const std::function<void(VkCommandBuffer)> &f, const std::function<void()> &done)
+		{
+			LaterShot l; l.done = done;
+			VkCommandPoolCreateInfo cp = {}; cp.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO; cp.queueFamilyIndex = family; cp.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+			vkCreateCommandPool(device, &cp, nullptr, &l.pool);
+			VkCommandBufferAllocateInfo ai = {}; ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO; ai.commandPool = l.pool; ai.commandBufferCount = 1; ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			VkCommandBuffer cmd; vkAllocateCommandBuffers(device, &ai, &cmd);
+			VkCommandBufferBeginInfo bi = {}; bi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO; bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			vkBeginCommandBuffer(cmd, &bi); f(cmd); vkEndCommandBuffer(cmd);
+			VkFenceCreateInfo fi = {}; fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO; vkCreateFence(device, &fi, nullptr, &l.fence);
+			VkSubmitInfo si = {}; si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; si.commandBufferCount = 1; si.pCommandBuffers = &cmd;
+			{ std::lock_guard<std::mutex> lk(recordMutex); vkQueueSubmit(queue, 1, &si, l.fence); }
+			std::lock_guard<std::mutex> lk(laterShotsMutex);
+			laterShots.push_back(l);
+		}
+
+		void VulkanDevice::ReapShots(const bool wait)
+		{
+			std::vector<LaterShot> finished;
+			{
+				std::lock_guard<std::mutex> lk(laterShotsMutex);
+				for (size_t i = 0; i < laterShots.size();)
+					if (wait ? vkWaitForFences(device, 1, &laterShots[i].fence, VK_TRUE, UINT64_MAX) == VK_SUCCESS : vkGetFenceStatus(device, laterShots[i].fence) == VK_SUCCESS)
+					{ finished.push_back(laterShots[i]); laterShots.erase(laterShots.begin() + i); }
+					else i++;
+			}
+			for (LaterShot &l : finished)
+			{
+				vkDestroyFence(device, l.fence, nullptr); vkDestroyCommandPool(device, l.pool, nullptr);
+				if (l.done) l.done();
+			}
+		}
+
 		void VulkanDevice::Upload(Buffer to, uint64_t offset, const void* data, uint64_t size)
 		{
 			BufferRec* r = buffers.Get(to.id);
@@ -842,8 +929,9 @@ namespace p3d { namespace gfx {
 			Buffer staging = CreateBuffer(sd, nullptr);
 			memcpy(buffers.Get(staging.id)->mapped, data, size);
 			VkBuffer src = buffers.Get(staging.id)->buffer, dst = r->buffer;
-			OneShot([&](VkCommandBuffer cmd) { VkBufferCopy c = { 0, offset, size }; vkCmdCopyBuffer(cmd, src, dst, 1, &c); });
-			Destroy(staging);
+			// (not waited for: a mesh's buffers made mid-frame stood the frame still while the GPU caught up)
+			OneShotLater([src, dst, offset, size](VkCommandBuffer cmd) { VkBufferCopy c = { 0, offset, size }; vkCmdCopyBuffer(cmd, src, dst, 1, &c); },
+				[this, staging] { Destroy(staging); });
 		}
 
 		Texture VulkanDevice::CreateTexture(const TextureDesc &d, const TextureData* data, uint32_t count)
@@ -866,14 +954,17 @@ namespace p3d { namespace gfx {
 			vi.viewType = d.kind == TextureKind::Cube ? VK_IMAGE_VIEW_TYPE_CUBE : d.kind == TextureKind::Tex2DArray ? VK_IMAGE_VIEW_TYPE_2D_ARRAY : d.kind == TextureKind::Tex3D ? VK_IMAGE_VIEW_TYPE_3D : VK_IMAGE_VIEW_TYPE_2D;
 			vi.subresourceRange = { (VkImageAspectFlags)(IsDepth(d.format) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT), 0, d.mips, 0, ii.arrayLayers };
 			vkCreateImageView(device, &vi, nullptr, &r.view);
+			Name(VK_OBJECT_TYPE_IMAGE, (uint64_t)r.image, d.debugName); Name(VK_OBJECT_TYPE_IMAGE_VIEW, (uint64_t)r.view, d.debugName);
 			Texture h; h.id = textures.Add(r);
 			if (data && count) Upload(h, data, count);
-			else if ((d.usage & TexSampled) && !IsDepth(d.format) && d.samples <= 1)
+			else if ((d.usage & TexSampled) && d.samples <= 1)
 			{
-				// (one sampled before anything is drawn into it - last frame's clouds on the first: in the layout a read
-				// wants, its contents whatever they are)
+				// (one sampled before anything is drawn into it - last frame's clouds on the first, a depth read before its
+				// pass first ran: in the layout a read wants, its contents whatever they are)
+				// (not waited for: a texture made mid-frame - an impostor bake's, a scene's - waited for the whole GPU, 35 ms)
 				TextureRec* made = textures.Get(h.id);
-				OneShot([&](VkCommandBuffer cmd) { Transition(cmd, *made, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL); });
+				const VkImageLayout read = IsDepth(d.format) ? VK_IMAGE_LAYOUT_DEPTH_READ_ONLY_OPTIMAL : VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				OneShotLater([&](VkCommandBuffer cmd) { Transition(cmd, *made, read); }, nullptr);
 			}
 			return h;
 		}
@@ -900,12 +991,13 @@ namespace p3d { namespace gfx {
 				copies.push_back(c); at += (data[i].size + 15) & ~15ull;
 			}
 			VkBuffer src = s->buffer;
-			OneShot([&](VkCommandBuffer cmd) {
+			// (not waited for: the staging buffer freed once the copy is seen done - an FFT sea's maps, written every frame,
+			// waited for the GPU every frame)
+			OneShotLater([&](VkCommandBuffer cmd) {
 				Transition(cmd, *r, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 				vkCmdCopyBufferToImage(cmd, src, r->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, (uint32_t)copies.size(), copies.data());
 				Transition(cmd, *r, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-			});
-			Destroy(staging);
+			}, [this, staging] { Destroy(staging); });
 		}
 
 		Sampler VulkanDevice::CreateSampler(const SamplerDesc &d)
@@ -925,7 +1017,9 @@ namespace p3d { namespace gfx {
 			if (!d.spirv) { fprintf(stderr, "Vulkan: shader '%s' has no SPIR-V\n", d.debugName ? d.debugName : "?"); return Shader(); }
 			VkShaderModuleCreateInfo mi = {}; mi.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO; mi.codeSize = d.spirvWords * 4; mi.pCode = d.spirv;
 			VkShaderModule m; if (vkCreateShaderModule(device, &mi, nullptr, &m) != VK_SUCCESS) return Shader();
-			Shader h; h.id = shaders.Add(m); return h;
+			Shader h; h.id = shaders.Add(m);
+			{ std::lock_guard<std::mutex> l(shaderNamesMutex); shaderNames[m] = d.debugName ? d.debugName : "?"; }     // (for what a failed pipeline says)
+			return h;
 		}
 
 		VkDescriptorSetLayout VulkanDevice::MaterialLayout(const std::vector<BindingDesc> &m)
@@ -1019,9 +1113,24 @@ namespace p3d { namespace gfx {
 				VkGraphicsPipelineCreateInfo gp = {}; gp.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO; gp.pNext = &rci;
 				gp.stageCount = job->fs ? 2 : 1; gp.pStages = st; gp.pVertexInputState = &vi; gp.pInputAssemblyState = &ia; gp.pViewportState = &vp;
 				gp.pRasterizationState = &rs; gp.pMultisampleState = &ms; gp.pDepthStencilState = &ds; gp.pColorBlendState = &cbs; gp.pDynamicState = &dy; gp.layout = r->layout;
-				const VkResult res = vkCreateGraphicsPipelines(device, pipelineCache, 1, &gp, nullptr, &r->pipeline);
+				// (again, a few times, where it failed to initialise: MoltenVK's way of saying Apple's shader compiler
+				// service dropped out - XPC_ERROR_CONNECTION_INTERRUPTED, under a burst of big pipelines at once - not that
+				// the pipeline is wrong; given up on, every mesh drawn with it went missing)
+				VkResult res = VK_ERROR_INITIALIZATION_FAILED;
+				for (int attempt = 0; attempt < 4; attempt++)
+				{
+					res = vkCreateGraphicsPipelines(device, pipelineCache, 1, &gp, nullptr, &r->pipeline);
+					if (res != VK_ERROR_INITIALIZATION_FAILED) break;
+					std::this_thread::sleep_for(std::chrono::milliseconds(100 * (attempt + 1)));
+				}
+				if (res == VK_SUCCESS) Name(VK_OBJECT_TYPE_PIPELINE, (uint64_t)r->pipeline, d.debugName);
 				r->state.store(res == VK_SUCCESS ? 1 : 2);
-				if (res != VK_SUCCESS) fprintf(stderr, "Vulkan: pipeline '%s' failed (%d)\n", d.debugName ? d.debugName : "?", (int)res);
+				if (res != VK_SUCCESS)
+				{
+					std::string vsName, fsName;
+					{ std::lock_guard<std::mutex> l(shaderNamesMutex); vsName = shaderNames[job->vs]; if (job->fs) fsName = shaderNames[job->fs]; }
+					fprintf(stderr, "Vulkan: pipeline '%s' failed (%d) - %s + %s, %u sample(s), %u target(s)\n", d.debugName ? d.debugName : "?", (int)res, vsName.c_str(), fsName.c_str(), (uint32_t)d.samples, (uint32_t)d.colorCount);
+				}
 				cFinished.fetch_add(1); cPending.fetch_sub(1);
 				delete job;
 			});
@@ -1374,7 +1483,7 @@ namespace p3d { namespace gfx {
 				if (frameNumber == ShotFrame() && !shotBuffer.buffer && getenv("PYROS_SHOT"))
 				{
 					shotW = back.desc.width; shotH = back.desc.height;
-					VkBufferCreateInfo bi = {}; bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO; bi.size = (VkDeviceSize)shotW * shotH * 4; bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+					VkBufferCreateInfo bi = {}; bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO; bi.size = (VkDeviceSize)shotW * shotH * (hdrOutput ? 8 : 4); bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
 					VmaAllocationCreateInfo ac = {}; ac.usage = VMA_MEMORY_USAGE_AUTO; ac.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
 					VmaAllocationInfo info = {};
 					if (vmaCreateBuffer(vma, &bi, &ac, &shotBuffer.buffer, &shotBuffer.alloc, &info) == VK_SUCCESS)
@@ -1409,7 +1518,8 @@ namespace p3d { namespace gfx {
 				std::vector<uint8_t> px((size_t)shotW * shotH * 4);
 				const uint8_t* p = (const uint8_t*)shotBuffer.mapped;
 				const bool bgra = swapFormat == VK_FORMAT_B8G8R8A8_SRGB || swapFormat == VK_FORMAT_B8G8R8A8_UNORM;
-				for (size_t k = 0; k < (size_t)shotW * shotH; k++) { px[k * 4] = bgra ? p[k * 4 + 2] : p[k * 4]; px[k * 4 + 1] = p[k * 4 + 1]; px[k * 4 + 2] = bgra ? p[k * 4] : p[k * 4 + 2]; px[k * 4 + 3] = 255; }
+				if (hdrOutput) HalfToSrgb8((const uint16_t*)p, px.data(), (size_t)shotW * shotH);     // (half floats: written as SDR)
+				else for (size_t k = 0; k < (size_t)shotW * shotH; k++) { px[k * 4] = bgra ? p[k * 4 + 2] : p[k * 4]; px[k * 4 + 1] = p[k * 4 + 1]; px[k * 4 + 2] = bgra ? p[k * 4] : p[k * 4 + 2]; px[k * 4 + 3] = 255; }
 				WritePng(getenv("PYROS_SHOT"), px.data(), shotW, shotH);
 				shotWritten = true;
 			}
@@ -1458,6 +1568,108 @@ namespace p3d { namespace gfx {
 			return true;
 		}
 
+		bool VulkanDevice::ReadTextures(const Texture* ts, const uint32_t count, std::vector<std::vector<uint8_t> > &out)
+		{
+			out.assign(count, std::vector<uint8_t>());
+			SubmitPending();
+			struct Staging { VkBuffer buffer = VK_NULL_HANDLE; VmaAllocation alloc = VK_NULL_HANDLE; VmaAllocationInfo info = {}; size_t size = 0; };
+			std::vector<Staging> st(count);
+			bool ok = true;
+			for (uint32_t i = 0; i < count && ok; i++)
+			{
+				TextureRec* r = textures.Get(ts[i].id);
+				const uint32_t bpt = r ? BytesPerTexel(r->desc.format) : 0;
+				if (!r || !r->image || !bpt || !(r->desc.usage & TexCopySrc) || r->desc.samples > 1) { ok = false; break; }
+				st[i].size = (size_t)r->desc.width * r->desc.height * bpt;
+				VkBufferCreateInfo bi = {}; bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO; bi.size = (VkDeviceSize)st[i].size; bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+				VmaAllocationCreateInfo ac = {}; ac.usage = VMA_MEMORY_USAGE_AUTO; ac.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+				if (vmaCreateBuffer(vma, &bi, &ac, &st[i].buffer, &st[i].alloc, &st[i].info) != VK_SUCCESS) ok = false;
+			}
+			if (ok)
+				// (every copy in one command buffer - one wait for them all)
+				OneShot([&](VkCommandBuffer cmd) {
+					for (uint32_t i = 0; i < count; i++)
+					{
+						TextureRec* r = textures.Get(ts[i].id);
+						const VkImageLayout was = r->layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : r->layout;
+						Transition(cmd, *r, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+						VkBufferImageCopy region = {}; region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; region.imageSubresource.layerCount = 1;
+						region.imageExtent = { r->desc.width, r->desc.height, 1 };
+						vkCmdCopyImageToBuffer(cmd, r->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, st[i].buffer, 1, &region);
+						Transition(cmd, *r, was);
+					}
+				});
+			for (uint32_t i = 0; i < count; i++)
+			{
+				if (!st[i].buffer) continue;
+				if (ok) { vmaInvalidateAllocation(vma, st[i].alloc, 0, VK_WHOLE_SIZE); const uint8_t* p = (const uint8_t*)st[i].info.pMappedData; out[i].assign(p, p + st[i].size); }
+				vmaDestroyBuffer(vma, st[i].buffer, st[i].alloc);
+			}
+			return ok;
+		}
+
+		uint64_t VulkanDevice::ReadTexturesLater(const Texture* ts, const uint32_t count)
+		{
+			// (ReadTextures' copies, in a command buffer of their own with a fence - asked after, not waited for)
+			SubmitPending();
+			LaterRead l; l.staging.resize(count);
+			bool ok = true;
+			for (uint32_t i = 0; i < count && ok; i++)
+			{
+				TextureRec* r = textures.Get(ts[i].id);
+				const uint32_t bpt = r ? BytesPerTexel(r->desc.format) : 0;
+				if (!r || !r->image || !bpt || !(r->desc.usage & TexCopySrc) || r->desc.samples > 1) { ok = false; break; }
+				l.staging[i].size = (size_t)r->desc.width * r->desc.height * bpt;
+				VkBufferCreateInfo bi = {}; bi.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO; bi.size = (VkDeviceSize)l.staging[i].size; bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+				VmaAllocationCreateInfo ac = {}; ac.usage = VMA_MEMORY_USAGE_AUTO; ac.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT;
+				if (vmaCreateBuffer(vma, &bi, &ac, &l.staging[i].buffer, &l.staging[i].alloc, &l.staging[i].info) != VK_SUCCESS) ok = false;
+			}
+			if (!ok)
+			{
+				for (LaterStaging &b : l.staging) if (b.buffer) vmaDestroyBuffer(vma, b.buffer, b.alloc);
+				return 0;
+			}
+			VkCommandPoolCreateInfo cp = {}; cp.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO; cp.queueFamilyIndex = family; cp.flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
+			vkCreateCommandPool(device, &cp, nullptr, &l.pool);
+			VkCommandBufferAllocateInfo ai = {}; ai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO; ai.commandPool = l.pool; ai.commandBufferCount = 1; ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			VkCommandBuffer cmd; vkAllocateCommandBuffers(device, &ai, &cmd);
+			VkCommandBufferBeginInfo cbi = {}; cbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO; cbi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+			vkBeginCommandBuffer(cmd, &cbi);
+			for (uint32_t i = 0; i < count; i++)
+			{
+				TextureRec* r = textures.Get(ts[i].id);
+				const VkImageLayout was = r->layout == VK_IMAGE_LAYOUT_UNDEFINED ? VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL : r->layout;
+				Transition(cmd, *r, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL);
+				VkBufferImageCopy region = {}; region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT; region.imageSubresource.layerCount = 1;
+				region.imageExtent = { r->desc.width, r->desc.height, 1 };
+				vkCmdCopyImageToBuffer(cmd, r->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, l.staging[i].buffer, 1, &region);
+				Transition(cmd, *r, was);
+			}
+			vkEndCommandBuffer(cmd);
+			VkFenceCreateInfo fi = {}; fi.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO; vkCreateFence(device, &fi, nullptr, &l.fence);
+			VkSubmitInfo si = {}; si.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO; si.commandBufferCount = 1; si.pCommandBuffers = &cmd;
+			{ std::lock_guard<std::mutex> lk(recordMutex); vkQueueSubmit(queue, 1, &si, l.fence); }
+			vkLater[++laterNext] = l;
+			return laterNext;
+		}
+
+		bool VulkanDevice::ReadTexturesDone(const uint64_t ticket, std::vector<std::vector<uint8_t> > &out)
+		{
+			std::map<uint64_t, LaterRead>::iterator i = vkLater.find(ticket);
+			if (i == vkLater.end() || vkGetFenceStatus(device, i->second.fence) != VK_SUCCESS) return false;
+			out.assign(i->second.staging.size(), std::vector<uint8_t>());
+			for (size_t k = 0; k < i->second.staging.size(); k++)
+			{
+				LaterStaging &b = i->second.staging[k];
+				vmaInvalidateAllocation(vma, b.alloc, 0, VK_WHOLE_SIZE);
+				const uint8_t* p = (const uint8_t*)b.info.pMappedData; out[k].assign(p, p + b.size);
+				vmaDestroyBuffer(vma, b.buffer, b.alloc);
+			}
+			vkDestroyFence(device, i->second.fence, nullptr); vkDestroyCommandPool(device, i->second.pool, nullptr);
+			vkLater.erase(i);
+			return true;
+		}
+
 		Texture VulkanDevice::AcquireBackbuffer()
 		{
 			// (one a frame: a second pass over it - an editor's panels over its views - draws on the same, what it holds kept)
@@ -1474,6 +1686,7 @@ namespace p3d { namespace gfx {
 		void VulkanDevice::Present()
 		{
 			Flush();     // (the frame's lists, at once)
+			ReapShots(false);
 			frameOpen = false;
 			if (!haveImage) return;
 			VkPresentInfoKHR pi = {}; pi.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;

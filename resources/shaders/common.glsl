@@ -28,7 +28,32 @@ layout(set = 1, binding = 0, std140) uniform FrameData
 	vec4 ambientSH[9];       // order-2 spherical harmonics of the light all round (linear radiance)
 	vec4 weather;            // x: the rain, 0..1 (RenderGlobals::Rain): what faces up wet and puddled in proportion; y: 1 the sun's shadow ray-traced (surface.frag's uAO, green); z: 1 a transparent background (View); w: the screen's HDR headroom (1: SDR)
 	mat4 previousViewProjection;     // last frame's, without its jitter: where a point was in last frame's picture (reflections)
+	vec4 temporal;           // x: the frame's index, 0..63 - what moves a dither from frame to frame (LodDither)
 } uFrame;
+
+// (a colour as it may be kept or averaged: a value gone wrong - not a number, an infinity, or past what a half float
+// holds - as nothing. A pass that keeps last frame's - the temporal resolve, the clouds - or averages the whole picture -
+// the exposure, the bloom - would otherwise carry one bad pixel from frame to frame, the whole picture black or tinted
+// for good. A range test, not isnan: WGSL has none, and fast math may fold it away)
+vec3 Sane(vec3 c) { return all(lessThan(abs(c), vec3(65000.0))) ? c : vec3(0.0); }
+vec4 Sane(vec4 c) { return all(lessThan(abs(c), vec4(65000.0))) ? c : vec4(0.0); }
+// The crossfade dither (a level of detail handing over, a plant fading at its distance): interleaved gradient noise,
+// moved every frame - the temporal resolve averages it into a smooth blend instead of a fixed screen-door pattern.
+// The same in every pass of a frame (prepass, cut, lit), so the two levels keep complementary pixels.
+// (an instance's two dissolves at once: its fade - keep the dither's pixels below it - and its level's crossfade code -
+// + the same, - keep those above; 0 whole. True: this pixel is not its)
+bool InstanceDissolved(float fade, float code, float dither)
+{
+	if (fade < 0.999 && dither >= fade) return true;
+	if (code > 0.0) return dither >= code;
+	if (code < 0.0) return dither < -code;
+	return false;
+}
+float LodDither(vec2 fragCoord)
+{
+	vec2 p = fragCoord + 5.588238 * uFrame.temporal.x;
+	return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
+}
 
 // Where a world point was in last frame's picture (0..1, y down), -1 where it was not in it
 vec2 PreviousUV(vec3 world)

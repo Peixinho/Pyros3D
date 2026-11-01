@@ -152,7 +152,7 @@
      "shadowNear": 0.5,
      "shadowBiasFactor": 2.0,
      "shadowBiasUnits": 1.0,
-     "volumetricScattering": 0.016,
+     "volumetricScattering": 0.16,
      "volumetricAnisotropy": 0.72,
      "volumetricSteps": 48
     }
@@ -195,7 +195,7 @@
      "shadowNear": 0.5,
      "shadowBiasFactor": 2.0,
      "shadowBiasUnits": 1.0,
-     "volumetricScattering": 0.012,
+     "volumetricScattering": 0.03,
      "volumetricAnisotropy": 0.35,
      "volumetricSteps": 40
     }

@@ -14,7 +14,8 @@ float DepthAt(vec2 uv)
 }
 layout(location = 0) out vec4 outAO;
 
-const float kRadius = 1.0;           // metres
+layout(set = 0, binding = 0, std140) uniform DrawData { vec4 params; } uDraw;     // (x the reach in metres, y the strength)
+#define kRadius uDraw.params.x
 const int kSlices = 3, kSteps = 6;
 
 // (at the centre of the depth texel the uv falls in: the x and y from the same place as the depth - on a surface
@@ -95,5 +96,5 @@ void main()
 		          + 0.25 * (-cos(2.0 * h2 - nAngle) + cosN + 2.0 * h2 * sin(nAngle));
 		visibility += projLen * arc;
 	}
-	outAO = vec4(clamp(visibility / float(kSlices), 0.0, 1.0));
+	outAO = vec4(pow(clamp(visibility / float(kSlices), 0.0, 1.0), max(uDraw.params.y, 0.0)));
 }

@@ -19,7 +19,8 @@ void main()
 	if (ev > 2.0) ev = 2.0 + (ev - 2.0) * 0.6;
 	float target = exp2(clamp(ev, -5.0, 6.0)) * exp2(uDraw.params.x);
 	float previous = texelFetch(sampler2D(uPrevious, uPointClamp), ivec2(0, 0), 0).r;
-	if (uDraw.params.w > 0.5 || !(previous > 0.0)) { outColor = vec4(target, 0.0, 0.0, 1.0); return; }
+	if (!(target > 0.0 && target < 1e6)) target = previous > 0.0 && previous < 1e6 ? previous : 1.0;     // (an average gone wrong: kept as it was)
+	if (uDraw.params.w > 0.5 || !(previous > 0.0 && previous < 1e6)) { outColor = vec4(target, 0.0, 0.0, 1.0); return; }
 	float rate = target < previous ? 3.0 : 1.2;          // (per second: to a brighter scene fast, to a darker one slower)
 	float k = 1.0 - exp(-uFrame.frame.x * rate);
 	outColor = vec4(exp2(mix(log2(previous), log2(target), k)), 0.0, 0.0, 1.0);

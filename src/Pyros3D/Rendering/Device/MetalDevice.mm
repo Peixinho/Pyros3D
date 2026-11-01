@@ -18,6 +18,7 @@
 // renderer asks for it. Barriers are Metal's to work out: every resource is hazard-tracked.
 //============================================================================
 
+#include <Pyros3D/Rendering/Device/DisplayHdr.h>
 #include <Pyros3D/Rendering/Device/RenderDevice.h>
 #include <cstdlib>
 // (the frame a test's capture is of: PYROS_SHOT_FRAME, else the 120th)
@@ -37,6 +38,7 @@ static inline uint64_t ShotFrame() { static const uint64_t f = getenv("PYROS_SHO
 #include <cstring>
 #include <deque>
 #include <map>
+#include <unordered_map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -281,8 +283,7 @@ namespace p3d { namespace gfx {
 				layer.pixelFormat = MTLPixelFormatBGRA8Unorm_sRGB;
 				// (PYROS_HDR=1: half floats in extended linear sRGB - 1 is SDR white, more is brighter, as far as the screen's
 				// EDR headroom goes; shaders still write linear values, nothing to encode)
-				const char* hdrEnv = getenv("PYROS_HDR");
-				if (hdrEnv && atoi(hdrEnv) != 0)
+				if (WantsHdrOutput())
 				{
 					hdrOutput = true;
 					layer.pixelFormat = MTLPixelFormatRGBA16Float;
@@ -507,6 +508,75 @@ namespace p3d { namespace gfx {
 				return true;
 			}
 
+			bool ReadTextures(const Texture* ts, const uint32_t count, std::vector<std::vector<uint8_t> > &out) override
+			{
+				out.assign(count, std::vector<uint8_t>());
+				@autoreleasepool
+				{
+					// (every copy in one command buffer - one wait for them all)
+					std::vector<id<MTLBuffer> > bufs(count);
+					std::vector<size_t> sizes(count, 0);
+					id<MTLCommandBuffer> cb = [queue commandBuffer];
+					id<MTLBlitCommandEncoder> be = [cb blitCommandEncoder];
+					for (uint32_t i = 0; i < count; i++)
+					{
+						TextureRec* r = textures.Get(ts[i].id);
+						if (!r || !r->texture) { [be endEncoding]; return false; }
+						const uint32_t bpt = BytesPerTexel(r->desc.format);
+						if (!bpt || r->texture.sampleCount > 1) { [be endEncoding]; return false; }
+						const uint32_t w = (uint32_t)r->texture.width, h = (uint32_t)r->texture.height;
+						sizes[i] = (size_t)w * h * bpt;
+						bufs[i] = [device newBufferWithLength:(NSUInteger)sizes[i] options:MTLResourceStorageModeShared];
+						[be copyFromTexture:r->texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1)
+							toBuffer:bufs[i] destinationOffset:0 destinationBytesPerRow:w * bpt destinationBytesPerImage:w * h * bpt];
+					}
+					[be endEncoding];
+					[cb commit];
+					[cb waitUntilCompleted];
+					for (uint32_t i = 0; i < count; i++) { const uint8_t* p = (const uint8_t*)bufs[i].contents; out[i].assign(p, p + sizes[i]); }
+				}
+				return true;
+			}
+			// (the same copies, committed and not waited for: the command buffer asked after, later, whether it is done)
+			struct LaterRead { id<MTLCommandBuffer> cb; std::vector<id<MTLBuffer> > bufs; std::vector<size_t> sizes; };
+			std::map<uint64_t, LaterRead> metalLater;
+			uint64_t ReadTexturesLater(const Texture* ts, const uint32_t count) override
+			{
+				LaterRead l; l.bufs.resize(count); l.sizes.assign(count, 0);
+				@autoreleasepool
+				{
+					l.cb = [queue commandBuffer];
+					id<MTLBlitCommandEncoder> be = [l.cb blitCommandEncoder];
+					for (uint32_t i = 0; i < count; i++)
+					{
+						TextureRec* r = textures.Get(ts[i].id);
+						const uint32_t bpt = r && r->texture ? BytesPerTexel(r->desc.format) : 0;
+						if (!bpt || r->texture.sampleCount > 1) { [be endEncoding]; return 0; }
+						const uint32_t w = (uint32_t)r->texture.width, h = (uint32_t)r->texture.height;
+						l.sizes[i] = (size_t)w * h * bpt;
+						l.bufs[i] = [device newBufferWithLength:(NSUInteger)l.sizes[i] options:MTLResourceStorageModeShared];
+						[be copyFromTexture:r->texture sourceSlice:0 sourceLevel:0 sourceOrigin:MTLOriginMake(0, 0, 0) sourceSize:MTLSizeMake(w, h, 1)
+							toBuffer:l.bufs[i] destinationOffset:0 destinationBytesPerRow:w * bpt destinationBytesPerImage:w * h * bpt];
+					}
+					[be endEncoding];
+					[l.cb commit];
+				}
+				metalLater[++laterNext] = l;
+				return laterNext;
+			}
+			bool ReadTexturesDone(const uint64_t ticket, std::vector<std::vector<uint8_t> > &out) override
+			{
+				std::map<uint64_t, LaterRead>::iterator i = metalLater.find(ticket);
+				if (i == metalLater.end()) return false;
+				const MTLCommandBufferStatus st = i->second.cb.status;
+				if (st != MTLCommandBufferStatusCompleted && st != MTLCommandBufferStatusError) return false;
+				out.assign(i->second.bufs.size(), std::vector<uint8_t>());
+				if (st == MTLCommandBufferStatusCompleted)
+					for (size_t k = 0; k < i->second.bufs.size(); k++) { const uint8_t* p = (const uint8_t*)i->second.bufs[k].contents; out[k].assign(p, p + i->second.sizes[k]); }
+				metalLater.erase(i);
+				return true;
+			}
+
 			Buffer CreateBuffer(const BufferDesc &d, const void* initial) override
 			{
 				BufferRec r; r.size = d.size; r.memory = d.memory;
@@ -560,6 +630,7 @@ namespace p3d { namespace gfx {
 			// by when the GPU is done with it - freed under it, it is an address fault, and then Metal ignores the process's work)
 			void Destroy(Buffer b) override { if (BufferRec* r = buffers.Get(b.id)) Doom(r->buffer); buffers.Remove(b.id); }
 			void Destroy(Texture t) override { if (TextureRec* r = textures.Get(t.id)) if (!r->backbuffer) Doom(r->texture); textures.Remove(t.id); }
+			bool Alive(Texture t) override { return t.id != 0 && textures.Get(t.id) != nullptr; }
 			void Doom(id o) { if (!o) return; std::lock_guard<std::mutex> l(listsMutex); doomed[frame].push_back(o); }
 			BindGroup CreateBindGroup(Pipeline layoutOf, const BindGroupEntry* e, uint32_t count) override
 			{
@@ -619,10 +690,21 @@ namespace p3d { namespace gfx {
 				}
 			}
 
+			// (each shader made once, by its SPIR-V's content: every SceneRenderer makes the same few dozen - SPIRV-Cross and
+			// Metal's compiler 90 ms of them for each, a second renderer's first frame - an impostor bake's - a hitch of 180)
+			std::unordered_map<uint64_t, ShaderRec> shaderCache;
+			std::mutex shaderCacheMutex;
 			Shader CreateShader(const ShaderDesc &d) override
 			{
 				ShaderRec r; r.stage = d.stage;
 				if (!d.spirv || !d.spirvWords) { fprintf(stderr, "Metal device: shader %s has no SPIR-V\n", d.debugName ? d.debugName : ""); Shader s; s.id = shaders.Add(r); return s; }
+				uint64_t key = 1469598103934665603ull ^ ((uint64_t)d.spirvWords << 3) ^ (uint64_t)d.stage;
+				for (uint32_t w = 0; w < d.spirvWords; w++) key = (key ^ d.spirv[w]) * 1099511628211ull;
+				{
+					std::lock_guard<std::mutex> l(shaderCacheMutex);
+					std::unordered_map<uint64_t, ShaderRec>::const_iterator c = shaderCache.find(key);
+					if (c != shaderCache.end()) { Shader s; s.id = shaders.Add(c->second); return s; }
+				}
 				try
 				{
 					spirv_cross::CompilerMSL msl(d.spirv, (size_t)d.spirvWords);
@@ -691,6 +773,7 @@ namespace p3d { namespace gfx {
 					}
 				}
 				catch (const std::exception &e) { r.error = e.what(); fprintf(stderr, "Metal device: shader %s: SPIRV-Cross: %s\n", d.debugName ? d.debugName : "", e.what()); }
+				if (r.function) { std::lock_guard<std::mutex> l(shaderCacheMutex); shaderCache[key] = r; }
 				Shader s; s.id = shaders.Add(r); return s;
 			}
 			Pipeline CreatePipeline(const GraphicsPipelineDesc &d) override
@@ -746,13 +829,35 @@ namespace p3d { namespace gfx {
 				std::shared_ptr<std::atomic<int>> state = pr->state;
 				MetalDevice* self = this; const uint32_t pid = p.id;
 				const std::string dbg = d.debugName ? d.debugName : "";
-				// (on Metal's own compiler threads: the draw asks PipelineReady and skips until then)
-				[device newRenderPipelineStateWithDescriptor:pd completionHandler:^(id<MTLRenderPipelineState> ps, NSError* err) {
-					if (PipelineRec* q = self->pipelines.Get(pid)) q->render = ps;
-					if (!ps) fprintf(stderr, "Metal device: pipeline %s: %s\n", dbg.c_str(), err ? [[err localizedDescription] UTF8String] : "?");
-					state->store(ps ? 1 : 2);
-					self->pipelinesPending--; self->pipelinesFinished++;
-				}];
+				// (on Metal's own compiler threads: the draw asks PipelineReady and skips until then. Asked again - a few
+				// times, a moment apart - where Apple's compiler service itself went away (XPC_ERROR_CONNECTION_INTERRUPTED: it
+				// crashed, on a big shader, under load): that is no fault of the shader's, and the next try mostly compiles it.
+				// Given up on, a material was simply missing - a whole sea)
+				id<MTLDevice> dev = device;
+				// (the block holds itself through its __block variable while it may still be asked again; let go - nil - at
+				// the end, which breaks that loop)
+				__block void (^attempt)(int) = nil;
+				attempt = ^(int tries) {
+					[dev newRenderPipelineStateWithDescriptor:pd completionHandler:^(id<MTLRenderPipelineState> ps, NSError* err) {
+						const std::string why = err ? [[err localizedDescription] UTF8String] : "?";
+						if (!ps && tries < 4 && why.find("XPC") != std::string::npos)
+						{
+							void (^again)(int) = attempt;
+							if (again)
+							{
+								fprintf(stderr, "Metal device: pipeline %s: the compiler service went away - asked again (%d)\n", dbg.c_str(), tries + 1);
+								dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(200 * NSEC_PER_MSEC) * (tries + 1)), dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0), ^{ again(tries + 1); });
+								return;
+							}
+						}
+						if (PipelineRec* q = self->pipelines.Get(pid)) q->render = ps;
+						if (!ps) fprintf(stderr, "Metal device: pipeline %s: %s\n", dbg.c_str(), why.c_str());
+						state->store(ps ? 1 : 2);
+						self->pipelinesPending--; self->pipelinesFinished++;
+						attempt = nil;
+					}];
+				};
+				attempt(0);
 				return p;
 			}
 			Pipeline CreatePipeline(const ComputePipelineDesc &d) override

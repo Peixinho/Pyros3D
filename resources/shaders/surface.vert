@@ -32,9 +32,45 @@ layout(location = 0) out vec3 vWorldPosition;
 layout(location = 1) out vec3 vNormal;
 layout(location = 2) out vec2 vTexcoord;
 layout(location = 3) out vec4 vTint;
+layout(location = 9) out float vFade;     // (an instance dissolving - thinned, or past its fade: alphacut.frag)
+layout(location = 10) out float vLodCode;     // (and its level's crossfade, per instance: instance_cull.comp)
+#ifdef IMPOSTOR
+// An octahedral impostor (ShaderUsage::Impostor - uvTransform: x the tree's radius, y its centre's height above its foot,
+// z the grid's side): the quad turned to face the eye in the tree's own frame and sized to it; the fragment stage gets
+// where on it it is (in the tree's frame, from its centre), the way to the eye in that frame, and the tree's turn
+layout(location = 4) out vec3 vImpostorPoint;
+layout(location = 5) flat out vec3 vImpostorEye;
+layout(location = 6) flat out vec3 vImpostorX;
+layout(location = 7) flat out vec3 vImpostorY;
+layout(location = 8) flat out vec3 vImpostorZ;
+#endif
 
 void main()
 {
+#ifdef IMPOSTOR
+	{
+		mat4 model = uDraw.model * ShapedInstance(InstanceMatrix(), uDraw.shape, uDraw.model, uFrame.cameraPosition.xyz);
+		mat3 turn = mat3(normalize(model[0].xyz), normalize(model[1].xyz), normalize(model[2].xyz));
+		float radius = uDraw.uvTransform.x, centre = uDraw.uvTransform.y;
+		vec3 centreWorld = (model * vec4(0.0, centre, 0.0, 1.0)).xyz;
+		vec3 toEye = transpose(turn) * (uFrame.cameraPosition.xyz - centreWorld);
+		vec3 eye = dot(toEye, toEye) > 1e-12 ? normalize(toEye) : vec3(0.0, 0.0, 1.0);     // (fast math: no normalize of nothing)
+		// (the basis each baked view was taken with: right = up x the view's way, up = way x right)
+		vec3 up0 = abs(eye.y) > 0.999 ? vec3(0.0, 0.0, -1.0) : vec3(0.0, 1.0, 0.0);
+		vec3 right = normalize(cross(up0, eye)), up = cross(eye, right);
+		vec3 local = (right * aPosition.x + up * aPosition.y) * radius;
+		vec4 world = vec4(centreWorld + mat3(model) * local, 1.0);
+		vImpostorPoint = local; vImpostorEye = eye;
+		vImpostorX = turn[0]; vImpostorY = turn[1]; vImpostorZ = turn[2];
+		vNormal = turn * eye;
+		vTint = InstanceTint();
+		vTexcoord = aTexcoord;
+		vFade = gInstanceFade; vLodCode = InstanceLodCode();
+		vWorldPosition = world.xyz;
+		gl_Position = uFrame.viewProjection * world;
+		return;
+	}
+#endif
 #ifdef INSTANCED
 	mat4 model = uDraw.model * ShapedInstance(InstanceMatrix(), uDraw.shape, uDraw.model, uFrame.cameraPosition.xyz);
 	vec4 world = model * vec4(WindSway(aPosition, model[3].xyz, uDraw.wind, uFrame.sky.z), 1.0);
@@ -53,6 +89,7 @@ void main()
 	// leaning to the sky, it takes the light the ground under it takes)
 	if (uDraw.wind.w > 0.0) vNormal = mix(normalize(vNormal), vec3(0.0, 1.0, 0.0), min(uDraw.wind.w, 1.0));
 	vTint = InstanceTint();
+	vFade = gInstanceFade; vLodCode = InstanceLodCode();
 #ifdef VERTEX_COLOR
 	vTint *= vec4(SrgbDecode(aColor.rgb), aColor.a);
 #endif

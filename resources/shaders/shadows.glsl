@@ -9,16 +9,16 @@ layout(set = 1, binding = 7, std140) uniform ShadowData
 {
 	mat4 cascades[4];        // world -> each cascade's clip space
 	vec4 splits;             // far end of each cascade, as a distance along the view
-	vec4 params;             // y: on (1) or off, z: shadow distance, w: normal offset in texels
+	vec4 params;             // x: the sun's filter radius (texels: 0 one compare, 1 the default), y: on (1) or off, z: shadow distance, w: normal offset in texels
 	vec4 texelWorld;         // each cascade's texel, in world units
 	vec4 cameraForward;      // xyz the camera's forward, for the distance along the view
 	vec4 atlas;              // xy: one texel of the atlas (1 / its size), zw: a local tile's size in it
-	vec4 localRect[kLocalTiles];   // each local tile: xy its corner in the atlas, z: tan of half its field of view
+	vec4 localRect[kLocalTiles];   // each local tile: xy its corner in the atlas, z: tan of half its field of view, w: its light's filter radius (texels)
 	mat4 local[kLocalTiles];       // world -> each local tile's clip space
 	vec4 cloudGrid;          // the clouds' shadow map: xy its corner (world x, z), z: 1 / its size, w: how dark their shadow is (0 none)
 	vec4 reflections;        // screen-space reflections: x on (1) or off, y: how far a ray goes (metres), z: steps, w: the frame (its jitter)
 	vec4 rain;               // x: the local tile that looks straight down round the eye while it rains (-1 none): what is under cover;
-	                         // y: what of the sun an overcast deck lets through (1 none)
+	                         // y: what of the sun an overcast deck lets through (1 none); z: the ambient occlusion's share on direct light
 } uShadow;
 layout(set = 1, binding = 15) uniform texture2D uCloudShadow;
 
@@ -47,7 +47,12 @@ float CascadeShadow(int c, vec3 worldPos, vec3 n, float rotation)
 	const vec2 size = vec2(0.25, 0.5);                               // (a cascade's quadrant of the atlas's left half)
 	vec2 quadrant = vec2(float(c & 1), float(c >> 1)) * size;
 	vec2 texel = uShadow.atlas.xy;
-	vec2 kernel = 1.5 * texel;                                       // (the disc's radius in the atlas)
+	if (uShadow.params.x < 0.25)                                     // (the sun's filter radius 0: one compare, a hard edge)
+	{
+		vec2 at = clamp(quadrant + uv * size, quadrant + texel, quadrant + size - texel);
+		return textureLod(sampler2DShadow(uShadowAtlas, uShadowCompare), vec3(at, ndc.z), 0.0);
+	}
+	vec2 kernel = 1.5 * uShadow.params.x * texel;                    // (the disc's radius in the atlas: the sun's softness)
 	vec2 lo = quadrant + kernel + texel, hi = quadrant + size - kernel - texel;
 	float s = sin(rotation), co = cos(rotation);
 	mat2 rot = mat2(co, s, -s, co);
@@ -128,7 +133,15 @@ float LocalShadow(int tile, bool point, vec3 worldPos, vec3 ng, vec3 lightPos)
 	vec2 uv = vec2(ndc.x * 0.5 + 0.5, 0.5 - ndc.y * 0.5);
 	if (any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))) || ndc.z < 0.0 || ndc.z > 1.0) return 1.0;
 	vec2 size = uShadow.atlas.zw, texel = uShadow.atlas.xy;
-	vec2 kernel = 1.5 * texel;
+	// (the light's own filter radius - ILightComponent::SetShadowSoftness: 0 one compare, a hard edge; 1 the default,
+	// 1.5 texels; up to 3)
+	float softness = rect.w;
+	if (softness < 0.25)
+	{
+		vec2 at = clamp(rect.xy + uv * size, rect.xy + texel, rect.xy + size - texel);
+		return textureLod(sampler2DShadow(uShadowAtlas, uShadowCompare), vec3(at, ndc.z), 0.0);
+	}
+	vec2 kernel = 1.5 * softness * texel;
 	vec2 lo = rect.xy + kernel + texel, hi = rect.xy + size - kernel - texel;
 	float rotation = InterleavedGradientNoise(gl_FragCoord.xy) * 6.2831853;
 	float s = sin(rotation), co = cos(rotation);

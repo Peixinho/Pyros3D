@@ -1,0 +1,60 @@
+#version 450
+// An instanced set culled instance by instance on the GPU (a forest, a field of grass: thousands an instanced
+// component): each instance's sphere tested against the view's frustum - and past where the set fades out with
+// distance (its DrawData shape) - and the ones that pass written, packed, into a second stream; their count summed into
+// the indirect draw's instance count. What is drawn is then only what can be seen, without the CPU touching it.
+layout(local_size_x = 64) in;
+
+layout(set = 0, binding = 0, std140) uniform DrawData
+{
+	mat4 model;           // the set's object
+	vec4 planes[6];       // the view's frustum (world): a point is in where dot(plane.xyz, p) + plane.w >= -radius for all six
+	vec4 sphere;          // the mesh's sphere: xyz its centre (its own space), w its radius
+	vec4 eye;             // xyz the eye, w the distance past which the set has faded out (0 none)
+	vec4 counts;          // x the instances, y 1: reset the arguments (a dispatch of one, first), z the mesh's index count
+	vec4 lod;             // one level of a set drawn level by level per instance: x, y the distances it covers, z the
+	                      // crossfade band's share of a hand-over distance, w 1 on
+} uCull;
+
+struct Instance { vec4 m0, m1, m2, m3, tint; };     // (80 bytes: the instance stream's)
+layout(set = 1, binding = 1, std430) readonly buffer Source { Instance i[]; } uSource;
+layout(set = 1, binding = 2, std430) buffer Visible { Instance i[]; } uVisible;
+// (the indirect draw's arguments: index count, instance count - summed here - first index, base vertex, first instance)
+layout(set = 1, binding = 3, std430) buffer Args { uint indexCount; uint instanceCount; uint firstIndex; int baseVertex; uint firstInstance; } uArgs;
+
+void main()
+{
+	uint n = gl_GlobalInvocationID.x;
+	if (uCull.counts.y > 0.5)
+	{
+		if (n == 0u) { uArgs.indexCount = uint(uCull.counts.z); uArgs.instanceCount = 0u; uArgs.firstIndex = 0u; uArgs.baseVertex = 0; uArgs.firstInstance = 0u; }
+		return;
+	}
+	if (n >= uint(uCull.counts.x)) return;
+	Instance inst = uSource.i[n];
+	// (its matrix as an affine one: the spare w's carry its rank and its level's code - kept out, or the rank times the
+	// set's place became its size, every sphere hundreds of metres, and nothing was ever culled)
+	mat4 m = uCull.model * mat4(vec4(inst.m0.xyz, 0.0), vec4(inst.m1.xyz, 0.0), vec4(inst.m2.xyz, 0.0), vec4(inst.m3.xyz, 1.0));
+	vec3 c = (m * vec4(uCull.sphere.xyz, 1.0)).xyz;
+	float scale = max(length(m[0].xyz), max(length(m[1].xyz), length(m[2].xyz)));
+	float r = uCull.sphere.w * scale;
+	// (faded out: past the set's far fade, nothing of it is drawn - its vertex stage shrinks it to a point)
+	if (uCull.eye.w > 0.0 && distance(c, uCull.eye.xyz) - r > uCull.eye.w) return;
+	for (int k = 0; k < 6; k++)
+		if (dot(uCull.planes[k].xyz, c) + uCull.planes[k].w < -r) return;
+	// (its level: by its own distance, this one's range - and across a band below each hand-over, both levels drawn,
+	// dissolved into each other on the dither: m1.w, an affine matrix's spare, carries it - + keep the dither's pixels
+	// below it, the level coming; - those above, the level going; 0 whole)
+	float code = 0.0;
+	if (uCull.lod.w > 0.5)
+	{
+		float d = max(distance(c, uCull.eye.xyz) - r, 0.0);
+		float lo = uCull.lod.x, hi = uCull.lod.y, b = uCull.lod.z;
+		if (d < lo * (1.0 - b) || d >= hi) return;
+		if (lo > 0.0 && d < lo) code = max((d - lo * (1.0 - b)) / (lo * b), 1e-4);
+		else if (hi < 1e29 && d >= hi * (1.0 - b)) code = -max((d - hi * (1.0 - b)) / (hi * b), 1e-4);
+	}
+	inst.m1.w = code;
+	uint at = atomicAdd(uArgs.instanceCount, 1u);
+	uVisible.i[at] = inst;
+}

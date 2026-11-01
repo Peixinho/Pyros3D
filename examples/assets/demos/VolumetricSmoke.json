@@ -231,9 +231,9 @@
     "Camera"
    ],
    "position": [
-    0,
-    4.5,
-    24
+    1.5,
+    3.2,
+    7.0
    ],
    "rotation": [
     0,
@@ -253,7 +253,7 @@
      "scriptFile": "demos/scripts/camera_fly.lua",
      "data": {
       "yaw": 0,
-      "pitch": -8
+      "pitch": -6
      }
     }
    ]
@@ -294,6 +294,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 40,
+     "height": 0.5,
+     "depth": 40,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -333,6 +342,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -372,6 +390,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -411,6 +438,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -450,6 +486,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -489,6 +534,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -528,6 +582,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -567,6 +630,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -606,6 +678,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -645,6 +726,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -684,6 +774,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -723,6 +822,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -762,6 +870,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -801,6 +918,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.45,
+     "height": 4.0,
+     "depth": 0.45,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -840,6 +966,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 19.5,
+     "height": 0.4,
+     "depth": 0.8,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -879,6 +1014,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 24,
+     "height": 1.25,
+     "depth": 0.5,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -918,6 +1062,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.08,
+     "height": 1.5,
+     "depth": 2.0,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -1035,6 +1188,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 1.0,
+     "height": 1.0,
+     "depth": 1.0,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -1074,6 +1236,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 0.9,
+     "height": 0.9,
+     "depth": 0.9,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -1113,6 +1284,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 2.0,
+     "height": 8.0,
+     "depth": 2.0,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -1152,6 +1332,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 1.5,
+     "height": 6.0,
+     "depth": 1.5,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -1191,6 +1380,15 @@
       "flip": false,
       "tangentBitangent": false
      }
+    },
+    {
+     "type": "Physics",
+     "shape": "Box",
+     "width": 8.0,
+     "height": 1.0,
+     "depth": 1.0,
+     "mass": 0.0,
+     "ghost": false
     }
    ]
   },
@@ -1228,9 +1426,9 @@
      ],
      "intensity": 2.2,
      "direction": [
-      -0.20092639706304893,
-      -0.42194543383240274,
-      0.8840761470774153
+      0.5494782433855661,
+      -0.5494782433855661,
+      -0.6294023515143756
      ],
      "shadowWidth": 2048,
      "shadowHeight": 2048,
@@ -1239,22 +1437,35 @@
      "shadowBiasFactor": 2.0,
      "shadowBiasUnits": 1.0,
      "shadowNormalBias": 1.5,
-     "shadowSoftness": 1.0,
-     "volumetric": [
-      0.008,
-      0.75,
-      0.05,
-      80.0
-     ],
-     "volumetricTint": [
-      1.0,
-      0.9,
-      0.75,
-      32.0
-     ],
-     "rayTracedShadows": 120.0,
-     "rayShadowSoftness": 0.003,
-     "rayTracedReflections": 80.0
+     "shadowSoftness": 1.0
+    }
+   ]
+  },
+  {
+   "name": "Smoke",
+   "tags": [],
+   "position": [
+    0,
+    0,
+    0
+   ],
+   "rotation": [
+    0,
+    0,
+    0
+   ],
+   "scale": [
+    1,
+    1,
+    1
+   ],
+   "static": false,
+   "children": [],
+   "components": [
+    {
+     "type": "LuaComponent",
+     "scriptFile": "demos/scripts/volumetric_smoke.lua",
+     "data": {}
     }
    ]
   }

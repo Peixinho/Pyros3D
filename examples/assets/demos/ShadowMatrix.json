@@ -117,7 +117,8 @@
      "shadowNear": 0.1,
      "shadowFar": 300.0,
      "shadowBiasFactor": 2.0,
-     "shadowBiasUnits": 1.0
+     "shadowBiasUnits": 1.0,
+     "shadowSoftness": 0.0
     }
    ]
   },
@@ -157,7 +158,8 @@
      "shadowHeight": 512,
      "shadowNear": 0.1,
      "shadowBiasFactor": 2.0,
-     "shadowBiasUnits": 1.0
+     "shadowBiasUnits": 1.0,
+     "shadowSoftness": 1.0
     }
    ]
   },
@@ -204,7 +206,8 @@
      "shadowHeight": 1024,
      "shadowNear": 6.0,
      "shadowBiasFactor": 2.0,
-     "shadowBiasUnits": 1.0
+     "shadowBiasUnits": 1.0,
+     "shadowSoftness": 3.0
     }
    ]
   },

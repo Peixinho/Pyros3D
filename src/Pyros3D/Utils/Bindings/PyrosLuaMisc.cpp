@@ -1226,6 +1226,10 @@ end
 			smoke.set_function("setThickness", [](const int32 id, const f32 thickness) { VolumetricSmoke::SetThickness(id, thickness); });
 			smoke.set_function("clear", []() { VolumetricSmoke::Clear(); });
 			smoke.set_function("count", []() -> uint32 { return VolumetricSmoke::GetActiveCount(); });
+			// Whether a slot's cloud is still there (its life not yet over)
+			smoke.set_function("active", [](const int32 id) -> bool {
+				return id >= 0 && id < VolumetricSmoke::MaxClouds && VolumetricSmoke::GetCloud((uint32)id).active;
+			});
 			smoke.set_function("capacity", []() -> uint32 { return (uint32)VolumetricSmoke::MaxClouds; });
 			// How many voxels the fill reached - small means it was boxed in.
 			smoke.set_function("cells", [](const int32 id) -> uint32 {

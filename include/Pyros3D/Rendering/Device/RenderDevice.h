@@ -22,8 +22,10 @@
 #define PYROS_RENDERDEVICE2_H
 
 #include <cstdint>
+#include <Pyros3D/Other/Export.h>
 #include <string>
 #include <vector>
+#include <map>
 
 namespace p3d { namespace gfx {
 
@@ -266,6 +268,36 @@ namespace p3d { namespace gfx {
 		// thumbnails, bakes and screenshots - not for every frame. False for a format of no plain texel size (a depth
 		// or compressed one).
 		virtual bool ReadTexture(Texture texture, std::vector<uint8_t> &out) = 0;
+		// Several at once: copied out in one submission, waited for once (one by one, each read waited for the GPU to go
+		// idle - an impostor bake's hundreds of small reads were most of its time)
+		virtual bool ReadTextures(const Texture* textures, const uint32_t count, std::vector<std::vector<uint8_t> > &out)
+		{
+			out.resize(count);
+			for (uint32_t i = 0; i < count; i++) if (!ReadTexture(textures[i], out[i])) return false;
+			return true;
+		}
+		// The same, not waited for: the copies submitted now, their bytes taken later - ReadTexturesDone with the ticket
+		// this gives (0: could not), true once they are in (`out` then filled, the ticket spent). The textures are kept
+		// alive till then. (A bake spread over frames: a wait for its reads waited for the whole frame before them too -
+		// 30 to 80 ms a slice, the hitch.) Here, where a device has no way of its own: read at once, handed over later.
+		virtual uint64_t ReadTexturesLater(const Texture* textures, const uint32_t count)
+		{
+			std::vector<std::vector<uint8_t> > out;
+			if (!ReadTextures(textures, count, out)) return 0;
+			laterReads[++laterNext].swap(out);
+			return laterNext;
+		}
+		virtual bool ReadTexturesDone(const uint64_t ticket, std::vector<std::vector<uint8_t> > &out)
+		{
+			std::map<uint64_t, std::vector<std::vector<uint8_t> > >::iterator i = laterReads.find(ticket);
+			if (i == laterReads.end()) return false;
+			out.swap(i->second); laterReads.erase(i);
+			return true;
+		}
+	protected:
+		std::map<uint64_t, std::vector<std::vector<uint8_t> > > laterReads;
+		uint64_t laterNext = 0;
+	public:
 
 		// ---- resources (any thread)
 		virtual Buffer CreateBuffer(const BufferDesc &desc, const void* initial = nullptr) = 0;
@@ -273,6 +305,8 @@ namespace p3d { namespace gfx {
 		virtual Sampler CreateSampler(const SamplerDesc &desc) = 0;
 		virtual void Destroy(Buffer b) = 0;                 // freed once the frames using it are done
 		virtual void Destroy(Texture t) = 0;
+		// (whether a texture handle still names one - not destroyed since: work queued for it earlier checks)
+		virtual bool Alive(Texture t) = 0;
 		// A material's set of resources, laid out as its shaders declare them (made once, at load)
 		struct BindGroupEntry { uint32_t binding; Texture texture; Sampler sampler; Buffer buffer; uint64_t offset = 0, size = 0; };
 		virtual BindGroup CreateBindGroup(Pipeline layoutOf, const BindGroupEntry* entries, uint32_t count) = 0;   // its group 1
@@ -301,7 +335,10 @@ namespace p3d { namespace gfx {
 		virtual Shader CreateShader(const ShaderDesc &desc) = 0;
 		virtual Pipeline CreatePipeline(const GraphicsPipelineDesc &desc) = 0;     // returns at once
 		virtual Pipeline CreatePipeline(const ComputePipelineDesc &desc) = 0;
-		virtual bool PipelineReady(Pipeline p) const = 0;                          // the draw's to ask
+		virtual bool PipelineReady(Pipeline p) const = 0;
+		// (pipelines being made noticed as finished now, not at the next frame's start: for work done inside one long
+		// frame - a bake drawing view after view. WebGPU's are told by Dawn's events; the others' need nothing)
+		virtual void PollPipelines() {}                          // the draw's to ask
 		virtual void SavePipelineCache(const std::string &path) = 0;
 
 		// ---- frames
@@ -329,9 +366,11 @@ namespace p3d { namespace gfx {
 		uint32_t width = 0, height = 0;
 		bool vsync = true;
 	};
-	Device* CreateVulkanDevice(const SurfaceSource &surface);
-	Device* CreateMetalDevice(const SurfaceSource &surface);
-	Device* CreateWebGPUDevice(const SurfaceSource &surface);
+	// (exported: the window layer that calls them - SDL2Context, in each application - is outside a shared engine; on
+	// Windows, unexported, DemoLauncher and PyrosPlayer did not link)
+	PYROS3D_API Device* CreateVulkanDevice(const SurfaceSource &surface);
+	PYROS3D_API Device* CreateMetalDevice(const SurfaceSource &surface);
+	PYROS3D_API Device* CreateWebGPUDevice(const SurfaceSource &surface);
 
 } }
 

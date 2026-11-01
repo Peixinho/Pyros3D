@@ -85,6 +85,8 @@ namespace p3d {
 		// load falls through to the checkerboard fallback below, which
 		// isn't actually this Filename's image data.
 		if (status) { this->Filename = Filename; this->RawData.clear(); this->RawData.shrink_to_fit(); }
+		// (a material's map, with its mips: the renderer may take it in blocks - CompressedChain)
+		wantsBlocks = status && level == 0 && Mipmapping && Type == TextureType::Texture && InCompressedLoads();
 		if (!status) {
 			echo("ERROR: Couldn't find texture file or failed to load, loading default one...");
 
@@ -410,6 +412,49 @@ namespace p3d {
 		std::vector<std::vector<uchar> > levels;
 		EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels, where);
 		return true;
+	}
+
+	bool Texture::CompressedChain(uint32 &format, std::vector<std::vector<uchar> > &levels) const
+	{
+		levels.clear(); format = BlockCompress::None;
+		if (!wantsBlocks || dataMap || Filename.empty() || !GetCompression()) return false;
+		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0; std::string where;
+		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime, &where)) return false;
+		// The cache's, where it is still this picture's
+		TexCacheHeader hd;
+		if (FILE* f = fopen(cacheFile.string().c_str(), "rb"))
+		{
+			bool ok = fread(&hd, sizeof(hd), 1, f) == 1 && memcmp(hd.magic, kTexCacheMagic, 8) == 0 && hd.sourceSize == srcSize && hd.sourceTime == srcTime
+				&& hd.format != BlockCompress::None && hd.levels > 0 && hd.levels <= 16;
+			for (uint32 l = 0; ok && l < hd.levels; l++)
+			{
+				std::vector<uchar> bytes(BlockCompress::LevelBytes(hd.format, std::max(1u, hd.width >> l), std::max(1u, hd.height >> l)));
+				ok = fread(bytes.data(), 1, bytes.size(), f) == bytes.size();
+				levels.push_back(std::move(bytes));
+			}
+			fclose(f);
+			if (ok) { format = hd.format; return true; }
+			levels.clear();
+		}
+		// Else made now from its pixels (as RGBA8), and kept for next time
+		const std::vector<uchar>* px = GetCpuPixels(TextureType::Texture, 0);
+		const uint32 w = GetWidth(0), h = GetHeight(0);
+		if (!px || w < 4 || h < 4) return false;
+		const size_t texels = (size_t)w * h, channels = px->size() / texels;
+		if (channels < 1 || channels > 4 || px->size() != texels * channels) return false;
+		DecodedImage image; image.width = (int32)w; image.height = (int32)h;
+		image.pixels.resize(texels * 4);
+		for (size_t t = 0; t < texels; t++)
+		{
+			const uchar* p = &(*px)[t * channels]; uchar* o = &image.pixels[t * 4];
+			if (channels == 4) { o[0] = p[0]; o[1] = p[1]; o[2] = p[2]; o[3] = p[3]; }
+			else if (channels == 3) { o[0] = p[0]; o[1] = p[1]; o[2] = p[2]; o[3] = 255; }
+			else if (channels == 2) { o[0] = o[1] = o[2] = p[0]; o[3] = p[1]; }
+			else { o[0] = o[1] = o[2] = o[3] = p[0]; }
+		}
+		EncodeAndStore(image, cacheFile, srcSize, srcTime, hd, levels, where);
+		format = hd.format;
+		return format != BlockCompress::None && !levels.empty();
 	}
 
 	bool Texture::DecodeFile(const std::string& Filename, DecodedImage& out)
