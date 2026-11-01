@@ -11,6 +11,7 @@
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/Other/Global.h>
 #include <vector>
+#include <Pyros3D/Rendering/Volumetrics/VolumetricSmoke.h>
 
 namespace p3d {
 
@@ -58,6 +59,7 @@ namespace p3d {
 			bool scalCur = false, velCur = false, presCur = false;
 			f64 clock = 0.0;                   // (the clouds' clock it has been stepped to)
 			f32 age = 0.f;                     // (seconds it has been simulated)
+			uint32 obstacleEpoch = 0;          // (VolumetricSmoke's when its obstacles were laid)
 			bool closedSides = false;          // (indoors: the box's sides keep the smoke in)
 			f32 enclosed = 0.f;                // (0 in the open .. 1 under a roof: the share of columns over the canister with a cover above it)
 			std::vector<f32> pendingSteps;     // (Prepare's: the steps' seconds)
@@ -67,6 +69,7 @@ namespace p3d {
 		void Make(Sim &s, int32 cloud);
 		void Forget(Sim &s);
 		void Step(gfx::CommandList* cl, Sim &s, const f32 dt);
+		void LayObstacles(Sim &s, const VolumetricSmoke::Cloud &c);
 		void Dispatch(gfx::CommandList* cl, Sim &s, const int pass, const f32 dt, const Vec3 &sunDir);
 		uint32 Allocate(const uint32 cells);
 

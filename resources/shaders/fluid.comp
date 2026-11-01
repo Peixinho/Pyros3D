@@ -218,6 +218,7 @@ void main()
 			// the heat going into the air round it; the smoke spreading thin (faster as the cloud fades)
 			s.y *= exp(-uSim.forces.w * dt * (0.4 + s.y));
 			s.x *= exp(-uSim.decay.x * dt * mix(6.0, 1.0, uSim.emit.z));
+			s.x *= exp(-uSim.extra.y * dt);     // (a settled cloud in a room thinning out - extra.y a second)
 			// what the emitter adds: most at its heart, broken up by a noise that boils as it goes
 			if (uSim.emit.x > 0.5)
 			{
@@ -231,7 +232,16 @@ void main()
 			}
 			s.xyz = clamp(s.xyz, vec3(0.0), vec3(4.0, 3.0, 4.0));
 			// the open sides and top: what reaches them leaves (kept, it piled up against the box's lid in a slab)
-			if (uSim.extra.x < 0.5 && (c.x == 0 || c.z == 0 || c.x == N.x - 1 || c.z == N.z - 1 || c.y == N.y - 1)) s.xyz = vec3(0.0);
+			// (the open sides and top take it away - but indoors only where the side is out in the open air: under a roof the
+			// room's walls hold it, and what leaves by a window or a door reaches the box's side outside and goes)
+			bool edge = c.x == 0 || c.z == 0 || c.x == N.x - 1 || c.z == N.z - 1 || c.y == N.y - 1;
+			if (edge)
+			{
+				bool roofed = false;
+				if (uSim.extra.x > 0.5)
+					for (int yy = c.y + 1; yy < N.y && !roofed; yy++) roofed = SolidAt(c.x + N.x * (yy + N.y * c.z)) > 0.5;
+				if (!roofed) s.xyz = vec3(0.0);
+			}
 		}
 		SetScal(!sc, i, s);
 		return;

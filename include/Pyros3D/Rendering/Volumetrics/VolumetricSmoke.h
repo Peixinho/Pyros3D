@@ -116,6 +116,16 @@ namespace p3d {
 		// See Cloud::thickness. Takes effect on the next Update().
 		static void SetThickness(const int32 id, const f32 thickness);
 		static void Clear();
+		// The world's colliders changed where smoke may be (a window broken out, a door opened): every cloud lays its
+		// obstacles again from the physics, and its smoke goes through the new gap
+		static void RefreshObstacles() { obstacleEpoch++; }
+		static uint32 GetObstacleEpoch() { return obstacleEpoch; }
+		// Openings the colliders do not have - a window broken out of a wall whose collider is whole: boxes (world, min and
+		// max) where a smoke grid's obstacles are cleared, so the smoke goes out through them. Taking effect for every cloud
+		// (RefreshObstacles is called for you)
+		static void AddOpening(const Vec3 &min, const Vec3 &max) { openings.push_back(std::make_pair(min, max)); obstacleEpoch++; }
+		static void ClearOpenings() { openings.clear(); obstacleEpoch++; }
+		static const std::vector<std::pair<Vec3, Vec3> > &GetOpenings() { return openings; }
 
 		static uint32 GetActiveCount();
 		static const Cloud &GetCloud(const uint32 id) { return clouds[id]; }
@@ -180,6 +190,8 @@ namespace p3d {
 		static void ClearTile(const uint32 id);
 
 		static Cloud clouds[MaxClouds];
+		static uint32 obstacleEpoch;
+		static std::vector<std::pair<Vec3, Vec3> > openings;
 		static std::vector<uchar> atlas;
 		static uint32 atlasVersion;
 		static f64 clock;

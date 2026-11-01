@@ -1221,6 +1221,11 @@ end
 				return VolumetricSmoke::Spawn(physics, position, color, radius, growTime, lifeTime, fadeTime, rise, emission, blast.value_or(0.f));
 			});
 			smoke.set_function("update", [](const f32 dt) { VolumetricSmoke::Update(dt); });
+			// (the colliders changed - a window broken, a door opened: the smoke's grids lay their obstacles again)
+			smoke.set_function("refreshObstacles", []() { VolumetricSmoke::RefreshObstacles(); });
+			// (a gap the colliders do not have - a window broken out of a whole wall collider: a box, world min and max)
+			smoke.set_function("addOpening", [](const Vec3 &mn, const Vec3 &mx) { VolumetricSmoke::AddOpening(mn, mx); });
+			smoke.set_function("clearOpenings", []() { VolumetricSmoke::ClearOpenings(); });
 			smoke.set_function("remove", [](const int32 id) { VolumetricSmoke::Remove(id); });
 			// 1 is a grenade's wall of smoke; a signal smoke is well under it.
 			smoke.set_function("setThickness", [](const int32 id, const f32 thickness) { VolumetricSmoke::SetThickness(id, thickness); });

@@ -77,56 +77,10 @@ namespace p3d {
 		return at + cells <= poolCells ? at : 0xFFFFFFFFu;
 	}
 
-	void FluidVolumes::Make(Sim &s, const int32 cloud)
+	// The cloud's obstacles in its grid, from the physics (and again when they change - a window broken: RefreshObstacles)
+	void FluidVolumes::LayObstacles(Sim &s, const VolumetricSmoke::Cloud &c)
 	{
-		const VolumetricSmoke::Cloud &c = VolumetricSmoke::GetCloud((uint32)cloud);
-		s = Sim();
-		s.cloud = cloud;
-		s.serial = c.serial;
-		s.kind = c.emission <= 0.f ? 0 : (c.blast > 0.5f ? 2 : 1);
-		s.clock = VolumetricSmoke::GetClock() - c.age;
-		// The box and its cells, by kind: a grenade's smoke spreads wide and stays lowish; a fire is a tall column
-		// (the flames and the smoke going up off them); a blast rolls up into a mushroom
-		const f32 R = std::max(c.radius, 0.3f);
-		// (under a roof? a few rays up round the canister: indoors the box is made wider - a room is larger than the cloud's
-		// own size - and its sides hold the smoke in, the room's walls being what stops it. Its open sides took the smoke out
-		// where they crossed the room: the cloud thinned half way, and stood cut off along a straight line)
-		bool indoors = false;
-		if (c.physics && (c.emission <= 0.f))
-		{
-			int covered = 0, tried = 0;
-			for (int k = 0; k < 9; k++)
-			{
-				const f32 a = (f32)k * 0.698f, r = k == 0 ? 0.f : 2.f;
-				const Vec3 at(c.position.x + cosf(a) * r, c.position.y + 0.3f, c.position.z + sinf(a) * r);
-				tried++;
-				if (c.physics->RayCast(at, at + Vec3(0.f, 12.f, 0.f)).hasHit) covered++;
-			}
-			indoors = covered * 3 >= tried * 2;
-		}
-		f32 wide, tall, below; uint32 across, upMax;
-		if (s.kind == 0) { wide = 2.6f * R + 2.f; tall = 1.3f * R + 2.f; below = 0.6f; across = 96; upMax = 56; }
-		else if (s.kind == 1) { wide = 2.2f * R + 1.f; tall = 3.5f * R + 2.5f; below = 0.3f; across = 48; upMax = 112; }
-		else { wide = 4.5f * R + 2.f; tall = 6.f * R + 3.f; below = 0.6f; across = 64; upMax = 80; }
-		if (s.kind == 0 && indoors) { wide *= 1.7f; across = 128; }
-		s.closedSides = s.kind == 0 && indoors;
-		s.cell = wide / (f32)across;
-		s.nx = s.nz = across;
-		s.ny = std::min(upMax, (uint32)ceilf(tall / s.cell));
-		s.cells = s.nx * s.ny * s.nz;
-		s.origin = Vec3(c.position.x - wide * 0.5f, c.position.y - below, c.position.z - wide * 0.5f);
-		s.offset = Allocate(s.cells);
-		if (s.offset == 0xFFFFFFFFu) { s.cloud = -1; return; }
-
-		gfx::BufferDesc b; b.usage = gfx::BufStorage; b.memory = gfx::Memory::GpuOnly;
-		b.size = (uint64)s.cells * 8;     // (four half floats a cell)
-		b.debugName = "Renderer.FluidVelocity"; s.vel0 = device->CreateBuffer(b); s.vel1 = device->CreateBuffer(b);
-		b.debugName = "Renderer.FluidScalars"; s.scal0 = device->CreateBuffer(b); s.scal1 = device->CreateBuffer(b);
-		b.debugName = "Renderer.FluidAux"; s.aux = device->CreateBuffer(b);
-		b.debugName = "Renderer.FluidPressure"; s.pressure = device->CreateBuffer(b);     // (two floats a cell: the pair)
 		const uint32 words = (s.cells + 31) / 32;
-		b.size = (uint64)words * 4; b.debugName = "Renderer.FluidSolid"; s.solid = device->CreateBuffer(b);
-
 		// The colliders: each column's rays down (the tops of what is in it, a ray again from just under each - a
 		// ray ignores what it starts inside) and up from under the box (their bottoms); solid from each top down to
 		// the nearest bottom under it, or to the box's floor
@@ -211,7 +165,9 @@ namespace p3d {
 				{
 					const RayCastHit h = c.physics->RayCast(from, b);
 					if (!h.hasHit) break;
-					mark(h.point + dir * 0.01f);
+					// (two cells thick, one each side of the surface: a wall one cell thin leaked - the solver's interpolation reads
+					// across a single solid cell)
+					mark(h.point + dir * 0.01f); mark(h.point - dir * (s.cell * 0.9f)); mark(h.point + dir * (s.cell * 0.9f));
 					from = h.point + dir * 0.02f;
 				}
 			};
@@ -247,9 +203,72 @@ namespace p3d {
 			fprintf(stderr, "[smoke] origin y %.2f, solid %% by height:%s\n", s.origin.y, prof.c_str());
 			fprintf(stderr, "[smoke] grid %ux%ux%u cell %.2f: %zu solid\n", s.nx, s.ny, s.nz, s.cell, n);
 		}
+		// (the openings the colliders lack - windows broken out: their cells cleared)
+		for (const std::pair<Vec3, Vec3> &o : VolumetricSmoke::GetOpenings())
+		{
+			const int x0 = std::max(0, (int)floorf((o.first.x - s.origin.x) / s.cell)), x1 = std::min((int)s.nx - 1, (int)floorf((o.second.x - s.origin.x) / s.cell));
+			const int y0 = std::max(0, (int)floorf((o.first.y - s.origin.y) / s.cell)), y1 = std::min((int)s.ny - 1, (int)floorf((o.second.y - s.origin.y) / s.cell));
+			const int z0 = std::max(0, (int)floorf((o.first.z - s.origin.z) / s.cell)), z1 = std::min((int)s.nz - 1, (int)floorf((o.second.z - s.origin.z) / s.cell));
+			for (int z = z0; z <= z1; z++) for (int y = y0; y <= y1; y++) for (int x = x0; x <= x1; x++)
+			{ const size_t at = (size_t)x + s.nx * ((size_t)y + s.ny * z); solid[at >> 5] &= ~(1u << (at & 31)); }
+		}
 		s.enclosed = columnsNear ? (f32)coverNear / (f32)columnsNear : 0.f;
 		if (getenv("PYROS_SMOKE_SOLID_LOG")) fprintf(stderr, "[smoke] enclosed %.2f (%u of %u columns)\n", s.enclosed, coverNear, columnsNear);
 		device->Upload(s.solid, 0, solid.data(), (uint64)words * 4);
+		s.obstacleEpoch = VolumetricSmoke::GetObstacleEpoch();
+	}
+
+	void FluidVolumes::Make(Sim &s, const int32 cloud)
+	{
+		const VolumetricSmoke::Cloud &c = VolumetricSmoke::GetCloud((uint32)cloud);
+		s = Sim();
+		s.cloud = cloud;
+		s.serial = c.serial;
+		s.kind = c.emission <= 0.f ? 0 : (c.blast > 0.5f ? 2 : 1);
+		s.clock = VolumetricSmoke::GetClock() - c.age;
+		// The box and its cells, by kind: a grenade's smoke spreads wide and stays lowish; a fire is a tall column
+		// (the flames and the smoke going up off them); a blast rolls up into a mushroom
+		const f32 R = std::max(c.radius, 0.3f);
+		// (under a roof? a few rays up round the canister: indoors the box is made wider - a room is larger than the cloud's
+		// own size - and its sides hold the smoke in, the room's walls being what stops it. Its open sides took the smoke out
+		// where they crossed the room: the cloud thinned half way, and stood cut off along a straight line)
+		bool indoors = false;
+		if (c.physics && (c.emission <= 0.f))
+		{
+			int covered = 0, tried = 0;
+			for (int k = 0; k < 9; k++)
+			{
+				const f32 a = (f32)k * 0.698f, r = k == 0 ? 0.f : 2.f;
+				const Vec3 at(c.position.x + cosf(a) * r, c.position.y + 0.3f, c.position.z + sinf(a) * r);
+				tried++;
+				if (c.physics->RayCast(at, at + Vec3(0.f, 12.f, 0.f)).hasHit) covered++;
+			}
+			indoors = covered * 3 >= tried * 2;
+		}
+		f32 wide, tall, below; uint32 across, upMax;
+		if (s.kind == 0) { wide = 2.6f * R + 2.f; tall = 1.3f * R + 2.f; below = 0.6f; across = 96; upMax = 56; }
+		else if (s.kind == 1) { wide = 2.2f * R + 1.f; tall = 3.5f * R + 2.5f; below = 0.3f; across = 48; upMax = 112; }
+		else { wide = 4.5f * R + 2.f; tall = 6.f * R + 3.f; below = 0.6f; across = 64; upMax = 80; }
+		if (s.kind == 0 && indoors) { wide *= 1.7f; across = 128; }
+		s.closedSides = s.kind == 0 && indoors;
+		s.cell = wide / (f32)across;
+		s.nx = s.nz = across;
+		s.ny = std::min(upMax, (uint32)ceilf(tall / s.cell));
+		s.cells = s.nx * s.ny * s.nz;
+		s.origin = Vec3(c.position.x - wide * 0.5f, c.position.y - below, c.position.z - wide * 0.5f);
+		s.offset = Allocate(s.cells);
+		if (s.offset == 0xFFFFFFFFu) { s.cloud = -1; return; }
+
+		gfx::BufferDesc b; b.usage = gfx::BufStorage; b.memory = gfx::Memory::GpuOnly;
+		b.size = (uint64)s.cells * 8;     // (four half floats a cell)
+		b.debugName = "Renderer.FluidVelocity"; s.vel0 = device->CreateBuffer(b); s.vel1 = device->CreateBuffer(b);
+		b.debugName = "Renderer.FluidScalars"; s.scal0 = device->CreateBuffer(b); s.scal1 = device->CreateBuffer(b);
+		b.debugName = "Renderer.FluidAux"; s.aux = device->CreateBuffer(b);
+		b.debugName = "Renderer.FluidPressure"; s.pressure = device->CreateBuffer(b);     // (two floats a cell: the pair)
+		const uint32 words = (s.cells + 31) / 32;
+		b.size = (uint64)words * 4; b.debugName = "Renderer.FluidSolid"; s.solid = device->CreateBuffer(b);
+
+		LayObstacles(s, c);
 
 		gfx::Device::BindGroupEntry e[8];
 		const gfx::Buffer bufs[6] = { s.vel0, s.vel1, s.scal0, s.scal1, s.pressure, s.aux };
@@ -292,6 +311,9 @@ namespace p3d {
 			if (getenv("PYROS_SMOKE_SOLID_LOG")) fprintf(stderr, "[smoke] make cloud %d age %.1f\n", w.second, w.first);
 			if (s.cloud >= 0) sims.push_back(s);
 		}
+		// (their obstacles laid again where they changed - a pane broken out, a door opened: the smoke goes through)
+		for (Sim &s : sims)
+			if (s.obstacleEpoch != VolumetricSmoke::GetObstacleEpoch()) LayObstacles(s, VolumetricSmoke::GetCloud((uint32)s.cloud));
 		// What each is stepped by: the clouds' clock since it was last, in steps of kMaxStep at most (a frame that
 		// would take more is let go: the smoke slows rather than the frame)
 		const f64 now = VolumetricSmoke::GetClock();
@@ -357,6 +379,7 @@ namespace p3d {
 			const f32 settle = std::min(std::max((s.age - spew) / 4.f, 0.f), 1.f);
 			const f32 keep = 1.f - settle * (0.55f + 0.4f * std::min(std::max(s.enclosed, 0.f), 1.f));
 			d.turb[0] *= keep; d.forces[2] *= keep; d.forces[0] *= (1.f - 0.6f * settle);
+			if (s.closedSides) d.extra[1] = settle * 0.035f;     // (indoors, once settled, the room's smoke thins slowly: a grey wall otherwise)
 			if (settle > 0.f) d.jet[3] = -settle * (0.35f + 1.4f * std::min(std::max(s.enclosed, 0.f), 1.f));     // (drag once the canister is done - its jet is off then: indoors the air goes still)
 		}
 		else if (s.kind == 1)
