@@ -109,7 +109,7 @@ void Tonemap()
 		{
 			backdrop = min(uDraw.g3.yzw, hdr);
 			hdr -= backdrop;
-			if (max(hdr.r, max(hdr.g, hdr.b)) < 1e-5) { outColor = vec4(clamp(backdrop, 0.0, 1.0), 1.0); return; }     // (nothing over it)
+			if (max(hdr.r, max(hdr.g, hdr.b)) < 1e-5) { vec3 bd = clamp(backdrop, 0.0, 1.0); outColor = vec4(uDraw.g4.z > 0.5 ? pow(bd, vec3(1.0 / 2.2)) : bd, 1.0); return; }     // (nothing over it - encoded too, for the asset effects)
 		}
 	}
 	// The bloom: only what of the spread light is past the scene's threshold, exposed (Bloom's uThreshold, with a soft
@@ -138,6 +138,10 @@ void Tonemap()
 	if (uDraw.g2.w > 0.5) sdr = Grade(sdr);     // (the scene's grade, on the finished picture)
 	// (the background, as it was set, under what was drawn over it)
 	sdr += clamp(backdrop, 0.0, 1.0) * (1.0 - clamp(max(sdr.r, max(sdr.g, sdr.b)), 0.0, 1.0));
+	// (into the display texture for the scene's asset effects: encoded as a screen shows it - they are written for display
+	// values, a grade's contrast about a middle grey of 0.42; given linear ones the lab's atmosphere crushed it dark and red.
+	// present.frag decodes it again for the backbuffer)
+	if (uDraw.g4.z > 0.5) sdr = pow(clamp(sdr, 0.0, 1.0), vec3(1.0 / 2.2));
 	outColor = vec4(sdr, 1.0);     // (the backbuffer is sRGB, or HDR linear floats: the store or the screen encodes it)
 }
 

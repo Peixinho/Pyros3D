@@ -5803,7 +5803,7 @@ namespace p3d {
 				g.shadowTint.x, g.shadowTint.y, g.shadowTint.z, g.shadowTint.w, g.highlightTint.x, g.highlightTint.y, g.highlightTint.z, g.highlightTint.w,
 				g.vignette, g.grain, g.chromatic, g.on ? 1.f : 0.f,
 				0.06f * bloomIntensity, backdropNow.x, backdropNow.y, backdropNow.z,
-				bloomThreshold, bloomKnee, 0.f, 0.f };
+				bloomThreshold, bloomKnee, pipe == tonemapToDisplayPipeline ? 1.f : 0.f, 0.f };     // (z: into the display texture - sRGB-encoded, for the asset effects)
 			cl->DrawData(dd, sizeof(dd));
 			cl->Draw(3, 1, 0, 0);
 		};
