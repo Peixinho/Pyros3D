@@ -103,7 +103,9 @@ namespace p3d {
 		void SetHaze(const f32 density) { hazeDensity = std::max(density, 0.f); }
 		// Clouds, with the sky: how much of it they cover (0 none), and the steps along a ray (more: smoother, dearer)
 		// Temporal anti-aliasing: each frame a sub-pixel off, blended into the last (on unless turned off; PYROS_RENDERER_TAA=0 too)
-		void SetTemporalAA(const bool on) { taaOn = on; taaHistory = false; if (on) fxaaOn = false; }
+		// (the history forgotten only when the mode changes: a scene's settings are applied every frame - the editor's - and
+		// forgotten each time, the resolve never had one, the picture shook with its jitter)
+		void SetTemporalAA(const bool on) { if (on != taaOn) taaHistory = false; taaOn = on; if (on) fxaaOn = false; }
 		// The anti-aliasing after the scene's 4x MSAA: TAA (the default - sub-pixel detail and shimmer resolved over
 		// frames, what render scale needs), FXAA (edges found and blended in one frame: no softness, no trails), or none
 		enum class AntiAliasing : uint8 { None = 0, FXAA = 1, TAA = 2 };
@@ -123,6 +125,8 @@ namespace p3d {
 		const Grade &GetGrade() const { return grade; }
 		// How much of the bloom's spread light the picture takes (a scene's Bloom uIntensity: 0.5 the usual)
 		void SetBloomIntensity(const f32 intensity) { bloomIntensity = std::max(intensity, 0.f); }
+		// (Bloom's uThreshold and uKnee: only what is brighter than the threshold, exposed, glows - softly from threshold - knee)
+		void SetBloomThreshold(const f32 threshold, const f32 knee) { bloomThreshold = std::max(threshold, 0.f); bloomKnee = std::max(knee, 0.f); }
 		// A height fog lit by the sun through its shadows - light shafts - and by the sky (a scene's VolumetricLight; the sun's
 		// own DirectionalLight::SetVolumetric, where it has one, takes its place): density at its base per metre (0 off),
 		// forward scattering, thinning with height per metre, its base height, how far out it is marched, steps, the sun's
@@ -142,7 +146,7 @@ namespace p3d {
 		// The ambient occlusion's reach (metres), strength (a power on what it leaves lit: 1 as it is) and its share on the
 		// direct light (0 the ambient's alone; 0.2, the default, as the old renderer's SSAO) - a scene's SSAO
 		void SetAmbientOcclusion(const f32 radius, const f32 strength, const f32 direct = 0.2f) { aoRadius = std::min(std::max(radius, 0.05f), 8.f); aoStrength = std::min(std::max(strength, 0.f), 4.f); aoDirect = std::min(std::max(direct, 0.f), 1.f); }
-		void SetAntiAliasing(const AntiAliasing mode) { taaOn = mode == AntiAliasing::TAA; fxaaOn = mode == AntiAliasing::FXAA; taaHistory = false; }
+		void SetAntiAliasing(const AntiAliasing mode) { if ((mode == AntiAliasing::TAA) != taaOn) taaHistory = false; taaOn = mode == AntiAliasing::TAA; fxaaOn = mode == AntiAliasing::FXAA; }
 		AntiAliasing GetAntiAliasing() const { return taaOn ? AntiAliasing::TAA : fxaaOn ? AntiAliasing::FXAA : AntiAliasing::None; }
 		// A cut: what the temporal anti-aliasing kept of the last view is not the next one's
 		void ResetHistory() { taaHistory = false; }
@@ -402,6 +406,7 @@ namespace p3d {
 			std::vector<std::pair<std::string, bool> > params;     // (name, vec4)
 			std::vector<std::string> textures;
 			bool failed = false;
+			std::string name, prepassName;     // (its material's file, for the device's messages - "Renderer.CustomSurface Sea.glsl")
 		};
 		struct CustomKey
 		{
@@ -613,7 +618,7 @@ namespace p3d {
 		Vec4 lastSunDirection; Matrix lastViewProjection;     // (this frame's: where the sun is on the screen)
 		gfx::Texture taaTex[2], velocityTex; gfx::Shader velocityFS; gfx::Pipeline taaPipeline; gfx::Shader taaFS; gfx::BindGroup taaGroups[2]; gfx::Buffer taaData;
 		bool taaOn = true, taaHistory = false; uint32 taaFrame = 0; Matrix taaPreviousViewProjection;
-		Grade grade; f32 bloomIntensity = 0.5f, aoRadius = 1.f, aoStrength = 1.f, aoDirect = 0.2f;
+		Grade grade; f32 bloomThreshold = 1.f, bloomKnee = 0.5f; f32 bloomIntensity = 0.f, aoRadius = 1.f, aoStrength = 1.f, aoDirect = 0.2f;
 		VolumetricFog fog, fogNow;     // (the scene's, and this frame's - the sun's own where it has one)
 		// The asset effects, and each one compiled (by its source): its pipeline, its parameters' order and defaults, its
 		// inputs; the picture in display terms ping-ponged between two targets, then brought to the screen (present.frag)

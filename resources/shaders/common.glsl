@@ -28,7 +28,7 @@ layout(set = 1, binding = 0, std140) uniform FrameData
 	vec4 ambientSH[9];       // order-2 spherical harmonics of the light all round (linear radiance)
 	vec4 weather;            // x: the rain, 0..1 (RenderGlobals::Rain): what faces up wet and puddled in proportion; y: 1 the sun's shadow ray-traced (surface.frag's uAO, green); z: 1 a transparent background (View); w: the screen's HDR headroom (1: SDR)
 	mat4 previousViewProjection;     // last frame's, without its jitter: where a point was in last frame's picture (reflections)
-	vec4 temporal;           // x: the frame's index, 0..63 - what moves a dither from frame to frame (LodDither)
+	vec4 temporal;           // x: what moves a dither from frame to frame (LodDither) - 0, held still; y, z: the still water's plane - its height, on
 } uFrame;
 
 // (a colour as it may be kept or averaged: a value gone wrong - not a number, an infinity, or past what a half float

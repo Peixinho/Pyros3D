@@ -509,6 +509,18 @@ namespace p3d {
 		return UploadDecoded(image, Mipmapping, level);
 	}
 
+	bool Texture::LoadTextureFromPixels(const uchar* rgba, const int32 width, const int32 height, bool Mipmapping, const std::string &filename)
+	{
+		if (!rgba || width <= 0 || height <= 0) return false;
+		this->Type = TextureType::Texture;
+		this->Filename = filename;
+		DecodedImage image;
+		image.width = width; image.height = height;
+		image.pixels.assign(rgba, rgba + (size_t)width * height * 4);
+		BleedTransparentEdges(image.pixels, width, height);
+		return UploadDecoded(image, Mipmapping, 0);
+	}
+
 	bool Texture::UploadDecoded(DecodedImage& image, bool Mipmapping, const uint32 level)
 	{
 		if (this->Width.size() < level + 1)

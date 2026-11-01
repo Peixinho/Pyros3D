@@ -11,7 +11,8 @@ layout(set = 0, binding = 0, std140) uniform DrawData
 	vec4 planes[6];       // the view's frustum (world): a point is in where dot(plane.xyz, p) + plane.w >= -radius for all six
 	vec4 sphere;          // the mesh's sphere: xyz its centre (its own space), w its radius
 	vec4 eye;             // xyz the eye, w the distance past which the set has faded out (0 none)
-	vec4 counts;          // x the instances, y 1: reset the arguments (a dispatch of one, first), z the mesh's index count
+	vec4 counts;          // x the instances, y 1: reset the arguments (a dispatch of one, first), z the mesh's index count,
+	                      // w a metre's height in pixels a metre off (0: no fade by size)
 	vec4 lod;             // one level of a set drawn level by level per instance: x, y the distances it covers, z the
 	                      // crossfade band's share of a hand-over distance, w 1 on
 } uCull;

@@ -4,6 +4,7 @@
 // Description : The renderer - see SceneRenderer.h
 //============================================================================
 
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Rendering/Renderer/ImpostorBaker.h>
 #include <Pyros3D/Rendering/Renderer/SceneRenderer.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
@@ -1004,7 +1005,7 @@ namespace p3d {
 		tp.material = { { 0, gfx::BindingKind::Uniform, true, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::Sampler, false, true },
 			{ 3, gfx::BindingKind::Texture2D, false, true }, { 4, gfx::BindingKind::Texture2D, false, true }, { 5, gfx::BindingKind::DepthTexture, false, true } };
 		tp.cull = gfx::Cull::None; tp.depthTest = tp.depthWrite = false;
-		tp.drawDataBytes = 144;     // (the grade and the bloom's share - tonemap.frag's DrawData)
+		tp.drawDataBytes = 160;     // (the grade, the bloom's share and threshold - tonemap.frag's DrawData)
 		tp.colorCount = 1; tp.colorFormats[0] = gfx::Format::Unknown;     // (the backbuffer's own)
 		tp.debugName = "Renderer.Tonemap";
 		tonemapPipeline = device->CreatePipeline(tp);
@@ -1239,6 +1240,7 @@ namespace p3d {
 
 	gfx::Texture SceneRenderer::TextureFor(Texture* source, const bool srgb, const gfx::Texture fallback)
 	{
+		PYROS_PROFILE_SCOPE("R.TextureFor");
 		if (!source) return fallback;
 		// (a SceneView's: its picture, as it was last drawn)
 		if (!ViewTextures().empty())
@@ -1311,7 +1313,13 @@ namespace p3d {
 		if (device->Caps().bc && w % 4 == 0 && h % 4 == 0 && !getenv("PYROS_NO_BLOCKS"))
 		{
 			uint32 blockFormat = 0; std::vector<std::vector<uchar> > blocks;
-			if (source->CompressedChain(blockFormat, blocks) && (blockFormat == 1 || blockFormat == 2))     // (BlockCompress: 1 BC1, 2 BC3)
+			// (and only a chain that is this picture's: its first level the size of this one, no more levels than it has - a
+			// cached chain of an earlier picture of the name, another size, asked Metal for 12 levels of a 1664 square and
+			// stopped the editor dead)
+			uint32 maxMips = 1; for (uint32 d = std::max(w, h); d > 1; d >>= 1) maxMips++;
+			const bool chainOk = source->CompressedChain(blockFormat, blocks) && (blockFormat == 1 || blockFormat == 2) && !blocks.empty()
+				&& blocks.size() <= maxMips && blocks[0].size() == (size_t)((w + 3) / 4) * ((h + 3) / 4) * (blockFormat == 1 ? 8u : 16u);
+			if (chainOk)     // (BlockCompress: 1 BC1, 2 BC3)
 			{
 				std::vector<gfx::TextureData> data(blocks.size());
 				for (size_t i = 0; i < blocks.size(); i++) { data[i].mip = (uint32_t)i; data[i].bytes = blocks[i].data(); data[i].size = blocks[i].size(); }
@@ -1407,6 +1415,7 @@ namespace p3d {
 
 	gfx::BindGroup SceneRenderer::SurfaceGroupFor(const gfx::Pipeline layoutOf, const std::array<gfx::Texture, 5> &maps)
 	{
+		PYROS_PROFILE_SCOPE("R.SurfaceGroupFor");
 		const std::array<uint32_t, 5> key = { maps[0].id, maps[1].id, maps[2].id, maps[3].id, maps[4].id };
 		std::map<std::array<uint32_t, 5>, gfx::BindGroup>::iterator i = surfaceGroups.find(key);
 		if (i != surfaceGroups.end()) return i->second;
@@ -1440,6 +1449,7 @@ namespace p3d {
 
 	uint32 SceneRenderer::WriteLights(SceneGraph* scene, const View &view, const uint32 slot)
 	{
+		PYROS_PROFILE_SCOPE("R.WriteLights");
 		// The lights that cast shadows, nearest the camera first, given tiles while there are tiles: a spot one, a point
 		// light six
 		localTiles.clear();
@@ -2167,6 +2177,7 @@ namespace p3d {
 
 	bool SceneRenderer::PrepareSunShadow(SceneGraph* scene, const View &view, const uint32 slot)
 	{
+		PYROS_PROFILE_SCOPE("R.PrepareSunShadow");
 		ShadowData sd = {};
 		sunShadowOn = false;
 		// The clouds' shadow map: where it lies and how dark (none until it is made)
@@ -2434,6 +2445,7 @@ namespace p3d {
 
 	SceneRenderer::InstancesGpu* SceneRenderer::InstancesFor(RenderingInstancedComponent* rc, MeshGpu* mesh)
 	{
+		PYROS_PROFILE_SCOPE("R.InstancesFor");
 		InstancesGpu &g = instanceBuffers[rc];
 		if (g.buffer && g.revision == rc->instanceRevision && g.count == rc->transform.size()) return &g;
 		if (rc->transform.empty()) return nullptr;     // (instances the GPU fills - not read back here)
@@ -2549,6 +2561,7 @@ namespace p3d {
 
 	gfx::Buffer SceneRenderer::ColorsFor(IGeometry* g, MeshGpu* mesh)
 	{
+		PYROS_PROFILE_SCOPE("R.ColorsFor");
 		if (mesh->colors) return mesh->colors;
 		std::vector<f32> c((size_t)mesh->vertexCount * 4, 1.f);
 		const VertexAttribute* a = FindAttribute(g, "aColor");
@@ -3213,6 +3226,7 @@ namespace p3d {
 
 	void SceneRenderer::BuildRayInstances()
 	{
+		PYROS_PROFILE_SCOPE("R.BuildRayInstances");
 		// The frame's scene for the GPU's ray tracing: every opaque thing gathered - in view or not, what casts a shadow
 		// into it or shows in a mirror may be anywhere - its mesh built once (again where it changed), and its colour
 		// and glow by its place in the list (what a reflected ray found, rtreflect.frag)
@@ -3275,6 +3289,7 @@ namespace p3d {
 
 	void SceneRenderer::PrepareRayTracing(SceneGraph* scene)
 	{
+		PYROS_PROFILE_SCOPE("R.PrepareRayTracing");
 		// The scene's triangles as rays see them: made where the scene is another, made again where something came or
 		// went, refitted where things only moved - and what changed uploaded
 		bool upload = false;
@@ -4061,6 +4076,7 @@ namespace p3d {
 
 	SceneRenderer::CustomSurface* SceneRenderer::SurfaceFor(CustomShaderMaterial* material, uint64 &hash)
 	{
+		PYROS_PROFILE_SCOPE("R.SurfaceFor");
 		SurfaceRef &ref = surfaceRefs[material];
 		if (ref.revision == material->GetSurfaceRevision() && ref.materialId == material->GetInternalID()) { hash = ref.hash; return ref.surface; }
 		ref.revision = material->GetSurfaceRevision(); ref.surface = nullptr; ref.materialId = material->GetInternalID();
@@ -4071,6 +4087,11 @@ namespace p3d {
 		std::map<uint64, CustomSurface>::iterator found = customSurfaces.find(hash);
 		if (found != customSurfaces.end()) return ref.surface = found->second.failed ? nullptr : &found->second;
 		CustomSurface &cs = customSurfaces[hash];
+		{
+			const std::string &file = material->GetShaderFile();
+			const std::string base = file.substr(file.find_last_of("/\\") == std::string::npos ? 0 : file.find_last_of("/\\") + 1);
+			cs.name = "Renderer.CustomSurface " + base; cs.prepassName = cs.name + " (depth prepass)";
+		}
 		std::string text, vertexTexts[3];
 		SurfaceTexts(source, cs.params, cs.textures, text, vertexTexts);
 		std::vector<uint32> spirv;
@@ -4081,7 +4102,7 @@ namespace p3d {
 			cs.failed = true;
 			return nullptr;
 		}
-		gfx::ShaderDesc sd; sd.stage = gfx::Stage::Fragment; sd.spirv = spirv.data(); sd.spirvWords = spirv.size(); sd.debugName = "surface.frag (custom)";
+		gfx::ShaderDesc sd; sd.stage = gfx::Stage::Fragment; sd.spirv = spirv.data(); sd.spirvWords = spirv.size(); sd.debugName = cs.name.c_str();
 		if (!wgsl.empty()) sd.wgsl = wgsl.c_str();
 		cs.shader = device->CreateShader(sd);
 		if (!cs.shader) { cs.failed = true; return nullptr; }
@@ -4107,6 +4128,7 @@ namespace p3d {
 
 	gfx::Pipeline SceneRenderer::CustomPipeline(const CustomKey &key, CustomSurface* cs)
 	{
+		PYROS_PROFILE_SCOPE("R.CustomPipeline");
 		std::map<CustomKey, gfx::Pipeline>::iterator i = customPipelines.find(key);
 		if (i != customPipelines.end()) return i->second;
 		gfx::GraphicsPipelineDesc p;
@@ -4138,13 +4160,13 @@ namespace p3d {
 		p.depthTest = true; p.depthWrite = key.blend == (uint8)gfx::Blend::Opaque; p.depthCompare = gfx::Compare::GreaterEqual;
 		p.colorCount = 1; p.colorFormats[0] = kHdrFormat; p.blend[0] = (gfx::Blend)key.blend;
 		p.depthFormat = kDepthFormat; p.samples = kSceneSamples;
-		p.debugName = "Renderer.CustomSurface";
+		p.debugName = cs->name.c_str();
 		if (key.blend == kPrepassBlend)
 		{
 			// (its depth prepass: its own vertex stage - where it moves its vertices, there it is - no move of its own known)
 			p.fragment = noVelocityFS; p.depthWrite = true;
 			p.colorFormats[0] = gfx::Format::RG16F; p.blend[0] = gfx::Blend::Opaque; p.samples = 1;
-			p.debugName = "Renderer.CustomSurface (depth prepass)";
+			p.debugName = cs->prepassName.c_str();
 		}
 		const gfx::Pipeline made = device->CreatePipeline(p);
 		customPipelines[key] = made;
@@ -4153,6 +4175,7 @@ namespace p3d {
 
 	gfx::BindGroup SceneRenderer::CustomGroupFor(CustomShaderMaterial* m, CustomSurface* cs, gfx::Pipeline layoutOf, const bool prepass)
 	{
+		PYROS_PROFILE_SCOPE("R.CustomGroupFor");
 		// (its textures, by the names its surface reads them by - the material's AddSampler() names)
 		std::vector<gfx::Texture> tex(cs->textures.size(), white);
 		const std::vector<std::string> &names = m->GetSamplerNames();
@@ -4213,6 +4236,7 @@ namespace p3d {
 
 	void SceneRenderer::Gather(SceneGraph* scene, const View &view, const Matrix &vp)
 	{
+		PYROS_PROFILE_SCOPE("R.Gather");
 		items.clear(); opaqueOrder.clear(); transparentOrder.clear(); worldTextOrder.clear();
 		boneScratch.clear();
 		skyboxSource = nullptr;
@@ -4290,7 +4314,7 @@ namespace p3d {
 						{
 							chosen.push_back(m);
 							InstanceLodPick &p = instanceLodPicks[m];
-							p.range = Vec4(lo, hi, 0.12f, 1.f); p.caster = l == level;
+							p.range = Vec4(lo, hi, 0.12f, 1.f); p.caster = l == 0;     // (the shadow from the full mesh: the block's own level was a far one for the near trees of a big block - a simplified crown's leaf cards collapsed into solid triangles, their shadows dark triangles in every tree)
 						}
 					}
 					continue;
@@ -4498,6 +4522,9 @@ namespace p3d {
 			}
 			if (cullingOn && !md.movesItself) for (const Vec4 &p : planes)
 				if (p.x * it.center.x + p.y * it.center.y + p.z * it.center.z + p.w < -it.radius) { it.visible = false; break; }
+			// (seen: what poses itself only while it is seen - a skinned body, WasSeenRecently - is told so. Lost when the old
+			// renderer went, every bot the game animates only in sight stood in whatever pose it last had, or its bind pose)
+			if (it.visible && rm->renderingComponent) rm->renderingComponent->MarkSeen();
 			// (a custom material's group asked for again each frame it is seen: its textures can change under it - a sampler
 			// added from a script, an FFT sea's - and asking is what writes a float texture's new data. Made once, the sea
 			// drew its first group's white placeholders - its swell 1 m everywhere, the water stood 1.75 m high)
@@ -4639,6 +4666,7 @@ namespace p3d {
 
 	gfx::Pipeline SceneRenderer::SurfacePipeline(const PipelineKey &key)
 	{
+		PYROS_PROFILE_SCOPE("R.SurfacePipeline");
 		std::map<PipelineKey, gfx::Pipeline>::iterator i = surfacePipelines.find(key);
 		if (i != surfacePipelines.end()) return i->second;
 		gfx::GraphicsPipelineDesc p;
@@ -4680,6 +4708,7 @@ namespace p3d {
 
 	void SceneRenderer::EnsureTargets(const uint32 outW, const uint32 outH)
 	{
+		PYROS_PROFILE_SCOPE("R.EnsureTargets");
 		// (the scene's targets at the render scale's share of the view - the resolved picture, and what reads it, at the view's)
 		const f32 scale = taaOn ? renderScale : 1.f;
 		const uint32 width = std::max(1u, (uint32)std::lround(outW * scale)), height = std::max(1u, (uint32)std::lround(outH * scale));
@@ -4939,6 +4968,7 @@ namespace p3d {
 
 	SceneRenderer::MeshGpu* SceneRenderer::MeshFor(IGeometry* g)
 	{
+		PYROS_PROFILE_SCOPE("R.MeshFor");
 		MeshGpu &m = meshes[g];
 		// (another geometry made where a freed one was: not its buffers - made again)
 		if (m.geometryId != g->GetInstanceID())
@@ -5212,6 +5242,7 @@ namespace p3d {
 
 	void SceneRenderer::Render(SceneGraph* scene, const View &view)
 	{
+		PYROS_PROFILE_SCOPE("R.Render");
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		if (!view.hostFrame) device->BeginFrame();
 		// (impostors the scene's models asked for - ImpostorBank, a model's last level of detail: one baked a frame, by a
@@ -5221,7 +5252,7 @@ namespace p3d {
 			if (!baking && ImpostorBank::AnyPending())
 			{
 				baking = true;
-				ImpostorBank::BakePending(device, impostorRenderer);
+				{ PYROS_PROFILE_SCOPE("R.ImpostorBake"); ImpostorBank::BakePending(device, impostorRenderer); }
 				baking = false;
 			}
 		}
@@ -5310,11 +5341,12 @@ namespace p3d {
 			f32 td[56];
 			memcpy(td, inv.m, 64); memcpy(td + 16, taaPreviousViewProjection.m, 64); memcpy(td + 32, vp.m, 64);
 			memcpy(fd.previousViewProjection, taaPreviousViewProjection.m, 64);
-			fd.temporal[0] = (f32)(frameNumber % 64); fd.temporal[3] = 0.f;
+			fd.temporal[0] = 0.f; fd.temporal[3] = 0.f;     // (the dither held still: moved each frame, every crossfade and thinned plant shimmered a pixel at a time, the temporal resolve not settling it - the whole forest flickered)
 			// (a still water's mirror: its plane's height, and on - where there is last frame's picture to take it from)
 			{
 				const f32 level = RenderGlobals::MirrorLevel();
-				mirrorOn = level == level && hdrPreviousMade && mirrorTex && device->PipelineReady(ssprPipeline) && (ScreenReflections() || RtReflections());
+				static const bool noMirror = getenv("PYROS_NO_SSPR") != nullptr;     // (to measure what the planar reflection costs)
+				mirrorOn = !noMirror && level == level && hdrPreviousMade && mirrorTex && device->PipelineReady(ssprPipeline) && (ScreenReflections() || RtReflections());
 				mirrorLevel = mirrorOn ? level : 0.f;
 				fd.temporal[1] = mirrorLevel; fd.temporal[2] = mirrorOn ? 1.f : 0.f;
 			}
@@ -5764,13 +5796,14 @@ namespace p3d {
 			cl->SetPipeline(pipe);
 			cl->SetBindGroup(groups[cur], &frameOffset, 1);
 			const Grade &g = grade;
-			const f32 dd[36] = {
+			const f32 dd[40] = {
 				g.exposure, g.shoulder, g.temperature, g.tint,
 				g.contrast, g.pivot, g.saturation, g.vibrance,
 				g.lift.x, g.lift.y, g.lift.z, g.lift.w, g.gamma.x, g.gamma.y, g.gamma.z, g.gamma.w, g.gain.x, g.gain.y, g.gain.z, g.gain.w,
 				g.shadowTint.x, g.shadowTint.y, g.shadowTint.z, g.shadowTint.w, g.highlightTint.x, g.highlightTint.y, g.highlightTint.z, g.highlightTint.w,
 				g.vignette, g.grain, g.chromatic, g.on ? 1.f : 0.f,
-				0.06f * bloomIntensity, backdropNow.x, backdropNow.y, backdropNow.z };
+				0.06f * bloomIntensity, backdropNow.x, backdropNow.y, backdropNow.z,
+				bloomThreshold, bloomKnee, 0.f, 0.f };
 			cl->DrawData(dd, sizeof(dd));
 			cl->Draw(3, 1, 0, 0);
 		};

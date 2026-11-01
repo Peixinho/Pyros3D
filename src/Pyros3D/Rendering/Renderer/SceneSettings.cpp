@@ -75,7 +75,7 @@ namespace p3d {
 		bool sky = false, autoExposure = true, reflections = false;
 		bool rayTraced = false, rtReflections = false; f32 sunAngle = 0.0093f;
 		f32 scale = 1.f, shafts = 0.f, dofFocus = 10.f, dofRange = 4.f, dofBlur = 0.f, shutter = 0.f;
-		f32 antiAliasing = 2.f, bloom = 0.5f, aoRadius = 1.f, aoStrength = 1.f, aoDirect = 0.2f;
+		f32 bloomThreshold = 1.f, bloomKnee = 0.5f; f32 antiAliasing = 2.f, bloom = 0.f,     /* (no bloom unless the scene has a Bloom effect: on by default, every brighter pixel flashed through it - Erangel asked for none) */ aoRadius = 1.f, aoStrength = 1.f, aoDirect = 0.2f;
 		SceneRenderer::Grade grade;     // (off unless the scene has its Grade effect)
 		SceneRenderer::VolumetricFog fog;     // (none unless it has its VolumetricLight effect)
 		f32 ev = 0.f, cloudCover = 0.52f, cloudSteps = 40.f, cloudShadow = 0.45f, reach = 150.f;
@@ -91,7 +91,7 @@ namespace p3d {
 			}
 			if (e.effect == "Output") { autoExposure = First(e, "uAuto", 1.f) > 0.5f; ev = First(e, "uExposure", ev); scale = First(e, "uRenderScale", 1.f); antiAliasing = First(e, "uAntiAliasing", 2.f); }
 			if (e.effect == "SunShafts") shafts = First(e, "uStrength", 0.6f);
-			if (e.effect == "Bloom") bloom = First(e, "uIntensity", bloom);
+			if (e.effect == "Bloom") { bloom = First(e, "uIntensity", bloom); bloomThreshold = First(e, "uThreshold", bloomThreshold); bloomKnee = First(e, "uKnee", bloomKnee); }
 			if (e.effect == "VolumetricLight")
 			{
 				fog.density = First(e, "uDensity", 0.01f); fog.anisotropy = First(e, "uAnisotropy", 0.6f); fog.falloff = First(e, "uFalloff", 0.05f);
@@ -118,6 +118,7 @@ namespace p3d {
 		renderer.SetSky(sky);
 		renderer.SetGrade(grade);
 		renderer.SetBloomIntensity(bloom);
+		renderer.SetBloomThreshold(bloomThreshold, bloomKnee);
 		renderer.SetAmbientOcclusion(aoRadius, aoStrength, aoDirect);
 		renderer.SetVolumetricFog(fog);
 		// (the anti-aliasing: Output's uAntiAliasing - 0 none, 1 FXAA, 2 TAA, the default; PYROS_RENDERER_TAA=0 still wins)

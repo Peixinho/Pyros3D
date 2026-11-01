@@ -62,8 +62,10 @@ void* EditorImGuiTexture(p3d::Texture* texture)
 {
 	if (!texture) return nullptr;
 	// (one renderer for them all, drawing nothing: its texture cache)
-	static RendererView bridge;
-	if (!bridge.renderer) bridge.Renderer()->SetName("Editor images (textures)");
-	const p3d::gfx::Texture t = bridge.Renderer()->GpuTexture(texture, true);
+	// (never destroyed: a static one was torn down at exit after the window's device had gone, and its renderer freed
+	// its textures through the dead device - the editor crashed on every quit)
+	static RendererView* bridge = new RendererView();
+	if (!bridge->renderer) bridge->Renderer()->SetName("Editor images (textures)");
+	const p3d::gfx::Texture t = bridge->Renderer()->GpuTexture(texture, true);
 	return t ? (void*)(uintptr_t)p3d::ImGuiRenderer::Id(t) : nullptr;
 }

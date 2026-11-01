@@ -280,6 +280,56 @@ namespace p3d {
 		if (onlyPhase == 0) return true;     // (drawn: taken in by a later call)
 		out.frames = N; out.size = F; out.radius = radius; out.centre = centreY; out.fullSphere = fullSphere;
 		if (lastView < N * N) return true;     // (more views to come, in later calls)
+		// Views whose colour came back black where their shape was drawn (the colour draw skipped - its pipeline not made yet -
+		// while the normals' was not): seen from that way the impostor was a black tree. A view mostly black takes a whole
+		// neighbouring view's place; a few black points are dropped
+		{
+			std::vector<char> bad((size_t)N * N, 0);
+			for (uint32 c = 0; c < N * N; c++)
+			{
+				const uint32 cx = c % N, cy = c / N;
+				size_t cov = 0, blk = 0;
+				for (uint32 y = 0; y < F; y++)
+					for (uint32 x = 0; x < F; x++)
+					{
+						const size_t di = ((size_t)(cy * F + y) * A + (cx * F + x)) * 4;
+						if (!albedo[di + 3]) continue;
+						cov++;
+						if (albedo[di] < 3 && albedo[di + 1] < 3 && albedo[di + 2] < 3) blk++;
+					}
+				if (cov && blk * 5 > cov) bad[c] = 1;
+				else if (blk)
+					for (uint32 y = 0; y < F; y++)
+						for (uint32 x = 0; x < F; x++)
+						{
+							const size_t di = ((size_t)(cy * F + y) * A + (cx * F + x)) * 4;
+							if (albedo[di + 3] && albedo[di] < 3 && albedo[di + 1] < 3 && albedo[di + 2] < 3) { albedo[di + 3] = 0; normals[di] = normals[di + 1] = normals[di + 2] = normals[di + 3] = 0; }
+						}
+			}
+			size_t mended = 0;
+			for (uint32 c = 0; c < N * N; c++)
+			{
+				if (!bad[c]) continue;
+				const int cx = (int)(c % N), cy = (int)(c / N);
+				int from = -1;
+				for (int dist = 1; dist < (int)N && from < 0; dist++)
+				{
+					const int cand[4][2] = { { cx - dist, cy }, { cx + dist, cy }, { cx, cy - dist }, { cx, cy + dist } };
+					for (int k = 0; k < 4 && from < 0; k++)
+						if (cand[k][0] >= 0 && cand[k][0] < (int)N && cand[k][1] >= 0 && cand[k][1] < (int)N && !bad[(size_t)cand[k][1] * N + cand[k][0]])
+							from = cand[k][1] * (int)N + cand[k][0];
+				}
+				const uint32 fx = from >= 0 ? (uint32)from % N : 0, fy = from >= 0 ? (uint32)from / N : 0;
+				for (uint32 y = 0; y < F; y++)
+				{
+					const size_t di = ((size_t)(cy * F + y) * A + (cx * F)) * 4, si = ((size_t)(fy * F + y) * A + (fx * F)) * 4;
+					if (from >= 0) { memcpy(&albedo[di], &albedo[si], (size_t)F * 4); memcpy(&normals[di], &normals[si], (size_t)F * 4); }
+					else { memset(&albedo[di], 0, (size_t)F * 4); memset(&normals[di], 0, (size_t)F * 4); }
+				}
+				mended++;
+			}
+			if (mended) fprintf(stderr, "[renderer] impostor: %zu of %u views came out black - taken from their neighbours\n", mended, N * N);
+		}
 		// (nothing drawn into it - every view left undrawn - is no impostor: a quad of nothing, where the model was)
 		size_t covered = 0;
 		for (size_t t = 3; t < albedo.size(); t += 4) covered += albedo[t] != 0;
@@ -328,18 +378,28 @@ namespace p3d {
 			auto mix = [&h](const std::string &s) { for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; } };
 			mix(path); mix(std::to_string((unsigned long long)fs::file_size(path, ec)));
 			mix(std::to_string((long long)fs::last_write_time(path, ec).time_since_epoch().count()));
-			mix(look); mix("oct-v3-sphere-" + std::to_string(kBankFrames) + "-" + std::to_string(kBankSize));
+			mix(look); mix("oct-v4-sphere-" + std::to_string(kBankFrames) + "-" + std::to_string(kBankSize));
 			char k[24]; snprintf(k, sizeof(k), "%016llx", (unsigned long long)h);
 			return BankCacheDir() + "/" + k;
 		}
-		bool MakeEntry(ImpostorBank::Entry &e, const std::string &base, const f32 radius, const f32 centre, const uint32 frames, const std::shared_ptr<IMaterial> &source)
+		bool MakeEntry(ImpostorBank::Entry &e, const std::string &base, const f32 radius, const f32 centre, const uint32 frames, const std::shared_ptr<IMaterial> &source,
+			const OctahedralImpostorBake* baked = nullptr)
 		{
 			e.albedo = std::make_shared<Texture>(); e.normal = std::make_shared<Texture>();
-			if (!e.albedo->LoadTexture(base + "_albedo.png", TextureType::Texture, true) || !e.normal->LoadTexture(base + "_normal.png", TextureType::Texture, true))
+			// (just baked: from its pixels in memory - read back from the files it is written to, with the PNGs' encoding
+			// and decoding, it held the game still half a second at the end of every bake)
+			if (baked)
+			{
+				const int32 A = (int32)(baked->frames * baked->size);
+				if (!e.albedo->LoadTextureFromPixels(baked->albedo.data(), A, A, true, base + "_albedo.png") || !e.normal->LoadTextureFromPixels(baked->normals.data(), A, A, true, base + "_normal.png"))
+					return false;
+			}
+			else if (!e.albedo->LoadTexture(base + "_albedo.png", TextureType::Texture, true) || !e.normal->LoadTexture(base + "_normal.png", TextureType::Texture, true))
 				return false;
 			e.material = std::make_shared<GenericShaderMaterial>(ShaderUsage::Texture | ShaderUsage::Diffuse | ShaderUsage::SpecularColor | ShaderUsage::AlphaTest | ShaderUsage::Impostor);
 			e.material->SetColorMap(e.albedo);
 			e.material->SetNormalMap(e.normal);
+			e.material->SetColor(Vec4(1.f, 1.f, 1.f, 1.f));     // (white: its colour is the atlas's - left at the default, nothing, every tree far off was black)
 			// (its shine as the object's own material has it - the colour is in the atlas)
 			const GenericShaderMaterial* src = dynamic_cast<const GenericShaderMaterial*>(source.get());
 			if (src) { e.material->SetSpecular(src->GetSpecular()); e.material->SetRoughness(src->GetRoughness()); e.material->SetMetallic(src->GetMetallic()); }
@@ -358,6 +418,7 @@ namespace p3d {
 			std::ifstream in(base + ".txt");
 			f32 radius = 0.f, centre = 0.f; uint32 frames = 0;
 			if (!(in >> radius >> centre >> frames) || radius <= 0.f || frames < 2) return false;
+			if (std::getenv("PYROS_IMPOSTOR_LOG")) fprintf(stderr, "[renderer] impostor cached %s <- %s\n", base.c_str(), path.c_str());
 			return MakeEntry(e, base, radius, centre, frames, material);
 		}
 	}
@@ -463,10 +524,18 @@ namespace p3d {
 		{
 			const std::string base = BankKey(job.path, job.key);
 			const int32 A = (int32)(job.bake.frames * job.bake.size);
-			ok = PaintableImage::WritePNG(base + "_albedo.png", A, A, 4, job.bake.albedo.data()) && PaintableImage::WritePNG(base + "_normal.png", A, A, 4, job.bake.normals.data());
-			if (ok) { std::ofstream o(base + ".txt"); o << job.bake.radius << " " << job.bake.centre << " " << job.bake.frames << "\n"; }
-			ok = ok && MakeEntry(entry, base, job.bake.radius, job.bake.centre, job.bake.frames, job.material);
-			if (!ok) err = "could not write or read back its atlases in " + BankCacheDir();
+			ok = MakeEntry(entry, base, job.bake.radius, job.bake.centre, job.bake.frames, job.material, &job.bake);
+			if (!ok) err = "could not make its textures";
+			else
+			{
+				// (written to the cache on a thread of its own: the PNGs' encoding was a quarter of a second each, in the
+				// frame; the .txt last, so a cache read never finds the description without its pictures)
+				std::shared_ptr<OctahedralImpostorBake> keep = std::make_shared<OctahedralImpostorBake>(job.bake);
+				std::thread([keep, base, A]() {
+					if (PaintableImage::WritePNG(base + "_albedo.png", A, A, 4, keep->albedo.data()) && PaintableImage::WritePNG(base + "_normal.png", A, A, 4, keep->normals.data()))
+					{ std::ofstream o(base + ".txt"); o << keep->radius << " " << keep->centre << " " << keep->frames << "\n"; }
+				}).detach();
+			}
 		}
 		if (ok) fprintf(stderr, "[renderer] impostor of %s made (%.0f ms of work, %.0f at most in a frame, over %u slices) - cached in %s\n", job.path.c_str(), job.ms, job.worst, (kBankFrames * kBankFrames + kBankViewsAFrame - 1) / kBankViewsAFrame, BankCacheDir().c_str());
 		else fprintf(stderr, "[renderer] no impostor for %s: %s\n", job.path.c_str(), err.c_str());

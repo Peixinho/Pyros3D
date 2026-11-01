@@ -15,6 +15,7 @@ layout(set = 0, binding = 0, std140) uniform DrawData
 	vec4 shadowTint, highlightTint;    // rgb, w strength
 	vec4 g2;              // vignette, grain, chromatic aberration, 1 when the scene has a grade
 	vec4 g3;              // x: the bloom's share of the picture; yzw the background where nothing is drawn (a scene with no sky's, linear)
+	vec4 g4;              // x: the bloom's threshold, y its knee - in exposed light
 } uDraw;
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;
@@ -111,8 +112,19 @@ void Tonemap()
 			if (max(hdr.r, max(hdr.g, hdr.b)) < 1e-5) { outColor = vec4(clamp(backdrop, 0.0, 1.0), 1.0); return; }     // (nothing over it)
 		}
 	}
+	// The bloom: only what of the spread light is past the scene's threshold, exposed (Bloom's uThreshold, with a soft
+	// knee), added. Mixed in whole, every scene was a tenth blurred into itself - a haze over everything, and a speck one
+	// frame brighter flashed a halo round it; thresholded after the blur, a single bright pixel is spread too thin to
+	// pass, and only real highlights - the sun on water, a lamp - glow
 	vec3 bloom = texture(sampler2D(uBloom, uLinearClamp), vUV).rgb;
-	hdr = mix(hdr, bloom, clamp(uDraw.g3.x, 0.0, 0.5));          // (energy kept: bloom is light spread, not added - Bloom's uIntensity, 0.03 at its usual 0.5)
+	if (uDraw.g3.x > 0.0)
+	{
+		float b = max(bloom.r, max(bloom.g, bloom.b)) * exposure * uFrame.frame.y;
+		float t = uDraw.g4.x, k = max(uDraw.g4.y * t, 1e-4);
+		float soft = clamp(b - t + k, 0.0, 2.0 * k); soft = soft * soft / (4.0 * k);
+		float pass = max(soft, b - t) / max(b, 1e-4);
+		hdr += bloom * pass * clamp(uDraw.g3.x * 0.6, 0.0, 0.12);     // (a faint glow round what is really bright - a lamp, the sun on water - not a halo over everything)
+	}
 	vec3 x = hdr * exposure * uFrame.frame.y;
 	vec3 sdr = ACESFitted(x);
 	// (an HDR screen: the same picture up to the mid-tones, the highlights let past SDR white toward the headroom - the

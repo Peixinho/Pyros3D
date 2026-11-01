@@ -10,6 +10,7 @@
 #define	RENDERINGCOMPONENT_H
 
 #include <cmath>
+#include <cstdio>
 #include <atomic>
 #include <functional>
 #include <Pyros3D/Components/IComponent.h>
@@ -188,6 +189,16 @@ namespace p3d {
 			uint32 requestedOptions = MaterialOptions;
 			if (!Geometry->materialProperties.haveBones) requestedOptions &= ~ShaderUsage::Skinning;
 
+			// (beside its colour map, <name>_cut.png: the same picture with holes - its window panes painted in the
+			// texture, cut out so the glass the game puts there is what is seen, and the room behind it - drawn alpha-cut)
+			std::string cutMap;
+			if (Geometry->materialProperties.haveColorMap)
+			{
+				const std::string &cm = Geometry->materialProperties.colorMap;
+				const size_t dot = cm.find_last_of('.');
+				if (dot != std::string::npos)
+					if (FILE* f = fopen((cm.substr(0, dot) + "_cut.png").c_str(), "rb")) { fclose(f); cutMap = cm.substr(0, dot) + "_cut.png"; options = options | ShaderUsage::AlphaTest; }
+			}
 			GenericShaderMaterial* genMat = new GenericShaderMaterial(options | requestedOptions);
 			Texture::CompressedLoads compressMaps;       // (a model's own maps: as blocks - Texture.h)
 
@@ -215,11 +226,42 @@ namespace p3d {
 				// Texture::LoadShared(). Every model in a level referencing
 				// the same wall tile used to pay for its own copy.
 				std::shared_ptr<Texture> colorMap = Texture::LoadShared(
-					Geometry->materialProperties.colorMap, TextureType::Texture);
+					cutMap.empty() ? Geometry->materialProperties.colorMap : cutMap, TextureType::Texture);
+				if (!cutMap.empty()) genMat->SetAlphaCutoff(0.5f);
 				if (colorMap)
 				{
 					colorMap->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
 					genMat->SetColorMap(colorMap);
+					// (beside it, <name>_height.png: its relief - parallax, white the deepest: a wall's brick joints sunk
+					// between the bricks, cheap depth with no geometry)
+					const std::string &cm = Geometry->materialProperties.colorMap;
+					const size_t dot = cm.find_last_of('.');
+					if (dot != std::string::npos)
+					{
+						const std::string hp = cm.substr(0, dot) + "_height.png";
+						if (FILE* f = fopen(hp.c_str(), "rb"))
+						{
+							fclose(f);
+							if (std::shared_ptr<Texture> height = Texture::LoadShared(hp, TextureType::Texture))
+							{
+								height->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+								genMat->SetDisplacementMap(height);
+								genMat->SetDisplacementHeight(0.004f);     // (texcoord units: a few texels of a 1024 atlas)
+							}
+						}
+						// (and <name>_normal.png, where the model came with no normal map of its own: its relief lit)
+						const std::string np = cm.substr(0, dot) + "_normal.png";
+						if (!Geometry->materialProperties.haveNormalMap)
+							if (FILE* f = fopen(np.c_str(), "rb"))
+							{
+								fclose(f);
+								if (std::shared_ptr<Texture> normal = Texture::LoadShared(np, TextureType::Texture))
+								{
+									normal->SetMinMagFilter(TextureFilter::Linear, TextureFilter::Linear);
+									genMat->SetNormalMap(normal);
+								}
+							}
+					}
 				}
 			}
 			if (Geometry->materialProperties.haveSpecularMap)
@@ -318,6 +360,8 @@ namespace p3d {
 		// vertices', a hundred times too big for a rig in centimetres, and never switched.
 		void RescaleAutomaticLODs(const f32 worldRadius);
 		bool HasAutomaticLODs() const { return autoLevels != 0; }
+		// (its last level an impostor ImpostorBank made - by the engine, from a cache file: not the scene's, never saved)
+		bool IsAutomaticImpostorLevel(const uint32 level) const { return autoImpostorLevel >= 0 && (int32)level == autoImpostorLevel; }
 		// The same, asked once for a component (by whoever lists what a scene
 		// draws): the radius is the owner's own scale times the model's.
 		void TryAutomaticLODs();
@@ -801,6 +845,7 @@ namespace p3d {
 		f64 lodViewsFrame = -1.0;
 		uint32 lodWantNow = 0xFFFFFFFFu, lodWantBefore = 0xFFFFFFFFu;
 		bool autoLodWaiting = false;            // (its levels being made: asked again each frame - PollAutomaticLODs)
+		int32 autoImpostorLevel = -1;     // (the level ImpostorBank's impostor was given, -1 none)
 		bool autoImpostorTried = false, autoImpostorWaiting = false;     // (its impostor: asked for, being baked)
 		uint32 autoLodSeen = 0;                 // the state of SetAutoLODInUse the level in use was picked under
 		std::shared_ptr<Renderable> shadowRenderable;

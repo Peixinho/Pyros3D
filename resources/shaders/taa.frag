@@ -69,7 +69,7 @@ void main()
 	bool upscale = outSize.x != size.x || outSize.y != size.y;
 	ivec2 px = upscale ? clamp(ivec2(vUV * vec2(size)), ivec2(0), size - 1) : ivec2(gl_FragCoord.xy);
 	// This frame's neighbourhood: its mean and spread, and the nearest depth among it (edges move with what is in front)
-	vec3 m1 = vec3(0.0), m2 = vec3(0.0), center = vec3(0.0), lo = vec3(1e9), hi = vec3(-1e9);
+	vec3 m1 = vec3(0.0), m2 = vec3(0.0), center = vec3(0.0);
 	float nearest = 0.0;
 	ivec2 nearestAt = px;
 	for (int y = -1; y <= 1; y++)
@@ -78,7 +78,7 @@ void main()
 			ivec2 q = clamp(px + ivec2(x, y), ivec2(0), size - 1);
 			vec3 c = Weigh(Sane(texelFetch(sampler2D(uCurrent, uLinearClamp), q, 0).rgb));
 			vec3 yc = ToYCoCg(c);
-			m1 += yc; m2 += yc * yc; lo = min(lo, yc); hi = max(hi, yc);
+			m1 += yc; m2 += yc * yc;
 			if (x == 0 && y == 0) center = c;
 			float d = texelFetch(sampler2D(uDepth, uLinearClamp), q, 0).r;
 			if (d > nearest) { nearest = d; nearestAt = q; }
@@ -103,9 +103,10 @@ void main()
 	if (any(lessThan(prev, vec2(0.0))) || any(greaterThan(prev, vec2(1.0)))) { outColor = vec4(Unweigh(center), 1.0); return; }
 	// Last frame's, held to what this neighbourhood allows
 	vec3 history = ToYCoCg(Weigh(Sane(History(prev, vec2(outSize)))));
-	// (and never past what the neighbourhood actually holds: over a dither or a dissolving plant the spread is wide, and
-	// the sharp history fetch rings - below black on a fine pattern - which the spread alone let through, and kept)
-	history = ClipToBox(history, max(mean - 1.25 * sigma, lo), min(mean + 1.25 * sigma, hi));
+	// (the spread's box, not the neighbourhood's own lowest and highest: held to those, last frame's could never settle on
+	// fine detail - grass, a texture's grain - and the picture followed this frame's jitter, the whole scene shaking a
+	// pixel; the sharp fetch's ringing below black is caught where it is turned back, Unweigh)
+	history = ClipToBox(history, mean - 1.25 * sigma, mean + 1.25 * sigma);
 	// (more of this frame where things move fast: their history is resampled every frame, and softens)
 	float speed = length((vUV - prev) * vec2(outSize));
 	float blend = mix(uTaa.params.y, 0.35, clamp(speed / 12.0, 0.0, 1.0));
@@ -122,6 +123,16 @@ void main()
 		reactive = max(reactive, max(p.a, Luma(p.rgb) / (Luma(p.rgb) + Luma(Unweigh(center)) * 0.5 + 1e-4)));
 	}
 	blend = mix(blend, 1.0, clamp(reactive * 1.5, 0.0, 0.95));
+	// (less of this frame where it disagrees with what the picture held - a speck the size of a pixel, a flower's petal,
+	// in one frame's samples and not the next: taken at the usual share it blinked, lit a frame or few at a time. Its
+	// history held to the neighbourhood already, a real change agrees with it and goes in as before)
+	{
+		float lc = Luma(center), lh = Luma(FromYCoCg(history));
+		// (only a pixel suddenly brighter than its history - a sparkle: held back over grass's every disagreement, its
+		// detail was averaged away, the field one flat colour)
+		float disagree = clamp((lc - lh * 1.4) / max(lc, 0.05), 0.0, 1.0);
+		blend = mix(blend, blend * 0.08, smoothstep(0.0, 0.5, disagree) * (1.0 - clamp(speed / 6.0, 0.0, 1.0)));
+	}
 	vec3 result = mix(FromYCoCg(history), center, blend);
 	// A light sharpen, by the neighbourhood's own contrast (what the resolve's filtering takes back)
 	vec3 meanRGB = FromYCoCg(mean);

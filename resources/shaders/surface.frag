@@ -26,6 +26,7 @@ layout(set = 1, binding = 25) uniform texture2D uMirrorPlane;       // (the plan
 // A still water's mirror (SceneRenderer::SetSkyMirrorLevel, FrameData.temporal.y the plane's height, z on): on a surface
 // at that height facing up, what the scene above the plane shows mirrored there - read where this pixel is, moved by the
 // surface's own tilt (waves bend what is seen in them); a few texels round, for the points that did not land on it
+float gSurfaceMirror = 0.0;     // (the custom surface's own - SurfaceData.reflection, set once it has run)
 // (the mirror's texel at uv, or between the two nearest landed above and below where it is a hole - rgb, a its distance;
 // a 0 nothing. A hole with nothing below it is past an image's lower edge - the top of what it mirrors: not filled, or
 // the image smeared on down the water. One with nothing above is between an image and what it mirrors - the waterline
@@ -88,7 +89,11 @@ bool ScreenSky(vec3 p, vec3 n, out vec3 sky)
 }
 vec4 PlanarReflection(vec3 p, vec3 n, vec4 found)
 {
+	// (only on what says it mirrors - a water's surface (SurfaceData.reflection), a polished floor (its SSR strength):
+	// on everything else near the plane's height - a terrain's tiles, a house's floors - its image painted seams and
+	// stains; and each such pixel paid for the filtered read)
 	if (uFrame.temporal.z < 0.5 || abs(p.y - uFrame.temporal.y) > 3.0 || n.y < 0.3) return found;
+	if (gSurfaceMirror <= 0.0 && uDraw.normalRows[1].w <= 0.0) return found;
 	vec2 texel = uFrame.viewport.zw;     // (the mirror is the picture's size)
 	// (moved by its waves' slope as far as a fixed reach in the world looks on the screen: a fixed fraction of the screen,
 	// the far water's normals - read in blocks of their map's coarse levels - threw each pixel a dozen texels off, in blocks)
@@ -125,12 +130,14 @@ vec4 PlanarReflection(vec3 p, vec3 n, vec4 found)
 	float a = w + found.a * (1.0 - w);
 	return vec4((t.rgb * w + found.rgb * found.a * (1.0 - w)) / a, a);
 }
-float gSurfaceMirror = 0.0;     // (the custom surface's own - SurfaceData.reflection, set once it has run)
 vec4 ScreenReflection(vec3 p, vec3 r, float roughness, float NoV)
 {
 	// (to a roughness of 0.5, fading from 0.3: the old renderer mirrored to 0.42, and materials were tuned to it - a sea
 	// at 0.41 was cut off here at 0.4, and mirrored nothing at all)
-	if (uShadow.reflections.x < 0.5 || roughness > 0.5) return vec4(0.0);
+	// (only for a surface that says it mirrors - a water: every other one to 0.4, fading from 0.2, as before - its
+	// half-rough rays scattered, a floor of 0.45 glittered with dots of the sun a frame each)
+	float far_ = gSurfaceMirror > 0.0 ? 0.5 : 0.4;
+	if (uShadow.reflections.x < 0.5 || roughness > far_) return vec4(0.0);
 	// (ray-traced: what this pixel's ray found - its texture in last frame's picture's place - less sure the rougher)
 	if (uShadow.reflections.x > 1.5)
 	{
@@ -213,7 +220,7 @@ vec4 ScreenReflection(vec3 p, vec3 r, float roughness, float NoV)
 	vec2 uv = mix(s0, s1, hitT);
 	// How sure: not at the screen's edges, not for rays toward the eye, not on rough surfaces, less far along
 	vec2 edge = smoothstep(vec2(0.0), vec2(0.08), uv) * (1.0 - smoothstep(vec2(0.92), vec2(1.0), uv));
-	float sure = edge.x * edge.y * (1.0 - smoothstep(0.3, 0.5, roughness)) * (1.0 - smoothstep(0.0, 0.6, vr.z)) * (1.0 - smoothstep(0.75, 1.0, hitT))
+	float sure = edge.x * edge.y * (1.0 - smoothstep(far_ - 0.2, far_, roughness)) * (1.0 - smoothstep(0.0, 0.6, vr.z)) * (1.0 - smoothstep(0.75, 1.0, hitT))
 		// (a mirror of its own - water, SurfaceData.reflection - kept to the most glancing look: a still sea seen from a
 		// boat is nearly all reflection, at a NoV of a hundredth; a floor's glancing reflections are noise, so only it)
 		* (gSurfaceMirror > 0.0 ? smoothstep(0.0, 0.008, NoV) : smoothstep(0.01, 0.06, NoV)) * (1.0 - smoothstep(0.35, 1.0, hitOver));
@@ -421,6 +428,10 @@ vec3 DDGIReflection(vec3 p, vec3 n, vec3 r, float roughness, out bool covered)
 // The ambient light on a surface facing n where there is no sky, irradiance over pi (times the albedo), by its mode:
 // the flat colour, a gradient ground - horizon - sky by n.y, or the spherical harmonics' irradiance (Ramamoorthi &
 // Hanrahan 2001) - as the old renderer's AmbientAt
+// (the sky's light in the shade, raised over the atmosphere's own: the scene has no bounce between surfaces - a field
+// in shade lit by the sky alone was near black beside the sunlit, and the exposure that showed it burnt the sunlit grass
+// white. What the light from everything round - the trees, the hills, the ground - adds)
+const float kSkyFill = 1.8;
 vec3 AmbientWithoutSky(vec3 n)
 {
 	float mode = uFrame.ambientSky.w;
@@ -786,6 +797,10 @@ void main()
 	float metallic = clamp(s.metallic, 0.0, 1.0);
 	float a = roughness * roughness;
 	vec3 f0 = mix(vec3(0.08 * uDraw.surface.z), s.albedo, metallic);
+	// (a field's blades, their normals leaned to the sky - wind.w: lit as the ground is, they reflected the low sun as the
+	// ground would, a wet road's sheen over every tuft looking toward it - a pale flat glare, no blade to be seen. A
+	// blade's own surface is matte: its shine goes with its lean)
+	f0 *= 1.0 - 0.9 * clamp(uDraw.wind.w, 0.0, 1.0);
 	vec3 diffuseColor = s.albedo * (1.0 - metallic);
 
 	// (the shadow by the geometric normal: a normal map's bumps would only move the offset about)
@@ -807,7 +822,10 @@ void main()
 		float behind = max(dot(-n, l), 0.0);
 		float into = pow(max(dot(-v, l), 0.0), 4.0);
 		float through = (uFrame.frame.w == 4.0 ? 1.0 : SunShadowCheap(vWorldPosition, -ng)) * CloudShadow(vWorldPosition);
-		color += diffuseColor * uFrame.sunRadiance.rgb * through * uDraw.normalRows[0].w * (behind * 0.6 + into * 0.8) / PI;
+		// (looking into the sun, the glow through a leaned blade kept to its own texture's strength: at full it lit every
+		// tuft of a field alike, flat - a blade's own back still glows in full)
+		float lean = clamp(uDraw.wind.w, 0.0, 1.0);
+		color += diffuseColor * uFrame.sunRadiance.rgb * through * uDraw.normalRows[0].w * (behind * 0.6 + into * 0.8 * (1.0 - 0.6 * lean)) / PI;
 	}
 	// Light under the skin (GenericShaderMaterial::SetSubsurface - skin, wax, a leaf, marble): it enters, travels, comes
 	// out nearby tinted by what it went through - the lit side's edge wider and warm, the far side of something thin
@@ -833,53 +851,30 @@ void main()
 	// darkened the direct light this much too, and without it a sunlit scene showed none of its AO)
 	color *= mix(1.0, ao, clamp(uShadow.rain.z, 0.0, 1.0));
 	float reflectShare = 0.0;     // (how much of this pixel is what it mirrors: for the smoke's reflection, below)
-	if (uFrame.frame.z > 0.5)
 	{
-		// The sky's light: its irradiance on the surface, and what of it the surface reflects toward the eye
+		// With a sky or without one, the same reflections, worked out once: written out in each case, every reflection was
+		// inlined twice - a water's custom surface was then more than Apple's shader compiler service survives
+		// (XPC_ERROR_CONNECTION_INTERRUPTED: Erangel's lakes and rivers not drawn)
+		const bool sky = uFrame.frame.z > 0.5;
 		vec3 r = reflect(-v, n);
-		// (what it mirrors: the picture itself where a ray finds it, the sky - with its clouds - where not)
-		// (inside a reflection probe's box, what it saw in place of the sky: the room, not the sky through its ceiling)
-		vec4 found = ScreenReflection(vWorldPosition, r, roughness, NoV);
-		found = PlanarReflection(vWorldPosition, n, found);
+		// (what it mirrors: the picture itself where a ray finds it - the screen's, or the traced ones, a still water's plane -
+		// over what a reflection probe saw - inside its box, the room, not the sky through its ceiling - or the solved
+		// light's probes; else the sky, with its clouds, where there is one)
+		vec4 found = PlanarReflection(vWorldPosition, n, ScreenReflection(vWorldPosition, r, roughness, NoV));
 		float probeCover;
 		vec3 probe = ProbeReflection(vWorldPosition, r, roughness, probeCover);
-		// (the sky's, or where the scene's light is solved with reflections, what its probes see; a reflection probe's over it)
 		bool giReflects;
 		vec3 giReflection = DDGIReflection(vWorldPosition, n, r, roughness, giReflects);
-		vec3 mirrored = mix(mix(giReflects ? giReflection : SkyReflection(r, roughness), probe, probeCover), found.rgb, found.a);
+		vec3 mirrored = mix(mix(giReflects ? giReflection : (sky ? SkyReflection(r, roughness) : vec3(0.0)), probe, probeCover), found.rgb, found.a);
 		if (uFrame.frame.w == 9.0) { outColor = vec4(0.0, found.a, found.a > 0.0 ? 0.0 : 0.15, 1.0); return; }     // (PYROS_RENDERER_DEBUG=ssr: green where a reflection was found, how sure; blue none)
 		if (uFrame.frame.w == 10.0 && uDraw.normalRows[1].w > 0.0) { outColor = vec4(found.rgb * found.a, 1.0); return; }     // (=ssrcolor: what a mirror floor found, the rest drawn as it is)
-		// (the scene's solved light, where it has one: its bounces and its sky as the probes saw them, in place of the sky's)
+		// (the scene's solved light, where it has one: its bounces and its sky as the probes saw them, in place of the sky's
+		// irradiance - or, with no sky, of the scene's ambient)
 		bool solved;
 		vec3 indirect = DDGIIrradiance(vWorldPosition, n, solved);
-		color += diffuseColor * (solved ? indirect : SkyIrradiance(n) / PI) * ao;
+		color += diffuseColor * (solved ? indirect : sky ? SkyIrradiance(n) * kSkyFill / PI : AmbientWithoutSky(n)) * ao;
 		// (a polished floor's mirror - the material's SSR strength: more of the reflection than Fresnel gives, over its own
 		// colour, where something was found - the old renderer's mirror floor)
-		float mirror = MirrorFloor(metallic, roughness) * found.a;
-		vec3 share = max(EnvBRDFApprox(f0, roughness, NoV), vec3(mirror)) * specAO;
-		color = color * (1.0 - mirror) + mirrored * share;
-		// (the material's own: a mirror shows the smoke in front of what it mirrors whether or not the screen's ray
-		// found that - its sureness, found.a, is in streaks, and the smoke came out in streaks with it)
-		vec3 mirrors = max(EnvBRDFApprox(f0, roughness, NoV), vec3(MirrorFloor(metallic, roughness))) * specAO;
-		reflectShare = max(max(mirrors.r, mirrors.g), mirrors.b) * smoothstep(0.5, 0.1, roughness);
-	}
-	else
-	{
-		bool solved;
-		vec3 indirect = DDGIIrradiance(vWorldPosition, n, solved);
-		color += diffuseColor * (solved ? indirect : AmbientWithoutSky(n)) * ao;     // (the solved light, else the scene's ambient where there is no sky)
-		// (and what it mirrors: the picture itself where a ray finds it - the screen's, or the traced ones - over what a
-		// reflection probe saw, or the solved light's probes; nothing else - there is no sky to mirror)
-		vec3 r = reflect(-v, n);
-		vec4 found = ScreenReflection(vWorldPosition, r, roughness, NoV);
-		found = PlanarReflection(vWorldPosition, n, found);
-		float probeCover;
-		vec3 probe = ProbeReflection(vWorldPosition, r, roughness, probeCover);
-		bool giReflects;
-		vec3 giReflection = DDGIReflection(vWorldPosition, n, r, roughness, giReflects);
-		vec3 mirrored = mix(mix(giReflects ? giReflection : vec3(0.0), probe, probeCover), found.rgb, found.a);
-		if (uFrame.frame.w == 9.0) { outColor = vec4(0.0, found.a, found.a > 0.0 ? 0.0 : 0.15, 1.0); return; }     // (PYROS_RENDERER_DEBUG=ssr: green where a reflection was found, how sure; blue none)
-		if (uFrame.frame.w == 10.0 && uDraw.normalRows[1].w > 0.0) { outColor = vec4(found.rgb * found.a, 1.0); return; }     // (=ssrcolor: what a mirror floor found, the rest drawn as it is)
 		float mirror = MirrorFloor(metallic, roughness) * found.a;
 		vec3 share = max(EnvBRDFApprox(f0, roughness, NoV), vec3(mirror)) * specAO;
 		color = color * (1.0 - mirror) + mirrored * share;

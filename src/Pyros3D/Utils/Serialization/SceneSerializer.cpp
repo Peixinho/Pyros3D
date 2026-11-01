@@ -1611,6 +1611,7 @@ static void ReadVolumetric(const json &j, ILightComponent *l)
 					for (size_t l = 1; l < levels.size() && l - 1 < reach.size(); l++)
 					{
 						if (!levels[l] || rc->GetMeshes((uint32)l).empty() || !rc->GetMeshes((uint32)l)[0]->Material) continue;
+						if (rc->IsAutomaticImpostorLevel((uint32)l)) continue;     // (made by the engine at run time, from a temporary cache: saved, the scene pointed at files that go away - black triangles in every tree)
 						const json lr = SerializeRenderable(levels[l].get());
 						if (lr.is_null()) continue;
 						json e;

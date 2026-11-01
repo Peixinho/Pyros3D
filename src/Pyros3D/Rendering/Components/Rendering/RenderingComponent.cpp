@@ -368,6 +368,9 @@ namespace p3d {
 		autoLodTried = true;
 		if (!g_autoLod || autoLevels != 0 || Meshes.size() != 1 || IsInstanced() || !Owner || !renderable) { autoLodWaiting = false; return; }
 		std::shared_ptr<Model> model = std::dynamic_pointer_cast<Model>(renderable);
+		// (not for what bends: a simplified copy of a skinned body was drawn with no pose of its own - a bot far off stood
+		// in its bind pose, arms out, legs still)
+		if (model) for (size_t i = 0; i < model->Geometries.size(); i++) if (model->Geometries[i]->materialProperties.haveBones) { autoLodWaiting = false; return; }
 		if (g_autoLodAhead && model && !model->GetPath().empty())
 		{
 			SimplifiedModel::PrepareAutomatic(model);        // (one made since loading: begun now)
@@ -458,6 +461,7 @@ namespace p3d {
 			AddLOD(e->quad, from, material);
 		}
 		else return;
+		autoImpostorLevel = (int32)GetLODSize() - 1;
 		LastLodDistance = -1.f;
 		RenderState::Touch();
 	}
@@ -472,7 +476,10 @@ namespace p3d {
 		if (!model || model->GetPath().empty()) return false;
 		uint32 triangles = 0;
 		for (size_t i = 0; i < model->Geometries.size(); i++)
+		{
+			if (model->Geometries[i]->materialProperties.haveBones) return false;     // (a skinned body: see TryAutomaticLODs)
 			triangles += (uint32)(model->Geometries[i]->GetIndexData().size() / 3);
+		}
 		if (triangles < kLightest) return false;
 		const f32 first = worldRadius * kFrom[0];
 		if (given > 0.f)

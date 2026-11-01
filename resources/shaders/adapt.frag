@@ -18,6 +18,14 @@ void main()
 	float ev = log2(0.18 / max(avgLum, 1e-5));
 	if (ev > 2.0) ev = 2.0 + (ev - 2.0) * 0.6;
 	float target = exp2(clamp(ev, -5.0, 6.0)) * exp2(uDraw.params.x);
+	// (in daylight, no brighter than keeps what the sun lights itself: a field half in shade metered to middle grey burnt its
+	// sunlit half white - dry grass in the sun a pale glare with no blade in it. As a camera in the sun is exposed for the sun:
+	// a sunlit surface of albedo 0.5 at about 0.7, whatever share of the picture is in shade)
+	if (uFrame.sunDirection.w > 0.0 && uFrame.sunDirection.y > 0.02)
+	{
+		float sunLum = dot(uFrame.sunRadiance.rgb, vec3(0.2126, 0.7152, 0.0722)) * clamp(uFrame.sunDirection.y * 3.0, 0.0, 1.0);
+		if (sunLum > 1e-3) target = min(target, 0.7 / (0.5 * sunLum / PI) * exp2(uDraw.params.x));
+	}
 	float previous = texelFetch(sampler2D(uPrevious, uPointClamp), ivec2(0, 0), 0).r;
 	if (!(target > 0.0 && target < 1e6)) target = previous > 0.0 && previous < 1e6 ? previous : 1.0;     // (an average gone wrong: kept as it was)
 	if (uDraw.params.w > 0.5 || !(previous > 0.0 && previous < 1e6)) { outColor = vec4(target, 0.0, 0.0, 1.0); return; }

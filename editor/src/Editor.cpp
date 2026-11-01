@@ -3242,6 +3242,10 @@ nlohmann::json Editor::HandleAgentCommand(const nlohmann::json& cmd)
 		{
 			const p3d::gfx::FrameStats &fs = GetDevice()->LastFrameStats();
 			r["draws"] = fs.draws; r["pipelinesPending"] = fs.pipelinesPending;
+			r["gpuMs"] = fs.gpuMs; r["dispatches"] = fs.dispatches;
+			nlohmann::json passes = nlohmann::json::array();
+			for (const p3d::gfx::FrameStats::Pass &ps : fs.passes) passes.push_back({ { "name", ps.name }, { "ms", ps.gpuMs } });
+			r["passes"] = passes;
 		}
 		return r;
 	}

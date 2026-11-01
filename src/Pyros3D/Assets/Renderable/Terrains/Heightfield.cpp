@@ -187,9 +187,27 @@ namespace p3d {
 					hole[(size_t)r * n + c] = least;
 				}
 		}
+		// A coarser level's border at the full resolution (stitched): every tile's edge then has the same points whatever
+		// its level, and two levels side by side meet exactly. With the edge at its own step, a finer neighbour's points
+		// fell between this one's - a crack along the seam, the skirt under it showing as a pale broken line.
+		const bool stitched = !holed && st > 1 && n >= 4;
+		auto fine = [&](const uint32 gc, const uint32 gr) -> uint32 {
+			out.vertex.push_back(Vec3(gc * spacing, data.At(gc, gr), gr * spacing));
+			out.normal.push_back(data.NormalAt(gc, gr));
+			out.texcoord.push_back(Vec2(data.uvOffset.x + data.uvScale.x * (f32)gc / cells, data.uvOffset.y + data.uvScale.y * (f32)gr / cells));
+			return (uint32)out.vertex.size() - 1;
+		};
+		// (each triangle facing up, as the grid's do: wound by its corners' places on the ground)
+		auto tri = [&](uint32 a, uint32 b, uint32 c) {
+			const Vec3 &pa = out.vertex[a], &pb = out.vertex[b], &pc = out.vertex[c];
+			const f32 y = (pc.x - pa.x) * (pb.z - pa.z) - (pc.z - pa.z) * (pb.x - pa.x);
+			if (y < 0.f) std::swap(b, c);
+			out.index.push_back(a); out.index.push_back(b); out.index.push_back(c);
+		};
 		for (uint32 r = 0; r + 1 < n; r++)
 			for (uint32 c = 0; c + 1 < n; c++)
 			{
+				if (stitched && (r == 0 || c == 0 || r + 2 == n || c + 2 == n)) continue;     // (the border ring: stitched below)
 				const uint32 i11 = r * n + c, i12 = i11 + 1, i21 = i11 + n, i22 = i21 + 1;
 				if (holed)
 				{
@@ -237,9 +255,61 @@ namespace p3d {
 				out.index.push_back(i22); out.index.push_back(i12); out.index.push_back(i21);
 			}
 
+		// The stitched border: each side a band between its full-resolution edge and the coarse grid's ring inside it,
+		// zipped along the side - the four bands meet corner to corner. Its edge points kept, for the skirts.
+		std::vector<uint32> edgeTop[4];
+		if (stitched)
+		{
+			for (uint32 e = 0; e < 4; e++)
+			{
+				// (outer: the edge's every point; inner: the ring's coarse points along this side - both in the side's
+				// direction, by their distance along it)
+				std::vector<uint32> outer, inner;
+				std::vector<f32> outerAt, innerAt;
+				for (uint32 k = 0; k <= cells; k++)
+				{
+					const uint32 gc = e == 0 ? k : e == 1 ? cells : e == 2 ? cells - k : 0;
+					const uint32 gr = e == 0 ? 0 : e == 1 ? k : e == 2 ? cells : cells - k;
+					outer.push_back(fine(gc, gr)); outerAt.push_back((f32)k);
+				}
+				for (uint32 k = 1; k + 1 < n; k++)
+				{
+					const uint32 cc = e == 0 ? k : e == 1 ? n - 2 : e == 2 ? n - 1 - k : 1;
+					const uint32 rr = e == 0 ? 1 : e == 1 ? k : e == 2 ? n - 2 : n - 1 - k;
+					inner.push_back(rr * n + cc); innerAt.push_back((f32)(k * st));
+				}
+				size_t i = 0, j = 0;
+				while (i + 1 < outer.size() || j + 1 < inner.size())
+				{
+					const bool advanceOuter = j + 1 >= inner.size() || (i + 1 < outer.size() && outerAt[i + 1] <= innerAt[j + 1]);
+					if (advanceOuter) { tri(outer[i], outer[i + 1], inner[j]); i++; }
+					else { tri(outer[i], inner[j + 1], inner[j]); j++; }
+				}
+				edgeTop[e] = outer;
+			}
+		}
+
 		// Skirts: each edge's points again, dropped by skirtDepth, with the
 		// edge's normals so the strip shades like the ground above it.
-		if (skirtDepth > 0.f)
+		if (skirtDepth > 0.f && stitched)
+		{
+			// (along the stitched edge's every point)
+			for (uint32 e = 0; e < 4; e++)
+			{
+				const std::vector<uint32> &top = edgeTop[e];
+				const uint32 base = (uint32)out.vertex.size();
+				for (uint32 g : top) { out.vertex.push_back(out.vertex[g] - Vec3(0.f, skirtDepth, 0.f)); out.normal.push_back(out.normal[g]); out.texcoord.push_back(out.texcoord[g]); }
+				for (size_t k = 0; k + 1 < top.size(); k++)
+				{
+					out.index.push_back(top[k]); out.index.push_back(top[k + 1]); out.index.push_back(base + (uint32)k);
+					out.index.push_back(base + (uint32)k); out.index.push_back(top[k + 1]); out.index.push_back(base + (uint32)k + 1);
+					// (and facing in: a crack seen from this tile's own side looked at the skirt's back - culled, the sky through it)
+					out.index.push_back(top[k + 1]); out.index.push_back(top[k]); out.index.push_back(base + (uint32)k);
+					out.index.push_back(top[k + 1]); out.index.push_back(base + (uint32)k); out.index.push_back(base + (uint32)k + 1);
+				}
+			}
+		}
+		else if (skirtDepth > 0.f)
 		{
 			// Edge point k of side e, walking so every skirt quad faces out.
 			struct Edge { static uint32 Grid(const uint32 e, const uint32 k, const uint32 n)
@@ -293,6 +363,9 @@ namespace p3d {
 					}
 					out.index.push_back(t0); out.index.push_back(t1); out.index.push_back(b0);
 					out.index.push_back(b0); out.index.push_back(t1); out.index.push_back(b1);
+					// (and facing in: seen from this tile's own side the skirt's back was culled - the sky through the crack)
+					out.index.push_back(t1); out.index.push_back(t0); out.index.push_back(b0);
+					out.index.push_back(t1); out.index.push_back(b0); out.index.push_back(b1);
 				}
 			}
 		}
@@ -323,6 +396,48 @@ namespace p3d {
 			return false;
 		}
 		if (!holesPath.empty()) out.data->LoadHoles(holesPath);
+		// Its normals across its own border, from the tiles beside it (<x>_<z>.png, the terrain's naming): from its own
+		// differences alone each tile shaded its edge from one side, and every border showed as a line in the light.
+		{
+			HeightfieldData &d = *out.data;
+			const size_t slash = heightmapPath.find_last_of("/\\"), dot = heightmapPath.find_last_of('.');
+			const std::string dir = slash == std::string::npos ? std::string() : heightmapPath.substr(0, slash + 1);
+			const std::string stem = heightmapPath.substr(slash == std::string::npos ? 0 : slash + 1, dot == std::string::npos ? std::string::npos : dot - (slash == std::string::npos ? 0 : slash + 1));
+			const size_t us = stem.find('_');
+			int tx = 0, tz = 0;
+			bool named = us != std::string::npos && us > 0;
+			if (named) { char* e1 = nullptr; char* e2 = nullptr; tx = (int)strtol(stem.c_str(), &e1, 10); tz = (int)strtol(stem.c_str() + us + 1, &e2, 10); named = e1 == stem.c_str() + us && e2 && *e2 == 0; }
+			const uint32 n = d.samples;
+			if (named && n >= 3 && d.normals.empty())
+			{
+				HeightfieldData nb[4];     // (x-1, x+1, z-1, z+1)
+				bool have[4] = { false, false, false, false };
+				const int ox[4] = { -1, 1, 0, 0 }, oz[4] = { 0, 0, -1, 1 };
+				for (int k = 0; k < 4; k++)
+					have[k] = HeightfieldData::LoadFile(dir + std::to_string(tx + ox[k]) + "_" + std::to_string(tz + oz[k]) + ".png", size, heightScale, heightOffset, nb[k]) && nb[k].samples == n;
+				// (the sample one past the edge: the neighbour's second where the two share their edge row, else its first)
+				auto past = [&](const int k, const uint32 along) -> f32 {
+					const HeightfieldData &o = nb[k];
+					const bool shares = k == 0 ? fabsf(o.At(n - 1, along) - d.At(0, along)) < 1e-3f : k == 1 ? fabsf(o.At(0, along) - d.At(n - 1, along)) < 1e-3f
+						: k == 2 ? fabsf(o.At(along, n - 1) - d.At(along, 0)) < 1e-3f : fabsf(o.At(along, 0) - d.At(along, n - 1)) < 1e-3f;
+					const uint32 i = shares ? 1u : 0u;
+					return k == 0 ? o.At(n - 1 - i, along) : k == 1 ? o.At(i, along) : k == 2 ? o.At(along, n - 1 - i) : o.At(along, i);
+				};
+				const f32 sp = d.Spacing();
+				d.normals.resize((size_t)n * n);
+				for (uint32 r = 0; r < n; r++)
+					for (uint32 c = 0; c < n; c++)
+					{
+						f32 hl, hr, hd, hu, wx = 2.f, wz = 2.f;
+						if (c > 0) hl = d.At(c - 1, r); else if (have[0]) hl = past(0, r); else { hl = d.At(c, r); wx -= 1.f; }
+						if (c + 1 < n) hr = d.At(c + 1, r); else if (have[1]) hr = past(1, r); else { hr = d.At(c, r); wx -= 1.f; }
+						if (r > 0) hd = d.At(c, r - 1); else if (have[2]) hd = past(2, c); else { hd = d.At(c, r); wz -= 1.f; }
+						if (r + 1 < n) hu = d.At(c, r + 1); else if (have[3]) hu = past(3, c); else { hu = d.At(c, r); wz -= 1.f; }
+						const f32 dx = (hr - hl) / (sp * std::max(wx, 1.f)), dz = (hu - hd) / (sp * std::max(wz, 1.f));
+						d.normals[(size_t)r * n + c] = Vec3(-dx, 1.f, -dz).normalize();
+					}
+			}
+		}
 		out.meshes.resize(std::max<size_t>(levels.size(), 1));
 		for (size_t i = 0; i < out.meshes.size(); i++)
 			HeightfieldMesh::Build(*out.data, levels.empty() ? 1 : levels[i].step, skirt, out.meshes[i]);

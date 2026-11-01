@@ -231,6 +231,9 @@ namespace p3d {
 		static bool GetCompression();
 		static bool DecodeMemory(const uchar* data, const size_t length, DecodedImage& out);
 		bool LoadTextureFromMemory(std::vector<uchar> data, const uint32 length, const uint32 Type = TextureType::Texture, bool Mipmapping = true, const uint32 level = 0);
+		// From RGBA8 pixels already in memory (rows from the top, tightly packed) - transparent edges bled, as a load
+		// does; `filename` is recorded as its source (where those pixels are, or will be, written)
+		bool LoadTextureFromPixels(const uchar* rgba, const int32 width, const int32 height, bool Mipmapping = true, const std::string &filename = std::string());
 		bool CreateEmptyTexture(const uint32 Type, const uint32 DataType, const int32 width = 0, const int32 height = 0, bool Mipmapping = true, const uint32 level = 0, const uint32 msaa = 0); // msaa if using multisample only
 		void SetMinMagFilter(const uint32 MinFilter, const uint32 MagFilter);
 		// Whether it is already filtered this way: lets a caller that only wants to be sure
