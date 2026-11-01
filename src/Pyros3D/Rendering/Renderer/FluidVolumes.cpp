@@ -144,11 +144,21 @@ namespace p3d {
 						const f32 t = tops[ti];
 						f32 under = bottom - 1.f;
 						bool closed = false;
+						// (a closed solid's underside is a bottom below its top with no top between them. A surface that answers
+						// rays from both sides - a house's floor or ceiling - is a top and a bottom at the same height; paired with the
+						// next bottom down, a ceiling at 3.9 m and the floor under it at 0.9 m made the whole room solid)
 						for (const f32 bo : bottoms) if (bo < t - 0.005f && bo > under) { under = bo; closed = true; }
+						if (closed)
+							for (size_t tj = ti + 1; tj < tops.size(); tj++)
+								if (tops[tj] > under + 0.005f && tops[tj] < t - 0.005f) { closed = false; break; }
+						bool thin = false;
+						for (const f32 bo : bottoms) if (fabsf(bo - t) < 0.005f) thin = true;
+						if (thin && ti + 1 < tops.size()) { closed = false; }
 						// (a top with no underside found - a one-sided surface: a house's floor or roof, which a ray from below
 						// passes - is that surface alone, not solid all the way down: filled to the box's floor, every room
 						// under a roof was solid and smoke never went inside. The lowest top, the ground, still fills down.)
-						if (!closed && ti + 1 < tops.size()) under = t - s.cell;
+						static const bool oldSolid = getenv("PYROS_SMOKE_SOLID_OLD") != nullptr;
+						if (!closed && ti + 1 < tops.size() && !oldSolid) under = t - s.cell;
 						for (uint32 y = 0; y < s.ny; y++)
 						{
 							const f32 wy = s.origin.y + (y + 0.5f) * s.cell;
@@ -159,7 +169,7 @@ namespace p3d {
 		}
 		// (and the walls: a vertical ray meets a wall only at its top - rays across the box, along x and along z both ways,
 		// mark the cells each surface they meet passes through)
-		if (c.physics)
+		if (c.physics && !getenv("PYROS_SMOKE_SOLID_OLD") && !getenv("PYROS_SMOKE_NO_WALLS"))
 		{
 			auto mark = [&](const Vec3 &p) {
 				const int x = (int)floorf((p.x - s.origin.x) / s.cell), y = (int)floorf((p.y - s.origin.y) / s.cell), z = (int)floorf((p.z - s.origin.z) / s.cell);
@@ -194,6 +204,20 @@ namespace p3d {
 					sweep(Vec3(wx, wy, s.origin.z + sz + 0.5f), Vec3(wx, wy, s.origin.z - 0.5f));
 				}
 			}
+		}
+		if (getenv("PYROS_SMOKE_SOLID_LOG"))
+		{
+			size_t n = 0; for (uint32 w : solid) n += (size_t)__builtin_popcount(w);
+			// (the solid share at each height, bottom to top)
+			std::string prof;
+			for (uint32 y = 0; y < s.ny; y += 4)
+			{
+				size_t k = 0;
+				for (uint32 z = 0; z < s.nz; z++) for (uint32 x = 0; x < s.nx; x++) { const size_t at = (size_t)x + s.nx * ((size_t)y + s.ny * z); k += (solid[at >> 5] >> (at & 31)) & 1u; }
+				char b[16]; snprintf(b, sizeof(b), " %d", (int)(100 * k / ((size_t)s.nx * s.nz))); prof += b;
+			}
+			fprintf(stderr, "[smoke] origin y %.2f, solid %% by height:%s\n", s.origin.y, prof.c_str());
+			fprintf(stderr, "[smoke] grid %ux%ux%u cell %.2f: %zu solid\n", s.nx, s.ny, s.nz, s.cell, n);
 		}
 		device->Upload(s.solid, 0, solid.data(), (uint64)words * 4);
 
