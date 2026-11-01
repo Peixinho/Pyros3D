@@ -139,10 +139,16 @@ namespace p3d {
 						bottoms.push_back(h.point.y);
 						from = h.point.y + 0.01f;
 					}
-					for (const f32 t : tops)
+					for (size_t ti = 0; ti < tops.size(); ti++)
 					{
+						const f32 t = tops[ti];
 						f32 under = bottom - 1.f;
-						for (const f32 bo : bottoms) if (bo < t - 0.005f && bo > under) under = bo;
+						bool closed = false;
+						for (const f32 bo : bottoms) if (bo < t - 0.005f && bo > under) { under = bo; closed = true; }
+						// (a top with no underside found - a one-sided surface: a house's floor or roof, which a ray from below
+						// passes - is that surface alone, not solid all the way down: filled to the box's floor, every room
+						// under a roof was solid and smoke never went inside. The lowest top, the ground, still fills down.)
+						if (!closed && ti + 1 < tops.size()) under = t - s.cell;
 						for (uint32 y = 0; y < s.ny; y++)
 						{
 							const f32 wy = s.origin.y + (y + 0.5f) * s.cell;
@@ -150,6 +156,44 @@ namespace p3d {
 						}
 					}
 				}
+		}
+		// (and the walls: a vertical ray meets a wall only at its top - rays across the box, along x and along z both ways,
+		// mark the cells each surface they meet passes through)
+		if (c.physics)
+		{
+			auto mark = [&](const Vec3 &p) {
+				const int x = (int)floorf((p.x - s.origin.x) / s.cell), y = (int)floorf((p.y - s.origin.y) / s.cell), z = (int)floorf((p.z - s.origin.z) / s.cell);
+				if (x < 0 || y < 0 || z < 0 || x >= (int)s.nx || y >= (int)s.ny || z >= (int)s.nz) return;
+				const size_t at = (size_t)x + s.nx * ((size_t)y + s.ny * z); solid[at >> 5] |= 1u << (at & 31);
+			};
+			auto sweep = [&](const Vec3 &a, const Vec3 &b) {
+				const Vec3 dir = (b - a).normalize();
+				Vec3 from = a;
+				for (int k = 0; k < 12; k++)
+				{
+					const RayCastHit h = c.physics->RayCast(from, b);
+					if (!h.hasHit) break;
+					mark(h.point + dir * 0.01f);
+					from = h.point + dir * 0.02f;
+				}
+			};
+			const f32 sx = s.nx * s.cell, sz = s.nz * s.cell;
+			for (uint32 y = 0; y < s.ny; y++)
+			{
+				const f32 wy = s.origin.y + (y + 0.5f) * s.cell;
+				for (uint32 z = 0; z < s.nz; z++)
+				{
+					const f32 wz = s.origin.z + (z + 0.5f) * s.cell;
+					sweep(Vec3(s.origin.x - 0.5f, wy, wz), Vec3(s.origin.x + sx + 0.5f, wy, wz));
+					sweep(Vec3(s.origin.x + sx + 0.5f, wy, wz), Vec3(s.origin.x - 0.5f, wy, wz));
+				}
+				for (uint32 x = 0; x < s.nx; x++)
+				{
+					const f32 wx = s.origin.x + (x + 0.5f) * s.cell;
+					sweep(Vec3(wx, wy, s.origin.z - 0.5f), Vec3(wx, wy, s.origin.z + sz + 0.5f));
+					sweep(Vec3(wx, wy, s.origin.z + sz + 0.5f), Vec3(wx, wy, s.origin.z - 0.5f));
+				}
+			}
 		}
 		device->Upload(s.solid, 0, solid.data(), (uint64)words * 4);
 
