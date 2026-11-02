@@ -7,12 +7,16 @@
 //============================================================================
 
 #include <Pyros3D/Utils/Console/Console.h>
+#include <Pyros3D/Core/Logs/Log.h>
 
 #ifdef _WIN32
 
 #include <windows.h>
 #include <cstdio>
 #include <iostream>
+#include <string>
+#include <cstring>
+#include <cstdlib>
 
 namespace p3d {
 
@@ -42,8 +46,32 @@ namespace p3d {
 		if (!StreamIsDead(STD_OUTPUT_HANDLE)) return;
 
 		// Fails when there is no parent console, which is the Explorer
-		// double-click case: nothing to attach to, and nothing to do.
-		if (!AttachConsole(ATTACH_PARENT_PROCESS)) return;
+		// double-click case: nothing to attach to. Then the log goes to a file
+		// beside the program, PyrosLog.txt (and the last run's to
+		// PyrosLog.prev.txt): started that way - how a player starts a game -
+		// everything it said went nowhere, and a game that would not start a
+		// second time, or showed no ground, left nothing to read but its
+		// frame times.
+		if (!AttachConsole(ATTACH_PARENT_PROCESS))
+		{
+			char path[MAX_PATH] = {};
+			const DWORD n = GetModuleFileNameA(NULL, path, MAX_PATH);
+			char *slash = n > 0 && n < MAX_PATH ? strrchr(path, '\\') : NULL;
+			if (slash == NULL || (size_t)(slash - path) + 24 >= MAX_PATH) return;
+			slash[1] = 0;
+			const std::string dir(path), log = dir + "PyrosLog.txt", prev = dir + "PyrosLog.prev.txt";
+			MoveFileExA(log.c_str(), prev.c_str(), MOVEFILE_REPLACE_EXISTING);
+			if (freopen(log.c_str(), "w", stdout) == NULL) return;
+			setvbuf(stdout, NULL, _IONBF, 0);          // (unbuffered: what was said before a crash or a hang is there)
+			if (StreamIsDead(STD_ERROR_HANDLE) && freopen(log.c_str(), "a", stderr) != NULL) setvbuf(stderr, NULL, _IONBF, 0);
+			std::cout.clear();
+			std::cerr.clear();
+			std::ios::sync_with_stdio(true);
+			// (and all of it, the game's own lines too - print(), most of what an engine says is
+			// Info, below the Warning a console stops at; PYROS_LOG_LEVEL still says otherwise)
+			if (getenv("PYROS_LOG_LEVEL") == NULL) LOG::_LOG::SetLevel(LOG::Level::Info);
+			return;
+		}
 
 		// Attaching gives the PROCESS a console; it does not move the CRT's
 		// streams, which were bound to nothing when the CRT started up and

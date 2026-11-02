@@ -70,7 +70,9 @@ int main(int argc, char** argv)
 	// the process with no output at all, which from the outside is exactly
 	// what "the game just closes" looks like.
 	InstallCrashHandler();
-	InstallHangWatchdog();
+	// (3 s without a frame: a hang picking something up took 4 and the default 8 said nothing - where
+	// every thread is then goes to PyrosHang.txt; a long load writes one too, and the next hang's replaces it)
+	InstallHangWatchdog(3);
 
 	// --fill-shader-cache <folder>: the shaders made from here on are kept there (see
 	// PyrosPlayer::StepFillShaderCache) - said before anything is made, the window's own included.
