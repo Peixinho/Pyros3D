@@ -260,7 +260,7 @@ float CloudShadow(vec3 p)
 // The sky toward d: the sky-view table where it is sharp, its spherical harmonics as a rough surface blurs it
 vec3 SkyReflection(vec3 d, float roughness)
 {
-	vec2 uv = SkyViewUV(d, normalize(uFrame.sunDirection.xyz));
+	vec2 uv = SkyViewUV(d, normalize(uFrame.skySun.xyz));
 	vec3 sharp = textureLod(sampler2D(uSkyView, uLinearClamp), vec2(uv.x, 1.0 - uv.y), 0.0).rgb;
 	return mix(sharp, SkyRadiance(d), smoothstep(0.08, 0.55, roughness));
 }
@@ -900,7 +900,7 @@ void main()
 	{
 		vec3 toPoint = normalize(vWorldPosition - uFrame.cameraPosition.xyz);
 		vec3 skyDir = normalize(vec3(toPoint.x, max(toPoint.y, 0.02), toPoint.z));
-		vec2 suv = SkyViewUV(skyDir, normalize(uFrame.sunDirection.xyz));
+		vec2 suv = SkyViewUV(skyDir, normalize(uFrame.skySun.xyz));
 		vec3 skyL = textureLod(sampler2D(uSkyView, uLinearClamp), vec2(suv.x, 1.0 - suv.y), 0.0).rgb;
 		color = AerialPerspective(color, uFrame.cameraPosition.xyz, uFrame.sky.x, vWorldPosition, skyL, uFrame.sky.w) ;
 		// (a see-through surface's alpha lets the air behind it through too: its share kept as it was)

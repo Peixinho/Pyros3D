@@ -17,7 +17,7 @@ float Noise01(vec2 p) { return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 
 
 vec3 SkyRadiance(vec3 d)
 {
-	vec2 uv = SkyViewUV(d, normalize(uFrame.sunDirection.xyz));
+	vec2 uv = SkyViewUV(d, normalize(uFrame.skySun.xyz));
 	return textureLod(sampler2D(uSkyView, uLinearClamp), vec2(uv.x, 1.0 - uv.y), 0.0).rgb;
 }
 
@@ -41,7 +41,7 @@ bool March(vec3 eye, vec3 dir, int steps, float jitter, out vec3 L, out float T,
 	if (t0 > 40000.0) return false;
 	t1 = min(t1, t0 + 12000.0);
 	float dt = (t1 - t0) / float(steps);
-	vec3 sunDir = normalize(uFrame.sunDirection.xyz);
+	vec3 sunDir = normalize(uFrame.skySun.xyz);
 	vec3 sun = uFrame.sunDirection.w > 0.0 ? uFrame.sunRadiance.rgb : vec3(0.0);     // (the sun's illuminance, through the air)
 	float c = dot(dir, sunDir);
 	// (bright toward the sun - a silver lining - and a little back toward it)
@@ -102,7 +102,7 @@ void main()
 	vec3 eye = uFrame.cameraPosition.xyz;
 #ifdef DOME
 	// The sky-view table's directions, clouded: what the surfaces mirror and the sky's light is summed from
-	vec3 dir = SkyViewDirection(vec2(vUV.x, 1.0 - vUV.y), normalize(uFrame.sunDirection.xyz));
+	vec3 dir = SkyViewDirection(vec2(vUV.x, 1.0 - vUV.y), normalize(uFrame.skySun.xyz));
 	vec3 L; float T, at;
 	March(eye, dir, 16, 0.5, L, T, at);
 	outColor = vec4(SkyRadiance(dir) * T + L, 1.0);

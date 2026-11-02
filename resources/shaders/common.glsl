@@ -29,6 +29,7 @@ layout(set = 1, binding = 0, std140) uniform FrameData
 	vec4 weather;            // x: the rain, 0..1 (RenderGlobals::Rain): what faces up wet and puddled in proportion; y: 1 the sun's shadow ray-traced (surface.frag's uAO, green); z: 1 a transparent background (View); w: the screen's HDR headroom (1: SDR)
 	mat4 previousViewProjection;     // last frame's, without its jitter: where a point was in last frame's picture (reflections)
 	vec4 temporal;           // x: what moves a dither from frame to frame (LodDither) - 0, held still; y, z: the still water's plane - its height, on
+	vec4 skySun;             // xyz: toward the sun, for the sky (the air, its clouds, its light) - the light's own unless a game said where the sun is (below the horizon at night, the light then the moon)
 } uFrame;
 
 // (a colour as it may be kept or averaged: a value gone wrong - not a number, an infinity, or past what a half float

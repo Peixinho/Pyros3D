@@ -9,6 +9,6 @@ layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;
 void main()
 {
-	vec3 dir = SkyViewDirection(vec2(vUV.x, 1.0 - vUV.y), normalize(uFrame.sunDirection.xyz + vec3(0.0, 0.0, 1e-6)));
+	vec3 dir = SkyViewDirection(vec2(vUV.x, 1.0 - vUV.y), normalize(uFrame.skySun.xyz + vec3(0.0, 0.0, 1e-6)));
 	outColor = vec4(textureLod(samplerCube(uSkybox, uLinearClamp), dir, 0.0).rgb, 1.0);
 }

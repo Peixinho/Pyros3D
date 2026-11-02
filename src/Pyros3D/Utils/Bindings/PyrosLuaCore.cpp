@@ -119,6 +119,13 @@ namespace p3d {
 		lua->set_function("setPostEffectParam", [](const std::string &effect, const std::string &param, sol::variadic_args va) {
 			if (effect != "Sky" || va.size() < 1 || !va[0].is<f32>()) return false;
 			const f32 v = va[0].get<f32>();
+			if (param == "uSunDir" && va.size() >= 3 && va[1].is<f32>() && va[2].is<f32>())
+			{
+				const Vec3 d(v, va[1].get<f32>(), va[2].get<f32>());
+				const f32 l = d.magnitude();
+				if (l > 1e-6f) RenderGlobals::SkySun() = Vec4(d.x / l, d.y / l, d.z / l, 1.f);
+				return true;
+			}
 			if (param == "uCloudCover") { RenderGlobals::CloudCover() = std::min(std::max(v, 0.f), 1.f); return true; }
 			if (param == "uHaze") { RenderGlobals::Haze() = std::max(v, 0.f) / 0.0012f; return true; }
 			if (param == "uRain") { RenderGlobals::Rain() = std::min(std::max(v, 0.f), 1.f); return true; }

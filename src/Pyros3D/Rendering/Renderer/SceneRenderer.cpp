@@ -674,6 +674,7 @@ namespace p3d {
 			f32 weather[4];
 			f32 previousViewProjection[16];     // (last frame's, without its jitter: where a point was in last frame's picture)
 			f32 temporal[4];                    // (x: the frame's index 0..63 - common.glsl's LodDither)
+			f32 skySun[4];                      // (toward the sun, for the sky: RenderGlobals::SkySun, else the light's)
 		};
 		// std140, as surface_draw.glsl's DrawData
 		struct DrawData
@@ -5396,6 +5397,12 @@ namespace p3d {
 			fd.frame[3] = d == "cascades" ? 1.f : d == "ao-off" ? 2.f : d == "ao" ? 3.f : d == "shadows-off" ? 4.f : d == "cloudshadow" ? 5.f
 				: d == "albedo" ? 6.f : d == "normal" ? 7.f : d == "depth" ? 8.f : d == "ssr" ? 9.f : d == "ssrcolor" ? 10.f : d == "lod" ? 11.f : 0.f;
 			if (debugView >= 0) fd.frame[3] = (f32)debugView;
+		}
+		{
+			// (the sky follows the sun where the game says it is - below the horizon at night, the light then the moon's)
+			const Vec4 &said = RenderGlobals::SkySun();
+			if (said.w > 0.f) { fd.skySun[0] = said.x; fd.skySun[1] = said.y; fd.skySun[2] = said.z; fd.skySun[3] = 1.f; }
+			else for (int i = 0; i < 4; i++) fd.skySun[i] = fd.sunDirection[i];
 		}
 		const bool skyLit = skyOn && fd.sunDirection[3] > 0.f;
 		fd.frame[2] = skyLit ? 1.f : 0.f;

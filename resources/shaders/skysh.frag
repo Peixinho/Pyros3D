@@ -25,7 +25,7 @@ float SHBasis(int k, vec3 d)
 void main()
 {
 	int k = int(gl_FragCoord.x), row = int(gl_FragCoord.y);
-	vec3 sunDir = normalize(uFrame.sunDirection.xyz);
+	vec3 sunDir = normalize(uFrame.skySun.xyz);
 	const int N = 512;
 	vec3 sum = vec3(0.0);
 	// The ground's light from below: what the sun and the sky put on it, given back by its albedo (a dry field's, warm) -

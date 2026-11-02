@@ -16,7 +16,7 @@ vec3 TransmittanceTo(float altitude, float cosZenith)
 
 void main()
 {
-	vec3 sunDir = normalize(uFrame.sunDirection.xyz);
+	vec3 sunDir = normalize(uFrame.skySun.xyz);
 	vec3 dir = SkyViewDirection(vec2(vUV.x, 1.0 - vUV.y), sunDir);
 	vec3 o = vec3(0.0, kGroundRadius + max(uFrame.sky.x, 0.001), 0.0);
 	float tTop = RaySphere(o, dir, kTopRadius);

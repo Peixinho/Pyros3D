@@ -37,6 +37,10 @@ namespace p3d {
 		// A still water's mirror (setSkyMirrorLevel): the height of the plane the scene is reflected in - a sea, a lake -
 		// drawn as a screen-space planar reflection on what lies at that height facing up; NaN: none
 		PYROS3D_API f32 &MirrorLevel();
+		// Where the sun really is, for the sky (setPostEffectParam("Sky", "uSunDir", x, y, z)): toward it, w 1 when set.
+		// A game that turns its light to the moon at night says so here, and the sky - the air, the clouds, the light
+		// the sky gives - goes on following the sun, below the horizon: night. (w 0: the sun is the light's direction.)
+		PYROS3D_API Vec4 &SkySun();
 		// (all of it back to the engine's: a game ended)
 		PYROS3D_API void Reset();
 	}
