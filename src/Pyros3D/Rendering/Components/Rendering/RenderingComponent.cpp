@@ -419,8 +419,11 @@ namespace p3d {
 		for (size_t i = 0; i < model->Geometries.size(); i++) if (model->Geometries[i]->materialProperties.haveBones) { stopWaiting(); return; }
 		// (nor what places its own vertices - a custom surface's Vertex(): a sea drawn round the eye, grass in the wind; a
 		// picture of it as it stands in its file is nothing like it - NatureLab's sea baked one for 5 s, every first run)
-		for (size_t l = 0; l < Meshes.size(); l++)
-			for (RenderingMesh* m : Meshes[l])
+		// (walked, not indexed: Meshes[l] INSERTS a missing level, and each insert raised the bound - a component whose
+		// levels were not 0..n-1 grew the map by one empty level a step, for as long as its highest key: a Windows player
+		// froze here, the main thread in malloc under TryAutomaticImpostor, with no frame for 8 s)
+		for (const auto &level : Meshes)
+			for (RenderingMesh* m : level.second)
 				if (CustomShaderMaterial* cm = dynamic_cast<CustomShaderMaterial*>(m->Material.get()))
 					if (cm->GetSurfaceSource().find("void Vertex(") != std::string::npos) { stopWaiting(); return; }
 		if (!lodRenderables.empty() && (std::dynamic_pointer_cast<ImpostorQuad>(lodRenderables.back()) || std::dynamic_pointer_cast<Card>(lodRenderables.back()))) { stopWaiting(); return; }
