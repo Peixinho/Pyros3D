@@ -80,7 +80,7 @@ namespace p3d {
 	// The cloud's obstacles in its grid, from the physics (and again when they change - a window broken: RefreshObstacles)
 	void FluidVolumes::LayObstacles(Sim &s, const VolumetricSmoke::Cloud &c)
 	{
-		const uint32 words = (s.cells + 31) / 32;
+		const uint32 words = (s.cells + s.nx * s.nz + 31) / 32;     // (a bit a cell, then a bit a column: under a roof)
 		// The colliders: each column's rays down (the tops of what is in it, a ray again from just under each - a
 		// ray ignores what it starts inside) and up from under the box (their bottoms); solid from each top down to
 		// the nearest bottom under it, or to the box's floor
@@ -111,6 +111,13 @@ namespace p3d {
 							columnsNear++;
 							for (const f32 tp : tops) if (tp > c.position.y + 1.2f) { coverNear++; break; }
 						}
+					}
+					if (!tops.empty() && tops.size() >= 2)
+					{
+						// (under a roof: something over the column above its lowest top - the ground or a floor - by more than a storey's
+						// least height: the smoke there is indoors)
+						const f32 ground = tops.back();
+						if (tops.front() > ground + 1.8f) { const size_t at = s.cells + (size_t)x + s.nx * z; solid[at >> 5] |= 1u << (at & 31); }
 					}
 					if (tops.empty()) continue;
 					from = bottom - 0.5f;
@@ -203,6 +210,17 @@ namespace p3d {
 			fprintf(stderr, "[smoke] origin y %.2f, solid %% by height:%s\n", s.origin.y, prof.c_str());
 			fprintf(stderr, "[smoke] grid %ux%ux%u cell %.2f: %zu solid\n", s.nx, s.ny, s.nz, s.cell, n);
 		}
+		// (what stops it that has no collider - panes: their cells solid)
+		for (const std::pair<const int32, std::pair<Vec3, Vec3> > &b : VolumetricSmoke::GetBlocks())
+		{
+			const Vec3 &mn = b.second.first, &mx = b.second.second;
+			if (mx.x < s.origin.x || mx.z < s.origin.z || mx.y < s.origin.y || mn.x > s.origin.x + s.nx * s.cell || mn.z > s.origin.z + s.nz * s.cell || mn.y > s.origin.y + s.ny * s.cell) continue;
+			const int x0 = std::max(0, (int)floorf((mn.x - s.origin.x) / s.cell)), x1 = std::min((int)s.nx - 1, (int)floorf((mx.x - s.origin.x) / s.cell));
+			const int y0 = std::max(0, (int)floorf((mn.y - s.origin.y) / s.cell)), y1 = std::min((int)s.ny - 1, (int)floorf((mx.y - s.origin.y) / s.cell));
+			const int z0 = std::max(0, (int)floorf((mn.z - s.origin.z) / s.cell)), z1 = std::min((int)s.nz - 1, (int)floorf((mx.z - s.origin.z) / s.cell));
+			for (int z = z0; z <= z1; z++) for (int y = y0; y <= y1; y++) for (int x = x0; x <= x1; x++)
+			{ const size_t at = (size_t)x + s.nx * ((size_t)y + s.ny * z); solid[at >> 5] |= 1u << (at & 31); }
+		}
 		// (the openings the colliders lack - windows broken out: their cells cleared)
 		for (const std::pair<Vec3, Vec3> &o : VolumetricSmoke::GetOpenings())
 		{
@@ -265,7 +283,7 @@ namespace p3d {
 		b.debugName = "Renderer.FluidScalars"; s.scal0 = device->CreateBuffer(b); s.scal1 = device->CreateBuffer(b);
 		b.debugName = "Renderer.FluidAux"; s.aux = device->CreateBuffer(b);
 		b.debugName = "Renderer.FluidPressure"; s.pressure = device->CreateBuffer(b);     // (two floats a cell: the pair)
-		const uint32 words = (s.cells + 31) / 32;
+		const uint32 words = (s.cells + s.nx * s.nz + 31) / 32;     // (a bit a cell, then a bit a column: under a roof)
 		b.size = (uint64)words * 4; b.debugName = "Renderer.FluidSolid"; s.solid = device->CreateBuffer(b);
 
 		LayObstacles(s, c);
@@ -346,8 +364,10 @@ namespace p3d {
 		d.flags[3] = (f32)s.lightAxis;
 		d.flags[0] = s.scalCur ? 1.f : 0.f; d.flags[1] = s.velCur ? 1.f : 0.f; d.flags[2] = s.presCur ? 1.f : 0.f;
 		const Vec3 &wind = VolumetricSmoke::GetWind();
-		const f32 sheltered = 1.f - 0.95f * std::min(std::max(s.enclosed, 0.f), 1.f);     // (under a roof, out of the wind)
+		const f32 sheltered = s.closedSides ? 1.f - 0.95f * std::min(std::max(s.enclosed, 0.f), 1.f) : 1.f;     // (under a roof, out of the wind - outside, the wind as it always was)
 		d.extra[0] = s.closedSides ? 1.f : 0.f;
+		d.extra[2] = s.closedSides ? 0.55f : 0.f;     // (out of the house - by a door or a window - the open air thins it fast)
+		d.extra[3] = s.closedSides ? std::min(std::max(s.enclosed, 0.f), 1.f) : 0.f;     // (what the wind was cut by, given back outside)
 		d.wind[0] = wind.x * sheltered; d.wind[1] = wind.y * sheltered; d.wind[2] = wind.z * sheltered; d.wind[3] = (f32)s.offset;
 		d.sun[0] = sunDir.x; d.sun[1] = sunDir.y; d.sun[2] = sunDir.z;
 		const f32 R = std::max(c.radius, 0.3f);
@@ -364,11 +384,12 @@ namespace p3d {
 			d.inject[0] = 70.f * c.thickness; d.inject[1] = 3.5f; d.inject[2] = 0.f; d.inject[3] = 4.f + 0.8f * R;
 			// (out of the canister all round, not one spinning jet: the jet swung the whole cloud from side to side - it grew,
 			// went off one way, came back - where smoke should only ever spread. PYROS_SMOKE_SPIN brings the spin back)
-			static const bool spinJet = getenv("PYROS_SMOKE_SPIN") != nullptr;
+			const bool spinJet = !s.closedSides;     // (outside: the spinning canister as it always was - only indoors all round)
 			const Vec3 jet = Vec3(cosf(spin), 0.35f, sinf(spin)).normalize();
 			d.jet[0] = jet.x; d.jet[1] = jet.y; d.jet[2] = jet.z; d.jet[3] = spinJet ? 0.f : 1.f;
 			if (!spinJet) d.inject[3] = 1.6f + 0.3f * R;     // (gentler all round: the same smoke, pushed out slower)
-			if (s.closedSides) d.inject[0] *= 0.45f;     // (indoors none of it leaves by the box's sides: less poured in, the room fills about as a grenade's cloud is outside)
+			if (s.closedSides) d.inject[0] *= 0.45f;
+			if (s.closedSides) d.inject[3] = 0.9f;     // (and pushed out gently: the canister's push carried the room's smoke out of every opening at once)     // (indoors none of it leaves by the box's sides: less poured in, the room fills about as a grenade's cloud is outside)
 			d.forces[0] = 1.2f; d.forces[1] = 0.08f; d.forces[2] = 3.f; d.forces[3] = 0.6f;
 			d.decay[0] = 0.015f; d.decay[1] = 0.f; d.decay[2] = 0.f; d.decay[3] = 0.f;
 			d.emit[0] = s.age < spew ? 1.f : 0.f; d.emit[1] = 1.8f / std::max(R * 0.12f, 0.2f);
@@ -376,14 +397,14 @@ namespace p3d {
 			d.turb[0] = 7.f; d.turb[1] = 0.9f; d.turb[2] = 0.45f; d.turb[3] = 18.f;
 			// (once the canister has stopped and the cloud is at its size it settles: its stirring and swirl die away over a few
 			// seconds - indoors almost to nothing, still air; outside some is kept, the wind's gusts)
-			const f32 settle = std::min(std::max((s.age - spew) / 4.f, 0.f), 1.f);
+			const f32 settle = s.closedSides ? std::min(std::max((s.age - spew) / 4.f, 0.f), 1.f) : 0.f;     // (indoors only: outside the cloud goes on as it always did)
 			const f32 keep = 1.f - settle * (0.55f + 0.4f * std::min(std::max(s.enclosed, 0.f), 1.f));
 			d.turb[0] *= keep; d.forces[2] *= keep; d.forces[0] *= (1.f - 0.6f * settle);
 			if (s.closedSides) d.extra[1] = settle * 0.035f;
 			// (indoors the air is slow: what leaves by a window broken out is a leak, drifting out and up - not the room emptying
-			// itself into the street. The speed limit comes down from the canister's 18 m/s as the cloud settles, to a
+			// itself into the street. The speed limit indoors is 4 m/s while the canister pours, down to
 			// slow 1.6 m/s; the room's smoke was otherwise held under pressure by its walls and burst out of the first hole)
-			if (s.closedSides) d.turb[3] = std::max(18.f * (1.f - settle) + 1.6f * settle, 1.6f);     // (indoors, once settled, the room's smoke thins slowly: a grey wall otherwise)
+			if (s.closedSides) d.turb[3] = 2.2f * (1.f - settle) + 1.2f * settle;     // (indoors, once settled, the room's smoke thins slowly: a grey wall otherwise)
 			if (settle > 0.f) d.jet[3] = -settle * (0.35f + 1.4f * std::min(std::max(s.enclosed, 0.f), 1.f));     // (drag once the canister is done - its jet is off then: indoors the air goes still)
 		}
 		else if (s.kind == 1)

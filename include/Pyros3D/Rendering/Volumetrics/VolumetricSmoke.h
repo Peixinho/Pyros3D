@@ -14,6 +14,7 @@
 #include <Pyros3D/Other/Export.h>
 #include <Pyros3D/Other/Global.h>
 #include <vector>
+#include <map>
 
 namespace p3d {
 
@@ -125,6 +126,12 @@ namespace p3d {
 		// (RefreshObstacles is called for you)
 		static void AddOpening(const Vec3 &min, const Vec3 &max) { openings.push_back(std::make_pair(min, max)); obstacleEpoch++; }
 		static void ClearOpenings() { openings.clear(); obstacleEpoch++; }
+		// What stops smoke that the colliders do not have - a window's pane, which no collider has: boxes (world, min and
+		// max) laid in as solid, by an id the game keeps (a pane broken: RemoveBlock)
+		static void SetBlock(const int32 id, const Vec3 &min, const Vec3 &max) { blocks[id] = std::make_pair(min, max); obstacleEpoch++; }
+		static void RemoveBlock(const int32 id) { if (blocks.erase(id)) obstacleEpoch++; }
+		static void ClearBlocks() { blocks.clear(); obstacleEpoch++; }
+		static const std::map<int32, std::pair<Vec3, Vec3> > &GetBlocks() { return blocks; }
 		static const std::vector<std::pair<Vec3, Vec3> > &GetOpenings() { return openings; }
 
 		static uint32 GetActiveCount();
@@ -192,6 +199,7 @@ namespace p3d {
 		static Cloud clouds[MaxClouds];
 		static uint32 obstacleEpoch;
 		static std::vector<std::pair<Vec3, Vec3> > openings;
+		static std::map<int32, std::pair<Vec3, Vec3> > blocks;
 		static std::vector<uchar> atlas;
 		static uint32 atlasVersion;
 		static f64 clock;

@@ -1226,6 +1226,10 @@ end
 			// (a gap the colliders do not have - a window broken out of a whole wall collider: a box, world min and max)
 			smoke.set_function("addOpening", [](const Vec3 &mn, const Vec3 &mx) { VolumetricSmoke::AddOpening(mn, mx); });
 			smoke.set_function("clearOpenings", []() { VolumetricSmoke::ClearOpenings(); });
+			// (what stops smoke that no collider has - a pane: a box by an id the game keeps; removeBlock when it breaks)
+			smoke.set_function("setBlock", [](const int32 id, const Vec3 &mn, const Vec3 &mx) { VolumetricSmoke::SetBlock(id, mn, mx); });
+			smoke.set_function("removeBlock", [](const int32 id) { VolumetricSmoke::RemoveBlock(id); });
+			smoke.set_function("clearBlocks", []() { VolumetricSmoke::ClearBlocks(); });
 			smoke.set_function("remove", [](const int32 id) { VolumetricSmoke::Remove(id); });
 			// 1 is a grenade's wall of smoke; a signal smoke is well under it.
 			smoke.set_function("setThickness", [](const int32 id, const f32 thickness) { VolumetricSmoke::SetThickness(id, thickness); });

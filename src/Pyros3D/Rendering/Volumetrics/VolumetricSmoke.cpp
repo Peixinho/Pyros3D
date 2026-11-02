@@ -21,6 +21,7 @@ namespace p3d {
 	VolumetricSmoke::Cloud VolumetricSmoke::clouds[VolumetricSmoke::MaxClouds];
 	uint32 VolumetricSmoke::obstacleEpoch = 0;
 	std::vector<std::pair<Vec3, Vec3> > VolumetricSmoke::openings;
+	std::map<int32, std::pair<Vec3, Vec3> > VolumetricSmoke::blocks;
 	std::vector<uchar> VolumetricSmoke::atlas;
 	uint32 VolumetricSmoke::atlasVersion = 0;
 	f32 VolumetricSmoke::cellSize = 0.6f;

@@ -63,6 +63,8 @@ bool Inside(ivec3 c) { return all(greaterThanEqual(c, ivec3(0))) && all(lessThan
 vec4 Vel(bool one, ivec3 c) { c = clamp(c, ivec3(0), N - 1); return H4(one ? uVel1.v[Index(c)] : uVel0.v[Index(c)]); }
 vec4 Scal(bool one, ivec3 c) { c = clamp(c, ivec3(0), N - 1); return H4(one ? uScal1.s[Index(c)] : uScal0.s[Index(c)]); }
 float SolidAt(int i) { return float((uSolid.bits[i >> 5] >> uint(i & 31)) & 1u); }
+// (whether a column is under a roof - indoors: a bit a column after the cells')
+bool RoofAt(int x, int z) { int i = int(uSim.dims.w) + x + int(uSim.dims.x) * z; return ((uSolid.bits[i >> 5] >> uint(i & 31)) & 1u) != 0u; }
 float Solid(ivec3 c) { return Inside(c) ? SolidAt(Index(c)) : 0.0; }
 void SetVel(bool one, int i, vec4 v) { if (one) uVel1.v[i] = P4(v); else uVel0.v[i] = P4(v); }
 void SetScal(bool one, int i, vec4 s) { if (one) uScal1.s[i] = P4(s); else uScal0.s[i] = P4(s); }
@@ -218,7 +220,9 @@ void main()
 			// the heat going into the air round it; the smoke spreading thin (faster as the cloud fades)
 			s.y *= exp(-uSim.forces.w * dt * (0.4 + s.y));
 			s.x *= exp(-uSim.decay.x * dt * mix(6.0, 1.0, uSim.emit.z));
-			s.x *= exp(-uSim.extra.y * dt);     // (a settled cloud in a room thinning out - extra.y a second)
+			// (a settled cloud in a room thinning out - extra.y a second; out in the open air - out of a door or a window - it goes
+			// faster, the wind taking it: extra.z)
+			s.x *= exp(-(uSim.extra.x > 0.5 && !RoofAt(c.x, c.z) ? uSim.extra.z : uSim.extra.y) * dt);
 			// what the emitter adds: most at its heart, broken up by a noise that boils as it goes
 			if (uSim.emit.x > 0.5)
 			{
@@ -231,15 +235,16 @@ void main()
 				}
 			}
 			s.xyz = clamp(s.xyz, vec3(0.0), vec3(4.0, 3.0, 4.0));
+			// (none in what is solid - the floor's slab, a wall: poured into the floor under a canister lying on it, smoke filled
+			// the space under the house and came out round its foot, more outside than in the room)
+			if (SolidAt(i) > 0.5) s.xyz = vec3(0.0);
 			// the open sides and top: what reaches them leaves (kept, it piled up against the box's lid in a slab)
 			// (the open sides and top take it away - but indoors only where the side is out in the open air: under a roof the
 			// room's walls hold it, and what leaves by a window or a door reaches the box's side outside and goes)
 			bool edge = c.x == 0 || c.z == 0 || c.x == N.x - 1 || c.z == N.z - 1 || c.y == N.y - 1;
 			if (edge)
 			{
-				bool roofed = false;
-				if (uSim.extra.x > 0.5)
-					for (int yy = c.y + 1; yy < N.y && !roofed; yy++) roofed = SolidAt(c.x + N.x * (yy + N.y * c.z)) > 0.5;
+				bool roofed = uSim.extra.x > 0.5 && RoofAt(c.x, c.z);
 				if (!roofed) s.xyz = vec3(0.0);
 			}
 		}
@@ -303,7 +308,9 @@ void main()
 			v.xyz += curlN * uSim.turb.x * clamp((s.x + s.y) * 2.0, 0.0, 1.0) * dt;
 		}
 		// the wind: what is in the air drifts with it, the faster the less there is to drag
-		v.xyz += (uSim.wind.xyz - v.xyz) * min(dt * 0.25, 1.0);
+		vec3 windHere = uSim.wind.xyz;
+		if (uSim.extra.x > 0.5 && !RoofAt(c.x, c.z)) windHere = uSim.extra.w > 0.0 ? windHere / max(1.0 - 0.95 * uSim.extra.w, 0.05) : windHere;     // (outside the house: the wind in full)
+		v.xyz += (windHere - v.xyz) * min(dt * 0.25, 1.0);
 		// the emitter's jet: out of the canister (or out from a blast's heart), strongest at its centre
 		if (uSim.emit.x > 0.5 && uSim.inject.w > 0.0)
 		{
