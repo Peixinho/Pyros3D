@@ -654,7 +654,11 @@ namespace p3d {
 		const uint32 kFramesInFlight = 3;
 		const uint32 kFrameDataSlot = 1024;       // (a uniform buffer's dynamic offset: 256-byte aligned everywhere)
 		const gfx::Format kHdrFormat = gfx::Format::RGBA16F, kDepthFormat = gfx::Format::D32F;
-		const uint8 kSceneSamples = 4;            // (MSAA: geometric edges, the scene pass's own)
+		// (MSAA: geometric edges in the scene pass itself - none by default, the temporal AA has the edges; PYROS_MSAA=2|4
+		// for it. Four samples under the TAA were 27 ms of the Scene pass's on an M3 against 17 without - at 4K most of
+		// the frame - for edges the TAA was smoothing anyway)
+		uint8 SceneSamplesWanted() { const char* e = getenv("PYROS_MSAA"); const int n = e ? atoi(e) : 1; return (uint8)(n >= 4 ? 4 : (n >= 2 ? 2 : 1)); }
+		const uint8 kSceneSamples = SceneSamplesWanted();
 
 		// std140, as common.glsl's FrameData
 		struct FrameData
@@ -5250,6 +5254,23 @@ namespace p3d {
 		PYROS_PROFILE_SCOPE("R.Render");
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		if (!view.hostFrame) device->BeginFrame();
+		// (what the GPU took, every backend - the newest frame it has finished: the frame's whole as deviceWork in the
+		// profile and a perf.log's lines, and each pass of a quarter of a millisecond or more as GPU.<pass>. Measured,
+		// they went nowhere: a game slow on someone else's GPU said only what its CPU did)
+		if (!view.hostFrame)
+		{
+			const gfx::FrameStats &st = device->LastFrameStats();
+			if (st.gpuMs > 0.0)
+			{
+				FrameProfiler &fp = FrameProfiler::Instance();
+				FrameProfiler::NoteDeviceFrame(st.gpuMs);
+				fp.Counter("GPU.ms", st.gpuMs);
+				fp.Counter("GPU.draws", (f64)st.draws);
+				char name[64];
+				for (const gfx::FrameStats::Pass &pass : st.passes)
+					if (pass.gpuMs >= 0.25) { snprintf(name, sizeof(name), "GPU.%s", pass.name.c_str()); fp.Counter(name, pass.gpuMs); }
+			}
+		}
 		// (impostors the scene's models asked for - ImpostorBank, a model's last level of detail: one baked a frame, by a
 		// renderer of its own inside this frame; not from that renderer's own frames, nor a probe's)
 		{
@@ -5609,7 +5630,9 @@ namespace p3d {
 			[=](gfx::CommandList* cl)
 		{
 				gfx::PassDesc pass;
-				pass.colorCount = 1; pass.colors[0].texture = msaaColor; pass.colors[0].store = gfx::StoreOp::Resolve; pass.colors[0].resolve = hdr;
+				pass.colorCount = 1;
+				if (kSceneSamples > 1) { pass.colors[0].texture = msaaColor; pass.colors[0].store = gfx::StoreOp::Resolve; pass.colors[0].resolve = hdr; }
+				else { pass.colors[0].texture = hdr; pass.colors[0].store = gfx::StoreOp::Store; }
 				pass.colors[0].clear[0] = clearColour.x; pass.colors[0].clear[1] = clearColour.y; pass.colors[0].clear[2] = clearColour.z; pass.colors[0].clear[3] = 1.f;
 				pass.depth.texture = depth; pass.depth.clear = 0.f; pass.depth.store = gfx::StoreOp::DontCare;
 				pass.width = targetWidth; pass.height = targetHeight; pass.debugName = "Scene";

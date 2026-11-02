@@ -22,6 +22,7 @@
 #include <functional>
 #include <fstream>
 #include <thread>
+#include <future>
 #include <chrono>
 #include <mutex>
 #include <map>
@@ -391,7 +392,8 @@ namespace p3d {
 			if (baked)
 			{
 				const int32 A = (int32)(baked->frames * baked->size);
-				if (!e.albedo->LoadTextureFromPixels(baked->albedo.data(), A, A, true, base + "_albedo.png") || !e.normal->LoadTextureFromPixels(baked->normals.data(), A, A, true, base + "_normal.png"))
+				// (its pixels bled already, on a thread of their own: BakePending)
+				if (!e.albedo->LoadTextureFromPixels(baked->albedo.data(), A, A, true, base + "_albedo.png", false) || !e.normal->LoadTextureFromPixels(baked->normals.data(), A, A, true, base + "_normal.png", false))
 					return false;
 			}
 			else if (!e.albedo->LoadTexture(base + "_albedo.png", TextureType::Texture, true) || !e.normal->LoadTexture(base + "_normal.png", TextureType::Texture, true))
@@ -458,6 +460,10 @@ namespace p3d {
 			uint64_t ticket = 0;
 			uint32 readingView = 0, unready = 0;     // (unready: frames its pipelines were still being made)
 			f64 ms = 0.0, worst = 0.0;     // (its work in all, and the most of it in one frame)
+			// (the views all in: its two atlases' clear texels bled on a thread of their own - two 1536 squares, 50 ms
+			// in the frame the bake ended, every half second through a whole map's worth of them - then made textures)
+			std::future<void> bleeding;
+			bool bled = false;
 			bool active = false;
 		};
 		BankJob bankJob;
@@ -477,11 +483,19 @@ namespace p3d {
 			job.path = bankItems[job.key].path; job.material = bankItems[job.key].material;
 			job.active = true;
 		}
+		std::string err;
+		bool ok = true;
+		if (job.bleeding.valid())
+		{
+			if (job.bleeding.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;     // (still bleeding)
+			job.bleeding.get();
+			job.bled = true;
+		}
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		if (job.bled) goto finish;
 		if (!renderer) { renderer.reset(new SceneRenderer(device)); renderer->SetName("Impostor bakes"); }
 		if (!job.mesh) job.mesh = std::make_shared<Model>(job.path, true);
-		std::string err;
-		bool ok = job.mesh && !job.mesh->Geometries.empty();
+		ok = job.mesh && !job.mesh->Geometries.empty();
 		if (ok)
 		{
 			std::shared_ptr<GameObject> subject = std::make_shared<GameObject>();
@@ -514,11 +528,26 @@ namespace p3d {
 				}
 			}
 		}
-		const f64 spent = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
-		job.ms += spent; job.worst = std::max(job.worst, spent);
+		{
+			const f64 spent = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
+			job.ms += spent; job.worst = std::max(job.worst, spent);
+		}
 		if (ok && (job.ticket || job.nextView < kBankFrames * kBankFrames)) return;     // (the next slice next frame)
 		for (gfx::Texture t : job.targets) device->Destroy(t);
 		job.targets.clear();
+		if (ok)
+		{
+			// (all its views in: bled on a thread, the textures made from them a frame or two on)
+			OctahedralImpostorBake* b = &job.bake;
+			const int32 A = (int32)(b->frames * b->size);
+			job.bleeding = std::async(std::launch::async, [b, A]() { Texture::BleedEdges(b->albedo, A, A); Texture::BleedEdges(b->normals, A, A); });
+			return;
+		}
+	finish:
+		{
+			const f64 spent = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count();
+			job.ms += spent; job.worst = std::max(job.worst, spent);
+		}
 		ImpostorBank::Entry entry;
 		if (ok)
 		{
