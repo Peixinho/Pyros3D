@@ -4278,7 +4278,9 @@ namespace p3d {
 		if (lodOn)
 			for (RenderingComponent* rc : scene->GetRenderingComponents())
 			{
-				if (!rc || !rc->GetOwner() || rc->GetRenderLayer() != RenderLayer::World || rc->GetComponentType() == ComponentType::ParticleSystem) continue;
+				// (switched off - IComponent::Disable - is not drawn at any level: a scope hides the gun in front of its lens
+				// while its own picture is drawn, and the gun, with levels of its own, was drawn anyway - the glass grey)
+				if (!rc || !rc->GetOwner() || !rc->IsActive() || rc->GetRenderLayer() != RenderLayer::World || rc->GetComponentType() == ComponentType::ParticleSystem) continue;
 				if (!rc->HasLOD()) rc->TryAutomaticLODs();
 				rc->TryAutomaticImpostor();     // (an impostor as its last level - ImpostorBank)
 				if (!rc->HasLOD() || !done.insert(rc).second) continue;
