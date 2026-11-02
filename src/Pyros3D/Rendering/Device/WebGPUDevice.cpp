@@ -599,7 +599,13 @@ namespace p3d { namespace gfx {
 			if (hdrOutput)
 			{
 				cm.chain.sType = WGPUSType_SurfaceColorManagement;
+#if defined(__EMSCRIPTEN__)
+				// (the browser's canvas has sRGB and Display P3 only - with an rgba16float canvas and extended tone mapping, sRGB
+				// is its HDR: values past 1 shown brighter than white)
+				cm.colorSpace = WGPUPredefinedColorSpace_SRGB; cm.toneMappingMode = WGPUToneMappingMode_Extended;
+#else
 				cm.colorSpace = WGPUPredefinedColorSpace_SRGBLinear; cm.toneMappingMode = WGPUToneMappingMode_Extended;
+#endif
 				c.nextInChain = &cm.chain;
 			}
 			wgpuSurfaceConfigure(surface, &c);
