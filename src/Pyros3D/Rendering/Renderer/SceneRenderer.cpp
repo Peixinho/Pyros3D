@@ -1594,6 +1594,17 @@ namespace p3d {
 		uint8* base = lightScratch.data();
 		LightData* out = (LightData*)(base + 16);
 		uint32 count = 0;
+		// Only the lights that can reach what this view sees: every pixel goes through every light it is given, and a map's
+		// 214 lamps - nearly all behind the camera, kilometres off, or out by day - cost the Scene pass more than all else at 4K
+		Vec4 lightPlanes[5];
+		{
+			const Matrix lvp = ProjectionFor(view) * view.cameraWorld.Inverse();
+			auto row = [&](int r) { return Vec4(lvp.m[r], lvp.m[4 + r], lvp.m[8 + r], lvp.m[12 + r]); };
+			const Vec4 r0 = row(0), r1 = row(1), r2 = row(2), r3 = row(3);
+			lightPlanes[0] = r3 + r0; lightPlanes[1] = r3 - r0; lightPlanes[2] = r3 + r1; lightPlanes[3] = r3 - r1; lightPlanes[4] = r3 - r2;
+			for (Vec4 &q : lightPlanes) { const f32 len = Vec3(q.x, q.y, q.z).magnitude(); if (len > 0.f) q = q / len; }
+		}
+		static const bool allLights = getenv("PYROS_ALL_LIGHTS") != nullptr;
 		if (scene)
 			for (IComponent* c : scene->GetLights())
 			{
@@ -1606,6 +1617,14 @@ namespace p3d {
 				const Matrix &world = owner->GetDrawWorld();
 				const Vec3 p = world.GetTranslation();
 				const Vec4 radiance = light->GetLightRadiance();
+				if (!allLights)
+				{
+					if (radiance.x <= 0.f && radiance.y <= 0.f && radiance.z <= 0.f) continue;     // (off)
+					const f32 reach = type == ComponentType::PointLight ? static_cast<PointLight*>(c)->GetLightRadius() : static_cast<SpotLight*>(c)->GetLightRadius();
+					bool outside = false;
+					for (int k = 0; k < 5 && !outside; k++) outside = lightPlanes[k].x * p.x + lightPlanes[k].y * p.y + lightPlanes[k].z * p.z + lightPlanes[k].w < -reach;
+					if (outside) continue;
+				}
 				LightData &L = out[count];
 				memset(&L, 0, sizeof(L));
 				const f32 k = (f32)PI;     // (intensity as a white surface lit head-on at 1 unit gives it back - as the sun's)
