@@ -22,6 +22,7 @@ void main()
 	vec3 dir = normalize(far.xyz / far.w - uFrame.cameraPosition.xyz);
 	vec3 sunDir = normalize(uFrame.skySun.xyz);
 	vec3 E = uFrame.sunRadiance.rgb;     // (the sun's illuminance, already through the air - as the surfaces get it)
+	if (uFrame.skySunTop.w > 0.0) E = uFrame.skySunTop.rgb * TransmittanceAt();     // (the sun's own, where a game gave it)
 	vec2 uv = SkyViewUV(dir, sunDir);
 	vec3 L = texture(sampler2D(uSkyView, uLinearClamp), vec2(uv.x, 1.0 - uv.y)).rgb;     // (the table is absolute radiance)
 	// The sun's disc, limb darkened

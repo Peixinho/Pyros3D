@@ -54,6 +54,9 @@ void main()
 	}
 	// (absolute: per unit of the sun's illuminance above the air, times that - the light at the camera, divided by
 	// what the air between leaves of it)
+	// (or the sun's light above the air where a game gave it - RenderGlobals::SkySunLight: with the sun set the light
+	// is the moon's, and what the air leaves of the sun is next to nothing to divide by)
 	vec3 sunAtCamera = TransmittanceTo(uFrame.sky.x, sunDir.y);
-	outColor = vec4(L * uFrame.sunRadiance.rgb / max(sunAtCamera, vec3(1e-4)), 1.0);
+	vec3 top = uFrame.skySunTop.w > 0.0 ? uFrame.skySunTop.rgb : uFrame.sunRadiance.rgb / max(sunAtCamera, vec3(1e-4));
+	outColor = vec4(L * top, 1.0);
 }

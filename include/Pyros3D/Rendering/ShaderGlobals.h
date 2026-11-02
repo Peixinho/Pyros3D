@@ -41,6 +41,9 @@ namespace p3d {
 		// A game that turns its light to the moon at night says so here, and the sky - the air, the clouds, the light
 		// the sky gives - goes on following the sun, below the horizon: night. (w 0: the sun is the light's direction.)
 		PYROS3D_API Vec4 &SkySun();
+		// The sun's own light, for the sky where a game said where the sun is (w 1 when it did): what lights the air
+		// at dusk with the scene's light already the moon's, and not the moon's colour the game gave that light
+		PYROS3D_API Vec4 &SkySunLight();
 		// (all of it back to the engine's: a game ended)
 		PYROS3D_API void Reset();
 	}

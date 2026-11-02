@@ -30,6 +30,7 @@ layout(set = 1, binding = 0, std140) uniform FrameData
 	mat4 previousViewProjection;     // last frame's, without its jitter: where a point was in last frame's picture (reflections)
 	vec4 temporal;           // x: what moves a dither from frame to frame (LodDither) - 0, held still; y, z: the still water's plane - its height, on
 	vec4 skySun;             // xyz: toward the sun, for the sky (the air, its clouds, its light) - the light's own unless a game said where the sun is (below the horizon at night, the light then the moon)
+	vec4 skySunTop;          // rgb: the sky sun's illuminance above the air, where a game gave it (w 1); w 0 - the light's own (sunRadiance over the air toward it)
 } uFrame;
 
 // (a colour as it may be kept or averaged: a value gone wrong - not a number, an infinity, or past what a half float

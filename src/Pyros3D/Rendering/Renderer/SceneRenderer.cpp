@@ -18,6 +18,7 @@
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
 #include <Pyros3D/Rendering/GI/DDGIVolume.h>
 #include <Pyros3D/Rendering/GI/SceneGI.h>
+#include <Pyros3D/Rendering/GI/PhysicalSky.h>
 #include <Pyros3D/Rendering/GI/RayScene.h>
 #include <Pyros3D/Rendering/Volumetrics/VolumetricSmoke.h>
 #include <Pyros3D/Rendering/Renderer/FluidVolumes.h>
@@ -675,6 +676,7 @@ namespace p3d {
 			f32 previousViewProjection[16];     // (last frame's, without its jitter: where a point was in last frame's picture)
 			f32 temporal[4];                    // (x: the frame's index 0..63 - common.glsl's LodDither)
 			f32 skySun[4];                      // (toward the sun, for the sky: RenderGlobals::SkySun, else the light's)
+			f32 skySunTop[4];                   // (the sky sun's illuminance above the air, w 1: RenderGlobals::SkySunLight; w 0 - the light's)
 		};
 		// std140, as surface_draw.glsl's DrawData
 		struct DrawData
@@ -5403,6 +5405,19 @@ namespace p3d {
 			const Vec4 &said = RenderGlobals::SkySun();
 			if (said.w > 0.f) { fd.skySun[0] = said.x; fd.skySun[1] = said.y; fd.skySun[2] = said.z; fd.skySun[3] = 1.f; }
 			else for (int i = 0; i < 4; i++) fd.skySun[i] = fd.sunDirection[i];
+			// (and its light above the air, where the game gave it: as a sun's light - its colour times its intensity - is
+			// what is left of it under the air overhead, PhysicalSunTransmittance at noon. Taken from the scene's light
+			// (its radiance over the air's transmittance toward the sun) the sky at dusk had the moon's blue the game gives
+			// that light, and with the sun under the horizon was divided by next to nothing: a bright, violet sky over a
+			// moonlit island.)
+			const Vec4 &light = RenderGlobals::SkySunLight();
+			if (said.w > 0.f && light.w > 0.f)
+			{
+				const Vec3 noon = PhysicalSunTransmittance(1.f, GetSunAirHaze());
+				fd.skySunTop[0] = light.x * (f32)PI / std::max(noon.x, 1e-3f); fd.skySunTop[1] = light.y * (f32)PI / std::max(noon.y, 1e-3f);
+				fd.skySunTop[2] = light.z * (f32)PI / std::max(noon.z, 1e-3f); fd.skySunTop[3] = 1.f;
+			}
+			else for (int i = 0; i < 4; i++) fd.skySunTop[i] = 0.f;
 		}
 		const bool skyLit = skyOn && fd.sunDirection[3] > 0.f;
 		fd.frame[2] = skyLit ? 1.f : 0.f;

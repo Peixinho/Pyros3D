@@ -43,7 +43,10 @@ bool March(vec3 eye, vec3 dir, int steps, float jitter, out vec3 L, out float T,
 	float dt = (t1 - t0) / float(steps);
 	vec3 sunDir = normalize(uFrame.skySun.xyz);
 	vec3 sun = uFrame.sunDirection.w > 0.0 ? uFrame.sunRadiance.rgb : vec3(0.0);     // (the sun's illuminance, through the air)
-	float c = dot(dir, sunDir);
+	// (lit from where that light comes from: the moon's at night, not the sun's under the horizon - lit from below,
+	// every cloud was a dark underside with a bright rim; the sky's own light, below, still follows the sun)
+	vec3 litDir = normalize(uFrame.sunDirection.xyz);
+	float c = dot(dir, litDir);
 	// (bright toward the sun - a silver lining - and a little back toward it)
 	float phase = mix(HenyeyGreenstein(c, 0.8), HenyeyGreenstein(c, -0.3), 0.25);
 	vec3 skyTop = SkyRadiance(vec3(0.0, 1.0, 0.0)), skySide = SkyRadiance(normalize(vec3(-sunDir.x, 0.1, -sunDir.z)));     // (the sky above, and its horizon away from the sun)
@@ -63,7 +66,7 @@ bool March(vec3 eye, vec3 dir, int steps, float jitter, out vec3 L, out float T,
 		vec3 lp = p;
 		for (int j = 0; j < 6; j++)
 		{
-			lp += sunDir * step;
+			lp += litDir * step;
 			float lh = (lp.y - bottom) / (top - bottom);
 			if (lh > 1.0) break;
 			tau += Density(lp, lh, false) * k * step;
@@ -83,7 +86,7 @@ bool March(vec3 eye, vec3 dir, int steps, float jitter, out vec3 L, out float T,
 		float powder = 1.0 - exp(-sigma * 120.0);
 		vec3 ambient = mix(skySide, skyTop, clamp(h, 0.0, 1.0)) * (0.5 + 0.5 * h);
 		// (the light the lit ground sends back up, onto the cloud's underside: a quarter of what falls on it)
-		vec3 bounce = sun * (0.25 * max(sunDir.y, 0.0) / PI) * (1.0 - clamp(h, 0.0, 1.0));
+		vec3 bounce = sun * (0.25 * max(litDir.y, 0.0) / PI) * (1.0 - clamp(h, 0.0, 1.0));
 		vec3 S = (sun * sunLight * mix(1.0, powder, 0.5) + ambient + bounce) * sigma;
 		float stepT = exp(-sigma * dt);
 		L += T * (S - S * stepT) / max(sigma, 1e-7);      // (the step's light, integrated through it)
