@@ -258,7 +258,8 @@ namespace p3d { namespace gfx {
 			// pipelines compile here, never on a frame
 			std::vector<std::thread> workers; std::deque<std::function<void()> > jobs; std::mutex jobMutex; std::condition_variable jobCv; bool stopping = false;
 			// profiling
-			std::atomic<uint32_t> cDraws{ 0 }, cSkipped{ 0 }, cPipelines{ 0 }, cBindGroups{ 0 }, cDispatches{ 0 }, cFinished{ 0 }, cPending{ 0 };
+			std::atomic<uint32_t> cDraws{ 0 }, cSkipped{ 0 }, cPipelines{ 0 }, cBindGroups{ 0 }, cDispatches{ 0 }, cFinished{ 0 }, cPending{ 0 }, cBuilt{ 0 };
+			uint32_t cacheSavedAt = 0, cacheFrames = 0; std::string cachePath;
 			FrameStats stats, gpuStats; std::mutex statsMutex, timingMutex;
 
 			bool Init(const SurfaceSource &s);
@@ -728,8 +729,18 @@ namespace p3d { namespace gfx {
 			width = s.width; height = s.height; vsync = s.vsync;
 			if (!CreateSwapchain()) return false;
 
+			// (the pipelines built in earlier runs, from the temporary folder: the driver checks the data is its own and this
+			// device's, and starts empty where it is not - the shaders were compiled again on every start)
+			{
+				const char* tmp = getenv("TEMP"); if (!tmp) tmp = getenv("TMPDIR"); if (!tmp) tmp = "/tmp";
+				char id[64]; snprintf(id, sizeof(id), "%04x-%04x-%u", pp.vendorID, pp.deviceID, pp.driverVersion);
+				cachePath = std::string(tmp) + "/pyros3d-pipelines-" + id + ".bin";
+			}
+			std::vector<uint8_t> cached;
+			if (FILE* cf = fopen(cachePath.c_str(), "rb")) { fseek(cf, 0, SEEK_END); const long n = ftell(cf); fseek(cf, 0, SEEK_SET); if (n > 0) { cached.resize((size_t)n); if (fread(cached.data(), 1, (size_t)n, cf) != (size_t)n) cached.clear(); } fclose(cf); }
 			VkPipelineCacheCreateInfo pci = {}; pci.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-			vkCreatePipelineCache(device, &pci, nullptr, &pipelineCache);
+			pci.initialDataSize = cached.size(); pci.pInitialData = cached.empty() ? nullptr : cached.data();
+			if (vkCreatePipelineCache(device, &pci, nullptr, &pipelineCache) != VK_SUCCESS) { pci.initialDataSize = 0; pci.pInitialData = nullptr; vkCreatePipelineCache(device, &pci, nullptr, &pipelineCache); }
 
 			// group 0: a draw's data at a dynamic offset into the ring
 			VkDescriptorSetLayoutBinding b = {}; b.binding = 0; b.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC; b.descriptorCount = 1;
@@ -1144,7 +1155,7 @@ namespace p3d { namespace gfx {
 					{ std::lock_guard<std::mutex> l(shaderNamesMutex); vsName = shaderNames[job->vs]; if (job->fs) fsName = shaderNames[job->fs]; }
 					fprintf(stderr, "Vulkan: pipeline '%s' failed (%d) - %s + %s, %u sample(s), %u target(s)\n", d.debugName ? d.debugName : "?", (int)res, vsName.c_str(), fsName.c_str(), (uint32_t)d.samples, (uint32_t)d.colorCount);
 				}
-				cFinished.fetch_add(1); cPending.fetch_sub(1);
+				cFinished.fetch_add(1); cBuilt.fetch_add(1); cPending.fetch_sub(1);
 				delete job;
 			});
 			Pipeline h; h.id = pipelines.Add(r); return h;
@@ -1167,7 +1178,7 @@ namespace p3d { namespace gfx {
 				ci.stage.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO; ci.stage.stage = VK_SHADER_STAGE_COMPUTE_BIT; ci.stage.module = module; ci.stage.pName = "main";
 				const VkResult res = vkCreateComputePipelines(device, pipelineCache, 1, &ci, nullptr, &r->pipeline);
 				r->state.store(res == VK_SUCCESS ? 1 : 2);
-				cFinished.fetch_add(1); cPending.fetch_sub(1);
+				cFinished.fetch_add(1); cBuilt.fetch_add(1); cPending.fetch_sub(1);
 			});
 			Pipeline h; h.id = pipelines.Add(r); return h;
 		}
@@ -1745,6 +1756,19 @@ namespace p3d { namespace gfx {
 			Check(r, "presenting");
 			if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) CreateSwapchain();
 			haveImage = false;
+			// (new pipelines written out, once none is being built - looked at every few seconds)
+			if (++cacheFrames >= 300)
+			{
+				cacheFrames = 0;
+				const uint32_t built = cBuilt.load();
+				if (built != cacheSavedAt && cPending.load() == 0 && !cachePath.empty())
+				{
+					cacheSavedAt = built;
+					const std::string tmpPath = cachePath + ".new";
+					SavePipelineCache(tmpPath);
+					remove(cachePath.c_str()); rename(tmpPath.c_str(), cachePath.c_str());
+				}
+			}
 		}
 
 		const FrameStats &VulkanDevice::LastFrameStats()
