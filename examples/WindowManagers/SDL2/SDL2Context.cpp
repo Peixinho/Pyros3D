@@ -107,7 +107,9 @@ namespace p3d {
     gfx::Device* SDL2Context::CreateDevice()
     {
         gfx::SurfaceSource src;
-        src.width = Width; src.height = Height; src.vsync = true;
+        src.width = Width; src.height = Height;
+        // (no vsync unless asked for - PYROS_VSYNC=1: as the old renderer, the frame goes as fast as it is made)
+        { const char* v = getenv("PYROS_VSYNC"); src.vsync = v && v[0] == '1'; }
 #ifdef EMSCRIPTEN
         src.kind = gfx::SurfaceSource::Canvas; src.a = (void*)"#canvas";
 #elif defined(__APPLE__)

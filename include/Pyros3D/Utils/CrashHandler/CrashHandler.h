@@ -10,6 +10,7 @@
 #define	PYROS_CRASHHANDLER_H
 
 #include <Pyros3D/Other/Export.h>
+#include <string>
 
 namespace p3d {
 
@@ -44,6 +45,10 @@ namespace p3d {
 	// the executable - on Windows; elsewhere both do nothing.
 	PYROS3D_API void InstallHangWatchdog(const unsigned seconds = 8);
 	PYROS3D_API void FrameHeartbeat();
+
+	// Something the application cannot go on from (the GPU lost): said on stderr and in
+	// PyrosCrash.txt beside the executable, shown in a message box on Windows, and the process ended.
+	PYROS3D_API void ReportFatal(const std::string &text);
 
 }
 

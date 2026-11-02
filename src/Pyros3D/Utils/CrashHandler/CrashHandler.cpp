@@ -7,6 +7,9 @@
 //============================================================================
 
 #include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
+#include <string>
+#include <cstdio>
+#include <cstdlib>
 
 #ifdef _WIN32
 
@@ -422,6 +425,16 @@ namespace p3d {
 
 	void FrameHeartbeat() { beats.fetch_add(1, std::memory_order_relaxed); }
 
+	void ReportFatal(const std::string &text)
+	{
+		fputs(text.c_str(), stderr); fflush(stderr);
+		OpenCrashFile();
+		if (crashFile != NULL) { fputs(text.c_str(), crashFile); fclose(crashFile); crashFile = NULL; }
+		const std::string box = text + "\n(written to PyrosCrash.txt beside the game)";
+		MessageBoxA(NULL, box.c_str(), "Pyros3D", MB_OK | MB_ICONERROR);
+		ExitProcess(3);
+	}
+
 }
 
 #else
@@ -431,6 +444,7 @@ namespace p3d {
 	void InstallCrashHandler() {}
 	void InstallHangWatchdog(const unsigned) {}
 	void FrameHeartbeat() {}
+	void ReportFatal(const std::string &text) { fputs(text.c_str(), stderr); fflush(stderr); _Exit(3); }
 }
 
 #endif

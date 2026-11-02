@@ -34,6 +34,8 @@ static inline uint64_t ShotFrame() { static const uint64_t f = getenv("PYROS_SHO
 #include <deque>
 #include <functional>
 #include <mutex>
+#include <set>
+#include <Pyros3D/Utils/CrashHandler/CrashHandler.h>
 #include <thread>
 #include <vector>
 
@@ -201,7 +203,7 @@ namespace p3d { namespace gfx {
 			void CopyBuffer(Buffer from, uint64_t fo, Buffer to, uint64_t too, uint64_t size) override;
 			void CopyTexture(Texture from, Texture to) override;
 			void Timestamp(QueryPool, uint32_t) override {}
-			void BeginMarker(const char*) override {}
+			void BeginMarker(const char* name) override;
 			void EndMarker() override {}
 			bool Ready() const { return inPass && !skipping && !skipDraw; }
 		};
@@ -225,6 +227,10 @@ namespace p3d { namespace gfx {
 			float OutputHeadroom() const override { return hdrOutput ? DisplayHeadroom() : 1.f; }
 			std::vector<uint32_t> swapTextures; std::vector<VkSemaphore> renderDone;
 			uint32_t width = 0, height = 0, imageIndex = 0; bool vsync = true, haveImage = false;
+			// (NVIDIA's checkpoints: each pass marked in the command stream, so a lost device says which pass it was in)
+			bool nvCheckpoints = false; std::mutex checkpointMutex; std::set<std::string> checkpointNames;
+			const char* CheckpointName(const char* n) { std::lock_guard<std::mutex> l(checkpointMutex); return checkpointNames.insert(n ? n : "pass").first->c_str(); }
+			void Check(VkResult r, const char* where);
 			Capabilities caps; float timestampPeriod = 1.f;
 			Pool<BufferRec> buffers; Pool<TextureRec> textures; Pool<VkSampler> samplers; Pool<VkShaderModule> shaders;
 			Pool<PipelineRec*> pipelines; Pool<VkDescriptorSet> groups;
@@ -393,6 +399,7 @@ namespace p3d { namespace gfx {
 					dev->Transition(cmd, *t, to);
 				}
 		}
+		void VulkanCommandList::BeginMarker(const char* name) { if (dev->nvCheckpoints) vkCmdSetCheckpointNV(cmd, dev->CheckpointName(name)); }
 		void VulkanCommandList::BeginPass(const PassDesc &p)
 		{
 			EndPass();
@@ -432,6 +439,7 @@ namespace p3d { namespace gfx {
 				if (!w) { w = d->desc.width; h = d->desc.height; }
 			}
 			timedSlot = dev->TimedPass(p.debugName);
+			if (dev->nvCheckpoints) vkCmdSetCheckpointNV(cmd, dev->CheckpointName(p.debugName));
 			VulkanDevice::Frame &f = dev->frames[dev->frame];
 			if (timedSlot >= 0) vkCmdWriteTimestamp2(cmd, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, f.queries, timedSlot * 2);
 			VkRenderingInfo ri = {}; ri.sType = VK_STRUCTURE_TYPE_RENDERING_INFO;
@@ -675,6 +683,10 @@ namespace p3d { namespace gfx {
 			VkPhysicalDeviceFeatures2 f2 = {}; f2.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2; f2.pNext = &f12;
 			f2.features.samplerAnisotropy = have.features.samplerAnisotropy; f2.features.multiDrawIndirect = have.features.multiDrawIndirect;
 			f2.features.textureCompressionBC = have.features.textureCompressionBC; caps.bc = have.features.textureCompressionBC;
+			// (a read past a buffer's end gives zeros, not a page fault: MoltenVK forgives one, NVIDIA loses the device over it -
+			// PYROS_VK_ROBUST=0 to go without)
+			f2.features.robustBufferAccess = have.features.robustBufferAccess && !(getenv("PYROS_VK_ROBUST") && getenv("PYROS_VK_ROBUST")[0] == '0');
+			if (has(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME)) { dext.push_back(VK_NV_DEVICE_DIAGNOSTIC_CHECKPOINTS_EXTENSION_NAME); nvCheckpoints = true; }
 			const float prio = 1.f;
 			VkDeviceQueueCreateInfo qci = {}; qci.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO; qci.queueFamilyIndex = family; qci.queueCount = 1; qci.pQueuePriorities = &prio;
 			VkDeviceCreateInfo dci = {}; dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO; dci.pNext = &f2;
@@ -682,6 +694,7 @@ namespace p3d { namespace gfx {
 			const VkResult dr = vkCreateDevice(phys, &dci, nullptr, &device);
 			if (dr != VK_SUCCESS) { fprintf(stderr, "Vulkan: no device (%d)\n", (int)dr); return false; }
 			volkLoadDevice(device);
+			if (!vkCmdSetCheckpointNV || !vkGetQueueCheckpointDataNV) nvCheckpoints = false;
 			vkGetDeviceQueue(device, family, 0, &queue);
 
 			VmaVulkanFunctions vf = {}; vf.vkGetInstanceProcAddr = vkGetInstanceProcAddr; vf.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
@@ -1165,6 +1178,28 @@ namespace p3d { namespace gfx {
 			return r && *r && (*r)->state.load() == 1;
 		}
 
+		void VulkanDevice::Check(VkResult r, const char* where)
+		{
+			// A lost device draws nothing again, and every call after says so quietly: the picture stood still and the game
+			// ran on behind it. Said instead - with the passes the GPU had got to, where the driver tells - and ended.
+			if (r != VK_ERROR_DEVICE_LOST) return;
+			std::string text = std::string("Vulkan: the GPU stopped (device lost) while ") + where + " - " + caps.name + "\n";
+			if (nvCheckpoints)
+			{
+				uint32_t n = 0; vkGetQueueCheckpointDataNV(queue, &n, nullptr);
+				std::vector<VkCheckpointDataNV> cp(n); for (auto &c : cp) c.sType = VK_STRUCTURE_TYPE_CHECKPOINT_DATA_NV;
+				if (n) vkGetQueueCheckpointDataNV(queue, &n, cp.data());
+				for (uint32_t i = 0; i < n; i++)
+				{
+					const char* stage = cp[i].stage == VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT ? "begun" : cp[i].stage == VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT ? "finished" : "at stage";
+					char line[256]; snprintf(line, sizeof(line), "  last pass %s: %s (stage 0x%x)\n", stage, cp[i].pCheckpointMarker ? (const char*)cp[i].pCheckpointMarker : "?", (unsigned)cp[i].stage);
+					text += line;
+				}
+				if (!n) text += "  (the driver kept no checkpoint)\n";
+			}
+			ReportFatal(text);
+		}
+
 		void VulkanDevice::SavePipelineCache(const std::string &path)
 		{
 			size_t n = 0; vkGetPipelineCacheData(device, pipelineCache, &n, nullptr);
@@ -1393,7 +1428,7 @@ namespace p3d { namespace gfx {
 			frame = (frame + 1) % kFrames;
 			Frame &f = frames[frame];
 			// (the frame this slot last held, done: its fence - two frames behind, so no wait in a steady state)
-			vkWaitForFences(device, 1, &f.fence, VK_TRUE, UINT64_MAX);
+			Check(vkWaitForFences(device, 1, &f.fence, VK_TRUE, UINT64_MAX), "waiting for a frame");
 			for (std::function<void()> &r : f.retire) r();
 			f.retire.clear();
 			if (f.timed && !f.names.empty())
@@ -1508,7 +1543,7 @@ namespace p3d { namespace gfx {
 				si.signalSemaphoreCount = 1; si.pSignalSemaphores = &renderDone[imageIndex];
 			}
 			vkResetFences(device, 1, &f.fence);
-			vkQueueSubmit(queue, 1, &si, f.fence);
+			Check(vkQueueSubmit(queue, 1, &si, f.fence), "submitting the frame");
 			f.pending.clear(); f.acquireWaited = false;
 			if (shotBuffer.buffer && !shotWritten)
 			{
@@ -1535,7 +1570,7 @@ namespace p3d { namespace gfx {
 			// (they may draw on the frame's image: its acquire waited on here, once)
 			if (haveImage && !f.acquireWaited) { si.waitSemaphoreCount = 1; si.pWaitSemaphores = &f.acquired; si.pWaitDstStageMask = &wait; f.acquireWaited = true; }
 			std::lock_guard<std::mutex> lk(recordMutex);
-			vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE);
+			Check(vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE), "submitting");
 			f.pending.clear();
 		}
 
@@ -1676,6 +1711,7 @@ namespace p3d { namespace gfx {
 			if (haveImage) { Texture h; h.id = swapTextures[imageIndex]; return h; }
 			Frame &f = frames[frame];
 			VkResult r = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &imageIndex);
+			Check(r, "acquiring the window's image");
 			if (r == VK_ERROR_OUT_OF_DATE_KHR) { CreateSwapchain(); return Texture(); }
 			haveImage = true;
 			TextureRec* t = textures.Get(swapTextures[imageIndex]);
@@ -1694,6 +1730,7 @@ namespace p3d { namespace gfx {
 			pi.swapchainCount = 1; pi.pSwapchains = &swapchain; pi.pImageIndices = &imageIndex;
 			VkResult r;
 			{ std::lock_guard<std::mutex> lk(recordMutex); r = vkQueuePresentKHR(queue, &pi); }
+			Check(r, "presenting");
 			if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) CreateSwapchain();
 			haveImage = false;
 		}
