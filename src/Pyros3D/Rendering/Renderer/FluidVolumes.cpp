@@ -379,7 +379,11 @@ namespace p3d {
 			const f32 settle = std::min(std::max((s.age - spew) / 4.f, 0.f), 1.f);
 			const f32 keep = 1.f - settle * (0.55f + 0.4f * std::min(std::max(s.enclosed, 0.f), 1.f));
 			d.turb[0] *= keep; d.forces[2] *= keep; d.forces[0] *= (1.f - 0.6f * settle);
-			if (s.closedSides) d.extra[1] = settle * 0.035f;     // (indoors, once settled, the room's smoke thins slowly: a grey wall otherwise)
+			if (s.closedSides) d.extra[1] = settle * 0.035f;
+			// (indoors the air is slow: what leaves by a window broken out is a leak, drifting out and up - not the room emptying
+			// itself into the street. The speed limit comes down from the canister's 18 m/s as the cloud settles, to a
+			// slow 1.6 m/s; the room's smoke was otherwise held under pressure by its walls and burst out of the first hole)
+			if (s.closedSides) d.turb[3] = std::max(18.f * (1.f - settle) + 1.6f * settle, 1.6f);     // (indoors, once settled, the room's smoke thins slowly: a grey wall otherwise)
 			if (settle > 0.f) d.jet[3] = -settle * (0.35f + 1.4f * std::min(std::max(s.enclosed, 0.f), 1.f));     // (drag once the canister is done - its jet is off then: indoors the air goes still)
 		}
 		else if (s.kind == 1)

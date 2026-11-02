@@ -872,7 +872,11 @@ void main()
 		// irradiance - or, with no sky, of the scene's ambient)
 		bool solved;
 		vec3 indirect = DDGIIrradiance(vWorldPosition, n, solved);
-		color += diffuseColor * (solved ? indirect : sky ? SkyIrradiance(n) * kSkyFill / PI : AmbientWithoutSky(n)) * ao;
+		// (the fill over the sky's own light neutral, a little warm - what the ground and the trees give back: the sky's blue
+		// multiplied, a low sun left the whole picture blue)
+		vec3 skyIrr = SkyIrradiance(n);
+		skyIrr += (kSkyFill - 1.0) * dot(skyIrr, vec3(0.2126, 0.7152, 0.0722)) * vec3(1.05, 1.0, 0.9);
+		color += diffuseColor * (solved ? indirect : sky ? skyIrr / PI : AmbientWithoutSky(n)) * ao;
 		// (a polished floor's mirror - the material's SSR strength: more of the reflection than Fresnel gives, over its own
 		// colour, where something was found - the old renderer's mirror floor)
 		float mirror = MirrorFloor(metallic, roughness) * found.a;
