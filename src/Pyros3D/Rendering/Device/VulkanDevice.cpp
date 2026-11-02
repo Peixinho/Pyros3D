@@ -1182,7 +1182,18 @@ namespace p3d { namespace gfx {
 		{
 			// A lost device draws nothing again, and every call after says so quietly: the picture stood still and the game
 			// ran on behind it. Said instead - with the passes the GPU had got to, where the driver tells - and ended.
-			if (r != VK_ERROR_DEVICE_LOST) return;
+			if (r != VK_ERROR_DEVICE_LOST)
+			{
+				// (anything else that is no success: said, once each, so a picture that stops while the game goes on says why)
+				if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR)
+				{
+					static std::set<std::string> said; static std::mutex m;
+					const std::string key = std::string(where) + "#" + std::to_string((int)r);
+					std::lock_guard<std::mutex> l(m);
+					if (said.insert(key).second) fprintf(stderr, "Vulkan: %s returned %d\n", where, (int)r);
+				}
+				return;
+			}
 			std::string text = std::string("Vulkan: the GPU stopped (device lost) while ") + where + " - " + caps.name + "\n";
 			if (nvCheckpoints)
 			{
@@ -1712,7 +1723,8 @@ namespace p3d { namespace gfx {
 			Frame &f = frames[frame];
 			VkResult r = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &imageIndex);
 			Check(r, "acquiring the window's image");
-			if (r == VK_ERROR_OUT_OF_DATE_KHR) { CreateSwapchain(); return Texture(); }
+			if (r == VK_ERROR_OUT_OF_DATE_KHR) { if (!CreateSwapchain()) fprintf(stderr, "Vulkan: the window's images could not be made again\n"); return Texture(); }
+			if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) return Texture();
 			haveImage = true;
 			TextureRec* t = textures.Get(swapTextures[imageIndex]);
 			t->layout = VK_IMAGE_LAYOUT_UNDEFINED;          // (its last contents are not wanted)
