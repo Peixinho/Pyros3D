@@ -4,6 +4,7 @@
 // Description : See Heightfield.h.
 //============================================================================
 
+#include <filesystem>
 #include <Pyros3D/Assets/Renderable/Terrains/Heightfield.h>
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
 #include <Pyros3D/Core/File/File.h>
@@ -414,7 +415,12 @@ namespace p3d {
 				bool have[4] = { false, false, false, false };
 				const int ox[4] = { -1, 1, 0, 0 }, oz[4] = { 0, 0, -1, 1 };
 				for (int k = 0; k < 4; k++)
-					have[k] = HeightfieldData::LoadFile(dir + std::to_string(tx + ox[k]) + "_" + std::to_string(tz + oz[k]) + ".png", size, heightScale, heightOffset, nb[k]) && nb[k].samples == n;
+				{
+					// (only a neighbour that is there: the map's edge tiles have none on one side, and asking printed an error each)
+					const std::string np = dir + std::to_string(tx + ox[k]) + "_" + std::to_string(tz + oz[k]) + ".png";
+					std::error_code ec;
+					have[k] = std::filesystem::exists(np, ec) && HeightfieldData::LoadFile(np, size, heightScale, heightOffset, nb[k]) && nb[k].samples == n;
+				}
 				// (the sample one past the edge: the neighbour's second where the two share their edge row, else its first)
 				auto past = [&](const int k, const uint32 along) -> f32 {
 					const HeightfieldData &o = nb[k];
