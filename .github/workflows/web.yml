@@ -72,7 +72,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            cmake ninja-build clang lld python3 git glslc libfreetype-dev
+            cmake ninja-build clang lld python3 git libfreetype-dev
+
+      - name: glslc from the Vulkan SDK
+        # Ubuntu 24.04's glslc (shaderc 2023.8) makes SPIR-V for surface.frag that Dawn's tint
+        # (DAWN_COMMIT) fails on - "texture.cc:474 internal compiler error: Switch() matched no
+        # cases" - while the SDK's (what Windows CI and local builds use) converts cleanly.
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/vksdk.tar.xz" \
+            "https://sdk.lunarg.com/sdk/download/1.4.357.0/linux/vulkansdk-linux-x86_64-1.4.357.0.tar.xz"
+          sudo tar -xJf "$RUNNER_TEMP/vksdk.tar.xz" -C /usr/local/bin --wildcards --strip-components=3 '*/x86_64/bin/glslc'
+          glslc --version
 
       - name: Cache the native Dawn
         id: dawn-native
@@ -207,7 +217,17 @@ jobs:
         # machine (PyrosRenderer.cmake), then to WGSL by pyros_spirv2wgsl.
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build glslc
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+
+      - name: glslc from the Vulkan SDK
+        # Ubuntu 24.04's glslc (shaderc 2023.8) makes SPIR-V for surface.frag that Dawn's tint
+        # (DAWN_COMMIT) fails on - "texture.cc:474 internal compiler error: Switch() matched no
+        # cases" - while the SDK's (what Windows CI and local builds use) converts cleanly.
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/vksdk.tar.xz" \
+            "https://sdk.lunarg.com/sdk/download/1.4.357.0/linux/vulkansdk-linux-x86_64-1.4.357.0.tar.xz"
+          sudo tar -xJf "$RUNNER_TEMP/vksdk.tar.xz" -C /usr/local/bin --wildcards --strip-components=3 '*/x86_64/bin/glslc'
+          glslc --version
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14
@@ -292,7 +312,17 @@ jobs:
       - name: Install build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends cmake ninja-build glslc
+          sudo apt-get install -y --no-install-recommends cmake ninja-build
+
+      - name: glslc from the Vulkan SDK
+        # Ubuntu 24.04's glslc (shaderc 2023.8) makes SPIR-V for surface.frag that Dawn's tint
+        # (DAWN_COMMIT) fails on - "texture.cc:474 internal compiler error: Switch() matched no
+        # cases" - while the SDK's (what Windows CI and local builds use) converts cleanly.
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/vksdk.tar.xz" \
+            "https://sdk.lunarg.com/sdk/download/1.4.357.0/linux/vulkansdk-linux-x86_64-1.4.357.0.tar.xz"
+          sudo tar -xJf "$RUNNER_TEMP/vksdk.tar.xz" -C /usr/local/bin --wildcards --strip-components=3 '*/x86_64/bin/glslc'
+          glslc --version
 
       - name: Setup Emscripten
         uses: mymindstorm/setup-emsdk@v14

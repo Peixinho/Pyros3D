@@ -120,6 +120,21 @@ walk() {
 			# already emitted into the package. Just re-point it; there is
 			# nothing to copy and no rpath to guess.
 			if [ "${dep#@}" != "$dep" ]; then
+				# (a Homebrew library that names a sibling by @rpath - libbrotlidec's
+				# @rpath/libbrotlicommon.1.dylib - has nothing in the package to point at
+				# yet: found where Homebrew keeps it and treated as the absolute path below)
+				if [ ! -f "$dir/$base" ]; then
+					local found=""
+					for d in /opt/homebrew/lib /usr/local/lib ${VULKAN_SDK:+"$VULKAN_SDK/lib"}; do
+						[ -f "$d/$base" ] && { found="$d/$base"; break; }
+					done
+					if [ -n "$found" ]; then
+						cp -L "$found" "$dir/$base"
+						chmod u+w "$dir/$base"
+						install_name_tool -id "@executable_path/$base" "$dir/$base"
+						queue+=("$dir/$base")
+					fi
+				fi
 				if [ -f "$dir/$base" ]; then
 					install_name_tool -change "$dep" "@executable_path/$base" "$bin" 2>/dev/null || true
 				fi

@@ -198,7 +198,7 @@ namespace p3d {
 		}
 		if (getenv("PYROS_SMOKE_SOLID_LOG"))
 		{
-			size_t n = 0; for (uint32 w : solid) n += (size_t)__builtin_popcount(w);
+			size_t n = 0; for (uint32 w : solid) for (uint32 v = w; v; v &= v - 1) n++;
 			// (the solid share at each height, bottom to top)
 			std::string prof;
 			for (uint32 y = 0; y < s.ny; y += 4)
