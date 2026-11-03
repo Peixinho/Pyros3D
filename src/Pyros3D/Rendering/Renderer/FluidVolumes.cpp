@@ -337,7 +337,8 @@ namespace p3d {
 		const f64 now = VolumetricSmoke::GetClock();
 		for (Sim &s : sims)
 		{
-			s.pendingSteps.clear();
+			// (not cleared: several renderers share these grids, and a second Prepare in a frame comes before the first's
+			// Record may have run - Record clears what it stepped)
 			if (now - s.clock > kStep * kMaxStepsAFrame) s.clock = now - kStep * kMaxStepsAFrame;
 			while (now - s.clock >= kStep && s.pendingSteps.size() < kMaxStepsAFrame) { s.pendingSteps.push_back(kStep); s.clock += kStep; }
 			const VolumetricSmoke::Cloud &c = VolumetricSmoke::GetCloud((uint32)s.cloud);

@@ -18,6 +18,8 @@
 #include <Pyros3D/Rendering/Device/RenderDevice.h>
 #include <Pyros3D/Rendering/Renderer/FluidVolumes.h>
 #include <Pyros3D/Rendering/Renderer/FrameGraph.h>
+#include <Pyros3D/Rendering/Culling/OcclusionBuffer.h>
+#include <Pyros3D/Rendering/Terrain/TerrainOcclusion.h>
 #include <array>
 #include <map>
 #include <memory>
@@ -470,7 +472,10 @@ namespace p3d {
 		// at half size (smoke.frag) and laid over the picture (smokecomposite.frag) with the screen flash
 		gfx::Shader smokeFS, smokeCompositeFS, fluidCS; gfx::Pipeline smokePipeline, smokeCompositePipeline;
 		gfx::Texture smokeTex, smokeReflectTex;
-		FluidVolumes fluids;
+		// (the smoke simulated once for every renderer of a device: a scope's view drew a simulation of its own, begun when
+		// the scope was first looked through - other smoke than the eye's, or none)
+		std::shared_ptr<FluidVolumes> fluidsShared; FluidVolumes* fluidsP = nullptr;
+		FluidVolumes &Fluids() { return *fluidsP; }
 		// The beams of point and spot lights through the air (ILightComponent::SetVolumetricScattering): marched at half
 		// size (beams.frag) and added to the picture (beamscomposite.frag); the frame's lamps that have one (their
 		// indices in the light buffer, 16 at most) and the most steps any asks for
@@ -504,6 +509,13 @@ namespace p3d {
 		bool RtHardware() const { return device && device->Caps().rayQuery && rtShadowRQPipeline; }
 		struct RtGeometry { gfx::RayGeometry geometry; uint64 revision = ~0ull; uint32 geometryId = 0; };
 		std::unordered_map<IGeometry*, RtGeometry> rtGeometries;
+		// What is hidden - behind the big still things in view (OcclusionBuffer), behind the ground (TerrainOcclusion) -
+		// left out of this view: each renderer its own, from its own camera (a scope's view is another renderer)
+		void HideOccluded(SceneGraph* scene, const View &view, const Matrix &projection);
+		OcclusionBuffer occlusionBuffer; TerrainOcclusion terrainOcclusion;
+		uint32 occlusionTick = 0, occlusionQuiet = 0; size_t occlusionLookedAt = (size_t)-1;
+		Vec3 occlusionLookedFrom, occlusionLookedAlong;
+		std::unordered_map<RenderingComponent*, std::pair<Vec3, bool> > underGround;     // (its centre when asked, and the answer)
 		gfx::Buffer rtInstanceMaterials; uint64 rtInstanceMaterialsBytes = 0; uint32 rtInstanceCount = 0;
 		gfx::Shader rtShadowRQFS, rtReflectRQFS; gfx::Pipeline rtShadowRQPipeline, rtReflectRQPipeline; gfx::BindGroup rtShadowRQGroup, rtReflectRQGroup;
 		void BuildRayInstances();

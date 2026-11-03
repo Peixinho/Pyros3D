@@ -20,6 +20,7 @@
 #include <Pyros3D/Rendering/GI/SceneGI.h>
 #include <Pyros3D/Rendering/GI/PhysicalSky.h>
 #include <Pyros3D/Rendering/GI/RayScene.h>
+#include <Pyros3D/Assets/Renderable/Terrains/TerrainEditor.h>
 #include <Pyros3D/Rendering/Volumetrics/VolumetricSmoke.h>
 #include <Pyros3D/Rendering/Renderer/FluidVolumes.h>
 #include <Pyros3D/Rendering/Components/UI/UICanvas.h>
@@ -1057,7 +1058,8 @@ namespace p3d {
 		device->Destroy(particleRing);
 		for (gfx::Texture t : { smokeTex, smokeReflectTex, beamsTex }) if (t) device->Destroy(t);
 		for (gfx::BindGroup g : { beamsGroup, beamsCompositeGroup }) if (g) device->Destroy(g);
-		fluids.Destroy();
+		if (fluidsShared && fluidsShared.use_count() == 1) fluidsShared->Destroy();
+		fluidsShared.reset(); fluidsP = nullptr;
 		if (smokeData) device->Destroy(smokeData);
 		for (gfx::BindGroup g : { smokeGroup, smokeCompositeGroup }) if (g) device->Destroy(g);
 		for (std::unordered_map<ParticleSystem*, GpuParticles>::iterator i = gpuParticles.begin(); i != gpuParticles.end(); ++i) ForgetGpuParticles(i->second);
@@ -2826,7 +2828,13 @@ namespace p3d {
 			beamsCompositePipeline = device->CreatePipeline(bc);
 			gfx::BufferDesc sb; sb.size = (uint64)kSmokeDataSlot * kFramesInFlight; sb.usage = gfx::BufUniform; sb.memory = gfx::Memory::Upload; sb.debugName = "Renderer.SmokeData";
 			smokeData = device->CreateBuffer(sb);
-			fluids.Create(device, fluidCS);
+			{
+				static std::mutex sharedMutex; static std::map<gfx::Device*, std::weak_ptr<FluidVolumes> > shared;
+				std::lock_guard<std::mutex> l(sharedMutex);
+				fluidsShared = shared[device].lock();
+				if (!fluidsShared) { fluidsShared = std::make_shared<FluidVolumes>(); fluidsShared->Create(device, fluidCS); shared[device] = fluidsShared; }
+				fluidsP = fluidsShared.get();
+			}
 			{
 				gfx::ComputePipelineDesc cp;
 				cp.compute = instanceCullCS;
@@ -3243,6 +3251,93 @@ namespace p3d {
 		if (const char* e = getenv("PYROS_RENDERER_HALF_PARTICLES")) halfParticles = e[0] != '0';
 	}
 
+	void SceneRenderer::HideOccluded(SceneGraph* scene, const View &view, const Matrix &projection)
+	{
+		// As the old renderer did (OcclusionCulling.cpp, lost with it): what the big still things in view hide, and what
+		// is behind a hill, is not drawn - it still casts its shadow (the shadow passes list their casters themselves).
+		// Each renderer from its own camera: a scope's picture is another renderer, and asks from where the scope looks.
+		// It errs toward drawing: nothing crossing the near plane, nothing see-through, nothing drawn without a depth test
+		// is hidden; only still, opaque things that are not instanced occlude (OcclusionBuffer::CanOcclude); a thing the
+		// eye is inside does not occlude (a cave's rock, a house, from within); and nothing under the ground - in a cave, a
+		// cellar - is hidden by the ground, whose horizon is made from its surface.
+		PYROS_PROFILE_SCOPE("R.Occlusion");
+		if (!scene || projection.m[15] != 0.f) return;     // (perspective views only)
+		const Vec3 eye = view.cameraWorld.GetTranslation();
+		const bool byGround = TerrainOcclusion::GetEnabled() && terrainOcclusion.Update(scene, eye);
+		// (resting where it does not pay: thirty frames hiding under kWorth triangles, it looks only every fifteenth - and
+		// not again while the view stays where it was)
+		static const uint32 kWorth = 50000, kQuietFrames = 30, kRestEvery = 15;
+		occlusionTick++;
+		bool resting = occlusionQuiet >= kQuietFrames && (occlusionTick % kRestEvery) != 0;
+		const Vec3 along = (view.cameraWorld * Vec4(0.f, 0.f, -1.f, 0.f)).xyz().normalize();
+		if (occlusionQuiet >= kQuietFrames && !resting)
+		{
+			const bool same = items.size() == occlusionLookedAt && eye.distanceSQR(occlusionLookedFrom) < 0.0625f && along.dotProduct(occlusionLookedAlong) > 0.9995f;
+			if (same) resting = true;
+			else { occlusionLookedFrom = eye; occlusionLookedAlong = along; occlusionLookedAt = items.size(); }
+		}
+		else if (occlusionQuiet < kQuietFrames) occlusionLookedAt = (size_t)-1;
+		bool byOccluders = false;
+		const f32 nearZ = view.nearZ > 0.f ? view.nearZ : 0.1f;
+		if (OcclusionBuffer::GetEnabled() && !resting)
+		{
+			PYROS_PROFILE_SCOPE("R.Occluders");
+			occlusionBuffer.Begin(view.cameraWorld.Inverse(), projection, eye, nearZ);
+			std::vector<std::pair<f32, RenderingComponent*> > picks;
+			for (const DrawItem &it : items)
+			{
+				if (!it.visible || it.transparent || it.instances || it.skinned || it.movesItself || !it.mesh) continue;
+				RenderingComponent* rc = it.mesh->renderingComponent;
+				if (!rc || !rc->GetOwner()) continue;
+				const f32 r = std::max(it.radius, rc->GetOwner()->GetBoundingSphereRadiusWorldSpace());
+				if (eye.distanceSQR(it.center) < r * r) continue;     // (the eye inside it)
+				if (!occlusionBuffer.CanOcclude(rc, r)) continue;
+				const f32 dist = std::max(0.5f, sqrtf(eye.distanceSQR(it.center)) - r * 0.5f);
+				picks.push_back(std::make_pair(r / dist, rc));
+			}
+			std::sort(picks.begin(), picks.end(), [](const std::pair<f32, RenderingComponent*> &a, const std::pair<f32, RenderingComponent*> &b) { return a.first > b.first || (a.first == b.first && a.second < b.second); });
+			std::vector<RenderingComponent*> drawn;
+			for (size_t i = 0; i < picks.size() && drawn.size() < OcclusionBuffer::kMaxOccluders; i++)
+			{
+				if (std::find(drawn.begin(), drawn.end(), picks[i].second) != drawn.end()) continue;
+				drawn.push_back(picks[i].second);
+				occlusionBuffer.Draw(picks[i].second);
+			}
+			occlusionBuffer.Finish();
+			byOccluders = occlusionBuffer.Ready();
+			FrameProfiler::Instance().Counter("Occlusion.Occluders", (f64)occlusionBuffer.OccludersDrawn());
+		}
+		if (!byOccluders && !byGround) return;
+		uint32 hidden = 0; uint64 hiddenTris = 0;
+		for (DrawItem &it : items)
+		{
+			if (!it.visible || it.transparent || it.radius <= 0.f || it.movesItself || !it.mesh) continue;
+			if (it.mesh->Material && !it.mesh->Material->IsDepthTesting()) continue;
+			if (eye.distanceSQR(it.center) < (it.radius + nearZ) * (it.radius + nearZ)) continue;     // (round the eye: never)
+			bool gone = byOccluders && occlusionBuffer.Hidden(it.center, it.radius);
+			if (!gone && byGround && terrainOcclusion.Hidden(it.center, it.radius))
+			{
+				// (under the ground - in a cave: the ground's horizon says nothing of it; asked again only when it moved)
+				RenderingComponent* rc = it.mesh->renderingComponent;
+				std::pair<Vec3, bool> &known = underGround[rc];
+				if (!(known.first.x == it.center.x && known.first.y == it.center.y && known.first.z == it.center.z) || underGround.size() == 1)
+				{
+					f32 ground = 0.f;
+					known.second = TerrainEditor::HeightAt(scene, it.center.x, it.center.z, ground) && it.center.y - it.radius < ground - 0.3f;
+					known.first = it.center;
+				}
+				gone = !known.second;
+			}
+			if (!gone) continue;
+			it.visible = false; hidden++;
+			if (it.mesh->Geometry) hiddenTris += it.mesh->Geometry->GetIndexData().size() / 3 * std::max<uint32>(1u, it.instanceCount);
+		}
+		if ((frameNumber & 1023) == 0 && underGround.size() > 20000) underGround.clear();
+		FrameProfiler::Instance().Counter("Occlusion.Hidden", (f64)hidden);
+		FrameProfiler::Instance().Counter("Occlusion.HiddenTris", (f64)hiddenTris);
+		if (byOccluders) occlusionQuiet = hiddenTris >= kWorth ? 0 : occlusionQuiet + 1;
+	}
+
 	void SceneRenderer::ForgetRayTracing()
 	{
 		for (std::unordered_map<IGeometry*, RtGeometry>::iterator i = rtGeometries.begin(); i != rtGeometries.end(); ++i) device->Destroy(i->second.geometry);
@@ -3472,7 +3567,7 @@ namespace p3d {
 		// The grids (FluidVolumes) and their light, packed fresh: smoke.frag's SmokeData
 		std::vector<f32> b(kSmokeDataSlot / 4, 0.f);
 		auto put = [&](uint32 vec4Index, f32 x, f32 y, f32 z, f32 w) { f32* p = &b[vec4Index * 4]; p[0] = x; p[1] = y; p[2] = z; p[3] = w; };
-		const std::vector<FluidVolumes::Volume> &volumes = fluids.Volumes();
+		const std::vector<FluidVolumes::Volume> &volumes = Fluids().Volumes();
 		const uint32 count = std::min((uint32)volumes.size(), FluidVolumes::MaxVolumes);
 		f32 finest = 1e9f;
 		for (uint32 v = 0; v < count; v++)
@@ -3533,7 +3628,7 @@ namespace p3d {
 			gfx::Device::BindGroupEntry e[7];
 			e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
 			e[1].binding = 1; e[1].texture = prepassDepth;
-			e[2].binding = 2; e[2].buffer = fluids.RenderPool(); e[2].size = fluids.RenderPoolBytes();
+			e[2].binding = 2; e[2].buffer = Fluids().RenderPool(); e[2].size = Fluids().RenderPoolBytes();
 			e[3].binding = 3; e[3].sampler = linearClamp;
 			e[4].binding = 4; e[4].buffer = smokeData; e[4].size = kSmokeDataBytes;
 			e[5].binding = 5; e[5].texture = skySH;
@@ -4606,6 +4701,7 @@ namespace p3d {
 			}
 			items.push_back(it);
 		}
+		HideOccluded(scene, view, ProjectionFor(view));
 		// The big instanced sets seen: culled on the GPU (RecordInstanceCull) - their buffers for this frame in flight
 		if (device->PipelineReady(instanceCullPipeline))
 		{
@@ -5814,13 +5910,13 @@ namespace p3d {
 			for (uint32 i = 0; i < VolumetricSmoke::MaxClouds && !anyCloud; i++) anyCloud = VolumetricSmoke::GetCloud(i).active;
 			if (anyCloud && scene) VolumetricSmoke::CaptureLights(scene->GetLights(), ambient);
 			// (each cloud's fluid stepped on: FluidVolumes - its grids made, kept or let go here, on the CPU)
-			fluids.Prepare();
-			const bool anySmoke = fluids.Any();
+			if (fluidsP) Fluids().Prepare();
+			const bool anySmoke = fluidsP && Fluids().Any();
 			smokeOn = anySmoke;
 			if (anySmoke)
 			{
 				const Vec3 toSun = VolumetricSmoke::GetLightDirection();
-				graph.AddPass("Fluid", {}, {}, [=](gfx::CommandList* cl) { fluids.Record(cl, toSun); });
+				graph.AddPass("Fluid", {}, {}, [=](gfx::CommandList* cl) { Fluids().Record(cl, toSun); });
 			}
 			if (anySmoke && device->PipelineReady(smokePipeline))
 				graph.AddPass("Smoke", { { smokeTex, Color }, { smokeReflectTex, Color } }, { prepassDepth, skySH, hdr }, [=](gfx::CommandList* cl) { RecordSmoke(cl, frameOffset, slot); });
