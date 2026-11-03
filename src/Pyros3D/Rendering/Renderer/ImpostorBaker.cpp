@@ -14,6 +14,7 @@
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/ImpostorQuad.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/GenericShaderMaterial.h>
+#include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <Pyros3D/Materials/GenericShaderMaterials/ShaderLib.h>
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
@@ -350,6 +351,23 @@ namespace p3d {
 		{
 			std::string k = path;
 			const GenericShaderMaterial* gm = dynamic_cast<const GenericShaderMaterial*>(material.get());
+			// (a material of its own - a rock's, a .mat's - by what it is too: its surface, parameters and textures. By its
+			// address it was another material every run, and every instance's - the impostors baked on disk were never
+			// found again, a whole island's rocks baked anew at each start, and two of one rock baked twice)
+			if (const CustomShaderMaterial* cm = dynamic_cast<const CustomShaderMaterial*>(material.get()))
+			{
+				uint64 h = 14695981039346656037ull;
+				auto mix = [&h](const std::string &s) { for (unsigned char ch : s) { h ^= ch; h *= 1099511628211ull; } h ^= 0xff; h *= 1099511628211ull; };
+				mix(cm->GetShaderFile()); mix(cm->GetSurfaceSource());
+				for (const std::string &n : cm->GetParameterNames())
+				{
+					const Vec4 v = cm->GetParameter(n);
+					char b[128]; snprintf(b, sizeof(b), "%s=%.4f,%.4f,%.4f,%.4f", n.c_str(), v.x, v.y, v.z, v.w); mix(b);
+				}
+				for (size_t t = 0; t < cm->textures.size(); t++) mix(cm->textures[t] ? cm->textures[t]->GetFilename() : std::string("-"));
+				char b[64]; snprintf(b, sizeof(b), "|custom:%016llx|%d", (unsigned long long)h, (int)cm->GetCullFace());
+				return k + b;
+			}
 			if (!gm) return material ? k + "|" + std::to_string((unsigned long long)(uintptr_t)material.get()) : k;
 			char b[256];
 			const Vec4 &c = gm->GetColor(), &sp = gm->GetSpecular();
@@ -438,6 +456,7 @@ namespace p3d {
 		if (i == bankItems.end())
 		{
 			i = bankItems.insert(std::make_pair(key, BankItem())).first;
+			if (std::getenv("PYROS_IMPOSTOR_LOG")) fprintf(stderr, "[renderer] impostor asked for: %s\n", key.c_str());
 			i->second.path = modelPath; i->second.material = material;
 			if (LoadCached(modelPath, key, material, i->second.entry)) i->second.state = 1;      // (made on an earlier run)
 			else bankQueue.push_back(key);

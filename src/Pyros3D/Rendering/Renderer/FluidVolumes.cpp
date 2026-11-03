@@ -230,6 +230,28 @@ namespace p3d {
 			for (int z = z0; z <= z1; z++) for (int y = y0; y <= y1; y++) for (int x = x0; x <= x1; x++)
 			{ const size_t at = (size_t)x + s.nx * ((size_t)y + s.ny * z); solid[at >> 5] &= ~(1u << (at & 31)); }
 		}
+		// (PYROS_SMOKE_SLICE=<metres over the canister>: the solid cells at that height, as text - what stops the smoke where)
+		if (const char* slices = getenv("PYROS_SMOKE_SLICE"))
+		for (const char* sl = slices; sl && *sl; sl = strchr(sl, ',') ? strchr(sl, ',') + 1 : nullptr)
+		{
+			const int y = (int)floorf((c.position.y + (f32)atof(sl) - s.origin.y) / s.cell);
+			if (y >= 0 && y < (int)s.ny)
+			{
+				fprintf(stderr, "[smoke] slice at %.2f m (x across, z down; # solid, R roofed, * canister):\n", s.origin.y + (y + 0.5f) * s.cell);
+				const int cx = (int)((c.position.x - s.origin.x) / s.cell), cz = (int)((c.position.z - s.origin.z) / s.cell);
+				for (uint32 z = 0; z < s.nz; z += 2)
+				{
+					std::string row;
+					for (uint32 x = 0; x < s.nx; x += 2)
+					{
+						const size_t at = (size_t)x + s.nx * ((size_t)y + s.ny * z), col = s.cells + (size_t)x + s.nx * z;
+						const bool so = (solid[at >> 5] >> (at & 31)) & 1u, roof = (solid[col >> 5] >> (col & 31)) & 1u;
+						row += (abs((int)x - cx) <= 1 && abs((int)z - cz) <= 1) ? '*' : so ? '#' : roof ? 'R' : '.';
+					}
+					fprintf(stderr, "[smoke] %s\n", row.c_str());
+				}
+			}
+		}
 		s.enclosed = columnsNear ? (f32)coverNear / (f32)columnsNear : 0.f;
 		if (getenv("PYROS_SMOKE_SOLID_LOG")) fprintf(stderr, "[smoke] enclosed %.2f (%u of %u columns)\n", s.enclosed, coverNear, columnsNear);
 		device->Upload(s.solid, 0, solid.data(), (uint64)words * 4);
@@ -267,7 +289,9 @@ namespace p3d {
 		if (s.kind == 0) { wide = 2.6f * R + 2.f; tall = 1.3f * R + 2.f; below = 0.6f; across = 96; upMax = 56; }
 		else if (s.kind == 1) { wide = 2.2f * R + 1.f; tall = 3.5f * R + 2.5f; below = 0.3f; across = 48; upMax = 112; }
 		else { wide = 4.5f * R + 2.f; tall = 6.f * R + 3.f; below = 0.6f; across = 64; upMax = 80; }
-		if (s.kind == 0 && indoors) { wide *= 1.7f; across = 128; }
+		// (indoors a storey down and up as well: thrown on a stair, the smoke stopped 0.6 m under the canister and under a
+		// lid 5 m over it - "an invisible wall" on the stairs - and a room further off than the box's side never got any)
+		if (s.kind == 0 && indoors) { wide *= 2.0f; across = 128; below = 3.2f; tall += 3.2f + 2.f; upMax = 80; }
 		s.closedSides = s.kind == 0 && indoors;
 		s.cell = wide / (f32)across;
 		s.nx = s.nz = across;
@@ -330,8 +354,15 @@ namespace p3d {
 			if (s.cloud >= 0) sims.push_back(s);
 		}
 		// (their obstacles laid again where they changed - a pane broken out, a door opened: the smoke goes through)
+		// (not in the frame it changed: a door's new collider is put in, and its old one taken out, by the script that asks
+		// for this - the rays then still met the shut door, the epoch counted as laid, and an opened door held the smoke in for
+		// good. Six frames on, the physics has both)
 		for (Sim &s : sims)
-			if (s.obstacleEpoch != VolumetricSmoke::GetObstacleEpoch()) LayObstacles(s, VolumetricSmoke::GetCloud((uint32)s.cloud));
+		{
+			if (s.obstacleEpoch == VolumetricSmoke::GetObstacleEpoch()) { s.epochSeenFrame = 0; continue; }
+			if (s.epochSeenFrame == 0) s.epochSeenFrame = (uint32)frame;
+			if ((uint32)frame - s.epochSeenFrame >= 6) { LayObstacles(s, VolumetricSmoke::GetCloud((uint32)s.cloud)); s.epochSeenFrame = 0; }
+		}
 		// What each is stepped by: the clouds' clock since it was last, in steps of kMaxStep at most (a frame that
 		// would take more is let go: the smoke slows rather than the frame)
 		const f64 now = VolumetricSmoke::GetClock();
@@ -367,7 +398,8 @@ namespace p3d {
 		const Vec3 &wind = VolumetricSmoke::GetWind();
 		const f32 sheltered = s.closedSides ? 1.f - 0.95f * std::min(std::max(s.enclosed, 0.f), 1.f) : 1.f;     // (under a roof, out of the wind - outside, the wind as it always was)
 		d.extra[0] = s.closedSides ? 1.f : 0.f;
-		d.extra[2] = s.closedSides ? 0.55f : 0.f;     // (out of the house - by a door or a window - the open air thins it fast)
+		d.extra[2] = s.closedSides ? 0.12f : 0.f;     // (out of the house - by a door or a window - the open air thins it faster than the room;
+		                                              // at 0.55 a second it was gone at the doorstep, and the smoke seemed never to leave the house)
 		d.extra[3] = s.closedSides ? std::min(std::max(s.enclosed, 0.f), 1.f) : 0.f;     // (what the wind was cut by, given back outside)
 		d.wind[0] = wind.x * sheltered; d.wind[1] = wind.y * sheltered; d.wind[2] = wind.z * sheltered; d.wind[3] = (f32)s.offset;
 		d.sun[0] = sunDir.x; d.sun[1] = sunDir.y; d.sun[2] = sunDir.z;

@@ -737,8 +737,30 @@ namespace p3d {
             (*lua)[name.c_str()] = this;
         }
 
-        virtual void Register(SceneGraph* Scene) {}
-        virtual void Unregister(SceneGraph* Scene) {}
+        // (each scene's scripts, as they joined it: what PreRenderScene walks - it walked the whole scene, every frame, to
+        // find them, an island's tens of thousands of objects for its few dozen scripts)
+        static std::map<SceneGraph*, std::vector<LuaComponent*> > &InScene() { static std::map<SceneGraph*, std::vector<LuaComponent*> > m; return m; }
+        virtual void Register(SceneGraph* Scene)
+        {
+            if (!Scene) return;
+            std::vector<LuaComponent*> &v = InScene()[Scene];
+            if (std::find(v.begin(), v.end(), this) == v.end()) v.push_back(this);
+        }
+        virtual void Unregister(SceneGraph* Scene)
+        {
+            std::map<SceneGraph*, std::vector<LuaComponent*> >::iterator i = InScene().find(Scene);
+            if (i == InScene().end()) return;
+            i->second.erase(std::remove(i->second.begin(), i->second.end(), this), i->second.end());
+            if (i->second.empty()) InScene().erase(i);
+        }
+        virtual ~LuaComponent()
+        {
+            for (std::map<SceneGraph*, std::vector<LuaComponent*> >::iterator i = InScene().begin(); i != InScene().end();)
+            {
+                i->second.erase(std::remove(i->second.begin(), i->second.end(), this), i->second.end());
+                if (i->second.empty()) i = InScene().erase(i); else ++i;
+            }
+        }
         virtual p3d::uint32 GetComponentType() const { return p3d::ComponentType::LuaComponent; }
         // See LUA_GameObject's identical comment - Init() is kept for
         // scripts that want to call it explicitly, but on_init's real
@@ -848,12 +870,16 @@ namespace p3d {
         static void PreRenderScene(SceneGraph* scene)
         {
             if (!scene || !s_updatesEnabled) return;
-            std::vector<GameObject*> all;
-            scene->CollectGameObjectsRecursive(all);
-            for (GameObject* go : all)
-                for (const std::shared_ptr<IComponent> &c : go->GetComponents())
-                    if (c && c->GetComponentType() == ComponentType::LuaComponent)
-                        static_cast<LuaComponent*>(c.get())->PreRender();
+            std::map<SceneGraph*, std::vector<LuaComponent*> >::iterator i = InScene().find(scene);
+            if (i == InScene().end()) return;
+            // (a copy: a script's preRender may add or take away others)
+            const std::vector<LuaComponent*> now = i->second;
+            for (LuaComponent* c : now)
+            {
+                std::map<SceneGraph*, std::vector<LuaComponent*> >::iterator j = InScene().find(scene);
+                if (j == InScene().end()) break;
+                if (std::find(j->second.begin(), j->second.end(), c) != j->second.end()) c->PreRender();
+            }
         }
 
         static void SetUpdatesEnabled(bool enabled) { s_updatesEnabled = enabled; }

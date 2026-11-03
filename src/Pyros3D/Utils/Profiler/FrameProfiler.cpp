@@ -292,6 +292,9 @@ namespace p3d {
 			// every frame's scopes and counters, summed: the summary gives their
 			// averages, which is what says where a steady low frame rate goes
 			static std::map<std::string, f64> sums;
+			// (and what of the wall time was waited, worked and scoped: where a steady frame rate goes when no scope says)
+			static f64 sumWaited = 0.0, sumWork = 0.0, sumScoped = 0.0, sumDevice = 0.0;
+			sumWaited += waited; sumWork += mainWork; sumScoped += displayFrameMs_; sumDevice += displayDeviceWorkMs_;
 			for (uint32 i = 0; i < displayScopeCount_; i++) sums[displayScopes_[i].name] += displayScopes_[i].ms;
 			for (uint32 i = 0; i < counterCount_; i++) sums[std::string("#") + counters_[i].name] += counters_[i].ms;
 			// (and what the GPU took for each pass, where the device times them)
@@ -315,6 +318,9 @@ namespace p3d {
 			{
 				std::fprintf(gSlowLog, "# t=%.0f: %u frames in %.0f s (%.0f fps), %u slow, worst work %.1f ms\n",
 					std::chrono::duration<f64>(now - start).count(), frames, since, (f64)frames / since, slow, worst);
+				std::fprintf(gSlowLog, "#   frame %.2f ms: waited %.2f, worked %.2f (scoped %.2f), the device's own %.2f\n", since * 1000.0 / (f64)frames,
+					sumWaited / frames, sumWork / frames, sumScoped / frames, sumDevice / frames);
+				sumWaited = sumWork = sumScoped = sumDevice = 0.0;
 				std::fprintf(gSlowLog, "#   average a frame (ms; # is a counter):");
 				for (std::map<std::string, f64>::const_iterator i = sums.begin(); i != sums.end(); ++i)
 					if (i->second / (f64)frames >= 0.2) std::fprintf(gSlowLog, " %s=%.2f", i->first.c_str(), i->second / (f64)frames);

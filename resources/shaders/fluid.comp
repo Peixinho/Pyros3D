@@ -234,6 +234,23 @@ void main()
 					s.xyz += uSim.inject.xyz * w * dt;
 				}
 			}
+			// (indoors, settled, the air is still: carried only by it, the smoke never left the room - an open door stood full of it,
+			// flat as a wall, and the next room and the stairs stayed clear. It spreads out on its own too, slowly: a diffusion
+			// a sixth of the way to its neighbours' each step (at the steps' 30 a second and an indoor box's 17 cm cells, some 0.13 m^2 a
+			// second; 6 x 0.16 stays under 1, stable), through what is not solid - out of a door, round into the next room, up a stair)
+			if (uSim.extra.x > 0.5)
+			{
+				float sum = 0.0, n = 0.0;
+				for (int k = 0; k < 6; k++)
+				{
+					ivec3 o = ivec3(k == 0 ? 1 : (k == 1 ? -1 : 0), k == 2 ? 1 : (k == 3 ? -1 : 0), k == 4 ? 1 : (k == 5 ? -1 : 0));
+					ivec3 q = c + o;
+					if (!Inside(q) || SolidAt(Index(q)) > 0.5) continue;
+					sum += Scal(sc, q).x; n += 1.0;
+				}
+				float kd = 0.16;
+				s.x += kd * (sum - n * here.x);
+			}
 			s.xyz = clamp(s.xyz, vec3(0.0), vec3(4.0, 3.0, 4.0));
 			// (none in what is solid - the floor's slab, a wall: poured into the floor under a canister lying on it, smoke filled
 			// the space under the house and came out round its foot, more outside than in the room)
@@ -342,7 +359,16 @@ void main()
 		float vyu = Solid(c + ivec3(0, 1, 0)) > 0.5 ? 0.0 : Vel(vc, c + ivec3(0, 1, 0)).y;
 		float vzb = Solid(c - ivec3(0, 0, 1)) > 0.5 ? 0.0 : Vel(vc, c - ivec3(0, 0, 1)).z;
 		float vzf = Solid(c + ivec3(0, 0, 1)) > 0.5 ? 0.0 : Vel(vc, c + ivec3(0, 0, 1)).z;
-		uAux.a[i] = P4(vec4((vxr - vxl + vyu - vyd + vzf - vzb) / (2.0 * h), 0.0, 0.0, 0.0));
+		float div = (vxr - vxl + vyu - vyd + vzf - vzb) / (2.0 * h);
+		// (a canister indoors gives out gas as well as colour: volume, which has to go somewhere - out of the room by an open door
+		// or window, into the next room, up a stair. Without it the projection kept the room's air where it was, and the smoke
+		// stood in an open doorway as flat as a wall. Only while it pours, and only indoors: outside the box's open sides take it)
+		if (uSim.extra.x > 0.5 && uSim.emit.x > 0.5)
+		{
+			float r = length(world - uSim.source.xyz) / max(uSim.source.w, 1e-3);
+			if (r < 1.0) div -= 0.8 * smoothstep(1.0, 0.3, r);
+		}
+		uAux.a[i] = P4(vec4(div, 0.0, 0.0, 0.0));
 		return;
 	}
 	if (pass == 6)

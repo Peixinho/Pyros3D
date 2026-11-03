@@ -247,6 +247,7 @@ namespace p3d { namespace gfx {
 		uint64_t frame = 0;                 // the frame these GPU times are of
 		std::vector<Pass> passes;
 		double gpuMs = 0.0;                 // the passes', end to end
+		double gpuSpanMs = 0.0;             // from the first timed pass's start to the last one's end: the GPU's frame, gaps and all
 		uint32_t draws = 0, dispatches = 0, pipelineChanges = 0, bindGroupChanges = 0, skippedDraws = 0;
 		uint64_t drawDataBytes = 0;
 		uint32_t pipelinesPending = 0;      // still compiling (their draws skipped)

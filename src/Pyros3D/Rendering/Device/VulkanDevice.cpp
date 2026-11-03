@@ -14,6 +14,7 @@
 #include <string>
 #include <unordered_map>
 #include <chrono>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Rendering/Device/DisplayHdr.h>
 #include <Pyros3D/Rendering/Device/RenderDevice.h>
 #include <cstdlib>
@@ -1499,7 +1500,12 @@ namespace p3d { namespace gfx {
 			frame = (frame + 1) % kFrames;
 			Frame &f = frames[frame];
 			// (the frame this slot last held, done: its fence - two frames behind, so no wait in a steady state)
-			Check(vkWaitForFences(device, 1, &f.fence, VK_TRUE, UINT64_MAX), "waiting for a frame");
+			// (a wait for the GPU, told the profiler as one: perf.log's "waited" - a frame the GPU holds up said nothing of it)
+			{
+				const std::chrono::steady_clock::time_point w0 = std::chrono::steady_clock::now();
+				Check(vkWaitForFences(device, 1, &f.fence, VK_TRUE, UINT64_MAX), "waiting for a frame");
+				FrameProfiler::NoteDisplayWait(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - w0).count());
+			}
 			for (std::function<void()> &r : f.retire) r();
 			f.retire.clear();
 			if (f.timed && !f.names.empty())
@@ -1509,6 +1515,9 @@ namespace p3d { namespace gfx {
 				{
 					std::lock_guard<std::mutex> l(statsMutex);
 					gpuStats.frame = frameNumber >= kFrames ? frameNumber - kFrames : 0; gpuStats.passes.clear(); gpuStats.gpuMs = 0.0;
+					uint64_t first = UINT64_MAX, last = 0;
+					for (size_t i = 0; i < f.names.size(); i++) if (ts[i * 2 + 1] > ts[i * 2]) { first = std::min(first, ts[i * 2]); last = std::max(last, ts[i * 2 + 1]); }
+					gpuStats.gpuSpanMs = last > first ? (last - first) * (double)timestampPeriod * 1e-6 : 0.0;
 					for (size_t i = 0; i < f.names.size(); i++)
 					{
 						FrameStats::Pass p; p.name = f.names[i]; p.gpuMs = ts[i * 2 + 1] > ts[i * 2] ? (ts[i * 2 + 1] - ts[i * 2]) * (double)timestampPeriod * 1e-6 : 0.0;
@@ -1781,7 +1790,9 @@ namespace p3d { namespace gfx {
 			// (one a frame: a second pass over it - an editor's panels over its views - draws on the same, what it holds kept)
 			if (haveImage) { Texture h; h.id = swapTextures[imageIndex]; return h; }
 			Frame &f = frames[frame];
+			const std::chrono::steady_clock::time_point a0 = std::chrono::steady_clock::now();
 			VkResult r = vkAcquireNextImageKHR(device, swapchain, UINT64_MAX, f.acquired, VK_NULL_HANDLE, &imageIndex);
+			FrameProfiler::NoteDisplayWait(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - a0).count());
 			Check(r, "acquiring the window's image");
 			if (r == VK_ERROR_OUT_OF_DATE_KHR) { if (!CreateSwapchain()) fprintf(stderr, "Vulkan: the window's images could not be made again\n"); return Texture(); }
 			if (r != VK_SUCCESS && r != VK_SUBOPTIMAL_KHR) return Texture();
@@ -1801,7 +1812,11 @@ namespace p3d { namespace gfx {
 			pi.waitSemaphoreCount = 1; pi.pWaitSemaphores = &renderDone[imageIndex];
 			pi.swapchainCount = 1; pi.pSwapchains = &swapchain; pi.pImageIndices = &imageIndex;
 			VkResult r;
-			{ std::lock_guard<std::mutex> lk(recordMutex); r = vkQueuePresentKHR(queue, &pi); }
+			{
+				const std::chrono::steady_clock::time_point p0 = std::chrono::steady_clock::now();
+				std::lock_guard<std::mutex> lk(recordMutex); r = vkQueuePresentKHR(queue, &pi);
+				FrameProfiler::NoteDisplayWait(std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - p0).count());
+			}
 			Check(r, "presenting");
 			if (r == VK_ERROR_OUT_OF_DATE_KHR || r == VK_SUBOPTIMAL_KHR) CreateSwapchain();
 			haveImage = false;

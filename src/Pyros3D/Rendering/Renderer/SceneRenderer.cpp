@@ -5380,6 +5380,7 @@ namespace p3d {
 				FrameProfiler &fp = FrameProfiler::Instance();
 				FrameProfiler::NoteDeviceFrame(st.gpuMs);
 				fp.Counter("GPU.ms", st.gpuMs);
+				if (st.gpuSpanMs > 0.0) fp.Counter("GPU.span", st.gpuSpanMs);
 				fp.Counter("GPU.draws", (f64)st.draws);
 				char name[64];
 				for (const gfx::FrameStats::Pass &pass : st.passes)

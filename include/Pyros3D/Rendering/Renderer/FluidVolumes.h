@@ -60,6 +60,7 @@ namespace p3d {
 			f64 clock = 0.0;                   // (the clouds' clock it has been stepped to)
 			f32 age = 0.f;                     // (seconds it has been simulated)
 			uint32 obstacleEpoch = 0;          // (VolumetricSmoke's when its obstacles were laid)
+			uint32 epochSeenFrame = 0;         // (the frame a newer epoch was first seen: laid a few frames on, once the physics has the change)
 			bool closedSides = false;          // (indoors: the box's sides keep the smoke in)
 			f32 enclosed = 0.f;                // (0 in the open .. 1 under a roof: the share of columns over the canister with a cover above it)
 			std::vector<f32> pendingSteps;     // (Prepare's: the steps' seconds)

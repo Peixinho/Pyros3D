@@ -437,6 +437,11 @@ namespace p3d {
 			look = Meshes[0][0]->Material;
 			for (RenderingMesh* m : Meshes[0]) if (m->Material != look) { look.reset(); break; }
 		}
+		// (nor what is see-through: a glow round a thing - the game's pulsing outline of the loot nearest, its alpha new every
+		// frame - was a new impostor asked for every frame, 800 of one bandage in half a minute, each 100 ms of baking)
+		for (const auto &level : Meshes)
+			for (RenderingMesh* m : level.second)
+				if (m->Material && m->Material->IsTransparent()) { stopWaiting(); return; }
 		const ImpostorBank::Entry* e = ImpostorBank::Request(model->GetPath(), look);
 		if (!e)
 		{
