@@ -375,7 +375,10 @@ namespace p3d { namespace gfx {
 		}
 		void VulkanDevice::Transition(VkCommandBuffer cmd, TextureRec &t, VkImageLayout to)
 		{
-			if (t.layout == to) return;
+			// (a layout that is written in, asked for again - a storage image from one dispatch to the next, a target
+			// drawn on by a second pass: no change of layout, but the writes before still waited on; read-only ones are not)
+			static const bool syncOff = getenv("PYROS_VK_SYNC") && getenv("PYROS_VK_SYNC")[0] == '0';     // (to measure: the old way, unsafe)
+			if (t.layout == to && (syncOff || (to != VK_IMAGE_LAYOUT_GENERAL && to != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && to != VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL))) return;
 			VkImageMemoryBarrier2 b = {}; b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
 			LayoutStage(t.layout, b.srcStageMask, b.srcAccessMask);
 			LayoutStage(to, b.dstStageMask, b.dstAccessMask);
@@ -389,8 +392,54 @@ namespace p3d { namespace gfx {
 		}
 
 		// ---------------------------------------------------------------- the list
+		namespace
+		{
+			// (what an access is, as a buffer's: the stages and the memory access it waits on or makes wait)
+			void BufferAccess(const Access a, VkPipelineStageFlags2 &stage, VkAccessFlags2 &access)
+			{
+				switch (a)
+				{
+				case Access::ShaderRead:  stage |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; access |= VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_UNIFORM_READ_BIT; break;
+				case Access::ShaderWrite: stage |= VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT; access |= VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_SHADER_WRITE_BIT; break;
+				case Access::Indirect:    stage |= VK_PIPELINE_STAGE_2_DRAW_INDIRECT_BIT; access |= VK_ACCESS_2_INDIRECT_COMMAND_READ_BIT; break;
+				case Access::VertexIndex: stage |= VK_PIPELINE_STAGE_2_VERTEX_INPUT_BIT; access |= VK_ACCESS_2_VERTEX_ATTRIBUTE_READ_BIT | VK_ACCESS_2_INDEX_READ_BIT; break;
+				case Access::CopySrc:     stage |= VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT; access |= VK_ACCESS_2_TRANSFER_READ_BIT; break;
+				case Access::CopyDst:     stage |= VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT; access |= VK_ACCESS_2_TRANSFER_WRITE_BIT; break;
+				default:                  stage |= VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT; access |= VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT; break;
+				}
+			}
+		}
 		void VulkanCommandList::Barriers(const Barrier* b, uint32_t count)
 		{
+			// The buffers' barriers: one memory barrier for them all. They were left out - only textures were
+			// transitioned - so a compute pass's output was read by the next pass, or by an indirect draw, while it was
+			// still being written: Metal (MoltenVK) runs one dispatch after another anyway, NVIDIA does not (the smoke's
+			// simulation read half-written cells, black; indirect draws read arguments not yet written)
+			VkPipelineStageFlags2 srcStage = 0, dstStage = 0; VkAccessFlags2 srcAccess = 0, dstAccess = 0;
+			for (uint32_t i = 0; i < count; i++)
+				if (b[i].buffer.id && !dev->textures.Get(b[i].texture.id))
+				{
+					BufferAccess(b[i].from == Access::Undefined ? Access::ShaderWrite : b[i].from, srcStage, srcAccess);
+					BufferAccess(b[i].to == Access::Undefined ? Access::ShaderRead : b[i].to, dstStage, dstAccess);
+				}
+			static const bool syncOff = getenv("PYROS_VK_SYNC") && getenv("PYROS_VK_SYNC")[0] == '0';
+			if (syncOff) srcStage = 0;
+			if (srcStage && inPass)
+			{
+				static bool said = false;
+				if (!said) { said = true; fprintf(stderr, "Vulkan: a buffer barrier inside a pass - left out (it belongs before the pass)\n"); }
+				srcStage = 0;
+			}
+			if (srcStage)
+			{
+				// (writes made available whatever stage made them: a write is never only what the caller said)
+				srcAccess |= VK_ACCESS_2_SHADER_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				srcStage |= VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_ALL_TRANSFER_BIT;
+				VkMemoryBarrier2 mb = {}; mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+				mb.srcStageMask = srcStage; mb.srcAccessMask = srcAccess; mb.dstStageMask = dstStage; mb.dstAccessMask = dstAccess;
+				VkDependencyInfo di = {}; di.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO; di.memoryBarrierCount = 1; di.pMemoryBarriers = &mb;
+				vkCmdPipelineBarrier2(cmd, &di);
+			}
 			for (uint32_t i = 0; i < count; i++)
 				if (TextureRec* t = dev->textures.Get(b[i].texture.id))
 				{
