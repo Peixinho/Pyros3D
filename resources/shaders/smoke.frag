@@ -196,8 +196,12 @@ vec4 March(vec3 ro, vec3 rd, float tEnd, int maxSteps)
 			float h = yIn / wsum;
 			// the sun past the smoke toward it, the light that has bounced on through the smoke much less dimmed;
 			// the sky's light from above, the ground's from below; and soot near a fire lit by it
-			float direct = sun + 0.35 * sqrt(sun) + 0.08;
-			vec3 incoming = uSunColor.rgb * direct * phase + mix(gAmbBottom, gAmbTop, h) * (0.55 + 0.45 * sun);
+			// (smoke this thick scatters the light many times over: in the shadow of something - a sign over it, the
+			// cloud's own far side - it is a lighter grey, lit by the smoke round it, never near black as a single
+			// scatter has it. The share that comes round by those bounces does not care which way the eye looks)
+			float direct = sun + 0.35 * sqrt(sun);
+			vec3 incoming = uSunColor.rgb * (direct * phase + 0.22 + 0.15 * sqrt(sun))
+			              + mix(gAmbBottom, gAmbTop, h) * (0.85 + 0.15 * sun);
 			// (soot lit by the heat in it while that is still hot - not by the warmth it keeps after: it went brown)
 			if (heat > 0.2) incoming += Blackbody(mix(850.0, 1950.0, clamp(heat, 0.0, 1.0))) * (heat - 0.2) * (heat - 0.2) * 4.0 * emission;
 			int lamps = int(uSunDir.w);

@@ -10,7 +10,7 @@
 
 namespace p3d {
 
-	Plane::Plane(const f32 width, const f32 height, bool smooth, bool flip, bool TangentBitangent, const uint32 segments_)
+	Plane::Plane(const f32 width, const f32 height, bool smooth, bool flip, bool TangentBitangent, const uint32 segments_, bool round)
 	{
 		isFlipped = flip;
 		isSmooth = smooth;
@@ -22,6 +22,28 @@ namespace p3d {
 
 		segments = segments_ < 1 ? 1 : (segments_ > 1024 ? 1024 : segments_);
 		const Vec3 normal(0.f, 0.f, 1.f);
+		if (round)
+		{
+			// (the middle, then the rim counter-clockwise: the same facing and texture coordinates as the rectangle's)
+			const uint32 sides = segments < 8 ? 8 : segments;
+			auto add = [&](const f32 x, const f32 y) {
+				geometry->tVertex.push_back(Vec3(x, y, 0.f));
+				geometry->tNormal.push_back(normal);
+				geometry->tTexcoord.push_back(Vec2(1.f - (x + w2) / (2.f * w2), (y + h2) / (2.f * h2)));
+			};
+			add(0.f, 0.f);
+			for (uint32 k = 0; k < sides; k++)
+			{
+				const f32 a = 6.28318530718f * (f32)k / (f32)sides;
+				add(w2 * cosf(a), h2 * sinf(a));
+			}
+			for (uint32 k = 0; k < sides; k++)
+			{
+				geometry->index.push_back(0); geometry->index.push_back(1 + k); geometry->index.push_back(1 + (k + 1) % sides);
+			}
+		}
+		else
+		{
 		// (the same corners, winding and texture coordinates as the one quad this was: a row of vertices at a time)
 		for (uint32 r = 0; r <= segments; r++)
 			for (uint32 c = 0; c <= segments; c++)
@@ -38,6 +60,8 @@ namespace p3d {
 				geometry->index.push_back(i0); geometry->index.push_back(i1); geometry->index.push_back(i2);
 				geometry->index.push_back(i2); geometry->index.push_back(i3); geometry->index.push_back(i0);
 			}
+
+		}
 
 		for (size_t i = 0; i < geometry->tTexcoord.size(); i++) geometry->tTexcoord[i].y = 1 - geometry->tTexcoord[i].y;
 

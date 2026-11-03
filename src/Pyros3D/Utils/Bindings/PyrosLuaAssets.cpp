@@ -111,6 +111,8 @@ namespace p3d {
 					[](float width, float height, bool smooth) { return std::make_shared<Plane>(width, height, smooth); },
 					[](float width, float height) { return std::make_shared<Plane>(width, height); }
 				),
+				// Plane.disc(radius, sides): a round one, textured as the square round it is
+				"disc", [](float radius, int sides) { return std::make_shared<Plane>(radius, radius, false, false, false, (uint32)std::max(sides, 8), true); },
 				sol::base_classes, sol::bases<Renderable>()
 				);
 		}
