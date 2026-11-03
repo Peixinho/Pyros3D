@@ -11,6 +11,7 @@
 
 #define BUFFER_OFFSET(i) ((char *)NULL + (i))
 
+#include <atomic>
 #include <vector>
 #include <string.h>
 #include <Pyros3D/Core/Math/Math.h>
@@ -100,6 +101,15 @@ namespace p3d {
 		// Changes with them: what the renderer keeps on the GPU of a geometry is made again when it moves (a sprite
 		// animating writes its quads into the same buffer each frame, its handles unchanged)
 		uint32 cpuRevision = 0;
+		// Every write of any buffer's bytes, counted, and the last kWrittenRing of them: which buffers. A renderer reads
+		// what was written since it last looked, and knows every other geometry's bounds are as they were without
+		// looking at its buffers - tens of thousands of meshes asked of their buffers every frame was a third of a
+		// millisecond. (Addresses only, never followed: a buffer gone since is no one's.)
+		static const uint32 kWrittenRing = 2048;
+		// (atomic: a loading thread writes buffers too)
+		static std::atomic<uint64> s_anyWritten;
+		static std::atomic<GeometryBuffer*> s_written[kWrittenRing];
+		static void NoteWritten(GeometryBuffer* b) { const uint64 i = s_anyWritten.fetch_add(1, std::memory_order_relaxed); s_written[i % kWrittenRing].store(b, std::memory_order_release); }
 
 		GeometryBuffer();
 		GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw);

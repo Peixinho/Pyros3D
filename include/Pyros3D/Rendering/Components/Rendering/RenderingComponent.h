@@ -110,6 +110,9 @@ namespace p3d {
 		// the mesh of the model itself it stands for. It is drawn only while that
 		// one is switched on (a part hidden on the model is hidden at every level).
 		RenderingMesh* standsFor = NULL;
+		// (the record of how a renderer draws it, kept on it by the renderer that last listed it - SceneRenderer: found
+		// without a lookup. Tens of thousands of meshes looked up in a table every frame was a millisecond on its own)
+		void* drawRecordOwner = NULL; void* drawRecord = NULL; uint32 drawRecordGeneration = 0;
 
 		// Map Bone ID's
 		std::map<int32, int32> MapBoneIDs;
@@ -712,6 +715,8 @@ namespace p3d {
 		}
 
 		uint64 gatherMark = 0;     // (SceneRenderer::Gather's: listed already in this gather)
+		// (a renderer's record of which level it draws this at - SceneRenderer's LodState - found without a lookup)
+		void* lodRecordOwner = nullptr; void* lodRecord = nullptr; uint32 lodRecordGeneration = 0;
 
 		// Whether any levels beyond the first were given.
 		bool HasLOD() const { return LOD; }

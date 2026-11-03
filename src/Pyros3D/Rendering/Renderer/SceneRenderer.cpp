@@ -56,6 +56,16 @@
 #define PYROS_WGSL(desc, name)
 #endif
 
+// (a hint to memory: fetch this, it will be read soon - never a fault, whatever the address)
+#if defined(_MSC_VER) && (defined(_M_X64) || defined(_M_IX86))
+#include <xmmintrin.h>
+#define PYROS_PREFETCH(p) _mm_prefetch((const char*)(p), _MM_HINT_T0)
+#elif defined(__GNUC__) || defined(__clang__)
+#define PYROS_PREFETCH(p) __builtin_prefetch((const void*)(p))
+#else
+#define PYROS_PREFETCH(p) ((void)0)
+#endif
+
 namespace p3d {
 
 	namespace {
@@ -912,9 +922,11 @@ namespace p3d {
 		return t;
 	}
 
+	uint32 SceneRenderer::NewDrawGeneration() { static uint32 serial = 0; return ++serial; }
 	SceneRenderer::SceneRenderer(gfx::Device* d) : device(d)
 	{
 		LiveRenderers().push_back(this);
+		meshDrawGeneration = NewDrawGeneration();
 		CreateShaders();
 		if (const char* rs = getenv("PYROS_RENDER_SCALE")) SetRenderScale((f32)atof(rs));     // (to try one without the settings)
 
@@ -1249,7 +1261,6 @@ namespace p3d {
 
 	gfx::Texture SceneRenderer::TextureFor(Texture* source, const bool srgb, const gfx::Texture fallback)
 	{
-		PYROS_PROFILE_SCOPE("R.TextureFor");
 		if (!source) return fallback;
 		// (a SceneView's: its picture, as it was last drawn)
 		if (!ViewTextures().empty())
@@ -1262,6 +1273,7 @@ namespace p3d {
 		// (another texture made where a freed one was: not its pixels)
 		if (g.textureId != source->GetInstanceID()) { g.revision = 0xFFFFFFFFu; g.textureId = source->GetInstanceID(); }
 		if (g.texture && g.revision == source->GetCpuRevision()) return g.texture;
+		PYROS_PROFILE_SCOPE("R.TextureFor");     // (past the cache: asked for every mesh of the HUD, every frame, its timer was its cost)
 		const std::vector<uchar>* pixels = source->GetCpuPixels(source->GetTextureType(), 0);
 		const uint32 w = source->GetWidth(0), h = source->GetHeight(0);
 		if (!pixels || w == 0 || h == 0) return g.texture ? g.texture : fallback;
@@ -2508,7 +2520,7 @@ namespace p3d {
 	{
 		for (std::unordered_map<IGeometry*, MeshGpu>::iterator i = meshes.begin(); i != meshes.end(); ++i)
 			for (gfx::Buffer b : { i->second.vertices, i->second.indices, i->second.colors, i->second.skin }) if (b) device->Destroy(b);
-		meshes.clear();
+		meshes.clear(); bufferUsers.clear();
 		for (std::map<std::pair<Texture*, bool>, TextureGpu>::iterator i = textures.begin(); i != textures.end(); ++i) if (i->second.texture) device->Destroy(i->second.texture);
 		textures.clear();
 		for (std::map<RenderingInstancedComponent*, InstancesGpu>::iterator i = instanceBuffers.begin(); i != instanceBuffers.end(); ++i) if (i->second.buffer) device->Destroy(i->second.buffer);
@@ -2532,7 +2544,7 @@ namespace p3d {
 		if (skyboxTableGroup) { device->Destroy(skyboxTableGroup); skyboxTableGroup = gfx::BindGroup(); }
 		if (skyboxTex) { device->Destroy(skyboxTex); skyboxTex = gfx::Texture(); }
 		skyboxMadeFrom = nullptr; skyboxSource = nullptr;
-		meshDraws.clear(); surfaceRefs.clear();
+		meshDraws.clear(); surfaceRefs.clear(); meshDrawGeneration = NewDrawGeneration();
 		items.clear(); opaqueOrder.clear(); transparentOrder.clear(); worldTextOrder.clear(); casterOrder.clear();
 		// (a new place: nothing of the last picture blended into the first ones of the new)
 		taaHistory = false; cloudHistory = false; hdrPreviousMade = false;
@@ -2591,8 +2603,8 @@ namespace p3d {
 
 	gfx::Buffer SceneRenderer::ColorsFor(IGeometry* g, MeshGpu* mesh)
 	{
-		PYROS_PROFILE_SCOPE("R.ColorsFor");
 		if (mesh->colors) return mesh->colors;
+		PYROS_PROFILE_SCOPE("R.ColorsFor");     // (past the cache: asked for every mesh of the HUD, every frame, its timer was its cost)
 		std::vector<f32> c((size_t)mesh->vertexCount * 4, 1.f);
 		const VertexAttribute* a = FindAttribute(g, "aColor");
 		if (a && a->DataLength == mesh->vertexCount && a->Data.size() >= (size_t)mesh->vertexCount * sizeof(Vec4)) memcpy(c.data(), a->Data.data(), c.size() * 4);
@@ -4373,6 +4385,7 @@ namespace p3d {
 		{ PYROS_PROFILE_SCOPE("G.Flush"); Sprite2D::FlushScene(scene);
 		Line2D::FlushScene(scene);
 		RenderingComponent::PollAutomaticLODs(); }
+		NoteBuffersWritten();     // (after the sprites' quads: what changed this frame, as of now)
 		const Vec3 eye = view.cameraWorld.GetTranslation();
 		const Vec3 sortForward = (view.cameraWorld * Vec4(0.f, 0.f, -1.f, 0.f)).xyz().normalize();     // (the way the camera looks)
 		// The frustum's planes, from the view-projection's rows (column-major: row r is m[r], m[4 + r], m[8 + r], m[12 + r]):
@@ -4438,8 +4451,13 @@ namespace p3d {
 		lodClock = std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
 		// (the levels of what has not been seen for a while let go - a component gone, or far off-screen)
 		if ((frameNumber & 127) == 0)
+		{
+			bool letGo = false;
 			for (std::unordered_map<RenderingComponent*, LodState>::iterator i = lodStates.begin(); i != lodStates.end();)
-				if (i->second.seen + 120 < frameNumber + 1) i = lodStates.erase(i); else ++i;
+				if (i->second.seen + 120 < frameNumber + 1) { i = lodStates.erase(i); letGo = true; } else ++i;
+			if (letGo || lodStateGeneration == 0) lodStateGeneration = NewDrawGeneration();
+		}
+		if (lodStateGeneration == 0) lodStateGeneration = NewDrawGeneration();
 		particleSystems.clear();
 		std::set<ParticleSystem*> seenSystems;
 		// The components with levels of detail, from the scene's components - not from its meshes: it lists the meshes
@@ -4448,8 +4466,19 @@ namespace p3d {
 		// is seen, as the old renderer gives them; the level by the distance to its sphere (past its last: its last)
 		FrameProfiler::Instance().Begin("G.Levels");
 		if (lodOn)
-			for (RenderingComponent* rc : scene->GetRenderingComponents())
+		{
+			const std::vector<RenderingComponent*> &components = scene->GetRenderingComponents();
+			const size_t componentCount = components.size();
+			for (size_t ci = 0; ci < componentCount; ci++)
 			{
+				// (read ahead, as the meshes' loop below: the component, then its owner's place and its level's record)
+				if (ci + 8 < componentCount) { const char* a = (const char*)components[ci + 8]; PYROS_PREFETCH(a); PYROS_PREFETCH(a + 64); PYROS_PREFETCH(a + 128); }
+				if (ci + 4 < componentCount) if (RenderingComponent* a = components[ci + 4])
+				{
+					if (GameObject* o = a->GetOwner()) { PYROS_PREFETCH(o->DrawWorldHint()); PYROS_PREFETCH((const char*)o->DrawWorldHint() + 63); }
+					if (a->lodRecordOwner == this) PYROS_PREFETCH(a->lodRecord);
+				}
+				RenderingComponent* rc = components[ci];
 				// (switched off - IComponent::Disable - is not drawn at any level: a scope hides the gun in front of its lens
 				// while its own picture is drawn, and the gun, with levels of its own, was drawn anyway - the glass grey)
 				if (!rc || !rc->GetOwner() || !rc->IsActive() || rc->GetRenderLayer() != RenderLayer::World || rc->GetComponentType() == ComponentType::ParticleSystem) continue;
@@ -4462,7 +4491,10 @@ namespace p3d {
 				// second on the moving dither (common.glsl's LodDither), then the new one alone: nothing rests half-way,
 				// as it did when the crossfade was a band of distance (a teapot standing in it was a screen-door for good)
 				const f32 d2 = rc->LODDistanceSQR(eye, rc->GetOwner()->GetDrawWorldPosition(), rc->GetOwner()->GetScale());
-				LodState &ls = lodStates[rc];
+				LodState* lsp;
+				if (rc->lodRecordOwner == this && rc->lodRecordGeneration == lodStateGeneration) lsp = static_cast<LodState*>(rc->lodRecord);
+				else { lsp = &lodStates[rc]; rc->lodRecordOwner = this; rc->lodRecord = lsp; rc->lodRecordGeneration = lodStateGeneration; }
+				LodState &ls = *lsp;
 				const uint32 coarser = rc->LevelAtDistanceSQR(d2), finer = rc->LevelAtDistanceSQR(d2 * 1.1025f);
 				const bool fresh = ls.seen == 0 || ls.seen + 3 < frameNumber + 1;     // (newly seen, or back after a while: as it is now, no fade)
 				if (fresh) { ls.level = ls.from = coarser; ls.start = -1.0; }
@@ -4498,10 +4530,16 @@ namespace p3d {
 				for (RenderingMesh* m : rc->GetMeshes(level)) { chosen.push_back(m); if (crossfade) lodFades[m] = -std::max(t, 0.001f); }
 				if (crossfade) for (RenderingMesh* m : rc->GetMeshes(ls.from)) { chosen.push_back(m); lodFades[m] = std::max(t, 0.001f); }
 			}
+		}
 		FrameProfiler::Instance().End();
 		FrameProfiler::Instance().Begin("G.Meshes");
-		for (RenderingMesh* base : scene->GetRenderingMeshes())
+		const std::vector<RenderingMesh*> &sceneMeshes = scene->GetRenderingMeshes();
+		const size_t sceneMeshCount = sceneMeshes.size();
+		for (size_t mi = 0; mi < sceneMeshCount; mi++)
 		{
+			if (mi + 8 < sceneMeshCount) PYROS_PREFETCH(sceneMeshes[mi + 8]);
+			if (mi + 4 < sceneMeshCount) if (const RenderingMesh* a = sceneMeshes[mi + 4]) { PYROS_PREFETCH(a->renderingComponent); PYROS_PREFETCH((const char*)a->renderingComponent + 64); }
+			RenderingMesh* base = sceneMeshes[mi];
 			if (!base || !base->renderingComponent || !base->renderingComponent->GetOwner()) continue;
 			RenderingComponent* rc = base->renderingComponent;
 			if (!rc->IsActive()) continue;      // (switched off - IComponent::Disable: a script hiding it, a scope's glass while its own view is drawn)
@@ -4518,15 +4556,43 @@ namespace p3d {
 
 		FrameProfiler::Instance().End();
 		FrameProfiler::Instance().Begin("G.Items");
-		for (RenderingMesh* rm : chosen)
+		uint32 passedOver = 0;
+		const size_t chosenCount = chosen.size();
+		for (size_t ci = 0; ci < chosenCount; ci++)
 		{
+			// (what the meshes a few ahead will read, asked of memory now - the mesh, then its component and its record, then
+			// its owner's matrix: the loop waited on memory, mesh after mesh, scattered over the heap)
+			if (ci + 12 < chosenCount) { const char* a = (const char*)chosen[ci + 12]; PYROS_PREFETCH(a); PYROS_PREFETCH(a + 64); PYROS_PREFETCH(a + 128); }
+			if (ci + 6 < chosenCount) if (const RenderingMesh* a = chosen[ci + 6])
+			{
+				PYROS_PREFETCH(a->renderingComponent); PYROS_PREFETCH((const char*)a->renderingComponent + 64);
+				if (a->drawRecordOwner == this) { const char* r = (const char*)a->drawRecord; PYROS_PREFETCH(r); PYROS_PREFETCH(r + 64); PYROS_PREFETCH(r + 128); PYROS_PREFETCH(r + 192); }
+				PYROS_PREFETCH(a->Geometry);
+			}
+			if (ci + 3 < chosenCount) if (const RenderingMesh* a = chosen[ci + 3]) if (a->renderingComponent) if (GameObject* o = a->renderingComponent->GetOwner())
+				{ const char* w = (const char*)o->DrawWorldHint(); PYROS_PREFETCH(w); PYROS_PREFETCH(w + 63); }
+			RenderingMesh* rm = chosen[ci];
 			if (!rm || !rm->Active || !rm->Geometry || !rm->renderingComponent || !rm->renderingComponent->GetOwner()) continue;
 			RenderingComponent* rc = rm->renderingComponent;
 			GameObject* owner = rc->GetOwner();
 			const bool instancedComponent = rc->GetComponentType() == ComponentType::RenderingInstancedComponent;
+			// (an instanced set with nothing to draw now - a block of plants emptied, or not yet filled: passed over before anything
+			// else of it is looked at. Thousands of an island's were made into draw items every frame, to be dropped at the end)
+			if (instancedComponent && static_cast<RenderingInstancedComponent*>(rc)->InstancesToDraw() == 0) continue;
 			// What it is drawn with - kept while nothing it depends on has changed
-			MeshDraw &md = meshDraws[rm];
+			MeshDraw* mdp;
+			if (rm->drawRecordOwner == this && rm->drawRecordGeneration == meshDrawGeneration) mdp = static_cast<MeshDraw*>(rm->drawRecord);
+			else { mdp = &meshDraws[rm]; rm->drawRecordOwner = this; rm->drawRecord = mdp; rm->drawRecordGeneration = meshDrawGeneration; }
+			MeshDraw &md = *mdp;
 			IMaterial* material = rm->Material.get();
+			// (where it is: as it was last frame - its owner and its pivot where they were - its matrix and sphere as they were)
+			const Matrix &ownerWorld = owner->GetDrawWorld();
+			const bool placeSame = md.placeKnown && memcmp(ownerWorld.m, md.ownerWorld.m, sizeof(ownerWorld.m)) == 0 && memcmp(rm->Pivot.m, md.pivot.m, sizeof(rm->Pivot.m)) == 0;
+			// (not moved, made as it was, and neither in view nor shadowing anything in it: passed over here, before its material,
+			// textures and geometry are looked at - most of an island's meshes, every frame)
+			if (placeSame && !instancedComponent && !md.movesItself && !md.skybox && md.gpu && md.material == material && md.geometry == rm->Geometry
+				&& md.geometryRevision == rm->Geometry->buffersRevision && !needed(md.center, md.radius, rc->IsCastingShadows() && !md.impostor)
+				&& ((md.contentSeenAt > contentLostAt && md.gpu->writtenAt < md.contentSeenAt) || ContentRevision(rm->Geometry) == md.content)) { md.contentSeenAt = contentScan; passedOver++; continue; }     // (and its vertices not written again since: a trail or a rope built in the world each frame - its sphere is theirs)
 			bool stale = md.material != material || md.geometry != rm->Geometry || md.geometryRevision != rm->Geometry->buffersRevision || md.instanced != instancedComponent
 				|| md.materialId != material->GetInternalID() || md.geometryId != rm->Geometry->GetInstanceID();
 			if (!stale && md.cm) stale = md.surfaceRevision != md.cm->GetSurfaceRevision();
@@ -4577,7 +4643,7 @@ namespace p3d {
 			}
 			if (md.skybox) { skyboxSource = md.skybox; continue; }     // (the scene's background, by direction: not its mesh)
 			// (its bytes changed in place - a sprite's next frame: its GPU copy made again)
-			if (md.gpu) { const uint64 c = ContentRevision(rm->Geometry); if (c != md.content) { md.gpu = MeshFor(rm->Geometry); md.content = c; } }
+			if (md.gpu) { const uint64 c = ContentRevision(rm->Geometry); if (c != md.content) { md.gpu = MeshFor(rm->Geometry); md.content = c; md.placeKnown = false; } md.contentSeenAt = contentScan; }
 			if (!md.gpu || (md.cm && !md.surface)) continue;
 			DrawItem it;
 			it.mesh = rm; it.material = md.gm; it.custom = md.cm; it.movesItself = md.movesItself;
@@ -4587,7 +4653,8 @@ namespace p3d {
 				it.sortDepth = view.orthographic ? (place - eye).dotProduct(sortForward) : (place - eye).dotProduct(place - eye);
 			}
 			it.gpu = md.gpu;
-			it.model = owner->GetDrawWorld() * rm->Pivot;
+			const bool placeKept = placeSame && md.placeKnown;     // (and its geometry's bounds not changed since)
+			it.model = placeKept ? md.model : ownerWorld * rm->Pivot;
 			// (its matrix last frame, where it was drawn then: its move on screen)
 			it.previousModel = md.modelFrame + 1 == frameNumber ? md.lastModel : it.model;
 			for (int k = 0; k < 16 && !it.moved; k++) it.moved = it.previousModel.m[k] != it.model.m[k];
@@ -4632,8 +4699,12 @@ namespace p3d {
 					if (ic->fadeOut.y > ic->fadeOut.x && (it.center - eye).magnitude() - it.radius > ic->fadeOut.y) continue;
 				}
 			}
+			else if (placeKept) { it.center = md.center; it.radius = md.radius; }
 			else
+			{
 				WorldSphere(it.gpu->center, it.gpu->radius, it.model, it.center, it.radius);
+				md.placeKnown = true; md.ownerWorld = ownerWorld; md.pivot = rm->Pivot; md.model = it.model; md.center = it.center; md.radius = it.radius;
+			}
 			it.distance = (it.center - eye).magnitude();
 			it.caster = rc->IsCastingShadows();
 			if (!md.movesItself && !needed(it.center, it.radius, it.caster && !md.impostor)) continue;
@@ -4759,6 +4830,9 @@ namespace p3d {
 			items.push_back(it);
 		}
 		FrameProfiler::Instance().End();
+		// (how many meshes were looked at, how many passed over before anything else of them was, how many drawn)
+		FrameProfiler::Instance().Counter("G.Listed", (f64)chosen.size()); FrameProfiler::Instance().Counter("G.PassedOver", (f64)passedOver);
+		FrameProfiler::Instance().Counter("G.ItemsMade", (f64)items.size());
 		HideOccluded(scene, view, ProjectionFor(view));
 		FrameProfiler::Instance().Begin("G.Tail");
 		// The big instanced sets seen: culled on the GPU (RecordInstanceCull) - their buffers for this frame in flight
@@ -5150,9 +5224,23 @@ namespace p3d {
 		return best;
 	}
 
+	void SceneRenderer::NoteBuffersWritten()
+	{
+		contentScan++;
+		const uint64 now = GeometryBuffer::s_anyWritten.load(std::memory_order_acquire);
+		if (now - writtenRead > GeometryBuffer::kWrittenRing) contentLostAt = contentScan;     // (more than the ring holds: none known as it was)
+		else
+			for (uint64 i = writtenRead; i < now; i++)
+			{
+				const std::unordered_map<GeometryBuffer*, std::vector<IGeometry*> >::const_iterator u = bufferUsers.find(GeometryBuffer::s_written[i % GeometryBuffer::kWrittenRing].load(std::memory_order_acquire));
+				if (u == bufferUsers.end()) continue;
+				for (IGeometry* g : u->second) { const std::unordered_map<IGeometry*, MeshGpu>::iterator m = meshes.find(g); if (m != meshes.end()) m->second.writtenAt = contentScan; }
+			}
+		writtenRead = now;
+	}
+
 	SceneRenderer::MeshGpu* SceneRenderer::MeshFor(IGeometry* g)
 	{
-		PYROS_PROFILE_SCOPE("R.MeshFor");
 		MeshGpu &m = meshes[g];
 		// (another geometry made where a freed one was: not its buffers - made again)
 		if (m.geometryId != g->GetInstanceID())
@@ -5163,6 +5251,7 @@ namespace p3d {
 		}
 		const uint64 content = ContentRevision(g);
 		if (m.revision == content && m.vertices) return &m;
+		PYROS_PROFILE_SCOPE("R.MeshFor");     // (past the cache: asked for every mesh of the HUD, every frame, its timer was its cost)
 		// Each attribute's bytes for vertex i: its own array, or - a geometry packed for the GPU (a terrain tile) -
 		// its place in the interleaved buffer (kept on the CPU while the old device is off: GeometryBuffer::CpuData)
 		AttributeSource pos = SourceOf(g, "aPosition"), nor = SourceOf(g, "aNormal"), uv = SourceOf(g, "aTexcoord");
@@ -5230,6 +5319,12 @@ namespace p3d {
 			}
 		}
 		m.revision = content;
+		// (its buffers: whose writes say this geometry has changed)
+		{
+			auto note = [&](GeometryBuffer* b) { if (!b) return; std::vector<IGeometry*> &u = bufferUsers[b]; if (std::find(u.begin(), u.end(), g) == u.end()) u.push_back(g); };
+			for (AttributeArray* aa : g->Attributes) if (aa) note(aa->PackedBuffer());
+			note(g->IndexBuffer);
+		}
 		// Its bounding sphere from its own vertices (a geometry's own bounds are not always computed)
 		Vec3 lo(1e30f, 1e30f, 1e30f), hi(-1e30f, -1e30f, -1e30f);
 		for (const Vertex &vx : v) { lo = Vec3(std::min(lo.x, vx.p[0]), std::min(lo.y, vx.p[1]), std::min(lo.z, vx.p[2])); hi = Vec3(std::max(hi.x, vx.p[0]), std::max(hi.y, vx.p[1]), std::max(hi.z, vx.p[2])); }
@@ -5428,7 +5523,9 @@ namespace p3d {
 	{
 		PYROS_PROFILE_SCOPE("R.Render");
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		FrameProfiler::Instance().Begin("R.BeginFrame");
 		if (!view.hostFrame) device->BeginFrame();
+		FrameProfiler::Instance().End();
 		// (what the GPU took, every backend - the newest frame it has finished: the frame's whole as deviceWork in the
 		// profile and a perf.log's lines, and each pass of a quarter of a millisecond or more as GPU.<pass>. Measured,
 		// they went nowhere: a game slow on someone else's GPU said only what its CPU did)
@@ -5441,7 +5538,7 @@ namespace p3d {
 				FrameProfiler::NoteDeviceFrame(st.gpuMs);
 				fp.Counter("GPU.ms", st.gpuMs);
 				if (st.gpuSpanMs > 0.0) fp.Counter("GPU.span", st.gpuSpanMs);
-				fp.Counter("GPU.draws", (f64)st.draws);
+				fp.Counter("GPU.draws", (f64)st.draws); fp.Counter("GPU.pipelines", (f64)st.pipelineChanges); fp.Counter("GPU.groups", (f64)st.bindGroupChanges);
 				char name[64];
 				for (const gfx::FrameStats::Pass &pass : st.passes)
 					if (pass.gpuMs >= 0.25) { snprintf(name, sizeof(name), "GPU.%s", pass.name.c_str()); fp.Counter(name, pass.gpuMs); }
@@ -5469,6 +5566,7 @@ namespace p3d {
 		}
 		const std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 		waitMs = std::chrono::duration<f64, std::milli>(t1 - t0).count();
+		FrameProfiler::Instance().Begin("R.Setup");
 		const uint32 slot = (uint32)(frameNumber % kFramesInFlight);
 		const uint32 frameOffset = slot * kFrameDataSlot;
 		// The scene's reflection probes: their atlas made the first time a scene has one (every surface group names it:
@@ -5659,11 +5757,13 @@ namespace p3d {
 			device->Upload(skyData, slot * 256, sd, sizeof(sd));
 			previousViewProjection = vp;
 		}
+		FrameProfiler::Instance().End(); FrameProfiler::Instance().Begin("R.Lights");
 		WriteLights(scene, view, slot);
 		particleSlot = slot; batchSlot = slot;
 		BatchFrameStart();
 		materialParamsUsed = 0;
 		const std::chrono::steady_clock::time_point g0 = std::chrono::steady_clock::now();
+		FrameProfiler::Instance().End();
 		Gather(scene, view, vp);
 		// (which particle layers this frame draws - and the resolve, which takes this frame over its history where they are)
 		particlesFull = particlesHalf = false;
@@ -5673,6 +5773,7 @@ namespace p3d {
 			device->Upload(taaData, slot * 256 + 208, layers, sizeof(layers));
 		}
 		gatherMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - g0).count();
+		FrameProfiler::Instance().Begin("R.SunShadowPrep");
 		PrepareSunShadow(scene, view, slot);
 		// (with a skybox - Gather found it - the sky's table and harmonics are its, all round: the surfaces lit by the sky)
 		const gfx::Texture skybox = SkyboxFor(skyboxSource);
@@ -5684,6 +5785,7 @@ namespace p3d {
 
 		// The frame, as a graph (FrameGraph.h): each pass what it writes and reads, recorded in this order with the
 		// barriers between made by the graph
+		FrameProfiler::Instance().End(); FrameProfiler::Instance().Begin("R.Record");
 		graph.Begin();
 		// (render targets made since the last frame: cleared before anything reads them - MakeTexture)
 		if (!pendingClears.empty())
@@ -6156,14 +6258,18 @@ namespace p3d {
 				cl->CopyTexture(picture, view.hdrCopy);
 			}, true);
 		gfx::CommandList* cl = device->NewCommandList("Renderer");
+		FrameProfiler::Instance().End(); FrameProfiler::Instance().Begin("R.Execute");
 		graph.Execute(cl);
 		overlayVertices.clear(); overlayBatches.clear();     // (the next frame says its own)
 		const std::chrono::steady_clock::time_point s0 = std::chrono::steady_clock::now();
+		FrameProfiler::Instance().End(); FrameProfiler::Instance().Begin("R.Submit");
 		device->Submit(&cl, 1);
 		const std::chrono::steady_clock::time_point s1 = std::chrono::steady_clock::now();
+		FrameProfiler::Instance().End(); FrameProfiler::Instance().Begin("R.Present");
 		if (!view.hostFrame) device->Present();     // (else the host's, after its own over this)
 		submitMs = std::chrono::duration<f64, std::milli>(s1 - s0).count();
 		presentMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - s1).count();
+		FrameProfiler::Instance().End();
 		if (!view.hostFrame) device->EndFrame();
 		frameNumber++;
 		if (cloudHistory) cloudFrame++;

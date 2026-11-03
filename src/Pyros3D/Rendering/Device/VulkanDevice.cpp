@@ -186,6 +186,14 @@ namespace p3d { namespace gfx {
 			uint64_t slotNext = 0, slotEnd = 0;
 			int timedSlot = -1;
 			std::vector<uint32_t> attachments;      // textures this pass renders into (kept: their layout after)
+			// What is bound in this list now: the same again is not sent to the driver. Most of a frame's binds were of what
+			// was bound already - every draw set its mesh's buffers and its material's group, thousands a pass, each a call
+			// into the driver. (A list is one command buffer, and these stay bound through its passes; a pipeline of another
+			// layout, or the other bind point, forgets the group.)
+			VkPipeline boundPipeline = VK_NULL_HANDLE; VkPipelineLayout boundLayout = VK_NULL_HANDLE; bool boundCompute = false;
+			VkDescriptorSet boundGroup = VK_NULL_HANDLE; uint32_t boundGroupOffsets[8] = {}; uint32_t boundGroupOffsetCount = 0;
+			VkBuffer boundVertex[8] = {}; VkDeviceSize boundVertexOffset[8] = {};
+			VkBuffer boundIndex = VK_NULL_HANDLE; VkDeviceSize boundIndexOffset = 0; VkIndexType boundIndexType = VK_INDEX_TYPE_MAX_ENUM;
 			void Barriers(const Barrier* b, uint32_t count) override;
 			void BeginPass(const PassDesc &p) override;
 			void EndPass() override;
@@ -524,7 +532,10 @@ namespace p3d { namespace gfx {
 			current = r ? *r : nullptr;
 			skipping = !current || current->state.load() != 1;
 			if (skipping) return;
+			if (current->compute != boundCompute || current->layout != boundLayout) boundGroup = VK_NULL_HANDLE;     // (its group: bound again)
+			if (current->pipeline == boundPipeline && current->compute == boundCompute && !current->rayScene) return;
 			vkCmdBindPipeline(cmd, current->compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, current->pipeline);
+			boundPipeline = current->pipeline; boundLayout = current->layout; boundCompute = current->compute;
 			lPipelines++;
 			// (the frame's scene, where it traces it - one built this frame, else an empty one: never an unwritten set)
 			if (current->rayScene)
@@ -552,18 +563,28 @@ namespace p3d { namespace gfx {
 			// (a group let go and bound still is the caller's bug: said - once - and the draw goes without it)
 			if (!s && g.id) { static bool said = false; if (!said) { said = true; fprintf(stderr, "Vulkan: bind group %u bound after it was let go (pipeline '%s')\n", g.id, current ? current->name.c_str() : "?"); } }
 			if (!s || skipping) return;
+			if (*s == boundGroup && dynamicCount == boundGroupOffsetCount && (dynamicCount == 0 || memcmp(dynamicOffsets, boundGroupOffsets, dynamicCount * 4) == 0)) return;
 			vkCmdBindDescriptorSets(cmd, current->compute ? VK_PIPELINE_BIND_POINT_COMPUTE : VK_PIPELINE_BIND_POINT_GRAPHICS, current->layout, 1, 1, s, dynamicCount, dynamicOffsets);
+			if (dynamicCount <= 8) { boundGroup = *s; boundGroupOffsetCount = dynamicCount; if (dynamicCount) memcpy(boundGroupOffsets, dynamicOffsets, dynamicCount * 4); }
+			else boundGroup = VK_NULL_HANDLE;
 			lBindGroups++;
 		}
 		void VulkanCommandList::SetVertexBuffer(uint32_t binding, Buffer b, uint64_t offset)
 		{
 			BufferRec* r = dev->buffers.Get(b.id);
-			if (r) { VkDeviceSize o = offset; vkCmdBindVertexBuffers(cmd, binding, 1, &r->buffer, &o); }
+			if (!r) return;
+			if (binding < 8 && boundVertex[binding] == r->buffer && boundVertexOffset[binding] == offset) return;
+			VkDeviceSize o = offset; vkCmdBindVertexBuffers(cmd, binding, 1, &r->buffer, &o);
+			if (binding < 8) { boundVertex[binding] = r->buffer; boundVertexOffset[binding] = offset; }
 		}
 		void VulkanCommandList::SetIndexBuffer(Buffer b, uint64_t offset, bool index32)
 		{
 			BufferRec* r = dev->buffers.Get(b.id);
-			if (r) vkCmdBindIndexBuffer(cmd, r->buffer, offset, index32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
+			if (!r) return;
+			const VkIndexType type = index32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
+			if (boundIndex == r->buffer && boundIndexOffset == offset && boundIndexType == type) return;
+			vkCmdBindIndexBuffer(cmd, r->buffer, offset, type);
+			boundIndex = r->buffer; boundIndexOffset = offset; boundIndexType = type;
 		}
 		void VulkanCommandList::Draw(uint32_t v, uint32_t i, uint32_t fv, uint32_t fi)
 		{

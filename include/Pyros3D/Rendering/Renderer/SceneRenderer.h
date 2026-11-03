@@ -30,6 +30,7 @@ namespace p3d {
 
 	class SceneGraph;
 	class IGeometry;
+	class GeometryBuffer;
 	class Texture;
 	class RenderingMesh;
 	class RenderingComponent;
@@ -188,6 +189,7 @@ namespace p3d {
 		// Each component's level of detail as drawn: the level, the one it is leaving and since when (a time crossfade)
 		struct LodState { uint32 level = 0, from = 0; f64 start = -1.0; uint64 seen = 0; };
 		std::unordered_map<RenderingComponent*, LodState> lodStates;
+		uint32 lodStateGeneration = 0;     // (a new one each time any of lodStates is let go: RenderingComponent::lodRecord points into it)
 		f64 lodClock = 0.0;
 		bool ParticleWantsHalf(const ParticleSystem* ps) const;
 		void RecordParticleLayer(gfx::CommandList* cl, const uint32 frameOffset, const bool half);
@@ -331,7 +333,13 @@ namespace p3d {
 			gfx::Buffer skin;                   // (a skinned mesh's: each vertex's four bones and their weights)
 			uint32 vertexCount = 0;
 			uint64 vertexCapacity = 0, indexCapacity = 0;     // (its buffers' sizes: a geometry rebuilt - a text - written into them)
+			uint64 writtenAt = 0;     // (the gather that found one of its buffers written - contentScan's)
 		};
+		// (which geometries each buffer is of - noted as their GPU meshes are made - and how far GeometryBuffer's writes
+		// have been read: each gather marks the geometries of the buffers written since)
+		std::unordered_map<GeometryBuffer*, std::vector<IGeometry*> > bufferUsers;
+		uint64 writtenRead = 0, contentScan = 0, contentLostAt = 0;
+		void NoteBuffersWritten();
 		struct PipelineKey
 		{
 			uint8 cull, blend, instanced = 0, skinned = 0, vertexColor = 0;
@@ -682,17 +690,27 @@ namespace p3d {
 		// the scene's tens of thousands of meshes are not looked up, cast and matched to pipelines every frame
 		struct MeshDraw
 		{
-			IMaterial* material = nullptr; IGeometry* geometry = nullptr;
+			// (first, together: what a mesh not moved and out of sight is passed over by - three cache lines, read ahead of
+			// the loop - and only then the rest)
+			// (where it was last frame - its owner's matrix and its pivot - and what that made: its sphere in the world. An
+			// object that has not moved is not worked out again; and one neither in view nor shadowing anything in it is passed
+			// over before anything else of it is looked at)
+			bool placeKnown = false, movesItself = false, impostor = false;     // (impostor: an octahedral one - ShaderUsage::Impostor: its own stages, not in the prepass, no shadow)
+			uint32 geometryRevision = 0xFFFFFFFFu;
+			Vec3 center; f32 radius = 0.f;
+			uint64 contentSeenAt = 0;     // (the gather - contentScan - in which its content was last found as its GPU mesh was made)
+			IMaterial* material = nullptr; IGeometry* geometry = nullptr; MeshGpu* gpu = nullptr;
+			Texture* skybox = nullptr;     // (its material's skybox cubemap: it is the background, not drawn as a mesh)
+			Matrix ownerWorld, pivot;
+			Matrix model;
 			uint32 materialId = 0xFFFFFFFFu, geometryId = 0;     // (what they were: others at freed ones' addresses are not them)
 			uint64 content = ~0ull;     // (its geometry's ContentRevision when its GPU mesh was made)
 			bool vertexColor = false; uint8 blend = 1;     // (its material's VertexColor; how it blends, see-through: gfx::Blend)
-			uint32 geometryRevision = 0xFFFFFFFFu, surfaceRevision = 0xFFFFFFFFu;
+			uint32 surfaceRevision = 0xFFFFFFFFu;
 			GenericShaderMaterial* gm = nullptr; CustomShaderMaterial* cm = nullptr;
-			MeshGpu* gpu = nullptr; CustomSurface* surface = nullptr; uint64 surfaceHash = 0;
-			bool transparent = false, alphaCut = false, movesItself = false; uint32 cull = 0;
+			CustomSurface* surface = nullptr; uint64 surfaceHash = 0;
+			bool transparent = false, alphaCut = false; uint32 cull = 0;
 			bool wantsCut = false;     // (drawn mid crossfade: its cut pipelines made though it cuts nothing)
-			bool impostor = false;     // (an octahedral impostor - ShaderUsage::Impostor: its own stages, not in the prepass, no shadow)
-			Texture* skybox = nullptr;     // (its material's skybox cubemap: it is the background, not drawn as a mesh)
 			Texture* maps[5] = { nullptr, nullptr, nullptr, nullptr, nullptr }; uint32 mapRevisions[5] = { 0, 0, 0, 0, 0 };     // (colour, normal, metal-rough, emission, height)
 			gfx::Pipeline pipeline, pipelineInstanced; gfx::BindGroup group; gfx::Texture baseMap;
 			uint32 textureEpoch = 0;     // (SceneRenderer::textureEpoch when its group and baseMap were made: a texture forgotten since, made again)
@@ -701,7 +719,9 @@ namespace p3d {
 			Matrix lastModel; uint64 modelFrame = ~0ull;      // (its matrix, and the frame it was drawn with it)
 			bool skinnedPipeline = false;
 		};
-		std::unordered_map<RenderingMesh*, MeshDraw> meshDraws;
+		std::unordered_map<RenderingMesh*, MeshDraw> meshDraws;     // (its nodes stay where they are: RenderingMesh::drawRecord points at them)
+		uint32 meshDrawGeneration = 0;     // (unique to this renderer and this table: a mesh's drawRecord from another, or from before a clear, is not used)
+		static uint32 NewDrawGeneration();
 		// (a material's surface by the source's hash, known while its surface is unchanged: not hashed a draw)
 		struct SurfaceRef { uint32 revision = 0xFFFFFFFFu; uint64 hash = 0; CustomSurface* surface = nullptr; uint32 materialId = 0xFFFFFFFFu; };
 		std::unordered_map<CustomShaderMaterial*, SurfaceRef> surfaceRefs;

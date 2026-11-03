@@ -12,6 +12,8 @@
 namespace p3d {
 
 	// A buffer is its bytes, kept on the CPU: the renderer makes its GPU copy, and makes it again when cpuRevision moves
+	std::atomic<uint64> GeometryBuffer::s_anyWritten{ 0 };
+	std::atomic<GeometryBuffer*> GeometryBuffer::s_written[GeometryBuffer::kWrittenRing] = {};
 	GeometryBuffer::GeometryBuffer() : DataLength(0) {}
 
 	GeometryBuffer::GeometryBuffer(const uint32 bufferType, const uint32 bufferDraw) : DataLength(0)
@@ -27,14 +29,14 @@ namespace p3d {
 		const uchar* p = (const uchar*)GeometryData;
 		if (p) CpuData.assign(p, p + length); else CpuData.assign(length, 0);
 		DataLength = length;
-		cpuRevision++;
+		cpuRevision++; NoteWritten(this);
 	}
 
 	void GeometryBuffer::InitOwned(std::vector<uchar> &&GeometryData)
 	{
 		DataLength = (uint32)GeometryData.size();
 		CpuData = std::move(GeometryData);
-		cpuRevision++;
+		cpuRevision++; NoteWritten(this);
 	}
 
 	void GeometryBuffer::Update(const void* GeometryData, const uint32 length)
@@ -43,7 +45,7 @@ namespace p3d {
 		if (CpuData.size() != n) CpuData.resize(n);
 		if (GeometryData && n) memcpy(CpuData.data(), GeometryData, n);
 		DataLength = n;
-		cpuRevision++;
+		cpuRevision++; NoteWritten(this);
 	}
 
 	void *GeometryBuffer::Map(const uint32 MappingType)
@@ -52,7 +54,7 @@ namespace p3d {
 	}
 	void GeometryBuffer::Unmap()
 	{
-		cpuRevision++;     // (what was written through Map: changed)
+		cpuRevision++; NoteWritten(this);     // (what was written through Map: changed)
 	}
 
 	namespace Buffer {

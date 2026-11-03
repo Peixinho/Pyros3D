@@ -124,6 +124,8 @@ namespace p3d {
 		const Matrix &GetDrawWorld() const { return (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) ? _DrawWorld : _WorldMatrix; }
 		const Matrix &GetDrawPrvWorld() const { return (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) ? _DrawPrvWorld : _PrvWorldMatrix; }
 		const Vec3 GetDrawWorldPosition() const { return GetDrawWorld().GetTranslation(); }
+		// (where GetDrawWorld reads, without reading it - for a renderer to ask memory for it ahead of the loop that will)
+		const void* DrawWorldHint() const { return s_drawEpoch != 0 ? (const void*)&_DrawWorld : (const void*)&_WorldMatrix; }
 		const Vec3 &GetDrawScale() const { return (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) ? _DrawScale : _Scale; }
 		f32 GetDrawRadiusWorldSpace() const { return (_DrawTakenAt == s_drawEpoch && s_drawEpoch != 0) ? _DrawRadius : BoundingSphereRadiusWorldSpace; }
 		// (Whether copies are in use is a setting that can change while running:
