@@ -134,10 +134,18 @@ namespace p3d {
 		const Matrix &world = rc->GetOwner()->GetWorldTransformation();
 		Kept &k = kept[rc];
 		k.lastUsed = frame;
-		if (k.triangles.empty() || memcmp(&k.world, &world, sizeof(Matrix)) != 0)
+		if (!k.made || memcmp(&k.world, &world, sizeof(Matrix)) != 0)
 		{
+			k.made = true;
 			k.world = world;
 			k.triangles.clear();
+			// Its biggest triangles only - the walls, floors and roof, kKeptTriangles at most, none smaller than a
+			// share of its size: a house drawn whole was thousands of window frames and mouldings, the 80000 triangles a
+			// frame were 3 ms of the CPU's, and they hide next to nothing a wall does not. Fewer triangles can only hide
+			// less, never what is seen: the holes stay holes.
+			struct Tri { Vec3 a, b, c; f32 area; };
+			std::vector<Tri> all;
+			const f32 r = std::max(rc->GetOwner()->GetBoundingSphereRadiusWorldSpace(), 0.01f), least = (r * 0.03f) * (r * 0.03f);
 			const std::vector<RenderingMesh*> &meshes = rc->GetMeshes(OccluderLevel(rc));
 			for (size_t m = 0; m < meshes.size(); m++)
 			{
@@ -146,9 +154,19 @@ namespace p3d {
 				for (size_t i = 0; i + 2 < idx.size(); i += 3)
 				{
 					if (idx[i] >= pos.size() || idx[i + 1] >= pos.size() || idx[i + 2] >= pos.size()) continue;
-					for (int v = 0; v < 3; v++) k.triangles.push_back((world * Vec4(pos[idx[i + v]], 1.f)).xyz());
+					Tri t;
+					t.a = (world * Vec4(pos[idx[i]], 1.f)).xyz(); t.b = (world * Vec4(pos[idx[i + 1]], 1.f)).xyz(); t.c = (world * Vec4(pos[idx[i + 2]], 1.f)).xyz();
+					t.area = (t.b - t.a).cross(t.c - t.a).magnitude() * 0.5f;
+					if (t.area >= least) all.push_back(t);
 				}
 			}
+			if (all.size() > kKeptTriangles)
+			{
+				std::nth_element(all.begin(), all.begin() + kKeptTriangles, all.end(), [](const Tri &x, const Tri &y) { return x.area > y.area; });
+				all.resize(kKeptTriangles);
+			}
+			k.triangles.reserve(all.size() * 3);
+			for (const Tri &t : all) { k.triangles.push_back(t.a); k.triangles.push_back(t.b); k.triangles.push_back(t.c); }
 		}
 		const uint32 n = (uint32)(k.triangles.size() / 3);
 		for (uint32 t = 0; t < n; t++)

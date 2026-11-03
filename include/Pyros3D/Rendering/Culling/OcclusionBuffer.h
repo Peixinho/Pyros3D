@@ -32,7 +32,8 @@ namespace p3d {
 		static const uint32 kWidth = 256;
 		static const uint32 kHeight = 128;          // (one to a line: MSVC refuses the second of two declared together in an exported class - C2487)
 		static const uint32 kMaxOccluders = 64;
-		static const uint32 kTriangleBudget = 80000;
+		static const uint32 kTriangleBudget = 16000;
+		static const uint32 kKeptTriangles = 600;            // (of an occluder, its biggest are drawn: its walls, not its window frames)
 		static const uint32 kMaxOccluderTriangles = 20000;  // (a thing of more is not an occluder)
 
 		// On unless said (PYROS_OCCLUSION=0, or this): a process-wide switch.
@@ -72,7 +73,7 @@ namespace p3d {
 		// depth[k] each 2x2 of depth[k-1] as its farthest - what a rectangle is asked against
 		std::vector<std::vector<f32> > depth;
 		// world-space triangles of the occluders, while their objects stay put
-		struct Kept { Matrix world; std::vector<Vec3> triangles; uint32 lastUsed = 0; };
+		struct Kept { Matrix world; std::vector<Vec3> triangles; uint32 lastUsed = 0; bool made = false; };     // (made: its triangles chosen - none may be left)
 		std::map<RenderingComponent*, Kept> kept;
 		// whether a thing may occlude, at all (what it is made of does not change): asked once
 		std::map<RenderingComponent*, bool> canOcclude;

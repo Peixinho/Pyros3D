@@ -1424,10 +1424,10 @@ namespace p3d {
 
 	gfx::BindGroup SceneRenderer::SurfaceGroupFor(const gfx::Pipeline layoutOf, const std::array<gfx::Texture, 5> &maps)
 	{
-		PYROS_PROFILE_SCOPE("R.SurfaceGroupFor");
 		const std::array<uint32_t, 5> key = { maps[0].id, maps[1].id, maps[2].id, maps[3].id, maps[4].id };
 		std::map<std::array<uint32_t, 5>, gfx::BindGroup>::iterator i = surfaceGroups.find(key);
 		if (i != surfaceGroups.end()) return i->second;
+		PYROS_PROFILE_SCOPE("R.SurfaceGroupFor");     // (where it makes one: a scope over every lookup was a cost of its own)
 		gfx::Device::BindGroupEntry e[25];
 		e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
 		e[1].binding = 1; e[1].buffer = lightData; e[1].size = kLightDataSlot;
@@ -2208,6 +2208,7 @@ namespace p3d {
 		PYROS_PROFILE_SCOPE("R.PrepareSunShadow");
 		ShadowData sd = {};
 		sunShadowOn = false;
+		lastSunShadowFar = 0.f;     // (none, unless the sun below casts: Gather's next frame keeps off-screen casters this far)
 		// The clouds' shadow map: where it lies and how dark (none until it is made)
 		sd.cloudGrid[0] = cloudGrid[0]; sd.cloudGrid[1] = cloudGrid[1]; sd.cloudGrid[2] = 1.f / cloudGrid[2]; sd.cloudGrid[3] = cloudShadowOn ? cloudShadow : 0.f;
 		// (the reflections: only once there is a last frame's picture to find things in)
@@ -2245,6 +2246,7 @@ namespace p3d {
 			sun->GetLightRadianceNow(&toLight);
 			const Vec3 l = toLight.normalize() * -1.f;                       // (the way the light goes)
 			const f32 shadowDistance = std::min(std::max(sun->GetShadowFar(), 10.f), 1000.f);
+			lastSunShadowFar = shadowDistance; lastSunGoes = l;
 			// (a shadow falls at most this many of its caster's sizes beyond it: the sun's slant - long when it is low)
 			shadowStretch = std::sqrt(std::max(0.f, 1.f - l.y * l.y)) / std::max(std::fabs(l.y), 0.15f);
 			shadowEye = view.cameraWorld.GetTranslation(); shadowForward = forward;
@@ -2473,9 +2475,9 @@ namespace p3d {
 
 	SceneRenderer::InstancesGpu* SceneRenderer::InstancesFor(RenderingInstancedComponent* rc, MeshGpu* mesh)
 	{
-		PYROS_PROFILE_SCOPE("R.InstancesFor");
 		InstancesGpu &g = instanceBuffers[rc];
 		if (g.buffer && g.revision == rc->instanceRevision && g.count == rc->transform.size()) return &g;
+		PYROS_PROFILE_SCOPE("R.InstancesFor");     // (only where there is work: the scope itself was its cost, a thousand times a frame)
 		if (rc->transform.empty()) return nullptr;     // (instances the GPU fills - not read back here)
 		const bool tinted = rc->instanceColor.size() == rc->transform.size();
 		std::vector<Instance> data(rc->transform.size());
@@ -4197,9 +4199,9 @@ namespace p3d {
 
 	SceneRenderer::CustomSurface* SceneRenderer::SurfaceFor(CustomShaderMaterial* material, uint64 &hash)
 	{
-		PYROS_PROFILE_SCOPE("R.SurfaceFor");
 		SurfaceRef &ref = surfaceRefs[material];
 		if (ref.revision == material->GetSurfaceRevision() && ref.materialId == material->GetInternalID()) { hash = ref.hash; return ref.surface; }
+		PYROS_PROFILE_SCOPE("R.SurfaceFor");
 		ref.revision = material->GetSurfaceRevision(); ref.surface = nullptr; ref.materialId = material->GetInternalID();
 		const std::string &source = material->GetSurfaceSource();
 		hash = 14695981039346656037ull;
@@ -4249,9 +4251,9 @@ namespace p3d {
 
 	gfx::Pipeline SceneRenderer::CustomPipeline(const CustomKey &key, CustomSurface* cs)
 	{
-		PYROS_PROFILE_SCOPE("R.CustomPipeline");
 		std::map<CustomKey, gfx::Pipeline>::iterator i = customPipelines.find(key);
 		if (i != customPipelines.end()) return i->second;
+		PYROS_PROFILE_SCOPE("R.CustomPipeline");
 		gfx::GraphicsPipelineDesc p;
 		p.vertex = key.instanced ? (cs->vertexInstanced ? cs->vertexInstanced : surfaceInstVS)
 			: key.skinned ? (cs->vertexSkinned ? cs->vertexSkinned : surfaceSkinVS) : (cs->vertex ? cs->vertex : surfaceVS);
@@ -4296,7 +4298,12 @@ namespace p3d {
 
 	gfx::BindGroup SceneRenderer::CustomGroupFor(CustomShaderMaterial* m, CustomSurface* cs, gfx::Pipeline layoutOf, const bool prepass)
 	{
+		// (looked at once a frame for each material: it was asked for by every object drawn with it - each time two vectors
+		// made and its sampler names compared as strings, thousands of times a frame on an island of rocks)
+		CustomGroup &g = (prepass ? customPrepassGroups : customGroups)[m];
+		if (g.group && g.checkedFrame == frameNumber && g.revision == m->GetSurfaceRevision() && g.materialId == m->GetInternalID()) return g.group;
 		PYROS_PROFILE_SCOPE("R.CustomGroupFor");
+		g.checkedFrame = frameNumber;
 		// (its textures, by the names its surface reads them by - the material's AddSampler() names)
 		std::vector<gfx::Texture> tex(cs->textures.size(), white);
 		const std::vector<std::string> &names = m->GetSamplerNames();
@@ -4304,7 +4311,6 @@ namespace p3d {
 			for (size_t k = 0; k < names.size() && k < m->textures.size(); k++)
 				if (names[k] == cs->textures[t]) tex[t] = TextureFor(m->textures[k].get(), false, white);     // (as stored: a surface decodes its colours itself - p3d_DecodeSRGB)
 		std::vector<uint32_t> ids; for (const gfx::Texture &t : tex) ids.push_back(t.id);
-		CustomGroup &g = (prepass ? customPrepassGroups : customGroups)[m];
 		if (g.group && g.textures == ids && g.revision == m->GetSurfaceRevision() && g.materialId == m->GetInternalID()) return g.group;
 		if (g.group) device->Destroy(g.group);
 		g.materialId = m->GetInternalID();
@@ -4364,9 +4370,9 @@ namespace p3d {
 		if (!scene) return;
 		// Sprites and 2D lines that changed since the scene was last drawn get their quads now, and their batches
 		// re-merge; levels of detail made since are given - before the meshes below are listed (as the old renderer did)
-		Sprite2D::FlushScene(scene);
+		{ PYROS_PROFILE_SCOPE("G.Flush"); Sprite2D::FlushScene(scene);
 		Line2D::FlushScene(scene);
-		RenderingComponent::PollAutomaticLODs();
+		RenderingComponent::PollAutomaticLODs(); }
 		const Vec3 eye = view.cameraWorld.GetTranslation();
 		const Vec3 sortForward = (view.cameraWorld * Vec4(0.f, 0.f, -1.f, 0.f)).xyz().normalize();     // (the way the camera looks)
 		// The frustum's planes, from the view-projection's rows (column-major: row r is m[r], m[4 + r], m[8 + r], m[12 + r]):
@@ -4379,10 +4385,54 @@ namespace p3d {
 		for (int k = 0; k < 5; k++) cullPlanes[k] = planes[k];
 		cullEye = view.cameraWorld.GetTranslation();
 		cullPlanes[5] = Vec4(0.f, 0.f, 0.f, 1e30f);     // (no far plane: reversed Z, infinite)
+		// What is worth listing at all: what is in view, or casts a shadow that can reach a shadow drawn - the sun's out to its
+		// shadow distance (its reach beyond its caster as the cascades take it), a lamp's within its reach. Everything was listed
+		// - an island's 16000 meshes made into draw items every frame, two thirds of them neither seen nor shadowing anything that
+		// is drawn - and Gather was a quarter of the main thread. (Last frame's shadows say how far: the first frame keeps all;
+		// and all of it with traced rays, which see what is off-screen.)
+		static const bool gatherAll = getenv("PYROS_GATHER_ALL") && getenv("PYROS_GATHER_ALL")[0] == '1';     // (to compare: every mesh listed, as before)
+		const bool keepAll = gatherAll || !cullingOn || lastSunShadowFar < 0.f || RtShadows() || RtReflections();
+		// (squared distances only: asked of every component, every frame)
+		auto needed = [&](const Vec3 &c, const f32 r, const bool caster) -> bool {
+			if (keepAll) return true;
+			bool inView = true;
+			for (const Vec4 &p : planes) if (p.x * c.x + p.y * c.y + p.z * c.z + p.w < -r) { inView = false; break; }
+			if (inView) return true;
+			if (!caster) return false;
+			const f32 dx = c.x - eye.x, dy = c.y - eye.y, dz = c.z - eye.z, d2 = dx * dx + dy * dy + dz * dz;
+			if (lastSunShadowFar > 0.f)
+			{
+				// (its sphere swept along the sun's way, down to the lowest thing drawn: where that does not cross the view - out to
+				// the shadow distance - its shadow falls on nothing seen. By distance alone everything round the eye was kept, what
+				// is behind it with the sun behind it too)
+				const f32 run = std::min(std::max(0.f, c.y + r - shadowFloorY) / shadowLightDown, 4.f * lastSunShadowFar);
+				const Vec3 e2(c.x + lastSunGoes.x * run, c.y + lastSunGoes.y * run, c.z + lastSunGoes.z * run);
+				bool crosses = true;
+				for (const Vec4 &p : planes)
+					if (p.x * c.x + p.y * c.y + p.z * c.z + p.w < -r && p.x * e2.x + p.y * e2.y + p.z * e2.z + p.w < -r) { crosses = false; break; }
+				if (crosses)
+				{
+					// (and the far side: what is seen of its shadow is within the shadow distance)
+					const f32 far = sortForward.dotProduct(eye) + lastSunShadowFar;
+					if (sortForward.dotProduct(c) - r > far && sortForward.dotProduct(e2) - r > far) crosses = false;
+				}
+				if (crosses) return true;
+			}
+			for (const LocalTile &t : localTiles)
+			{
+				if (t.ortho) { const f32 w = 3.f * t.halfSize + 100.f + r; if (d2 < w * w) return true; }
+				else
+				{
+					const f32 lx = c.x - t.position.x, ly = c.y - t.position.y, lz = c.z - t.position.z, w = t.farZ + r;
+					if (lx * lx + ly * ly + lz * lz < w * w) return true;
+				}
+			}
+			return false;
+		};
 		// (the scene lists each component's first level; a component at another level is drawn from its own list of it)
 		std::vector<RenderingMesh*> chosen;
-		std::unordered_set<RenderingComponent*> done;
-		done.reserve(1024);
+		static uint64 gatherSerial = 0;
+		const uint64 serial = ++gatherSerial;     // (a component listed twice in a gather: its mark this serial - a set of them made each frame was most of a millisecond)
 		lodFades.clear();
 		instanceLodPicks.clear();
 		lodClock = std::chrono::duration<f64>(std::chrono::steady_clock::now().time_since_epoch()).count();
@@ -4396,6 +4446,7 @@ namespace p3d {
 		// of the level the old renderer last chose, and none of one it put past its last level (an Erangel terrain tile,
 		// set so by a view of another renderer, was never drawn again). A model with none gets its own the first time it
 		// is seen, as the old renderer gives them; the level by the distance to its sphere (past its last: its last)
+		FrameProfiler::Instance().Begin("G.Levels");
 		if (lodOn)
 			for (RenderingComponent* rc : scene->GetRenderingComponents())
 			{
@@ -4404,7 +4455,8 @@ namespace p3d {
 				if (!rc || !rc->GetOwner() || !rc->IsActive() || rc->GetRenderLayer() != RenderLayer::World || rc->GetComponentType() == ComponentType::ParticleSystem) continue;
 				if (!rc->HasLOD()) rc->TryAutomaticLODs();
 				rc->TryAutomaticImpostor();     // (an impostor as its last level - ImpostorBank)
-				if (!rc->HasLOD() || !done.insert(rc).second) continue;
+				if (!rc->HasLOD() || rc->gatherMark == serial) continue;
+				rc->gatherMark = serial;
 				// Its level by its distance - with a little room either way (5%), so one hovering at a hand-over does not
 				// switch back and forth - and when it changes, the two levels dissolved into each other over a quarter of a
 				// second on the moving dither (common.glsl's LodDither), then the new one alone: nothing rests half-way,
@@ -4446,6 +4498,8 @@ namespace p3d {
 				for (RenderingMesh* m : rc->GetMeshes(level)) { chosen.push_back(m); if (crossfade) lodFades[m] = -std::max(t, 0.001f); }
 				if (crossfade) for (RenderingMesh* m : rc->GetMeshes(ls.from)) { chosen.push_back(m); lodFades[m] = std::max(t, 0.001f); }
 			}
+		FrameProfiler::Instance().End();
+		FrameProfiler::Instance().Begin("G.Meshes");
 		for (RenderingMesh* base : scene->GetRenderingMeshes())
 		{
 			if (!base || !base->renderingComponent || !base->renderingComponent->GetOwner()) continue;
@@ -4462,6 +4516,8 @@ namespace p3d {
 			if (!rc->HasLOD() || !lodOn) { chosen.push_back(base); continue; }
 		}
 
+		FrameProfiler::Instance().End();
+		FrameProfiler::Instance().Begin("G.Items");
 		for (RenderingMesh* rm : chosen)
 		{
 			if (!rm || !rm->Active || !rm->Geometry || !rm->renderingComponent || !rm->renderingComponent->GetOwner()) continue;
@@ -4580,13 +4636,14 @@ namespace p3d {
 				WorldSphere(it.gpu->center, it.gpu->radius, it.model, it.center, it.radius);
 			it.distance = (it.center - eye).magnitude();
 			it.caster = rc->IsCastingShadows();
+			if (!md.movesItself && !needed(it.center, it.radius, it.caster && !md.impostor)) continue;
 			it.transparent = md.transparent;
 			it.alphaCut = md.alphaCut;
 			if (it.alphaCut) it.baseMap = md.baseMap;     // (the shadow's cut, and the depth prepass's)
 			it.impostor = md.impostor;
 			it.lodLevel = rm->LodLevel;
 			{
-				const std::unordered_map<RenderingMesh*, InstanceLodPick>::const_iterator p = instanceLodPicks.find(rm);
+				const std::unordered_map<RenderingMesh*, InstanceLodPick>::const_iterator p = instancedComponent && !instanceLodPicks.empty() ? instanceLodPicks.find(rm) : instanceLodPicks.end();
 				if (p != instanceLodPicks.end() && instancedComponent)
 				{
 					it.instanceLod = p->second.range;
@@ -4596,7 +4653,7 @@ namespace p3d {
 			}
 			if (it.impostor) it.caster = false;     // (a far tree's picture: its shadow would be its quad's)
 			{
-				const std::unordered_map<RenderingMesh*, f32>::const_iterator f = lodFades.find(rm);
+				const std::unordered_map<RenderingMesh*, f32>::const_iterator f = lodFades.empty() ? lodFades.end() : lodFades.find(rm);
 				// (a level mid crossfade: drawn as the alpha-cut are - its cut, then its light at that depth - opaque, plain
 				// materials only: the rest switch as before)
 				// (an instanced set dissolving plants - thinned, or past their fade: drawn as the alpha-cut are, so the cut and
@@ -4701,7 +4758,9 @@ namespace p3d {
 			}
 			items.push_back(it);
 		}
+		FrameProfiler::Instance().End();
 		HideOccluded(scene, view, ProjectionFor(view));
+		FrameProfiler::Instance().Begin("G.Tail");
 		// The big instanced sets seen: culled on the GPU (RecordInstanceCull) - their buffers for this frame in flight
 		if (device->PipelineReady(instanceCullPipeline))
 		{
@@ -4786,13 +4845,14 @@ namespace p3d {
 			return x.gpu < y.gpu;
 		});
 		std::sort(particleSystems.begin(), particleSystems.end(), [](const std::pair<f32, ParticleSystem*> &a, const std::pair<f32, ParticleSystem*> &b) { return a.first > b.first; });
+		FrameProfiler::Instance().End();
 	}
 
 	gfx::Pipeline SceneRenderer::SurfacePipeline(const PipelineKey &key)
 	{
-		PYROS_PROFILE_SCOPE("R.SurfacePipeline");
 		std::map<PipelineKey, gfx::Pipeline>::iterator i = surfacePipelines.find(key);
 		if (i != surfacePipelines.end()) return i->second;
+		PYROS_PROFILE_SCOPE("R.SurfacePipeline");
 		gfx::GraphicsPipelineDesc p;
 		p.vertex = key.impostor ? (key.instanced ? surfaceImpostorVS : surfaceImpostorPlainVS) : key.instanced ? (key.vertexColor ? surfaceInstColorVS : surfaceInstVS) : key.skinned ? surfaceSkinVS : key.vertexColor ? surfaceColorVS : surfaceVS;
 		p.fragment = key.impostor ? surfaceImpostorFS : key.cut == 1 ? alphaCutFS : key.cut == 2 ? surfaceNoCutFS : surfaceFS;

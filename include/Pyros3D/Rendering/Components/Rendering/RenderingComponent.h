@@ -711,6 +711,8 @@ namespace p3d {
 			minBounds = renderable->GetBoundingMinValue();
 		}
 
+		uint64 gatherMark = 0;     // (SceneRenderer::Gather's: listed already in this gather)
+
 		// Whether any levels beyond the first were given.
 		bool HasLOD() const { return LOD; }
 		// The highest level of detail it has (0 with none)

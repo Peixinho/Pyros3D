@@ -415,7 +415,7 @@ namespace p3d {
 			uint64 surface; uint8 cull, blend, instanced, skinned = 0;
 			bool operator<(const CustomKey &o) const { return surface != o.surface ? surface < o.surface : cull != o.cull ? cull < o.cull : blend != o.blend ? blend < o.blend : instanced != o.instanced ? instanced < o.instanced : skinned < o.skinned; }
 		};
-		struct CustomGroup { gfx::BindGroup group; uint32 revision = 0xFFFFFFFFu; std::vector<uint32_t> textures; uint32 materialId = 0xFFFFFFFFu; };
+		struct CustomGroup { gfx::BindGroup group; uint32 revision = 0xFFFFFFFFu; std::vector<uint32_t> textures; uint32 materialId = 0xFFFFFFFFu; uint64 checkedFrame = ~0ull; };
 		CustomSurface* SurfaceFor(CustomShaderMaterial* material, uint64 &hash);
 		// (SPIR-V - or, in a browser build, its WGSL - of one stage of a surface: from the cache, else compiled)
 		bool SurfaceProgram(const std::string &text, const gfx::Stage stage, std::vector<uint32> &spirv, std::string &wgsl, std::string &error);
@@ -571,6 +571,8 @@ namespace p3d {
 		gfx::Sampler shadowCompare;
 		Matrix cascadeMatrix[4];
 		f32 cascadeRadius[4] = {}, cascadeNear[4] = {}, cascadeFar[4] = {};
+		Vec3 lastSunGoes = Vec3(0.f, -1.f, 0.f);     // (the way the sun's light went last frame)
+		f32 lastSunShadowFar = -1.f;     // (the sun's shadow distance last frame, 0 for none: what Gather keeps off-screen for shadows; -1 until known)
 		Vec3 shadowEye, shadowForward; f32 shadowStretch = 1.f;     // (how far a shadow reaches beyond its caster, per its size)
 		f32 shadowLightForward = 0.f, shadowLightDown = 1.f, shadowFloorY = 0.f;     // (the light's steepness; the lowest anything drawn reaches - how far a shadow can run)     // (the light's way along the view's: + away from the eye - a shadow runs down the cascades, - up them)
 		bool sunShadowOn = false;
