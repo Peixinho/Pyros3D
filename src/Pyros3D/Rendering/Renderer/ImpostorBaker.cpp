@@ -342,7 +342,12 @@ namespace p3d {
 
 	namespace
 	{
-		struct BankItem { int state = 0; ImpostorBank::Entry entry; std::string path; std::shared_ptr<IMaterial> material; };     // (state: 0 asked, 1 made, 2 could not be)
+		// (state: 0 asked, 1 made, 2 could not be, 3 its cached pictures being read on a thread - `reading`)
+		struct BankItem
+		{
+			int state = 0; ImpostorBank::Entry entry; std::string path; std::shared_ptr<IMaterial> material;
+			std::shared_future<std::shared_ptr<OctahedralImpostorBake> > reading; std::string base;
+		};
 		std::mutex bankMutex;
 		std::map<std::string, BankItem> bankItems;     // (by MaterialKey: the model and the material's values)
 		std::vector<std::string> bankQueue;
@@ -476,22 +481,31 @@ namespace p3d {
 			e.radius = radius; e.centre = centre;
 			return true;
 		}
-		bool LoadCached(const std::string &path, const std::string &look, const std::shared_ptr<IMaterial> &material, ImpostorBank::Entry &e)
+		// Where the cached impostor is and what it is (its .txt), without its pictures: base, radius, centre, frames
+		bool CachedDescription(const std::string &path, const std::string &look, std::string &base, f32 &radius, f32 &centre, uint32 &frames)
 		{
-			std::string base = BankKey(path, look);
-			f32 radius = 0.f, centre = 0.f; uint32 frames = 0;
+			base = BankKey(path, look);
 			auto read = [&](const std::string &b) { std::ifstream in(b + ".txt"); return (bool)(in >> radius >> centre >> frames) && radius > 0.f && frames >= 2; };
-			if (!read(base))
-			{
-				// (else the ones the game ships with: an impostor-cache folder beside it, made where the game was packaged -
-				// the same names on every machine and install, see BankKey)
-				namespace fs = std::filesystem;
-				const std::string shipped = (fs::path("impostor-cache") / fs::path(base).filename()).string();
-				if (!read(shipped)) return false;
-				base = shipped;
-			}
-			if (std::getenv("PYROS_IMPOSTOR_LOG")) fprintf(stderr, "[renderer] impostor cached %s <- %s\n", base.c_str(), path.c_str());
-			return MakeEntry(e, base, radius, centre, frames, material);
+			if (read(base)) return true;
+			namespace fs = std::filesystem;
+			const std::string shipped = (fs::path("impostor-cache") / fs::path(base).filename()).string();
+			if (!read(shipped)) return false;
+			base = shipped;
+			return true;
+		}
+		// Its two pictures decoded on a thread (two 1536 squares from PNG: 50 ms, in the frame a far tree first wanted one)
+		std::shared_future<std::shared_ptr<OctahedralImpostorBake> > ReadCachedLater(const std::string &base, const f32 radius, const f32 centre, const uint32 frames)
+		{
+			return std::async(std::launch::async, [base, radius, centre, frames]() {
+				std::shared_ptr<OctahedralImpostorBake> b = std::make_shared<OctahedralImpostorBake>();
+				Texture::DecodedImage a, n;
+				if (!Texture::DecodeFile(base + "_albedo.png", a) || !Texture::DecodeFile(base + "_normal.png", n) || a.width <= 0 || a.width != a.height || n.width != a.width || n.height != a.height)
+					return std::shared_ptr<OctahedralImpostorBake>();
+				b->frames = frames; b->size = (uint32)a.width / frames; b->radius = radius; b->centre = centre; b->fullSphere = true;
+				if (b->size * frames != (uint32)a.width) return std::shared_ptr<OctahedralImpostorBake>();
+				b->albedo = std::move(a.pixels); b->normals = std::move(n.pixels);
+				return b;
+			}).share();
 		}
 	}
 
@@ -510,8 +524,23 @@ namespace p3d {
 			i = bankItems.insert(std::make_pair(key, BankItem())).first;
 			if (std::getenv("PYROS_IMPOSTOR_LOG")) fprintf(stderr, "[renderer] impostor asked for: %s\n", key.c_str());
 			i->second.path = modelPath; i->second.material = material;
-			if (LoadCached(modelPath, key, material, i->second.entry)) i->second.state = 1;      // (made on an earlier run)
+			// (made on an earlier run: its pictures read on a thread, the model drawn as it is till then)
+			f32 radius = 0.f, centre = 0.f; uint32 frames = 0;
+			if (CachedDescription(modelPath, key, i->second.base, radius, centre, frames))
+			{
+				if (std::getenv("PYROS_IMPOSTOR_LOG")) fprintf(stderr, "[renderer] impostor cached %s <- %s\n", i->second.base.c_str(), modelPath.c_str());
+				i->second.reading = ReadCachedLater(i->second.base, radius, centre, frames);
+				i->second.state = 3;
+			}
 			else bankQueue.push_back(key);
+		}
+		if (i->second.state == 3 && i->second.reading.valid() && i->second.reading.wait_for(std::chrono::seconds(0)) == std::future_status::ready)
+		{
+			std::shared_ptr<OctahedralImpostorBake> b = i->second.reading.get();
+			i->second.reading = std::shared_future<std::shared_ptr<OctahedralImpostorBake> >();
+			// (read: its textures made from its pixels; unreadable, baked again)
+			if (b && MakeEntry(i->second.entry, i->second.base, b->radius, b->centre, b->frames, material, b.get())) i->second.state = 1;
+			else { i->second.state = 0; bankQueue.push_back(key); }
 		}
 		return i->second.state == 1 ? &i->second.entry : nullptr;
 	}

@@ -551,7 +551,10 @@ namespace p3d {
 		static void PrimitiveArrays(IGeometry* g, AttributeSource &pos, AttributeSource &nor, AttributeSource &uv);
 		static void IndicesOf(IGeometry* g, const uint32* &data, size_t &count);
 		// A texture's GPU copy (made from its CPU pixels, mips built here), or `fallback` while it has none
-		gfx::Texture TextureFor(Texture* texture, const bool srgb, const gfx::Texture fallback);
+		// (deferrable - a material's map: past this frame's budget for making textures, the fallback this frame and the
+		// texture on a later one - textureDeferred says so; PYROS_TEXTURE_BUDGET_MS, 4 by default)
+		gfx::Texture TextureFor(Texture* texture, const bool srgb, const gfx::Texture fallback, const bool deferrable = false);
+		f64 textureMsThisFrame = 0.0; bool textureDeferred = false;
 		// (a material's texture destroyed - remade: every group made with it forgotten too, the ones kept by its id above all -
 		// its id handed out again, a group found by it read the old one's view, destroyed)
 		void ForgetTexture(const gfx::Texture t);
@@ -717,6 +720,7 @@ namespace p3d {
 			Texture* maps[5] = { nullptr, nullptr, nullptr, nullptr, nullptr }; uint32 mapRevisions[5] = { 0, 0, 0, 0, 0 };     // (colour, normal, metal-rough, emission, height)
 			gfx::Pipeline pipeline, pipelineInstanced; gfx::BindGroup group; gfx::Texture baseMap;
 			uint32 textureEpoch = 0;     // (SceneRenderer::textureEpoch when its group and baseMap were made: a texture forgotten since, made again)
+			bool texturesPending = false;     // (its group or baseMap made with a fallback for a map not made yet: made again once it is)
 			gfx::Pipeline plain, plainInstanced, cut, cutInstanced;     // (alpha-cut: its one-draw pipelines, and its cut's; `pipeline` its light at the cut's depth)
 			bool instanced = false;
 			Matrix lastModel; uint64 modelFrame = ~0ull;      // (its matrix, and the frame it was drawn with it)

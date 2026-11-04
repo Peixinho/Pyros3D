@@ -43,6 +43,10 @@
 #include <algorithm>
 #include <Pyros3D/Rendering/ColourSpace.h>
 #include <Pyros3D/Rendering/ShaderGlobals.h>
+#include <future>
+#include <mutex>
+#include <thread>
+#include <atomic>
 #include <chrono>
 #include <set>
 #include <unordered_set>
@@ -1261,7 +1265,7 @@ namespace p3d {
 		device->Destroy(t);
 	}
 
-	gfx::Texture SceneRenderer::TextureFor(Texture* source, const bool srgb, const gfx::Texture fallback)
+	gfx::Texture SceneRenderer::TextureFor(Texture* source, const bool srgb, const gfx::Texture fallback, const bool deferrable)
 	{
 		if (!source) return fallback;
 		// (a SceneView's: its picture, as it was last drawn)
@@ -1275,7 +1279,12 @@ namespace p3d {
 		// (another texture made where a freed one was: not its pixels)
 		if (g.textureId != source->GetInstanceID()) { g.revision = 0xFFFFFFFFu; g.textureId = source->GetInstanceID(); }
 		if (g.texture && g.revision == source->GetCpuRevision()) return g.texture;
+		// A frame's budget for making textures: a material's map past it is made on a later frame, the fallback drawn
+		// meanwhile. (Landing in a town, 156 maps were made in one frame: 2.4 s with the game stood still.)
+		static const f64 budgetMs = getenv("PYROS_TEXTURE_BUDGET_MS") ? atof(getenv("PYROS_TEXTURE_BUDGET_MS")) : 4.0;
+		if (deferrable && budgetMs > 0.0 && textureMsThisFrame >= budgetMs) { textureDeferred = true; return g.texture ? g.texture : fallback; }
 		PYROS_PROFILE_SCOPE("R.TextureFor");     // (past the cache: asked for every mesh of the HUD, every frame, its timer was its cost)
+		struct Spent { f64 &ms; std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now(); ~Spent() { ms += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count(); } } spent{ textureMsThisFrame };
 		const std::vector<uchar>* pixels = source->GetCpuPixels(source->GetTextureType(), 0);
 		const uint32 w = source->GetWidth(0), h = source->GetHeight(0);
 		if (!pixels || w == 0 || h == 0) return g.texture ? g.texture : fallback;
@@ -1335,6 +1344,32 @@ namespace p3d {
 		// one whose size is not whole blocks: WebGPU takes no other.)
 		if (device->Caps().bc && w % 4 == 0 && h % 4 == 0 && !getenv("PYROS_NO_BLOCKS"))
 		{
+			// (not in the cache yet - a picture new since the game was last run, or the warm-up not come to it: its blocks
+			// made on a thread, the fallback drawn till then. Made here, one big map held a frame 100 ms)
+			if (deferrable && source->wantsBlocks && !source->IsDataMap() && !source->GetFilename().empty() && Texture::GetCompression())
+			{
+				static std::mutex encMutex;
+				static std::map<std::string, std::shared_future<bool> > encoding;
+				const std::string name = source->GetFilename();
+				std::lock_guard<std::mutex> l(encMutex);
+				std::map<std::string, std::shared_future<bool> >::iterator e = encoding.find(name);
+				if (e == encoding.end())
+				{
+					if (!Texture::HasCompressedCache(name))
+					{
+						// (a few at once - a town's 156 maps were 156 threads)
+						static std::atomic<int> active(0);
+						static const int most = (int)std::max(2u, std::thread::hardware_concurrency() / 2);
+						if (active.load() < most)
+						{
+							active++;
+							encoding[name] = std::async(std::launch::async, [name]() { const bool ok = Texture::MakeCompressedCache(name); active--; return ok; }).share();
+						}
+						textureDeferred = true; return g.texture ? g.texture : fallback;
+					}
+				}
+				else if (e->second.wait_for(std::chrono::seconds(0)) != std::future_status::ready) { textureDeferred = true; return g.texture ? g.texture : fallback; }
+			}
 			uint32 blockFormat = 0; std::vector<std::vector<uchar> > blocks;
 			// (and only a chain that is this picture's: its first level the size of this one, no more levels than it has - a
 			// cached chain of an earlier picture of the name, another size, asked Metal for 12 levels of a 1664 square and
@@ -4380,6 +4415,7 @@ namespace p3d {
 	void SceneRenderer::Gather(SceneGraph* scene, const View &view, const Matrix &vp)
 	{
 		PYROS_PROFILE_SCOPE("R.Gather");
+		textureMsThisFrame = 0.0;     // (the frame's budget for making textures: TextureFor)
 		items.clear(); opaqueOrder.clear(); transparentOrder.clear(); worldTextOrder.clear();
 		boneScratch.clear();
 		skyboxSource = nullptr;
@@ -4642,7 +4678,7 @@ namespace p3d {
 					md.vertexColor = (md.gm->GetOptions() & ShaderUsage::VertexColor) != 0;
 					const uint32 sf = md.gm->GetBlendingSFactor(), df = md.gm->GetBlendingDFactor();
 					md.blend = (uint8)(df == BlendFunc::One ? gfx::Blend::Additive : sf == BlendFunc::One && df == BlendFunc::One_Minus_Src_Alpha ? gfx::Blend::PremultipliedAlpha : gfx::Blend::Alpha);
-					if (md.alphaCut) md.baseMap = TextureFor(maps[0], true, white);
+					if (md.alphaCut) { textureDeferred = false; md.baseMap = TextureFor(maps[0], true, white, true); md.texturesPending = textureDeferred; }
 				}
 			}
 			if (md.skybox) { skyboxSource = md.skybox; continue; }     // (the scene's background, by direction: not its mesh)
@@ -4784,6 +4820,15 @@ namespace p3d {
 			// added from a script, an FFT sea's - and asking is what writes a float texture's new data. Made once, the sea
 			// drew its first group's white placeholders - its swell 1 m everywhere, the water stood 1.75 m high)
 			if (it.visible && md.group && md.cm && md.pipeline) md.group = CustomGroupFor(md.cm, md.surface, md.pipeline);
+			// (made with a fallback for a map that was past the frame's budget: made again, while there is budget, until it has them all)
+			if (it.visible && md.texturesPending && md.gm && textureMsThisFrame < 4.0)
+			{
+				md.texturesPending = false;
+				textureDeferred = false;
+				if (md.alphaCut) md.baseMap = TextureFor(md.maps[0], true, white, true);
+				if (md.group) md.group = gfx::BindGroup();
+				if (textureDeferred) md.texturesPending = true;
+			}
 			// (its pipelines and bind group: made once, the group once the pipeline is ready)
 			if (it.visible && !md.group)
 			{
@@ -4817,9 +4862,11 @@ namespace p3d {
 					}
 					if (device->PipelineReady(md.plain))
 					{
-						const std::array<gfx::Texture, 5> maps = { TextureFor(md.maps[0], true, white), TextureFor(md.maps[1], false, flatNormal),
-							TextureFor(md.maps[2], false, white), TextureFor(md.maps[3], true, white), TextureFor(md.maps[4], false, white) };
+						textureDeferred = false;
+						const std::array<gfx::Texture, 5> maps = { TextureFor(md.maps[0], true, white, true), TextureFor(md.maps[1], false, flatNormal, true),
+							TextureFor(md.maps[2], false, white, true), TextureFor(md.maps[3], true, white, true), TextureFor(md.maps[4], false, white, true) };
 						md.group = SurfaceGroupFor(md.plain, maps);
+						if (textureDeferred) md.texturesPending = true;     // (a map past the frame's budget: its fallback for now)
 					}
 				}
 			}
