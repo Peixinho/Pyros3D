@@ -323,7 +323,11 @@ namespace p3d {
 				sumWaited = sumWork = sumScoped = sumDevice = 0.0;
 				std::fprintf(gSlowLog, "#   average a frame (ms; # is a counter):");
 				for (std::map<std::string, f64>::const_iterator i = sums.begin(); i != sums.end(); ++i)
-					if (i->second / (f64)frames >= 0.2) std::fprintf(gSlowLog, " %s=%.2f", i->first.c_str(), i->second / (f64)frames);
+				{
+					// (PYROS_PERF_MIN: the least an average is to be written - 0.2 ms; lower to see the small parts)
+					static const f64 least = std::getenv("PYROS_PERF_MIN") ? std::atof(std::getenv("PYROS_PERF_MIN")) : 0.2;
+					if (i->second / (f64)frames >= least) std::fprintf(gSlowLog, " %s=%.2f", i->first.c_str(), i->second / (f64)frames);
+				}
 				std::fprintf(gSlowLog, "\n");
 				sums.clear();
 				std::fflush(gSlowLog);

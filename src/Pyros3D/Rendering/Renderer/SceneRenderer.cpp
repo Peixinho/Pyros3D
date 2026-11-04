@@ -803,11 +803,10 @@ namespace p3d {
 		}
 		static f32 PackHalves(const f32 a, const f32 b) { const uint32_t bits = HalfBits(a) | (HalfBits(b) << 16); f32 f; memcpy(&f, &bits, 4); return f; }
 		// (a plant's sway, as the material says: the same in every pass - and only what sways alike is one instanced draw)
-		static Vec4 WindOf(const GenericShaderMaterial* m) { return m ? m->GetWind() : Vec4(0.f, 0.f, 0.f, 0.f); }
-		static bool SameWind(const GenericShaderMaterial* a, const GenericShaderMaterial* b)
+		// (by the sway each item took of its material as the frame was prepared)
+		template <class Item> static bool SameWind(const Item &a, const Item &b)
 		{
-			const Vec4 x = WindOf(a), y = WindOf(b);
-			return x.x == y.x && x.y == y.y && x.z == y.z && x.w == y.w;
+			return a.wind[0] == b.wind[0] && a.wind[1] == b.wind[1] && a.wind[2] == b.wind[2] && a.wind[3] == b.wind[3];
 		}
 
 		// A sphere in the world: a local one moved and scaled by a transform
@@ -2027,7 +2026,7 @@ namespace p3d {
 			for (uint32 i : opaqueOrder)
 			{
 				const DrawItem &it = items[i];
-				if (it.material && (it.material->GetOptions() & ShaderUsage::AlphaTest) && !(alphaReady && it.alphaCut && it.baseMap && !it.skinned)) continue;
+				if (it.material && it.alphaTestOption && !(alphaReady && it.alphaCut && it.baseMap && !it.skinned)) continue;
 				if (it.lodFade != 0.f && !alphaReady) continue;     // (a crossfade's levels: in the prepass dithered, or not at all)
 				if (it.impostor) continue;     // (its depth is its own stage's: drawn by the lit pass alone)
 				if (it.movesItself) { ownVertices.push_back(i); continue; }     // (drawn by their own vertex stage, below)
@@ -2041,7 +2040,7 @@ namespace p3d {
 				size_t e = k + 1;
 				if (instReady && !it.instances)
 					while (e < depthOrder.size() && items[depthOrder[e]].gpu == it.gpu && !items[depthOrder[e]].instances && !items[depthOrder[e]].moved && !it.moved && !it.skinned && !items[depthOrder[e]].skinned
-						&& SameWind(items[depthOrder[e]].material, it.material) && items[depthOrder[e]].alphaCut == it.alphaCut && it.lodFade == 0.f && items[depthOrder[e]].lodFade == 0.f
+						&& SameWind(items[depthOrder[e]], it) && items[depthOrder[e]].alphaCut == it.alphaCut && it.lodFade == 0.f && items[depthOrder[e]].lodFade == 0.f
 						&& (!it.alphaCut || items[depthOrder[e]].material == it.material)) e++;     // (a batch carries no last-frame matrices: what moved, alone)
 				uint64 batchAt = 0;
 				const uint32 count = (uint32)(e - k);
@@ -2073,16 +2072,14 @@ namespace p3d {
 					f32 models[52] = {};
 					if (cut)
 					{
-						const Vec2 uvScale = di.material->GetUVScale(), uvOffset = di.material->GetUVOffset();
-						models[40] = uvScale.x; models[41] = uvScale.y; models[42] = uvOffset.x; models[43] = uvOffset.y;
-						models[44] = di.alphaCut ? di.material->GetAlphaCutoff() : 0.f;
+						models[40] = di.uv[0]; models[41] = di.uv[1]; models[42] = di.uv[2]; models[43] = di.uv[3];
+						models[44] = di.alphaCut ? di.alphaCutoff : 0.f;
 						models[47] = di.lodFade;     // (a crossfade's dither - depthalpha.frag)
 					}
 					memcpy(models, batch ? identity.m : di.model.m, 64); memcpy(models + 16, batch ? identity.m : di.previousModel.m, 64);
 					models[46] = di.lensCut && lensCutting ? 1.f : 0.f;     // (cut by the screen's lens: its depth not in the glass - depth.vert's alpha.z)
 					models[32] = (f32)di.boneBase; models[33] = drawSeconds; models[34] = drawPreviousSeconds;
-					const Vec4 wind = WindOf(di.material);
-					models[36] = wind.x; models[37] = wind.y; models[38] = wind.z; models[39] = wind.w;
+					models[36] = di.wind[0]; models[37] = di.wind[1]; models[38] = di.wind[2]; models[39] = di.wind[3];
 					if (!batch) memcpy(models + 48, di.shape, sizeof(di.shape));
 					cl->DrawData(models, sizeof(models));
 					if (!batch) { DrawItemGeometry(cl, di, true); continue; }
@@ -2098,19 +2095,13 @@ namespace p3d {
 			for (uint32 i : ownVertices)
 			{
 				const DrawItem &it = items[i];
-				uint64 hash = 0;
-				CustomSurface* cs = it.custom ? SurfaceFor(it.custom, hash) : nullptr;
-				if (!cs) continue;
-				CustomKey key; key.surface = hash; key.cull = (uint8)it.custom->GetCullFace(); key.blend = kPrepassBlend; key.instanced = it.instances ? 1 : 0;
-				key.skinned = it.skinned ? 1 : 0;
-				const gfx::Pipeline pipe = CustomPipeline(key, cs);
-				if (!device->PipelineReady(pipe)) continue;
-				const gfx::BindGroup g = CustomGroupFor(it.custom, cs, pipe, true);
-				cl->SetPipeline(pipe);
-				const uint32 offsets[4] = { frameOffset, slot * kLightDataSlot, slot * kShadowDataSlot, WriteCustomParams(it.custom, cs) };
-				cl->SetBindGroup(g, offsets, 4);
+				// (its pipeline, group and parameters made as the frame was prepared - PrepareItems)
+				if (!it.custom || !it.customPrepass || !it.customPrepassGroup || !device->PipelineReady(it.customPrepass) || it.dataIndex == ~0u) continue;
+				cl->SetPipeline(it.customPrepass);
+				const uint32 offsets[4] = { frameOffset, slot * kLightDataSlot, slot * kShadowDataSlot, it.customParams };
+				cl->SetBindGroup(it.customPrepassGroup, offsets, 4);
 				DrawData dd;
-				FillDrawData(it, false, &dd);
+				memcpy(&dd, &itemData[it.dataIndex], sizeof(dd));
 				cl->DrawData(&dd, sizeof(dd));
 				DrawItemGeometry(cl, it);
 			}
@@ -2467,7 +2458,7 @@ namespace p3d {
 						while (e < visible.size())
 						{
 							const DrawItem &n = items[visible[e]];
-							if (n.gpu != it.gpu || n.instances || n.alphaCut != it.alphaCut || (it.alphaCut && !(n.baseMap == it.baseMap)) || !SameWind(n.material, it.material)) break;
+							if (n.gpu != it.gpu || n.instances || n.alphaCut != it.alphaCut || (it.alphaCut && !(n.baseMap == it.baseMap)) || !SameWind(n, it)) break;
 							e++;
 						}
 					const uint32 count = (uint32)(e - k);
@@ -2500,13 +2491,11 @@ namespace p3d {
 						memcpy(dd.model, model.m, sizeof(dd.model));
 						if (di.alphaCut)
 						{
-							const Vec2 uvScale = di.material->GetUVScale(), uvOffset = di.material->GetUVOffset();
-							dd.uvTransform[0] = uvScale.x; dd.uvTransform[1] = uvScale.y; dd.uvTransform[2] = uvOffset.x; dd.uvTransform[3] = uvOffset.y;
-							dd.alpha[0] = di.material->GetAlphaCutoff();
+							dd.uvTransform[0] = di.uv[0]; dd.uvTransform[1] = di.uv[1]; dd.uvTransform[2] = di.uv[2]; dd.uvTransform[3] = di.uv[3];
+							dd.alpha[0] = di.alphaCutoff;
 						}
 						dd.skin[0] = (f32)di.boneBase; dd.skin[1] = drawSeconds;
-						const Vec4 wind = WindOf(di.material);
-						dd.wind[0] = wind.x; dd.wind[1] = wind.y; dd.wind[2] = wind.z; dd.wind[3] = wind.w;
+						dd.wind[0] = di.wind[0]; dd.wind[1] = di.wind[1]; dd.wind[2] = di.wind[2]; dd.wind[3] = di.wind[3];
 						if (!batch) { dd.shape[0] = di.shape[0]; dd.shape[1] = di.shape[1]; }
 						cl->DrawData(&dd, sizeof(dd));
 						if (!batch) { DrawItemGeometry(cl, di); continue; }
@@ -2627,14 +2616,14 @@ namespace p3d {
 		{
 			cl->SetVertexBuffer(1, it.cullVisible, 0);
 			if (it.skinned) cl->SetVertexBuffer(2, it.gpu->skin, 0);
-			if (it.vertexColor && it.mesh) cl->SetVertexBuffer(3, ColorsFor(it.mesh->Geometry, it.gpu), 0);
+			if (it.vertexColor && it.colors) cl->SetVertexBuffer(3, it.colors, 0);     // (PrepareItems)
 			cl->SetIndexBuffer(it.gpu->indices, 0, true);
 			cl->DrawIndexedIndirect(it.cullArgs, 0, 1);
 			return;
 		}
 		if (it.instances) cl->SetVertexBuffer(1, it.instances, 0);
 		if (it.skinned) cl->SetVertexBuffer(2, it.gpu->skin, 0);
-		if (it.vertexColor && it.mesh) cl->SetVertexBuffer(3, ColorsFor(it.mesh->Geometry, it.gpu), 0);
+		if (it.vertexColor && it.colors) cl->SetVertexBuffer(3, it.colors, 0);     // (PrepareItems)
 		cl->SetIndexBuffer(it.gpu->indices, 0, true);
 		cl->DrawIndexed(it.gpu->indexCount, it.instances ? it.instanceCount : 1, 0, 0, 0);
 	}
@@ -2660,11 +2649,13 @@ namespace p3d {
 		return mesh->colors;
 	}
 
-	void SceneRenderer::DrawUIMesh(gfx::CommandList* cl, RenderingMesh* m, const Matrix &transform, const bool inWorld)
+	// A UI mesh as a command: its buffers, its texture's group, its colour and place - read now, from its material and
+	// geometry, while the scene is still
+	bool SceneRenderer::MakeUICommand(RenderingMesh* m, const Matrix &transform, const bool inWorld, UICommand &out)
 	{
 		GenericShaderMaterial* gm = static_cast<GenericShaderMaterial*>(m->Material.get());
 		MeshGpu* mesh = MeshFor(m->Geometry);
-		if (!mesh) return;
+		if (!mesh || !gm) return false;
 		const uint64 options = gm->GetOptions();
 		const bool text = (options & ShaderUsage::TextRendering) != 0;
 		Texture* source = text ? gm->GetFontMap() : gm->GetColorMap();
@@ -2675,7 +2666,7 @@ namespace p3d {
 			gfx::Device::BindGroupEntry e[2]; e[0].binding = 1; e[0].texture = tex; e[1].binding = 2; e[1].sampler = linearClamp;
 			g = device->CreateBindGroup(uiPipeline, e, 2);
 		}
-		cl->SetBindGroup(g);
+		static_assert(sizeof(UIDrawData) == sizeof(out.dd), "UICommand::dd holds a UIDrawData");
 		UIDrawData dd;
 		memcpy(dd.transform, transform.m, sizeof(dd.transform));
 		// (the material's colour where it has one - not a text's, whose characters carry theirs; the vertices' where
@@ -2685,19 +2676,26 @@ namespace p3d {
 		dd.colour[0] = c.x; dd.colour[1] = c.y; dd.colour[2] = c.z; dd.colour[3] = c.w * gm->GetOpacity();
 		dd.flags[0] = text ? ((options & ShaderUsage::TextSDF) ? 2.f : 1.f) : 0.f;
 		dd.flags[1] = source ? 1.f : 0.f; dd.flags[2] = vertexColours ? 1.f : 0.f; dd.flags[3] = inWorld ? 1.f : 0.f;
-		cl->DrawData(&dd, sizeof(dd));
-		cl->SetVertexBuffer(0, mesh->vertices, 0);
-		cl->SetVertexBuffer(1, ColorsFor(m->Geometry, mesh), 0);
-		cl->SetIndexBuffer(mesh->indices, 0, true);
-		cl->DrawIndexed(mesh->indexCount, 1, 0, 0, 0);
+		memcpy(out.dd, &dd, sizeof(dd));
+		out.mesh = mesh; out.group = g; out.colors = ColorsFor(m->Geometry, mesh);
+		return true;
 	}
 
-	void SceneRenderer::RecordUI(gfx::CommandList* cl, SceneGraph* scene, const uint32 width, const uint32 height)
+	void SceneRenderer::DrawUIMesh(gfx::CommandList* cl, const UICommand &c)
 	{
-		if (!scene || !device->PipelineReady(uiPipeline)) return;
+		cl->SetBindGroup(c.group);
+		cl->DrawData(c.dd, sizeof(c.dd));
+		cl->SetVertexBuffer(0, c.mesh->vertices, 0);
+		cl->SetVertexBuffer(1, c.colors, 0);
+		cl->SetIndexBuffer(c.mesh->indices, 0, true);
+		cl->DrawIndexed(c.mesh->indexCount, 1, 0, 0, 0);
+	}
+
+	// A scene's UI, solved and made into commands (RecordUI draws them): canvases laid out, each mesh's clip and place
+	void SceneRenderer::PrepareUI(SceneGraph* scene, const uint32 width, const uint32 height)
+	{
+		if (!scene || !uiReady) return;
 		std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
-		if (canvases.empty()) return;
-		cl->SetPipeline(uiPipeline);
 		for (UICanvas* canvas : canvases)
 		{
 			canvas->Solve(width, height);
@@ -2716,17 +2714,30 @@ namespace p3d {
 				if (!m || !m->renderingComponent || !m->renderingComponent->IsActive() || !m->Active || !m->renderingComponent->GetOwner()) continue;
 				GenericShaderMaterial* gm = dynamic_cast<GenericShaderMaterial*>(m->Material.get());
 				if (!gm || !m->Geometry) continue;
+				UICommand c;
 				// (clipped to its scroll view or mask, in pixels from the window's top left)
 				if (i < clips.size())
 				{
-					const UIRectValue &c = clips[i];
-					if (c.width <= 0.f || c.height <= 0.f) continue;
-					const int32_t x = (int32_t)std::max(0.f, c.x * ppu), y = (int32_t)std::max(0.f, c.y * ppu);
-					cl->SetScissor(x, y, (uint32_t)std::max(0.f, std::min(c.width * ppu, (f32)width - x)), (uint32_t)std::max(0.f, std::min(c.height * ppu, (f32)height - y)));
+					const UIRectValue &r = clips[i];
+					if (r.width <= 0.f || r.height <= 0.f) continue;
+					c.sx = (int32_t)std::max(0.f, r.x * ppu); c.sy = (int32_t)std::max(0.f, r.y * ppu);
+					c.sw = (uint32_t)std::max(0.f, std::min(r.width * ppu, (f32)width - c.sx)); c.sh = (uint32_t)std::max(0.f, std::min(r.height * ppu, (f32)height - c.sy));
+					c.scissor = true;
 				}
-				else cl->SetScissor(0, 0, width, height);
-				DrawUIMesh(cl, m, projection * m->renderingComponent->GetOwner()->GetDrawWorld() * m->Pivot, false);
+				if (MakeUICommand(m, projection * m->renderingComponent->GetOwner()->GetDrawWorld() * m->Pivot, false, c)) uiCommands.push_back(c);
 			}
+		}
+	}
+
+	void SceneRenderer::RecordUI(gfx::CommandList* cl, const std::vector<UICommand> &commands, const uint32 width, const uint32 height)
+	{
+		if (commands.empty() || !device->PipelineReady(uiPipeline)) return;
+		cl->SetPipeline(uiPipeline);
+		for (const UICommand &c : commands)
+		{
+			if (c.scissor) cl->SetScissor(c.sx, c.sy, c.sw, c.sh);
+			else cl->SetScissor(0, 0, width, height);
+			DrawUIMesh(cl, c);
 		}
 		cl->SetScissor(0, 0, width, height);
 	}
@@ -2996,6 +3007,54 @@ namespace p3d {
 		cl->EndPass();
 		graph.Use(cl, { { cloudShadowTex, gfx::Access::ShaderRead } });
 		cloudShadowOn = true;
+	}
+
+	// What the drawn items' recording takes of their materials, custom surfaces and meshes, made now, while the scene is
+	// still: each one's draw data, a custom surface's parameters (and, moving its own vertices, its prepass pipeline and
+	// group), the colours' stream - so that recording the frame reads nothing of the scene's objects, which a script or the
+	// next frame's update may be changing by then
+	void SceneRenderer::PrepareItems()
+	{
+		static_assert(sizeof(DrawData) == sizeof(DrawDataBlock), "DrawDataBlock holds a DrawData");
+		itemData.clear();
+		itemData.reserve(opaqueOrder.size() + transparentOrder.size() + 16);
+		const uint32 slot = (uint32)(frameNumber % kFramesInFlight);
+		auto prepare = [&](DrawItem &it)
+		{
+			if (it.dataIndex != ~0u) return;
+			it.dataIndex = (uint32)itemData.size();
+			itemData.emplace_back();
+			FillDrawData(it, false, &itemData.back());
+			if (it.vertexColor && it.mesh && it.mesh->Geometry) it.colors = ColorsFor(it.mesh->Geometry, it.gpu);
+			if (it.custom)
+			{
+				uint64 hash = 0;
+				CustomSurface* cs = SurfaceFor(it.custom, hash);
+				if (!cs) return;
+				it.customParams = WriteCustomParams(it.custom, cs);
+				if (it.movesItself)
+				{
+					CustomKey key; key.surface = hash; key.cull = it.customCull; key.blend = kPrepassBlend; key.instanced = it.instances ? 1 : 0;
+					key.skinned = it.skinned ? 1 : 0;
+					it.customPrepass = CustomPipeline(key, cs);
+					if (device->PipelineReady(it.customPrepass)) it.customPrepassGroup = CustomGroupFor(it.custom, cs, it.customPrepass, true);
+				}
+			}
+		};
+		(void)slot;
+		for (uint32 i : opaqueOrder) prepare(items[i]);
+		for (uint32 i : transparentOrder) prepare(items[i]);
+		// (the casters' colours too: a shadow drawn with vertex colours takes the same stream)
+		for (uint32 i : casterOrder) if (items[i].vertexColor && !items[i].colors && items[i].mesh && items[i].mesh->Geometry) items[i].colors = ColorsFor(items[i].mesh->Geometry, items[i].gpu);
+	}
+
+	// (a batch's draw data: its own with no matrix of its own - its instances carry theirs - and no shape)
+	static void AsBatch(DrawData &dd)
+	{
+		const Matrix identity;
+		memcpy(dd.model, identity.m, sizeof(dd.model));
+		for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) dd.normalRows[r * 4 + c] = r == c ? 1.f : 0.f;
+		memset(dd.shape, 0, sizeof(dd.shape));
 	}
 
 	void SceneRenderer::FillDrawData(const DrawItem &it, const bool batch, void* out)
@@ -3831,7 +3890,7 @@ namespace p3d {
 			for (int k = 0; k < 6; k++) { dd[16 + k * 4] = cullPlanes[k].x; dd[17 + k * 4] = cullPlanes[k].y; dd[18 + k * 4] = cullPlanes[k].z; dd[19 + k * 4] = cullPlanes[k].w; }
 			dd[40] = it.gpu->center.x; dd[41] = it.gpu->center.y; dd[42] = it.gpu->center.z; dd[43] = it.gpu->radius;
 			// (an impostor's quad is a unit square: its sphere is the baked thing's - its radius about its centre's height)
-			if (it.impostor && it.material) { const Vec4 &imp = it.material->GetImpostor(); dd[40] = 0.f; dd[41] = imp.z; dd[42] = 0.f; dd[43] = imp.y; }
+			if (it.impostor && it.material) { const Vec4 &imp = it.impostorData; dd[40] = 0.f; dd[41] = imp.z; dd[42] = 0.f; dd[43] = imp.y; }
 			dd[44] = cullEye.x; dd[45] = cullEye.y; dd[46] = cullEye.z; dd[47] = it.cullFade;
 			dd[48] = (f32)it.instanceCount; dd[49] = 1.f; dd[50] = (f32)it.gpu->indexCount;
 			dd[52] = it.instanceLod.x; dd[53] = it.instanceLod.y; dd[54] = it.instanceLod.z; dd[55] = it.instanceLod.w;     // (its level's distances)
@@ -4688,6 +4747,18 @@ namespace p3d {
 			DrawItem it;
 			it.mesh = rm; it.material = md.gm; it.custom = md.cm; it.movesItself = md.movesItself;
 			it.vertexColor = md.vertexColor && md.gm; it.sortOrder = rc->GetSortOrder(); it.lensCut = rc->screenLensCut;
+			// (what the passes take of its material: read here, while the scene is still, not as they are recorded)
+			if (md.gm)
+			{
+				const Vec2 uvScale = md.gm->GetUVScale(), uvOffset = md.gm->GetUVOffset();
+				it.uv[0] = uvScale.x; it.uv[1] = uvScale.y; it.uv[2] = uvOffset.x; it.uv[3] = uvOffset.y;
+				it.alphaCutoff = md.gm->GetAlphaCutoff();
+				const uint32 o = md.gm->GetOptions();
+				it.alphaTestOption = (o & ShaderUsage::AlphaTest) != 0; it.textRendering = (o & ShaderUsage::TextRendering) != 0;
+				const Vec4 w = md.gm->GetWind(); it.wind[0] = w.x; it.wind[1] = w.y; it.wind[2] = w.z; it.wind[3] = w.w;
+				it.impostorData = md.gm->GetImpostor();
+			}
+			else if (md.cm) it.customCull = (uint8)md.cm->GetCullFace();
 			{
 				const Vec3 place = owner->GetDrawWorldPosition();
 				it.sortDepth = view.orthographic ? (place - eye).dotProduct(sortForward) : (place - eye).dotProduct(place - eye);
@@ -5820,6 +5891,16 @@ namespace p3d {
 		const std::chrono::steady_clock::time_point g0 = std::chrono::steady_clock::now();
 		FrameProfiler::Instance().End();
 		Gather(scene, view, vp);
+		PrepareItems();
+		// (the UI as commands - the scene's, then its overlays' - and the text in the world: made now, recorded later)
+		uiReady = device->PipelineReady(uiPipeline);
+		uiCommands.clear(); worldTextCommands.clear();
+		if (view.ui)
+		{
+			PrepareUI(scene, view.width, view.height);
+			for (SceneGraph* overlay : overlayScenes) if (overlay) PrepareUI(overlay, view.width, view.height);
+		}
+		for (uint32 index : worldTextOrder) { UICommand c; if (MakeUICommand(items[index].mesh, vp * items[index].model, true, c)) worldTextCommands.push_back(c); }
 		// (which particle layers this frame draws - and the resolve, which takes this frame over its history where they are)
 		particlesFull = particlesHalf = false;
 		for (const std::pair<f32, ParticleSystem*> &e : particleSystems) (ParticleWantsHalf(e.second) ? particlesHalf : particlesFull) = true;
@@ -5977,7 +6058,8 @@ namespace p3d {
 					gfx::Pipeline bound;
 					gfx::BindGroup boundGroup;
 					// One draw's data: its matrix (identity for a batch - its instances carry theirs) and its material's values
-					auto fillDrawData = [&](const DrawItem &it, const bool batch, DrawData &dd) { FillDrawData(it, batch, &dd); };
+					// (made while the frame was prepared - PrepareItems)
+					auto fillDrawData = [&](const DrawItem &it, const bool batch, DrawData &dd) { memcpy(&dd, &itemData[it.dataIndex], sizeof(dd)); if (batch) AsBatch(dd); };
 					// (the same mesh, material and pipeline: drawn as one)
 					auto sameBatch = [&](const DrawItem &a, const DrawItem &b)
 					{
@@ -6011,10 +6093,8 @@ namespace p3d {
 						}
 						if (it.custom)
 						{
-							// (its surface's parameters this frame at their own offset)
-							uint64 hash = 0;
-							CustomSurface* cs = SurfaceFor(it.custom, hash);
-							const uint32 offsets[4] = { dynamicOffsets[0], dynamicOffsets[1], dynamicOffsets[2], cs ? WriteCustomParams(it.custom, cs) : 0 };
+							// (its surface's parameters this frame at their own offset - written as the frame was prepared)
+							const uint32 offsets[4] = { dynamicOffsets[0], dynamicOffsets[1], dynamicOffsets[2], it.customParams };
 							cl->SetBindGroup(group, offsets, 4);
 							boundGroup = gfx::BindGroup();
 						}
@@ -6080,7 +6160,7 @@ namespace p3d {
 					if (!worldTextOrder.empty() && device->PipelineReady(worldTextPipeline))
 					{
 						cl->SetPipeline(worldTextPipeline);
-						for (uint32 index : worldTextOrder) DrawUIMesh(cl, items[index].mesh, vp * items[index].model, true);
+						for (const UICommand &c : worldTextCommands) DrawUIMesh(cl, c);     // (PrepareItems' world text)
 					}
 				}
 				cl->EndPass();
@@ -6200,8 +6280,7 @@ namespace p3d {
 			RecordOverlay(cl, vp, slot);
 			if (view.ui)
 			{
-				RecordUI(cl, scene, view.width, view.height);
-				for (SceneGraph* overlay : overlayScenes) if (overlay) RecordUI(cl, overlay, view.width, view.height);
+				RecordUI(cl, uiCommands, view.width, view.height);     // (the scene's and its overlays', made as the frame was prepared)
 			}
 		};
 		// The scene's asset effects (SetAssetEffects), where it has any compiled: the picture in display terms into a texture,

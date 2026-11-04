@@ -5,6 +5,10 @@
 //============================================================================
 
 #include <Pyros3D/Rendering/Renderer/FrameGraph.h>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
+#include <chrono>
+#include <map>
+#include <string>
 
 namespace p3d {
 
@@ -78,7 +82,14 @@ namespace p3d {
 			for (const Write &x : p.writes) Move(cl, x.texture, x.access, x.discard, b);
 			if (!b.empty()) { cl->Barriers(b.data(), (uint32_t)b.size()); barriersMade += (uint32_t)b.size(); }
 			touched.clear();
-			p.record(cl);
+			{
+				// (each pass's recording timed: P.<name> in perf.log - which of them the CPU spends the frame on)
+				static std::map<std::string, std::string> names;
+				std::string &n = names[p.name]; if (n.empty()) n = "P." + p.name;
+				const std::chrono::steady_clock::time_point r0 = std::chrono::steady_clock::now();
+				p.record(cl);
+				FrameProfiler::Instance().Counter(n.c_str(), std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - r0).count());
+			}
 			passesRecorded++;
 			// (back where its readers sample it)
 			b.clear();

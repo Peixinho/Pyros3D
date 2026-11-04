@@ -385,7 +385,19 @@ namespace p3d {
 			Vec4 instanceLod; uint64 cullKey = 0;
 			bool impostor = false;                               // (an octahedral impostor: not in the depth prepass, casts no shadow)
 			gfx::Buffer cullVisible, cullArgs; f32 cullFade = 0.f;     // (a big instanced set culled on the GPU: its visible instances, its indirect draw)
+			// What the passes take of its material and mesh, read once while the frame is prepared - the recording reads
+			// nothing of the scene's objects (PrepareItems): the UVs' scale and offset, the alpha cut-off, the sway, an
+			// impostor's numbers; its draw data (itemData[dataIndex]), a custom surface's parameters' offset and its prepass
+			// pipeline and group, its colours' stream
+			f32 uv[4] = { 1.f, 1.f, 0.f, 0.f }; f32 alphaCutoff = 0.f; f32 wind[4] = { 0.f, 0.f, 0.f, 0.f }; Vec4 impostorData;
+			bool alphaTestOption = false, textRendering = false; uint8 customCull = 0;
+			uint32 dataIndex = ~0u, customParams = 0;
+			gfx::Pipeline customPrepass; gfx::BindGroup customPrepassGroup; gfx::Buffer colors;
 		};
+		// (each drawn item's draw data, made while the frame is prepared: DrawItem::dataIndex)
+		struct DrawDataBlock { f32 v[64]; };     // (a draw's DrawData as bytes: SceneRenderer.cpp's DrawData, 256)
+		std::vector<DrawDataBlock> itemData;
+		void PrepareItems();
 		// The frame's levels of detail mid crossfade: each mesh's fade (+ the level going, - the one coming)
 		std::unordered_map<RenderingMesh*, f32> lodFades;
 		// An instanced component's instances on the GPU: matrix and tint each (80 bytes), and the sphere round them all
@@ -445,7 +457,14 @@ namespace p3d {
 		uint32 materialParamsUsed = 0;
 		// Particles: the frame's systems (back to front), their live particles streamed through a per-frame ring
 		// The UI: each canvas's draw list (UICanvas), flat over the window after the tonemap - text and pictures
-		void RecordUI(gfx::CommandList* cl, SceneGraph* scene, const uint32 width, const uint32 height);
+		// The UI as commands made while the frame is prepared (PrepareUI: its canvases solved, each mesh's buffers, texture,
+		// colour and place) and recorded from those alone (RecordUI) - the recording reads nothing of the canvases
+		struct UICommand { MeshGpu* mesh = nullptr; gfx::Buffer colors; gfx::BindGroup group; f32 dd[24]; int32 sx = 0, sy = 0; uint32 sw = 0, sh = 0; bool scissor = false; };
+		std::vector<UICommand> uiCommands, worldTextCommands;
+		bool uiReady = false;
+		void PrepareUI(SceneGraph* scene, const uint32 width, const uint32 height);
+		bool MakeUICommand(RenderingMesh* m, const Matrix &transform, const bool inWorld, UICommand &out);
+		void RecordUI(gfx::CommandList* cl, const std::vector<UICommand> &commands, const uint32 width, const uint32 height);
 		gfx::Buffer ColorsFor(IGeometry* geometry, MeshGpu* mesh);
 		// (R11G11B10F where the device draws into it - half the bytes of RGBA16F; else RGBA16F)
 		gfx::Format BloomFormat() const { return device->Caps().rg11b10Target ? gfx::Format::R11G11B10F : gfx::Format::RGBA16F; }
@@ -462,7 +481,7 @@ namespace p3d {
 		bool BatchWrite(const std::vector<uint32> &order, uint32 first, uint32 count, uint64 &offset);
 		void BatchFrameStart();
 		std::vector<uint32> casterOrder;                  // (the shadow casters by kind, alpha map, mesh: their batches)
-		void DrawUIMesh(gfx::CommandList* cl, RenderingMesh* m, const Matrix &transform, const bool inWorld);
+		void DrawUIMesh(gfx::CommandList* cl, const UICommand &c);
 		std::map<uint32_t, gfx::BindGroup> uiGroups;     // (by texture)
 		void CreateParticles();
 		void RecordParticles(gfx::CommandList* cl, const uint32 frameOffset, const bool half = false);
