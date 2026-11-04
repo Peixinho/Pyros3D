@@ -370,6 +370,7 @@ namespace p3d {
 			bool alphaCut = false; gfx::Texture baseMap;          // (an alpha-cut caster's: its shadow cut by its base colour's alpha)
 			CustomShaderMaterial* custom = nullptr;              // (a material with its own surface: drawn by its compiled pipeline)
 			bool movesItself = false;                            // (its surface's vertex stage moves it: not in the depth prepass)
+			bool lensCut = false;                                // (not drawn inside the screen's lens: RenderingComponent::SetScreenLensCut)
 			Matrix previousModel; bool moved = false;            // (its matrix last frame: its move on screen, for the temporal resolve)
 			bool skinned = false; uint32 boneBase = 0;           // (posed by its bones: theirs from this frame's palette, from boneBase)
 			bool vertexColor = false;                            // (its material's VertexColor: its colours a stream of their own)
@@ -615,6 +616,8 @@ namespace p3d {
 		gfx::Sampler pointClamp;
 		// Bloom (a chain of halving levels) and auto exposure (log luminance reduced to 1x1, adapted in a 1x1 pair)
 		static const uint32 kBloomLevels = 6;
+		bool lensCutting = false;     // (this frame's view has the screen's lens: what is cut by it is left out of the prepass)
+		static const uint32 kLensBlurLevel = 2;     // (the screen's lens outside its circle: the bloom chain at an eighth, summed up from below - the picture very blurred, for nothing)
 		gfx::Pipeline bloomDownPipeline, bloomUpPipeline, luminancePipeline, reducePipeline, adaptPipeline;
 		gfx::Texture bloom[kBloomLevels], lum64, lum16, lum4, lum1, exposureTex[2];
 		gfx::BindGroup bloomDownGroup[kBloomLevels], bloomUpGroup[kBloomLevels], lumGroup, reduceGroup[3], adaptGroup[2], tonemapGroups[2];

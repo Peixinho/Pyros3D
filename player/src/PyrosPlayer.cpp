@@ -1,4 +1,5 @@
 #include <sys/stat.h>
+#include <Pyros3D/Rendering/ShaderGlobals.h>
 #include <Pyros3D/Core/InputManager/TouchControls.h>
 #include <Pyros3D/Assets/Renderable/Models/Model.h>
 #include <Pyros3D/Rendering/GI/ReflectionProbes.h>
@@ -713,6 +714,8 @@ void PyrosPlayer::OpenLoadingScreen()
 
 bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 {
+	// (a lens over the screen is the scene's that put it there - a scope looked through: not the next scene's)
+	RenderGlobals::ScreenLens().z = 0.f;
 	// What the player sees while this runs: a screen with the load's progress on it, closed at
 	// every way out of here (what its frames draw with is let go when they are done: the device's Destroy).
 	struct ScreenUp {
@@ -1629,6 +1632,9 @@ void PyrosPlayer::Update()
 		Occluder2D::PublishSceneOccluders(scene, &seen);
 	}
 	else Occluder2D::PublishSceneOccluders(scene);
+	// (a zoom the scripts set this frame - a scope's magnification scrolled - drawn this frame, with what they placed for it:
+	// a frame behind, the gun resized for the new zoom was drawn through the old one and the view round the scope jumped)
+	if (GetViewFovScale() != appliedFovScale) ApplyProjection();
 	{
 		PYROS_PROFILE_SCOPE("Player.Draw");
 		DrawFrame();

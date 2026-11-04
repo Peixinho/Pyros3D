@@ -390,6 +390,9 @@ namespace p3d { namespace gfx {
 			if (t.layout == to && (syncOff || (to != VK_IMAGE_LAYOUT_GENERAL && to != VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL && to != VK_IMAGE_LAYOUT_DEPTH_ATTACHMENT_OPTIMAL))) return;
 			VkImageMemoryBarrier2 b = {}; b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
 			LayoutStage(t.layout, b.srcStageMask, b.srcAccessMask);
+			// (out of presenting, or a swapchain image's first use: after the stage its acquire's semaphore is waited at -
+			// from the top of the pipe it was not, and the picture could be written while still being shown)
+			if (t.layout == VK_IMAGE_LAYOUT_PRESENT_SRC_KHR || t.layout == VK_IMAGE_LAYOUT_UNDEFINED) b.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
 			LayoutStage(to, b.dstStageMask, b.dstAccessMask);
 			b.oldLayout = t.layout; b.newLayout = to; b.image = t.image;
 			b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
@@ -877,7 +880,19 @@ namespace p3d { namespace gfx {
 			uint32_t pn = 0; vkGetPhysicalDeviceSurfacePresentModesKHR(phys, surface, &pn, nullptr);
 			std::vector<VkPresentModeKHR> pms(pn); vkGetPhysicalDeviceSurfacePresentModesKHR(phys, surface, &pn, pms.data());
 			presentMode = VK_PRESENT_MODE_FIFO_KHR;
-			if (!vsync) for (auto m : pms) { if (m == VK_PRESENT_MODE_IMMEDIATE_KHR) { presentMode = m; break; } if (m == VK_PRESENT_MODE_MAILBOX_KHR) presentMode = m; }
+			// (no vsync: mailbox where there is one - as fast, and only whole frames shown; immediate tore every frame
+			// across the screen, and turning, the picture came apart in slices of several frames: trails. PYROS_PRESENT=
+			// immediate: that, for who wants the last millisecond)
+			if (!vsync)
+			{
+				const char* want = getenv("PYROS_PRESENT");
+				const bool tear = want && strcmp(want, "immediate") == 0;
+				bool mailbox = false, immediate = false;
+				for (auto m : pms) { mailbox |= m == VK_PRESENT_MODE_MAILBOX_KHR; immediate |= m == VK_PRESENT_MODE_IMMEDIATE_KHR; }
+				if (mailbox && !tear) presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+				else if (immediate) presentMode = VK_PRESENT_MODE_IMMEDIATE_KHR;
+				else if (mailbox) presentMode = VK_PRESENT_MODE_MAILBOX_KHR;
+			}
 			VkExtent2D ext = sc.currentExtent.width != 0xFFFFFFFFu ? sc.currentExtent : VkExtent2D{ width, height };
 			width = ext.width; height = ext.height;
 			VkSwapchainCreateInfoKHR ci = {}; ci.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR; ci.surface = surface;
@@ -1025,8 +1040,20 @@ namespace p3d { namespace gfx {
 			memcpy(buffers.Get(staging.id)->mapped, data, size);
 			VkBuffer src = buffers.Get(staging.id)->buffer, dst = r->buffer;
 			// (not waited for: a mesh's buffers made mid-frame stood the frame still while the GPU caught up)
-			OneShotLater([src, dst, offset, size](VkCommandBuffer cmd) { VkBufferCopy c = { 0, offset, size }; vkCmdCopyBuffer(cmd, src, dst, 1, &c); },
-				[this, staging] { Destroy(staging); });
+			// (fenced on both sides: after whatever was submitted before - a frame still drawing from the buffer - and before
+			// whatever comes after reads it. Without, a draw on NVIDIA read a mesh half written, or the next one's bytes;
+			// MoltenVK serialises enough that it never showed on a Mac - synchronization validation said it)
+			OneShotLater([src, dst, offset, size](VkCommandBuffer cmd) {
+				VkMemoryBarrier2 mb = {}; mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+				mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT; mb.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+				mb.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT; mb.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				VkDependencyInfo d = {}; d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO; d.memoryBarrierCount = 1; d.pMemoryBarriers = &mb;
+				vkCmdPipelineBarrier2(cmd, &d);
+				VkBufferCopy c = { 0, offset, size }; vkCmdCopyBuffer(cmd, src, dst, 1, &c);
+				mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT; mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+				mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT; mb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+				vkCmdPipelineBarrier2(cmd, &d);
+			}, [this, staging] { Destroy(staging); });
 		}
 
 		Texture VulkanDevice::CreateTexture(const TextureDesc &d, const TextureData* data, uint32_t count)

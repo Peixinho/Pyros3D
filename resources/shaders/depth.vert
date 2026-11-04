@@ -20,6 +20,7 @@ layout(set = 1, binding = 1, std140) uniform TaaData
 #include "wind.glsl"
 layout(location = 0) in vec3 aPosition;
 layout(location = 0) out vec4 vCurrent;
+layout(location = 5) flat out float vLensCut;     // (1: not inside the screen's lens - alpha.z; velocity.frag, depthalpha.frag)
 layout(location = 1) out vec4 vPrevious;
 #ifdef ALPHA
 layout(location = 2) in vec2 aTexcoord;
@@ -40,6 +41,7 @@ void main()
 	gl_Position = uFrame.viewProjection * world;
 	vCurrent = uTaa.viewProjection * world;
 	vPrevious = uTaa.previousViewProjection * (uDraw.previousModel * localBefore);
+	vLensCut = uDraw.alpha.z;
 #ifdef ALPHA
 	vTexcoord = aTexcoord * uDraw.uvTransform.xy + uDraw.uvTransform.zw;
 	vFade = gInstanceFade; vLodCode = InstanceLodCode();

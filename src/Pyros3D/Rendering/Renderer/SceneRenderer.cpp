@@ -692,6 +692,7 @@ namespace p3d {
 			f32 temporal[4];                    // (x: the frame's index 0..63 - common.glsl's LodDither)
 			f32 skySun[4];                      // (toward the sun, for the sky: RenderGlobals::SkySun, else the light's)
 			f32 skySunTop[4];                   // (the sky sun's illuminance above the air, w 1: RenderGlobals::SkySunLight; w 0 - the light's)
+			f32 lens[4];                        // (the screen's lens on this view: centre xy 0..1, z radius - a share of the height, 0 none)
 		};
 		// std140, as surface_draw.glsl's DrawData
 		struct DrawData
@@ -1023,9 +1024,10 @@ namespace p3d {
 		gfx::GraphicsPipelineDesc tp;
 		tp.vertex = fullscreenVS; tp.fragment = tonemapFS;
 		tp.material = { { 0, gfx::BindingKind::Uniform, true, true, false, true }, { 1, gfx::BindingKind::Texture2D, false, true }, { 2, gfx::BindingKind::Sampler, false, true },
-			{ 3, gfx::BindingKind::Texture2D, false, true }, { 4, gfx::BindingKind::Texture2D, false, true }, { 5, gfx::BindingKind::DepthTexture, false, true } };
+			{ 3, gfx::BindingKind::Texture2D, false, true }, { 4, gfx::BindingKind::Texture2D, false, true }, { 5, gfx::BindingKind::DepthTexture, false, true },
+			{ 6, gfx::BindingKind::Texture2D, false, true } };
 		tp.cull = gfx::Cull::None; tp.depthTest = tp.depthWrite = false;
-		tp.drawDataBytes = 160;     // (the grade, the bloom's share and threshold - tonemap.frag's DrawData)
+		tp.drawDataBytes = 208;     // (the grade, the bloom's share and threshold - tonemap.frag's DrawData)
 		tp.colorCount = 1; tp.colorFormats[0] = gfx::Format::Unknown;     // (the backbuffer's own)
 		tp.debugName = "Renderer.Tonemap";
 		tonemapPipeline = device->CreatePipeline(tp);
@@ -2042,6 +2044,7 @@ namespace p3d {
 						models[47] = di.lodFade;     // (a crossfade's dither - depthalpha.frag)
 					}
 					memcpy(models, batch ? identity.m : di.model.m, 64); memcpy(models + 16, batch ? identity.m : di.previousModel.m, 64);
+					models[46] = di.lensCut && lensCutting ? 1.f : 0.f;     // (cut by the screen's lens: its depth not in the glass - depth.vert's alpha.z)
 					models[32] = (f32)di.boneBase; models[33] = drawSeconds; models[34] = drawPreviousSeconds;
 					const Vec4 wind = WindOf(di.material);
 					models[36] = wind.x; models[37] = wind.y; models[38] = wind.z; models[39] = wind.w;
@@ -3027,6 +3030,7 @@ namespace p3d {
 		dd.wet[3] = it.lodFade;
 		const Vec3 sss = SrgbToLinear(gm->GetSubsurfaceColor());
 		dd.subsurface[0] = sss.x; dd.subsurface[1] = sss.y; dd.subsurface[2] = sss.z; dd.subsurface[3] = gm->GetSubsurfaceStrength();
+		if (it.lensCut) dd.subsurface[3] = -1.f;     // (not inside the screen's lens: surface.frag - a gun's light under the skin is none)
 		}
 
 	void SceneRenderer::AddOverlay(const std::vector<OverlayVertex> &vertices, const bool lines, const bool depthTested)
@@ -4647,7 +4651,7 @@ namespace p3d {
 			if (!md.gpu || (md.cm && !md.surface)) continue;
 			DrawItem it;
 			it.mesh = rm; it.material = md.gm; it.custom = md.cm; it.movesItself = md.movesItself;
-			it.vertexColor = md.vertexColor && md.gm; it.sortOrder = rc->GetSortOrder();
+			it.vertexColor = md.vertexColor && md.gm; it.sortOrder = rc->GetSortOrder(); it.lensCut = rc->screenLensCut;
 			{
 				const Vec3 place = owner->GetDrawWorldPosition();
 				it.sortDepth = view.orthographic ? (place - eye).dotProduct(sortForward) : (place - eye).dotProduct(place - eye);
@@ -5655,6 +5659,10 @@ namespace p3d {
 			device->Upload(taaData, slot * 256, td, sizeof(td));
 			taaPreviousViewProjection = vp;
 		}
+		// (the screen's lens, on the picture that goes to the screen: what is cut by it - RenderingComponent::SetScreenLensCut)
+		if (!view.target && RenderGlobals::ScreenLens().z > 0.f)
+		{ fd.lens[0] = RenderGlobals::ScreenLens().x; fd.lens[1] = RenderGlobals::ScreenLens().y; fd.lens[2] = RenderGlobals::ScreenLens().z; }
+		lensCutting = fd.lens[2] > 0.f;
 		const Vec3 eye = view.cameraWorld.GetTranslation();
 		fd.cameraPosition[0] = eye.x; fd.cameraPosition[1] = eye.y; fd.cameraPosition[2] = eye.z; fd.cameraPosition[3] = 1.f;
 		if (scene)
@@ -6109,26 +6117,33 @@ namespace p3d {
 			const uint32 cur = (uint32)(frameNumber & 1);
 			if (!groups[cur])
 			{
-				gfx::Device::BindGroupEntry e[6];
+				gfx::Device::BindGroupEntry e[7];
 				e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
 				e[1].binding = 1; e[1].texture = picture;
 				e[2].binding = 2; e[2].sampler = linearClamp;
 				e[3].binding = 3; e[3].texture = bloom[0];
 				e[4].binding = 4; e[4].texture = exposureTex[cur];
 				e[5].binding = 5; e[5].texture = prepassDepth;     // (where nothing was drawn: the background as it was set)
-				groups[cur] = device->CreateBindGroup(pipe, e, 6);
+				e[6].binding = 6; e[6].texture = bloom[kLensBlurLevel];     // (the screen's lens: the picture blurred, outside its circle)
+				groups[cur] = device->CreateBindGroup(pipe, e, 7);
 			}
 			cl->SetPipeline(pipe);
 			cl->SetBindGroup(groups[cur], &frameOffset, 1);
 			const Grade &g = grade;
-			const f32 dd[40] = {
+			// (the screen's lens - RenderGlobals::ScreenLens - on the picture that goes to the screen only, not a view's texture)
+			const bool lensOn = !view.target && RenderGlobals::ScreenLens().z > 0.f;
+			const Vec4 lens = RenderGlobals::ScreenLens(), lensLook = RenderGlobals::ScreenLensLook();
+			const f32 dd[52] = {
 				g.exposure, g.shoulder, g.temperature, g.tint,
 				g.contrast, g.pivot, g.saturation, g.vibrance,
 				g.lift.x, g.lift.y, g.lift.z, g.lift.w, g.gamma.x, g.gamma.y, g.gamma.z, g.gamma.w, g.gain.x, g.gain.y, g.gain.z, g.gain.w,
 				g.shadowTint.x, g.shadowTint.y, g.shadowTint.z, g.shadowTint.w, g.highlightTint.x, g.highlightTint.y, g.highlightTint.z, g.highlightTint.w,
 				g.vignette, g.grain, g.chromatic, g.on ? 1.f : 0.f,
 				0.06f * bloomIntensity, backdropNow.x, backdropNow.y, backdropNow.z,
-				bloomThreshold, bloomKnee, pipe == tonemapToDisplayPipeline ? 1.f : 0.f, 0.f };     // (z: into the display texture - sRGB-encoded, for the asset effects)
+				bloomThreshold, bloomKnee, pipe == tonemapToDisplayPipeline ? 1.f : 0.f, 0.f,
+				lens.x, lens.y, lensOn ? lens.z : 0.f, std::max(lens.w, 1e-4f),
+				std::min(std::max(lensLook.x, 0.f), 1.f), std::min(std::max(lensLook.y, 0.f), 1.f), 1.f / (f32)(kBloomLevels - kLensBlurLevel), std::max(lensLook.z, 0.f),
+				lensLook.w > 0.f ? std::min(lensLook.w, 1.f) : 1.f, 0.f, 0.f, 0.f };     // (z: into the display texture - sRGB-encoded, for the asset effects)
 			cl->DrawData(dd, sizeof(dd));
 			cl->Draw(3, 1, 0, 0);
 		};

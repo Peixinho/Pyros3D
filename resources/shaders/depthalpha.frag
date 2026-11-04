@@ -11,9 +11,11 @@ layout(location = 1) in vec4 vPrevious;
 layout(location = 2) in vec2 vTexcoord;
 layout(location = 3) in float vFade;
 layout(location = 4) in float vLodCode;
+layout(location = 5) flat in float vLensCut;
 layout(location = 0) out vec2 outVelocity;
 void main()
 {
+	if (vLensCut > 0.5 && InScreenLens(gl_FragCoord.xy)) discard;     // (cut by the screen's lens: a gun at a scope)
 	if (texture(sampler2D(uBaseColorMap, uMaterialSampler), vTexcoord).a < uDraw.alpha.x) discard;
 	// (a level of detail handing over to the next - alpha.w: + this one going, - the next coming: alphacut.frag's dither)
 	if (uDraw.alpha.w != 0.0)

@@ -480,6 +480,11 @@ namespace p3d {
 		// write depth and do not need it.
 		void SetSortOrder(const int32 order) { sortOrder = order; }
 		int32 GetSortOrder() const { return sortOrder; }
+		// Not drawn inside the screen's lens (RenderGlobals::ScreenLens) while there is one: a gun held up to a scope
+		// looked through with the view zoomed - its tube round the glass, and nothing of it seen through the glass
+		void SetScreenLensCut(const bool on) { screenLensCut = on; }
+		bool GetScreenLensCut() const { return screenLensCut; }
+		bool screenLensCut = false;
 	protected:
 		bool lightsPerGeometry = false;
 	public:

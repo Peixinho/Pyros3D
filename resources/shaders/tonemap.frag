@@ -6,6 +6,7 @@ layout(set = 1, binding = 2) uniform sampler uLinearClamp;
 layout(set = 1, binding = 3) uniform texture2D uBloom;       // (half resolution, the bloom chain's top)
 layout(set = 1, binding = 4) uniform texture2D uExposure;    // (1x1: this frame's exposure - auto, or as set)
 layout(set = 1, binding = 5) uniform texture2D uDepth;       // (the prepass's: reversed Z, 0 where nothing was drawn)
+layout(set = 1, binding = 6) uniform texture2D uLensBlur;    // (the bloom chain at an eighth: the picture very blurred - the screen's lens)
 
 layout(set = 0, binding = 0, std140) uniform DrawData
 {
@@ -16,6 +17,11 @@ layout(set = 0, binding = 0, std140) uniform DrawData
 	vec4 g2;              // vignette, grain, chromatic aberration, 1 when the scene has a grade
 	vec4 g3;              // x: the bloom's share of the picture; yzw the background where nothing is drawn (a scene with no sky's, linear)
 	vec4 g4;              // x: the bloom's threshold, y its knee - in exposed light
+	vec4 lens;            // the screen's lens: xy its centre (0..1, y down), z its radius, w its soft edge - shares of the height (z 0 off)
+	vec4 lensLook;        // x how blurred outside it (0..1: the picture to the bloom chain's blur), y how dark there, z the chain's sum to one,
+	                      // w: nearer than this (m) is kept sharp and as it is - the gun held up to the scope
+	vec4 lens2;           // x: the picture outside drawn this much smaller about the lens's centre (a scope zoomed further than its
+	                      // least: what is round the glass stays as it was, only the glass's picture zooms)
 } uDraw;
 layout(location = 0) in vec2 vUV;
 layout(location = 0) out vec4 outColor;
@@ -91,6 +97,26 @@ void Tonemap()
 		vec2 off = (vUV - 0.5) * uDraw.g2.z * dot(vUV - 0.5, vUV - 0.5) * 4.0;
 		hdr.r = texture(sampler2D(uScene, uLinearClamp), vUV + off).r;
 		hdr.b = texture(sampler2D(uScene, uLinearClamp), vUV - off).b;
+	}
+	// The screen's lens: sharp within its circle, outside it the picture very blurred (the bloom chain, an eighth of the
+	// size and every level below summed in) and darkened - a scope looked through, the view itself zoomed: one render
+	if (uDraw.lens.z > 0.0)
+	{
+		vec2 size = vec2(textureSize(sampler2D(uScene, uLinearClamp), 0));
+		float d = length((vUV - uDraw.lens.xy) * size) / size.y;
+		float m = smoothstep(uDraw.lens.z, uDraw.lens.z + uDraw.lens.w, d);
+		if (m > 0.0 && uDraw.lensLook.w > 0.0)
+		{
+			ivec2 ds = textureSize(sampler2D(uDepth, uLinearClamp), 0);
+			float z = texelFetch(sampler2D(uDepth, uLinearClamp), clamp(ivec2(vUV * vec2(ds)), ivec2(0), ds - 1), 0).r;
+			if (z > 0.0 && DepthDistance(z) < uDraw.lensLook.w) m = 0.0;
+		}
+		if (m > 0.0)
+		{
+			vec2 buv = uDraw.lens.xy + (vUV - uDraw.lens.xy) * uDraw.lens2.x;
+			vec3 blurred = Sane(texture(sampler2D(uLensBlur, uLinearClamp), buv).rgb * uDraw.lensLook.z);
+			hdr = mix(hdr, blurred, m * uDraw.lensLook.x) * (1.0 - uDraw.lensLook.y * m);
+		}
 	}
 	float exposure = texelFetch(sampler2D(uExposure, uLinearClamp), ivec2(0, 0), 0).r;
 	// (frame.y negative: no curve, no bloom - the light as it is, exposed and clamped: a bake's picture, a colour map)

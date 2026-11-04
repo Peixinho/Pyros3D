@@ -19,6 +19,7 @@
 #include <Pyros3D/Assets/Texture/Texture.h>
 #include <Pyros3D/Assets/Texture/PaintableImage.h>
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <functional>
 #include <fstream>
@@ -388,16 +389,59 @@ namespace p3d {
 			fs::create_directories(dir, ec);
 			return dir.string();
 		}
-		// (the model's file, as it is now: its path, size and time - a changed model is baked again)
-		std::string BankKey(const std::string &path, const std::string &look)
+		// A path as every install of the game has it: forward slashes, and relative to the game's folder where it is under it
+		// (a model loaded by its full path - C:\Users\<who>\Downloads\<package>\assets/... - was a new impostor in each
+		// folder the game was unzipped to, and on each machine)
+		std::string Portable(std::string s)
 		{
 			namespace fs = std::filesystem;
+			std::replace(s.begin(), s.end(), '\\', '/');
 			std::error_code ec;
+			std::string root = fs::current_path(ec).string();
+			if (ec || root.empty()) return s;
+			std::replace(root.begin(), root.end(), '\\', '/');
+			if (root.back() != '/') root += '/';
+			auto lower = [](std::string t) { for (char &c : t) c = (char)std::tolower((unsigned char)c); return t; };
+#ifdef _WIN32
+			const std::string hay = lower(s), needle = lower(root);
+#else
+			const std::string &hay = s, &needle = root;
+#endif
+			std::string out; size_t from = 0;
+			for (size_t at = hay.find(needle); at != std::string::npos; at = hay.find(needle, from))
+			{ out.append(s, from, at - from); from = at + needle.size(); }
+			out.append(s, from, std::string::npos);
+			return out;
+		}
+		// What the model's file holds: its size and its first and last megabyte. (By its time it was another model in every
+		// package - unzipped, every file is new - and every impostor of a whole map was baked again at each install.)
+		std::string ContentKey(const std::string &path)
+		{
+			static std::mutex m; static std::map<std::string, std::string> known;
+			{ std::lock_guard<std::mutex> l(m); std::map<std::string, std::string>::iterator i = known.find(path); if (i != known.end()) return i->second; }
+			uint64 h = 14695981039346656037ull;
+			auto mixBytes = [&h](const char* p, size_t n) { for (size_t i = 0; i < n; i++) { h ^= (unsigned char)p[i]; h *= 1099511628211ull; } };
+			std::ifstream in(path, std::ios::binary | std::ios::ate);
+			uint64 size = 0;
+			if (in)
+			{
+				size = (uint64)in.tellg();
+				const uint64 chunk = 1u << 20;
+				std::vector<char> buf((size_t)std::min<uint64>(size, chunk));
+				in.seekg(0); in.read(buf.data(), (std::streamsize)buf.size()); mixBytes(buf.data(), (size_t)in.gcount());
+				if (size > chunk) { in.clear(); in.seekg((std::streamoff)(size - std::min<uint64>(size - chunk, chunk))); buf.resize((size_t)std::min<uint64>(size - chunk, chunk)); in.read(buf.data(), (std::streamsize)buf.size()); mixBytes(buf.data(), (size_t)in.gcount()); }
+			}
+			char k[64]; snprintf(k, sizeof(k), "%llu:%016llx", (unsigned long long)size, (unsigned long long)h);
+			std::lock_guard<std::mutex> l(m);
+			return known[path] = k;
+		}
+		// (the model's file, by what it holds - a changed model is baked again - and the look it is drawn with)
+		std::string BankKey(const std::string &path, const std::string &look)
+		{
 			uint64 h = 14695981039346656037ull;
 			auto mix = [&h](const std::string &s) { for (unsigned char c : s) { h ^= c; h *= 1099511628211ull; } };
-			mix(path); mix(std::to_string((unsigned long long)fs::file_size(path, ec)));
-			mix(std::to_string((long long)fs::last_write_time(path, ec).time_since_epoch().count()));
-			mix(look); mix("oct-v4-sphere-" + std::to_string(kBankFrames) + "-" + std::to_string(kBankSize));
+			mix(Portable(path)); mix(ContentKey(path));
+			mix(Portable(look)); mix("oct-v5-sphere-" + std::to_string(kBankFrames) + "-" + std::to_string(kBankSize));
 			char k[24]; snprintf(k, sizeof(k), "%016llx", (unsigned long long)h);
 			return BankCacheDir() + "/" + k;
 		}
@@ -434,10 +478,18 @@ namespace p3d {
 		}
 		bool LoadCached(const std::string &path, const std::string &look, const std::shared_ptr<IMaterial> &material, ImpostorBank::Entry &e)
 		{
-			const std::string base = BankKey(path, look);
-			std::ifstream in(base + ".txt");
+			std::string base = BankKey(path, look);
 			f32 radius = 0.f, centre = 0.f; uint32 frames = 0;
-			if (!(in >> radius >> centre >> frames) || radius <= 0.f || frames < 2) return false;
+			auto read = [&](const std::string &b) { std::ifstream in(b + ".txt"); return (bool)(in >> radius >> centre >> frames) && radius > 0.f && frames >= 2; };
+			if (!read(base))
+			{
+				// (else the ones the game ships with: an impostor-cache folder beside it, made where the game was packaged -
+				// the same names on every machine and install, see BankKey)
+				namespace fs = std::filesystem;
+				const std::string shipped = (fs::path("impostor-cache") / fs::path(base).filename()).string();
+				if (!read(shipped)) return false;
+				base = shipped;
+			}
 			if (std::getenv("PYROS_IMPOSTOR_LOG")) fprintf(stderr, "[renderer] impostor cached %s <- %s\n", base.c_str(), path.c_str());
 			return MakeEntry(e, base, radius, centre, frames, material);
 		}

@@ -648,6 +648,8 @@ vec2 ParallaxUV(vec3 n, vec3 p, vec2 uv, vec3 toEye, float depth)
 
 void main()
 {
+	// (cut by the screen's lens - a gun at a scope looked through: not drawn within its glass - subsurface.w -1)
+	if (uDraw.subsurface.w < -0.5 && InScreenLens(gl_FragCoord.xy)) discard;
 	if (InstanceDissolved(vFade, vLodCode, LodDither(gl_FragCoord.xy))) discard;
 	vec3 ng = normalize(vNormal);
 	// (where its normal points away from the eye - the back of a two-sided card, a silhouette's edge - mirrored through

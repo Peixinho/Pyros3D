@@ -31,7 +31,15 @@ layout(set = 1, binding = 0, std140) uniform FrameData
 	vec4 temporal;           // x: what moves a dither from frame to frame (LodDither) - 0, held still; y, z: the still water's plane - its height, on
 	vec4 skySun;             // xyz: toward the sun, for the sky (the air, its clouds, its light) - the light's own unless a game said where the sun is (below the horizon at night, the light then the moon)
 	vec4 skySunTop;          // rgb: the sky sun's illuminance above the air, where a game gave it (w 1); w 0 - the light's own (sunRadiance over the air toward it)
+	vec4 lens;               // the screen's lens: xy its centre (0..1, y down), z its radius - a share of the height (0: none) - what is cut by it is not drawn within
 } uFrame;
+// (within the screen's lens: a fragment of what is cut by it - a gun at a scope - is not drawn there)
+bool InScreenLens(vec2 fragCoord)
+{
+	if (uFrame.lens.z <= 0.0) return false;
+	vec2 uv = fragCoord * uFrame.viewport.zw;
+	return length((uv - uFrame.lens.xy) * uFrame.viewport.xy) * uFrame.viewport.w < uFrame.lens.z;
+}
 
 // (a colour as it may be kept or averaged: a value gone wrong - not a number, an infinity, or past what a half float
 // holds - as nothing. A pass that keeps last frame's - the temporal resolve, the clouds - or averages the whole picture -

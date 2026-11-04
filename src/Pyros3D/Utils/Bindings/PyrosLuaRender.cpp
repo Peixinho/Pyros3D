@@ -525,6 +525,8 @@ namespace p3d {
 				"enable", &IComponent::Enable,
 				"disable", &IComponent::Disable,
 				"isActive", &IComponent::IsActive,
+				// (not drawn inside the screen's lens - setScreenLens - while there is one: a gun at a scope)
+				"setScreenLensCut", [](LUA_RenderingComponent &r, const bool on) { r.SetScreenLensCut(on); },
 				"init", &LUA_RenderingComponent::Init,
 				"update", &LUA_RenderingComponent::Update,
 				"destroy", &LUA_RenderingComponent::Destroy,

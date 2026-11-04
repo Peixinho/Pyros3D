@@ -44,6 +44,12 @@ namespace p3d {
 		// The sun's own light, for the sky where a game said where the sun is (w 1 when it did): what lights the air
 		// at dusk with the scene's light already the moon's, and not the moon's colour the game gave that light
 		PYROS3D_API Vec4 &SkySunLight();
+		// A lens over the picture on the screen (setScreenLens): sharp within a circle, blurred and darkened outside it -
+		// a scope seen through with the view itself zoomed, a spyglass, a keyhole - in the one picture already drawn,
+		// not a second render. xy its centre (0..1, y down), z its radius and w its soft edge, as shares of the picture's
+		// height (z 0: none); ScreenLensLook x the blur outside it (0..1), y how dark it goes there (0..1), z: what is nearer than that (m) is left sharp, w: the blurred picture outside drawn that much smaller (1 as it is)
+		PYROS3D_API Vec4 &ScreenLens();
+		PYROS3D_API Vec4 &ScreenLensLook();
 		// (all of it back to the engine's: a game ended)
 		PYROS3D_API void Reset();
 	}

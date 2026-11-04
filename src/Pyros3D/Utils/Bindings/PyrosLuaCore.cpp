@@ -138,6 +138,14 @@ namespace p3d {
 		});
 		lua->set_function("setPostEffectEnabled", [](const std::string &, const bool) { return false; });
 		// (a still water's mirror at this height, for every view - RenderGlobals::MirrorLevel: a sea's planar reflection)
+		// A lens over the picture on the screen (RenderGlobals::ScreenLens): sharp within the circle at (x, y) - 0..1, y
+		// down - of radius r, soft over `soft` (shares of the picture's height); outside it blurred by `blur` (a share of
+		// the height) and darkened by `dark` (0..1). A scope looked through with the view itself zoomed: one render.
+		// (sharp: what is nearer than that many metres is left as it is outside the circle too - the gun held up to the scope)
+		// (outside: the blurred picture round it drawn that much smaller - a zoomed-in scope's surroundings kept as they were)
+		lua->set_function("setScreenLens", [](const f32 x, const f32 y, const f32 r, const f32 soft, const f32 blur, const f32 dark, sol::optional<f32> sharp, sol::optional<f32> outside) {
+			RenderGlobals::ScreenLens() = Vec4(x, y, std::max(r, 0.f), std::max(soft, 0.f)); RenderGlobals::ScreenLensLook() = Vec4(blur, dark, sharp.value_or(0.f), outside.value_or(1.f)); });
+		lua->set_function("clearScreenLens", []() { RenderGlobals::ScreenLens().z = 0.f; });
 		lua->set_function("setSkyMirrorLevel", [](const f32 level) { RenderGlobals::MirrorLevel() = level; });
 		lua->set_function("clearSkyMirrorLevel", []() { RenderGlobals::MirrorLevel() = std::numeric_limits<f32>::quiet_NaN(); });
 		// A background colour set while the game runs, which every view clears to (RenderGlobals::BackgroundOverride).

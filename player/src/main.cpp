@@ -15,6 +15,12 @@
 #include <pthread/qos.h>
 #endif
 #include "PyrosPlayer.h"
+#if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 #if defined(__APPLE__)
 #include <TargetConditionals.h>
 #if TARGET_OS_IPHONE
@@ -33,6 +39,12 @@ using namespace p3d;
 
 // (every platform: the game's own thread asks for the performance cores)
 #include <Pyros3D/Utils/Jobs/JobSystem.h>
+#include <Pyros3D/Assets/Texture/Texture.h>
+#include <filesystem>
+#include <thread>
+#include <atomic>
+#include <vector>
+#include <algorithm>
 
 #ifdef EMSCRIPTEN
 #include <emscripten.h>
@@ -86,9 +98,72 @@ int main(int argc, char** argv)
 #endif
 		}
 
+	// Every picture under assets/ (what --fill-texture-cache and the warm-up below encode)
+	auto picturesUnderAssets = []() {
+		std::vector<std::string> files;
+		std::error_code ec;
+		for (std::filesystem::recursive_directory_iterator it("assets", ec), end; !ec && it != end; it.increment(ec))
+		{
+			if (!it->is_regular_file(ec)) continue;
+			std::string ext = it->path().extension().string();
+			std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return (char)std::tolower(c); });
+			if (ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".tga" || ext == ".bmp") files.push_back(it->path().generic_string());
+		}
+		return files;
+	};
+	// --fill-texture-cache <folder>: every picture under assets/ in GPU blocks, with its mips, into that folder - and out.
+	// A game shipped with it (texcache/ beside it) never encodes a map in a frame: on a first run each material's maps
+	// were encoded as they first came into view, on the main thread - seconds of a frozen game landing in a town. (The
+	// names are the pictures' paths from the game's folder and what they hold: the same on every machine and install.)
+	for (int i = 1; i + 1 < argc; i++)
+		if (std::string(argv[i]) == "--fill-texture-cache")
+		{
+#ifdef _WIN32
+			_putenv_s("PYROS_TEXTURE_CACHE", argv[i + 1]);
+#else
+			setenv("PYROS_TEXTURE_CACHE", argv[i + 1], 1);
+#endif
+			std::error_code ec;
+			std::filesystem::create_directories(argv[i + 1], ec);
+			const std::vector<std::string> files = picturesUnderAssets();
+			std::atomic<size_t> next(0), made(0);
+			std::vector<std::thread> pool;
+			const unsigned n = std::max(1u, std::thread::hardware_concurrency());
+			for (unsigned t = 0; t < n; t++)
+				pool.emplace_back([&]() { for (size_t k; (k = next++) < files.size();) if (p3d::Texture::MakeCompressedCache(files[k])) made++; });
+			for (std::thread &t : pool) t.join();
+			printf("[texture cache] %zu of %zu pictures in blocks in %s\n", (size_t)made, files.size(), argv[i + 1]);
+			return 0;
+		}
+
 	PyrosPlayer* game = new PyrosPlayer();
 	game->SetLaunchArgs(argc, argv);
 	game->Init();
+
+	// The maps' blocks made ahead, on threads of their own and below the game's priority: every picture of the game not
+	// in the texture cache yet is encoded while the title is up - a few seconds, once for each picture new or changed -
+	// so a material seen for the first time is read from the cache, not encoded in the frame that first draws it (on a
+	// first run, seconds frozen landing in a town). PYROS_TEXTURE_WARM=0: not.
+	std::atomic<bool> warmStop(false);
+	std::vector<std::thread> warm;
+#ifndef EMSCRIPTEN
+	if (!(std::getenv("PYROS_TEXTURE_WARM") && std::getenv("PYROS_TEXTURE_WARM")[0] == '0') && p3d::Texture::GetCompression())
+	{
+		std::shared_ptr<std::vector<std::string> > files = std::make_shared<std::vector<std::string> >(picturesUnderAssets());
+		std::shared_ptr<std::atomic<size_t> > next = std::make_shared<std::atomic<size_t> >(0);
+		const unsigned hw = std::thread::hardware_concurrency();
+		const unsigned n = hw > 4 ? (std::min)(hw - 2, 8u) : 1u;
+		for (unsigned t = 0; t < n && !files->empty(); t++)
+			warm.emplace_back([files, next, &warmStop]() {
+#if defined(_WIN32)
+				SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_LOWEST);
+#elif defined(__APPLE__)
+				pthread_set_qos_class_self_np(QOS_CLASS_UTILITY, 0);
+#endif
+				for (size_t k; !warmStop.load() && (k = (*next)++) < files->size();) p3d::Texture::MakeCompressedCache((*files)[k]);
+			});
+	}
+#endif
 
 #ifdef EMSCRIPTEN
 	// (the page has put the game's files in place before main() was run -
@@ -130,6 +205,8 @@ int main(int argc, char** argv)
 		prof.EndFrame();
 	}
 
+	warmStop = true;
+	for (std::thread &t : warm) t.join();     // (each on a picture at most: a tenth of a second)
 	game->Shutdown();
 	// Everything that has to be closed has been, above. What `delete game` adds
 	// is the script state's own teardown - and that runs after the window and
