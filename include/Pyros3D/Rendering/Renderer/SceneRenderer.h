@@ -495,6 +495,12 @@ namespace p3d {
 		std::unordered_map<ParticleSystem*, GpuParticles> gpuParticles;
 		gfx::Shader particleSimCS; gfx::Pipeline particleSimPipeline;
 		void RecordParticleSim(gfx::CommandList* cl);
+		// The particles as the frame was prepared (PrepareParticles): the GPU-simulated systems' steps and every system's draw -
+		// their data uploaded, groups made - so their recording reads nothing of the systems
+		struct ParticleSimStep { GpuParticles* g = nullptr; f32 dd[28]; bool fresh = false; uint32 capacity = 0; };
+		struct ParticleDraw { bool half = false, additive = false; gfx::BindGroup group; f32 dd[20]; gfx::Buffer stream; uint64 ringAt = 0; uint32 n = 0; };
+		std::vector<ParticleSimStep> particleSteps; std::vector<ParticleDraw> particleDraws;
+		void PrepareParticles();
 		void ForgetGpuParticles(GpuParticles &g);
 		// Volumetric smoke and fire (VolumetricSmoke - its clouds, process-wide): their voxel atlas on the GPU, marched
 		// at half size (smoke.frag) and laid over the picture (smokecomposite.frag) with the screen flash
@@ -515,6 +521,7 @@ namespace p3d {
 		gfx::Buffer smokeData; gfx::BindGroup smokeGroup, smokeCompositeGroup;
 		bool smokeOn = false, smokeKeptPicture = false;
 		void RecordSmoke(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot);
+		void PrepareSmoke(const uint32 slot);
 		void RecordSmokeComposite(gfx::CommandList* cl, const uint32 frameOffset);
 		// (the ray-traced shadows' scene and pass - rtshadow.frag: its triangles, nodes and leaves' lists on the GPU, and
 		// the AO with the sun's share beside it, what the surfaces read for AO while it is on)

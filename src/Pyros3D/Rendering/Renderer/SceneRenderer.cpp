@@ -3674,9 +3674,10 @@ namespace p3d {
 		graph.Use(cl, { { aoRT, gfx::Access::ShaderRead } });
 	}
 
-	void SceneRenderer::RecordSmoke(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot)
+	// The grids (FluidVolumes) and their light, packed fresh: smoke.frag's SmokeData - made while the frame is prepared
+	// (the smoke's lamps, sun and wind are its own statics, which scripts set: RecordSmoke reads none of them)
+	void SceneRenderer::PrepareSmoke(const uint32 slot)
 	{
-		// The grids (FluidVolumes) and their light, packed fresh: smoke.frag's SmokeData
 		std::vector<f32> b(kSmokeDataSlot / 4, 0.f);
 		auto put = [&](uint32 vec4Index, f32 x, f32 y, f32 z, f32 w) { f32* p = &b[vec4Index * 4]; p[0] = x; p[1] = y; p[2] = z; p[3] = w; };
 		const std::vector<FluidVolumes::Volume> &volumes = Fluids().Volumes();
@@ -3735,7 +3736,7 @@ namespace p3d {
 		put(4, amb.x, amb.y, amb.z, 0.f);
 		put(5, wind.x, wind.y, wind.z, 0.f);
 		device->Upload(smokeData, (uint64)slot * kSmokeDataSlot, b.data(), kSmokeDataBytes);
-		if (!smokeGroup)
+		if (!smokeGroup && device->PipelineReady(smokePipeline))
 		{
 			gfx::Device::BindGroupEntry e[7];
 			e[0].binding = 0; e[0].buffer = frameData; e[0].size = sizeof(FrameData);
@@ -3747,6 +3748,11 @@ namespace p3d {
 			e[6].binding = 6; e[6].texture = hdr;
 			smokeGroup = device->CreateBindGroup(smokePipeline, e, 7);
 		}
+	}
+
+	void SceneRenderer::RecordSmoke(gfx::CommandList* cl, const uint32 frameOffset, const uint32 slot)
+	{
+		if (!smokeGroup) return;
 		const uint32 w = std::max(1u, targetWidth / 2), h = std::max(1u, targetHeight / 2);
 		graph.Use(cl, { { smokeTex, gfx::Access::ColorTarget }, { smokeReflectTex, gfx::Access::ColorTarget } });
 		gfx::PassDesc pass;
@@ -4035,63 +4041,60 @@ namespace p3d {
 		g = GpuParticles();
 	}
 
-	void SceneRenderer::RecordParticleSim(gfx::CommandList* cl)
+	// The particles, made ready while the frame is prepared: the GPU-simulated systems' rings and steps, every system's
+	// data uploaded into this frame's share of the ring (the full-size ones first, then the half-size), its group, its
+	// colours and sizes - RecordParticleSim and RecordParticles record from these alone
+	void SceneRenderer::PrepareParticles()
 	{
-		if (!device->PipelineReady(particleSimPipeline)) return;
-		for (const std::pair<f32, ParticleSystem*> &e : particleSystems)
+		particleSteps.clear(); particleDraws.clear();
+		if (particleSystems.empty()) return;
+		// (the GPU-simulated: their rings made - again where they grew or shrank - and this frame's step)
+		if (device->PipelineReady(particleSimPipeline))
 		{
-			ParticleSystem* ps = e.second;
-			if (!ps->SimulatedOnGPU()) continue;
-			const ParticleSystem::GpuStep &st = ps->GetGpuStep();
-			if (st.capacity == 0) continue;
-			GpuParticles &g = gpuParticles[ps];
-			g.seen = frameNumber;
-			// (its ring made - again where it grew or shrank: 48 bytes a particle, and the 32 of the stream drawn)
-			bool fresh = false;
-			if (g.capacity != st.capacity || !g.state)
+			for (const std::pair<f32, ParticleSystem*> &e : particleSystems)
 			{
-				ForgetGpuParticles(g);
-				gfx::BufferDesc b; b.usage = gfx::BufStorage; b.memory = gfx::Memory::GpuOnly;
-				b.size = (uint64)st.capacity * 48; b.debugName = "Renderer.ParticleState"; g.state = device->CreateBuffer(b);
-				b.usage = gfx::BufStorage | gfx::BufVertex; b.size = (uint64)st.capacity * 32; b.debugName = "Renderer.ParticleStream"; g.stream = device->CreateBuffer(b);
-				gfx::Device::BindGroupEntry en[2];
-				en[0].binding = 1; en[0].buffer = g.state; en[0].size = (uint64)st.capacity * 48;
-				en[1].binding = 2; en[1].buffer = g.stream; en[1].size = (uint64)st.capacity * 32;
-				g.group = device->CreateBindGroup(particleSimPipeline, en, 2);
-				g.capacity = st.capacity;
-				fresh = true;
+				ParticleSystem* ps = e.second;
+				if (!ps->SimulatedOnGPU()) continue;
+				const ParticleSystem::GpuStep &st = ps->GetGpuStep();
+				if (st.capacity == 0) continue;
+				GpuParticles &g = gpuParticles[ps];
+				g.seen = frameNumber;
+				bool fresh = false;
+				if (g.capacity != st.capacity || !g.state)
+				{
+					ForgetGpuParticles(g);
+					gfx::BufferDesc b; b.usage = gfx::BufStorage; b.memory = gfx::Memory::GpuOnly;
+					b.size = (uint64)st.capacity * 48; b.debugName = "Renderer.ParticleState"; g.state = device->CreateBuffer(b);
+					b.usage = gfx::BufStorage | gfx::BufVertex; b.size = (uint64)st.capacity * 32; b.debugName = "Renderer.ParticleStream"; g.stream = device->CreateBuffer(b);
+					gfx::Device::BindGroupEntry en[2];
+					en[0].binding = 1; en[0].buffer = g.state; en[0].size = (uint64)st.capacity * 48;
+					en[1].binding = 2; en[1].buffer = g.stream; en[1].size = (uint64)st.capacity * 32;
+					g.group = device->CreateBindGroup(particleSimPipeline, en, 2);
+					g.capacity = st.capacity;
+					fresh = true;
+				}
+				if (g.step == st.id && !fresh) continue;     // (stepped already: another view of the same frame)
+				g.step = st.id;
+				const ParticleSystemDesc &d = ps->GetDesc();
+				const Vec3 axis = d.direction.magnitude() > 1e-6f ? d.direction.normalize() : Vec3(0.f, 1.f, 0.f);
+				ParticleSimStep s;
+				const f32 dd[28] = {
+					st.origin.x, st.origin.y, st.origin.z, st.time,
+					axis.x, axis.y, axis.z, cosf(d.spreadAngle),
+					d.minSpeed, d.maxSpeed, d.minLifetime, d.maxLifetime,
+					d.gravity.x, d.gravity.y, d.gravity.z, d.damping,
+					(f32)st.start, (f32)st.count, (f32)st.capacity, (st.reset || fresh) ? 1.f : 0.f,
+					st.dt, d.minRotationSpeed, d.maxRotationSpeed, 0.f,
+					d.turbulence, 1.f / std::max(d.turbulenceScale, 1e-3f), d.collideFloor ? d.floorHeight : -1e30f, d.bounce };
+				memcpy(s.dd, dd, sizeof(dd));
+				s.g = &g; s.fresh = fresh; s.capacity = st.capacity;
+				particleSteps.push_back(s);
 			}
-			if (g.step == st.id && !fresh) continue;     // (stepped already: another view of the same frame)
-			g.step = st.id;
-			const ParticleSystemDesc &d = ps->GetDesc();
-			const Vec3 axis = d.direction.magnitude() > 1e-6f ? d.direction.normalize() : Vec3(0.f, 1.f, 0.f);
-			const f32 dd[28] = {
-				st.origin.x, st.origin.y, st.origin.z, st.time,
-				axis.x, axis.y, axis.z, cosf(d.spreadAngle),
-				d.minSpeed, d.maxSpeed, d.minLifetime, d.maxLifetime,
-				d.gravity.x, d.gravity.y, d.gravity.z, d.damping,
-				(f32)st.start, (f32)st.count, (f32)st.capacity, (st.reset || fresh) ? 1.f : 0.f,
-				st.dt, d.minRotationSpeed, d.maxRotationSpeed, 0.f,
-				d.turbulence, 1.f / std::max(d.turbulenceScale, 1e-3f), d.collideFloor ? d.floorHeight : -1e30f, d.bounce };
-			gfx::Barrier before; before.buffer = g.stream; before.from = fresh ? gfx::Access::Undefined : gfx::Access::VertexIndex; before.to = gfx::Access::ShaderWrite;
-			cl->Barriers(&before, 1);
-			cl->SetPipeline(particleSimPipeline);
-			cl->SetBindGroup(g.group, nullptr, 0);
-			cl->DrawData(dd, sizeof(dd));
-			cl->Dispatch((st.capacity + 63) / 64, 1, 1);
-			gfx::Barrier after; after.buffer = g.stream; after.from = gfx::Access::ShaderWrite; after.to = gfx::Access::VertexIndex;
-			cl->Barriers(&after, 1);
+			// (the rings of systems no longer drawn: let go a few frames on)
+			for (std::unordered_map<ParticleSystem*, GpuParticles>::iterator i = gpuParticles.begin(); i != gpuParticles.end();)
+				if (i->second.seen + 8 < frameNumber) { ForgetGpuParticles(i->second); i = gpuParticles.erase(i); }
+				else ++i;
 		}
-		// (the rings of systems no longer drawn: let go a few frames on)
-		for (std::unordered_map<ParticleSystem*, GpuParticles>::iterator i = gpuParticles.begin(); i != gpuParticles.end();)
-			if (i->second.seen + 8 < frameNumber) { ForgetGpuParticles(i->second); i = gpuParticles.erase(i); }
-			else ++i;
-	}
-
-	void SceneRenderer::RecordParticles(gfx::CommandList* cl, const uint32 frameOffset, const bool half)
-	{
-		const gfx::Pipeline alphaPipe = half ? particleHalfAlphaPipeline : particleAlphaPipeline, addPipe = half ? particleHalfAddPipeline : particleAddPipeline;
-		if (particleSystems.empty() || !device->PipelineReady(alphaPipe) || !device->PipelineReady(addPipe)) return;
 		// (the ring grown to hold the frame's particles - every frame slot's share at once; the old one is freed when the
 		// frames still reading it are done)
 		uint64 needed = 0;
@@ -4104,51 +4107,81 @@ namespace p3d {
 			particleRing = device->CreateBuffer(b);
 		}
 		const uint64 slotStart = (uint64)particleSlot * particleRingBytes;
-		// (the half-size pass writes after what the full-size one uploaded this frame, which its draws still read)
 		uint64 used = 0;
-		if (half)
+		for (int pass = 0; pass < 2; pass++)     // (the full-size ones, then the half-size)
 			for (const std::pair<f32, ParticleSystem*> &e : particleSystems)
 			{
-				if (!ParticleWantsHalf(e.second) && !e.second->SimulatedOnGPU()) used += (uint64)e.second->GetLiveParticleCount() * 32;
+				ParticleSystem* ps = e.second;
+				const bool half = ParticleWantsHalf(ps);
+				if (half != (pass == 1)) continue;
+				const ParticleSystemDesc &d = ps->GetDesc();
+				// (on the GPU: its own stream, as the compute pass leaves it - every slot of its ring, the dead with no size)
+				const std::unordered_map<ParticleSystem*, GpuParticles>::const_iterator onGpu = ps->SimulatedOnGPU() ? gpuParticles.find(ps) : gpuParticles.end();
+				if (ps->SimulatedOnGPU() && (onGpu == gpuParticles.end() || !onGpu->second.stream)) continue;
+				ParticleDraw pd;
+				pd.half = half;
+				pd.n = onGpu != gpuParticles.end() ? onGpu->second.capacity : ps->GetLiveParticleCount();
+				const uint64 bytes = onGpu != gpuParticles.end() ? 0 : (uint64)pd.n * 32;
+				if (bytes && used + bytes <= particleRingBytes) device->Upload(particleRing, slotStart + used, ps->GetParticleData(), bytes);
+				else if (bytes) continue;
+				if (onGpu != gpuParticles.end()) pd.stream = onGpu->second.stream;
+				else { pd.stream = particleRing; pd.ringAt = slotStart + used; }
+				used += bytes;
+				const gfx::Texture tex = TextureFor(d.texture.get(), true, white);
+				gfx::BindGroup &g = particleGroups[tex.id];
+				if (!g && device->PipelineReady(particleAlphaPipeline))
+				{
+					gfx::Device::BindGroupEntry en[5];
+					en[0].binding = 0; en[0].buffer = frameData; en[0].size = sizeof(FrameData);
+					en[1].binding = 1; en[1].texture = tex;
+					en[2].binding = 2; en[2].sampler = linearClamp;
+					en[3].binding = 3; en[3].texture = prepassDepth;
+					en[4].binding = 4; en[4].texture = skySH;
+					g = device->CreateBindGroup(particleAlphaPipeline, en, 5);
+				}
+				if (!g) continue;
+				pd.group = g;
+				pd.additive = d.blendMode == ParticleBlendMode::Additive;
+				const Vec4 c0 = SrgbToLinear(d.startColor), c1 = SrgbToLinear(d.endColor);
+				const f32 dd[20] = { c0.x, c0.y, c0.z, c0.w, c1.x, c1.y, c1.z, c1.w,
+					d.startSize, d.endSize, d.sizeRandomJitter, (f32)d.sizeEase,
+					(f32)d.colorEase, d.fadeInFraction, d.fadeOutFraction, d.softness,
+					ps->IsLit() ? 1.f : 0.f, ps->GetForwardScatter(), pd.additive ? 1.f : 0.f, d.stretch };
+				memcpy(pd.dd, dd, sizeof(dd));
+				particleDraws.push_back(pd);
 			}
-		gfx::Pipeline bound;
-		for (const std::pair<f32, ParticleSystem*> &e : particleSystems)
+	}
+
+	void SceneRenderer::RecordParticleSim(gfx::CommandList* cl)
+	{
+		if (!device->PipelineReady(particleSimPipeline)) return;
+		for (const ParticleSimStep &s : particleSteps)
 		{
-			ParticleSystem* ps = e.second;
-			const ParticleSystemDesc &d = ps->GetDesc();
-			if (ParticleWantsHalf(ps) != half) continue;
-			// (on the GPU: its own stream, as the compute pass left it - every slot of its ring, the dead with no size)
-			const std::unordered_map<ParticleSystem*, GpuParticles>::const_iterator onGpu = ps->SimulatedOnGPU() ? gpuParticles.find(ps) : gpuParticles.end();
-			if (ps->SimulatedOnGPU() && (onGpu == gpuParticles.end() || !onGpu->second.stream)) continue;
-			const uint32 n = onGpu != gpuParticles.end() ? onGpu->second.capacity : ps->GetLiveParticleCount();
-			const uint64 bytes = onGpu != gpuParticles.end() ? 0 : (uint64)n * 32;
-			if (bytes) device->Upload(particleRing, slotStart + used, ps->GetParticleData(), bytes);
-			const gfx::Texture tex = TextureFor(d.texture.get(), true, white);
-			gfx::BindGroup &g = particleGroups[tex.id];
-			if (!g)
-			{
-				gfx::Device::BindGroupEntry en[5];
-				en[0].binding = 0; en[0].buffer = frameData; en[0].size = sizeof(FrameData);
-				en[1].binding = 1; en[1].texture = tex;
-				en[2].binding = 2; en[2].sampler = linearClamp;
-				en[3].binding = 3; en[3].texture = prepassDepth;
-				en[4].binding = 4; en[4].texture = skySH;
-				g = device->CreateBindGroup(alphaPipe, en, 5);
-			}
-			const bool additive = d.blendMode == ParticleBlendMode::Additive;
-			const gfx::Pipeline pipe = additive ? addPipe : alphaPipe;
+			gfx::Barrier before; before.buffer = s.g->stream; before.from = s.fresh ? gfx::Access::Undefined : gfx::Access::VertexIndex; before.to = gfx::Access::ShaderWrite;
+			cl->Barriers(&before, 1);
+			cl->SetPipeline(particleSimPipeline);
+			cl->SetBindGroup(s.g->group, nullptr, 0);
+			cl->DrawData(s.dd, sizeof(s.dd));
+			cl->Dispatch((s.capacity + 63) / 64, 1, 1);
+			gfx::Barrier after; after.buffer = s.g->stream; after.from = gfx::Access::ShaderWrite; after.to = gfx::Access::VertexIndex;
+			cl->Barriers(&after, 1);
+		}
+	}
+
+	void SceneRenderer::RecordParticles(gfx::CommandList* cl, const uint32 frameOffset, const bool half)
+	{
+		const gfx::Pipeline alphaPipe = half ? particleHalfAlphaPipeline : particleAlphaPipeline, addPipe = half ? particleHalfAddPipeline : particleAddPipeline;
+		if (particleDraws.empty() || !device->PipelineReady(alphaPipe) || !device->PipelineReady(addPipe)) return;
+		gfx::Pipeline bound;
+		for (const ParticleDraw &pd : particleDraws)
+		{
+			if (pd.half != half) continue;
+			const gfx::Pipeline pipe = pd.additive ? addPipe : alphaPipe;
 			if (!(pipe == bound)) { cl->SetPipeline(pipe); bound = pipe; }
-			cl->SetBindGroup(g, &frameOffset, 1);
-			const Vec4 c0 = SrgbToLinear(d.startColor), c1 = SrgbToLinear(d.endColor);
-			const f32 dd[20] = { c0.x, c0.y, c0.z, c0.w, c1.x, c1.y, c1.z, c1.w,
-				d.startSize, d.endSize, d.sizeRandomJitter, (f32)d.sizeEase,
-				(f32)d.colorEase, d.fadeInFraction, d.fadeOutFraction, d.softness,
-				ps->IsLit() ? 1.f : 0.f, ps->GetForwardScatter(), additive ? 1.f : 0.f, d.stretch };
-			cl->DrawData(dd, sizeof(dd));
-			if (onGpu != gpuParticles.end()) cl->SetVertexBuffer(0, onGpu->second.stream, 0);
-			else cl->SetVertexBuffer(0, particleRing, slotStart + used);
-			cl->Draw(6, n, 0, 0);
-			used += bytes;
+			cl->SetBindGroup(pd.group, &frameOffset, 1);
+			cl->DrawData(pd.dd, sizeof(pd.dd));
+			cl->SetVertexBuffer(0, pd.stream, pd.ringAt);
+			cl->Draw(6, pd.n, 0, 0);
 		}
 	}
 
@@ -5892,6 +5925,7 @@ namespace p3d {
 		FrameProfiler::Instance().End();
 		Gather(scene, view, vp);
 		PrepareItems();
+		PrepareParticles();
 		// (the UI as commands - the scene's, then its overlays' - and the text in the world: made now, recorded later)
 		uiReady = device->PipelineReady(uiPipeline);
 		uiCommands.clear(); worldTextCommands.clear();
@@ -6216,6 +6250,7 @@ namespace p3d {
 				const Vec3 toSun = VolumetricSmoke::GetLightDirection();
 				graph.AddPass("Fluid", {}, {}, [=](gfx::CommandList* cl) { Fluids().Record(cl, toSun); });
 			}
+			if (anySmoke && device->PipelineReady(smokePipeline)) PrepareSmoke(slot);
 			if (anySmoke && device->PipelineReady(smokePipeline))
 				graph.AddPass("Smoke", { { smokeTex, Color }, { smokeReflectTex, Color } }, { prepassDepth, skySH, hdr }, [=](gfx::CommandList* cl) { RecordSmoke(cl, frameOffset, slot); });
 			// (this frame's picture kept for the next one's reflections before the smoke is laid on: the reflections
