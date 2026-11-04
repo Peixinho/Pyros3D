@@ -363,6 +363,9 @@ void PyrosPlayer::Init()
 		std::exit(1);
 	}
 	renderer.reset(new p3d::SceneRenderer(GetDevice()));
+	// (PYROS_RENDER_THREAD=1: a frame recorded, submitted and presented on a thread of its own while the next one's game
+	// runs here - SceneRenderer::SetRenderThread)
+	if (const char* rt = std::getenv("PYROS_RENDER_THREAD")) if (rt[0] == '1') { renderer->SetRenderThread(true); fprintf(stderr, "[renderer] render thread on\n"); }
 	// (the game's surface cache, where its folder has one: a native run writes the materials' surfaces there, SPIR-V
 	// and WGSL, and the browser build - which compiles none - reads them)
 	{
@@ -714,6 +717,8 @@ void PyrosPlayer::OpenLoadingScreen()
 
 bool PyrosPlayer::LoadGameScene(const std::string& sceneRel)
 {
+	// (the last frame's recording, on the render thread, done: loading frees the scene it was drawn from)
+	SceneRenderer::WaitAllIdle();
 	// (a lens over the screen is the scene's that put it there - a scope looked through: not the next scene's)
 	RenderGlobals::ScreenLens().z = 0.f;
 	// What the player sees while this runs: a screen with the load's progress on it, closed at
@@ -1452,6 +1457,7 @@ void PyrosPlayer::Update()
 	// At the top of the frame, before anything renders - see OnResize().
 	{
 		PYROS_PROFILE_SCOPE("Player.Resize");
+		if (resizePending) SceneRenderer::WaitAllIdle();     // (the swapchain made again: no frame being presented meanwhile)
 		ApplyPendingResizeIfAny();
 	}
 

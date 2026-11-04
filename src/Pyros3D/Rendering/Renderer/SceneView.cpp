@@ -58,6 +58,8 @@ namespace p3d {
 	void SceneView::Render(SceneGraph* scene, GameObject* camera, const Projection &projection)
 	{
 		if (!scene || !target) return;
+		// (a renderer's frame still being recorded on its thread: done first - this uses the device, and the smoke's grids)
+		SceneRenderer::WaitAllIdle();
 		// (the look of the view it was made beside, where that one is still drawing)
 		if (follow)
 		{

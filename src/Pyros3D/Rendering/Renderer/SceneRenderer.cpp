@@ -1048,6 +1048,7 @@ namespace p3d {
 
 	SceneRenderer::~SceneRenderer()
 	{
+		SetRenderThread(false);     // (its last frame finished, its thread gone)
 		{ std::vector<SceneRenderer*> &live = LiveRenderers(); live.erase(std::remove(live.begin(), live.end(), this), live.end()); }
 		probeRenderer.reset();
 		for (gfx::Texture t : { giIrradiance, giVisibility, giProbes, giRadiance }) if (t) device->Destroy(t);
@@ -2545,6 +2546,7 @@ namespace p3d {
 
 	void SceneRenderer::ForgetScene()
 	{
+		WaitIdle();
 		for (std::unordered_map<IGeometry*, MeshGpu>::iterator i = meshes.begin(); i != meshes.end(); ++i)
 			for (gfx::Buffer b : { i->second.vertices, i->second.indices, i->second.colors, i->second.skin }) if (b) device->Destroy(b);
 		meshes.clear(); bufferUsers.clear();
@@ -3139,9 +3141,9 @@ namespace p3d {
 
 	void SceneRenderer::RecordOverlay(gfx::CommandList* cl, const Matrix &viewProjection, const uint32 slot)
 	{
-		if (overlayBatches.empty() || !device->PipelineReady(overlayLinePipeline) || !device->PipelineReady(overlayTrianglePipeline)) return;
+		if (overlayFrameBatches.empty() || !device->PipelineReady(overlayLinePipeline) || !device->PipelineReady(overlayTrianglePipeline)) return;
 		// (this frame's vertices in its slot of the ring, grown to hold them - the old one freed when its frames are done)
-		const uint64 bytes = (uint64)overlayVertices.size() * sizeof(OverlayVertex);
+		const uint64 bytes = (uint64)overlayFrameVertices.size() * sizeof(OverlayVertex);
 		if (bytes > overlayRingBytes)
 		{
 			if (overlayRing) device->Destroy(overlayRing);
@@ -3150,7 +3152,7 @@ namespace p3d {
 			overlayRing = device->CreateBuffer(b);
 		}
 		const uint64 base = overlayRingBytes * slot;
-		device->Upload(overlayRing, base, overlayVertices.data(), bytes);
+		device->Upload(overlayRing, base, overlayFrameVertices.data(), bytes);
 		if (!overlayGroup)
 		{
 			gfx::Device::BindGroupEntry e[2]; e[0].binding = 1; e[0].texture = prepassDepth; e[1].binding = 2; e[1].sampler = pointClamp;
@@ -3158,7 +3160,7 @@ namespace p3d {
 		}
 		f32 dd[20];
 		memcpy(dd, viewProjection.m, 64);
-		for (const OverlayBatch &b : overlayBatches)
+		for (const OverlayBatch &b : overlayFrameBatches)
 		{
 			cl->SetPipeline(b.lines ? overlayLinePipeline : overlayTrianglePipeline);
 			cl->SetBindGroup(overlayGroup, nullptr, 0);
@@ -4025,8 +4027,8 @@ namespace p3d {
 		cl->SetViewport(0.f, 0.f, (f32)targetWidth, (f32)targetHeight);
 		cl->SetPipeline(smokeCompositePipeline);
 		cl->SetBindGroup(smokeCompositeGroup, &frameOffset, 1);
-		const Vec3 &fc = VolumetricSmoke::GetScreenFlashColor();
-		const f32 dd[8] = { fc.x, fc.y, fc.z, VolumetricSmoke::GetScreenFlash(), smokeOn ? 1.f : 0.f, 0.f, 0.f, 0.f };
+		const Vec3 &fc = screenFlashColorNow;     // (as the frame was prepared)
+		const f32 dd[8] = { fc.x, fc.y, fc.z, screenFlashNow, smokeOn ? 1.f : 0.f, 0.f, 0.f, 0.f };
 		cl->DrawData(dd, sizeof(dd));
 		cl->Draw(3, 1, 0, 0);
 		cl->EndPass();
@@ -5674,8 +5676,57 @@ namespace p3d {
 		echo("INFO: Renderer - reflection probe '" + next->GetOwner()->GetName() + "' seen, into block " + std::to_string(st.slot));
 	}
 
+	void SceneRenderer::SetRenderThread(const bool on)
+	{
+		if (on == threaded) return;
+		WaitIdle();
+		if (on)
+		{
+			workerQuit = false;
+			worker = std::thread([this]() {
+				std::unique_lock<std::mutex> l(workerMutex);
+				for (;;)
+				{
+					workerWake.wait(l, [this] { return workerQuit || workerBusy; });
+					if (workerBusy)
+					{
+						std::function<void()> job = std::move(workerJob); workerJob = nullptr;
+						l.unlock();
+						job();
+						l.lock();
+						workerBusy = false;
+						workerDone.notify_all();
+					}
+					if (workerQuit) return;
+				}
+			});
+			threaded = true;
+		}
+		else
+		{
+			{ std::lock_guard<std::mutex> l(workerMutex); workerQuit = true; }
+			workerWake.notify_one();
+			if (worker.joinable()) worker.join();
+			threaded = false;
+		}
+	}
+
+	void SceneRenderer::WaitIdle()
+	{
+		if (!threaded) return;
+		std::unique_lock<std::mutex> l(workerMutex);
+		workerDone.wait(l, [this] { return !workerBusy; });
+	}
+
+	void SceneRenderer::WaitAllIdle()
+	{
+		for (SceneRenderer* r : LiveRenderers()) r->WaitIdle();
+	}
+
 	void SceneRenderer::Render(SceneGraph* scene, const View &view)
 	{
+		// (the last frame's recording, on the render thread, done: everything below is the renderer's again)
+		{ PYROS_PROFILE_SCOPE("R.WaitRender"); WaitIdle(); }
 		PYROS_PROFILE_SCOPE("R.Render");
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
 		FrameProfiler::Instance().Begin("R.BeginFrame");
@@ -6257,6 +6308,7 @@ namespace p3d {
 			// find surfaces in it, and the smoke the eye sees in front of one is not in front of it for a mirror -
 			// the smoke a mirror shows is its own, marched along its rays)
 			// (kept already, after the scene pass)
+			screenFlashNow = VolumetricSmoke::GetScreenFlash(); screenFlashColorNow = VolumetricSmoke::GetScreenFlashColor();
 			if ((anySmoke || VolumetricSmoke::GetScreenFlash() > 0.f) && device->PipelineReady(smokeCompositePipeline))
 				graph.AddPass("SmokeComposite", { { hdr, Color } }, { smokeTex, smokeReflectTex, prepassDepth }, [=](gfx::CommandList* cl) { RecordSmokeComposite(cl, frameOffset); });
 		}
@@ -6274,6 +6326,12 @@ namespace p3d {
 		std::vector<W> tonemapWrites;
 		if (view.target) tonemapWrites.push_back({ view.target, Color, true });     // (left sampleable: its reader's)
 		// (the tone curve's draw - its bloom, exposure, the scene's grade - with `pipe`: to the screen, or to a texture)
+		// (the overlay's lines and triangles as the frame is prepared: scripts may add the next frame's while this is recorded)
+		overlayFrameVertices.swap(overlayVertices); overlayFrameBatches.swap(overlayBatches);
+		overlayVertices.clear(); overlayBatches.clear();
+		// (the screen's lens as the frame is prepared - the tone map is recorded later)
+		const bool lensOnNow = !view.target && RenderGlobals::ScreenLens().z > 0.f;
+		const Vec4 lensNow = RenderGlobals::ScreenLens(), lensLookNow = RenderGlobals::ScreenLensLook();
 		auto drawTonemap = [=](gfx::CommandList* cl, const gfx::Pipeline pipe, gfx::BindGroup* groups)
 		{
 			const uint32 cur = (uint32)(frameNumber & 1);
@@ -6293,8 +6351,8 @@ namespace p3d {
 			cl->SetBindGroup(groups[cur], &frameOffset, 1);
 			const Grade &g = grade;
 			// (the screen's lens - RenderGlobals::ScreenLens - on the picture that goes to the screen only, not a view's texture)
-			const bool lensOn = !view.target && RenderGlobals::ScreenLens().z > 0.f;
-			const Vec4 lens = RenderGlobals::ScreenLens(), lensLook = RenderGlobals::ScreenLensLook();
+			const bool lensOn = lensOnNow;
+			const Vec4 lens = lensNow, lensLook = lensLookNow;
 			const f32 dd[52] = {
 				g.exposure, g.shoulder, g.temperature, g.tint,
 				g.contrast, g.pivot, g.saturation, g.vibrance,
@@ -6433,10 +6491,27 @@ namespace p3d {
 				graph.Use(cl, { { picture, gfx::Access::CopySrc } });
 				cl->CopyTexture(picture, view.hdrCopy);
 			}, true);
+		FrameProfiler::Instance().End();
+		// (recorded here, or on the render thread while the caller goes on with its game)
+		if (threaded && !view.hostFrame)
+		{
+			std::unique_lock<std::mutex> l(workerMutex);
+			const View v = view;
+			workerJob = [this, v, t1]() { ExecuteFrame(v, t1); };
+			workerBusy = true;
+			workerWake.notify_one();
+		}
+		else ExecuteFrame(view, t1);
+	}
+
+	// The frame as prepared, recorded, submitted and presented: what this reads is the renderer's own - its items, the
+	// commands made for the UI, particles and smoke, its targets - never the scene's objects (Render, PrepareItems)
+	void SceneRenderer::ExecuteFrame(const View &view, const std::chrono::steady_clock::time_point t1)
+	{
 		gfx::CommandList* cl = device->NewCommandList("Renderer");
-		FrameProfiler::Instance().End(); FrameProfiler::Instance().Begin("R.Execute");
+		FrameProfiler::Instance().Begin("R.Execute");
 		graph.Execute(cl);
-		overlayVertices.clear(); overlayBatches.clear();     // (the next frame says its own)
+		overlayFrameVertices.clear(); overlayFrameBatches.clear();     // (the next frame says its own)
 		const std::chrono::steady_clock::time_point s0 = std::chrono::steady_clock::now();
 		FrameProfiler::Instance().End(); FrameProfiler::Instance().Begin("R.Submit");
 		device->Submit(&cl, 1);

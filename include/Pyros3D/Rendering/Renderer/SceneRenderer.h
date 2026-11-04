@@ -25,6 +25,10 @@
 #include <memory>
 #include <unordered_map>
 #include <vector>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
+#include <functional>
 
 namespace p3d {
 
@@ -145,7 +149,7 @@ namespace p3d {
 		// texture_2D(uTex0, vTexcoord) and writing FragColor), in its chain's order: run on the finished picture in display
 		// terms (after the tone curve, linear 0..1 - what they were written for), its parameters as the scene set them
 		struct AssetEffect { std::string name, source; std::map<std::string, std::vector<f32> > params; };
-		void SetAssetEffects(const std::vector<AssetEffect> &effects) { assetEffects = effects; }
+		void SetAssetEffects(const std::vector<AssetEffect> &effects) { WaitIdle(); assetEffects = effects; }
 		// The ambient occlusion's reach (metres), strength (a power on what it leaves lit: 1 as it is) and its share on the
 		// direct light (0 the ambient's alone; 0.2, the default, as the old renderer's SSAO) - a scene's SSAO
 		void SetAmbientOcclusion(const f32 radius, const f32 strength, const f32 direct = 0.2f) { aoRadius = std::min(std::max(radius, 0.05f), 8.f); aoStrength = std::min(std::max(strength, 0.f), 4.f); aoDirect = std::min(std::max(direct, 0.f), 1.f); }
@@ -161,6 +165,9 @@ namespace p3d {
 		FrameGraph graph;     // (the frame's passes, and every texture's state between them)
 		struct OverlayBatch { uint32 first, count; bool lines, depthTested; };
 		std::vector<OverlayVertex> overlayVertices; std::vector<OverlayBatch> overlayBatches;
+		// (the frame's, taken from those as it is prepared - AddOverlay may be called again while it is recorded)
+		std::vector<OverlayVertex> overlayFrameVertices; std::vector<OverlayBatch> overlayFrameBatches;
+		f32 screenFlashNow = 0.f; Vec3 screenFlashColorNow;     // (VolumetricSmoke's screen flash, as the frame was prepared)
 		gfx::Shader overlayVS, overlayFS; gfx::Pipeline overlayLinePipeline, overlayTrianglePipeline; gfx::BindGroup overlayGroup;
 		gfx::Buffer overlayRing; uint64 overlayRingBytes = 0;
 		void RecordOverlay(gfx::CommandList* cl, const Matrix &viewProjection, const uint32 slot);
@@ -310,8 +317,22 @@ namespace p3d {
 
 		// One whole frame: begins it, records the passes, submits, presents and ends it
 		void Render(SceneGraph* scene, const View &view);
+		// The render thread (SetRenderThread, PYROS_RENDER_THREAD=1 in the player): a frame is prepared on the calling
+		// thread - everything that reads the scene - and recorded, submitted and presented on a thread of its own while the
+		// caller goes on to the next frame's game. The next Render waits for it first (WaitIdle); so must anything else that
+		// uses the device meanwhile - another renderer, a bake (WaitAllIdle)
+		void SetRenderThread(const bool on);
+		bool GetRenderThread() const { return threaded; }
+		void WaitIdle();
+		static void WaitAllIdle();
 
 		const gfx::FrameStats &Stats() const { return device->LastFrameStats(); }
+	private:
+		bool threaded = false, workerQuit = false, workerBusy = false;
+		std::thread worker; std::mutex workerMutex; std::condition_variable workerWake, workerDone;
+		std::function<void()> workerJob;
+		void ExecuteFrame(const View &view, const std::chrono::steady_clock::time_point t1);
+	public:
 		// CPU time of the last Render (ms): waiting for a frame slot (BeginFrame - the display's pace
 		// shows here), and the work - the frame's data, recording, submitting, presenting
 		f64 WaitMilliseconds() const { return waitMs; }

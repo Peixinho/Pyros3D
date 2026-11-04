@@ -49,6 +49,7 @@ namespace p3d {
 			// The scene's light (DDGI): bakeGI(scene, { counts = {x, y, z}, rays, passes, sky = {r, g, b} }) solves it,
 			// updateGI(scene, probes, hysteresis) traces a share of it again (a light that moves); on the CPU
 			"bakeGI", [](SceneRenderer &r, SceneGraph* scene, sol::optional<sol::table> t) {
+				SceneRenderer::WaitAllIdle();     // (it uses the device: no frame being recorded meanwhile)
 				SceneGISettings s;
 				s.enabled = true;
 				if (t)
@@ -64,6 +65,7 @@ namespace p3d {
 				return r.SolveGlobalIllumination(scene, s);
 			},
 			"updateGI", [](SceneRenderer &r, SceneGraph* scene, sol::optional<int> probes, sol::optional<f32> hysteresis) {
+				SceneRenderer::WaitAllIdle();
 				r.RefreshGlobalIllumination(scene, r.ownGIRayCount, (uint32)std::max(0, probes.value_or(0)), hysteresis.value_or(0.9f));
 			},
 			"isGIOnGPU", [](SceneRenderer &) { return false; });
