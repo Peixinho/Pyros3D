@@ -18,6 +18,8 @@
 #include <Pyros3D/Rendering/Device/DisplayHdr.h>
 #include <Pyros3D/Rendering/Device/RenderDevice.h>
 #include <cstdlib>
+// (CreateBuffer's first bytes: a submit of their own, not the frame's uploads - per thread, as buffers are made on several)
+static thread_local bool uploadAtOnce = false;
 // (the frame a test's capture is of: PYROS_SHOT_FRAME, else the 120th)
 static inline uint64_t ShotFrame() { static const uint64_t f = getenv("PYROS_SHOT_FRAME") ? (uint64_t)atoll(getenv("PYROS_SHOT_FRAME")) : 120; return f; }
 #include <Pyros3D/Rendering/Device/WritePng.h>
@@ -223,6 +225,7 @@ namespace p3d { namespace gfx {
 			VkQueue queue = VK_NULL_HANDLE; uint32_t family = 0; VkSurfaceKHR surface = VK_NULL_HANDLE;
 			VmaAllocator vma = nullptr;
 			BufferRec shotBuffer; uint32_t shotW = 0, shotH = 0; bool shotWritten = false;     // (PYROS_SHOT)
+			uint32_t stagedUploads = 0;     // (this frame's: Upload into memory the CPU cannot see)
 			VkSwapchainKHR swapchain = VK_NULL_HANDLE; VkFormat swapFormat = VK_FORMAT_B8G8R8A8_SRGB; VkPresentModeKHR presentMode = VK_PRESENT_MODE_FIFO_KHR;
 			std::mutex shaderNamesMutex; std::unordered_map<VkShaderModule, std::string> shaderNames;
 			bool naming = false;     // (VK_EXT_debug_utils on - with the validation layer: objects given their debug names)
@@ -259,6 +262,8 @@ namespace p3d { namespace gfx {
 				// signal its end once, and hold one fence)
 				std::vector<VkCommandBuffer> pending;
 				bool acquireWaited = false;     // (its image's acquire waited on already - by a submit before its end: a readback)
+				// (the buffer uploads made while it was recorded: one list, ahead of its others - CloseUploads)
+				VkCommandBuffer uploads = VK_NULL_HANDLE;
 			} frames[kFrames];
 			uint32_t frame = 0; uint64_t frameNumber = 0, frameBase = 0;
 			std::atomic<uint64_t> frameCursor{ 0 };
@@ -340,6 +345,7 @@ namespace p3d { namespace gfx {
 			double GpuMilliseconds(QueryPool, uint32_t, uint32_t) override { return 0.0; }
 			const FrameStats &LastFrameStats() override;
 			VkCommandBuffer FrameCommandBuffer();     // (a primary from this frame's pools, begun; recordMutex held)
+			void CloseUploads(Frame &f);     // (the frame's uploads ended, put ahead of its lists; recordMutex held)
 			void Flush();
 			void SubmitPending();     // (the frame's lists so far to the queue - not its end: a readback reads what they drew)
 			bool ReadTexture(Texture t, std::vector<uint8_t> &out) override;
@@ -957,7 +963,9 @@ namespace p3d { namespace gfx {
 			if (vmaCreateBuffer(vma, &bi, &ac, &r.buffer, &r.alloc, &info) != VK_SUCCESS) return Buffer();
 			r.mapped = info.pMappedData;
 			Buffer h; h.id = buffers.Add(r);
-			if (initial) Upload(h, 0, initial, d.size);
+			// (its first bytes copied at once, in a submit of their own - not with the frame's uploads: a mesh made mid-frame may be
+			// read before the frame is submitted - its ray-tracing structure is built from it there and then)
+			if (initial) { uploadAtOnce = true; Upload(h, 0, initial, d.size); uploadAtOnce = false; }
 			return h;
 		}
 		void VulkanDevice::Destroy(Buffer b)
@@ -1035,10 +1043,32 @@ namespace p3d { namespace gfx {
 			BufferRec* r = buffers.Get(to.id);
 			if (!r) return;
 			if (r->mapped) { memcpy((uint8_t*)r->mapped + offset, data, size); return; }
+			stagedUploads++;     // (a staged copy of its own: a submit, a pool, a fence - GPU.uploads)
 			BufferDesc sd; sd.size = size; sd.memory = Memory::Upload;
 			Buffer staging = CreateBuffer(sd, nullptr);
 			memcpy(buffers.Get(staging.id)->mapped, data, size);
 			VkBuffer src = buffers.Get(staging.id)->buffer, dst = r->buffer;
+			// In a frame: its copy in the frame's one upload list, submitted ahead of its others - not a submit, a pool and a
+			// fence of its own (a HUD's text, rewritten: 17 a frame, each with the GPU waiting for all before it)
+			if (frameOpen && !uploadAtOnce)
+			{
+				std::lock_guard<std::mutex> lk(recordMutex);
+				Frame &f = frames[frame];
+				if (!f.uploads)
+				{
+					f.uploads = FrameCommandBuffer();
+					VkMemoryBarrier2 mb = {}; mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+					mb.srcStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT; mb.srcAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+					mb.dstStageMask = VK_PIPELINE_STAGE_2_COPY_BIT; mb.dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+					VkDependencyInfo d = {}; d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO; d.memoryBarrierCount = 1; d.pMemoryBarriers = &mb;
+					vkCmdPipelineBarrier2(f.uploads, &d);
+				}
+				VkBufferCopy c = { 0, offset, size }; vkCmdCopyBuffer(f.uploads, src, dst, 1, &c);
+				const VkBuffer sb = buffers.Get(staging.id)->buffer; const VmaAllocation sa = buffers.Get(staging.id)->alloc;
+				f.retire.push_back([this, sb, sa] { vmaDestroyBuffer(vma, sb, sa); });     // (freed once the frame is done)
+				buffers.Remove(staging.id);
+				return;
+			}
 			// (not waited for: a mesh's buffers made mid-frame stood the frame still while the GPU caught up)
 			// (fenced on both sides: after whatever was submitted before - a frame still drawing from the buffer - and before
 			// whatever comes after reads it. Without, a draw on NVIDIA read a mesh half written, or the next one's bytes;
@@ -1598,6 +1628,19 @@ namespace p3d { namespace gfx {
 			return c;
 		}
 
+		void VulkanDevice::CloseUploads(Frame &f)
+		{
+			if (!f.uploads) return;
+			VkMemoryBarrier2 mb = {}; mb.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
+			mb.srcStageMask = VK_PIPELINE_STAGE_2_COPY_BIT; mb.srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+			mb.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT; mb.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT;
+			VkDependencyInfo d = {}; d.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO; d.memoryBarrierCount = 1; d.pMemoryBarriers = &mb;
+			vkCmdPipelineBarrier2(f.uploads, &d);
+			vkEndCommandBuffer(f.uploads);
+			f.pending.insert(f.pending.begin(), f.uploads);
+			f.uploads = VK_NULL_HANDLE;
+		}
+
 		VkCommandBuffer VulkanDevice::FrameCommandBuffer()
 		{
 			Frame &f = frames[frame];
@@ -1636,6 +1679,7 @@ namespace p3d { namespace gfx {
 			if (f.pending.empty()) return;
 			std::lock_guard<std::mutex> lk(recordMutex);
 			// (this frame's ray scene, built ahead of the lists that trace it)
+			CloseUploads(f);
 			if (rtQueued[frame]) { f.pending.insert(f.pending.begin(), rtCmds[frame]); rtQueued[frame] = false; }
 			// After the frame's lists: its test capture (PYROS_SHOT=<file.png>: the frame as it is shown),
 			// and the backbuffer handed to presentation
@@ -1698,6 +1742,8 @@ namespace p3d { namespace gfx {
 			// (they may draw on the frame's image: its acquire waited on here, once)
 			if (haveImage && !f.acquireWaited) { si.waitSemaphoreCount = 1; si.pWaitSemaphores = &f.acquired; si.pWaitDstStageMask = &wait; f.acquireWaited = true; }
 			std::lock_guard<std::mutex> lk(recordMutex);
+			CloseUploads(f);
+			si.commandBufferCount = (uint32_t)f.pending.size(); si.pCommandBuffers = f.pending.data();
 			Check(vkQueueSubmit(queue, 1, &si, VK_NULL_HANDLE), "submitting");
 			f.pending.clear();
 		}
@@ -1852,6 +1898,7 @@ namespace p3d { namespace gfx {
 
 		void VulkanDevice::Present()
 		{
+			FrameProfiler::Instance().Counter("GPU.uploads", (double)stagedUploads); stagedUploads = 0;
 			Flush();     // (the frame's lists, at once)
 			ReapShots(false);
 			frameOpen = false;
