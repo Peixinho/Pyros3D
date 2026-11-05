@@ -420,6 +420,7 @@ namespace p3d {
 		struct LevelPick { RenderingComponent* rc = nullptr; uint32 level = 0, from = 0; f32 t = 1.f; bool crossfade = false, instanced = false; uint8 state = 0;
 			const std::vector<RenderingMesh*>* meshes = nullptr; const std::vector<RenderingMesh*>* fromMeshes = nullptr; };
 		std::vector<LevelPick> levelPicks;
+		std::vector<uint8> passFlags;     // (G.Items: 1 passed over on a worker, 2 not drawable, 0 the full work)
 		struct DrawDataBlock { f32 v[64]; };     // (a draw's DrawData as bytes: SceneRenderer.cpp's DrawData, 256)
 		std::vector<DrawDataBlock> itemData;
 		void PrepareItems();

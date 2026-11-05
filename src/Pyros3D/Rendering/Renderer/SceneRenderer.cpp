@@ -4731,6 +4731,56 @@ namespace p3d {
 		FrameProfiler::Instance().End();
 		FrameProfiler::Instance().Begin("G.Items");
 		uint32 passedOver = 0;
+		const size_t listedCount = chosen.size();
+		{
+			// What is passed over - not moved, made as it was, neither in view nor shadowing anything in it: most of an island's
+			// meshes - found on every core first (each reads its own record and writes only its own mark), and the list left
+			// with the rest, in its order, for the work below on this thread. Those with no record yet, or one of another
+			// generation, are never passed over here: making a record changes the renderer's map
+			const uint32 n = (uint32)listedCount;
+			passFlags.resize(n);
+			const uint64 scanNow = contentScan, lostAt = contentLostAt;
+			auto passRange = [&](const uint32 begin, const uint32 end)
+			{
+				for (uint32 ci = begin; ci < end; ci++)
+				{
+					if (ci + 12 < end) { const char* a = (const char*)chosen[ci + 12]; PYROS_PREFETCH(a); PYROS_PREFETCH(a + 64); PYROS_PREFETCH(a + 128); }
+					if (ci + 6 < end) if (const RenderingMesh* a = chosen[ci + 6])
+					{
+						PYROS_PREFETCH(a->renderingComponent); PYROS_PREFETCH((const char*)a->renderingComponent + 64);
+						if (a->drawRecordOwner == this) { const char* r = (const char*)a->drawRecord; PYROS_PREFETCH(r); PYROS_PREFETCH(r + 64); PYROS_PREFETCH(r + 128); PYROS_PREFETCH(r + 192); }
+					}
+					if (ci + 3 < end) if (const RenderingMesh* a = chosen[ci + 3]) if (a->renderingComponent) if (GameObject* o = a->renderingComponent->GetOwner())
+						{ const char* w = (const char*)o->DrawWorldHint(); PYROS_PREFETCH(w); PYROS_PREFETCH(w + 63); }
+					uint8 &flag = passFlags[ci];
+					flag = 0;
+					RenderingMesh* rm = chosen[ci];
+					if (!rm || !rm->Active || !rm->Geometry || !rm->renderingComponent || !rm->renderingComponent->GetOwner()) { flag = 2; continue; }     // (dropped below as well)
+					if (!(rm->drawRecordOwner == this && rm->drawRecordGeneration == meshDrawGeneration)) continue;
+					RenderingComponent* rc = rm->renderingComponent;
+					if (rc->GetComponentType() == ComponentType::RenderingInstancedComponent) continue;
+					MeshDraw &md = *static_cast<MeshDraw*>(rm->drawRecord);
+					const Matrix &ownerWorld = rc->GetOwner()->GetDrawWorld();
+					if (md.placeKnown && memcmp(ownerWorld.m, md.ownerWorld.m, sizeof(ownerWorld.m)) == 0 && memcmp(rm->Pivot.m, md.pivot.m, sizeof(rm->Pivot.m)) == 0
+						&& !md.movesItself && !md.skybox && md.gpu && md.material == rm->Material.get() && md.geometry == rm->Geometry
+						&& md.geometryRevision == rm->Geometry->buffersRevision && !needed(md.center, md.radius, rc->IsCastingShadows() && !md.impostor)
+						&& ((md.contentSeenAt > lostAt && md.gpu->writtenAt < md.contentSeenAt) || ContentRevision(rm->Geometry) == md.content))
+					{ md.contentSeenAt = scanNow; flag = 1; }
+				}
+			};
+			static thread_local JobSystem::SharedLoop passLoop;
+			if (passLoop.Begin(n, 4096)) JobSystem::Instance().ParallelFor(n, 1024, passRange);
+			else passRange(0, n);
+			passLoop.End();
+			size_t kept = 0;
+			for (uint32 ci = 0; ci < n; ci++)
+			{
+				if (passFlags[ci] == 1) { passedOver++; continue; }
+				if (passFlags[ci] == 2) continue;
+				chosen[kept++] = chosen[ci];
+			}
+			chosen.resize(kept);
+		}
 		const size_t chosenCount = chosen.size();
 		for (size_t ci = 0; ci < chosenCount; ci++)
 		{
@@ -5028,7 +5078,7 @@ namespace p3d {
 		}
 		FrameProfiler::Instance().End();
 		// (how many meshes were looked at, how many passed over before anything else of them was, how many drawn)
-		FrameProfiler::Instance().Counter("G.Listed", (f64)chosen.size()); FrameProfiler::Instance().Counter("G.PassedOver", (f64)passedOver);
+		FrameProfiler::Instance().Counter("G.Listed", (f64)listedCount); FrameProfiler::Instance().Counter("G.PassedOver", (f64)passedOver);
 		FrameProfiler::Instance().Counter("G.ItemsMade", (f64)items.size());
 		HideOccluded(scene, view, ProjectionFor(view));
 		FrameProfiler::Instance().Begin("G.Tail");
