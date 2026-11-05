@@ -1,5 +1,6 @@
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/ImpostorQuad.h>
 #include <Pyros3D/Assets/Renderable/Primitives/Shapes/Card.h>
+#include <Pyros3D/Assets/Renderable/Primitives/Primitive.h>
 #include <Pyros3D/Rendering/Renderer/ImpostorBaker.h>
 #include <Pyros3D/Materials/CustomShaderMaterials/CustomShaderMaterial.h>
 #include <chrono>
@@ -628,6 +629,77 @@ namespace p3d {
 		const f32 handOver = LODDistances[level] * g_lodScale;
 		const f32 d = sqrtf(Distance), from = handOver * 0.875f;
 		return d <= from ? 0.f : std::min((d - from) / std::max(handOver - from, 1e-4f), 1.f);
+	}
+	uint32 RenderingComponent::MergeChildMeshes(GameObject* parent)
+	{
+		if (!parent) return 0;
+		struct Group { std::shared_ptr<IMaterial> material; PrimitiveGeometry* geometry = nullptr; };
+		std::vector<Group> casters, others;
+		std::vector<std::shared_ptr<GameObject> > merged;
+		const std::vector<std::shared_ptr<GameObject> > kids = parent->GetChildren();
+		for (const std::shared_ptr<GameObject> &child : kids)
+		{
+			if (!child || !child->GetChildren().empty() || child->GetComponents().size() != 1) continue;
+			RenderingComponent* rc = dynamic_cast<RenderingComponent*>(child->GetComponents()[0].get());
+			if (!rc || rc->HasLOD() || rc->GetLODSize() > 1 || rc->IsInstanced() || rc->HasBones() || !rc->IsActive()) continue;
+			std::vector<RenderingMesh*> &meshes = rc->GetMeshes(0);
+			bool plain = !meshes.empty();
+			for (RenderingMesh* m : meshes)
+			{
+				PrimitiveGeometry* pg = m ? dynamic_cast<PrimitiveGeometry*>(m->Geometry) : nullptr;
+				if (!pg || !m->Material || pg->tVertex.empty() || pg->tNormal.size() != pg->tVertex.size() || pg->tTexcoord.size() != pg->tVertex.size()) { plain = false; break; }
+			}
+			if (!plain) continue;
+			// (where it is in the parent: its own matrix, as its position, rotation and scale say now)
+			child->RefreshTransformation();
+			const Matrix place = child->GetLocalTransformation();
+			const Matrix turn = place.Inverse().Transpose();     // (its normals')
+			std::vector<Group> &groups = rc->IsCastingShadows() ? casters : others;
+			for (RenderingMesh* m : meshes)
+			{
+				PrimitiveGeometry* src = static_cast<PrimitiveGeometry*>(m->Geometry);
+				const Matrix toMesh = place * m->Pivot;
+				Group* g = nullptr;
+				for (Group &x : groups) if (x.material == m->Material) { g = &x; break; }
+				if (!g) { groups.push_back(Group()); g = &groups.back(); g->material = m->Material; g->geometry = new PrimitiveGeometry(); }
+				PrimitiveGeometry* dst = g->geometry;
+				const __INDEX_C_TYPE__ base = (__INDEX_C_TYPE__)dst->tVertex.size();
+				for (size_t v = 0; v < src->tVertex.size(); v++)
+				{
+					dst->tVertex.push_back(toMesh * src->tVertex[v]);
+					Vec3 n = turn * src->tNormal[v] - turn * Vec3(0.f, 0.f, 0.f);
+					dst->tNormal.push_back(n.normalize());
+					dst->tTexcoord.push_back(src->tTexcoord[v]);
+				}
+				for (__INDEX_C_TYPE__ i : src->index) dst->index.push_back(base + i);
+			}
+			merged.push_back(child);
+		}
+		if (merged.empty()) return 0;
+		std::shared_ptr<GameObject> holder = std::make_shared<GameObject>();
+		holder->SetName("Merged");
+		for (int pass = 0; pass < 2; pass++)
+		{
+			std::vector<Group> &groups = pass == 0 ? casters : others;
+			if (groups.empty()) continue;
+			std::shared_ptr<Renderable> renderable = std::make_shared<Renderable>();
+			for (Group &g : groups)
+			{
+				g.geometry->CreateBuffers(false);
+				g.geometry->SendBuffers();
+				g.geometry->materialProperties.haveColor = true; g.geometry->materialProperties.Color = Vec4(1.f, 1.f, 1.f, 1.f);
+				renderable->Geometries.push_back(g.geometry);
+			}
+			renderable->CalculateBounding();
+			std::shared_ptr<RenderingComponent> rc = std::make_shared<RenderingComponent>(renderable, groups[0].material);
+			std::vector<RenderingMesh*> &meshes = rc->GetMeshes(0);
+			for (size_t i = 0; i < meshes.size() && i < groups.size(); i++) if (meshes[i]) meshes[i]->Material = groups[i].material;
+			if (pass == 1) rc->DisableCastShadows();
+			holder->Add(std::static_pointer_cast<IComponent>(rc));
+		}
+		for (const std::shared_ptr<GameObject> &child : merged) parent->RemoveGameObject(child);
+		parent->Add(holder);
+		return (uint32)merged.size();
 	}
 	f32 RenderingComponent::LODDistanceSQR(const Vec3 &from, const Vec3 &ownerPosition, const Vec3 &ownerScale)
 	{

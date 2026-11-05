@@ -513,6 +513,8 @@ namespace p3d {
 		// and convert explicitly (see LuaObjectToRenderable). SOL_CHECK_ARGUMENTS
 		// will not match shared_ptr<Cube> to shared_ptr<Renderable> on its own.
 		{
+			// mergeChildMeshes(go): its plain shape children baked into one mesh per material (RenderingComponent::MergeChildMeshes) - how many
+			lua->set_function("mergeChildMeshes", [](GameObject &go) { return RenderingComponent::MergeChildMeshes(&go); });
 			lua->new_usertype<LUA_RenderingComponent>("RenderingComponent",
 				sol::factories(
 					&LuaNewRenderingComponentDist,

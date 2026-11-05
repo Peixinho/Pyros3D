@@ -391,6 +391,12 @@ namespace p3d {
 		static void SetAutoLOD(const bool on);
 		static bool GetAutoLOD();
 		static void SetAutoLODInUse(const bool on);
+		// Static batching: `parent`'s plain children - each a shape (a Primitive's geometry: a box, a card...) with one
+		// rendering component and nothing else, no children, levels, bones or instances - baked into one mesh per material
+		// in the parent's space, on one child "Merged", and the children taken away. What a renderer walks each frame is
+		// its components: a window's frame of eight boxes was eight (an island's windows, 6600 of the 16700 there were).
+		// Returns how many children it merged. Not for children that move on their own or are reached by name later.
+		static uint32 MergeChildMeshes(GameObject* parent);
 		static void SetLODDistanceScale(const f32 scale);
 		// Seconds a change of level takes: both levels drawn meanwhile, the one dissolving into the
 		// other (0: they switch at once, as before). 0.25 s by default.
