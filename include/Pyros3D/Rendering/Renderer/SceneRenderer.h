@@ -416,6 +416,10 @@ namespace p3d {
 			gfx::Pipeline customPrepass; gfx::BindGroup customPrepassGroup; gfx::Buffer colors;
 		};
 		// (each drawn item's draw data, made while the frame is prepared: DrawItem::dataIndex)
+		// (a component's level as G.Levels chose it on its worker: 0 not drawn, 1 chosen, 2 left for the gathering thread)
+		struct LevelPick { RenderingComponent* rc = nullptr; uint32 level = 0, from = 0; f32 t = 1.f; bool crossfade = false, instanced = false; uint8 state = 0;
+			const std::vector<RenderingMesh*>* meshes = nullptr; const std::vector<RenderingMesh*>* fromMeshes = nullptr; };
+		std::vector<LevelPick> levelPicks;
 		struct DrawDataBlock { f32 v[64]; };     // (a draw's DrawData as bytes: SceneRenderer.cpp's DrawData, 256)
 		std::vector<DrawDataBlock> itemData;
 		void PrepareItems();

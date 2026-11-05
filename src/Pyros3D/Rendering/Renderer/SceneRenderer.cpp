@@ -43,6 +43,7 @@
 #include <algorithm>
 #include <Pyros3D/Rendering/ColourSpace.h>
 #include <Pyros3D/Rendering/ShaderGlobals.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
 #include <future>
 #include <mutex>
 #include <thread>
@@ -4602,33 +4603,28 @@ namespace p3d {
 		if (lodOn)
 		{
 			const std::vector<RenderingComponent*> &components = scene->GetRenderingComponents();
-			const size_t componentCount = components.size();
-			for (size_t ci = 0; ci < componentCount; ci++)
+			const uint32 componentCount = (uint32)components.size();
+			// Each component's level, on every core: its distance, its level and its crossfade's state (each its own - no
+			// two threads write one), into levelPicks; then, in the scene's order on this thread, what is drawn of it. What
+			// changes a component (its automatic levels and impostor tried, its record made) is done on this thread too,
+			// for the few that want it (state 2).
+			levelPicks.resize(componentCount);
+			const bool instancedLevels = device->PipelineReady(instanceCullPipeline);
+			auto choose = [&](const uint32 ci, LevelPick &pk)
 			{
-				// (read ahead, as the meshes' loop below: the component, then its owner's place and its level's record)
-				if (ci + 8 < componentCount) { const char* a = (const char*)components[ci + 8]; PYROS_PREFETCH(a); PYROS_PREFETCH(a + 64); PYROS_PREFETCH(a + 128); }
-				if (ci + 4 < componentCount) if (RenderingComponent* a = components[ci + 4])
-				{
-					if (GameObject* o = a->GetOwner()) { PYROS_PREFETCH(o->DrawWorldHint()); PYROS_PREFETCH((const char*)o->DrawWorldHint() + 63); }
-					if (a->lodRecordOwner == this) PYROS_PREFETCH(a->lodRecord);
-				}
 				RenderingComponent* rc = components[ci];
+				pk.rc = rc; pk.state = 0;
 				// (switched off - IComponent::Disable - is not drawn at any level: a scope hides the gun in front of its lens
 				// while its own picture is drawn, and the gun, with levels of its own, was drawn anyway - the glass grey)
-				if (!rc || !rc->GetOwner() || !rc->IsActive() || rc->GetRenderLayer() != RenderLayer::World || rc->GetComponentType() == ComponentType::ParticleSystem) continue;
-				if (!rc->HasLOD()) rc->TryAutomaticLODs();
-				rc->TryAutomaticImpostor();     // (an impostor as its last level - ImpostorBank)
-				if (!rc->HasLOD() || rc->gatherMark == serial) continue;
-				rc->gatherMark = serial;
+				if (!rc || !rc->GetOwner() || !rc->IsActive() || rc->GetRenderLayer() != RenderLayer::World || rc->GetComponentType() == ComponentType::ParticleSystem) return;
+				if (rc->NeedsAutomaticTry() || !(rc->lodRecordOwner == this && rc->lodRecordGeneration == lodStateGeneration)) { pk.state = 2; return; }
+				if (!rc->HasLOD()) return;
 				// Its level by its distance - with a little room either way (5%), so one hovering at a hand-over does not
 				// switch back and forth - and when it changes, the two levels dissolved into each other over a quarter of a
 				// second on the moving dither (common.glsl's LodDither), then the new one alone: nothing rests half-way,
 				// as it did when the crossfade was a band of distance (a teapot standing in it was a screen-door for good)
 				const f32 d2 = rc->LODDistanceSQR(eye, rc->GetOwner()->GetDrawWorldPosition(), rc->GetOwner()->GetScale());
-				LodState* lsp;
-				if (rc->lodRecordOwner == this && rc->lodRecordGeneration == lodStateGeneration) lsp = static_cast<LodState*>(rc->lodRecord);
-				else { lsp = &lodStates[rc]; rc->lodRecordOwner = this; rc->lodRecord = lsp; rc->lodRecordGeneration = lodStateGeneration; }
-				LodState &ls = *lsp;
+				LodState &ls = *static_cast<LodState*>(rc->lodRecord);
 				const uint32 coarser = rc->LevelAtDistanceSQR(d2), finer = rc->LevelAtDistanceSQR(d2 * 1.1025f);
 				const bool fresh = ls.seen == 0 || ls.seen + 3 < frameNumber + 1;     // (newly seen, or back after a while: as it is now, no fade)
 				if (fresh) { ls.level = ls.from = coarser; ls.start = -1.0; }
@@ -4638,13 +4634,57 @@ namespace p3d {
 					if (want != ls.level) { ls.from = ls.level; ls.level = want; ls.start = lodClock; }
 				}
 				ls.seen = frameNumber + 1;
-				const f32 t = ls.start < 0.0 || !lodCrossfade ? 1.f : (f32)std::min(1.0, (lodClock - ls.start) / 0.25);
-				const uint32 level = std::min<uint32>(ls.level, (uint32)rc->GetLODSize() - 1);
-				const bool crossfade = t < 1.f && ls.from != ls.level && ls.from < rc->GetLODSize();
+				pk.t = ls.start < 0.0 || !lodCrossfade ? 1.f : (f32)std::min(1.0, (lodClock - ls.start) / 0.25);
+				pk.level = std::min<uint32>(ls.level, (uint32)rc->GetLODSize() - 1);
+				pk.from = ls.from;
+				pk.crossfade = pk.t < 1.f && ls.from != ls.level && ls.from < rc->GetLODSize();
+				// (and what is drawn of it, found here too - read only - with its mark: the thread that adds them up then only adds)
+				pk.instanced = rc->IsInstanced() && instancedLevels && rc->GetLODSize() >= 2 && rc->GetLODSize() <= 6;
+				pk.meshes = pk.instanced ? nullptr : rc->FindMeshes(pk.level);
+				pk.fromMeshes = pk.crossfade && !pk.instanced ? rc->FindMeshes(pk.from) : nullptr;
+				if (rc->gatherMark == serial) return;     // (a component twice in the list: once)
+				rc->gatherMark = serial;
+				pk.state = 1;
+			};
+			auto chooseRange = [&](const uint32 begin, const uint32 end)
+			{
+				for (uint32 ci = begin; ci < end; ci++)
+				{
+					// (read ahead: the component, then its owner's place and its level's record)
+					if (ci + 8 < end) { const char* a = (const char*)components[ci + 8]; PYROS_PREFETCH(a); PYROS_PREFETCH(a + 64); PYROS_PREFETCH(a + 128); }
+					if (ci + 4 < end) if (RenderingComponent* a = components[ci + 4])
+					{
+						if (GameObject* o = a->GetOwner()) { PYROS_PREFETCH(o->DrawWorldHint()); PYROS_PREFETCH((const char*)o->DrawWorldHint() + 63); }
+						if (a->lodRecordOwner == this) PYROS_PREFETCH(a->lodRecord);
+					}
+					choose(ci, levelPicks[ci]);
+				}
+			};
+			static thread_local JobSystem::SharedLoop levelsLoop;
+			if (levelsLoop.Begin(componentCount, 2048)) JobSystem::Instance().ParallelFor(componentCount, 512, chooseRange);
+			else chooseRange(0, componentCount);
+			levelsLoop.End();
+			{ static uint32 said = 0; if (getenv("PYROS_LEVELS_LOG") && (said++ % 300) == 0) fprintf(stderr, "[levels] %u components, shared %d, workers %u\n", componentCount, (int)levelsLoop.shared, JobSystem::Instance().WorkerCount()); }
+			for (uint32 ci = 0; ci < componentCount; ci++)
+			{
+				LevelPick &pk = levelPicks[ci];
+				RenderingComponent* rc = pk.rc;
+				if (pk.state == 0) continue;
+				if (pk.state == 2)
+				{
+					// (what changes it, here: its automatic levels and impostor tried, its record made - then its level)
+					if (!rc->HasLOD()) rc->TryAutomaticLODs();
+					rc->TryAutomaticImpostor();     // (an impostor as its last level - ImpostorBank)
+					if (!rc->HasLOD()) continue;
+					if (!(rc->lodRecordOwner == this && rc->lodRecordGeneration == lodStateGeneration))
+					{ LodState* lsp = &lodStates[rc]; rc->lodRecordOwner = this; rc->lodRecord = lsp; rc->lodRecordGeneration = lodStateGeneration; }
+					choose(ci, pk);
+					if (pk.state != 1) continue;
+				}
 				// An instanced set - a block of a forest - by each tree, not by the block: every level drawn, the GPU culling
 				// sending each instance to the level its own distance says, across a band dissolved one into the next. By
 				// the block, its hundred trees swapped to their far mesh at once as it crossed the distance - a pop
-				if (rc->IsInstanced() && device->PipelineReady(instanceCullPipeline) && rc->GetLODSize() >= 2 && rc->GetLODSize() <= 6)
+				if (pk.instanced)
 				{
 					const std::vector<f32> &ld = rc->GetLODDistances();
 					const f32 scale = RenderingComponent::GetLODDistanceScale();
@@ -4654,15 +4694,15 @@ namespace p3d {
 						for (RenderingMesh* m : rc->GetMeshes(l))
 						{
 							chosen.push_back(m);
-							InstanceLodPick &p = instanceLodPicks[m];
-							p.range = Vec4(lo, hi, 0.12f, 1.f); p.caster = l == 0;     // (the shadow from the full mesh: the block's own level was a far one for the near trees of a big block - a simplified crown's leaf cards collapsed into solid triangles, their shadows dark triangles in every tree)
+							InstanceLodPick &ip = instanceLodPicks[m];
+							ip.range = Vec4(lo, hi, 0.12f, 1.f); ip.caster = l == 0;     // (the shadow from the full mesh: the block's own level was a far one for the near trees of a big block - a simplified crown's leaf cards collapsed into solid triangles, their shadows dark triangles in every tree)
 						}
 					}
 					continue;
 				}
 				// (the coming level keeps the dither's pixels below t, the going one the rest: complementary, one surface)
-				for (RenderingMesh* m : rc->GetMeshes(level)) { chosen.push_back(m); if (crossfade) lodFades[m] = -std::max(t, 0.001f); }
-				if (crossfade) for (RenderingMesh* m : rc->GetMeshes(ls.from)) { chosen.push_back(m); lodFades[m] = std::max(t, 0.001f); }
+				if (pk.meshes) for (RenderingMesh* m : *pk.meshes) { chosen.push_back(m); if (pk.crossfade) lodFades[m] = -std::max(pk.t, 0.001f); }
+				if (pk.fromMeshes) for (RenderingMesh* m : *pk.fromMeshes) { chosen.push_back(m); lodFades[m] = std::max(pk.t, 0.001f); }
 			}
 		}
 		FrameProfiler::Instance().End();

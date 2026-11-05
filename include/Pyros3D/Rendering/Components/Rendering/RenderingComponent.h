@@ -480,6 +480,9 @@ namespace p3d {
 		// write depth and do not need it.
 		void SetSortOrder(const int32 order) { sortOrder = order; }
 		int32 GetSortOrder() const { return sortOrder; }
+		// (its automatic levels or impostor still to be tried this frame - TryAutomaticLODs/TryAutomaticImpostor: what a
+		// renderer does on one thread; once both are settled, the rest of its level's choice reads only)
+		bool NeedsAutomaticTry() const { return (!HasLOD() && !(autoLodTried && !autoLodWaiting)) || !autoImpostorTried; }
 		// Not drawn inside the screen's lens (RenderGlobals::ScreenLens) while there is one: a gun held up to a scope
 		// looked through with the view zoomed - its tube round the glass, and nothing of it seen through the glass
 		void SetScreenLensCut(const bool on) { screenLensCut = on; }
@@ -670,6 +673,10 @@ namespace p3d {
 
 		// Get Model's Meshes
 		std::vector<RenderingMesh*> &GetMeshes(const uint32 LODLevel = 0);
+		// (a level's meshes, or nothing where it has none - read only: GetMeshes makes a missing level, and must not be
+		// asked from more than one thread)
+		const std::vector<RenderingMesh*>* FindMeshes(const uint32 LODLevel) const
+		{ std::map<uint32, std::vector<RenderingMesh*> >::const_iterator i = Meshes.find(LODLevel); return i == Meshes.end() ? nullptr : &i->second; }
 		// A dent: every vertex of the nearest level within `radius` of `worldPoint` pushed by
 		// `worldPush` (all of it at the point, nothing at the edge, smoothly between), its normals
 		// made again from the triangles round it and its vertices sent again. Model meshes only, not
