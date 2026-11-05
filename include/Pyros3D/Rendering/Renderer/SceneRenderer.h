@@ -377,6 +377,7 @@ namespace p3d {
 			uint32 revision = 0xFFFFFFFFu;
 			uint32 textureId = 0;     // (the texture it was made of: another at a freed one's address is not it)
 			uint32 floatW = 0, floatH = 0;     // (a float texture's size, written again in place while it keeps it)
+			gfx::Texture placeholder;     // (1x1, the picture's average colour: drawn while it is made, not white - kept till the renderer goes: forgetting it remade every material)
 		};
 
 		// What the frame draws: every mesh at the level of detail its distance picks, with its sphere in the world;

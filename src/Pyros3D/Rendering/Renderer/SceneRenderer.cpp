@@ -1063,7 +1063,7 @@ namespace p3d {
 			if (i->second.skin) device->Destroy(i->second.skin);
 		}
 		for (std::map<std::array<uint32_t, 5>, gfx::BindGroup>::iterator i = surfaceGroups.begin(); i != surfaceGroups.end(); ++i) device->Destroy(i->second);
-		for (std::map<std::pair<Texture*, bool>, TextureGpu>::iterator i = textures.begin(); i != textures.end(); ++i) if (i->second.texture) device->Destroy(i->second.texture);
+		for (std::map<std::pair<Texture*, bool>, TextureGpu>::iterator i = textures.begin(); i != textures.end(); ++i) { if (i->second.texture) device->Destroy(i->second.texture); if (i->second.placeholder) device->Destroy(i->second.placeholder); }
 		device->Destroy(white); device->Destroy(flatNormal);
 		for (std::map<RenderingInstancedComponent*, InstancesGpu>::iterator i = instanceBuffers.begin(); i != instanceBuffers.end(); ++i) if (i->second.buffer) device->Destroy(i->second.buffer);
 		device->Destroy(lightData);
@@ -1283,9 +1283,27 @@ namespace p3d {
 		// A frame's budget for making textures: a material's map past it is made on a later frame, the fallback drawn
 		// meanwhile. (Landing in a town, 156 maps were made in one frame: 2.4 s with the game stood still.)
 		static const f64 budgetMs = getenv("PYROS_TEXTURE_BUDGET_MS") ? atof(getenv("PYROS_TEXTURE_BUDGET_MS")) : 4.0;
-		if (deferrable && budgetMs > 0.0 && textureMsThisFrame >= budgetMs) { textureDeferred = true; return g.texture ? g.texture : fallback; }
+		// (what is drawn till it is made: its average colour where it is a colour map - white flashed every surface of a town)
+		auto standIn = [&]() -> gfx::Texture {
+			textureDeferred = true;
+			if (g.texture) return g.texture;
+			Vec3 avg;
+			if (!srgb || fallback.id != white.id || !source->GetAverageColour(avg)) return fallback;
+			if (!g.placeholder)
+			{
+				auto enc = [](f32 c) { c = std::max(0.f, std::min(1.f, c)); return (uchar)(std::pow(c, 1.f / 2.2f) * 255.f + 0.5f); };
+				const uchar px[4] = { enc(avg.x), enc(avg.y), enc(avg.z), 255 };
+				gfx::TextureDesc t; t.format = gfx::Format::RGBA8_sRGB; t.usage = gfx::TexSampled; t.debugName = "Renderer.Material (stand-in)";
+				gfx::TextureData d; d.bytes = px; d.size = 4;
+				g.placeholder = MakeTexture(t, &d, 1);
+			}
+			return g.placeholder ? g.placeholder : fallback;
+		};
+		if (deferrable && budgetMs > 0.0 && textureMsThisFrame >= budgetMs) return standIn();
 		PYROS_PROFILE_SCOPE("R.TextureFor");     // (past the cache: asked for every mesh of the HUD, every frame, its timer was its cost)
-		struct Spent { f64 &ms; std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now(); ~Spent() { ms += std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count(); } } spent{ textureMsThisFrame };
+		struct Spent { f64 &ms; Texture* src; std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now(); ~Spent() {
+			const f64 d = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count(); ms += d;
+			static int said = 0; if (d > 8.0 && said < 40) { said++; fprintf(stderr, "[renderer] a texture made on the frame in %.1f ms: %s %ux%u blocks=%d\n", d, src->GetFilename().c_str(), src->GetWidth(0), src->GetHeight(0), (int)src->wantsBlocks); } } } spent{ textureMsThisFrame, source };
 		const std::vector<uchar>* pixels = source->GetCpuPixels(source->GetTextureType(), 0);
 		const uint32 w = source->GetWidth(0), h = source->GetHeight(0);
 		if (!pixels || w == 0 || h == 0) return g.texture ? g.texture : fallback;
@@ -1374,9 +1392,9 @@ namespace p3d {
 								return r;
 							}).share();
 						}
-						textureDeferred = true; return g.texture ? g.texture : fallback;
+						return standIn();
 					}
-					if (e->second.wait_for(std::chrono::seconds(0)) != std::future_status::ready) { textureDeferred = true; return g.texture ? g.texture : fallback; }
+					if (e->second.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return standIn();
 					got = e->second.get();
 					reading.erase(e);
 				}
@@ -1403,32 +1421,66 @@ namespace p3d {
 				if (g.texture) return g.texture;
 			}
 		}
-		// As RGBA8: a one-channel picture (a font's coverage) into every channel, two as grey and alpha, three with alpha 1
+		// As RGBA8: a one-channel picture (a font's coverage) into every channel, two as grey and alpha, three with alpha 1,
+		// with its whole chain down to 1x1
 		const size_t texels = (size_t)w * h, channels = pixels->size() / texels;
 		if (channels < 1 || channels > 4 || pixels->size() != texels * channels) return g.texture ? g.texture : fallback;
-		std::vector<uchar> rgba;
-		if (channels == 4) rgba = *pixels;
-		else
-		{
-			rgba.resize(texels * 4);
-			const uchar* p = pixels->data();
-			for (size_t t = 0; t < texels; t++)
+		auto makeChain = [](const std::vector<uchar> &px, const size_t channels, const uint32 w, const uint32 h, const bool srgb) {
+			const size_t texels = (size_t)w * h;
+			std::vector<uchar> rgba;
+			if (channels == 4) rgba = px;
+			else
 			{
-				uchar* o = &rgba[t * 4];
-				if (channels == 1) o[0] = o[1] = o[2] = o[3] = p[t];
-				else if (channels == 2) { o[0] = o[1] = o[2] = p[t * 2]; o[3] = p[t * 2 + 1]; }
-				else { o[0] = p[t * 3]; o[1] = p[t * 3 + 1]; o[2] = p[t * 3 + 2]; o[3] = 255; }
+				rgba.resize(texels * 4);
+				const uchar* p = px.data();
+				for (size_t t = 0; t < texels; t++)
+				{
+					uchar* o = &rgba[t * 4];
+					if (channels == 1) o[0] = o[1] = o[2] = o[3] = p[t];
+					else if (channels == 2) { o[0] = o[1] = o[2] = p[t * 2]; o[3] = p[t * 2 + 1]; }
+					else { o[0] = p[t * 3]; o[1] = p[t * 3 + 1]; o[2] = p[t * 3 + 2]; o[3] = 255; }
+				}
 			}
-		}
-		// The whole chain, down to 1x1
-		std::vector<std::vector<uchar> > mips(1, std::move(rgba));
-		std::vector<std::pair<uint32, uint32> > sizes(1, std::make_pair(w, h));
-		while (sizes.back().first > 1 || sizes.back().second > 1)
+			std::vector<std::vector<uchar> > mips(1, std::move(rgba));
+			uint32 cw = w, ch = h;
+			while (cw > 1 || ch > 1) { uint32 nw, nh; mips.push_back(HalveRGBA8(mips.back(), cw, ch, srgb, nw, nh)); cw = nw; ch = nh; }
+			return mips;
+		};
+		std::vector<std::vector<uchar> > mips;
+		// (a material's map, big: its chain made on a thread, the stand-in drawn till then - an impostor's 1536 square atlas
+		// held a frame 15 ms on the Mac, 26 on a 5090's PC, one a frame for seconds after landing: dozens of them, white cards)
+		if (deferrable && texels >= 256u * 256u && !getenv("PYROS_TEXTURES_ON_FRAME"))
 		{
-			uint32 nw, nh;
-			mips.push_back(HalveRGBA8(mips.back(), sizes.back().first, sizes.back().second, srgb, nw, nh));
-			sizes.push_back(std::make_pair(nw, nh));
+			struct ChainMade { std::vector<std::vector<uchar> > mips; };
+			struct Making { uint32 id = 0, revision = 0; std::shared_future<std::shared_ptr<ChainMade> > job; };
+			static std::map<std::pair<const Texture*, bool>, Making> making;     // (this thread's alone: TextureFor is the frame's)
+			static std::atomic<int> busy(0);
+			static const int most = (int)std::max(2u, std::thread::hardware_concurrency() / 2);
+			const std::pair<const Texture*, bool> key(source, srgb);
+			std::map<std::pair<const Texture*, bool>, Making>::iterator e = making.find(key);
+			if (e == making.end())
+			{
+				if (busy.load() >= most) return standIn();
+				busy++;
+				Making m; m.id = source->GetInstanceID(); m.revision = source->GetCpuRevision();
+				std::shared_ptr<std::vector<uchar> > copy = std::make_shared<std::vector<uchar> >(*pixels);     // (its own copy: the texture may go meanwhile)
+				m.job = std::async(std::launch::async, [copy, channels, w, h, srgb, makeChain]() {
+					std::shared_ptr<ChainMade> r = std::make_shared<ChainMade>();
+					r->mips = makeChain(*copy, channels, w, h, srgb);
+					busy--;
+					return r;
+				}).share();
+				making[key] = m;
+				return standIn();
+			}
+			if (e->second.job.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return standIn();
+			std::shared_ptr<ChainMade> got = e->second.job.get();
+			const bool same = e->second.id == source->GetInstanceID() && e->second.revision == source->GetCpuRevision();
+			making.erase(e);
+			if (!same || !got || got->mips.empty() || got->mips[0].size() != texels * 4) return standIn();     // (another picture since: made again next time)
+			mips = std::move(got->mips);
 		}
+		else mips = makeChain(*pixels, channels, w, h, srgb);
 		std::vector<gfx::TextureData> data(mips.size());
 		for (size_t i = 0; i < mips.size(); i++) { data[i].mip = (uint32_t)i; data[i].bytes = mips[i].data(); data[i].size = mips[i].size(); }
 		gfx::TextureDesc t; t.width = w; t.height = h; t.mips = (uint32_t)mips.size();
@@ -2562,7 +2614,7 @@ namespace p3d {
 		for (std::unordered_map<IGeometry*, MeshGpu>::iterator i = meshes.begin(); i != meshes.end(); ++i)
 			for (gfx::Buffer b : { i->second.vertices, i->second.indices, i->second.colors, i->second.skin }) if (b) device->Destroy(b);
 		meshes.clear(); bufferUsers.clear();
-		for (std::map<std::pair<Texture*, bool>, TextureGpu>::iterator i = textures.begin(); i != textures.end(); ++i) if (i->second.texture) device->Destroy(i->second.texture);
+		for (std::map<std::pair<Texture*, bool>, TextureGpu>::iterator i = textures.begin(); i != textures.end(); ++i) { if (i->second.texture) device->Destroy(i->second.texture); if (i->second.placeholder) device->Destroy(i->second.placeholder); }
 		textures.clear();
 		for (std::map<RenderingInstancedComponent*, InstancesGpu>::iterator i = instanceBuffers.begin(); i != instanceBuffers.end(); ++i) if (i->second.buffer) device->Destroy(i->second.buffer);
 		instanceBuffers.clear();
@@ -5097,6 +5149,13 @@ namespace p3d {
 						if (textureDeferred) md.texturesPending = true;     // (a map past the frame's budget: its fallback for now)
 					}
 				}
+			}
+			// (cut by its picture's alpha - leaves, an impostor's far trees - and that picture not made yet: not drawn till it is.
+			// With the white stand-in, each was a white card)
+			if (md.texturesPending && (md.alphaCut || md.impostor) && md.maps[0])
+			{
+				std::map<std::pair<Texture*, bool>, TextureGpu>::const_iterator b = textures.find(std::make_pair(md.maps[0], true));
+				if (b == textures.end() || !b->second.texture) continue;
 			}
 			it.pipeline = md.pipeline; it.pipelineInstanced = md.pipelineInstanced; it.group = md.group;
 			if (md.cut)

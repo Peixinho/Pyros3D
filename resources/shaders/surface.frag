@@ -743,6 +743,11 @@ void main()
 	float rainUp = uFrame.weather.x > 0.0 ? uFrame.weather.x * smoothstep(0.2, 0.9, ng.y) * RainExposure(vWorldPosition) : 0.0;
 	vec4 wetness = vec4(max(uDraw.wet.x, rainUp * 0.8 + (rainUp > 0.0 ? uFrame.weather.x * 0.15 : 0.0)), max(uDraw.wet.y, rainUp > 0.4 ? (rainUp - 0.4) * 0.6 : 0.0), uDraw.wet.y > 0.0 ? uDraw.wet.z : 3.0, 0.0);
 	if (uDraw.skin.z > 0.5) wetness = vec4(0.0);     // (the unlit and the 2D: not out in any weather)
+	// (a field's blades - wind.w, their normals leaned to the sky: damp, darker, never a film or a puddle. Each blade
+	// glossed as the ground mirrored the grey sky at a glance, frosted blue-white, and its screen rays, missing, smeared
+	// the last frame's sky over every hillside in the rain)
+	float bladeLean = clamp(uDraw.wind.w, 0.0, 1.0);
+	if (bladeLean > 0.0) wetness.y = 0.0;
 	if (wetness.x > 0.0 || wetness.y > 0.0)
 	{
 		float wet = wetness.x;
@@ -761,8 +766,8 @@ void main()
 			s.roughness = mix(s.roughness, 0.02, puddle);
 			wet = max(wet, puddle);
 		}
-		s.albedo *= mix(1.0, 0.55, wet * (1.0 - s.metallic));
-		s.roughness = mix(s.roughness, min(s.roughness, 0.12), wet);
+		s.albedo *= mix(1.0, mix(0.55, 0.8, bladeLean), wet * (1.0 - s.metallic));
+		s.roughness = mix(s.roughness, min(s.roughness, 0.12), wet * (1.0 - bladeLean));
 	}
 #endif
 #ifndef NOCUT
