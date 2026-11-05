@@ -4560,6 +4560,11 @@ namespace p3d {
 		static const bool gatherAll = getenv("PYROS_GATHER_ALL") && getenv("PYROS_GATHER_ALL")[0] == '1';     // (to compare: every mesh listed, as before)
 		const bool keepAll = gatherAll || !cullingOn || lastSunShadowFar < 0.f || RtShadows() || RtReflections();
 		// (squared distances only: asked of every component, every frame)
+		// Small-object culling: the sphere's radius over its distance below which it covers fewer than PYROS_SMALL_CULL_PX
+		// pixels of this view (1.5; 0 none) - in its own pixels and field of view, so a scope's zoom brings them back
+		static const f32 smallCullPx = getenv("PYROS_SMALL_CULL_PX") ? (f32)atof(getenv("PYROS_SMALL_CULL_PX")) : 1.5f;
+		const f32 smallCullAngle = (smallCullPx > 0.f && !view.orthographic && view.height > 0)
+			? smallCullPx * 0.5f * tanf(view.fovY * 0.5f * 3.14159265f / 180.f) * 2.f / (f32)view.height : 0.f;
 		auto needed = [&](const Vec3 &c, const f32 r, const bool caster) -> bool {
 			if (keepAll) return true;
 			bool inView = true;
@@ -4952,6 +4957,9 @@ namespace p3d {
 			it.distance = (it.center - eye).magnitude();
 			it.caster = rc->IsCastingShadows();
 			if (!md.movesItself && !needed(it.center, it.radius, it.caster && !md.impostor)) continue;
+			// (smaller on screen than a pixel or two - a box of rounds on a floor across the town, a door's knob 80 m off: a
+			// quarter of a town's items, each a draw in every pass, for nothing that can be seen; its shadow as small)
+			if (smallCullAngle > 0.f && !md.movesItself && !instancedComponent && it.radius < it.distance * smallCullAngle) continue;
 			// (what the passes take of its material: read here, while the scene is still, not as they are recorded - once it is known to be wanted: most that come this far are not)
 			if (md.gm)
 			{
