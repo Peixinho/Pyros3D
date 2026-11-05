@@ -521,6 +521,12 @@ namespace p3d {
 				for (size_t i = 1; i <= sources.size(); i++) { sol::optional<GameObject*> g = sources[i]; if (g && *g) list.push_back(*g); }
 				return RenderingComponent::MergeMeshesInto(&target, list);
 			});
+			// mergeMeshesKeep(target, {objects...}): as mergeMeshesInto, the objects' children left in them (to merge again later without some)
+			lua->set_function("mergeMeshesKeep", [](GameObject &target, sol::table sources) {
+				std::vector<GameObject*> list;
+				for (size_t i = 1; i <= sources.size(); i++) { sol::optional<GameObject*> g = sources[i]; if (g && *g) list.push_back(*g); }
+				return RenderingComponent::MergeMeshesInto(&target, list, true);
+			});
 			// mergeMeshesByCell(parent, {objects...}[, cellSize]): the same, one merged object a square of the ground (RenderingComponent::MergeMeshesByCell)
 			lua->set_function("mergeMeshesByCell", [](GameObject &parent, sol::table sources, sol::optional<f32> cell) {
 				std::vector<GameObject*> list;

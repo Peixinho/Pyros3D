@@ -400,7 +400,9 @@ namespace p3d {
 		// The same over many objects' children into one mesh a material on `target` - each placed by where it is in the
 		// world: what is repeated across a town (its lamps) one object and a draw or two. Drawn whenever any of it is in
 		// view, so a town's, not an island's. Not for children that move, or are reached by name later.
-		static uint32 MergeMeshesInto(GameObject* target, const std::vector<GameObject*> &sources);
+		// keep: the sources' children left where they are - sources kept out of the scene, the merged mesh made again from
+		// them when one goes (a window's frame, gone with its glass: its square's frames merged again without it)
+		static uint32 MergeMeshesInto(GameObject* target, const std::vector<GameObject*> &sources, const bool keep = false);
 		// The same by squares of the ground (cellSize metres, 128 if not said): `sources` sorted by where they stand, one
 		// merged object a square under `parent` - repeated props a draw or two an area, a square out of view not drawn.
 		static uint32 MergeMeshesByCell(GameObject* parent, const std::vector<GameObject*> &sources, const f32 cellSize);

@@ -679,7 +679,7 @@ namespace p3d {
 
 		// The groups as one child "Merged" of `target` (a component for what casts shadows, one for what does not), and
 		// the baked children taken away
-		uint32 Finish(GameObject* target, MergeWork &w)
+		uint32 Finish(GameObject* target, MergeWork &w, const bool keep = false)
 		{
 			if (w.taken.empty()) return 0;
 			std::shared_ptr<GameObject> holder = std::make_shared<GameObject>();
@@ -703,7 +703,7 @@ namespace p3d {
 				if (pass == 1) rc->DisableCastShadows();
 				holder->Add(std::static_pointer_cast<IComponent>(rc));
 			}
-			for (std::pair<GameObject*, std::shared_ptr<GameObject> > &t : w.taken) t.first->RemoveGameObject(t.second);
+			if (!keep) for (std::pair<GameObject*, std::shared_ptr<GameObject> > &t : w.taken) t.first->RemoveGameObject(t.second);
 			target->Add(holder);
 			return (uint32)w.taken.size();
 		}
@@ -734,7 +734,7 @@ namespace p3d {
 		return Finish(parent, w);
 	}
 
-	uint32 RenderingComponent::MergeMeshesInto(GameObject* target, const std::vector<GameObject*> &sources)
+	uint32 RenderingComponent::MergeMeshesInto(GameObject* target, const std::vector<GameObject*> &sources, const bool keep)
 	{
 		if (!target) return 0;
 		MergeWork w;
@@ -754,7 +754,7 @@ namespace p3d {
 				w.taken.push_back(std::make_pair(source, child));
 			}
 		}
-		return Finish(target, w);
+		return Finish(target, w, keep);
 	}
 
 	uint32 RenderingComponent::MergeMeshesByCell(GameObject* parent, const std::vector<GameObject*> &sources, const f32 cellSize)
