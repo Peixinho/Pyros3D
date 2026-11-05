@@ -354,6 +354,7 @@ namespace p3d {
 			gfx::Buffer skin;                   // (a skinned mesh's: each vertex's four bones and their weights)
 			uint32 vertexCount = 0;
 			uint64 vertexCapacity = 0, indexCapacity = 0;     // (its buffers' sizes: a geometry rebuilt - a text - written into them)
+			uint64 colorCapacity = 0; bool colorsStale = false;     // (and its colours' - kept, written again when its geometry changed: made anew each time, a HUD's changing texts each made a buffer every frame)
 			uint64 writtenAt = 0;     // (the gather that found one of its buffers written - contentScan's)
 		};
 		// (which geometries each buffer is of - noted as their GPU meshes are made - and how far GeometryBuffer's writes

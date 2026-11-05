@@ -2633,7 +2633,7 @@ namespace p3d {
 
 	gfx::Buffer SceneRenderer::ColorsFor(IGeometry* g, MeshGpu* mesh)
 	{
-		if (mesh->colors) return mesh->colors;
+		if (mesh->colors && !mesh->colorsStale) return mesh->colors;
 		PYROS_PROFILE_SCOPE("R.ColorsFor");     // (past the cache: asked for every mesh of the HUD, every frame, its timer was its cost)
 		std::vector<f32> c((size_t)mesh->vertexCount * 4, 1.f);
 		const VertexAttribute* a = FindAttribute(g, "aColor");
@@ -2647,8 +2647,14 @@ namespace p3d {
 				if (!here) continue;
 				for (uint32 v = 0; v < mesh->vertexCount; v++) memcpy(&c[v * 4], &ab->Buffer->CpuData[(size_t)v * ab->BufferOffset + a->Offset], sizeof(Vec4));
 			}
-		gfx::BufferDesc b; b.size = c.size() * 4; b.usage = gfx::BufVertex; b.debugName = "Renderer.VertexColours";
-		mesh->colors = device->CreateBuffer(b, c.data());
+		const uint64 bytes = c.size() * 4;
+		mesh->colorsStale = false;
+		if (mesh->colors && bytes <= mesh->colorCapacity) { device->Upload(mesh->colors, 0, c.data(), bytes); return mesh->colors; }
+		if (mesh->colors) device->Destroy(mesh->colors);
+		mesh->colorCapacity = mesh->colors ? bytes * 2 : bytes;
+		gfx::BufferDesc b; b.size = mesh->colorCapacity; b.usage = gfx::BufVertex; b.debugName = "Renderer.VertexColours";
+		mesh->colors = device->CreateBuffer(b, nullptr);
+		device->Upload(mesh->colors, 0, c.data(), bytes);
 		return mesh->colors;
 	}
 
@@ -2701,14 +2707,16 @@ namespace p3d {
 		std::vector<UICanvas*> canvases = UICanvas::GetCanvasesOnScene(scene);
 		for (UICanvas* canvas : canvases)
 		{
-			canvas->Solve(width, height);
+			{ PYROS_PROFILE_SCOPE("UI.Solve"); canvas->Solve(width, height); }
 			const UIRectValue &rect = canvas->GetCanvasRect();
 			if (rect.width <= 0.f || rect.height <= 0.f) continue;
 			// (the canvas's units over the whole window: x right, y up from its top edge's -height)
 			Projection ortho;
 			ortho.Ortho(0.f, rect.width, -rect.height, 0.f, -1000.f, 1000.f);
 			const Matrix projection = ortho.m;
+			FrameProfiler::Instance().Begin("UI.Batch");
 			const std::vector<RenderingMesh*> &list = canvas->GetBatchedDrawList();
+			FrameProfiler::Instance().End();
 			const std::vector<UIRectValue> &clips = canvas->GetBatchedDrawClips();
 			const f32 ppu = canvas->GetPixelsPerUnit();
 			for (size_t i = 0; i < list.size(); i++)
@@ -5552,7 +5560,7 @@ namespace p3d {
 		}
 		m.indexCount = (uint32)indexCount;
 		m.vertexCount = count;
-		if (m.colors) { device->Destroy(m.colors); m.colors = gfx::Buffer(); }
+		m.colorsStale = true;     // (written again when next asked for - ColorsFor)
 		// (a skinned mesh's: each vertex's four bones and their weights, a stream of its own)
 		if (m.skin) { device->Destroy(m.skin); m.skin = gfx::Buffer(); }
 		{
