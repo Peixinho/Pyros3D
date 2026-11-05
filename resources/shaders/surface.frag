@@ -795,6 +795,8 @@ void main()
 			c2 = s.albedo * (uFrame.ambient.rgb + light / PI);
 		}
 		c2 += s.emission;
+		// (skin.w 2: multiplied - what is under it times this, by its cover: white where it is not)
+		if (uDraw.skin.w > 1.5) { outColor = vec4(mix(vec3(1.0), c2, s.alpha), 1.0); return; }
 		outColor = vec4(uDraw.skin.w > 0.5 ? c2 * s.alpha : c2, s.alpha);
 		return;
 	}

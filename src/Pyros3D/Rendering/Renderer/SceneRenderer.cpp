@@ -3179,7 +3179,9 @@ namespace p3d {
 			const uint32 o = gm->GetOptions();
 			const bool lit = (o & (ShaderUsage::Diffuse | ShaderUsage::PBR | ShaderUsage::CellShading)) != 0;
 			dd.skin[2] = !lit ? 1.f : (o & ShaderUsage::Lighting2D) && !(o & ShaderUsage::PBR) ? 2.f : 0.f;
-			dd.skin[3] = Blended(gm) && gm->GetBlendingDFactor() == BlendFunc::One ? 1.f : 0.f;
+			const uint32 sf = gm->GetBlendingSFactor(), df = gm->GetBlendingDFactor();
+			const bool multiply = (sf == BlendFunc::Dst_Color && df == BlendFunc::Zero) || (sf == BlendFunc::Zero && df == BlendFunc::Src_Color);
+			dd.skin[3] = !Blended(gm) ? 0.f : multiply ? 2.f : df == BlendFunc::One ? 1.f : 0.f;     // (1 added, 2 multiplied)
 		}
 		dd.skin[1] = gm->GetDisplacementMap() ? std::max(gm->GetDisplacementHeight(), 0.f) : 0.f;     // (parallax: how deep its height map goes, in texcoord units)
 		const Vec3 em = gm->GetEmission();
@@ -4948,7 +4950,10 @@ namespace p3d {
 					// (its colours per vertex - a sprite's tint; and how it blends where it is see-through: added, premultiplied, or over)
 					md.vertexColor = (md.gm->GetOptions() & ShaderUsage::VertexColor) != 0;
 					const uint32 sf = md.gm->GetBlendingSFactor(), df = md.gm->GetBlendingDFactor();
-					md.blend = (uint8)(df == BlendFunc::One ? gfx::Blend::Additive : sf == BlendFunc::One && df == BlendFunc::One_Minus_Src_Alpha ? gfx::Blend::PremultipliedAlpha : gfx::Blend::Alpha);
+					// (and multiplied - grime on a wall, a puddle's dark rim: the colour under it times the decal's. Taken as alpha, its
+					// white - which leaves what is under it as it was - was laid on as white: whole facades and roads)
+					const bool multiply = (sf == BlendFunc::Dst_Color && df == BlendFunc::Zero) || (sf == BlendFunc::Zero && df == BlendFunc::Src_Color);
+					md.blend = (uint8)(multiply ? gfx::Blend::Multiply : df == BlendFunc::One ? gfx::Blend::Additive : sf == BlendFunc::One && df == BlendFunc::One_Minus_Src_Alpha ? gfx::Blend::PremultipliedAlpha : gfx::Blend::Alpha);
 					if (md.alphaCut) { textureDeferred = false; md.baseMap = TextureFor(maps[0], true, white, true); md.texturesPending = textureDeferred; }
 				}
 			}

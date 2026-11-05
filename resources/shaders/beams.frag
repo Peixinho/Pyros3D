@@ -77,7 +77,7 @@ void main()
 		int fogSteps = int(uDraw.fog1.y);
 		float dt = tEnd / float(max(fogSteps, 1));
 		vec3 sunDir = normalize(uFrame.sunDirection.xyz);
-		float sunPhase = Phase(dot(rd, sunDir), uDraw.fog0.y) * 4.0 * 3.14159265;     // (1 for light scattered every way alike)
+		float sunPhase = Phase(dot(rd, sunDir), uDraw.fog0.y);     // (per steradian, as the old VolumetricLight had it: times 4 pi the air in the sun was brighter than a white wall in it, a street drowned in glare)
 		vec3 sunLight = uFrame.sunDirection.w > 0.0 ? uFrame.sunRadiance.rgb * uDraw.fogTint.rgb * uDraw.fog1.z * sunPhase : vec3(0.0);
 		vec3 skyLight = uFrame.ambient.rgb * uDraw.fog1.w;
 		for (int s = 0; s < 128; s++)
