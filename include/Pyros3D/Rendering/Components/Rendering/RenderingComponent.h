@@ -397,6 +397,13 @@ namespace p3d {
 		// its components: a window's frame of eight boxes was eight (an island's windows, 6600 of the 16700 there were).
 		// Returns how many children it merged. Not for children that move on their own or are reached by name later.
 		static uint32 MergeChildMeshes(GameObject* parent);
+		// The same over many objects' children into one mesh a material on `target` - each placed by where it is in the
+		// world: what is repeated across a town (its lamps) one object and a draw or two. Drawn whenever any of it is in
+		// view, so a town's, not an island's. Not for children that move, or are reached by name later.
+		static uint32 MergeMeshesInto(GameObject* target, const std::vector<GameObject*> &sources);
+		// The same by squares of the ground (cellSize metres, 128 if not said): `sources` sorted by where they stand, one
+		// merged object a square under `parent` - repeated props a draw or two an area, a square out of view not drawn.
+		static uint32 MergeMeshesByCell(GameObject* parent, const std::vector<GameObject*> &sources, const f32 cellSize);
 		static void SetLODDistanceScale(const f32 scale);
 		// Seconds a change of level takes: both levels drawn meanwhile, the one dissolving into the
 		// other (0: they switch at once, as before). 0.25 s by default.

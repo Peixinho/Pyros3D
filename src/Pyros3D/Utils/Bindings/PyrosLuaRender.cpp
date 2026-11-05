@@ -515,6 +515,18 @@ namespace p3d {
 		{
 			// mergeChildMeshes(go): its plain shape children baked into one mesh per material (RenderingComponent::MergeChildMeshes) - how many
 			lua->set_function("mergeChildMeshes", [](GameObject &go) { return RenderingComponent::MergeChildMeshes(&go); });
+			// mergeMeshesInto(target, {objects...}): their plain shape children baked into one mesh per material on target (RenderingComponent::MergeMeshesInto)
+			lua->set_function("mergeMeshesInto", [](GameObject &target, sol::table sources) {
+				std::vector<GameObject*> list;
+				for (size_t i = 1; i <= sources.size(); i++) { sol::optional<GameObject*> g = sources[i]; if (g && *g) list.push_back(*g); }
+				return RenderingComponent::MergeMeshesInto(&target, list);
+			});
+			// mergeMeshesByCell(parent, {objects...}[, cellSize]): the same, one merged object a square of the ground (RenderingComponent::MergeMeshesByCell)
+			lua->set_function("mergeMeshesByCell", [](GameObject &parent, sol::table sources, sol::optional<f32> cell) {
+				std::vector<GameObject*> list;
+				for (size_t i = 1; i <= sources.size(); i++) { sol::optional<GameObject*> g = sources[i]; if (g && *g) list.push_back(*g); }
+				return RenderingComponent::MergeMeshesByCell(&parent, list, cell ? *cell : 128.f);
+			});
 			lua->new_usertype<LUA_RenderingComponent>("RenderingComponent",
 				sol::factories(
 					&LuaNewRenderingComponentDist,
