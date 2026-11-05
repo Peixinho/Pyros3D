@@ -4775,9 +4775,11 @@ namespace p3d {
 					flag = 0;
 					RenderingMesh* rm = chosen[ci];
 					if (!rm || !rm->Active || !rm->Geometry || !rm->renderingComponent || !rm->renderingComponent->GetOwner()) { flag = 2; continue; }     // (dropped below as well)
-					if (!(rm->drawRecordOwner == this && rm->drawRecordGeneration == meshDrawGeneration)) continue;
 					RenderingComponent* rc = rm->renderingComponent;
-					if (rc->GetComponentType() == ComponentType::RenderingInstancedComponent) continue;
+					// (an instanced set with nothing to draw now - a block of plants emptied, or not yet filled: dropped here,
+					// most of the list the work below walked, one cache miss each)
+					if (rc->GetComponentType() == ComponentType::RenderingInstancedComponent) { if (static_cast<RenderingInstancedComponent*>(rc)->InstancesToDraw() == 0) flag = 2; continue; }
+					if (!(rm->drawRecordOwner == this && rm->drawRecordGeneration == meshDrawGeneration)) continue;
 					MeshDraw &md = *static_cast<MeshDraw*>(rm->drawRecord);
 					const Matrix &ownerWorld = rc->GetOwner()->GetDrawWorld();
 					if (md.placeKnown && memcmp(ownerWorld.m, md.ownerWorld.m, sizeof(ownerWorld.m)) == 0 && memcmp(rm->Pivot.m, md.pivot.m, sizeof(rm->Pivot.m)) == 0
@@ -4891,22 +4893,6 @@ namespace p3d {
 			DrawItem it;
 			it.mesh = rm; it.material = md.gm; it.custom = md.cm; it.movesItself = md.movesItself;
 			it.vertexColor = md.vertexColor && md.gm; it.sortOrder = rc->GetSortOrder(); it.lensCut = rc->screenLensCut;
-			// (what the passes take of its material: read here, while the scene is still, not as they are recorded)
-			if (md.gm)
-			{
-				const Vec2 uvScale = md.gm->GetUVScale(), uvOffset = md.gm->GetUVOffset();
-				it.uv[0] = uvScale.x; it.uv[1] = uvScale.y; it.uv[2] = uvOffset.x; it.uv[3] = uvOffset.y;
-				it.alphaCutoff = md.gm->GetAlphaCutoff();
-				const uint32 o = md.gm->GetOptions();
-				it.alphaTestOption = (o & ShaderUsage::AlphaTest) != 0; it.textRendering = (o & ShaderUsage::TextRendering) != 0;
-				const Vec4 w = md.gm->GetWind(); it.wind[0] = w.x; it.wind[1] = w.y; it.wind[2] = w.z; it.wind[3] = w.w;
-				it.impostorData = md.gm->GetImpostor();
-			}
-			else if (md.cm) it.customCull = (uint8)md.cm->GetCullFace();
-			{
-				const Vec3 place = owner->GetDrawWorldPosition();
-				it.sortDepth = view.orthographic ? (place - eye).dotProduct(sortForward) : (place - eye).dotProduct(place - eye);
-			}
 			it.gpu = md.gpu;
 			const bool placeKept = placeSame && md.placeKnown;     // (and its geometry's bounds not changed since)
 			it.model = placeKept ? md.model : ownerWorld * rm->Pivot;
@@ -4963,6 +4949,22 @@ namespace p3d {
 			it.distance = (it.center - eye).magnitude();
 			it.caster = rc->IsCastingShadows();
 			if (!md.movesItself && !needed(it.center, it.radius, it.caster && !md.impostor)) continue;
+			// (what the passes take of its material: read here, while the scene is still, not as they are recorded - once it is known to be wanted: most that come this far are not)
+			if (md.gm)
+			{
+				const Vec2 uvScale = md.gm->GetUVScale(), uvOffset = md.gm->GetUVOffset();
+				it.uv[0] = uvScale.x; it.uv[1] = uvScale.y; it.uv[2] = uvOffset.x; it.uv[3] = uvOffset.y;
+				it.alphaCutoff = md.gm->GetAlphaCutoff();
+				const uint32 o = md.gm->GetOptions();
+				it.alphaTestOption = (o & ShaderUsage::AlphaTest) != 0; it.textRendering = (o & ShaderUsage::TextRendering) != 0;
+				const Vec4 w = md.gm->GetWind(); it.wind[0] = w.x; it.wind[1] = w.y; it.wind[2] = w.z; it.wind[3] = w.w;
+				it.impostorData = md.gm->GetImpostor();
+			}
+			else if (md.cm) it.customCull = (uint8)md.cm->GetCullFace();
+			{
+				const Vec3 place = owner->GetDrawWorldPosition();
+				it.sortDepth = view.orthographic ? (place - eye).dotProduct(sortForward) : (place - eye).dotProduct(place - eye);
+			}
 			it.transparent = md.transparent;
 			it.alphaCut = md.alphaCut;
 			if (it.alphaCut) it.baseMap = md.baseMap;     // (the shadow's cut, and the depth prepass's)
