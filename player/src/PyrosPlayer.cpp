@@ -363,9 +363,14 @@ void PyrosPlayer::Init()
 		std::exit(1);
 	}
 	renderer.reset(new p3d::SceneRenderer(GetDevice()));
-	// (PYROS_RENDER_THREAD=1: a frame recorded, submitted and presented on a thread of its own while the next one's game
-	// runs here - SceneRenderer::SetRenderThread)
-	if (const char* rt = std::getenv("PYROS_RENDER_THREAD")) if (rt[0] == '1') { renderer->SetRenderThread(true); fprintf(stderr, "[renderer] render thread on\n"); }
+	// (a frame recorded, submitted and presented on a thread of its own while the next one's game runs here -
+	// SceneRenderer::SetRenderThread; PYROS_RENDER_THREAD=0: all on this thread, as before)
+	{
+		const char* rt = std::getenv("PYROS_RENDER_THREAD");
+		const bool on = !(rt && rt[0] == '0');
+		renderer->SetRenderThread(on);
+		fprintf(stderr, "[renderer] render thread %s\n", on ? "on" : "off (PYROS_RENDER_THREAD=0)");
+	}
 	// (the game's surface cache, where its folder has one: a native run writes the materials' surfaces there, SPIR-V
 	// and WGSL, and the browser build - which compiles none - reads them)
 	{
