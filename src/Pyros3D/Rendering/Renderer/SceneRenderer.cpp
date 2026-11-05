@@ -6508,6 +6508,9 @@ namespace p3d {
 	// commands made for the UI, particles and smoke, its targets - never the scene's objects (Render, PrepareItems)
 	void SceneRenderer::ExecuteFrame(const View &view, const std::chrono::steady_clock::time_point t1)
 	{
+		// (how long the frame's recording, submit and present took - RT.Execute in perf.log, wherever it ran: on the render
+		// thread its scopes are not the frame thread's and would say nothing)
+		struct Took { std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now(); ~Took() { FrameProfiler::Instance().Counter("RT.Execute", std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t0).count()); } } took;
 		gfx::CommandList* cl = device->NewCommandList("Renderer");
 		FrameProfiler::Instance().Begin("R.Execute");
 		graph.Execute(cl);
