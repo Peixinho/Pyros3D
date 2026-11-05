@@ -342,8 +342,11 @@ namespace p3d {
 				const uint32 n = std::min(layer.counts[b], (uint32)ceilf(nf));
 				if (rc->NumberOfInstances() != n) rc->SetNumberInstances(n);
 				rc->SetInstanceKeep(std::max(nf, 1e-3f));
+				// (area^0.75 and area^0.25 as square roots: powf twice a block, every frame, was most of the scene's update
+				// over a field of grass)
 				const f32 area = 1.f / kept;
-				rc->SetInstanceGrowth(powf(area, 0.75f), powf(area, 0.25f));
+				const f32 q = sqrtf(sqrtf(area));
+				rc->SetInstanceGrowth(sqrtf(area) * q, q);
 				// (out to the end of the sun's shadows unless the layer says nearer: 0, the default, is as far
 				// as they reach - it was "nowhere but the block the viewer stands in", which is what scenes
 				// saved with 0 got: a forest with no shadows past a few metres)
