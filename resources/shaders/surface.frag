@@ -673,6 +673,8 @@ void main()
 	if (uDraw.surface.w > 0.5)
 	{
 		vec3 m = MAP(uNormalMap).xyz * 2.0 - 1.0;
+		// (a map in BC5 - two channels, its blue read as 0: z made again from x and y. No normal map points straight in)
+		if (m.z < -0.99) m.z = sqrt(max(1.0 - dot(m.xy, m.xy), 0.0));
 		n = PerturbNormal(ng, vWorldPosition, vTexcoord, m);
 	}
 	vec4 mr = MAP(uMetalRoughMap);

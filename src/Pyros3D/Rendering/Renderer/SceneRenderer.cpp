@@ -1283,17 +1283,18 @@ namespace p3d {
 		// A frame's budget for making textures: a material's map past it is made on a later frame, the fallback drawn
 		// meanwhile. (Landing in a town, 156 maps were made in one frame: 2.4 s with the game stood still.)
 		static const f64 budgetMs = getenv("PYROS_TEXTURE_BUDGET_MS") ? atof(getenv("PYROS_TEXTURE_BUDGET_MS")) : 4.0;
-		// (what is drawn till it is made: its average colour where it is a colour map - white flashed every surface of a town)
+		// (what is drawn till it is made: its average colour - white flashed every surface of a town. A map read as stored -
+		// a normal map, a custom surface's, which decodes its colours itself - its average as stored: a normal map about flat)
 		auto standIn = [&]() -> gfx::Texture {
 			textureDeferred = true;
 			if (g.texture) return g.texture;
 			Vec3 avg;
-			if (!srgb || fallback.id != white.id || !source->GetAverageColour(avg)) return fallback;
+			if (fallback.id != white.id || !source->GetAverageColour(avg)) return fallback;
 			if (!g.placeholder)
 			{
 				auto enc = [](f32 c) { c = std::max(0.f, std::min(1.f, c)); return (uchar)(std::pow(c, 1.f / 2.2f) * 255.f + 0.5f); };
 				const uchar px[4] = { enc(avg.x), enc(avg.y), enc(avg.z), 255 };
-				gfx::TextureDesc t; t.format = gfx::Format::RGBA8_sRGB; t.usage = gfx::TexSampled; t.debugName = "Renderer.Material (stand-in)";
+				gfx::TextureDesc t; t.format = srgb ? gfx::Format::RGBA8_sRGB : gfx::Format::RGBA8; t.usage = gfx::TexSampled; t.debugName = "Renderer.Material (stand-in)";
 				gfx::TextureData d; d.bytes = px; d.size = 4;
 				g.placeholder = MakeTexture(t, &d, 1);
 			}
@@ -1405,14 +1406,17 @@ namespace p3d {
 			// cached chain of an earlier picture of the name, another size, asked Metal for 12 levels of a 1664 square and
 			// stopped the editor dead)
 			uint32 maxMips = 1; for (uint32 d = std::max(w, h); d > 1; d >>= 1) maxMips++;
-			const bool chainOk = (readThere ? readOk : source->CompressedChain(blockFormat, blocks)) && (blockFormat == 1 || blockFormat == 2) && !blocks.empty()
+			// (BC5 - a normal map's two channels - where the surface is the renderer's own, asked with the flat normal for its
+			// fallback: surface.frag makes z again. Refused, every normal map was read in blocks and then made again as RGBA8)
+			const bool twoChannelsOk = !srgb && fallback.id == flatNormal.id;
+			const bool chainOk = (readThere ? readOk : source->CompressedChain(blockFormat, blocks)) && (blockFormat == 1 || blockFormat == 2 || (blockFormat == 3 && twoChannelsOk)) && !blocks.empty()
 				&& blocks.size() <= maxMips && blocks[0].size() == (size_t)((w + 3) / 4) * ((h + 3) / 4) * (blockFormat == 1 ? 8u : 16u);
 			if (chainOk)     // (BlockCompress: 1 BC1, 2 BC3)
 			{
 				std::vector<gfx::TextureData> data(blocks.size());
 				for (size_t i = 0; i < blocks.size(); i++) { data[i].mip = (uint32_t)i; data[i].bytes = blocks[i].data(); data[i].size = blocks[i].size(); }
 				gfx::TextureDesc t; t.width = w; t.height = h; t.mips = (uint32_t)blocks.size();
-				t.format = blockFormat == 1 ? (srgb ? gfx::Format::BC1_sRGB : gfx::Format::BC1) : (srgb ? gfx::Format::BC3_sRGB : gfx::Format::BC3);
+				t.format = blockFormat == 1 ? (srgb ? gfx::Format::BC1_sRGB : gfx::Format::BC1) : blockFormat == 3 ? gfx::Format::BC5 : (srgb ? gfx::Format::BC3_sRGB : gfx::Format::BC3);
 				t.usage = gfx::TexSampled; t.debugName = "Renderer.Material (blocks)";
 				if (g.texture) ForgetTexture(g.texture);
 				g.texture = MakeTexture(t, data.data(), (uint32_t)data.size());
@@ -1449,7 +1453,9 @@ namespace p3d {
 		std::vector<std::vector<uchar> > mips;
 		// (a material's map, big: its chain made on a thread, the stand-in drawn till then - an impostor's 1536 square atlas
 		// held a frame 15 ms on the Mac, 26 on a 5090's PC, one a frame for seconds after landing: dozens of them, white cards)
-		if (deferrable && texels >= 256u * 256u && !getenv("PYROS_TEXTURES_ON_FRAME"))
+		// (a picture from a file only: one a game writes every frame - a map, a fog of war - remade on a thread would always be
+		// a revision behind, and never shown)
+		if (deferrable && texels >= 256u * 256u && !source->GetFilename().empty() && !getenv("PYROS_TEXTURES_ON_FRAME"))
 		{
 			struct ChainMade { std::vector<std::vector<uchar> > mips; };
 			struct Making { uint32 id = 0, revision = 0; std::shared_future<std::shared_ptr<ChainMade> > job; };
@@ -4526,7 +4532,7 @@ namespace p3d {
 		const std::vector<std::string> &names = m->GetSamplerNames();
 		for (size_t t = 0; t < cs->textures.size(); t++)
 			for (size_t k = 0; k < names.size() && k < m->textures.size(); k++)
-				if (names[k] == cs->textures[t]) tex[t] = TextureFor(m->textures[k].get(), false, white);     // (as stored: a surface decodes its colours itself - p3d_DecodeSRGB)
+				if (names[k] == cs->textures[t]) tex[t] = TextureFor(m->textures[k].get(), false, white, true);     // (as stored: a surface decodes its colours itself - p3d_DecodeSRGB. Made off the frame: a street's custom kit's maps, read or made in blocks here, held frames 50-340 ms; asked again next frame - checkedFrame)
 		std::vector<uint32_t> ids; for (const gfx::Texture &t : tex) ids.push_back(t.id);
 		if (g.group && g.textures == ids && g.revision == m->GetSurfaceRevision() && g.materialId == m->GetInternalID()) return g.group;
 		if (g.group) device->Destroy(g.group);
