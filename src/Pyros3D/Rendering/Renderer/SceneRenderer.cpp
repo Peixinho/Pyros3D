@@ -6020,12 +6020,15 @@ namespace p3d {
 		// (the UI as commands - the scene's, then its overlays' - and the text in the world: made now, recorded later)
 		uiReady = device->PipelineReady(uiPipeline);
 		uiCommands.clear(); worldTextCommands.clear();
-		if (view.ui)
 		{
-			PrepareUI(scene, view.width, view.height);
-			for (SceneGraph* overlay : overlayScenes) if (overlay) PrepareUI(overlay, view.width, view.height);
+			PYROS_PROFILE_SCOPE("R.PrepareUI");
+			if (view.ui)
+			{
+				PrepareUI(scene, view.width, view.height);
+				for (SceneGraph* overlay : overlayScenes) if (overlay) PrepareUI(overlay, view.width, view.height);
+			}
+			for (uint32 index : worldTextOrder) { UICommand c; if (MakeUICommand(items[index].mesh, vp * items[index].model, true, c)) worldTextCommands.push_back(c); }
 		}
-		for (uint32 index : worldTextOrder) { UICommand c; if (MakeUICommand(items[index].mesh, vp * items[index].model, true, c)) worldTextCommands.push_back(c); }
 		// (which particle layers this frame draws - and the resolve, which takes this frame over its history where they are)
 		particlesFull = particlesHalf = false;
 		for (const std::pair<f32, ParticleSystem*> &e : particleSystems) (ParticleWantsHalf(e.second) ? particlesHalf : particlesFull) = true;
