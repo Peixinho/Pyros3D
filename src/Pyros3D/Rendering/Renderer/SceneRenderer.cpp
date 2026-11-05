@@ -4636,6 +4636,9 @@ namespace p3d {
 				// (switched off - IComponent::Disable - is not drawn at any level: a scope hides the gun in front of its lens
 				// while its own picture is drawn, and the gun, with levels of its own, was drawn anyway - the glass grey)
 				if (!rc || !rc->GetOwner() || !rc->IsActive() || rc->GetRenderLayer() != RenderLayer::World || rc->GetComponentType() == ComponentType::ParticleSystem) return;
+				// (an instanced set with nothing to draw now - a block of plants emptied or not yet filled: at no level. On this
+				// thread it was a set handed on, every level's meshes listed, to be dropped one by one - 2000 of them)
+				if (rc->GetComponentType() == ComponentType::RenderingInstancedComponent && static_cast<RenderingInstancedComponent*>(rc)->InstancesToDraw() == 0) return;
 				if (rc->NeedsAutomaticTry() || !(rc->lodRecordOwner == this && rc->lodRecordGeneration == lodStateGeneration)) { pk.state = 2; return; }
 				if (!rc->HasLOD()) return;
 				// Its level by its distance - with a little room either way (5%), so one hovering at a hand-over does not
