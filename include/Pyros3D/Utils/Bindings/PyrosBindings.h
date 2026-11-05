@@ -22,7 +22,9 @@
 #include <cmath>
 #include <algorithm>
 #include <set>
+#include <mutex>
 #include <vector>
+#include <Pyros3D/Utils/Profiler/FrameProfiler.h>
 #include <Pyros3D/Core/Math/Math.h>
 #include <Pyros3D/SceneGraph/SceneGraph.h>
 #include <Pyros3D/GameObjects/GameObject.h>
@@ -968,8 +970,20 @@ namespace p3d {
             };
         if (sol::function f = instance["update"]; f.valid())
             comp->on_update = [](LuaComponent& c, p3d::f64 time) {
+                // (timed under its script's name in the frame's profile - perf.log LC.<file>: which object scripts the
+                // scene's update is spent in; the names kept for good, as the profiler keeps their addresses)
+                static std::mutex namesMutex; static std::set<std::string> names;
+                const char* name = "LC.(script)";
+                if (!c.scriptFile.empty())
+                {
+                    const size_t slash = c.scriptFile.find_last_of("/\\");
+                    std::lock_guard<std::mutex> l(namesMutex);
+                    name = names.insert("LC." + c.scriptFile.substr(slash == std::string::npos ? 0 : slash + 1)).first->c_str();
+                }
+                p3d::FrameProfiler::Instance().Begin(name);
                 sol::protected_function pf = sol::table(c.data)["update"];
                 sol::protected_function_result r = pf(c.data, time);
+                p3d::FrameProfiler::Instance().End();
                 if (!r.valid()) {
                     sol::error err = r;
                     echo(std::string("ERROR: LuaComponent update - ") + err.what());
