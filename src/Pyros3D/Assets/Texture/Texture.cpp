@@ -343,6 +343,29 @@ namespace p3d {
 		}
 	}
 
+	bool Texture::ReadCompressedCache(const std::string& Filename, uint32 &format, std::vector<std::vector<uchar> > &levels)
+	{
+		levels.clear(); format = BlockCompress::None;
+		if (Filename.empty() || !GetCompression()) return false;
+		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0;
+		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime)) return false;
+		TexCacheHeader hd;
+		FILE* f = fopen(cacheFile.string().c_str(), "rb");
+		if (!f) return false;
+		bool ok = fread(&hd, sizeof(hd), 1, f) == 1 && memcmp(hd.magic, kTexCacheMagic, 8) == 0 && hd.sourceSize == srcSize && hd.sourceTime == srcTime
+			&& hd.format != BlockCompress::None && hd.levels > 0 && hd.levels <= 16;
+		for (uint32 l = 0; ok && l < hd.levels; l++)
+		{
+			std::vector<uchar> bytes(BlockCompress::LevelBytes(hd.format, std::max(1u, hd.width >> l), std::max(1u, hd.height >> l)));
+			ok = fread(bytes.data(), 1, bytes.size(), f) == bytes.size();
+			levels.push_back(std::move(bytes));
+		}
+		fclose(f);
+		if (ok) { format = hd.format; return true; }
+		levels.clear();
+		return false;
+	}
+
 	bool Texture::HasCompressedCache(const std::string& Filename)
 	{
 		if (!GetCompression()) return false;
@@ -418,24 +441,11 @@ namespace p3d {
 	{
 		levels.clear(); format = BlockCompress::None;
 		if (!wantsBlocks || dataMap || Filename.empty() || !GetCompression()) return false;
+		// The cache's, where it is still this picture's
+		if (ReadCompressedCache(Filename, format, levels)) return true;
 		std::filesystem::path cacheFile; uint64 srcSize = 0; int64 srcTime = 0; std::string where;
 		if (!CacheFileFor(Filename, cacheFile, srcSize, srcTime, &where)) return false;
-		// The cache's, where it is still this picture's
 		TexCacheHeader hd;
-		if (FILE* f = fopen(cacheFile.string().c_str(), "rb"))
-		{
-			bool ok = fread(&hd, sizeof(hd), 1, f) == 1 && memcmp(hd.magic, kTexCacheMagic, 8) == 0 && hd.sourceSize == srcSize && hd.sourceTime == srcTime
-				&& hd.format != BlockCompress::None && hd.levels > 0 && hd.levels <= 16;
-			for (uint32 l = 0; ok && l < hd.levels; l++)
-			{
-				std::vector<uchar> bytes(BlockCompress::LevelBytes(hd.format, std::max(1u, hd.width >> l), std::max(1u, hd.height >> l)));
-				ok = fread(bytes.data(), 1, bytes.size(), f) == bytes.size();
-				levels.push_back(std::move(bytes));
-			}
-			fclose(f);
-			if (ok) { format = hd.format; return true; }
-			levels.clear();
-		}
 		// Else made now from its pixels (as RGBA8), and kept for next time
 		const std::vector<uchar>* px = GetCpuPixels(TextureType::Texture, 0);
 		const uint32 w = GetWidth(0), h = GetHeight(0);

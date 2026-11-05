@@ -1345,38 +1345,49 @@ namespace p3d {
 		// one whose size is not whole blocks: WebGPU takes no other.)
 		if (device->Caps().bc && w % 4 == 0 && h % 4 == 0 && !getenv("PYROS_NO_BLOCKS"))
 		{
-			// (not in the cache yet - a picture new since the game was last run, or the warm-up not come to it: its blocks
-			// made on a thread, the fallback drawn till then. Made here, one big map held a frame 100 ms)
+			// (its blocks found on a thread - the cache checked, made there if missing (a picture new since the game was last
+			// run, or the warm-up not come to it), then read - the fallback drawn till then. On this thread, reading one big
+			// map's cached blocks held a frame 26 ms, and making them 100)
+			uint32 blockFormat = 0; std::vector<std::vector<uchar> > blocks;
+			bool readThere = false, readOk = false;
 			if (deferrable && source->wantsBlocks && !source->IsDataMap() && !source->GetFilename().empty() && Texture::GetCompression())
 			{
-				static std::mutex encMutex;
-				static std::map<std::string, std::shared_future<bool> > encoding;
+				struct ChainRead { uint32 format = 0; std::vector<std::vector<uchar> > levels; bool ok = false; };
+				static std::mutex readMutex;
+				static std::map<std::string, std::shared_future<std::shared_ptr<ChainRead> > > reading;
+				static std::atomic<int> active(0);
+				static const int most = (int)std::max(2u, std::thread::hardware_concurrency() / 2);     // (a few at once - a town's 156 maps were 156 threads)
 				const std::string name = source->GetFilename();
-				std::lock_guard<std::mutex> l(encMutex);
-				std::map<std::string, std::shared_future<bool> >::iterator e = encoding.find(name);
-				if (e == encoding.end())
+				std::shared_ptr<ChainRead> got;
 				{
-					if (!Texture::HasCompressedCache(name))
+					std::lock_guard<std::mutex> l(readMutex);
+					std::map<std::string, std::shared_future<std::shared_ptr<ChainRead> > >::iterator e = reading.find(name);
+					if (e == reading.end())
 					{
-						// (a few at once - a town's 156 maps were 156 threads)
-						static std::atomic<int> active(0);
-						static const int most = (int)std::max(2u, std::thread::hardware_concurrency() / 2);
 						if (active.load() < most)
 						{
 							active++;
-							encoding[name] = std::async(std::launch::async, [name]() { const bool ok = Texture::MakeCompressedCache(name); active--; return ok; }).share();
+							reading[name] = std::async(std::launch::async, [name]() {
+								std::shared_ptr<ChainRead> r = std::make_shared<ChainRead>();
+								if (Texture::HasCompressedCache(name) || Texture::MakeCompressedCache(name)) r->ok = Texture::ReadCompressedCache(name, r->format, r->levels);
+								active--;
+								return r;
+							}).share();
 						}
 						textureDeferred = true; return g.texture ? g.texture : fallback;
 					}
+					if (e->second.wait_for(std::chrono::seconds(0)) != std::future_status::ready) { textureDeferred = true; return g.texture ? g.texture : fallback; }
+					got = e->second.get();
+					reading.erase(e);
 				}
-				else if (e->second.wait_for(std::chrono::seconds(0)) != std::future_status::ready) { textureDeferred = true; return g.texture ? g.texture : fallback; }
+				readThere = true; readOk = got && got->ok;
+				if (readOk) { blockFormat = got->format; blocks = std::move(got->levels); }
 			}
-			uint32 blockFormat = 0; std::vector<std::vector<uchar> > blocks;
 			// (and only a chain that is this picture's: its first level the size of this one, no more levels than it has - a
 			// cached chain of an earlier picture of the name, another size, asked Metal for 12 levels of a 1664 square and
 			// stopped the editor dead)
 			uint32 maxMips = 1; for (uint32 d = std::max(w, h); d > 1; d >>= 1) maxMips++;
-			const bool chainOk = source->CompressedChain(blockFormat, blocks) && (blockFormat == 1 || blockFormat == 2) && !blocks.empty()
+			const bool chainOk = (readThere ? readOk : source->CompressedChain(blockFormat, blocks)) && (blockFormat == 1 || blockFormat == 2) && !blocks.empty()
 				&& blocks.size() <= maxMips && blocks[0].size() == (size_t)((w + 3) / 4) * ((h + 3) / 4) * (blockFormat == 1 ? 8u : 16u);
 			if (chainOk)     // (BlockCompress: 1 BC1, 2 BC3)
 			{
@@ -6625,7 +6636,13 @@ namespace p3d {
 		submitMs = std::chrono::duration<f64, std::milli>(s1 - s0).count();
 		presentMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - s1).count();
 		FrameProfiler::Instance().End();
+		const std::chrono::steady_clock::time_point s2 = std::chrono::steady_clock::now();
 		if (!view.hostFrame) device->EndFrame();
+		// (its parts, wherever it ran: recording, submit, present, the frame's end)
+		FrameProfiler::Instance().Counter("RT.Record", std::chrono::duration<f64, std::milli>(s0 - took.t0).count());
+		FrameProfiler::Instance().Counter("RT.Submit", submitMs);
+		FrameProfiler::Instance().Counter("RT.Present", presentMs);
+		FrameProfiler::Instance().Counter("RT.EndFrame", std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - s2).count());
 		frameNumber++;
 		if (cloudHistory) cloudFrame++;
 		cpuMs = std::chrono::duration<f64, std::milli>(std::chrono::steady_clock::now() - t1).count() - acquireMs;

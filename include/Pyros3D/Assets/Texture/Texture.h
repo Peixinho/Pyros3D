@@ -226,6 +226,8 @@ namespace p3d {
 		// blocks. False when it is not a material's map (loaded outside CompressedLoads), compression is off, it is a
 		// data map, or it has no file to be cached by.
 		bool CompressedChain(uint32 &format, std::vector<std::vector<uchar> > &levels) const;
+		// (the cache's blocks alone, where it is still this picture's - files only, no texture: any thread)
+		static bool ReadCompressedCache(const std::string& Filename, uint32 &format, std::vector<std::vector<uchar> > &levels);
 		bool wantsBlocks = false;     // (loaded as a material's map: CompressedLoads)
 		static void SetCompression(const bool on);
 		static bool GetCompression();
