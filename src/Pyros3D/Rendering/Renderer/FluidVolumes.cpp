@@ -6,6 +6,9 @@
 #include <Pyros3D/Rendering/Renderer/FluidVolumes.h>
 #include <Pyros3D/Rendering/Volumetrics/VolumetricSmoke.h>
 #include <Pyros3D/Physics/PhysicsEngines/IPhysics.h>
+#include <Pyros3D/Utils/Jobs/JobSystem.h>
+#include <atomic>
+#include <chrono>
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -85,12 +88,20 @@ namespace p3d {
 		// ray ignores what it starts inside) and up from under the box (their bottoms); solid from each top down to
 		// the nearest bottom under it, or to the box's floor
 		std::vector<uint32> solid((size_t)words, 0u);
-		uint32 coverNear = 0, columnsNear = 0;
+		// (the rays split across the cores - up to a quarter of a million of them for a smoke indoors, 100 ms on one
+		// thread: the frame it was thrown in stalled. The physics only reads in a ray, and nothing steps it meanwhile;
+		// each bit set with an atomic or, the columns of a row and the rows of a sweep sharing words)
+		std::vector<std::atomic<uint32> > bits((size_t)words);
+		for (std::atomic<uint32> &b : bits) b.store(0u, std::memory_order_relaxed);
+		auto setBit = [&bits](size_t at) { bits[at >> 5].fetch_or(1u << (at & 31), std::memory_order_relaxed); };
+		std::atomic<uint32> coverNear(0u), columnsNear(0u);
 		if (c.physics)
 		{
 			const f32 top = s.origin.y + s.ny * s.cell, bottom = s.origin.y;
+			JobSystem::Instance().ParallelFor(s.nz, 2, [&](uint32 zBegin, uint32 zEnd)
+			{
 			std::vector<f32> tops, bottoms;
-			for (uint32 z = 0; z < s.nz; z++)
+			for (uint32 z = zBegin; z < zEnd; z++)
 				for (uint32 x = 0; x < s.nx; x++)
 				{
 					const f32 wx = s.origin.x + (x + 0.5f) * s.cell, wz = s.origin.z + (z + 0.5f) * s.cell;
@@ -117,7 +128,7 @@ namespace p3d {
 						// (under a roof: something over the column above its lowest top - the ground or a floor - by more than a storey's
 						// least height: the smoke there is indoors)
 						const f32 ground = tops.back();
-						if (tops.front() > ground + 1.8f) { const size_t at = s.cells + (size_t)x + s.nx * z; solid[at >> 5] |= 1u << (at & 31); }
+						if (tops.front() > ground + 1.8f) setBit(s.cells + (size_t)x + s.nx * z);
 					}
 					if (tops.empty()) continue;
 					from = bottom - 0.5f;
@@ -151,10 +162,11 @@ namespace p3d {
 						for (uint32 y = 0; y < s.ny; y++)
 						{
 							const f32 wy = s.origin.y + (y + 0.5f) * s.cell;
-							if (wy <= t && wy >= under) { const size_t at = (size_t)x + s.nx * ((size_t)y + s.ny * z); solid[at >> 5] |= 1u << (at & 31); }
+							if (wy <= t && wy >= under) setBit((size_t)x + s.nx * ((size_t)y + s.ny * z));
 						}
 					}
 				}
+			});
 		}
 		// (and the walls: a vertical ray meets a wall only at its top - rays across the box, along x and along z both ways,
 		// mark the cells each surface they meet passes through)
@@ -163,7 +175,7 @@ namespace p3d {
 			auto mark = [&](const Vec3 &p) {
 				const int x = (int)floorf((p.x - s.origin.x) / s.cell), y = (int)floorf((p.y - s.origin.y) / s.cell), z = (int)floorf((p.z - s.origin.z) / s.cell);
 				if (x < 0 || y < 0 || z < 0 || x >= (int)s.nx || y >= (int)s.ny || z >= (int)s.nz) return;
-				const size_t at = (size_t)x + s.nx * ((size_t)y + s.ny * z); solid[at >> 5] |= 1u << (at & 31);
+				setBit((size_t)x + s.nx * ((size_t)y + s.ny * z));
 			};
 			auto sweep = [&](const Vec3 &a, const Vec3 &b) {
 				const Vec3 dir = (b - a).normalize();
@@ -179,7 +191,9 @@ namespace p3d {
 				}
 			};
 			const f32 sx = s.nx * s.cell, sz = s.nz * s.cell;
-			for (uint32 y = 0; y < s.ny; y++)
+			JobSystem::Instance().ParallelFor(s.ny, 2, [&](uint32 yBegin, uint32 yEnd)
+			{
+			for (uint32 y = yBegin; y < yEnd; y++)
 			{
 				const f32 wy = s.origin.y + (y + 0.5f) * s.cell;
 				for (uint32 z = 0; z < s.nz; z++)
@@ -195,7 +209,9 @@ namespace p3d {
 					sweep(Vec3(wx, wy, s.origin.z + sz + 0.5f), Vec3(wx, wy, s.origin.z - 0.5f));
 				}
 			}
+			});
 		}
+		for (size_t w = 0; w < solid.size(); w++) solid[w] = bits[w].load(std::memory_order_relaxed);
 		if (getenv("PYROS_SMOKE_SOLID_LOG"))
 		{
 			size_t n = 0; for (uint32 w : solid) for (uint32 v = w; v; v &= v - 1) n++;
@@ -252,8 +268,9 @@ namespace p3d {
 				}
 			}
 		}
-		s.enclosed = columnsNear ? (f32)coverNear / (f32)columnsNear : 0.f;
-		if (getenv("PYROS_SMOKE_SOLID_LOG")) fprintf(stderr, "[smoke] enclosed %.2f (%u of %u columns)\n", s.enclosed, coverNear, columnsNear);
+		const uint32 cover = coverNear.load(), columns = columnsNear.load();
+		s.enclosed = columns ? (f32)cover / (f32)columns : 0.f;
+		if (getenv("PYROS_SMOKE_SOLID_LOG")) fprintf(stderr, "[smoke] enclosed %.2f (%u of %u columns)\n", s.enclosed, cover, columns);
 		device->Upload(s.solid, 0, solid.data(), (uint64)words * 4);
 		s.obstacleEpoch = VolumetricSmoke::GetObstacleEpoch();
 	}
@@ -310,7 +327,11 @@ namespace p3d {
 		const uint32 words = (s.cells + s.nx * s.nz + 31) / 32;     // (a bit a cell, then a bit a column: under a roof)
 		b.size = (uint64)words * 4; b.debugName = "Renderer.FluidSolid"; s.solid = device->CreateBuffer(b);
 
-		LayObstacles(s, c);
+		{
+			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+			LayObstacles(s, c);
+			if (getenv("PYROS_SMOKE_SOLID_LOG")) fprintf(stderr, "[smoke] obstacles laid in %.1f ms (%ux%ux%u)\n", std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count(), s.nx, s.ny, s.nz);
+		}
 
 		gfx::Device::BindGroupEntry e[8];
 		const gfx::Buffer bufs[6] = { s.vel0, s.vel1, s.scal0, s.scal1, s.pressure, s.aux };

@@ -246,6 +246,10 @@ void PyrosPlayer::SetPointerCaptured(const bool captured)
 	else
 	{
 		SDL_SetRelativeMouseMode(SDL_FALSE);
+		// (the freed pointer put in the middle, where the player's eye is: while captured the motion events carry no
+		// real position, and the pointer a canvas held was where it was before the capture - a wheel opened then saw the
+		// first move as a jump from there, and lit whatever sector lay that way. The warp is a motion event too)
+		SDL_WarpMouseInWindow(GetSDLWindow(), (int)(Width / 2), (int)(Height / 2));
 		SDL_ShowCursor(SDL_ENABLE);
 	}
 	// (with the on-screen controls live, a finger is theirs - not also the pointer, which SDL would
