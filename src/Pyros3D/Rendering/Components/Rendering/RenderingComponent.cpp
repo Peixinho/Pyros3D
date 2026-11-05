@@ -633,7 +633,7 @@ namespace p3d {
 	uint32 RenderingComponent::MergeChildMeshes(GameObject* parent)
 	{
 		if (!parent) return 0;
-		struct Group { std::shared_ptr<IMaterial> material; PrimitiveGeometry* geometry = nullptr; };
+		struct Group { std::shared_ptr<IMaterial> material; PrimitiveGeometry* geometry = nullptr; bool tangents = false; };
 		std::vector<Group> casters, others;
 		std::vector<std::shared_ptr<GameObject> > merged;
 		const std::vector<std::shared_ptr<GameObject> > kids = parent->GetChildren();
@@ -663,6 +663,7 @@ namespace p3d {
 				for (Group &x : groups) if (x.material == m->Material) { g = &x; break; }
 				if (!g) { groups.push_back(Group()); g = &groups.back(); g->material = m->Material; g->geometry = new PrimitiveGeometry(); }
 				PrimitiveGeometry* dst = g->geometry;
+				if (!src->tTangent.empty()) g->tangents = true;     // (made again over the whole, where a part had them: a normal map's)
 				const __INDEX_C_TYPE__ base = (__INDEX_C_TYPE__)dst->tVertex.size();
 				for (size_t v = 0; v < src->tVertex.size(); v++)
 				{
@@ -685,7 +686,7 @@ namespace p3d {
 			std::shared_ptr<Renderable> renderable = std::make_shared<Renderable>();
 			for (Group &g : groups)
 			{
-				g.geometry->CreateBuffers(false);
+				g.geometry->CreateBuffers(g.tangents);
 				g.geometry->SendBuffers();
 				g.geometry->materialProperties.haveColor = true; g.geometry->materialProperties.Color = Vec4(1.f, 1.f, 1.f, 1.f);
 				renderable->Geometries.push_back(g.geometry);
