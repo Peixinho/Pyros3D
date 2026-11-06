@@ -1220,6 +1220,11 @@ end
 				const f32 rise, const f32 emission, sol::optional<f32> blast) -> int32 {
 				return VolumetricSmoke::Spawn(physics, position, color, radius, growTime, lifeTime, fadeTime, rise, emission, blast.value_or(0.f));
 			});
+			// (a thin column going up off a small source - a flare on a crate - not a cloud over the ground)
+			smoke.set_function("spawnPlume", [](IPhysics* physics, const Vec3 &position, const Vec3 &color, const f32 radius,
+				const f32 lifeTime, const f32 fadeTime) -> int32 {
+				return VolumetricSmoke::SpawnPlume(physics, position, color, radius, lifeTime, fadeTime);
+			});
 			smoke.set_function("update", [](const f32 dt) { VolumetricSmoke::Update(dt); });
 			// (the colliders changed - a window broken, a door opened: the smoke's grids lay their obstacles again)
 			smoke.set_function("refreshObstacles", []() { VolumetricSmoke::RefreshObstacles(); });

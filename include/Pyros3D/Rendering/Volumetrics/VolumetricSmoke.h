@@ -86,9 +86,12 @@ namespace p3d {
 			f32 radius, rise;
 			IPhysics* physics;
 			uint32 serial;
+			// A plume (SpawnPlume): a thin column of smoke going up off a small source - a flare, a signal on a crate -
+			// not a cloud spreading over the ground
+			bool plume;
 			Cloud() : active(false), growth(0.f), density(0.f), thickness(1.f), age(0.f),
 				growTime(1.f), lifeTime(1.f), fadeTime(1.f), emission(0.f), blast(0.f), cells(0),
-				radius(1.f), rise(0.85f), physics(nullptr), serial(0) {}
+				radius(1.f), rise(0.85f), physics(nullptr), serial(0), plume(false) {}
 		};
 
 		// Starts a cloud at `position` and returns its slot, or -1 when all
@@ -109,6 +112,10 @@ namespace p3d {
 		static int32 Spawn(IPhysics* physics, const Vec3 &position, const Vec3 &color,
 			const f32 radius, const f32 growTime, const f32 lifeTime, const f32 fadeTime,
 			const f32 rise = 0.85f, const f32 emission = 0.f, const f32 blast = 0.f);
+		// A plume: smoke rising off a small source at `position` in a thin column that thins out as it goes up and leans
+		// with the wind - a chimney's, a flare's - `radius` the source's (a few tenths of a metre). Smoke, not fire.
+		static int32 SpawnPlume(IPhysics* physics, const Vec3 &position, const Vec3 &color, const f32 radius,
+			const f32 lifeTime, const f32 fadeTime);
 
 		// Ages every cloud and retires the ones that have run out.
 		static void Update(const f32 dt);

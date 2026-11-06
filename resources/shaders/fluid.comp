@@ -41,6 +41,10 @@ layout(set = 0, binding = 0, std140) uniform DrawData
 	vec4 emit;       // x 1 while the emitter runs, y how wide its noise breaks it up, z the fade (0..1: 1 none), w seed
 	vec4 turb;       // x turbulence's push (m/s2) where there is smoke or heat, y its scale (a metre), z how fast it changes, w the speed limit
 	vec4 extra;      // x 1 where the box's sides hold the smoke in (under a roof: the room's walls stop it, not the box)
+	vec4 pool;       // x 1: a fire burns its spilled fuel (FluidVolumes::SpillFuel) - two words a column from w in the solid
+	                 // buffer, the fuel's top and when it got there - y deep over it; else a ball round its source.
+	                 // z above 0: a plume - its stirring grows over this many metres above the source (narrow where it leaves
+	                 // it, opening out higher), and it thins faster the higher it is (by z's share of it a second, a metre up)
 } uSim;
 
 // (four half floats a cell, eight bytes: what the solver spends its time on is reading memory)
@@ -220,11 +224,27 @@ void main()
 			// the heat going into the air round it; the smoke spreading thin (faster as the cloud fades)
 			s.y *= exp(-uSim.forces.w * dt * (0.4 + s.y));
 			s.x *= exp(-uSim.decay.x * dt * mix(6.0, 1.0, uSim.emit.z));
+			if (uSim.pool.z > 0.0) s.x *= exp(-dt * max(world.y - uSim.source.y, 0.0) * 0.016);     // (a plume: thinning as it climbs, gone before its box's top)
 			// (a settled cloud in a room thinning out - extra.y a second; out in the open air - out of a door or a window - it goes
 			// faster, the wind taking it: extra.z)
 			s.x *= exp(-(uSim.extra.x > 0.5 && !RoofAt(c.x, c.z) ? uSim.extra.z : uSim.extra.y) * dt);
 			// what the emitter adds: most at its heart, broken up by a noise that boils as it goes
-			if (uSim.emit.x > 0.5)
+			if (uSim.emit.x > 0.5 && uSim.pool.x > 0.5)
+			{
+				// (the fuel where it ran, once it got there: a layer over its top, broken up by the boiling noise)
+				int col = int(uSim.pool.w) + 2 * (c.x + int(uSim.dims.x) * c.z);
+				float top = uintBitsToFloat(uSolid.bits[col]), at = uintBitsToFloat(uSolid.bits[col + 1]);
+				float above = world.y - top;
+				if (top > -1.0e8 && at <= uSim.step.w && above > -0.5 * h && above < uSim.pool.y)
+				{
+					float n = Noise(world * uSim.emit.y + vec3(uSim.emit.w, -uSim.step.w * 3.0, uSim.step.w * 1.3));
+					float w = smoothstep(uSim.pool.y, 0.0, max(above, 0.0)) * mix(1.0, smoothstep(0.25, 0.75, n) * 2.0, 0.7);
+					// (the edge it has just reached catches a moment later and lower: a spill burning outward, not a sheet)
+					w *= clamp((uSim.step.w - at) * 3.0, 0.0, 1.0);
+					s.xyz += uSim.inject.xyz * w * dt;
+				}
+			}
+			else if (uSim.emit.x > 0.5)
 			{
 				float r = length(world - uSim.source.xyz) / max(uSim.source.w, 1e-3);
 				if (r < 1.0)
@@ -307,7 +327,7 @@ void main()
 		                 length(Guess(c + ivec3(0, 1, 0)).yzw) - length(Guess(c - ivec3(0, 1, 0)).yzw),
 		                 length(Guess(c + ivec3(0, 0, 1)).yzw) - length(Guess(c - ivec3(0, 0, 1)).yzw));
 		float gl = length(grad);
-		if (gl > 1e-5) v.xyz += uSim.forces.z * h * cross(grad / gl, w) * dt;
+		if (gl > 1e-5) v.xyz += uSim.forces.z * h * cross(grad / gl, w) * dt * (uSim.pool.z > 0.0 ? smoothstep(0.0, uSim.pool.z, world.y - uSim.source.y) : 1.0);
 		// turbulence: small swirls stirred in wherever there is smoke or heat - a noise's curl (it adds no divergence),
 		// changing as it goes; the grid then carries and stretches them into wisps
 		if (uSim.turb.x > 0.0 && (s.x + s.y) > 0.01)
@@ -322,7 +342,8 @@ void main()
 			float cy0 = Noise(q - vec3(0, e, 0) + 37.0), cy1 = Noise(q + vec3(0, e, 0) + 37.0);
 			// (the curl of three noise fields A, B, C: dC/dy - dB/dz, dA/dz - dC/dx, dB/dx - dA/dy)
 			vec3 curlN = vec3((cy1 - cy0) - (ny1 - ny0), (az1 - az0) - (nz1 - nz0), (bx1 - bx0) - (nx1 - nx0)) / (2.0 * e);
-			v.xyz += curlN * uSim.turb.x * clamp((s.x + s.y) * 2.0, 0.0, 1.0) * dt;
+			float grow = uSim.pool.z > 0.0 ? smoothstep(0.0, uSim.pool.z, world.y - uSim.source.y) : 1.0;     // (a plume: calm at its source)
+			v.xyz += curlN * uSim.turb.x * grow * clamp((s.x + s.y) * 2.0, 0.0, 1.0) * dt;
 		}
 		// the wind: what is in the air drifts with it, the faster the less there is to drag
 		vec3 windHere = uSim.wind.xyz;

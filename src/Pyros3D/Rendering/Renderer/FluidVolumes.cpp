@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <queue>
 
 namespace p3d {
 
@@ -27,8 +28,9 @@ namespace p3d {
 		struct SimData
 		{
 			f32 dims[4], grid[4], step[4], flags[4], source[4], inject[4], jet[4], forces[4], decay[4], wind[4], sun[4], emit[4], turb[4], extra[4];     // (extra: x 1 where the box's sides hold the smoke in - under a roof)
+			f32 pool[4];     // (x 1: a fire burns its spilled fuel - Sim::pool - not a ball round its source; y how deep the flames start (m) over it; w where it starts in the solid buffer (words))
 		};
-		static_assert(sizeof(SimData) == 224, "fluid.comp's DrawData");
+		static_assert(sizeof(SimData) == 240, "fluid.comp's DrawData");
 
 		uint32 Groups(const uint32 n) { return (n + 3) / 4; }
 	}
@@ -272,6 +274,7 @@ namespace p3d {
 		s.enclosed = columns ? (f32)cover / (f32)columns : 0.f;
 		if (getenv("PYROS_SMOKE_SOLID_LOG")) fprintf(stderr, "[smoke] enclosed %.2f (%u of %u columns)\n", s.enclosed, cover, columns);
 		device->Upload(s.solid, 0, solid.data(), (uint64)words * 4);
+		if (!s.pool.empty()) device->Upload(s.solid, (uint64)words * 4, s.pool.data(), (uint64)s.pool.size() * 4);
 		s.obstacleEpoch = VolumetricSmoke::GetObstacleEpoch();
 	}
 
@@ -281,7 +284,7 @@ namespace p3d {
 		s = Sim();
 		s.cloud = cloud;
 		s.serial = c.serial;
-		s.kind = c.emission <= 0.f ? 0 : (c.blast > 0.5f ? 2 : 1);
+		s.kind = c.plume ? 3 : c.emission <= 0.f ? 0 : (c.blast > 0.5f ? 2 : 1);
 		s.clock = VolumetricSmoke::GetClock() - c.age;
 		// The box and its cells, by kind: a grenade's smoke spreads wide and stays lowish; a fire is a tall column
 		// (the flames and the smoke going up off them); a blast rolls up into a mushroom
@@ -290,7 +293,7 @@ namespace p3d {
 		// own size - and its sides hold the smoke in, the room's walls being what stops it. Its open sides took the smoke out
 		// where they crossed the room: the cloud thinned half way, and stood cut off along a straight line)
 		bool indoors = false;
-		if (c.physics && (c.emission <= 0.f))
+		if (c.physics && c.emission <= 0.f && !c.plume)
 		{
 			int covered = 0, tried = 0;
 			for (int k = 0; k < 9; k++)
@@ -304,7 +307,8 @@ namespace p3d {
 		}
 		f32 wide, tall, below; uint32 across, upMax;
 		if (s.kind == 0) { wide = 2.6f * R + 2.f; tall = 1.3f * R + 2.f; below = 0.6f; across = 96; upMax = 56; }
-		else if (s.kind == 1) { wide = 2.2f * R + 1.f; tall = 3.5f * R + 2.5f; below = 0.3f; across = 48; upMax = 112; }
+		else if (s.kind == 1) { wide = 2.2f * R + 1.f; tall = 3.5f * R + 2.5f + 1.2f; below = 1.5f; across = 48; upMax = 112; }     // (below: a bottle broken on a wall a metre up - its fuel runs down to the floor)
+		else if (s.kind == 3) { wide = 7.f; tall = 22.f; below = 0.4f; across = 40; upMax = 128; }     // (a plume: a narrow source, a tall thin column - room either side for the wind to lean it)
 		else { wide = 4.5f * R + 2.f; tall = 6.f * R + 3.f; below = 0.6f; across = 64; upMax = 80; }
 		// (indoors a storey down and up as well: thrown on a stair, the smoke stopped 0.6 m under the canister and under a
 		// lid 5 m over it - "an invisible wall" on the stairs - and a room further off than the box's side never got any)
@@ -325,7 +329,8 @@ namespace p3d {
 		b.debugName = "Renderer.FluidAux"; s.aux = device->CreateBuffer(b);
 		b.debugName = "Renderer.FluidPressure"; s.pressure = device->CreateBuffer(b);     // (two floats a cell: the pair)
 		const uint32 words = (s.cells + s.nx * s.nz + 31) / 32;     // (a bit a cell, then a bit a column: under a roof)
-		b.size = (uint64)words * 4; b.debugName = "Renderer.FluidSolid"; s.solid = device->CreateBuffer(b);
+		if (s.kind == 1) SpillFuel(s, c);     // (a fire's fuel runs over what it lands on, as a liquid: after the bits)
+		b.size = (uint64)(words + s.pool.size()) * 4; b.debugName = "Renderer.FluidSolid"; s.solid = device->CreateBuffer(b);
 
 		{
 			const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
@@ -401,9 +406,87 @@ namespace p3d {
 			const f32 left = c.lifeTime - c.age;
 			v.fade = std::min(std::max(left / std::max(c.fadeTime, 0.01f), 0.f), 1.f);
 			v.thickness = c.thickness;
-			v.kind = (f32)s.kind; v.pad = s.closedSides ? 1.f : 0.f;     // (pad: the box's sides closed - no rounding off at its edge, smoke.frag)
+			v.kind = s.kind == 3 ? 0.f : (f32)s.kind; v.pad = s.closedSides ? 1.f : 0.f;     // (pad: the box's sides closed - no rounding off at its edge, smoke.frag)
 			volumes.push_back(v);
 		}
+	}
+
+	// A fire's fuel, spilled: it runs over what it lands on as a liquid would - from where the bottle broke, the lowest
+	// ground next to what it already covers first (so it runs downhill and pools in a hollow, spreading evenly over a flat
+	// floor), climbing no step higher than a few centimetres and nothing above where it started (a wall stops it, a
+	// kerb too), down a step or a stair as far as it goes - until it covers the area the fuel would: the fire's own. Each
+	// column it reaches gets when it reaches it, the spill running out over a second; the fire burns there, a layer over it.
+	void FluidVolumes::SpillFuel(Sim &s, const VolumetricSmoke::Cloud &c)
+	{
+		s.pool.clear();
+		if (!c.physics) return;
+		const uint32 n = s.nx * s.nz;
+		const f32 none = -1.0e9f;
+		std::vector<f32> ground((size_t)n, none);
+		const f32 from = c.position.y + 0.25f, to = s.origin.y + 0.5f * s.cell;
+		JobSystem::Instance().ParallelFor(s.nz, 4, [&](uint32 zBegin, uint32 zEnd)
+		{
+			for (uint32 z = zBegin; z < zEnd; z++)
+				for (uint32 x = 0; x < s.nx; x++)
+				{
+					const f32 wx = s.origin.x + (x + 0.5f) * s.cell, wz = s.origin.z + (z + 0.5f) * s.cell;
+					const RayCastHit h = c.physics->RayCast(Vec3(wx, from, wz), Vec3(wx, to, wz));
+					if (h.hasHit && h.normal.y > 0.5f) ground[(size_t)x + s.nx * z] = h.point.y;     // (a floor, not a wall's side)
+				}
+		});
+		// (where it starts: the column under where it broke, or the nearest with ground under it)
+		const int cx = std::min(std::max((int)((c.position.x - s.origin.x) / s.cell), 0), (int)s.nx - 1);
+		const int cz = std::min(std::max((int)((c.position.z - s.origin.z) / s.cell), 0), (int)s.nz - 1);
+		int start = -1; f32 best = 1e9f;
+		for (int dz = -4; dz <= 4; dz++) for (int dx = -4; dx <= 4; dx++)
+		{
+			const int x = cx + dx, z = cz + dz;
+			if (x < 0 || z < 0 || x >= (int)s.nx || z >= (int)s.nz || ground[(size_t)x + s.nx * z] <= none) continue;
+			const f32 d = (f32)(dx * dx + dz * dz);
+			if (d < best) { best = d; start = x + (int)s.nx * z; }
+		}
+		if (start < 0) return;
+		const f32 R = std::max(c.radius, 0.3f);
+		const uint32 target = std::min(n, (uint32)(3.14159f * R * R * 0.8f / (s.cell * s.cell)));
+		const f32 startH = ground[(size_t)start];
+		typedef std::pair<f32, int> Entry;
+		std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry> > q;
+		std::vector<uint8> seen((size_t)n, 0);
+		std::vector<int> order;
+		order.reserve(target);
+		q.push(Entry(startH, start)); seen[(size_t)start] = 1;
+		const int sx = start % (int)s.nx, sz = start / (int)s.nx;
+		while (!q.empty() && order.size() < target)
+		{
+			const int i = q.top().second; q.pop();
+			order.push_back(i);
+			const int x = i % (int)s.nx, z = i / (int)s.nx;
+			const f32 hi = ground[(size_t)i];
+			const int nb[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+			for (const auto &o : nb)
+			{
+				const int jx = x + o[0], jz = z + o[1];
+				if (jx < 0 || jz < 0 || jx >= (int)s.nx || jz >= (int)s.nz) continue;
+				const int j = jx + (int)s.nx * jz;
+				if (seen[(size_t)j]) continue;
+				const f32 hj = ground[(size_t)j];
+				if (hj <= none || hj > hi + 0.07f || hj > startH + 0.1f) continue;     // (no ground; a step up; above where it began)
+				seen[(size_t)j] = 1;
+				// (lowest first - downhill, into a hollow; on the flat the nearest, so it spreads round)
+				const f32 dist = sqrtf((f32)((jx - sx) * (jx - sx) + (jz - sz) * (jz - sz))) * s.cell;
+				q.push(Entry(hj + dist * 0.04f, j));
+			}
+		}
+		uint32 noneBits; memcpy(&noneBits, &none, 4);
+		s.pool.assign((size_t)n * 2, noneBits);
+		const f32 spread = 1.1f;
+		for (size_t k = 0; k < order.size(); k++)
+		{
+			const f32 top = ground[(size_t)order[k]], at = spread * (f32)k / (f32)std::max<size_t>(order.size(), 1);
+			memcpy(&s.pool[(size_t)order[k] * 2], &top, 4);
+			memcpy(&s.pool[(size_t)order[k] * 2 + 1], &at, 4);
+		}
+		if (getenv("PYROS_SMOKE_SOLID_LOG")) fprintf(stderr, "[smoke] fuel spilled over %zu columns of %u (wanted %u)\n", order.size(), n, target);
 	}
 
 	void FluidVolumes::Dispatch(gfx::CommandList* cl, Sim &s, const int pass, const f32 dt, const Vec3 &sunDir)
@@ -438,10 +521,13 @@ namespace p3d {
 			d.inject[0] = 70.f * c.thickness; d.inject[1] = 3.5f; d.inject[2] = 0.f; d.inject[3] = 4.f + 0.8f * R;
 			// (out of the canister all round, not one spinning jet: the jet swung the whole cloud from side to side - it grew,
 			// went off one way, came back - where smoke should only ever spread. PYROS_SMOKE_SPIN brings the spin back)
-			const bool spinJet = !s.closedSides;     // (outside: the spinning canister as it always was - only indoors all round)
+			// (outside too, now: the spinning jet at 4 m/s and more, stirred hard, threw the smoke about - a churning cloud where
+			// smoke should only spread. All round and slow; PYROS_SMOKE_SPIN brings the spinning jet back)
+			static const bool spinWanted = getenv("PYROS_SMOKE_SPIN") != nullptr;
+			const bool spinJet = spinWanted && !s.closedSides;
 			const Vec3 jet = Vec3(cosf(spin), 0.35f, sinf(spin)).normalize();
 			d.jet[0] = jet.x; d.jet[1] = jet.y; d.jet[2] = jet.z; d.jet[3] = spinJet ? 0.f : 1.f;
-			if (!spinJet) d.inject[3] = 1.6f + 0.3f * R;     // (gentler all round: the same smoke, pushed out slower)
+			if (!spinJet) d.inject[3] = 1.2f + 0.25f * R;     // (gentle, all round: pushed out at a walk, it spreads instead of being thrown)
 			if (s.closedSides) d.inject[0] *= 0.45f;
 			if (s.closedSides) d.inject[3] = 0.9f;     // (and pushed out gently: the canister's push carried the room's smoke out of every opening at once)     // (indoors none of it leaves by the box's sides: less poured in, the room fills about as a grenade's cloud is outside)
 			d.forces[0] = 1.2f; d.forces[1] = 0.08f; d.forces[2] = 3.f; d.forces[3] = 0.6f;
@@ -449,6 +535,16 @@ namespace p3d {
 			d.emit[0] = s.age < spew ? 1.f : 0.f; d.emit[1] = 1.8f / std::max(R * 0.12f, 0.2f);
 			d.sun[3] = 3.5f;
 			d.turb[0] = 7.f; d.turb[1] = 0.9f; d.turb[2] = 0.45f; d.turb[3] = 18.f;
+			if (!spinJet && !s.closedSides)
+			{
+				// (outside, calm: little lift - it lies low and spreads - a weak swirl kept from feeding itself, a slow stir in
+				// big eddies changing slowly, and nothing in it faster than a brisk walk)
+				d.forces[0] = 0.45f; d.forces[2] = 0.8f;
+				d.turb[0] = 1.4f; d.turb[1] = 0.55f; d.turb[2] = 0.12f; d.turb[3] = 3.f;
+				// (and once poured it settles: the air's drag takes what motion is left, the wind then drifting it as a whole)
+				const f32 still = std::min(std::max((s.age - spew) / 5.f, 0.f), 1.f);
+				if (still > 0.f) { d.jet[3] = -0.5f * still; d.turb[0] *= 1.f - 0.6f * still; }
+			}
 			// (once the canister has stopped and the cloud is at its size it settles: its stirring and swirl die away over a few
 			// seconds - indoors almost to nothing, still air; outside some is kept, the wind's gusts)
 			const f32 settle = s.closedSides ? std::min(std::max((s.age - spew) / 4.f, 0.f), 1.f) : 0.f;     // (indoors only: outside the cloud goes on as it always did)
@@ -473,6 +569,27 @@ namespace p3d {
 			d.emit[0] = left > c.fadeTime * 0.5f ? 1.f : 0.f; d.emit[1] = 4.5f;
 			d.sun[3] = 6.f;
 			d.turb[0] = 10.f; d.turb[1] = 2.6f; d.turb[2] = 2.2f; d.turb[3] = 9.f;
+			// (its fuel spilled - SpillFuel: it burns where the liquid ran, a layer over it, not a ball round where it broke;
+			// lifted by its own heat alone, no jet)
+			if (!s.pool.empty())
+			{
+				d.pool[0] = 1.f; d.pool[1] = 0.35f; d.pool[3] = (f32)((s.cells + s.nx * s.nz + 31) / 32);
+				d.inject[3] = 0.f;
+			}
+		}
+		else if (s.kind == 3)
+		{
+			// A plume: a small source pouring a little warm smoke straight up, gently; it lifts on its warmth, cools, thins as
+			// it goes and leans with the wind - narrow where it leaves the source, opening out as it climbs, a chimney's
+			d.source[0] = c.position.x; d.source[1] = c.position.y + 0.05f; d.source[2] = c.position.z; d.source[3] = std::max(c.radius, 1.6f * s.cell);     // (at least a cell and a half: smaller, it fell between the cells and fed next to nothing in)
+			d.inject[0] = 18.f * c.thickness; d.inject[1] = 1.4f; d.inject[2] = 0.f; d.inject[3] = 2.2f;
+			d.jet[0] = 0.f; d.jet[1] = 1.f; d.jet[2] = 0.f; d.jet[3] = 0.f;
+			d.forces[0] = 1.6f; d.forces[1] = 0.03f; d.forces[2] = 1.2f; d.forces[3] = 0.35f;
+			d.decay[0] = 0.13f; d.decay[1] = 0.f; d.decay[2] = 0.f; d.decay[3] = 0.f;
+			d.emit[0] = left > c.fadeTime * 0.5f ? 1.f : 0.f; d.emit[1] = 3.f;
+			d.sun[3] = 3.5f;
+			d.pool[2] = 7.f;     // (its stirring grows over its first 7 m up, and it thins as it climbs: fluid.comp)
+			d.turb[0] = 4.f; d.turb[1] = 0.38f; d.turb[2] = 0.3f; d.turb[3] = 6.f;     // (big slow eddies: it opens out as it climbs, a funnel upside down)
 		}
 		else
 		{

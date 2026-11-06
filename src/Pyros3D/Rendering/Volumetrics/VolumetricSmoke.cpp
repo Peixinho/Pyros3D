@@ -201,6 +201,16 @@ namespace p3d {
 				}
 	}
 
+	int32 VolumetricSmoke::SpawnPlume(IPhysics* physics, const Vec3 &position, const Vec3 &color, const f32 radius,
+		const f32 lifeTime, const f32 fadeTime)
+	{
+		// (as a cloud of its size that stands up - for whatever reads the fill - then marked a plume: the renderer's fluid
+		// gives it its own box and its own forces, FluidVolumes::Make)
+		const int32 id = Spawn(physics, position, color, radius, 1.f, lifeTime, fadeTime, 0.3f, 0.f, 0.f);
+		if (id >= 0) clouds[id].plume = true;
+		return id;
+	}
+
 	int32 VolumetricSmoke::Spawn(IPhysics* physics, const Vec3 &position, const Vec3 &color,
 		const f32 radius, const f32 growTime, const f32 lifeTime, const f32 fadeTime,
 		const f32 rise, const f32 emission, const f32 blast)

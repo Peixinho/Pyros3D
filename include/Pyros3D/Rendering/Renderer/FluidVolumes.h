@@ -66,7 +66,11 @@ namespace p3d {
 			std::vector<f32> pendingSteps;     // (Prepare's: the steps' seconds)
 			uint64 lastUsed = 0;
 			uint32 lightSlice = 0, lightAxis = 1;     // (the light pass's slice, and the axis it goes along)
+			// (a fire's fuel spilled as a liquid - SpillFuel: two words a column after the solid bits, the top of the fuel
+			// there (world y, a float's bits; below the box where none reached) and when it gets there (seconds))
+			std::vector<uint32> pool;
 		};
+		void SpillFuel(Sim &s, const VolumetricSmoke::Cloud &c);
 		void Make(Sim &s, int32 cloud);
 		void Forget(Sim &s);
 		void Step(gfx::CommandList* cl, Sim &s, const f32 dt);
