@@ -24,9 +24,9 @@ void main()
 	if (uFrame.frame.z > 0.5 && uFrame.sunDirection.w > 0.0 && uFrame.sunDirection.y > 0.02)     // (with the engine's sky only: its sun and sky are one light, in the same units)
 	{
 		float sunLum = dot(uFrame.sunRadiance.rgb, vec3(0.2126, 0.7152, 0.0722)) * clamp(uFrame.sunDirection.y * 3.0, 0.0, 1.0);
-		// (at most a stop and a half under the metered exposure: a scene whose sun is not what lights most of it - a lab's
-		// strong light at a grazing angle - went black)
-		if (sunLum > 1e-3) target = max(min(target, 0.7 / (0.5 * sunLum / PI) * exp2(uDraw.params.x)), target * 0.35);
+		// (at most three quarters of a stop under the metered exposure: a scene whose sun is not what lights most of it - a lab's
+		// strong light at a grazing angle - went black; at a stop and a half, a narrow street in shade was dark as a cellar)
+		if (sunLum > 1e-3) target = max(min(target, 0.7 / (0.5 * sunLum / PI) * exp2(uDraw.params.x)), target * 0.6);
 	}
 	float previous = texelFetch(sampler2D(uPrevious, uPointClamp), ivec2(0, 0), 0).r;
 	if (!(target > 0.0 && target < 1e6)) target = previous > 0.0 && previous < 1e6 ? previous : 1.0;     // (an average gone wrong: kept as it was)
